@@ -1,0 +1,46 @@
+/* رموز doctorVet كما هي: قيم RGB حتى تاخذ الشفافية بـ rgb(var(--x) / <alpha-value>). */
+
+:root {
+  --surface: 243 248 253;
+  --surface-1: 255 255 255;
+  --surface-2: 238 245 252;
+  --surface-3: 226 238 250;
+  --ink: 15 30 53;
+  --ink-muted: 86 102 126;
+  --ink-subtle: 138 152 172;
+  --line: 224 233 244;
+  --line-strong: 202 216 232;
+  --ring: 18 102 216;
+  --shadow: 18 64 128;
+  color-scheme: light;
+}
+
+.dark {
+  --surface: 8 13 23;
+  --surface-1: 16 24 39;
+  --surface-2: 23 33 51;
+  --surface-3: 31 43 65;
+  --ink: 231 238 247;
+  --ink-muted: 158 172 192;
+  --ink-subtle: 110 126 148;
+  --line: 34 47 68;
+  --line-strong: 50 66 92;
+  --ring: 110 173 252;
+  --shadow: 0 0 0;
+  color-scheme: dark;
+}
+
+/* وضع «وضوح» للشاشات الرخيصة: النص الرمادي يغمق والحدود تبين أكثر. */
+.clarity {
+  --ink-muted: 52 66 88;
+  --ink-subtle: 84 98 120;
+  --line: 202 216 232;
+  --line-strong: 170 188 210;
+}
+
+.dark.clarity {
+  --ink-muted: 206 216 230;
+  --ink-subtle: 168 182 202;
+  --line: 50 66 92;
+  --line-strong: 72 92 124;
+}

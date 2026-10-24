@@ -1,0 +1,51 @@
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-surface font-sans text-ink antialiased;
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-line bg-surface-1 shadow-card;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-line bg-surface-1 px-4 py-3 text-base text-ink outline-none placeholder:text-ink-subtle focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15;
+    /* حجم الواجهة يصغّر الجذر (80–95٪ ← 12.8–15.2px)، وسفاري الآيفون يكبّر الصفحة لكل حقل تحت 16px
+       ويبقى مكبّراً: نصّ الحقل ما ينزل تحت 16px بأي حجم. */
+    font-size: max(1rem, 16px);
+  }
+}
+
+/* الصفحات تنفتح فوراً بلا حركة؛ الحركة للنوافذ والتنبيهات بس، وتوكف كلها لطالب تقليل الحركة. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
