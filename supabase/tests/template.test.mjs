@@ -27,19 +27,28 @@ export default async function (t, db) {
     'خصائص الأدوار المقيسة',
   );
 
-  // الامتيازات الافتراضية المقيسة: جدول ودالّة جديدة من postgres تنفتح لـanon وauthenticated.
-  // هذا اللي تسحبه الهجرات (قائمة سماح)، وفحوصها لازم تثبت العكس على جداولها.
-  const defaults = await db.asOwner(async (q) => {
-    await q('create table public.probe_defaults (id int)');
-    await q('create function public.probe_defaults_fn() returns int language sql as $$ select 1 $$');
-    return (
-      await q(`select
+  // الامتيازات الافتراضية المقيسة: جدول ودالّة جديدة تنفتح لـanon وauthenticated. الحزمة تشغّل هذا الفحص بعد الهجرات،
+  // واللي سحبته 0001 افتراض postgres بس (catalog.test يثبت إن الجديد منه ينشأ مسدوداً)؛ افتراض supabase_admin
+  // باقي مثل الإنتاج، فهنا يثبت إن القالب نفسه مفتوح.
+  await db.admin('begin');
+  let defaults;
+  try {
+    await db.admin('create table public.probe_defaults (id int)');
+    await db.admin('create function public.probe_defaults_fn() returns int language sql as $$ select 1 $$');
+    defaults = (
+      await db.admin(`select
         has_table_privilege('anon', 'public.probe_defaults', 'insert') as anon_insert,
         has_table_privilege('authenticated', 'public.probe_defaults', 'delete') as auth_delete,
         has_function_privilege('anon', 'public.probe_defaults_fn()', 'execute') as anon_execute`)
     ).rows[0];
-  });
-  t.same(defaults, { anon_insert: true, auth_delete: true, anon_execute: true }, 'الافتراضي مفتوح مثل الإنتاج (والهجرات تسحبه)');
+  } finally {
+    await db.admin('rollback');
+  }
+  t.same(defaults, { anon_insert: true, auth_delete: true, anon_execute: true }, 'القالب مفتوح افتراضياً مثل الإنتاج');
+  const measured = await db.admin(
+    "select pg_get_userbyid(defaclrole) as owner, defaclobjtype as type from pg_default_acl where defaclnamespace = 'public'::regnamespace and defaclacl::text like '%anon=%' order by 1, 2",
+  );
+  t.ok(measured.rows.some((row) => row.owner === 'supabase_admin'), 'افتراض supabase_admin المقيس موجود بالقالب');
 
   // pgcrypto بمخطّط extensions، وحدود الوقت للأدوار.
   const crypto = await db.asUser(USER, (q) => q('select length(extensions.gen_random_bytes(8)) as n'));

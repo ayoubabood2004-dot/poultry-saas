@@ -175,26 +175,33 @@ export default async function (t, db) {
     { manager_locks: 'ok', today: 'lock_in_future', manager_unlocks: 'owner_only_unlock', manager_moves_forward: 'ok', owner_unlocks: 'ok' },
     'القفل: المدير يقفل ويقدّم، وفتح المقفول للمالك بس، واليوم ما ينقفل',
   );
-  const dates = await db.asOwner(async (q) => {
-    await atDay(q);
-    await q("insert into public.period_locks (org_id, locked_through) values ($1, date '2026-03-11')", [orgA]);
-    const out = {};
-    for (const day of ['2026-03-15', '2026-03-08', '2026-03-07', '2026-03-16', '2026-03-11', '2026-03-12']) {
-      await q('savepoint s');
-      try {
-        await q('select private.check_doc_date($1::date)', [day]);
-        out[day] = 'ok';
-      } catch (error) {
-        out[day] = error.message;
+  // حدّ الرجوع لحاله (بلا قفل)، والقفل لحاله: قفل 11/03 يقفل كل ما قبله، فما يختلط بحدّ الأيام السبعة.
+  const checkDates = (lockThrough, days) =>
+    db.asOwner(async (q) => {
+      await atDay(q);
+      if (lockThrough) await q('insert into public.period_locks (org_id, locked_through) values ($1, $2::date)', [orgA, lockThrough]);
+      const out = {};
+      for (const day of days) {
+        await q('savepoint s');
+        try {
+          await q('select private.check_doc_date($1::date)', [day]);
+          out[day] = 'ok';
+        } catch (error) {
+          out[day] = error.message;
+        }
+        await q('rollback to savepoint s');
       }
-      await q('rollback to savepoint s');
-    }
-    return out;
-  }, U.aOwner);
+      return out;
+    }, U.aOwner);
   t.same(
-    dates,
-    { '2026-03-15': 'ok', '2026-03-08': 'ok', '2026-03-07': 'date_too_old', '2026-03-16': 'date_in_future', '2026-03-11': 'period_locked', '2026-03-12': 'ok' },
-    'تاريخ المستند: اليوم و٧ أيام قبله مقبولة (08/03)، والثامن مرفوض (07/03)، والمستقبل والمقفول مرفوضان',
+    await checkDates(null, ['2026-03-15', '2026-03-08', '2026-03-07', '2026-03-16']),
+    { '2026-03-15': 'ok', '2026-03-08': 'ok', '2026-03-07': 'date_too_old', '2026-03-16': 'date_in_future' },
+    'حدّ الرجوع: اليوم و٧ أيام قبله مقبولة (08/03)، والثامن مرفوض (07/03)، والمستقبل مرفوض',
+  );
+  t.same(
+    await checkDates('2026-03-11', ['2026-03-11', '2026-03-09', '2026-03-12']),
+    { '2026-03-11': 'period_locked', '2026-03-09': 'period_locked', '2026-03-12': 'ok' },
+    'القفل حتى 11/03: يومه وما قبله مرفوضة، و12/03 مقبول',
   );
 
   // ── المفاتيح المركّبة: صفّ ما يأشّر على منشأة ثانية حتى من صاحب الجداول ─────────────────────────────────

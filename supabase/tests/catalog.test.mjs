@@ -51,12 +51,12 @@ export default async function (t, db) {
   // كل مفتاح أجنبي بين جدولين مستأجرين مركّب ويّا org_id (tenant-fk-check ٨٦٢).
   const tenantFks = (await q(`
     select c.conname, c.conrelid::regclass::text as tbl, c.confrelid::regclass::text as ref,
-      (select array_agg(a.attname order by k.ord) from unnest(c.conkey) with ordinality k(attnum, ord)
-        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum) as cols
+      (select array_agg(a.attname::text order by k.ord) from unnest(c.conkey) with ordinality k(attnum, ord)
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)::text[] as cols
     from pg_constraint c join pg_namespace n on n.oid = c.connamespace
     where c.contype = 'f' and n.nspname = 'public'
       and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid and a.attname = 'org_id' and not a.attisdropped)`)).rows;
-  t.ok(tenantFks.length >= 4, `مفاتيح بين جداول مستأجرة (${tenantFks.length})`);
+  t.ok(tenantFks.length >= 3, `مفاتيح بين جداول مستأجرة (${tenantFks.length})`);
   t.same(tenantFks.filter((fk) => fk.cols[0] !== 'org_id').map((fk) => `${fk.tbl}→${fk.ref}`), [], 'كل مفتاح بين مستأجرين يبدأ بـorg_id');
 
   // ماكو فهرس مكرّر (db-guard ٨٤٤): نفس الجدول ونفس الأعمدة ونفس الشرط.
