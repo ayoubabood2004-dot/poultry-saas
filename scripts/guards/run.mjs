@@ -7,6 +7,7 @@ import * as bundleGuard from './bundle-guard.mjs';
 import * as dateGuard from './date-guard.mjs';
 import * as fetchGuard from './fetch-guard.mjs';
 import * as i18nGuard from './i18n-guard.mjs';
+import * as migrationGuard from './migration-guard.mjs';
 import * as moneyGuard from './money-guard.mjs';
 import * as numbersGuard from './numbers-guard.mjs';
 import * as pwaGuard from './pwa-guard.mjs';
@@ -14,7 +15,7 @@ import * as reportsGuard from './reports-guard.mjs';
 import * as uiGuard from './ui-guard.mjs';
 import * as writeGuard from './write-guard.mjs';
 
-const SOURCE_GUARDS = [i18nGuard, moneyGuard, numbersGuard, fetchGuard, writeGuard, dateGuard, uiGuard, reportsGuard];
+const SOURCE_GUARDS = [i18nGuard, moneyGuard, numbersGuard, fetchGuard, writeGuard, dateGuard, uiGuard, reportsGuard, migrationGuard];
 const DIST_GUARDS = [pwaGuard, bundleGuard];
 
 const dist = process.argv.includes('--dist');

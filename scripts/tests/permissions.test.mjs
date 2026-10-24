@@ -18,6 +18,8 @@ const TABLE = [
   { actions: ['void', 'receipt.revalue', 'party.adjust', 'opening.post', 'period.lock'], roles: ['manager', 'owner'] },
   // كلمة المالك 2026-10-24: «بلا سقوف، المقاصّة للمالك بس».
   { actions: ['party.offset'], roles: ['owner'] },
+  // كلمة المالك 2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس».
+  { actions: ['members.manage'], roles: ['owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

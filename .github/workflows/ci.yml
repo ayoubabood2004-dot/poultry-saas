@@ -1,0 +1,41 @@
+# الفحوص الثلاثة بكل رفع (FOUNDATION «الحرّاس والفحوص» و«طريقة الشغل»): lint، build، وحزمة بوستغريس.
+# Vercel يبني بـnpm run build نفسه، فأي حارس يفشل هنا يفشل هناك. الحزمة تنزّل بوستغريس 17 لـLinux بـembedded-postgres
+# (بلا تنصيب)، وتطبّق الهجرات مرّتين وتفحص RLS بدور authenticated حقيقي.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:test

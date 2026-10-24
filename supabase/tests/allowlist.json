@@ -1,0 +1,23 @@
+{
+  "comment": "قائمة السماح (FOUNDATION ٥١٧، ٨٥٩): الدوالّ اللي ينفّذها كل دور بمخطّطي public وprivate، بالضبط. الحزمة (grants.test) تقارنها بـpg_proc: ناقص أو زايد = فشل. أي دالّة جديدة تنضاف هنا وبمنح هجرتها سوا.",
+  "anon": [],
+  "authenticated": [
+    "public.add_member(text, text, text, uuid[])",
+    "public.app_today()",
+    "public.archive_member(uuid)",
+    "public.auth_org()",
+    "public.can(text, boolean)",
+    "public.can_see_accounts()",
+    "public.can_see_cost()",
+    "public.can_see_sales()",
+    "public.create_my_org(text, text)",
+    "public.in_scope_division(uuid)",
+    "public.my_workspace()",
+    "public.set_member_role(uuid, text)",
+    "public.set_member_scopes(uuid, uuid[])",
+    "public.set_period_lock(date)"
+  ],
+  "service_role_only": [
+    "public.verify_core()"
+  ]
+}
