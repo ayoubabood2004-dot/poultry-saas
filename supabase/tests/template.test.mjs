@@ -64,4 +64,9 @@ export default async function (t, db) {
     ],
     'حدود وقت الاستعلام المقيسة',
   );
+
+  // فرق مقصود عن الإنتاج: الحزمة بلغة C، والإنتاج ICU ‏en-US (مقيس 2026-10-25، datcollate en_US.UTF-8). فشفرة الخادم ما
+  // تعتمد على اللغة: قوائم حروف صريحة بالهاتف (مسح BMP بـparity)، وCOLLATE "C" بكل ترتيب نصّي يطلع للشاشة.
+  const locale = (await db.admin('select datcollate, datctype from pg_database where datname = current_database()')).rows[0];
+  t.same(locale, { datcollate: 'C', datctype: 'C' }, 'الحزمة بلغة C (غير الإنتاج عمداً؛ الشفرة ما تعتمد على أيّهما)');
 }

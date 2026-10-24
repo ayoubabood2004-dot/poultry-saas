@@ -1,7 +1,8 @@
 {
-  "comment": "قائمة السماح (FOUNDATION ٥١٧، ٨٥٩): الدوالّ اللي ينفّذها كل دور بمخطّطي public وprivate، بالضبط. الحزمة (grants.test) تقارنها بـpg_proc: ناقص أو زايد = فشل. أي دالّة جديدة تنضاف هنا وبمنح هجرتها سوا.",
+  "comment": "قائمة السماح (FOUNDATION ٥١٧، ٨٥٩): الدوالّ اللي ينفّذها كل دور بمخطّطي public وprivate، بالضبط. الحزمة (catalog.test) تقارنها بـpg_proc: ناقص أو زايد = فشل. أي دالّة جديدة تنضاف هنا وبمنح هجرتها سوا.",
   "anon": [],
   "authenticated": [
+    "public.accept_invite(uuid)",
     "public.add_member(text, text, text, uuid[])",
     "public.app_today()",
     "public.archive_member(uuid)",
@@ -11,7 +12,9 @@
     "public.can_see_cost()",
     "public.can_see_sales()",
     "public.create_my_org(text, text)",
+    "public.decline_invite(uuid)",
     "public.in_scope_division(uuid)",
+    "public.leave_my_org()",
     "public.my_workspace()",
     "public.set_member_role(uuid, text)",
     "public.set_member_scopes(uuid, uuid[])",

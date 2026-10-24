@@ -1,13 +1,14 @@
 -- 0001_core — الأساس اللي كل وحدة تقف عليه (FOUNDATION «خطّة البناء» 0، و«نموذج البيانات» ٢٣٧–٢٦٢، و٤٣٨–٤٤٧، و٥١٤–٥٤٤).
 -- المشكلة: Supabase يفتح كل جدول ودالّة جديدة لـanon وauthenticated (bootstrap.sql مقيس على الإنتاج)، وماكو منشأة ولا
---   عضو ولا وحدة ولا دفتر. هنا: المنشآت والأعضاء ونطاقهم بالوحدة، الوحدات الست ودفاترها السبعة لكل منشأة، auth_org()
---   وmy_workspace()، can_see_* وin_scope_division وcan(action) مرآة src/domain/permissions.ts، قفل الفترة وحدّ الرجوع
---   ٧ أيام (القرار 9)، سجلّ التدقيق، rpc_refs، وسحب الصلاحيات الافتراضية وقائمة سماح صريحة.
--- قرارات المالك (DECISIONS 2026-10-25): الدخول برقم الهاتف وكلمة سرّ، المشترك يسجّل وينشئ منشأته (create_my_org)،
---   وإضافة الموظفين وأدوارهم للمالك بس. الاشتراكات مؤجّلة: ماكو بوّابة اشتراك هنا.
--- تراجع: الجداول جديدة وفارغة؛ التراجع حذفها ويّا دوالّها والمخطّط private بمحرّر SQL بكلمة المالك (أداة Supabase
---   تحبس drop). ماكو ملف rollback لأن الهجرة مو ثقيلة: ما تلمس بيانات موجودة.
--- تنعاد بأمان: if not exists، create or replace، وكتل do تفحص الكتالوج قبل السياسات والقيود.
+--   عضو ولا وحدة ولا دفتر. هنا: المنشآت والأعضاء (دعوة يقبلها الموظف) ونطاقهم بالوحدة، الوحدات الست ودفاترها السبعة،
+--   auth_org() وmy_workspace()، can_see_* وin_scope_division وcan(action) مرآة src/domain/permissions.ts، قفل الفترة وحدّ
+--   الرجوع ٧ أيام (القرار 9)، سجلّ تدقيق ما يتعدّل ولا ينمسح، rpc_refs، وسحب الصلاحيات الافتراضية وقائمة سماح صريحة.
+-- قرارات المالك (DECISIONS 2026-10-25): الدخول برقم الهاتف وكلمة سرّ؛ المشترك يسجّل وينشئ منشأته (create_my_org)؛ المالك
+--   بس يدعو الموظف برقمه والموظف يقبل أو يرفض أو يطلع؛ فتح فترة مقفلة للمالك بس. الاشتراكات مؤجّلة: ماكو بوّابة هنا.
+-- تراجع: الجداول جديدة وفارغة؛ التراجع إزالتها ويّا دوالّها والمخطّط private بمحرّر SQL بكلمة المالك (أداة Supabase
+--   تحبس أوامر الإزالة). ماكو ملف rollback لأن الهجرة مو ثقيلة: ما تلمس بيانات موجودة.
+-- تنعاد بأمان: if not exists، create or replace، وكتل do تفحص الكتالوج قبل السياسات. الحزمة تقارن الكتالوج بعد المرّتين.
+-- شفرة الخادم ما تعتمد على لغة القاعدة المحلّية (الإنتاج ICU ‏en-US والحزمة C): قوائم حروف صريحة وCOLLATE صريح.
 
 set lock_timeout = '5s';
 
@@ -16,9 +17,11 @@ set lock_timeout = '5s';
 alter default privileges for role postgres revoke execute on functions from public;
 alter default privileges for role postgres in schema public revoke execute on functions from anon, authenticated;
 -- الجداول والتسلسلات: Supabase ينطي anon وauthenticated كلشي (حتى TRUNCATE اللي يتجاوز RLS). نسحب الكل، وكل جدول
--- ينطي authenticated القراءة بس إذا إله سياسة قراءة، والكتابة من الدوالّ بس (FOUNDATION ٤٣٨).
+-- ينطي authenticated القراءة بس إذا إله سياسة قراءة، والكتابة من الدوالّ بس (FOUNDATION ٤٣٨). وTRUNCATE ينسحب من
+-- service_role هم: يمسح جدولاً كاملاً بلا مشغّلات الصفوف، وماكو شي مشروع يحتاجه.
 alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
 alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
+alter default privileges for role postgres in schema public revoke truncate on tables from service_role;
 
 -- المساعدات بمخطّط private ما ينكشف لـPostgREST (FOUNDATION ٥١٦، ٨٥٩).
 create schema if not exists private authorization postgres;
@@ -33,34 +36,39 @@ create table if not exists public.orgs (
   created_by uuid default auth.uid()
 );
 
--- العضو: مستخدم بمنشأة بدور. عضوية فعّالة وحدة لكل مستخدم (DECISIONS 2026-10-25)، فـauth_org() تعرف منشأته بلا اختيار.
--- org_id بلا افتراض هنا: auth_org() تقرأ هذا الجدول، فتنشأ بعده وتصير افتراضه تحت.
+-- العضو: مستخدم بمنشأة بدور. accepted_at فارغ = دعوة ما انقبلت بعد (ما تنطي أي وصول). عضوية فعّالة وحدة لكل مستخدم
+-- (مقبولة وغير مؤرشفة)، فـauth_org() تعرف منشأته بلا اختيار. حذف الحساب من Auth ممنوع لأي عضو (on delete restrict):
+-- الخروج أرشفة، والسجلّ يبقى. org_id بلا افتراض هنا: auth_org() تقرأ هذا الجدول، فتنشأ بعده وتصير افتراضه تحت.
 create table if not exists public.members (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.orgs (id),
-  user_id uuid not null references auth.users (id),
+  user_id uuid not null references auth.users (id) on delete restrict,
   role text not null check (role in ('owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator', 'hall_worker', 'accountant', 'viewer')),
   display_name text not null check (length(btrim(display_name)) between 1 and 80),
   phone text check (phone ~ '^9647[0-9]{9}$'),
+  accepted_at timestamptz,
   archived_at timestamptz,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
   unique (org_id, id),
   unique (org_id, user_id)
 );
-create unique index if not exists members_one_active_per_user on public.members (user_id) where archived_at is null;
+create unique index if not exists members_one_active_per_user on public.members (user_id)
+  where archived_at is null and accepted_at is not null;
 create index if not exists members_user_id on public.members (user_id);
 
 -- ─── الهويّة: كلها definer تقرأ members (مو الجدول المحمي، فما يصير 42P17)، والسياسات تناديها (select …) ─────────
 create or replace function private.my_role() returns text
 language sql stable security definer set search_path = public, pg_temp as $$
-  select m.role from public.members m where m.user_id = auth.uid() and m.archived_at is null
+  select m.role from public.members m
+  where m.user_id = auth.uid() and m.archived_at is null and m.accepted_at is not null
 $$;
 
 -- منشأة المستخدم الداخل: افتراض org_id بكل جدول مستأجر، والسياسات تناديها (select public.auth_org()) مو عارية.
 create or replace function public.auth_org() returns uuid
 language sql stable security definer set search_path = public, pg_temp as $$
-  select m.org_id from public.members m where m.user_id = auth.uid() and m.archived_at is null
+  select m.org_id from public.members m
+  where m.user_id = auth.uid() and m.archived_at is null and m.accepted_at is not null
 $$;
 
 alter table public.members alter column org_id set default public.auth_org();
@@ -95,21 +103,24 @@ create table if not exists public.ledger_books (
   foreign key (org_id, division_id) references public.divisions (org_id, id)
 );
 
--- نطاق العضو بالوحدة (المرحلة 0: «نطاق المستخدم بالوحدة»). site/warehouse/hall تنضاف ويّا جداولها بهجرة إضافية.
--- بلا صفوف: المالك كل المنشأة دائماً، والمدير والمحاسب كل المنشأة، وغيرهم ولا شي (مرآة inScope بـpermissions.ts).
+-- نطاق العضو بالوحدة (المرحلة 0: «نطاق المستخدم بالوحدة»). division_id يقبل الفراغ عمداً: site/warehouse/hall تنضاف ويّا
+-- جداولها بأعمدة جديدة (هجرة إضافية بلا إزالة)، وكل صفّ هدف واحد مثل ScopeRow بـpermissions.ts.
+-- بلا صفوف: المالك كل المنشأة دائماً، والمدير والمحاسب كل المنشأة، وغيرهم ولا شي (مرآة inScope).
 create table if not exists public.member_scopes (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null default public.auth_org() references public.orgs (id),
   member_id uuid not null,
-  division_id uuid not null,
+  division_id uuid,
   archived_at timestamptz,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
   unique (org_id, id),
-  unique (org_id, member_id, division_id),
   foreign key (org_id, member_id) references public.members (org_id, id),
   foreign key (org_id, division_id) references public.divisions (org_id, id)
 );
+create unique index if not exists member_scopes_member_division on public.member_scopes (org_id, member_id, division_id)
+  where division_id is not null;
+create index if not exists member_scopes_member on public.member_scopes (org_id, member_id);
 create index if not exists member_scopes_division on public.member_scopes (org_id, division_id);
 
 -- قفل الفترة: صفّ واحد لكل منشأة، وكل تاريخ <= locked_through مقفول (FOUNDATION ٢٤٦، ٥٢١).
@@ -140,8 +151,10 @@ create table if not exists public.rpc_refs (
   unique (org_id, fn, client_ref)
 );
 
--- سجلّ التدقيق: «منو ومتى» للثانية بكل جدول (FOUNDATION ٢٥١، ٧٩٧). يكتبه المشغّل definer بس، وما يتعدّل ولا ينحذف،
--- وقراءته لأدوار الكلفة بس (سياسة مقيِّدة، FOUNDATION ٤٤٣).
+-- سجلّ التدقيق: «منو ومتى» للثانية بكل جدول (FOUNDATION ٢٥١، ٧٩٧). يكتبه المشغّل definer بس، وما يتعدّل ولا ينحذف ولا
+-- ينمسح (مشغّلات الصفوف وTRUNCATE)، وقراءته لأدوار الكلفة بس (سياسة مقيِّدة، FOUNDATION ٤٤٣).
+-- استثناء مسمّى من الأعمدة المشتركة: المنشأة من الصفّ المدقَّق مو من auth_org()، وactor/at بدل created_by/created_at،
+-- وما يصير هدف مفتاح أجنبي فما يحتاج unique (org_id, id).
 create table if not exists public.audit_log (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.orgs (id),
@@ -187,7 +200,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       )
     end
     from public.members m
-    where m.user_id = auth.uid() and m.archived_at is null
+    where m.user_id = auth.uid() and m.archived_at is null and m.accepted_at is not null
       and exists (select 1 from public.divisions d where d.org_id = m.org_id and d.id = p_division)
   ), false)
 $$;
@@ -203,12 +216,12 @@ language sql immutable set search_path = pg_catalog, pg_temp as $$
     'flock_day.save', 'weigh_ticket.draft',
     'recipe.activate', 'count.approve', 'flock.manage', 'flock.transfer', 'hatch.zero_saleable', 'expired.destroy',
     'expired.release', 'void', 'receipt.revalue', 'party.adjust', 'opening.post', 'period.lock',
-    'party.offset', 'members.manage',
+    'party.offset', 'members.manage', 'period.unlock',
     'read'
   ]
 $$;
 
--- الجدول نفسه: المالك كلشي؛ party.offset وmembers.manage للمالك بس؛ المدير كل الباقي؛ والأدوار التشغيلية أفعالها.
+-- الجدول نفسه: المالك كلشي؛ party.offset وmembers.manage وperiod.unlock للمالك بس؛ المدير كل الباقي؛ والأدوار التشغيلية أفعالها.
 create or replace function private.role_can(p_role text, p_action text, p_costs_confirmed boolean default false) returns boolean
 language plpgsql immutable set search_path = pg_catalog, pg_temp as $$
 begin
@@ -217,7 +230,7 @@ begin
   end if;
   if p_role is null then return false; end if;
   if p_role = 'owner' then return true; end if;
-  if p_action in ('party.offset', 'members.manage') then return false; end if;
+  if p_action in ('party.offset', 'members.manage', 'period.unlock') then return false; end if;
   if p_action = 'read' then return true; end if;
   return case p_role
     when 'manager' then true
@@ -237,11 +250,17 @@ language sql stable security definer set search_path = public, pg_temp as $$
   select private.role_can(private.my_role(), p_action, p_costs_confirmed)
 $$;
 
+-- الرفض بسبب الدور برمز forbidden (مو 42501، اللي الطابور يعدّه رفض هويّة)، وتلميحه يكول منو يحقّله.
 create or replace function private.require(p_action text) returns void
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 begin
   if not public.can(p_action) then
-    raise exception 'forbidden' using hint = 'لا تملك صلاحية هذا الإجراء.';
+    raise exception 'forbidden' using hint = case p_action
+      when 'members.manage' then 'إضافة الموظفين وتعديل أدوارهم ونطاقهم لمالك المنشأة فقط.'
+      when 'period.lock' then 'قفل الفترة للمدير أو مالك المنشأة فقط.'
+      when 'period.unlock' then 'فتح فترة مقفلة لمالك المنشأة فقط. اطلب منه ذلك إن كان الفتح ضرورياً.'
+      else 'لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه.'
+    end;
   end if;
 end
 $$;
@@ -253,8 +272,8 @@ language sql stable set search_path = pg_catalog, pg_temp as $$
   select (now() at time zone 'Asia/Baghdad')::date
 $$;
 
--- قاعدة تاريخ المستند المشتركة (FOUNDATION ٥٢١، القرار 9: الرجوع ٧ أيام): المستقبل مرفوض، الأقدم من ٧ أيام مرفوض،
--- والفترة المقفولة مرفوضة. دوالّ الترحيل بالمراحل الجاية تناديها بأوّل سطورها.
+-- قاعدة تاريخ المستند المشتركة (FOUNDATION ٥٢١، القرار 9: الرجوع ٧ أيام بالضبط مقبول): المستقبل مرفوض، الأقدم من ٧ أيام
+-- مرفوض، والفترة المقفولة مرفوضة. دوالّ الترحيل بالمراحل الجاية تناديها بأوّل سطورها. التواريخ بالتلميح DD/MM/YYYY مثل fmtDay.
 create or replace function private.check_doc_date(p_date date) returns void
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -262,34 +281,35 @@ declare
   v_lock date;
 begin
   if p_date is null then
-    raise exception 'date_required' using hint = 'اكتب تاريخ المستند.';
+    raise exception 'date_required' using hint = 'اكتب التاريخ.';
   end if;
   if p_date > v_today then
-    raise exception 'date_in_future' using hint = format('تاريخ المستند %s بعد اليوم %s. سجّله بتاريخ اليوم أو قبله.',
+    raise exception 'date_in_future' using hint = format('التاريخ %s بعد تاريخ اليوم %s. سجّل المستند بتاريخ اليوم أو بتاريخ سابق.',
       to_char(p_date, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
   end if;
   if p_date < v_today - 7 then
-    raise exception 'date_too_old' using hint = format('لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح %s.',
+    raise exception 'date_too_old' using hint = format('لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به %s. راجع التاريخ.',
       to_char(v_today - 7, 'DD/MM/YYYY'));
   end if;
   select l.locked_through into v_lock from public.period_locks l where l.org_id = public.auth_org();
   if v_lock is not null and p_date <= v_lock then
-    raise exception 'period_locked' using hint = format('الفترة مقفلة حتى %s، فلا يُسجَّل مستند بتاريخ %s.',
+    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s (هذا اليوم وما قبله)، فلا يُسجَّل مستند بتاريخ %s. إن كان التاريخ صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
       to_char(v_lock, 'DD/MM/YYYY'), to_char(p_date, 'DD/MM/YYYY'));
   end if;
 end
 $$;
 
--- ─── رقم الهاتف: مرآة src/domain/phone.ts حرفاً بحرف (الحزمة تقارنهم) ────────────────────────────────────────────
+-- ─── رقم الهاتف: مرآة src/domain/phone.ts حرفاً بحرف (الحزمة تقارنهم على كل حروف BMP) ───────────────────────────────
+-- الفراغات قائمة صريحة تطابق \s وtrim() بـJavaScript، مو [[:space:]] اللي يتغيّر حسب لغة القاعدة المحلّية.
 create or replace function private.normalize_phone(p_input text) returns text
 language plpgsql immutable set search_path = pg_catalog, pg_temp as $$
 declare
   d text;
 begin
   if p_input is null then return null; end if;
-  -- الأرقام الشرقية والفارسية غربية، و«٫» نقطة و«٬» فاصلة (مثل toWesternDigits).
-  d := translate(btrim(p_input), '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬', '01234567890123456789.,');
-  d := regexp_replace(d, '[[:space:]().-]', '', 'g');
+  -- الأرقام الشرقية والفارسية غربية، و«٫» نقطة و«٬» فاصلة (مثل toWesternDigits)، وبعدها الفواصل والفراغات تنشال.
+  d := translate(p_input, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬', '01234567890123456789.,');
+  d := regexp_replace(d, '[\x9-\xD\x20\xA0\x1680\x2000-\x200A\x2028\x2029\x202F\x205F\x3000\xFEFF().-]', '', 'g');
   if left(d, 1) = '+' then d := substr(d, 2);
   elsif left(d, 2) = '00' then d := substr(d, 3);
   end if;
@@ -302,25 +322,38 @@ end
 $$;
 
 -- الدخول برقم الهاتف وكلمة سرّ (DECISIONS 2026-10-25): الرقم بعمود phone إذا مزوّد الهاتف شغّال، أو كاسم بريد
--- «الرقم@phone.login» إذا الدخول بالبريد بلا SMS. الحالتين تنقرا هنا، فالواجهة تختار بلا ما تتغيّر القاعدة.
+-- «الرقم@phone.login» إذا الدخول بالبريد بلا SMS. الحالتين تنقرا بنفس التعبير، وبريد بأي نطاق ثاني ما يُعدّ رقماً.
 create or replace function private.phone_login_domain() returns text
 language sql immutable set search_path = pg_catalog, pg_temp as $$
   select 'phone.login'
 $$;
 
-create or replace function private.user_phone(p_user uuid) returns text
-language sql stable security definer set search_path = public, pg_temp as $$
-  select private.normalize_phone(coalesce(nullif(u.phone, ''), split_part(u.email, '@', 1)))
-  from auth.users u where u.id = p_user
+create or replace function private.account_phone(p_phone text, p_email text) returns text
+language sql immutable set search_path = pg_catalog, pg_temp as $$
+  select private.normalize_phone(coalesce(
+    nullif(p_phone, ''),
+    case when lower(split_part(p_email, '@', 2)) = private.phone_login_domain() then split_part(p_email, '@', 1) end
+  ))
 $$;
 
-create or replace function private.user_id_for_phone(p_phone text) returns uuid
+create or replace function private.user_phone(p_user uuid) returns text
 language sql stable security definer set search_path = public, pg_temp as $$
-  select u.id from auth.users u
-  where u.deleted_at is null
-    and (u.phone = p_phone or lower(u.email) = p_phone || '@' || private.phone_login_domain())
-  order by u.created_at
-  limit 1
+  select private.account_phone(u.phone, u.email) from auth.users u where u.id = p_user
+$$;
+
+-- حساب واحد بالرقم المطبَّع، أو phone_ambiguous إذا أكثر من حساب حيّ (مو «أقدم واحد» بصمت).
+create or replace function private.user_id_for_phone(p_phone text) returns uuid
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_ids uuid[];
+begin
+  select array_agg(u.id order by u.created_at) into v_ids from auth.users u
+  where u.deleted_at is null and private.account_phone(u.phone, u.email) = p_phone;
+  if coalesce(cardinality(v_ids), 0) > 1 then
+    raise exception 'phone_ambiguous' using hint = 'يوجد أكثر من حساب بهذا الرقم. تواصل مع الدعم لتوحيدها.';
+  end if;
+  return v_ids[1];
+end
 $$;
 
 -- ─── المشغّلات ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -344,10 +377,11 @@ begin
 end
 $$;
 
+-- للسجلّات الثابتة (السجلّ اليوم، والدفاتر بالمراحل الجاية): تعديل أو حذف أو مسح يرفض.
 create or replace function private.reject_change() returns trigger
 language plpgsql set search_path = pg_catalog, pg_temp as $$
 begin
-  raise exception 'append_only' using hint = format('سجلّ %s لا يُعدَّل ولا يُحذف.', tg_table_name);
+  raise exception 'append_only' using hint = 'هذا السجلّ لا يُعدَّل ولا يُحذف؛ يُصحَّح بقيد عكسي.';
 end
 $$;
 
@@ -369,6 +403,8 @@ create or replace trigger ledger_books_code before insert or update on public.le
   for each row execute function private.check_book_code();
 create or replace trigger audit_log_append_only before update or delete on public.audit_log
   for each row execute function private.reject_change();
+create or replace trigger audit_log_no_truncate before truncate on public.audit_log
+  for each statement execute function private.reject_change();
 
 create or replace trigger audit_orgs after insert or update or delete on public.orgs
   for each row execute function private.audit_row();
@@ -453,7 +489,23 @@ begin
 end
 $$;
 
--- العضو بمنشأة الداخل، مقفول للتعديل؛ غيره member_not_found حتى لو موجود بمنشأة ثانية.
+-- وحدات النطاق كلها بمنشأة الداخل، وتنفحص قبل أي بحث عن رقم (فرقم مجهول ما يتميّز بأخطاء لاحقة).
+create or replace function private.check_divisions(p_divisions uuid[]) returns uuid[]
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_list uuid[] := coalesce(p_divisions, '{}'::uuid[]);
+begin
+  if exists (
+    select 1 from unnest(v_list) as x(id)
+    where x.id is null or not exists (select 1 from public.divisions d where d.org_id = public.auth_org() and d.id = x.id)
+  ) then
+    raise exception 'division_not_found' using hint = 'إحدى الوحدات المختارة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
+  end if;
+  return array(select distinct x from unnest(v_list) as x);
+end
+$$;
+
+-- العضو (أو الدعوة) بمنشأة الداخل غير مؤرشف، مقفول للتعديل؛ غيره member_not_found حتى لو موجود بمنشأة ثانية.
 create or replace function private.org_member(p_member uuid) returns public.members
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -461,60 +513,80 @@ declare
 begin
   select * into m from public.members where org_id = public.auth_org() and id = p_member and archived_at is null for update;
   if m.id is null then
-    raise exception 'member_not_found' using hint = 'لا يوجد هذا العضو في منشأتك.';
+    raise exception 'member_not_found' using hint = 'هذا العضو غير موجود في منشأتك أو مؤرشف. حدّث قائمة الموظفين.';
   end if;
   return m;
 end
 $$;
 
--- آخر مالك فعّال ما ينزل ولا ينشال (FOUNDATION ٤٣٨). القفل على صفوف المالكين يرتّب نداءين بنفس اللحظة.
+-- آخر مالك مقبول ما ينزل ولا ينشال ولا يطلع (FOUNDATION ٤٣٨). القفل على صفوف المالكين يرتّب نداءين بنفس اللحظة.
 create or replace function private.keep_an_owner(p_member public.members) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_others int;
 begin
-  if p_member.role <> 'owner' then return; end if;
-  perform 1 from public.members where org_id = p_member.org_id and role = 'owner' and archived_at is null for update;
+  if p_member.role <> 'owner' or p_member.accepted_at is null then return; end if;
+  perform 1 from public.members
+  where org_id = p_member.org_id and role = 'owner' and archived_at is null and accepted_at is not null
+  for update;
   select count(*) into v_others from public.members
-  where org_id = p_member.org_id and role = 'owner' and archived_at is null and id <> p_member.id;
+  where org_id = p_member.org_id and role = 'owner' and archived_at is null and accepted_at is not null and id <> p_member.id;
   if v_others = 0 then
-    raise exception 'last_owner' using hint = 'هذا آخر مالك للمنشأة. أضف مالكاً آخر أولاً.';
+    raise exception 'last_owner' using hint = 'هذا آخر مالك للمنشأة. أضف مالكاً آخر وانتظر قبوله أولاً.';
   end if;
 end
 $$;
 
--- يستبدل نطاق العضو بقائمة وحدات: الجديدة تنضاف (أو ترجع من الأرشيف)، واللي طلعت تنأرشف. ماكو حذف.
+-- يستبدل نطاق العضو بقائمة وحدات (مفحوصة بـcheck_divisions): الجديدة تنضاف أو ترجع من الأرشيف، واللي طلعت تنأرشف. ماكو حذف.
 create or replace function private.apply_scopes(p_member uuid, p_divisions uuid[]) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
-  v_list uuid[] := coalesce(p_divisions, '{}'::uuid[]);
   v_div uuid;
 begin
-  if exists (select 1 from unnest(v_list) as x(id) where not exists (select 1 from public.divisions d where d.org_id = v_org and d.id = x.id)) then
-    raise exception 'division_not_found' using hint = 'إحدى الوحدات المختارة غير موجودة في منشأتك.';
-  end if;
-  foreach v_div in array v_list loop
+  foreach v_div in array coalesce(p_divisions, '{}'::uuid[]) loop
     insert into public.member_scopes (org_id, member_id, division_id) values (v_org, p_member, v_div)
-    on conflict (org_id, member_id, division_id) do update set archived_at = null where public.member_scopes.archived_at is not null;
+    on conflict (org_id, member_id, division_id) where division_id is not null
+    do update set archived_at = null where public.member_scopes.archived_at is not null;
   end loop;
   update public.member_scopes set archived_at = now()
-  where org_id = v_org and member_id = p_member and archived_at is null and not (division_id = any (v_list));
+  where org_id = v_org and member_id = p_member and archived_at is null
+    and (division_id is null or not (division_id = any (coalesce(p_divisions, '{}'::uuid[]))));
+end
+$$;
+
+-- يأرشف عضوية ونطاقها (الخروج، الرفض، الأرشفة).
+create or replace function private.archive_membership(p_member public.members) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.member_scopes set archived_at = now()
+  where org_id = p_member.org_id and member_id = p_member.id and archived_at is null;
+  update public.members set archived_at = now() where org_id = p_member.org_id and id = p_member.id;
 end
 $$;
 
 -- ─── واجهات المستخدم (قائمة السماح تحت) ───────────────────────────────────────────────────────────────────────
 -- الخادم يأكّد «بأي منشأة أنا» (FOUNDATION ٢٠٠، ٢١٧). بلا منشأة: org_id فارغ ورقم الهاتف حتى ينطيه للمالك.
+-- الدعوات اللي تنتظر قبوله ترجع بكل الحالات (اسم المنشأة والدور)، والدعوة ما تنطي أي وصول قبل القبول.
 create or replace function public.my_workspace() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_uid uuid := private.require_signed_in();
   m public.members;
   v_org_name text;
+  v_invites jsonb;
 begin
-  select * into m from public.members where user_id = v_uid and archived_at is null;
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'member_id', i.id, 'org_name', o.name, 'role', i.role, 'display_name', i.display_name, 'invited_at', i.created_at
+    ) order by i.created_at), '[]'::jsonb)
+  into v_invites
+  from public.members i join public.orgs o on o.id = i.org_id
+  where i.user_id = v_uid and i.accepted_at is null and i.archived_at is null;
+
+  select * into m from public.members where user_id = v_uid and archived_at is null and accepted_at is not null;
   if m.id is null then
-    return jsonb_build_object('user_id', v_uid, 'org_id', null, 'phone', private.user_phone(v_uid), 'confirmed_at', now());
+    return jsonb_build_object('user_id', v_uid, 'org_id', null, 'phone', private.user_phone(v_uid),
+      'invites', v_invites, 'confirmed_at', now());
   end if;
   select o.name into v_org_name from public.orgs o where o.id = m.org_id;
   return jsonb_build_object(
@@ -530,12 +602,13 @@ begin
       from public.member_scopes s where s.org_id = m.org_id and s.member_id = m.id and s.archived_at is null
     ), '[]'::jsonb),
     'divisions', coalesce((
-      select jsonb_agg(d.kind order by d.kind)
+      select jsonb_agg(d.kind order by d.kind collate "C")
       from public.divisions d where d.org_id = m.org_id and d.archived_at is null and public.in_scope_division(d.id)
     ), '[]'::jsonb),
     'can_see_cost', public.can_see_cost(),
     'can_see_accounts', public.can_see_accounts(),
     'can_see_sales', public.can_see_sales(),
+    'invites', v_invites,
     'subscription', 'unknown',
     'confirmed_at', now()
   );
@@ -543,25 +616,32 @@ end
 $$;
 
 -- المشترك الجديد ينشئ منشأته ويصير مالكها (DECISIONS 2026-10-25)، ويّا الوحدات الست ودفاترها السبعة بمعاملة وحدة.
--- بس للي ما عنده عضوية فعّالة: الموظف ينتظر المالك يضيفه.
+-- إعادة نفس الطلب (جواب ضاع، ضغطة مكرّرة) ترجّع نفس المنشأة؛ عضو بمنشأة ثانية يُرفض باسمها.
 create or replace function public.create_my_org(p_org_name text, p_display_name text) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_uid uuid := private.require_signed_in();
   v_org_name text := private.check_name(p_org_name, 120, 'اسم المنشأة');
   v_display text := private.check_name(p_display_name, 80, 'اسمك');
+  v_existing record;
   v_org uuid;
   v_div uuid;
   k record;
 begin
-  -- نداءان بنفس اللحظة لنفس المستخدم: الثاني ينتظر ويلكى العضوية.
-  perform pg_advisory_xact_lock(hashtextextended('create_my_org:' || v_uid::text, 0));
-  if exists (select 1 from public.members where user_id = v_uid and archived_at is null) then
-    raise exception 'already_member' using hint = 'أنت عضو في منشأة. لإنشاء منشأة أخرى يجب أن تُؤرشَف عضويتك الحالية أولاً.';
+  -- نفس مفتاح قبول الدعوة: نداءان بنفس اللحظة لنفس المستخدم يترتّبون، والثاني يلكى العضوية.
+  perform pg_advisory_xact_lock(hashtextextended('membership:' || v_uid::text, 0));
+  select m.role, o.name, o.created_by into v_existing
+  from public.members m join public.orgs o on o.id = m.org_id
+  where m.user_id = v_uid and m.archived_at is null and m.accepted_at is not null;
+  if found then
+    if v_existing.role = 'owner' and v_existing.created_by = v_uid and v_existing.name = v_org_name then
+      return public.my_workspace();
+    end if;
+    raise exception 'already_member' using hint = format('أنت عضو في منشأة «%s» بالفعل؛ حدّث الشاشة لفتحها. لا يمكن أن تكون عضواً في منشأتين معاً.', v_existing.name);
   end if;
   insert into public.orgs (name, created_by) values (v_org_name, v_uid) returning id into v_org;
-  insert into public.members (org_id, user_id, role, display_name, phone)
-  values (v_org, v_uid, 'owner', v_display, private.user_phone(v_uid));
+  insert into public.members (org_id, user_id, role, display_name, phone, accepted_at)
+  values (v_org, v_uid, 'owner', v_display, private.user_phone(v_uid), now());
   for k in
     select * from (values
       (1, 'feed_mill', 'معمل العلف'),
@@ -584,20 +664,24 @@ begin
 end
 $$;
 
--- المالك يضيف موظفاً برقم هاتفه (سجّل حسابه قبل)، بدوره ونطاقه. عضو مؤرشف بنفس المنشأة يرجع بنفس المعرّف.
+-- المالك يدعو موظفاً برقم هاتفه (سجّل حسابه قبل)، بدوره ونطاقه. الدعوة ما تنطي وصولاً لحد ما يقبلها الموظف
+-- (DECISIONS 2026-10-25)، وعضو مؤرشف أو دعوة مرفوضة بنفس المنشأة تنعاد دعوةً بنفس المعرّف.
 create or replace function public.add_member(p_phone text, p_role text, p_display_name text, p_divisions uuid[] default '{}') returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
-  v_phone text := private.normalize_phone(p_phone);
   v_role text;
   v_display text;
+  v_divisions uuid[];
+  v_phone text;
   v_user uuid;
   v_member uuid;
 begin
   perform private.require('members.manage');
   v_role := private.check_role(p_role);
   v_display := private.check_name(p_display_name, 80, 'اسم الموظف');
+  v_divisions := private.check_divisions(p_divisions);
+  v_phone := private.normalize_phone(p_phone);
   if v_phone is null then
     raise exception 'invalid_phone' using hint = 'اكتب رقم موبايل عراقياً صحيحاً، مثل 07701234567.';
   end if;
@@ -605,20 +689,72 @@ begin
   if v_user is null then
     raise exception 'user_not_found' using hint = 'لا يوجد حساب بهذا الرقم. اطلب من الموظف أن يسجّل في التطبيق برقمه أولاً، ثم أضفه.';
   end if;
-  perform pg_advisory_xact_lock(hashtextextended('membership:' || v_user::text, 0));
-  if exists (select 1 from public.members where user_id = v_user and archived_at is null and org_id = v_org) then
-    raise exception 'already_in_org' using hint = 'هذا الموظف عضو في منشأتك.';
-  end if;
-  if exists (select 1 from public.members where user_id = v_user and archived_at is null) then
-    raise exception 'already_member' using hint = 'صاحب هذا الرقم عضو في منشأة أخرى.';
+  if exists (select 1 from public.members where org_id = v_org and user_id = v_user and archived_at is null) then
+    raise exception 'already_in_org' using hint = 'هذا الرقم عضو في منشأتك أو مدعوّ إليها بالفعل. عدّل دوره من قائمة الموظفين.';
   end if;
   insert into public.members (org_id, user_id, role, display_name, phone)
   values (v_org, v_user, v_role, v_display, v_phone)
   on conflict (org_id, user_id) do update
-    set role = excluded.role, display_name = excluded.display_name, phone = excluded.phone, archived_at = null
+    set role = excluded.role, display_name = excluded.display_name, phone = excluded.phone, archived_at = null, accepted_at = null
   returning id into v_member;
-  perform private.apply_scopes(v_member, p_divisions);
+  perform private.apply_scopes(v_member, v_divisions);
   return v_member;
+end
+$$;
+
+-- الموظف يقبل دعوة: تصير عضويته الفعّالة الوحيدة. عضو بمنشأة ثانية يطلع منها أوّلاً.
+create or replace function public.accept_invite(p_member uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_uid uuid := private.require_signed_in();
+  m public.members;
+  v_current text;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('membership:' || v_uid::text, 0));
+  select * into m from public.members
+  where id = p_member and user_id = v_uid and accepted_at is null and archived_at is null for update;
+  if m.id is null then
+    raise exception 'invite_not_found' using hint = 'هذه الدعوة غير موجودة أو انتهت. حدّث الشاشة.';
+  end if;
+  select o.name into v_current from public.members x join public.orgs o on o.id = x.org_id
+  where x.user_id = v_uid and x.archived_at is null and x.accepted_at is not null;
+  if found then
+    raise exception 'already_member' using hint = format('أنت عضو في منشأة «%s». اخرج منها أولاً ثم اقبل الدعوة.', v_current);
+  end if;
+  update public.members set accepted_at = now() where org_id = m.org_id and id = m.id;
+  return public.my_workspace();
+end
+$$;
+
+create or replace function public.decline_invite(p_member uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_uid uuid := private.require_signed_in();
+  m public.members;
+begin
+  select * into m from public.members
+  where id = p_member and user_id = v_uid and accepted_at is null and archived_at is null for update;
+  if m.id is null then
+    raise exception 'invite_not_found' using hint = 'هذه الدعوة غير موجودة أو انتهت. حدّث الشاشة.';
+  end if;
+  perform private.archive_membership(m);
+end
+$$;
+
+-- أي عضو يطلع من منشأته بنفسه، إلا آخر مالك.
+create or replace function public.leave_my_org() returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_uid uuid := private.require_signed_in();
+  m public.members;
+begin
+  select * into m from public.members
+  where user_id = v_uid and archived_at is null and accepted_at is not null for update;
+  if m.id is null then
+    raise exception 'not_member' using hint = 'لست عضواً في منشأة.';
+  end if;
+  perform private.keep_an_owner(m);
+  perform private.archive_membership(m);
 end
 $$;
 
@@ -640,14 +776,16 @@ create or replace function public.set_member_scopes(p_member uuid, p_divisions u
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   m public.members;
+  v_divisions uuid[];
 begin
   perform private.require('members.manage');
+  v_divisions := private.check_divisions(p_divisions);
   m := private.org_member(p_member);
-  perform private.apply_scopes(m.id, p_divisions);
+  perform private.apply_scopes(m.id, v_divisions);
 end
 $$;
 
--- أرشفة مو حذف: العضو يرجع بنفس المعرّف بـadd_member.
+-- أرشفة مو حذف (وتلغي دعوة ما انقبلت): العضو يرجع بنفس المعرّف بـadd_member كدعوة جديدة.
 create or replace function public.archive_member(p_member uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -656,12 +794,12 @@ begin
   perform private.require('members.manage');
   m := private.org_member(p_member);
   perform private.keep_an_owner(m);
-  update public.member_scopes set archived_at = now() where org_id = m.org_id and member_id = m.id and archived_at is null;
-  update public.members set archived_at = now() where org_id = m.org_id and id = m.id;
+  perform private.archive_membership(m);
 end
 $$;
 
--- قفل الفترة: المدير والمالك (period.lock). الرجوع بالقفل للخلف يفتح فترة مقفلة: المالك بس.
+-- قفل الفترة: المدير والمالك (period.lock). الرجوع بالقفل للخلف يفتح فترة مقفلة: period.unlock للمالك بس.
+-- القفل الاستشاري على المنشأة يرتّب أوّل قفلين بنفس اللحظة (ماكو صفّ بعد ينقفل).
 create or replace function public.set_period_lock(p_locked_through date) returns date
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -669,13 +807,16 @@ declare
   v_current date;
 begin
   perform private.require('period.lock');
-  if p_locked_through is null or p_locked_through >= public.app_today() then
-    raise exception 'lock_in_future' using hint = 'يُقفل ما قبل اليوم فقط.';
+  if p_locked_through is null then
+    raise exception 'date_required' using hint = 'اختر تاريخ القفل.';
   end if;
-  select l.locked_through into v_current from public.period_locks l where l.org_id = v_org for update;
-  if v_current is not null and p_locked_through < v_current and private.my_role() <> 'owner' then
-    raise exception 'owner_only_unlock' using hint = format('فتح فترة مقفلة (إرجاع القفل من %s إلى %s) للمالك فقط.',
-      to_char(v_current, 'DD/MM/YYYY'), to_char(p_locked_through, 'DD/MM/YYYY'));
+  if p_locked_through >= public.app_today() then
+    raise exception 'lock_in_future' using hint = 'يُقفل ما قبل تاريخ اليوم فقط. اختر تاريخاً سابقاً.';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('period_lock:' || v_org::text, 0));
+  select l.locked_through into v_current from public.period_locks l where l.org_id = v_org;
+  if v_current is not null and p_locked_through < v_current then
+    perform private.require('period.unlock');
   end if;
   insert into public.period_locks (org_id, locked_through, locked_by) values (v_org, p_locked_through, auth.uid())
   on conflict (org_id) do update set locked_through = excluded.locked_through, locked_by = excluded.locked_by, updated_at = now();
@@ -697,7 +838,9 @@ language sql stable set search_path = public, pg_temp as $$
   where b.archived_at is null and (d.kind = 'hatchery') <> (b.code in ('chicks', 'hatching_eggs'))
   union all
   select 'orgs_without_owner', count(*) from public.orgs o
-  where not exists (select 1 from public.members m where m.org_id = o.id and m.role = 'owner' and m.archived_at is null)
+  where not exists (
+    select 1 from public.members m where m.org_id = o.id and m.role = 'owner' and m.archived_at is null and m.accepted_at is not null
+  )
   union all
   select 'scopes_of_archived_members', count(*) from public.member_scopes s
   join public.members m on m.org_id = s.org_id and m.id = s.member_id
@@ -709,6 +852,10 @@ revoke all on table public.orgs, public.members, public.divisions, public.ledger
   public.period_locks, public.rpc_refs, public.audit_log from anon, authenticated;
 grant select on table public.orgs, public.members, public.divisions, public.ledger_books, public.member_scopes,
   public.period_locks, public.audit_log to authenticated;
+-- service_role يبقى إداري (يتجاوز RLS)، بس بلا TRUNCATE بأي جدول وبلا تعديل أو حذف بالسجلّ.
+revoke truncate on table public.orgs, public.members, public.divisions, public.ledger_books, public.member_scopes,
+  public.period_locks, public.rpc_refs, public.audit_log from service_role;
+revoke update, delete on table public.audit_log from service_role;
 
 -- قائمة السماح لـauthenticated (نسختها بـsupabase/tests/allowlist.json، والحزمة تثبت التطابق بالضبط).
 grant execute on function
@@ -722,6 +869,9 @@ grant execute on function
   public.my_workspace(),
   public.create_my_org(text, text),
   public.add_member(text, text, text, uuid[]),
+  public.accept_invite(uuid),
+  public.decline_invite(uuid),
+  public.leave_my_org(),
   public.set_member_role(uuid, text),
   public.set_member_scopes(uuid, uuid[]),
   public.archive_member(uuid),

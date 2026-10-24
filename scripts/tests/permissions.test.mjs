@@ -20,6 +20,8 @@ const TABLE = [
   { actions: ['party.offset'], roles: ['owner'] },
   // كلمة المالك 2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس».
   { actions: ['members.manage'], roles: ['owner'] },
+  // كلمة المالك 2026-10-25: «فتح فترة مقفلة: المالك بس».
+  { actions: ['period.unlock'], roles: ['owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

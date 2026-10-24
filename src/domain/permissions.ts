@@ -61,6 +61,8 @@ export const ACTIONS = [
   // المالك بس (كلمته 2026-10-24: «المقاصّة للمالك بس»؛ و2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس»)
   'party.offset',
   'members.manage',
+  // فتح فترة مقفلة (إرجاع القفل للخلف): كلمة المالك 2026-10-25.
+  'period.unlock',
   // الكل
   'read',
 ] as const;
@@ -96,7 +98,7 @@ const MANAGER_ONLY: readonly Action[] = [
   'period.lock',
 ];
 
-// المدير يقدر كل أفعال الأدوار التشغيلية بكل النطاق، والمحاسب ما يقدرها. party.offset وmembers.manage برّا كل منحة: المالك بس.
+// المدير يقدر كل أفعال الأدوار التشغيلية بكل النطاق، والمحاسب ما يقدرها. party.offset وmembers.manage وperiod.unlock برّا كل منحة: المالك بس.
 const GRANTS: Readonly<Record<Exclude<Role, 'owner'>, ReadonlySet<Action>>> = {
   manager: new Set<Action>([
     ...STOREKEEPER,

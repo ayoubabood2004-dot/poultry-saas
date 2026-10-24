@@ -20,14 +20,15 @@ export default async function (t, db) {
   t.ok(tables.length >= 8, `جداول public انقرت (${tables.length})`);
 
   // RLS + سياسة + مشغّل تدقيق بكل جدول (db-guard ٨٤٤).
-  const policies = (await q("select tablename, policyname, permissive, qual, with_check from pg_policies where schemaname = 'public'")).rows;
+  const policies = (await q("select tablename, policyname, permissive, cmd, roles::text[] as roles, qual, with_check from pg_policies where schemaname = 'public'")).rows;
   const audited = new Set(
     (await q("select c.relname from pg_trigger g join pg_class c on c.oid = g.tgrelid join pg_proc p on p.oid = g.tgfoid join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'private' and p.proname = 'audit_row' and not g.tgisinternal")).rows.map((r) => r.relname),
   );
   t.same(tables.filter((tb) => !tb.rls).map((tb) => tb.name), [], 'RLS مفعّل بكل جدول');
   t.same(tables.filter((tb) => !NO_POLICY.has(tb.name) && !policies.some((p) => p.tablename === tb.name)).map((tb) => tb.name), [], 'سياسة بكل جدول (عدا المسمّاة)');
   t.same(tables.filter((tb) => !NO_AUDIT.has(tb.name) && !audited.has(tb.name)).map((tb) => tb.name), [], 'مشغّل تدقيق بكل جدول (عدا المسمّاة)');
-  t.same(policies.filter((p) => /(insert|update|delete|all)/i.test(p.policyname)).map((p) => p.policyname), [], 'ماكو سياسة كتابة بالمرحلة 0');
+  t.same(policies.filter((p) => p.cmd !== 'SELECT').map((p) => `${p.policyname} (${p.cmd})`), [], 'ماكو سياسة كتابة: كل السياسات SELECT');
+  t.same(policies.filter((p) => p.roles.join() !== 'authenticated').map((p) => p.policyname), [], 'كل سياسة لـauthenticated بس');
 
   // auth_org() بالسياسة دائماً (select …) حتى تنحسب مرّة وحدة مو لكل صفّ (db-guard ٨٤٤).
   const exprs = policies.flatMap((p) => [p.qual, p.with_check].filter(Boolean));
@@ -104,15 +105,71 @@ export default async function (t, db) {
   const privateUsage = (await q("select has_schema_privilege('authenticated', 'private', 'usage') as auth, has_schema_privilege('anon', 'private', 'usage') as anon")).rows[0];
   t.same(privateUsage, { auth: false, anon: false }, 'المخطّط private بلا usage للواجهة');
 
-  // الكتابة من الدوالّ بس (write-lock-check ٨٦٠)، وanon ما يقرأ شي، وTRUNCATE ما ينطى لأحد.
-  const privileges = (await q(`
-    select c.relname as name,
-      has_table_privilege('authenticated', c.oid, 'insert') or has_table_privilege('authenticated', c.oid, 'update')
-        or has_table_privilege('authenticated', c.oid, 'delete') or has_table_privilege('authenticated', c.oid, 'truncate') as auth_writes,
-      has_table_privilege('anon', c.oid, 'select') or has_table_privilege('anon', c.oid, 'insert') as anon_any
-    from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'`)).rows;
-  t.same(privileges.filter((p) => p.auth_writes).map((p) => p.name), [], 'authenticated ما يكتب مباشرةً بأي جدول');
-  t.same(privileges.filter((p) => p.anon_any).map((p) => p.name), [], 'anon ما يلمس أي جدول');
+  // الكتابة من الدوالّ بس (write-lock-check ٨٦٠): كل امتياز بكل جدول لكل دور، مو عيّنة. authenticated يقرأ بس (rpc_refs
+  // ولا هذا)، anon ولا شي، وservice_role يبقى إداري بلا TRUNCATE، وبلا تعديل أو حذف بالسجلّ.
+  const PRIVILEGES = ['select', 'insert', 'update', 'delete', 'truncate', 'references', 'trigger'];
+  const granted = (await q(`
+    select c.relname as name, r.role, p.privilege
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['anon', 'authenticated', 'service_role']) as r(role)
+    cross join unnest($1::text[]) as p(privilege)
+    where n.nspname = 'public' and c.relkind = 'r' and has_table_privilege(r.role, c.oid, p.privilege)`, [PRIVILEGES])).rows;
+  const has = (role, filter) => granted.filter((g) => g.role === role && filter(g)).map((g) => `${g.name}.${g.privilege}`).sort();
+  t.same(has('anon', () => true), [], 'anon بلا أي امتياز بأي جدول');
+  t.same(has('authenticated', (g) => g.privilege !== 'select'), [], 'authenticated ما يكتب ولا يمسح ولا يربط مباشرةً بأي جدول');
+  t.same(has('authenticated', (g) => g.privilege === 'select'), tables.map((tb) => `${tb.name}.select`).filter((x) => x !== 'rpc_refs.select').sort(), 'authenticated يقرأ كل جدول بسياسته، عدا rpc_refs');
+  t.same(has('service_role', (g) => g.privilege === 'truncate'), [], 'service_role بلا TRUNCATE بأي جدول');
+  t.same(has('service_role', (g) => g.name === 'audit_log' && ['update', 'delete'].includes(g.privilege)), [], 'service_role ما يعدّل السجلّ ولا يحذف منه');
+  t.ok(has('service_role', (g) => g.privilege === 'select').length === tables.length, 'ضابط: service_role يقرأ كل جدول (الفحص يشوف امتيازاته)');
+
+  // مشغّلات التدقيق: بعد كل إدخال وتعديل وحذف لكل صفّ (tgtype: ROW 1، BEFORE 2، INSERT 4، DELETE 8، UPDATE 16،
+  // TRUNCATE 32). السجلّ نفسه: قبل التعديل والحذف لكل صفّ، وقبل TRUNCATE للأمر كله.
+  const triggers = (await q(`
+    select c.relname as tbl, g.tgname as name, p.proname as fn, g.tgtype::int as type, g.tgenabled as enabled
+    from pg_trigger g join pg_class c on c.oid = g.tgrelid join pg_namespace n on n.oid = c.relnamespace join pg_proc p on p.oid = g.tgfoid
+    where n.nspname = 'public' and not g.tgisinternal`)).rows;
+  t.same(triggers.filter((g) => g.enabled !== 'O').map((g) => g.name), [], 'كل المشغّلات مفعّلة');
+  t.same(triggers.filter((g) => g.fn === 'audit_row' && g.type !== 1 + 4 + 8 + 16).map((g) => `${g.name}=${g.type}`), [], 'التدقيق بعد الإدخال والتعديل والحذف لكل صفّ');
+  t.same(
+    triggers.filter((g) => g.tbl === 'audit_log' && g.fn === 'reject_change').map((g) => g.type).sort((a, b) => a - b),
+    [1 + 2 + 8 + 16, 2 + 32],
+    'السجلّ يرفض التعديل والحذف لكل صفّ وTRUNCATE للأمر',
+  );
+
+  // الأعمدة المشتركة (FOUNDATION ٢٤٠): كل جدول مستأجر بـid وorg_id بافتراض auth_org() وcreated_at وcreated_by وunique (org_id, id).
+  // استثناءات مسمّاة: orgs بلا org_id (هي المنشأة)، وaudit_log (المنشأة من الصفّ المدقَّق، وactor/at، وما يصير هدف مفتاح).
+  const columns = (await q(`
+    select c.relname as tbl, a.attname as col, format_type(a.atttypid, a.atttypmod) as type, a.attnotnull as notnull,
+      pg_get_expr(d.adbin, d.adrelid) as def
+    from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+    where n.nspname = 'public' and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped`)).rows;
+  const col = (tbl, name) => columns.find((x) => x.tbl === tbl && x.col === name);
+  const COMMON = {
+    id: (x) => x.type === 'uuid' && x.notnull && x.def === 'gen_random_uuid()',
+    org_id: (x) => x.type === 'uuid' && x.notnull && x.def === 'auth_org()',
+    created_at: (x) => x.type === 'timestamp with time zone' && x.notnull && x.def === 'now()',
+    created_by: (x) => x.type === 'uuid' && x.def === 'auth.uid()',
+  };
+  const uniques = (await q("select conrelid::regclass::text as tbl, pg_get_constraintdef(oid) as def from pg_constraint where contype = 'u' and connamespace = 'public'::regnamespace")).rows;
+  const commonTables = tables.map((tb) => tb.name).filter((name) => !['orgs', 'audit_log'].includes(name));
+  t.ok(commonTables.length >= 6, `جداول بالأعمدة المشتركة (${commonTables.length})`);
+  const missing = [];
+  for (const tbl of commonTables) {
+    for (const [name, okay] of Object.entries(COMMON)) if (!col(tbl, name) || !okay(col(tbl, name))) missing.push(`${tbl}.${name}`);
+    if (!uniques.some((u) => u.tbl === tbl && u.def === 'UNIQUE (org_id, id)')) missing.push(`${tbl}: unique (org_id, id)`);
+  }
+  for (const name of ['id', 'created_at', 'created_by']) if (!COMMON[name](col('orgs', name))) missing.push(`orgs.${name}`);
+  t.same(missing, [], 'الأعمدة المشتركة بكل جدول مستأجر (عدا المسمّاة)');
+  const scopeIndex = (await q("select pg_get_indexdef(indexrelid) as def from pg_index where indexrelid = 'public.member_scopes_member_division'::regclass")).rows[0]?.def ?? '';
+  t.ok(/UNIQUE INDEX .* \(org_id, member_id, division_id\) WHERE \(division_id IS NOT NULL\)/.test(scopeIndex), `نطاق (عضو، وحدة) فريد إذا الوحدة موجودة (${scopeIndex})`);
+
+  // ماكو مفتاح يمسح أو يفرّغ بالتسلسل (لا حذف لسطر)، والعضو ما ينحذف حسابه من Auth (restrict صريح).
+  const deletes = (await q(`
+    select c.conrelid::regclass::text as tbl, c.conname, c.confrelid::regclass::text as ref, c.confdeltype as on_delete
+    from pg_constraint c where c.contype = 'f' and c.connamespace = 'public'::regnamespace`)).rows;
+  t.same(deletes.filter((fk) => !['a', 'r'].includes(fk.on_delete)).map((fk) => `${fk.tbl}.${fk.conname}`), [], 'ماكو on delete cascade أو set null');
+  t.same(deletes.filter((fk) => fk.ref === 'auth.users').map((fk) => [fk.tbl, fk.on_delete]), [['members', 'r']], 'members→auth.users بـon delete restrict');
 
   // الافتراضي للجاي: جدول ودالّة جديدة من postgres تنشأ مسدودة، مو مفتوحة مثل قالب Supabase.
   const future = await db.asOwner(async (oq) => {
