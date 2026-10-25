@@ -17,3 +17,13 @@ export function normalizePhone(input: string): string | null {
   // الموبايل العراقي: 7 وبعده تسع مراتب (زين 078/079، آسياسيل 077، كورك 075).
   return /^7\d{9}$/.test(digits) ? `964${digits}` : null;
 }
+
+// الدخول بلا SMS: الحساب بريد «الرقم@phone.login» (DECISIONS 2026-10-25). الخادم يعدّ الرقم من الشكل الموحّد بس
+// (private.account_phone بالهجرة 0002)، فشاشة التسجيل والدخول تبني البريد من هنا وحده، وحزمة بوستغريس تطابقهم.
+export const PHONE_LOGIN_DOMAIN = 'phone.login';
+
+/** «0770 123 4567» ← «9647701234567@phone.login»، والرقم الغلط ← null (ما ينبني بريد منه). */
+export function loginEmail(input: string): string | null {
+  const phone = normalizePhone(input);
+  return phone ? `${phone}@${PHONE_LOGIN_DOMAIN}` : null;
+}

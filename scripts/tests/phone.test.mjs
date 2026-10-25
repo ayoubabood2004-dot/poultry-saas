@@ -39,4 +39,9 @@ export const PHONE_CASES = [
 export default async function (t) {
   const p = await loadSrc('src/domain/phone.ts');
   for (const [input, expected] of PHONE_CASES) t.eq(p.normalizePhone(input), expected, `«${input}»`);
+  // بريد الدخول: الشكل الموحّد بس، والغلط ما يبني بريداً.
+  t.eq(p.loginEmail('0770 123 4567'), '9647701234567@phone.login', 'بريد الدخول من الرقم الموحّد');
+  t.eq(p.loginEmail('٠٧٧٠١٢٣٤٥٦٧'), '9647701234567@phone.login', 'بريد الدخول من الأرقام الشرقية');
+  t.eq(p.loginEmail('12345'), null, 'رقم غلط ما يبني بريداً');
+  t.eq(p.PHONE_LOGIN_DOMAIN, 'phone.login', 'نطاق الدخول');
 }

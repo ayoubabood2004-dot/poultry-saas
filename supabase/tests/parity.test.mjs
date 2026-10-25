@@ -39,6 +39,16 @@ export default async function (t, db) {
   t.eq(phones.length, PHONE_CASES.length, `حالات الهاتف انفحصت (${PHONE_CASES.length})`);
   t.same(phoneMismatch, [], 'تطبيع الهاتف نفسه بالخادم والشاشة');
 
+  // بريد الدخول اللي تبنيه الشاشة (loginEmail) هو الشكل الوحيد اللي يعدّه الخادم رقماً (0002)، والنطاق نفسه بالطرفين.
+  t.eq((await db.admin('select private.phone_login_domain() as d')).rows[0].d, phone.PHONE_LOGIN_DOMAIN, 'نطاق الدخول نفسه بالطرفين');
+  const wanted = new Map(PHONE_CASES.map(([input]) => [phone.loginEmail(input), phone.normalizePhone(input)]).filter(([email]) => email));
+  const counted = (await db.admin(
+    'select x.email, private.account_phone(null, x.email) as got from unnest($1::text[]) as x(email)',
+    [[...wanted.keys()]],
+  )).rows;
+  t.ok(counted.length >= 3, `حالات بريد الدخول المختلفة (${counted.length})`);
+  t.same(counted.filter((row) => row.got !== wanted.get(row.email)).map((row) => `${row.email}: ${row.got}`), [], 'بريد loginEmail يُعدّ رقمه نفسه بالخادم');
+
   // كل حرف بـBMP (عدا الصفر والبدائل) بأوّل الرقم وبنصّه: الفراغ والفاصل والرقم الشرقي ينقرا نفسه بالطرفين، مو
   // بس الحالات اللي خطرت على البال. الصفر ما ينخزن بـtext أصلاً.
   const sweep = [];
@@ -69,7 +79,7 @@ export default async function (t, db) {
       members.push({ role, scope, id: `d0000000-0000-4000-8000-${String(n + 1).padStart(12, '0')}`, phone: `96477030000${String(n).padStart(2, '0')}` });
     }
   });
-  for (const m of members) await db.admin('insert into auth.users (id, phone) values ($1, $2)', [m.id, m.phone]);
+  for (const m of members) await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [m.id, m.phone]);
   const [creator, ...rest] = members; // owner بلا نطاق ينشئ المنشأة
   await db.asUser(creator.id, (q) => q("select public.create_my_org('مزرعة التطابق', 'المالك')"), { commit: true });
   const org = (await db.admin("select id from public.orgs where name = 'مزرعة التطابق'")).rows[0].id;

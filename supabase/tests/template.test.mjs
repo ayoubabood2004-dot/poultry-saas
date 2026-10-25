@@ -69,4 +69,21 @@ export default async function (t, db) {
   // تعتمد على اللغة: قوائم حروف صريحة بالهاتف (مسح BMP بـparity)، وCOLLATE "C" بكل ترتيب نصّي يطلع للشاشة.
   const locale = (await db.admin('select datcollate, datctype from pg_database where datname = current_database()')).rows[0];
   t.same(locale, { datcollate: 'C', datctype: 'C' }, 'الحزمة بلغة C (غير الإنتاج عمداً؛ الشفرة ما تعتمد على أيّهما)');
+
+  // المنطقة الزمنية مثل الإنتاج (UTC، مقيس 2026-10-25)، مو منطقة الجهاز: على جهاز ببغداد كانت الحزمة تشتغل بتوقيت
+  // بغداد، فدالّة تستعمل current_date تعبر هنا وتغلط بالإنتاج ثلاث ساعات كل ليلة.
+  t.eq((await db.admin("select current_setting('TimeZone') as tz")).rows[0].tz, 'UTC', 'منطقة الحزمة الزمنية UTC مثل الإنتاج');
+  // ولا دور بمنطقة زمنية خاصّة (الإنتاج مقيس 2026-10-25: ماكو)؛ لو انضافت لـauthenticator تنطبق على كل طلب.
+  const zonedRoles = (await db.admin("select r.rolname from pg_db_role_setting s join pg_roles r on r.oid = s.setrole cross join unnest(s.setconfig) as c where lower(split_part(c, '=', 1)) = 'timezone'")).rows;
+  t.same(zonedRoles, [], 'ولا دور بمنطقة زمنية خاصّة مثل الإنتاج');
+
+  // حدود طريق الطلب مثل PostgREST: lock_timeout مال authenticator، وstatement_timeout مال الدور نفسه.
+  const limits = (q) => q("select current_setting('statement_timeout') as statement, current_setting('lock_timeout') as lock");
+  t.same((await db.asAnon(limits)).rows[0], { statement: '3s', lock: '8s' }, 'حدود anon بالطلب: 3s للاستعلام و8s للقفل');
+  t.same((await db.asUser(USER, limits)).rows[0], { statement: '8s', lock: '8s' }, 'حدود authenticated بالطلب: 8s و8s');
+  t.same((await db.asService(limits)).rows[0], { statement: '8s', lock: '8s' }, 'حدود service_role بالطلب: حدود authenticator');
+
+  // auth.users مثل الإنتاج: postgres عليه كل الامتيازات والقراءة بحقّ المنح (ar*wdDxtm)، والتأكيد محسوب.
+  const users = (await db.admin("select relacl::text as acl, (select attgenerated::text from pg_attribute where attrelid = 'auth.users'::regclass and attname = 'confirmed_at') as gen from pg_class where oid = 'auth.users'::regclass")).rows[0];
+  t.ok(users.acl.includes('postgres=ar*wdDxtm/supabase_auth_admin') && users.gen === 's', `auth.users مثل الإنتاج (${users.acl})`);
 }

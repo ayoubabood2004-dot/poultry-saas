@@ -34,23 +34,32 @@ create schema auth authorization supabase_admin;
 grant usage on schema auth to anon, authenticated, service_role, postgres;
 grant usage, create on schema auth to supabase_auth_admin;
 
--- auth.users بالأعمدة اللي ينبني عليها شي (الإنتاج بيه أكثر).
+-- auth.users بالأعمدة اللي ينبني عليها شي أو اللي تفرّق بين الحسابات (الإنتاج بيه أكثر)، بتعريفاتها بالإنتاج حرفياً
+-- (مقيس 2026-10-25 بعد رفع 0001): التأكيد والحظر وSSO والمجهول، والبريد فريد لغير SSO، والهاتف فريد.
 create table auth.users (
   id uuid primary key,
   aud varchar(255),
   role varchar(255),
   email varchar(255),
-  phone text unique,
+  phone text default null::character varying,
+  email_confirmed_at timestamptz,
+  phone_confirmed_at timestamptz,
+  confirmed_at timestamptz generated always as (least(email_confirmed_at, phone_confirmed_at)) stored,
+  banned_until timestamptz,
   raw_app_meta_data jsonb,
   raw_user_meta_data jsonb,
-  created_at timestamptz default now(),
+  created_at timestamptz,
   deleted_at timestamptz,
-  is_anonymous boolean not null default false
+  is_sso_user boolean not null default false,
+  is_anonymous boolean not null default false,
+  constraint users_phone_key unique (phone)
 );
--- مقيس 2026-10-25: auth.users ملك supabase_auth_admin، وpostgres عليه SELECT وTRIGGER وREFERENCES،
--- وauthenticated ما يقرأه. والهاتف فريد (users_phone_key).
+create unique index users_email_partial_key on auth.users (email) where (is_sso_user = false);
+-- ملك supabase_auth_admin، وpostgres عليه كل الامتيازات والقراءة بحقّ المنح (postgres=ar*wdDxtm بالإنتاج؛ القياس
+-- الأوّل كتب SELECT وTRIGGER وREFERENCES بس، والتحقّق بعد الرفع صحّحه)، وauthenticated ما يقرأه.
 alter table auth.users owner to supabase_auth_admin;
-grant select, trigger, references on auth.users to postgres;
+grant select on auth.users to postgres with grant option;
+grant insert, update, delete, truncate, references, trigger, maintain on auth.users to postgres;
 
 -- نفس تعريفات الإنتاج حرفياً.
 create or replace function auth.uid() returns uuid language sql stable as $$
@@ -79,10 +88,11 @@ $$;
 
 grant execute on function auth.uid(), auth.role(), auth.jwt() to anon, authenticated, service_role, postgres;
 
--- الامتيازات الافتراضية المقيسة: كل جدول ودالّة وتسلسل جديد بـpublic ينفتح لـanon وauthenticated.
-alter default privileges for role postgres in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges for role postgres in schema public grant execute on functions to anon, authenticated, service_role;
-alter default privileges for role postgres in schema public grant usage, select, update on sequences to anon, authenticated, service_role;
+-- الامتيازات الافتراضية المقيسة: كل جدول ودالّة وتسلسل جديد بـpublic ينفتح لـanon وauthenticated. بنفس ترتيب الإنتاج
+-- وبنفس صفّ postgres لنفسه (مقيس 2026-10-25 بعد رفع 0001: ملخّص الكتالوج بالطرفين واحد، snapshot.mjs).
+alter default privileges for role postgres in schema public grant all on tables to postgres, anon, authenticated, service_role;
+alter default privileges for role postgres in schema public grant execute on functions to postgres, anon, authenticated, service_role;
+alter default privileges for role postgres in schema public grant usage, select, update on sequences to postgres, anon, authenticated, service_role;
 alter default privileges for role supabase_admin in schema public grant all on tables to postgres, anon, authenticated, service_role;
 alter default privileges for role supabase_admin in schema public grant execute on functions to postgres, anon, authenticated, service_role;
 alter default privileges for role supabase_admin in schema public grant usage, select, update on sequences to postgres, anon, authenticated, service_role;

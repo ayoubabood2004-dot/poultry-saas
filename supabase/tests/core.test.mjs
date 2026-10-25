@@ -27,7 +27,7 @@ const ACCOUNT = {
   emailUser: { email: '9647701000006@phone.login' },
   aSpare: { phone: '9647701000007' },
   twinPhone: { phone: '9647701000008' },
-  twinEmail: { email: '07701000008@phone.login' },
+  twinEmail: { email: '9647701000008@phone.login' },
   gmailUser: { email: '9647701000010@gmail.com' },
   bOwner: { phone: '9647801000001' },
   bWorker: { phone: '9647801000002' },
@@ -48,7 +48,11 @@ const failure = async (promise) => {
 
 export default async function (t, db) {
   for (const [key, id] of Object.entries(U)) {
-    await db.admin('insert into auth.users (id, phone, email) values ($1, $2, $3)', [id, ACCOUNT[key].phone ?? null, ACCOUNT[key].email ?? null]);
+    // مؤكَّد مثل حساب حقيقي يقدر يدخل (0002: الحساب غير المؤكَّد ما ينلكى بالرقم).
+    await db.admin(
+      'insert into auth.users (id, phone, email, phone_confirmed_at, email_confirmed_at) values ($1, $2::text, $3::text, case when $2::text is not null then now() end, case when $3::text is not null then now() end)',
+      [id, ACCOUNT[key].phone ?? null, ACCOUNT[key].email ?? null],
+    );
   }
 
   // سيناريو بعدّة هويّات بمعاملة وحدة ترجع: as(user) يدخل كمستخدم، claims(user) يبدّل المطالبات بس (لدوالّ private بدور
@@ -162,7 +166,7 @@ export default async function (t, db) {
   await t.rejects(invite(U.aOwner, "select public.add_member('07709999999', 'boss', 'س')"), 'دور مو من الثمانية يرفض', /^invalid_role$/);
   await t.rejects(invite(U.aOwner, "select public.add_member('07701000007', 'viewer', 'س', array[$1]::uuid[])", [bBroiler]), 'نطاق بوحدة منشأة ثانية يرفض', /^division_not_found$/);
   await t.rejects(invite(U.aOwner, "select public.add_member('07709999999', 'viewer', 'س', array[$1]::uuid[])", [bBroiler]), 'الوحدات تنفحص قبل الرقم (رقم مجهول ما يتميّز)', /^division_not_found$/);
-  await t.rejects(invite(U.aOwner, "select public.add_member('07701000008', 'viewer', 'س')"), 'رقم بحسابين (عمود وبريد) يرفض ما يختار واحد بصمت', /^phone_ambiguous$/);
+  await t.rejects(invite(U.aOwner, "select public.add_member('07701000008', 'viewer', 'س')"), 'رقم بحسابين حيّين (عمود الهاتف وبريد الدخول) يرفض ما يختار واحد بصمت', /^phone_ambiguous$/);
   await t.rejects(invite(U.aOwner, "select public.add_member('07701000010', 'viewer', 'س')"), 'بريد بغير نطاق phone.login ما يُعدّ رقماً', /^user_not_found$/);
   const managerInvites = await failure(invite(U.aManager, "select public.add_member('07709999999', 'viewer', 'س')"));
   t.same([managerInvites.message, managerInvites.hint.includes('لمالك المنشأة')], ['forbidden', true], 'المدير ما يدعو موظفين (المالك بس)، والتلميح يكول منو');
@@ -418,4 +422,66 @@ export default async function (t, db) {
     'دفتر المفقس ما يصير main',
     /^book_code_mismatch$/,
   );
+
+  // ── طريق PostgREST: الدالّة STABLE أو IMMUTABLE تنفّذ بمعاملة للقراءة بس (GET وrpc للقراءة) ───────────────────────
+  // القائمة من الكتالوج (كل دالّة بقائمة السماح مو VOLATILE)، والمعاملات بقيم من نوعها. دالّة للقراءة تكتب شي تفشل هنا.
+  const readOnly = (await db.admin(`
+    select p.proname as name, oidvectortypes(p.proargtypes) as args
+    from pg_proc p where p.pronamespace = 'public'::regnamespace and p.provolatile <> 'v'
+      and has_function_privilege('authenticated', p.oid, 'execute') order by 1`)).rows;
+  t.ok(readOnly.length >= 8, `دوالّ للقراءة بقائمة السماح (${readOnly.map((f) => f.name).join('، ')})`);
+  // قيمة غير فارغة لكل نوع (STRICT ويّا NULL يرجع بلا ما يشتغل الجسم)، ونوع جديد بلا قيمة يفشل هنا مو يعبر بصمت.
+  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01' };
+  const unmapped = [...new Set(readOnly.flatMap((fn) => (fn.args ? fn.args.split(', ') : []).filter((type) => SAMPLE[type] == null)))];
+  t.same(unmapped, [], 'كل نوع معامل بدوالّ القراءة إله قيمة تجربة');
+  // بأكثر من هويّة حتى كل فرع ينفّذ: مالك، عامل بنطاق، بلا منشأة، ومالك منشأة ثانية.
+  const PERSONAS = [U.aOwner, U.aWorker, U.aSpare, U.bOwner];
+  const readOnlyFailures = [];
+  for (const fn of readOnly) {
+    const types = fn.args ? fn.args.split(', ') : [];
+    const call = `select public.${fn.name}(${types.map((type, i) => `$${i + 1}::${type}`).join(', ')})`;
+    for (const persona of PERSONAS) {
+      const result = await failure(
+        db.asUser(persona, async (q) => {
+          await q('set local transaction_read_only = on');
+          await q(call, types.map((type) => SAMPLE[type]));
+        }),
+      );
+      if (result.message !== 'ما رمى') readOnlyFailures.push(`${fn.name} (${persona}): ${result.message}`);
+    }
+  }
+  t.same(readOnlyFailures, [], `كل دالّة للقراءة تشتغل بمعاملة للقراءة بس (${readOnly.length} دالّة × ${PERSONAS.length} هويّات)`);
+  await t.rejects(
+    db.asUser(U.aOwner, async (q) => {
+      await q('set local transaction_read_only = on');
+      await q("select public.set_period_lock(date '2026-02-01')");
+    }),
+    'ضابط: دالّة تكتب ترفض بمعاملة للقراءة بس',
+    /read-only transaction/,
+  );
+
+  // ── «اليوم» ما يتغيّر بمنطقة الجلسة: PostgREST يقبل Prefer: timezone من أي عميل ────────────────────────────────
+  const zoned = async (zone) =>
+    db.asUser(U.aOwner, async (q) => {
+      await q(`set local timezone = '${zone}'`);
+      const today = await value(q, 'select public.app_today()::text');
+      return { today };
+    });
+  const zones = ['UTC', 'Etc/GMT+12', 'Pacific/Kiritimati', 'Asia/Baghdad'];
+  const days = [];
+  for (const zone of zones) days.push((await zoned(zone)).today); // اتصال واحد: المعاملات وحدة وحدة
+  t.same(new Set(days).size, 1, `app_today() نفسه بكل منطقة جلسة (${zones.map((z, i) => `${z}=${days[i]}`).join('، ')})`);
+  const datesByZone = [];
+  for (const zone of zones) {
+    datesByZone.push(
+      await scenario(async ({ q, claims, attempt }) => {
+        await q(`set local timezone = '${zone}'`);
+        await claims(U.aOwner);
+        const out = [];
+        for (const offset of [0, 7, 8, -1]) out.push(await attempt('select private.check_doc_date(public.app_today() - $1::int)', [offset]));
+        return out.join('،');
+      }),
+    );
+  }
+  t.same([...new Set(datesByZone)], ['ok،ok،date_too_old،date_in_future'], `حدّ الرجوع نفسه بكل منطقة جلسة (${zones.length})`);
 }

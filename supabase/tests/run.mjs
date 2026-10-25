@@ -2,6 +2,8 @@
 // (بلا تنصيب بالنظام)، بقالب Supabase المقيس على الإنتاج (bootstrap.sql)، والهجرات تنطبق مرّتين
 // بدور postgres (مو خارق، مثل الإنتاج)، وبعدها كل supabase/tests/*.test.mjs. البيانات بمجلّد مؤقّت ينمسح.
 // node supabase/tests/run.mjs [اسم…] ← يشغّل هذول الفحوص بس.
+// --digest ← بعد الهجرات يطبع ملخّص الكتالوج (snapshot.mjs) حتى ينقارن بالإنتاج، و--elements=قسم ← عناصر قسم بـmd5،
+// و--upto=0001 ← الهجرات لحد هالرقم بس (الإنتاج على إصدار أقدم من المستودع).
 import EmbeddedPostgres from 'embedded-postgres';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
@@ -10,6 +12,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHarness } from '../../scripts/tests/harness.mjs';
+import { DIGEST_SQL, elementsSql, snapshot, snapshotDiff } from './snapshot.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = path.join(DIR, '..', 'migrations');
@@ -37,6 +40,22 @@ export function migrationFiles() {
 
 const userClaims = (userId) => ({ sub: userId, role: 'authenticated' });
 
+// طريق الطلب مثل PostgREST: authenticator يدخل بحدوده (lock_timeout وstatement_timeout 8s)، وبعد set role تنطبق حدود
+// الدور (statement_timeout: anon 3s وauthenticated 8s). من pg_db_role_setting، المنسوخ من الإنتاج بـbootstrap.sql، ويُقرأ
+// قبل set role (الحدود محلّية للمعاملة، فترتيبها ويّا set role ما يأثّر).
+async function applyRequestLimits(query, role) {
+  if (!['anon', 'authenticated', 'service_role'].includes(role)) return;
+  const { rows } = await query(
+    `select split_part(c, '=', 1) as name, split_part(c, '=', 2) as value
+     from pg_db_role_setting s cross join unnest(s.setconfig) with ordinality as x(c, n)
+     where s.setdatabase = 0 and s.setrole in ('authenticator'::regrole, $1::regrole)
+       and split_part(c, '=', 1) in ('statement_timeout', 'lock_timeout')
+     order by s.setrole = $1::regrole, x.n`,
+    [role],
+  );
+  for (const { name, value } of rows) await query('select set_config($1, $2, true)', [name, value]);
+}
+
 /**
  * عميل بهويّة: كل استعلام بمعاملة تنتهي بتراجع (الفحص ما يسيب أثر)، بدور authenticated أو anon
  * ومطالبات JWT مثل PostgREST بالضبط (request.jwt.claims)، فـauth.uid() وRLS يشتغلون مثل الإنتاج.
@@ -49,6 +68,7 @@ export function makeDb(client, connect) {
     let ok = false;
     try {
       await client.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims ?? {})]);
+      await applyRequestLimits((text, params) => client.query(text, params), role);
       await client.query(`set local role ${role}`);
       const result = await fn((text, params) => client.query(text, params));
       ok = true;
@@ -68,6 +88,7 @@ export function makeDb(client, connect) {
     const pid = (await other.query('select pg_backend_pid() as pid')).rows[0].pid;
     await other.query('begin');
     await other.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(userClaims(userId))]);
+    await applyRequestLimits((text, params) => other.query(text, params), 'authenticated');
     await other.query('set local role authenticated');
     let open = true;
     // مرّة وحدة: بعد commit أو rollback الجلسة انسدّت، والنداء الثاني (finally بالفحص) ما يسوّي شي.
@@ -124,48 +145,6 @@ export function makeDb(client, connect) {
   };
 }
 
-// صورة الكتالوج اللي تصنعه الهجرات: الجداول وأعمدتها وقيودها وفهارسها وسياساتها ومشغّلاتها، والدوالّ بنصّها
-// وإعداداتها، والصلاحيات (الجداول والدوالّ والمخطّطات والافتراضية). بالأسماء والتعريفات، بلا oid.
-const SNAPSHOT_SQL = `
-with ns as (select oid, nspname from pg_namespace where nspname in ('public', 'private'))
-select jsonb_build_object(
-  'relations', (select jsonb_agg(jsonb_build_array(ns.nspname, c.relname, c.relkind, c.relrowsecurity, c.relacl::text, c.reloptions::text) order by 1)
-    from pg_class c join ns on ns.oid = c.relnamespace),
-  'columns', (select jsonb_agg(jsonb_build_array(c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid)) order by 1)
-    from pg_attribute a join pg_class c on c.oid = a.attrelid join ns on ns.oid = c.relnamespace
-    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
-    where a.attnum > 0 and not a.attisdropped),
-  'constraints', (select jsonb_agg(jsonb_build_array(c.conrelid::regclass::text, c.conname, pg_get_constraintdef(c.oid)) order by 1)
-    from pg_constraint c join ns on ns.oid = c.connamespace),
-  'indexes', (select jsonb_agg(pg_get_indexdef(i.indexrelid) order by 1)
-    from pg_index i join pg_class c on c.oid = i.indrelid join ns on ns.oid = c.relnamespace),
-  'policies', (select jsonb_agg(jsonb_build_array(tablename, policyname, permissive, roles::text, cmd, qual, with_check) order by 1)
-    from pg_policies where schemaname in ('public', 'private')),
-  'triggers', (select jsonb_agg(pg_get_triggerdef(g.oid) order by 1)
-    from pg_trigger g join pg_class c on c.oid = g.tgrelid join ns on ns.oid = c.relnamespace where not g.tgisinternal),
-  'functions', (select jsonb_agg(jsonb_build_array(ns.nspname, p.proname, oidvectortypes(p.proargtypes), md5(p.prosrc), p.prosecdef, p.provolatile, p.proconfig::text, p.proacl::text) order by 1)
-    from pg_proc p join ns on ns.oid = p.pronamespace),
-  'schemas', (select jsonb_agg(jsonb_build_array(nspname, nspacl::text) order by 1) from pg_namespace where nspname in ('public', 'private')),
-  'default_acl', (select jsonb_agg(jsonb_build_array(pg_get_userbyid(defaclrole), coalesce(n.nspname, ''), defaclobjtype, defaclacl::text) order by 1)
-    from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace)
-) as snapshot`;
-
-async function snapshot(client) {
-  return (await client.query(SNAPSHOT_SQL)).rows[0].snapshot;
-}
-
-/** الفروق بين صورتين، قسماً قسماً: كل عنصر بوحدة وما بالثانية. */
-export function snapshotDiff(before, after) {
-  const out = [];
-  for (const section of Object.keys({ ...before, ...after })) {
-    const a = new Set((before[section] ?? []).map((x) => JSON.stringify(x)));
-    const b = new Set((after[section] ?? []).map((x) => JSON.stringify(x)));
-    for (const x of a) if (!b.has(x)) out.push(`${section} −${x}`);
-    for (const x of b) if (!a.has(x)) out.push(`${section} +${x}`);
-  }
-  return out;
-}
-
 async function inRollback(client, fn) {
   await client.query('begin');
   try {
@@ -215,7 +194,10 @@ async function main() {
     process.exit(1);
   }
 
-  const only = process.argv.slice(2);
+  const flags = process.argv.slice(2).filter((arg) => arg.startsWith('--'));
+  const only = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+  const elements = flags.find((arg) => arg.startsWith('--elements='))?.slice('--elements='.length);
+  const upto = flags.find((arg) => arg.startsWith('--upto='))?.slice('--upto='.length);
   const port = await freePort();
   const dataDir = mkdtempSync(path.join(tmpdir(), 'poultry-pg-'));
   const errors = [];
@@ -226,6 +208,8 @@ async function main() {
     password: 'harness-only',
     persistent: false,
     initdbFlags: ['--encoding=UTF8', '--locale=C'],
+    // TimeZone مثل الإنتاج (UTC)، مو منطقة الجهاز (template.test يثبتها).
+    postgresFlags: ['-c', 'TimeZone=UTC'],
     onLog: () => {},
     onError: (message) => errors.push(String(message)),
   });
@@ -242,21 +226,42 @@ async function main() {
     await client.query(readFileSync(path.join(DIR, 'bootstrap.sql'), 'utf8'));
     await assertTemplateOpen(client);
 
-    const files = migrationFiles();
+    const files = migrationFiles().filter((name) => !upto || name.slice(0, 4) <= upto);
     // مرّتين: الهجرة اللي ما تنعاد بأمان تكسر أوّل إعادة نشر، والمرّة الثانية لازم ما تغيّر الكتالوج.
     await applyMigrations(client, files, 1);
     const first = await snapshot(client);
     await applyMigrations(client, files, 2);
     const drift = snapshotDiff(first, await snapshot(client));
     if (drift.length) throw new Error(`المرّة الثانية غيّرت الكتالوج:\n    ${drift.slice(0, 10).join('\n    ')}`);
-    // الصورة نفسها تمسك التغيير: تعديل صغير بمعاملة ترجع لازم يبين.
-    const probeDrift = await inRollback(client, async () => {
-      await client.query('set local role postgres');
-      await client.query('alter function public.app_today() set statement_timeout = 1000');
-      return snapshotDiff(first, await snapshot(client));
-    });
-    if (probeDrift.length === 0) throw new Error('صورة الكتالوج ما مسكت تعديل الضابط: مقارنة المرّتين ما تنصدّق');
-    console.log(`✓ القالب مفتوح قبل الهجرات مثل الإنتاج، و${files.length} هجرة انطبقت مرّتين بلا فرق بالكتالوج`);
+    // الصورة نفسها تمسك كل نوع تغيير: كل ضابط بمعاملة ترجع لازم يبين (المراجعة العدائية لـ0002: كانت تعبر
+    // تعطيل مشغّل، وSTRICT، وافتراض معامل، ومنح عمود، وFORCE RLS، وNULL مقابل '{}').
+    const PROBES = [
+      'alter function public.app_today() set statement_timeout = 1000',
+      'alter table public.audit_log disable trigger audit_log_append_only',
+      'alter function private.account_phone(text, text) strict',
+      'alter function public.can_see_cost() parallel safe',
+      'grant select (id) on public.orgs to anon',
+      'alter table public.orgs force row level security',
+      'alter table public.orgs owner to service_role',
+      // افتراض المعامل وحده (نفس الجسم): p_costs_confirmed default true يقلب مشغّل المعمل.
+      "do $$ begin execute replace(pg_get_functiondef('private.role_can(text, text, boolean)'::regprocedure), 'DEFAULT false', 'DEFAULT true'); end $$",
+    ];
+    const blind = [];
+    for (const probe of PROBES) {
+      const probeDrift = await inRollback(client, async () => {
+        await client.query(probe);
+        return snapshotDiff(first, await snapshot(client));
+      });
+      if (probeDrift.length === 0) blind.push(probe);
+    }
+    if (blind.length) throw new Error(`صورة الكتالوج ما مسكت ${blind.length} ضابط — المقارنة ما تنصدّق:\n    ${blind.join('\n    ')}`);
+    console.log(`✓ القالب مفتوح قبل الهجرات مثل الإنتاج، و${files.length} هجرة انطبقت مرّتين بلا فرق بالكتالوج، والصورة مسكت ${PROBES.length} ضوابط تغيير`);
+
+    if (flags.includes('--digest') || elements) {
+      const rows = (await client.query(elements ? elementsSql(elements) : DIGEST_SQL)).rows;
+      console.log(JSON.stringify(rows, null, 1));
+      return;
+    }
 
     const db = makeDb(client, connect);
     for (const file of readdirSync(DIR)

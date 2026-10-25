@@ -14,7 +14,7 @@ const PHONE = { owner: '9647702000001', owner2: '9647702000002', manager1: '9647
 const value = async (q, sql, params) => Object.values((await q(sql, params)).rows[0] ?? {})[0];
 
 export default async function (t, db) {
-  for (const [key, id] of Object.entries(U)) await db.admin('insert into auth.users (id, phone) values ($1, $2)', [id, PHONE[key]]);
+  for (const [key, id] of Object.entries(U)) await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [id, PHONE[key]]);
   await db.asUser(U.owner, (q) => q("select public.create_my_org('مزرعة التزامن', 'المالك')"), { commit: true });
   const invites = await db.asUser(
     U.owner,
