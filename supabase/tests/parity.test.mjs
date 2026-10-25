@@ -87,7 +87,7 @@ export default async function (t, db) {
   for (const m of rest) {
     const invite = await db.asUser(creator.id, (q) => q('select public.add_member($1, $2, $3, $4::uuid[]) as id', [m.phone, m.role, m.role, m.scope === 'none' ? [] : [divisions.broiler]]), { commit: true });
     if (m.scope === 'archived') await db.asUser(creator.id, (q) => q("select public.set_member_scopes($1, '{}')", [invite.rows[0].id]), { commit: true });
-    await db.asUser(m.id, (q) => q('select public.accept_invite($1)', [invite.rows[0].id]), { commit: true });
+    await db.acceptInvite(creator.id, m.id, invite.rows[0].id);
   }
   const actionCells = p.ACTIONS.flatMap((action) => [false, true].map((confirmed) => ({ action, confirmed })));
   const memberMismatch = [];

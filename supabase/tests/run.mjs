@@ -140,6 +140,11 @@ export function makeDb(client, connect) {
     asOwner: (fn, userId) => inRole('postgres', userId ? userClaims(userId) : {}, fn),
     /** بمفتاح الخادم (service_role): يتجاوز RLS مثل الإنتاج. */
     asService: (fn) => inRole('service_role', { role: 'service_role' }, fn),
+    /** المالك يصدر رمز الدعوة والمدعوّ يقبل بيه (0003)، والاثنين يثبتون. يرجّع my_workspace() مال المدعوّ. */
+    acceptInvite: async (ownerId, userId, memberId) => {
+      const code = await inRole('authenticated', userClaims(ownerId), async (q) => (await q('select public.invite_code($1) as code', [memberId])).rows[0].code, { commit: true });
+      return inRole('authenticated', userClaims(userId), async (q) => (await q('select public.accept_invite_code($1, $2) as w', [memberId, code])).rows[0].w, { commit: true });
+    },
     session,
     settle,
   };

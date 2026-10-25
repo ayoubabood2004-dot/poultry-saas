@@ -139,11 +139,11 @@ export default async function (t, db) {
     one(q, "select public.auth_org() as org, (select count(*)::int from public.members) as members, public.in_scope_division($1) as scope, public.can('flock_day.save') as can", [aBroiler]),
   );
   t.same(beforeAccept, { org: null, members: 0, scope: false, can: false }, 'الدعوة ما تنطي أي وصول قبل القبول');
-  await t.rejects(db.asUser(U.aManager, (q) => q('select public.accept_invite($1)', [invited.aWorker])), 'دعوة غيره ما يقبلها', /^invite_not_found$/);
+  await t.rejects(db.asUser(U.aManager, (q) => q("select public.accept_invite_code($1, '000000')", [invited.aWorker])), 'دعوة غيره ما يقبلها', /^invite_not_found$/);
   for (const key of Object.keys(invited)) {
-    await db.asUser(U[key], (q) => q('select public.accept_invite($1)', [invited[key]]), { commit: true });
+    await db.acceptInvite(U.aOwner, U[key], invited[key]);
   }
-  await t.rejects(db.asUser(U.aWorker, (q) => q('select public.accept_invite($1)', [invited.aWorker])), 'الدعوة المقبولة ما تنقبل مرّة ثانية', /^invite_not_found$/);
+  await t.rejects(db.asUser(U.aWorker, (q) => q("select public.accept_invite_code($1, '000000')", [invited.aWorker])), 'الدعوة المقبولة ما تنقبل مرّة ثانية', /^invite_not_found$/);
   const acceptActor = await db.admin(
     "select actor from public.audit_log where table_name = 'members' and op = 'update' and row_id = $1 and old ->> 'accepted_at' is null and new ->> 'accepted_at' is not null",
     [invited.aWorker],
@@ -176,16 +176,17 @@ export default async function (t, db) {
   const crossInvite = await db.asUser(U.aOwner, (q) => value(q, "select public.add_member('07801000001', 'viewer', 'ضيف')"), { commit: true });
   const bPending = await db.asUser(U.bOwner, (q) => value(q, 'select public.my_workspace()'));
   t.same([bPending.org_name, bPending.invites.map((i) => i.org_name)], ['مزرعة النور', ['مزرعة الأمل']], 'عضو منشأة ب يشوف دعوة أ ويبقى بمنشأته');
-  const crossAccept = await failure(db.asUser(U.bOwner, (q) => q('select public.accept_invite($1)', [crossInvite])));
+  const crossCode = await db.asUser(U.aOwner, (q) => value(q, 'select public.invite_code($1)', [crossInvite]), { commit: true });
+  const crossAccept = await failure(db.asUser(U.bOwner, (q) => q('select public.accept_invite_code($1, $2)', [crossInvite, crossCode])));
   t.same([crossAccept.message, crossAccept.hint.includes('مزرعة النور')], ['already_member', true], 'ما يقبل وهو عضو بمنشأة ثانية، والتلميح يسمّيها');
   await db.asUser(U.bOwner, (q) => q('select public.decline_invite($1)', [crossInvite]), { commit: true });
   t.same((await db.asUser(U.bOwner, (q) => value(q, 'select public.my_workspace()'))).invites, [], 'الدعوة المرفوضة تختفي');
-  await t.rejects(db.asUser(U.bOwner, (q) => q('select public.accept_invite($1)', [crossInvite])), 'المرفوضة ما تنقبل', /^invite_not_found$/);
+  await t.rejects(db.asUser(U.bOwner, (q) => q('select public.accept_invite_code($1, $2)', [crossInvite, crossCode])), 'المرفوضة ما تنقبل حتى برمزها', /^invite_not_found$/);
   t.eq(await db.asUser(U.aOwner, (q) => value(q, "select public.add_member('07801000001', 'viewer', 'ضيف')")), crossInvite, 'إعادة الدعوة بعد الرفض بنفس المعرّف');
 
   // ── تجهيز منشأة ب حتى يصير بكل جدول صفوف للطرفين ──────────────────────────────────────────────────────────
   const bInvite = await db.asUser(U.bOwner, (q) => value(q, "select public.add_member('07801000002', 'hall_worker', 'عامل ب', array[$1]::uuid[])", [bBroiler]), { commit: true });
-  await db.asUser(U.bWorker, (q) => q('select public.accept_invite($1)', [bInvite]), { commit: true });
+  await db.acceptInvite(U.bOwner, U.bWorker, bInvite);
   for (const owner of [U.aOwner, U.bOwner]) await db.asUser(owner, (q) => q("select public.set_period_lock(date '2026-01-31')"), { commit: true });
 
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
@@ -292,8 +293,9 @@ export default async function (t, db) {
     const after = await value(q, 'select public.my_workspace()');
     await as(U.aOwner);
     const reinvited = await value(q, "select public.add_member('07701000004', 'viewer', 'المشاهد')");
+    const code = await value(q, 'select public.invite_code($1)', [reinvited]);
     await as(U.aViewer);
-    const back = await value(q, 'select public.accept_invite($1)', [reinvited]);
+    const back = await value(q, 'select public.accept_invite_code($1, $2)', [reinvited, code]);
     return [left, after.org_id, reinvited, back.role];
   });
   t.same(leaving, ['ok', null, invited.aViewer, 'viewer'], 'المشاهد يطلع بنفسه، ويرجع بدعوة جديدة بنفس المعرّف');
@@ -308,8 +310,9 @@ export default async function (t, db) {
     const outside = (await value(q, 'select public.my_workspace()')).org_id;
     await as(U.aOwner);
     const reinvited = await value(q, "select public.add_member('07701000002', 'hall_worker', 'أبو حسين', array[$1]::uuid[])", [aLayer]);
+    const code = await value(q, 'select public.invite_code($1)', [reinvited]);
     await as(U.aWorker);
-    await q('select public.accept_invite($1)', [reinvited]);
+    await q('select public.accept_invite_code($1, $2)', [reinvited, code]);
     const back = await one(q, 'select public.in_scope_division($1) as broiler, public.in_scope_division($2) as layer', [aBroiler, aLayer]);
     return [scopes, actor, orphans, outside, reinvited, back];
   });

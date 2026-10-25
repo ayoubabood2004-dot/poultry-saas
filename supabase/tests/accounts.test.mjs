@@ -127,7 +127,7 @@ export default async function (t, db) {
     }),
     { commit: true },
   );
-  for (const key of ['fOwner2', 'fManager']) await db.asUser(U[key], (q) => q('select public.accept_invite($1)', [fInvites[key]]), { commit: true });
+  for (const key of ['fOwner2', 'fManager']) await db.acceptInvite(U.fOwner, U[key], fInvites[key]);
   const fOrg = (await db.admin("select id from public.orgs where name = 'مزرعة الإيقاف'")).rows[0].id;
   const fMember = async (user) => (await db.admin('select id from public.members where org_id = $1 and user_id = $2', [fOrg, user])).rows[0].id;
   const fOwner2Member = await fMember(U.fOwner2);
@@ -186,7 +186,7 @@ export default async function (t, db) {
     );
     t.same(
       await withAccount(U.fInvitee, change, U.fInvitee, [
-        ['accept', 'select public.accept_invite($1)', [fInvites.fInvitee]],
+        ['accept', "select public.accept_invite_code($1, '000000')", [fInvites.fInvitee]],
         ['decline', 'select public.decline_invite($1)', [fInvites.fInvitee]],
       ]),
       { accept: 'not_signed_in', decline: 'not_signed_in' },

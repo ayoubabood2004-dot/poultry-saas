@@ -45,7 +45,7 @@ export default async function (t, db) {
           and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] = c.conkey
       ) as indexed
     from pg_constraint c join pg_namespace n on n.oid = c.connamespace
-    where c.contype = 'f' and n.nspname = 'public'`)).rows;
+    where c.contype = 'f' and n.nspname in ('public', 'private')`)).rows;
   t.ok(fks.length >= 8, `مفاتيح أجنبية انقرت (${fks.length})`);
   t.same(fks.filter((fk) => !fk.indexed).map((fk) => `${fk.tbl}.${fk.conname}`), [], 'فهرس كامل لكل مفتاح أجنبي');
 
@@ -55,7 +55,7 @@ export default async function (t, db) {
       (select array_agg(a.attname::text order by k.ord) from unnest(c.conkey) with ordinality k(attnum, ord)
         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)::text[] as cols
     from pg_constraint c join pg_namespace n on n.oid = c.connamespace
-    where c.contype = 'f' and n.nspname = 'public'
+    where c.contype = 'f' and n.nspname in ('public', 'private')
       and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid and a.attname = 'org_id' and not a.attisdropped)`)).rows;
   t.ok(tenantFks.length >= 3, `مفاتيح بين جداول مستأجرة (${tenantFks.length})`);
   t.same(tenantFks.filter((fk) => fk.cols[0] !== 'org_id').map((fk) => `${fk.tbl}→${fk.ref}`), [], 'كل مفتاح بين مستأجرين يبدأ بـorg_id');
@@ -167,9 +167,9 @@ export default async function (t, db) {
   // ماكو مفتاح يمسح أو يفرّغ بالتسلسل (لا حذف لسطر)، والعضو ما ينحذف حسابه من Auth (restrict صريح).
   const deletes = (await q(`
     select c.conrelid::regclass::text as tbl, c.conname, c.confrelid::regclass::text as ref, c.confdeltype as on_delete
-    from pg_constraint c where c.contype = 'f' and c.connamespace = 'public'::regnamespace`)).rows;
+    from pg_constraint c where c.contype = 'f' and c.connamespace in ('public'::regnamespace, 'private'::regnamespace)`)).rows;
   t.same(deletes.filter((fk) => !['a', 'r'].includes(fk.on_delete)).map((fk) => `${fk.tbl}.${fk.conname}`), [], 'ماكو on delete cascade أو set null');
-  t.same(deletes.filter((fk) => fk.ref === 'auth.users').map((fk) => [fk.tbl, fk.on_delete]), [['members', 'r']], 'members→auth.users بـon delete restrict');
+  t.same(deletes.filter((fk) => fk.ref === 'auth.users').map((fk) => [fk.tbl, fk.on_delete]).sort(), [['members', 'r'], ['private.invite_blocks', 'r']], 'كل مفتاح لـauth.users بـon delete restrict (الأعضاء والحظر)');
 
   // الافتراضي للجاي: جدول ودالّة جديدة من postgres تنشأ مسدودة، مو مفتوحة مثل قالب Supabase.
   const future = await db.asOwner(async (oq) => {
@@ -184,6 +184,11 @@ export default async function (t, db) {
   t.same(future, { anon_select: false, auth_insert: false, auth_execute: false, anon_execute: false }, 'الجديد ينشأ مسدوداً (الافتراضي انسحب)');
 
   // ماكو view بـpublic: الـview يتجاوز RLS إلا ويّا security_invoker (FOUNDATION ما يذكرها؛ القاعدة مانعة).
+  // جداول private (أسرار الدعوة والحظر): RLS مفعّل، والواجهة ما تقراها ولا تكتبها، وanon ولا شي.
+  const privateTables = (await q("select c.relname as name, c.relrowsecurity as rls, has_table_privilege('authenticated', c.oid, 'select, insert, update, delete') as auth_any, has_table_privilege('anon', c.oid, 'select, insert, update, delete') as anon_any from pg_class c where c.relnamespace = 'private'::regnamespace and c.relkind = 'r' order by 1")).rows;
+  t.ok(privateTables.length >= 2, `جداول private انقرت (${privateTables.map((r) => r.name).join('، ')})`);
+  t.same(privateTables.filter((r) => !r.rls || r.auth_any || r.anon_any).map((r) => r.name), [], 'جداول private: RLS، وبلا وصول للواجهة');
+
   const views = (await q("select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('v', 'm') and not coalesce(c.reloptions @> array['security_invoker=true'], false)")).rows;
   t.same(views, [], 'ماكو view يتجاوز RLS');
 }

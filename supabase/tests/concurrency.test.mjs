@@ -27,7 +27,7 @@ export default async function (t, db) {
     { commit: true },
   );
   for (const key of ['owner2', 'manager1', 'manager2']) {
-    await db.asUser(U[key], (q) => q('select public.accept_invite($1)', [invites[key]]), { commit: true });
+    await db.acceptInvite(U.owner, U[key], invites[key]);
   }
   const org = (await db.admin("select id from public.orgs where name = 'مزرعة التزامن'")).rows[0].id;
   const ownerMember = (await db.admin('select id from public.members where org_id = $1 and user_id = $2', [org, U.owner])).rows[0].id;
@@ -51,11 +51,12 @@ export default async function (t, db) {
   }
 
   // ١. ينشئ منشأة ويقبل دعوة بنفس اللحظة: القفل الاستشاري على المستخدم يرتّبهم، والثاني يطلع already_member.
+  const joinerCode = await db.asUser(U.owner, async (q) => (await q('select public.invite_code($1) as code', [invites.joiner])).rows[0].code, { commit: true });
   const joining = await race(
     U.joiner,
     ["select public.create_my_org('منشأة المنضمّ', 'المنضمّ')"],
     U.joiner,
-    ['select public.accept_invite($1)', [invites.joiner]],
+    ['select public.accept_invite_code($1, $2)', [invites.joiner, joinerCode]],
   );
   t.same(joining, { first: 'ok', state: 'blocked', second: 'already_member' }, 'إنشاء وقبول بنفس اللحظة: الثاني ينتظر ويرفض برمزه (مو duplicate key)');
   t.eq(
