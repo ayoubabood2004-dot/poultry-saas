@@ -18,6 +18,17 @@ export function normalizePhone(input: string): string | null {
   return /^7\d{9}$/.test(digits) ? `964${digits}` : null;
 }
 
+/**
+ * مفتاح توائم الجهات بالهاتف (خطّة المرحلة 1 E34): الموبايل العراقي بشكله الموحّد، وغيره (أرضي، أجنبي) أرقامه الغربية
+ * بس بلا أي فاصل، وبلا رقم ← null. مرآته private.phone_key (0004) من نفس الدالّتين، والحزمة تقارنهم على كل حروف BMP.
+ */
+export function phoneKey(input: string): string | null {
+  const mobile = normalizePhone(input);
+  if (mobile) return mobile;
+  const digits = toWesternDigits(input).replace(/[^0-9]/g, '');
+  return digits === '' ? null : digits;
+}
+
 // الدخول بلا SMS: الحساب بريد «الرقم@phone.login» (DECISIONS 2026-10-25). الخادم يعدّ الرقم من الشكل الموحّد بس
 // (private.account_phone بالهجرة 0002)، فشاشة التسجيل والدخول تبني البريد من هنا وحده، وحزمة بوستغريس تطابقهم.
 export const PHONE_LOGIN_DOMAIN = 'phone.login';

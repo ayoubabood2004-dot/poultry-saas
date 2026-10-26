@@ -1,5 +1,5 @@
 import type { Day } from '../domain/dates';
-import { FILS_PER_DINAR, MILLI_PER_UNIT, type Fils, type Milli } from '../domain/money';
+import { FILS_PER_DINAR, MILLI_PER_UNIT, roundHalfAway, UNIT_COST_SCALE, type Fils, type Milli, type UnitCost } from '../domain/money';
 import { splitPacks, type BaseUnit } from '../domain/units';
 import { t } from './i18n';
 import { group, groupSigned } from './numerals';
@@ -48,6 +48,28 @@ export function fmtMoney(amount: Fils, decimals: 0 | 2 = 2): string {
     return sign + whole;
   }
   return `${sign}${whole}.${fraction.toString().padStart(2, '0')}`;
+}
+
+/**
+ * كلفة الوحدة للعرض (القاعدة 9): أربع مراتب دائماً، مثل fmtMoney بمرتبتين، حتى الآحاد تصطفّ بعمود الجدول («480.8333»،
+ * «2,300.0000»). القيمة من unitCost4 بس، وما ينحسب منها شي.
+ */
+export function fmtUnitCost(cost: UnitCost): string {
+  const [sign, abs] = magnitude(cost);
+  return `${sign}${group((abs / UNIT_COST_SCALE).toString())}.${(abs % UNIT_COST_SCALE).toString().padStart(4, '0')}`;
+}
+
+const PERCENT_HUNDREDTHS = 10_000n;
+
+/**
+ * نسبة مئوية بمرتبتين من جزء وكلّ بنفس الوحدة («13.18» لربح 521,831.15 من 3,960,000): جزء × 100 ÷ كلّ مقرّبة مرّة وحدة
+ * بـroundHalfAway. المقارنة بالمدى على النسبة المضبوطة مو على هالنصّ (FOUNDATION ٤٨٧)، وعلامة النسبة يحطّها المستدعي.
+ */
+export function fmtPercent(part: bigint, whole: bigint): string {
+  if (whole === 0n) throw new RangeError('fmtPercent_zero_whole');
+  const [p, w] = whole < 0n ? [-part, -whole] : [part, whole];
+  const [sign, abs] = magnitude(roundHalfAway(p * PERCENT_HUNDREDTHS, w));
+  return `${sign}${group((abs / 100n).toString())}.${(abs % 100n).toString().padStart(2, '0')}`;
 }
 
 /**

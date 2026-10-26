@@ -149,6 +149,42 @@ export default async function (t) {
     await s.controller.boot();
     t.same([s.store.get().status, s.store.get().offline], ['ready', true], 'توكن منتهٍ بلا نت: الهويّة المحفوظة لصاحب التوكن');
   }
+
+  // ── قفل متزاحم بالخادم (RetryableError: 40P01 أو 55P03 على my_workspace): المعاملة رجعت كلها، فهو مثل «ما وصل» ──────
+  {
+    const s = setup({ loadWorkspace: async () => Promise.reject(new m.RetryableError('55P03')), saved: [['u-1', ws('u-1')]] });
+    await s.controller.boot();
+    t.same([s.store.get().status, s.store.get().offline], ['ready', true], 'قفل متزاحم بالإقلاع ويّا هويّة محفوظة: يفتح بيها');
+    t.ok(!s.calls.includes('signOutLocal') && !s.calls.includes('forget:u-1'), 'وما يطلّع المستخدم ولا يمسح هويّته المحفوظة');
+  }
+  {
+    let tick;
+    let up = false;
+    const s = setup({
+      wait: (ms) => (ms === m.RETRY_FIRST_MS ? new Promise((resolve) => (tick = resolve)) : new Promise(() => {})),
+      loadWorkspace: async () => (up ? { kind: 'member', workspace: ws('u-1') } : Promise.reject(new m.RetryableError('40P01'))),
+    });
+    await s.controller.boot();
+    await ticks();
+    const failed = s.store.get();
+    t.same([failed.status, failed.userId, failed.error instanceof m.RetryableError], ['failed', 'u-1', true], 'قفل متزاحم بلا هويّة محفوظة: «أعد المحاولة» بسببه، مو خروج');
+    t.eq(typeof tick, 'function', 'وصفحة الفشل بسبب عابر تعيد التأكيد وحدها (محاولة مؤجّلة)');
+    up = true;
+    tick?.();
+    await ticks();
+    t.same([s.store.get().status, s.store.get().offline], ['ready', false], 'بعد المهلة يتأكّد بلا ما يضغط أحد');
+  }
+  {
+    let fail = false;
+    const s = setup({
+      loadWorkspace: async () => (fail ? Promise.reject(new m.RetryableError('55P03')) : { kind: 'no_org', account: { userId: 'u-1', phone: null, invites: [], confirmedAt: 1 } }),
+    });
+    await s.controller.boot();
+    fail = true;
+    let thrown = null;
+    await s.controller.refresh().catch((error) => (thrown = error));
+    t.same([s.store.get().status, thrown instanceof m.RetryableError], ['no_org', true], 'قفل متزاحم بـ«تحقّق من الدعوات»: الشاشة تبقى والخطأ يرجع لها');
+  }
   {
     // متّصل والفحص رجع «بلا نت» لأن التجديد بطيء: يتأكّد فوراً، مو بأوّل حدث (C2 بالمراجعة الثانية).
     const s = setup({ probe: async () => ({ kind: 'offline', userId: 'u-1' }), saved: [['u-1', ws('u-1', { role: 'manager' })]], loadWorkspace: async () => ({ kind: 'member', workspace: ws('u-1', { role: 'viewer' }) }) });

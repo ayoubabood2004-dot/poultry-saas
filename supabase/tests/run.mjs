@@ -4,18 +4,26 @@
 // node supabase/tests/run.mjs [اسم…] ← يشغّل هذول الفحوص بس.
 // --digest ← بعد الهجرات يطبع ملخّص الكتالوج (snapshot.mjs) حتى ينقارن بالإنتاج، و--elements=قسم ← عناصر قسم بـmd5،
 // و--upto=0001 ← الهجرات لحد هالرقم بس (الإنتاج على إصدار أقدم من المستودع).
+// المرحلة 1 (الخطّة WP0): كل public.verify_* ينكشف من pg_proc وينفّذ بمفتاح الخادم بعد الهجرتين وبعد كل ملف فحص وبالآخر،
+// وأي صفّ غير صفر يفشّل؛ وصورة الكتالوج بالآخر = صورته بعد الهجرات؛ ومشغّل التراجع (rollback.mjs)؛ وسجلّ التغطية (كل دالّة
+// بقائمة السماح × الأدوار الثمانية). وكل أداة منها تثبت إنها تقدر تفشل بضابط قبل ما ينصدّق نجاحها.
 import EmbeddedPostgres from 'embedded-postgres';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHarness } from '../../scripts/tests/harness.mjs';
+import { coverageGaps, makeDb, ROLES } from './db.mjs';
+import { applySql, declaredRollback, heavyChanges, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
+import { seedThroughRpcs } from './seed.mjs';
 import { DIGEST_SQL, elementsSql, snapshot, snapshotDiff } from './snapshot.mjs';
+
+export { makeDb } from './db.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = path.join(DIR, '..', 'migrations');
+const ALLOWLIST = JSON.parse(readFileSync(path.join(DIR, 'allowlist.json'), 'utf8'));
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -36,118 +44,6 @@ export function migrationFiles() {
   return readdirSync(MIGRATIONS)
     .filter((name) => /^\d{4}_.+\.sql$/.test(name))
     .sort();
-}
-
-const userClaims = (userId) => ({ sub: userId, role: 'authenticated' });
-
-// طريق الطلب مثل PostgREST: authenticator يدخل بحدوده (lock_timeout وstatement_timeout 8s)، وبعد set role تنطبق حدود
-// الدور (statement_timeout: anon 3s وauthenticated 8s). من pg_db_role_setting، المنسوخ من الإنتاج بـbootstrap.sql، ويُقرأ
-// قبل set role (الحدود محلّية للمعاملة، فترتيبها ويّا set role ما يأثّر).
-async function applyRequestLimits(query, role) {
-  if (!['anon', 'authenticated', 'service_role'].includes(role)) return;
-  const { rows } = await query(
-    `select split_part(c, '=', 1) as name, split_part(c, '=', 2) as value
-     from pg_db_role_setting s cross join unnest(s.setconfig) with ordinality as x(c, n)
-     where s.setdatabase = 0 and s.setrole in ('authenticator'::regrole, $1::regrole)
-       and split_part(c, '=', 1) in ('statement_timeout', 'lock_timeout')
-     order by s.setrole = $1::regrole, x.n`,
-    [role],
-  );
-  for (const { name, value } of rows) await query('select set_config($1, $2, true)', [name, value]);
-}
-
-/**
- * عميل بهويّة: كل استعلام بمعاملة تنتهي بتراجع (الفحص ما يسيب أثر)، بدور authenticated أو anon
- * ومطالبات JWT مثل PostgREST بالضبط (request.jwt.claims)، فـauth.uid() وRLS يشتغلون مثل الإنتاج.
- * connect: اتصال جديد بنفس القاعدة، لفحوص التزامن (جلستان بنفس اللحظة).
- */
-export function makeDb(client, connect) {
-  // commit: السيناريو يكمل بمستخدم ثاني بعده (المالك يضيف العامل، والعامل يفحص). بلاه كل شي يرجع.
-  async function inRole(role, claims, fn, { commit = false } = {}) {
-    await client.query('begin');
-    let ok = false;
-    try {
-      await client.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims ?? {})]);
-      await applyRequestLimits((text, params) => client.query(text, params), role);
-      await client.query(`set local role ${role}`);
-      const result = await fn((text, params) => client.query(text, params));
-      ok = true;
-      return result;
-    } finally {
-      await client.query(ok && commit ? 'commit' : 'rollback');
-    }
-  }
-
-  /**
-   * جلسة مستقلّة بمعاملة مفتوحة كمستخدم داخل، تبقى لحد commit أو rollback. run(sql) يرجّع وعداً ما ينتظر،
-   * وsettle(وعد) يستنّى لحد ما ينتهي الاستعلام أو ينحبس على قفل (pg_stat_activity)، ويكول أيّهما.
-   */
-  async function session(userId) {
-    const other = connect();
-    await other.connect();
-    const pid = (await other.query('select pg_backend_pid() as pid')).rows[0].pid;
-    await other.query('begin');
-    await other.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(userClaims(userId))]);
-    await applyRequestLimits((text, params) => other.query(text, params), 'authenticated');
-    await other.query('set local role authenticated');
-    let open = true;
-    // مرّة وحدة: بعد commit أو rollback الجلسة انسدّت، والنداء الثاني (finally بالفحص) ما يسوّي شي.
-    const end = async (verb) => {
-      if (!open) return;
-      open = false;
-      try {
-        await other.query(verb);
-      } finally {
-        await other.end();
-      }
-    };
-    return {
-      pid,
-      /** الاستعلام بالجلسة؛ الوعد يرجع { ok, rows } أو { ok: false, error } بدل ما يرمي. */
-      run: (text, params) =>
-        other.query(text, params).then(
-          (result) => ({ ok: true, rows: result.rows }),
-          (error) => ({ ok: false, error: error.message }),
-        ),
-      commit: () => end('commit'),
-      rollback: () => end('rollback'),
-    };
-  }
-
-  async function settle(promise, pid, timeoutMs = 5000) {
-    let done = false;
-    promise.then(() => {
-      done = true;
-    });
-    const until = Date.now() + timeoutMs;
-    while (Date.now() < until) {
-      if (done) return 'finished';
-      const row = (await client.query('select wait_event_type from pg_stat_activity where pid = $1', [pid])).rows[0];
-      if (row?.wait_event_type === 'Lock') return 'blocked';
-      await delay(20);
-    }
-    throw new Error(`الجلسة ${pid} ما انتهت ولا انحبست على قفل خلال ${timeoutMs}ms`);
-  }
-
-  return {
-    /** استعلام بالهويّة الإدارية (supabase_admin) للتجهيز: يبقى أثره لحد نهاية الحزمة. */
-    admin: (text, params) => client.query(text, params),
-    /** كمستخدم داخل: sub = userId والدور authenticated. يرجع إلا ويّا { commit: true }. */
-    asUser: (userId, fn, options) => inRole('authenticated', userClaims(userId), fn, options),
-    /** بلا دخول: مفتاح anon. */
-    asAnon: (fn) => inRole('anon', { role: 'anon' }, fn),
-    /** صاحب الهجرات (postgres، مو خارق)، ويّا مطالبات مستخدم إذا انطى (لدوالّ private بهويّته). */
-    asOwner: (fn, userId) => inRole('postgres', userId ? userClaims(userId) : {}, fn),
-    /** بمفتاح الخادم (service_role): يتجاوز RLS مثل الإنتاج. */
-    asService: (fn) => inRole('service_role', { role: 'service_role' }, fn),
-    /** المالك يصدر رمز الدعوة والمدعوّ يقبل بيه (0003)، والاثنين يثبتون. يرجّع my_workspace() مال المدعوّ. */
-    acceptInvite: async (ownerId, userId, memberId) => {
-      const code = await inRole('authenticated', userClaims(ownerId), async (q) => (await q('select public.invite_code($1) as code', [memberId])).rows[0].code, { commit: true });
-      return inRole('authenticated', userClaims(userId), async (q) => (await q('select public.accept_invite_code($1, $2) as w', [memberId, code])).rows[0].w, { commit: true });
-    },
-    session,
-    settle,
-  };
 }
 
 async function inRollback(client, fn) {
@@ -175,19 +71,39 @@ async function assertTemplateOpen(client) {
   }
 }
 
-async function applyMigrations(client, files, pass) {
-  for (const name of files) {
-    const sql = readFileSync(path.join(MIGRATIONS, name), 'utf8');
-    await client.query('begin');
-    try {
-      await client.query('set local role postgres');
-      await client.query(sql);
-      await client.query('commit');
-    } catch (error) {
-      await client.query('rollback');
-      throw new Error(`الهجرة ${name} فشلت بالمرّة ${pass}: ${error.message}`, { cause: error });
-    }
-  }
+async function applyMigrations(client, migrations, pass) {
+  for (const { name, text } of migrations) await applySql(client, text, `الهجرة ${name} بالمرّة ${pass}`);
+}
+
+const BOOTSTRAP = readFileSync(path.join(DIR, 'bootstrap.sql'), 'utf8');
+const PER_DATABASE = BOOTSTRAP.slice(BOOTSTRAP.indexOf('-- ─── لكل قاعدة ───'));
+
+/** ضوابط صورة الكتالوج: كل تغيير بمعاملة ترجع لازم يبين (المراجعة العدائية لـ0002 والخطّة GT-25). */
+async function snapshotProbes(client) {
+  // قيد check يتغيّر: round(x, n) ← n+1 إذا موجود (من 0004)، وإلا القيد ويّا «and (1 = 1)».
+  const check = (await client.query(`
+    select conrelid::regclass::text as tbl, conname, pg_get_constraintdef(oid) as def from pg_constraint
+    where contype = 'c' and connamespace = 'public'::regnamespace
+    order by (pg_get_constraintdef(oid) like '%round(%') desc, conname limit 1`)).rows[0];
+  const rounded = /round\((.+?), (\d+)\)/u.exec(check.def);
+  const changed = rounded
+    ? check.def.replace(rounded[0], `round(${rounded[1]}, ${Number(rounded[2]) + 1})`)
+    : `CHECK (${check.def.slice('CHECK '.length)} AND (1 = 1))`;
+  return [
+    'alter function public.app_today() set statement_timeout = 1000',
+    'alter table public.audit_log disable trigger audit_log_append_only',
+    'alter function private.account_phone(text, text) strict',
+    'alter function public.can_see_cost() parallel safe',
+    'grant select (id) on public.orgs to anon',
+    'alter table public.orgs force row level security',
+    'alter table public.orgs owner to service_role',
+    // افتراض المعامل وحده (نفس الجسم): p_costs_confirmed default true يقلب مشغّل المعمل.
+    "do $$ begin execute replace(pg_get_functiondef('private.role_can(text, text, boolean)'::regprocedure), 'DEFAULT false', 'DEFAULT true'); end $$",
+    // المرحلة 1: سياسة مقيِّدة تنشال، وقيد check يتغيّر، ومهلة قفل دالّة تتغيّر.
+    'drop policy audit_log_cost_only on public.audit_log',
+    `alter table ${check.tbl} drop constraint ${check.conname}, add constraint ${check.conname} ${changed}`,
+    "alter function public.set_period_lock(date) set lock_timeout = '6s'",
+  ];
 }
 
 async function main() {
@@ -201,6 +117,7 @@ async function main() {
 
   const flags = process.argv.slice(2).filter((arg) => arg.startsWith('--'));
   const only = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+  const full = only.length === 0;
   const elements = flags.find((arg) => arg.startsWith('--elements='))?.slice('--elements='.length);
   const upto = flags.find((arg) => arg.startsWith('--upto='))?.slice('--upto='.length);
   const port = await freePort();
@@ -222,45 +139,50 @@ async function main() {
   let failed = 0;
   let client = null;
   const started = Date.now();
+  const fail = (line, details = []) => {
+    failed += 1;
+    console.log(`✗ ${line}`);
+    for (const detail of details) console.log(`    ${detail}`);
+  };
   try {
     await server.initialise();
     await server.start();
-    const connect = () => server.getPgClient('postgres', '127.0.0.1');
+    const connect = (database = 'postgres') => server.getPgClient(database, '127.0.0.1');
     client = connect();
     await client.connect();
-    await client.query(readFileSync(path.join(DIR, 'bootstrap.sql'), 'utf8'));
+    await client.query(BOOTSTRAP);
     await assertTemplateOpen(client);
 
-    const files = migrationFiles().filter((name) => !upto || name.slice(0, 4) <= upto);
+    const migrations = migrationFiles()
+      .filter((name) => !upto || name.slice(0, 4) <= upto)
+      .map((name) => ({ name, text: readFileSync(path.join(MIGRATIONS, name), 'utf8') }));
+    // المرّة الأولى هجرة هجرة ويّا صورة قبلها وبعدها: شنو غيّرت من الموجود (heavyChanges)، حتى سطر «تراجع:» ينصدّق بالكتالوج.
+    const heavy = new Map();
+    let current = await snapshot(client);
+    for (const migration of migrations) {
+      await applySql(client, migration.text, `الهجرة ${migration.name} بالمرّة 1`);
+      const next = await snapshot(client);
+      heavy.set(migration.name, heavyChanges(current, next));
+      current = next;
+    }
+    const first = current;
     // مرّتين: الهجرة اللي ما تنعاد بأمان تكسر أوّل إعادة نشر، والمرّة الثانية لازم ما تغيّر الكتالوج.
-    await applyMigrations(client, files, 1);
-    const first = await snapshot(client);
-    await applyMigrations(client, files, 2);
+    await applyMigrations(client, migrations, 2);
     const drift = snapshotDiff(first, await snapshot(client));
     if (drift.length) throw new Error(`المرّة الثانية غيّرت الكتالوج:\n    ${drift.slice(0, 10).join('\n    ')}`);
     // الصورة نفسها تمسك كل نوع تغيير: كل ضابط بمعاملة ترجع لازم يبين (المراجعة العدائية لـ0002: كانت تعبر
     // تعطيل مشغّل، وSTRICT، وافتراض معامل، ومنح عمود، وFORCE RLS، وNULL مقابل '{}').
-    const PROBES = [
-      'alter function public.app_today() set statement_timeout = 1000',
-      'alter table public.audit_log disable trigger audit_log_append_only',
-      'alter function private.account_phone(text, text) strict',
-      'alter function public.can_see_cost() parallel safe',
-      'grant select (id) on public.orgs to anon',
-      'alter table public.orgs force row level security',
-      'alter table public.orgs owner to service_role',
-      // افتراض المعامل وحده (نفس الجسم): p_costs_confirmed default true يقلب مشغّل المعمل.
-      "do $$ begin execute replace(pg_get_functiondef('private.role_can(text, text, boolean)'::regprocedure), 'DEFAULT false', 'DEFAULT true'); end $$",
-    ];
+    const PROBES = await snapshotProbes(client);
     const blind = [];
-    for (const probe of PROBES) {
+    for (const change of PROBES) {
       const probeDrift = await inRollback(client, async () => {
-        await client.query(probe);
+        await client.query(change);
         return snapshotDiff(first, await snapshot(client));
       });
-      if (probeDrift.length === 0) blind.push(probe);
+      if (probeDrift.length === 0) blind.push(change);
     }
     if (blind.length) throw new Error(`صورة الكتالوج ما مسكت ${blind.length} ضابط — المقارنة ما تنصدّق:\n    ${blind.join('\n    ')}`);
-    console.log(`✓ القالب مفتوح قبل الهجرات مثل الإنتاج، و${files.length} هجرة انطبقت مرّتين بلا فرق بالكتالوج، والصورة مسكت ${PROBES.length} ضوابط تغيير`);
+    console.log(`✓ القالب مفتوح قبل الهجرات مثل الإنتاج، و${migrations.length} هجرة انطبقت مرّتين بلا فرق بالكتالوج، والصورة مسكت ${PROBES.length} ضوابط تغيير`);
 
     if (flags.includes('--digest') || elements) {
       const rows = (await client.query(elements ? elementsSql(elements) : DIGEST_SQL)).rows;
@@ -269,32 +191,193 @@ async function main() {
     }
 
     const db = makeDb(client, connect);
-    for (const file of readdirSync(DIR)
-      .filter((name) => name.endsWith('.test.mjs'))
-      .filter((name) => only.length === 0 || only.includes(name.replace('.test.mjs', '')))
-      .sort()) {
+    const migrated = await verifyAll(db);
+    if (migrated.bad.length) fail(`الثوابت بعد الهجرتين: ${migrated.bad.length} مخالفة`, migrated.bad);
+    else console.log(`✓ الثوابت بعد الهجرتين: ${migrated.fns.join('، ')} صفر`);
+
+    // ملف فحص واحد ثم الثوابت كلها: ملف يثبّت خرقاً يفشل هو، مو الملف اللي بعده.
+    const runFile = async (label, run) => {
       const { t, result } = createHarness();
       let crashed = null;
       try {
-        const module = await import(pathToFileURL(path.join(DIR, file)).href);
-        await module.default(t, db);
+        await run(t);
       } catch (error) {
         crashed = error;
       }
       const { passed, failures } = result();
-      const label = file.replace('.test.mjs', '');
-      if (crashed || failures.length > 0 || passed === 0) {
-        failed += 1;
-        console.log(`✗ ${label}: ${passed} ناجح، ${failures.length} فاشل${passed === 0 && !crashed && failures.length === 0 ? ' — صفر فحوص' : ''}`);
-        for (const failure of failures) console.log(`    ${failure}`);
-        if (crashed) console.log(`    رمى: ${crashed.stack ?? crashed}`);
-      } else {
-        console.log(`✓ ${label}: ${passed} فحص`);
+      let verify;
+      try {
+        verify = await verifyAll(db);
+      } catch (error) {
+        verify = { bad: [`الثوابت رمت: ${error.message}`] };
       }
+      const ok = !crashed && failures.length === 0 && passed > 0 && verify.bad.length === 0;
+      const lines = [...failures, ...verify.bad.map((bad) => `ثابت بعد الملف: ${bad}`), ...(crashed ? [`رمى: ${crashed.stack ?? crashed}`] : [])];
+      const head = ok
+        ? `✓ ${label}: ${passed} فحص`
+        : `✗ ${label}: ${passed} ناجح، ${failures.length} فاشل${verify.bad.length ? `، ${verify.bad.length} ثابت غير صفر` : ''}${passed === 0 && !crashed && failures.length === 0 ? ' — صفر فحوص' : ''}`;
+      return { ok, head, lines, verify };
+    };
+
+    for (const file of readdirSync(DIR)
+      .filter((name) => name.endsWith('.test.mjs'))
+      .filter((name) => full || only.includes(name.replace('.test.mjs', '')))
+      .sort()) {
+      const outcome = await runFile(file.replace('.test.mjs', ''), async (t) => {
+        const module = await import(pathToFileURL(path.join(DIR, file)).href);
+        await module.default(t, db);
+      });
+      if (outcome.ok) console.log(outcome.head);
+      else fail(outcome.head.slice(2), outcome.lines);
     }
+
+    // ضابط خطوة الثوابت: خرق مثبَّت بمنشأة تجربة لازم يفشّل الملف اللي ثبّته، وبعد التصليح ترجع صفر.
+    const probeUser = '80000000-0000-4000-8000-000000000001';
+    await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [probeUser, '9647707000001']);
+    await db.asUser(probeUser, (q) => q("select public.create_my_org('منشأة ضابط الثوابت', 'الحزمة')"), { commit: true });
+    const probeOrg = (await db.admin('select org_id from public.members where user_id = $1', [probeUser])).rows[0].org_id;
+    const violated = await runFile('ضابط الثوابت', async (t) => {
+      await db.admin("update public.divisions set archived_at = now() where org_id = $1 and kind = 'medicine'", [probeOrg]);
+      t.ok(true, 'الخرق انكتب');
+    });
+    await db.admin("update public.divisions set archived_at = null where org_id = $1 and kind = 'medicine'", [probeOrg]);
+    const restored = await verifyAll(db);
+    if (violated.ok || !violated.verify.bad.some((bad) => bad.includes('divisions_per_org')) || restored.bad.length) {
+      fail('ضابط الثوابت: خرق مثبَّت بملف فحص ما فشّل خطوة الثوابت بعده (أو ما رجعت صفراً بعد التصليح)', [...violated.lines, ...restored.bad]);
+    } else {
+      console.log(`✓ ضابط الثوابت: خرق مثبَّت فشّل ملفه (${violated.verify.bad.join('، ')})، وبعد التصليح صفر`);
+    }
+
+    if (full) {
+      // ── مشغّل التراجع ────────────────────────────────────────────────────────────────────────────────
+      let scratch = 0;
+      const fresh = async () => {
+        scratch += 1;
+        const name = `rollback_case_${scratch}`;
+        await client.query(`drop database if exists ${name} with (force)`);
+        await client.query(`create database ${name} owner postgres`);
+        const other = connect(name);
+        await other.connect();
+        await other.query(PER_DATABASE);
+        return {
+          client: other,
+          db: makeDb(other, () => connect(name)),
+          close: async () => {
+            await other.end().catch(() => {}); /* swallow-ok: الإغلاق بعد فشل الحالة */
+            await client.query(`drop database if exists ${name} with (force)`);
+          },
+        };
+      };
+      const rollbackProblems = [];
+      let ran = 0;
+      for (const [index, migration] of migrations.entries()) {
+        const declared = declaredRollback(migration.name, migration.text);
+        const changes = heavy.get(migration.name) ?? [];
+        if (declared.kind === 'legacy') continue;
+        rollbackProblems.push(...rollbackDeclarationProblems(migration.name, declared, changes));
+        if (declared.kind !== 'file') continue;
+        const file = path.join(MIGRATIONS, declared.file);
+        if (!existsSync(file)) {
+          rollbackProblems.push(`${migration.name}: يسمّي ${declared.file} وما موجود`);
+          continue;
+        }
+        ran += 1;
+        const problems = await rollbackCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql: readFileSync(file, 'utf8'), seed: seedThroughRpcs });
+        rollbackProblems.push(...problems.map((problem) => `${declared.file}: ${problem}`));
+      }
+      // ضابط من الهجرات الحقيقية: 0002 بدّلت أجسام تسع دوالّ بالإنتاج، فالكشف لازم يسمّيها ثقيلة (القديمة معفيّة من الملف بس).
+      const legacyHeavy = migrations.filter((m) => declaredRollback(m.name, m.text).kind === 'legacy' && (heavy.get(m.name) ?? []).length).map((m) => m.name.slice(0, 4));
+      if (migrations.some((m) => m.name.startsWith('0002_')) && !legacyHeavy.includes('0002')) rollbackProblems.push('الكشف ما سمّى 0002 ثقيلة وهي بدّلت أجسام دوالّ قديمة');
+      const latest = Number(migrations.at(-1)?.name.slice(0, 4) ?? 0);
+      const zero = zeroRollbacksProblem(latest, ran);
+      if (zero) rollbackProblems.push(zero);
+
+      // ضابط المشغّل: هجرة مصنوعة تغيّر جدولاً قديماً ودالّة قديمة وتكول «إضافية فقط». الكشف يسمّيها ثقيلة، وفحص سطر «تراجع:»
+      // نفسه (اللي يمرّ بيه كل هجرة فوك) يرفض «إضافية فقط» عليها، والتراجع الصادق يعبر، والناقص يفشل برسالة الكتالوج بالضبط.
+      const original = (await client.query("select pg_get_functiondef('public.app_today()'::regprocedure) as def")).rows[0].def;
+      const fake = {
+        name: `${String(latest + 1).padStart(4, '0')}_probe.sql`,
+        text: [
+          `-- ${String(latest + 1).padStart(4, '0')}_probe — ضابط مشغّل التراجع`,
+          '-- تراجع: إضافية فقط',
+          "set lock_timeout = '5s';",
+          'alter table public.orgs add column if not exists probe_note text;',
+          "create or replace function public.app_today() returns date language sql stable set search_path = pg_catalog, pg_temp as $$ select (now() at time zone 'Asia/Baghdad')::date + 0 $$;",
+        ].join('\n'),
+      };
+      const probeMigrations = [...migrations, fake];
+      const honest = await rollbackCase({ fresh, migrations: probeMigrations, rollbackSql: `alter table public.orgs drop column probe_note;\n${original};`, seed: seedThroughRpcs });
+      const forgetful = await rollbackCase({ fresh, migrations: probeMigrations, rollbackSql: 'alter table public.orgs drop column probe_note;', seed: seedThroughRpcs });
+      // ضابطا الخطوتين الباقيتين (طفرات الاختبار): هجرة تتبع البيانات (تنشئ دالّة بقاعدة فارغة بس)، فإعادتها بعد البذرة ما
+      // ترجّع كتالوجها؛ وتراجع صادق بالكتالوج يخرّب البذرة (يؤرشف وحدة)، فالثوابت بعده تفشل. والاثنين يفشلون بس ويّا البذرة.
+      const dataBound = {
+        name: fake.name,
+        text: [
+          `-- ${fake.name.slice(0, 4)}_probe — ضابط إعادة الهجرة بعد التراجع`,
+          '-- تراجع: إضافية فقط',
+          "set lock_timeout = '5s';",
+          "do $$ begin if not exists (select 1 from public.orgs) then execute 'create function public.probe_fresh() returns int language sql as $f$ select 1 $f$'; end if; end $$;",
+        ].join('\n'),
+      };
+      const redo = await rollbackCase({ fresh, migrations: [...migrations, dataBound], rollbackSql: 'drop function if exists public.probe_fresh();', seed: seedThroughRpcs });
+      const breaker = await rollbackCase({
+        fresh,
+        migrations: probeMigrations,
+        rollbackSql: `alter table public.orgs drop column probe_note;\n${original};\nupdate public.divisions set archived_at = now() where kind = 'medicine';`,
+        seed: seedThroughRpcs,
+      });
+      const { client: probeClient, close: closeProbe } = await fresh();
+      let detected = [];
+      try {
+        for (const migration of migrations) await applySql(probeClient, migration.text, migration.name);
+        const before = await snapshot(probeClient);
+        await applySql(probeClient, fake.text, fake.name);
+        detected = heavyChanges(before, await snapshot(probeClient));
+      } finally {
+        await closeProbe();
+      }
+      const declaredProblems = rollbackDeclarationProblems(fake.name, declaredRollback(fake.name, fake.text), detected);
+      const probeOk =
+        honest.length === 0 &&
+        forgetful.length === 1 &&
+        forgetful[0].startsWith(`بعد التراجع الكتالوج مو مثل قبل ${fake.name}`) &&
+        redo.length === 1 &&
+        redo[0].startsWith(`إعادة ${fake.name} بعد التراجع`) &&
+        breaker.length === 1 &&
+        breaker[0].startsWith('الثوابت بعد التراجع والإعادة') &&
+        breaker[0].includes('divisions_per_org') &&
+        detected.some((reason) => reason.includes('probe_note')) &&
+        detected.some((reason) => reason.includes('app_today')) &&
+        declaredProblems.length === 1 &&
+        declaredProblems[0].startsWith(`${fake.name}: «إضافية فقط» وهي غيّرت الموجود`);
+      if (!probeOk) {
+        rollbackProblems.push(`ضابط المشغّل ما اشتغل: الصادق ${JSON.stringify(honest)}، الناقص ${JSON.stringify(forgetful)}، الإعادة ${JSON.stringify(redo)}، مخرّب البذرة ${JSON.stringify(breaker)}، الكشف ${JSON.stringify(detected)}، سطر «تراجع:» ${JSON.stringify(declaredProblems)}`);
+      }
+      if (rollbackProblems.length) fail(`مشغّل التراجع: ${rollbackProblems.length} مشكلة`, rollbackProblems);
+      else {
+        const heavyCount = migrations.filter((m) => declaredRollback(m.name, m.text).kind !== 'legacy' && (heavy.get(m.name) ?? []).length).length;
+        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت`);
+      }
+
+      // ── سجلّ التغطية: كل دالّة بقائمة السماح نادتها الأدوار الثمانية كلها بدور authenticated ───────────────────
+      const gaps = coverageGaps(ALLOWLIST.authenticated, db.coverage);
+      if (gaps.length) fail(`سجلّ التغطية: ${gaps.length} (دالّة × دور) ما انسجّل نداؤها`, gaps.slice(0, 40));
+      else console.log(`✓ سجلّ التغطية: ${ALLOWLIST.authenticated.length} دالّة × ${ROLES.length} أدوار، كل خانة انسجّل نداؤها بدور authenticated`);
+    } else {
+      console.log('· مشغّل التراجع وسجلّ التغطية للحزمة كاملة بس (بلا أسماء ملفات)');
+    }
+
+    // ── نهاية الحزمة: الثوابت، وصورة الكتالوج = اللي بعد الهجرات (ومنها app_today() بجسم الهجرة) ───────────────────
+    const ending = await verifyAll(db);
+    if (ending.bad.length) fail(`الثوابت بنهاية الحزمة: ${ending.bad.length} مخالفة`, ending.bad);
+    const last = await snapshot(client);
+    const today = (s) => (s.functions ?? []).filter((f) => f[0] === 'public' && f[1] === 'app_today').map((f) => JSON.stringify(f));
+    if (JSON.stringify(today(last)) !== JSON.stringify(today(first))) fail('app_today() بنهاية الحزمة مو بجسم الهجرة (setToday ما رجّعه؟)', today(last));
+    const leftover = snapshotDiff(first, last);
+    if (leftover.length) fail(`صورة الكتالوج بنهاية الحزمة غير اللي بعد الهجرات (${leftover.length} فرق)`, leftover.slice(0, 10));
+    if (!ending.bad.length && !leftover.length) console.log(`✓ نهاية الحزمة: الثوابت صفر، وصورة الكتالوج نفس اللي بعد الهجرات`);
   } catch (error) {
-    failed += 1;
-    console.log(`✗ الحزمة: ${error.message}`);
+    fail(`الحزمة: ${error.message}`);
     if (errors.length) console.log(`    بوستغريس: ${errors.slice(-5).join(' | ')}`);
   } finally {
     await client?.end().catch(() => {}); /* swallow-ok: الإغلاق بعد فشل الاتصال */

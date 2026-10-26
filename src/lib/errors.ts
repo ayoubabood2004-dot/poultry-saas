@@ -26,6 +26,17 @@ export class UnknownOutcomeError extends Error {
   }
 }
 
+/**
+ * المعاملة رجعت لأنها تزاحمت ويّا عملية ثانية على نفس البيانات (قفل متبادل 40P01 أو انتهت مهلة القفل 55P03): أكيد
+ * ما انحفظ شي، والإعادة بنفس المرجع آمنة (الخطّة §2.3).
+ */
+export class RetryableError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = 'RetryableError';
+  }
+}
+
 /** رفض مقصود من الخادم: raise exception '<code>' using hint = '<جملة عربية>'. */
 export class RejectedError extends Error {
   constructor(
@@ -59,7 +70,7 @@ export class ZeroRowsError extends Error {
   }
 }
 
-export type ErrorKind = 'not_connected' | 'network' | 'unknown_outcome' | 'rejected' | 'identity' | 'zero_rows' | 'unexpected';
+export type ErrorKind = 'not_connected' | 'network' | 'retryable' | 'unknown_outcome' | 'rejected' | 'identity' | 'zero_rows' | 'unexpected';
 
 export interface ErrorDescription {
   kind: ErrorKind;
@@ -90,6 +101,20 @@ export function describeError(error: unknown, context: ErrorContext = 'write'): 
         context === 'read'
           ? t('error.network.read', 'حاول مرّة أخرى عند عودة الاتصال.')
           : t('error.network.detail', 'لم يُحفظ شيء. حاول مرّة أخرى عند عودة الاتصال.'),
+    };
+  }
+  if (error instanceof RetryableError) {
+    if (context === 'read') {
+      return {
+        kind: 'retryable',
+        title: t('error.retryable.read.title', 'تعذّر التحميل، أعد المحاولة'),
+        detail: t('error.retryable.read', 'تزامن الطلب مع عملية أخرى على البيانات نفسها. أعد المحاولة.'),
+      };
+    }
+    return {
+      kind: 'retryable',
+      title: t('error.retryable.title', 'لم يُرحَّل، أعد المحاولة'),
+      detail: t('error.retryable.detail', 'تزامنت العملية مع عملية أخرى على البيانات نفسها، فلم يُحفظ شيء. أعد المحاولة.'),
     };
   }
   if (error instanceof UnknownOutcomeError) {

@@ -11,7 +11,7 @@
 // 3) لا <table> برّا src/components/ui/DataTable.tsx: كل كشف وفاتورة وتقرير بالجدول الكلاسيكي الواحد.
 // الاستثناء ظاهر بسببه على نفس السطر: // number-ok: السبب
 import path from 'node:path';
-import { hasMarker, lineOf, readSources, ROOT, ts, where } from './lib.mjs';
+import { appProgram, hasMarker, lineOf, readSources, ROOT, ts, virtualProgram, where } from './lib.mjs';
 
 export const name = 'numbers-guard';
 
@@ -368,20 +368,7 @@ const SELF_PRELUDE = [
   '',
 ].join('\n');
 
-function selfProgram(files) {
-  const options = { jsx: ts.JsxEmit.Preserve, strict: true, target: ts.ScriptTarget.ES2020, lib: ['lib.es2020.d.ts'], types: [], noEmit: true };
-  const virtual = new Map([[path.resolve(ROOT, 'self/prelude.d.ts'), SELF_PRELUDE], ...files.map((file) => [path.resolve(ROOT, file.path), file.text])]);
-  const host = ts.createCompilerHost(options);
-  const real = { getSourceFile: host.getSourceFile.bind(host), fileExists: host.fileExists.bind(host), readFile: host.readFile.bind(host) };
-  host.getSourceFile = (fileName, language, ...rest) => {
-    const text = virtual.get(path.resolve(fileName));
-    if (text === undefined) return real.getSourceFile(fileName, language, ...rest);
-    return ts.createSourceFile(fileName, text, language, true, fileName.endsWith('.d.ts') ? ts.ScriptKind.TS : ts.ScriptKind.TSX);
-  };
-  host.fileExists = (fileName) => virtual.has(path.resolve(fileName)) || real.fileExists(fileName);
-  host.readFile = (fileName) => virtual.get(path.resolve(fileName)) ?? real.readFile(fileName);
-  return ts.createProgram([...virtual.keys()], options, host);
-}
+const selfProgram = (files) => virtualProgram(files, { prelude: SELF_PRELUDE });
 
 export function selfTest() {
   // كل شكل لحاله بملف، وكلها ببرنامج واحد: كل ملف سيّئ لازم ينمسك مرّة وحدة بالضبط، والسليم صفر.
@@ -426,6 +413,9 @@ export function selfTest() {
     'declare const f: bigint; export const A = () => <Trans k="k" text="{n}" vars={{ n: f.toString() }} />;',
     "declare const total: number; export const s = t('k', '{n}', { n: total.toString() });",
     "declare const done: number; declare const total: number; export const s = t('k', '{n}', { n: `${done}/${total}` });",
+    // الوسم بتعليق بس: نصّ JSX يشبه التعليق، ونصّ '…'، ما يعفيان.
+    'declare const n: number; export const A = () => <b>{n} // number-ok: نصّ JSX مو تعليق</b>;',
+    "declare const n: number; export const A = () => <b title={'// number-ok: x'}>{n}</b>;",
   ];
   const good = [
     'const n: number = 5; export const A = () => <b aria-valuenow={n} data-n={n}>{fmtInt(n)}</b>;',
@@ -457,11 +447,7 @@ export function selfTest() {
 
 export function run() {
   const files = readSources('src', ['.ts', '.tsx']);
-  const configPath = path.join(ROOT, 'tsconfig.app.json');
-  const config = ts.readConfigFile(configPath, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT);
-  const program = ts.createProgram(parsed.fileNames, { ...parsed.options, noEmit: true });
-  const result = checkProgram(program, files);
+  const result = checkProgram(appProgram(), files);
   if (result.rendered === 0) result.problems.push('صفر تعبير JSX معروض — المدقّق ما قرا الملفات');
   return {
     scanned: files.length,

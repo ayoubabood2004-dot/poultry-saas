@@ -95,6 +95,11 @@ export default async function (t) {
   t.ok(m.mayHaveJoined(new m.UnknownOutcomeError()) && m.mayHaveJoined(new m.RejectedError('invite_not_found', 'h')) && m.mayHaveJoined(new m.RejectedError('already_member', 'h')), 'قبول أو إنشاء ممكن صار: الهويّة تتأكّد');
   t.ok(!m.mayHaveJoined(new m.RejectedError('invite_code_expired', 'h')), 'رمز منتهٍ: ما صار شي');
   t.eq(m.describeError(new m.UnknownOutcomeError(), 'read').title, 'لم يصل ردّ الخادم', 'القراءة المجهولة: «لم يصل ردّ الخادم»، مو «نتيجة العملية»');
+  const readRetry = m.describeError(new m.RetryableError('55P03'), 'read');
+  t.ok(
+    readRetry.kind === 'retryable' && readRetry.title === 'تعذّر التحميل، أعد المحاولة' && !readRetry.title.includes('يُرحَّل') && !readRetry.detail.includes('لم يُحفظ'),
+    'قراءة بقفل متزاحم: «تعذّر التحميل، أعد المحاولة»، مو «لم يُرحَّل» ولا «لم يُحفظ شيء»',
+  );
   t.ok(m.describeError(new m.UnknownOutcomeError(), 'once').detail.includes('تحقّق قبل') && !m.describeError(new m.UnknownOutcomeError(), 'once').detail.includes('لن تتكرّر'), 'كتابة بلا مرجع: «تحقّق قبل الإعادة»، بلا وعد إنها ما تتكرّر');
   // createPortal مبدّل بالعقدة نفسها (inlinePortal)، بس معامله document.body ينحسب: هدف وهمي يكفي.
   globalThis.document = { body: null };

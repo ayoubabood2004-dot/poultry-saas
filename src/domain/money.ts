@@ -57,6 +57,21 @@ export function lineAmount(qtyInUnit: Milli, unitPrice: Fils): Fils {
   return roundHalfAway(qtyInUnit * unitPrice, MILLI_PER_UNIT * FILS_PER_DINAR) * FILS_PER_DINAR;
 }
 
+/** كلفة الوحدة للعرض بوحدة ١/١٠٠٠٠ دينار (أربع مراتب، القاعدة 9). */
+export type UnitCost = bigint;
+export const UNIT_COST_SCALE = 10_000n;
+
+/**
+ * كلفة الوحدة (الكيلو، اللتر، القطعة) للعرض بس (القاعدة 9): القيمة ÷ الكمية بأربع مراتب، مقرّبة مرّة وحدة. ما تنحفظ وما
+ * ينحسب منها شي: التقييم دائماً من value_left ÷ qty_left بـ_mul_div_round2. (v/100) ÷ (q/1000) دينار = v × 10 ÷ q،
+ * وبوحدة ١/١٠٠٠٠: v × 100,000 ÷ q. الكمية السالبة (حركة خارجة بقيمة سالبة) تنقلب ويّا قيمتها، والصفر يرمي.
+ */
+export function unitCost4(value: Fils, qty: Milli): UnitCost {
+  if (qty === 0n) throw new RangeError('qty_zero');
+  const [v, q] = qty < 0n ? [-value, -qty] : [value, qty];
+  return roundHalfAway(v * ((UNIT_COST_SCALE * MILLI_PER_UNIT) / FILS_PER_DINAR), q);
+}
+
 /** مبلغ من نصّ المستخدم لمرتبتين كحدّ أقصى، أو null. */
 export function parseMoney(input: string): Fils | null {
   const value = parseDecimal(input, 2);

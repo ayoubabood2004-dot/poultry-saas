@@ -1,5 +1,5 @@
 import type { AcceptResult, NoOrgAccount, Workspace, WorkspaceResult } from '../domain/workspace';
-import { IdentityError, NetworkError, NotConnectedError, UnknownOutcomeError } from './errors';
+import { IdentityError, NetworkError, NotConnectedError, RetryableError, UnknownOutcomeError } from './errors';
 import type { Store } from './store';
 
 // حالة الجلسة كلها بمكان واحد، ودوالّها تجي من برّا (deps) حتى تنفحص بلا شبكة ولا متصفّح.
@@ -96,7 +96,8 @@ function ownerOf(result: WorkspaceResult): string {
 }
 
 function isTransient(error: unknown): boolean {
-  return error instanceof NetworkError || error instanceof UnknownOutcomeError;
+  // RetryableError: قفل متزاحم بالخادم، مثل «ما وصل» (المعاملة رجعت كلها).
+  return error instanceof NetworkError || error instanceof RetryableError || error instanceof UnknownOutcomeError;
 }
 
 /** جلسة داخلة والخادم بعده ما أكّدها: مفتوحة بالمحفوظة، أو صفحة فشل سببها الشبكة. */

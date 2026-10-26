@@ -128,7 +128,7 @@ Every business check runs after its lock is held. Errors 40P01 and 55P03 are sho
 - **Reversals ignore archive guards** (E43). Archive guards on parties, cash boxes, warehouses and items reject only new originals. A void, and every reversing row it writes, passes even when the box, store, item or party was archived after the original (E35 lets a zero-balance record be archived). A void must succeed or name a dependent document (FOUNDATION:594); an archived record is not a dependent. An archived record left with a non-zero balance by a void is flagged «مؤرشف وعليه رصيد» on its list, so it can be restored (FOUNDATION:64) or cleared.
 
 ### 2.7 Precision and rounding (FOUNDATION:133, 237, 465-468; DECISIONS:90)
-- `numeric` without precision, plus `check (x = round(x, n))` per column: quantities 3, values and costs 2, party and cash amounts 0, density 4, pack factors 6, `piece_mass_kg` 3.
+- `numeric` without precision, plus `check (abs(x) < 'Infinity' and x = round(x, n))` per column: quantities 3, values and costs 2, party and cash amounts 0, density 4, pack factors 6, `piece_mass_kg` 3. `NaN` and `±Infinity` are valid `numeric` values (the wire sends decimal strings, E3) and pass `x > 0` and `x = round(x, n)`; the `abs` term rejects them, and `catalog.test` requires both terms on every public `numeric` column. Every helper rejects non-finite arguments the same way.
 - Every multiply-divide-round goes through `private._mul_div_round2` or `private._mul_div_round0`. Every proportional split goes through `private.alloc_lr` (largest remainder, ties by line order). No `round(a*b/c)`; migration-guard bans it (WP0).
 - Pieces are whole. The front end uses bigint fils (1/100 dinar) and milli units, and its only rounding is `roundHalfAway` (money.ts:17).
 
@@ -277,10 +277,10 @@ Order: WP0 → WP1 → WP2 → WP3 → WP4 → WP5 → WP6 → WP7 → WP8. WP3 
 5. `db.setToday(date)` overrides `app_today()` in a committed scope and restores it in `finally` (CLAUDE.md lesson 2026-10-26; core.test pattern). At suite end, assert the function body equals the migration's.
 6. Shared test helpers, so every later package gets the same proofs by registering its document kind:
    - `sameRefRace(kind)` (FOUNDATION:873, 886): two sessions call the post function with the same `p_id` and ref at the same moment, giving one posting, one number and identical masked results. Then the same ref with a different `expected_version` gives `ref_reused`, and a posted document replayed under a new ref gives `not_draft`.
-   - `draftWriteLock(kind)` (FOUNDATION:526): as `authenticated`, insert a `posted` header, flip a draft to `posted`, and edit a line (and, where the kind has them, an amount side row) of a posted document; all three are rejected. The positive control is that editing a draft line works.
+   - `draftWriteLock(kind)` (FOUNDATION:526): as `authenticated`, insert a `posted` header, flip a draft to `posted`, and edit a line (and, where the kind has them, an amount side row) of a posted document; all three are rejected. A rejection counts only when it is the draft lock itself: an RLS violation (42501 `row-level security`), a guard code (`not_draft`, `frozen_column`, `append_only`), or zero rows for a row the table owner can reach. Any other error (a misspelled table or column, a missing NOT NULL column) fails the helper. Each statement has a positive control in the same shape on the draft: the kind gives `insertHeader(status)` and `setStatus(doc, status)`, so inserting a `draft` header, setting the draft's status to `draft`, and editing the draft's line and amount row must all succeed.
 
 **Catalog (`supabase/tests/catalog.test.mjs`):**
-- Replace :30 (all policies SELECT) and :119-120 (authenticated never writes) with exact checks against `classes.json`. Write policies exist only on `directWrite` tables. INSERT and UPDATE privileges equal the file. DELETE, TRUNCATE, REFERENCES and TRIGGER are never granted (E52).
+- Replace :30 (all policies SELECT) and :119-120 (authenticated never writes) with exact checks against `classes.json`. Write policies exist only on `directWrite` tables. INSERT and UPDATE privileges equal the file, column-level grants included (`columns` names them). DELETE, TRUNCATE, REFERENCES and TRIGGER are never granted, on the table or on a column (E52). Every write policy carries `org_id = (select auth_org())` and `can('<action>')` in each clause that gates its command, with no OR, plus `status = 'draft'` and the scope call when the entry names `draft` and `scope` (§2.5).
 - New: no policy expression references its own table (FOUNDATION:800). Every `appendOnly` table has `reject_change` as a row trigger (before update or delete) and a statement trigger (before truncate). `can_see_cost` and `can_see_accounts` are body-equal (§2.8).
 - `global` tables are excluded from common columns (:155) and from `NO_AUDIT`.
 - Today `classes.json` lists no direct-write tables, so behaviour is unchanged. A rollback probe that adds a write policy must make it fail.
@@ -288,14 +288,16 @@ Order: WP0 → WP1 → WP2 → WP3 → WP4 → WP5 → WP6 → WP7 → WP8. WP3 
 **Guards:**
 - **migration-guard (GT-24):**
   - a function body with `for update` or `pg_advisory_xact_lock` must contain `set local lock_timeout = '5s'`;
-  - ban `round(` whose argument contains `/`, and `floor(` with `*…/`;
+  - ban every `/` operator in SQL code (rule 8: `numeric / numeric` rounds by itself, so `round(a*b/c)`, `trunc`, `ceil`, `floor`, integer casts and two-step division all double-round), and `power(x, -n)` except base 10; division goes through `_mul_div_round2/0`, `div()` and `mod()`, with no marker;
+  - every function body is dollar-quoted (`$$` or `$tag$`), so the lock rule can read it;
   - ban `float`, `real`, `double precision` and `numeric(`;
   - every `create table` needs `enable row level security` in the same file.
 - **write-guard (GT-21):**
   - derive `FUNCTION_ONLY_TABLES` from `classes.json`;
   - repo calls to `post_*`, `void_*`, `record_*`, `pay_party`, `forgive_debt`, `submit_*`, `refresh_count`, `return_count` and `transfer_cash` must pass `p_client_ref`, and `post_*`, `submit_*`, `refresh_count`, `return_count`, `discard_draft`, `delete_draft_line`, `delete_receipt_charge` and `set_charge_lines` must pass `p_expected_version`;
   - no direct `.delete(` in `src/lib/repo` (E52);
-  - direct-write payloads must not contain `status`, `doc_no`, `version`, `posted_*`, `voided_*`, `book_id`, `discount_share`, `charge_share`, `gain_value`, `shortage_value`, `system_qty`, `system_expired_qty`, `diff` or `org_id`.
+  - direct-write payloads must not contain `status`, `doc_no`, `version`, `posted_*`, `voided_*`, `book_id`, `discount_share`, `charge_share`, `gain_value`, `shortage_value`, `system_qty`, `system_expired_qty`, `diff` or `org_id`. Literal keys are read even next to a spread, and a dynamic payload (the `Partial<…>` patch of §2.5) is read through its TypeScript type; an open type (`any`, `Record<string, …>`) fails, with no marker;
+  - in `src/lib/repo`, a write or `.delete(` on a builder not traced to `.from(` in the same chain fails (Map/Set deletes excepted), and an RPC name that cannot be read fails (except inside `call` in core.ts).
 - **reports-guard (GT-22):** derive `MONEY_TABLES` from `classes.json`. Accept keyset paging (`order` + `limit` + a `gt`/`lt` cursor) as bounded.
 - **money-guard (GT-23):** ban `Number(`, `parseInt(`, `parseFloat(` and `* 100`/`* 1000` arithmetic on parsed values in `src/domain` and `src/lib/repo`. Parsing goes through `parseDecimal`/`toScale`. The guard is not silenced for non-money code: a legitimate use carries a reason marker on its line, `// number-ok: السبب`, in the style of FOUNDATION:835. The two existing hits are calendar parts, not money, and get the marker in this package: `src/domain/dates.ts:22` and `:24` (year, month and day of a `YYYY-MM-DD` string). The selfTest proves that an unmarked `Number(` in `src/domain` and a marked one are each judged correctly, once.
 - Each new rule gets a selfTest case that is caught exactly once (FOUNDATION:833, CLAUDE.md lessons).
@@ -311,7 +313,7 @@ Order: WP0 → WP1 → WP2 → WP3 → WP4 → WP5 → WP6 → WP7 → WP8. WP3 
 ### WP1: `0004_math_units.sql` (units, rounding, allocation, normalisation)
 
 **Tables:**
-- `public.units(code text primary key, dimension text check in (mass, volume, count), base text check in (kg, L, pc), factor numeric check (factor > 0 and factor = round(factor, 3)))`.
+- `public.units(code text primary key, dimension text check in (mass, volume, count), base text check in (kg, L, pc), factor numeric check (abs(factor) < 'Infinity' and factor > 0 and factor = round(factor, 3)))`.
 - Seeded `kg 1, g 0.001, t 1000, L 1, mL 0.001, pc 1` (FOUNDATION:266).
 - Global, with no `org_id` (named exception, FOUNDATION:237). RLS on, with policy `units_read for select to authenticated using (true)`. No write grant; `reject_change` row and truncate triggers. In `classes.json` it is `global` and `functionOnly`.
 

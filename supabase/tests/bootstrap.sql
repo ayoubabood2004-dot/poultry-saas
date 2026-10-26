@@ -20,8 +20,9 @@ alter role authenticator set statement_timeout = '8s';
 alter role authenticator set lock_timeout = '8s';
 alter role postgres set search_path = "$user", public, extensions;
 
--- قاعدة postgres ملك postgres: pg_database_owner عليها UC بـpublic، فالهجرات تنشئ بيها.
-alter database postgres owner to postgres;
+-- ─── لكل قاعدة ─── (فوكه للعنقود كلّه مرّة وحدة؛ مشغّل التراجع يعيد من هنا بكل قاعدة جديدة، rollback.mjs)
+-- القاعدة ملك postgres: pg_database_owner عليها UC بـpublic، فالهجرات تنشئ بيها.
+do $$ begin execute format('alter database %I owner to postgres', current_database()); end $$;
 grant usage on schema public to postgres, anon, authenticated, service_role;
 
 -- المخطّطات بصلاحياتها المقيسة.

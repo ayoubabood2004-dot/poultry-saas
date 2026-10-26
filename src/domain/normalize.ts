@@ -22,6 +22,13 @@ export function toWesternDigits(input: string): string {
 // (U+0660–U+0669)، فالأرقام تترجم قبل مسح التشكيل، وإلا «٧٧٠٩٩» ينمسح ويطابق البحث كل شي.
 const TASHKEEL = /[\u{64B}-\u{65F}\u{670}\u{640}]/gu;
 
+// حالة الحروف للاتيني A–Z بس، بقائمة صريحة مثل مرآتها (private.searchable وnormalize_code بـ0004): toLowerCase()
+// الكاملة تقرّر بعض الحروف من جيرانها (Σ بآخر الكلمة ← ς) وتطلّع حرفين من حرف (İ ← i ونقطة مركّبة، وtoUpperCase:
+// ß ← SS)، وlower() وupper() بالقاعدة تتبع لغتها المحلّية (الإنتاج ICU والحزمة C)، فمرآة كاملة ما تنضبط حرفاً بحرف.
+// والأساس يكول «لاتيني» (FOUNDATION ٧٥٨). الفحص: normalize.test وparity.test (مسح BMP).
+const ASCII_UPPER = /[A-Z]+/g;
+const ASCII_LOWER = /[a-z]+/g;
+
 /** نصّ البحث بالاسم: أرقام غربية، بلا تشكيل، همزات وة وى موحّدة، حروف لاتينية صغيرة. */
 export function searchable(input: string): string {
   return toWesternDigits(input)
@@ -31,12 +38,14 @@ export function searchable(input: string): string {
     .replace(/\u{649}/gu, '\u{64A}') // i18n-ok: حرف تطبيع، ى ← ي
     .replace(/\u{624}/gu, '\u{648}') // i18n-ok: حرف تطبيع، ؤ ← و
     .replace(/\u{626}/gu, '\u{64A}') // i18n-ok: حرف تطبيع، ئ ← ي
-    .toLowerCase()
+    .replace(ASCII_UPPER, (run) => run.toLowerCase())
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /** الباركود والرموز: أرقام غربية، بلا فراغات، لاتيني كبير. */
 export function normalizeCode(input: string): string {
-  return toWesternDigits(input).replace(/\s+/g, '').toUpperCase();
+  return toWesternDigits(input)
+    .replace(/\s+/g, '')
+    .replace(ASCII_LOWER, (run) => run.toUpperCase());
 }

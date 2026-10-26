@@ -19,9 +19,9 @@ function dayToUtc(day: Day): number {
   const match = DAY_PATTERN.exec(day);
   if (!match) throw new RangeError('bad_day');
   const [, y, m, d] = match;
-  const time = Date.UTC(Number(y), Number(m) - 1, Number(d));
+  const time = Date.UTC(Number(y), Number(m) - 1, Number(d)); // number-ok: سنة وشهر ويوم من نصّ YYYY-MM-DD، مو فلوس
   const check = new Date(time);
-  if (check.getUTCDate() !== Number(d) || check.getUTCMonth() !== Number(m) - 1) throw new RangeError('bad_day');
+  if (check.getUTCDate() !== Number(d) || check.getUTCMonth() !== Number(m) - 1) throw new RangeError('bad_day'); // number-ok: نفس أجزاء التاريخ
   return time;
 }
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { IdentityError, NetworkError, NotConnectedError, RejectedError, UnknownOutcomeError, ZeroRowsError } from '../errors';
+import { IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError, UnknownOutcomeError, ZeroRowsError } from '../errors';
 import { getClient } from './client';
+import { constraintHint, violatedConstraint } from './constraints';
 
 // lib/repo هو الوصول الوحيد للقاعدة، ملف لكل وحدة: سياسة الأخطاء والمهلة وبوابة الاشتراك والطابور بمكان واحد.
 // بـdoctorVet خلل واحد بهاي النقطة وصل ٢١ موضعاً، والإصلاح بيها صلّحهم كلهم.
@@ -66,6 +67,10 @@ export function classifyPostgrest(error: PostgrestFailure, status: number, kind:
     if (reason === 'not_signed_in') return new IdentityError(reason, error.hint || null);
     return new RejectedError(reason, error.hint || null);
   }
+  // تزاحم على قفل (قفل متبادل أو مهلة القفل): المعاملة رجعت كلها، والإعادة بنفس المرجع آمنة (الخطّة §2.3).
+  if (code === '40P01' || code === '55P03') return new RetryableError(code);
+  // قيد check: باسمه وجملته الفصيحة، مو «الخادم رفض (23514)» (FOUNDATION ٨٠٨).
+  if (code === '23514') return new RejectedError('check_violation', constraintHint(violatedConstraint(error.message)));
   if (/^PGRST00[0-3]$/.test(code) || (status === 503 && !code)) return new NetworkError('db_unavailable');
   if (status === 502 || status === 504 || (status >= 520 && status <= 527)) return wasOnline ? new UnknownOutcomeError('gateway') : new NetworkError();
   // fetch ما كمل (supabase-js يرجّع status 0 بلا رمز): بلا اتصال ما طلع، وبالاتصال ممكن وصل.

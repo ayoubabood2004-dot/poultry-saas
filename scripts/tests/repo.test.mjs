@@ -22,7 +22,9 @@ async function bundle(contents) {
 }
 
 const kindOf = (m, error) =>
-  error instanceof m.IdentityError
+  m.RetryableError && error instanceof m.RetryableError
+    ? `retryable:${error.code}`
+    : error instanceof m.IdentityError
     ? `identity:${error.code}`
     : error instanceof m.RejectedError
       ? `rejected:${error.code}:${error.hint ?? ''}`
@@ -36,6 +38,7 @@ export default async function (t) {
   const m = await bundle(
     [
       "export { classifyPostgrest, call } from './src/lib/repo/core.ts';",
+      "export { violatedConstraint, constraintHint, CONSTRAINT_HINTS } from './src/lib/repo/constraints.ts';",
       "export { mapAuthError, signIn } from './src/lib/repo/auth.ts';",
       "export { loadHomeSummary } from './src/lib/repo/home.ts';",
       "export { getClient } from './src/lib/repo/client.ts';",
@@ -65,6 +68,27 @@ export default async function (t) {
   t.eq(pg({ code: '', message: 'Gateway Timeout' }, 504), 'unknown', '504: ما نعرف');
   t.eq(pg({ code: '', message: 'Cloudflare' }, 524), 'unknown', '524 من Cloudflare: ما نعرف');
   t.eq(pg({ code: '57014', message: 'canceling statement' }, 500), 'rejected:57014:', '500 برمز بوستغريس: رفض حقيقي (المعاملة رجعت)');
+  // المرحلة 1 (WP0): التزاحم على قفل «لم يُرحَّل، أعد المحاولة» (مو رفض)، وقيد check باسمه وجملته الفصيحة.
+  t.eq(pg({ code: '40P01', message: 'deadlock detected' }, 500), 'retryable:40P01', 'قفل متبادل (40P01): أعد المحاولة، مو رفض');
+  t.eq(pg({ code: '55P03', message: 'canceling statement due to lock timeout' }, 500), 'retryable:55P03', 'مهلة القفل (55P03): أعد المحاولة');
+  t.eq(pg({ code: '55P03', message: 'lock timeout' }, 500, 'table'), 'retryable:55P03', 'مهلة القفل على جدول هم إعادة');
+  const retry = m.describeError(new m.RetryableError('40P01'));
+  t.same([retry.kind, retry.title], ['retryable', 'لم يُرحَّل، أعد المحاولة'], 'التزاحم يوصف «لم يُرحَّل، أعد المحاولة»');
+  t.ok(m.describeError(new m.RetryableError('55P03')).detail.includes('لم يُحفظ شيء'), 'ويكول إن شيئاً لم يُحفظ');
+  t.eq(
+    pg({ code: '23514', message: 'new row for relation "members" violates check constraint "members_phone_check"' }, 400),
+    'rejected:check_violation:رقم الهاتف يجب أن يكون رقم موبايل عراقياً صحيحاً.',
+    '23514 يسمّي القيد بجملته من constraint.<اسم القيد>',
+  );
+  t.eq(
+    pg({ code: '23514', message: 'new row for relation "orgs" violates check constraint "orgs_name_check"' }, 400, 'table'),
+    'rejected:check_violation:اسم المنشأة مطلوب، ولا يزيد على 120 حرفاً.',
+    '23514 على كتابة مباشرة بجدول: نفس الجملة',
+  );
+  const unknownCheck = pg({ code: '23514', message: 'new row for relation "x" violates check constraint "x_qty_check"' }, 400);
+  t.ok(unknownCheck.startsWith('rejected:check_violation:') && unknownCheck.includes('«x_qty_check»'), 'قيد مو بالقائمة: جملة عامة تسمّيه، مو «بعض القيم غير صحيحة»');
+  t.eq(m.violatedConstraint('value for domain d violates check constraint "d_check"'), 'd_check', 'اسم القيد من رسالة النطاق هم');
+  t.eq(m.violatedConstraint(undefined), null, 'بلا رسالة: ماكو اسم');
 
   // ── GoTrue ────────────────────────────────────────────────────────────────────────────────────────
   const auth = (error, online = true) => kindOf(m, m.mapAuthError(error, online));

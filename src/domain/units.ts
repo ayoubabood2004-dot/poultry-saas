@@ -4,6 +4,7 @@ import { MILLI_PER_UNIT, roundHalfAway, type Milli } from './money';
 // الرصيد والحركات دائماً بوحدة الأساس: كغم للصلب، لتر للسائل، قطعة للمعدود.
 // الكيس والبرميل والقنينة والطبقة والكارتون وحدات إدخال وعرض بمعامل لكل مادّة (item_units)،
 // والمعامل ينحفظ على السطر لحظة الإدخال: تعديل وزن الكيس بعدين ما يغيّر سطراً قديماً.
+// مرايا القاعدة (0004): جدول public.units = UNITS، وprivate.to_base وliters_to_kg وkg_to_liters، بفحص تطابق (parity.test).
 
 export type BaseUnit = 'kg' | 'L' | 'pc';
 export type UnitCode = 'kg' | 'g' | 't' | 'L' | 'mL' | 'pc';

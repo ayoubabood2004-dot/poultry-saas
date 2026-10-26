@@ -1,0 +1,27 @@
+{
+  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ، وcolumns: { update: [...] } إذا المنح على أعمدة؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
+  "functionOnly": ["audit_log", "divisions", "ledger_books", "member_scopes", "members", "orgs", "period_locks", "rpc_refs", "units"],
+  "directWrite": {},
+  "appendOnly": ["audit_log", "units"],
+  "costRestricted": ["audit_log"],
+  "accountsRestricted": [],
+  "salesRestricted": [],
+  "global": ["units"],
+  "reserved": {
+    "functionOnly": [
+      "cash_moves", "client_versions", "doc_counters", "expenses", "flock_close_values", "flock_costs", "flock_counts",
+      "flock_daily", "flock_day_rejects", "hatch_batch_values", "hatch_candlings", "hatch_costs", "party_allocations",
+      "party_entries", "party_offsets", "production_input_values", "production_values", "receipt_charge_shares",
+      "receipt_revaluations", "sales_line_costs", "sales_line_sources", "sales_return_line_sources", "stock_balances",
+      "stock_lots", "stock_moves"
+    ],
+    "money": [
+      "cash_accounts", "cash_moves", "expenses", "flock_close_values", "flock_costs", "hatch_batch_values", "hatch_costs",
+      "opening_lines", "party_allocations", "party_entries", "party_offsets", "production_costs", "production_input_values",
+      "production_values", "receipt_amounts", "receipt_charge_lines", "receipt_charge_shares", "receipt_charges",
+      "receipt_line_amounts", "receipt_revaluations", "sales_invoices", "sales_line_costs", "sales_line_sources",
+      "sales_lines", "sales_return_line_sources", "sales_return_lines", "sales_returns", "stock_balances",
+      "stock_count_line_costs", "stock_lots", "stock_moves", "supplier_return_line_amounts"
+    ]
+  }
+}

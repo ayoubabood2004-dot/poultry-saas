@@ -1,19 +1,14 @@
 // reports-guard: لا قراءة لجداول المال بلا مدّة (gte ويّا lte/lt) إلا بوسم /* unbounded: السبب */،
 // ودوالّ report_* تننادى بمدّة إلزامية (p_from وp_to). المجاميع من دوالّ SQL مو من سحب الصفوف:
-// سقف PostgREST ألف صفّ، وقائمة مقصوصة بصمت تنصدّق.
+// سقف PostgREST ألف صفّ، وقائمة مقصوصة بصمت تنصدّق. والتصفّح بالمعرّف (keyset: order ويّا limit ومؤشّر gt أو lt)
+// محدود هم: كل صفحة بحدّها وتتقدّم بما وصل (FOUNDATION ٨١١، الخطّة GT-22).
+import { loadClasses, moneyTables } from './classes.mjs';
 import { calleeName, hasMarker, lineOf, parse, readSources, resolvedText, ts, walk, where } from './lib.mjs';
 
 export const name = 'reports-guard';
 
-/** جداول المال والكلف (السياسات المقيِّدة بنموذج البيانات). */
-export const MONEY_TABLES = new Set([
-  'stock_lots', 'stock_moves', 'stock_balances', 'opening_lines', 'receipt_amounts', 'receipt_line_amounts',
-  'receipt_charges', 'receipt_revaluations', 'supplier_return_line_amounts', 'production_values',
-  'production_input_values', 'production_costs', 'hatch_batch_values', 'hatch_costs', 'flock_costs',
-  'sales_line_costs', 'expenses', 'audit_log', 'party_entries', 'party_allocations', 'party_offsets',
-  'cash_moves', 'sales_invoices', 'sales_lines', 'sales_returns', 'sales_line_sources', 'flock_close_values',
-  'sales_return_lines', 'sales_return_line_sources', 'stock_count_line_costs',
-]);
+/** جداول المال والكلف: من supabase/tests/classes.json (سياستا الكلفة والحسابات المقيِّدتان والمحجوز للمراحل الجاية). */
+export const MONEY_TABLES = moneyTables();
 
 function chainMethods(fromCall) {
   const methods = [];
@@ -28,6 +23,7 @@ function chainMethods(fromCall) {
 export function check(files) {
   const problems = [];
   let reads = 0;
+  let keysetReads = 0;
   let reportCalls = 0;
   for (const file of files) {
     const sourceFile = parse(file);
@@ -42,9 +38,11 @@ export function check(files) {
         const methods = chainMethods(node);
         if (methods.some((m) => ['insert', 'update', 'upsert', 'delete'].includes(m))) return;
         reads += 1;
-        const bounded = methods.includes('gte') && (methods.includes('lte') || methods.includes('lt'));
-        if (!bounded && !hasMarker(file, line, 'unbounded:')) {
-          problems.push(`${where(file, line)}: قراءة ${table} بلا مدّة — زِد gte/lte أو وسم unbounded بسببه`);
+        const ranged = methods.includes('gte') && (methods.includes('lte') || methods.includes('lt'));
+        const keyset = methods.includes('order') && methods.includes('limit') && (methods.includes('gt') || methods.includes('lt'));
+        if (keyset) keysetReads += 1;
+        if (!ranged && !keyset && !hasMarker(file, line, 'unbounded:')) {
+          problems.push(`${where(file, line)}: قراءة ${table} بلا مدّة — زِد gte/lte، أو صفحة بالمعرّف (order وlimit ومؤشّر gt/lt)، أو وسم unbounded بسببه`);
         }
       }
       if (method === 'rpc') {
@@ -59,7 +57,7 @@ export function check(files) {
       }
     });
   }
-  return { problems, reads, reportCalls };
+  return { problems, reads, keysetReads, reportCalls };
 }
 
 export function selfTest() {
@@ -85,6 +83,26 @@ export function selfTest() {
     },
   ]);
   if (scoped.problems.length !== 1) return 'ثابت باسم مكرّر بدالّة ثانية غطّى جدول المال';
+  // المشتقّ من classes.json: الجداول اللي كانت ناقصة من القائمة اليدوية، والمحجوزة للمراحل الجاية، والموجودة.
+  const derived = ['cash_accounts', 'receipt_charge_lines', 'receipt_charge_shares', 'sales_invoices', 'audit_log'].filter((table) => !MONEY_TABLES.has(table));
+  if (derived.length) return `جداول ناقصة من «جداول المال» المشتقّة من classes.json: ${derived.join('، ')}`;
+  // التصفّح بالمعرّف: order ويّا limit ومؤشّر محدود، وكل جزء ناقص ينمسك مرّة وحدة.
+  const pages = [
+    ["db.from('party_entries').select('*').order('id').limit(200).gt('id', after)", 0],
+    ["db.from('party_entries').select('*').order('id', { ascending: false }).limit(200).lt('id', before)", 0],
+    ["db.from('party_entries').select('*').order('id').limit(200)", 1],
+    ["db.from('party_entries').select('*').order('id').gt('id', after)", 1],
+    ["db.from('party_entries').select('*').limit(200).gt('id', after)", 1],
+  ];
+  for (const [chain, expected] of pages) {
+    const got = check([{ path: 'src/lib/repo/self.ts', text: `export const p = (db, after, before) => ${chain};` }]);
+    if (got.problems.length !== expected) return `صفحة بالمعرّف «${chain}»: توقّعت ${expected} وطلع ${got.problems.length}`;
+  }
+  // طفرات الاختبار: المدّة بطرفيها (gte وحده مو مدّة)، والاشتقاق يجمع الأصناف الثلاثة (accountsRestricted فارغ اليوم).
+  const halfRange = check([{ path: 'src/lib/repo/self.ts', text: "export const h = (db, a) => db.from('party_entries').select('*').gte('on_date', a);" }]);
+  if (halfRange.problems.length !== 1) return `قراءة بـgte وحده (بلا lte/lt) ما انمسكت (${halfRange.problems.length})`;
+  const fake = [...moneyTables(loadClasses('{"costRestricted": ["a"], "accountsRestricted": ["b"], "reserved": {"money": ["c"]}}'))].sort().join();
+  if (fake !== 'a,b,c') return `الاشتقاق من classes.json ما جمع الكلفة والحسابات والمحجوز: ${fake}`;
   const good = check([
     {
       path: 'src/lib/repo/ok.ts',
@@ -101,6 +119,6 @@ export function run() {
   return {
     scanned: files.length,
     problems: result.problems,
-    summary: `فحصت ${files.length} ملفاً بـsrc/lib/repo: ${result.reads} قراءة لجداول المال و${result.reportCalls} نداء report_*`,
+    summary: `فحصت ${files.length} ملفاً بـsrc/lib/repo: ${result.reads} قراءة لـ${MONEY_TABLES.size} جدول مال من classes.json (${result.keysetReads} بصفحات بالمعرّف) و${result.reportCalls} نداء report_*`,
   };
 }

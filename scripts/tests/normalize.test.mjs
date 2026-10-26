@@ -21,4 +21,13 @@ export default async function (t) {
   t.ok(n.searchable('شركة ١') !== n.searchable('شركة ٢'), 'رقمان مختلفان ما يصيرون توائم');
 
   t.eq(n.normalizeCode(' ab ١٢3 '), 'AB123', 'الباركود: أرقام غربية بلا فراغ وكبير');
+
+  // حالة الحروف للاتيني A–Z بس (مرآة private.searchable وnormalize_code بقائمة صريحة): toLowerCase() الكاملة تقرّر Σ من
+  // جيرانها وتطلّع من İ حرفين، وtoUpperCase() تطلّع من ß حرفين، فالمرآة بالقاعدة ما تنضبط وياها حرفاً بحرف.
+  t.eq(n.searchable('ÉΣ İ'), 'ÉΣ İ', 'غير اللاتيني A–Z ما تتغيّر حالته');
+  t.eq(n.searchable('ΑΣ'), 'ΑΣ', 'Σ بآخر الكلمة تبقى (toLowerCase كانت تطلّعها ς)');
+  t.eq(n.normalizeCode('straße'), 'STRAßE', 'ß تبقى حرفاً واحداً (toUpperCase كانت تطلّعها SS)');
+  t.eq(n.searchable('QWERTYUIOPASDFGHJKLZXCVBNM'), 'qwertyuiopasdfghjklzxcvbnm', 'A–Z كلها صغيرة');
+  t.eq(n.normalizeCode('qwertyuiopasdfghjklzxcvbnm'), 'QWERTYUIOPASDFGHJKLZXCVBNM', 'a–z كلها كبيرة');
+  t.eq(n.searchable('فاتورة ٧٧٠٩٩'), 'فاتوره 77099', '«٧٧٠٩٩» بالضبط (FOUNDATION ٨٠٤)');
 }

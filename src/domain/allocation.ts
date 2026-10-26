@@ -1,6 +1,7 @@
 // توزيع «أكبر الباقي»: الحصّة = div(المبلغ × الوزن، مجموع الأوزان)، والوحدات الباقية
 // تنوزّع واحدة واحدة على أكبر البواقي، والتعادل بترتيب السطر. فالمجموع = المبلغ بالضبط.
 // الوحدة يحدّدها المستدعي: فلس لحصص قيمة الدفعات، ودينار صحيح لكل ما يدخل دفتر جهة.
+// مرآتها private.alloc_lr (0004)، وحزمة بوستغريس تقارنهم بلا تسامح (parity.test).
 
 export function allocateLargestRemainder(total: bigint, weights: readonly bigint[]): bigint[] {
   if (weights.some((w) => w < 0n)) throw new RangeError('negative_weight');
