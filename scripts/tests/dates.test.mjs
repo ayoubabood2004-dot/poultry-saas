@@ -6,9 +6,11 @@ export default async function (t) {
 
   // المنطقة مثبّتة على بغداد قبل أي Date: بجهاز UTC (Vercel وGitHub Actions) يوم ISO يطابق اليوم المحلّي،
   // فـlocalDay لو رجع لتحويل ISO يعدّي الفحص هناك. Node يقرا TZ وقت التشغيل.
-  // المنطقة المحفوظة بالاسم مو بقيمة TZ: حذف TZ ما يرجّع منطقة الجهاز بـNode (يبقى على آخر قيمة)،
-  // فالإرجاع لازم يكتب اسم منطقة الجهاز صراحةً.
-  const savedZone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // حذف TZ ما يرجّع منطقة الجهاز بـNode (يبقى على آخر قيمة)، فالإرجاع يكتب قيمة TZ الأصلية، وبلاها اسم منطقة الجهاز.
+  // والفحص يقارن اسم المنطقة المحلول قبل وبعد، مو قيمة TZ: بأجهزة بناء Vercel (AWS) TZ=":UTC" بنقطتين واسمها "UTC"،
+  // ومقارنة القيمة بالاسم فشّلت كل بناء هناك ومحلّياً وبـCI عبرت.
+  const savedTz = process.env.TZ;
+  const savedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   process.env.TZ = 'Asia/Baghdad';
   try {
     // الشرط المسبق: لو المنطقة ما انطبقت، يوم ISO والمحلّي يتطابقون والفحوص تحت ما تفحص شي.
@@ -29,7 +31,7 @@ export default async function (t) {
     t.throws(() => d.addDays('24/10/2026', 1), 'صيغة غلط ترفض', /bad_day/);
   } finally {
     // الفحوص الثانية تشتغل بنفس العملية: نرجّع المنطقة مثل ما كانت.
-    process.env.TZ = savedZone;
+    process.env.TZ = savedTz ?? savedZone;
   }
   t.eq(Intl.DateTimeFormat().resolvedOptions().timeZone, savedZone, 'المنطقة رجعت مثل ما كانت للفحوص اللي بعده');
 }
