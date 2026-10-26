@@ -1,4 +1,4 @@
-import { openDatabase, requestResult, transact } from './idb';
+import { openDatabase, requestResult, transact } from '../idb';
 import {
   QUEUEABLE_FUNCTIONS,
   type FlockDayPayload,

@@ -93,7 +93,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 export default async function (t) {
   const q = await loadSrc('src/lib/outbox/index.ts');
-  const idb = await loadSrc('src/lib/outbox/idb.ts');
+  const idb = await loadSrc('src/lib/idb.ts');
   const queue = await loadSrc('src/lib/outbox/queue.ts');
   const open = () => q.openOutbox(nextName());
   const day = (flockId, onDate, payload, baseVersion = null) => ({ fn: 'save_flock_day', flockId, day: onDate, payload, baseVersion });

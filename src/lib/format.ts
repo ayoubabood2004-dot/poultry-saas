@@ -24,6 +24,20 @@ export function fmtDay(day: Day): string {
   return `${date}/${month}/${year}`;
 }
 
+/**
+ * رقم موبايل عراقي بشكله الموحّد (9647701234567) بالشكل اللي يكتبه الناس: «0770 123 4567». مو رقماً حسابياً،
+ * فما يمرّ من fmtInt (ما تنحطّ بيه فواصل). غير الموحّد يرجع كما هو.
+ */
+export function fmtPhone(phone: string): string {
+  if (!/^9647[0-9]{9}$/.test(phone)) return phone;
+  return `0${phone.slice(3, 6)} ${phone.slice(6, 9)} ${phone.slice(9)}`;
+}
+
+/** رمز الدعوة (6 أرقام نصّاً) بثلاثتين حتى ينقرا بالهاتف: «482 913». */
+export function fmtInviteCode(code: string): string {
+  return /^[0-9]{6}$/.test(code) ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
 /** مبلغ بالفلس: بمرتبتين («694,579.56»)، أو 0 لدينار صحيح ويرمي إذا بيه كسر مخفي. */
 export function fmtMoney(amount: Fils, decimals: 0 | 2 = 2): string {
   const [sign, abs] = magnitude(amount);

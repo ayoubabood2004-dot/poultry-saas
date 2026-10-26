@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { budgetSelfTest, ceilingFor, measuredCeiling, readBudgets, saveBudgets } from './budgets.mjs';
+import { buildKeys, keysPresent as hasKeys } from './keys.mjs';
 import { ROOT } from './lib.mjs';
 
 export const name = 'pwa-guard';
@@ -102,14 +103,17 @@ function precacheOver(bytes, ceiling) {
 /**
  * الحكم على حجم التثبيت المسبق بسقف هالتشغيل: القديم، إلا إذا --measure انقبل (نزل، أو صعد بـ--raise).
  * قبل كان --measure يكتب السقف الأعلى حتى لو نفس التشغيل يكول إنه فوك القديم.
+ * البناء بلا مفاتيح (CI) أصغر من بناء Vercel بالرابط والمفتاح، فحدّه السقف ناقص احتياط مقيس، مثل bundle-guard:
+ * اللي يعبر هنا يعبر هناك (المراجعة الثانية: CI أخضر وVercel أحمر لنفس الدفعة).
  */
-export function judgePrecache(bytes, budgets, { measure = false, raise = null, note = '' } = {}) {
-  const { ceiling, next, refused } = measuredCeiling(budgets, 'precache_bytes', ceilingFor(bytes), note, { measure, raise });
+export function judgePrecache(bytes, budgets, { keysPresent = true, measure = false, raise = null, note = '' } = {}) {
+  const allowance = keysPresent ? 0 : (budgets.precache_keys_allowance_bytes ?? 0);
+  const { ceiling, next, refused } = measuredCeiling(budgets, 'precache_bytes', ceilingFor(bytes) + allowance, note, { measure, raise });
   const problems = refused ? [refused] : [];
-  const over = precacheOver(bytes, ceiling);
+  const over = precacheOver(bytes, ceiling === null ? null : ceiling - allowance);
   if (over) problems.push(over);
   if (ceiling === null) problems.push('سقف التثبيت المسبق ما انقاس بعد: node scripts/guards/run.mjs --dist --measure');
-  return { problems, next, ceiling };
+  return { problems, next, ceiling, allowance };
 }
 
 function png(width, height) {
@@ -163,6 +167,9 @@ export function selfTest() {
   if (stray.next !== null || stray.problems.length !== 2) return `--measure رفع سقف التثبيت المسبق بلا --raise: ${stray.problems.join(' | ')}`;
   const raised = judgePrecache(600000, budgets, { measure: true, raise: 'خطوط جديدة' });
   if (raised.problems.length !== 0 || raised.next?.precache_bytes !== ceilingFor(600000)) return 'الصعود بـ--raise ما انكتب';
+  const near = { precache_bytes: 800000, precache_keys_allowance_bytes: 700, history: [] };
+  if (judgePrecache(799500, near, { keysPresent: true }).problems.length !== 0) return 'بمفاتيح: الاحتياط انطرح من سقف التثبيت المسبق';
+  if (judgePrecache(799500, near, { keysPresent: false }).problems.length !== 1) return 'بلا مفاتيح: احتياط المفاتيح ما انطرح من سقف التثبيت المسبق';
   return null;
 }
 
@@ -189,12 +196,13 @@ export function run({ measure = false, raise = null } = {}) {
   };
   // بلا سقف أوّل: الحجم ينقاس، والسقف يتقرّر بعده (القديم إلا إذا --measure انقبل).
   const result = checkDist(read, files, null);
-  const note = `قياس ${new Date().toISOString()}: ${result.precacheBytes} بايت، ${result.precached} ملف`;
-  const verdict = judgePrecache(result.precacheBytes, readBudgets(), { measure, raise, note });
+  const keysPresent = hasKeys(buildKeys());
+  const note = `قياس ${new Date().toISOString()} بلا مفاتيح=${!keysPresent}: ${result.precacheBytes} بايت، ${result.precached} ملف`;
+  const verdict = judgePrecache(result.precacheBytes, readBudgets(), { keysPresent, measure, raise, note });
   if (verdict.next) saveBudgets(verdict.next);
   return {
     scanned: files.length,
     problems: [...result.problems, ...verdict.problems],
-    summary: `فحصت ${result.checked} بنداً بـdist؛ التثبيت المسبق ${result.precached} ملف = ${result.precacheBytes} بايت (السقف ${verdict.ceiling})`,
+    summary: `فحصت ${result.checked} بنداً بـdist؛ التثبيت المسبق ${result.precached} ملف = ${result.precacheBytes} بايت (السقف ${verdict.ceiling}${keysPresent ? '' : ` ناقص احتياط المفاتيح ${verdict.allowance}`})`,
   };
 }

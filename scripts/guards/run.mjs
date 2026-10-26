@@ -1,10 +1,11 @@
 // الحرّاس مربوطين بـ&& بـnpm run lint وnpm run build، وVercel يبني بـnpm run build، فأي حارس يفشل يوقّف النشر.
 // كل حارس يفحص نفسه على مدخلات مصنوعة قبل ما يمسح المستودع، ويطبع شنو فحص؛ والمسح الفارغ فشل أداة مو نظافة.
-// --dist: حرّاس البناء (pwa-guard وbundle-guard) بعد vite build. --measure: يكتب السقوف المقيسة بسجلّها؛
+// --dist: حرّاس البناء (env-guard وpwa-guard وbundle-guard) بعد vite build. --measure: يكتب السقوف المقيسة بسجلّها؛
 // تنزل بحرّية، والصعود يرفضه إلا ويّا --raise="السبب" (السبب ينكتب بسطر السجلّ).
 import { budgetSelfTest } from './budgets.mjs';
 import * as bundleGuard from './bundle-guard.mjs';
 import * as dateGuard from './date-guard.mjs';
+import * as envGuard from './env-guard.mjs';
 import * as fetchGuard from './fetch-guard.mjs';
 import * as i18nGuard from './i18n-guard.mjs';
 import * as migrationGuard from './migration-guard.mjs';
@@ -16,7 +17,7 @@ import * as uiGuard from './ui-guard.mjs';
 import * as writeGuard from './write-guard.mjs';
 
 const SOURCE_GUARDS = [i18nGuard, moneyGuard, numbersGuard, fetchGuard, writeGuard, dateGuard, uiGuard, reportsGuard, migrationGuard];
-const DIST_GUARDS = [pwaGuard, bundleGuard];
+const DIST_GUARDS = [envGuard, pwaGuard, bundleGuard];
 
 const dist = process.argv.includes('--dist');
 const measure = process.argv.includes('--measure');

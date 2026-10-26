@@ -1,4 +1,5 @@
 import type { Fils, Milli } from '../../domain/money';
+import { hasBackend } from '../env';
 import { notConnected } from './core';
 
 /** أرقام اليوم لبطاقات الرئيسية، لكل وحدة ضمن نطاق المستخدم. تجي من دالّة واحدة بالقاعدة، مو من سحب الصفوف. */
@@ -22,6 +23,8 @@ export interface HomeSummary {
   accounts?: { receivable: Fils; payable: Fils };
 }
 
+/** دالّة الملخّص تنبني ويّا المرحلة 1: لحدّها القاعدة مربوطة والأرقام فارغة («—»)، مو «غير مربوط». */
 export async function loadHomeSummary(): Promise<HomeSummary> {
-  return notConnected();
+  if (!hasBackend()) notConnected();
+  return {};
 }

@@ -60,6 +60,7 @@ export default async function (t) {
     t.eq(p.canSeeCost(role), accounting, `canSeeCost(${role})`);
     t.eq(p.canSeeAccounts(role), accounting, `canSeeAccounts(${role})`);
     t.eq(p.canSeeSales(role), !['hall_worker', 'hatchery_operator', 'mill_operator'].includes(role), `canSeeSales(${role})`);
+    t.eq(p.canManageMembers(role), p.can(role, 'members.manage'), `canManageMembers(${role}) = can(members.manage)`);
   }
 
   // النطاق: عامل قاعة نطاقه قاعة 1 يحفظ جولة قاعة 3 ← رفض.

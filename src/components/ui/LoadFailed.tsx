@@ -14,7 +14,8 @@ export interface LoadFailedProps {
 }
 
 export function LoadFailed({ what, error, onRetry }: LoadFailedProps) {
-  const description = describeError(error);
+  // قراءة: «ما تغيّر شي»، مو «نتيجة العملية غير معروفة».
+  const description = describeError(error, 'read');
   return (
     <div role="alert" className="card flex flex-col items-start gap-3 p-5">
       <div className="flex items-center gap-2 font-semibold text-danger-700 dark:text-danger-200">

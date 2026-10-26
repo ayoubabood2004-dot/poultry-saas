@@ -99,6 +99,7 @@ export default async function (t) {
     t.eq(closeIntent(true, true), 'ignore', 'مقفولة ومعدّلة: حتى سؤال «تطلع بلا حفظ؟» ما يطلع');
     t.eq(closeIntent(false, true), 'ask', 'نموذج معدّل يسأل');
     t.eq(closeIntent(false, false), 'close', 'غير هيچ تنسدّ');
+    t.eq(closeIntent(false, false, false), 'ignore', 'رمز الدعوة (dismissible=false): نقرة برّا أو Esc ما تضيّعه');
   });
 
   // C21: Tab يدور جوّا النافذة العليا، والتركيز يدخل ويرجع.

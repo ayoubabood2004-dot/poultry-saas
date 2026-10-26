@@ -7,7 +7,6 @@ import { Notice } from '../../components/ui/Notice';
 import { PageHeader } from '../../components/PageHeader';
 import type { DivisionKind } from '../../domain/divisions';
 import { localDay } from '../../domain/dates';
-import { canSeeAccounts } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { countForm, fmtDay, fmtInt, fmtMoney, fmtQty } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
@@ -207,8 +206,8 @@ export default function HomePage() {
 
   const specs = cardSpecs(summary.data).filter((spec) => {
     if (session.status !== 'ready') return true;
-    const { divisions, role } = session.workspace;
-    return spec.key === 'accounts' ? canSeeAccounts(role) : divisions.includes(spec.key);
+    const { divisions, canSeeAccounts } = session.workspace;
+    return spec.key === 'accounts' ? canSeeAccounts : divisions.includes(spec.key);
   });
 
   return (
@@ -229,6 +228,10 @@ export default function HomePage() {
         </Notice>
       ) : summary.error ? (
         <LoadFailed what={t('home.what', 'أرقام اليوم')} error={summary.error} onRetry={summary.retry} />
+      ) : summary.data && Object.keys(summary.data).length === 0 ? (
+        <Notice tone="info" title={t('home.coming.title', 'لا أرقام بعد')}>
+          {t('home.coming', 'تظهر أرقام اليوم هنا حين تُبنى الوحدات في المراحل القادمة، وتبقى «—» مكانها حتى ذلك الحين.')}
+        </Notice>
       ) : null}
       <InstallCard />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

@@ -1,18 +1,25 @@
 // bundle-guard (بعد vite build بس): حزمة الإقلاع (المدخل وتوابعه الثابتة وCSS) بسقف مقيس على dist.
 // استيراد واحد ضال يجرّ عشرات الكيلوبايت لكل مستخدم. البناء بلا مفاتيح السحابة أصغر من بناء Vercel،
-// فالحدّ المحلّي ينقص احتياط المفاتيح حتى اللي يعبر هنا يعبر هناك.
+// فالحدّ المحلّي ينقص احتياط المفاتيح حتى اللي يعبر هنا يعبر هناك. «بلا مفاتيح» يعني البناء نفسه بلاها: المفاتيح
+// تجي من بيئة العملية (Vercel، CI) أو من ملفات .env* اللي يقراها Vite (‏.env.local محلّياً)، فالفحص يقراها مثله (keys.mjs).
+// وسقف ثاني لمسار الجلسة الحرج: بمفاتيح، الشاشة الأولى (الدخول أو المنشأة) ما ترسم قبل ما وحدة الجلسة ووحدات
+// lib/repo وsupabase-js تنحمّل فوك الإقلاع، فاستيراد ثقيل بيها يتأخّر على كل مستخدم مثل حزمة الإقلاع.
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { budgetSelfTest, ceilingFor, measuredCeiling, readBudgets, saveBudgets } from './budgets.mjs';
+import { buildKeys, keysPresent as hasKeys } from './keys.mjs';
 import { ROOT } from './lib.mjs';
 
 export const name = 'bundle-guard';
 
 const DIST = path.join(ROOT, 'dist');
 
-/** ملفات الإقلاع من manifest بناء Vite: المدخل وكل استيراد ثابت ويّا CSS، بلا الكسول. */
-export function bootFiles(manifest) {
+/** وحدات مسار الجلسة الحرج بمفاتيح manifest (كسولة، بس كل مستخدم يحمّلها قبل أوّل شاشة). */
+export const SESSION_ENTRIES = [/^src\/lib\/repo\/index\.ts$/, /^src\/lib\/sessionFlow\.ts$/, /(^|\/)@supabase\/supabase-js\//];
+
+/** الملفات من الجذور وكل استيراد ثابت منها ويّا CSS، بلا الكسول. */
+function closure(manifest, roots) {
   const files = new Set();
   const seen = new Set();
   const visit = (key) => {
@@ -23,9 +30,27 @@ export function bootFiles(manifest) {
     for (const css of chunk.css ?? []) files.add(css);
     for (const imported of chunk.imports ?? []) visit(imported);
   };
-  if (!manifest['index.html']?.isEntry) throw new Error('no_entry');
-  visit('index.html');
+  for (const root of roots) visit(root);
   return [...files];
+}
+
+/** ملفات الإقلاع من manifest بناء Vite: المدخل وكل استيراد ثابت ويّا CSS، بلا الكسول. */
+export function bootFiles(manifest) {
+  if (!manifest['index.html']?.isEntry) throw new Error('no_entry');
+  return closure(manifest, ['index.html']);
+}
+
+/** الإقلاع ووحدات الجلسة الكسولة بتوابعها الثابتة. وحدة ما انلقت = البناء تغيّر، والحارس يفشل بصوت. */
+export function sessionPathFiles(manifest) {
+  if (!manifest['index.html']?.isEntry) throw new Error('no_entry');
+  const keys = Object.keys(manifest);
+  const roots = ['index.html'];
+  for (const pattern of SESSION_ENTRIES) {
+    const key = keys.find((candidate) => pattern.test(candidate));
+    if (!key) throw new Error(`no_session_entry:${pattern.source}`);
+    roots.push(key);
+  }
+  return closure(manifest, roots);
 }
 
 export function measure(files, read) {
@@ -46,6 +71,26 @@ export function selfTest() {
     'lazy.tsx': { file: 'c.js', isDynamicEntry: true },
   });
   if (files.sort().join() !== 'a.css,a.js,b.js') return `حسبت ملفات الإقلاع غلط: ${files.join()}`;
+  const sessionManifest = {
+    'index.html': { file: 'a.js', isEntry: true, imports: ['_b.js'] },
+    '_b.js': { file: 'b.js' },
+    'src/lib/repo/index.ts': { file: 'repo.js', isDynamicEntry: true, imports: ['_client.js', 'index.html'] },
+    '_client.js': { file: 'client.js', dynamicImports: ['node_modules/@supabase/supabase-js/dist/index.mjs'] },
+    'src/lib/sessionFlow.ts': { file: 'flow.js', isDynamicEntry: true },
+    'node_modules/@supabase/supabase-js/dist/index.mjs': { file: 'supa.js', isDynamicEntry: true },
+    'src/pages/mill/MillPage.tsx': { file: 'mill.js', isDynamicEntry: true },
+  };
+  const session = sessionPathFiles(sessionManifest).sort().join();
+  if (session !== 'a.js,b.js,client.js,flow.js,repo.js,supa.js') return `حسبت مسار الجلسة غلط: ${session}`;
+  const missing = { ...sessionManifest };
+  delete missing['src/lib/sessionFlow.ts'];
+  let threw = false;
+  try {
+    sessionPathFiles(missing);
+  } catch {
+    threw = true;
+  }
+  if (!threw) return 'وحدة جلسة ناقصة بالبناء عبرت بصمت';
   const size = measure(['x'], () => Buffer.from('a'.repeat(1000)));
   if (size.raw !== 1000 || size.gzip <= 0 || size.gzip >= 1000) return 'القياس بالضغط ما اشتغل';
   const budgetError = budgetSelfTest();
@@ -57,23 +102,37 @@ export function selfTest() {
   const raised = judgeBoot(90000, budgets, { keysPresent: false, measure: true, raise: 'مكتبة الرسوم' });
   if (raised.problems.length !== 0 || raised.next?.boot_gzip_bytes !== ceilingFor(90000) + 1024) return 'الصعود بـ--raise ما انكتب';
   if (judgeBoot(70000, budgets, { keysPresent: false, measure: true }).next?.boot_gzip_bytes !== ceilingFor(70000) + 1024) return 'نزول السقف ما انكتب';
+  // البناء بمفاتيح ينحكم بالسقف كلّه، وبلاها بالسقف ناقص الاحتياط: نفس الحزمة تعبر هناك وتفشل هنا.
+  const near = { boot_gzip_bytes: 80000, cloud_keys_allowance_bytes: 1024, history: [] };
+  if (judgeBoot(79500, near, { keysPresent: true }).problems.length !== 0) return 'بمفاتيح: الاحتياط انطرح من السقف';
+  if (judgeBoot(79500, near, { keysPresent: false }).problems.length !== 1) return 'بلا مفاتيح: الاحتياط ما انطرح';
   return null;
 }
 
+const CEILINGS = {
+  boot_gzip_bytes: { label: 'حزمة الإقلاع', fix: 'شيل الاستيراد الثقيل أو خلّه كسول' },
+  session_path_gzip_bytes: { label: 'مسار الجلسة الحرج', fix: 'استيراد ثقيل بـlib/repo أو sessionFlow يتأخّر على كل مستخدم: خلّه كسولاً بشاشته' },
+};
+
 /**
- * الحكم على حزمة الإقلاع بسقف هالتشغيل: القديم، إلا إذا --measure انقبل (نزل، أو صعد بـ--raise).
- * next = ملف السقوف الجديد للحفظ أو null.
+ * الحكم على سقف (الإقلاع أو مسار الجلسة) بهالتشغيل: القديم، إلا إذا --measure انقبل (نزل، أو صعد بـ--raise، أو أوّل
+ * قياس). next = ملف السقوف الجديد للحفظ أو null.
  */
-export function judgeBoot(gzip, budgets, { keysPresent, measure = false, raise = null, note = '' }) {
+export function judgeCeiling(key, gzip, budgets, { keysPresent, measure = false, raise = null, note = '' }) {
+  const { label, fix } = CEILINGS[key];
   const allowance = keysPresent ? 0 : budgets.cloud_keys_allowance_bytes;
-  const { ceiling, next, refused } = measuredCeiling(budgets, 'boot_gzip_bytes', ceilingFor(gzip) + allowance, note, { measure, raise });
+  const { ceiling, next, refused } = measuredCeiling(budgets, key, ceilingFor(gzip) + allowance, note, { measure, raise });
   const problems = refused ? [refused] : [];
   if (ceiling === null) {
-    problems.push('سقف حزمة الإقلاع ما انقاس بعد: node scripts/guards/run.mjs --dist --measure');
+    problems.push(`سقف ${label} ما انقاس بعد: node scripts/guards/run.mjs --dist --measure`);
   } else if (gzip > ceiling - allowance) {
-    problems.push(`حزمة الإقلاع ${gzip} بايت gzip فوك الحدّ ${ceiling - allowance} (السقف ${ceiling}) — شيل الاستيراد الثقيل أو خلّه كسول`);
+    problems.push(`${label} ${gzip} بايت gzip فوك الحدّ ${ceiling - allowance} (السقف ${ceiling}) — ${fix}`);
   }
   return { problems, next, ceiling, allowance };
+}
+
+export function judgeBoot(gzip, budgets, options) {
+  return judgeCeiling('boot_gzip_bytes', gzip, budgets, options);
 }
 
 export function run({ measure: writeCeiling = false, raise = null } = {}) {
@@ -82,15 +141,29 @@ export function run({ measure: writeCeiling = false, raise = null } = {}) {
     return { scanned: 0, problems: ['ماكو dist/.vite/manifest.json — شغّل vite build أوّل'], summary: '' };
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  const files = bootFiles(manifest);
-  const size = measure(files, (file) => readFileSync(path.join(DIST, file)));
-  const keysPresent = Boolean(process.env.VITE_SUPABASE_URL);
-  const note = `قياس ${new Date().toISOString()} بلا مفاتيح=${!keysPresent}: ${size.gzip} gzip`;
-  const verdict = judgeBoot(size.gzip, readBudgets(), { keysPresent, measure: writeCeiling, raise, note });
-  if (verdict.next) saveBudgets(verdict.next);
-  return {
-    scanned: files.length,
-    problems: verdict.problems,
-    summary: `حزمة الإقلاع ${files.length} ملف: ${size.raw} بايت، ${size.gzip} gzip؛ السقف ${verdict.ceiling}${keysPresent ? '' : ` ناقص احتياط المفاتيح ${verdict.allowance}`}`,
-  };
+  const read = (file) => readFileSync(path.join(DIST, file));
+  const keysPresent = hasKeys(buildKeys());
+  const stamp = new Date().toISOString();
+  let budgets = readBudgets();
+  let changed = false;
+  const problems = [];
+  const parts = [];
+  let scanned = 0;
+  for (const [key, files] of [
+    ['boot_gzip_bytes', bootFiles(manifest)],
+    ['session_path_gzip_bytes', sessionPathFiles(manifest)],
+  ]) {
+    const size = measure(files, read);
+    scanned += files.length;
+    const note = `قياس ${stamp} بلا مفاتيح=${!keysPresent}: ${size.gzip} gzip`;
+    const verdict = judgeCeiling(key, size.gzip, budgets, { keysPresent, measure: writeCeiling, raise, note });
+    if (verdict.next) {
+      budgets = verdict.next;
+      changed = true;
+    }
+    problems.push(...verdict.problems);
+    parts.push(`${CEILINGS[key].label} ${files.length} ملف: ${size.raw} بايت، ${size.gzip} gzip؛ السقف ${verdict.ceiling}${keysPresent ? '' : ` ناقص احتياط المفاتيح ${verdict.allowance}`}`);
+  }
+  if (changed) saveBudgets(budgets);
+  return { scanned, problems, summary: parts.join('؛ ') };
 }

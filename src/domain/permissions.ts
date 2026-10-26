@@ -139,6 +139,14 @@ export function canSeeAccounts(role: Role): boolean {
   return role === 'owner' || role === 'manager' || role === 'accountant';
 }
 
+/**
+ * إدارة الموظفين (members.manage): المالك بس. دالّة صغيرة بلا جدول GRANTS حتى الشريط بحزمة الإقلاع ما يسحب
+ * الجدول كلّه؛ permissions.test يثبت إنها نفس can(role, 'members.manage') لكل دور.
+ */
+export function canManageMembers(role: Role): boolean {
+  return role === 'owner';
+}
+
 /** المبيعات والجهات: ممنوعة عن عامل القاعة ومشغّل المفقس ومشغّل المعمل. */
 export function canSeeSales(role: Role): boolean {
   return role !== 'hall_worker' && role !== 'hatchery_operator' && role !== 'mill_operator';

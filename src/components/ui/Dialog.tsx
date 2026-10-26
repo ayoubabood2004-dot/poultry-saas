@@ -22,17 +22,22 @@ export interface DialogProps {
    * بلاه النافذة تنسدّ كأنها «لا، ارجع» والعملية تكمل وتنرحّل.
    */
   locked?: boolean;
+  /**
+   * false: تنسدّ من أزرارها بس (بلا Esc ولا نقرة برّا ولا X). لشي يبين مرّة وحدة ويضيع بنقرة غلط، مثل رمز الدعوة
+   * (ما ينحفظ غير بصمته، فالضياع يعني رمزاً جديداً).
+   */
+  dismissible?: boolean;
   footer?: ReactNode;
   children: ReactNode;
 }
 
 /** شنو يسوي طلب السدّ (Esc، نقرة برّا، X). دالّة صافية حتى تنفحص بلا متصفّح. */
-export function closeIntent(locked: boolean, dirty: boolean): 'ignore' | 'ask' | 'close' {
-  if (locked) return 'ignore';
+export function closeIntent(locked: boolean, dirty: boolean, dismissible = true): 'ignore' | 'ask' | 'close' {
+  if (locked || !dismissible) return 'ignore';
   return dirty ? 'ask' : 'close';
 }
 
-export function Dialog({ open, onClose, title, dirty = false, locked = false, footer, children }: DialogProps) {
+export function Dialog({ open, onClose, title, dirty = false, locked = false, dismissible = true, footer, children }: DialogProps) {
   const id = useId();
   const titleId = `${id}-title`;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -40,10 +45,10 @@ export function Dialog({ open, onClose, title, dirty = false, locked = false, fo
   useDirtyForm(open && dirty);
 
   const requestClose = useCallback(() => {
-    const intent = closeIntent(locked, dirty);
+    const intent = closeIntent(locked, dirty, dismissible);
     if (intent === 'ask') setAskLeave(true);
     else if (intent === 'close') onClose();
-  }, [locked, dirty, onClose]);
+  }, [locked, dirty, dismissible, onClose]);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -85,15 +90,17 @@ export function Dialog({ open, onClose, title, dirty = false, locked = false, fo
           <h2 id={titleId} className="text-lg font-semibold">
             {title}
           </h2>
-          <IconButton
-            label={t('dialog.close', 'أغلق النافذة')}
-            onClick={requestClose}
-            disabled={locked}
-            data-action="dialog-close"
-            className="disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X aria-hidden="true" className="size-5" />
-          </IconButton>
+          {dismissible ? (
+            <IconButton
+              label={t('dialog.close', 'أغلق النافذة')}
+              onClick={requestClose}
+              disabled={locked}
+              data-action="dialog-close"
+              className="disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <X aria-hidden="true" className="size-5" />
+            </IconButton>
+          ) : null}
         </header>
         <div className="overflow-y-auto px-5 py-4">{children}</div>
         {footer ? <footer className="border-t border-line px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</footer> : null}
