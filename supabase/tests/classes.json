@@ -1,7 +1,15 @@
 {
-  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
-  "functionOnly": ["audit_log", "divisions", "ledger_books", "member_scopes", "members", "orgs", "period_locks", "rpc_refs", "units"],
+  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
+  "functionOnly": ["audit_log", "cash_moves", "divisions", "doc_counters", "ledger_books", "member_scopes", "members", "orgs", "party_allocations", "party_entries", "period_locks", "rpc_refs", "units"],
   "directWrite": {
+    "cash_accounts": {
+      "privileges": ["insert", "update"],
+      "action": "cash_accounts.manage",
+      "columns": {
+        "insert": ["name", "kind"],
+        "update": ["name", "archived_at"]
+      }
+    },
     "expense_categories": {
       "privileges": ["insert", "update"],
       "action": "expense_categories.manage",
@@ -22,7 +30,7 @@
       "privileges": ["insert", "update"],
       "action": "stores.manage",
       "columns": {
-        "insert": ["item_id", "pack_type_id", "label", "factor_to_base", "is_default", "for_purchase", "for_sale", "for_recipe"],
+        "insert": ["item_id", "pack_type_id", "label", "factor_to_base", "is_default", "for_purchase", "for_sale", "for_recipe", "party_id"],
         "update": ["label", "factor_to_base", "is_default", "for_purchase", "for_sale", "for_recipe", "archived_at"]
       }
     },
@@ -42,10 +50,24 @@
         "update": ["label", "archived_at"]
       }
     },
+    "parties": {
+      "privileges": ["insert", "update"],
+      "action": {
+        "insert": "party.create",
+        "update": "parties.manage"
+      },
+      "columns": {
+        "insert": ["name", "phone", "is_customer", "is_supplier"],
+        "update": ["name", "phone", "is_customer", "is_supplier", "archived_at"]
+      }
+    },
     "sites": {
       "privileges": ["insert", "update"],
       "action": "stores.manage",
-      "scope": { "insert": "in_scope_division(division_id)", "update": "in_scope_site(id)" },
+      "scope": {
+        "insert": "in_scope_division(division_id)",
+        "update": "in_scope_site(id)"
+      },
       "columns": {
         "insert": ["division_id", "name", "kind"],
         "update": ["name", "archived_at"]
@@ -54,20 +76,23 @@
     "warehouses": {
       "privileges": ["insert", "update"],
       "action": "stores.manage",
-      "scope": { "insert": "in_scope_site(site_id)", "update": "in_scope_wh(id)" },
+      "scope": {
+        "insert": "in_scope_site(site_id)",
+        "update": "in_scope_wh(id)"
+      },
       "columns": {
         "insert": ["division_id", "site_id", "name", "kind"],
         "update": ["name", "archived_at"]
       }
     }
   },
-  "appendOnly": ["audit_log", "units"],
+  "appendOnly": ["audit_log", "cash_moves", "party_allocations", "party_entries", "units"],
   "costRestricted": ["audit_log"],
-  "accountsRestricted": [],
-  "salesRestricted": [],
+  "accountsRestricted": ["cash_accounts", "cash_moves", "party_allocations", "party_entries"],
+  "salesRestricted": ["parties"],
   "global": ["units"],
   "reserved": {
-    "functionOnly": ["cash_moves", "client_versions", "doc_counters", "expenses", "flock_close_values", "flock_costs", "flock_counts", "flock_daily", "flock_day_rejects", "hatch_batch_values", "hatch_candlings", "hatch_costs", "party_allocations", "party_entries", "party_offsets", "production_input_values", "production_values", "receipt_charge_shares", "receipt_revaluations", "sales_line_costs", "sales_line_sources", "sales_return_line_sources", "stock_balances", "stock_lots", "stock_moves"],
-    "money": ["cash_accounts", "cash_moves", "expenses", "flock_close_values", "flock_costs", "hatch_batch_values", "hatch_costs", "opening_lines", "party_allocations", "party_entries", "party_offsets", "production_costs", "production_input_values", "production_values", "receipt_amounts", "receipt_charge_lines", "receipt_charge_shares", "receipt_charges", "receipt_line_amounts", "receipt_revaluations", "sales_invoices", "sales_line_costs", "sales_line_sources", "sales_lines", "sales_return_line_sources", "sales_return_lines", "sales_returns", "stock_balances", "stock_count_line_costs", "stock_lots", "stock_moves", "supplier_return_line_amounts"]
+    "functionOnly": ["client_versions", "expenses", "flock_close_values", "flock_costs", "flock_counts", "flock_daily", "flock_day_rejects", "hatch_batch_values", "hatch_candlings", "hatch_costs", "party_offsets", "production_input_values", "production_values", "receipt_charge_shares", "receipt_revaluations", "sales_line_costs", "sales_line_sources", "sales_return_line_sources", "stock_balances", "stock_lots", "stock_moves"],
+    "money": ["expenses", "flock_close_values", "flock_costs", "hatch_batch_values", "hatch_costs", "opening_lines", "party_offsets", "production_costs", "production_input_values", "production_values", "receipt_amounts", "receipt_charge_lines", "receipt_charge_shares", "receipt_charges", "receipt_line_amounts", "receipt_revaluations", "sales_invoices", "sales_line_costs", "sales_line_sources", "sales_lines", "sales_return_line_sources", "sales_return_lines", "sales_returns", "stock_balances", "stock_count_line_costs", "stock_lots", "stock_moves", "supplier_return_line_amounts"]
   }
 }

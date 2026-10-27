@@ -177,9 +177,11 @@ function resolveSpecifier(file, specifier) {
 /**
  * ملفات repo الكسولة لكل وحدة (الخطّة E39، وسقف مسار الجلسة الحرج بـDECISIONS «السقوف»): الشاشة تستوردها مباشرةً فتدخل
  * حزمتها، وindex ما يصدّرها (وإلا تدخل مسار الجلسة لكل مستخدم). بيها call/send من core نفسها، فالمهلة وسياسة الأخطاء ويّاها؛
- * وcore وclient وباقي الملفات الداخلية تبقى ممنوعة برّا repo.
+ * وcore وclient وباقي الملفات الداخلية تبقى ممنوعة برّا repo. المرحلة 1 WP3: الموظفون والرئيسية (members وhome) طلعوا من
+ * index لحزم شاشاتهم (مسار الجلسة كان على بعد 212 بايت من سقفه)، والجهات والصناديق (parties وcash) ملفّان جديدان، والدخول
+ * والتسجيل (signin) يحمّله session.tsx بـimport() لحظة الدخول بس.
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {
@@ -428,7 +430,10 @@ export function selfTest() {
     // ملفات الوحدات الكسولة (WP2): index ما يصدّرها، والشاشة ما تاخذ ملفاً داخلياً غيرها (قاموس القيود، core).
     ['src/lib/repo/index.ts', 1, "export * as inventory from './inventory';", 'مسار الجلسة'],
     // مسار الجلسة كلّه، مو index بس: ملف repo يصدّره index، ووحدة الجلسة، والإقلاع، يستوردون ملف وحدة كسول (استيراداً ثابتاً).
-    ['src/lib/repo/members.ts', 1, "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;", 'مسار الجلسة'],
+    ['src/lib/repo/auth.ts', 1, "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;", 'مسار الجلسة'],
+    // WP3: الموظفون والرئيسية والجهات ملفات كسولة: index يصدّرها = مسار الجلسة.
+    ['src/lib/repo/index.ts', 1, "export * as members from './members';", 'مسار الجلسة'],
+    ['src/lib/repo/workspace.ts', 1, "import { recordPayment } from './parties'; export const r = recordPayment;", 'مسار الجلسة'],
     ['src/lib/repo/workspace.ts', 1, "export * from './inventory';", 'مسار الجلسة'],
     ['src/lib/sessionFlow.ts', 1, "import { listItems } from './repo/inventory'; export const l = listItems;", 'مسار الجلسة'],
     ['src/main.tsx', 1, "import { loadScopeTargets } from './lib/repo/scopes'; export const x = loadScopeTargets;", 'مسار الجلسة'],
@@ -463,7 +468,8 @@ export function selfTest() {
     { path: 'src/lib/repo/core.ts', text: 'export async function call(fn: string, args?: Record<string, unknown>) { return send((db: any) => db.rpc(fn, args)); }' },
     { path: 'src/lib/repo/ok4.ts', text: 'const memory = new Map<string, string>(); export const r = (k: string) => void memory.delete(k); const listeners = new Set<() => void>(); export const u = (l: () => void) => listeners.delete(l);' },
     { path: 'src/lib/ok.ts', text: "const seen = new Set(); seen.delete(1); const map = new Map(); map.delete(2); const digits = Array.from('123');" },
-    { path: 'src/pages/home/ok.tsx', text: "import { home } from '../../lib/repo'; import type { HomeSummary } from '../../lib/repo/home'; export const h = (): Promise<HomeSummary> => home.loadHomeSummary();" },
+    { path: 'src/pages/home/ok.tsx', text: "import * as home from '../../lib/repo/home'; import type { HomeSummary } from '../../lib/repo/home'; export const h = (): Promise<HomeSummary> => home.loadHomeSummary();" },
+    { path: 'src/pages/accounts/ok.tsx', text: "import * as parties from '../../lib/repo/parties'; import * as cash from '../../lib/repo/cash'; export const p = [parties, cash];" },
     { path: 'src/pages/broiler/ok.tsx', text: "import { saveRound } from '../../lib/outbox'; import type { OutboxOp } from '../../lib/outbox/types'; export const s = saveRound;" },
     { path: 'src/pages/inventory/ok.tsx', text: "import * as inventory from '../../lib/repo/inventory'; import type { ItemRow } from '../../lib/repo/inventory'; export const l = inventory.listItems;" },
     { path: 'src/lib/outbox/round.ts', text: "import { enqueue } from './queue'; export const r = enqueue;" },
@@ -489,11 +495,11 @@ export function selfTest() {
   const good = check(goodFiles, program);
   if (good.problems.length !== 0) return `المدخلات السليمة طلعت مخالفات: ${good.problems.join(' | ')}`;
   // index السليم (ببرنامجه، نفس مسار الحالة السيّئة): يصدّر الوحدات القديمة وcore، مو ملف وحدة كسول.
-  const index = check([{ path: 'src/lib/repo/index.ts', text: "export * as members from './members'; export { updatedRows } from './core';" }]);
+  const index = check([{ path: 'src/lib/repo/index.ts', text: "export * as auth from './auth'; export { updatedRows } from './core';" }]);
   if (index.problems.length !== 0) return `index السليم طلع مخالفات: ${index.problems.join(' | ')}`;
   // مسار الجلسة السليم: نوع بس من ملف كسول، واستيراد كسول (import()) يطلع حزمة لحالها، وملف كسول يستورد ملفاً كسولاً.
   const sessionGood = check([
-    { path: 'src/lib/repo/members.ts', text: "import type { ScopeTarget } from './scopes'; export type { ItemRow } from './inventory'; export type T = ScopeTarget;" },
+    { path: 'src/lib/repo/auth.ts', text: "import type { ScopeTarget } from './scopes'; export type { ItemRow } from './inventory'; export type T = ScopeTarget;" },
     { path: 'src/lib/sessionFlow.ts', text: "export const later = () => import('./repo/scopes');" },
     { path: 'src/lib/repo/inventory.ts', text: "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;" },
   ]);

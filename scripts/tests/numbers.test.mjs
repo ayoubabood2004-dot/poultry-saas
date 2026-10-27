@@ -110,6 +110,23 @@ export default async function (t) {
       }),
     );
   t.throws(firstTotal, 'مجموع بأوّل عمود ويّا «المجموع» يرمي', /datatable_total_label_needs_leading_text_column/);
+  // صفّ التذييل (WP3، «لنا عند الناس»): رقم بأوّل عمود كان يختفي تحت اسم الصفّ، فيرمي مثل المجموع؛ وبأوّل عمود نصّ يرتسم.
+  const footerAt = (key) =>
+    m.renderToStaticMarkup(
+      m.h(m.DataTable, {
+        caption: 'x',
+        columns: [
+          { key: 'name', header: 'الجهة', cell: () => 'أ' },
+          { key: 'mill', header: 'المعمل', kind: 'number', cell: () => '1' },
+        ],
+        rows: [1],
+        rowKey: () => 'r',
+        empty: '—',
+        footers: [{ key: 'receivable', label: 'لنا عند الناس', cells: { [key]: '1,660,000' } }],
+      }),
+    );
+  t.throws(() => footerAt('name'), 'رقم تذييل بأوّل عمود يرمي (ما يختفي تحت اسم الصفّ)', /datatable_footer_needs_leading_text_column/);
+  t.ok(/<th scope="row" colSpan="1"[^>]*>لنا عند الناس<\/th>/.test(footerAt('mill')) && footerAt('mill').includes('1,660,000'), 'ضابط: تذييل يبدي بالعمود الثاني يرتسم باسمه ورقمه');
   // total: null (أو '' أو false) بنوع ReactNode يعني «بلا مجموع»: ما يرمي، و«المجموع» يمتدّ لحد أوّل مجموع حقيقي.
   const nullTotal = m.renderToStaticMarkup(
     m.h(m.DataTable, {

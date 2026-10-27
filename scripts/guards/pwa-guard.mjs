@@ -32,6 +32,9 @@ export const EXCLUDED_BY_NAME = [
   { name: 'ItemsPage', pattern: /^assets\/ItemsPage-[\w-]+\.js$/ },
   { name: 'OrgSettingsPage', pattern: /^assets\/OrgSettingsPage-[\w-]+\.js$/ },
   { name: 'stores-admin', pattern: /^assets\/stores-admin-[\w-]+\.js$/ },
+  // المرحلة 1 WP3: قسم الحسابات بمسار واحد (الجهات والكشف وأرصدة الافتتاح والصناديق وكشفها)، وحزمته المشتركة إن انقسمت.
+  { name: 'AccountsRoutes', pattern: /^assets\/AccountsRoutes-[\w-]+\.(js|css)$/ },
+  { name: 'accounts-office', pattern: /^assets\/accounts-office-[\w-]+\.(js|css)$/ },
 ];
 
 /** ملفات ما تنحسب بالتثبيت المسبق: الخدمة العاملة، والمستثناة بالاسم. */
@@ -225,10 +228,14 @@ export function selfTest() {
   };
   const imported = staticImportProblems(importManifest);
   if (imported.length !== 1 || !imported[0].startsWith('assets/StaffPage-c.js')) return `حزمة محفوظة تستورد المستثناة: توقّعت مخالفة وحدة، وطلع ${imported.join(' | ')}`;
-  const excludedNames = ['sw.js', 'workbox-1a.js', 'assets/ItemsPage-x1.js', 'assets/OrgSettingsPage-x2.js', 'assets/stores-admin-x3.js'];
-  const kept = ['assets/StaffPage-x4.js', 'assets/index-x5.js', 'assets/SettingsPage-x6.js', 'assets/stores-x7.js'];
+  const excludedNames = [
+    'sw.js', 'workbox-1a.js', 'assets/ItemsPage-x1.js', 'assets/OrgSettingsPage-x2.js', 'assets/stores-admin-x3.js',
+    'assets/AccountsRoutes-x8.js', 'assets/AccountsRoutes-x9.css', 'assets/accounts-office-xd.js',
+  ];
+  // المحفوظة: شاشات الجولة والرئيسية وقاموس القيود الكسول (يلزم بلا نت لجملة رفض بالطابور) وقراءة اليوم المشتركة.
+  const kept = ['assets/StaffPage-x4.js', 'assets/index-x5.js', 'assets/SettingsPage-x6.js', 'assets/stores-x7.js', 'assets/HomePage-xe.js', 'assets/constraints-xf.js', 'assets/dayText-xg.js'];
   if (!excludedNames.every((file) => NOT_PRECACHED.some((p) => p.test(file))) || kept.some((file) => NOT_PRECACHED.some((p) => p.test(file)))) {
-    return 'قائمة الاستثناء من التثبيت المسبق أوسع أو أضيق من الخدمة العاملة وشاشتي البيانات الأساسية';
+    return 'قائمة الاستثناء من التثبيت المسبق أوسع أو أضيق من الخدمة العاملة وشاشات المكتب المسمّاة';
   }
   if (!SERVICE_WORKER.every((p) => NOT_PRECACHED.some((q) => q.source === p.source))) return 'الخدمة العاملة طلعت من قائمة الاستثناء';
   // الحارس ما يصدّق قائمته: حزمة مستثناة بالاسم وsw.js يحفظها (globIgnores بـvite.config.ts انحرف عن القائمة) تنمسك مرّة،

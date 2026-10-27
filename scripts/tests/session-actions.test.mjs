@@ -11,8 +11,6 @@ const FAKE_REPO = `
 const r = () => globalThis.__repo;
 export const auth = {
   probeSession: (quick) => r().probe(quick),
-  signIn: (phone, password) => r().signIn(phone, password),
-  signUp: (phone, password) => r().signUp(phone, password),
   signOutLocal: async () => { r().calls.push('signOutLocal'); },
   onAuthChange: () => () => {},
 };
@@ -25,6 +23,11 @@ export const workspace = {
   leaveMyOrg: async () => { r().calls.push('leave'); },
 };`;
 
+const FAKE_SIGNIN = `
+const r = () => globalThis.__repo;
+export const signIn = (phone, password) => r().signIn(phone, password);
+export const signUp = (phone, password) => r().signUp(phone, password);`;
+
 const FAKE_IDENTITY = `
 const r = () => globalThis.__repo;
 export async function loadIdentity(userId) { return r().saved.get(userId) ?? null; }
@@ -35,7 +38,7 @@ function fakes(brokenFlow) {
   return {
     name: 'fake-session-deps',
     setup(b) {
-      b.onResolve({ filter: /^\.\/(repo|identity|sessionFlow)$/ }, (args) => {
+      b.onResolve({ filter: /^\.\/(repo|repo\/signin|identity|sessionFlow)$/ }, (args) => {
         const which = args.path.slice(2);
         if (which === 'sessionFlow' && !brokenFlow) return undefined;
         return { path: which, namespace: 'fake-session-deps' };
@@ -44,7 +47,9 @@ function fakes(brokenFlow) {
         contents:
           args.path === 'repo'
             ? FAKE_REPO
-            : args.path === 'identity'
+            : args.path === 'repo/signin'
+              ? FAKE_SIGNIN
+              : args.path === 'identity'
               ? FAKE_IDENTITY
               : "throw new TypeError('Failed to fetch dynamically imported module');",
         loader: 'js',

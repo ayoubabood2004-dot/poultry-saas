@@ -99,6 +99,8 @@ Conditional, not yet out: «التحميل على فوج» (charging an expense 
 5. **Lots.** Locked `for update` in withdrawal order.
 6. **Counter.** `doc_counters` last, via upsert `… returning last_no`.
 
+WP3 (0006) fills in the locks this list leaves out, in this place: after the parties, the period lock (`private.period_guard`, a shared advisory lock on `'period_lock:'||org`, taken inside `check_post_date`, `check_opening_date` and `check_void_date`; `set_period_lock` takes it exclusively), then the division row `for update` while its `first_posted_at` is null (`private.division_for_post`, E14), then the cash boxes `for update` sorted by id (`private.lock_cash_account`), then the counter. So a document calls `check_post_date` right after `lock_parties`, before its own rows, balances, lots, boxes and counter, never earlier or later (a payment that locked the division row before the party and a receipt that locked the party before the division row deadlocked, 40P01). The two-session races are in `supabase/tests/ledger-locks.test.mjs`.
+
 Every business check runs after its lock is held. Errors 40P01 and 55P03 are shown as «لم يُرحَّل، أعد المحاولة».
 
 ### 2.4 Dates (FOUNDATION:134, 521, 497; DECISIONS:91)
@@ -144,7 +146,7 @@ Every business check runs after its lock is held. Errors 40P01 and 55P03 are sho
 - Cost roles read values only through invoker functions with an explicit `can_see_cost()` check: `stock_values`, `stock_value_totals`, `item_lots_value` (WP4). No screen or repo call reads `stock_balances`, `stock_lots` or `stock_moves` directly, so reports-guard needs no `unbounded` exception for them.
 - **Totals come from SQL functions, never from summing loaded rows** (FOUNDATION:788, 811; the 1,000-row cap, FOUNDATION:198). This covers the stock dashboard's value total (`stock_value_totals`), the accounts page header and its two footer rows, and every «N من المجموع» count (`report_accounts_summary`), and the expenses total (`report_expenses`). Lists are keyset-paged; a total shown under a filtered or paged list is the function's total, never the page's.
 - Reports are `security invoker` (FOUNDATION:446). As a belt, they also begin with an explicit `can_see_accounts()`/`can_see_cost()` check that raises `forbidden`, so a viewer never mistakes zero rows for "no debts" (FOUNDATION:798).
-- `audit_log` will hold `party_entries` and `cash_moves` rows under the cost policy. This is safe only while `can_see_cost` and `can_see_accounts` cover the same roles (0001_core.sql:172-181). A catalog assertion pins the equality, so separating them later forces a decision.
+- `audit_log` will hold `party_entries` and `cash_moves` rows under the cost policy. This is safe only while `can_see_cost` and `can_see_accounts` cover the same roles (0001_core.sql:172-181). A catalog assertion pins the equality, so separating them later forces a decision. Role equality does not cover scope (E49): an audit row carries the whole table row, book and warehouse included. 0006 adds the restrictive policy `audit_log_book_scope`, so a `party_entries` or `party_allocations` audit row is readable only when `in_scope_book((coalesce(new, old) ->> 'book_id')::uuid)`. WP4 adds the same for the stock rows (`stock_moves`, `stock_lots`, `stock_balances`) with `in_scope_wh` on the row's warehouse, with a scoped-reader test like book.test's.
 
 ### 2.9 Client rules (CLAUDE.md, FOUNDATION:194-205)
 - Screens call `src/lib/repo` only. Lists a decision depends on throw, and empty states show only after a full read (FOUNDATION:767, 798).
@@ -900,8 +902,8 @@ No client reads `stock_balances`, `stock_lots` or `stock_moves` directly (§2.8)
 | `delete_receipt_charge(p_charge_id uuid, p_expected_version int)` / `set_charge_lines(p_charge_id uuid, p_line_ids uuid[], p_expected_version int)` | `receipt.amounts` | §2.5, E52; `delete_draft_line` gains the receipt kind (its amount row, its charge-line rows) |
 
 **`post_receipt` steps:**
-1. Party locks (supplier plus payees, ascending), then the receipt row, then the balances, then the counter.
-2. Dates: `check_post_date(received_on, wh division)`.
+1. Party locks (supplier plus payees, ascending), then the receipt row, then the balances, then the boxes, then the counter.
+2. Dates: `check_post_date(received_on, wh division)`, called right after the party locks and before the receipt row (§2.3 as WP3 filled it in: the period lock and the division row come between the parties and everything else).
 3. Validation:
    - the receipt has lines; `qty_base > 0`; pieces are whole; `expiry_required`; `born_at_required`;
    - item admissible in the warehouse and receivable there (`wrong_receiving_store`);

@@ -9,7 +9,8 @@
 import { randomUUID } from 'node:crypto';
 import { createHarness } from '../../scripts/tests/harness.mjs';
 import { coverageGaps, makeDb } from './db.mjs';
-import { declaredRollback, heavyChanges, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
+import { blockingShortfall, declaredRollback, heavyChanges, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
+import { BLOCKING_REQUIRED, BLOCKING_SEEDS } from './seed.mjs';
 import { draftWriteLock, sameRefRace } from './shared.mjs';
 
 const U = { owner: '70000000-0000-4000-8000-000000000001' };
@@ -318,6 +319,14 @@ export default async function (t, db) {
     [null, true, null, true],
     'عتبة «صفر تراجع»: من 0005 بالضبط صفر ملف جرى فشل، وقبلها لا',
   );
+  // حالات طريق الرفض لكل ملف تراجع: أقل من المطلوب فشل، وبعددها يعبر، وبلا هجرته ما يُطلب؛ والمطلوب = الحالات المكتوبة بالبذور.
+  const need6 = [[6, 3, 'قيد وحركة ووحدة']];
+  t.same(
+    [blockingShortfall(need6, [5, 6], new Map([[6, 3]])).length, blockingShortfall(need6, [5, 6], new Map([[6, 2]])).length, blockingShortfall(need6, [5], new Map()).length],
+    [0, 1, 0],
+    'طريق الرفض: ملف تراجع بحالات أقل من المطلوب ينمسك، وبعددها يعبر، وبلا هجرته ما يُطلب',
+  );
+  t.same(BLOCKING_REQUIRED.map(([number, need]) => [number, need]), Object.entries(BLOCKING_SEEDS).map(([number, cases]) => [Number(number), [].concat(cases).length]), 'المطلوب من حالات الرفض لكل ملف = حالاته بالبذور (حالة تنشال أو عتبة تنزل تنمسك)');
   // صورة مصنوعة بأقسام الكتالوج بأشكالها (relations وcolumns وconstraints وpolicies وtriggers وfunctions)، وكل تغيير لحاله.
   const pictured = {
     relations: [['public', 'orgs', 'r', true, false, 'postgres', null, null]],

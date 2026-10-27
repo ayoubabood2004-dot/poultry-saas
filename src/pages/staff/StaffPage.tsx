@@ -15,7 +15,7 @@ import { normalizePhone } from '../../domain/phone';
 import { describeError, NotConnectedError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { fmtInviteCode, fmtPhone } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { members } from '../../lib/repo';
+import * as members from '../../lib/repo/members';
 import type { DivisionRef, StaffMember } from '../../lib/repo/members';
 import * as scopes from '../../lib/repo/scopes';
 import type { ScopeTarget, ScopeTargets } from '../../lib/repo/scopes';

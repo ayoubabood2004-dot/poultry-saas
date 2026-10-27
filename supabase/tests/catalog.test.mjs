@@ -63,6 +63,8 @@ function normalisePolicy(expression, table) {
  */
 function policyPredicateProblems(policy, entry) {
   const problems = [];
+  // الفعل لكل أمر ({ insert, update }: الجهات من 0006، الإضافة party.create والتعديل parties.manage، Q1)، أو فعل واحد للأمرين.
+  const action = typeof entry.action === 'string' ? entry.action : entry.action?.[policy.cmd.toLowerCase()];
   const clauses =
     policy.cmd === 'INSERT'
       ? [['WITH CHECK', policy.with_check]]
@@ -71,7 +73,7 @@ function policyPredicateProblems(policy, entry) {
     const expression = normalisePolicy(raw, policy.tablename);
     const missing = [];
     if (!ORG_PREDICATE.test(expression)) missing.push('org_id = (select auth_org())');
-    if (!expression.includes(`can('${entry.action}'`)) missing.push(`(select can('${entry.action}'))`);
+    if (!action || !expression.includes(`can('${action}'`)) missing.push(`(select can('${action}'))`);
     if (entry.draft && !/\bstatus = 'draft'/u.test(expression)) missing.push("status = 'draft'");
     // النطاق: دالّة واحدة للأمرين، أو لكل أمر دالّته ({ insert, update }: المواقع والمخازن، 0005).
     const scope = typeof entry.scope === 'string' ? entry.scope : entry.scope?.[policy.cmd.toLowerCase()];
@@ -279,6 +281,12 @@ export default async function (t, db) {
   const siteInsert = "((sites.org_id = ( SELECT auth_org() AS auth_org)) AND ( SELECT can('stores.manage'::text, false) AS can) AND ( SELECT in_scope_division(sites.division_id) AS in_scope_division))";
   t.same(policyPredicateProblems({ tablename: 'sites', policyname: 'p', cmd: 'INSERT', with_check: siteInsert }, siteScope), [], 'ضابط: سياسة إدخال بدالّة نطاق الإدخال تعبر');
   t.eq(policyPredicateProblems({ tablename: 'sites', policyname: 'p', cmd: 'UPDATE', qual: siteInsert, with_check: siteInsert }, siteScope).length, 2, 'ضابط: سياسة تعديل بدالّة الإدخال تنمسك بـUSING وWITH CHECK');
+
+  // فعل لكل أمر (الجهات، 0006): سياسة تعديل بفعل الإضافة تنمسك بالبندين، وسياسة إضافة بفعلها تعبر.
+  const partyActions = { action: { insert: 'party.create', update: 'parties.manage' } };
+  const partyInsert = "((parties.org_id = ( SELECT auth_org() AS auth_org)) AND ( SELECT can('party.create'::text, false) AS can))";
+  t.same(policyPredicateProblems({ tablename: 'parties', policyname: 'p', cmd: 'INSERT', with_check: partyInsert }, partyActions), [], 'ضابط: سياسة إضافة جهة بفعل الإضافة تعبر');
+  t.eq(policyPredicateProblems({ tablename: 'parties', policyname: 'p', cmd: 'UPDATE', qual: partyInsert, with_check: partyInsert }, partyActions).length, 2, 'ضابط: سياسة تعديل جهة بفعل الإضافة تنمسك بـUSING وWITH CHECK');
 
   // ماكو سياسة تقرأ جدولها (FOUNDATION ٨٠٠)، ويّا ضابط بسياسة تقرأ جدولها.
   t.same(selfReferencing(policies), [], `ماكو سياسة تقرأ جدولها (${policies.length} سياسة)`);

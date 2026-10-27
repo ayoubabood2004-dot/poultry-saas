@@ -9,7 +9,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 // كل بديل يسجّل بـglobalThis.__invite (يرجع كما كان بـfinally، درس 2026-10-26).
 const STUBS = {
-  repo: "const r = (name) => (...args) => globalThis.__invite.call('members.' + name, args); export const members = { addMember: r('addMember'), inviteCode: r('inviteCode'), loadStaff: r('loadStaff'), setMemberRole: r('setMemberRole'), archiveMember: r('archiveMember') };",
+  // members.ts ملف كسول من المرحلة 1 WP3 (StaffPage يستورده مباشرةً، مو من index).
+  repo: "const r = (name) => (...args) => globalThis.__invite.call('members.' + name, args); export const addMember = r('addMember'); export const inviteCode = r('inviteCode'); export const loadStaff = r('loadStaff'); export const setMemberRole = r('setMemberRole'); export const archiveMember = r('archiveMember');",
   scopes: "const r = (name) => (...args) => globalThis.__invite.call('scopes.' + name, args); export const addMemberV2 = r('addMemberV2'); export const setMemberScopesV2 = r('setMemberScopesV2'); export const loadScopeTargets = r('loadScopeTargets');",
   toast: "export const toast = (...args) => globalThis.__invite.call('toast', args);",
 };
@@ -17,7 +18,7 @@ const STUBS = {
 const stubs = {
   name: 'invite-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/repo$|\/lib\/repo\/scopes$|\/components\/ui\/Toast$/ }, (args) => {
+    b.onResolve({ filter: /\/lib\/repo\/members$|\/lib\/repo\/scopes$|\/components\/ui\/Toast$/ }, (args) => {
       if (!args.importer.replace(/\\/g, '/').endsWith('src/pages/staff/StaffPage.tsx')) return undefined;
       const kind = args.path.endsWith('/scopes') ? 'scopes' : args.path.endsWith('/Toast') ? 'toast' : 'repo';
       return { path: kind, namespace: 'invite-stub' };

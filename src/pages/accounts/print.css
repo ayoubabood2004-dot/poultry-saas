@@ -1,0 +1,23 @@
+/* الطباعة (المرحلة 1 WP3، كشف الجهة والصندوق): المنطقة المعلَّمة بـdata-print-area بس تنطبع، وكل جدول بصفوفه كلها بلا حدّ
+   ارتفاع ولا تمرير (FOUNDATION ٧٨٨)، والأزرار والفلاتر المعلَّمة بـdata-print="hide" ما تنطبع. ملف كسول ويّا شاشات الحسابات،
+   مو بحزمة الإقلاع. */
+@media print {
+  body:has([data-print-area]) * {
+    visibility: hidden;
+  }
+  [data-print-area],
+  [data-print-area] * {
+    visibility: visible;
+  }
+  [data-print-area] {
+    position: absolute;
+    inset: 0;
+  }
+  [data-print-area] .overflow-auto {
+    max-height: none;
+    overflow: visible;
+  }
+  [data-print='hide'] {
+    display: none !important;
+  }
+}

@@ -6,8 +6,8 @@ import { BASE_UNITS, DIVISION_ORDER, ITEM_KINDS, SITE_KINDS, WAREHOUSE_KINDS, ty
 import type { BaseUnit, Dimension } from '../../domain/units';
 import { ZeroRowsError } from '../errors';
 import type { Answer, PostgrestFailure } from './core';
-import { call, classifyPostgrest, send, updatedRows } from './core';
 import './constraints-stores';
+import { call, classifyPostgrest, explained, send, updatedRows } from './core';
 
 // المواقع والمخازن والمواد ووحدات التعبئة والتصنيفات (0005). ملف كسول: الشاشات تستورده مباشرةً فيدخل حزمتها، مو مسار
 // الجلسة الحرج (index ما يصدّره، DECISIONS «السقوف»). القراءة بسياسات المنشأة؛ والكتابة مباشرة بسياسة (منشأة + فعل)
@@ -209,7 +209,7 @@ async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Ro
     },
     (answer) => [answer],
   );
-  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
+  if (result.error) throw await explained(classifyPostgrest(result.error, result.status, 'table', wasOnline));
   const [row] = result.rows;
   if (!row) throw new ZeroRowsError();
   return row;

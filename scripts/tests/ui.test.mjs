@@ -360,8 +360,13 @@ export default async function (t) {
       hatchery: { batchesSetting: 2, chicksWaiting: 1500, nextHatchInDays: 4 },
       medicine: { nearExpiry: 1 },
       general: { belowMinimum: 0 },
-      accounts: { receivable: 396_000_000n, payable: 0n },
+      accounts: { receivable: 396_000_000n, payable: 0n, negativeBoxes: 1, visibleBooks: 7, totalBooks: 7 },
     });
+    // بطاقة الحسابات: «صناديق بالسالب» برقمها، و«دفاتر نطاقك» للقارئ المحصور بس (E49).
+    t.ok(/صناديق بالسالب<\/dt><dd dir="ltr"[^>]*>1<\/dd>/.test(html), 'بطاقة الحسابات: «صناديق بالسالب» 1');
+    t.ok(!html.includes('دفاتر نطاقك'), 'القارئ بلا نطاق: بلا «دفاتر نطاقك»');
+    const scopedAccounts = render({ accounts: { receivable: 50_000_000n, payable: 0n, negativeBoxes: 0, visibleBooks: 1, totalBooks: 7 } });
+    t.ok(scopedAccounts.includes('دفاتر نطاقك') && scopedAccounts.includes('1 من المجموع 7'), 'المحصور: البطاقة تكتب «1 من المجموع 7» دفاتر');
     const ltr = [...html.matchAll(/<dd dir="ltr"[^>]*>(.*?)<\/dd>/g)].map((match) => match[1]);
     t.ok(ltr.length >= 10, `الأرقام الصافية بـdir=ltr (${ltr.length})`);
     t.same(ltr.filter((value) => ARABIC.test(value)), [], 'ماكو كلمة عربية جوّا dd بـdir=ltr');

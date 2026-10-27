@@ -16,7 +16,8 @@ const InventoryPage = page(() => import('./pages/inventory/InventoryPage'));
 const MedicinePage = page(() => import('./pages/inventory/MedicinePage'));
 const GeneralStoresPage = page(() => import('./pages/inventory/GeneralStoresPage'));
 const SalesPage = page(() => import('./pages/sales/SalesPage'));
-const AccountsPage = page(() => import('./pages/accounts/AccountsPage'));
+// الحسابات والصناديق بمسار واحد وحزمة وحدة (AccountsRoutes، WP3): مساراتها الداخلية هناك.
+const AccountsRoutes = page(() => import('./pages/accounts/AccountsRoutes'));
 const ReportsPage = page(() => import('./pages/reports/ReportsPage'));
 const StaffPage = page(() => import('./pages/staff/StaffPage'));
 const AccountPage = page(() => import('./pages/account/AccountPage'));
@@ -61,7 +62,7 @@ function AppRoutes() {
           <Route path="/inventory/general" element={<GeneralStoresPage />} />
           <Route path="/inventory/items" element={<ItemsPage />} />
           <Route path="/sales" element={<SalesPage />} />
-          <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/accounts/*" element={<AccountsRoutes />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/account" element={<AccountPage />} />

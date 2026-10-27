@@ -23,9 +23,22 @@ export interface Column<Row> {
   total?: ReactNode;
   /** الخلية بسطر واحد مثل إكسل إلا البيان: wrap يلفّه بعرض أدنى حتى ما ينعصر. */
   wrap?: boolean;
+  /** العمود ثابت بأوّل الجدول بالتمرير الأفقي (اسم الجهة بجدول الحسابات، FOUNDATION ١١٣). */
+  sticky?: boolean;
+}
+
+/**
+ * صفّ تذييل إضافي بعد صفّ المجاميع (المرحلة 1 WP3: «لنا عند الناس» و«علينا للناس» بجدول الجهات). الأرقام من الخادم (دالّة
+ * الملخّص) مو من الصفوف المحمّلة (§2.8)، فالصفّ بخلاياه جاهزة بمفتاح العمود.
+ */
+export interface FooterRow {
+  key: string;
+  label: string;
+  cells: Readonly<Record<string, ReactNode>>;
 }
 
 const NUMBER_CELL = 'text-right tabular-nums whitespace-nowrap'; // ui-ok: الآحاد طرف الرقم الأيمن بكل اتجاه
+const STICKY = 'sticky start-0 z-[1] bg-surface-1';
 const BORDER = 'border-b border-e border-line last:border-e-0';
 const TOTAL_TOP = 'border-t-[3px] border-double border-t-line-strong';
 
@@ -45,6 +58,9 @@ function cellClass(column: Pick<Column<unknown>, 'kind' | 'wrap'>): string {
   return column.wrap ? 'min-w-48 text-start' : 'whitespace-nowrap text-start';
 }
 
+/** خلية تذييل ترسم شي (مثل hasTotal). */
+const filled = (value: ReactNode | undefined): boolean => value !== undefined && value !== null && value !== false && value !== '';
+
 export function DataTable<Row>({
   caption,
   columns,
@@ -52,6 +68,7 @@ export function DataTable<Row>({
   rowKey,
   empty,
   totalLabel,
+  footers = [],
 }: {
   /** وصف الجدول لقارئ الشاشة. */
   caption: string;
@@ -62,15 +79,25 @@ export function DataTable<Row>({
   empty: string;
   /** يظهر صفّ المجاميع إذا انطى. */
   totalLabel?: string;
+  /** صفوف تذييل بعد المجاميع، بأرقام من الخادم (تبين حتى لو الصفحة المحمّلة فارغة). */
+  footers?: readonly FooterRow[];
 }) {
   const firstTotal = columns.findIndex(hasTotal);
   // «المجموع» ياخذ مكان الأعمدة النصّية قبل أوّل مجموع؛ مجموع بأوّل عمود كان يختفي بصمت.
   if (totalLabel !== undefined && firstTotal === 0) throw new Error('datatable_total_label_needs_leading_text_column');
+  // والتذييل نفسه: اسمه بخلية الأعمدة قبل أوّل خلية بيها رقم، فرقم بأوّل عمود كان يختفي تحت الاسم.
+  const footerStarts = footers.map((footer) => columns.findIndex((column) => filled(footer.cells[column.key]))).filter((index) => index >= 0);
+  const firstFooter = footerStarts.length ? Math.min(...footerStarts) : -1;
+  if (firstFooter === 0) throw new Error('datatable_footer_needs_leading_text_column');
   const labelSpan = firstTotal > 0 ? firstTotal : 1;
+  const footerSpan = firstFooter > 0 ? firstFooter : 1;
   const showTotals = totalLabel !== undefined && rows.length > 0;
+  const showFoot = showTotals || footers.length > 0;
   // آخر صفّ قبل المجاميع بلا خطّ أسفل (فوكه الخطّ المزدوج)، وآخر صفّ بالجدول بلا خطّ (الإطار من الغلاف).
-  const edges = showTotals ? '[&>tbody>tr:last-child>*]:border-b-0 [&>tfoot>tr:last-child>*]:border-b-0' : '[&>tbody>tr:last-child>*]:border-b-0';
+  const edges = showFoot ? '[&>tbody>tr:last-child>*]:border-b-0 [&>tfoot>tr:last-child>*]:border-b-0' : '[&>tbody>tr:last-child>*]:border-b-0';
+  const stickyOf = (column: Column<Row>) => (column.sticky ? STICKY : '');
   return (
+    // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
       <table className={`w-full border-separate border-spacing-0 text-sm ${edges}`}>
         <caption className="sr-only">{caption}</caption>
@@ -80,7 +107,7 @@ export function DataTable<Row>({
               <th
                 key={column.key}
                 scope="col"
-                className={`sticky top-0 z-[1] ${BORDER} bg-surface-2 px-3 py-2 font-semibold ${cellClass(column)}`}
+                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 px-3 py-2 font-semibold ${cellClass(column)}`}
               >
                 {column.header}
               </th>
@@ -98,7 +125,7 @@ export function DataTable<Row>({
             rows.map((row, index) => (
               <tr key={rowKey(row, index)} className="hover:bg-surface-2">
                 {columns.map((column) => (
-                  <td key={column.key} className={`${BORDER} px-3 py-1.5 ${cellClass(column)}`}>
+                  <td key={column.key} className={`${BORDER} px-3 py-1.5 ${stickyOf(column)} ${cellClass(column)}`}>
                     {column.cell(row, index)}
                   </td>
                 ))}
@@ -106,18 +133,35 @@ export function DataTable<Row>({
             ))
           )}
         </tbody>
-        {showTotals ? (
+        {showFoot ? (
           <tfoot>
-            <tr className="bg-surface-2 font-semibold">
-              <th scope="row" colSpan={labelSpan} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 text-start`}>
-                {totalLabel}
-              </th>
-              {columns.slice(labelSpan).map((column) => (
-                <td key={column.key} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 ${cellClass(column)}`}>
-                  {column.total}
-                </td>
-              ))}
-            </tr>
+            {showTotals ? (
+              <tr className="bg-surface-2 font-semibold">
+                <th scope="row" colSpan={labelSpan} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 text-start`}>
+                  {totalLabel}
+                </th>
+                {columns.slice(labelSpan).map((column) => (
+                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 ${cellClass(column)}`}>
+                    {column.total}
+                  </td>
+                ))}
+              </tr>
+            ) : null}
+            {footers.map((footer, index) => {
+              const top = !showTotals && index === 0 ? TOTAL_TOP : '';
+              return (
+                <tr key={footer.key} className="bg-surface-2 font-semibold">
+                  <th scope="row" colSpan={footerSpan} className={`${BORDER} ${top} px-3 py-2 text-start`}>
+                    {footer.label}
+                  </th>
+                  {columns.slice(footerSpan).map((column) => (
+                    <td key={column.key} className={`${BORDER} ${top} px-3 py-2 ${cellClass(column)}`}>
+                      {footer.cells[column.key]}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tfoot>
         ) : null}
       </table>

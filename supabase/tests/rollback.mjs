@@ -16,6 +16,16 @@ export function zeroRollbacksProblem(latest, ran) {
   return latest >= ROLLBACKS_REQUIRED_FROM && ran === 0 ? `آخر هجرة ${latest} وصفر ملف تراجع جرى — فحص على صفر حالات مو نجاح` : null;
 }
 
+/**
+ * حالات طريق الرفض الناقصة لكل ملف تراجع (اختبار الطفرات لـWP3: الفحص كان سطراً بـrun.mjs ما يقدر يفشل بضابط): required
+ * [الرقم، العدد، شنو] (BLOCKING_REQUIRED بـseed.mjs)، وnumbers أرقام الهجرات المطبّقة، وblockedBy عدد الحالات اللي جرت لكل رقم.
+ */
+export function blockingShortfall(required, numbers, blockedBy) {
+  return required
+    .filter(([number, need]) => numbers.includes(number) && (blockedBy.get(number) ?? 0) < need)
+    .map(([number, need, what]) => `${String(number).padStart(4, '0')} بطريق رفض ناقص (${blockedBy.get(number) ?? 0} من ${need}: ${what})`);
+}
+
 /** سطر «تراجع:» من رأس الهجرة: { kind: 'legacy' | 'file' | 'additive' | 'missing', file? }. */
 export function declaredRollback(name, text) {
   const number = Number(name.slice(0, 4));

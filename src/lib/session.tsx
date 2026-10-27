@@ -14,6 +14,8 @@ export type { SessionState } from './sessionFlow';
 export type { Invite, NoOrgAccount, Workspace } from '../domain/workspace';
 
 const repo = () => import('./repo');
+// الدخول والتسجيل ملف لحاله (repo/signin): اللي داخل ما يحمّله بمسار الجلسة الحرج.
+const signin = () => import('./repo/signin');
 // الهويّة المحفوظة (IndexedDB) هم كسولة: الإقلاع بالنت ما يحتاجها قبل جواب الخادم.
 const identity = () => import('./identity');
 
@@ -67,13 +69,13 @@ export const session = {
   signOut: async () => (await controller()).signOut(),
 
   async signIn(phone: string, password: string): Promise<void> {
-    const userId = await (await repo()).auth.signIn(phone, password);
+    const userId = await (await signin()).signIn(phone, password);
     await (await controller()).signedIn(userId);
   },
 
   /** signedIn خطأ: الحساب انخلق والدخول به ينتظر تفعيله بالمشروع (Confirm email). */
   async signUp(phone: string, password: string): Promise<{ signedIn: boolean }> {
-    const { userId, signedIn } = await (await repo()).auth.signUp(phone, password);
+    const { userId, signedIn } = await (await signin()).signUp(phone, password);
     if (signedIn && userId) await (await controller()).signedIn(userId);
     return { signedIn };
   },

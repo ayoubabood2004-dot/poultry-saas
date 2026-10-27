@@ -18,6 +18,25 @@ const DIST = path.join(ROOT, 'dist');
 /** وحدات مسار الجلسة الحرج بمفاتيح manifest (كسولة، بس كل مستخدم يحمّلها قبل أوّل شاشة). */
 export const SESSION_ENTRIES = [/^src\/lib\/repo\/index\.ts$/, /^src\/lib\/sessionFlow\.ts$/, /(^|\/)@supabase\/supabase-js\//];
 
+/**
+ * وحدات لازم تبقى برّا مسار الجلسة الحرج، كسولة بـimport() بحزمة لحالها (المرحلة 1 WP3): قاموس جمل القيود يكبر بكل حزمة
+ * (جملة لكل قيد check)، والدخول والتسجيل وجمل أخطائهما ما يحتاجها اللي داخل أصلاً؛ والمسار كان على بعد 212 بايت من سقفه.
+ * استيراد ثابت واحد يرجّع أيّاً منهما لحزمة كل مستخدم بصمت.
+ */
+export const LAZY_ONLY = [/^src\/lib\/repo\/constraints\.ts$/, /^src\/lib\/repo\/signin\.ts$/];
+
+/** مخالفات LAZY_ONLY بـmanifest البناء: الوحدة ما إلها حزمة لحالها (رجعت ثابتة بحزمة ثانية)، أو حزمتها بمسار الجلسة. */
+export function lazyOnlyProblems(manifest) {
+  const session = new Set(sessionPathFiles(manifest));
+  const problems = [];
+  for (const pattern of LAZY_ONLY) {
+    const key = Object.keys(manifest).find((candidate) => pattern.test(candidate));
+    if (!key || !manifest[key].file) problems.push(`${pattern.source}: ما إلها حزمة لحالها بالبناء — رجعت ثابتة بحزمة ثانية (استيراد ثابت؟)، فممكن تكون بمسار الجلسة`);
+    else if (session.has(manifest[key].file)) problems.push(`${key} (${manifest[key].file}) بمسار الجلسة الحرج — خلّها كسولة بـimport() من شاشتها أو من نقطة الخطأ`);
+  }
+  return problems;
+}
+
 /** الملفات من الجذور وكل استيراد ثابت منها ويّا CSS، بلا الكسول. */
 function closure(manifest, roots) {
   const files = new Set();
@@ -91,6 +110,15 @@ export function selfTest() {
     threw = true;
   }
   if (!threw) return 'وحدة جلسة ناقصة بالبناء عبرت بصمت';
+  // قاموس القيود والدخول كسولان: حزمتهما لحالها تعبر، وبلا حزمة لحالها أو بمسار الجلسة (استيراد ثابت من index) تنمسك كل وحدة مرّة.
+  const lazy = { ...sessionManifest, 'src/lib/repo/constraints.ts': { file: 'hints.js', isDynamicEntry: true }, 'src/lib/repo/signin.ts': { file: 'signin.js', isDynamicEntry: true } };
+  const staticFrom = (key) => ({ ...lazy, 'src/lib/repo/index.ts': { ...lazy['src/lib/repo/index.ts'], imports: [...lazy['src/lib/repo/index.ts'].imports, key] } });
+  const lazyCounts = [lazy, sessionManifest, staticFrom('src/lib/repo/constraints.ts'), staticFrom('src/lib/repo/signin.ts')].map((manifest) => lazyOnlyProblems(manifest).length).join();
+  if (lazyCounts !== '0,2,1,1') return `الوحدات الكسولة: توقّعت 0,2,1,1 مخالفة (كسولتان، بلا حزم، القاموس بمسار الجلسة، الدخول بمسار الجلسة) وطلع ${lazyCounts}`;
+  // run() نفسه يطبّق LAZY_ONLY على manifest البناء، مو الفحص الذاتي بس (اختبار الطفرات WP3: سطر run المشال كان يعبر): القاموس
+  // المستورد ثابتاً بمسار الجلسة ينمسك بتشغيل الحارس، والكسول السليم يعبر.
+  const ranLazy = (manifest) => run({ source: { manifest, read: () => Buffer.from('x') } }).problems.filter((problem) => problem.includes('src/lib/repo/')).length;
+  if (ranLazy(staticFrom('src/lib/repo/constraints.ts')) !== 1 || ranLazy(lazy) !== 0) return 'run() ما طبّق الوحدات الكسولة على manifest البناء';
   const size = measure(['x'], () => Buffer.from('a'.repeat(1000)));
   if (size.raw !== 1000 || size.gzip <= 0 || size.gzip >= 1000) return 'القياس بالضغط ما اشتغل';
   const budgetError = budgetSelfTest();
@@ -135,13 +163,14 @@ export function judgeBoot(gzip, budgets, options) {
   return judgeCeiling('boot_gzip_bytes', gzip, budgets, options);
 }
 
-export function run({ measure: writeCeiling = false, raise = null } = {}) {
+/** source: manifest وقارئ ملفات بدل dist (الفحص الذاتي يشغّل run نفسه على بناء مصنوع). */
+export function run({ measure: writeCeiling = false, raise = null, source = null } = {}) {
   const manifestPath = path.join(DIST, '.vite', 'manifest.json');
-  if (!existsSync(manifestPath)) {
+  if (!source && !existsSync(manifestPath)) {
     return { scanned: 0, problems: ['ماكو dist/.vite/manifest.json — شغّل vite build أوّل'], summary: '' };
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  const read = (file) => readFileSync(path.join(DIST, file));
+  const manifest = source?.manifest ?? JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const read = source?.read ?? ((file) => readFileSync(path.join(DIST, file)));
   const keysPresent = hasKeys(buildKeys());
   const stamp = new Date().toISOString();
   let budgets = readBudgets();
@@ -165,5 +194,7 @@ export function run({ measure: writeCeiling = false, raise = null } = {}) {
     parts.push(`${CEILINGS[key].label} ${files.length} ملف: ${size.raw} بايت، ${size.gzip} gzip؛ السقف ${verdict.ceiling}${keysPresent ? '' : ` ناقص احتياط المفاتيح ${verdict.allowance}`}`);
   }
   if (changed) saveBudgets(budgets);
+  problems.push(...lazyOnlyProblems(manifest));
+  parts.push(`${LAZY_ONLY.length} وحدة كسولة برّا مسار الجلسة (قاموس القيود والدخول)`);
   return { scanned, problems, summary: parts.join('؛ ') };
 }

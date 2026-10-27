@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError, UnknownOutcomeError, ZeroRowsError } from '../errors';
+import { t } from '../i18n';
 import { getClient } from './client';
-import { constraintHint, violatedConstraint } from './constraints';
 
 // lib/repo هو الوصول الوحيد للقاعدة، ملف لكل وحدة: سياسة الأخطاء والمهلة وبوابة الاشتراك والطابور بمكان واحد.
 // بـdoctorVet خلل واحد بهاي النقطة وصل ٢١ موضعاً، والإصلاح بيها صلّحهم كلهم.
@@ -46,6 +46,32 @@ export interface PostgrestFailure {
   hint?: string | null;
 }
 
+/** اسم القيد من رسالة بوستغريس: «new row for relation "x" violates check constraint "x_check"». */
+export function violatedConstraint(message: string | undefined): string | null {
+  return /check constraint "([^"]+)"/.exec(message ?? '')?.[1] ?? null;
+}
+
+/** جملة القيد المجهول (أو حين يتعذّر تحميل القاموس): تسمّيه، والشاشة ما تسكت بيها. */
+export function unknownConstraint(name: string | null): string {
+  return t('constraint.unknown', 'رفضت قاعدة البيانات قيمةً لا تحقّق القيد «{name}»، فلم يُحفظ شيء.', { name: name ?? '?' });
+}
+
+/**
+ * رفض قيد check بلا جملته يرجع بجملته من القاموس (constraints.ts). القاموس كسول (import()): جمله لكل الوحدات تكبر بكل
+ * حزمة، وبمسار الجلسة الحرج كانت تتحمّل لكل مستخدم قبل أوّل شاشة (DECISIONS «السقوف المقيسة»)، والقيد ما ينخرق إلا من
+ * كتابة. تعذّر تحميله (بلا نت ولا تثبيت مسبق) جملة عامة تسمّي القيد. أي خطأ ثاني يرجع كما هو.
+ */
+export async function explained(error: unknown): Promise<unknown> {
+  if (!(error instanceof RejectedError) || error.code !== 'check_violation' || error.hint !== null) return error;
+  let hint: string;
+  try {
+    hint = (await import('./constraints')).constraintHint(error.constraint);
+  } catch { // swallow-ok: القاموس ما انحمّل، فالجملة العامة باسم القيد مكانه
+    hint = unknownConstraint(error.constraint);
+  }
+  return new RejectedError('check_violation', hint, error.constraint);
+}
+
 /** الجهاز كان متّصلاً لحظة الإرسال: فشل الطلب بعدها «ما نعرف شنو صار»، وبلا اتصال «ما وصل». */
 export function isOnline(): boolean {
   return typeof navigator === 'undefined' || navigator.onLine;
@@ -69,8 +95,8 @@ export function classifyPostgrest(error: PostgrestFailure, status: number, kind:
   }
   // تزاحم على قفل (قفل متبادل أو مهلة القفل): المعاملة رجعت كلها، والإعادة بنفس المرجع آمنة (الخطّة §2.3).
   if (code === '40P01' || code === '55P03') return new RetryableError(code);
-  // قيد check: باسمه وجملته الفصيحة، مو «الخادم رفض (23514)» (FOUNDATION ٨٠٨).
-  if (code === '23514') return new RejectedError('check_violation', constraintHint(violatedConstraint(error.message)));
+  // قيد check: باسمه، وجملته الفصيحة من القاموس الكسول (explained)، مو «الخادم رفض (23514)» (FOUNDATION ٨٠٨).
+  if (code === '23514') return new RejectedError('check_violation', null, violatedConstraint(error.message));
   if (/^PGRST00[0-3]$/.test(code) || (status === 503 && !code)) return new NetworkError('db_unavailable');
   if (status === 502 || status === 504 || (status >= 520 && status <= 527)) return wasOnline ? new UnknownOutcomeError('gateway') : new NetworkError();
   // fetch ما كمل (supabase-js يرجّع status 0 بلا رمز): بلا اتصال ما طلع، وبالاتصال ممكن وصل.
@@ -184,6 +210,6 @@ export async function call<T>(fn: string, args?: Record<string, unknown>): Promi
     (db) => db.rpc(fn, args),
     (answer) => [answer],
   );
-  if (result.error) throw classifyPostgrest(result.error, result.status, 'rpc', wasOnline);
+  if (result.error) throw await explained(classifyPostgrest(result.error, result.status, 'rpc', wasOnline));
   return result.data as T;
 }

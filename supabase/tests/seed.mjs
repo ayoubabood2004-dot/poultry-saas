@@ -2,6 +2,8 @@
 // التراجع ينفحص على قاعدة بيها بيانات مثل الإنتاج. كل حزمة تزيد كياناتها هنا (مخازن، جهات، مستندات) بنفس الطريقة.
 // WP2 (0005): المدير يضيف تصنيفاً ومادّة برموز ووحدة من كيس، وحقلاً بمخزنه، ويحدّد يوم تشغيل؛ والأمين بنطاق وحدة (صفّ وحدة،
 // فالتراجع يكمل). والطريق الثاني (BLOCKING): الأمين بنطاق مخزن، فالتراجع لازم يرفض بصوت وما يغيّر شي.
+// WP3 (0006): المدير يضيف جهة وصندوقاً، والأمين يضيف مورّداً (party.create)، بلا قيد ولا حركة (بيانات أساسية، فالتراجع يكمل).
+// والطريق الثاني: قيد افتتاح للجهة، أو رصيد افتتاحي للصندوق، أو وحدة تعبئة للمورّد: كل وحدة توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -11,6 +13,8 @@ const U = {
 const PHONE = { owner: '9647708000001', manager: '9647708000002', storekeeper: '9647708000003' };
 
 const value = async (q, sql, params) => Object.values((await q(sql, params)).rows[0] ?? {})[0];
+
+const hasTable = async (db, name) => Boolean(await value(db.admin, "select count(*)::int from pg_class where relname = $1 and relnamespace = 'public'::regnamespace", [name]));
 
 export async function seedThroughRpcs(db) {
   for (const [key, id] of Object.entries(U)) {
@@ -23,7 +27,7 @@ export async function seedThroughRpcs(db) {
     await db.acceptInvite(U.owner, U[key], member);
   }
   // 0005: البيانات الأساسية بكتابة المدير المباشرة (السياسات الحقيقية)، ويوم التشغيل بدالّته.
-  if (await value(db.admin, "select count(*)::int from pg_class where relname = 'items' and relnamespace = 'public'::regnamespace")) {
+  if (await hasTable(db, 'items')) {
     await db.asUser(
       U.manager,
       async (q) => {
@@ -39,6 +43,18 @@ export async function seedThroughRpcs(db) {
       { commit: true },
     );
   }
+  // 0006: جهة وصندوق بكتابة المدير المباشرة، ومورّد يضيفه الأمين (party.create)؛ بلا قيد ولا حركة.
+  if (await hasTable(db, 'parties')) {
+    await db.asUser(
+      U.manager,
+      async (q) => {
+        await q("insert into public.parties (name, phone, is_customer) values ('أبو علي', '0770 111 2233', true)");
+        await q("insert into public.cash_accounts (name, kind) values ('الصندوق', 'cash')");
+      },
+      { commit: true },
+    );
+    await db.asUser(U.storekeeper, (q) => q("insert into public.parties (name, is_supplier) values ('مورّد الحبوب', true)"), { commit: true });
+  }
   await db.asUser(U.manager, (q) => q('select public.set_period_lock(public.app_today() - 30)'), { commit: true });
   return U;
 }
@@ -52,10 +68,37 @@ const scopeKeeper = (kind) => async (db) => {
   await db.asUser(U.owner, (q) => q(sql, [keeper, target]), { commit: true });
 };
 
+const REF = (n) => `60000000-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`;
+
+/** بعد البذرة الحقيقية: قيد افتتاح للجهة بالدفتر العامّ، أو رصيد افتتاحي للصندوق، أو وحدة تعبئة مربوطة بالمورّد (المدير). */
+const ledgerSeed = (kind) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(
+    U.manager,
+    async (q) => {
+      const party = await value(q, "select id from public.parties where name = 'أبو علي'");
+      if (kind === 'entry') {
+        const book = await value(q, "select b.id from public.ledger_books b join public.divisions d on d.id = b.division_id where d.kind = 'general'");
+        await q('select public.record_opening_balance($1, $2, $3, 500000, public.app_today() - 3, $4)', [REF(1), party, book, REF(2)]);
+      } else if (kind === 'move') {
+        const box = await value(q, "select id from public.cash_accounts where name = 'الصندوق'");
+        await q('select public.record_cash_opening($1, $2, 250000, public.app_today() - 3, $3)', [REF(3), box, REF(4)]);
+      } else {
+        const item = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+        await q("insert into public.item_units (item_id, party_id, label, factor_to_base) values ($1, $2, 'كيس المورّد 48 كغم', 48)", [item, party]);
+      }
+    },
+    { commit: true },
+  );
+};
+
+const CONDITION = 'v_entries > 0 or v_moves > 0 or v_units > 0';
+
 /**
  * الطريق الثاني لملف تراجع (الخطّة WP2): بذور يلزم التراجع يرفضها بصوت برمزها، والكتالوج والبيانات تبقى كما هي. بالرقم،
  * وكل رقم قائمة حالات. 0005: نطاق بموقع وحده ونطاق بمخزن وحده، كل وحدة بحالتها، حتى شرط الرفض (site_id أو warehouse_id)
  * ينفحص فرعاً فرعاً: mutate يشيل فرع الحالة من الشرط، والمشغّل يثبت إن التراجع يكمل بلاه (الحالة تحتاج فرعها).
+ * 0006: قيد جهة، وحركة صندوق، ووحدة تعبئة لمورّد، كل وحدة بحالتها وفرعها (البصمة ويّا عدد المواد، فتسرّب ضابط الرفض يبين).
  */
 export const BLOCKING_SEEDS = {
   5: [
@@ -75,4 +118,33 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace('where site_id is not null or warehouse_id is not null', 'where site_id is not null'),
     },
   ],
+  6: [
+    {
+      name: 'قيد جهة',
+      code: 'rollback_blocked',
+      seed: ledgerSeed('entry'),
+      data: "select (select count(*) from public.party_entries)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(CONDITION, 'v_moves > 0 or v_units > 0'),
+    },
+    {
+      name: 'حركة صندوق',
+      code: 'rollback_blocked',
+      seed: ledgerSeed('move'),
+      data: "select (select count(*) from public.cash_moves)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(CONDITION, 'v_entries > 0 or v_units > 0'),
+    },
+    {
+      name: 'وحدة تعبئة لمورّد',
+      code: 'rollback_blocked',
+      seed: ledgerSeed('unit'),
+      data: "select (select count(*) from public.item_units where party_id is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(CONDITION, 'v_entries > 0 or v_moves > 0'),
+    },
+  ],
 };
+
+/** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
+export const BLOCKING_REQUIRED = [
+  [5, 2, 'نطاق بموقع ونطاق بمخزن، كل وحدة توقف التراجع'],
+  [6, 3, 'قيد جهة وحركة صندوق ووحدة تعبئة لمورّد، كل وحدة توقف التراجع'],
+];

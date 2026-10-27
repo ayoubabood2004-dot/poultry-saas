@@ -15,8 +15,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHarness } from '../../scripts/tests/harness.mjs';
 import { coverageGaps, makeDb, ROLES } from './db.mjs';
-import { applySql, declaredRollback, heavyChanges, rollbackBlockedCase, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
-import { BLOCKING_SEEDS, seedThroughRpcs } from './seed.mjs';
+import { applySql, blockingShortfall, declaredRollback, heavyChanges, rollbackBlockedCase, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
+import { BLOCKING_REQUIRED, BLOCKING_SEEDS, seedThroughRpcs } from './seed.mjs';
 import { DIGEST_SQL, elementsSql, snapshot, snapshotDiff } from './snapshot.mjs';
 
 export { makeDb } from './db.mjs';
@@ -271,6 +271,7 @@ async function main() {
       const rollbackProblems = [];
       let ran = 0;
       let blockedRan = 0;
+      const blockedBy = new Map();
       let blockedRefused = 0;
       for (const [index, migration] of migrations.entries()) {
         const declared = declaredRollback(migration.name, migration.text);
@@ -291,6 +292,7 @@ async function main() {
         // الملف بلا فرع الحالة من شرط الرفض (mutate) يكمل هو هم، فكل فرع من الشرط إله حالة تحتاجه (طفرة فرع ما تعبر بصمت).
         for (const blocking of [].concat(BLOCKING_SEEDS[declared.number] ?? [])) {
           blockedRan += 1;
+          blockedBy.set(declared.number, (blockedBy.get(declared.number) ?? 0) + 1);
           const label = `${declared.file} (طريق الرفض: ${blocking.name})`;
           const blockedCase = (sql) => rollbackBlockedCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql: sql, ...blocking });
           // الحالة الحقيقية بدليل إيجابي: الرفض الصادق ينعدّ، وبالآخر العدد = عدد الحالات (حالة ما انفحصت ما تعبر بصمت).
@@ -329,7 +331,8 @@ async function main() {
           if (blind.length) rollbackProblems.push(`${declared.file}: ضوابط طريق الرفض ما مسكت ${blind.map(([, text]) => `«${text}»`).join('، ')} (${[...broken, ...empty].join(' | ')})`);
         }
       }
-      if (migrations.some((m) => Number(m.name.slice(0, 4)) === 5) && blockedRan < 2) rollbackProblems.push(`0005 بطريق رفض ناقص (${blockedRan} من 2: نطاق بموقع ونطاق بمخزن، كل وحدة توقف التراجع)`);
+      // كل ملف تراجع بحالات رفضه كلها: 0005 نطاق بموقع ونطاق بمخزن؛ 0006 قيد جهة وحركة صندوق ووحدة تعبئة لمورّد (كل وحدة توقفه).
+      rollbackProblems.push(...blockingShortfall(BLOCKING_REQUIRED, migrations.map((m) => Number(m.name.slice(0, 4))), blockedBy));
       if (blockedRefused !== blockedRan) rollbackProblems.push(`طريق الرفض: ${blockedRefused} من ${blockedRan} حالة رفضها التراجع بصدق`);
       // ضابط من الهجرات الحقيقية: 0002 بدّلت أجسام تسع دوالّ بالإنتاج، فالكشف لازم يسمّيها ثقيلة (القديمة معفيّة من الملف بس).
       const legacyHeavy = migrations.filter((m) => declaredRollback(m.name, m.text).kind === 'legacy' && (heavy.get(m.name) ?? []).length).map((m) => m.name.slice(0, 4));

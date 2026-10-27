@@ -20,10 +20,16 @@ export default defineConfig({
     manifest: true,
     rollupOptions: {
       output: {
-        // الحزمة المشتركة لشاشتي البيانات الأساسية (المرحلة 1 WP2، بيها repo/inventory.ts) باسم ثابت، حتى استثناؤها من التثبيت
-        // المسبق يبقى بالاسم. الاسم بس يتغيّر؛ تقسيم الحزم كما يقرّره Rollup (manualChunks كان يسحب وحدات الإقلاع ويّاها).
-        chunkFileNames: (chunk) =>
-          chunk.moduleIds.some((id) => /\/src\/lib\/repo\/inventory\.ts$/.test(id.replace(/\\/g, '/'))) && !chunk.isDynamicEntry ? 'assets/stores-admin-[hash].js' : 'assets/[name]-[hash].js',
+        // الحزمة المشتركة لشاشتي البيانات الأساسية (المرحلة 1 WP2، بيها repo/inventory.ts) والحزم المشتركة لشاشات الحسابات (WP3:
+        // repo/parties.ts وrepo/cash.ts وقطع pages/accounts ومكوّنات الكشف والمبلغ) باسم ثابت، حتى استثناؤها من التثبيت المسبق يبقى
+        // بالاسم. الاسم بس يتغيّر؛ تقسيم الحزم كما يقرّره Rollup (manualChunks كان يسحب وحدات الإقلاع ويّاها).
+        chunkFileNames: (chunk) => {
+          const ids = chunk.moduleIds.map((id) => id.replace(/\\/g, '/'));
+          if (chunk.isDynamicEntry) return 'assets/[name]-[hash].js';
+          if (ids.some((id) => /\/src\/lib\/repo\/inventory\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
+          if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
+          return 'assets/[name]-[hash].js';
+        },
       },
     },
   },
@@ -65,7 +71,15 @@ export default defineConfig({
         // بالخادم بس)، وبالتثبيت المسبق كانت تعبر سقفه المقيس (817,500) بحدود 50 كيلوبايت. الاستثناء سؤال مفتوح للمالك (A4)،
         // مكتوب بـDECISIONS «السقوف المقيسة» 2026-10-27 (مو موافقة)؛ وpwa-guard يطلب سطره هناك، ويمنع حزمة محفوظة تستورد وحدة
         // منها، وحزمة مستثناة يحفظها sw.js (القائمتان افترقتا).
-        globIgnores: ['**/ItemsPage-*.js', '**/OrgSettingsPage-*.js', '**/stores-admin-*.js'],
+        // WP3: قسم الحسابات والصناديق بمسار واحد (AccountsRoutes، JS وملف الطباعة CSS) وحزمته المشتركة لو انقسمت
+        // (accounts-office)، بنفس القاعدة (DECISIONS «السقوف المقيسة»).
+        globIgnores: [
+          '**/ItemsPage-*.js',
+          '**/OrgSettingsPage-*.js',
+          '**/stores-admin-*.js',
+          '**/AccountsRoutes-*.{js,css}',
+          '**/accounts-office-*.{js,css}',
+        ],
         // صريحاً: vite-plugin-pwa يفعّله بس ويّا autoUpdate، وبلاه الصفحة اللي ثبّتت الخدمة العاملة ما تنمسك.
         clientsClaim: true,
         skipWaiting: false,

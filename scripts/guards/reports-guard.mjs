@@ -29,6 +29,18 @@ export function check(files) {
     const sourceFile = parse(file);
     // const T = 'party_entries'; db.from(T): اسم الجدول بثابت ما يعبر الحارس.
     walk(sourceFile, (node) => {
+      // call('report_x', {…}) بـrepo (الغلاف الوحيد للدوالّ، core.ts) مثل db.rpc('report_x', {…}): المرحلة 1 WP3 أوّل تقارير
+      // حقيقية، وكلها تمرّ من call، فالحارس كان يعدّ صفر نداء.
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'call') {
+        const fn = resolvedText(node.arguments[0]);
+        if (!fn?.startsWith('report_')) return;
+        reportCalls += 1;
+        const args = node.arguments[1];
+        const keys = args && ts.isObjectLiteralExpression(args) ? args.properties.map((p) => p.name?.getText(sourceFile)) : [];
+        const line = lineOf(sourceFile, node);
+        if (!(keys.includes('p_from') && keys.includes('p_to')) && !hasMarker(file, line, 'unbounded:')) problems.push(`${where(file, line)}: ${fn} بلا مدّة — p_from وp_to إلزاميات`);
+        return;
+      }
       if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
       const method = calleeName(node);
       const line = lineOf(sourceFile, node.expression.name);
@@ -68,6 +80,9 @@ export function selfTest() {
     },
   ]);
   if (bad.problems.length !== 2) return `توقّعت مخالفتين بالمدخلات المصنوعة وطلع ${bad.problems.length}`;
+  // نداء التقرير بـcall (WP3): بلا مدّة ينمسك مرّة، وبمدّته يعبر وينعدّ.
+  const viaCall = check([{ path: 'src/lib/repo/self.ts', text: "export const a = () => call('report_party_balances', { p_from: x }); export const b = () => call('report_cash_balances', { p_from: x, p_to: y });" }]);
+  if (viaCall.problems.length !== 1 || viaCall.reportCalls !== 2) return `نداء التقرير بـcall: توقّعت مخالفة وحدة ونداءين، وطلع ${viaCall.problems.length} و${viaCall.reportCalls}`;
   // جداول المرتجعات وكلف الجرد: مجموع مرتجع مقصوص بألف صفّ يطلّع صافي المبيعات أعلى من الحقيقي.
   for (const table of ['sales_return_lines', 'sales_return_line_sources', 'stock_count_line_costs']) {
     const got = check([{ path: 'src/lib/repo/self.ts', text: `export const r = (db) => db.from('${table}').select('*');` }]);

@@ -37,11 +37,15 @@ export class RetryableError extends Error {
   }
 }
 
-/** رفض مقصود من الخادم: raise exception '<code>' using hint = '<جملة عربية>'. */
+/**
+ * رفض مقصود من الخادم: raise exception '<code>' using hint = '<جملة عربية>'. ورفض قيد check (23514) يحمل اسم القيد
+ * (constraint)، وجملته من القاموس الكسول بـlib/repo (explained بـcore.ts)، فالقاموس برّا مسار الجلسة الحرج.
+ */
 export class RejectedError extends Error {
   constructor(
     readonly code: string,
     readonly hint: string | null,
+    readonly constraint: string | null = null,
   ) {
     super(code);
     this.name = 'RejectedError';

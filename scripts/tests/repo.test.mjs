@@ -37,10 +37,10 @@ const kindOf = (m, error) =>
 export default async function (t) {
   const m = await bundle(
     [
-      "export { classifyPostgrest, call } from './src/lib/repo/core.ts';",
-      "export { violatedConstraint, constraintHint, CONSTRAINT_HINTS } from './src/lib/repo/constraints.ts';",
-      "export { mapAuthError, signIn } from './src/lib/repo/auth.ts';",
-      "export { loadHomeSummary } from './src/lib/repo/home.ts';",
+      "export { classifyPostgrest, call, explained, violatedConstraint, unknownConstraint } from './src/lib/repo/core.ts';",
+      "export { constraintHint, CONSTRAINT_HINTS } from './src/lib/repo/constraints.ts';",
+      "export { mapAuthError, signIn } from './src/lib/repo/signin.ts';",
+      "export { loadHomeSummary, parseHomeSummary, HomeShapeError } from './src/lib/repo/home.ts';",
       "export { getClient } from './src/lib/repo/client.ts';",
       "export * from './src/lib/errors.ts';",
       "export { saveIdentity, loadIdentity, forgetIdentity } from './src/lib/identity.ts';",
@@ -75,18 +75,39 @@ export default async function (t) {
   const retry = m.describeError(new m.RetryableError('40P01'));
   t.same([retry.kind, retry.title], ['retryable', 'لم يُرحَّل، أعد المحاولة'], 'التزاحم يوصف «لم يُرحَّل، أعد المحاولة»');
   t.ok(m.describeError(new m.RetryableError('55P03')).detail.includes('لم يُحفظ شيء'), 'ويكول إن شيئاً لم يُحفظ');
+  // المرحلة 1 WP3: التصنيف متزامن باسم القيد بلا جملته (القاموس كسول برّا مسار الجلسة)، وexplained يجيب الجملة.
+  const phoneCheck = m.classifyPostgrest({ code: '23514', message: 'new row for relation "members" violates check constraint "members_phone_check"' }, 400, 'rpc', true);
+  t.same([kindOf(m, phoneCheck), phoneCheck.constraint], ['rejected:check_violation:', 'members_phone_check'], '23514 متزامناً: رفض باسم القيد، والجملة بعدها (القاموس ما تحمّل)');
+  const explain = async (error, status, kind = 'rpc') => kindOf(m, await m.explained(m.classifyPostgrest(error, status, kind, true)));
   t.eq(
-    pg({ code: '23514', message: 'new row for relation "members" violates check constraint "members_phone_check"' }, 400),
+    await explain({ code: '23514', message: 'new row for relation "members" violates check constraint "members_phone_check"' }, 400),
     'rejected:check_violation:رقم الهاتف يجب أن يكون رقم موبايل عراقياً صحيحاً.',
-    '23514 يسمّي القيد بجملته من constraint.<اسم القيد>',
+    '23514 بعد explained يسمّي القيد بجملته من constraint.<اسم القيد>',
   );
   t.eq(
-    pg({ code: '23514', message: 'new row for relation "orgs" violates check constraint "orgs_name_check"' }, 400, 'table'),
+    await explain({ code: '23514', message: 'new row for relation "orgs" violates check constraint "orgs_name_check"' }, 400, 'table'),
     'rejected:check_violation:اسم المنشأة مطلوب، ولا يزيد على 120 حرفاً.',
     '23514 على كتابة مباشرة بجدول: نفس الجملة',
   );
-  const unknownCheck = pg({ code: '23514', message: 'new row for relation "x" violates check constraint "x_qty_check"' }, 400);
+  const unknownCheck = await explain({ code: '23514', message: 'new row for relation "x" violates check constraint "x_qty_check"' }, 400);
   t.ok(unknownCheck.startsWith('rejected:check_violation:') && unknownCheck.includes('«x_qty_check»'), 'قيد مو بالقائمة: جملة عامة تسمّيه، مو «بعض القيم غير صحيحة»');
+  const other = new m.RejectedError('forbidden', 'لا تملك صلاحية.');
+  t.eq(await m.explained(other), other, 'explained يرجّع غير رفض القيد كما هو (نفس الكائن)');
+  // القاموس ما انحمّل (حزمته ما وصلت بلا نت): جملة عامة باسم القيد، مو خطأ تحميل خام.
+  const broken = await build({
+    stdin: { contents: "export { classifyPostgrest, explained } from './src/lib/repo/core.ts'; export { RejectedError } from './src/lib/errors.ts';", resolveDir: ROOT, loader: 'ts' },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    logLevel: 'silent',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"' },
+    plugins: [{ name: 'hints-offline', setup(b) { b.onResolve({ filter: /^\.\/constraints$/ }, () => ({ path: 'hints', namespace: 'offline' })); b.onLoad({ filter: /.*/, namespace: 'offline' }, () => ({ contents: "throw new Error('chunk_load_failed');", loader: 'js' })); } }],
+  });
+  const offline = await import(`data:text/javascript;base64,${Buffer.from(broken.outputFiles[0].text).toString('base64')}`);
+  const offlineHint = (await offline.explained(offline.classifyPostgrest({ code: '23514', message: 'violates check constraint "members_phone_check"' }, 400, 'rpc', true))).hint;
+  t.ok(offlineHint.includes('«members_phone_check»'), `القاموس ما انحمّل: جملة عامة تسمّي القيد (${offlineHint})`);
   t.eq(m.violatedConstraint('value for domain d violates check constraint "d_check"'), 'd_check', 'اسم القيد من رسالة النطاق هم');
   t.eq(m.violatedConstraint(undefined), null, 'بلا رسالة: ماكو اسم');
 
@@ -105,6 +126,49 @@ export default async function (t) {
   // ── بلا مفاتيح القاعدة ─────────────────────────────────────────────────────────────────────────────
   await t.rejects(m.getClient(), 'بلا مفاتيح: العميل «غير مربوط»', /not_connected/);
   await t.rejects(m.loadHomeSummary(), 'بلا مفاتيح: الرئيسية «غير مربوط»', /not_connected/);
+
+  // ── محلّل الرئيسية (home_summary صار نداءً حيّاً لكل مستخدم): الشكل الصحيح، والمختلّ يرمي باسم حقله، والفارغ فارغ ───────────
+  const accounts = { receivable: '4000.00', payable: '0', negative_boxes: 1, books: { visible: 1, total: 7 } };
+  const parsed = m.parseHomeSummary({ accounts });
+  t.same(
+    [parsed.accounts?.receivable, parsed.accounts?.payable, parsed.accounts?.negativeBoxes, parsed.accounts?.visibleBooks, parsed.accounts?.totalBooks],
+    [400_000n, 0n, 1, 1, 7],
+    'الرئيسية: «لنا» و«علينا» بالفلس، والصناديق بالسالب، والدفاتر الظاهرة من المجموع',
+  );
+  t.same(m.parseHomeSummary({}), {}, 'بلا بطاقة حسابات (دور بلا حسابات): ملخّص فارغ');
+  const shape = (value) => {
+    try {
+      m.parseHomeSummary(value);
+      return 'ما رمى';
+    } catch (error) {
+      return error instanceof m.HomeShapeError ? error.message : `رمى غيره: ${error.message}`;
+    }
+  };
+  t.same(
+    {
+      missingBoxes: shape({ accounts: { ...accounts, negative_boxes: undefined } }),
+      textBoxes: shape({ accounts: { ...accounts, negative_boxes: '1' } }),
+      fractionBoxes: shape({ accounts: { ...accounts, negative_boxes: 1.5 } }),
+      negativeBoxes: shape({ accounts: { ...accounts, negative_boxes: -1 } }),
+      numberMoney: shape({ accounts: { ...accounts, receivable: 4000 } }),
+      missingBooks: shape({ accounts: { ...accounts, books: undefined } }),
+      textBooks: shape({ accounts: { ...accounts, books: { visible: '1', total: 7 } } }),
+      notObject: shape([]),
+      accountsNull: shape({ accounts: null }),
+    },
+    {
+      missingBoxes: 'home_shape:negative_boxes',
+      textBoxes: 'home_shape:negative_boxes',
+      fractionBoxes: 'home_shape:negative_boxes',
+      negativeBoxes: 'home_shape:negative_boxes',
+      numberMoney: 'home_shape:receivable',
+      missingBooks: 'home_shape:books',
+      textBooks: 'home_shape:visible',
+      notObject: 'home_shape:summary',
+      accountsNull: 'home_shape:accounts',
+    },
+    'الشكل المختلّ يرمي HomeShapeError باسم حقله (مو بطاقة بأرقام غلط)',
+  );
   await t.rejects(m.call('my_workspace'), 'بلا مفاتيح: النداء «غير مربوط»', /not_connected/);
   await t.rejects(m.signIn('12345', 'password1'), 'رقم غلط يرفض قبل أي طلب', /invalid_phone/);
 
@@ -201,7 +265,7 @@ function makeFake() {
         const chain = {
           then: (ok, bad) => Promise.resolve(head() ? { data: null, count: fake.plan.counts?.[table] ?? 0, error: null, status: 200 } : result).then(ok, bad),
         };
-        for (const op of ['select', 'order', 'is', 'or', 'limit', 'eq']) {
+        for (const op of ['select', 'order', 'is', 'or', 'limit', 'eq', 'insert', 'update', 'like']) {
           chain[op] = (...args) => {
             query.ops.push([op, ...args]);
             return chain;
@@ -257,6 +321,8 @@ async function fakeSupabaseChecks(t) {
         "export { getClient, dropClient, revocableStorage } from './src/lib/repo/client.ts';",
         "export { loadStaff } from './src/lib/repo/members.ts';",
         "export { listItems, ITEMS_PAGE } from './src/lib/repo/inventory.ts';",
+        "export { loadPartyBalances, createParty, recordPayment } from './src/lib/repo/parties.ts';",
+        "export { searchable } from './src/domain/normalize.ts';",
         "export { backendSettings, isPublishableKey, isProjectUrl } from './src/lib/env.ts';",
         "export * from './src/lib/errors.ts';",
       ].join('\n'),
@@ -405,6 +471,34 @@ async function fakeSupabaseChecks(t) {
   );
   fake.plan.tables = undefined;
   fake.plan.counts = undefined;
+
+  // ── ملفّا الحسابات (WP3، اختبار الطفرات): البحث مطبَّع بمرآة الخادم قبل ما يطلع، والمبلغ دينار صحيح نصّاً بنفس المعرّف والمرجع،
+  // ورفض قيد check من الدوالّ أو من كتابة مباشرة يوصل الشاشة بجملة قيده (explained)، مو «check_violation» بلا جملة ─────────
+  {
+    fake.plan.getSession = async () => ({ data: { session: session('u-1') }, error: null });
+    const sent = [];
+    fake.plan.rpc = async (fn, args) => {
+      sent.push([fn, args]);
+      if (fn === 'report_party_balances') return { data: { books: [], rows: [], next: null, total: 0 }, error: null, status: 200 };
+      return { data: { id: 'e-1', kind: 'payment', doc_no: 'RC-2026-0001', on_date: '2026-10-30', money: { amount: '-1500000', remaining: '0' } }, error: null, status: 200 };
+    };
+    await m.loadPartyBalances({ from: '2026-01-01', to: null, search: '  مزرعةُ  الأمل ' });
+    await m.loadPartyBalances({ from: '2026-01-01', to: null, search: 'ـــ' });
+    t.same(sent.map(([, args]) => args.p_search), [m.searchable('  مزرعةُ  الأمل '), null], 'بحث الجهات مطبَّع (searchable) قبل الإرسال، والتطويل وحده = بلا بحث');
+    const ref = { id: 'id-1', clientRef: 'ref-1' };
+    await m.recordPayment(ref, { partyId: 'p-1', bookId: 'b-1', amount: 1_500_000n * 100n, accountId: 'c-1', onDate: '2026-10-30' });
+    t.same(sent.at(-1), ['record_party_payment', { p_id: 'id-1', p_party: 'p-1', p_book: 'b-1', p_amount: '1500000', p_account: 'c-1', p_on_date: '2026-10-30', p_client_ref: 'ref-1' }], '«قبضنا» على السلك: المعرّف والمرجع من الجهاز والمبلغ دينار صحيح نصّاً');
+    fake.plan.rpc = async () => ({ data: null, error: { code: '23514', message: 'new row for relation "orgs" violates check constraint "orgs_name_check"' }, status: 400 });
+    let rpcRefused = null;
+    await m.call('create_my_org').catch((error) => (rpcRefused = error));
+    t.same([rpcRefused instanceof m.RejectedError, rpcRefused?.code, rpcRefused?.hint], [true, 'check_violation', 'اسم المنشأة مطلوب، ولا يزيد على 120 حرفاً.'], 'رفض قيد من دالّة (call): الشاشة تاخذ جملة القيد');
+    fake.plan.tables = { parties: { data: null, error: { code: '23514', message: 'new row for relation "parties" violates check constraint "parties_name_check"' }, status: 400 } };
+    let writeRefused = null;
+    await m.createParty({ name: 'x', phone: null, is_customer: true, is_supplier: false }).catch((error) => (writeRefused = error));
+    t.same([writeRefused instanceof m.RejectedError, writeRefused?.code, writeRefused?.hint], [true, 'check_violation', 'اسم الجهة مطلوب، ولا يزيد على 120 حرفاً.'], 'رفض قيد من كتابة مباشرة (جهة): جملة قيدها من قاموس الحسابات');
+    fake.plan.tables = undefined;
+    fake.plan.rpc = undefined;
+  }
 
   // ── الإقلاع بلا نت ما ينتظر التجديد (S6) ────────────────────────────────────────────────────────────
   storeToken('u-1');

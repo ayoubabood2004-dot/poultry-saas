@@ -201,6 +201,24 @@ export default async function (t, db) {
       { commit: true },
     );
   }
+  // المرحلة 1 (0006): جهة وصندوق كتابة مباشرة، وافتتاح وقبض بدوالّهما، فبكل جدول دفتر (القيود والتوزيع والحركات والعدّاد) صفوف للطرفين.
+  const ledgerOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    ledgerOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const general = await value(q, "select id from public.divisions where kind = 'general'");
+        const book = await value(q, 'select id from public.ledger_books where division_id = $1', [general]);
+        await q('select public.set_division_go_live($1, public.app_today() - 3)', [general]);
+        const party = await value(q, "insert into public.parties (name, is_customer) values ('أبو علي', true) returning id");
+        const box = await value(q, "insert into public.cash_accounts (name, kind) values ('الصندوق', 'cash') returning id");
+        await q('select public.record_opening_balance(gen_random_uuid(), $1, $2, 500000, public.app_today() - 3, gen_random_uuid())', [party, book]);
+        await q('select public.record_party_payment(gen_random_uuid(), $1, $2, 100000, $3, public.app_today(), gen_random_uuid())', [party, book, box]);
+        return { book, party, box };
+      },
+      { commit: true },
+    );
+  }
 
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
@@ -454,12 +472,32 @@ export default async function (t, db) {
       and has_function_privilege('authenticated', p.oid, 'execute') order by 1`)).rows;
   t.ok(readOnly.length >= 8, `دوالّ للقراءة بقائمة السماح (${readOnly.map((f) => f.name).join('، ')})`);
   // قيمة غير فارغة لكل نوع (STRICT ويّا NULL يرجع بلا ما يشتغل الجسم)، ونوع جديد بلا قيمة يفشل هنا مو يعبر بصمت.
-  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01', 'text[]': ['READ'] };
+  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01', 'text[]': ['READ'], numeric: '1000', integer: 50, jsonb: {} };
   const unmapped = [...new Set(readOnly.flatMap((fn) => (fn.args ? fn.args.split(', ') : []).filter((type) => SAMPLE[type] == null)))];
   t.same(unmapped, [], 'كل نوع معامل بدوالّ القراءة إله قيمة تجربة');
   // بأكثر من هويّة حتى كل فرع ينفّذ: مالك، عامل بنطاق، بلا منشأة، ومالك منشأة ثانية.
   const PERSONAS = [U.aOwner, U.aWorker, U.aSpare, U.bOwner];
+  // المرحلة 1 (WP3): دوالّ الحسابات تاخذ معرّفات حقيقية حتى جسمها كلّه ينفّذ للمالكين (بمنشأة كل مالك)، والرفض المقصود لهويّة
+  // بلا صلاحية مسمّى هنا بالضبط (forbidden): أي رفض ثاني، أو رفض لهويّة مو مسمّاة، يفشل الفحص مثل الكتابة.
+  const own = (persona) => ledgerOf[persona === U.bOwner ? 'b' : 'a'];
+  const ARGS = {
+    preview_party_allocation: (persona) => [own(persona).party, own(persona).book, 'payment', '1000'],
+    report_party_balances: () => ['2026-01-01', '2026-12-31', null, true, 'balance', null, null, 50],
+    report_party_statement: (persona) => [own(persona).party, null, '2026-01-01', '2026-12-31'],
+    report_cash_statement: (persona) => [own(persona).box, '2026-01-01', '2026-12-31'],
+  };
+  const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
+  const REJECTS = {
+    find_party_twins: { [U.aWorker]: 'forbidden' },
+    preview_party_allocation: NO_ACCOUNTS,
+    report_accounts_summary: NO_ACCOUNTS,
+    report_party_balances: NO_ACCOUNTS,
+    report_party_statement: NO_ACCOUNTS,
+    report_cash_balances: NO_ACCOUNTS,
+    report_cash_statement: NO_ACCOUNTS,
+  };
   const readOnlyFailures = [];
+  let rejected = 0;
   for (const fn of readOnly) {
     const types = fn.args ? fn.args.split(', ') : [];
     const call = `select public.${fn.name}(${types.map((type, i) => `$${i + 1}::${type}`).join(', ')})`;
@@ -467,12 +505,15 @@ export default async function (t, db) {
       const result = await failure(
         db.asUser(persona, async (q) => {
           await q('set local transaction_read_only = on');
-          await q(call, types.map((type) => SAMPLE[type]));
+          await q(call, ARGS[fn.name] ? ARGS[fn.name](persona) : types.map((type) => SAMPLE[type]));
         }),
       );
-      if (result.message !== 'ما رمى') readOnlyFailures.push(`${fn.name} (${persona}): ${result.message}`);
+      const expected = REJECTS[fn.name]?.[persona] ?? 'ما رمى';
+      if (result.message !== expected) readOnlyFailures.push(`${fn.name} (${persona}): ${result.message} والمتوقّع ${expected}`);
+      else if (expected !== 'ما رمى') rejected += 1;
     }
   }
+  t.eq(rejected, Object.values(REJECTS).reduce((sum, row) => sum + Object.keys(row).length, 0), 'كل رفض مقصود مسمّى صار بالضبط (الجسم ينفّذ للباقين)');
   t.same(readOnlyFailures, [], `كل دالّة للقراءة تشتغل بمعاملة للقراءة بس (${readOnly.length} دالّة × ${PERSONAS.length} هويّات)`);
   await t.rejects(
     db.asUser(U.aOwner, async (q) => {

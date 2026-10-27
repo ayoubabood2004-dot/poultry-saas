@@ -35,4 +35,5 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   expense_categories_system_code_check: () => t('constraint.expense_categories_system_code_check', 'رمز الفئة النظامية غير صالح.'),
 };
 
+
 registerConstraintHints(STORES_CONSTRAINT_HINTS);

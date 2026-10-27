@@ -10,7 +10,7 @@ import { localDay } from '../../domain/dates';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { countForm, fmtDay, fmtInt, fmtMoney, fmtQty } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
-import { home } from '../../lib/repo';
+import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
@@ -83,7 +83,9 @@ function NextHatch({ days }: { days: number }) {
 
 /** مصدّرة حتى ينفحص اتّجاه كل رقم بلا متصفّح. */
 export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
-  const s = summary;
+  // بلا ملخّص (لسّه يتحمّل أو فشل) كل رقم «—»: ملخّص فارغ بدل null حتى الفحوص أقصر (حزمة الرئيسية بالتثبيت المسبق).
+  const s: HomeSummary = summary ?? {};
+  const { accounts } = s;
   return [
     {
       key: 'feed_mill',
@@ -91,8 +93,8 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       title: t('nav.mill', 'معمل العلف'),
       icon: Wheat,
       metrics: [
-        { label: t('home.mill.produced', 'إنتاج اليوم'), kind: 'text', value: s?.feedMill ? fmtQty(s.feedMill.producedTodayKg, 'kg').main : null },
-        { label: t('home.mill.stock', 'العلف الجاهز'), kind: 'text', value: s?.feedMill ? fmtQty(s.feedMill.feedInStockKg, 'kg').main : null },
+        { label: t('home.mill.produced', 'إنتاج اليوم'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.producedTodayKg, 'kg').main : null },
+        { label: t('home.mill.stock', 'العلف الجاهز'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.feedInStockKg, 'kg').main : null },
       ],
     },
     {
@@ -101,13 +103,13 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       title: t('nav.broiler', 'حقول اللحم'),
       icon: Drumstick,
       metrics: [
-        { label: t('home.broiler.active', 'الأفواج النشطة'), kind: 'number', value: s?.broiler ? fmtInt(s.broiler.activeFlocks) : null },
+        { label: t('home.broiler.active', 'الأفواج النشطة'), kind: 'number', value: s.broiler ? fmtInt(s.broiler.activeFlocks) : null },
         {
           label: t('home.broiler.ages', 'الأعمار'),
           kind: 'text',
-          value: s?.broiler?.ageDays ? <Ages min={s.broiler.ageDays.min} max={s.broiler.ageDays.max} /> : null,
+          value: s.broiler?.ageDays ? <Ages min={s.broiler.ageDays.min} max={s.broiler.ageDays.max} /> : null,
         },
-        { label: t('home.broiler.dead', 'نفوق اليوم'), kind: 'number', value: s?.broiler ? fmtInt(s.broiler.deadToday) : null },
+        { label: t('home.broiler.dead', 'نفوق اليوم'), kind: 'number', value: s.broiler ? fmtInt(s.broiler.deadToday) : null },
       ],
     },
     {
@@ -116,12 +118,12 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       title: t('nav.layers', 'حقول البيض'),
       icon: Egg,
       metrics: [
-        { label: t('home.layer.eggs', 'بيض اليوم'), kind: 'number', value: s?.layer ? fmtInt(s.layer.eggsToday) : null },
-        { label: t('home.layer.hdep', 'نسبة الإنتاج'), kind: 'number', value: s?.layer?.hdepPercent ? `${s.layer.hdepPercent}%` : null },
+        { label: t('home.layer.eggs', 'بيض اليوم'), kind: 'number', value: s.layer ? fmtInt(s.layer.eggsToday) : null },
+        { label: t('home.layer.hdep', 'نسبة الإنتاج'), kind: 'number', value: s.layer?.hdepPercent ? `${s.layer.hdepPercent}%` : null },
         {
           label: t('home.layer.trays', 'في المخزن'),
           kind: 'text',
-          value: s?.layer
+          value: s.layer
             ? fmtQty(s.layer.traysInStore, 'pc', { pieceLabel: t('unit.egg', 'بيضة'), pieceForms: eggForms(), pack: { label: t('unit.tray', 'طبقة'), ...trayForms(), factor: TRAY } }).main
             : null,
         },
@@ -133,13 +135,13 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       title: t('nav.hatchery', 'المفقس'),
       icon: Bird,
       metrics: [
-        { label: t('home.hatchery.setting', 'وجبات قيد التفقيس'), kind: 'number', value: s?.hatchery ? fmtInt(s.hatchery.batchesSetting) : null },
+        { label: t('home.hatchery.setting', 'وجبات قيد التفقيس'), kind: 'number', value: s.hatchery ? fmtInt(s.hatchery.batchesSetting) : null },
         {
           label: t('home.hatchery.next', 'أقرب إخراج'),
           kind: 'text',
-          value: s?.hatchery && s.hatchery.nextHatchInDays !== null ? <NextHatch days={s.hatchery.nextHatchInDays} /> : null,
+          value: s.hatchery && s.hatchery.nextHatchInDays !== null ? <NextHatch days={s.hatchery.nextHatchInDays} /> : null,
         },
-        { label: t('home.hatchery.chicks', 'أفراخ في الانتظار'), kind: 'number', value: s?.hatchery ? fmtInt(s.hatchery.chicksWaiting) : null },
+        { label: t('home.hatchery.chicks', 'أفراخ في الانتظار'), kind: 'number', value: s.hatchery ? fmtInt(s.hatchery.chicksWaiting) : null },
       ],
     },
     {
@@ -147,14 +149,14 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       to: '/inventory/medicine',
       title: t('nav.medicine', 'مخزن الأدوية'),
       icon: Pill,
-      metrics: [{ label: t('home.medicine.expiry', 'قريب الانتهاء'), kind: 'number', value: s?.medicine ? fmtInt(s.medicine.nearExpiry) : null }],
+      metrics: [{ label: t('home.medicine.expiry', 'قريب الانتهاء'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.nearExpiry) : null }],
     },
     {
       key: 'general',
       to: '/inventory/general',
       title: t('nav.general', 'المخازن العامة'),
       icon: Fuel,
-      metrics: [{ label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s?.general ? fmtInt(s.general.belowMinimum) : null }],
+      metrics: [{ label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.general ? fmtInt(s.general.belowMinimum) : null }],
     },
     {
       key: 'accounts',
@@ -162,8 +164,14 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       title: t('nav.accounts', 'الحسابات'),
       icon: Wallet,
       metrics: [
-        { label: t('home.accounts.receivable', 'لنا عند الناس'), kind: 'number', value: s?.accounts ? fmtMoney(s.accounts.receivable, 0) : null },
-        { label: t('home.accounts.payable', 'علينا للناس'), kind: 'number', value: s?.accounts ? fmtMoney(s.accounts.payable, 0) : null },
+        { label: t('home.accounts.receivable', 'لنا عند الناس'), kind: 'number', value: accounts ? fmtMoney(accounts.receivable, 0) : null },
+        { label: t('home.accounts.payable', 'علينا للناس'), kind: 'number', value: accounts ? fmtMoney(accounts.payable, 0) : null },
+        // السالب مسموح بالصندوق ويّا تنبيه ظاهر (Q10): عدد الصناديق بالسالب.
+        { label: t('home.accounts.negative_boxes', 'صناديق بالسالب'), kind: 'number', value: accounts ? fmtInt(accounts.negativeBoxes) : null },
+        // القارئ المحصور (E49): الرقمان من دفاتر نطاقه بس، فالبطاقة تقول من كم دفتر.
+        ...(accounts && accounts.visibleBooks < accounts.totalBooks
+          ? [{ label: t('home.accounts.books', 'دفاتر نطاقك'), kind: 'text' as const, value: t('home.accounts.books.n', '{visible} من المجموع {total}', { visible: fmtInt(accounts.visibleBooks), total: fmtInt(accounts.totalBooks) }) }]
+          : []),
       ],
     },
   ];
