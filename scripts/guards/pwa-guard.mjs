@@ -25,8 +25,8 @@ const SERVICE_WORKER = [/^sw\.js$/, /^workbox-[\w-]+\.js$/];
 /**
  * مستثناة بالاسم من التثبيت المسبق (FOUNDATION ٢١٦: الثقيلة بالاسم بس)، بنفس globIgnores بـvite.config.ts. الاستثناء مثل
  * رفع السقف، فكل اسم لازم بسطر بـDECISIONS «السقوف المقيسة» (exclusionRecordProblems)، وsw.js ما يحفظها (checkDist)، وحزمة
- * محفوظة ما تستوردها (staticImportProblems). المرحلة 1 WP2: شاشتا البيانات الأساسية وحزمتهما stores-admin، لحد ما يقرّر المالك
- * (السطر بـDECISIONS سؤال مفتوح، مو موافقة).
+ * محفوظة ما تستوردها (staticImportProblems). كلمة المالك 2026-10-27: شاشات المكتب اللي تحتاج الخادم برّا التثبيت المسبق
+ * بالاسم، والجولة وكل شي تحتاجه جوّاه (DECISIONS «السقوف المقيسة»). أوّلها stores-admin (المواد وإعدادات المنشأة).
  */
 export const EXCLUDED_BY_NAME = [
   { name: 'ItemsPage', pattern: /^assets\/ItemsPage-[\w-]+\.js$/ },
