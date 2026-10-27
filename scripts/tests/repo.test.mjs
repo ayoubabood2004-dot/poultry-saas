@@ -159,7 +159,7 @@ const never = () => new Promise(() => {});
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function makeFake() {
-  const fake = { clients: [], plan: {} };
+  const fake = { clients: [], plan: {}, queries: [] };
   fake.make = (url, key, options) => {
     const subscribers = [];
     const client = {
@@ -194,7 +194,19 @@ function makeFake() {
       },
       from: (table) => {
         const result = fake.plan.tables?.[table] ?? { data: [], error: null, status: 200 };
-        const chain = { select: () => chain, order: () => chain, is: () => chain, then: (ok, bad) => Promise.resolve(result).then(ok, bad) };
+        // كل استعلام يتسجّل بخطواته (fake.queries)، والعدّ (select بـhead) يرجّع count مو صفوف (listItems، WP2).
+        const query = { table, ops: [] };
+        fake.queries.push(query);
+        const head = () => query.ops.some(([op, , options]) => op === 'select' && options?.head);
+        const chain = {
+          then: (ok, bad) => Promise.resolve(head() ? { data: null, count: fake.plan.counts?.[table] ?? 0, error: null, status: 200 } : result).then(ok, bad),
+        };
+        for (const op of ['select', 'order', 'is', 'or', 'limit', 'eq']) {
+          chain[op] = (...args) => {
+            query.ops.push([op, ...args]);
+            return chain;
+          };
+        }
         return chain;
       },
     };
@@ -244,6 +256,7 @@ async function fakeSupabaseChecks(t) {
         "export { probeSession, signOutLocal, onAuthChange, QUICK_PROBE_MS } from './src/lib/repo/auth.ts';",
         "export { getClient, dropClient, revocableStorage } from './src/lib/repo/client.ts';",
         "export { loadStaff } from './src/lib/repo/members.ts';",
+        "export { listItems, ITEMS_PAGE } from './src/lib/repo/inventory.ts';",
         "export { backendSettings, isPublishableKey, isProjectUrl } from './src/lib/env.ts';",
         "export * from './src/lib/errors.ts';",
       ].join('\n'),
@@ -354,15 +367,44 @@ async function fakeSupabaseChecks(t) {
   const row = (id, extra) => ({ id, user_id: `u-${id}`, display_name: id, phone: null, role: 'viewer', accepted_at: null, archived_at: null, created_at: '2026-10-20T10:00:00Z', ...extra });
   fake.plan.tables = {
     members: { data: [row('a', { role: 'owner', accepted_at: '2026-10-20T10:00:00Z' }), row('b', { archived_at: '2026-10-21T10:00:00Z' }), row('c')], error: null, status: 200 },
-    member_scopes: { data: [{ member_id: 'c', division_id: 'd-1' }, { member_id: 'c', division_id: null }], error: null, status: 200 },
+    member_scopes: {
+      data: [
+        { member_id: 'c', division_id: 'd-1', site_id: null, warehouse_id: null },
+        { member_id: 'c', division_id: null, site_id: 's-1', warehouse_id: null },
+        { member_id: 'c', division_id: null, site_id: null, warehouse_id: 'w-1' },
+        { member_id: 'c', division_id: null },
+      ],
+      error: null,
+      status: 200,
+    },
     divisions: { data: [{ id: 'd-1', kind: 'broiler' }], error: null, status: 200 },
   };
   const staff = await m.loadStaff();
   t.same(staff.members.map((x) => x.id), ['a', 'c'], 'المؤرشف ما ينعرض بالموظفين');
   t.same([staff.members[0].accepted, staff.members[1].divisionIds], [true, ['d-1']], 'القبول والنطاق (والنطاق بلا وحدة ينترك)');
+  t.same([staff.members[1].siteIds, staff.members[1].warehouseIds, staff.members[0].siteIds], [['s-1'], ['w-1'], []], 'النطاق بالموقع والمخزن (0005): كل صفّ بقائمة هدفه');
   fake.plan.tables.members = { data: [row('x', { role: 'boss' })], error: null, status: 200 };
   await t.rejects(m.loadStaff(), 'دور مو معروف من الخادم يرمي، مو يعرض شي غلط', /members\.role/);
   fake.plan.tables = undefined;
+
+  // ── listItems (WP2): الصفحة الجاية بعد آخر صفّ بالضبط (gt، مو gte: الصفّ الأخير ما يتكرّر)، وبس لمّا الصفحة كاملة، والعدد
+  // الكلّي من القاعدة بأوّل صفحة بس ─────────────────────────────────────────────────────────────────────────────
+  const itemRow = (n) => ({ id: `i-${n}`, version: 1, archived_at: null, name: `مادّة ${n}`, name_norm: `ماده ${n}`, category_id: null, kind: 'raw', base_unit: 'kg', density_kg_per_l: null, piece_mass_kg: null, tracks_expiry: false, scale_step: '0.100', min_qty: null, barcode: null, alt_codes: [] });
+  const rowsQuery = () => fake.queries.filter((q) => q.table === 'items' && !q.ops.some(([op, , options]) => op === 'select' && options?.head)).at(-1);
+  fake.plan.tables = { items: { data: [1, 2, 3].map(itemRow), error: null, status: 200 } };
+  fake.plan.counts = { items: 3 };
+  const short = await m.listItems({ search: 'ذرة' });
+  t.same([short.rows.length, short.total, short.next], [3, 3, null], 'صفحة ناقصة: بلا صفحة جاية، والعدد الكلّي من القاعدة');
+  fake.plan.tables.items.data = Array.from({ length: m.ITEMS_PAGE }, (_, i) => itemRow(i));
+  const fullPage = await m.listItems({ after: { nameNorm: 'ماده 9', id: 'i-9' } });
+  const cursor = rowsQuery().ops.find(([op]) => op === 'or')?.[1];
+  t.same(
+    [fullPage.next, fullPage.total, cursor],
+    [{ nameNorm: `ماده ${m.ITEMS_PAGE - 1}`, id: `i-${m.ITEMS_PAGE - 1}` }, null, 'name_norm.gt."ماده 9",and(name_norm.eq."ماده 9",id.gt.i-9)'],
+    'صفحة كاملة: المؤشّر آخر صفّ، والصفحة بعده بالضبط (الاسم المطبَّع ثم المعرّف، أكبر بس)، وبلا عدّ بعد أوّل صفحة',
+  );
+  fake.plan.tables = undefined;
+  fake.plan.counts = undefined;
 
   // ── الإقلاع بلا نت ما ينتظر التجديد (S6) ────────────────────────────────────────────────────────────
   storeToken('u-1');

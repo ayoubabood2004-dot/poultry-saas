@@ -55,6 +55,22 @@ export default async function (t) {
   t.eq(shapeError({ ...MEMBER, subscription: 'gold' }), 'subscription', 'حالة اشتراك مو معروفة ترمي');
   t.eq(shapeError({ ...MEMBER, org_id: undefined }), 'org_id', 'org_id غايب مو null: يرمي (مو «بلا منشأة»)');
   t.eq(shapeError({ ...NO_ORG, invites: [{ ...MEMBER.invites[0], role: 'admin' }] }), 'invites.role', 'دور الدعوة يتفحص هم');
+  // 0005: صفّ النطاق بمفاتيحه الثلاثة. الهدف بمفتاحه (موقع أو مخزن، واحد بس)، وdivision_id دائماً نصّ غير فارغ (وحدة الهدف):
+  // المحلّل المنشور قبل 0005 يقرا كل صفّ بـtext(division_id)، فصفّ بلاه يطيّح جلسة نسخة قديمة لحد ما تتحدّث (FOUNDATION ٢٣٠).
+  const scoped = w.parseWorkspace({
+    ...MEMBER,
+    scopes: [
+      { division_id: 'd-1', site_id: null, warehouse_id: null },
+      { division_id: 'd-1', site_id: 's-1', warehouse_id: null },
+      { division_id: 'd-1', site_id: null, warehouse_id: 'w-1' },
+    ],
+  });
+  t.same(scoped.workspace.scopes, [{ divisionId: 'd-1' }, { siteId: 's-1' }, { warehouseId: 'w-1' }], 'النطاق بالوحدة والموقع والمخزن، كل صفّ بهدفه (وحدة الموقع والمخزن للنسخ القديمة بس)');
+  t.eq(shapeError({ ...MEMBER, scopes: [{ division_id: 'd-1', site_id: 's-1', warehouse_id: 'w-1' }] }), 'scopes', 'صفّ بموقع ومخزن سوا يرمي');
+  t.eq(shapeError({ ...MEMBER, scopes: [{ division_id: null, site_id: 's-1', warehouse_id: null }] }), 'scopes', 'صفّ بلا division_id يرمي (عقد النسخ المنشورة)');
+  t.eq(shapeError({ ...MEMBER, scopes: [{ division_id: null, site_id: null, warehouse_id: null }] }), 'scopes', 'صفّ بلا هدف يرمي');
+  t.eq(shapeError({ ...MEMBER, scopes: [{ division_id: '', site_id: null, warehouse_id: null }] }), 'scopes', 'هدف نصّه فارغ ما يُعدّ هدفاً');
+  t.eq(shapeError({ ...MEMBER, scopes: [{ division_id: 'd-1', warehouse_id: 7 }] }), 'warehouse_id', 'هدف مو نصّ يرمي');
   t.eq(shapeError(null), 'workspace', 'جواب فارغ يرمي');
   t.eq(shapeError([MEMBER]), 'workspace', 'مصفوفة مو كائن ترمي');
 

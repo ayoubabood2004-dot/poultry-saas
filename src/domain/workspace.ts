@@ -113,6 +113,17 @@ function parseInvite(value: unknown): Invite {
   };
 }
 
+/**
+ * صفّ نطاق من my_workspace() (0005): الهدف بمفتاحه، موقع أو مخزن واحد بس (مثل member_scopes_one_target)، وdivision_id دائماً
+ * وحدة الهدف، نصّاً غير فارغ: النسخ المنشورة قبل 0005 تقرا كل صفّ بـtext(division_id)، فصفّ بلاه يطيّح جلستها. الأخصّ يغلب.
+ */
+function parseScope(value: unknown): ScopeRow {
+  const json = object(value, 'scopes');
+  const [divisionId, siteId, warehouseId] = ['division_id', 'site_id', 'warehouse_id'].map((field) => optionalText(json, field) || null);
+  if (!divisionId || (siteId && warehouseId)) throw new WorkspaceShapeError('scopes');
+  return warehouseId ? { warehouseId } : siteId ? { siteId } : { divisionId };
+}
+
 function parseSubscription(value: unknown): Workspace['subscription'] {
   if (value === 'active' || value === 'expired' || value === 'unknown') return value;
   throw new WorkspaceShapeError('subscription');
@@ -136,7 +147,7 @@ export function parseWorkspace(value: unknown): WorkspaceResult {
       displayName: text(json, 'display_name'),
       phone: optionalText(json, 'phone'),
       role: parseRole(json.role),
-      scopes: list(json, 'scopes').map((scope) => ({ divisionId: text(object(scope, 'scopes'), 'division_id') })),
+      scopes: list(json, 'scopes').map(parseScope),
       divisions: list(json, 'divisions').map((kind) => parseDivisionKind(kind)),
       canSeeCost: flag(json, 'can_see_cost'),
       canSeeAccounts: flag(json, 'can_see_accounts'),

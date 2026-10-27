@@ -20,10 +20,121 @@ export default async function (t, db) {
   await unitsParity(t, db);
   await normalizeParity(t, db);
   await unitsTable(t, db);
+  await scopeParity(t, db);
+}
+
+// ─── WP2 (0005): in_scope_site وin_scope_wh = inScope بـpermissions.ts، بأعضاء حقيقيين ونطاقات مولّدة ─────────────────
+// كل عضو نطاقه من set_member_scopes_v2 الحقيقية (وحدات ومواقع ومخازن عشوائية ببذرة ثابتة، وبعضها انبدل فانأرشف القديم)،
+// وصفوف نطاقه تنقرا من my_workspace() بـparseWorkspace الحقيقية (الشكل اللي تشوفه الشاشة)، والهدف بسلسلته الكاملة
+// (المخزن ← الموقع ← الوحدة). وضابط: in_scope_wh مكسور (ينسى صفّ الموقع) بمعاملة ترجع يطلع اختلافات.
+async function scopeParity(t, db) {
+  const p = await loadSrc('src/domain/permissions.ts');
+  const sc = await loadSrc('src/domain/scope.ts');
+  const w = await loadSrc('src/domain/workspace.ts');
+  const next = seeded(5005);
+  const id = (n) => `f5000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const owner = { id: id(1), phone: '9647709000001' };
+  await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [owner.id, owner.phone]);
+  await db.asUser(owner.id, (q) => q("select public.create_my_org('مزرعة النطاق', 'المالك')"), { commit: true });
+  const org = (await db.admin('select org_id from public.members where user_id = $1', [owner.id])).rows[0].org_id;
+  const divisions = Object.fromEntries((await db.admin('select kind, id from public.divisions where org_id = $1', [org])).rows.map((r) => [r.kind, r.id]));
+  // حقلان (لحم وبيض) فوك البذور، والبيض بمخزن حقل ومخزن بيض مائدة.
+  await db.asUser(
+    owner.id,
+    async (q) => {
+      for (const [division, name, stores] of [['broiler', 'حقل اللحم 1', [['مخزن الحقل 1', 'farm']]], ['layer', 'حقل البيض 1', [['مخزن الحقل 2', 'farm'], ['بيض المائدة 1', 'table_egg']]]]) {
+        const site = (await q("insert into public.sites (division_id, name, kind) values ($1, $2, 'farm') returning id", [divisions[division], name])).rows[0].id;
+        for (const [store, kind] of stores) await q('insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, $3, $4)', [divisions[division], site, store, kind]);
+      }
+    },
+    { commit: true },
+  );
+  const sites = (await db.admin('select id, division_id from public.sites where org_id = $1 order by id', [org])).rows;
+  const stores = (await db.admin('select id, site_id, division_id from public.warehouses where org_id = $1 order by id', [org])).rows;
+  t.ok(sites.length === 6 && stores.length === 9, `البذور والحقلان: ${sites.length} مواقع و${stores.length} مخازن`);
+  const pick = (list, max) => {
+    const out = new Set();
+    const count = next() % (max + 1);
+    for (let i = 0; i < count; i += 1) out.add(list[next() % list.length]);
+    return [...out];
+  };
+  const members = [];
+  let n = 2;
+  for (const role of p.ROLES) {
+    for (let k = 0; k < 5; k += 1) {
+      const m = { role, id: id(n), phone: `96477090000${String(n).padStart(2, '0')}` };
+      n += 1;
+      // الأوّل بلا نطاق، والثاني مواقع بس، والثالث مخازن بس، والباقي خليط؛ والرابع ينبدل نطاقه مرّة (القديم ينأرشف).
+      const plan = () => ({
+        divisions: k === 0 || k === 1 || k === 2 ? [] : pick(Object.values(divisions), 2),
+        sites: k === 0 || k === 2 ? [] : pick(sites.map((s) => s.id), 2),
+        warehouses: k === 0 || k === 1 ? [] : pick(stores.map((s) => s.id), 3),
+      });
+      m.scope = plan();
+      if (k === 1 && m.scope.sites.length === 0) m.scope.sites = [sites[k % sites.length].id];
+      if (k === 2 && m.scope.warehouses.length === 0) m.scope.warehouses = [stores[k % stores.length].id];
+      members.push(m); // المالك هم يُدعى: مالك ثانٍ يرى كل شي مهما كان نطاقه
+    }
+  }
+  for (const m of members) await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [m.id, m.phone]);
+  for (const [i, m] of members.entries()) {
+    const invite = (await db.asUser(owner.id, (q) => q('select public.add_member($1, $2, $3) as id', [m.phone, m.role, m.role]), { commit: true })).rows[0].id;
+    const set = (scope) => db.asUser(owner.id, (q) => q('select public.set_member_scopes_v2($1, $2::uuid[], $3::uuid[], $4::uuid[])', [invite, scope.divisions, scope.sites, scope.warehouses]), { commit: true });
+    if (i % 5 === 3) await set({ divisions: Object.values(divisions).slice(0, 2), sites: [sites[0].id], warehouses: [stores[0].id] });
+    await set(m.scope);
+    await db.acceptInvite(owner.id, m.id, invite);
+  }
+  t.ok((await db.admin('select count(*)::int as n from public.member_scopes where org_id = $1 and archived_at is not null', [org])).rows[0].n > 0, 'ضابط: بعض صفوف النطاق انأرشفت فعلاً بتبديل النطاق');
+  t.ok((await db.admin('select count(*)::int as n from public.member_scopes where org_id = $1 and archived_at is null and site_id is not null', [org])).rows[0].n > 5
+    && (await db.admin('select count(*)::int as n from public.member_scopes where org_id = $1 and archived_at is null and warehouse_id is not null', [org])).rows[0].n > 5, 'ضابط: صفوف نطاق بالموقع وبالمخزن موجودة');
+
+  const ask = (q) =>
+    q(
+      `select 'wh' as kind, x.id, public.in_scope_wh(x.id) as v from unnest($1::uuid[]) as x(id)
+       union all select 'site', x.id, public.in_scope_site(x.id) from unnest($2::uuid[]) as x(id)`,
+      [stores.map((s) => s.id), sites.map((s) => s.id)],
+    );
+  const expectFor = (role, scopes) => {
+    const out = new Map();
+    for (const s of stores) out.set(`wh:${s.id}`, sc.inScope(role, scopes, { warehouseId: s.id, siteId: s.site_id, divisionId: s.division_id }));
+    for (const s of sites) out.set(`site:${s.id}`, sc.inScope(role, scopes, { siteId: s.id, divisionId: s.division_id }));
+    return out;
+  };
+  const mismatch = [];
+  let cells = 0;
+  let covered = 0;
+  for (const m of members) {
+    const { workspace, rows } = await db.asUser(m.id, async (q) => ({ workspace: (await q('select public.my_workspace() as w')).rows[0].w, rows: (await ask(q)).rows }));
+    const parsed = w.parseWorkspace(workspace);
+    const expected = expectFor(m.role, parsed.workspace.scopes);
+    for (const row of rows) {
+      cells += 1;
+      if (row.v) covered += 1;
+      if (row.v !== expected.get(`${row.kind}:${row.id}`)) mismatch.push(`${m.role} ${JSON.stringify(m.scope)} × ${row.kind}:${row.id}: SQL ${row.v}`);
+    }
+    const sent = [...m.scope.divisions.map((x) => `d:${x}`), ...m.scope.sites.map((x) => `s:${x}`), ...m.scope.warehouses.map((x) => `w:${x}`)].sort();
+    const seen = parsed.workspace.scopes.map((s) => (s.divisionId ? `d:${s.divisionId}` : s.siteId ? `s:${s.siteId}` : `w:${s.warehouseId}`)).sort();
+    if (sent.join() !== seen.join()) mismatch.push(`${m.role}: my_workspace().scopes ${seen.join()} غير المرسل ${sent.join()}`);
+  }
+  t.eq(cells, members.length * (stores.length + sites.length), `خانات النطاق: ${members.length} عضو × ${stores.length + sites.length} هدف`);
+  t.ok(covered > 50 && covered < cells - 50, `ضابط: الخانات بيها داخل النطاق (${covered}) وبرّاه (${cells - covered})`);
+  t.same(mismatch.slice(0, 10), [], `in_scope_site وin_scope_wh = inScope بالشاشة بكل خانة (${mismatch.length} اختلاف)`);
+
+  // ضابط: in_scope_wh ينسى صفّ الموقع (بمعاملة ترجع، بهويّة عضو بنطاق مواقع بس) ← المقارنة نفسها تمسكه.
+  const siteOnly = members.find((m) => m.role === 'storekeeper' && m.scope.sites.length > 0 && m.scope.warehouses.length === 0 && m.scope.divisions.length === 0);
+  const broken = await db.asOwner(async (q) => {
+    const definition = (await q("select pg_get_functiondef('public.in_scope_wh(uuid)'::regprocedure) as d")).rows[0].d;
+    await q(definition.replace(' or s.site_id = w.site_id', ''));
+    const workspace = (await q('select public.my_workspace() as w')).rows[0].w;
+    const expected = expectFor('storekeeper', w.parseWorkspace(workspace).workspace.scopes);
+    return (await ask(q)).rows.filter((row) => row.v !== expected.get(`${row.kind}:${row.id}`)).length;
+  }, siteOnly.id);
+  t.ok(broken > 0, `ضابط: in_scope_wh بلا صفّ الموقع يطلع ${broken} اختلاف`);
 }
 
 async function permissionsAndPhone(t, db) {
   const p = await loadSrc('src/domain/permissions.ts');
+  const sc = await loadSrc('src/domain/scope.ts');
   const phone = await loadSrc('src/domain/phone.ts');
 
   // قائمة الأفعال نفسها بالطرفين.
@@ -123,8 +234,8 @@ async function permissionsAndPhone(t, db) {
       cost: p.canSeeCost(m.role),
       accounts: p.canSeeAccounts(m.role),
       sales: p.canSeeSales(m.role),
-      broiler: p.inScope(m.role, scopes, { divisionId: divisions.broiler }),
-      layer: p.inScope(m.role, scopes, { divisionId: divisions.layer }),
+      broiler: sc.inScope(m.role, scopes, { divisionId: divisions.broiler }),
+      layer: sc.inScope(m.role, scopes, { divisionId: divisions.layer }),
     };
     for (const [key, want] of Object.entries(expected)) if (seen.flags[key] !== want) memberMismatch.push(`${label} × ${key}: SQL ${seen.flags[key]}`);
   }

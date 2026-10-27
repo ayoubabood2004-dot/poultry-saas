@@ -1,5 +1,6 @@
-import { Minus, Monitor, Moon, Plus, Sun } from 'lucide-react';
+import { Building2, Minus, Monitor, Moon, Plus, Sun } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { InstallGuide } from '../../components/shell/InstallGuide';
 import { Button, IconButton } from '../../components/ui/Button';
@@ -68,6 +69,13 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={t('settings.title', 'الإعدادات')} subtitle={t('settings.subtitle', 'إعدادات هذا الجهاز فقط، ولا تؤثّر في بقية الأجهزة.')} />
+      <Link to="/settings/org" className="card flex items-center justify-between gap-3 p-5 hover:bg-surface-2" data-action="open-org-settings">
+        <span className="flex flex-col gap-0.5">
+          <span className="font-semibold">{t('org.title', 'إعدادات المنشأة')}</span>
+          <span className="text-sm text-ink-muted">{t('settings.org.detail', 'لكل أجهزة المنشأة: يوم تشغيل الوحدات، والمواقع والمخازن، وأحجام التعبئة، والتصنيفات.')}</span>
+        </span>
+        <Building2 aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
+      </Link>
 
       <section className="card flex flex-col gap-6 p-5">
         <h2 className="font-semibold">{t('settings.display', 'العرض')}</h2>

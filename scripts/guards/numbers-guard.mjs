@@ -185,6 +185,17 @@ const TEXT_FIELDS = new Set(['input', 'textarea']);
 // أنواع input اللي تعرض قيمتها. radio وcheckbox وrange وhidden ما تعرضها، فالرقم بقيمتها مو عرض.
 const SHOWN_INPUT_TYPES = new Set(['text', 'search', 'tel', 'url', 'email', 'number', 'password', 'submit', 'button', 'reset']);
 
+// حقول التاريخ والوقت الأصلية: المتصفّح والجهاز يرسمونها بلغة الجهاز وأرقامه، برّا format.ts وdigits.ts (قانون المالك).
+const LOCALE_INPUT_TYPES = new Set(['date', 'datetime-local', 'time', 'month', 'week']);
+
+/** نوع <input> إذا نصّ ثابت (type="date" أو type={'date'})، وإلا null. */
+function literalInputType(element) {
+  const attribute = element.attributes.properties.find((p) => ts.isJsxAttribute(p) && p.name.getText() === 'type');
+  let initializer = attribute?.initializer;
+  if (initializer && ts.isJsxExpression(initializer) && initializer.expression) initializer = unwrap(initializer.expression);
+  return initializer && (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) ? initializer.text : null;
+}
+
 /** نوع الحقل: نصّ ثابت أو تعبير نوعه اتّحاد نصوص ثابتة؛ الديناميكي العامّ (string) غير معروف. */
 function inputTypeShows(checker, element) {
   const attribute = element.attributes.properties.find((p) => ts.isJsxAttribute(p) && p.name.getText() === 'type');
@@ -346,6 +357,10 @@ export function checkProgram(program, files) {
       if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(sourceFile) === 'table' && file.path !== TABLE_HOME) {
         report(node, '<table> برّا DataTable — الحسابات بالجدول الكلاسيكي الواحد (DataTable أو LedgerTable)');
       }
+      const localeType = (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && node.tagName.getText(sourceFile) === 'input' ? literalInputType(node) : null;
+      if (localeType && LOCALE_INPUT_TYPES.has(localeType)) {
+        report(node, `<input type="${localeType}"> — الجهاز يرسم قيمته ومنتقيه بلغته وأرقامه (شرقية بجهاز عربي، وشهر/يوم بجهاز أمريكي)؛ حقل نصّ بيوم/شهر/سنة يعرضه fmtDay`);
+      }
     });
   }
   return { problems, rendered };
@@ -416,6 +431,14 @@ export function selfTest() {
     // الوسم بتعليق بس: نصّ JSX يشبه التعليق، ونصّ '…'، ما يعفيان.
     'declare const n: number; export const A = () => <b>{n} // number-ok: نصّ JSX مو تعليق</b>;',
     "declare const n: number; export const A = () => <b title={'// number-ok: x'}>{n}</b>;",
+    // حقل التاريخ والوقت الأصلي: الجهاز يرسم قيمته ومنتقيه بلغته وأرقامه («٢٧/١٠/٢٠٢٦» بجهاز عربي)، برّا format.ts وdigits.ts.
+    'declare const d: string; export const A = () => <input type="date" value={d} />;',
+    "export const A = () => <input type={'datetime-local'} />;",
+    'export const A = () => <input type="month" />;',
+    // الأنواع الخمسة كلها (اختبار الطفرات WP2: time وweek والقالب بلا متغيّرات كانت تعبر لو انشالت من القاعدة).
+    'export const A = () => <input type="time" />;',
+    'export const A = () => <input type="week" />;',
+    'export const A = () => <input type={`date`} />;',
   ];
   const good = [
     'const n: number = 5; export const A = () => <b aria-valuenow={n} data-n={n}>{fmtInt(n)}</b>;',
@@ -432,6 +455,8 @@ export function selfTest() {
     'function Money({ children }: { children: bigint }) { return <>{fmtMoney(children)}</>; } declare const amount: bigint; export const M = () => <Money>{amount}</Money>;',
     'const columns = [{ key: "q", cell: (r: number) => fmtInt(r) }]; export const A = () => <Grid columns={columns} />;',
     'declare const year: number; export const C = () => <b>{year}</b>; // number-ok: سنة النسخة بلا فواصل',
+    // نوع «date» على مكوّن مو <input> الأصلي: المكوّن يرسم حقل نصّ بيوم/شهر/سنة، فما ينحكم.
+    'declare function DayField(props: { type: string }): null; export const D = () => <DayField type="date" />;',
   ];
   const badFiles = bad.map((text, index) => ({ path: `self/bad${index}.tsx`, text }));
   const goodFiles = [...good.map((text, index) => ({ path: `self/good${index}.tsx`, text })), { path: TABLE_HOME, text: 'export const T = () => <table />;' }];

@@ -111,6 +111,42 @@ export async function verifyAll(db) {
 }
 
 /**
+ * الطريق الثاني (الخطّة WP2): بذرة يلزم ملف التراجع يرفضها بصوت (code)، والمعاملة ترجع كلّها: الكتالوج نفسه والبيانات
+ * نفسها (data: استعلام يرجّع بصمة نصّية v)، والثوابت صفر. تراجع يكمل، أو يرفض برمز ثاني، أو يمسّ شي، مشكلة.
+ */
+export async function rollbackBlockedCase({ fresh, migrations, rollbackSql, seed, code, data }) {
+  const target = migrations.at(-1);
+  const problems = [];
+  const { client, db, close } = await fresh();
+  try {
+    for (const migration of migrations) await applySql(client, migration.text, migration.name);
+    await seed(db);
+    const before = await snapshot(client);
+    const marks = (await client.query(data)).rows[0].v;
+    let refused = null;
+    try {
+      await applySql(client, rollbackSql, `تراجع ${target.name} (طريق الرفض)`);
+    } catch (error) {
+      refused = error.cause?.message ?? error.message;
+    }
+    if (refused === null) problems.push(`تراجع ${target.name} كمل وبذرته لازم ترفضه (${code})`);
+    else if (refused !== code) problems.push(`تراجع ${target.name} رفض بـ«${refused}» والمتوقّع ${code}`);
+    const drift = snapshotDiff(before, await snapshot(client));
+    if (drift.length) problems.push(`التراجع المرفوض غيّر الكتالوج (${drift.length} فرق): ${drift.slice(0, 5).join(' | ')}`);
+    const after = (await client.query(data)).rows[0].v;
+    if (after !== marks) problems.push(`التراجع المرفوض غيّر البيانات: ${marks} ← ${after}`);
+    if (marks.split('/').some((part) => part === '0')) problems.push(`بذرة طريق الرفض ما زرعت شي يرفضه التراجع (${marks})`);
+    const { bad } = await verifyAll(db);
+    if (bad.length) problems.push(`الثوابت بعد التراجع المرفوض: ${bad.join('، ')}`);
+  } catch (error) {
+    problems.push(error.message);
+  } finally {
+    await close();
+  }
+  return problems;
+}
+
+/**
  * حالة تراجع وحدة بقاعدة جديدة. migrations: الهجرات لحد الهجرة المفحوصة وياها (آخر وحدة)، و{ fresh } يرجّع عميلاً بقاعدة
  * فارغة جاهزة بالقالب ومعه makeDb، وseed(db) يزرع من الدوالّ الحقيقية. يرجّع المخالفات (فارغة = التراجع صادق).
  */

@@ -238,13 +238,15 @@ async function installCard(t) {
 async function settingsPage(t) {
   const { win } = makeWindow();
   await withGlobals({ window: win, navigator: { userAgent: UA.androidFirefox, maxTouchPoints: 5 }, localStorage: memoryStorage() }, async () => {
-    const { SettingsPage, installStore, persistStore, renderToStaticMarkup, createElement } = await loadEntry([
+    const { SettingsPage, MemoryRouter, installStore, persistStore, renderToStaticMarkup, createElement } = await loadEntry([
       "export { default as SettingsPage } from './src/pages/settings/SettingsPage.tsx';",
+      "export { MemoryRouter } from 'react-router-dom';",
       "export { installStore } from './src/lib/pwa/install.ts';",
       "export { persistStore } from './src/lib/pwa/persist.ts';",
       ...RENDER,
     ]);
-    const html = () => renderToStaticMarkup(createElement(SettingsPage));
+    // الصفحة بداخل الموجّه مثل التطبيق (المرحلة 1: رابط «إعدادات المنشأة»).
+    const html = () => renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SettingsPage)));
     const INSTALL_ADVICE = 'ثبّت التطبيق ليُحفظ';
     const ASK = 'اطلب الحفظ الدائم';
 
@@ -274,6 +276,8 @@ async function settingsPage(t) {
     const range = markup.match(/<input[^>]*id="ui-scale"[^>]*>/)?.[0] ?? '';
     t.ok(range.includes('type="range"'), 'شريط حجم الواجهة موجود');
     t.ok(!/\sdir=/.test(range), 'شريط الحجم يتبع اتجاه الصفحة: الأكبر يمّ «كبّر»');
+    const orgLink = markup.match(/<a [^>]*data-action="open-org-settings"[^>]*>/)?.[0] ?? '';
+    t.ok(orgLink.includes('href="/settings/org"'), `رابط «إعدادات المنشأة» من إعدادات الجهاز (${orgLink})`);
   });
 }
 

@@ -48,6 +48,8 @@ export default async function (t) {
   t.eq(f.fmtQtyCell(1_500n, 1), '1.5', 'مرتبة وحدة');
   t.eq(f.fmtQtyCell(2_000n, 0), '2', 'بلا مراتب');
   t.throws(() => f.fmtQtyCell(1n, 2), 'كسر أطول من العمود يرمي', /hidden_fraction/);
+  // columnDecimals بالقيم السالبة (WP2): الكسر من القيمة المطلقة، مو من نصّ بيه «-».
+  t.same([f.columnDecimals([-500_000n], 6), f.columnDecimals([-1_250n, 25_000_000n], 6), f.columnDecimals([-3n, 40n], 0)], [1, 5, 0], 'columnDecimals بالسالب: −0.5 مرتبة، و−0.00125 خمس، والصحيح بلا مراتب');
 
   // لوحة الوزن: فواصل على الجزء الصحيح، والكتابة الناقصة («12.») كما هي.
   t.same(['', '12450', '1234567.125', '12.', '0.5'].map(f.fmtTypedNumber), ['0', '12,450', '1,234,567.125', '12.', '0.5'], 'fmtTypedNumber');

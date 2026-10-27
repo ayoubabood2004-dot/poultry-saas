@@ -22,6 +22,10 @@ const TABLE = [
   { actions: ['members.manage'], roles: ['owner'] },
   // كلمة المالك 2026-10-25: «فتح فترة مقفلة: المالك بس».
   { actions: ['period.unlock'], roles: ['owner'] },
+  // أجوبة المالك على أسئلة المرحلة 1 (Q1، 2026-10-26): البيانات الأساسية.
+  { actions: ['stores.manage'], roles: ['manager', 'owner'] },
+  { actions: ['parties.manage', 'cash_accounts.manage', 'expense_categories.manage'], roles: ['accountant', 'manager', 'owner'] },
+  { actions: ['party.create'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 
@@ -40,6 +44,7 @@ function mismatches(can, table) {
 
 export default async function (t) {
   const p = await loadSrc('src/domain/permissions.ts');
+  const sc = await loadSrc('src/domain/scope.ts');
 
   const found = mismatches(p.can, TABLE);
   t.same(found, [], 'كل خانات الجدول');
@@ -65,11 +70,11 @@ export default async function (t) {
 
   // النطاق: عامل قاعة نطاقه قاعة 1 يحفظ جولة قاعة 3 ← رفض.
   const hall1 = [{ hallId: 'hall-1' }];
-  t.ok(p.inScope('hall_worker', hall1, { hallId: 'hall-1', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة نطاقه');
-  t.ok(!p.inScope('hall_worker', hall1, { hallId: 'hall-3', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة 3 برّا نطاقه');
-  t.ok(!p.inScope('storekeeper', [], { warehouseId: 'w1' }), 'بلا صفوف نطاق: أمين المخزن ما يشوف شي');
-  t.ok(p.inScope('accountant', [], { warehouseId: 'w1' }), 'بلا صفوف: المحاسب كل المنشأة');
-  t.ok(p.inScope('owner', hall1, { hallId: 'hall-9' }), 'المالك كل شي');
-  t.ok(p.inScope('manager', [{ divisionId: 'hatchery' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق بالوحدة يغطّي مخازنها');
-  t.ok(!p.inScope('manager', [{ siteId: 's1' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق موقع ما يغطّي موقعاً ثانياً');
+  t.ok(sc.inScope('hall_worker', hall1, { hallId: 'hall-1', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة نطاقه');
+  t.ok(!sc.inScope('hall_worker', hall1, { hallId: 'hall-3', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة 3 برّا نطاقه');
+  t.ok(!sc.inScope('storekeeper', [], { warehouseId: 'w1' }), 'بلا صفوف نطاق: أمين المخزن ما يشوف شي');
+  t.ok(sc.inScope('accountant', [], { warehouseId: 'w1' }), 'بلا صفوف: المحاسب كل المنشأة');
+  t.ok(sc.inScope('owner', hall1, { hallId: 'hall-9' }), 'المالك كل شي');
+  t.ok(sc.inScope('manager', [{ divisionId: 'hatchery' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق بالوحدة يغطّي مخازنها');
+  t.ok(!sc.inScope('manager', [{ siteId: 's1' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق موقع ما يغطّي موقعاً ثانياً');
 }

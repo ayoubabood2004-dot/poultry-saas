@@ -15,8 +15,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHarness } from '../../scripts/tests/harness.mjs';
 import { coverageGaps, makeDb, ROLES } from './db.mjs';
-import { applySql, declaredRollback, heavyChanges, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
-import { seedThroughRpcs } from './seed.mjs';
+import { applySql, declaredRollback, heavyChanges, rollbackBlockedCase, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
+import { BLOCKING_SEEDS, seedThroughRpcs } from './seed.mjs';
 import { DIGEST_SQL, elementsSql, snapshot, snapshotDiff } from './snapshot.mjs';
 
 export { makeDb } from './db.mjs';
@@ -270,6 +270,8 @@ async function main() {
       };
       const rollbackProblems = [];
       let ran = 0;
+      let blockedRan = 0;
+      let blockedRefused = 0;
       for (const [index, migration] of migrations.entries()) {
         const declared = declaredRollback(migration.name, migration.text);
         const changes = heavy.get(migration.name) ?? [];
@@ -282,9 +284,53 @@ async function main() {
           continue;
         }
         ran += 1;
-        const problems = await rollbackCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql: readFileSync(file, 'utf8'), seed: seedThroughRpcs });
+        const rollbackSql = readFileSync(file, 'utf8');
+        const problems = await rollbackCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql, seed: seedThroughRpcs });
         rollbackProblems.push(...problems.map((problem) => `${declared.file}: ${problem}`));
+        // الطريق الثاني (WP2): كل بذرة يلزم التراجع يرفضها بصوت وما يغيّر شي، وضابطاها: نفس الملف بلا كتلة الرفض يكمل، ونفس
+        // الملف بلا فرع الحالة من شرط الرفض (mutate) يكمل هو هم، فكل فرع من الشرط إله حالة تحتاجه (طفرة فرع ما تعبر بصمت).
+        for (const blocking of [].concat(BLOCKING_SEEDS[declared.number] ?? [])) {
+          blockedRan += 1;
+          const label = `${declared.file} (طريق الرفض: ${blocking.name})`;
+          const blockedCase = (sql) => rollbackBlockedCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql: sql, ...blocking });
+          // الحالة الحقيقية بدليل إيجابي: الرفض الصادق ينعدّ، وبالآخر العدد = عدد الحالات (حالة ما انفحصت ما تعبر بصمت).
+          const real = await blockedCase(rollbackSql);
+          if (real.length) rollbackProblems.push(...real.map((problem) => `${label}: ${problem}`));
+          else blockedRefused += 1;
+          const unguarded = rollbackSql.replace(/\ndo \$\$[\s\S]*?\n\$\$;\n/u, '\n');
+          const control = unguarded === rollbackSql ? ['ما لكيت كتلة الرفض'] : await blockedCase(unguarded);
+          if (!control.some((problem) => problem.includes('كمل'))) rollbackProblems.push(`${label}: ضابط طريق الرفض ما فشل بلا كتلة الرفض (${control.join(' | ')})`);
+          const mutated = blocking.mutate ? blocking.mutate(rollbackSql) : rollbackSql;
+          const branch = mutated === rollbackSql ? ['ما لكيت فرع الحالة بشرط الرفض'] : await blockedCase(mutated);
+          if (!branch.some((problem) => problem.includes('كمل'))) rollbackProblems.push(`${label}: ضابط فرع الشرط ما فشل بلا فرعه (${branch.join(' | ')})`);
+        }
+        // ضوابط فحوص طريق الرفض نفسها (اختبار الطفرات WP2)، مرّة لكل ملف تراجع بحالات رفض: تراجع يرفض برمز ثاني، ويثبّت قبل
+        // رفضه جدولاً ومادّة (commit بنصّ الملف)، وبذرته تكسر ثابتاً؛ وبذرة ما زرعت شي. كل فحص يمسك كسره باسمه.
+        const sample = [].concat(BLOCKING_SEEDS[declared.number] ?? [])[0];
+        if (sample) {
+          const probeCase = (over) => rollbackBlockedCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql, ...sample, ...over });
+          const leaky = "create table public.probe_blocked_drift (id int);\ninsert into public.items (org_id, name, kind, base_unit) select id, 'ضابط طريق الرفض', 'raw', 'kg' from public.orgs;\ncommit;\n";
+          const broken = await probeCase({
+            code: 'probe_code',
+            rollbackSql: leaky + rollbackSql,
+            seed: async (seedDb) => {
+              await sample.seed(seedDb);
+              await seedDb.admin("update public.divisions set archived_at = now() where kind = 'medicine'");
+            },
+          });
+          const empty = await probeCase({ data: "select '0/1' as v" });
+          const blind = [
+            [broken, 'والمتوقّع probe_code'],
+            [broken, 'غيّر الكتالوج'],
+            [broken, 'غيّر البيانات'],
+            [broken, 'الثوابت بعد التراجع المرفوض'],
+            [empty, 'ما زرعت شي'],
+          ].filter(([problems, text]) => !problems.some((problem) => problem.includes(text)));
+          if (blind.length) rollbackProblems.push(`${declared.file}: ضوابط طريق الرفض ما مسكت ${blind.map(([, text]) => `«${text}»`).join('، ')} (${[...broken, ...empty].join(' | ')})`);
+        }
       }
+      if (migrations.some((m) => Number(m.name.slice(0, 4)) === 5) && blockedRan < 2) rollbackProblems.push(`0005 بطريق رفض ناقص (${blockedRan} من 2: نطاق بموقع ونطاق بمخزن، كل وحدة توقف التراجع)`);
+      if (blockedRefused !== blockedRan) rollbackProblems.push(`طريق الرفض: ${blockedRefused} من ${blockedRan} حالة رفضها التراجع بصدق`);
       // ضابط من الهجرات الحقيقية: 0002 بدّلت أجسام تسع دوالّ بالإنتاج، فالكشف لازم يسمّيها ثقيلة (القديمة معفيّة من الملف بس).
       const legacyHeavy = migrations.filter((m) => declaredRollback(m.name, m.text).kind === 'legacy' && (heavy.get(m.name) ?? []).length).map((m) => m.name.slice(0, 4));
       if (migrations.some((m) => m.name.startsWith('0002_')) && !legacyHeavy.includes('0002')) rollbackProblems.push('الكشف ما سمّى 0002 ثقيلة وهي بدّلت أجسام دوالّ قديمة');
@@ -356,7 +402,7 @@ async function main() {
       if (rollbackProblems.length) fail(`مشغّل التراجع: ${rollbackProblems.length} مشكلة`, rollbackProblems);
       else {
         const heavyCount = migrations.filter((m) => declaredRollback(m.name, m.text).kind !== 'legacy' && (heavy.get(m.name) ?? []).length).length;
-        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت`);
+        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع وطريق الرفض بـ${blockedRan} حالة رفضها التراجع كلّها بصدق، وضوابطه مسكت الرمز الثاني والكتالوج والبيانات والبذرة الفارغة والثوابت (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت`);
       }
 
       // ── سجلّ التغطية: كل دالّة بقائمة السماح نادتها الأدوار الثمانية كلها بدور authenticated ───────────────────

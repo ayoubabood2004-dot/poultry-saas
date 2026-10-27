@@ -4,6 +4,7 @@
   "authenticated": [
     "public.accept_invite_code(uuid, text)",
     "public.add_member(text, text, text, uuid[])",
+    "public.add_member_v2(text, text, text, uuid[], uuid[], uuid[])",
     "public.app_today()",
     "public.archive_member(uuid)",
     "public.auth_org()",
@@ -14,15 +15,21 @@
     "public.create_my_org(text, text)",
     "public.decline_and_block(uuid)",
     "public.decline_invite(uuid)",
+    "public.find_item_twins(text, text[])",
     "public.in_scope_division(uuid)",
+    "public.in_scope_site(uuid)",
+    "public.in_scope_wh(uuid)",
     "public.invite_code(uuid)",
     "public.leave_my_org()",
     "public.my_workspace()",
+    "public.set_division_go_live(uuid, date)",
     "public.set_member_role(uuid, text)",
     "public.set_member_scopes(uuid, uuid[])",
+    "public.set_member_scopes_v2(uuid, uuid[], uuid[], uuid[])",
     "public.set_period_lock(date)"
   ],
   "service_role_only": [
-    "public.verify_core()"
+    "public.verify_core()",
+    "public.verify_stores()"
   ]
 }

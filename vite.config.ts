@@ -18,6 +18,14 @@ export default defineConfig({
   build: {
     // pwa-guard وbundle-guard يقرون dist/.vite/manifest.json حتى يعرفون حزمة الإقلاع وتوابعها.
     manifest: true,
+    rollupOptions: {
+      output: {
+        // الحزمة المشتركة لشاشتي البيانات الأساسية (المرحلة 1 WP2، بيها repo/inventory.ts) باسم ثابت، حتى استثناؤها من التثبيت
+        // المسبق يبقى بالاسم. الاسم بس يتغيّر؛ تقسيم الحزم كما يقرّره Rollup (manualChunks كان يسحب وحدات الإقلاع ويّاها).
+        chunkFileNames: (chunk) =>
+          chunk.moduleIds.some((id) => /\/src\/lib\/repo\/inventory\.ts$/.test(id.replace(/\\/g, '/'))) && !chunk.isDynamicEntry ? 'assets/stores-admin-[hash].js' : 'assets/[name]-[hash].js',
+      },
+    },
   },
   plugins: [
     react(),
@@ -52,8 +60,12 @@ export default defineConfig({
       workbox: {
         // الجولة لازم تنفتح بلا نت: كل حزم JS وCSS (الكسولة ويّاها) والخط. المجموع بسقف مقيس (pwa-guard).
         globPatterns: ['**/*.{js,wasm,css,html,woff2}'],
-        // المكتبات الثقيلة تنستثنى هنا بالاسم، وما يكون منها شي تحتاجه الجولة.
-        globIgnores: [],
+        // المكتبات الثقيلة تنستثنى هنا بالاسم، وما يكون منها شي تحتاجه الجولة. ونفس القائمة بـpwa-guard (NOT_PRECACHED).
+        // المرحلة 1 WP2: شاشتا البيانات الأساسية (المواد، وإعدادات المنشأة) وحزمتهما: ما تشتغل بلا نت أصلاً (تقرا وتكتب
+        // بالخادم بس)، وبالتثبيت المسبق كانت تعبر سقفه المقيس (817,500) بحدود 50 كيلوبايت. الاستثناء سؤال مفتوح للمالك (A4)،
+        // مكتوب بـDECISIONS «السقوف المقيسة» 2026-10-27 (مو موافقة)؛ وpwa-guard يطلب سطره هناك، ويمنع حزمة محفوظة تستورد وحدة
+        // منها، وحزمة مستثناة يحفظها sw.js (القائمتان افترقتا).
+        globIgnores: ['**/ItemsPage-*.js', '**/OrgSettingsPage-*.js', '**/stores-admin-*.js'],
         // صريحاً: vite-plugin-pwa يفعّله بس ويّا autoUpdate، وبلاه الصفحة اللي ثبّتت الخدمة العاملة ما تنمسك.
         clientsClaim: true,
         skipWaiting: false,

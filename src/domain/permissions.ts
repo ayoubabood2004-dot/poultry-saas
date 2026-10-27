@@ -63,13 +63,20 @@ export const ACTIONS = [
   'members.manage',
   // فتح فترة مقفلة (إرجاع القفل للخلف): كلمة المالك 2026-10-25.
   'period.unlock',
+  // البيانات الأساسية (أجوبة المالك على أسئلة المرحلة 1، Q1، 2026-10-26): المخازن والمواقع والمواد ووحدات التعبئة والتصنيفات
+  // للمدير؛ الجهات والصناديق وفئات المصاريف للمحاسب والمدير؛ والأمين «يضيف» مورّداً من مسوّدة الاستلام بس.
+  'stores.manage',
+  'parties.manage',
+  'party.create',
+  'cash_accounts.manage',
+  'expense_categories.manage',
   // الكل
   'read',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
 
-const STOREKEEPER: readonly Action[] = ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post'];
+const STOREKEEPER: readonly Action[] = ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post', 'party.create'];
 const MILL_OPERATOR: readonly Action[] = ['production.draft', 'production.post'];
 const HATCHERY_OPERATOR: readonly Action[] = ['hatch.operate'];
 const HALL_WORKER: readonly Action[] = ['flock_day.save', 'weigh_ticket.draft'];
@@ -82,6 +89,10 @@ const ACCOUNTANT: readonly Action[] = [
   'sale_return.post',
   'expense.post',
   'accounts.view',
+  'parties.manage',
+  'party.create',
+  'cash_accounts.manage',
+  'expense_categories.manage',
 ];
 const MANAGER_ONLY: readonly Action[] = [
   'recipe.activate',
@@ -96,6 +107,7 @@ const MANAGER_ONLY: readonly Action[] = [
   'party.adjust',
   'opening.post',
   'period.lock',
+  'stores.manage',
 ];
 
 // المدير يقدر كل أفعال الأدوار التشغيلية بكل النطاق، والمحاسب ما يقدرها. party.offset وmembers.manage وperiod.unlock برّا كل منحة: المالك بس.
@@ -168,16 +180,4 @@ export interface ScopeTarget {
   hallId?: string;
 }
 
-function rowCovers(row: ScopeRow, target: ScopeTarget): boolean {
-  if (row.hallId) return row.hallId === target.hallId;
-  if (row.warehouseId) return row.warehouseId === target.warehouseId;
-  if (row.siteId) return row.siteId === target.siteId;
-  if (row.divisionId) return row.divisionId === target.divisionId;
-  return false;
-}
-
-export function inScope(role: Role, scopes: readonly ScopeRow[], target: ScopeTarget): boolean {
-  if (role === 'owner') return true;
-  if (scopes.length === 0) return role === 'manager' || role === 'accountant';
-  return scopes.some((row) => rowCovers(row, target));
-}
+// inScope (الشي بنطاق العضو) بـscope.ts: الشاشات الكسولة تحتاجه بس، فما يدخل حزمة الإقلاع ومسار الجلسة الحرج.

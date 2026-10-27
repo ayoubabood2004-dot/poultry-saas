@@ -1,7 +1,7 @@
 // فحوص الكتالوج (FOUNDATION «الحرّاس والفحوص»: db-guard وgrants-check وwrite-lock-check، وكل قاعدة نصّية وراها فحص
 // بالكتالوج ٨٣٧). تقرأ اللي انشأ فعلاً بعد الهجرات مرّتين، مو نصّ الهجرات. كل قاعدة تشتغل على قائمة غير فارغة
 // («فحص على صفر قيم ليس نجاحاً»)، والاستثناءات بأسمائها هنا بسببها.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,12 +44,15 @@ export async function grantedPrivileges(q, roles) {
 
 const ORG_PREDICATE = /\borg_id = \( ?select auth_org\(\) as auth_org\)|\( ?select auth_org\(\) as auth_org\) = org_id\b/u;
 
-/** تعبير السياسة كما يطبعه بوستغريس، بحروف صغيرة وبلا اقتباس ولا اسم الجدول قبل أعمدته وبفراغ واحد. */
+/**
+ * تعبير السياسة كما يطبعه بوستغريس، بحروف صغيرة وبلا اقتباس ولا اسم الجدول قبل أعمدته وبفراغ واحد. اسم الجدول بعد «'» جزء من
+ * نصّ مو بادئة عمود: فعل expense_categories.manage بجدول expense_categories كان ينقلب can('manage') (0005).
+ */
 function normalisePolicy(expression, table) {
   return String(expression ?? '')
     .toLowerCase()
     .replaceAll('"', '')
-    .replace(new RegExp(`\\b(?:public\\.)?${table}\\.`, 'gu'), '')
+    .replace(new RegExp(`(?<!')\\b(?:public\\.)?${table}\\.`, 'gu'), '')
     .replace(/\s+/gu, ' ');
 }
 
@@ -70,7 +73,9 @@ function policyPredicateProblems(policy, entry) {
     if (!ORG_PREDICATE.test(expression)) missing.push('org_id = (select auth_org())');
     if (!expression.includes(`can('${entry.action}'`)) missing.push(`(select can('${entry.action}'))`);
     if (entry.draft && !/\bstatus = 'draft'/u.test(expression)) missing.push("status = 'draft'");
-    if (entry.scope && !expression.includes(entry.scope.toLowerCase())) missing.push(entry.scope);
+    // النطاق: دالّة واحدة للأمرين، أو لكل أمر دالّته ({ insert, update }: المواقع والمخازن، 0005).
+    const scope = typeof entry.scope === 'string' ? entry.scope : entry.scope?.[policy.cmd.toLowerCase()];
+    if (scope && !expression.includes(scope.toLowerCase())) missing.push(scope);
     if (/\bor\b/u.test(expression.replace(/'(?:[^']|'')*'/gu, "''"))) problems.push(`سياسة ${policy.policyname} (${policy.cmd}): ${label} بيها OR — شروط الكتابة كلها تنطبق سوا`);
     else if (missing.length) problems.push(`سياسة ${policy.policyname} (${policy.cmd}): ${label} بلا ${missing.join(' و')}`);
   }
@@ -221,7 +226,8 @@ export default async function (t, db) {
   // سياسة الكتابة نفسها (§2.5): المنشأة وcan() بكل بند يحكم الأمر (USING للتعديل، وWITH CHECK للإدخال والتعديل)، بلا OR؛
   // والمسوّدة والنطاق إذا الملف يسمّيهم. directWrite مصنوع لـdivisions بالضابط بس.
   const GOOD = "org_id = (select auth_org()) and (select can('stores.manage'))";
-  const asDirect = (entry) => ({ ...CLASSES, directWrite: { divisions: { privileges: ['update'], action: 'stores.manage', ...entry } } });
+  // directWrite المصنوع يضاف للحقيقي (من 0005 بيه جداول البيانات الأساسية)، مو يحلّ محلّه.
+  const asDirect = (entry) => ({ ...CLASSES, directWrite: { ...CLASSES.directWrite, divisions: { privileges: ['update'], action: 'stores.manage', ...entry } } });
   const updatePolicy = (using, check) => `create policy probe_update on public.divisions for update to authenticated using (${using})${check === null ? '' : ` with check (${check})`}`;
   for (const [label, statements, entry, expected] of [
     ['سليمة', ['grant update on public.divisions to authenticated', updatePolicy(GOOD, GOOD)], {}, 0],
@@ -244,16 +250,15 @@ export default async function (t, db) {
     t.eq(found.length, expected, `ضابط سياسة الكتابة: ${label} ← ${expected} (${found.join(' | ')})`);
   }
   // جدول directWrite مو موجود: ما ممنوح، وبلا سياسة، وماكو جدول بهالاسم (ثلاث مخالفات، كل وحدة باسمها).
-  const ghost = await probeWrites([], { ...CLASSES, directWrite: { probe_ghost: { privileges: ['insert'], action: 'stores.manage' } } });
+  const ghost = await probeWrites([], { ...CLASSES, directWrite: { ...CLASSES.directWrite, probe_ghost: { privileges: ['insert'], action: 'stores.manage' } } });
   t.eq(ghost.length, 3, `ضابط: directWrite لجدول مو موجود (${ghost.join(' | ')})`);
   // رأس مسوّدة (draft) بعمود مخزن (scope): status = 'draft' ودالّة النطاق على عمود الصفّ نفسه، كل نقص مرّة وحدة.
   const draftTable = [
     "create table public.probe_docs (id uuid primary key default gen_random_uuid(), org_id uuid not null default public.auth_org(), status text not null default 'draft', warehouse_id uuid)",
     'alter table public.probe_docs enable row level security',
-    'create function public.in_scope_wh(p_wh uuid) returns boolean language sql stable as $$ select p_wh is not null $$',
     'grant insert on public.probe_docs to authenticated',
   ];
-  const draftEntry = { ...CLASSES, directWrite: { probe_docs: { privileges: ['insert'], action: 'transfer.post', draft: true, scope: 'in_scope_wh(warehouse_id)' } } };
+  const draftEntry = { ...CLASSES, directWrite: { ...CLASSES.directWrite, probe_docs: { privileges: ['insert'], action: 'transfer.post', draft: true, scope: 'in_scope_wh(warehouse_id)' } } };
   const draftPolicy = (parts) => `create policy probe_docs_insert on public.probe_docs for insert to authenticated with check (${parts.join(' and ')})`;
   const all = ['org_id = (select auth_org())', "status = 'draft'", '(select public.in_scope_wh(warehouse_id))', "(select can('transfer.post'))"];
   for (const [label, parts, expected] of [
@@ -264,6 +269,16 @@ export default async function (t, db) {
     const found = await probeWrites([...draftTable, draftPolicy(parts)], draftEntry);
     t.eq(found.length, expected, `ضابط رأس المسوّدة: ${label} ← ${expected} (${found.join(' | ')})`);
   }
+
+  // 0005: اسم الجدول داخل نصّ الفعل (expense_categories.manage) يبقى، وبادئة العمود (expense_categories.org_id) تنشال.
+  const literalAction = "((expense_categories.org_id = ( SELECT auth_org() AS auth_org)) AND ( SELECT can('expense_categories.manage'::text, false) AS can))";
+  t.same(policyPredicateProblems({ tablename: 'expense_categories', policyname: 'p', cmd: 'INSERT', with_check: literalAction }, { action: 'expense_categories.manage' }), [], 'ضابط: اسم الجدول بنصّ الفعل يبقى وبادئة العمود تنشال');
+  t.eq(policyPredicateProblems({ tablename: 'expense_categories', policyname: 'p', cmd: 'INSERT', with_check: literalAction.replace("'expense_categories.manage'", "'stores.manage'") }, { action: 'expense_categories.manage' }).length, 1, 'ضابط: فعل ثاني بنفس الشكل ينمسك');
+  // النطاق لكل أمر (المواقع: الإدخال بوحدة الصفّ، والتعديل بالموقع نفسه): دالّة الإدخال بسياسة التعديل ما تكفي، بكل بند.
+  const siteScope = { action: 'stores.manage', scope: { insert: 'in_scope_division(division_id)', update: 'in_scope_site(id)' } };
+  const siteInsert = "((sites.org_id = ( SELECT auth_org() AS auth_org)) AND ( SELECT can('stores.manage'::text, false) AS can) AND ( SELECT in_scope_division(sites.division_id) AS in_scope_division))";
+  t.same(policyPredicateProblems({ tablename: 'sites', policyname: 'p', cmd: 'INSERT', with_check: siteInsert }, siteScope), [], 'ضابط: سياسة إدخال بدالّة نطاق الإدخال تعبر');
+  t.eq(policyPredicateProblems({ tablename: 'sites', policyname: 'p', cmd: 'UPDATE', qual: siteInsert, with_check: siteInsert }, siteScope).length, 2, 'ضابط: سياسة تعديل بدالّة الإدخال تنمسك بـUSING وWITH CHECK');
 
   // ماكو سياسة تقرأ جدولها (FOUNDATION ٨٠٠)، ويّا ضابط بسياسة تقرأ جدولها.
   t.same(selfReferencing(policies), [], `ماكو سياسة تقرأ جدولها (${policies.length} سياسة)`);
@@ -488,4 +503,24 @@ export default async function (t, db) {
 
   const views = (await q("select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('v', 'm') and not coalesce(c.reloptions @> array['security_invoker=true'], false)")).rows;
   t.same(views, [], 'ماكو view يتجاوز RLS');
+
+  // كل نداء call('دالّة', { p_… }) بـsrc/lib/repo يسمّي دالّة موجودة ومعاملات بتوقيعها: PostgREST يطابق الدالّة بأسماء
+  // معاملاتها، فاسم غلط (p_site بدل p_sites) يطلع «ما لكيت الدالّة» بالإنتاج بس، وفحوص الشاشات بدائل ما تشوفه (اختبار الطفرات
+  // WP2). ويّا ضابط: معامل بغير اسمه ينمسك.
+  const repoDir = path.join(DIR, '..', '..', 'src', 'lib', 'repo');
+  const repoCalls = readdirSync(repoDir)
+    .filter((name) => name.endsWith('.ts'))
+    .flatMap((name) =>
+      [...readFileSync(path.join(repoDir, name), 'utf8').matchAll(/\bcall(?:<[^>]*>)?\(\s*'([a-z0-9_]+)'\s*(?:,\s*\{([^}]*)\})?/gu)].map((match) => ({
+        file: name,
+        fn: match[1],
+        keys: [...(match[2] ?? '').matchAll(/\b(p_[a-z0-9_]+)\s*:/gu)].map((key) => key[1]),
+      })),
+    );
+  const signatures = new Map((await q("select p.proname, coalesce(p.proargnames, '{}') as args from pg_proc p where p.pronamespace = 'public'::regnamespace")).rows.map((r) => [r.proname, r.args]));
+  const paramProblems = (calls) =>
+    calls.flatMap((c) => (signatures.has(c.fn) ? c.keys.filter((key) => !signatures.get(c.fn).includes(key)).map((key) => `${c.file}: ${c.fn}(${key})`) : [`${c.file}: ${c.fn} مو دالّة بالقاعدة`]));
+  t.ok(repoCalls.some((c) => c.fn === 'add_member_v2' && c.keys.length === 6) && repoCalls.length >= 10, `نداءات repo انقرت (${repoCalls.length})`);
+  t.same(paramProblems(repoCalls), [], `كل نداء بـrepo لدالّة موجودة ومعاملاته بتوقيعها (${repoCalls.length} نداء)`);
+  t.same(paramProblems([{ file: 'probe.ts', fn: 'add_member_v2', keys: ['p_site'] }, { file: 'probe.ts', fn: 'no_such_fn', keys: [] }]), ['probe.ts: add_member_v2(p_site)', 'probe.ts: no_such_fn مو دالّة بالقاعدة'], 'ضابط: معامل بغير اسمه ودالّة مو موجودة ينمسكان');
 }

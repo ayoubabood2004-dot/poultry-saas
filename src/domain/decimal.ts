@@ -28,6 +28,17 @@ export function parseDecimal(input: string, maxScale: number): Decimal | null {
   return { units: minus ? -magnitude : magnitude, scale: frac.length };
 }
 
+/**
+ * النصّ العشري للشبكة (E3: المال والكمية نصوص عشرية بالاتجاهين): (−2n، 2) ← «-0.02»، (25n، 0) ← «25». بلا فواصل آلاف
+ * (هذا مو عرض؛ العرض من format.ts).
+ */
+export function decimalText(units: bigint, scale: number): string {
+  const negative = units < 0n;
+  const digits = (negative ? -units : units).toString().padStart(scale + 1, '0');
+  const text = scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
+  return negative ? `-${text}` : text;
+}
+
 /** يحوّل لعدد مراتب ثابت بالضبط، ويرمي إذا التحويل يضيّع رقماً. */
 export function toScale(value: Decimal, scale: number): bigint {
   if (value.scale === scale) return value.units;

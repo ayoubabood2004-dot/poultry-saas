@@ -23,6 +23,14 @@ export const CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   units_factor_check: () => t('constraint.units_factor_check', 'معامل الوحدة يجب أن يكون أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
 };
 
+// قواميس الوحدات (المخازن والمواد، والجهات بعدين): كل ملف repo لوحدة يسجّل قاموس جداوله لمّا ينحمّل ويّا شاشته، فالجمل
+// برّا مسار الجلسة الحرج (سقفه المقيس، DECISIONS «السقوف»). القيد ما ينخرق إلا من شاشة حمّلت ملفّها.
+const registered = new Map<string, () => string>();
+
+export function registerConstraintHints(hints: Readonly<Record<string, () => string>>): void {
+  for (const [name, hint] of Object.entries(hints)) registered.set(name, hint);
+}
+
 /** اسم القيد من رسالة بوستغريس: «new row for relation "x" violates check constraint "x_check"». */
 export function violatedConstraint(message: string | undefined): string | null {
   return /check constraint "([^"]+)"/.exec(message ?? '')?.[1] ?? null;
@@ -30,7 +38,7 @@ export function violatedConstraint(message: string | undefined): string | null {
 
 /** جملة القيد باسمه، أو جملة عامة تسمّيه إذا القيد مو بالقائمة (الحزمة تمنع هالحالة، والشاشة ما تسكت بيها). */
 export function constraintHint(name: string | null): string {
-  const hint = name ? CONSTRAINT_HINTS[name] : undefined;
+  const hint = name ? (CONSTRAINT_HINTS[name] ?? registered.get(name)) : undefined;
   if (hint) return hint();
   return t('constraint.unknown', 'رفضت قاعدة البيانات قيمةً لا تحقّق القيد «{name}»، فلم يُحفظ شيء.', { name: name ?? '?' });
 }

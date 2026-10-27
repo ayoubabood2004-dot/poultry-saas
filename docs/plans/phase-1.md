@@ -382,7 +382,7 @@ Order: WP0 → WP1 → WP2 → WP3 → WP4 → WP5 → WP6 → WP7 → WP8. WP3 
 - Farm sites and stores are created by the user (halls come in Phase 3).
 
 **Functions:**
-- `public.in_scope_site(p_site uuid) returns boolean` and `public.in_scope_wh(p_warehouse uuid) returns boolean`. Definer identity functions, allowlisted. They mirror `inScope()` (permissions.ts:179-183):
+- `public.in_scope_site(p_site uuid) returns boolean` and `public.in_scope_wh(p_warehouse uuid) returns boolean`. Definer identity functions, allowlisted. They mirror `inScope()` (src/domain/scope.ts since the WP2 fix round, out of the boot bundle; formerly permissions.ts:179-183):
   - the owner always passes;
   - with no scope rows, managers and accountants see everything and other roles see nothing;
   - a division row covers its sites and warehouses, a site row covers its warehouses, and a warehouse row covers itself.
@@ -438,6 +438,14 @@ Order: WP0 → WP1 → WP2 → WP3 → WP4 → WP5 → WP6 → WP7 → WP8. WP3 
 **Unit tests:** `permissions.test` (new actions), `workspace.test` (scope keys), screen renders (items form, settings, staff scope picker).
 
 **Proves:** the prerequisites for division-check, role-matrix and cost-leak tests; the store matrix needed by D1 and D3.
+
+**Deviations recorded in the WP2 fix round (2026-10-27); each changes on the owner's word:**
+- Site and warehouse writes are scoped (FOUNDATION:544): the insert policies add `in_scope_division(division_id)` (sites) and `in_scope_site(site_id)` (warehouses), and the update policies `in_scope_site(id)` and `in_scope_wh(id)`. `classes.json` names a per-command `scope`. `set_division_go_live` raises `out_of_scope` outside the caller's divisions. Items, pack types and categories stay org-wide.
+- `add_member_v2(p_phone, p_role, p_display_name, p_divisions, p_sites, p_warehouses)` invites and scopes in one call (owner only). The Staff page no longer calls `add_member`, so a failed second call can no longer leave a manager or accountant with no scope rows, which means the whole org.
+- `items.scale_step` has no column default: the trigger sets 1 for `pc` and 0.1 otherwise, because 0.1 broke `items_pieces_whole_check` for every counted item. `items_name_norm_check (name_norm <> '')` rejects names made only of tatweel or tashkeel.
+- `base_unit` cannot change while the item has any `item_units` row, archived ones included (they cannot be deleted, E52), so `verify_stores` and the trigger count the same rows and a restored unit cannot change meaning. `item_units_check` locks the item row `for share`, and `warehouses_check` locks the site row `for share`, so concurrent writes serialise.
+- `my_workspace().scopes[].division_id` is always the target's division (non-null), with `site_id`/`warehouse_id` added. Clients deployed before 0005 read `division_id` as non-empty text.
+- The 0005 backfill seeds every org, including orgs with no live owner, with no actor (`created_by` and the audit actor are null), reading the org from the `poultry.seed_org` setting the migration sets.
 
 ### WP3: `0006_parties_ledger_cash.sql` (parties, party ledger, allocation, payments, cash boxes, accounts page)
 

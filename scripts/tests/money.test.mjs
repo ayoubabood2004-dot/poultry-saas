@@ -63,6 +63,17 @@ export default async function (t) {
   t.eq(m.parseMoney('6,120'), 612_000n, 'مجموعة آلاف وحدة');
   t.eq(m.parseMoney(' 12.5 '), 1_250n, 'فراغ بالطرفين ينشال');
   t.eq(m.parseMoney('-1,234,567.25'), -123_456_725n, 'سالب بمجموعات');
+
+  // decimalText (E3، WP2): النصّ العشري للشبكة بالإشارة والمراتب، وبلا مراتب عدد صحيح، وبلا فواصل آلاف.
+  const d = await loadSrc('src/domain/decimal.ts');
+  t.same(
+    [d.decimalText(-2n, 2), d.decimalText(25n, 0), d.decimalText(-7n, 0), d.decimalText(5n, 3), d.decimalText(1_234_567n, 3), d.decimalText(0n, 2), d.decimalText(-1_250n, 6)],
+    ['-0.02', '25', '-7', '0.005', '1234.567', '0.00', '-0.001250'],
+    'decimalText: الإشارة، والصفر قبل الفاصلة، وبلا مراتب عدد صحيح، وبلا فواصل',
+  );
+  for (const [units, scale] of [[-2n, 2], [25n, 0], [1_234_567n, 3], [-1_250n, 6]]) {
+    t.eq(d.toScale(d.parseDecimal(d.decimalText(units, scale), scale), scale), units, `decimalText ← parseDecimal يرجّع نفس القيمة (${scale} مراتب)`);
+  }
   for (const text of ['0,5', '2,50', ',5', '1,2,3', '1 5', '٠٬٥', '0,500', '12,34', '1234,567', '1,234,', '1, 234']) {
     t.eq(m.parseMoney(text), null, `«${text}» ترفض: فاصلة أو فراغ بغير مكانه`);
   }

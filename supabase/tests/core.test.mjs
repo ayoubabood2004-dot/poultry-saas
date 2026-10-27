@@ -188,6 +188,19 @@ export default async function (t, db) {
   const bInvite = await db.asUser(U.bOwner, (q) => value(q, "select public.add_member('07801000002', 'hall_worker', 'عامل ب', array[$1]::uuid[])", [bBroiler]), { commit: true });
   await db.acceptInvite(U.bOwner, U.bWorker, bInvite);
   for (const owner of [U.aOwner, U.bOwner]) await db.asUser(owner, (q) => q("select public.set_period_lock(date '2026-01-31')"), { commit: true });
+  // المرحلة 1 (0005): المواقع والمخازن وأحجام التعبئة وفئات المصاريف من البذور، والمواد ووحدتها وتصنيفها كتابة مباشرة بسياساتها.
+  for (const owner of [U.aOwner, U.bOwner]) {
+    await db.asUser(
+      owner,
+      async (q) => {
+        const category = await value(q, "insert into public.item_categories (name) values ('أعلاف') returning id");
+        const item = await value(q, "insert into public.items (name, category_id, kind, base_unit) values ('ذرة صفراء', $1, 'raw', 'kg') returning id", [category]);
+        const pack = await value(q, "select id from public.pack_types where factor = 50 and dimension = 'mass'");
+        await q("insert into public.item_units (item_id, pack_type_id, label, factor_to_base, is_default) values ($1, $2, 'كيس 50 كغم', 50, true)", [item, pack]);
+      },
+      { commit: true },
+    );
+  }
 
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
@@ -329,13 +342,20 @@ export default async function (t, db) {
     'صفّ نطاق مكرّر لنفس الوحدة يرفض',
     /duplicate key/,
   );
+  // 0005: صفوف الموقع والمخزن بلا وحدة ما تتصادم ويّا فهرس الوحدة (كل هدف بفهرسه الجزئي)، وصفّ بلا هدف ما ينكتب أبداً.
   t.eq(
     await db.asOwner(async (q) => {
-      await q('insert into public.member_scopes (org_id, member_id) values ($1, $2), ($1, $2)', [orgA, invited.aWorker]);
+      const sites = (await q('select id from public.sites where org_id = $1 order by id limit 2', [orgA])).rows.map((row) => row.id);
+      await q('insert into public.member_scopes (org_id, member_id, site_id) values ($1, $2, $3), ($1, $2, $4)', [orgA, invited.aWorker, sites[0], sites[1]]);
       return value(q, 'select count(*)::int from public.member_scopes where member_id = $1 and division_id is null', [invited.aWorker]);
     }),
     2,
-    'ضابط: صفوف بلا وحدة (الموقع والقاعة لاحقاً) ما تتصادم',
+    'ضابط: صفوف بلا وحدة (الموقع، والقاعة لاحقاً) ما تتصادم',
+  );
+  await t.rejects(
+    db.asOwner((q) => q('insert into public.member_scopes (org_id, member_id) values ($1, $2)', [orgA, invited.aWorker])),
+    'صفّ نطاق بلا هدف يرفض (هدف واحد بكل صفّ)',
+    /member_scopes_one_target/,
   );
 
   // ── قفل الفترة: المدير يقفل ويقدّم، والفتح للمالك بس ────────────────────────────────────────────────────────
@@ -434,7 +454,7 @@ export default async function (t, db) {
       and has_function_privilege('authenticated', p.oid, 'execute') order by 1`)).rows;
   t.ok(readOnly.length >= 8, `دوالّ للقراءة بقائمة السماح (${readOnly.map((f) => f.name).join('، ')})`);
   // قيمة غير فارغة لكل نوع (STRICT ويّا NULL يرجع بلا ما يشتغل الجسم)، ونوع جديد بلا قيمة يفشل هنا مو يعبر بصمت.
-  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01' };
+  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01', 'text[]': ['READ'] };
   const unmapped = [...new Set(readOnly.flatMap((fn) => (fn.args ? fn.args.split(', ') : []).filter((type) => SAMPLE[type] == null)))];
   t.same(unmapped, [], 'كل نوع معامل بدوالّ القراءة إله قيمة تجربة');
   // بأكثر من هويّة حتى كل فرع ينفّذ: مالك، عامل بنطاق، بلا منشأة، ومالك منشأة ثانية.

@@ -174,11 +174,66 @@ function resolveSpecifier(file, specifier) {
   return path.posix.normalize(path.posix.join(path.posix.dirname(file.path), specifier));
 }
 
-/** ملف داخلي بـsrc/lib/<dir> غير index: برّاه ياخذون من الواجهة (index) بس. */
+/**
+ * ملفات repo الكسولة لكل وحدة (الخطّة E39، وسقف مسار الجلسة الحرج بـDECISIONS «السقوف»): الشاشة تستوردها مباشرةً فتدخل
+ * حزمتها، وindex ما يصدّرها (وإلا تدخل مسار الجلسة لكل مستخدم). بيها call/send من core نفسها، فالمهلة وسياسة الأخطاء ويّاها؛
+ * وcore وclient وباقي الملفات الداخلية تبقى ممنوعة برّا repo.
+ */
+export const PAGE_MODULES = new Set(['inventory', 'scopes']);
+
+/** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
+const isPageModule = (resolved) => {
+  const match = /^src\/lib\/repo\/([^/]+?)(?:\.(?:ts|tsx|js))?$/.exec(resolved);
+  return Boolean(match && PAGE_MODULES.has(match[1]));
+};
+
+/**
+ * جذور مسار الجلسة الحرج (bundle-guard SESSION_ENTRIES وحزمة الإقلاع): الإقلاع، ووحدة الجلسة، وكل ملف بـrepo غير ملفات
+ * الوحدات الكسولة (index يصدّرهم أو يستوردهم بعضهم).
+ */
+const isSessionRoot = (filePath) => filePath === 'src/main.tsx' || filePath === 'src/lib/sessionFlow.ts' || (filePath.startsWith('src/lib/repo/') && !isPageModule(filePath));
+
+/** استيراد ثابت مو أنواع بس (import … from وexport … from): هذا يدخل حزمة المستورِد؛ import() يطلع حزمة لحالها. */
+function staticReference(node) {
+  if (ts.isImportDeclaration(node) && !typeOnly(node)) return literalText(node.moduleSpecifier);
+  if (ts.isExportDeclaration(node) && node.moduleSpecifier && !node.isTypeOnly) return literalText(node.moduleSpecifier);
+  return null;
+}
+
+/**
+ * الملفات اللي توصلها جذور مسار الجلسة بالاستيراد الثابت (بين الملفات المعطاة). ملف وحدة كسول بهالسلسلة يدخل حزمة كل مستخدم
+ * قبل أوّل شاشة؛ ما ينطاف للسلسلة (الحارس يسمّي الاستيراد اللي جابه).
+ */
+function sessionReachable(files) {
+  const byPath = new Map(files.map((file) => [file.path, file]));
+  const resolveFile = (from, specifier) => {
+    const base = resolveSpecifier(from, specifier);
+    return [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((candidate) => byPath.has(candidate)) ?? null;
+  };
+  const reached = new Set();
+  const queue = files.filter((file) => isSessionRoot(file.path)).map((file) => file.path);
+  while (queue.length) {
+    const current = queue.pop();
+    if (reached.has(current)) continue;
+    reached.add(current);
+    const file = byPath.get(current);
+    walk(parse(file), (node) => {
+      const specifier = staticReference(node);
+      if (!specifier || !specifier.startsWith('.')) return;
+      const target = resolveFile(file, specifier);
+      if (target && !isPageModule(target) && !reached.has(target)) queue.push(target);
+    });
+  }
+  return reached;
+}
+
+/** ملف داخلي بـsrc/lib/<dir> غير index: برّاه ياخذون من الواجهة (index) بس، أو من ملف وحدة كسول بـrepo. */
 function isInternal(file, specifier, dir) {
   const resolved = resolveSpecifier(file, specifier).replace(/\.(ts|tsx|js)$/, '');
   const prefix = `src/lib/${dir}/`;
-  return resolved.startsWith(prefix) && resolved.slice(prefix.length) !== 'index';
+  if (!resolved.startsWith(prefix)) return false;
+  const name = resolved.slice(prefix.length);
+  return name !== 'index' && !(dir === 'repo' && PAGE_MODULES.has(name));
 }
 
 function typeOnly(node) {
@@ -203,6 +258,7 @@ export function check(files, program = virtualProgram(files, { options: { noReso
   let writes = 0;
   let rpcCalls = 0;
   const checker = program.getTypeChecker();
+  const onSessionPath = sessionReachable(files);
   for (const file of files) {
     const fromProgram = program.getSourceFile(path.resolve(ROOT, file.path));
     const sourceFile = fromProgram ?? parse(file);
@@ -215,6 +271,9 @@ export function check(files, program = virtualProgram(files, { options: { noReso
       if (reference && reference[0]) {
         const [specifier, onlyTypes] = reference;
         const place = where(file, lineOf(sourceFile, node));
+        if (onSessionPath.has(file.path) && staticReference(node) && specifier.startsWith('.') && isPageModule(resolveSpecifier(file, specifier))) {
+          problems.push(`${place}: ${specifier} بمسار الجلسة الحرج (${file.path} من الإقلاع أو وحدة الجلسة أو repo) — ملف الوحدة الكسول يتحمّل لكل مستخدم قبل أوّل شاشة؛ الشاشة تستورده مباشرةً`);
+        }
         if (!inRepo && specifier.startsWith('@supabase/')) problems.push(`${place}: Supabase برّا src/lib/repo — الشاشات تمرّ من repo بس`);
         else if (!inRepo && !onlyTypes && isInternal(file, specifier, 'repo')) problems.push(`${place}: استيراد ${specifier} — من lib/repo (index) بس`);
         // enqueue مباشرةً يتخطّى persisted() اللي يسألها saveRound بكل حفظ جولة.
@@ -366,6 +425,17 @@ export function selfTest() {
     ...PLAN_REF_CALLS.map((fn, i) => [`src/lib/repo/needref${i}.ts`, 1, `export const a = (id, v) => call('${fn}', { p_id: id, p_expected_version: v });`, 'p_client_ref']),
     ...PLAN_VERSION_CALLS.map((fn, i) => [`src/lib/repo/needver${i}.ts`, 1, `export const a = (id, r) => call('${fn}', { p_id: id, p_client_ref: r });`, 'p_expected_version']),
     ...PLAN_SERVER_COLUMNS.map((column, i) => [`src/lib/repo/col${i}.ts`, 1, `export const a = async (db, n) => updatedRows(await db.from('sites').update({ name: n, ${column}: 1 }).eq('id', 1).select());`, column]),
+    // ملفات الوحدات الكسولة (WP2): index ما يصدّرها، والشاشة ما تاخذ ملفاً داخلياً غيرها (قاموس القيود، core).
+    ['src/lib/repo/index.ts', 1, "export * as inventory from './inventory';", 'مسار الجلسة'],
+    // مسار الجلسة كلّه، مو index بس: ملف repo يصدّره index، ووحدة الجلسة، والإقلاع، يستوردون ملف وحدة كسول (استيراداً ثابتاً).
+    ['src/lib/repo/members.ts', 1, "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;", 'مسار الجلسة'],
+    ['src/lib/repo/workspace.ts', 1, "export * from './inventory';", 'مسار الجلسة'],
+    ['src/lib/sessionFlow.ts', 1, "import { listItems } from './repo/inventory'; export const l = listItems;", 'مسار الجلسة'],
+    ['src/main.tsx', 1, "import { loadScopeTargets } from './lib/repo/scopes'; export const x = loadScopeTargets;", 'مسار الجلسة'],
+    ['src/pages/inventory/bad1.tsx', 1, "import { STORES_CONSTRAINT_HINTS } from '../../lib/repo/constraints-stores'; export const h = STORES_CONSTRAINT_HINTS;"],
+    ['src/pages/inventory/bad2.tsx', 1, "import { call } from '../../lib/repo/core'; import * as inventory from '../../lib/repo/inventory'; export const c = [call, inventory];"],
+    // إعفاء ملفات الوحدات الكسولة لـrepo بس: ملف داخلي بـoutbox بنفس الاسم يبقى داخلياً (اختبار الطفرات WP2).
+    ['src/pages/inventory/bad3.tsx', 1, "import { q } from '../../lib/outbox/scopes'; export const x = q;"],
   ];
   // المخالفة نفسها مو أي مخالفة: الحذف باسمه (E52)، والعمود الثابت جنب ...نشر أو باسم محسوب باسمه (مو «ما تنقرا»).
   const mentions = { 'src/lib/repo/del.ts': 'E52', 'src/lib/repo/pay5.ts': 'org_id', 'src/lib/repo/pay6.ts': 'status', 'src/lib/repo/pay7.ts': 'org_id' };
@@ -395,6 +465,7 @@ export function selfTest() {
     { path: 'src/lib/ok.ts', text: "const seen = new Set(); seen.delete(1); const map = new Map(); map.delete(2); const digits = Array.from('123');" },
     { path: 'src/pages/home/ok.tsx', text: "import { home } from '../../lib/repo'; import type { HomeSummary } from '../../lib/repo/home'; export const h = (): Promise<HomeSummary> => home.loadHomeSummary();" },
     { path: 'src/pages/broiler/ok.tsx', text: "import { saveRound } from '../../lib/outbox'; import type { OutboxOp } from '../../lib/outbox/types'; export const s = saveRound;" },
+    { path: 'src/pages/inventory/ok.tsx', text: "import * as inventory from '../../lib/repo/inventory'; import type { ItemRow } from '../../lib/repo/inventory'; export const l = inventory.listItems;" },
     { path: 'src/lib/outbox/round.ts', text: "import { enqueue } from './queue'; export const r = enqueue;" },
     // اسم بنطاق ثاني: Map.delete بدالّة، وconst بنفس الاسم من .from بدالّة ثانية.
     { path: 'src/lib/repo/ok2.ts', text: "export function a(db) { const tbl = db.from('stock_moves'); return tbl; } export function b() { const tbl = new Map(); tbl.delete(1); }" },
@@ -417,6 +488,34 @@ export function selfTest() {
   }
   const good = check(goodFiles, program);
   if (good.problems.length !== 0) return `المدخلات السليمة طلعت مخالفات: ${good.problems.join(' | ')}`;
+  // index السليم (ببرنامجه، نفس مسار الحالة السيّئة): يصدّر الوحدات القديمة وcore، مو ملف وحدة كسول.
+  const index = check([{ path: 'src/lib/repo/index.ts', text: "export * as members from './members'; export { updatedRows } from './core';" }]);
+  if (index.problems.length !== 0) return `index السليم طلع مخالفات: ${index.problems.join(' | ')}`;
+  // مسار الجلسة السليم: نوع بس من ملف كسول، واستيراد كسول (import()) يطلع حزمة لحالها، وملف كسول يستورد ملفاً كسولاً.
+  const sessionGood = check([
+    { path: 'src/lib/repo/members.ts', text: "import type { ScopeTarget } from './scopes'; export type { ItemRow } from './inventory'; export type T = ScopeTarget;" },
+    { path: 'src/lib/sessionFlow.ts', text: "export const later = () => import('./repo/scopes');" },
+    { path: 'src/lib/repo/inventory.ts', text: "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;" },
+  ]);
+  if (sessionGood.problems.length !== 0) return `مسار الجلسة السليم طلع مخالفات: ${sessionGood.problems.join(' | ')}`;
+  // بالسلسلة: الإقلاع ← وحدة عاديّة ← ملف كسول، يتسمّى بمكان الاستيراد مرّة وحدة.
+  const chain = check([
+    { path: 'src/main.tsx', text: "import { Shell } from './components/Shell'; export const s = Shell;" },
+    { path: 'src/components/Shell.tsx', text: "import { listItems } from '../lib/repo/inventory'; export const Shell = listItems;" },
+  ]);
+  if (chain.problems.length !== 1 || !chain.problems[0].startsWith('src/components/Shell.tsx')) return `ملف كسول بسلسلة الإقلاع: توقّعت مخالفة وحدة بـShell، وطلع ${chain.problems.join(' | ') || 'صفر'}`;
+  // السلسلة عبر مجلّد (components/Shell/index.tsx) تنقرا هي هم، وملف كسول يجيبه مسار الجلسة ويستورد ملفاً كسولاً ثانياً
+  // يتسمّى مرّة وحدة بمكان الاستيراد اللي جابه، مو مرّتين (اختبار الطفرات WP2).
+  const viaIndex = check([
+    { path: 'src/main.tsx', text: "import { Shell } from './components/Shell'; export const s = Shell;" },
+    { path: 'src/components/Shell/index.tsx', text: "import { listItems } from '../../lib/repo/inventory'; export const Shell = listItems;" },
+  ]);
+  if (viaIndex.problems.length !== 1 || !viaIndex.problems[0].startsWith('src/components/Shell/index.tsx')) return `ملف كسول بسلسلة عبر مجلّد: توقّعت مخالفة وحدة بـShell/index.tsx، وطلع ${viaIndex.problems.join(' | ') || 'صفر'}`;
+  const pageChain = check([
+    { path: 'src/lib/sessionFlow.ts', text: "import { listItems } from './repo/inventory'; export const l = listItems;" },
+    { path: 'src/lib/repo/inventory.ts', text: "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;" },
+  ]);
+  if (pageChain.problems.length !== 1 || !pageChain.problems[0].startsWith('src/lib/sessionFlow.ts')) return `ملف كسول بمسار الجلسة يستورد ملفاً كسولاً: توقّعت مخالفة وحدة بـsessionFlow، وطلع ${pageChain.problems.join(' | ') || 'صفر'}`;
   return null;
 }
 

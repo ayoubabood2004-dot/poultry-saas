@@ -4,7 +4,7 @@
 // اسم يعبر بصمت بلا فحص. وكل raise exception برمز snake_case (الواجهة تترجم الرمز) ويّا using hint عربي فصيح
 // (التلميح هو اللي يشوفه المستخدم، FOUNDATION ٥٢٢)، والتلميح يعبر من نفس فحص اللهجة مال i18n-guard. يقرأ الملفات
 // بلا قاعدة، فيشتغل بـlint وbuild.
-// المرحلة 1 (الخطّة WP0، GT-24): دالّة تقفل (for update أو pg_advisory_xact_lock) تبدي بـset local lock_timeout = '5s'
+// المرحلة 1 (الخطّة WP0، GT-24): دالّة تقفل (for update أو for share أو pg_advisory_xact_lock) تبدي بـset local lock_timeout = '5s'
 // قبل أوّل قفل، وكل جسم دالّة بين علامتي دولار ($$ أو $tag$) حتى ينقرا؛ ولا قسمة «/» بالشفرة أبداً: القسمة ببوستغريس تقرّب
 // ناتجها لحالها (القاعدة 8)، فـround(a*b/c) وtrunc وceil وfloor والتحويل لعدد صحيح وقسمة بخطوتين كلها تقريب مرّتين؛ الضرب-
 // القسمة-التقريب بـ_mul_div_round2/0 والقصّ بـdiv()/mod() (ولا power(x, -n) إلا للعشرة)، وماكو وسم يعفي؛ لا float ولا real
@@ -272,7 +272,7 @@ function withoutComments(text) {
   return out;
 }
 
-const LOCKING = /\bfor\s+(?:no\s+key\s+)?update\b|\bpg_advisory_xact_lock\b/iu;
+const LOCKING = /\bfor\s+(?:no\s+key\s+)?update\b|\bfor\s+(?:key\s+)?share\b|\bpg_advisory_xact_lock\b/iu;
 const LOCAL_TIMEOUT = /\bset\s+local\s+lock_timeout\s*=\s*'5s'/iu;
 const FUNCTION_HEAD = /\bcreate\s+(?:or\s+replace\s+)?(?:function|procedure)\b/iu;
 
@@ -280,10 +280,11 @@ const FUNCTION_HEAD = /\bcreate\s+(?:or\s+replace\s+)?(?:function|procedure)\b/i
  * دالّة تقفل (for update أو قفل استشاري) بلا set local lock_timeout = '5s' قبل أوّل قفل (الخطّة §2.3). وكل create function
  * جسمه بين علامتي دولار: جسم بنصّ '…' أو begin atomic ما ينقرا، فقفل بداخله يعبر بصمت.
  */
-function lockProblems(file) {
+function lockProblems(file, legacyBodies = new Set()) {
   const problems = [];
   let locking = 0;
   let functions = 0;
+  let restored = 0;
   const { code, literals } = lex(file.text);
   for (const head of code.matchAll(new RegExp(FUNCTION_HEAD.source, 'giu'))) {
     const end = code.indexOf(';', head.index);
@@ -297,6 +298,12 @@ function lockProblems(file) {
     const head = code.slice(code.lastIndexOf(';', literal.start) + 1, literal.start);
     if (!FUNCTION_HEAD.test(head)) continue; // do $$ … $$ بالهجرة نفسها تحت lock_timeout الملف
     functions += 1;
+    // ملف التراجع يرجّع جسماً انكتب بـ0001–0003 حرفاً بحرف (مشغّل التراجع يقارن md5 الجسم بالإنتاج): القديم معفى من القاعدة
+    // بالإنتاج، فنسخته الحرفية معفاة هي هم. حرف واحد مختلف = جسم جديد، والقاعدة تنطبق عليه.
+    if (legacyBodies.has(literal.value)) {
+      restored += 1;
+      continue;
+    }
     const body = lex(literal.value).code;
     const first = body.search(LOCKING);
     if (first < 0) continue;
@@ -307,7 +314,21 @@ function lockProblems(file) {
       problems.push(`${file.name}:${lineAt(file.text, literal.start)}: ${name} تقفل بلا set local lock_timeout = '5s' قبل أوّل قفل (§2.3)`);
     }
   }
-  return { problems, locking, functions };
+  return { problems, locking, functions, restored };
+}
+
+/** أجسام الدوالّ بالهجرات القديمة (0001–0003) كما هي: ملف التراجع يرجّعها حرفياً. */
+function legacyFunctionBodies(files) {
+  const bodies = new Set();
+  for (const file of files) {
+    const migration = MIGRATION.exec(file.name);
+    if (!migration || Number(migration[1]) > LEGACY_THROUGH) continue;
+    const { code, literals } = lex(file.text);
+    for (const literal of literals) {
+      if (literal.dollar && FUNCTION_HEAD.test(code.slice(code.lastIndexOf(';', literal.start) + 1, literal.start))) bodies.add(literal.value);
+    }
+  }
+  return bodies;
 }
 
 /** وسائط استدعاء مفصولة بفوارز المستوى الأوّل: «10::numeric, -p_n» ← ['10::numeric', '-p_n']. */
@@ -411,7 +432,9 @@ export function check(files) {
   let writes = 0;
   let locking = 0;
   let functions = 0;
+  let restored = 0;
   let tables = 0;
+  const legacyBodies = legacyFunctionBodies(files);
   const rollbackNumbers = new Set(files.map((file) => ROLLBACK.exec(file.name)).filter(Boolean).map((match) => Number(match[1])));
   for (const file of files) {
     const migration = MIGRATION.exec(file.name);
@@ -432,9 +455,10 @@ export function check(files) {
     tables += rls.tables;
     problems.push(...rls.problems);
     if (number > LEGACY_THROUGH) {
-      const locks = lockProblems(file);
+      const locks = lockProblems(file, rollback ? legacyBodies : undefined);
       locking += locks.locking;
       functions += locks.functions;
+      restored += locks.restored;
       problems.push(...locks.problems);
     }
     if (rollback) {
@@ -455,7 +479,7 @@ export function check(files) {
   for (const rollback of rollbacks) {
     if (!numbers.some((entry) => entry.number === rollback.number)) problems.push(`${rollback.file}: ماكو هجرة بنفس الرقم`);
   }
-  return { problems, migrations: numbers.length, rollbacks: rollbacks.length, raises, writes, locking, functions, tables };
+  return { problems, migrations: numbers.length, rollbacks: rollbacks.length, raises, writes, locking, functions, restored, tables };
 }
 
 export function selfTest() {
@@ -592,6 +616,10 @@ export function selfTest() {
       ['-- تراجع: إضافية فقط', "create function f() returns void language plpgsql as $$ begin set local lock_timeout = '5s'; perform pg_advisory_xact_lock(1); end $$;", [], 0],
       ['-- تراجع: إضافية فقط', "create function f() returns void language sql as 'select 1 from t for update';", [], 1],
       ['-- تراجع: إضافية فقط', 'do $$ begin perform 1 from t for update; end $$;', [], 0],
+      // قفل المشاركة (for share / for key share) قفل هو هم: ينام على صفّ مقفول للتعديل (0005: المخزن يقفل موقعه).
+      ['-- تراجع: إضافية فقط', 'create function f(p uuid) returns void language plpgsql as $$ begin perform 1 from t where id = p for share; end $$;', [], 1],
+      ['-- تراجع: إضافية فقط', 'create function f(p uuid) returns void language plpgsql as $$ begin perform 1 from t where id = p for key share; end $$;', [], 1],
+      ['-- تراجع: إضافية فقط', "create function f(p uuid) returns void language plpgsql as $$ begin set local lock_timeout = '5s'; perform 1 from t where id = p for share of t; end $$;", [], 0],
     ].map(([line, sql, extra, expected]) => [
       [
         { name: '0001_core.sql', text: good },
@@ -605,6 +633,28 @@ export function selfTest() {
     // القديمة (0001–0003) معفيّة من قاعدة القفل: أجسامها بالإنتاج وتتبدّل بهجرة جديدة بس.
     [[{ name: '0001_core.sql', text: `${good}create function f() returns void language plpgsql as $fn$ begin perform pg_advisory_xact_lock(1); end $fn$;\n` }], 0],
   ];
+  // ملف التراجع يرجّع جسماً قديماً يقفل بلا مهلة (0001 قبل القاعدة): الحرفي يعبر ويتعدّ «مرجَّعاً»، والمختلف بحرف ينمسك،
+  // ونفس الجسم بهجرة جديدة ينمسك (الإعفاء لملف التراجع بس).
+  const legacyLock = 'create or replace function public.f() returns void language plpgsql as $$ begin perform pg_advisory_xact_lock(1); end $$;\n';
+  const withRollback = (rollbackText, migrationExtra = '') => [
+    { name: '0001_core.sql', text: good + legacyLock },
+    { name: '0002_more.sql', text: good },
+    { name: '0003_more.sql', text: good },
+    { name: '0004_phase1.sql', text: `-- 0004_phase1 — المشكلة\n-- تراجع: rollback_0004.sql\n\nset lock_timeout = '5s';\n${migrationExtra}` },
+    { name: 'rollback_0004.sql', text: `-- تراجع 0004\nset lock_timeout = '5s';\n${rollbackText}` },
+  ];
+  const verbatim = check(withRollback(legacyLock));
+  if (verbatim.problems.length !== 0 || verbatim.restored !== 1) return `ملف تراجع يرجّع جسماً قديماً حرفياً: توقّعت 0 مخالفة و1 مرجَّع، وطلع ${verbatim.problems.length} و${verbatim.restored}: ${verbatim.problems.join(' | ')}`;
+  const edited = check(withRollback(legacyLock.replace('perform', 'perform  ')));
+  if (edited.problems.length !== 1 || edited.restored !== 0) return `ملف تراجع بجسم مختلف بحرف: توقّعت مخالفة وحدة، وطلع ${edited.problems.length}: ${edited.problems.join(' | ')}`;
+  const copied = check(withRollback('select 1;\n', legacyLock));
+  if (copied.problems.length !== 1) return `الجسم القديم حرفياً بهجرة جديدة (مو تراجع): توقّعت مخالفة وحدة، وطلع ${copied.problems.length}: ${copied.problems.join(' | ')}`;
+  // الإعفاء لأجسام الدوالّ القديمة بس: كتلة do بـ0001 بنفس النصّ ما تعفي دالّة بملف التراجع (اختبار الطفرات WP2). النصّ
+  // يتركّب بالجمع، مو بـreplace: «$$» بنصّ الاستبدال يصير «$» (درس String.replace).
+  const fromDo = withRollback(`create or replace function public.g() returns void language plpgsql as ${legacyLock.slice(legacyLock.indexOf('$$'))}`);
+  fromDo[0] = { name: '0001_core.sql', text: `${good}do ${legacyLock.slice(legacyLock.indexOf('$$'))}` };
+  const doBody = check(fromDo);
+  if (doBody.problems.length !== 1 || doBody.restored !== 0) return `دالّة بملف التراجع بجسم كتلة do قديمة: توقّعت مخالفة وحدة، وطلع ${doBody.problems.length}: ${doBody.problems.join(' | ')}`;
   // ضابط العدّ: دالّة 0004 بـ$$ تنحسب دالّة، والتي تقفل تنحسب تقفل (الملخّص «0 دالّة» كان يخبّي إن القاعدة ما شافت شي).
   const counted = check([
     { name: '0001_core.sql', text: good },
@@ -633,6 +683,6 @@ export function run() {
   return {
     scanned: result.migrations,
     problems: result.problems,
-    summary: `فحصت ${result.migrations} هجرة و${result.rollbacks} ملف تراجع: الأسماء بالتسلسل، الرأس وسطر «تراجع:» (من 0004 يسمّي ملفه أو «إضافية فقط»)، lock_timeout أوّلاً، ${result.raises} raise exception برمز وتلميح فصيح، و${result.writes} UPDATE/DELETE بـWHERE وبلا تاريخ يتبع منطقة الجلسة، و${result.tables} جدولاً بـRLS بنفس الملف، و${result.functions} دالّة من 0004 جسمها بين علامتي دولار، منها ${result.locking} تقفل بـlock_timeout قبل أوّل قفل، وبلا قسمة «/» ولا مقلوب ولا فاصلة عائمة ولا numeric(p,s)`,
+    summary: `فحصت ${result.migrations} هجرة و${result.rollbacks} ملف تراجع: الأسماء بالتسلسل، الرأس وسطر «تراجع:» (من 0004 يسمّي ملفه أو «إضافية فقط»)، lock_timeout أوّلاً، ${result.raises} raise exception برمز وتلميح فصيح، و${result.writes} UPDATE/DELETE بـWHERE وبلا تاريخ يتبع منطقة الجلسة، و${result.tables} جدولاً بـRLS بنفس الملف، و${result.functions} دالّة من 0004 جسمها بين علامتي دولار، منها ${result.locking} تقفل بـlock_timeout قبل أوّل قفل (و${result.restored} جسماً قديماً يرجّعه ملف تراجع حرفياً)، وبلا قسمة «/» ولا مقلوب ولا فاصلة عائمة ولا numeric(p,s)`,
   };
 }

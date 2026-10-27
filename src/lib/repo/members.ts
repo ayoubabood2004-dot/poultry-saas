@@ -16,6 +16,9 @@ export interface StaffMember {
   accepted: boolean;
   invitedAt: number;
   divisionIds: readonly string[];
+  /** نطاق بالموقع أو المخزن (0005): كل صفّ هدف واحد. */
+  siteIds: readonly string[];
+  warehouseIds: readonly string[];
 }
 
 export interface DivisionRef {
@@ -51,7 +54,7 @@ export async function loadStaff(): Promise<StaffList> {
     (db) =>
       Promise.all([
         db.from('members').select('id, user_id, display_name, phone, role, accepted_at, archived_at, created_at').order('created_at'),
-        db.from('member_scopes').select('member_id, division_id').is('archived_at', null),
+        db.from('member_scopes').select('member_id, division_id, site_id, warehouse_id').is('archived_at', null),
         db.from('divisions').select('id, kind').is('archived_at', null),
       ]),
     (answers) => answers,
@@ -60,10 +63,13 @@ export async function loadStaff(): Promise<StaffList> {
   for (const result of [members, scopes, divisions]) {
     if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
   }
-  const byMember = new Map<string, string[]>();
-  for (const scope of (scopes.data ?? []) as { member_id: string; division_id: string | null }[]) {
-    if (!scope.division_id) continue;
-    byMember.set(scope.member_id, [...(byMember.get(scope.member_id) ?? []), scope.division_id]);
+  const byMember = new Map<string, { d: string[]; s: string[]; w: string[] }>();
+  for (const scope of (scopes.data ?? []) as { member_id: string; division_id: string | null; site_id: string | null; warehouse_id: string | null }[]) {
+    const own = byMember.get(scope.member_id) ?? { d: [], s: [], w: [] };
+    if (scope.division_id) own.d.push(scope.division_id);
+    if (scope.site_id) own.s.push(scope.site_id);
+    if (scope.warehouse_id) own.w.push(scope.warehouse_id);
+    byMember.set(scope.member_id, own);
   }
   return {
     members: ((members.data ?? []) as MemberRow[])
@@ -76,7 +82,9 @@ export async function loadStaff(): Promise<StaffList> {
         role: parseRole(row.role, 'members.role'),
         accepted: row.accepted_at !== null,
         invitedAt: timeOf(row.created_at, 'members.created_at'),
-        divisionIds: byMember.get(row.id) ?? [],
+        divisionIds: byMember.get(row.id)?.d ?? [],
+        siteIds: byMember.get(row.id)?.s ?? [],
+        warehouseIds: byMember.get(row.id)?.w ?? [],
       })),
     divisions: ((divisions.data ?? []) as { id: string; kind: string }[]).map((row) => ({
       id: row.id,
@@ -85,10 +93,8 @@ export async function loadStaff(): Promise<StaffList> {
   };
 }
 
-/** الدعوة برقم الهاتف. مو متكرّرة الأمان: نتيجة مجهولة = حدّث القائمة قبل الإعادة (already_in_org يكول إنها صارت). */
-export async function addMember(phone: string, role: Role, displayName: string, divisionIds: readonly string[]): Promise<string> {
-  return call<string>('add_member', { p_phone: phone, p_role: role, p_display_name: displayName, p_divisions: divisionIds });
-}
+// الدعوة نفسها بـscopes.addMemberV2 (add_member_v2، ملف كسول بحزمة الموظفين): الدعوة ونطاقها بنداء واحد. add_member القديمة
+// تبقى بالقاعدة باسمها (FOUNDATION ٢٣٠)، وما إلها نداء من الشاشة: بنداءين، فشل النطاق كان يخلّي الدعوة بلا نطاق.
 
 /** رمز الدعوة (6 أرقام نصّاً). يبين مرّة وحدة، وكل إصدار يبطل اللي قبله. */
 export async function inviteCode(memberId: string): Promise<string> {

@@ -77,11 +77,33 @@ export function fmtPercent(part: bigint, whole: bigint): string {
  * والوحدة برأس العمود مو بالخلية. يرمي إذا بيها مراتب أكثر من العمود حتى ما تنخفي كمية.
  */
 export function fmtQtyCell(qty: Milli, decimals: 0 | 1 | 2 | 3 = 3): string {
-  const [sign, abs] = magnitude(qty);
-  if (abs % 10n ** BigInt(3 - decimals) !== 0n) throw new RangeError('fmtQtyCell_hidden_fraction');
-  const whole = group((abs / MILLI_PER_UNIT).toString());
-  if (decimals === 0) return sign + whole;
-  return `${sign}${whole}.${(abs % MILLI_PER_UNIT).toString().padStart(3, '0').slice(0, decimals)}`;
+  // الكمية بالآلاف = رقم عشري بثلاث مراتب: نفس fmtScaledCell (نفس الفواصل والرمي على الكسر المخفي)، بلا نسخة ثانية منه.
+  return fmtScaledCell(qty, 3, decimals);
+}
+
+/**
+ * أقلّ مراتب تبيّن كل قيم عمود بالضبط (القيم بوحدة 10⁻ˢ، مثل معامل الوحدة بستّ مراتب): العمود كلّه بهالمراتب، فالآحاد
+ * تصطفّ وما ينخفي كسر. [25، 40] ← 0، و[25، 0.5] ← 1.
+ */
+export function columnDecimals(values: readonly bigint[], scale: number): number {
+  let decimals = 0;
+  const base = 10n ** BigInt(scale);
+  for (const value of values) {
+    // الكسر بالباقي على 10^s مو بقصّ آخر s حروف: slice(-0) يرجّع النصّ كلّه، فالقيم الصحيحة (s = 0) كانت تاخذ مراتب.
+    const digits = scale === 0 ? '' : ((value < 0n ? -value : value) % base).toString().padStart(scale, '0');
+    decimals = Math.max(decimals, digits.replace(/0+$/, '').length);
+  }
+  return decimals;
+}
+
+/** رقم عشري بعمود جدول (قيمته بوحدة 10⁻ˢ) بمراتب العمود الثابتة وفواصل آلاف. يرمي إذا بيه مراتب أكثر من العمود. */
+export function fmtScaledCell(units: bigint, scale: number, decimals: number): string {
+  const [sign, abs] = magnitude(units);
+  const base = 10n ** BigInt(scale);
+  const fraction = (abs % base).toString().padStart(scale, '0');
+  if (/[1-9]/.test(fraction.slice(decimals))) throw new RangeError('fmtScaledCell_hidden_fraction');
+  const whole = group((abs / base).toString());
+  return decimals === 0 ? sign + whole : `${sign}${whole}.${fraction.slice(0, decimals)}`;
 }
 
 /**

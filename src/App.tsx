@@ -21,6 +21,8 @@ const ReportsPage = page(() => import('./pages/reports/ReportsPage'));
 const StaffPage = page(() => import('./pages/staff/StaffPage'));
 const AccountPage = page(() => import('./pages/account/AccountPage'));
 const SettingsPage = page(() => import('./pages/settings/SettingsPage'));
+const OrgSettingsPage = page(() => import('./pages/settings/OrgSettingsPage'));
+const ItemsPage = page(() => import('./pages/inventory/ItemsPage'));
 const NotFoundPage = page(() => import('./pages/NotFoundPage'));
 // ما قبل المنشأة: برّا القشرة (بلا شريط أقسام).
 const AuthPage = page(() => import('./pages/auth/AuthPage'));
@@ -57,12 +59,14 @@ function AppRoutes() {
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/inventory/medicine" element={<MedicinePage />} />
           <Route path="/inventory/general" element={<GeneralStoresPage />} />
+          <Route path="/inventory/items" element={<ItemsPage />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/org" element={<OrgSettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
