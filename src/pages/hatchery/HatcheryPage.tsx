@@ -1,3 +1,5 @@
+import { Warehouse } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { PlannedPage } from '../../components/PlannedPage';
 import { t } from '../../lib/i18n';
 
@@ -12,6 +14,12 @@ export default function HatcheryPage() {
         t('hatchery.planned.chicks', 'مخزن الأفراخ بعمرها بالساعات وتنبيه بعد 48 ساعة، وزرّ «تسكين فوج».'),
         t('hatchery.planned.invoices', 'فاتورة بيع أفراخ CH، وفاتورة بيع بيض تفقيس HE (ومنه بيض الفحص الضوئي).'),
       ]}
-    />
+    >
+      {/* مخازن الوحدة من صفحتها (الخطّة WP4)، لمشغّلها هم: «كل المخازن» بالشريط لأدوار المخزن بس. */}
+      <Link to="/inventory/hatchery" className="card flex items-center gap-2 p-4 font-medium text-brand-700 hover:bg-surface-2 dark:text-brand-200" data-action="open-division-stores">
+        <Warehouse aria-hidden="true" className="size-5" />
+        {t('hatchery.stores', 'مخازن المفقس: بيض التفقيس والأفراخ وتنبيه 48 ساعة')}
+      </Link>
+    </PlannedPage>
   );
 }

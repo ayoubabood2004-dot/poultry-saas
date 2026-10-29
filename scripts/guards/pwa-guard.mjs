@@ -35,6 +35,8 @@ export const EXCLUDED_BY_NAME = [
   // المرحلة 1 WP3: قسم الحسابات بمسار واحد (الجهات والكشف وأرصدة الافتتاح والصناديق وكشفها)، وحزمته المشتركة إن انقسمت.
   { name: 'AccountsRoutes', pattern: /^assets\/AccountsRoutes-[\w-]+\.(js|css)$/ },
   { name: 'accounts-office', pattern: /^assets\/accounts-office-[\w-]+\.(js|css)$/ },
+  // المرحلة 1 WP4: المخزون بمسار واحد (لوحات المخازن وبطاقة المادّة ومستندات الافتتاح والتحويل ورفّ مسوّدات الجهاز).
+  { name: 'StockRoutes', pattern: /^assets\/StockRoutes-[\w-]+\.(js|css)$/ },
 ];
 
 /** ملفات ما تنحسب بالتثبيت المسبق: الخدمة العاملة، والمستثناة بالاسم. */

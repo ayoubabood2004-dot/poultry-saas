@@ -136,6 +136,30 @@ export default async function (t) {
     'الرئيسية: «لنا» و«علينا» بالفلس، والصناديق بالسالب، والدفاتر الظاهرة من المجموع',
   );
   t.same(m.parseHomeSummary({}), {}, 'بلا بطاقة حسابات (دور بلا حسابات): ملخّص فارغ');
+  // 0007: تنبيهات المخزون بوحداتها: تحت الحدّ الأدنى لكل وحدة بمخازن تستلم من المورّد (E22: المعمل والأدوية والعامّة والمفقس)،
+  // وقريب الانتهاء للأدوية، وأفراخ المفقس فاتها 48 ساعة؛ والوحدة بلا بطاقة تنبيه تنترك، والشكل الغلط يرمي باسمه.
+  const stock = [
+    { division_id: 'd-0', kind: 'feed_mill', below_min: 4, near_expiry: 0, old_chicks: 0 },
+    { division_id: 'd-1', kind: 'medicine', below_min: 1, near_expiry: 2, old_chicks: 0 },
+    { division_id: 'd-2', kind: 'general', below_min: 3, near_expiry: 0, old_chicks: 0 },
+    { division_id: 'd-3', kind: 'hatchery', below_min: 2, near_expiry: 0, old_chicks: 120 },
+    { division_id: 'd-4', kind: 'broiler', below_min: 0, near_expiry: 0, old_chicks: 0 },
+  ];
+  t.same(
+    m.parseHomeSummary({ stock }),
+    { millBelowMinimum: 4, medicine: { nearExpiry: 2, belowMinimum: 1 }, general: { belowMinimum: 3 }, oldChicks: 120, hatcheryBelowMinimum: 2 },
+    'الرئيسية: تحت الحدّ الأدنى للمعمل والأدوية والعامّة والمفقس، وقريب الانتهاء للأدوية، وأفراخ المفقس فاتها 48 ساعة',
+  );
+  t.same(m.parseHomeSummary({ stock: [] }), {}, 'بلا مخازن بالنطاق: ملخّص فارغ');
+  const stockShape = (value) => {
+    try {
+      m.parseHomeSummary(value);
+      return 'ما رمى';
+    } catch (error) {
+      return error instanceof m.HomeShapeError ? error.message : `رمى غيره: ${error.message}`;
+    }
+  };
+  t.same([stockShape({ stock: {} }), stockShape({ stock: [{ kind: 'general', below_min: '3' }] })], ['home_shape:stock', 'home_shape:below_min'], 'تنبيهات بشكل غلط ترمي باسمها');
   const shape = (value) => {
     try {
       m.parseHomeSummary(value);
@@ -320,7 +344,9 @@ async function fakeSupabaseChecks(t) {
         "export { probeSession, signOutLocal, onAuthChange, QUICK_PROBE_MS } from './src/lib/repo/auth.ts';",
         "export { getClient, dropClient, revocableStorage } from './src/lib/repo/client.ts';",
         "export { loadStaff } from './src/lib/repo/members.ts';",
-        "export { listItems, ITEMS_PAGE } from './src/lib/repo/inventory.ts';",
+        "export { listItems, ITEMS_PAGE, loadOrgSetup, parseStockBoard, parseItemLots, parseItemMoves, parseTransferPreview, parseOpeningPreview, loadStockValues, loadStockValueTotals, loadItemLotValues, loadItemLots, loadItemMoves, deleteDraftLine, createTransferDraft, updateStockDraft, listStockDocs, RowShapeError } from './src/lib/repo/inventory.ts';",
+        "export { unitCost4 } from './src/domain/money.ts';",
+        "export { fmtUnitCost } from './src/lib/format.ts';",
         "export { loadPartyBalances, createParty, recordPayment } from './src/lib/repo/parties.ts';",
         "export { searchable } from './src/domain/normalize.ts';",
         "export { backendSettings, isPublishableKey, isProjectUrl } from './src/lib/env.ts';",
@@ -471,6 +497,135 @@ async function fakeSupabaseChecks(t) {
   );
   fake.plan.tables = undefined;
   fake.plan.counts = undefined;
+
+  // ── قراءات المخزون (0007، WP4): أشكال الخادم نفسها (كما يرجّعها SQL ويفحصها stock.test) ← فلس وآلاف بمحلّلات repo، والقيمة
+  // المخفية لدور بلا كلفة null، والشكل الغلط يرمي باسم خانته (مو صفر بصمت) ────────────────────────────────────────────────
+  {
+    fake.plan.getSession = async () => ({ data: { session: session('u-1') }, error: null });
+    const shapeOf = (fn) => {
+      try {
+        fn();
+        return 'ما رمى';
+      } catch (error) {
+        return error instanceof m.RowShapeError ? error.message : `رمى غيره: ${error.message}`;
+      }
+    };
+    const chickBoard = {
+      warehouse: { id: 'w-1', name: 'مخزن الأفراخ', kind: 'chick', division_id: 'd-1', division_kind: 'hatchery', archived: false, has_balance: true },
+      as_of: '2026-10-30T11:05:00.123+00:00',
+      today: '2026-10-30',
+      rows: [{ item_id: 'i-1', name: 'أفراخ لحم', kind: 'chick', base_unit: 'pc', tracks_expiry: false, min_qty: null, archived: false, available: '150.000', expired: '0', near_expiry: '0', below_min: false, oldest_born_at: '2026-10-28T09:00:00+00:00', chick_age_hours: '50', old_chicks: '100.000' }],
+      next: 'i-1',
+      total: 101,
+    };
+    const parsedBoard = m.parseStockBoard(chickBoard);
+    t.same(
+      [parsedBoard.rows[0].available, parsedBoard.rows[0].expired, parsedBoard.rows[0].chickAgeHours, parsedBoard.rows[0].oldChicks, parsedBoard.warehouse.hasBalance, parsedBoard.next, parsedBoard.total],
+      [150_000n, 0n, 50n, 100_000n, true, 'i-1', 101],
+      'stock_on_hand: «150.000» و«0» بالآلاف، وعمر الفرخ 50 ساعة، و100 فرخ فاتها 48 ساعة، والمؤشّر والعدد',
+    );
+    t.eq(shapeOf(() => m.parseStockBoard({ ...chickBoard, rows: [{ ...chickBoard.rows[0], available: 150 }] })), 'row_shape:available', 'كمية رقم JSON (مو نصّ عشري) ترمي باسمها');
+    t.eq(shapeOf(() => m.parseStockBoard({ ...chickBoard, rows: [{ ...chickBoard.rows[0], old_chicks: null }] })), 'row_shape:old_chicks', 'old_chicks فارغة ترمي، مو صفر');
+    const lots = m.parseItemLots({
+      item: { id: 'i-1', name: 'علف', kind: 'feed', base_unit: 'kg', tracks_expiry: false, min_qty: '1500.000', density: null, piece_mass_kg: null, archived: false },
+      rows: [{ lot_id: 'l-1', qty_left: '5000.000', received_on: '2026-10-15', root_received_on: '2026-10-01', age_days: 29, born_at: null, age_hours: null, expiry_on: null, expired: false, near_expiry: false, source_kind: 'transfer', source_id: 't-1', source: 'TR-2026-0001', supplier_lot_no: null }],
+      next: { id: 'l-1' },
+      total: 3,
+    });
+    t.same([lots.rows[0].qtyLeft, lots.rows[0].ageDays, lots.item.minQty, lots.next, lots.total], [5_000_000n, 29, 1_500_000n, 'l-1', 3], 'item_lots_qty: المتبقّي بالآلاف وعمر الجذر بالأيام والمؤشّر معرّف الدفعة');
+    t.eq(shapeOf(() => m.parseItemLots({ item: { id: 'i', name: 'x', kind: 'feed', base_unit: 'kg', tracks_expiry: false, min_qty: null, density: null, piece_mass_kg: null, archived: false }, rows: [{ lot_id: 'l', qty_left: '1.000', received_on: 'x', root_received_on: 'x', age_days: '29', source_kind: 'opening', source_id: 's', source: 'x' }], next: null, total: 1 })), 'row_shape:age_days', 'age_days نصّ (مو عدد) يرمي');
+    const moves = m.parseItemMoves({
+      rows: [{ move_id: 'mv-2', seq: '8', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't-1', doc: 'TR-2026-0001', qty: '-5000.000', running: '0.000', lot_id: 'l-1', reverses_move_id: 'mv-1', reversed: false }],
+      next: '8',
+      total: 250,
+    });
+    t.same([moves.rows[0].seq, moves.rows[0].qty, moves.rows[0].running, moves.rows[0].reversesMoveId, moves.next, moves.total], [8n, -5_000_000n, 0n, 'mv-1', 8n, 250], 'item_moves_qty: الكمية السالبة بالآلاف، والرقم والمؤشّر bigint');
+    const sent = [];
+    fake.plan.rpc = async (fn, args) => {
+      sent.push([fn, args]);
+      if (fn === 'item_lots_value') return { data: { item_id: 'i-1', warehouse_id: 'w-1', rows: [{ lot_id: 'l-1', qty_left: '5000.000', value_left: '2404166.67' }] }, error: null, status: 200 };
+      if (fn === 'stock_values') return { data: { warehouse_id: 'w-1', rows: [{ item_id: 'i-1', available: '36000.00', expired: '0' }] }, error: null, status: 200 };
+      if (fn === 'stock_value_totals') return { data: { warehouse_id: 'w-1', units: [{ base_unit: 'kg', available: '9950.000', expired: '0' }], money: { available: '6911066.67', expired: '0', total: '6911066.67' } }, error: null, status: 200 };
+      if (fn === 'archived_stores_with_stock') return { data: ['w-2'], error: null, status: 200 };
+      return { data: null, error: null, status: 200 };
+    };
+    const lotValue = (await m.loadItemLotValues('i-1', 'w-1', 'l-0')).get('l-1');
+    t.same([lotValue.valueLeft, lotValue.qtyLeft, m.fmtUnitCost(m.unitCost4(lotValue.valueLeft, lotValue.qtyLeft))], [240_416_667n, 5_000_000n, '480.8333'], 'item_lots_value: 2,404,166.67 لـ5,000 كغم ← كلفة الوحدة 480.8333 (C2)');
+    t.same(sent.at(-1), ['item_lots_value', { p_item: 'i-1', p_warehouse: 'w-1', p_after: { id: 'l-0' }, p_limit: 100 }], 'قيم الدفعات بنفس مؤشّر صفحة الدفعات');
+    t.same((await m.loadStockValues('w-1', 'i-0')).get('i-1'), { available: 3_600_000n, expired: 0n }, 'stock_values: القيمة بالفلس و«0» صفر');
+    t.same(sent.at(-1), ['stock_values', { p_warehouse: 'w-1', p_after_item: 'i-0', p_limit: 100 }], 'قيم اللوحة بمؤشّر صفحتها');
+    const totals = await m.loadStockValueTotals('w-1');
+    t.same([totals.total, totals.available, totals.expired, totals.units[0].available], [691_106_667n, 691_106_667n, 0n, 9_950_000n], 'stock_value_totals: المجموع من الخادم بالفلس والكمية بالآلاف');
+    const masked = m.parseTransferPreview({
+      id: 't-1', kind: 'transfer', status: 'draft', version: 3, doc_no: null, internal_export: true, to_division_kind: 'feed_mill', problems: [], ready: true,
+      lines: [{ line_id: 'x', line_no: 1, item_id: 'i-1', item_name: 'كاز أويل', base_unit: 'L', tracks_expiry: false, qty: '1000.000', qty_in_unit: '1000.000', unit_label: 'L', item_unit_id: null, unit_code: null, available: '1000.000', expired: '0', later: '0', shortage: '0.000', whole_balance: true, problem: null, draws: [{ lot_id: 'l-1', qty: '1000.000', received_on: '2026-10-20', expiry_on: null, source_kind: 'opening', source: 'رصيد افتتاح بتاريخ 20/10/2026', supplier_lot_no: null }] }],
+    });
+    t.same([masked.lines[0].value, masked.lines[0].draws[0].value, masked.lines[0].qty, masked.lines[0].wholeBalance], [null, null, 1_000_000n, true], 'معاينة الأمين (بلا money): القيمة null مو صفر، والكمية بالآلاف');
+    const opening = m.parseOpeningPreview({
+      id: 'o-1', kind: 'opening', status: 'draft', version: 2, problems: [], ready: false, money: { total: '65000.00' },
+      lines: [{ line_id: 'a', line_no: 1, item_id: 'i', item_name: 'أفراخ', base_unit: 'pc', qty: '100.000', expiry_on: null, born_at: null, zero_reason: null, problem: { code: 'born_at_required', hint: 'اكتب وقت فقس «أفراخ».' }, money: { value: '65000.00' } }],
+    });
+    t.same([opening.total, opening.lines[0].value, opening.lines[0].problem?.code], [6_500_000n, 6_500_000n, 'born_at_required'], 'معاينة الافتتاح للمدير: القيمة والمجموع بالفلس ومشكلة السطر');
+    // «مؤرشف وعليه رصيد» (§2.6): قائمة المخازن تاخذ العلامة من الخادم.
+    fake.plan.tables = {
+      warehouses: { data: [{ id: 'w-1', division_id: 'd-1', site_id: 's-1', name: 'العامّ', kind: 'general', archived_at: null, version: 1 }, { id: 'w-2', division_id: 'd-1', site_id: 's-1', name: 'القديم', kind: 'general', archived_at: '2026-10-29T00:00:00Z', version: 2 }], error: null, status: 200 },
+    };
+    const orgSetup = await m.loadOrgSetup();
+    t.same(orgSetup.warehouses.map((w) => [w.id, w.archived, w.hasBalance]), [['w-1', false, false], ['w-2', true, true]], 'إعداد المنشأة: المخزن المؤرشف وعليه رصيد بعلامته من archived_stores_with_stock');
+
+    // ── اختبار الطفرات (WP4): العدد السالب أو الكسري والقيمة الفارغة ترمي باسم خانتها، والمؤشّرات بشكل الخادم (نصّ لرقم الحركة
+    // و{ id } للدفعة)، والمسوّدة بشرط نسختها وملاحظتها مقصوصة، والمرحَّل ثم الملغى «مرحَّل» من ختمه ─────────────────────────
+    t.same(
+      [shapeOf(() => m.parseStockBoard({ ...chickBoard, total: -1 })), shapeOf(() => m.parseStockBoard({ ...chickBoard, total: 1.5 }))],
+      ['row_shape:total', 'row_shape:total'],
+      'العدد الكلّي سالباً أو بكسر يرمي باسمه (مو «N من المجموع» غلط)',
+    );
+    const lotItem = { id: 'i', name: 'x', kind: 'feed', base_unit: 'kg', tracks_expiry: false, min_qty: null, density: null, piece_mass_kg: null, archived: false };
+    const lotOf = (over) => ({ lot_id: 'l', qty_left: '1.000', received_on: '2026-10-01', root_received_on: '2026-10-01', age_days: 29, born_at: null, age_hours: null, expiry_on: null, expired: false, near_expiry: false, source_kind: 'opening', source_id: 's', source: 'x', supplier_lot_no: null, ...over });
+    t.eq(shapeOf(() => m.parseItemLots({ item: lotItem, rows: [lotOf({ age_days: null })], next: null, total: 1 })), 'row_shape:age_days', 'age_days فارغ يرمي (مو عمر فارغ)');
+    const moveOf = (over) => ({ move_id: 'mv', seq: '1', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't', doc: 'TR-2026-0001', qty: '1.000', running: '1.000', lot_id: 'l', reverses_move_id: null, reversed: false, ...over });
+    t.eq(shapeOf(() => m.parseItemMoves({ rows: [moveOf({ seq: null })], next: null, total: 1 })), 'row_shape:seq', 'رقم الحركة الفارغ يرمي');
+    const maskedOpening = m.parseOpeningPreview({
+      id: 'o-1', kind: 'opening', status: 'draft', version: 2, problems: [], ready: true,
+      lines: [{ line_id: 'a', line_no: 1, item_id: 'i', item_name: 'كاز', base_unit: 'L', qty: '1.000', expiry_on: null, born_at: null, zero_reason: null, problem: null }],
+    });
+    t.same([maskedOpening.total, maskedOpening.lines[0].value], [null, null], 'معاينة افتتاح بلا money: المجموع والقيمة null مو صفر');
+    fake.plan.rpc = async (fn, args) => {
+      sent.push([fn, args]);
+      if (fn === 'stock_values') return { data: { warehouse_id: 'w-1', rows: [{ item_id: 'i-1', available: args.p_after_item === 'bad' ? null : '36000.00', expired: '1250.50' }] }, error: null, status: 200 };
+      if (fn === 'item_lots_qty') return { data: { item: lotItem, rows: [lotOf({})], next: null, total: 1 }, error: null, status: 200 };
+      if (fn === 'item_moves_qty') return { data: { rows: [moveOf({ seq: '9' })], next: null, total: null }, error: null, status: 200 };
+      if (fn === 'delete_draft_line') return { data: { line_id: 'x', deleted: true, doc_id: 't-1', version: 5 }, error: null, status: 200 };
+      return { data: null, error: null, status: 200 };
+    };
+    t.same((await m.loadStockValues('w-1', 'i-0')).get('i-1'), { available: 3_600_000n, expired: 125_050n }, 'stock_values: قيمة المنتهي بالفلس (1,250.50)');
+    t.eq(await m.loadStockValues('w-1', 'bad').then(() => 'ما رمى', (error) => (error instanceof m.RowShapeError ? error.message : `رمى غيره: ${error.message}`)), 'row_shape:available', 'قيمة فارغة من الخادم ترمي باسمها، مو صفر');
+    await m.loadItemLots('i-1', 'w-1', 'l-0');
+    t.same(sent.at(-1), ['item_lots_qty', { p_item: 'i-1', p_warehouse: 'w-1', p_after: { id: 'l-0' }, p_limit: 100 }], 'صفحة الدفعات الجاية بمؤشّر { id } (شكل item_lots_qty)');
+    await m.loadItemMoves('i-1', 'w-1', 8n);
+    t.same(sent.at(-1), ['item_moves_qty', { p_item: 'i-1', p_warehouse: 'w-1', p_after_seq: '8', p_limit: 100 }], 'صفحة الحركات الجاية برقم آخر حركة نصّاً عشرياً (bigint، E3)');
+    t.same(await m.deleteDraftLine('transfer', 'x', 4), { deleted: true, version: 5 }, 'حذف السطر يرجّع نسخة المسوّدة الجديدة');
+    const tr = (over) => ({ id: 't-1', doc_no: null, from_warehouse_id: 'w-1', to_warehouse_id: 'w-2', moved_on: '2026-10-30', status: 'draft', version: 1, note: null, posted_at: null, void_reason: null, ...over });
+    const op = (over) => ({ id: 'o-1', warehouse_id: 'w-1', on_date: '2026-10-20', status: 'draft', version: 3, note: null, posted_at: null, void_reason: null, ...over });
+    fake.plan.tables = { transfers: { data: [tr({})], error: null, status: 201 }, opening_docs: { data: [op({})], error: null, status: 200 } };
+    const lastQuery = (table) => fake.queries.filter((q) => q.table === table).at(-1);
+    await m.createTransferDraft('w-1', 'w-2', '2026-10-30', '   ');
+    await m.createTransferDraft('w-1', 'w-2', '2026-10-30', '  كاز  ');
+    t.same(fake.queries.filter((q) => q.table === 'transfers').slice(-2).map((q) => q.ops.find(([name]) => name === 'insert')[1].note), [null, 'كاز'], 'ملاحظة المسوّدة مقصوصة، والفارغة null (مو قيد ملاحظة فارغة)');
+    await m.updateStockDraft({ id: 't-1', kind: 'transfer', version: 4 }, { note: 'x' });
+    const trUpdate = lastQuery('transfers').ops;
+    await m.updateStockDraft({ id: 'o-1', kind: 'opening', version: 3 }, { day: '2026-10-21' });
+    const opUpdate = lastQuery('opening_docs').ops;
+    t.same(
+      [trUpdate.filter(([name]) => name === 'eq').map(([, column, value]) => [column, value]), opUpdate.filter(([name]) => name === 'eq').map(([, column, value]) => [column, value])],
+      [[['id', 't-1'], ['version', 4]], [['id', 'o-1'], ['version', 3]]],
+      'تعديل رأس المسوّدة بشرط نسختها (FOUNDATION ٨١٧) للنوعين',
+    );
+    fake.plan.tables = { transfers: { data: [tr({ status: 'void', doc_no: 'TR-2026-0001', posted_at: '2026-10-30T10:00:00Z', void_reason: 'خطأ', version: 3 }), tr({ id: 't-2', status: 'void', version: 2 })], error: null, status: 200 } };
+    t.same((await m.listStockDocs('transfer')).map((d) => [d.id, d.status, d.posted]), [['t-1', 'void', true], ['t-2', 'void', false]], 'الملغى بعد ترحيله مرحَّل بختمه، والمطويّة بلا ترحيل');
+    fake.plan.tables = undefined;
+    fake.plan.rpc = undefined;
+  }
 
   // ── ملفّا الحسابات (WP3، اختبار الطفرات): البحث مطبَّع بمرآة الخادم قبل ما يطلع، والمبلغ دينار صحيح نصّاً بنفس المعرّف والمرجع،
   // ورفض قيد check من الدوالّ أو من كتابة مباشرة يوصل الشاشة بجملة قيده (explained)، مو «check_violation» بلا جملة ─────────

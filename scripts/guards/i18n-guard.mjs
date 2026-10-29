@@ -45,6 +45,9 @@ const PREFIXABLE = new Set([
 // (بلا «الباب»: «سدّ الباب أمام التلاعب» فصيح)، وبلا فاء: «فسد التطبيق» فعل فصيح.
 const CLOSE_PHRASE = /(?<!\p{L})و?سد (?:النافذة|الشباك|التطبيق|القائمة|التنبيه|الشريط)/gu;
 const PERSIAN_LETTERS = /[\u{686}\u{6AF}\u{67E}\u{6A4}]/u; // چ گ پ ڤ
+// الأرقام العربية الشرقية (٠–٩) والفارسية (۰–۹).
+const EASTERN_DIGITS = /[\u{660}-\u{669}\u{6F0}-\u{6F9}]/gu;
+const INTERNAL_REFERENCE = /\b(?:FOUNDATION|DECISIONS)\b/u;
 const MARKS = /[\u{64B}-\u{65F}\u{670}\u{640}]/gu;
 
 /** كلمات اللهجة بنصّ معروض، بترتيب ظهورها (والعبارات بعدها). */
@@ -76,6 +79,12 @@ export function check(files) {
     else if (seen.text !== text) problems.push(`${place}: المفتاح «${key}» بنصّ ثاني غير اللي بـ${seen.place}`);
     const dialect = hasMarker(file, line, 'i18n-ok:') ? [] : dialectWords(text);
     if (dialect.length) problems.push(`${place}: لهجة بنصّ الواجهة «${dialect.join('، ')}» بالمفتاح «${key}» — الواجهة بالفصحى`);
+    // قانون المالك للأرقام: كل رقم معروض غربي، حتى داخل نصّ t() (الشرقي ينقلب بالإدخال بس). وإحالات الوثائق الداخلية (FOUNDATION
+    // وDECISIONS) مكانها التعليقات، مو نصّ يقراه المستخدم.
+    const eastern = text.match(EASTERN_DIGITS);
+    if (eastern) problems.push(`${place}: أرقام شرقية «${eastern.join('')}» بنصّ الواجهة بالمفتاح «${key}» — كل رقم معروض غربي`);
+    const reference = text.match(INTERNAL_REFERENCE);
+    if (reference) problems.push(`${place}: إحالة داخلية «${reference[0]}» بنصّ الواجهة بالمفتاح «${key}» — مكانها التعليق`);
   };
 
   for (const file of files) {
@@ -97,7 +106,8 @@ export function check(files) {
         const key = literalText(attr('k')?.initializer);
         const text = literalText(attr('text')?.initializer);
         if (key === null || text === null) problems.push(`${where(file, line)}: <Trans> لازم k وtext ثابتين`);
-        else remember(key, text, file, line);
+        // نصّ الخاصية بالـJSX ينعرض بكياناته مفكوكة (&#x663; = ٣)، فينفحص مفكوكاً.
+        else remember(key, decodeEntities(text), file, line);
         return;
       }
 
@@ -179,6 +189,20 @@ export function selfTest() {
   for (const text of dialectGood) if (dialectWords(text).length !== 0) return `الفصيح انمسك لهجة: «${text}» (${dialectWords(text).join('، ')})`;
   const inT = check([{ path: 'self/j.ts', text: "t('k.dialect', 'ماكو شي');" }]);
   if (inT.problems.length !== 1) return `لهجة بنصّ t() ما انمسكت: ${inT.problems.length}`;
+  // أرقام شرقية بنصّ t() أو <Trans>، وإحالة FOUNDATION أو DECISIONS: كل شكل ينمسك مرّة بالضبط، والرقم الغربي يعبر.
+  const numbersBad = [
+    "t('k.e1', 'ينتقل بالكلفة (البند \\u{669}\\u{662}).');",
+    "t('k.e5', 'ينتقل بالكلفة (FOUNDATION 92).');",
+    "t('k.e2', 'بعد \\u{6F3} أيام');",
+    'export const E = () => <Trans k="k.e3" text="بعد {n} من &#x663;" />;',
+    "t('k.e4', 'مستند بيوم التشغيل (DECISIONS القرار 15).');",
+  ];
+  for (const text of numbersBad) {
+    const got = check([{ path: 'self/n.tsx', text }]).problems;
+    if (got.length !== 1) return `رقم شرقي أو إحالة داخلية بنصّ الواجهة: توقّعت مخالفة وحدة وطلع ${got.length}: ${got.join(' | ') || text}`;
+  }
+  const numbersGood = check([{ path: 'self/o.tsx', text: "t('k.w1', 'بعد 3 أيام، والحدّ 1,500 كغم'); t('k.w2', 'الأساس (أسس التصميم)');" }]);
+  if (numbersGood.problems.length !== 0) return `الرقم الغربي انمسك: ${numbersGood.problems.join(' | ')}`;
   // المصطلح الفصيح اللي يشبه اللهجة يعبر بسبب ظاهر على سطره، وبلا السبب ينمسك.
   const marked = check([{ path: 'self/k.ts', text: "t('k.term', 'رصيد جاري الشركاء'); // i18n-ok: جاري الشركاء مصطلح محاسبي" }]);
   if (marked.problems.length !== 0) return `وسم i18n-ok ما عبّر المصطلح: ${marked.problems.join(' | ')}`;

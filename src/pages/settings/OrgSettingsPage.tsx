@@ -327,7 +327,8 @@ export function SetupTables({
     { key: 'site', header: t('org.site', 'الموقع'), cell: (row) => (row.store ? '' : row.site.name) },
     { key: 'store', header: t('org.warehouse', 'المخزن'), cell: (row) => row.store?.name ?? '' },
     { key: 'kind', header: t('org.kind', 'النوع'), cell: (row) => (row.store ? warehouseKindLabel(row.store.kind) : siteKindLabel(row.site.kind)) },
-    { key: 'status', header: t('org.status', 'الحالة'), cell: (row) => status((row.store ?? row.site).archived) },
+    // مخزن انؤرشف ورجع إليه رصيد بإلغاء (§2.6): علامته هنا جنب «أعِد»، حتى ينعاد أو يتصفّى.
+    { key: 'status', header: t('org.status', 'الحالة'), cell: (row) => (row.store?.archived && row.store.hasBalance ? t('org.status.archived_balance', 'مؤرشف وعليه رصيد') : status((row.store ?? row.site).archived)) },
   ];
   if (permissions.stores) {
     places.unshift({

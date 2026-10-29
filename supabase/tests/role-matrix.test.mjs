@@ -81,6 +81,56 @@ export default async function (t, db) {
   );
   const ACCOUNTS = ['owner', 'manager', 'accountant'];
 
+  // المرحلة 1 (WP4): يوم تشغيل المخازن العامة، وافتتاحان مرحّلان بالمخزن العامّ (كاز أويل للإلغاء، وكاز أبيض للتحويل)، وتحويل مرحّل
+  // للمواد الأوّلية بالمعمل، ومسوّدة تحويل بسطر ومسوّدة افتتاح بسطر (بنزين). العامّة صار بيها ترحيل، فيوم تشغيلها ثابت، وصفّ
+  // set_division_go_live يجرّب حقول البيض (بلا ترحيل).
+  const millRaw = (await db.admin("select id from public.warehouses where org_id = $1 and kind = 'raw'", [org])).rows[0].id;
+  const STOCK = ['owner', 'manager', 'storekeeper', 'accountant'];
+  const TRANSFER = ['owner', 'manager', 'storekeeper'];
+  const stock = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      await q('select public.set_division_go_live($1, public.app_today() - 3)', [general]);
+      const fuel = async (name) => one("insert into public.items (name, kind, base_unit) values ($1, 'fuel', 'L') returning id", [name]);
+      const diesel = await fuel('كاز أويل');
+      const kerosene = await fuel('كاز أبيض');
+      const petrol = await fuel('بنزين');
+      const version = async (table, docId) => one(`select version from public.${table} where id = $1`, [docId]);
+      const opening = async (item, qty, amount) => {
+        const doc = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [generalStore]);
+        await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, $3, $4)', [doc, item, qty, amount]);
+        return doc;
+      };
+      const posted = await opening(diesel, 100, 80000);
+      await q('select public.post_opening_stock($1, $2, gen_random_uuid())', [posted, await version('opening_docs', posted)]);
+      const stocked = await opening(kerosene, 500, 375000);
+      await q('select public.post_opening_stock($1, $2, gen_random_uuid())', [stocked, await version('opening_docs', stocked)]);
+      const transfer = async (qty) => {
+        const doc = await one('insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today()) returning id', [generalStore, millRaw]);
+        const line = await one('insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3) returning id', [doc, kerosene, qty]);
+        return { doc, line };
+      };
+      const moved = await transfer(100);
+      await q('select public.post_transfer($1, $2, gen_random_uuid())', [moved.doc, await version('transfers', moved.doc)]);
+      const draft = await transfer(50);
+      const draftOpening = await opening(petrol, 10, 7500);
+      return {
+        diesel,
+        kerosene,
+        posted,
+        moved: moved.doc,
+        draft: draft.doc,
+        draftLine: draft.line,
+        draftVersion: await version('transfers', draft.doc),
+        draftOpening,
+        openingLine: await one('select id from public.opening_lines where doc_id = $1', [draftOpening]),
+        openingVersion: await version('opening_docs', draftOpening),
+      };
+    },
+    { commit: true },
+  );
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -109,7 +159,7 @@ export default async function (t, db) {
     find_item_twins: { sql: () => ["select jsonb_array_length(public.find_item_twins('ذره صفراء', '{}')) as v", []], value: true, expect: all('ok:1') },
     in_scope_site: { sql: () => ['select public.in_scope_site($1) as v', [millSite]], value: true, expect: only(['owner', 'manager', 'accountant'], 'ok:true', 'ok:false') },
     in_scope_wh: { sql: () => ['select public.in_scope_wh($1) as v', [generalStore]], value: true, expect: only(['owner', 'manager', 'accountant', 'storekeeper'], 'ok:true', 'ok:false') },
-    set_division_go_live: { sql: () => ['select public.set_division_go_live($1, public.app_today() - 1)', [general]], expect: only(['owner', 'manager']) },
+    set_division_go_live: { sql: () => ['select public.set_division_go_live($1, public.app_today() - 1)', [layer]], expect: only(['owner', 'manager']) },
     set_member_scopes_v2: { sql: () => ["select public.set_member_scopes_v2($1, array[$2]::uuid[], '{}', '{}')", [member.hall_worker, layer]], expect: only(['owner']) },
     // المرحلة 1 (WP3، §2.12): الافتتاح للمدير (opening.post)، والقبض والدفع والنقل والمعاينة للمحاسب والمدير (payment.post)، والتسوية
     // والإعفاء للمدير (party.adjust)، وكل إلغاء للمدير (void)، والتقارير لأدوار الحسابات (accounts.view ويّا can_see_accounts)،
@@ -133,6 +183,24 @@ export default async function (t, db) {
     report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
     home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000', 'ok:null') },
     find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
+    // المرحلة 1 (WP4، §2.12): الافتتاح ومعاينته للمدير (opening.post)، والتحويل ومعاينته والطيّ وحذف السطر للأمين والمدير (transfer.post،
+    // والمحاسب ممنوع)، والإلغاء للمدير (void)، وقراءات الكميات لمن المخزن بنطاقه (والباقي out_of_scope)، والقيم لأدوار الحسابات.
+    post_opening_stock: { sql: () => ['select public.post_opening_stock($1, $2, gen_random_uuid())', [stock.draftOpening, stock.openingVersion]], expect: only(['owner', 'manager']) },
+    void_opening_stock: { sql: () => ["select public.void_opening_stock($1, 'افتتاح خاطئ', gen_random_uuid())", [stock.posted]], expect: only(['owner', 'manager']) },
+    preview_opening_stock: { sql: () => ["select (public.preview_opening_stock($1) -> 'money' ->> 'total')::numeric = 7500 as v", [stock.draftOpening]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    post_transfer: { sql: () => ['select public.post_transfer($1, $2, gen_random_uuid())', [stock.draft, stock.draftVersion]], expect: only(TRANSFER) },
+    void_transfer: { sql: () => ["select public.void_transfer($1, 'تحويل خاطئ', gen_random_uuid())", [stock.moved]], expect: only(['owner', 'manager']) },
+    preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: only(TRANSFER, 'ok:true') },
+    discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
+    delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
+    item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
+    item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
+    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 380000 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 380000 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    item_lots_value: { sql: () => ["select (public.item_lots_value($1, $2, null, 50) -> 'rows' -> 0 ->> 'value_left')::numeric = 300000 as v", [stock.kerosene, generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    // علامة «مؤرشف وعليه رصيد» لقائمة المخازن (§2.6): بلا قيم، لكل دور بنطاقه (ماكو مخزن مؤرشف هنا؛ الضابط الإيجابي بـstock.test).
+    archived_stores_with_stock: { sql: () => ['select jsonb_array_length(public.archived_stores_with_stock()) as v', []], value: true, expect: all('ok:0') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -154,6 +222,26 @@ export default async function (t, db) {
     t.same(got, row.expect, `${fn}: كل دور بنتيجته`);
   }
   t.eq(cells, allowlisted.length * ROLES.length, `خانات المصفوفة: ${allowlisted.length} دالّة × ${ROLES.length} أدوار`);
+  // §2.12: delete_draft_line وdiscard_draft بفعل مسوّدة كل نوع، فالنوع الثاني (الافتتاح: opening.post للمالك والمدير) صفوفه لحالها،
+  // ومسوّدته بالمخزن العامّ اللي الأمين بنطاقه (فلو فرع الافتتاح صار transfer.post ينجح الأمين وينمسك)، والنسخة القديمة stale_draft.
+  const KIND_ROWS = {
+    "discard_draft('opening')": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    "delete_draft_line('opening')": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    "discard_draft('opening') بنسخة قديمة": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
+    "delete_draft_line('opening') بنسخة قديمة": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
+  };
+  for (const [label, row] of Object.entries(KIND_ROWS)) {
+    const got = {};
+    for (const role of ROLES) {
+      try {
+        const result = await db.asUser(USERS[role], (q) => q(row.sql[0], row.sql[1]));
+        got[role] = row.value ? `ok:${result.rows[0].v}` : 'ok';
+      } catch (error) {
+        got[role] = error.message;
+      }
+    }
+    t.same(got, row.expect, `${label}: كل دور بنتيجته`);
+  }
   // المدير ينجح بكل خانة تشغيلية والمحاسب يفشل بيها (FOUNDATION ٥٤٤، ٨٦٥): بالمرحلة 0 الخانة التشغيلية قفل الفترة.
   t.same([ROWS.set_period_lock.expect.manager, ROWS.set_period_lock.expect.accountant], ['ok', 'forbidden'], 'المدير يقفل الفترة والمحاسب لا');
   t.same([ROWS.set_division_go_live.expect.manager, ROWS.set_division_go_live.expect.accountant], ['ok', 'forbidden'], 'المدير يحدّد يوم التشغيل والمحاسب لا');
@@ -161,6 +249,11 @@ export default async function (t, db) {
     ['record_opening_balance', 'record_party_adjustment', 'forgive_debt', 'void_party_payment', 'void_party_entry', 'record_cash_opening', 'void_cash_move'].map((fn) => [ROWS[fn].expect.manager, ROWS[fn].expect.accountant]),
     Array(7).fill(['ok', 'forbidden']),
     'المدير ينجح بالافتتاح والتسوية والإعفاء والإلغاء والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
+  );
+  t.same(
+    ['post_opening_stock', 'void_opening_stock', 'post_transfer', 'void_transfer', 'preview_transfer', 'discard_draft', 'delete_draft_line'].map((fn) => [ROWS[fn].expect.manager.split(':')[0], ROWS[fn].expect.accountant]),
+    Array(7).fill(['ok', 'forbidden']),
+    'المدير ينجح بخانات المخزون التشغيلية (الافتتاح والتحويل والإلغاء والمسوّدات) والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
   );
 
   // ── الكتابة المباشرة بالبيانات الأساسية (Q1، §2.12): كل جدول × دور، إدخال وتعديل، والمسموح بضابط إيجابي بكل خانة ─────────
@@ -221,6 +314,30 @@ export default async function (t, db) {
       insert: ["insert into public.cash_accounts (name, kind) values ('صندوق ثالث', 'wallet')", []],
       update: ['update public.cash_accounts set name = name where id = $1', [ledger.box]],
     },
+    // WP4 (§2.5): مسوّدات الافتتاح (opening.post) والتحويل (transfer.post، المرسِل بنطاق الأمين). إدخال السطر الممنوع يرفضه حارس
+    // السطر نفسه (forbidden، قبل RLS)، وتعديله الممنوع صفر صفوف (USING يحجب الصفّ قبل الحارس).
+    opening_docs: {
+      allowed: STORES,
+      insert: ['insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3)', [generalStore]],
+      update: ['update public.opening_docs set note = note where id = $1', [stock.draftOpening]],
+    },
+    opening_lines: {
+      allowed: STORES,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 1, 750)', [stock.draftOpening, stock.diesel]],
+      update: ['update public.opening_lines set qty_base = qty_base where id = $1', [stock.openingLine]],
+    },
+    transfers: {
+      allowed: TRANSFER,
+      insert: ['insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today())', [generalStore, millRaw]],
+      update: ['update public.transfers set note = note where id = $1', [stock.draft]],
+    },
+    transfer_lines: {
+      allowed: TRANSFER,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [stock.draft, stock.kerosene]],
+      update: ['update public.transfer_lines set qty_in_unit = qty_in_unit where id = $1', [stock.draftLine]],
+    },
   };
   t.same(Object.keys(WRITES).sort(), Object.keys(CLASSES.directWrite).sort(), `الكتابة المباشرة تغطّي directWrite بـclasses.json بالضبط (${Object.keys(WRITES).length} جدول)`);
   let writeCells = 0;
@@ -241,7 +358,7 @@ export default async function (t, db) {
           got[role] = /row-level security/u.test(error.message) ? 'rls' : error.message;
         }
       }
-      const expected = Object.fromEntries(ROLES.map((role) => [role, allowed.includes(role) ? 'ok' : verb === 'insert' ? 'rls' : 'rows:0']));
+      const expected = Object.fromEntries(ROLES.map((role) => [role, allowed.includes(role) ? 'ok' : verb === 'insert' ? (row.insertDenied ?? 'rls') : 'rows:0']));
       t.same(got, expected, `${table}.${verb}: كل دور بنتيجته`);
     }
   }

@@ -1,0 +1,46 @@
+import { t } from '../i18n';
+import { registerConstraintHints } from './constraints';
+
+// جمل قيود 0007 (الدفعات والحركات والأرصدة ومسوّدات الافتتاح والتحويل)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>،
+// والحزمة (constraints.test) تقارن القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا inventory.ts بس (حزم شاشات المخزون، برّا
+// التثبيت المسبق). الدفعات والحركات والأرصدة تكتبها الدوالّ بس؛ قيودها إلها جملها حتى لو انخرقت بهجرة.
+
+export const STOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
+  stock_lots_qty_in_check: () => t('constraint.stock_lots_qty_in_check', 'كمية الدفعة الداخلة أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_lots_value_in_check: () => t('constraint.stock_lots_value_in_check', 'قيمة الدفعة الداخلة صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  stock_lots_qty_left_check: () => t('constraint.stock_lots_qty_left_check', 'متبقّي الدفعة بين صفر وكميتها الداخلة.'),
+  stock_lots_value_left_check: () => t('constraint.stock_lots_value_left_check', 'قيمة متبقّي الدفعة صفر أو أكثر، والدفعة المنتهية بلا قيمة معلّقة.'),
+  stock_lots_source_kind_check: () => t('constraint.stock_lots_source_kind_check', 'مصدر الدفعة غير معروف.'),
+  stock_lots_mirror_check: () => t('constraint.stock_lots_mirror_check', 'دفعة التحويل وحدها تشير إلى دفعتها المصدر والأصلية.'),
+  stock_lots_supplier_lot_no_check: () => t('constraint.stock_lots_supplier_lot_no_check', 'رقم دفعة المورّد لا يزيد على 60 حرفاً.'),
+  stock_moves_qty_check: () => t('constraint.stock_moves_qty_check', 'كمية الحركة لا تكون صفراً، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_moves_value_check: () => t('constraint.stock_moves_value_check', 'قيمة الحركة بإشارة كميتها، بمرتبتين عشريتين كحدّ أقصى.'),
+  stock_moves_doc_kind_check: () => t('constraint.stock_moves_doc_kind_check', 'نوع مستند الحركة غير معروف.'),
+  stock_balances_qty_check: () => t('constraint.stock_balances_qty_check', 'رصيد المادّة في المخزن لا يكون سالباً.'),
+  stock_balances_value_check: () => t('constraint.stock_balances_value_check', 'قيمة الرصيد لا تكون سالبة، والرصيد الصفر بلا قيمة.'),
+  opening_docs_status_check: () => t('constraint.opening_docs_status_check', 'حالة مستند الافتتاح غير معروفة.'),
+  opening_docs_lifecycle_check: () => t('constraint.opening_docs_lifecycle_check', 'حالة مستند الافتتاح لا تناسب ختم ترحيله أو إلغائه.'),
+  opening_docs_version_check: () => t('constraint.opening_docs_version_check', 'نسخة المستند تبدأ من 1.'),
+  opening_docs_note_check: () => t('constraint.opening_docs_note_check', 'الملاحظة لا تزيد على 500 حرف.'),
+  opening_docs_void_reason_check: () => t('constraint.opening_docs_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  opening_lines_qty_check: () => t('constraint.opening_lines_qty_check', 'كمية سطر الافتتاح أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  opening_lines_value_check: () => t('constraint.opening_lines_value_check', 'قيمة سطر الافتتاح صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  opening_lines_zero_reason_check: () => t('constraint.opening_lines_zero_reason_check', 'سبب القيمة الصفر لا يزيد على 500 حرف.'),
+  opening_lines_line_no_check: () => t('constraint.opening_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  transfers_status_check: () => t('constraint.transfers_status_check', 'حالة التحويل غير معروفة.'),
+  transfers_lifecycle_check: () => t('constraint.transfers_lifecycle_check', 'حالة التحويل لا تناسب ختم ترحيله أو إلغائه.'),
+  transfers_numbered_check: () => t('constraint.transfers_numbered_check', 'التحويل المرحَّل وحده يحمل رقماً.'),
+  transfers_doc_no_check: () => t('constraint.transfers_doc_no_check', 'رقم التحويل بالشكل TR-السنة-الرقم.'),
+  transfers_version_check: () => t('constraint.transfers_version_check', 'نسخة التحويل تبدأ من 1.'),
+  transfers_same_warehouse_check: () => t('constraint.transfers_same_warehouse_check', 'المخزن المرسِل والمستلم واحد؛ اختر مخزناً آخر للاستلام.'),
+  transfers_note_check: () => t('constraint.transfers_note_check', 'ملاحظة التحويل لا تزيد على 500 حرف.'),
+  transfers_void_reason_check: () => t('constraint.transfers_void_reason_check', 'سبب إلغاء التحويل لا يزيد على 500 حرف.'),
+  transfer_lines_qty_in_unit_check: () => t('constraint.transfer_lines_qty_in_unit_check', 'كمية السطر أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  transfer_lines_factor_check: () => t('constraint.transfer_lines_factor_check', 'معامل وحدة السطر أكبر من صفر، بستّ مراتب عشرية كحدّ أقصى.'),
+  transfer_lines_qty_base_check: () => t('constraint.transfer_lines_qty_base_check', 'كمية السطر بوحدة الأساس أكبر من صفر.'),
+  transfer_lines_unit_check: () => t('constraint.transfer_lines_unit_check', 'السطر بوحدة تعبئة أو بوحدة قياس، لا الاثنتين.'),
+  transfer_lines_unit_label_check: () => t('constraint.transfer_lines_unit_label_check', 'اسم وحدة السطر مطلوب، ولا يزيد على 40 حرفاً.'),
+  transfer_lines_line_no_check: () => t('constraint.transfer_lines_line_no_check', 'رقم سطر التحويل يبدأ من 1.'),
+};
+
+registerConstraintHints(STOCK_CONSTRAINT_HINTS);

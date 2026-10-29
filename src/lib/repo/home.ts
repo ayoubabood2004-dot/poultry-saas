@@ -21,8 +21,14 @@ export interface HomeSummary {
     /** أيام لأقرب إخراج متوقّع بين الوجبات بالمكينة («وأيامها الباقية»)، سالب = فات موعده؛ null بلا وجبة. */
     nextHatchInDays: number | null;
   };
-  medicine?: { nearExpiry: number };
+  medicine?: { nearExpiry: number; belowMinimum: number };
+  /** أفراخ بمخازن المفقس فاتها 48 ساعة من فقسها (E24؛ تنبيه مو منع). */
+  oldChicks?: number;
   general?: { belowMinimum: number };
+  /** مواد تحت الحدّ الأدنى بمخازن المعمل (المواد الأوّلية والإضافات والتعبئة، والعلف، E22). */
+  millBelowMinimum?: number;
+  /** مواد تحت الحدّ الأدنى بمخازن المفقس (بيض التفقيس والأفراخ، E22). */
+  hatcheryBelowMinimum?: number;
   /**
    * لأدوار الحسابات بس (الخادم ما يرجّعها لغيرهم). visibleBooks من totalBooks: القارئ المحصور بوحدات (E49) أرقامه من دفاتر
    * نطاقه بس، فالبطاقة تكتب «N من المجموع».
@@ -61,6 +67,21 @@ export function parseHomeSummary(value: unknown): HomeSummary {
     const accounts = record(json.accounts, 'accounts');
     const books = record(accounts.books, 'books');
     out.accounts = { receivable: fils(accounts, 'receivable'), payable: fils(accounts, 'payable'), negativeBoxes: count(accounts, 'negative_boxes'), visibleBooks: count(books, 'visible'), totalBooks: count(books, 'total') };
+  }
+  // تنبيهات المخزون لكل وحدة بمخازن النطاق (0007): تحت الحدّ الأدنى لكل وحدة تستلم المادّة من المورّد (E22: المعمل والأدوية
+  // والعامّة والمفقس)، وقريب الانتهاء للأدوية، وأفراخ المفقس فاتها 48 ساعة. حقول اللحم والبيض ما تستلم من المورّد (صفر دائماً).
+  if (json.stock !== undefined) {
+    if (!Array.isArray(json.stock)) throw new HomeShapeError('stock');
+    for (const entry of json.stock) {
+      const row = record(entry, 'stock');
+      if (row.kind === 'feed_mill') out.millBelowMinimum = count(row, 'below_min');
+      if (row.kind === 'medicine') out.medicine = { nearExpiry: count(row, 'near_expiry'), belowMinimum: count(row, 'below_min') };
+      if (row.kind === 'general') out.general = { belowMinimum: count(row, 'below_min') };
+      if (row.kind === 'hatchery') {
+        out.oldChicks = count(row, 'old_chicks');
+        out.hatcheryBelowMinimum = count(row, 'below_min');
+      }
+    }
   }
   return out;
 }

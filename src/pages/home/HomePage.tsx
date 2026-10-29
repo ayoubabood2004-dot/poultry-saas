@@ -95,6 +95,7 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       metrics: [
         { label: t('home.mill.produced', 'إنتاج اليوم'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.producedTodayKg, 'kg').main : null },
         { label: t('home.mill.stock', 'العلف الجاهز'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.feedInStockKg, 'kg').main : null },
+        { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.millBelowMinimum !== undefined ? fmtInt(s.millBelowMinimum) : null },
       ],
     },
     {
@@ -142,6 +143,8 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
           value: s.hatchery && s.hatchery.nextHatchInDays !== null ? <NextHatch days={s.hatchery.nextHatchInDays} /> : null,
         },
         { label: t('home.hatchery.chicks', 'أفراخ في الانتظار'), kind: 'number', value: s.hatchery ? fmtInt(s.hatchery.chicksWaiting) : null },
+        { label: t('home.hatchery.old', 'أفراخ فاتها 48 ساعة'), kind: 'number', value: s.oldChicks !== undefined ? fmtInt(s.oldChicks) : null },
+        { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.hatcheryBelowMinimum !== undefined ? fmtInt(s.hatcheryBelowMinimum) : null },
       ],
     },
     {
@@ -149,7 +152,10 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
       to: '/inventory/medicine',
       title: t('nav.medicine', 'مخزن الأدوية'),
       icon: Pill,
-      metrics: [{ label: t('home.medicine.expiry', 'قريب الانتهاء'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.nearExpiry) : null }],
+      metrics: [
+        { label: t('home.medicine.expiry', 'قريب الانتهاء'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.nearExpiry) : null },
+        { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.belowMinimum) : null },
+      ],
     },
     {
       key: 'general',

@@ -4,7 +4,7 @@
 // المرحلة 1 (WP2): قاموس لكل وحدة (constraints-stores.ts)، والفحص يقارن القواميس كلها سوا بالكتالوج، وبلا قيد بقاموسين.
 // المرحلة 1 (WP3): قاموس النواة (constraints.ts) كسول، core.ts يجيبه بـimport() لحظة الرفض (explained)، فهو برّا مسار الجلسة
 // الحرج (bundle-guard LAZY_ONLY)؛ وقاموسا المخازن والدفاتر يسجّلان نفسيهما فيه لمّا ينحمّل ملف وحدتهما (inventory.ts، parties.ts
-// وcash.ts عبره) ويّا شاشته. فالطريق كامل من ملف كل شاشة لحاله (core ويّا ملف الوحدة بس، بلا استيراد القاموس صريحاً)، وضابطه:
+// وcash.ts عبره) ويّا شاشته. المرحلة 1 (WP4): قاموس المخزون (constraints-stock.ts) يسجّله inventory.ts هم. فالطريق كامل من ملف كل شاشة لحاله (core ويّا ملف الوحدة بس، بلا استيراد القاموس صريحاً)، وضابطه:
 // core وحده يرجّع الجملة العامة، فاستيراد التسجيل المشال من ملف الوحدة ينمسك.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ARABIC = /[\u{600}-\u{6FF}]/u;
-const SOURCES = ['constraints.ts', 'constraints-stores.ts', 'constraints-ledger.ts'];
+const SOURCES = ['constraints.ts', 'constraints-stores.ts', 'constraints-ledger.ts', 'constraints-stock.ts'];
 
 /** الناقص والزايد بين الكتالوج والقاموس. */
 export function dictionaryGaps(catalog, dictionary) {
@@ -43,6 +43,7 @@ export default async function (t, db) {
       "export { CONSTRAINT_HINTS, constraintHint } from './src/lib/repo/constraints.ts';",
       "export { STORES_CONSTRAINT_HINTS } from './src/lib/repo/constraints-stores.ts';",
       "export { LEDGER_CONSTRAINT_HINTS } from './src/lib/repo/constraints-ledger.ts';",
+      "export { STOCK_CONSTRAINT_HINTS } from './src/lib/repo/constraints-stock.ts';",
       "export { classifyPostgrest, explained, violatedConstraint } from './src/lib/repo/core.ts';",
     ].join('\n'),
   );
@@ -50,7 +51,7 @@ export default async function (t, db) {
 
   const catalog = (await db.admin("select conname from pg_constraint where contype = 'c' and connamespace in ('public'::regnamespace, 'private'::regnamespace) order by 1")).rows.map((r) => r.conname);
   t.ok(catalog.length >= 40, `قيود check بالكتالوج (${catalog.length})`);
-  const parts = [Object.keys(m.CONSTRAINT_HINTS), Object.keys(m.STORES_CONSTRAINT_HINTS), Object.keys(m.LEDGER_CONSTRAINT_HINTS)];
+  const parts = [Object.keys(m.CONSTRAINT_HINTS), Object.keys(m.STORES_CONSTRAINT_HINTS), Object.keys(m.LEDGER_CONSTRAINT_HINTS), Object.keys(m.STOCK_CONSTRAINT_HINTS)];
   const twice = parts.flatMap((names, i) => names.filter((name) => parts.some((other, j) => j !== i && other.includes(name))));
   t.same(twice, [], 'ماكو قيد بقاموسين');
   const dictionary = parts.flat().sort();

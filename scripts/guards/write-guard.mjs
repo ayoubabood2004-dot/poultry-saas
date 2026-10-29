@@ -190,10 +190,18 @@ const isPageModule = (resolved) => {
 };
 
 /**
- * جذور مسار الجلسة الحرج (bundle-guard SESSION_ENTRIES وحزمة الإقلاع): الإقلاع، ووحدة الجلسة، وكل ملف بـrepo غير ملفات
- * الوحدات الكسولة (index يصدّرهم أو يستوردهم بعضهم).
+ * وحدات كسولة غير ملفات الوحدات (المرحلة 1 WP4): مسوّدات الجهاز (src/lib/drafts، IndexedDB لشاشات المخزون) وقواميس قيود الوحدات
+ * (constraints-stores وconstraints-ledger وconstraints-stock، يسجّلها ملف وحدتها). ما تدخل مسار الجلسة الحرج ولا الإقلاع: الشاشة
+ * أو ملف وحدتها يستوردها. استيرادها الثابت من مسار الجلسة مخالفة (هامش السقف ~2,500 بايت أكبر من أيّ وحدة منها، فالسقف ما يمسكه).
  */
-const isSessionRoot = (filePath) => filePath === 'src/main.tsx' || filePath === 'src/lib/sessionFlow.ts' || (filePath.startsWith('src/lib/repo/') && !isPageModule(filePath));
+const LAZY_PATHS = [/^src\/lib\/drafts(?:\/|$)/, /^src\/lib\/repo\/constraints-(?:stores|ledger|stock)$/];
+const isLazyModule = (resolved) => LAZY_PATHS.some((pattern) => pattern.test(resolved.replace(/\.(?:ts|tsx|js)$/, '')));
+
+/**
+ * جذور مسار الجلسة الحرج (bundle-guard SESSION_ENTRIES وحزمة الإقلاع): الإقلاع، ووحدة الجلسة، وكل ملف بـrepo غير ملفات
+ * الوحدات الكسولة والوحدات الكسولة الثانية (index يصدّرهم أو يستوردهم بعضهم).
+ */
+const isSessionRoot = (filePath) => filePath === 'src/main.tsx' || filePath === 'src/lib/sessionFlow.ts' || (filePath.startsWith('src/lib/repo/') && !isPageModule(filePath) && !isLazyModule(filePath));
 
 /** استيراد ثابت مو أنواع بس (import … from وexport … from): هذا يدخل حزمة المستورِد؛ import() يطلع حزمة لحالها. */
 function staticReference(node) {
@@ -223,7 +231,7 @@ function sessionReachable(files) {
       const specifier = staticReference(node);
       if (!specifier || !specifier.startsWith('.')) return;
       const target = resolveFile(file, specifier);
-      if (target && !isPageModule(target) && !reached.has(target)) queue.push(target);
+      if (target && !isPageModule(target) && !isLazyModule(target) && !reached.has(target)) queue.push(target);
     });
   }
   return reached;
@@ -273,7 +281,7 @@ export function check(files, program = virtualProgram(files, { options: { noReso
       if (reference && reference[0]) {
         const [specifier, onlyTypes] = reference;
         const place = where(file, lineOf(sourceFile, node));
-        if (onSessionPath.has(file.path) && staticReference(node) && specifier.startsWith('.') && isPageModule(resolveSpecifier(file, specifier))) {
+        if (onSessionPath.has(file.path) && staticReference(node) && specifier.startsWith('.') && (isPageModule(resolveSpecifier(file, specifier)) || isLazyModule(resolveSpecifier(file, specifier)))) {
           problems.push(`${place}: ${specifier} بمسار الجلسة الحرج (${file.path} من الإقلاع أو وحدة الجلسة أو repo) — ملف الوحدة الكسول يتحمّل لكل مستخدم قبل أوّل شاشة؛ الشاشة تستورده مباشرةً`);
         }
         if (!inRepo && specifier.startsWith('@supabase/')) problems.push(`${place}: Supabase برّا src/lib/repo — الشاشات تمرّ من repo بس`);
@@ -441,6 +449,11 @@ export function selfTest() {
     ['src/pages/inventory/bad2.tsx', 1, "import { call } from '../../lib/repo/core'; import * as inventory from '../../lib/repo/inventory'; export const c = [call, inventory];"],
     // إعفاء ملفات الوحدات الكسولة لـrepo بس: ملف داخلي بـoutbox بنفس الاسم يبقى داخلياً (اختبار الطفرات WP2).
     ['src/pages/inventory/bad3.tsx', 1, "import { q } from '../../lib/outbox/scopes'; export const x = q;"],
+    // WP4: مسوّدات الجهاز وقاموس قيود المخزون كسولة: استيرادها الثابت من الجلسة أو repo أو الإقلاع مسار الجلسة.
+    ['src/lib/repo/client2.ts', 1, "import { saveDeviceDraft } from '../drafts'; export const s = saveDeviceDraft;", 'مسار الجلسة'],
+    ['src/lib/repo/env2.ts', 1, "import '../drafts/index'; export const c = 1;", 'مسار الجلسة'],
+    ['src/lib/repo/members2.ts', 1, "import './constraints-stock'; export const m = 1;", 'مسار الجلسة'],
+    ['src/lib/repo/boot2.ts', 1, "export { STORES_CONSTRAINT_HINTS } from './constraints-stores';", 'مسار الجلسة'],
   ];
   // المخالفة نفسها مو أي مخالفة: الحذف باسمه (E52)، والعمود الثابت جنب ...نشر أو باسم محسوب باسمه (مو «ما تنقرا»).
   const mentions = { 'src/lib/repo/del.ts': 'E52', 'src/lib/repo/pay5.ts': 'org_id', 'src/lib/repo/pay6.ts': 'status', 'src/lib/repo/pay7.ts': 'org_id' };
@@ -472,6 +485,9 @@ export function selfTest() {
     { path: 'src/pages/accounts/ok.tsx', text: "import * as parties from '../../lib/repo/parties'; import * as cash from '../../lib/repo/cash'; export const p = [parties, cash];" },
     { path: 'src/pages/broiler/ok.tsx', text: "import { saveRound } from '../../lib/outbox'; import type { OutboxOp } from '../../lib/outbox/types'; export const s = saveRound;" },
     { path: 'src/pages/inventory/ok.tsx', text: "import * as inventory from '../../lib/repo/inventory'; import type { ItemRow } from '../../lib/repo/inventory'; export const l = inventory.listItems;" },
+    // الشاشة تستورد مسوّدات الجهاز، وملف الوحدة الكسول يستورد قاموسه ويسجّله (مو مسار الجلسة).
+    { path: 'src/pages/inventory/ok2.tsx', text: "import { saveDeviceDraft } from '../../lib/drafts'; export const s = saveDeviceDraft;" },
+    { path: 'src/lib/repo/parties.ts', text: "import './constraints-ledger'; export const p = 1;" },
     { path: 'src/lib/outbox/round.ts', text: "import { enqueue } from './queue'; export const r = enqueue;" },
     // اسم بنطاق ثاني: Map.delete بدالّة، وconst بنفس الاسم من .from بدالّة ثانية.
     { path: 'src/lib/repo/ok2.ts', text: "export function a(db) { const tbl = db.from('stock_moves'); return tbl; } export function b() { const tbl = new Map(); tbl.delete(1); }" },
@@ -517,6 +533,12 @@ export function selfTest() {
     { path: 'src/components/Shell/index.tsx', text: "import { listItems } from '../../lib/repo/inventory'; export const Shell = listItems;" },
   ]);
   if (viaIndex.problems.length !== 1 || !viaIndex.problems[0].startsWith('src/components/Shell/index.tsx')) return `ملف كسول بسلسلة عبر مجلّد: توقّعت مخالفة وحدة بـShell/index.tsx، وطلع ${viaIndex.problems.join(' | ') || 'صفر'}`;
+  // مسوّدات الجهاز بسلسلة الإقلاع (الإقلاع ← وحدة عاديّة ← drafts): تتسمّى بمكان الاستيراد مرّة وحدة (WP4).
+  const draftsChain = check([
+    { path: 'src/main.tsx', text: "import { Shell } from './components/Shell'; export const s = Shell;" },
+    { path: 'src/components/Shell.tsx', text: "import { listDeviceDrafts } from '../lib/drafts'; export const Shell = listDeviceDrafts;" },
+  ]);
+  if (draftsChain.problems.length !== 1 || !draftsChain.problems[0].startsWith('src/components/Shell.tsx')) return `مسوّدات الجهاز بسلسلة الإقلاع: توقّعت مخالفة وحدة بـShell، وطلع ${draftsChain.problems.join(' | ') || 'صفر'}`;
   const pageChain = check([
     { path: 'src/lib/sessionFlow.ts', text: "import { listItems } from './repo/inventory'; export const l = listItems;" },
     { path: 'src/lib/repo/inventory.ts', text: "import { setMemberScopesV2 } from './scopes'; export const s = setMemberScopesV2;" },

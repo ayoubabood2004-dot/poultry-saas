@@ -4,7 +4,12 @@
 // وفوكها: الهويّة تنفحص لصق الإرسال، ومسك مختوم بالمستقبل ميّت، والقاعدة ما تسدّ ترقية نسخة أحدث،
 // وكل حفظ جولة يسأل persisted().
 import 'fake-indexeddb/auto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadSrc } from './load-src.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const ORG = 'org-1';
 const ALI = { userId: 'user-ali', orgId: ORG, displayName: 'علي' };
@@ -104,6 +109,18 @@ export default async function (t) {
   {
     const db = await open();
     await t.rejects(q.saveRound(db, ALI, { ...day('f1', '2026-10-15', { dead: 1 }), fn: 'post_sale' }), 'post_sale ما يدخل الطابور', /not_queueable/);
+    // كل دالّة ترحيل أو إلغاء بقائمة السماح (ومنها ترحيل الافتتاح والتحويل، WP4) ترفض الطابور: الترحيل يحتاج الشبكة (FOUNDATION ٢٠١).
+    const allowlist = JSON.parse(readFileSync(path.join(ROOT, 'supabase', 'tests', 'allowlist.json'), 'utf8')).authenticated;
+    const postings = allowlist.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).filter((name) => /^(post|void)_/u.test(name));
+    let refused = 0;
+    for (const fn of postings) {
+      try {
+        await q.saveRound(db, ALI, { ...day('f1', '2026-10-15', { dead: 1 }), fn });
+      } catch (error) {
+        if (/not_queueable/u.test(error.message)) refused += 1;
+      }
+    }
+    t.ok(postings.includes('post_transfer') && postings.includes('post_opening_stock') && refused === postings.length, `كل post_*/void_* بقائمة السماح يرفضه الطابور (${refused} من ${postings.length})`);
     await t.rejects(q.saveRound(db, { ...ALI, userId: '' }, day('f1', '2026-10-15', { dead: 1 })), 'بلا هويّة ما يدخل', /no_identity/);
     const op = await q.saveRound(db, ALI, day('f1', '2026-10-15', { dead: 3 }));
     t.same([op.userId, op.orgId, op.displayName, op.fn, op.state], [ALI.userId, ORG, 'علي', 'save_flock_day', 'pending'], 'العملية مختومة بالهويّة');

@@ -220,6 +220,37 @@ export default async function (t, db) {
     );
   }
 
+  // المرحلة 1 (0007): افتتاح وتحويل مرحّلان بدوالّهما (فبكل جدول مخزون صفوف للطرفين)، ومسوّدتا افتتاح وتحويل بسطر لمعاينتيهما.
+  const stockOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    stockOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const general = await value(q, "select id from public.warehouses where kind = 'general'");
+        const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+        await q("select public.set_division_go_live(d.id, public.app_today() - 3) from public.divisions d where d.kind = 'feed_mill'");
+        const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز أويل', 'fuel', 'L') returning id");
+        const spare = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز أبيض', 'fuel', 'L') returning id");
+        const opening = async (item) => {
+          const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [general]);
+          await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 80000)', [doc, item]);
+          return doc;
+        };
+        const transfer = async () => {
+          const doc = await value(q, 'insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today()) returning id', [general, raw]);
+          await q('insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 40)', [doc, fuel]);
+          return doc;
+        };
+        const posted = await opening(fuel);
+        await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [posted]);
+        const moved = await transfer();
+        await q('select public.post_transfer($1, (select version from public.transfers where id = $1), gen_random_uuid())', [moved]);
+        return { general, fuel, openingDraft: await opening(spare), transferDraft: await transfer() };
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -472,7 +503,7 @@ export default async function (t, db) {
       and has_function_privilege('authenticated', p.oid, 'execute') order by 1`)).rows;
   t.ok(readOnly.length >= 8, `دوالّ للقراءة بقائمة السماح (${readOnly.map((f) => f.name).join('، ')})`);
   // قيمة غير فارغة لكل نوع (STRICT ويّا NULL يرجع بلا ما يشتغل الجسم)، ونوع جديد بلا قيمة يفشل هنا مو يعبر بصمت.
-  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01', 'text[]': ['READ'], numeric: '1000', integer: 50, jsonb: {} };
+  const SAMPLE = { uuid: aBroiler, text: 'read', boolean: false, date: '2026-01-01', 'text[]': ['READ'], numeric: '1000', integer: 50, jsonb: {}, bigint: '0' };
   const unmapped = [...new Set(readOnly.flatMap((fn) => (fn.args ? fn.args.split(', ') : []).filter((type) => SAMPLE[type] == null)))];
   t.same(unmapped, [], 'كل نوع معامل بدوالّ القراءة إله قيمة تجربة');
   // بأكثر من هويّة حتى كل فرع ينفّذ: مالك، عامل بنطاق، بلا منشأة، ومالك منشأة ثانية.
@@ -485,6 +516,15 @@ export default async function (t, db) {
     report_party_balances: () => ['2026-01-01', '2026-12-31', null, true, 'balance', null, null, 50],
     report_party_statement: (persona) => [own(persona).party, null, '2026-01-01', '2026-12-31'],
     report_cash_statement: (persona) => [own(persona).box, '2026-01-01', '2026-12-31'],
+    // المرحلة 1 (WP4): قراءات المخزون بمخزن كل مالك ومادّته، والمعاينتان بمسوّدتيه.
+    stock_on_hand: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
+    item_lots_qty: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
+    item_moves_qty: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
+    stock_values: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
+    stock_value_totals: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].general],
+    item_lots_value: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
+    preview_opening_stock: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].openingDraft],
+    preview_transfer: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].transferDraft],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -495,6 +535,15 @@ export default async function (t, db) {
     report_party_statement: NO_ACCOUNTS,
     report_cash_balances: NO_ACCOUNTS,
     report_cash_statement: NO_ACCOUNTS,
+    // المخزون: الكميات لمن المخزن بنطاقه (العامل بحقول اللحم وبلا منشأة out_of_scope)، والقيم والمعاينتان بفعلها (forbidden).
+    stock_on_hand: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
+    item_lots_qty: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
+    item_moves_qty: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
+    stock_values: NO_ACCOUNTS,
+    stock_value_totals: NO_ACCOUNTS,
+    item_lots_value: NO_ACCOUNTS,
+    preview_opening_stock: NO_ACCOUNTS,
+    preview_transfer: NO_ACCOUNTS,
   };
   const readOnlyFailures = [];
   let rejected = 0;
