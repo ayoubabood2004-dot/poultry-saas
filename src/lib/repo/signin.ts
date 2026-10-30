@@ -38,7 +38,7 @@ export function mapAuthError(error: AuthFailure, wasOnline: boolean): Error {
     case 'over_email_send_rate_limit':
       return new RejectedError('rate_limited', t('auth.error.rate_limited', 'محاولات كثيرة متتالية. انتظر بضع دقائق ثم أعد المحاولة.'));
     default:
-      return new RejectedError(error.code || 'auth_failed', t('auth.error.failed', 'تعذّر إتمام الطلب. أعد المحاولة، وإن تكرّر فتواصل مع الدعم.'));
+      return new RejectedError(error.code || 'auth_failed', t('auth.error.failed', 'تعذّر إتمام الطلب (الرمز: {code}). أعد المحاولة، وإن تكرّر فتواصل مع الدعم.', { code: error.code || error.name || 'auth' }));
   }
 }
 
