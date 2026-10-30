@@ -285,6 +285,35 @@ export default async function (t, db) {
     );
   }
 
+  // المرحلة 1 (0009): استلام مرحَّل بالمخزن العامّ (سطر مسعَّر، ودفع عند الاستلام من الصندوق، وتحميل بالقيمة لناقل على سطوره
+  // المختارة، فحصصه)، فبكل جدول استلام صفوف للطرفين؛ ومسوّدة استلام لمعاينتها.
+  const receiptOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    const { general, fuel } = stockOf[key];
+    const { box } = ledgerOf[key];
+    receiptOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        await q("select public.set_division_go_live(d.id, public.app_today() - 3) from public.divisions d where d.kind = 'general' and d.go_live_on is null");
+        const supplier = await value(q, "insert into public.parties (name, is_supplier) values ('مورّد الكاز', true) returning id");
+        const carrier = await value(q, "insert into public.parties (name, is_supplier) values ('ناقل الكاز', true) returning id");
+        const draft = async () => {
+          const doc = await value(q, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [supplier, general]);
+          const line = await value(q, 'insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10) returning id', [doc, fuel]);
+          return { doc, line };
+        };
+        const posted = await draft();
+        await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 8000)', [posted.line]);
+        await q('insert into public.receipt_amounts (doc_id, paid_now, cash_account_id) values ($1, 3000, $2)', [posted.doc, box]);
+        const charge = await value(q, "insert into public.receipt_charges (doc_id, label, amount, allocate_by, payee_party_id) values ($1, 'نقل', 500, 'value', $2) returning id", [posted.doc, carrier]);
+        await q('select public.set_charge_lines($1, array[$2]::uuid[], (select version from public.receipts where id = $3))', [charge, posted.line, posted.doc]);
+        await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [posted.doc]);
+        return { receiptDraft: (await draft()).doc };
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -563,6 +592,8 @@ export default async function (t, db) {
     preview_stock_use: (persona) => [wp5Of[persona === U.bOwner ? 'b' : 'a'].useDraft],
     preview_count: (persona) => [wp5Of[persona === U.bOwner ? 'b' : 'a'].countSubmitted],
     report_expenses: () => ['2026-01-01', '2026-12-31', null, null, 50],
+    // المرحلة 1 (WP6): معاينة الاستلام بمسوّدته.
+    preview_receipt: (persona) => [receiptOf[persona === U.bOwner ? 'b' : 'a'].receiptDraft],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -585,6 +616,7 @@ export default async function (t, db) {
     preview_stock_use: NO_ACCOUNTS,
     preview_count: NO_ACCOUNTS,
     report_expenses: NO_ACCOUNTS,
+    preview_receipt: NO_ACCOUNTS,
   };
   const readOnlyFailures = [];
   let rejected = 0;

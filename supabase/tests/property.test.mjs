@@ -8,8 +8,12 @@
 // النقدية، والإلغاء لكلها؛ وبعد كل خطوة verify_stock وverify_ledger صفر ورصيد الصندوق = النموذج؛ وسحب الصرف ونقص الجرد =
 // fifo.planDraw بالفلس، وقيمة كل زيادة = count.gainValue بدفعة pickGainReferenceLot على دفعات المنشأة قبلها، ومصروف المستند =
 // مجموع سحبه.
+// v4 (WP6، بذرة ثابتة مطبوعة): استلامات عشوائية (كيلو ولتر بكثافة وقطع بوزن وبلاه، ومادّة تتابع الانتهاء) بخصم وتحميلات بالوزن
+// والقيمة على كل السطور أو اختيارها، ومدفوع، وأحياناً خصم أكبر من المجموع أو صفر بلا سبب؛ وقيمة كل دفعة = receipt.receiptValuation
+// بالفلس، والرفض برمز مشكلتها بالضبط؛ وإلغاءات عشوائية؛ وبعد كل خطوة verify_stock وverify_ledger صفر.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
 import { LEDGER_ZERO, balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
+import { postReceipt, priceReceipt, receiptDraft, voidReceipt } from './receipt-kit.mjs';
 import { STOCK_ZERO, makeStockOrg, openingDraft, postOpening, postTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
@@ -36,6 +40,7 @@ export default async function (t, db) {
     await propertyV1(t, db, { ledger, U, B, BOX, party });
     await propertyV2(t, db);
     await propertyV3(t, db);
+    await propertyV4(t, db);
   });
 }
 
@@ -530,4 +535,107 @@ async function propertyV1(t, db, { ledger, U, B, BOX, party }) {
   console.log(`    · فحص الخصائص v1: البذرة ${SEED}، ${done} خطوة من ${STEPS} و${previews} معاينة`);
   t.same(failures, [], `الخصائص v1 (البذرة ${SEED}): بعد كل خطوة verify_ledger صفر، والمتبقّي لكل قيد ورصيد كل دفتر = نموذج allocationPlan وrunBooks، والمعاينة = allocationPlan`);
   t.ok(done >= STEPS / 2 && previews > 0, `الخصائص v1 نفّذت أكثر من صفر حالة (${done} خطوة، ${previews} معاينة)`);
+}
+
+async function propertyV4(t, db) {
+  const SEED = 20261104;
+  const STEPS = 60;
+  const domain = await loadSrc('src/domain/receipt.ts');
+  const S = await makeStockOrg(db, {
+    name: 'مزرعة خصائص الاستلام',
+    id: (n) => `d3300000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    phone: (n) => `96477093300${String(n).padStart(2, '0')}`,
+    goLive: '2026-10-20',
+  });
+  const { users: U, W, I } = S;
+  await S.one(U.owner, "select public.set_member_scopes_v2($1, '{}', '{}', $2::uuid[])", [S.members.storekeeper, [W.raw, W.general, W.medicine]]);
+  const item = async (name, kind, unit, extra = {}) =>
+    S.one(U.owner, 'insert into public.items (name, kind, base_unit, density_kg_per_l, piece_mass_kg) values ($1, $2, $3, $4, $5) returning id', [name, kind, unit, extra.density ?? null, extra.mass ?? null]);
+  // لكل مخزن موادّه: { id, unit, density (×10,000)، mass (بالألف)، expiry }.
+  const STORES = {
+    raw: { wh: W.raw, items: [{ id: I.corn, unit: 'kg' }, { id: await item('زيت الخصائص', 'raw', 'L', { density: 0.92 }), unit: 'L', density: 9200n }, { id: await item('أكياس الخصائص', 'packaging', 'pc', { mass: 0.15 }), unit: 'pc', mass: 150n }] },
+    general: { wh: W.general, items: [{ id: I.gas, unit: 'pc' }, { id: I.diesel, unit: 'L' }] },
+    medicine: { wh: W.medicine, items: [{ id: I.vaccine, unit: 'pc', expiry: '2027-06-30' }] },
+  };
+  const supplier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد الخصائص', true) returning id");
+  const carrier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('ناقل الخصائص', true) returning id");
+  const box = await S.one(U.accountant, "insert into public.cash_accounts (name, kind) values ('صندوق الخصائص', 'cash') returning id");
+  const random = rng(SEED);
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  const int = (lo, hi) => lo + Math.floor(random() * (hi - lo + 1));
+  const D = 100n;
+  const failures = [];
+  const tally = { done: 0, posted: 0, rejected: 0, mass: 0, value: 0, picked: 0, discounts: 0, paid: 0, voids: 0 };
+  const posted = [];
+  for (let step = 1; step <= STEPS && failures.length === 0; step += 1) {
+    if (posted.length > 0 && random() < 0.15) {
+      const target = posted.splice(Math.floor(random() * posted.length), 1)[0];
+      const result = await voidReceipt(db, U.manager, target);
+      if (!result.ok) failures.push(`خطوة ${step}: إلغاء ${result.code}`);
+      else tally.voids += 1;
+    } else {
+      const store = STORES[pick(Object.keys(STORES))];
+      const picked = Array.from({ length: int(1, 4) }, () => pick(store.items));
+      const lines = picked.map((x) => ({ item: x.id, qty: x.unit === 'pc' ? int(1, 900) : int(1, 50000) / 10, expiry: x.expiry }));
+      const totals = lines.map(() => (random() < 0.08 ? 0 : int(1, 3000000)));
+      const reasons = totals.map((total) => (total === 0 && random() < 0.6 ? 'هدية' : null));
+      const sum = totals.reduce((a, b) => a + b, 0);
+      const discount = random() < 0.05 ? sum + 1 : random() < 0.4 ? int(0, sum) : 0;
+      const charges = Array.from({ length: int(0, 2) }, () => {
+        const pickLines = random() < 0.4 ? lines.map((_, i) => i).filter(() => random() < 0.6) : null;
+        return { label: 'تحميل', amount: int(1, 200000), by: random() < 0.5 ? 'mass' : 'value', payee: random() < 0.5 ? carrier : null, box: null, lines: pickLines && pickLines.length > 0 ? pickLines : null };
+      }).map((charge) => ({ ...charge, box: charge.payee ? null : box }));
+      const net = Math.max(sum - discount, 0);
+      const paid = random() < 0.3 && net > 0 ? int(1, net) : 0;
+      const doc = await receiptDraft(db, S.users.storekeeper, { wh: store.wh, party: supplier, on: '2026-10-30', lines });
+      const version = await priceReceipt(db, U.manager, doc, {
+        totals: totals.map((total, i) => ({ total, zeroReason: reasons[i] })), discount, paid, box: paid > 0 ? box : null,
+        charges: charges.map((charge) => (charge.lines ? charge : { ...charge, lines: undefined })),
+      });
+      const expected = domain.receiptValuation(
+        lines.map((line, i) => ({
+          qtyBase: BigInt(Math.round(line.qty * 1000)),
+          baseUnit: picked[i].unit,
+          density: picked[i].density ?? null,
+          pieceMass: picked[i].mass ?? null,
+          lineTotal: BigInt(totals[i]) * D,
+          zeroReason: reasons[i],
+        })),
+        { discount: BigInt(discount) * D, paidNow: BigInt(paid) * D, hasBox: paid > 0 },
+        charges.map((charge) => ({ amount: BigInt(charge.amount) * D, allocateBy: charge.by, allLines: !charge.lines, lines: charge.lines ?? [] })),
+      );
+      const result = await postReceipt(db, U.manager, doc.id, version);
+      if (expected.problem) {
+        tally.rejected += 1;
+        if (result.ok || result.code !== expected.problem.code) failures.push(`خطوة ${step}: المتوقّع رفض ${expected.problem.code} وطلع ${shown(result)}`);
+      } else if (!result.ok) {
+        failures.push(`خطوة ${step}: المتوقّع ترحيل وطلع ${result.code} ${result.hint}`);
+      } else {
+        tally.posted += 1;
+        posted.push(doc.id);
+        tally.mass += charges.filter((c) => c.by === 'mass').length;
+        tally.value += charges.filter((c) => c.by === 'value').length;
+        tally.picked += charges.filter((c) => c.lines).length;
+        tally.discounts += discount > 0 ? 1 : 0;
+        tally.paid += paid > 0 ? 1 : 0;
+        const got = (await db.admin(
+          "select trim_scale(l.value_in)::text as v from public.stock_lots l join public.receipt_lines x on x.id = l.source_line_id where l.source_kind = 'receipt' and l.source_id = $1 order by x.line_no",
+          [doc.id],
+        )).rows.map((r) => fils(r.v));
+        if (got.join(',') !== expected.values.join(',')) failures.push(`خطوة ${step}: القيم ${got.join(',')} والمرآة ${expected.values.join(',')}`);
+      }
+    }
+    const stock = await db.asService(verifyStock);
+    const ledgerChecks = await db.asService(verifyLedger);
+    if (JSON.stringify(stock) !== JSON.stringify(STOCK_ZERO) || JSON.stringify(ledgerChecks) !== JSON.stringify(LEDGER_ZERO)) {
+      failures.push(`بعد خطوة ${step}: ${JSON.stringify({ stock, ledgerChecks })}`);
+    }
+    tally.done = step;
+  }
+  console.log(`    · فحص الخصائص v4 (الاستلام): البذرة ${SEED}، ${JSON.stringify(tally)}`);
+  t.same(failures, [], `الخصائص v4 (البذرة ${SEED}): قيمة كل دفعة استلام = receiptValuation بالفلس والرفض برمز مشكلتها، وبعد كل خطوة verify_stock وverify_ledger صفر`);
+  t.ok(
+    tally.done === STEPS && tally.posted > 0 && tally.rejected > 0 && tally.mass > 0 && tally.value > 0 && tally.picked > 0 && tally.discounts > 0 && tally.paid > 0 && tally.voids > 0,
+    `الخصائص v4 نفّذت كل الخطوات ومرّت بالترحيل والرفض والتحميل بالوزن والقيمة والاختيار والخصم والمدفوع والإلغاء (${JSON.stringify(tally)})`,
+  );
 }

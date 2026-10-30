@@ -1064,8 +1064,8 @@ export function updateTransferLine(lineId: string, patch: Partial<TransferLineFi
   return written(async (db) => updatedRows(withStatus(await db.from('transfer_lines').update(patch).eq('id', lineId).select(TRANSFER_LINE_COLUMNS)))).then(transferLine);
 }
 
-/** أنواع المسوّدات بدالّتي الطيّ وحذف السطر: الافتتاح والتحويل (0007) والصرف والجرد (0008). */
-export type DraftKind = StockDocKind | 'stock_use' | 'count';
+/** أنواع المسوّدات بدالّتي الطيّ وحذف السطر: الافتتاح والتحويل (0007) والصرف والجرد (0008) والاستلام (0009). */
+export type DraftKind = StockDocKind | 'stock_use' | 'count' | 'receipt';
 
 /** حذف سطر مسوّدة (E52) بشرط النسخة؛ سطر انحذف من قبل يرجّع deleted: false. */
 export async function deleteDraftLine(kind: DraftKind, lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {

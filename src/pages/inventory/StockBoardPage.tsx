@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -227,6 +227,12 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
         subtitle={t('stock.board.subtitle', 'الرصيد بوحدة الأساس، والمنتهي في عمود منفصل لا يُسحب.')}
         actions={
           <nav className="flex flex-wrap gap-2" aria-label={t('stock.board.links', 'روابط المخزون')}>
+            {role && (can(role, 'receipt.draft') || can(role, 'receipt.amounts')) ? (
+              <Link to="/inventory/receipts" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-receipts">
+                <PackagePlus aria-hidden="true" className="size-4" />
+                {t('stock.receipts', 'الاستلام من المورّدين')}
+              </Link>
+            ) : null}
             {role && can(role, 'transfer.post') ? (
               <Link to="/inventory/transfers" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-transfers">
                 <ArrowLeftRight aria-hidden="true" className="size-4" />

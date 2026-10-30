@@ -190,6 +190,42 @@ export default async function (t, db) {
   );
   const COUNT_APPROVE = ['owner', 'manager'];
 
+  // المرحلة 1 (WP6): استلام مرحَّل (لإلغائه) لذرة بمخزن المعمل بمبلغ صفر وسببه (بلا قيد ولا حركة صندوق، فما يغيّر صفوف المخزون
+  // والدفاتر فوك)؛ وكاز أبيض بالمخزن العامّ من «مورّد الحبوب»: مسوّدة مسعَّرة بسطر ورأس مبالغ وتحميل من الصندوق (للترحيل والمعاينة وحذف التحميل واختيار سطوره وتعديل المبالغ)، ومسوّدة ثانية بسطر بلا مبلغ (لإدخاله وطيّ المسوّدة).
+  const wp6 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const version = async (docId) => one('select version from public.receipts where id = $1', [docId]);
+      const draft = async (wh = generalStore, item = stock.kerosene) => {
+        const doc = await one('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [ledger.fresh, wh]);
+        const line = await one('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10) returning id', [doc, item]);
+        return { doc, line };
+      };
+      const posted = await draft(millRaw, farm.item);
+      await q("insert into public.receipt_line_amounts (line_id, line_total, zero_reason) values ($1, 0, 'عيّنة مجانية')", [posted.line]);
+      await q('select public.post_receipt($1, $2, gen_random_uuid())', [posted.doc, await version(posted.doc)]);
+      const priced = await draft();
+      const lineAmount = await one('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 7500) returning id', [priced.line]);
+      const amounts = await one('insert into public.receipt_amounts (doc_id, discount) values ($1, 0) returning id', [priced.doc]);
+      const charge = await one("insert into public.receipt_charges (doc_id, label, amount, allocate_by, cash_account_id) values ($1, 'نقل', 500, 'value', $2) returning id", [priced.doc, ledger.box]);
+      const bare = await draft();
+      return {
+        posted: posted.doc,
+        draft: priced.doc,
+        line: priced.line,
+        lineAmount,
+        amounts,
+        charge,
+        version: await version(priced.doc),
+        bare: bare.doc,
+        bareLine: bare.line,
+        bareVersion: await version(bare.doc),
+      };
+    },
+    { commit: true },
+  );
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -274,6 +310,13 @@ export default async function (t, db) {
     void_count: { sql: () => ["select public.void_count($1, 'جرد خاطئ', gen_random_uuid())", [wp5.countApproved]], expect: only(['owner', 'manager']) },
     preview_count: { sql: () => ["select public.preview_count($1) ->> 'ready' as v", [wp5.countSubmitted]], value: true, expect: only(COUNT_APPROVE, 'ok:true') },
     report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: only(ACCOUNTS, 'ok:3') },
+    // المرحلة 1 (WP6، §2.12): مسوّدة الاستلام للأمين والمدير (receipt.draft)، ومبالغه وترحيله وتحميلاته لأدوار الكلفة (receipt.amounts)،
+    // والمعاينة للاثنين (الكميات للأمين)، والإلغاء للمدير (void).
+    post_receipt: { sql: () => ['select public.post_receipt($1, $2, gen_random_uuid())', [wp6.draft, wp6.version]], expect: only(ACCOUNTS) },
+    void_receipt: { sql: () => ["select public.void_receipt($1, 'استلام خاطئ', gen_random_uuid())", [wp6.posted]], expect: only(['owner', 'manager']) },
+    preview_receipt: { sql: () => ["select jsonb_array_length(public.preview_receipt($1) -> 'lines') as v", [wp6.draft]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
+    delete_receipt_charge: { sql: () => ["select public.delete_receipt_charge($1, $2) ->> 'deleted' as v", [wp6.charge, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    set_charge_lines: { sql: () => ["select public.set_charge_lines($1, array[$2]::uuid[], $3) ->> 'all_lines' as v", [wp6.charge, wp6.line, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:false') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -308,6 +351,9 @@ export default async function (t, db) {
     "discard_draft('count') مسوّدة": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countDraft, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     "discard_draft('count') مسلَّم": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countSubmitted, wp5.countSubmittedVersion]], value: true, expect: only(COUNT_APPROVE, 'ok:void') },
     "delete_draft_line('count')": { sql: ["select public.delete_draft_line('count', $1, $2) ->> 'deleted' as v", [wp5.countDraftLine, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
+    // WP6: مسوّدة الاستلام بـreceipt.draft (المحاسب ممنوع)، وحذف السطر المسعَّر يحذف مبلغه ويّاه.
+    "discard_draft('receipt')": { sql: ["select public.discard_draft('receipt', $1, $2) ->> 'status' as v", [wp6.bare, wp6.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
+    "delete_draft_line('receipt')": { sql: ["select public.delete_draft_line('receipt', $1, $2) ->> 'deleted' as v", [wp6.line, wp6.version]], value: true, expect: only(TRANSFER, 'ok:true') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};
@@ -340,6 +386,11 @@ export default async function (t, db) {
     'المدير ينجح بالصرف والجرد ومراجعته وإلغائها وإلغاء المصروف والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
   );
   t.same([ROWS.record_expense.expect.accountant, ROWS.report_expenses.expect.accountant], ['ok', 'ok:3'], 'المحاسب يسجّل المصروف ويقرأ تقريره');
+  t.same(
+    [ROWS.post_receipt.expect.manager, ROWS.post_receipt.expect.accountant, ROWS.post_receipt.expect.storekeeper, ROWS.void_receipt.expect.manager, ROWS.void_receipt.expect.accountant],
+    ['ok', 'ok', 'forbidden', 'ok', 'forbidden'],
+    'الاستلام: المدير يرحّل ويلغي، والمحاسب يرحّل ولا يلغي، والأمين لا يرحّل (§2.12)',
+  );
 
   // ── الكتابة المباشرة بالبيانات الأساسية (Q1، §2.12): كل جدول × دور، إدخال وتعديل، والمسموح بضابط إيجابي بكل خانة ─────────
   // الإدخال الممنوع يرفضه RLS (42501)، والتعديل الممنوع صفر صفوف (USING يحجب الصفّ). stores.manage للمالك والمدير، وفئات
@@ -454,6 +505,39 @@ export default async function (t, db) {
       update: ['update public.stock_count_line_costs set gain_unit_cost = gain_unit_cost where id = $1', [wp5.cost]],
     },
   };
+  // WP6 (§2.5): الرأس والسطر بـreceipt.draft (السطر الممنوع يرفضه حارسه بـforbidden)، والمبالغ والتحميلات بـreceipt.amounts (حارسها
+  // يرفض الممنوع قبل RLS).
+  Object.assign(WRITES, {
+    receipts: {
+      allowed: TRANSFER,
+      insert: ['insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today())', [ledger.fresh, generalStore]],
+      update: ['update public.receipts set note = note where id = $1', [wp6.draft]],
+    },
+    receipt_lines: {
+      allowed: TRANSFER,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [wp6.draft, stock.kerosene]],
+      update: ['update public.receipt_lines set qty_in_unit = qty_in_unit where id = $1', [wp6.line]],
+    },
+    receipt_amounts: {
+      allowed: ACCOUNTS,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.receipt_amounts (doc_id, discount) values ($1, 0)', [wp6.bare]],
+      update: ['update public.receipt_amounts set discount = discount where id = $1', [wp6.amounts]],
+    },
+    receipt_line_amounts: {
+      allowed: ACCOUNTS,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.receipt_line_amounts (line_id, line_total) values ($1, 100)', [wp6.bareLine]],
+      update: ['update public.receipt_line_amounts set line_total = line_total where id = $1', [wp6.lineAmount]],
+    },
+    receipt_charges: {
+      allowed: ACCOUNTS,
+      insertDenied: 'forbidden',
+      insert: ["insert into public.receipt_charges (doc_id, label, amount, allocate_by, cash_account_id) values ($1, 'نقل', 100, 'value', $2)", [wp6.draft, ledger.box]],
+      update: ['update public.receipt_charges set amount = amount where id = $1', [wp6.charge]],
+    },
+  });
   t.same(Object.keys(WRITES).sort(), Object.keys(CLASSES.directWrite).sort(), `الكتابة المباشرة تغطّي directWrite بـclasses.json بالضبط (${Object.keys(WRITES).length} جدول)`);
   let writeCells = 0;
   // الفعل لكل أمر ({ insert, update }، الجهات من 0006) أو واحد للأمرين؛ والمسموح لكل أمر = can(فعله) بـpermissions.ts.

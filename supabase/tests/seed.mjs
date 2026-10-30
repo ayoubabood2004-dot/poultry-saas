@@ -133,6 +133,22 @@ const wp5Seed = (kind) => async (db) => {
   );
 };
 
+/** بعد البذرة الحقيقية: مسوّدة استلام بالمخزن العامّ من «مورّد الحبوب» (الأمين بنطاق العامّة). */
+const receiptSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(
+    U.storekeeper,
+    async (q) => {
+      const general = await value(q, "select id from public.warehouses where kind = 'general'");
+      const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+      await q('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today())', [party, general]);
+    },
+    { commit: true },
+  );
+};
+
+const RECEIPT_CONDITION = 'v_receipts > 0';
+
 const WP5_CONDITION = 'v_expenses > 0 or v_uses > 0 or v_counts > 0';
 
 /**
@@ -221,6 +237,15 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(WP5_CONDITION, 'v_expenses > 0 or v_uses > 0'),
     },
   ],
+  9: [
+    {
+      name: 'مسوّدة استلام',
+      code: 'rollback_blocked',
+      seed: receiptSeed,
+      data: "select (select count(*) from public.receipts)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(RECEIPT_CONDITION, 'false'),
+    },
+  ],
 };
 
 /** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
@@ -229,4 +254,5 @@ export const BLOCKING_REQUIRED = [
   [6, 3, 'قيد جهة وحركة صندوق ووحدة تعبئة لمورّد، كل وحدة توقف التراجع'],
   [7, 2, 'مسوّدة افتتاح ومسوّدة تحويل، كل وحدة توقف التراجع'],
   [8, 3, 'مصروف نقدي ومسوّدة صرف ومسوّدة جرد، كل وحدة توقف التراجع'],
+  [9, 1, 'مسوّدة استلام توقف التراجع'],
 ];
