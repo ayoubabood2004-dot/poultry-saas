@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Field } from '../../components/ui/Field';
 import type { QtyUnitOption } from '../../components/ui/QtyInput';
 import { Dialog } from '../../components/ui/Dialog';
@@ -264,25 +264,32 @@ export function useDocPages(kind: inventory.StockDocKind) {
   const first = useLoad(load);
   const [pages, setPages] = useState<inventory.DocPage[]>([]);
   const [more, setMore] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
+  // جيل القائمة: صفحة «المزيد» بمؤشّر من قبل reload تنرمى (كانت تنلصق بعد الصفحة الأولى الجديدة فتنقفز صفوف).
+  const generation = useRef(0);
   const all = first.data ? [first.data, ...pages] : [];
   const seen = new Set<string>();
   const rows = all.flatMap((page) => page.rows).filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)));
   const next = all.at(-1)?.next ?? null;
   // من جديد بأوّل صفحة (بعد رفع أو تغيير): الصفحات المحمّلة تنشال.
   const reload = () => {
+    generation.current += 1;
     setPages([]);
     setMore({ busy: false, error: null });
     first.retry();
   };
   const loadMore = () => {
     if (!next) return;
+    const asked = generation.current;
     setMore({ busy: true, error: null });
     inventory.listStockDocs(kind, next).then(
       (page) => {
+        if (asked !== generation.current) return;
         setPages((current) => [...current, page]);
         setMore({ busy: false, error: null });
       },
-      (error: unknown) => setMore({ busy: false, error }),
+      (error: unknown) => {
+        if (asked === generation.current) setMore({ busy: false, error });
+      },
     );
   };
   return { first, rows, next, total: first.data?.total ?? null, more, loadMore, reload };

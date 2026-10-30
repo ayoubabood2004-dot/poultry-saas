@@ -170,6 +170,7 @@ export default async function (t) {
         },
         newId: () => `n-${(n += 1)}`,
         linesOn: async (docId) => new Set([...server.lines].filter(([, row]) => row.docId === docId).map(([id]) => id)),
+        deriveId: async (seed) => `d:${seed}`,
       };
       lose = 'i-1';
       const first = await m.uploadShelfDraft(draft, deps).then((r) => `ok:${r.docId}`, (error) => error.name);

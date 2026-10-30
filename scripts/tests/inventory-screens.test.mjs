@@ -714,6 +714,8 @@ async function reviewFixes(t, m, setup) {
       removeDeviceDraft: async (id) => log.push(['remove', id]),
       newId: () => `n-${(fresh += 1)}`,
       linesOn: async () => new Set(),
+      // معرّف النقل لرأس جديد مشتقّ من بذرته (نفس البذرة نفس المعرّف بكل محاولة ونافذة).
+      deriveId: async (seed) => `d:${seed}`,
     };
     const upload = (d, extra = {}) => inv.transfers.uploadShelfDraft(d, { ...deps, ...extra }).then((result) => `ok:${result.docId}`, (error) => error.message);
     const first = await upload(draft);
@@ -749,8 +751,8 @@ async function reviewFixes(t, m, setup) {
     gone = false;
     t.same(
       [moved, log.filter(([kind]) => kind !== 'save')],
-      ['ok:n-3', [['create', 'n-3', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['line', 'n-3', 'n-4', 'i-5'], ['line', 'n-3', 'n-5', 'i-6'], ['remove', 'dd-3']]],
-      'رأس صار غير مسوّدة بنصّ الرفع: السطور الباقية لرأس جديد (معرّفات جديدة) وتنشال من الجهاز',
+      ['ok:d:rehome:h-9', [['create', 'd:rehome:h-9', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['line', 'd:rehome:h-9', 'd:rehome:h-9:l-5', 'i-5'], ['line', 'd:rehome:h-9', 'd:rehome:h-9:l-6', 'i-6'], ['remove', 'dd-3']]],
+      'رأس صار غير مسوّدة بنصّ الرفع: السطور الباقية لرأس جديد بمعرّفات مشتقّة من الرأس السابق والسطر، وتنشال من الجهاز',
     );
     // الرأس صار غير مسوّدة وقراءة سطوره فشلت (شبكة): الرفع يوكف بلا ما يتنقل شي، لأن «ما أعرف شنو وصل» مو «ماكو شي وصل».
     log.length = 0;

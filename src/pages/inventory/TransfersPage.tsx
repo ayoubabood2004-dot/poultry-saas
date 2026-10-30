@@ -19,7 +19,7 @@ import { itemAdmissible, sharesAdmissibleKind } from '../../domain/stock';
 import { parseQty, toBase, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { assertSameStamp, listDeviceDrafts, removeDeviceDraft, saveDeviceDraft, type DeviceDraft, type DraftStamp } from '../../lib/drafts';
-import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
+import { describeError, RejectedError } from '../../lib/errors';
 import { fmtCounted, fmtDay, fmtInt, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
@@ -405,8 +405,10 @@ export interface ShelfDeps {
   removeDeviceDraft: (id: string) => Promise<void>;
   /** معرّف جديد للرأس أو السطر (crypto.randomUUID). */
   newId: () => string;
-  /** معرّفات السطور اللي وصلت رأساً بالخادم (فارغة إذا ما ينقرا). */
+  /** معرّفات السطور اللي وصلت رأساً موجوداً بالخادم؛ ترمي إذا ما انقرا (شبكة، أو النطاق يخفيه). */
   linesOn: (docId: string) => Promise<ReadonlySet<string>>;
+  /** معرّف ثابت من بذرة (نقل السطور لرأس جديد بنفس المعرّفات بكل محاولة وبكل نافذة، فالمكرّر 23505). */
+  deriveId: (seed: string) => Promise<string>;
 }
 
 /** نتيجة الرفع: المسوّدة بالخادم، والرأس السابق إذا صار غير مسوّدة بنصّ الرفع وكم سطر من الجهاز كان وصله (ما ينعاد). */
@@ -458,7 +460,7 @@ export async function uploadShelfDraft(draft: DeviceDraft<ShelfPayload>, deps: S
       payload = { ...payload, headerId, docId: headerId };
       await keep();
     }
-    let gone = false;
+    let gone: 'not_draft' | 'doc_not_found' | null = null;
     for (const line of [...(payload.lines ?? [])]) {
       try {
         await deps.addTransferLine(payload.docId ?? '', { item_id: line.itemId, item_unit_id: line.itemUnitId, unit_code: line.unitCode, qty_in_unit: line.qtyInUnit }, line.id);
@@ -466,7 +468,7 @@ export async function uploadShelfDraft(draft: DeviceDraft<ShelfPayload>, deps: S
         if (inventory.isDuplicate(error)) {
           // انكتب بمحاولة سابقة جوابها ضاع: ينشال من الجهاز مثل الناجح.
         } else if (error instanceof RejectedError && (error.code === 'not_draft' || error.code === 'doc_not_found') && round === 0) {
-          gone = true;
+          gone = error.code;
           break;
         } else if (error instanceof RejectedError) {
           payload = { ...payload, lines: (payload.lines ?? []).map((other) => (other.id === line.id ? { ...other, rejected: { code: error.code, hint: error.hint } } : other)) };
@@ -479,39 +481,84 @@ export async function uploadShelfDraft(draft: DeviceDraft<ShelfPayload>, deps: S
     }
     if (!gone) break;
     const goneId = payload.docId ?? '';
-    const landed = goneId ? await deps.linesOn(goneId) : new Set<string>();
+    // not_draft: الرأس موجود (الحارس لكاه)، فسطوره لازم تنقرا؛ قراءة فاشلة (شبكة، أو النطاق يخفيه) ترمي قبل أيّ حفظ. doc_not_found:
+    // ماكو رأس بالمنشأة، فماكو سطر وصله.
+    const landed = gone === 'not_draft' ? await deps.linesOn(goneId) : new Set<string>();
     const rest = (payload.lines ?? []).filter((line) => !landed.has(line.id));
     previous = { docId: goneId, landed: (payload.lines ?? []).length - rest.length };
     if (rest.length === 0) {
       await deps.removeDeviceDraft(draft.id);
       return { docId: goneId, previous };
     }
-    // الباقي (اللي ما وصل الرأس السابق) لرأس جديد بمعرّفات جديدة: معرّفاته القديمة ما انكتبت.
-    payload = { ...payload, headerId: deps.newId(), docId: null, lines: rest.map((line) => ({ ...line, id: deps.newId(), rejected: null })) };
+    // الباقي (اللي ما وصل الرأس السابق) لرأس جديد بمعرّفات مشتقّة من الرأس السابق والسطر: محاولتان (أو نافذتان) تنقلانه لنفس
+    // المعرّفات، فالثانية ترجع 23505 بدل مسوّدة ثانية.
+    const headerId = await deps.deriveId(`rehome:${goneId}`);
+    const lines = await Promise.all(rest.map(async (line) => ({ ...line, id: await deps.deriveId(`rehome:${goneId}:${line.id}`), rejected: null })));
+    payload = { ...payload, headerId, docId: null, lines };
     await keep();
   }
   await deps.removeDeviceDraft(draft.id);
   return { docId: payload.docId ?? '', previous };
 }
 
-/** مسوّدات الجهاز اللي ترتفع هسه (من الرفّ أو من نموذج التحويل الجديد): الرفّ ما يعرضها، فما ينحذف منها سطر بنصّ رفعها. */
+/** مسوّدات الجهاز اللي ترتفع أو تنعدّل هسه بهذي النافذة: الرفّ ما يعرضها. */
 const uploading = new Set<string>();
 
+/** مسوّدة ماسكتها نافذة ثانية (رفع أو حذف بنفس اللحظة). */
+export class ShelfBusyError extends Error {
+  constructor() {
+    super('shelf_busy');
+    this.name = 'ShelfBusyError';
+  }
+}
+
+const lockName = (id: string) => `device-draft:${id}`;
+
+/**
+ * يمسك المسوّدة على كل نوافذ الجهاز (Web Locks، ifAvailable) طول الرفع أو الحذف، فنافذتان ما ترفعان نفس المسوّدة ولا تحذف وحدة
+ * سطراً والثانية ترفعه (مراجعة WP4 الثالثة). بلا Web Locks (متصفّح قديم أو فحص): بالنافذة بس، والمعرّفات المشتقّة تمنع التكرار.
+ */
+async function withDraft<T>(id: string, work: () => Promise<T>): Promise<T> {
+  if (uploading.has(id)) throw new ShelfBusyError();
+  const run = async () => {
+    uploading.add(id);
+    try {
+      return await work();
+    } finally {
+      uploading.delete(id);
+    }
+  };
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks) return run();
+  return locks.request(lockName(id), { ifAvailable: true }, async (lock) => {
+    if (!lock) throw new ShelfBusyError();
+    return run();
+  });
+}
+
+/** المسوّدات اللي ماسكتها نافذة ثانية هسه (للرفّ: تنعرض معطّلة)، أو فارغة بلا Web Locks. */
+async function claimedElsewhere(): Promise<ReadonlySet<string>> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks) return new Set();
+  const held = (await locks.query()).held ?? [];
+  return new Set(held.flatMap((lock) => (lock.name?.startsWith('device-draft:') ? [lock.name.slice('device-draft:'.length)] : [])));
+}
+
 async function uploadNow(draft: DeviceDraft<ShelfPayload>): Promise<ShelfUpload> {
-  uploading.add(draft.id);
-  try {
+  return withDraft(draft.id, async () => {
     const result = await uploadShelfDraft(draft, shelfDeps());
     if (result.previous) {
+      const remained = result.docId !== result.previous.docId;
       toast({
         tone: 'warning',
         title: t('shelf.previous', 'المسوّدة السابقة على الخادم رُحّلت أو طُويت قبل اكتمال الرفع'),
-        detail: t('shelf.previous.detail', 'السطور اللي وصلتها ({landed}) ما انعادت؛ والباقي صار مسوّدة جديدة.', { landed: fmtInt(result.previous.landed) }),
+        detail: remained
+          ? t('shelf.previous.detail', 'السطور التي وصلتها ({landed}) لم تُكرَّر، وصار الباقي مسوّدة جديدة.', { landed: fmtInt(result.previous.landed) })
+          : t('shelf.previous.all', 'كل السطور الباقية كانت قد وصلتها ({landed})، فلم تُكرَّر ولم تُنشأ مسوّدة جديدة.', { landed: fmtInt(result.previous.landed) }),
       });
     }
     return result;
-  } finally {
-    uploading.delete(draft.id);
-  }
+  });
 }
 
 /** كمية سطر الجهاز كما انكتبت بالفصحى: بوحدة الأساس بصيغ fmtQty («لتران»، «5 قطع»)، وبوحدة تعبئة أو طن بعددها واسمها. */
@@ -532,21 +579,27 @@ function shelfDeps(): ShelfDeps {
     saveDeviceDraft,
     removeDeviceDraft,
     newId: () => crypto.randomUUID(),
-    // الرأس ما ينقرا (ZeroRowsError: ما موجود أو برّا النطاق) = ماكو سطر وصله؛ وفشل القراءة (شبكة) يوقف الرفع بلا ما يتنقل شي،
-    // لأن «ما أعرف شنو وصل» مو «ماكو شي وصل» (وإلا سطر وصل يترحّل مرّتين).
-    linesOn: async (docId) => {
-      try {
-        return new Set((await inventory.loadStockDoc('transfer', docId)).transferLines.map((line) => line.id));
-      } catch (error) {
-        if (error instanceof ZeroRowsError) return new Set<string>();
-        throw error;
-      }
-    },
+    // أيّ فشل بالقراءة (شبكة، أو ZeroRowsError لأن النطاق يخفي رأساً موجوداً) يرمي ويوقف الرفع بلا ما يتنقل شي: «ما أعرف شنو
+    // وصل» مو «ماكو شي وصل» (وإلا سطر وصل يترحّل مرّتين).
+    linesOn: async (docId) => new Set((await inventory.loadStockDoc('transfer', docId)).transferLines.map((line) => line.id)),
+    deriveId,
   };
+}
+
+/** معرّف بشكل uuid (نسخة 4، النوع 8) من أوّل 16 بايت من SHA-256 للبذرة: نفس البذرة نفس المعرّف بكل نافذة وجهاز. */
+export async function deriveId(seed: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed))).slice(0, 16);
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** رسالة فشل الرفع: السطر المرفوض باسمه وتلميحه؛ وغيره (شبكة، جواب ضاع) يكول إن المرفوع باقٍ والإعادة تكمل بلا تكرار. */
 export function shelfFailure(error: unknown): { title: string; detail: string } {
+  if (error instanceof ShelfBusyError) {
+    return { title: t('shelf.busy', 'يُعمل على هذه المسوّدة في نافذة أخرى'), detail: t('shelf.busy.detail', 'انتظر حتى ينتهي الرفع أو الحذف هناك، ثم أعد المحاولة.') };
+  }
   if (error instanceof ShelfLineRejectedError) {
     return {
       title: t('shelf.rejected', 'رفض الخادم السطر «{item}»', { item: error.line.itemName }),
@@ -561,14 +614,14 @@ export function shelfFailure(error: unknown): { title: string; detail: string } 
 }
 
 /** سطور مسوّدة جهاز على الرفّ: كما انكتبت، والمرفوض بتلميحه، وحذف السطر بتأكيد. */
-function ShelfLines({ lines, busy, onRemove }: { lines: readonly ShelfLine[]; busy: boolean; onRemove: (lineId: string) => void }) {
+function ShelfLines({ lines, busy, onRemove }: { lines: readonly ShelfLine[]; busy: boolean; onRemove: (line: { id: string | null; index: number }) => void }) {
   const rows = lines.map((line, index) => ({ ...line, index }));
   const columns: Column<(typeof rows)[number]>[] = [
     {
       key: 'actions',
       header: t('org.col.actions', 'إجراءات'),
       cell: (line) => (
-        <IconButton label={t('shelf.line.remove', 'احذف السطر من هذا الجهاز')} disabled={busy} onClick={() => onRemove(line.id)} data-action="remove-device-line">
+        <IconButton label={t('shelf.line.remove', 'احذف السطر من هذا الجهاز')} disabled={busy} onClick={() => onRemove({ id: line.id || null, index: line.index })} data-action="remove-device-line">
           <Trash2 aria-hidden="true" className="size-4" />
         </IconButton>
       ),
@@ -593,12 +646,16 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
   const [busy, setBusy] = useState('');
   const [own, setOwn] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
-  const [dropping, setDropping] = useState<{ draft: DeviceDraft<ShelfPayload>; lineId: string | null } | null>(null);
+  // السطر بمعرّفه، وبترتيبه لمسوّدة انحفظت قبل معرّفات السطور (بلا معرّف).
+  const [dropping, setDropping] = useState<{ draft: DeviceDraft<ShelfPayload>; line: { id: string | null; index: number } | null } | null>(null);
+  const [elsewhere, setElsewhere] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
-    listDeviceDrafts<ShelfPayload>(stamp, 'transfer').then(
-      (rows) => {
-        if (!cancelled) setDrafts(rows);
+    Promise.all([listDeviceDrafts<ShelfPayload>(stamp, 'transfer'), claimedElsewhere()]).then(
+      ([rows, claimed]) => {
+        if (cancelled) return;
+        setDrafts(rows);
+        setElsewhere(claimed);
       },
       (error: unknown) => {
         if (!cancelled) setShelfFailed(error);
@@ -627,13 +684,18 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
   };
   const drop = async () => {
     if (!dropping) return;
-    const { draft, lineId } = dropping;
+    const { draft, line: target } = dropping;
     setBusy(draft.id);
     try {
-      // من السجلّ الحالي بالجهاز (مو لقطة فتح النافذة) وبمعرّف السطر: لقطة قديمة كانت ترجّع سطوراً ارتفعت.
-      const current = (await listDeviceDrafts<ShelfPayload>(stamp, 'transfer')).find((row) => row.id === draft.id);
-      if (current && lineId === null) await removeDeviceDraft(draft.id);
-      else if (current) await saveDeviceDraft<ShelfPayload>(stamp, { id: current.id, kind: 'transfer', title: current.title, payload: { ...current.payload, lines: (current.payload.lines ?? []).filter((line) => line.id !== lineId) } });
+      // ماسكها (ما ترتفع بنافذة ثانية بنفس اللحظة)، ومن السجلّ الحالي بالجهاز (مو لقطة فتح النافذة) وبمعرّف السطر.
+      await withDraft(draft.id, async () => {
+        const current = (await listDeviceDrafts<ShelfPayload>(stamp, 'transfer')).find((row) => row.id === draft.id);
+        if (current && target === null) await removeDeviceDraft(draft.id);
+        else if (current && target) {
+          const kept = (current.payload.lines ?? []).filter((line, n) => (target.id ? line.id !== target.id : n !== target.index));
+          await saveDeviceDraft<ShelfPayload>(stamp, { id: current.id, kind: 'transfer', title: current.title, payload: { ...current.payload, lines: kept } });
+        }
+      });
       setDropping(null);
       if (failure?.draftId === draft.id) setFailure(null);
     } catch (error) {
@@ -644,7 +706,8 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
       setOwn((n) => n + 1);
     }
   };
-  const droppingLine = dropping && dropping.lineId !== null ? ((dropping.draft.payload.lines ?? []).find((line) => line.id === dropping.lineId) ?? null) : null;
+  const target = dropping?.line ?? null;
+  const droppingLine = dropping && target ? ((dropping.draft.payload.lines ?? []).find((line, n) => (target.id ? line.id === target.id : n === target.index)) ?? null) : null;
   return (
     <section className="card flex flex-col gap-3 p-4" aria-label={t('shelf.title', 'مسوّدات هذا الجهاز')}>
       <h2 className="font-semibold">{t('shelf.title', 'مسوّدات هذا الجهاز')}</h2>
@@ -654,26 +717,28 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
         {shown.map((draft) => {
           const lines = draft.payload.lines ?? [];
           const failed = failure?.draftId === draft.id ? shelfFailure(failure.error) : null;
+          const claimed = elsewhere.has(draft.id);
           return (
             <li key={draft.id} className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span>
                   {draft.title}
                   <span className="ms-2 text-sm text-ink-muted">{t('shelf.lines', 'السطور الباقية: {count}', { count: fmtInt(lines.length) })}</span>
+                  {claimed ? <span className="ms-2 text-sm text-ink-muted">{t('shelf.claimed', 'يُعمل عليها في نافذة أخرى')}</span> : null}
                 </span>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="ghost" icon={<ChevronDown aria-hidden="true" className="size-4" />} onClick={() => setOpen(open === draft.id ? null : draft.id)} aria-expanded={open === draft.id} data-action="show-device-lines">
                     {t('shelf.show', 'السطور')}
                   </Button>
-                  <Button size="sm" variant="secondary" busy={busy === draft.id} disabled={!online || busy !== ''} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
+                  <Button size="sm" variant="secondary" busy={busy === draft.id} disabled={!online || busy !== '' || claimed} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
                     {t('shelf.upload', 'ارفع')}
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={busy !== ''} onClick={() => setDropping({ draft, lineId: null })} data-action="drop-device-draft">
+                  <Button size="sm" variant="ghost" disabled={busy !== '' || claimed} onClick={() => setDropping({ draft, line: null })} data-action="drop-device-draft">
                     {t('shelf.drop', 'احذف من هذا الجهاز')}
                   </Button>
                 </div>
               </div>
-              {open === draft.id ? <ShelfLines lines={lines} busy={busy !== ''} onRemove={(lineId) => setDropping({ draft, lineId })} /> : null}
+              {open === draft.id ? <ShelfLines lines={lines} busy={busy !== '' || claimed} onRemove={(line) => setDropping({ draft, line })} /> : null}
               {failed ? (
                 <Notice tone="danger" title={failed.title}>
                   {failed.detail}
@@ -811,8 +876,9 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
  * تحويل جديد. بلا نت: الرأس وسطوره مسوّدة على الجهاز (الرفّ). وسطور انكتبت (بلا نت ثم رجع الاتصال، أو متّصل) ما تضيع أبداً: الحفظ
  * يكتبها على الجهاز أوّلاً ثم يرفعها مثل الرفّ (بمعرّفاتها، بلا تكرار)، وفشل الرفع يبقيها على الرفّ. متّصل وبلا سطور: رأس بالخادم.
  */
-function NewTransfer({ sources, all, stamp, onSaved }: { sources: readonly StoreRef[]; all: readonly StoreRef[]; stamp: DraftStamp; onSaved: () => void }) {
-  // onSaved بعد ما يستقرّ الرفع بس (نجح أو فشل): الرفّ ما يعرض مسوّدة ترتفع (uploading)، والقائمة تنقرا من جديد.
+function NewTransfer({ sources, all, stamp, onShelf, onSaved }: { sources: readonly StoreRef[]; all: readonly StoreRef[]; stamp: DraftStamp; onShelf: () => void; onSaved: () => void }) {
+  // الحفظ بلا نت يحدّث الرفّ بس (القائمة ما تنقرا بلا نت فتطلع «تعذّر التحميل»)؛ وبعد ما يستقرّ الرفع (نجح أو فشل) onSaved
+  // يحدّث الرفّ والقائمة، والرفّ ما يعرض مسوّدة ترتفع.
   const id = useId();
   const navigate = useNavigate();
   const online = useStore(onlineStore);
@@ -856,7 +922,7 @@ function NewTransfer({ sources, all, stamp, onSaved }: { sources: readonly Store
         const saved = await saveDeviceDraft<ShelfPayload>(stamp, { kind: 'transfer', title: t('shelf.transfer', 'تحويل من «{from}» إلى «{to}» بتاريخ {day}', { from: source.name, to: target.name, day: fmtDay(parsed) }), payload });
         setLines([]);
         if (!online) {
-          onSaved();
+          onShelf();
           toast({ tone: 'info', title: t('shelf.saved', 'حُفظت المسوّدة على هذا الجهاز؛ ارفعها حين يعود الاتصال.') });
           return;
         }
@@ -946,7 +1012,7 @@ export function TransfersList() {
       {!allowed ? <Notice tone="info" title={t('transfer.forbidden', 'التحويل لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {allowed && workspace ? <DeviceShelf userId={workspace.userId} orgId={workspace.orgId} tick={shelfTick} onUploaded={(docId) => navigate(`/inventory/transfers/${docId}`)} onSettled={docs.reload} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
-      {allowed && setup.data && stamp ? <NewTransfer sources={sources} all={all} stamp={stamp} onSaved={changed} /> : null}
+      {allowed && setup.data && stamp ? <NewTransfer sources={sources} all={all} stamp={stamp} onShelf={() => setShelfTick((n) => n + 1)} onSaved={changed} /> : null}
       {docs.first.error ? (
         <LoadFailed what={t('transfer.list.what', 'التحويلات')} error={docs.first.error} onRetry={docs.first.retry} />
       ) : docs.first.data ? (
