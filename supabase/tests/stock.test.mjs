@@ -567,7 +567,7 @@ async function scenario(t, db) {
       const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, TODAY])).rows[0].id;
       await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 85)', [count, oil]);
       await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
-      await q("update public.stock_count_lines set reason = 'تسرّب' where doc_id = $1", [count]);
+      await q("update public.stock_count_lines set reason = 'تسرّب', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
       await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
       return { use, count };
     },
@@ -644,7 +644,7 @@ async function scenario(t, db) {
     const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [wh, TODAY])).rows[0].id;
     await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [count, itemId, counted]);
     await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
-    await q("update public.stock_count_lines set reason = 'ضابط' where doc_id = $1", [count]);
+    await q("update public.stock_count_lines set reason = 'ضابط', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
     await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
     return count;
   };
@@ -814,7 +814,7 @@ async function scenario(t, db) {
       const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.medicine, TODAY])).rows[0].id;
       await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty, counted_expired_qty) values ($1, $2, $3, $4)', [count, I.vaccine, Number(have.ok) - 1, have.expired]);
       await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
-      await q("update public.stock_count_lines set reason = 'ضابط' where doc_id = $1", [count]);
+      await q("update public.stock_count_lines set reason = 'ضابط', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
       await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
     }]],
     'draw_dates (سحب مسمّى من منتهية بعلامة الانتهاء)': ['draw_dates', [{ draw_dates: 1 }, async (q) => {

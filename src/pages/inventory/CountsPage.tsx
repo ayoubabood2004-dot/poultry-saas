@@ -34,18 +34,7 @@ import { useStore } from '../../lib/store';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../accounts/shared';
-import {
-  clearPending,
-  countLinePatch,
-  devicePending,
-  dropPending,
-  isOwnRetry,
-  keepPending,
-  sendPending,
-  underCountLock,
-  type PendingCountLine,
-  type PendingStore,
-} from './countDevice';
+import { clearPending, devicePending, sendPending, underCountLock, writeOrKeep, type PendingCountLine, type PendingStore } from './countDevice';
 import { ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الجرد (الخطّة WP5، FOUNDATION ٥٥٥، القاعدة 17، E25، E41، E42، E48، E53، E54): العادّ يعدّ بالموبايل بيد وحدة (أهداف 44 بكسل أو
@@ -341,7 +330,27 @@ function usePending(stamp: DraftStamp, docId: string) {
   return { ...state, reread: () => setTick((n) => n + 1) };
 }
 
-type MergeAsk = { draft: LineDraft; before: { id: string; existing: boolean; fields: CountLineFields }; added: CountLineFields };
+type MergeAsk = { draft: LineDraft; before: CountLine; added: CountLineFields; total: CountLineFields };
+
+/** جملة الجمع: الصالح (والمنتهي لمادّة تتابعه) قبل وبعد، والتواريخ ووقت الفقس المكتوبة الآن تحلّ محلّ السابقة. */
+export function mergeSentence(ask: MergeAsk): string {
+  const item = ask.draft.item;
+  const qty = (text: string | null) => fmtQty(parseQty(text ?? '0') ?? 0n, item.baseUnit).main;
+  const before = fieldsOfLine(ask.before);
+  const valid = t('count.merge.valid', 'الصالح {before} ويُضاف {added} فيصير {total}', { before: qty(before.counted_qty), added: qty(ask.added.counted_qty), total: qty(ask.total.counted_qty) });
+  const expired = item.tracksExpiry
+    ? t('count.merge.expired', '، والمنتهي {before} ويُضاف {added} فيصير {total}', { before: qty(before.counted_expired_qty), added: qty(ask.added.counted_expired_qty), total: qty(ask.total.counted_expired_qty) })
+    : '';
+  const dates = item.tracksExpiry || item.kind === 'chick' ? t('count.merge.dates', '؛ والتواريخ المكتوبة الآن تحلّ محلّ السابقة') : '';
+  return t('count.merge.consequence', '«{item}» معدودة من قبل: {valid}{expired}{dates}.', { item: item.name, valid, expired, dates });
+}
+
+const isStaleDraft = (error: unknown): boolean => error instanceof RejectedError && error.code === 'stale_draft';
+
+/** الجرد تغيّر من نافذة أو جهاز ثاني (stale_draft): الشاشة تقرا نسخته، والرسالة تبقى بعد القراءة (تنبيه، مو حالة تضيع). */
+function staleDraftToast() {
+  toast({ tone: 'warning', title: t('count.stale_draft', 'تغيّر الجرد من نافذة أو جهاز آخر'), detail: t('count.stale_draft.detail', 'هذه نسخته الآن؛ راجعها وأعد المحاولة.') });
+}
 
 /** العدّ بالموبايل (المسوّدة، count.enter): أعمى، والحفظ اللي ما وصل يبقى بالجهاز، والتسليم بتأكيد. */
 function CountEntry({
@@ -350,7 +359,7 @@ function CountEntry({
   store,
   stamp,
   onRejected,
-  onDeviceFailure,
+  onFailure,
   onChanged,
 }: {
   doc: CountDoc;
@@ -358,57 +367,51 @@ function CountEntry({
   store: StoreRef;
   stamp: DraftStamp;
   onRejected: (rejected: readonly RejectedCount[]) => void;
-  onDeviceFailure: (error: unknown) => void;
+  onFailure: (error: unknown) => void;
   onChanged: () => void;
 }) {
   const online = useStore(onlineStore);
   const [editing, setEditing] = useState<CountLine | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<unknown>(null);
+  // فشل حفظ السطر بالنموذج نفسه، وفشل الأفعال (التسليم والحذف والإرسال) يرتفع للمحرّر: الشاشة تنفتح من جديد بعد القراءة.
+  const [lineFailure, setLineFailure] = useState<unknown>(null);
   const pending = usePending(stamp, doc.id);
   const [confirm, setConfirm] = useState<{ kind: 'submit' } | { kind: 'delete'; line: CountLine } | { kind: 'merge'; ask: MergeAsk } | null>(null);
   const local: PendingStore = devicePending(stamp, doc.id, t('count.pending.title', 'جرد «{store}» بتاريخ {day}', { store: store.name, day: fmtDay(doc.onDate) }));
-  const done = () => {
-    setEditing(null);
-    setFormKey((n) => n + 1);
-    onChanged();
+  const send = { add: counts.addCountLine, update: counts.updateCountLine };
+  const failed = (error: unknown) => {
+    if (isStaleDraft(error)) {
+      staleDraftToast();
+      onChanged();
+      return;
+    }
+    onFailure(error);
   };
-  // انكتب أحدث منه أونلاين: نسخة محفوظة أقدم لنفس السطر كانت تنكتب فوقه بـ«أرسل المحفوظ». فشل الجهاز ينقال فوق الشاشة (تنفتح
-  // من جديد بعد القراءة).
-  const afterWrite = (lineId: string, then: () => void) =>
-    dropPending(local, doc.id, lineId).then(then, (error: unknown) => {
-      onDeviceFailure(error);
-      then();
-    });
-  /** يكتب السطر: الجديد إدراج بمعرّفه (23505 بمفتاحه = انكتب، فتعديل بآخر قيمة)، والموجود تعديل؛ وما وصل يبقى بالجهاز. */
   const write = (line: PendingCountLine) => {
     setBusy(true);
-    setFailure(null);
-    const send = line.existing ? counts.updateCountLine(line.id, countLinePatch(line.fields)) : counts.addCountLine(doc.id, line.id, line.fields);
-    send
+    setLineFailure(null);
+    onFailure(null);
+    writeOrKeep(doc.id, local, line, send)
       .then(
-        () => afterWrite(line.id, done),
-        async (error: unknown) => {
-          if (isOwnRetry(error)) {
-            await counts.updateCountLine(line.id, countLinePatch(line.fields)).then(() => afterWrite(line.id, done), setFailure);
-            return;
-          }
-          if (error instanceof RejectedError || error instanceof ZeroRowsError) {
-            setFailure(error);
-            return;
-          }
-          try {
-            await keepPending(local, doc.id, line);
-          } catch (kept) {
-            // الجهاز ما حفظه هم (IndexedDB): العدّ يبقى بالنموذج والسبب ينقال، مو يضيع بصمت.
-            setFailure(kept);
-            return;
-          }
+        (outcome) => {
           setEditing(null);
           setFormKey((n) => n + 1);
+          if (outcome === 'written') {
+            onChanged();
+            return;
+          }
           pending.reread();
           toast({ tone: 'warning', title: t('count.kept', 'حُفظ العدّ بالجهاز'), detail: t('count.kept.detail', 'لم يصل الخادم؛ أرسله من «أرسل المحفوظ» حين يعود الاتصال.') });
+        },
+        (error: unknown) => {
+          // الجمع والسطر تغيّر من جهاز ثاني بعد ما انقرت الشاشة: صفر صفوف، فقراءة جديدة والعادّ يضيف على العدّ الجديد.
+          if (line.expected && error instanceof ZeroRowsError) {
+            toast({ tone: 'warning', title: t('count.merge.changed', 'تغيّر عدّ «{item}» من جهاز آخر', { item: line.itemName }), detail: t('count.merge.changed_detail', 'هذا عدّها الآن؛ أضف عدّك من جديد.') });
+            onChanged();
+            return;
+          }
+          setLineFailure(error);
         },
       )
       .finally(() => setBusy(false));
@@ -418,25 +421,26 @@ function CountEntry({
       write({ id: draft.lineId, existing: true, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields });
       return;
     }
-    // المادّة معدودة من قبل (بسطر الخادم أو بالمحفوظ): العدّ الجديد يُضاف لعدّها بتأكيد، مو سطر ثاني.
-    const kept = pending.lines.find((line) => line.fields.item_id === draft.item.id);
+    // المادّة معدودة بسطر: العدّ الجديد يُضاف لعدّها بتأكيد، والتعديل مشروط بالعدّ اللي انحسب منه المجموع؛ وبالمحفوظ (ما وصل)
+    // يوقفه writeOrKeep لحد ما ينرسل.
     const shown = lines.find((line) => line.itemId === draft.item.id);
-    const before = kept ? { id: kept.id, existing: kept.existing, fields: kept.fields } : shown ? { id: shown.id, existing: true, fields: fieldsOfLine(shown) } : null;
-    if (before) {
-      setConfirm({ kind: 'merge', ask: { draft, before, added: fields } });
+    if (shown) {
+      setConfirm({ kind: 'merge', ask: { draft, before: shown, added: fields, total: mergeCountFields(fieldsOfLine(shown), fields) } });
       return;
     }
     write({ id: crypto.randomUUID(), existing: false, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields });
   };
   const sendKept = () => {
     setBusy(true);
-    setFailure(null);
-    underCountLock(doc.id, () => sendPending(doc.id, local, { add: counts.addCountLine, update: counts.updateCountLine }))
+    onFailure(null);
+    underCountLock(doc.id, () => sendPending(doc.id, local, send))
       .then((result) => {
+        // المرفوض يرجع حتى لو وقف الإرسال بعده (شبكة)، وينعرض فوق الشاشة لحد الإرسال الجاي.
         onRejected(result.rejected);
         if (result.sent > 0) toast({ tone: 'success', title: t('count.sent', 'أُرسل المحفوظ: {n}', { n: fmtInt(result.sent) }) });
+        if (result.failure) failed(result.failure);
         onChanged();
-      }, setFailure)
+      }, failed)
       .finally(() => {
         setBusy(false);
         pending.reread();
@@ -444,10 +448,10 @@ function CountEntry({
   };
   const deleteLine = (line: CountLine) => {
     setBusy(true);
-    setFailure(null);
+    onFailure(null);
     counts
       .deleteCountLine(line.id, doc.version)
-      .then(() => afterWrite(line.id, onChanged), setFailure)
+      .then(onChanged, failed)
       .finally(() => {
         setBusy(false);
         setConfirm(null);
@@ -455,29 +459,27 @@ function CountEntry({
   };
   const submit = async () => {
     setBusy(true);
-    setFailure(null);
-    // بالنسخة اللي شافها العادّ: سطر أضافته نافذة ثانية بعدها stale_draft، فيشوفه قبل ما يسلّم.
+    onFailure(null);
+    // بالنسخة اللي شافها العادّ: سطر أضافته نافذة ثانية بعدها stale_draft، والشاشة تقرا الجرد من جديد فيشوفه قبل ما يسلّم.
     const outcome = await runWithRef(`count-submit:${doc.id}`, (ref) => counts.submitCount(ref, doc.id, doc.version));
     setBusy(false);
     setConfirm(null);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
+    if (outcome.kind === 'failed') failed(outcome.error);
     else {
       toast({ tone: 'success', title: t('count.submitted', 'سُلّم الجرد للمراجعة') });
       onChanged();
     }
   };
-  const failed = failure ? describeError(failure) : null;
   const ask = confirm?.kind === 'merge' ? confirm.ask : null;
-  const askTotal = ask ? mergeCountFields(ask.before.fields, ask.added) : null;
   return (
     <div className="flex flex-col gap-4">
       <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ رصيد الدفتر لا يظهر هنا.')} />
       {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أعاد المدير الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
       <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={(line) => setConfirm({ kind: 'delete', line })} />
       {editing ? (
-        <CountLineForm key={editing.id} store={store} line={editing} busy={busy} failure={failure} onSave={save} onCancel={() => setEditing(null)} />
+        <CountLineForm key={editing.id} store={store} line={editing} busy={busy} failure={lineFailure} onSave={save} onCancel={() => setEditing(null)} />
       ) : (
-        <CountLineForm key={`new-${formKey}`} store={store} line={null} busy={busy} failure={failure} onSave={save} onCancel={null} />
+        <CountLineForm key={`new-${formKey}`} store={store} line={null} busy={busy} failure={lineFailure} onSave={save} onCancel={null} />
       )}
       {pending.failed ? <LoadFailed what={t('count.pending.what', 'العدّ المحفوظ بالجهاز')} error={pending.failed} onRetry={pending.reread} /> : null}
       {pending.lines.length > 0 ? (
@@ -494,11 +496,6 @@ function CountEntry({
             {t('count.pending.send', 'أرسل المحفوظ')}
           </Button>
         </section>
-      ) : null}
-      {failed && !editing ? (
-        <Notice tone="danger" title={failed.title}>
-          {failed.detail}
-        </Notice>
       ) : null}
       <Button size="lg" disabled={!online || busy || lines.length === 0 || pending.lines.length > 0} onClick={() => setConfirm({ kind: 'submit' })} data-action="submit-count">
         {t('count.submit', 'سلّم الجرد للمراجعة')}
@@ -527,23 +524,26 @@ function CountEntry({
           onCancel={() => setConfirm(null)}
         />
       ) : null}
-      {ask && askTotal ? (
+      {ask ? (
         <ConfirmDialog
           open
           tone="primary"
           title={t('count.merge.title', 'أضف إلى عدّ «{item}»', { item: ask.draft.item.name })}
-          consequence={t('count.merge.consequence', '«{item}» معدودة من قبل ({before}). يُضاف العدّ الجديد ({added}) إليها فيصير {total}.', {
-            item: ask.draft.item.name,
-            before: fmtQty(parseQty(ask.before.fields.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
-            added: fmtQty(parseQty(ask.added.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
-            total: fmtQty(parseQty(askTotal.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
-          })}
+          consequence={mergeSentence(ask)}
           confirmLabel={t('count.merge', 'أضف إلى العدّ')}
           busy={busy}
           action="confirm-merge-count"
           onConfirm={() => {
             setConfirm(null);
-            write({ id: ask.before.id, existing: ask.before.existing, itemName: ask.draft.item.name, baseUnit: ask.draft.item.baseUnit, fields: askTotal });
+            const before = fieldsOfLine(ask.before);
+            write({
+              id: ask.before.id,
+              existing: true,
+              itemName: ask.draft.item.name,
+              baseUnit: ask.draft.item.baseUnit,
+              fields: ask.total,
+              expected: { counted_qty: before.counted_qty, counted_expired_qty: before.counted_expired_qty },
+            });
           }}
           onCancel={() => setConfirm(null)}
         />
@@ -561,7 +561,12 @@ function CountReadOnly({ doc, lines, store, stamp }: { doc: CountDoc; lines: rea
   const clear = () => {
     setBusy(true);
     setFailure(null);
-    clearPending(devicePending(stamp, doc.id, store?.name ?? ''), doc.id)
+    // اللي انعرض وتأكّد مسحه بس: نافذة ثانية ممكن حفظت عدّاً بعد العرض (المراجعة الثانية لـWP5).
+    clearPending(
+      devicePending(stamp, doc.id, store?.name ?? ''),
+      doc.id,
+      pending.lines.map((line) => line.id),
+    )
       .then(() => setConfirm(false), setFailure)
       .finally(() => {
         setBusy(false);
@@ -623,6 +628,12 @@ function byUnit<Row extends { baseUnit: BaseUnit }>(rows: readonly Row[]): { uni
   return BASE_UNITS.map((unit) => ({ unit, rows: rows.filter((row) => row.baseUnit === unit) })).filter((group) => group.rows.length > 0);
 }
 
+/** مستند غيّر رصيد يوم الجرد بعد اللقطة: اسمه وكميته باتّجاهها (وارد يزيد الرصيد، وصادر ينقصه). */
+export function refreshDocText(doc: { label: string; qty: Milli }, unit: BaseUnit): string {
+  const qty = fmtQty(doc.qty < 0n ? -doc.qty : doc.qty, unit).main;
+  return doc.qty < 0n ? t('count.refresh.doc_out', '{label} (صادر {qty})', { label: doc.label, qty }) : t('count.refresh.doc_in', '{label} (وارد {qty})', { label: doc.label, qty });
+}
+
 /** «أعد الحساب»: الفرق القديم والجديد جنب بعض (جدول لكل وحدة)، والمستندات اللي غيّرت رصيد يوم الجرد باسمها وكميتها. */
 function RefreshTable({ lines }: { lines: readonly RefreshedLine[] }) {
   return (
@@ -636,7 +647,7 @@ function RefreshTable({ lines }: { lines: readonly RefreshedLine[] }) {
           {
             key: 'docs',
             header: t('count.refresh.docs', 'المستندات بعد العدّ'),
-            cell: (line) => (line.docs.length === 0 ? '—' : line.docs.map((doc) => t('count.refresh.doc', '{label} ({qty})', { label: doc.label, qty: fmtQty(doc.qty < 0n ? -doc.qty : doc.qty, line.baseUnit).main })).join(t('list.separator', '، '))),
+            cell: (line) => (line.docs.length === 0 ? '—' : line.docs.map((doc) => refreshDocText(doc, line.baseUnit)).join(t('list.separator', '، '))),
           },
         ];
         return <DataTable key={unit} caption={t('count.refresh.caption_in', 'إعادة الحساب ({unit})', { unit: label })} columns={columns} rows={rows} rowKey={(line) => line.lineId} empty={t('count.lines.empty', 'لم يُعدّ شيء بعد.')} />;
@@ -743,13 +754,23 @@ function CountReview({
     setTick((n) => n + 1);
     onChanged();
   };
+  // الجرد تغيّر من نافذة أو جهاز ثاني (stale_draft): قراءة جديدة بدل زرّ يعيد نفس النسخة للأبد (المراجعة الثانية لـWP5).
+  const fail = (error: unknown) => {
+    if (isStaleDraft(error)) {
+      staleDraftToast();
+      setFailure(null);
+      after();
+      return;
+    }
+    setFailure(error);
+  };
   const saveReview = async () => {
     setBusy(true);
     setFailure(null);
     try {
       for (const line of data.lines) {
         const reason = reasons[line.lineId];
-        if ((reason !== undefined && reason.trim() !== (line.reason ?? '')) || staleReasons.includes(line)) await counts.setCountReason(line.lineId, reasonOf(line));
+        if ((reason !== undefined && reason.trim() !== (line.reason ?? '')) || staleReasons.includes(line)) await counts.setCountReason(line.lineId, reasonOf(line), { diff: line.diff, expiredDiff: line.expiredDiff });
         const cost = costs[line.lineId];
         if (cost !== undefined && cost.trim() !== costTextOf(line.gainUnitCost)) {
           const parsed = cost.trim() ? parseDecimal(cost, 4) : null;
@@ -761,7 +782,7 @@ function CountReview({
       setCosts({});
       after();
     } catch (error) {
-      setFailure(error);
+      fail(error);
     } finally {
       setBusy(false);
     }
@@ -771,7 +792,7 @@ function CountReview({
     setFailure(null);
     const outcome = await runWithRef(`count-refresh:${doc.id}`, (ref) => counts.refreshCount(ref, doc.id, data.version));
     setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
+    if (outcome.kind === 'failed') fail(outcome.error);
     else {
       onRefreshed(outcome.kind === 'done' ? outcome.result.lines : null);
       setStale(null);
@@ -792,7 +813,7 @@ function CountReview({
         return;
       }
       if (error instanceof RejectedError && error.code === 'stale_preview') setTick((n) => n + 1);
-      setFailure(error);
+      fail(error);
       return;
     }
     if (outcome.kind === 'done') toast({ tone: 'success', title: t('count.posted', 'رُحّل الجرد {no}', { no: outcome.result.docNo ?? '' }) });
@@ -805,7 +826,7 @@ function CountReview({
     setFailure(null);
     const outcome = await runWithRef(`count-return:${doc.id}`, (ref) => counts.returnCount(ref, doc.id, data.version, returnReason.trim()));
     setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
+    if (outcome.kind === 'failed') fail(outcome.error);
     else {
       setConfirm(null);
       setReturnReason('');
@@ -818,7 +839,7 @@ function CountReview({
     setFailure(null);
     counts
       .discardCount(doc.id, data.version)
-      .then(() => navigate('/inventory/counts'), setFailure)
+      .then(() => navigate('/inventory/counts'), fail)
       .finally(() => {
         setBusy(false);
         setConfirm(null);
@@ -829,7 +850,7 @@ function CountReview({
     setFailure(null);
     const outcome = await runWithRef(`count-void:${doc.id}`, (ref) => counts.voidCount(ref, doc.id, reason));
     setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
+    if (outcome.kind === 'failed') fail(outcome.error);
     else {
       setConfirm(null);
       after();
@@ -1059,9 +1080,9 @@ function CountEditor({ docId }: { docId: string }) {
   const [tick, setTick] = useState(0);
   const doc = useLoad(load, `${docId}#${tick}`);
   const setup = useLoad(inventory.loadOrgSetup);
-  // ما يلزم يبقى بعد القراءة الجديدة (الشاشة تنفتح من جديد بعدها): المحفوظ المرفوض، وفشل الجهاز، ونتيجة «أعد الحساب».
+  // ما يلزم يبقى بعد القراءة الجديدة (الشاشة تنفتح من جديد بعدها): المحفوظ المرفوض، وفشل أفعال العدّ، ونتيجة «أعد الحساب».
   const [rejected, setRejected] = useState<readonly RejectedCount[]>([]);
-  const [deviceFailure, setDeviceFailure] = useState<unknown>(null);
+  const [entryFailure, setEntryFailure] = useState<unknown>(null);
   const [refreshed, setRefreshed] = useState<readonly RefreshedLine[] | null>(null);
   const userId = workspace?.userId ?? '';
   const orgId = workspace?.orgId ?? '';
@@ -1074,7 +1095,7 @@ function CountEditor({ docId }: { docId: string }) {
   const changed = () => setTick((n) => n + 1);
   const reviewer = can(workspace.role, 'count.approve');
   const counter = can(workspace.role, 'count.enter');
-  const deviceFailed = deviceFailure ? describeError(deviceFailure) : null;
+  const entryFailed = entryFailure ? describeError(entryFailure) : null;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -1086,16 +1107,16 @@ function CountEditor({ docId }: { docId: string }) {
           </Link>
         }
       />
-      {deviceFailed ? (
-        <Notice tone="warning" title={t('count.device_failed', 'تعذّر تحديث العدّ المحفوظ بالجهاز')}>
-          {deviceFailed.detail}
+      {entryFailed ? (
+        <Notice tone="danger" title={entryFailed.title}>
+          {entryFailed.detail}
         </Notice>
       ) : null}
       <RejectedNotices rejected={rejected} />
       {!store ? (
         <Notice tone="warning" title={t('count.no_store', 'مخزن هذا الجرد غير متاح.')} />
       ) : current.status === 'draft' && counter ? (
-        <CountEntry doc={current} lines={doc.data.lines} store={store} stamp={stamp} onRejected={setRejected} onDeviceFailure={setDeviceFailure} onChanged={changed} />
+        <CountEntry doc={current} lines={doc.data.lines} store={store} stamp={stamp} onRejected={setRejected} onFailure={setEntryFailure} onChanged={changed} />
       ) : current.status !== 'draft' && reviewer ? (
         <CountReview doc={current} store={store} canVoid={can(workspace.role, 'void')} refreshed={refreshed} onRefreshed={setRefreshed} onChanged={changed} />
       ) : (
@@ -1141,8 +1162,26 @@ function NewCount({ stores, onSaved }: { stores: readonly StoreRef[]; onSaved: (
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <h2 className="font-semibold">{t('count.new', 'جرد جديد')}</h2>
-      <StoreSelect id={`${id}-store`} label={t('count.store', 'المخزن')} stores={active} value={storeId} onChange={setStoreId} />
-      <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')} />
+      <StoreSelect
+        id={`${id}-store`}
+        label={t('count.store', 'المخزن')}
+        stores={active}
+        value={storeId}
+        onChange={(next) => {
+          setStoreId(next);
+          setDocId(crypto.randomUUID());
+        }}
+      />
+      <DayField
+        id={`${id}-day`}
+        label={t('payment.day', 'التاريخ')}
+        value={day}
+        onChange={(next) => {
+          setDay(next);
+          setDocId(crypto.randomUUID());
+        }}
+        hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')}
+      />
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}

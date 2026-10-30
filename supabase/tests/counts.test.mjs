@@ -6,7 +6,7 @@
 // للفلس، ودفعة زيادة انسحب منها lot_consumed؛ والكلف لأدوار الكلفة بس. كل نداء بدور authenticated حقيقي.
 import { LEDGER_ZERO, call, outcome, shown, uid, verifyLedger } from './ledger-kit.mjs';
 import { draftWriteLock, sameRefRace } from './shared.mjs';
-import { STOCK_ZERO, balanceOf, lotsOf, makeStockOrg, postedOpening, postedTransfer, verifyStock, voidOpening } from './stock-kit.mjs';
+import { STOCK_ZERO, balanceOf, lotsOf, makeStockOrg, postedOpening, postedTransfer, verifyStock, voidOpening, voidTransfer } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
 const GO_LIVE = '2026-10-20';
@@ -67,7 +67,7 @@ async function scenario(t, db) {
   const versionOf = async (docId) => (await db.admin('select version from public.stock_counts where id = $1', [docId])).rows[0].version;
   const statusOf = async (docId) => (await db.admin('select status, doc_no from public.stock_counts where id = $1', [docId])).rows[0];
   const submit = async (user, doc) => call(db, user, 'select public.submit_count($1, $2, $3)', [doc.id, await versionOf(doc.id), uid()]);
-  const writeReason = (user, lineId, text) => call(db, user, 'update public.stock_count_lines set reason = $2 where id = $1 returning reason', [lineId, text]);
+  const writeReason = (user, lineId, text) => call(db, user, 'update public.stock_count_lines set reason = $2, reason_diff = diff, reason_expired_diff = expired_diff where id = $1 returning reason', [lineId, text]);
   const editLine = (user, lineId, column, value) => call(db, user, `update public.stock_count_lines set ${column} = $2 where id = $1 returning id`, [lineId, value]);
   const preview = (user, docId) => call(db, user, 'select public.preview_count($1)', [docId]);
   const post = async (user, docId, plan, ref = uid()) => call(db, user, 'select public.post_count($1, $2, $3, $4)', [docId, await versionOf(docId), plan, ref]);
@@ -435,6 +435,97 @@ async function scenario(t, db) {
   // دفعة زيادة الجرد مصدرها رقم الجرد بقائمة الدفعات (كانت «count_gain» خاماً).
   const gainRow = (await call(db, U.manager, 'select public.item_lots_qty($1, $2, null, 50)', [I.corn, W.raw])).value.rows.find((l) => l.source_kind === 'count_gain');
   t.eq(gainRow?.source, (await statusOf(gainDoc.id)).doc_no, 'دفعة زيادة الجرد بقائمة الدفعات: مصدرها رقم الجرد');
+
+  // ── المراجعة الثانية لـWP5 ────────────────────────────────────────────────────────────────────────────────────────
+  // جرد أقدم بعد جرد أحدث مرحَّل لنفس المادّة: الأحدث (29/10) سوّى الرصيد، وحركاته بعد يوم الأقدم (27/10) فرصيد يومه ما تغيّر، فكان
+  // الأقدم يترحّل بلا «تغيّر الرصيد» ويطبّق نقص 6 لترات مرّة ثانية (38 بالدفتر و44 على الرفّ).
+  const twice = await item('كاز الجردين', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: twice, qty: 50, value: 5000 }]);
+  const olderCount = await countDraft(U.storekeeper, W.general, [{ item: twice, qty: 44 }], '2026-10-27');
+  await submit(U.storekeeper, olderCount);
+  await writeReason(U.manager, olderCount.lines[0], 'تسرّب');
+  const newerCount = await countDraft(U.storekeeper, W.general, [{ item: twice, qty: 44 }], '2026-10-29');
+  await submit(U.storekeeper, newerCount);
+  await writeReason(U.manager, newerCount.lines[0], 'تسرّب');
+  t.eq(shown(await postNow(U.manager, newerCount.id)), 'ok', 'الجرد الأحدث (29/10) يترحّل بنقص 6 لترات');
+  const newerNo = (await statusOf(newerCount.id)).doc_no;
+  const supersededSeen = (await preview(U.manager, olderCount.id)).value;
+  const supersededPost = await postNow(U.manager, olderCount.id);
+  t.same(
+    [supersededSeen.lines[0].problem?.code, supersededSeen.ready, shown(supersededPost), supersededPost.hint?.includes(newerNo), await balanceOf(db, twice, W.general)],
+    ['count_superseded', false, 'count_superseded', true, { qty: '44', value: '4400' }],
+    `جرد 27/10 بعد ترحيل جرد 29/10 لنفس المادّة: المعاينة والترحيل count_superseded يسمّيان ${newerNo}، والرصيد 44 لتراً (النقص مرّة وحدة)`,
+  );
+
+  // تقسيم الصالح والمنتهي بيوم الجرد (مو اليوم): دفعة تنتهي 28/10 صالحة بجرد 27/10 ولو انتهت اليوم.
+  const drops = await S.one(U.owner, "insert into public.items (name, kind, base_unit, tracks_expiry) values ('قطرة الجرد', 'medicine', 'pc', true) returning id");
+  await postedOpening(db, U.manager, W.medicine, GO_LIVE, [{ item: drops, qty: 5, value: 500, expiry: '2026-10-28' }]);
+  const dropsCount = await countDraft(U.storekeeper, W.medicine, [{ item: drops, qty: 5, expired: 0 }], '2026-10-27');
+  t.eq(shown(await submit(U.storekeeper, dropsCount)), 'ok', 'جرد القطرة بتاريخ 27/10 يتسلّم');
+  t.same(
+    (await db.admin('select system_qty::text as valid, system_expired_qty::text as expired, diff::text as d, expired_diff::text as xd from public.stock_count_lines where id = $1', [dropsCount.lines[0]])).rows[0],
+    { valid: '5.000', expired: '0.000', d: '0.000', xd: '0.000' },
+    'دفعة تنتهي 28/10 بجرد 27/10: صالحة 5 ومنتهية صفر (بيوم الجرد، مو اليوم 30/10)',
+  );
+
+  // فرق المنتهي وحده تغيّر بعد كتابة السبب: صرف دفعة منتهية مسمّاة بتاريخ يوم الجرد بعد التسليم (المدير، Q5).
+  const serum = await S.one(U.owner, "insert into public.items (name, kind, base_unit, tracks_expiry) values ('مصل الجرد', 'medicine', 'pc', true) returning id");
+  await postedOpening(db, U.manager, W.medicine, GO_LIVE, [{ item: serum, qty: 6, value: 600, expiry: '2026-10-24' }, { item: serum, qty: 4, value: 400, expiry: '2027-01-01' }]);
+  const serumCount = await countDraft(U.storekeeper, W.medicine, [{ item: serum, qty: 4, expired: 4 }], '2026-10-27');
+  await submit(U.storekeeper, serumCount);
+  t.eq(shown(await writeReason(U.manager, serumCount.lines[0], 'كسر')), 'ok', 'سبب نقص المنتهي (−2)');
+  const spoilage = await S.one(U.accountant, "insert into public.expense_categories (name) values ('تلف الجرد') returning id");
+  const expiredSerum = (await lotsOf(db, serum, W.medicine)).find((l) => l.expiry_on === '2026-10-24').id;
+  await db.asUser(
+    U.manager,
+    async (q) => {
+      const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [W.medicine, spoilage, '2026-10-27'])).rows[0].id;
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit, lot_id) values ($1, $2, 1, $3)', [use, serum, expiredSerum]);
+      await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+    },
+    { commit: true },
+  );
+  t.eq(shown(await refresh(U.manager, serumCount.id)), 'ok', 'إعادة حساب جرد المصل');
+  const serumSeen = (await preview(U.manager, serumCount.id)).value.lines[0];
+  t.same(
+    [serumSeen.diff, serumSeen.expired_diff, serumSeen.reason_stale, shown(await postNow(U.manager, serumCount.id))],
+    ['0.000', '-1.000', true, 'reason_required'],
+    'فرق المنتهي وحده تغيّر (−2 ← −1) بعد كتابة السبب: المعاينة «السبب على فرق قديم» والترحيل reason_required',
+  );
+
+  // إلغاء مستند بتاريخ قبل يوم الجرد بعد اللقطة: «أعد الحساب» يسمّيه (عكسيته بتاريخ اليوم وأصلها بيوم 26/10).
+  const voidable = await item('كاز الإلغاء', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: voidable, qty: 20, value: 2000 }]);
+  const early = await postedTransfer(db, U.manager, W.general, W.general2, '2026-10-26', [{ item: voidable, qty: 4 }]);
+  const earlyNo = (await db.admin('select doc_no from public.transfers where id = $1', [early.id])).rows[0].doc_no;
+  const voidedCount = await countDraft(U.storekeeper, W.general, [{ item: voidable, qty: 16 }], '2026-10-27');
+  await submit(U.storekeeper, voidedCount);
+  t.eq(shown(await voidTransfer(db, U.manager, early.id)), 'ok', `إلغاء ${earlyNo} بعد التسليم`);
+  const voidRefresh = await refresh(U.manager, voidedCount.id);
+  t.same(
+    [shown(voidRefresh), voidRefresh.value?.lines?.[0]?.docs?.map((d) => [d.label, Number(d.qty)]), voidRefresh.value?.lines?.[0]?.new?.diff],
+    ['ok', [[earlyNo, 4]], '-4.000'],
+    'إلغاء تحويل بتاريخ 26/10 بعد لقطة جرد 27/10: «أعد الحساب» يسمّيه (+4) والفرق صار −4',
+  );
+
+  // السبب على الفرق اللي شافه المدير: الشاشة ترسل الفرقين، وفرق غير الحالي (أو بلاهما) stale_draft؛ وبالمسوّدة ما ينكتبان.
+  const stamped = await item('كاز الختم', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: stamped, qty: 10, value: 1000 }]);
+  const stampCount = await countDraft(U.storekeeper, W.general, [{ item: stamped, qty: 9 }]);
+  const draftStamp = await call(db, U.storekeeper, 'update public.stock_count_lines set reason_diff = 1 where id = $1 returning id', [stampCount.lines[0]]);
+  await submit(U.storekeeper, stampCount);
+  const reasonAt = (sql) => call(db, U.manager, `update public.stock_count_lines set ${sql} where id = $1 returning id`, [stampCount.lines[0]]);
+  t.same(
+    [
+      shown(draftStamp),
+      shown(await reasonAt("reason = 'كسر', reason_diff = diff - 1, reason_expired_diff = expired_diff")),
+      shown(await reasonAt("reason = 'كسر'")),
+      shown(await writeReason(U.manager, stampCount.lines[0], 'كسر')),
+      shown(await reasonAt("reason = null, reason_diff = null, reason_expired_diff = null")),
+    ],
+    ['frozen_column', 'stale_draft', 'stale_draft', 'ok', 'ok'],
+    'السبب بفرق غير الحالي أو بلا فرق stale_draft، وبالفرق الحالي يمرّ، ومسحه يمسح الختم؛ والختم بالمسوّدة frozen_column',
+  );
 
   // ── مرجع واحد (D6) وقفل المسوّدة المرحَّلة (FOUNDATION ٥٢٦) ─────────────────────────────────────────────────────────
   await sameRefRace(t, db, {

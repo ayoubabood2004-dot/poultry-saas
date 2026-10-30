@@ -2,7 +2,9 @@
 // والجلسة والرسائل بدائل، ومحفوظ الجهاز الحقيقي على fake-indexeddb. كل حالة كانت تفشل على الشفرة قبل الإصلاح:
 // C1 تعديل سطر العدّ بلا المادّة (المنح بلاها)؛ C2 عدّ ثاني لمادّة معدودة ينجمع بتأكيد بدل سطر ثاني؛ C3 التسليم بنسخة الشاشة؛
 // C4 حذف السطر بتأكيد؛ C5 الترحيل بموافقة كل خطّ وتأكيد؛ C6 السبب على فرق قديم يتأكّد؛ C7 نتيجة «أعد الحساب» تبقى بعد القراءة؛
-// U1 مسوّدة الصرف بمعرّف الجهاز (الإعادة بعد شبكة 23505 = انكتبت فتنفتح)؛ U2 زرّ إلغاء الصرف لمن عنده الفعل بس.
+// U1 مسوّدة الصرف بمعرّف الجهاز (الإعادة بعد شبكة 23505 = انكتبت فتنفتح)؛ U2 زرّ إلغاء الصرف لمن عنده الفعل بس. والمراجعة الثانية:
+// C8 عدّ محفوظ ما وصل يوقف تعديل سطره؛ C9 المرفوض من المحفوظ ينعرض بعد القراءة؛ C10 الجمع وتغيّر العدّ من جهاز ثاني؛ C11 stale_draft
+// يقرا الجرد من جديد؛ U3 سطر صرف بعد 23505 يكتب آخر قيمة؛ U4 أزرار المسوّدة لمن عنده الفعل.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -12,7 +14,7 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const COUNTS = ['listCounts', 'loadCount', 'createCountDraft', 'addCountLine', 'updateCountLine', 'deleteCountLine', 'discardCount', 'countVersion', 'submitCount', 'returnCount', 'setCountReason', 'setGainUnitCost', 'previewCount', 'refreshCount', 'postCount', 'voidCount', 'loadApprovals'];
-const USES = ['listUses', 'loadUse', 'createUseDraft', 'updateUseDraft', 'addUseLine', 'deleteUseLine', 'discardUse', 'previewUse', 'postUse', 'voidUse'];
+const USES = ['listUses', 'loadUse', 'createUseDraft', 'updateUseDraft', 'addUseLine', 'updateUseLine', 'deleteUseLine', 'discardUse', 'previewUse', 'postUse', 'voidUse'];
 const INVENTORY = ['loadOrgSetup', 'listItems', 'listItemUnits', 'loadItemLots'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__flow.call('${n}', a);`).join(' ')}`;
 const STUBS = {
@@ -39,7 +41,9 @@ async function bundle() {
     "export { default as StockRoutes } from './src/pages/inventory/StockRoutes.tsx';",
     "export { onlineStore } from './src/lib/online.ts';",
     "export { searchable } from './src/domain/normalize.ts';",
-    "export { NetworkError, RejectedError } from './src/lib/errors.ts';",
+    "export { NetworkError, RejectedError, ZeroRowsError } from './src/lib/errors.ts';",
+    "export { saveDeviceDraft, removeDeviceDraft } from './src/lib/drafts/index.ts';",
+    "export { pendingDraftId } from './src/pages/inventory/countDevice.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -187,7 +191,11 @@ export default async function (t) {
       const beforeConfirm = [named(calls, 'addCountLine').length, named(calls, 'updateCountLine').length];
       await click(byAction('confirm-merge-count')[0]);
       const sent = named(calls, 'updateCountLine');
-      t.same([asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch]) => [id, patch.counted_qty])], [true, [0, 0], 0, [['l-kaz', '45.000']]], 'C2: المادّة معدودة (40): تأكيد «يصير 45»، ثم تعديل سطرها بـ45 بلا إدراج');
+      t.same(
+        [asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch, expected]) => [id, patch.counted_qty, expected?.counted_qty])],
+        [true, [0, 0], 0, [['l-kaz', '45.000', '40.000']]],
+        'C2: المادّة معدودة (40): تأكيد «يصير 45»، ثم تعديل سطرها بـ45 بشرط إنها بعدها 40 (بلا إدراج)',
+      );
       await unmount();
     }
 
@@ -250,7 +258,7 @@ export default async function (t) {
       const save = byAction('save-count-review')[0];
       const open = !disabled(save);
       await click(save);
-      t.same([warned, open, named(calls, 'setCountReason')], [true, true, [['l-kaz', 'تسرّب']]], 'C6: السبب على فرق قديم ينقال، و«احفظ الأسباب» مفتوح ويرسله بنفس النصّ');
+      t.same([warned, open, named(calls, 'setCountReason')], [true, true, [['l-kaz', 'تسرّب', { diff: -2000n, expiredDiff: null }]]], 'C6: السبب على فرق قديم ينقال، و«احفظ الأسباب» مفتوح ويرسله بنفس النصّ وبالفرق اللي بالشاشة');
       await unmount();
     }
 
@@ -272,6 +280,69 @@ export default async function (t) {
       await click(byAction('refresh-count')[0]);
       await settle();
       t.ok(text().includes('TR-2026-0009') && text().includes('الفرق السابق'), 'C7: بعد «أعد الحساب» وقراءة الجرد من جديد: جدول الفرق السابق والمستند TR-2026-0009 باقٍ');
+      await unmount();
+    }
+
+    const stampOf = (role) => ({ userId: `u-${role}`, orgId: 'org-1' });
+    const keep = (role, lines) => m.saveDeviceDraft(stampOf(role), { id: m.pendingDraftId(`u-${role}`, 'c-1'), kind: 'count', title: 'جرد', payload: { docId: 'c-1', lines } });
+    const unkeep = (role) => m.removeDeviceDraft(m.pendingDraftId(`u-${role}`, 'c-1'));
+    const keptKaz = { id: 'l-kaz', existing: true, itemName: 'كاز أويل', baseUnit: 'L', fields: { item_id: 'i-kaz', counted_qty: '50.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+
+    // ── C8: سطر بعدّ محفوظ ما وصل (أحدث من البطاقة): التعديل يقف بسببه، بلا إرسال ولا مسح المحفوظ ─────────────────────────────
+    {
+      await keep('storekeeper', [keptKaz]);
+      const calls = fresh('storekeeper', countHandlers());
+      await mount('/inventory/counts/c-1');
+      await click(byAction('edit-count-line')[0]);
+      type(byIdSuffix('-qty')[0], '41');
+      await settle();
+      await submitLine();
+      t.same([named(calls, 'updateCountLine').length, text().includes('أرسل المحفوظ أوّلاً'), text().includes('«كاز أويل»: 50 لتراً')], [0, true, true], 'C8: للسطر عدّ محفوظ (50) ما وصل: تعديله يقف «أرسل المحفوظ أوّلاً» والمحفوظ باقٍ');
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C9: «أرسل المحفوظ» ومرفوض: سببه ينعرض ويبقى بعد قراءة الجرد ─────────────────────────────────────────────────
+    {
+      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+      await keep('storekeeper', [gasLine]);
+      const calls = fresh('storekeeper', countHandlers({ addCountLine: () => { throw new m.RejectedError('item_already_counted', '«غاز» معدودة في سطر آخر من هذا الجرد.'); } }));
+      await mount('/inventory/counts/c-1');
+      await click(byAction('send-kept-counts')[0]);
+      await settle();
+      t.same([named(calls, 'loadCount').length >= 2, text().includes('لم يُقبل عدّ «غاز»')], [true, true], 'C9: المرفوض من المحفوظ ينعرض بسببه بعد قراءة الجرد من جديد');
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C10: الجمع والسطر تغيّر من جهاز ثاني (صفر صفوف): قراءة جديدة وتنبيه، بلا كتابة فوق العدّ الجديد ───────────────────────
+    {
+      const calls = fresh('storekeeper', countHandlers({ updateCountLine: (id, patch, expected) => { if (expected) throw new m.ZeroRowsError(); return kazLine; } }));
+      await mount('/inventory/counts/c-1');
+      type(byAction('search-item')[0], 'كاز');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '5');
+      await settle();
+      await submitLine();
+      const loadsBefore = named(calls, 'loadCount').length;
+      await click(byAction('confirm-merge-count')[0]);
+      t.same(
+        [named(calls, 'updateCountLine').length, named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر عدّ «كاز أويل»'))],
+        [1, true, true],
+        'C10: الجمع والعدّ تغيّر بجهاز ثاني: تعديل واحد مشروط رفضه الخادم، فقراءة جديدة وتنبيه «تغيّر عدّ»',
+      );
+      await unmount();
+    }
+
+    // ── C11: التسليم ونافذة ثانية غيّرت الجرد (stale_draft): قراءة جديدة وتنبيه، مو زرّ يعيد نفس النسخة ─────────────────────
+    {
+      const calls = fresh('storekeeper', countHandlers({ submitCount: () => { throw new m.RejectedError('stale_draft', 'تغيّر الجرد بعد فتحه.'); } }));
+      await mount('/inventory/counts/c-1');
+      const loadsBefore = named(calls, 'loadCount').length;
+      await click(byAction('submit-count')[0]);
+      await click(byAction('confirm-submit-count')[0]);
+      t.same([named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر الجرد'))], [true, true], 'C11: التسليم stale_draft: الجرد ينقرا من جديد وتنبيه «تغيّر الجرد»');
       await unmount();
     }
 
@@ -301,6 +372,26 @@ export default async function (t) {
       await unmount();
     }
 
+    // ── U5: نموذج مسوّدة الصرف تغيّر بين المحاولتين (شبكة ثم تصنيف ثاني): معرّف جديد، فمسوّدة بقيمها الجديدة مو فتح القديمة ──────
+    {
+      const twoCategories = { ...org, expenseCategories: [...org.expenseCategories, { id: 'cat-2', version: 1, archived: false, name: 'نظافة', systemCode: null }] };
+      const calls = fresh('storekeeper', { loadOrgSetup: () => twoCategories, listUses: () => ({ rows: [], next: null, total: 0 }), createUseDraft: () => { throw new m.NetworkError(); } });
+      await mount('/inventory/uses');
+      choose(byIdSuffix('-store')[0], 'w-gen');
+      await settle();
+      choose(byAction('pick-category')[0], 'cat-1');
+      await settle();
+      fire(byAction('create-use')[0].parentNode, 'submit');
+      await settle();
+      choose(byAction('pick-category')[0], 'cat-2');
+      await settle();
+      fire(byAction('create-use')[0].parentNode, 'submit');
+      await settle();
+      const ids = named(calls, 'createUseDraft').map((args) => args[0]);
+      t.same([ids.length, ids[0] !== ids[1]], [2, true], 'U5: التصنيف تغيّر بين المحاولتين: معرّف جديد (الإعادة بنفس المعرّف لنفس القيم بس)');
+      await unmount();
+    }
+
     // ── U2: زرّ إلغاء الصرف المرحَّل لمن عنده الفعل (المدير) بس ─────────────────────────────────────────────────────────
     {
       const posted = { id: 'u-1', status: 'posted', version: 3, docNo: 'SU-2026-0001', warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: true, voidReason: null, createdAt: '2026-10-30T08:00:00Z' };
@@ -313,6 +404,57 @@ export default async function (t) {
         await unmount();
       }
       t.same(seen, { storekeeper: 0, manager: 1 }, 'U2: إلغاء الصرف للمدير بس (الأمين بلا الفعل ما يشوف الزرّ)');
+    }
+
+    const draftUse = { id: 'u-2', status: 'draft', version: 1, docNo: null, warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: false, voidReason: null, createdAt: '2026-10-30T08:00:00Z' };
+    // ── U3: سطر صرف ضاع جوابه ثم صحّحه المستخدم: نفس معرّف الجهاز، و23505 يكتب آخر قيمة فوقه ───────────────────────────────
+    {
+      let attempt = 0;
+      const calls = fresh('storekeeper', {
+        loadOrgSetup: () => org,
+        loadUse: () => ({ doc: draftUse, lines: [] }),
+        listItems: () => ({ rows: [kaz], total: 1, next: null }),
+        listItemUnits: () => [],
+        loadItemLots: () => ({ rows: [], next: null }),
+        addUseLine: () => {
+          attempt += 1;
+          if (attempt === 1) throw new m.NetworkError();
+          throw new m.RejectedError('23505', null, 'stock_use_lines_pkey');
+        },
+        updateUseLine: () => ({}),
+      });
+      await mount('/inventory/uses/u-2');
+      type(byAction('search-item')[0], 'كاز');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '10');
+      await settle();
+      fire(byAction('add-use-line')[0].parentNode, 'submit');
+      await settle();
+      type(byIdSuffix('-qty')[0], '12');
+      await settle();
+      fire(byAction('add-use-line')[0].parentNode, 'submit');
+      await settle();
+      const adds = named(calls, 'addUseLine');
+      const updates = named(calls, 'updateUseLine');
+      t.same(
+        [adds.length, adds[0]?.[1] === adds[1]?.[1], updates.map(([id, fields]) => [id === adds[0]?.[1], fields.qty_in_unit])],
+        [2, true, [[true, '12.000']]],
+        'U3: الإعادة بنفس معرّف السطر، و23505 = انكتب فتنكتب آخر قيمة (12) فوقه بدل ما تبقى 10 بصمت',
+      );
+      await unmount();
+    }
+
+    // ── U4: أزرار مسوّدة الصرف لمن عنده stock_use.post بس ─────────────────────────────────────────────────────────
+    {
+      const seen = {};
+      for (const role of ['viewer', 'storekeeper']) {
+        fresh(role, { loadOrgSetup: () => org, loadUse: () => ({ doc: draftUse, lines: [] }), listItems: () => ({ rows: [], total: 0, next: null }) });
+        await mount('/inventory/uses/u-2');
+        seen[role] = [byAction('add-use-line').length, byAction('preview-use').length, byAction('discard-use').length];
+        await unmount();
+      }
+      t.same(seen, { viewer: [0, 0, 0], storekeeper: [1, 1, 1] }, 'U4: المشاهد يشوف مسوّدة الصرف بلا أزرارها، والأمين بيها');
     }
   } finally {
     restore();

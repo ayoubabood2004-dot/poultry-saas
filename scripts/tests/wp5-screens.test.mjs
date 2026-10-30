@@ -95,12 +95,14 @@ export default async function (t) {
     export { UsePreviewPanel, awaitsManager, stockUseWholeLines, stockUsePostReady, expiredLots } from './src/pages/inventory/UsesPage.tsx';
     export { HatcheryBookSelect, booksInScope, expenseProblems, expenseSpanLabel, monthChoices, monthLabel } from './src/pages/accounts/ExpensesPage.tsx';
     export { parseExpenseReport } from './src/lib/repo/cash.ts';
-    export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeCountFields, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
-    export { countLinePatch, isOwnRetry, sendPending, withPending } from './src/pages/inventory/countDevice.ts';
+    export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeCountFields, mergeSentence, refreshDocText, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
+    export { clearPending, countLinePatch, isOwnRetry, pendingDraftId, sendPending, withPending, writeOrKeep } from './src/pages/inventory/countDevice.ts';
+    export { usesPageQuery } from './src/lib/repo/uses.ts';
+    export { PostgrestClient } from '@supabase/postgrest-js';
     export { parseCountPreview } from './src/lib/repo/counts.ts';
     export { WholeBalanceConfirm } from './src/components/ui/WholeBalance.tsx';
     export { parseUsePreview } from './src/lib/repo/uses.ts';
-    export { RejectedError, NetworkError } from './src/lib/errors.ts';
+    export { RejectedError, NetworkError, ZeroRowsError } from './src/lib/errors.ts';
   `);
   const html = (element) => m.renderToStaticMarkup(element);
   const none = () => {};
@@ -259,9 +261,16 @@ export default async function (t) {
   t.same([sent.sent, sent.rejected.length, ok.box.lines, calls], [3, 0, [], [['add', 'a', '1.000'], ['update', 'b', '2.000'], ['add', 'c', '3.000'], ['update', 'c', '3.000']]], 'الإرسال: الجديد إدراج، والموجود تعديل، و23505 = انكتب فيتعدّل بآخر قيمة، والمحفوظ فرغ');
   calls.length = 0;
   const flaky = store([line('a', '1.000'), line('b', '2.000'), line('c', '3.000')]);
-  let thrown = null;
-  await m.sendPending('d', flaky, send({ b: () => new m.NetworkError() })).catch((error) => (thrown = error));
-  t.same([thrown?.name, flaky.box.lines.map((l) => l.id)], ['NetworkError', ['b', 'c']], 'الشبكة بالسطر الثاني: الأوّل انشال، والثاني وبعده باقيان والخطأ يطلع');
+  const flakyResult = await m.sendPending('d', flaky, send({ b: () => new m.NetworkError() }));
+  t.same([flakyResult.failure?.name, flakyResult.sent, flaky.box.lines.map((l) => l.id)], ['NetworkError', 1, ['b', 'c']], 'الشبكة بالسطر الثاني: الأوّل انشال، والثاني وبعده باقيان والخطأ يرجع');
+  // المراجعة الثانية: مرفوض قبل فشل الشبكة يرجع ويّاه (كان يضيع ويّا الرمي)، وصفر صفوف (السطر انحذف) رفض أكيد ينشال.
+  const mixed = store([line('a', '1.000', true), line('b', '2.000'), line('c', '3.000')]);
+  const mixedResult = await m.sendPending('d', mixed, send({ 'u:a': () => new m.ZeroRowsError(), b: () => new m.NetworkError() }));
+  t.same(
+    [mixedResult.rejected.map((r) => [r.line.id, r.error.name]), mixedResult.failure?.name, mixed.box.lines.map((l) => l.id)],
+    [[['a', 'ZeroRowsError']], 'NetworkError', ['b', 'c']],
+    'مرفوض (صفر صفوف) ثم شبكة: المرفوض يرجع والخطأ ويّاه، والباقي (هو وبعده) بالجهاز',
+  );
   const refused = store([line('a', '1.000'), line('b', '2.000')]);
   const result = await m.sendPending('d', refused, send({ a: () => new m.RejectedError('not_draft', 'الجرد مسلَّم') }));
   t.same([result.sent, result.rejected.map((r) => [r.line.id, r.error.code]), refused.box.lines], [1, [['a', 'not_draft']], []], 'الرفض الأكيد (الجرد سُلّم): السطر ينشال ويرجع بسببه، والباقي ينرسل');
@@ -281,6 +290,47 @@ export default async function (t) {
     '23505 بمفتاح الصفّ = انكتب، وبمفتاح المادّة رفض أكيد ينشال ويرجع بسببه (بلا تعديل)',
   );
   t.same(Object.keys(m.countLinePatch(fields('1.000'))).includes('item_id'), false, 'تعديل السطر بلا المادّة (المنح بلاها، فإرسالها يرجع 42501)');
+  t.ok(m.pendingDraftId('u-1', 'd') !== m.pendingDraftId('u-2', 'd'), 'محفوظ الجرد لكل مستخدم بالجهاز (مستخدمان بجهاز واحد ما يمسحان محفوظ بعض)');
+  // الكتابة تحت القفل: عدّ محفوظ ما وصل لنفس السطر أو المادّة يوقفها، والشبكة تحفظ، والجمع يرسل القيمة اللي انحسب منها.
+  const keptStore = (lines) => store(lines.map((l) => ({ ...l, fields: { ...l.fields, item_id: l.item ?? l.fields.item_id } })));
+  calls.length = 0;
+  const blocked = keptStore([{ ...line('k', '5.000'), item: 'x' }]);
+  const outcomes = [];
+  for (const [label, target, plan] of [
+    ['same-id', { ...line('k', '6.000', true), fields: { ...fields('6.000'), item_id: 'x' } }, {}],
+    ['same-item', { ...line('n', '1.000'), fields: { ...fields('1.000'), item_id: 'x' } }, {}],
+  ]) {
+    outcomes.push(await m.writeOrKeep('d', blocked, target, send(plan)).then((r) => r, (e) => e.code));
+  }
+  const blockedCalls = calls.length;
+  const offline = store([]);
+  const offlineResult = await m.writeOrKeep('d', offline, line('z', '2.000'), send({ z: () => new m.NetworkError() }));
+  const merged = store([]);
+  const sentMerge = [];
+  await m.writeOrKeep('d', merged, { ...line('m', '9.000', true), expected: { counted_qty: '4.000', counted_expired_qty: null } }, { add: async () => {}, update: async (id, patch, expected) => sentMerge.push([id, patch.counted_qty, expected?.counted_qty]) });
+  t.same(
+    [outcomes, blockedCalls, offlineResult, offline.box.lines.map((l) => l.id), sentMerge],
+    [['kept_first', 'kept_first'], 0, 'kept', ['z'], [['m', '9.000', '4.000']]],
+    'عدّ محفوظ لنفس السطر أو المادّة يوقف الكتابة (kept_first) بلا إرسال؛ والشبكة تحفظه بالجهاز؛ والجمع يرسل العدّ اللي انحسب منه',
+  );
+  const twoTabs = store([line('a', '1.000'), line('b', '2.000')]);
+  await m.clearPending(twoTabs, 'd', ['a']);
+  t.same(twoTabs.box.lines.map((l) => l.id), ['b'], '«امسح المحفوظ» يمسح اللي انعرض بس (b انحفظ بنافذة ثانية بعد العرض)');
+  t.same(
+    [m.refreshDocText({ label: 'TR-1', qty: -5000n }, 'L'), m.refreshDocText({ label: 'TR-2', qty: 3000n }, 'L')],
+    ['TR-1 (صادر 5 لترات)', 'TR-2 (وارد 3 لترات)'],
+    'مستندات «أعد الحساب» باتّجاهها: صادر ينقص الرصيد ووارد يزيده',
+  );
+  const vaccineItem = { id: 'v', name: 'لقاح', kind: 'vaccine', baseUnit: 'pc', tracksExpiry: true };
+  const shelfLine = { id: 'l', itemId: 'v', counted: 10000n, countedExpired: 4000n, gainExpiryOn: null, gainExpiredExpiryOn: null, gainBornAt: null };
+  const added = { item_id: 'v', counted_qty: '5.000', counted_expired_qty: '1.000', gain_expiry_on: '2027-01-01', gain_expired_expiry_on: null, gain_born_at: null };
+  const sentence = m.mergeSentence({ draft: { item: vaccineItem, lineId: null }, before: shelfLine, added, total: m.mergeCountFields(m.fieldsOfLine(shelfLine), added) });
+  t.ok(['فيصير 15', 'والمنتهي 4', 'فيصير 5', 'تحلّ محلّ السابقة'].every((part) => sentence.includes(part)), `جملة الجمع لمادّة تتابع الانتهاء تسمّي الصالح والمنتهي وتبديل التواريخ: ${sentence}`);
+  // طلب قائمة الصرف نفسه (supabase-js الحقيقي بلا شبكة): علامة «بانتظار المدير» من سطر واحد بدفعة مسمّاة.
+  let listed = '';
+  const client = new m.PostgrestClient('http://dummy.local/rest/v1', { fetch: async (url) => ((listed = decodeURIComponent(String(url))), new Response('[]', { status: 200, headers: { 'content-range': '0-0/0' } })) });
+  await m.usesPageQuery(client, null);
+  t.ok(listed.includes('named.lot_id=not.is.null') && listed.includes('named.limit=1') && listed.includes('named:stock_use_lines(lot_id)'), `قائمة الصرف تطلب سطراً واحداً بدفعة مسمّاة لكل مستند: ${listed}`);
 
   // ── العدّ الثاني لنفس المادّة ينجمع (رفّان)، والتواريخ الجديدة تغلب ───────────────────────────────────────────────
   const shelfOne = m.fieldsOfLine({ itemId: 'v', counted: 10000n, countedExpired: 2000n, gainExpiryOn: '2027-01-01', gainExpiredExpiryOn: null, gainBornAt: null });

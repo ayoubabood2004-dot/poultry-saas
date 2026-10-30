@@ -142,7 +142,7 @@ async function scenario(t, db) {
     [['id', 'kind', 'status', 'version'], 'forbidden', 'forbidden'],
     'تسليم الأمين بلا كميات الدفتر ولا قيم، ومعاينة الجرد وترحيله forbidden له',
   );
-  await S.one(U.manager, "update public.stock_count_lines set reason = 'لتر ناقص' where id = $1 returning id", [count.lineId]);
+  await S.one(U.manager, "update public.stock_count_lines set reason = 'لتر ناقص', reason_diff = diff, reason_expired_diff = expired_diff where id = $1 returning id", [count.lineId]);
   const countPosted = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [count.id, await countVersion()]);
   t.same([countPosted.ok, countPosted.value?.money?.shortage_total], [true, '800.00'], 'ضابط: المدير يرحّل الجرد بقيمته (نقص لتر بـ800.00)');
   await useDraft(U.manager, W.medicine, I.vaccine, 1).then((doc) => call(db, U.manager, POST_USE, [doc.id, doc.version, uid()]));

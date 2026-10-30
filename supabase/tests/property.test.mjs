@@ -177,8 +177,10 @@ async function propertyV3(t, db) {
     (await db.admin("select coalesce(sum(amount) filter (where reverses_id is null), 0)::text as v from public.expenses where doc_kind = $1 and doc_id = $2", [kind, docId])).rows[0].v;
   const versionOf = async (table, docId) => (await db.admin(`select version from public.${table} where id = $1`, [docId])).rows[0].version;
   const posted = [];
+  // الجرود المرحَّلة (مادّة، مخزن، يوم): جرد أقدم بعد أحدث مرحَّل لنفس المادّة count_superseded (المراجعة الثانية لـWP5).
+  const approvedCounts = [];
   const failures = [];
-  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0 };
+  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0 };
   for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
     const roll = random();
     const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
@@ -259,7 +261,7 @@ async function propertyV3(t, db) {
         failures.push(`${label}: التسليم ${sent.code}`);
         continue;
       }
-      if (diff !== 0n) await call(db, U.manager, "update public.stock_count_lines set reason = 'خاصية' where id = $1 returning id", [doc.lineId]);
+      if (diff !== 0n) await call(db, U.manager, "update public.stock_count_lines set reason = 'خاصية', reason_diff = diff, reason_expired_diff = expired_diff where id = $1 returning id", [doc.lineId]);
       const reference = count.pickGainReferenceLot(candidates);
       let cost = null;
       if (diff > 0n && reference === null) {
@@ -270,12 +272,17 @@ async function propertyV3(t, db) {
       const plan = diff < 0n ? fifo.planDraw(lots, -diff, day, { tracksExpiry: false }) : { draws: [], shortage: 0n };
       const result = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [doc.id, await versionOf('stock_counts', doc.id), uid()]);
       tally.counts += 1;
-      if (plan.shortage > 0n) {
+      const later = approvedCounts.some((c) => c.item === item && c.wh === wh && c.day > day);
+      if (later) {
+        tally.superseded += 1;
+        if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث مرحَّل والقاعدة ${shown(result)}`);
+      } else if (plan.shortage > 0n) {
         tally.countShort += 1;
         if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
       } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
       else {
         posted.push({ kind: 'count', fn: 'void_count', id: doc.id });
+        approvedCounts.push({ id: doc.id, item, wh, day });
         const line = result.value.lines[0];
         const got = drawsText(line.draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
         if (got !== drawsText(plan.draws)) failures.push(`${label}: النقص ${got} والخطّة ${drawsText(plan.draws)}`);
@@ -310,6 +317,7 @@ async function propertyV3(t, db) {
         posted.splice(posted.indexOf(target), 1);
         tally.voids += 1;
         if (target.kind === 'expense') boxModel += target.amount;
+        if (target.kind === 'count') approvedCounts.splice(approvedCounts.findIndex((c) => c.id === target.id), 1);
       } else if (result.code === 'lot_consumed') tally.consumed += 1;
       else failures.push(`${label}: ${result.code}`);
     }

@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Fils, Milli } from '../../domain/money';
 import { BASE_UNITS } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
@@ -115,21 +116,23 @@ export type UseListDoc = UseDoc & { namesLot: boolean };
  * مستندات الصرف بصفحات (keyset مثل التحويل): المسوّدات ثم المرحَّلة ثم الملغاة، والأحدث أوّلاً، والعدد الكلّي بأوّل صفحة. سطر
  * واحد بدفعة مسمّاة يكفي للعلامة (named محصور بسطر).
  */
+/** صفحة القائمة كما تنطلب (مفصولة حتى ينفحص الطلب نفسه): named سطر واحد بدفعة مسمّاة، والمؤشّر بالحالة والوقت والمعرّف. */
+export function usesPageQuery(db: Pick<SupabaseClient, 'from'>, after: DocCursor | null) {
+  let page = db
+    .from('stock_uses')
+    .select(`${USE_COLUMNS}, named:stock_use_lines(lot_id)`)
+    .not('named.lot_id', 'is', null)
+    .limit(1, { referencedTable: 'named' });
+  if (after) {
+    const at = `"${after.createdAt}"`;
+    page = page.or(`status.gt.${after.status},and(status.eq.${after.status},created_at.lt.${at}),and(status.eq.${after.status},created_at.eq.${at},id.lt.${after.id})`);
+  }
+  return page.order('status').order('created_at', { ascending: false }).order('id', { ascending: false }).limit(USES_PAGE);
+}
+
 export async function listUses(after: DocCursor | null = null): Promise<Omit<DocPage, 'rows'> & { rows: UseListDoc[] }> {
   const { result, wasOnline } = await send(
-    (db) => {
-      let page = db
-        .from('stock_uses')
-        .select(`${USE_COLUMNS}, named:stock_use_lines(lot_id)`)
-        .not('named.lot_id', 'is', null)
-        .limit(1, { referencedTable: 'named' });
-      if (after) {
-        const at = `"${after.createdAt}"`;
-        page = page.or(`status.gt.${after.status},and(status.eq.${after.status},created_at.lt.${at}),and(status.eq.${after.status},created_at.eq.${at},id.lt.${after.id})`);
-      }
-      const rows = page.order('status').order('created_at', { ascending: false }).order('id', { ascending: false }).limit(USES_PAGE);
-      return Promise.all([rows, after ? null : db.from('stock_uses').select('id', { count: 'exact', head: true })]);
-    },
+    (db) => Promise.all([usesPageQuery(db, after), after ? null : db.from('stock_uses').select('id', { count: 'exact', head: true })]),
     ([rows, total]) => (total ? [rows, total] : [rows]),
   );
   const [rows, total] = result;
@@ -187,6 +190,11 @@ export interface UseLineFields {
 /** سطر بمعرّف يولد بالجهاز (FOUNDATION ١٩٩): الحفظ اللي ينعاد يرجع 23505 = انكتب، مو سطراً ثانياً. */
 export function addUseLine(docId: string, id: string, fields: UseLineFields): Promise<UseLine> {
   return written(async (db) => updatedRows(withStatus(await db.from('stock_use_lines').insert({ id, ...fields, doc_id: docId }).select(USE_LINE_COLUMNS)))).then(stockUseLine);
+}
+
+/** تعديل سطر الصرف بمعرّفه: إعادة إضافة ضاع جوابها (23505 بمعرّف الجهاز) تكتب آخر قيمة في النموذج فوقه (المراجعة الثانية لـWP5). */
+export function updateUseLine(lineId: string, fields: UseLineFields): Promise<UseLine> {
+  return written(async (db) => updatedRows(withStatus(await db.from('stock_use_lines').update(fields).eq('id', lineId).select(USE_LINE_COLUMNS)))).then(stockUseLine);
 }
 
 export function deleteUseLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {

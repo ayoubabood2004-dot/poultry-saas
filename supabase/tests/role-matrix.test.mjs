@@ -161,11 +161,11 @@ export default async function (t, db) {
       };
       const approved = await count([[oil, 189]]);
       await q('select public.submit_count($1, $2, gen_random_uuid())', [approved.doc, await version('stock_counts', approved.doc)]);
-      await q("update public.stock_count_lines set reason = 'تسرّب' where doc_id = $1", [approved.doc]);
+      await q("update public.stock_count_lines set reason = 'تسرّب', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [approved.doc]);
       await q("select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [approved.doc, await version('stock_counts', approved.doc)]);
       const submitted = await count([[oil, 187], [stock.kerosene, 400]]);
       await q('select public.submit_count($1, $2, gen_random_uuid())', [submitted.doc, await version('stock_counts', submitted.doc)]);
-      await q("update public.stock_count_lines set reason = 'تسرّب' where id = $1", [submitted.lines[0]]);
+      await q("update public.stock_count_lines set reason = 'تسرّب', reason_diff = diff, reason_expired_diff = expired_diff where id = $1", [submitted.lines[0]]);
       const cost = await one('insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 500) returning id', [submitted.lines[0]]);
       const draft = await count([[oil, 189]]);
       return {

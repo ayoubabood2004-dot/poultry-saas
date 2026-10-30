@@ -1,3 +1,4 @@
+import { decimalText } from '../../domain/decimal';
 import type { Fils, Milli, UnitCost } from '../../domain/money';
 import { BASE_UNITS, ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
@@ -191,8 +192,19 @@ export function addCountLine(docId: string, id: string, fields: CountLineFields)
   return written(async (db) => updatedRows(withStatus(await db.from('stock_count_lines').insert({ id, ...fields, doc_id: docId }).select(COUNT_LINE_COLUMNS)))).then(countLine);
 }
 
-export function updateCountLine(lineId: string, patch: Partial<Omit<CountLineFields, 'item_id'>>): Promise<CountLine> {
-  return written(async (db) => updatedRows(withStatus(await db.from('stock_count_lines').update(patch).eq('id', lineId).select(COUNT_LINE_COLUMNS)))).then(countLine);
+/**
+ * تعديل سطر العدّ بمعرّفه. expected للجمع (عدّ ثاني لنفس المادّة، مراجعة WP5 الثانية): التعديل بس إذا السطر بعده بالقيمة اللي انحسب
+ * منها المجموع، وإلا صفر صفوف (ZeroRowsError) بدل ما يمسح عدّاً كتبه جهاز ثاني بعد ما انقرت الشاشة.
+ */
+export function updateCountLine(lineId: string, patch: Partial<Omit<CountLineFields, 'item_id'>>, expected?: Pick<CountLineFields, 'counted_qty' | 'counted_expired_qty'>): Promise<CountLine> {
+  return written(async (db) => {
+    let query = db.from('stock_count_lines').update(patch).eq('id', lineId);
+    if (expected) {
+      query = query.eq('counted_qty', expected.counted_qty);
+      query = expected.counted_expired_qty === null ? query.is('counted_expired_qty', null) : query.eq('counted_expired_qty', expected.counted_expired_qty);
+    }
+    return updatedRows(withStatus(await query.select(COUNT_LINE_COLUMNS)));
+  }).then(countLine);
 }
 
 export function deleteCountLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {
@@ -233,9 +245,16 @@ export async function returnCount(ref: StockRef, id: string, expectedVersion: nu
 
 // ─── المراجعة (count.approve) ─────────────────────────────────────────────────────────────────────────────────
 
-/** سبب فرق السطر بالمراجعة (الفراغ = بلا سبب). */
-export function setCountReason(lineId: string, reason: string | null): Promise<CountLine> {
-  return written(async (db) => updatedRows(withStatus(await db.from('stock_count_lines').update({ reason: reason?.trim() || null }).eq('id', lineId).select(COUNT_LINE_COLUMNS)))).then(countLine);
+/**
+ * سبب فرق السطر بالمراجعة (الفراغ = بلا سبب)، على الفرقين اللي شافهم المدير بالشاشة: فرق تغيّر بعدها («أعد الحساب» بنافذة ثانية)
+ * يرجع stale_draft بدل سبب ينكتب لفرق ما شافه (المراجعة الثانية لـWP5).
+ */
+export function setCountReason(lineId: string, reason: string | null, seen: { diff: Milli | null; expiredDiff: Milli | null }): Promise<CountLine> {
+  const text = reason?.trim() || null;
+  const stamp = (qty: Milli | null): string | null => (text !== null && qty !== null ? decimalText(qty, 3) : null);
+  return written(async (db) =>
+    updatedRows(withStatus(await db.from('stock_count_lines').update({ reason: text, reason_diff: stamp(seen.diff), reason_expired_diff: stamp(seen.expiredDiff) }).eq('id', lineId).select(COUNT_LINE_COLUMNS))),
+  ).then(countLine);
 }
 
 const costText = (cost: UnitCost | null): string | null => {

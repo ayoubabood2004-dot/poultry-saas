@@ -13,9 +13,13 @@
 --   posted_at/posted_by لأن created_at/created_by نفسهم (مثل 0006 و0007)، ويّا reason لسبب الصفّ العكسي؛ وstock_count_lines يزيد
 --   gain_expired_expiry_on (زيادة منتهية تحتاج تاريخ انتهائها الماضي، E41، غير تاريخ الزيادة الصالحة) وسطراً واحداً لكل مادّة
 --   بالجرد، وstock_counts يزيد snapshot_at (المستندات من آخر لقطة، refresh_count) وreturned_at/returned_by/return_reason (سبب
---   «أعِد للعدّ» يشوفه الأمين)؛ والدفعة المسمّاة بالصرف العادي للمنتهي بس (Q5)، والصالح يُسحب بترتيبه؛ والرصيد بالجرد = المتاح
---   والمنتهي بتاريخ العدّ من دفعات مستلمة بيه أو قبله (stock_at، نفس اللي يسحب منه النقص)؛ والشهر المقفول = شهر بيه يوم مقفول؛
---   وstock_doc_label يسمّي SU وCT.
+--   «أعِد للعدّ» يشوفه الأمين)؛ والدفعة المسمّاة بالصرف العادي للمنتهي بس (Q5)، والصالح يُسحب بترتيبه؛ والرصيد بالجرد = حركات
+--   المادّة بالمخزن بتاريخ يوم الجرد أو قبله بلا الملغى (count_balance_at)، والنقص يسحب من المتبقّي الآن بقاعدة يوم الجرد؛ والشهر
+--   المقفول = شهر آخر يوم بيه مقفول (Q14 بتفسير، DECISIONS 2026-10-30)؛ وstock_doc_label يسمّي SU وCT ودفعة زيادة الجرد.
+-- مراجعتا WP5 (برأس كل دالّة سببه): سطور الجرد وكلفها قبل رأسه (lock_count_rows، وبحذف السطر)، والمادّة مرّة وحدة بالجرد
+--   (item_already_counted)، والسبب على الفرقين اللي شافهم المدير (reason_diff، وإلا stale_draft)، و«أعد الحساب» بترتيب الحركات
+--   (snapshot_seq)، وجرد أقدم ما يترحّل بعد جرد أحدث مرحَّل لنفس المادّة (count_superseded)، وعدّاد الترتيب قبل دفعة القياس، وأقفال
+--   المصروف (المعرّف والتصنيف والموقع والوحدة)؛ وverify_stock يزيد شروط الجرد بالفحص 11.
 -- تراجع: rollback_0008.sql — يرجّع أجسام home_summary وdiscard_draft وdelete_draft_line وstock_doc_label وverify_stock
 --   وverify_ledger كما بـ0007، ويشيل الجداول الجديدة ودوالّها ومشغّلاتها وسياسة نطاقها على سجلّ التدقيق ومفتاح الدفتر المركّب؛ ويرفض
 --   بصوت إذا أي مصروف أو صرف أو جرد موجود (ولو مسوّدة)، بلا ما يحذف شي.
@@ -226,6 +230,9 @@ create table if not exists public.stock_count_lines (
   system_expired_qty numeric,
   diff numeric,
   expired_diff numeric,
+  -- آخر حركة (seq) للمادّة بالمخزن شافتها اللقطة: «أعد الحساب» يسمّي اللي بعدها (seq يولد تحت قفل الرصيد بترتيب الكتابة؛ created_at
+  -- بداية معاملة الكاتب، فحركة بدت قبل اللقطة وثبتت بعدها كانت ما تنسمّى، مراجعة WP5).
+  snapshot_seq bigint,
   gain_expiry_on date,
   gain_expired_expiry_on date,
   gain_born_at timestamptz,
@@ -250,6 +257,7 @@ create table if not exists public.stock_count_lines (
   constraint stock_count_lines_reason_diff_check check (abs(reason_diff) < 'Infinity' and reason_diff = round(reason_diff, 3)),
   constraint stock_count_lines_reason_expired_diff_check check (abs(reason_expired_diff) < 'Infinity' and reason_expired_diff = round(reason_expired_diff, 3)),
   constraint stock_count_lines_reason_stamp_check check ((reason is null) = (reason_diff is null) and (reason_diff is not null or reason_expired_diff is null)),
+  constraint stock_count_lines_snapshot_seq_check check ((snapshot_seq is null) = (system_qty is null) and snapshot_seq >= 0),
   constraint stock_count_lines_line_no_check check (line_no >= 1),
   unique (org_id, id),
   unique (org_id, doc_id, line_no),
@@ -405,14 +413,15 @@ $$;
 
 -- حارس سطر الجرد (§2.5، E53، definer): الرأس مقفول وبنطاق الكاتب. المسوّدة: العدّ بفعل count.enter (والمنتهي للمادّة اللي تتابع
 -- الانتهاء بس، وفارغه صفر، والمادّة مرّة وحدة بالجرد)، والسبب ما يتغيّر (يكتبه المدير بالمراجعة). المسلَّم: سبب الفرق بس بفعل
--- count.approve، وكتابته (ولو بنفس النصّ) تختمه بالفرقين الحاليين. لقطة الرصيد والفرقان بلا منح، فتعديل ما غيّر غيرها من دوالّ
+-- count.approve، ويّا الفرقين اللي شافهم المدير (لازم يساوون الحاليين، وإلا stale_draft). لقطة الرصيد والفرقان بلا منح، فتعديل ما غيّر غيرها من دوالّ
 -- الجرد نفسها (submit_count وrefresh_count وreturn_count، وكلها تكتب بس لمّا القيمة تتغيّر) ويمرّ. والنسخة تزيد.
 create or replace function private.stock_count_lines_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   d public.stock_counts;
   i public.items;
-  v_snapshot constant text[] := array['system_qty', 'system_expired_qty', 'diff', 'expired_diff'];
+  v_snapshot constant text[] := array['system_qty', 'system_expired_qty', 'diff', 'expired_diff', 'snapshot_seq'];
+  v_review constant text[] := array['reason', 'reason_diff', 'reason_expired_diff'];
 begin
   set local lock_timeout = '5s';
   -- اللقطة وحدها تغيّرت: تمرّ. تعديل ما غيّر شي (نفس القيم) ما يمرّ من هنا (مراجعة WP5): ينفحص مثل أيّ كتابة، فسطر جرد مرحَّل
@@ -442,14 +451,22 @@ begin
   end if;
   new.warehouse_id := d.warehouse_id;
   if d.status = 'submitted' and tg_op = 'UPDATE' then
-    if (to_jsonb(new) - 'reason') is distinct from (to_jsonb(old) - 'reason') then
+    if (to_jsonb(new) - v_review) is distinct from (to_jsonb(old) - v_review) then
       raise exception 'not_draft' using hint = 'الجرد مسلَّم للمراجعة؛ يُكتب فيه سبب الفرق فقط، والعدّ يتعدّل بعد «أعِد للعدّ».';
     end if;
     new.reason := nullif(btrim(new.reason), '');
-    new.reason_diff := case when new.reason is not null then new.diff end;
-    new.reason_expired_diff := case when new.reason is not null then new.expired_diff end;
+    -- السبب على الفرق اللي شافه المدير (مراجعة WP5 الثانية): الشاشة ترسل الفرقين ويّاه، وفرق تغيّر من «أعد الحساب» بنافذة ثانية ←
+    -- stale_draft. ختم الخادم بفرق لحظة الكتابة كان يأكّد سبباً انكتب لفرق أقدم، وأيّ تعديل بنفس القيم كان يختم من جديد.
+    if new.reason is null then
+      new.reason_diff := null;
+      new.reason_expired_diff := null;
+    elsif new.reason_diff is distinct from new.diff or new.reason_expired_diff is distinct from new.expired_diff then
+      raise exception 'stale_draft' using hint = 'تغيّر الفرق بعد فتح المراجعة؛ حدّث الشاشة واكتب السبب للفرق الجديد.';
+    end if;
   elsif d.status = 'draft' then
-    if new.reason is distinct from (case when tg_op = 'UPDATE' then old.reason end) then
+    if new.reason is distinct from (case when tg_op = 'UPDATE' then old.reason end)
+       or new.reason_diff is distinct from (case when tg_op = 'UPDATE' then old.reason_diff end)
+       or new.reason_expired_diff is distinct from (case when tg_op = 'UPDATE' then old.reason_expired_diff end) then
       raise exception 'frozen_column' using hint = 'سبب الفرق يكتبه المدير بمراجعة الجرد المسلَّم.';
     end if;
     select * into i from public.items where org_id = d.org_id and id = new.item_id;
@@ -638,7 +655,8 @@ grant update (item_id, item_unit_id, unit_code, qty_in_unit, lot_id) on public.s
 grant insert (id, warehouse_id, counted_on, note, status) on public.stock_counts to authenticated;
 grant update (counted_on, note, status) on public.stock_counts to authenticated;
 grant insert (id, doc_id, item_id, counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at) on public.stock_count_lines to authenticated;
-grant update (counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at, reason) on public.stock_count_lines to authenticated;
+grant update (counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at, reason, reason_diff, reason_expired_diff)
+  on public.stock_count_lines to authenticated;
 grant insert (line_id, gain_unit_cost) on public.stock_count_line_costs to authenticated;
 grant update (gain_unit_cost) on public.stock_count_line_costs to authenticated;
 revoke truncate on table public.expenses, public.stock_uses, public.stock_use_lines, public.stock_counts, public.stock_count_lines,
@@ -1413,9 +1431,10 @@ $$;
 -- مضى يطلّع زيادة ما صارت، وترحيل بعد العدّ بتاريخ لاحق يقلبه count_stale.
 create or replace function private.count_balance_at(p_item uuid, p_wh uuid, p_date date, out available numeric, out expired numeric)
 language sql stable security definer set search_path = public, pg_temp as $$
+  -- بثلاث مراتب دائماً (E3): مجموع فارغ صفر بلا مراتب كان يطلع «0» بدل «0.000».
   select
-    coalesce(sum(m.qty) filter (where not private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0),
-    coalesce(sum(m.qty) filter (where private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0)
+    round(coalesce(sum(m.qty) filter (where not private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0), 3),
+    round(coalesce(sum(m.qty) filter (where private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0), 3)
   from public.stock_moves m
   join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
   join public.items i on i.org_id = l.org_id and i.id = l.item_id
@@ -1425,7 +1444,7 @@ $$;
 
 -- لقطة رصيد سطر بتاريخ الجرد (E25، E41): المتاح، والمنتهي للمادّة اللي تتابع الانتهاء (وإلا فارغ)، والفرقان بالمعدود.
 create or replace function private.count_snapshot(p_wh uuid, p_date date, p_line public.stock_count_lines,
-  out system_qty numeric, out system_expired_qty numeric, out diff numeric, out expired_diff numeric)
+  out system_qty numeric, out system_expired_qty numeric, out diff numeric, out expired_diff numeric, out snapshot_seq bigint)
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_tracks boolean;
@@ -1433,6 +1452,7 @@ declare
 begin
   select i.tracks_expiry into v_tracks from public.items i where i.org_id = public.auth_org() and i.id = p_line.item_id;
   select * into s from private.count_balance_at(p_line.item_id, p_wh, p_date);
+  snapshot_seq := coalesce((select max(m.seq) from public.stock_moves m where m.org_id = public.auth_org() and m.item_id = p_line.item_id and m.warehouse_id = p_wh), 0);
   system_qty := s.available;
   diff := p_line.counted_qty - s.available;
   if coalesce(v_tracks, false) then
@@ -1440,6 +1460,18 @@ begin
     expired_diff := coalesce(p_line.counted_expired_qty, 0) - s.expired;
   end if;
 end
+$$;
+
+-- جرد أحدث مرحَّل لنفس المادّة بنفس المخزن (مراجعة WP5 الثانية): الأحدث سوّى رصيدها بيومه، وحركاته بعد يوم الجرد الأقدم فرصيد
+-- يوم الأقدم ما يتغيّر؛ فالأقدم لو ترحّل بعده يطبّق نفس الفرق مرّة ثانية (نقص 6 لترات يصير 12). رقمه، أو null. بنفس اليوم يكفي
+-- count_stale (حركات الأحدث بيوم الأقدم).
+create or replace function private.count_superseded_by(p_wh uuid, p_date date, p_item uuid) returns text
+language sql stable security definer set search_path = public, pg_temp as $$
+  select k.doc_no from public.stock_counts k
+  join public.stock_count_lines x on x.org_id = k.org_id and x.doc_id = k.id and x.item_id = p_item
+  where k.org_id = public.auth_org() and k.warehouse_id = p_wh and k.status = 'approved' and k.counted_on > p_date
+  order by k.counted_on desc, k.doc_no desc
+  limit 1
 $$;
 
 -- سطور الجرد وكلفها قبل رأسه (§2.3، مراجعة WP5): حارسا السطر والكلفة يقفلان صفّهما (التعديل) ثم الرأس، فدالّة تقفل الرأس ثم
@@ -1511,7 +1543,8 @@ begin
     perform private.raise_problem(private.count_line_problem(w, ln));
     select * into s from private.count_snapshot(w.id, d.counted_on, ln);
     perform private.raise_problem(private.count_gain_problem(d.counted_on, ln, s.diff, s.expired_diff));
-    update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff
+    update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff,
+      snapshot_seq = s.snapshot_seq
     where org_id = ln.org_id and id = ln.id;
   end loop;
   update public.stock_counts set status = 'submitted', submitted_at = now(), submitted_by = auth.uid(), snapshot_at = now(), version = version + 1
@@ -1562,13 +1595,14 @@ begin
       -- اللي يغيّر رصيد يوم الجرد بس: أصلية بتاريخه أو قبله، أو عكسية أصلها كذا (الملغى ينشال من الرصيد).
       select m.doc_kind, m.doc_id, sum(m.qty) as qty, min(m.created_at) as first_at from public.stock_moves m
       left join public.stock_moves o on o.org_id = m.org_id and o.id = m.reverses_move_id
-      where m.org_id = d.org_id and m.item_id = ln.item_id and m.warehouse_id = w.id and m.created_at > d.snapshot_at
+      where m.org_id = d.org_id and m.item_id = ln.item_id and m.warehouse_id = w.id and m.seq > ln.snapshot_seq and m.seq <= s.snapshot_seq
         and coalesce(o.moved_on, m.moved_on) <= d.counted_on
       group by m.doc_kind, m.doc_id
     ) as g;
-    update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff
+    update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff,
+      snapshot_seq = s.snapshot_seq
     where org_id = ln.org_id and id = ln.id
-      and (system_qty, system_expired_qty, diff, expired_diff) is distinct from (s.system_qty, s.system_expired_qty, s.diff, s.expired_diff);
+      and (system_qty, system_expired_qty, diff, expired_diff, snapshot_seq) is distinct from (s.system_qty, s.system_expired_qty, s.diff, s.expired_diff, s.snapshot_seq);
     v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', ln.id, 'item_id', ln.item_id, 'item_name', i.name, 'base_unit', i.base_unit,
       'old', jsonb_build_object('system_qty', ln.system_qty::text, 'system_expired_qty', ln.system_expired_qty::text, 'diff', ln.diff::text,
         'expired_diff', ln.expired_diff::text),
@@ -1610,7 +1644,7 @@ begin
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّر الجرد بعد فتحه. حدّث الشاشة وأعد المحاولة.';
   end if;
-  update public.stock_count_lines set system_qty = null, system_expired_qty = null, diff = null, expired_diff = null
+  update public.stock_count_lines set system_qty = null, system_expired_qty = null, diff = null, expired_diff = null, snapshot_seq = null
   where org_id = d.org_id and doc_id = d.id;
   update public.stock_counts set status = 'draft', submitted_at = null, submitted_by = null, snapshot_at = null, returned_at = now(),
     returned_by = auth.uid(), return_reason = v_reason, version = version + 1
@@ -1653,6 +1687,8 @@ declare
   c public.expense_categories;
   e public.expenses;
   v_no text;
+  v_later text;
+  v_counter boolean := false;
 begin
   set local lock_timeout = '5s';
   perform private.require('count.approve');
@@ -1685,6 +1721,11 @@ begin
   -- الرصيد تغيّر من آخر لقطة (مستند ترحّل بعد العدّ، C11): الفرق المحسوب ما عاد صحيحاً.
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
+    -- بعد قفل الأرصدة: ترحيل الجرد الأحدث على نفس (المادّة، المخزن) ينتظره أو ثبت قبله (مراجعة WP5 الثانية).
+    v_later := private.count_superseded_by(w.id, d.counted_on, ln.item_id);
+    if v_later is not null then
+      raise exception 'count_superseded' using hint = format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later);
+    end if;
     select * into s from private.count_snapshot(w.id, d.counted_on, ln);
     if s.system_qty is distinct from ln.system_qty or s.system_expired_qty is distinct from ln.system_expired_qty then
       v_stale := v_stale || format('«%s» كان %s وصار %s', i.name, private.qty_text(ln.system_qty + coalesce(ln.system_expired_qty, 0), i.base_unit),
@@ -1706,13 +1747,6 @@ begin
       raise exception 'reason_required' using hint = format('تغيّر فرق «%s» بعد كتابة سببه؛ أكّد السبب أو عدّله قبل الترحيل.', i.name);
     end if;
   end loop;
-  -- عدّاد الترتيب قبل دفعة القياس (E45، مراجعة WP5): استلام بمخزن ثاني بين قراءة دفعة القياس وزيادة العدّاد كان ياخذ رقماً قبل
-  -- دفعة الزيادة، فتنقاس الزيادة بدفعة غير اللي قبلها بالترتيب. بعد الأرصدة (الدفعات اللي يسحبها الجرد تحت أرصدته)، والصفّ يولد
-  -- بصفر لمنشأة بلا دفعات (new_lot يزيده لـ1) حتى أوّل استلام سوا ينتظر.
-  if exists (select 1 from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id and (x.diff > 0 or coalesce(x.expired_diff, 0) > 0)) then
-    insert into private.stock_fifo_counters (org_id, last_seq) values (d.org_id, 0) on conflict (org_id) do nothing;
-    perform 1 from private.stock_fifo_counters x where x.org_id = d.org_id for update;
-  end if;
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
     v_short := 0;
@@ -1741,6 +1775,14 @@ begin
       end loop;
     end if;
     if ln.diff > 0 or coalesce(ln.expired_diff, 0) > 0 then
+      -- عدّاد الترتيب قبل دفعة القياس (E45، مراجعة WP5): استلام بمخزن ثاني بين قراءة دفعة القياس وزيادة العدّاد كان ياخذ رقماً قبل
+      -- دفعة الزيادة، فتنقاس الزيادة بدفعة غير اللي قبلها بالترتيب. عند أوّل زيادة (بعد الأرصدة، والدفعات اللي يسحبها الجرد تحت
+      -- أرصدته)، والصفّ يولد بصفر لمنشأة بلا دفعات (new_lot يزيده لـ1) حتى أوّل استلام سوا ينتظر.
+      if not v_counter then
+        insert into private.stock_fifo_counters (org_id, last_seq) values (d.org_id, 0) on conflict (org_id) do nothing;
+        perform 1 from private.stock_fifo_counters x where x.org_id = d.org_id for update;
+        v_counter := true;
+      end if;
       ref := private.gain_reference_lot(ln.item_id);
       select x.gain_unit_cost into v_cost from public.stock_count_line_costs x where x.org_id = d.org_id and x.line_id = ln.id;
       if ref.id is null and v_cost is null then
@@ -1890,6 +1932,7 @@ declare
   v_plan text := '';
   v_short_total numeric := 0;
   v_gain_total numeric := 0;
+  v_later text;
 begin
   perform private.require('count.approve');
   select * into d from public.stock_counts where org_id = public.auth_org() and id = p_id;
@@ -1930,7 +1973,11 @@ begin
     select x.gain_unit_cost into v_cost from public.stock_count_line_costs x where x.org_id = d.org_id and x.line_id = ln.id;
     v_gain := case when coalesce(ln.diff, 0) > 0 then private.gain_value(ln.diff, ref, v_cost) end;
     v_xgain := case when coalesce(ln.expired_diff, 0) > 0 then private.gain_value(ln.expired_diff, ref, v_cost) end;
-    v_problem := coalesce(private.count_line_problem(w, ln), private.count_gain_problem(d.counted_on, ln, ln.diff, ln.expired_diff),
+    v_later := private.count_superseded_by(w.id, d.counted_on, ln.item_id);
+    v_problem := coalesce(
+      case when v_later is not null then jsonb_build_object('code', 'count_superseded', 'hint',
+        format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later)) end,
+      private.count_line_problem(w, ln), private.count_gain_problem(d.counted_on, ln, ln.diff, ln.expired_diff),
       case when (coalesce(ln.diff, 0) <> 0 or coalesce(ln.expired_diff, 0) <> 0) and ln.reason is null then
           jsonb_build_object('code', 'reason_required', 'hint', format('اكتب سبب فرق «%s».', i.name))
         when (coalesce(ln.diff, 0) <> 0 or coalesce(ln.expired_diff, 0) <> 0)
@@ -2056,6 +2103,8 @@ begin
   elsif p_doc_kind = 'count' then
     perform private.require('count.enter');
     select doc_id into v_doc from public.stock_count_lines where org_id = public.auth_org() and id = p_line_id for update;
+    -- كلفة السطر قبل الرأس مثل حارس الكلفة (مراجعة WP5 الثانية): كانت تنقفل بالحذف بعد الرأس فتتعاكس ويّا كلفة يكتبها المدير (40P01).
+    perform 1 from public.stock_count_line_costs where org_id = public.auth_org() and line_id = p_line_id for update;
   else
     raise exception 'doc_kind_unknown' using hint = 'نوع المستند غير معروف.';
   end if;

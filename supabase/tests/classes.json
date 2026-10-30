@@ -107,7 +107,7 @@
       "scope": "in_scope_wh(warehouse_id)",
       "columns": {
         "insert": ["id", "doc_id", "item_id", "counted_qty", "counted_expired_qty", "gain_expiry_on", "gain_expired_expiry_on", "gain_born_at"],
-        "update": ["counted_qty", "counted_expired_qty", "gain_expiry_on", "gain_expired_expiry_on", "gain_born_at", "reason"]
+        "update": ["counted_qty", "counted_expired_qty", "gain_expiry_on", "gain_expired_expiry_on", "gain_born_at", "reason", "reason_diff", "reason_expired_diff"]
       }
     },
     "stock_counts": {

@@ -163,10 +163,12 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
       setNamed(false);
       onAdded();
     };
+    const fields = { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3), lot_id: nameLot ? lotId : null };
     uses
-      .addUseLine(doc.id, lineId, { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3), lot_id: nameLot ? lotId : null })
+      .addUseLine(doc.id, lineId, fields)
       .then(added, (error: unknown) => {
-        if (inventory.isDuplicate(error)) added();
+        // 23505 بمعرّف الجهاز: محاولة ضاع جوابها انكتبت؛ آخر قيمة بالنموذج تنكتب فوقها (المستخدم ممكن صحّحها قبل الإعادة).
+        if (inventory.isDuplicate(error)) uses.updateUseLine(lineId, fields).then(added, setFailure);
         else {
           if (error instanceof RejectedError) setLineId(crypto.randomUUID());
           setFailure(error);
@@ -478,7 +480,8 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
   const [storeId, setStoreId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [day, setDay] = useState(fmtDay(localDay()));
-  // معرّف المسوّدة يولد مرّة ويبقى لحد ما تنكتب: الإعادة بعد جواب ضاع 23505 = انكتبت، مو مسوّدة ثانية (مراجعة WP5).
+  // معرّف المسوّدة يولد مرّة ويبقى لحد ما تنكتب، ويتجدّد بتغيّر النموذج: الإعادة بنفس القيم بعد جواب ضاع 23505 = انكتبت، وبقيم
+  // ثانية مسوّدة جديدة، مو فتح مسوّدة بقيم قديمة (مراجعتا WP5).
   const [docId, setDocId] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -510,9 +513,27 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <h2 className="font-semibold">{t('use.new', 'صرف أو إتلاف جديد')}</h2>
-      <StoreSelect id={`${id}-store`} label={t('use.store', 'من مخزن')} stores={active} value={storeId} onChange={setStoreId} />
+      <StoreSelect
+        id={`${id}-store`}
+        label={t('use.store', 'من مخزن')}
+        stores={active}
+        value={storeId}
+        onChange={(next) => {
+          setStoreId(next);
+          setDocId(crypto.randomUUID());
+        }}
+      />
       <Field id={`${id}-category`} label={t('use.category', 'تصنيف المصروف')}>
-        <select id={`${id}-category`} className="input" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} data-action="pick-category">
+        <select
+          id={`${id}-category`}
+          className="input"
+          value={categoryId}
+          onChange={(event) => {
+            setCategoryId(event.target.value);
+            setDocId(crypto.randomUUID());
+          }}
+          data-action="pick-category"
+        >
           <option value="">{t('use.category.pick', 'اختر التصنيف')}</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
@@ -521,7 +542,16 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
           ))}
         </select>
       </Field>
-      <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')} />
+      <DayField
+        id={`${id}-day`}
+        label={t('payment.day', 'التاريخ')}
+        value={day}
+        onChange={(next) => {
+          setDay(next);
+          setDocId(crypto.randomUUID());
+        }}
+        hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')}
+      />
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
@@ -602,7 +632,13 @@ export function UsesList() {
         <LoadFailed what={t('use.list.what', 'مستندات الصرف')} error={first.error} onRetry={first.retry} />
       ) : first.data ? (
         <>
-          <DataTable caption={t('stock.uses', 'الصرف والإتلاف')} columns={columns} rows={rows} rowKey={(doc) => doc.id} empty={t('use.list.empty', 'لا صرف بعد.')} />
+          <DataTable
+            caption={t('stock.uses', 'الصرف والإتلاف')}
+            columns={columns}
+            rows={rows}
+            rowKey={(doc) => doc.id}
+            empty={onlyAwaiting ? t('use.list.awaiting_empty', 'لا مسوّدات بانتظار موافقة المدير فيما عُرض.') : t('use.list.empty', 'لا صرف بعد.')}
+          />
           <PageFooter shown={loaded.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('use.list.what', 'مستندات الصرف')} onMore={loadMore} action="more-uses" />
         </>
       ) : null}

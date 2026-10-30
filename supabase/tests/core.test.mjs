@@ -277,7 +277,7 @@ export default async function (t, db) {
           return doc;
         };
         const counted = await count(50);
-        await q("update public.stock_count_lines set reason = 'تبخّر' where doc_id = $1", [counted]);
+        await q("update public.stock_count_lines set reason = 'تبخّر', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [counted]);
         await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [counted]);
         return { division, category, useDraft: await use(1), countSubmitted: await count(50) };
       },
