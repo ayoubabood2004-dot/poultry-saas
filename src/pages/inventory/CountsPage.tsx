@@ -33,7 +33,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { DayField, postingDay } from '../accounts/shared';
+import { DayField, postingDay } from '../../components/ui/DayField';
 import { clearPending, devicePending, sendPending, underCountLock, writeOrKeep, type PendingCountLine, type PendingStore } from './countDevice';
 import { ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, VoidDocDialog, type StoreRef } from './stock-shared';
 

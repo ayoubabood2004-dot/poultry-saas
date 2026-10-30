@@ -27,7 +27,7 @@ export default defineConfig({
           const ids = chunk.moduleIds.map((id) => id.replace(/\\/g, '/'));
           if (chunk.isDynamicEntry) return 'assets/[name]-[hash].js';
           if (ids.some((id) => /\/src\/lib\/repo\/inventory\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
-          if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
+          if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle|DayField)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
           return 'assets/[name]-[hash].js';
         },
       },

@@ -31,7 +31,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { postingDay, DayField } from '../accounts/shared';
+import { DayField, postingDay } from '../../components/ui/DayField';
 import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الصرف لمصروف عام والإتلاف (الخطّة WP5، FOUNDATION ٣٠٥–٣٠٦، ٥٥٦، Q5، E31): الأمين ينشئ المسوّدة بمخزن بنطاقه وتصنيف مصروف،

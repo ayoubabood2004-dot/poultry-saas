@@ -3,13 +3,14 @@ import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Num } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
+import { DayField, postingDay } from '../../components/ui/DayField';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { Notice } from '../../components/ui/Notice';
 import { SideToggle, type Side } from '../../components/ui/SideToggle';
 import { toast } from '../../components/ui/Toast';
-import { addDays, localDay, type Day } from '../../domain/dates';
+import { localDay, type Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Fils } from '../../domain/money';
 import { parseDayText } from '../../lib/dayText';
@@ -133,28 +134,13 @@ export function SideAmount({ amount }: { amount: Fils }) {
   );
 }
 
+export { DayField, postingDay } from '../../components/ui/DayField';
+
 // ─── اليوم والمدّة ─────────────────────────────────────────────────────────────────────────────────────────────
 
 /** المدّة الافتراضية للكشف (E26): السنة الجارية لحد اليوم. */
 export function defaultPeriod(today: Day = localDay()): { from: Day; to: Day } {
   return { from: `${today.slice(0, 4)}-01-01`, to: today };
-}
-
-/** تاريخ الترحيل: اليوم أو قبله لحد 7 أيام (القرار 9). يرجّع اليوم أو رسالة الخطأ. */
-export function postingDay(text: string, today: Day = localDay()): { day: Day | null; error: string | null } {
-  const day = parseDayText(text);
-  if (!day) return { day: null, error: t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') };
-  if (day > today) return { day: null, error: t('day.future', 'التاريخ بعد اليوم.') };
-  if (day < addDays(today, -7)) return { day: null, error: t('day.too_old', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ {day}.', { day: fmtDay(addDays(today, -7)) }) };
-  return { day, error: null };
-}
-
-export function DayField({ id, label, value, onChange, error, hint }: { id: string; label: string; value: string; onChange: (text: string) => void; error?: string | null; hint?: string }) {
-  return (
-    <Field id={id} label={label} error={error} hint={hint ?? t('day.hint', 'يوم/شهر/سنة.')}>
-      <input id={id} inputMode="numeric" dir="ltr" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} className="input tabular-nums" value={value} onChange={(event) => onChange(event.target.value)} />
-    </Field>
-  );
 }
 
 /** مدّة الكشف: من وإلى، وتنطبق بزرّ (الكتابة ما تطلب الخادم بكل حرف). */

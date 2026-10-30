@@ -197,14 +197,21 @@ export function addCountLine(docId: string, id: string, fields: CountLineFields)
  * منها المجموع، وإلا صفر صفوف (ZeroRowsError) بدل ما يمسح عدّاً كتبه جهاز ثاني بعد ما انقرت الشاشة.
  */
 export function updateCountLine(lineId: string, patch: Partial<Omit<CountLineFields, 'item_id'>>, expected?: Pick<CountLineFields, 'counted_qty' | 'counted_expired_qty'>): Promise<CountLine> {
-  return written(async (db) => {
-    let query = db.from('stock_count_lines').update(patch).eq('id', lineId);
-    if (expected) {
-      query = query.eq('counted_qty', expected.counted_qty);
-      query = expected.counted_expired_qty === null ? query.is('counted_expired_qty', null) : query.eq('counted_expired_qty', expected.counted_expired_qty);
-    }
-    return updatedRows(withStatus(await query.select(COUNT_LINE_COLUMNS)));
-  }).then(countLine);
+  return written(async (db) =>
+    updatedRows(
+      withStatus(
+        await (expected
+          ? db
+              .from('stock_count_lines')
+              .update(patch)
+              .eq('id', lineId)
+              .eq('counted_qty', expected.counted_qty)
+              .filter('counted_expired_qty', expected.counted_expired_qty === null ? 'is' : 'eq', expected.counted_expired_qty)
+          : db.from('stock_count_lines').update(patch).eq('id', lineId)
+        ).select(COUNT_LINE_COLUMNS),
+      ),
+    ),
+  ).then(countLine);
 }
 
 export function deleteCountLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {

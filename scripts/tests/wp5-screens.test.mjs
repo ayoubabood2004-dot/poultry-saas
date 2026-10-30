@@ -296,7 +296,7 @@ export default async function (t) {
   calls.length = 0;
   const blocked = keptStore([{ ...line('k', '5.000'), item: 'x' }]);
   const outcomes = [];
-  for (const [label, target, plan] of [
+  for (const [, target, plan] of [
     ['same-id', { ...line('k', '6.000', true), fields: { ...fields('6.000'), item_id: 'x' } }, {}],
     ['same-item', { ...line('n', '1.000'), fields: { ...fields('1.000'), item_id: 'x' } }, {}],
   ]) {
