@@ -19,7 +19,7 @@ import { itemAdmissible, sharesAdmissibleKind } from '../../domain/stock';
 import { parseQty, toBase, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { assertSameStamp, listDeviceDrafts, removeDeviceDraft, saveDeviceDraft, type DeviceDraft, type DraftStamp } from '../../lib/drafts';
-import { describeError, RejectedError } from '../../lib/errors';
+import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
 import { fmtCounted, fmtDay, fmtInt, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
@@ -532,11 +532,14 @@ function shelfDeps(): ShelfDeps {
     saveDeviceDraft,
     removeDeviceDraft,
     newId: () => crypto.randomUUID(),
+    // الرأس ما ينقرا (ZeroRowsError: ما موجود أو برّا النطاق) = ماكو سطر وصله؛ وفشل القراءة (شبكة) يوقف الرفع بلا ما يتنقل شي،
+    // لأن «ما أعرف شنو وصل» مو «ماكو شي وصل» (وإلا سطر وصل يترحّل مرّتين).
     linesOn: async (docId) => {
       try {
         return new Set((await inventory.loadStockDoc('transfer', docId)).transferLines.map((line) => line.id));
-      } catch {
-        return new Set<string>();
+      } catch (error) {
+        if (error instanceof ZeroRowsError) return new Set<string>();
+        throw error;
       }
     },
   };

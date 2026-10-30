@@ -752,6 +752,20 @@ async function reviewFixes(t, m, setup) {
       ['ok:n-3', [['create', 'n-3', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['line', 'n-3', 'n-4', 'i-5'], ['line', 'n-3', 'n-5', 'i-6'], ['remove', 'dd-3']]],
       'رأس صار غير مسوّدة بنصّ الرفع: السطور الباقية لرأس جديد (معرّفات جديدة) وتنشال من الجهاز',
     );
+    // الرأس صار غير مسوّدة وقراءة سطوره فشلت (شبكة): الرفع يوكف بلا ما يتنقل شي، لأن «ما أعرف شنو وصل» مو «ماكو شي وصل».
+    log.length = 0;
+    const unread = { ...draft, id: 'dd-5', payload: { ...draft.payload, headerId: 'h-8', docId: 'h-8', lines: [line(9)] } };
+    let saved = null;
+    const stuck = await upload(unread, {
+      addTransferLine: async () => {
+        throw new inv.RejectedError('not_draft', 'المستند مرحَّل أو ملغى؛ لا تُعدَّل سطوره.');
+      },
+      linesOn: async () => {
+        throw new inv.NetworkError();
+      },
+      saveDeviceDraft: async (stamp, next) => ((saved = next), next),
+    });
+    t.same([stuck, log.filter(([kind]) => kind === 'create'), saved], ['network', [], null], 'قراءة الرأس السابق فشلت: الرفع يرمي، وما ينخلق رأس ولا يتغيّر شي على الجهاز');
     // سطر رفضه الخادم رفضاً أكيداً: ينعلّم بتلميحه على الجهاز ويوقف الرفع عنده، والسطور بعده باقية.
     log.length = 0;
     const kept = [];
