@@ -54,7 +54,7 @@ export function voidable(line: StatementLine): 'payment' | 'entry' | null {
 /** نتيجة إلغاء السطر بكلماتها: القيد العكسي بدفتره، ولقبض أو دفع حركة الصندوق العكسية بصندوقها واتّجاهها (FOUNDATION ٧٦٦). */
 export function voidConsequence(line: StatementLine, book: string): string {
   const amount = fmtMoney(line.debit + line.credit, 0);
-  const entry = t('void.consequence', 'يُكتب قيد عكسي بمبلغه {amount} بتاريخ اليوم في «{book}» ويُعاد توزيع ما انفكّ، ويبقى الأصل بيومه.', { amount, book });
+  const entry = t('void.consequence', 'تُكتب حركة تلغي السابقة بمبلغ {amount} بتاريخ اليوم في «{book}» ويُعاد تسديد ما انفكّ من الأقدم، ويبقى الأصل بيومه.', { amount, book });
   if (voidable(line) !== 'payment') return entry;
   const box = line.account ?? t('void.box.unknown', 'صندوقه');
   return line.kind === 'payment'
@@ -67,7 +67,7 @@ export function BookFilter({ books, value, onChange }: { books: readonly BookRef
   const id = useId();
   return (
     <div data-print="hide">
-      <Field id={id} label={t('statement.book.filter', 'الدفتر')}>
+      <Field id={id} label={t('statement.book.filter', 'الحساب')}>
         <select id={id} className="input" value={value} onChange={(event) => onChange(event.target.value)} data-action="statement-book">
           <option value="">{t('accounts.filter.all', 'الكل')}</option>
           {books.map((book) => (
@@ -104,10 +104,10 @@ export function StatementBooks({ statement, onVoid }: { statement: PartyStatemen
         ];
         return (
           <section key={book.bookId} className="flex flex-col gap-2" data-book={book.bookId}>
-            <h2 className="font-semibold">{t('statement.book', 'دفتر {book}', { book: bookLabel(book) })}</h2>
-            <LedgerTable caption={t('statement.book', 'دفتر {book}', { book: bookLabel(book) })} entries={ledgerEntries(book)} opening={book.broughtForward} />
+            <h2 className="font-semibold">{t('statement.book', 'حساب {book}', { book: bookLabel(book) })}</h2>
+            <LedgerTable caption={t('statement.book', 'حساب {book}', { book: bookLabel(book) })} entries={ledgerEntries(book)} opening={book.broughtForward} />
             <p className="text-sm text-ink-muted">
-              {t('statement.closing', 'رصيد الدفتر بآخر المدّة:')} <SideAmount amount={book.closing} />
+              {t('statement.closing', 'رصيد الحساب بآخر المدّة:')} <SideAmount amount={book.closing} />
             </p>
             {voids.length ? (
               <div data-print="hide">
@@ -147,7 +147,7 @@ export default function PartyStatementPage() {
   const header = (
     <PageHeader
       title={party ? party.name : t('statement.title', 'كشف الجهة')}
-      subtitle={party?.phone ? <bdi dir="ltr">{fmtPhone(party.phone)}</bdi> : t('statement.subtitle', 'كل دفاتر الجهة بأرصدتها الجارية.')}
+      subtitle={party?.phone ? <bdi dir="ltr">{fmtPhone(party.phone)}</bdi> : t('statement.subtitle', 'كل حسابات الجهة بأرصدتها الجارية.')}
       actions={
         <div className="flex flex-wrap gap-2" data-print="hide">
           {allowed.pay && party && !statement.error ? (
@@ -238,7 +238,7 @@ export default function PartyStatementPage() {
           consequence={voidConsequence(dialog.line, bookLabel(dialog.book))}
           run={(clientRef, reason) => (voidable(dialog.line) === 'payment' ? parties.voidPayment(clientRef, dialog.line.entryId, reason) : parties.voidEntry(clientRef, dialog.line.entryId, reason))}
           onClose={() => setDialog(null)}
-          onDone={() => done(t('void.done', 'أُلغي القيد'))}
+          onDone={() => done(t('void.done', 'أُلغيت الحركة'))}
         />
       ) : null}
     </div>

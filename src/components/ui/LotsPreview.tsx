@@ -55,7 +55,7 @@ export function LotsPreview({ lots, approved, onToggle }: { lots: readonly Creat
                   onChange={(event) => onToggle(lot.lineId, event.target.checked)}
                   data-action="approve-lot"
                 />
-                {t('lots_preview.approve', 'راجعت هذه الدفعة وأوافق على إنشائها')}
+                {t('lots_preview.approve', 'راجعت هذه الوجبة وأوافق على إدخالها')}
               </label>
             )}
           </li>

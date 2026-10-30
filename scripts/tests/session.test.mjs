@@ -598,9 +598,18 @@ export default async function (t) {
   const nav = (workspace) => m.visibleNav({ status: 'ready', workspace, offline: false }).map((item) => item.to);
   t.same(
     nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/broiler', '/account', '/settings'],
-    'عامل القاعة: وحدته وحسابه بس، بلا مخازن ولا مبيعات ولا حسابات ولا تقارير ولا موظفين',
+    ['/', '/account', '/settings'],
+    'عامل القاعة: حسابه بس (حقول اللحم تخطيط بلا شاشة)، بلا مخازن ولا مبيعات ولا حسابات ولا تقارير ولا موظفين',
   );
+  // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ والمعمل والمفقس يفتحان مخازنهما.
+  const everything = nav(ws('u-1', { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] }));
+  t.same(['/mill', '/broiler', '/layers', '/hatchery', '/sales', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  t.same(
+    nav(ws('u-1', { role: 'mill_operator', divisions: ['feed_mill'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
+    ['/', '/inventory/mill', '/account', '/settings'],
+    'مشغّل المعمل: مخازن معمله من الشريط',
+  );
+  t.ok(everything.includes('/inventory/hatchery'), 'المفقس: مخازنه من الشريط');
   t.ok(nav(ws('u-1')).includes('/staff'), 'المالك يشوف «الموظفون»');
   t.ok(!nav(ws('u-1', { role: 'manager' })).includes('/staff'), 'المدير ما يشوف «الموظفون» (المالك بس)');
   t.ok(!nav(ws('u-1', { role: 'accountant', canSeeAccounts: false })).includes('/accounts'), 'الحسابات تتبع علامة الخادم مو الدور وحده');

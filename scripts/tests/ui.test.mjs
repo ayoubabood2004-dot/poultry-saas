@@ -347,10 +347,10 @@ export default async function (t) {
 
   // C17 وC39 وC43: dir=ltr للرقم الصافي بس، والوحدة العربية ترث RTL؛ والأعمار وأقرب إخراج على البطاقات.
   await section(t, 'HomePage', async () => {
-    const m = await bundle("export { cardSpecs, DivisionCard } from './src/pages/home/HomePage.tsx'; export { countForm } from './src/lib/format.ts'; export { MemoryRouter } from 'react-router-dom';");
+    const m = await bundle("export { cardSpecs, DivisionCard, homeActions, HomeActions } from './src/pages/home/HomePage.tsx'; export { plannedCardSpecs } from './src/pages/home/plannedCards.tsx'; export { countForm } from './src/lib/format.ts'; export { MemoryRouter } from 'react-router-dom';");
     const render = (summary) =>
-      m
-        .cardSpecs(summary)
+      // الرئيسية والبطاقات المخطّطة (plannedCards.tsx) معاً: صيغ أرقامها تبقى مفحوصة حتى تعود حين تُبنى وحدتها.
+      [...m.cardSpecs(summary), ...m.plannedCardSpecs(summary)]
         .map((spec) => m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.DivisionCard, { spec }))))
         .join('');
     const html = render({
@@ -362,11 +362,11 @@ export default async function (t) {
       general: { belowMinimum: 0 },
       accounts: { receivable: 396_000_000n, payable: 0n, negativeBoxes: 1, visibleBooks: 7, totalBooks: 7 },
     });
-    // بطاقة الحسابات: «صناديق بالسالب» برقمها، و«دفاتر نطاقك» للقارئ المحصور بس (E49).
+    // بطاقة الحسابات: «صناديق بالسالب» برقمها، و«حسابات نطاقك» للقارئ المحصور بس (E49).
     t.ok(/صناديق بالسالب<\/dt><dd dir="ltr"[^>]*>1<\/dd>/.test(html), 'بطاقة الحسابات: «صناديق بالسالب» 1');
-    t.ok(!html.includes('دفاتر نطاقك'), 'القارئ بلا نطاق: بلا «دفاتر نطاقك»');
+    t.ok(!html.includes('حسابات نطاقك'), 'القارئ بلا نطاق: بلا «حسابات نطاقك»');
     const scopedAccounts = render({ accounts: { receivable: 50_000_000n, payable: 0n, negativeBoxes: 0, visibleBooks: 1, totalBooks: 7 } });
-    t.ok(scopedAccounts.includes('دفاتر نطاقك') && scopedAccounts.includes('1 من المجموع 7'), 'المحصور: البطاقة تكتب «1 من المجموع 7» دفاتر');
+    t.ok(scopedAccounts.includes('حسابات نطاقك') && scopedAccounts.includes('1 من المجموع 7'), 'المحصور: البطاقة تكتب «1 من المجموع 7» دفاتر');
     const ltr = [...html.matchAll(/<dd dir="ltr"[^>]*>(.*?)<\/dd>/g)].map((match) => match[1]);
     t.ok(ltr.length >= 10, `الأرقام الصافية بـdir=ltr (${ltr.length})`);
     t.same(ltr.filter((value) => ARABIC.test(value)), [], 'ماكو كلمة عربية جوّا dd بـdir=ltr');
@@ -405,6 +405,37 @@ export default async function (t) {
     t.ok((low.match(/تحت الحدّ الأدنى/gu) ?? []).length === 4, 'أربع بطاقات بـ«تحت الحدّ الأدنى»');
     const none = render({ broiler: { activeFlocks: 0, deadToday: 0, ageDays: null }, hatchery: { batchesSetting: 0, chicksWaiting: 0, nextHatchInDays: null } });
     t.ok(/الأعمار<\/dt><dd[^>]*>—<\/dd>/.test(none) && /أقرب إخراج<\/dt><dd[^>]*>—<\/dd>/.test(none), 'ماكو فوج أو وجبة: «—» مو صفر');
+
+    // الرئيسية بلا بطاقات وأرقام التخطيط: حقول اللحم والبيض تنشال، والمعمل والمفقس بأرقام مخازنهما بس وتفتح مخازنهما.
+    const live = m.cardSpecs({});
+    t.same(live.map((spec) => spec.key), ['feed_mill', 'hatchery', 'medicine', 'general', 'accounts'], 'بطاقات الرئيسية: بلا حقول اللحم والبيض');
+    const liveOf = (key) => live.find((spec) => spec.key === key);
+    t.same([liveOf('feed_mill').to, liveOf('hatchery').to], ['/inventory/mill', '/inventory/hatchery'], 'المعمل والمفقس يفتحان مخازنهما');
+    t.same(liveOf('feed_mill').metrics.map((metric) => metric.label), ['تحت الحدّ الأدنى'], 'المعمل: بلا إنتاج اليوم والعلف الجاهز');
+    t.same(liveOf('hatchery').metrics.map((metric) => metric.label), ['أفراخ فاتها 48 ساعة', 'تحت الحدّ الأدنى'], 'المفقس: بلا الوجبات وأقرب إخراج');
+    t.eq(liveOf('accounts').metrics.length, 3, 'الحسابات كما هي');
+    t.same(m.plannedCardSpecs({}).map((spec) => spec.to), ['/mill', '/broiler', '/layers', '/hatchery'], 'البطاقات المخطّطة لصفحات التخطيط بس');
+
+    // «ماذا تريد أن تفعل؟»: كل زرّ بشرط صفحته (can بالدور، والحسابات بعلامة الخادم).
+    const acts = (role, canSeeAccounts = true) => m.homeActions({ role, canSeeAccounts }).map((action) => action.key);
+    const ALL = ['receipt', 'use', 'transfer', 'payout', 'payment', 'expense', 'count'];
+    t.same(acts('owner'), ALL, 'المالك: الأزرار السبعة');
+    t.same(acts('manager'), ALL, 'المدير: الأزرار السبعة');
+    t.same(acts('storekeeper', false), ['receipt', 'use', 'transfer', 'count'], 'أمين المخزن: أزرار المخزن بس');
+    t.same(acts('accountant'), ['payout', 'payment', 'expense'], 'المحاسب: الدفع والقبض والمصروف');
+    t.same(acts('accountant', false), [], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات');
+    for (const role of ['viewer', 'hall_worker', 'mill_operator', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
+    t.same(m.homeActions(null).map((action) => action.key), ALL, 'بلا منشأة مؤكّدة: كلها مثل الشريط');
+    const byKey = new Map(m.homeActions(null).map((action) => [action.key, action.to]));
+    t.same(
+      ALL.map((key) => byKey.get(key)),
+      ['/inventory/receipts', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts'],
+      'كل زرّ يفتح نموذجه',
+    );
+    const buttons = m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: m.homeActions({ role: 'storekeeper', canSeeAccounts: false }) })));
+    t.ok(buttons.includes('ماذا تريد أن تفعل؟') && buttons.includes('وصلتني بضاعة') && buttons.includes('href="/inventory/counts"') && !buttons.includes('دفعت لجهة'), 'الأزرار تنرسم بأسمائها وروابطها');
+    t.ok(/\bgrid-cols-2\b/.test(buttons), 'عمودان على الهاتف');
+    t.eq(m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: [] }))), '', 'بلا زرّ مسموح: بلا القسم');
   });
 
   // C36: سفاري الآيفون يكبّر الصفحة لحقل تحت 16px، وحجم الواجهة 80–95٪ ينزّل الجذر تحتها.

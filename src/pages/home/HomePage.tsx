@@ -1,5 +1,5 @@
-import { Bird, ChevronLeft, Drumstick, Egg, Fuel, Pill, Wallet, Wheat, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowLeftRight, Bird, ChevronLeft, ClipboardCheck, Fuel, HandCoins, PackageMinus, PackagePlus, Pill, Receipt, Wallet, Wheat, type LucideIcon } from 'lucide-react';
+import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
 import { LoadFailed } from '../../components/ui/LoadFailed';
@@ -7,15 +7,19 @@ import { Notice } from '../../components/ui/Notice';
 import { PageHeader } from '../../components/PageHeader';
 import type { DivisionKind } from '../../domain/divisions';
 import { localDay } from '../../domain/dates';
+import { can } from '../../domain/permissions';
+import type { Workspace } from '../../domain/workspace';
 import { describeError, NotConnectedError } from '../../lib/errors';
-import { countForm, fmtDay, fmtInt, fmtMoney, fmtQty } from '../../lib/format';
+import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
 import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 
-// بطاقة لكل وحدة ضمن نطاق المستخدم بأهمّ أرقام اليوم، والحسابات (لنا وعلينا) لأدوارها بس.
+// بطاقة لكل وحدة ضمن نطاق المستخدم بأهمّ أرقام اليوم، والحسابات (لنا وعلينا) لأدوارها بس. الوحدات التي لم تُبنَ شاشاتها بعد
+// (حقول اللحم والبيض، وإنتاج المعمل ووجبات المفقس) بـplannedCards.tsx، لا تُعرض هنا: بطاقتا المعمل والمفقس بأرقام مخازنهما
+// وتفتحان مخازنهما، مثل الشريط (nav.ts).
 // الرقم الغايب «—» مو صفر: ما ينكال رقم إلا بعد قراءة ناجحة.
 
 /**
@@ -37,50 +41,6 @@ export interface CardSpec {
   metrics: Metric[];
 }
 
-const TRAY = 30_000n;
-// صيغ المعدود بعد رقم: «5 طبقات + 5 بيضات»، «12 طبقة + 15 بيضة»، «طبقة واحدة + بيضتان».
-const eggForms = () => ({ one: t('unit.egg.one', 'بيضة واحدة'), two: t('unit.egg.two', 'بيضتان'), few: t('unit.egg.few', 'بيضات'), many: t('unit.egg.many', 'بيضة') });
-const trayForms = () => ({ one: t('unit.tray.one', 'طبقة واحدة'), two: t('unit.tray.two', 'طبقتان'), few: t('unit.tray.few', 'طبقات'), many: t('unit.tray.many', 'طبقة') });
-
-/** رقم جوّا جملة عربية، معزول LTR حتى ما يتلخبط ترتيبه ويّا الكلمات والإشارات حواليه. */
-function Num({ n }: { n: number }) {
-  return <bdi dir="ltr">{fmtInt(n)}</bdi>;
-}
-
-/** عدد أيام بصيغته (countForm). genitive بعد حرف جرّ أو ظرف («بعد يومين»، «منذ يوم واحد»)، وبلاه مرفوع («يومان»). */
-function Days({ n, genitive = false }: { n: number; genitive?: boolean }) {
-  if (n === 1) return <>{t('home.days.one', 'يوم واحد')}</>;
-  if (n === 2) return <>{genitive ? t('home.days.two_genitive', 'يومين') : t('home.days.two', 'يومان')}</>;
-  const vars = { n: <Num n={n} /> };
-  const form = countForm(n);
-  if (form === 'few') return <Trans k="home.days.few" text="{n} أيام" vars={vars} />;
-  if (form === 'many') return <Trans k="home.days.many" text="{n} يوماً" vars={vars} />;
-  return <Trans k="home.days.hundreds" text="{n} يوم" vars={vars} />;
-}
-
-/**
- * أعمار الأفواج النشطة: «12 إلى 35 يوماً» (المعدود يتبع الرقم الأخير)، أو عمر واحد إذا كلها بنفس العمر.
- * إذا الأكبر 1 أو 2 ما ينكتب معدود بعد الرقم بالفصحى: الاسم يحمل العدد («يوم واحد إلى يومين»).
- */
-function Ages({ min, max }: { min: number; max: number }) {
-  if (min === max) return <Days n={min} />;
-  if (max <= 2) {
-    return <Trans k="home.broiler.ages_small" text="{min} إلى {max}" vars={{ min: <Days n={min} />, max: <Days n={max} genitive /> }} />;
-  }
-  const vars = { min: <Num n={min} />, max: <Num n={max} /> };
-  const form = countForm(max);
-  if (form === 'few') return <Trans k="home.broiler.ages_few" text="{min} إلى {max} أيام" vars={vars} />;
-  if (form === 'many') return <Trans k="home.broiler.ages_many" text="{min} إلى {max} يوماً" vars={vars} />;
-  return <Trans k="home.broiler.ages_hundreds" text="{min} إلى {max} يوم" vars={vars} />;
-}
-
-/** أقرب إخراج متوقّع بين الوجبات قيد التفقيس. سالب = فات موعده ولم يُخرَج بعد. «منذ» تجرّ مثل «بعد». */
-function NextHatch({ days }: { days: number }) {
-  if (days === 0) return <>{t('home.hatchery.next_today', 'اليوم')}</>;
-  if (days > 0) return <Trans k="home.hatchery.next_in" text="بعد {days}" vars={{ days: <Days n={days} genitive /> }} />;
-  return <Trans k="home.hatchery.next_late" text="فات موعده منذ {days}" vars={{ days: <Days n={-days} genitive /> }} />;
-}
-
 /** مصدّرة حتى ينفحص اتّجاه كل رقم بلا متصفّح. */
 export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
   // بلا ملخّص (لسّه يتحمّل أو فشل) كل رقم «—»: ملخّص فارغ بدل null حتى الفحوص أقصر (حزمة الرئيسية بالتثبيت المسبق).
@@ -89,60 +49,19 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
   return [
     {
       key: 'feed_mill',
-      to: '/mill',
-      title: t('nav.mill', 'معمل العلف'),
+      to: '/inventory/mill',
+      title: t('nav.mill_stores', 'مخازن المعمل'),
       icon: Wheat,
       metrics: [
-        { label: t('home.mill.produced', 'إنتاج اليوم'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.producedTodayKg, 'kg').main : null },
-        { label: t('home.mill.stock', 'العلف الجاهز'), kind: 'text', value: s.feedMill ? fmtQty(s.feedMill.feedInStockKg, 'kg').main : null },
         { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.millBelowMinimum !== undefined ? fmtInt(s.millBelowMinimum) : null },
       ],
     },
     {
-      key: 'broiler',
-      to: '/broiler',
-      title: t('nav.broiler', 'حقول اللحم'),
-      icon: Drumstick,
-      metrics: [
-        { label: t('home.broiler.active', 'الأفواج النشطة'), kind: 'number', value: s.broiler ? fmtInt(s.broiler.activeFlocks) : null },
-        {
-          label: t('home.broiler.ages', 'الأعمار'),
-          kind: 'text',
-          value: s.broiler?.ageDays ? <Ages min={s.broiler.ageDays.min} max={s.broiler.ageDays.max} /> : null,
-        },
-        { label: t('home.broiler.dead', 'نفوق اليوم'), kind: 'number', value: s.broiler ? fmtInt(s.broiler.deadToday) : null },
-      ],
-    },
-    {
-      key: 'layer',
-      to: '/layers',
-      title: t('nav.layers', 'حقول البيض'),
-      icon: Egg,
-      metrics: [
-        { label: t('home.layer.eggs', 'بيض اليوم'), kind: 'number', value: s.layer ? fmtInt(s.layer.eggsToday) : null },
-        { label: t('home.layer.hdep', 'نسبة الإنتاج'), kind: 'number', value: s.layer?.hdepPercent ? `${s.layer.hdepPercent}%` : null },
-        {
-          label: t('home.layer.trays', 'في المخزن'),
-          kind: 'text',
-          value: s.layer
-            ? fmtQty(s.layer.traysInStore, 'pc', { pieceLabel: t('unit.egg', 'بيضة'), pieceForms: eggForms(), pack: { label: t('unit.tray', 'طبقة'), ...trayForms(), factor: TRAY } }).main
-            : null,
-        },
-      ],
-    },
-    {
       key: 'hatchery',
-      to: '/hatchery',
-      title: t('nav.hatchery', 'المفقس'),
+      to: '/inventory/hatchery',
+      title: t('nav.hatchery_stores', 'مخازن المفقس'),
       icon: Bird,
       metrics: [
-        { label: t('home.hatchery.setting', 'وجبات قيد التفقيس'), kind: 'number', value: s.hatchery ? fmtInt(s.hatchery.batchesSetting) : null },
-        {
-          label: t('home.hatchery.next', 'أقرب إخراج'),
-          kind: 'text',
-          value: s.hatchery && s.hatchery.nextHatchInDays !== null ? <NextHatch days={s.hatchery.nextHatchInDays} /> : null,
-        },
-        { label: t('home.hatchery.chicks', 'أفراخ في الانتظار'), kind: 'number', value: s.hatchery ? fmtInt(s.hatchery.chicksWaiting) : null },
         { label: t('home.hatchery.old', 'أفراخ فاتها 48 ساعة'), kind: 'number', value: s.oldChicks !== undefined ? fmtInt(s.oldChicks) : null },
         { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.hatcheryBelowMinimum !== undefined ? fmtInt(s.hatcheryBelowMinimum) : null },
       ],
@@ -176,11 +95,66 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
         { label: t('home.accounts.negative_boxes', 'صناديق بالسالب'), kind: 'number', value: accounts ? fmtInt(accounts.negativeBoxes) : null },
         // القارئ المحصور (E49): الرقمان من دفاتر نطاقه بس، فالبطاقة تقول من كم دفتر.
         ...(accounts && accounts.visibleBooks < accounts.totalBooks
-          ? [{ label: t('home.accounts.books', 'دفاتر نطاقك'), kind: 'text' as const, value: t('home.accounts.books.n', '{visible} من المجموع {total}', { visible: fmtInt(accounts.visibleBooks), total: fmtInt(accounts.totalBooks) }) }]
+          ? [{ label: t('home.accounts.books', 'حسابات نطاقك'), kind: 'text' as const, value: t('home.accounts.books.n', '{visible} من المجموع {total}', { visible: fmtInt(accounts.visibleBooks), total: fmtInt(accounts.totalBooks) }) }]
           : []),
       ],
     },
   ];
+}
+
+export type HomeActionKey = 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
+
+export interface HomeAction {
+  key: HomeActionKey;
+  to: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+/**
+ * أزرار «ماذا تريد أن تفعل؟»: كل زرّ يفتح نموذجه مباشرةً، ويظهر بنفس شرط الصفحة التي يفتحها (can بالدور، والحسابات بعلامة
+ * الخادم canSeeAccounts مثل الشريط). بلا منشأة مؤكّدة (workspace = null) تظهر كلها مثل الشريط. المنع الحقيقي بالخادم.
+ */
+export function homeActions(workspace: Pick<Workspace, 'role' | 'canSeeAccounts'> | null): HomeAction[] {
+  const allowed = (action: Parameters<typeof can>[1], accounts = false) => !workspace || ((!accounts || workspace.canSeeAccounts) && can(workspace.role, action));
+  const all: [HomeAction, boolean][] = [
+    [{ key: 'receipt', to: '/inventory/receipts', label: t('home.do.receipt', 'وصلتني بضاعة'), icon: PackagePlus }, allowed('receipt.draft')],
+    [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
+    [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
+    [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],
+    [{ key: 'payment', to: '/accounts?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
+    [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف'), icon: Receipt }, allowed('expense.post', true)],
+    [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد'), icon: ClipboardCheck }, allowed('count.enter')],
+  ];
+  return all.filter(([, show]) => show).map(([action]) => action);
+}
+
+/** أزرار كبيرة بلمسة واحدة: عمودان على الهاتف. */
+export function HomeActions({ actions }: { actions: readonly HomeAction[] }) {
+  const headingId = useId();
+  if (actions.length === 0) return null;
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <h2 id={headingId} className="font-semibold">
+        {t('home.do.title', 'ماذا تريد أن تفعل؟')}
+      </h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {actions.map(({ key, to, label, icon: Icon }) => (
+          <Link
+            key={key}
+            to={to}
+            data-action={'home-' + key}
+            className="card flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center font-semibold transition-shadow hover:shadow-soft"
+          >
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+              <Icon aria-hidden="true" className="size-6" />
+            </span>
+            {label}
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export function DivisionCard({ spec }: { spec: CardSpec }) {
@@ -218,6 +192,7 @@ export default function HomePage() {
   const summary = useLoad(home.loadHomeSummary);
   const notConnected = summary.error instanceof NotConnectedError;
 
+  const actions = homeActions(session.status === 'ready' ? session.workspace : null);
   const specs = cardSpecs(summary.data).filter((spec) => {
     if (session.status !== 'ready') return true;
     const { divisions, canSeeAccounts } = session.workspace;
@@ -236,6 +211,7 @@ export default function HomePage() {
           />
         }
       />
+      <HomeActions actions={actions} />
       {notConnected ? (
         <Notice tone="info" title={describeError(summary.error).title}>
           {t('home.not_connected', 'هذا هيكل النظام: الوحدات والتصميم والتثبيت. تظهر علامة «—» مكان الأرقام حتى تُربط قاعدة البيانات.')}

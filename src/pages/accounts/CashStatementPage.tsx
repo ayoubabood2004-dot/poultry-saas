@@ -36,7 +36,7 @@ export function cashMemo(line: CashLine): string {
 export function cashVoidSentence(line: CashLine): string {
   const amount = fmtMoney(line.inflow + line.outflow, 0);
   const note = line.note ? t('cash.void.note', ' (الملاحظة: {note})', { note: line.note }) : '';
-  if (line.kind !== 'transfer') return t('cash.void.opening', 'يُعكس الرصيد الافتتاحي {amount} بتاريخ اليوم، ثم يُسجَّل الصحيح من صفحة الصناديق.', { amount });
+  if (line.kind !== 'transfer') return t('cash.void.opening', 'يُلغى الرصيد عند البداية {amount} بحركة بتاريخ اليوم، ثم يُسجَّل الصحيح من صفحة الصناديق.', { amount });
   return line.inflow > 0n
     ? t('cash.void.transfer_in', 'يُعكس نقل {amount} الوارد إلى هذا الصندوق{note} بوجهيه (الصندوقين) بتاريخ اليوم.', { amount, note })
     : t('cash.void.transfer_out', 'يُعكس نقل {amount} الصادر من هذا الصندوق{note} بوجهيه (الصندوقين) بتاريخ اليوم.', { amount, note });

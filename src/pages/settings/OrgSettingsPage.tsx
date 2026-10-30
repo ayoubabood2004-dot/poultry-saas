@@ -82,7 +82,7 @@ export function packFactor(text: string): bigint | null {
  */
 export function GoLiveField({ id, value, error, onChange }: { id: string; value: string; error: string | null; onChange: (value: string) => void }) {
   return (
-    <Field id={id} label={t('org.go_live', 'يوم التشغيل')} hint={t('org.go_live.hint.text', 'يوم/شهر/سنة، مثل 30/09/2026 أو 30092026. أرصدة الافتتاح بهذا اليوم أو قبله، والمستندات العادية بعده. يثبت بعد أوّل ترحيل في الوحدة.')} error={error}>
+    <Field id={id} label={t('org.go_live', 'يوم التشغيل')} hint={t('org.go_live.hint.text', 'يوم/شهر/سنة، مثل 30/09/2026 أو 30092026. الأرصدة عند البداية بهذا اليوم أو قبله، والأوراق العادية بعده. يثبت بعد أوّل حفظ نهائي في الوحدة.')} error={error}>
       <input id={id} inputMode="numeric" dir="ltr" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} className="input tabular-nums" value={value} onChange={(event) => onChange(event.target.value)} data-autofocus />
     </Field>
   );
@@ -94,7 +94,7 @@ const DIMENSION_UNIT: Readonly<Record<Dimension, BaseUnit>> = { mass: 'kg', volu
 /** «يوم التشغيل»: التاريخ، أو «لم يُحدَّد»، ومعه «ثابت» بعد أوّل ترحيل. */
 export function goLiveText(division: DivisionSetup): string {
   const day = division.goLiveOn ? fmtDay(division.goLiveOn) : t('org.go_live.none', 'لم يُحدَّد');
-  return division.frozen ? t('org.go_live.frozen', '{day} — ثابت: بدأ الترحيل في الوحدة', { day }) : day;
+  return division.frozen ? t('org.go_live.frozen', '{day} — ثابت: بدأ الحفظ النهائي في الوحدة', { day }) : day;
 }
 
 function RowActions({ onRename, onArchive, archived, label }: { onRename?: () => void; onArchive: () => void; archived: boolean; label: string }) {
@@ -280,7 +280,7 @@ function EditDialog({
                 ))}
               </select>
             </Field>
-            <Field id={`${id}-factor`} label={t('org.pack.factor', 'الحجم بوحدة الأساس')} hint={t('org.pack.factor.hint', 'كم كيلو أو لتراً أو قطعة في الوحدة الواحدة. يثبت بعد الإنشاء.')}>
+            <Field id={`${id}-factor`} label={t('org.pack.factor', 'الحجم بالوحدة التي تُعدّ بها المادّة')} hint={t('org.pack.factor.hint', 'كم كيلو أو لتراً أو قطعة في الوحدة الواحدة. يثبت بعد الإنشاء.')}>
               <input id={`${id}-factor`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={factor} onChange={(event) => setFactor(event.target.value)} />
             </Field>
           </>

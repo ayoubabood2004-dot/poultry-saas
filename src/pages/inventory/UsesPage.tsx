@@ -11,6 +11,7 @@ import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { PostPreview, previewReady, type PreviewLine } from '../../components/ui/PostPreview';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import { announceZeroBalance, WholeBalanceConfirm, type WholeLine } from '../../components/ui/WholeBalance';
@@ -32,7 +33,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../../components/ui/DayField';
-import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الصرف لمصروف عام والإتلاف (الخطّة WP5، FOUNDATION ٣٠٥–٣٠٦، ٥٥٦، Q5، E31): الأمين ينشئ المسوّدة بمخزن بنطاقه وتصنيف مصروف،
 // والسطر يسحب بالترتيب (الصالح بس)، أو يسمّي دفعة منتهية فينتظر المدير («بانتظار موافقة المدير»)، والإتلاف للمدير بدفعة منتهية
@@ -152,7 +153,7 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
       return;
     }
     if (nameLot && !lotId) {
-      setFailure(new RejectedError('lot_required', destroy ? t('use.line.lot_destroy', 'الإتلاف يسمّي الدفعة المنتهية؛ اختر الدفعة.') : t('use.line.lot_pick', 'اختر الدفعة المنتهية.')));
+      setFailure(new RejectedError('lot_required', destroy ? t('use.line.lot_destroy', 'الإتلاف يسمّي الوجبة المنتهية؛ اختر الوجبة.') : t('use.line.lot_pick', 'اختر الوجبة المنتهية.')));
       return;
     }
     setBusy(true);
@@ -180,18 +181,18 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
-      {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ودفعاتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
+      {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ووجباتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={unitOptions(item, packs)} value={qty} onChange={setQty} /> : null}
       {item && lots && !destroy && item.tracksExpiry ? (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="size-5 accent-brand-600" checked={named} onChange={(event) => setNamed(event.target.checked)} data-action="name-expired-lot" />
-          {t('use.line.named', 'من دفعة منتهية (يرحّلها المدير)')}
+          {t('use.line.named', 'من وجبة منتهية (يحفظها المدير)')}
         </label>
       ) : null}
       {item && lots && nameLot ? (
-        <Field id={`${id}-lot`} label={t('use.line.lot', 'الدفعة المنتهية')} hint={choices.length === 0 ? t('use.line.lot_none', 'لا دفعة منتهية من هذه المادّة في المخزن بتاريخ المستند.') : undefined}>
+        <Field id={`${id}-lot`} label={t('use.line.lot', 'الوجبة المنتهية')} hint={choices.length === 0 ? t('use.line.lot_none', 'لا وجبة منتهية من هذه المادّة في المخزن بتاريخ الورقة.') : undefined}>
           <select id={`${id}-lot`} className="input" value={lotId} onChange={(event) => setLotId(event.target.value)} data-action="pick-lot">
-            <option value="">{t('use.line.lot_choose', 'اختر الدفعة')}</option>
+            <option value="">{t('use.line.lot_choose', 'اختر الوجبة')}</option>
             {choices.map((lot) => (
               <option key={lot.lotId} value={lot.lotId}>
                 {t('use.line.lot_option', '{source} — انتهت {day} — فيها {qty}', { source: lot.source, day: fmtDay(lot.expiryOn ?? ''), qty: fmtQty(lot.qtyLeft, item.baseUnit).main })}
@@ -218,7 +219,7 @@ export function UsePreviewPanel({ preview, approved, onToggle }: { preview: UseP
     <>
       {preview.needsManager && !preview.canPost ? (
         <Notice tone="info" title={t('use.awaiting', 'بانتظار موافقة المدير')}>
-          {preview.destroy ? t('use.awaiting.destroy', 'الإتلاف يرحّله المدير؛ المسوّدة باقية له.') : t('use.awaiting.release', 'سطر يسمّي دفعة منتهية؛ صرفها يرحّله المدير، والمسوّدة باقية له.')}
+          {preview.destroy ? t('use.awaiting.destroy', 'الإتلاف يحفظه المدير نهائياً؛ الورقة باقية له.') : t('use.awaiting.release', 'سطر يسمّي وجبة منتهية؛ إخراجها يحفظه المدير نهائياً، والورقة باقية له.')}
         </Notice>
       ) : null}
       {preview.problems.map((problem) => (
@@ -238,7 +239,8 @@ export function UsePreviewPanel({ preview, approved, onToggle }: { preview: UseP
 }
 
 function enteredUnit(line: UseLine): string {
-  if (line.unitCode === 't') return t('unit.t', 'طن');
+  const code = codeUnitLabel(line.unitCode);
+  if (code) return code;
   if (line.itemUnitId) return line.unitLabel;
   return baseUnitLabel(line.baseUnit);
 }
@@ -248,7 +250,7 @@ export function UseLinesTable({ lines, onDelete }: { lines: readonly UseLine[]; 
     { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
     { key: 'entered', header: t('transfer.col.entered', 'كما كُتبت'), cell: (line) => fmtCounted(line.qtyInUnit, enteredUnit(line)) },
     ...qtyColumns(lines, (line) => line.qty, (unit) => t('stock.col.qty_in', 'الكمية ({unit})', { unit })),
-    { key: 'lot', header: t('use.col.lot', 'الدفعة'), cell: (line) => (line.lotId ? t('use.col.lot_named', 'منتهية مسمّاة') : t('use.col.lot_order', 'بالترتيب')) },
+    { key: 'lot', header: t('use.col.lot', 'الوجبة'), cell: (line) => (line.lotId ? t('use.col.lot_named', 'منتهية مسمّاة') : t('use.col.lot_order', 'بالترتيب')) },
   ];
   if (onDelete) {
     columns.unshift({
@@ -286,10 +288,13 @@ function UseEditor({ docId }: { docId: string }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const [restaled, setRestaled] = useState(false);
-  const refresh = () => {
+  const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
     setRestaled(false);
+  };
+  const refresh = () => {
+    closeReview();
     setTick((n) => n + 1);
   };
   if (doc.error) return <LoadFailed what={t('use.what', 'الصرف')} error={doc.error} onRetry={doc.retry} />;
@@ -331,7 +336,7 @@ function UseEditor({ docId }: { docId: string }) {
       setFailure(outcome.error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('use.posted', 'رُحّل الصرف {no}', { no: outcome.result.docNo ?? '' }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('use.posted', 'حُفظ الإخراج {no} نهائياً', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     announceZeroBalance(whole, store?.name ?? '');
     refresh();
@@ -373,7 +378,7 @@ function UseEditor({ docId }: { docId: string }) {
       });
   };
   const ready = stockUsePostReady(preview, approved, online);
-  const title = current.docNo ? t('use.title.no', 'الصرف {no}', { no: current.docNo }) : destroy ? t('use.title.destroy', 'مسوّدة إتلاف') : t('use.title.draft', 'مسوّدة صرف');
+  const title = current.docNo ? t('use.title.no', 'الصرف {no}', { no: current.docNo }) : destroy ? t('use.title.destroy', 'إتلاف غير محفوظ بعد') : t('use.title.draft', 'إخراج غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -393,7 +398,7 @@ function UseEditor({ docId }: { docId: string }) {
       {current.voidReason ? <Notice tone="warning" title={t('use.voided', 'أُلغي هذا الصرف')}>{current.voidReason}</Notice> : null}
       {current.status === 'draft' && !canPost ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {draft ? (
-        <Field id="use-category" label={t('use.category', 'تصنيف المصروف')} hint={t('use.category.hint', '«إتلاف منتهي» للدفعات المنتهية بدفعة مسمّاة في كل سطر، ويرحّله المدير.')}>
+        <Field id="use-category" label={t('use.category', 'تصنيف المصروف')} hint={t('use.category.hint', '«إتلاف منتهي» للوجبات المنتهية بوجبة مسمّاة في كل سطر، ويحفظه المدير نهائياً.')}>
           <select id="use-category" className="input" value={current.categoryId ?? ''} disabled={busy} onChange={(event) => setCategory(event.target.value)} data-action="pick-category">
             <option value="">{t('use.category.pick', 'اختر التصنيف')}</option>
             {categories.map((c) => (
@@ -414,36 +419,44 @@ function UseEditor({ docId }: { docId: string }) {
       {draft ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-use">
-              {t('use.preview', 'عاين السحب')}
+            <Button busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-use">
+              {t('use.preview', 'راجع واحفظ')}
             </Button>
             <Button variant="ghost" onClick={() => setConfirm('discard')} disabled={busy} data-action="discard-use">
-              {t('transfer.discard', 'اطوِ المسوّدة')}
+              {t('transfer.discard', 'احذف الورقة')}
             </Button>
           </div>
-          {!online ? <Notice tone="warning" title={t('use.offline', 'الترحيل يحتاج اتصالاً بالخادم؛ المسوّدة باقية حتى يعود الاتصال.')} /> : null}
-          {preview ? (
-            <>
-              {restaled ? (
-                <Notice tone="warning" title={t('use.restaled', 'تغيّر المخزون بعد المعاينة فلم يُرحَّل الصرف')}>
-                  {t('use.restaled.detail', 'هذه معاينة جديدة بالدفعات الموجودة الآن؛ راجعها ووافق على كل سطر من جديد قبل الترحيل.')}
-                </Notice>
-              ) : null}
-              <UsePreviewPanel
-                preview={preview}
-                approved={approved}
-                onToggle={(lineId, on) => {
-                  const next = new Set(approved);
-                  if (on) next.add(lineId);
-                  else next.delete(lineId);
-                  setApproved(next);
-                }}
-              />
-              <Button disabled={!ready} busy={busy} onClick={() => (whole.length ? setConfirm('whole') : void post())} data-action="post-use">
-                {destroy ? t('use.post.destroy', 'رحّل الإتلاف') : t('use.post', 'رحّل الصرف')}
-              </Button>
-            </>
-          ) : null}
+          {!online ? <Notice tone="warning" title={t('use.offline', 'الحفظ النهائي يحتاج اتصالاً بالإنترنت؛ الورقة باقية حتى يعود الاتصال.')} /> : null}
+          <ReviewDialog
+            open={preview !== null}
+            title={destroy ? t('use.review.title.destroy', 'راجع الإتلاف قبل الحفظ') : t('use.review.title', 'راجع الإخراج قبل الحفظ')}
+            ready={ready}
+            busy={busy}
+            action="post-use"
+            onSave={() => (whole.length ? setConfirm('whole') : void post())}
+            onClose={closeReview}
+          >
+            {preview ? (
+              <>
+                {restaled ? (
+                  <Notice tone="warning" title={t('use.restaled', 'تغيّر المخزون بعد المراجعة فلم يُحفظ الإخراج')}>
+                    {t('use.restaled.detail', 'هذه مراجعة جديدة بالوجبات الموجودة الآن؛ راجعها ووافق على كل سطر من جديد.')}
+                  </Notice>
+                ) : null}
+                {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+                <UsePreviewPanel
+                  preview={preview}
+                  approved={approved}
+                  onToggle={(lineId, on) => {
+                    const next = new Set(approved);
+                    if (on) next.add(lineId);
+                    else next.delete(lineId);
+                    setApproved(next);
+                  }}
+                />
+              </>
+            ) : null}
+          </ReviewDialog>
         </div>
       ) : current.status === 'posted' && canVoid ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-use">
@@ -452,9 +465,9 @@ function UseEditor({ docId }: { docId: string }) {
       ) : null}
       <ConfirmDialog
         open={confirm === 'discard'}
-        title={t('use.discard.title', 'اطوِ مسوّدة الصرف')}
-        consequence={t('use.discard.consequence', 'تصير مسوّدة الصرف من «{store}» بتاريخ {day} ملغاة بلا رقم ولا حركات، ولا ترجع.', { store: store?.name ?? '—', day: fmtDay(current.onDate) })}
-        confirmLabel={t('transfer.discard', 'اطوِ المسوّدة')}
+        title={t('use.discard.title', 'احذف ورقة الإخراج')}
+        consequence={t('use.discard.consequence', 'تُلغى ورقة الإخراج من «{store}» بتاريخ {day} بلا رقم ولا حركات، ولا ترجع.', { store: store?.name ?? '—', day: fmtDay(current.onDate) })}
+        confirmLabel={t('transfer.discard', 'احذف الورقة')}
         busy={busy}
         action="confirm-discard-use"
         onConfirm={discard}
@@ -551,7 +564,7 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
         </Notice>
       ) : null}
       <Button type="submit" busy={busy} data-action="create-use">
-        {t('use.new.create', 'أنشئ المسوّدة')}
+        {t('use.new.create', 'ابدأ')}
       </Button>
     </form>
   );
@@ -608,7 +621,7 @@ export function UsesList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.uses', 'الصرف والإتلاف')} subtitle={t('use.list.subtitle', 'صرف لمصروف عام بالدفعات، والإتلاف للمنتهي؛ المنتهي والإتلاف يرحّلهما المدير.')} />
+      <PageHeader title={t('stock.uses', 'الصرف والإتلاف')} subtitle={t('use.list.subtitle', 'إخراج لمصروف عام من الوجبات، والإتلاف للمنتهي؛ المنتهي والإتلاف يحفظهما المدير نهائياً.')} />
       {!allowed ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewUse stores={scopedStores(stores, workspace)} categories={stockUseCategories(categories)} onSaved={(id) => navigate(`/inventory/uses/${id}`)} /> : null}
@@ -630,7 +643,7 @@ export function UsesList() {
             columns={columns}
             rows={rows}
             rowKey={(doc) => doc.id}
-            empty={onlyAwaiting ? t('use.list.awaiting_empty', 'لا مسوّدات بانتظار موافقة المدير فيما عُرض.') : t('use.list.empty', 'لا صرف بعد.')}
+            empty={onlyAwaiting ? t('use.list.awaiting_empty', 'لا أوراق بانتظار موافقة المدير فيما عُرض.') : t('use.list.empty', 'لا صرف بعد.')}
           />
           <PageFooter shown={loaded.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('use.list.what', 'مستندات الصرف')} onMore={loadMore} action="more-uses" />
         </>

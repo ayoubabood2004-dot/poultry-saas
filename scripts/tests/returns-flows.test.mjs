@@ -234,7 +234,7 @@ export default async function (t) {
       tick(byAction('approve-return-line')[0]);
       await settle();
       await click(byAction('post-return')[0]);
-      const asked = [named(calls, 'postSupplierReturn').length, text().includes('إرجاع ما بقي من الدفعة كلّه') && text().includes('«ذرة صفراء»: 5.000 طن')];
+      const asked = [named(calls, 'postSupplierReturn').length, text().includes('إرجاع ما بقي من الوجبة كلّه') && text().includes('«ذرة صفراء»: 5.000 طن')];
       await click(byAction('confirm-whole-return')[0]);
       const sent = named(calls, 'postSupplierReturn');
       const announced = globalThis.__flow.toasts.some((x) => x.tone === 'warning' && x.title.includes('PU-2026-0042'));

@@ -73,7 +73,7 @@ export default async function (t) {
   t.eq(pg({ code: '55P03', message: 'canceling statement due to lock timeout' }, 500), 'retryable:55P03', 'مهلة القفل (55P03): أعد المحاولة');
   t.eq(pg({ code: '55P03', message: 'lock timeout' }, 500, 'table'), 'retryable:55P03', 'مهلة القفل على جدول هم إعادة');
   const retry = m.describeError(new m.RetryableError('40P01'));
-  t.same([retry.kind, retry.title], ['retryable', 'لم يُرحَّل، أعد المحاولة'], 'التزاحم يوصف «لم يُرحَّل، أعد المحاولة»');
+  t.same([retry.kind, retry.title], ['retryable', 'لم يُحفظ، أعد المحاولة'], 'التزاحم يوصف «لم يُحفظ، أعد المحاولة»');
   t.ok(m.describeError(new m.RetryableError('55P03')).detail.includes('لم يُحفظ شيء'), 'ويكول إن شيئاً لم يُحفظ');
   // المرحلة 1 WP3: التصنيف متزامن باسم القيد بلا جملته (القاموس كسول برّا مسار الجلسة)، وexplained يجيب الجملة.
   const phoneCheck = m.classifyPostgrest({ code: '23514', message: 'new row for relation "members" violates check constraint "members_phone_check"' }, 400, 'rpc', true);

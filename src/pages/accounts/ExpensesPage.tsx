@@ -1,5 +1,6 @@
 import { Plus, Undo2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -114,7 +115,7 @@ export function expenseProblems(form: ExpenseForm, hatcheryIds: ReadonlySet<stri
   if (day.day && form.month && !monthChoices(day.day).includes(form.month)) errors.month = t('expense.month.invalid', 'الشهر شهر التاريخ أو قبله.');
   if (form.source === 'cash' && !form.accountId) errors.accountId = t('expense.account.required', 'اختر الصندوق.');
   if (form.source === 'credit' && !form.party) errors.party = t('expense.party.required', 'اختر الجهة.');
-  if (form.source === 'credit' && hatcheryIds.has(form.divisionId) && !form.bookId) errors.bookId = t('expense.book.required', 'اختر «دفتر الأفراخ» أو «دفتر بيض التفقيس».');
+  if (form.source === 'credit' && hatcheryIds.has(form.divisionId) && !form.bookId) errors.bookId = t('expense.book.required', 'اختر «حساب الأفراخ» أو «حساب بيض التفقيس».');
   if (Object.keys(errors).length > 0 || amount === null || !day.day) return { input: null, errors };
   return {
     input: {
@@ -284,7 +285,7 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
               {hatcheryIds.has(form.divisionId) ? (
                 <HatcheryBookSelect id={`${id}-book`} books={hatcheryBooks} value={form.bookId} onChange={(bookId) => set({ bookId })} error={errors.bookId} />
               ) : division ? (
-                <p className="text-sm text-ink-muted">{t('expense.book.main', 'يُسجَّل بدفتر «{division}».', { division: divisionLabel(division.kind) })}</p>
+                <p className="text-sm text-ink-muted">{t('expense.book.main', 'يُسجَّل بحساب «{division}».', { division: divisionLabel(division.kind) })}</p>
               ) : null}
             </>
           )}
@@ -301,7 +302,7 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
           title={t('expense.confirm.title', 'تسجيل المصروف')}
           consequence={checked.summary}
           confirmLabel={t('expense.confirm', 'سجّل المصروف')}
-          cancelLabel={t('payment.back', 'عُد إلى النموذج')}
+          cancelLabel={t('payment.back', 'ارجع إلى الورقة')}
           busy={busy}
           action="confirm-expense"
           onCancel={() => setChecked(null)}
@@ -315,9 +316,9 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
 /** دفتر مصروف المفقس بالدين: «دفتر الأفراخ» أو «دفتر بيض التفقيس» بلا اختيار مسبق (الخطّة WP5؛ الخادم book_required بلاه). */
 export function HatcheryBookSelect({ id, books, value, onChange, error }: { id: string; books: readonly BookRef[]; value: string; onChange: (bookId: string) => void; error?: string }) {
   return (
-    <Field id={id} label={t('book.pick', 'الدفتر')} error={error} hint={t('expense.book.hatchery', 'للمفقس دفتران؛ اختر دفتر هذا المصروف.')}>
+    <Field id={id} label={t('book.pick', 'الحساب')} error={error} hint={t('expense.book.hatchery', 'للمفقس حسابان؛ اختر حساب هذا المصروف.')}>
       <select id={id} className="input" value={value} onChange={(event) => onChange(event.target.value)} data-action="pick-hatchery-book">
-        <option value="">{t('book.pick.none', 'اختر الدفتر')}</option>
+        <option value="">{t('book.pick.none', 'اختر الحساب')}</option>
         {books.map((book) => (
           <option key={book.id} value={book.id}>
             {bookLabel(book)}
@@ -333,7 +334,7 @@ export function expenseVoidSentence(row: ExpenseRow): string {
   const vars = { category: row.categoryName, amount: fmtMoney(row.amount, 0), payee: row.accountName ?? row.partyName ?? '—' };
   return row.source === 'cash'
     ? t('expense.void.cash', 'يُلغى مصروف «{category}» {amount} دينار بصفّ عكسي بتاريخ اليوم، ويرجع المبلغ إلى «{payee}».', vars)
-    : t('expense.void.credit', 'يُلغى مصروف «{category}» {amount} دينار بصفّ عكسي بتاريخ اليوم، ويُعكس قيده على «{payee}».', vars);
+    : t('expense.void.credit', 'يُلغى مصروف «{category}» {amount} دينار بحركة تلغي السابقة بتاريخ اليوم، على «{payee}».', vars);
 }
 
 export default function ExpensesPage() {
@@ -348,7 +349,17 @@ export default function ExpensesPage() {
   const books = useLoad(parties.listBooks, 'books');
   const [pages, setPages] = useState<{ key: string; list: ExpenseReport[] }>({ key: '', list: [] });
   const [more, setMore] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
-  const [dialog, setDialog] = useState<'new' | ExpenseRow | null>(null);
+  // زرّ «مصروف» بالرئيسية يفتح النافذة مباشرةً (?new=1)، والإغلاق يشيل العلامة.
+  const [params, setParams] = useSearchParams();
+  const [dialog, setDialog] = useState<'new' | ExpenseRow | null>(() => (params.get('new') === '1' && workspace && can(workspace.role, 'expense.post') ? 'new' : null));
+  const closeDialog = () => {
+    setDialog(null);
+    if (params.has('new')) setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('new');
+      return next;
+    }, { replace: true });
+  };
   const key = `${period.from}|${period.to}|${divisionId}|${tick}`;
   const all = report.data ? [report.data, ...(pages.key === key ? pages.list : [])] : [];
   const rows = all.flatMap((page) => page.rows);
@@ -370,7 +381,7 @@ export default function ExpensesPage() {
   const canPost = workspace ? can(workspace.role, 'expense.post') : false;
   const canVoid = workspace ? can(workspace.role, 'void') : false;
   const changed = () => {
-    setDialog(null);
+    closeDialog();
     setTick((n) => n + 1);
   };
   const columns: Column<ExpenseRow>[] = [
@@ -458,7 +469,7 @@ export default function ExpensesPage() {
           {more.error ? <LoadFailed what={t('expense.list', 'المصاريف')} error={more.error} onRetry={loadMore} /> : null}
         </>
       ) : null}
-      {dialog === 'new' && scopedBooks ? <ExpenseDialog books={scopedBooks} onClose={() => setDialog(null)} onSaved={changed} /> : null}
+      {dialog === 'new' && scopedBooks && scopedBooks.length > 0 ? <ExpenseDialog books={scopedBooks} onClose={closeDialog} onSaved={changed} /> : null}
       {dialog && dialog !== 'new' ? (
         <VoidDialog
           slot={`expense:${dialog.id}`}

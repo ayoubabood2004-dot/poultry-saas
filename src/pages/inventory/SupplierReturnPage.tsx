@@ -9,6 +9,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { toast } from '../../components/ui/Toast';
 import type { WholeLine } from '../../components/ui/WholeBalance';
 import { decimalText } from '../../domain/decimal';
@@ -39,7 +40,7 @@ const ITEM_FORMS = { one: t('receipt.items.one', 'مادّة واحدة'), two: 
 
 /** «ألغِ المرتجع RT-2026-0003 — ترجع مادّتان إلى دفعات الاستلام PU-2026-0042، ويُعكس قيد المورّد و«فرق مرتجع»». */
 export function returnVoidSentence(docNo: string, receiptNo: string, lines: number): string {
-  return t('return.void.sentence', 'ألغِ المرتجع {no} — ترجع {count} إلى دفعات الاستلام {receipt}، ويُعكس قيد المورّد ومصروف «فرق مرتجع».', {
+  return t('return.void.sentence', 'ألغِ المرتجع {no} — ترجع {count} إلى وجبات الاستلام {receipt}، وتُعكس حركة المورّد ومصروف «فرق مرتجع».', {
     no: docNo,
     receipt: receiptNo,
     count: fmtCounted(BigInt(lines) * 1000n, t('receipt.items.label', 'مادّة'), ITEM_FORMS),
@@ -57,7 +58,7 @@ function announceLotsEmptied(lines: readonly WholeLine[], receiptNo: string): vo
   sound.warn();
   toast({
     tone: 'warning',
-    title: t('return.zero', 'صار متبقّي دفعة الاستلام {receipt} صفراً', { receipt: receiptNo }),
+    title: t('return.zero', 'صار متبقّي وجبة الاستلام {receipt} صفراً', { receipt: receiptNo }),
     detail: lines.map((line) => line.itemName).join(t('list.separator', '، ')),
   });
 }
@@ -138,7 +139,7 @@ export function ReturnLinesTable({
   if (left) {
     const rows = lines.filter((line) => left.has(line.receiptLineId));
     columns.push(
-      ...qtyColumns(rows, (line) => left.get(line.receiptLineId) ?? 0n, (unit) => t('return.col.left', 'المتبقّي بالدفعة ({unit})', { unit })).map((column) => ({
+      ...qtyColumns(rows, (line) => left.get(line.receiptLineId) ?? 0n, (unit) => t('return.col.left', 'المتبقّي في الوجبة ({unit})', { unit })).map((column) => ({
         ...column,
         key: `left_${column.key}`,
         cell: (line: ReturnRow, index: number) => (left.has(line.receiptLineId) ? column.cell(line, index) : '—'),
@@ -198,7 +199,7 @@ function AddReturnLine({ docId, options, taken, onAdded }: { docId: string; opti
       return;
     }
     if (amount > line.qtyLeft) {
-      setFailure(new RejectedError('insufficient_stock', t('return.line.over', 'بقي من دفعة «{item}» {left} فقط.', { item: line.itemName, left: fmtQty(line.qtyLeft, line.baseUnit).main })));
+      setFailure(new RejectedError('insufficient_stock', t('return.line.over', 'بقي من وجبة «{item}» {left} فقط.', { item: line.itemName, left: fmtQty(line.qtyLeft, line.baseUnit).main })));
       return;
     }
     setBusy(true);
@@ -239,7 +240,7 @@ function AddReturnLine({ docId, options, taken, onAdded }: { docId: string; opti
           ))}
         </select>
       </label>
-      {open.length === 0 ? <p className="text-sm text-ink-muted">{t('return.line.none', 'لم يبقَ من دفعات هذا الاستلام شيء يُرجَع، أو كل سطوره في المرتجع.')}</p> : null}
+      {open.length === 0 ? <p className="text-sm text-ink-muted">{t('return.line.none', 'لم يبقَ من وجبات هذا الاستلام شيء يُرجَع، أو كل سطوره في المرتجع.')}</p> : null}
       {line ? (
         <>
           <QtyInput id={`${id}-qty`} label={t('return.line.qty', 'الكمية المُرجَعة')} base={line.baseUnit} units={unitOptions(line, []).slice(0, 1)} value={qty} onChange={setQty} />
@@ -287,7 +288,7 @@ function CreditsPanel({
   return (
     <section className="card flex flex-col gap-3 p-4" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`} className="font-semibold">{t('return.credits', 'المبلغ الذي يقبله المورّد')}</h2>
-      <p className="text-sm text-ink-muted">{t('return.credits.hint', 'يدخل قيد المورّد «له» بدفتر الاستلام، والفرق بينه وبين قيمة الدفعة المُرجَعة مصروف «فرق مرتجع».')}</p>
+      <p className="text-sm text-ink-muted">{t('return.credits.hint', 'تدخل حركة المورّد «له» في حساب الاستلام، والفرق بينها وبين قيمة الوجبة المُرجَعة مصروف «فرق مرتجع».')}</p>
       {conflicts.length > 0 ? (
         <Notice tone="warning" title={t('return.credits.conflict', 'تغيّر المقبول عن {names} من نافذة أو جهاز آخر بعد أن بدأت تعديله؛ تُعرض القيمة المحفوظة الآن.', { names: conflicts.join(t('list.separator', '، ')) })} />
       ) : null}
@@ -336,11 +337,11 @@ export function ReturnPreviewPanel({ preview, approved, onToggle }: { preview: S
     },
     { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
     ...qtyColumns(preview.lines, (line) => line.qty, (unit) => t('return.col.qty', 'المُرجَع ({unit})', { unit })),
-    ...qtyColumns(preview.lines, (line) => line.lotQtyLeft, (unit) => t('return.col.left', 'المتبقّي بالدفعة ({unit})', { unit })).map((column) => ({ ...column, key: `left_${column.key}` })),
+    ...qtyColumns(preview.lines, (line) => line.lotQtyLeft, (unit) => t('return.col.left', 'المتبقّي في الوجبة ({unit})', { unit })).map((column) => ({ ...column, key: `left_${column.key}` })),
   ];
   if (preview.money) {
     columns.push(
-      { key: 'value', header: t('return.col.value', 'قيمة المُرجَع من الدفعة'), kind: 'number', cell: (line) => { const row = money.get(line.lineId); return row?.value === null || row?.value === undefined ? '—' : <MoneyText amount={row.value} />; } },
+      { key: 'value', header: t('return.col.value', 'قيمة المُرجَع من الوجبة'), kind: 'number', cell: (line) => { const row = money.get(line.lineId); return row?.value === null || row?.value === undefined ? '—' : <MoneyText amount={row.value} />; } },
       { key: 'credit', header: t('return.col.credit', 'المقبول'), kind: 'number', cell: (line) => { const row = money.get(line.lineId); return row?.credit === null || row?.credit === undefined ? '—' : <MoneyText amount={row.credit} decimals={0} />; } },
       { key: 'diff', header: t('return.col.diff', 'فرق مرتجع'), kind: 'number', cell: (line) => { const row = money.get(line.lineId); return row?.diff === null || row?.diff === undefined ? '—' : <MoneyText amount={row.diff} />; } },
     );
@@ -355,11 +356,11 @@ export function ReturnPreviewPanel({ preview, approved, onToggle }: { preview: S
       {preview.money ? (
         <ul className="flex flex-col gap-1 text-sm">
           <li>
-            {t('return.preview.value', 'قيمة المُرجَع من الدفعات')}: <MoneyText amount={preview.money.valueTotal} />
+            {t('return.preview.value', 'قيمة المُرجَع من الوجبات')}: <MoneyText amount={preview.money.valueTotal} />
           </li>
           {preview.money.creditTotal !== null ? (
             <li>
-              {t('return.preview.credit', 'قيد المورّد (له) بالمقبول')}: <MoneyText amount={preview.money.creditTotal} decimals={0} />
+              {t('return.preview.credit', 'حركة المورّد (له) بالمقبول')}: <MoneyText amount={preview.money.creditTotal} decimals={0} />
             </li>
           ) : null}
           {preview.money.diffTotal !== null ? (
@@ -435,9 +436,12 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const reload = () => setTick((n) => n + 1);
-  const refresh = () => {
+  const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
+  };
+  const refresh = () => {
+    closeReview();
     reload();
   };
   /** تغيّر المرتجع من نافذة أو جهاز آخر (stale_draft): قراءة جديدة وتنبيه يبقى. */
@@ -517,7 +521,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       setFailure(outcome.error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('return.posted', 'رُحّل المرتجع {no}', { no: outcome.result.docNo ?? '' }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('return.posted', 'حُفظ المرتجع {no} نهائياً', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     announceLotsEmptied(whole, receiptNo);
     refresh();
@@ -563,7 +567,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       });
   };
   const ready = online && preview !== null && preview.ready && preview.plan !== null && preview.problems.length === 0 && preview.lines.every((line) => approved.has(line.lineId));
-  const title = current.docNo ? t('return.title.no', 'المرتجع {no}', { no: current.docNo }) : t('return.title.draft', 'مسوّدة مرتجع');
+  const title = current.docNo ? t('return.title.no', 'المرتجع {no}', { no: current.docNo }) : t('return.title.draft', 'مرتجع غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -583,7 +587,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       {loadError ? <LoadFailed what={t('return.what', 'المرتجع')} error={loadError} onRetry={reload} /> : null}
       {current.voidReason ? <Notice tone="warning" title={t('return.voided', 'أُلغي هذا المرتجع')}>{current.voidReason}</Notice> : null}
       <ReturnLinesTable lines={bundle.lines} left={left} credits={credits} onDelete={draft && canDraft ? setLineToDelete : null} />
-      {draft && options.error ? <LoadFailed what={t('return.options.what', 'سطور الاستلام ومتبقّي دفعاتها')} error={options.error} onRetry={reload} /> : null}
+      {draft && options.error ? <LoadFailed what={t('return.options.what', 'سطور الاستلام ومتبقّي وجباتها')} error={options.error} onRetry={reload} /> : null}
       {draft && canDraft && optionsNow ? <AddReturnLine docId={current.id} options={optionsNow} taken={new Set(bundle.lines.map((line) => line.receiptLineId))} onAdded={refresh} /> : null}
       {draft && settled && plan && bundle.lines.length > 0 ? (
         <CreditsPanel bundle={bundle} edits={settled.edits} conflicts={settled.conflicts} plan={plan} busy={saving} failure={creditFailure} onChange={setEdits} onSave={() => void saveCredits()} />
@@ -596,40 +600,43 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       {draft && (canDraft || canPrice) ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-return">
-              {t('return.preview', 'عاين المرتجع')}
+            <Button busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-return">
+              {t('return.preview', 'راجع واحفظ')}
             </Button>
             {canDraft ? (
               <Button variant="ghost" onClick={() => setConfirm('discard')} disabled={busy} data-action="discard-return">
-                {t('transfer.discard', 'اطوِ المسوّدة')}
+                {t('transfer.discard', 'احذف الورقة')}
               </Button>
             ) : null}
           </div>
-          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الترحيل يحتاج اتصالاً بالخادم؛ المسوّدة باقية حتى يعود الاتصال.')} /> : null}
-          {preview ? (
-            <>
-              <ReturnPreviewPanel
-                preview={preview}
-                approved={approved}
-                onToggle={(lineId, on) => {
-                  const next = new Set(approved);
-                  if (on) next.add(lineId);
-                  else next.delete(lineId);
-                  setApproved(next);
-                }}
-              />
-              {canPrice ? (
-                <>
-                  {dirty ? <Notice tone="warning" title={t('return.dirty', 'في المبالغ المقبولة تعديل لم يُحفظ: احفظه أو تراجع عنه، ثم عاين من جديد قبل الترحيل.')} /> : null}
-                  <Button disabled={!ready || dirty} busy={busy} onClick={() => (whole.length ? setConfirm('whole') : void post())} data-action="post-return">
-                    {t('return.post', 'رحّل المرتجع')}
-                  </Button>
-                </>
-              ) : (
-                <Notice tone="info" title={t('return.keeper', 'المبلغ المقبول والترحيل للمحاسب أو المدير؛ المسوّدة باقية لهما.')} />
-              )}
-            </>
-          ) : null}
+          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الحفظ النهائي يحتاج اتصالاً بالإنترنت؛ الورقة باقية حتى يعود الاتصال.')} /> : null}
+          {preview && !canPrice ? <Notice tone="info" title={t('return.keeper', 'المبلغ المقبول والحفظ النهائي للمحاسب أو المدير؛ الورقة باقية لهما.')} /> : null}
+          <ReviewDialog
+            open={preview !== null && canPrice}
+            title={t('return.review.title', 'راجع المرتجع قبل الحفظ')}
+            ready={ready && !dirty}
+            busy={busy}
+            action="post-return"
+            onSave={() => (whole.length ? setConfirm('whole') : void post())}
+            onClose={closeReview}
+          >
+            {preview ? (
+              <>
+                {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+                <ReturnPreviewPanel
+                  preview={preview}
+                  approved={approved}
+                  onToggle={(lineId, on) => {
+                    const next = new Set(approved);
+                    if (on) next.add(lineId);
+                    else next.delete(lineId);
+                    setApproved(next);
+                  }}
+                />
+                {dirty ? <Notice tone="warning" title={t('return.dirty', 'في المبالغ المقبولة تعديل لم يُحفظ: ارجع إلى الورقة واحفظه أو تراجع عنه، ثم راجع من جديد.')} /> : null}
+              </>
+            ) : null}
+          </ReviewDialog>
         </div>
       ) : current.status === 'posted' && canVoid ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-return">
@@ -638,10 +645,10 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       ) : null}
       <ConfirmDialog
         open={confirm === 'whole'}
-        title={t('return.whole.title', 'إرجاع ما بقي من الدفعة كلّه')}
+        title={t('return.whole.title', 'إرجاع ما بقي من الوجبة كلّه')}
         consequence={
           <div className="flex flex-col gap-2">
-            <p>{t('return.whole.consequence', 'سيرجع كل ما بقي من دفعة الاستلام {receipt} لهذه المواد، فيصير متبقّيها صفراً:', { receipt: receiptNo })}</p>
+            <p>{t('return.whole.consequence', 'سيرجع كل ما بقي من وجبة الاستلام {receipt} لهذه المواد، فيصير متبقّيها صفراً:', { receipt: receiptNo })}</p>
             <ul className="list-disc ps-6">
               {whole.map((line) => (
                 <li key={line.itemName}>{t('whole_balance.line', '«{item}»: {qty}', { item: line.itemName, qty: fmtQty(line.qty, line.unit).main })}</li>
@@ -659,7 +666,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       <ConfirmDialog
         open={lineToDelete !== null}
         title={t('receipt.line.delete.title', 'احذف سطر «{item}»', { item: lineToDelete?.itemName ?? '' })}
-        consequence={t('return.line.delete.consequence', 'يُحذف سطر «{item}» ({qty}) من المسوّدة مع مبلغه المقبول إن كُتب، وتُعاد معاينتها.', {
+        consequence={t('return.line.delete.consequence', 'يُحذف سطر «{item}» ({qty}) من الورقة مع مبلغه المقبول إن كُتب.', {
           item: lineToDelete?.itemName ?? '',
           qty: lineToDelete ? fmtQty(lineToDelete.qty, lineToDelete.baseUnit).main : '',
         })}
@@ -671,9 +678,9 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
       />
       <ConfirmDialog
         open={confirm === 'discard'}
-        title={t('return.discard.title', 'اطوِ مسوّدة المرتجع')}
-        consequence={t('return.discard.consequence', 'تصير مسوّدة المرتجع من الاستلام {receipt} بتاريخ {day} ملغاة بلا رقم ولا حركات، ولا ترجع.', { receipt: receiptNo, day: fmtDay(current.onDate) })}
-        confirmLabel={t('transfer.discard', 'اطوِ المسوّدة')}
+        title={t('return.discard.title', 'احذف ورقة المرتجع')}
+        consequence={t('return.discard.consequence', 'تُلغى ورقة المرتجع من الاستلام {receipt} بتاريخ {day} بلا رقم ولا حركات، ولا ترجع.', { receipt: receiptNo, day: fmtDay(current.onDate) })}
+        confirmLabel={t('transfer.discard', 'احذف الورقة')}
         busy={busy}
         action="confirm-discard-return"
         onConfirm={discard}

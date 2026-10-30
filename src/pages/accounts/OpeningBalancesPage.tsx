@@ -59,7 +59,7 @@ export function OpeningCell({ row, book, draft, busy, onDraft, onSave, onVoid }:
   return (
     <span className="flex w-72 items-center gap-2">
       <input
-        aria-label={t('openings.amount.for', 'افتتاح {party} في {book}', { party: row.name, book: bookLabel(book) })}
+        aria-label={t('openings.amount.for', 'الرصيد عند البداية لـ{party} في {book}', { party: row.name, book: bookLabel(book) })}
         inputMode="decimal"
         dir="ltr"
         autoComplete="off"
@@ -116,7 +116,7 @@ export default function OpeningBalancesPage() {
             return rest;
           });
           refresh();
-          toast({ tone: 'success', title: t('openings.saved', 'سُجّل افتتاح «{party}» في {book}', { party: row.name, book: bookLabel(book) }) });
+          toast({ tone: 'success', title: t('openings.saved', 'حُفظ الرصيد عند البداية لـ«{party}» في {book}', { party: row.name, book: bookLabel(book) }) });
         },
         (caught: unknown) => {
           // الرفض أكيد ما انحفظ: مرجع جديد للخانة. «ما نعرف» يبقي مرجعها.
@@ -128,12 +128,12 @@ export default function OpeningBalancesPage() {
       .finally(() => setSaving(null));
   };
 
-  const header = <PageHeader title={t('openings.title', 'أرصدة الافتتاح')} subtitle={t('openings.subtitle', 'رصيد كل جهة بكل دفتر يوم تشغيل وحدته، «عليه» أو «له».')} />;
+  const header = <PageHeader title={t('openings.title', 'الأرصدة عند البداية')} subtitle={t('openings.subtitle', 'رصيد كل جهة بكل حساب يوم بدء العمل، «عليه» أو «له».')} />;
   if (!allowed) {
     return (
       <div className="flex flex-col gap-4">
         {header}
-        <Notice tone="info" title={t('openings.forbidden', 'أرصدة الافتتاح للمدير ومالك المنشأة.')} />
+        <Notice tone="info" title={t('openings.forbidden', 'الأرصدة عند البداية للمدير ومالك المنشأة.')} />
       </div>
     );
   }
@@ -182,14 +182,14 @@ export default function OpeningBalancesPage() {
         <Segmented label={t('accounts.filter', 'الوحدة')} options={DIVISIONS.map((value) => ({ value, label: divisionFilterLabel(value) }))} value={division} onChange={setDivision} />
       </div>
       {error ? (
-        <LoadFailed what={t('openings.title', 'أرصدة الافتتاح')} error={error} onRetry={() => (books.error ? books.retry() : refresh())} />
+        <LoadFailed what={t('openings.title', 'الأرصدة عند البداية')} error={error} onRetry={() => (books.error ? books.retry() : refresh())} />
       ) : !first.data || !books.data ? (
         <p role="status" className="py-6 text-center text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : (
         <>
-          <DataTable caption={t('openings.title', 'أرصدة الافتتاح')} columns={columns} rows={rows} rowKey={(row) => row.partyId} empty={t('openings.empty', 'لا جهات بعد؛ أضفها من صفحة الحسابات.')} />
+          <DataTable caption={t('openings.title', 'الأرصدة عند البداية')} columns={columns} rows={rows} rowKey={(row) => row.partyId} empty={t('openings.empty', 'لا جهات بعد؛ أضفها من صفحة الحسابات.')} />
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-muted">
             <span>{t('items.count', '{shown} من المجموع {total}', { shown: fmtInt(rows.length), total: fmtInt(first.data.total ?? rows.length) })}</span>
             {next ? (
@@ -216,8 +216,8 @@ export default function OpeningBalancesPage() {
       {voiding ? (
         <VoidDialog
           slot={voiding.entryId}
-          title={t('openings.void.title', 'إلغاء افتتاح «{party}» في {book}', { party: voiding.row.name, book: bookLabel(voiding.book) })}
-          consequence={t('openings.void.consequence', 'يُكتب قيد عكسي بتاريخ اليوم ويُعاد توزيع ما انفكّ، ثم يُسجَّل الافتتاح الصحيح من الخانة نفسها.')}
+          title={t('openings.void.title', 'إلغاء الرصيد عند البداية لـ«{party}» في {book}', { party: voiding.row.name, book: bookLabel(voiding.book) })}
+          consequence={t('openings.void.consequence', 'تُكتب حركة تلغي السابقة بتاريخ اليوم ويُعاد تسديد ما انفكّ من الأقدم، ثم يُسجَّل الرصيد الصحيح من الخانة نفسها.')}
           run={(clientRef, reason) => parties.voidEntry(clientRef, voiding.entryId, reason)}
           onClose={() => setVoiding(null)}
           onDone={() => {

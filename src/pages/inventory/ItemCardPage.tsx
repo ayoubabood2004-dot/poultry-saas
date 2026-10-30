@@ -15,7 +15,7 @@ import type { ItemLots, ItemMoves, LotRow, MoveRow } from '../../lib/repo/invent
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { PageFooter, qtyCell, qtyDecimals, scopedStores, StoreSelect, storesOf } from './stock-shared';
+import { countingLabel, countName, PageFooter, qtyCell, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
 
 // بطاقة المادّة (الخطّة WP4، FOUNDATION ٧٨٥): دفعاتها المتبقّية بترتيب السحب بعمرها (ساعات من الفقس للأفراخ وتنبيه 48 ساعة،
 // وأيام من استلام الجذر لغيرها، E24) وانتهائها ومصدرها ورقم دفعة المورّد، وللكلفة القيمة المتبقّية وكلفة الوحدة بأربع مراتب
@@ -36,7 +36,7 @@ function age(lot: LotRow): string {
 }
 
 /** دفعات المادّة. values = null لدور بلا كلفة: عمودا القيمة وكلفة الوحدة ما ينبنون أصلاً. */
-export function LotsTable({ lots, values, baseUnit }: { lots: readonly LotRow[]; values: ReadonlyMap<string, LotValue> | null; baseUnit: BaseUnit }) {
+export function LotsTable({ lots, values, baseUnit, unitLabel }: { lots: readonly LotRow[]; values: ReadonlyMap<string, LotValue> | null; baseUnit: BaseUnit; unitLabel?: string }) {
   const decimals = qtyDecimals(lots.map((lot) => lot.qtyLeft), baseUnit);
   const columns: Column<LotRow>[] = [
     { key: 'source', header: t('stock.lot.source', 'المصدر'), cell: (lot) => <bdi dir="ltr">{lot.source}</bdi> },
@@ -53,8 +53,8 @@ export function LotsTable({ lots, values, baseUnit }: { lots: readonly LotRow[];
       header: t('stock.lot.expiry', 'الانتهاء'),
       cell: (lot) => (lot.expiryOn ? (lot.expired ? t('stock.lot.expired', '{day} (منتهٍ)', { day: fmtDay(lot.expiryOn) }) : fmtDay(lot.expiryOn)) : '—'),
     },
-    { key: 'supplier', header: t('stock.lot.supplier_no', 'دفعة المورّد'), cell: (lot) => (lot.supplierLotNo ? <bdi dir="ltr">{lot.supplierLotNo}</bdi> : '—') },
-    { key: 'qty', header: t('stock.lot.qty', 'المتبقّي ({unit})', { unit: baseUnitLabel(baseUnit) }), kind: 'number', cell: (lot) => <Num>{qtyCell(lot.qtyLeft, decimals)}</Num> },
+    { key: 'supplier', header: t('stock.lot.supplier_no', 'وجبة المورّد'), cell: (lot) => (lot.supplierLotNo ? <bdi dir="ltr">{lot.supplierLotNo}</bdi> : '—') },
+    { key: 'qty', header: t('stock.lot.qty', 'المتبقّي ({unit})', { unit: unitLabel ?? baseUnitLabel(baseUnit) }), kind: 'number', cell: (lot) => <Num>{qtyCell(lot.qtyLeft, decimals)}</Num> },
   ];
   if (values) {
     columns.push(
@@ -79,7 +79,7 @@ export function LotsTable({ lots, values, baseUnit }: { lots: readonly LotRow[];
       },
     );
   }
-  return <DataTable caption={t('stock.lots.caption', 'الدفعات المتبقّية بترتيب السحب')} columns={columns} rows={lots} rowKey={(lot) => lot.lotId} empty={t('stock.lots.empty', 'لا دفعات متبقّية.')} />;
+  return <DataTable caption={t('stock.lots.caption', 'الوجبات المتبقّية بترتيب السحب')} columns={columns} rows={lots} rowKey={(lot) => lot.lotId} empty={t('stock.lots.empty', 'لا وجبات متبقّية.')} />;
 }
 
 /** مستند الحركة (والعكسية بمستند أصلها نفسه) رابط لشاشته: التحويل أو الافتتاح؛ غيرها (الحزم الجاية) نصّ لحد ما تنبني شاشته. */
@@ -93,9 +93,9 @@ function DocLabel({ move }: { move: MoveRow }) {
   );
 }
 
-export function MovesTable({ moves, baseUnit }: { moves: readonly MoveRow[]; baseUnit: BaseUnit }) {
+export function MovesTable({ moves, baseUnit, unitLabel }: { moves: readonly MoveRow[]; baseUnit: BaseUnit; unitLabel?: string }) {
   const decimals = qtyDecimals(moves.flatMap((move) => [move.qty, move.running]), baseUnit);
-  const unit = baseUnitLabel(baseUnit);
+  const unit = unitLabel ?? baseUnitLabel(baseUnit);
   const columns: Column<MoveRow>[] = [
     { key: 'day', header: t('ledger.date', 'التاريخ'), cell: (move) => fmtDay(move.movedOn) },
     {
@@ -134,9 +134,10 @@ function Card({ itemId, warehouseId, costs }: { itemId: string; warehouseId: str
   const [movePages, setMovePages] = useState<ItemMoves[]>([]);
   const [moreLots, setMoreLots] = useState<More>({ busy: false, error: null });
   const [moreMoves, setMoreMoves] = useState<More>({ busy: false, error: null });
-  if (lots.error) return <LoadFailed what={t('stock.lots.what', 'دفعات المادّة')} error={lots.error} onRetry={lots.retry} />;
+  if (lots.error) return <LoadFailed what={t('stock.lots.what', 'وجبات المادّة')} error={lots.error} onRetry={lots.retry} />;
   if (!lots.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
   const item = lots.data.item;
+  const named = countName(item, units.data);
   const allLots = [lots.data, ...lotPages.map((page) => page.lots)];
   const lastLots = allLots.at(-1);
   const lotValues = costs && values.data ? new Map([...values.data, ...lotPages.flatMap((page) => (page.values ? [...page.values] : []))]) : null;
@@ -174,12 +175,12 @@ function Card({ itemId, warehouseId, costs }: { itemId: string; warehouseId: str
           <dd>{itemKindLabel(item.kind)}</dd>
         </div>
         <div>
-          <dt className="text-sm text-ink-muted">{t('stock.item.base', 'وحدة الأساس')}</dt>
-          <dd>{baseUnitLabel(item.baseUnit)}</dd>
+          <dt className="text-sm text-ink-muted">{t('stock.item.base', 'تُعدّ')}</dt>
+          <dd>{named ? t('stock.item.count_name', '{how}، والوحدة «{name}»', { how: countingLabel(item.baseUnit), name: named }) : countingLabel(item.baseUnit)}</dd>
         </div>
         <div>
           <dt className="text-sm text-ink-muted">{t('stock.item.min', 'الحدّ الأدنى')}</dt>
-          <dd>{item.minQty !== null ? fmtQty(item.minQty, item.baseUnit).main : '—'}</dd>
+          <dd>{item.minQty !== null ? fmtQty(item.minQty, item.baseUnit, named ? { pieceLabel: named } : {}).main : '—'}</dd>
         </div>
         <div>
           <dt className="text-sm text-ink-muted">{t('stock.item.density', 'الكثافة (كغم/لتر)')}</dt>
@@ -191,16 +192,16 @@ function Card({ itemId, warehouseId, costs }: { itemId: string; warehouseId: str
         </div>
       </dl>
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">{t('stock.lots.title', 'الدفعات')}</h2>
+        <h2 className="font-semibold">{t('stock.lots.title', 'الوجبات')}</h2>
         {costs && values.error ? <LoadFailed what={t('stock.values.what', 'قيم المخزون')} error={values.error} onRetry={values.retry} /> : null}
-        <LotsTable lots={allLots.flatMap((page) => page.rows)} values={lotValues} baseUnit={item.baseUnit} />
+        <LotsTable lots={allLots.flatMap((page) => page.rows)} values={lotValues} baseUnit={item.baseUnit} unitLabel={unitName(item.baseUnit, named)} />
         <PageFooter
           shown={allLots.reduce((sum, page) => sum + page.rows.length, 0)}
           total={lots.data.total}
           next={Boolean(lastLots?.next)}
           busy={moreLots.busy}
           error={moreLots.error}
-          what={t('stock.lots.what', 'دفعات المادّة')}
+          what={t('stock.lots.what', 'وجبات المادّة')}
           onMore={loadMoreLots}
           action="more-lots"
         />
@@ -211,7 +212,7 @@ function Card({ itemId, warehouseId, costs }: { itemId: string; warehouseId: str
           <LoadFailed what={t('stock.moves.what', 'حركات المادّة')} error={moves.error} onRetry={moves.retry} />
         ) : moves.data ? (
           <>
-            <MovesTable moves={allMoves.flatMap((page) => page.rows)} baseUnit={item.baseUnit} />
+            <MovesTable moves={allMoves.flatMap((page) => page.rows)} baseUnit={item.baseUnit} unitLabel={unitName(item.baseUnit, named)} />
             <PageFooter
               shown={allMoves.reduce((sum, page) => sum + page.rows.length, 0)}
               total={moves.data.total}
@@ -263,7 +264,7 @@ export default function ItemCardPage() {
           }}
         />
       )}
-      {warehouseId ? <Card key={warehouseId} itemId={itemId} warehouseId={warehouseId} costs={Boolean(workspace?.canSeeCost)} /> : setup.data ? <Notice tone="info" title={t('stock.card.pick', 'اختر المخزن لعرض دفعات المادّة وحركاتها.')} /> : null}
+      {warehouseId ? <Card key={warehouseId} itemId={itemId} warehouseId={warehouseId} costs={Boolean(workspace?.canSeeCost)} /> : setup.data ? <Notice tone="info" title={t('stock.card.pick', 'اختر المخزن لعرض وجبات المادّة وحركاتها.')} /> : null}
     </div>
   );
 }

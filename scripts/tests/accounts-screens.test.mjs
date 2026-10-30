@@ -164,13 +164,25 @@ export default async function (t) {
     const hook = full.indexOf('data-action="open-statement"');
     t.ok(hook >= 0 && hook < full.indexOf('أبو علي</a>'), 'الإجراءات أوّل عمود (وزرّ الكشف موجود)');
     const scopedSummary = m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 7 } });
-    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من دفاتر نطاقك: 1 من 7'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
+    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من حسابات نطاقك: 1 من 7'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
     // مراجعة WP8: بلا «2 دفاتر» ولا «11 دفاتر» (قانون الفصحى: المعدود بعد العدد بصيغته)، فالجملة بلا معدود بعد الأرقام.
     const twoBooks = textOf(render(m.h(m.SummaryCards, { summary: m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 2 } }) })));
-    t.ok(!/[0-9] دفاتر/u.test(twoBooks) && twoBooks.includes('دفاتر نطاقك: 1 من 2'), `مراجعة WP8: العدد بلا معدود بصيغة خاطئة (${twoBooks.slice(0, 80)})`);
+    t.ok(!/[0-9] حسابات/u.test(twoBooks) && twoBooks.includes('حسابات نطاقك: 1 من 2'), `مراجعة WP8: العدد بلا معدود بصيغة خاطئة (${twoBooks.slice(0, 80)})`);
     globalThis.__accounts.loads = { 'o-1': { error: new Error('boom') }, 'o-1|all|null||balance|false': { data: page } };
     const noSummary = render(m.h(m.AccountsPage));
     t.ok(noSummary.includes('تعذّر تحميل ملخّص الحسابات') && !section(noSummary, 'tfoot').includes('bdi'), 'الملخّص فشل: فشله ظاهر، وما يرسم تذييلاً من الصفوف');
+
+    // زرّا الرئيسية «دفعت لجهة» و«قبضت من جهة»: ?new=payout أو ?new=payment يفتح نافذته مباشرةً، لمن يقدر يدفع بس.
+    globalThis.__accounts.loads = { 'o-1': { data: summary }, 'o-1|all|null||balance|false': { data: page } };
+    const at = (url) => m.renderToStaticMarkup(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(m.AccountsPage)));
+    const modal = (html) => (html.match(/aria-modal="true"/g) ?? []).length;
+    t.eq(modal(at('/accounts')), 0, 'بلا علامة: بلا نافذة');
+    t.ok(modal(at('/accounts?new=payout')) === 1 && modal(at('/accounts?new=payment')) === 1, '?new=payout و?new=payment يفتحان النافذة');
+    t.eq(modal(at('/accounts?new=junk')), 0, 'علامة غريبة: بلا نافذة');
+    const managerSession = globalThis.__accounts.session;
+    globalThis.__accounts.session = { status: 'ready', workspace: { orgId: 'o-1', role: 'viewer', userId: 'u-1' } };
+    t.eq(modal(at('/accounts?new=payout')), 0, 'المشاهد: العلامة ما تفتح نافذة الدفع');
+    globalThis.__accounts.session = managerSession;
 
     // ── «قبضنا»: الجهة ثم الدفتر أوّلاً بلا اختيار مسبق، ثم المبلغ والصندوق والتاريخ.
     const cashBalances = m.parseCashBalances(CASH_WIRE);
@@ -181,12 +193,12 @@ export default async function (t) {
     };
     const ready = { books: { data: BOOK_REFS }, boxes: { data: cashBalances }, '': { data: { parties: [], total: 0 } } };
     const html = dialog(ready);
-    const bookSelect = html.indexOf('اختر الدفتر');
+    const bookSelect = html.indexOf('اختر الحساب');
     t.ok(bookSelect > 0 && bookSelect < html.indexOf('inputMode="decimal"') && html.indexOf('inputMode="decimal"') < html.indexOf('اختر الصندوق'), 'الدفتر قبل المبلغ، والمبلغ قبل الصندوق');
     const options = [...html.matchAll(/<option value="([^"]*)"( selected="")?>/g)].map((match) => [match[1], Boolean(match[2])]);
     t.same(options.filter(([, selected]) => selected).map(([value]) => value), ['', ''], 'لا دفتر ولا صندوق مختار مسبقاً (الخيار الفارغ مختار)');
     const single = dialog({ ...ready, books: { data: [BOOK_REFS[0]] } });
-    t.ok(/<option value=""[^>]*selected=""[^>]*>اختر الدفتر/.test(single) && !/<option value="b-mill" selected=""/.test(single), 'حتى بدفتر واحد ما ينختار لحاله');
+    t.ok(/<option value=""[^>]*selected=""[^>]*>اختر الحساب/.test(single) && !/<option value="b-mill" selected=""/.test(single), 'حتى بدفتر واحد ما ينختار لحاله');
     t.ok(html.includes('المفقس: الأفراخ') && html.includes('القاصة (الرصيد 2,500,000)') && !html.includes('صندوق قديم'), 'الدفاتر بأسمائها، والصناديق الفعّالة برصيدها');
     const review = (markup) => markup.match(/<button[^>]*data-action="review-payment"[^>]*>/)?.[0] ?? '';
     t.ok(review(html) !== '' && !review(html).includes('disabled=""'), 'القوائم جاهزة: «عاين التوزيع» متاح');
@@ -199,13 +211,13 @@ export default async function (t) {
       t.ok(review(markup).includes('disabled=""'), `${label}: الإرسال معطّل`);
     }
     const failedBooks = dialog({ ...ready, books: { error: new Error('boom') } });
-    t.ok(failedBooks.includes('تعذّر تحميل قائمة الدفاتر') && failedBooks.includes('لا يُرسل شيء قبل تحميل الدفاتر والصناديق') && !failedBooks.includes('اختر الدفتر'), 'القائمة الفاشلة تبين فشلها بمكانها، مو قائمة فارغة');
+    t.ok(failedBooks.includes('تعذّر تحميل قائمة الحسابات') && failedBooks.includes('لا يُرسل شيء قبل تحميل الحسابات والصناديق') && !failedBooks.includes('اختر الدفتر'), 'القائمة الفاشلة تبين فشلها بمكانها، مو قائمة فارغة');
     const payout = (globalThis.__accounts.loads = ready, render(m.h(m.PaymentDialog, { kind: 'payout', party: abuRow, onClose() {}, onPosted() {} })));
     t.ok(payout.includes('data-action="review-payout"') && payout.includes('دفعنا'), '«دفعنا» بنفس النافذة');
 
     // قواعد النموذج قبل المعاينة: الدفتر مطلوب، المبلغ دينار صحيح، والتاريخ لحد 7 أيام.
     const form = { party: abuRow, bookId: '', amount: '1,000,000', accountId: 'c-1', day: '30/10/2026' };
-    t.eq(m.paymentProblems(form, '2026-10-30').errors.book, 'اختر الدفتر أوّلاً.', 'بلا دفتر: «اختر الدفتر أوّلاً»');
+    t.eq(m.paymentProblems(form, '2026-10-30').errors.book, 'اختر الحساب أوّلاً.', 'بلا دفتر: «اختر الدفتر أوّلاً»');
     t.ok(m.paymentProblems({ ...form, bookId: 'b-mill', amount: '1,000.5' }, '2026-10-30').errors.amount !== undefined, 'كسر الدينار مرفوض قبل الإرسال');
     t.ok(m.paymentProblems({ ...form, bookId: 'b-mill', day: '22/10/2026' }, '2026-10-30').errors.day !== undefined, 'أقدم من 7 أيام مرفوض');
     t.same(m.paymentProblems({ ...form, bookId: 'b-mill', day: '23/10/2026' }, '2026-10-30').input, { partyId: 'p-abu', bookId: 'b-mill', amount: 1_000_000n * D, accountId: 'c-1', onDate: '2026-10-23' }, 'نموذج سليم بيومه السابع');
@@ -228,7 +240,7 @@ export default async function (t) {
     const millTable = books.split('data-book="b-mill"')[1].split('data-book="b-chicks"')[0];
     t.eq(rowsOf(section(millTable, 'tbody')).length, 151, 'كل السطور الـ150 ويّا «رصيد سابق»: ماكو تقطيع ولا صفحات بالكشف');
     t.ok(textOf(millTable).includes('رصيد سابق') && millTable.includes('1,250,000'), 'المدوَّر من الخادم، والرصيد الأخير = رصيد الدفتر');
-    t.same([...books.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((match) => match[1]), ['دفتر معمل العلف', 'دفتر المفقس: الأفراخ'], 'جدول لكل دفتر بعنوان دفتره (E50)، والدفتر بلا قيود يبقى');
+    t.same([...books.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((match) => match[1]), ['حساب معمل العلف', 'حساب المفقس: الأفراخ'], 'جدول لكل دفتر بعنوان دفتره (E50)، والدفتر بلا قيود يبقى');
     const headers = [...millTable.matchAll(/<th scope="col"[^>]*>([^<]*)<\/th>/g)].map((match) => match[1]);
     t.same(headers, ['التاريخ', 'المستند', 'البيان', 'عليه', 'له', 'الرصيد'], 'الكشف بستّة أعمدة بالضبط');
     t.ok(/class="max-h-\[70dvh\] overflow-auto/.test(millTable), 'الجدول بغلاف overflow-auto (print.css يشيل حدّه بالطباعة)');
@@ -297,14 +309,14 @@ export default async function (t) {
     for (const mode of ['adjust', 'forgive']) {
       check(`${mode}: النموذج يعاين قبل أي ترحيل (زرّه «عاين التوزيع»، مو «سجّل»)`, () => {
         const markup = render(m.h(S.AdjustDialog, { mode, party: { id: 'p-abu', name: 'أبو علي' }, book: BOOK_REFS[0], onClose() {}, onPosted() {} }));
-        return (button(markup, `review-${mode}`) !== '' && button(markup, `confirm-${mode}`) === '' && markup.includes('عاين التوزيع')) || markup.slice(-400);
+        return (button(markup, `review-${mode}`) !== '' && button(markup, `confirm-${mode}`) === '' && markup.includes('راجع واحفظ')) || markup.slice(-400);
       });
     }
     const preview = { amount: -500_000n * D, balanceBefore: 1_460_000n * D, balanceAfter: 960_000n * D, allocations: [{ entryId: 'e-open', kind: 'opening', docNo: null, onDate: '2026-09-30', amount: 500_000n * D }], surplus: 0n };
     check('تأكيد التسوية يسمّي الجهة والدفتر والمبلغ والقيد المسدود ورصيد الجهة بعدها', () => {
       const sentence = S.adjustSentence('adjust', 'أبو علي', 'معمل العلف', { direction: 'credit', amount: 500_000n * D });
       const text = textOf(render(m.h(S.AllocationSummary, { sentence, preview })));
-      return (text.includes('«له» 500,000') && text.includes('«أبو علي»') && text.includes('«معمل العلف»') && text.includes('رصيد افتتاحي') && text.includes('عليه960,000')) || text;
+      return (text.includes('«له» 500,000') && text.includes('«أبو علي»') && text.includes('«معمل العلف»') && text.includes('الرصيد عند البداية') && text.includes('عليه960,000')) || text;
     });
     check('جملة الإعفاء تسمّي الجهة والمبلغ والدفتر', () => {
       const sentence = S.adjustSentence('forgive', 'أبو علي', 'معمل العلف', { direction: 'debit', amount: 1_000n * D });
@@ -386,7 +398,7 @@ export default async function (t) {
     const scopedOnly = m.parseAccountsSummary({ ...SUMMARY_WIRE, divisions: [SUMMARY_WIRE.divisions[0]], books: { visible: 1, total: 7 } });
     check('المحصور: بطاقة المشروع «دفاتر نطاقك فقط» وبطاقة المعمل بس، مو «المفقس 0 / 0»', () => {
       const text = textOf(render(m.h(m.SummaryCards, { summary: scopedOnly })));
-      return (text.includes('المشروع: دفاتر نطاقك فقط') && text.includes('المعمل') && !text.includes('المفقس')) || text;
+      return (text.includes('المشروع: حسابات نطاقك فقط') && text.includes('المعمل') && !text.includes('المفقس')) || text;
     });
     check('المحصور: خيارات الفلتر «الكل» ووحدات نطاقه، وقبل الملخّص كل الوحدات', () => {
       const scopedOptions = m.accountsPage.filterOptions(scopedOnly);
@@ -454,7 +466,7 @@ export default async function (t) {
       try {
         globalThis.__accounts.loads = ready;
         const markup = render(m.h(m.PaymentDialog, { kind: 'payment', party: abuRow, onClose() {}, onPosted() {} }));
-        return (button(markup, 'retry-payment') !== '' && !markup.includes('inputMode="decimal"') && !markup.includes('اختر الدفتر') && textOf(markup).includes(sent.summary)) || textOf(markup).slice(0, 300);
+        return (button(markup, 'retry-payment') !== '' && !markup.includes('inputMode="decimal"') && !markup.includes('اختر الحساب') && textOf(markup).includes(sent.summary)) || textOf(markup).slice(0, 300);
       } finally {
         S.rememberAttempt('u-1|pay:payment', S.freshAttempt());
       }

@@ -81,7 +81,7 @@ export function entryKindLabel(kind: EntryKind): string {
     case 'forgiveness':
       return t('entry.kind.forgiveness', 'إعفاء');
     case 'opening':
-      return t('entry.kind.opening', 'رصيد افتتاحي');
+      return t('entry.kind.opening', 'الرصيد عند البداية');
     case 'adjustment':
       return t('entry.kind.adjustment', 'تسوية');
     case 'offset':
@@ -96,13 +96,13 @@ export function cashMoveKindLabel(kind: CashMoveKind): string {
     case 'party_payout':
       return t('cash.kind.party_payout', 'دفع لجهة');
     case 'receipt_paid':
-      return t('cash.kind.receipt_paid', 'دفعة استلام');
+      return t('cash.kind.receipt_paid', 'دفع لاستلام');
     case 'receipt_charge':
       return t('cash.kind.receipt_charge', 'مصروف استلام');
     case 'expense':
       return t('cash.kind.expense', 'مصروف');
     case 'opening':
-      return t('cash.kind.opening', 'رصيد افتتاحي');
+      return t('cash.kind.opening', 'الرصيد عند البداية');
     case 'transfer':
       return t('cash.kind.transfer', 'نقل بين الصناديق');
   }
@@ -177,9 +177,9 @@ export function PeriodFilter({ from, to, onApply }: { from: Day; to: Day; onAppl
 
 export function BookPicker({ id, books, value, onChange, error }: { id: string; books: readonly BookRef[]; value: string; onChange: (bookId: string) => void; error?: string | null }) {
   return (
-    <Field id={id} label={t('book.pick', 'الدفتر')} hint={t('book.pick.hint', 'كل قيد بدفتر وحدة، ورصيد دفتر لا يسدّد دين دفتر آخر.')} error={error}>
+    <Field id={id} label={t('book.pick', 'الحساب')} hint={t('book.pick.hint', 'كل حركة في حساب واحد، ورصيد حساب لا يسدّد دين حساب آخر.')} error={error}>
       <select id={id} className="input" value={value} onChange={(event) => onChange(event.target.value)} data-autofocus>
-        <option value="">{t('book.pick.none', 'اختر الدفتر')}</option>
+        <option value="">{t('book.pick.none', 'اختر الحساب')}</option>
         {books.map((book) => (
           <option key={book.id} value={book.id}>
             {bookLabel(book)}
@@ -350,7 +350,7 @@ export interface PaymentForm {
 export function paymentProblems(form: PaymentForm, today: Day = localDay()): { input: parties.PaymentInput | null; errors: Partial<Record<'party' | 'book' | 'amount' | 'account' | 'day', string>> } {
   const errors: Partial<Record<'party' | 'book' | 'amount' | 'account' | 'day', string>> = {};
   if (!form.party) errors.party = t('party.required', 'اختر الجهة.');
-  if (!form.bookId) errors.book = t('book.required', 'اختر الدفتر أوّلاً.');
+  if (!form.bookId) errors.book = t('book.required', 'اختر الحساب أوّلاً.');
   const amount = parseMoneyText(form.amount);
   if (amount === null || amount <= 0n) errors.amount = t('money.required', 'اكتب مبلغاً أكبر من صفر بالدينار الصحيح.');
   if (!form.accountId) errors.account = t('cash.required', 'اختر الصندوق.');
@@ -471,7 +471,7 @@ export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: 
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
             <Button type="submit" form={formId} busy={busy} disabled={!listsReady || listsFailed} data-action={kind === 'payment' ? 'review-payment' : 'review-payout'}>
-              {t('payment.review', 'عاين التوزيع')}
+              {t('payment.review', 'راجع واحفظ')}
             </Button>
           </div>
         }
@@ -480,7 +480,7 @@ export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: 
           <PartyPicker id={`${id}-party`} value={form.party} onChange={(party) => set({ party })} />
           {errors.party ? <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">{errors.party}</p> : null}
           {books.error ? (
-            <LoadFailed what={t('book.list', 'قائمة الدفاتر')} error={books.error} onRetry={books.retry} />
+            <LoadFailed what={t('book.list', 'قائمة الحسابات')} error={books.error} onRetry={books.retry} />
           ) : (
             <BookPicker id={`${id}-book`} books={books.data ?? []} value={form.bookId} onChange={(bookId) => set({ bookId })} error={errors.book} />
           )}
@@ -496,7 +496,7 @@ export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: 
               {t('cash.negative.detail', 'رصيده بعد الدفع {balance}. السالب مسموح، فتأكّد أن الصندوق هو الصحيح.', { balance: fmtMoney(negative, 0) })}
             </Notice>
           ) : null}
-          {listsFailed ? <Notice tone="danger" title={t('payment.lists_failed', 'لا يُرسل شيء قبل تحميل الدفاتر والصناديق')} /> : null}
+          {listsFailed ? <Notice tone="danger" title={t('payment.lists_failed', 'لا يُرسل شيء قبل تحميل الحسابات والصناديق')} /> : null}
           {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
         </form>
       </Dialog>
@@ -506,8 +506,8 @@ export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: 
           tone="primary"
           title={kind === 'payment' ? t('payment.confirm.title', 'تسجيل قبض من «{party}»', { party: form.party.name }) : t('payout.confirm.title', 'تسجيل دفع لـ«{party}»', { party: form.party.name })}
           consequence={<AllocationSummary sentence={sentence} preview={preview} />}
-          confirmLabel={kind === 'payment' ? t('payment.confirm', 'سجّل القبض') : t('payout.confirm', 'سجّل الدفع')}
-          cancelLabel={t('payment.back', 'عُد إلى النموذج')}
+          confirmLabel={kind === 'payment' ? t('payment.confirm', 'احفظ نهائياً') : t('payout.confirm', 'احفظ نهائياً')}
+          cancelLabel={t('payment.back', 'ارجع إلى الورقة')}
           busy={busy}
           action={kind === 'payment' ? 'confirm-payment' : 'confirm-payout'}
           onCancel={() => setPreview(null)}
@@ -521,8 +521,8 @@ export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: 
 /** جملة القبض أو الدفع: المبلغ والجهة والدفتر (التأكيد والمحاولة المجمّدة). */
 export function paymentSentence(kind: PaymentKind, party: string, book: string, amount: Fils): string {
   return kind === 'payment'
-    ? t('payment.summary', 'قبض {amount} دينار من «{party}» بدفتر «{book}».', { amount: fmtMoney(amount, 0), party, book })
-    : t('payout.summary', 'دفع {amount} دينار لـ«{party}» بدفتر «{book}».', { amount: fmtMoney(amount, 0), party, book });
+    ? t('payment.summary', 'قبض {amount} دينار من «{party}» في حساب «{book}».', { amount: fmtMoney(amount, 0), party, book })
+    : t('payout.summary', 'دفع {amount} دينار لـ«{party}» في حساب «{book}».', { amount: fmtMoney(amount, 0), party, book });
 }
 
 /** المعاينة بكلماتها: الجملة (الجهة والدفتر والمبلغ)، وكل قيد يُسدّ بحصّته، والفائض بدفتره، ورصيد الجهة بعدها. */
@@ -530,6 +530,7 @@ export function AllocationSummary({ sentence, preview }: { sentence: string; pre
   return (
     <div className="flex flex-col gap-3">
       <p>{sentence}</p>
+      {preview.allocations.length ? <p className="text-sm font-medium">{t('payment.summary.oldest', 'يسدّد من الأقدم:')}</p> : null}
       {preview.allocations.length ? (
         <ul className="flex flex-col gap-1 text-sm">
           {preview.allocations.map((line) => (
@@ -542,11 +543,11 @@ export function AllocationSummary({ sentence, preview }: { sentence: string; pre
           ))}
         </ul>
       ) : (
-        <p className="text-sm">{t('payment.summary.none', 'لا قيد مفتوحاً مقابلاً يُسدّ به.')}</p>
+        <p className="text-sm">{t('payment.summary.none', 'لا دين مفتوح مقابل يُسدَّد به.')}</p>
       )}
-      {preview.surplus > 0n ? <p className="text-sm">{t('payment.summary.surplus', 'الفائض {amount} يبقى رصيداً للجهة بالدفتر نفسه.', { amount: fmtMoney(preview.surplus, 0) })}</p> : null}
+      {preview.surplus > 0n ? <p className="text-sm">{t('payment.summary.surplus', 'الفائض {amount} يبقى رصيداً للجهة في الحساب نفسه.', { amount: fmtMoney(preview.surplus, 0) })}</p> : null}
       <p className="text-sm">
-        {t('payment.summary.after', 'رصيد الجهة بالدفتر بعدها:')} <SideAmount amount={preview.balanceAfter} />
+        {t('payment.summary.after', 'رصيد الجهة في الحساب بعدها:')} <SideAmount amount={preview.balanceAfter} />
       </p>
     </div>
   );
@@ -577,10 +578,10 @@ export function adjustPreviewArgs(mode: AdjustMode, input: Pick<AdjustInput, 'di
 /** جملة التسوية أو الإعفاء: الجهة والدفتر والمبلغ (والجهة «عليه» أو «له» للتسوية). */
 export function adjustSentence(mode: AdjustMode, party: string, book: string, input: Pick<AdjustInput, 'direction' | 'amount'>): string {
   const amount = fmtMoney(input.amount, 0);
-  if (mode === 'forgive') return t('forgive.summary', 'إعفاء «{party}» من {amount} دينار بدفتر «{book}».', { party, amount, book });
+  if (mode === 'forgive') return t('forgive.summary', 'إعفاء «{party}» من {amount} دينار في حساب «{book}».', { party, amount, book });
   return input.direction === 'debit'
-    ? t('adjust.summary.debit', 'تسوية «عليه» {amount} دينار على «{party}» بدفتر «{book}».', { party, amount, book })
-    : t('adjust.summary.credit', 'تسوية «له» {amount} دينار لـ«{party}» بدفتر «{book}».', { party, amount, book });
+    ? t('adjust.summary.debit', 'تسوية «عليه» {amount} دينار على «{party}» في حساب «{book}».', { party, amount, book })
+    : t('adjust.summary.credit', 'تسوية «له» {amount} دينار لـ«{party}» في حساب «{book}».', { party, amount, book });
 }
 
 export function AdjustDialog({ mode, party, book, onClose, onPosted }: { mode: AdjustMode; party: { id: string; name: string }; book: BookRef; onClose: () => void; onPosted: () => void }) {
@@ -642,7 +643,7 @@ export function AdjustDialog({ mode, party, book, onClose, onPosted }: { mode: A
 
   const failed = failure ? describeError(failure) : null;
   const formId = `${id}-form`;
-  const title = mode === 'adjust' ? t('adjust.title', 'تسوية لـ«{party}» بدفتر «{book}»', { party: party.name, book: bookName }) : t('forgive.title', 'إعفاء «{party}» بدفتر «{book}»', { party: party.name, book: bookName });
+  const title = mode === 'adjust' ? t('adjust.title', 'تسوية لـ«{party}» في حساب «{book}»', { party: party.name, book: bookName }) : t('forgive.title', 'إعفاء «{party}» في حساب «{book}»', { party: party.name, book: bookName });
   if (attempt.frozen) {
     const sent = attempt.frozen;
     return (
@@ -684,13 +685,13 @@ export function AdjustDialog({ mode, party, book, onClose, onPosted }: { mode: A
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
             <Button type="submit" form={formId} busy={busy} data-action={mode === 'adjust' ? 'review-adjust' : 'review-forgive'}>
-              {t('payment.review', 'عاين التوزيع')}
+              {t('payment.review', 'راجع واحفظ')}
             </Button>
           </div>
         }
       >
         <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void review(event)} noValidate>
-          {mode === 'adjust' ? <SideToggle label={t('adjust.side', 'الجهة')} value={side} onChange={edit(setSide)} /> : <p className="text-sm text-ink-muted">{t('forgive.detail', 'الإعفاء بعكس رصيد الدفتر، ولا يزيد عليه.')}</p>}
+          {mode === 'adjust' ? <SideToggle label={t('adjust.side', 'الجهة')} value={side} onChange={edit(setSide)} /> : <p className="text-sm text-ink-muted">{t('forgive.detail', 'الإعفاء بعكس رصيد الحساب، ولا يزيد عليه.')}</p>}
           <MoneyInput id={`${id}-amount`} label={t('payment.amount', 'المبلغ (دينار)')} value={amount} onChange={edit(setAmount)} autoFocus />
           <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={edit(setDay)} hint={t('payment.day.hint', 'اليوم أو قبله حتى 7 أيام.')} />
           <Field id={`${id}-reason`} label={t('reason', 'السبب')}>
@@ -706,8 +707,8 @@ export function AdjustDialog({ mode, party, book, onClose, onPosted }: { mode: A
           tone="primary"
           title={mode === 'adjust' ? t('adjust.confirm.title', 'تسجيل تسوية لـ«{party}»', { party: party.name }) : t('forgive.confirm.title', 'تسجيل إعفاء «{party}»', { party: party.name })}
           consequence={<AllocationSummary sentence={sentence} preview={checked.preview} />}
-          confirmLabel={mode === 'adjust' ? t('adjust.confirm', 'سجّل التسوية') : t('forgive.confirm', 'سجّل الإعفاء')}
-          cancelLabel={t('payment.back', 'عُد إلى النموذج')}
+          confirmLabel={mode === 'adjust' ? t('adjust.confirm', 'احفظ نهائياً') : t('forgive.confirm', 'احفظ نهائياً')}
+          cancelLabel={t('payment.back', 'ارجع إلى الورقة')}
           busy={busy}
           action={mode === 'adjust' ? 'confirm-adjust' : 'confirm-forgive'}
           onCancel={() => setChecked(null)}

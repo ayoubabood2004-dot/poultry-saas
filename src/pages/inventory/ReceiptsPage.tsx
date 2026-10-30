@@ -11,6 +11,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { QtyInput, type QtyUnitOption, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
@@ -34,7 +35,7 @@ import { useLoad } from '../../lib/useLoad';
 import { divisionLabel } from '../../lib/roles';
 import { AmountField, dinarText, parseDinar } from './purchase-shared';
 import { PriceCorrectionPanel, ReceiptReturnsPanel } from './ReceiptPostedPanels';
-import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الاستلام من المورّد (الخطّة WP6، FOUNDATION ٣٢٨–٣٣٤، ٥٥٠–٥٥١، ٧٦٨): الأمين يكتب المسوّدة بالكميات (مخزن بنطاقه يستلم من
 // المورّد، والمادّة من أنواعه، والانتهاء ووقت الفقس ورقم دفعة المورّد) وما بالشاشة له ولا خانة مال؛ وأدوار الكلفة يكتبون مبالغ
@@ -77,7 +78,7 @@ const ITEM_FORMS = { one: t('receipt.items.one', 'مادّة واحدة'), two: 
 
 /** «ألغِ الاستلام PU-2026-0042 — ستُعاد 7 مواد من المخزن، ويبقى المدفوع للمورّد دفعةً عليه». */
 export function receiptVoidSentence(docNo: string, lines: number): string {
-  return t('receipt.void.sentence', 'ألغِ الاستلام {no} — ستُعاد {count} من المخزن، ويبقى المدفوع للمورّد دفعةً عليه.', {
+  return t('receipt.void.sentence', 'ألغِ الاستلام {no} — ستُعاد {count} من المخزن، ويبقى المدفوع للمورّد مبلغاً عليه.', {
     no: docNo,
     count: fmtCounted(BigInt(lines) * 1000n, t('receipt.items.label', 'مادّة'), ITEM_FORMS),
   });
@@ -192,7 +193,8 @@ function BoxPicker({ id, label, boxes, value, onChange }: { id: string; label: s
 }
 
 function enteredUnit(line: ReceiptLine): string {
-  if (line.unitCode === 't') return t('unit.t', 'طن');
+  const code = codeUnitLabel(line.unitCode);
+  if (code) return code;
   return line.itemUnitId ? line.unitLabel : fmtQty(0n, line.baseUnit).main.replace(/^0\s*/u, '');
 }
 
@@ -203,12 +205,12 @@ export function ReceiptLinesTable({ lines, values, totals, onDelete }: { lines: 
     { key: 'entered', header: t('transfer.col.entered', 'كما كُتبت'), cell: (line) => fmtCounted(line.qtyInUnit, enteredUnit(line)) },
     ...qtyColumns(lines, (line) => line.qty, (unit) => t('stock.col.qty_in', 'الكمية ({unit})', { unit })),
     { key: 'expiry', header: t('receipt.col.expiry', 'الانتهاء'), cell: (line) => (line.expiryOn ? fmtDay(line.expiryOn) : '—') },
-    { key: 'lot', header: t('receipt.col.lot', 'دفعة المورّد'), cell: (line) => (line.supplierLotNo ? <bdi dir="ltr">{line.supplierLotNo}</bdi> : '—') },
+    { key: 'lot', header: t('receipt.col.lot', 'وجبة المورّد'), cell: (line) => (line.supplierLotNo ? <bdi dir="ltr">{line.supplierLotNo}</bdi> : '—') },
   ];
   if (totals && values) {
     columns.push(
       { key: 'total', header: t('receipt.col.total', 'مبلغ السطر'), kind: 'number', cell: (line) => { const total = totals.get(line.id); return total === undefined ? '—' : <MoneyText amount={total} decimals={0} />; } },
-      { key: 'value', header: t('receipt.col.value', 'قيمة الدفعة'), kind: 'number', cell: (line) => { const value = values[lines.indexOf(line)]; return value === undefined ? '—' : <MoneyText amount={value} />; } },
+      { key: 'value', header: t('receipt.col.value', 'قيمة الوجبة'), kind: 'number', cell: (line) => { const value = values[lines.indexOf(line)]; return value === undefined ? '—' : <MoneyText amount={value} />; } },
     );
   }
   if (onDelete) {
@@ -312,9 +314,9 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={receivable} />
-      {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ودفعاتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
+      {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ووجباتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={purchaseUnitOptions(item, packs)} value={qty} onChange={setQty} /> : null}
-      {item?.tracksExpiry ? <DayField id={`${id}-expiry`} label={t('receipt.line.expiry', 'تاريخ الانتهاء')} value={expiry} onChange={setExpiry} hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يرحّله المدير فقط.')} /> : null}
+      {item?.tracksExpiry ? <DayField id={`${id}-expiry`} label={t('receipt.line.expiry', 'تاريخ الانتهاء')} value={expiry} onChange={setExpiry} hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يحفظه المدير فقط.')} /> : null}
       {item?.kind === 'chick' ? (
         <Field
           id={`${id}-born`}
@@ -328,7 +330,7 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
         </Field>
       ) : null}
       {item ? (
-        <Field id={`${id}-lot`} label={t('receipt.line.lot', 'رقم دفعة المورّد (اختياري)')}>
+        <Field id={`${id}-lot`} label={t('receipt.line.lot', 'رقم وجبة المورّد (اختياري)')}>
           <input id={`${id}-lot`} className="input" value={lotNo} maxLength={60} onChange={(event) => setLotNo(event.target.value)} dir="ltr" />
         </Field>
       ) : null}
@@ -531,13 +533,13 @@ function AmountsPanel({
             ) : null}
             {target !== null ? (
               <p className="text-sm text-ink-muted">
-                {t('receipt.amounts.value', 'قيمة الدفعة')}: <MoneyText amount={plan.live.values[i] ?? 0n} />
+                {t('receipt.amounts.value', 'قيمة الوجبة')}: <MoneyText amount={plan.live.values[i] ?? 0n} />
               </p>
             ) : null}
           </div>
         );
       })}
-      <AmountField id={`${id}-discount`} label={t('receipt.amounts.discount', 'خصم الفاتورة')} value={discount} onChange={(text) => editAmount('discount', text)} hint={t('receipt.amounts.discount_hint', 'يتوزّع على السطور بنسبة مبالغها، بالفلس.')} />
+      <AmountField id={`${id}-discount`} label={t('receipt.amounts.discount', 'خصم الفاتورة')} value={discount} onChange={(text) => editAmount('discount', text)} hint={t('receipt.amounts.discount_hint', 'يُقسَّم على السطور بنسبة مبالغها، بالفلس.')} />
       <AmountField id={`${id}-paid`} label={t('receipt.amounts.paid', 'المدفوع عند الاستلام')} value={paid} onChange={(text) => editAmount('paid', text)} />
       {(amountOr0(paid) ?? 0n) > 0n ? (
         <BoxPicker id={`${id}-box`} label={t('receipt.amounts.box', 'دُفع من صندوق')} boxes={boxes} value={box} onChange={(value) => onChange({ ...edits, box: { ...(edits.box ?? { base: bundle.amounts?.cashAccountId ?? '' }), value } })} />
@@ -674,8 +676,8 @@ function ChargesPanel({
           <input id={`${id}-label`} className="input" value={label} maxLength={80} onChange={(event) => setLabel(event.target.value)} />
         </Field>
         <AmountField id={`${id}-amount`} label={t('receipt.charge.amount', 'مبلغ التحميل')} value={amount} onChange={onAmount} />
-        <Segmented label={t('receipt.charge.by', 'التوزيع')} options={[{ value: 'mass', label: t('receipt.charge.mass', 'بالوزن') }, { value: 'value', label: t('receipt.charge.value', 'بالقيمة') }]} value={by} onChange={setBy} />
-        <Segmented label={t('receipt.charge.to', 'يُدفع')} options={[{ value: 'party', label: t('receipt.charge.party', 'لناقل (بدفتره)') }, { value: 'box', label: t('receipt.charge.box', 'من صندوق الآن') }]} value={to} onChange={setTo} />
+        <Segmented label={t('receipt.charge.by', 'التقسيم')} options={[{ value: 'mass', label: t('receipt.charge.mass', 'بالوزن') }, { value: 'value', label: t('receipt.charge.value', 'بالقيمة') }]} value={by} onChange={setBy} />
+        <Segmented label={t('receipt.charge.to', 'يُدفع')} options={[{ value: 'party', label: t('receipt.charge.party', 'لناقل (بحسابه)') }, { value: 'box', label: t('receipt.charge.box', 'من صندوق الآن') }]} value={to} onChange={setTo} />
         {to === 'party' ? <SupplierPicker id={`${id}-payee`} label={t('receipt.charge.payee', 'الناقل')} value={payee} onChange={setPayee} /> : <BoxPicker id={`${id}-box`} label={t('receipt.amounts.box', 'دُفع من صندوق')} boxes={boxes} value={box} onChange={setBox} />}
         {failed ? (
           <Notice tone="danger" title={failed.title}>
@@ -701,7 +703,7 @@ export function ReceiptPreviewPanel({ preview, approved, onToggle }: { preview: 
     },
     { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
     ...qtyColumns(preview.lines, (line) => line.qty, (unit) => t('stock.col.qty_in', 'الكمية ({unit})', { unit })),
-    ...(preview.money ? [{ key: 'value', header: t('receipt.col.value', 'قيمة الدفعة'), kind: 'number' as const, cell: (line: ReceiptPreview['lines'][number]) => { const value = values.get(line.lineId); return value === undefined ? '—' : <MoneyText amount={value} />; } }] : []),
+    ...(preview.money ? [{ key: 'value', header: t('receipt.col.value', 'قيمة الوجبة'), kind: 'number' as const, cell: (line: ReceiptPreview['lines'][number]) => { const value = values.get(line.lineId); return value === undefined ? '—' : <MoneyText amount={value} />; } }] : []),
   ];
   return (
     <>
@@ -709,15 +711,15 @@ export function ReceiptPreviewPanel({ preview, approved, onToggle }: { preview: 
         <Notice key={`problem-${i}`} tone="danger" title={problem.hint} />
       ))}
       {preview.lines.flatMap((line) => [line.problem, line.warning].filter((x) => x !== null).map((x, k) => <Notice key={`${line.lineId}:${k}`} tone={x === line.problem ? 'danger' : 'warning'} title={x?.hint ?? ''} />))}
-      <DataTable caption={t('receipt.preview.lots', 'الدفعات التي ستدخل المخزن')} columns={columns} rows={preview.lines} rowKey={(line) => line.lineId} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
+      <DataTable caption={t('receipt.preview.lots', 'الوجبات التي ستدخل المخزن')} columns={columns} rows={preview.lines} rowKey={(line) => line.lineId} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
       {preview.money ? (
         <ul className="flex flex-col gap-1 text-sm">
           <li>
-            {t('receipt.preview.supplier', 'قيد المورّد (له)')}: <MoneyText amount={preview.money.net} decimals={0} />
+            {t('receipt.preview.supplier', 'حركة المورّد (له)')}: <MoneyText amount={preview.money.net} decimals={0} />
           </li>
           {preview.money.charges.map((charge) => (
             <li key={charge.chargeId}>
-              {charge.payeePartyId ? t('receipt.preview.carrier', 'قيد «{label}» على ناقله (له)', { label: charge.label }) : t('receipt.preview.box_charge', '«{label}» يُدفع من الصندوق', { label: charge.label })}: <MoneyText amount={charge.amount} decimals={0} />
+              {charge.payeePartyId ? t('receipt.preview.carrier', 'حركة «{label}» على ناقله (له)', { label: charge.label }) : t('receipt.preview.box_charge', '«{label}» يُدفع من الصندوق', { label: charge.label })}: <MoneyText amount={charge.amount} decimals={0} />
             </li>
           ))}
           {preview.money.paidNow > 0n ? (
@@ -777,9 +779,12 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const reload = () => setTick((n) => n + 1);
-  const refresh = () => {
+  const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
+  };
+  const refresh = () => {
+    closeReview();
     reload();
   };
   /** تغيّر المستند من نافذة أو جهاز آخر (stale_draft): قراءة جديدة وتنبيه يبقى، بدل زرّ يعيد نفس النسخة للأبد. */
@@ -854,7 +859,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
       if (!handledStale(outcome.error)) setFailure(outcome.error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('receipt.posted', 'رُحّل الاستلام {no}', { no: outcome.result.docNo ?? '' }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('receipt.posted', 'حُفظ الاستلام {no} نهائياً', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     refresh();
   };
@@ -899,12 +904,12 @@ function ReceiptEditor({ docId }: { docId: string }) {
       });
   };
   const ready = online && preview !== null && preview.ready && preview.problems.length === 0 && preview.lines.every((line) => approved.has(line.lineId));
-  const title = current.docNo ? t('receipt.title.no', 'الاستلام {no}', { no: current.docNo }) : t('receipt.title.draft', 'مسوّدة استلام');
+  const title = current.docNo ? t('receipt.title.no', 'الاستلام {no}', { no: current.docNo }) : t('receipt.title.draft', 'استلام غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title={title}
-        subtitle={t('receipt.subtitle', '{status} — من «{party}» إلى «{store}» بتاريخ {day}، بدفتر «{book}»', {
+        subtitle={t('receipt.subtitle', '{status} — من «{party}» إلى «{store}» بتاريخ {day}، في حساب «{book}»', {
           status: draft && canPrice && bundle.lineAmounts.length < bundle.lines.length ? t('receipt.awaiting', 'بانتظار المبالغ') : docStatusLabel(current.status),
           party: current.partyName,
           store: store?.name ?? '—',
@@ -938,40 +943,43 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {draft && (canDraft || canPrice) ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-receipt">
-              {t('receipt.preview', 'عاين الاستلام')}
+            <Button busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-receipt">
+              {t('receipt.preview', 'راجع واحفظ')}
             </Button>
             {canDraft ? (
               <Button variant="ghost" onClick={() => setConfirm('discard')} disabled={busy} data-action="discard-receipt">
-                {t('transfer.discard', 'اطوِ المسوّدة')}
+                {t('transfer.discard', 'احذف الورقة')}
               </Button>
             ) : null}
           </div>
-          {preview ? (
-            <>
-              <ReceiptPreviewPanel
-                preview={preview}
-                approved={approved}
-                onToggle={(lineId, on) => {
-                  const next = new Set(approved);
-                  if (on) next.add(lineId);
-                  else next.delete(lineId);
-                  setApproved(next);
-                }}
-              />
-              {canPrice ? (
-                <>
-                  {dirty ? <Notice tone="warning" title={t('receipt.dirty', 'في المبالغ تعديل لم يُحفظ: احفظه أو تراجع عنه، ثم عاين من جديد قبل الترحيل.')} /> : null}
-                  {chargesPending ? <Notice tone="warning" title={t('receipt.charge.pending', 'في التحميلات مبلغ مكتوب لم يُضف بعد، أو تحميل يُحفظ الآن: أضفه أو امسح مبلغه، ثم عاين من جديد قبل الترحيل.')} /> : null}
-                  <Button disabled={!ready || dirty || chargesPending} busy={busy} onClick={() => void post()} data-action="post-receipt">
-                    {t('receipt.post', 'رحّل الاستلام')}
-                  </Button>
-                </>
-              ) : (
-                <Notice tone="info" title={t('receipt.keeper', 'المبالغ والترحيل للمحاسب أو المدير؛ المسوّدة باقية لهما.')} />
-              )}
-            </>
-          ) : null}
+          {preview && !canPrice ? <Notice tone="info" title={t('receipt.keeper', 'المبالغ والحفظ النهائي للمحاسب أو المدير؛ الورقة باقية لهما.')} /> : null}
+          <ReviewDialog
+            open={preview !== null && canPrice}
+            title={t('receipt.review.title', 'راجع الاستلام قبل الحفظ')}
+            ready={ready && !dirty && !chargesPending}
+            busy={busy}
+            action="post-receipt"
+            onSave={() => void post()}
+            onClose={closeReview}
+          >
+            {preview ? (
+              <>
+                {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+                <ReceiptPreviewPanel
+                  preview={preview}
+                  approved={approved}
+                  onToggle={(lineId, on) => {
+                    const next = new Set(approved);
+                    if (on) next.add(lineId);
+                    else next.delete(lineId);
+                    setApproved(next);
+                  }}
+                />
+                {dirty ? <Notice tone="warning" title={t('receipt.dirty', 'في المبالغ تعديل لم يُحفظ: ارجع إلى الورقة واحفظه أو تراجع عنه، ثم راجع من جديد.')} /> : null}
+                {chargesPending ? <Notice tone="warning" title={t('receipt.charge.pending', 'في التحميلات مبلغ مكتوب لم يُضف بعد، أو تحميل يُحفظ الآن: أضفه أو امسح مبلغه، ثم راجع من جديد.')} /> : null}
+              </>
+            ) : null}
+          </ReviewDialog>
         </div>
       ) : current.status === 'posted' && canVoid ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-receipt">
@@ -981,7 +989,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
       <ConfirmDialog
         open={lineToDelete !== null}
         title={t('receipt.line.delete.title', 'احذف سطر «{item}»', { item: lineToDelete?.itemName ?? '' })}
-        consequence={t('receipt.line.delete.consequence', 'يُحذف سطر «{item}» ({qty}) من المسوّدة مع مبلغه إن كُتب، وتُعاد معاينتها.', {
+        consequence={t('receipt.line.delete.consequence', 'يُحذف سطر «{item}» ({qty}) من الورقة مع مبلغه إن كُتب.', {
           item: lineToDelete?.itemName ?? '',
           qty: lineToDelete ? fmtCounted(lineToDelete.qtyInUnit, enteredUnit(lineToDelete)) : '',
         })}
@@ -993,9 +1001,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
       />
       <ConfirmDialog
         open={confirm === 'discard'}
-        title={t('receipt.discard.title', 'اطوِ مسوّدة الاستلام')}
-        consequence={t('receipt.discard.consequence', 'تصير مسوّدة الاستلام من «{party}» بتاريخ {day} ملغاة بلا رقم ولا حركات، ولا ترجع.', { party: current.partyName, day: fmtDay(current.onDate) })}
-        confirmLabel={t('transfer.discard', 'اطوِ المسوّدة')}
+        title={t('receipt.discard.title', 'احذف ورقة الاستلام')}
+        consequence={t('receipt.discard.consequence', 'تُلغى ورقة الاستلام من «{party}» بتاريخ {day} بلا رقم ولا حركات، ولا ترجع.', { party: current.partyName, day: fmtDay(current.onDate) })}
+        confirmLabel={t('transfer.discard', 'احذف الورقة')}
         busy={busy}
         action="confirm-discard-receipt"
         onConfirm={discard}
@@ -1055,7 +1063,7 @@ function NewReceipt({ stores, onSaved }: { stores: readonly StoreRef[]; onSaved:
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <h2 className="font-semibold">{t('receipt.new', 'استلام جديد')}</h2>
       <StoreSelect id={`${id}-store`} label={t('receipt.store', 'إلى مخزن')} stores={receiving} value={storeId} onChange={setStoreId} />
-      {picked ? <p className="text-sm text-ink-muted">{t('receipt.book', 'الدفتر: «{book}» (من نوع المخزن)', { book: receiptBook(picked) })}</p> : null}
+      {picked ? <p className="text-sm text-ink-muted">{t('receipt.book', 'الحساب: «{book}» (من نوع المخزن)', { book: receiptBook(picked) })}</p> : null}
       <SupplierPicker id={`${id}-party`} label={t('receipt.party', 'المورّد')} value={party} onChange={setParty} />
       <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')} />
       {failed ? (
@@ -1064,7 +1072,7 @@ function NewReceipt({ stores, onSaved }: { stores: readonly StoreRef[]; onSaved:
         </Notice>
       ) : null}
       <Button type="submit" busy={busy} data-action="create-receipt">
-        {t('use.new.create', 'أنشئ المسوّدة')}
+        {t('use.new.create', 'ابدأ')}
       </Button>
     </form>
   );
@@ -1118,7 +1126,7 @@ export function ReceiptsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.receipts', 'الاستلام من المورّدين')} subtitle={t('receipt.list.subtitle', 'الأمين يكتب الكميات، والمحاسب أو المدير يكتب المبالغ ويرحّل.')} />
+      <PageHeader title={t('stock.receipts', 'الاستلام من المورّدين')} subtitle={t('receipt.list.subtitle', 'الأمين يكتب الكميات، والمحاسب أو المدير يكتب المبالغ ويحفظ نهائياً.')} />
       {!canDraft && !canPrice ? <Notice tone="info" title={t('receipt.forbidden', 'الاستلام لأمين المخزن والمحاسب والمدير ومالك المنشأة.')} /> : null}
       {canDraft && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {canDraft && setup.data ? <NewReceipt stores={scopedStores(stores, workspace)} onSaved={(id) => navigate(`/inventory/receipts/${id}`)} /> : null}
@@ -1140,7 +1148,7 @@ export function ReceiptsList() {
         <LoadFailed what={t('receipt.list.what', 'مستندات الاستلام')} error={first.error} onRetry={first.retry} />
       ) : first.data ? (
         <>
-          <DataTable caption={t('stock.receipts', 'الاستلام من المورّدين')} columns={columns} rows={loaded} rowKey={(doc) => doc.id} empty={draftsOnly ? t('receipt.list.drafts_empty', 'لا مسوّدات بانتظار المبالغ.') : t('receipt.list.empty', 'لا استلام بعد.')} />
+          <DataTable caption={t('stock.receipts', 'الاستلام من المورّدين')} columns={columns} rows={loaded} rowKey={(doc) => doc.id} empty={draftsOnly ? t('receipt.list.drafts_empty', 'لا أوراق بانتظار المبالغ.') : t('receipt.list.empty', 'لا استلام بعد.')} />
           <PageFooter shown={loaded.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('receipt.list.what', 'مستندات الاستلام')} onMore={loadMore} action="more-receipts" />
         </>
       ) : null}

@@ -112,9 +112,9 @@ export function readTime(iso: string): string {
 export function docStatusLabel(status: DocStatus): string {
   switch (status) {
     case 'draft':
-      return t('stock.doc.draft', 'مسوّدة');
+      return t('stock.doc.draft', 'غير محفوظ بعد');
     case 'posted':
-      return t('stock.doc.posted', 'مرحَّل');
+      return t('stock.doc.posted', 'محفوظ نهائياً');
     case 'void':
       return t('stock.doc.void', 'ملغى');
   }
@@ -385,10 +385,50 @@ export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, on
   );
 }
 
-/** وحدات الإدخال: وحدة الأساس، والطن للكيلو، ووحدات تعبئة المادّة (المعامل لقطة على السطر، E7). */
+/** معامل الواحد بستّ مراتب: وحدة بهذا المعامل لمادّة معدودة هي اسم وحدة عدّها («قنينة»). */
+const ONE = 1_000_000n;
+
+/**
+ * اسم وحدة العدّ للمادّة المعدودة (كلمة المالك 2026-10-31): وحدة فعّالة معاملها واحد («قنينة»، «ظرف») تحلّ محلّ «قطعة» بالإدخال
+ * والعرض («12 قنينة»)، أو null. البيانات نفسها بلا تغيير: الأساس قطعة، والاسم صفّ item_units بمعامل 1.
+ */
+export function countName(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inventory.ItemUnitRow[] | null | undefined): string | null {
+  if (item.baseUnit !== 'pc' || !packs) return null;
+  return packs.find((pack) => !pack.archived && pack.factor === ONE)?.label ?? null;
+}
+
+/** اسم الوحدة لرأس عمود أو بجانب رقم: اسم وحدة العدّ إن وُجد، وإلا كغم أو لتر أو قطعة. */
+export function unitName(baseUnit: BaseUnit, name: string | null): string {
+  return name ?? baseUnitLabel(baseUnit);
+}
+
+/** طريقة عدّ المادّة بكلمات المالك. */
+export function countingLabel(unit: BaseUnit): string {
+  if (unit === 'kg') return t('items.count.kg', 'بالوزن (كيلوغرام)');
+  if (unit === 'L') return t('items.count.L', 'بالحجم (لتر)');
+  return t('items.count.pc', 'بالعدد');
+}
+
+/** اسم وحدة عامّة على السطر (unit_code): الطن والغرام والملل. */
+export function codeUnitLabel(code: string | null): string | null {
+  if (code === 't') return t('unit.t', 'طن');
+  if (code === 'g') return t('unit.g', 'غرام');
+  if (code === 'mL') return t('unit.mL', 'ملل');
+  return null;
+}
+
+/**
+ * وحدات الإدخال: وحدة الأساس (أو اسم وحدة العدّ)، والطن والغرام للكيلو، والملل للتر (وحدات عامّة بجدول units)، ووحدات تعبئة
+ * المادّة (المعامل لقطة على السطر، E7).
+ */
 export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inventory.ItemUnitRow[]): QtyUnitOption[] {
-  const out: QtyUnitOption[] = [{ id: 'base', label: baseUnitLabel(item.baseUnit), factor: { units: 1n, scale: 0 } }];
-  if (item.baseUnit === 'kg') out.push({ id: 'code:t', label: t('unit.t', 'طن'), factor: { units: 1000n, scale: 0 } });
-  for (const pack of packs.filter((p) => !p.archived)) out.push({ id: pack.id, label: pack.label, factor: { units: pack.factor, scale: 6 } });
+  const name = countName(item, packs);
+  const out: QtyUnitOption[] = [{ id: 'base', label: unitName(item.baseUnit, name), factor: { units: 1n, scale: 0 }, ...(name ? { piece: true } : {}) }];
+  if (item.baseUnit === 'kg') {
+    out.push({ id: 'code:t', label: t('unit.t', 'طن'), factor: { units: 1000n, scale: 0 } });
+    out.push({ id: 'code:g', label: t('unit.g', 'غرام'), factor: { units: 1n, scale: 3 } });
+  }
+  if (item.baseUnit === 'L') out.push({ id: 'code:mL', label: t('unit.mL', 'ملل'), factor: { units: 1n, scale: 3 } });
+  for (const pack of packs.filter((p) => !p.archived && !(name !== null && p.factor === ONE))) out.push({ id: pack.id, label: pack.label, factor: { units: pack.factor, scale: 6 } });
   return out;
 }

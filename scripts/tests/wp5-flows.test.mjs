@@ -240,18 +240,18 @@ export default async function (t) {
     {
       const calls = fresh('manager', reviewHandlers(reviewOf(reviewLine())));
       await mount('/inventory/counts/c-1');
-      const lockedFirst = disabled(byAction('post-count')[0]);
+      await click(byAction('post-count')[0]);
+      const confirmText = text().includes('راجع جرد «المخزن العام» قبل الحفظ');
+      const lockedFirst = disabled(byAction('confirm-post-count')[0]);
       tick(byId('preview-l-kaz:S'));
       await settle();
-      const openAfter = !disabled(byAction('post-count')[0]);
-      await click(byAction('post-count')[0]);
+      const openAfter = !disabled(byAction('confirm-post-count')[0]);
       const beforeConfirm = named(calls, 'postCount').length;
-      const confirmText = text().includes('وافق على جرد «المخزن العام» ورحّله');
       await click(byAction('confirm-post-count')[0]);
       t.same(
         [lockedFirst, openAfter, beforeConfirm, confirmText, named(calls, 'postCount').map((args) => [args[2], args[3]])],
         [true, true, 0, true, [[6, 'plan-1']]],
-        'C5: «وافق ورحّل» مقفل لحد الموافقة على سحب النقص، والضغط يفتح تأكيداً، والترحيل بعده بالنسخة والبصمة',
+        'C5: «راجع واحفظ» يفتح المراجعة، و«احفظ نهائياً» مقفل لحد الموافقة على سحب النقص، والحفظ بعده بالنسخة والبصمة',
       );
       await unmount();
     }
@@ -575,7 +575,7 @@ export default async function (t) {
       const postedUse = { id: 'u-9', status: 'posted', version: 3, docNo: 'SU-2026-0009', warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: true, voidReason: null, createdAt: '2026-10-30T08:00:00Z', namesLot: false };
       fresh('storekeeper', { loadOrgSetup: () => org, listUses: () => ({ rows: [postedUse], next: null, total: 1 }) });
       await mount('/inventory/uses?awaiting=1');
-      t.same([text().includes('لا مسوّدات بانتظار موافقة المدير فيما عُرض.'), text().includes('لا صرف بعد')], [true, false], 'U6: المرشّح بلا مسوّدات بانتظار المدير: نصّه الخاصّ');
+      t.same([text().includes('لا أوراق بانتظار موافقة المدير فيما عُرض.'), text().includes('لا صرف بعد')], [true, false], 'U6: المرشّح بلا مسوّدات بانتظار المدير: نصّه الخاصّ');
       await unmount();
     }
 

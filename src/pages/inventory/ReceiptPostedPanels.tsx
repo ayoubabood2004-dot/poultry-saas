@@ -113,7 +113,7 @@ export function RevaluePreviewPanel({ preview }: { preview: RevaluePreview }) {
       {preview.problems.map((problem, i) => (
         <Notice key={`problem-${i}`} tone="danger" title={problem.hint} />
       ))}
-      <DataTable caption={t('revalue.family', 'دفعة السطر ومراياها')} columns={columns} rows={rows} rowKey={(lot) => lot.lotId} empty={t('revalue.family.empty', 'لم يبقَ من دفعة السطر شيء؛ الفرق كلّه مصروف.')} />
+      <DataTable caption={t('revalue.family', 'وجبة السطر وما انتقل منها')} columns={columns} rows={rows} rowKey={(lot) => lot.lotId} empty={t('revalue.family.empty', 'لم يبقَ من وجبة السطر شيء؛ الفرق كلّه مصروف.')} />
       <ul className="flex flex-col gap-1 text-sm">
         {preview.diff !== null ? (
           <li>
@@ -122,7 +122,7 @@ export function RevaluePreviewPanel({ preview }: { preview: RevaluePreview }) {
         ) : null}
         {preview.lotShare !== null ? (
           <li>
-            {t('revalue.lot_share', 'يدخل الدفعات المتبقّية')}: <MoneyText amount={preview.lotShare} />
+            {t('revalue.lot_share', 'يدخل الوجبات المتبقّية')}: <MoneyText amount={preview.lotShare} />
           </li>
         ) : null}
         {preview.expenseAmount !== null ? (
@@ -132,7 +132,7 @@ export function RevaluePreviewPanel({ preview }: { preview: RevaluePreview }) {
         ) : null}
         {preview.supplierAdjustment !== null ? (
           <li>
-            {t('revalue.adjustment', 'قيد تسوية المورّد')}: <MoneyText amount={preview.supplierAdjustment} decimals={0} />
+            {t('revalue.adjustment', 'حركة تسوية المورّد')}: <MoneyText amount={preview.supplierAdjustment} decimals={0} />
           </li>
         ) : null}
       </ul>
@@ -180,7 +180,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
       setFailure(outcome.error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('revalue.posted', 'رُحّل تصحيح سعر «{item}»', { item: line.itemName }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('revalue.posted', 'حُفظ تصحيح سعر «{item}» نهائياً', { item: line.itemName }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     onDone();
   };
@@ -209,18 +209,18 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" busy={busy && !confirm} disabled={amount === null} onClick={runPreview} data-action="preview-revalue">
-          {t('revalue.preview', 'عاين التصحيح')}
+          {t('revalue.preview', 'راجع التصحيح')}
         </Button>
         <Button variant="ghost" disabled={busy} onClick={onCancel} data-action="cancel-revalue">
           {t('revalue.cancel', 'أغلق')}
         </Button>
       </div>
       {preview && fresh ? <RevaluePreviewPanel preview={preview} /> : null}
-      {preview && !fresh ? <Notice tone="warning" title={t('revalue.stale', 'تغيّر المبلغ بعد المعاينة؛ عاين من جديد قبل الترحيل.')} /> : null}
-      {preview && fresh && reason.trim() === '' ? <Notice tone="info" title={t('revalue.reason_required', 'اكتب سبب التصحيح قبل الترحيل.')} /> : null}
+      {preview && !fresh ? <Notice tone="warning" title={t('revalue.stale', 'تغيّر المبلغ بعد المراجعة؛ راجع من جديد قبل الحفظ.')} /> : null}
+      {preview && fresh && reason.trim() === '' ? <Notice tone="info" title={t('revalue.reason_required', 'اكتب سبب التصحيح قبل الحفظ.')} /> : null}
       {preview && fresh ? (
         <Button disabled={!ready} busy={busy && confirm} onClick={() => setConfirm(true)} data-action="post-revalue">
-          {t('revalue.post', 'رحّل التصحيح')}
+          {t('revalue.post', 'احفظ نهائياً')}
         </Button>
       ) : null}
       <ConfirmDialog
@@ -230,7 +230,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
           preview ? (
             <div className="flex flex-col gap-2">
               <p>
-                {t('revalue.confirm.lead', 'يتصحّح مبلغ سطر «{item}» في الاستلام {no}، ولا يُعاد تسعير ما رُحّل بعده من مستندات:', { item: line.itemName, no: receipt.docNo ?? '' })}
+                {t('revalue.confirm.lead', 'يتصحّح مبلغ سطر «{item}» في الاستلام {no}، ولا يُعاد تسعير ما حُفظ بعده من أوراق:', { item: line.itemName, no: receipt.docNo ?? '' })}
               </p>
               <ul className="list-disc ps-6">
                 {preview.currentTotal !== null ? (
@@ -245,7 +245,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
                 ) : null}
                 {preview.lotShare !== null ? (
                   <li>
-                    {t('revalue.lot_share', 'يدخل الدفعات المتبقّية')}: <MoneyText amount={preview.lotShare} />
+                    {t('revalue.lot_share', 'يدخل الوجبات المتبقّية')}: <MoneyText amount={preview.lotShare} />
                   </li>
                 ) : null}
                 {preview.expenseAmount !== null ? (
@@ -255,14 +255,14 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
                 ) : null}
                 {preview.supplierAdjustment !== null ? (
                   <li>
-                    {t('revalue.adjustment', 'قيد تسوية المورّد')}: <MoneyText amount={preview.supplierAdjustment} decimals={0} />
+                    {t('revalue.adjustment', 'حركة تسوية المورّد')}: <MoneyText amount={preview.supplierAdjustment} decimals={0} />
                   </li>
                 ) : null}
               </ul>
             </div>
           ) : null
         }
-        confirmLabel={t('revalue.post', 'رحّل التصحيح')}
+        confirmLabel={t('revalue.post', 'احفظ نهائياً')}
         tone="primary"
         busy={busy}
         action="confirm-revalue"
@@ -341,10 +341,10 @@ export function PriceCorrectionPanel({ receipt, lines, totals }: { receipt: Rece
     { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (row) => names.get(row.receiptLineId) ?? '—' },
     { key: 'old', header: t('revalue.col.old', 'من'), kind: 'number', cell: (row) => <MoneyText amount={row.oldTotal} decimals={0} /> },
     { key: 'new', header: t('revalue.col.new', 'إلى'), kind: 'number', cell: (row) => <MoneyText amount={row.newTotal} decimals={0} /> },
-    { key: 'share', header: t('revalue.lot_share', 'يدخل الدفعات المتبقّية'), kind: 'number', cell: (row) => <MoneyText amount={row.lotShare} /> },
+    { key: 'share', header: t('revalue.lot_share', 'يدخل الوجبات المتبقّية'), kind: 'number', cell: (row) => <MoneyText amount={row.lotShare} /> },
     { key: 'expense', header: t('revalue.col.expense', 'فرق سعر شراء'), kind: 'number', cell: (row) => <MoneyText amount={row.expenseAmount} /> },
     { key: 'reason', header: t('revalue.reason', 'سبب التصحيح'), cell: (row) => row.reason },
-    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (row) => (row.status === 'posted' ? t('revalue.status.posted', 'مرحَّل') : t('revalue.status.void', 'ملغى')) },
+    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (row) => (row.status === 'posted' ? t('revalue.status.posted', 'محفوظ نهائياً') : t('revalue.status.void', 'ملغى')) },
     {
       key: 'action',
       header: t('org.col.actions', 'إجراءات'),
@@ -362,7 +362,7 @@ export function PriceCorrectionPanel({ receipt, lines, totals }: { receipt: Rece
   return (
     <section className="card flex flex-col gap-3 p-4" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`} className="font-semibold">{t('revalue.section', 'تصحيح سعر الشراء')}</h2>
-      <p className="text-sm text-ink-muted">{t('revalue.section.hint', 'للمدير بعد ما انسحب من الدفعة: حصّة المتبقّي من الفرق تدخل الدفعات، وحصّة المسحوب مصروف «فرق سعر شراء»، والمستندات المرحّلة لا يُعاد تسعيرها.')}</p>
+      <p className="text-sm text-ink-muted">{t('revalue.section.hint', 'للمدير بعد ما سُحب من الوجبة: حصّة المتبقّي من الفرق تدخل الوجبات، وحصّة المسحوب مصروف «فرق سعر شراء»، والأوراق المحفوظة لا يُعاد تسعيرها.')}</p>
       <DataTable caption={t('receipt.lines', 'سطور الاستلام')} columns={lineColumns} rows={lines} rowKey={(line) => line.id} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
       {opened ? (
         <RevalueForm
@@ -387,7 +387,7 @@ export function PriceCorrectionPanel({ receipt, lines, totals }: { receipt: Rece
       {voiding ? (
         <VoidDocDialog
           title={t('revalue.void.title', 'ألغِ تصحيح سعر «{item}»', { item: names.get(voiding.receiptLineId) ?? '' })}
-          consequence={t('revalue.void.consequence', 'تُعكس حصص الدفعات ومصروف «فرق سعر شراء» وقيد المورّد لتصحيح {old} إلى {new}، ويرجع مبلغ السطر كما كان قبله.', {
+          consequence={t('revalue.void.consequence', 'تُعكس حصص الوجبات ومصروف «فرق سعر شراء» وحركة المورّد لتصحيح {old} إلى {new}، ويرجع مبلغ السطر كما كان قبله.', {
             old: fmtMoney(voiding.oldTotal, 0),
             new: fmtMoney(voiding.newTotal, 0),
           })}

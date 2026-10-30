@@ -16,14 +16,14 @@ export const CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   members_phone_check: () => t('constraint.members_phone_check', 'رقم الهاتف يجب أن يكون رقم موبايل عراقياً صحيحاً.'),
   divisions_kind_check: () => t('constraint.divisions_kind_check', 'نوع الوحدة غير معروف.'),
   divisions_name_check: () => t('constraint.divisions_name_check', 'اسم الوحدة مطلوب، ولا يزيد على 80 حرفاً.'),
-  ledger_books_code_check: () => t('constraint.ledger_books_code_check', 'نوع الدفتر غير معروف.'),
-  ledger_books_name_check: () => t('constraint.ledger_books_name_check', 'اسم الدفتر مطلوب، ولا يزيد على 80 حرفاً.'),
+  ledger_books_code_check: () => t('constraint.ledger_books_code_check', 'نوع الحساب غير معروف.'),
+  ledger_books_name_check: () => t('constraint.ledger_books_name_check', 'اسم الحساب مطلوب، ولا يزيد على 80 حرفاً.'),
   audit_log_op_check: () => t('constraint.audit_log_op_check', 'نوع العملية في سجلّ التدقيق غير معروف.'),
   invite_codes_failures_check: () => t('constraint.invite_codes_failures_check', 'أُدخل رمز الدعوة خطأً أكثر من 5 مرات، فأُوقف. اطلب رمزاً جديداً.'),
   // جدول الوحدات الثابت (0004): ما ينكتب من الواجهة، بس كل قيد إله جملته حتى لو انخرق بهجرة.
   units_dimension_check: () => t('constraint.units_dimension_check', 'نوع الوحدة يجب أن يكون كتلة أو حجماً أو عدداً.'),
-  units_base_check: () => t('constraint.units_base_check', 'وحدة الأساس يجب أن تكون كغم أو لتراً أو قطعة.'),
-  units_base_dimension_check: () => t('constraint.units_base_dimension_check', 'وحدة الأساس لا تناسب نوع الوحدة: الكتلة بالكيلو، والحجم باللتر، والعدد بالقطعة.'),
+  units_base_check: () => t('constraint.units_base_check', 'تُعدّ المادّة بالكيلوغرام أو باللتر أو بالعدد.'),
+  units_base_dimension_check: () => t('constraint.units_base_dimension_check', 'الوحدة لا تناسب طريقة العدّ: الوزن بالكيلوغرام، والحجم باللتر، والعدد بالقطعة.'),
   units_factor_check: () => t('constraint.units_factor_check', 'معامل الوحدة يجب أن يكون أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
 };
 

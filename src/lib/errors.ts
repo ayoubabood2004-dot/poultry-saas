@@ -117,7 +117,7 @@ export function describeError(error: unknown, context: ErrorContext = 'write'): 
     }
     return {
       kind: 'retryable',
-      title: t('error.retryable.title', 'لم يُرحَّل، أعد المحاولة'),
+      title: t('error.retryable.title', 'لم يُحفظ، أعد المحاولة'),
       detail: t('error.retryable.detail', 'تزامنت العملية مع عملية أخرى على البيانات نفسها، فلم يُحفظ شيء. أعد المحاولة.'),
     };
   }

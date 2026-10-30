@@ -20,6 +20,8 @@ export interface QtyUnitOption {
   factor: Decimal;
   /** صيغ اسم الوحدة بعد رقم («5 أكياس»، «كيسان»). */
   forms?: CountedForms;
+  /** وحدة الأساس باسم وحدة عدّ المادّة («قنينة» بدل «قطعة»): التحويل يُقرأ بها. */
+  piece?: boolean;
 }
 
 export interface QtyValue {
@@ -42,7 +44,8 @@ export interface QtyInputProps {
   error?: string | null;
 }
 
-export function QtyInput({ id, label, base, pieceLabel, pieceForms, units, value, onChange, hint, error }: QtyInputProps) {
+export function QtyInput({ id, label, base, pieceLabel: pieceProp, pieceForms, units, value, onChange, hint, error }: QtyInputProps) {
+  const pieceLabel = pieceProp ?? units.find((option) => option.piece)?.label;
   // ماكو وحدة افتراضية بالعرض: units[0] كان يبين مختاراً والقيمة تحمل unitId ثاني (أو فارغ)،
   // فالشاشة تكول 100 كغم والأب يحفظ 2. اللي ينعرض مختاراً هو اللي بالقيمة بس.
   const unit = units.find((option) => option.id === value.unitId) ?? null;

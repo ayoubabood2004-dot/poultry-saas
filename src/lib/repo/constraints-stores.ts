@@ -18,7 +18,7 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   items_name_check: () => t('constraint.items_name_check', 'اسم المادّة مطلوب، ولا يزيد على 120 حرفاً.'),
   items_name_norm_check: () => t('constraint.items_name_norm_check', 'اكتب اسماً بحروف؛ التطويل والتشكيل وحدهما لا يكفيان للبحث.'),
   items_kind_check: () => t('constraint.items_kind_check', 'نوع المادّة غير معروف.'),
-  items_base_unit_check: () => t('constraint.items_base_unit_check', 'وحدة الأساس كغم أو لتر أو قطعة.'),
+  items_base_unit_check: () => t('constraint.items_base_unit_check', 'تُعدّ المادّة بالكيلوغرام أو باللتر أو بالعدد.'),
   items_count_kinds_check: () => t('constraint.items_count_kinds_check', 'بيض التفقيس والأفراخ وبيض المائدة تُعدّ بالقطعة دائماً.'),
   items_density_check: () => t('constraint.items_density_check', 'الكثافة أكبر من صفر، بأربع مراتب عشرية كحدّ أقصى.'),
   items_density_unit_check: () => t('constraint.items_density_unit_check', 'الكثافة للمادّة السائلة (باللتر) فقط.'),

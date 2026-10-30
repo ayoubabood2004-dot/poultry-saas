@@ -120,8 +120,8 @@ function AccountDialog({ box, onClose, onSaved }: { box: CashBalance | null; onC
 /** جملة الافتتاح: الصندوق والمبلغ بإشارته واليوم (التأكيد والمحاولة المجمّدة). */
 export function cashOpeningSentence(box: string, amount: Fils, day: Day): string {
   return amount < 0n
-    ? t('cash.opening.summary.negative', 'رصيد افتتاحي سالب {amount} دينار لـ«{box}» بتاريخ {day}.', { box, amount: fmtMoney(-amount, 0), day: fmtDay(day) })
-    : t('cash.opening.summary', 'رصيد افتتاحي {amount} دينار لـ«{box}» بتاريخ {day}.', { box, amount: fmtMoney(amount, 0), day: fmtDay(day) });
+    ? t('cash.opening.summary.negative', 'الرصيد عند البداية سالب {amount} دينار لـ«{box}» بتاريخ {day}.', { box, amount: fmtMoney(-amount, 0), day: fmtDay(day) })
+    : t('cash.opening.summary', 'الرصيد عند البداية {amount} دينار لـ«{box}» بتاريخ {day}.', { box, amount: fmtMoney(amount, 0), day: fmtDay(day) });
 }
 
 /** جملة النقل: من والى والمبلغ واليوم. */
@@ -173,7 +173,7 @@ export function OpeningDialog({ box, onClose, onSaved }: { box: CashBalance; onC
   const [checked, setChecked] = useState<Sent<OpeningInput> | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const title = t('cash.opening.title', 'الرصيد الافتتاحي لـ«{name}»', { name: box.name });
+  const title = t('cash.opening.title', 'الرصيد عند البداية لـ«{name}»', { name: box.name });
   const review = (event: FormEvent) => {
     event.preventDefault();
     const value = parseMoneyText(amount);
@@ -237,10 +237,10 @@ export function OpeningDialog({ box, onClose, onSaved }: { box: CashBalance; onC
         <ConfirmDialog
           open
           tone="primary"
-          title={t('cash.opening.confirm.title', 'تسجيل افتتاح «{name}»', { name: box.name })}
+          title={t('cash.opening.confirm.title', 'تسجيل الرصيد عند البداية لـ«{name}»', { name: box.name })}
           consequence={checked.summary}
-          confirmLabel={t('cash.opening.confirm', 'سجّل الافتتاح')}
-          cancelLabel={t('payment.back', 'عُد إلى النموذج')}
+          confirmLabel={t('cash.opening.confirm', 'احفظ الرصيد عند البداية')}
+          cancelLabel={t('payment.back', 'ارجع إلى الورقة')}
           busy={busy}
           action="confirm-cash-opening"
           onCancel={() => setChecked(null)}
@@ -346,7 +346,7 @@ export function TransferDialog({ accounts, onClose, onSaved }: { accounts: reado
           title={title}
           consequence={checked.summary}
           confirmLabel={t('cash.transfer.confirm', 'سجّل النقل')}
-          cancelLabel={t('payment.back', 'عُد إلى النموذج')}
+          cancelLabel={t('payment.back', 'ارجع إلى الورقة')}
           busy={busy}
           action="confirm-transfer"
           onCancel={() => setChecked(null)}
@@ -410,7 +410,7 @@ export default function CashPage() {
     <div className="flex gap-1.5">
       {allowed.opening && !box.hasOpening && !box.archived ? (
         <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: 'opening', box })} data-action="cash-opening">
-          {t('cash.opening', 'رصيد افتتاحي')}
+          {t('cash.opening', 'الرصيد عند البداية')}
         </Button>
       ) : null}
       {allowed.manage ? (
@@ -451,7 +451,7 @@ export default function CashPage() {
       {dialog?.kind === 'new' || dialog?.kind === 'rename' ? (
         <AccountDialog box={dialog.kind === 'rename' ? dialog.box : null} onClose={() => setDialog(null)} onSaved={() => saved(t('cash.saved', 'حُفظ الصندوق'))} />
       ) : null}
-      {dialog?.kind === 'opening' ? <OpeningDialog box={dialog.box} onClose={() => setDialog(null)} onSaved={() => saved(t('cash.opening.saved', 'سُجّل الرصيد الافتتاحي'))} /> : null}
+      {dialog?.kind === 'opening' ? <OpeningDialog box={dialog.box} onClose={() => setDialog(null)} onSaved={() => saved(t('cash.opening.saved', 'حُفظ الرصيد عند البداية'))} /> : null}
       {dialog?.kind === 'transfer' && balances.data ? <TransferDialog accounts={balances.data.accounts} onClose={() => setDialog(null)} onSaved={() => saved(t('cash.transfer.saved', 'سُجّل النقل'))} /> : null}
       <ConfirmDialog
         open={dialog?.kind === 'archive'}

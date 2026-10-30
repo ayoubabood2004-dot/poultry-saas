@@ -207,7 +207,7 @@ function CreateOrgForm() {
       <div>
         <h2 className="text-lg font-semibold">{t('welcome.create.title', 'أنشئ منشأتك')}</h2>
         <p className="mt-1 text-sm text-ink-muted">
-          {t('welcome.create.subtitle', 'إن كنت صاحب المزرعة: تُنشأ منشأتك بوحداتها الست ودفاترها، وتصير مالكها وتدعو موظفيك.')}
+          {t('welcome.create.subtitle', 'إن كنت صاحب المزرعة: تُنشأ منشأتك بوحداتها الست وحساباتها، وتصير مالكها وتدعو موظفيك.')}
         </p>
       </div>
       <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>

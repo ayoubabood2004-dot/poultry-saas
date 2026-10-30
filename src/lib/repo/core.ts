@@ -58,7 +58,7 @@ export function violatedUnique(message: string | undefined): string | null {
 
 /** جملة القيد المجهول (أو حين يتعذّر تحميل القاموس): تسمّيه، والشاشة ما تسكت بيها. */
 export function unknownConstraint(name: string | null): string {
-  return t('constraint.unknown', 'رفضت قاعدة البيانات قيمةً لا تحقّق القيد «{name}»، فلم يُحفظ شيء.', { name: name ?? '?' });
+  return t('constraint.unknown', 'رفضت قاعدة البيانات قيمةً لا تحقّق الشرط «{name}»، فلم يُحفظ شيء.', { name: name ?? '?' });
 }
 
 /**

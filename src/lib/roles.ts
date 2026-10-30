@@ -36,7 +36,7 @@ export function roleDescription(role: Role): string {
     case 'storekeeper':
       return t('role.storekeeper.about', 'الاستلام بالكميات والتحويل والصرف والجرد.');
     case 'mill_operator':
-      return t('role.mill_operator.about', 'إنتاج العلف، ويرحّل الدفعة بعد ختم الكلف.');
+      return t('role.mill_operator.about', 'إنتاج العلف، ويحفظ الوجبة نهائياً بعد ختم الكلف.');
     case 'hatchery_operator':
       return t('role.hatchery_operator.about', 'تشغيل وجبات المفقس.');
     case 'hall_worker':

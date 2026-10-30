@@ -270,5 +270,7 @@ export function fmtQty(qty: Milli, unit: BaseUnit, options: QtyOptions = {}): Qt
     return { main: `${head} ${tail}`, sub: plain };
   }
   if (unit === 'kg' && (qty >= TON || qty <= -TON)) return { main: `${num(fmtTons(qty))} ${t('unit.t', 'طن')}`, sub: plain };
+  // أقل من كيلو أو لتر بالغرام والملل (كلمة المالك 2026-10-31): «250 غرام» بدل «0.25 كغم»، والكيلو تحته.
+  if (unit !== 'pc' && qty !== 0n && qty > -MILLI_PER_UNIT && qty < MILLI_PER_UNIT) return { main: `${num(groupSigned(qty))} ${unit === 'kg' ? t('unit.g', 'غرام') : t('unit.mL', 'ملل')}`, sub: plain };
   return { main: plain };
 }

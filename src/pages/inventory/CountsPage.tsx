@@ -11,6 +11,7 @@ import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { PostPreview, previewReady, type PreviewDraw, type PreviewLine } from '../../components/ui/PostPreview';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { toast } from '../../components/ui/Toast';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import { localDay } from '../../domain/dates';
@@ -61,7 +62,7 @@ import { ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStor
 export function countStatusLabel(status: CountStatus): string {
   switch (status) {
     case 'draft':
-      return t('count.status.draft', 'مسوّدة');
+      return t('count.status.draft', 'غير محفوظ بعد');
     case 'submitted':
       return t('count.status.submitted', 'مسلَّم للمراجعة');
     case 'approved':
@@ -530,7 +531,7 @@ function CountEntry({
   const ask = confirm?.kind === 'merge' ? confirm.ask : null;
   return (
     <div className="flex flex-col gap-4">
-      <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ رصيد الدفتر لا يظهر هنا.')} />
+      <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ الرصيد المسجّل لا يظهر هنا.')} />
       {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أعاد المدير الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
       <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={(line) => setConfirm({ kind: 'delete', line })} />
       {editing ? (
@@ -748,8 +749,8 @@ export function countPreviewLines(preview: Pick<CountPreview, 'lines'>): Preview
     if (gain + expiredGain > 0n) {
       // القيمة لكل الزيادة (الخادم يجمع الصالح والمنتهي)، فبجزأين تنعرض بالجدول بس.
       const draws: PreviewDraw[] = [];
-      if (gain > 0n) draws.push({ lotId: `${line.lineId}:gain`, lotLabel: t('count.preview.gain_lot', 'دفعة زيادة جديدة بيوم الجرد'), qty: gain, value: expiredGain > 0n ? null : line.gainValue });
-      if (expiredGain > 0n) draws.push({ lotId: `${line.lineId}:gain_expired`, lotLabel: t('count.preview.gain_expired_lot', 'دفعة زيادة منتهية بيوم الجرد'), qty: expiredGain, value: gain > 0n ? null : line.gainValue });
+      if (gain > 0n) draws.push({ lotId: `${line.lineId}:gain`, lotLabel: t('count.preview.gain_lot', 'وجبة زيادة جديدة بيوم الجرد'), qty: gain, value: expiredGain > 0n ? null : line.gainValue });
+      if (expiredGain > 0n) draws.push({ lotId: `${line.lineId}:gain_expired`, lotLabel: t('count.preview.gain_expired_lot', 'وجبة زيادة منتهية بيوم الجرد'), qty: expiredGain, value: gain > 0n ? null : line.gainValue });
       out.push({ lineId: `${line.lineId}:G`, itemName: t('count.preview.gain', 'زيادة «{item}»', { item: line.itemName }), unit: line.baseUnit, requested: gain + expiredGain, draws, shortage: 0n });
     }
   }
@@ -869,7 +870,7 @@ function CountReview({
       fail(error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('count.posted', 'رُحّل الجرد {no}', { no: outcome.result.docNo ?? '' }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('count.posted', 'حُفظ الجرد {no} نهائياً', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     onRefreshed(null);
     after();
@@ -915,12 +916,12 @@ function CountReview({
     const tracked = rows.some((line) => line.tracksExpiry);
     return [
       { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
-      { key: 'system', header: t('count.col.system_in', 'الدفتر ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{qtyOrDash(line.systemQty, unit)}</Num> },
+      { key: 'system', header: t('count.col.system_in', 'المسجّل ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{qtyOrDash(line.systemQty, unit)}</Num> },
       { key: 'counted', header: t('count.col.counted_in', 'المعدود ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{fmtQtyCell(line.counted, decimalsOf(unit))}</Num> },
       { key: 'diff', header: t('count.col.diff_in', 'الفرق ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{line.diff === null ? '—' : signedQtyCell(line.diff, decimalsOf(unit))}</Num> },
       ...(tracked
         ? [
-            { key: 'x_system', header: t('count.col.x_system_in', 'المنتهي بالدفتر ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.systemExpiredQty, unit)}</Num> },
+            { key: 'x_system', header: t('count.col.x_system_in', 'المنتهي المسجّل ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.systemExpiredQty, unit)}</Num> },
             { key: 'x_counted', header: t('count.col.x_counted_in', 'المنتهي المعدود ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.countedExpired, unit)}</Num> },
             { key: 'x_diff', header: t('count.col.x_diff_in', 'فرق المنتهي ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{line.expiredDiff === null ? '—' : signedQtyCell(line.expiredDiff, decimalsOf(unit))}</Num> },
           ]
@@ -978,19 +979,19 @@ function CountReview({
   const withDiff = data.lines.filter(needsReason).length;
   const postSentence =
     data.shortageTotal !== null
-      ? t('count.post.consequence', 'يُرحَّل جرد «{store}» بتاريخ {day}: النقص {short} دينار («فرق جرد») والزيادة {gain} دينار، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', {
+      ? t('count.post.consequence', 'يُحفظ جرد «{store}» بتاريخ {day} نهائياً: النقص {short} دينار («فرق جرد») والزيادة {gain} دينار، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', {
           store: store.name,
           day: fmtDay(doc.onDate),
           short: fmtMoney(data.shortageTotal),
           gain: fmtMoney(data.gainTotal ?? 0n),
         })
-      : t('count.post.consequence_qty', 'يُرحَّل جرد «{store}» بتاريخ {day} بفروق {n} من السطور، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', { store: store.name, day: fmtDay(doc.onDate), n: fmtInt(withDiff) });
+      : t('count.post.consequence_qty', 'يُحفظ جرد «{store}» بتاريخ {day} نهائياً بفروق {n} من السطور، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', { store: store.name, day: fmtDay(doc.onDate), n: fmtInt(withDiff) });
   return (
     <div className="flex flex-col gap-4">
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       {submitted && data.stale ? (
         <Notice tone="warning" title={t('count.stale', 'تغيّر الرصيد بعد العدّ')}>
-          {stale ?? t('count.stale.detail', 'ترحّل مستند غيّر رصيد يوم الجرد بعد التسليم؛ اضغط «أعد الحساب» لترى الفرق الجديد قبل الترحيل.')}
+          {stale ?? t('count.stale.detail', 'حُفظت ورقة غيّرت رصيد يوم الجرد بعد التسليم؛ اضغط «أعد الحساب» لترى الفرق الجديد قبل الحفظ.')}
         </Notice>
       ) : null}
       {staleReasons.length > 0 ? (
@@ -1023,23 +1024,6 @@ function CountReview({
         </p>
       ) : null}
       {refreshed ? <RefreshTable lines={refreshed} /> : null}
-      {submitted && postLines.length > 0 ? (
-        <section className="flex flex-col gap-2" aria-labelledby="count-post-lines">
-          <h2 id="count-post-lines" className="font-semibold">
-            {t('count.post.lines', 'ما سيُرحَّل: وافق على كل سطر')}
-          </h2>
-          <PostPreview
-            lines={postLines}
-            approved={approved}
-            onToggle={(lineId, on) => {
-              const next = new Set(approved);
-              if (on) next.add(lineId);
-              else next.delete(lineId);
-              setApproval({ plan: data.plan, keys: next });
-            }}
-          />
-        </section>
-      ) : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
@@ -1053,14 +1037,14 @@ function CountReview({
           <Button variant="secondary" busy={busy} disabled={!online || dirty} onClick={() => void refresh()} data-action="refresh-count">
             {t('count.refresh', 'أعد الحساب')}
           </Button>
-          <Button busy={busy} disabled={dirty || !ready} onClick={() => setConfirm('post')} data-action="post-count">
-            {t('count.post', 'وافق ورحّل الجرد')}
+          <Button busy={busy} disabled={dirty || !online || !data.ready} onClick={() => setConfirm('post')} data-action="post-count">
+            {t('count.post', 'راجع واحفظ')}
           </Button>
           <Button variant="ghost" disabled={busy || dirty} onClick={() => setConfirm('return')} data-action="return-count">
             {t('count.return', 'أعِد للعدّ')}
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setConfirm('close')} data-action="close-count">
-            {t('count.close', 'أغلِق دون ترحيل')}
+            {t('count.close', 'أغلِق دون حفظ')}
           </Button>
         </div>
       ) : data.status === 'approved' && canVoid ? (
@@ -1068,23 +1052,41 @@ function CountReview({
           {t('count.void', 'ألغِ الجرد')}
         </Button>
       ) : null}
-      <ConfirmDialog
+      <ReviewDialog
         open={confirm === 'post'}
-        tone="primary"
-        title={t('count.post.title', 'وافق على جرد «{store}» ورحّله', { store: store.name })}
-        consequence={postSentence}
-        confirmLabel={t('count.post', 'وافق ورحّل الجرد')}
+        title={t('count.post.title', 'راجع جرد «{store}» قبل الحفظ', { store: store.name })}
+        ready={ready && !dirty}
         busy={busy}
         action="confirm-post-count"
-        onConfirm={() => void post()}
-        onCancel={() => setConfirm(null)}
-      />
+        onSave={() => void post()}
+        onClose={() => setConfirm(null)}
+      >
+        <p className="font-medium">{postSentence}</p>
+        {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+        {postLines.length > 0 ? (
+          <section className="flex flex-col gap-2" aria-labelledby="count-post-lines">
+            <h3 id="count-post-lines" className="font-semibold">
+              {t('count.post.lines', 'ما سيُحفظ: وافق على كل سطر')}
+            </h3>
+            <PostPreview
+              lines={postLines}
+              approved={approved}
+              onToggle={(lineId, on) => {
+                const next = new Set(approved);
+                if (on) next.add(lineId);
+                else next.delete(lineId);
+                setApproval({ plan: data.plan, keys: next });
+              }}
+            />
+          </section>
+        ) : null}
+      </ReviewDialog>
       <ConfirmDialog
         open={confirm === 'return'}
         title={t('count.return.title', 'أعِد جرد «{store}» للعدّ', { store: store.name })}
         consequence={
           <div className="flex flex-col gap-3">
-            <p>{t('count.return.consequence', 'يرجع الجرد مسوّدة للأمين ليعيد العدّ، وتُمسح لقطة الدفتر، وتبقى الأسباب والكلف المحفوظة.')}</p>
+            <p>{t('count.return.consequence', 'يرجع الجرد إلى الأمين ليعيد العدّ، ويُمسح الرصيد المسجّل المأخوذ، وتبقى الأسباب والكلف المحفوظة.')}</p>
             <Field id="count-return-reason" label={t('reason', 'السبب')}>
               <input id="count-return-reason" className="input" maxLength={500} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} />
             </Field>
@@ -1104,9 +1106,9 @@ function CountReview({
       />
       <ConfirmDialog
         open={confirm === 'close'}
-        title={t('count.close.title', 'أغلِق جرد «{store}» دون ترحيل', { store: store.name })}
+        title={t('count.close.title', 'أغلِق جرد «{store}» دون حفظ', { store: store.name })}
         consequence={t('count.close.consequence', 'يصير الجرد بتاريخ {day} ملغى بلا رقم ولا حركات ولا مصروف، ولا يرجع.', { day: fmtDay(doc.onDate) })}
-        confirmLabel={t('count.close', 'أغلِق دون ترحيل')}
+        confirmLabel={t('count.close', 'أغلِق دون حفظ')}
         busy={busy}
         action="confirm-close-count"
         onConfirm={close}
@@ -1115,7 +1117,7 @@ function CountReview({
       {confirm === 'void' && doc.docNo ? (
         <VoidDocDialog
           title={t('count.void.title', 'ألغِ الجرد {no}', { no: doc.docNo })}
-          consequence={t('count.void.consequence', 'تُعكس كل حركات الجرد {no} في «{store}» (النقص يرجع لدفعاته والزيادة تُسحب)، ويُعكس «فرق الجرد».', { no: doc.docNo, store: store.name })}
+          consequence={t('count.void.consequence', 'تُعكس كل حركات الجرد {no} في «{store}» (النقص يرجع لوجباته والزيادة تُسحب)، ويُعكس «فرق الجرد».', { no: doc.docNo, store: store.name })}
           busy={busy}
           failure={failure}
           onConfirm={(reason) => void voidIt(reason)}
@@ -1291,7 +1293,7 @@ export function CountsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.counts', 'الجرد')} subtitle={t('count.list.subtitle', 'العادّ يعدّ ويسلّم، والمدير يراجع ويوافق؛ الموافقة ترحّل الفرق.')} />
+      <PageHeader title={t('stock.counts', 'الجرد')} subtitle={t('count.list.subtitle', 'العادّ يعدّ ويسلّم، والمدير يراجع ويحفظ نهائياً.')} />
       {!counter ? <Notice tone="info" title={t('count.forbidden', 'الجرد لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {counter && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {counter && setup.data ? <NewCount stores={scopedStores(stores, workspace)} onSaved={(id) => navigate(`/inventory/counts/${id}`)} /> : null}

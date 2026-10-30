@@ -178,7 +178,7 @@ export default async function (t) {
       t.ok(text().includes('كاز أويل') && byAction('add-device-line').length === 1, 'F1 ضابط: بلا نت السطر المكتوب بجدول سطور الجهاز');
       m.onlineStore.set(true);
       await settle();
-      t.ok(text().includes('سطور المسوّدة على هذا الجهاز') && text().includes('كاز أويل'), `F1: رجع الاتصال والسطر المكتوب بلا نت باقٍ على الشاشة (الزرّ «${byAction('new-transfer')[0]?.textContent}»)`);
+      t.ok(text().includes('سطور الورقة على هذا الجهاز') && text().includes('كاز أويل'), `F1: رجع الاتصال والسطر المكتوب بلا نت باقٍ على الشاشة (الزرّ «${byAction('new-transfer')[0]?.textContent}»)`);
       await submitNewTransfer();
       const created = calls.filter(([n]) => n === 'createTransferDraft');
       const lines = calls.filter(([n]) => n === 'addTransferLine');
@@ -247,7 +247,7 @@ export default async function (t) {
       t.ok(text().includes('هذه المادّة غير موجودة') && byAction('remove-device-line').length === 1, 'F3: الرفّ يعرض السطر المرفوض بتلميحه وزرّ حذفه');
       fire(byAction('drop-device-draft')[0], 'click');
       await settle();
-      t.ok(text().includes('تُحذف مسوّدة'), 'F3: حذف المسوّدة من الجهاز بتأكيد يسمّيها');
+      t.ok(text().includes('تُحذف ورقة'), 'F3: حذف المسوّدة من الجهاز بتأكيد يسمّيها');
       fire(byAction('confirm-drop-device')[0], 'click');
       await settle();
       t.same([(await m.listDeviceDrafts({ userId: 'u-1', orgId: 'org-1' }, 'transfer')).length, byAction('upload-device-draft').length], [0, 0], 'F3: بعد التأكيد انحذفت من الجهاز والرفّ فارغ');
@@ -278,7 +278,7 @@ export default async function (t) {
       await settle();
       const posts = calls.filter(([n]) => n === 'postTransferDoc').map(([, args]) => args[3]);
       const approvedAfter = byAction('approve-line').filter((n) => n.checked).length;
-      t.same([posts, previews, text().includes('تغيّر المخزون بعد المعاينة فلم يُرحَّل التحويل'), approvedAfter, byAction('post-transfer')[0]?.getAttribute('disabled') !== null], [['plan-1'], 2, true, 0, true], 'F6: الترحيل ببصمة المعاينة، وstale_preview يعيد المعاينة بالتنبيه وتنمسح الموافقة');
+      t.same([posts, previews, text().includes('تغيّر المخزون بعد المراجعة فلم يُحفظ التحويل'), approvedAfter, byAction('post-transfer')[0]?.getAttribute('disabled') !== null], [['plan-1'], 2, true, 0, true], 'F6: الترحيل ببصمة المعاينة، وstale_preview يعيد المعاينة بالتنبيه وتنمسح الموافقة');
       tick(byAction('approve-line')[0]);
       await settle();
       fire(byAction('post-transfer')[0], 'click');

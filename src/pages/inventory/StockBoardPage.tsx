@@ -224,7 +224,7 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
     <div className="flex flex-col gap-4">
       <PageHeader
         title={boardTitle(division)}
-        subtitle={t('stock.board.subtitle', 'الرصيد بوحدة الأساس، والمنتهي في عمود منفصل لا يُسحب.')}
+        subtitle={t('stock.board.subtitle', 'الرصيد بالوحدة التي تُعدّ بها كل مادّة، والمنتهي في عمود منفصل لا يُسحب.')}
         actions={
           <nav className="flex flex-wrap gap-2" aria-label={t('stock.board.links', 'روابط المخزون')}>
             {role && (can(role, 'receipt.draft') || can(role, 'receipt.amounts')) ? (
@@ -254,7 +254,7 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
             {role && can(role, 'opening.post') ? (
               <Link to="/inventory/openings" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-openings">
                 <ClipboardList aria-hidden="true" className="size-4" />
-                {t('stock.openings', 'رصيد الافتتاح')}
+                {t('stock.openings', 'الرصيد عند البداية')}
               </Link>
             ) : null}
             <Link to="/inventory/items" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-items">

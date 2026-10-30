@@ -10,6 +10,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { PostPreview, previewReady, type PreviewLine } from '../../components/ui/PostPreview';
 import { QtyInput, type QtyUnitOption, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { toast } from '../../components/ui/Toast';
 import { announceZeroBalance, WholeBalanceConfirm, type WholeLine } from '../../components/ui/WholeBalance';
 import { decimalText } from '../../domain/decimal';
@@ -31,7 +32,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // التحويل والصادر الداخلي (الخطّة WP4، FOUNDATION ٥٥٤، القاعدة 15، Q4): الأمين ينشئ المسوّدة من مخزن بنطاقه لأي مخزن فعّال يقبل
 // المادّة، والشاشة تكول «صادر داخلي إلى …» بين وحدتين. المعاينة تسحب بالدفعات (والنقص يبقي المسوّدة، «سجّل الاستلام أو الجرد»)،
@@ -165,7 +166,8 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
 
 /** اسم وحدة السطر كما كُتب: الطن، أو وحدة التعبئة، أو وحدة الأساس. */
 function enteredUnit(line: TransferLine): string {
-  if (line.unitCode === 't') return t('unit.t', 'طن');
+  const code = codeUnitLabel(line.unitCode);
+  if (code) return code;
   if (line.itemUnitId) return line.unitLabel;
   return baseUnitLabel(line.baseUnit);
 }
@@ -204,10 +206,13 @@ function TransferEditor({ docId }: { docId: string }) {
   const [failure, setFailure] = useState<unknown>(null);
   // المعاينة انعادت لأن المخزون تغيّر بعد الموافقة (stale_preview): تنبيه فوق المعاينة الجديدة لحد ما تنوافق وتترحّل.
   const [restaled, setRestaled] = useState(false);
-  const refresh = () => {
+  const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
     setRestaled(false);
+  };
+  const refresh = () => {
+    closeReview();
     setTick((n) => n + 1);
   };
   if (doc.error) return <LoadFailed what={t('transfer.what', 'التحويل')} error={doc.error} onRetry={doc.retry} />;
@@ -237,7 +242,7 @@ function TransferEditor({ docId }: { docId: string }) {
       setFailure(outcome.error);
       return;
     }
-    if (outcome.kind === 'done') toast({ tone: 'success', title: t('transfer.posted', 'رُحّل التحويل {no}', { no: outcome.result.docNo ?? '' }) });
+    if (outcome.kind === 'done') toast({ tone: 'success', title: t('transfer.posted', 'حُفظ التحويل {no} نهائياً', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     announceZeroBalance(whole, from?.name ?? '');
     refresh();
@@ -286,7 +291,7 @@ function TransferEditor({ docId }: { docId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={current.docNo ? t('transfer.title.no', 'التحويل {no}', { no: current.docNo }) : t('transfer.title.draft', 'مسوّدة تحويل')}
+        title={current.docNo ? t('transfer.title.no', 'التحويل {no}', { no: current.docNo }) : t('transfer.title.draft', 'تحويل غير محفوظ بعد')}
         subtitle={t('transfer.subtitle', '{status} — من «{from}» إلى «{to}» بتاريخ {day}', { status: docStatusLabel(current.status), from: from?.name ?? '—', to: to?.name ?? '—', day: fmtDay(current.onDate) })}
         actions={
           <Link to="/inventory/transfers" className="text-sm font-medium text-brand-700 dark:text-brand-200">
@@ -296,7 +301,7 @@ function TransferEditor({ docId }: { docId: string }) {
       />
       {exportTo ? (
         <Notice tone="info" title={t('transfer.export', 'صادر داخلي إلى {division}', { division: divisionLabel(exportTo.divisionKind) })}>
-          {t('transfer.export.detail', 'ينتقل بالكلفة بلا ربح ولا قيد جهة.')}
+          {t('transfer.export.detail', 'ينتقل بالكلفة بلا ربح ولا حركة جهة.')}
         </Notice>
       ) : null}
       {current.voidReason ? <Notice tone="warning" title={t('transfer.voided', 'أُلغي هذا التحويل')}>{current.voidReason}</Notice> : null}
@@ -310,42 +315,50 @@ function TransferEditor({ docId }: { docId: string }) {
       {draft ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-transfer">
-              {t('transfer.preview', 'عاين السحب')}
+            <Button busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-transfer">
+              {t('transfer.preview', 'راجع واحفظ')}
             </Button>
             <Button variant="ghost" onClick={() => setConfirm('discard')} disabled={busy} data-action="discard-transfer">
-              {t('transfer.discard', 'اطوِ المسوّدة')}
+              {t('transfer.discard', 'احذف الورقة')}
             </Button>
           </div>
-          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الترحيل يحتاج اتصالاً بالخادم؛ المسوّدة باقية حتى يعود الاتصال.')} /> : null}
-          {preview ? (
-            <>
-              {restaled ? (
-                <Notice tone="warning" title={t('transfer.restaled', 'تغيّر المخزون بعد المعاينة فلم يُرحَّل التحويل')}>
-                  {t('transfer.restaled.detail', 'هذه معاينة جديدة بالدفعات الموجودة الآن؛ راجعها ووافق على كل سطر من جديد قبل الترحيل.')}
-                </Notice>
-              ) : null}
-              {preview.problems.map((problem) => (
-                <Notice key={problem.code} tone="danger" title={problem.hint} />
-              ))}
-              {preview.lines.filter((line) => line.problem).map((line) => (
-                <Notice key={line.lineId} tone="danger" title={line.problem?.hint ?? ''} />
-              ))}
-              <PostPreview
-                lines={previewLines(preview)}
-                approved={approved}
-                onToggle={(lineId, on) => {
-                  const next = new Set(approved);
-                  if (on) next.add(lineId);
-                  else next.delete(lineId);
-                  setApproved(next);
-                }}
-              />
-              <Button disabled={!ready} busy={busy} onClick={() => (whole.length ? setConfirm('whole') : void post())} data-action="post-transfer">
-                {t('transfer.post', 'رحّل التحويل')}
-              </Button>
-            </>
-          ) : null}
+          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الحفظ النهائي يحتاج اتصالاً بالإنترنت؛ الورقة باقية حتى يعود الاتصال.')} /> : null}
+          <ReviewDialog
+            open={preview !== null}
+            title={t('transfer.review.title', 'راجع التحويل قبل الحفظ')}
+            ready={ready}
+            busy={busy}
+            action="post-transfer"
+            onSave={() => (whole.length ? setConfirm('whole') : void post())}
+            onClose={closeReview}
+          >
+            {preview ? (
+              <>
+                {restaled ? (
+                  <Notice tone="warning" title={t('transfer.restaled', 'تغيّر المخزون بعد المراجعة فلم يُحفظ التحويل')}>
+                    {t('transfer.restaled.detail', 'هذه مراجعة جديدة بالوجبات الموجودة الآن؛ راجعها ووافق على كل سطر من جديد.')}
+                  </Notice>
+                ) : null}
+                {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+                {preview.problems.map((problem) => (
+                  <Notice key={problem.code} tone="danger" title={problem.hint} />
+                ))}
+                {preview.lines.filter((line) => line.problem).map((line) => (
+                  <Notice key={line.lineId} tone="danger" title={line.problem?.hint ?? ''} />
+                ))}
+                <PostPreview
+                  lines={previewLines(preview)}
+                  approved={approved}
+                  onToggle={(lineId, on) => {
+                    const next = new Set(approved);
+                    if (on) next.add(lineId);
+                    else next.delete(lineId);
+                    setApproved(next);
+                  }}
+                />
+              </>
+            ) : null}
+          </ReviewDialog>
         </div>
       ) : current.status === 'posted' ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-transfer">
@@ -354,9 +367,9 @@ function TransferEditor({ docId }: { docId: string }) {
       ) : null}
       <ConfirmDialog
         open={confirm === 'discard'}
-        title={t('transfer.discard.title', 'اطوِ مسوّدة التحويل')}
-        consequence={t('transfer.discard.consequence', 'تصير مسوّدة التحويل من «{from}» إلى «{to}» بتاريخ {day} ملغاة بلا رقم ولا حركات، ولا ترجع.', { from: from?.name ?? '—', to: to?.name ?? '—', day: fmtDay(current.onDate) })}
-        confirmLabel={t('transfer.discard', 'اطوِ المسوّدة')}
+        title={t('transfer.discard.title', 'احذف ورقة التحويل')}
+        consequence={t('transfer.discard.consequence', 'تُلغى ورقة التحويل من «{from}» إلى «{to}» بتاريخ {day} بلا رقم ولا حركات، ولا ترجع.', { from: from?.name ?? '—', to: to?.name ?? '—', day: fmtDay(current.onDate) })}
+        confirmLabel={t('transfer.discard', 'احذف الورقة')}
         busy={busy}
         action="confirm-discard-transfer"
         onConfirm={discard}
@@ -591,10 +604,10 @@ async function uploadNow(draft: DeviceDraft<ShelfPayload>): Promise<ShelfUpload>
       const remained = result.docId !== result.previous.docId;
       toast({
         tone: 'warning',
-        title: t('shelf.previous', 'المسوّدة السابقة على الخادم رُحّلت أو طُويت قبل اكتمال الرفع'),
+        title: t('shelf.previous', 'الورقة السابقة على الخادم حُفظت نهائياً أو حُذفت قبل اكتمال الرفع'),
         detail: remained
-          ? t('shelf.previous.detail', 'السطور التي وصلتها ({landed}) لم تُكرَّر، وصار الباقي مسوّدة جديدة.', { landed: fmtInt(result.previous.landed) })
-          : t('shelf.previous.all', 'كل السطور الباقية كانت قد وصلتها ({landed})، فلم تُكرَّر ولم تُنشأ مسوّدة جديدة.', { landed: fmtInt(result.previous.landed) }),
+          ? t('shelf.previous.detail', 'السطور التي وصلتها ({landed}) لم تُكرَّر، وصار الباقي ورقة جديدة.', { landed: fmtInt(result.previous.landed) })
+          : t('shelf.previous.all', 'كل السطور الباقية كانت قد وصلتها ({landed})، فلم تُكرَّر ولم تُنشأ ورقة جديدة.', { landed: fmtInt(result.previous.landed) }),
       });
     }
     return result;
@@ -640,23 +653,23 @@ export function shelfFailure(error: unknown): { title: string; detail: string } 
   if (error instanceof ShelfStaleError) {
     return error.what === 'draft'
       ? {
-          title: t('shelf.stale.draft', 'رُفعت هذه المسوّدة أو حُذفت في نافذة أخرى'),
-          detail: t('shelf.stale.draft.detail', 'لم يتغيّر شيء هنا. إن كانت قد رُفعت فسطورها في مسوّدة على الخادم: راجعها في القائمة واحذف منها ما لا تريده قبل الترحيل.'),
+          title: t('shelf.stale.draft', 'رُفعت هذه الورقة أو حُذفت في نافذة أخرى'),
+          detail: t('shelf.stale.draft.detail', 'لم يتغيّر شيء هنا. إن كانت قد رُفعت فسطورها في ورقة على الخادم: افتحها من القائمة واحذف منها ما لا تريده قبل الحفظ النهائي.'),
         }
       : { title: t('shelf.stale.line', 'رُفع هذا السطر أو تغيّر في نافذة أخرى'), detail: t('shelf.stale.line.detail', 'لم يُحذف شيء، وصار الرفّ مطابقاً لما على هذا الجهاز؛ راجع السطور ثم أعد.') };
   }
   if (error instanceof ShelfBusyError) {
-    return { title: t('shelf.busy', 'يُعمل على هذه المسوّدة في نافذة أخرى'), detail: t('shelf.busy.detail', 'انتظر حتى ينتهي الرفع أو الحذف هناك، ثم أعد المحاولة.') };
+    return { title: t('shelf.busy', 'يُعمل على هذه الورقة في نافذة أخرى'), detail: t('shelf.busy.detail', 'انتظر حتى ينتهي الرفع أو الحذف هناك، ثم أعد المحاولة.') };
   }
   if (error instanceof ShelfLineRejectedError) {
     return {
       title: t('shelf.rejected', 'رفض الخادم السطر «{item}»', { item: error.line.itemName }),
-      detail: t('shelf.rejected.detail', '{hint} احذف السطر من هذا الجهاز أو أزل سببه، ثم ارفع الباقي؛ ما ارتفع قبله صار في المسوّدة على الخادم.', { hint: error.hint ?? '' }),
+      detail: t('shelf.rejected.detail', '{hint} احذف السطر من هذا الجهاز أو أزل سببه، ثم ارفع الباقي؛ ما ارتفع قبله صار في الورقة على الخادم.', { hint: error.hint ?? '' }),
     };
   }
   const described = describeError(error);
   if (described.kind === 'network' || described.kind === 'unknown_outcome' || described.kind === 'retryable') {
-    return { title: described.title, detail: t('shelf.interrupted', 'ما ارتفع قبل الانقطاع صار في المسوّدة على الخادم، والباقي محفوظ على هذا الجهاز؛ «ارفع» تكمل من حيث وقفت بلا تكرار.') };
+    return { title: described.title, detail: t('shelf.interrupted', 'ما ارتفع قبل الانقطاع صار في الورقة على الخادم، والباقي محفوظ على هذا الجهاز؛ «ارفع» تكمل من حيث وقفت بلا تكرار.') };
   }
   return { title: described.title, detail: described.detail };
 }
@@ -678,7 +691,7 @@ function ShelfLines({ lines, busy, onRemove }: { lines: readonly ShelfLine[]; bu
     { key: 'entered', header: t('transfer.col.entered', 'كما كُتبت'), cell: (line) => shelfQtyText(line) },
     { key: 'state', header: t('shelf.col.state', 'الحالة'), cell: (line) => (line.rejected ? (line.rejected.hint ?? line.rejected.code) : t('shelf.line.waiting', 'ينتظر الرفع')) },
   ];
-  return <DataTable caption={t('shelf.lines.caption', 'سطور المسوّدة على هذا الجهاز')} columns={columns} rows={rows} rowKey={(line) => line.id || `${line.index}`} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />;
+  return <DataTable caption={t('shelf.lines.caption', 'سطور الورقة على هذا الجهاز')} columns={columns} rows={rows} rowKey={(line) => line.id || `${line.index}`} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />;
 }
 
 /**
@@ -728,7 +741,7 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
     }
     return () => controller.abort();
   }, [elsewhere]);
-  if (shelfFailed) return <LoadFailed what={t('shelf.title', 'مسوّدات هذا الجهاز')} error={shelfFailed} onRetry={() => { setShelfFailed(null); setOwn((n) => n + 1); }} />;
+  if (shelfFailed) return <LoadFailed what={t('shelf.title', 'أوراق غير محفوظة على هذا الجهاز')} error={shelfFailed} onRetry={() => { setShelfFailed(null); setOwn((n) => n + 1); }} />;
   const shown = (drafts ?? []).filter((draft) => !uploading.has(draft.id));
   if (shown.length === 0) return null;
   // المسوّدة راحت من الجهاز (رُفعت أو حُذفت بنافذة ثانية): الرفّ ينقرا بدونها وتنبيهها تحتها يروح ويّاها (أو الرفّ كلّه)، فيطلع
@@ -788,10 +801,10 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
   const target = dropping?.line ?? null;
   const droppingLine = dropping && target ? ((dropping.draft.payload.lines ?? []).find((line, n) => (target.id ? line.id === target.id : n === target.index)) ?? null) : null;
   return (
-    <section className="card flex flex-col gap-3 p-4" aria-label={t('shelf.title', 'مسوّدات هذا الجهاز')}>
-      <h2 className="font-semibold">{t('shelf.title', 'مسوّدات هذا الجهاز')}</h2>
-      <p className="text-sm text-ink-muted">{t('shelf.detail.lines', 'كُتبت بلا اتصال، ولا يراها غيرك. ارفعها لتصير مسوّدة بالخادم بسطورها، ثم عاينها ورحّلها.')}</p>
-      {!online ? <p className="text-sm text-ink-muted">{t('shelf.offline', 'الرفع يحتاج اتصالاً بالخادم؛ المسوّدات باقية على هذا الجهاز حتى يعود.')}</p> : null}
+    <section className="card flex flex-col gap-3 p-4" aria-label={t('shelf.title', 'أوراق غير محفوظة على هذا الجهاز')}>
+      <h2 className="font-semibold">{t('shelf.title', 'أوراق غير محفوظة على هذا الجهاز')}</h2>
+      <p className="text-sm text-ink-muted">{t('shelf.detail.lines', 'كُتبت بلا اتصال، ولا يراها غيرك. ارفعها لتصير ورقة على الخادم بسطورها، ثم «راجع واحفظ».')}</p>
+      {!online ? <p className="text-sm text-ink-muted">{t('shelf.offline', 'الرفع يحتاج اتصالاً بالإنترنت؛ الأوراق باقية على هذا الجهاز حتى يعود.')}</p> : null}
       <ul className="flex flex-col gap-3">
         {shown.map((draft) => {
           const lines = draft.payload.lines ?? [];
@@ -829,13 +842,13 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
       </ul>
       <ConfirmDialog
         open={dropping !== null}
-        title={droppingLine ? t('shelf.line.remove', 'احذف السطر من هذا الجهاز') : t('shelf.drop.title', 'احذف المسوّدة من هذا الجهاز')}
+        title={droppingLine ? t('shelf.line.remove', 'احذف السطر من هذا الجهاز') : t('shelf.drop.title', 'احذف الورقة من هذا الجهاز')}
         consequence={
           droppingLine
-            ? t('shelf.line.remove.consequence', 'يُحذف سطر «{item}» ({qty}) من مسوّدة «{title}» على هذا الجهاز ولا يرتفع، ولا يرجع.', { item: droppingLine.itemName, qty: shelfQtyText(droppingLine), title: dropping?.draft.title ?? '' })
-            : t('shelf.drop.consequence', 'تُحذف مسوّدة «{title}» وسطورها الباقية ({count}) من هذا الجهاز ولا ترجع؛ ما ارتفع منها قبل يبقى في المسوّدة على الخادم.', { title: dropping?.draft.title ?? '', count: fmtInt((dropping?.draft.payload.lines ?? []).length) })
+            ? t('shelf.line.remove.consequence', 'يُحذف سطر «{item}» ({qty}) من ورقة «{title}» على هذا الجهاز ولا يرتفع، ولا يرجع.', { item: droppingLine.itemName, qty: shelfQtyText(droppingLine), title: dropping?.draft.title ?? '' })
+            : t('shelf.drop.consequence', 'تُحذف ورقة «{title}» وسطورها الباقية ({count}) من هذا الجهاز ولا ترجع؛ ما ارتفع منها قبل يبقى في الورقة على الخادم.', { title: dropping?.draft.title ?? '', count: fmtInt((dropping?.draft.payload.lines ?? []).length) })
         }
-        confirmLabel={droppingLine ? t('shelf.line.remove.confirm', 'احذف السطر') : t('shelf.drop.confirm', 'احذف المسوّدة')}
+        confirmLabel={droppingLine ? t('shelf.line.remove.confirm', 'احذف السطر') : t('shelf.drop.confirm', 'احذف الورقة')}
         busy={busy !== ''}
         action="confirm-drop-device"
         onConfirm={() => void drop()}
@@ -863,7 +876,7 @@ export function deviceLine(item: ItemRow | null, qty: QtyValue, units: readonly 
   if (!item || amount === null || amount <= 0n || !unit) return { problem: t('transfer.line.fields', 'اختر المادّة واكتب كمية أكبر من صفر.') };
   const converted = toBase(amount, unit.factor, item.baseUnit);
   if (!converted.ok) return { problem: t('qty.pieces_whole', 'يجب أن يكون عدد القطع صحيحاً') };
-  if (converted.qty <= 0n) return { problem: t('transfer.line.zero_base', 'الكمية بوحدة الأساس قُرِّبت إلى صفر. اكتب كمية أكبر.') };
+  if (converted.qty <= 0n) return { problem: t('transfer.line.zero_base', 'الكمية قُرِّبت إلى صفر. اكتب كمية أكبر.') };
   const code = qty.unitId.startsWith('code:') ? qty.unitId.slice('code:'.length) : null;
   const pack = qty.unitId !== 'base' && !code ? qty.unitId : null;
   return { id, itemId: item.id, itemName: item.name, baseUnit: item.baseUnit, itemUnitId: pack, unitCode: code, unitLabel: unit.label, qtyInUnit: decimalText(amount, 3) };
@@ -923,7 +936,7 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <div className="flex flex-col gap-3">
-      <DataTable caption={t('shelf.lines.caption', 'سطور المسوّدة على هذا الجهاز')} columns={columns} rows={lines.map((line, n) => ({ ...line, key: `${n}` }))} rowKey={(line) => line.key} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
+      <DataTable caption={t('shelf.lines.caption', 'سطور الورقة على هذا الجهاز')} columns={columns} rows={lines.map((line, n) => ({ ...line, key: `${n}` }))} rowKey={(line) => line.key} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
       <ItemPicker
         id={`${id}-item`}
         label={t('stock.col.item', 'المادّة')}
@@ -1003,13 +1016,13 @@ function NewTransfer({ sources, all, stamp, onShelf, onSaved }: { sources: reado
         setLines([]);
         if (!online) {
           onShelf();
-          toast({ tone: 'info', title: t('shelf.saved', 'حُفظت المسوّدة على هذا الجهاز؛ ارفعها حين يعود الاتصال.') });
+          toast({ tone: 'info', title: t('shelf.saved', 'حُفظت الورقة على هذا الجهاز؛ ارفعها حين يعود الاتصال.') });
           return;
         }
         try {
           navigate(`/inventory/transfers/${(await uploadNow(saved)).docId}`);
         } catch (error) {
-          toast({ tone: 'warning', title: t('shelf.saved_not_uploaded', 'حُفظت المسوّدة بسطورها على هذا الجهاز ولم يكتمل رفعها؛ أكملها من «مسوّدات هذا الجهاز».') });
+          toast({ tone: 'warning', title: t('shelf.saved_not_uploaded', 'حُفظت الورقة بسطورها على هذا الجهاز ولم يكتمل رفعها؛ أكملها من «أوراق غير محفوظة على هذا الجهاز».') });
           setFailure(error);
         } finally {
           onSaved();
@@ -1058,7 +1071,7 @@ function NewTransfer({ sources, all, stamp, onShelf, onSaved }: { sources: reado
         </Notice>
       ) : null}
       <Button type="submit" busy={busy} data-action="new-transfer">
-        {!online ? t('transfer.new.device', 'احفظها على هذا الجهاز') : lines.length > 0 ? t('transfer.new.upload', 'ارفع المسوّدة بسطورها') : t('transfer.new.create', 'أنشئ المسوّدة')}
+        {!online ? t('transfer.new.device', 'احفظها على هذا الجهاز') : lines.length > 0 ? t('transfer.new.upload', 'ارفع الورقة بسطورها') : t('transfer.new.create', 'ابدأ')}
       </Button>
     </form>
   );

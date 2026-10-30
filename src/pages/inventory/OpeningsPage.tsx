@@ -10,6 +10,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { LotsPreview, creationReady, type CreatedLot } from '../../components/ui/LotsPreview';
 import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { ReviewDialog } from '../../components/ui/ReviewDialog';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
@@ -36,7 +37,7 @@ import { docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRe
 // بسببه، والمسوّدة تنطوي بلا رقم ولا حركات. المعاينة والترحيل يحتاجان الشبكة: بلا نت زرّاهما معطّلان والسبب ظاهر (الخطّة WP4).
 
 export function openingSentence(store: string, total: bigint, day: string): string {
-  return t('opening.post.summary', 'رصيد افتتاحي لـ«{store}» بتاريخ {day}، بقيمة {total} دينار.', { store, day: fmtDay(day), total: fmtMoney(total) });
+  return t('opening.post.summary', 'الرصيد عند البداية لـ«{store}» بتاريخ {day}، بقيمة {total} دينار.', { store, day: fmtDay(day), total: fmtMoney(total) });
 }
 
 /**
@@ -44,7 +45,7 @@ export function openingSentence(store: string, total: bigint, day: string): stri
  */
 export function openingVoidSentence(store: string, lines: readonly Pick<OpeningLine, 'qty' | 'baseUnit' | 'itemName'>[]): string {
   const out = lines.map((line) => t('opening.void.line', '{qty} من «{item}»', { qty: fmtQty(line.qty, line.baseUnit).main, item: line.itemName })).join(t('list.separator', '، '));
-  return t('opening.void.sentence', 'يخرج من «{store}»: {out}. تنعكس دفعاته بتاريخ اليوم والأصل يبقى بيومه، وإن انسحب من دفعة منه رُفض الإلغاء باسم المستند.', { store, out });
+  return t('opening.void.sentence', 'يخرج من «{store}»: {out}. تنعكس وجباته بتاريخ اليوم والأصل يبقى بيومه، وإن سُحب من وجبة منه رُفض الإلغاء باسم الورقة.', { store, out });
 }
 
 /** الدفعات اللي راح تنخلق من معاينة الخادم: مشكلة السطر جملته نفسها. */
@@ -84,7 +85,7 @@ export function OpeningLinesTable({ lines, onDelete }: { lines: readonly Opening
       ),
     });
   }
-  return <DataTable caption={t('opening.lines', 'سطور الافتتاح')} columns={columns} rows={lines} rowKey={(line) => line.id} empty={t('opening.lines.empty', 'لا سطور بعد.')} />;
+  return <DataTable caption={t('opening.lines', 'سطور الرصيد عند البداية')} columns={columns} rows={lines} rowKey={(line) => line.id} empty={t('opening.lines.empty', 'لا سطور بعد.')} />;
 }
 
 function OpeningEditor({ docId }: { docId: string }) {
@@ -96,15 +97,18 @@ function OpeningEditor({ docId }: { docId: string }) {
   const setup = useLoad(inventory.loadOrgSetup);
   const [preview, setPreview] = useState<OpeningPreview | null>(null);
   const [approved, setApproved] = useState(new Set<string>());
-  const [confirm, setConfirm] = useState<'post' | 'discard' | 'void' | null>(null);
+  const [confirm, setConfirm] = useState<'discard' | 'void' | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
-  const refresh = () => {
+  const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
+  };
+  const refresh = () => {
+    closeReview();
     setTick((n) => n + 1);
   };
-  if (doc.error) return <LoadFailed what={t('opening.what', 'مستند الافتتاح')} error={doc.error} onRetry={doc.retry} />;
+  if (doc.error) return <LoadFailed what={t('opening.what', 'ورقة الرصيد عند البداية')} error={doc.error} onRetry={doc.retry} />;
   if (setup.error) return <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />;
   if (!doc.data || !setup.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
   const current: StockDoc = doc.data.doc;
@@ -133,7 +137,7 @@ function OpeningEditor({ docId }: { docId: string }) {
     setConfirm(null);
     if (outcome.kind === 'failed') setFailure(outcome.error);
     else {
-      toast({ tone: 'success', title: outcome.kind === 'recorded' ? t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') : t('opening.posted', 'رُحّل الرصيد الافتتاحي') });
+      toast({ tone: 'success', title: outcome.kind === 'recorded' ? t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') : t('opening.posted', 'حُفظ الرصيد عند البداية نهائياً') });
       refresh();
     }
   };
@@ -169,15 +173,15 @@ function OpeningEditor({ docId }: { docId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={t('opening.title', 'رصيد افتتاح «{store}»', { store: store?.name ?? '—' })}
+        title={t('opening.title', 'الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' })}
         subtitle={t('opening.subtitle', '{status} — بتاريخ {day}', { status: docStatusLabel(current.status), day: fmtDay(current.onDate) })}
         actions={
           <Link to="/inventory/openings" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('opening.back', 'كل مستندات الافتتاح')}
+            {t('opening.back', 'كل أوراق الرصيد عند البداية')}
           </Link>
         }
       />
-      {current.voidReason ? <Notice tone="warning" title={t('opening.voided', 'أُلغي هذا الافتتاح')}>{current.voidReason}</Notice> : null}
+      {current.voidReason ? <Notice tone="warning" title={t('opening.voided', 'أُلغي هذا الرصيد')}>{current.voidReason}</Notice> : null}
       <OpeningLinesTable lines={lines} onDelete={draft ? deleteLine : null} />
       {draft && store ? (
         <AddLineFormFor
@@ -196,56 +200,54 @@ function OpeningEditor({ docId }: { docId: string }) {
       {draft ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-opening">
-              {t('opening.preview', 'عاين الدفعات')}
+            <Button busy={busy && !preview} onClick={runPreview} disabled={!online} data-action="preview-opening">
+              {t('opening.preview', 'راجع واحفظ')}
             </Button>
             <Button variant="ghost" onClick={() => setConfirm('discard')} data-action="discard-opening">
-              {t('opening.discard', 'اطوِ المسوّدة')}
+              {t('opening.discard', 'احذف الورقة')}
             </Button>
           </div>
-          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الترحيل يحتاج اتصالاً بالخادم؛ المسوّدة باقية حتى يعود الاتصال.')} /> : null}
-          {preview ? (
-            <>
-              {preview.problems.map((problem) => (
-                <Notice key={problem.code} tone="danger" title={problem.hint} />
-              ))}
-              <LotsPreview
-                lots={createdLots(preview)}
-                approved={approved}
-                onToggle={(lineId, on) => {
-                  const next = new Set(approved);
-                  if (on) next.add(lineId);
-                  else next.delete(lineId);
-                  setApproved(next);
-                }}
-              />
-              <Button disabled={!openingPostReady(preview, approved, online)} onClick={() => setConfirm('post')} data-action="post-opening">
-                {t('opening.post', 'رحّل الرصيد الافتتاحي')}
-              </Button>
-            </>
-          ) : null}
+          {!online ? <Notice tone="warning" title={t('transfer.offline', 'الحفظ النهائي يحتاج اتصالاً بالإنترنت؛ الورقة باقية حتى يعود الاتصال.')} /> : null}
+          <ReviewDialog
+            open={preview !== null}
+            title={t('opening.post.title', 'راجع الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' })}
+            ready={preview !== null && openingPostReady(preview, approved, online)}
+            busy={busy}
+            action="post-opening"
+            onSave={() => void post()}
+            onClose={closeReview}
+          >
+            {preview ? (
+              <>
+                <p className="font-medium">{openingSentence(storeName, total, current.onDate)}</p>
+                {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
+                {preview.problems.map((problem) => (
+                  <Notice key={problem.code} tone="danger" title={problem.hint} />
+                ))}
+                <LotsPreview
+                  lots={createdLots(preview)}
+                  approved={approved}
+                  onToggle={(lineId, on) => {
+                    const next = new Set(approved);
+                    if (on) next.add(lineId);
+                    else next.delete(lineId);
+                    setApproved(next);
+                  }}
+                />
+              </>
+            ) : null}
+          </ReviewDialog>
         </div>
       ) : current.status === 'posted' ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-opening">
-          {t('opening.void', 'ألغِ الافتتاح')}
+          {t('opening.void', 'ألغِ الرصيد عند البداية')}
         </Button>
       ) : null}
       <ConfirmDialog
-        open={confirm === 'post'}
-        title={t('opening.post.title', 'رحّل رصيد افتتاح «{store}»', { store: store?.name ?? '—' })}
-        consequence={openingSentence(storeName, total, current.onDate)}
-        confirmLabel={t('opening.post', 'رحّل الرصيد الافتتاحي')}
-        tone="primary"
-        busy={busy}
-        action="confirm-post-opening"
-        onConfirm={() => void post()}
-        onCancel={() => setConfirm(null)}
-      />
-      <ConfirmDialog
         open={confirm === 'discard'}
-        title={t('opening.discard.title', 'اطوِ مسوّدة افتتاح «{store}»', { store: store?.name ?? '—' })}
-        consequence={t('opening.discard.consequence', 'تصير المسوّدة ملغاة بلا رقم ولا حركات، ولا ترجع.')}
-        confirmLabel={t('opening.discard', 'اطوِ المسوّدة')}
+        title={t('opening.discard.title', 'احذف ورقة الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' })}
+        consequence={t('opening.discard.consequence', 'تُلغى الورقة بلا رقم ولا حركات، ولا ترجع.')}
+        confirmLabel={t('opening.discard', 'احذف الورقة')}
         busy={busy}
         action="confirm-discard-opening"
         onConfirm={discard}
@@ -253,7 +255,7 @@ function OpeningEditor({ docId }: { docId: string }) {
       />
       {confirm === 'void' ? (
         <VoidDocDialog
-          title={t('opening.void.title', 'ألغِ افتتاح «{store}»', { store: store?.name ?? '—' })}
+          title={t('opening.void.title', 'ألغِ الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' })}
           consequence={openingVoidSentence(store?.name ?? '—', lines)}
           busy={busy}
           failure={failure}
@@ -433,7 +435,7 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <h2 className="font-semibold">{t('opening.new', 'افتتاح جديد')}</h2>
+      <h2 className="font-semibold">{t('opening.new', 'رصيد عند البداية لمخزن')}</h2>
       <StoreSelect id={`${id}-store`} label={t('stock.store', 'المخزن')} stores={stores.filter((s) => !s.archived)} value={store} onChange={setStore} />
       <Field id={`${id}-day`} label={t('opening.day', 'التاريخ (يوم/شهر/سنة)')} hint={t('opening.day.hint', 'يوم تشغيل الوحدة أو قبله، مثل {day}.', { day: fmtDay(localDay()) })}>
         <input id={`${id}-day`} className="input" dir="ltr" inputMode="numeric" value={day} onChange={(event) => setDay(event.target.value)} />
@@ -444,7 +446,7 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
         </Notice>
       ) : null}
       <Button type="submit" busy={busy} data-action="new-opening">
-        {t('opening.new.create', 'أنشئ المسوّدة')}
+        {t('opening.new.create', 'ابدأ')}
       </Button>
     </form>
   );
@@ -465,16 +467,16 @@ export function OpeningsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.openings', 'رصيد الافتتاح')} subtitle={t('opening.list.subtitle', 'مستند لكل مخزن بيوم تشغيل وحدته أو قبله.')} />
-      {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'رصيد الافتتاح للمدير ومالك المنشأة.')} /> : null}
+      <PageHeader title={t('stock.openings', 'الرصيد عند البداية')} subtitle={t('opening.list.subtitle', 'مستند لكل مخزن بيوم تشغيل وحدته أو قبله.')} />
+      {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'الرصيد عند البداية للمدير ومالك المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewOpening stores={stores} /> : null}
       {docs.first.error ? (
-        <LoadFailed what={t('opening.list.what', 'مستندات الافتتاح')} error={docs.first.error} onRetry={docs.first.retry} />
+        <LoadFailed what={t('opening.list.what', 'أوراق الرصيد عند البداية')} error={docs.first.error} onRetry={docs.first.retry} />
       ) : docs.first.data ? (
         <>
-          <DataTable caption={t('stock.openings', 'رصيد الافتتاح')} columns={columns} rows={docs.rows} rowKey={(doc) => doc.id} empty={t('opening.list.empty', 'لا مستندات افتتاح بعد.')} />
-          <PageFooter shown={docs.rows.length} total={docs.total} next={docs.next !== null} busy={docs.more.busy} error={docs.more.error} what={t('opening.list.what', 'مستندات الافتتاح')} onMore={docs.loadMore} action="more-openings" />
+          <DataTable caption={t('stock.openings', 'الرصيد عند البداية')} columns={columns} rows={docs.rows} rowKey={(doc) => doc.id} empty={t('opening.list.empty', 'لا أوراق رصيد عند البداية بعد.')} />
+          <PageFooter shown={docs.rows.length} total={docs.total} next={docs.next !== null} busy={docs.more.busy} error={docs.more.error} what={t('opening.list.what', 'أوراق الرصيد عند البداية')} onMore={docs.loadMore} action="more-openings" />
         </>
       ) : null}
     </div>

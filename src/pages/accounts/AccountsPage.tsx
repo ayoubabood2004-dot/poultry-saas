@@ -1,6 +1,6 @@
 import { HandCoins, Landmark, Plus, Receipt, Wallet } from 'lucide-react';
 import { useCallback, useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -101,7 +101,7 @@ export function SummaryCards({ summary }: { summary: AccountsSummary }) {
   const cards: { key: string; title: string; receivable: Fils; payable: Fils }[] = [
     {
       key: 'project',
-      title: partial ? t('accounts.project.scoped', 'المشروع: دفاتر نطاقك فقط') : t('accounts.project', 'المشروع'),
+      title: partial ? t('accounts.project.scoped', 'المشروع: حسابات نطاقك فقط') : t('accounts.project', 'المشروع'),
       receivable: summary.project.receivable,
       payable: summary.project.payable,
     },
@@ -110,8 +110,8 @@ export function SummaryCards({ summary }: { summary: AccountsSummary }) {
   return (
     <div className="flex flex-col gap-3">
       {partial ? (
-        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من دفاتر نطاقك: {visible} من {total}', { visible: summary.visibleBooks, total: summary.totalBooks })}>
-          {t('accounts.scoped.detail', 'نطاقك يغطّي بعض الدفاتر فقط، فالمجاميع لها وحدها.')}
+        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من حسابات نطاقك: {visible} من {total}', { visible: summary.visibleBooks, total: summary.totalBooks })}>
+          {t('accounts.scoped.detail', 'نطاقك يغطّي بعض الحسابات فقط، فالمجاميع لها وحدها.')}
         </Notice>
       ) : null}
       <dl className="grid gap-3 sm:grid-cols-2">
@@ -176,7 +176,20 @@ export default function AccountsPage() {
   const first = useLoad(loadFirst, key);
   const [more, setMore] = useState<{ key: string; rows: readonly PartyBalanceRow[]; next: BalancesCursor | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [dialog, setDialog] = useState<DialogState>(null);
+  // زرّا الرئيسية «دفعت لجهة» و«قبضت من جهة» يفتحان النافذة مباشرةً (?new=payout أو ?new=payment)، والإغلاق يشيل العلامة.
+  const [params, setParams] = useSearchParams();
+  const [dialog, setDialog] = useState<DialogState>(() => {
+    const wanted = params.get('new');
+    return allowed.pay && (wanted === 'payment' || wanted === 'payout') ? { kind: wanted, party: null } : null;
+  });
+  const closePayment = () => {
+    setDialog(null);
+    if (params.has('new')) setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('new');
+      return next;
+    }, { replace: true });
+  };
   const [busy, setBusy] = useState(false);
   const extra = more?.key === key ? more : null;
   const rows = first.data ? [...first.data.rows, ...(extra?.rows ?? [])] : [];
@@ -204,7 +217,7 @@ export default function AccountsPage() {
   const header = (
     <PageHeader
       title={t('nav.accounts', 'الحسابات')}
-      subtitle={t('accounts.subtitle', 'لنا عند الناس وعلينا للناس لكل دفتر، بلا مقاصّة بين دفترين.')}
+      subtitle={t('accounts.subtitle', 'لنا عند الناس وعلينا للناس لكل حساب، بلا مقاصّة بين حسابين.')}
       actions={
         <>
           {allowed.pay ? (
@@ -283,7 +296,7 @@ export default function AccountsPage() {
         </Link>
         {allowed.opening ? (
           <Link to="/accounts/openings" className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-openings">
-            {t('openings.title', 'أرصدة الافتتاح')}
+            {t('openings.title', 'الأرصدة عند البداية')}
           </Link>
         ) : null}
       </nav>
@@ -305,7 +318,7 @@ export default function AccountsPage() {
         <Switch id={allId} label={t('accounts.all', 'كل الجهات')} description={t('accounts.all.detail', 'وبلا رصيد أيضاً.')} checked={all} onChange={setAll} />
       </div>
       {pending && books.error ? (
-        <LoadFailed what={t('book.list', 'قائمة الدفاتر')} error={books.error} onRetry={books.retry} />
+        <LoadFailed what={t('book.list', 'قائمة الحسابات')} error={books.error} onRetry={books.retry} />
       ) : first.error ? (
         <LoadFailed what={t('accounts.parties', 'الجهات')} error={first.error} onRetry={refresh} />
       ) : pending || !first.data ? (
@@ -329,9 +342,9 @@ export default function AccountsPage() {
         <PaymentDialog
           kind={dialog.kind as PaymentKind}
           party={dialog.party}
-          onClose={() => setDialog(null)}
+          onClose={closePayment}
           onPosted={() => {
-            setDialog(null);
+            closePayment();
             refresh();
           }}
         />
@@ -355,7 +368,7 @@ export default function AccountsPage() {
           dialog?.kind === 'archive'
             ? dialog.row.archived
               ? t('party.restore.consequence', 'تعود «{name}» إلى القوائم، وتقبل قيوداً جديدة.', { name: dialog.row.name })
-              : t('party.archive.consequence', 'تختفي «{name}» من القوائم الجديدة ولا يُسجَّل عليها دين جديد، ويبقى كشفها. لا تُؤرشف وعليها رصيد بأي دفتر.', { name: dialog.row.name })
+              : t('party.archive.consequence', 'تختفي «{name}» من القوائم الجديدة ولا يُسجَّل عليها دين جديد، ويبقى كشفها. لا تُؤرشف وعليها رصيد بأي حساب.', { name: dialog.row.name })
             : null
         }
         confirmLabel={dialog?.kind === 'archive' && dialog.row.archived ? t('org.restore', 'أعِد') : t('org.archive', 'أرشف')}

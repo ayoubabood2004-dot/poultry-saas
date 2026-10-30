@@ -364,7 +364,7 @@ export default async function (t) {
       await settle();
       fire(byAction('confirm-drop-device')[0], 'click');
       await settle();
-      const refused = text().includes('يُعمل على هذه المسوّدة في نافذة أخرى');
+      const refused = text().includes('يُعمل على هذه الورقة في نافذة أخرى');
       const linesNow = (await m.listDeviceDrafts(STAMP, 'transfer')).find((d) => d.id === 'dd-c2b')?.payload.lines.map((l) => l.id) ?? null;
       release();
       await upA;

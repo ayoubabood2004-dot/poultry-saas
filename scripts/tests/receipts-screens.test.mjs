@@ -56,7 +56,7 @@ export default async function (t) {
   t.same([m.receivableKinds('farm'), m.receivableKinds('table_egg'), m.receivableKinds('general').includes('fuel'), m.receivableKinds('raw').includes('fuel')], [[], [], true, false], 'الحقل وبيض المائدة ما يستلمان، والوقود للعامّ بس');
 
   // ── جملة الإلغاء: رقم PU وعدد المواد بصيغته ────────────────────────────────────────────────────────────────────
-  t.eq(m.receiptVoidSentence('PU-2026-0042', 7), 'ألغِ الاستلام PU-2026-0042 — ستُعاد 7 مواد من المخزن، ويبقى المدفوع للمورّد دفعةً عليه.', 'جملة الإلغاء بالرقم و«7 مواد»');
+  t.eq(m.receiptVoidSentence('PU-2026-0042', 7), 'ألغِ الاستلام PU-2026-0042 — ستُعاد 7 مواد من المخزن، ويبقى المدفوع للمورّد مبلغاً عليه.', 'جملة الإلغاء بالرقم و«7 مواد»');
   t.same([m.receiptVoidSentence('PU-2026-0001', 1).includes('مادّة واحدة'), m.receiptVoidSentence('PU-2026-0001', 2).includes('مادّتان'), m.receiptVoidSentence('PU-2026-0001', 12).includes('12 مادّة')], [true, true, true], 'والواحدة والاثنتان والكثير بصيغها');
 
   // ── التحويل الحيّ بحقل الكمية (FOUNDATION ٧٦٨ بالفصحى) ──────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ export default async function (t) {
     { id: 'sale-only', itemId: 'i', packTypeId: null, label: 'طبقة', factor: 30_000_000n, isDefault: false, forPurchase: false, forSale: true, forRecipe: false, archived: false, version: 1 },
   ];
   const units = m.purchaseUnitOptions({ baseUnit: 'kg' }, packs);
-  t.same(units.map((u) => u.id), ['base', 'code:t', 'bag'], 'وحدات الشراء: الأساس والطن والكيس، بلا وحدة البيع وحدها');
+  t.same(units.map((u) => u.id), ['base', 'code:t', 'code:g', 'bag'], 'وحدات الشراء: الأساس والطن والغرام والكيس، بلا وحدة البيع وحدها');
   const conversion = (text) => textOf(m.renderToStaticMarkup(m.h(m.QtyInput, { id: 'q', label: 'الكمية', base: 'kg', units, value: { text, unitId: 'bag' }, onChange() {} })));
   t.same(
     ['47', '1', '2', '3'].map((text) => ['47 كيساً = 2,350 كغم', 'كيس واحد = 50 كغم', 'كيسان = 100 كغم', '3 أكياس = 150 كغم'].find((phrase) => conversion(text).includes(phrase)) ?? conversion(text)),
@@ -80,7 +80,7 @@ export default async function (t) {
   };
   const keeperPreview = m.parseReceiptPreview(wire);
   const keeperHtml = m.renderToStaticMarkup(m.h(m.ReceiptPreviewPanel, { preview: keeperPreview, approved: new Set(), onToggle() {} }));
-  t.ok(keeperPreview.money === null && !keeperHtml.includes('قيمة الدفعة') && !keeperHtml.includes('قيد المورّد'), 'معاينة الأمين: بلا money وبلا خانة قيمة ولا قيود');
+  t.ok(keeperPreview.money === null && !keeperHtml.includes('قيمة الوجبة') && !keeperHtml.includes('حركة المورّد'), 'معاينة الأمين: بلا money وبلا خانة قيمة ولا قيود');
   t.ok(keeperHtml.includes('data-action="approve-line"'), 'الموافقة لكل سطر بمعرّفه');
   const money = {
     lines: [{ line_id: 'a', line_total: '2350000', discount_share: '0.00', charge_share: '54166.67', value: '2404166.67', mass_kg: '5000.000' }],

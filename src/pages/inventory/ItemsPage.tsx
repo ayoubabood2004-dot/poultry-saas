@@ -8,6 +8,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { Segmented } from '../../components/ui/Segmented';
 import { Switch } from '../../components/ui/Switch';
 import { toast } from '../../components/ui/Toast';
 import { decimalText, toScale } from '../../domain/decimal';
@@ -57,6 +58,31 @@ export interface ItemFormState {
   minQty: string;
   barcode: string;
   altCodes: string[];
+  /** اسم وحدة العدّ للمادّة المعدودة الجديدة («قنينة»): ينحفظ صفّاً في item_units بمعامل 1 وافتراضياً. */
+  countName: string;
+}
+
+// نسخ صغيرة من stock-shared (countingLabel وcountName): استيراده من هنا يقسمه حزمة محفوظة تستورد stores-admin المستثناة (pwa-guard).
+function countingLabel(unit: BaseUnit): string {
+  if (unit === 'kg') return t('items.count.kg', 'بالوزن (كيلوغرام)');
+  if (unit === 'L') return t('items.count.L', 'بالحجم (لتر)');
+  return t('items.count.pc', 'بالعدد');
+}
+
+/** اسم وحدة العدّ: وحدة فعّالة بمعامل 1 لمادّة معدودة (مثل countName في stock-shared). */
+function countName(item: Pick<ItemRow, 'baseUnit'>, rows: readonly ItemUnitRow[]): string | null {
+  return item.baseUnit === 'pc' ? (rows.find((row) => !row.archived && row.factor === 1_000_000n)?.label ?? null) : null;
+}
+
+/** اقتراحات اسم وحدة العدّ (كلمة المالك 2026-10-31)، والكتابة الحرّة مسموحة. */
+export function countNameSuggestions(): string[] {
+  return [t('items.count_name.piece', 'قطعة'), t('items.count_name.bottle', 'قنينة'), t('items.count_name.sachet', 'ظرف'), t('items.count_name.box', 'علبة'), t('items.count_name.bag', 'كيس'), t('items.count_name.dose', 'جرعة'), t('items.count_name.ampoule', 'أمبولة')];
+}
+
+/** اسم وحدة العدّ الذي يُحفظ بعد إنشاء المادّة، أو null (بالوزن والحجم، أو فارغ، أو «قطعة» نفسها). */
+export function countUnitToCreate(form: Pick<ItemFormState, 'baseUnit' | 'countName'>): string | null {
+  const name = form.countName.trim();
+  return form.baseUnit === 'pc' && name !== '' && name !== t('unit.pc', 'قطعة') ? name.slice(0, 40) : null;
 }
 
 export function formOf(item: ItemRow | null): ItemFormState {
@@ -72,6 +98,7 @@ export function formOf(item: ItemRow | null): ItemFormState {
     minQty: fieldText(item?.minQty ?? null, 3),
     barcode: item?.barcode ?? '',
     altCodes: [...(item?.altCodes ?? [])],
+    countName: '',
   };
 }
 
@@ -143,7 +170,7 @@ export function ItemsTable({ rows, categories, onOpen }: { rows: readonly ItemRo
     { key: 'name', header: t('items.col.name', 'المادّة'), wrap: true, cell: (item) => (item.archived ? t('items.archived.name', '{name} (مؤرشفة)', { name: item.name }) : item.name) },
     { key: 'kind', header: t('items.col.kind', 'النوع'), cell: (item) => itemKindLabel(item.kind) },
     { key: 'category', header: t('items.col.category', 'التصنيف'), cell: (item) => (item.categoryId ? (names.get(item.categoryId) ?? '—') : '—') },
-    { key: 'unit', header: t('items.col.unit', 'وحدة الأساس'), cell: (item) => baseUnitLabel(item.baseUnit) },
+    { key: 'unit', header: t('items.col.unit', 'تُعدّ'), cell: (item) => countingLabel(item.baseUnit) },
     { key: 'codes', header: t('items.col.codes', 'الرموز'), cell: (item) => (item.barcode || item.altCodes.length ? <bdi dir="ltr">{[item.barcode, ...item.altCodes].filter(Boolean).join(t('list.separator', '، '))}</bdi> : '—') },
     ...minColumns(rows),
   ];
@@ -159,7 +186,7 @@ export function ItemsTable({ rows, categories, onOpen }: { rows: readonly ItemRo
                 {t('items.edit', 'عدّل')}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => onOpen(item, 'units')} aria-label={t('items.units.for', 'وحدات {name}', { name: item.name })} data-action="item-units">
-                {t('items.units', 'وحدات التعبئة')}
+                {t('items.units', 'التعبئة')}
               </Button>
             </>
           )}
@@ -173,7 +200,7 @@ export function ItemsTable({ rows, categories, onOpen }: { rows: readonly ItemRo
   return <DataTable caption={t('items.caption', 'المواد')} columns={columns} rows={rows} rowKey={(item) => item.id} empty={t('items.empty', 'لا موادّ بهذا البحث.')} />;
 }
 
-export function ItemForm({ form, setForm, categories, errors, id }: { form: ItemFormState; setForm: (form: ItemFormState) => void; categories: OrgSetup['itemCategories']; errors: ReturnType<typeof fieldsOf>['errors']; id: string }) {
+export function ItemForm({ form, setForm, categories, errors, id, isNew = false }: { form: ItemFormState; setForm: (form: ItemFormState) => void; categories: OrgSetup['itemCategories']; errors: ReturnType<typeof fieldsOf>['errors']; id: string; isNew?: boolean }) {
   const [code, setCode] = useState('');
   const set = (patch: Partial<ItemFormState>) => setForm({ ...form, ...patch });
   const addCode = () => {
@@ -199,18 +226,39 @@ export function ItemForm({ form, setForm, categories, errors, id }: { form: Item
             ))}
           </select>
         </Field>
-        <Field id={`${id}-unit`} label={t('items.base_unit', 'وحدة الأساس')} hint={t('items.base_unit.hint', 'الرصيد والحركات بهذه الوحدة دائماً.')}>
-          <select id={`${id}-unit`} className="input" value={form.baseUnit} onChange={(event) => {
-            const baseUnit = event.target.value as BaseUnit;
-            set({ baseUnit, density: baseUnit === 'L' ? form.density : '', pieceMass: baseUnit === 'pc' ? form.pieceMass : '', step: baseUnit === 'pc' ? '1' : form.step });
-          }}>
-            {BASE_UNITS.map((unit) => (
-              <option key={unit} value={unit}>
-                {baseUnitLabel(unit)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="flex flex-col gap-2 sm:col-span-2">
+          <span className="text-sm font-medium" id={`${id}-unit`}>
+            {t('items.base_unit', 'كيف تُعدّ هذه المادّة؟')}
+          </span>
+          <Segmented<BaseUnit>
+            label={t('items.base_unit', 'كيف تُعدّ هذه المادّة؟')}
+            options={(COUNTED_KINDS.has(form.kind) ? (['pc'] as const) : BASE_UNITS).map((unit) => ({ value: unit, label: countingLabel(unit) }))}
+            value={form.baseUnit}
+            onChange={(baseUnit) => set({ baseUnit, density: baseUnit === 'L' ? form.density : '', pieceMass: baseUnit === 'pc' ? form.pieceMass : '', step: baseUnit === 'pc' ? '1' : form.step === '1' ? '0.1' : form.step, countName: baseUnit === 'pc' ? form.countName : '' })}
+          />
+          <p className="text-sm text-ink-muted">
+            {form.baseUnit === 'pc'
+              ? t('items.base_unit.hint.pc', 'الرصيد يُحسب بالعدد دائماً.')
+              : t('items.base_unit.hint.small', 'الرصيد يُحسب بال{unit} دائماً، ويمكن كتابة الكمية الصغيرة بال{small}.', { unit: form.baseUnit === 'kg' ? t('items.unit.kg_word', 'كيلوغرام') : t('items.unit.L_word', 'لتر'), small: form.baseUnit === 'kg' ? t('unit.g', 'غرام') : t('unit.mL', 'ملل') })}
+          </p>
+        </div>
+        {form.baseUnit === 'pc' && isNew ? (
+          <Field id={`${id}-count-name`} label={t('items.count_name', 'ما اسم الوحدة؟')} hint={t('items.count_name.hint', 'مثل قنينة أو ظرف، فتظهر الكمية «12 قنينة». اتركه فارغاً لـ«قطعة».')}>
+            <input id={`${id}-count-name`} className="input" maxLength={40} list={`${id}-count-names`} value={form.countName} onChange={(event) => set({ countName: event.target.value })} />
+            <datalist id={`${id}-count-names`}>
+              {countNameSuggestions().map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {countNameSuggestions().map((name) => (
+                <Button key={name} size="sm" variant={form.countName.trim() === name ? 'primary' : 'secondary'} onClick={() => set({ countName: name })} data-action="pick-count-name">
+                  {name}
+                </Button>
+              ))}
+            </div>
+          </Field>
+        ) : null}
         <Field id={`${id}-category`} label={t('items.category', 'التصنيف')}>
           <select id={`${id}-category`} className="input" value={form.categoryId} onChange={(event) => set({ categoryId: event.target.value })}>
             <option value="">{t('items.category.none', 'دون تصنيف')}</option>
@@ -227,14 +275,14 @@ export function ItemForm({ form, setForm, categories, errors, id }: { form: Item
           </Field>
         ) : null}
         {form.baseUnit === 'pc' ? (
-          <Field id={`${id}-piece`} label={t('items.piece_mass', 'كتلة القطعة (كغم)')} hint={t('items.piece_mass.hint', 'اختيارية، لتوزيع مصاريف النقل بالكتلة.')} error={errors.pieceMass}>
+          <Field id={`${id}-piece`} label={t('items.piece_mass', 'كتلة القطعة (كغم)')} hint={t('items.piece_mass.hint', 'اختيارية، لتقسيم مصاريف النقل بالوزن.')} error={errors.pieceMass}>
             <input id={`${id}-piece`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={form.pieceMass} onChange={(event) => set({ pieceMass: event.target.value })} />
           </Field>
         ) : null}
         <Field id={`${id}-step`} label={t('items.step', 'خطوة العدّاد')} error={errors.step}>
           <input id={`${id}-step`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={form.step} onChange={(event) => set({ step: event.target.value })} />
         </Field>
-        <Field id={`${id}-min`} label={t('items.min', 'الحدّ الأدنى للتنبيه')} hint={t('items.min.hint', 'بوحدة الأساس، للعرض فقط.')} error={errors.minQty}>
+        <Field id={`${id}-min`} label={t('items.min', 'الحدّ الأدنى للتنبيه')} hint={t('items.min.hint', 'بالوحدة التي تُعدّ بها المادّة، للتنبيه فقط.')} error={errors.minQty}>
           <input id={`${id}-min`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={form.minQty} onChange={(event) => set({ minQty: event.target.value })} />
         </Field>
       </div>
@@ -307,7 +355,19 @@ function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; s
           return;
         }
       }
-      onSaved(item ? await inventory.updateItem(item.id, item.version, patch) : await inventory.createItem(fields));
+      if (item) {
+        onSaved(await inventory.updateItem(item.id, item.version, patch));
+        return;
+      }
+      const created = await inventory.createItem(fields);
+      const countUnit = countUnitToCreate(form);
+      if (countUnit) {
+        // اسم وحدة العدّ صفّ بمعامل 1 وافتراضي: فشله لا يلغي المادّة، ويُضاف بعدها من «التعبئة».
+        await inventory
+          .createItemUnit(created.id, null, { label: countUnit, factor_to_base: '1.000000', is_default: true, for_purchase: true, for_sale: true, for_recipe: true })
+          .catch(() => toast({ tone: 'warning', title: t('items.count_name.failed', 'حُفظت المادّة ولم يُحفظ اسم الوحدة «{name}»', { name: countUnit }), detail: t('items.count_name.failed.detail', 'أضفه من «التعبئة الأكبر» في صفّ المادّة.') }));
+      }
+      onSaved(created);
     } catch (caught) {
       setFailure(caught);
     } finally {
@@ -336,7 +396,7 @@ function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; s
       }
     >
       <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void save(event)} noValidate>
-        <ItemForm id={id} form={form} categories={setup.itemCategories} errors={errors} setForm={(next) => {
+        <ItemForm id={id} isNew={item === null} form={form} categories={setup.itemCategories} errors={errors} setForm={(next) => {
           setForm(next);
           setTwins(null);
         }} />
@@ -379,6 +439,7 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
   const [label, setLabel] = useState('');
   const [factor, setFactor] = useState('');
   const [isDefault, setDefault] = useState(false);
+  const [nameText, setNameText] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const pack = usable.find((option) => option.id === packId) ?? null;
@@ -392,6 +453,7 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
         setLabel('');
         setFactor('');
         setDefault(false);
+        setNameText('');
       }, setFailure)
       .finally(() => setBusy(false));
   };
@@ -414,6 +476,13 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
     );
   };
   const rows = units.data ?? [];
+  const named = countName(item, rows);
+  const unit = named ?? baseUnitLabel(item.baseUnit);
+  const saveName = () => {
+    const name = countUnitToCreate({ baseUnit: item.baseUnit, countName: nameText });
+    if (!name) return;
+    run(() => inventory.createItemUnit(item.id, null, { label: name, factor_to_base: '1.000000', is_default: !rows.some((row) => row.isDefault && !row.archived), for_purchase: true, for_sale: true, for_recipe: true }));
+  };
   const decimals = columnDecimals(rows.map((unit) => unit.factor), 6);
   const columns: Column<ItemUnitRow>[] = [
     {
@@ -432,15 +501,34 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
         </div>
       ),
     },
-    { key: 'label', header: t('items.unit.label', 'الوحدة'), cell: (unit) => (unit.isDefault ? t('items.unit.default', '{label} (الافتراضية)', { label: unit.label }) : unit.label) },
-    { key: 'factor', header: t('items.unit.factor', 'تساوي ({unit})', { unit: baseUnitLabel(item.baseUnit) }), kind: 'number', cell: (unit) => <Num>{fmtScaledCell(unit.factor, 6, decimals)}</Num> },
+    { key: 'label', header: t('items.unit.label', 'الوحدة'), cell: (row) => (named !== null && row.label === named && row.factor === 1_000_000n ? t('items.unit.count_name', '{label} (اسم وحدة العدّ)', { label: row.label }) : row.isDefault ? t('items.unit.default', '{label} (الافتراضية)', { label: row.label }) : row.label) },
+    { key: 'factor', header: t('items.unit.factor', 'تساوي ({unit})', { unit }), kind: 'number', cell: (unit) => <Num>{fmtScaledCell(unit.factor, 6, decimals)}</Num> },
     { key: 'status', header: t('org.status', 'الحالة'), cell: (unit) => (unit.archived ? t('org.status.archived', 'مؤرشف') : t('org.status.active', 'فعّال')) },
   ];
   const failed = failure instanceof Error && failure.message === 'unit_fields' ? { title: t('items.unit.required', 'اختر حجماً أو اكتب اسم الوحدة ومعاملها'), detail: t('items.unit.required.detail', 'المعامل رقم أكبر من صفر، بستّ مراتب عشرية كحدّ أقصى.') } : failure ? describeError(failure, 'once') : null;
   return (
-    <Dialog open onClose={onClose} title={t('items.units.title', 'وحدات تعبئة {name}', { name: item.name })} dirty={unitsDirty({ packId, label, factor, isDefault })} locked={busy}>
+    <Dialog open onClose={onClose} title={t('items.units.title', 'وحدات «{name}»', { name: item.name })} dirty={unitsDirty({ packId, label, factor, isDefault }) || nameText !== ''} locked={busy}>
       <div className="flex flex-col gap-4">
-        {units.error ? <LoadFailed what={t('items.units', 'وحدات التعبئة')} error={units.error} onRetry={units.retry} /> : <DataTable caption={t('items.units', 'وحدات التعبئة')} columns={columns} rows={rows} rowKey={(unit) => unit.id} empty={units.data ? t('items.units.empty', 'لا وحدات تعبئة بعد؛ تُدخل الكمية بوحدة الأساس.') : t('page.loading', 'جارٍ الفتح…')} />}
+        {units.error ? <LoadFailed what={t('items.units', 'التعبئة')} error={units.error} onRetry={units.retry} /> : <DataTable caption={t('items.units', 'التعبئة')} columns={columns} rows={rows} rowKey={(unit) => unit.id} empty={units.data ? t('items.units.empty', 'لا تعبئة أكبر بعد؛ تُكتب الكمية بالوحدة التي تُعدّ بها المادّة.') : t('page.loading', 'جارٍ الفتح…')} />}
+        {item.baseUnit === 'pc' && units.data && named === null ? (
+          <div className="flex flex-col gap-2 rounded-2xl border border-line p-3">
+            <Field id={`${id}-count-name`} label={t('items.count_name', 'ما اسم الوحدة؟')} hint={t('items.count_name.hint.edit', 'مثل قنينة أو ظرف، فتظهر الكمية «12 قنينة» بدل «12 قطعة».')}>
+              <input id={`${id}-count-name`} className="input" maxLength={40} value={nameText} onChange={(event) => setNameText(event.target.value)} />
+            </Field>
+            <div className="flex flex-wrap gap-1.5">
+              {countNameSuggestions().slice(1).map((name) => (
+                <Button key={name} size="sm" variant={nameText.trim() === name ? 'primary' : 'secondary'} onClick={() => setNameText(name)} data-action="pick-count-name">
+                  {name}
+                </Button>
+              ))}
+            </div>
+            <Button busy={busy} disabled={countUnitToCreate({ baseUnit: 'pc', countName: nameText }) === null} onClick={saveName} data-action="save-count-name">
+              {t('items.count_name.save', 'احفظ اسم الوحدة')}
+            </Button>
+          </div>
+        ) : null}
+        <h3 className="font-semibold">{t('items.units.bigger', 'التعبئة الأكبر (اختياري)')}</h3>
+        <p className="text-sm text-ink-muted">{t('items.units.example', 'مثل «كرتون» = 12 {unit}، فتُكتب الكمية بالكرتون أو بال{unit}.', { unit })}</p>
         <form className="flex flex-col gap-3" onSubmit={add} noValidate>
           <Field id={`${id}-pack`} label={t('items.unit.pack', 'من أحجام التعبئة')}>
             <select id={`${id}-pack`} className="input" value={packId} onChange={(event) => setPackId(event.target.value)}>
@@ -457,7 +545,7 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
               <Field id={`${id}-label`} label={t('items.unit.label', 'الوحدة')}>
                 <input id={`${id}-label`} className="input" maxLength={40} value={label} onChange={(event) => setLabel(event.target.value)} />
               </Field>
-              <Field id={`${id}-factor`} label={t('items.unit.factor', 'تساوي ({unit})', { unit: baseUnitLabel(item.baseUnit) })}>
+              <Field id={`${id}-factor`} label={t('items.unit.factor', 'تساوي ({unit})', { unit })}>
                 <input id={`${id}-factor`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={factor} onChange={(event) => setFactor(event.target.value)} />
               </Field>
             </div>

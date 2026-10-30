@@ -1,12 +1,8 @@
 import {
   Bird,
-  ChartColumn,
-  Drumstick,
-  Egg,
   Fuel,
   House,
   Pill,
-  Receipt,
   Settings,
   UserRound,
   Users,
@@ -38,16 +34,14 @@ const STORE_ROLES: ReadonlySet<Role> = new Set<Role>(['owner', 'manager', 'store
 export function navItems(): NavItem[] {
   return [
     { to: '/', label: t('nav.home', 'الرئيسية'), icon: House },
-    { to: '/mill', label: t('nav.mill', 'معمل العلف'), icon: Wheat, division: 'feed_mill' },
-    { to: '/broiler', label: t('nav.broiler', 'حقول اللحم'), icon: Drumstick, division: 'broiler' },
-    { to: '/layers', label: t('nav.layers', 'حقول البيض'), icon: Egg, division: 'layer' },
-    { to: '/hatchery', label: t('nav.hatchery', 'المفقس'), icon: Bird, division: 'hatchery' },
+    // المعمل والمفقس: الشغّال منهما مخازنهما بس (صفحتاهما تخطيط)، فالشريط يفتح المخازن مباشرةً. حقول اللحم والبيض والمبيعات
+    // والتقارير صفحات تخطيط بلا شاشة شغّالة: مساراتها باقية وتنفتح بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية.
+    { to: '/inventory/mill', label: t('nav.mill_stores', 'مخازن المعمل'), icon: Wheat, division: 'feed_mill' },
+    { to: '/inventory/hatchery', label: t('nav.hatchery_stores', 'مخازن المفقس'), icon: Bird, division: 'hatchery' },
     { to: '/inventory/medicine', label: t('nav.medicine', 'مخزن الأدوية'), icon: Pill, division: 'medicine' },
     { to: '/inventory/general', label: t('nav.general', 'المخازن العامة'), icon: Fuel, division: 'general' },
     { to: '/inventory', label: t('nav.inventory', 'كل المخازن'), icon: Warehouse, visibleTo: (w) => STORE_ROLES.has(w.role) },
-    { to: '/sales', label: t('nav.sales', 'فواتير البيع'), icon: Receipt, visibleTo: (w) => w.canSeeSales },
     { to: '/accounts', label: t('nav.accounts', 'الحسابات'), icon: Wallet, visibleTo: (w) => w.canSeeAccounts },
-    { to: '/reports', label: t('nav.reports', 'التقارير'), icon: ChartColumn, visibleTo: (w) => w.canSeeCost || w.role === 'viewer' },
     { to: '/staff', label: t('nav.staff', 'الموظفون'), icon: Users, visibleTo: (w) => canManageMembers(w.role) },
     { to: '/account', label: t('nav.account', 'حسابي'), icon: UserRound },
     { to: '/settings', label: t('nav.settings', 'الإعدادات'), icon: Settings },

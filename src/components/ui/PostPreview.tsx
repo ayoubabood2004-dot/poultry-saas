@@ -69,7 +69,7 @@ export function PostPreview({ lines, approved, onToggle }: PostPreviewProps) {
                 <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
                 <Trans
                   k="preview.shortage"
-                  text="ينقص <b>{qty}</b>: سجّل الاستلام أو الجرد قبل الترحيل"
+                  text="ينقص <b>{qty}</b>: سجّل الاستلام أو الجرد قبل الحفظ النهائي"
                   vars={{ qty: fmtQty(line.shortage, line.unit, options).main }}
                   tags={{ b: (chunk) => <b className="tabular-nums">{chunk}</b> }}
                 />
@@ -84,7 +84,7 @@ export function PostPreview({ lines, approved, onToggle }: PostPreviewProps) {
                   onChange={(event) => onToggle(line.lineId, event.target.checked)}
                   data-action="approve-line"
                 />
-                {t('preview.approve_line', 'اطّلعت على السحب من هذه الدفعات وأوافق عليه')}
+                {t('preview.approve_line', 'اطّلعت على السحب من هذه الوجبات وأوافق عليه')}
               </label>
             )}
           </li>

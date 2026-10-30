@@ -83,7 +83,7 @@ const item = (over) => ({
 export default async function (t) {
   const m = await bundle(
     [
-      "export { ItemsTable, ItemForm, formOf, fieldsOf, changedFields, twinVerdict, unitFactor, unitsDirty } from './src/pages/inventory/ItemsPage.tsx';",
+      "export { ItemsTable, ItemForm, formOf, fieldsOf, changedFields, twinVerdict, unitFactor, unitsDirty, countUnitToCreate } from './src/pages/inventory/ItemsPage.tsx';",
       "export { SetupTables, placeRows, goLiveText, GoLiveField, parseDayText, packFactor } from './src/pages/settings/OrgSettingsPage.tsx';",
       "export { ScopeChecks, divisionsText } from './src/pages/staff/StaffPage.tsx';",
       "export { itemSearchFilter, parseItemRow } from './src/lib/repo/inventory.ts';",
@@ -122,6 +122,11 @@ export default async function (t) {
   t.ok(oilForm.includes('الكثافة (كغم لكل لتر)') && !oilForm.includes('كتلة القطعة'), 'باللتر: حقل الكثافة بس');
   const gasForm = render(m.h(m.ItemForm, { id: 'f', form: form({ baseUnit: 'pc', altCodes: ['GAS-1'] }), categories, errors: { step: 'خطأ' }, setForm: () => {} }));
   t.ok(gasForm.includes('كتلة القطعة (كغم)') && !gasForm.includes('الكثافة'), 'بالقطعة: حقل كتلة القطعة بس');
+  t.ok(gasForm.includes('كيف تُعدّ هذه المادّة؟') && gasForm.includes('بالوزن (كيلوغرام)') && gasForm.includes('بالعدد') && !gasForm.includes('ما اسم الوحدة؟'), 'سؤال طريقة العدّ بخياراته، واسم الوحدة للمادّة الجديدة فقط');
+  const newPc = render(m.h(m.ItemForm, { id: 'f', isNew: true, form: form({ baseUnit: 'pc' }), categories, errors: {}, setForm: () => {} }));
+  t.ok(newPc.includes('ما اسم الوحدة؟') && newPc.includes('قنينة') && newPc.includes('أمبولة'), 'مادّة جديدة بالعدد: «ما اسم الوحدة؟» باقتراحاته');
+  t.same([m.countUnitToCreate({ baseUnit: 'pc', countName: ' قنينة ' }), m.countUnitToCreate({ baseUnit: 'pc', countName: 'قطعة' }), m.countUnitToCreate({ baseUnit: 'kg', countName: 'قنينة' }), m.countUnitToCreate({ baseUnit: 'pc', countName: '' })], ['قنينة', null, null, null], 'اسم الوحدة يُحفظ للمعدود فقط، و«قطعة» نفسها لا تحتاج صفّاً');
+
   t.ok(gasForm.includes('<bdi dir="ltr">GAS-1</bdi>') && gasForm.includes('aria-label="احذف الرمز GAS-1"'), 'الرمز الإضافي يُحذف من النموذج نفسه');
   t.ok(gasForm.includes('role="alert"'), 'خطأ الحقل يعلن نفسه');
   const parsed = m.fieldsOf(form({ baseUnit: 'L', density: '٠٫٩٢', step: '0.5', minQty: '1,250.5', barcode: ' ab 12 ', altCodes: ['x1', 'X1', ' y 2 '] }));
@@ -234,7 +239,7 @@ export default async function (t) {
     ],
   };
   t.same(m.placeRows(setup).map((row) => row.store?.id ?? row.site.id), ['s-mill', 'w-raw', 's-gen', 'w-gen'], 'المواقع بترتيب الوحدات، وكل موقع ومخازنه بعده');
-  t.eq(m.goLiveText(setup.divisions[0]), '30/09/2026 — ثابت: بدأ الترحيل في الوحدة', 'يوم التشغيل DD/MM/YYYY، وثابت بعد أوّل ترحيل');
+  t.eq(m.goLiveText(setup.divisions[0]), '30/09/2026 — ثابت: بدأ الحفظ النهائي في الوحدة', 'يوم التشغيل DD/MM/YYYY، وثابت بعد أوّل ترحيل');
   t.eq(m.goLiveText(setup.divisions[1]), 'لم يُحدَّد', 'بلا يوم: «لم يُحدَّد»');
   const all = { stores: true, expenses: true, goLive: true };
   const page = render(m.h(m.SetupTables, { setup, permissions: all, onOpen: () => {} }));
@@ -364,7 +369,7 @@ export default async function (t) {
   t.same([created[0].problem, s.creationReady(created, new Set(['a']))], ['اكتب وقت فقس «أفراخ».', false], 'سطر افتتاح بمشكلة من الخادم ما يكتمل ولو انوافق عليه');
   const lotsView = s.renderToStaticMarkup(s.h(s.LotsPreview, { lots: created, approved: new Set(), onToggle: () => {} }));
   t.ok(lotsView.includes('role="alert"') && lotsView.includes('65,000.00') && !lotsView.includes('data-action="approve-lot"'), 'معاينة الدفعات: المشكلة تعلن نفسها والقيمة لدورها، وبلا موافقة على سطر مرفوض');
-  t.eq(s.openingSentence('المخزن العام', 80_000_000n, '2026-09-30'), 'رصيد افتتاحي لـ«المخزن العام» بتاريخ 30/09/2026، بقيمة 800,000.00 دينار.', 'تأكيد الافتتاح يسمّي المخزن والتاريخ والقيمة');
+  t.eq(s.openingSentence('المخزن العام', 80_000_000n, '2026-09-30'), 'الرصيد عند البداية لـ«المخزن العام» بتاريخ 30/09/2026، بقيمة 800,000.00 دينار.', 'تأكيد الافتتاح يسمّي المخزن والتاريخ والقيمة');
 
   await reviewFixes(t, m, setup);
   await mutationGaps(t);
@@ -488,7 +493,14 @@ async function mutationGaps(t) {
   inv.shared.rememberItems([seen('gap-1', true), seen('gap-2', false)]);
   t.same(inv.shared.seenItemsMatching('قديم gap').map((r) => r.id), ['gap-2'], 'منتقي بلا نت: المادّة المؤرشفة ما تنعرض');
   const unitIds = (baseUnit) => inv.shared.unitOptions({ ...seen('gap-3', false), baseUnit }, []).map((u) => u.id);
-  t.same([unitIds('kg'), unitIds('L')], [['base', 'code:t'], ['base']], 'وحدات الإدخال: الطن للكيلو بس');
+  t.same([unitIds('kg'), unitIds('L')], [['base', 'code:t', 'code:g'], ['base', 'code:mL']], 'وحدات الإدخال: الطن والغرام للكيلو، والملل للتر');
+  // اسم وحدة العدّ (كلمة المالك 2026-10-31): وحدة فعّالة بمعامل 1 لمادّة معدودة تحلّ محلّ «قطعة» ولا تتكرّر خياراً.
+  const pack = (id, label, factor, archived = false) => ({ id, version: 1, archived, itemId: 'gap-3', packTypeId: null, label, factor, isDefault: false, forPurchase: true, forSale: true, forRecipe: true });
+  const pcItem = { ...seen('gap-3', false), baseUnit: 'pc' };
+  const bottle = inv.shared.unitOptions(pcItem, [pack('u-1', 'قنينة', 1_000_000n), pack('u-2', 'كرتون', 12_000_000n)]);
+  t.same(bottle.map((u) => [u.id, u.label, u.piece ?? false]), [['base', 'قنينة', true], ['u-2', 'كرتون', false]], 'بالعدد مع «قنينة»: الأساس باسمها، والكرتون تعبئة أكبر');
+  t.same([inv.shared.countName(pcItem, [pack('u-1', 'قنينة', 1_000_000n, true)]), inv.shared.countName({ ...pcItem, baseUnit: 'L' }, [pack('u-1', 'قنينة', 1_000_000n)]), inv.shared.unitName('pc', null)], [null, null, 'قطعة'], 'المؤرشفة لا تُسمّي، والوزن والحجم بلا اسم عدّ');
+  t.same([inv.shared.codeUnitLabel('g'), inv.shared.codeUnitLabel('mL'), inv.shared.codeUnitLabel('t'), inv.shared.codeUnitLabel(null)], ['غرام', 'ملل', 'طن', null], 'الوحدات العامّة على السطر بأسمائها');
 
   // ── الرصيد كلّه (E31): تأكيد يسمّي المادّة والكمية والمخزن، والصفر بصوت ورسالة، وبلا سطر ولا شي ───────────────────────
   const w = await bundle("export { WholeBalanceConfirm, announceZeroBalance } from './src/components/ui/WholeBalance.tsx';", [wholeStubs]);
@@ -650,7 +662,7 @@ async function reviewFixes(t, m, setup) {
     withInventory({ session: ready(), online: false, loads: { 'loadStockDoc|o-1#0': { data: openingDoc }, 'loadOrgSetup|': { data: org } } }, async (g) => {
       const html = at('/inventory/openings/o-1');
       const preview = g.buttons.find((props) => props['data-action'] === 'preview-opening');
-      t.ok(preview?.disabled === true && html.includes('الترحيل يحتاج اتصالاً بالخادم'), 'بلا نت: معاينة الافتتاح معطّلة والسبب ظاهر');
+      t.ok(preview?.disabled === true && html.includes('الحفظ النهائي يحتاج اتصالاً بالإنترنت'), 'بلا نت: معاينة الافتتاح معطّلة والسبب ظاهر');
       const readyPreview = { version: 3, problems: [], ready: true, total: 0n, lines: [{ lineId: 'a', lineNo: 1, itemId: 'i', itemName: 'لقاح', baseUnit: 'pc', qty: 1_000n, expiryOn: null, bornAt: null, problem: null, value: 100n }] };
       t.same([inv.openings.openingPostReady?.(readyPreview, new Set(['a']), true), inv.openings.openingPostReady?.(readyPreview, new Set(['a']), false)], [true, false], 'زرّ ترحيل الافتتاح معطّل بلا نت حتى بعد معاينة جاهزة');
     }),
