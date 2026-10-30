@@ -608,7 +608,7 @@ drop function if exists private.count_gain_problem(date, public.stock_count_line
 drop function if exists private.count_snapshot(uuid, date, public.stock_count_lines);
 drop function if exists private.require_submitted(text);
 drop function if exists private.count_balance_at(uuid, uuid, date);
-drop function if exists private.lock_count_rows(uuid, uuid);
+drop function if exists private.lock_count_rows(uuid);
 
 -- الجداول (ويّاها مشغّلاتها وسياساتها وفهارسها)، الأبعد أوّلاً حتى المفاتيح الأجنبية تنشال قبل هدفها.
 drop table if exists public.stock_count_line_costs;

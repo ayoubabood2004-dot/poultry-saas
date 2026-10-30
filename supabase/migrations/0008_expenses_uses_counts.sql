@@ -247,8 +247,9 @@ create table if not exists public.stock_count_lines (
   constraint stock_count_lines_snapshot_check check ((system_qty is null) = (diff is null) and (system_expired_qty is null) = (expired_diff is null)
     and (system_qty is not null or system_expired_qty is null)),
   constraint stock_count_lines_reason_check check (reason is null or length(btrim(reason)) between 1 and 500),
-  constraint stock_count_lines_reason_stamp_check check ((reason is null) = (reason_diff is null) and (reason_diff is not null or reason_expired_diff is null)
-    and abs(reason_diff) < 'Infinity' and abs(reason_expired_diff) < 'Infinity'),
+  constraint stock_count_lines_reason_diff_check check (abs(reason_diff) < 'Infinity' and reason_diff = round(reason_diff, 3)),
+  constraint stock_count_lines_reason_expired_diff_check check (abs(reason_expired_diff) < 'Infinity' and reason_expired_diff = round(reason_expired_diff, 3)),
+  constraint stock_count_lines_reason_stamp_check check ((reason is null) = (reason_diff is null) and (reason_diff is not null or reason_expired_diff is null)),
   constraint stock_count_lines_line_no_check check (line_no >= 1),
   unique (org_id, id),
   unique (org_id, doc_id, line_no),
@@ -1443,12 +1444,12 @@ $$;
 
 -- سطور الجرد وكلفها قبل رأسه (§2.3، مراجعة WP5): حارسا السطر والكلفة يقفلان صفّهما (التعديل) ثم الرأس، فدالّة تقفل الرأس ثم
 -- تكتب السطور كانت تتعاكس ويّا تعديل العادّ أو المدير (40P01). بترتيب المعرّف (والكلفة بسطرها) مثل كل قفل صفوف.
-create or replace function private.lock_count_rows(p_org uuid, p_doc uuid) returns void
+create or replace function private.lock_count_rows(p_doc uuid) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 begin
   set local lock_timeout = '5s';
-  perform 1 from public.stock_count_lines x where x.org_id = p_org and x.doc_id = p_doc order by x.id for no key update;
-  perform 1 from public.stock_count_line_costs x where x.org_id = p_org and x.doc_id = p_doc order by x.line_id for no key update;
+  perform 1 from public.stock_count_lines x where x.org_id = public.auth_org() and x.doc_id = p_doc order by x.id for no key update;
+  perform 1 from public.stock_count_line_costs x where x.org_id = public.auth_org() and x.doc_id = p_doc order by x.line_id for no key update;
 end
 $$;
 
@@ -1492,7 +1493,7 @@ begin
   w := private.stock_wh(d.warehouse_id, true);
   v_date := d.counted_on;
   perform private.check_post_date(v_date, w.division_id);
-  perform private.lock_count_rows(w.org_id, p_id);
+  perform private.lock_count_rows(p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   if d.status <> 'draft' then
     raise exception 'not_draft' using hint = 'هذا الجرد ليس مسوّدة: سُلّم أو رُحّل أو أُلغي من قبل.';
@@ -1545,7 +1546,7 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا الجرد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
-  perform private.lock_count_rows(w.org_id, p_id);
+  perform private.lock_count_rows(p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
@@ -1603,7 +1604,7 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا الجرد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
-  perform private.lock_count_rows(w.org_id, p_id);
+  perform private.lock_count_rows(p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
@@ -1666,7 +1667,7 @@ begin
   w := private.stock_wh(d.warehouse_id, true);
   v_date := d.counted_on;
   perform private.check_post_date(v_date, w.division_id);
-  perform private.lock_count_rows(w.org_id, p_id);
+  perform private.lock_count_rows(p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
