@@ -201,7 +201,7 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
       <Field id={id} label={label}>
         <div className="flex items-center justify-between gap-2 rounded-2xl border border-line bg-surface-2 px-3 py-2">
           <span className="font-medium">{value.name}</span>
-          <Button variant="ghost" size="sm" onClick={() => onChange(null)} data-action="change-item">
+          <Button variant="ghost" onClick={() => onChange(null)} data-action="change-item">
             {t('stock.item.change', 'غيّر')}
           </Button>
         </div>
@@ -229,7 +229,7 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
         <ul className="mt-1 flex max-h-56 flex-col overflow-auto rounded-2xl border border-line bg-surface-1">
           {rows.map((row) => (
             <li key={row.id}>
-              <button type="button" className="w-full px-3 py-2 text-start hover:bg-surface-2" onClick={() => onChange(row)} data-action="pick-item">
+              <button type="button" className="w-full px-3 py-3 text-start hover:bg-surface-2" onClick={() => onChange(row)} data-action="pick-item">
                 {row.name}
               </button>
             </li>

@@ -167,12 +167,18 @@ async function propertyV3(t, db) {
   await S.one(U.manager, 'select public.record_cash_opening(gen_random_uuid(), $1, 50000000, $2, gen_random_uuid())', [box, GO_LIVE]);
   let boxModel = 50_000_000n;
   const boxBalance = async () => BigInt((await db.admin('select coalesce(sum(amount), 0)::bigint::text as v from public.cash_moves where account_id = $1', [box])).rows[0].v);
+  // رصيد (مادّة، مخزن) بيوم: حركاتها بتاريخه أو قبله بلا العكسيات وأصولها (نموذج count_balance_at بالآلاف).
+  const balanceAt = async (item, wh, day) => {
+    const rows = (await db.admin('select id, reverses_move_id, moved_on::text as moved_on, (qty * 1000)::bigint::text as q from public.stock_moves where item_id = $1 and warehouse_id = $2', [item, wh])).rows;
+    const reversed = new Set(rows.filter((r) => r.reverses_move_id).map((r) => r.reverses_move_id));
+    return rows.filter((r) => !r.reverses_move_id && !reversed.has(r.id) && r.moved_on <= day).reduce((sum, r) => sum + BigInt(r.q), 0n);
+  };
   const docExpense = async (kind, docId) =>
     (await db.admin("select coalesce(sum(amount) filter (where reverses_id is null), 0)::text as v from public.expenses where doc_kind = $1 and doc_id = $2", [kind, docId])).rows[0].v;
   const versionOf = async (table, docId) => (await db.admin(`select version from public.${table} where id = $1`, [docId])).rows[0].version;
   const posted = [];
   const failures = [];
-  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0 };
+  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0 };
   for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
     const roll = random();
     const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
@@ -227,11 +233,12 @@ async function propertyV3(t, db) {
         if (fils(await docExpense('stock_use', doc)) !== total) failures.push(`${label}: المصروف ${await docExpense('stock_use', doc)} ومجموع السحب ${total}`);
       }
     } else if (roll < 0.72) {
-      // الجرد: النقص = planDraw، والزيادة = gainValue بدفعة القياس على دفعات المنشأة قبلها (وبلاها كلفة المدير)، و«فرق جرد» = النقص.
+      // الجرد: الرصيد بيوم الجرد (مراجعة WP5)، والنقص = planDraw على الدفعات الآن (وأكثر من المتاح الآن insufficient_stock: مستندات
+      // بعد يوم الجرد سحبت منه)، والزيادة = gainValue بدفعة القياس على دفعات المنشأة قبلها (وبلاها كلفة المدير)، و«فرق جرد» = النقص.
       const item = random() < 0.12 ? bare : pick(items);
       const wh = pick(STORES);
       const lots = await fifoLots(db, item, wh);
-      const have = fifo.eligibleLots(lots, day, { tracksExpiry: false }).reduce((sum, l) => sum + l.qtyLeft, 0n);
+      const have = await balanceAt(item, wh, day);
       // المادّة بلا افتتاح تزيد دائماً (أوّل زيادة بلا دفعة قياس، فبكلفة المدير)، وغيرها نقص أو زيادة أو مطابق.
       const delta = item === bare ? BigInt(1 + Math.floor(random() * 5000)) : random() < 0.15 ? 0n : BigInt(Math.floor((random() - 0.6) * Math.max(Number(have), 20000)));
       const counted = have + delta < 0n ? 0n : have + delta;
@@ -263,7 +270,10 @@ async function propertyV3(t, db) {
       const plan = diff < 0n ? fifo.planDraw(lots, -diff, day, { tracksExpiry: false }) : { draws: [], shortage: 0n };
       const result = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [doc.id, await versionOf('stock_counts', doc.id), uid()]);
       tally.counts += 1;
-      if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
+      if (plan.shortage > 0n) {
+        tally.countShort += 1;
+        if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
+      } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
       else {
         posted.push({ kind: 'count', fn: 'void_count', id: doc.id });
         const line = result.value.lines[0];

@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -11,6 +11,7 @@ import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { PostPreview, previewReady, type PreviewLine } from '../../components/ui/PostPreview';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import { announceZeroBalance, WholeBalanceConfirm, type WholeLine } from '../../components/ui/WholeBalance';
 import { decimalText } from '../../domain/decimal';
@@ -25,7 +26,7 @@ import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
 import type { ExpenseCategoryRow, ItemRow, LotRow } from '../../lib/repo/inventory';
 import * as uses from '../../lib/repo/uses';
-import type { UseDoc, UseLine, UsePreview } from '../../lib/repo/uses';
+import type { UseDoc, UseLine, UseListDoc, UsePreview } from '../../lib/repo/uses';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -70,11 +71,15 @@ export function stockUsePreviewLines(preview: UsePreview): PreviewLine[] {
   }));
 }
 
-/** السطور اللي تسحب الرصيد كلّه (E31): الكمية مجموع سطور المادّة كلها، مثل التحويل. */
+/**
+ * السطور اللي تسحب المتاح كلّه (E31): الكمية مجموع سطور المادّة بالترتيب (بلا دفعة مسمّاة)، مثل التحويل. سطر يفرّغ دفعته المنتهية
+ * المسمّاة ما يصفّر المادّة، فما يدخل (مراجعة WP5: كان ينجمع ويّاها فيقول «سحب الرصيد كلّه» بكمية فيها المنتهي).
+ */
 export function stockUseWholeLines(preview: UsePreview): WholeLine[] {
-  const whole = new Set(preview.lines.filter((line) => line.wholeBalance).map((line) => line.itemId));
+  const ordered = preview.lines.filter((line) => line.lotId === null);
+  const whole = new Set(ordered.filter((line) => line.wholeBalance).map((line) => line.itemId));
   const byItem = new Map<string, WholeLine>();
-  for (const line of preview.lines) {
+  for (const line of ordered) {
     if (!whole.has(line.itemId)) continue;
     const seen = byItem.get(line.itemId);
     byItem.set(line.itemId, { itemName: line.itemName, qty: (seen?.qty ?? 0n) + line.qty, unit: line.baseUnit });
@@ -85,6 +90,11 @@ export function stockUseWholeLines(preview: UsePreview): WholeLine[] {
 /** زرّ الترحيل: معاينة جاهزة بلا مشكلة، والمستخدم يقدر يرحّلها (إذن المدير للإتلاف والمنتهي)، وكل سطر انوافق عليه، والشبكة موجودة. */
 export function stockUsePostReady(preview: UsePreview | null, approved: ReadonlySet<string>, online: boolean): boolean {
   return online && Boolean(preview && preview.ready && preview.canPost && preview.problems.length === 0 && previewReady(stockUsePreviewLines(preview), approved));
+}
+
+/** المسوّدة تنتظر المدير (Q5): سطر يسمّي دفعة منتهية، أو تصنيفها «إتلاف منتهي». */
+export function awaitsManager(doc: Pick<UseListDoc, 'status' | 'namesLot' | 'categoryId'>, destroyIds: ReadonlySet<string>): boolean {
+  return doc.status === 'draft' && (doc.namesLot || (doc.categoryId !== null && destroyIds.has(doc.categoryId)));
 }
 
 /** دفعات المادّة المنتهية بتاريخ المستند وبيها متبقٍّ (للإتلاف وصرف المنتهي بإذن المدير). */
@@ -100,11 +110,14 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
   const [loadFailed, setLoadFailed] = useState<unknown>(null);
   const [named, setNamed] = useState(false);
   const [lotId, setLotId] = useState('');
+  // معرّف السطر يولد مرّة ويبقى لحد ما ينكتب: الإعادة بعد جواب ضاع 23505 = انكتب، مو سطر ثاني (مراجعة WP5).
+  const [lineId, setLineId] = useState(() => crypto.randomUUID());
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(store.kind, row.kind), [store.kind]);
   const pickItem = (next: ItemRow | null) => {
+    setLineId(crypto.randomUUID());
     setItem(next);
     setPacks(null);
     setLots(null);
@@ -145,13 +158,20 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
     setBusy(true);
     setFailure(null);
     const unit = qty.unitId === 'base' ? { item_unit_id: null, unit_code: null } : qty.unitId.startsWith('code:') ? { item_unit_id: null, unit_code: qty.unitId.slice('code:'.length) } : { item_unit_id: qty.unitId, unit_code: null };
+    const added = () => {
+      pickItem(null);
+      setNamed(false);
+      onAdded();
+    };
     uses
-      .addUseLine(doc.id, { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3), lot_id: nameLot ? lotId : null })
-      .then(() => {
-        pickItem(null);
-        setNamed(false);
-        onAdded();
-      }, setFailure)
+      .addUseLine(doc.id, lineId, { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3), lot_id: nameLot ? lotId : null })
+      .then(added, (error: unknown) => {
+        if (inventory.isDuplicate(error)) added();
+        else {
+          if (error instanceof RejectedError) setLineId(crypto.randomUUID());
+          setFailure(error);
+        }
+      })
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;
@@ -249,6 +269,11 @@ function isStalePreview(error: unknown): boolean {
 function UseEditor({ docId }: { docId: string }) {
   const navigate = useNavigate();
   const online = useStore(onlineStore);
+  const session = useSession();
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  // الأزرار بأفعالها (مراجعة WP5): المسوّدة لمن عنده stock_use.post، والإلغاء لمن عنده void (كانت تنعرض للكل فترفض بالخادم).
+  const canPost = workspace ? can(workspace.role, 'stock_use.post') : false;
+  const canVoid = workspace ? can(workspace.role, 'void') : false;
   const load = useCallback(() => uses.loadUse(docId), [docId]);
   const [tick, setTick] = useState(0);
   const doc = useLoad(load, `${docId}#${tick}`);
@@ -274,7 +299,7 @@ function UseEditor({ docId }: { docId: string }) {
   const categories = stockUseCategories(setup.data.expenseCategories);
   const category = setup.data.expenseCategories.find((c) => c.id === current.categoryId) ?? null;
   const destroy = category?.systemCode === DESTROY;
-  const draft = current.status === 'draft';
+  const draft = current.status === 'draft' && canPost;
   const failed = failure ? describeError(failure) : null;
   const whole = preview ? stockUseWholeLines(preview) : [];
   const runPreview = () => {
@@ -364,6 +389,7 @@ function UseEditor({ docId }: { docId: string }) {
         }
       />
       {current.voidReason ? <Notice tone="warning" title={t('use.voided', 'أُلغي هذا الصرف')}>{current.voidReason}</Notice> : null}
+      {current.status === 'draft' && !canPost ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {draft ? (
         <Field id="use-category" label={t('use.category', 'تصنيف المصروف')} hint={t('use.category.hint', '«إتلاف منتهي» للدفعات المنتهية بدفعة مسمّاة في كل سطر، ويرحّله المدير.')}>
           <select id="use-category" className="input" value={current.categoryId ?? ''} disabled={busy} onChange={(event) => setCategory(event.target.value)} data-action="pick-category">
@@ -417,7 +443,7 @@ function UseEditor({ docId }: { docId: string }) {
             </>
           ) : null}
         </div>
-      ) : current.status === 'posted' ? (
+      ) : current.status === 'posted' && canVoid ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-use">
           {t('use.void', 'ألغِ الصرف')}
         </Button>
@@ -447,11 +473,13 @@ function UseEditor({ docId }: { docId: string }) {
   );
 }
 
-function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; categories: readonly ExpenseCategoryRow[]; onSaved: (doc: UseDoc) => void }) {
+function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; categories: readonly ExpenseCategoryRow[]; onSaved: (id: string) => void }) {
   const id = useId();
   const [storeId, setStoreId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [day, setDay] = useState(fmtDay(localDay()));
+  // معرّف المسوّدة يولد مرّة ويبقى لحد ما تنكتب: الإعادة بعد جواب ضاع 23505 = انكتبت، مو مسوّدة ثانية (مراجعة WP5).
+  const [docId, setDocId] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const active = stores.filter((store) => !store.archived);
@@ -465,8 +493,17 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
     setBusy(true);
     setFailure(null);
     uses
-      .createUseDraft(storeId, categoryId, date.day)
-      .then(onSaved, setFailure)
+      .createUseDraft(docId, storeId, categoryId, date.day)
+      .then(
+        (doc) => onSaved(doc.id),
+        (error: unknown) => {
+          if (inventory.isDuplicate(error)) onSaved(docId);
+          else {
+            if (error instanceof RejectedError) setDocId(crypto.randomUUID());
+            setFailure(error);
+          }
+        },
+      )
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;
@@ -504,11 +541,14 @@ export function UsesList() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const first = useLoad(uses.listUses);
   const setup = useLoad(inventory.loadOrgSetup);
+  // «بانتظار موافقة المدير» (رابط لوحة المخزون ?awaiting=1): المسوّدات أوّل القائمة، فتنعرض بأوّل صفحة.
+  const [params] = useSearchParams();
+  const [onlyAwaiting, setOnlyAwaiting] = useState(params.get('awaiting') === '1');
   const [pages, setPages] = useState<Awaited<ReturnType<typeof uses.listUses>>[]>([]);
   const [more, setMore] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
   const all = first.data ? [first.data, ...pages] : [];
   const seen = new Set<string>();
-  const rows = all.flatMap((page) => page.rows).filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)));
+  const loaded = all.flatMap((page) => page.rows).filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)));
   const next = all.at(-1)?.next ?? null;
   const loadMore = () => {
     if (!next) return;
@@ -525,8 +565,10 @@ export function UsesList() {
   const names = new Map(stores.map((s) => [s.id, s.name]));
   const categories = setup.data ? setup.data.expenseCategories : [];
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
+  const destroyIds = new Set(categories.filter((c) => c.systemCode === DESTROY).map((c) => c.id));
+  const rows = onlyAwaiting ? loaded.filter((doc) => awaitsManager(doc, destroyIds)) : loaded;
   const allowed = workspace ? can(workspace.role, 'stock_use.post') : false;
-  const columns: Column<UseDoc>[] = [
+  const columns: Column<UseListDoc>[] = [
     {
       key: 'no',
       header: t('ledger.doc', 'المستند'),
@@ -539,20 +581,29 @@ export function UsesList() {
     { key: 'store', header: t('use.store', 'من مخزن'), cell: (doc) => names.get(doc.warehouseId) ?? '—' },
     { key: 'category', header: t('use.category', 'تصنيف المصروف'), cell: (doc) => (doc.categoryId ? (categoryNames.get(doc.categoryId) ?? '—') : '—') },
     { key: 'day', header: t('ledger.date', 'التاريخ'), cell: (doc) => fmtDay(doc.onDate) },
-    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (doc) => docStatusLabel(doc.status) },
+    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (doc) => (awaitsManager(doc, destroyIds) ? t('use.awaiting', 'بانتظار موافقة المدير') : docStatusLabel(doc.status)) },
   ];
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={t('stock.uses', 'الصرف والإتلاف')} subtitle={t('use.list.subtitle', 'صرف لمصروف عام بالدفعات، والإتلاف للمنتهي؛ المنتهي والإتلاف يرحّلهما المدير.')} />
       {!allowed ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
-      {allowed && setup.data ? <NewUse stores={scopedStores(stores, workspace)} categories={stockUseCategories(categories)} onSaved={(doc) => navigate(`/inventory/uses/${doc.id}`)} /> : null}
+      {allowed && setup.data ? <NewUse stores={scopedStores(stores, workspace)} categories={stockUseCategories(categories)} onSaved={(id) => navigate(`/inventory/uses/${id}`)} /> : null}
+      <Segmented
+        label={t('use.list.show', 'اعرض')}
+        options={[
+          { value: 'all', label: t('use.list.all', 'الكل') },
+          { value: 'awaiting', label: t('use.awaiting', 'بانتظار موافقة المدير') },
+        ]}
+        value={onlyAwaiting ? 'awaiting' : 'all'}
+        onChange={(value) => setOnlyAwaiting(value === 'awaiting')}
+      />
       {first.error ? (
         <LoadFailed what={t('use.list.what', 'مستندات الصرف')} error={first.error} onRetry={first.retry} />
       ) : first.data ? (
         <>
           <DataTable caption={t('stock.uses', 'الصرف والإتلاف')} columns={columns} rows={rows} rowKey={(doc) => doc.id} empty={t('use.list.empty', 'لا صرف بعد.')} />
-          <PageFooter shown={rows.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('use.list.what', 'مستندات الصرف')} onMore={loadMore} action="more-uses" />
+          <PageFooter shown={loaded.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('use.list.what', 'مستندات الصرف')} onMore={loadMore} action="more-uses" />
         </>
       ) : null}
     </div>

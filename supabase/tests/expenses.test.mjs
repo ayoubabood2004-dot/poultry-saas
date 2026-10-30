@@ -4,6 +4,7 @@
 // لصندوق انؤرشف بعد ما صار صفراً (E43)، والمصروف المكتوب من مستند يُلغى من مستنده (system_expense)، والجدول يُضاف ولا يتعدّل،
 // والتقرير بمجاميعه وصفحاته لأدوار الكلفة بس، والثوابت صفر. كل نداء بدور authenticated حقيقي.
 import { LEDGER_ZERO, balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
+import { race } from './shared.mjs';
 import { STOCK_ZERO, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-11-10';
@@ -27,6 +28,7 @@ async function scenario(t, db) {
       ['storekeeper', 'storekeeper'],
       ['viewer', 'viewer'],
       ['scopedAccountant', 'accountant', ['broiler']],
+      ['scopedManager', 'manager', ['broiler']],
     ],
   });
   const { users: U, divisions: D, books: B } = G;
@@ -238,7 +240,7 @@ async function scenario(t, db) {
   t.same(stockLike, ['append_only', 'append_only', 'append_only'], 'المصاريف تُضاف ولا تتعدّل: التعديل والحذف والمسح يرفضها مشغّلها حتى لصاحب الجداول');
   t.eq(shown(await voidIt(U.manager, uid())), 'expense_not_found', 'إلغاء مصروف غير موجود: expense_not_found');
 
-  // ── الشهر (Q14): فاتورة تشرين الأوّل بيوم 10 تشرين الثاني مقبولة لحد ما ينقفل الشهر، والشهر المقفول (بيه يوم مقفول) يرفض ─────────────
+  // ── الشهر (Q14): فاتورة تشرين الأوّل بيوم 10 تشرين الثاني مقبولة لحد ما ينقفل الشهر، والشهر المقفول (آخر يوم بيه مقفول) يرفض ────────────
   t.same(
     [
       shown(await rec(U.accountant, { forMonth: '2026-10-01', amount: '1000' })),
@@ -250,12 +252,19 @@ async function scenario(t, db) {
   await one(U.manager, 'select public.set_period_lock($1)', ['2026-10-15']);
   t.same(
     [
+      shown(await rec(U.accountant, { forMonth: '2026-09-01', amount: '1000' })),
       shown(await rec(U.accountant, { forMonth: '2026-10-01', amount: '1000' })),
       shown(await rec(U.accountant, { forMonth: '2026-11-01', amount: '1000' })),
-      shown(await rec(U.accountant, { amount: '1000' })),
     ],
     ['period_locked', 'ok', 'ok'],
-    'بعد قفل الحسابات حتى 15 تشرين الأوّل: تشرين الأوّل (بيه يوم مقفول) period_locked، وتشرين الثاني وشهر التاريخ مقبولان',
+    'قفل حتى 15 تشرين الأوّل: أيلول (مقفل كلّه) period_locked، وتشرين الأوّل (باقي أيّامه مفتوحة، مراجعة WP5) وتشرين الثاني مقبولان',
+  );
+  await one(U.manager, 'select public.set_period_lock($1)', ['2026-10-31']);
+  const lockedMonth = await rec(U.accountant, { forMonth: '2026-10-01', amount: '1000' });
+  t.same(
+    [shown(lockedMonth), lockedMonth.hint.includes('10/2026'), shown(await rec(U.accountant, { amount: '1000' }))],
+    ['period_locked', true, 'ok'],
+    'قفل حتى آخر تشرين الأوّل: تشرين الأوّل period_locked (التلميح يسمّيه)، وشهر التاريخ مقبول',
   );
 
   // ── التقرير (§2.8، Q14): أدوار الكلفة بس، والمجاميع لكل تصنيف ومصدر وشهر من الخادم، والصفحات بمؤشّر ───────────────────────────
@@ -293,8 +302,49 @@ async function scenario(t, db) {
   );
   const scoped = (await report(U.scopedAccountant, '2026-09-01', TODAY)).value;
   t.ok(scoped.rows.length > 0 && scoped.rows.every((r) => r.division_id === D.broiler), 'المحاسب المحصور باللحم يقرأ مصاريف اللحم بس (E49)');
+  t.same(
+    [scoped.divisions, full.divisions, shown(await report(U.scopedAccountant, '2026-09-01', TODAY, D.general))],
+    [{ total: 6, visible: 1 }, { total: 6, visible: 6 }, 'out_of_scope'],
+    'التقرير يقول وحدات النطاق من المجموع (1 من 6 للمحصور)، ووحدة برّا نطاقه out_of_scope (كانت مجموعاً صفراً بصمت)',
+  );
+  // إلغاء مصروف وحدة ثانية: النطاق قبل رموز الصفّ (system_expense وnot_voidable كانت تكشف نوعه بمعرّفه).
+  const otherDivision = (await db.admin("select id from public.expenses where org_id = $1 and division_id <> $2 and source = 'cash' and reverses_id is null limit 1", [G.org, D.broiler])).rows[0].id;
+  t.eq(shown(await voidIt(U.scopedManager, otherDivision, 'برّا النطاق')), 'out_of_scope', 'المدير المحصور باللحم يلغي مصروف وحدة ثانية: out_of_scope قبل أيّ رمز');
   const seen = async (user) => (await db.asUser(user, (q) => q('select count(*)::int as n from public.expenses'))).rows[0].n;
   t.same([await seen(U.storekeeper), await seen(U.viewer), (await seen(U.accountant)) > 0], [0, 0, true], 'جدول المصاريف: الأمين والمشاهد صفر صفوف، والمحاسب يقرأ');
+
+  // ── التزامن (مراجعة WP5، جلستان حقيقيتان): أرشفة التصنيف أو الموقع بين فحص المصروف وكتابته، والوحدة تنقرا ثاني بقفل بعد قفل
+  //    الفترة، ونفس المعرّف بمرجعين بنفس اللحظة ──────────────────────────────────────────────────────────────────────────
+  const RECORD = "select public.record_expense($1, $2, $3, 25000, $4, 'cash', $5, null, null, $6, null, null, null, null, gen_random_uuid()) as result";
+  const recordSpec = (o = {}) => ({ user: U.accountant, sql: RECORD, params: [o.id ?? uid(), o.category ?? power, o.division ?? D.general, TODAY, box, o.site ?? null] });
+  const racing = await one(U.accountant, "insert into public.expense_categories (name) values ('وقود السباق') returning id");
+  const categoryRace = await race(db, { user: U.accountant, sql: 'update public.expense_categories set archived_at = now() where id = $1', params: [racing] }, recordSpec({ category: racing }));
+  t.same(
+    [categoryRace.first, categoryRace.state, categoryRace.second],
+    ['ok', 'blocked', 'category_archived'],
+    'أرشفة التصنيف والمصروف سوا: المصروف ينتظر قفل التصنيف ثم category_archived (كان يعبر بتصنيف انؤرشف)',
+  );
+  const racingSite = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل السباق', 'farm') returning id", [D.broiler]);
+  const siteRace = await race(db, { user: U.owner, sql: 'update public.sites set archived_at = now() where id = $1', params: [racingSite] }, recordSpec({ division: D.broiler, site: racingSite }));
+  t.same(
+    [siteRace.first, siteRace.state, siteRace.second],
+    ['ok', 'blocked', 'site_mismatch'],
+    'أرشفة الموقع والمصروف عليه سوا: المصروف ينتظر قفل الموقع ثم site_mismatch (كان يعبر بموقع انؤرشف)',
+  );
+  // الوحدة ما تنؤرشف من الشاشات بعد، فالبديلة صاحب الجداول وأرشفتها ترجع (الوحدات الست ثابتة بـverify_core): المصروف ينتظرها.
+  const divisionRace = await race(
+    db,
+    { user: U.owner, role: 'postgres', sql: 'update public.divisions set archived_at = now() where id = $1', params: [D.general], rollback: true },
+    recordSpec(),
+  );
+  t.same([divisionRace.first, divisionRace.state, divisionRace.second], ['ok', 'blocked', 'ok'], 'أرشفة وحدة لسه ما ثبتت: المصروف ينتظر قفل الوحدة بعد قفل الفترة (كان يعبر بلا انتظار)');
+  const sharedId = uid();
+  const idRace = await race(db, recordSpec({ id: sharedId }), recordSpec({ id: sharedId }));
+  t.same(
+    [idRace.first, idRace.state, idRace.second, (await db.admin('select count(*)::int as n from public.expenses where id = $1', [sharedId])).rows[0].n],
+    ['ok', 'blocked', 'id_reused', 1],
+    'نفس المعرّف بمرجعين بنفس اللحظة: الثاني ينتظر قفل المعرّف ثم id_reused (كان 23505 خام)، وصفّ واحد',
+  );
 
   // ── الثوابت ─────────────────────────────────────────────────────────────────────────────────────────────────────
   t.same(await db.asService(verifyLedger), LEDGER_ZERO, 'verify_ledger صفر بعد المصاريف وإلغاءاتها');

@@ -1,13 +1,15 @@
 import type { BaseUnit } from '../../domain/units';
 import { listDeviceDrafts, removeDeviceDraft, saveDeviceDraft, type DeviceDraft, type DraftStamp } from '../../lib/drafts';
-import { RejectedError } from '../../lib/errors';
+import { RejectedError, ZeroRowsError } from '../../lib/errors';
 import type { CountLineFields } from '../../lib/repo/counts';
 
 // سطور جرد ما وصلت الخادم (الخطّة WP5: «الحفظ يبقي المسوّدة لمّا تنقطع الشبكة»): السطر الجديد معرّفه يولد بالجهاز لحظة الإضافة
-// (FOUNDATION ١٩٩)، فالإرسال اللي ينعاد بعد جواب ضاع يرجع 23505 = انكتب (وتنكتب آخر قيمة فوقه)؛ والتعديل بمعرّف سطر الخادم. اللي
-// ما وصل (بلا شبكة، أو جواب ضاع) ينحفظ بمسوّدة جهاز وحدة لكل جرد (مختومة بالمستخدم والمنشأة) لحد «أرسل المحفوظ». القراءة والكتابة
-// تحت قفل الجرد بكل نوافذ الجهاز (Web Locks، درس WP4: الفعل يقرا سجلّ الجهاز الحالي تحت القفل، مو لقطة الشاشة). الرفض الأكيد
-// (الجرد سُلّم أو المادّة ما تتابع الانتهاء…) يشيل السطر من المحفوظ ويرجع بسببه حتى الشاشة تقوله، مو يضيع بصمت.
+// (FOUNDATION ١٩٩)، فالإرسال اللي ينعاد بعد جواب ضاع يرجع 23505 على مفتاح الصفّ = انكتب (وتنكتب آخر قيمة فوقه)؛ والتعديل بمعرّف سطر
+// الخادم. اللي ما وصل (بلا شبكة، أو جواب ضاع) ينحفظ بمسوّدة جهاز وحدة لكل (مستخدم، جرد) لحد «أرسل المحفوظ». القراءة والكتابة تحت
+// قفل الجرد بكل نوافذ الجهاز (Web Locks، درس WP4: الفعل يقرا سجلّ الجهاز الحالي تحت القفل، مو لقطة الشاشة). الرفض الأكيد (الجرد
+// سُلّم، أو السطر انحذف، أو المادّة معدودة بسطر ثاني) يشيل السطر من المحفوظ ويرجع بسببه حتى الشاشة تقوله، مو يضيع بصمت. ومراجعة
+// WP5: 23505 على مفتاح ثاني (المادّة معدودة) كان ينقرا «انكتب» فيعلق المحفوظ للأبد؛ ومفتاح المسوّدة كان للجرد بس فمستخدمان بجهاز واحد
+// يمسحان محفوظ بعض.
 
 export interface PendingCountLine {
   /** معرّف السطر: مولود بالجهاز للجديد، أو معرّف سطر الخادم للتعديل (existing). */
@@ -23,7 +25,7 @@ export interface CountPendingPayload {
   lines: PendingCountLine[];
 }
 
-export const pendingDraftId = (docId: string): string => `count:${docId}`;
+export const pendingDraftId = (userId: string, docId: string): string => `count:${userId}:${docId}`;
 
 /** السطر بالمحفوظ: نفس المعرّف يتبدّل بآخر قيمة، والجديد بالآخر. */
 export function withPending(lines: readonly PendingCountLine[], line: PendingCountLine): PendingCountLine[] {
@@ -41,7 +43,8 @@ export interface PendingSend {
   update: (id: string, patch: Omit<CountLineFields, 'item_id'>) => Promise<unknown>;
 }
 
-const patchOf = (fields: CountLineFields): Omit<CountLineFields, 'item_id'> => ({
+/** حقول تعديل السطر: بلا المادّة (ثابتة، والمنح بلاها من مراجعة WP5، فإرسالها يرجع 42501). */
+export const countLinePatch = (fields: CountLineFields): Omit<CountLineFields, 'item_id'> => ({
   counted_qty: fields.counted_qty,
   counted_expired_qty: fields.counted_expired_qty,
   gain_expiry_on: fields.gain_expiry_on,
@@ -49,21 +52,27 @@ const patchOf = (fields: CountLineFields): Omit<CountLineFields, 'item_id'> => (
   gain_born_at: fields.gain_born_at,
 });
 
-const isDuplicate = (error: unknown): boolean => error instanceof RejectedError && error.code === '23505';
+/** 23505 على مفتاح الصفّ (المعرّف): نفس السطر انكتب بمحاولة جوابها ضاع. مفتاح ثاني (المادّة بالجرد) رفض أكيد. */
+export function isOwnRetry(error: unknown): boolean {
+  return error instanceof RejectedError && error.code === '23505' && (error.constraint === null || /_pkey$|_org_id_id_key$/u.test(error.constraint));
+}
 
-/** يرسل سطراً واحداً: الجديد إدراج (23505 = انكتب من قبل، فتعديل بآخر قيمة)، والموجود تعديل. */
+/** يرسل سطراً واحداً: الجديد إدراج (23505 بمعرّفه = انكتب من قبل، فتعديل بآخر قيمة)، والموجود تعديل. */
 export async function sendLine(docId: string, line: PendingCountLine, send: PendingSend): Promise<void> {
   if (line.existing) {
-    await send.update(line.id, patchOf(line.fields));
+    await send.update(line.id, countLinePatch(line.fields));
     return;
   }
   try {
     await send.add(docId, line.id, line.fields);
   } catch (error) {
-    if (!isDuplicate(error)) throw error;
-    await send.update(line.id, patchOf(line.fields));
+    if (!isOwnRetry(error)) throw error;
+    await send.update(line.id, countLinePatch(line.fields));
   }
 }
+
+/** رفض أكيد: الخادم رجّع المعاملة برمز، أو صفر صفوف (السطر انحذف، أو الجرد ما عاد مسوّدة فالسياسة تخفيه). */
+const definite = (error: unknown): boolean => error instanceof RejectedError || error instanceof ZeroRowsError;
 
 /**
  * يرسل المحفوظ بالترتيب: اللي وصل ينشال، والمرفوض رفضاً أكيداً ينشال ويرجع بسببه، وأوّل فشل غير أكيد (شبكة أو جواب ضاع) يوقف
@@ -80,7 +89,7 @@ export async function sendPending(docId: string, store: PendingStore, send: Pend
       await sendLine(docId, line, send);
       sent += 1;
     } catch (error) {
-      if (!(error instanceof RejectedError)) {
+      if (!definite(error)) {
         await store.write(left);
         throw error;
       }
@@ -92,9 +101,9 @@ export async function sendPending(docId: string, store: PendingStore, send: Pend
   return { sent, rejected };
 }
 
-/** المحفوظ لجرد بختم المستخدم والمنشأة (IndexedDB). */
+/** المحفوظ لجرد بختم المستخدم والمنشأة (IndexedDB)، بمفتاح المستخدم والجرد. */
 export function devicePending(stamp: DraftStamp, docId: string, title: string): PendingStore {
-  const id = pendingDraftId(docId);
+  const id = pendingDraftId(stamp.userId, docId);
   return {
     read: async () => (await listDeviceDrafts<CountPendingPayload>(stamp, 'count')).find((draft) => draft.id === id) ?? null,
     write: async (lines) => {
@@ -117,4 +126,18 @@ export async function keepPending(store: PendingStore, docId: string, line: Pend
     const draft = await store.read();
     await store.write(withPending(draft?.payload.lines ?? [], line));
   });
+}
+
+/** يشيل سطراً من المحفوظ تحت القفل (انكتب أحدث منه أونلاين، فإرسال المحفوظ القديم بعده كان يكتب فوقه بقيمة أقدم). */
+export async function dropPending(store: PendingStore, docId: string, id: string): Promise<void> {
+  await underCountLock(docId, async () => {
+    const draft = await store.read();
+    if (!draft || !draft.payload.lines.some((line) => line.id === id)) return;
+    await store.write(draft.payload.lines.filter((line) => line.id !== id));
+  });
+}
+
+/** المحفوظ كلّه لجرد ما عاد مسوّدة (سُلّم أو رُحّل): يُمسح بتأكيد بعد ما ينعرض. */
+export async function clearPending(store: PendingStore, docId: string): Promise<void> {
+  await underCountLock(docId, () => store.write([]));
 }

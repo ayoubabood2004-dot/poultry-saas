@@ -632,6 +632,7 @@ async function scenario(t, db) {
   const voidUseDef = await fnDef('public.void_stock_use(uuid,text,uuid)');
   const countDef = await fnDef('public.post_count(uuid,integer,text,uuid)');
   const voidCountDef = await fnDef('public.void_count(uuid,text,uuid)');
+  const snapshotDef = await fnDef('private.count_snapshot(uuid,date,public.stock_count_lines)');
   const upkeep = (await db.admin("select id from public.expense_categories where org_id = $1 and name = 'صيانة'", [S.org])).rows[0].id;
   const postUse = async (q, wh, lines) => {
     const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [wh, upkeep, TODAY])).rows[0].id;
@@ -786,6 +787,35 @@ async function scenario(t, db) {
       await q(swap(drawDef, ...LIFO));
       await q(swap(planDef, ...LIFO_PLAN));
       await postCount(q, W.general, lifoItem, 150);
+    }]],
+    // مراجعة WP5 (الفحص 11 للجرد): فرق غير «المعدود − اللقطة»، ودفعة زيادة بغير يوم الجرد، ونقص صالح لمادّة تتابع الانتهاء بلا
+    // علامته (فالمنتهي كان يقدر ينسحب بلا ما يشوفه فحص).
+    'doc_moves (فرق الجرد غير المعدود − اللقطة)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(snapshotDef, 'diff := p_line.counted_qty - s.available;', 'diff := p_line.counted_qty - s.available - 1;'));
+      await postCount(q, W.general, oil, 80);
+    }]],
+    'doc_moves (دفعة زيادة بغير يوم الجرد)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(countDef, 'l := private.new_lot(ln.item_id, w.id, d.counted_on, ln.gain_expiry_on,', 'l := private.new_lot(ln.item_id, w.id, d.counted_on - 1, ln.gain_expiry_on,'));
+      await postCount(q, W.general, oil, 90);
+    }]],
+    'doc_moves (نقص صالح بلا علامة الانتهاء)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(countDef, "-dr.qty, -dr.value, d.counted_on, null, coalesce(i.tracks_expiry, false));", '-dr.qty, -dr.value, d.counted_on, null, false);'));
+      await postCount(q, W.medicine, vaccine2, 0);
+    }]],
+    // الثغرة نفسها (المراجعة): سحب النقص الصالح يتجاهل الانتهاء ويكتب علامته بلا، فينسحب لقاح منتهٍ كأنه صالح؛ الفحوص 6 و10 تعبره
+    // (العلامة بلا)، وقسمة السطر بانتهاء الدفعة بيوم الجرد تمسكه.
+    'doc_moves (نقص صالح من دفعة منتهية)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      const EXPIRY = 'and (not coalesce(v_tracks, false) or l.expiry_on is null or l.expiry_on >= p_date or (p_lot is not null and coalesce(p_allow_expired, false)))';
+      await q(swap(drawDef, EXPIRY, ''));
+      await q(swap(planDef, EXPIRY, ''));
+      await q(swap(countDef, "-dr.qty, -dr.value, d.counted_on, null, coalesce(i.tracks_expiry, false));", '-dr.qty, -dr.value, d.counted_on, null, false);'));
+      const have = (await q("select coalesce(sum(qty_left) filter (where expiry_on >= $3), 0)::text as ok, coalesce(sum(qty_left) filter (where expiry_on < $3), 0)::text as expired from public.stock_lots where item_id = $1 and warehouse_id = $2", [I.vaccine, W.medicine, TODAY])).rows[0];
+      if (!(Number(have.ok) >= 1 && Number(have.expired) >= 1)) throw new Error(`ضابط القسمة يحتاج لقاحاً صالحاً ومنتهياً: ${JSON.stringify(have)}`);
+      const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.medicine, TODAY])).rows[0].id;
+      await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty, counted_expired_qty) values ($1, $2, $3, $4)', [count, I.vaccine, Number(have.ok) - 1, have.expired]);
+      await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
+      await q("update public.stock_count_lines set reason = 'ضابط' where doc_id = $1", [count]);
+      await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
     }]],
     'draw_dates (سحب مسمّى من منتهية بعلامة الانتهاء)': ['draw_dates', [{ draw_dates: 1 }, async (q) => {
       await q(swap(useDef, "perform private.apply_move(dr.lot_id, 'stock_use', d.id, ln.id, -dr.qty, -dr.value, d.used_on, null, false);", "perform private.apply_move(dr.lot_id, 'stock_use', d.id, ln.id, -dr.qty, -dr.value, d.used_on, null, true);"));

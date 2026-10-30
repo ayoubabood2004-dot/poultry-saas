@@ -271,7 +271,7 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
               </Link>
             ) : null}
             {pending.uses > 0 ? (
-              <Link to="/inventory/uses" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-uses">
+              <Link to="/inventory/uses?awaiting=1" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-uses">
                 {t('stock.approvals.uses', 'صرف وإتلاف بانتظارك: {n}', { n: fmtInt(pending.uses) })}
               </Link>
             ) : null}

@@ -1,7 +1,9 @@
 // شاشات WP5 من المصدر الحقيقي (الخطّة WP5 «Unit tests»): معاينة الصرف بلا قيمة المصروف للأمين (والمدير يشوفها) و«بانتظار موافقة
 // المدير»، وتأكيد السحب الكامل يسمّي المادّة والكمية، ودفتر المفقس بلا اختيار مسبق (ومشاكل نموذج المصروف)، وشاشة العدّ بلا كمية
 // الدفتر (وأعمدة سطور العادّ نفسها ما تطلبها)، وحقول سطر العدّ، والمحفوظ بالجهاز للجرد (اللي وصل ينشال، و23505 = انكتب فيتعدّل
-// بآخر قيمة، والرفض الأكيد ينشال ويرجع بسببه، والشبكة توقف وتبقي الباقي).
+// بآخر قيمة، والرفض الأكيد ينشال ويرجع بسببه، والشبكة توقف وتبقي الباقي). ومراجعة WP5: السحب الكامل بسطور الترتيب بس، و«بانتظار
+// موافقة المدير» بالقائمة، وأشهر النسبة سنة، والعدّ الثاني لنفس المادّة ينجمع، و23505 على مفتاح ثاني رفض أكيد، وخطوط موافقة ترحيل
+// الجرد (النقص بدفعاته والزيادة دفعة جديدة) وزرّه.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -90,10 +92,12 @@ function usePreviewJson({ money, wholeBalance = false, needsManager = false, can
 
 export default async function (t) {
   const m = await bundle(`
-    export { UsePreviewPanel, stockUseWholeLines, stockUsePostReady, expiredLots } from './src/pages/inventory/UsesPage.tsx';
-    export { HatcheryBookSelect, expenseProblems, monthChoices, monthLabel } from './src/pages/accounts/ExpensesPage.tsx';
-    export { CountedLines, countLineFields, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
-    export { sendPending, withPending } from './src/pages/inventory/countDevice.ts';
+    export { UsePreviewPanel, awaitsManager, stockUseWholeLines, stockUsePostReady, expiredLots } from './src/pages/inventory/UsesPage.tsx';
+    export { HatcheryBookSelect, booksInScope, expenseProblems, expenseSpanLabel, monthChoices, monthLabel } from './src/pages/accounts/ExpensesPage.tsx';
+    export { parseExpenseReport } from './src/lib/repo/cash.ts';
+    export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeCountFields, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
+    export { countLinePatch, isOwnRetry, sendPending, withPending } from './src/pages/inventory/countDevice.ts';
+    export { parseCountPreview } from './src/lib/repo/counts.ts';
     export { WholeBalanceConfirm } from './src/components/ui/WholeBalance.tsx';
     export { parseUsePreview } from './src/lib/repo/uses.ts';
     export { RejectedError, NetworkError } from './src/lib/errors.ts';
@@ -130,6 +134,24 @@ export default async function (t) {
     'تأكيد السحب الكامل يسمّي «كاز أبيض» و«10 لترات» و«المخزن العام»',
   );
   t.same(m.stockUseWholeLines(keeper), [], 'سطر ما يسحب الرصيد كلّه: بلا تأكيد');
+  // سطر يسمّي دفعة منتهية ويفرّغها ما يصفّر المادّة: ما ينجمع ويّا سطر الترتيب، ولحاله ما يطلب تأكيد السحب الكامل.
+  const named = { ...whole.lines[0], lineId: 'line-2', lotId: 'lot-x', qty: 3000n, wholeBalance: true };
+  t.same(
+    [m.stockUseWholeLines({ ...whole, lines: [...whole.lines, named] }), m.stockUseWholeLines({ ...whole, lines: [named] })],
+    [[{ itemName: 'كاز أبيض', qty: 10000n, unit: 'L' }], []],
+    'السحب الكامل بسطور الترتيب بس: الدفعة المسمّاة اللي تفرغ ما تنجمع ولا تطلب التأكيد لحالها',
+  );
+  const destroyIds = new Set(['cat-destroy']);
+  t.same(
+    [
+      m.awaitsManager({ status: 'draft', namesLot: true, categoryId: 'cat-1' }, destroyIds),
+      m.awaitsManager({ status: 'draft', namesLot: false, categoryId: 'cat-destroy' }, destroyIds),
+      m.awaitsManager({ status: 'draft', namesLot: false, categoryId: 'cat-1' }, destroyIds),
+      m.awaitsManager({ status: 'posted', namesLot: true, categoryId: 'cat-destroy' }, destroyIds),
+    ],
+    [true, true, false, false],
+    '«بانتظار موافقة المدير» بالقائمة: مسوّدة تسمّي دفعة أو إتلاف، والمرحَّل لا',
+  );
   t.same(
     m.expiredLots([{ lotId: 'a', expiryOn: '2026-10-25', qtyLeft: 6000n }, { lotId: 'b', expiryOn: '2026-10-30', qtyLeft: 1000n }, { lotId: 'c', expiryOn: '2026-10-01', qtyLeft: 0n }, { lotId: 'd', expiryOn: null, qtyLeft: 5n }], '2026-10-30').map((lot) => lot.lotId),
     ['a'],
@@ -159,7 +181,29 @@ export default async function (t) {
     [['amount'], ['day']],
     'المبلغ بالدينار الصحيح، والتاريخ ضمن 7 أيام',
   );
-  t.same([m.monthChoices('2026-11-10'), m.monthLabel('2026-10-01')], [['2026-11-01', '2026-10-01', '2026-09-01', '2026-08-01'], '10/2026'], 'أشهر النسبة (Q14): شهر التاريخ وثلاثة قبله، و«10/2026»');
+  // وحدات الاختيار بنطاق القارئ (E40)، والمجموع بأشهر النسبة، وعدد وحدات النطاق من التقرير (مراجعة WP5).
+  const orgBooks = [{ id: 'b-gen', divisionId: 'd-gen', divisionKind: 'general', code: 'main', name: 'العامّة', goLiveOn: null }, { id: 'b-br', divisionId: 'd-br', divisionKind: 'broiler', code: 'main', name: 'اللحم', goLiveOn: null }];
+  t.same(
+    [
+      m.booksInScope(orgBooks, { role: 'accountant', scopes: [{ divisionId: 'd-br' }] }).map((b) => b.id),
+      m.booksInScope(orgBooks, { role: 'accountant', scopes: [] }).map((b) => b.id),
+      m.booksInScope(orgBooks, { role: 'manager', scopes: [{ warehouseId: 'w-1' }] }).map((b) => b.id),
+    ],
+    [['b-br'], ['b-gen', 'b-br'], []],
+    'وحدات المصروف بنطاق القارئ: المحصور باللحم يختار اللحم بس، وبلا نطاق الكل، والمحصور بمخزن ولا وحدة (E40)',
+  );
+  const report = m.parseExpenseReport({ from: '2026-09-01', to: '2026-11-10', divisions: { visible: 1, total: 6 }, rows: [], next: null, totals: { total: '0', count: 0, by_category: [], by_source: [], by_month: [] } });
+  t.same(
+    [report.divisions, m.expenseSpanLabel(report.from, report.to), (() => { try { m.parseExpenseReport({ from: '2026-09-01', to: '2026-11-10', rows: [], next: null, totals: { total: '0', count: 0, by_category: [], by_source: [], by_month: [] } }); return 'ok'; } catch { return 'رمى'; } })()],
+    [{ visible: 1, total: 6 }, 'المجموع بشهر النسبة من 09/2026 إلى 11/2026', 'رمى'],
+    'التقرير: وحدات النطاق من المجموع (1 من 6)، والمجموع بأشهر النسبة، وجواب بلاها خطأ شكل',
+  );
+  const months = m.monthChoices('2026-11-10');
+  t.same(
+    [months.length, months[0], months[1], months.at(-1), m.monthLabel('2026-10-01')],
+    [13, '2026-11-01', '2026-10-01', '2025-11-01', '10/2026'],
+    'أشهر النسبة (Q14): شهر التاريخ واثنا عشر قبله (فاتورة سنوية متأخّرة)، و«10/2026»',
+  );
 
   // ── العدّ الأعمى: سطور العادّ بلا كمية الدفتر، وأعمدتها ما تطلبها ─────────────────────────────────────────────────
   const counted = html(
@@ -222,4 +266,60 @@ export default async function (t) {
   const result = await m.sendPending('d', refused, send({ a: () => new m.RejectedError('not_draft', 'الجرد مسلَّم') }));
   t.same([result.sent, result.rejected.map((r) => [r.line.id, r.error.code]), refused.box.lines], [1, [['a', 'not_draft']], []], 'الرفض الأكيد (الجرد سُلّم): السطر ينشال ويرجع بسببه، والباقي ينرسل');
   t.same(m.withPending([line('a', '1.000'), line('b', '2.000')], line('a', '5.000')).map((l) => [l.id, l.fields.counted_qty]), [['b', '2.000'], ['a', '5.000']], 'نفس السطر بالمحفوظ يتبدّل بآخر قيمة');
+  // 23505 على مفتاح ثاني (المادّة معدودة بسطر ثاني) رفض أكيد: كان ينقرا «انكتب» فيتعدّل سطر ما موجود ويعلق بالمحفوظ.
+  calls.length = 0;
+  const other = store([line('a', '1.000')]);
+  const otherKey = await m.sendPending('d', other, send({ a: () => new m.RejectedError('23505', null, 'stock_count_lines_org_id_doc_id_item_id_key') }));
+  t.same(
+    [
+      [m.isOwnRetry(new m.RejectedError('23505', null, 'stock_count_lines_pkey')), m.isOwnRetry(new m.RejectedError('23505', null)), m.isOwnRetry(new m.RejectedError('23505', null, 'stock_count_lines_org_id_doc_id_item_id_key'))],
+      otherKey.rejected.map((r) => r.line.id),
+      calls,
+      other.box.lines,
+    ],
+    [[true, true, false], ['a'], [['add', 'a', '1.000']], []],
+    '23505 بمفتاح الصفّ = انكتب، وبمفتاح المادّة رفض أكيد ينشال ويرجع بسببه (بلا تعديل)',
+  );
+  t.same(Object.keys(m.countLinePatch(fields('1.000'))).includes('item_id'), false, 'تعديل السطر بلا المادّة (المنح بلاها، فإرسالها يرجع 42501)');
+
+  // ── العدّ الثاني لنفس المادّة ينجمع (رفّان)، والتواريخ الجديدة تغلب ───────────────────────────────────────────────
+  const shelfOne = m.fieldsOfLine({ itemId: 'v', counted: 10000n, countedExpired: 2000n, gainExpiryOn: '2027-01-01', gainExpiredExpiryOn: null, gainBornAt: null });
+  t.same(
+    m.mergeCountFields(shelfOne, { item_id: 'v', counted_qty: '5.000', counted_expired_qty: '1.000', gain_expiry_on: null, gain_expired_expiry_on: '2026-09-01', gain_born_at: null }),
+    { item_id: 'v', counted_qty: '15.000', counted_expired_qty: '3.000', gain_expiry_on: '2027-01-01', gain_expired_expiry_on: '2026-09-01', gain_born_at: null },
+    'عدّ ثاني لنفس المادّة: الصالح والمنتهي ينجمعان، والتاريخ الفارغ ما يمسح السابق',
+  );
+
+  // ── خطوط موافقة ترحيل الجرد وزرّه ─────────────────────────────────────────────────────────────────────────────
+  const countLine = (over) => ({
+    line_id: 'c1', line_no: 1, item_id: 'v', item_name: 'لقاح', base_unit: 'pc', tracks_expiry: true, kind: 'vaccine',
+    counted_qty: '8.000', counted_expired_qty: '0.000', system_qty: '10.000', system_expired_qty: '2.000', diff: '-2.000', expired_diff: '-2.000',
+    now_qty: '10.000', now_expired_qty: '2.000', stale: false, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null, reason: 'كسر',
+    reason_stale: false, gain_source: null, reference_lot_id: null, problem: null,
+    draws: [{ lot_id: 'l-ok', qty: '2.000', expiry_on: '2027-06-30', received_on: '2026-10-20' }],
+    expired_draws: [{ lot_id: 'l-old', qty: '2.000', expiry_on: '2026-10-25', received_on: '2026-10-20' }],
+    ...over,
+  });
+  const countPreview = (lines, ready = true) => m.parseCountPreview({ version: 4, plan: 'p', status: 'submitted', submitted_at: null, snapshot_at: null, stale: false, problems: [], lines, ready });
+  const shortLines = m.countPreviewLines(countPreview([countLine({})]));
+  const gainLines = m.countPreviewLines(countPreview([countLine({ line_id: 'c2', counted_qty: '13.000', diff: '3.000', expired_diff: '0.000', counted_expired_qty: '2.000', draws: [], expired_draws: [] })]));
+  t.same(
+    [shortLines.map((l) => [l.lineId, l.requested, l.draws.map((d) => d.lotId), l.shortage]), gainLines.map((l) => [l.lineId, l.requested, l.draws.length, l.shortage])],
+    [[['c1:S', 2000n, ['l-ok'], 0n], ['c1:X', 2000n, ['l-old'], 0n]], [['c2:G', 3000n, 1, 0n]]],
+    'خطوط الترحيل: النقص بدفعاته (S) ونقص المنتهي من المنتهي (X)، والزيادة دفعة جديدة (G)',
+  );
+  const flat = countPreview([countLine({ diff: '0.000', expired_diff: '0.000', counted_qty: '10.000', counted_expired_qty: '2.000', draws: [], expired_draws: [] })]);
+  t.same(
+    [
+      m.countPostReady(countPreview([countLine({})]), new Set(['c1:S']), true),
+      m.countPostReady(countPreview([countLine({})]), new Set(['c1:S', 'c1:X']), true),
+      m.countPostReady(countPreview([countLine({})]), new Set(['c1:S', 'c1:X']), false),
+      m.countPostReady(countPreview([countLine({})], false), new Set(['c1:S', 'c1:X']), true),
+      m.countPostReady(flat, new Set(), true),
+      m.countPreviewLines(countPreview([countLine({ draws: [] })]))[0].shortage,
+    ],
+    [false, true, false, false, true, 2000n],
+    'زرّ ترحيل الجرد: كل خطّ انوافق عليه والمعاينة جاهزة والاتّصال موجود؛ وجرد بلا فروق بلا خطوط؛ ونقص بلا دفعات كافية ناقص',
+  );
+  t.same(countPreview([countLine({ reason_stale: true })]).lines[0].reasonStale, true, 'المعاينة تقول إن السبب على فرق قديم (reason_stale)');
 }

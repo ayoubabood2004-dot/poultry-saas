@@ -6,11 +6,13 @@
 // ترحيل بتاريخ ما انفحص)؛ تحويلان بلا رصيد مشترك بمرايا جذورها متقاطعة بلا 40P01 (الدفعات for no key update)؛ حذف سطر وتعديله
 // بلا 40P01 (السطر قبل رأسه)؛ وملفات التراجع تقفل جداولها قبل ما تعدّ المستندات. وWP5: صرف وتحويل بـ3,000 كغم بنفس اللحظة من
 // دفعة ذرة 4,000 كغم ← واحد يرحّل والثاني insufficient_stock والدفعة 1,000 كغم بـ450,000.00 (D6)؛ وتحويل يترحّل والجرد ينتظر
-// قفل الرصيد ← count_stale (C11، E53) مو نقص محسوب على رصيد قديم.
+// قفل الرصيد ← count_stale (C11، E53) مو نقص محسوب على رصيد قديم. ومراجعة WP5: دوالّ الجرد تقفل سطوره وكلفه قبل رأسه (C15، بلا
+// 40P01 ويّا تعديل العادّ أو كلفة المدير)، والترحيل بزيادة ينتظر عدّاد الترتيب قبل ما يقرا دفعة القياس (C16، E45)، حتى بمنشأة
+// بلا دفعات وأوّل افتتاح لسه ما ثبت (C17).
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sameRefRace } from './shared.mjs';
+import { race, sameRefRace } from './shared.mjs';
 import { lotsOf, makeStockOrg, openingDraft, postedOpening, transferDraft } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
@@ -23,30 +25,13 @@ export default async function (t, db) {
   await db.setToday(TODAY, () => scenario(t, db));
 }
 
-/** الأولى تنفّذ وتبقى مفتوحة، والثانية تنطلق وتنحبس، والأولى تثبّت، والثانية تكمل وتثبّت إذا نجحت. */
-async function race(db, first, second) {
-  const one = await db.session(first.user);
-  const two = await db.session(second.user);
-  try {
-    const a = await one.run(first.sql, first.params);
-    const pending = two.run(second.sql, second.params);
-    const state = await db.settle(pending, two.pid);
-    await one.commit();
-    const b = await pending;
-    await two.commit();
-    return { first: a.ok ? 'ok' : a.error, state, second: b.ok ? 'ok' : b.error, rows: [a.rows, b.rows] };
-  } finally {
-    await one.rollback();
-    await two.rollback();
-  }
-}
-
 /**
  * ترتيب الأقفال بجلسة بديلة (قالب ledger-locks وledger-rules): البديلة (صاحب الجداول) تمسك first، وa (وb) ينطلقون وينحبسون،
  * وبعدها البديلة تطلب last: «finished» = ولا وحد منهم ماسكه وهو منحبس. بالترتيب الغلط البديلة تنحبس عليه وهو عليها (40P01):
  * الضحيّة يرجع خطأه ويرجع كلّه، وبعده البديلة تكمل («late» أو خطؤها). a.role postgres لضابط يقفل مباشرةً، وa.before أوامر قبل.
+ * lockLast أمر الطلب الأخير إذا غير الأوّل (صفّ السطر ثم رأسه، مثل حارس السطر).
  */
-async function lockOrderRace(db, { holder, first, last, lock, a, b }) {
+async function lockOrderRace(db, { holder, first, last, lock, lockLast, a, b }) {
   const hold = await db.session(holder, { role: 'postgres' });
   const opened = [];
   const out = {};
@@ -64,7 +49,7 @@ async function lockOrderRace(db, { holder, first, last, lock, a, b }) {
       out[key] = await db.settle(promise, session.pid);
       pending.push([key, session, promise]);
     }
-    const lastPending = hold.run(lock, last);
+    const lastPending = hold.run(lockLast ?? lock, last);
     out.last = await db.settle(lastPending, hold.pid);
     if (out.last === 'finished') await hold.commit();
     for (const [key, session, promise] of pending) {
@@ -358,6 +343,123 @@ async function scenario(t, db) {
     [c11.first, c11.state, c11.second, countRow, (await lotsOf(db, XC, W.general)).map((l) => l.qty_left)],
     ['ok', 'blocked', 'count_stale', { status: 'submitted', doc_no: null }, ['35']],
     'C11: التحويل يرحّل والجرد ينام على رصيد المادّة ثم count_stale؛ الجرد يبقى مسلَّماً بلا رقم ولا نقص على الرصيد القديم',
+  );
+
+  // ── C15 (مراجعة WP5): سطور الجرد وكلفها قبل رأسه ─────────────────────────────────────────────────────────────────
+  // البديلة تمسك صفّ السطر (أو الكلفة) مثل تعديل العادّ (أو كلفة المدير)، وبعدها تطلب الرأس مثل حارسهما: دوالّ الجرد تقفل السطور
+  // والكلف قبل الرأس فتنتظر وأيديها فارغة، والبديلة تاخذ الرأس فوراً. بالترتيب القديم (الرأس ثم السطور) الدالّة ماسكة الرأس ← 40P01.
+  const XL = await item('كاز الأقفال');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XL, qty: 40, value: 4000 }]);
+  const lockedCount = async (stage) => {
+    const docId = await db.asUser(
+      U.storekeeper,
+      async (q) => {
+        const doc = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, TODAY])).rows[0].id;
+        await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 39)', [doc, XL]);
+        return doc;
+      },
+      { commit: true },
+    );
+    const lineId = (await db.admin('select id from public.stock_count_lines where doc_id = $1', [docId])).rows[0].id;
+    if (stage !== 'draft') {
+      await S.one(U.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [docId, await versionOf(docId)]);
+      await S.one(U.manager, "update public.stock_count_lines set reason = 'لتر ناقص' where id = $1 returning id", [lineId]);
+      await S.one(U.manager, 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 100) returning line_id', [lineId]);
+    }
+    return { docId, lineId, version: await versionOf(docId) };
+  };
+  const LINE = 'select 1 from public.stock_count_lines where id = $1 for no key update';
+  const COST = 'select 1 from public.stock_count_line_costs where line_id = $1 for no key update';
+  const HEADER = 'select 1 from public.stock_counts where id = $1 for update';
+  const c15 = {};
+  for (const [name, stage, lock, call] of [
+    ['submit_count', 'draft', LINE, (c) => ({ user: U.storekeeper, sql: 'select public.submit_count($1, $2, gen_random_uuid()) as result', params: [c.docId, c.version] })],
+    ['refresh_count', 'submitted', LINE, (c) => ({ user: U.manager, sql: 'select public.refresh_count($1, $2, gen_random_uuid()) as result', params: [c.docId, c.version] })],
+    ['return_count', 'submitted', LINE, (c) => ({ user: U.manager, sql: "select public.return_count($1, $2, 'أعد العدّ', gen_random_uuid()) as result", params: [c.docId, c.version] })],
+    ['post_count', 'submitted', COST, (c) => ({ user: U.manager, sql: "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid()) as result", params: [c.docId, c.version] })],
+  ]) {
+    const c = await lockedCount(stage);
+    const out = await lockOrderRace(db, { holder: U.scopedManager, first: [c.lineId], last: [c.docId], lock, lockLast: HEADER, a: call(c) });
+    c15[name] = [out.held, out.a, out.last, out.a2];
+  }
+  t.same(
+    c15,
+    Object.fromEntries(['submit_count', 'refresh_count', 'return_count', 'post_count'].map((name) => [name, [true, 'blocked', 'finished', 'ok']])),
+    'C15: التسليم وإعادة الحساب و«أعِد للعدّ» والترحيل ينتظرون السطر (أو الكلفة) وأيديهم فارغة من الرأس، والبديلة تاخذ الرأس فوراً، والكل يكمل بلا 40P01',
+  );
+
+  // ── C16 (مراجعة WP5، E45): الجرد بزيادة يقفل عدّاد الترتيب قبل ما يقرا دفعة القياس ───────────────────────────────────────
+  // كان يقرا القياس (100.00 للتر) ثم ينتظر العدّاد بـnew_lot ويرحّل، ودفعة الزيادة رقمها بعد افتتاح ترحّل وهو ينتظر وما انقاس بيه.
+  const XG = await item('كاز القياس');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XG, qty: 10, value: 1000 }]);
+  const gainDoc = await db.asUser(
+    U.storekeeper,
+    async (q) => {
+      const doc = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, TODAY])).rows[0].id;
+      await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 12)', [doc, XG]);
+      return doc;
+    },
+    { commit: true },
+  );
+  await S.one(U.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [gainDoc, await versionOf(gainDoc)]);
+  await S.one(U.manager, "update public.stock_count_lines set reason = 'لتران زيادة' where doc_id = $1 returning id", [gainDoc]);
+  // البديلة (بهويّة المدير) تمسك صفّ العدّاد قفلاً بس (بلا تعديل)، والجرد ينطلق وينحبس، والبديلة ترحّل افتتاحاً بمخزن ثاني (300.00
+  // للتر) وتثبّت. القفل قبل القراءة: الجرد ينتظر العدّاد ثم يقرا الافتتاح ← stale_preview. بلاه يقرا القياس القديم وينحبس بـnew_lot.
+  const newer = await openingDraft(db, U.manager, W.general2, GO_LIVE, [{ item: XG, qty: 10, value: 3000 }]);
+  const counterHolder = await db.session(U.manager, { role: 'postgres' });
+  const poster = await db.session(U.manager);
+  const c16 = {};
+  try {
+    await counterHolder.run("set local lock_timeout = '10s'");
+    c16.held = (await counterHolder.run('select 1 from private.stock_fifo_counters where org_id = $1 for update', [S.org])).ok;
+    const pending = poster.run("select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid()) as result", [gainDoc, await versionOf(gainDoc)]);
+    c16.state = await db.settle(pending, poster.pid);
+    const opened = await counterHolder.run('select public.post_opening_stock($1, $2, gen_random_uuid()) as result', [newer.id, newer.version]);
+    c16.opened = opened.ok ? 'ok' : opened.error;
+    await counterHolder.commit();
+    const posted = await pending;
+    c16.posted = posted.ok ? 'ok' : posted.error;
+    if (posted.ok) await poster.commit();
+  } finally {
+    await poster.rollback();
+    await counterHolder.rollback();
+  }
+  const regained = (await S.one(U.manager, 'select public.preview_count($1)', [gainDoc])).lines[0].money.gain_value;
+  t.same(
+    [c16.held, c16.state, c16.opened, c16.posted, regained],
+    [true, 'blocked', 'ok', 'stale_preview', '600.00'],
+    'C16: الجرد بزيادة ينتظر عدّاد الترتيب قبل دفعة القياس، فافتتاح ترحّل وهو ينتظر يقلبه stale_preview، والمعاينة الجديدة تقيس بالافتتاح (2 × 300.00 = 600.00)',
+  );
+
+  // ── C17: منشأة بلا دفعات، وأوّل افتتاح (ماسك صفّ العدّاد الجديد) والجرد بزيادة بكلفة المدير سوا ─────────────────────────────
+  // صفّ العدّاد يولد بصفر قبل قفله، فالجرد ينتظر الافتتاح ثم stale_preview؛ بلاه ما يلكى صفّاً يقفله، فيقيس بكلفة المدير ودفعة الزيادة
+  // رقمها بعد دفعة كان لازم ينقاس بيها.
+  const F = await makeStockOrg(db, { name: 'مزرعة أوّل دفعة', id: (n) => id(60 + n), phone: (n) => phone(60 + n), goLive: GO_LIVE });
+  const FZ = await F.one(F.users.owner, "insert into public.items (name, kind, base_unit) values ('كاز أوّل دفعة', 'fuel', 'L') returning id");
+  const firstCount = await db.asUser(
+    F.users.storekeeper,
+    async (q) => {
+      const doc = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [F.W.general, TODAY])).rows[0].id;
+      const line = (await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 5) returning id', [doc, FZ])).rows[0].id;
+      return { doc, line };
+    },
+    { commit: true },
+  );
+  await F.one(F.users.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [firstCount.doc, await versionOf(firstCount.doc)]);
+  await F.one(F.users.manager, "update public.stock_count_lines set reason = 'وُجدت' where id = $1 returning id", [firstCount.line]);
+  await F.one(F.users.manager, 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 100) returning line_id', [firstCount.line]);
+  // الافتتاح بوحدة ثانية (حقل اللحم): أوّل ترحيل بكل وحدة يقفل صفّها (division_for_post)، فبنفس الوحدة ينتظر الجرد الوحدة مو العدّاد.
+  const firstOpening = await openingDraft(db, F.users.manager, F.W.farm1, GO_LIVE, [{ item: FZ, qty: 10, value: 3000 }]);
+  const c17 = await race(
+    db,
+    { user: F.users.manager, sql: 'select public.post_opening_stock($1, $2, gen_random_uuid()) as result', params: [firstOpening.id, firstOpening.version] },
+    { user: F.users.manager, sql: "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid()) as result", params: [firstCount.doc, await versionOf(firstCount.doc)] },
+  );
+  const firstSeen = (await F.one(F.users.manager, 'select public.preview_count($1)', [firstCount.doc])).lines[0];
+  t.same(
+    [c17.first, c17.state, c17.second, firstSeen.gain_source, firstSeen.money.gain_value],
+    ['ok', 'blocked', 'stale_preview', 'lot', '1500.00'],
+    'C17: أوّل افتتاح بالمنشأة والجرد بزيادة سوا: الجرد ينتظر صفّ العدّاد ثم stale_preview، والقياس صار بالافتتاح (5 × 300.00)',
   );
 
   // ── ملفات التراجع تقفل جداولها قبل ما تعدّ (مراجعة WP4 الثانية): بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف ينحذف ويّا جداوله.

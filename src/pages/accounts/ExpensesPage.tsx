@@ -15,8 +15,10 @@ import { addDays, localDay, type Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
+import { inScope } from '../../domain/scope';
+import type { Workspace } from '../../domain/workspace';
 import { describeError, RejectedError } from '../../lib/errors';
-import { fmtDay, fmtMoney } from '../../lib/format';
+import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as cash from '../../lib/repo/cash';
 import type { ExpenseReport, ExpenseRow, ExpenseSource } from '../../lib/repo/cash';
@@ -37,11 +39,11 @@ export function monthLabel(month: Day): string {
   return fmtDay(month).slice(3);
 }
 
-/** أشهر النسبة المسموحة (Q14): شهر التاريخ وثلاثة قبله (الأقفال بالخادم). */
+/** أشهر النسبة المعروضة (Q14): شهر التاريخ واثنا عشر قبله (فاتورة سنوية متأخّرة)؛ المقفل منها كلّه يرفضه الخادم (period_locked). */
 export function monthChoices(day: Day): Day[] {
   const out: Day[] = [];
   let month = `${day.slice(0, 7)}-01`;
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 13; i += 1) {
     out.push(month);
     month = `${addDays(month, -1).slice(0, 7)}-01`;
   }
@@ -59,6 +61,16 @@ export function sourceLabel(source: ExpenseSource): string {
     case 'adjustment':
       return t('expense.source.adjustment', 'تسوية');
   }
+}
+
+/** الدفاتر بوحدات نطاق القارئ (مرآة in_scope_division، E40): الخادم يرفض غيرها out_of_scope، فما تنعرض للاختيار. */
+export function booksInScope(books: readonly BookRef[], workspace: Pick<Workspace, 'role' | 'scopes'>): BookRef[] {
+  return books.filter((book) => inScope(workspace.role, workspace.scopes, { divisionId: book.divisionId }));
+}
+
+/** «المجموع بشهر النسبة من 09/2026 إلى 11/2026»: التقرير يجمع بالشهر اللي ينتسب إليه المصروف، فالمدّة أشهر كاملة. */
+export function expenseSpanLabel(from: Day, to: Day): string {
+  return t('expense.total.months', 'المجموع بشهر النسبة من {from} إلى {to}', { from: monthLabel(`${from.slice(0, 7)}-01`), to: monthLabel(`${to.slice(0, 7)}-01`) });
 }
 
 /** الوحدات من دفاترها (المفقس بدفترين). */
@@ -352,7 +364,8 @@ export default function ExpensesPage() {
       (error: unknown) => setMore({ busy: false, error }),
     );
   };
-  const divisions = books.data ? divisionsOf(books.data) : [];
+  const scopedBooks = books.data && workspace ? booksInScope(books.data, workspace) : null;
+  const divisions = scopedBooks ? divisionsOf(scopedBooks) : [];
   const divisionKind = new Map(divisions.map((d) => [d.id, d.kind]));
   const canPost = workspace ? can(workspace.role, 'expense.post') : false;
   const canVoid = workspace ? can(workspace.role, 'void') : false;
@@ -401,10 +414,10 @@ export default function ExpensesPage() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title={t('expense.title', 'المصاريف')}
-        subtitle={t('expense.subtitle', 'كل مصروف على وحدة بتصنيفه وشهره؛ والمجاميع من الخادم للمدّة كلها.')}
+        subtitle={t('expense.subtitle', 'كل مصروف على وحدة بتصنيفه والشهر الذي ينتسب إليه؛ والمجاميع من الخادم بأشهر المدّة كاملةً.')}
         actions={
           canPost ? (
-            <Button icon={<Plus aria-hidden="true" className="size-4" />} disabled={!books.data} onClick={() => setDialog('new')} data-action="new-expense">
+            <Button icon={<Plus aria-hidden="true" className="size-4" />} disabled={!scopedBooks || scopedBooks.length === 0} onClick={() => setDialog('new')} data-action="new-expense">
               {t('expense.new', 'مصروف جديد')}
             </Button>
           ) : null
@@ -426,8 +439,15 @@ export default function ExpensesPage() {
       ) : report.data && totals ? (
         <>
           <p className="text-sm">
-            {t('expense.total', 'مجموع المدّة')}: <MoneyText amount={totals.total} className="font-semibold" />
+            {expenseSpanLabel(report.data.from, report.data.to)}:{' '}
+            <MoneyText amount={totals.total} className="font-semibold" />
           </p>
+          {report.data.divisions.visible < report.data.divisions.total ? (
+            <Notice
+              tone="info"
+              title={t('expense.scoped', 'المجاميع لوحدات نطاقك فقط: {visible} من {total}.', { visible: fmtInt(report.data.divisions.visible), total: fmtInt(report.data.divisions.total) })}
+            />
+          ) : null}
           <DataTable caption={t('expense.by_category', 'المصاريف حسب التصنيف')} columns={categoryColumns} rows={totals.byCategory} rowKey={(row) => row.categoryId} empty={t('expense.empty', 'لا مصاريف في هذه المدّة.')} />
           <DataTable caption={t('expense.list', 'المصاريف')} columns={columns} rows={rows} rowKey={(row) => row.id} empty={t('expense.empty', 'لا مصاريف في هذه المدّة.')} />
           {next ? (
@@ -438,7 +458,7 @@ export default function ExpensesPage() {
           {more.error ? <LoadFailed what={t('expense.list', 'المصاريف')} error={more.error} onRetry={loadMore} /> : null}
         </>
       ) : null}
-      {dialog === 'new' && books.data ? <ExpenseDialog books={books.data} onClose={() => setDialog(null)} onSaved={changed} /> : null}
+      {dialog === 'new' && scopedBooks ? <ExpenseDialog books={scopedBooks} onClose={() => setDialog(null)} onSaved={changed} /> : null}
       {dialog && dialog !== 'new' ? (
         <VoidDialog
           slot={`expense:${dialog.id}`}

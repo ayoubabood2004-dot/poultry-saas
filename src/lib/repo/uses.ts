@@ -108,11 +108,21 @@ function stockUseLine(row: Row): UseLine {
 
 export const USES_PAGE = 100;
 
-/** مستندات الصرف بصفحات (keyset مثل التحويل): المسوّدات ثم المرحَّلة ثم الملغاة، والأحدث أوّلاً، والعدد الكلّي بأوّل صفحة. */
-export async function listUses(after: DocCursor | null = null): Promise<Omit<DocPage, 'rows'> & { rows: UseDoc[] }> {
+/** صفّ القائمة: ويّاه إن كان سطر يسمّي دفعة (صرف منتهٍ بإذن المدير أو إتلاف، Q5): «بانتظار موافقة المدير» للمسوّدة. */
+export type UseListDoc = UseDoc & { namesLot: boolean };
+
+/**
+ * مستندات الصرف بصفحات (keyset مثل التحويل): المسوّدات ثم المرحَّلة ثم الملغاة، والأحدث أوّلاً، والعدد الكلّي بأوّل صفحة. سطر
+ * واحد بدفعة مسمّاة يكفي للعلامة (named محصور بسطر).
+ */
+export async function listUses(after: DocCursor | null = null): Promise<Omit<DocPage, 'rows'> & { rows: UseListDoc[] }> {
   const { result, wasOnline } = await send(
     (db) => {
-      let page = db.from('stock_uses').select(USE_COLUMNS);
+      let page = db
+        .from('stock_uses')
+        .select(`${USE_COLUMNS}, named:stock_use_lines(lot_id)`)
+        .not('named.lot_id', 'is', null)
+        .limit(1, { referencedTable: 'named' });
       if (after) {
         const at = `"${after.createdAt}"`;
         page = page.or(`status.gt.${after.status},and(status.eq.${after.status},created_at.lt.${at}),and(status.eq.${after.status},created_at.eq.${at},id.lt.${after.id})`);
@@ -124,7 +134,7 @@ export async function listUses(after: DocCursor | null = null): Promise<Omit<Doc
   );
   const [rows, total] = result;
   for (const answer of total ? [rows, total] : [rows]) if (answer.error) throw classifyPostgrest(answer.error, answer.status, 'table', wasOnline);
-  const docs = ((rows.data ?? []) as unknown as Row[]).map(stockUseDoc);
+  const docs = ((rows.data ?? []) as unknown as Row[]).map((row): UseListDoc => ({ ...stockUseDoc(row), namesLot: arr(row.named, 'named').length > 0 }));
   const last = docs.at(-1);
   return {
     rows: docs,
@@ -142,9 +152,10 @@ export async function loadUse(id: string): Promise<{ doc: UseDoc; lines: UseLine
   return { doc: stockUseDoc(head), lines: list(1).map(stockUseLine) };
 }
 
-export function createUseDraft(warehouseId: string, categoryId: string | null, usedOn: string, note: string | null = null): Promise<UseDoc> {
+/** مسوّدة صرف بمعرّف يولد بالجهاز: الإعادة بعد جواب ضاع بنفس المعرّف 23505 (isDuplicate)، مو مسوّدة ثانية (مراجعة WP5). */
+export function createUseDraft(id: string, warehouseId: string, categoryId: string | null, usedOn: string, note: string | null = null): Promise<UseDoc> {
   return written(async (db) =>
-    updatedRows(withStatus(await db.from('stock_uses').insert({ warehouse_id: warehouseId, category_id: categoryId, used_on: usedOn, note: note?.trim() || null }).select(USE_COLUMNS))),
+    updatedRows(withStatus(await db.from('stock_uses').insert({ id, warehouse_id: warehouseId, category_id: categoryId, used_on: usedOn, note: note?.trim() || null }).select(USE_COLUMNS))),
   ).then(stockUseDoc);
 }
 
@@ -173,8 +184,9 @@ export interface UseLineFields {
   lot_id: string | null;
 }
 
-export function addUseLine(docId: string, fields: UseLineFields): Promise<UseLine> {
-  return written(async (db) => updatedRows(withStatus(await db.from('stock_use_lines').insert({ ...fields, doc_id: docId }).select(USE_LINE_COLUMNS)))).then(stockUseLine);
+/** سطر بمعرّف يولد بالجهاز (FOUNDATION ١٩٩): الحفظ اللي ينعاد يرجع 23505 = انكتب، مو سطراً ثانياً. */
+export function addUseLine(docId: string, id: string, fields: UseLineFields): Promise<UseLine> {
+  return written(async (db) => updatedRows(withStatus(await db.from('stock_use_lines').insert({ id, ...fields, doc_id: docId }).select(USE_LINE_COLUMNS)))).then(stockUseLine);
 }
 
 export function deleteUseLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {

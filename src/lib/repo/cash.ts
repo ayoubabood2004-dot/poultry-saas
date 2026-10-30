@@ -284,6 +284,11 @@ export interface ExpenseTotals {
 }
 
 export interface ExpenseReport {
+  /** أوّل شهر المدّة وآخر يوم بيها: المجاميع بشهر النسبة (for_month)، فالمدّة أشهر كاملة. */
+  from: string;
+  to: string;
+  /** وحدات نطاق القارئ من وحدات المنشأة (E49): المحصور يشوف مجاميع وحداته بس. */
+  divisions: { visible: number; total: number };
   rows: readonly ExpenseRow[];
   /** مؤشّر الصفحة الجاية كما رجّعه الخادم (يرجع له كما هو)، أو null. */
   next: Row | null;
@@ -299,7 +304,11 @@ const whole = (row: Row, field: string): number => {
 export function parseExpenseReport(value: unknown): ExpenseReport {
   const json = object(value, 'report_expenses');
   const totals = object(json.totals, 'totals');
+  const divisions = object(json.divisions, 'divisions');
   return {
+    from: str(json, 'from'),
+    to: str(json, 'to'),
+    divisions: { visible: whole(divisions, 'visible'), total: whole(divisions, 'total') },
     rows: list(json.rows, 'rows').map((item) => {
       const row = object(item, 'rows');
       return {

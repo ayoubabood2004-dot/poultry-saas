@@ -13,6 +13,29 @@
 // draft() يرجّع { id, version, lineId } مثبَّتاً (المسوّدة تنكتب بدوالّ النوع أو سياساته الحقيقية).
 import { randomUUID } from 'node:crypto';
 
+/**
+ * سباق جلستين (درس 2026-10-25: كل ضمان قفل يثبته فحص بجلستين): الأولى تنفّذ وتبقى مفتوحة، والثانية تنطلق (تنحبس أو تخلص)، والأولى
+ * تثبّت (أو ترجع بـfirst.rollback)، والثانية تكمل وتثبّت إذا نجحت. الدور authenticated إلا role (postgres لصاحب الجداول).
+ */
+export async function race(db, first, second) {
+  const one = await db.session(first.user, { role: first.role ?? 'authenticated' });
+  const two = await db.session(second.user, { role: second.role ?? 'authenticated' });
+  try {
+    if (first.role === 'postgres') await one.run("set local lock_timeout = '10s'");
+    const a = await one.run(first.sql, first.params);
+    const pending = two.run(second.sql, second.params);
+    const state = await db.settle(pending, two.pid);
+    if (first.rollback) await one.rollback();
+    else await one.commit();
+    const b = await pending;
+    await two.commit();
+    return { first: a.ok ? 'ok' : a.error, state, second: b.ok ? 'ok' : b.error, rows: [a.rows, b.rows] };
+  } finally {
+    await one.rollback();
+    await two.rollback();
+  }
+}
+
 /** 'ok' (صفّ واحد أو أكثر)، 'zero_rows'، أو رسالة الخطأ. بمعاملة ترجع. */
 async function attempt(db, user, { sql, params }) {
   const outcome = await tryStatement((fn) => db.asUser(user, fn), { sql, params });

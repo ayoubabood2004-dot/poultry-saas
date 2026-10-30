@@ -297,6 +297,8 @@ export interface CountPreviewLine {
   gainExpiredExpiryOn: string | null;
   gainBornAt: string | null;
   reason: string | null;
+  /** السبب مكتوب على فرق غير الفرق الحالي («أعد الحساب» غيّره): الترحيل يطلب تأكيده (reason_required). */
+  reasonStale: boolean;
   /** مصدر قيمة الزيادة: دفعة القياس (E45) أو كلفة المدير (E48)؛ null بلا زيادة أو بلا الاثنين. */
   gainSource: 'lot' | 'manual' | null;
   referenceLotId: string | null;
@@ -371,6 +373,7 @@ export function parseCountPreview(value: unknown): CountPreview {
         gainExpiredExpiryOn: optStr(row, 'gain_expired_expiry_on'),
         gainBornAt: optStr(row, 'gain_born_at'),
         reason: optStr(row, 'reason'),
+        reasonStale: bool(row, 'reason_stale'),
         gainSource: source === 'lot' || source === 'manual' ? source : null,
         referenceLotId: optStr(row, 'reference_lot_id'),
         problem: problem(row.problem),

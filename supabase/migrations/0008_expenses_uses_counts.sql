@@ -230,6 +230,10 @@ create table if not exists public.stock_count_lines (
   gain_expired_expiry_on date,
   gain_born_at timestamptz,
   reason text,
+  -- الفرقان اللي انكتب السبب (أو تأكّد) عليهما (مراجعة WP5): «أعد الحساب» يغيّر الفرق، فسبب كُتب لنقص 3 ما يغطّي نقص 10 بصمت؛
+  -- الترحيل يطلبهما مساويين للفرقين. يختمهما حارس السطر بكتابة السبب (بلا منح).
+  reason_diff numeric,
+  reason_expired_diff numeric,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
   constraint stock_count_lines_counted_qty_check check (abs(counted_qty) < 'Infinity' and counted_qty >= 0 and counted_qty = round(counted_qty, 3)),
@@ -243,6 +247,8 @@ create table if not exists public.stock_count_lines (
   constraint stock_count_lines_snapshot_check check ((system_qty is null) = (diff is null) and (system_expired_qty is null) = (expired_diff is null)
     and (system_qty is not null or system_expired_qty is null)),
   constraint stock_count_lines_reason_check check (reason is null or length(btrim(reason)) between 1 and 500),
+  constraint stock_count_lines_reason_stamp_check check ((reason is null) = (reason_diff is null) and (reason_diff is not null or reason_expired_diff is null)
+    and abs(reason_diff) < 'Infinity' and abs(reason_expired_diff) < 'Infinity'),
   constraint stock_count_lines_line_no_check check (line_no >= 1),
   unique (org_id, id),
   unique (org_id, doc_id, line_no),
@@ -397,8 +403,9 @@ end
 $$;
 
 -- حارس سطر الجرد (§2.5، E53، definer): الرأس مقفول وبنطاق الكاتب. المسوّدة: العدّ بفعل count.enter (والمنتهي للمادّة اللي تتابع
--- الانتهاء بس، وفارغه صفر)، والسبب ما يتغيّر (يكتبه المدير بالمراجعة). المسلَّم: سبب الفرق بس بفعل count.approve. لقطة الرصيد
--- والفرقان بلا منح، فتعديل ما يغيّر غيرها من دوالّ الجرد نفسها (submit_count وrefresh_count وreturn_count) ويمرّ. والنسخة تزيد.
+-- الانتهاء بس، وفارغه صفر، والمادّة مرّة وحدة بالجرد)، والسبب ما يتغيّر (يكتبه المدير بالمراجعة). المسلَّم: سبب الفرق بس بفعل
+-- count.approve، وكتابته (ولو بنفس النصّ) تختمه بالفرقين الحاليين. لقطة الرصيد والفرقان بلا منح، فتعديل ما غيّر غيرها من دوالّ
+-- الجرد نفسها (submit_count وrefresh_count وreturn_count، وكلها تكتب بس لمّا القيمة تتغيّر) ويمرّ. والنسخة تزيد.
 create or replace function private.stock_count_lines_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -407,11 +414,17 @@ declare
   v_snapshot constant text[] := array['system_qty', 'system_expired_qty', 'diff', 'expired_diff'];
 begin
   set local lock_timeout = '5s';
-  if tg_op = 'UPDATE' and (to_jsonb(new) - v_snapshot) = (to_jsonb(old) - v_snapshot) then
+  -- اللقطة وحدها تغيّرت: تمرّ. تعديل ما غيّر شي (نفس القيم) ما يمرّ من هنا (مراجعة WP5): ينفحص مثل أيّ كتابة، فسطر جرد مرحَّل
+  -- يرفضه not_draft بدل «انكتب»، وكتابة السبب نفسه بالمسلَّم تأكيد له.
+  if tg_op = 'UPDATE' and (to_jsonb(new) - v_snapshot) = (to_jsonb(old) - v_snapshot) and to_jsonb(new) <> to_jsonb(old) then
     return new;
   end if;
   if tg_op = 'UPDATE' and new.doc_id is distinct from old.doc_id then
     raise exception 'frozen_column' using hint = 'السطر يبقى في مستنده.';
+  end if;
+  -- المادّة ثابتة: سبب المدير وكلفته تبقى على السطر بعد «أعِد للعدّ»، فتبديل مادّته كان ينقلها لمادّة ثانية (مراجعة WP5).
+  if tg_op = 'UPDATE' and new.item_id is distinct from old.item_id then
+    raise exception 'frozen_column' using hint = 'مادّة سطر الجرد ثابتة؛ احذف السطر وأضف سطراً بالمادّة الأخرى.';
   end if;
   select * into d from public.stock_counts where org_id = new.org_id and id = new.doc_id for update;
   if d.id is null then
@@ -432,6 +445,8 @@ begin
       raise exception 'not_draft' using hint = 'الجرد مسلَّم للمراجعة؛ يُكتب فيه سبب الفرق فقط، والعدّ يتعدّل بعد «أعِد للعدّ».';
     end if;
     new.reason := nullif(btrim(new.reason), '');
+    new.reason_diff := case when new.reason is not null then new.diff end;
+    new.reason_expired_diff := case when new.reason is not null then new.expired_diff end;
   elsif d.status = 'draft' then
     if new.reason is distinct from (case when tg_op = 'UPDATE' then old.reason end) then
       raise exception 'frozen_column' using hint = 'سبب الفرق يكتبه المدير بمراجعة الجرد المسلَّم.';
@@ -439,6 +454,12 @@ begin
     select * into i from public.items where org_id = d.org_id and id = new.item_id;
     if i.id is null then
       raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
+    end if;
+    -- المادّة معدودة بسطر ثاني (والرأس مقفول فوق، فإضافتان سوا ما تعبران): رمز يسمّيها بدل 23505 خام (مراجعة WP5).
+    if tg_op = 'INSERT' and exists (
+      select 1 from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id and x.item_id = new.item_id and x.id <> new.id
+    ) then
+      raise exception 'item_already_counted' using hint = format('«%s» معدودة في سطر آخر من هذا الجرد؛ عدّل سطرها بدل إضافة سطر جديد.', i.name);
     end if;
     if tg_op = 'INSERT' then
       new.line_no := coalesce((select max(l.line_no) from public.stock_count_lines l where l.org_id = d.org_id and l.doc_id = d.id), 0) + 1;
@@ -478,7 +499,7 @@ declare
   v_computed constant text[] := array['gain_value', 'shortage_value'];
 begin
   set local lock_timeout = '5s';
-  if tg_op = 'UPDATE' and (to_jsonb(new) - v_computed) = (to_jsonb(old) - v_computed) then
+  if tg_op = 'UPDATE' and (to_jsonb(new) - v_computed) = (to_jsonb(old) - v_computed) and to_jsonb(new) <> to_jsonb(old) then
     return new;
   end if;
   if tg_op = 'UPDATE' and new.line_id is distinct from old.line_id then
@@ -616,7 +637,7 @@ grant update (item_id, item_unit_id, unit_code, qty_in_unit, lot_id) on public.s
 grant insert (id, warehouse_id, counted_on, note, status) on public.stock_counts to authenticated;
 grant update (counted_on, note, status) on public.stock_counts to authenticated;
 grant insert (id, doc_id, item_id, counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at) on public.stock_count_lines to authenticated;
-grant update (item_id, counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at, reason) on public.stock_count_lines to authenticated;
+grant update (counted_qty, counted_expired_qty, gain_expiry_on, gain_expired_expiry_on, gain_born_at, reason) on public.stock_count_lines to authenticated;
 grant insert (line_id, gain_unit_cost) on public.stock_count_line_costs to authenticated;
 grant update (gain_unit_cost) on public.stock_count_line_costs to authenticated;
 revoke truncate on table public.expenses, public.stock_uses, public.stock_use_lines, public.stock_counts, public.stock_count_lines,
@@ -638,15 +659,17 @@ $$;
 
 -- تصنيف مصروف لأصل جديد: مطلوب، بالمنشأة، غير مؤرشف، ومو نظامي (system_expense: يكتبه النظام بمستنداته)، عدا الإتلاف للصرف
 -- (p_use: تصنيف مستند الصرف، والإتلاف expired_destroy صرف بدفعة منتهية مسمّاة).
+-- بقفل مشاركة (مراجعة WP5): أرشفة التصنيف بين الفحص والكتابة كانت تعبر.
 create or replace function private.category_for_post(p_category uuid, p_use boolean) returns public.expense_categories
-language plpgsql stable security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   c public.expense_categories;
 begin
+  set local lock_timeout = '5s';
   if p_category is null then
     raise exception 'category_required' using hint = 'اختر تصنيف المصروف.';
   end if;
-  select * into c from public.expense_categories where org_id = public.auth_org() and id = p_category;
+  select * into c from public.expense_categories where org_id = public.auth_org() and id = p_category for share;
   if c.id is null then
     raise exception 'category_not_found' using hint = 'هذا التصنيف غير موجود في منشأتك. حدّث الشاشة واختر من جديد.';
   end if;
@@ -660,8 +683,9 @@ begin
 end
 $$;
 
--- الشهر اللي ينتسب إله المصروف (Q14): أوّل يوم بشهر تاريخه أو شهر قبله، والشهر المقفول (بيه يوم ضمن الفترة المقفلة) يرفض، فأرقام
--- شهر انقفل ما تتغيّر. فارغ = شهر التاريخ. بعد قفل الفترة للمشاركة (check_post_date).
+-- الشهر اللي ينتسب إله المصروف (Q14): أوّل يوم بشهر تاريخه أو شهر قبله، والشهر المقفول (آخر يوم بيه ضمن الفترة المقفلة) يرفض، فأرقام
+-- شهر انقفل ما تتغيّر. القفل لنصّ شهر ما يقفله: باقي أيّامه مفتوحة ومصاريفها (ومصاريف الصرف والجرد والإلغاء بأيّامها) تنسب له.
+-- فارغ = شهر التاريخ. بعد قفل الفترة للمشاركة (check_post_date).
 create or replace function private.expense_month(p_for_month date, p_on_date date) returns date
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -672,8 +696,8 @@ begin
     raise exception 'for_month_invalid' using hint = format('المصروف يُنسب إلى شهر تاريخه %s أو إلى شهر قبله، لا إلى شهر بعده.', to_char(p_on_date, 'MM/YYYY'));
   end if;
   select l.locked_through into v_lock from public.period_locks l where l.org_id = public.auth_org();
-  if v_lock is not null and v_month <= v_lock then
-    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، فلا يُنسب مصروف إلى شهر %s. اختر شهراً لم يُقفل.',
+  if v_lock is not null and (v_month + interval '1 month')::date - 1 <= v_lock then
+    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، فشهر %s مقفل كلّه ولا يُنسب إليه مصروف. اختر شهراً لم يُقفل.',
       to_char(v_lock, 'DD/MM/YYYY'), to_char(v_month, 'MM/YYYY'));
   end if;
   return v_month;
@@ -752,6 +776,10 @@ begin
   if v_cached is not null then
     return v_cached;
   end if;
+  -- المعرّف مقفول قبل فحصه (مراجعة WP5): نداءان بنفس المعرّف ومرجعين مختلفين كانا يعبران «مستعمل» سوا، والثاني 23505 خام.
+  if p_id is not null then
+    perform pg_advisory_xact_lock(hashtextextended('expense:' || p_id::text, 0));
+  end if;
   perform private.check_expense_id(p_id);
   if p_flock is not null or p_hatch_batch is not null then
     raise exception 'flock_not_available' using hint = 'تحميل المصروف على فوج يأتي مع الأفواج (المرحلة 3)، وعلى وجبة فقس مع المفقس (المرحلة 5). سجّله الآن على الوحدة.';
@@ -801,13 +829,19 @@ begin
   else
     raise exception 'source_required' using hint = 'اختر طريقة الدفع: نقداً من صندوق، أو بالدين على جهة.';
   end if;
-  if p_site is not null and not exists (
-    select 1 from public.sites s where s.org_id = d.org_id and s.id = p_site and s.division_id = d.id and s.archived_at is null
-  ) then
-    raise exception 'site_mismatch' using hint = format('الموقع المختار ليس من مواقع «%s» الفعّالة.', d.name);
+  if p_site is not null then
+    perform 1 from public.sites s where s.org_id = d.org_id and s.id = p_site and s.division_id = d.id and s.archived_at is null for share;
+    if not found then
+      raise exception 'site_mismatch' using hint = format('الموقع المختار ليس من مواقع «%s» الفعّالة.', d.name);
+    end if;
   end if;
   perform private.lock_parties(array[p_party]);
   perform private.check_post_date(p_on_date, d.id);
+  -- الوحدة ثاني مرّة بقفل مشاركة بعد قفل الفترة (مراجعة WP5): أرشفتها بعد القراءة الأولى كانت تعبر.
+  select * into d from public.divisions where org_id = d.org_id and id = d.id for share;
+  if d.archived_at is not null then
+    raise exception 'division_archived' using hint = format('«%s» مؤرشفة، فلا يُسجَّل عليها مصروف جديد.', d.name);
+  end if;
   v_month := private.expense_month(p_for_month, p_on_date);
   if p_source = 'cash' then
     a := private.lock_cash_account(p_account, true);
@@ -852,14 +886,14 @@ begin
   if e.id is null then
     raise exception 'expense_not_found' using hint = 'هذا المصروف غير موجود في منشأتك. حدّث الشاشة.';
   end if;
+  if not public.in_scope_division(e.division_id) then
+    raise exception 'out_of_scope' using hint = 'وحدة هذا المصروف خارج نطاقك، فلا تلغيه.';
+  end if;
   if e.reverses_id is not null then
     raise exception 'not_voidable' using hint = 'هذا صفّ إلغاء لمصروف سابق، فلا يُلغى.';
   end if;
   if e.source in ('stock', 'adjustment') then
     raise exception 'system_expense' using hint = 'هذا المصروف كتبه مستند (الصرف أو الجرد أو الاستلام)، فيُلغى من مستنده.';
-  end if;
-  if not public.in_scope_division(e.division_id) then
-    raise exception 'out_of_scope' using hint = 'وحدة هذا المصروف خارج نطاقك، فلا تلغيه.';
   end if;
   perform private.lock_parties(array[e.party_id]);
   perform private.check_void_date();
@@ -893,6 +927,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       where o.org_id = public.auth_org() and o.id = p_doc), 'رصيد افتتاح')
     when 'stock_use' then coalesce((select u.doc_no from public.stock_uses u where u.org_id = public.auth_org() and u.id = p_doc), 'صرف')
     when 'count' then coalesce((select c.doc_no from public.stock_counts c where c.org_id = public.auth_org() and c.id = p_doc), 'جرد')
+    when 'count_gain' then coalesce((select c.doc_no from public.stock_counts c where c.org_id = public.auth_org() and c.id = p_doc), 'جرد')
     else p_kind
   end
 $$;
@@ -1031,8 +1066,8 @@ begin
   where org_id = d.org_id and id = d.id;
   perform private.mark_division_posted(w.division_id);
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', d.id, 'kind', 'stock_use', 'status', 'posted', 'doc_no', v_no,
-    'warehouse_id', w.id, 'used_on', d.used_on, 'category_id', c.id, 'destroy', v_destroy, 'expense_id', e.id, 'lines', v_lines,
-    'money', jsonb_build_object('total', v_total::text)));
+    'warehouse_id', w.id, 'used_on', d.used_on, 'category_id', c.id, 'destroy', v_destroy, 'lines', v_lines,
+    'money', jsonb_build_object('total', v_total::text, 'expense_id', e.id)));
 end
 $$;
 
@@ -1091,7 +1126,7 @@ begin
   update public.stock_uses set status = 'void', voided_at = now(), voided_by = auth.uid(), void_reason = v_reason
   where org_id = d.org_id and id = d.id;
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', d.id, 'kind', 'stock_use', 'status', 'void', 'doc_no', d.doc_no,
-    'reversed_moves', v_back, 'expense_reversal_id', r.id));
+    'reversed_moves', v_back, 'money', jsonb_build_object('expense_reversal_id', r.id)));
 end
 $$;
 
@@ -1372,6 +1407,21 @@ begin
 end
 $$;
 
+-- رصيد مادّة بمخزن بيوم الجرد (E25، مراجعة WP5): مجموع حركاتها بتاريخ اليوم أو قبله، بلا العكسيات وأصولها المعكوسة (الملغى ما
+-- صار)، والمتاح والمنتهي بانتهاء الدفعة بذاك اليوم. «المتبقّي الآن» (stock_at) كان يطرح صرفاً وتحويلاً بتاريخ بعد الجرد، فجرد بتاريخ
+-- مضى يطلّع زيادة ما صارت، وترحيل بعد العدّ بتاريخ لاحق يقلبه count_stale.
+create or replace function private.count_balance_at(p_item uuid, p_wh uuid, p_date date, out available numeric, out expired numeric)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select
+    coalesce(sum(m.qty) filter (where not private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0),
+    coalesce(sum(m.qty) filter (where private.lot_expired(i.tracks_expiry, l.expiry_on, p_date)), 0)
+  from public.stock_moves m
+  join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
+  join public.items i on i.org_id = l.org_id and i.id = l.item_id
+  where m.org_id = public.auth_org() and m.item_id = p_item and m.warehouse_id = p_wh and m.moved_on <= p_date and m.reverses_move_id is null
+    and not exists (select 1 from public.stock_moves r where r.org_id = m.org_id and r.reverses_move_id = m.id)
+$$;
+
 -- لقطة رصيد سطر بتاريخ الجرد (E25، E41): المتاح، والمنتهي للمادّة اللي تتابع الانتهاء (وإلا فارغ)، والفرقان بالمعدود.
 create or replace function private.count_snapshot(p_wh uuid, p_date date, p_line public.stock_count_lines,
   out system_qty numeric, out system_expired_qty numeric, out diff numeric, out expired_diff numeric)
@@ -1381,13 +1431,24 @@ declare
   s record;
 begin
   select i.tracks_expiry into v_tracks from public.items i where i.org_id = public.auth_org() and i.id = p_line.item_id;
-  select * into s from private.stock_at(p_line.item_id, p_wh, p_date);
+  select * into s from private.count_balance_at(p_line.item_id, p_wh, p_date);
   system_qty := s.available;
   diff := p_line.counted_qty - s.available;
   if coalesce(v_tracks, false) then
     system_expired_qty := s.expired;
     expired_diff := coalesce(p_line.counted_expired_qty, 0) - s.expired;
   end if;
+end
+$$;
+
+-- سطور الجرد وكلفها قبل رأسه (§2.3، مراجعة WP5): حارسا السطر والكلفة يقفلان صفّهما (التعديل) ثم الرأس، فدالّة تقفل الرأس ثم
+-- تكتب السطور كانت تتعاكس ويّا تعديل العادّ أو المدير (40P01). بترتيب المعرّف (والكلفة بسطرها) مثل كل قفل صفوف.
+create or replace function private.lock_count_rows(p_org uuid, p_doc uuid) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  set local lock_timeout = '5s';
+  perform 1 from public.stock_count_lines x where x.org_id = p_org and x.doc_id = p_doc order by x.id for no key update;
+  perform 1 from public.stock_count_line_costs x where x.org_id = p_org and x.doc_id = p_doc order by x.line_id for no key update;
 end
 $$;
 
@@ -1406,7 +1467,7 @@ end
 $$;
 
 -- التسليم (count.enter، E25، E53): لكل سطر لقطة الرصيد بتاريخ الجرد والفرقان، والمسوّدة ← submitted. النتيجة بلا كميات الدفتر (عدّ
--- أعمى). الأقفال: المرجع ← قفل الفترة وصفّ الوحدة (التاريخ) ← المستند.
+-- أعمى). الأقفال: المرجع ← قفل الفترة وصفّ الوحدة (التاريخ) ← السطور والكلف ← المستند.
 create or replace function public.submit_count(p_id uuid, p_expected_version int, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -1431,6 +1492,7 @@ begin
   w := private.stock_wh(d.warehouse_id, true);
   v_date := d.counted_on;
   perform private.check_post_date(v_date, w.division_id);
+  perform private.lock_count_rows(w.org_id, p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   if d.status <> 'draft' then
     raise exception 'not_draft' using hint = 'هذا الجرد ليس مسوّدة: سُلّم أو رُحّل أو أُلغي من قبل.';
@@ -1483,6 +1545,7 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا الجرد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
+  perform private.lock_count_rows(w.org_id, p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
@@ -1495,12 +1558,16 @@ begin
         'qty', g.qty::text) order by g.first_at), '[]'::jsonb)
     into v_docs
     from (
+      -- اللي يغيّر رصيد يوم الجرد بس: أصلية بتاريخه أو قبله، أو عكسية أصلها كذا (الملغى ينشال من الرصيد).
       select m.doc_kind, m.doc_id, sum(m.qty) as qty, min(m.created_at) as first_at from public.stock_moves m
+      left join public.stock_moves o on o.org_id = m.org_id and o.id = m.reverses_move_id
       where m.org_id = d.org_id and m.item_id = ln.item_id and m.warehouse_id = w.id and m.created_at > d.snapshot_at
+        and coalesce(o.moved_on, m.moved_on) <= d.counted_on
       group by m.doc_kind, m.doc_id
     ) as g;
     update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff
-    where org_id = ln.org_id and id = ln.id;
+    where org_id = ln.org_id and id = ln.id
+      and (system_qty, system_expired_qty, diff, expired_diff) is distinct from (s.system_qty, s.system_expired_qty, s.diff, s.expired_diff);
     v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', ln.id, 'item_id', ln.item_id, 'item_name', i.name, 'base_unit', i.base_unit,
       'old', jsonb_build_object('system_qty', ln.system_qty::text, 'system_expired_qty', ln.system_expired_qty::text, 'diff', ln.diff::text,
         'expired_diff', ln.expired_diff::text),
@@ -1536,6 +1603,7 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا الجرد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
+  perform private.lock_count_rows(w.org_id, p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
@@ -1598,6 +1666,7 @@ begin
   w := private.stock_wh(d.warehouse_id, true);
   v_date := d.counted_on;
   perform private.check_post_date(v_date, w.division_id);
+  perform private.lock_count_rows(w.org_id, p_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
   perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
@@ -1631,7 +1700,18 @@ begin
     if (ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0) and ln.reason is null then
       raise exception 'reason_required' using hint = format('اكتب سبب فرق «%s» قبل الترحيل.', i.name);
     end if;
+    if (ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0)
+       and (ln.reason_diff is distinct from ln.diff or ln.reason_expired_diff is distinct from ln.expired_diff) then
+      raise exception 'reason_required' using hint = format('تغيّر فرق «%s» بعد كتابة سببه؛ أكّد السبب أو عدّله قبل الترحيل.', i.name);
+    end if;
   end loop;
+  -- عدّاد الترتيب قبل دفعة القياس (E45، مراجعة WP5): استلام بمخزن ثاني بين قراءة دفعة القياس وزيادة العدّاد كان ياخذ رقماً قبل
+  -- دفعة الزيادة، فتنقاس الزيادة بدفعة غير اللي قبلها بالترتيب. بعد الأرصدة (الدفعات اللي يسحبها الجرد تحت أرصدته)، والصفّ يولد
+  -- بصفر لمنشأة بلا دفعات (new_lot يزيده لـ1) حتى أوّل استلام سوا ينتظر.
+  if exists (select 1 from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id and (x.diff > 0 or coalesce(x.expired_diff, 0) > 0)) then
+    insert into private.stock_fifo_counters (org_id, last_seq) values (d.org_id, 0) on conflict (org_id) do nothing;
+    perform 1 from private.stock_fifo_counters x where x.org_id = d.org_id for update;
+  end if;
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
     v_short := 0;
@@ -1708,8 +1788,8 @@ begin
   where org_id = d.org_id and id = d.id;
   perform private.mark_division_posted(w.division_id);
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', d.id, 'kind', 'count', 'status', 'approved', 'doc_no', v_no,
-    'warehouse_id', w.id, 'counted_on', d.counted_on, 'expense_id', e.id, 'lines', v_lines,
-    'money', jsonb_build_object('gain_total', v_gain_total::text, 'shortage_total', v_short_total::text)));
+    'warehouse_id', w.id, 'counted_on', d.counted_on, 'lines', v_lines,
+    'money', jsonb_build_object('gain_total', v_gain_total::text, 'shortage_total', v_short_total::text, 'expense_id', e.id)));
 end
 $$;
 
@@ -1772,7 +1852,7 @@ begin
   update public.stock_counts set status = 'void', voided_at = now(), voided_by = auth.uid(), void_reason = v_reason
   where org_id = d.org_id and id = d.id;
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', d.id, 'kind', 'count', 'status', 'void', 'doc_no', d.doc_no,
-    'reversed_moves', v_back, 'expense_reversal_id', r.id));
+    'reversed_moves', v_back, 'money', jsonb_build_object('expense_reversal_id', r.id)));
 end
 $$;
 
@@ -1851,11 +1931,14 @@ begin
     v_xgain := case when coalesce(ln.expired_diff, 0) > 0 then private.gain_value(ln.expired_diff, ref, v_cost) end;
     v_problem := coalesce(private.count_line_problem(w, ln), private.count_gain_problem(d.counted_on, ln, ln.diff, ln.expired_diff),
       case when (coalesce(ln.diff, 0) <> 0 or coalesce(ln.expired_diff, 0) <> 0) and ln.reason is null then
-        jsonb_build_object('code', 'reason_required', 'hint', format('اكتب سبب فرق «%s».', i.name)) end,
+          jsonb_build_object('code', 'reason_required', 'hint', format('اكتب سبب فرق «%s».', i.name))
+        when (coalesce(ln.diff, 0) <> 0 or coalesce(ln.expired_diff, 0) <> 0)
+          and (ln.reason_diff is distinct from ln.diff or ln.reason_expired_diff is distinct from ln.expired_diff) then
+          jsonb_build_object('code', 'reason_required', 'hint', format('تغيّر فرق «%s» بعد كتابة سببه؛ أكّد السبب أو عدّله.', i.name)) end,
       case when (coalesce(ln.diff, 0) > 0 or coalesce(ln.expired_diff, 0) > 0) and ref.id is null and v_cost is null then
         jsonb_build_object('code', 'gain_cost_required', 'hint', format('لا دفعة سابقة لـ«%s» تُقيَّم بها الزيادة؛ اكتب كلفة الوحدة.', i.name)) end,
       case when v_short_qty < greatest(-coalesce(ln.diff, 0), 0) or v_exp_qty < greatest(-coalesce(ln.expired_diff, 0), 0) then
-        jsonb_build_object('code', 'insufficient_stock', 'hint', format('رصيد «%s» لا يكفي للنقص؛ أعد الحساب.', i.name)) end,
+        jsonb_build_object('code', 'insufficient_stock', 'hint', format('رصيد «%s» الآن لا يكفي للنقص؛ أعد الحساب، وإن بقي فمستندات بعد يوم الجرد سحبت منه.', i.name)) end,
       case when i.archived_at is not null then jsonb_build_object('code', 'item_archived', 'hint', format('المادّة «%s» مؤرشفة.', i.name)) end);
     v_ready := v_ready and v_problem is null and not v_line_stale;
     -- نفس شكل خطّة الترحيل بالضبط: S: ثم X: لكل نقص، وG: وE: لكل زيادة.
@@ -1872,10 +1955,14 @@ begin
       'system_qty', ln.system_qty::text, 'system_expired_qty', ln.system_expired_qty::text, 'diff', ln.diff::text, 'expired_diff', ln.expired_diff::text,
       'now_qty', s.system_qty::text, 'now_expired_qty', s.system_expired_qty::text, 'stale', v_line_stale,
       'gain_expiry_on', ln.gain_expiry_on, 'gain_expired_expiry_on', ln.gain_expired_expiry_on, 'gain_born_at', ln.gain_born_at, 'reason', ln.reason,
+      'reason_stale', ln.reason is not null and (ln.reason_diff is distinct from ln.diff or ln.reason_expired_diff is distinct from ln.expired_diff),
       'gain_source', case when coalesce(ln.diff, 0) > 0 or coalesce(ln.expired_diff, 0) > 0 then case when ref.id is not null then 'lot' when v_cost is not null then 'manual' end end,
-      'reference_lot_id', ref.id, 'problem', v_problem, 'draws', v_short_draws, 'expired_draws', v_exp_draws,
+      'reference_lot_id', case when public.in_scope_wh(ref.warehouse_id) then ref.id end, 'problem', v_problem, 'draws', v_short_draws,
+      'expired_draws', v_exp_draws,
       'money', jsonb_build_object('shortage_value', (v_short_val + v_exp_val)::text, 'gain_value', (coalesce(v_gain, 0) + coalesce(v_xgain, 0))::text,
-        'gain_unit_cost', v_cost::text, 'reference_value_in', ref.value_in::text, 'reference_qty_in', ref.qty_in::text)));
+        'gain_unit_cost', v_cost::text,
+        'reference_value_in', case when public.in_scope_wh(ref.warehouse_id) then ref.value_in::text end,
+        'reference_qty_in', case when public.in_scope_wh(ref.warehouse_id) then ref.qty_in::text end)));
   end loop;
   return private.mask(jsonb_build_object('id', d.id, 'kind', 'count', 'status', d.status, 'version', d.version, 'doc_no', d.doc_no,
     'warehouse_id', w.id, 'counted_on', d.counted_on, 'submitted_at', d.submitted_at, 'snapshot_at', d.snapshot_at,
@@ -2031,6 +2118,9 @@ begin
   if p_from is null or p_from > v_to then
     raise exception 'period_required' using hint = 'حدّد المدّة: من تاريخ إلى تاريخ لا يسبقه.';
   end if;
+  if p_division is not null and not public.in_scope_division(p_division) then
+    raise exception 'out_of_scope' using hint = 'هذه الوحدة خارج نطاقك، فلا تعرض مصاريفها.';
+  end if;
   v_from := date_trunc('month', p_from)::date;
   with page as (
     select e.*, c.name as category_name, c.system_code, a.name as account_name, p.name as party_name, b.code as book_code, s.name as site_name,
@@ -2061,6 +2151,10 @@ begin
   into v_rows, v_count
   from page as x;
   return jsonb_build_object('from', v_from, 'to', v_to, 'division_id', p_division,
+    -- القارئ المحصور بوحدات (E49): المجاميع من وحداته بس، والشاشة تكتب «N من المجموع».
+    'divisions', jsonb_build_object(
+      'visible', (select count(*) from public.divisions d where d.org_id = v_org and public.in_scope_division(d.id)),
+      'total', (select count(*) from public.divisions d where d.org_id = v_org)),
     'rows', coalesce((select jsonb_agg(r - 'cursor' order by n) from jsonb_array_elements(v_rows) with ordinality as a(r, n)), '[]'::jsonb),
     'next', case when v_count = v_limit then v_rows -> (v_count - 1) -> 'cursor' end,
     'totals', (
@@ -2292,7 +2386,9 @@ language sql stable security definer set search_path = public, pg_temp as $$
   --     والملغى كل أصلية منه معكوسة. يمسك سحباً ناقصاً، وإلغاءً ناقصاً، ودفعة افتتاح بغير كمية سطرها. الصرف (WP5): سطر المرحَّل
   --     سحب كميته بالضبط من مخزن رأسه (ومن دفعته المسمّاة بس إذا سمّاها)، وكل حركة صرف بسطر مرحَّل سالبة أصلاً. الجرد (WP5):
   --     سطر المرحَّل سحب نقصه بالضبط (المتاح والمنتهي) ودفعات زيادته بكميتها، والمسوّدة بلاهن؛ وكل حركة جرد بسطر مرحَّل، والموجبة
-  --     الأصلية على دفعة زيادة سطرها.
+  --     الأصلية على دفعة زيادة سطرها. ومراجعة WP5: فرقا المرحَّل = المعدود − اللقطة؛ والنقص منقسم بانتهاء الدفعة بيوم الجرد (المادّة
+  --     اللي تتابعه، لقطتها المنتهية مو فارغة): المتاح بعلامة الانتهاء والمنتهي بلاها، فسحب منتهٍ بلا علامة بغير «منتهي» السطر
+  --     ينمسك؛ ودفعة الزيادة بمادّة السطر ومخزنه ويومه، وانتهاؤها انتهاء جزئها (الصالح أو المنتهي) ووقت فقسها للأفراخ بس.
   select 'doc_moves', count(*) from (
     select tl.id from public.transfer_lines tl
     join public.transfers t on t.org_id = tl.org_id and t.id = tl.doc_id
@@ -2369,21 +2465,34 @@ language sql stable security definer set search_path = public, pg_temp as $$
     union all
     select cl.id from public.stock_count_lines cl
     join public.stock_counts k on k.org_id = cl.org_id and k.id = cl.doc_id
+    join public.items i on i.org_id = cl.org_id and i.id = cl.item_id
     cross join lateral (
-      select coalesce(sum(-x.qty) filter (where x.qty < 0), 0) as drawn, count(*) as pieces,
+      select
+        coalesce(sum(-x.qty) filter (where x.qty < 0 and not private.lot_expired(cl.system_expired_qty is not null, l.expiry_on, k.counted_on)), 0) as drawn,
+        coalesce(sum(-x.qty) filter (where x.qty < 0 and private.lot_expired(cl.system_expired_qty is not null, l.expiry_on, k.counted_on)), 0) as drawn_expired,
+        count(*) filter (where x.qty < 0
+          and x.expiry_checked is distinct from (cl.system_expired_qty is not null and not private.lot_expired(true, l.expiry_on, k.counted_on))) as flags,
+        count(*) as pieces,
         count(*) filter (where exists (select 1 from public.stock_moves r where r.org_id = x.org_id and r.reverses_move_id = x.id)) as reversed
       from public.stock_moves x
+      join public.stock_lots l on l.org_id = x.org_id and l.id = x.lot_id
       where x.org_id = cl.org_id and x.doc_kind = 'count' and x.doc_id = cl.doc_id and x.doc_line_id = cl.id and x.reverses_move_id is null
     ) as s
     cross join lateral (
-      select count(*) as n, coalesce(sum(l.qty_in), 0) as qty
+      select count(*) as n, coalesce(sum(l.qty_in), 0) as qty,
+        count(*) filter (where l.item_id <> cl.item_id or l.warehouse_id <> k.warehouse_id or l.received_on <> k.counted_on
+          or l.born_at is distinct from (case when i.kind = 'chick' then cl.gain_born_at end)
+          or not ((cl.diff > 0 and l.qty_in = cl.diff and l.expiry_on is not distinct from cl.gain_expiry_on)
+            or (cl.expired_diff > 0 and l.qty_in = cl.expired_diff and l.expiry_on is not distinct from cl.gain_expired_expiry_on))) as foreign_lots
       from public.stock_lots l
       where l.org_id = cl.org_id and l.source_kind = 'count_gain' and l.source_id = cl.doc_id and l.source_line_id = cl.id
     ) as g
     where (k.posted_at is not null and (cl.diff is null
-        or s.drawn <> greatest(-cl.diff, 0) + greatest(-coalesce(cl.expired_diff, 0), 0)
+        or cl.diff <> cl.counted_qty - cl.system_qty
+        or cl.expired_diff is distinct from (case when cl.system_expired_qty is not null then coalesce(cl.counted_expired_qty, 0) - cl.system_expired_qty end)
+        or s.drawn <> greatest(-cl.diff, 0) or s.drawn_expired <> greatest(-coalesce(cl.expired_diff, 0), 0) or s.flags > 0
         or g.qty <> greatest(cl.diff, 0) + greatest(coalesce(cl.expired_diff, 0), 0)
-        or g.n <> (cl.diff > 0)::int + (coalesce(cl.expired_diff, 0) > 0)::int))
+        or g.n <> (cl.diff > 0)::int + (coalesce(cl.expired_diff, 0) > 0)::int or g.foreign_lots > 0))
       or (k.posted_at is null and (s.pieces > 0 or g.n > 0))
       or (k.status = 'approved' and s.reversed > 0) or (k.status = 'void' and s.reversed <> s.pieces)
     union all

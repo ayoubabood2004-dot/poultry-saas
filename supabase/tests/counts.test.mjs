@@ -318,6 +318,17 @@ async function scenario(t, db) {
     ['ok', '-2.000', '8.000', [['transfer', docNo, -10]]],
     'إعادة الحساب: الفرق القديم −2 والجديد +8، والمستند اللي ترحّل بعد اللقطة باسمه وكميته',
   );
+  // ختم السبب (مراجعة WP5): «تبخّر» انكتب على نقص 2، والفرق صار +8 بإعادة الحساب: الترحيل يطلب تأكيد السبب. والختم يبقى بـ«أعِد
+  // للعدّ»، فإعادة العدّ للنقص نفسه (−2) بعدها تترحّل بالسبب نفسه.
+  // وإعادة حساب ثانية بنفس الأرقام ما تكتب السطر، فما تختم السبب بدل المدير.
+  t.eq(shown(await refresh(U.manager, review.id)), 'ok', 'إعادة حساب ثانية بنفس الأرقام');
+  const restamped = (await preview(U.manager, review.id)).value.lines[0];
+  const unconfirmed = await postNow(U.manager, review.id);
+  t.same(
+    [restamped.reason_stale, restamped.problem?.code, shown(unconfirmed), unconfirmed.hint.includes('بعد كتابة سببه')],
+    [true, 'reason_required', 'reason_required', true],
+    'السبب مكتوب على فرق −2 والفرق صار +8: المعاينة «تغيّر الفرق» والترحيل reason_required لحد ما يتأكّد السبب',
+  );
   t.same(
     [shown(await giveBack(U.storekeeper, review.id, 'الأمين')), shown(await giveBack(U.manager, review.id, '  '))],
     ['forbidden', 'reason_required'],
@@ -356,6 +367,74 @@ async function scenario(t, db) {
   await giveBack(U.manager, priced.id, 'احذف المولّدة');
   const deleted = await call(db, U.storekeeper, "select public.delete_draft_line('count', $1, $2) ->> 'deleted'", [priced.lines[0], await versionOf(priced.id)]);
   t.same([deleted.value, await costRows(priced.id)], ['true', []], 'الأمين يحذف سطراً كتب له المدير كلفة: السطر وكلفته راحا');
+
+  // ── مراجعة WP5: رصيد يوم الجرد (مو المتبقّي الآن)، وتأكيد السبب، والمادّة مرّة وحدة، والمرحَّل ما ينكتب بنفس القيم، واسم مصدر
+  //    دفعة الزيادة ──────────────────────────────────────────────────────────────────────────────────────────────────
+  // كيروسين 50 لتراً من 20/10 (5,000.00)، وتحويل 20 لتراً بتاريخ اليوم قبل التسليم: جرد بتاريخ 27/10 رصيده 50 (المتبقّي الآن 30
+  // كان يطلّع زيادة 14 ما صارت).
+  const kero = await item('كيروسين التاريخ', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: kero, qty: 50, value: 5000 }]);
+  await postedTransfer(db, U.manager, W.general, W.general2, TODAY, [{ item: kero, qty: 20 }]);
+  const dated = await countDraft(U.storekeeper, W.general, [{ item: kero, qty: 44 }], '2026-10-27');
+  t.eq(shown(await submit(U.storekeeper, dated)), 'ok', 'جرد بتاريخ 27/10 يتسلّم');
+  const datedLine = async () => (await db.admin('select system_qty::text as system_qty, diff::text as diff from public.stock_count_lines where id = $1', [dated.lines[0]])).rows[0];
+  t.same(await datedLine(), { system_qty: '50.000', diff: '-6.000' }, 'رصيد يوم الجرد 50 (تحويل اليوم بعده ما ينحسب)، والفرق −6');
+  await writeReason(U.manager, dated.lines[0], 'لتر مسكوب');
+  // بعد التسليم: تحويل بتاريخ اليوم (بعد يوم الجرد) ما يغيّر رصيده، وتحويل بتاريخ 26/10 يغيّره ويسمّيه «أعد الحساب».
+  await postedTransfer(db, U.manager, W.general, W.general2, TODAY, [{ item: kero, qty: 3 }]);
+  const afterLater = (await preview(U.manager, dated.id)).value;
+  const backdated = await postedTransfer(db, U.manager, W.general, W.general2, '2026-10-26', [{ item: kero, qty: 5 }]);
+  const backdatedNo = (await db.admin('select doc_no from public.transfers where id = $1', [backdated.id])).rows[0].doc_no;
+  const afterBackdated = (await preview(U.manager, dated.id)).value;
+  const datedRefresh = await refresh(U.manager, dated.id);
+  t.same(
+    [afterLater.stale, afterBackdated.stale, shown(datedRefresh), datedRefresh.value?.lines?.[0]?.docs?.map((d) => [d.label, Number(d.qty)]), await datedLine()],
+    [false, true, 'ok', [[backdatedNo, -5]], { system_qty: '45.000', diff: '-1.000' }],
+    'تحويل بعد يوم الجرد ما يقلبه، وتحويل بتاريخ قبله يقلبه؛ «أعد الحساب» يسمّي القبلي بس، والفرق صار −1',
+  );
+  // تأكيد السبب: نفس النصّ يختمه بالفرق الجديد، فالترحيل يمرّ؛ ونقص لتر من 22 لتراً بـ2,200.00 ← 100.00.
+  const stillStale = await postNow(U.manager, dated.id);
+  await writeReason(U.manager, dated.lines[0], 'لتر مسكوب');
+  const confirmed = (await preview(U.manager, dated.id)).value.lines[0];
+  const datedPosted = await postNow(U.manager, dated.id);
+  t.same(
+    [shown(stillStale), confirmed.reason_stale, confirmed.problem, shown(datedPosted), (await expensesOf(dated.id)).map((e) => [e.amount, e.on_date]), await balanceOf(db, kero, W.general)],
+    ['reason_required', false, null, 'ok', [['100.00', '2026-10-27']], { qty: '21', value: '2100' }],
+    'السبب على فرق قديم reason_required، وكتابته من جديد تؤكّده، والترحيل ينقص لتراً بيوم الجرد (100.00) والرصيد 21 لتراً',
+  );
+
+  // المادّة مرّة وحدة بالجرد: سطر ثاني بنفس المادّة item_already_counted (كان 23505 خاماً)، وإعادة إرسال نفس السطر (نفس المعرّف،
+  // جهاز ضاع جوابه) 23505 على مفتاح الصفّ بس، فالجهاز يعرف إنه انكتب.
+  const once = await countDraft(U.storekeeper, W.general, [{ item: I.gas, qty: 1 }]);
+  const insertLine = (lineId, itemId, qty) =>
+    db
+      .asUser(U.storekeeper, (q) => q('insert into public.stock_count_lines (id, doc_id, item_id, counted_qty) values ($1, $2, $3, $4)', [lineId, once.id, itemId, qty]), { commit: true })
+      .then(() => 'ok', outcome);
+  const retried = uid();
+  t.same(
+    [
+      await countDraft(U.storekeeper, W.general, [{ item: I.gas, qty: 1 }, { item: I.gas, qty: 2 }]).then(() => 'ok', outcome),
+      await insertLine(retried, I.diesel, 5),
+      await insertLine(retried, I.diesel, 6),
+      await insertLine(uid(), I.diesel, 7),
+    ],
+    ['item_already_counted', 'ok', 'unique:stock_count_lines_pkey', 'item_already_counted'],
+    'المادّة مرّتين بالجرد item_already_counted؛ ونفس السطر مرّة ثانية (نفس المعرّف) 23505 على مفتاح الصفّ',
+  );
+
+  // جرد مرحَّل: تعديل بنفس القيم (السطر والكلفة) not_draft، مو «انكتب» بصمت (العودة المبكّرة كانت لأيّ تعديل ما غيّر اللقطة).
+  t.same(
+    [
+      shown(await editLine(U.manager, gainDoc.lines[0], 'counted_qty', 9010)),
+      shown(await call(db, U.manager, 'update public.stock_count_line_costs set gain_unit_cost = gain_unit_cost where line_id = $1 returning line_id', [gainDoc.lines[0]])),
+    ],
+    ['not_draft', 'not_draft'],
+    'جرد مرحَّل: تعديل السطر أو الكلفة بنفس القيم not_draft',
+  );
+
+  // دفعة زيادة الجرد مصدرها رقم الجرد بقائمة الدفعات (كانت «count_gain» خاماً).
+  const gainRow = (await call(db, U.manager, 'select public.item_lots_qty($1, $2, null, 50)', [I.corn, W.raw])).value.rows.find((l) => l.source_kind === 'count_gain');
+  t.eq(gainRow?.source, (await statusOf(gainDoc.id)).doc_no, 'دفعة زيادة الجرد بقائمة الدفعات: مصدرها رقم الجرد');
 
   // ── مرجع واحد (D6) وقفل المسوّدة المرحَّلة (FOUNDATION ٥٢٦) ─────────────────────────────────────────────────────────
   await sameRefRace(t, db, {

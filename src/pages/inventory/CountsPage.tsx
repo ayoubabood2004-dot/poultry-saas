@@ -1,5 +1,5 @@
 import { Pencil, Plus, Send, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
@@ -9,6 +9,7 @@ import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
+import { PostPreview, previewReady, type PreviewDraw, type PreviewLine } from '../../components/ui/PostPreview';
 import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
 import { toast } from '../../components/ui/Toast';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
@@ -16,11 +17,12 @@ import { localDay } from '../../domain/dates';
 import type { Milli, UnitCost } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { itemAdmissible } from '../../domain/stock';
-import { parseQty, toBase } from '../../domain/units';
+import { BASE_UNITS } from '../../domain/stores';
+import { parseQty, toBase, type BaseUnit } from '../../domain/units';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import type { DraftStamp } from '../../lib/drafts';
-import { describeError, RejectedError } from '../../lib/errors';
-import { fmtDay, fmtInt, fmtQty, fmtQtyCell, fmtUnitCost } from '../../lib/format';
+import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
+import { fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell, fmtUnitCost } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as counts from '../../lib/repo/counts';
@@ -32,7 +34,18 @@ import { useStore } from '../../lib/store';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../accounts/shared';
-import { devicePending, keepPending, sendPending, underCountLock, type PendingCountLine, type PendingStore } from './countDevice';
+import {
+  clearPending,
+  countLinePatch,
+  devicePending,
+  dropPending,
+  isOwnRetry,
+  keepPending,
+  sendPending,
+  underCountLock,
+  type PendingCountLine,
+  type PendingStore,
+} from './countDevice';
 import { ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الجرد (الخطّة WP5، FOUNDATION ٥٥٥، القاعدة 17، E25، E41، E42، E48، E53، E54): العادّ يعدّ بالموبايل بيد وحدة (أهداف 44 بكسل أو
@@ -69,6 +82,34 @@ interface LineDraft {
   item: Pick<ItemRow, 'id' | 'name' | 'kind' | 'baseUnit' | 'tracksExpiry'>;
   /** سطر الخادم المعدَّل، أو null لسطر جديد. */
   lineId: string | null;
+}
+
+/**
+ * عدّ جديد لمادّة معدودة من قبل (رفّان بنفس المادّة، مراجعة WP5): يُضاف للعدّ السابق، والتواريخ ووقت الفقس الجديدة تغلب إن كُتبت.
+ * السطر الثاني بنفس المادّة يرفضه الخادم (item_already_counted).
+ */
+export function mergeCountFields(before: CountLineFields, added: CountLineFields): CountLineFields {
+  const sum = (a: string | null, b: string | null): string | null => (a === null && b === null ? null : decimalText((parseQty(a ?? '0') ?? 0n) + (parseQty(b ?? '0') ?? 0n), 3));
+  return {
+    item_id: before.item_id,
+    counted_qty: sum(before.counted_qty, added.counted_qty) ?? '0.000',
+    counted_expired_qty: sum(before.counted_expired_qty, added.counted_expired_qty),
+    gain_expiry_on: added.gain_expiry_on ?? before.gain_expiry_on,
+    gain_expired_expiry_on: added.gain_expired_expiry_on ?? before.gain_expired_expiry_on,
+    gain_born_at: added.gain_born_at ?? before.gain_born_at,
+  };
+}
+
+/** حقول سطر الخادم كما تنكتب (للجمع ويّا عدّ جديد). */
+export function fieldsOfLine(line: CountLine): CountLineFields {
+  return {
+    item_id: line.itemId,
+    counted_qty: decimalText(line.counted, 3),
+    counted_expired_qty: line.countedExpired === null ? null : decimalText(line.countedExpired, 3),
+    gain_expiry_on: line.gainExpiryOn,
+    gain_expired_expiry_on: line.gainExpiredExpiryOn,
+    gain_born_at: line.gainBornAt,
+  };
 }
 
 /** حقول السطر من النموذج، أو رسالة المشكلة. الكميات بوحدة الأساس نصّاً بثلاث مراتب (E3). */
@@ -188,14 +229,15 @@ function CountLineForm({ store, line, busy, failure, onSave, onCancel }: { store
           <Field id={`${id}-expired`} label={t('count.line.expired_qty', 'منتهي ({unit})', { unit: baseUnitLabel(item.baseUnit) })} hint={t('count.line.expired_hint', 'المنتهي يُعدّ وحده ولا يُصرف.')}>
             <input id={`${id}-expired`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={expired} onChange={(event) => setExpired(event.target.value)} />
           </Field>
-          <DayField id={`${id}-gain-expiry`} label={t('count.line.gain_expiry', 'انتهاء الصالح الزائد (إن زاد)')} value={gainExpiry} onChange={setGainExpiry} hint={t('count.line.gain_expiry_hint', 'يُطلب إن زاد الصالح على الدفتر.')} />
-          <DayField id={`${id}-gain-expired-expiry`} label={t('count.line.gain_expired_expiry', 'انتهاء المنتهي الزائد (إن زاد)')} value={gainExpiredExpiry} onChange={setGainExpiredExpiry} hint={t('count.line.gain_expired_hint', 'تاريخ قبل يوم الجرد.')} />
+          {/* عناوين محايدة (عدّ أعمى، E25): «الزائد» كان يقول للعادّ إن الدفتر أقلّ من عدّه. */}
+          <DayField id={`${id}-gain-expiry`} label={t('count.line.valid_expiry', 'تاريخ انتهاء الصالح المعدود')} value={gainExpiry} onChange={setGainExpiry} hint={t('count.line.valid_expiry_hint', 'من العبوة؛ يُترك فارغاً إن لم يظهر.')} />
+          <DayField id={`${id}-gain-expired-expiry`} label={t('count.line.expired_expiry', 'تاريخ انتهاء المنتهي المعدود')} value={gainExpiredExpiry} onChange={setGainExpiredExpiry} hint={t('count.line.expired_expiry_hint', 'من العبوة؛ تاريخ قبل يوم الجرد.')} />
         </>
       ) : null}
       {item?.kind === 'chick' ? (
         <Field
           id={`${id}-born`}
-          label={t('count.line.born', 'وقت فقس الزائد (إن زاد)')}
+          label={t('count.line.born_counted', 'وقت فقس الأفراخ المعدودة')}
           hint={bornRead ? t('opening.born.read', 'يُقرأ: {day} الساعة {time}', { day: fmtDay(bornRead.day), time: readTime(bornRead.iso) }) : t('opening.born.hint', 'مثل 28/10/2026 06:00')}
         >
           <input id={`${id}-born`} className="input" dir="ltr" value={born} onChange={(event) => setBorn(event.target.value)} />
@@ -221,7 +263,7 @@ function CountLineForm({ store, line, busy, failure, onSave, onCancel }: { store
   );
 }
 
-/** سطور العادّ كبطاقات (الموبايل): المادّة والمعدود والمنتهي، بلا رصيد الدفتر (E25). */
+/** سطور العادّ كبطاقات (الموبايل): المادّة والمعدود والمنتهي، بلا رصيد الدفتر (E25). الزرّان بمسافة تكفي الإصبع. */
 export function CountedLines({ lines, onEdit, onDelete }: { lines: readonly CountLine[]; onEdit: ((line: CountLine) => void) | null; onDelete: ((line: CountLine) => void) | null }) {
   if (lines.length === 0) return <p className="text-sm text-ink-muted">{t('count.lines.empty', 'لم يُعدّ شيء بعد.')}</p>;
   return (
@@ -230,13 +272,9 @@ export function CountedLines({ lines, onEdit, onDelete }: { lines: readonly Coun
         <li key={line.id} className="card flex items-center justify-between gap-3 p-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{line.itemName}</div>
-            <div className="text-sm text-ink-muted tabular-nums">
-              {line.countedExpired !== null
-                ? t('count.line.both', 'صالح {valid}، منتهٍ {expired}', { valid: fmtQty(line.counted, line.baseUnit).main, expired: fmtQty(line.countedExpired, line.baseUnit).main })
-                : fmtQty(line.counted, line.baseUnit).main}
-            </div>
+            <div className="text-sm text-ink-muted tabular-nums">{countedText(line)}</div>
           </div>
-          <div className="flex shrink-0 gap-1">
+          <div className="flex shrink-0 gap-4">
             {onEdit ? (
               <IconButton label={t('count.line.edit_short', 'عدّل')} onClick={() => onEdit(line)} data-action="edit-count-line">
                 <Pencil aria-hidden="true" className="size-5" />
@@ -254,80 +292,154 @@ export function CountedLines({ lines, onEdit, onDelete }: { lines: readonly Coun
   );
 }
 
-/** العدّ بالموبايل (المسوّدة، count.enter): أعمى، والحفظ اللي ما وصل يبقى بالجهاز، والتسليم بتأكيد. */
-function CountEntry({ doc, lines, store, stamp, onChanged }: { doc: CountDoc; lines: readonly CountLine[]; store: StoreRef; stamp: DraftStamp; onChanged: () => void }) {
-  const online = useStore(onlineStore);
-  const [editing, setEditing] = useState<CountLine | null>(null);
-  const [formKey, setFormKey] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<unknown>(null);
-  const [pending, setPending] = useState<readonly PendingCountLine[]>([]);
-  const [pendingFailed, setPendingFailed] = useState<unknown>(null);
-  const [pendingTick, setPendingTick] = useState(0);
-  const [rejected, setRejected] = useState<readonly { line: PendingCountLine; error: unknown }[]>([]);
-  const [confirm, setConfirm] = useState<'submit' | null>(null);
-  const local: PendingStore = devicePending(stamp, doc.id, t('count.pending.title', 'جرد «{store}» بتاريخ {day}', { store: store.name, day: fmtDay(doc.onDate) }));
+function countedText(line: Pick<CountLine, 'counted' | 'countedExpired' | 'baseUnit'>): string {
+  return line.countedExpired !== null
+    ? t('count.line.both', 'صالح {valid}، منتهٍ {expired}', { valid: fmtQty(line.counted, line.baseUnit).main, expired: fmtQty(line.countedExpired, line.baseUnit).main })
+    : fmtQty(line.counted, line.baseUnit).main;
+}
+
+/** العدّ المحفوظ بالجهاز كما يُعرض: المادّة وعددها. */
+function pendingText(line: PendingCountLine): string {
+  return t('count.pending.line', '«{item}»: {qty}', { item: line.itemName, qty: fmtQty(parseQty(line.fields.counted_qty) ?? 0n, line.baseUnit).main });
+}
+
+export type RejectedCount = { line: PendingCountLine; error: unknown };
+
+/** العدّ المحفوظ اللي رفضه الخادم: يبقى معروضاً حتى بعد ما يتغيّر الجرد (التسليم يبدّل الشاشة). */
+function RejectedNotices({ rejected }: { rejected: readonly RejectedCount[] }) {
+  return (
+    <>
+      {rejected.map(({ line, error }) => (
+        <Notice key={line.id} tone="danger" title={t('count.rejected', 'لم يُقبل عدّ «{item}»', { item: line.itemName })}>
+          {describeError(error).detail}
+        </Notice>
+      ))}
+    </>
+  );
+}
+
+/** المحفوظ بالجهاز لهذا الجرد (لكل مستخدم بالجهاز): يُقرأ ويُعاد قراءته بعد كل كتابة. */
+function usePending(stamp: DraftStamp, docId: string) {
+  const [state, setState] = useState<{ lines: readonly PendingCountLine[]; failed: unknown }>({ lines: [], failed: null });
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    devicePending(stamp, doc.id, '')
+    devicePending(stamp, docId, '')
       .read()
       .then(
         (draft) => {
-          if (cancelled) return;
-          setPending(draft?.payload.lines ?? []);
-          setPendingFailed(null);
+          if (!cancelled) setState({ lines: draft?.payload.lines ?? [], failed: null });
         },
         (error: unknown) => {
-          if (!cancelled) setPendingFailed(error);
+          if (!cancelled) setState((current) => ({ ...current, failed: error }));
         },
       );
     return () => {
       cancelled = true;
     };
-  }, [stamp, doc.id, pendingTick]);
-  const save = (draft: LineDraft, fields: CountLineFields) => {
-    const line: PendingCountLine = { id: draft.lineId ?? crypto.randomUUID(), existing: draft.lineId !== null, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields };
+  }, [stamp, docId, tick]);
+  return { ...state, reread: () => setTick((n) => n + 1) };
+}
+
+type MergeAsk = { draft: LineDraft; before: { id: string; existing: boolean; fields: CountLineFields }; added: CountLineFields };
+
+/** العدّ بالموبايل (المسوّدة، count.enter): أعمى، والحفظ اللي ما وصل يبقى بالجهاز، والتسليم بتأكيد. */
+function CountEntry({
+  doc,
+  lines,
+  store,
+  stamp,
+  onRejected,
+  onDeviceFailure,
+  onChanged,
+}: {
+  doc: CountDoc;
+  lines: readonly CountLine[];
+  store: StoreRef;
+  stamp: DraftStamp;
+  onRejected: (rejected: readonly RejectedCount[]) => void;
+  onDeviceFailure: (error: unknown) => void;
+  onChanged: () => void;
+}) {
+  const online = useStore(onlineStore);
+  const [editing, setEditing] = useState<CountLine | null>(null);
+  const [formKey, setFormKey] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const pending = usePending(stamp, doc.id);
+  const [confirm, setConfirm] = useState<{ kind: 'submit' } | { kind: 'delete'; line: CountLine } | { kind: 'merge'; ask: MergeAsk } | null>(null);
+  const local: PendingStore = devicePending(stamp, doc.id, t('count.pending.title', 'جرد «{store}» بتاريخ {day}', { store: store.name, day: fmtDay(doc.onDate) }));
+  const done = () => {
+    setEditing(null);
+    setFormKey((n) => n + 1);
+    onChanged();
+  };
+  // انكتب أحدث منه أونلاين: نسخة محفوظة أقدم لنفس السطر كانت تنكتب فوقه بـ«أرسل المحفوظ». فشل الجهاز ينقال فوق الشاشة (تنفتح
+  // من جديد بعد القراءة).
+  const afterWrite = (lineId: string, then: () => void) =>
+    dropPending(local, doc.id, lineId).then(then, (error: unknown) => {
+      onDeviceFailure(error);
+      then();
+    });
+  /** يكتب السطر: الجديد إدراج بمعرّفه (23505 بمفتاحه = انكتب، فتعديل بآخر قيمة)، والموجود تعديل؛ وما وصل يبقى بالجهاز. */
+  const write = (line: PendingCountLine) => {
     setBusy(true);
     setFailure(null);
-    const write = line.existing ? counts.updateCountLine(line.id, { ...fields }) : counts.addCountLine(doc.id, line.id, fields);
-    write
+    const send = line.existing ? counts.updateCountLine(line.id, countLinePatch(line.fields)) : counts.addCountLine(doc.id, line.id, line.fields);
+    send
       .then(
-        () => {
-          setEditing(null);
-          setFormKey((n) => n + 1);
-          onChanged();
-        },
+        () => afterWrite(line.id, done),
         async (error: unknown) => {
-          if (error instanceof RejectedError && error.code !== '23505') {
+          if (isOwnRetry(error)) {
+            await counts.updateCountLine(line.id, countLinePatch(line.fields)).then(() => afterWrite(line.id, done), setFailure);
+            return;
+          }
+          if (error instanceof RejectedError || error instanceof ZeroRowsError) {
             setFailure(error);
             return;
           }
-          if (error instanceof RejectedError) {
-            // 23505: السطر انكتب بمحاولة جوابها ضاع؛ نكتب آخر قيمة فوقه.
-            await counts.updateCountLine(line.id, { ...fields }).then(onChanged, setFailure);
+          try {
+            await keepPending(local, doc.id, line);
+          } catch (kept) {
+            // الجهاز ما حفظه هم (IndexedDB): العدّ يبقى بالنموذج والسبب ينقال، مو يضيع بصمت.
+            setFailure(kept);
             return;
           }
-          await keepPending(local, doc.id, line);
           setEditing(null);
           setFormKey((n) => n + 1);
-          setPendingTick((n) => n + 1);
+          pending.reread();
           toast({ tone: 'warning', title: t('count.kept', 'حُفظ العدّ بالجهاز'), detail: t('count.kept.detail', 'لم يصل الخادم؛ أرسله من «أرسل المحفوظ» حين يعود الاتصال.') });
         },
       )
       .finally(() => setBusy(false));
+  };
+  const save = (draft: LineDraft, fields: CountLineFields) => {
+    if (draft.lineId !== null) {
+      write({ id: draft.lineId, existing: true, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields });
+      return;
+    }
+    // المادّة معدودة من قبل (بسطر الخادم أو بالمحفوظ): العدّ الجديد يُضاف لعدّها بتأكيد، مو سطر ثاني.
+    const kept = pending.lines.find((line) => line.fields.item_id === draft.item.id);
+    const shown = lines.find((line) => line.itemId === draft.item.id);
+    const before = kept ? { id: kept.id, existing: kept.existing, fields: kept.fields } : shown ? { id: shown.id, existing: true, fields: fieldsOfLine(shown) } : null;
+    if (before) {
+      setConfirm({ kind: 'merge', ask: { draft, before, added: fields } });
+      return;
+    }
+    write({ id: crypto.randomUUID(), existing: false, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields });
   };
   const sendKept = () => {
     setBusy(true);
     setFailure(null);
     underCountLock(doc.id, () => sendPending(doc.id, local, { add: counts.addCountLine, update: counts.updateCountLine }))
       .then((result) => {
-        setRejected(result.rejected);
+        onRejected(result.rejected);
         if (result.sent > 0) toast({ tone: 'success', title: t('count.sent', 'أُرسل المحفوظ: {n}', { n: fmtInt(result.sent) }) });
         onChanged();
       }, setFailure)
       .finally(() => {
         setBusy(false);
-        setPendingTick((n) => n + 1);
+        pending.reread();
       });
   };
   const deleteLine = (line: CountLine) => {
@@ -335,13 +447,17 @@ function CountEntry({ doc, lines, store, stamp, onChanged }: { doc: CountDoc; li
     setFailure(null);
     counts
       .deleteCountLine(line.id, doc.version)
-      .then(onChanged, setFailure)
-      .finally(() => setBusy(false));
+      .then(() => afterWrite(line.id, onChanged), setFailure)
+      .finally(() => {
+        setBusy(false);
+        setConfirm(null);
+      });
   };
   const submit = async () => {
     setBusy(true);
     setFailure(null);
-    const outcome = await runWithRef(`count-submit:${doc.id}`, async (ref) => counts.submitCount(ref, doc.id, await counts.countVersion(doc.id)));
+    // بالنسخة اللي شافها العادّ: سطر أضافته نافذة ثانية بعدها stale_draft، فيشوفه قبل ما يسلّم.
+    const outcome = await runWithRef(`count-submit:${doc.id}`, (ref) => counts.submitCount(ref, doc.id, doc.version));
     setBusy(false);
     setConfirm(null);
     if (outcome.kind === 'failed') setFailure(outcome.error);
@@ -351,25 +467,27 @@ function CountEntry({ doc, lines, store, stamp, onChanged }: { doc: CountDoc; li
     }
   };
   const failed = failure ? describeError(failure) : null;
+  const ask = confirm?.kind === 'merge' ? confirm.ask : null;
+  const askTotal = ask ? mergeCountFields(ask.before.fields, ask.added) : null;
   return (
     <div className="flex flex-col gap-4">
       <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ رصيد الدفتر لا يظهر هنا.')} />
       {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أعاد المدير الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
-      <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={deleteLine} />
+      <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={(line) => setConfirm({ kind: 'delete', line })} />
       {editing ? (
         <CountLineForm key={editing.id} store={store} line={editing} busy={busy} failure={failure} onSave={save} onCancel={() => setEditing(null)} />
       ) : (
         <CountLineForm key={`new-${formKey}`} store={store} line={null} busy={busy} failure={failure} onSave={save} onCancel={null} />
       )}
-      {pendingFailed ? <LoadFailed what={t('count.pending.what', 'العدّ المحفوظ بالجهاز')} error={pendingFailed} onRetry={() => setPendingTick((n) => n + 1)} /> : null}
-      {pending.length > 0 ? (
+      {pending.failed ? <LoadFailed what={t('count.pending.what', 'العدّ المحفوظ بالجهاز')} error={pending.failed} onRetry={pending.reread} /> : null}
+      {pending.lines.length > 0 ? (
         <section className="card flex flex-col gap-3 p-4" aria-labelledby="count-pending">
           <h2 id="count-pending" className="font-semibold">
             {t('count.pending', 'محفوظ بالجهاز ولم يُرسل')}
           </h2>
           <ul className="flex flex-col gap-1 text-sm">
-            {pending.map((line) => (
-              <li key={line.id}>{t('count.pending.line', '«{item}»: {qty}', { item: line.itemName, qty: fmtQty(parseQty(line.fields.counted_qty) ?? 0n, line.baseUnit).main })}</li>
+            {pending.lines.map((line) => (
+              <li key={line.id}>{pendingText(line)}</li>
             ))}
           </ul>
           <Button size="lg" busy={busy} disabled={!online} onClick={sendKept} icon={<Send aria-hidden="true" className="size-5" />} data-action="send-kept-counts">
@@ -377,22 +495,17 @@ function CountEntry({ doc, lines, store, stamp, onChanged }: { doc: CountDoc; li
           </Button>
         </section>
       ) : null}
-      {rejected.map(({ line, error }) => (
-        <Notice key={line.id} tone="danger" title={t('count.rejected', 'لم يُقبل عدّ «{item}»', { item: line.itemName })}>
-          {describeError(error).detail}
-        </Notice>
-      ))}
       {failed && !editing ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
         </Notice>
       ) : null}
-      <Button size="lg" disabled={!online || busy || lines.length === 0 || pending.length > 0} onClick={() => setConfirm('submit')} data-action="submit-count">
+      <Button size="lg" disabled={!online || busy || lines.length === 0 || pending.lines.length > 0} onClick={() => setConfirm({ kind: 'submit' })} data-action="submit-count">
         {t('count.submit', 'سلّم الجرد للمراجعة')}
       </Button>
-      {pending.length > 0 ? <p className="text-sm text-ink-muted">{t('count.submit.pending', 'أرسل المحفوظ بالجهاز أوّلاً، ثم سلّم الجرد.')}</p> : null}
+      {pending.lines.length > 0 ? <p className="text-sm text-ink-muted">{t('count.submit.pending', 'أرسل المحفوظ بالجهاز أوّلاً، ثم سلّم الجرد.')}</p> : null}
       <ConfirmDialog
-        open={confirm === 'submit'}
+        open={confirm?.kind === 'submit'}
         tone="primary"
         title={t('count.submit.title', 'سلّم جرد «{store}»', { store: store.name })}
         consequence={t('count.submit.consequence', 'يُسلَّم {n} من السطور للمراجعة ويُجمَّد العدّ، فلا يُعدَّل إلا إذا أعاده المدير للعدّ.', { n: fmtInt(lines.length) })}
@@ -402,48 +515,205 @@ function CountEntry({ doc, lines, store, stamp, onChanged }: { doc: CountDoc; li
         onConfirm={() => void submit()}
         onCancel={() => setConfirm(null)}
       />
+      {confirm?.kind === 'delete' ? (
+        <ConfirmDialog
+          open
+          title={t('count.delete.title', 'احذف عدّ «{item}»', { item: confirm.line.itemName })}
+          consequence={t('count.delete.consequence', 'يُحذف سطر «{item}» ({qty}) من الجرد.', { item: confirm.line.itemName, qty: countedText(confirm.line) })}
+          confirmLabel={t('transfer.line.delete', 'احذف السطر')}
+          busy={busy}
+          action="confirm-delete-count-line"
+          onConfirm={() => deleteLine(confirm.line)}
+          onCancel={() => setConfirm(null)}
+        />
+      ) : null}
+      {ask && askTotal ? (
+        <ConfirmDialog
+          open
+          tone="primary"
+          title={t('count.merge.title', 'أضف إلى عدّ «{item}»', { item: ask.draft.item.name })}
+          consequence={t('count.merge.consequence', '«{item}» معدودة من قبل ({before}). يُضاف العدّ الجديد ({added}) إليها فيصير {total}.', {
+            item: ask.draft.item.name,
+            before: fmtQty(parseQty(ask.before.fields.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
+            added: fmtQty(parseQty(ask.added.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
+            total: fmtQty(parseQty(askTotal.counted_qty) ?? 0n, ask.draft.item.baseUnit).main,
+          })}
+          confirmLabel={t('count.merge', 'أضف إلى العدّ')}
+          busy={busy}
+          action="confirm-merge-count"
+          onConfirm={() => {
+            setConfirm(null);
+            write({ id: ask.before.id, existing: ask.before.existing, itemName: ask.draft.item.name, baseUnit: ask.draft.item.baseUnit, fields: askTotal });
+          }}
+          onCancel={() => setConfirm(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
-/** سطور الجرد بلا الدفتر لغير المراجع (المسلَّم والمرحَّل للعادّ). */
-function CountReadOnly({ doc, lines }: { doc: CountDoc; lines: readonly CountLine[] }) {
+/** سطور الجرد بلا الدفتر لغير المراجع (المسلَّم والمرحَّل للعادّ)، والمحفوظ بالجهاز اللي ما عاد يُرسل (الجرد سُلّم) يُمسح بتأكيد. */
+function CountReadOnly({ doc, lines, store, stamp }: { doc: CountDoc; lines: readonly CountLine[]; store: StoreRef | null; stamp: DraftStamp }) {
+  const pending = usePending(stamp, doc.id);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const clear = () => {
+    setBusy(true);
+    setFailure(null);
+    clearPending(devicePending(stamp, doc.id, store?.name ?? ''), doc.id)
+      .then(() => setConfirm(false), setFailure)
+      .finally(() => {
+        setBusy(false);
+        pending.reread();
+      });
+  };
+  const failed = failure ? describeError(failure) : null;
   return (
     <div className="flex flex-col gap-4">
       {doc.status === 'submitted' ? <Notice tone="info" title={t('count.frozen', 'الجرد مسلَّم للمراجعة؛ لا يُعدَّل إلا إذا أعاده المدير للعدّ.')} /> : null}
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       <CountedLines lines={lines} onEdit={null} onDelete={null} />
+      {pending.failed ? <LoadFailed what={t('count.pending.what', 'العدّ المحفوظ بالجهاز')} error={pending.failed} onRetry={pending.reread} /> : null}
+      {pending.lines.length > 0 ? (
+        <section className="card flex flex-col gap-3 p-4" aria-labelledby="count-kept-stuck">
+          <h2 id="count-kept-stuck" className="font-semibold">
+            {t('count.pending.stuck', 'عدّ محفوظ بالجهاز لم يصل قبل التسليم')}
+          </h2>
+          <ul className="flex flex-col gap-1 text-sm">
+            {pending.lines.map((line) => (
+              <li key={line.id}>{pendingText(line)}</li>
+            ))}
+          </ul>
+          <p className="text-sm text-ink-muted">{t('count.pending.stuck_hint', 'لا يُرسل إلى جرد مسلَّم؛ إن كان لازماً فاطلب من المدير إعادته للعدّ قبل مسحه.')}</p>
+          {failed ? (
+            <Notice tone="danger" title={failed.title}>
+              {failed.detail}
+            </Notice>
+          ) : null}
+          <Button variant="secondary" busy={busy} onClick={() => setConfirm(true)} data-action="erase-kept-counts">
+            {t('count.pending.clear', 'امسح المحفوظ')}
+          </Button>
+        </section>
+      ) : null}
+      <ConfirmDialog
+        open={confirm}
+        title={t('count.pending.clear.title', 'امسح العدّ المحفوظ بالجهاز')}
+        consequence={t('count.pending.clear.consequence', 'يُمسح من هذا الجهاز: {lines}. لا يصل الخادم بعدها.', { lines: pending.lines.map(pendingText).join(t('list.separator', '، ')) })}
+        confirmLabel={t('count.pending.clear', 'امسح المحفوظ')}
+        busy={busy}
+        action="confirm-erase-kept-counts"
+        onConfirm={clear}
+        onCancel={() => setConfirm(false)}
+      />
     </div>
   );
 }
 
-function columnDecimals3(line: CountPreviewLine): 0 | 1 | 2 | 3 {
-  return line.baseUnit === 'pc' ? 0 : 3;
+function decimalsOf(unit: BaseUnit): 0 | 3 {
+  return unit === 'pc' ? 0 : 3;
 }
 
-function qtyOrDash(qty: Milli | null, line: CountPreviewLine): string {
-  return qty === null ? '—' : fmtQtyCell(qty, columnDecimals3(line));
+function qtyOrDash(qty: Milli | null, unit: BaseUnit): string {
+  return qty === null ? '—' : fmtQtyCell(qty, decimalsOf(unit));
 }
 
-/** «أعد الحساب»: الفرق القديم والجديد جنب بعض، والمستندات اللي ترحّلت بعد اللقطة باسمها وكميتها. */
+/** السطور بوحداتها (جدول لكل وحدة أساس، والوحدة برأس العمود)، بترتيب BASE_UNITS. */
+function byUnit<Row extends { baseUnit: BaseUnit }>(rows: readonly Row[]): { unit: BaseUnit; rows: Row[] }[] {
+  return BASE_UNITS.map((unit) => ({ unit, rows: rows.filter((row) => row.baseUnit === unit) })).filter((group) => group.rows.length > 0);
+}
+
+/** «أعد الحساب»: الفرق القديم والجديد جنب بعض (جدول لكل وحدة)، والمستندات اللي غيّرت رصيد يوم الجرد باسمها وكميتها. */
 function RefreshTable({ lines }: { lines: readonly RefreshedLine[] }) {
-  const columns: Column<RefreshedLine>[] = [
-    { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
-    { key: 'old', header: t('count.refresh.old', 'الفرق السابق'), kind: 'number', cell: (line) => <Num>{line.before.diff === null ? '—' : signedQtyCell(line.before.diff, line.baseUnit === 'pc' ? 0 : 3)}</Num> },
-    { key: 'new', header: t('count.refresh.new', 'الفرق الآن'), kind: 'number', cell: (line) => <Num>{line.after.diff === null ? '—' : signedQtyCell(line.after.diff, line.baseUnit === 'pc' ? 0 : 3)}</Num> },
-    {
-      key: 'docs',
-      header: t('count.refresh.docs', 'المستندات بعد العدّ'),
-      cell: (line) => (line.docs.length === 0 ? '—' : line.docs.map((doc) => t('count.refresh.doc', '{label} ({qty})', { label: doc.label, qty: fmtQty(doc.qty < 0n ? -doc.qty : doc.qty, line.baseUnit).main })).join(t('list.separator', '، '))),
-    },
-  ];
-  return <DataTable caption={t('count.refresh.caption', 'إعادة الحساب')} columns={columns} rows={lines} rowKey={(line) => line.lineId} empty={t('count.lines.empty', 'لم يُعدّ شيء بعد.')} />;
+  return (
+    <>
+      {byUnit(lines).map(({ unit, rows }) => {
+        const label = baseUnitLabel(unit);
+        const columns: Column<RefreshedLine>[] = [
+          { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
+          { key: 'old', header: t('count.refresh.old_in', 'الفرق السابق ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{line.before.diff === null ? '—' : signedQtyCell(line.before.diff, decimalsOf(unit))}</Num> },
+          { key: 'new', header: t('count.refresh.new_in', 'الفرق الآن ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{line.after.diff === null ? '—' : signedQtyCell(line.after.diff, decimalsOf(unit))}</Num> },
+          {
+            key: 'docs',
+            header: t('count.refresh.docs', 'المستندات بعد العدّ'),
+            cell: (line) => (line.docs.length === 0 ? '—' : line.docs.map((doc) => t('count.refresh.doc', '{label} ({qty})', { label: doc.label, qty: fmtQty(doc.qty < 0n ? -doc.qty : doc.qty, line.baseUnit).main })).join(t('list.separator', '، '))),
+          },
+        ];
+        return <DataTable key={unit} caption={t('count.refresh.caption_in', 'إعادة الحساب ({unit})', { unit: label })} columns={columns} rows={rows} rowKey={(line) => line.lineId} empty={t('count.lines.empty', 'لم يُعدّ شيء بعد.')} />;
+      })}
+    </>
+  );
 }
 
 const costTextOf = (cost: UnitCost | null): string => (cost === null ? '' : decimalText(cost, 4));
 
+function lotLabel(draw: { receivedOn: string; expiryOn: string | null }): string {
+  return draw.expiryOn
+    ? t('count.lot.expiry', 'استُلمت {received} — تنتهي {expiry}', { received: fmtDay(draw.receivedOn), expiry: fmtDay(draw.expiryOn) })
+    : t('count.lot', 'استُلمت {received}', { received: fmtDay(draw.receivedOn) });
+}
+
+/**
+ * خطوط موافقة الترحيل (مثل الصرف والتحويل): لكل سطر بنقص سحبه بدفعاته (S)، وبنقص منتهٍ سحبه من المنتهي (X)، وبزيادة دفعتها الجديدة
+ * بيوم الجرد (G). كل خطّ يُوافق عليه قبل الترحيل.
+ */
+export function countPreviewLines(preview: Pick<CountPreview, 'lines'>): PreviewLine[] {
+  const out: PreviewLine[] = [];
+  for (const line of preview.lines) {
+    const minus = (qty: Milli | null): Milli => (qty !== null && qty < 0n ? -qty : 0n);
+    const plus = (qty: Milli | null): Milli => (qty !== null && qty > 0n ? qty : 0n);
+    const drawn = (draws: CountPreviewLine['draws']): Milli => draws.reduce((sum, draw) => sum + draw.qty, 0n);
+    const shortOf = (draws: CountPreviewLine['draws']): PreviewDraw[] => draws.map((draw) => ({ lotId: draw.lotId, lotLabel: lotLabel(draw), qty: draw.qty, value: draw.value }));
+    const short = minus(line.diff);
+    if (short > 0n) {
+      out.push({ lineId: `${line.lineId}:S`, itemName: t('count.preview.short', 'نقص «{item}»', { item: line.itemName }), unit: line.baseUnit, requested: short, draws: shortOf(line.draws), shortage: short > drawn(line.draws) ? short - drawn(line.draws) : 0n });
+    }
+    const expiredShort = minus(line.expiredDiff);
+    if (expiredShort > 0n) {
+      out.push({
+        lineId: `${line.lineId}:X`,
+        itemName: t('count.preview.expired_short', 'نقص المنتهي من «{item}»', { item: line.itemName }),
+        unit: line.baseUnit,
+        requested: expiredShort,
+        draws: shortOf(line.expiredDraws),
+        shortage: expiredShort > drawn(line.expiredDraws) ? expiredShort - drawn(line.expiredDraws) : 0n,
+      });
+    }
+    const gain = plus(line.diff);
+    const expiredGain = plus(line.expiredDiff);
+    if (gain + expiredGain > 0n) {
+      // القيمة لكل الزيادة (الخادم يجمع الصالح والمنتهي)، فبجزأين تنعرض بالجدول بس.
+      const draws: PreviewDraw[] = [];
+      if (gain > 0n) draws.push({ lotId: `${line.lineId}:gain`, lotLabel: t('count.preview.gain_lot', 'دفعة زيادة جديدة بيوم الجرد'), qty: gain, value: expiredGain > 0n ? null : line.gainValue });
+      if (expiredGain > 0n) draws.push({ lotId: `${line.lineId}:gain_expired`, lotLabel: t('count.preview.gain_expired_lot', 'دفعة زيادة منتهية بيوم الجرد'), qty: expiredGain, value: gain > 0n ? null : line.gainValue });
+      out.push({ lineId: `${line.lineId}:G`, itemName: t('count.preview.gain', 'زيادة «{item}»', { item: line.itemName }), unit: line.baseUnit, requested: gain + expiredGain, draws, shortage: 0n });
+    }
+  }
+  return out;
+}
+
+/** زرّ الترحيل: معاينة جاهزة، وكل خطّ نقص أو زيادة انوافق عليه (جرد بلا فروق بلا خطوط)، والشبكة موجودة. */
+export function countPostReady(preview: Pick<CountPreview, 'lines' | 'ready'>, approved: ReadonlySet<string>, online: boolean): boolean {
+  const lines = countPreviewLines(preview);
+  return online && preview.ready && (lines.length === 0 || previewReady(lines, approved));
+}
+
 /** مراجعة المدير (count.approve): الجدول والأسباب وكلفة الزيادة، وإعادة الحساب، والإعادة للعدّ، والإغلاق، والموافقة = الترحيل. */
-function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef; onChanged: () => void }) {
+function CountReview({
+  doc,
+  store,
+  canVoid,
+  refreshed,
+  onRefreshed,
+  onChanged,
+}: {
+  doc: CountDoc;
+  store: StoreRef;
+  canVoid: boolean;
+  refreshed: readonly RefreshedLine[] | null;
+  onRefreshed: (lines: readonly RefreshedLine[] | null) => void;
+  onChanged: () => void;
+}) {
   const navigate = useNavigate();
   const online = useStore(onlineStore);
   const load = useCallback(() => counts.previewCount(doc.id), [doc.id]);
@@ -451,8 +721,8 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
   const preview = useLoad(load, `${doc.id}#${doc.version}#${tick}`);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [costs, setCosts] = useState<Record<string, string>>({});
-  const [refreshed, setRefreshed] = useState<readonly RefreshedLine[] | null>(null);
-  const [confirm, setConfirm] = useState<'return' | 'close' | 'void' | null>(null);
+  const [approval, setApproval] = useState<{ plan: string; keys: ReadonlySet<string> }>({ plan: '', keys: new Set() });
+  const [confirm, setConfirm] = useState<'post' | 'return' | 'close' | 'void' | null>(null);
   const [returnReason, setReturnReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -462,10 +732,13 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
   const data: CountPreview = preview.data;
   const failed = failure ? describeError(failure) : null;
   const submitted = data.status === 'submitted';
-  const tracked = data.lines.some((line) => line.tracksExpiry);
   const reasonOf = (line: CountPreviewLine) => reasons[line.lineId] ?? line.reason ?? '';
   const needsReason = (line: CountPreviewLine) => (line.diff ?? 0n) !== 0n || (line.expiredDiff ?? 0n) !== 0n;
   const needsCost = (line: CountPreviewLine) => ((line.diff ?? 0n) > 0n || (line.expiredDiff ?? 0n) > 0n) && line.gainSource !== 'lot';
+  // سبب كُتب على فرق غيّرته «أعد الحساب»: يُرسل من جديد (ولو بنفس النصّ) ليتأكّد على الفرق الحالي.
+  const staleReasons = submitted ? data.lines.filter((line) => line.reasonStale && needsReason(line)) : [];
+  const approved = approval.plan === data.plan ? approval.keys : new Set<string>();
+  const postLines = countPreviewLines(data);
   const after = () => {
     setTick((n) => n + 1);
     onChanged();
@@ -476,7 +749,7 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
     try {
       for (const line of data.lines) {
         const reason = reasons[line.lineId];
-        if (reason !== undefined && reason.trim() !== (line.reason ?? '')) await counts.setCountReason(line.lineId, reason);
+        if ((reason !== undefined && reason.trim() !== (line.reason ?? '')) || staleReasons.includes(line)) await counts.setCountReason(line.lineId, reasonOf(line));
         const cost = costs[line.lineId];
         if (cost !== undefined && cost.trim() !== costTextOf(line.gainUnitCost)) {
           const parsed = cost.trim() ? parseDecimal(cost, 4) : null;
@@ -500,7 +773,7 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
     setBusy(false);
     if (outcome.kind === 'failed') setFailure(outcome.error);
     else {
-      setRefreshed(outcome.kind === 'done' ? outcome.result.lines : null);
+      onRefreshed(outcome.kind === 'done' ? outcome.result.lines : null);
       setStale(null);
       after();
     }
@@ -510,6 +783,7 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
     setFailure(null);
     const outcome = await runWithRef(`count-post:${doc.id}`, (ref) => counts.postCount(ref, doc.id, data.version, data.plan));
     setBusy(false);
+    setConfirm(null);
     if (outcome.kind === 'failed') {
       const error = outcome.error;
       if (error instanceof RejectedError && error.code === 'count_stale') {
@@ -523,6 +797,7 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
     }
     if (outcome.kind === 'done') toast({ tone: 'success', title: t('count.posted', 'رُحّل الجرد {no}', { no: outcome.result.docNo ?? '' }) });
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
+    onRefreshed(null);
     after();
   };
   const giveBack = async () => {
@@ -534,6 +809,7 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
     else {
       setConfirm(null);
       setReturnReason('');
+      onRefreshed(null);
       after();
     }
   };
@@ -559,80 +835,105 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
       after();
     }
   };
-  const columns: Column<CountPreviewLine>[] = [
-    { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
-    { key: 'system', header: t('count.col.system', 'الدفتر'), kind: 'number', cell: (line) => <Num>{qtyOrDash(line.systemQty, line)}</Num> },
-    { key: 'counted', header: t('count.col.counted', 'المعدود'), kind: 'number', cell: (line) => <Num>{fmtQtyCell(line.counted, columnDecimals3(line))}</Num> },
-    { key: 'diff', header: t('count.col.diff', 'الفرق'), kind: 'number', cell: (line) => <Num>{line.diff === null ? '—' : signedQtyCell(line.diff, columnDecimals3(line))}</Num> },
-    ...(tracked
-      ? [
-          { key: 'x_system', header: t('count.col.x_system', 'المنتهي بالدفتر'), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.systemExpiredQty, line)}</Num> },
-          { key: 'x_counted', header: t('count.col.x_counted', 'المنتهي المعدود'), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.countedExpired, line)}</Num> },
-          { key: 'x_diff', header: t('count.col.x_diff', 'فرق المنتهي'), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{line.expiredDiff === null ? '—' : signedQtyCell(line.expiredDiff, columnDecimals3(line))}</Num> },
-        ]
-      : []),
-    {
-      key: 'value',
-      header: t('count.col.value', 'القيمة (دينار)'),
-      kind: 'number',
-      cell: (line) =>
-        line.shortageValue === null ? (
-          '—'
-        ) : (
-          <Num>
-            {line.shortageValue > 0n ? <MoneyText amount={-line.shortageValue} /> : null}
-            {line.gainValue !== null && line.gainValue > 0n ? <MoneyText amount={line.gainValue} /> : null}
-          </Num>
-        ),
-    },
-    {
-      key: 'reason',
-      header: t('count.col.reason', 'سبب الفرق'),
-      cell: (line) =>
-        needsReason(line) && submitted ? (
-          <input
-            className="input"
-            aria-label={t('count.reason.for', 'سبب فرق «{item}»', { item: line.itemName })}
-            maxLength={500}
-            value={reasonOf(line)}
-            onChange={(event) => setReasons({ ...reasons, [line.lineId]: event.target.value })}
-            data-action="count-reason"
-          />
-        ) : (
-          (line.reason ?? '')
-        ),
-    },
-    {
-      key: 'cost',
-      header: t('count.col.cost', 'كلفة الوحدة'),
-      cell: (line) =>
-        needsCost(line) && submitted ? (
-          <input
-            className="input tabular-nums"
-            dir="ltr"
-            inputMode="decimal"
-            aria-label={t('count.cost.for', 'كلفة وحدة زيادة «{item}» (أربع مراتب)', { item: line.itemName })}
-            value={costs[line.lineId] ?? costTextOf(line.gainUnitCost)}
-            onChange={(event) => setCosts({ ...costs, [line.lineId]: event.target.value })}
-            data-action="count-cost"
-          />
-        ) : line.gainUnitCost !== null ? (
-          <Num>{fmtUnitCost(line.gainUnitCost)}</Num>
-        ) : (
-          ''
-        ),
-    },
-  ];
+  const costRole = data.shortageTotal !== null;
+  const columnsFor = (unit: BaseUnit, rows: readonly CountPreviewLine[]): Column<CountPreviewLine>[] => {
+    const label = baseUnitLabel(unit);
+    const tracked = rows.some((line) => line.tracksExpiry);
+    return [
+      { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
+      { key: 'system', header: t('count.col.system_in', 'الدفتر ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{qtyOrDash(line.systemQty, unit)}</Num> },
+      { key: 'counted', header: t('count.col.counted_in', 'المعدود ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{fmtQtyCell(line.counted, decimalsOf(unit))}</Num> },
+      { key: 'diff', header: t('count.col.diff_in', 'الفرق ({unit})', { unit: label }), kind: 'number', cell: (line) => <Num>{line.diff === null ? '—' : signedQtyCell(line.diff, decimalsOf(unit))}</Num> },
+      ...(tracked
+        ? [
+            { key: 'x_system', header: t('count.col.x_system_in', 'المنتهي بالدفتر ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.systemExpiredQty, unit)}</Num> },
+            { key: 'x_counted', header: t('count.col.x_counted_in', 'المنتهي المعدود ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{qtyOrDash(line.countedExpired, unit)}</Num> },
+            { key: 'x_diff', header: t('count.col.x_diff_in', 'فرق المنتهي ({unit})', { unit: label }), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{line.expiredDiff === null ? '—' : signedQtyCell(line.expiredDiff, decimalsOf(unit))}</Num> },
+          ]
+        : []),
+      ...(costRole
+        ? [
+            { key: 'short_value', header: t('count.col.short_value', 'قيمة النقص (دينار)'), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{line.shortageValue !== null && line.shortageValue > 0n ? <MoneyText amount={line.shortageValue} /> : null}</Num> },
+            { key: 'gain_value', header: t('count.col.gain_value', 'قيمة الزيادة (دينار)'), kind: 'number' as const, cell: (line: CountPreviewLine) => <Num>{line.gainValue !== null && line.gainValue > 0n ? <MoneyText amount={line.gainValue} /> : null}</Num> },
+          ]
+        : []),
+      {
+        key: 'reason',
+        header: t('count.col.reason', 'سبب الفرق'),
+        cell: (line) =>
+          needsReason(line) && submitted ? (
+            <div className="flex flex-col gap-1">
+              <input
+                className="input"
+                aria-label={t('count.reason.for', 'سبب فرق «{item}»', { item: line.itemName })}
+                maxLength={500}
+                value={reasonOf(line)}
+                onChange={(event) => setReasons({ ...reasons, [line.lineId]: event.target.value })}
+                data-action="count-reason"
+              />
+              {line.reasonStale ? <span className="text-xs text-danger-700 dark:text-danger-200">{t('count.reason.stale', 'تغيّر الفرق بعد كتابة السبب؛ راجعه واحفظه لتأكيده.')}</span> : null}
+            </div>
+          ) : (
+            (line.reason ?? '')
+          ),
+      },
+      {
+        key: 'cost',
+        header: t('count.col.cost', 'كلفة الوحدة'),
+        cell: (line) =>
+          needsCost(line) && submitted ? (
+            <input
+              className="input tabular-nums"
+              dir="ltr"
+              inputMode="decimal"
+              aria-label={t('count.cost.for', 'كلفة وحدة زيادة «{item}» (أربع مراتب)', { item: line.itemName })}
+              value={costs[line.lineId] ?? costTextOf(line.gainUnitCost)}
+              onChange={(event) => setCosts({ ...costs, [line.lineId]: event.target.value })}
+              data-action="count-cost"
+            />
+          ) : line.gainUnitCost !== null ? (
+            <Num>{fmtUnitCost(line.gainUnitCost)}</Num>
+          ) : (
+            ''
+          ),
+      },
+    ];
+  };
   const dirty = Object.keys(reasons).length > 0 || Object.keys(costs).length > 0;
+  const ready = countPostReady(data, approved, online);
+  const withDiff = data.lines.filter(needsReason).length;
+  const postSentence =
+    data.shortageTotal !== null
+      ? t('count.post.consequence', 'يُرحَّل جرد «{store}» بتاريخ {day}: النقص {short} دينار («فرق جرد») والزيادة {gain} دينار، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', {
+          store: store.name,
+          day: fmtDay(doc.onDate),
+          short: fmtMoney(data.shortageTotal),
+          gain: fmtMoney(data.gainTotal ?? 0n),
+        })
+      : t('count.post.consequence_qty', 'يُرحَّل جرد «{store}» بتاريخ {day} بفروق {n} من السطور، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', { store: store.name, day: fmtDay(doc.onDate), n: fmtInt(withDiff) });
   return (
     <div className="flex flex-col gap-4">
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       {submitted && data.stale ? (
         <Notice tone="warning" title={t('count.stale', 'تغيّر الرصيد بعد العدّ')}>
-          {stale ?? t('count.stale.detail', 'ترحّل مستند على مادّة من الجرد بعد التسليم؛ اضغط «أعد الحساب» لترى الفرق الجديد قبل الترحيل.')}
+          {stale ?? t('count.stale.detail', 'ترحّل مستند غيّر رصيد يوم الجرد بعد التسليم؛ اضغط «أعد الحساب» لترى الفرق الجديد قبل الترحيل.')}
         </Notice>
       ) : null}
-      <DataTable caption={t('count.review', 'مراجعة الجرد')} columns={columns} rows={data.lines} rowKey={(line) => line.lineId} empty={t('count.lines.empty', 'لم يُعدّ شيء بعد.')} />
+      {staleReasons.length > 0 ? (
+        <Notice tone="warning" title={t('count.reason.stale_title', 'أسباب تحتاج تأكيداً')}>
+          {t('count.reason.stale_detail', 'تغيّر الفرق في {n} من السطور بعد كتابة أسبابها؛ راجعها ثم «احفظ الأسباب والكلف» لتأكيدها.', { n: fmtInt(staleReasons.length) })}
+        </Notice>
+      ) : null}
+      {byUnit(data.lines).map(({ unit, rows }) => (
+        <DataTable
+          key={unit}
+          caption={t('count.review_in', 'مراجعة الجرد ({unit})', { unit: baseUnitLabel(unit) })}
+          columns={columnsFor(unit, rows)}
+          rows={rows}
+          rowKey={(line) => line.lineId}
+          empty={t('count.lines.empty', 'لم يُعدّ شيء بعد.')}
+        />
+      ))}
       {submitted
         ? data.lines
             .filter((line) => line.problem)
@@ -648,6 +949,23 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
         </p>
       ) : null}
       {refreshed ? <RefreshTable lines={refreshed} /> : null}
+      {submitted && postLines.length > 0 ? (
+        <section className="flex flex-col gap-2" aria-labelledby="count-post-lines">
+          <h2 id="count-post-lines" className="font-semibold">
+            {t('count.post.lines', 'ما سيُرحَّل: وافق على كل سطر')}
+          </h2>
+          <PostPreview
+            lines={postLines}
+            approved={approved}
+            onToggle={(lineId, on) => {
+              const next = new Set(approved);
+              if (on) next.add(lineId);
+              else next.delete(lineId);
+              setApproval({ plan: data.plan, keys: next });
+            }}
+          />
+        </section>
+      ) : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
@@ -655,13 +973,13 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
       ) : null}
       {submitted ? (
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" busy={busy} disabled={!dirty} onClick={() => void saveReview()} data-action="save-count-review">
+          <Button variant="secondary" busy={busy} disabled={!dirty && staleReasons.length === 0} onClick={() => void saveReview()} data-action="save-count-review">
             {t('count.review.save', 'احفظ الأسباب والكلف')}
           </Button>
           <Button variant="secondary" busy={busy} disabled={!online || dirty} onClick={() => void refresh()} data-action="refresh-count">
             {t('count.refresh', 'أعد الحساب')}
           </Button>
-          <Button busy={busy} disabled={!online || dirty || !data.ready} onClick={() => void post()} data-action="post-count">
+          <Button busy={busy} disabled={dirty || !ready} onClick={() => setConfirm('post')} data-action="post-count">
             {t('count.post', 'وافق ورحّل الجرد')}
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setConfirm('return')} data-action="return-count">
@@ -671,11 +989,22 @@ function CountReview({ doc, store, onChanged }: { doc: CountDoc; store: StoreRef
             {t('count.close', 'أغلِق دون ترحيل')}
           </Button>
         </div>
-      ) : data.status === 'approved' ? (
+      ) : data.status === 'approved' && canVoid ? (
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-count">
           {t('count.void', 'ألغِ الجرد')}
         </Button>
       ) : null}
+      <ConfirmDialog
+        open={confirm === 'post'}
+        tone="primary"
+        title={t('count.post.title', 'وافق على جرد «{store}» ورحّله', { store: store.name })}
+        consequence={postSentence}
+        confirmLabel={t('count.post', 'وافق ورحّل الجرد')}
+        busy={busy}
+        action="confirm-post-count"
+        onConfirm={() => void post()}
+        onCancel={() => setConfirm(null)}
+      />
       <ConfirmDialog
         open={confirm === 'return'}
         title={t('count.return.title', 'أعِد جرد «{store}» للعدّ', { store: store.name })}
@@ -730,6 +1059,13 @@ function CountEditor({ docId }: { docId: string }) {
   const [tick, setTick] = useState(0);
   const doc = useLoad(load, `${docId}#${tick}`);
   const setup = useLoad(inventory.loadOrgSetup);
+  // ما يلزم يبقى بعد القراءة الجديدة (الشاشة تنفتح من جديد بعدها): المحفوظ المرفوض، وفشل الجهاز، ونتيجة «أعد الحساب».
+  const [rejected, setRejected] = useState<readonly RejectedCount[]>([]);
+  const [deviceFailure, setDeviceFailure] = useState<unknown>(null);
+  const [refreshed, setRefreshed] = useState<readonly RefreshedLine[] | null>(null);
+  const userId = workspace?.userId ?? '';
+  const orgId = workspace?.orgId ?? '';
+  const stamp = useMemo(() => ({ userId, orgId }), [userId, orgId]);
   if (doc.error) return <LoadFailed what={t('count.what', 'الجرد')} error={doc.error} onRetry={doc.retry} />;
   if (setup.error) return <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />;
   if (!doc.data || !setup.data || !workspace) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
@@ -738,7 +1074,7 @@ function CountEditor({ docId }: { docId: string }) {
   const changed = () => setTick((n) => n + 1);
   const reviewer = can(workspace.role, 'count.approve');
   const counter = can(workspace.role, 'count.enter');
-  const stamp = { userId: workspace.userId, orgId: workspace.orgId };
+  const deviceFailed = deviceFailure ? describeError(deviceFailure) : null;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -750,14 +1086,20 @@ function CountEditor({ docId }: { docId: string }) {
           </Link>
         }
       />
+      {deviceFailed ? (
+        <Notice tone="warning" title={t('count.device_failed', 'تعذّر تحديث العدّ المحفوظ بالجهاز')}>
+          {deviceFailed.detail}
+        </Notice>
+      ) : null}
+      <RejectedNotices rejected={rejected} />
       {!store ? (
         <Notice tone="warning" title={t('count.no_store', 'مخزن هذا الجرد غير متاح.')} />
       ) : current.status === 'draft' && counter ? (
-        <CountEntry doc={current} lines={doc.data.lines} store={store} stamp={stamp} onChanged={changed} />
+        <CountEntry doc={current} lines={doc.data.lines} store={store} stamp={stamp} onRejected={setRejected} onDeviceFailure={setDeviceFailure} onChanged={changed} />
       ) : current.status !== 'draft' && reviewer ? (
-        <CountReview doc={current} store={store} onChanged={changed} />
+        <CountReview doc={current} store={store} canVoid={can(workspace.role, 'void')} refreshed={refreshed} onRefreshed={setRefreshed} onChanged={changed} />
       ) : (
-        <CountReadOnly doc={current} lines={doc.data.lines} />
+        <CountReadOnly doc={current} lines={doc.data.lines} store={store} stamp={stamp} />
       )}
     </div>
   );
