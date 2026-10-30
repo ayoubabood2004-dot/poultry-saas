@@ -1,7 +1,6 @@
 import { useCallback, useId, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
-import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
@@ -9,14 +8,14 @@ import type { Fils, Milli } from '../../domain/money';
 import { unitCost4 } from '../../domain/money';
 import { CHICK_WARNING_HOURS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
-import { fmtCounted, fmtDay, fmtInt, fmtMoney, fmtQty, fmtScaledCell, fmtUnitCost } from '../../lib/format';
+import { fmtCounted, fmtDay, fmtMoney, fmtQty, fmtScaledCell, fmtUnitCost } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { ItemLots, ItemMoves, LotRow, MoveRow } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { qtyCell, qtyDecimals, scopedStores, StoreSelect, storesOf } from './stock-shared';
+import { PageFooter, qtyCell, qtyDecimals, scopedStores, StoreSelect, storesOf } from './stock-shared';
 
 // بطاقة المادّة (الخطّة WP4، FOUNDATION ٧٨٥): دفعاتها المتبقّية بترتيب السحب بعمرها (ساعات من الفقس للأفراخ وتنبيه 48 ساعة،
 // وأيام من استلام الجذر لغيرها، E24) وانتهائها ومصدرها ورقم دفعة المورّد، وللكلفة القيمة المتبقّية وكلفة الوحدة بأربع مراتب
@@ -114,21 +113,6 @@ export function MovesTable({ moves, baseUnit }: { moves: readonly MoveRow[]; bas
     { key: 'running', header: t('stock.move.running', 'الرصيد ({unit})', { unit }), kind: 'number', cell: (move) => <Num>{qtyCell(move.running, decimals)}</Num> },
   ];
   return <DataTable caption={t('stock.moves.caption', 'حركات المادّة برصيد جارٍ')} columns={columns} rows={moves} rowKey={(move) => move.moveId} empty={t('stock.moves.empty', 'لا حركات.')} />;
-}
-
-/** «{shown} من المجموع {total}» تحت قائمة بصفحات (العدد من الخادم بأوّل صفحة)، و«المزيد» لمّا بعد صفحة. */
-function PageFooter({ shown, total, next, busy, error, what, onMore, action }: { shown: number; total: number | null; next: boolean; busy: boolean; error: unknown; what: string; onMore: () => void; action: string }) {
-  return (
-    <>
-      <p className="text-sm text-ink-muted">{t('stock.card.shown', '{shown} من المجموع {total}', { shown: fmtInt(shown), total: fmtInt(total ?? shown) })}</p>
-      {next ? (
-        <Button variant="secondary" busy={busy} onClick={onMore} data-action={action}>
-          {t('stock.board.more', 'المزيد')}
-        </Button>
-      ) : null}
-      {error ? <LoadFailed what={what} error={error} onRetry={onMore} /> : null}
-    </>
-  );
 }
 
 interface More {

@@ -18,6 +18,14 @@
 --   الكلفة تقرأ stock_lots، والفرق بين رقمين متتاليين بتسلسل مشترك يكشف دفعات منشآت ثانية (نفس درس 0006)، والترتيب داخل المنشأة
 --   هو هو والمرآة تنسخ رقم أصلها؛ وborn_at_not_chick وborn_at_future لسطر الافتتاح (وقت الفقس للأفراخ بس)؛ وarchived_stores_with_stock
 --   لعلامة «مؤرشف وعليه رصيد» بقائمة المخازن (§2.6).
+--   وبعد الجولة الثانية (مراجعة مستقلّة بخمس زوايا): post_transfer يأخذ بصمة المعاينة (p_expected_plan، بسرّ بـprivate.plan_secret)
+--   ويرفض stale_preview لمّا القطع تتغيّر بعد المعاينة (FOUNDATION ٥٢٠ البند 5)؛ وverify_stock زاد ثلاثة فحوص يمسكون اللي الثمانية
+--   ما يشوفونه (قيمة كل سحب draw_values، وترتيبه draw_order، والمستند = حركاته doc_moves)؛ والدفعات تتقفل for no key update مو
+--   for update (مرآة تحويل ثاني تأخذ key share على جذرها، فتحويلان بلا رصيد مشترك كانوا يقفلون بعض)؛ وتاريخ المستند ينقارن بعد
+--   قفله (§2.3)؛ وحذف سطر المسوّدة يقفل السطر قبل رأسه؛ ومؤشّر اللوحة والقيم (الاسم المطبَّع، المعرّف) كما وصل بدل معرّف المادّة؛
+--   ورأس التحويل وسطره بمعرّف يولد بالجهاز (FOUNDATION ١٩٩) حتى رفع مسوّدة الجهاز ينعاد بلا تكرار؛ وكل سحب أصلي يسجّل علامة
+--   الانتهاء وقته (stock_moves.expiry_checked) فالفحصان 6 و10 ما ينقلبون لمّا المدير يطفّي متابعة الانتهاء ويشغّلها؛ وتلميح أرشفة
+--   المادّة ما يسمّي مخزناً برّا نطاق الداخل.
 -- تراجع: rollback_0007.sql — يرجّع جسمي home_summary وverify_ledger كما بـ0006، ويشيل الجداول الجديدة ودوالّها ومشغّلَي المادّة
 --   والمخزن وسياسة نطاق المخزون على سجلّ التدقيق وعدّاد ترتيب الدفعات؛ ويرفض بصوت إذا أي مستند افتتاح أو تحويل موجود (ولو مسوّدة)،
 --   بلا ما يحذف شي.
@@ -35,6 +43,17 @@ create table if not exists private.stock_fifo_counters (
 );
 alter table private.stock_fifo_counters enable row level security;
 revoke all on table private.stock_fifo_counters from public, anon, authenticated;
+
+-- ─── سرّ بصمة خطّة السحب (FOUNDATION ٥٢٠ البند 5، ٧٧٠): صفّ واحد بـprivate يولد بالهجرة وما يطلع ───────────────────────
+-- البصمة md5(السرّ:الخطّة)، والخطّة بيها قيم القطع: بلا سرّ الأمين (بلا كلفة) يقدر يجرّب القيم على البصمة لحد ما يلكاها.
+-- صفّ وحده (id = true) تكتبه الهجرة بس، فبلا قيد check (ما يوصل خطأه لشاشة، مثل stock_fifo_counters).
+create table if not exists private.plan_secret (
+  id boolean primary key default true,
+  secret text not null default (gen_random_uuid()::text || gen_random_uuid()::text)
+);
+alter table private.plan_secret enable row level security;
+revoke all on table private.plan_secret from public, anon, authenticated;
+insert into private.plan_secret (id) values (true) on conflict (id) do nothing;
 
 -- ─── الدفعات (FOUNDATION ٢٨٧–٢٩٣): كل دخول مخزون دفعة، والمتبقّي ينسحب منها بترتيب السحب (القاعدة 12) ──────────────────────
 -- origin_lot_id = الجذر (مرآة المرآة تنسخ الجذر، E5)، وsource_lot_id = المصدر المباشر للمرآة. الكمية والقيمة غير سالبة، والدفعة
@@ -99,6 +118,9 @@ create table if not exists public.stock_moves (
   value numeric not null,
   moved_on date not null,
   reverses_move_id uuid,
+  -- السحب الأصلي يسجّل إذا قاعدة الانتهاء انطبقت عليه وقتها (المادّة تتابعه، وما سحبها بإذن): متابعة الانتهاء تتغيّر بعد الرصيد
+  -- (0005)، فالفحصان 6 و10 بـverify_stock يحكمون كل سحب بقاعدة يومه، مو بعلامة المادّة اليوم. غيره فارغ.
+  expiry_checked boolean,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
   constraint stock_moves_qty_check check (abs(qty) < 'Infinity' and qty = round(qty, 3) and (qty <> 0 or doc_kind = 'receipt_revalue')),
@@ -412,11 +434,15 @@ begin
     raise exception 'frozen_column' using hint = format('للمادّة «%s» حركات مخزون، فنوعها ووحدة أساسها ثابتان. إن كانا خاطئين فصفّر رصيدها وأرشفها وأنشئ مادّة جديدة.', old.name);
   end if;
   if new.archived_at is not null and old.archived_at is null then
+    -- المخزن يتسمّى إذا بنطاق الداخل بس: المحصور بنطاق ما يعرف من التلميح وين رصيد مادّة بمخزن برّا نطاقه (§2.8، E49).
     select w.name into v_wh from public.stock_balances b join public.warehouses w on w.org_id = b.org_id and w.id = b.warehouse_id
-    where b.org_id = new.org_id and b.item_id = new.id and b.qty <> 0
+    where b.org_id = new.org_id and b.item_id = new.id and b.qty <> 0 and public.in_scope_wh(w.id)
     order by w.name collate "C" limit 1;
     if v_wh is not null then
       raise exception 'archived_in_use' using hint = format('للمادّة «%s» رصيد في «%s»، فلا تُؤرشف حتى يصير رصيدها صفراً في كل المخازن.', new.name, v_wh);
+    end if;
+    if exists (select 1 from public.stock_balances b where b.org_id = new.org_id and b.item_id = new.id and b.qty <> 0) then
+      raise exception 'archived_in_use' using hint = format('للمادّة «%s» رصيد في مخزن خارج نطاقك، فلا تُؤرشف حتى يصير رصيدها صفراً في كل المخازن.', new.name);
     end if;
   end if;
   return new;
@@ -685,9 +711,11 @@ grant insert (warehouse_id, on_date, note, status) on public.opening_docs to aut
 grant update (on_date, note, status) on public.opening_docs to authenticated;
 grant insert (doc_id, item_id, qty_base, value, zero_reason, expiry_on, born_at) on public.opening_lines to authenticated;
 grant update (item_id, qty_base, value, zero_reason, expiry_on, born_at) on public.opening_lines to authenticated;
-grant insert (from_warehouse_id, to_warehouse_id, moved_on, note, status) on public.transfers to authenticated;
+-- المعرّف يولد بالجهاز لرأس التحويل وسطره (FOUNDATION ١٩٩): رفع مسوّدة الجهاز يعاد بنفس المعرّفات بعد جواب ضاع، فالمكرّر يرجع
+-- 23505 بدل رأس أو سطر ثاني.
+grant insert (id, from_warehouse_id, to_warehouse_id, moved_on, note, status) on public.transfers to authenticated;
 grant update (moved_on, note, status) on public.transfers to authenticated;
-grant insert (doc_id, item_id, item_unit_id, unit_code, qty_in_unit) on public.transfer_lines to authenticated;
+grant insert (id, doc_id, item_id, item_unit_id, unit_code, qty_in_unit) on public.transfer_lines to authenticated;
 grant update (item_id, item_unit_id, unit_code, qty_in_unit) on public.transfer_lines to authenticated;
 revoke truncate on table public.stock_lots, public.stock_moves, public.stock_balances, public.opening_docs, public.opening_lines, public.transfers,
   public.transfer_lines from service_role;
@@ -797,15 +825,15 @@ $$;
 
 -- الحركة: تنكتب، والدفعة والرصيد يتحدّثون بنفس كميتها وقيمتها الموقّعتين (الرصيد مقفول من lock_balances).
 create or replace function private.apply_move(p_lot uuid, p_doc_kind text, p_doc uuid, p_line uuid, p_qty numeric, p_value numeric, p_on date,
-  p_reverses uuid) returns public.stock_moves
+  p_reverses uuid, p_expiry_checked boolean default null) returns public.stock_moves
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   l public.stock_lots;
   m public.stock_moves;
 begin
   select * into l from public.stock_lots where org_id = public.auth_org() and id = p_lot;
-  insert into public.stock_moves (org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id)
-  values (l.org_id, p_doc_kind, p_doc, p_line, l.item_id, l.warehouse_id, l.id, p_qty, p_value, p_on, p_reverses)
+  insert into public.stock_moves (org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id, expiry_checked)
+  values (l.org_id, p_doc_kind, p_doc, p_line, l.item_id, l.warehouse_id, l.id, p_qty, p_value, p_on, p_reverses, p_expiry_checked)
   returning * into m;
   update public.stock_lots set qty_left = qty_left + p_qty, value_left = value_left + p_value where org_id = l.org_id and id = l.id;
   update public.stock_balances set qty = qty + p_qty, value = value + p_value
@@ -896,7 +924,7 @@ begin
 end
 $$;
 
--- السحب نفسه (القواعد 12–14): الدفعات المؤهّلة بترتيب السحب تتقفل for update وهي تنقرأ (§2.3 البند 5، الرصيد مقفول قبلها)،
+-- السحب نفسه (القواعد 12–14): الدفعات المؤهّلة بترتيب السحب تتقفل for no key update وهي تنقرأ (§2.3 البند 5، الرصيد مقفول قبلها)،
 -- والنقص يرفض insufficient_stock والمستند يبقى مسوّدة. يرجّع القطع؛ الحركات يكتبها المستدعي.
 create or replace function private.draw(p_item uuid, p_wh uuid, p_qty numeric, p_date date, p_lot uuid, p_allow_expired boolean)
 returns table (lot_id uuid, qty numeric, value numeric)
@@ -918,7 +946,9 @@ begin
       and (p_lot is null or l.id = p_lot)
       and (not coalesce(v_tracks, false) or l.expiry_on is null or l.expiry_on >= p_date or (p_lot is not null and coalesce(p_allow_expired, false)))
     order by l.expiry_on asc nulls last, l.fifo_seq, l.id
-    for update
+    -- no key update مو update: مرآة تحويل ثاني تأخذ key share على جذرها (المفتاح الأجنبي origin_lot_id) بمخزن غير مخزن هذا السحب،
+    -- وupdate يتعارض وياه فتحويلان بلا رصيد مشترك يقفلون بعض (40P01). كاتبا دفعة وحدة يبقون يستبعدون بعض.
+    for no key update
   loop
     exit when v_left <= 0;
     v_take := least(v_left, c.qty_left);
@@ -932,6 +962,18 @@ begin
     perform private.raise_shortage(p_item, p_wh, p_qty, p_date);
   end if;
 end
+$$;
+
+-- قطعة بخطّة السحب كنصّ ثابت الشكل (الكمية 3 مراتب والقيمة 2، مهما كان مقياس الرقم المحسوب): «الدفعة:الكمية:القيمة».
+create or replace function private.plan_piece(p_lot uuid, p_qty numeric, p_value numeric) returns text
+language sql immutable set search_path = pg_catalog, pg_temp as $$
+  select p_lot::text || ':' || round(p_qty, 3)::text || ':' || round(p_value, 2)::text
+$$;
+
+-- بصمة الخطّة (سطوراً بترتيبها، وكل سطر قطعه بترتيب السحب): المعاينة ترجّعها والترحيل يقارنها بقطعه هو (stale_preview).
+create or replace function private.plan_token(p_plan text) returns text
+language sql stable security definer set search_path = public, pg_temp as $$
+  select md5((select s.secret from private.plan_secret s where s.id) || ':' || coalesce(p_plan, ''))
 $$;
 
 -- اسم المستند للتلميح والعرض: رقم التحويل، أو «افتتاح بتاريخ …».
@@ -1096,6 +1138,7 @@ declare
   l public.stock_lots;
   v_lots jsonb := '[]'::jsonb;
   v_total numeric := 0;
+  v_date date;
 begin
   set local lock_timeout = '5s';
   perform private.require('opening.post');
@@ -1108,13 +1151,19 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا المستند غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
-  perform private.check_opening_date(d.on_date, w.division_id);
+  v_date := d.on_date;
+  perform private.check_opening_date(v_date, w.division_id);
   select * into d from public.opening_docs where org_id = w.org_id and id = p_id for update;
   if d.status <> 'draft' then
     raise exception 'not_draft' using hint = 'هذا المستند ليس مسوّدة: رُحّل أو أُلغي من قبل.';
   end if;
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّرت المسوّدة بعد المعاينة. راجعها وعاينها من جديد قبل الترحيل.';
+  end if;
+  -- التاريخ انفحص من قراءة قبل قفل المستند (قفل الفترة والوحدة أوّلاً، §2.3)، فتاريخ تغيّر بينهما يرفض: النسخة وحدها ما تكفي لأن
+  -- زيادتها معروفة سلفاً (+1)، فترحيل يسبق تعديلاً بنفس اللحظة كان يمرّ بتاريخ ما انفحص (فترة مقفلة أو بعد يوم التشغيل).
+  if d.on_date is distinct from v_date then
+    raise exception 'stale_draft' using hint = 'تغيّر تاريخ المسوّدة أثناء الترحيل. راجعها وعاينها من جديد.';
   end if;
   select array_agg(distinct x.item_id) into v_items from public.opening_lines x where x.org_id = d.org_id and x.doc_id = d.id;
   if v_items is null then
@@ -1178,7 +1227,7 @@ begin
   select array_agg(distinct x.item_id) into v_items from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'opening' and x.source_id = d.id;
   perform private.lock_masters(array[w.id], v_items, false);
   perform private.lock_balances(v_items, array_fill(w.id, array[cardinality(v_items)]));
-  for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'opening' and x.source_id = d.id order by x.id for update loop
+  for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'opening' and x.source_id = d.id order by x.id for no key update loop
     perform private.check_lot_intact(l.id);
   end loop;
   for m in
@@ -1241,8 +1290,9 @@ $$;
 
 -- ─── التحويل والصادر الداخلي (FOUNDATION ٥٥٤، القاعدة 15، Q4) ─────────────────────────────────────────────────
 -- الترحيل (transfer.post، المرسِل بنطاق الأمين والمستلم أي مخزن فعّال يقبل المادّة): كل قطعة مسحوبة − بالمصدر ومرآة + بالوجهة
--- بنفس القيمة، ورقم TR، وبلا قيد جهة (بين وحدتين صادر داخلي بالكلفة). ما يسحب دفعة منتهية أبداً (FOUNDATION ٤٧٦).
-create or replace function public.post_transfer(p_id uuid, p_expected_version int, p_client_ref uuid) returns jsonb
+-- بنفس القيمة، ورقم TR، وبلا قيد جهة (بين وحدتين صادر داخلي بالكلفة). ما يسحب دفعة منتهية أبداً (FOUNDATION ٤٧٦). p_expected_plan
+-- بصمة المعاينة اللي وافق عليها المستخدم: قطع غيرها (المخزون تغيّر بعد المعاينة) ← stale_preview والسحب كلّه يرجع.
+create or replace function public.post_transfer(p_id uuid, p_expected_version int, p_expected_plan text, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_fn constant text := 'post_transfer';
@@ -1261,6 +1311,10 @@ declare
   v_draws jsonb;
   v_total numeric := 0;
   v_line_value numeric;
+  v_date date;
+  v_plan text := '';
+  v_pieces text[];
+  v_tracks boolean;
 begin
   set local lock_timeout = '5s';
   perform private.require('transfer.post');
@@ -1277,8 +1331,9 @@ begin
   if wf.id = wt.id then
     raise exception 'same_warehouse' using hint = 'المخزن المرسِل والمستلم واحد؛ اختر مخزناً آخر للاستلام.';
   end if;
+  v_date := d.moved_on;
   for v_div in select distinct x from unnest(array[wf.division_id, wt.division_id]) as x order by 1 loop
-    perform private.check_post_date(d.moved_on, v_div);
+    perform private.check_post_date(v_date, v_div);
   end loop;
   select * into d from public.transfers where org_id = wf.org_id and id = p_id for update;
   if d.status <> 'draft' then
@@ -1286,6 +1341,10 @@ begin
   end if;
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّرت المسوّدة بعد المعاينة. راجعها وعاينها من جديد قبل الترحيل.';
+  end if;
+  -- التاريخ المفحوص قبل القفل نفسه بعده (مثل post_opening_stock): وإلا تحويل يترحّل بفترة مقفلة أو بالمستقبل.
+  if d.moved_on is distinct from v_date then
+    raise exception 'stale_draft' using hint = 'تغيّر تاريخ المسوّدة أثناء الترحيل. راجعها وعاينها من جديد.';
   end if;
   select array_agg(distinct x.item_id) into v_items from public.transfer_lines x where x.org_id = d.org_id and x.doc_id = d.id;
   if v_items is null then
@@ -1301,8 +1360,12 @@ begin
   for ln in select * from public.transfer_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     v_draws := '[]'::jsonb;
     v_line_value := 0;
+    v_pieces := '{}'::text[];
+    -- علامة المادّة مقفولة for share (lock_masters)، فهي نفسها اللي حكمت السحب.
+    select x.tracks_expiry into v_tracks from public.items x where x.org_id = d.org_id and x.id = ln.item_id;
     for dr in select * from private.draw(ln.item_id, wf.id, ln.qty_base, d.moved_on, null, false) loop
-      perform private.apply_move(dr.lot_id, 'transfer', d.id, ln.id, -dr.qty, -dr.value, d.moved_on, null);
+      v_pieces := v_pieces || private.plan_piece(dr.lot_id, dr.qty, dr.value);
+      perform private.apply_move(dr.lot_id, 'transfer', d.id, ln.id, -dr.qty, -dr.value, d.moved_on, null, coalesce(v_tracks, false));
       m := private.mirror_lot(dr.lot_id, wt.id, dr.qty, dr.value, d.moved_on, d.id, ln.id);
       perform private.apply_move(m.id, 'transfer', d.id, ln.id, dr.qty, dr.value, d.moved_on, null);
       v_line_value := v_line_value + dr.value;
@@ -1310,9 +1373,15 @@ begin
         'money', jsonb_build_object('value', dr.value::text)));
     end loop;
     v_total := v_total + v_line_value;
+    v_plan := v_plan || ln.id::text || '|' || array_to_string(v_pieces, ';') || '/';
     v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', ln.id, 'item_id', ln.item_id, 'qty', ln.qty_base::text, 'draws', v_draws,
       'money', jsonb_build_object('value', v_line_value::text)));
   end loop;
+  -- القطع اللي انسحبت = اللي شافها المستخدم بالمعاينة (FOUNDATION ٥٢٠ البند 5: «فما يترحّل إلا اللي شافه المستخدم»، و٧٧٠): تحويل
+  -- ثاني سحب نفس الدفعات بعد المعاينة، أو دفعة صارت قبلها بالترتيب، يغيّر القطع والقيمة بلا ما تتغيّر نسخة المسوّدة.
+  if p_expected_plan is null or private.plan_token(v_plan) <> p_expected_plan then
+    raise exception 'stale_preview' using hint = 'تغيّر المخزون بعد المعاينة فتغيّرت الدفعات المسحوبة أو كمياتها. عاين التحويل من جديد ووافق عليه قبل الترحيل.';
+  end if;
   v_no := private.next_doc_no('TR', d.moved_on);
   update public.transfers set status = 'posted', doc_no = v_no, client_ref = p_client_ref, posted_at = now(), posted_by = auth.uid()
   where org_id = d.org_id and id = d.id;
@@ -1365,7 +1434,7 @@ begin
   select array_agg(distinct x.item_id) into v_items from public.transfer_lines x where x.org_id = d.org_id and x.doc_id = d.id;
   perform private.lock_masters(array[wf.id, wt.id], v_items, false);
   perform private.lock_balances(v_items || v_items, array_fill(wf.id, array[cardinality(v_items)]) || array_fill(wt.id, array[cardinality(v_items)]));
-  for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'transfer' and x.source_id = d.id order by x.id for update loop
+  for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'transfer' and x.source_id = d.id order by x.id for no key update loop
     perform private.check_lot_intact(l.id);
   end loop;
   for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'transfer' and x.source_id = d.id order by x.source_line_id, x.id loop
@@ -1407,6 +1476,8 @@ declare
   v_value numeric;
   v_problem jsonb;
   v_ready boolean := true;
+  v_piece_text text;
+  v_plan text := '';
 begin
   perform private.require('transfer.post');
   select * into d from public.transfers where org_id = public.auth_org() and id = p_id;
@@ -1438,8 +1509,9 @@ begin
     select coalesce(jsonb_agg(jsonb_build_object('lot_id', p.lot_id, 'qty', p.qty::text, 'received_on', l.received_on, 'expiry_on', l.expiry_on,
         'source_kind', l.source_kind, 'source', private.stock_doc_label(l.source_kind, l.source_id), 'supplier_lot_no', l.supplier_lot_no,
         'money', jsonb_build_object('value', p.value::text)) order by p.n), '[]'::jsonb),
-      coalesce(sum(p.qty), 0), coalesce(sum(p.value), 0)
-    into v_draws, v_drawn, v_value
+      coalesce(sum(p.qty), 0), coalesce(sum(p.value), 0),
+      coalesce(string_agg(private.plan_piece(p.lot_id, p.qty, p.value), ';' order by p.n), '')
+    into v_draws, v_drawn, v_value, v_piece_text
     from private.draw_plan(ln.item_id, wf.id, ln.qty_base, d.moved_on, null, false, v_before) with ordinality as p(lot_id, qty, value, n)
     join public.stock_lots l on l.org_id = d.org_id and l.id = p.lot_id;
     select * into s from private.stock_at(ln.item_id, wf.id, d.moved_on);
@@ -1449,6 +1521,8 @@ begin
       when i.archived_at is not null then jsonb_build_object('code', 'item_archived', 'hint', format('المادّة «%s» مؤرشفة.', i.name))
     end;
     v_ready := v_ready and v_problem is null and v_drawn = ln.qty_base;
+    -- نفس شكل خطّة الترحيل (سطر|قطع/)، فالبصمة تطابق إذا ما تغيّر شي.
+    v_plan := v_plan || ln.id::text || '|' || v_piece_text || '/';
     v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', ln.id, 'line_no', ln.line_no, 'item_id', i.id, 'item_name', i.name,
       'base_unit', i.base_unit, 'tracks_expiry', i.tracks_expiry, 'qty', ln.qty_base::text, 'qty_in_unit', ln.qty_in_unit::text,
       'unit_label', ln.unit_label, 'item_unit_id', ln.item_unit_id, 'unit_code', ln.unit_code,
@@ -1459,7 +1533,7 @@ begin
   return private.mask(jsonb_build_object('id', d.id, 'kind', 'transfer', 'status', d.status, 'version', d.version, 'doc_no', d.doc_no,
     'from_warehouse_id', wf.id, 'to_warehouse_id', wt.id, 'moved_on', d.moved_on, 'internal_export', wf.division_id <> wt.division_id,
     'to_division_kind', (select x.kind from public.divisions x where x.org_id = wt.org_id and x.id = wt.division_id),
-    'problems', v_problems, 'lines', v_lines,
+    'problems', v_problems, 'lines', v_lines, 'plan', private.plan_token(v_plan),
     'ready', v_ready and jsonb_array_length(v_problems) = 0 and jsonb_array_length(v_lines) > 0));
 end
 $$;
@@ -1517,12 +1591,14 @@ declare
   v_wh uuid;
 begin
   set local lock_timeout = '5s';
+  -- السطر أوّلاً ثم رأسه، بنفس ترتيب تعديله المباشر (بوستغريس يقفل الصفّ قبل ما مشغّله يقفل الرأس)، وإلا حذف وتعديل لنفس السطر
+  -- يقفلون بعض (40P01).
   if p_doc_kind = 'opening' then
     perform private.require('opening.post');
-    select doc_id into v_doc from public.opening_lines where org_id = public.auth_org() and id = p_line_id;
+    select doc_id into v_doc from public.opening_lines where org_id = public.auth_org() and id = p_line_id for update;
   elsif p_doc_kind = 'transfer' then
     perform private.require('transfer.post');
-    select doc_id into v_doc from public.transfer_lines where org_id = public.auth_org() and id = p_line_id;
+    select doc_id into v_doc from public.transfer_lines where org_id = public.auth_org() and id = p_line_id for update;
   else
     raise exception 'doc_kind_unknown' using hint = 'نوع المستند غير معروف.';
   end if;
@@ -1558,8 +1634,9 @@ $$;
 -- ─── قراءات الكميات (FOUNDATION ٤٤٥): definer بأعمدة بلا قيم، وأوّل سطر يفحص in_scope_wh ───────────────────────────
 -- لوحة المخزن (E22، E24): لكل مادّة بالمخزن المتاح (غير منتهٍ) والمنتهي وقريب الانتهاء (30 يوماً)، وتنبيه الحدّ الأدنى (المتاح
 -- بمخازن المنشأة اللي تستلم نوعها من المورّد أقلّ من حدّها، ويبين بلوحات هذه المخازن حتى لو رصيدها صفر)، وأقدم وقت فقس للأفراخ
--- وكمية اللي فاتها 48 ساعة. صفحة بالاسم المطبَّع ثم المعرّف (المؤشّر معرّف آخر مادّة)، والعدد الكلّي بأوّل صفحة.
-create or replace function public.stock_on_hand(p_warehouse uuid, p_after_item uuid, p_limit int) returns jsonb
+-- وكمية اللي فاتها 48 ساعة. صفحة بالاسم المطبَّع ثم المعرّف، والمؤشّر الاسم والمعرّف كما وصلا بالصفحة (مو اسم المادّة الحالي:
+-- مادّة انسمّت من جديد بين صفحتين كانت تنقل المؤشّر فتنقفز صفوف أو تنعاد)، والعدد الكلّي بأوّل صفحة.
+create or replace function public.stock_on_hand(p_warehouse uuid, p_after jsonb, p_limit int) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
@@ -1577,7 +1654,8 @@ begin
   end if;
   select * into w from public.warehouses where org_id = v_org and id = p_warehouse;
   select x.kind into v_division from public.divisions x where x.org_id = v_org and x.id = w.division_id;
-  select i.name_norm, i.id into v_after_name, v_after_id from public.items i where i.org_id = v_org and i.id = p_after_item;
+  v_after_name := p_after ->> 'name';
+  v_after_id := nullif(p_after ->> 'id', '')::uuid;
   with lots as (
     select l.item_id,
       coalesce(sum(l.qty_left) filter (where not l.expired), 0) as available,
@@ -1616,7 +1694,7 @@ begin
       'available', p.available::text, 'expired', p.expired::text, 'near_expiry', p.near_expiry::text, 'below_min', p.below_min,
       'oldest_born_at', p.oldest_born,
       'chick_age_hours', case when p.oldest_born is not null then div(extract(epoch from (now() - p.oldest_born))::numeric, 3600)::text end, -- date-ok: عمر الفرخ ساعات بين لحظتين (E24)، مو يوماً
-      'old_chicks', p.old_chicks::text)
+      'old_chicks', p.old_chicks::text, 'cursor', jsonb_build_object('name', p.name_norm, 'id', p.id))
       order by p.name_norm collate "C", p.id), '[]'::jsonb),
     case when v_after_id is null then (select count(*) from shown) end
   into v_rows, v_total
@@ -1626,8 +1704,8 @@ begin
       'archived', w.archived_at is not null,
       'has_balance', exists (select 1 from public.stock_balances b where b.org_id = v_org and b.warehouse_id = w.id and b.qty <> 0)),
     'as_of', now(), 'today', v_today,
-    'rows', (select coalesce(jsonb_agg(r order by n), '[]'::jsonb) from jsonb_array_elements(v_rows) with ordinality as x(r, n) where n <= v_limit),
-    'next', case when jsonb_array_length(v_rows) > v_limit then v_rows -> (v_limit - 1) ->> 'item_id' end,
+    'rows', (select coalesce(jsonb_agg(r - 'cursor' order by n), '[]'::jsonb) from jsonb_array_elements(v_rows) with ordinality as x(r, n) where n <= v_limit),
+    'next', case when jsonb_array_length(v_rows) > v_limit then v_rows -> (v_limit - 1) -> 'cursor' end,
     'total', v_total);
 end
 $$;
@@ -1722,7 +1800,7 @@ $$;
 
 -- ─── قراءات القيم (§2.8): invoker (سياسات الكلفة والنطاق نفسها) ويّا فحص صريح يرفض forbidden، والمجاميع من هنا مو من الصفوف ──
 -- قيمة المتاح والمنتهي لكل مادّة رصيدها موجب بالمخزن، بنفس ترتيب اللوحة ومؤشّرها (صفحة القيم تغطّي صفحة الكميات).
-create or replace function public.stock_values(p_warehouse uuid, p_after_item uuid, p_limit int) returns jsonb
+create or replace function public.stock_values(p_warehouse uuid, p_after jsonb, p_limit int) returns jsonb
 language plpgsql stable security invoker set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
@@ -1738,7 +1816,8 @@ begin
   if p_warehouse is null or not public.in_scope_wh(p_warehouse) then
     raise exception 'out_of_scope' using hint = 'هذا المخزن خارج نطاقك أو غير موجود في منشأتك.';
   end if;
-  select i.name_norm, i.id into v_after_name, v_after_id from public.items i where i.org_id = v_org and i.id = p_after_item;
+  v_after_name := p_after ->> 'name';
+  v_after_id := nullif(p_after ->> 'id', '')::uuid;
   select coalesce(jsonb_agg(jsonb_build_object('item_id', g.item_id, 'available', g.available::text, 'expired', g.expired::text)
       order by g.name_norm collate "C", g.item_id), '[]'::jsonb)
   into v_rows
@@ -1962,11 +2041,11 @@ language sql stable security definer set search_path = public, pg_temp as $$
   union all
   -- 6. ماكو سحب من دفعة قبل استلامها، ولا من دفعة منتهية بيوم السحب (الاستثناءات الأربعة بحزمها: الدفعة المسمّاة بإذن المدير،
   --    والإتلاف، والمرتجع، ونقص الجرد المنتهي؛ ماكو منها بالمرحلة 1 لحد WP5).
+  --    قاعدة الانتهاء بعلامة السحب نفسه (expiry_checked، يوم السحب)، والسحب الأصلي بلا علامة مخالفة (كل حزمة تكتبها).
   select 'draw_dates', count(*) from public.stock_moves m
   join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
-  join public.items i on i.org_id = m.org_id and i.id = m.item_id
   where m.qty < 0 and m.reverses_move_id is null
-    and (l.received_on > m.moved_on or private.lot_expired(i.tracks_expiry, l.expiry_on, m.moved_on))
+    and (m.expiry_checked is null or l.received_on > m.moved_on or private.lot_expired(m.expiry_checked, l.expiry_on, m.moved_on))
   union all
   -- 7. أهلية نوع المادّة بنوع المخزن لكل دفعة (FOUNDATION ٢٨٠–٢٨٣).
   select 'admissible', count(*) from public.stock_lots l
@@ -1990,6 +2069,84 @@ language sql stable security definer set search_path = public, pg_temp as $$
   where d.first_posted_at is null
     and exists (select 1 from public.stock_moves m join public.warehouses w on w.org_id = m.org_id and w.id = m.warehouse_id
       where w.org_id = d.org_id and w.division_id = d.id)
+  union all
+  -- 9. قيمة كل سحب أصلي بالقاعدة 13 من حال دفعته قبله (حركاتها السابقة بترتيبها): كل المتبقّي = قيمته المتبقّية بالضبط، وإلا
+  --    _mul_div_round2؛ وسحب أكثر من المتبقّي مخالفة. تقريب غلط بالمصدر ومرآته سوا (الطرفان متساويان) ما يشوفه الفحصان 1 و5.
+  select 'draw_values', count(*) from (
+    select m.qty, m.value, m.reverses_move_id,
+      coalesce(sum(m.qty) over w, 0) as ql, coalesce(sum(m.value) over w, 0) as vl
+    from public.stock_moves m
+    window w as (partition by m.org_id, m.lot_id order by m.seq rows between unbounded preceding and 1 preceding)
+  ) as x
+  where x.qty < 0 and x.reverses_move_id is null
+    and case when x.ql <= 0 or -x.qty > x.ql then true
+      when -x.qty = x.ql then -x.value <> x.vl
+      else -x.value <> private._mul_div_round2(-x.qty, x.vl, x.ql) end
+  union all
+  -- 10. ترتيب السحب (القاعدة 12): وقت كل قطعة سحب أصلية بالتحويل ماكو دفعة قبلها بالترتيب (الانتهاء والفارغ أخيراً، ثم fifo_seq،
+  --     ثم المعرّف) مؤهّلة بتاريخ السحب (مستلمة بيه أو قبله، وغير منتهية للمادّة اللي تتابع الانتهاء) وبيها متبقٍّ قبل القطعة.
+  --     السحب من دفعة مسمّاة (إذن المنتهي، والإتلاف، والمرتجع) برّا الفحص؛ كل حزمة تضيف هنا نوع سحبها بالترتيب.
+  select 'draw_order', count(*) from public.stock_moves m
+  join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
+  where m.qty < 0 and m.reverses_move_id is null and m.doc_kind = 'transfer'
+    and exists (
+      select 1 from public.stock_lots e
+      where e.org_id = m.org_id and e.item_id = m.item_id and e.warehouse_id = m.warehouse_id and e.id <> l.id
+        and e.received_on <= m.moved_on and not private.lot_expired(coalesce(m.expiry_checked, true), e.expiry_on, m.moved_on)
+        and ((e.expiry_on is not null and (l.expiry_on is null or e.expiry_on < l.expiry_on))
+          or (e.expiry_on is not distinct from l.expiry_on and (e.fifo_seq < l.fifo_seq or (e.fifo_seq = l.fifo_seq and e.id < l.id))))
+        and (select coalesce(sum(x.qty), 0) from public.stock_moves x where x.org_id = e.org_id and x.lot_id = e.id and x.seq < m.seq) > 0)
+  union all
+  -- 11. المستند = حركاته. التحويل: سطر المرحَّل (والملغى بعد ترحيل) سحب كميته بالضبط من مخزنه المرسِل، والمرحَّل بلا عكسية، والملغى
+  --     كل أصلية منه معكوسة، والمسوّدة والمطويّة بلا حركات؛ وكل حركة تحويل بسطر من مستند مرحَّل بنفس المادّة وبأحد مخزنيه، أصليتها
+  --     سالبة بالمرسِل وموجبة بالمستلم. الافتتاح: سطر المرحَّل (والملغى بعد ترحيل) دفعة وحدة بالضبط بمادّته وكميته وقيمته (حتى
+  --     الصفر) وتاريخه ومخزنه وانتهائه وفقسه، والمسوّدة والمطويّة بلا دفعة؛ وكل حركة افتتاح على دفعة سطرها، والمرحَّل بلا عكسية،
+  --     والملغى كل أصلية منه معكوسة. يمسك سحباً ناقصاً، وإلغاءً ناقصاً، ودفعة افتتاح بغير كمية سطرها.
+  select 'doc_moves', count(*) from (
+    select tl.id from public.transfer_lines tl
+    join public.transfers t on t.org_id = tl.org_id and t.id = tl.doc_id
+    cross join lateral (
+      select coalesce(sum(-x.qty), 0) as drawn, count(*) as pieces,
+        count(*) filter (where exists (select 1 from public.stock_moves r where r.org_id = x.org_id and r.reverses_move_id = x.id)) as reversed
+      from public.stock_moves x
+      where x.org_id = tl.org_id and x.doc_kind = 'transfer' and x.doc_id = tl.doc_id and x.doc_line_id = tl.id
+        and x.warehouse_id = tl.from_warehouse_id and x.qty < 0 and x.reverses_move_id is null
+    ) as s
+    where (t.doc_no is not null and s.drawn <> tl.qty_base) or (t.doc_no is null and s.pieces > 0)
+      or (t.status = 'posted' and s.reversed > 0) or (t.status = 'void' and s.reversed <> s.pieces)
+    union all
+    select x.id from public.stock_moves x
+    left join public.transfers t on t.org_id = x.org_id and t.id = x.doc_id
+    left join public.transfer_lines tl on tl.org_id = x.org_id and tl.id = x.doc_line_id and tl.doc_id = x.doc_id
+    where x.doc_kind = 'transfer'
+      and (t.id is null or t.doc_no is null or tl.id is null or tl.item_id <> x.item_id
+        or x.warehouse_id not in (t.from_warehouse_id, t.to_warehouse_id)
+        or (x.reverses_move_id is null and (x.warehouse_id = t.from_warehouse_id) <> (x.qty < 0))
+        or (x.reverses_move_id is not null and t.status <> 'void')
+        or (t.status = 'void' and x.reverses_move_id is null
+          and not exists (select 1 from public.stock_moves r where r.org_id = x.org_id and r.reverses_move_id = x.id)))
+    union all
+    select ol.id from public.opening_lines ol
+    join public.opening_docs o on o.org_id = ol.org_id and o.id = ol.doc_id
+    cross join lateral (
+      select count(*) as n,
+        count(*) filter (where l.item_id = ol.item_id and l.warehouse_id = o.warehouse_id and l.qty_in = ol.qty_base and l.value_in = ol.value
+          and l.received_on = o.on_date and l.expiry_on is not distinct from ol.expiry_on and l.born_at is not distinct from ol.born_at) as exact
+      from public.stock_lots l
+      where l.org_id = ol.org_id and l.source_kind = 'opening' and l.source_id = ol.doc_id and l.source_line_id = ol.id
+    ) as s
+    where (o.posted_at is not null and (s.n <> 1 or s.exact <> 1)) or (o.posted_at is null and s.n > 0)
+    union all
+    select x.id from public.stock_moves x
+    join public.stock_lots l on l.org_id = x.org_id and l.id = x.lot_id
+    left join public.opening_docs o on o.org_id = x.org_id and o.id = x.doc_id
+    where x.doc_kind = 'opening'
+      and (o.id is null or o.posted_at is null or l.source_kind <> 'opening' or l.source_id <> x.doc_id
+        or l.source_line_id is distinct from x.doc_line_id
+        or (x.reverses_move_id is not null and o.status <> 'void')
+        or (o.status = 'void' and x.reverses_move_id is null
+          and not exists (select 1 from public.stock_moves r where r.org_id = x.org_id and r.reverses_move_id = x.id)))
+  ) as v
 $$;
 
 
@@ -2191,15 +2348,15 @@ grant execute on function
   public.post_opening_stock(uuid, integer, uuid),
   public.void_opening_stock(uuid, text, uuid),
   public.preview_opening_stock(uuid),
-  public.post_transfer(uuid, integer, uuid),
+  public.post_transfer(uuid, integer, text, uuid),
   public.void_transfer(uuid, text, uuid),
   public.preview_transfer(uuid),
   public.discard_draft(text, uuid, integer),
   public.delete_draft_line(text, uuid, integer),
-  public.stock_on_hand(uuid, uuid, integer),
+  public.stock_on_hand(uuid, jsonb, integer),
   public.item_lots_qty(uuid, uuid, jsonb, integer),
   public.item_moves_qty(uuid, uuid, bigint, integer),
-  public.stock_values(uuid, uuid, integer),
+  public.stock_values(uuid, jsonb, integer),
   public.stock_value_totals(uuid),
   public.item_lots_value(uuid, uuid, jsonb, integer),
   public.archived_stores_with_stock()

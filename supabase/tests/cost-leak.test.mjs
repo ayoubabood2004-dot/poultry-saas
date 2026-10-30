@@ -86,15 +86,15 @@ async function scenario(t, db) {
   const draft = await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: I.diesel, qty: 50 }]);
   const preview = (await call(db, U.storekeeper, 'select public.preview_transfer($1)', [draft.id])).value;
   const ref = uid();
-  const posted = (await call(db, U.storekeeper, 'select public.post_transfer($1, $2, $3)', [draft.id, draft.version, ref])).value;
-  const replay = (await call(db, U.storekeeper, 'select public.post_transfer($1, $2, $3)', [draft.id, draft.version, ref])).value;
+  const posted = (await call(db, U.storekeeper, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3)', [draft.id, draft.version, ref])).value;
+  const replay = (await call(db, U.storekeeper, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3)', [draft.id, draft.version, ref])).value;
   t.same([moneyKeys(preview), moneyKeys(posted), moneyKeys(replay)], [[], [], []], 'معاينة الأمين وترحيله وإعادته بنفس المرجع: ولا مفتاح money');
   t.same(replay, posted, 'الإعادة بنفس المرجع نفس النتيجة المخفية');
   const managerPreview = (await call(db, U.manager, 'select public.preview_transfer($1)', [(await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: I.diesel, qty: 10 }])).id])).value;
   t.eq(managerPreview.lines[0].money.value, '8000.00', 'ضابط: معاينة المدير بقيمتها (10 لترات بـ8,000.00)');
 
   // ── التلميح بكميات بلا قيم ───────────────────────────────────────────────────────────────────────────────
-  const short = await call(db, U.storekeeper, 'select public.post_transfer($1, $2, gen_random_uuid())', Object.values(await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: I.diesel, qty: 5000 }])).slice(0, 2));
+  const short = await call(db, U.storekeeper, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', Object.values(await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: I.diesel, qty: 5000 }])).slice(0, 2));
   t.ok(!short.ok && short.code === 'insufficient_stock' && /850 لتراً/u.test(short.hint), `رفض النقص يسمّي الكمية (${short.hint})`);
   t.same(['800', '800,000', '680,000', '680000'].filter((value) => short.hint.includes(value)), [], 'ولا قيمة بالتلميح');
 

@@ -1,8 +1,9 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { Field } from '../../components/ui/Field';
 import type { QtyUnitOption } from '../../components/ui/QtyInput';
 import { Dialog } from '../../components/ui/Dialog';
 import { Button } from '../../components/ui/Button';
+import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { Num, type Column } from '../../components/ui/DataTable';
 import type { DivisionKind } from '../../domain/divisions';
@@ -15,9 +16,11 @@ import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/err
 import { fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
+import { sessionStore } from '../../lib/session';
 import type { DocStatus, ItemRow, OrgSetup, StockRef, WarehouseRow } from '../../lib/repo/inventory';
 import { divisionLabel } from '../../lib/roles';
 import { baseUnitLabel, warehouseKindLabel } from '../../lib/storeLabels';
+import { useLoad } from '../../lib/useLoad';
 
 // أدوات شاشات المخزون (المرحلة 1 WP4): المخازن بنطاق المستخدم (مرآة in_scope_wh)، ومنتقي المادّة بالبحث والرمز (E54: ماسح
 // لوحة المفاتيح ينتهي بـEnter)، وخلية الكمية بمراتب العمود الثابتة، ومحاولة الترحيل بمرجع ثابت لحد ما تنعرف النتيجة
@@ -119,16 +122,30 @@ export function docStatusLabel(status: DocStatus): string {
 
 // ─── مواد ووحدات شافتها الجلسة (رفّ مسوّدات الجهاز، FOUNDATION ١٤٢) ─────────────────────────────────────────────────
 // بلا نت المنتقي يبحث بالمواد اللي انقرت وهو متّصل (البحث، وأوّل صفحة يقراها نموذج التحويل الجديد)، ووحدات التعبئة اللي انقرت.
-// بالذاكرة لعمر الجلسة بس: حزمة المخزون برّا التثبيت المسبق، فالرفّ يشتغل بجلسة فتحت المخزون وهي متّصلة (DECISIONS).
+// بالذاكرة لعمر الجلسة بس: حزمة المخزون برّا التثبيت المسبق، فالرفّ يشتغل بجلسة فتحت المخزون وهي متّصلة (DECISIONS). ولصاحب
+// الجلسة ومنشأته بس: الخروج ما يعيد تحميل الصفحة، فمستخدم ثانٍ بنفس التبويب كان يلكى مواد منشأة اللي قبله بالمنتقي بلا نت
+// (مراجعة WP4 الثانية). أيّ قراءة أو كتابة بهويّة غير هويّة المحفوظ تمسحه أوّلاً.
 const seenItems = new Map<string, ItemRow>();
 const seenUnits = new Map<string, readonly inventory.ItemUnitRow[]>();
+let seenOwner = '';
+
+function seenFor(): void {
+  const state = sessionStore.get();
+  const owner = state.status === 'ready' ? `${state.workspace.userId}:${state.workspace.orgId}` : '';
+  if (owner === seenOwner) return;
+  seenItems.clear();
+  seenUnits.clear();
+  seenOwner = owner;
+}
 
 export function rememberItems(rows: readonly ItemRow[]): void {
+  seenFor();
   for (const row of rows) if (!row.archived) seenItems.set(row.id, row);
 }
 
 /** المواد المحفوظة اللي اسمها المطبَّع بيه النصّ (أو رمزها بالضبط)، بالاسم. */
 export function seenItemsMatching(text: string): ItemRow[] {
+  seenFor();
   const name = searchable(text);
   const code = normalizeCode(text);
   if (!name && !code) return [];
@@ -139,8 +156,10 @@ export function seenItemsMatching(text: string): ItemRow[] {
 
 /** وحدات تعبئة المادّة من الخادم، وتنحفظ للجلسة (بلا نت: المحفوظة، أو وحدة الأساس بس). */
 export async function loadItemUnits(itemId: string, online: boolean): Promise<readonly inventory.ItemUnitRow[]> {
+  seenFor();
   if (!online) return seenUnits.get(itemId) ?? [];
   const rows = await inventory.listItemUnits(itemId);
+  seenFor();
   seenUnits.set(itemId, rows);
   return rows;
 }
@@ -210,6 +229,48 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
       ) : null}
     </Field>
   );
+}
+
+/** «{shown} من المجموع {total}» تحت قائمة بصفحات (العدد من الخادم بأوّل صفحة)، و«المزيد» لمّا بعد صفحة. */
+export function PageFooter({ shown, total, next, busy, error, what, onMore, action }: { shown: number; total: number | null; next: boolean; busy: boolean; error: unknown; what: string; onMore: () => void; action: string }) {
+  return (
+    <>
+      <p className="text-sm text-ink-muted">{t('stock.card.shown', '{shown} من المجموع {total}', { shown: fmtInt(shown), total: fmtInt(total ?? shown) })}</p>
+      {next ? (
+        <Button variant="secondary" busy={busy} onClick={onMore} data-action={action}>
+          {t('stock.board.more', 'المزيد')}
+        </Button>
+      ) : null}
+      {error ? <LoadFailed what={what} error={error} onRetry={onMore} /> : null}
+    </>
+  );
+}
+
+/**
+ * قائمة مستندات بصفحات (FOUNDATION ١٩٨): الأولى بعددها الكلّي، و«المزيد» بمؤشّر آخر صفّ؛ مستند تكرّر بين صفحتين (انكتب بينهما)
+ * ينعرض مرّة. كانت تقف عند 100 بلا «المزيد» (مراجعة WP4 الثانية).
+ */
+export function useDocPages(kind: inventory.StockDocKind) {
+  const load = useCallback(() => inventory.listStockDocs(kind), [kind]);
+  const first = useLoad(load);
+  const [pages, setPages] = useState<inventory.DocPage[]>([]);
+  const [more, setMore] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
+  const all = first.data ? [first.data, ...pages] : [];
+  const seen = new Set<string>();
+  const rows = all.flatMap((page) => page.rows).filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)));
+  const next = all.at(-1)?.next ?? null;
+  const loadMore = () => {
+    if (!next) return;
+    setMore({ busy: true, error: null });
+    inventory.listStockDocs(kind, next).then(
+      (page) => {
+        setPages((current) => [...current, page]);
+        setMore({ busy: false, error: null });
+      },
+      (error: unknown) => setMore({ busy: false, error }),
+    );
+  };
+  return { first, rows, next, total: first.data?.total ?? null, more, loadMore };
 }
 
 // ─── المحاولة بمرجع ثابت (FOUNDATION ٥١٩، §2.2) ─────────────────────────────────────────────────────────────────

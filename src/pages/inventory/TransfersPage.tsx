@@ -1,4 +1,4 @@
-import { Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -9,14 +9,14 @@ import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { PostPreview, previewReady, type PreviewLine } from '../../components/ui/PostPreview';
-import { QtyInput, type QtyValue } from '../../components/ui/QtyInput';
+import { QtyInput, type QtyUnitOption, type QtyValue } from '../../components/ui/QtyInput';
 import { toast } from '../../components/ui/Toast';
 import { announceZeroBalance, WholeBalanceConfirm, type WholeLine } from '../../components/ui/WholeBalance';
 import { decimalText } from '../../domain/decimal';
 import { localDay } from '../../domain/dates';
 import { can } from '../../domain/permissions';
 import { itemAdmissible, sharesAdmissibleKind } from '../../domain/stock';
-import { parseQty, type BaseUnit } from '../../domain/units';
+import { parseQty, toBase, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { assertSameStamp, listDeviceDrafts, removeDeviceDraft, saveDeviceDraft, type DeviceDraft, type DraftStamp } from '../../lib/drafts';
 import { describeError, RejectedError } from '../../lib/errors';
@@ -31,7 +31,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, loadItemUnits, qtyColumns, rememberItems, runWithRef, unitOptions, scopedStores, StoreSelect, storesOf, VoidDocDialog, type StoreRef } from './stock-shared';
+import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // التحويل والصادر الداخلي (الخطّة WP4، FOUNDATION ٥٥٤، القاعدة 15، Q4): الأمين ينشئ المسوّدة من مخزن بنطاقه لأي مخزن فعّال يقبل
 // المادّة، والشاشة تكول «صادر داخلي إلى …» بين وحدتين. المعاينة تسحب بالدفعات (والنقص يبقي المسوّدة، «سجّل الاستلام أو الجرد»)،
@@ -62,8 +62,24 @@ export function transferPostReady(preview: TransferPreview | null, approved: Rea
   return online && Boolean(preview && preview.ready && preview.problems.length === 0 && previewReady(previewLines(preview), approved));
 }
 
+/**
+ * المواد اللي سطورها سوا تسحب متاحها كلّه (E31): الخادم يعلّم آخر سطر للمادّة، والكمية بالتأكيد مجموع سطورها كلها (سطران 600 و400
+ * لتر من 1,000 = 1,000 لتر، مو 400).
+ */
 export function wholeLines(preview: TransferPreview): WholeLine[] {
-  return preview.lines.filter((line) => line.wholeBalance).map((line) => ({ itemName: line.itemName, qty: line.qty, unit: line.baseUnit }));
+  const whole = new Set(preview.lines.filter((line) => line.wholeBalance).map((line) => line.itemId));
+  const byItem = new Map<string, WholeLine>();
+  for (const line of preview.lines) {
+    if (!whole.has(line.itemId)) continue;
+    const seen = byItem.get(line.itemId);
+    byItem.set(line.itemId, { itemName: line.itemName, qty: (seen?.qty ?? 0n) + line.qty, unit: line.baseUnit });
+  }
+  return [...byItem.values()];
+}
+
+/** رفض الترحيل لأن المخزون تغيّر بعد المعاينة (بصمتها ما طابقت): الشاشة تعاين من جديد. */
+function isStalePreview(error: unknown): boolean {
+  return error instanceof RejectedError && error.code === 'stale_preview';
 }
 
 function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: StoreRef; to: StoreRef; onAdded: () => void }) {
@@ -75,12 +91,19 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(from.kind, row.kind) && itemAdmissible(to.kind, row.kind), [from.kind, to.kind]);
+  // مادّة ثانية تبدأ من وحداتها هي وكمية فارغة: وحدة تعبئة المادّة السابقة كانت تنرسل ويّا المادّة الجديدة (مراجعة WP4 الثانية).
+  const pickItem = (next: ItemRow | null) => {
+    setItem(next);
+    setPacks(null);
+    setPacksFailed(null);
+    setQty({ text: '', unitId: 'base' });
+  };
   useEffect(() => {
     if (!item) return;
     let cancelled = false;
     loadItemUnits(item.id, true).then(
       (rows) => {
-        if (!cancelled) setPacks(rows);
+        if (!cancelled) setPacks(rows.filter((row) => row.itemId === item.id));
       },
       (error: unknown) => {
         if (!cancelled) setPacksFailed(error);
@@ -113,7 +136,7 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={setItem} filter={admits} />
+      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
       {packsFailed ? <LoadFailed what={t('transfer.units.what', 'وحدات المادّة')} error={packsFailed} onRetry={() => { setPacksFailed(null); setItem(item ? { ...item } : null); }} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={unitOptions(item, packs ?? [])} value={qty} onChange={setQty} /> : null}
       {failed ? (
@@ -167,9 +190,12 @@ function TransferEditor({ docId }: { docId: string }) {
   const [confirm, setConfirm] = useState<'whole' | 'void' | 'discard' | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
+  // المعاينة انعادت لأن المخزون تغيّر بعد الموافقة (stale_preview): تنبيه فوق المعاينة الجديدة لحد ما تنوافق وتترحّل.
+  const [restaled, setRestaled] = useState(false);
   const refresh = () => {
     setPreview(null);
     setApproved(new Set());
+    setRestaled(false);
     setTick((n) => n + 1);
   };
   if (doc.error) return <LoadFailed what={t('transfer.what', 'التحويل')} error={doc.error} onRetry={doc.retry} />;
@@ -187,10 +213,15 @@ function TransferEditor({ docId }: { docId: string }) {
     if (!preview) return;
     setBusy(true);
     setFailure(null);
-    const outcome = await runWithRef(`transfer-post:${current.id}`, (ref) => inventory.postTransferDoc(ref, current.id, preview.version));
+    const outcome = await runWithRef(`transfer-post:${current.id}`, (ref) => inventory.postTransferDoc(ref, current.id, preview.version, preview.plan));
     setBusy(false);
     setConfirm(null);
     if (outcome.kind === 'failed') {
+      if (isStalePreview(outcome.error)) {
+        setRestaled(true);
+        runPreview();
+        return;
+      }
       setFailure(outcome.error);
       return;
     }
@@ -277,6 +308,11 @@ function TransferEditor({ docId }: { docId: string }) {
           {!online ? <Notice tone="warning" title={t('transfer.offline', 'الترحيل يحتاج اتصالاً بالخادم؛ المسوّدة باقية حتى يعود الاتصال.')} /> : null}
           {preview ? (
             <>
+              {restaled ? (
+                <Notice tone="warning" title={t('transfer.restaled', 'تغيّر المخزون بعد المعاينة فلم يُرحَّل التحويل')}>
+                  {t('transfer.restaled.detail', 'هذه معاينة جديدة بالدفعات الموجودة الآن؛ راجعها ووافق على كل سطر من جديد قبل الترحيل.')}
+                </Notice>
+              ) : null}
               {preview.problems.map((problem) => (
                 <Notice key={problem.code} tone="danger" title={problem.hint} />
               ))}
@@ -331,9 +367,11 @@ function TransferEditor({ docId }: { docId: string }) {
 
 /**
  * سطر مسوّدة الجهاز: المادّة ووحدتها وكميتها كما انكتبت (نصّ عشري بثلاث مراتب، E3)، ويرتفع سطراً سطراً بعد الرأس. الاسم والوحدة
- * للعرض على الرفّ بس؛ اللقطة (المعامل والكمية بوحدة الأساس) يكتبها الخادم لحظة الرفع (E7).
+ * للعرض على الرفّ بس؛ اللقطة (المعامل والكمية بوحدة الأساس) يكتبها الخادم لحظة الرفع (E7). المعرّف يولد بالجهاز لحظة الإضافة
+ * (FOUNDATION ١٩٩): الرفع بعد جواب ضاع ينعاد بنفسه، والمكرّر يرجع 23505 مو سطراً ثانياً.
  */
 export interface ShelfLine {
+  id: string;
   itemId: string;
   itemName: string;
   baseUnit: BaseUnit;
@@ -341,6 +379,8 @@ export interface ShelfLine {
   unitCode: string | null;
   unitLabel: string;
   qtyInUnit: string;
+  /** رفض الخادم للسطر برمزه وتلميحه: الرفع يوقف عنده، والرفّ يعرضه ويسمح بحذفه. */
+  rejected?: { code: string; hint: string | null } | null;
 }
 
 export interface ShelfPayload {
@@ -348,54 +388,157 @@ export interface ShelfPayload {
   to: string;
   day: string;
   note: string;
-  /** الرأس بعد ما ارتفع (الإعادة بعد فشل بنصّ الطريق تكمل عليه، بلا رأس ثاني). مسوّدات قبل السطور: غايب. */
+  /** معرّف الرأس بالخادم، يولد بالجهاز لحظة الحفظ (الإعادة بنفسه، 23505 = انكتب). */
+  headerId?: string;
+  /** الرأس بعد ما ارتفع (الإعادة بعد فشل بنصّ الطريق تكمل عليه، بلا رأس ثانٍ). */
   docId?: string | null;
-  /** السطور الباقية على الجهاز بترتيبها (اللي ارتفعت تنشال). مسوّدات قبل السطور: غايب. */
+  /** السطور الباقية على الجهاز بترتيبها (اللي ارتفعت تنشال). */
   lines?: ShelfLine[];
 }
 
 export interface ShelfDeps {
   /** المنشأة المؤكَّدة من الخادم (my_workspace)، أو null. */
   confirm: () => Promise<DraftStamp | null>;
-  createTransferDraft: (from: string, to: string, day: string, note: string | null) => Promise<{ id: string }>;
-  addTransferLine: (docId: string, fields: inventory.TransferLineFields) => Promise<unknown>;
+  createTransferDraft: (from: string, to: string, day: string, note: string | null, id: string) => Promise<unknown>;
+  addTransferLine: (docId: string, fields: inventory.TransferLineFields, id: string) => Promise<unknown>;
   saveDeviceDraft: (stamp: DraftStamp, draft: { id: string; kind: 'transfer'; title: string; payload: ShelfPayload }) => Promise<unknown>;
   removeDeviceDraft: (id: string) => Promise<void>;
+  /** معرّف جديد للرأس أو السطر (crypto.randomUUID). */
+  newId: () => string;
+}
+
+/** سطر رفضه الخادم رفضاً أكيداً (مو شبكة): انعلّم على الجهاز بتلميحه، والرفّ يعرضه حتى ينحذف أو ينصلح سببه. */
+export class ShelfLineRejectedError extends Error {
+  constructor(
+    readonly line: ShelfLine,
+    readonly hint: string | null,
+  ) {
+    super('shelf_line_rejected');
+    this.name = 'ShelfLineRejectedError';
+  }
+}
+
+/** معرّف للرأس ولكل سطر قبل أوّل رفع (مسوّدة بلاها تاخذها وتنحفظ قبل ما يطلع أيّ طلب). */
+function withIds(payload: ShelfPayload, newId: () => string): ShelfPayload {
+  return { ...payload, headerId: payload.headerId ?? newId(), docId: payload.docId ?? null, lines: (payload.lines ?? []).map((line) => (line.id ? line : { ...line, id: newId() })) };
 }
 
 /**
- * رفع مسوّدة الجهاز (FOUNDATION ١٤٢، GT-29): بعد ما الخادم يؤكّد نفس المستخدم والمنشأة بس، الرأس بملاحظته ثم السطور بترتيبها، وبعد
- * كل خطوة الباقي ينحفظ على الجهاز (الرأس المرفوع والسطور الباقية)، ففشل بنصّ الطريق ما يضيّع سطراً ولا يكرّر رأساً: الإعادة تكمل
- * منه. بعد آخر سطر تنشال من الجهاز. يرجّع معرّف المسوّدة بالخادم.
+ * رفع مسوّدة الجهاز (FOUNDATION ١٤٢، ١٩٩، GT-29): بعد ما الخادم يؤكّد نفس المستخدم والمنشأة بس، الرأس ثم السطور بترتيبها بمعرّفات
+ * الجهاز، وبعد كل خطوة الباقي ينحفظ على الجهاز. فشل بنصّ الطريق أو جواب ضاع ما يضيّع سطراً ولا يكرّر رأساً ولا سطراً: الإعادة بنفس
+ * المعرّف ترجع 23505 = انكتب. رأس صار مرحَّلاً أو مطوياً بنصّ الرفع (not_draft) ← السطور الباقية لرأس جديد. سطر رفضه الخادم رفضاً
+ * أكيداً ينعلّم بتلميحه ويوقف الرفع عنده (ShelfLineRejectedError). بعد آخر سطر تنشال من الجهاز. يرجّع معرّف المسوّدة بالخادم.
  */
 export async function uploadShelfDraft(draft: DeviceDraft<ShelfPayload>, deps: ShelfDeps): Promise<string> {
   assertSameStamp(draft, await deps.confirm());
   const stamp: DraftStamp = { userId: draft.userId, orgId: draft.orgId };
-  let payload: ShelfPayload = { ...draft.payload, docId: draft.payload.docId ?? null, lines: [...(draft.payload.lines ?? [])] };
+  let payload = withIds(draft.payload, deps.newId);
   const keep = () => deps.saveDeviceDraft(stamp, { id: draft.id, kind: 'transfer', title: draft.title, payload });
-  let docId = payload.docId ?? null;
-  if (!docId) {
-    docId = (await deps.createTransferDraft(payload.from, payload.to, payload.day, payload.note.trim() || null)).id;
-    payload = { ...payload, docId };
-    await keep();
-  }
-  for (const line of payload.lines ?? []) {
-    await deps.addTransferLine(docId, { item_id: line.itemId, item_unit_id: line.itemUnitId, unit_code: line.unitCode, qty_in_unit: line.qtyInUnit });
-    payload = { ...payload, lines: (payload.lines ?? []).slice(1) };
+  const given = draft.payload.lines ?? [];
+  if (payload.headerId !== draft.payload.headerId || (payload.lines ?? []).some((line, n) => line.id !== given[n]?.id)) await keep();
+  for (let round = 0; ; round += 1) {
+    if (!payload.docId) {
+      const headerId = payload.headerId ?? deps.newId();
+      try {
+        await deps.createTransferDraft(payload.from, payload.to, payload.day, payload.note.trim() || null, headerId);
+      } catch (error) {
+        if (!inventory.isDuplicate(error)) throw error;
+      }
+      payload = { ...payload, headerId, docId: headerId };
+      await keep();
+    }
+    let gone = false;
+    for (const line of [...(payload.lines ?? [])]) {
+      try {
+        await deps.addTransferLine(payload.docId ?? '', { item_id: line.itemId, item_unit_id: line.itemUnitId, unit_code: line.unitCode, qty_in_unit: line.qtyInUnit }, line.id);
+      } catch (error) {
+        if (inventory.isDuplicate(error)) {
+          // انكتب بمحاولة سابقة جوابها ضاع: ينشال من الجهاز مثل الناجح.
+        } else if (error instanceof RejectedError && (error.code === 'not_draft' || error.code === 'doc_not_found') && round === 0) {
+          gone = true;
+          break;
+        } else if (error instanceof RejectedError) {
+          payload = { ...payload, lines: (payload.lines ?? []).map((other) => (other.id === line.id ? { ...other, rejected: { code: error.code, hint: error.hint } } : other)) };
+          await keep();
+          throw new ShelfLineRejectedError(line, error.hint);
+        } else throw error;
+      }
+      payload = { ...payload, lines: (payload.lines ?? []).filter((other) => other.id !== line.id) };
+      await keep();
+    }
+    if (!gone) break;
+    // الرأس المرفوع صار مرحَّلاً أو مطوياً (من شاشة ثانية): الباقي لرأس جديد بمعرّفات جديدة (معرّفاته القديمة ما انكتبت).
+    payload = { ...payload, headerId: deps.newId(), docId: null, lines: (payload.lines ?? []).map((line) => ({ ...line, id: deps.newId(), rejected: null })) };
     await keep();
   }
   await deps.removeDeviceDraft(draft.id);
-  return docId;
+  return payload.docId ?? '';
 }
 
-/** رفّ مسوّدات الجهاز: لكاتبها ومنشأته بس، وترتفع بفعل صريح بعد تأكيد المنشأة من الخادم. */
-function DeviceShelf({ userId, orgId, onUploaded }: { userId: string; orgId: string; onUploaded: (docId: string) => void }) {
+/** اعتماديات الرفع الحقيقية (الرفّ ونموذج التحويل الجديد): المنشأة من my_workspace، والكتابة المباشرة بمعرّفات الجهاز. */
+function shelfDeps(): ShelfDeps {
+  return {
+    confirm: async () => {
+      const confirmed = await workspaceRepo.loadMyWorkspace();
+      return confirmed.kind === 'member' ? { userId: confirmed.workspace.userId, orgId: confirmed.workspace.orgId } : null;
+    },
+    createTransferDraft: (from, to, day, note, id) => inventory.createTransferDraft(from, to, day, note, id),
+    addTransferLine: (docId, fields, id) => inventory.addTransferLine(docId, fields, id),
+    saveDeviceDraft,
+    removeDeviceDraft,
+    newId: () => crypto.randomUUID(),
+  };
+}
+
+/** رسالة فشل الرفع: السطر المرفوض باسمه وتلميحه؛ وغيره (شبكة، جواب ضاع) يكول إن المرفوع باقٍ والإعادة تكمل بلا تكرار. */
+export function shelfFailure(error: unknown): { title: string; detail: string } {
+  if (error instanceof ShelfLineRejectedError) {
+    return {
+      title: t('shelf.rejected', 'رفض الخادم السطر «{item}»', { item: error.line.itemName }),
+      detail: t('shelf.rejected.detail', '{hint} احذف السطر من هذا الجهاز أو أزل سببه، ثم ارفع الباقي؛ ما ارتفع قبله صار في المسوّدة على الخادم.', { hint: error.hint ?? '' }),
+    };
+  }
+  const described = describeError(error);
+  if (described.kind === 'network' || described.kind === 'unknown_outcome' || described.kind === 'retryable') {
+    return { title: described.title, detail: t('shelf.interrupted', 'ما ارتفع قبل الانقطاع صار في المسوّدة على الخادم، والباقي محفوظ على هذا الجهاز؛ «ارفع» تكمل من حيث وقفت بلا تكرار.') };
+  }
+  return { title: described.title, detail: described.detail };
+}
+
+/** سطور مسوّدة جهاز على الرفّ: كما انكتبت، والمرفوض بتلميحه، وحذف السطر بتأكيد. */
+function ShelfLines({ lines, onRemove }: { lines: readonly ShelfLine[]; onRemove: (index: number) => void }) {
+  const rows = lines.map((line, index) => ({ ...line, index }));
+  const columns: Column<(typeof rows)[number]>[] = [
+    {
+      key: 'actions',
+      header: t('org.col.actions', 'إجراءات'),
+      cell: (line) => (
+        <IconButton label={t('shelf.line.remove', 'احذف السطر من هذا الجهاز')} onClick={() => onRemove(line.index)} data-action="remove-device-line">
+          <Trash2 aria-hidden="true" className="size-4" />
+        </IconButton>
+      ),
+    },
+    { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
+    { key: 'entered', header: t('transfer.col.entered', 'كما كُتبت'), cell: (line) => fmtCounted(parseQty(line.qtyInUnit) ?? 0n, line.unitLabel) },
+    { key: 'state', header: t('shelf.col.state', 'الحالة'), cell: (line) => (line.rejected ? (line.rejected.hint ?? line.rejected.code) : t('shelf.line.waiting', 'ينتظر الرفع')) },
+  ];
+  return <DataTable caption={t('shelf.lines.caption', 'سطور المسوّدة على هذا الجهاز')} columns={columns} rows={rows} rowKey={(line) => line.id || `${line.index}`} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />;
+}
+
+/**
+ * رفّ مسوّدات الجهاز: لكاتبها ومنشأته بس، وترتفع بفعل صريح بعد تأكيد المنشأة من الخادم. tick من الصفحة (حفظ نموذج التحويل الجديد)،
+ * والقائمة تنقرا من جديد لمّا يرجع الاتصال؛ والسطور تنعرض والمرفوض بتلميحه، وحذف السطر أو المسوّدة من الجهاز بتأكيد يسمّيهما.
+ */
+function DeviceShelf({ userId, orgId, tick, onUploaded }: { userId: string; orgId: string; tick: number; onUploaded: (docId: string) => void }) {
   const stamp: DraftStamp = useMemo(() => ({ userId, orgId }), [userId, orgId]);
+  const online = useStore(onlineStore);
   const [drafts, setDrafts] = useState<DeviceDraft<ShelfPayload>[] | null>(null);
   const [shelfFailed, setShelfFailed] = useState<unknown>(null);
-  const [failure, setFailure] = useState<unknown>(null);
+  const [failure, setFailure] = useState<{ draftId: string; error: unknown } | null>(null);
   const [busy, setBusy] = useState('');
-  const [tick, setTick] = useState(0);
+  const [own, setOwn] = useState(0);
+  const [open, setOpen] = useState<string | null>(null);
+  const [dropping, setDropping] = useState<{ draft: DeviceDraft<ShelfPayload>; index: number | null } | null>(null);
   useEffect(() => {
     let cancelled = false;
     listDeviceDrafts<ShelfPayload>(stamp, 'transfer').then(
@@ -409,54 +552,92 @@ function DeviceShelf({ userId, orgId, onUploaded }: { userId: string; orgId: str
     return () => {
       cancelled = true;
     };
-  }, [stamp, tick]);
-  if (shelfFailed) return <LoadFailed what={t('shelf.title', 'مسوّدات هذا الجهاز')} error={shelfFailed} onRetry={() => { setShelfFailed(null); setTick((n) => n + 1); }} />;
+  }, [stamp, tick, own, online]);
+  if (shelfFailed) return <LoadFailed what={t('shelf.title', 'مسوّدات هذا الجهاز')} error={shelfFailed} onRetry={() => { setShelfFailed(null); setOwn((n) => n + 1); }} />;
   if (!drafts || drafts.length === 0) return null;
   const upload = async (draft: DeviceDraft<ShelfPayload>) => {
     setBusy(draft.id);
     setFailure(null);
     try {
-      const docId = await uploadShelfDraft(draft, {
-        confirm: async () => {
-          const confirmed = await workspaceRepo.loadMyWorkspace();
-          return confirmed.kind === 'member' ? { userId: confirmed.workspace.userId, orgId: confirmed.workspace.orgId } : null;
-        },
-        createTransferDraft: inventory.createTransferDraft,
-        addTransferLine: inventory.addTransferLine,
-        saveDeviceDraft,
-        removeDeviceDraft,
-      });
-      onUploaded(docId);
+      onUploaded(await uploadShelfDraft(draft, shelfDeps()));
     } catch (error) {
-      setFailure(error);
+      setFailure({ draftId: draft.id, error });
+      setOpen(draft.id);
     } finally {
       setBusy('');
-      setTick((n) => n + 1);
+      setOwn((n) => n + 1);
     }
   };
-  const failed = failure ? describeError(failure, 'once') : null;
+  const drop = async () => {
+    if (!dropping) return;
+    const { draft, index } = dropping;
+    setBusy(draft.id);
+    try {
+      if (index === null) await removeDeviceDraft(draft.id);
+      else await saveDeviceDraft<ShelfPayload>(stamp, { id: draft.id, kind: 'transfer', title: draft.title, payload: { ...draft.payload, lines: (draft.payload.lines ?? []).filter((_, n) => n !== index) } });
+      setDropping(null);
+      if (failure?.draftId === draft.id) setFailure(null);
+    } catch (error) {
+      setFailure({ draftId: draft.id, error });
+      setDropping(null);
+    } finally {
+      setBusy('');
+      setOwn((n) => n + 1);
+    }
+  };
+  const droppingLine = dropping && dropping.index !== null ? (dropping.draft.payload.lines ?? [])[dropping.index] : null;
   return (
     <section className="card flex flex-col gap-3 p-4" aria-label={t('shelf.title', 'مسوّدات هذا الجهاز')}>
       <h2 className="font-semibold">{t('shelf.title', 'مسوّدات هذا الجهاز')}</h2>
       <p className="text-sm text-ink-muted">{t('shelf.detail.lines', 'كُتبت بلا اتصال، ولا يراها غيرك. ارفعها لتصير مسوّدة بالخادم بسطورها، ثم عاينها ورحّلها.')}</p>
-      <ul className="flex flex-col gap-2">
-        {drafts.map((draft) => (
-          <li key={draft.id} className="flex items-center justify-between gap-3">
-            <span>
-              {draft.title}
-              <span className="ms-2 text-sm text-ink-muted">{t('shelf.lines', 'السطور الباقية: {count}', { count: fmtInt((draft.payload.lines ?? []).length) })}</span>
-            </span>
-            <Button size="sm" variant="secondary" busy={busy === draft.id} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
-              {t('shelf.upload', 'ارفع')}
-            </Button>
-          </li>
-        ))}
+      {!online ? <p className="text-sm text-ink-muted">{t('shelf.offline', 'الرفع يحتاج اتصالاً بالخادم؛ المسوّدات باقية على هذا الجهاز حتى يعود.')}</p> : null}
+      <ul className="flex flex-col gap-3">
+        {drafts.map((draft) => {
+          const lines = draft.payload.lines ?? [];
+          const failed = failure?.draftId === draft.id ? shelfFailure(failure.error) : null;
+          return (
+            <li key={draft.id} className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {draft.title}
+                  <span className="ms-2 text-sm text-ink-muted">{t('shelf.lines', 'السطور الباقية: {count}', { count: fmtInt(lines.length) })}</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="ghost" icon={<ChevronDown aria-hidden="true" className="size-4" />} onClick={() => setOpen(open === draft.id ? null : draft.id)} aria-expanded={open === draft.id} data-action="show-device-lines">
+                    {t('shelf.show', 'السطور')}
+                  </Button>
+                  <Button size="sm" variant="secondary" busy={busy === draft.id} disabled={!online || busy !== ''} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
+                    {t('shelf.upload', 'ارفع')}
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={busy !== ''} onClick={() => setDropping({ draft, index: null })} data-action="drop-device-draft">
+                    {t('shelf.drop', 'احذف من هذا الجهاز')}
+                  </Button>
+                </div>
+              </div>
+              {open === draft.id ? <ShelfLines lines={lines} onRemove={(index) => setDropping({ draft, index })} /> : null}
+              {failed ? (
+                <Notice tone="danger" title={failed.title}>
+                  {failed.detail}
+                </Notice>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
-      {failed ? (
-        <Notice tone="danger" title={failed.title}>
-          {failed.detail}
-        </Notice>
-      ) : null}
+      <ConfirmDialog
+        open={dropping !== null}
+        title={droppingLine ? t('shelf.line.remove', 'احذف السطر من هذا الجهاز') : t('shelf.drop.title', 'احذف المسوّدة من هذا الجهاز')}
+        consequence={
+          droppingLine
+            ? t('shelf.line.remove.consequence', 'يُحذف سطر «{item}» ({qty}) من مسوّدة «{title}» على هذا الجهاز ولا يرتفع، ولا يرجع.', { item: droppingLine.itemName, qty: fmtCounted(parseQty(droppingLine.qtyInUnit) ?? 0n, droppingLine.unitLabel), title: dropping?.draft.title ?? '' })
+            : t('shelf.drop.consequence', 'تُحذف مسوّدة «{title}» وسطورها الباقية ({count}) من هذا الجهاز ولا ترجع؛ ما ارتفع منها قبل يبقى في المسوّدة على الخادم.', { title: dropping?.draft.title ?? '', count: fmtInt((dropping?.draft.payload.lines ?? []).length) })
+        }
+        confirmLabel={droppingLine ? t('shelf.line.remove.confirm', 'احذف السطر') : t('shelf.drop.confirm', 'احذف المسوّدة')}
+        busy={busy !== ''}
+        action="confirm-drop-device"
+        onConfirm={() => void drop()}
+        onCancel={() => setDropping(null)}
+      />
     </section>
   );
 }
@@ -469,9 +650,26 @@ export function transferTargets(all: readonly StoreRef[], source: StoreRef | und
   return all.filter((store) => !store.archived && store.id !== source?.id && (!source || sharesAdmissibleKind(source.kind, store.kind)));
 }
 
-/** سطور مسوّدة الجهاز بلا نت: المادّة من اللي ظهرت بالجلسة، والوحدة من المحفوظة (أو الأساس والطن). */
+/**
+ * سطر جهاز من المادّة والوحدة والكمية، أو سبب رفضه بنفس قاعدة الحقل (QtyInput): كمية أكبر من صفر بوحدة مختارة، والمعدود عدد صحيح
+ * بوحدة الأساس (toBase). سطر 1.5 قطعة كان ينقبل بلا نت ويرفضه الخادم بكل رفع (pieces_not_whole) فتنحبس المسوّدة.
+ */
+export function deviceLine(item: ItemRow | null, qty: QtyValue, units: readonly QtyUnitOption[], id: string): ShelfLine | { problem: string } {
+  const amount = qty.text.trim() ? parseQty(qty.text) : null;
+  const unit = units.find((option) => option.id === qty.unitId);
+  if (!item || amount === null || amount <= 0n || !unit) return { problem: t('transfer.line.fields', 'اختر المادّة واكتب كمية أكبر من صفر.') };
+  const converted = toBase(amount, unit.factor, item.baseUnit);
+  if (!converted.ok) return { problem: t('qty.pieces_whole', 'يجب أن يكون عدد القطع صحيحاً') };
+  if (converted.qty <= 0n) return { problem: t('transfer.line.zero_base', 'الكمية بوحدة الأساس تقرَّبت إلى صفر. اكتب كمية أكبر.') };
+  const code = qty.unitId.startsWith('code:') ? qty.unitId.slice('code:'.length) : null;
+  const pack = qty.unitId !== 'base' && !code ? qty.unitId : null;
+  return { id, itemId: item.id, itemName: item.name, baseUnit: item.baseUnit, itemUnitId: pack, unitCode: code, unitLabel: unit.label, qtyInUnit: decimalText(amount, 3) };
+}
+
+/** سطور مسوّدة الجهاز: المادّة من اللي ظهرت بالجلسة (بلا نت)، والوحدة من المحفوظة (أو الأساس والطن). */
 function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreRef; lines: readonly ShelfLine[]; onChange: (lines: ShelfLine[]) => void }) {
   const id = useId();
+  const online = useStore(onlineStore);
   const [item, setItem] = useState<ItemRow | null>(null);
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
   const [failure, setFailure] = useState<unknown>(null);
@@ -480,29 +678,41 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   useEffect(() => {
     if (!item) return;
     let cancelled = false;
-    loadItemUnits(item.id, false).then((rows) => {
-      if (!cancelled) setPacks(rows);
-    });
+    loadItemUnits(item.id, online).then(
+      (rows) => {
+        if (!cancelled) setPacks(rows.filter((row) => row.itemId === item.id));
+      },
+      () => {
+        if (!cancelled) setPacks([]);
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [item]);
+  }, [item, online]);
   const units = item ? unitOptions(item, packs) : [];
   const add = () => {
-    const amount = qty.text.trim() ? parseQty(qty.text) : null;
-    const unit = units.find((option) => option.id === qty.unitId);
-    if (!item || amount === null || amount <= 0n || !unit) {
-      setFailure(new RejectedError('fields', t('transfer.line.fields', 'اختر المادّة واكتب كمية أكبر من صفر.')));
+    const next = deviceLine(item, qty, units, crypto.randomUUID());
+    if ('problem' in next) {
+      setFailure(new RejectedError('fields', next.problem));
       return;
     }
-    const code = qty.unitId.startsWith('code:') ? qty.unitId.slice('code:'.length) : null;
-    const pack = qty.unitId !== 'base' && !code ? qty.unitId : null;
-    onChange([...lines, { itemId: item.id, itemName: item.name, baseUnit: item.baseUnit, itemUnitId: pack, unitCode: code, unitLabel: unit.label, qtyInUnit: decimalText(amount, 3) }]);
+    onChange([...lines, next]);
     setItem(null);
+    setPacks([]);
     setQty({ text: '', unitId: 'base' });
     setFailure(null);
   };
   const columns: Column<ShelfLine & { key: string }>[] = [
+    {
+      key: 'actions',
+      header: t('org.col.actions', 'إجراءات'),
+      cell: (line) => (
+        <IconButton label={t('transfer.line.delete', 'احذف السطر')} onClick={() => onChange(lines.filter((other) => other !== lines[Number(line.key)]))} data-action="delete-device-line">
+          <Trash2 aria-hidden="true" className="size-4" />
+        </IconButton>
+      ),
+    },
     { key: 'item', header: t('stock.col.item', 'المادّة'), cell: (line) => line.itemName },
     { key: 'entered', header: t('transfer.col.entered', 'كما كُتبت'), cell: (line) => fmtCounted(parseQty(line.qtyInUnit) ?? 0n, line.unitLabel) },
   ];
@@ -510,7 +720,18 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   return (
     <div className="flex flex-col gap-3">
       <DataTable caption={t('shelf.lines.caption', 'سطور المسوّدة على هذا الجهاز')} columns={columns} rows={lines.map((line, n) => ({ ...line, key: `${n}` }))} rowKey={(line) => line.key} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={setItem} filter={admits} offline />
+      <ItemPicker
+        id={`${id}-item`}
+        label={t('stock.col.item', 'المادّة')}
+        value={item}
+        onChange={(next) => {
+          setItem(next);
+          setPacks([]);
+          setQty({ text: '', unitId: 'base' });
+        }}
+        filter={admits}
+        offline={!online}
+      />
       {item ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={units} value={qty} onChange={setQty} /> : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
@@ -524,7 +745,11 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   );
 }
 
-function NewTransfer({ sources, all, stamp }: { sources: readonly StoreRef[]; all: readonly StoreRef[]; stamp: DraftStamp }) {
+/**
+ * تحويل جديد. بلا نت: الرأس وسطوره مسوّدة على الجهاز (الرفّ). وسطور انكتبت (بلا نت ثم رجع الاتصال، أو متّصل) ما تضيع أبداً: الحفظ
+ * يكتبها على الجهاز أوّلاً ثم يرفعها مثل الرفّ (بمعرّفاتها، بلا تكرار)، وفشل الرفع يبقيها على الرفّ. متّصل وبلا سطور: رأس بالخادم.
+ */
+function NewTransfer({ sources, all, stamp, onSaved }: { sources: readonly StoreRef[]; all: readonly StoreRef[]; stamp: DraftStamp; onSaved: () => void }) {
   const id = useId();
   const navigate = useNavigate();
   const online = useStore(onlineStore);
@@ -552,7 +777,7 @@ function NewTransfer({ sources, all, stamp }: { sources: readonly StoreRef[]; al
   const source = sources.find((s) => s.id === from);
   const targets = transferTargets(all, source);
   const target = targets.find((s) => s.id === to);
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     const parsed = day.trim() ? parseDayText(day) : localDay();
     if (!source || !target || !parsed) {
@@ -561,24 +786,36 @@ function NewTransfer({ sources, all, stamp }: { sources: readonly StoreRef[]; al
     }
     setBusy(true);
     setFailure(null);
-    if (!online) {
-      const payload: ShelfPayload = { from: source.id, to: target.id, day: parsed, note, docId: null, lines };
-      saveDeviceDraft<ShelfPayload>(stamp, { kind: 'transfer', title: t('shelf.transfer', 'تحويل من «{from}» إلى «{to}» بتاريخ {day}', { from: source.name, to: target.name, day: fmtDay(parsed) }), payload })
-        .then(() => {
-          setLines([]);
+    try {
+      if (!online || lines.length > 0) {
+        const payload: ShelfPayload = { from: source.id, to: target.id, day: parsed, note, headerId: crypto.randomUUID(), docId: null, lines };
+        const saved = await saveDeviceDraft<ShelfPayload>(stamp, { kind: 'transfer', title: t('shelf.transfer', 'تحويل من «{from}» إلى «{to}» بتاريخ {day}', { from: source.name, to: target.name, day: fmtDay(parsed) }), payload });
+        setLines([]);
+        onSaved();
+        if (!online) {
           toast({ tone: 'info', title: t('shelf.saved', 'حُفظت المسوّدة على هذا الجهاز؛ ارفعها حين يعود الاتصال.') });
-        }, setFailure)
-        .finally(() => setBusy(false));
-      return;
+          return;
+        }
+        try {
+          navigate(`/inventory/transfers/${await uploadShelfDraft(saved, shelfDeps())}`);
+        } catch (error) {
+          toast({ tone: 'warning', title: t('shelf.saved_not_uploaded', 'حُفظت المسوّدة بسطورها على هذا الجهاز ولم يكتمل رفعها؛ أكملها من «مسوّدات هذا الجهاز».') });
+          setFailure(error);
+          onSaved();
+        }
+        return;
+      }
+      const doc = await inventory.createTransferDraft(source.id, target.id, parsed, note);
+      navigate(`/inventory/transfers/${doc.id}`);
+    } catch (error) {
+      setFailure(error);
+    } finally {
+      setBusy(false);
     }
-    inventory
-      .createTransferDraft(source.id, target.id, parsed, note)
-      .then((doc) => navigate(`/inventory/transfers/${doc.id}`), setFailure)
-      .finally(() => setBusy(false));
   };
-  const failed = failure ? describeError(failure, 'once') : null;
+  const failed = failure ? (failure instanceof RejectedError && failure.code === 'fields' ? describeError(failure, 'once') : shelfFailure(failure)) : null;
   return (
-    <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
+    <form className="card flex flex-col gap-3 p-4" onSubmit={(event) => void submit(event)} noValidate>
       <h2 className="font-semibold">{t('transfer.new', 'تحويل جديد')}</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StoreSelect id={`${id}-from`} label={t('transfer.from', 'من مخزن')} stores={sources.filter((s) => !s.archived)} value={from} onChange={setFrom} />
@@ -593,14 +830,14 @@ function NewTransfer({ sources, all, stamp }: { sources: readonly StoreRef[]; al
       <Field id={`${id}-note`} label={t('transfer.note', 'ملاحظة')}>
         <input id={`${id}-note`} className="input" maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
-      {!online && source && target ? <DeviceLines from={source} to={target} lines={lines} onChange={setLines} /> : null}
+      {(!online || lines.length > 0) && source && target ? <DeviceLines from={source} to={target} lines={lines} onChange={setLines} /> : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
         </Notice>
       ) : null}
       <Button type="submit" busy={busy} data-action="new-transfer">
-        {online ? t('transfer.new.create', 'أنشئ المسوّدة') : t('transfer.new.device', 'احفظها على هذا الجهاز')}
+        {!online ? t('transfer.new.device', 'احفظها على هذا الجهاز') : lines.length > 0 ? t('transfer.new.upload', 'ارفع المسوّدة بسطورها') : t('transfer.new.create', 'أنشئ المسوّدة')}
       </Button>
     </form>
   );
@@ -610,9 +847,9 @@ export function TransfersList() {
   const navigate = useNavigate();
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
-  const load = useCallback(() => inventory.listStockDocs('transfer'), []);
-  const docs = useLoad(load);
+  const docs = useDocPages('transfer');
   const setup = useLoad(inventory.loadOrgSetup);
+  const [shelfTick, setShelfTick] = useState(0);
   const all = setup.data ? storesOf(setup.data) : [];
   const sources = scopedStores(all, workspace);
   const names = new Map(all.map((s) => [s.id, s.name]));
@@ -637,13 +874,16 @@ export function TransfersList() {
     <div className="flex flex-col gap-4">
       <PageHeader title={t('stock.transfers', 'التحويلات')} subtitle={t('transfer.list.subtitle', 'من مخزن بنطاقك إلى أيّ مخزن فعّال يقبل المادّة؛ وبين وحدتين صادر داخلي بالكلفة.')} />
       {!allowed ? <Notice tone="info" title={t('transfer.forbidden', 'التحويل لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
-      {allowed && workspace ? <DeviceShelf userId={workspace.userId} orgId={workspace.orgId} onUploaded={(docId) => navigate(`/inventory/transfers/${docId}`)} /> : null}
+      {allowed && workspace ? <DeviceShelf userId={workspace.userId} orgId={workspace.orgId} tick={shelfTick} onUploaded={(docId) => navigate(`/inventory/transfers/${docId}`)} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
-      {allowed && setup.data && stamp ? <NewTransfer sources={sources} all={all} stamp={stamp} /> : null}
-      {docs.error ? (
-        <LoadFailed what={t('transfer.list.what', 'التحويلات')} error={docs.error} onRetry={docs.retry} />
-      ) : docs.data ? (
-        <DataTable caption={t('stock.transfers', 'التحويلات')} columns={columns} rows={docs.data} rowKey={(doc) => doc.id} empty={t('transfer.list.empty', 'لا تحويلات بعد.')} />
+      {allowed && setup.data && stamp ? <NewTransfer sources={sources} all={all} stamp={stamp} onSaved={() => setShelfTick((n) => n + 1)} /> : null}
+      {docs.first.error ? (
+        <LoadFailed what={t('transfer.list.what', 'التحويلات')} error={docs.first.error} onRetry={docs.first.retry} />
+      ) : docs.first.data ? (
+        <>
+          <DataTable caption={t('stock.transfers', 'التحويلات')} columns={columns} rows={docs.rows} rowKey={(doc) => doc.id} empty={t('transfer.list.empty', 'لا تحويلات بعد.')} />
+          <PageFooter shown={docs.rows.length} total={docs.total} next={docs.next !== null} busy={docs.more.busy} error={docs.more.error} what={t('transfer.list.what', 'التحويلات')} onMore={docs.loadMore} action="more-transfers" />
+        </>
       ) : null}
     </div>
   );

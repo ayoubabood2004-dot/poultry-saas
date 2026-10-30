@@ -2,12 +2,18 @@
 // C1 سحبان بنفس اللحظة من دفعة 100 (60 و60): واحد يرحّل والثاني insufficient_stock والدفعة 40؛ C9 سطر ينعدّل من جلسة ثانية
 // بعد المعاينة ← stale_draft؛ C10 أوّل ترحيلين لنفس (المادّة، المخزن) ← صفّ رصيد واحد؛ C13 تحويلان متعاكسان (A→B بـX وY وB→A
 // بـY وX) بلا قفل متبادل؛ C5 أرقام TR متتالية؛ C14 sameRefRace للتحويل والافتتاح (ترحيل واحد ورقم واحد، ونفس المرجع بنسخة ثانية
-// ref_reused، والمرحَّل بمرجع جديد not_draft).
+// ref_reused، والمرحَّل بمرجع جديد not_draft). ومن مراجعة WP4 الثانية: تاريخ ينعدّل والترحيل ينتظر قفل المستند ← stale_draft (مو
+// ترحيل بتاريخ ما انفحص)؛ تحويلان بلا رصيد مشترك بمرايا جذورها متقاطعة بلا 40P01 (الدفعات for no key update)؛ حذف سطر وتعديله
+// بلا 40P01 (السطر قبل رأسه)؛ وملفات التراجع تقفل جداولها قبل ما تعدّ المستندات.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sameRefRace } from './shared.mjs';
 import { lotsOf, makeStockOrg, openingDraft, postedOpening, transferDraft } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
 const GO_LIVE = '2026-10-20';
+const MIGRATIONS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
 const id = (n) => `d7200000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const phone = (n) => `96477097200${String(n).padStart(2, '0')}`;
 
@@ -76,7 +82,64 @@ async function lockOrderRace(db, { holder, first, last, lock, a, b }) {
   }
 }
 
-const POST = 'select public.post_transfer($1, $2, gen_random_uuid()) as result';
+/** المحرِّر يعدّل الرأس ويبقى مفتوحاً، والمرحِّل ينطلق وينحبس على قفل المستند، والمحرِّر يثبّت، والمرحِّل يكمل (ويثبّت إذا نجح). */
+async function editWhilePosting(db, { editor, editSql, editParams, poster, postSql, postParams }) {
+  const ed = await db.session(editor);
+  const po = await db.session(poster);
+  try {
+    const edit = await ed.run(editSql, editParams);
+    const pending = po.run(postSql, postParams);
+    const state = await db.settle(pending, po.pid);
+    await ed.commit();
+    const post = await pending;
+    if (post.ok) await po.commit();
+    return { edit: edit.ok ? 'ok' : edit.error, state, post: post.ok ? 'ok' : post.error };
+  } finally {
+    await ed.rollback();
+    await po.rollback();
+  }
+}
+
+/** الماسك يقفل صفّاً، والأوّل والثاني ينطلقون وينحبسون، والماسك يثبّت؛ اللي يخلص أوّلاً يرجع (يحرّر عدّاد الرقم) والثاني يكمل. */
+async function threeWay(db, { holderUser, holdSql, holdParams, first, second }) {
+  const hold = await db.session(holderUser, { role: 'postgres' });
+  const s1 = await db.session(first.user);
+  const s2 = await db.session(second.user);
+  const out = {};
+  try {
+    await hold.run("set local lock_timeout = '20s'");
+    out.held = (await hold.run(holdSql, holdParams)).ok;
+    const p1 = s1.run(first.sql, first.params);
+    out.first = await db.settle(p1, s1.pid);
+    const p2 = s2.run(second.sql, second.params);
+    out.second = await db.settle(p2, s2.pid);
+    await hold.commit();
+    const [key, result] = await Promise.race([p1.then((r) => ['first', r]), p2.then((r) => ['second', r])]);
+    out[`${key}2`] = result.ok ? 'ok' : result.error;
+    await (key === 'first' ? s1 : s2).rollback();
+    const rest = key === 'first' ? ['second', await p2] : ['first', await p1];
+    out[`${rest[0]}2`] = rest[1].ok ? 'ok' : rest[1].error;
+    return out;
+  } finally {
+    await s1.rollback();
+    await s2.rollback();
+    await hold.rollback();
+  }
+}
+
+async function postTransferNow(db, user, from, to, day, itemId, qty) {
+  const draft = await transferDraft(db, user, from, to, day, [{ item: itemId, qty }]);
+  const done = await db.session(user);
+  try {
+    const result = await done.run("select public.post_transfer($1, $2, public.preview_transfer($1) ->> 'plan', gen_random_uuid()) as result", [draft.id, draft.version]);
+    if (!result.ok) throw new Error(`postTransferNow: ${result.error}`);
+    await done.commit();
+  } finally {
+    await done.rollback();
+  }
+}
+
+const POST = 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid()) as result';
 
 async function scenario(t, db) {
   const S = await makeStockOrg(db, { name: 'مزرعة التزامن', id, phone, goLive: GO_LIVE });
@@ -112,13 +175,15 @@ async function scenario(t, db) {
   // ── C13 (R4): تحويلان متعاكسان بمادّتين بنفس اللحظة بلا قفل متبادل ─────────────────────────────────────────────────
   const P = await item('مادّة أ');
   const Q = await item('مادّة ب');
-  await postedOpening(db, U.manager, W.farm1, GO_LIVE, [{ item: P, qty: 100, value: 1000 }, { item: Q, qty: 100, value: 1000 }]);
+  // بصمة المعاينة (stale_preview): كل تحويل يعاين قبل ما ينحبس، فمرآة الثاني ما لازم تدخل خطّة الأوّل. الحقل الثاني يفتتح أوّلاً
+  // (دفعاته أقدم ترتيباً، فمرايا التحويل الأوّل تنسحب بعدها)، والتحويل الأوّل بتاريخ أمس (مرايا الثاني مستلمة اليوم، فمو مؤهّلة له).
   await postedOpening(db, U.manager, W.farm2, GO_LIVE, [{ item: P, qty: 100, value: 1000 }, { item: Q, qty: 100, value: 1000 }]);
+  await postedOpening(db, U.manager, W.farm1, GO_LIVE, [{ item: P, qty: 100, value: 1000 }, { item: Q, qty: 100, value: 1000 }]);
   // جلسة بديلة تمسك صفّ الرصيد الأوّل بترتيب (المادّة، المخزن)، فالتحويلان ينحبسان نصّ الطريق وهم ماسكين اللي قفلوه قبله؛ وبعدها
   // البديلة تطلب الصفّ الأخير: إذا أيّ تحويل قفل بترتيب ثاني (معكوس، أو بترتيب سطوره) يكون ماسكه، فتنحبس البديلة عليه وهو عليها
   // (40P01). بالترتيب الصحيح يدهم فارغة من الأرصدة، فالبديلة تاخذه فوراً والاثنين يكملون. والضابط: نفس الطريقة بقفلين معكوسين
   // مباشرةً تطلع 40P01، فالفحص يقدر يفشل.
-  const forward = await transferDraft(db, U.manager, W.farm1, W.farm2, TODAY, [{ item: P, qty: 5 }, { item: Q, qty: 5 }]);
+  const forward = await transferDraft(db, U.manager, W.farm1, W.farm2, '2026-10-29', [{ item: P, qty: 5 }, { item: Q, qty: 5 }]);
   const backward = await transferDraft(db, U.owner, W.farm2, W.farm1, TODAY, [{ item: Q, qty: 7 }, { item: P, qty: 7 }]);
   const [lowItem, highItem] = [P, Q].sort();
   const [lowStore, highStore] = [W.farm1, W.farm2].sort();
@@ -159,7 +224,7 @@ async function scenario(t, db) {
     name: 'التحويل',
     user: U.storekeeper,
     draft: async () => transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: Z, qty: 3 }]),
-    post: (docId, version, ref) => ({ sql: 'select public.post_transfer($1, $2, $3) as result', params: [docId, version, ref] }),
+    post: (docId, version, ref) => ({ sql: 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3) as result', params: [docId, version, ref] }),
     postings: async (docId) => (await db.admin("select count(*)::int as count, count(distinct doc_no)::int as numbers from public.transfers where id = $1 and status = 'posted'", [docId])).rows[0],
   });
   let fresh = 0;
@@ -175,4 +240,99 @@ async function scenario(t, db) {
     postings: async (docId) =>
       (await db.admin("select (select count(*)::int from public.opening_docs where id = $1 and status = 'posted') as count, (select count(distinct created_at)::int from public.stock_moves where doc_id = $1) as numbers", [docId])).rows[0],
   });
+
+  // ── التاريخ ينفحص بعد قفل المستند (مراجعة WP4 الثانية): الترحيل قرا التاريخ قبل القفل وفحصه، وتعديل التاريخ ثبت وهو ينتظر القفل
+  // بنسخة معروفة سلفاً (+1)، فترحّل بتاريخ ما انفحص. هسه نفس النسخة بتاريخ غير اللي انفحص ← stale_draft والمسوّدة تبقى.
+  const XO = await item('افتتاح التاريخ');
+  const op = await openingDraft(db, U.manager, W.general, GO_LIVE, [{ item: XO, qty: 10, value: 1000 }]);
+  const dateRaceOpening = await editWhilePosting(db, {
+    editor: U.manager,
+    editSql: "update public.opening_docs set on_date = '2026-10-29' where id = $1",
+    editParams: [op.id],
+    poster: U.manager,
+    postSql: 'select public.post_opening_stock($1, $2, gen_random_uuid()) as result',
+    postParams: [op.id, op.version + 1],
+  });
+  const opRow = (await db.admin('select status from public.opening_docs where id = $1', [op.id])).rows[0];
+  t.same([dateRaceOpening.edit, dateRaceOpening.state, dateRaceOpening.post, opRow.status], ['ok', 'blocked', 'stale_draft', 'draft'], 'افتتاح انعدّل تاريخه لبعد يوم التشغيل والترحيل ينتظر: stale_draft، والمسوّدة باقية بلا دفعة');
+  const XT = await item('تحويل التاريخ');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XT, qty: 100, value: 10000 }]);
+  const future = await transferDraft(db, U.storekeeper, W.general, W.raw, '2026-10-28', [{ item: XT, qty: 5 }]);
+  const dateRaceTransfer = await editWhilePosting(db, {
+    editor: U.storekeeper,
+    editSql: "update public.transfers set moved_on = '2026-11-05' where id = $1",
+    editParams: [future.id],
+    poster: U.storekeeper,
+    postSql: "select public.post_transfer($1, $2, public.preview_transfer($1) ->> 'plan', gen_random_uuid()) as result",
+    postParams: [future.id, future.version + 1],
+  });
+  const futureRow = (await db.admin('select status, doc_no from public.transfers where id = $1', [future.id])).rows[0];
+  t.same([dateRaceTransfer.state, dateRaceTransfer.post, futureRow.status, futureRow.doc_no], ['blocked', 'stale_draft', 'draft', null], 'تحويل انعدّل تاريخه للمستقبل والترحيل ينتظر: stale_draft بلا رقم ولا مرايا مستلمة بالمستقبل');
+
+  // ── مرايا جذورها متقاطعة (مراجعة WP4 الثانية): المخزن العام فيه R1 (جذر) وM2 (جذره R2)، والعام الثاني فيه M1 (جذره R1) وR2. تحويل
+  // من الثاني يسحب M1 ثم R2، وتحويل من الأوّل يسحب R1 ثم M2، بلا رصيد مشترك. مرآة M1 تأخذ key share على R1 (المفتاح الأجنبي
+  // origin_lot_id)، وكان السحب يقفل R1 بـfor update فيتعارضان: 40P01. هسه for no key update، والاثنين يرحّلون.
+  const X3 = await item('جذور متقاطعة');
+  const o1 = await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: X3, qty: 100, value: 1000 }]);
+  await postedOpening(db, U.manager, W.general2, GO_LIVE, [{ item: X3, qty: 100, value: 1000 }]);
+  const R1lot = o1.result.lots[0].lot_id;
+  await postTransferNow(db, U.manager, W.general, W.general2, TODAY, X3, 30);
+  await postTransferNow(db, U.manager, W.general2, W.general, '2026-10-29', X3, 30);
+  const fromSecond = await transferDraft(db, U.manager, W.general2, W.raw, TODAY, [{ item: X3, qty: 50 }]);
+  const fromFirst = await transferDraft(db, U.owner, W.general, W.farm1, TODAY, [{ item: X3, qty: 90 }]);
+  const crossed = await threeWay(db, {
+    holderUser: U.scopedManager,
+    holdSql: 'select 1 from public.stock_lots where id = $1 for update',
+    holdParams: [R1lot],
+    first: { user: U.owner, sql: POST, params: [fromFirst.id, fromFirst.version] },
+    second: { user: U.manager, sql: POST, params: [fromSecond.id, fromSecond.version] },
+  });
+  t.same([crossed.held, crossed.first, crossed.second, crossed.first2, crossed.second2], [true, 'blocked', 'blocked', 'ok', 'ok'], 'تحويلان بمرايا جذورها متقاطعة وبلا رصيد مشترك: ينتظران R1 ثم يرحّلان بلا 40P01');
+
+  // ── حذف سطر المسوّدة وتعديله المباشر بنفس اللحظة (مراجعة WP4 الثانية): التعديل يقفل السطر ثم مشغّله الرأس، والحذف كان يقفل الرأس
+  // ثم السطر: 40P01. هسه الحذف يقفل السطر أوّلاً.
+  const lineDraft = await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: XT, qty: 1 }, { item: XT, qty: 2 }]);
+  const lineRace = await threeWay(db, {
+    holderUser: U.scopedManager,
+    holdSql: 'select 1 from public.transfers where id = $1 for update',
+    holdParams: [lineDraft.id],
+    first: { user: U.storekeeper, sql: "select public.delete_draft_line('transfer', $1, $2) as result", params: [lineDraft.lines[0], lineDraft.version] },
+    second: { user: U.manager, sql: 'update public.transfer_lines set qty_in_unit = 3 where id = $1', params: [lineDraft.lines[0]] },
+  });
+  t.same([lineRace.held, lineRace.first, lineRace.second, lineRace.first2, lineRace.second2], [true, 'blocked', 'blocked', 'ok', 'ok'], 'حذف سطر وتعديله بنفس اللحظة: الاثنان ينتظران ويكملان بلا 40P01');
+
+  // ── ملفات التراجع تقفل جداولها قبل ما تعدّ (مراجعة WP4 الثانية): بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف ينحذف ويّا جداوله.
+  for (const name of ['rollback_0005.sql', 'rollback_0006.sql', 'rollback_0007.sql']) {
+    const text = readFileSync(path.join(MIGRATIONS, name), 'utf8');
+    t.ok(text.indexOf('lock table') > 0 && text.indexOf('lock table') < text.indexOf('rollback_blocked'), `${name}: «lock table» قبل عدّ «rollback_blocked»`);
+  }
+  const rollback7 = readFileSync(path.join(MIGRATIONS, 'rollback_0007.sql'), 'utf8');
+  const lockStatement = rollback7.slice(rollback7.indexOf('lock table'), rollback7.indexOf(';', rollback7.indexOf('lock table')) + 1);
+  const holder = await db.session(U.owner, { role: 'postgres' });
+  const writer = await db.session(U.manager);
+  try {
+    await holder.run("set local lock_timeout = '5s'");
+    const locked = await holder.run(lockStatement);
+    const insert = writer.run('insert into public.opening_docs (warehouse_id, on_date) values ($1, $2) returning id', [W.general, GO_LIVE]);
+    const state = await db.settle(insert, writer.pid);
+    await holder.rollback();
+    const inserted = await insert;
+    t.same([locked.ok, state, inserted.ok], [true, 'blocked', true], 'قفل rollback_0007 يحبس مسوّدة جديدة لحد ما تخلص معاملته (والكتابة تكمل بعد ما يرجع)');
+  } finally {
+    await writer.rollback();
+    await holder.rollback();
+  }
+
+  // ── فترة مقفلة (آخر شي: تقفل المنشأة): تحويل انعدّل تاريخه لداخل الفترة المقفلة والترحيل ينتظر ← stale_draft.
+  const locked = await transferDraft(db, U.storekeeper, W.general, W.raw, '2026-10-28', [{ item: XT, qty: 1 }]);
+  await S.one(U.owner, 'select public.set_period_lock($1)', ['2026-10-25']);
+  const lockedRace = await editWhilePosting(db, {
+    editor: U.storekeeper,
+    editSql: "update public.transfers set moved_on = '2026-10-24' where id = $1",
+    editParams: [locked.id],
+    poster: U.storekeeper,
+    postSql: "select public.post_transfer($1, $2, public.preview_transfer($1) ->> 'plan', gen_random_uuid()) as result",
+    postParams: [locked.id, locked.version + 1],
+  });
+  t.same([lockedRace.state, lockedRace.post], ['blocked', 'stale_draft'], 'تحويل انعدّل تاريخه لداخل الفترة المقفلة والترحيل ينتظر: stale_draft');
 }

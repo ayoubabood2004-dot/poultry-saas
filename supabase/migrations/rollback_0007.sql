@@ -1,11 +1,17 @@
 -- rollback_0007 — تراجع 0007_stock_core_openings_transfers (خطّة المرحلة 1 WP4، مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦).
 -- يرجّع جسمي home_summary (invoker كما بـ0006) وverify_ledger (بلا مصدر TR) حرفاً بحرف (md5 نفسه بالكتالوج)، ويشيل اللي انضاف
 -- بـ0007: الجداول السبعة (الدفعات والحركات والأرصدة والافتتاح والتحويل وسطورهما) وكل دوالّها ومساعداتها، ومشغّلَي التجميد والأرشفة
--- على المواد والمخازن، وسياسة نطاق المخزون على سجلّ التدقيق (audit_log_stock_scope)، وعدّاد ترتيب الدفعات لكل منشأة.
+-- على المواد والمخازن، وسياسة نطاق المخزون على سجلّ التدقيق (audit_log_stock_scope)، وعدّاد ترتيب الدفعات لكل منشأة، وسرّ بصمة
+-- خطّة السحب (private.plan_secret).
 -- المخزون ما ينحذف أبداً (FOUNDATION ٦٣): أي مستند افتتاح أو تحويل (ولو مسوّدة؛ كل حركة مخزون بـ0007 من مستند منهما) يوقف التراجع
 -- بصوت ويرجع كلّه (المعاملة وحدة)، والمالك يقرّر شنو يسوّي بيه. سجلّ التدقيق يبقى كما هو.
 
 set lock_timeout = '5s';
+
+-- الجداول تتقفل قبل العدّ ولحد نهاية المعاملة: بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف كان ينحذف ويّا جداوله (مراجعة WP4). السكربت
+-- معاملة وحدة (مشغّل التراجع بالحزمة، ومحرّر SQL ينفّذ السكربت كلّه بمعاملة)، فالقفل يبقى لحد ما يخلص.
+lock table public.opening_docs, public.opening_lines, public.transfers, public.transfer_lines, public.stock_lots, public.stock_moves,
+  public.stock_balances in access exclusive mode;
 
 do $$
 declare
@@ -244,12 +250,14 @@ drop function if exists private.lock_masters(uuid[], uuid[], boolean);
 drop function if exists private.lock_balances(uuid[], uuid[]);
 drop function if exists private.new_lot(uuid, uuid, date, date, timestamptz, numeric, numeric, text, uuid, uuid);
 drop function if exists private.mirror_lot(uuid, uuid, numeric, numeric, date, uuid, uuid);
-drop function if exists private.apply_move(uuid, text, uuid, uuid, numeric, numeric, date, uuid);
+drop function if exists private.apply_move(uuid, text, uuid, uuid, numeric, numeric, date, uuid, boolean);
 drop function if exists private.stock_at(uuid, uuid, date);
 drop function if exists private.raise_shortage(uuid, uuid, numeric, date);
 drop function if exists private.draw_plan(uuid, uuid, numeric, date, uuid, boolean, numeric[]);
 drop function if exists private.draw(uuid, uuid, numeric, date, uuid, boolean);
 drop function if exists private.stock_doc_label(text, uuid);
+drop function if exists private.plan_piece(uuid, numeric, numeric);
+drop function if exists private.plan_token(text);
 drop function if exists private.check_lot_intact(uuid);
 drop function if exists private.date_problem(date, uuid, boolean);
 drop function if exists private.item_has_moves(uuid, uuid);
@@ -258,15 +266,15 @@ drop function if exists private.opening_line_problem(public.warehouses, public.o
 drop function if exists public.post_opening_stock(uuid, int, uuid);
 drop function if exists public.void_opening_stock(uuid, text, uuid);
 drop function if exists public.preview_opening_stock(uuid);
-drop function if exists public.post_transfer(uuid, int, uuid);
+drop function if exists public.post_transfer(uuid, int, text, uuid);
 drop function if exists public.void_transfer(uuid, text, uuid);
 drop function if exists public.preview_transfer(uuid);
 drop function if exists public.discard_draft(text, uuid, int);
 drop function if exists public.delete_draft_line(text, uuid, int);
-drop function if exists public.stock_on_hand(uuid, uuid, int);
+drop function if exists public.stock_on_hand(uuid, jsonb, int);
 drop function if exists public.item_lots_qty(uuid, uuid, jsonb, int);
 drop function if exists public.item_moves_qty(uuid, uuid, bigint, int);
-drop function if exists public.stock_values(uuid, uuid, int);
+drop function if exists public.stock_values(uuid, jsonb, int);
 drop function if exists public.stock_value_totals(uuid);
 drop function if exists public.item_lots_value(uuid, uuid, jsonb, int);
 drop function if exists public.archived_stores_with_stock();
@@ -290,3 +298,4 @@ drop function if exists private.draft_header_guard();
 drop function if exists private.opening_lines_guard();
 drop function if exists private.transfer_lines_guard();
 drop table if exists private.stock_fifo_counters;
+drop table if exists private.plan_secret;

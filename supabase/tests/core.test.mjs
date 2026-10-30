@@ -244,7 +244,7 @@ export default async function (t, db) {
         const posted = await opening(fuel);
         await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [posted]);
         const moved = await transfer();
-        await q('select public.post_transfer($1, (select version from public.transfers where id = $1), gen_random_uuid())', [moved]);
+        await q('select public.post_transfer($1, (select version from public.transfers where id = $1), public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [moved]);
         return { general, fuel, openingDraft: await opening(spare), transferDraft: await transfer() };
       },
       { commit: true },

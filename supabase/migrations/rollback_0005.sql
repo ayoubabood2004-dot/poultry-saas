@@ -7,6 +7,9 @@
 
 set lock_timeout = '5s';
 
+-- الجدول يتقفل قبل العدّ ولحد نهاية المعاملة (مراجعة WP4 على rollback_0007): نطاق بموقع أو مخزن ينكتب بعد العدّ كان ينحذف.
+lock table public.member_scopes in access exclusive mode;
+
 do $$
 declare
   v_rows bigint;

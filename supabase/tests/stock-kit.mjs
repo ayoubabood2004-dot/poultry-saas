@@ -13,6 +13,9 @@ export const STOCK_ZERO = {
   admissible: 0,
   value_conservation: 0,
   posted_division_stamped: 0,
+  draw_values: 0,
+  draw_order: 0,
+  doc_moves: 0,
 };
 
 /** verify_stock كخريطة اسم ← عدد (بمفتاح الخادم، أو بالاستعلام المعطى داخل معاملة ضابط). */
@@ -121,7 +124,7 @@ export async function transferDraft(db, user, from, to, movedOn, lines) {
 }
 
 export const postOpening = (db, user, doc, ref = uid()) => call(db, user, 'select public.post_opening_stock($1, $2, $3)', [doc.id, doc.version, ref]);
-export const postTransfer = (db, user, doc, ref = uid()) => call(db, user, 'select public.post_transfer($1, $2, $3)', [doc.id, doc.version, ref]);
+export const postTransfer = (db, user, doc, ref = uid()) => call(db, user, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3)', [doc.id, doc.version, ref]);
 export const voidOpening = (db, user, docId, reason = 'افتتاح خاطئ') => call(db, user, 'select public.void_opening_stock($1, $2, $3)', [docId, reason, uid()]);
 export const voidTransfer = (db, user, docId, reason = 'تحويل خاطئ') => call(db, user, 'select public.void_transfer($1, $2, $3)', [docId, reason, uid()]);
 

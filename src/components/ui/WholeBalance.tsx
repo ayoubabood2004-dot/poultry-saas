@@ -38,7 +38,7 @@ export function WholeBalanceConfirm({
 }) {
   const consequence: ReactNode = (
     <div className="flex flex-col gap-2">
-      <p>{t('whole_balance.consequence', 'سيُسحب الرصيد المتاح كلّه من «{warehouse}» لهذه المواد، فيصير رصيدها هناك صفراً:', { warehouse })}</p>
+      <p>{t('whole_balance.consequence', 'سيُسحب الرصيد المتاح كلّه من «{warehouse}» لهذه المواد، فيصير المتاح منها هناك صفراً:', { warehouse })}</p>
       <ul className="list-disc ps-6">
         {lines.map((line) => (
           <li key={line.itemName}>{lineText(line)}</li>
@@ -61,13 +61,13 @@ export function WholeBalanceConfirm({
   );
 }
 
-/** بعد الترحيل: الرصيد اللي صار صفراً ينعلن بصوت وبرسالة تسمّي المواد والمخزن. */
+/** بعد الترحيل: المتاح اللي صار صفراً ينعلن بصوت وبرسالة تسمّي المواد والمخزن (المنتهي والمستلم بعد التاريخ ما ينحسب متاحاً). */
 export function announceZeroBalance(lines: readonly WholeLine[], warehouse: string): void {
   if (lines.length === 0) return;
   sound.warn();
   toast({
     tone: 'warning',
-    title: t('whole_balance.zero', 'صار الرصيد صفراً في «{warehouse}»', { warehouse }),
+    title: t('whole_balance.zero', 'صار المتاح صفراً في «{warehouse}»', { warehouse }),
     detail: lines.map((line) => line.itemName).join(t('list.separator', '، ')),
   });
 }

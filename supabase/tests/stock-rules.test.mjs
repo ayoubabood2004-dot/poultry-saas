@@ -7,7 +7,7 @@
 // وسنة رقم التحويل بتاريخه. كل نداء بدور authenticated حقيقي، والضوابط المباشرة بدور صاحب الجداول بمعاملة ترجع.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
 import { call, makeOrg, shown, uid } from './ledger-kit.mjs';
-import { lotsOf, makeStockOrg, openingDraft, postOpening, postTransfer, postedOpening, postedTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
+import { STOCK_ZERO, lotsOf, makeStockOrg, openingDraft, postOpening, postTransfer, postedOpening, postedTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
 const GO_LIVE = '2026-10-25';
@@ -355,7 +355,7 @@ async function scenario(t, db) {
       emptyTransfer: shown(await postTransfer(db, U.manager, emptyTransfer)),
       archivedItem: shown(await postOpening(db, U.manager, archivedLine)),
       archivedStore: shown(await postOpening(db, U.manager, gen3Opening)),
-      keeperOtherStore: shown(await call(db, U.hatcheryKeeper, 'select public.post_transfer($1, $2, $3)', [transferDraftDoc.id, await versionOf('transfers', transferDraftDoc.id), uid()], once)),
+      keeperOtherStore: shown(await call(db, U.hatcheryKeeper, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3)', [transferDraftDoc.id, await versionOf('transfers', transferDraftDoc.id), uid()], once)),
     },
     { scoped: 'out_of_scope', emptyOpening: 'doc_empty', emptyTransfer: 'doc_empty', archivedItem: 'item_archived', archivedStore: 'warehouse_archived', keeperOtherStore: 'out_of_scope' },
     'الترحيل: مخزن برّا النطاق، ومستند بلا سطور، ومادّة أو مخزن مؤرشف',
@@ -510,7 +510,12 @@ async function scenario(t, db) {
   const fullBoard = (await board(W.medicine)).rows.map((r) => r.item_id);
   const boardPages = await chain('select public.stock_on_hand($1, $2, $3)', [W.medicine], (p) => p.next);
   t.same([boardPages.flatMap((p) => p.rows.map((r) => r.item_id)), boardPages[0].total, boardPages.every((p) => p.rows.length <= 1)], [fullBoard, fullBoard.length, true], `صفحات لوحة الأدوية بمؤشّرها = القائمة كاملة (${fullBoard.length})`);
-  const valuePages = await chain('select public.stock_values($1, $2, $3)', [W.medicine], (p) => p.rows.at(-1)?.item_id ?? null);
+  // مؤشّر القيم نفس مؤشّر اللوحة (الاسم المطبَّع والمعرّف كما وصلا)، من آخر صفّ بالصفحة.
+  const normOf = new Map((await db.admin('select id, name_norm from public.items where org_id = $1', [S.org])).rows.map((r) => [r.id, r.name_norm]));
+  const valuePages = await chain('select public.stock_values($1, $2, $3)', [W.medicine], (p) => {
+    const last = p.rows.at(-1);
+    return last ? { name: normOf.get(last.item_id), id: last.item_id } : null;
+  });
   const fullValues = (await asM('select public.stock_values($1, null, 200)', [W.medicine])).value.rows.map((r) => r.item_id);
   t.same([valuePages.flatMap((p) => p.rows.map((r) => r.item_id)), valuePages.every((p) => p.rows.length <= 1)], [fullValues, true], 'صفحات قيم اللوحة بمؤشّرها = القائمة كاملة');
   const pagedItem = await item('كاز الصفحات', 'fuel', 'L');
@@ -602,6 +607,80 @@ async function scenario(t, db) {
   await postedOpening(db, U.manager, W.general2, GO_LIVE, Array.from({ length: 201 }, () => ({ item: manyMoves, qty: 1, value: 1 })));
   const cappedMoves = (await asM('select public.item_moves_qty($1, $2, null, 1000)', [manyMoves, W.general2])).value;
   t.same([capped.rows.length, capped.next !== null, cappedMoves.rows.length, cappedMoves.next], [200, true, 200, '200'], 'الصفحة 200 صفّاً كحدّ أقصى ولو طُلب أكثر، والمؤشّر للصفحة الجاية');
+
+  // ── بصمة المعاينة (مراجعة WP4 الثانية، FOUNDATION ٥٢٠ البند 5): المعاينة سحبت 50 لتراً من الدفعة الأولى بـ50.00، وتحويل ثاني
+  // سحب 80 بعدها، فالترحيل بنسخة المعاينة كان يمرّ بـ20 لتراً بـ20.00 و30 بـ90.00 (110.00 بدل اللي انوافق عليه). هسه stale_preview
+  // والمسوّدة تبقى، والمعاينة الجديدة ببصمة غيرها ترحّل.
+  const planItem = await item('كاز البصمة', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: planItem, qty: 100, value: 100 }, { item: planItem, qty: 100, value: 300 }]);
+  const planDraft = await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: planItem, qty: 50 }]);
+  const seen = await previewOf('preview_transfer', planDraft.id, U.storekeeper);
+  const again = await previewOf('preview_transfer', planDraft.id, U.manager);
+  await postedTransfer(db, U.storekeeper, W.general, W.general2, TODAY, [{ item: planItem, qty: 80 }]);
+  const stalePost = await call(db, U.storekeeper, 'select public.post_transfer($1, $2, $3, $4)', [planDraft.id, seen.version, seen.plan, uid()]);
+  const nullPlan = await call(db, U.storekeeper, 'select public.post_transfer($1, $2, null, $3)', [planDraft.id, seen.version, uid()]);
+  const fresh = await previewOf('preview_transfer', planDraft.id, U.storekeeper);
+  const freshPost = await call(db, U.storekeeper, 'select public.post_transfer($1, $2, $3, $4)', [planDraft.id, fresh.version, fresh.plan, uid()]);
+  t.same(
+    [typeof seen.plan, seen.plan === again.plan, shown(stalePost), shown(nullPlan), fresh.plan !== seen.plan, shown(freshPost), freshPost.ok ? freshPost.value.lines[0].draws.map((d) => d.qty) : null],
+    ['string', true, 'stale_preview', 'stale_preview', true, 'ok', fresh.lines[0].draws.map((d) => d.qty)],
+    'بصمة المعاينة: نفسها لنفس الحال ولأيّ دور، وتغيّر المخزون بعدها (أو بلا بصمة) يرفض stale_preview، والمعاينة الجديدة ترحّل قطعها هي',
+  );
+  t.ok(!/money|value/u.test(JSON.stringify({ plan: seen.plan })) && /^[0-9a-f]{32}$/u.test(seen.plan), 'البصمة للأمين نصّ hex بلا قيم');
+
+  // ── متابعة الانتهاء تنطفي وتشتغل (0005 يسمح) بلا ما يصير verify_stock غير صفر: السحب يسجّل علامة يومه (expiry_checked)، فتحويل
+  // دفعة لقاح منتهية وقت كانت المتابعة مطفأة ما يصير مخالفة لمّا تشتغل بعده (مراجعة WP4 الثانية).
+  const toggled = await item('لقاح العلامة', 'vaccine', 'pc', { tracksExpiry: true });
+  await postedOpening(db, U.manager, W.medicine, GO_LIVE, [{ item: toggled, qty: 10, value: 1000, expiry: '2026-10-25' }]);
+  const offAgain = shown(await asM('update public.items set tracks_expiry = false where id = $1', [toggled]));
+  const movedExpired = shown(await postTransfer(db, U.manager, await transferDraft(db, U.manager, W.medicine, W.farm1, TODAY, [{ item: toggled, qty: 5 }])));
+  const onAgain = shown(await asM('update public.items set tracks_expiry = true where id = $1', [toggled]));
+  const flags = (await db.admin("select distinct expiry_checked from public.stock_moves where item_id = $1 and qty < 0 and reverses_move_id is null", [toggled])).rows.map((r) => r.expiry_checked);
+  t.same([offAgain, movedExpired, onAgain, flags, await db.asService(verifyStock)], ['ok', 'ok', 'ok', [false], STOCK_ZERO], 'المتابعة تنطفي فيتحوّل المنتهي بعلامة false، وتشتغل بعده، وverify_stock صفر');
+
+  // ── تلميح أرشفة المادّة لمدير محصور بمخزن (مراجعة WP4 الثانية، §2.8): الرصيد بمخزن برّا نطاقه ما ينسمّى بالتلميح.
+  const hidden = await item('كاز النطاق', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: hidden, qty: 5, value: 50 }]);
+  const scopedArchive = await call(db, U.scopedManager, 'update public.items set archived_at = now() where id = $1', [hidden]);
+  const fullArchive = await asM('update public.items set archived_at = now() where id = $1', [hidden]);
+  const generalName = (await db.admin('select name from public.warehouses where id = $1', [W.general])).rows[0].name;
+  t.same(
+    [shown(scopedArchive), scopedArchive.hint?.includes(generalName), scopedArchive.hint?.includes('خارج نطاقك'), shown(fullArchive), fullArchive.hint?.includes(generalName)],
+    ['archived_in_use', false, true, 'archived_in_use', true],
+    'أرشفة مادّة رصيدها بمخزن برّا النطاق: الرفض نفسه، والتلميح ما يسمّي المخزن إلا لمن هو بنطاقه',
+  );
+
+  // ── معرّف الرأس والسطر يولد بالجهاز (FOUNDATION ١٩٩): رفع مسوّدة الجهاز بعد جواب ضاع ينعاد بنفس المعرّفات، فالمكرّر 23505 مو رأس
+  // أو سطر ثاني.
+  const headId = uid();
+  const lineId = uid();
+  const head = (user) => call(db, user, 'insert into public.transfers (id, from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, $3, $4) returning id', [headId, W.general, W.raw, TODAY]);
+  const line = (user) => call(db, user, "insert into public.transfer_lines (id, doc_id, item_id, qty_in_unit) values ($1, $2, $3, '1') returning id", [lineId, headId, planItem]);
+  const firstHead = await head(U.storekeeper);
+  const repeatHead = await head(U.storekeeper);
+  const firstLine = await line(U.storekeeper);
+  const repeatLine = await line(U.storekeeper);
+  const counts = (await db.admin('select (select count(*)::int from public.transfers where id = $1) as heads, (select count(*)::int from public.transfer_lines where doc_id = $1) as lines', [headId])).rows[0];
+  t.same([shown(firstHead), shown(repeatHead), shown(firstLine), shown(repeatLine), counts], ['ok', 'unique:transfers_pkey', 'ok', 'unique:transfer_lines_pkey', { heads: 1, lines: 1 }], 'رأس وسطر بمعرّف من الجهاز، والإعادة بنفس المعرّف 23505 بلا تكرار');
+
+  // ── مؤشّر اللوحة الاسم والمعرّف كما وصلا (مراجعة WP4 الثانية): مادّة انسمّت بين صفحتين كانت تنقل المؤشّر فتنقفز المواد بينهما.
+  const renameStore = await storeIn('general', W.general, 'مخزن الأسماء', 'general');
+  const named = [];
+  for (const label of ['أ صفحة', 'ب صفحة', 'ت صفحة']) {
+    const id = await item(label, 'fuel', 'L');
+    named.push(id);
+    await postedOpening(db, U.manager, renameStore, GO_LIVE, [{ item: id, qty: 1, value: 1 }]);
+  }
+  const firstPage = (await asM('select public.stock_on_hand($1, null, 1)', [renameStore])).value;
+  await asM('update public.items set name = $2 where id = $1', [firstPage.rows[0].item_id, 'ي صفحة']);
+  const restPages = [];
+  let cursor = firstPage.next;
+  for (let n = 0; n < 5 && cursor; n += 1) {
+    const page = (await asM('select public.stock_on_hand($1, $2, 1)', [renameStore, cursor])).value;
+    restPages.push(...page.rows.map((r) => r.item_id));
+    cursor = page.next;
+  }
+  t.ok(named.every((id) => id === firstPage.rows[0].item_id || restPages.includes(id)), `مادّة انسمّت بين صفحتين ما تقفّز اللي بعدها (${restPages.length} بالصفحات الباقية)`);
 
   // ── قفل الفترة بالمعاينة (آخر شي: يقفل المنشأة) ─────────────────────────────────────────────────────────────────
   const lockedDraft = await transferDraft(db, U.manager, W.general, W.raw, '2026-10-26', [{ item: probeItem, qty: 1 }]);

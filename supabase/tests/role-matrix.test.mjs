@@ -112,7 +112,7 @@ export default async function (t, db) {
         return { doc, line };
       };
       const moved = await transfer(100);
-      await q('select public.post_transfer($1, $2, gen_random_uuid())', [moved.doc, await version('transfers', moved.doc)]);
+      await q('select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [moved.doc, await version('transfers', moved.doc)]);
       const draft = await transfer(50);
       const draftOpening = await opening(petrol, 10, 7500);
       return {
@@ -188,7 +188,7 @@ export default async function (t, db) {
     post_opening_stock: { sql: () => ['select public.post_opening_stock($1, $2, gen_random_uuid())', [stock.draftOpening, stock.openingVersion]], expect: only(['owner', 'manager']) },
     void_opening_stock: { sql: () => ["select public.void_opening_stock($1, 'افتتاح خاطئ', gen_random_uuid())", [stock.posted]], expect: only(['owner', 'manager']) },
     preview_opening_stock: { sql: () => ["select (public.preview_opening_stock($1) -> 'money' ->> 'total')::numeric = 7500 as v", [stock.draftOpening]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
-    post_transfer: { sql: () => ['select public.post_transfer($1, $2, gen_random_uuid())', [stock.draft, stock.draftVersion]], expect: only(TRANSFER) },
+    post_transfer: { sql: () => ['select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [stock.draft, stock.draftVersion]], expect: only(TRANSFER) },
     void_transfer: { sql: () => ["select public.void_transfer($1, 'تحويل خاطئ', gen_random_uuid())", [stock.moved]], expect: only(['owner', 'manager']) },
     preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: only(TRANSFER, 'ok:true') },
     discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },

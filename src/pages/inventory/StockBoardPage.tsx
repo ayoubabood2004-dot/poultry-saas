@@ -148,8 +148,14 @@ export function BoardBody({ first, rows, values, totals, costs, warehouseId }: {
   );
 }
 
+/** مادّة انسمّت بين صفحتين تطلع بصفحتها الثانية هم (المؤشّر بالاسم كما وصل): تنعرض مرّة، بأوّل ظهور. */
+function distinctRows(rows: readonly StockRow[]): StockRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => (seen.has(row.itemId) ? false : (seen.add(row.itemId), true)));
+}
+
 /** صفحة اللوحة الجاية: كمياتها، ولدور الكلفة قيمها بنفس المؤشّر (stock_values بترتيب stock_on_hand، فصفحة القيم تغطّي صفحتها). */
-function nextBoardPage(warehouseId: string, after: string, costs: boolean): Promise<{ board: StockBoard; values: ReadonlyMap<string, StockValue> | null }> {
+function nextBoardPage(warehouseId: string, after: inventory.StockCursor, costs: boolean): Promise<{ board: StockBoard; values: ReadonlyMap<string, StockValue> | null }> {
   return Promise.all([inventory.loadStockOnHand(warehouseId, after), costs ? inventory.loadStockValues(warehouseId, after) : Promise.resolve(null)]).then(([board, values]) => ({ board, values }));
 }
 
@@ -182,7 +188,7 @@ function WarehouseBoard({ warehouseId, costs }: { warehouseId: string; costs: bo
   };
   return (
     <div className="flex flex-col gap-4">
-      <BoardBody first={first} rows={all.flatMap((page) => page.rows)} values={allValues} totals={totals} costs={costs} warehouseId={warehouseId} />
+      <BoardBody first={first} rows={distinctRows(all.flatMap((page) => page.rows))} values={allValues} totals={totals} costs={costs} warehouseId={warehouseId} />
       {last?.next ? (
         <Button variant="secondary" busy={more.busy} onClick={loadMore} data-action="more-stock">
           {t('stock.board.more', 'المزيد')}

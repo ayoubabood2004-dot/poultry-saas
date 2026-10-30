@@ -97,7 +97,7 @@
       "action": "transfer.post",
       "scope": "in_scope_wh(from_warehouse_id)",
       "columns": {
-        "insert": ["doc_id", "item_id", "item_unit_id", "unit_code", "qty_in_unit"],
+        "insert": ["id", "doc_id", "item_id", "item_unit_id", "unit_code", "qty_in_unit"],
         "update": ["item_id", "item_unit_id", "unit_code", "qty_in_unit"]
       }
     },
@@ -107,7 +107,7 @@
       "draft": true,
       "scope": "in_scope_wh(from_warehouse_id)",
       "columns": {
-        "insert": ["from_warehouse_id", "to_warehouse_id", "moved_on", "note", "status"],
+        "insert": ["id", "from_warehouse_id", "to_warehouse_id", "moved_on", "note", "status"],
         "update": ["moved_on", "note", "status"]
       }
     },

@@ -23,3 +23,18 @@ export function parseDayText(text: string): string | null {
   if (at.getUTCFullYear() !== y || at.getUTCMonth() !== (m ?? 0) - 1 || at.getUTCDate() !== d) return null;
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
+
+// لحظة باليوم المعروض ثم ساعة:دقيقة (24 ساعة) بتوقيت الجهاز: وقت الفقس (E24) بنفس شكل اليوم، مو نصّ يقراه new Date بلا شكل:
+// «02/11/2026 06:00» كان ينقرا 11 شباط (شهر/يوم أمريكي) فيطلع عمر الفرخ آلاف الساعات، ويوم فوق 12 يرفض (مراجعة WP4 الثانية).
+const MOMENT_TEXT = /^(.+?)[ T]+(\d{1,2}):(\d{2})$/;
+
+/** «28/10/2026 06:00» ← لحظتها بتوقيت عالمي (ISO)، أو null: اليوم بقاعدة parseDayText، والساعة 0–23 والدقيقة 0–59. */
+export function parseMomentText(text: string): string | null {
+  const match = MOMENT_TEXT.exec(toWesternDigits(text).trim());
+  if (!match) return null;
+  const day = parseDayText(match[1] ?? '');
+  const [hours, minutes] = [Number(match[2]), Number(match[3])];
+  if (!day || hours > 23 || minutes > 59) return null;
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1, hours, minutes).toISOString(); // date-ok: لحظة الفقس كاملة بتوقيت الجهاز (timestamptz)، مو يوماً
+}

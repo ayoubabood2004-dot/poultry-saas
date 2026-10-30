@@ -5,7 +5,7 @@ import type { Fils, Milli } from '../../domain/money';
 import { normalizeCode, searchable } from '../../domain/normalize';
 import { BASE_UNITS, DIVISION_ORDER, ITEM_KINDS, SITE_KINDS, WAREHOUSE_KINDS, type ItemKind, type SiteKind, type WarehouseKind } from '../../domain/stores';
 import type { BaseUnit, Dimension } from '../../domain/units';
-import { ZeroRowsError } from '../errors';
+import { RejectedError, ZeroRowsError } from '../errors';
 import type { Answer, PostgrestFailure } from './core';
 import './constraints-stock';
 import './constraints-stores';
@@ -565,13 +565,19 @@ export interface StockRow {
   oldChicks: Milli;
 }
 
+/** مؤشّر صفحة اللوحة: الاسم المطبَّع والمعرّف كما وصلا بآخر صفّ (مادّة انسمّت بين صفحتين ما تقفّز اللي بعدها). */
+export interface StockCursor {
+  name: string;
+  id: string;
+}
+
 export interface StockBoard {
   warehouse: StockWarehouse;
   /** وقت القراءة من الخادم (ISO). */
   asOf: string;
   rows: readonly StockRow[];
-  /** معرّف آخر مادّة للصفحة الجاية، أو null. */
-  next: string | null;
+  /** مؤشّر الصفحة الجاية، أو null. */
+  next: StockCursor | null;
   /** العدد الكلّي بأوّل صفحة («N من المجموع»)؛ null بالصفحات بعدها. */
   total: number | null;
 }
@@ -608,15 +614,17 @@ export function parseStockBoard(value: unknown): StockBoard {
         oldChicks: qtyOf(row, 'old_chicks'),
       };
     }),
-    next: optStr(json, 'next'),
+    next: json.next === null || json.next === undefined ? null : stockCursor(obj(json.next, 'next')),
     total: count(json, 'total'),
   };
 }
 
+const stockCursor = (row: Row): StockCursor => ({ name: str(row, 'name'), id: str(row, 'id') });
+
 export const STOCK_PAGE = 100;
 
-export async function loadStockOnHand(warehouseId: string, after: string | null = null): Promise<StockBoard> {
-  return parseStockBoard(await call<unknown>('stock_on_hand', { p_warehouse: warehouseId, p_after_item: after, p_limit: STOCK_PAGE }));
+export async function loadStockOnHand(warehouseId: string, after: StockCursor | null = null): Promise<StockBoard> {
+  return parseStockBoard(await call<unknown>('stock_on_hand', { p_warehouse: warehouseId, p_after: after, p_limit: STOCK_PAGE }));
 }
 
 export interface StockValue {
@@ -625,8 +633,8 @@ export interface StockValue {
 }
 
 /** قيم المتاح والمنتهي لكل مادّة (أدوار الكلفة)، بنفس مؤشّر صفحة اللوحة فتغطّيها. */
-export async function loadStockValues(warehouseId: string, after: string | null = null): Promise<Map<string, StockValue>> {
-  const json = obj(await call<unknown>('stock_values', { p_warehouse: warehouseId, p_after_item: after, p_limit: STOCK_PAGE }), 'stock_values');
+export async function loadStockValues(warehouseId: string, after: StockCursor | null = null): Promise<Map<string, StockValue>> {
+  const json = obj(await call<unknown>('stock_values', { p_warehouse: warehouseId, p_after: after, p_limit: STOCK_PAGE }), 'stock_values');
   return new Map(
     arr(json.rows, 'rows').map((item) => {
       const row = obj(item, 'rows');
@@ -822,10 +830,12 @@ export interface StockDoc {
   note: string | null;
   posted: boolean;
   voidReason: string | null;
+  /** لحظة إنشاء الرأس (مؤشّر صفحات القائمة). */
+  createdAt: string;
 }
 
-const OPENING_COLUMNS = 'id, warehouse_id, on_date, status, version, note, posted_at, void_reason';
-const TRANSFER_COLUMNS = 'id, doc_no, from_warehouse_id, to_warehouse_id, moved_on, status, version, note, posted_at, void_reason';
+const OPENING_COLUMNS = 'id, warehouse_id, on_date, status, version, note, posted_at, void_reason, created_at';
+const TRANSFER_COLUMNS = 'id, doc_no, from_warehouse_id, to_warehouse_id, moved_on, status, version, note, posted_at, void_reason, created_at';
 
 function stockDoc(kind: StockDocKind, row: Row): StockDoc {
   const version = row.version;
@@ -842,24 +852,61 @@ function stockDoc(kind: StockDocKind, row: Row): StockDoc {
     note: optStr(row, 'note'),
     posted: row.posted_at !== null && row.posted_at !== undefined,
     voidReason: optStr(row, 'void_reason'),
+    createdAt: str(row, 'created_at'),
   };
 }
 
 export const DOCS_PAGE = 100;
 
-/** آخر المستندات (المسوّدات أوّلاً ثم الأحدث)، بحدّ صفحة؛ الرؤوس بلا قيم. */
+/** مؤشّر صفحات المستندات: الحالة ثم لحظة الإنشاء (الأحدث أوّلاً) ثم المعرّف، كما وصلت بآخر صفّ. */
+export interface DocCursor {
+  status: DocStatus;
+  createdAt: string;
+  id: string;
+}
+
+export interface DocPage {
+  rows: StockDoc[];
+  next: DocCursor | null;
+  /** العدد الكلّي بأوّل صفحة («N من المجموع»)؛ null بالصفحات بعدها. */
+  total: number | null;
+}
+
 /** قراءة أجوبة بصفوفها (كل جواب يرمي خطأه مصنّفاً). */
 async function readAll<R extends readonly (Answer & { data: unknown })[]>(make: (db: SupabaseClient) => PromiseLike<R>): Promise<(index: number) => Row[]> {
   const { result, wasOnline } = await send(make, (answers) => answers);
   return rowsOf(result, wasOnline);
 }
 
-export async function listStockDocs(kind: StockDocKind): Promise<StockDoc[]> {
-  const list =
-    kind === 'opening'
-      ? await readAll((db) => Promise.all([db.from('opening_docs').select(OPENING_COLUMNS).order('status').order('created_at', { ascending: false }).limit(DOCS_PAGE)]))
-      : await readAll((db) => Promise.all([db.from('transfers').select(TRANSFER_COLUMNS).order('status').order('created_at', { ascending: false }).limit(DOCS_PAGE)]));
-  return list(0).map((row) => stockDoc(kind, row));
+/**
+ * المستندات بصفحات (keyset، FOUNDATION ١٩٨): المسوّدات أوّلاً ثم المرحَّلة ثم الملغاة، والأحدث أوّلاً بكل حالة؛ والعدد الكلّي بأوّل صفحة.
+ * كانت تقف عند 100 بلا «المزيد»، فالملغى والقديم يختفي (مراجعة WP4 الثانية). الرؤوس بلا قيم.
+ */
+export async function listStockDocs(kind: StockDocKind, after: DocCursor | null = null): Promise<DocPage> {
+  const table = kind === 'opening' ? 'opening_docs' : 'transfers';
+  const columns = kind === 'opening' ? OPENING_COLUMNS : TRANSFER_COLUMNS;
+  const { result, wasOnline } = await send(
+    (db) => {
+      let page = db.from(table).select(columns);
+      if (after) {
+        const at = quoted(after.createdAt);
+        page = page.or(`status.gt.${after.status},and(status.eq.${after.status},created_at.lt.${at}),and(status.eq.${after.status},created_at.eq.${at},id.lt.${after.id})`);
+      }
+      const rows = page.order('status').order('created_at', { ascending: false }).order('id', { ascending: false }).limit(DOCS_PAGE);
+      return Promise.all([rows, after ? null : db.from(table).select('id', { count: 'exact', head: true })]);
+    },
+    ([rows, count]) => (count ? [rows, count] : [rows]),
+  );
+  const [rows, count] = result;
+  for (const answer of count ? [rows, count] : [rows]) if (answer.error) throw classifyPostgrest(answer.error, answer.status, 'table', wasOnline);
+  // جدول الطرفين بمتغيّر: محلّل الأعمدة النوعي ما يقرا اتّحاد نصّين، فالصفوف تنقرا من unknown (stockDoc يفحص شكلها).
+  const docs = ((rows.data ?? []) as unknown as Row[]).map((row) => stockDoc(kind, row));
+  const last = docs.at(-1);
+  return {
+    rows: docs,
+    total: count ? (count.count ?? 0) : null,
+    next: docs.length === DOCS_PAGE && last ? { status: last.status, createdAt: last.createdAt, id: last.id } : null,
+  };
 }
 
 export interface OpeningLine {
@@ -949,12 +996,20 @@ export function createOpeningDraft(warehouseId: string, onDate: string): Promise
   return written(async (db) => updatedRows(withStatus(await db.from('opening_docs').insert({ warehouse_id: warehouseId, on_date: onDate }).select(OPENING_COLUMNS)))).then((row) => stockDoc('opening', row));
 }
 
-/** مسوّدة تحويل بملاحظتها بكتابة وحدة (رفّ الجهاز يرفع الرأس بملاحظته مرّة وحدة). */
-export function createTransferDraft(fromId: string, toId: string, movedOn: string, note: string | null = null): Promise<StockDoc> {
+/**
+ * مسوّدة تحويل بملاحظتها بكتابة وحدة (رفّ الجهاز يرفع الرأس بملاحظته مرّة وحدة). id اختياري يولد بالجهاز (FOUNDATION ١٩٩):
+ * الإعادة بعد جواب ضاع بنفس المعرّف ترجع 23505 بدل رأس ثاني (isDuplicate).
+ */
+export function createTransferDraft(fromId: string, toId: string, movedOn: string, note: string | null = null, id?: string): Promise<StockDoc> {
   const trimmed = note?.trim() || null;
   return written(async (db) =>
-    updatedRows(withStatus(await db.from('transfers').insert({ from_warehouse_id: fromId, to_warehouse_id: toId, moved_on: movedOn, note: trimmed }).select(TRANSFER_COLUMNS))),
+    updatedRows(withStatus(await db.from('transfers').insert({ ...(id ? { id } : {}), from_warehouse_id: fromId, to_warehouse_id: toId, moved_on: movedOn, note: trimmed }).select(TRANSFER_COLUMNS))),
   ).then((row) => stockDoc('transfer', row));
+}
+
+/** الإدراج بمعرّف موجود (23505): الإعادة بنفس معرّف الجهاز بعد ما انكتب أوّل مرّة. */
+export function isDuplicate(error: unknown): boolean {
+  return error instanceof RejectedError && error.code === '23505';
 }
 
 export interface DraftHeaderPatch {
@@ -1000,8 +1055,9 @@ export interface TransferLineFields {
   qty_in_unit: string;
 }
 
-export function addTransferLine(docId: string, fields: TransferLineFields): Promise<TransferLine> {
-  return written(async (db) => updatedRows(withStatus(await db.from('transfer_lines').insert({ ...fields, doc_id: docId }).select(TRANSFER_LINE_COLUMNS)))).then(transferLine);
+/** سطر التحويل؛ id اختياري يولد بالجهاز (رفّ الجهاز)، والإعادة بنفسه 23505 مو سطر ثاني. */
+export function addTransferLine(docId: string, fields: TransferLineFields, id?: string): Promise<TransferLine> {
+  return written(async (db) => updatedRows(withStatus(await db.from('transfer_lines').insert({ ...(id ? { id } : {}), ...fields, doc_id: docId }).select(TRANSFER_LINE_COLUMNS)))).then(transferLine);
 }
 
 export function updateTransferLine(lineId: string, patch: Partial<TransferLineFields>): Promise<TransferLine> {
@@ -1121,6 +1177,8 @@ export interface TransferPreviewLine {
 
 export interface TransferPreview {
   version: number;
+  /** بصمة القطع اللي شافها المستخدم (FOUNDATION ٥٢٠ البند 5): الترحيل يرسلها، والمخزون اللي تغيّر بعدها يرجع stale_preview. */
+  plan: string;
   internalExport: boolean;
   toDivisionKind: DivisionKind;
   problems: readonly Problem[];
@@ -1134,6 +1192,7 @@ export function parseTransferPreview(value: unknown): TransferPreview {
   if (version === null) throw new RowShapeError('version');
   return {
     version,
+    plan: str(json, 'plan'),
     internalExport: bool(json, 'internal_export'),
     toDivisionKind: oneOf(json, 'to_division_kind', DIVISION_ORDER),
     problems: arr(json.problems, 'problems').map((item) => problem(item)).filter((item): item is Problem => item !== null),
@@ -1203,8 +1262,9 @@ export async function postOpening(ref: StockRef, id: string, expectedVersion: nu
   return postedDoc(await call<unknown>('post_opening_stock', { p_id: id, p_expected_version: expectedVersion, p_client_ref: ref.clientRef }));
 }
 
-export async function postTransferDoc(ref: StockRef, id: string, expectedVersion: number): Promise<PostedStockDoc> {
-  return postedDoc(await call<unknown>('post_transfer', { p_id: id, p_expected_version: expectedVersion, p_client_ref: ref.clientRef }));
+/** الترحيل بنسخة المسوّدة وبصمة المعاينة اللي انوافق عليها؛ تغيّر المخزون بعد المعاينة يرجع stale_preview (RejectedError). */
+export async function postTransferDoc(ref: StockRef, id: string, expectedVersion: number, plan: string): Promise<PostedStockDoc> {
+  return postedDoc(await call<unknown>('post_transfer', { p_id: id, p_expected_version: expectedVersion, p_expected_plan: plan, p_client_ref: ref.clientRef }));
 }
 
 export async function voidOpening(ref: StockRef, id: string, reason: string): Promise<PostedStockDoc> {

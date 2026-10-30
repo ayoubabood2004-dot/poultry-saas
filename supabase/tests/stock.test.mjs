@@ -64,7 +64,7 @@ async function zoneSweep(t, db) {
       const post = async (doc) => {
         await q('savepoint z');
         try {
-          await q('select public.post_transfer($1, $2, gen_random_uuid())', [doc.id, doc.version]);
+          await q('select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [doc.id, doc.version]);
           return 'ok';
         } catch (error) {
           return error.message;
@@ -395,7 +395,7 @@ async function scenario(t, db) {
   const once = { commit: false };
   t.same(
     {
-      postTransfer: shown(await call(db, U.storekeeper, 'select public.post_transfer($1, null, $2)', [loose.id, uid()], once)),
+      postTransfer: shown(await call(db, U.storekeeper, 'select public.post_transfer($1, null, public.preview_transfer($1) ->> \'plan\', $2)', [loose.id, uid()], once)),
       postOpening: shown(await call(db, U.manager, 'select public.post_opening_stock($1, null, $2)', [looseOpening.id, uid()], once)),
       discard: shown(await call(db, U.storekeeper, "select public.discard_draft('transfer', $1, null)", [loose.id], once)),
       deleteLine: shown(await call(db, U.storekeeper, "select public.delete_draft_line('transfer', $1, null)", [loose.lines[0]], once)),
@@ -576,35 +576,81 @@ async function scenario(t, db) {
   };
   const insertMove = (q, m) =>
     q(
-      'insert into public.stock_moves (id, org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
-      [m.id ?? uid(), S.org, m.doc_kind, m.doc_id, m.doc_line_id ?? null, m.item_id, m.warehouse_id, m.lot_id, m.qty, m.value, m.moved_on, m.reverses ?? null],
+      'insert into public.stock_moves (id, org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id, expiry_checked) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+      [m.id ?? uid(), S.org, m.doc_kind, m.doc_id, m.doc_line_id ?? null, m.item_id, m.warehouse_id, m.lot_id, m.qty, m.value, m.moved_on, m.reverses ?? null, m.expiry_checked ?? null],
     );
+  // ضوابط الفحوص 9–11 بطفرة حقيقية: الدالّة نفسها مكسورة داخل معاملة ترجع، والترحيل يمرّ بالكسر (بصمة المعاينة من draw_plan
+  // المكسور بنفس الطريقة)، فالفحوص الثمانية الأولى صفر والجديد يقلب (مراجعة WP4 الثانية: هاي الأخطاء كانت تمرّ بكل الفحوص).
+  const fnDef = async (sig) => (await db.admin('select pg_get_functiondef($1::regprocedure) as d', [sig])).rows[0].d;
+  const swap = (text, from, to) => {
+    if (!text.includes(from)) throw new Error(`مرساة الطفرة غير موجودة: ${from}`);
+    return text.split(from).join(to);
+  };
+  const drawDef = await fnDef('private.draw(uuid,uuid,numeric,date,uuid,boolean)');
+  const planDef = await fnDef('private.draw_plan(uuid,uuid,numeric,date,uuid,boolean,numeric[])');
+  const openDef = await fnDef('public.post_opening_stock(uuid,integer,uuid)');
+  const voidDef = await fnDef('public.void_transfer(uuid,text,uuid)');
+  const viaPreview = (q, draft) => q("select public.post_transfer($1, $2, public.preview_transfer($1) ->> 'plan', gen_random_uuid())", [draft.id, draft.version]);
+  const lifoItem = await item('كاز الترتيب', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: lifoItem, qty: 100, value: 100 }, { item: lifoItem, qty: 100, value: 300 }]);
+  const lifoDraft = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: lifoItem, qty: 50 }]);
+  const splitItem = await item('كاز القسمة', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: splitItem, qty: 3, value: 10 }]);
+  const splitDraft = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: splitItem, qty: 2 }]);
+  const doubleDraft = await openingDraft(db, U.manager, W.general, GO_LIVE, [{ item: await item('كاز الضعف', 'fuel', 'L'), qty: 10, value: 100 }]);
+  const halfItem = await item('كاز الإلغاء الناقص', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: halfItem, qty: 10, value: 10 }, { item: halfItem, qty: 10, value: 30 }]);
+  const halfTransfer = await postedTransfer(db, U.manager, W.general, W.raw, TODAY, [{ item: halfItem, qty: 15 }]);
+  const LIFO = ['order by l.expiry_on asc nulls last, l.fifo_seq, l.id', 'order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id'];
   const BREAKS = {
     balance_identity: [{ balance_identity: 1 }, (q) => q('update public.stock_balances set qty = qty + 1 where item_id = $1 and warehouse_id = $2', [I.diesel, W.farm1])],
-    lot_moves: [{ lot_moves: 1 }, (q) => q('update public.stock_lots set qty_in = qty_in + 1 where id = $1', [gasLot])],
-    lot_shape: [{ lot_shape: 1 }, (q) => q('update public.stock_lots set born_at = null where id = $1', [youngChicks])],
-    reversal_pairs: [{ reversal_pairs: 1 }, async (q) => {
+    // دفعة بلا حركتها الأصلية بمخزن عنده صفّ رصيد: المتبقّي صفر فالأرصدة والمجاميع ما تتغيّر، وبلا سطر ولا حركة فـdoc_moves ما يشوفها.
+    lot_moves: [{ lot_moves: 1 }, (q) => q("insert into public.stock_lots (org_id, item_id, warehouse_id, fifo_seq, received_on, qty_in, value_in, qty_left, value_left, source_kind, source_id) values ($1, $2, $3, 999997, $4, 5, 50, 0, 0, 'opening', gen_random_uuid())", [S.org, I.gas, W.general2, TODAY])],
+    // دفعة الافتتاح نفسها: سطرها بوقت فقس، فالمستند (doc_moves) يختلف هم.
+    lot_shape: [{ lot_shape: 1, doc_moves: 1 }, (q) => q('update public.stock_lots set born_at = null where id = $1', [youngChicks])],
+    reversal_pairs: [{ reversal_pairs: 1, doc_moves: 2 }, async (q) => {
       await q('alter table public.stock_moves disable trigger stock_moves_check');
       await insertMove(q, { ...t0Draw, id: undefined, qty: t0Draw.qty.slice(1), value: t0Draw.value.slice(1), doc_id: uid(), reverses: t0Draw.id });
       await insertMove(q, { ...t0Draw, id: undefined, doc_id: uid(), doc_line_id: null });
     }],
     // المرآة ومرآتها (40 لتراً بالحقل) كلتاهما تخالفان انتهاء مصدرهما بعد الكسر.
     mirror_pairs: [{ mirror_pairs: 2 }, (q) => q("update public.stock_lots set expiry_on = '2027-01-01' where id = $1", [dieselMirror.id])],
-    draw_dates: [{ draw_dates: 1 }, async (q) => {
+    draw_dates: [{ draw_dates: 1, doc_moves: 2 }, async (q) => {
       const early2 = uid();
       const doc = uid();
-      await insertMove(q, { id: early2, doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: -1, value: -800, moved_on: '2026-10-27' });
+      await insertMove(q, { id: early2, doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: -1, value: -800, moved_on: '2026-10-27', expiry_checked: false });
       await insertMove(q, { doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: 1, value: 800, moved_on: TODAY, reverses: early2 });
     }],
     admissible: [{ admissible: 'many' }, async (q) => {
       await q('alter table public.items disable trigger items_stock_guard');
       await q("update public.items set kind = 'feed' where id = $1", [I.diesel]);
     }],
-    value_conservation: [{ value_conservation: 1 }, async (q) => {
+    // قيمة سطر الافتتاح غير قيمة دفعته: الطرفان بالحفظ (8) والمستند (11) يختلفان.
+    value_conservation: [{ value_conservation: 1, doc_moves: 1 }, async (q) => {
       await q('alter table public.opening_lines disable trigger opening_lines_guard');
       await q('update public.opening_lines set value = value + 1 where doc_id = $1', [dieselDoc.id]);
     }],
     posted_division_stamped: [{ posted_division_stamped: 1 }, (q) => q('update public.divisions set first_posted_at = null where id = $1', [S.divisions.feed_mill])],
+    // 9: قطعة جزئية تقريبها مقطوع (6.66 بدل 6.67 لـ2 من 3 لترات بـ10.00) بالمصدر والمرآة سوا.
+    draw_values: [{ draw_values: 1 }, async (q) => {
+      const trunc = ['private._mul_div_round2(v_take, c.value_left, c.qty_left)', 'trunc(v_take * c.value_left / c.qty_left, 2)'];
+      await q(swap(drawDef, ...trunc));
+      await q(swap(planDef, 'private._mul_div_round2(v_take, v_vl[v_k], v_ql[v_k])', 'trunc(v_take * v_vl[v_k] / v_ql[v_k], 2)'));
+      await viaPreview(q, splitDraft);
+    }],
+    // 10: السحب من الأحدث (LIFO): 50 لتراً بـ150.00 بدل 50.00، والقطعة ومرآتها متساويتان.
+    draw_order: [{ draw_order: 1 }, async (q) => {
+      await q(swap(drawDef, ...LIFO));
+      await q(swap(planDef, 'over (order by l.expiry_on asc nulls last, l.fifo_seq, l.id)', 'over (order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id)'));
+      await viaPreview(q, lifoDraft);
+    }],
+    // 11: دفعة افتتاح بضعف كمية سطرها (وحركتها نفسها)، فكلفة الوحدة نصّ: الدفعة وحركتها والقيمة متّفقة، والمستند وحده يختلف.
+    doc_moves: [{ doc_moves: 1 }, async (q) => {
+      let def = swap(openDef, 'ln.born_at, ln.qty_base, ln.value', 'ln.born_at, ln.qty_base * 2, ln.value');
+      def = swap(def, 'ln.id, ln.qty_base, ln.value, d.on_date', 'ln.id, ln.qty_base * 2, ln.value, d.on_date');
+      await q(def);
+      await q('select public.post_opening_stock($1, $2, gen_random_uuid())', [doubleDraft.id, doubleDraft.version]);
+    }],
   };
   t.same(Object.keys(BREAKS).sort(), Object.keys(STOCK_ZERO).sort(), `كل فحص بـverify_stock إله ضابط كسر (${Object.keys(STOCK_ZERO).length})`);
   // ضوابط ثانية لفرع ثاني بنفس الفحص: سحب من دفعة لقاح منتهية بيوم السحب (الفحص 6 بشقّ الانتهاء، مو الاستلام)، ووقت فقس على
@@ -612,20 +658,32 @@ async function scenario(t, db) {
   const expiredVial = (await lotsOf(db, I.vaccine, W.medicine)).find((l) => l.expiry_on === '2026-10-29');
   const keroseneRawLot = await lotIdOf(kerosene, W.raw);
   const EXTRA_BREAKS = {
-    'draw_dates (منتهية بيوم السحب)': ['draw_dates', [{ draw_dates: 1 }, async (q) => {
+    'draw_dates (منتهية بيوم السحب)': ['draw_dates', [{ draw_dates: 1, doc_moves: 2 }, async (q) => {
       const drawn = uid();
       const doc = uid();
-      await insertMove(q, { id: drawn, doc_kind: 'transfer', doc_id: doc, item_id: I.vaccine, warehouse_id: W.medicine, lot_id: expiredVial.id, qty: -1, value: -10000, moved_on: TODAY });
+      await insertMove(q, { id: drawn, doc_kind: 'transfer', doc_id: doc, item_id: I.vaccine, warehouse_id: W.medicine, lot_id: expiredVial.id, qty: -1, value: -10000, moved_on: TODAY, expiry_checked: true });
       await insertMove(q, { doc_kind: 'transfer', doc_id: doc, item_id: I.vaccine, warehouse_id: W.medicine, lot_id: expiredVial.id, qty: 1, value: 10000, moved_on: TODAY, reverses: drawn });
     }]],
-    'lot_shape (وقت فقس لغير الأفراخ)': ['lot_shape', [{ lot_shape: 1 }, (q) => q('update public.stock_lots set born_at = now() where id = $1', [keroseneRawLot])]],
+    'lot_shape (وقت فقس لغير الأفراخ)': ['lot_shape', [{ lot_shape: 1, doc_moves: 1 }, (q) => q('update public.stock_lots set born_at = now() where id = $1', [keroseneRawLot])]],
+    // سحب أصلي بلا علامة الانتهاء: كل حزمة تكتبها (الفحص 6 بعلامة يوم السحب).
+    'draw_dates (سحب بلا علامة الانتهاء)': ['draw_dates', [{ draw_dates: 1, doc_moves: 2 }, async (q) => {
+      const drawn = uid();
+      const doc = uid();
+      await insertMove(q, { id: drawn, doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: -1, value: -800, moved_on: TODAY });
+      await insertMove(q, { doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: 1, value: 800, moved_on: TODAY, reverses: drawn });
+    }]],
+    // إلغاء ناقص: الأولى من قطعتين انعكست والتحويل صار ملغى، والثانية ومرآتها باقيتان (قطعة السطر بلا عكس، وحركتان بمستند ملغى).
+    'doc_moves (إلغاء ناقص)': ['doc_moves', [{ doc_moves: 3 }, async (q) => {
+      await q(swap(voidDef, 'order by x.source_line_id, x.id loop', 'order by x.source_line_id, x.id limit 1 loop'));
+      await q('select public.void_transfer($1, $2, gen_random_uuid())', [halfTransfer.id, 'ضابط الإلغاء الناقص']);
+    }]],
   };
   for (const [check, [expected, statements]] of [...Object.entries(BREAKS), ...Object.entries(EXTRA_BREAKS).map(([label, [, probe]]) => [label, probe])]) {
     const broken = await probe(statements);
     const many = Object.entries(expected).filter(([, v]) => v === 'many').map(([k]) => k);
     const fixed = typeof broken === 'string' ? broken : Object.fromEntries(Object.entries(broken).filter(([k]) => !many.includes(k)));
     const want = Object.fromEntries(Object.entries({ ...STOCK_ZERO, ...expected }).filter(([k]) => !many.includes(k)));
-    t.ok(typeof broken !== 'string' && many.every((k) => broken[k] > 0) && JSON.stringify(fixed) === JSON.stringify(want), `ضابط: verify_stock يمسك ${check} وحده (${JSON.stringify(broken)})`);
+    t.ok(typeof broken !== 'string' && many.every((k) => broken[k] > 0) && JSON.stringify(fixed) === JSON.stringify(want), `ضابط: كسر ${check} يقلب ${Object.keys(expected).join(' و')} بالعدد المتوقّع والباقي صفر (${JSON.stringify(broken)})`);
   }
 
   // عمر الفرخ وتنبيه 48 ساعة للأفراخ بس (E24): دفعة وقود عليها وقت فقس (لو عبرت) ما تصير «أفراخ فاتها 48 ساعة» باللوحة والرئيسية.

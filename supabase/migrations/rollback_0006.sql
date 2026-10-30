@@ -8,6 +8,9 @@
 
 set lock_timeout = '5s';
 
+-- الجداول تتقفل قبل العدّ ولحد نهاية المعاملة (مراجعة WP4 على rollback_0007): قيد أو حركة تنكتب بعد العدّ وقبل الحذف كانت تنحذف.
+lock table public.party_entries, public.party_allocations, public.cash_moves, public.item_units in access exclusive mode;
+
 do $$
 declare
   v_entries bigint;

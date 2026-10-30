@@ -18,9 +18,9 @@ import type { Milli } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { itemAdmissible } from '../../domain/stock';
 import { parseQty, toBase } from '../../domain/units';
-import { parseDayText } from '../../lib/dayText';
+import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
-import { fmtDay, fmtMoney } from '../../lib/format';
+import { fmtDay, fmtMoney, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
@@ -28,7 +28,7 @@ import type { ItemRow, OpeningLine, OpeningPreview, StockDoc } from '../../lib/r
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, qtyColumns, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, VoidDocDialog, type StoreRef } from './stock-shared';
+import { docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useDocPages, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بيوم التشغيل أو قبله، وسطورها
 // بالكمية بوحدة الأساس والقيمة بمرتبتين (الصفر ويّا سببه بس، Q9؛ الانتهاء للمادّة اللي تتابعه، ووقت الفقس للأفراخ)، ثم معاينة
@@ -37,6 +37,14 @@ import { docStatusLabel, ItemPicker, qtyColumns, runWithRef, unitOptions, scoped
 
 export function openingSentence(store: string, total: bigint, day: string): string {
   return t('opening.post.summary', 'رصيد افتتاحي لـ«{store}» بتاريخ {day}، بقيمة {total} دينار.', { store, day: fmtDay(day), total: fmtMoney(total) });
+}
+
+/**
+ * جملة إلغاء الافتتاح (FOUNDATION ٧٦٦، مثل جملة التحويل): شنو يطلع من المخزن بالضبط، كل مادّة بكميتها، ثم شنو يصير بالدفعات.
+ */
+export function openingVoidSentence(store: string, lines: readonly Pick<OpeningLine, 'qty' | 'baseUnit' | 'itemName'>[]): string {
+  const out = lines.map((line) => t('opening.void.line', '{qty} من «{item}»', { qty: fmtQty(line.qty, line.baseUnit).main, item: line.itemName })).join(t('list.separator', '، '));
+  return t('opening.void.sentence', 'يخرج من «{store}»: {out}. تنعكس دفعاته بتاريخ اليوم والأصل يبقى بيومه، وإن انسحب من دفعة منه رُفض الإلغاء باسم المستند.', { store, out });
 }
 
 /** الدفعات اللي راح تنخلق من معاينة الخادم: مشكلة السطر جملته نفسها. */
@@ -246,7 +254,7 @@ function OpeningEditor({ docId }: { docId: string }) {
       {confirm === 'void' ? (
         <VoidDocDialog
           title={t('opening.void.title', 'ألغِ افتتاح «{store}»', { store: store?.name ?? '—' })}
-          consequence={t('opening.void.consequence', 'تنعكس دفعاته بتاريخ اليوم ويرجع رصيدها صفراً، والأصل يبقى بيومه. إن انسحب من دفعة منه رُفض الإلغاء باسم المستند.')}
+          consequence={openingVoidSentence(store?.name ?? '—', lines)}
           busy={busy}
           failure={failure}
           onConfirm={(reason) => void voidDoc(reason)}
@@ -271,12 +279,23 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(store.kind, row.kind), [store.kind]);
   const amount = parseMoneyText(value, false);
+  // مادّة ثانية تبدأ من وحداتها هي وكمية وانتهاء ووقت فقس فارغة: كانت تنرسل بوحدة تعبئة المادّة السابقة وانتهائها المخفي
+  // (مراجعة WP4 الثانية).
+  const pickItem = (next: ItemRow | null) => {
+    setItem(next);
+    setPacks(null);
+    setPacksFailed(null);
+    setQty({ text: '', unitId: 'base' });
+    setExpiry('');
+    setBorn('');
+  };
+  const bornAt = born.trim() ? parseMomentText(born) : null;
   useEffect(() => {
     if (!item) return;
     let cancelled = false;
     inventory.listItemUnits(item.id).then(
       (rows) => {
-        if (!cancelled) setPacks(rows);
+        if (!cancelled) setPacks(rows.filter((row) => row.itemId === item.id));
       },
       (error: unknown) => {
         if (!cancelled) setPacksFailed(error);
@@ -294,8 +313,11 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
     const converted = item && entered !== null && unit ? toBase(entered, unit.factor, item.baseUnit) : null;
     const quantity: Milli | null = converted?.ok ? converted.qty : null;
     const expiryDay = expiry.trim() ? parseDayText(expiry) : null;
-    const bornAt = born.trim() ? new Date(born.trim()) : null;
-    if (!item || quantity === null || quantity <= 0n || amount === null || (amount === 0n && !reason.trim()) || (expiry.trim() && !expiryDay) || (bornAt && Number.isNaN(bornAt.getTime()))) {
+    if (item?.kind === 'chick' && born.trim() && !bornAt) {
+      setFailure(new RejectedError('fields', t('opening.born.invalid', 'اكتب وقت الفقس يوم/شهر/سنة ثم الساعة والدقيقة، مثل 28/10/2026 06:00.')));
+      return;
+    }
+    if (!item || quantity === null || quantity <= 0n || amount === null || (amount === 0n && !reason.trim()) || (expiry.trim() && !expiryDay)) {
       setFailure(new RejectedError('fields', t('opening.line.fields', 'اختر المادّة واكتب الكمية والقيمة (الصفر مع سببه)، والتاريخ يوم/شهر/سنة.')));
       return;
     }
@@ -308,7 +330,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
         value: decimalText(amount, 2),
         zero_reason: amount === 0n ? reason.trim() : null,
         expiry_on: expiryDay,
-        born_at: bornAt ? bornAt.toISOString() : null, // date-ok: لحظة الفقس كاملة (timestamptz)، مو يوماً
+        born_at: item.kind === 'chick' ? bornAt : null,
       })
       .then(async () => {
         setItem(null);
@@ -325,7 +347,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={setItem} filter={admits} />
+      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={units} value={qty} onChange={setQty} /> : <p className="text-sm text-ink-muted">{t('opening.qty.pick', 'اختر المادّة أوّلاً ثم اكتب كميتها.')}</p>}
         <MoneyInput id={`${id}-value`} label={t('opening.value', 'القيمة (دينار)')} value={value} onChange={setValue} whole={false} />
@@ -341,7 +363,11 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
         </Field>
       ) : null}
       {item?.kind === 'chick' ? (
-        <Field id={`${id}-born`} label={t('opening.born', 'وقت الفقس')} hint={t('opening.born.hint', 'مثل 2026-10-28T06:00')}>
+        <Field
+          id={`${id}-born`}
+          label={t('opening.born', 'وقت الفقس (يوم/شهر/سنة ساعة:دقيقة)')}
+          hint={bornAt ? t('opening.born.read', 'يُقرأ: {day} الساعة {time}', { day: fmtDay(parseDayText(born.trim().split(/[ T]+/u)[0] ?? '') ?? ''), time: readTime(bornAt) }) : t('opening.born.hint', 'مثل 28/10/2026 06:00')}
+        >
           <input id={`${id}-born`} className="input" dir="ltr" value={born} onChange={(event) => setBorn(event.target.value)} />
         </Field>
       ) : null}
@@ -402,8 +428,7 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
 export function OpeningsList() {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
-  const load = useCallback(() => inventory.listStockDocs('opening'), []);
-  const docs = useLoad(load);
+  const docs = useDocPages('opening');
   const setup = useLoad(inventory.loadOrgSetup);
   const stores = setup.data ? scopedStores(storesOf(setup.data), workspace) : [];
   const names = new Map(stores.map((s) => [s.id, s.name]));
@@ -419,10 +444,13 @@ export function OpeningsList() {
       {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'رصيد الافتتاح للمدير ومالك المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewOpening stores={stores} /> : null}
-      {docs.error ? (
-        <LoadFailed what={t('opening.list.what', 'مستندات الافتتاح')} error={docs.error} onRetry={docs.retry} />
-      ) : docs.data ? (
-        <DataTable caption={t('stock.openings', 'رصيد الافتتاح')} columns={columns} rows={docs.data} rowKey={(doc) => doc.id} empty={t('opening.list.empty', 'لا مستندات افتتاح بعد.')} />
+      {docs.first.error ? (
+        <LoadFailed what={t('opening.list.what', 'مستندات الافتتاح')} error={docs.first.error} onRetry={docs.first.retry} />
+      ) : docs.first.data ? (
+        <>
+          <DataTable caption={t('stock.openings', 'رصيد الافتتاح')} columns={columns} rows={docs.rows} rowKey={(doc) => doc.id} empty={t('opening.list.empty', 'لا مستندات افتتاح بعد.')} />
+          <PageFooter shown={docs.rows.length} total={docs.total} next={docs.next !== null} busy={docs.more.busy} error={docs.more.error} what={t('opening.list.what', 'مستندات الافتتاح')} onMore={docs.loadMore} action="more-openings" />
+        </>
       ) : null}
     </div>
   );
