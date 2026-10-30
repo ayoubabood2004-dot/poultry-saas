@@ -674,6 +674,7 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
   const [failure, setFailure] = useState<unknown>(null);
   const [packs, setPacks] = useState<readonly inventory.ItemUnitRow[]>([]);
+  const [packsFailed, setPacksFailed] = useState<unknown>(null);
   const admits = useCallback((row: ItemRow) => itemAdmissible(from.kind, row.kind) && itemAdmissible(to.kind, row.kind), [from.kind, to.kind]);
   useEffect(() => {
     if (!item) return;
@@ -682,8 +683,8 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
       (rows) => {
         if (!cancelled) setPacks(rows.filter((row) => row.itemId === item.id));
       },
-      () => {
-        if (!cancelled) setPacks([]);
+      (error: unknown) => {
+        if (!cancelled) setPacksFailed(error);
       },
     );
     return () => {
@@ -727,11 +728,13 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
         onChange={(next) => {
           setItem(next);
           setPacks([]);
+          setPacksFailed(null);
           setQty({ text: '', unitId: 'base' });
         }}
         filter={admits}
         offline={!online}
       />
+      {packsFailed ? <LoadFailed what={t('transfer.units.what', 'وحدات المادّة')} error={packsFailed} onRetry={() => { setPacksFailed(null); setItem(item ? { ...item } : null); }} /> : null}
       {item ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={units} value={qty} onChange={setQty} /> : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>

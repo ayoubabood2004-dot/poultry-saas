@@ -515,13 +515,13 @@ async function fakeSupabaseChecks(t) {
       as_of: '2026-10-30T11:05:00.123+00:00',
       today: '2026-10-30',
       rows: [{ item_id: 'i-1', name: 'أفراخ لحم', kind: 'chick', base_unit: 'pc', tracks_expiry: false, min_qty: null, archived: false, available: '150.000', expired: '0', near_expiry: '0', below_min: false, oldest_born_at: '2026-10-28T09:00:00+00:00', chick_age_hours: '50', old_chicks: '100.000' }],
-      next: 'i-1',
+      next: { name: 'افراخ لحم', id: 'i-1' },
       total: 101,
     };
     const parsedBoard = m.parseStockBoard(chickBoard);
     t.same(
       [parsedBoard.rows[0].available, parsedBoard.rows[0].expired, parsedBoard.rows[0].chickAgeHours, parsedBoard.rows[0].oldChicks, parsedBoard.warehouse.hasBalance, parsedBoard.next, parsedBoard.total],
-      [150_000n, 0n, 50n, 100_000n, true, 'i-1', 101],
+      [150_000n, 0n, 50n, 100_000n, true, { name: 'افراخ لحم', id: 'i-1' }, 101],
       'stock_on_hand: «150.000» و«0» بالآلاف، وعمر الفرخ 50 ساعة، و100 فرخ فاتها 48 ساعة، والمؤشّر والعدد',
     );
     t.eq(shapeOf(() => m.parseStockBoard({ ...chickBoard, rows: [{ ...chickBoard.rows[0], available: 150 }] })), 'row_shape:available', 'كمية رقم JSON (مو نصّ عشري) ترمي باسمها');
@@ -552,12 +552,12 @@ async function fakeSupabaseChecks(t) {
     const lotValue = (await m.loadItemLotValues('i-1', 'w-1', 'l-0')).get('l-1');
     t.same([lotValue.valueLeft, lotValue.qtyLeft, m.fmtUnitCost(m.unitCost4(lotValue.valueLeft, lotValue.qtyLeft))], [240_416_667n, 5_000_000n, '480.8333'], 'item_lots_value: 2,404,166.67 لـ5,000 كغم ← كلفة الوحدة 480.8333 (C2)');
     t.same(sent.at(-1), ['item_lots_value', { p_item: 'i-1', p_warehouse: 'w-1', p_after: { id: 'l-0' }, p_limit: 100 }], 'قيم الدفعات بنفس مؤشّر صفحة الدفعات');
-    t.same((await m.loadStockValues('w-1', 'i-0')).get('i-1'), { available: 3_600_000n, expired: 0n }, 'stock_values: القيمة بالفلس و«0» صفر');
-    t.same(sent.at(-1), ['stock_values', { p_warehouse: 'w-1', p_after_item: 'i-0', p_limit: 100 }], 'قيم اللوحة بمؤشّر صفحتها');
+    t.same((await m.loadStockValues('w-1', { name: 'x', id: 'i-0' })).get('i-1'), { available: 3_600_000n, expired: 0n }, 'stock_values: القيمة بالفلس و«0» صفر');
+    t.same(sent.at(-1), ['stock_values', { p_warehouse: 'w-1', p_after: { name: 'x', id: 'i-0' }, p_limit: 100 }], 'قيم اللوحة بمؤشّر صفحتها (الاسم والمعرّف كما وصلا)');
     const totals = await m.loadStockValueTotals('w-1');
     t.same([totals.total, totals.available, totals.expired, totals.units[0].available], [691_106_667n, 691_106_667n, 0n, 9_950_000n], 'stock_value_totals: المجموع من الخادم بالفلس والكمية بالآلاف');
     const masked = m.parseTransferPreview({
-      id: 't-1', kind: 'transfer', status: 'draft', version: 3, doc_no: null, internal_export: true, to_division_kind: 'feed_mill', problems: [], ready: true,
+      id: 't-1', kind: 'transfer', status: 'draft', version: 3, plan: '0123456789abcdef0123456789abcdef', doc_no: null, internal_export: true, to_division_kind: 'feed_mill', problems: [], ready: true,
       lines: [{ line_id: 'x', line_no: 1, item_id: 'i-1', item_name: 'كاز أويل', base_unit: 'L', tracks_expiry: false, qty: '1000.000', qty_in_unit: '1000.000', unit_label: 'L', item_unit_id: null, unit_code: null, available: '1000.000', expired: '0', later: '0', shortage: '0.000', whole_balance: true, problem: null, draws: [{ lot_id: 'l-1', qty: '1000.000', received_on: '2026-10-20', expiry_on: null, source_kind: 'opening', source: 'رصيد افتتاح بتاريخ 20/10/2026', supplier_lot_no: null }] }],
     });
     t.same([masked.lines[0].value, masked.lines[0].draws[0].value, masked.lines[0].qty, masked.lines[0].wholeBalance], [null, null, 1_000_000n, true], 'معاينة الأمين (بلا money): القيمة null مو صفر، والكمية بالآلاف');
@@ -592,21 +592,21 @@ async function fakeSupabaseChecks(t) {
     t.same([maskedOpening.total, maskedOpening.lines[0].value], [null, null], 'معاينة افتتاح بلا money: المجموع والقيمة null مو صفر');
     fake.plan.rpc = async (fn, args) => {
       sent.push([fn, args]);
-      if (fn === 'stock_values') return { data: { warehouse_id: 'w-1', rows: [{ item_id: 'i-1', available: args.p_after_item === 'bad' ? null : '36000.00', expired: '1250.50' }] }, error: null, status: 200 };
+      if (fn === 'stock_values') return { data: { warehouse_id: 'w-1', rows: [{ item_id: 'i-1', available: args.p_after?.id === 'bad' ? null : '36000.00', expired: '1250.50' }] }, error: null, status: 200 };
       if (fn === 'item_lots_qty') return { data: { item: lotItem, rows: [lotOf({})], next: null, total: 1 }, error: null, status: 200 };
       if (fn === 'item_moves_qty') return { data: { rows: [moveOf({ seq: '9' })], next: null, total: null }, error: null, status: 200 };
       if (fn === 'delete_draft_line') return { data: { line_id: 'x', deleted: true, doc_id: 't-1', version: 5 }, error: null, status: 200 };
       return { data: null, error: null, status: 200 };
     };
-    t.same((await m.loadStockValues('w-1', 'i-0')).get('i-1'), { available: 3_600_000n, expired: 125_050n }, 'stock_values: قيمة المنتهي بالفلس (1,250.50)');
-    t.eq(await m.loadStockValues('w-1', 'bad').then(() => 'ما رمى', (error) => (error instanceof m.RowShapeError ? error.message : `رمى غيره: ${error.message}`)), 'row_shape:available', 'قيمة فارغة من الخادم ترمي باسمها، مو صفر');
+    t.same((await m.loadStockValues('w-1', { name: 'x', id: 'i-0' })).get('i-1'), { available: 3_600_000n, expired: 125_050n }, 'stock_values: قيمة المنتهي بالفلس (1,250.50)');
+    t.eq(await m.loadStockValues('w-1', { name: 'x', id: 'bad' }).then(() => 'ما رمى', (error) => (error instanceof m.RowShapeError ? error.message : `رمى غيره: ${error.message}`)), 'row_shape:available', 'قيمة فارغة من الخادم ترمي باسمها، مو صفر');
     await m.loadItemLots('i-1', 'w-1', 'l-0');
     t.same(sent.at(-1), ['item_lots_qty', { p_item: 'i-1', p_warehouse: 'w-1', p_after: { id: 'l-0' }, p_limit: 100 }], 'صفحة الدفعات الجاية بمؤشّر { id } (شكل item_lots_qty)');
     await m.loadItemMoves('i-1', 'w-1', 8n);
     t.same(sent.at(-1), ['item_moves_qty', { p_item: 'i-1', p_warehouse: 'w-1', p_after_seq: '8', p_limit: 100 }], 'صفحة الحركات الجاية برقم آخر حركة نصّاً عشرياً (bigint، E3)');
     t.same(await m.deleteDraftLine('transfer', 'x', 4), { deleted: true, version: 5 }, 'حذف السطر يرجّع نسخة المسوّدة الجديدة');
-    const tr = (over) => ({ id: 't-1', doc_no: null, from_warehouse_id: 'w-1', to_warehouse_id: 'w-2', moved_on: '2026-10-30', status: 'draft', version: 1, note: null, posted_at: null, void_reason: null, ...over });
-    const op = (over) => ({ id: 'o-1', warehouse_id: 'w-1', on_date: '2026-10-20', status: 'draft', version: 3, note: null, posted_at: null, void_reason: null, ...over });
+    const tr = (over) => ({ id: 't-1', created_at: '2026-10-30T10:00:00.000001+00:00', doc_no: null, from_warehouse_id: 'w-1', to_warehouse_id: 'w-2', moved_on: '2026-10-30', status: 'draft', version: 1, note: null, posted_at: null, void_reason: null, ...over });
+    const op = (over) => ({ id: 'o-1', created_at: '2026-10-20T10:00:00.000001+00:00', warehouse_id: 'w-1', on_date: '2026-10-20', status: 'draft', version: 3, note: null, posted_at: null, void_reason: null, ...over });
     fake.plan.tables = { transfers: { data: [tr({})], error: null, status: 201 }, opening_docs: { data: [op({})], error: null, status: 200 } };
     const lastQuery = (table) => fake.queries.filter((q) => q.table === table).at(-1);
     await m.createTransferDraft('w-1', 'w-2', '2026-10-30', '   ');
@@ -622,7 +622,7 @@ async function fakeSupabaseChecks(t) {
       'تعديل رأس المسوّدة بشرط نسختها (FOUNDATION ٨١٧) للنوعين',
     );
     fake.plan.tables = { transfers: { data: [tr({ status: 'void', doc_no: 'TR-2026-0001', posted_at: '2026-10-30T10:00:00Z', void_reason: 'خطأ', version: 3 }), tr({ id: 't-2', status: 'void', version: 2 })], error: null, status: 200 } };
-    t.same((await m.listStockDocs('transfer')).map((d) => [d.id, d.status, d.posted]), [['t-1', 'void', true], ['t-2', 'void', false]], 'الملغى بعد ترحيله مرحَّل بختمه، والمطويّة بلا ترحيل');
+    t.same((await m.listStockDocs('transfer')).rows.map((d) => [d.id, d.status, d.posted]), [['t-1', 'void', true], ['t-2', 'void', false]], 'الملغى بعد ترحيله مرحَّل بختمه، والمطويّة بلا ترحيل');
     fake.plan.tables = undefined;
     fake.plan.rpc = undefined;
   }

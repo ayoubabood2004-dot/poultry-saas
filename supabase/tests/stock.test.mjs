@@ -563,7 +563,6 @@ async function scenario(t, db) {
     )
   ).rows[0];
   const youngChicks = (await lotsOf(db, I.chicks, W.chick)).find((l) => l.qty_left === '50').id;
-  const gasLot = await lotIdOf(I.gas, W.general2);
   const probe = async (statements) => {
     try {
       return await db.asOwner(async (q) => {
@@ -608,10 +607,11 @@ async function scenario(t, db) {
     lot_moves: [{ lot_moves: 1 }, (q) => q("insert into public.stock_lots (org_id, item_id, warehouse_id, fifo_seq, received_on, qty_in, value_in, qty_left, value_left, source_kind, source_id) values ($1, $2, $3, 999997, $4, 5, 50, 0, 0, 'opening', gen_random_uuid())", [S.org, I.gas, W.general2, TODAY])],
     // دفعة الافتتاح نفسها: سطرها بوقت فقس، فالمستند (doc_moves) يختلف هم.
     lot_shape: [{ lot_shape: 1, doc_moves: 1 }, (q) => q('update public.stock_lots set born_at = null where id = $1', [youngChicks])],
-    reversal_pairs: [{ reversal_pairs: 1, doc_moves: 2 }, async (q) => {
+    // عكسية بمستند غير مستند أصلها، وسحب يعادلها بمستند ثالث: المستند (doc_moves) يختلف بالحركتين وبسطر الأصل المعكوس وهو مرحَّل.
+    reversal_pairs: [{ reversal_pairs: 1, doc_moves: 3 }, async (q) => {
       await q('alter table public.stock_moves disable trigger stock_moves_check');
       await insertMove(q, { ...t0Draw, id: undefined, qty: t0Draw.qty.slice(1), value: t0Draw.value.slice(1), doc_id: uid(), reverses: t0Draw.id });
-      await insertMove(q, { ...t0Draw, id: undefined, doc_id: uid(), doc_line_id: null });
+      await insertMove(q, { ...t0Draw, id: undefined, doc_id: uid(), doc_line_id: null, expiry_checked: false });
     }],
     // المرآة ومرآتها (40 لتراً بالحقل) كلتاهما تخالفان انتهاء مصدرهما بعد الكسر.
     mirror_pairs: [{ mirror_pairs: 2 }, (q) => q("update public.stock_lots set expiry_on = '2027-01-01' where id = $1", [dieselMirror.id])],

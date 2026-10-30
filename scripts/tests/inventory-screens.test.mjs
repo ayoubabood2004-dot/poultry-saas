@@ -32,7 +32,7 @@ const INV_REPO = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'inventory
 const INV_READS = ['loadOrgSetup', 'loadStockOnHand', 'loadStockValues', 'loadStockValueTotals', 'loadItemLots', 'loadItemLotValues', 'loadItemMoves', 'listItemUnits', 'listStockDocs', 'loadStockDoc', 'discardDraft', 'deleteDraftLine', 'previewOpening', 'previewTransfer', 'listItems', 'createTransferDraft', 'addTransferLine', 'updateStockDraft'];
 const INV_STUBS = {
   load: "export function useLoad(load, key = '') { const g = globalThis.__inv; const before = g.calls.length; try { Promise.resolve(load()).catch(() => {}); } catch {} const name = g.calls.slice(before).map(([fn]) => fn).join('+') || 'none'; g.calls.length = before; g.loaded.push(name); const state = g.loads[`${name}|${key}`]; return { data: state?.data ?? null, error: state?.error ?? null, loading: !state, retry() { g.calls.push(['retry', name]); } }; }",
-  session: 'export const useSession = () => globalThis.__inv.session;',
+  session: 'export const useSession = () => globalThis.__inv.session; export const sessionStore = { get: () => globalThis.__inv?.session ?? { status: "loading" } };',
   store: 'export const useStore = () => globalThis.__inv.online;',
   inventory: `export * from ${INV_REPO}; ${INV_READS.map((name) => `export const ${name} = (...args) => { globalThis.__inv.calls.push(['${name}', args]); return new Promise(() => {}); };`).join(' ')}`,
   Button: "import { createElement } from 'react'; const keep = (props) => globalThis.__inv.buttons.push(props); export function Button(props) { keep(props); return createElement('button', { 'data-action': props['data-action'], disabled: props.disabled || undefined }, props.children); } export function IconButton(props) { keep(props); return createElement('button', { 'data-action': props['data-action'], 'aria-label': props.label }, props.children); }",
@@ -524,7 +524,7 @@ async function reviewFixes(t, m, setup) {
       "export * as shared from './src/pages/inventory/stock-shared.tsx';",
       "export { default as MillPage } from './src/pages/mill/MillPage.tsx';",
       "export { default as HatcheryPage } from './src/pages/hatchery/HatcheryPage.tsx';",
-      "export { NetworkError } from './src/lib/errors.ts';",
+      "export { NetworkError, RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
       "export { MemoryRouter, Routes, Route } from 'react-router-dom';",
     ].join('\n'),
     [invStubs],
@@ -656,7 +656,7 @@ async function reviewFixes(t, m, setup) {
     }),
   );
   await step('قائمة المخازن الفاشلة', () =>
-    withInventory({ session: ready(), loads: { 'loadStockDoc|o-1#0': { data: openingDoc }, 'loadOrgSetup|': { error: new inv.NetworkError() }, 'listStockDocs|': { data: [] } } }, async () => {
+    withInventory({ session: ready(), loads: { 'loadStockDoc|o-1#0': { data: openingDoc }, 'loadOrgSetup|': { error: new inv.NetworkError() }, 'listStockDocs|': { data: { rows: [], next: null, total: 0 } } } }, async () => {
       const failed = (html) => html.includes('تعذّر تحميل قائمة المخازن') && !html.includes('جارٍ الفتح');
       t.ok(failed(at('/inventory/openings/o-1')), 'محرّر الافتتاح: قائمة المخازن الفاشلة LoadFailed بزرّ إعادة، مو «جارٍ الفتح…» للأبد');
       t.ok(failed(at('/inventory/openings')), 'قائمة الافتتاح: قائمة المخازن الفاشلة LoadFailed، مو نموذج مختفٍ بصمت');
@@ -686,32 +686,103 @@ async function reviewFixes(t, m, setup) {
     t.same(names('w-raw'), ['w-farm', 'w-gen'], 'من المواد الأوّلية: العامّ والحقل (وقود وتعبئة)، مو العلف ولا الأدوية، والمؤرشف ما ينعرض');
   });
 
-  // ── رفّ مسوّدات الجهاز بالسطور: الرفع يكتب الرأس ثم السطور بترتيبها، والفشل بنصّ الطريق يحفظ المرفوع ويكمل منه ─────────────
+  // ── رفّ مسوّدات الجهاز بالسطور (FOUNDATION ١٤٢، ١٩٩): الرأس ثم السطور بمعرّفات الجهاز، والفشل بنصّ الطريق يحفظ المرفوع ويكمل منه
+  // بلا تكرار (جواب ضاع ← 23505 = انكتب)، ورأس صار غير مسوّدة ← الباقي لرأس جديد، وسطر مرفوض ينعلّم بتلميحه (مراجعة WP4 الثانية).
   await step('رفّ مسوّدات الجهاز', async () => {
-    const line = (n) => ({ itemId: `i-${n}`, itemName: `مادّة ${n}`, baseUnit: 'L', itemUnitId: null, unitCode: null, unitLabel: 'L', qtyInUnit: `${n}.000` });
-    const draft = { id: 'dd-1', userId: 'u-1', orgId: 'org-1', kind: 'transfer', title: 'تحويل', savedAt: 1, payload: { from: 'w-gen', to: 'w-farm', day: '2026-10-30', note: 'كاز', docId: null, lines: [line(1), line(2), line(3)] } };
+    const line = (n) => ({ id: `l-${n}`, itemId: `i-${n}`, itemName: `مادّة ${n}`, baseUnit: 'L', itemUnitId: null, unitCode: null, unitLabel: 'L', qtyInUnit: `${n}.000` });
+    const draft = { id: 'dd-1', userId: 'u-1', orgId: 'org-1', kind: 'transfer', title: 'تحويل', savedAt: 1, payload: { from: 'w-gen', to: 'w-farm', day: '2026-10-30', note: 'كاز', headerId: 'h-1', docId: null, lines: [line(1), line(2), line(3)] } };
     const log = [];
-    let failOn = 'i-2';
+    const server = { heads: new Set(), lines: new Set() };
+    let failOn = { 'i-2': () => new inv.NetworkError() };
+    let fresh = 0;
     const deps = {
       confirm: async () => ({ userId: 'u-1', orgId: 'org-1' }),
-      createTransferDraft: async (from, to, day, note) => (log.push(['create', from, to, day, note]), { id: 't-1', kind: 'transfer', version: 1 }),
-      addTransferLine: async (docId, fields) => {
-        if (fields.item_id === failOn) throw new Error('network');
-        log.push(['line', docId, fields.item_id, fields.qty_in_unit]);
+      createTransferDraft: async (from, to, day, note, id) => {
+        log.push(['create', id, from, to, day, note]);
+        if (server.heads.has(id)) throw new inv.RejectedError('23505', null);
+        server.heads.add(id);
+        return { id };
       },
-      saveDeviceDraft: async (stamp, next) => (log.push(['save', next.payload.docId, next.payload.lines.map((l) => l.itemId)]), next),
+      addTransferLine: async (docId, fields, id) => {
+        const fail = failOn[fields.item_id];
+        if (fail) throw fail();
+        log.push(['line', docId, id, fields.item_id, fields.qty_in_unit]);
+        if (server.lines.has(id)) throw new inv.RejectedError('23505', null);
+        server.lines.add(id);
+      },
+      saveDeviceDraft: async (stamp, next) => (log.push(['save', next.payload.docId, next.payload.lines.map((l) => l.id)]), next),
       removeDeviceDraft: async (id) => log.push(['remove', id]),
+      newId: () => `n-${(fresh += 1)}`,
     };
-    const first = await inv.transfers.uploadShelfDraft(draft, deps).then(() => 'ok', (error) => error.message);
-    t.same([first, log], ['network', [['create', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['save', 't-1', ['i-1', 'i-2', 'i-3']], ['line', 't-1', 'i-1', '1.000'], ['save', 't-1', ['i-2', 'i-3']]]], 'الرفع: الرأس بملاحظته ثم السطور بترتيبها، وفشل السطر الثاني يحفظ الرأس المرفوع والسطور الباقية على الجهاز');
+    const upload = (d, extra = {}) => inv.transfers.uploadShelfDraft(d, { ...deps, ...extra }).then((id) => `ok:${id}`, (error) => error.message);
+    const first = await upload(draft);
+    t.same(
+      [first, log],
+      ['network', [['create', 'h-1', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['save', 'h-1', ['l-1', 'l-2', 'l-3']], ['line', 'h-1', 'l-1', 'i-1', '1.000'], ['save', 'h-1', ['l-2', 'l-3']]]],
+      'الرفع: الرأس بمعرّف الجهاز ثم السطور بمعرّفاتها، وفشل السطر الثاني يحفظ الرأس المرفوع والسطور الباقية',
+    );
+    // جواب السطر الأوّل ضاع وهو انكتب: الإعادة من البداية ترجع 23505 للرأس وللسطر، فما يتكرّر شي.
     log.length = 0;
-    failOn = null;
-    const resumed = { ...draft, payload: { ...draft.payload, docId: 't-1', lines: [line(2), line(3)] } };
-    await inv.transfers.uploadShelfDraft(resumed, deps);
-    t.same(log, [['line', 't-1', 'i-2', '2.000'], ['save', 't-1', ['i-3']], ['line', 't-1', 'i-3', '3.000'], ['save', 't-1', []], ['remove', 'dd-1']], 'الإعادة تكمل على نفس الرأس (بلا رأس ثاني)، وبعد آخر سطر تنشال من الجهاز');
+    failOn = {};
+    const again = await upload({ ...draft });
+    t.same(
+      [again, [...server.heads], [...server.lines].sort(), log.filter(([kind]) => kind === 'remove')],
+      ['ok:h-1', ['h-1'], ['l-1', 'l-2', 'l-3'], [['remove', 'dd-1']]],
+      'إعادة الرفع بعد جواب ضاع بنفس المعرّفات: رأس واحد وثلاثة سطور بلا تكرار، وتنشال من الجهاز',
+    );
+    // مسوّدة بلا معرّفات (قبل هالإصلاح): تاخذها وتنحفظ قبل أوّل طلب.
     log.length = 0;
-    const foreign = await inv.transfers.uploadShelfDraft(draft, { ...deps, confirm: async () => ({ userId: 'u-1', orgId: 'org-2' }) }).then(() => 'ok', (error) => error.message);
+    const bare = { ...draft, id: 'dd-2', payload: { ...draft.payload, headerId: undefined, lines: [{ ...line(4), id: undefined }] } };
+    await upload(bare);
+    t.same(log.slice(0, 2), [['save', null, ['n-2']], ['create', 'n-1', 'w-gen', 'w-farm', '2026-10-30', 'كاز']], 'مسوّدة بلا معرّفات: تاخذ معرّفاً للرأس والسطر وتنحفظ قبل أوّل طلب');
+    // الرأس المرفوع صار مرحَّلاً أو مطوياً (not_draft): الباقي لرأس جديد بمعرّفات جديدة.
+    log.length = 0;
+    let gone = true;
+    const posted = { ...draft, id: 'dd-3', payload: { ...draft.payload, headerId: 'h-9', docId: 'h-9', lines: [line(5), line(6)] } };
+    const moved = await upload(posted, {
+      addTransferLine: async (docId, fields, id) => {
+        if (docId === 'h-9' && gone) throw new inv.RejectedError('not_draft', 'المستند مرحَّل أو ملغى؛ لا تُعدَّل سطوره.');
+        log.push(['line', docId, id, fields.item_id]);
+      },
+    });
+    gone = false;
+    t.same(
+      [moved, log.filter(([kind]) => kind !== 'save')],
+      ['ok:n-3', [['create', 'n-3', 'w-gen', 'w-farm', '2026-10-30', 'كاز'], ['line', 'n-3', 'n-4', 'i-5'], ['line', 'n-3', 'n-5', 'i-6'], ['remove', 'dd-3']]],
+      'رأس صار غير مسوّدة بنصّ الرفع: السطور الباقية لرأس جديد (معرّفات جديدة) وتنشال من الجهاز',
+    );
+    // سطر رفضه الخادم رفضاً أكيداً: ينعلّم بتلميحه على الجهاز ويوقف الرفع عنده، والسطور بعده باقية.
+    log.length = 0;
+    const kept = [];
+    const refused = await upload({ ...draft, id: 'dd-4', payload: { ...draft.payload, headerId: 'h-7', docId: 'h-7', lines: [line(7), line(8)] } }, {
+      addTransferLine: async (docId, fields) => {
+        if (fields.item_id === 'i-7') throw new inv.RejectedError('pieces_not_whole', '«مصابيح» تُعدّ بالقطعة، والكمية عدد صحيح.');
+      },
+      saveDeviceDraft: async (stamp, next) => (kept.push(next.payload.lines.map((l) => [l.id, l.rejected?.code ?? null])), next),
+    });
+    t.same([refused, kept.at(-1)], ['shelf_line_rejected', [['l-7', 'pieces_not_whole'], ['l-8', null]]], 'سطر مرفوض: ينعلّم برمزه على الجهاز، والسطر بعده باقٍ، والرفع يوكف عنده');
+    const message = inv.transfers.shelfFailure(new inv.transfers.ShelfLineRejectedError(line(7), '«مصابيح» تُعدّ بالقطعة، والكمية عدد صحيح.'));
+    t.ok(message.title.includes('مادّة 7') && message.detail.includes('عدد صحيح') && !message.detail.includes('لم يُحفظ شيء'), 'رسالة السطر المرفوض تسمّيه وتلميحه، وما تكول «لم يُحفظ شيء» بعد رفع جزئي');
+    t.ok(!inv.transfers.shelfFailure(new inv.UnknownOutcomeError()).detail.includes('لم يُحفظ شيء'), 'انقطاع بنصّ الرفع: الرسالة تكول إن المرفوع باقٍ والإعادة بلا تكرار');
+    log.length = 0;
+    const foreign = await upload(draft, { confirm: async () => ({ userId: 'u-1', orgId: 'org-2' }) });
     t.same([foreign, log], ['draft_org_mismatch', []], 'الخادم أكّد منشأة ثانية: ولا رأس ولا سطر (GT-29)');
+  });
+
+  // ── سطر الجهاز بنفس قاعدة الحقل (مراجعة WP4 الثانية): 1.5 قطعة ينرفض قبل ما ينحفظ، مو بكل رفع ─────────────────────────
+  await step('سطر الجهاز', () => {
+    const pcs = { ...item({ id: 'i-pc', name: 'مصابيح', kind: 'equipment', baseUnit: 'pc' }) };
+    const units = inv.shared.unitOptions(pcs, []);
+    const half = inv.transfers.deviceLine(pcs, { text: '1.5', unitId: 'base' }, units, 'l-x');
+    const whole = inv.transfers.deviceLine(pcs, { text: '2', unitId: 'base' }, units, 'l-y');
+    t.same([half.problem?.includes('صحيح'), whole.id, whole.qtyInUnit], [true, 'l-y', '2.000'], 'سطر جهاز: 1.5 قطعة يرفض بجملة الحقل، و2 قطعة سطر بمعرّفه وكميته');
+  });
+
+  // ── الرصيد كلّه لمادّة بسطرين (E31): التأكيد بمجموع سطورها، مو بآخر سطر (مراجعة WP4 الثانية) ────────────────────────
+  await step('الرصيد كلّه بسطرين', () => {
+    const previewLine = (over) => ({ lineId: 'x', lineNo: 1, itemId: 'i-1', itemName: 'كاز أويل', baseUnit: 'L', qty: 0n, qtyInUnit: 0n, unitLabel: 'L', available: 0n, expired: 0n, later: 0n, shortage: 0n, wholeBalance: false, problem: null, draws: [], value: null, ...over });
+    const preview = { version: 1, plan: 'p', internalExport: false, toDivisionKind: 'general', problems: [], ready: true, lines: [previewLine({ lineId: 'a', qty: 600_000n }), previewLine({ lineId: 'b', lineNo: 2, qty: 400_000n, wholeBalance: true })] };
+    t.same(inv.transfers.wholeLines(preview), [{ itemName: 'كاز أويل', qty: 1_000_000n, unit: 'L' }], 'سطران 600 و400 لتر من 1,000: التأكيد يسمّي 1,000 لتر');
   });
 
   // ── «مؤرشف وعليه رصيد» بقائمة المخازن (§2.6): منتقي المخزن وجدول إعدادات المنشأة ─────────────────────────────────────
