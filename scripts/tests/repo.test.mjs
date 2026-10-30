@@ -113,7 +113,7 @@ export default async function (t) {
 
   // ── GoTrue ────────────────────────────────────────────────────────────────────────────────────────
   const auth = (error, online = true) => kindOf(m, m.mapAuthError(error, online));
-  t.ok(auth({ code: 'invalid_credentials', status: 400 }).startsWith('rejected:invalid_credentials:رقم الهاتف أو كلمة السرّ غير صحيحة'), 'الدخول الغلط بالفصحى');
+  t.ok(auth({ code: 'invalid_credentials', status: 400 }).startsWith('rejected:invalid_credentials:البريد أو كلمة السرّ غير صحيحة'), 'الدخول الغلط بالفصحى');
   t.ok(auth({ code: 'user_already_exists', status: 422 }).includes('مسجّل بالفعل'), 'رقم مسجّل');
   t.ok(auth({ code: 'email_not_confirmed', status: 400 }).includes('لم يُفعَّل'), 'حساب ما تفعّل');
   t.ok(auth({ code: 'signup_disabled', status: 422 }).includes('مغلق'), 'التسجيل مغلق');
@@ -194,7 +194,8 @@ export default async function (t) {
     'الشكل المختلّ يرمي HomeShapeError باسم حقله (مو بطاقة بأرقام غلط)',
   );
   await t.rejects(m.call('my_workspace'), 'بلا مفاتيح: النداء «غير مربوط»', /not_connected/);
-  await t.rejects(m.signIn('12345', 'password1'), 'رقم غلط يرفض قبل أي طلب', /invalid_phone/);
+  await t.rejects(m.signIn('12345', 'password1'), 'رقم غلط يرفض قبل أي طلب', /invalid_login/);
+  await t.rejects(m.signIn('name@', 'password1'), 'بريد ناقص يرفض قبل أي طلب', /invalid_login/);
 
   // ── الهويّة المحفوظة ───────────────────────────────────────────────────────────────────────────────
   const db = `identity-test-${process.pid}`;

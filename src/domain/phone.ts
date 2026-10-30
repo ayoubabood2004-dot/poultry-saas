@@ -38,3 +38,9 @@ export function loginEmail(input: string): string | null {
   const phone = normalizePhone(input);
   return phone ? `${phone}@${PHONE_LOGIN_DOMAIN}` : null;
 }
+
+/** بريد حقيقي (فيه @): الدخول به كما هو (كلمة المالك 2026-10-30: التسجيل بالبريد، لأن Supabase يرفض بريد الرقم الداخلي). */
+export function realEmail(login: string): string | null {
+  const email = login.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) ? email : null;
+}

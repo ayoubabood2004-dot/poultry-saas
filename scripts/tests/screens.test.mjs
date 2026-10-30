@@ -148,10 +148,11 @@ export default async function (t) {
   t.same(Object.keys(m.validateAuth('sign_in', '٠٧٧٠١٢٣٤٥٦٧', 'secret123', '')), [], 'الأرقام الشرقية رقم صحيح');
   t.same(Object.keys(m.validateAuth('sign_in', '12345', 'short', '')).sort(), ['password', 'phone'], 'رقم غلط وكلمة سرّ قصيرة');
   t.same(Object.keys(m.validateAuth('sign_up', '07701234567', 'secret123', 'secret124')), ['repeat'], 'حساب جديد: كلمتا السرّ لازم تتطابقان');
+  t.same([Object.keys(m.validateAuth('sign_up', ' Ali@Gmail.com ', 'secret123', 'secret123')), Object.keys(m.validateAuth('sign_in', 'ali@gmail', 'secret123', ''))], [[], ['phone']], 'البريد الحقيقي يُقبل اسم دخول (كلمة المالك 2026-10-30)، والناقص يُرفض');
   const page = render(m.h(m.MemoryRouter, null, m.h(m.AuthPage)));
   t.ok(page.includes('autoComplete="username"') && page.includes('autoComplete="current-password"'), 'حقلا الدخول بإكمال المتصفّح الصحيح');
-  t.ok(page.includes('type="tel"') && page.includes('dir="ltr"'), 'الرقم حقل هاتف LTR');
+  t.ok(page.includes('inputMode="email"') && page.includes('dir="ltr"'), 'اسم الدخول (بريد أو رقم) حقل LTR بلوحة البريد');
   t.ok(page.includes('data-action="sign-in"'), 'زرّ الدخول');
   // انمسك بالمتصفّح: «مثل 0770 123 4567» بسطر عربي انعرض «4567 123 0770». الرقم المقطّع بمسافات يتعزل LTR.
-  t.ok(page.includes('مثل <bdi dir="ltr">0770 123 4567</bdi>'), 'مثال الرقم معزول LTR بالتلميح');
+  t.ok(page.includes('مثل <bdi dir="ltr">name@gmail.com</bdi>'), 'مثال البريد معزول LTR بالتلميح');
 }

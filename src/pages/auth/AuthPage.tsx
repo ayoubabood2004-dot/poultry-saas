@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Field } from '../../components/ui/Field';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
-import { normalizePhone } from '../../domain/phone';
+import { normalizePhone, realEmail } from '../../domain/phone';
 import { describeError } from '../../lib/errors';
 import { t, Trans } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
@@ -29,7 +29,7 @@ export interface AuthErrors {
 /** أخطاء الحقول قبل الإرسال. دالّة صافية حتى تنفحص بلا متصفّح. */
 export function validateAuth(mode: AuthMode, phone: string, password: string, repeat: string): AuthErrors {
   const errors: AuthErrors = {};
-  if (!normalizePhone(phone)) errors.phone = t('auth.phone.invalid', 'اكتب رقم موبايل عراقياً صحيحاً، مثل 07701234567.');
+  if (phone.includes('@') ? !realEmail(phone) : !normalizePhone(phone)) errors.phone = t('auth.login.invalid', 'اكتب بريداً إلكترونياً صحيحاً.');
   if (password.length < MIN_PASSWORD) errors.password = t('auth.password.short', 'كلمة السرّ 8 أحرف على الأقل.');
   if (mode === 'sign_up' && repeat !== password) errors.repeat = t('auth.repeat.mismatch', 'كلمتا السرّ غير متطابقتين.');
   return errors;
@@ -79,8 +79,8 @@ export default function AuthPage() {
           <h1 className="text-2xl font-semibold">{mode === 'sign_in' ? t('auth.title.sign_in', 'الدخول') : t('auth.title.sign_up', 'حساب جديد')}</h1>
           <p className="mt-1 text-ink-muted">
             {mode === 'sign_in'
-              ? t('auth.subtitle.sign_in', 'ادخل برقم هاتفك وكلمة السرّ.')
-              : t('auth.subtitle.sign_up', 'رقم هاتفك هو اسم الدخول، ولا تصله أيّ رسالة. بعد إنشاء الحساب تُنشئ منشأتك أو تقبل دعوة صاحبها.')}
+              ? t('auth.subtitle.sign_in', 'ادخل ببريدك وكلمة السرّ.')
+              : t('auth.subtitle.sign_up', 'بعد إنشاء الحساب تُنشئ منشأتك أو تقبل دعوة صاحبها.')}
           </p>
         </div>
         <Segmented<AuthMode>
@@ -100,11 +100,11 @@ export default function AuthPage() {
         {expired ? <Notice tone="warning" title={t('error.identity.title', 'انتهت جلسة الدخول')}>{t('auth.expired', 'ادخل من جديد لتكمل.')}</Notice> : null}
         {!online ? <Notice tone="warning" title={t('auth.offline.title', 'الجهاز غير متّصل')}>{t('auth.offline', 'الدخول يحتاج اتصالاً بالإنترنت.')}</Notice> : null}
         <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>
-          <Field id={`${id}-phone`} label={t('auth.phone', 'رقم الهاتف')} hint={<Trans k="auth.phone.hint" text="مثل {sample}" vars={{ sample: <bdi dir="ltr">0770 123 4567</bdi> }} />} error={errors.phone}>
+          <Field id={`${id}-phone`} label={t('auth.login', 'البريد الإلكتروني')} hint={<Trans k="auth.login.hint" text="مثل {email}" vars={{ email: <bdi dir="ltr">name@gmail.com</bdi> }} />} error={errors.phone}>
             <input
               id={`${id}-phone`}
-              type="tel"
-              inputMode="tel"
+              type="text"
+              inputMode="email"
               autoComplete="username"
               dir="ltr"
               className="input tabular-nums"

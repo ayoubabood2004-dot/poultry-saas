@@ -1,4 +1,4 @@
-import { loginEmail } from '../../domain/phone';
+import { loginEmail, realEmail } from '../../domain/phone';
 import { NetworkError, RejectedError, UnknownOutcomeError } from '../errors';
 import { t } from '../i18n';
 import { getClient } from './client';
@@ -24,10 +24,10 @@ export function mapAuthError(error: AuthFailure, wasOnline: boolean): Error {
   }
   switch (error.code) {
     case 'invalid_credentials':
-      return new RejectedError('invalid_credentials', t('auth.error.invalid_credentials', 'رقم الهاتف أو كلمة السرّ غير صحيحة.'));
+      return new RejectedError('invalid_credentials', t('auth.error.invalid_credentials', 'البريد أو كلمة السرّ غير صحيحة.'));
     case 'user_already_exists':
     case 'email_exists':
-      return new RejectedError('user_already_exists', t('auth.error.exists', 'هذا الرقم مسجّل بالفعل. ادخل به من «الدخول».'));
+      return new RejectedError('user_already_exists', t('auth.error.exists', 'هذا البريد مسجّل بالفعل. ادخل به من «الدخول».'));
     case 'weak_password':
       return new RejectedError('weak_password', t('auth.error.weak_password', 'كلمة السرّ ضعيفة. اكتب 8 أحرف أو أكثر، وتجنّب الأرقام المتتالية.'));
     case 'email_not_confirmed':
@@ -42,9 +42,10 @@ export function mapAuthError(error: AuthFailure, wasOnline: boolean): Error {
   }
 }
 
-function emailFor(phone: string): string {
-  const email = loginEmail(phone);
-  if (!email) throw new RejectedError('invalid_phone', t('auth.error.invalid_phone', 'اكتب رقم موبايل عراقياً صحيحاً، مثل 07701234567.'));
+/** اسم الدخول: البريد كما هو، أو الرقم ببريده الداخلي «الرقم@phone.login» (الحسابات القديمة تبقى تدخل). */
+function emailFor(login: string): string {
+  const email = login.includes('@') ? realEmail(login) : loginEmail(login);
+  if (!email) throw new RejectedError('invalid_login', t('auth.error.invalid_login', 'اكتب بريداً إلكترونياً صحيحاً.'));
   return email;
 }
 
