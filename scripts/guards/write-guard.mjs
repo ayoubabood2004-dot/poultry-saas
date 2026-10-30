@@ -23,8 +23,16 @@ const REF_NAMED = new Set(['pay_party', 'forgive_debt', 'refresh_count', 'return
 const VERSION_NAMED = new Set(['refresh_count', 'return_count', 'discard_draft', 'delete_draft_line', 'delete_receipt_charge', 'set_charge_lines']);
 /** الدالّة تحرّك مالاً أو مخزوناً: المرجع نفسه لحد ما تنعرف النتيجة (FOUNDATION ٥١٩). */
 export const needsClientRef = (fn) => /^(?:post|void|record|submit)_/.test(fn) || REF_NAMED.has(fn);
+/**
+ * ترحيل بلا مسوّدة (WP7): تصحيح السعر يكتب سطر استلام مرحَّلاً بالمبلغ الجديد وسببه (FOUNDATION ٥٥٢)، فيرسل بصمة المعاينة
+ * (p_expected_plan) بدل النسخة: سحب بين المعاينة والترحيل كان يرحّل قسمة ما شافها المدير (FOUNDATION ٥٢٠). المرجع يبقى إلزامياً.
+ */
+const PLAN_POSTS = new Set(['post_receipt_revalue']);
+/** ترحيل مسوّدة يسحب من دفعات: النسخة وبصمة المعاينة ويّاها (السحب يتغيّر بلا ما تتغيّر النسخة، FOUNDATION ٥٢٠، مراجعة WP7). */
+const DRAW_POSTS = new Set(['post_transfer', 'post_stock_use', 'post_supplier_return']);
+export const needsExpectedPlan = (fn) => PLAN_POSTS.has(fn) || DRAW_POSTS.has(fn);
 /** الدالّة تقرأ مسوّدة: تنرسل بشرط إنها كما انفتحت (FOUNDATION ٥٢٠، ٨١٧). */
-export const needsExpectedVersion = (fn) => /^(?:post|submit)_/.test(fn) || VERSION_NAMED.has(fn);
+export const needsExpectedVersion = (fn) => (/^(?:post|submit)_/.test(fn) && !PLAN_POSTS.has(fn)) || VERSION_NAMED.has(fn);
 
 /** أعمدة يكتبها الخادم بس: الحالة والرقم والنسخة وختم الترحيل والإلغاء والدفتر والمحسوبات والمنشأة (§2.5). */
 const SERVER_COLUMNS = new Set([
@@ -309,15 +317,17 @@ export function check(files, program = virtualProgram(files, { options: { noReso
           if (!(file.path === 'src/lib/repo/core.ts' && enclosingFunctionName(node) === 'call')) {
             problems.push(`${place}: اسم الدالّة ما ينقرا — اكتبه نصّاً ثابتاً بالنداء حتى يبين إنه ترحيل ويتفحص p_client_ref وp_expected_version`);
           }
-        } else if (needsClientRef(fn) || needsExpectedVersion(fn)) {
+        } else if (needsClientRef(fn) || needsExpectedVersion(fn) || needsExpectedPlan(fn)) {
           rpcCalls += 1;
           const { keys, complete } = literalKeys(node.arguments[1]);
           const missingRef = needsClientRef(fn) && !keys.includes('p_client_ref');
           const missingVersion = needsExpectedVersion(fn) && !keys.includes('p_expected_version');
-          if (!complete && (missingRef || missingVersion)) problems.push(`${place}: ${fn} بمعاملات ما تنقرا — اكتبها كائناً ثابتاً حتى يبين p_client_ref وp_expected_version`);
+          const missingPlan = needsExpectedPlan(fn) && !keys.includes('p_expected_plan');
+          if (!complete && (missingRef || missingVersion || missingPlan)) problems.push(`${place}: ${fn} بمعاملات ما تنقرا — اكتبها كائناً ثابتاً حتى يبين p_client_ref وp_expected_version`);
           else {
             if (missingRef) problems.push(`${place}: ${fn} بلا p_client_ref — الإعادة بعد نتيجة مجهولة تضاعف`);
             if (missingVersion) problems.push(`${place}: ${fn} بلا p_expected_version — مسوّدة تغيّرت بعد المعاينة تنرحّل`);
+            if (missingPlan) problems.push(`${place}: ${fn} بلا p_expected_plan — قسمة تغيّرت بعد المعاينة تنرحّل`);
           }
         }
       }
@@ -436,6 +446,12 @@ export function selfTest() {
     // طفرات الاختبار: كل دالّة تسمّيها الخطّة (WP0) وكل عمود يكتبه الخادم (§2.5) لحاله، والمخالفة تسمّي الناقص أو العمود.
     ...PLAN_REF_CALLS.map((fn, i) => [`src/lib/repo/needref${i}.ts`, 1, `export const a = (id, v) => call('${fn}', { p_id: id, p_expected_version: v });`, 'p_client_ref']),
     ...PLAN_VERSION_CALLS.map((fn, i) => [`src/lib/repo/needver${i}.ts`, 1, `export const a = (id, r) => call('${fn}', { p_id: id, p_client_ref: r });`, 'p_expected_version']),
+    // تصحيح السعر بلا نسخة، والمرجع إلزامي ويّاه؛ وغيره من post_ يبقى يحتاج النسخة.
+    ['src/lib/repo/revalue1.ts', 1, "export const a = (line, total, plan, reason) => call('post_receipt_revalue', { p_line: line, p_new_total: total, p_expected_plan: plan, p_reason: reason });", 'p_client_ref'],
+    ['src/lib/repo/revalue3.ts', 1, "export const a = (line, total, reason, ref) => call('post_receipt_revalue', { p_line: line, p_new_total: total, p_reason: reason, p_client_ref: ref });", 'p_expected_plan'],
+    ['src/lib/repo/revalue2.ts', 1, "export const a = (id, r) => call('post_receipt_revaluex', { p_id: id, p_client_ref: r });", 'p_expected_version'],
+    // ترحيل يسحب من دفعات بالنسخة بلا البصمة (مراجعة WP7: المرتجع كان يرحّل قيمة ما شافها المحاسب).
+    ...[...DRAW_POSTS].map((fn, i) => [`src/lib/repo/drawplan${i}.ts`, 1, `export const a = (id, v, r) => call('${fn}', { p_id: id, p_expected_version: v, p_client_ref: r });`, 'p_expected_plan']),
     ...PLAN_SERVER_COLUMNS.map((column, i) => [`src/lib/repo/col${i}.ts`, 1, `export const a = async (db, n) => updatedRows(await db.from('sites').update({ name: n, ${column}: 1 }).eq('id', 1).select());`, column]),
     // ملفات الوحدات الكسولة (WP2): index ما يصدّرها، والشاشة ما تاخذ ملفاً داخلياً غيرها (قاموس القيود، core).
     ['src/lib/repo/index.ts', 1, "export * as inventory from './inventory';", 'مسار الجلسة'],
@@ -474,6 +490,8 @@ export function selfTest() {
         "export const c = (id) => call('preview_receipt', { p_id: id });",
         "export const d = (k, id, v) => call('discard_draft', { p_doc_kind: k, p_id: id, p_expected_version: v });",
         "export const e = (id, ref) => { const args = { p_id: id, p_client_ref: ref }; return call('pay_party', args); };",
+        "export const r = (line, total, plan, reason, ref) => call('post_receipt_revalue', { p_line: line, p_new_total: total, p_expected_plan: plan, p_reason: reason, p_client_ref: ref });",
+        "export const s = (id, v, plan, ref) => call('post_supplier_return', { p_id: id, p_expected_version: v, p_expected_plan: plan, p_client_ref: ref });",
         "export const f = async (db, n, v) => updatedRows(await db.from('sites').update({ name: n }).eq('version', v).select());",
         "export const g = async (db: any, patch: Partial<{ name: string; note: string }>) => updatedRows(await db.from('sites').update(patch).eq('id', 1).select());",
         "export const h = async (db: any, p: { name: string }) => updatedRows(await db.from('sites').update({ ...p, note: 'x' }).eq('id', 1).select());",

@@ -490,6 +490,13 @@ export default async function (t) {
       const got = kinds.map((kind) => m.voidable({ ...statement.books[0].lines[0], kind, reverses: false, reversed: false }));
       return JSON.stringify(got) === JSON.stringify(['entry', 'entry', 'entry', 'payment', 'payment', null, null]) || got;
     });
+    // مراجعة WP7: تسوية تتبع مستنداً (تصحيح سعر) تُلغى من مستندها (الخادم يرفضها من الكشف)، ودفع الاستلام يبقى يُلغى من الكشف (E44).
+    check('الكشف: تسوية تصحيح السعر بلا زرّ إلغاء، ودفع الاستلام بإلغاء القبض، ونوع المستند من الخادم', () => {
+      const owned = [{ ...lines[1], entry_id: 'e-rev', kind: 'adjustment', doc_kind: 'receipt_revalue' }, { ...lines[1], entry_id: 'e-paid', kind: 'payout', doc_kind: 'receipt' }, { ...lines[1], entry_id: 'e-adj', kind: 'adjustment' }];
+      const parsed = m.parseStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: owned }] }).books[0].lines;
+      const got = [parsed.map((line) => m.voidable(line)), parsed.map((line) => line.docKind)];
+      return JSON.stringify(got) === JSON.stringify([[null, 'payment', 'entry'], ['receipt_revalue', 'receipt', null]]) || got;
+    });
     // الدفع اللي يخلّي الصندوق صفراً بالضبط مو سالباً (Q10: التنبيه للسالب بس).
     check('دفع يخلّي الصندوق صفراً بالضبط: ماكو تنبيه سالب', () => {
       const box = { ...cashBalances.accounts[0], closing: 10_000n * D };

@@ -22,6 +22,8 @@ export const STOCK_ZERO = {
   receipt_charge_shares: 0,
   receipt_lot_values: 0,
   receipt_entries: 0,
+  return_ties: 0,
+  revaluation_ties: 0,
 };
 
 /** verify_stock كخريطة اسم ← عدد (بمفتاح الخادم، أو بالاستعلام المعطى داخل معاملة ضابط). */

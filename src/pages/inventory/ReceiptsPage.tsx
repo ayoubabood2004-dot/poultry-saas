@@ -13,12 +13,11 @@ import { Notice } from '../../components/ui/Notice';
 import { QtyInput, type QtyUnitOption, type QtyValue } from '../../components/ui/QtyInput';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
-import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
+import { decimalText } from '../../domain/decimal';
 import { localDay } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { receiptValuation, type ReceiptValuation } from '../../domain/receipt';
-import { toWesternDigits } from '../../domain/normalize';
 import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
 import { fmtCounted, fmtDay, fmtQty } from '../../lib/format';
@@ -33,6 +32,8 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { divisionLabel } from '../../lib/roles';
+import { AmountField, dinarText, parseDinar } from './purchase-shared';
+import { PriceCorrectionPanel, ReceiptReturnsPanel } from './ReceiptPostedPanels';
 import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الاستلام من المورّد (الخطّة WP6، FOUNDATION ٣٢٨–٣٣٤، ٥٥٠–٥٥١، ٧٦٨): الأمين يكتب المسوّدة بالكميات (مخزن بنطاقه يستلم من
@@ -186,31 +187,6 @@ function BoxPicker({ id, label, boxes, value, onChange }: { id: string; label: s
           </option>
         ))}
       </select>
-    </Field>
-  );
-}
-
-/** المبلغ بالدينار الصحيح من نصّ الحقل بالفلس، أو null (Q7: مبالغ الاستلام كلها دنانير صحيحة، والسالب مو مبلغ). */
-export function parseDinar(text: string): Fils | null {
-  const value = parseDecimal(text, 0);
-  return value === null || value.units < 0n ? null : toScale(value, 2);
-}
-
-/**
- * حقل مبلغ بالدينار الصحيح (مثل MoneyInput، بلا استيراده: حزمته بحزمة الحسابات ويكبّر التثبيت المسبق): الأرقام الشرقية غربية لحظة
- * الكتابة، والقراءة تحته بفواصلها حتى «0,5» ما تمرّ 5 بصمت.
- */
-function AmountField({ id, label, value, onChange, hint }: { id: string; label: string; value: string; onChange: (text: string) => void; hint?: string }) {
-  const amount = parseDinar(value);
-  const problem = value.trim() !== '' && amount === null ? t('money.input.whole', 'اكتب المبلغ بالدينار الصحيح دون كسور، والفاصلة بين كل ثلاثة أرقام فقط (1,250,000).') : null;
-  return (
-    <Field id={id} label={label} error={problem} hint={amount !== null ? undefined : hint}>
-      <input id={id} inputMode="decimal" autoComplete="off" dir="ltr" className="input text-end tabular-nums" value={value} aria-invalid={problem !== null || undefined} onChange={(event) => onChange(toWesternDigits(event.target.value))} />
-      {amount !== null ? (
-        <span className="text-sm text-ink-muted">
-          = <MoneyText amount={amount} decimals={0} />
-        </span>
-      ) : null}
     </Field>
   );
 }
@@ -373,6 +349,8 @@ export interface LineEdit {
   text: string;
   reason: string;
   base: ReceiptLineAmount | null;
+  /** بعد حفظ ناجح: الأساس قبل الكتابة، مقبول لحد ما توصل القراءة الجديدة (مراجعة WP7: الحقل كان يرجع للقديم وكتابة وقتها تعارض كاذب). */
+  prior?: ReceiptLineAmount | null;
 }
 
 /**
@@ -381,14 +359,13 @@ export interface LineEdit {
  */
 export interface AmountEdits {
   lines: Readonly<Record<string, LineEdit>>;
-  discount: { text: string; base: Fils } | null;
-  paid: { text: string; base: Fils } | null;
-  box: { value: string; base: string } | null;
+  discount: { text: string; base: Fils; prior?: Fils } | null;
+  paid: { text: string; base: Fils; prior?: Fils } | null;
+  box: { value: string; base: string; prior?: string } | null;
 }
 
 export const NO_AMOUNT_EDITS: AmountEdits = { lines: {}, discount: null, paid: null, box: null };
 
-const dinarText = (amount: Fils): string => decimalText(amount / 100n, 0);
 /** الخصم والمدفوع: الفارغ صفر. */
 const amountOr0 = (text: string): Fils | null => (text.trim() === '' ? 0n : parseDinar(text));
 const sameRow = (a: ReceiptLineAmount | null, b: ReceiptLineAmount | null): boolean => (a === null || b === null ? a === b : a.lineTotal === b.lineTotal && a.zeroReason === b.zeroReason);
@@ -402,9 +379,9 @@ function lineTarget(edit: LineEdit): { total: Fils; reason: string | null } | nu
 const isTarget = (target: { total: Fils; reason: string | null } | null, row: ReceiptLineAmount | null): boolean =>
   target !== null && row !== null && row.lineTotal === target.total && row.zeroReason === target.reason;
 
-function settleField<E extends { base: V }, V extends bigint | string>(edit: E | null, target: V | null, saved: V, name: string, conflicts: string[]): E | null {
+function settleField<E extends { base: V; prior?: V }, V extends bigint | string>(edit: E | null, target: V | null, saved: V, name: string, conflicts: string[]): E | null {
   if (edit === null || target === saved) return null;
-  if (edit.base === saved) return edit;
+  if (edit.base === saved || (edit.prior !== undefined && edit.prior === saved)) return edit;
   if (target !== edit.base) conflicts.push(name);
   return null;
 }
@@ -423,7 +400,7 @@ export function settleAmountEdits(edits: AmountEdits, bundle: ReceiptBundle): { 
     const row = saved.get(line.id) ?? null;
     const target = lineTarget(edit);
     if (isTarget(target, row)) continue;
-    if (sameRow(edit.base, row)) lines[line.id] = edit;
+    if (sameRow(edit.base, row) || (edit.prior !== undefined && sameRow(edit.prior, row))) lines[line.id] = edit;
     else if (!isTarget(target, edit.base)) conflicts.push(line.itemName);
   }
   const amounts = bundle.amounts;
@@ -487,13 +464,13 @@ export function rebaseEdits(edits: AmountEdits, lines: readonly AmountPlan['line
   const next: Record<string, LineEdit> = { ...edits.lines };
   for (const line of lines) {
     const edit = next[line.lineId];
-    if (edit) next[line.lineId] = { ...edit, base: { id: edit.base?.id ?? '', lineId: line.lineId, lineTotal: line.total, zeroReason: line.reason } };
+    if (edit) next[line.lineId] = { ...edit, base: { id: edit.base?.id ?? '', lineId: line.lineId, lineTotal: line.total, zeroReason: line.reason }, prior: edit.base };
   }
   return {
     lines: next,
-    discount: edits.discount && amounts ? { ...edits.discount, base: amounts.discount } : edits.discount,
-    paid: edits.paid && amounts ? { ...edits.paid, base: amounts.paidNow } : edits.paid,
-    box: edits.box && amounts ? { ...edits.box, base: amounts.cashAccountId ?? '' } : edits.box,
+    discount: edits.discount && amounts ? { ...edits.discount, base: amounts.discount, prior: edits.discount.base } : edits.discount,
+    paid: edits.paid && amounts ? { ...edits.paid, base: amounts.paidNow, prior: edits.paid.base } : edits.paid,
+    box: edits.box && amounts ? { ...edits.box, base: amounts.cashAccountId ?? '', prior: edits.box.base } : edits.box,
   };
 }
 
@@ -528,7 +505,7 @@ function AmountsPanel({
   const editLine = (line: ReceiptLine, patch: Partial<Pick<LineEdit, 'text' | 'reason'>>) => onChange({ ...edits, lines: { ...edits.lines, [line.id]: { ...lineEdit(line), ...patch } } });
   const editAmount = (name: 'discount' | 'paid', text: string) => {
     const before = name === 'discount' ? (bundle.amounts?.discount ?? 0n) : (bundle.amounts?.paidNow ?? 0n);
-    onChange({ ...edits, [name]: { text, base: edits[name]?.base ?? before } });
+    onChange({ ...edits, [name]: { ...(edits[name] ?? { base: before }), text } });
   };
   const discount = edits.discount?.text ?? (bundle.amounts ? dinarText(bundle.amounts.discount) : '');
   const paid = edits.paid?.text ?? (bundle.amounts ? dinarText(bundle.amounts.paidNow) : '');
@@ -563,7 +540,7 @@ function AmountsPanel({
       <AmountField id={`${id}-discount`} label={t('receipt.amounts.discount', 'خصم الفاتورة')} value={discount} onChange={(text) => editAmount('discount', text)} hint={t('receipt.amounts.discount_hint', 'يتوزّع على السطور بنسبة مبالغها، بالفلس.')} />
       <AmountField id={`${id}-paid`} label={t('receipt.amounts.paid', 'المدفوع عند الاستلام')} value={paid} onChange={(text) => editAmount('paid', text)} />
       {(amountOr0(paid) ?? 0n) > 0n ? (
-        <BoxPicker id={`${id}-box`} label={t('receipt.amounts.box', 'دُفع من صندوق')} boxes={boxes} value={box} onChange={(value) => onChange({ ...edits, box: { value, base: edits.box?.base ?? bundle.amounts?.cashAccountId ?? '' } })} />
+        <BoxPicker id={`${id}-box`} label={t('receipt.amounts.box', 'دُفع من صندوق')} boxes={boxes} value={box} onChange={(value) => onChange({ ...edits, box: { ...(edits.box ?? { base: bundle.amounts?.cashAccountId ?? '' }), value } })} />
       ) : null}
       <p className="text-sm">
         {t('receipt.amounts.net', 'صافي المورّد')}: <MoneyText amount={plan.live.net} decimals={0} />
@@ -744,6 +721,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const canDraft = workspace ? can(workspace.role, 'receipt.draft') : false;
   const canPrice = workspace ? can(workspace.role, 'receipt.amounts') : false;
   const canVoid = workspace ? can(workspace.role, 'void') : false;
+  const canRevalue = workspace ? can(workspace.role, 'receipt.revalue') : false;
   // آخر قراءة تبقى معروضة وهي تقرا من جديد (مو useLoad، اللي يرجّع null وهو يقرا فتنطوي اللوحات، درس WP5)؛ والقراءة لنفس المستند والدور.
   const loadKey = `${docId}#${canPrice}`;
   const [tick, setTick] = useState(0);
@@ -768,7 +746,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const [edits, setEdits] = useState<AmountEdits>(NO_AMOUNT_EDITS);
   const [saving, setSaving] = useState(false);
   const [amountFailure, setAmountFailure] = useState<unknown>(null);
-  const [preview, setPreview] = useState<ReceiptPreview | null>(null);
+  const [previewState, setPreviewState] = useState<{ key: string; preview: ReceiptPreview } | null>(null);
+  const preview = previewState?.key === loadKey ? previewState.preview : null;
+  const setPreview = (next: ReceiptPreview | null) => setPreviewState(next ? { key: loadKey, preview: next } : null);
   const [approved, setApproved] = useState(new Set<string>());
   const [confirm, setConfirm] = useState<'void' | 'discard' | null>(null);
   const [lineToDelete, setLineToDelete] = useState<ReceiptLine | null>(null);
@@ -917,6 +897,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {current.voidReason ? <Notice tone="warning" title={t('receipt.voided', 'أُلغي هذا الاستلام')}>{current.voidReason}</Notice> : null}
       <ReceiptLinesTable lines={bundle.lines} values={live ? live.values : null} totals={totals} onDelete={draft && canDraft ? setLineToDelete : null} />
       {draft && canDraft && store ? <AddReceiptLine doc={current} store={store} onAdded={refresh} /> : null}
+      {current.status !== 'draft' && (canDraft || canPrice) ? <ReceiptReturnsPanel receipt={current} canDraft={canDraft} /> : null}
+      {current.status === 'posted' && canRevalue && totals ? <PriceCorrectionPanel receipt={current} lines={bundle.lines} totals={totals} /> : null}
       {draft && canPrice && boxes.error ? <LoadFailed what={t('cash.boxes.what', 'قائمة الصناديق')} error={boxes.error} onRetry={boxes.retry} /> : null}
       {draft && settled && plan && bundle.lines.length > 0 ? (
         <AmountsPanel bundle={bundle} edits={settled.edits} conflicts={settled.conflicts} plan={plan} boxes={boxes.data ?? null} busy={saving} failure={amountFailure} onChange={setEdits} onSave={() => void saveAmounts()} />

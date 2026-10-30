@@ -39,10 +39,14 @@ export function ledgerEntries(book: StatementBook): LedgerEntry[] {
   return book.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: lineMemo(line), debit: line.debit, credit: line.credit }));
 }
 
-/** القيود اللي تنلغى من هنا: القبض والدفع، والافتتاح والتسوية والإعفاء، الأصلية اللي ما انلغت. */
+/**
+ * القيود اللي تنلغى من هنا: القبض والدفع (ودفع الاستلام، E44)، والافتتاح والتسوية والإعفاء، الأصلية اللي ما انلغت؛ وتسوية تتبع مستنداً
+ * (تصحيح سعر) تُلغى من مستندها.
+ */
 export function voidable(line: StatementLine): 'payment' | 'entry' | null {
   if (line.reverses || line.reversed) return null;
   if (line.kind === 'payment' || line.kind === 'payout') return 'payment';
+  if ((line.docKind ?? null) !== null) return null;
   if (line.kind === 'opening' || line.kind === 'adjustment' || line.kind === 'forgiveness') return 'entry';
   return null;
 }

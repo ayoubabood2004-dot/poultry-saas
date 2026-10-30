@@ -27,7 +27,7 @@ const textOf = (html) => html.replace(/<[^>]+>/g, '');
 export default async function (t) {
   const m = await bundle(
     [
-      "export { ReceiptLinesTable, ReceiptPreviewPanel, receiptBook, receiptVoidSentence, purchaseUnitOptions, receivableKinds, liveValuation } from './src/pages/inventory/ReceiptsPage.tsx';",
+      "export { ReceiptLinesTable, ReceiptPreviewPanel, receiptBook, receiptVoidSentence, purchaseUnitOptions, receivableKinds, liveValuation, settleAmountEdits, rebaseEdits } from './src/pages/inventory/ReceiptsPage.tsx';",
       "export { QtyInput } from './src/components/ui/QtyInput.tsx';",
       "export { parseReceiptPreview } from './src/lib/repo/purchasing.ts';",
     ].join('\n'),
@@ -89,4 +89,18 @@ export default async function (t) {
   };
   const costHtml = textOf(m.renderToStaticMarkup(m.h(m.ReceiptPreviewPanel, { preview: m.parseReceiptPreview({ ...wire, money }), approved: new Set(['a']), onToggle() {} })));
   t.ok(costHtml.includes('2,404,166.67') && costHtml.includes('2,350,000') && costHtml.includes('65,000') && costHtml.includes('نقل'), 'معاينة الكلفة: قيمة الدفعة وصافي المورّد وقيد الناقل');
+
+  // ── مراجعة WP7: بعد حفظ ناجح، قراءة بدت قبل الكتابة (بالقيم القديمة) ما تمسح المكتوب ولا تحسبه تعارضاً؛ والجديدة تشيله ──────────────
+  const saved = (lineTotal) => ({ id: 'la', lineId: 'a', lineTotal, zeroReason: null });
+  const amounts = (discount) => ({ id: 'am', discount, paidNow: 0n, cashAccountId: null, version: 1 });
+  const bundleAt = (lineTotal, discount) => ({ doc: { id: 'd' }, lines, lineAmounts: [saved(lineTotal)], amounts: amounts(discount), charges: [] });
+  const typed = { lines: { a: { text: '2400000', reason: '', base: saved(235_000_000n) } }, discount: { text: '1000', base: 0n }, paid: null, box: null };
+  const rebased = m.rebaseEdits(typed, [{ lineId: 'a', before: saved(235_000_000n), total: 240_000_000n, reason: null }], { discount: 100_000n, paidNow: 0n, cashAccountId: null });
+  const stale = m.settleAmountEdits(rebased, bundleAt(235_000_000n, 0n));
+  const fresh = m.settleAmountEdits(rebased, bundleAt(240_000_000n, 100_000n));
+  t.same(
+    [Object.keys(stale.edits.lines), stale.edits.discount?.text, stale.conflicts, Object.keys(fresh.edits.lines), fresh.edits.discount, fresh.conflicts],
+    [['a'], '1000', [], [], null, []],
+    'بعد الحفظ: القراءة القديمة تبقي «2,400,000» والخصم بلا تعارض، والجديدة تشيلهما',
+  );
 }

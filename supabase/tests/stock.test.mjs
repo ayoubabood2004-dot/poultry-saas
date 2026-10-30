@@ -648,6 +648,30 @@ async function scenario(t, db) {
     await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [doc]);
   };
   const upkeep = (await db.admin("select id from public.expense_categories where org_id = $1 and name = 'صيانة'", [S.org])).rows[0].id;
+  // WP7: استلام كاز جديد (مادّة بالمعاملة نفسها حتى السحب يكون من دفعته) بـ1,000 لـ100 لتر، ومرتجع 5 لترات بمقبول 40، أو صرف 10 لترات
+  // وتصحيح سعر السطر لـ1,100؛ بدوالّهم داخل معاملة الضابط والدالّة المكسورة قبلهم.
+  const returnDef = await fnDef('public.post_supplier_return(uuid,integer,text,uuid)');
+  const revalueDef = await fnDef('public.post_receipt_revalue(uuid,numeric,text,text,uuid)');
+  const breakReceipt = async (q) => {
+    const fuel = (await q("insert into public.items (name, kind, base_unit) values ('كاز ضوابط WP7', 'fuel', 'L') returning id")).rows[0].id;
+    const doc = (await q('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [breakSupplier, W.general, TODAY])).rows[0].id;
+    const line = (await q('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 100) returning id', [doc, fuel])).rows[0].id;
+    await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 1000)', [line]);
+    await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [doc]);
+    return { doc, line, fuel };
+  };
+  const postReturnBreak = async (q) => {
+    const { doc, line } = await breakReceipt(q);
+    const ret = (await q('insert into public.supplier_returns (receipt_id, returned_on) values ($1, $2) returning id', [doc, TODAY])).rows[0].id;
+    const retLine = (await q('insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, 5) returning id', [ret, line])).rows[0].id;
+    await q('insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 40)', [retLine]);
+    await q("select public.post_supplier_return($1, (select version from public.supplier_returns where id = $1), public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [ret]);
+  };
+  const postRevalueBreak = async (q) => {
+    const { line, fuel } = await breakReceipt(q);
+    await postUse(q, W.general, [{ item: fuel, qty: 10 }]);
+    await q("select public.post_receipt_revalue($1, 1100, public.preview_receipt_revalue($1, 1100) ->> 'plan', 'ضابط', gen_random_uuid())", [line]);
+  };
   const postUse = async (q, wh, lines) => {
     const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [wh, upkeep, TODAY])).rows[0].id;
     for (const line of lines) await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit, lot_id) values ($1, $2, $3, $4)', [use, line.item, line.qty, line.lot ?? null]);
@@ -744,6 +768,15 @@ async function scenario(t, db) {
     receipt_entries: [{ receipt_entries: 1 }, async (q) => {
       await q(swap(receiptDef, "'purchase', -v_net, 'receipt'", "'purchase', -v_net - 1, 'receipt'"));
       await postReceiptBreak(q);
+    }],
+    // 18–19 (WP7، الخطّة 14–15): قيد مرتجع بدينار زايد عن المقبول (والحفظ يختلف بطرفه)، أو قيد تصحيح بدينار زايد عن −الفرق.
+    return_ties: [{ return_ties: 1, value_conservation: 1 }, async (q) => {
+      await q(swap(returnDef, "'supplier_return', v_credit_total, 'supplier_return'", "'supplier_return', v_credit_total + 1, 'supplier_return'"));
+      await postReturnBreak(q);
+    }],
+    revaluation_ties: [{ revaluation_ties: 1 }, async (q) => {
+      await q(swap(revalueDef, "'adjustment', -v_diff, 'receipt_revalue'", "'adjustment', -v_diff - 1, 'receipt_revalue'"));
+      await postRevalueBreak(q);
     }],
   });
   t.same(Object.keys(BREAKS).sort(), Object.keys(STOCK_ZERO).sort(), `كل فحص بـverify_stock إله ضابط كسر (${Object.keys(STOCK_ZERO).length})`);

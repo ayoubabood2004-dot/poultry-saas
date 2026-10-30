@@ -226,6 +226,58 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // المرحلة 1 (WP7): استلام مرحَّل بالمخزن العامّ بسطرين لمادّتين جديدتين (10 لترات بـ7,500 لكل وحدة): الأوّل للمرتجع (مرتجع مرحَّل
+  // منه لتر بمقبول 700 لإلغائه، ومسوّدة مقبولها مكتوب للترحيل والمعاينة وتعديل المقبول وحذف السطر، ومسوّدة بسطر بلا مقبول لإدخاله
+  // وطيّها، ومسوّدة فارغة لإدخال سطر)، والثاني للتصحيح (انصرف منه لتران فيصحّ، وتصحيح مرحَّل لـ7,600 لإلغائه). سطران منفصلان حتى
+  // حركة التصحيح ما تقع على دفعة المرتجع بعده (فيمتنع إلغاؤه، lot_consumed).
+  const wp7 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const version = async (docId) => one('select version from public.supplier_returns where id = $1', [docId]);
+      const fuelA = await one("insert into public.items (name, kind, base_unit) values ('كاز المرتجع', 'fuel', 'L') returning id");
+      const fuelB = await one("insert into public.items (name, kind, base_unit) values ('كاز التصحيح', 'fuel', 'L') returning id");
+      const receipt = await one('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [ledger.fresh, generalStore]);
+      const lineA = await one('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10) returning id', [receipt, fuelA]);
+      const lineB = await one('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10) returning id', [receipt, fuelB]);
+      await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 7500), ($2, 7500)', [lineA, lineB]);
+      await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [receipt]);
+      const use = await one('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today()) returning id', [generalStore, wp5.category]);
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 2)', [use, fuelB]);
+      await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+      const draft = async (qty) => {
+        const doc = await one('insert into public.supplier_returns (receipt_id, returned_on) values ($1, public.app_today()) returning id', [receipt]);
+        const line = qty === null ? null : await one('insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, $3) returning id', [doc, lineA, qty]);
+        return { doc, line };
+      };
+      const posted = await draft(1);
+      await q('insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 700)', [posted.line]);
+      await q("select public.post_supplier_return($1, $2, public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [posted.doc, await version(posted.doc)]);
+      const revaluation = await one("select public.post_receipt_revalue($1, 7600, public.preview_receipt_revalue($1, 7600) ->> 'plan', 'فاتورة معدّلة', gen_random_uuid()) ->> 'id'", [lineB]);
+      const priced = await draft(2);
+      const credit = await one('insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 1500) returning id', [priced.line]);
+      const bare = await draft(1);
+      const empty = await draft(null);
+      return {
+        receipt,
+        receiptLine: lineA,
+        revalueLine: lineB,
+        plan7700: await one("select public.preview_receipt_revalue($1, 7700) ->> 'plan'", [lineB]),
+        posted: posted.doc,
+        revaluation,
+        draft: priced.doc,
+        line: priced.line,
+        credit,
+        version: await version(priced.doc),
+        bare: bare.doc,
+        bareLine: bare.line,
+        bareVersion: await version(bare.doc),
+        empty: empty.doc,
+      };
+    },
+    { commit: true },
+  );
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -272,7 +324,7 @@ export default async function (t, db) {
     void_cash_move: { sql: () => ["select public.void_cash_move($1, 'رصيد خاطئ', gen_random_uuid())", [ledger.cashOpening]], expect: only(['owner', 'manager']) },
     preview_party_allocation: { sql: () => ["select public.preview_party_allocation($1, $2, 'payment', 1000) -> 'money' ->> 'amount' as v", [ledger.debtor, millBook]], value: true, expect: only(ACCOUNTS, 'ok:-1000') },
     report_accounts_summary: { sql: () => ["select public.report_accounts_summary(public.app_today() - 30, public.app_today()) -> 'project' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
-    report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: only(ACCOUNTS, 'ok:1') },
+    report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: only(ACCOUNTS, 'ok:2') },
     report_party_statement: { sql: () => ["select jsonb_array_length(public.report_party_statement($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
     report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:349000') },
     report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
@@ -288,11 +340,12 @@ export default async function (t, db) {
     preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: only(TRANSFER, 'ok:true') },
     discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
-    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:3', 'out_of_scope') },
+    // WP7 زاد مادّتين بالمخزن العامّ (6,750 بعد مرتجع لتر، و6,080 بعد صرف لترين وتصحيح بحصّة 80)، وجهة برصيد، وثلاث مصاريف.
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:5', 'out_of_scope') },
     item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
     item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
-    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 474500 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 474500 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
     item_lots_value: { sql: () => ["select (public.item_lots_value($1, $2, null, 50) -> 'rows' -> 0 ->> 'value_left')::numeric = 300000 as v", [stock.kerosene, generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
     // علامة «مؤرشف وعليه رصيد» لقائمة المخازن (§2.6): بلا قيم، لكل دور بنطاقه (ماكو مخزن مؤرشف هنا؛ الضابط الإيجابي بـstock.test).
     archived_stores_with_stock: { sql: () => ['select jsonb_array_length(public.archived_stores_with_stock()) as v', []], value: true, expect: all('ok:0') },
@@ -309,7 +362,7 @@ export default async function (t, db) {
     post_count: { sql: () => ["select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
     void_count: { sql: () => ["select public.void_count($1, 'جرد خاطئ', gen_random_uuid())", [wp5.countApproved]], expect: only(['owner', 'manager']) },
     preview_count: { sql: () => ["select public.preview_count($1) ->> 'ready' as v", [wp5.countSubmitted]], value: true, expect: only(COUNT_APPROVE, 'ok:true') },
-    report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: only(ACCOUNTS, 'ok:3') },
+    report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: only(ACCOUNTS, 'ok:6') },
     // المرحلة 1 (WP6، §2.12): مسوّدة الاستلام للأمين والمدير (receipt.draft)، ومبالغه وترحيله وتحميلاته لأدوار الكلفة (receipt.amounts)،
     // والمعاينة للاثنين (الكميات للأمين)، والإلغاء للمدير (void).
     post_receipt: { sql: () => ['select public.post_receipt($1, $2, gen_random_uuid())', [wp6.draft, wp6.version]], expect: only(ACCOUNTS) },
@@ -317,6 +370,15 @@ export default async function (t, db) {
     preview_receipt: { sql: () => ["select jsonb_array_length(public.preview_receipt($1) -> 'lines') as v", [wp6.draft]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
     delete_receipt_charge: { sql: () => ["select public.delete_receipt_charge($1, $2) ->> 'deleted' as v", [wp6.charge, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:true') },
     set_charge_lines: { sql: () => ["select public.set_charge_lines($1, array[$2]::uuid[], $3) ->> 'all_lines' as v", [wp6.charge, wp6.line, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:false') },
+    // المرحلة 1 (WP7، §2.12): مسوّدة المرتجع للأمين والمدير (receipt.draft)، ومقبوله وترحيله لأدوار الكلفة (receipt.amounts)، وإلغاؤه للمدير
+    // (void)؛ وتصحيح السعر ومعاينته للمدير والمالك (receipt.revalue)، وإلغاؤه للمدير (void).
+    post_supplier_return: { sql: () => ["select public.post_supplier_return($1, $2, public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [wp7.draft, wp7.version]], expect: only(ACCOUNTS) },
+    void_supplier_return: { sql: () => ["select public.void_supplier_return($1, 'مرتجع خاطئ', gen_random_uuid())", [wp7.posted]], expect: only(['owner', 'manager']) },
+    preview_supplier_return: { sql: () => ["select jsonb_array_length(public.preview_supplier_return($1) -> 'lines') as v", [wp7.draft]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
+    supplier_return_options: { sql: () => ["select jsonb_array_length(public.supplier_return_options($1) -> 'lines') as v", [wp7.receipt]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:2') },
+    post_receipt_revalue: { sql: () => ["select public.post_receipt_revalue($1, 7700, $2, 'فاتورة', gen_random_uuid())", [wp7.revalueLine, wp7.plan7700]], expect: only(['owner', 'manager']) },
+    void_receipt_revalue: { sql: () => ["select public.void_receipt_revalue($1, 'تصحيح خاطئ', gen_random_uuid())", [wp7.revaluation]], expect: only(['owner', 'manager']) },
+    preview_receipt_revalue: { sql: () => ["select public.preview_receipt_revalue($1, 7700) ->> 'ready' as v", [wp7.revalueLine]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -354,6 +416,9 @@ export default async function (t, db) {
     // WP6: مسوّدة الاستلام بـreceipt.draft (المحاسب ممنوع)، وحذف السطر المسعَّر يحذف مبلغه ويّاه.
     "discard_draft('receipt')": { sql: ["select public.discard_draft('receipt', $1, $2) ->> 'status' as v", [wp6.bare, wp6.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     "delete_draft_line('receipt')": { sql: ["select public.delete_draft_line('receipt', $1, $2) ->> 'deleted' as v", [wp6.line, wp6.version]], value: true, expect: only(TRANSFER, 'ok:true') },
+    // WP7: مسوّدة المرتجع بـreceipt.draft (المحاسب ممنوع)، وحذف السطر يحذف مقبوله ويّاه.
+    "discard_draft('supplier_return')": { sql: ["select public.discard_draft('supplier_return', $1, $2) ->> 'status' as v", [wp7.bare, wp7.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
+    "delete_draft_line('supplier_return')": { sql: ["select public.delete_draft_line('supplier_return', $1, $2) ->> 'deleted' as v", [wp7.line, wp7.version]], value: true, expect: only(TRANSFER, 'ok:true') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};
@@ -385,11 +450,17 @@ export default async function (t, db) {
     Array(10).fill(['ok', 'forbidden']),
     'المدير ينجح بالصرف والجرد ومراجعته وإلغائها وإلغاء المصروف والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
   );
-  t.same([ROWS.record_expense.expect.accountant, ROWS.report_expenses.expect.accountant], ['ok', 'ok:3'], 'المحاسب يسجّل المصروف ويقرأ تقريره');
+  t.same([ROWS.record_expense.expect.accountant, ROWS.report_expenses.expect.accountant], ['ok', 'ok:6'], 'المحاسب يسجّل المصروف ويقرأ تقريره (ثلاث من WP5 وثلاث من WP7)');
   t.same(
     [ROWS.post_receipt.expect.manager, ROWS.post_receipt.expect.accountant, ROWS.post_receipt.expect.storekeeper, ROWS.void_receipt.expect.manager, ROWS.void_receipt.expect.accountant],
     ['ok', 'ok', 'forbidden', 'ok', 'forbidden'],
     'الاستلام: المدير يرحّل ويلغي، والمحاسب يرحّل ولا يلغي، والأمين لا يرحّل (§2.12)',
+  );
+  t.same(
+    [ROWS.post_supplier_return.expect.manager, ROWS.post_supplier_return.expect.accountant, ROWS.post_supplier_return.expect.storekeeper,
+      ROWS.post_receipt_revalue.expect.manager, ROWS.post_receipt_revalue.expect.accountant, ROWS.void_supplier_return.expect.accountant],
+    ['ok', 'ok', 'forbidden', 'ok', 'forbidden', 'forbidden'],
+    'المرتجع والتصحيح: الأمين يكتب المسوّدة ولا يرحّل، والمحاسب يرحّل المرتجع ولا يصحّح السعر ولا يلغي، والمدير كلّها (§2.12)',
   );
 
   // ── الكتابة المباشرة بالبيانات الأساسية (Q1، §2.12): كل جدول × دور، إدخال وتعديل، والمسموح بضابط إيجابي بكل خانة ─────────
@@ -536,6 +607,24 @@ export default async function (t, db) {
       insertDenied: 'forbidden',
       insert: ["insert into public.receipt_charges (doc_id, label, amount, allocate_by, cash_account_id) values ($1, 'نقل', 100, 'value', $2)", [wp6.draft, ledger.box]],
       update: ['update public.receipt_charges set amount = amount where id = $1', [wp6.charge]],
+    },
+    // WP7 (§2.5): رأس المرتجع وسطره بـreceipt.draft، والمقبول بـreceipt.amounts (حارسه يرفض الممنوع قبل RLS).
+    supplier_returns: {
+      allowed: TRANSFER,
+      insert: ['insert into public.supplier_returns (receipt_id, returned_on) values ($1, public.app_today())', [wp7.receipt]],
+      update: ['update public.supplier_returns set note = note where id = $1', [wp7.draft]],
+    },
+    supplier_return_lines: {
+      allowed: TRANSFER,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, 1)', [wp7.empty, wp7.receiptLine]],
+      update: ['update public.supplier_return_lines set qty_base = qty_base where id = $1', [wp7.line]],
+    },
+    supplier_return_line_amounts: {
+      allowed: ACCOUNTS,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 100)', [wp7.bareLine]],
+      update: ['update public.supplier_return_line_amounts set credit_amount = credit_amount where id = $1', [wp7.credit]],
     },
   });
   t.same(Object.keys(WRITES).sort(), Object.keys(CLASSES.directWrite).sort(), `الكتابة المباشرة تغطّي directWrite بـclasses.json بالضبط (${Object.keys(WRITES).length} جدول)`);

@@ -295,6 +295,8 @@ export interface StatementLine {
   onDate: Day;
   kind: EntryKind;
   docNo: string | null;
+  /** نوع المستند للقيد اللي يتبع مستنداً (يُلغى بإلغاء مستنده، مراجعة WP7)، وnull لقيد يدوي. */
+  docKind?: string | null;
   reason: string | null;
   /** القيد عكسٌ لقيد آخر. */
   reverses: boolean;
@@ -355,6 +357,7 @@ export function parseStatement(value: unknown): PartyStatement {
             onDate: day(line, 'on_date'),
             kind: kind as EntryKind,
             docNo: optStr(line, 'doc_no'),
+            docKind: optStr(line, 'doc_kind'),
             reason: optStr(line, 'reason'),
             reverses: line.reverses !== null && line.reverses !== undefined,
             reversed: flag(line, 'reversed'),

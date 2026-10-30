@@ -13,8 +13,9 @@
 // بالفلس، والرفض برمز مشكلتها بالضبط؛ وإلغاءات عشوائية؛ وبعد كل خطوة verify_stock وverify_ledger صفر.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
 import { LEDGER_ZERO, balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
-import { postReceipt, priceReceipt, receiptDraft, voidReceipt } from './receipt-kit.mjs';
-import { STOCK_ZERO, makeStockOrg, openingDraft, postOpening, postTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
+import { postReceipt, postedReceipt, priceReceipt, receiptDraft, voidReceipt } from './receipt-kit.mjs';
+import { postRevalue, postedReturn, postedUse } from './return-kit.mjs';
+import { STOCK_ZERO, makeStockOrg, openingDraft, postOpening, postTransfer, postedTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
 const id = (n) => `d3000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -41,6 +42,7 @@ export default async function (t, db) {
     await propertyV2(t, db);
     await propertyV3(t, db);
     await propertyV4(t, db);
+    await propertyV5(t, db);
   });
 }
 
@@ -637,5 +639,165 @@ async function propertyV4(t, db) {
   t.ok(
     tally.done === STEPS && tally.posted > 0 && tally.rejected > 0 && tally.mass > 0 && tally.value > 0 && tally.picked > 0 && tally.discounts > 0 && tally.paid > 0 && tally.voids > 0,
     `الخصائص v4 نفّذت كل الخطوات ومرّت بالترحيل والرفض والتحميل بالوزن والقيمة والاختيار والخصم والمدفوع والإلغاء (${JSON.stringify(tally)})`,
+  );
+}
+
+/**
+ * فحص الخصائص v5 (WP7، FOUNDATION ٥٩٤): كل عمليات المرحلة 1 على مخزن المواد (استلام بخصم أو تحميل، ومرتجع من دفعة سطر استلام
+ * بمقبول عشوائي، وتصحيح سعر سطر انسحب منه بفرق صاعد أو نازل، وتحويل لمخزن ثاني، وصرف)، وبعد كل خطوة verify_stock وverify_ledger
+ * صفر؛ وكل تصحيح بقسمة المرآة revaluationSplit بالفلس (أو رفضه negative_value). بالآخر كل المستندات تنلغى من الأحدث للأقدم وكل رصيد
+ * (المخزون كميةً وقيمةً، ودفاتر الجهات، والمصاريف) يرجع صفراً بالفلس.
+ */
+async function propertyV5(t, db) {
+  const SEED = 20261105;
+  const STEPS = 60;
+  const domain = await loadSrc('src/domain/revalue.ts');
+  const S = await makeStockOrg(db, {
+    name: 'مزرعة خصائص المرتجع',
+    id: (n) => `d3400000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    phone: (n) => `96477093400${String(n).padStart(2, '0')}`,
+    goLive: '2026-10-20',
+  });
+  const { users: U, W, divisions: DV } = S;
+  const rawSite = (await db.admin('select site_id from public.warehouses where id = $1', [W.raw])).rows[0].site_id;
+  const raw2 = await S.one(U.owner, "insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'مخزن خصائص ثانٍ', 'raw') returning id", [DV.feed_mill, rawSite]);
+  const items = [];
+  for (const name of ['ذرة الخصائص', 'صويا الخصائص', 'نخالة الخصائص']) items.push(await S.one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'raw', 'kg') returning id", [name]));
+  const supplier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد خصائص المرتجع', true) returning id");
+  const carrier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('ناقل خصائص المرتجع', true) returning id");
+  const category = await S.one(U.manager, "insert into public.expense_categories (name) values ('صرف الخصائص') returning id");
+  const M = U.manager;
+  const random = rng(SEED);
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  const int = (lo, hi) => lo + Math.floor(random() * (hi - lo + 1));
+  const failures = [];
+  const tally = { done: 0, receipts: 0, returns: 0, revalues: 0, falls: 0, negative: 0, transfers: 0, uses: 0, voids: 0 };
+  const stack = [];
+  const receiptLines = [];
+  // السطور المؤهّلة (موجّه حتى كل فرع ينفحص > 0، درس WP5): دفعة سطر بمتبقٍّ للمرتجع، وعائلة انسحب منها للتصحيح.
+  // بترتيب ثابت (fifo_seq)، فالبذرة نفسها تمشي نفس المسار بكل تشغيل (المعرّفات عشوائية).
+  const returnable = async () => (await db.admin("select l.source_line_id as line from public.stock_lots l where l.source_kind = 'receipt' and l.origin_lot_id is null and l.qty_left > 0 and l.source_line_id = any ($1::uuid[]) order by l.fifo_seq", [receiptLines])).rows.map((r) => r.line);
+  const drawn = async () => (await db.admin(
+    "select root.source_line_id as line from public.stock_lots root where root.source_kind = 'receipt' and root.origin_lot_id is null and root.source_line_id = any ($1::uuid[]) and root.qty_in > (select coalesce(sum(l.qty_left), 0) from public.stock_lots l where l.id = root.id or l.origin_lot_id = root.id) order by root.fifo_seq",
+    [receiptLines],
+  )).rows.map((r) => r.line);
+  const available = async (item) => Number((await db.admin('select coalesce(sum(qty_left), 0)::text as q from public.stock_lots where item_id = $1 and warehouse_id = $2', [item, W.raw])).rows[0].q);
+  for (let step = 1; step <= STEPS && failures.length === 0; step += 1) {
+    const roll = random();
+    try {
+      const canReturn = await returnable();
+      const canRevalue = await drawn();
+      if (receiptLines.length === 0 || roll < 0.2 || (roll < 0.4 && canReturn.length === 0) || (roll >= 0.4 && roll < 0.65 && canRevalue.length === 0)) {
+        const picked = [...new Set(Array.from({ length: int(1, 2) }, () => pick(items)))];
+        const lines = picked.map((item) => ({ item, qty: int(100, 5000) }));
+        const totals = lines.map(() => int(1000, 3000000));
+        const sum = totals.reduce((a, b) => a + b, 0);
+        const doc = await postedReceipt(db, {
+          keeper: M, pricer: M, wh: W.raw, party: supplier, on: TODAY, lines, totals,
+          // خصم دائماً: النزول لصفر يصير سالباً لمّا حصّة الخصم أكبر من التحميل (negative_value)، وE51 (الخصم ما ينعاد توزيعه) يمرّ بكل تصحيح.
+          discount: int(1, Math.floor(sum / 4)),
+          charges: random() < 0.3 ? [{ label: 'نقل', amount: int(1, 50000), by: 'mass', payee: carrier }] : [],
+        });
+        stack.push({ kind: 'receipt', id: doc.id });
+        doc.lines.forEach((line) => receiptLines.push(line));
+        tally.receipts += 1;
+      } else if (roll < 0.4) {
+        const line = pick(canReturn);
+        const lot = (await db.admin("select trim_scale(qty_left)::text as q, trim_scale(value_left)::text as v from public.stock_lots where source_kind = 'receipt' and source_line_id = $1 and origin_lot_id is null", [line])).rows[0];
+        if (Number(lot.q) <= 0) continue;
+        const receipt = (await db.admin('select doc_id from public.receipt_lines where id = $1', [line])).rows[0].doc_id;
+        const doc = await postedReturn(db, { keeper: M, pricer: M, receipt, on: TODAY, lines: [{ receiptLine: line, qty: int(1, Number(lot.q)) }], credits: [int(0, Math.ceil(Number(lot.v)))] });
+        stack.push({ kind: 'return', id: doc.id });
+        tally.returns += 1;
+      } else if (roll < 0.65) {
+        const line = pick(canRevalue);
+        const fam = (await db.admin(
+          `select (l.qty_left * 1000)::bigint::text as q, (l.value_left * 100)::bigint::text as v, (root.qty_in * 1000)::bigint::text as qin
+           from public.stock_lots root join public.stock_lots l on l.id = root.id or l.origin_lot_id = root.id
+           where root.source_kind = 'receipt' and root.source_line_id = $1 and root.origin_lot_id is null and l.qty_left > 0
+           order by l.id <> root.id, l.id`,
+          [line],
+        )).rows;
+        const qtyIn = BigInt((await db.admin("select (qty_in * 1000)::bigint::text as q from public.stock_lots where source_kind = 'receipt' and source_line_id = $1 and origin_lot_id is null", [line])).rows[0].q);
+        const sumLeft = fam.reduce((a, r) => a + BigInt(r.q), 0n);
+        if (sumLeft === qtyIn) continue;
+        const current = BigInt((await db.admin(
+          "select coalesce((select new_total from public.receipt_revaluations where receipt_line_id = $1 and status = 'posted' order by rev_no desc limit 1), (select line_total from public.receipt_line_amounts where line_id = $1))::bigint::text as c",
+          [line],
+        )).rows[0].c);
+        const fall = random() < 0.45 && current > 1n;
+        // نزول لصفر أحياناً: مع خصم الاستلام قد تصير قيمة دفعة سالبة (negative_value)، فالفرع ينفحص > 0.
+        const next = fall ? (random() < 0.5 ? 0n : current - BigInt(int(1, Math.max(1, Number(current) - 1)))) : current + BigInt(int(1, 500000));
+        const expected = domain.revaluationSplit(fam.map((r) => ({ qtyLeft: BigInt(r.q), valueLeft: BigInt(r.v) })), qtyIn, (next - current) * 100n);
+        const result = await postRevalue(db, M, line, String(next));
+        if (expected.problem) {
+          tally.negative += 1;
+          if (result.ok || result.code !== 'negative_value') failures.push(`خطوة ${step}: المتوقّع negative_value وطلع ${shown(result)}`);
+        } else if (!result.ok) {
+          failures.push(`خطوة ${step}: تصحيح ${result.code} ${result.hint}`);
+        } else {
+          const moved = (await db.admin(
+            "select (m.value * 100)::bigint::text as v from public.stock_moves m join public.stock_lots l on l.id = m.lot_id join public.stock_lots root on root.id = coalesce(l.origin_lot_id, l.id) where m.doc_kind = 'receipt_revalue' and m.doc_id = $1 order by l.id <> root.id, l.id",
+            [result.value.id],
+          )).rows.map((r) => BigInt(r.v));
+          const want = expected.shares.filter((share) => share !== 0n);
+          if (fils(result.value.lot_share) !== expected.lotShare || fils(result.value.expense_amount) !== expected.expense || moved.join(',') !== want.join(',')) {
+            failures.push(`خطوة ${step}: القسمة ${result.value.lot_share}/${result.value.expense_amount}/${moved.join(',')} والمرآة ${expected.lotShare}/${expected.expense}/${want.join(',')}`);
+          }
+          stack.push({ kind: 'revalue', id: result.value.id });
+          tally.revalues += 1;
+          tally.falls += fall ? 1 : 0;
+        }
+      } else if (roll < 0.82) {
+        const item = pick(items);
+        const left = await available(item);
+        if (left < 1) continue;
+        const doc = await postedTransfer(db, M, W.raw, raw2, TODAY, [{ item, qty: int(1, Math.floor(left)) }]);
+        stack.push({ kind: 'transfer', id: doc.id });
+        tally.transfers += 1;
+      } else {
+        const item = pick(items);
+        const left = await available(item);
+        if (left < 1) continue;
+        const doc = await postedUse(db, M, { wh: W.raw, category, on: TODAY, item, qty: int(1, Math.floor(left)) });
+        stack.push({ kind: 'use', id: doc.id });
+        tally.uses += 1;
+      }
+    } catch (error) {
+      failures.push(`خطوة ${step}: ${error.message}`);
+    }
+    const stock = await db.asService(verifyStock);
+    const ledgerChecks = await db.asService(verifyLedger);
+    if (JSON.stringify(stock) !== JSON.stringify(STOCK_ZERO) || JSON.stringify(ledgerChecks) !== JSON.stringify(LEDGER_ZERO)) failures.push(`بعد خطوة ${step}: ${JSON.stringify({ stock, ledgerChecks })}`);
+    tally.done = step;
+  }
+  // الإلغاء من الأحدث للأقدم (FOUNDATION ٥٩٤): كل إلغاء يمرّ، وبالآخر كل رصيد صفر بالفلس.
+  const VOIDS = {
+    receipt: (docId) => voidReceipt(db, M, docId),
+    return: (docId) => call(db, M, "select public.void_supplier_return($1, 'خصائص', $2)", [docId, uid()]),
+    revalue: (docId) => call(db, M, "select public.void_receipt_revalue($1, 'خصائص', $2)", [docId, uid()]),
+    transfer: (docId) => call(db, M, "select public.void_transfer($1, 'خصائص', $2)", [docId, uid()]),
+    use: (docId) => call(db, M, "select public.void_stock_use($1, 'خصائص', $2)", [docId, uid()]),
+  };
+  while (failures.length === 0 && stack.length > 0) {
+    const doc = stack.pop();
+    const result = await VOIDS[doc.kind](doc.id);
+    if (!result.ok) failures.push(`إلغاء ${doc.kind}: ${result.code} ${result.hint}`);
+    else tally.voids += 1;
+  }
+  const org = (await db.admin('select org_id from public.warehouses where id = $1', [W.raw])).rows[0].org_id;
+  const residue = (await db.admin(
+    `select (select count(*) from public.stock_balances where org_id = $1 and (qty <> 0 or value <> 0))::int as stock,
+       (select count(*) from (select party_id, book_id from public.party_entries where org_id = $1 group by 1, 2 having sum(amount) <> 0) as x)::int as books,
+       (select count(*) from (select category_id from public.expenses where org_id = $1 group by 1 having sum(amount) <> 0) as x)::int as expenses,
+       (select count(*) from public.stock_lots where org_id = $1 and (qty_left <> 0 or value_left <> 0))::int as lots`,
+    [org],
+  )).rows[0];
+  console.log(`    · فحص الخصائص v5 (المرتجع والتصحيح): البذرة ${SEED}، ${JSON.stringify(tally)}`);
+  t.same(failures, [], `الخصائص v5 (البذرة ${SEED}): بعد كل خطوة verify_stock وverify_ledger صفر، وكل تصحيح بقسمة المرآة بالفلس، وكل إلغاء من الأحدث يمرّ`);
+  t.same(residue, { stock: 0, books: 0, expenses: 0, lots: 0 }, 'الخصائص v5: بعد إلغاء الكل من الأحدث، المخزون والدفعات ودفاتر الجهات والمصاريف صفر بالفلس (FOUNDATION ٥٩٤)');
+  t.ok(
+    tally.done === STEPS && tally.receipts > 0 && tally.returns > 0 && tally.revalues > 0 && tally.falls > 0 && tally.negative > 0 && tally.transfers > 0 && tally.uses > 0 && tally.voids === tally.receipts + tally.returns + tally.revalues + tally.transfers + tally.uses,
+    `الخصائص v5 مرّت بالاستلام والمرتجع والتصحيح الصاعد والنازل والمرفوض بقيمة سالبة والتحويل والصرف وألغت الكل (${JSON.stringify(tally)})`,
   );
 }

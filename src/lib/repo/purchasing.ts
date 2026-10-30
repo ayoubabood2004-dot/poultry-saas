@@ -600,3 +600,491 @@ export async function postReceipt(ref: StockRef, id: string, expectedVersion: nu
 export async function voidReceipt(ref: StockRef, id: string, reason: string): Promise<PostedReceipt> {
   return postedReceipt(await call<unknown>('void_receipt', { p_id: id, p_reason: reason, p_client_ref: ref.clientRef }));
 }
+
+// ─── مرتجع المورّد (0010، FOUNDATION ٣٣٥–٣٣٧، ٥٥٣؛ E15، E31، E47) ─────────────────────────────────────────────────────
+// الأمين يكتب المسوّدة بالكميات من سطور استلام مرحَّل (دفعة السطر نفسها بمخزن الاستلام، E15)، وأدوار الكلفة يكتبون المبلغ اللي يقبله
+// المورّد لكل سطر (دينار صحيح) ويرحّلون. الرأس والسطور كتابة مباشرة بسياسة receipt.draft، والمبالغ بسياسة receipt.amounts؛ والمورّد
+// والمخزن والدفتر ينسخها الخادم من الاستلام. الأسماء من قراءة الاستلام والمواد (بلا تضمين جداول المرتجع).
+
+export interface SupplierReturnDoc {
+  id: string;
+  status: DocStatus;
+  version: number;
+  docNo: string | null;
+  receiptId: string;
+  partyId: string;
+  warehouseId: string;
+  bookId: string;
+  onDate: string;
+  note: string | null;
+  posted: boolean;
+  voidReason: string | null;
+  createdAt: string;
+}
+
+const RETURN_COLUMNS = 'id, doc_no, receipt_id, party_id, warehouse_id, book_id, returned_on, status, version, note, posted_at, void_reason, created_at';
+
+function supplierReturnDoc(row: Row): SupplierReturnDoc {
+  const version = row.version;
+  if (typeof version !== 'number' || !Number.isInteger(version)) throw new RowShapeError('version');
+  return {
+    id: str(row, 'id'),
+    status: oneOf(row, 'status', DOC_STATUSES),
+    version,
+    docNo: optStr(row, 'doc_no'),
+    receiptId: str(row, 'receipt_id'),
+    partyId: str(row, 'party_id'),
+    warehouseId: str(row, 'warehouse_id'),
+    bookId: str(row, 'book_id'),
+    onDate: str(row, 'returned_on'),
+    note: optStr(row, 'note'),
+    posted: row.posted_at !== null && row.posted_at !== undefined,
+    voidReason: optStr(row, 'void_reason'),
+    createdAt: str(row, 'created_at'),
+  };
+}
+
+export interface SupplierReturnLine {
+  id: string;
+  lineNo: number;
+  receiptLineId: string;
+  itemId: string;
+  /** دفعة سطر الاستلام نفسها (يكتبها الخادم، E15). */
+  lotId: string | null;
+  /** بوحدة أساس المادّة، بالألف. */
+  qty: Milli;
+}
+
+const RETURN_LINE_COLUMNS = 'id, line_no, receipt_line_id, item_id, lot_id, qty_base::text';
+
+function returnLine(row: Row): SupplierReturnLine {
+  const lineNo = count(row, 'line_no');
+  if (lineNo === null) throw new RowShapeError('line_no');
+  return { id: str(row, 'id'), lineNo, receiptLineId: str(row, 'receipt_line_id'), itemId: str(row, 'item_id'), lotId: optStr(row, 'lot_id'), qty: qtyOf(row, 'qty_base') };
+}
+
+/** المبلغ اللي يقبله المورّد للسطر (أدوار الكلفة؛ للأمين ما يرجع صفّ). */
+export interface ReturnCredit {
+  id: string;
+  lineId: string;
+  credit: Fils;
+}
+
+const creditRow = (row: Row): ReturnCredit => ({ id: str(row, 'id'), lineId: str(row, 'line_id'), credit: fils(row, 'credit_amount') });
+
+/** الاستلام صاحب المرتجع للعرض (رقمه ويومه ومورّده). */
+export interface ReturnReceipt {
+  id: string;
+  docNo: string | null;
+  onDate: string;
+  partyName: string;
+}
+
+export interface SupplierReturnBundle {
+  doc: SupplierReturnDoc;
+  receipt: ReturnReceipt;
+  lines: (SupplierReturnLine & { itemName: string; baseUnit: BaseUnit })[];
+  /** فارغة للأمين (سياسة الكلفة). */
+  credits: ReturnCredit[];
+}
+
+export async function loadSupplierReturn(id: string, withMoney: boolean): Promise<SupplierReturnBundle> {
+  const list = await readAll((db) =>
+    Promise.all([
+      db.from('supplier_returns').select(RETURN_COLUMNS).eq('id', id),
+      db.from('supplier_return_lines').select(RETURN_LINE_COLUMNS).eq('doc_id', id).order('line_no') /* unbounded: سطور مستند واحد */,
+      ...(withMoney ? [db.from('supplier_return_line_amounts').select('id, line_id, credit_amount::text').eq('doc_id', id) /* unbounded: مبالغ سطور مستند واحد */] : []),
+    ]),
+  );
+  const [head] = list(0);
+  if (!head) throw new ZeroRowsError();
+  const doc = supplierReturnDoc(head);
+  const lines = list(1).map(returnLine);
+  const itemIds = [...new Set(lines.map((line) => line.itemId))];
+  const more = await readAll((db) =>
+    Promise.all([
+      db.from('receipts').select('id, doc_no, received_on, party:parties(name)').eq('id', doc.receiptId),
+      ...(itemIds.length > 0 ? [db.from('items').select('id, name, base_unit').in('id', itemIds) /* unbounded: مواد سطور مستند واحد */] : []),
+    ]),
+  );
+  const [receipt] = more(0);
+  if (!receipt) throw new ZeroRowsError();
+  const party = receipt.party === null || receipt.party === undefined ? null : obj(receipt.party, 'party');
+  const items = new Map((itemIds.length > 0 ? more(1) : []).map((row) => [str(row, 'id'), { name: str(row, 'name'), baseUnit: oneOf(row, 'base_unit', BASE_UNITS) }]));
+  return {
+    doc,
+    receipt: { id: str(receipt, 'id'), docNo: optStr(receipt, 'doc_no'), onDate: str(receipt, 'received_on'), partyName: party ? str(party, 'name') : '—' },
+    lines: lines.map((line) => {
+      const item = items.get(line.itemId);
+      if (!item) throw new RowShapeError('item');
+      return { ...line, itemName: item.name, baseUnit: item.baseUnit };
+    }),
+    credits: withMoney ? list(2).map(creditRow) : [],
+  };
+}
+
+/** مرتجعات استلام واحد (للصفحة المرحَّلة)، الأقدم أوّلاً. */
+export async function listReceiptReturns(receiptId: string): Promise<SupplierReturnDoc[]> {
+  const list = await readAll((db) => Promise.all([db.from('supplier_returns').select(RETURN_COLUMNS).eq('receipt_id', receiptId).order('created_at').order('id') /* unbounded: مرتجعات استلام واحد */]));
+  return list(0).map(supplierReturnDoc);
+}
+
+export interface ReturnOptionLine {
+  receiptLineId: string;
+  lineNo: number;
+  itemId: string;
+  itemName: string;
+  baseUnit: BaseUnit;
+  qtyReceived: Milli;
+  lotId: string | null;
+  /** متبقّي دفعة السطر الآن (كمية بس). */
+  qtyLeft: Milli;
+}
+
+export interface ReturnOptions {
+  receiptId: string;
+  receiptNo: string | null;
+  partyId: string;
+  partyName: string;
+  warehouseId: string;
+  receivedOn: string;
+  status: DocStatus;
+  lines: ReturnOptionLine[];
+}
+
+/** سطور الاستلام ومتبقّي دفعاتها لكتابة مرتجع (كميات بس، receipt.draft أو receipt.amounts). */
+export async function supplierReturnOptions(receiptId: string): Promise<ReturnOptions> {
+  const json = obj(await call<unknown>('supplier_return_options', { p_receipt: receiptId }), 'supplier_return_options');
+  return {
+    receiptId: str(json, 'receipt_id'),
+    receiptNo: optStr(json, 'receipt_no'),
+    partyId: str(json, 'party_id'),
+    partyName: optStr(json, 'party_name') ?? '—',
+    warehouseId: str(json, 'warehouse_id'),
+    receivedOn: str(json, 'received_on'),
+    status: oneOf(json, 'status', DOC_STATUSES),
+    lines: arr(json.lines, 'lines').map((item) => {
+      const row = obj(item, 'lines');
+      return {
+        receiptLineId: str(row, 'receipt_line_id'),
+        lineNo: count(row, 'line_no') ?? 0,
+        itemId: str(row, 'item_id'),
+        itemName: str(row, 'item_name'),
+        baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
+        qtyReceived: qtyOf(row, 'qty_received'),
+        lotId: optStr(row, 'lot_id'),
+        qtyLeft: qtyOf(row, 'qty_left'),
+      };
+    }),
+  };
+}
+
+/** مسوّدة مرتجع بمعرّف يولد بالجهاز (الإعادة بعد جواب ضاع 23505 = انكتبت). المورّد والمخزن والدفتر ينسخها الخادم من الاستلام. */
+export function createSupplierReturnDraft(id: string, receiptId: string, returnedOn: string): Promise<SupplierReturnDoc> {
+  return written(async (db) => updatedRows(withStatus(await db.from('supplier_returns').insert({ id, receipt_id: receiptId, returned_on: returnedOn }).select(RETURN_COLUMNS)))).then(supplierReturnDoc);
+}
+
+export interface SupplierReturnPatch {
+  day?: string;
+  note?: string | null;
+}
+
+/** تاريخ المسوّدة أو ملاحظتها بشرط النسخة. */
+export function updateSupplierReturnDraft(doc: Pick<SupplierReturnDoc, 'id' | 'version'>, patch: SupplierReturnPatch): Promise<SupplierReturnDoc> {
+  const fields = {
+    ...(patch.day ? { returned_on: patch.day } : {}),
+    ...(patch.note === undefined ? {} : { note: patch.note?.trim() || null }),
+  };
+  return written(async (db) => updatedRows(withStatus(await db.from('supplier_returns').update(fields).eq('id', doc.id).eq('version', doc.version).select(RETURN_COLUMNS)))).then(supplierReturnDoc);
+}
+
+/** سطر بمعرّف يولد بالجهاز: سطر استلام وكمية بوحدة الأساس (المادّة والدفعة ينسخها الخادم). */
+export function addReturnLine(docId: string, id: string, receiptLineId: string, qty: Milli): Promise<SupplierReturnLine> {
+  return written(async (db) =>
+    updatedRows(withStatus(await db.from('supplier_return_lines').insert({ id, doc_id: docId, receipt_line_id: receiptLineId, qty_base: decimalText(qty, 3) }).select(RETURN_LINE_COLUMNS))),
+  ).then(returnLine);
+}
+
+/** كمية السطر بمعرّفه (إعادة إضافة ضاع جوابها 23505 تكتب آخر كمية فوقه). */
+export function updateReturnLine(lineId: string, qty: Milli): Promise<SupplierReturnLine> {
+  return written(async (db) => updatedRows(withStatus(await db.from('supplier_return_lines').update({ qty_base: decimalText(qty, 3) }).eq('id', lineId).select(RETURN_LINE_COLUMNS)))).then(returnLine);
+}
+
+export function deleteReturnLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {
+  return deleteDraftLine('supplier_return', lineId, expectedVersion);
+}
+
+export function discardSupplierReturn(id: string, expectedVersion: number): Promise<void> {
+  return discardDraft('supplier_return', id, expectedVersion);
+}
+
+async function returnCreditOf(lineId: string): Promise<ReturnCredit | null> {
+  const list = await readAll((db) => Promise.all([db.from('supplier_return_line_amounts').select('id, line_id, credit_amount::text').eq('line_id', lineId) /* unbounded: صفّ واحد للسطر */]));
+  const [row] = list(0);
+  return row ? creditRow(row) : null;
+}
+
+/**
+ * المبلغ المقبول للسطر (دينار صحيح): إدخال أوّل مرّة، وتعديل مشروط بالمبلغ اللي شافته الشاشة. صفر صفوف أو 23505 (محاولة ضاع جوابها،
+ * أو كاتب ثاني): الصفّ ينقرا، وإذا بيه المطلوب فانكتب، وإلا amount_changed.
+ */
+export async function setReturnCredit(lineId: string, before: ReturnCredit | null, credit: Fils): Promise<void> {
+  try {
+    await written(async (db) => {
+      if (!before) return updatedRows(withStatus(await db.from('supplier_return_line_amounts').insert({ line_id: lineId, credit_amount: dinar(credit) }).select('id')));
+      return updatedRows(
+        withStatus(await db.from('supplier_return_line_amounts').update({ credit_amount: dinar(credit) }).eq('line_id', lineId).eq('credit_amount', dinar(before.credit)).select('id')),
+      );
+    });
+  } catch (error) {
+    if (!(error instanceof ZeroRowsError) && !isDuplicate(error)) throw error;
+    const now = await returnCreditOf(lineId);
+    if (now?.credit === credit) return;
+    throw new RejectedError('amount_changed', t('return.credit.changed', 'تغيّر مبلغ في هذا المرتجع بعد فتحه؛ قُرئ من جديد، فراجع ما كتبته واحفظ مرّة أخرى.'));
+  }
+}
+
+export interface SupplierReturnPreviewLine {
+  lineId: string;
+  lineNo: number;
+  receiptLineId: string;
+  itemId: string;
+  itemName: string;
+  baseUnit: BaseUnit;
+  qty: Milli;
+  lotId: string | null;
+  lotQtyLeft: Milli;
+  /** السطر ياخذ متبقّي دفعته كلّه (E31). */
+  wholeBalance: boolean;
+  problem: Problem | null;
+  warning: Problem | null;
+}
+
+/** حساب الخادم (أدوار الكلفة بس): قيمة السحب لكل سطر (قاعدة 13) والمبلغ المقبول و«فرق مرتجع» = القيمة − المقبول. */
+export interface SupplierReturnPreviewMoney {
+  /** value فارغة لسطر ما يكفيه متبقّي دفعته (مشكلته insufficient_stock تسمّي اللي سحب منها). */
+  lines: readonly { lineId: string; value: Fils | null; credit: Fils | null; diff: Fils | null }[];
+  valueTotal: Fils;
+  creditTotal: Fils | null;
+  diffTotal: Fils | null;
+}
+
+export interface SupplierReturnPreview {
+  version: number;
+  receiptId: string;
+  receiptNo: string | null;
+  problems: readonly Problem[];
+  lines: readonly SupplierReturnPreviewLine[];
+  ready: boolean;
+  /** بصمة المعاينة: الترحيل يرسلها، والخادم يرفض stale_preview لو تغيّر متبقّي دفعة بعدها. */
+  plan: string | null;
+  /** null للأمين. */
+  money: SupplierReturnPreviewMoney | null;
+}
+
+/** money غايب أو null للأمين (الخادم يشيله). */
+const maybeMoney = (json: Row): Row | null => (json.money === null || json.money === undefined ? null : obj(json.money, 'money'));
+
+export function parseSupplierReturnPreview(value: unknown): SupplierReturnPreview {
+  const json = obj(value, 'preview_supplier_return');
+  const version = count(json, 'version');
+  if (version === null) throw new RowShapeError('version');
+  const money = maybeMoney(json);
+  return {
+    version,
+    receiptId: str(json, 'receipt_id'),
+    receiptNo: optStr(json, 'receipt_no'),
+    problems: arr(json.problems, 'problems').map((item) => problem(item)).filter((item): item is Problem => item !== null),
+    lines: arr(json.lines, 'lines').map((item) => {
+      const row = obj(item, 'lines');
+      return {
+        lineId: str(row, 'line_id'),
+        lineNo: count(row, 'line_no') ?? 0,
+        receiptLineId: str(row, 'receipt_line_id'),
+        itemId: str(row, 'item_id'),
+        itemName: str(row, 'item_name'),
+        baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
+        qty: qtyOf(row, 'qty'),
+        lotId: optStr(row, 'lot_id'),
+        lotQtyLeft: qtyOf(row, 'lot_qty_left'),
+        wholeBalance: bool(row, 'whole_balance'),
+        problem: problem(row.problem),
+        warning: problem(row.warning),
+      };
+    }),
+    ready: bool(json, 'ready'),
+    plan: optStr(json, 'plan'),
+    money: money
+      ? {
+          lines: arr(money.lines, 'lines').map((item) => {
+            const row = obj(item, 'lines');
+            return { lineId: str(row, 'line_id'), value: scaled(row, 'value', 2), credit: scaled(row, 'credit', 2), diff: scaled(row, 'diff', 2) };
+          }),
+          valueTotal: fils(money, 'value_total'),
+          creditTotal: scaled(money, 'credit_total', 2),
+          diffTotal: scaled(money, 'diff_total', 2),
+        }
+      : null,
+  };
+}
+
+export async function previewSupplierReturn(id: string): Promise<SupplierReturnPreview> {
+  return parseSupplierReturnPreview(await call<unknown>('preview_supplier_return', { p_id: id }));
+}
+
+export interface PostedReturn {
+  id: string;
+  status: DocStatus;
+  docNo: string | null;
+}
+
+function postedReturn(value: unknown): PostedReturn {
+  const json = obj(value, 'supplier_return');
+  return { id: str(json, 'id'), status: oneOf(json, 'status', DOC_STATUSES), docNo: optStr(json, 'doc_no') };
+}
+
+/** الترحيل بنسخة المسوّدة وبصمة المعاينة اللي انعاينت (stale_draft أو stale_preview لمّا تتغيّر بعدها)، بمرجع ثابت. */
+export async function postSupplierReturn(ref: StockRef, id: string, expectedVersion: number, plan: string): Promise<PostedReturn> {
+  return postedReturn(await call<unknown>('post_supplier_return', { p_id: id, p_expected_version: expectedVersion, p_expected_plan: plan, p_client_ref: ref.clientRef }));
+}
+
+export async function voidSupplierReturn(ref: StockRef, id: string, reason: string): Promise<PostedReturn> {
+  return postedReturn(await call<unknown>('void_supplier_return', { p_id: id, p_reason: reason, p_client_ref: ref.clientRef }));
+}
+
+// ─── تصحيح سعر الاستلام بعد السحب (0010، FOUNDATION ١٤١، ٥٥٢؛ E5، E16، E51، E55): للمدير والمالك بس (receipt.revalue) ───────
+
+export interface ReceiptRevaluation {
+  id: string;
+  receiptLineId: string;
+  newTotal: Fils;
+  oldTotal: Fils;
+  diff: Fils;
+  lotShare: Fils;
+  expenseAmount: Fils;
+  reason: string;
+  status: 'posted' | 'void';
+  postedAt: string | null;
+  voidReason: string | null;
+  createdAt: string;
+}
+
+const REVALUATION_STATUSES = ['posted', 'void'] as const;
+
+/** تصحيحات أسعار سطور استلام واحد (أدوار الكلفة؛ لغيرها صفر صفوف)، الأقدم أوّلاً. */
+export async function listLineRevaluations(receiptId: string): Promise<ReceiptRevaluation[]> {
+  const list = await readAll((db) =>
+    Promise.all([
+      db
+        .from('receipt_revaluations') /* unbounded: تصحيحات استلام واحد */
+        .select('id, receipt_line_id, new_total::text, old_total::text, diff::text, lot_share::text, expense_amount::text, reason, status, posted_at, void_reason, created_at')
+        .eq('receipt_id', receiptId)
+        .order('created_at')
+        .order('id'),
+    ]),
+  );
+  return list(0).map((row) => ({
+    id: str(row, 'id'),
+    receiptLineId: str(row, 'receipt_line_id'),
+    newTotal: fils(row, 'new_total'),
+    oldTotal: fils(row, 'old_total'),
+    diff: fils(row, 'diff'),
+    lotShare: fils(row, 'lot_share'),
+    expenseAmount: fils(row, 'expense_amount'),
+    reason: str(row, 'reason'),
+    status: oneOf(row, 'status', REVALUATION_STATUSES),
+    postedAt: optStr(row, 'posted_at'),
+    voidReason: optStr(row, 'void_reason'),
+    createdAt: str(row, 'created_at'),
+  }));
+}
+
+export interface RevalueFamilyLot {
+  lotId: string;
+  warehouseId: string;
+  warehouseName: string;
+  qtyLeft: Milli;
+  valueLeft: Fils;
+  share: Fils;
+}
+
+export interface RevaluePreview {
+  lineId: string;
+  receiptId: string;
+  receiptNo: string | null;
+  itemName: string;
+  baseUnit: BaseUnit;
+  qtyIn: Milli;
+  currentTotal: Fils | null;
+  newTotal: Fils | null;
+  diff: Fils | null;
+  /** دفعة السطر ومراياها بترتيب الخادم (الجذر ثم المرايا). */
+  family: readonly RevalueFamilyLot[];
+  lotShare: Fils | null;
+  expenseAmount: Fils | null;
+  /** قيد المورّد = −الفرق. */
+  supplierAdjustment: Fils | null;
+  problems: readonly Problem[];
+  ready: boolean;
+  /** بصمة القسمة اللي انشافت: الترحيل يرفض stale_preview لو تغيّرت (FOUNDATION ٥٢٠). */
+  plan: string | null;
+}
+
+export function parseRevaluePreview(value: unknown): RevaluePreview {
+  const json = obj(value, 'preview_receipt_revalue');
+  return {
+    lineId: str(json, 'line_id'),
+    receiptId: str(json, 'receipt_id'),
+    receiptNo: optStr(json, 'receipt_no'),
+    itemName: str(json, 'item_name'),
+    baseUnit: oneOf(json, 'base_unit', BASE_UNITS),
+    qtyIn: qtyOf(json, 'qty_in'),
+    currentTotal: scaled(json, 'current_total', 2),
+    newTotal: scaled(json, 'new_total', 2),
+    diff: scaled(json, 'diff', 2),
+    family: (json.family === null || json.family === undefined ? [] : arr(json.family, 'family')).map((item) => {
+      const row = obj(item, 'family');
+      return {
+        lotId: str(row, 'lot_id'),
+        warehouseId: str(row, 'warehouse_id'),
+        warehouseName: str(row, 'warehouse_name'),
+        qtyLeft: qtyOf(row, 'qty_left'),
+        valueLeft: fils(row, 'value_left'),
+        share: fils(row, 'share'),
+      };
+    }),
+    lotShare: scaled(json, 'lot_share', 2),
+    expenseAmount: scaled(json, 'expense_amount', 2),
+    supplierAdjustment: scaled(json, 'supplier_adjustment', 2),
+    problems: arr(json.problems, 'problems').map((item) => problem(item)).filter((item): item is Problem => item !== null),
+    ready: bool(json, 'ready'),
+    plan: optStr(json, 'plan'),
+  };
+}
+
+/** المعاينة بلا كتابة: العائلة وحصصها و«فرق سعر شراء» وقيد المورّد (الجديد دينار صحيح). */
+export async function previewReceiptRevalue(lineId: string, newTotal: Fils): Promise<RevaluePreview> {
+  return parseRevaluePreview(await call<unknown>('preview_receipt_revalue', { p_line: lineId, p_new_total: dinar(newTotal) }));
+}
+
+export interface PostedRevaluation {
+  id: string;
+  status: 'posted' | 'void';
+}
+
+function postedRevaluation(value: unknown): PostedRevaluation {
+  const json = obj(value, 'receipt_revalue');
+  // الترحيل يرجّع التصحيح بلا حالته (مرحَّل)، والإلغاء بحالته.
+  return { id: str(json, 'id'), status: json.status === undefined ? 'posted' : oneOf(json, 'status', REVALUATION_STATUSES) };
+}
+
+/** التصحيح بسببه، بمرجع ثابت (الإعادة بنفس المرجع = تصحيح واحد). */
+export async function postReceiptRevalue(ref: StockRef, lineId: string, newTotal: Fils, plan: string, reason: string): Promise<PostedRevaluation> {
+  return postedRevaluation(
+    await call<unknown>('post_receipt_revalue', { p_line: lineId, p_new_total: dinar(newTotal), p_expected_plan: plan, p_reason: reason, p_client_ref: ref.clientRef }),
+  );
+}
+
+export async function voidReceiptRevalue(ref: StockRef, id: string, reason: string): Promise<PostedRevaluation> {
+  return postedRevaluation(await call<unknown>('void_receipt_revalue', { p_id: id, p_reason: reason, p_client_ref: ref.clientRef }));
+}

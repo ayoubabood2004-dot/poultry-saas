@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { registerConstraintHints } from './constraints';
 
-// جمل قيود 0009 (الاستلام ومبالغه وتحميلاته)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>، والحزمة (constraints.test) تقارن
+// جمل قيود 0009 و0010 (الاستلام ومبالغه وتحميلاته، ومرتجع المورّد وتصحيح السعر)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>، والحزمة (constraints.test) تقارن
 // القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا purchasing.ts بس (حزم شاشات الاستلام، برّا التثبيت المسبق).
 
 export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
@@ -35,6 +35,26 @@ export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = 
   receipt_charges_posted_check: () => t('constraint.receipt_charges_posted_check', 'قيد التحميل لجهته وحركته لصندوقه فقط.'),
   receipt_charges_charge_no_check: () => t('constraint.receipt_charges_charge_no_check', 'رقم التحميل يبدأ من 1.'),
   receipt_charge_shares_share_check: () => t('constraint.receipt_charge_shares_share_check', 'حصّة التحميل صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  supplier_returns_status_check: () => t('constraint.supplier_returns_status_check', 'حالة المرتجع غير معروفة.'),
+  supplier_returns_lifecycle_check: () => t('constraint.supplier_returns_lifecycle_check', 'حالة المرتجع لا تناسب ختم ترحيله أو إلغائه.'),
+  supplier_returns_numbered_check: () => t('constraint.supplier_returns_numbered_check', 'رقم المرتجع يُكتب عند ترحيله فقط.'),
+  supplier_returns_doc_no_check: () => t('constraint.supplier_returns_doc_no_check', 'رقم المرتجع بالشكل RT-السنة-الرقم.'),
+  supplier_returns_version_check: () => t('constraint.supplier_returns_version_check', 'نسخة المستند تبدأ من 1.'),
+  supplier_returns_note_check: () => t('constraint.supplier_returns_note_check', 'الملاحظة لا تزيد على 500 حرف.'),
+  supplier_returns_void_reason_check: () => t('constraint.supplier_returns_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  supplier_return_lines_qty_base_check: () => t('constraint.supplier_return_lines_qty_base_check', 'الكمية المرتجعة أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  supplier_return_lines_line_no_check: () => t('constraint.supplier_return_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  supplier_return_line_amounts_credit_check: () => t('constraint.supplier_return_line_amounts_credit_check', 'المبلغ الذي قبله المورّد صفر أو أكثر، بالدينار الصحيح.'),
+  receipt_revaluations_new_total_check: () => t('constraint.receipt_revaluations_new_total_check', 'المبلغ الجديد للسطر صفر أو أكثر، بالدينار الصحيح.'),
+  receipt_revaluations_old_total_check: () => t('constraint.receipt_revaluations_old_total_check', 'المبلغ السابق للسطر صفر أو أكثر، بالدينار الصحيح.'),
+  receipt_revaluations_diff_check: () => t('constraint.receipt_revaluations_diff_check', 'فرق التصحيح غير صفر، ويساوي المبلغ الجديد ناقص السابق.'),
+  receipt_revaluations_lot_share_check: () => t('constraint.receipt_revaluations_lot_share_check', 'حصّة الدفعات بمرتبتين عشريتين كحدّ أقصى.'),
+  receipt_revaluations_expense_check: () => t('constraint.receipt_revaluations_expense_check', 'مصروف فرق السعر بمرتبتين عشريتين، ومع حصّة الدفعات يساوي الفرق.'),
+  receipt_revaluations_reason_check: () => t('constraint.receipt_revaluations_reason_check', 'سبب التصحيح بين حرف و500 حرف.'),
+  receipt_revaluations_status_check: () => t('constraint.receipt_revaluations_status_check', 'حالة التصحيح غير معروفة.'),
+  receipt_revaluations_lifecycle_check: () => t('constraint.receipt_revaluations_lifecycle_check', 'حالة التصحيح لا تناسب ختم إلغائه وسببه.'),
+  receipt_revaluations_void_reason_check: () => t('constraint.receipt_revaluations_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  receipt_revaluations_rev_no_check: () => t('constraint.receipt_revaluations_rev_no_check', 'رقم التصحيح يبدأ من 1.'),
 };
 
 registerConstraintHints(RECEIPT_CONSTRAINT_HINTS);

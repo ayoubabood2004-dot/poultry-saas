@@ -308,7 +308,30 @@ export default async function (t, db) {
         const charge = await value(q, "insert into public.receipt_charges (doc_id, label, amount, allocate_by, payee_party_id) values ($1, 'نقل', 500, 'value', $2) returning id", [posted.doc, carrier]);
         await q('select public.set_charge_lines($1, array[$2]::uuid[], (select version from public.receipts where id = $3))', [charge, posted.line, posted.doc]);
         await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [posted.doc]);
-        return { receiptDraft: (await draft()).doc };
+        return { receiptDraft: (await draft()).doc, posted };
+      },
+      { commit: true },
+    );
+  }
+
+  // المرحلة 1 (0010): مرتجع مرحَّل (لتران بمقبول 1,500، فرقه مصروف) وتصحيح سعر بعده (8,000 ← 9,000)، فبكل جدول مرتجع وتصحيح صفوف
+  // للطرفين؛ ومسوّدة مرتجع لمعاينتها.
+  const wp7Of = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    const { posted } = receiptOf[key];
+    wp7Of[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const draft = async (qty) => {
+          const doc = await value(q, 'insert into public.supplier_returns (receipt_id, returned_on) values ($1, public.app_today()) returning id', [posted.doc]);
+          const line = await value(q, 'insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, $3) returning id', [doc, posted.line, qty]);
+          return { doc, line };
+        };
+        const returned = await draft(2);
+        await q('insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 1500)', [returned.line]);
+        await q("select public.post_supplier_return($1, (select version from public.supplier_returns where id = $1), public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [returned.doc]);
+        await q("select public.post_receipt_revalue($1, 9000, public.preview_receipt_revalue($1, 9000) ->> 'plan', 'فاتورة معدّلة', gen_random_uuid())", [posted.line]);
+        return { returnDraft: (await draft(1)).doc, receipt: posted.doc, line: posted.line };
       },
       { commit: true },
     );
@@ -594,6 +617,10 @@ export default async function (t, db) {
     report_expenses: () => ['2026-01-01', '2026-12-31', null, null, 50],
     // المرحلة 1 (WP6): معاينة الاستلام بمسوّدته.
     preview_receipt: (persona) => [receiptOf[persona === U.bOwner ? 'b' : 'a'].receiptDraft],
+    // المرحلة 1 (WP7): معاينة المرتجع بمسوّدته، وخياراته باستلامه، ومعاينة التصحيح بسطره.
+    preview_supplier_return: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].returnDraft],
+    supplier_return_options: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].receipt],
+    preview_receipt_revalue: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].line, '9500'],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -617,6 +644,9 @@ export default async function (t, db) {
     preview_count: NO_ACCOUNTS,
     report_expenses: NO_ACCOUNTS,
     preview_receipt: NO_ACCOUNTS,
+    preview_supplier_return: NO_ACCOUNTS,
+    supplier_return_options: NO_ACCOUNTS,
+    preview_receipt_revalue: NO_ACCOUNTS,
   };
   const readOnlyFailures = [];
   let rejected = 0;
