@@ -633,6 +633,20 @@ async function scenario(t, db) {
   const countDef = await fnDef('public.post_count(uuid,integer,text,uuid)');
   const voidCountDef = await fnDef('public.void_count(uuid,text,uuid)');
   const snapshotDef = await fnDef('private.count_snapshot(uuid,date,public.stock_count_lines)');
+  // WP6: استلام بسطرين (30 و70 لتراً بـ1,000 و2,000) وخصم 100 ونقل 50 بالقيمة لناقل، بدالّته داخل معاملة الضابط والدالّة المكسورة قبلها.
+  const receiptDef = await fnDef('public.post_receipt(uuid,integer,uuid)');
+  const breakSupplier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد الضوابط', true) returning id");
+  const breakCarrier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('ناقل الضوابط', true) returning id");
+  const postReceiptBreak = async (q) => {
+    const doc = (await q('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [breakSupplier, W.general, TODAY])).rows[0].id;
+    for (const [qty, total] of [[30, 1000], [70, 2000]]) {
+      const line = (await q('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3) returning id', [doc, I.diesel, qty])).rows[0].id;
+      await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, $2)', [line, total]);
+    }
+    await q('insert into public.receipt_amounts (doc_id, discount) values ($1, 100)', [doc]);
+    await q("insert into public.receipt_charges (doc_id, label, amount, allocate_by, payee_party_id) values ($1, 'نقل', 50, 'value', $2)", [doc, breakCarrier]);
+    await q('select public.post_receipt($1, (select version from public.receipts where id = $1), gen_random_uuid())', [doc]);
+  };
   const upkeep = (await db.admin("select id from public.expense_categories where org_id = $1 and name = 'صيانة'", [S.org])).rows[0].id;
   const postUse = async (q, wh, lines) => {
     const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [wh, upkeep, TODAY])).rows[0].id;
@@ -710,6 +724,28 @@ async function scenario(t, db) {
       await postCount(q, W.general, oil, 80);
     }],
   };
+  // 14–17 (WP6، الخطّة 10–13): الترحيل يكتب حصّة خصم صفر (والدفعة بقيمتها الصحيحة)، أو حصّة تحميل بفلس زايد، أو دفعة بفلس زايد
+  // (وحركتها)، أو قيد مورّد بدينار زايد؛ كل كسر يقلب فحصه (والحفظ حين يختلف طرفاه).
+  Object.assign(BREAKS, {
+    receipt_discount: [{ receipt_discount: 1, receipt_lot_values: 2, value_conservation: 1 }, async (q) => {
+      await q(swap(receiptDef, "discount_share = (v_row ->> 'discount_share')::numeric", 'discount_share = 0'));
+      await postReceiptBreak(q);
+    }],
+    receipt_charge_shares: [{ receipt_charge_shares: 3 }, async (q) => {
+      await q(swap(receiptDef, "(s.value ->> 'share')::numeric\n", "(s.value ->> 'share')::numeric + 0.01\n"));
+      await postReceiptBreak(q);
+    }],
+    receipt_lot_values: [{ receipt_lot_values: 2, value_conservation: 1 }, async (q) => {
+      let def = swap(receiptDef, "ln.qty_base, v_value, 'receipt', d.id, ln.id);", "ln.qty_base, v_value + 0.01, 'receipt', d.id, ln.id);");
+      def = swap(def, "ln.id, ln.qty_base, v_value, d.received_on, null);", "ln.id, ln.qty_base, v_value + 0.01, d.received_on, null);");
+      await q(def);
+      await postReceiptBreak(q);
+    }],
+    receipt_entries: [{ receipt_entries: 1 }, async (q) => {
+      await q(swap(receiptDef, "'purchase', -v_net, 'receipt'", "'purchase', -v_net - 1, 'receipt'"));
+      await postReceiptBreak(q);
+    }],
+  });
   t.same(Object.keys(BREAKS).sort(), Object.keys(STOCK_ZERO).sort(), `كل فحص بـverify_stock إله ضابط كسر (${Object.keys(STOCK_ZERO).length})`);
   // ضوابط ثانية لفرع ثاني بنفس الفحص: سحب من دفعة لقاح منتهية بيوم السحب (الفحص 6 بشقّ الانتهاء، مو الاستلام)، ووقت فقس على
   // دفعة مو أفراخ (الفحص 3).

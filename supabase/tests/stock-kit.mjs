@@ -18,6 +18,10 @@ export const STOCK_ZERO = {
   doc_moves: 0,
   use_expense: 0,
   count_values: 0,
+  receipt_discount: 0,
+  receipt_charge_shares: 0,
+  receipt_lot_values: 0,
+  receipt_entries: 0,
 };
 
 /** verify_stock كخريطة اسم ← عدد (بمفتاح الخادم، أو بالاستعلام المعطى داخل معاملة ضابط). */

@@ -1,6 +1,6 @@
 {
   "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
-  "functionOnly": ["audit_log", "cash_moves", "divisions", "doc_counters", "expenses", "ledger_books", "member_scopes", "members", "orgs", "party_allocations", "party_entries", "period_locks", "rpc_refs", "stock_balances", "stock_lots", "stock_moves", "units"],
+  "functionOnly": ["audit_log", "cash_moves", "divisions", "doc_counters", "expenses", "ledger_books", "member_scopes", "members", "orgs", "party_allocations", "party_entries", "period_locks", "receipt_charge_lines", "receipt_charge_shares", "rpc_refs", "stock_balances", "stock_lots", "stock_moves", "units"],
   "directWrite": {
     "cash_accounts": {
       "privileges": ["insert", "update"],
@@ -78,6 +78,52 @@
       "columns": {
         "insert": ["name", "phone", "is_customer", "is_supplier"],
         "update": ["name", "phone", "is_customer", "is_supplier", "archived_at"]
+      }
+    },
+    "receipt_amounts": {
+      "privileges": ["insert", "update"],
+      "action": "receipt.amounts",
+      "scope": "in_scope_wh(warehouse_id)",
+      "columns": {
+        "insert": ["doc_id", "discount", "paid_now", "cash_account_id"],
+        "update": ["discount", "paid_now", "cash_account_id"]
+      }
+    },
+    "receipt_charges": {
+      "privileges": ["insert", "update"],
+      "action": "receipt.amounts",
+      "scope": "in_scope_wh(warehouse_id)",
+      "columns": {
+        "insert": ["id", "doc_id", "label", "amount", "allocate_by", "payee_party_id", "cash_account_id"],
+        "update": ["label", "amount", "allocate_by", "payee_party_id", "cash_account_id"]
+      }
+    },
+    "receipt_line_amounts": {
+      "privileges": ["insert", "update"],
+      "action": "receipt.amounts",
+      "scope": "in_scope_wh(warehouse_id)",
+      "columns": {
+        "insert": ["line_id", "line_total", "zero_reason"],
+        "update": ["line_total", "zero_reason"]
+      }
+    },
+    "receipt_lines": {
+      "privileges": ["insert", "update"],
+      "action": "receipt.draft",
+      "scope": "in_scope_wh(warehouse_id)",
+      "columns": {
+        "insert": ["id", "doc_id", "item_id", "item_unit_id", "unit_code", "qty_in_unit", "expiry_on", "born_at", "supplier_lot_no"],
+        "update": ["item_id", "item_unit_id", "unit_code", "qty_in_unit", "expiry_on", "born_at", "supplier_lot_no"]
+      }
+    },
+    "receipts": {
+      "privileges": ["insert", "update"],
+      "action": "receipt.draft",
+      "draft": true,
+      "scope": "in_scope_wh(warehouse_id)",
+      "columns": {
+        "insert": ["id", "party_id", "warehouse_id", "received_on", "note", "status"],
+        "update": ["party_id", "received_on", "note", "status"]
       }
     },
     "sites": {
@@ -172,12 +218,12 @@
     }
   },
   "appendOnly": ["audit_log", "cash_moves", "expenses", "party_allocations", "party_entries", "stock_moves", "units"],
-  "costRestricted": ["audit_log", "expenses", "opening_lines", "stock_balances", "stock_count_line_costs", "stock_lots", "stock_moves"],
+  "costRestricted": ["audit_log", "expenses", "opening_lines", "receipt_amounts", "receipt_charge_lines", "receipt_charge_shares", "receipt_charges", "receipt_line_amounts", "stock_balances", "stock_count_line_costs", "stock_lots", "stock_moves"],
   "accountsRestricted": ["cash_accounts", "cash_moves", "party_allocations", "party_entries"],
   "salesRestricted": ["parties"],
   "global": ["units"],
   "reserved": {
-    "functionOnly": ["client_versions", "flock_close_values", "flock_costs", "flock_counts", "flock_daily", "flock_day_rejects", "hatch_batch_values", "hatch_candlings", "hatch_costs", "party_offsets", "production_input_values", "production_values", "receipt_charge_shares", "receipt_revaluations", "sales_line_costs", "sales_line_sources", "sales_return_line_sources"],
-    "money": ["flock_close_values", "flock_costs", "hatch_batch_values", "hatch_costs", "party_offsets", "production_costs", "production_input_values", "production_values", "receipt_amounts", "receipt_charge_lines", "receipt_charge_shares", "receipt_charges", "receipt_line_amounts", "receipt_revaluations", "sales_invoices", "sales_line_costs", "sales_line_sources", "sales_lines", "sales_return_line_sources", "sales_return_lines", "sales_returns", "supplier_return_line_amounts"]
+    "functionOnly": ["client_versions", "flock_close_values", "flock_costs", "flock_counts", "flock_daily", "flock_day_rejects", "hatch_batch_values", "hatch_candlings", "hatch_costs", "party_offsets", "production_input_values", "production_values", "receipt_revaluations", "sales_line_costs", "sales_line_sources", "sales_return_line_sources"],
+    "money": ["flock_close_values", "flock_costs", "hatch_batch_values", "hatch_costs", "party_offsets", "production_costs", "production_input_values", "production_values", "receipt_revaluations", "sales_invoices", "sales_line_costs", "sales_line_sources", "sales_lines", "sales_return_line_sources", "sales_return_lines", "sales_returns", "supplier_return_line_amounts"]
   }
 }

@@ -1,0 +1,39 @@
+import { t } from '../i18n';
+import { registerConstraintHints } from './constraints';
+
+// جمل قيود 0009 (الاستلام ومبالغه وتحميلاته)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>، والحزمة (constraints.test) تقارن
+// القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا purchasing.ts بس (حزم شاشات الاستلام، برّا التثبيت المسبق).
+
+export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
+  receipts_status_check: () => t('constraint.receipts_status_check', 'حالة الاستلام غير معروفة.'),
+  receipts_lifecycle_check: () => t('constraint.receipts_lifecycle_check', 'حالة الاستلام لا تناسب ختم ترحيله أو إلغائه.'),
+  receipts_numbered_check: () => t('constraint.receipts_numbered_check', 'رقم الاستلام يُكتب عند ترحيله فقط.'),
+  receipts_doc_no_check: () => t('constraint.receipts_doc_no_check', 'رقم الاستلام بالشكل PU-السنة-الرقم.'),
+  receipts_version_check: () => t('constraint.receipts_version_check', 'نسخة المستند تبدأ من 1.'),
+  receipts_note_check: () => t('constraint.receipts_note_check', 'الملاحظة لا تزيد على 500 حرف.'),
+  receipts_void_reason_check: () => t('constraint.receipts_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  receipt_lines_qty_in_unit_check: () => t('constraint.receipt_lines_qty_in_unit_check', 'كمية السطر أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  receipt_lines_factor_check: () => t('constraint.receipt_lines_factor_check', 'معامل الوحدة أكبر من صفر، بست مراتب عشرية كحدّ أقصى.'),
+  receipt_lines_qty_base_check: () => t('constraint.receipt_lines_qty_base_check', 'الكمية بوحدة الأساس أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  receipt_lines_unit_check: () => t('constraint.receipt_lines_unit_check', 'اختر وحدة تعبئة أو وحدة قياس، لا الاثنتين.'),
+  receipt_lines_unit_label_check: () => t('constraint.receipt_lines_unit_label_check', 'اسم الوحدة بين حرف و40 حرفاً.'),
+  receipt_lines_line_no_check: () => t('constraint.receipt_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  receipt_lines_supplier_lot_no_check: () => t('constraint.receipt_lines_supplier_lot_no_check', 'رقم دفعة المورّد لا يزيد على 60 حرفاً.'),
+  receipt_lines_density_check: () => t('constraint.receipt_lines_density_check', 'الكثافة أكبر من صفر، بأربع مراتب عشرية كحدّ أقصى.'),
+  receipt_lines_piece_mass_check: () => t('constraint.receipt_lines_piece_mass_check', 'وزن القطعة أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  receipt_amounts_discount_check: () => t('constraint.receipt_amounts_discount_check', 'خصم الفاتورة صفر أو أكثر، بالدينار الصحيح.'),
+  receipt_amounts_paid_now_check: () => t('constraint.receipt_amounts_paid_now_check', 'المدفوع عند الاستلام صفر أو أكثر، بالدينار الصحيح.'),
+  receipt_line_amounts_line_total_check: () => t('constraint.receipt_line_amounts_line_total_check', 'مبلغ السطر صفر أو أكثر، بالدينار الصحيح كما في فاتورة المورّد.'),
+  receipt_line_amounts_zero_reason_check: () => t('constraint.receipt_line_amounts_zero_reason_check', 'سبب المبلغ الصفر لا يزيد على 500 حرف.'),
+  receipt_line_amounts_discount_share_check: () => t('constraint.receipt_line_amounts_discount_share_check', 'حصّة الخصم صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  receipt_line_amounts_charge_share_check: () => t('constraint.receipt_line_amounts_charge_share_check', 'حصّة التحميلات صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  receipt_charges_label_check: () => t('constraint.receipt_charges_label_check', 'اسم التحميل بين حرف و80 حرفاً.'),
+  receipt_charges_amount_check: () => t('constraint.receipt_charges_amount_check', 'مبلغ التحميل أكبر من صفر، بالدينار الصحيح.'),
+  receipt_charges_allocate_by_check: () => t('constraint.receipt_charges_allocate_by_check', 'التحميل يوزَّع بالوزن أو بالقيمة.'),
+  receipt_charges_payee_check: () => t('constraint.receipt_charges_payee_check', 'التحميل لجهة أو من صندوق، واحد منهما فقط.'),
+  receipt_charges_posted_check: () => t('constraint.receipt_charges_posted_check', 'قيد التحميل لجهته وحركته لصندوقه فقط.'),
+  receipt_charges_charge_no_check: () => t('constraint.receipt_charges_charge_no_check', 'رقم التحميل يبدأ من 1.'),
+  receipt_charge_shares_share_check: () => t('constraint.receipt_charge_shares_share_check', 'حصّة التحميل صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+};
+
+registerConstraintHints(RECEIPT_CONSTRAINT_HINTS);
