@@ -4,6 +4,8 @@
 // فالتراجع يكمل). والطريق الثاني (BLOCKING): الأمين بنطاق مخزن، فالتراجع لازم يرفض بصوت وما يغيّر شي.
 // WP3 (0006): المدير يضيف جهة وصندوقاً، والأمين يضيف مورّداً (party.create)، بلا قيد ولا حركة (بيانات أساسية، فالتراجع يكمل).
 // والطريق الثاني: قيد افتتاح للجهة، أو رصيد افتتاحي للصندوق، أو وحدة تعبئة للمورّد: كل وحدة توقف التراجع بصوت.
+// WP4 (0007): البذرة نفسها (المواد والمخازن، بلا مستند مخزون، فالتراجع يكمل ويشيل مشغّلَي التجميد والأرشفة). والطريق الثاني:
+// مسوّدة افتتاح (المدير) أو مسوّدة تحويل (الأمين): كل مستند مخزون، ولو مسوّدة، يوقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -94,6 +96,22 @@ const ledgerSeed = (kind) => async (db) => {
 
 const CONDITION = 'v_entries > 0 or v_moves > 0 or v_units > 0';
 
+/** بعد البذرة الحقيقية: مسوّدة افتتاح للمخزن العامّ (المدير)، أو مسوّدة تحويل منه لمخزن المواد الأوّلية (الأمين بنطاق العامّة). */
+const stockSeed = (kind) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(
+    kind === 'opening' ? U.manager : U.storekeeper,
+    async (q) => {
+      const general = await value(q, "select id from public.warehouses where kind = 'general'");
+      if (kind === 'opening') await q('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3)', [general]);
+      else await q('insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today())', [general, await value(q, "select id from public.warehouses where kind = 'raw'")]);
+    },
+    { commit: true },
+  );
+};
+
+const STOCK_CONDITION = 'v_openings > 0 or v_transfers > 0';
+
 /**
  * الطريق الثاني لملف تراجع (الخطّة WP2): بذور يلزم التراجع يرفضها بصوت برمزها، والكتالوج والبيانات تبقى كما هي. بالرقم،
  * وكل رقم قائمة حالات. 0005: نطاق بموقع وحده ونطاق بمخزن وحده، كل وحدة بحالتها، حتى شرط الرفض (site_id أو warehouse_id)
@@ -141,10 +159,27 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(CONDITION, 'v_entries > 0 or v_moves > 0'),
     },
   ],
+  7: [
+    {
+      name: 'مسوّدة افتتاح',
+      code: 'rollback_blocked',
+      seed: stockSeed('opening'),
+      data: "select (select count(*) from public.opening_docs)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(STOCK_CONDITION, 'v_transfers > 0'),
+    },
+    {
+      name: 'مسوّدة تحويل',
+      code: 'rollback_blocked',
+      seed: stockSeed('transfer'),
+      data: "select (select count(*) from public.transfers)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(STOCK_CONDITION, 'v_openings > 0'),
+    },
+  ],
 };
 
 /** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
 export const BLOCKING_REQUIRED = [
   [5, 2, 'نطاق بموقع ونطاق بمخزن، كل وحدة توقف التراجع'],
   [6, 3, 'قيد جهة وحركة صندوق ووحدة تعبئة لمورّد، كل وحدة توقف التراجع'],
+  [7, 2, 'مسوّدة افتتاح ومسوّدة تحويل، كل وحدة توقف التراجع'],
 ];

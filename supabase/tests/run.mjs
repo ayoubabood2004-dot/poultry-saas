@@ -331,7 +331,8 @@ async function main() {
           if (blind.length) rollbackProblems.push(`${declared.file}: ضوابط طريق الرفض ما مسكت ${blind.map(([, text]) => `«${text}»`).join('، ')} (${[...broken, ...empty].join(' | ')})`);
         }
       }
-      // كل ملف تراجع بحالات رفضه كلها: 0005 نطاق بموقع ونطاق بمخزن؛ 0006 قيد جهة وحركة صندوق ووحدة تعبئة لمورّد (كل وحدة توقفه).
+      // كل ملف تراجع بحالات رفضه كلها: 0005 نطاق بموقع ونطاق بمخزن؛ 0006 قيد جهة وحركة صندوق ووحدة تعبئة لمورّد؛ 0007 مسوّدة افتتاح
+      // ومسوّدة تحويل (كل وحدة توقفه).
       rollbackProblems.push(...blockingShortfall(BLOCKING_REQUIRED, migrations.map((m) => Number(m.name.slice(0, 4))), blockedBy));
       if (blockedRefused !== blockedRan) rollbackProblems.push(`طريق الرفض: ${blockedRefused} من ${blockedRan} حالة رفضها التراجع بصدق`);
       // ضابط من الهجرات الحقيقية: 0002 بدّلت أجسام تسع دوالّ بالإنتاج، فالكشف لازم يسمّيها ثقيلة (القديمة معفيّة من الملف بس).

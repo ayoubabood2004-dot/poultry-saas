@@ -358,7 +358,7 @@ export default async function (t) {
       broiler: { activeFlocks: 3, deadToday: 12, ageDays: { min: 12, max: 35 } },
       layer: { eggsToday: 41_250, hdepPercent: '87.5', traysInStore: 1_392_000n },
       hatchery: { batchesSetting: 2, chicksWaiting: 1500, nextHatchInDays: 4 },
-      medicine: { nearExpiry: 1 },
+      medicine: { nearExpiry: 1, belowMinimum: 0 },
       general: { belowMinimum: 0 },
       accounts: { receivable: 396_000_000n, payable: 0n, negativeBoxes: 1, visibleBooks: 7, totalBooks: 7 },
     });
@@ -395,6 +395,14 @@ export default async function (t) {
     t.ok(eggs.includes('5 طبقات + 5 بيضات'), 'المعدود 3–10 جمع: «5 طبقات + 5 بيضات»');
     const few = render({ layer: { eggsToday: 0, hdepPercent: null, traysInStore: 32_000n } });
     t.ok(few.includes('طبقة واحدة + بيضتان'), 'الواحد والاثنان كلمة: «طبقة واحدة + بيضتان» مو «1 طبقة + 2 بيضة»');
+    // E22: «تحت الحدّ الأدنى» على بطاقة كل وحدة تستلم المادّة من المورّد (المعمل والأدوية والعامّة والمفقس).
+    const low = render({ millBelowMinimum: 4, medicine: { nearExpiry: 0, belowMinimum: 1 }, general: { belowMinimum: 3 }, hatcheryBelowMinimum: 2 });
+    const lowOf = (key) => {
+      const card = m.cardSpecs({ millBelowMinimum: 4, medicine: { nearExpiry: 0, belowMinimum: 1 }, general: { belowMinimum: 3 }, hatcheryBelowMinimum: 2 }).find((spec) => spec.key === key);
+      return card?.metrics.find((metric) => metric.label === 'تحت الحدّ الأدنى')?.value ?? null;
+    };
+    t.same(['feed_mill', 'medicine', 'general', 'hatchery'].map(lowOf), ['4', '1', '3', '2'], 'بطاقات المعمل والأدوية والعامّة والمفقس: «تحت الحدّ الأدنى» بعددها');
+    t.ok((low.match(/تحت الحدّ الأدنى/gu) ?? []).length === 4, 'أربع بطاقات بـ«تحت الحدّ الأدنى»');
     const none = render({ broiler: { activeFlocks: 0, deadToday: 0, ageDays: null }, hatchery: { batchesSetting: 0, chicksWaiting: 0, nextHatchInDays: null } });
     t.ok(/الأعمار<\/dt><dd[^>]*>—<\/dd>/.test(none) && /أقرب إخراج<\/dt><dd[^>]*>—<\/dd>/.test(none), 'ماكو فوج أو وجبة: «—» مو صفر');
   });

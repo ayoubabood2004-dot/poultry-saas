@@ -12,9 +12,8 @@ const MillPage = page(() => import('./pages/mill/MillPage'));
 const BroilerPage = page(() => import('./pages/broiler/BroilerPage'));
 const LayersPage = page(() => import('./pages/layers/LayersPage'));
 const HatcheryPage = page(() => import('./pages/hatchery/HatcheryPage'));
-const InventoryPage = page(() => import('./pages/inventory/InventoryPage'));
-const MedicinePage = page(() => import('./pages/inventory/MedicinePage'));
-const GeneralStoresPage = page(() => import('./pages/inventory/GeneralStoresPage'));
+// المخزون (اللوحات والبطاقة والافتتاح والتحويل) بمسار واحد وحزمة وحدة (StockRoutes، WP4)، والمواد مسارها الثابت.
+const StockRoutes = page(() => import('./pages/inventory/StockRoutes'));
 const SalesPage = page(() => import('./pages/sales/SalesPage'));
 // الحسابات والصناديق بمسار واحد وحزمة وحدة (AccountsRoutes، WP3): مساراتها الداخلية هناك.
 const AccountsRoutes = page(() => import('./pages/accounts/AccountsRoutes'));
@@ -57,10 +56,8 @@ function AppRoutes() {
           <Route path="/broiler" element={<BroilerPage />} />
           <Route path="/layers" element={<LayersPage />} />
           <Route path="/hatchery" element={<HatcheryPage />} />
-          <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/inventory/medicine" element={<MedicinePage />} />
-          <Route path="/inventory/general" element={<GeneralStoresPage />} />
           <Route path="/inventory/items" element={<ItemsPage />} />
+          <Route path="/inventory/*" element={<StockRoutes />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/accounts/*" element={<AccountsRoutes />} />
           <Route path="/reports" element={<ReportsPage />} />

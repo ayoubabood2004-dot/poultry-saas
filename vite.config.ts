@@ -72,13 +72,15 @@ export default defineConfig({
         // مكتوب بـDECISIONS «السقوف المقيسة» 2026-10-27 (مو موافقة)؛ وpwa-guard يطلب سطره هناك، ويمنع حزمة محفوظة تستورد وحدة
         // منها، وحزمة مستثناة يحفظها sw.js (القائمتان افترقتا).
         // WP3: قسم الحسابات والصناديق بمسار واحد (AccountsRoutes، JS وملف الطباعة CSS) وحزمته المشتركة لو انقسمت
-        // (accounts-office)، بنفس القاعدة (DECISIONS «السقوف المقيسة»).
+        // (accounts-office)، بنفس القاعدة (DECISIONS «السقوف المقيسة»). وWP4: المخزون بمسار واحد (StockRoutes).
         globIgnores: [
           '**/ItemsPage-*.js',
           '**/OrgSettingsPage-*.js',
           '**/stores-admin-*.js',
           '**/AccountsRoutes-*.{js,css}',
           '**/accounts-office-*.{js,css}',
+          // WP4: المخزون بمسار واحد (اللوحات وبطاقة المادّة والافتتاح والتحويل، StockRoutes)، بنفس القاعدة.
+          '**/StockRoutes-*.{js,css}',
         ],
         // صريحاً: vite-plugin-pwa يفعّله بس ويّا autoUpdate، وبلاه الصفحة اللي ثبّتت الخدمة العاملة ما تنمسك.
         clientsClaim: true,

@@ -102,15 +102,18 @@ export function makeDb(client, connect) {
    * جلسة مستقلّة بمعاملة مفتوحة كمستخدم داخل، تبقى لحد commit أو rollback. run(sql) يرجّع وعداً ما ينتظر،
    * وsettle(وعد) يستنّى لحد ما ينتهي الاستعلام أو ينحبس على قفل (pg_stat_activity)، ويكول أيّهما.
    */
-  async function session(userId) {
+  async function session(userId, { role = 'authenticated' } = {}) {
+    // role: authenticated (الطريق الحقيقي)، أو postgres (صاحب الجداول، بهويّة المستخدم) لجلسة بديلة تقفل صفّاً مباشرةً بفحص ترتيب
+    // الأقفال (stock_balances بلا update لـauthenticated، فـfor update منها لصاحبها بس).
+    if (!['authenticated', 'postgres'].includes(role)) throw new Error(`session: دور غير معروف «${role}»`);
     const other = connect();
     await other.connect();
-    const caller = await memberRole((text, params) => other.query(text, params), userId);
+    const caller = role === 'authenticated' ? await memberRole((text, params) => other.query(text, params), userId) : null;
     const pid = (await other.query('select pg_backend_pid() as pid')).rows[0].pid;
     await other.query('begin');
     await other.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(userClaims(userId))]);
-    await applyRequestLimits((text, params) => other.query(text, params), 'authenticated');
-    await other.query('set local role authenticated');
+    await applyRequestLimits((text, params) => other.query(text, params), role);
+    await other.query(`set local role ${role}`);
     let open = true;
     // مرّة وحدة: بعد commit أو rollback الجلسة انسدّت، والنداء الثاني (finally بالفحص) ما يسوّي شي.
     const end = async (verb) => {
@@ -128,11 +131,11 @@ export function makeDb(client, connect) {
       run: (text, params) =>
         other.query(text, params).then(
           (result) => {
-            record(text, caller);
+            if (caller) record(text, caller);
             return { ok: true, rows: result.rows };
           },
           (error) => {
-            if (reachedFunction(error)) record(text, caller);
+            if (caller && reachedFunction(error)) record(text, caller);
             return { ok: false, error: error.message };
           },
         ),

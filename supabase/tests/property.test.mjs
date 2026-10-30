@@ -1,8 +1,12 @@
 // فحص الخصائص (خطّة المرحلة 1، الملحق C: v1 بـWP3، ويكبر لحد v5 بـWP7). v1 للدفاتر (بذرة ثابتة مطبوعة): افتتاحات وقبض ودفع
 // وتسويات وإعفاءات وإلغاءات (من الأحدث وعشوائية) بالدوالّ الحقيقية بدور authenticated، وبعد كل خطوة verify_ledger صفر، والمتبقّي
 // لكل قيد ورصيد كل (جهة، دفتر) = نموذج TS مبني من src/domain (allocationPlan وrunBooks)، والمعاينة = allocationPlan بالفلس.
+// v2 للمخزون (WP4، بذرة ثابتة مطبوعة): افتتاحات وتحويلات (ومنها أكثر من المتاح، ومن مرآة لمرآة، ورجوع لمخزن الأصل) وإلغاءات
+// (من الأحدث وعشوائية، والمرفوض lot_consumed منها صحيح)، وبعد كل خطوة verify_stock صفر؛ وسحب كل تحويل = fifo.planDraw على دفعات
+// القاعدة قبله بالفلس، والرفض بالنقص لمّا الخطّة تكول نقص بالضبط.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
 import { balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
+import { STOCK_ZERO, makeStockOrg, openingDraft, postOpening, postTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
 const id = (n) => `d3000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -26,7 +30,92 @@ export default async function (t, db) {
     const party = async (name) => (await asM('insert into public.parties (name, is_customer) values ($1, true) returning id', [name])).value;
     const BOX = (await asM("insert into public.cash_accounts (name, kind) values ('صندوق الخصائص', 'cash') returning id")).value;
     await propertyV1(t, db, { ledger, U, B, BOX, party });
+    await propertyV2(t, db);
   });
+}
+
+/** دفعات (مادّة، مخزن) من القاعدة بشكل fifo.ts: الكمية بالآلاف والقيمة بالفلس. */
+async function fifoLots(db, item, wh) {
+  return (
+    await db.admin(
+      "select id, fifo_seq::text as fifo_seq, received_on::text as received_on, expiry_on::text as expiry_on, (qty_left * 1000)::bigint::text as q, (value_left * 100)::bigint::text as v from public.stock_lots where item_id = $1 and warehouse_id = $2",
+      [item, wh],
+    )
+  ).rows.map((r) => ({ id: r.id, fifoSeq: BigInt(r.fifo_seq), receivedOn: r.received_on, expiryOn: r.expiry_on, qtyLeft: BigInt(r.q), valueLeft: BigInt(r.v) }));
+}
+
+async function propertyV2(t, db) {
+  const SEED = 20261031;
+  const STEPS = 80;
+  const GO_LIVE = '2026-10-20';
+  const fifo = await loadSrc('src/domain/fifo.ts');
+  const S = await makeStockOrg(db, {
+    name: 'مزرعة خصائص المخزون',
+    id: (n) => `d3100000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    phone: (n) => `96477093100${String(n).padStart(2, '0')}`,
+    goLive: GO_LIVE,
+  });
+  const { users: U, W } = S;
+  const random = rng(SEED);
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  // الوقود يدخل العامّة والمواد الأوّلية والحقلين: كل الأزواج مسموحة، فالتحويل يرجع لمخزن أصله بنفس fifo_seq.
+  const STORES = [W.general, W.general2, W.raw, W.farm1, W.farm2];
+  const items = [];
+  for (let k = 0; k < 4; k += 1) items.push(await S.one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'fuel', 'L') returning id", [`كاز الخصائص ${k}`]));
+  const posted = [];
+  const failures = [];
+  let done = 0;
+  let shortages = 0;
+  let consumed = 0;
+  for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
+    const roll = random();
+    const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
+    let label;
+    if (roll < 0.25 || posted.length === 0) {
+      const item = pick(items);
+      const wh = pick(STORES);
+      const lines = Array.from({ length: 1 + Math.floor(random() * 3) }, () => ({ item, qty: (1 + Math.floor(random() * 500000)) / 1000, value: (Math.floor(random() * 90000000) / 100).toFixed(2) }));
+      label = `افتتاح ${step}`;
+      const doc = await openingDraft(db, U.manager, wh, GO_LIVE, lines);
+      const result = await postOpening(db, U.manager, doc);
+      if (result.ok) posted.push({ kind: 'opening', id: doc.id });
+      else if (result.code !== 'item_has_moves') failures.push(`${label}: ${result.code}`);
+    } else if (roll < 0.8) {
+      const item = pick(items);
+      const from = pick(STORES);
+      const to = pick(STORES.filter((wh) => wh !== from));
+      const qtyMilli = BigInt(1 + Math.floor(random() * 300000));
+      label = `تحويل ${step}`;
+      const plan = fifo.planDraw(await fifoLots(db, item, from), qtyMilli, day, { tracksExpiry: false });
+      const doc = await transferDraft(db, U.manager, from, to, day, [{ item, qty: (Number(qtyMilli) / 1000).toFixed(3) }]);
+      const result = await postTransfer(db, U.manager, doc);
+      if (plan.shortage > 0n) {
+        shortages += 1;
+        if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
+      } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
+      else {
+        posted.push({ kind: 'transfer', id: doc.id });
+        const got = result.value.lines[0].draws.map((d) => `${d.lot_id}:${d.qty}:${d.money.value}`).join(',');
+        const want = plan.draws.map((d) => `${d.lotId}:${(Number(d.qty) / 1000).toFixed(3)}:${(Number(d.value) / 100).toFixed(2)}`).join(',');
+        if (got !== want) failures.push(`${label}: السحب ${got} والخطّة ${want}`);
+      }
+    } else {
+      const target = random() < 0.5 ? posted.at(-1) : pick(posted);
+      label = `إلغاء ${target.kind} ${step}`;
+      const fn = target.kind === 'opening' ? 'void_opening_stock' : 'void_transfer';
+      const result = await call(db, U.manager, `select public.${fn}($1, $2, $3)`, [target.id, 'خاصية', uid()]);
+      if (result.ok) posted.splice(posted.indexOf(target), 1);
+      else if (result.code === 'lot_consumed') consumed += 1;
+      else failures.push(`${label}: ${result.code}`);
+    }
+    done += 1;
+    const verify = await db.asService(verifyStock);
+    const bad = Object.entries(verify).filter(([, v]) => v !== 0);
+    if (bad.length || Object.keys(verify).length !== Object.keys(STOCK_ZERO).length) failures.push(`بعد ${label}: verify_stock ${JSON.stringify(verify)}`);
+  }
+  console.log(`    · فحص الخصائص v2 (المخزون): البذرة ${SEED}، ${done} خطوة من ${STEPS}، ${shortages} نقص و${consumed} إلغاء مرفوض بـlot_consumed`);
+  t.same(failures, [], `الخصائص v2 (البذرة ${SEED}): بعد كل خطوة verify_stock صفر، وسحب كل تحويل = fifo.planDraw بالفلس، والنقص بالضبط حين تقوله الخطّة`);
+  t.ok(done === STEPS && shortages > 0 && consumed > 0, `الخصائص v2 نفّذت كل الخطوات ومرّت بالنقص والإلغاء المرفوض (${done}، ${shortages}، ${consumed})`);
 }
 
 /** مولّد عشوائي ثابت بالبذرة (mulberry32): نفس البذرة نفس التسلسل، فالفشل ينعاد. */
