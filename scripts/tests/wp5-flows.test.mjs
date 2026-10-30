@@ -4,7 +4,9 @@
 // C4 حذف السطر بتأكيد؛ C5 الترحيل بموافقة كل خطّ وتأكيد؛ C6 السبب على فرق قديم يتأكّد؛ C7 نتيجة «أعد الحساب» تبقى بعد القراءة؛
 // U1 مسوّدة الصرف بمعرّف الجهاز (الإعادة بعد شبكة 23505 = انكتبت فتنفتح)؛ U2 زرّ إلغاء الصرف لمن عنده الفعل بس. والمراجعة الثانية:
 // C8 عدّ محفوظ ما وصل يوقف تعديل سطره؛ C9 المرفوض من المحفوظ ينعرض بعد القراءة؛ C10 الجمع وتغيّر العدّ من جهاز ثاني؛ C11 stale_draft
-// يقرا الجرد من جديد؛ U3 سطر صرف بعد 23505 يكتب آخر قيمة؛ U4 أزرار المسوّدة لمن عنده الفعل.
+// يقرا الجرد من جديد؛ U3 سطر صرف بعد 23505 يكتب آخر قيمة؛ U4 أزرار المسوّدة لمن عنده الفعل. والمراجعة الثالثة: C12 رفّان بلا نت
+// ينجمعان على المحفوظ؛ C9b المرفوض بكميته ويّا فشل الشبكة بعده؛ C14 فشل العدّ ما يبقى بعد التسليم؛ C15 وC16 stale_draft بالمراجعة
+// وبالحذف يقرا الجرد؛ C17 معرّف الجرد الجديد لقيمه؛ C18 التسليم ومحفوظ من نافذة ثانية؛ U6 نصّ مرشّح «بانتظار المدير» الفارغ.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -42,7 +44,7 @@ async function bundle() {
     "export { onlineStore } from './src/lib/online.ts';",
     "export { searchable } from './src/domain/normalize.ts';",
     "export { NetworkError, RejectedError, ZeroRowsError } from './src/lib/errors.ts';",
-    "export { saveDeviceDraft, removeDeviceDraft } from './src/lib/drafts/index.ts';",
+    "export { listDeviceDrafts, saveDeviceDraft, removeDeviceDraft } from './src/lib/drafts/index.ts';",
     "export { pendingDraftId } from './src/pages/inventory/countDevice.ts';",
   ].join('\n');
   const result = await build({
@@ -192,9 +194,9 @@ export default async function (t) {
       await click(byAction('confirm-merge-count')[0]);
       const sent = named(calls, 'updateCountLine');
       t.same(
-        [asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch, expected]) => [id, patch.counted_qty, expected?.counted_qty])],
-        [true, [0, 0], 0, [['l-kaz', '45.000', '40.000']]],
-        'C2: المادّة معدودة (40): تأكيد «يصير 45»، ثم تعديل سطرها بـ45 بشرط إنها بعدها 40 (بلا إدراج)',
+        [asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch, expected]) => [id, patch, expected?.counted_qty])],
+        [true, [0, 0], 0, [['l-kaz', { counted_qty: '45.000', counted_expired_qty: null }, '40.000']]],
+        'C2: المادّة معدودة (40): تأكيد «يصير 45»، ثم تعديل سطرها بـ45 (الكميات بس) بشرط إنها بعدها 40 (بلا إدراج)',
       );
       await unmount();
     }
@@ -271,7 +273,7 @@ export default async function (t) {
             lineId: 'l-kaz', itemId: 'i-kaz', itemName: 'كاز أويل', baseUnit: 'L',
             before: { systemQty: 40000n, systemExpiredQty: null, diff: -2000n, expiredDiff: null },
             after: { systemQty: 39000n, systemExpiredQty: null, diff: -1000n, expiredDiff: null },
-            docs: [{ docKind: 'transfer', docId: 't-9', label: 'TR-2026-0009', qty: -1000n }],
+            docs: [{ docKind: 'transfer', docId: 't-9', label: 'TR-2026-0009', qty: -1000n, voided: false }],
           },
         ],
       };
@@ -279,7 +281,7 @@ export default async function (t) {
       await mount('/inventory/counts/c-1');
       await click(byAction('refresh-count')[0]);
       await settle();
-      t.ok(text().includes('TR-2026-0009') && text().includes('الفرق السابق'), 'C7: بعد «أعد الحساب» وقراءة الجرد من جديد: جدول الفرق السابق والمستند TR-2026-0009 باقٍ');
+      t.ok(text().includes('TR-2026-0009 (صادر') && text().includes('الفرق السابق'), 'C7: بعد «أعد الحساب» وقراءة الجرد من جديد: جدول الفرق السابق والمستند TR-2026-0009 باتّجاهه (صادر) باقٍ');
       await unmount();
     }
 
@@ -346,6 +348,124 @@ export default async function (t) {
       await unmount();
     }
 
+    const keptLines = async (role) => (await m.listDeviceDrafts(stampOf(role), 'count')).find((draft) => draft.id === m.pendingDraftId(`u-${role}`, 'c-1'))?.payload.lines ?? [];
+    const oilLine = { id: 'k-oil', existing: false, itemName: 'زيت', baseUnit: 'L', fields: { item_id: 'i-oil', counted_qty: '2.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+
+    // ── C12: رفّان لمادّة بلا نت وبلا سطر: الأوّل يبقى بالجهاز، والثاني يسأل الجمع على المحفوظ وينجمع بسطره (كان «أرسل المحفوظ أوّلاً») ──
+    {
+      const calls = fresh('storekeeper', countHandlers({ loadCount: () => ({ doc: countDoc(), lines: [] }), addCountLine: () => { throw new m.NetworkError(); } }));
+      await mount('/inventory/counts/c-1');
+      const countShelf = async (qty) => {
+        type(byAction('search-item')[0], 'كاز');
+        await settle();
+        await click(byAction('pick-item')[0]);
+        type(byIdSuffix('-qty')[0], qty);
+        await settle();
+        await submitLine();
+      };
+      await countShelf('5');
+      await countShelf('3');
+      const asked = text().includes('فيصير 8 لترات');
+      await click(byAction('confirm-merge-count')[0]);
+      const adds = named(calls, 'addCountLine');
+      t.same(
+        [asked, adds.map((args) => args[2].counted_qty), adds[0]?.[1] === adds[1]?.[1], (await keptLines('storekeeper')).map((l) => [l.id === adds[0]?.[1], l.fields.counted_qty])],
+        [true, ['5.000', '8.000'], true, [[true, '8.000']]],
+        'C12: بلا نت 5 ثم 3 لنفس المادّة: تأكيد «يصير 8» على المحفوظ، والسطر نفسه (نفس المعرّف) بالجهاز بـ8',
+      );
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C9b: «أرسل المحفوظ»: الأوّل مرفوض والثاني بلا شبكة: المرفوض بكميته وفشل الشبكة كلاهما بعد قراءة الجرد ──────────────────
+    {
+      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+      await keep('storekeeper', [gasLine, oilLine]);
+      const calls = fresh('storekeeper', countHandlers({ addCountLine: (doc, id) => { if (id === 'k-gas') throw new m.RejectedError('item_already_counted', '«غاز» معدودة في سطر آخر من هذا الجرد.'); throw new m.NetworkError(); } }));
+      await mount('/inventory/counts/c-1');
+      await click(byAction('send-kept-counts')[0]);
+      await settle();
+      t.same(
+        [named(calls, 'loadCount').length >= 2, text().includes('لم يُقبل عدّ «غاز»: 3 قطع'), text().includes('تعذّر الوصول إلى الخادم'), (await keptLines('storekeeper')).map((l) => l.id)],
+        [true, true, true, ['k-oil']],
+        'C9b: الأوّل مرفوض (بكميته 3 قطع) والثاني بلا شبكة: الاثنان ينعرضان بعد القراءة، والثاني باقٍ بالجهاز',
+      );
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C14: فشل «أرسل المحفوظ» والجرد انسلّم بالقراءة الجديدة: ما يبقى «أعد المحاولة» فوق جرد مسلَّم ────────────────────────────
+    {
+      await keep('storekeeper', [oilLine]);
+      let loads = 0;
+      fresh('storekeeper', countHandlers({ loadCount: () => ((loads += 1), { doc: countDoc(loads > 1 ? { status: 'submitted', version: 6 } : {}), lines: [kazLine] }), addCountLine: () => { throw new m.NetworkError(); } }));
+      await mount('/inventory/counts/c-1');
+      await click(byAction('send-kept-counts')[0]);
+      await settle();
+      t.same([loads >= 2, text().includes('مسلَّم للمراجعة'), text().includes('تعذّر الوصول إلى الخادم')], [true, true, false], 'C14: الجرد مسلَّم بعد القراءة: فشل الإرسال ما يبقى فوقه');
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C15: المراجعة وstale_draft (الفرق تغيّر من نافذة ثانية): قراءة جديدة وتنبيه ──────────────────────────────────────────
+    {
+      const calls = fresh('manager', reviewHandlers(reviewOf(reviewLine({ reasonStale: true })), { setCountReason: () => { throw new m.RejectedError('stale_draft', 'تغيّر الفرق بعد فتح المراجعة.'); } }));
+      await mount('/inventory/counts/c-1');
+      const loadsBefore = named(calls, 'loadCount').length;
+      await click(byAction('save-count-review')[0]);
+      await settle();
+      t.same([named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر الجرد'))], [true, true], 'C15: سبب المراجعة stale_draft: الجرد ينقرا من جديد وتنبيه «تغيّر الجرد»');
+      await unmount();
+    }
+
+    // ── C16: حذف سطر وstale_draft: قراءة جديدة وتنبيه ─────────────────────────────────────────────────────────────────────
+    {
+      const calls = fresh('storekeeper', countHandlers({ deleteCountLine: () => { throw new m.RejectedError('stale_draft', 'تغيّر الجرد بعد فتحه.'); } }));
+      await mount('/inventory/counts/c-1');
+      const loadsBefore = named(calls, 'loadCount').length;
+      await click(byAction('delete-count-line')[0]);
+      await click(byAction('confirm-delete-count-line')[0]);
+      t.same([named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر الجرد'))], [true, true], 'C16: حذف السطر stale_draft: الجرد ينقرا من جديد وتنبيه «تغيّر الجرد»');
+      await unmount();
+    }
+
+    // ── C17: جرد جديد: معرّفه لقيمه (مخزن ثاني معرّف ثاني، والرجوع للأوّل معرّفه) ────────────────────────────────────────────
+    {
+      const twoStores = { ...org, warehouses: [...org.warehouses, { ...org.warehouses[0], id: 'w-gen2', name: 'المخزن الثاني' }] };
+      const calls = fresh('manager', { loadOrgSetup: () => twoStores, listCounts: () => ({ rows: [], next: null, total: 0 }), createCountDraft: () => { throw new m.NetworkError(); } });
+      await mount('/inventory/counts');
+      for (const store of ['w-gen', 'w-gen2', 'w-gen']) {
+        choose(byIdSuffix('-store')[0], store);
+        await settle();
+        fire(byAction('create-count')[0].parentNode, 'submit');
+        await settle();
+      }
+      const ids = named(calls, 'createCountDraft').map((args) => args[0]);
+      t.same([ids.length, ids[0] !== ids[1], ids[0] === ids[2]], [3, true, true], 'C17: جرد جديد بعد شبكة: مخزن ثاني بمعرّف ثاني، والرجوع للأوّل بمعرّفه');
+      await unmount();
+    }
+
+    // ── C18: التسليم ونافذة ثانية حفظت عدّاً بالجهاز بعد العرض: يقف (الجرد المسلَّم ما يستقبله) ويقول ليش ─────────────────────
+    {
+      const calls = fresh('storekeeper', countHandlers());
+      await mount('/inventory/counts/c-1');
+      await keep('storekeeper', [oilLine]);
+      await click(byAction('submit-count')[0]);
+      await click(byAction('confirm-submit-count')[0]);
+      t.same([named(calls, 'submitCount').length, text().includes('بالجهاز عدّ محفوظ لم يُرسل'), text().includes('لم يُرسل شيء')], [0, true, true], 'C18: محفوظ من نافذة ثانية بعد العرض: التسليم يقف بلا إرسال ويسمّي المحفوظ');
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── U6: مرشّح «بانتظار موافقة المدير» بلا مسوّدات: نصّه، مو «لا صرف بعد» ───────────────────────────────────────────────
+    {
+      const postedUse = { id: 'u-9', status: 'posted', version: 3, docNo: 'SU-2026-0009', warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: true, voidReason: null, createdAt: '2026-10-30T08:00:00Z', namesLot: false };
+      fresh('storekeeper', { loadOrgSetup: () => org, listUses: () => ({ rows: [postedUse], next: null, total: 1 }) });
+      await mount('/inventory/uses?awaiting=1');
+      t.same([text().includes('لا مسوّدات بانتظار موافقة المدير فيما عُرض.'), text().includes('لا صرف بعد')], [true, false], 'U6: المرشّح بلا مسوّدات بانتظار المدير: نصّه الخاصّ');
+      await unmount();
+    }
+
     // ── U1: مسوّدة الصرف بمعرّف الجهاز: الإعادة بعد فشل الشبكة بنفس المعرّف، و23505 = انكتبت فتنفتح ─────────────────────────
     {
       let attempt = 0;
@@ -387,8 +507,12 @@ export default async function (t) {
       await settle();
       fire(byAction('create-use')[0].parentNode, 'submit');
       await settle();
+      choose(byAction('pick-category')[0], 'cat-1');
+      await settle();
+      fire(byAction('create-use')[0].parentNode, 'submit');
+      await settle();
       const ids = named(calls, 'createUseDraft').map((args) => args[0]);
-      t.same([ids.length, ids[0] !== ids[1]], [2, true], 'U5: التصنيف تغيّر بين المحاولتين: معرّف جديد (الإعادة بنفس المعرّف لنفس القيم بس)');
+      t.same([ids.length, ids[0] !== ids[1], ids[0] === ids[2]], [3, true, true], 'U5: التصنيف تغيّر بين المحاولتين: معرّف جديد؛ والرجوع للتصنيف الأوّل يرجّع معرّفه (مسوّدة ضاع جوابها ما تتكرّر)');
       await unmount();
     }
 

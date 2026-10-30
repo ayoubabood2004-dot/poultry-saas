@@ -177,10 +177,16 @@ async function propertyV3(t, db) {
     (await db.admin("select coalesce(sum(amount) filter (where reverses_id is null), 0)::text as v from public.expenses where doc_kind = $1 and doc_id = $2", [kind, docId])).rows[0].v;
   const versionOf = async (table, docId) => (await db.admin(`select version from public.${table} where id = $1`, [docId])).rows[0].version;
   const posted = [];
-  // الجرود المرحَّلة (مادّة، مخزن، يوم): جرد أقدم بعد أحدث مرحَّل لنفس المادّة count_superseded (المراجعة الثانية لـWP5).
+  // الجرود المرحَّلة (مادّة، مخزن، يوم، ترتيب الترحيل، بحركة؟): جرد أقدم بفرق بعد أحدث مرحَّل لنفس المادّة count_superseded (المراجعة
+  // الثانية لـWP5)، والمراجعة الثالثة: السطر بلا فرق يترحّل، وإلغاء جرد بحركة وبعده جرد مرحَّل يومه مثل يومه أو بعده ينرفض بنفس الرمز.
   const approvedCounts = [];
+  let countOrder = 0;
+  const voidBlockedBy = (target) => {
+    const counted = target.kind === 'count' ? approvedCounts.find((c) => c.id === target.id) : null;
+    return Boolean(counted?.moved && approvedCounts.some((c) => c.id !== counted.id && c.item === counted.item && c.wh === counted.wh && c.day >= counted.day && c.order > counted.order));
+  };
   const failures = [];
-  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0 };
+  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0, voidBlocked: 0 };
   for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
     const roll = random();
     const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
@@ -237,8 +243,10 @@ async function propertyV3(t, db) {
     } else if (roll < 0.72) {
       // الجرد: الرصيد بيوم الجرد (مراجعة WP5)، والنقص = planDraw على الدفعات الآن (وأكثر من المتاح الآن insufficient_stock: مستندات
       // بعد يوم الجرد سحبت منه)، والزيادة = gainValue بدفعة القياس على دفعات المنشأة قبلها (وبلاها كلفة المدير)، و«فرق جرد» = النقص.
-      const item = random() < 0.12 ? bare : pick(items);
-      const wh = pick(STORES);
+      // ثلث الجرود على (مادّة، مخزن) جرد مرحَّل بيوم عشوائي: قبله يمرّ بـcount_superseded، وبعده يخلّي إلغاء الأقدم ينرفض.
+      const anchor = approvedCounts.length > 0 && random() < 0.35 ? pick(approvedCounts) : null;
+      const item = anchor ? anchor.item : random() < 0.12 ? bare : pick(items);
+      const wh = anchor ? anchor.wh : pick(STORES);
       const lots = await fifoLots(db, item, wh);
       const have = await balanceAt(item, wh, day);
       // المادّة بلا افتتاح تزيد دائماً (أوّل زيادة بلا دفعة قياس، فبكلفة المدير)، وغيرها نقص أو زيادة أو مطابق.
@@ -272,7 +280,7 @@ async function propertyV3(t, db) {
       const plan = diff < 0n ? fifo.planDraw(lots, -diff, day, { tracksExpiry: false }) : { draws: [], shortage: 0n };
       const result = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [doc.id, await versionOf('stock_counts', doc.id), uid()]);
       tally.counts += 1;
-      const later = approvedCounts.some((c) => c.item === item && c.wh === wh && c.day > day);
+      const later = diff !== 0n && approvedCounts.some((c) => c.item === item && c.wh === wh && c.day > day);
       if (later) {
         tally.superseded += 1;
         if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث مرحَّل والقاعدة ${shown(result)}`);
@@ -282,7 +290,7 @@ async function propertyV3(t, db) {
       } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
       else {
         posted.push({ kind: 'count', fn: 'void_count', id: doc.id });
-        approvedCounts.push({ id: doc.id, item, wh, day });
+        approvedCounts.push({ id: doc.id, item, wh, day, order: (countOrder += 1), moved: diff !== 0n });
         const line = result.value.lines[0];
         const got = drawsText(line.draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
         if (got !== drawsText(plan.draws)) failures.push(`${label}: النقص ${got} والخطّة ${drawsText(plan.draws)}`);
@@ -310,10 +318,15 @@ async function propertyV3(t, db) {
         posted.push({ kind: 'expense', fn: 'void_expense', id: expenseId, amount });
       }
     } else {
-      const target = random() < 0.5 ? posted.at(-1) : pick(posted);
+      // جرد ينتظر إلغاء أحدث منه يُختار أحياناً حتى فرع الرفض ينمرّ بيه.
+      const waiting = posted.filter(voidBlockedBy);
+      const target = waiting.length > 0 && random() < 0.3 ? pick(waiting) : random() < 0.5 ? posted.at(-1) : pick(posted);
       label = `إلغاء ${target.kind} ${step}`;
       const result = await call(db, U.manager, `select public.${target.fn}($1, $2, $3)`, [target.id, 'خاصية', uid()]);
-      if (result.ok) {
+      if (voidBlockedBy(target)) {
+        tally.voidBlocked += 1;
+        if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث انحسب على تسويته والقاعدة ${shown(result)}`);
+      } else if (result.ok) {
         posted.splice(posted.indexOf(target), 1);
         tally.voids += 1;
         if (target.kind === 'expense') boxModel += target.amount;
@@ -334,8 +347,8 @@ async function propertyV3(t, db) {
   console.log(`    · فحص الخصائص v3 (الصرف والجرد والمصاريف): البذرة ${SEED}، ${JSON.stringify(tally)}`);
   t.same(failures, [], `الخصائص v3 (البذرة ${SEED}): بعد كل خطوة verify_stock وverify_ledger صفر والصندوق = النموذج، وسحب الصرف ونقص الجرد = planDraw، والزيادة = gainValue، ومصروف المستند = سحبه`);
   t.ok(
-    tally.done === STEPS && tally.useShort > 0 && tally.gains > 0 && tally.manual > 0 && tally.shortages > 0 && tally.expenses > 0 && tally.voids > 0,
-    `الخصائص v3 نفّذت كل الخطوات ومرّت بنقص الصرف وزيادة الجرد (وبكلفة المدير) ونقصه والمصاريف والإلغاء (${JSON.stringify(tally)})`,
+    tally.done === STEPS && tally.useShort > 0 && tally.gains > 0 && tally.manual > 0 && tally.shortages > 0 && tally.expenses > 0 && tally.voids > 0 && tally.superseded > 0 && tally.voidBlocked > 0,
+    `الخصائص v3 نفّذت كل الخطوات ومرّت بنقص الصرف وزيادة الجرد (وبكلفة المدير) ونقصه والمصاريف والإلغاء والجرد الأقدم بعد أحدث (ترحيلاً وإلغاءً) (${JSON.stringify(tally)})`,
   );
 }
 

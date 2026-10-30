@@ -503,9 +503,9 @@ async function scenario(t, db) {
   t.eq(shown(await voidTransfer(db, U.manager, early.id)), 'ok', `إلغاء ${earlyNo} بعد التسليم`);
   const voidRefresh = await refresh(U.manager, voidedCount.id);
   t.same(
-    [shown(voidRefresh), voidRefresh.value?.lines?.[0]?.docs?.map((d) => [d.label, Number(d.qty)]), voidRefresh.value?.lines?.[0]?.new?.diff],
-    ['ok', [[earlyNo, 4]], '-4.000'],
-    'إلغاء تحويل بتاريخ 26/10 بعد لقطة جرد 27/10: «أعد الحساب» يسمّيه (+4) والفرق صار −4',
+    [shown(voidRefresh), voidRefresh.value?.lines?.[0]?.docs?.map((d) => [d.label, Number(d.qty), d.voided]), voidRefresh.value?.lines?.[0]?.new?.diff],
+    ['ok', [[earlyNo, 4, true]], '-4.000'],
+    'إلغاء تحويل بتاريخ 26/10 بعد لقطة جرد 27/10: «أعد الحساب» يسمّيه (+4) بعلامة الإلغاء، والفرق صار −4',
   );
 
   // السبب على الفرق اللي شافه المدير: الشاشة ترسل الفرقين، وفرق غير الحالي (أو بلاهما) stale_draft؛ وبالمسوّدة ما ينكتبان.
@@ -522,9 +522,81 @@ async function scenario(t, db) {
       shown(await reasonAt("reason = 'كسر'")),
       shown(await writeReason(U.manager, stampCount.lines[0], 'كسر')),
       shown(await reasonAt("reason = null, reason_diff = null, reason_expired_diff = null")),
+      shown(await writeReason(U.manager, stampCount.lines[0], 'كسر')),
+      shown(await reasonAt("reason = '  ', reason_diff = -1, reason_expired_diff = null")),
+      (await db.admin('select reason, reason_diff::text as d from public.stock_count_lines where id = $1', [stampCount.lines[0]])).rows[0],
     ],
-    ['frozen_column', 'stale_draft', 'stale_draft', 'ok', 'ok'],
-    'السبب بفرق غير الحالي أو بلا فرق stale_draft، وبالفرق الحالي يمرّ، ومسحه يمسح الختم؛ والختم بالمسوّدة frozen_column',
+    ['frozen_column', 'stale_draft', 'stale_draft', 'ok', 'ok', 'ok', 'ok', { reason: null, d: null }],
+    'السبب بفرق غير الحالي أو بلا فرق stale_draft، وبالفرق الحالي يمرّ، ومسحه يمسح الختم (وسبب فارغ ويّا ختم حرفي مثل الشاشة يمسحه، مو 23514)؛ والختم بالمسوّدة frozen_column',
+  );
+
+  // ── المراجعة الثالثة لـWP5 ────────────────────────────────────────────────────────────────────────────────────────
+  // سطر بلا فرق بجرد أقدم ما يوقفه جرد أحدث مرحَّل: ما يكتب حركة، فما يغيّر رصيداً سوّاه الأحدث (كان يوقف الجرد الأقدم كلّه).
+  const zeroOlder = await countDraft(U.storekeeper, W.general, [{ item: twice, qty: 50 }], '2026-10-27');
+  await submit(U.storekeeper, zeroOlder);
+  const zeroSeen = (await preview(U.manager, zeroOlder.id)).value;
+  t.same(
+    [zeroSeen.lines[0].diff, zeroSeen.lines[0].problem, shown(await postNow(U.manager, zeroOlder.id)), await balanceOf(db, twice, W.general)],
+    ['0.000', null, 'ok', { qty: '44', value: '4400' }],
+    `جرد 27/10 مطابق (50 = دفتر يومه) بعد ترحيل ${newerNo}: بلا مشكلة ويترحّل بلا حركة، والرصيد 44`,
+  );
+
+  // إلغاء جرد أقدم وجرد أحدث انحسب على تسويته (FOUNDATION: السلسلة تنفكّ من آخرها): الأحدث يُلغى أوّلاً. 27/10 عدّ 44 من 50 (−6)،
+  // و29/10 عدّ 44 فطابق؛ إلغاء الأقدم وحده كان يرجّع الدفتر 50 والجرد الأحدث المرحَّل يقول 44.
+  const chain = await item('كاز السلسلة', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: chain, qty: 50, value: 5000 }]);
+  const chainOld = await countDraft(U.storekeeper, W.general, [{ item: chain, qty: 44 }], '2026-10-27');
+  await submit(U.storekeeper, chainOld);
+  await writeReason(U.manager, chainOld.lines[0], 'تسرّب');
+  t.eq(shown(await postNow(U.manager, chainOld.id)), 'ok', 'جرد السلسلة 27/10 يترحّل بنقص 6');
+  const chainNew = await countDraft(U.storekeeper, W.general, [{ item: chain, qty: 44 }], '2026-10-29');
+  await submit(U.storekeeper, chainNew);
+  t.eq(shown(await postNow(U.manager, chainNew.id)), 'ok', 'جرد السلسلة 29/10 مطابق (44) ويترحّل');
+  const chainNewNo = (await statusOf(chainNew.id)).doc_no;
+  const chainBlocked = await voidCount(U.manager, chainOld.id);
+  t.same(
+    [shown(chainBlocked), chainBlocked.hint?.includes(chainNewNo), await balanceOf(db, chain, W.general)],
+    ['count_superseded', true, { qty: '44', value: '4400' }],
+    `إلغاء جرد 27/10 بعد ${chainNewNo} (29/10) المحسوب على تسويته: count_superseded يسمّيه، والرصيد 44`,
+  );
+  t.same(
+    [shown(await voidCount(U.manager, chainNew.id)), shown(await voidCount(U.manager, chainOld.id)), await balanceOf(db, chain, W.general)],
+    ['ok', 'ok', { qty: '50', value: '5000' }],
+    'الأحدث يُلغى أوّلاً ثم الأقدم: الرصيد يرجع 50',
+  );
+  // نفس اليوم بحركتين: الأحدث ترحيلاً (لقطته بعد حركات الأوّل) يُلغى أوّلاً، والأقدم ترحيلاً يُلغى بلا انتظاره بعد إلغاء الأحدث.
+  const sameDay = await item('كاز اليوم الواحد', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: sameDay, qty: 50, value: 5000 }]);
+  const dayFirst = await countDraft(U.storekeeper, W.general, [{ item: sameDay, qty: 44 }]);
+  await submit(U.storekeeper, dayFirst);
+  await writeReason(U.manager, dayFirst.lines[0], 'تسرّب');
+  await postNow(U.manager, dayFirst.id);
+  const daySecond = await countDraft(U.storekeeper, W.general, [{ item: sameDay, qty: 40 }]);
+  await submit(U.storekeeper, daySecond);
+  await writeReason(U.manager, daySecond.lines[0], 'تسرّب');
+  t.eq(shown(await postNow(U.manager, daySecond.id)), 'ok', 'جرد ثاني بنفس اليوم يترحّل بنقص 4');
+  const daySecondNo = (await statusOf(daySecond.id)).doc_no;
+  const dayBlocked = await voidCount(U.manager, dayFirst.id);
+  t.same(
+    [shown(dayBlocked), dayBlocked.hint?.includes(daySecondNo), shown(await voidCount(U.manager, daySecond.id)), shown(await voidCount(U.manager, dayFirst.id)), await balanceOf(db, sameDay, W.general)],
+    ['count_superseded', true, 'ok', 'ok', { qty: '50', value: '5000' }],
+    `جردان بنفس اليوم: إلغاء الأوّل قبل ${daySecondNo} count_superseded، والثاني يُلغى (ما ينتظر الأوّل) ثم الأوّل، والرصيد 50`,
+  );
+  // جرد بلا حركة لمادّته (مطابق) يُلغى ولو بعده جرد أحدث: إلغاؤه ما يغيّر رصيداً.
+  t.eq(shown(await voidCount(U.manager, zeroOlder.id)), 'ok', `جرد 27/10 المطابق يُلغى رغم ${newerNo} بعده (بلا حركة)`);
+
+  // «أعد الحساب»: تحويل ترحّل وانلغى بعد اللقطة ما غيّر رصيد يوم الجرد فما يتسمّى (كان «وارد 0»).
+  const pair = await item('كاز الزوج', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: pair, qty: 20, value: 2000 }]);
+  const pairCount = await countDraft(U.storekeeper, W.general, [{ item: pair, qty: 20 }]);
+  await submit(U.storekeeper, pairCount);
+  const flick = await postedTransfer(db, U.manager, W.general, W.general2, TODAY, [{ item: pair, qty: 3 }]);
+  await voidTransfer(db, U.manager, flick.id);
+  const pairRefresh = await refresh(U.manager, pairCount.id);
+  t.same(
+    [shown(pairRefresh), pairRefresh.value?.lines?.[0]?.docs, pairRefresh.value?.lines?.[0]?.new?.diff],
+    ['ok', [], '0.000'],
+    'تحويل ترحّل وانلغى بعد اللقطة: «أعد الحساب» ما يسمّيه، والفرق صفر',
   );
 
   // ── مرجع واحد (D6) وقفل المسوّدة المرحَّلة (FOUNDATION ٥٢٦) ─────────────────────────────────────────────────────────

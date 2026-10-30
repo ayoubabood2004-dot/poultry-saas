@@ -5,7 +5,7 @@
 // موافقة المدير» بالقائمة، وأشهر النسبة سنة، والعدّ الثاني لنفس المادّة ينجمع، و23505 على مفتاح ثاني رفض أكيد، وخطوط موافقة ترحيل
 // الجرد (النقص بدفعاته والزيادة دفعة جديدة) وزرّه.
 import { build } from 'esbuild';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,11 +95,11 @@ export default async function (t) {
     export { UsePreviewPanel, awaitsManager, stockUseWholeLines, stockUsePostReady, expiredLots } from './src/pages/inventory/UsesPage.tsx';
     export { HatcheryBookSelect, booksInScope, expenseProblems, expenseSpanLabel, monthChoices, monthLabel } from './src/pages/accounts/ExpensesPage.tsx';
     export { parseExpenseReport } from './src/lib/repo/cash.ts';
-    export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeCountFields, mergeSentence, refreshDocText, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
-    export { clearPending, countLinePatch, isOwnRetry, pendingDraftId, sendPending, withPending, writeOrKeep } from './src/pages/inventory/countDevice.ts';
+    export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeSentence, refreshDocText, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
+    export { clearPending, countLinePatch, isOwnRetry, mergeCountFields, pendingDraftId, pendingText, sendPending, submitUnlessKept, withPending, writeOrKeep } from './src/pages/inventory/countDevice.ts';
     export { usesPageQuery } from './src/lib/repo/uses.ts';
     export { PostgrestClient } from '@supabase/postgrest-js';
-    export { parseCountPreview } from './src/lib/repo/counts.ts';
+    export { parseCountPreview, parseRefresh } from './src/lib/repo/counts.ts';
     export { WholeBalanceConfirm } from './src/components/ui/WholeBalance.tsx';
     export { parseUsePreview } from './src/lib/repo/uses.ts';
     export { RejectedError, NetworkError, ZeroRowsError } from './src/lib/errors.ts';
@@ -291,41 +291,101 @@ export default async function (t) {
   );
   t.same(Object.keys(m.countLinePatch(fields('1.000'))).includes('item_id'), false, 'تعديل السطر بلا المادّة (المنح بلاها، فإرسالها يرجع 42501)');
   t.ok(m.pendingDraftId('u-1', 'd') !== m.pendingDraftId('u-2', 'd'), 'محفوظ الجرد لكل مستخدم بالجهاز (مستخدمان بجهاز واحد ما يمسحان محفوظ بعض)');
-  // الكتابة تحت القفل: عدّ محفوظ ما وصل لنفس السطر أو المادّة يوقفها، والشبكة تحفظ، والجمع يرسل القيمة اللي انحسب منها.
-  const keptStore = (lines) => store(lines.map((l) => ({ ...l, fields: { ...l.fields, item_id: l.item ?? l.fields.item_id } })));
+  // الكتابة تحت القفل (تغيير set أو add على أساسه): تعديل سطر وإله عدّ محفوظ ما وصل يقف (kept_first)، والشبكة تحفظ، والجمع على سطر
+  // الخادم مشروط بالعدّ اللي انحسب منه.
+  const itemFields = (item, qty) => ({ ...fields(qty), item_id: item });
+  const add = (item, qty, base) => ({ kind: 'add', itemName: item, baseUnit: 'kg', added: itemFields(item, qty), base });
   calls.length = 0;
-  const blocked = keptStore([{ ...line('k', '5.000'), item: 'x' }]);
+  const blocked = store([{ ...line('k', '5.000'), fields: itemFields('x', '5.000') }]);
   const outcomes = [];
-  for (const [, target, plan] of [
-    ['same-id', { ...line('k', '6.000', true), fields: { ...fields('6.000'), item_id: 'x' } }, {}],
-    ['same-item', { ...line('n', '1.000'), fields: { ...fields('1.000'), item_id: 'x' } }, {}],
-  ]) {
-    outcomes.push(await m.writeOrKeep('d', blocked, target, send(plan)).then((r) => r, (e) => e.code));
+  for (const target of [{ ...line('k', '6.000', true), fields: itemFields('x', '6.000') }, { ...line('l', '1.000', true), fields: itemFields('x', '1.000') }]) {
+    outcomes.push(await m.writeOrKeep('d', blocked, { kind: 'set', line: target }, send({})).then((r) => r.kind, (e) => e.code));
   }
   const blockedCalls = calls.length;
   const offline = store([]);
-  const offlineResult = await m.writeOrKeep('d', offline, line('z', '2.000'), send({ z: () => new m.NetworkError() }));
+  const offlineResult = await m.writeOrKeep('d', offline, add('z', '2.000', { kind: 'none', id: 'z1' }), send({ z1: () => new m.NetworkError() }));
   const merged = store([]);
   const sentMerge = [];
-  await m.writeOrKeep('d', merged, { ...line('m', '9.000', true), expected: { counted_qty: '4.000', counted_expired_qty: null } }, { add: async () => {}, update: async (id, patch, expected) => sentMerge.push([id, patch.counted_qty, expected?.counted_qty]) });
+  await m.writeOrKeep('d', merged, add('m', '5.000', { kind: 'server', id: 'm1', fields: itemFields('m', '4.000') }), { add: async () => {}, update: async (id, patch, expected) => sentMerge.push([id, patch, expected?.counted_qty]) });
   t.same(
-    [outcomes, blockedCalls, offlineResult, offline.box.lines.map((l) => l.id), sentMerge],
-    [['kept_first', 'kept_first'], 0, 'kept', ['z'], [['m', '9.000', '4.000']]],
-    'عدّ محفوظ لنفس السطر أو المادّة يوقف الكتابة (kept_first) بلا إرسال؛ والشبكة تحفظه بالجهاز؛ والجمع يرسل العدّ اللي انحسب منه',
+    [outcomes, blockedCalls, offlineResult.kind, offline.box.lines.map((l) => [l.id, l.existing, l.fields.counted_qty]), sentMerge],
+    [['kept_first', 'kept_first'], 0, 'kept', [['z1', false, '2.000']], [['m1', { counted_qty: '9.000', counted_expired_qty: null }, '4.000']]],
+    'تعديل سطر وإله (أو لمادّته) عدّ محفوظ يقف kept_first بلا إرسال؛ والشبكة تحفظ السطر الجديد بالجهاز؛ والجمع على سطر الخادم يرسل المجموع والكميات بس بشرط العدّ اللي انحسب منه',
   );
+
+  // المراجعة الثالثة: رفّ ثاني لمادّة إلها عدّ محفوظ ما وصل (بلا نت) ينجمع على المحفوظ نفسه (كان kept_first والإرسال ممتنع بلا نت).
+  calls.length = 0;
+  const shelves = store([{ id: 'n1', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '5.000') }]);
+  const second = await m.writeOrKeep('d', shelves, add('x', '3.000', { kind: 'kept', id: 'n1', fields: itemFields('x', '5.000') }), send({ n1: () => new m.NetworkError() }));
+  const serverMerge = store([{ id: 'L', existing: true, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '45.000'), expected: { counted_qty: '40.000', counted_expired_qty: null }, added: itemFields('x', '5.000') }]);
+  const third = await m.writeOrKeep('d', serverMerge, add('x', '3.000', { kind: 'kept', id: 'L', fields: itemFields('x', '45.000') }), send({ 'u:L': () => new m.NetworkError() }));
+  t.same(
+    [
+      second.kind,
+      shelves.box.lines.map((l) => [l.id, l.existing, l.fields.counted_qty]),
+      third.kind,
+      serverMerge.box.lines.map((l) => [l.id, l.fields.counted_qty, l.expected?.counted_qty, l.added?.counted_qty]),
+      calls,
+    ],
+    ['kept', [['n1', false, '8.000']], 'kept', [['L', '48.000', '40.000', '8.000']], [['add', 'n1', '8.000'], ['update', 'L', '48.000']]],
+    'رفّ ثاني بلا نت: 5 + 3 = 8 بنفس السطر المحفوظ؛ والجمع المحفوظ على سطر الخادم (40، أُضيف 5) + 3 = 48 بشرط 40 وأُضيف 8',
+  );
+  // الأساس تغيّر قبل الكتابة (نافذة ثانية جمعت على المحفوظ، أو حفظت عدّاً للمادّة): رفض محلّي count_changed بلا إرسال.
+  calls.length = 0;
+  const raced = store([{ id: 'n1', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '7.000') }]);
+  const stale = [
+    await m.writeOrKeep('d', raced, add('x', '3.000', { kind: 'kept', id: 'n1', fields: itemFields('x', '5.000') }), send({})).then((r) => r.kind, (e) => e.code),
+    await m.writeOrKeep('d', raced, add('x', '3.000', { kind: 'none', id: 'n2' }), send({})).then((r) => r.kind, (e) => e.code),
+    await m.writeOrKeep('d', raced, add('x', '3.000', { kind: 'server', id: 'L', fields: itemFields('x', '40.000') }), send({})).then((r) => r.kind, (e) => e.code),
+  ];
+  t.same([stale, calls, raced.box.lines.map((l) => l.fields.counted_qty)], [['count_changed', 'count_changed', 'count_changed'], [], ['7.000']], 'المحفوظ تغيّر عن اللي شافته الشاشة: count_changed بلا إرسال، والمحفوظ كما هو');
+  // جمع على محفوظ انرفض رفضاً أكيداً: ينشال من الجهاز ويرجع بسببه وبالمجموع (ينعرض بكميته)، مو يبقى أساساً لكل جمع جاي.
+  const refusedMerge = store([{ id: 'n1', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '5.000') }]);
+  const dropped = await m.writeOrKeep('d', refusedMerge, add('x', '3.000', { kind: 'kept', id: 'n1', fields: itemFields('x', '5.000') }), send({ n1: () => new m.RejectedError('item_already_counted', 'معدودة') }));
+  t.same([dropped.kind, dropped.line?.fields.counted_qty, dropped.error?.code, refusedMerge.box.lines], ['dropped', '8.000', 'item_already_counted', []], 'جمع على محفوظ انرفض: ينشال من الجهاز ويرجع بالمجموع (8) وسببه');
+  t.same(
+    [m.pendingText({ id: 'L', existing: true, itemName: 'كاز', baseUnit: 'L', fields: itemFields('x', '48.000'), expected: { counted_qty: '40.000', counted_expired_qty: null }, added: itemFields('x', '8.000') }), m.pendingText({ id: 'n', existing: false, itemName: 'لقاح', baseUnit: 'pc', fields: { ...itemFields('v', '4.000'), counted_expired_qty: '2.000' } })],
+    ['«كاز»: 48 لتراً (أُضيف 8 لترات)', '«لقاح»: صالح 4 قطع، منتهٍ قطعتان'],
+    'المحفوظ كما يُعرض: المجموع واللي أضافه العادّ للجمع، والصالح والمنتهي لمادّة تتابع الانتهاء',
+  );
+  // التسليم يقرا المحفوظ تحت القفل: عدّ حفظته نافذة ثانية بعد العرض يوقفه (الجرد المسلَّم ما يستقبله).
+  let submitted = 0;
+  const lateKept = store([{ id: 'n9', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '1.000') }]);
+  const refusedSubmit = await m.submitUnlessKept('d', lateKept, async () => (submitted += 1)).then(() => 'ok', (e) => e.code);
+  const cleanSubmit = await m.submitUnlessKept('d', store([]), async () => (submitted += 1)).then(() => 'ok', (e) => e.code);
+  t.same([refusedSubmit, cleanSubmit, submitted], ['kept_unsent', 'ok', 1], 'التسليم وبالجهاز عدّ محفوظ ما وصل: kept_unsent بلا تسليم؛ وبلاه يسلّم');
   const twoTabs = store([line('a', '1.000'), line('b', '2.000')]);
   await m.clearPending(twoTabs, 'd', ['a']);
   t.same(twoTabs.box.lines.map((l) => l.id), ['b'], '«امسح المحفوظ» يمسح اللي انعرض بس (b انحفظ بنافذة ثانية بعد العرض)');
   t.same(
-    [m.refreshDocText({ label: 'TR-1', qty: -5000n }, 'L'), m.refreshDocText({ label: 'TR-2', qty: 3000n }, 'L')],
-    ['TR-1 (صادر 5 لترات)', 'TR-2 (وارد 3 لترات)'],
-    'مستندات «أعد الحساب» باتّجاهها: صادر ينقص الرصيد ووارد يزيده',
+    [
+      m.refreshDocText({ label: 'TR-1', qty: -5000n, voided: false }, 'L'),
+      m.refreshDocText({ label: 'TR-2', qty: 3000n, voided: false }, 'L'),
+      m.refreshDocText({ label: 'TR-3', qty: -4000n, voided: true }, 'L'),
+      m.refreshDocText({ label: 'TR-4', qty: 2000n, voided: true }, 'L'),
+    ],
+    ['TR-1 (صادر 5 لترات)', 'TR-2 (وارد 3 لترات)', 'TR-3 (إلغاء وارد 4 لترات)', 'TR-4 (إلغاء صادر لتران)'],
+    'مستندات «أعد الحساب» باتّجاهها: صادر ينقص الرصيد ووارد يزيده، والملغى بعد اللقطة باتّجاه أصله (إلغاء الوارد ينقص)',
   );
   const vaccineItem = { id: 'v', name: 'لقاح', kind: 'vaccine', baseUnit: 'pc', tracksExpiry: true };
   const shelfLine = { id: 'l', itemId: 'v', counted: 10000n, countedExpired: 4000n, gainExpiryOn: null, gainExpiredExpiryOn: null, gainBornAt: null };
   const added = { item_id: 'v', counted_qty: '5.000', counted_expired_qty: '1.000', gain_expiry_on: '2027-01-01', gain_expired_expiry_on: null, gain_born_at: null };
-  const sentence = m.mergeSentence({ draft: { item: vaccineItem, lineId: null }, before: shelfLine, added, total: m.mergeCountFields(m.fieldsOfLine(shelfLine), added) });
-  t.ok(['فيصير 15', 'والمنتهي 4', 'فيصير 5', 'تحلّ محلّ السابقة'].every((part) => sentence.includes(part)), `جملة الجمع لمادّة تتابع الانتهاء تسمّي الصالح والمنتهي وتبديل التواريخ: ${sentence}`);
+  const shelfFields = m.fieldsOfLine(shelfLine);
+  const sentence = m.mergeSentence({ draft: { item: vaccineItem, lineId: null }, base: { kind: 'server', id: 'l', fields: shelfFields }, added, total: m.mergeCountFields(shelfFields, added) });
+  t.ok(['الصالح 10', 'فيصير 15', 'والمنتهي 4', 'فيصير 5', 'تحلّ محلّ السابقة'].every((part) => sentence.includes(part)), `جملة الجمع لمادّة تتابع الانتهاء تسمّي الصالح والمنتهي وتبديل التواريخ: ${sentence}`);
+  const snap = { system_qty: '5.000', system_expired_qty: null, diff: '0.000', expired_diff: null };
+  const parsedRefresh = m.parseRefresh({ version: 3, lines: [{ line_id: 'l', item_id: 'i', item_name: 'كاز', base_unit: 'L', old: snap, new: snap, docs: [{ doc_kind: 'transfer', doc_id: 't', label: 'TR-1', qty: '-4.000', voided: true }] }] });
+  t.same(parsedRefresh.lines[0].docs.map((d) => [d.label, d.qty, d.voided]), [['TR-1', -4000n, true]], 'نتيجة «أعد الحساب»: علامة الإلغاء من الخادم تنقرا');
+  // مادّة بلا انتهاء: بلا «الصالح» (عنوان حقلها «العدد»)، والأساس المحفوظ بالجهاز ينقال.
+  const fuelItem = { id: 'f', name: 'كاز', kind: 'fuel', baseUnit: 'L', tracksExpiry: false };
+  const fuelBase = { item_id: 'f', counted_qty: '5.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null };
+  const fuelAdded = { ...fuelBase, counted_qty: '3.000' };
+  const keptSentence = m.mergeSentence({ draft: { item: fuelItem, lineId: null }, base: { kind: 'kept', id: 'n', fields: fuelBase }, added: fuelAdded, total: m.mergeCountFields(fuelBase, fuelAdded) });
+  t.ok(!keptSentence.includes('الصالح') && keptSentence.includes('محفوظ بالجهاز') && keptSentence.includes('فيصير 8 لترات'), `جملة الجمع لمادّة بلا انتهاء بلا «الصالح»، وأساسها المحفوظ بالجهاز: ${keptSentence}`);
+  // شاشات المخزون ما تستورد حزمة الحسابات (حقل اليوم بـcomponents/ui، المراجعة الثانية): استيراد منها يرجّع ٤٤ كيلوبايت لكل شاشة.
+  const inventoryDir = path.join(ROOT, 'src', 'pages', 'inventory');
+  const accountsImports = readdirSync(inventoryDir).filter((name) => /\.tsx?$/u.test(name) && /from '\.\.\/accounts\//u.test(readFileSync(path.join(inventoryDir, name), 'utf8')));
+  t.same(accountsImports, [], 'شاشات المخزون ما تستورد من pages/accounts');
   // طلب قائمة الصرف نفسه (supabase-js الحقيقي بلا شبكة): علامة «بانتظار المدير» من سطر واحد بدفعة مسمّاة.
   let listed = '';
   const client = new m.PostgrestClient('http://dummy.local/rest/v1', { fetch: async (url) => ((listed = decodeURIComponent(String(url))), new Response('[]', { status: 200, headers: { 'content-range': '0-0/0' } })) });

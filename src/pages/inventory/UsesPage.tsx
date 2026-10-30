@@ -32,7 +32,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../../components/ui/DayField';
-import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, VoidDocDialog, type StoreRef } from './stock-shared';
+import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // الصرف لمصروف عام والإتلاف (الخطّة WP5، FOUNDATION ٣٠٥–٣٠٦، ٥٥٦، Q5، E31): الأمين ينشئ المسوّدة بمخزن بنطاقه وتصنيف مصروف،
 // والسطر يسحب بالترتيب (الصالح بس)، أو يسمّي دفعة منتهية فينتظر المدير («بانتظار موافقة المدير»)، والإتلاف للمدير بدفعة منتهية
@@ -480,9 +480,9 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
   const [storeId, setStoreId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [day, setDay] = useState(fmtDay(localDay()));
-  // معرّف المسوّدة يولد مرّة ويبقى لحد ما تنكتب، ويتجدّد بتغيّر النموذج: الإعادة بنفس القيم بعد جواب ضاع 23505 = انكتبت، وبقيم
-  // ثانية مسوّدة جديدة، مو فتح مسوّدة بقيم قديمة (مراجعتا WP5).
-  const [docId, setDocId] = useState(() => crypto.randomUUID());
+  // معرّف المسوّدة يولد بالجهاز لقيم النموذج ويبقى لها لحد ما تنكتب: الإعادة بنفس القيم بعد جواب ضاع 23505 = انكتبت، وبقيم ثانية
+  // مسوّدة جديدة، مو فتح مسوّدة بقيم قديمة؛ والرجوع لقيم محاولة سابقة يرجّع معرّفها (مراجعات WP5).
+  const draftIds = useDraftIds();
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const active = stores.filter((store) => !store.archived);
@@ -493,6 +493,8 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
       setFailure(new RejectedError('fields', date.error ?? t('use.new.fields', 'اختر المخزن والتصنيف واكتب التاريخ.')));
       return;
     }
+    const values = JSON.stringify([storeId, categoryId, date.day]);
+    const docId = draftIds.idFor(values);
     setBusy(true);
     setFailure(null);
     uses
@@ -502,7 +504,7 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
         (error: unknown) => {
           if (inventory.isDuplicate(error)) onSaved(docId);
           else {
-            if (error instanceof RejectedError) setDocId(crypto.randomUUID());
+            if (error instanceof RejectedError) draftIds.forget(values);
             setFailure(error);
           }
         },
@@ -518,20 +520,14 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
         label={t('use.store', 'من مخزن')}
         stores={active}
         value={storeId}
-        onChange={(next) => {
-          setStoreId(next);
-          setDocId(crypto.randomUUID());
-        }}
+        onChange={setStoreId}
       />
       <Field id={`${id}-category`} label={t('use.category', 'تصنيف المصروف')}>
         <select
           id={`${id}-category`}
           className="input"
           value={categoryId}
-          onChange={(event) => {
-            setCategoryId(event.target.value);
-            setDocId(crypto.randomUUID());
-          }}
+          onChange={(event) => setCategoryId(event.target.value)}
           data-action="pick-category"
         >
           <option value="">{t('use.category.pick', 'اختر التصنيف')}</option>
@@ -546,10 +542,7 @@ function NewUse({ stores, categories, onSaved }: { stores: readonly StoreRef[]; 
         id={`${id}-day`}
         label={t('payment.day', 'التاريخ')}
         value={day}
-        onChange={(next) => {
-          setDay(next);
-          setDocId(crypto.randomUUID());
-        }}
+        onChange={setDay}
         hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')}
       />
       {failed ? (

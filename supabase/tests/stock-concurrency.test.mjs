@@ -8,7 +8,8 @@
 // دفعة ذرة 4,000 كغم ← واحد يرحّل والثاني insufficient_stock والدفعة 1,000 كغم بـ450,000.00 (D6)؛ وتحويل يترحّل والجرد ينتظر
 // قفل الرصيد ← count_stale (C11، E53) مو نقص محسوب على رصيد قديم. ومراجعة WP5: دوالّ الجرد تقفل سطوره وكلفه قبل رأسه (C15، بلا
 // 40P01 ويّا تعديل العادّ أو كلفة المدير)، والترحيل بزيادة ينتظر عدّاد الترتيب قبل ما يقرا دفعة القياس (C16، E45)، حتى بمنشأة
-// بلا دفعات وأوّل افتتاح لسه ما ثبت (C17).
+// بلا دفعات وأوّل افتتاح لسه ما ثبت (C17). والمراجعة الثالثة: كلفة جديدة تقفل السطر قبل الرأس فما تتعاكس ويّا حذف ينتظر (C15)، وجرد
+// أقدم ينتظر الأحدث على الرصيد ثم count_superseded (C19)، والجرد بنقص بس ما ياخذ عدّاد الترتيب (C20).
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -390,6 +391,23 @@ async function scenario(t, db) {
     Object.fromEntries(['submit_count', 'refresh_count', 'return_count', 'post_count', 'delete_draft_line'].map((name) => [name, [true, 'blocked', 'finished', 'ok']])),
     'C15: التسليم وإعادة الحساب و«أعِد للعدّ» والترحيل وحذف السطر ينتظرون السطر (أو الكلفة) وأيديهم فارغة من الرأس، والبديلة تاخذ الرأس فوراً، والكل يكمل بلا 40P01',
   );
+  // كلفة جديدة وحذف سطر ينتظر (المراجعة الثالثة): الحذف يقفل السطر for update ثم الرأس، والحارس كان يقفل الرأس قبل ما فحص المفتاح
+  // الأجنبي يقفل السطر for key share ← 40P01. هسه الحارس يقفل السطر قبل الرأس، فالكلفة تنتظر وإيدها فارغة.
+  const costCount = await lockedCount('draft');
+  await S.one(U.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [costCount.docId, costCount.version]);
+  const costRace = await lockOrderRace(db, {
+    holder: U.scopedManager,
+    first: [costCount.lineId],
+    last: [costCount.docId],
+    lock: 'select 1 from public.stock_count_lines where id = $1 for update',
+    lockLast: HEADER,
+    a: { user: U.manager, sql: 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 100) returning line_id', params: [costCount.lineId] },
+  });
+  t.same(
+    [costRace.held, costRace.a, costRace.last, costRace.a2],
+    [true, 'blocked', 'finished', 'ok'],
+    'C15: كلفة جديدة والسطر مقفول for update (مثل الحذف): تنتظر السطر وإيدها فارغة من الرأس، والبديلة تاخذ الرأس فوراً، والكلفة تنكتب بلا 40P01',
+  );
 
   // ── C16 (مراجعة WP5، E45): الجرد بزيادة يقفل عدّاد الترتيب قبل ما يقرا دفعة القياس ───────────────────────────────────────
   // كان يقرا القياس (100.00 للتر) ثم ينتظر العدّاد بـnew_lot ويرحّل، ودفعة الزيادة رقمها بعد افتتاح ترحّل وهو ينتظر وما انقاس بيه.
@@ -495,6 +513,62 @@ async function scenario(t, db) {
   }
   const slowNo = (await db.admin('select doc_no from public.transfers where id = $1', [slow.id])).rows[0].doc_no;
   t.same(c18, { moved: true, first: 0, second: [[slowNo, -2]], diff: '2.000' }, `C18: إعادة الحساب وتحويل ما ثبت ما يسمّيه، وبعد ما ثبت إعادة الحساب التالية تسمّي ${slowNo} (−2) والفرق +2`);
+
+  // ── C19 (المراجعة الثالثة لـWP5): جرد أقدم يترحّل والأحدث (نفس المادّة والمخزن) ماسك الرصيد ← count_superseded بعد ما يثبت ─────
+  // فحص «جرد أحدث مرحَّل» بعد قفل الأرصدة: قبلها يقرا الأحدث «مسلَّماً» وينحبس على الرصيد، وبعد ما يثبت الأحدث رصيد يوم الأقدم ما
+  // تغيّر (حركات الأحدث بيومه) فكان النقص يترحّل مرّتين (38 بالدفتر و44 على الرفّ).
+  const XS = await item('كاز الجردين المتزامنين');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XS, qty: 50, value: 5000 }]);
+  const submittedCount = async (itemId, day, counted) => {
+    const doc = await db.asUser(
+      U.storekeeper,
+      async (q) => {
+        const docId = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, day])).rows[0].id;
+        await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [docId, itemId, counted]);
+        return docId;
+      },
+      { commit: true },
+    );
+    await S.one(U.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [doc, await versionOf(doc)]);
+    await S.one(U.manager, "update public.stock_count_lines set reason = 'تسرّب', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1 returning id", [doc]);
+    return doc;
+  };
+  const POST_COUNT = "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid()) as result";
+  const olderXS = await submittedCount(XS, '2026-10-27', 44);
+  const newerXS = await submittedCount(XS, '2026-10-29', 44);
+  const c19 = await race(
+    db,
+    { user: U.manager, sql: POST_COUNT, params: [newerXS, await versionOf(newerXS)] },
+    { user: U.manager, sql: POST_COUNT, params: [olderXS, await versionOf(olderXS)] },
+  );
+  const xsLeft = (await db.admin('select trim_scale(qty)::text as qty from public.stock_balances where item_id = $1 and warehouse_id = $2', [XS, W.general])).rows[0].qty;
+  t.same(
+    [c19.first, c19.state, c19.second, xsLeft],
+    ['ok', 'blocked', 'count_superseded', '44'],
+    'C19: جرد 29/10 يترحّل وجرد 27/10 ينتظر الرصيد، وبعد ما يثبت الأحدث count_superseded، والرصيد 44 (النقص مرّة وحدة)',
+  );
+
+  // ── C20 (المراجعة الثالثة): جرد بنقص بس ما ياخذ عدّاد الترتيب (يتقفل عند أوّل زيادة)، فما ينتظر افتتاحاً أو استلاماً ماسكه ──────
+  const XN = await item('كاز النقص وحده');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XN, qty: 10, value: 1000 }]);
+  const shortOnly = await submittedCount(XN, TODAY, 9);
+  const counterHeld = await db.session(U.manager, { role: 'postgres' });
+  const shortPoster = await db.session(U.manager);
+  const c20 = {};
+  try {
+    await counterHeld.run("set local lock_timeout = '10s'");
+    c20.held = (await counterHeld.run('select 1 from private.stock_fifo_counters where org_id = $1 for update', [S.org])).ok;
+    const pending = shortPoster.run(POST_COUNT, [shortOnly, await versionOf(shortOnly)]);
+    c20.state = await db.settle(pending, shortPoster.pid);
+    await counterHeld.rollback();
+    const posted = await pending;
+    c20.posted = posted.ok ? 'ok' : posted.error;
+    if (posted.ok) await shortPoster.commit();
+  } finally {
+    await shortPoster.rollback();
+    await counterHeld.rollback();
+  }
+  t.same(c20, { held: true, state: 'finished', posted: 'ok' }, 'C20: جرد بنقص بس يترحّل والعدّاد بيد جلسة ثانية (بلا انتظار)');
 
   // ── ملفات التراجع تقفل جداولها قبل ما تعدّ (مراجعة WP4 الثانية): بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف ينحذف ويّا جداوله.
   for (const name of ['rollback_0005.sql', 'rollback_0006.sql', 'rollback_0007.sql', 'rollback_0008.sql']) {

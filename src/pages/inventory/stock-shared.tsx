@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Field } from '../../components/ui/Field';
 import type { QtyUnitOption } from '../../components/ui/QtyInput';
 import { Dialog } from '../../components/ui/Dialog';
@@ -305,6 +305,30 @@ export function stockRef(slot: string): StockRef {
   const fresh = inventory.newStockRef();
   refs.set(slot, fresh);
   return fresh;
+}
+
+/**
+ * معرّف مسوّدة جديدة يولد بالجهاز لقيم نموذجها: نفس القيم ترجّع نفس المعرّف (الإعادة بعد جواب ضاع 23505 = انكتبت فتنفتح)، وقيم ثانية
+ * معرّف ثاني (مسوّدة ضاع جوابها ما تنفتح بقيم غير قيمها). والمراجعة الثالثة لـWP5: المعرّف كان يتجدّد بكل تغيير، فتبديل حقل ورجوعه
+ * بعد جواب ضاع يولّد مسوّدة ثانية بنفس القيم. forget للرفض الأكيد (المحاولة الجاية بمعرّف جديد).
+ */
+export function useDraftIds(): { idFor: (values: string) => string; forget: (values: string) => void } {
+  const ids = useRef(new Map<string, string>());
+  return useMemo(
+    () => ({
+      idFor: (values) => {
+        const known = ids.current.get(values);
+        if (known) return known;
+        const fresh = crypto.randomUUID();
+        ids.current.set(values, fresh);
+        return fresh;
+      },
+      forget: (values) => {
+        ids.current.delete(values);
+      },
+    }),
+    [],
+  );
 }
 
 export type RunOutcome<R> = { kind: 'done'; result: R } | { kind: 'recorded' } | { kind: 'failed'; error: unknown };

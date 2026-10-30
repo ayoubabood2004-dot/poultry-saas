@@ -16,10 +16,12 @@
 --   «أعِد للعدّ» يشوفه الأمين)؛ والدفعة المسمّاة بالصرف العادي للمنتهي بس (Q5)، والصالح يُسحب بترتيبه؛ والرصيد بالجرد = حركات
 --   المادّة بالمخزن بتاريخ يوم الجرد أو قبله بلا الملغى (count_balance_at)، والنقص يسحب من المتبقّي الآن بقاعدة يوم الجرد؛ والشهر
 --   المقفول = شهر آخر يوم بيه مقفول (Q14 بتفسير، DECISIONS 2026-10-30)؛ وstock_doc_label يسمّي SU وCT ودفعة زيادة الجرد.
--- مراجعتا WP5 (برأس كل دالّة سببه): سطور الجرد وكلفها قبل رأسه (lock_count_rows، وبحذف السطر)، والمادّة مرّة وحدة بالجرد
---   (item_already_counted)، والسبب على الفرقين اللي شافهم المدير (reason_diff، وإلا stale_draft)، و«أعد الحساب» بترتيب الحركات
---   (snapshot_seq)، وجرد أقدم ما يترحّل بعد جرد أحدث مرحَّل لنفس المادّة (count_superseded)، وعدّاد الترتيب قبل دفعة القياس، وأقفال
---   المصروف (المعرّف والتصنيف والموقع والوحدة)؛ وverify_stock يزيد شروط الجرد بالفحص 11.
+-- مراجعات WP5 الثلاث (برأس كل دالّة سببه): سطور الجرد وكلفها قبل رأسه (lock_count_rows، وبحذف السطر، والكلفة الجديدة تقفل سطرها
+--   قبل الرأس)، والمادّة مرّة وحدة بالجرد (item_already_counted)، والسبب على الفرقين اللي شافهم المدير (reason_diff، وإلا
+--   stale_draft)، و«أعد الحساب» بترتيب الحركات (snapshot_seq) بلا زوج ترحّل وانلغى بعد اللقطة وبعلامة الإلغاء، وجرد أقدم ما يترحّل
+--   بعد جرد أحدث مرحَّل لنفس المادّة إلا سطراً بلا فرق، وما ينلغى قبل جرد أحدث انحسب على تسويته (count_superseded بالاثنين)، وعدّاد
+--   الترتيب قبل دفعة القياس لأوّل زيادة بس، وأقفال المصروف (المعرّف والتصنيف والموقع والوحدة)؛ وverify_stock يزيد شروط الجرد
+--   بالفحص 11.
 -- تراجع: rollback_0008.sql — يرجّع أجسام home_summary وdiscard_draft وdelete_draft_line وstock_doc_label وverify_stock
 --   وverify_ledger كما بـ0007، ويشيل الجداول الجديدة ودوالّها ومشغّلاتها وسياسة نطاقها على سجلّ التدقيق ومفتاح الدفتر المركّب؛ ويرفض
 --   بصوت إذا أي مصروف أو صرف أو جرد موجود (ولو مسوّدة)، بلا ما يحذف شي.
@@ -523,7 +525,13 @@ begin
   if tg_op = 'UPDATE' and new.line_id is distinct from old.line_id then
     raise exception 'frozen_column' using hint = 'الكلفة تبقى على سطرها.';
   end if;
-  select * into ln from public.stock_count_lines where org_id = new.org_id and id = new.line_id;
+  if tg_op = 'INSERT' then
+    -- السطر قبل الرأس (§2.3): فحص المفتاح الأجنبي بعد الحارس يقفل السطر for key share، وحذف السطر يقفله for update ثم الرأس، فالكلفة
+    -- الجديدة (الرأس بالحارس ثم السطر) كانت تتعاكس ويّا حذف ينتظر (40P01، المراجعة الثالثة لـWP5). التعديل بلا هذا: صفّ الكلفة أوّلاً.
+    select * into ln from public.stock_count_lines where org_id = new.org_id and id = new.line_id for key share;
+  else
+    select * into ln from public.stock_count_lines where org_id = new.org_id and id = new.line_id;
+  end if;
   if ln.id is null then
     raise exception 'line_not_found' using hint = 'سطر الجرد غير موجود. حدّث الشاشة.';
   end if;
@@ -1589,14 +1597,19 @@ begin
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
     select * into s from private.count_snapshot(w.id, d.counted_on, ln);
     select coalesce(jsonb_agg(jsonb_build_object('doc_kind', g.doc_kind, 'doc_id', g.doc_id, 'label', private.stock_doc_label(g.doc_kind, g.doc_id),
-        'qty', g.qty::text) order by g.first_at), '[]'::jsonb)
+        'qty', g.qty::text, 'voided', g.voided) order by g.first_seq), '[]'::jsonb)
     into v_docs
     from (
-      -- اللي يغيّر رصيد يوم الجرد بس: أصلية بتاريخه أو قبله، أو عكسية أصلها كذا (الملغى ينشال من الرصيد).
-      select m.doc_kind, m.doc_id, sum(m.qty) as qty, min(m.created_at) as first_at from public.stock_moves m
+      -- اللي يغيّر رصيد يوم الجرد بس: أصلية بتاريخه أو قبله، أو عكسية أصلها كذا (الملغى ينشال من الرصيد). والمراجعة الثالثة: بترتيب
+      -- الحركات (seq، مو بداية المعاملة)، وزوج أصل وعكسه داخل النافذة (ترحّل وانلغى بعد اللقطة) ما غيّر شي فما ينعرض، والإلغاء بعلامته
+      -- (عكسيات بس) حتى الشاشة ما تقرا إلغاء الوارد «صادراً».
+      select m.doc_kind, m.doc_id, sum(m.qty) as qty, min(m.seq) as first_seq, bool_and(m.reverses_move_id is not null) as voided
+      from public.stock_moves m
       left join public.stock_moves o on o.org_id = m.org_id and o.id = m.reverses_move_id
       where m.org_id = d.org_id and m.item_id = ln.item_id and m.warehouse_id = w.id and m.seq > ln.snapshot_seq and m.seq <= s.snapshot_seq
         and coalesce(o.moved_on, m.moved_on) <= d.counted_on
+        and not (o.id is not null and o.seq > ln.snapshot_seq)
+        and not exists (select 1 from public.stock_moves r where r.org_id = m.org_id and r.reverses_move_id = m.id and r.seq <= s.snapshot_seq)
       group by m.doc_kind, m.doc_id
     ) as g;
     update public.stock_count_lines set system_qty = s.system_qty, system_expired_qty = s.system_expired_qty, diff = s.diff, expired_diff = s.expired_diff,
@@ -1721,8 +1734,9 @@ begin
   -- الرصيد تغيّر من آخر لقطة (مستند ترحّل بعد العدّ، C11): الفرق المحسوب ما عاد صحيحاً.
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
-    -- بعد قفل الأرصدة: ترحيل الجرد الأحدث على نفس (المادّة، المخزن) ينتظره أو ثبت قبله (مراجعة WP5 الثانية).
-    v_later := private.count_superseded_by(w.id, d.counted_on, ln.item_id);
+    -- بعد قفل الأرصدة: ترحيل الجرد الأحدث على نفس (المادّة، المخزن) ينتظره أو ثبت قبله (مراجعة WP5 الثانية). والسطر بلا فرق ما
+    -- يكتب حركة فما يغيّر شي سوّاه الأحدث، فما يوقف الجرد كلّه (المراجعة الثالثة).
+    v_later := case when ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0 then private.count_superseded_by(w.id, d.counted_on, ln.item_id) end;
     if v_later is not null then
       raise exception 'count_superseded' using hint = format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later);
     end if;
@@ -1851,6 +1865,8 @@ declare
   l public.stock_lots;
   m public.stock_moves;
   v_back int := 0;
+  v_later text;
+  v_item text;
 begin
   set local lock_timeout = '5s';
   perform private.require('void');
@@ -1878,6 +1894,24 @@ begin
   select array_agg(distinct x.item_id) into v_items from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id;
   perform private.lock_masters(array[w.id], v_items, false);
   perform private.lock_balances(v_items, array_fill(w.id, array[cardinality(v_items)]));
+  -- جرد أحدث انحسب على تسوية هذا الجرد (يومه مثل يومه أو بعده، ولقطة سطره بعد حركاته) يُلغى أوّلاً (FOUNDATION: السلسلة تنفكّ من
+  -- آخرها وكل رفض يسمّي التابع): إلغاء هذا وحده يرجّع رصيداً عدّه الأحدث وأقرّه (المراجعة الثالثة لـWP5، مرآة count_superseded
+  -- بالترحيل). بعد الأرصدة: جرد يترحّل الآن ينتظرها ثم يشوفه الفحص. والمادّة بلا حركة بهذا الجرد ما يتغيّر رصيدها بإلغائه.
+  select k.doc_no, it.name into v_later, v_item
+  from (
+    select x.item_id, min(x.seq) as seq from public.stock_moves x
+    where x.org_id = d.org_id and x.doc_kind = 'count' and x.doc_id = d.id and x.reverses_move_id is null
+    group by x.item_id
+  ) as mv
+  join public.stock_count_lines y on y.org_id = d.org_id and y.item_id = mv.item_id and y.doc_id <> d.id and y.snapshot_seq >= mv.seq
+  join public.stock_counts k on k.org_id = y.org_id and k.id = y.doc_id
+  join public.items it on it.org_id = d.org_id and it.id = mv.item_id
+  where k.warehouse_id = d.warehouse_id and k.status = 'approved' and k.counted_on >= d.counted_on
+  order by k.counted_on desc, k.doc_no desc
+  limit 1;
+  if v_later is not null then
+    raise exception 'count_superseded' using hint = format('«%s» جُردت بعد هذا الجرد بالجرد %s على الرصيد الذي سوّاه هذا الجرد؛ ألغِ الجرد %s أوّلاً.', v_item, v_later, v_later);
+  end if;
   for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'count_gain' and x.source_id = d.id order by x.id for no key update loop
     perform private.check_lot_intact(l.id);
   end loop;
@@ -1973,7 +2007,7 @@ begin
     select x.gain_unit_cost into v_cost from public.stock_count_line_costs x where x.org_id = d.org_id and x.line_id = ln.id;
     v_gain := case when coalesce(ln.diff, 0) > 0 then private.gain_value(ln.diff, ref, v_cost) end;
     v_xgain := case when coalesce(ln.expired_diff, 0) > 0 then private.gain_value(ln.expired_diff, ref, v_cost) end;
-    v_later := private.count_superseded_by(w.id, d.counted_on, ln.item_id);
+    v_later := case when coalesce(ln.diff, 0) <> 0 or coalesce(ln.expired_diff, 0) <> 0 then private.count_superseded_by(w.id, d.counted_on, ln.item_id) end;
     v_problem := coalesce(
       case when v_later is not null then jsonb_build_object('code', 'count_superseded', 'hint',
         format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later)) end,
