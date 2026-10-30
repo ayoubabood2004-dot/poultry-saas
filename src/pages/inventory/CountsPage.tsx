@@ -43,6 +43,7 @@ import {
   sendPending,
   submitUnlessKept,
   underCountLock,
+  unlessKept,
   writeOrKeep,
   type CountBase,
   type CountChange,
@@ -285,22 +286,42 @@ function countedText(line: Pick<CountLine, 'counted' | 'countedExpired' | 'baseU
     : fmtQty(line.counted, line.baseUnit).main;
 }
 
-export type RejectedCount = { line: PendingCountLine; error: unknown };
+export type RejectedCount = { key: string; line: PendingCountLine; error: unknown };
+
+/** نصيحة العدّ المرفوض بسببه: المادّة معدودة بسطر (أضف إليه، مو «عدّله» فيمسح العدّ الثاني)، والسطر تغيّر (راجع قبل الإضافة). */
+function rejectedAdvice(line: PendingCountLine, error: unknown): string {
+  if (error instanceof RejectedError && error.code === 'item_already_counted') {
+    return t('count.rejected.counted', '«{item}» معدودة بسطر من جهاز آخر في هذا الجرد؛ أضف عدّك من «أضف العدّ» فيُجمع إلى سطرها.', { item: line.itemName });
+  }
+  if (error instanceof ZeroRowsError) {
+    return t('count.rejected.changed', 'تغيّر عدّ «{item}» على الخادم قبل أن يصل هذا (جهاز أو نافذة أخرى)؛ راجع عدّها الآن، ثم أضف ما لم يُحسب منه.', { item: line.itemName });
+  }
+  return countFailure(error).detail;
+}
 
 /**
  * العدّ المحفوظ اللي رفضه الخادم: يبقى معروضاً حتى بعد ما يتغيّر الجرد (التسليم يبدّل الشاشة)، وبكميته (واللي أضافه العادّ للجمع)
- * لأنه انشال من الجهاز، فالعادّ يضيفه من جديد منها (المراجعة الثالثة: كان ما ينعرض إلا اسم المادّة).
+ * لأنه انشال من الجهاز، فالعادّ يضيفه من جديد منها (المراجعة الثالثة). والرابعة: كل رفض بتنبيهه (إرسال ثاني ما يمسح اللي قبله)،
+ * وينشال بزرّه بعد ما يقراه العادّ.
  */
-function RejectedNotices({ rejected }: { rejected: readonly RejectedCount[] }) {
+function RejectedNotices({ rejected, onDismiss }: { rejected: readonly RejectedCount[]; onDismiss: (key: string) => void }) {
   return (
     <>
-      {rejected.map(({ line, error }) => (
-        <Notice key={line.id} tone="danger" title={t('count.rejected', 'لم يُقبل عدّ {line}', { line: pendingText(line) })}>
-          {countFailure(error).detail}
+      {rejected.map(({ key, line, error }) => (
+        <Notice key={key} tone="danger" title={t('count.rejected', 'لم يُقبل عدّ {line}', { line: pendingText(line) })}>
+          <p>{rejectedAdvice(line, error)}</p>
+          <Button variant="secondary" size="sm" className="mt-2" onClick={() => onDismiss(key)} data-action="dismiss-rejected-count">
+            {t('count.rejected.dismiss', 'قرأته، أخفِ التنبيه')}
+          </Button>
         </Notice>
       ))}
     </>
   );
+}
+
+/** المرفوض يُضاف لما قبله بمفتاح لكل حدث. */
+function withRejected(now: readonly RejectedCount[], more: readonly { line: PendingCountLine; error: unknown }[]): readonly RejectedCount[] {
+  return more.length === 0 ? now : [...now, ...more.map((entry) => ({ key: crypto.randomUUID(), ...entry }))];
 }
 
 /** رفض محلّي (ما انرسل شي: محفوظ ما وصل، أو تغيّر قبل الإضافة) بعنوانه، مو «الخادم رفض العملية» (المراجعة الثالثة). */
@@ -413,11 +434,11 @@ function CountEntry({
           }
           if (outcome.kind === 'dropped') {
             // جمع على عدّ محفوظ انرفض (السطر تغيّر بجهاز ثاني أو الجرد سُلّم): انشال من الجهاز وينعرض بكميته فوق الشاشة.
-            onRejected((now) => [...now.filter((other) => other.line.id !== outcome.line.id), { line: outcome.line, error: outcome.error }]);
+            onRejected((now) => withRejected(now, [{ line: outcome.line, error: outcome.error }]));
             onChanged();
             return;
           }
-          toast({ tone: 'warning', title: t('count.kept', 'حُفظ العدّ بالجهاز'), detail: t('count.kept.detail', 'لم يصل الخادم؛ أرسله من «أرسل المحفوظ» حين يعود الاتصال.') });
+          toast({ tone: 'warning', title: t('count.kept', 'حُفظ العدّ بالجهاز'), detail: t('count.kept.detail', 'لم يتأكّد وصوله إلى الخادم؛ أرسله من «أرسل المحفوظ» حين يعود الاتصال، ولن يُحسب مرّتين.') });
         },
         (error: unknown) => {
           // العدّ المضاف وأساسه تغيّر (السطر من جهاز ثاني فصفر صفوف، أو المادّة صارت معدودة بسطر، أو المحفوظ بنافذة ثانية): قراءة جديدة
@@ -428,7 +449,7 @@ function CountEntry({
           if (recount) {
             toast({
               tone: 'warning',
-              title: t('count.merge.changed', 'تغيّر عدّ «{item}» من جهاز آخر', { item: item.name }),
+              title: t('count.merge.changed', 'تغيّر عدّ «{item}» قبل أن يُحفظ عدّك', { item: item.name }),
               detail: t('count.merge.changed_detail', 'هذا عدّها الآن؛ أضف عدّك ({qty}) من جديد.', { qty: countAmountText(typed, item.baseUnit) }),
             });
             pending.reread();
@@ -441,14 +462,22 @@ function CountEntry({
       .finally(() => setBusy(false));
   };
   const save = (draft: LineDraft, fields: CountLineFields) => {
-    if (draft.lineId !== null) {
-      write({ kind: 'set', line: { id: draft.lineId, existing: true, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields } }, fields, draft.item);
+    const edited = draft.lineId === null ? undefined : lines.find((line) => line.id === draft.lineId);
+    if (edited) {
+      // التعديل مشروط بقيم البطاقة اللي عدّل عليها (المراجعة الرابعة: كان مطلقاً فيمسح جمعاً من جهاز ثاني).
+      const seen = fieldsOfLine(edited);
+      write({ kind: 'set', line: { id: edited.id, existing: true, itemName: draft.item.name, baseUnit: draft.item.baseUnit, fields }, seen }, fields, draft.item);
       return;
     }
     // المادّة معدودة (بعدّ محفوظ بالجهاز ما وصل، أو بسطر): العدّ الجديد يُضاف لعدّها بتأكيد يسمّي الأساس، والكتابة تتأكّد تحت القفل إن
     // الأساس ما تغيّر (المحفوظ بنافذة ثانية، وسطر الخادم بشرط قيمته).
     const kept = pending.lines.find((line) => line.fields.item_id === draft.item.id);
     const shown = lines.find((line) => line.itemId === draft.item.id);
+    if (kept && !kept.existing && shown) {
+      // سطر جديد محفوظ ما وصل، وجهاز آخر عدّ المادّة بسطر: الجمع على المحفوظ ينرفض حتماً (المادّة معدودة)، فالمحفوظ أوّلاً (المراجعة الرابعة).
+      setLineFailure(new RejectedError('kept_first', t('count.kept_and_line', 'لـ«{item}» عدّ محفوظ بالجهاز لم يُرسل، وعدّها جهاز آخر بسطر في هذا الجرد؛ أرسل المحفوظ أوّلاً، ثم أضف.', { item: draft.item.name })));
+      return;
+    }
     const base = kept ? ({ kind: 'kept', id: kept.id, fields: kept.fields } as const) : shown ? ({ kind: 'server', id: shown.id, fields: fieldsOfLine(shown) } as const) : null;
     if (base) {
       setConfirm({ kind: 'merge', ask: { draft, base, added: fields, total: mergeCountFields(base.fields, fields) } });
@@ -461,8 +490,8 @@ function CountEntry({
     onFailure(null);
     underCountLock(doc.id, () => sendPending(doc.id, local, send))
       .then((result) => {
-        // المرفوض يرجع حتى لو وقف الإرسال بعده (شبكة)، وينعرض فوق الشاشة لحد الإرسال الجاي.
-        onRejected(result.rejected);
+        // المرفوض يرجع حتى لو وقف الإرسال بعده (شبكة)، ويُضاف فوق الشاشة لما قبله (إرسال ثاني ما يمسحه، المراجعة الرابعة).
+        onRejected((now) => withRejected(now, result.rejected));
         if (result.sent > 0) toast({ tone: 'success', title: t('count.sent', 'أُرسل المحفوظ: {n}', { n: fmtInt(result.sent) }) });
         if (result.failure) failed(result.failure);
         onChanged();
@@ -475,8 +504,7 @@ function CountEntry({
   const deleteLine = (line: CountLine) => {
     setBusy(true);
     onFailure(null);
-    counts
-      .deleteCountLine(line.id, doc.version)
+    unlessKept(doc.id, local, { id: line.id, itemId: line.itemId, itemName: line.itemName }, () => counts.deleteCountLine(line.id, doc.version))
       .then(onChanged, failed)
       .finally(() => {
         setBusy(false);
@@ -1138,7 +1166,7 @@ function CountEditor({ docId }: { docId: string }) {
           {entryFailed.detail}
         </Notice>
       ) : null}
-      <RejectedNotices rejected={rejected} />
+      <RejectedNotices rejected={rejected} onDismiss={(key) => setRejected((now) => now.filter((entry) => entry.key !== key))} />
       {!store ? (
         <Notice tone="warning" title={t('count.no_store', 'مخزن هذا الجرد غير متاح.')} />
       ) : current.status === 'draft' && counter ? (

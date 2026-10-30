@@ -175,7 +175,11 @@ export default async function (t) {
       await settle();
       await submitLine();
       const sent = named(calls, 'updateCountLine');
-      t.same([sent.length, sent[0]?.[0], sent[0]?.[1]?.counted_qty, Object.keys(sent[0]?.[1] ?? {}).includes('item_id')], [1, 'l-kaz', '45.000', false], 'C1: تعديل العدّ بالسطر نفسه وبلا item_id');
+      t.same(
+        [sent.length, sent[0]?.[0], sent[0]?.[1]?.counted_qty, Object.keys(sent[0]?.[1] ?? {}).includes('item_id'), sent[0]?.[2]?.map((b) => b.counted_qty)],
+        [1, 'l-kaz', '45.000', false, ['40.000']],
+        'C1: تعديل العدّ بالسطر نفسه وبلا item_id، ومشروط بقيمة البطاقة (40)',
+      );
       await unmount();
     }
 
@@ -194,7 +198,7 @@ export default async function (t) {
       await click(byAction('confirm-merge-count')[0]);
       const sent = named(calls, 'updateCountLine');
       t.same(
-        [asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch, expected]) => [id, patch, expected?.counted_qty])],
+        [asked, beforeConfirm, named(calls, 'addCountLine').length, sent.map(([id, patch, bases]) => [id, patch, bases?.[0]?.counted_qty])],
         [true, [0, 0], 0, [['l-kaz', { counted_qty: '45.000', counted_expired_qty: null }, '40.000']]],
         'C2: المادّة معدودة (40): تأكيد «يصير 45»، ثم تعديل سطرها بـ45 (الكميات بس) بشرط إنها بعدها 40 (بلا إدراج)',
       );
@@ -288,7 +292,7 @@ export default async function (t) {
     const stampOf = (role) => ({ userId: `u-${role}`, orgId: 'org-1' });
     const keep = (role, lines) => m.saveDeviceDraft(stampOf(role), { id: m.pendingDraftId(`u-${role}`, 'c-1'), kind: 'count', title: 'جرد', payload: { docId: 'c-1', lines } });
     const unkeep = (role) => m.removeDeviceDraft(m.pendingDraftId(`u-${role}`, 'c-1'));
-    const keptKaz = { id: 'l-kaz', existing: true, itemName: 'كاز أويل', baseUnit: 'L', fields: { item_id: 'i-kaz', counted_qty: '50.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+    const keptKaz = { id: 'l-kaz', existing: true, itemName: 'كاز أويل', baseUnit: 'L', fields: { item_id: 'i-kaz', counted_qty: '50.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [{ counted_qty: '40.000', counted_expired_qty: null }] };
 
     // ── C8: سطر بعدّ محفوظ ما وصل (أحدث من البطاقة): التعديل يقف بسببه، بلا إرسال ولا مسح المحفوظ ─────────────────────────────
     {
@@ -306,7 +310,7 @@ export default async function (t) {
 
     // ── C9: «أرسل المحفوظ» ومرفوض: سببه ينعرض ويبقى بعد قراءة الجرد ─────────────────────────────────────────────────
     {
-      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] };
       await keep('storekeeper', [gasLine]);
       const calls = fresh('storekeeper', countHandlers({ addCountLine: () => { throw new m.RejectedError('item_already_counted', '«غاز» معدودة في سطر آخر من هذا الجرد.'); } }));
       await mount('/inventory/counts/c-1');
@@ -330,7 +334,7 @@ export default async function (t) {
       const loadsBefore = named(calls, 'loadCount').length;
       await click(byAction('confirm-merge-count')[0]);
       t.same(
-        [named(calls, 'updateCountLine').length, named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر عدّ «كاز أويل»'))],
+        [named(calls, 'updateCountLine').length, named(calls, 'loadCount').length > loadsBefore, globalThis.__flow.toasts.some((x) => x.title.includes('تغيّر عدّ «كاز أويل»') && x.detail.includes('5 لترات'))],
         [1, true, true],
         'C10: الجمع والعدّ تغيّر بجهاز ثاني: تعديل واحد مشروط رفضه الخادم، فقراءة جديدة وتنبيه «تغيّر عدّ»',
       );
@@ -349,7 +353,7 @@ export default async function (t) {
     }
 
     const keptLines = async (role) => (await m.listDeviceDrafts(stampOf(role), 'count')).find((draft) => draft.id === m.pendingDraftId(`u-${role}`, 'c-1'))?.payload.lines ?? [];
-    const oilLine = { id: 'k-oil', existing: false, itemName: 'زيت', baseUnit: 'L', fields: { item_id: 'i-oil', counted_qty: '2.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+    const oilLine = { id: 'k-oil', existing: false, itemName: 'زيت', baseUnit: 'L', fields: { item_id: 'i-oil', counted_qty: '2.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] };
 
     // ── C12: رفّان لمادّة بلا نت وبلا سطر: الأوّل يبقى بالجهاز، والثاني يسأل الجمع على المحفوظ وينجمع بسطره (كان «أرسل المحفوظ أوّلاً») ──
     {
@@ -379,7 +383,7 @@ export default async function (t) {
 
     // ── C9b: «أرسل المحفوظ»: الأوّل مرفوض والثاني بلا شبكة: المرفوض بكميته وفشل الشبكة كلاهما بعد قراءة الجرد ──────────────────
     {
-      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null } };
+      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] };
       await keep('storekeeper', [gasLine, oilLine]);
       const calls = fresh('storekeeper', countHandlers({ addCountLine: (doc, id) => { if (id === 'k-gas') throw new m.RejectedError('item_already_counted', '«غاز» معدودة في سطر آخر من هذا الجرد.'); throw new m.NetworkError(); } }));
       await mount('/inventory/counts/c-1');
@@ -452,7 +456,116 @@ export default async function (t) {
       await keep('storekeeper', [oilLine]);
       await click(byAction('submit-count')[0]);
       await click(byAction('confirm-submit-count')[0]);
-      t.same([named(calls, 'submitCount').length, text().includes('بالجهاز عدّ محفوظ لم يُرسل'), text().includes('لم يُرسل شيء')], [0, true, true], 'C18: محفوظ من نافذة ثانية بعد العرض: التسليم يقف بلا إرسال ويسمّي المحفوظ');
+      t.same(
+        [named(calls, 'submitCount').length, text().includes('بالجهاز عدّ محفوظ لم يُرسل'), text().includes('لم يُرسل شيء'), text().includes('محفوظ بالجهاز ولم يُرسل')],
+        [0, true, true, true],
+        'C18: محفوظ من نافذة ثانية بعد العرض: التسليم يقف بلا إرسال ويسمّي المحفوظ، والمحفوظ ينقرا ويظهر بقسمه',
+      );
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C19 (المراجعة الرابعة): تنبيهات المرفوض تنجمع (إرسال ثاني ما يمسح الأوّل) وتنشال بزرّها، ونصيحتها الجمع مو «عدّل سطرها» ──
+    {
+      const gasLine = { id: 'k-gas', existing: false, itemName: 'غاز', baseUnit: 'pc', fields: { item_id: 'i-gas', counted_qty: '3.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] };
+      await keep('storekeeper', [gasLine, oilLine]);
+      let oilTries = 0;
+      fresh('storekeeper', countHandlers({
+        addCountLine: (doc, id) => {
+          if (id === 'k-oil' && (oilTries += 1) === 1) throw new m.NetworkError();
+          throw new m.RejectedError('item_already_counted', `${id} معدودة`);
+        },
+      }));
+      await mount('/inventory/counts/c-1');
+      await click(byAction('send-kept-counts')[0]);
+      await settle();
+      const first = [text().includes('لم يُقبل عدّ «غاز»: 3 قطع'), text().includes('«زيت»: لتران')];
+      await click(byAction('send-kept-counts')[0]);
+      await settle();
+      const shown = [text().includes('لم يُقبل عدّ «غاز»: 3 قطع'), text().includes('لم يُقبل عدّ «زيت»: لتران'), byAction('dismiss-rejected-count').length, text().includes('فيُجمع إلى سطرها')];
+      await click(byAction('dismiss-rejected-count')[0]);
+      t.same(
+        [first, shown, text().includes('لم يُقبل عدّ «غاز»'), text().includes('لم يُقبل عدّ «زيت»')],
+        [[true, true], [true, true, 2, true], false, true],
+        'C19: مرفوض بإرسال ثم مرفوض بإرسال ثاني: الاثنان معروضان بنصيحة الجمع (الثاني ما مسح الأوّل)، وإخفاء الأوّل يبقي الثاني',
+      );
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C20: محفوظ جديد ما وصل وجهاز آخر عدّ المادّة بسطر: الإضافة تقف (الجمع على المحفوظ ينرفض حتماً) بلا كتابة ────────────────
+    {
+      await keep('storekeeper', [{ id: 'k-kaz2', existing: false, itemName: 'كاز أويل', baseUnit: 'L', fields: { item_id: 'i-kaz', counted_qty: '5.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] }]);
+      const calls = fresh('storekeeper', countHandlers());
+      await mount('/inventory/counts/c-1');
+      type(byAction('search-item')[0], 'كاز');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '3');
+      await settle();
+      await submitLine();
+      t.same(
+        [text().includes('وعدّها جهاز آخر بسطر'), byAction('confirm-merge-count').length, named(calls, 'addCountLine').length + named(calls, 'updateCountLine').length],
+        [true, 0, 0],
+        'C20: محفوظ جديد للمادّة وسطرها من جهاز آخر: الإضافة تقف «أرسل المحفوظ أوّلاً» بلا تأكيد ولا كتابة',
+      );
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C21: حذف سطر وإله عدّ محفوظ ما وصل: يقف بلا حذف (الإرسال بعده كان يرجّعه) ──────────────────────────────────────────
+    {
+      await keep('storekeeper', [keptKaz]);
+      const calls = fresh('storekeeper', countHandlers());
+      await mount('/inventory/counts/c-1');
+      await click(byAction('delete-count-line')[0]);
+      await click(byAction('confirm-delete-count-line')[0]);
+      t.same([named(calls, 'deleteCountLine').length, text().includes('أرسل المحفوظ أوّلاً')], [0, true], 'C21: حذف سطر وإله عدّ محفوظ: يقف «أرسل المحفوظ أوّلاً» بلا حذف');
+      await unmount();
+      await unkeep('storekeeper');
+    }
+
+    // ── C22: جرد جديد رفضه الخادم رفضاً أكيداً: المحاولة الجاية بنفس القيم بمعرّف جديد (forget) ───────────────────────────────
+    {
+      let attempt = 0;
+      const calls = fresh('manager', {
+        loadOrgSetup: () => org,
+        listCounts: () => ({ rows: [], next: null, total: 0 }),
+        createCountDraft: () => {
+          attempt += 1;
+          throw attempt === 1 ? new m.RejectedError('period_locked', 'الفترة مقفلة.') : new m.NetworkError();
+        },
+      });
+      await mount('/inventory/counts');
+      choose(byIdSuffix('-store')[0], 'w-gen');
+      await settle();
+      fire(byAction('create-count')[0].parentNode, 'submit');
+      await settle();
+      fire(byAction('create-count')[0].parentNode, 'submit');
+      await settle();
+      const ids = named(calls, 'createCountDraft').map((args) => args[0]);
+      t.same([ids.length, ids[0] !== ids[1]], [2, true], 'C22: رفض أكيد ثم المحاولة بنفس القيم: معرّف جديد (المرفوض ما ينعاد)');
+      await unmount();
+    }
+
+    // ── C23: جمع على عدّ محفوظ انرفض (المادّة صارت معدودة بسطر): ينعرض بالمجموع ونصيحته ─────────────────────────────────────
+    {
+      await keep('storekeeper', [{ id: 'k-kaz3', existing: false, itemName: 'كاز أويل', baseUnit: 'L', fields: { item_id: 'i-kaz', counted_qty: '5.000', counted_expired_qty: null, gain_expiry_on: null, gain_expired_expiry_on: null, gain_born_at: null }, bases: [] }]);
+      fresh('storekeeper', countHandlers({ loadCount: () => ({ doc: countDoc(), lines: [] }), addCountLine: () => { throw new m.RejectedError('item_already_counted', 'معدودة'); } }));
+      await mount('/inventory/counts/c-1');
+      type(byAction('search-item')[0], 'كاز');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '3');
+      await settle();
+      await submitLine();
+      await click(byAction('confirm-merge-count')[0]);
+      await settle();
+      t.same(
+        [text().includes('لم يُقبل عدّ «كاز أويل»: 8 لترات'), text().includes('فيُجمع إلى سطرها'), (await keptLines('storekeeper')).length],
+        [true, true, 0],
+        'C23: جمع على المحفوظ انرفض: ينعرض بالمجموع (8 لترات) ونصيحة الجمع، والمحفوظ فرغ',
+      );
       await unmount();
       await unkeep('storekeeper');
     }

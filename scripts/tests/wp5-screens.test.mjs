@@ -96,13 +96,13 @@ export default async function (t) {
     export { HatcheryBookSelect, booksInScope, expenseProblems, expenseSpanLabel, monthChoices, monthLabel } from './src/pages/accounts/ExpensesPage.tsx';
     export { parseExpenseReport } from './src/lib/repo/cash.ts';
     export { CountedLines, countLineFields, countPostReady, countPreviewLines, fieldsOfLine, mergeSentence, refreshDocText, signedQtyCell } from './src/pages/inventory/CountsPage.tsx';
-    export { clearPending, countLinePatch, isOwnRetry, mergeCountFields, pendingDraftId, pendingText, sendPending, submitUnlessKept, withPending, writeOrKeep } from './src/pages/inventory/countDevice.ts';
+    export { clearPending, countLinePatch, isOwnRetry, mergeCountFields, pendingDraftId, pendingText, sendPending, submitUnlessKept, unlessKept, withPending, writeOrKeep } from './src/pages/inventory/countDevice.ts';
     export { usesPageQuery } from './src/lib/repo/uses.ts';
     export { PostgrestClient } from '@supabase/postgrest-js';
     export { parseCountPreview, parseRefresh } from './src/lib/repo/counts.ts';
     export { WholeBalanceConfirm } from './src/components/ui/WholeBalance.tsx';
     export { parseUsePreview } from './src/lib/repo/uses.ts';
-    export { RejectedError, NetworkError, ZeroRowsError } from './src/lib/errors.ts';
+    export { RejectedError, NetworkError, UnknownOutcomeError, ZeroRowsError } from './src/lib/errors.ts';
   `);
   const html = (element) => m.renderToStaticMarkup(element);
   const none = () => {};
@@ -299,17 +299,17 @@ export default async function (t) {
   const blocked = store([{ ...line('k', '5.000'), fields: itemFields('x', '5.000') }]);
   const outcomes = [];
   for (const target of [{ ...line('k', '6.000', true), fields: itemFields('x', '6.000') }, { ...line('l', '1.000', true), fields: itemFields('x', '1.000') }]) {
-    outcomes.push(await m.writeOrKeep('d', blocked, { kind: 'set', line: target }, send({})).then((r) => r.kind, (e) => e.code));
+    outcomes.push(await m.writeOrKeep('d', blocked, { kind: 'set', line: target, seen: itemFields('x', '4.000') }, send({})).then((r) => r.kind, (e) => e.code));
   }
   const blockedCalls = calls.length;
   const offline = store([]);
   const offlineResult = await m.writeOrKeep('d', offline, add('z', '2.000', { kind: 'none', id: 'z1' }), send({ z1: () => new m.NetworkError() }));
   const merged = store([]);
   const sentMerge = [];
-  await m.writeOrKeep('d', merged, add('m', '5.000', { kind: 'server', id: 'm1', fields: itemFields('m', '4.000') }), { add: async () => {}, update: async (id, patch, expected) => sentMerge.push([id, patch, expected?.counted_qty]) });
+  await m.writeOrKeep('d', merged, add('m', '5.000', { kind: 'server', id: 'm1', fields: itemFields('m', '4.000') }), { add: async () => {}, update: async (id, patch, bases) => sentMerge.push([id, patch, bases.map((b) => b.counted_qty)]) });
   t.same(
-    [outcomes, blockedCalls, offlineResult.kind, offline.box.lines.map((l) => [l.id, l.existing, l.fields.counted_qty]), sentMerge],
-    [['kept_first', 'kept_first'], 0, 'kept', [['z1', false, '2.000']], [['m1', { counted_qty: '9.000', counted_expired_qty: null }, '4.000']]],
+    [outcomes, blockedCalls, offlineResult.kind, offline.box.lines.map((l) => [l.id, l.existing, l.fields.counted_qty, l.bases]), sentMerge],
+    [['kept_first', 'kept_first'], 0, 'kept', [['z1', false, '2.000', []]], [['m1', { counted_qty: '9.000', counted_expired_qty: null }, ['4.000']]]],
     'تعديل سطر وإله (أو لمادّته) عدّ محفوظ يقف kept_first بلا إرسال؛ والشبكة تحفظ السطر الجديد بالجهاز؛ والجمع على سطر الخادم يرسل المجموع والكميات بس بشرط العدّ اللي انحسب منه',
   );
 
@@ -317,17 +317,17 @@ export default async function (t) {
   calls.length = 0;
   const shelves = store([{ id: 'n1', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '5.000') }]);
   const second = await m.writeOrKeep('d', shelves, add('x', '3.000', { kind: 'kept', id: 'n1', fields: itemFields('x', '5.000') }), send({ n1: () => new m.NetworkError() }));
-  const serverMerge = store([{ id: 'L', existing: true, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '45.000'), expected: { counted_qty: '40.000', counted_expired_qty: null }, added: itemFields('x', '5.000') }]);
+  const serverMerge = store([{ id: 'L', existing: true, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '45.000'), bases: [{ counted_qty: '40.000', counted_expired_qty: null }], added: itemFields('x', '5.000') }]);
   const third = await m.writeOrKeep('d', serverMerge, add('x', '3.000', { kind: 'kept', id: 'L', fields: itemFields('x', '45.000') }), send({ 'u:L': () => new m.NetworkError() }));
   t.same(
     [
       second.kind,
       shelves.box.lines.map((l) => [l.id, l.existing, l.fields.counted_qty]),
       third.kind,
-      serverMerge.box.lines.map((l) => [l.id, l.fields.counted_qty, l.expected?.counted_qty, l.added?.counted_qty]),
+      serverMerge.box.lines.map((l) => [l.id, l.fields.counted_qty, l.bases.map((b) => b.counted_qty), l.added?.counted_qty]),
       calls,
     ],
-    ['kept', [['n1', false, '8.000']], 'kept', [['L', '48.000', '40.000', '8.000']], [['add', 'n1', '8.000'], ['update', 'L', '48.000']]],
+    ['kept', [['n1', false, '8.000']], 'kept', [['L', '48.000', ['40.000'], '8.000']], [['add', 'n1', '8.000'], ['update', 'L', '48.000']]],
     'رفّ ثاني بلا نت: 5 + 3 = 8 بنفس السطر المحفوظ؛ والجمع المحفوظ على سطر الخادم (40، أُضيف 5) + 3 = 48 بشرط 40 وأُضيف 8',
   );
   // الأساس تغيّر قبل الكتابة (نافذة ثانية جمعت على المحفوظ، أو حفظت عدّاً للمادّة): رفض محلّي count_changed بلا إرسال.
@@ -343,6 +343,24 @@ export default async function (t) {
   const refusedMerge = store([{ id: 'n1', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '5.000') }]);
   const dropped = await m.writeOrKeep('d', refusedMerge, add('x', '3.000', { kind: 'kept', id: 'n1', fields: itemFields('x', '5.000') }), send({ n1: () => new m.RejectedError('item_already_counted', 'معدودة') }));
   t.same([dropped.kind, dropped.line?.fields.counted_qty, dropped.error?.code, refusedMerge.box.lines], ['dropped', '8.000', 'item_already_counted', []], 'جمع على محفوظ انرفض: ينشال من الجهاز ويرجع بالمجموع (8) وسببه');
+  // المراجعة الرابعة: محاولة ضاع جوابها (ممكن وصلت) مجموعها أساس جائز بالمحفوظ؛ و«بلا اتصال» (ما طلعت) ما تضيفه.
+  const lost = store([]);
+  await m.writeOrKeep('d', lost, add('x', '5.000', { kind: 'server', id: 'L', fields: itemFields('x', '40.000') }), send({ 'u:L': () => new m.UnknownOutcomeError() }));
+  const offlineMerge = store([]);
+  await m.writeOrKeep('d', offlineMerge, add('x', '5.000', { kind: 'server', id: 'L', fields: itemFields('x', '40.000') }), send({ 'u:L': () => new m.NetworkError() }));
+  t.same(
+    [lost.box.lines[0]?.bases.map((b) => b.counted_qty), offlineMerge.box.lines[0]?.bases.map((b) => b.counted_qty)],
+    [['40.000', '45.000'], ['40.000']],
+    'جواب ضاع: المجموع (45) أساس جائز ويّا 40؛ وبلا اتصال: 40 بس',
+  );
+  // الحذف تحت القفل: سطر إله (أو لمادّته) عدّ محفوظ يقف kept_first بلا حذف.
+  let deletes = 0;
+  const keptForDelete = store([{ id: 'k9', existing: false, itemName: 'كاز', baseUnit: 'kg', fields: itemFields('x', '1.000'), bases: [] }]);
+  const deleteOutcomes = [
+    await m.unlessKept('d', keptForDelete, { id: 'L', itemId: 'x', itemName: 'كاز' }, async () => (deletes += 1)).then(() => 'ok', (e) => e.code),
+    await m.unlessKept('d', keptForDelete, { id: 'M', itemId: 'y', itemName: 'زيت' }, async () => (deletes += 1)).then(() => 'ok', (e) => e.code),
+  ];
+  t.same([deleteOutcomes, deletes], [['kept_first', 'ok'], 1], 'الحذف ولمادّة السطر عدّ محفوظ: kept_first بلا حذف؛ ولمادّة ثانية يحذف');
   t.same(
     [m.pendingText({ id: 'L', existing: true, itemName: 'كاز', baseUnit: 'L', fields: itemFields('x', '48.000'), expected: { counted_qty: '40.000', counted_expired_qty: null }, added: itemFields('x', '8.000') }), m.pendingText({ id: 'n', existing: false, itemName: 'لقاح', baseUnit: 'pc', fields: { ...itemFields('v', '4.000'), counted_expired_qty: '2.000' } })],
     ['«كاز»: 48 لتراً (أُضيف 8 لترات)', '«لقاح»: صالح 4 قطع، منتهٍ قطعتان'],

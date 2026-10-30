@@ -1734,16 +1734,14 @@ begin
   -- الرصيد تغيّر من آخر لقطة (مستند ترحّل بعد العدّ، C11): الفرق المحسوب ما عاد صحيحاً.
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
-    -- بعد قفل الأرصدة: ترحيل الجرد الأحدث على نفس (المادّة، المخزن) ينتظره أو ثبت قبله (مراجعة WP5 الثانية). والسطر بلا فرق ما
-    -- يكتب حركة فما يغيّر شي سوّاه الأحدث، فما يوقف الجرد كلّه (المراجعة الثالثة).
-    v_later := case when ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0 then private.count_superseded_by(w.id, d.counted_on, ln.item_id) end;
-    if v_later is not null then
-      raise exception 'count_superseded' using hint = format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later);
-    end if;
     select * into s from private.count_snapshot(w.id, d.counted_on, ln);
     if s.system_qty is distinct from ln.system_qty or s.system_expired_qty is distinct from ln.system_expired_qty then
       v_stale := v_stale || format('«%s» كان %s وصار %s', i.name, private.qty_text(ln.system_qty + coalesce(ln.system_expired_qty, 0), i.base_unit),
         private.qty_text(s.system_qty + coalesce(s.system_expired_qty, 0), i.base_unit));
+    elsif ln.snapshot_seq is distinct from s.snapshot_seq then
+      -- اللقطة تثبت باللي انفحص الآن (المراجعة الرابعة): رصيد ما تغيّر لأن مستنداً عوّض حركات جرد أقدم ترحّل بعد التسليم يبقى رصيداً
+      -- يشمل تلك الحركات، فإلغاء الأقدم (void_count) لازم يشوف هذا الجرد بعدها. تعديل اللقطة وحدها يعبر حارس السطر بلا نسخة.
+      update public.stock_count_lines set snapshot_seq = s.snapshot_seq where org_id = ln.org_id and id = ln.id;
     end if;
   end loop;
   if cardinality(v_stale) > 0 then
@@ -1751,6 +1749,13 @@ begin
   end if;
   for ln in select * from public.stock_count_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
     select * into i from public.items where org_id = d.org_id and id = ln.item_id;
+    -- بعد قفل الأرصدة: ترحيل الجرد الأحدث على نفس (المادّة، المخزن) ينتظره أو ثبت قبله (مراجعة WP5 الثانية). والسطر بلا فرق ما
+    -- يكتب حركة فما يغيّر شي سوّاه الأحدث، فما يوقف الجرد كلّه (المراجعة الثالثة). وبعد «تغيّر الرصيد» (الرابعة): سطر قديم صار فرقه
+    -- صفراً بالحساب الجديد كان ينقال «جُردت بعد يومه» بدل «أعد الحساب».
+    v_later := case when ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0 then private.count_superseded_by(w.id, d.counted_on, ln.item_id) end;
+    if v_later is not null then
+      raise exception 'count_superseded' using hint = format('«%s» جُردت بعد يوم هذا الجرد بالجرد %s فسُوّي رصيدها هناك؛ أغلِق هذا الجرد دون ترحيل، أو أعِده للعدّ لتُحذف سطرها.', i.name, v_later);
+    end if;
     perform private.raise_problem(private.count_line_problem(w, ln));
     perform private.raise_problem(private.count_gain_problem(d.counted_on, ln, ln.diff, ln.expired_diff));
     if (ln.diff <> 0 or coalesce(ln.expired_diff, 0) <> 0) and ln.reason is null then
@@ -1907,9 +1912,10 @@ begin
   join public.stock_counts k on k.org_id = y.org_id and k.id = y.doc_id
   join public.items it on it.org_id = d.org_id and it.id = mv.item_id
   where k.warehouse_id = d.warehouse_id and k.status = 'approved' and k.counted_on >= d.counted_on
-  order by k.counted_on desc, k.doc_no desc
+  order by k.counted_on desc, y.snapshot_seq desc
   limit 1;
-  if v_later is not null then
+  -- found مو الرقم (المراجعة الرابعة): الحكم ما يتعلّق بإن الرقم موجود، والأحدث ترحيلاً (لقطته أعلى) ينسمّى أوّلاً، مو ترتيب الرقم نصّاً.
+  if found then
     raise exception 'count_superseded' using hint = format('«%s» جُردت بعد هذا الجرد بالجرد %s على الرصيد الذي سوّاه هذا الجرد؛ ألغِ الجرد %s أوّلاً.', v_item, v_later, v_later);
   end if;
   for l in select * from public.stock_lots x where x.org_id = d.org_id and x.source_kind = 'count_gain' and x.source_id = d.id order by x.id for no key update loop

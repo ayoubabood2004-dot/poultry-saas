@@ -1,7 +1,7 @@
 import { decimalText } from '../../domain/decimal';
 import type { Fils, Milli, UnitCost } from '../../domain/money';
 import { BASE_UNITS, ITEM_KINDS, type ItemKind } from '../../domain/stores';
-import { parseQty, type BaseUnit } from '../../domain/units';
+import type { BaseUnit } from '../../domain/units';
 import { RejectedError, ZeroRowsError } from '../errors';
 import { call, classifyPostgrest, send, updatedRows } from './core';
 import {
@@ -192,58 +192,41 @@ export function addCountLine(docId: string, id: string, fields: CountLineFields)
   return written(async (db) => updatedRows(withStatus(await db.from('stock_count_lines').insert({ id, ...fields, doc_id: docId }).select(COUNT_LINE_COLUMNS)))).then(countLine);
 }
 
+/** قيم كمية سطر العدّ اللي يجوز التعديل فوقها (نصوص عشرية بوحدة الأساس). */
+export type CountLineBase = Pick<CountLineFields, 'counted_qty' | 'counted_expired_qty'>;
+
 /**
- * تعديل سطر العدّ بمعرّفه. expected للجمع (عدّ ثاني لنفس المادّة، مراجعة WP5 الثانية): التعديل بس إذا السطر بعده بالقيمة اللي انحسب
- * منها المجموع، وإلا صفر صفوف (ZeroRowsError) بدل ما يمسح عدّاً كتبه جهاز ثاني بعد ما انقرت الشاشة. والمراجعة الثالثة: الجمع اللي وصل
- * وجوابه ضاع ينعاد بصفر صفوف (السطر صار بالمجموع)، فصفر صفوف والسطر الآن بالقيم المطلوبة = انكتب، مو رفض يمسح المحفوظ ويرجّع العادّ
- * يضيف عدّه مرّة ثانية.
+ * تعديل سطر العدّ بمعرّفه. bases للتعديل المشروط (مراجعات WP5): التعديل بس إذا السطر بعده بوحدة من القيم اللي يجوز الكتابة فوقها
+ * (اللي انحسب منها التغيير، ومجاميع محاولات ضاع جوابها)، كل وحدة بطلب مشروط لحاله، وإلا صفر صفوف (ZeroRowsError): جهاز ثاني غيّر
+ * السطر بعد ما انقرت الشاشة، فما ينمسح عدّه. والمراجعة الرابعة: بلا تأكيد بقراءة القيمة (كان يقرا «انكتب» لعدّ جهاز ثاني وصل نفس
+ * المجموع)؛ المحاولة اللي ممكن وصلت مجموعها أساس جائز بالجهاز (countDevice).
  */
-export async function updateCountLine(lineId: string, patch: Partial<Omit<CountLineFields, 'item_id'>>, expected?: Pick<CountLineFields, 'counted_qty' | 'counted_expired_qty'>): Promise<CountLine> {
-  const update = () =>
+export async function updateCountLine(lineId: string, patch: Partial<Omit<CountLineFields, 'item_id'>>, bases?: readonly CountLineBase[]): Promise<CountLine> {
+  const update = (base: CountLineBase | null) =>
     written(async (db) =>
       updatedRows(
         withStatus(
-          await (expected
+          await (base
             ? db
                 .from('stock_count_lines')
                 .update(patch)
                 .eq('id', lineId)
-                .eq('counted_qty', expected.counted_qty)
-                .filter('counted_expired_qty', expected.counted_expired_qty === null ? 'is' : 'eq', expected.counted_expired_qty)
+                .eq('counted_qty', base.counted_qty)
+                .filter('counted_expired_qty', base.counted_expired_qty === null ? 'is' : 'eq', base.counted_expired_qty)
             : db.from('stock_count_lines').update(patch).eq('id', lineId)
           ).select(COUNT_LINE_COLUMNS),
         ),
       ),
     ).then(countLine);
-  if (!expected) return update();
-  try {
-    return await update();
-  } catch (error) {
-    if (!(error instanceof ZeroRowsError)) throw error;
-    // قراءة فاشلة (شبكة) ترمي خطأها هي: غير أكيد، فالجمع يبقى محفوظاً بدل ما ينقال «انرفض».
-    const now = await readCountLine(lineId);
-    if (now && countLineHas(now, patch)) return now;
-    throw error;
+  if (!bases) return update(null);
+  for (const base of bases) {
+    try {
+      return await update(base);
+    } catch (error) {
+      if (!(error instanceof ZeroRowsError)) throw error;
+    }
   }
-}
-
-async function readCountLine(lineId: string): Promise<CountLine | null> {
-  const list = await readAll((db) => Promise.all([db.from('stock_count_lines').select(COUNT_LINE_COLUMNS).eq('id', lineId)]));
-  const [row] = list(0);
-  return row ? countLine(row) : null;
-}
-
-/** السطر بكل قيم التعديل (الكميات بالآلاف، والتواريخ نصّاً، ووقت الفقس باللحظة). */
-export function countLineHas(line: CountLine, patch: Partial<Omit<CountLineFields, 'item_id'>>): boolean {
-  const qty = (text: string | null): Milli | null => (text === null ? null : parseQty(text));
-  const moment = (text: string | null): number | null => (text === null ? null : Date.parse(text));
-  return (
-    (patch.counted_qty === undefined || qty(patch.counted_qty) === line.counted) &&
-    (patch.counted_expired_qty === undefined || qty(patch.counted_expired_qty) === line.countedExpired) &&
-    (patch.gain_expiry_on === undefined || patch.gain_expiry_on === line.gainExpiryOn) &&
-    (patch.gain_expired_expiry_on === undefined || patch.gain_expired_expiry_on === line.gainExpiredExpiryOn) &&
-    (patch.gain_born_at === undefined || moment(patch.gain_born_at) === moment(line.gainBornAt))
-  );
+  throw new ZeroRowsError();
 }
 
 export function deleteCountLine(lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {

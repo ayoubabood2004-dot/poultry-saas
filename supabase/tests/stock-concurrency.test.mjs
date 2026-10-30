@@ -9,7 +9,8 @@
 // قفل الرصيد ← count_stale (C11، E53) مو نقص محسوب على رصيد قديم. ومراجعة WP5: دوالّ الجرد تقفل سطوره وكلفه قبل رأسه (C15، بلا
 // 40P01 ويّا تعديل العادّ أو كلفة المدير)، والترحيل بزيادة ينتظر عدّاد الترتيب قبل ما يقرا دفعة القياس (C16، E45)، حتى بمنشأة
 // بلا دفعات وأوّل افتتاح لسه ما ثبت (C17). والمراجعة الثالثة: كلفة جديدة تقفل السطر قبل الرأس فما تتعاكس ويّا حذف ينتظر (C15)، وجرد
-// أقدم ينتظر الأحدث على الرصيد ثم count_superseded (C19)، والجرد بنقص بس ما ياخذ عدّاد الترتيب (C20).
+// أقدم ينتظر الأحدث على الرصيد ثم count_superseded (C19)، والجرد بنقص بس ما ياخذ عدّاد الترتيب (C20). والرابعة: إلغاء جرد أقدم
+// وترحيل أحدث انحسب على تسويته سوا بالاتّجاهين (C21).
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -569,6 +570,29 @@ async function scenario(t, db) {
     await counterHeld.rollback();
   }
   t.same(c20, { held: true, state: 'finished', posted: 'ok' }, 'C20: جرد بنقص بس يترحّل والعدّاد بيد جلسة ثانية (بلا انتظار)');
+
+  // ── C21 (المراجعة الرابعة): إلغاء جرد أقدم وترحيل جرد أحدث انحسب على تسويته بنفس اللحظة ─────────────────────────────────
+  // فحص «جرد أحدث» بالإلغاء بعد قفل الأرصدة: قبلها يقرا الأحدث «مسلَّماً» وينتظر، فيعكس الأقدم والأحدث المرحَّل يقول 44 والدفتر 50.
+  // وبالعكس: الإلغاء أوّلاً، فالترحيل ينتظره ثم «تغيّر الرصيد».
+  const VOID_COUNT = "select public.void_count($1, 'جرد خاطئ', gen_random_uuid()) as result";
+  const chainOf = async (label) => {
+    const itemId = await item(label);
+    await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: itemId, qty: 50, value: 5000 }]);
+    const older = await submittedCount(itemId, '2026-10-27', 44);
+    await S.one(U.manager, POST_COUNT, [older, await versionOf(older)]);
+    const newer = await submittedCount(itemId, '2026-10-29', 44);
+    return { itemId, older, newer };
+  };
+  const leftOf = async (itemId) => (await db.admin('select trim_scale(qty)::text as qty from public.stock_balances where item_id = $1 and warehouse_id = $2', [itemId, W.general])).rows[0].qty;
+  const postFirst = await chainOf('كاز الإلغاء والترحيل');
+  const c21 = await race(db, { user: U.manager, sql: POST_COUNT, params: [postFirst.newer, await versionOf(postFirst.newer)] }, { user: U.manager, sql: VOID_COUNT, params: [postFirst.older] });
+  const voidFirst = await chainOf('كاز الترحيل والإلغاء');
+  const c21b = await race(db, { user: U.manager, sql: VOID_COUNT, params: [voidFirst.older] }, { user: U.manager, sql: POST_COUNT, params: [voidFirst.newer, await versionOf(voidFirst.newer)] });
+  t.same(
+    [[c21.first, c21.state, c21.second, await leftOf(postFirst.itemId)], [c21b.first, c21b.state, c21b.second, await leftOf(voidFirst.itemId)]],
+    [['ok', 'blocked', 'count_superseded', '44'], ['ok', 'blocked', 'count_stale', '50']],
+    'C21: الأحدث يترحّل والإلغاء ينتظر ثم count_superseded (الرصيد 44)؛ والإلغاء أوّلاً والترحيل ينتظر ثم count_stale (الرصيد 50)',
+  );
 
   // ── ملفات التراجع تقفل جداولها قبل ما تعدّ (مراجعة WP4 الثانية): بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف ينحذف ويّا جداوله.
   for (const name of ['rollback_0005.sql', 'rollback_0006.sql', 'rollback_0007.sql', 'rollback_0008.sql']) {

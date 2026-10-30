@@ -540,6 +540,11 @@ async function scenario(t, db) {
     ['0.000', null, 'ok', { qty: '44', value: '4400' }],
     `جرد 27/10 مطابق (50 = دفتر يومه) بعد ترحيل ${newerNo}: بلا مشكلة ويترحّل بلا حركة، والرصيد 44`,
   );
+  t.same(
+    [shown(await voidCount(U.manager, newerCount.id)), await balanceOf(db, twice, W.general)],
+    ['ok', { qty: '50', value: '5000' }],
+    `إلغاء ${newerNo} (29/10) بعد ترحيل جرد 27/10 المطابق: الأقدم يوماً ما يوقفه ولو لقطته بعد حركاته (المراجعة الرابعة)، والرصيد 50`,
+  );
 
   // إلغاء جرد أقدم وجرد أحدث انحسب على تسويته (FOUNDATION: السلسلة تنفكّ من آخرها): الأحدث يُلغى أوّلاً. 27/10 عدّ 44 من 50 (−6)،
   // و29/10 عدّ 44 فطابق؛ إلغاء الأقدم وحده كان يرجّع الدفتر 50 والجرد الأحدث المرحَّل يقول 44.
@@ -585,6 +590,86 @@ async function scenario(t, db) {
   // جرد بلا حركة لمادّته (مطابق) يُلغى ولو بعده جرد أحدث: إلغاؤه ما يغيّر رصيداً.
   t.eq(shown(await voidCount(U.manager, zeroOlder.id)), 'ok', `جرد 27/10 المطابق يُلغى رغم ${newerNo} بعده (بلا حركة)`);
 
+  // ── المراجعة الرابعة ──────────────────────────────────────────────────────────────────────────────────────────────
+  // فرق المنتهي وحده (الصالح مطابق) يوقفه جرد أحدث مرحَّل مثل أيّ فرق: كان النقص المنتهي يترحّل مرّتين.
+  const ointment = await S.one(U.owner, "insert into public.items (name, kind, base_unit, tracks_expiry) values ('مرهم الجردين', 'medicine', 'pc', true) returning id");
+  await postedOpening(db, U.manager, W.medicine, GO_LIVE, [{ item: ointment, qty: 6, value: 600, expiry: '2026-10-24' }, { item: ointment, qty: 4, value: 400, expiry: '2027-01-01' }]);
+  const ointNew = await countDraft(U.storekeeper, W.medicine, [{ item: ointment, qty: 4, expired: 4 }], '2026-10-29');
+  await submit(U.storekeeper, ointNew);
+  await writeReason(U.manager, ointNew.lines[0], 'كسر');
+  t.eq(shown(await postNow(U.manager, ointNew.id)), 'ok', 'جرد المرهم 29/10 يترحّل بنقص منتهٍ 2');
+  const ointOld = await countDraft(U.storekeeper, W.medicine, [{ item: ointment, qty: 4, expired: 4 }], '2026-10-27');
+  await submit(U.storekeeper, ointOld);
+  await writeReason(U.manager, ointOld.lines[0], 'كسر');
+  const ointSeen = (await preview(U.manager, ointOld.id)).value.lines[0];
+  const expiredLeft = async () => (await lotsOf(db, ointment, W.medicine)).find((l) => l.expiry_on === '2026-10-24').qty_left;
+  t.same(
+    [ointSeen.diff, ointSeen.expired_diff, ointSeen.problem?.code, shown(await postNow(U.manager, ointOld.id)), await expiredLeft()],
+    ['0.000', '-2.000', 'count_superseded', 'count_superseded', '4'],
+    'جرد 27/10 بفرق منتهٍ وحده (−2) بعد جرد 29/10 مرحَّل: المعاينة والترحيل count_superseded، والمنتهي 4 (النقص مرّة وحدة)',
+  );
+
+  // فلترا المخزن والحالة: جرد مرحَّل لنفس المادّة بمخزن ثاني، وجرد مسلَّم (مو مرحَّل) بنفس المخزن، ما يوقفان إلغاء الأقدم.
+  const solo = await item('كاز المخزنين', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: solo, qty: 50, value: 5000 }]);
+  const soloOld = await countDraft(U.storekeeper, W.general, [{ item: solo, qty: 44 }], '2026-10-27');
+  await submit(U.storekeeper, soloOld);
+  await writeReason(U.manager, soloOld.lines[0], 'تسرّب');
+  await postNow(U.manager, soloOld.id);
+  await postedOpening(db, U.manager, W.general2, GO_LIVE, [{ item: solo, qty: 50, value: 5000 }]);
+  // seq لكل (مادّة، مخزن): تحويل يرفع ترتيب المخزن الثاني فوق حركة الأقدم، حتى فلتر المخزن وحده يفرّق.
+  await postedTransfer(db, U.manager, W.general2, W.general, '2026-10-28', [{ item: solo, qty: 1 }]);
+  const soloOther = await countDraft(U.manager, W.general2, [{ item: solo, qty: 49 }], '2026-10-29');
+  await submit(U.manager, soloOther);
+  const soloPending = await countDraft(U.storekeeper, W.general, [{ item: solo, qty: 44 }], '2026-10-29');
+  await submit(U.storekeeper, soloPending);
+  t.same(
+    [shown(await postNow(U.manager, soloOther.id)), (await statusOf(soloPending.id)).status, shown(await voidCount(U.manager, soloOld.id)), await balanceOf(db, solo, W.general)],
+    ['ok', 'submitted', 'ok', { qty: '51', value: '5100' }],
+    'جرد 29/10 مرحَّل بمخزن ثاني (ترتيبه بعد حركة الأقدم) وجرد 29/10 مسلَّم بنفس المخزن ما يوقفان إلغاء جرد 27/10، والرصيد 51 (ويّا التحويل الوارد)',
+  );
+
+  // اللقطة تثبت بالترحيل: جرد 30/10 انسلّم قبل ترحيل جرد 27/10 (−6)، وتحويل وارد 6 بتاريخ 28/10 عوّضه فما صار قديماً؛ ترحّل بلقطة قبل
+  // حركات الأقدم، فكان إلغاء الأقدم يعبر والدفتر 56 والجرد الأحدث يقول 50.
+  const offset = await item('كاز التعويض', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: offset, qty: 50, value: 5000 }]);
+  await postedOpening(db, U.manager, W.general2, GO_LIVE, [{ item: offset, qty: 10, value: 1000 }]);
+  const offsetNew = await countDraft(U.storekeeper, W.general, [{ item: offset, qty: 50 }]);
+  await submit(U.storekeeper, offsetNew);
+  const offsetOld = await countDraft(U.storekeeper, W.general, [{ item: offset, qty: 44 }], '2026-10-27');
+  await submit(U.storekeeper, offsetOld);
+  await writeReason(U.manager, offsetOld.lines[0], 'تسرّب');
+  t.eq(shown(await postNow(U.manager, offsetOld.id)), 'ok', 'جرد 27/10 يترحّل (−6) والأحدث مسلَّم بعد');
+  await postedTransfer(db, U.manager, W.general2, W.general, '2026-10-28', [{ item: offset, qty: 6 }]);
+  t.eq(shown(await postNow(U.manager, offsetNew.id)), 'ok', 'جرد 30/10 يترحّل بلا «تغيّر الرصيد» (التحويل عوّض النقص)');
+  const offsetNo = (await statusOf(offsetNew.id)).doc_no;
+  const offsetVoid = await voidCount(U.manager, offsetOld.id);
+  t.same(
+    [shown(offsetVoid), offsetVoid.hint?.includes(offsetNo), await balanceOf(db, offset, W.general)],
+    ['count_superseded', true, { qty: '50', value: '5000' }],
+    `إلغاء جرد 27/10 بعد ${offsetNo} المرحَّل على رصيد يشمل حركاته: count_superseded، والرصيد 50`,
+  );
+
+  // «تغيّر الرصيد» قبل «جُرد بعده»: سطر قديم فرقه −6 صار صفراً بتحويل بتاريخ قبل يومه، فالترحيل يقول «أعد الحساب» (كان count_superseded
+  // ونصيحته أغلِق أو أعِد للعدّ)، وبعد إعادة الحساب يترحّل بلا حركة.
+  const ordered = await item('كاز الترتيب', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: ordered, qty: 50, value: 5000 }]);
+  const orderedOld = await countDraft(U.storekeeper, W.general, [{ item: ordered, qty: 44 }], '2026-10-27');
+  await submit(U.storekeeper, orderedOld);
+  await writeReason(U.manager, orderedOld.lines[0], 'تسرّب');
+  const orderedNew = await countDraft(U.storekeeper, W.general, [{ item: ordered, qty: 44 }], '2026-10-29');
+  await submit(U.storekeeper, orderedNew);
+  await writeReason(U.manager, orderedNew.lines[0], 'تسرّب');
+  await postNow(U.manager, orderedNew.id);
+  await postedTransfer(db, U.manager, W.general, W.general2, '2026-10-26', [{ item: ordered, qty: 6 }]);
+  const orderedStale = await postNow(U.manager, orderedOld.id);
+  const orderedRefresh = await refresh(U.manager, orderedOld.id);
+  t.same(
+    [shown(orderedStale), orderedRefresh.value?.lines?.[0]?.new?.diff, shown(await postNow(U.manager, orderedOld.id))],
+    ['count_stale', '0.000', 'ok'],
+    'سطر قديم صار فرقه صفراً بمستند قبل يومه: count_stale أوّلاً (مو count_superseded)، وبعد إعادة الحساب يترحّل بلا حركة',
+  );
+
   // «أعد الحساب»: تحويل ترحّل وانلغى بعد اللقطة ما غيّر رصيد يوم الجرد فما يتسمّى (كان «وارد 0»).
   const pair = await item('كاز الزوج', 'fuel', 'L');
   await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: pair, qty: 20, value: 2000 }]);
@@ -597,6 +682,15 @@ async function scenario(t, db) {
     [shown(pairRefresh), pairRefresh.value?.lines?.[0]?.docs, pairRefresh.value?.lines?.[0]?.new?.diff],
     ['ok', [], '0.000'],
     'تحويل ترحّل وانلغى بعد اللقطة: «أعد الحساب» ما يسمّيه، والفرق صفر',
+  );
+  const pairFirst = await postedTransfer(db, U.manager, W.general, W.general2, TODAY, [{ item: pair, qty: 2 }]);
+  const pairSecond = await postedTransfer(db, U.manager, W.general2, W.general, TODAY, [{ item: pair, qty: 1 }]);
+  const transferNo = async (id) => (await db.admin('select doc_no from public.transfers where id = $1', [id])).rows[0].doc_no;
+  const pairTwice = await refresh(U.manager, pairCount.id);
+  t.same(
+    pairTwice.value?.lines?.[0]?.docs?.map((d) => [d.label, Number(d.qty)]),
+    [[await transferNo(pairFirst.id), -2], [await transferNo(pairSecond.id), 1]],
+    'مستندان بعد اللقطة بترتيب ترحيلهما: صادر 2 ثم وارد 1',
   );
 
   // ── مرجع واحد (D6) وقفل المسوّدة المرحَّلة (FOUNDATION ٥٢٦) ─────────────────────────────────────────────────────────
