@@ -627,6 +627,13 @@ async function scenario(t, db) {
     'بصمة المعاينة: نفسها لنفس الحال ولأيّ دور، وتغيّر المخزون بعدها (أو بلا بصمة) يرفض stale_preview، والمعاينة الجديدة ترحّل قطعها هي',
   );
   t.ok(!/money|value/u.test(JSON.stringify({ plan: seen.plan })) && /^[0-9a-f]{32}$/u.test(seen.plan), 'البصمة للأمين نصّ hex بلا قيم');
+  // بلا صفّ السرّ الترحيل يرفض بصوت (المراجعة الثانية للإصلاحات): md5 على NULL كان يطلع NULL و`<>` يعدّي أيّ بصمة.
+  const secretless = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: planItem, qty: 1 }]);
+  const noSecret = await db.asOwner(async (q) => {
+    await q('delete from private.plan_secret');
+    return q('select public.post_transfer($1, $2, $3, gen_random_uuid())', [secretless.id, secretless.version, 'not-a-token']).then(() => 'posted', (error) => error.message);
+  }, U.manager);
+  t.eq(noSecret, 'plan_secret_missing', 'بلا سرّ البصمة: الترحيل يرفض plan_secret_missing، مو يعدّي أيّ بصمة');
 
   // ── متابعة الانتهاء تنطفي وتشتغل (0005 يسمح) بلا ما يصير verify_stock غير صفر: السحب يسجّل علامة يومه (expiry_checked)، فتحويل
   // دفعة لقاح منتهية وقت كانت المتابعة مطفأة ما يصير مخالفة لمّا تشتغل بعده (مراجعة WP4 الثانية).

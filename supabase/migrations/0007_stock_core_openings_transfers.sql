@@ -595,7 +595,7 @@ begin
   end if;
   new.qty_base := private.to_base(new.qty_in_unit, new.factor, v_base);
   if new.qty_base <= 0 then
-    raise exception 'qty_not_positive' using hint = 'الكمية بوحدة الأساس تقرَّبت إلى صفر. اكتب كمية أكبر.';
+    raise exception 'qty_not_positive' using hint = 'الكمية بوحدة الأساس قُرِّبت إلى صفر. اكتب كمية أكبر.';
   end if;
   update public.transfers set version = version + 1 where org_id = d.org_id and id = d.id;
   return new;
@@ -971,9 +971,18 @@ language sql immutable set search_path = pg_catalog, pg_temp as $$
 $$;
 
 -- بصمة الخطّة (سطوراً بترتيبها، وكل سطر قطعه بترتيب السحب): المعاينة ترجّعها والترحيل يقارنها بقطعه هو (stale_preview).
+-- بلا صفّ السرّ (انمسح أو استرجاع فاته private) ترفض بصوت: md5 على NULL يطلع NULL، و`<>` على NULL كان يعدّي أيّ بصمة.
 create or replace function private.plan_token(p_plan text) returns text
-language sql stable security definer set search_path = public, pg_temp as $$
-  select md5((select s.secret from private.plan_secret s where s.id) || ':' || coalesce(p_plan, ''))
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_secret text;
+begin
+  select s.secret into v_secret from private.plan_secret s where s.id;
+  if v_secret is null then
+    raise exception 'plan_secret_missing' using hint = 'تعذّر التحقّق من المعاينة: إعداد الخادم ناقص. أبلغ مدير النظام.';
+  end if;
+  return md5(v_secret || ':' || coalesce(p_plan, ''));
+end
 $$;
 
 -- اسم المستند للتلميح والعرض: رقم التحويل، أو «افتتاح بتاريخ …».
@@ -1379,7 +1388,7 @@ begin
   end loop;
   -- القطع اللي انسحبت = اللي شافها المستخدم بالمعاينة (FOUNDATION ٥٢٠ البند 5: «فما يترحّل إلا اللي شافه المستخدم»، و٧٧٠): تحويل
   -- ثاني سحب نفس الدفعات بعد المعاينة، أو دفعة صارت قبلها بالترتيب، يغيّر القطع والقيمة بلا ما تتغيّر نسخة المسوّدة.
-  if p_expected_plan is null or private.plan_token(v_plan) <> p_expected_plan then
+  if p_expected_plan is null or private.plan_token(v_plan) is distinct from p_expected_plan then
     raise exception 'stale_preview' using hint = 'تغيّر المخزون بعد المعاينة فتغيّرت الدفعات المسحوبة أو كمياتها. عاين التحويل من جديد ووافق عليه قبل الترحيل.';
   end if;
   v_no := private.next_doc_no('TR', d.moved_on);
@@ -2106,13 +2115,20 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select tl.id from public.transfer_lines tl
     join public.transfers t on t.org_id = tl.org_id and t.id = tl.doc_id
     cross join lateral (
+      select coalesce(sum(x.qty), 0) as received
+      from public.stock_moves x
+      where x.org_id = tl.org_id and x.doc_kind = 'transfer' and x.doc_id = tl.doc_id and x.doc_line_id = tl.id
+        and x.warehouse_id = tl.to_warehouse_id and x.qty > 0 and x.reverses_move_id is null
+    ) as r
+    cross join lateral (
       select coalesce(sum(-x.qty), 0) as drawn, count(*) as pieces,
         count(*) filter (where exists (select 1 from public.stock_moves r where r.org_id = x.org_id and r.reverses_move_id = x.id)) as reversed
       from public.stock_moves x
       where x.org_id = tl.org_id and x.doc_kind = 'transfer' and x.doc_id = tl.doc_id and x.doc_line_id = tl.id
         and x.warehouse_id = tl.from_warehouse_id and x.qty < 0 and x.reverses_move_id is null
     ) as s
-    where (t.doc_no is not null and s.drawn <> tl.qty_base) or (t.doc_no is null and s.pieces > 0)
+    -- والمستلم بنفس الكمية (مراية ضاعت أو تكرّرت بقيمة صفر ما يشوفها الحفظ ولا mirror_pairs).
+    where (t.doc_no is not null and (s.drawn <> tl.qty_base or r.received <> tl.qty_base)) or (t.doc_no is null and (s.pieces > 0 or r.received > 0))
       or (t.status = 'posted' and s.reversed > 0) or (t.status = 'void' and s.reversed <> s.pieces)
     union all
     select x.id from public.stock_moves x

@@ -713,8 +713,9 @@ async function reviewFixes(t, m, setup) {
       saveDeviceDraft: async (stamp, next) => (log.push(['save', next.payload.docId, next.payload.lines.map((l) => l.id)]), next),
       removeDeviceDraft: async (id) => log.push(['remove', id]),
       newId: () => `n-${(fresh += 1)}`,
+      linesOn: async () => new Set(),
     };
-    const upload = (d, extra = {}) => inv.transfers.uploadShelfDraft(d, { ...deps, ...extra }).then((id) => `ok:${id}`, (error) => error.message);
+    const upload = (d, extra = {}) => inv.transfers.uploadShelfDraft(d, { ...deps, ...extra }).then((result) => `ok:${result.docId}`, (error) => error.message);
     const first = await upload(draft);
     t.same(
       [first, log],

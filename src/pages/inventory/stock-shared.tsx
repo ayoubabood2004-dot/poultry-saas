@@ -127,19 +127,26 @@ export function docStatusLabel(status: DocStatus): string {
 // (مراجعة WP4 الثانية). أيّ قراءة أو كتابة بهويّة غير هويّة المحفوظ تمسحه أوّلاً.
 const seenItems = new Map<string, ItemRow>();
 const seenUnits = new Map<string, readonly inventory.ItemUnitRow[]>();
-let seenOwner = '';
+let currentOwner = '';
 
-function seenFor(): void {
+/** صاحب الجلسة الحالي («مستخدم:منشأة»، أو فارغ). الطلب يلتقطه وهو يطلع، والجواب ينحفظ بس إذا بعده نفسه. */
+export function seenOwner(): string {
   const state = sessionStore.get();
-  const owner = state.status === 'ready' ? `${state.workspace.userId}:${state.workspace.orgId}` : '';
-  if (owner === seenOwner) return;
-  seenItems.clear();
-  seenUnits.clear();
-  seenOwner = owner;
+  return state.status === 'ready' ? `${state.workspace.userId}:${state.workspace.orgId}` : '';
 }
 
-export function rememberItems(rows: readonly ItemRow[]): void {
+function seenFor(): void {
+  const owner = seenOwner();
+  if (owner === currentOwner) return;
+  seenItems.clear();
+  seenUnits.clear();
+  currentOwner = owner;
+}
+
+/** يحفظ مواد ظهرت؛ owner صاحب الطلب لمّا طلع: جواب وصل بعد ما تبدّل المستخدم أو المنشأة ما ينحفظ للجديد (مراجعة WP4 الثانية). */
+export function rememberItems(rows: readonly ItemRow[], owner?: string): void {
   seenFor();
+  if (owner !== undefined && owner !== currentOwner) return;
   for (const row of rows) if (!row.archived) seenItems.set(row.id, row);
 }
 
@@ -158,9 +165,10 @@ export function seenItemsMatching(text: string): ItemRow[] {
 export async function loadItemUnits(itemId: string, online: boolean): Promise<readonly inventory.ItemUnitRow[]> {
   seenFor();
   if (!online) return seenUnits.get(itemId) ?? [];
+  const owner = currentOwner;
   const rows = await inventory.listItemUnits(itemId);
   seenFor();
-  seenUnits.set(itemId, rows);
+  if (owner === currentOwner) seenUnits.set(itemId, rows);
   return rows;
 }
 
@@ -172,9 +180,10 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
   useEffect(() => {
     if (!deferred || offline) return;
     let cancelled = false;
+    const owner = seenOwner();
     inventory.listItems({ search: deferred }).then(
       (page) => {
-        rememberItems(page.rows);
+        rememberItems(page.rows, owner);
         if (!cancelled) setFound({ query: deferred, rows: page.rows.filter((row) => !row.archived && (!filter || filter(row))), error: null });
       },
       (error: unknown) => {
@@ -259,6 +268,12 @@ export function useDocPages(kind: inventory.StockDocKind) {
   const seen = new Set<string>();
   const rows = all.flatMap((page) => page.rows).filter((doc) => (seen.has(doc.id) ? false : (seen.add(doc.id), true)));
   const next = all.at(-1)?.next ?? null;
+  // من جديد بأوّل صفحة (بعد رفع أو تغيير): الصفحات المحمّلة تنشال.
+  const reload = () => {
+    setPages([]);
+    setMore({ busy: false, error: null });
+    first.retry();
+  };
   const loadMore = () => {
     if (!next) return;
     setMore({ busy: true, error: null });
@@ -270,7 +285,7 @@ export function useDocPages(kind: inventory.StockDocKind) {
       (error: unknown) => setMore({ busy: false, error }),
     );
   };
-  return { first, rows, next, total: first.data?.total ?? null, more, loadMore };
+  return { first, rows, next, total: first.data?.total ?? null, more, loadMore, reload };
 }
 
 // ─── المحاولة بمرجع ثابت (FOUNDATION ٥١٩، §2.2) ─────────────────────────────────────────────────────────────────

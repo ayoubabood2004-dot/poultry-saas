@@ -600,6 +600,10 @@ async function scenario(t, db) {
   const halfItem = await item('كاز الإلغاء الناقص', 'fuel', 'L');
   await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: halfItem, qty: 10, value: 10 }, { item: halfItem, qty: 10, value: 30 }]);
   const halfTransfer = await postedTransfer(db, U.manager, W.general, W.raw, TODAY, [{ item: halfItem, qty: 15 }]);
+  const freeItem = await item('كاز هدية', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: freeItem, qty: 10, value: 0, zeroReason: 'هدية من المورّد' }]);
+  const freeDraft = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: freeItem, qty: 4 }]);
+  const postDef = await fnDef('public.post_transfer(uuid,integer,text,uuid)');
   const LIFO = ['order by l.expiry_on asc nulls last, l.fifo_seq, l.id', 'order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id'];
   const BREAKS = {
     balance_identity: [{ balance_identity: 1 }, (q) => q('update public.stock_balances set qty = qty + 1 where item_id = $1 and warehouse_id = $2', [I.diesel, W.farm1])],
@@ -673,6 +677,14 @@ async function scenario(t, db) {
       await insertMove(q, { doc_kind: 'transfer', doc_id: doc, item_id: I.diesel, warehouse_id: W.raw, lot_id: dieselMirror.id, qty: 1, value: 800, moved_on: TODAY, reverses: drawn });
     }]],
     // إلغاء ناقص: الأولى من قطعتين انعكست والتحويل صار ملغى، والثانية ومرآتها باقيتان (قطعة السطر بلا عكس، وحركتان بمستند ملغى).
+    // مرآة ضاعت بقيمة صفر (المراجعة الثانية للإصلاحات): 4 لترات طلعت من المصدر وما وصلت مكان، والقيمة صفر فالحفظ ومرايا
+    // المصدر ما يشوفونها؛ المستند (المستلم بكمية السطر) يشوفها.
+    'doc_moves (مرآة ضايعة بقيمة صفر)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      let def = swap(postDef, '      m := private.mirror_lot(dr.lot_id, wt.id, dr.qty, dr.value, d.moved_on, d.id, ln.id);\n', '');
+      def = swap(def, "      perform private.apply_move(m.id, 'transfer', d.id, ln.id, dr.qty, dr.value, d.moved_on, null);\n", '');
+      await q(def);
+      await viaPreview(q, freeDraft);
+    }]],
     'doc_moves (إلغاء ناقص)': ['doc_moves', [{ doc_moves: 3 }, async (q) => {
       await q(swap(voidDef, 'order by x.source_line_id, x.id loop', 'order by x.source_line_id, x.id limit 1 loop'));
       await q('select public.void_transfer($1, $2, gen_random_uuid())', [halfTransfer.id, 'ضابط الإلغاء الناقص']);

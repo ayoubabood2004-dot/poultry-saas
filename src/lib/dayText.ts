@@ -28,13 +28,16 @@ export function parseDayText(text: string): string | null {
 // «02/11/2026 06:00» كان ينقرا 11 شباط (شهر/يوم أمريكي) فيطلع عمر الفرخ آلاف الساعات، ويوم فوق 12 يرفض (مراجعة WP4 الثانية).
 const MOMENT_TEXT = /^(.+?)[ T]+(\d{1,2}):(\d{2})$/;
 
-/** «28/10/2026 06:00» ← لحظتها بتوقيت عالمي (ISO)، أو null: اليوم بقاعدة parseDayText، والساعة 0–23 والدقيقة 0–59. */
-export function parseMomentText(text: string): string | null {
+/**
+ * «28/10/2026 06:00» ← اليوم المقروء (YYYY-MM-DD) ولحظتها بتوقيت عالمي (ISO)، أو null: اليوم بقاعدة parseDayText (ويّا الفراغ فاصلاً:
+ * «28 10 2026 06:00»)، والساعة 0–23 والدقيقة 0–59. اليوم يرجع ويّاها حتى العرض ما يعيد تقطيع النصّ.
+ */
+export function parseMomentText(text: string): { day: string; iso: string } | null {
   const match = MOMENT_TEXT.exec(toWesternDigits(text).trim());
   if (!match) return null;
   const day = parseDayText(match[1] ?? '');
   const [hours, minutes] = [Number(match[2]), Number(match[3])];
   if (!day || hours > 23 || minutes > 59) return null;
   const [y, m, d] = day.split('-').map(Number);
-  return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1, hours, minutes).toISOString(); // date-ok: لحظة الفقس كاملة بتوقيت الجهاز (timestamptz)، مو يوماً
+  return { day, iso: new Date(y ?? 0, (m ?? 1) - 1, d ?? 1, hours, minutes).toISOString() }; // date-ok: لحظة الفقس كاملة بتوقيت الجهاز (timestamptz)، مو يوماً
 }

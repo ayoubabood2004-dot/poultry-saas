@@ -330,7 +330,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
         value: decimalText(amount, 2),
         zero_reason: amount === 0n ? reason.trim() : null,
         expiry_on: expiryDay,
-        born_at: item.kind === 'chick' ? bornAt : null,
+        born_at: item.kind === 'chick' ? (bornAt?.iso ?? null) : null,
       })
       .then(async () => {
         setItem(null);
@@ -366,7 +366,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
         <Field
           id={`${id}-born`}
           label={t('opening.born', 'وقت الفقس (يوم/شهر/سنة ساعة:دقيقة)')}
-          hint={bornAt ? t('opening.born.read', 'يُقرأ: {day} الساعة {time}', { day: fmtDay(parseDayText(born.trim().split(/[ T]+/u)[0] ?? '') ?? ''), time: readTime(bornAt) }) : t('opening.born.hint', 'مثل 28/10/2026 06:00')}
+          hint={bornAt ? t('opening.born.read', 'يُقرأ: {day} الساعة {time}', { day: fmtDay(bornAt.day), time: readTime(bornAt.iso) }) : t('opening.born.hint', 'مثل 28/10/2026 06:00')}
         >
           <input id={`${id}-born`} className="input" dir="ltr" value={born} onChange={(event) => setBorn(event.target.value)} />
         </Field>
