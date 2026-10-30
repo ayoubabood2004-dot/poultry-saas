@@ -126,15 +126,14 @@ export default async function (t) {
       try {
         m.flushSync(() => root.unmount());
       } catch {
-        /* root may already be torn down by an uncaught render error */
+        /* ممكن انفكّت بخطأ رسم ما انمسك */
       }
       body().textContent = '';
       await settle();
     };
 
-    // ── S1: a line write whose response was lost, then the partial server draft is posted: the retry re-homes that line
-    //        to a fresh header although it is already in the posted transfer (the BEFORE INSERT guard raises not_draft
-    //        before the primary-key check, so 23505 never comes back once the header is not a draft).
+    // ── S1: سطر انكتب وجوابه ضاع، وبعدها مسوّدة الخادم الناقصة ترحّلت: الإعادة كانت تنقل السطر لرأس جديد وهو بالتحويل المرحَّل
+    //        (حارس BEFORE INSERT يرمي not_draft قبل فحص المفتاح، فـ23505 ما يرجع أبداً بعد ما الرأس ما عاد مسوّدة).
     {
       const server = { heads: new Map(), lines: new Map() };
       let lose = null;
@@ -182,8 +181,8 @@ export default async function (t) {
       t.same([perItem.length, perOther, second.previous, device], [1, ['draft'], { docId: 'h-1', landed: 1 }, null], `S1: الإعادة بعد جواب ضاع والمسوّدة انرحّلت: «مادّة 1» مرّة وحدة، والباقي بمسوّدة جديدة، والنتيجة تسمّي السابقة (${JSON.stringify(perItem)})`);
     }
 
-    // ── S2: hatch time typed with spaces between day/month/year (DAY_TEXT accepts a space separator): parseMomentText accepts it,
-    //        then the hint calls fmtDay('') and the opening editor crashes.
+    // ── S2: وقت الفقس بمسافات بين اليوم والشهر والسنة (DAY_TEXT يقبل المسافة فاصلاً): parseMomentText يقبله، وكان التلميح
+    //        ينادي fmtDay('') فيطيح محرّر الافتتاح.
     {
       fresh({ status: 'ready', workspace: ws({ role: 'manager', scopes: [], divisions: ['general', 'broiler', 'hatchery'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true }), offline: false }, {
         loadOrgSetup: () => org,
@@ -219,8 +218,8 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── S3: an item search answered after the session switched to another user/org is remembered for the new owner
-    //        (rememberItems runs before the cancelled check), so the next user's offline picker lists the previous org's items.
+    // ── S3: بحث مواد جوابه وصل بعد ما الجلسة تبدّلت لمستخدم أو منشأة ثانية كان ينحفظ للجديد (rememberItems قبل فحص الإلغاء)،
+    //        فمنتقي المستخدم الجاي بلا نت يعرض مواد المنشأة السابقة.
     {
       const orgA = itemRow('i-secret', 'مادّة المنشأة الأولى', 'fuel', 'L');
       let answer = null;
@@ -247,14 +246,14 @@ export default async function (t) {
       t.ok(typeof answer === 'function', 'S3 ضابط: طلب البحث معلّق');
       await unmount(); // user A signs out (screen unmounts)
       globalThis.__flow.session = { status: 'ready', workspace: ws({ userId: 'u-2', orgId: 'org-2' }), offline: false }; // user B signs in
-      answer({ rows: [orgA], total: 1, next: null }); // A's answer arrives late
+      answer({ rows: [orgA], total: 1, next: null }); // جواب A يوصل متأخّراً
       await settle();
       const leaked = m.seenItemsMatching('مادّة').map((row) => row.id);
       t.same(leaked, [], `S3: مواد الجلسة للمستخدم الثاني ما بيها مواد المنشأة الأولى (${JSON.stringify(leaked)})`);
     }
 
-    // ── S4: «ارفع المسوّدة بسطورها» on NewTransfer: the shelf lists the same draft as idle while NewTransfer uploads it. A line
-    //        removed on the shelf meanwhile («... ولا يرتفع») is written back by the upload's next save and uploaded anyway.
+    // ── S4: «ارفع المسوّدة بسطورها» بالتحويل الجديد: الرفّ كان يعرض نفس المسوّدة كأنها واقفة وهي ترتفع، فسطر ينحذف من الرفّ
+    //        بنصّها («... ولا يرتفع») يرجع بحفظ الرفع الجاي ويرتفع رغماً.
     {
       const kaz = itemRow('i-kaz', 'كاز أويل', 'fuel', 'L');
       const bulbs = itemRow('i-bulb', 'مصابيح', 'equipment', 'pc');
@@ -308,7 +307,7 @@ export default async function (t) {
       for (const d of await m.listDeviceDrafts({ userId: 'u-1', orgId: 'org-1' }, 'transfer')) await m.removeDeviceDraft(d.id);
     }
 
-    // ── S5: the shelf's line-removal sentence counts with fmtCounted and no forms: «(2 لتر)»، «(5 قطعة)» (owner lesson: «2 بيضة» is not Fusha).
+    // ── S5: جملة حذف السطر بالرفّ كانت تعدّ بـfmtCounted بلا صيغ: «(2 لتر)»، «(5 قطعة)» (درس المالك: «2 بيضة» مو فصحى).
     {
       fresh({ status: 'ready', workspace: ws(), offline: false }, {
         loadOrgSetup: () => org,
@@ -336,8 +335,8 @@ export default async function (t) {
       await m.removeDeviceDraft('dd-p5');
     }
 
-    // ── S6: a partial upload from the shelf (header written, then a network failure) — the message says the uploaded part «is in
-    //        the draft on the server», but the transfers list on the same page is never re-read, so that draft is not listed.
+    // ── S6: رفع ناقص من الرفّ (الرأس انكتب ثم فشل بالشبكة): الرسالة تقول المرفوع «في المسوّدة على الخادم»، وقائمة التحويلات
+    //        بنفس الصفحة ما كانت تنقرا من جديد فالمسوّدة ما تنعرض.
     {
       const heads = [];
       fresh({ status: 'ready', workspace: ws(), offline: false }, {

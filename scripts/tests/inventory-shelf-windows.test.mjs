@@ -1,7 +1,7 @@
 // رفّ مسوّدات الجهاز بنوافذ وفشل قراءة (المراجعة الثالثة، WP4)، بنفس عدّة inventory-flows. «نافذة ثانية» = قفل Web Locks ماسكه غيرنا
 // (مدير أقفال بالعملية نفسها) أو رفع بنسخة اعتماديات ثانية:
-// C1/C1b قراءة الرأس السابق فشلت (ومعها إنشاء) ما تنقل سطراً وصله؛ C2 مسوّدة ماسكتها نافذة ثانية تنعرض معطّلة بالرفّ فما
-// ينحذف منها سطر يرتفع رغماً؛ C3 نافذتان تنقلان الباقي لنفس المعرّفات (23505) مو لمسوّدتين؛ C4 الحفظ بلا نت يبقي القائمة؛ C5
+// C1/C1b قراءة الرأس السابق فشلت (ومعها إنشاء) ما تنقل سطراً وصله؛ C2 مسوّدة ماسكتها نافذة ثانية تنعرض بتنبيه وحذف سطر منها
+// ينرفض (ما ينحذف سطر يرتفع رغماً)، والتنبيه يروح لمّا تفلتها؛ C3 نافذتان تنقلان الباقي لنفس المعرّفات (23505) مو لمسوّدتين؛ C4 الحفظ بلا نت يبقي القائمة؛ C5
 // صفحة «المزيد» من قبل إعادة القراءة تنرمى؛ C6 i18n-guard يمسك «اللي» ونصّ الرسالة فصيح؛ C7 حذف سطر من مسوّدة بلا معرّفات
 // سطور؛ C8 رأس سابق مخفي بالنطاق (ZeroRowsError) يوقف الرفع.
 import 'fake-indexeddb/auto';
@@ -9,6 +9,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { installLocks } from './web-locks.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REAL_INV = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'inventory.ts'));
@@ -74,39 +75,6 @@ const choose = (select, value) => {
 };
 const linkTo = (id) => all().filter((n) => n.localName === 'a' && (n.getAttribute('href') ?? '').endsWith(`/inventory/transfers/${id}`)).length;
 
-/** مدير أقفال Web Locks بالعملية نفسها (ifAvailable والاستعلام بس): النافذة الثانية تمسك القفل باسمه. */
-function installLocks() {
-  const held = new Set();
-  const locks = {
-    async request(name, options, callback) {
-      const run = typeof options === 'function' ? options : callback;
-      const ifAvailable = typeof options === 'object' && options?.ifAvailable;
-      if (held.has(name)) {
-        if (ifAvailable) return run(null);
-        throw new Error('waiting locks are not supported here');
-      }
-      held.add(name);
-      try {
-        return await run({ name, mode: 'exclusive' });
-      } finally {
-        held.delete(name);
-      }
-    },
-    async query() {
-      return { held: [...held].map((name) => ({ name, mode: 'exclusive' })), pending: [] };
-    },
-  };
-  const before = Object.getOwnPropertyDescriptor(globalThis.navigator, 'locks');
-  Object.defineProperty(globalThis.navigator, 'locks', { value: locks, configurable: true });
-  return {
-    locks,
-    restore: () => {
-      if (before) Object.defineProperty(globalThis.navigator, 'locks', before);
-      else delete globalThis.navigator.locks;
-    },
-  };
-}
-
 export default async function (t) {
   const restore = installDom();
   const webLocks = installLocks();
@@ -145,8 +113,8 @@ export default async function (t) {
       listItemUnits: () => [],
     };
 
-    // A server that behaves like 0007: the BEFORE INSERT guard on transfer_lines raises doc_not_found / not_draft before the PK
-    // check (23505); the header insert is idempotent by its device-born id.
+    // خادم يتصرّف مثل 0007: حارس BEFORE INSERT على transfer_lines يرمي doc_not_found / not_draft قبل فحص المفتاح (23505)،
+    // وإدخال الرأس بمعرّف الجهاز يتكرّر بلا أثر.
     const makeServer = () => {
       const s = { heads: new Map(), lines: new Map() };
       s.create = (from, to, day, note, id) => {
@@ -211,7 +179,7 @@ export default async function (t) {
       try {
         m.flushSync(() => root.unmount());
       } catch {
-        /* already torn down */
+        /* انفكّت قبل */
       }
       body().textContent = '';
       await settle();
@@ -231,8 +199,8 @@ export default async function (t) {
       }
     };
 
-    // ── C1: the line l-1 reached h-1 (answer lost), then h-1 was posted. «ارفع» gets not_draft, and the read of h-1's lines
-    //        (linesOn → loadStockDoc) fails once on the network. Promise of the R2-C1 fix: l-1 is never written twice.
+    // ── C1: السطر l-1 وصل h-1 (جوابه ضاع)، وبعدها ترحّل h-1. «ارفع» يلاقي not_draft، وقراءة سطور h-1 (linesOn ← loadStockDoc)
+    //        تفشل مرّة بالشبكة: l-1 ما ينكتب مرّتين (إصلاح R2-C1).
     if (run('C1')) {
       const server = makeServer();
       server.heads.set('h-1', 'posted');
@@ -261,8 +229,8 @@ export default async function (t) {
       await clearDrafts();
     }
 
-    // ── C1b: same, but the network also drops on the next request (the new header): the device record is rewritten with fresh ids
-    //         before anything is known, so the retry on a good network duplicates.
+    // ── C1b: نفسه، والشبكة تنقطع كمان بالطلب اللي بعده (الرأس الجديد): كان سجلّ الجهاز ينكتب بمعرّفات جديدة قبل ما ينعرف شي،
+    //         فالإعادة بشبكة زينة تكرّر.
     if (run('C1b')) {
       const server = makeServer();
       server.heads.set('h-1b', 'posted');
@@ -301,8 +269,8 @@ export default async function (t) {
       await clearDrafts();
     }
 
-    // ── C2: two windows of the app. Window A uploads the draft (its own module instance, its own `uploading` set); window B's
-    //        shelf lists the same draft, the user removes «مصابيح» («ولا يرتفع، ولا يرجع») and confirms. Promise of R2-C2: not uploaded.
+    // ── C2: نافذتان للتطبيق. A ترفع المسوّدة (بنسختها من الوحدة و`uploading` مالها)، ورفّ B يعرض نفس المسوّدة والمستخدم يحذف
+    //        «مصابيح» («ولا يرتفع، ولا يرجع») بتأكيد: الحذف ينرفض والسطر يرتفع ويّا رفعها، والتنبيه يروح لمّا تفلتها (R2-C2).
     if (run('C2')) {
       const server = makeServer();
       const gate = [];
@@ -336,15 +304,28 @@ export default async function (t) {
       const disabled = (action) => byAction(action).every((n) => n.getAttribute('disabled') !== null);
       fire(byAction('show-device-lines')[0], 'click');
       await settle();
+      // التنبيه ظاهر والأزرار شغّالة (المراجعة الرابعة: تعطيلها بلقطة القراءة كان يبقى بعد ما تفلتها)، والحذف نفسه ينرفض لأنها ماسوكة.
       const shownClaimed = [text().includes('يُعمل عليها في نافذة أخرى'), disabled('upload-device-draft'), disabled('drop-device-draft'), disabled('remove-device-line')];
+      fire(byAction('remove-device-line')[1], 'click');
+      await settle();
+      fire(byAction('confirm-drop-device')[0], 'click');
+      for (let n = 0; n < 5; n += 1) await settle(5);
+      const refused = text().includes('ثم أعد المحاولة');
       const afterRemove = (await m.listDeviceDrafts(STAMP, 'transfer')).find((d) => d.id === 'dd-p2')?.payload.lines.map((l) => l.id) ?? null;
       for (let n = 0; n < 5 && gate.length; n += 1) {
         gate.shift()();
         await settle();
       }
       await upA;
+      for (let n = 0; n < 10; n += 1) await settle(5);
       const sent = [...server.lines.values()].map((row) => row.itemId);
-      t.same([shownClaimed, afterRemove, sent], [[true, true, true, true], ['l-21', 'l-22'], ['i-kaz', 'i-bulb']], `C2: مسوّدة ماسكتها نافذة ثانية تنعرض «يُعمل عليها في نافذة أخرى» وأزرارها معطّلة، فما ينحذف سطر يرتفع رغماً (${JSON.stringify(sent)})`);
+      // خلص رفعها هناك وفلتتها: الرفّ انقرا من جديد بلاها (ولا تنبيه)، وما بقى انتظار قفل.
+      const released = [text().includes('يُعمل عليها في نافذة أخرى'), byAction('upload-device-draft').length, webLocks.pending().length];
+      t.same(
+        [shownClaimed, refused, afterRemove, sent, released],
+        [[true, false, false, false], true, ['l-21', 'l-22'], ['i-kaz', 'i-bulb'], [false, 0, 0]],
+        `C2: مسوّدة ماسكتها نافذة ثانية تنعرض «يُعمل عليها في نافذة أخرى»، وحذف سطر منها ينرفض فما ينحذف سطر يرتفع رغماً، والتنبيه يروح لمّا تفلتها (${JSON.stringify([sent, released])})`,
+      );
       await unmount();
       await clearDrafts();
     }
@@ -393,8 +374,8 @@ export default async function (t) {
       await clearDrafts();
     }
 
-    // ── C3: h-3 was posted holding l-31; two windows press «ارفع» on the same device draft. Each re-homes the rest under its own
-    //        fresh ids, so «مصابيح» lands in two new drafts (device-born ids no longer make the retry idempotent).
+    // ── C3: h-3 ترحّل وبيه l-31، ونافذتان تضغطان «ارفع» على نفس مسوّدة الجهاز. كانت كل وحدة تنقل الباقي بمعرّفات جديدة مالها،
+    //        فـ«مصابيح» توصل مسوّدتين جديدتين (معرّفات الجهاز ما عادت تحمي الإعادة)؛ هسه المعرّفات مشتقّة فالثانية 23505.
     if (run('C3')) {
       const server = makeServer();
       server.heads.set('h-3', 'posted');
@@ -437,7 +418,7 @@ export default async function (t) {
       await clearDrafts();
     }
 
-    // ── C4: offline, the transfers list (loaded earlier) stays while the user saves a device draft (72d6189 only bumped the shelf).
+    // ── C4: بلا نت، قائمة التحويلات (المحمّلة قبل) تبقى لمّا تنحفظ مسوّدة على الجهاز (الحفظ بلا نت يحرّك الرفّ بس).
     if (run('C4')) {
       let net = true;
       const posted = { id: 't-p4', kind: 'transfer', status: 'posted', version: 2, docNo: 'TR-2026-0044', warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-29', note: null, posted: true, voidReason: null, createdAt: '2026-10-29T10:00:00Z' };
@@ -477,8 +458,8 @@ export default async function (t) {
       m.onlineStore.set(true);
     }
 
-    // ── C5: «المزيد» is on the wire when an upload attempt settles (docs.reload): the late page from the old cursor is appended to
-    //        the fresh first page, so a row between them is never listed and «المزيد» is gone.
+    // ── C5: «المزيد» بالطريق لمّا تخلص محاولة رفع (docs.reload): الصفحة المتأخّرة من المؤشّر القديم كانت تنضاف للصفحة الأولى
+    //        الجديدة، فصفّ بيناتهم ما ينعرض أبداً و«المزيد» يختفي؛ هسه عدّاد الجيل يرميها.
     if (run('C5')) {
       const doc = (id, status, at) => ({ id, kind: 'transfer', status, version: 1, docNo: status === 'draft' ? null : `TR-2026-${id}`, warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-30', note: null, posted: status !== 'draft', voidReason: null, createdAt: at });
       const A = doc('0001', 'draft', '2026-10-30T11:00:00Z');
@@ -530,7 +511,7 @@ export default async function (t) {
       await clearDrafts();
     }
 
-    // ── C6: the toast added for the re-homed upload is Fusha (owner decision 18), and the i18n guard would catch it if not.
+    // ── C6: إشعار نقل الباقي فصيح (قرار المالك 18)، وi18n-guard يمسكه لو ما كان.
     if (run('C6')) {
       const { dialectWords } = await import(pathToFileURL(path.join(ROOT, 'scripts', 'guards', 'i18n-guard.mjs')).href);
       const detail = 'السطور اللي وصلتها ({landed}) ما انعادت؛ والباقي صار مسوّدة جديدة.';
@@ -539,8 +520,8 @@ export default async function (t) {
       t.same(shown.flatMap((text) => dialectWords(text)), [], 'C6: نصوص الرسالة الجديدة فصيحة');
     }
 
-    // ── C7: a device draft whose lines carry no id (saved before device-born line ids; withIds still supports it): removing the
-    //        third line removes exactly that line, and the dialog names it.
+    // ── C7: مسوّدة جهاز سطورها بلا معرّف (انحفظت قبل معرّفات السطور، وwithIds يدعمها): حذف السطر الثالث يحذفه هو بالضبط،
+    //        والتأكيد يسمّيه.
     if (run('C7')) {
       fresh(session(), { ...base });
       await clearDrafts();
@@ -560,9 +541,52 @@ export default async function (t) {
       await unmount();
       await clearDrafts();
     }
-    // ── C8 (a571743 residual): not_draft proves h-8 exists, yet a ZeroRowsError read (header hidden: the storekeeper's scope was
-    //        narrowed) is taken as «nothing landed». The re-home writes fresh ids, the new header is refused (RLS), and once the
-    //        scope is back the retry writes the landed line a second time.
+    // ── C7b: نفس المسوّدة بلا معرّفات، ونافذة ثانية رفعتها (withIds عطاها معرّفات، والسطر الأوّل وصل وانشال، وبعدها انقطعت الشبكة).
+    //         حذف «مادّة باء» بترتيبه من الرفّ القديم كان يحذف «مادّة جيم» (الترتيب تحرّك): هسه ينرفض «رُفع هذا السطر أو تغيّر».
+    if (run('C7b')) {
+      const server = makeServer();
+      fresh(session(), { ...base });
+      await clearDrafts();
+      const noId = (itemId, itemName) => ({ itemId, itemName, baseUnit: 'L', itemUnitId: null, unitCode: null, unitLabel: 'لتر', qtyInUnit: '1.000' });
+      const draft = await m.saveDeviceDraft(STAMP, { id: 'dd-p7b', kind: 'transfer', title: 'تحويل قديم', payload: { from: 'w-gen', to: 'w-farm', day: '2026-10-30', note: '', lines: [noId('i-a', 'مادّة ألف'), noId('i-b', 'مادّة باء'), noId('i-c', 'مادّة جيم')] } });
+      m.onlineStore.set(true);
+      await mount('/inventory/transfers');
+      fire(byAction('show-device-lines')[0], 'click');
+      await settle();
+      let sent = 0;
+      const windowA = {
+        confirm: async () => STAMP,
+        createTransferDraft: async (...a) => server.create(...a),
+        addTransferLine: async (docId, fields, id) => {
+          sent += 1;
+          if (sent > 1) throw new m.NetworkError();
+          return server.add(docId, fields, id);
+        },
+        saveDeviceDraft: m.saveDeviceDraft,
+        removeDeviceDraft: m.removeDeviceDraft,
+        newId: () => crypto.randomUUID(),
+        deriveId: m.transfers.deriveId,
+        linesOn: async (docId) => server.on(docId),
+      };
+      const errA = await webLocks.locks.request('device-draft:dd-p7b', { ifAvailable: true }, () => m.transfers.uploadShelfDraft(draft, windowA)).then((r) => r, (e) => e);
+      const onDevice = async () => (await m.listDeviceDrafts(STAMP, 'transfer')).find((d) => d.id === 'dd-p7b')?.payload.lines.map((l) => l.itemName) ?? null;
+      const before = await onDevice();
+      fire(byAction('remove-device-line')[1], 'click');
+      await settle();
+      const sentence = all().find((n) => n.getAttribute('role') === 'dialog' || n.getAttribute('role') === 'alertdialog')?.textContent ?? '';
+      fire(byAction('confirm-drop-device')[0], 'click');
+      for (let n = 0; n < 5; n += 1) await settle(5);
+      const left = await onDevice();
+      t.same(
+        [errA?.name, before, sentence.includes('مادّة باء'), left, text().includes('رُفع هذا السطر أو تغيّر في نافذة أخرى')],
+        ['NetworkError', ['مادّة باء', 'مادّة جيم'], true, ['مادّة باء', 'مادّة جيم'], true],
+        `C7b: حذف سطر بلا معرّف بترتيبه بعد ما نافذة ثانية رفعت المسوّدة ينرفض وما يحذف سطراً ثانياً (${JSON.stringify(left)})`,
+      );
+      await unmount();
+      await clearDrafts();
+    }
+    // ── C8: not_draft يثبت إن h-8 موجود، بس قراءة ZeroRowsError (الرأس مخفي لأن نطاق أمين المخزن تضيّق) كانت تنحسب «ماكو شي
+    //        وصل»: النقل يكتب معرّفات جديدة والرأس الجديد ينرفض (RLS)، ولمّا يرجع النطاق الإعادة تكتب السطر الواصل مرّة ثانية.
     if (run('C8')) {
       const server = makeServer();
       server.heads.set('h-8', 'posted');

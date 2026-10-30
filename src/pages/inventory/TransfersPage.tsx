@@ -512,6 +512,14 @@ export class ShelfBusyError extends Error {
   }
 }
 
+/** المسوّدة (أو سطرها) ما عادت مثل ما عرضها الرفّ: رُفعت أو حُذفت أو تغيّرت بنافذة ثانية. ما يتغيّر شي هنا، والرفّ ينقرا من جديد. */
+export class ShelfStaleError extends Error {
+  constructor(readonly what: 'draft' | 'line') {
+    super('shelf_stale');
+    this.name = 'ShelfStaleError';
+  }
+}
+
 const lockName = (id: string) => `device-draft:${id}`;
 
 /**
@@ -536,17 +544,37 @@ async function withDraft<T>(id: string, work: () => Promise<T>): Promise<T> {
   });
 }
 
-/** المسوّدات اللي ماسكتها نافذة ثانية هسه (للرفّ: تنعرض معطّلة)، أو فارغة بلا Web Locks. */
+/**
+ * المسوّدات اللي ماسكتها نافذة ثانية لحظة قراءة الرفّ (تنبيه بس: الفعل نفسه يمسكها أو يرجع ShelfBusyError)، أو فارغة بلا Web Locks.
+ * الحصري بس: المشترك هو انتظار الرفّ لفلتها (whenReleased)، ينمنح ويفلت بنفس اللحظة.
+ */
 async function claimedElsewhere(): Promise<ReadonlySet<string>> {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return new Set();
   const held = (await locks.query()).held ?? [];
-  return new Set(held.flatMap((lock) => (lock.name?.startsWith('device-draft:') ? [lock.name.slice('device-draft:'.length)] : [])));
+  return new Set(held.flatMap((lock) => (lock.mode === 'exclusive' && lock.name?.startsWith('device-draft:') ? [lock.name.slice('device-draft:'.length)] : [])));
+}
+
+/**
+ * يرجع لمّا تفلت النافذة الثانية المسوّدة (خلص رفعها أو فشل): طلب مشترك ينتظر بطابور قفلها وينمنح أوّل ما تفلتها ويفلت فوراً، فما
+ * يمسكها على أحد. signal يلغي الانتظار (الرفّ انقرا من جديد أو انغلق). تنبيه «يُعمل عليها» كان لقطة يبقى للأبد (المراجعة الرابعة).
+ */
+function whenReleased(locks: LockManager, id: string, signal: AbortSignal): Promise<void> {
+  return locks.request(lockName(id), { mode: 'shared', signal }, async () => undefined);
+}
+
+/** السجلّ الحالي للمسوّدة بالجهاز (مو نسخة الرفّ أو النموذج)، أو ShelfStaleError إذا راحت. */
+async function currentDraft(draft: Pick<DeviceDraft<ShelfPayload>, 'id' | 'userId' | 'orgId'>): Promise<DeviceDraft<ShelfPayload>> {
+  const current = (await listDeviceDrafts<ShelfPayload>({ userId: draft.userId, orgId: draft.orgId }, 'transfer')).find((row) => row.id === draft.id);
+  if (!current) throw new ShelfStaleError('draft');
+  return current;
 }
 
 async function uploadNow(draft: DeviceDraft<ShelfPayload>): Promise<ShelfUpload> {
   return withDraft(draft.id, async () => {
-    const result = await uploadShelfDraft(draft, shelfDeps());
+    // ماسكها ثم من سجلّها الحالي: نسخة الرفّ القديمة كانت ترجّع سطراً أو مسوّدة حذفتها نافذة ثانية، وترفع سطراً انحذف بالخادم
+    // (23505 ما يحمي صفّاً انحذف) أو مسوّدة خلص رفعها (المراجعة الرابعة).
+    const result = await uploadShelfDraft(await currentDraft(draft), shelfDeps());
     if (result.previous) {
       const remained = result.docId !== result.previous.docId;
       toast({
@@ -597,6 +625,14 @@ export async function deriveId(seed: string): Promise<string> {
 
 /** رسالة فشل الرفع: السطر المرفوض باسمه وتلميحه؛ وغيره (شبكة، جواب ضاع) يكول إن المرفوع باقٍ والإعادة تكمل بلا تكرار. */
 export function shelfFailure(error: unknown): { title: string; detail: string } {
+  if (error instanceof ShelfStaleError) {
+    return error.what === 'draft'
+      ? {
+          title: t('shelf.stale.draft', 'رُفعت هذه المسوّدة أو حُذفت في نافذة أخرى'),
+          detail: t('shelf.stale.draft.detail', 'لم يتغيّر شيء هنا. إن كانت قد رُفعت فسطورها في مسوّدة على الخادم: راجعها في القائمة واحذف منها ما لا تريده قبل الترحيل.'),
+        }
+      : { title: t('shelf.stale.line', 'رُفع هذا السطر أو تغيّر في نافذة أخرى'), detail: t('shelf.stale.line.detail', 'لم يُحذف شيء، وصار الرفّ مطابقاً لما على هذا الجهاز؛ راجع السطور ثم أعد.') };
+  }
   if (error instanceof ShelfBusyError) {
     return { title: t('shelf.busy', 'يُعمل على هذه المسوّدة في نافذة أخرى'), detail: t('shelf.busy.detail', 'انتظر حتى ينتهي الرفع أو الحذف هناك، ثم أعد المحاولة.') };
   }
@@ -665,17 +701,41 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
       cancelled = true;
     };
   }, [stamp, tick, own, online]);
+  useEffect(() => {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (!locks || elsewhere.size === 0) return;
+    const controller = new AbortController();
+    for (const id of elsewhere) {
+      whenReleased(locks, id, controller.signal).then(
+        () => setOwn((n) => n + 1),
+        () => {
+          // انلغى الانتظار (AbortError) أو رفضه المتصفّح: التنبيه يبقى لقطة القراءة، والفعل نفسه يمسكها أو يقول ShelfBusyError. ما
+          // يعيد القراءة هنا، وإلا رفض يتكرّر يدوّر الرفّ بلا نهاية.
+        },
+      );
+    }
+    return () => controller.abort();
+  }, [elsewhere]);
   if (shelfFailed) return <LoadFailed what={t('shelf.title', 'مسوّدات هذا الجهاز')} error={shelfFailed} onRetry={() => { setShelfFailed(null); setOwn((n) => n + 1); }} />;
   const shown = (drafts ?? []).filter((draft) => !uploading.has(draft.id));
   if (shown.length === 0) return null;
+  // المسوّدة راحت من الجهاز (رُفعت أو حُذفت بنافذة ثانية): الرفّ ينقرا بدونها وتنبيهها تحتها يروح ويّاها (أو الرفّ كلّه)، فيطلع
+  // إشعاراً؛ وإلا الحذف من رفّ قديم يسكت كأنه صار (المراجعة الرابعة).
+  const fail = (draftId: string, error: unknown) => {
+    if (error instanceof ShelfStaleError && error.what === 'draft') {
+      toast({ tone: 'warning', ...shelfFailure(error) });
+      return;
+    }
+    setFailure({ draftId, error });
+    setOpen(draftId);
+  };
   const upload = async (draft: DeviceDraft<ShelfPayload>) => {
     setBusy(draft.id);
     setFailure(null);
     try {
       onUploaded((await uploadNow(draft)).docId);
     } catch (error) {
-      setFailure({ draftId: draft.id, error });
-      setOpen(draft.id);
+      fail(draft.id, error);
     } finally {
       setBusy('');
       setOwn((n) => n + 1);
@@ -688,18 +748,25 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
     setBusy(draft.id);
     try {
       // ماسكها (ما ترتفع بنافذة ثانية بنفس اللحظة)، ومن السجلّ الحالي بالجهاز (مو لقطة فتح النافذة) وبمعرّف السطر.
+      // المسوّدة أو السطر ما عاد مثل ما عرضه الرفّ (رُفع أو تغيّر بنافذة ثانية): ShelfStaleError يقول هالشي بدل ما يسكت.
       await withDraft(draft.id, async () => {
-        const current = (await listDeviceDrafts<ShelfPayload>(stamp, 'transfer')).find((row) => row.id === draft.id);
-        if (current && target === null) await removeDeviceDraft(draft.id);
-        else if (current && target) {
-          const kept = (current.payload.lines ?? []).filter((line, n) => (target.id ? line.id !== target.id : n !== target.index));
-          await saveDeviceDraft<ShelfPayload>(stamp, { id: current.id, kind: 'transfer', title: current.title, payload: { ...current.payload, lines: kept } });
+        const current = await currentDraft(draft);
+        if (target === null) {
+          await removeDeviceDraft(draft.id);
+          return;
         }
+        const lines = current.payload.lines ?? [];
+        // بلا معرّف (مسوّدة قبل معرّفات السطور) بترتيبه، بس إذا سطرها هناك بعده بلا معرّف: رفع بأيّ نافذة يعطيها معرّفات (withIds)
+        // ويشيل الواصل فيتحرّك الترتيب، فالترتيب القديم كان يحذف سطراً ثانياً.
+        const hit = (line: ShelfLine, n: number) => (target.id ? line.id === target.id : n === target.index && !line.id);
+        const kept = lines.filter((line, n) => !hit(line, n));
+        if (kept.length === lines.length) throw new ShelfStaleError('line');
+        await saveDeviceDraft<ShelfPayload>(stamp, { id: current.id, kind: 'transfer', title: current.title, payload: { ...current.payload, lines: kept } });
       });
       setDropping(null);
       if (failure?.draftId === draft.id) setFailure(null);
     } catch (error) {
-      setFailure({ draftId: draft.id, error });
+      fail(draft.id, error);
       setDropping(null);
     } finally {
       setBusy('');
@@ -730,15 +797,15 @@ function DeviceShelf({ userId, orgId, tick, onUploaded, onSettled }: { userId: s
                   <Button size="sm" variant="ghost" icon={<ChevronDown aria-hidden="true" className="size-4" />} onClick={() => setOpen(open === draft.id ? null : draft.id)} aria-expanded={open === draft.id} data-action="show-device-lines">
                     {t('shelf.show', 'السطور')}
                   </Button>
-                  <Button size="sm" variant="secondary" busy={busy === draft.id} disabled={!online || busy !== '' || claimed} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
+                  <Button size="sm" variant="secondary" busy={busy === draft.id} disabled={!online || busy !== ''} icon={<Upload aria-hidden="true" className="size-4" />} onClick={() => void upload(draft)} data-action="upload-device-draft">
                     {t('shelf.upload', 'ارفع')}
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={busy !== '' || claimed} onClick={() => setDropping({ draft, line: null })} data-action="drop-device-draft">
+                  <Button size="sm" variant="ghost" disabled={busy !== ''} onClick={() => setDropping({ draft, line: null })} data-action="drop-device-draft">
                     {t('shelf.drop', 'احذف من هذا الجهاز')}
                   </Button>
                 </div>
               </div>
-              {open === draft.id ? <ShelfLines lines={lines} busy={busy !== '' || claimed} onRemove={(line) => setDropping({ draft, line })} /> : null}
+              {open === draft.id ? <ShelfLines lines={lines} busy={busy !== ''} onRemove={(line) => setDropping({ draft, line })} /> : null}
               {failed ? (
                 <Notice tone="danger" title={failed.title}>
                   {failed.detail}

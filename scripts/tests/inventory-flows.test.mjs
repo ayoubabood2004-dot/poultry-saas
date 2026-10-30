@@ -122,7 +122,7 @@ export default async function (t) {
       const container = globalThis.document.createElement('div');
       body().appendChild(container);
       root = m.createRoot(container);
-      // App.tsx remounts the page on every pathname (RouteErrorBoundary key={location.pathname}); same here.
+      // App.tsx يعيد تركيب الصفحة بكل مسار (RouteErrorBoundary key={location.pathname})، وهنا مثله.
       function Keyed() {
         const location = m.useLocation();
         globalThis.__flow.location = location.pathname;
@@ -343,7 +343,7 @@ export default async function (t) {
       const sent = calls.find(([n]) => n === 'addOpeningLine')?.[1]?.[1];
       t.ok(Boolean(sent), `F4 ضابط: السطر انرسل (عنوان الحقل «${bornLabel}»)`);
       t.ok(sent?.born_at?.startsWith('2026-11-0'), `F4: «02/11/2026 06:00» تنحفظ 2 تشرين الثاني (${sent?.born_at})`);
-      // The same screen's own guidance for the date format, when the day is above 12:
+      // إرشاد الشاشة نفسها لصيغة التاريخ، لمّا اليوم فوك 12:
       type(byAction('search-item')[0], 'أفراخ');
       await settle();
       fire(byAction('pick-item')[0], 'click');
