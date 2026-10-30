@@ -785,6 +785,12 @@ async function reviewFixes(t, m, setup) {
     t.same(inv.transfers.wholeLines(preview), [{ itemName: 'كاز أويل', qty: 1_000_000n, unit: 'L' }], 'سطران 600 و400 لتر من 1,000: التأكيد يسمّي 1,000 لتر');
   });
 
+  // ── جملة إلغاء الافتتاح تسمّي اللي يطلع من المخزن (FOUNDATION ٧٦٦، مراجعة WP4 الثانية) ─────────────────────────────────
+  await step('جملة إلغاء الافتتاح', () => {
+    const sentence = inv.openings.openingVoidSentence('المخزن العام', [{ qty: 1_000_000n, baseUnit: 'L', itemName: 'كاز أويل' }, { qty: 5_000n, baseUnit: 'pc', itemName: 'لقاح' }]);
+    t.ok(sentence.includes('المخزن العام') && sentence.includes('«كاز أويل»') && sentence.includes('1,000') && sentence.includes('«لقاح»'), `إلغاء الافتتاح يسمّي المخزن وكل مادّة بكميتها (${sentence})`);
+  });
+
   // ── «مؤرشف وعليه رصيد» بقائمة المخازن (§2.6): منتقي المخزن وجدول إعدادات المنشأة ─────────────────────────────────────
   await step('مؤرشف وعليه رصيد', () => {
     t.ok(inv.shared.storeLabel({ name: 'مخزن قديم', kind: 'general', divisionKind: 'general', archived: true, hasBalance: true }).includes('مؤرشف وعليه رصيد'), 'منتقي المخزن: المؤرشف وعليه رصيد بعلامته');

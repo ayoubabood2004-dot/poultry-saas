@@ -2,7 +2,8 @@
 // وrepo والجلسة والرسائل بدائل، ومسوّدات الجهاز الحقيقية على fake-indexeddb. كل حالة كانت تفشل على الشفرة قبل الإصلاح:
 // F1 سطور انكتبت بلا نت ورجع الاتصال قبل الحفظ ما تضيع (تنحفظ وترتفع)؛ F2 المسوّدة المحفوظة تبين بالرفّ فوراً وبعد رجوع الاتصال؛
 // F3 سطر يرفضه الخادم دائماً (ورفض 1.5 قطعة قبل الحفظ) والرفّ يسمح بحذفه أو بحذف المسوّدة؛ F4 وقت الفقس يوم/شهر/سنة؛ F5 سطر
-// الافتتاح ما ينكتب بوحدة تعبئة مادّة سابقة.
+// الافتتاح ما ينكتب بوحدة تعبئة مادّة سابقة؛ F6 الترحيل ببصمة المعاينة وإعادتها على stale_preview؛ F7 مواد الجلسة لصاحبها؛ F8 قائمة
+// التحويلات بصفحات.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -37,7 +38,7 @@ async function bundle() {
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
     "export { default as StockRoutes } from './src/pages/inventory/StockRoutes.tsx';",
     "export { onlineStore } from './src/lib/online.ts';",
-    "export { rememberItems } from './src/pages/inventory/stock-shared.tsx';",
+    "export { rememberItems, seenItemsMatching } from './src/pages/inventory/stock-shared.tsx';",
     "export { listDeviceDrafts, saveDeviceDraft, removeDeviceDraft } from './src/lib/drafts/index.ts';",
     "export { searchable } from './src/domain/normalize.ts';",
     "export { RejectedError } from './src/lib/errors.ts';",
@@ -65,6 +66,11 @@ const text = () => body().textContent;
 const type = (input, value) => {
   input.value = value;
   fire(input, 'input');
+};
+// خانة اختيار: المتصفّح يقلب checked قبل حدث النقر، وReact يقرا القيمة الجديدة منه.
+const tick = (box) => {
+  box.checked = !box.checked;
+  fire(box, 'click');
 };
 const choose = (select, value) => {
   select.value = value;
@@ -245,6 +251,67 @@ export default async function (t) {
       fire(byAction('confirm-drop-device')[0], 'click');
       await settle();
       t.same([(await m.listDeviceDrafts({ userId: 'u-1', orgId: 'org-1' }, 'transfer')).length, byAction('upload-device-draft').length], [0, 0], 'F3: بعد التأكيد انحذفت من الجهاز والرفّ فارغ');
+      await unmount();
+    }
+
+    // ── F6: الترحيل ببصمة المعاينة؛ stale_preview (المخزون تغيّر بعدها) يعيد المعاينة ويقول السبب، والموافقة من جديد ──
+    {
+      const draws = (lot, qty) => [{ lotId: lot, qty, receivedOn: '2026-10-20', expiryOn: null, source: 'رصيد افتتاح', value: null }];
+      const previewOf = (plan, lot) => ({ version: 2, plan, internalExport: true, toDivisionKind: 'broiler', problems: [], ready: true, lines: [{ lineId: 'tl-1', lineNo: 1, itemId: 'i-kaz', itemName: 'كاز أويل', baseUnit: 'L', qty: 50_000n, qtyInUnit: 50_000n, unitLabel: 'L', available: 200_000n, expired: 0n, later: 0n, shortage: 0n, wholeBalance: false, problem: null, draws: draws(lot, 50_000n), value: null }] });
+      let previews = 0;
+      const calls = fresh({ status: 'ready', workspace: ws(), offline: false }, {
+        loadOrgSetup: () => org,
+        loadStockDoc: () => ({ doc: { id: 't-7', kind: 'transfer', status: 'draft', version: 2, docNo: null, warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-30', note: null, posted: false, voidReason: null, createdAt: '2026-10-30T10:00:00Z' }, openingLines: [], transferLines: [{ id: 'tl-1', lineNo: 1, itemId: 'i-kaz', itemName: 'كاز أويل', baseUnit: 'L', itemUnitId: null, unitCode: null, unitLabel: 'L', qtyInUnit: 50_000n, qty: 50_000n }] }),
+        previewTransfer: () => ((previews += 1), previews === 1 ? previewOf('plan-1', 'lot-A') : previewOf('plan-2', 'lot-B')),
+        postTransferDoc: (ref, id, version, plan) => {
+          if (plan === 'plan-1') throw new m.RejectedError('stale_preview', 'تغيّر المخزون بعد المعاينة فتغيّرت الدفعات المسحوبة أو كمياتها. عاين التحويل من جديد ووافق عليه قبل الترحيل.');
+          return { id, kind: 'transfer', status: 'posted', docNo: 'TR-2026-0007' };
+        },
+      });
+      m.onlineStore.set(true);
+      await mount('/inventory/transfers/t-7');
+      fire(byAction('preview-transfer')[0], 'click');
+      await settle();
+      tick(byAction('approve-line')[0]);
+      await settle();
+      fire(byAction('post-transfer')[0], 'click');
+      await settle();
+      const posts = calls.filter(([n]) => n === 'postTransferDoc').map(([, args]) => args[3]);
+      const approvedAfter = byAction('approve-line').filter((n) => n.checked).length;
+      t.same([posts, previews, text().includes('تغيّر المخزون بعد المعاينة فلم يُرحَّل التحويل'), approvedAfter, byAction('post-transfer')[0]?.getAttribute('disabled') !== null], [['plan-1'], 2, true, 0, true], 'F6: الترحيل ببصمة المعاينة، وstale_preview يعيد المعاينة بالتنبيه وتنمسح الموافقة');
+      tick(byAction('approve-line')[0]);
+      await settle();
+      fire(byAction('post-transfer')[0], 'click');
+      await settle();
+      t.same(calls.filter(([n]) => n === 'postTransferDoc').map(([, args]) => args[3]), ['plan-1', 'plan-2'], 'F6: الموافقة على المعاينة الجديدة ترحّل ببصمتها');
+      await unmount();
+    }
+
+    // ── F7: المواد المحفوظة للجلسة لصاحبها ومنشأته بس: مستخدم ثانٍ بنفس التبويب ما يلكى مواد اللي قبله بلا نت ──
+    {
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-A', orgId: 'org-A' }), offline: false }, {});
+      m.rememberItems([kaz]);
+      const before = m.seenItemsMatching('كاز').map((row) => row.id);
+      globalThis.__flow.session = { status: 'signed_out', expired: false };
+      globalThis.__flow.session = { status: 'ready', workspace: ws({ userId: 'u-B', orgId: 'org-B' }), offline: false };
+      t.same([before, m.seenItemsMatching('كاز').map((row) => row.id)], [['i-kaz'], []], 'F7: بعد تبديل المستخدم والمنشأة ما يبقى شي من مواد الجلسة السابقة');
+    }
+
+    // ── F8: قائمة التحويلات بصفحات: «N من المجموع» و«المزيد» بمؤشّر آخر صفّ، والصفّ المكرّر بين صفحتين ينعرض مرّة ──
+    {
+      const doc = (id, status, at) => ({ id, kind: 'transfer', status, version: 1, docNo: status === 'draft' ? null : `TR-2026-${id}`, warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-30', note: null, posted: status !== 'draft', voidReason: null, createdAt: at });
+      const firstPage = { rows: [doc('0001', 'posted', '2026-10-30T10:00:00Z'), doc('0002', 'posted', '2026-10-30T09:00:00Z')], next: { status: 'posted', createdAt: '2026-10-30T09:00:00Z', id: '0002' }, total: 3 };
+      const calls = fresh({ status: 'ready', workspace: ws({ role: 'viewer', scopes: [] }), offline: false }, {
+        loadOrgSetup: () => org,
+        listStockDocs: (kind, after) => (after ? { rows: [doc('0002', 'posted', '2026-10-30T09:00:00Z'), doc('0003', 'void', '2026-10-29T09:00:00Z')], next: null, total: null } : firstPage),
+      });
+      await mount('/inventory/transfers');
+      const shownBefore = text().includes('2 من المجموع 3') && byAction('more-transfers').length === 1;
+      const more = byAction('more-transfers')[0];
+      if (more) fire(more, 'click');
+      await settle();
+      const cursor = calls.filter(([n]) => n === 'listStockDocs').at(-1)?.[1]?.[1];
+      t.same([shownBefore, cursor, text().includes('3 من المجموع 3'), byAction('more-transfers').length, (text().match(/TR-2026-0002/gu) ?? []).length], [true, firstPage.next, true, 0, 1], 'F8: الصفحة الثانية بمؤشّر آخر صفّ، والعدد 3 من 3، والمكرّر مرّة');
       await unmount();
     }
 
