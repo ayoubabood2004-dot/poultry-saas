@@ -8,7 +8,8 @@
 // وأي صفّ غير صفر يفشّل؛ وصورة الكتالوج بالآخر = صورته بعد الهجرات؛ ومشغّل التراجع (rollback.mjs)؛ وسجلّ التغطية (كل دالّة
 // بقائمة السماح × الأدوار الثمانية). وكل أداة منها تثبت إنها تقدر تفشل بضابط قبل ما ينصدّق نجاحها.
 import EmbeddedPostgres from 'embedded-postgres';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chownSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -122,6 +123,16 @@ async function main() {
   const upto = flags.find((arg) => arg.startsWith('--upto='))?.slice('--upto='.length);
   const port = await freePort();
   const dataDir = mkdtempSync(path.join(tmpdir(), 'poultry-pg-'));
+  // بجهاز يشتغل بـroot (حاويات الجلسات السحابية) embedded-postgres يشغّل initdb وpostgres بمستخدم postgres، والمجلّد
+  // المؤقّت (0700) لـroot فيفشل initdb بـ«Permission denied». فالمجلّد ينطى لمستخدم postgres؛ وبلاه رسالة المكتبة نفسها.
+  if (process.getuid?.() === 0) {
+    try {
+      const id = (flag) => Number(execFileSync('id', [flag, 'postgres'], { encoding: 'utf8' }).trim());
+      chownSync(dataDir, id('-u'), id('-g'));
+    } catch {
+      // ماكو مستخدم postgres: embedded-postgres يرفض root برسالته.
+    }
+  }
   const errors = [];
   const server = new EmbeddedPostgres({
     databaseDir: dataDir,
