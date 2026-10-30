@@ -1064,14 +1064,17 @@ export function updateTransferLine(lineId: string, patch: Partial<TransferLineFi
   return written(async (db) => updatedRows(withStatus(await db.from('transfer_lines').update(patch).eq('id', lineId).select(TRANSFER_LINE_COLUMNS)))).then(transferLine);
 }
 
+/** أنواع المسوّدات بدالّتي الطيّ وحذف السطر: الافتتاح والتحويل (0007) والصرف والجرد (0008). */
+export type DraftKind = StockDocKind | 'stock_use' | 'count';
+
 /** حذف سطر مسوّدة (E52) بشرط النسخة؛ سطر انحذف من قبل يرجّع deleted: false. */
-export async function deleteDraftLine(kind: StockDocKind, lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {
+export async function deleteDraftLine(kind: DraftKind, lineId: string, expectedVersion: number): Promise<{ deleted: boolean; version: number | null }> {
   const json = obj(await call<unknown>('delete_draft_line', { p_doc_kind: kind, p_line_id: lineId, p_expected_version: expectedVersion }), 'delete_draft_line');
   return { deleted: bool(json, 'deleted'), version: count(json, 'version') };
 }
 
 /** طيّ المسوّدة (E13): void بلا رقم ولا حركات. */
-export async function discardDraft(kind: StockDocKind, id: string, expectedVersion: number): Promise<void> {
+export async function discardDraft(kind: DraftKind, id: string, expectedVersion: number): Promise<void> {
   await call<unknown>('discard_draft', { p_doc_kind: kind, p_id: id, p_expected_version: expectedVersion });
 }
 
@@ -1274,3 +1277,6 @@ export async function voidOpening(ref: StockRef, id: string, reason: string): Pr
 export async function voidTransferDoc(ref: StockRef, id: string, reason: string): Promise<PostedStockDoc> {
   return postedDoc(await call<unknown>('void_transfer', { p_id: id, p_reason: reason, p_client_ref: ref.clientRef }));
 }
+
+// مشتركة لملفّي المخزون الكسولين uses.ts وcounts.ts (WP5، نفس حزمة الشاشات): قراءة الشكل، والكتابة المباشرة بـupdatedRows، والقراءة.
+export { arr, bool, count, filsOf, moneyOf, obj, oneOf, optStr, problem, qtyOf, readAll, scaled, str, withStatus, written };

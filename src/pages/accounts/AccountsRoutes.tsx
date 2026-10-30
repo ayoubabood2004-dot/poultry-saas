@@ -4,6 +4,7 @@ import { t } from '../../lib/i18n';
 import AccountsPage from './AccountsPage';
 import CashPage from './CashPage';
 import CashStatementPage from './CashStatementPage';
+import ExpensesPage from './ExpensesPage';
 import OpeningBalancesPage from './OpeningBalancesPage';
 import PartyStatementPage from './PartyStatementPage';
 import './print.css';
@@ -20,6 +21,7 @@ export default function AccountsRoutes() {
       <Route path="openings" element={<OpeningBalancesPage />} />
       <Route path="cash" element={<CashPage />} />
       <Route path="cash/:id" element={<CashStatementPage />} />
+      <Route path="expenses" element={<ExpensesPage />} />
       <Route path="*" element={<Notice tone="info" title={t('accounts.not_found', 'هذه الصفحة غير موجودة في الحسابات.')} />} />
     </Routes>
   );

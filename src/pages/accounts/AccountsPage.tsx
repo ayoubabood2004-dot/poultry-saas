@@ -1,4 +1,4 @@
-import { HandCoins, Landmark, Plus, Wallet } from 'lucide-react';
+import { HandCoins, Landmark, Plus, Receipt, Wallet } from 'lucide-react';
 import { useCallback, useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -276,6 +276,10 @@ export default function AccountsPage() {
         <Link to="/accounts/cash" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-cash">
           <Landmark aria-hidden="true" className="size-4" />
           {t('cash.title', 'الصناديق')}
+        </Link>
+        <Link to="/accounts/expenses" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-expenses">
+          <Receipt aria-hidden="true" className="size-4" />
+          {t('expense.title', 'المصاريف')}
         </Link>
         {allowed.opening ? (
           <Link to="/accounts/openings" className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-openings">

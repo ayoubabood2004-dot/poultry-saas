@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Boxes, Building2, ClipboardList } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -13,6 +13,7 @@ import { CHICK_WARNING_HOURS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
 import { fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import * as counts from '../../lib/repo/counts';
 import * as inventory from '../../lib/repo/inventory';
 import type { StockBoard, StockRow, StockTotals, StockValue } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
@@ -216,6 +217,9 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
   const stores = setup.data ? scopedStores(storesOf(setup.data), workspace, division) : [];
   const warehouseId = stores.some((store) => store.id === picked) ? picked : (stores[0]?.id ?? '');
   const role = workspace?.role;
+  // «بانتظار موافقة المدير» (Q5، E53) لمن يقدر يوافق (الخادم يرجّعها له بس)؛ فشلها يبين بـ«أعد المحاولة» وما يوقف اللوحة.
+  const approvals = useLoad(counts.loadApprovals, role ?? '');
+  const pending = approvals.data;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -227,6 +231,18 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
               <Link to="/inventory/transfers" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-transfers">
                 <ArrowLeftRight aria-hidden="true" className="size-4" />
                 {t('stock.transfers', 'التحويلات')}
+              </Link>
+            ) : null}
+            {role && can(role, 'stock_use.post') ? (
+              <Link to="/inventory/uses" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-uses">
+                <PackageMinus aria-hidden="true" className="size-4" />
+                {t('stock.uses', 'الصرف والإتلاف')}
+              </Link>
+            ) : null}
+            {role && can(role, 'count.enter') ? (
+              <Link to="/inventory/counts" className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action="open-counts">
+                <ClipboardCheck aria-hidden="true" className="size-4" />
+                {t('stock.counts', 'الجرد')}
               </Link>
             ) : null}
             {role && can(role, 'opening.post') ? (
@@ -246,6 +262,23 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
           </nav>
         }
       />
+      {pending && (pending.counts > 0 || pending.uses > 0) ? (
+        <Notice tone="warning" title={t('stock.approvals', 'بانتظار موافقة المدير')}>
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            {pending.counts > 0 ? (
+              <Link to="/inventory/counts" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-counts">
+                {t('stock.approvals.counts', 'جرود للمراجعة: {n}', { n: fmtInt(pending.counts) })}
+              </Link>
+            ) : null}
+            {pending.uses > 0 ? (
+              <Link to="/inventory/uses" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-uses">
+                {t('stock.approvals.uses', 'صرف وإتلاف بانتظارك: {n}', { n: fmtInt(pending.uses) })}
+              </Link>
+            ) : null}
+          </span>
+        </Notice>
+      ) : null}
+      {approvals.error ? <LoadFailed what={t('stock.approvals.what', 'الموافقات المنتظرة')} error={approvals.error} onRetry={approvals.retry} /> : null}
       {setup.error ? (
         <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />
       ) : !setup.data ? (

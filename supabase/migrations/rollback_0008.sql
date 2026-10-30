@@ -606,6 +606,7 @@ drop function if exists private.gain_value(numeric, public.stock_lots, numeric);
 drop function if exists private.count_line_problem(public.warehouses, public.stock_count_lines);
 drop function if exists private.count_gain_problem(date, public.stock_count_lines, numeric, numeric);
 drop function if exists private.count_snapshot(uuid, date, public.stock_count_lines);
+drop function if exists private.require_submitted(text);
 
 -- الجداول (ويّاها مشغّلاتها وسياساتها وفهارسها)، الأبعد أوّلاً حتى المفاتيح الأجنبية تنشال قبل هدفها.
 drop table if exists public.stock_count_line_costs;

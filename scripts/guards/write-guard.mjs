@@ -179,9 +179,10 @@ function resolveSpecifier(file, specifier) {
  * حزمتها، وindex ما يصدّرها (وإلا تدخل مسار الجلسة لكل مستخدم). بيها call/send من core نفسها، فالمهلة وسياسة الأخطاء ويّاها؛
  * وcore وclient وباقي الملفات الداخلية تبقى ممنوعة برّا repo. المرحلة 1 WP3: الموظفون والرئيسية (members وhome) طلعوا من
  * index لحزم شاشاتهم (مسار الجلسة كان على بعد 212 بايت من سقفه)، والجهات والصناديق (parties وcash) ملفّان جديدان، والدخول
- * والتسجيل (signin) يحمّله session.tsx بـimport() لحظة الدخول بس.
+ * والتسجيل (signin) يحمّله session.tsx بـimport() لحظة الدخول بس. WP5: الصرف والجرد (uses وcounts) ملفّان بحزمة شاشات المخزون،
+ * يقرون أدوات الشكل والكتابة من inventory (نفس الحزمة)، وinventory ما كان يكبر فوك سقف الألفي سطر.
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

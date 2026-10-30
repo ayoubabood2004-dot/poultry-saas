@@ -35,7 +35,7 @@ export interface DrawOptions {
 }
 
 /** ترتيب uuid ببوستغريس (بايتات): النصّ الست عشري بحروف صغيرة والشرطات بمواضع ثابتة، فمقارنة النصّ نفسها. */
-function compareUuid(a: string, b: string): number {
+export function compareUuid(a: string, b: string): number {
   const x = a.toLowerCase();
   const y = b.toLowerCase();
   return x < y ? -1 : x > y ? 1 : 0;

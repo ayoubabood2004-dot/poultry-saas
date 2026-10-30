@@ -8,7 +8,7 @@ import { openDatabase, requestResult, transact } from '../idb';
 const DB_NAME = 'poultry-drafts';
 const STORE = 'drafts';
 
-export type DeviceDraftKind = 'transfer' | 'opening';
+export type DeviceDraftKind = 'transfer' | 'opening' | 'count';
 
 /** الختم: صاحب المسوّدة ومنشأته المؤكَّدة لحظة الحفظ. */
 export interface DraftStamp {

@@ -4,7 +4,9 @@
 // بـY وX) بلا قفل متبادل؛ C5 أرقام TR متتالية؛ C14 sameRefRace للتحويل والافتتاح (ترحيل واحد ورقم واحد، ونفس المرجع بنسخة ثانية
 // ref_reused، والمرحَّل بمرجع جديد not_draft). ومن مراجعة WP4 الثانية: تاريخ ينعدّل والترحيل ينتظر قفل المستند ← stale_draft (مو
 // ترحيل بتاريخ ما انفحص)؛ تحويلان بلا رصيد مشترك بمرايا جذورها متقاطعة بلا 40P01 (الدفعات for no key update)؛ حذف سطر وتعديله
-// بلا 40P01 (السطر قبل رأسه)؛ وملفات التراجع تقفل جداولها قبل ما تعدّ المستندات.
+// بلا 40P01 (السطر قبل رأسه)؛ وملفات التراجع تقفل جداولها قبل ما تعدّ المستندات. وWP5: صرف وتحويل بـ3,000 كغم بنفس اللحظة من
+// دفعة ذرة 4,000 كغم ← واحد يرحّل والثاني insufficient_stock والدفعة 1,000 كغم بـ450,000.00 (D6)؛ وتحويل يترحّل والجرد ينتظر
+// قفل الرصيد ← count_stale (C11، E53) مو نقص محسوب على رصيد قديم.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -301,8 +303,65 @@ async function scenario(t, db) {
   });
   t.same([lineRace.held, lineRace.first, lineRace.second, lineRace.first2, lineRace.second2], [true, 'blocked', 'blocked', 'ok', 'ok'], 'حذف سطر وتعديله بنفس اللحظة: الاثنان ينتظران ويكملان بلا 40P01');
 
+  // ── D6 (WP5): صرف وتحويل بـ3,000 كغم بنفس اللحظة من دفعة ذرة 4,000 كغم بـ1,800,000.00 ─────────────────────────────────
+  const rawSite = (await db.admin('select site_id from public.warehouses where id = $1', [W.raw])).rows[0].site_id;
+  const raw2 = await S.one(U.owner, "insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'مخزن مواد أولية ثانٍ', 'raw') returning id", [S.divisions.feed_mill, rawSite]);
+  const corn = S.I.corn;
+  await postedOpening(db, U.manager, W.raw, GO_LIVE, [{ item: corn, qty: 4000, value: 1800000 }]);
+  const upkeep = await S.one(U.accountant, "insert into public.expense_categories (name) values ('صيانة السباق') returning id");
+  const useDoc = await db.asUser(
+    U.manager,
+    async (q) => {
+      const docId = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [W.raw, upkeep, TODAY])).rows[0].id;
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 3000)', [docId, corn]);
+      return (await q('select id, version from public.stock_uses where id = $1', [docId])).rows[0];
+    },
+    { commit: true },
+  );
+  const cornMove = await transferDraft(db, U.owner, W.raw, raw2, TODAY, [{ item: corn, qty: 3000 }]);
+  const d6 = await race(
+    db,
+    { user: U.manager, sql: "select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid()) as result", params: [useDoc.id, useDoc.version] },
+    { user: U.owner, sql: POST, params: [cornMove.id, cornMove.version] },
+  );
+  const useExpense = (await db.admin("select amount::text as amount from public.expenses where doc_kind = 'stock_use' and doc_id = $1", [useDoc.id])).rows;
+  t.same(
+    [d6.first, d6.state, d6.second, (await lotsOf(db, corn, W.raw)).map((l) => [l.qty_left, l.value_left]), useExpense, (await lotsOf(db, corn, raw2)).length],
+    ['ok', 'blocked', 'insufficient_stock', [['1000', '450000']], [{ amount: '1350000.00' }], 0],
+    'D6: الصرف يرحّل (مصروف 1,350,000.00) والتحويل ينام على رصيد الذرة ثم insufficient_stock، والدفعة 1,000 كغم بـ450,000.00 بلا مرآة',
+  );
+
+  // ── C11 (E53): تحويل يترحّل والجرد ينتظر قفل الرصيد ← count_stale ─────────────────────────────────────────────────
+  const XC = await item('كاز الجرد');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: XC, qty: 40, value: 30000 }]);
+  const counted = await db.asUser(
+    U.storekeeper,
+    async (q) => {
+      const docId = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, TODAY])).rows[0].id;
+      await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 39)', [docId, XC]);
+      return docId;
+    },
+    { commit: true },
+  );
+  const versionOf = async (docId) => (await db.admin('select version from public.stock_counts where id = $1', [docId])).rows[0].version;
+  await S.one(U.storekeeper, 'select public.submit_count($1, $2, gen_random_uuid())', [counted, await versionOf(counted)]);
+  const countLine = (await db.admin('select id from public.stock_count_lines where doc_id = $1', [counted])).rows[0].id;
+  await S.one(U.manager, "update public.stock_count_lines set reason = 'لتر ناقص' where id = $1 returning id", [countLine]);
+  const xMove = await transferDraft(db, U.storekeeper, W.general, W.raw, TODAY, [{ item: XC, qty: 5 }]);
+  const c11 = await race(
+    db,
+    { user: U.storekeeper, sql: POST, params: [xMove.id, xMove.version] },
+    { user: U.manager, sql: "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid()) as result", params: [counted, await versionOf(counted)] },
+  );
+  const countRow = (await db.admin('select status, doc_no from public.stock_counts where id = $1', [counted])).rows[0];
+  t.same(
+    [c11.first, c11.state, c11.second, countRow, (await lotsOf(db, XC, W.general)).map((l) => l.qty_left)],
+    ['ok', 'blocked', 'count_stale', { status: 'submitted', doc_no: null }, ['35']],
+    'C11: التحويل يرحّل والجرد ينام على رصيد المادّة ثم count_stale؛ الجرد يبقى مسلَّماً بلا رقم ولا نقص على الرصيد القديم',
+  );
+
   // ── ملفات التراجع تقفل جداولها قبل ما تعدّ (مراجعة WP4 الثانية): بلا قفل، مستند ينكتب بعد العدّ وقبل الحذف ينحذف ويّا جداوله.
-  for (const name of ['rollback_0005.sql', 'rollback_0006.sql', 'rollback_0007.sql']) {
+  for (const name of ['rollback_0005.sql', 'rollback_0006.sql', 'rollback_0007.sql', 'rollback_0008.sql']) {
     const text = readFileSync(path.join(MIGRATIONS, name), 'utf8');
     t.ok(text.indexOf('lock table') > 0 && text.indexOf('lock table') < text.indexOf('rollback_blocked'), `${name}: «lock table» قبل عدّ «rollback_blocked»`);
   }

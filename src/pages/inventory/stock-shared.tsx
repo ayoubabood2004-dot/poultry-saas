@@ -362,7 +362,7 @@ export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, on
 }
 
 /** وحدات الإدخال: وحدة الأساس، والطن للكيلو، ووحدات تعبئة المادّة (المعامل لقطة على السطر، E7). */
-export function unitOptions(item: ItemRow, packs: readonly inventory.ItemUnitRow[]): QtyUnitOption[] {
+export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inventory.ItemUnitRow[]): QtyUnitOption[] {
   const out: QtyUnitOption[] = [{ id: 'base', label: baseUnitLabel(item.baseUnit), factor: { units: 1n, scale: 0 } }];
   if (item.baseUnit === 'kg') out.push({ id: 'code:t', label: t('unit.t', 'طن'), factor: { units: 1000n, scale: 0 } });
   for (const pack of packs.filter((p) => !p.archived)) out.push({ id: pack.id, label: pack.label, factor: { units: pack.factor, scale: 6 } });

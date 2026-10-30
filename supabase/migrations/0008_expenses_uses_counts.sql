@@ -417,8 +417,12 @@ begin
   if d.id is null then
     raise exception 'doc_not_found' using hint = 'هذا المستند غير موجود في منشأتك. حدّث الشاشة.';
   end if;
-  -- الفعل قبل النطاق (مثل حارس سطر التحويل): الممنوع forbidden، والمسموح برّا نطاقه out_of_scope.
-  perform private.require(case when d.status = 'submitted' and tg_op = 'UPDATE' then 'count.approve' else 'count.enter' end);
+  -- الفعل قبل النطاق (مثل حارس سطر التحويل): الممنوع forbidden، والمسموح برّا نطاقه out_of_scope. والمسلَّم ما يعدّله العادّ بلا
+  -- count.approve: not_draft بتلميح المراجعة، فنافذة ثانية أو طابور يرفع عدّاً بعد التسليم يفهم ليش رُفض.
+  perform private.require('count.enter');
+  if d.status = 'submitted' and not public.can('count.approve') then
+    raise exception 'not_draft' using hint = 'الجرد مسلَّم للمراجعة؛ لا يتعدّل العدّ إلا بعد أن يعيده المدير للعدّ.';
+  end if;
   if not public.in_scope_wh(d.warehouse_id) then
     raise exception 'out_of_scope' using hint = 'مخزن هذا الجرد خارج نطاقك.';
   end if;
@@ -456,7 +460,8 @@ begin
       new.counted_expired_qty := round(new.counted_expired_qty, 3);
     end if;
   else
-    raise exception 'not_draft' using hint = 'الجرد مرحَّل أو ملغى؛ لا تُعدَّل سطوره.';
+    raise exception 'not_draft' using hint = case when d.status = 'submitted' then 'الجرد مسلَّم للمراجعة؛ تُضاف السطور بعد «أعِد للعدّ».'
+      else 'الجرد مرحَّل أو ملغى؛ لا تُعدَّل سطوره.' end;
   end if;
   update public.stock_counts set version = version + 1 where org_id = d.org_id and id = d.id;
   return new;
@@ -976,7 +981,7 @@ begin
     raise exception 'doc_empty' using hint = 'المستند بلا سطور. أضف سطراً واحداً على الأقلّ.';
   end if;
   c := private.category_for_post(d.category_id, true);
-  v_destroy := c.system_code = 'expired_destroy';
+  v_destroy := coalesce(c.system_code = 'expired_destroy', false);
   if v_destroy and not public.can('expired.destroy') then
     raise exception 'forbidden' using hint = 'إتلاف المنتهي يرحّله المدير؛ اترك المسوّدة له في «بانتظار موافقة المدير».';
   end if;
@@ -1386,6 +1391,20 @@ begin
 end
 $$;
 
+-- حالة الجرد لدوالّ المراجعة (E53): المسلَّم بس. المرحَّل والملغى not_draft مثل كل مستند (موافقة ثانية أو نافذة متأخّرة)، والمسوّدة
+-- not_submitted.
+create or replace function private.require_submitted(p_status text) returns void
+language plpgsql immutable set search_path = pg_catalog, pg_temp as $$
+begin
+  if p_status in ('approved', 'void') then
+    raise exception 'not_draft' using hint = 'هذا الجرد رُحّل أو أُلغي من قبل.';
+  end if;
+  if p_status is distinct from 'submitted' then
+    raise exception 'not_submitted' using hint = 'هذا الجرد ما زال مسوّدة لم تُسلَّم للمراجعة.';
+  end if;
+end
+$$;
+
 -- التسليم (count.enter، E25، E53): لكل سطر لقطة الرصيد بتاريخ الجرد والفرقان، والمسوّدة ← submitted. النتيجة بلا كميات الدفتر (عدّ
 -- أعمى). الأقفال: المرجع ← قفل الفترة وصفّ الوحدة (التاريخ) ← المستند.
 create or replace function public.submit_count(p_id uuid, p_expected_version int, p_client_ref uuid) returns jsonb
@@ -1465,9 +1484,7 @@ begin
   end if;
   w := private.stock_wh(d.warehouse_id, true);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
-  if d.status <> 'submitted' then
-    raise exception 'not_submitted' using hint = 'هذا الجرد ليس مسلَّماً للمراجعة.';
-  end if;
+  perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّر الجرد بعد فتحه. حدّث الشاشة وأعد المحاولة.';
   end if;
@@ -1520,9 +1537,7 @@ begin
   end if;
   w := private.stock_wh(d.warehouse_id, true);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
-  if d.status <> 'submitted' then
-    raise exception 'not_submitted' using hint = 'هذا الجرد ليس مسلَّماً للمراجعة.';
-  end if;
+  perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّر الجرد بعد فتحه. حدّث الشاشة وأعد المحاولة.';
   end if;
@@ -1584,9 +1599,7 @@ begin
   v_date := d.counted_on;
   perform private.check_post_date(v_date, w.division_id);
   select * into d from public.stock_counts where org_id = w.org_id and id = p_id for update;
-  if d.status <> 'submitted' then
-    raise exception 'not_submitted' using hint = 'هذا الجرد ليس مسلَّماً للمراجعة: ما زال مسوّدة، أو رُحّل أو أُلغي.';
-  end if;
+  perform private.require_submitted(d.status);
   if p_expected_version is null or d.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّر الجرد بعد المعاينة. راجعه وعاينه من جديد قبل الترحيل.';
   end if;
@@ -1803,8 +1816,10 @@ begin
     raise exception 'doc_not_found' using hint = 'هذا الجرد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   w := private.stock_wh(d.warehouse_id, true);
-  if d.status <> 'submitted' then
-    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'not_submitted', 'hint', 'هذا الجرد ليس مسلَّماً للمراجعة.'));
+  if d.status in ('approved', 'void') then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'not_draft', 'hint', 'هذا الجرد رُحّل أو أُلغي من قبل.'));
+  elsif d.status <> 'submitted' then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'not_submitted', 'hint', 'هذا الجرد ما زال مسوّدة لم تُسلَّم للمراجعة.'));
   end if;
   v_date := private.date_problem(d.counted_on, w.division_id, false);
   if v_date is not null then
