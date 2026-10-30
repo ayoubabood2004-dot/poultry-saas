@@ -4,8 +4,12 @@
 // v2 للمخزون (WP4، بذرة ثابتة مطبوعة): افتتاحات وتحويلات (ومنها أكثر من المتاح، ومن مرآة لمرآة، ورجوع لمخزن الأصل) وإلغاءات
 // (من الأحدث وعشوائية، والمرفوض lot_consumed منها صحيح)، وبعد كل خطوة verify_stock صفر؛ وسحب كل تحويل = fifo.planDraw على دفعات
 // القاعدة قبله بالفلس، والرفض بالنقص لمّا الخطّة تكول نقص بالضبط.
+// v3 (WP5، بذرة ثابتة مطبوعة): يزيد الصرف (ومنه أكثر من المتاح) والجرد (نقص وزيادة، وبلا دفعة قياس بكلفة المدير) والمصاريف
+// النقدية، والإلغاء لكلها؛ وبعد كل خطوة verify_stock وverify_ledger صفر ورصيد الصندوق = النموذج؛ وسحب الصرف ونقص الجرد =
+// fifo.planDraw بالفلس، وقيمة كل زيادة = count.gainValue بدفعة pickGainReferenceLot على دفعات المنشأة قبلها، ومصروف المستند =
+// مجموع سحبه.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
-import { balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
+import { LEDGER_ZERO, balance, call, makeOrg, remainders, shown, uid, verifyLedger } from './ledger-kit.mjs';
 import { STOCK_ZERO, makeStockOrg, openingDraft, postOpening, postTransfer, transferDraft, verifyStock } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
@@ -31,6 +35,7 @@ export default async function (t, db) {
     const BOX = (await asM("insert into public.cash_accounts (name, kind) values ('صندوق الخصائص', 'cash') returning id")).value;
     await propertyV1(t, db, { ledger, U, B, BOX, party });
     await propertyV2(t, db);
+    await propertyV3(t, db);
   });
 }
 
@@ -116,6 +121,235 @@ async function propertyV2(t, db) {
   console.log(`    · فحص الخصائص v2 (المخزون): البذرة ${SEED}، ${done} خطوة من ${STEPS}، ${shortages} نقص و${consumed} إلغاء مرفوض بـlot_consumed`);
   t.same(failures, [], `الخصائص v2 (البذرة ${SEED}): بعد كل خطوة verify_stock صفر، وسحب كل تحويل = fifo.planDraw بالفلس، والنقص بالضبط حين تقوله الخطّة`);
   t.ok(done === STEPS && shortages > 0 && consumed > 0, `الخصائص v2 نفّذت كل الخطوات ومرّت بالنقص والإلغاء المرفوض (${done}، ${shortages}، ${consumed})`);
+}
+
+/** دفعات المادّة بالمنشأة كلها بشكل count.ts (دفعة القياس، E45): الترتيب والمرآة والمعكوسة والكمية والقيمة الداخلتان. */
+async function gainLots(db, item) {
+  return (
+    await db.admin(
+      `select l.id, l.fifo_seq::text as fifo_seq, l.origin_lot_id is not null as mirror, (qty_in * 1000)::bigint::text as q, (value_in * 100)::bigint::text as v,
+         exists (select 1 from public.stock_moves m join public.stock_moves r on r.reverses_move_id = m.id
+           where m.lot_id = l.id and m.qty > 0 and m.reverses_move_id is null) as reversed
+       from public.stock_lots l where l.item_id = $1`,
+      [item],
+    )
+  ).rows.map((r) => ({ id: r.id, fifoSeq: BigInt(r.fifo_seq), mirror: r.mirror, reversed: r.reversed, qtyIn: BigInt(r.q), valueIn: BigInt(r.v) }));
+}
+
+const milli = (text) => BigInt(Math.round(Number(text) * 1000));
+const fils = (text) => BigInt(Math.round(Number(text) * 100));
+const qtyText = (q) => (Number(q) / 1000).toFixed(3);
+const drawsText = (draws) => draws.map((d) => `${d.lotId}:${d.qty}:${d.value}`).join(',');
+
+async function propertyV3(t, db) {
+  const SEED = 20261102;
+  const STEPS = 90;
+  const GO_LIVE = '2026-10-20';
+  const fifo = await loadSrc('src/domain/fifo.ts');
+  const count = await loadSrc('src/domain/count.ts');
+  const S = await makeStockOrg(db, {
+    name: 'مزرعة خصائص الصرف والجرد',
+    id: (n) => `d3200000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    phone: (n) => `96477093200${String(n).padStart(2, '0')}`,
+    goLive: GO_LIVE,
+  });
+  const { users: U, W, divisions: D } = S;
+  const random = rng(SEED);
+  const pick = (list) => list[Math.floor(random() * list.length)];
+  const STORES = [W.general, W.general2, W.raw];
+  const items = [];
+  for (let k = 0; k < 3; k += 1) items.push(await S.one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'fuel', 'L') returning id", [`كاز الجرد ${k}`]));
+  // مادّة بلا دفعات لحد ما الجرد يزيدها: أوّل زيادة بكلفة المدير (E48).
+  const bare = await S.one(U.owner, "insert into public.items (name, kind, base_unit) values ('مادّة بلا افتتاح', 'fuel', 'L') returning id");
+  const upkeep = await S.one(U.accountant, "insert into public.expense_categories (name) values ('صيانة الخصائص') returning id");
+  const power = await S.one(U.accountant, "insert into public.expense_categories (name) values ('كهرباء الخصائص') returning id");
+  const box = await S.one(U.accountant, "insert into public.cash_accounts (name, kind) values ('صندوق الخصائص', 'cash') returning id");
+  await S.one(U.manager, 'select public.record_cash_opening(gen_random_uuid(), $1, 50000000, $2, gen_random_uuid())', [box, GO_LIVE]);
+  let boxModel = 50_000_000n;
+  const boxBalance = async () => BigInt((await db.admin('select coalesce(sum(amount), 0)::bigint::text as v from public.cash_moves where account_id = $1', [box])).rows[0].v);
+  // رصيد (مادّة، مخزن) بيوم: حركاتها بتاريخه أو قبله بلا العكسيات وأصولها (نموذج count_balance_at بالآلاف).
+  const balanceAt = async (item, wh, day) => {
+    const rows = (await db.admin('select id, reverses_move_id, moved_on::text as moved_on, (qty * 1000)::bigint::text as q from public.stock_moves where item_id = $1 and warehouse_id = $2', [item, wh])).rows;
+    const reversed = new Set(rows.filter((r) => r.reverses_move_id).map((r) => r.reverses_move_id));
+    return rows.filter((r) => !r.reverses_move_id && !reversed.has(r.id) && r.moved_on <= day).reduce((sum, r) => sum + BigInt(r.q), 0n);
+  };
+  const docExpense = async (kind, docId) =>
+    (await db.admin("select coalesce(sum(amount) filter (where reverses_id is null), 0)::text as v from public.expenses where doc_kind = $1 and doc_id = $2", [kind, docId])).rows[0].v;
+  const versionOf = async (table, docId) => (await db.admin(`select version from public.${table} where id = $1`, [docId])).rows[0].version;
+  const posted = [];
+  // الجرود المرحَّلة (مادّة، مخزن، يوم، ترتيب الترحيل، بحركة؟): جرد أقدم بفرق بعد أحدث مرحَّل لنفس المادّة count_superseded (المراجعة
+  // الثانية لـWP5)، والمراجعة الثالثة: السطر بلا فرق يترحّل، وإلغاء جرد بحركة وبعده جرد مرحَّل يومه مثل يومه أو بعده ينرفض بنفس الرمز.
+  const approvedCounts = [];
+  let countOrder = 0;
+  const voidBlockedBy = (target) => {
+    const counted = target.kind === 'count' ? approvedCounts.find((c) => c.id === target.id) : null;
+    return Boolean(counted?.moved && approvedCounts.some((c) => c.id !== counted.id && c.item === counted.item && c.wh === counted.wh && c.day >= counted.day && c.order > counted.order));
+  };
+  const failures = [];
+  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0, voidBlocked: 0 };
+  for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
+    const roll = random();
+    const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
+    let label;
+    if (roll < 0.15 || posted.length === 0) {
+      const item = pick(items);
+      const wh = pick(STORES);
+      const lines = Array.from({ length: 1 + Math.floor(random() * 2) }, () => ({ item, qty: (1 + Math.floor(random() * 400000)) / 1000, value: (Math.floor(random() * 50000000) / 100).toFixed(2) }));
+      label = `افتتاح ${step}`;
+      const doc = await openingDraft(db, U.manager, wh, GO_LIVE, lines);
+      const result = await postOpening(db, U.manager, doc);
+      if (result.ok) posted.push({ kind: 'opening', fn: 'void_opening_stock', id: doc.id });
+      else if (result.code !== 'item_has_moves') failures.push(`${label}: ${result.code}`);
+    } else if (roll < 0.27) {
+      const item = pick(items);
+      const from = pick(STORES);
+      const to = pick(STORES.filter((wh) => wh !== from));
+      label = `تحويل ${step}`;
+      const doc = await transferDraft(db, U.manager, from, to, day, [{ item, qty: qtyText(BigInt(1 + Math.floor(random() * 200000))) }]);
+      const result = await postTransfer(db, U.manager, doc);
+      if (result.ok) posted.push({ kind: 'transfer', fn: 'void_transfer', id: doc.id });
+      else if (result.code !== 'insufficient_stock') failures.push(`${label}: ${result.code}`);
+    } else if (roll < 0.47) {
+      // الصرف: السحب = fifo.planDraw على دفعات المخزن قبله، والنقص بالضبط حين تقوله الخطّة، والمصروف = مجموع السحب.
+      const item = pick(items);
+      const wh = pick(STORES);
+      const lots = await fifoLots(db, item, wh);
+      const have = fifo.eligibleLots(lots, day, { tracksExpiry: false }).reduce((sum, l) => sum + l.qtyLeft, 0n);
+      const qty = random() < 0.15 || have === 0n ? have + BigInt(1 + Math.floor(random() * 5000)) : BigInt(1 + Math.floor(random() * Number(have)));
+      label = `صرف ${step}`;
+      const plan = fifo.planDraw(lots, qty, day, { tracksExpiry: false });
+      const doc = await db.asUser(
+        U.manager,
+        async (q) => {
+          const docId = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [wh, upkeep, day])).rows[0].id;
+          await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3)', [docId, item, qtyText(qty)]);
+          return docId;
+        },
+        { commit: true },
+      );
+      const result = await call(db, U.manager, "select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', $3)", [doc, await versionOf('stock_uses', doc), uid()]);
+      tally.uses += 1;
+      if (plan.shortage > 0n) {
+        tally.useShort += 1;
+        if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
+      } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
+      else {
+        posted.push({ kind: 'stock_use', fn: 'void_stock_use', id: doc });
+        const got = drawsText(result.value.lines[0].draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
+        if (got !== drawsText(plan.draws)) failures.push(`${label}: السحب ${got} والخطّة ${drawsText(plan.draws)}`);
+        const total = plan.draws.reduce((sum, d) => sum + d.value, 0n);
+        if (fils(await docExpense('stock_use', doc)) !== total) failures.push(`${label}: المصروف ${await docExpense('stock_use', doc)} ومجموع السحب ${total}`);
+      }
+    } else if (roll < 0.72) {
+      // الجرد: الرصيد بيوم الجرد (مراجعة WP5)، والنقص = planDraw على الدفعات الآن (وأكثر من المتاح الآن insufficient_stock: مستندات
+      // بعد يوم الجرد سحبت منه)، والزيادة = gainValue بدفعة القياس على دفعات المنشأة قبلها (وبلاها كلفة المدير)، و«فرق جرد» = النقص.
+      // ثلث الجرود على (مادّة، مخزن) جرد مرحَّل بيوم عشوائي: قبله يمرّ بـcount_superseded، وبعده يخلّي إلغاء الأقدم ينرفض.
+      const anchor = approvedCounts.length > 0 && random() < 0.35 ? pick(approvedCounts) : null;
+      const item = anchor ? anchor.item : random() < 0.12 ? bare : pick(items);
+      const wh = anchor ? anchor.wh : pick(STORES);
+      const lots = await fifoLots(db, item, wh);
+      const have = await balanceAt(item, wh, day);
+      // المادّة بلا افتتاح تزيد دائماً (أوّل زيادة بلا دفعة قياس، فبكلفة المدير)، وغيرها نقص أو زيادة أو مطابق.
+      const delta = item === bare ? BigInt(1 + Math.floor(random() * 5000)) : random() < 0.15 ? 0n : BigInt(Math.floor((random() - 0.6) * Math.max(Number(have), 20000)));
+      const counted = have + delta < 0n ? 0n : have + delta;
+      const diff = counted - have;
+      label = `جرد ${step} (${qtyText(have)} ← ${qtyText(counted)})`;
+      const candidates = await gainLots(db, item);
+      const doc = await db.asUser(
+        U.manager,
+        async (q) => {
+          const docId = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [wh, day])).rows[0].id;
+          const lineId = (await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3) returning id', [docId, item, qtyText(counted)])).rows[0].id;
+          return { id: docId, lineId };
+        },
+        { commit: true },
+      );
+      const sent = await call(db, U.manager, 'select public.submit_count($1, $2, $3)', [doc.id, await versionOf('stock_counts', doc.id), uid()]);
+      if (!sent.ok) {
+        failures.push(`${label}: التسليم ${sent.code}`);
+        continue;
+      }
+      if (diff !== 0n) await call(db, U.manager, "update public.stock_count_lines set reason = 'خاصية', reason_diff = diff, reason_expired_diff = expired_diff where id = $1 returning id", [doc.lineId]);
+      const reference = count.pickGainReferenceLot(candidates);
+      let cost = null;
+      if (diff > 0n && reference === null) {
+        cost = BigInt(1 + Math.floor(random() * 99999999));
+        await call(db, U.manager, 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, $2) returning line_id', [doc.lineId, (Number(cost) / 10000).toFixed(4)]);
+        tally.manual += 1;
+      }
+      const plan = diff < 0n ? fifo.planDraw(lots, -diff, day, { tracksExpiry: false }) : { draws: [], shortage: 0n };
+      const result = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [doc.id, await versionOf('stock_counts', doc.id), uid()]);
+      tally.counts += 1;
+      const later = diff !== 0n && approvedCounts.some((c) => c.item === item && c.wh === wh && c.day > day);
+      if (later) {
+        tally.superseded += 1;
+        if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث مرحَّل والقاعدة ${shown(result)}`);
+      } else if (plan.shortage > 0n) {
+        tally.countShort += 1;
+        if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
+      } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
+      else {
+        posted.push({ kind: 'count', fn: 'void_count', id: doc.id });
+        approvedCounts.push({ id: doc.id, item, wh, day, order: (countOrder += 1), moved: diff !== 0n });
+        const line = result.value.lines[0];
+        const got = drawsText(line.draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
+        if (got !== drawsText(plan.draws)) failures.push(`${label}: النقص ${got} والخطّة ${drawsText(plan.draws)}`);
+        const shortTotal = plan.draws.reduce((sum, d) => sum + d.value, 0n);
+        if (fils(await docExpense('count', doc.id)) !== shortTotal) failures.push(`${label}: «فرق جرد» ${await docExpense('count', doc.id)} والنقص ${shortTotal}`);
+        if (diff < 0n) tally.shortages += 1;
+        if (diff > 0n) {
+          tally.gains += 1;
+          const want = count.gainValue(diff, reference, cost);
+          const gained = line.gains.map((g) => [milli(g.qty), fils(g.money.value)]);
+          if (gained.length !== 1 || gained[0][0] !== diff || gained[0][1] !== want) failures.push(`${label}: الزيادة ${JSON.stringify(line.gains)} والنموذج ${want} (القياس ${reference?.id ?? 'كلفة ' + cost})`);
+        }
+      }
+    } else if (roll < 0.85) {
+      const amount = BigInt(1 + Math.floor(random() * 250000));
+      label = `مصروف ${step}`;
+      const expenseId = uid();
+      const result = await call(db, U.accountant, 'select public.record_expense($1, $2, $3, $4, $5, $6, $7, null, null, null, null, null, null, null, $8)', [
+        expenseId, power, pick([D.general, D.feed_mill, D.broiler]), amount.toString(), day, 'cash', box, uid(),
+      ]);
+      if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
+      else {
+        boxModel -= amount;
+        tally.expenses += 1;
+        posted.push({ kind: 'expense', fn: 'void_expense', id: expenseId, amount });
+      }
+    } else {
+      // جرد ينتظر إلغاء أحدث منه يُختار أحياناً حتى فرع الرفض ينمرّ بيه.
+      const waiting = posted.filter(voidBlockedBy);
+      const target = waiting.length > 0 && random() < 0.3 ? pick(waiting) : random() < 0.5 ? posted.at(-1) : pick(posted);
+      label = `إلغاء ${target.kind} ${step}`;
+      const result = await call(db, U.manager, `select public.${target.fn}($1, $2, $3)`, [target.id, 'خاصية', uid()]);
+      if (voidBlockedBy(target)) {
+        tally.voidBlocked += 1;
+        if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث انحسب على تسويته والقاعدة ${shown(result)}`);
+      } else if (result.ok) {
+        posted.splice(posted.indexOf(target), 1);
+        tally.voids += 1;
+        if (target.kind === 'expense') boxModel += target.amount;
+        if (target.kind === 'count') approvedCounts.splice(approvedCounts.findIndex((c) => c.id === target.id), 1);
+      } else if (result.code === 'lot_consumed') tally.consumed += 1;
+      else failures.push(`${label}: ${result.code}`);
+    }
+    tally.done += 1;
+    const stock = await db.asService(verifyStock);
+    const ledgerCheck = await db.asService(verifyLedger);
+    const bad = [...Object.entries(stock), ...Object.entries(ledgerCheck)].filter(([, v]) => v !== 0);
+    if (bad.length || Object.keys(stock).length !== Object.keys(STOCK_ZERO).length || Object.keys(ledgerCheck).length !== Object.keys(LEDGER_ZERO).length) {
+      failures.push(`بعد ${label}: ${JSON.stringify(Object.fromEntries(bad))}`);
+    }
+    const inBox = await boxBalance();
+    if (inBox !== boxModel) failures.push(`بعد ${label}: الصندوق ${inBox} والنموذج ${boxModel}`);
+  }
+  console.log(`    · فحص الخصائص v3 (الصرف والجرد والمصاريف): البذرة ${SEED}، ${JSON.stringify(tally)}`);
+  t.same(failures, [], `الخصائص v3 (البذرة ${SEED}): بعد كل خطوة verify_stock وverify_ledger صفر والصندوق = النموذج، وسحب الصرف ونقص الجرد = planDraw، والزيادة = gainValue، ومصروف المستند = سحبه`);
+  t.ok(
+    tally.done === STEPS && tally.useShort > 0 && tally.gains > 0 && tally.manual > 0 && tally.shortages > 0 && tally.expenses > 0 && tally.voids > 0 && tally.superseded > 0 && tally.voidBlocked > 0,
+    `الخصائص v3 نفّذت كل الخطوات ومرّت بنقص الصرف وزيادة الجرد (وبكلفة المدير) ونقصه والمصاريف والإلغاء والجرد الأقدم بعد أحدث (ترحيلاً وإلغاءً) (${JSON.stringify(tally)})`,
+  );
 }
 
 /** مولّد عشوائي ثابت بالبذرة (mulberry32): نفس البذرة نفس التسلسل، فالفشل ينعاد. */

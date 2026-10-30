@@ -427,8 +427,8 @@ async function scenario(t, db) {
   const twoLines = await openingDraft(db, U.manager, W.general2, GO_LIVE, [{ item: probeItem, qty: 1, value: 1 }, { item: probeItem, qty: 2, value: 2 }]);
   t.same(
     {
-      discardKind: shown(await asM("select public.discard_draft('count', $1, 1)", [uid()])),
-      deleteKind: shown(await asM("select public.delete_draft_line('count', $1, 1)", [uid()])),
+      discardKind: shown(await asM("select public.discard_draft('receipt', $1, 1)", [uid()])),
+      deleteKind: shown(await asM("select public.delete_draft_line('receipt', $1, 1)", [uid()])),
       discardMissing: shown(await asM("select public.discard_draft('transfer', $1, 1)", [uid()])),
       discardPosted: shown(await call(db, U.manager, "select public.discard_draft('transfer', $1, $2)", [t1.id, await versionOf('transfers', t1.id)], once)),
       deletePosted: shown(await call(db, U.manager, "select public.delete_draft_line('transfer', $1, $2)", [t1.lines[0], await versionOf('transfers', t1.id)], once)),

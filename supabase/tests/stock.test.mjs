@@ -553,6 +553,27 @@ async function scenario(t, db) {
   const elapsed = Date.now() - started;
   t.ok(bulkMove.ok && bulkMove.value.lines[0].draws.length === 500 && elapsed < 8000, `تحويل يسحب 500 دفعة بـ${elapsed}ms تحت حدّ 8 ثوانٍ`);
 
+  // ── الصرف والجرد (WP5): صرف مرحَّل (10 لترات بـ5,000.00) وجرد مرحَّل بنقص 5 لترات (2,500.00) بمادّة لحالها، حتى ضابطا الرابطين
+  // 12 و13 يلقون مصروفاً ولقطة ─────────────────────────────────────────────────────────────────────────────────────────────
+  const oil = await item('زيت الضوابط', 'fuel', 'L');
+  await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: oil, qty: 100, value: 50000 }]);
+  const wp5Doc = await db.asUser(
+    U.manager,
+    async (q) => {
+      const category = (await q("insert into public.expense_categories (name) values ('صيانة') returning id")).rows[0].id;
+      const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [W.general, category, TODAY])).rows[0].id;
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10)', [use, oil]);
+      await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+      const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.general, TODAY])).rows[0].id;
+      await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 85)', [count, oil]);
+      await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
+      await q("update public.stock_count_lines set reason = 'تسرّب', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
+      await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
+      return { use, count };
+    },
+    { commit: true },
+  );
+
   // ── verify_stock صفر بأسماء فحوصه، وكل فحص يمسك كسره (ضوابط بمعاملات ترجع، بمنشأة هالملف) ───────────────────────────────
   t.same(await db.asService(verifyStock), STOCK_ZERO, `verify_stock صفر بأسماء فحوصه الـ${Object.keys(STOCK_ZERO).length} بالضبط`);
   const lotIdOf = async (itemId, wh) => (await lotsOf(db, itemId, wh))[0].id;
@@ -605,6 +626,28 @@ async function scenario(t, db) {
   const freeDraft = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: freeItem, qty: 4 }]);
   const postDef = await fnDef('public.post_transfer(uuid,integer,text,uuid)');
   const LIFO = ['order by l.expiry_on asc nulls last, l.fifo_seq, l.id', 'order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id'];
+  const LIFO_PLAN = ['over (order by l.expiry_on asc nulls last, l.fifo_seq, l.id)', 'over (order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id)'];
+  // WP5: الصرف والجرد بدوالّهم داخل معاملة الضابط (صاحب الجداول بهويّة المالك)، والدالّة المكسورة قبلهم.
+  const useDef = await fnDef('public.post_stock_use(uuid,integer,text,uuid)');
+  const voidUseDef = await fnDef('public.void_stock_use(uuid,text,uuid)');
+  const countDef = await fnDef('public.post_count(uuid,integer,text,uuid)');
+  const voidCountDef = await fnDef('public.void_count(uuid,text,uuid)');
+  const snapshotDef = await fnDef('private.count_snapshot(uuid,date,public.stock_count_lines)');
+  const upkeep = (await db.admin("select id from public.expense_categories where org_id = $1 and name = 'صيانة'", [S.org])).rows[0].id;
+  const postUse = async (q, wh, lines) => {
+    const use = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [wh, upkeep, TODAY])).rows[0].id;
+    for (const line of lines) await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit, lot_id) values ($1, $2, $3, $4)', [use, line.item, line.qty, line.lot ?? null]);
+    await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+    return use;
+  };
+  const postCount = async (q, wh, itemId, counted) => {
+    const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [wh, TODAY])).rows[0].id;
+    await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [count, itemId, counted]);
+    await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
+    await q("update public.stock_count_lines set reason = 'ضابط', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
+    await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
+    return count;
+  };
   const BREAKS = {
     balance_identity: [{ balance_identity: 1 }, (q) => q('update public.stock_balances set qty = qty + 1 where item_id = $1 and warehouse_id = $2', [I.diesel, W.farm1])],
     // دفعة بلا حركتها الأصلية بمخزن عنده صفّ رصيد: المتبقّي صفر فالأرصدة والمجاميع ما تتغيّر، وبلا سطر ولا حركة فـdoc_moves ما يشوفها.
@@ -645,7 +688,7 @@ async function scenario(t, db) {
     // 10: السحب من الأحدث (LIFO): 50 لتراً بـ150.00 بدل 50.00، والقطعة ومرآتها متساويتان.
     draw_order: [{ draw_order: 1 }, async (q) => {
       await q(swap(drawDef, ...LIFO));
-      await q(swap(planDef, 'over (order by l.expiry_on asc nulls last, l.fifo_seq, l.id)', 'over (order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id)'));
+      await q(swap(planDef, ...LIFO_PLAN));
       await viaPreview(q, lifoDraft);
     }],
     // 11: دفعة افتتاح بضعف كمية سطرها (وحركتها نفسها)، فكلفة الوحدة نصّ: الدفعة وحركتها والقيمة متّفقة، والمستند وحده يختلف.
@@ -654,6 +697,17 @@ async function scenario(t, db) {
       def = swap(def, 'ln.id, ln.qty_base, ln.value, d.on_date', 'ln.id, ln.qty_base * 2, ln.value, d.on_date');
       await q(def);
       await q('select public.post_opening_stock($1, $2, gen_random_uuid())', [doubleDraft.id, doubleDraft.version]);
+    }],
+    // 12 (WP5): مصروف الصرف بقيمة سطره الأخير بس (مجموع غلط) لصرف بسطرين: المصروف ≠ سحبه، والحفظ ينقص بقيمة السطر الأوّل.
+    use_expense: [{ value_conservation: 1, use_expense: 1 }, async (q) => {
+      await q(swap(useDef, 'private.write_stock_expense(c.id, w.division_id, v_total,', 'private.write_stock_expense(c.id, w.division_id, v_line_value,'));
+      await postUse(q, W.general, [{ item: oil, qty: 2 }, { item: oil, qty: 3 }]);
+    }],
+    // 13 (WP5): لقطة السطر مقلوبة (نقص 5 لترات بـ2,500.00 ينكتب زيادة): النقص ≠ سحبه (السطر)، ومجموع النقص ≠ «فرق جرد» (المستند)،
+    // والحفظ يحسب زيادة ما صارت.
+    count_values: [{ count_values: 2, value_conservation: 1 }, async (q) => {
+      await q(swap(countDef, 'values (d.org_id, ln.id, d.id, w.id, v_gain, v_short)', 'values (d.org_id, ln.id, d.id, w.id, v_short, v_gain)'));
+      await postCount(q, W.general, oil, 80);
     }],
   };
   t.same(Object.keys(BREAKS).sort(), Object.keys(STOCK_ZERO).sort(), `كل فحص بـverify_stock إله ضابط كسر (${Object.keys(STOCK_ZERO).length})`);
@@ -690,6 +744,84 @@ async function scenario(t, db) {
       await q('select public.void_transfer($1, $2, gen_random_uuid())', [halfTransfer.id, 'ضابط الإلغاء الناقص']);
     }]],
   };
+  // فروع WP5 بطفرات حقيقية: الإلغاء بلا عكس المصروف، ومصروف بوحدة ثانية أو بتصنيف ثاني، وزيادة بغير قيمة دفعتها، وإلغاء ناقص،
+  // والسحب بالأحدث للصرف والجرد، وسحب مسمّى من منتهية بعلامة الانتهاء.
+  Object.assign(EXTRA_BREAKS, {
+    'use_expense (إلغاء بلا عكس المصروف)': ['use_expense', [{ use_expense: 1, value_conservation: 1 }, async (q) => {
+      await q(swap(voidUseDef, '    r := private.reverse_stock_expense(e.id, v_reason);\n', '    null;\n'));
+      await q("select public.void_stock_use($1, 'ضابط', gen_random_uuid())", [wp5Doc.use]);
+    }]],
+    'use_expense (مصروف بوحدة غير وحدة المخزن)': ['use_expense', [{ use_expense: 1 }, async (q) => {
+      await q(swap(useDef, 'private.write_stock_expense(c.id, w.division_id, v_total,', 'private.write_stock_expense(c.id, (select x.id from public.divisions x where x.org_id = w.org_id and x.id <> w.division_id order by x.id limit 1), v_total,'));
+      await postUse(q, W.general, [{ item: oil, qty: 1 }]);
+    }]],
+    'count_values (إلغاء بلا عكس فرق الجرد)': ['count_values', [{ count_values: 1, value_conservation: 1 }, async (q) => {
+      await q(swap(voidCountDef, '    r := private.reverse_stock_expense(e.id, v_reason);\n', '    null;\n'));
+      await q("select public.void_count($1, 'ضابط', gen_random_uuid())", [wp5Doc.count]);
+    }]],
+    'count_values (فرق جرد بتصنيف غير count_diff)': ['count_values', [{ count_values: 1 }, async (q) => {
+      await q(swap(countDef, "and system_code = 'count_diff';", "and system_code = 'expired_destroy';"));
+      await postCount(q, W.general, oil, 80);
+    }]],
+    'count_values (زيادة بقيمة غير دفعتها)': ['count_values', [{ count_values: 1, value_conservation: 1 }, async (q) => {
+      await q(swap(countDef, 'v_gain := v_gain + v_val;\n', 'v_gain := v_gain + v_val + 1;\n'));
+      await postCount(q, W.general, oil, 90);
+    }]],
+    // صرف 150 لتراً من دفعتين (100 بـ100.00 و50 بـ150.00)، والإلغاء يعكس الأولى بس والمصروف كلّه.
+    'doc_moves (إلغاء صرف ناقص)': ['doc_moves', [{ doc_moves: 2, use_expense: 1, value_conservation: 1 }, async (q) => {
+      await q(swap(voidUseDef, 'order by x.item_id, x.seq\n  loop', 'order by x.item_id, x.seq limit 1\n  loop'));
+      const use = await postUse(q, W.general, [{ item: lifoItem, qty: 150 }]);
+      await q("select public.void_stock_use($1, 'ضابط', gen_random_uuid())", [use]);
+    }]],
+    'doc_moves (إلغاء جرد ناقص)': ['doc_moves', [{ doc_moves: 2, value_conservation: 1 }, async (q) => {
+      await q(swap(voidCountDef, 'order by x.item_id, x.seq\n  loop', 'order by x.item_id, x.seq limit 1\n  loop'));
+      const count = await postCount(q, W.general, lifoItem, 50);
+      await q("select public.void_count($1, 'ضابط', gen_random_uuid())", [count]);
+    }]],
+    'draw_order (الصرف بالأحدث)': ['draw_order', [{ draw_order: 1 }, async (q) => {
+      await q(swap(drawDef, ...LIFO));
+      await q(swap(planDef, ...LIFO_PLAN));
+      await postUse(q, W.general, [{ item: lifoItem, qty: 50 }]);
+    }]],
+    'draw_order (نقص الجرد بالأحدث)': ['draw_order', [{ draw_order: 1 }, async (q) => {
+      await q(swap(drawDef, ...LIFO));
+      await q(swap(planDef, ...LIFO_PLAN));
+      await postCount(q, W.general, lifoItem, 150);
+    }]],
+    // مراجعة WP5 (الفحص 11 للجرد): فرق غير «المعدود − اللقطة»، ودفعة زيادة بغير يوم الجرد، ونقص صالح لمادّة تتابع الانتهاء بلا
+    // علامته (فالمنتهي كان يقدر ينسحب بلا ما يشوفه فحص).
+    'doc_moves (فرق الجرد غير المعدود − اللقطة)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(snapshotDef, 'diff := p_line.counted_qty - s.available;', 'diff := p_line.counted_qty - s.available - 1;'));
+      await postCount(q, W.general, oil, 80);
+    }]],
+    'doc_moves (دفعة زيادة بغير يوم الجرد)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(countDef, 'l := private.new_lot(ln.item_id, w.id, d.counted_on, ln.gain_expiry_on,', 'l := private.new_lot(ln.item_id, w.id, d.counted_on - 1, ln.gain_expiry_on,'));
+      await postCount(q, W.general, oil, 90);
+    }]],
+    'doc_moves (نقص صالح بلا علامة الانتهاء)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      await q(swap(countDef, "-dr.qty, -dr.value, d.counted_on, null, coalesce(i.tracks_expiry, false));", '-dr.qty, -dr.value, d.counted_on, null, false);'));
+      await postCount(q, W.medicine, vaccine2, 0);
+    }]],
+    // الثغرة نفسها (المراجعة): سحب النقص الصالح يتجاهل الانتهاء ويكتب علامته بلا، فينسحب لقاح منتهٍ كأنه صالح؛ الفحوص 6 و10 تعبره
+    // (العلامة بلا)، وقسمة السطر بانتهاء الدفعة بيوم الجرد تمسكه.
+    'doc_moves (نقص صالح من دفعة منتهية)': ['doc_moves', [{ doc_moves: 1 }, async (q) => {
+      const EXPIRY = 'and (not coalesce(v_tracks, false) or l.expiry_on is null or l.expiry_on >= p_date or (p_lot is not null and coalesce(p_allow_expired, false)))';
+      await q(swap(drawDef, EXPIRY, ''));
+      await q(swap(planDef, EXPIRY, ''));
+      await q(swap(countDef, "-dr.qty, -dr.value, d.counted_on, null, coalesce(i.tracks_expiry, false));", '-dr.qty, -dr.value, d.counted_on, null, false);'));
+      const have = (await q("select coalesce(sum(qty_left) filter (where expiry_on >= $3), 0)::text as ok, coalesce(sum(qty_left) filter (where expiry_on < $3), 0)::text as expired from public.stock_lots where item_id = $1 and warehouse_id = $2", [I.vaccine, W.medicine, TODAY])).rows[0];
+      if (!(Number(have.ok) >= 1 && Number(have.expired) >= 1)) throw new Error(`ضابط القسمة يحتاج لقاحاً صالحاً ومنتهياً: ${JSON.stringify(have)}`);
+      const count = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.medicine, TODAY])).rows[0].id;
+      await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty, counted_expired_qty) values ($1, $2, $3, $4)', [count, I.vaccine, Number(have.ok) - 1, have.expired]);
+      await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [count]);
+      await q("update public.stock_count_lines set reason = 'ضابط', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1", [count]);
+      await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [count]);
+    }]],
+    'draw_dates (سحب مسمّى من منتهية بعلامة الانتهاء)': ['draw_dates', [{ draw_dates: 1 }, async (q) => {
+      await q(swap(useDef, "perform private.apply_move(dr.lot_id, 'stock_use', d.id, ln.id, -dr.qty, -dr.value, d.used_on, null, false);", "perform private.apply_move(dr.lot_id, 'stock_use', d.id, ln.id, -dr.qty, -dr.value, d.used_on, null, true);"));
+      await postUse(q, W.medicine, [{ item: I.vaccine, qty: 1, lot: expiredVial.id }]);
+    }]],
+  });
   for (const [check, [expected, statements]] of [...Object.entries(BREAKS), ...Object.entries(EXTRA_BREAKS).map(([label, [, probe]]) => [label, probe])]) {
     const broken = await probe(statements);
     const many = Object.entries(expected).filter(([, v]) => v === 'many').map(([k]) => k);

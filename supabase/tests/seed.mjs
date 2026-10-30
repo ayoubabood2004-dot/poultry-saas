@@ -6,6 +6,8 @@
 // والطريق الثاني: قيد افتتاح للجهة، أو رصيد افتتاحي للصندوق، أو وحدة تعبئة للمورّد: كل وحدة توقف التراجع بصوت.
 // WP4 (0007): البذرة نفسها (المواد والمخازن، بلا مستند مخزون، فالتراجع يكمل ويشيل مشغّلَي التجميد والأرشفة). والطريق الثاني:
 // مسوّدة افتتاح (المدير) أو مسوّدة تحويل (الأمين): كل مستند مخزون، ولو مسوّدة، يوقف التراجع بصوت.
+// WP5 (0008): البذرة نفسها (بلا مصروف ولا صرف ولا جرد، فالتراجع يكمل). والطريق الثاني: مصروف نقدي (المدير) أو مسوّدة صرف أو
+// مسوّدة جرد (الأمين): كل وحدة توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -112,6 +114,27 @@ const stockSeed = (kind) => async (db) => {
 
 const STOCK_CONDITION = 'v_openings > 0 or v_transfers > 0';
 
+/** بعد البذرة الحقيقية: مصروف نقدي من الصندوق على الوحدة العامّة (المدير)، أو مسوّدة صرف أو مسوّدة جرد بالمخزن العامّ (الأمين). */
+const wp5Seed = (kind) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(
+    kind === 'expense' ? U.manager : U.storekeeper,
+    async (q) => {
+      const general = await value(q, "select id from public.warehouses where kind = 'general'");
+      if (kind === 'expense') {
+        const category = await value(q, "insert into public.expense_categories (name) values ('كهرباء') returning id");
+        const division = await value(q, "select id from public.divisions where kind = 'general'");
+        const box = await value(q, "select id from public.cash_accounts where name = 'الصندوق'");
+        await q("select public.record_expense($1, $2, $3, 1000, public.app_today(), 'cash', $4, null, null, null, null, null, null, null, $5)", [REF(5), category, division, box, REF(6)]);
+      } else if (kind === 'use') await q('insert into public.stock_uses (warehouse_id, used_on) values ($1, public.app_today())', [general]);
+      else await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, public.app_today())', [general]);
+    },
+    { commit: true },
+  );
+};
+
+const WP5_CONDITION = 'v_expenses > 0 or v_uses > 0 or v_counts > 0';
+
 /**
  * الطريق الثاني لملف تراجع (الخطّة WP2): بذور يلزم التراجع يرفضها بصوت برمزها، والكتالوج والبيانات تبقى كما هي. بالرقم،
  * وكل رقم قائمة حالات. 0005: نطاق بموقع وحده ونطاق بمخزن وحده، كل وحدة بحالتها، حتى شرط الرفض (site_id أو warehouse_id)
@@ -175,6 +198,29 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(STOCK_CONDITION, 'v_openings > 0'),
     },
   ],
+  8: [
+    {
+      name: 'مصروف نقدي',
+      code: 'rollback_blocked',
+      seed: wp5Seed('expense'),
+      data: "select (select count(*) from public.expenses)::text || '/' || (select count(*) from public.cash_moves)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(WP5_CONDITION, 'v_uses > 0 or v_counts > 0'),
+    },
+    {
+      name: 'مسوّدة صرف',
+      code: 'rollback_blocked',
+      seed: wp5Seed('use'),
+      data: "select (select count(*) from public.stock_uses)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(WP5_CONDITION, 'v_expenses > 0 or v_counts > 0'),
+    },
+    {
+      name: 'مسوّدة جرد',
+      code: 'rollback_blocked',
+      seed: wp5Seed('count'),
+      data: "select (select count(*) from public.stock_counts)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(WP5_CONDITION, 'v_expenses > 0 or v_uses > 0'),
+    },
+  ],
 };
 
 /** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
@@ -182,4 +228,5 @@ export const BLOCKING_REQUIRED = [
   [5, 2, 'نطاق بموقع ونطاق بمخزن، كل وحدة توقف التراجع'],
   [6, 3, 'قيد جهة وحركة صندوق ووحدة تعبئة لمورّد، كل وحدة توقف التراجع'],
   [7, 2, 'مسوّدة افتتاح ومسوّدة تحويل، كل وحدة توقف التراجع'],
+  [8, 3, 'مصروف نقدي ومسوّدة صرف ومسوّدة جرد، كل وحدة توقف التراجع'],
 ];

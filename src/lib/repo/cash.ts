@@ -233,3 +233,194 @@ export async function voidCashMove(clientRef: string, moveId: string, reason: st
   const json = object(await call<unknown>('void_cash_move', { p_id: moveId, p_reason: reason, p_client_ref: clientRef }), 'void_cash_move');
   return { id: str(json, 'id') };
 }
+
+// ─── المصاريف (0008، FOUNDATION ٥٥٧، Q13، Q14، E10) ─────────────────────────────────────────────────────────────
+// التسجيل نقداً من صندوق أو بالدين على جهة بدفتر وحدتها (المفقس بدفتر يُسمّى صراحةً)، والإلغاء بصفّ عكسي؛ والقائمة ومجاميعها من
+// report_expenses بالخادم (§2.8، مو جمع الصفوف المحمّلة). مصاريف الصرف والجرد (stock) تنعرض هنا وتُلغى من مستندها.
+
+export type ExpenseSource = 'cash' | 'credit' | 'stock' | 'adjustment';
+const EXPENSE_SOURCES: readonly ExpenseSource[] = ['cash', 'credit', 'stock', 'adjustment'];
+
+const sourceOf = (row: Row, field: string): ExpenseSource => {
+  const value = row[field];
+  if (typeof value !== 'string' || !(EXPENSE_SOURCES as readonly string[]).includes(value)) throw new LedgerShapeError(field);
+  return value as ExpenseSource;
+};
+
+export interface ExpenseRow {
+  id: string;
+  onDate: Day;
+  /** الشهر اللي ينتسب إله (Q14): أوّل يوم بالشهر. */
+  forMonth: Day;
+  categoryId: string;
+  categoryName: string;
+  /** تصنيف نظامي («فرق جرد»، «إتلاف منتهي»…) أو null. */
+  systemCode: string | null;
+  divisionId: string;
+  source: ExpenseSource;
+  accountName: string | null;
+  partyName: string | null;
+  bookCode: string | null;
+  siteName: string | null;
+  docKind: string | null;
+  docId: string | null;
+  /** رقم مستند الصرف أو الجرد. */
+  docNo: string | null;
+  note: string | null;
+  reason: string | null;
+  /** صفّ إلغاء لمصروف سابق (مبلغه سالب). */
+  reverses: string | null;
+  /** أُلغي بصفّ عكسي. */
+  reversed: boolean;
+  amount: Fils;
+}
+
+export interface ExpenseTotals {
+  total: Fils;
+  count: number;
+  byCategory: readonly { categoryId: string; name: string; systemCode: string | null; amount: Fils }[];
+  bySource: readonly { source: ExpenseSource; amount: Fils }[];
+  byMonth: readonly { forMonth: Day; amount: Fils }[];
+}
+
+export interface ExpenseReport {
+  /** أوّل شهر المدّة وآخر يوم بيها: المجاميع بشهر النسبة (for_month)، فالمدّة أشهر كاملة. */
+  from: string;
+  to: string;
+  /** وحدات نطاق القارئ من وحدات المنشأة (E49): المحصور يشوف مجاميع وحداته بس. */
+  divisions: { visible: number; total: number };
+  rows: readonly ExpenseRow[];
+  /** مؤشّر الصفحة الجاية كما رجّعه الخادم (يرجع له كما هو)، أو null. */
+  next: Row | null;
+  totals: ExpenseTotals;
+}
+
+const whole = (row: Row, field: string): number => {
+  const value = row[field];
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw new LedgerShapeError(field);
+  return value;
+};
+
+export function parseExpenseReport(value: unknown): ExpenseReport {
+  const json = object(value, 'report_expenses');
+  const totals = object(json.totals, 'totals');
+  const divisions = object(json.divisions, 'divisions');
+  return {
+    from: str(json, 'from'),
+    to: str(json, 'to'),
+    divisions: { visible: whole(divisions, 'visible'), total: whole(divisions, 'total') },
+    rows: list(json.rows, 'rows').map((item) => {
+      const row = object(item, 'rows');
+      return {
+        id: str(row, 'id'),
+        onDate: str(row, 'on_date'),
+        forMonth: str(row, 'for_month'),
+        categoryId: str(row, 'category_id'),
+        categoryName: str(row, 'category_name'),
+        systemCode: optStr(row, 'system_code'),
+        divisionId: str(row, 'division_id'),
+        source: sourceOf(row, 'source'),
+        accountName: optStr(row, 'account_name'),
+        partyName: optStr(row, 'party_name'),
+        bookCode: optStr(row, 'book_code'),
+        siteName: optStr(row, 'site_name'),
+        docKind: optStr(row, 'doc_kind'),
+        docId: optStr(row, 'doc_id'),
+        docNo: optStr(row, 'doc_no'),
+        note: optStr(row, 'note'),
+        reason: optStr(row, 'reason'),
+        reverses: optStr(row, 'reverses'),
+        reversed: flag(row, 'reversed'),
+        amount: filsOf(row, 'amount'),
+      };
+    }),
+    next: json.next === null || json.next === undefined ? null : object(json.next, 'next'),
+    totals: {
+      total: filsOf(totals, 'total'),
+      count: whole(totals, 'count'),
+      byCategory: list(totals.by_category, 'by_category').map((item) => {
+        const row = object(item, 'by_category');
+        return { categoryId: str(row, 'category_id'), name: str(row, 'name'), systemCode: optStr(row, 'system_code'), amount: filsOf(row, 'amount') };
+      }),
+      bySource: list(totals.by_source, 'by_source').map((item) => {
+        const row = object(item, 'by_source');
+        return { source: sourceOf(row, 'source'), amount: filsOf(row, 'amount') };
+      }),
+      byMonth: list(totals.by_month, 'by_month').map((item) => {
+        const row = object(item, 'by_month');
+        return { forMonth: str(row, 'for_month'), amount: filsOf(row, 'amount') };
+      }),
+    },
+  };
+}
+
+export const EXPENSES_PAGE = 50;
+
+/** المصاريف المنسوبة لأشهر المدّة (من شهر from لحد to)، بوحدة أو كلها، بصفحات؛ والمجاميع للمدّة كلها من الخادم. */
+export async function loadExpenses(from: Day, to: Day, divisionId: string | null, after: Row | null = null): Promise<ExpenseReport> {
+  return parseExpenseReport(await call<unknown>('report_expenses', { p_from: from, p_to: to, p_division: divisionId, p_after: after, p_limit: EXPENSES_PAGE }));
+}
+
+export interface ExpenseInput {
+  categoryId: string;
+  divisionId: string;
+  /** بالدينار الصحيح. */
+  amount: Fils;
+  onDate: Day;
+  /** الشهر اللي ينتسب إله (Q14): شهر التاريخ أو قبله؛ null = شهر التاريخ. */
+  forMonth: Day | null;
+  source: 'cash' | 'credit';
+  accountId: string | null;
+  partyId: string | null;
+  /** null = دفتر الوحدة الرئيسي (المفقس يسمّيه صراحةً). */
+  bookId: string | null;
+  siteId: string | null;
+  note: string | null;
+}
+
+/** تسجيل مصروف (expense.post) بمعرّف ومرجع ثابتين لحد ما تنعرف النتيجة. الفوج ووجبة الفقس يجون بالمرحلتين 3 و5 (Q13). */
+export async function recordExpense(ref: PostRef, input: ExpenseInput): Promise<CashPosted> {
+  return parseCashPosted(
+    await call<unknown>('record_expense', {
+      p_id: ref.id,
+      p_category: input.categoryId,
+      p_division: input.divisionId,
+      p_amount: dinarText(input.amount),
+      p_on_date: input.onDate,
+      p_source: input.source,
+      p_account: input.source === 'cash' ? input.accountId : null,
+      p_party: input.source === 'credit' ? input.partyId : null,
+      p_book: input.source === 'credit' ? input.bookId : null,
+      p_site: input.siteId,
+      p_flock: null,
+      p_hatch_batch: null,
+      p_note: input.note?.trim() || null,
+      p_for_month: input.forMonth,
+      p_client_ref: ref.clientRef,
+    }),
+  );
+}
+
+/** إلغاء مصروف نقدي أو بالدين (void) بصفّ عكسي؛ مصروف مستند (system_expense) يُلغى من مستنده. */
+export async function voidExpense(clientRef: string, id: string, reason: string): Promise<{ id: string }> {
+  const json = object(await call<unknown>('void_expense', { p_id: id, p_reason: reason, p_client_ref: clientRef }), 'void_expense');
+  return { id: str(json, 'id') };
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  /** تصنيف نظامي يكتبه النظام بمستنداته (ما ينختار للمصروف). */
+  systemCode: string | null;
+  archived: boolean;
+}
+
+/** تصنيفات المصاريف (للنموذج: الفعّالة غير النظامية). قراءة بسياسة المنشأة؛ قائمة قصيرة بطبيعتها. */
+export async function listExpenseCategories(): Promise<ExpenseCategory[]> {
+  const { result, wasOnline } = await send(
+    (db) => db.from('expense_categories').select('id, name, system_code, archived_at').order('name') /* unbounded: تصنيفات المنشأة، عشرات */,
+    (answer) => [answer],
+  );
+  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
+  return ((result.data ?? []) as unknown as Row[]).map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), systemCode: optStr(row, 'system_code'), archived: row.archived_at !== null && row.archived_at !== undefined }));
+}

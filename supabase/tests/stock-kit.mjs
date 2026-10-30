@@ -16,6 +16,8 @@ export const STOCK_ZERO = {
   draw_values: 0,
   draw_order: 0,
   doc_moves: 0,
+  use_expense: 0,
+  count_values: 0,
 };
 
 /** verify_stock كخريطة اسم ← عدد (بمفتاح الخادم، أو بالاستعلام المعطى داخل معاملة ضابط). */

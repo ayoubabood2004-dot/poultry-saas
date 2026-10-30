@@ -51,6 +51,11 @@ export function violatedConstraint(message: string | undefined): string | null {
   return /check constraint "([^"]+)"/.exec(message ?? '')?.[1] ?? null;
 }
 
+/** اسم القيد الفريد المكسور (23505): مفتاح الصفّ (إعادة بمعرّف الجهاز = انكتب) غير مفتاح ثاني (مادّة مكرّرة بالجرد). */
+export function violatedUnique(message: string | undefined): string | null {
+  return /unique constraint "([^"]+)"/.exec(message ?? '')?.[1] ?? null;
+}
+
 /** جملة القيد المجهول (أو حين يتعذّر تحميل القاموس): تسمّيه، والشاشة ما تسكت بيها. */
 export function unknownConstraint(name: string | null): string {
   return t('constraint.unknown', 'رفضت قاعدة البيانات قيمةً لا تحقّق القيد «{name}»، فلم يُحفظ شيء.', { name: name ?? '?' });
@@ -97,6 +102,7 @@ export function classifyPostgrest(error: PostgrestFailure, status: number, kind:
   if (code === '40P01' || code === '55P03') return new RetryableError(code);
   // قيد check: باسمه، وجملته الفصيحة من القاموس الكسول (explained)، مو «الخادم رفض (23514)» (FOUNDATION ٨٠٨).
   if (code === '23514') return new RejectedError('check_violation', null, violatedConstraint(error.message));
+  if (code === '23505') return new RejectedError(code, null, violatedUnique(error.message));
   if (/^PGRST00[0-3]$/.test(code) || (status === 503 && !code)) return new NetworkError('db_unavailable');
   if (status === 502 || status === 504 || (status >= 520 && status <= 527)) return wasOnline ? new UnknownOutcomeError('gateway') : new NetworkError();
   // fetch ما كمل (supabase-js يرجّع status 0 بلا رمز): بلا اتصال ما طلع، وبالاتصال ممكن وصل.

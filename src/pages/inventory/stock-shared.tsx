@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Field } from '../../components/ui/Field';
 import type { QtyUnitOption } from '../../components/ui/QtyInput';
 import { Dialog } from '../../components/ui/Dialog';
@@ -201,7 +201,7 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
       <Field id={id} label={label}>
         <div className="flex items-center justify-between gap-2 rounded-2xl border border-line bg-surface-2 px-3 py-2">
           <span className="font-medium">{value.name}</span>
-          <Button variant="ghost" size="sm" onClick={() => onChange(null)} data-action="change-item">
+          <Button variant="ghost" onClick={() => onChange(null)} data-action="change-item">
             {t('stock.item.change', 'غيّر')}
           </Button>
         </div>
@@ -229,7 +229,7 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
         <ul className="mt-1 flex max-h-56 flex-col overflow-auto rounded-2xl border border-line bg-surface-1">
           {rows.map((row) => (
             <li key={row.id}>
-              <button type="button" className="w-full px-3 py-2 text-start hover:bg-surface-2" onClick={() => onChange(row)} data-action="pick-item">
+              <button type="button" className="w-full px-3 py-3 text-start hover:bg-surface-2" onClick={() => onChange(row)} data-action="pick-item">
                 {row.name}
               </button>
             </li>
@@ -307,6 +307,30 @@ export function stockRef(slot: string): StockRef {
   return fresh;
 }
 
+/**
+ * معرّف مسوّدة جديدة يولد بالجهاز لقيم نموذجها: نفس القيم ترجّع نفس المعرّف (الإعادة بعد جواب ضاع 23505 = انكتبت فتنفتح)، وقيم ثانية
+ * معرّف ثاني (مسوّدة ضاع جوابها ما تنفتح بقيم غير قيمها). والمراجعة الثالثة لـWP5: المعرّف كان يتجدّد بكل تغيير، فتبديل حقل ورجوعه
+ * بعد جواب ضاع يولّد مسوّدة ثانية بنفس القيم. forget للرفض الأكيد (المحاولة الجاية بمعرّف جديد).
+ */
+export function useDraftIds(): { idFor: (values: string) => string; forget: (values: string) => void } {
+  const ids = useRef(new Map<string, string>());
+  return useMemo(
+    () => ({
+      idFor: (values) => {
+        const known = ids.current.get(values);
+        if (known) return known;
+        const fresh = crypto.randomUUID();
+        ids.current.set(values, fresh);
+        return fresh;
+      },
+      forget: (values) => {
+        ids.current.delete(values);
+      },
+    }),
+    [],
+  );
+}
+
 export type RunOutcome<R> = { kind: 'done'; result: R } | { kind: 'recorded' } | { kind: 'failed'; error: unknown };
 
 export async function runWithRef<R>(slot: string, post: (ref: StockRef) => Promise<R>): Promise<RunOutcome<R>> {
@@ -362,7 +386,7 @@ export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, on
 }
 
 /** وحدات الإدخال: وحدة الأساس، والطن للكيلو، ووحدات تعبئة المادّة (المعامل لقطة على السطر، E7). */
-export function unitOptions(item: ItemRow, packs: readonly inventory.ItemUnitRow[]): QtyUnitOption[] {
+export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inventory.ItemUnitRow[]): QtyUnitOption[] {
   const out: QtyUnitOption[] = [{ id: 'base', label: baseUnitLabel(item.baseUnit), factor: { units: 1n, scale: 0 } }];
   if (item.baseUnit === 'kg') out.push({ id: 'code:t', label: t('unit.t', 'طن'), factor: { units: 1000n, scale: 0 } });
   for (const pack of packs.filter((p) => !p.archived)) out.push({ id: pack.id, label: pack.label, factor: { units: pack.factor, scale: 6 } });

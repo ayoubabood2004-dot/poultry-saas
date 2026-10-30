@@ -1,14 +1,16 @@
 import { Route, Routes } from 'react-router-dom';
 import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
+import { CountDocPage, CountsList } from './CountsPage';
 import ItemCardPage from './ItemCardPage';
 import { OpeningDoc, OpeningsList } from './OpeningsPage';
 import StockBoardPage from './StockBoardPage';
 import { TransferDoc, TransfersList } from './TransfersPage';
+import { UseDocPage, UsesList } from './UsesPage';
 
 // شاشات المخزون (المرحلة 1 WP4) تحت /inventory بحزمة كسولة وحدة، ومساراتها هنا (نفس طريقة AccountsRoutes بـWP3): اللوحة لكل
 // المخازن ولمخزن الأدوية وللمخازن العامة ولمخازن المعمل والمفقس (من صفحتي وحدتيهما، لمشغّليهما هم)، وبطاقة المادّة، ومستندات
-// الافتتاح والتحويل. كلها تحتاج الخادم، فهي برّا التثبيت المسبق
+// الافتتاح والتحويل، والصرف والإتلاف والجرد (WP5). كلها تحتاج الخادم، فهي برّا التثبيت المسبق
 // بالاسم (StockRoutes، DECISIONS «السقوف المقيسة»). صفحة المواد (/inventory/items) مسارها الثابت بالقشرة يغلب هذا المسار.
 
 export default function StockRoutes() {
@@ -24,6 +26,10 @@ export default function StockRoutes() {
       <Route path="openings/:id" element={<OpeningDoc />} />
       <Route path="transfers" element={<TransfersList />} />
       <Route path="transfers/:id" element={<TransferDoc />} />
+      <Route path="uses" element={<UsesList />} />
+      <Route path="uses/:id" element={<UseDocPage />} />
+      <Route path="counts" element={<CountsList />} />
+      <Route path="counts/:id" element={<CountDocPage />} />
       <Route path="*" element={<Notice tone="info" title={t('stock.not_found', 'هذه الصفحة غير موجودة في المخزون.')} />} />
     </Routes>
   );
