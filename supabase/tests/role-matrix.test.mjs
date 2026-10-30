@@ -131,6 +131,65 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // المرحلة 1 (WP5): تصنيف مصروف، ومصروف نقدي مرحَّل من المصرف (لإلغائه)، وزيت محرّكات بافتتاح 200 لتر بـ100,000 بالمخزن العامّ:
+  // صرف مرحَّل 10 لترات (لإلغائه) ومسوّدة صرف 5 لترات، وجرد مرحَّل بنقص لتر (لإلغائه)، وجرد مسلَّم (زيت بنقص لترين وسببه، وكاز أبيض
+  // بلا فرق)، ومسوّدة جرد (لتسليمها)، وكلفة زيادة على سطر الزيت المسلَّم (لتعديلها).
+  const wp5 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const version = async (table, docId) => one(`select version from public.${table} where id = $1`, [docId]);
+      const category = await one("insert into public.expense_categories (name) values ('نقل') returning id");
+      const expense = await one("select (public.record_expense(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'cash', $3, null, null, null, null, null, null, null, gen_random_uuid())) ->> 'id'", [category, general, ledger.bank]);
+      const oil = await one("insert into public.items (name, kind, base_unit) values ('زيت محرّكات', 'fuel', 'L') returning id");
+      const opening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [generalStore]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 200, 100000)', [opening, oil]);
+      await q('select public.post_opening_stock($1, $2, gen_random_uuid())', [opening, await version('opening_docs', opening)]);
+      const use = async (qty) => {
+        const doc = await one('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today()) returning id', [generalStore, category]);
+        const line = await one('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3) returning id', [doc, oil, qty]);
+        return { doc, line };
+      };
+      const usePosted = await use(10);
+      await q("select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [usePosted.doc, await version('stock_uses', usePosted.doc)]);
+      const useDraft = await use(5);
+      const count = async (lines) => {
+        const doc = await one('insert into public.stock_counts (warehouse_id, counted_on) values ($1, public.app_today()) returning id', [generalStore]);
+        const ids = [];
+        for (const [item, qty] of lines) ids.push(await one('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3) returning id', [doc, item, qty]));
+        return { doc, lines: ids };
+      };
+      const approved = await count([[oil, 189]]);
+      await q('select public.submit_count($1, $2, gen_random_uuid())', [approved.doc, await version('stock_counts', approved.doc)]);
+      await q("update public.stock_count_lines set reason = 'تسرّب' where doc_id = $1", [approved.doc]);
+      await q("select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [approved.doc, await version('stock_counts', approved.doc)]);
+      const submitted = await count([[oil, 187], [stock.kerosene, 400]]);
+      await q('select public.submit_count($1, $2, gen_random_uuid())', [submitted.doc, await version('stock_counts', submitted.doc)]);
+      await q("update public.stock_count_lines set reason = 'تسرّب' where id = $1", [submitted.lines[0]]);
+      const cost = await one('insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 500) returning id', [submitted.lines[0]]);
+      const draft = await count([[oil, 189]]);
+      return {
+        category,
+        expense,
+        oil,
+        usePosted: usePosted.doc,
+        useDraft: useDraft.doc,
+        useDraftLine: useDraft.line,
+        useVersion: await version('stock_uses', useDraft.doc),
+        countApproved: approved.doc,
+        countSubmitted: submitted.doc,
+        countSubmittedLine: submitted.lines[1],
+        countSubmittedVersion: await version('stock_counts', submitted.doc),
+        cost,
+        countDraft: draft.doc,
+        countDraftLine: draft.lines[0],
+        countDraftVersion: await version('stock_counts', draft.doc),
+      };
+    },
+    { commit: true },
+  );
+  const COUNT_APPROVE = ['owner', 'manager'];
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -179,7 +238,7 @@ export default async function (t, db) {
     report_accounts_summary: { sql: () => ["select public.report_accounts_summary(public.app_today() - 30, public.app_today()) -> 'project' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
     report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: only(ACCOUNTS, 'ok:1') },
     report_party_statement: { sql: () => ["select jsonb_array_length(public.report_party_statement($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
-    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:350000') },
+    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:349000') },
     report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
     home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000', 'ok:null') },
     find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
@@ -193,14 +252,28 @@ export default async function (t, db) {
     preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: only(TRANSFER, 'ok:true') },
     discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
-    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:3', 'out_of_scope') },
     item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
     item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
-    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 380000 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 380000 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 474500 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 474500 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
     item_lots_value: { sql: () => ["select (public.item_lots_value($1, $2, null, 50) -> 'rows' -> 0 ->> 'value_left')::numeric = 300000 as v", [stock.kerosene, generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
     // علامة «مؤرشف وعليه رصيد» لقائمة المخازن (§2.6): بلا قيم، لكل دور بنطاقه (ماكو مخزن مؤرشف هنا؛ الضابط الإيجابي بـstock.test).
     archived_stores_with_stock: { sql: () => ['select jsonb_array_length(public.archived_stores_with_stock()) as v', []], value: true, expect: all('ok:0') },
+    // المرحلة 1 (WP5، §2.12): المصروف للمحاسب والمدير (expense.post)، والصرف ومعاينته وتسليم الجرد للأمين والمدير (stock_use.post
+    // وcount.enter، والمحاسب ممنوع)، ومراجعة الجرد وترحيله للمدير (count.approve)، وكل إلغاء للمدير (void)، والتقرير لأدوار الكلفة.
+    record_expense: { sql: () => ["select public.record_expense(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'cash', $3, null, null, null, null, null, null, null, gen_random_uuid())", [wp5.category, general, ledger.bank]], expect: only(ACCOUNTS) },
+    void_expense: { sql: () => ["select public.void_expense($1, 'مصروف مكرّر', gen_random_uuid())", [wp5.expense]], expect: only(['owner', 'manager']) },
+    post_stock_use: { sql: () => ["select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [wp5.useDraft, wp5.useVersion]], expect: only(TRANSFER) },
+    void_stock_use: { sql: () => ["select public.void_stock_use($1, 'صرف خاطئ', gen_random_uuid())", [wp5.usePosted]], expect: only(['owner', 'manager']) },
+    preview_stock_use: { sql: () => ["select public.preview_stock_use($1) ->> 'ready' as v", [wp5.useDraft]], value: true, expect: only(TRANSFER, 'ok:true') },
+    submit_count: { sql: () => ['select public.submit_count($1, $2, gen_random_uuid())', [wp5.countDraft, wp5.countDraftVersion]], expect: only(TRANSFER) },
+    refresh_count: { sql: () => ['select public.refresh_count($1, $2, gen_random_uuid())', [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
+    return_count: { sql: () => ["select public.return_count($1, $2, 'أعد العدّ', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
+    post_count: { sql: () => ["select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
+    void_count: { sql: () => ["select public.void_count($1, 'جرد خاطئ', gen_random_uuid())", [wp5.countApproved]], expect: only(['owner', 'manager']) },
+    preview_count: { sql: () => ["select public.preview_count($1) ->> 'ready' as v", [wp5.countSubmitted]], value: true, expect: only(COUNT_APPROVE, 'ok:true') },
+    report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: only(ACCOUNTS, 'ok:3') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -229,6 +302,12 @@ export default async function (t, db) {
     "delete_draft_line('opening')": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
     "discard_draft('opening') بنسخة قديمة": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
     "delete_draft_line('opening') بنسخة قديمة": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
+    // WP5: الصرف بـstock_use.post، ومسوّدة الجرد بـcount.enter، والجرد المسلَّم يطويه count.approve بس («أغلِق دون ترحيل»، E53).
+    "discard_draft('stock_use')": { sql: ["select public.discard_draft('stock_use', $1, $2) ->> 'status' as v", [wp5.useDraft, wp5.useVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
+    "delete_draft_line('stock_use')": { sql: ["select public.delete_draft_line('stock_use', $1, $2) ->> 'deleted' as v", [wp5.useDraftLine, wp5.useVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
+    "discard_draft('count') مسوّدة": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countDraft, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
+    "discard_draft('count') مسلَّم": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countSubmitted, wp5.countSubmittedVersion]], value: true, expect: only(COUNT_APPROVE, 'ok:void') },
+    "delete_draft_line('count')": { sql: ["select public.delete_draft_line('count', $1, $2) ->> 'deleted' as v", [wp5.countDraftLine, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};
@@ -255,6 +334,12 @@ export default async function (t, db) {
     Array(7).fill(['ok', 'forbidden']),
     'المدير ينجح بخانات المخزون التشغيلية (الافتتاح والتحويل والإلغاء والمسوّدات) والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
   );
+  t.same(
+    ['post_stock_use', 'void_stock_use', 'preview_stock_use', 'submit_count', 'refresh_count', 'return_count', 'post_count', 'void_count', 'preview_count', 'void_expense'].map((fn) => [ROWS[fn].expect.manager.split(':')[0], ROWS[fn].expect.accountant]),
+    Array(10).fill(['ok', 'forbidden']),
+    'المدير ينجح بالصرف والجرد ومراجعته وإلغائها وإلغاء المصروف والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
+  );
+  t.same([ROWS.record_expense.expect.accountant, ROWS.report_expenses.expect.accountant], ['ok', 'ok:3'], 'المحاسب يسجّل المصروف ويقرأ تقريره');
 
   // ── الكتابة المباشرة بالبيانات الأساسية (Q1، §2.12): كل جدول × دور، إدخال وتعديل، والمسموح بضابط إيجابي بكل خانة ─────────
   // الإدخال الممنوع يرفضه RLS (42501)، والتعديل الممنوع صفر صفوف (USING يحجب الصفّ). stores.manage للمالك والمدير، وفئات
@@ -337,6 +422,36 @@ export default async function (t, db) {
       insertDenied: 'forbidden',
       insert: ['insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [stock.draft, stock.kerosene]],
       update: ['update public.transfer_lines set qty_in_unit = qty_in_unit where id = $1', [stock.draftLine]],
+    },
+    // WP5 (§2.5): مسوّدة الصرف (stock_use.post) والجرد (count.enter، والسطر الممنوع يرفضه حارسه بـforbidden)، وكلفة سطر الجرد المسلَّم
+    // (count.approve، وحارسها يرفض الممنوع قبل RLS).
+    stock_uses: {
+      allowed: TRANSFER,
+      insert: ['insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today())', [generalStore, wp5.category]],
+      update: ['update public.stock_uses set note = note where id = $1', [wp5.useDraft]],
+    },
+    stock_use_lines: {
+      allowed: TRANSFER,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [wp5.useDraft, wp5.oil]],
+      update: ['update public.stock_use_lines set qty_in_unit = qty_in_unit where id = $1', [wp5.useDraftLine]],
+    },
+    stock_counts: {
+      allowed: TRANSFER,
+      insert: ['insert into public.stock_counts (warehouse_id, counted_on) values ($1, public.app_today())', [generalStore]],
+      update: ['update public.stock_counts set note = note where id = $1', [wp5.countDraft]],
+    },
+    stock_count_lines: {
+      allowed: TRANSFER,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 1)', [wp5.countDraft, stock.kerosene]],
+      update: ['update public.stock_count_lines set counted_qty = counted_qty where id = $1', [wp5.countDraftLine]],
+    },
+    stock_count_line_costs: {
+      allowed: COUNT_APPROVE,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 100)', [wp5.countSubmittedLine]],
+      update: ['update public.stock_count_line_costs set gain_unit_cost = gain_unit_cost where id = $1', [wp5.cost]],
     },
   };
   t.same(Object.keys(WRITES).sort(), Object.keys(CLASSES.directWrite).sort(), `الكتابة المباشرة تغطّي directWrite بـclasses.json بالضبط (${Object.keys(WRITES).length} جدول)`);

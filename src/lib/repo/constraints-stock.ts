@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { registerConstraintHints } from './constraints';
 
-// جمل قيود 0007 (الدفعات والحركات والأرصدة ومسوّدات الافتتاح والتحويل)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>،
+// جمل قيود 0007 (الدفعات والحركات والأرصدة ومسوّدات الافتتاح والتحويل) و0008 (الصرف والجرد)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>،
 // والحزمة (constraints.test) تقارن القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا inventory.ts بس (حزم شاشات المخزون، برّا
 // التثبيت المسبق). الدفعات والحركات والأرصدة تكتبها الدوالّ بس؛ قيودها إلها جملها حتى لو انخرقت بهجرة.
 
@@ -41,6 +41,39 @@ export const STOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   transfer_lines_unit_check: () => t('constraint.transfer_lines_unit_check', 'السطر بوحدة تعبئة أو بوحدة قياس، لا الاثنتين.'),
   transfer_lines_unit_label_check: () => t('constraint.transfer_lines_unit_label_check', 'اسم وحدة السطر مطلوب، ولا يزيد على 40 حرفاً.'),
   transfer_lines_line_no_check: () => t('constraint.transfer_lines_line_no_check', 'رقم سطر التحويل يبدأ من 1.'),
+  stock_uses_status_check: () => t('constraint.stock_uses_status_check', 'حالة مستند الصرف غير معروفة.'),
+  stock_uses_lifecycle_check: () => t('constraint.stock_uses_lifecycle_check', 'حالة مستند الصرف لا تناسب ختم ترحيله أو إلغائه.'),
+  stock_uses_numbered_check: () => t('constraint.stock_uses_numbered_check', 'مستند الصرف المرحَّل وحده برقم.'),
+  stock_uses_doc_no_check: () => t('constraint.stock_uses_doc_no_check', 'رقم الصرف بالشكل «SU-2026-0001».'),
+  stock_uses_version_check: () => t('constraint.stock_uses_version_check', 'نسخة المستند تبدأ من 1.'),
+  stock_uses_note_check: () => t('constraint.stock_uses_note_check', 'الملاحظة لا تزيد على 500 حرف.'),
+  stock_uses_void_reason_check: () => t('constraint.stock_uses_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  stock_use_lines_qty_in_unit_check: () => t('constraint.stock_use_lines_qty_in_unit_check', 'كمية سطر الصرف أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_use_lines_factor_check: () => t('constraint.stock_use_lines_factor_check', 'معامل الوحدة أكبر من صفر.'),
+  stock_use_lines_qty_base_check: () => t('constraint.stock_use_lines_qty_base_check', 'الكمية بوحدة الأساس أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_use_lines_unit_check: () => t('constraint.stock_use_lines_unit_check', 'السطر بوحدة تعبئة أو بوحدة من جدول الوحدات، لا بالاثنتين.'),
+  stock_use_lines_unit_label_check: () => t('constraint.stock_use_lines_unit_label_check', 'اسم الوحدة بين حرف و40 حرفاً.'),
+  stock_use_lines_line_no_check: () => t('constraint.stock_use_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  stock_counts_status_check: () => t('constraint.stock_counts_status_check', 'حالة الجرد غير معروفة.'),
+  stock_counts_lifecycle_check: () => t('constraint.stock_counts_lifecycle_check', 'حالة الجرد لا تناسب ختم تسليمه أو ترحيله أو إلغائه.'),
+  stock_counts_numbered_check: () => t('constraint.stock_counts_numbered_check', 'الجرد المرحَّل وحده برقم.'),
+  stock_counts_doc_no_check: () => t('constraint.stock_counts_doc_no_check', 'رقم الجرد بالشكل «CT-2026-0001».'),
+  stock_counts_version_check: () => t('constraint.stock_counts_version_check', 'نسخة المستند تبدأ من 1.'),
+  stock_counts_note_check: () => t('constraint.stock_counts_note_check', 'الملاحظة لا تزيد على 500 حرف.'),
+  stock_counts_return_reason_check: () => t('constraint.stock_counts_return_reason_check', 'سبب الإعادة للعدّ لا يزيد على 500 حرف.'),
+  stock_counts_void_reason_check: () => t('constraint.stock_counts_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
+  stock_count_lines_counted_qty_check: () => t('constraint.stock_count_lines_counted_qty_check', 'الكمية المعدودة صفر أو أكثر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_count_lines_counted_expired_qty_check: () => t('constraint.stock_count_lines_counted_expired_qty_check', 'الكمية المنتهية المعدودة صفر أو أكثر، بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_count_lines_system_qty_check: () => t('constraint.stock_count_lines_system_qty_check', 'رصيد الدفتر بالجرد صفر أو أكثر.'),
+  stock_count_lines_system_expired_qty_check: () => t('constraint.stock_count_lines_system_expired_qty_check', 'رصيد المنتهي بالجرد صفر أو أكثر.'),
+  stock_count_lines_diff_check: () => t('constraint.stock_count_lines_diff_check', 'فرق الجرد بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_count_lines_expired_diff_check: () => t('constraint.stock_count_lines_expired_diff_check', 'فرق المنتهي بثلاث مراتب عشرية كحدّ أقصى.'),
+  stock_count_lines_snapshot_check: () => t('constraint.stock_count_lines_snapshot_check', 'رصيد الدفتر وفرقه يُكتبان معاً عند التسليم.'),
+  stock_count_lines_reason_check: () => t('constraint.stock_count_lines_reason_check', 'سبب الفرق لا يكون فارغاً، ولا يزيد على 500 حرف.'),
+  stock_count_lines_line_no_check: () => t('constraint.stock_count_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  stock_count_line_costs_gain_unit_cost_check: () => t('constraint.stock_count_line_costs_gain_unit_cost_check', 'كلفة وحدة الزيادة صفر أو أكثر، بأربع مراتب عشرية كحدّ أقصى.'),
+  stock_count_line_costs_gain_value_check: () => t('constraint.stock_count_line_costs_gain_value_check', 'قيمة الزيادة صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  stock_count_line_costs_shortage_value_check: () => t('constraint.stock_count_line_costs_shortage_value_check', 'قيمة النقص صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
 };
 
 registerConstraintHints(STOCK_CONSTRAINT_HINTS);

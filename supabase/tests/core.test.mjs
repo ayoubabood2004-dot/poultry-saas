@@ -251,6 +251,40 @@ export default async function (t, db) {
     );
   }
 
+  // المرحلة 1 (0008): مصروف نقدي، وصرف مرحَّل (ويّاه مصروف مخزون)، وجرد مرحَّل بنقص (ويّاه كلفة سطره و«فرق جرد»)، فبكل جدول جديد
+  // صفوف للطرفين؛ ومسوّدة صرف وجرد مسلَّم لمعاينتيهما.
+  const wp5Of = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    const { general, fuel } = stockOf[key];
+    const { box } = ledgerOf[key];
+    wp5Of[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const division = await value(q, "select id from public.divisions where kind = 'general'");
+        const category = await value(q, "insert into public.expense_categories (name) values ('كهرباء') returning id");
+        await q("select public.record_expense(gen_random_uuid(), $1, $2, 25000, public.app_today(), 'cash', $3, null, null, null, null, null, 'فاتورة', null, gen_random_uuid())", [category, division, box]);
+        const use = async (qty) => {
+          const doc = await value(q, 'insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today()) returning id', [general, category]);
+          await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3)', [doc, fuel, qty]);
+          return doc;
+        };
+        const posted = await use(5);
+        await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [posted]);
+        const count = async (counted) => {
+          const doc = await value(q, 'insert into public.stock_counts (warehouse_id, counted_on) values ($1, public.app_today()) returning id', [general]);
+          await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [doc, fuel, counted]);
+          await q('select public.submit_count($1, (select version from public.stock_counts where id = $1), gen_random_uuid())', [doc]);
+          return doc;
+        };
+        const counted = await count(50);
+        await q("update public.stock_count_lines set reason = 'تبخّر' where doc_id = $1", [counted]);
+        await q("select public.post_count($1, (select version from public.stock_counts where id = $1), public.preview_count($1) ->> 'plan', gen_random_uuid())", [counted]);
+        return { division, category, useDraft: await use(1), countSubmitted: await count(50) };
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -525,6 +559,10 @@ export default async function (t, db) {
     item_lots_value: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
     preview_opening_stock: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].openingDraft],
     preview_transfer: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].transferDraft],
+    // المرحلة 1 (WP5): معاينة الصرف بمسوّدته والجرد بالمسلَّم، وتقرير المصاريف بسنة.
+    preview_stock_use: (persona) => [wp5Of[persona === U.bOwner ? 'b' : 'a'].useDraft],
+    preview_count: (persona) => [wp5Of[persona === U.bOwner ? 'b' : 'a'].countSubmitted],
+    report_expenses: () => ['2026-01-01', '2026-12-31', null, null, 50],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -544,6 +582,9 @@ export default async function (t, db) {
     item_lots_value: NO_ACCOUNTS,
     preview_opening_stock: NO_ACCOUNTS,
     preview_transfer: NO_ACCOUNTS,
+    preview_stock_use: NO_ACCOUNTS,
+    preview_count: NO_ACCOUNTS,
+    report_expenses: NO_ACCOUNTS,
   };
   const readOnlyFailures = [];
   let rejected = 0;

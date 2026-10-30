@@ -191,7 +191,8 @@ async function scenario(t, db) {
   t.same(appendOnly, { entryUpdate: 'append_only', entryDelete: 'append_only', allocationUpdate: 'append_only', moveDelete: 'append_only' }, 'مفتاح الخادم: تعديل أو حذف بالدفاتر يرفضه المشغّل (append_only)');
   let truncated;
   try {
-    await db.asOwner((q) => q('truncate public.cash_moves'));
+    // cascade: المصاريف (0008) تشير لحركات الصناديق، فبلاها يرفض المفتاح الأجنبي قبل المشغّل؛ وcascade يوصل مشغّل الأمر بالجدولين.
+    await db.asOwner((q) => q('truncate public.cash_moves cascade'));
     truncated = 'ok';
   } catch (error) {
     truncated = error.message;
@@ -311,6 +312,16 @@ async function scenario(t, db) {
     }],
     doc_numbers: [{ doc_numbers: 1 }, async ({ q }) => {
       await q("update public.doc_counters set last_no = last_no + 1 where org_id = $1 and kind = 'RC'", [ORG]);
+    }],
+    // 14 (0008): مصروف نقدي بحركة صندوقه لكن بمبلغ غير مبلغها (الحركة نفسها بمصروف واحد يشير إلها، فالفحص 8 سليم).
+    expense_sources: [{ expense_sources: 1 }, async ({ q, move }) => {
+      const doc = uid();
+      const m = await move('expense', -100, { docKind: 'expense', docId: doc });
+      const category = (await q("insert into public.expense_categories (org_id, name) values ($1, 'تصنيف الضابط') returning id", [ORG])).rows[0].id;
+      await q(
+        "insert into public.expenses (id, org_id, category_id, division_id, amount, on_date, for_month, source, account_id, cash_move_id) select $1, $2, $3, b.division_id, 150, $4, date_trunc('month', $4::date)::date, 'cash', m.account_id, m.id from public.ledger_books b, public.cash_moves m where b.id = $5 and m.id = $6",
+        [doc, ORG, category, TODAY, BOOK, m],
+      );
     }],
     // E14: وحدة بيها قيود وما انختم أوّل ترحيلها (first_posted_at) = يوم تشغيلها ما تجمّد.
     posted_division_stamped: [{ posted_division_stamped: 1 }, async ({ q }) => {

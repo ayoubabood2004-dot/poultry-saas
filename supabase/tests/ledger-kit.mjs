@@ -130,6 +130,7 @@ export const LEDGER_ZERO = {
   party_opening_once: 0,
   allocation_completeness: 0,
   doc_numbers: 0,
+  expense_sources: 0,
   posted_division_stamped: 0,
   report_formulas: 0,
 };

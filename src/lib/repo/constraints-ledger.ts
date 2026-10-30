@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { registerConstraintHints } from './constraints';
 
-// جمل قيود 0006 (الجهات والصناديق والعدّاد والقيود والتوزيع وحركات الصناديق)، بنفس عقد constraints.ts: مفتاح
+// جمل قيود 0006 (الجهات والصناديق والعدّاد والقيود والتوزيع وحركات الصناديق) و0008 (المصاريف)، بنفس عقد constraints.ts: مفتاح
 // constraint.<اسم القيد>، والحزمة (constraints.test) تقارن القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا parties.ts بس (بحزمة
 // شاشات الحسابات، برّا التثبيت المسبق).
 // القيود والتوزيع والحركات تكتبها الدوالّ بس، فقيدها ما ينخرق من الشاشة؛ بس كل قيد إله جملته حتى لو انخرق بهجرة.
@@ -31,6 +31,18 @@ export const LEDGER_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   cash_moves_doc_kind_check: () => t('constraint.cash_moves_doc_kind_check', 'نوع مستند الحركة غير صالح.'),
   cash_moves_entry_check: () => t('constraint.cash_moves_entry_check', 'حركة القبض والدفع مربوطة بقيدها في دفتر الجهة، وغيرها بلا قيد.'),
   cash_moves_note_check: () => t('constraint.cash_moves_note_check', 'ملاحظة الحركة لا تكون فارغة، ولا تزيد على 500 حرف.'),
+  expenses_amount_check: () => t('constraint.expenses_amount_check', 'مبلغ المصروف لا يكون صفراً، بمرتبتين عشريتين كحدّ أقصى.'),
+  expenses_source_check: () => t('constraint.expenses_source_check', 'مصدر المصروف غير معروف.'),
+  expenses_sign_check: () => t('constraint.expenses_sign_check', 'المصروف الأصلي موجب، وصفّ إلغائه سالب.'),
+  expenses_for_month_check: () => t('constraint.expenses_for_month_check', 'شهر المصروف يُكتب بأوّل يوم في الشهر.'),
+  expenses_cash_check: () => t('constraint.expenses_cash_check', 'المصروف النقدي من صندوق بحركته، بلا جهة ولا دفتر، وبالدينار الصحيح.'),
+  expenses_credit_check: () => t('constraint.expenses_credit_check', 'المصروف بالدين على جهة بدفترها وقيده، بلا صندوق، وبالدينار الصحيح.'),
+  expenses_stock_check: () => t('constraint.expenses_stock_check', 'مصروف المخزون يكتبه الصرف أو الجرد بمستنده، بلا صندوق ولا جهة.'),
+  expenses_adjustment_check: () => t('constraint.expenses_adjustment_check', 'مصروف التسوية بمستنده، بلا صندوق ولا جهة.'),
+  expenses_doc_check: () => t('constraint.expenses_doc_check', 'نوع مستند المصروف ومعرّفه يُذكران معاً أو يُتركان معاً.'),
+  expenses_doc_kind_check: () => t('constraint.expenses_doc_kind_check', 'نوع مستند المصروف غير صالح.'),
+  expenses_note_check: () => t('constraint.expenses_note_check', 'ملاحظة المصروف لا تكون فارغة، ولا تزيد على 500 حرف.'),
+  expenses_reason_check: () => t('constraint.expenses_reason_check', 'صفّ الإلغاء وحده بسبب، والسبب لا يزيد على 500 حرف.'),
 };
 
 registerConstraintHints(LEDGER_CONSTRAINT_HINTS);
