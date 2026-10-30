@@ -1,6 +1,6 @@
 -- rollback_0010 — تراجع 0010_supplier_returns_revaluations (خطّة المرحلة 1 WP7، مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦).
 -- يرجّع أجسام void_receipt وdiscard_draft وdelete_draft_line وverify_stock وverify_ledger كما بـ0009، وstock_doc_label كما بـ0008،
--- وvoid_party_entry وreport_party_statement كما بـ0006، وcheck_lot_intact كما بـ0007، حرفاً بحرف (md5 نفسه بالكتالوج)، ويشيل اللي انضاف بـ0010: جداول المرتجع والتصحيح الأربعة وكل دوالّها ومساعداتها ومشغّلاتها، وسياسة
+-- وvoid_party_entry وvoid_party_payment وreport_party_statement كما بـ0006، وcheck_lot_intact وapply_move كما بـ0007، حرفاً بحرف (md5 نفسه بالكتالوج)، ويشيل اللي انضاف بـ0010: جداول المرتجع والتصحيح الأربعة وكل دوالّها ومساعداتها ومشغّلاتها، وسياسة
 -- نطاقها على سجلّ التدقيق (audit_log_wp7_scope). المال والمخزون ما ينحذفان أبداً (FOUNDATION ٦٣): أي مرتجع (ولو مسوّدة) أو تصحيح
 -- يوقف التراجع بصوت ويرجع كلّه (المعاملة وحدة)، والمالك يقرّر شنو يسوّي بيه. سجلّ التدقيق يبقى كما هو.
 
@@ -24,6 +24,8 @@ end
 $$;
 
 drop policy if exists audit_log_wp7_scope on public.audit_log;
+revoke insert (id) on public.opening_docs from authenticated;
+revoke insert (id) on public.opening_lines from authenticated;
 
 create or replace function public.void_receipt(p_id uuid, p_reason text, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -1007,6 +1009,47 @@ begin
 end
 $$;
 
+create or replace function public.void_party_payment(p_id uuid, p_reason text, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'void_party_payment';
+  v_cached jsonb;
+  v_reason text;
+  o public.party_entries;
+  m public.cash_moves;
+  r public.party_entries;
+  m2 public.cash_moves;
+  v_rev uuid;
+begin
+  set local lock_timeout = '5s';
+  perform private.require('void');
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('id', p_id, 'reason', p_reason));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  v_reason := private.check_reason(p_reason);
+  select * into o from public.party_entries where org_id = public.auth_org() and id = p_id;
+  if o.id is null then
+    raise exception 'entry_not_found' using hint = 'هذا القيد غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  if o.kind not in ('payment', 'payout') or o.reverses_entry_id is not null then
+    raise exception 'not_a_payment' using hint = 'هذا القيد ليس قبضاً ولا دفعاً؛ يُلغى من مستنده أو من «ألغِ القيد».';
+  end if;
+  perform private.book_for_post(o.book_id);
+  perform private.lock_parties(array[o.party_id]);
+  perform private.check_void_date();
+  select * into m from public.cash_moves where org_id = o.org_id and party_entry_id = o.id and reverses_move_id is null;
+  if m.id is null then
+    raise exception 'cash_move_missing' using hint = 'لم تُوجد حركة الصندوق لهذا القيد. راجع الدعم قبل الإلغاء.';
+  end if;
+  perform private.lock_cash_account(m.account_id, false);
+  v_rev := private.void_entry(o.id, v_reason);
+  select * into r from public.party_entries where org_id = o.org_id and id = v_rev;
+  m2 := private.write_cash_move(m.account_id, -m.amount, m.kind, m.doc_kind, m.doc_id, r.id, public.app_today(), m.id, null);
+  return private.ref_store(v_fn, p_client_ref, private.entry_result(r, '[]'::jsonb, m2));
+end
+$$;
+
 create or replace function public.report_party_statement(p_party uuid, p_book uuid, p_from date, p_to date) returns jsonb
 language plpgsql stable security invoker set search_path = public, pg_temp as $$
 declare
@@ -1087,6 +1130,28 @@ begin
 end
 $$;
 
+create or replace function private.apply_move(p_lot uuid, p_doc_kind text, p_doc uuid, p_line uuid, p_qty numeric, p_value numeric, p_on date,
+  p_reverses uuid, p_expiry_checked boolean default null) returns public.stock_moves
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  l public.stock_lots;
+  m public.stock_moves;
+begin
+  select * into l from public.stock_lots where org_id = public.auth_org() and id = p_lot;
+  insert into public.stock_moves (org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id, expiry_checked)
+  values (l.org_id, p_doc_kind, p_doc, p_line, l.item_id, l.warehouse_id, l.id, p_qty, p_value, p_on, p_reverses, p_expiry_checked)
+  returning * into m;
+  update public.stock_lots set qty_left = qty_left + p_qty, value_left = value_left + p_value where org_id = l.org_id and id = l.id;
+  update public.stock_balances set qty = qty + p_qty, value = value + p_value
+  where org_id = l.org_id and item_id = l.item_id and warehouse_id = l.warehouse_id;
+  if not found then
+    raise exception 'balance_not_locked' using hint = 'تعذّر الترحيل: رصيد المادّة في المخزن غير مقفول. أعد المحاولة.';
+  end if;
+  return m;
+end
+$$;
+
+drop function if exists private.check_draw_not_revalued(uuid);
 drop function if exists public.supplier_return_options(uuid);
 drop function if exists public.post_supplier_return(uuid, int, text, uuid);
 drop function if exists public.void_supplier_return(uuid, text, uuid);

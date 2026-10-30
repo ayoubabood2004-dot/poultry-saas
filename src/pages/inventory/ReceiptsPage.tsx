@@ -565,25 +565,45 @@ function AmountsPanel({
 }
 
 /** التحميلات (E17، Q8): لناقل أو من صندوق، بالوزن أو بالقيمة، على كل السطور أو اختيارها (set_charge_lines). */
-function ChargesPanel({ bundle, boxes, onSaved, onStale }: { bundle: ReceiptBundle; boxes: readonly BoxPick[] | null; onSaved: () => void; onStale: (error: unknown) => boolean }) {
+/**
+ * مبلغ التحميل المكتوب وكتابة التحميل الجارية بالمحرّر (مراجعة WP8): الترحيل ينتظرهما، وكان يرحّل الاستلام بلا تحميل مكتوب لم يُضف أو
+ * يُضاف الآن (فيضيع قيد الناقل أو حركة الصندوق وكلفة الدفعة)، ورفض الإضافة بعد الترحيل ما ينعرض لأن اللوحة تنطوي.
+ */
+function ChargesPanel({
+  bundle,
+  boxes,
+  amount,
+  onAmount,
+  busy,
+  onBusy,
+  onSaved,
+  onStale,
+}: {
+  bundle: ReceiptBundle;
+  boxes: readonly BoxPick[] | null;
+  amount: string;
+  onAmount: (text: string) => void;
+  busy: boolean;
+  onBusy: (busy: boolean) => void;
+  onSaved: () => void;
+  onStale: (error: unknown) => boolean;
+}) {
   const id = useId();
   const [label, setLabel] = useState(t('receipt.charge.default', 'نقل'));
-  const [amount, setAmount] = useState('');
   const [by, setBy] = useState<'mass' | 'value'>('mass');
   const [to, setTo] = useState<'party' | 'box'>('party');
   const [payee, setPayee] = useState<PartyPick | null>(null);
   const [box, setBox] = useState('');
   const [chargeId, setChargeId] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
   const run = (work: () => Promise<unknown>) => {
-    setBusy(true);
+    onBusy(true);
     setFailure(null);
     work()
       .then(onSaved, (error: unknown) => {
         if (!onStale(error)) setFailure(error);
       })
-      .finally(() => setBusy(false));
+      .finally(() => onBusy(false));
   };
   const add = (event: FormEvent) => {
     event.preventDefault();
@@ -603,7 +623,7 @@ function ChargesPanel({ bundle, boxes, onSaved, onStale }: { bundle: ReceiptBund
         })
         .then(() => {
           setChargeId(crypto.randomUUID());
-          setAmount('');
+          onAmount('');
         }),
     );
   };
@@ -653,7 +673,7 @@ function ChargesPanel({ bundle, boxes, onSaved, onStale }: { bundle: ReceiptBund
         <Field id={`${id}-label`} label={t('receipt.charge.label', 'اسم التحميل')}>
           <input id={`${id}-label`} className="input" value={label} maxLength={80} onChange={(event) => setLabel(event.target.value)} />
         </Field>
-        <AmountField id={`${id}-amount`} label={t('receipt.charge.amount', 'مبلغ التحميل')} value={amount} onChange={setAmount} />
+        <AmountField id={`${id}-amount`} label={t('receipt.charge.amount', 'مبلغ التحميل')} value={amount} onChange={onAmount} />
         <Segmented label={t('receipt.charge.by', 'التوزيع')} options={[{ value: 'mass', label: t('receipt.charge.mass', 'بالوزن') }, { value: 'value', label: t('receipt.charge.value', 'بالقيمة') }]} value={by} onChange={setBy} />
         <Segmented label={t('receipt.charge.to', 'يُدفع')} options={[{ value: 'party', label: t('receipt.charge.party', 'لناقل (بدفتره)') }, { value: 'box', label: t('receipt.charge.box', 'من صندوق الآن') }]} value={to} onChange={setTo} />
         {to === 'party' ? <SupplierPicker id={`${id}-payee`} label={t('receipt.charge.payee', 'الناقل')} value={payee} onChange={setPayee} /> : <BoxPicker id={`${id}-box`} label={t('receipt.amounts.box', 'دُفع من صندوق')} boxes={boxes} value={box} onChange={setBox} />}
@@ -745,6 +765,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const boxes = useLoad(loadBoxes, `boxes#${canPrice}`);
   const [edits, setEdits] = useState<AmountEdits>(NO_AMOUNT_EDITS);
   const [saving, setSaving] = useState(false);
+  const [chargeAmount, setChargeAmount] = useState('');
+  const [chargeBusy, setChargeBusy] = useState(false);
   const [amountFailure, setAmountFailure] = useState<unknown>(null);
   const [previewState, setPreviewState] = useState<{ key: string; preview: ReceiptPreview } | null>(null);
   const preview = previewState?.key === loadKey ? previewState.preview : null;
@@ -780,6 +802,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const settled = canPrice ? settleAmountEdits(edits, bundle) : null;
   const plan = settled ? amountPlan(bundle, settled.edits) : null;
   const dirty = plan !== null && (plan.problem !== null || plan.lines.length > 0 || plan.amounts !== null);
+  // تحميل مكتوب لم يُضف، أو كتابة تحميل جارية: الترحيل ينتظر (مراجعة WP8).
+  const chargesPending = canPrice && (chargeBusy || chargeAmount.trim() !== '');
   const failed = failure ? describeError(failure) : null;
   const saveAmounts = async () => {
     if (!settled || !plan) return;
@@ -903,7 +927,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {draft && settled && plan && bundle.lines.length > 0 ? (
         <AmountsPanel bundle={bundle} edits={settled.edits} conflicts={settled.conflicts} plan={plan} boxes={boxes.data ?? null} busy={saving} failure={amountFailure} onChange={setEdits} onSave={() => void saveAmounts()} />
       ) : null}
-      {draft && canPrice && bundle.lines.length > 0 ? <ChargesPanel bundle={bundle} boxes={boxes.data ?? null} onSaved={refresh} onStale={handledStale} /> : null}
+      {draft && canPrice && bundle.lines.length > 0 ? (
+        <ChargesPanel bundle={bundle} boxes={boxes.data ?? null} amount={chargeAmount} onAmount={setChargeAmount} busy={chargeBusy} onBusy={setChargeBusy} onSaved={refresh} onStale={handledStale} />
+      ) : null}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
@@ -936,7 +962,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
               {canPrice ? (
                 <>
                   {dirty ? <Notice tone="warning" title={t('receipt.dirty', 'في المبالغ تعديل لم يُحفظ: احفظه أو تراجع عنه، ثم عاين من جديد قبل الترحيل.')} /> : null}
-                  <Button disabled={!ready || dirty} busy={busy} onClick={() => void post()} data-action="post-receipt">
+                  {chargesPending ? <Notice tone="warning" title={t('receipt.charge.pending', 'في التحميلات مبلغ مكتوب لم يُضف بعد، أو تحميل يُحفظ الآن: أضفه أو امسح مبلغه، ثم عاين من جديد قبل الترحيل.')} /> : null}
+                  <Button disabled={!ready || dirty || chargesPending} busy={busy} onClick={() => void post()} data-action="post-receipt">
                     {t('receipt.post', 'رحّل الاستلام')}
                   </Button>
                 </>

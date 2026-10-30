@@ -131,6 +131,8 @@ create table if not exists public.receipt_revaluations (
   reason text not null,
   status text not null default 'posted',
   client_ref uuid,
+  -- أعلى seq للمادّة بكل مخزن من مخازن العائلة لحظة الترحيل (تحت أقفال أرصدتها): السحب اللي قبله ما يُعكس قبل إلغاء التصحيح.
+  marks jsonb not null default '{}'::jsonb,
   party_entry_id uuid,
   expense_id uuid,
   posted_at timestamptz not null default now(),
@@ -477,6 +479,40 @@ language sql stable security definer set search_path = public, pg_temp as $$
     and x.reverses_entry_id is null
     and not exists (select 1 from public.receipt_charges c where c.org_id = x.org_id and c.party_entry_id = x.id)
   order by x.seq limit 1
+$$;
+
+-- سحب قبل تصحيح سعر حيّ لعائلته ما يُعكس قبل إلغاء التصحيح (مراجعة WP8، FOUNDATION ٥٩٤): التصحيح وزّع فرقه على ما بقي يومها،
+-- فعكس السحب كان يرجّع البضاعة بقيمة ما قبل التصحيح (الدفعة تنقص عن المبلغ المصحَّح ومصروف «فرق سعر شراء» يبقى). «قبل» = seq السحب
+-- لا يزيد عن أعلى seq حفظه التصحيح لمخزن السحب (marks)، وseq ينكتب تحت قفل الرصيد اللي يمسكه الإلغاء والتصحيح كلاهما. apply_move
+-- ينادي الفحص لكل حركة تعكس (الصرف والجرد والمرتجع والتحويل)؛ والحركة الأصلية سحب (كمية سالبة) من دفعة جذرها استلام.
+create or replace function private.check_draw_not_revalued(p_move uuid) returns void
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  m public.stock_moves;
+  root public.stock_lots;
+  v public.receipt_revaluations;
+  v_item text;
+begin
+  select * into m from public.stock_moves where org_id = public.auth_org() and id = p_move;
+  if m.id is null or m.qty >= 0 then
+    return;
+  end if;
+  select o.* into root from public.stock_lots l join public.stock_lots o on o.org_id = l.org_id and o.id = coalesce(l.origin_lot_id, l.id)
+  where l.org_id = m.org_id and l.id = m.lot_id;
+  if root.source_kind is distinct from 'receipt' then
+    return;
+  end if;
+  select * into v from public.receipt_revaluations x
+  where x.org_id = m.org_id and x.receipt_line_id = root.source_line_id and x.status = 'posted'
+    and (x.marks ->> m.warehouse_id::text)::bigint >= m.seq
+  order by x.rev_no desc limit 1;
+  if v.id is null then
+    return;
+  end if;
+  select i.name into v_item from public.items i where i.org_id = m.org_id and i.id = m.item_id;
+  raise exception 'lot_consumed' using hint = format('سُحب «%s» بهذا المستند قبل %s، والتصحيح وزّع فرقه على ما بقي يومها؛ ألغِ التصحيح أوّلاً.',
+    v_item, private.stock_doc_label('receipt_revalue', v.id));
+end
 $$;
 
 -- ─── مرتجع المورّد (FOUNDATION ٥٥٣؛ E15، E31، E47) ────────────────────────────────────────────────────────────────
@@ -943,6 +979,7 @@ declare
   v_expense_id uuid;
   v_category uuid;
   v_rev_no int;
+  v_marks jsonb;
   f record;
 begin
   set local lock_timeout = '5s';
@@ -971,6 +1008,9 @@ begin
   perform private.lock_masters(v_whs, array[ln.item_id], false);
   perform private.lock_balances(array_fill(ln.item_id, array[cardinality(v_whs)]), v_whs);
   perform 1 from public.stock_lots l where l.org_id = r.org_id and (l.id = v_root or l.origin_lot_id = v_root) order by l.id for no key update;
+  select coalesce(jsonb_object_agg(top_seq.warehouse_id, top_seq.seq), '{}'::jsonb) into v_marks
+  from (select sm.warehouse_id, max(sm.seq) as seq from public.stock_moves sm
+    where sm.org_id = r.org_id and sm.item_id = ln.item_id and sm.warehouse_id = any (v_whs) group by sm.warehouse_id) as top_seq;
   v_plan := private.revalue_plan(ln.id, p_new_total);
   perform private.raise_revalue_problem(v_plan -> 'problem');
   if p_expected_plan is null or p_expected_plan is distinct from v_plan ->> 'plan' then
@@ -981,9 +1021,9 @@ begin
   v_expense := v_diff - v_share;
   v_rev_no := coalesce((select max(v.rev_no) from public.receipt_revaluations v where v.org_id = r.org_id and v.receipt_line_id = ln.id), 0) + 1;
   insert into public.receipt_revaluations (id, org_id, receipt_id, warehouse_id, receipt_line_id, rev_no, new_total, old_total, diff, lot_share,
-    expense_amount, reason, status, client_ref)
+    expense_amount, reason, status, client_ref, marks)
   values (v_id, r.org_id, r.id, r.warehouse_id, ln.id, v_rev_no, p_new_total, (v_plan ->> 'current_total')::numeric, v_diff, v_share, v_expense,
-    v_reason, 'posted', p_client_ref);
+    v_reason, 'posted', p_client_ref, v_marks);
   for f in select (x.value ->> 'lot_id')::uuid as lot_id, (x.value ->> 'share')::numeric as share from jsonb_array_elements(v_plan -> 'family') as x loop
     continue when f.share = 0;
     perform private.apply_move(f.lot_id, 'receipt_revalue', v_id, ln.id, 0, f.share, public.app_today(), null);
@@ -1048,6 +1088,12 @@ begin
   select l.item_id into v_item from public.stock_lots l where l.org_id = r.org_id and l.source_kind = 'receipt' and l.source_line_id = v.receipt_line_id
     and l.origin_lot_id is null;
   select array_agg(distinct x.warehouse_id) into v_whs from public.stock_moves x where x.org_id = v.org_id and x.doc_kind = 'receipt_revalue' and x.doc_id = v.id;
+  -- كل مخزن مسّه التصحيح بنطاق الملغي، مثل الترحيل والمعاينة (مراجعة WP8: مدير بوحدة كان يلغي حصّة مرآة بمخزن وحدة ثانية).
+  if exists (select 1 from unnest(v_whs) as y(id) where not public.in_scope_wh(y.id)) then
+    raise exception 'out_of_scope' using hint = format('مخزن «%s» خارج نطاقك، وفيه دفعة من هذا السطر يمسّها التصحيح.',
+      (select w2.name from unnest(v_whs) as y(id) join public.warehouses w2 on w2.org_id = v.org_id and w2.id = y.id
+       where not public.in_scope_wh(y.id) order by w2.name limit 1));
+  end if;
   if v_whs is not null then
     perform private.lock_masters(v_whs, array[v_item], false);
     perform private.lock_balances(array_fill(v_item, array[cardinality(v_whs)]), v_whs);
@@ -2205,6 +2251,7 @@ begin
   if o.id is null then
     raise exception 'entry_not_found' using hint = 'هذا القيد غير موجود في منشأتك. حدّث الشاشة.';
   end if;
+  perform private.book_for_post(o.book_id);
   if o.kind not in ('opening', 'adjustment', 'forgiveness') or o.reverses_entry_id is not null then
     raise exception 'entry_not_voidable' using hint = 'يُلغى من هنا قيد الافتتاح والتسوية والإعفاء فقط؛ القبض والدفع من «ألغِ القبض أو الدفع»، والمستندات من مستندها.';
   end if;
@@ -2212,12 +2259,52 @@ begin
   if o.doc_kind is not null then
     raise exception 'entry_not_voidable' using hint = format('هذا القيد من المستند %s؛ يُلغى بإلغاء مستنده.', coalesce(private.stock_doc_label(o.doc_kind, o.doc_id), o.doc_no, ''));
   end if;
-  perform private.book_for_post(o.book_id);
   perform private.lock_parties(array[o.party_id]);
   perform private.check_void_date();
   v_rev := private.void_entry(o.id, v_reason);
   select * into r from public.party_entries where org_id = o.org_id and id = v_rev;
   return private.ref_store(v_fn, p_client_ref, private.entry_result(r, '[]'::jsonb, null));
+end
+$$;
+
+create or replace function public.void_party_payment(p_id uuid, p_reason text, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'void_party_payment';
+  v_cached jsonb;
+  v_reason text;
+  o public.party_entries;
+  m public.cash_moves;
+  r public.party_entries;
+  m2 public.cash_moves;
+  v_rev uuid;
+begin
+  set local lock_timeout = '5s';
+  perform private.require('void');
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('id', p_id, 'reason', p_reason));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  v_reason := private.check_reason(p_reason);
+  select * into o from public.party_entries where org_id = public.auth_org() and id = p_id;
+  if o.id is null then
+    raise exception 'entry_not_found' using hint = 'هذا القيد غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  perform private.book_for_post(o.book_id);
+  if o.kind not in ('payment', 'payout') or o.reverses_entry_id is not null then
+    raise exception 'not_a_payment' using hint = 'هذا القيد ليس قبضاً ولا دفعاً؛ يُلغى من مستنده أو من «ألغِ القيد».';
+  end if;
+  perform private.lock_parties(array[o.party_id]);
+  perform private.check_void_date();
+  select * into m from public.cash_moves where org_id = o.org_id and party_entry_id = o.id and reverses_move_id is null;
+  if m.id is null then
+    raise exception 'cash_move_missing' using hint = 'لم تُوجد حركة الصندوق لهذا القيد. راجع الدعم قبل الإلغاء.';
+  end if;
+  perform private.lock_cash_account(m.account_id, false);
+  v_rev := private.void_entry(o.id, v_reason);
+  select * into r from public.party_entries where org_id = o.org_id and id = v_rev;
+  m2 := private.write_cash_move(m.account_id, -m.amount, m.kind, m.doc_kind, m.doc_id, r.id, public.app_today(), m.id, null);
+  return private.ref_store(v_fn, p_client_ref, private.entry_result(r, '[]'::jsonb, m2));
 end
 $$;
 
@@ -2311,6 +2398,31 @@ begin
 end
 $$;
 
+create or replace function private.apply_move(p_lot uuid, p_doc_kind text, p_doc uuid, p_line uuid, p_qty numeric, p_value numeric, p_on date,
+  p_reverses uuid, p_expiry_checked boolean default null) returns public.stock_moves
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  l public.stock_lots;
+  m public.stock_moves;
+begin
+  -- سحب قبل تصحيح سعر حيّ لعائلته ما يُعكس قبل إلغاء التصحيح (مراجعة WP8، 0010).
+  if p_reverses is not null then
+    perform private.check_draw_not_revalued(p_reverses);
+  end if;
+  select * into l from public.stock_lots where org_id = public.auth_org() and id = p_lot;
+  insert into public.stock_moves (org_id, doc_kind, doc_id, doc_line_id, item_id, warehouse_id, lot_id, qty, value, moved_on, reverses_move_id, expiry_checked)
+  values (l.org_id, p_doc_kind, p_doc, p_line, l.item_id, l.warehouse_id, l.id, p_qty, p_value, p_on, p_reverses, p_expiry_checked)
+  returning * into m;
+  update public.stock_lots set qty_left = qty_left + p_qty, value_left = value_left + p_value where org_id = l.org_id and id = l.id;
+  update public.stock_balances set qty = qty + p_qty, value = value + p_value
+  where org_id = l.org_id and item_id = l.item_id and warehouse_id = l.warehouse_id;
+  if not found then
+    raise exception 'balance_not_locked' using hint = 'تعذّر الترحيل: رصيد المادّة في المخزن غير مقفول. أعد المحاولة.';
+  end if;
+  return m;
+end
+$$;
+
 -- ─── الصلاحيات ─────────────────────────────────────────────────────────────────────────────────────────────────
 revoke all on function public.supplier_return_options(uuid), public.post_supplier_return(uuid, int, text, uuid), public.void_supplier_return(uuid, text, uuid),
   public.preview_supplier_return(uuid), public.post_receipt_revalue(uuid, numeric, text, text, uuid), public.void_receipt_revalue(uuid, text, uuid),
@@ -2318,3 +2430,7 @@ revoke all on function public.supplier_return_options(uuid), public.post_supplie
 grant execute on function public.supplier_return_options(uuid), public.post_supplier_return(uuid, int, text, uuid), public.void_supplier_return(uuid, text, uuid),
   public.preview_supplier_return(uuid), public.post_receipt_revalue(uuid, numeric, text, text, uuid), public.void_receipt_revalue(uuid, text, uuid),
   public.preview_receipt_revalue(uuid, numeric) to authenticated;
+-- مراجعة WP8: معرّف الجهاز لرأس الافتتاح وسطره (FOUNDATION ١٩٩): الإعادة بعد جواب ضاع بنفس المعرّف ترجع 23505 بدل رأس أو سطر
+-- ثاني (كان الافتتاح يضاعف الكمية والقيمة بإعادة «أضف السطر»).
+grant insert (id) on public.opening_docs to authenticated;
+grant insert (id) on public.opening_lines to authenticated;

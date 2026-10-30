@@ -5,7 +5,8 @@
 // يكمل منه = انكتب (كان صفر صفوف = «لم يُقبل» والعادّ يضيف عدّه مرّتين)؛ M3 السطر تغيّر بجهاز ثاني ← رفض أكيد بلا كتابة؛ M4 الرفّ
 // الثاني على جمع ضاع جوابه ووصل يكمل منه (كان «انرفض» فيُضاف مرّتين)؛ M6 جهاز ثاني وصل نفس المجموع ← رفض (كان التأكيد بالقيمة يقرا
 // «انكتب» فيضيع العدّ)؛ M7 إدراج وصل وجوابه ضاع وجمع عليه جهاز ثاني ← رفض مو تعديل مطلق يمسح جمعه؛ M8 التعديل مشروط بالبطاقة؛ M5
-// الجمع ما يكتب تواريخ ما كتبها العادّ؛ R1 السبب ويّا الفرقين اللي شافهم المدير، والسبب الفارغ بلا ختم.
+// الجمع ما يكتب تواريخ ما كتبها العادّ؛ R1 السبب ويّا الفرقين اللي شافهم المدير، والسبب الفارغ بلا ختم؛ G1 (مراجعة WP8) كلفة وحدة
+// الزيادة مشروطة باللي شافته الشاشة: غيّرها غيرك ← cost_changed بلا كتابة، ومحاولتك السابقة وصلت ← انكتب، والفارغة شرطها is.null.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +32,7 @@ async function bundle() {
   const result = await build({
     stdin: {
       contents: [
-        "export { updateCountLine, addCountLine, setCountReason } from './src/lib/repo/counts.ts';",
+        "export { updateCountLine, addCountLine, setCountReason, setGainUnitCost } from './src/lib/repo/counts.ts';",
         "export { writeOrKeep, sendPending } from './src/pages/inventory/countDevice.ts';",
         "export { NetworkError } from './src/lib/errors.ts';",
       ].join('\n'),
@@ -93,7 +94,7 @@ function fakeServer(row) {
         const [op, ...rest] = value.split('.');
         const arg = rest.join('.');
         const have = server.row[key];
-        if (op === 'eq') match &&= key === 'id' ? have === arg : have !== null && Number(have) === Number(arg);
+        if (op === 'eq') match &&= key === 'id' || key === 'line_id' ? have === arg : have !== null && Number(have) === Number(arg);
         else if (op === 'is') match &&= arg === 'null' && have === null;
         else throw new Error(`شرط غير معروف ${op}`);
       }
@@ -123,6 +124,21 @@ export default async function (t) {
     const send = { add: m.addCountLine, update: m.updateCountLine };
     const merge = (base, added) => ({ kind: 'add', itemName: 'لقاح', baseUnit: 'pc', added, base: { kind: 'server', id: 'L', fields: base } });
     const errorName = (promise) => promise.then(() => 'ok', (error) => error.name);
+
+    // G1 (مراجعة WP8): كلفة وحدة الزيادة مشروطة بالكلفة اللي شافتها الشاشة (كانت تكتب بالسطر بس فتدوس مديراً ثانياً).
+    {
+      const other = (globalThis.__countServer = fakeServer({ line_id: 'L', gain_unit_cost: '1.2500' }));
+      const lost = await m.setGainUnitCost('L', 10_000n, 15_000n).then(() => 'ok', (error) => error.code ?? error.name);
+      const mine = (globalThis.__countServer = fakeServer({ line_id: 'L', gain_unit_cost: '1.5000' }));
+      const landed = await m.setGainUnitCost('L', 10_000n, 15_000n).then(() => 'ok', (error) => error.code ?? error.name);
+      const empty = (globalThis.__countServer = fakeServer({ line_id: 'L', gain_unit_cost: null }));
+      const first = await m.setGainUnitCost('L', null, 12_500n).then(() => 'ok', (error) => error.code ?? error.name);
+      t.same(
+        [lost, other.row.gain_unit_cost, other.requests[0]?.query.includes('gain_unit_cost=eq.1.0000'), landed, mine.row.gain_unit_cost, first, empty.row.gain_unit_cost, empty.requests[0]?.query.includes('gain_unit_cost=is.null')],
+        ['cost_changed', '1.2500', true, 'ok', '1.5000', 'ok', '1.2500', true],
+        'G1: الكلفة مشروطة بـ1.0000 اللي شافتها الشاشة: غيرك كتب 1.2500 ← cost_changed وتبقى، ومحاولتك السابقة وصلت ← انكتب، والفارغة is.null',
+      );
+    }
 
     // M1: الجمع (40 + 5، والمنتهي 2 + 1) تعديل مشروط بالعدّ اللي انحسب منه، بالرابط نفسه.
     {

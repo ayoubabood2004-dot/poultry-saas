@@ -28,7 +28,7 @@ import type { ItemRow, OpeningLine, OpeningPreview, StockDoc } from '../../lib/r
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useDocPages, VoidDocDialog, type StoreRef } from './stock-shared';
+import { docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بيوم التشغيل أو قبله، وسطورها
 // بالكمية بوحدة الأساس والقيمة بمرتبتين (الصفر ويّا سببه بس، Q9؛ الانتهاء للمادّة اللي تتابعه، ووقت الفقس للأفراخ)، ثم معاينة
@@ -275,6 +275,8 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   const [reason, setReason] = useState('');
   const [expiry, setExpiry] = useState('');
   const [born, setBorn] = useState('');
+  // معرّف السطر يولد بالجهاز (مراجعة WP8): الإعادة بعد جواب ضاع 23505 = انكتب، مو سطر ثاني يضاعف الكمية والقيمة.
+  const [lineId, setLineId] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(store.kind, row.kind), [store.kind]);
@@ -282,6 +284,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   // مادّة ثانية تبدأ من وحداتها هي وكمية وانتهاء ووقت فقس فارغة: كانت تنرسل بوحدة تعبئة المادّة السابقة وانتهائها المخفي
   // (مراجعة WP4 الثانية).
   const pickItem = (next: ItemRow | null) => {
+    setLineId(crypto.randomUUID());
     setItem(next);
     setPacks(null);
     setPacksFailed(null);
@@ -323,25 +326,34 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
     }
     setBusy(true);
     setFailure(null);
+    const fields = {
+      item_id: item.id,
+      qty_base: decimalText(quantity, 3),
+      value: decimalText(amount, 2),
+      zero_reason: amount === 0n ? reason.trim() : null,
+      expiry_on: expiryDay,
+      born_at: item.kind === 'chick' ? (bornAt?.iso ?? null) : null,
+    };
     inventory
-      .addOpeningLine(docId, {
-        item_id: item.id,
-        qty_base: decimalText(quantity, 3),
-        value: decimalText(amount, 2),
-        zero_reason: amount === 0n ? reason.trim() : null,
-        expiry_on: expiryDay,
-        born_at: item.kind === 'chick' ? (bornAt?.iso ?? null) : null,
+      .addOpeningLine(docId, fields, lineId)
+      .catch((error: unknown) => {
+        // محاولة سابقة بنفس المعرّف وصلت وضاع جوابها: نفس السطر بآخر قيم.
+        if (inventory.isDuplicate(error)) return inventory.updateOpeningLine(lineId, fields);
+        throw error;
       })
-      .then(async () => {
-        setItem(null);
-        setPacks(null);
-        setQty({ text: '', unitId: 'base' });
-        setValue('');
-        setReason('');
-        setExpiry('');
-        setBorn('');
-        await onAdded();
-      }, setFailure)
+      .then(
+        async () => {
+          pickItem(null);
+          setValue('');
+          setReason('');
+          await onAdded();
+        },
+        (error: unknown) => {
+          // رفض أكيد: سطر جديد بمعرّف جديد؛ ونتيجة مجهولة: المعرّف يبقى فالإعادة نفس السطر (قراءة المستند هنا كانت تطوي النموذج ومعرّفه).
+          if (error instanceof RejectedError) setLineId(crypto.randomUUID());
+          setFailure(error);
+        },
+      )
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;
@@ -387,6 +399,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
 function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
   const id = useId();
   const navigate = useNavigate();
+  const draftIds = useDraftIds();
   const [store, setStore] = useState('');
   const [day, setDay] = useState('');
   const [failure, setFailure] = useState<unknown>(null);
@@ -398,11 +411,23 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
       setFailure(new RejectedError('fields', t('opening.new.fields', 'اختر المخزن واكتب التاريخ يوم/شهر/سنة (يوم التشغيل أو قبله).')));
       return;
     }
+    // معرّف الجهاز لقيم النموذج (مراجعة WP8): الإعادة بعد جواب ضاع تفتح نفس المسوّدة بدل ثانية فارغة.
+    const values = JSON.stringify([store, parsed]);
+    const docId = draftIds.idFor(values);
     setBusy(true);
     setFailure(null);
     inventory
-      .createOpeningDraft(store, parsed)
-      .then((doc) => navigate(`/inventory/openings/${doc.id}`), setFailure)
+      .createOpeningDraft(store, parsed, docId)
+      .then(
+        (doc) => navigate(`/inventory/openings/${doc.id}`),
+        (error: unknown) => {
+          if (inventory.isDuplicate(error)) navigate(`/inventory/openings/${docId}`);
+          else {
+            if (error instanceof RejectedError) draftIds.forget(values);
+            setFailure(error);
+          }
+        },
+      )
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;

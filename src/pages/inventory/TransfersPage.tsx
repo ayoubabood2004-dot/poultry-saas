@@ -31,7 +31,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, VoidDocDialog, type StoreRef } from './stock-shared';
+import { docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
 
 // التحويل والصادر الداخلي (الخطّة WP4، FOUNDATION ٥٥٤، القاعدة 15، Q4): الأمين ينشئ المسوّدة من مخزن بنطاقه لأي مخزن فعّال يقبل
 // المادّة، والشاشة تكول «صادر داخلي إلى …» بين وحدتين. المعاينة تسحب بالدفعات (والنقص يبقي المسوّدة، «سجّل الاستلام أو الجرد»)،
@@ -88,11 +88,14 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
   const [packs, setPacks] = useState<readonly inventory.ItemUnitRow[] | null>(null);
   const [packsFailed, setPacksFailed] = useState<unknown>(null);
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
+  // معرّف السطر يولد بالجهاز (مراجعة WP8): الإعادة بعد جواب ضاع 23505 = انكتب، مو سطر ثاني يضاعف الكمية.
+  const [lineId, setLineId] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(from.kind, row.kind) && itemAdmissible(to.kind, row.kind), [from.kind, to.kind]);
   // مادّة ثانية تبدأ من وحداتها هي وكمية فارغة: وحدة تعبئة المادّة السابقة كانت تنرسل ويّا المادّة الجديدة (مراجعة WP4 الثانية).
   const pickItem = (next: ItemRow | null) => {
+    setLineId(crypto.randomUUID());
     setItem(next);
     setPacks(null);
     setPacksFailed(null);
@@ -123,14 +126,23 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
     setBusy(true);
     setFailure(null);
     const unit = qty.unitId === 'base' ? { item_unit_id: null, unit_code: null } : qty.unitId.startsWith('code:') ? { item_unit_id: null, unit_code: qty.unitId.slice('code:'.length) } : { item_unit_id: qty.unitId, unit_code: null };
+    const fields = { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3) };
+    const added = () => {
+      pickItem(null);
+      onAdded();
+    };
     inventory
-      .addTransferLine(docId, { item_id: item.id, ...unit, qty_in_unit: decimalText(amount, 3) })
-      .then(() => {
-        setItem(null);
-        setPacks(null);
-        setQty({ text: '', unitId: 'base' });
-        onAdded();
-      }, setFailure)
+      .addTransferLine(docId, fields, lineId)
+      .catch((error: unknown) => {
+        // محاولة سابقة بنفس المعرّف وصلت وضاع جوابها: نفس السطر بآخر قيم.
+        if (inventory.isDuplicate(error)) return inventory.updateTransferLine(lineId, fields);
+        throw error;
+      })
+      .then(added, (error: unknown) => {
+        // رفض أكيد: سطر جديد بمعرّف جديد؛ ونتيجة مجهولة: المعرّف يبقى فالإعادة نفس السطر (قراءة المستند هنا كانت تطوي النموذج ومعرّفه).
+        if (error instanceof RejectedError) setLineId(crypto.randomUUID());
+        setFailure(error);
+      })
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;
@@ -948,6 +960,7 @@ function NewTransfer({ sources, all, stamp, onShelf, onSaved }: { sources: reado
   // يحدّث الرفّ والقائمة، والرفّ ما يعرض مسوّدة ترتفع.
   const id = useId();
   const navigate = useNavigate();
+  const draftIds = useDraftIds();
   const online = useStore(onlineStore);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -1003,8 +1016,18 @@ function NewTransfer({ sources, all, stamp, onShelf, onSaved }: { sources: reado
         }
         return;
       }
-      const doc = await inventory.createTransferDraft(source.id, target.id, parsed, note);
-      navigate(`/inventory/transfers/${doc.id}`);
+      // رأس بلا سطور بمعرّف الجهاز لقيمه (مراجعة WP8): الإعادة بعد جواب ضاع تفتح نفس المسوّدة بدل ثانية فارغة.
+      const values = JSON.stringify([source.id, target.id, parsed, note.trim()]);
+      const headerId = draftIds.idFor(values);
+      try {
+        await inventory.createTransferDraft(source.id, target.id, parsed, note, headerId);
+      } catch (error) {
+        if (!inventory.isDuplicate(error)) {
+          if (error instanceof RejectedError) draftIds.forget(values);
+          throw error;
+        }
+      }
+      navigate(`/inventory/transfers/${headerId}`);
     } catch (error) {
       setFailure(error);
     } finally {

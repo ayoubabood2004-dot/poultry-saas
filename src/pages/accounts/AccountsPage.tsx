@@ -110,7 +110,7 @@ export function SummaryCards({ summary }: { summary: AccountsSummary }) {
   return (
     <div className="flex flex-col gap-3">
       {partial ? (
-        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من {visible} من المجموع {total} دفاتر', { visible: summary.visibleBooks, total: summary.totalBooks })}>
+        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من دفاتر نطاقك: {visible} من {total}', { visible: summary.visibleBooks, total: summary.totalBooks })}>
           {t('accounts.scoped.detail', 'نطاقك يغطّي بعض الدفاتر فقط، فالمجاميع لها وحدها.')}
         </Notice>
       ) : null}

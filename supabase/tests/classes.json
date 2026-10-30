@@ -147,6 +147,7 @@
       "scope": "in_scope_wh(warehouse_id)",
       "columns": {
         "insert": [
+          "id",
           "warehouse_id",
           "on_date",
           "note",
@@ -168,6 +169,7 @@
       "scope": "in_scope_wh(warehouse_id)",
       "columns": {
         "insert": [
+          "id",
           "doc_id",
           "item_id",
           "qty_base",

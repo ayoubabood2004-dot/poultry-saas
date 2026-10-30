@@ -269,6 +269,32 @@ export default async function (t) {
       t.same([...asked, named(calls, 'deleteReceiptLine')], [0, true, [['l-1', 4]]], 'R10: لا حذف قبل التأكيد، وبعده بنسخة الشاشة');
       await unmount();
     });
+
+    // ── R11 (مراجعة WP8): تحميل مكتوب لم يُضف، أو إضافة جارية، توقف الترحيل بتنبيه (كان الاستلام يترحّل بلا التحميل فيضيع قيد الناقل) ──
+    await step('R11', async () => {
+      const priced = bundleOf({ lineAmounts: [{ id: 'la-1', lineId: 'l-1', lineTotal: 235_000_000n, zeroReason: null }] });
+      const calls = fresh('accountant', handlers({ loadReceipt: () => priced, previewReceipt: () => preview(), addCharge: () => new Promise(() => {}) }));
+      await mount('/inventory/receipts/r-1');
+      await click(byAction('preview-receipt')[0]);
+      tick(byAction('approve-line')[0]);
+      await settle();
+      const clean = disabled(byAction('post-receipt')[0]);
+      type(byIdSuffix('-amount').at(-1), '50000');
+      await settle();
+      const typed = [disabled(byAction('post-receipt')[0]), text().includes('في التحميلات مبلغ مكتوب لم يُضف بعد')];
+      fire(all().find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'من صندوق الآن'), 'click');
+      await settle();
+      const boxPick = byAction('pick-box').at(-1);
+      boxPick.value = 'box-1';
+      fire(boxPick, 'change');
+      await settle();
+      fire(byAction('add-charge')[0]?.parentNode, 'submit');
+      await settle();
+      const inFlight = [named(calls, 'addCharge').length, disabled(byAction('post-receipt')[0])];
+      await click(byAction('post-receipt')[0]);
+      t.same([clean, ...typed, ...inFlight, named(calls, 'postReceipt').length], [false, true, true, 1, true, 0], 'R11: المبلغ المكتوب والإضافة الجارية يوقفان الترحيل بتنبيه، وما ينرسل ترحيل');
+      await unmount();
+    });
   } finally {
     restore();
   }

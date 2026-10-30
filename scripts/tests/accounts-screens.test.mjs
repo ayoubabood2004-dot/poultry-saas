@@ -95,7 +95,7 @@ export default async function (t) {
       "export { PaymentDialog, paymentProblems, SideAmount, negativeAfter, bookLabel, defaultPeriod } from './src/pages/accounts/shared.tsx';",
       "export { StatementBooks, ledgerEntries, voidable, default as PartyStatementPage } from './src/pages/accounts/PartyStatementPage.tsx';",
       "export { CashTable, boxName } from './src/pages/accounts/CashPage.tsx';",
-      "export { CashLedger } from './src/pages/accounts/CashStatementPage.tsx';",
+      "export { CashLedger, cashVoidSentence } from './src/pages/accounts/CashStatementPage.tsx';",
       "export { signedOpening, OpeningCell, default as OpeningBalancesPage } from './src/pages/accounts/OpeningBalancesPage.tsx';",
       // المراجعة العدائية لـWP3: بمساحات أسماء حتى كل فحص جديد يفشل لحاله على الشفرة القديمة (مو الحزمة كلها).
       "export * as shared from './src/pages/accounts/shared.tsx';",
@@ -164,7 +164,10 @@ export default async function (t) {
     const hook = full.indexOf('data-action="open-statement"');
     t.ok(hook >= 0 && hook < full.indexOf('أبو علي</a>'), 'الإجراءات أوّل عمود (وزرّ الكشف موجود)');
     const scopedSummary = m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 7 } });
-    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من 1 من المجموع 7 دفاتر'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
+    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من دفاتر نطاقك: 1 من 7'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
+    // مراجعة WP8: بلا «2 دفاتر» ولا «11 دفاتر» (قانون الفصحى: المعدود بعد العدد بصيغته)، فالجملة بلا معدود بعد الأرقام.
+    const twoBooks = textOf(render(m.h(m.SummaryCards, { summary: m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 2 } }) })));
+    t.ok(!/[0-9] دفاتر/u.test(twoBooks) && twoBooks.includes('دفاتر نطاقك: 1 من 2'), `مراجعة WP8: العدد بلا معدود بصيغة خاطئة (${twoBooks.slice(0, 80)})`);
     globalThis.__accounts.loads = { 'o-1': { error: new Error('boom') }, 'o-1|all|null||balance|false': { data: page } };
     const noSummary = render(m.h(m.AccountsPage));
     t.ok(noSummary.includes('تعذّر تحميل ملخّص الحسابات') && !section(noSummary, 'tfoot').includes('bdi'), 'الملخّص فشل: فشله ظاهر، وما يرسم تذييلاً من الصفوف');
@@ -491,6 +494,12 @@ export default async function (t) {
       return JSON.stringify(got) === JSON.stringify(['entry', 'entry', 'entry', 'payment', 'payment', null, null]) || got;
     });
     // مراجعة WP7: تسوية تتبع مستنداً (تصحيح سعر) تُلغى من مستندها (الخادم يرفضها من الكشف)، ودفع الاستلام يبقى يُلغى من الكشف (E44).
+    check('مراجعة WP8: تأكيد إلغاء نقل الصندوق يسمّي المبلغ واتّجاهه والملاحظة، فنقلان بنفس اليوم يتفرّقان', () => {
+      const line = (over) => ({ moveId: 'mv', onDate: '2026-10-30', kind: 'transfer', docNo: null, party: null, note: null, reverses: false, reversed: false, inflow: 0n, outflow: 0n, balance: 0n, ...over });
+      const out = m.cashVoidSentence(line({ outflow: 50_000_000n, note: 'إلى البنك' }));
+      const back = m.cashVoidSentence(line({ inflow: 100_000_000n }));
+      return (out.includes('500,000') && out.includes('الصادر') && out.includes('إلى البنك') && back.includes('1,000,000') && back.includes('الوارد') && out !== back) || [out, back];
+    });
     check('الكشف: تسوية تصحيح السعر بلا زرّ إلغاء، ودفع الاستلام بإلغاء القبض، ونوع المستند من الخادم', () => {
       const owned = [{ ...lines[1], entry_id: 'e-rev', kind: 'adjustment', doc_kind: 'receipt_revalue' }, { ...lines[1], entry_id: 'e-paid', kind: 'payout', doc_kind: 'receipt' }, { ...lines[1], entry_id: 'e-adj', kind: 'adjustment' }];
       const parsed = m.parseStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: owned }] }).books[0].lines;

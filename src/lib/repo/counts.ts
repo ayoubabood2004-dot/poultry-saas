@@ -3,6 +3,7 @@ import type { Fils, Milli, UnitCost } from '../../domain/money';
 import { BASE_UNITS, ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { RejectedError, ZeroRowsError } from '../errors';
+import { t } from '../i18n';
 import { call, classifyPostgrest, send, updatedRows } from './core';
 import {
   arr,
@@ -286,25 +287,39 @@ const costText = (cost: UnitCost | null): string | null => {
   return `${negative ? '-' : ''}${digits.slice(0, -4)}.${digits.slice(-4)}`;
 };
 
+/** كلفة وحدة الزيادة المحفوظة الآن (قراءة بعد كتابة مشروطة ما لكت صفّها). */
+async function gainUnitCostOf(lineId: string): Promise<UnitCost | null> {
+  const list = await readAll((db) => Promise.all([db.from('stock_count_line_costs').select('line_id, gain_unit_cost::text').eq('line_id', lineId) /* unbounded: صفّ واحد للسطر */]));
+  const [row] = list(0);
+  return row ? scaled(row, 'gain_unit_cost', 4) : null;
+}
+
 /**
- * كلفة وحدة الزيادة بلا دفعة قياس (E48، أربع مراتب): تعديل صفّها، وإذا ما موجود إدراج (المنح بلا upsert: on conflict يحدّث line_id
- * وماله منح). إدراجان بنفس اللحظة: الثاني 23505 ويعيد التعديل.
+ * كلفة وحدة الزيادة بلا دفعة قياس (E48، أربع مراتب)، مشروطة بالكلفة اللي شافتها الشاشة (مراجعة WP8: «كل كتابة سعر بشرط إنها كما
+ * انفتحت»؛ مديران أو نافذتان كانت الثانية تدوس الأولى بصمت): تعديل مشروط، وبلا صفّ إدراج (المنح بلا upsert). صفر صفوف أو 23505:
+ * الصفّ ينقرا، والكلفة المطلوبة بيه = انكتب (محاولة سابقة ضاع جوابها)، وإلا cost_changed.
  */
-export async function setGainUnitCost(lineId: string, cost: UnitCost | null): Promise<void> {
+export async function setGainUnitCost(lineId: string, before: UnitCost | null, cost: UnitCost | null): Promise<void> {
   const value = costText(cost);
-  const update = () => written(async (db) => updatedRows(withStatus(await db.from('stock_count_line_costs').update({ gain_unit_cost: value }).eq('line_id', lineId).select('line_id'))));
+  const prior = costText(before);
   try {
-    await update();
+    await written(async (db) =>
+      updatedRows(withStatus(await db.from('stock_count_line_costs').update({ gain_unit_cost: value }).eq('line_id', lineId).filter('gain_unit_cost', prior === null ? 'is' : 'eq', prior).select('line_id'))),
+    );
     return;
   } catch (error) {
     if (!(error instanceof ZeroRowsError)) throw error;
   }
-  try {
-    await written(async (db) => updatedRows(withStatus(await db.from('stock_count_line_costs').insert({ line_id: lineId, gain_unit_cost: value }).select('line_id'))));
-  } catch (error) {
-    if (!(error instanceof RejectedError && error.code === '23505')) throw error;
-    await update();
+  if (before === null) {
+    try {
+      await written(async (db) => updatedRows(withStatus(await db.from('stock_count_line_costs').insert({ line_id: lineId, gain_unit_cost: value }).select('line_id'))));
+      return;
+    } catch (error) {
+      if (!(error instanceof RejectedError && error.code === '23505')) throw error;
+    }
   }
+  if ((await gainUnitCostOf(lineId)) === cost) return;
+  throw new RejectedError('cost_changed', t('count.cost.changed', 'تغيّرت كلفة الوحدة من نافذة أو جهاز آخر بعد أن فتحت المراجعة؛ حدّث الجرد وراجعها قبل الحفظ.'));
 }
 
 export interface CountDraw {

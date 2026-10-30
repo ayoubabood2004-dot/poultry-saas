@@ -992,8 +992,11 @@ export async function loadStockDoc(kind: StockDocKind, id: string): Promise<{ do
   };
 }
 
-export function createOpeningDraft(warehouseId: string, onDate: string): Promise<StockDoc> {
-  return written(async (db) => updatedRows(withStatus(await db.from('opening_docs').insert({ warehouse_id: warehouseId, on_date: onDate }).select(OPENING_COLUMNS)))).then((row) => stockDoc('opening', row));
+/** id يولد بالجهاز (مراجعة WP8): الإعادة بعد جواب ضاع بنفس المعرّف ترجع 23505 بدل رأس ثاني (isDuplicate). */
+export function createOpeningDraft(warehouseId: string, onDate: string, id?: string): Promise<StockDoc> {
+  return written(async (db) => updatedRows(withStatus(await db.from('opening_docs').insert({ ...(id ? { id } : {}), warehouse_id: warehouseId, on_date: onDate }).select(OPENING_COLUMNS)))).then((row) =>
+    stockDoc('opening', row),
+  );
 }
 
 /**
@@ -1039,8 +1042,9 @@ export interface OpeningLineFields {
   born_at: string | null;
 }
 
-export function addOpeningLine(docId: string, fields: OpeningLineFields): Promise<OpeningLine> {
-  return written(async (db) => updatedRows(withStatus(await db.from('opening_lines').insert({ ...fields, doc_id: docId }).select(OPENING_LINE_COLUMNS)))).then(openingLine);
+/** id يولد بالجهاز (مراجعة WP8): الإعادة بنفس المعرّف 23505 = السطر انكتب، فالشاشة تعدّله بنفس القيم بدل سطر ثاني. */
+export function addOpeningLine(docId: string, fields: OpeningLineFields, id?: string): Promise<OpeningLine> {
+  return written(async (db) => updatedRows(withStatus(await db.from('opening_lines').insert({ ...(id ? { id } : {}), ...fields, doc_id: docId }).select(OPENING_LINE_COLUMNS)))).then(openingLine);
 }
 
 export function updateOpeningLine(lineId: string, patch: Partial<OpeningLineFields>): Promise<OpeningLine> {

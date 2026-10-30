@@ -29,6 +29,19 @@ export function cashMemo(line: CashLine): string {
   return who ? t('statement.memo.reason', '{base}: {reason}', { base, reason: who }) : base;
 }
 
+/**
+ * نتيجة إلغاء حركة الصندوق بكلماتها (مراجعة WP8): المبلغ واتّجاهه وملاحظته، فنقلان بنفس اليوم ما يتشابهان بالتأكيد (FOUNDATION ٧٦٦).
+ * المبالغ بالدينار الصحيح (قيد cash_moves).
+ */
+export function cashVoidSentence(line: CashLine): string {
+  const amount = fmtMoney(line.inflow + line.outflow, 0);
+  const note = line.note ? t('cash.void.note', ' (الملاحظة: {note})', { note: line.note }) : '';
+  if (line.kind !== 'transfer') return t('cash.void.opening', 'يُعكس الرصيد الافتتاحي {amount} بتاريخ اليوم، ثم يُسجَّل الصحيح من صفحة الصناديق.', { amount });
+  return line.inflow > 0n
+    ? t('cash.void.transfer_in', 'يُعكس نقل {amount} الوارد إلى هذا الصندوق{note} بوجهيه (الصندوقين) بتاريخ اليوم.', { amount, note })
+    : t('cash.void.transfer_out', 'يُعكس نقل {amount} الصادر من هذا الصندوق{note} بوجهيه (الصندوقين) بتاريخ اليوم.', { amount, note });
+}
+
 export function cashEntries(statement: CashStatement): LedgerEntry[] {
   return statement.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: cashMemo(line), debit: line.inflow, credit: line.outflow }));
 }
@@ -111,7 +124,7 @@ export default function CashStatementPage() {
         <VoidDialog
           slot={voiding.moveId}
           title={t('cash.void.title', 'إلغاء {kind} بتاريخ {day}', { kind: cashMoveKindLabel(voiding.kind), day: fmtDay(voiding.onDate) })}
-          consequence={voiding.kind === 'transfer' ? t('cash.void.transfer', 'يُعكس النقل بوجهيه (الصندوقين) بتاريخ اليوم.') : t('cash.void.opening', 'يُعكس الرصيد الافتتاحي بتاريخ اليوم، ثم يُسجَّل الصحيح من صفحة الصناديق.')}
+          consequence={cashVoidSentence(voiding)}
           run={(clientRef, reason) => cash.voidCashMove(clientRef, voiding.moveId, reason)}
           onClose={() => setVoiding(null)}
           onDone={() => {

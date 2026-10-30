@@ -693,6 +693,17 @@ export default async function (t) {
       }
       t.same(seen, { viewer: [0, 0, 0], storekeeper: [1, 1, 1] }, 'U4: المشاهد يشوف مسوّدة الصرف بلا أزرارها، والأمين بيها');
     }
+
+    // ── C21 (مراجعة WP8): «أعِد للعدّ» ممتنع وسبب أو كلفة مكتوبة ما انحفظت (كانت تضيع والتأكيد يقول تبقى) ───────────────────────
+    {
+      fresh('manager', reviewHandlers(reviewOf(reviewLine())));
+      await mount('/inventory/counts/c-1');
+      const before = disabled(byAction('return-count')[0]);
+      type(byAction('count-reason')[0], 'تسرّب من الخزّان');
+      await settle();
+      t.same([before, disabled(byAction('return-count')[0])], [false, true], 'C21: سبب مكتوب ما انحفظ يقفل «أعِد للعدّ» مثل «أعد الحساب» و«رحّل»');
+      await unmount();
+    }
   } finally {
     restore();
     delete globalThis.__flow;

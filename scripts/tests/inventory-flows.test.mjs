@@ -3,7 +3,7 @@
 // F1 سطور انكتبت بلا نت ورجع الاتصال قبل الحفظ ما تضيع (تنحفظ وترتفع)؛ F2 المسوّدة المحفوظة تبين بالرفّ فوراً وبعد رجوع الاتصال؛
 // F3 سطر يرفضه الخادم دائماً (ورفض 1.5 قطعة قبل الحفظ) والرفّ يسمح بحذفه أو بحذف المسوّدة؛ F4 وقت الفقس يوم/شهر/سنة؛ F5 سطر
 // الافتتاح ما ينكتب بوحدة تعبئة مادّة سابقة؛ F6 الترحيل ببصمة المعاينة وإعادتها على stale_preview؛ F7 مواد الجلسة لصاحبها؛ F8 قائمة
-// التحويلات بصفحات.
+// التحويلات بصفحات؛ F9 (مراجعة WP8) «أضف السطر» بالتحويل والافتتاح بمعرّف الجهاز: الإعادة بعد جواب ضاع نفس السطر مو سطر ثاني.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REAL_INV = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'inventory.ts'));
-const OVERRIDES = ['loadOrgSetup', 'listStockDocs', 'listItems', 'listItemUnits', 'createTransferDraft', 'addTransferLine', 'loadStockDoc', 'createOpeningDraft', 'addOpeningLine', 'previewTransfer', 'previewOpening', 'postTransferDoc', 'postOpening', 'voidTransferDoc', 'voidOpening', 'deleteDraftLine', 'discardDraft', 'loadStockOnHand', 'loadStockValues', 'loadStockValueTotals', 'loadItemLots', 'loadItemLotValues', 'loadItemMoves'];
+const OVERRIDES = ['loadOrgSetup', 'listStockDocs', 'listItems', 'listItemUnits', 'createTransferDraft', 'addTransferLine', 'updateTransferLine', 'loadStockDoc', 'createOpeningDraft', 'addOpeningLine', 'updateOpeningLine', 'previewTransfer', 'previewOpening', 'postTransferDoc', 'postOpening', 'voidTransferDoc', 'voidOpening', 'deleteDraftLine', 'discardDraft', 'loadStockOnHand', 'loadStockValues', 'loadStockValueTotals', 'loadItemLots', 'loadItemLotValues', 'loadItemMoves'];
 const STUBS = {
   inventory: `export * from ${REAL_INV}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__flow.call('${n}', a);`).join(' ')}`,
   session: 'export const useSession = () => globalThis.__flow.session; export const sessionStore = { get: () => globalThis.__flow?.session ?? { status: "loading" } };',
@@ -41,7 +41,7 @@ async function bundle() {
     "export { rememberItems, seenItemsMatching } from './src/pages/inventory/stock-shared.tsx';",
     "export { listDeviceDrafts, saveDeviceDraft, removeDeviceDraft } from './src/lib/drafts/index.ts';",
     "export { searchable } from './src/domain/normalize.ts';",
-    "export { RejectedError } from './src/lib/errors.ts';",
+    "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -394,9 +394,72 @@ export default async function (t) {
       t.ok(!(sent && sent.item_id === 'i-B' && sent.qty_base === '500.000'), `F5: سطر «علف ناهي» ما ينكتب بمعامل كيس المادّة الثانية (الوحدة ${JSON.stringify(shown)}، المرسل ${JSON.stringify(sent)})`);
       await unmount();
     }
+
+    // ── F9 (مراجعة WP8): «أضف السطر» بالتحويل والافتتاح بمعرّف الجهاز: جواب ضاع ثم إعادة = نفس المعرّف، و23505 = تعديل بنفس القيم (كان
+    //    سطراً ثانياً يضاعف الكمية والقيمة)، والنموذج يبقى بمعرّفه وتنبيهه بعد النتيجة المجهولة ──
+    {
+      const addTwice = async (url, fill, action) => {
+        await mount(url);
+        type(byAction('search-item')[0], fill.search);
+        await settle();
+        fire(byAction('pick-item')[0], 'click');
+        await settle();
+        type(byIdSuffix('-qty')[0], fill.qty);
+        if (fill.value) type(byIdSuffix('-value')[0], fill.value);
+        await settle();
+        fire(byAction(action)[0]?.parentNode, 'submit');
+        await settle();
+        const unknownShown = text().includes('قد تكون العملية تمّت');
+        fire(byAction(action)[0]?.parentNode, 'submit');
+        await settle();
+        await unmount();
+        return unknownShown;
+      };
+      const lost = (constraint) => {
+        let tries = 0;
+        return () => {
+          tries += 1;
+          if (tries === 1) throw new m.UnknownOutcomeError();
+          throw new m.RejectedError('23505', null, constraint);
+        };
+      };
+      const transferDoc = { id: 't-9', kind: 'transfer', status: 'draft', version: 1, docNo: null, warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-29', note: null, posted: false, voidReason: null };
+      const tCalls = fresh({ status: 'ready', workspace: ws(), offline: false }, {
+        ...handlers(),
+        loadStockDoc: () => ({ doc: transferDoc, openingLines: [], transferLines: [] }),
+        addTransferLine: lost('transfer_lines_pkey'),
+        updateTransferLine: (lineId, patch) => ({ id: lineId, ...patch }),
+      });
+      m.onlineStore.set(true);
+      const tUnknown = await addTwice('/inventory/transfers/t-9', { search: 'كاز', qty: '100' }, 'add-transfer-line');
+      const tSent = tCalls.filter(([n]) => n === 'addTransferLine').map(([, a]) => a[2]);
+      const tUpdated = tCalls.filter(([n]) => n === 'updateTransferLine').map(([, a]) => [a[0], a[1]?.qty_in_unit]);
+      const tReads = tCalls.filter(([n]) => n === 'loadStockDoc').length;
+      t.same(
+        [tUnknown, tSent.length, typeof tSent[0], tSent[0] === tSent[1], tUpdated, tReads],
+        [true, 2, 'string', true, [[tSent[0], '100.000']], 2],
+        'F9: سطر التحويل: الإعادة بعد جواب ضاع بنفس المعرّف (والتنبيه ظاهر)، و23505 تعديل بنفس القيم، والمستند ينقرا بعد الإضافة',
+      );
+      const starter = itemRow('i-A', 'علف بادئ', 'feed', 'kg');
+      const oCalls = fresh({ status: 'ready', workspace: ws({ role: 'manager', scopes: [], divisions: ['general', 'broiler', 'hatchery'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true }), offline: false }, {
+        loadOrgSetup: () => org,
+        loadStockDoc: () => ({ doc: { id: 'o-9', kind: 'opening', status: 'draft', version: 1, docNo: null, warehouseId: 'w-farm', toWarehouseId: null, onDate: '2026-10-01', note: null, posted: false, voidReason: null }, openingLines: [], transferLines: [] }),
+        listItems: () => ({ rows: [starter], total: 1, next: null }),
+        listItemUnits: () => [],
+        addOpeningLine: lost('opening_lines_pkey'),
+        updateOpeningLine: (lineId, patch) => ({ id: lineId, ...patch }),
+      });
+      const oUnknown = await addTwice('/inventory/openings/o-9', { search: 'علف', qty: '1000', value: '1500000' }, 'add-opening-line');
+      const oSent = oCalls.filter(([n]) => n === 'addOpeningLine').map(([, a]) => a[2]);
+      const oUpdated = oCalls.filter(([n]) => n === 'updateOpeningLine').map(([, a]) => [a[0], a[1]?.qty_base, a[1]?.value]);
+      t.same(
+        [oUnknown, oSent.length, typeof oSent[0], oSent[0] === oSent[1], oUpdated],
+        [true, 2, 'string', true, [[oSent[0], '1000.000', '1500000.00']]],
+        'F9: سطر الافتتاح: نفس المعرّف بعد جواب ضاع، و23505 تعديل بنفس الكمية والقيمة (مو افتتاح مضاعف)',
+      );
+    }
   } finally {
     delete globalThis.__flow;
     restore();
   }
 }
-

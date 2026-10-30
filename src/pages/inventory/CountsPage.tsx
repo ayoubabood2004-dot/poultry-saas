@@ -828,7 +828,7 @@ function CountReview({
         if (cost !== undefined && cost.trim() !== costTextOf(line.gainUnitCost)) {
           const parsed = cost.trim() ? parseDecimal(cost, 4) : null;
           if (cost.trim() && parsed === null) throw new RejectedError('cost', t('count.cost.invalid', 'اكتب كلفة الوحدة رقماً بأربع مراتب عشرية كحدّ أقصى.'));
-          await counts.setGainUnitCost(line.lineId, parsed ? toScale(parsed, 4) : null);
+          await counts.setGainUnitCost(line.lineId, line.gainUnitCost, parsed ? toScale(parsed, 4) : null);
         }
       }
       setReasons({});
@@ -1056,7 +1056,7 @@ function CountReview({
           <Button busy={busy} disabled={dirty || !ready} onClick={() => setConfirm('post')} data-action="post-count">
             {t('count.post', 'وافق ورحّل الجرد')}
           </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => setConfirm('return')} data-action="return-count">
+          <Button variant="ghost" disabled={busy || dirty} onClick={() => setConfirm('return')} data-action="return-count">
             {t('count.return', 'أعِد للعدّ')}
           </Button>
           <Button variant="ghost" disabled={busy} onClick={() => setConfirm('close')} data-action="close-count">
@@ -1084,7 +1084,7 @@ function CountReview({
         title={t('count.return.title', 'أعِد جرد «{store}» للعدّ', { store: store.name })}
         consequence={
           <div className="flex flex-col gap-3">
-            <p>{t('count.return.consequence', 'يرجع الجرد مسوّدة للأمين ليعيد العدّ، وتُمسح لقطة الدفتر، وتبقى أسبابك وكلفك.')}</p>
+            <p>{t('count.return.consequence', 'يرجع الجرد مسوّدة للأمين ليعيد العدّ، وتُمسح لقطة الدفتر، وتبقى الأسباب والكلف المحفوظة.')}</p>
             <Field id="count-return-reason" label={t('reason', 'السبب')}>
               <input id="count-return-reason" className="input" maxLength={500} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} />
             </Field>

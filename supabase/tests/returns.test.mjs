@@ -366,5 +366,57 @@ async function scenario(t, db) {
     return (await verifyLedger(q)).doc_numbers;
   }, U.owner);
   t.same([rehomed, misnumbered], ['23503', 1], 'واطئة 7: تصحيح على سطر من استلام آخر يرفضه المفتاح، ومرتجع رقمه RT بسنة غير سنة تاريخه يعدّه doc_numbers');
+
+  // ── مراجعة WP8 (عالية): سحب قبل تصحيح سعر حيّ ما يُعكس قبل إلغاء التصحيح (كان يرجّع البضاعة بقيمة ما قبله: 5,000 كغم بـ2,900,000
+  //    والمصحَّح 3,000,000)، والسحب بعده يُعكس؛ والمرتجع الكامل قبل التصحيح نفس الشي ───────────────────────────────────────────
+  const cornDrawn = await rawItem('ذرة سحب قبل التصحيح');
+  const rDrawn = await postedReceipt(db, { keeper, pricer, wh: W.raw, party: grain, on: TODAY, lines: [{ item: cornDrawn, qty: 5000 }], totals: [2500000] });
+  const useBeforeRevalue = await postedUse(db, manager, { wh: W.raw, category, on: TODAY, item: cornDrawn, qty: 1000 });
+  const revAfterUse = await postRevalue(db, manager, rDrawn.lines[0], 3000000);
+  const useAfterRevalue = await postedUse(db, manager, { wh: W.raw, category, on: TODAY, item: cornDrawn, qty: 500 });
+  const blockedEarlyUse = await voidUse(db, manager, useBeforeRevalue.id);
+  t.same(
+    [shown(revAfterUse), shown(blockedEarlyUse), blockedEarlyUse.hint?.includes('تصحيح سعر PU-'), shown(await voidUse(db, manager, useAfterRevalue.id))],
+    ['ok', 'lot_consumed', true, 'ok'],
+    'عالية (WP8): الصرف قبل التصحيح ما يُلغى قبله ويسمّيه، والصرف بعده يُلغى',
+  );
+  t.same(
+    [shown(await voidRevalue(db, manager, revAfterUse.value.id)), shown(await voidUse(db, manager, useBeforeRevalue.id)), (await lots(cornDrawn))[0]],
+    ['ok', 'ok', ['5000', '2500000', '5000', '2500000']],
+    'عالية (WP8): بعد إلغاء التصحيح يُلغى الصرف، والدفعة كما استُلمت بالفلس',
+  );
+  const cornReturned = await rawItem('ذرة مرتجع ثم تصحيح');
+  const rReturned = await postedReceipt(db, { keeper, pricer, wh: W.raw, party: grain, on: TODAY, lines: [{ item: cornReturned, qty: 1000 }], totals: [100000] });
+  const retWhole = await postedReturn(db, { keeper, pricer, receipt: rReturned.id, on: TODAY, lines: [{ receiptLine: rReturned.lines[0], qty: 1000 }], credits: [100000] });
+  const revAfterReturn = await postRevalue(db, manager, rReturned.lines[0], 120000);
+  const blockedWholeReturn = await voidReturn(db, manager, retWhole.id);
+  t.same(
+    [shown(revAfterReturn), shown(blockedWholeReturn), blockedWholeReturn.hint?.includes('تصحيح سعر PU-'), shown(await voidRevalue(db, manager, revAfterReturn.value.id)), shown(await voidReturn(db, manager, retWhole.id))],
+    ['ok', 'lot_consumed', true, 'ok', 'ok'],
+    'عالية (WP8): المرتجع الكامل قبل التصحيح ما يُلغى قبله (كان يرجّع 1,000 كغم بالسعر القديم والفرق كلّه مصروف)، وبعد إلغائه يُلغى',
+  );
+
+  // ── مراجعة WP8 (متوسّطة): إلغاء التصحيح بنطاق كل مخازن عائلته: مدير بوحدة العامّة ما يلغي حصّة مرآة بمخزن حقل (كان يمرّ) ─────────
+  const fuelField = await S.one(U.owner, "insert into public.items (name, kind, base_unit) values ('كاز تصحيح الحقل', 'fuel', 'L') returning id");
+  const rFuelField = await postedReceipt(db, { keeper, pricer, wh: W.general, party: grain, on: TODAY, lines: [{ item: fuelField, qty: 1000 }], totals: [1000000] });
+  await postedTransfer(db, manager, W.general, W.farm1, TODAY, [{ item: fuelField, qty: 400 }]);
+  await postedUse(db, manager, { wh: W.general, category, on: TODAY, item: fuelField, qty: 100 });
+  const revFuelField = await postRevalue(db, U.owner, rFuelField.lines[0], 1200000);
+  await S.one(U.owner, "select public.set_member_scopes_v2($1, array[$2]::uuid[], '{}', '{}')", [S.members.scopedManager, D.general]);
+  const divisionScopedVoid = await voidRevalue(db, U.scopedManager, revFuelField.value.id);
+  await S.one(U.owner, "select public.set_member_scopes_v2($1, '{}', '{}', array[$2]::uuid[])", [S.members.scopedManager, W.medicine]);
+  t.same(
+    [shown(revFuelField), shown(divisionScopedVoid), divisionScopedVoid.hint?.includes('مخزن حقل 1'), shown(await voidRevalue(db, U.owner, revFuelField.value.id))],
+    ['ok', 'out_of_scope', true, 'ok'],
+    'متوسّطة (WP8): مدير بوحدة ما يلغي تصحيحاً مسّ مرآة بمخزن وحدة ثانية، والمالك يلغيه',
+  );
+
+  // ── مراجعة WP8 (واطئة): الإلغاء من الكشف خارج نطاق الدفتر out_of_scope قبل ما يسمّي نوع القيد ────────────────────────────────
+  const purchaseEntryF = (await db.admin("select id from public.party_entries where kind = 'purchase' and doc_kind = 'receipt' and doc_id = $1", [rF.id])).rows[0].id;
+  t.same(
+    [shown(await call(db, U.scopedManager, 'select public.void_party_entry($1, $2, $3)', [revEntry, 'خارج النطاق', uid()])), shown(await call(db, U.scopedManager, 'select public.void_party_payment($1, $2, $3)', [purchaseEntryF, 'خارج النطاق', uid()]))],
+    ['out_of_scope', 'out_of_scope'],
+    'واطئة (WP8): قيد بدفتر خارج النطاق يُرفض out_of_scope (كان entry_not_voidable وnot_a_payment يكشفان نوعه)',
+  );
   await verifyAll('نهاية الحزمة');
 }
