@@ -35,7 +35,7 @@ import { useLoad } from '../../lib/useLoad';
 import { divisionLabel } from '../../lib/roles';
 import { AmountField, dinarText, parseDinar } from './purchase-shared';
 import { PriceCorrectionPanel, ReceiptReturnsPanel } from './ReceiptPostedPanels';
-import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type CopyOrigin, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الاستلام من المورّد (الخطّة WP6، FOUNDATION ٣٢٨–٣٣٤، ٥٥٠–٥٥١، ٧٦٨): الأمين يكتب المسوّدة بالكميات (مخزن بنطاقه يستلم من
 // المورّد، والمادّة من أنواعه، والانتهاء ووقت الفقس ورقم دفعة المورّد) وما بالشاشة له ولا خانة مال؛ وأدوار الكلفة يكتبون مبالغ
@@ -778,6 +778,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const [lineToDelete, setLineToDelete] = useState<ReceiptLine | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
+  const copier = useCopyDraft('receipt', docId);
   const reload = () => setTick((n) => n + 1);
   const closeReview = () => {
     setPreview(null);
@@ -796,6 +797,11 @@ function ReceiptEditor({ docId }: { docId: string }) {
   };
   const bundle = loaded.key === loadKey ? loaded.bundle : null;
   const loadError = loaded.key === loadKey ? loaded.error : null;
+  // أصل الورقة المنسوخة محفوظ بالخادم (copied_from، المراجعة FE-2): من يفتحها بعدين يعرف إنها نسخة، وأدوار الكلفة يعرفون إن مدفوع الأصل
+  // وتحميلات صندوقه بقيت عليه (فما يكتبونها مرّة ثانية)؛ غيرهم ما يقرون مبالغه أصلاً.
+  const originId = bundle && bundle.doc.status === 'draft' ? bundle.doc.copiedFrom : null;
+  const loadOrigin = useCallback(() => (originId ? purchasing.loadReceiptOrigin(originId, canPrice) : Promise.resolve(null)), [originId, canPrice]);
+  const originLoad = useLoad(loadOrigin, `origin#${originId ?? ''}#${canPrice}`);
   if (!bundle && loadError) return <LoadFailed what={t('receipt.what', 'الاستلام')} error={loadError} onRetry={reload} />;
   if (setup.error) return <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />;
   if (!bundle || !setup.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
@@ -863,16 +869,31 @@ function ReceiptEditor({ docId }: { docId: string }) {
     else toast({ tone: 'warning', title: t('attempt.recorded', 'سُجّلت العملية من محاولة سابقة') });
     refresh();
   };
-  const voidDoc = async (reason: string) => {
+  const canCopy = canCopyDraft(workspace, 'receipt', store);
+  const copyFrom = t('receipt.title.no', 'الاستلام {no}', { no: current.docNo ?? '' });
+  const copyNextStep = copyNext(workspace, 'receipt');
+  const origin: CopyOrigin | null = originLoad.data
+    ? {
+        kind: 'receipt',
+        id: originLoad.data.id,
+        from: t('receipt.title.no', 'الاستلام {no}', { no: originLoad.data.docNo ?? '' }),
+        skipped: [...(originLoad.data.paidNow ? ['paid_now'] : []), ...(originLoad.data.boxCharge ? ['box_charge'] : [])],
+      }
+    : null;
+  const voidDoc = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`receipt-void:${current.id}`, (ref) => purchasing.voidReceipt(ref, current.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
-    else {
-      setConfirm(null);
-      refresh();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      setFailure(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    refresh();
   };
   const deleteLine = () => {
     if (!lineToDelete) return;
@@ -923,7 +944,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
         }
       />
       {loadError ? <LoadFailed what={t('receipt.what', 'الاستلام')} error={loadError} onRetry={reload} /> : null}
+      <CopiedNotice draft={draft} next={copyNextStep} origin={origin} />
       {current.voidReason ? <Notice tone="warning" title={t('receipt.voided', 'أُلغي هذا الاستلام')}>{current.voidReason}</Notice> : null}
+      {draft && canDraft ? <DraftDayField day={current.onDate} save={(day) => purchasing.updateReceiptDraft(current, { day })} onSaved={refresh} /> : null}
       <ReceiptLinesTable lines={bundle.lines} values={live ? live.values : null} totals={totals} onDelete={draft && canDraft ? setLineToDelete : null} />
       {draft && canDraft && store ? <AddReceiptLine doc={current} store={store} onAdded={refresh} /> : null}
       {current.status !== 'draft' && (canDraft || canPrice) ? <ReceiptReturnsPanel receipt={current} canDraft={canDraft} /> : null}
@@ -985,6 +1008,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-receipt">
           {t('receipt.void', 'ألغِ الاستلام')}
         </Button>
+      ) : current.status === 'void' && current.docNo && canCopy ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ConfirmDialog
         open={lineToDelete !== null}
@@ -1015,7 +1040,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
           consequence={receiptVoidSentence(current.docNo, bundle.lines.length)}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidDoc(reason)}
+          choose={canCopy}
+          onConfirm={(reason, choice) => void voidDoc(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}

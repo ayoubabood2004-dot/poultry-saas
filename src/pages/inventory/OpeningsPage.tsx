@@ -29,7 +29,7 @@ import type { ItemRow, OpeningLine, OpeningPreview, StockDoc } from '../../lib/r
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بيوم التشغيل أو قبله، وسطورها
 // بالكمية بوحدة الأساس والقيمة بمرتبتين (الصفر ويّا سببه بس، Q9؛ الانتهاء للمادّة اللي تتابعه، ووقت الفقس للأفراخ)، ثم معاينة
@@ -91,6 +91,9 @@ export function OpeningLinesTable({ lines, onDelete }: { lines: readonly Opening
 function OpeningEditor({ docId }: { docId: string }) {
   const navigate = useNavigate();
   const online = useStore(onlineStore);
+  const session = useSession();
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  const copier = useCopyDraft('opening', docId);
   const load = useCallback(() => inventory.loadStockDoc('opening', docId), [docId]);
   const [tick, setTick] = useState(0);
   const doc = useLoad(load, `${docId}#${tick}`);
@@ -151,16 +154,23 @@ function OpeningEditor({ docId }: { docId: string }) {
         setConfirm(null);
       });
   };
-  const voidDoc = async (reason: string) => {
+  const canCopy = canCopyDraft(workspace, 'opening', store);
+  const copyNextStep = copyNext(workspace, 'opening');
+  const copyFrom = t('opening.title', 'الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' });
+  const voidDoc = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`opening-void:${current.id}`, (ref) => inventory.voidOpening(ref, current.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
-    else {
-      setConfirm(null);
-      refresh();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      setFailure(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    refresh();
   };
   const deleteLine = (line: OpeningLine) => {
     setBusy(true);
@@ -181,6 +191,7 @@ function OpeningEditor({ docId }: { docId: string }) {
           </Link>
         }
       />
+      <CopiedNotice draft={draft} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('opening.voided', 'أُلغي هذا الرصيد')}>{current.voidReason}</Notice> : null}
       <OpeningLinesTable lines={lines} onDelete={draft ? deleteLine : null} />
       {draft && store ? (
@@ -242,6 +253,8 @@ function OpeningEditor({ docId }: { docId: string }) {
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-opening">
           {t('opening.void', 'ألغِ الرصيد عند البداية')}
         </Button>
+      ) : current.status === 'void' && current.posted && canCopy ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ConfirmDialog
         open={confirm === 'discard'}
@@ -259,7 +272,8 @@ function OpeningEditor({ docId }: { docId: string }) {
           consequence={openingVoidSentence(store?.name ?? '—', lines)}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidDoc(reason)}
+          choose={canCopy}
+          onConfirm={(reason, choice) => void voidDoc(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}

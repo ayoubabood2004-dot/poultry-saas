@@ -278,6 +278,36 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0011 (قرارات المالك 2026-10-31): تحويل مرحَّل ثم ملغى (10 لترات كاز أويل من العامّ للمواد الأوّلية، فدفعة الافتتاح ترجع كما
+  // كانت بالفلس) وافتتاح مرحَّل ثم ملغى (مادّة جديدة بالعامّ، متبقّيها صفر فما تبين باللوحة ولا بالقيم)، والإلغاء مثبَّت؛ والنسخ
+  // للتصحيح بكل خانة بمعاملة ترجع.
+  const v11 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const transfer = await one('insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today()) returning id', [generalStore, millRaw]);
+      await q('insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10)', [transfer, stock.diesel]);
+      await q("select public.post_transfer($1, (select version from public.transfers where id = $1), public.preview_transfer($1) ->> 'plan', gen_random_uuid())", [transfer]);
+      await q("select public.void_transfer($1, 'تحويل للنسخ', gen_random_uuid())", [transfer]);
+      const solar = await one("insert into public.items (name, kind, base_unit) values ('سولار النسخ', 'fuel', 'L') returning id");
+      const opening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [generalStore]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 5, 4000)', [opening, solar]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [opening]);
+      await q("select public.void_opening_stock($1, 'افتتاح للنسخ', gen_random_uuid())", [opening]);
+      // صرف الزيت (WP5) صار قبل جرد معتمد لنفس المادّة والمخزن بيومه، فإلغاؤه count_superseded: صفّ void_stock_use على صرف مادّة
+      // بلا جرد (افتتاح بالمواد الأوّلية بقيمة صفر وسببها، فالصرف بلا مصروف وما يغيّر التقارير فوك).
+      const sample = await one("insert into public.items (name, kind, base_unit) values ('زيت عيّنة', 'fuel', 'L') returning id");
+      const sampleOpening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [millRaw]);
+      await q("insert into public.opening_lines (doc_id, item_id, qty_base, value, zero_reason) values ($1, $2, 10, 0, 'عيّنة مجانية')", [sampleOpening, sample]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [sampleOpening]);
+      const use = await one('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today()) returning id', [millRaw, wp5.category]);
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 2)', [use, sample]);
+      await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+      return { transfer, opening, use };
+    },
+    { commit: true },
+  );
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -354,7 +384,8 @@ export default async function (t, db) {
     record_expense: { sql: () => ["select public.record_expense(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'cash', $3, null, null, null, null, null, null, null, gen_random_uuid())", [wp5.category, general, ledger.bank]], expect: only(ACCOUNTS) },
     void_expense: { sql: () => ["select public.void_expense($1, 'مصروف مكرّر', gen_random_uuid())", [wp5.expense]], expect: only(['owner', 'manager']) },
     post_stock_use: { sql: () => ["select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [wp5.useDraft, wp5.useVersion]], expect: only(TRANSFER) },
-    void_stock_use: { sql: () => ["select public.void_stock_use($1, 'صرف خاطئ', gen_random_uuid())", [wp5.usePosted]], expect: only(['owner', 'manager']) },
+    // صرف الزيت (wp5.usePosted) قبل جرد معتمد، فإلغاؤه count_superseded (0011)؛ الصفّ على صرف «زيت عيّنة» بلا جرد.
+    void_stock_use: { sql: () => ["select public.void_stock_use($1, 'صرف خاطئ', gen_random_uuid())", [v11.use]], expect: only(['owner', 'manager']) },
     preview_stock_use: { sql: () => ["select public.preview_stock_use($1) ->> 'ready' as v", [wp5.useDraft]], value: true, expect: only(TRANSFER, 'ok:true') },
     submit_count: { sql: () => ['select public.submit_count($1, $2, gen_random_uuid())', [wp5.countDraft, wp5.countDraftVersion]], expect: only(TRANSFER) },
     refresh_count: { sql: () => ['select public.refresh_count($1, $2, gen_random_uuid())', [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
@@ -379,6 +410,9 @@ export default async function (t, db) {
     post_receipt_revalue: { sql: () => ["select public.post_receipt_revalue($1, 7700, $2, 'فاتورة', gen_random_uuid())", [wp7.revalueLine, wp7.plan7700]], expect: only(['owner', 'manager']) },
     void_receipt_revalue: { sql: () => ["select public.void_receipt_revalue($1, 'تصحيح خاطئ', gen_random_uuid())", [wp7.revaluation]], expect: only(['owner', 'manager']) },
     preview_receipt_revalue: { sql: () => ["select public.preview_receipt_revalue($1, 7700) ->> 'ready' as v", [wp7.revalueLine]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    // 0011: النسخة للتصحيح بفعل إنشاء ورقة النوع ونطاق مخزنها: التحويل لمن يكتب ورقة التحويل (transfer.post، والأمين بنطاق العامّ
+    // المرسِل)، والمحاسب والمشاهد ممنوعان؛ والافتتاح بصفّه تحت (opening.post).
+    copy_doc_to_draft: { sql: () => ["select public.copy_doc_to_draft('transfer', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.transfer]], value: true, expect: only(TRANSFER, 'ok:draft') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -419,6 +453,9 @@ export default async function (t, db) {
     // WP7: مسوّدة المرتجع بـreceipt.draft (المحاسب ممنوع)، وحذف السطر يحذف مقبوله ويّاه.
     "discard_draft('supplier_return')": { sql: ["select public.discard_draft('supplier_return', $1, $2) ->> 'status' as v", [wp7.bare, wp7.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     "delete_draft_line('supplier_return')": { sql: ["select public.delete_draft_line('supplier_return', $1, $2) ->> 'deleted' as v", [wp7.line, wp7.version]], value: true, expect: only(TRANSFER, 'ok:true') },
+    // 0011: نسخة الافتتاح الملغى بـopening.post (المالك والمدير)، والمخزن العامّ بنطاق الأمين (فلو فرع الافتتاح صار transfer.post
+    // ينجح الأمين وينمسك).
+    "copy_doc_to_draft('opening')": { sql: ["select public.copy_doc_to_draft('opening', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.opening]], value: true, expect: only(['owner', 'manager'], 'ok:draft') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};

@@ -3,7 +3,10 @@
 // أدوار الحسابات، ومعاينة الأمين وترحيله وإعادته بنفس المرجع بلا money، والتلميح بكميات بلا قيم؛ وسجلّ التدقيق والجداول للمدير
 // المحصور بمخزن: صفوف مخزنه بس (audit_log_stock_scope). وWP5: المصاريف وكلف الجرد صفر صفوف لغير أدوار الكلفة، ومعاينة الصرف
 // وترحيله وإعادته وتسليم الجرد بلا money للأمين، والمراجعة والتقرير forbidden له، والمحصور بمخزن يقرأ مصاريف وحدته بس (وسجلّها).
+// و0011: نسخة الأمين للتصحيح من استلام ملغى بلا أي صفّ مبلغ، وجوابها بلا money ولا رمزي المال؛ ورمزا المال داخل money، فإعادة
+// المدير بنفس المرجع بعد ما نزل أميناً بلاهما (R-DB-3).
 import { call, uid } from './ledger-kit.mjs';
+import { postedReceipt } from './receipt-kit.mjs';
 import { makeStockOrg, postedOpening, postedTransfer, transferDraft } from './stock-kit.mjs';
 
 const TODAY = '2026-10-30';
@@ -209,4 +212,41 @@ async function scenario(t, db) {
     'ضابط: المدير بلا نطاق يقرأ تدقيق التحويل والصرف والجرد وسطورها ورأس الافتتاح بكل المخازن',
   );
   t.ok(['stock_uses', 'stock_use_lines'].every((table) => scopedAudit.some(({ table_name: name }) => name === table)), 'ضابط: المحصور يقرأ تدقيق صرف مخزنه');
+
+  // ── 0011 (المحاسب صار محصوراً بالأدوية فوك، فالمدير يسعّر): نسخة الأمين للتصحيح من استلام ملغى (10 لترات بـ8,000، خصم 500، مدفوع
+  // 1,000 وتحميل 300 من الصندوق): الورقة بلا أي صفّ مبلغ،
+  // وجوابها وإعادته بنفس المرجع بلا money ولا رمزي المال (paid_now وbox_charge لأدوار الكلفة بس)، ونسخة المدير تسمّيهما ────────────
+  const supplier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد الإخفاء', true) returning id");
+  const leakBox = await S.one(U.accountant, "insert into public.cash_accounts (name, kind) values ('صندوق الإخفاء', 'cash') returning id");
+  const priced = await postedReceipt(db, {
+    keeper: U.storekeeper, pricer: U.manager, wh: W.general, party: supplier, on: TODAY, lines: [{ item: I.diesel, qty: 10 }], totals: [8000],
+    discount: 500, paid: 1000, box: leakBox, charges: [{ label: 'نقل', amount: 300, by: 'value', box: leakBox }],
+  });
+  await S.one(U.manager, "select public.void_receipt($1, 'نسخة الإخفاء', gen_random_uuid()) ->> 'status'", [priced.id]);
+  const COPY = 'select public.copy_doc_to_draft($1, $2, $3, $4)';
+  const copyId = uid();
+  const copyRef = uid();
+  const copied = (await call(db, U.storekeeper, COPY, ['receipt', priced.id, copyId, copyRef])).value;
+  const again = (await call(db, U.storekeeper, COPY, ['receipt', priced.id, copyId, copyRef])).value;
+  const copiedMoney = (await db.admin(
+    'select (select count(*) from public.receipt_line_amounts where doc_id = $1) + (select count(*) from public.receipt_amounts where doc_id = $1) + (select count(*) from public.receipt_charges where doc_id = $1) as n',
+    [copyId],
+  )).rows[0].n;
+  t.same([moneyKeys(copied), moneyKeys(again), copied?.skipped, Number(copiedMoney)], [[], [], ['amounts'], 0], 'نسخة الأمين من استلام ملغى: بلا أي صفّ مبلغ، وجوابها وإعادته بلا money، وskipped بلا رمزي المال (amounts بس)');
+  t.same(again, copied, 'إعادة نسخة الأمين بنفس المرجع نفس الجواب المخفي');
+  const managerId = uid();
+  const managerRef = uid();
+  const managerCopy = (await call(db, U.manager, COPY, ['receipt', priced.id, managerId, managerRef])).value;
+  t.same([managerCopy?.skipped, managerCopy?.money, moneyKeys(managerCopy)], [[], { skipped: ['paid_now', 'box_charge'] }, ['.money']], 'ضابط: نسخة المدير تسمّي المدفوع وتحميل الصندوق داخل money (رمزان بلا مبلغ)');
+  // R-DB-3: المدير ينزل أميناً (المالك) بعد النسخة، ويعيد بنفس المرجع (ref_claim قبل أي فحص دور أو نطاق): جوابه بلا رمزي المال، لأنهما
+  // داخل money وprivate.mask يشيلها لغير أدوار الكلفة بالإعادة هم؛ وبعدها يرجع مديراً.
+  await S.one(U.owner, 'select public.set_member_role($1, $2)::text', [S.members.manager, 'storekeeper']);
+  const demoted = await call(db, U.manager, COPY, ['receipt', priced.id, managerId, managerRef]);
+  const cost = (await call(db, U.manager, 'select public.can_see_cost()')).value;
+  await S.one(U.owner, 'select public.set_member_role($1, $2)::text', [S.members.manager, 'manager']);
+  t.same(
+    [cost, demoted.ok, demoted.value?.id, JSON.stringify(demoted.value ?? null).includes('paid_now'), JSON.stringify(demoted.value ?? null).includes('box_charge'), moneyKeys(demoted.value)],
+    [false, true, managerId, false, false, []],
+    'R-DB-3: إعادة النسخة بنفس المرجع بعد ما نزل المدير أميناً: نفس الورقة بلا paid_now ولا box_charge ولا money',
+  );
 }

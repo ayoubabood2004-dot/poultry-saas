@@ -178,6 +178,34 @@ const returnSeed = async (db) => {
 
 const RETURN_CONDITION = 'v_returns + v_revaluations > 0';
 
+/** بعد البذرة الحقيقية: استلام مرحَّل بالمخزن العامّ (كاز من «مورّد الحبوب») يلغيه المدير وينسخه للتصحيح (0011): الورقة تحمل أصلها. */
+const copySeed = async (db) => {
+  await seedThroughRpcs(db);
+  const { general, party } = await db.asUser(
+    U.storekeeper,
+    async (q) => ({
+      general: await value(q, "select id from public.warehouses where kind = 'general'"),
+      party: await value(q, "select id from public.parties where name = 'مورّد الحبوب'"),
+    }),
+    { commit: false },
+  );
+  const item = await db.asUser(U.manager, (q) => value(q, "insert into public.items (name, kind, base_unit) values ('كاز النسخة', 'fuel', 'L') returning id"), { commit: true });
+  const receipt = await db.asUser(U.storekeeper, async (q) => {
+    const id = await value(q, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [party, general]);
+    await q('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10)', [id, item]);
+    return id;
+  }, { commit: true });
+  await db.asUser(U.manager, async (q) => {
+    await q('insert into public.receipt_line_amounts (line_id, line_total) select id, 7500 from public.receipt_lines where doc_id = $1', [receipt]);
+    const version = await value(q, 'select version from public.receipts where id = $1', [receipt]);
+    await q('select public.post_receipt($1, $2, $3)', [receipt, version, REF(13)]);
+    await q("select public.void_receipt($1, 'نسخة للتصحيح', $2)", [receipt, REF(14)]);
+    await q("select public.copy_doc_to_draft('receipt', $1, $2, $3)", [receipt, REF(15), REF(16)]);
+  }, { commit: true });
+};
+
+const COPY_CONDITION = 'v_copies > 0';
+
 const WP5_CONDITION = 'v_expenses > 0 or v_uses > 0 or v_counts > 0';
 
 /**
@@ -284,6 +312,15 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(RETURN_CONDITION, 'false'),
     },
   ],
+  11: [
+    {
+      name: 'استلام منسوخ بأصله',
+      code: 'rollback_blocked',
+      seed: copySeed,
+      data: "select (select count(*) from public.receipts where copied_from is not null)::text || '/' || (select count(*) from public.receipts)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(COPY_CONDITION, 'false'),
+    },
+  ],
 };
 
 /** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
@@ -294,4 +331,5 @@ export const BLOCKING_REQUIRED = [
   [8, 3, 'مصروف نقدي ومسوّدة صرف ومسوّدة جرد، كل وحدة توقف التراجع'],
   [9, 1, 'مسوّدة استلام توقف التراجع'],
   [10, 1, 'مسوّدة مرتجع توقف التراجع'],
+  [11, 1, 'استلام منسوخ بأصله يوقف التراجع'],
 ];

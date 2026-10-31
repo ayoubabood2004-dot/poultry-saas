@@ -816,7 +816,9 @@ async function scenario(t, db) {
   // فروع WP5 بطفرات حقيقية: الإلغاء بلا عكس المصروف، ومصروف بوحدة ثانية أو بتصنيف ثاني، وزيادة بغير قيمة دفعتها، وإلغاء ناقص،
   // والسحب بالأحدث للصرف والجرد، وسحب مسمّى من منتهية بعلامة الانتهاء.
   Object.assign(EXTRA_BREAKS, {
+    // الجرد المرحَّل بعد الصرف بيومه أقرّ حركته (0011: الإلغاء count_superseded)، فينلغى الجرد أوّلاً (إلغاء سليم بعكسه كلّه).
     'use_expense (إلغاء بلا عكس المصروف)': ['use_expense', [{ use_expense: 1, value_conservation: 1 }, async (q) => {
+      await q("select public.void_count($1, 'ضابط', gen_random_uuid())", [wp5Doc.count]);
       await q(swap(voidUseDef, '    r := private.reverse_stock_expense(e.id, v_reason);\n', '    null;\n'));
       await q("select public.void_stock_use($1, 'ضابط', gen_random_uuid())", [wp5Doc.use]);
     }]],

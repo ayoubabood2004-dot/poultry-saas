@@ -32,7 +32,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useDocPages, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // التحويل والصادر الداخلي (الخطّة WP4، FOUNDATION ٥٥٤، القاعدة 15، Q4): الأمين ينشئ المسوّدة من مخزن بنطاقه لأي مخزن فعّال يقبل
 // المادّة، والشاشة تكول «صادر داخلي إلى …» بين وحدتين. المعاينة تسحب بالدفعات (والنقص يبقي المسوّدة، «سجّل الاستلام أو الجرد»)،
@@ -195,6 +195,9 @@ export function TransferLinesTable({ lines, onDelete }: { lines: readonly Transf
 function TransferEditor({ docId }: { docId: string }) {
   const navigate = useNavigate();
   const online = useStore(onlineStore);
+  const session = useSession();
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  const copier = useCopyDraft('transfer', docId);
   const load = useCallback(() => inventory.loadStockDoc('transfer', docId), [docId]);
   const [tick, setTick] = useState(0);
   const doc = useLoad(load, `${docId}#${tick}`);
@@ -247,16 +250,23 @@ function TransferEditor({ docId }: { docId: string }) {
     announceZeroBalance(whole, from?.name ?? '');
     refresh();
   };
-  const voidDoc = async (reason: string) => {
+  const canCopy = canCopyDraft(workspace, 'transfer', from);
+  const copyFrom = t('transfer.title.no', 'التحويل {no}', { no: current.docNo ?? '' });
+  const copyNextStep = copyNext(workspace, 'transfer');
+  const voidDoc = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`transfer-void:${current.id}`, (ref) => inventory.voidTransferDoc(ref, current.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
-    else {
-      setConfirm(null);
-      refresh();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      setFailure(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    refresh();
   };
   const runPreview = () => {
     setBusy(true);
@@ -304,7 +314,9 @@ function TransferEditor({ docId }: { docId: string }) {
           {t('transfer.export.detail', 'ينتقل بالكلفة بلا ربح ولا حركة جهة.')}
         </Notice>
       ) : null}
+      <CopiedNotice draft={draft} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('transfer.voided', 'أُلغي هذا التحويل')}>{current.voidReason}</Notice> : null}
+      {draft ? <DraftDayField day={current.onDate} save={(day) => inventory.updateStockDraft(current, { day })} onSaved={refresh} /> : null}
       <TransferLinesTable lines={lines} onDelete={draft ? deleteLine : null} />
       {draft && from && to ? <AddTransferLine docId={current.id} from={from} to={to} onAdded={refresh} /> : null}
       {failed ? (
@@ -364,6 +376,8 @@ function TransferEditor({ docId }: { docId: string }) {
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-transfer">
           {t('transfer.void', 'ألغِ التحويل')}
         </Button>
+      ) : current.status === 'void' && current.docNo && canCopy ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ConfirmDialog
         open={confirm === 'discard'}
@@ -382,7 +396,8 @@ function TransferEditor({ docId }: { docId: string }) {
           consequence={transferVoidSentence(current.docNo, lines, from?.name ?? '—')}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidDoc(reason)}
+          choose={canCopy}
+          onConfirm={(reason, choice) => void voidDoc(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}

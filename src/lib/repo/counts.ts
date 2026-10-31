@@ -178,6 +178,23 @@ export function createCountDraft(id: string, warehouseId: string, countedOn: str
   ).then(countDoc);
 }
 
+export interface CountHeaderPatch {
+  day?: string;
+  note?: string | null;
+}
+
+/**
+ * تاريخ الجرد غير المسلَّم أو ملاحظته بشرط النسخة (الحقول المتغيّرة بس؛ حارس الرأس يسمحهما بالورقة). المراجعة FE-1: نسخة من جرد قديم
+ * تحمل يومه، ويوم أقدم من 7 أيام ما يُحفظ نهائياً، فالعادّ يصحّحه بالورقة.
+ */
+export function updateCountDraft(doc: Pick<CountDoc, 'id' | 'version'>, patch: CountHeaderPatch): Promise<CountDoc> {
+  const fields = {
+    ...(patch.day ? { counted_on: patch.day } : {}),
+    ...(patch.note === undefined ? {} : { note: patch.note?.trim() || null }),
+  };
+  return written(async (db) => updatedRows(withStatus(await db.from('stock_counts').update(fields).eq('id', doc.id).eq('version', doc.version).select(COUNT_COLUMNS)))).then(countDoc);
+}
+
 /** حقول سطر العدّ كما تنكتب: الكميات نصوص عشرية بوحدة الأساس (E3)، والتواريخ YYYY-MM-DD، ووقت الفقس ISO. */
 export interface CountLineFields {
   item_id: string;

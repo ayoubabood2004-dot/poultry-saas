@@ -7,7 +7,7 @@
 // v3 (WP5، بذرة ثابتة مطبوعة): يزيد الصرف (ومنه أكثر من المتاح) والجرد (نقص وزيادة، وبلا دفعة قياس بكلفة المدير) والمصاريف
 // النقدية، والإلغاء لكلها؛ وبعد كل خطوة verify_stock وverify_ledger صفر ورصيد الصندوق = النموذج؛ وسحب الصرف ونقص الجرد =
 // fifo.planDraw بالفلس، وقيمة كل زيادة = count.gainValue بدفعة pickGainReferenceLot على دفعات المنشأة قبلها، ومصروف المستند =
-// مجموع سحبه.
+// مجموع سحبه. ومن 0011: إلغاء افتتاح أو تحويل أو صرف أقرّه جرد مرحَّل حيّ (يومه بيوم المستند أو بعده وانحفظ بعده) count_superseded.
 // v4 (WP6، بذرة ثابتة مطبوعة): استلامات عشوائية (كيلو ولتر بكثافة وقطع بوزن وبلاه، ومادّة تتابع الانتهاء) بخصم وتحميلات بالوزن
 // والقيمة على كل السطور أو اختيارها، ومدفوع، وأحياناً خصم أكبر من المجموع أو صفر بلا سبب؛ وقيمة كل دفعة = receipt.receiptValuation
 // بالفلس، والرفض برمز مشكلتها بالضبط؛ وإلغاءات عشوائية؛ وبعد كل خطوة verify_stock وverify_ledger صفر.
@@ -187,13 +187,18 @@ async function propertyV3(t, db) {
   // الجرود المرحَّلة (مادّة، مخزن، يوم، ترتيب الترحيل، بحركة؟): جرد أقدم بفرق بعد أحدث مرحَّل لنفس المادّة count_superseded (المراجعة
   // الثانية لـWP5)، والمراجعة الثالثة: السطر بلا فرق يترحّل، وإلغاء جرد بحركة وبعده جرد مرحَّل يومه مثل يومه أو بعده ينرفض بنفس الرمز.
   const approvedCounts = [];
-  let countOrder = 0;
+  // ترتيب الحفظ النهائي للمستندات والجرود سوا (0011): جرد انحفظ بعد مستند ويومه بيوم المستند أو بعده أقرّ حركاته (لقطته بعدها).
+  let postOrder = 0;
   const voidBlockedBy = (target) => {
     const counted = target.kind === 'count' ? approvedCounts.find((c) => c.id === target.id) : null;
     return Boolean(counted?.moved && approvedCounts.some((c) => c.id !== counted.id && c.item === counted.item && c.wh === counted.wh && c.day >= counted.day && c.order > counted.order));
   };
+  // 0011 (قرار المالك 2026-10-31): إلغاء الافتتاح والتحويل (بطرفيه) والصرف بعد جرد مرحَّل حيّ لمادّته بمخزنه، يومه بيوم المستند أو بعده
+  // وانحفظ بعده، count_superseded؛ والافتتاح والتحويل يفحصان دفعاتهم قبله (lot_consumed أوّلاً).
+  const countedBy = (target) =>
+    ['opening', 'transfer', 'stock_use'].includes(target.kind) && approvedCounts.some((c) => c.item === target.item && target.whs.includes(c.wh) && c.day >= target.day && c.order > target.order);
   const failures = [];
-  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0, voidBlocked: 0 };
+  const tally = { done: 0, uses: 0, useShort: 0, counts: 0, countShort: 0, superseded: 0, gains: 0, manual: 0, shortages: 0, expenses: 0, voids: 0, consumed: 0, voidBlocked: 0, countBlocked: 0 };
   for (let step = 0; step < STEPS && failures.length === 0; step += 1) {
     const roll = random();
     const day = pick(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']);
@@ -205,7 +210,7 @@ async function propertyV3(t, db) {
       label = `افتتاح ${step}`;
       const doc = await openingDraft(db, U.manager, wh, GO_LIVE, lines);
       const result = await postOpening(db, U.manager, doc);
-      if (result.ok) posted.push({ kind: 'opening', fn: 'void_opening_stock', id: doc.id });
+      if (result.ok) posted.push({ kind: 'opening', fn: 'void_opening_stock', id: doc.id, item, whs: [wh], day: GO_LIVE, order: (postOrder += 1) });
       else if (result.code !== 'item_has_moves') failures.push(`${label}: ${result.code}`);
     } else if (roll < 0.27) {
       const item = pick(items);
@@ -214,7 +219,7 @@ async function propertyV3(t, db) {
       label = `تحويل ${step}`;
       const doc = await transferDraft(db, U.manager, from, to, day, [{ item, qty: qtyText(BigInt(1 + Math.floor(random() * 200000))) }]);
       const result = await postTransfer(db, U.manager, doc);
-      if (result.ok) posted.push({ kind: 'transfer', fn: 'void_transfer', id: doc.id });
+      if (result.ok) posted.push({ kind: 'transfer', fn: 'void_transfer', id: doc.id, item, whs: [from, to], day, order: (postOrder += 1) });
       else if (result.code !== 'insufficient_stock') failures.push(`${label}: ${result.code}`);
     } else if (roll < 0.47) {
       // الصرف: السحب = fifo.planDraw على دفعات المخزن قبله، والنقص بالضبط حين تقوله الخطّة، والمصروف = مجموع السحب.
@@ -241,7 +246,7 @@ async function propertyV3(t, db) {
         if (result.ok || result.code !== 'insufficient_stock') failures.push(`${label}: الخطّة نقص والقاعدة ${shown(result)}`);
       } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
       else {
-        posted.push({ kind: 'stock_use', fn: 'void_stock_use', id: doc });
+        posted.push({ kind: 'stock_use', fn: 'void_stock_use', id: doc, item, whs: [wh], day, order: (postOrder += 1) });
         const got = drawsText(result.value.lines[0].draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
         if (got !== drawsText(plan.draws)) failures.push(`${label}: السحب ${got} والخطّة ${drawsText(plan.draws)}`);
         const total = plan.draws.reduce((sum, d) => sum + d.value, 0n);
@@ -297,7 +302,7 @@ async function propertyV3(t, db) {
       } else if (!result.ok) failures.push(`${label}: ${result.code} ${result.hint}`);
       else {
         posted.push({ kind: 'count', fn: 'void_count', id: doc.id });
-        approvedCounts.push({ id: doc.id, item, wh, day, order: (countOrder += 1), moved: diff !== 0n });
+        approvedCounts.push({ id: doc.id, item, wh, day, order: (postOrder += 1), moved: diff !== 0n });
         const line = result.value.lines[0];
         const got = drawsText(line.draws.map((d) => ({ lotId: d.lot_id, qty: milli(d.qty), value: fils(d.money.value) })));
         if (got !== drawsText(plan.draws)) failures.push(`${label}: النقص ${got} والخطّة ${drawsText(plan.draws)}`);
@@ -333,6 +338,10 @@ async function propertyV3(t, db) {
       if (voidBlockedBy(target)) {
         tally.voidBlocked += 1;
         if (result.ok || result.code !== 'count_superseded') failures.push(`${label}: جرد أحدث انحسب على تسويته والقاعدة ${shown(result)}`);
+      } else if (countedBy(target)) {
+        tally.countBlocked += 1;
+        const allowed = target.kind === 'stock_use' ? ['count_superseded'] : ['count_superseded', 'lot_consumed'];
+        if (result.ok || !allowed.includes(result.code)) failures.push(`${label}: جرد معتمد أقرّ حركته والقاعدة ${shown(result)}`);
       } else if (result.ok) {
         posted.splice(posted.indexOf(target), 1);
         tally.voids += 1;
@@ -354,8 +363,8 @@ async function propertyV3(t, db) {
   console.log(`    · فحص الخصائص v3 (الصرف والجرد والمصاريف): البذرة ${SEED}، ${JSON.stringify(tally)}`);
   t.same(failures, [], `الخصائص v3 (البذرة ${SEED}): بعد كل خطوة verify_stock وverify_ledger صفر والصندوق = النموذج، وسحب الصرف ونقص الجرد = planDraw، والزيادة = gainValue، ومصروف المستند = سحبه`);
   t.ok(
-    tally.done === STEPS && tally.useShort > 0 && tally.gains > 0 && tally.manual > 0 && tally.shortages > 0 && tally.expenses > 0 && tally.voids > 0 && tally.superseded > 0 && tally.voidBlocked > 0,
-    `الخصائص v3 نفّذت كل الخطوات ومرّت بنقص الصرف وزيادة الجرد (وبكلفة المدير) ونقصه والمصاريف والإلغاء والجرد الأقدم بعد أحدث (ترحيلاً وإلغاءً) (${JSON.stringify(tally)})`,
+    tally.done === STEPS && tally.useShort > 0 && tally.gains > 0 && tally.manual > 0 && tally.shortages > 0 && tally.expenses > 0 && tally.voids > 0 && tally.superseded > 0 && tally.voidBlocked > 0 && tally.countBlocked > 0,
+    `الخصائص v3 نفّذت كل الخطوات ومرّت بنقص الصرف وزيادة الجرد (وبكلفة المدير) ونقصه والمصاريف والإلغاء والجرد الأقدم بعد أحدث (ترحيلاً وإلغاءً) وإلغاء مستند أقرّه جرد (0011) (${JSON.stringify(tally)})`,
   );
 }
 

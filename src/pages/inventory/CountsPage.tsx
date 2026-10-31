@@ -51,7 +51,7 @@ import {
   type PendingCountLine,
   type PendingStore,
 } from './countDevice';
-import { ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, DraftDayField, ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type CopyDraft, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الجرد (الخطّة WP5، FOUNDATION ٥٥٥، القاعدة 17، E25، E41، E42، E48، E53، E54): العادّ يعدّ بالموبايل بيد وحدة (أهداف 44 بكسل أو
 // أكبر) عدّاً أعمى (ما ينطلب رصيد الدفتر أصلاً)، بالوحدة أو بالتعبئة، والمادّة اللي تتابع الانتهاء بحقلين «صالح» و«منتهي»، والأفراخ
@@ -533,6 +533,7 @@ function CountEntry({
     <div className="flex flex-col gap-4">
       <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ الرصيد المسجّل لا يظهر هنا.')} />
       {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أعاد المدير الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
+      <DraftDayField day={doc.onDate} save={(day) => counts.updateCountDraft(doc, { day })} onSaved={onChanged} />
       <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={(line) => setConfirm({ kind: 'delete', line })} />
       {editing ? (
         <CountLineForm key={editing.id} store={store} line={editing} busy={busy} failure={lineFailure} onSave={save} onCancel={() => setEditing(null)} />
@@ -603,7 +604,7 @@ function CountEntry({
 }
 
 /** سطور الجرد بلا الدفتر لغير المراجع (المسلَّم والمرحَّل للعادّ)، والمحفوظ بالجهاز اللي ما عاد يُرسل (الجرد سُلّم) يُمسح بتأكيد. */
-function CountReadOnly({ doc, lines, store, stamp }: { doc: CountDoc; lines: readonly CountLine[]; store: StoreRef | null; stamp: DraftStamp }) {
+function CountReadOnly({ doc, lines, store, stamp, copier, copyNextStep }: { doc: CountDoc; lines: readonly CountLine[]; store: StoreRef | null; stamp: DraftStamp; copier: CopyDraft | null; copyNextStep: string }) {
   const pending = usePending(stamp, doc.id);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -629,6 +630,7 @@ function CountReadOnly({ doc, lines, store, stamp }: { doc: CountDoc; lines: rea
       {doc.status === 'submitted' ? <Notice tone="info" title={t('count.frozen', 'الجرد مسلَّم للمراجعة؛ لا يُعدَّل إلا إذا أعاده المدير للعدّ.')} /> : null}
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       <CountedLines lines={lines} onEdit={null} onDelete={null} />
+      {doc.status === 'void' && doc.docNo && copier ? <CopyDraftAction copier={copier} from={t('count.title.no', 'الجرد {no}', { no: doc.docNo })} next={copyNextStep} /> : null}
       {pending.failed ? <LoadFailed what={t('count.pending.what', 'العدّ المحفوظ بالجهاز')} error={pending.failed} onRetry={pending.reread} /> : null}
       {pending.lines.length > 0 ? (
         <section className="card flex flex-col gap-3 p-4" aria-labelledby="count-kept-stuck">
@@ -768,6 +770,8 @@ function CountReview({
   doc,
   store,
   canVoid,
+  copier,
+  copyNextStep,
   refreshed,
   onRefreshed,
   onChanged,
@@ -775,6 +779,10 @@ function CountReview({
   doc: CountDoc;
   store: StoreRef;
   canVoid: boolean;
+  /** «ألغِ وافتح نسخة للتصحيح» لمن ينشئ جرداً بهذا المخزن (null لغيره)؛ حالته بالأب فتبقى بعد القراءة الجديدة. */
+  copier: CopyDraft | null;
+  /** ما بعد النسخة لدور الداخل (copyNext). */
+  copyNextStep: string;
   refreshed: readonly RefreshedLine[] | null;
   onRefreshed: (lines: readonly RefreshedLine[] | null) => void;
   onChanged: () => void;
@@ -899,16 +907,21 @@ function CountReview({
         setConfirm(null);
       });
   };
-  const voidIt = async (reason: string) => {
+  const copyFrom = t('count.title.no', 'الجرد {no}', { no: doc.docNo ?? '' });
+  const voidIt = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`count-void:${doc.id}`, (ref) => counts.voidCount(ref, doc.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') fail(outcome.error);
-    else {
-      setConfirm(null);
-      after();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      fail(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && copier && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    after();
   };
   const costRole = data.shortageTotal !== null;
   const columnsFor = (unit: BaseUnit, rows: readonly CountPreviewLine[]): Column<CountPreviewLine>[] => {
@@ -1051,6 +1064,8 @@ function CountReview({
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-count">
           {t('count.void', 'ألغِ الجرد')}
         </Button>
+      ) : data.status === 'void' && doc.docNo && copier ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ReviewDialog
         open={confirm === 'post'}
@@ -1120,7 +1135,8 @@ function CountReview({
           consequence={t('count.void.consequence', 'تُعكس كل حركات الجرد {no} في «{store}» (النقص يرجع لوجباته والزيادة تُسحب)، ويُعكس «فرق الجرد».', { no: doc.docNo, store: store.name })}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidIt(reason)}
+          choose={copier !== null}
+          onConfirm={(reason, choice) => void voidIt(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}
@@ -1139,6 +1155,7 @@ function CountEditor({ docId }: { docId: string }) {
   const [rejected, setRejected] = useState<readonly RejectedCount[]>([]);
   const [entryFailure, setEntryFailure] = useState<unknown>(null);
   const [refreshed, setRefreshed] = useState<readonly RefreshedLine[] | null>(null);
+  const copier = useCopyDraft('count', docId);
   const userId = workspace?.userId ?? '';
   const orgId = workspace?.orgId ?? '';
   const stamp = useMemo(() => ({ userId, orgId }), [userId, orgId]);
@@ -1150,6 +1167,8 @@ function CountEditor({ docId }: { docId: string }) {
   const changed = () => setTick((n) => n + 1);
   const reviewer = can(workspace.role, 'count.approve');
   const counter = can(workspace.role, 'count.enter');
+  const copy = canCopyDraft(workspace, 'count', store) ? copier : null;
+  const copyNextStep = copyNext(workspace, 'count');
   // فشل أفعال العدّ يخصّ المسوّدة: جرد انسلّم (أو تغيّر) بعده ما يبقى تحته «أعد المحاولة» (المراجعة الثالثة).
   const entryFailed = entryFailure && current.status === 'draft' ? countFailure(entryFailure) : null;
   return (
@@ -1168,15 +1187,16 @@ function CountEditor({ docId }: { docId: string }) {
           {entryFailed.detail}
         </Notice>
       ) : null}
+      <CopiedNotice draft={current.status === 'draft'} next={copyNextStep} />
       <RejectedNotices rejected={rejected} onDismiss={(key) => setRejected((now) => now.filter((entry) => entry.key !== key))} />
       {!store ? (
         <Notice tone="warning" title={t('count.no_store', 'مخزن هذا الجرد غير متاح.')} />
       ) : current.status === 'draft' && counter ? (
         <CountEntry doc={current} lines={doc.data.lines} store={store} stamp={stamp} onRejected={setRejected} onFailure={setEntryFailure} onChanged={changed} />
       ) : current.status !== 'draft' && reviewer ? (
-        <CountReview doc={current} store={store} canVoid={can(workspace.role, 'void')} refreshed={refreshed} onRefreshed={setRefreshed} onChanged={changed} />
+        <CountReview doc={current} store={store} canVoid={can(workspace.role, 'void')} copier={copy} copyNextStep={copyNextStep} refreshed={refreshed} onRefreshed={setRefreshed} onChanged={changed} />
       ) : (
-        <CountReadOnly doc={current} lines={doc.data.lines} store={store} stamp={stamp} />
+        <CountReadOnly doc={current} lines={doc.data.lines} store={store} stamp={stamp} copier={copy} copyNextStep={copyNextStep} />
       )}
     </div>
   );

@@ -13,6 +13,7 @@
     "public.can_see_accounts()",
     "public.can_see_cost()",
     "public.can_see_sales()",
+    "public.copy_doc_to_draft(text, uuid, uuid, uuid)",
     "public.create_my_org(text, text)",
     "public.decline_and_block(uuid)",
     "public.decline_invite(uuid)",

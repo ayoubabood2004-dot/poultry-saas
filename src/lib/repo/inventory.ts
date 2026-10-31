@@ -1082,6 +1082,51 @@ export async function discardDraft(kind: DraftKind, id: string, expectedVersion:
   await call<unknown>('discard_draft', { p_doc_kind: kind, p_id: id, p_expected_version: expectedVersion });
 }
 
+/** الأنواع الستّة بأسماء discard_draft: كلها تنلغى وتنفتح منها نسخة للتصحيح (قرار المالك 2026-10-31، 0011). */
+export const DRAFT_KINDS: readonly DraftKind[] = ['opening', 'transfer', 'stock_use', 'count', 'receipt', 'supplier_return'];
+
+/**
+ * الورقة الجديدة: معرّفها ونوعها وعدد سطورها، وما لم يُنسخ إليها بالترتيب الثابت (amounts وpaid_now وbox_charge وapproval وunit_changed،
+ * عقد 0011)؛ رمز جديد ينقبل نصّاً والشاشة تذكره برمزه. رمزا المال (paid_now وbox_charge) يجون داخل money (المراجعة R-DB-3: الخادم
+ * يشيلها لغير أدوار الكلفة) وينضمّون هنا بترتيبهم.
+ */
+export interface CopiedDraft {
+  id: string;
+  kind: DraftKind;
+  lines: number;
+  skipped: string[];
+}
+
+/** ما لم يُنسخ بترتيب العقد (amounts وpaid_now وbox_charge وapproval وunit_changed، 0011) بلا تكرار: رمز ما تعرفه الشاشة بعدها بترتيب وصوله. */
+export function orderSkipped(codes: readonly string[]): string[] {
+  const order: readonly string[] = ['amounts', 'paid_now', 'box_charge', 'approval', 'unit_changed'];
+  const rank = (code: string) => {
+    const at = order.indexOf(code);
+    return at < 0 ? order.length : at;
+  };
+  return [...new Set(codes)]
+    .map((code, at) => ({ code, at }))
+    .sort((a, b) => rank(a.code) - rank(b.code) || a.at - b.at)
+    .map((entry) => entry.code);
+}
+
+/**
+ * نسخة للتصحيح من مستند ملغى (copy_doc_to_draft، 0011): ورقة جديدة بنفس الرأس والسطور بمعرّف يولد بالجهاز (newId)، والمرجع نفسه لحد ما
+ * تنعرف النتيجة؛ الإعادة بنفس المرجع، أو بنفس المعرّف لنفس الأصل، ترجّع نفس الجواب. المبالغ لأدوار الكلفة بس، والمدفوع وتحميل الصندوق
+ * والموافقات ما تنسخ أبداً.
+ */
+export async function copyDocToDraft(ref: StockRef, kind: DraftKind, id: string, newId: string): Promise<CopiedDraft> {
+  const json = obj(await call<unknown>('copy_doc_to_draft', { p_doc_kind: kind, p_id: id, p_new_id: newId, p_client_ref: ref.clientRef }), 'copy_doc_to_draft');
+  const codes = (value: unknown, field: string) =>
+    arr(value, field).map((code) => {
+      if (typeof code !== 'string' || code === '') throw new RowShapeError(field);
+      return code;
+    });
+  const money = json.money === undefined ? [] : codes(obj(json.money, 'money').skipped, 'money.skipped');
+  const skipped = orderSkipped([...codes(json.skipped, 'skipped'), ...money]);
+  return { id: str(json, 'id'), kind: oneOf(json, 'doc_kind', DRAFT_KINDS), lines: count(json, 'lines') ?? 0, skipped };
+}
+
 // ─── المعاينة والترحيل والإلغاء ──────────────────────────────────────────────────────────────────────────────────
 
 export interface Problem {

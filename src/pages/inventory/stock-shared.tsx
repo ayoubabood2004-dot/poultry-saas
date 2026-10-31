@@ -1,4 +1,6 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { DayField, postingDay } from '../../components/ui/DayField';
 import { Field } from '../../components/ui/Field';
 import type { QtyUnitOption } from '../../components/ui/QtyInput';
 import { Dialog } from '../../components/ui/Dialog';
@@ -6,14 +8,16 @@ import { Button } from '../../components/ui/Button';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { Num, type Column } from '../../components/ui/DataTable';
+import type { Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
+import { can, type Action } from '../../domain/permissions';
 import { inScope } from '../../domain/scope';
 import type { Workspace } from '../../domain/workspace';
 import { normalizeCode, searchable } from '../../domain/normalize';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
-import { fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
+import { fmtDay, fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import { sessionStore } from '../../lib/session';
@@ -348,30 +352,319 @@ export async function runWithRef<R>(slot: string, post: (ref: StockRef) => Promi
   }
 }
 
-/** نافذة الإلغاء: الجملة تسمّي المستند ونتيجته، والسبب إلزامي (void_reason). */
-export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, onClose }: { title: string; consequence: string; busy: boolean; failure: unknown; onConfirm: (reason: string) => void; onClose: () => void }) {
-  const [reason, setReason] = useState('');
+// ─── الإلغاء باختيار ونسخة للتصحيح (قرار المالك 2026-10-31، 0011) ─────────────────────────────────────────────────
+// إلغاء مستند محفوظ نهائياً من الأنواع الستّة يعرض خيارين: «ألغِ وافتح نسخة للتصحيح» (الإلغاء، ثم copy_doc_to_draft بمعرّف يولد بالجهاز،
+// ثم الورقة الجديدة) أو «ألغِ كلّه». لا حذف: الأصل يبقى ظاهراً «ملغى». فشل النسخ بعد إلغاء ناجح يبقى على صفحة الأصل ويّا «افتح نسخة
+// للتصحيح»، وهو نفسه زرّ كل مستند ملغى لمن ينشئ ورقة نوعه.
+
+export type VoidChoice = 'copy' | 'all';
+
+const DOC_PATHS: Readonly<Record<inventory.DraftKind, string>> = {
+  receipt: '/inventory/receipts',
+  supplier_return: '/inventory/supplier-returns',
+  transfer: '/inventory/transfers',
+  stock_use: '/inventory/uses',
+  count: '/inventory/counts',
+  opening: '/inventory/openings',
+};
+
+/** فعل إنشاء ورقة النوع (مرآة require بالخادم، والحكم إله): النسخة بنفس صلاحيته. */
+const DRAFT_ACTIONS: Readonly<Record<inventory.DraftKind, Action>> = {
+  receipt: 'receipt.draft',
+  supplier_return: 'receipt.draft',
+  transfer: 'transfer.post',
+  stock_use: 'stock_use.post',
+  count: 'count.enter',
+  opening: 'opening.post',
+};
+
+/** صفحة مستند من الأنواع الستّة. */
+export function docPath(kind: inventory.DraftKind, id: string): string {
+  return `${DOC_PATHS[kind]}/${id}`;
+}
+
+/** يقدر يفتح نسخة للتصحيح: صلاحية إنشاء ورقة النوع، وبنطاقه مخزن الورقة إن عُرف (مرآة in_scope_wh، والحكم بالخادم). */
+export function canCopyDraft(workspace: Workspace | null, kind: inventory.DraftKind, store?: Pick<StoreRef, 'id' | 'siteId' | 'divisionId'> | null): boolean {
+  if (!workspace || !can(workspace.role, DRAFT_ACTIONS[kind])) return false;
+  return !store || inScope(workspace.role, workspace.scopes, { warehouseId: store.id, siteId: store.siteId, divisionId: store.divisionId });
+}
+
+/** ما لم يُنسخ وسببه (عقد 0011، سلامة المال بـDECISIONS 2026-10-31): رمز ما ينعرف ينذكر برمزه، ما يسكت. */
+export function skippedLines(kind: inventory.DraftKind, codes: readonly string[]): string[] {
+  return codes.map((code) => {
+    if (code === 'amounts') {
+      return kind === 'supplier_return'
+        ? t('copy.skipped.credits', 'المبلغ الذي يقبله المورّد: لا يظهر لدورك فلم يُنسخ، ويكتبه المحاسب أو المدير.')
+        : t('copy.skipped.amounts', 'المبالغ (مبالغ السطور والخصم والتحميلات): لا تظهر لدورك فلم تُنسخ، ويكتبها المحاسب أو المدير.');
+    }
+    if (code === 'paid_now') return t('copy.skipped.paid_now', 'المدفوع للمورّد عند الاستلام: بقي مبلغاً على المورّد بعد إلغاء الأصل، فلا يُدفع مرّة ثانية.');
+    if (code === 'box_charge') return t('copy.skipped.box_charge', 'التحميلات المدفوعة من صندوق: بقيت مصروفاً بعد إلغاء الأصل، فلا تُدفع مرّة ثانية.');
+    if (code === 'approval') {
+      return kind === 'count'
+        ? t('copy.skipped.review', 'مراجعة المدير (أسباب الفروق وكلف الزيادة): كانت للجرد الملغى، فيراجعه المدير من جديد بعد التسليم.')
+        : t('copy.skipped.approval', 'موافقة المدير على المنتهي: كانت للورقة الملغاة، فتُطلب من جديد عند الحفظ.');
+    }
+    if (code === 'unit_changed') return t('copy.skipped.unit_changed', 'وحدة تعبئة تغيّرت منذ الأصل: نُسخ سطرها بالكمية نفسها بالكيلوغرام أو اللتر أو القطعة، فراجعه.');
+    return t('copy.skipped.other', 'بند لم يُنسخ (الرمز: {code}).', { code });
+  });
+}
+
+// النسخ بمرجع ومعرّف ثابتين لحد ما تنعرف النتيجة (FOUNDATION ٥١٩): «ما نعرف شنو صار» تحتفظ بالاثنين والإعادة ترجّع نفس الورقة؛ النجاح
+// والرفض الأكيد ينسونهم (النسخة الجاية ورقة جديدة، مو ورقة انحذفت). والنسخة اللي انفتحت تنحفظ للجلسة: صفحة الأصل تدلّ عليها بدل ما
+// تنفتح ثانية بالغلط (ورقتان من أصل واحد تنحفظان نهائياً مرّتين). كلاهما لصاحب الجلسة ومنشأته (seenOwner).
+const copies = new Map<string, { ref: StockRef; newId: string }>();
+const opened = new Map<string, string>();
+const copySlot = (kind: inventory.DraftKind, sourceId: string): string => `${seenOwner()}|${kind}:${sourceId}`;
+
+export async function runCopy(kind: inventory.DraftKind, sourceId: string): Promise<RunOutcome<inventory.CopiedDraft>> {
+  const slot = copySlot(kind, sourceId);
+  const kept = copies.get(slot) ?? { ref: inventory.newStockRef(), newId: crypto.randomUUID() };
+  copies.set(slot, kept);
+  try {
+    const result = await inventory.copyDocToDraft(kept.ref, kind, sourceId, kept.newId);
+    copies.delete(slot);
+    opened.set(slot, result.id);
+    return { kind: 'done', result };
+  } catch (error) {
+    if (!(error instanceof UnknownOutcomeError)) copies.delete(slot);
+    return { kind: 'failed', error };
+  }
+}
+
+/** ما تحمله الورقة الجديدة بالانتقال إليها: الأصل (نوعه ومعرّفه واسمه) وما لم يُنسخ. */
+interface CopiedState {
+  copied: { kind: inventory.DraftKind; id: string; from: string; skipped: string[] };
+}
+
+function copiedOf(state: unknown): CopiedState['copied'] | null {
+  if (typeof state !== 'object' || state === null || !('copied' in state)) return null;
+  const copied = (state as CopiedState).copied;
+  return typeof copied?.id === 'string' && Array.isArray(copied.skipped) ? copied : null;
+}
+
+export interface CopyDraft {
+  busy: boolean;
+  failure: unknown;
+  /** صفحة نسخة انفتحت من هذا الأصل بهذه الجلسة، أو null. */
+  openedPath: string | null;
+  /** from: اسم الأصل للتنبيه بالورقة الجديدة («الاستلام PU-2026-0042»). true = انفتحت الورقة. */
+  copy: (from: string) => Promise<boolean>;
+}
+
+/** نسخة للتصحيح من مستند ملغى: النداء ثم الانتقال للورقة الجديدة بما لم يُنسخ؛ الفشل يبقى بالحالة (والصفحة تعرضه). */
+export function useCopyDraft(kind: inventory.DraftKind, sourceId: string): CopyDraft {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  // تنقرا لحظة فتح الصفحة: النسخة تنفتح بالانتقال لصفحتها، والرجوع للأصل يفتحه من جديد.
+  const [openedId] = useState(() => opened.get(copySlot(kind, sourceId)) ?? null);
+  const copy = async (from: string): Promise<boolean> => {
+    setBusy(true);
+    setFailure(null);
+    const outcome = await runCopy(kind, sourceId);
+    setBusy(false);
+    if (outcome.kind !== 'done') {
+      setFailure(outcome.kind === 'failed' ? outcome.error : null);
+      return false;
+    }
+    const state: CopiedState = { copied: { kind, id: sourceId, from, skipped: outcome.result.skipped } };
+    navigate(docPath(outcome.result.kind, outcome.result.id), { state });
+    return true;
+  };
+  return { busy, failure, openedPath: openedId ? docPath(kind, openedId) : null, copy };
+}
+
+/**
+ * ما بعد النسخة لدور الداخل (المراجعة FE-3): من يحفظ الورقة نهائياً بهذا النوع (مرآة require بدوالّ الحفظ، والحكم بالخادم)، فالجملة ما
+ * تأمر بشي ما يقدره: الاستلام والمرتجع للمحاسب أو المدير (receipt.amounts)، والإتلاف للمدير (expired.destroy)، والجرد يُسلَّم للمراجعة
+ * ويحفظه المدير (count.approve)؛ والتحويل والصرف والرصيد عند البداية يحفظها من ينسخها (فعل النسخة هو فعل الحفظ).
+ */
+export function copyNext(workspace: Workspace | null, kind: inventory.DraftKind, destroy = false): string {
+  const may = (action: Action) => (workspace ? can(workspace.role, action) : false);
+  if (kind === 'count') {
+    return may('count.approve') ? t('copy.next.count_approve', 'صحّحها ثم سلّمها وراجعها واحفظها نهائياً برقم جديد.') : t('copy.next.count', 'صحّحها ثم سلّمها للمراجعة؛ يحفظها المدير نهائياً برقم جديد.');
+  }
+  if ((kind === 'receipt' || kind === 'supplier_return') && !may('receipt.amounts')) return t('copy.next.pricer', 'صحّحها؛ يحفظها المحاسب أو المدير نهائياً برقم جديد.');
+  if (kind === 'stock_use' && destroy && !may('expired.destroy')) return t('copy.next.manager', 'صحّحها؛ يحفظها المدير نهائياً برقم جديد.');
+  return t('copy.next.save', 'صحّحها ثم احفظها نهائياً برقم جديد.');
+}
+
+/** «افتح نسخة للتصحيح» على مستند ملغى، وفشل النسخ (بعد الإلغاء أو من الزرّ) بسببه. next: ما بعد النسخة لدور الداخل (copyNext). */
+export function CopyDraftAction({ copier, from, next }: { copier: CopyDraft; from: string; next: string }) {
+  const failed = copier.failure ? describeError(copier.failure) : null;
+  return (
+    <div className="flex flex-col gap-2">
+      {failed ? (
+        <Notice tone="danger" title={t('copy.failed', 'لم تُفتح نسخة للتصحيح: {reason}', { reason: failed.title })}>
+          {failed.detail}
+        </Notice>
+      ) : null}
+      {copier.openedPath ? (
+        <Notice
+          tone="info"
+          title={t('copy.opened', 'فُتحت من هذه الورقة نسخة للتصحيح في هذه الجلسة؛ افتحها بدل نسخة ثانية.')}
+          action={
+            <Link to={copier.openedPath} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-copy">
+              {t('copy.opened.open', 'افتح النسخة')}
+            </Link>
+          }
+        />
+      ) : null}
+      <div>
+        <Button variant="secondary" busy={copier.busy} onClick={() => void copier.copy(from)} data-action="copy-to-draft">
+          {copier.openedPath ? t('copy.open.another', 'افتح نسخة أخرى للتصحيح') : t('copy.open', 'افتح نسخة للتصحيح')}
+        </Button>
+      </div>
+      <p className="text-sm text-ink-muted">{t('copy.open.hint', 'تنفتح ورقة جديدة غير محفوظة بنفس السطور وتبقى هذه ملغاة. {next}', { next })}</p>
+    </div>
+  );
+}
+
+/**
+ * أصل ورقة منسوخة محفوظ بالخادم (الاستلام: copied_from، المراجعة FE-2): من يفتح الورقة بعدين (من القائمة أو برابطها أو بعد إعادة
+ * التحميل، بلا حالة الانتقال) يعرف إنها نسخة ومن أيّ أصل، وskipped ما يخصّ دوره (رمزا المال لأدوار الكلفة بس).
+ */
+export interface CopyOrigin {
+  kind: inventory.DraftKind;
+  id: string;
+  from: string;
+  skipped: readonly string[];
+}
+
+/**
+ * تنبيه الورقة الجديدة المنسوخة: من أيّ أصل، وما لم يُنسخ وسببه، ورابط الأصل الملغى، وما بعدها لدور الداخل (next). بالورقة غير المحفوظة
+ * بس. المصدر حالة الانتقال (اللي نسخ للتوّ: كل ما لم يُنسخ) أو الأصل المحفوظ (origin)، وما لم يُنسخ اتّحادهما بترتيب العقد. «ملغى» قبل
+ * اسم الأصل (المراجعة FE-4: «الرصيد عند البداية لـ«المخزن العام» الملغى» كان يُقرأ صفة للمخزن).
+ */
+export function CopiedNotice({ draft, next, origin = null }: { draft: boolean; next: string; origin?: CopyOrigin | null }) {
+  const location = useLocation();
+  const copied = copiedOf(location.state);
+  const source = copied ?? origin;
+  if (!source || !draft) return null;
+  const skipped = skippedLines(source.kind, inventory.orderSkipped([...(copied?.skipped ?? []), ...(origin?.skipped ?? [])]));
+  return (
+    <Notice
+      tone={skipped.length > 0 ? 'warning' : 'info'}
+      title={t('copy.notice', 'نسخة للتصحيح من مستند ملغى: {from}. {next}', { from: source.from, next })}
+      action={
+        <Link to={docPath(source.kind, source.id)} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-original">
+          {t('copy.original', 'الأصل الملغى')}
+        </Link>
+      }
+    >
+      {skipped.length > 0 ? (
+        <>
+          <p>{t('copy.skipped.title', 'لم يُنسخ إلى هذه الورقة:')}</p>
+          <ul className="list-disc ps-6">
+            {skipped.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </Notice>
+  );
+}
+
+/**
+ * تاريخ الورقة غير المحفوظة يتصحّح بمكانه (المراجعة FE-1): نسخة من مستند قديم تحمل تاريخه، وتاريخ أقدم من 7 أيام (أو بفترة مقفلة) ما
+ * ينحفظ نهائياً، وصفحات الأوراق كانت بلا حقل تاريخ. القيمة بـpostingDay (اليوم أو قبله حتى 7 أيام، القرار 9)، والحفظ بدالّة النوع
+ * (update*Draft بشرط النسخة)، والحكم بالخادم. المكتوب يتبع التاريخ المحفوظ يوم بدأ تعديله: قراءة جديدة بتاريخ ثاني ترجّع الحقل له.
+ */
+export function DraftDayField({ day, save, onSaved }: { day: string; save: (day: Day) => Promise<unknown>; onSaved: () => void }) {
+  const id = useId();
+  const [edit, setEdit] = useState<{ base: string; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const text = edit && edit.base === day ? edit.text : fmtDay(day);
+  const parsed = postingDay(text);
+  const outside = postingDay(fmtDay(day)).error !== null;
+  const changed = parsed.day !== null && parsed.day !== day;
   const failed = failure ? describeError(failure) : null;
+  const submit = () => {
+    if (!parsed.day || busy) return;
+    setBusy(true);
+    setFailure(null);
+    save(parsed.day)
+      .then(() => {
+        setEdit(null);
+        onSaved();
+      }, setFailure)
+      .finally(() => setBusy(false));
+  };
+  return (
+    <section className="card flex flex-col gap-3 p-4" aria-label={t('draft.day.section', 'تاريخ الورقة')}>
+      {outside ? (
+        <Notice tone="warning" title={t('draft.day.outside', 'تاريخ هذه الورقة {day} خارج المسموح للحفظ النهائي (اليوم أو قبله حتى 7 أيام)؛ صحّحه هنا.', { day: fmtDay(day) })} />
+      ) : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={text} onChange={(value) => setEdit({ base: day, text: value })} error={text.trim() !== '' ? parsed.error : null} hint={t('payment.day.hint', 'اليوم أو قبله حتى 7 أيام.')} />
+        </div>
+        <Button variant="secondary" busy={busy} disabled={!changed} onClick={submit} data-action="save-draft-day">
+          {t('draft.day.save', 'احفظ التاريخ')}
+        </Button>
+      </div>
+      {failed ? (
+        <Notice tone="danger" title={failed.title}>
+          {failed.detail}
+        </Notice>
+      ) : null}
+    </section>
+  );
+}
+
+const VOID_CHOICES: readonly VoidChoice[] = ['copy', 'all'];
+
+/**
+ * نافذة الإلغاء: الجملة تسمّي المستند ونتيجته، والسبب إلزامي (void_reason). choose (الأنواع الستّة، كلمة المالك 2026-10-31): خياران
+ * والزرّ يسمّي المختار، ولا اختيار مسبق حتى يُقرأ الاثنان؛ بلاه (تصحيح السعر) الزرّ يسمّي المستند.
+ */
+export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, onClose, choose = false }: { title: string; consequence: string; busy: boolean; failure: unknown; onConfirm: (reason: string, choice: VoidChoice) => void; onClose: () => void; choose?: boolean }) {
+  const [reason, setReason] = useState('');
+  const [choice, setChoice] = useState<VoidChoice | null>(choose ? null : 'all');
+  const id = useId();
+  const failed = failure ? describeError(failure) : null;
+  const label = (value: VoidChoice) => (value === 'copy' ? t('void.choice.copy', 'ألغِ وافتح نسخة للتصحيح') : t('void.choice.all', 'ألغِ كلّه'));
+  const detail = (value: VoidChoice) =>
+    value === 'copy'
+      ? t('void.choice.copy.detail', 'تنعكس حركات الورقة كلّها، وتنفتح ورقة جديدة غير محفوظة بنفس السطور تصحّحها ثم تحفظها نهائياً برقم جديد.')
+      : t('void.choice.all.detail', 'تنعكس حركات الورقة كلّها، ولا تنفتح ورقة جديدة.');
   return (
     <Dialog
       open
       onClose={onClose}
       title={title}
-      dirty={reason.trim() !== ''}
+      dirty={reason.trim() !== '' || (choose && choice !== null)}
       locked={busy}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={reason.trim() === ''} onClick={() => onConfirm(reason.trim())} data-action="confirm-void">
-            {title}
+          <Button variant="danger" busy={busy} disabled={reason.trim() === '' || choice === null} onClick={() => choice && onConfirm(reason.trim(), choice)} data-action="confirm-void">
+            {choose && choice ? label(choice) : title}
           </Button>
         </div>
       }
     >
       <div className="flex flex-col gap-4">
         <p className="text-ink-muted">{consequence}</p>
+        {choose ? (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1.5 font-medium">{t('void.choice.legend', 'ماذا تريد؟')}</legend>
+            {VOID_CHOICES.map((value) => (
+              <label key={value} className={`flex items-start gap-3 rounded-2xl border p-3 ${choice === value ? 'border-brand-200 bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/15' : 'border-line'}`}>
+                <input type="radio" name={`${id}-choice`} className="mt-1 size-5 shrink-0 accent-brand-600" checked={choice === value} disabled={busy} onChange={() => setChoice(value)} data-action={`void-choice-${value}`} />
+                <span className="flex flex-col gap-1">
+                  <span className="font-medium">{label(value)}</span>
+                  <span className="text-sm text-ink-muted">{detail(value)}</span>
+                </span>
+              </label>
+            ))}
+            <p className="text-sm text-ink-muted">{t('void.choice.keep', 'في الحالتين تبقى هذه الورقة ظاهرة «ملغى» ولا يُحذف شيء.')}</p>
+          </fieldset>
+        ) : null}
         <Field id="stock-void-reason" label={t('stock.void.reason', 'سبب الإلغاء')}>
           <input id="stock-void-reason" className="input" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} data-autofocus />
         </Field>

@@ -53,9 +53,11 @@ export interface ReceiptDoc {
   posted: boolean;
   voidReason: string | null;
   createdAt: string;
+  /** الاستلام الملغى اللي انفتحت منه هذه الورقة نسخةً للتصحيح (copied_from، 0011، يكتبه الخادم بس)، أو null. */
+  copiedFrom: string | null;
 }
 
-const RECEIPT_COLUMNS = 'id, doc_no, party_id, warehouse_id, book_id, received_on, status, version, note, posted_at, void_reason, created_at, party:parties(name)';
+const RECEIPT_COLUMNS = 'id, doc_no, party_id, warehouse_id, book_id, received_on, status, version, note, posted_at, void_reason, created_at, copied_from, party:parties(name)';
 const DOC_STATUSES: readonly DocStatus[] = ['draft', 'posted', 'void'];
 
 function receiptDoc(row: Row): ReceiptDoc {
@@ -77,6 +79,7 @@ function receiptDoc(row: Row): ReceiptDoc {
     posted: row.posted_at !== null && row.posted_at !== undefined,
     voidReason: optStr(row, 'void_reason'),
     createdAt: str(row, 'created_at'),
+    copiedFrom: optStr(row, 'copied_from'),
   };
 }
 
@@ -171,6 +174,40 @@ export interface ReceiptBundle {
   lineAmounts: ReceiptLineAmount[];
   amounts: ReceiptAmounts | null;
   charges: ReceiptCharge[];
+}
+
+/**
+ * أصل ورقة استلام منسوخة (copied_from، 0011، المراجعة FE-2): رقمه، ولأدوار الكلفة (withMoney) هل دُفع منه عند الاستلام أو دُفع تحميل
+ * من صندوق: فلوس طلعت من الصندوق وبقيت على الأصل بعد إلغائه، فما تنكتب بالنسخة مرّة ثانية. غير أدوار الكلفة ما يقرون المبالغ أصلاً
+ * (سياسة الكلفة)، فالعلَمان false لهم.
+ */
+export interface ReceiptOrigin {
+  id: string;
+  docNo: string | null;
+  paidNow: boolean;
+  boxCharge: boolean;
+}
+
+export async function loadReceiptOrigin(id: string, withMoney: boolean): Promise<ReceiptOrigin> {
+  const list = await readAll((db) =>
+    Promise.all([
+      db.from('receipts').select('id, doc_no').eq('id', id),
+      ...(withMoney
+        ? [
+            db.from('receipt_amounts').select('paid_now::text').eq('doc_id', id) /* unbounded: صفّ واحد للمستند */,
+            db.from('receipt_charges').select('cash_account_id').eq('doc_id', id) /* unbounded: تحميلات مستند واحد */,
+          ]
+        : []),
+    ]),
+  );
+  const [head] = list(0);
+  if (!head) throw new ZeroRowsError();
+  return {
+    id: str(head, 'id'),
+    docNo: optStr(head, 'doc_no'),
+    paidNow: withMoney && list(1).some((row) => fils(row, 'paid_now') > 0n),
+    boxCharge: withMoney && list(2).some((row) => optStr(row, 'cash_account_id') !== null),
+  };
 }
 
 export async function loadReceipt(id: string, withMoney: boolean): Promise<ReceiptBundle> {

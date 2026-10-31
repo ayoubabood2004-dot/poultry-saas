@@ -33,7 +33,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../../components/ui/DayField';
-import { codeUnitLabel, docStatusLabel, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useDraftIds, VoidDocDialog, type StoreRef } from './stock-shared';
+import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الصرف لمصروف عام والإتلاف (الخطّة WP5، FOUNDATION ٣٠٥–٣٠٦، ٥٥٦، Q5، E31): الأمين ينشئ المسوّدة بمخزن بنطاقه وتصنيف مصروف،
 // والسطر يسحب بالترتيب (الصالح بس)، أو يسمّي دفعة منتهية فينتظر المدير («بانتظار موافقة المدير»)، والإتلاف للمدير بدفعة منتهية
@@ -288,6 +288,7 @@ function UseEditor({ docId }: { docId: string }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const [restaled, setRestaled] = useState(false);
+  const copier = useCopyDraft('stock_use', docId);
   const closeReview = () => {
     setPreview(null);
     setApproved(new Set());
@@ -341,16 +342,23 @@ function UseEditor({ docId }: { docId: string }) {
     announceZeroBalance(whole, store?.name ?? '');
     refresh();
   };
-  const voidDoc = async (reason: string) => {
+  const canCopy = canCopyDraft(workspace, 'stock_use', store);
+  const copyFrom = t('use.title.no', 'الصرف {no}', { no: current.docNo ?? '' });
+  const copyNextStep = copyNext(workspace, 'stock_use', destroy);
+  const voidDoc = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`use-void:${current.id}`, (ref) => uses.voidUse(ref, current.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
-    else {
-      setConfirm(null);
-      refresh();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      setFailure(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    refresh();
   };
   const deleteLine = (line: UseLine) => {
     setBusy(true);
@@ -395,6 +403,7 @@ function UseEditor({ docId }: { docId: string }) {
           </Link>
         }
       />
+      <CopiedNotice draft={current.status === 'draft'} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('use.voided', 'أُلغي هذا الصرف')}>{current.voidReason}</Notice> : null}
       {current.status === 'draft' && !canPost ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
       {draft ? (
@@ -409,6 +418,7 @@ function UseEditor({ docId }: { docId: string }) {
           </select>
         </Field>
       ) : null}
+      {draft ? <DraftDayField day={current.onDate} save={(day) => uses.updateUseDraft(current, { day })} onSaved={refresh} /> : null}
       <UseLinesTable lines={lines} onDelete={draft ? deleteLine : null} />
       {draft && store ? <AddUseLine doc={current} store={store} destroy={destroy} onAdded={refresh} /> : null}
       {failed ? (
@@ -462,6 +472,8 @@ function UseEditor({ docId }: { docId: string }) {
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-use">
           {t('use.void', 'ألغِ الصرف')}
         </Button>
+      ) : current.status === 'void' && current.docNo && canCopy ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ConfirmDialog
         open={confirm === 'discard'}
@@ -480,7 +492,8 @@ function UseEditor({ docId }: { docId: string }) {
           consequence={stockUseVoidSentence(current.docNo, lines, store?.name ?? '—')}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidDoc(reason)}
+          choose={canCopy}
+          onConfirm={(reason, choice) => void voidDoc(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}

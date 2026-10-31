@@ -28,7 +28,7 @@ import { sound } from '../../lib/sound';
 import { useStore } from '../../lib/store';
 import { AmountField, dinarText, parseDinar } from './purchase-shared';
 import { isOwnRetry } from './countDevice';
-import { docStatusLabel, qtyColumns, runWithRef, unitOptions, VoidDocDialog } from './stock-shared';
+import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, qtyColumns, runWithRef, unitOptions, useCopyDraft, VoidDocDialog, type VoidChoice } from './stock-shared';
 
 // مرتجع المورّد (الخطّة WP7، FOUNDATION ٣٣٥–٣٣٧، ٥٥٣؛ E15، E31، E47): من استلام مرحَّل، والأمين يكتب المسوّدة بالكميات من سطور
 // الاستلام اللي بقى بدفعاتها شي (دفعة السطر نفسها بمخزن الاستلام؛ المحوَّل يرجع بإلغاء تحويله أوّلاً، E15)، وأدوار الكلفة يكتبون المبلغ اللي يقبله
@@ -435,6 +435,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
   const [lineToDelete, setLineToDelete] = useState<ReturnRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
+  const copier = useCopyDraft('supplier_return', docId);
   const reload = () => setTick((n) => n + 1);
   const closeReview = () => {
     setPreview(null);
@@ -526,16 +527,23 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
     announceLotsEmptied(whole, receiptNo);
     refresh();
   };
-  const voidDoc = async (reason: string) => {
+  const canCopy = canCopyDraft(workspace, 'supplier_return');
+  const copyFrom = t('return.title.no', 'المرتجع {no}', { no: current.docNo ?? '' });
+  const copyNextStep = copyNext(workspace, 'supplier_return');
+  const voidDoc = async (reason: string, choice: VoidChoice) => {
     setBusy(true);
     setFailure(null);
     const outcome = await runWithRef(`supplier-return-void:${current.id}`, (ref) => purchasing.voidSupplierReturn(ref, current.id, reason));
-    setBusy(false);
-    if (outcome.kind === 'failed') setFailure(outcome.error);
-    else {
-      setConfirm(null);
-      refresh();
+    if (outcome.kind === 'failed') {
+      setBusy(false);
+      setFailure(outcome.error);
+      return;
     }
+    // «ألغِ وافتح نسخة للتصحيح»: الإلغاء تمّ، والنسخة تنفتح؛ فشلها يبقى على هذه الصفحة ويّا «افتح نسخة للتصحيح».
+    if (choice === 'copy' && (await copier.copy(copyFrom))) return;
+    setBusy(false);
+    setConfirm(null);
+    refresh();
   };
   const deleteLine = () => {
     if (!lineToDelete) return;
@@ -585,7 +593,9 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
         }
       />
       {loadError ? <LoadFailed what={t('return.what', 'المرتجع')} error={loadError} onRetry={reload} /> : null}
+      <CopiedNotice draft={draft} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('return.voided', 'أُلغي هذا المرتجع')}>{current.voidReason}</Notice> : null}
+      {draft && canDraft ? <DraftDayField day={current.onDate} save={(day) => purchasing.updateSupplierReturnDraft(current, { day })} onSaved={refresh} /> : null}
       <ReturnLinesTable lines={bundle.lines} left={left} credits={credits} onDelete={draft && canDraft ? setLineToDelete : null} />
       {draft && options.error ? <LoadFailed what={t('return.options.what', 'سطور الاستلام ومتبقّي وجباتها')} error={options.error} onRetry={reload} /> : null}
       {draft && canDraft && optionsNow ? <AddReturnLine docId={current.id} options={optionsNow} taken={new Set(bundle.lines.map((line) => line.receiptLineId))} onAdded={refresh} /> : null}
@@ -642,6 +652,8 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
         <Button variant="danger" onClick={() => setConfirm('void')} data-action="void-return">
           {t('return.void', 'ألغِ المرتجع')}
         </Button>
+      ) : current.status === 'void' && current.docNo && canCopy ? (
+        <CopyDraftAction copier={copier} from={copyFrom} next={copyNextStep} />
       ) : null}
       <ConfirmDialog
         open={confirm === 'whole'}
@@ -692,7 +704,8 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
           consequence={returnVoidSentence(current.docNo, receiptNo, bundle.lines.length)}
           busy={busy}
           failure={failure}
-          onConfirm={(reason) => void voidDoc(reason)}
+          choose={canCopy}
+          onConfirm={(reason, choice) => void voidDoc(reason, choice)}
           onClose={() => setConfirm(null)}
         />
       ) : null}

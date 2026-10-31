@@ -550,11 +550,12 @@ async function scenario(t, db) {
     'المدّة المعكوسة بكل تقرير، والجهة والصندوق المجهولان، والترتيب المجهول',
   );
   // الملخّص = المعادلة من الصفوف الخام: «لنا» و«علينا» لكل دفتر، وعدد الجهات غير الصفرية لكل وحدة وللمشروع، والجهات غير المؤرشفة،
-  // بتاريخ p_to (اليوم ويوم سابق).
+  // بتاريخ p_to (اليوم ويوم سابق). الصفوف الخام مرتّبة بالدفتر مثل book_totals (order by book_id): group by بلا order by يطلع بترتيب
+  // الخطّة ومعرّفات الدفاتر عشوائية، فـ«لكل دفتر» انكسر بالحزمة الكاملة بترتيب المفاتيح بس والقيم نفسها (0011، درس WP7).
   for (const to of [TODAY, D3]) {
     const summary = (await as(U.accountant, 'select public.report_accounts_summary($1, $2)', ['2026-01-01', to])).value;
     const raw = await rows(
-      'select e.party_id, e.book_id, b.division_id, sum(e.amount) as balance from public.party_entries e join public.ledger_books b on b.id = e.book_id where e.org_id = $1 and e.on_date <= $2 group by 1, 2, 3',
+      'select e.party_id, e.book_id, b.division_id, sum(e.amount) as balance from public.party_entries e join public.ledger_books b on b.id = e.book_id where e.org_id = $1 and e.on_date <= $2 group by 1, 2, 3 order by 2, 1',
       [ORG, to],
     );
     const nonzero = raw.filter((r) => Number(r.balance) !== 0);
