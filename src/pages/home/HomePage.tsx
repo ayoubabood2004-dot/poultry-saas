@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bird, ChevronLeft, ClipboardCheck, Fuel, HandCoins, PackageMinus, PackagePlus, Pill, Receipt, Wallet, Wheat, type LucideIcon } from 'lucide-react';
+import { Bird, ChevronLeft, Fuel, Pill, Wallet, Wheat, type LucideIcon } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
@@ -108,7 +108,6 @@ export interface HomeAction {
   key: HomeActionKey;
   to: string;
   label: string;
-  icon: LucideIcon;
 }
 
 /**
@@ -118,18 +117,18 @@ export interface HomeAction {
 export function homeActions(workspace: Pick<Workspace, 'role' | 'canSeeAccounts'> | null): HomeAction[] {
   const allowed = (action: Parameters<typeof can>[1], accounts = false) => !workspace || ((!accounts || workspace.canSeeAccounts) && can(workspace.role, action));
   const all: [HomeAction, boolean][] = [
-    [{ key: 'receipt', to: '/inventory/receipts', label: t('home.do.receipt', 'وصلتني بضاعة'), icon: PackagePlus }, allowed('receipt.draft')],
-    [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
-    [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
-    [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],
-    [{ key: 'payment', to: '/accounts?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
-    [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف'), icon: Receipt }, allowed('expense.post', true)],
-    [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد'), icon: ClipboardCheck }, allowed('count.enter')],
+    [{ key: 'receipt', to: '/inventory/receipts', label: t('home.do.receipt', 'وصلتني بضاعة') }, allowed('receipt.draft')],
+    [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن') }, allowed('stock_use.post')],
+    [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين') }, allowed('transfer.post')],
+    [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة') }, allowed('payment.post', true)],
+    [{ key: 'payment', to: '/accounts?new=payment', label: t('home.do.payment', 'قبضت من جهة') }, allowed('payment.post', true)],
+    [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف') }, allowed('expense.post', true)],
+    [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد') }, allowed('count.enter')],
   ];
   return all.filter(([, show]) => show).map(([action]) => action);
 }
 
-/** أزرار كبيرة بلمسة واحدة: عمودان على الهاتف. */
+/** أزرار كبيرة بلمسة واحدة: عمودان على الهاتف. بلا أيقونات: كل أيقونة جديدة تدخل حزمة الرئيسية المحفوظة بالتثبيت المسبق (السقف). */
 export function HomeActions({ actions }: { actions: readonly HomeAction[] }) {
   const headingId = useId();
   if (actions.length === 0) return null;
@@ -139,16 +138,13 @@ export function HomeActions({ actions }: { actions: readonly HomeAction[] }) {
         {t('home.do.title', 'ماذا تريد أن تفعل؟')}
       </h2>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {actions.map(({ key, to, label, icon: Icon }) => (
+        {actions.map(({ key, to, label }) => (
           <Link
             key={key}
             to={to}
             data-action={'home-' + key}
-            className="card flex min-h-28 flex-col items-center justify-center gap-2 p-4 text-center font-semibold transition-shadow hover:shadow-soft"
+            className="card flex min-h-20 items-center justify-center p-4 text-center font-semibold transition-shadow hover:shadow-soft"
           >
-            <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
-              <Icon aria-hidden="true" className="size-6" />
-            </span>
             {label}
           </Link>
         ))}
