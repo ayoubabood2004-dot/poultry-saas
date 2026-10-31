@@ -1,5 +1,5 @@
-import { ArrowLeftRight, Bird, ChevronLeft, ClipboardCheck, Fuel, HandCoins, PackageMinus, PackagePlus, Pill, Receipt, Wallet, Wheat, type LucideIcon } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { ArrowLeftRight, Bird, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Fuel, HandCoins, PackageMinus, PackagePlus, Pill, Receipt, Wallet, Wheat, type LucideIcon } from 'lucide-react';
+import { useCallback, useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
 import { LoadFailed } from '../../components/ui/LoadFailed';
@@ -10,16 +10,18 @@ import { localDay } from '../../domain/dates';
 import { can } from '../../domain/permissions';
 import type { Workspace } from '../../domain/workspace';
 import { describeError, NotConnectedError } from '../../lib/errors';
-import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
+import { fmtDay, fmtInt, fmtMoney, fmtPercent } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
+import type { FlocksOverview } from '../../lib/repo/flocks';
 import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { loadOverviewKept } from '../farm/shared';
 
-// بطاقة لكل وحدة ضمن نطاق المستخدم بأهمّ أرقام اليوم، والحسابات (لنا وعلينا) لأدوارها بس. الوحدات التي لم تُبنَ شاشاتها بعد
-// (حقول اللحم والبيض، وإنتاج المعمل ووجبات المفقس) بـplannedCards.tsx، لا تُعرض هنا: بطاقتا المعمل والمفقس بأرقام مخازنهما
-// وتفتحان مخازنهما، مثل الشريط (nav.ts).
+// بطاقة لكل وحدة ضمن نطاق المستخدم بأهمّ أرقام اليوم، والحسابات (لنا وعلينا) لأدوارها بس. حقول اللحم والبيض (المرحلة 2، النسخة
+// الأولى) بأرقام قراءة الحقول. الوحدات التي لم تُبنَ شاشاتها بعد (إنتاج المعمل ووجبات المفقس) بـplannedCards.tsx، لا تُعرض هنا:
+// بطاقتا المعمل والمفقس بأرقام مخازنهما وتفتحان مخازنهما، مثل الشريط (nav.ts).
 // الرقم الغايب «—» مو صفر: ما ينكال رقم إلا بعد قراءة ناجحة.
 
 /**
@@ -41,12 +43,64 @@ export interface CardSpec {
   metrics: Metric[];
 }
 
+/** أرقام بطاقتي حقول اللحم والبيض من قراءة الحقول (flocks_overview، المرحلة 2): الأفواج الشغّالة وحيّها ونافق اليوم، والبيض ونسبته. */
+export interface FarmCards {
+  broiler: { active: number; live: number; deadToday: number };
+  /** eggsToday وliveStart للأفواج اللي انسجّل بيض يومها بس (القاعدة 32: بلا بيض مسجّل «—» مو صفر). */
+  layer: { active: number; eggsToday: number | null; liveStart: number };
+}
+
+export function farmCards(overview: FlocksOverview): FarmCards {
+  const cards: FarmCards = { broiler: { active: 0, live: 0, deadToday: 0 }, layer: { active: 0, eggsToday: null, liveStart: 0 } };
+  for (const site of overview.sites) {
+    for (const hall of site.halls) {
+      const flock = hall.flock;
+      if (!flock || flock.status !== 'active') continue;
+      if (flock.kind === 'broiler') {
+        cards.broiler.active += 1;
+        cards.broiler.live += flock.live;
+        cards.broiler.deadToday += flock.today?.dead ?? 0;
+      } else {
+        cards.layer.active += 1;
+        if (flock.eggsToday !== null) {
+          cards.layer.eggsToday = (cards.layer.eggsToday ?? 0) + flock.eggsToday;
+          cards.layer.liveStart += flock.liveStartToday;
+        }
+      }
+    }
+  }
+  return cards;
+}
+
 /** مصدّرة حتى ينفحص اتّجاه كل رقم بلا متصفّح. */
-export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
+export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null = null): CardSpec[] {
   // بلا ملخّص (لسّه يتحمّل أو فشل) كل رقم «—»: ملخّص فارغ بدل null حتى الفحوص أقصر (حزمة الرئيسية بالتثبيت المسبق).
   const s: HomeSummary = summary ?? {};
   const { accounts } = s;
+  const layer = farms?.layer;
   return [
+    {
+      key: 'broiler',
+      to: '/broiler',
+      title: t('nav.broiler', 'حقول اللحم'),
+      icon: Drumstick,
+      metrics: [
+        { label: t('home.broiler.active', 'الأفواج النشطة'), kind: 'number', value: farms ? fmtInt(farms.broiler.active) : null },
+        { label: t('home.broiler.live', 'الطيور الحيّة'), kind: 'number', value: farms ? fmtInt(farms.broiler.live) : null },
+        { label: t('home.broiler.dead_today', 'نافق اليوم'), kind: 'number', value: farms ? fmtInt(farms.broiler.deadToday) : null },
+      ],
+    },
+    {
+      key: 'layer',
+      to: '/layers',
+      title: t('nav.layers', 'حقول البيض'),
+      icon: Egg,
+      metrics: [
+        { label: t('home.layer.active', 'الأفواج النشطة'), kind: 'number', value: layer ? fmtInt(layer.active) : null },
+        { label: t('home.layer.eggs', 'بيض اليوم'), kind: 'number', value: layer?.eggsToday !== null && layer?.eggsToday !== undefined ? fmtInt(layer.eggsToday) : null },
+        { label: t('home.layer.hdep_today', 'نسبة الإنتاج اليوم'), kind: 'number', value: layer?.eggsToday !== null && layer?.eggsToday !== undefined && layer.liveStart > 0 ? `${fmtPercent(BigInt(layer.eggsToday), BigInt(layer.liveStart))}%` : null },
+      ],
+    },
     {
       key: 'feed_mill',
       to: '/inventory/mill',
@@ -102,7 +156,7 @@ export function cardSpecs(summary: HomeSummary | null): CardSpec[] {
   ];
 }
 
-export type HomeActionKey = 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
+export type HomeActionKey = 'round_broiler' | 'round_layer' | 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
 
 export interface HomeAction {
   key: HomeActionKey;
@@ -115,9 +169,13 @@ export interface HomeAction {
  * أزرار «ماذا تريد أن تفعل؟»: كل زرّ يفتح نموذجه مباشرةً، ويظهر بنفس شرط الصفحة التي يفتحها (can بالدور، والحسابات بعلامة
  * الخادم canSeeAccounts مثل الشريط). بلا منشأة مؤكّدة (workspace = null) تظهر كلها مثل الشريط. المنع الحقيقي بالخادم.
  */
-export function homeActions(workspace: Pick<Workspace, 'role' | 'canSeeAccounts'> | null): HomeAction[] {
+export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts'> & { divisions?: readonly DivisionKind[] }) | null): HomeAction[] {
   const allowed = (action: Parameters<typeof can>[1], accounts = false) => !workspace || ((!accounts || workspace.canSeeAccounts) && can(workspace.role, action));
+  // الجولة اليومية (المرحلة 2): لمن يحفظ يوم الفوج وبنطاقه حقول من نوعها.
+  const farm = (division: DivisionKind) => allowed('flock_day.save') && (!workspace?.divisions || workspace.divisions.includes(division));
   const all: [HomeAction, boolean][] = [
+    [{ key: 'round_broiler', to: '/broiler/round', label: t('home.do.round_broiler', 'جولة حقول اللحم'), icon: ClipboardList }, farm('broiler')],
+    [{ key: 'round_layer', to: '/layers/round', label: t('home.do.round_layer', 'جولة حقول البيض'), icon: ClipboardList }, farm('layer')],
     [{ key: 'receipt', to: '/inventory/receipts', label: t('home.do.receipt', 'وصلتني بضاعة'), icon: PackagePlus }, allowed('receipt.draft')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
@@ -191,9 +249,23 @@ export default function HomePage() {
   const session = useSession();
   const summary = useLoad(home.loadHomeSummary);
   const notConnected = summary.error instanceof NotConnectedError;
+  // بطاقتا الحقول من قراءة الحقول، بس لمن بنطاقه حقل لحم أو بيض (بلا منشأة مؤكّدة الهيكل كلّه بلا أرقام). القراءة الناجحة تحفظ
+  // نسخة الجهاز (عامل فتح الرئيسية بالنت تنفتح جولته بالقاعة بلا نت، FOUNDATION ٢١٧)، ونسخة الجهاز نفسها ما تنعرض أرقاماً لليوم.
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  const divisions = workspace?.divisions ?? null;
+  const wantsFarms = divisions !== null && (divisions.includes('broiler') || divisions.includes('layer'));
+  const userId = workspace?.userId ?? null;
+  const orgId = workspace?.orgId ?? null;
+  const displayName = workspace?.displayName ?? '';
+  const loadFarms = useCallback(async () => {
+    if (!wantsFarms) return null;
+    const state = await loadOverviewKept(userId && orgId ? { userId, orgId, displayName } : null);
+    return state.savedAt === null ? farmCards(state.overview) : null;
+  }, [wantsFarms, userId, orgId, displayName]);
+  const farms = useLoad(loadFarms);
 
   const actions = homeActions(session.status === 'ready' ? session.workspace : null);
-  const specs = cardSpecs(summary.data).filter((spec) => {
+  const specs = cardSpecs(summary.data, farms.data).filter((spec) => {
     if (session.status !== 'ready') return true;
     const { divisions, canSeeAccounts } = session.workspace;
     return spec.key === 'accounts' ? canSeeAccounts : divisions.includes(spec.key);
@@ -218,7 +290,7 @@ export default function HomePage() {
         </Notice>
       ) : summary.error ? (
         <LoadFailed what={t('home.what', 'أرقام اليوم')} error={summary.error} onRetry={summary.retry} />
-      ) : summary.data && Object.keys(summary.data).length === 0 ? (
+      ) : summary.data && Object.keys(summary.data).length === 0 && !wantsFarms ? (
         <Notice tone="info" title={t('home.coming.title', 'لا أرقام بعد')}>
           {t('home.coming', 'تظهر أرقام اليوم هنا حين تُبنى الوحدات في المراحل القادمة، وتبقى «—» مكانها حتى ذلك الحين.')}
         </Notice>

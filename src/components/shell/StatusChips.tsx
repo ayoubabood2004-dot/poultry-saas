@@ -1,4 +1,5 @@
 import { CloudOff, HardDrive, WifiOff, type LucideIcon } from 'lucide-react';
+import { lazy, Suspense } from 'react';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import { updateStore } from '../../lib/pwa/update';
@@ -6,9 +7,16 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 
 // الرأس يكول الحقيقة: «مو جاهز بلا نت بعد» لحد ما تكمل الخدمة العاملة، حتى العامل ما يطلع للقاعة
-// ويكتشف هناك صفحة «ماكو اتصال». (عدّاد الجولات المنتظرة ينضاف ويّا الجولة بالمرحلة 3.)
+// ويكتشف هناك صفحة «ماكو اتصال». وبعد الدخول: رافع جولات الجهاز وعدّاداها (RoundQueue، حزمة كسولة برّا الإقلاع).
 
-function Chip({ icon: Icon, label, detail, tone }: { icon: LucideIcon; label: string; detail: string; tone: 'info' | 'warning' }) {
+// فشل تحميل حزمتها (نشر جديد) ما يطفي القشرة: الرأس بلاها، والتعافي يمسكه بـvite:preloadError.
+const RoundQueue = lazy(() =>
+  import('./RoundQueue').catch(() => ({
+    default: () => null, // swallow-ok: حزمة الرافع ما انحمّلت؛ الجولات باقية بالجهاز وشاشة الجولة ترفعها
+  })),
+);
+
+export function Chip({ icon: Icon, label, detail, tone }: { icon: LucideIcon; label: string; detail: string; tone: 'info' | 'warning' }) {
   const toneClass =
     tone === 'warning'
       ? 'bg-warn-50 text-warn-800 dark:bg-warn-500/15 dark:text-warn-200'
@@ -53,6 +61,11 @@ export function StatusChips() {
               : t('status.not_ready.offline_detail', 'لا يُفتح التطبيق على هذا الجهاز دون اتصال بعد: لا تغلقه حتى يعود الاتصال.')
           }
         />
+      ) : null}
+      {session.status === 'ready' ? (
+        <Suspense fallback={null}>
+          <RoundQueue />
+        </Suspense>
       ) : null}
     </div>
   );

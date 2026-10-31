@@ -339,6 +339,15 @@ export async function summarize(db: IDBDatabase, stamp: Stamp): Promise<QueueSum
   return summary;
 }
 
+/**
+ * عمليات الداخل بهاي المنشأة اللي ما انرفعت بعد (كل الحالات)، بترتيب إنشائها: الجولة تعرض قيمها فوق المحفوظ بالخادم وتنقّص الحيّ
+ * المحلّي بيها (FOUNDATION ٢١٧). قراءة بس.
+ */
+export function pendingOps(db: IDBDatabase, stamp: Stamp): Promise<OutboxOp[]> {
+  const range = IDBKeyRange.bound([stamp.userId, stamp.orgId, -Infinity], [stamp.userId, stamp.orgId, Infinity]);
+  return transact(db, OPS, 'readonly', (tx) => requestResult(tx.objectStore(OPS).index(OPS_BY_OWNER).getAll(range) as IDBRequest<OutboxOp[]>));
+}
+
 /** رفّ المراجعة لصاحبه بس. */
 export function reviewEntries(db: IDBDatabase, stamp: Stamp): Promise<ReviewEntry[]> {
   return transact(db, REVIEW, 'readonly', (tx) =>

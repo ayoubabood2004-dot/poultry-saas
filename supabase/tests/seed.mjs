@@ -8,6 +8,7 @@
 // مسوّدة افتتاح (المدير) أو مسوّدة تحويل (الأمين): كل مستند مخزون، ولو مسوّدة، يوقف التراجع بصوت.
 // WP5 (0008): البذرة نفسها (بلا مصروف ولا صرف ولا جرد، فالتراجع يكمل). والطريق الثاني: مصروف نقدي (المدير) أو مسوّدة صرف أو
 // مسوّدة جرد (الأمين): كل وحدة توقف التراجع بصوت.
+// 0012: البذرة نفسها (بلا قاعة ولا فوج، فالتراجع يكمل). والطريق الثاني: قاعة بفوج مفتوح وجولة يومه (المدير) توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -206,6 +207,31 @@ const copySeed = async (db) => {
 
 const COPY_CONDITION = 'v_copies > 0';
 
+/** 0012: المدير يضيف قاعة بحقل الأمل (كتابة مباشرة) ويفتح فيها فوجاً ويسجّل جولة يومه: بيانات الحقول توقف التراجع بصوت. */
+const flockSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    const hall = await value(q, "insert into public.halls (site_id, name, capacity) values ($1, 'قاعة 1', 12000) returning id", [site]);
+    const flock = await value(q, "select public.open_flock($1, public.app_today() - 2, 10000, 1, 'روس 308', $2) ->> 'flock_id'", [hall, REF(20)]);
+    await q('select public.save_flock_day($1, public.app_today(), 12, 3, 450, null, null, null, null, null, null, null, null, $2, false)', [flock, REF(21)]);
+  }, { commit: true });
+};
+
+const FLOCK_CONDITION = 'v_halls + v_flocks + v_days + v_rejects + v_weights > 0';
+
+/**
+ * 0012: قاعة بلا فوج ولا جولة. كل بيانات الحقول تحتاج قاعة، ففرع v_halls هو اللي يوقف التراجع هنا وحده: طفرة تشيله (التراجع
+ * يشيل جدول القاعات بصفّه) تعبر بذرة «قاعة بفوج وجولة» لأن الفوج يوقفها، وهاي البذرة تمسكها.
+ */
+const hallSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    await q("insert into public.halls (site_id, name) values ($1, 'قاعة بلا فوج')", [site]);
+  }, { commit: true });
+};
+
 const WP5_CONDITION = 'v_expenses > 0 or v_uses > 0 or v_counts > 0';
 
 /**
@@ -321,6 +347,22 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(COPY_CONDITION, 'false'),
     },
   ],
+  12: [
+    {
+      name: 'قاعة بفوج وجولة',
+      code: 'rollback_blocked',
+      seed: flockSeed,
+      data: "select (select count(*) from public.halls)::text || '/' || (select count(*) from public.flocks)::text || '/' || (select count(*) from public.flock_daily)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(FLOCK_CONDITION, 'false'),
+    },
+    {
+      name: 'قاعة بلا فوج',
+      code: 'rollback_blocked',
+      seed: hallSeed,
+      data: "select (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(FLOCK_CONDITION, 'v_flocks + v_days + v_rejects + v_weights > 0'),
+    },
+  ],
 };
 
 /** عدد حالات الرفض اللازم لكل ملف تراجع: [الرقم، العدد، شنو]. */
@@ -332,4 +374,5 @@ export const BLOCKING_REQUIRED = [
   [9, 1, 'مسوّدة استلام توقف التراجع'],
   [10, 1, 'مسوّدة مرتجع توقف التراجع'],
   [11, 1, 'استلام منسوخ بأصله يوقف التراجع'],
+  [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
 ];

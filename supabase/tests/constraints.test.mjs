@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ARABIC = /[\u{600}-\u{6FF}]/u;
-const SOURCES = ['constraints.ts', 'constraints-stores.ts', 'constraints-ledger.ts', 'constraints-stock.ts', 'constraints-receipts.ts'];
+const SOURCES = ['constraints.ts', 'constraints-stores.ts', 'constraints-ledger.ts', 'constraints-stock.ts', 'constraints-receipts.ts', 'constraints-flocks.ts'];
 
 /** الناقص والزايد بين الكتالوج والقاموس. */
 export function dictionaryGaps(catalog, dictionary) {
@@ -45,6 +45,7 @@ export default async function (t, db) {
       "export { LEDGER_CONSTRAINT_HINTS } from './src/lib/repo/constraints-ledger.ts';",
       "export { STOCK_CONSTRAINT_HINTS } from './src/lib/repo/constraints-stock.ts';",
       "export { RECEIPT_CONSTRAINT_HINTS } from './src/lib/repo/constraints-receipts.ts';",
+      "export { FLOCK_CONSTRAINT_HINTS } from './src/lib/repo/constraints-flocks.ts';",
       "export { classifyPostgrest, explained, violatedConstraint } from './src/lib/repo/core.ts';",
     ].join('\n'),
   );
@@ -52,7 +53,7 @@ export default async function (t, db) {
 
   const catalog = (await db.admin("select conname from pg_constraint where contype = 'c' and connamespace in ('public'::regnamespace, 'private'::regnamespace) order by 1")).rows.map((r) => r.conname);
   t.ok(catalog.length >= 40, `قيود check بالكتالوج (${catalog.length})`);
-  const parts = [Object.keys(m.CONSTRAINT_HINTS), Object.keys(m.STORES_CONSTRAINT_HINTS), Object.keys(m.LEDGER_CONSTRAINT_HINTS), Object.keys(m.STOCK_CONSTRAINT_HINTS), Object.keys(m.RECEIPT_CONSTRAINT_HINTS)];
+  const parts = [Object.keys(m.CONSTRAINT_HINTS), Object.keys(m.STORES_CONSTRAINT_HINTS), Object.keys(m.LEDGER_CONSTRAINT_HINTS), Object.keys(m.STOCK_CONSTRAINT_HINTS), Object.keys(m.RECEIPT_CONSTRAINT_HINTS), Object.keys(m.FLOCK_CONSTRAINT_HINTS)];
   const twice = parts.flatMap((names, i) => names.filter((name) => parts.some((other, j) => j !== i && other.includes(name))));
   t.same(twice, [], 'ماكو قيد بقاموسين');
   const dictionary = parts.flat().sort();

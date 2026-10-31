@@ -308,6 +308,22 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0012 (حقول اللحم والبيض، النسخة الأولى): قاعة بفوج مفتوح (1,000 طير) وقاعة فارغة بحقل الرحمة (لحم)، بكتابة المالك ودالّته.
+  const p2 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const hall = await one("insert into public.halls (site_id, name, capacity) values ($1, 'قاعة 1', 5000) returning id", [farm.site]);
+      const empty = await one("insert into public.halls (site_id, name) values ($1, 'قاعة 2') returning id", [farm.site]);
+      const flock = await one("select public.open_flock($1, public.app_today() - 3, 1000, 0, null, gen_random_uuid()) ->> 'flock_id'", [hall]);
+      return { hall, empty, flock };
+    },
+    { commit: true },
+  );
+  const FLOCK_MANAGE = ['owner', 'manager'];
+  const FLOCK_DAY = ['owner', 'manager', 'hall_worker'];
+  const FLOCK_SCOPE = ['owner', 'manager', 'accountant', 'hall_worker'];
+
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -413,6 +429,13 @@ export default async function (t, db) {
     // 0011: النسخة للتصحيح بفعل إنشاء ورقة النوع ونطاق مخزنها: التحويل لمن يكتب ورقة التحويل (transfer.post، والأمين بنطاق العامّ
     // المرسِل)، والمحاسب والمشاهد ممنوعان؛ والافتتاح بصفّه تحت (opening.post).
     copy_doc_to_draft: { sql: () => ["select public.copy_doc_to_draft('transfer', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.transfer]], value: true, expect: only(TRANSFER, 'ok:draft') },
+    // 0012: فتح الفوج للمدير والمالك (flock.manage)، والجولة والوزن لعامل القاعة بنطاقه (flock_day.save، نطاقه وحدة اللحم)، والقارئان
+    // لكل دور بنطاقه: من بلا نطاق (غير المالك والمدير والمحاسب) ما يشوف الحقل، والفوج خارج نطاقه out_of_scope.
+    open_flock: { sql: () => ["select public.open_flock($1, public.app_today(), 500, 0, null, gen_random_uuid()) ->> 'version' as v", [p2.empty]], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
+    save_flock_day: { sql: () => ["select public.save_flock_day($1, public.app_today(), 2, 1, 40.5, null, null, null, null, null, null, null, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
+    record_flock_weight: { sql: () => ["select public.record_flock_weight($1, public.app_today(), 50, 650.5, gen_random_uuid()) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
+    flocks_overview: { sql: () => ["select public.flocks_overview() -> 'sites' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [farm.site]], value: true, expect: only(FLOCK_SCOPE, 'ok:true', 'ok:false') },
+    flock_detail: { sql: () => ["select public.flock_detail($1) -> 'flock' ->> 'live' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -656,6 +679,12 @@ export default async function (t, db) {
       insertDenied: 'forbidden',
       insert: ['insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, 1)', [wp7.empty, wp7.receiptLine]],
       update: ['update public.supplier_return_lines set qty_base = qty_base where id = $1', [wp7.line]],
+    },
+    // 0012: القاعة بفعل flock.manage ونطاق حقلها (in_scope_site)، مثل المخزن بنطاق موقعه.
+    halls: {
+      allowed: FLOCK_MANAGE,
+      insert: ["insert into public.halls (site_id, name) values ($1, 'قاعة 3')", [farm.site]],
+      update: ['update public.halls set name = name where id = $1', [p2.hall]],
     },
     supplier_return_line_amounts: {
       allowed: ACCOUNTS,

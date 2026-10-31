@@ -2,7 +2,7 @@ import { Building2, Minus, Monitor, Moon, Plus, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
-import { InstallGuide } from '../../components/shell/InstallGuide';
+import { InstallGuide, usePendingRounds } from '../../components/shell/InstallGuide';
 import { Button, IconButton } from '../../components/ui/Button';
 import { Segmented } from '../../components/ui/Segmented';
 import { Switch } from '../../components/ui/Switch';
@@ -53,6 +53,7 @@ export default function SettingsPage() {
   const persist = useStore(persistStore);
   const install = useStore(installStore);
   const [guideOpen, setGuideOpen] = useState(false);
+  const pendingRounds = usePendingRounds(guideOpen);
   // التبويب اللي انقبل منه التثبيت منزّل هم، بس بعده بالمتصفّح.
   const installed = install.standalone || install.installed;
 
@@ -161,7 +162,7 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
-      <InstallGuide open={guideOpen} platform={detectPlatform()} pendingRounds={0} onClose={() => setGuideOpen(false)} />
+      <InstallGuide open={guideOpen} platform={detectPlatform()} pendingRounds={pendingRounds} onClose={() => setGuideOpen(false)} />
     </div>
   );
 }

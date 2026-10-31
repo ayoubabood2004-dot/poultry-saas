@@ -6,6 +6,10 @@
     "divisions",
     "doc_counters",
     "expenses",
+    "flock_daily",
+    "flock_day_rejects",
+    "flock_weights",
+    "flocks",
     "ledger_books",
     "member_scopes",
     "members",
@@ -52,6 +56,29 @@
         ],
         "update": [
           "name",
+          "archived_at"
+        ]
+      }
+    },
+    "halls": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "flock.manage",
+      "scope": {
+        "insert": "in_scope_site(site_id)",
+        "update": "in_scope_site(site_id)"
+      },
+      "columns": {
+        "insert": [
+          "site_id",
+          "name",
+          "capacity"
+        ],
+        "update": [
+          "name",
+          "capacity",
           "archived_at"
         ]
       }
@@ -669,8 +696,6 @@
       "flock_close_values",
       "flock_costs",
       "flock_counts",
-      "flock_daily",
-      "flock_day_rejects",
       "hatch_batch_values",
       "hatch_candlings",
       "hatch_costs",

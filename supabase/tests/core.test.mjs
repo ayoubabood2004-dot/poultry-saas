@@ -337,6 +337,25 @@ export default async function (t, db) {
     );
   }
 
+  // 0012: حقل لحم بقاعة وفوج مفتوح (1,000 طير)، وجولة يومه ووزن عيّنة، وجولة من الطابور أقدم من 7 أيام مركونة، فبكل جدول من جداول
+  // الحقول صفوف للطرفين؛ والفوج لقارئه flock_detail.
+  const flocksOf = {};
+  for (const [key, owner, broiler] of [['a', U.aOwner, aBroiler], ['b', U.bOwner, bBroiler]]) {
+    flocksOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const site = await value(q, "insert into public.sites (division_id, name, kind) values ($1, 'حقل العزل', 'farm') returning id", [broiler]);
+        const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة 1') returning id", [site]);
+        const flock = await value(q, "select public.open_flock($1, public.app_today() - 3, 1000, 0, null, gen_random_uuid()) ->> 'flock_id'", [hall]);
+        await q('select public.save_flock_day($1, public.app_today(), 2, 0, 40, null, null, null, null, null, null, null, null, gen_random_uuid(), false)', [flock]);
+        await q('select public.save_flock_day($1, public.app_today() - 10, 1, null, null, null, null, null, null, null, null, null, null, gen_random_uuid(), true)', [flock]);
+        await q('select public.record_flock_weight($1, public.app_today(), 30, 120.5, gen_random_uuid())', [flock]);
+        return { flock };
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -621,6 +640,8 @@ export default async function (t, db) {
     preview_supplier_return: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].returnDraft],
     supplier_return_options: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].receipt],
     preview_receipt_revalue: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].line, '9500'],
+    // 0012: الفوج بفوج كل مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
+    flock_detail: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -647,6 +668,9 @@ export default async function (t, db) {
     preview_supplier_return: NO_ACCOUNTS,
     supplier_return_options: NO_ACCOUNTS,
     preview_receipt_revalue: NO_ACCOUNTS,
+    // 0012: القارئان لكل دور بمنشأة (read)، وبلا منشأة forbidden.
+    flocks_overview: { [U.aSpare]: 'forbidden' },
+    flock_detail: { [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

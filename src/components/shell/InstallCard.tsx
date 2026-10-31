@@ -5,7 +5,7 @@ import { detectPlatform, installStore, promptInstall } from '../../lib/pwa/insta
 import { persistStore } from '../../lib/pwa/persist';
 import { useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
-import { InstallGuide } from './InstallGuide';
+import { InstallGuide, usePendingRounds } from './InstallGuide';
 
 // الزرّ يختفي لما التطبيق مفتوح مثبّت. بلا حدث تثبيت (فايرفوكس، الآيفون، أو كروم قبل ٣٠ ثانية)
 // الزرّ يبقى ويفتح الشرح المصوّر. والتبويب اللي انقبل منه التثبيت يكول افتحه من الأيقونة، مو «نزّله».
@@ -22,6 +22,7 @@ export function InstallCard() {
   const install = useStore(installStore);
   const persist = useStore(persistStore);
   const [guideOpen, setGuideOpen] = useState(false);
+  const pendingRounds = usePendingRounds(guideOpen);
   if (install.standalone) return null;
 
   if (install.installed) {
@@ -60,8 +61,7 @@ export function InstallCard() {
       <Button onClick={() => void onInstall()} icon={<Download aria-hidden="true" className="size-5" />} data-action="install-app">
         {t('install.button', 'ثبّت التطبيق')}
       </Button>
-      {/* الجولات تدخل الطابور بالمرحلة 3؛ لحد ذاك ماكو جولات منتظرة بهذا التبويب. */}
-      <InstallGuide open={guideOpen} platform={detectPlatform()} pendingRounds={0} onClose={() => setGuideOpen(false)} />
+      <InstallGuide open={guideOpen} platform={detectPlatform()} pendingRounds={pendingRounds} onClose={() => setGuideOpen(false)} />
     </section>
   );
 }

@@ -1,7 +1,11 @@
 import { Check, Dock, Download, Ellipsis, EllipsisVertical, Share, SquarePlus, type LucideIcon } from 'lucide-react';
+import { useEffect } from 'react';
 import { fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { Platform } from '../../lib/pwa/install';
+import { refreshRoundQueue, roundQueueStore, stampKey } from '../../lib/roundUploads';
+import { useSession } from '../../lib/session';
+import { useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
 import { Dialog } from '../ui/Dialog';
 import { Notice } from '../ui/Notice';
@@ -159,6 +163,26 @@ export function InstallGuideBody({ platform, pendingRounds }: InstallGuideBodyPr
     );
   }
   return <Steps steps={desktopSteps()} />;
+}
+
+/**
+ * جولات الداخل بهذا التبويب اللي ما انرفعت (عدّ الطابور الحقيقي، ويُعاد لحظة فتح الشرح): تنبيه الآيفون «ارفع جولاتك أولاً» يعتمد
+ * عليه (FOUNDATION ٢١٤)، والتطبيق المثبّت ما يرث تخزين تبويب سفاري.
+ */
+export function usePendingRounds(open: boolean): number {
+  const session = useSession();
+  const queue = useStore(roundQueueStore);
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  const userId = workspace?.userId ?? null;
+  const orgId = workspace?.orgId ?? null;
+  const displayName = workspace?.displayName ?? '';
+  useEffect(() => {
+    if (!open || !userId || !orgId) return;
+    refreshRoundQueue({ userId, orgId, displayName }).catch(() => {
+      /* swallow-ok: عدّ الطابور تعذّر (IndexedDB ممنوع)؛ ماكو طابور يُقرأ أصلاً */
+    });
+  }, [open, userId, orgId, displayName]);
+  return userId && orgId && queue.key === stampKey({ userId, orgId }) ? queue.mine : 0;
 }
 
 export interface InstallGuideProps extends InstallGuideBodyProps {
