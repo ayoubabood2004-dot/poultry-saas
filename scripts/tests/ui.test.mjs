@@ -422,11 +422,13 @@ export default async function (t) {
     t.eq(liveOf('accounts').metrics.length, 3, 'الحسابات كما هي');
     t.same(m.plannedCardSpecs({}).map((spec) => spec.to), ['/mill', '/broiler', '/layers', '/hatchery'], 'البطاقات المخطّطة لصفحات التخطيط بس');
 
-    // «ماذا تريد أن تفعل؟»: كل زرّ بشرط صفحته (can بالدور، والحسابات بعلامة الخادم).
+    // «ماذا تريد أن تفعل؟»: كل زرّ بشرط صفحته (can بالدور، والحسابات بعلامة الخادم)، والترتيب بأولوية الدور
+    // (الاستخدام اليومي 2026-11-02): المالك والمدير الجولة ثم الاستلام ثم الدفع والقبض، والباقي بعدهم بترتيبه الافتراضي.
     const acts = (role, canSeeAccounts = true) => m.homeActions({ role, canSeeAccounts }).map((action) => action.key);
     const ALL = ['round_broiler', 'round_layer', 'receipt', 'use', 'transfer', 'payout', 'payment', 'expense', 'count'];
-    t.same(acts('owner'), ALL, 'المالك: الأزرار التسعة');
-    t.same(acts('manager'), ALL, 'المدير: الأزرار التسعة');
+    const OWNER = ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment', 'use', 'transfer', 'expense', 'count'];
+    t.same(acts('owner'), OWNER, 'المالك: الأزرار التسعة بأولوية يومه');
+    t.same(acts('manager'), OWNER, 'المدير: الأزرار التسعة بأولوية يومه');
     t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler'], 'عامل قاعة بحقول اللحم: جولة اللحم بس');
     t.same(acts('storekeeper', false), ['receipt', 'use', 'transfer', 'count'], 'أمين المخزن: أزرار المخزن بس');
     t.same(acts('accountant'), ['payout', 'payment', 'expense'], 'المحاسب: الدفع والقبض والمصروف');

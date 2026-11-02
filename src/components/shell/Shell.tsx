@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { visibleNav } from '../../lib/nav';
 import { useSession } from '../../lib/session';
 import { readJson, writeJson } from '../../lib/storage';
@@ -11,6 +11,14 @@ const SIDEBAR_KEY = 'poultry.sidebar-collapsed';
 /** نفس md بـTailwind: من هنا القائمة md:hidden والشريط الجانبي ظاهر. */
 const WIDE_QUERY = '(min-width: 768px)';
 
+// الشريط السفلي بالهاتف بحزمة كسولة (هامش حزمة الإقلاع بايتات): فشل تحميلها (نشر جديد) ما يطفي القشرة — القائمة
+// بالشريط الجانبي بالحاسبة، والتعافي يمسك fetch الفاشل بـvite:preloadError.
+const BottomBar = lazy((): Promise<{ default: ComponentType<{ onMenu: () => void }> }> =>
+  import('./BottomBar').catch(() => ({
+    default: () => null, // swallow-ok: حزمة الشريط السفلي ما انحمّلت؛ التنقّل باقي بالدرج وبالروابط
+  })),
+);
+
 export function Shell({ children }: { children: ReactNode }) {
   const session = useSession();
   const items = visibleNav(session);
@@ -18,6 +26,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => readJson(SIDEBAR_KEY) === true);
   // ثابتة حتى القائمة ما تعيد حبس التركيز وقفل التمرير ويّا كل رسم للقشرة.
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // ما تنفتح قائمة ما تنشاف (md:hidden) وتقفل التمرير.
+  const openDrawer = useCallback(() => setDrawerOpen(!window.matchMedia(WIDE_QUERY).matches), []);
 
   // القائمة مفتوحة والشاشة كبرت لـmd (تدوير الموبايل): القائمة تختفي بـmd:hidden وقفلها يبقى،
   // فالصفحة كلها ما تتمرّر. تنسدّ ويّا التغيّر نفسه.
@@ -42,13 +52,17 @@ export function Shell({ children }: { children: ReactNode }) {
       <Sidebar items={items} collapsed={collapsed} onToggle={toggleCollapsed} />
       {drawerOpen ? <MobileDrawer items={items} onClose={closeDrawer} /> : null}
       <div className={collapsed ? 'md:ps-19' : 'md:ps-64'}>
-        {/* ما تنفتح قائمة ما تنشاف (md:hidden) وتقفل التمرير. */}
-        <TopBar onMenu={() => setDrawerOpen(!window.matchMedia(WIDE_QUERY).matches)} />
+        <TopBar />
         <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
           <AppBanners />
           {children}
+          {/* فاصل بالهاتف بس: آخر الصفحة ما ينخبّى تحت الشريط السفلي (بأصناف موجودة، فما يكبر CSS الإقلاع). */}
+          <div aria-hidden="true" className="h-16 md:hidden" />
         </main>
       </div>
+      <Suspense fallback={null}>
+        <BottomBar onMenu={openDrawer} />
+      </Suspense>
       <Toaster />
     </div>
   );
