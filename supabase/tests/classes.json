@@ -1,5 +1,5 @@
 {
-  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
+  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1؛ والمواد ووحداتها من 0013: الإضافة item.create والتعديل stores.manage). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
   "functionOnly": [
     "audit_log",
     "cash_moves",
@@ -104,7 +104,10 @@
         "insert",
         "update"
       ],
-      "action": "stores.manage",
+      "action": {
+        "insert": "item.create",
+        "update": "stores.manage"
+      },
       "columns": {
         "insert": [
           "item_id",
@@ -133,7 +136,10 @@
         "insert",
         "update"
       ],
-      "action": "stores.manage",
+      "action": {
+        "insert": "item.create",
+        "update": "stores.manage"
+      },
       "columns": {
         "insert": [
           "name",

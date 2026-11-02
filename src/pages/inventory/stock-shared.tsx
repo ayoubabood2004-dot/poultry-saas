@@ -1,3 +1,4 @@
+import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus, type LucideIcon } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { DayField, postingDay } from '../../components/ui/DayField';
@@ -12,13 +13,14 @@ import type { Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
-import { can, type Action } from '../../domain/permissions';
+import { can, type Action, type Role } from '../../domain/permissions';
 import { inScope } from '../../domain/scope';
 import type { Workspace } from '../../domain/workspace';
 import { normalizeCode, searchable } from '../../domain/normalize';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { fmtDay, fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import * as counts from '../../lib/repo/counts';
 import * as inventory from '../../lib/repo/inventory';
 import { sessionStore } from '../../lib/session';
 import type { DocStatus, ItemRow, OrgSetup, StockRef, WarehouseRow } from '../../lib/repo/inventory';
@@ -724,4 +726,56 @@ export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inv
   if (item.baseUnit === 'L') out.push({ id: 'code:mL', label: t('unit.mL', 'ملل'), factor: { units: 1n, scale: 3 } });
   for (const pack of packs.filter((p) => !p.archived && !(name !== null && p.factor === ONE))) out.push({ id: pack.id, label: pack.label, factor: { units: pack.factor, scale: 6 } });
   return out;
+}
+
+// ─── رأس قسم المخزون: روابطه وموافقاته (تجربة الاستخدام 2026-11-02) ───────────────────────────────────────────────
+// بطاقات المخازن صارت صفحة /inventory، واللوحة بالوحدة بقيت بمسارها، فالروابط والموافقات المنتظرة بمكان واحد لهما.
+
+/** روابط قسم المخزون بأولوية الدور (نفس شروط صلاحياتها بالخادم، والحكم إله). */
+export function InventoryLinks({ role }: { role: Role | undefined }) {
+  const links: { to: string; icon: LucideIcon; label: string; action: string }[] = [];
+  if (role && (can(role, 'receipt.draft') || can(role, 'receipt.amounts'))) links.push({ to: '/inventory/receipts', icon: PackagePlus, label: t('stock.receipts', 'الاستلام من المورّدين'), action: 'open-receipts' });
+  if (role && can(role, 'transfer.post')) links.push({ to: '/inventory/transfers', icon: ArrowLeftRight, label: t('stock.transfers', 'التحويلات'), action: 'open-transfers' });
+  if (role && can(role, 'stock_use.post')) links.push({ to: '/inventory/uses', icon: PackageMinus, label: t('stock.uses', 'الصرف والإتلاف'), action: 'open-uses' });
+  if (role && can(role, 'count.enter')) links.push({ to: '/inventory/counts', icon: ClipboardCheck, label: t('stock.counts', 'الجرد'), action: 'open-counts' });
+  if (role && can(role, 'opening.post')) links.push({ to: '/inventory/openings', icon: ClipboardList, label: t('stock.openings', 'الرصيد عند البداية'), action: 'open-openings' });
+  links.push({ to: '/inventory/items', icon: Boxes, label: t('items.title', 'المواد'), action: 'open-items' });
+  links.push({ to: '/settings/org', icon: Building2, label: t('org.title', 'إعدادات المنشأة'), action: 'open-org-settings' });
+  return (
+    <nav className="flex flex-wrap gap-2" aria-label={t('stock.board.links', 'روابط المخزون')}>
+      {links.map(({ to, icon: Icon, label, action }) => (
+        <Link key={action} to={to} className="card flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-surface-2" data-action={action}>
+          <Icon aria-hidden="true" className="size-4" />
+          {label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+/** «بانتظار موافقة المدير» (Q5، E53) لمن يقدر يوافق: الخادم يرجّعها له بس، وفشلها ما يوقف الصفحة. */
+export function PendingApprovals({ role }: { role: Role | undefined }) {
+  const approvals = useLoad(counts.loadApprovals, role ?? '');
+  const pending = approvals.data;
+  return (
+    <>
+      {pending && (pending.counts > 0 || pending.uses > 0) ? (
+        <Notice tone="warning" title={t('stock.approvals', 'بانتظار موافقة المدير')}>
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            {pending.counts > 0 ? (
+              <Link to="/inventory/counts" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-counts">
+                {t('stock.approvals.counts', 'جرود للمراجعة: {n}', { n: fmtInt(pending.counts) })}
+              </Link>
+            ) : null}
+            {pending.uses > 0 ? (
+              <Link to="/inventory/uses?awaiting=1" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-uses">
+                {t('stock.approvals.uses', 'صرف وإتلاف بانتظارك: {n}', { n: fmtInt(pending.uses) })}
+              </Link>
+            ) : null}
+          </span>
+        </Notice>
+      ) : null}
+      {approvals.error ? <LoadFailed what={t('stock.approvals.what', 'الموافقات المنتظرة')} error={approvals.error} onRetry={approvals.retry} /> : null}
+    </>
+  );
 }

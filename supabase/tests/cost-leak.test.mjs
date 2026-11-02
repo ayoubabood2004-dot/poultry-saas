@@ -5,6 +5,8 @@
 // وترحيله وإعادته وتسليم الجرد بلا money للأمين، والمراجعة والتقرير forbidden له، والمحصور بمخزن يقرأ مصاريف وحدته بس (وسجلّها).
 // و0011: نسخة الأمين للتصحيح من استلام ملغى بلا أي صفّ مبلغ، وجوابها بلا money ولا رمزي المال؛ ورمزا المال داخل money، فإعادة
 // المدير بنفس المرجع بعد ما نزل أميناً بلاهما (R-DB-3).
+// و0013: سجلّ شراء المادّة (item_purchases) وبطاقات المخازن (stores_overview) بلا مفتاح money للأمين ولا للمشاهد، وهما بنطاق
+// المخزن: الصفوف نفسها تصلهما بمورّدها وكميتها بلا سعر.
 import { call, uid } from './ledger-kit.mjs';
 import { postedReceipt } from './receipt-kit.mjs';
 import { makeStockOrg, postedOpening, postedTransfer, transferDraft } from './stock-kit.mjs';
@@ -248,5 +250,41 @@ async function scenario(t, db) {
     [cost, demoted.ok, demoted.value?.id, JSON.stringify(demoted.value ?? null).includes('paid_now'), JSON.stringify(demoted.value ?? null).includes('box_charge'), moneyKeys(demoted.value)],
     [false, true, managerId, false, false, []],
     'R-DB-3: إعادة النسخة بنفس المرجع بعد ما نزل المدير أميناً: نفس الورقة بلا paid_now ولا box_charge ولا money',
+  );
+
+  // ── 0013: سجلّ شراء المادّة وبطاقات المخازن بلا money لغير أدوار الكلفة (private.mask) ──────────────────────────────
+  // استلام مرحَّل 20 لتراً من «مورّد الإخفاء» بفاتورة 17,000 وخصم 1,000 وتحميل 500 بالقيمة من الصندوق: السطر واحد فحصّته كلّ
+  // المبلغ، فقيمة الدفعة = 17,000 − 1,000 + 500 = 16,500.00 وسعر الوحدة 16,500 ÷ 20 = 825.00. والأمين والمشاهد بنطاق المخزن
+  // العامّ، فالرفض هنا ليس نطاقاً: الصفوف تصلهم كاملةً بلا سعر.
+  await postedReceipt(db, {
+    keeper: U.storekeeper, pricer: U.manager, wh: W.general, party: supplier, on: TODAY,
+    lines: [{ item: I.diesel, qty: 20 }], totals: [17000], discount: 1000,
+    charges: [{ label: 'نقل الإخفاء', amount: 500, by: 'value', box: leakBox }],
+  });
+  const STORES = [
+    ['item_purchases', 'select public.item_purchases($1, $2, null, 50)', [I.diesel, W.general]],
+    ['item_purchases(كل المخازن)', 'select public.item_purchases($1, null, null, 50)', [I.diesel]],
+    ['stores_overview', 'select public.stores_overview()', []],
+  ];
+  const storeLeaks = [];
+  for (const [role, user] of Object.entries({ storekeeper: U.storekeeper, viewer: U.viewer })) {
+    for (const [fn, sql, params] of STORES) {
+      const result = await call(db, user, sql, params);
+      if (!result.ok) storeLeaks.push(`${role}/${fn}: ${result.code}`);
+      else storeLeaks.push(...moneyKeys(result.value).map((key) => `${role}/${fn}${key}`));
+    }
+  }
+  t.same(storeLeaks, [], 'الأمين والمشاهد: ولا مفتاح money ولا قيمة من item_purchases ولا من stores_overview');
+  const managerBuy = (await call(db, U.manager, 'select public.item_purchases($1, $2, null, 50)', [I.diesel, W.general])).value;
+  const keeperBuy = (await call(db, U.storekeeper, 'select public.item_purchases($1, $2, null, 50)', [I.diesel, W.general])).value;
+  const managerCards = (await call(db, U.manager, 'select public.stores_overview()')).value;
+  const keeperCards = (await call(db, U.storekeeper, 'select public.stores_overview()')).value;
+  t.same(
+    [managerBuy.rows.length, managerBuy.rows[0].money.invoice_total, managerBuy.rows[0].money.landed_value, managerBuy.rows[0].money.unit_cost,
+      keeperBuy.rows.length, keeperBuy.rows[0].party_name === managerBuy.rows[0].party_name, keeperBuy.rows[0].qty_in === managerBuy.rows[0].qty_in,
+      managerCards.rows.find((r) => r.id === W.general).money.stock_value !== undefined,
+      keeperCards.rows.find((r) => r.id === W.general).items_count === managerCards.rows.find((r) => r.id === W.general).items_count],
+    [1, '17000', '16500.00', '825.00', 1, true, true, true, true],
+    'ضابط: المدير يرى الفاتورة والقيمة المحمّلة وسعر الوحدة وقيمة المخزن، والأمين يرى نفس الصفوف ومورّدها وكميتها وأعداد بطاقته بلا سعر',
   );
 }

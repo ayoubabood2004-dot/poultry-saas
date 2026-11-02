@@ -426,12 +426,12 @@ async function mutationGaps(t) {
 
   // ── لوحة الأمين: ما تنادي قيماً ممنوعة عليه، ومنتقيها بنطاقه؛ ولوحة المدير تقرأ القيم ومجموعها (ضابط) ─────────────────────
   await withInventory({ session: { status: 'ready', workspace: keeper }, loads: { 'loadOrgSetup|': { data: org } } }, async (g) => {
-    const html = at('/inventory');
+    const html = at('/inventory/general');
     t.ok(g.loaded.includes('loadStockOnHand') && !g.loaded.includes('loadStockValues') && !g.loaded.includes('loadStockValueTotals'), `لوحة الأمين: الكميات بس، بلا نداء قيم يرفضه الخادم (${g.loaded.join('، ')})`);
     t.ok(html.includes('المخزن العام') && !html.includes('مخزن الأدوية'), 'لوحة الأمين: منتقي المخزن بمخازن نطاقه بس');
   });
   await withInventory({ session: { status: 'ready', workspace: workspace() }, loads: { 'loadOrgSetup|': { data: org } } }, async (g) => {
-    at('/inventory');
+    at('/inventory/general');
     t.ok(['loadStockOnHand', 'loadStockValues', 'loadStockValueTotals'].every((name) => g.loaded.includes(name)), `ضابط: لوحة المدير تقرأ القيم ومجموعها (${g.loaded.join('، ')})`);
   });
   t.same(inv.shared.scopedStores(inv.shared.storesOf(org), keeper).map((s) => s.id), ['w-gen'], 'scopedStores: الأمين بنطاق المخزن العامّ بس');
@@ -618,14 +618,16 @@ async function reviewFixes(t, m, setup) {
         loads: {
           'loadOrgSetup|': { data: org },
           'loadItemLots|i-1:w-med': { data: { item: { id: 'i-1', name: 'لقاح أ', kind: 'vaccine', baseUnit: 'pc', tracksExpiry: false, minQty: null, density: null, pieceMassKg: null, archived: false }, rows: [lotRow], next: 'l-1', total: 150 } },
-          'loadItemMoves|i-1:w-med': { data: { rows: [moveRow({})], next: 7n, total: 250 } },
+          'loadItemMoves|i-1:w-med:moves': { data: { rows: [moveRow({})], next: 7n, total: 250 } },
           'loadItemLotValues|i-1:w-med:true': { data: new Map([['l-1', { qtyLeft: 5_000n, valueLeft: 100_00n }]]) },
           'listItemUnits|i-1': { data: [] },
         },
       },
       async (g) => {
-        const html = at('/inventory/items/i-1?wh=w-med');
-        t.ok(html.includes('1 من المجموع 150') && html.includes('1 من المجموع 250'), 'البطاقة تقول «N من المجموع» للدفعات وللحركات');
+        // التبويب بالرابط (tab): الوجبات والحركات كلٌّ بتبويبه، والمشتريات الافتراضي.
+        const lotsHtml = at('/inventory/items/i-1?wh=w-med&tab=lots');
+        const movesHtml = at('/inventory/items/i-1?wh=w-med&tab=moves');
+        t.ok(lotsHtml.includes('1 من المجموع 150') && movesHtml.includes('1 من المجموع 250'), 'البطاقة تقول «N من المجموع» للدفعات وللحركات');
         const lots = g.buttons.find((props) => props['data-action'] === 'more-lots');
         const moves = g.buttons.find((props) => props['data-action'] === 'more-moves');
         t.ok(Boolean(lots && moves), 'زرّا «المزيد» للدفعات وللحركات');

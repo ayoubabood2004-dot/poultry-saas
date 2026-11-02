@@ -640,6 +640,8 @@ export default async function (t, db) {
     preview_supplier_return: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].returnDraft],
     supplier_return_options: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].receipt],
     preview_receipt_revalue: (persona) => [wp7Of[persona === U.bOwner ? 'b' : 'a'].line, '9500'],
+    // 0013: سجلّ الشراء بمادّة كل مالك ومخزنه (مثل item_lots_qty).
+    item_purchases: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
     // 0012: الفوج بفوج كل مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
     flock_detail: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
   };
@@ -671,6 +673,9 @@ export default async function (t, db) {
     // 0012: القارئان لكل دور بمنشأة (read)، وبلا منشأة forbidden.
     flocks_overview: { [U.aSpare]: 'forbidden' },
     flock_detail: { [U.aSpare]: 'forbidden' },
+    // 0013: سجلّ الشراء لمن المخزن بنطاقه (العامل بحقول اللحم out_of_scope)، وبلا منشأة forbidden؛
+    // وstores_overview بلا وسائط وبلا رفض: من لا نطاق له بطاقاته فارغة، وبلا منشأة جواب فارغ (مثل home_summary).
+    item_purchases: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

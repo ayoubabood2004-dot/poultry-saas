@@ -26,6 +26,8 @@ const TABLE = [
   { actions: ['stores.manage'], roles: ['manager', 'owner'] },
   { actions: ['parties.manage', 'cash_accounts.manage', 'expense_categories.manage'], roles: ['accountant', 'manager', 'owner'] },
   { actions: ['party.create'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
+  // قرار المالك 2026-11-02 (أ-1 بعقد 0013): الأمين «يضيف» مادّة ووحدتها، والتعديل والأرشفة تبقى stores.manage.
+  { actions: ['item.create'], roles: ['storekeeper', 'manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

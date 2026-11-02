@@ -260,6 +260,8 @@ export default async function (t, db) {
       const empty = await draft(null);
       return {
         receipt,
+        fuelA,
+        fuelB,
         receiptLine: lineA,
         revalueLine: lineB,
         plan7700: await one("select public.preview_receipt_revalue($1, 7700) ->> 'plan'", [lineB]),
@@ -436,6 +438,11 @@ export default async function (t, db) {
     record_flock_weight: { sql: () => ["select public.record_flock_weight($1, public.app_today(), 50, 650.5, gen_random_uuid()) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
     flocks_overview: { sql: () => ["select public.flocks_overview() -> 'sites' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [farm.site]], value: true, expect: only(FLOCK_SCOPE, 'ok:true', 'ok:false') },
     flock_detail: { sql: () => ["select public.flock_detail($1) -> 'flock' ->> 'live' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
+    // 0013 (تجربة الاستخدام، الجزء الثاني): القارئان لكل دور بنطاقه (مثل قراءات الكميات): سجلّ شراء كاز المرتجع بالمخزن العامّ
+    // (دفعة جذر واحدة من استلام WP7 المرحّل)، والمخزن خارج النطاق out_of_scope؛ وبطاقات المخازن تنجح للكل،
+    // ومن بلا نطاق (غير المالك والمدير والمحاسب) لا يرى بطاقة المخزن العامّ.
+    item_purchases: { sql: () => ["select jsonb_array_length(public.item_purchases($1, $2, null, 50) -> 'rows') as v", [wp7.fuelA, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
+    stores_overview: { sql: () => ["select public.stores_overview() -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [generalStore]], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -527,6 +534,7 @@ export default async function (t, db) {
   // الإدخال الممنوع يرفضه RLS (42501)، والتعديل الممنوع صفر صفوف (USING يحجب الصفّ). stores.manage للمالك والمدير، وفئات
   // المصاريف (expense_categories.manage) للمحاسب هم.
   const STORES = ['owner', 'manager'];
+  const ITEM_CREATE = ['owner', 'manager', 'storekeeper'];
   const EXPENSES = ['owner', 'manager', 'accountant'];
   const someId = async (table) => (await db.admin(`select id from public.${table} where org_id = $1 order by created_at, id limit 1`, [org])).rows[0].id;
   const pack = await someId('pack_types');
@@ -554,12 +562,15 @@ export default async function (t, db) {
       insert: ["insert into public.item_categories (name) values ('إضافات')", []],
       update: ['update public.item_categories set name = name where id = $1', [category]],
     },
+    // 0013 (قرار المالك 2026-11-02): الأمين يضيف مادة ووحدتها (item.create)، ولا يعدّل عليهما ولا يضيف مخزناً (stores.manage).
     items: {
+      insertAllowed: ITEM_CREATE,
       allowed: STORES,
       insert: ["insert into public.items (name, kind, base_unit) values ('صويا 46%', 'raw', 'kg')", []],
       update: ['update public.items set name = name where id = $1', [farm.item]],
     },
     item_units: {
+      insertAllowed: ITEM_CREATE,
       allowed: STORES,
       insert: ["insert into public.item_units (item_id, label, factor_to_base) values ($1, 'طن', 1000)", [farm.item]],
       update: ['update public.item_units set label = label where id = $1', [unit]],

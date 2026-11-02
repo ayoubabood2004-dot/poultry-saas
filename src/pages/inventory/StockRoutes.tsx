@@ -6,19 +6,24 @@ import ItemCardPage from './ItemCardPage';
 import { OpeningDoc, OpeningsList } from './OpeningsPage';
 import { ReceiptDocPage, ReceiptsList } from './ReceiptsPage';
 import StockBoardPage from './StockBoardPage';
+import StoresCardsPage from './StoresCardsPage';
 import { SupplierReturnDocPage } from './SupplierReturnPage';
 import { TransferDoc, TransfersList } from './TransfersPage';
 import { UseDocPage, UsesList } from './UsesPage';
+import WarehousePage from './WarehousePage';
 
-// شاشات المخزون (المرحلة 1 WP4) تحت /inventory بحزمة كسولة وحدة، ومساراتها هنا (نفس طريقة AccountsRoutes بـWP3): اللوحة لكل
-// المخازن ولمخزن الأدوية وللمخازن العامة ولمخازن المعمل والمفقس (من صفحتي وحدتيهما، لمشغّليهما هم)، وبطاقة المادّة، ومستندات
-// الافتتاح والتحويل، والصرف والإتلاف والجرد (WP5)، والاستلام من المورّدين (WP6) ومرتجعه (WP7). كلها تحتاج الخادم، فهي برّا التثبيت المسبق
-// بالاسم (StockRoutes، DECISIONS «السقوف المقيسة»). صفحة المواد (/inventory/items) مسارها الثابت بالقشرة يغلب هذا المسار.
+// شاشات المخزون (المرحلة 1 WP4) تحت /inventory بحزمة كسولة وحدة، ومساراتها هنا (نفس طريقة AccountsRoutes بـWP3):
+// بطاقات المخازن بالصفحة الأولى وداخل المخزن أقسامه بالتصنيف (تجربة الاستخدام 2026-11-02، spec ب-1 وب-2)، واللوحة
+// بالوحدة لمخزن الأدوية وللمخازن العامة ولمخازن المعمل والمفقس (من صفحتي وحدتيهما، لمشغّليهما هم)، وبطاقة المادّة
+// (المشتريات والوجبات والحركات)، ومستندات الافتتاح والتحويل، والصرف والإتلاف والجرد (WP5)، والاستلام من المورّدين
+// (WP6) ومرتجعه (WP7). كلها تحتاج الخادم، فهي برّا التثبيت المسبق بالاسم (StockRoutes، DECISIONS «السقوف المقيسة»).
+// صفحة المواد (/inventory/items) مسارها الثابت بالقشرة يغلب هذا المسار.
 
 export default function StockRoutes() {
   return (
     <Routes>
-      <Route index element={<StockBoardPage />} />
+      <Route index element={<StoresCardsPage />} />
+      <Route path="store/:id" element={<WarehousePage />} />
       <Route path="medicine" element={<StockBoardPage division="medicine" />} />
       <Route path="general" element={<StockBoardPage division="general" />} />
       <Route path="mill" element={<StockBoardPage division="feed_mill" />} />

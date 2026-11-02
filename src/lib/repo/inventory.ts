@@ -1327,5 +1327,243 @@ export async function voidTransferDoc(ref: StockRef, id: string, reason: string)
   return postedDoc(await call<unknown>('void_transfer', { p_id: id, p_reason: reason, p_client_ref: ref.clientRef }));
 }
 
+// ─── المشتريات وبطاقات المخازن (0013، عقد الهجرة) ───────────────────────────────────────────────────────────────
+// item_purchases: سجلّ شراء المادّة، صفّ لكل وجبة جذر من استلام مرحَّل (مرايا التحويل ليست شراءً)، الأحدث أوّلاً وبصفحات
+// مثل item_lots_qty. وstores_overview: بطاقة لكل مخزن فعّال بنطاق المستدعي، بلا صفوف مواد، ومعها حكم الخادم على
+// «أضف مخزناً» و«أضف مادّة» ومواقع النطاق. money يختفي كاملاً لغير أدوار الكلفة بالقارئين، فالشاشة تقرأه ولا تفترضه.
+
+/** عدد صحيح غير سالب إجباري من الخادم (items_count وتنبيهاتها). */
+const nat = (row: Row, field: string): number => {
+  const value = count(row, field);
+  if (value === null) throw new RowShapeError(field);
+  return value;
+};
+
+export interface PurchaseMoney {
+  /** مبلغ فاتورة السطر (الخادم يرسله بالدينار الصحيح، وهنا بالفلس). */
+  invoiceTotal: Fils;
+  /** value_in: الفاتورة − حصّة الخصم + حصّة التحميلات + حصص التصحيح. */
+  landedValue: Fils;
+  /** landed_value ÷ qty_in بمرتبتين من الخادم (_mul_div_round2)، وما ينحسب بالشاشة. */
+  unitCost: Fils;
+  /** على السطر تصحيح سعر حيّ (receipt_revaluations المرحَّل). */
+  corrected: boolean;
+}
+
+export interface PurchaseRow {
+  /** الوجبة الجذر. */
+  lotId: string;
+  receivedOn: string;
+  docId: string;
+  docNo: string;
+  partyId: string;
+  partyName: string;
+  warehouseId: string;
+  warehouseName: string;
+  /** سطر الاستلام (مفتاح تصحيح السعر). */
+  lineId: string;
+  /** الداخل والمتبقّي بوحدة الأساس. */
+  qtyIn: Milli;
+  qtyLeft: Milli;
+  /** الكمية كما كُتبت بوحدة التعبئة. */
+  qtyInUnit: Milli;
+  /** تسمية الوحدة المكتوبة («كيس 50 كغم»)، ورمزها الحرّ إن استُعمل. */
+  unitLabel: string;
+  unitCode: string | null;
+  /** معامل الوحدة إلى الأساس بستّ مراتب. */
+  factor: bigint;
+  /** لقطة وحدة أساس السطر وقتها: تختلف عن وحدة المادّة الآن إن تغيّرت بعده (E46). */
+  baseUnit: BaseUnit;
+  supplierLotNo: string | null;
+  expiryOn: string | null;
+  /** null لغير أدوار الكلفة: الصفّ يبقى بمن ومتى وبأي وحدة وكم بقي، بلا سعر. */
+  money: PurchaseMoney | null;
+}
+
+/** مؤشّر صفحة المشتريات (الخادم يرسله، ويرجع إليه كما هو). */
+export interface PurchaseCursor {
+  receivedOn: string;
+  seq: bigint;
+  id: string;
+}
+
+export interface PurchaseItem {
+  id: string;
+  name: string;
+  kind: ItemKind;
+  baseUnit: BaseUnit;
+  tracksExpiry: boolean;
+  minQty: Milli | null;
+  archived: boolean;
+}
+
+export interface ItemPurchases {
+  item: PurchaseItem;
+  /** null لمّا يُطلب كل مخازن النطاق. */
+  warehouse: { id: string; name: string; kind: WarehouseKind } | null;
+  today: string;
+  rows: readonly PurchaseRow[];
+  next: PurchaseCursor | null;
+  /** عدد كل صفوف الشراء، بأوّل صفحة بس. */
+  total: number | null;
+}
+
+export function parseItemPurchases(value: unknown): ItemPurchases {
+  const json = obj(value, 'item_purchases');
+  const i = obj(json.item, 'item');
+  const w = json.warehouse === null || json.warehouse === undefined ? null : obj(json.warehouse, 'warehouse');
+  const cursor = json.next === null || json.next === undefined ? null : obj(json.next, 'next');
+  const seq = cursor ? wholeText(cursor, 'seq') : null;
+  if (cursor && seq === null) throw new RowShapeError('seq');
+  return {
+    item: {
+      id: str(i, 'id'),
+      name: str(i, 'name'),
+      kind: oneOf(i, 'kind', ITEM_KINDS),
+      baseUnit: oneOf(i, 'base_unit', BASE_UNITS),
+      tracksExpiry: bool(i, 'tracks_expiry'),
+      minQty: scaled(i, 'min_qty', 3),
+      archived: bool(i, 'archived'),
+    },
+    warehouse: w ? { id: str(w, 'id'), name: str(w, 'name'), kind: oneOf(w, 'kind', WAREHOUSE_KINDS) } : null,
+    today: str(json, 'today'),
+    rows: arr(json.rows, 'rows').map((item) => {
+      const row = obj(item, 'rows');
+      const money = moneyOf(row);
+      return {
+        lotId: str(row, 'lot_id'),
+        receivedOn: str(row, 'received_on'),
+        docId: str(row, 'doc_id'),
+        docNo: str(row, 'doc_no'),
+        partyId: str(row, 'party_id'),
+        partyName: str(row, 'party_name'),
+        warehouseId: str(row, 'warehouse_id'),
+        warehouseName: str(row, 'warehouse_name'),
+        lineId: str(row, 'line_id'),
+        qtyIn: qtyOf(row, 'qty_in'),
+        qtyLeft: qtyOf(row, 'qty_left'),
+        qtyInUnit: qtyOf(row, 'qty_in_unit'),
+        unitLabel: str(row, 'unit_label'),
+        unitCode: optStr(row, 'unit_code'),
+        factor: scaled(row, 'factor', 6) ?? 0n,
+        baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
+        supplierLotNo: optStr(row, 'supplier_lot_no'),
+        expiryOn: optStr(row, 'expiry_on'),
+        money: money
+          ? { invoiceTotal: filsOf(money, 'invoice_total'), landedValue: filsOf(money, 'landed_value'), unitCost: filsOf(money, 'unit_cost'), corrected: bool(money, 'corrected') }
+          : null,
+      };
+    }),
+    next: cursor && seq !== null ? { receivedOn: str(cursor, 'received_on'), seq, id: str(cursor, 'id') } : null,
+    total: count(json, 'total'),
+  };
+}
+
+/** سجلّ شراء المادّة. warehouseId فارغ = كل مخازن النطاق (وهو المطلوب ببطاقة المادّة، فـ«آخر شراء» على كل المخازن). */
+export async function loadItemPurchases(itemId: string, warehouseId: string | null = null, after: PurchaseCursor | null = null): Promise<ItemPurchases> {
+  const cursor = after === null ? null : { received_on: after.receivedOn, seq: after.seq.toString(), id: after.id };
+  return parseItemPurchases(await call<unknown>('item_purchases', { p_item: itemId, p_warehouse: warehouseId, p_after: cursor, p_limit: STOCK_PAGE }));
+}
+
+export interface StoreCard {
+  id: string;
+  name: string;
+  kind: WarehouseKind;
+  siteId: string;
+  siteName: string;
+  siteKind: SiteKind;
+  divisionId: string;
+  divisionKind: DivisionKind;
+  /** مواد لها متبقٍّ > 0 بهذا المخزن. */
+  itemsCount: number;
+  belowMinimum: number;
+  nearExpiry: number;
+  expired: number;
+  /** قيمة المتاح، أو null لغير أدوار الكلفة. */
+  stockValue: Fils | null;
+}
+
+export interface StoreSite {
+  id: string;
+  name: string;
+  kind: SiteKind;
+  divisionId: string;
+  divisionKind: DivisionKind;
+}
+
+export interface StoresOverview {
+  today: string;
+  /** can('stores.manage') من الخادم: «أضف مخزناً». */
+  canManage: boolean;
+  /** can('item.create') من الخادم: «أضف مادّة» (الأمين يملكه بـ0013). */
+  canCreateItem: boolean;
+  rows: readonly StoreCard[];
+  /** مواقع النطاق الفعّالة؛ فارغة = «أضف الموقع أوّلاً». */
+  sites: readonly StoreSite[];
+}
+
+export function parseStoresOverview(value: unknown): StoresOverview {
+  const json = obj(value, 'stores_overview');
+  return {
+    today: str(json, 'today'),
+    canManage: bool(json, 'can_manage'),
+    canCreateItem: bool(json, 'can_create_item'),
+    rows: arr(json.rows, 'rows').map((item) => {
+      const row = obj(item, 'rows');
+      const money = moneyOf(row);
+      return {
+        id: str(row, 'id'),
+        name: str(row, 'name'),
+        kind: oneOf(row, 'kind', WAREHOUSE_KINDS),
+        siteId: str(row, 'site_id'),
+        siteName: str(row, 'site_name'),
+        siteKind: oneOf(row, 'site_kind', SITE_KINDS),
+        divisionId: str(row, 'division_id'),
+        divisionKind: oneOf(row, 'division_kind', DIVISION_ORDER),
+        itemsCount: nat(row, 'items_count'),
+        belowMinimum: nat(row, 'below_minimum'),
+        nearExpiry: nat(row, 'near_expiry'),
+        expired: nat(row, 'expired'),
+        stockValue: money ? filsOf(money, 'stock_value') : null,
+      };
+    }),
+    sites: arr(json.sites, 'sites').map((item) => {
+      const row = obj(item, 'sites');
+      return { id: str(row, 'id'), name: str(row, 'name'), kind: oneOf(row, 'kind', SITE_KINDS), divisionId: str(row, 'division_id'), divisionKind: oneOf(row, 'division_kind', DIVISION_ORDER) };
+    }),
+  };
+}
+
+/** بطاقات المخازن بنطاق المستدعي، بلا وسائط وبلا صفحات. */
+export async function loadStoresOverview(): Promise<StoresOverview> {
+  return parseStoresOverview(await call<unknown>('stores_overview', {}));
+}
+
+const CATEGORY_MAP_PAGE = 1000;
+
+/**
+ * تصنيف كل مادّة فعّالة (معرّف المادّة ← معرّف تصنيفها أو null): أقسام التصنيف داخل المخزن تحتاجه، وstock_on_hand ما
+ * يرجّع التصنيف (عقد 0013: ما تغيّرت). قراءة عمودين بس بصفحات بالمعرّف لحد ما تنتهي.
+ */
+export async function loadItemCategoryMap(): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  let after = '';
+  for (;;) {
+    const cursor = after;
+    const { result, wasOnline } = await send(
+      (db) => {
+        const query = db.from('items').select('id, category_id').is('archived_at', null).order('id').limit(CATEGORY_MAP_PAGE);
+        return cursor ? query.gt('id', cursor) : query;
+      },
+      (answer) => [answer],
+    );
+    const rows = rowsOf([result], wasOnline)(0);
+    for (const row of rows) map.set(str(row, 'id'), optStr(row, 'category_id'));
+    const last = rows.at(-1);
+    if (rows.length < CATEGORY_MAP_PAGE || !last) return map;
+    after = str(last, 'id');
+  }
+}
+
 // مشتركة لملفّي المخزون الكسولين uses.ts وcounts.ts (WP5، نفس حزمة الشاشات): قراءة الشكل، والكتابة المباشرة بـupdatedRows، والقراءة.
 export { arr, bool, count, filsOf, moneyOf, obj, oneOf, optStr, problem, qtyOf, readAll, scaled, str, withStatus, written };
