@@ -160,6 +160,56 @@ export default async function (t) {
       await settle();
       const sent = named(calls, 'addReceiptLine');
       t.same([sent.length, sent[0]?.[2]?.expiry_on, sent[0]?.[2]?.qty_in_unit], [1, '2027-12-31', '20.000'], 'R1: انتهاء بعد اليوم ينقبل ويُرسل يوماً بالتقويم');
+      t.eq(byIdSuffix('-price').length, 0, 'R11: والأمين بلا حقل سعر الوحدة (مبالغ الفاتورة ليست له)');
+      await unmount();
+    });
+
+    // ── R11 (0014، كلمة المالك «شكد الكمية الي طلعت علية وبيش اشتريتها»): الكمية وسعر الوحدة بسطر واحد ─────────────────
+    await step('R11', async () => {
+      const calls = fresh('manager', handlers({
+        listItems: () => ({ rows: [ointment], total: 1, next: null }), listItemUnits: () => [],
+        addReceiptLine: () => ({}), setLineTotal: () => undefined, loadReceipt: () => bundleOf({ lines: [] }),
+      }));
+      await mount('/inventory/receipts/r-1');
+      type(byAction('search-item')[0], 'زيت');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '20');
+      type(byIdSuffix('-expiry')[0], '31/12/2027');
+      await settle();
+      type(byIdSuffix('-price')[0], '12500.5');
+      await settle();
+      // 20 × 12,500.50 = 250,010 ديناراً بالضبط (lineAmount يقرّب للدينار الصحيح، Q7).
+      t.ok(text().includes('مبلغ السطر') && text().includes('250,010'), `R11: مبلغ السطر يُحسب ويُعرض قبل الحفظ (${text().slice(-260)})`);
+      fire(byAction('add-receipt-line')[0].parentNode, 'submit');
+      await settle();
+      const sent = named(calls, 'addReceiptLine');
+      const amount = named(calls, 'setLineTotal');
+      t.eq(sent.length, 1, 'R11: السطر ينكتب');
+      t.same([amount.length, amount[0]?.[1], amount[0]?.[2], amount[0]?.[3]], [1, null, 250_010_00n, null], 'R11: ومبلغه بعده بلا مبلغ سابق (إدخال أوّل مرّة)');
+      t.eq(amount[0]?.[0], sent[0]?.[1], 'R11: بنفس معرّف السطر الذي وُلد بالجهاز');
+      await unmount();
+    });
+
+    // ── R11ب: سعر وحدة مكتوب غلط يوقف الحفظ كلّه (لا سطر بلا مبلغ ولا مبلغ غلط) ────────────────────────────────────
+    await step('R11b', async () => {
+      const calls = fresh('manager', handlers({
+        listItems: () => ({ rows: [ointment], total: 1, next: null }), listItemUnits: () => [],
+        addReceiptLine: () => ({}), setLineTotal: () => undefined, loadReceipt: () => bundleOf({ lines: [] }),
+      }));
+      await mount('/inventory/receipts/r-1');
+      type(byAction('search-item')[0], 'زيت');
+      await settle();
+      await click(byAction('pick-item')[0]);
+      type(byIdSuffix('-qty')[0], '20');
+      type(byIdSuffix('-expiry')[0], '31/12/2027');
+      await settle();
+      type(byIdSuffix('-price')[0], '0');
+      await settle();
+      fire(byAction('add-receipt-line')[0].parentNode, 'submit');
+      await settle();
+      t.same([named(calls, 'addReceiptLine').length, named(calls, 'setLineTotal').length], [0, 0], 'R11ب: ولا كتابة أصلاً');
+      t.ok(text().includes('اكتب سعر الوحدة بالدينار'), 'R11ب: والجملة تسمّي سعر الوحدة');
       await unmount();
     });
 

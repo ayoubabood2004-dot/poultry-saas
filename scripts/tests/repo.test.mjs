@@ -536,11 +536,16 @@ async function fakeSupabaseChecks(t) {
     t.same([lots.rows[0].qtyLeft, lots.rows[0].ageDays, lots.item.minQty, lots.next, lots.total], [5_000_000n, 29, 1_500_000n, 'l-1', 3], 'item_lots_qty: المتبقّي بالآلاف وعمر الجذر بالأيام والمؤشّر معرّف الدفعة');
     t.eq(shapeOf(() => m.parseItemLots({ item: { id: 'i', name: 'x', kind: 'feed', base_unit: 'kg', tracks_expiry: false, min_qty: null, density: null, piece_mass_kg: null, archived: false }, rows: [{ lot_id: 'l', qty_left: '1.000', received_on: 'x', root_received_on: 'x', age_days: '29', source_kind: 'opening', source_id: 's', source: 'x' }], next: null, total: 1 })), 'row_shape:age_days', 'age_days نصّ (مو عدد) يرمي');
     const moves = m.parseItemMoves({
-      rows: [{ move_id: 'mv-2', seq: '8', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't-1', doc: 'TR-2026-0001', qty: '-5000.000', running: '0.000', lot_id: 'l-1', reverses_move_id: 'mv-1', reversed: false }],
+      rows: [{ move_id: 'mv-2', seq: '8', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't-1', doc: 'TR-2026-0001', memo: 'تحويل إلى مخزن حقل 1', qty: '-5000.000', running: '0.000', lot_id: 'l-1', reverses_move_id: 'mv-1', reversed: false, money: { value: '-7500000.00', running_value: '0.00' } }],
       next: '8',
       total: 250,
     });
     t.same([moves.rows[0].seq, moves.rows[0].qty, moves.rows[0].running, moves.rows[0].reversesMoveId, moves.next, moves.total], [8n, -5_000_000n, 0n, 'mv-1', 8n, 250], 'item_moves_qty: الكمية السالبة بالآلاف، والرقم والمؤشّر bigint');
+    // 0014: البيان والمال بالدفتر — القيمة بالفلس بإشارتها، والمال يختفي كاملاً لغير أدوار الكلفة (القناع بالخادم).
+    t.same([moves.rows[0].memo, moves.rows[0].money.value, moves.rows[0].money.runningValue], ['تحويل إلى مخزن حقل 1', -750_000_000n, 0n], 'item_moves_qty: البيان وقيمة الحركة والرصيد القيمي');
+    const bare = m.parseItemMoves({ rows: [{ move_id: 'mv-3', seq: '1', moved_on: '2026-10-30', doc_kind: 'opening', doc_id: 'o-1', doc: 'رصيد افتتاح', memo: 'رصيد بداية', qty: '1.000', running: '1.000', lot_id: 'l-2', reverses_move_id: null, reversed: false }], next: null, total: 1 });
+    t.eq(bare.rows[0].money, null, 'item_moves_qty: بلا money (دور بلا كلفة) = null مو صفر');
+    t.eq(shapeOf(() => m.parseItemMoves({ rows: [{ move_id: 'mv-4', seq: '1', moved_on: '2026-10-30', doc_kind: 'opening', doc_id: 'o-1', doc: 'x', qty: '1.000', running: '1.000', lot_id: 'l-2', reverses_move_id: null, reversed: false }], next: null, total: 1 })), 'row_shape:memo', 'البيان الغائب يرمي باسمه (مو سطراً بلا بيان)');
     const sent = [];
     fake.plan.rpc = async (fn, args) => {
       sent.push([fn, args]);
@@ -584,7 +589,7 @@ async function fakeSupabaseChecks(t) {
     const lotItem = { id: 'i', name: 'x', kind: 'feed', base_unit: 'kg', tracks_expiry: false, min_qty: null, density: null, piece_mass_kg: null, archived: false };
     const lotOf = (over) => ({ lot_id: 'l', qty_left: '1.000', received_on: '2026-10-01', root_received_on: '2026-10-01', age_days: 29, born_at: null, age_hours: null, expiry_on: null, expired: false, near_expiry: false, source_kind: 'opening', source_id: 's', source: 'x', supplier_lot_no: null, ...over });
     t.eq(shapeOf(() => m.parseItemLots({ item: lotItem, rows: [lotOf({ age_days: null })], next: null, total: 1 })), 'row_shape:age_days', 'age_days فارغ يرمي (مو عمر فارغ)');
-    const moveOf = (over) => ({ move_id: 'mv', seq: '1', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't', doc: 'TR-2026-0001', qty: '1.000', running: '1.000', lot_id: 'l', reverses_move_id: null, reversed: false, ...over });
+    const moveOf = (over) => ({ move_id: 'mv', seq: '1', moved_on: '2026-10-30', doc_kind: 'transfer', doc_id: 't', doc: 'TR-2026-0001', memo: 'تحويل إلى مخزن حقل 1', qty: '1.000', running: '1.000', lot_id: 'l', reverses_move_id: null, reversed: false, money: { value: '1500.00', running_value: '1500.00' }, ...over });
     t.eq(shapeOf(() => m.parseItemMoves({ rows: [moveOf({ seq: null })], next: null, total: 1 })), 'row_shape:seq', 'رقم الحركة الفارغ يرمي');
     const maskedOpening = m.parseOpeningPreview({
       id: 'o-1', kind: 'opening', status: 'draft', version: 2, problems: [], ready: true,

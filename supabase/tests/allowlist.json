@@ -71,6 +71,7 @@
     "public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)",
     "public.set_charge_lines(uuid, uuid[], integer)",
     "public.set_division_go_live(uuid, date)",
+    "public.set_item_sell_price(uuid, numeric, numeric)",
     "public.set_member_role(uuid, text)",
     "public.set_member_scopes(uuid, uuid[])",
     "public.set_member_scopes_v2(uuid, uuid[], uuid[], uuid[])",

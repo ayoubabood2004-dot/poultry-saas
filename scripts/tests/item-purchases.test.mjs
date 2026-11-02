@@ -1,11 +1,11 @@
 // قارئا 0013 بـrepo الحقيقي على خادم PostgREST مزيّف (نفس طريقة count-merge): loadItemPurchases وloadStoresOverview
-// وloadItemCategoryMap من src/lib/repo/inventory.ts كما هي (call وsend وauthed وpostgrest-js الحقيقي)، فالوسائط وأسماء
+// وsetItemSellPrice من src/lib/repo/inventory.ts كما هي (call وsend وauthed وpostgrest-js الحقيقي)، فالوسائط وأسماء
 // المفاتيح والمراتب تنفحص على السلك نفسه كما بعقد الهجرة. كل حالة تفشل على الشفرة بلا إصلاحها:
 // P1 وسائط item_purchases (المادّة والمخزن والمؤشّر والحدّ)؛ P2 قراءة الصفّ: الكميات بثلاث مراتب والمعامل بستّ، والمال
 // بالفلس (الفاتورة بالدينار الصحيح)؛ P3 بلا money (دور بلا كلفة) الصفّ يبقى كاملاً وmoney = null؛ P4 المؤشّر يرجع للخادم
 // كما جاء (received_on وseq وid) والمجموع بأوّل صفحة بس؛ P5 جواب بشكل غلط يرمي RowShapeError مو يُقبل بصمت؛
 // P6 stores_overview: الحكمان والمواقع والتنبيهات وقيمة المتاح، وmoney الغايبة = null؛ P7 بلا مخزن = p_warehouse فارغ؛
-// P8 loadItemCategoryMap يقرا الفعّالة بصفحات بالمعرّف ويكمل لحد ما تنتهي.
+// P8 set_item_sell_price: المبلغ بالدينار بمرتبتين نصّاً، والفارغ يشيل السعر، والجواب مقروءاً بالفلس.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,7 @@ async function bundle() {
   const result = await build({
     stdin: {
       contents: [
-        "export { loadItemPurchases, loadStoresOverview, loadItemCategoryMap, parseItemPurchases, parseStoresOverview, RowShapeError } from './src/lib/repo/inventory.ts';",
+        "export { loadItemPurchases, loadStoresOverview, setItemSellPrice, parseItemPurchases, parseStoresOverview, RowShapeError } from './src/lib/repo/inventory.ts';",
       ].join('\n'),
       resolveDir: ROOT,
       loader: 'ts',
@@ -102,7 +102,7 @@ const ROW = {
   expiry_on: null,
   money: { invoice_total: '400000', landed_value: '402500.00', unit_cost: '805.00', corrected: true },
 };
-const ITEM = { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', tracks_expiry: false, min_qty: '1000.000', archived: false };
+const ITEM = { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', tracks_expiry: false, min_qty: '1000.000', archived: false, money: { sell_price: '1750.00' } };
 const STORE = {
   id: 'w-gen',
   name: 'المخزن العامّ',
@@ -116,7 +116,7 @@ const STORE = {
   below_minimum: 1,
   near_expiry: 0,
   expired: 2,
-  money: { stock_value: '402500.00' },
+  money: { stock_value: '402500.00', sale_value: '500000.00', expected_profit: '97500.00', items_unpriced: 1 },
 };
 
 export default async function (t) {
@@ -143,6 +143,7 @@ export default async function (t) {
     t.same([row.docNo, row.partyName, row.warehouseName, row.unitLabel, row.supplierLotNo, row.baseUnit], ['PU-2026-0003', 'مورّد الحبوب', 'المخزن العامّ', 'كيس 50 كغم', 'L-77', 'kg'], 'P2: ومن اشترى وبأي وحدة ولقطة وحدة الأساس');
     t.eq(row.money.corrected, true, 'P2: وعلامة تصحيح السعر الحيّ');
     t.same([page.item.name, page.item.minQty, page.warehouse.name, page.today, page.total], ['ذرة صفراء', 1_000_000n, 'المخزن العامّ', '2026-11-02', 7], 'P4: المادّة والمخزن واليوم والمجموع');
+    t.eq(page.item.sellPrice, 175_000n, 'P4: وسعر بيع المادّة بالفلس (0014)');
     t.same(page.next, { receivedOn: '2026-10-28', seq: 41n, id: 'l-1' }, 'P4: والمؤشّر مقروءاً');
     await m.loadItemPurchases('i-corn', 'w-gen', page.next);
     t.same(server.requests.at(-1).body, { p_item: 'i-corn', p_warehouse: 'w-gen', p_after: { received_on: '2026-10-28', seq: '41', id: 'l-1' }, p_limit: 100 }, 'P4: والصفحة الجاية ترجّع المؤشّر كما جاء من الخادم');
@@ -157,6 +158,7 @@ export default async function (t) {
     t.eq(masked.rows[0].money, null, 'P3: money الغايبة = null، ولا يرمي');
     t.same([masked.rows[0].partyName, masked.rows[0].qtyIn, masked.rows[0].unitLabel, masked.rows[0].qtyLeft], ['مورّد الحبوب', 500_000n, 'كيس 50 كغم', 300_000n], 'P3: والصفّ يبقى بمن ومتى وبأي وحدة وكم بقي');
     t.eq(masked.warehouse, null, 'P3: ومخزن فارغ = كل المخازن');
+    t.eq(m.parseItemPurchases({ item: Object.fromEntries(Object.entries(ITEM).filter(([key]) => key !== 'money')), warehouse: null, today: '2026-11-02', rows: [bare], next: null, total: 1 }).item.sellPrice, null, 'P3: وسعر البيع غائب = null');
     t.eq(masked.total, 1, 'P3: والمجموع كما جاء');
 
     // ── P5: جواب بشكل غلط يرمي ───────────────────────────────────────────────────────────────────────────────
@@ -187,26 +189,23 @@ export default async function (t) {
     t.same([store.name, store.siteName, store.siteKind, store.divisionKind, store.kind], ['المخزن العامّ', 'مخزن المشروع', 'store', 'general', 'general'], 'P6: اسم المخزن وموقعه ووحدته ونوعه');
     t.same([store.itemsCount, store.belowMinimum, store.nearExpiry, store.expired], [3, 1, 0, 2], 'P6: وعدد المواد وتنبيهاتها');
     t.eq(store.stockValue, 40_250_000n, 'P6: وقيمة المتاح بالفلس');
+    // 0014: قيمة البيع والربح المتوقّع وعدد المواد بلا سعر بالبطاقة نفسها.
+    t.same([store.saleValue, store.expectedProfit, store.itemsUnpriced], [50_000_000n, 9_750_000n, 1], 'P6: وقيمة البيع والربح المتوقّع وعدد المواد بلا سعر');
     t.same(overview.sites.map((s) => [s.id, s.name, s.divisionId]), [['s-store', 'مخزن المشروع', 'd-gen']], 'P6: ومواقع النطاق لنافذة «أضف مخزناً»');
     const noMoney = Object.fromEntries(Object.entries(STORE).filter(([key]) => key !== 'money'));
     const maskedStores = m.parseStoresOverview({ today: '2026-11-02', can_manage: false, can_create_item: true, rows: [noMoney], sites: [] });
-    t.eq(maskedStores.rows[0].stockValue, null, 'P6: وmoney الغايبة = null لدور بلا كلفة');
+    t.same([maskedStores.rows[0].stockValue, maskedStores.rows[0].saleValue, maskedStores.rows[0].expectedProfit, maskedStores.rows[0].itemsUnpriced], [null, null, null, null], 'P6: وmoney الغايبة = null لدور بلا كلفة');
     t.same([maskedStores.canManage, maskedStores.sites.length], [false, 0], 'P6: وبلا مواقع = «أضف الموقع أوّلاً»');
     t.throws(() => m.parseStoresOverview({ today: '2026-11-02', can_manage: true, can_create_item: true, rows: [{ ...STORE, items_count: -1 }], sites: [] }), 'P6: وعدد سالب يرمي');
     t.throws(() => m.parseStoresOverview({ today: '2026-11-02', can_create_item: true, rows: [], sites: [] }), 'P6: وحكم ناقص يرمي');
 
-    // ── P8: تصنيف كل مادّة بصفحات بالمعرّف ───────────────────────────────────────────────────────────────────
-    const many = Array.from({ length: 1000 }, (_value, index) => ({ id: `i-${String(index).padStart(4, '0')}`, category_id: index % 2 === 0 ? 'c-feed' : null }));
-    server.itemPages = [many, [{ id: 'i-last', category_id: 'c-med' }]];
-    const map = await m.loadItemCategoryMap();
-    t.eq(map.size, 1001, 'P8: كل المواد من الصفحتين');
-    t.same([map.get('i-0000'), map.get('i-0001'), map.get('i-last')], ['c-feed', null, 'c-med'], 'P8: والتصنيف لكل مادّة (والفارغ null)');
-    const reads = server.requests.filter((request) => request.path === '/rest/v1/items');
-    t.eq(reads.length, 2, 'P8: صفحة ثانية لمّا الأولى امتلأت، ووقوف بعد صفحة ناقصة');
-    t.ok(reads[0].query.includes('archived_at=is.null') && reads[0].query.includes('select=id,category_id') && reads[0].query.includes('limit=1000'), `P8: والقراءة عمودين للفعّالة بس (${reads[0].query})`);
-    t.ok(reads[1].query.includes('id=gt.i-0999'), `P8: والصفحة الثانية بعد آخر معرّف (${reads[1].query})`);
-    server.itemPages = [[]];
-    t.eq((await m.loadItemCategoryMap()).size, 0, 'P8: ومنشأة بلا مواد خريطة فارغة، لا دوران');
+    // ── P8: كتابة سعر البيع ──────────────────────────────────────────────────────────────────────────────────
+    server.rpc.set_item_sell_price = { item_id: 'i-corn', sell_price: '1900.00', written: true };
+    t.eq(await m.setItemSellPrice('i-corn', 1_900_00n, 1_750_00n), 190_000n, 'P8: الجواب مقروءاً بالفلس');
+    t.same(server.requests.at(-1).body, { p_item: 'i-corn', p_price: '1900.00', p_expected: '1750.00' }, 'P8: والمبلغان بالدينار بمرتبتين نصّاً (لا أرقام عائمة)');
+    server.rpc.set_item_sell_price = { item_id: 'i-corn', sell_price: null, written: true };
+    t.eq(await m.setItemSellPrice('i-corn', null, 1_900_00n), null, 'P8: والفارغ يشيل السعر');
+    t.same(server.requests.at(-1).body, { p_item: 'i-corn', p_price: null, p_expected: '1900.00' }, 'P8: والفارغ يُرسل null لا نصّاً فارغاً');
   } finally {
     delete globalThis.__purchaseServer;
   }

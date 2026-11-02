@@ -543,6 +543,30 @@ export interface StockWarehouse {
   hasBalance: boolean;
 }
 
+/** مال صفّ القائمة (0014): يختفي كاملاً لغير أدوار الكلفة (private.mask). */
+export interface StockRowMoney {
+  /** قيمة المتاح غير المنتهي. */
+  stockValue: Fils;
+  /** سعر البيع لوحدة الأساس، أو null لمادّة بلا سعر. */
+  sellPrice: Fils | null;
+  /** المتاح × سعر البيع، أو null بلا سعر. */
+  saleValue: Fils | null;
+  /** قيمة البيع − قيمة المتاح، أو null بلا سعر. */
+  expectedProfit: Fils | null;
+}
+
+/** مجاميع المخزن كلّه (0014): بأوّل صفحة بس (مثل total)، وبلا أدوار الكلفة null. */
+export interface StockBoardMoney {
+  /** رأس المال: قيمة المتاح لكلّ المواد. */
+  stockValue: Fils;
+  /** قيمة البيع للمواد التي لها سعر فقط. */
+  saleValue: Fils;
+  /** الربح المتوقّع: قيمة البيع − قيمة متاحها (للمسعَّرة فقط، فلا يُطرح رأس مال بلا إيراد). */
+  expectedProfit: Fils;
+  /** مواد لها رصيد وبلا سعر بيع: الربح المتوقّع لا يشملها، فالشاشة تقولها. */
+  itemsUnpriced: number;
+}
+
 export interface StockRow {
   itemId: string;
   name: string;
@@ -551,6 +575,10 @@ export interface StockRow {
   tracksExpiry: boolean;
   minQty: Milli | null;
   archived: boolean;
+  /** تصنيف المادّة واسمه (0014): أقسام القائمة منه، بلا نداء ثانٍ. */
+  categoryId: string | null;
+  categoryName: string | null;
+  barcode: string | null;
   /** المتاح الآن (غير المنتهي، FOUNDATION ٤٧٦). */
   available: Milli;
   /** المنتهي بعمود منفصل. */
@@ -563,6 +591,8 @@ export interface StockRow {
   chickAgeHours: bigint | null;
   /** أفراخ فاتها 48 ساعة. */
   oldChicks: Milli;
+  /** null لغير أدوار الكلفة. */
+  money: StockRowMoney | null;
 }
 
 /** مؤشّر صفحة اللوحة: الاسم المطبَّع والمعرّف كما وصلا بآخر صفّ (مادّة انسمّت بين صفحتين ما تقفّز اللي بعدها). */
@@ -580,11 +610,14 @@ export interface StockBoard {
   next: StockCursor | null;
   /** العدد الكلّي بأوّل صفحة («N من المجموع»)؛ null بالصفحات بعدها. */
   total: number | null;
+  /** مجاميع المخزن كلّه بأوّل صفحة، أو null (صفحة تالية أو دور بلا كلفة). */
+  money: StockBoardMoney | null;
 }
 
 export function parseStockBoard(value: unknown): StockBoard {
   const json = obj(value, 'stock_on_hand');
   const w = obj(json.warehouse, 'warehouse');
+  const totals = moneyOf(json);
   return {
     warehouse: {
       id: str(w, 'id'),
@@ -598,6 +631,7 @@ export function parseStockBoard(value: unknown): StockBoard {
     asOf: str(json, 'as_of'),
     rows: arr(json.rows, 'rows').map((item) => {
       const row = obj(item, 'rows');
+      const rowMoney = moneyOf(row);
       return {
         itemId: str(row, 'item_id'),
         name: str(row, 'name'),
@@ -610,12 +644,27 @@ export function parseStockBoard(value: unknown): StockBoard {
         expired: qtyOf(row, 'expired'),
         nearExpiry: qtyOf(row, 'near_expiry'),
         belowMin: bool(row, 'below_min'),
+        categoryId: optStr(row, 'category_id'),
+        categoryName: optStr(row, 'category_name'),
+        barcode: optStr(row, 'barcode'),
         chickAgeHours: wholeText(row, 'chick_age_hours'),
         oldChicks: qtyOf(row, 'old_chicks'),
+        money: rowMoney ? {
+          stockValue: filsOf(rowMoney, 'stock_value'),
+          sellPrice: scaled(rowMoney, 'sell_price', 2),
+          saleValue: scaled(rowMoney, 'sale_value', 2),
+          expectedProfit: scaled(rowMoney, 'expected_profit', 2),
+        } : null,
       };
     }),
     next: json.next === null || json.next === undefined ? null : stockCursor(obj(json.next, 'next')),
     total: count(json, 'total'),
+    money: totals ? {
+      stockValue: filsOf(totals, 'stock_value'),
+      saleValue: filsOf(totals, 'sale_value'),
+      expectedProfit: filsOf(totals, 'expected_profit'),
+      itemsUnpriced: nat(totals, 'items_unpriced'),
+    } : null,
   };
 }
 
@@ -764,6 +813,14 @@ export async function loadItemLotValues(itemId: string, warehouseId: string, aft
   );
 }
 
+/** مال سطر الدفتر (0014): قيمة الحركة والرصيد القيمي الجاري، ويختفيان لغير أدوار الكلفة. */
+export interface MoveMoney {
+  /** قيمة الحركة بإشارتها (داخلة موجبة، خارجة سالبة). */
+  value: Fils;
+  /** قيمة الرصيد بعد هذه الحركة. */
+  runningValue: Fils;
+}
+
 export interface MoveRow {
   moveId: string;
   seq: bigint;
@@ -771,11 +828,15 @@ export interface MoveRow {
   docKind: string;
   docId: string;
   doc: string;
+  /** البيان (0014): من أين جاءت الحركة أو إلى أين ذهبت («شراء من فلان»، «تحويل إلى مخزن…»). */
+  memo: string;
   qty: Milli;
   running: Milli;
   lotId: string;
   reversesMoveId: string | null;
   reversed: boolean;
+  /** null لغير أدوار الكلفة. */
+  money: MoveMoney | null;
 }
 
 export interface ItemMoves {
@@ -791,6 +852,7 @@ export function parseItemMoves(value: unknown): ItemMoves {
       const row = obj(item, 'rows');
       const seq = wholeText(row, 'seq');
       if (seq === null) throw new RowShapeError('seq');
+      const money = moneyOf(row);
       return {
         moveId: str(row, 'move_id'),
         seq,
@@ -798,11 +860,13 @@ export function parseItemMoves(value: unknown): ItemMoves {
         docKind: str(row, 'doc_kind'),
         docId: str(row, 'doc_id'),
         doc: str(row, 'doc'),
+        memo: str(row, 'memo'),
         qty: qtyOf(row, 'qty'),
         running: qtyOf(row, 'running'),
         lotId: str(row, 'lot_id'),
         reversesMoveId: optStr(row, 'reverses_move_id'),
         reversed: bool(row, 'reversed'),
+        money: money ? { value: filsOf(money, 'value'), runningValue: filsOf(money, 'running_value') } : null,
       };
     }),
     next: wholeText(json, 'next'),
@@ -1395,6 +1459,8 @@ export interface PurchaseItem {
   tracksExpiry: boolean;
   minQty: Milli | null;
   archived: boolean;
+  /** سعر البيع الحالي لوحدة الأساس (0014)، أو null: بلا سعر، أو دور بلا كلفة (القناع يشيل money). */
+  sellPrice: Fils | null;
 }
 
 export interface ItemPurchases {
@@ -1411,6 +1477,7 @@ export interface ItemPurchases {
 export function parseItemPurchases(value: unknown): ItemPurchases {
   const json = obj(value, 'item_purchases');
   const i = obj(json.item, 'item');
+  const itemMoney = moneyOf(i);
   const w = json.warehouse === null || json.warehouse === undefined ? null : obj(json.warehouse, 'warehouse');
   const cursor = json.next === null || json.next === undefined ? null : obj(json.next, 'next');
   const seq = cursor ? wholeText(cursor, 'seq') : null;
@@ -1424,6 +1491,7 @@ export function parseItemPurchases(value: unknown): ItemPurchases {
       tracksExpiry: bool(i, 'tracks_expiry'),
       minQty: scaled(i, 'min_qty', 3),
       archived: bool(i, 'archived'),
+      sellPrice: itemMoney ? scaled(itemMoney, 'sell_price', 2) : null,
     },
     warehouse: w ? { id: str(w, 'id'), name: str(w, 'name'), kind: oneOf(w, 'kind', WAREHOUSE_KINDS) } : null,
     today: str(json, 'today'),
@@ -1481,6 +1549,12 @@ export interface StoreCard {
   expired: number;
   /** قيمة المتاح، أو null لغير أدوار الكلفة. */
   stockValue: Fils | null;
+  /** قيمة بيع المتاح للمواد المسعَّرة، أو null لغير أدوار الكلفة (0014). */
+  saleValue: Fils | null;
+  /** الربح المتوقّع للمسعَّرة، أو null لغير أدوار الكلفة (0014). */
+  expectedProfit: Fils | null;
+  /** مواد لها رصيد بلا سعر بيع، أو null لغير أدوار الكلفة (0014). */
+  itemsUnpriced: number | null;
 }
 
 export interface StoreSite {
@@ -1525,6 +1599,9 @@ export function parseStoresOverview(value: unknown): StoresOverview {
         nearExpiry: nat(row, 'near_expiry'),
         expired: nat(row, 'expired'),
         stockValue: money ? filsOf(money, 'stock_value') : null,
+        saleValue: money ? filsOf(money, 'sale_value') : null,
+        expectedProfit: money ? filsOf(money, 'expected_profit') : null,
+        itemsUnpriced: money ? nat(money, 'items_unpriced') : null,
       };
     }),
     sites: arr(json.sites, 'sites').map((item) => {
@@ -1539,30 +1616,21 @@ export async function loadStoresOverview(): Promise<StoresOverview> {
   return parseStoresOverview(await call<unknown>('stores_overview', {}));
 }
 
-const CATEGORY_MAP_PAGE = 1000;
-
 /**
- * تصنيف كل مادّة فعّالة (معرّف المادّة ← معرّف تصنيفها أو null): أقسام التصنيف داخل المخزن تحتاجه، وstock_on_hand ما
- * يرجّع التصنيف (عقد 0013: ما تغيّرت). قراءة عمودين بس بصفحات بالمعرّف لحد ما تنتهي.
+ * سعر بيع المادّة (0014، كلمة المالك «اريد تسويلي سعر البيع والربح المتوقع»): بالفلس لوحدة الأساس، وnull يشيله.
+ * الكتابة مشروطة بالسعر الذي شافته الشاشة (expected): المحفوظ = المطلوب ← انكتب (إعادة بعد جواب ضاع)، والمحفوظ غيره
+ * ← price_changed من الخادم فالشاشة تقرأ من جديد. والمال لا يُحسب هنا: الخادم يرجّع ما كُتب.
  */
-export async function loadItemCategoryMap(): Promise<Map<string, string | null>> {
-  const map = new Map<string, string | null>();
-  let after = '';
-  for (;;) {
-    const cursor = after;
-    const { result, wasOnline } = await send(
-      (db) => {
-        const query = db.from('items').select('id, category_id').is('archived_at', null).order('id').limit(CATEGORY_MAP_PAGE);
-        return cursor ? query.gt('id', cursor) : query;
-      },
-      (answer) => [answer],
-    );
-    const rows = rowsOf([result], wasOnline)(0);
-    for (const row of rows) map.set(str(row, 'id'), optStr(row, 'category_id'));
-    const last = rows.at(-1);
-    if (rows.length < CATEGORY_MAP_PAGE || !last) return map;
-    after = str(last, 'id');
-  }
+export async function setItemSellPrice(itemId: string, price: Fils | null, expected: Fils | null): Promise<Fils | null> {
+  const json = obj(
+    await call<unknown>('set_item_sell_price', {
+      p_item: itemId,
+      p_price: price === null ? null : decimalText(price, 2),
+      p_expected: expected === null ? null : decimalText(expected, 2),
+    }),
+    'set_item_sell_price',
+  );
+  return scaled(json, 'sell_price', 2);
 }
 
 // مشتركة لملفّي المخزون الكسولين uses.ts وcounts.ts (WP5، نفس حزمة الشاشات): قراءة الشكل، والكتابة المباشرة بـupdatedRows، والقراءة.

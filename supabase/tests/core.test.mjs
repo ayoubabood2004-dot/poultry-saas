@@ -356,6 +356,18 @@ export default async function (t, db) {
     );
   }
 
+  // 0014: سعر بيع لمادّة الطرفين، فجدول الأسعار بصفوف لكلّ منشأة (والمالك يرى الكلفة، فيقرأها).
+  for (const owner of [U.aOwner, U.bOwner]) {
+    await db.asUser(
+      owner,
+      async (q) => {
+        const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+        await q('select public.set_item_sell_price($1, 1750, null)', [corn]);
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace

@@ -4,10 +4,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { DataTable, type Column } from '../../components/ui/DataTable';
+import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { DayField, postingDay } from '../../components/ui/DayField';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
+import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { QtyInput, type QtyUnitOption, type QtyValue } from '../../components/ui/QtyInput';
@@ -17,11 +18,12 @@ import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
 import { localDay } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
+import { lineAmount, unitCost4 } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { receiptValuation, type ReceiptValuation } from '../../domain/receipt';
 import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
-import { fmtCounted, fmtDay, fmtQty } from '../../lib/format';
+import { fmtCounted, fmtDay, fmtQty, fmtUnitCost } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { onlineStore } from '../../lib/online';
@@ -208,8 +210,26 @@ export function ReceiptLinesTable({ lines, values, totals, onDelete }: { lines: 
     { key: 'lot', header: t('receipt.col.lot', 'وجبة المورّد'), cell: (line) => (line.supplierLotNo ? <bdi dir="ltr">{line.supplierLotNo}</bdi> : '—') },
   ];
   if (totals && values) {
+    // سعر الوحدة ومجموع الفاتورة بالجدول نفسه (كلمة المالك 2026-11-02: «توضحلي شنو كاعد اشتري»): السعر = مبلغ السطر ÷
+    // الكمية كما كُتبت بأربع مراتب (fmtUnitCost، القاعدة 9)، والمجموع بسطر المجموع فلا يُجمَع بالرأس.
+    const sum = lines.reduce((acc, line) => acc + (totals.get(line.id) ?? 0n), 0n);
     columns.push(
-      { key: 'total', header: t('receipt.col.total', 'مبلغ السطر'), kind: 'number', cell: (line) => { const total = totals.get(line.id); return total === undefined ? '—' : <MoneyText amount={total} decimals={0} />; } },
+      {
+        key: 'unit_price',
+        header: t('receipt.col.unit_price', 'سعر الوحدة'),
+        kind: 'number',
+        cell: (line) => {
+          const total = totals.get(line.id);
+          return total === undefined || line.qtyInUnit === 0n ? '—' : <Num>{fmtUnitCost(unitCost4(total, line.qtyInUnit))}</Num>;
+        },
+      },
+      {
+        key: 'total',
+        header: t('receipt.col.total', 'مبلغ السطر'),
+        kind: 'number',
+        cell: (line) => { const total = totals.get(line.id); return total === undefined ? '—' : <MoneyText amount={total} decimals={0} />; },
+        total: <MoneyText amount={sum} decimals={0} />,
+      },
       { key: 'value', header: t('receipt.col.value', 'قيمة الوجبة'), kind: 'number', cell: (line) => { const value = values[lines.indexOf(line)]; return value === undefined ? '—' : <MoneyText amount={value} />; } },
     );
   }
@@ -224,10 +244,25 @@ export function ReceiptLinesTable({ lines, values, totals, onDelete }: { lines: 
       ),
     });
   }
-  return <DataTable caption={t('receipt.lines', 'سطور الاستلام')} columns={columns} rows={lines} rowKey={(line) => line.id} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />;
+  return (
+    <DataTable
+      caption={t('receipt.lines', 'سطور الاستلام')}
+      columns={columns}
+      rows={lines}
+      rowKey={(line) => line.id}
+      empty={t('transfer.lines.empty', 'لا سطور بعد.')}
+      totalLabel={totals && values ? t('receipt.invoice_total', 'مجموع الفاتورة') : undefined}
+    />
+  );
 }
 
-function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: StoreRef; onAdded: () => void }) {
+/**
+ * سطر الشراء بالكمية وسعر الوحدة سويّةً (كلمة المالك 2026-11-02: «لمن اروح اشتري من مورد معين اختار المادة واكتب
+ * التفاصيل… وشكد الكمية الي طلعت علية وبيش اشتريتها»): كان السطر بلوحة والمبلغ بلوحة تحتها، فما يبين شنو يُشترى وبكم.
+ * هنا: مَن يكتب المبالغ (receipt.amounts) يكتب سعر الوحدة مع الكمية، والمبلغ يُحسب لحظته بـlineAmount (دينار صحيح،
+ * Q7) ويُعرض قبل الحفظ؛ والحفظ سطرٌ ثمّ مبلغه (كتابتان مثل اليوم: السطر بلا مبلغ حالة معروفة، ولوحة المبالغ تكمّلها).
+ */
+function AddReceiptLine({ doc, store, canPrice, onAdded }: { doc: ReceiptDoc; store: StoreRef; canPrice: boolean; onAdded: () => void }) {
   const id = useId();
   const [item, setItem] = useState<ItemRow | null>(null);
   const [packs, setPacks] = useState<readonly inventory.ItemUnitRow[] | null>(null);
@@ -237,6 +272,7 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
   const [expiry, setExpiry] = useState('');
   const [bornAt, setBornAt] = useState('');
   const [lotNo, setLotNo] = useState('');
+  const [price, setPrice] = useState('');
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const kinds = receivableKinds(store.kind);
@@ -248,6 +284,7 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
     setLoadFailed(null);
     setQty({ text: '', unitId: 'base' });
     setExpiry('');
+    setPrice('');
     // وقت فقس الأفراخ المشتراة يبدأ بيوم الاستلام (E21).
     setBornAt(next?.kind === 'chick' ? `${fmtDay(doc.onDate)} 00:00` : '');
   };
@@ -283,6 +320,11 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
       setFailure(new RejectedError('expiry_required', t('receipt.line.expiry_required', 'اكتب تاريخ انتهاء «{item}».', { item: item.name })));
       return;
     }
+    const priced = price.trim() ? parseMoneyText(price, false) : null;
+    if (canPrice && price.trim() && (priced === null || priced <= 0n)) {
+      setFailure(new RejectedError('fields', t('receipt.line.price_invalid', 'اكتب سعر الوحدة بالدينار، رقماً أكبر من صفر، أو اتركه فارغاً وتكتب المبلغ تحت.')));
+      return;
+    }
     setBusy(true);
     setFailure(null);
     const unit = qty.unitId === 'base' ? { item_unit_id: null, unit_code: null } : qty.unitId.startsWith('code:') ? { item_unit_id: null, unit_code: qty.unitId.slice('code:'.length) } : { item_unit_id: qty.unitId, unit_code: null };
@@ -294,15 +336,18 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
       born_at: born?.iso ?? null,
       supplier_lot_no: lotNo.trim() || null,
     };
+    const total = canPrice && priced !== null ? lineAmount(amount, priced) : null;
     const added = () => {
       pickItem(null);
       setLotNo('');
       onAdded();
     };
+    // المبلغ بعد السطر: فشله لا يشيل السطر (لوحة المبالغ تكمّله)، فالرسالة تقول ذلك والسطر يبقى.
+    const withAmount = () => (total === null ? added() : purchasing.setLineTotal(lineId, null, total, null).then(added, setFailure));
     purchasing
       .addReceiptLine(doc.id, lineId, fields)
-      .then(added, (error: unknown) => {
-        if (inventory.isDuplicate(error)) purchasing.updateReceiptLine(lineId, fields).then(added, setFailure);
+      .then(withAmount, (error: unknown) => {
+        if (inventory.isDuplicate(error)) purchasing.updateReceiptLine(lineId, fields).then(withAmount, setFailure);
         else {
           if (error instanceof RejectedError) setLineId(crypto.randomUUID());
           setFailure(error);
@@ -311,6 +356,10 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
       .finally(() => setBusy(false));
   };
   const failed = failure ? describeError(failure, 'once') : null;
+  // مبلغ السطر المعروض قبل الحفظ: الكمية المكتوبة × سعر الوحدة، بالدينار الصحيح (lineAmount).
+  const livePrice = price.trim() ? parseMoneyText(price, false) : null;
+  const liveQty = qty.text.trim() ? parseQty(qty.text) : null;
+  const lineTotal = canPrice && livePrice !== null && livePrice > 0n && liveQty !== null && liveQty > 0n ? lineAmount(liveQty, livePrice) : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={receivable} />
@@ -328,6 +377,23 @@ function AddReceiptLine({ doc, store, onAdded }: { doc: ReceiptDoc; store: Store
         >
           <input id={`${id}-born`} className="input" dir="ltr" value={bornAt} onChange={(event) => setBornAt(event.target.value)} data-action="born-at" />
         </Field>
+      ) : null}
+      {item && canPrice ? (
+        <>
+          <MoneyInput
+            id={`${id}-price`}
+            label={t('receipt.line.price', 'سعر الوحدة كما في الفاتورة (اختياري)')}
+            hint={t('receipt.line.price_hint', 'لكل وحدة كتبتها بالكمية؛ مبلغ السطر يُحسب منه. اتركه فارغاً لتكتب المبلغ في «مبالغ الفاتورة».')}
+            whole={false}
+            value={price}
+            onChange={setPrice}
+          />
+          {lineTotal !== null ? (
+            <p className="text-sm">
+              {t('receipt.line.total_live', 'مبلغ السطر')}: <MoneyText amount={lineTotal} decimals={0} />
+            </p>
+          ) : null}
+        </>
       ) : null}
       {item ? (
         <Field id={`${id}-lot`} label={t('receipt.line.lot', 'رقم وجبة المورّد (اختياري)')}>
@@ -948,7 +1014,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {current.voidReason ? <Notice tone="warning" title={t('receipt.voided', 'أُلغي هذا الاستلام')}>{current.voidReason}</Notice> : null}
       {draft && canDraft ? <DraftDayField day={current.onDate} save={(day) => purchasing.updateReceiptDraft(current, { day })} onSaved={refresh} /> : null}
       <ReceiptLinesTable lines={bundle.lines} values={live ? live.values : null} totals={totals} onDelete={draft && canDraft ? setLineToDelete : null} />
-      {draft && canDraft && store ? <AddReceiptLine doc={current} store={store} onAdded={refresh} /> : null}
+      {draft && canDraft && store ? <AddReceiptLine doc={current} store={store} canPrice={canPrice} onAdded={refresh} /> : null}
       {current.status !== 'draft' && (canDraft || canPrice) ? <ReceiptReturnsPanel receipt={current} canDraft={canDraft} /> : null}
       {current.status === 'posted' && canRevalue && totals ? <PriceCorrectionPanel receipt={current} lines={bundle.lines} totals={totals} /> : null}
       {draft && canPrice && boxes.error ? <LoadFailed what={t('cash.boxes.what', 'قائمة الصناديق')} error={boxes.error} onRetry={boxes.retry} /> : null}

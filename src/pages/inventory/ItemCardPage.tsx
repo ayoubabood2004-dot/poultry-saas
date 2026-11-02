@@ -1,18 +1,22 @@
 import { useCallback, useId, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Segmented } from '../../components/ui/Segmented';
 import { LoadFailed } from '../../components/ui/LoadFailed';
+import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { Notice } from '../../components/ui/Notice';
 import type { Fils, Milli } from '../../domain/money';
 import { unitCost4 } from '../../domain/money';
+import { can } from '../../domain/permissions';
 import { CHICK_WARNING_HOURS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
 import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQtyCell, fmtScaledCell, fmtUnitCost } from '../../lib/format';
+import { describeError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
-import type { ItemLots, ItemMoves, ItemPurchases, LotRow, MoveRow, PurchaseRow } from '../../lib/repo/inventory';
+import type { ItemLots, ItemMoves, ItemPurchases, LotRow, MoveRow, PurchaseItem, PurchaseRow } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
@@ -94,11 +98,17 @@ function DocLabel({ move }: { move: MoveRow }) {
   );
 }
 
+/**
+ * دفتر المادّة بترتيب الكشف الذي اختاره المالك (2026-11-02: «ترتيب دفتر الديون الي بدكتور فيت يصير مثله لكن خاص بكل
+ * مادة»): التاريخ | المستند | البيان | داخل | خارج | الرصيد، ويّا قيمة الحركة والرصيد القيمي لأدوار الكلفة. خانة الجهة
+ * الفارغة تبقى فارغة مثل الدفتر الورقي، والبيان من الخادم (0014) يقول من أين جاءت الحركة أو إلى أين ذهبت.
+ */
 export function MovesTable({ moves, baseUnit, unitLabel }: { moves: readonly MoveRow[]; baseUnit: BaseUnit; unitLabel?: string }) {
   const decimals = qtyDecimals(moves.flatMap((move) => [move.qty, move.running]), baseUnit);
   const unit = unitLabel ?? baseUnitLabel(baseUnit);
+  const costs = moves.some((move) => move.money !== null);
   const columns: Column<MoveRow>[] = [
-    { key: 'day', header: t('ledger.date', 'التاريخ'), cell: (move) => fmtDay(move.movedOn) },
+    { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (move) => fmtDay(move.movedOn) },
     {
       key: 'doc',
       header: t('ledger.doc', 'المستند'),
@@ -110,10 +120,18 @@ export function MovesTable({ moves, baseUnit, unitLabel }: { moves: readonly Mov
         </span>
       ),
     },
-    { key: 'qty', header: t('stock.move.qty', 'الكمية ({unit})', { unit }), kind: 'number', cell: (move) => <Num>{qtyCell(move.qty, decimals)}</Num> },
+    { key: 'memo', header: t('ledger.memo', 'البيان'), wrap: true, cell: (move) => move.memo },
+    { key: 'in', header: t('stock.move.in', 'داخل ({unit})', { unit }), kind: 'number', cell: (move) => (move.qty > 0n ? <Num>{qtyCell(move.qty, decimals)}</Num> : null) },
+    { key: 'out', header: t('stock.move.out', 'خارج ({unit})', { unit }), kind: 'number', cell: (move) => (move.qty < 0n ? <Num>{qtyCell(-move.qty, decimals)}</Num> : null) },
     { key: 'running', header: t('stock.move.running', 'الرصيد ({unit})', { unit }), kind: 'number', cell: (move) => <Num>{qtyCell(move.running, decimals)}</Num> },
   ];
-  return <DataTable caption={t('stock.moves.caption', 'حركات المادّة برصيد جارٍ')} columns={columns} rows={moves} rowKey={(move) => move.moveId} empty={t('stock.moves.empty', 'لا حركات.')} />;
+  if (costs) {
+    columns.push(
+      { key: 'value', header: t('stock.move.value', 'قيمة الحركة'), kind: 'number', cell: (move) => (move.money ? <Num>{fmtMoney(move.money.value)}</Num> : '—') },
+      { key: 'running_value', header: t('stock.move.running_value', 'الرصيد بالقيمة'), kind: 'number', cell: (move) => (move.money ? <Num>{fmtMoney(move.money.runningValue)}</Num> : '—') },
+    );
+  }
+  return <DataTable caption={t('stock.moves.caption', 'دفتر المادّة برصيد جارٍ')} columns={columns} rows={moves} rowKey={(move) => move.moveId} empty={t('stock.moves.empty', 'لا حركات.')} />;
 }
 
 interface More {
@@ -271,8 +289,114 @@ export function PurchasesTable({ rows, costs }: { rows: readonly PurchaseRow[]; 
   return <DataTable caption={t('purchases.caption', 'مشتريات المادّة، الأحدث أوّلاً')} columns={columns} rows={rows} rowKey={(row) => row.lotId} empty={t('purchases.empty', 'لا شراء لهذه المادّة بعد.')} />;
 }
 
+/**
+ * سعر البيع والربح المتوقّع (كلمة المالك 2026-11-02: «اريد تسويلي سعر البيع والربح المتوقع»): السعر الحالي لوحدة الأساس،
+ * وكلفة آخر شراء بجنبه، والفرق بينهما ونسبته — فيُقرأ «بيش اشتريتها وبيش راح ابيعه» بنظرة واحدة. ومَن يدير المخازن يغيّره
+ * هنا بدالّته المشروطة بالسعر الذي شافته الشاشة (price_changed إن غيّره غيره).
+ */
+export function SellPriceNumbers({ sellPrice, lastCost, baseUnit }: { sellPrice: Fils | null; lastCost: Fils | null; baseUnit: BaseUnit }) {
+  const unit = baseUnitLabel(baseUnit);
+  if (sellPrice === null) {
+    return <p className="text-sm text-ink-muted">{t('items.sell_price.empty', 'لم يُكتب سعر بيع لهذه المادّة، فلا تُحسب لها قيمة بيع ولا ربح متوقّع.')}</p>;
+  }
+  const margin = lastCost === null || lastCost <= 0n ? null : sellPrice - lastCost;
+  return (
+    <>
+      <p>
+        {t('items.sell_price.now', 'سعر البيع الآن')}: <Num>{fmtMoney(sellPrice)}</Num> {t('purchases.per_unit', 'لكل {unit}', { unit })}
+      </p>
+      {lastCost !== null ? (
+        <p>
+          {t('items.sell_price.cost', 'كلفة آخر شراء')}: <Num>{fmtMoney(lastCost)}</Num> {t('purchases.per_unit', 'لكل {unit}', { unit })}
+        </p>
+      ) : null}
+      {margin !== null && lastCost !== null ? (
+        <p className={margin < 0n ? 'font-medium text-danger-800 dark:text-danger-100' : 'font-medium'}>
+          {margin < 0n
+            ? t('items.margin.loss', 'أقلّ من كلفتها بـ{diff} لكل {unit} ({pct}%).', { diff: fmtMoney(-margin), unit, pct: fmtPercent(-margin, lastCost) })
+            : t('items.margin.gain', 'الربح المتوقّع {diff} لكل {unit} ({pct}% من الكلفة).', { diff: fmtMoney(margin), unit, pct: fmtPercent(margin, lastCost) })}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** بطاقة سعر البيع بمحرّرها: تُعرض لأدوار الكلفة، والتغيير لمن يدير المخازن. */
+function SellPriceCard({ itemId, item, lastCost, canEdit, onSaved }: { itemId: string; item: PurchaseItem; lastCost: Fils | null; canEdit: boolean; onSaved: () => void }) {
+  const id = useId();
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  const [failure, setFailure] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const next = text.trim() === '' ? null : parseMoneyText(text, false);
+  const bad = text.trim() !== '' && (next === null || next <= 0n);
+  const save = async () => {
+    setFailure(null);
+    if (bad) return;
+    setBusy(true);
+    try {
+      await inventory.setItemSellPrice(itemId, next, item.sellPrice);
+      setEditing(false);
+      onSaved();
+    } catch (caught) {
+      setFailure(caught);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const failed = failure ? describeError(failure, 'once') : null;
+  return (
+    <section className="card flex flex-col gap-1.5 p-4" aria-label={t('items.sell_price', 'سعر البيع')}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold">{t('items.sell_price', 'سعر البيع')}</h3>
+        {canEdit && !editing ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setText(item.sellPrice === null ? '' : fmtMoney(item.sellPrice));
+              setEditing(true);
+            }}
+            data-action="edit-sell-price"
+          >
+            {item.sellPrice === null ? t('items.sell_price.set', 'اكتب سعر البيع') : t('items.sell_price.change', 'غيّر السعر')}
+          </Button>
+        ) : null}
+      </div>
+      {editing ? (
+        <div className="flex flex-col gap-3">
+          <MoneyInput
+            id={`${id}-sell`}
+            label={t('items.sell_price.for', 'سعر البيع لكل {unit} (اختياري)', { unit: baseUnitLabel(item.baseUnit) })}
+            hint={t('items.sell_price.clear', 'اتركه فارغاً لتشيل السعر، فلا تُحسب لها قيمة بيع.')}
+            error={bad ? t('items.sell_price.invalid', 'اكتب سعر البيع بالدينار، رقماً أكبر من صفر.') : null}
+            whole={false}
+            value={text}
+            onChange={setText}
+            autoFocus
+          />
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
+              {t('confirm.cancel', 'لا، تراجع')}
+            </Button>
+            <Button onClick={() => void save()} busy={busy} data-action="save-sell-price">
+              {t('org.save', 'احفظ')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <SellPriceNumbers sellPrice={item.sellPrice} lastCost={lastCost} baseUnit={item.baseUnit} />
+      )}
+      {failed ? (
+        <Notice tone="danger" title={failed.title}>
+          {failed.detail}
+        </Notice>
+      ) : null}
+    </section>
+  );
+}
+
 /** تبويب المشتريات بصفحاته: المخزن فارغ = كل مخازن النطاق. */
-function PurchasesTab({ itemId, warehouseId, costs }: { itemId: string; warehouseId: string; costs: boolean }) {
+function PurchasesTab({ itemId, warehouseId, costs, canManage }: { itemId: string; warehouseId: string; costs: boolean; canManage: boolean }) {
   const load = useCallback(() => inventory.loadItemPurchases(itemId, warehouseId || null), [itemId, warehouseId]);
   const first = useLoad(load, `${itemId}:${warehouseId}`);
   const [pages, setPages] = useState<ItemPurchases[]>([]);
@@ -293,8 +417,10 @@ function PurchasesTab({ itemId, warehouseId, costs }: { itemId: string; warehous
       (error: unknown) => setMore({ busy: false, error }),
     );
   };
+  const lastCost = rows[0]?.money?.unitCost ?? null;
   return (
     <div className="flex flex-col gap-3">
+      {costs ? <SellPriceCard itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} /> : null}
       <LastPurchase rows={rows} />
       <ul className="flex flex-col gap-2 sm:hidden">
         {rows.map((row) => (
@@ -401,7 +527,7 @@ function Card({ itemId, warehouseId, costs, only }: { itemId: string; warehouseI
       ) : null}
       {only === 'moves' ? (
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">{t('stock.moves.title', 'الحركات')}</h2>
+        <h2 className="font-semibold">{t('stock.ledger.title', 'دفتر المادّة')}</h2>
         {moves.error ? (
           <LoadFailed what={t('stock.moves.what', 'حركات المادّة')} error={moves.error} onRetry={moves.retry} />
         ) : moves.data ? (
@@ -437,11 +563,12 @@ export default function ItemCardPage() {
   const stores = setup.data ? scopedStores(storesOf(setup.data), workspace) : [];
   const warehouseId = stores.some((store) => store.id === picked) ? picked : '';
   const costs = Boolean(workspace?.canSeeCost);
+  const canManage = workspace ? can(workspace.role, 'stores.manage') : false;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title={t('stock.card.title', 'بطاقة المادّة')}
-        subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي وحدة وبأي سعر، ثم وجباتها المتبقّية وحركاتها.')}
+        subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
         actions={
           <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
             {t('stores.back', 'كل المخازن')}
@@ -466,14 +593,14 @@ export default function ItemCardPage() {
         label={t('stock.card.tabs', 'أقسام بطاقة المادّة')}
         options={[
           { value: 'purchases', label: t('purchases.title', 'المشتريات') },
+          { value: 'moves', label: t('stock.ledger.title', 'دفتر المادّة') },
           { value: 'lots', label: t('stock.lots.title_left', 'الوجبات المتبقّية') },
-          { value: 'moves', label: t('stock.moves.title', 'الحركات') },
         ]}
         value={tab}
         onChange={(next) => setSearch(cardParams(picked, next))}
       />
       {tab === 'purchases' ? (
-        <PurchasesTab key={`${itemId}:${warehouseId}`} itemId={itemId} warehouseId={warehouseId} costs={costs} />
+        <PurchasesTab key={`${itemId}:${warehouseId}`} itemId={itemId} warehouseId={warehouseId} costs={costs} canManage={canManage} />
       ) : warehouseId ? (
         <Card key={warehouseId} itemId={itemId} warehouseId={warehouseId} costs={costs} only={tab} />
       ) : setup.data ? (

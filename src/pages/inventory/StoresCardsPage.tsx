@@ -67,13 +67,32 @@ export function StoreTile({ card, costs }: { card: StoreCard; costs: boolean }) 
         </div>
         {costs && card.stockValue !== null ? (
           <div>
-            <dt className="text-xs text-ink-muted">{t('stock.total.available', 'قيمة المتاح')}</dt>
+            <dt className="text-xs text-ink-muted">{t('stores.capital', 'رأس المال')}</dt>
             <dd className="text-base font-semibold">
               <MoneyText amount={card.stockValue} />
             </dd>
           </div>
         ) : null}
+        {costs && card.saleValue !== null ? (
+          <div>
+            <dt className="text-xs text-ink-muted">{t('stock.col.sale_value', 'قيمة البيع')}</dt>
+            <dd className="text-base font-semibold">
+              <MoneyText amount={card.saleValue} />
+            </dd>
+          </div>
+        ) : null}
+        {costs && card.expectedProfit !== null ? (
+          <div>
+            <dt className="text-xs text-ink-muted">{t('stores.profit', 'الربح المتوقّع')}</dt>
+            <dd className="text-base font-semibold">
+              <MoneyText amount={card.expectedProfit} />
+            </dd>
+          </div>
+        ) : null}
       </dl>
+      {costs && card.itemsUnpriced !== null && card.itemsUnpriced > 0 ? (
+        <span className="text-xs text-ink-muted">{t('stores.unpriced.short', '{n} بلا سعر بيع', { n: t('stores.unpriced.items', '{n} مادّة', { n: fmtInt(card.itemsUnpriced) }) })}</span>
+      ) : null}
       <StoreBadges card={card} />
     </Link>
   );
@@ -213,7 +232,7 @@ export default function StoresCardsPage() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title={t('nav.inventory', 'كل المخازن')}
-        subtitle={t('stores.subtitle', 'افتح المخزن لترى مواده في أقسام بالتصنيف.')}
+        subtitle={t('stores.subtitle', 'افتح المخزن لترى مواده في أقسام بالتصنيف، وأسعار بيعها وربحها المتوقّع.')}
         actions={
           <div className="flex flex-col gap-2">
             {canManage ? (
@@ -229,7 +248,7 @@ export default function StoresCardsPage() {
       <PendingApprovals role={role} />
       {added ? (
         <Notice tone="info" title={t('stores.added', 'أُضيف المخزن «{name}»', { name: added })}>
-          {t('stores.added.detail', 'يظهر في البطاقات، وتُفتح مواده بعد أوّل استلام أو رصيد بداية.')}
+          {t('stores.added.detail', 'يظهر في البطاقات. افتحه وأضف مواده من «أضف مادّة».')}
         </Notice>
       ) : null}
       {overview.error ? (

@@ -10,6 +10,7 @@
     "flock_day_rejects",
     "flock_weights",
     "flocks",
+    "item_prices",
     "ledger_books",
     "member_scopes",
     "members",
@@ -671,6 +672,7 @@
   "costRestricted": [
     "audit_log",
     "expenses",
+    "item_prices",
     "opening_lines",
     "receipt_amounts",
     "receipt_charge_lines",

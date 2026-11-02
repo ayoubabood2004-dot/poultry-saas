@@ -8,8 +8,10 @@ import { Field } from '../../components/ui/Field';
 import { LedgerTable } from '../../components/ui/LedgerTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { StatStrip } from '../../components/ui/StatStrip';
 import { toast } from '../../components/ui/Toast';
 import type { LedgerEntry } from '../../domain/ledger';
+import { runLedger } from '../../domain/ledger';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { fmtDay, fmtMoney, fmtPhone } from '../../lib/format';
@@ -37,6 +39,25 @@ export function lineMemo(line: StatementLine): string {
 /** سطور الكشف للجدول الكلاسيكي (الرصيد الجاري يحسبه LedgerTable من المدوَّر، ويطابق رصيد الخادم). */
 export function ledgerEntries(book: StatementBook): LedgerEntry[] {
   return book.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: lineMemo(line), debit: line.debit, credit: line.credit }));
+}
+
+/**
+ * بطاقة رصيد الدفتر فوق كشفه (كلمة المالك 2026-11-02: «اريد يكون اكو دفتر ديون كامل يعرف كل دين منين اجى»): الرصيد الآن،
+ * والرصيد قبل المدّة، ومجموع «عليه» ومجموع «له» بالمدّة — فيُعرف حجم الدين وحركته قبل قراءة السطور سطراً سطراً. الأرقام
+ * من runLedger نفسها التي يرسم بها LedgerTable، فلا حساب ثانٍ يختلف عنها.
+ */
+export function BookBalance({ book }: { book: StatementBook }) {
+  const run = runLedger(ledgerEntries(book), book.broughtForward);
+  return (
+    <StatStrip
+      stats={[
+        { key: 'closing', label: t('statement.balance.now', 'رصيد الحساب'), value: <SideAmount amount={run.closing} /> },
+        { key: 'opening', label: t('ledger.opening', 'رصيد سابق'), value: <SideAmount amount={book.broughtForward} /> },
+        { key: 'debit', label: t('statement.sum.debit', 'مجموع عليه'), value: <Num>{fmtMoney(run.totalDebit, 0)}</Num> },
+        { key: 'credit', label: t('statement.sum.credit', 'مجموع له'), value: <Num>{fmtMoney(run.totalCredit, 0)}</Num> },
+      ]}
+    />
+  );
 }
 
 /**
@@ -105,6 +126,7 @@ export function StatementBooks({ statement, onVoid }: { statement: PartyStatemen
         return (
           <section key={book.bookId} className="flex flex-col gap-2" data-book={book.bookId}>
             <h2 className="font-semibold">{t('statement.book', 'حساب {book}', { book: bookLabel(book) })}</h2>
+            <BookBalance book={book} />
             <LedgerTable caption={t('statement.book', 'حساب {book}', { book: bookLabel(book) })} entries={ledgerEntries(book)} opening={book.broughtForward} />
             <p className="text-sm text-ink-muted">
               {t('statement.closing', 'رصيد الحساب بآخر المدّة:')} <SideAmount amount={book.closing} />

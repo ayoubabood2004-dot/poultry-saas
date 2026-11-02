@@ -348,11 +348,18 @@ export default async function (t) {
   t.ok(!plain.includes('كلفة الوحدة') && !plain.includes('480.8333') && !plain.includes('2,404,166'), 'بلا كلفة: عمودا القيمة وكلفة الوحدة ما ينبنون');
   const chicks = s.renderToStaticMarkup(s.h(s.LotsTable, { lots: [lot({ ageHours: 50n, bornAt: '2026-10-28T09:00:00Z', qtyLeft: 100_000n })], values: null, baseUnit: 'pc' }));
   t.ok(chicks.includes('50 ساعة') && chicks.includes('font-semibold'), 'عمر الفرخ بالساعات ومبرز بعد 48 ساعة (E24)');
+  // 0014: الدفتر بترتيب الكشف — البيان وعمودا «داخل» و«خارج» بدل عمود كمية موقّعة، والخارج بقيمته المطلقة مثل الدفتر الورقي.
+  const ledgerRow = (over) => ({ moveId: 'm-1', seq: 1n, movedOn: '2026-10-28', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0003', memo: 'تحويل إلى مخزن حقل 1', qty: 5_000_000n, running: 5_000_000n, lotId: 'l-1', reversesMoveId: null, reversed: true, money: null, ...over });
   const moves = routed(s.h(s.MovesTable, { moves: [
-    { moveId: 'm-1', seq: 1n, movedOn: '2026-10-28', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0003', qty: 5_000_000n, running: 5_000_000n, lotId: 'l-1', reversesMoveId: null, reversed: true },
-    { moveId: 'm-2', seq: 2n, movedOn: '2026-10-30', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0003', qty: -5_000_000n, running: 0n, lotId: 'l-1', reversesMoveId: 'm-1', reversed: false },
+    ledgerRow({}),
+    ledgerRow({ moveId: 'm-2', seq: 2n, movedOn: '2026-10-30', qty: -5_000_000n, running: 0n, reversesMoveId: 'm-1', reversed: false }),
   ], baseUnit: 'kg' }));
-  t.ok(moves.includes('عكس') && moves.includes('أُلغي') && moves.includes('<bdi dir="ltr">-5,000.000</bdi>'), 'الحركات برصيد جارٍ، والعكسية والمعكوسة بعلامتيهما');
+  t.ok(moves.includes('عكس') && moves.includes('أُلغي'), 'الدفتر: العكسية والمعكوسة بعلامتيهما');
+  t.ok(moves.includes('داخل') && moves.includes('خارج') && moves.includes('البيان') && moves.includes('تحويل إلى مخزن حقل 1'), `الدفتر بترتيب الكشف وبيانه (${moves.slice(0, 200)})`);
+  t.ok(!moves.includes('-5,000.000') && moves.includes('<bdi dir="ltr">5,000.000</bdi>') && moves.includes('<bdi dir="ltr">0.000</bdi>'), 'والخارج بقيمته المطلقة بعموده، والرصيد صفر بعده');
+  t.ok(!moves.includes('قيمة الحركة'), 'وبلا مال: عمودا القيمة ما ينبنون');
+  const valued = routed(s.h(s.MovesTable, { moves: [ledgerRow({ money: { value: 7_500_000_00n, runningValue: 7_500_000_00n } })], baseUnit: 'kg' }));
+  t.ok(valued.includes('قيمة الحركة') && valued.includes('الرصيد بالقيمة') && valued.includes('7,500,000.00'), 'ولأدوار الكلفة: قيمة الحركة والرصيد القيمي');
 
   // ── التحويل والافتتاح ──
   t.eq(
@@ -610,7 +617,7 @@ async function reviewFixes(t, m, setup) {
 
   // ── بطاقة المادّة: الدفعات والحركات بصفحات («المزيد» بمؤشّر كل قائمة) و«N من المجموع»، والمستند رابط لمستنده ──────────────
   const lotRow = { lotId: 'l-1', qtyLeft: 5_000n, receivedOn: '2026-10-15', rootReceivedOn: '2026-10-15', ageDays: 15, bornAt: null, ageHours: null, expiryOn: null, expired: false, nearExpiry: false, sourceKind: 'transfer', sourceId: 't-1', source: 'TR-2026-0001', supplierLotNo: null };
-  const moveRow = (over) => ({ moveId: 'mv-1', seq: 7n, movedOn: '2026-10-28', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0001', qty: 5_000n, running: 5_000n, lotId: 'l-1', reversesMoveId: null, reversed: false, ...over });
+  const moveRow = (over) => ({ moveId: 'mv-1', seq: 7n, movedOn: '2026-10-28', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0001', memo: 'تحويل إلى مخزن حقل 1', qty: 5_000n, running: 5_000n, lotId: 'l-1', reversesMoveId: null, reversed: false, money: null, ...over });
   await step('صفحات بطاقة المادّة', () =>
     withInventory(
       {

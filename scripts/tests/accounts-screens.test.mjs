@@ -245,6 +245,10 @@ export default async function (t) {
     t.same(headers, ['التاريخ', 'المستند', 'البيان', 'عليه', 'له', 'الرصيد'], 'الكشف بستّة أعمدة بالضبط');
     t.ok(/class="max-h-\[70dvh\] overflow-auto/.test(millTable), 'الجدول بغلاف overflow-auto (print.css يشيل حدّه بالطباعة)');
     t.eq(m.voidable(statement.books[0].lines[1]), 'payment', 'القبض ينلغى من الكشف');
+    // 0014 (كلمة المالك «دفتر ديون كامل»): بطاقة رصيد فوق كلّ كشف — الرصيد الآن والرصيد السابق ومجموع عليه ومجموع له.
+    // 75 سطراً عليه × 20,000 = 1,500,000، و75 له × 10,000 = 750,000، والرصيد 500,000 + 1,500,000 − 750,000 = 1,250,000.
+    t.ok(textOf(millTable).includes('رصيد الحساب') && textOf(millTable).includes('مجموع عليه') && textOf(millTable).includes('مجموع له'), `0014: بطاقة الرصيد فوق الكشف (${textOf(millTable).slice(0, 220)})`);
+    t.ok(textOf(millTable).includes('1,500,000') && textOf(millTable).includes('750,000') && textOf(millTable).includes('500,000'), '0014: ومجاميع المدّة والرصيد السابق بأرقامها');
     // الصفحة كلها: المنطقة المطبوعة بيها الكشف كلّه، والأزرار والفلتر والقيود الملغاة برّا الطباعة.
     const period = m.defaultPeriod();
     globalThis.__accounts.loads = { [`||${period.from}|${period.to}`]: { data: statement }, books: { data: BOOK_REFS } };

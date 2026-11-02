@@ -30,6 +30,8 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   items_barcode_check: () => t('constraint.items_barcode_check', 'الباركود لا يزيد على 64 حرفاً.'),
   items_alt_codes_check: () => t('constraint.items_alt_codes_check', 'الرموز الإضافية 20 رمزاً كحدّ أقصى، ولا رمز فارغ بينها.'),
   item_units_label_check: () => t('constraint.item_units_label_check', 'اسم الوحدة مطلوب، ولا يزيد على 40 حرفاً.'),
+  item_prices_sell_price_check: () => t('constraint.item_prices_sell_price_check', 'سعر البيع أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  item_prices_version_check: () => t('constraint.item_prices_version_check', 'نسخة سعر البيع رقم موجب. حدّث الشاشة.'),
   item_units_factor_check: () => t('constraint.item_units_factor_check', 'معامل الوحدة أكبر من صفر، بستّ مراتب عشرية كحدّ أقصى.'),
   expense_categories_name_check: () => t('constraint.expense_categories_name_check', 'اسم فئة المصروف مطلوب، ولا يزيد على 80 حرفاً.'),
   expense_categories_system_code_check: () => t('constraint.expense_categories_system_code_check', 'رمز الفئة النظامية غير صالح.'),

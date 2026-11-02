@@ -389,7 +389,9 @@ export default async function (t, db) {
     discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
     delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
     // WP7 زاد مادّتين بالمخزن العامّ (6,750 بعد مرتجع لتر، و6,080 بعد صرف لترين وتصحيح بحصّة 80)، وجهة برصيد، وثلاث مصاريف.
-    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:5', 'out_of_scope') },
+    // 0014: القائمة تشمل كلّ مادّة فعّالة يستلم المخزن نوعها ولو برصيد صفر (كانت 5: من لها رصيد أو حدّ أدنى)،
+    // فالمادّة التي تُضاف اليوم تظهر بقسمها اليوم.
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:8', 'out_of_scope') },
     item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
     item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
     stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
@@ -443,6 +445,9 @@ export default async function (t, db) {
     // ومن بلا نطاق (غير المالك والمدير والمحاسب) لا يرى بطاقة المخزن العامّ.
     item_purchases: { sql: () => ["select jsonb_array_length(public.item_purchases($1, $2, null, 50) -> 'rows') as v", [wp7.fuelA, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
     stores_overview: { sql: () => ["select public.stores_overview() -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [generalStore]], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
+    // 0014 (سعر البيع): الكتابة لمن يدير المخازن ويرى الكلفة (المالك والمدير)؛ والنداء الثاني بنفس السعر يرجّعه نفسه
+    // (المحفوظ = المطلوب ← انكتب، فلا price_changed لأنّ المصفوفة لا تراجع بين الأدوار).
+    set_item_sell_price: { sql: () => ["select public.set_item_sell_price($1, 1500, null) ->> 'sell_price' as v", [wp7.fuelA]], value: true, expect: only(['owner', 'manager'], 'ok:1500') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

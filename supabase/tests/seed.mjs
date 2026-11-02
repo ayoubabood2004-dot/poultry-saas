@@ -240,6 +240,20 @@ const WP5_CONDITION = 'v_expenses > 0 or v_uses > 0 or v_counts > 0';
  * ينفحص فرعاً فرعاً: mutate يشيل فرع الحالة من الشرط، والمشغّل يثبت إن التراجع يكمل بلاه (الحالة تحتاج فرعها).
  * 0006: قيد جهة، وحركة صندوق، ووحدة تعبئة لمورّد، كل وحدة بحالتها وفرعها (البصمة ويّا عدد المواد، فتسرّب ضابط الرفض يبين).
  */
+/**
+ * 0014: سعر بيع مكتوب لمادّة. التراجع يُسقط جدول item_prices فيمسح قائمة الأسعار (بيانات كتبها المالك بيده ولا تُستخرج من
+ * مكان آخر)، فطريق الرفض يوقفه إلى أن تُصدَّر. والطفرة تشيل شرط «بالجدول صفّ» فيكمل التراجع ويمسحها بصمت.
+ */
+const priceSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const item = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    await q('select public.set_item_sell_price($1, 1750, null)', [item]);
+  }, { commit: true });
+};
+
+const PRICE_CONDITION = 'v_rows > 0 and';
+
 export const BLOCKING_SEEDS = {
   5: [
     {
@@ -347,6 +361,15 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace(COPY_CONDITION, 'false'),
     },
   ],
+  14: [
+    {
+      name: 'سعر بيع مكتوب',
+      code: 'prices_not_exported',
+      seed: priceSeed,
+      data: "select (select count(*) from public.item_prices)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(PRICE_CONDITION, 'false and'),
+    },
+  ],
   12: [
     {
       name: 'قاعة بفوج وجولة',
@@ -375,4 +398,5 @@ export const BLOCKING_REQUIRED = [
   [10, 1, 'مسوّدة مرتجع توقف التراجع'],
   [11, 1, 'استلام منسوخ بأصله يوقف التراجع'],
   [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
+  [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
 ];

@@ -55,10 +55,10 @@ async function scenario(t, db) {
   t.same(headers, [1, 1], 'الأمين يقرأ رأس افتتاح مخزنه وتحويله (بلا قيم)، مو الأدوية');
 
   // ── قراءات الكميات بلا money لأي دور، والقيم forbidden لغير الحسابات ──────────────────────────────────────────
+  // 0014 نقل stock_on_hand وitem_moves_qty من هنا لمجموعة القناع تحت: صار فيهما money لأدوار الكلفة (private.mask)،
+  // مثل item_purchases. وitem_lots_qty يبقى بلا مال أبداً (قيمه بدالّة مستقلّة: item_lots_value).
   const QTY = [
-    ['stock_on_hand', 'select public.stock_on_hand($1, null, 50) as v', [W.general]],
     ['item_lots_qty', 'select public.item_lots_qty($1, $2, null, 50) as v', [I.diesel, W.general]],
-    ['item_moves_qty', 'select public.item_moves_qty($1, $2, null, 50) as v', [I.diesel, W.general]],
   ];
   const leaks = [];
   for (const user of [U.owner, U.manager, U.accountant, U.storekeeper, U.viewer]) {
@@ -68,7 +68,7 @@ async function scenario(t, db) {
       else leaks.push(...moneyKeys(result.value).map((key) => `${fn}${key}`));
     }
   }
-  t.same(leaks, [], 'stock_on_hand وitem_lots_qty وitem_moves_qty بلا money ولا قيمة لكل دور');
+  t.same(leaks, [], 'item_lots_qty بلا money ولا قيمة لكل دور');
   const VALUE = [
     ['stock_values', 'select public.stock_values($1, null, 50)', [W.general]],
     ['stock_value_totals', 'select public.stock_value_totals($1)', [W.general]],
@@ -265,6 +265,9 @@ async function scenario(t, db) {
     ['item_purchases', 'select public.item_purchases($1, $2, null, 50)', [I.diesel, W.general]],
     ['item_purchases(كل المخازن)', 'select public.item_purchases($1, null, null, 50)', [I.diesel]],
     ['stores_overview', 'select public.stores_overview()', []],
+    // 0014: قائمة المخزن ودفتر المادّة صار فيهما money (قيمة المتاح وسعر البيع وقيمة الحركة)، فالقناع عليهما هم.
+    ['stock_on_hand', 'select public.stock_on_hand($1, null, 50)', [W.general]],
+    ['item_moves_qty', 'select public.item_moves_qty($1, $2, null, 50)', [I.diesel, W.general]],
   ];
   const storeLeaks = [];
   for (const [role, user] of Object.entries({ storekeeper: U.storekeeper, viewer: U.viewer })) {
@@ -286,5 +289,25 @@ async function scenario(t, db) {
       keeperCards.rows.find((r) => r.id === W.general).items_count === managerCards.rows.find((r) => r.id === W.general).items_count],
     [1, '17000', '16500.00', '825.00', 1, true, true, true, true],
     'ضابط: المدير يرى الفاتورة والقيمة المحمّلة وسعر الوحدة وقيمة المخزن، والأمين يرى نفس الصفوف ومورّدها وكميتها وأعداد بطاقته بلا سعر',
+  );
+
+  // ── 0014: سعر البيع والربح المتوقّع لأدوار الكلفة، والبيان للكلّ ───────────────────────────
+  // الأمين لا يقرأ سعر البيع من الجدول نفسه (سياسة مقيّدة)، ولا من القارئين (القناع فوق)، ولا يكتبه.
+  // والبيان (من أين جاءت الحركة) اسم لا مبلغ، فيصل الأمين مثل اسم المورّد بسجلّ الشراء.
+  await db.asUser(U.manager, (q) => q('select public.set_item_sell_price($1, 2000, null)', [I.diesel]), { commit: true });
+  const keeperPrice = await call(db, U.storekeeper, 'select count(*)::int as v from public.item_prices', []);
+  const managerPrice = await call(db, U.manager, 'select count(*)::int as v from public.item_prices', []);
+  const keeperWrite = await call(db, U.storekeeper, 'select public.set_item_sell_price($1, 3000, 2000)', [I.diesel]);
+  const keeperBoard = (await call(db, U.storekeeper, 'select public.stock_on_hand($1, null, 50)', [W.general])).value;
+  const managerBoard = (await call(db, U.manager, 'select public.stock_on_hand($1, null, 50)', [W.general])).value;
+  const keeperLedger = (await call(db, U.storekeeper, 'select public.item_moves_qty($1, $2, null, 50)', [I.diesel, W.general])).value;
+  const managerLedger = (await call(db, U.manager, 'select public.item_moves_qty($1, $2, null, 50)', [I.diesel, W.general])).value;
+  const dieselRow = (board) => board.rows.find((r) => r.item_id === I.diesel);
+  t.same(
+    [keeperPrice.value, managerPrice.value > 0, keeperWrite.code, dieselRow(keeperBoard).money, dieselRow(managerBoard).money.sell_price,
+      keeperBoard.money, managerBoard.money.sale_value !== undefined, managerBoard.money.items_unpriced !== undefined,
+      keeperLedger.rows[0].memo === managerLedger.rows[0].memo, keeperLedger.rows[0].money, managerLedger.rows[0].money.value !== undefined],
+    [0, true, 'forbidden', undefined, '2000', undefined, true, true, true, undefined, true],
+    'سعر البيع: الأمين لا يرى صفّاً ولا يكتب، ولا money بقائمته ولا بدفتره؛ والمدير يرى السعر وقيمة البيع وقيمة الحركة؛ والبيان نفسه للطرفين',
   );
 }

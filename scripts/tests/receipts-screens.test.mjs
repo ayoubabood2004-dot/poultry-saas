@@ -46,6 +46,12 @@ export default async function (t) {
   const live = m.liveValuation(bundleOf);
   const priced = m.renderToStaticMarkup(m.h(m.ReceiptLinesTable, { lines, values: live.values, totals: new Map([['a', 235_000_000n], ['b', 90_000_000n]]), onDelete: null }));
   t.ok(textOf(priced).includes('2,350,000') && textOf(priced).includes('2,404,166.67') && textOf(priced).includes('910,833.33'), 'أدوار الكلفة: مبلغ السطر وقيمة الدفعة (C2 2,404,166.67 وS2 910,833.33) من التقسيم الحيّ');
+  // 0014 (كلمة المالك «توضحلي شنو كاعد اشتري»): سعر الوحدة بعمود، ومجموع الفاتورة بسطر المجموع.
+  // الذرة مبلغها 2,350,000 ديناراً لـ5,000 كغم = 470.0000 ديناراً للكيلو، والصويا 900,000 لـ1,000 كغم = 900.0000،
+  // ومجموع الفاتورة 2,350,000 + 900,000 = 3,250,000 ديناراً.
+  t.ok(priced.includes('سعر الوحدة') && textOf(priced).includes('470.0000') && textOf(priced).includes('900.0000'), `0014: سعر الوحدة بعموده بأربع مراتب (${textOf(priced).slice(0, 300)})`);
+  t.ok(priced.includes('مجموع الفاتورة') && textOf(priced).includes('3,250,000'), `0014: ومجموع الفاتورة بسطر المجموع (${textOf(priced).slice(-200)})`);
+  t.ok(!keeper.includes('سعر الوحدة') && !keeper.includes('مجموع الفاتورة'), '0014: والأمين بلا سعر وحدة ولا مجموع فاتورة');
 
   // ── الدفتر للعرض من نوع المخزن (القاعدة 36)، والمخازن اللي تستلم ──────────────────────────────────────────────────────
   t.same(
