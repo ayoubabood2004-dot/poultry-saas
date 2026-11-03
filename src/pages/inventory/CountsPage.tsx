@@ -51,7 +51,7 @@ import {
   type PendingCountLine,
   type PendingStore,
 } from './countDevice';
-import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, DraftDayField, ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type CopyDraft, type StoreRef, type VoidChoice } from './stock-shared';
+import { notAdmittedHere, canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, DraftDayField, ItemPicker, loadItemUnits, PageFooter, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type CopyDraft, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الجرد (الخطّة WP5، FOUNDATION ٥٥٥، القاعدة 17، E25، E41، E42، E48، E53، E54): العادّ يعدّ بالموبايل بيد وحدة (أهداف 44 بكسل أو
 // أكبر) عدّاً أعمى (ما ينطلب رصيد الدفتر أصلاً)، بالوحدة أو بالتعبئة، والمادّة اللي تتابع الانتهاء بحقلين «صالح» و«منتهي»، والأفراخ
@@ -199,7 +199,7 @@ function CountLineForm({ store, line, busy, failure, onSave, onCancel }: { store
   const bornRead = born.trim() ? parseMomentText(born) : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      {line ? <h2 className="font-semibold">{t('count.line.edit', 'عدّل عدّ «{item}»', { item: line.itemName })}</h2> : <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={picked} onChange={pick} filter={admits} offline={!online} />}
+      {line ? <h2 className="font-semibold">{t('count.line.edit', 'عدّل عدّ «{item}»', { item: line.itemName })}</h2> : <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={picked} onChange={pick} filter={admits} offline={!online} excluded={(items) => notAdmittedHere(items, [store])} />}
       {item && packsFailed?.itemId === item.id ? (
         <LoadFailed
           what={t('transfer.units.what', 'وحدات المادّة')}

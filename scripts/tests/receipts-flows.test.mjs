@@ -15,7 +15,7 @@ const PURCHASING = [
   'loadReceipt', 'listReceipts', 'createReceiptDraft', 'addReceiptLine', 'updateReceiptLine', 'deleteReceiptLine', 'discardReceipt', 'setLineTotal', 'setReceiptAmounts',
   'addCharge', 'updateCharge', 'deleteCharge', 'setChargeLines', 'searchSuppliers', 'supplierTwins', 'createSupplier', 'listBoxes', 'previewReceipt', 'postReceipt', 'voidReceipt',
 ];
-const INVENTORY = ['loadOrgSetup', 'listItems', 'listItemUnits'];
+const INVENTORY = ['loadOrgSetup', 'listItems', 'listItemUnits', 'findItemTwins', 'createItem', 'createItemUnit', 'setItemSellPrice'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__flow.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   purchasing: routed('purchasing', PURCHASING),
@@ -188,6 +188,63 @@ export default async function (t) {
       t.eq(sent.length, 1, 'R11: السطر ينكتب');
       t.same([amount.length, amount[0]?.[1], amount[0]?.[2], amount[0]?.[3]], [1, null, 250_010_00n, null], 'R11: ومبلغه بعده بلا مبلغ سابق (إدخال أوّل مرّة)');
       t.eq(amount[0]?.[0], sent[0]?.[1], 'R11: بنفس معرّف السطر الذي وُلد بالجهاز');
+      await unmount();
+    });
+
+    // ── R12 و R13 و R14 (كلمة المالك 2026-11-03: «لما اجي اكتب ما يصير اي شيء ولا اكدر اكملها»): البحث لا يسكت ────────
+    // الورقة على «المخزن العام»، وهو يستلم: وقود ومعدّات وتعبئة وأخرى. فثلاث حالات كانت كلّها شاشةً صامتة.
+    const corn = { ...ointment, id: 'i-corn', name: 'ذرة صفراء', nameNorm: m.searchable('ذرة صفراء'), kind: 'raw', baseUnit: 'kg', tracksExpiry: false };
+    const rawStore = { id: 'w-raw', version: 1, archived: false, divisionId: 'd-gen', siteId: 's-gen', name: 'مخزن المواد الأوّلية', kind: 'raw', hasBalance: false };
+    const dialogForm = () => all().find((n) => n.nodeName === 'FORM' && n.id.endsWith('-form'));
+
+    await step('R12', async () => {
+      const calls = fresh('manager', handlers({
+        listItems: () => ({ rows: [], total: 0, next: null }),
+        listItemUnits: () => [],
+        findItemTwins: () => [],
+        createItem: (fields) => ({ id: 'i-new', version: 1, archived: false, name: fields.name, nameNorm: m.searchable(fields.name), categoryId: fields.category_id, kind: fields.kind, baseUnit: fields.base_unit, density: null, pieceMassKg: null, tracksExpiry: false, scaleStep: 100n, minQty: null, barcode: fields.barcode, altCodes: [] }),
+        loadReceipt: () => bundleOf({ lines: [] }),
+      }));
+      await mount('/inventory/receipts/r-1');
+      type(byAction('search-item')[0], 'ذرة');
+      await settle();
+      t.ok(text().includes('لا مادّة باسم «ذرة»'), `R12: بحث بلا نتيجة يقول ذلك بدل أن يسكت (${text().slice(-240)})`);
+      t.eq(byAction('new-item').length, 1, 'R12: ومعه زرّ يضيفها');
+      await click(byAction('new-item')[0]);
+      t.eq(byIdSuffix('-name')[0]?.value, 'ذرة', 'R12: والنافذة تفتح والاسم مكتوب، فلا يُكتب مرّتين');
+      fire(dialogForm(), 'submit');
+      await settle();
+      const made = calls.filter(([name]) => name === 'createItem');
+      t.eq(made.length, 1, 'R12: والحفظ يكتب المادّة');
+      t.eq(made[0]?.[1]?.[0]?.kind, 'other', 'R12: بنوع يستلمه مخزن الورقة (المخزن العام)');
+      t.ok(text().includes('ذرة') && byAction('change-item').length === 1, 'R12: وتصير مختارة بالسطر فوراً، بلا بحث ثانٍ');
+      await unmount();
+    });
+
+    await step('R13', async () => {
+      fresh('manager', handlers({ listItems: () => ({ rows: [corn], total: 1, next: null }), listItemUnits: () => [], loadReceipt: () => bundleOf({ lines: [] }) }));
+      await mount('/inventory/receipts/r-1');
+      type(byAction('search-item')[0], 'ذرة');
+      await settle();
+      const page = text();
+      t.ok(page.includes('موجودة، لكنّها لا تصلح في هذه الورقة'), `R13: المادّة الموجودة المستبعدة تُقال، لا تُخفى (${page.slice(-260)})`);
+      t.ok(page.includes('«ذرة صفراء» نوعها «مادّة أوّلية»، و«المخزن العام» لا يستلمها'), 'R13: والجملة تسمّي المادّة ونوعها ومخزن الورقة');
+      t.ok(page.includes('تُستلم في مخزن من نوع «موادّ أوّلية»، وليس لمنشأتك مخزن منه بعد'), 'R13: وتقول نوع المخزن المطلوب لمّا لا يوجد');
+      t.eq(byAction('new-item').length, 0, 'R13: وبلا زرّ إضافة: المادّة موجودة أصلاً');
+      await unmount();
+    });
+
+    await step('R14', async () => {
+      fresh('manager', handlers({
+        loadOrgSetup: () => ({ ...org, warehouses: [...org.warehouses, rawStore] }),
+        listItems: () => ({ rows: [corn], total: 1, next: null }),
+        listItemUnits: () => [],
+        loadReceipt: () => bundleOf({ lines: [] }),
+      }));
+      await mount('/inventory/receipts/r-1');
+      type(byAction('search-item')[0], 'ذرة');
+      await settle();
+      t.ok(text().includes('تُستلم في: مخزن المواد الأوّلية.'), `R14: ولمّا للمنشأة مخزن يستلمها تسمّيه بالاسم (${text().slice(-240)})`);
       await unmount();
     });
 

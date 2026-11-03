@@ -32,7 +32,7 @@ import { baseUnitLabel } from '../../lib/storeLabels';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
+import { notAdmittedHere, canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, rememberItems, runWithRef, seenOwner, unitOptions, scopedStores, StoreSelect, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // التحويل والصادر الداخلي (الخطّة WP4، FOUNDATION ٥٥٤، القاعدة 15، Q4): الأمين ينشئ المسوّدة من مخزن بنطاقه لأي مخزن فعّال يقبل
 // المادّة، والشاشة تكول «صادر داخلي إلى …» بين وحدتين. المعاينة تسحب بالدفعات (والنقص يبقي المسوّدة، «سجّل الاستلام أو الجرد»)،
@@ -149,7 +149,7 @@ function AddTransferLine({ docId, from, to, onAdded }: { docId: string; from: St
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
+      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} excluded={(items) => notAdmittedHere(items, [from, to])} />
       {packsFailed ? <LoadFailed what={t('transfer.units.what', 'وحدات المادّة')} error={packsFailed} onRetry={() => { setPacksFailed(null); setItem(item ? { ...item } : null); }} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={unitOptions(item, packs ?? [])} value={qty} onChange={setQty} /> : null}
       {failed ? (

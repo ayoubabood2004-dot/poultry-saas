@@ -17,7 +17,7 @@ import { decimalText } from '../../domain/decimal';
 import { localDay } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
 import { can } from '../../domain/permissions';
-import { itemAdmissible } from '../../domain/stock';
+import { ADMISSIBLE, itemAdmissible } from '../../domain/stock';
 import { parseQty, toBase } from '../../domain/units';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
@@ -25,11 +25,12 @@ import { fmtDay, fmtMoney, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
-import type { ItemRow, OpeningLine, OpeningPreview, StockDoc } from '../../lib/repo/inventory';
+import type { CategoryRow, ItemRow, OpeningLine, OpeningPreview, StockDoc } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
+import { AddItemDialog } from './ItemCreate';
+import { notAdmittedHere, canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بيوم التشغيل أو قبله، وسطورها
 // بالكمية بوحدة الأساس والقيمة بمرتبتين (الصفر ويّا سببه بس، Q9؛ الانتهاء للمادّة اللي تتابعه، ووقت الفقس للأفراخ)، ثم معاينة
@@ -198,6 +199,9 @@ function OpeningEditor({ docId }: { docId: string }) {
         <AddLineFormFor
           store={store}
           docId={current.id}
+          categories={setup.data?.itemCategories ?? []}
+          costs={Boolean(workspace?.canSeeCost)}
+          canCreate={workspace ? can(workspace.role, 'item.create') : false}
           onAdded={async () => {
             refresh();
           }}
@@ -281,7 +285,15 @@ function OpeningEditor({ docId }: { docId: string }) {
   );
 }
 
-function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: string; onAdded: () => Promise<void> }) {
+function AddLineFormFor({ store, docId, categories, costs, canCreate, onAdded }: {
+  store: StoreRef;
+  docId: string;
+  categories: readonly CategoryRow[];
+  costs: boolean;
+  /** can('item.create'): «أوّل يوم» يضيف المادّة من الورقة نفسها بدل أن يقف قدّام بحث صامت. */
+  canCreate: boolean;
+  onAdded: () => Promise<void>;
+}) {
   const id = useId();
   const [item, setItem] = useState<ItemRow | null>(null);
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
@@ -293,6 +305,7 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   const [born, setBorn] = useState('');
   // معرّف السطر يولد بالجهاز (مراجعة WP8): الإعادة بعد جواب ضاع 23505 = انكتب، مو سطر ثاني يضاعف الكمية والقيمة.
   const [lineId, setLineId] = useState(() => crypto.randomUUID());
+  const [creating, setCreating] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const admits = useCallback((row: ItemRow) => itemAdmissible(store.kind, row.kind), [store.kind]);
@@ -375,7 +388,29 @@ function AddLineFormFor({ store, docId, onAdded }: { store: StoreRef; docId: str
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
+      <ItemPicker
+        id={`${id}-item`}
+        label={t('stock.col.item', 'المادّة')}
+        value={item}
+        onChange={pickItem}
+        filter={admits}
+        onCreate={canCreate ? setCreating : undefined}
+        excluded={(items) => notAdmittedHere(items, [store])}
+      />
+      {creating !== null ? (
+        <AddItemDialog
+          categories={categories}
+          storeKind={store.kind}
+          kinds={ADMISSIBLE[store.kind]}
+          initialName={creating}
+          costs={costs}
+          onClose={() => setCreating(null)}
+          onSaved={(made) => {
+            setCreating(null);
+            pickItem(made);
+          }}
+        />
+      ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={units} value={qty} onChange={setQty} /> : <p className="text-sm text-ink-muted">{t('opening.qty.pick', 'اختر المادّة أوّلاً ثم اكتب كميتها.')}</p>}
         <MoneyInput id={`${id}-value`} label={t('opening.value', 'القيمة (دينار)')} value={value} onChange={setValue} whole={false} />

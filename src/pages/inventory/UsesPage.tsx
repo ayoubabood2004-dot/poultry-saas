@@ -33,7 +33,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { DayField, postingDay } from '../../components/ui/DayField';
-import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
+import { notAdmittedHere, canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الصرف لمصروف عام والإتلاف (الخطّة WP5، FOUNDATION ٣٠٥–٣٠٦، ٥٥٦، Q5، E31): الأمين ينشئ المسوّدة بمخزن بنطاقه وتصنيف مصروف،
 // والسطر يسحب بالترتيب (الصالح بس)، أو يسمّي دفعة منتهية فينتظر المدير («بانتظار موافقة المدير»)، والإتلاف للمدير بدفعة منتهية
@@ -180,7 +180,7 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} />
+      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={admits} excluded={(items) => notAdmittedHere(items, [store])} />
       {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ووجباتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={unitOptions(item, packs)} value={qty} onChange={setQty} /> : null}
       {item && lots && !destroy && item.tracksExpiry ? (

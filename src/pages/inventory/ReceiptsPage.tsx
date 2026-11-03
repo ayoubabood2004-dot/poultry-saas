@@ -20,6 +20,9 @@ import { localDay } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
 import { lineAmount, unitCost4 } from '../../domain/money';
 import { can } from '../../domain/permissions';
+import { itemKindLabel, warehouseKindLabel } from '../../lib/storeLabels';
+import { RECEIVING_KINDS } from '../../domain/stock';
+import type { ItemKind } from '../../domain/stores';
 import { receiptValuation, type ReceiptValuation } from '../../domain/receipt';
 import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
@@ -28,7 +31,7 @@ import { t } from '../../lib/i18n';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
-import type { ItemRow } from '../../lib/repo/inventory';
+import type { CategoryRow, ItemRow } from '../../lib/repo/inventory';
 import * as purchasing from '../../lib/repo/purchasing';
 import type { BoxPick, PartyPick, ReceiptAmounts, ReceiptBundle, ReceiptCharge, ReceiptDoc, ReceiptLine, ReceiptLineAmount, ReceiptPreview } from '../../lib/repo/purchasing';
 import { useSession } from '../../lib/session';
@@ -37,6 +40,7 @@ import { useLoad } from '../../lib/useLoad';
 import { divisionLabel } from '../../lib/roles';
 import { AmountField, dinarText, parseDinar } from './purchase-shared';
 import { PriceCorrectionPanel, ReceiptReturnsPanel } from './ReceiptPostedPanels';
+import { AddItemDialog } from './ItemCreate';
 import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, ItemPicker, loadItemUnits, PageFooter, qtyColumns, readTime, runWithRef, scopedStores, StoreSelect, storesOf, unitOptions, useCopyDraft, useDraftIds, VoidDocDialog, type CopyOrigin, type StoreRef, type VoidChoice } from './stock-shared';
 
 // الاستلام من المورّد (الخطّة WP6، FOUNDATION ٣٢٨–٣٣٤، ٥٥٠–٥٥١، ٧٦٨): الأمين يكتب المسوّدة بالكميات (مخزن بنطاقه يستلم من
@@ -45,7 +49,7 @@ import { canCopyDraft, codeUnitLabel, CopiedNotice, CopyDraftAction, copyNext, d
 // حيّ من src/domain/receipt.ts. المعاينة من الخادم (الدفعات بقيمها والقيود والصناديق)، والموافقة لكل سطر، والترحيل بمرجع ثابت ونسخة
 // المعاينة. والإلغاء بسببه وبجملة تسمّي ما يرجع، والطيّ بتأكيد يسمّي المسوّدة.
 
-const STORE_RECEIVES: Readonly<Record<string, readonly string[]>> = {
+const STORE_RECEIVES: Readonly<Record<string, readonly ItemKind[]>> = {
   raw: ['raw', 'additive', 'packaging'],
   feed: ['feed'],
   medicine: ['medicine', 'vaccine'],
@@ -55,7 +59,7 @@ const STORE_RECEIVES: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** أنواع المواد اللي يستلمها نوع المخزن من المورّد (FOUNDATION ٢٨٤–٢٨٦، مرآة receiving_kinds بـ0007)؛ الحقل وبيض المائدة لا شي. */
-export function receivableKinds(storeKind: string): readonly string[] {
+export function receivableKinds(storeKind: string): readonly ItemKind[] {
   return STORE_RECEIVES[storeKind] ?? [];
 }
 
@@ -74,6 +78,29 @@ export function purchaseUnitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: read
   return unitOptions(item, packs)
     .filter((option) => option.id === 'base' || option.id.startsWith('code:') || bought.has(option.id))
     .map((option) => (option.label.startsWith(t('unit.bag', 'كيس')) ? { ...option, forms: BAG_FORMS } : option));
+}
+
+/**
+ * جملة «موجودة لكنّها لا تصلح هنا» (كلمة المالك 2026-11-03): المادّة التي وجدها البحث ولا يستلمها مخزن الورقة — تسمّيها
+ * ونوعها ومخزن الورقة، ثمّ **أين تُستلم فعلاً**: مخازن المنشأة من الأنواع التي تستلم نوعها (RECEIVING_KINDS، مرآة
+ * private.receiving_kinds)، وإن لم يكن للمنشأة مخزن منها قالت نوع المخزن المطلوب. بلا هذا كان الحقل يسكت.
+ */
+export function notReceivableHere(items: readonly ItemRow[], store: Pick<StoreRef, 'name'>, stores: readonly StoreRef[]): string {
+  const first = items[0];
+  if (!first) return '';
+  const kinds = RECEIVING_KINDS[first.kind] ?? [];
+  const places = stores.filter((row) => !row.archived && kinds.includes(row.kind)).map((row) => row.name);
+  const where = places.length
+    ? t('receipt.not_here.stores', 'تُستلم في: {stores}.', { stores: places.join(t('list.separator', '، ')) })
+    : kinds.length
+      ? t('receipt.not_here.kind', 'تُستلم في مخزن من نوع «{kind}»، وليس لمنشأتك مخزن منه بعد.', { kind: warehouseKindLabel(kinds[0]!) })
+      : t('receipt.not_here.never', 'هذا النوع لا يُشترى من مورّد.');
+  return t('receipt.not_here.detail', '«{item}» نوعها «{kind}»، و«{store}» لا يستلمها. {where}', {
+    item: first.name,
+    kind: itemKindLabel(first.kind),
+    store: store.name,
+    where,
+  });
 }
 
 const ITEM_FORMS = { one: t('receipt.items.one', 'مادّة واحدة'), two: t('receipt.items.two', 'مادّتان'), few: t('receipt.items.few', 'مواد'), many: t('receipt.items.many', 'مادّة') };
@@ -262,7 +289,16 @@ export function ReceiptLinesTable({ lines, values, totals, onDelete }: { lines: 
  * هنا: مَن يكتب المبالغ (receipt.amounts) يكتب سعر الوحدة مع الكمية، والمبلغ يُحسب لحظته بـlineAmount (دينار صحيح،
  * Q7) ويُعرض قبل الحفظ؛ والحفظ سطرٌ ثمّ مبلغه (كتابتان مثل اليوم: السطر بلا مبلغ حالة معروفة، ولوحة المبالغ تكمّلها).
  */
-function AddReceiptLine({ doc, store, canPrice, onAdded }: { doc: ReceiptDoc; store: StoreRef; canPrice: boolean; onAdded: () => void }) {
+function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, onAdded }: {
+  doc: ReceiptDoc;
+  store: StoreRef;
+  stores: readonly StoreRef[];
+  categories: readonly CategoryRow[];
+  canPrice: boolean;
+  /** can('item.create'): الأمين يملكه بـ0013، فيضيف المادّة من الورقة نفسها بدل أن يقف. */
+  canCreate: boolean;
+  onAdded: () => void;
+}) {
   const id = useId();
   const [item, setItem] = useState<ItemRow | null>(null);
   const [packs, setPacks] = useState<readonly inventory.ItemUnitRow[] | null>(null);
@@ -273,6 +309,7 @@ function AddReceiptLine({ doc, store, canPrice, onAdded }: { doc: ReceiptDoc; st
   const [bornAt, setBornAt] = useState('');
   const [lotNo, setLotNo] = useState('');
   const [price, setPrice] = useState('');
+  const [creating, setCreating] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const kinds = receivableKinds(store.kind);
@@ -362,7 +399,29 @@ function AddReceiptLine({ doc, store, canPrice, onAdded }: { doc: ReceiptDoc; st
   const lineTotal = canPrice && livePrice !== null && livePrice > 0n && liveQty !== null && liveQty > 0n ? lineAmount(liveQty, livePrice) : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
-      <ItemPicker id={`${id}-item`} label={t('stock.col.item', 'المادّة')} value={item} onChange={pickItem} filter={receivable} />
+      <ItemPicker
+        id={`${id}-item`}
+        label={t('stock.col.item', 'المادّة')}
+        value={item}
+        onChange={pickItem}
+        filter={receivable}
+        onCreate={canCreate ? setCreating : undefined}
+        excluded={(items) => notReceivableHere(items, store, stores)}
+      />
+      {creating !== null ? (
+        <AddItemDialog
+          categories={categories}
+          storeKind={store.kind}
+          kinds={kinds}
+          initialName={creating}
+          costs={canPrice}
+          onClose={() => setCreating(null)}
+          onSaved={(made) => {
+            setCreating(null);
+            pickItem(made);
+          }}
+        />
+      ) : null}
       {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ووجباتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={purchaseUnitOptions(item, packs)} value={qty} onChange={setQty} /> : null}
       {item?.tracksExpiry ? <DayField id={`${id}-expiry`} label={t('receipt.line.expiry', 'تاريخ الانتهاء')} value={expiry} onChange={setExpiry} hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يحفظه المدير فقط.')} /> : null}
@@ -829,6 +888,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
     };
   }, [docId, canPrice, loadKey, tick]);
   const setup = useLoad(inventory.loadOrgSetup);
+  const canCreate = workspace ? can(workspace.role, 'item.create') : false;
   const loadBoxes = useCallback(() => (canPrice ? purchasing.listBoxes() : Promise.resolve(null)), [canPrice]);
   const boxes = useLoad(loadBoxes, `boxes#${canPrice}`);
   const [edits, setEdits] = useState<AmountEdits>(NO_AMOUNT_EDITS);
@@ -1014,7 +1074,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {current.voidReason ? <Notice tone="warning" title={t('receipt.voided', 'أُلغي هذا الاستلام')}>{current.voidReason}</Notice> : null}
       {draft && canDraft ? <DraftDayField day={current.onDate} save={(day) => purchasing.updateReceiptDraft(current, { day })} onSaved={refresh} /> : null}
       <ReceiptLinesTable lines={bundle.lines} values={live ? live.values : null} totals={totals} onDelete={draft && canDraft ? setLineToDelete : null} />
-      {draft && canDraft && store ? <AddReceiptLine doc={current} store={store} canPrice={canPrice} onAdded={refresh} /> : null}
+      {draft && canDraft && store ? (
+        <AddReceiptLine doc={current} store={store} stores={storesOf(setup.data)} categories={setup.data?.itemCategories ?? []} canPrice={canPrice} canCreate={canCreate} onAdded={refresh} />
+      ) : null}
       {current.status !== 'draft' && (canDraft || canPrice) ? <ReceiptReturnsPanel receipt={current} canDraft={canDraft} /> : null}
       {current.status === 'posted' && canRevalue && totals ? <PriceCorrectionPanel receipt={current} lines={bundle.lines} totals={totals} /> : null}
       {draft && canPrice && boxes.error ? <LoadFailed what={t('cash.boxes.what', 'قائمة الصناديق')} error={boxes.error} onRetry={boxes.retry} /> : null}

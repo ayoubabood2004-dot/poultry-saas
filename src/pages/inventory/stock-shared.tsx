@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus, Plus, type LucideIcon } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { DayField, postingDay } from '../../components/ui/DayField';
@@ -17,6 +17,8 @@ import { can, type Action, type Role } from '../../domain/permissions';
 import { inScope } from '../../domain/scope';
 import type { Workspace } from '../../domain/workspace';
 import { normalizeCode, searchable } from '../../domain/normalize';
+import { itemAdmissible } from '../../domain/stock';
+import type { WarehouseKind } from '../../domain/stores';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { fmtDay, fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -25,7 +27,7 @@ import * as inventory from '../../lib/repo/inventory';
 import { sessionStore } from '../../lib/session';
 import type { DocStatus, ItemRow, OrgSetup, StockRef, WarehouseRow } from '../../lib/repo/inventory';
 import { divisionLabel } from '../../lib/roles';
-import { baseUnitLabel, warehouseKindLabel } from '../../lib/storeLabels';
+import { baseUnitLabel, itemKindLabel, warehouseKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 
 // أدوات شاشات المخزون (المرحلة 1 WP4): المخازن بنطاق المستخدم (مرآة in_scope_wh)، ومنتقي المادّة بالبحث والرمز (E54: ماسح
@@ -178,11 +180,43 @@ export async function loadItemUnits(itemId: string, online: boolean): Promise<re
   return rows;
 }
 
-/** منتقي المادّة: البحث بالاسم المطبَّع والرمز، وEnter بعد رمز ماسح يختار المطابقة الوحيدة (E54). بلا نت (offline) بالمحفوظ. */
-export function ItemPicker({ id, label, value, onChange, filter, offline = false }: { id: string; label: string; value: ItemRow | null; onChange: (item: ItemRow | null) => void; filter?: (item: ItemRow) => boolean; offline?: boolean }) {
+/**
+ * جملة «موجودة لكنّها لا تصلح هنا» للحركات داخل المخازن (التحويل والصرف والجرد والافتتاح): المخزن لا يحفظ نوع هذه
+ * المادّة أصلاً (ADMISSIBLE، مرآة private.item_admissible). بطرفين (التحويل) تسمّي الطرف الرافض لا أيّ طرف.
+ */
+export function notAdmittedHere(items: readonly ItemRow[], stores: readonly { name: string; kind: WarehouseKind }[]): string {
+  const first = items[0];
+  if (!first) return '';
+  const blocking = stores.find((store) => !itemAdmissible(store.kind, first.kind)) ?? stores[0];
+  if (!blocking) return '';
+  return t('stock.item.not_admitted', '«{item}» نوعها «{kind}»، و«{store}» لا يحفظ هذا النوع. افتح الورقة على مخزنها.', {
+    item: first.name,
+    kind: itemKindLabel(first.kind),
+    store: blocking.name,
+  });
+}
+
+/**
+ * منتقي المادّة: البحث بالاسم المطبَّع والرمز، وEnter بعد رمز ماسح يختار المطابقة الوحيدة (E54). بلا نت (offline) بالمحفوظ.
+ * وبحثٌ بلا نتيجة **لا يسكت** (كلمة المالك 2026-11-03: «لما اجي اكتب ما يصير اي شيء ولا اكدر اكملها»): ثلاث حالات —
+ * مطابقات تُعرض، أو «لا مادّة بهذا الاسم» ومعها «أضفها الآن» حيث يصحّ، أو «موجودة لكنّها لا تصلح هنا» وتقول أين مكانها.
+ * ولهذا يُحفظ ما وجده البحث **قبل** التصفية (all) لا بعدها: الفرق بين الحالتين هو كلّ الفرق في الرسالة.
+ */
+export function ItemPicker({ id, label, value, onChange, filter, offline = false, onCreate, excluded }: {
+  id: string;
+  label: string;
+  value: ItemRow | null;
+  onChange: (item: ItemRow | null) => void;
+  filter?: (item: ItemRow) => boolean;
+  offline?: boolean;
+  /** «أضف «س» الآن» لمّا البحث لا يجد شيئاً: يأخذ ما كُتب فلا يُكتب الاسم مرّتين. */
+  onCreate?: (name: string) => void;
+  /** جملة تقول لماذا لا تصلح المواد الموجودة هنا وأين مكانها (الشاشة تعرف سياقها: مخزن الورقة ونوعها). */
+  excluded?: (items: readonly ItemRow[]) => string;
+}) {
   const [text, setText] = useState('');
   const deferred = useDeferredValue(text.trim());
-  const [found, setFound] = useState<{ query: string; rows: ItemRow[]; error: unknown } | null>(null);
+  const [found, setFound] = useState<{ query: string; all: ItemRow[]; error: unknown } | null>(null);
   useEffect(() => {
     if (!deferred || offline) return;
     let cancelled = false;
@@ -190,17 +224,20 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
     inventory.listItems({ search: deferred }).then(
       (page) => {
         rememberItems(page.rows, owner);
-        if (!cancelled) setFound({ query: deferred, rows: page.rows.filter((row) => !row.archived && (!filter || filter(row))), error: null });
+        if (!cancelled) setFound({ query: deferred, all: page.rows.filter((row) => !row.archived), error: null });
       },
       (error: unknown) => {
-        if (!cancelled) setFound({ query: deferred, rows: [], error });
+        if (!cancelled) setFound({ query: deferred, all: [], error });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [deferred, filter, offline]);
-  const rows = offline ? seenItemsMatching(deferred).filter((row) => !filter || filter(row)) : found && found.query === deferred ? found.rows : [];
+  }, [deferred, offline]);
+  // جاهز = الجواب لهذا البحث بالضبط وصل (أو بلا نت فالمحفوظ جاهز دائماً): «لا مادّة» ما تنعرض والطلب طائر.
+  const ready = offline || (found !== null && found.query === deferred);
+  const all = offline ? seenItemsMatching(deferred) : ready && found ? found.all : [];
+  const rows = filter ? all.filter((row) => filter(row)) : all;
   const failed = !offline && found && found.query === deferred && found.error ? describeError(found.error, 'read') : null;
   if (value) {
     return (
@@ -241,6 +278,24 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
             </li>
           ))}
         </ul>
+      ) : deferred && ready && !failed ? (
+        <div className="mt-2 flex flex-col gap-2">
+          {all.length > 0 ? (
+            <Notice tone="warning" title={t('stock.item.not_here', 'موجودة، لكنّها لا تصلح في هذه الورقة')}>
+              {excluded ? excluded(all) : t('stock.item.not_here.detail', 'نوع هذه المادّة لا يُقبل في هذا المخزن.')}
+            </Notice>
+          ) : (
+            <Notice tone="info" title={t('stock.item.none', 'لا مادّة باسم «{name}»', { name: deferred })}>
+              {onCreate ? t('stock.item.none.add', 'راجع الاسم، أو أضفها الآن بالزرّ أدناه.') : t('stock.item.none.detail', 'راجع الاسم، أو أضفها من «كل المخازن».')}
+            </Notice>
+          )}
+          {onCreate && all.length === 0 ? (
+            <Button variant="secondary" onClick={() => onCreate(deferred)} data-action="new-item">
+              <Plus aria-hidden="true" className="size-4" />
+              {t('stock.item.create', 'أضف «{name}» الآن', { name: deferred })}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </Field>
   );

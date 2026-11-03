@@ -61,7 +61,8 @@ async function bundle() {
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
     "export { default as StockRoutes } from './src/pages/inventory/StockRoutes.tsx';",
-    "export { sectionsOf, sectionValue, suggestedKind } from './src/pages/inventory/WarehousePage.tsx';",
+    "export { sectionsOf, sectionValue } from './src/pages/inventory/WarehousePage.tsx';",
+    "export { suggestedKind, addItemFields } from './src/pages/inventory/ItemCreate.tsx';",
     "export { comparePrices, packQty, tabOf, cardParams } from './src/pages/inventory/ItemCardPage.tsx';",
     "export { searchable } from './src/domain/normalize.ts';",
   ].join('\n');
