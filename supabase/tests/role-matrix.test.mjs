@@ -36,7 +36,7 @@ export default async function (t, db) {
   const member = {};
   for (const [i, role] of ROLES.entries()) {
     if (role === 'owner') continue;
-    const scope = role === 'hall_worker' ? [broiler] : [];
+    const scope = role === 'hall_worker' ? [broiler] : role === 'mill_operator' ? [await division('feed_mill')] : [];
     member[role] = await db.asUser(USERS.owner, async (q) => (await q('select public.add_member($1, $2, $3, $4::uuid[]) as id', [local(phone(i + 1)), role, role, scope])).rows[0].id, { commit: true });
     await db.acceptInvite(USERS.owner, USERS[role], member[role]);
   }
@@ -327,6 +327,59 @@ export default async function (t, db) {
   const FLOCK_SCOPE = ['owner', 'manager', 'accountant', 'hall_worker'];
 
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
+  // 0015 (معمل العلف): خلطة مفعَّلة بسطر ذرة واحد لأساس 100 كغم، ونسخة مسوّدة ثانية وسطرها (للتفعيل والتعديل والحذف)،
+  // وخلطة بلا نسخ (لإدراج نسخة)، ومخزون ذرة بمخزن المواد الأوّلية، ودفعة مسوّدة (للمعاينة والختم والترحيل) ودفعة مرحَّلة
+  // (للبطاقة والإلغاء). كل خانة تنفَّذ بمعاملة تُرجَع، فالبذرة واحدة لكل الأدوار.
+  const p3 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const raw = await one("select id from public.warehouses where kind = 'raw'");
+      const feedStore = await one("select id from public.warehouses where kind = 'feed'");
+      const output = await one("insert into public.items (name, kind, base_unit) values ('علف المصفوفة', 'feed', 'kg') returning id");
+      const bran = await one("insert into public.items (name, kind, base_unit) values ('نخالة المصفوفة', 'raw', 'kg') returning id");
+      // مادّة المعمل لحالها: «ذرة صفراء» مال البذور لها حركات، ورصيد البداية يُرفض لمادّة متحرّكة (item_has_moves).
+      const corn = await one("insert into public.items (name, kind, base_unit) values ('ذرة المعمل', 'raw', 'kg') returning id");
+      const recipe = await one("insert into public.recipes (name, output_item_id) values ('خلطة المصفوفة', $1) returning id", [output]);
+      const spare = await one("insert into public.recipes (name, output_item_id) values ('خلطة بلا نسخ', $1) returning id", [output]);
+      const version = await one('insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100) returning id', [recipe]);
+      await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'kg')", [version, corn]);
+      await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+      const draftVersion = await one('insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100) returning id', [recipe]);
+      const draftLine = await one("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'kg') returning id", [draftVersion, corn]);
+      const opening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 500, 450000)', [opening, corn]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [opening]);
+      const draftBatch = await one('select gen_random_uuid()');
+      await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [draftBatch, version, raw, feedStore]);
+      const draftInput = await one('select id from public.production_inputs where batch_id = $1', [draftBatch]);
+      const postedBatch = await one('select gen_random_uuid()');
+      await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [postedBatch, version, raw, feedStore]);
+      await q("select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid())", [postedBatch]);
+      return {
+        raw,
+        feedStore,
+        output,
+        bran,
+        recipe,
+        spare,
+        version,
+        draftVersion,
+        draftVersionNo: await one('select version from public.recipe_versions where id = $1', [draftVersion]),
+        draftLine,
+        draftBatch,
+        draftInput,
+        draftBatchVersion: await one('select version from public.production_batches where id = $1', [draftBatch]),
+        postedBatch,
+      };
+    },
+    { commit: true },
+  );
+  const RECIPE = ['owner', 'manager'];
+  const MILL_DRAFT = ['owner', 'manager', 'mill_operator'];
+  const MILL_POST = ['owner', 'manager', 'accountant'];
+  const MILL_SCOPE = ['owner', 'manager', 'accountant', 'mill_operator'];
+
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
     add_member: { sql: () => ["select public.add_member($1, 'viewer', 'ضيف')", [local(phone(20))]], expect: only(['owner']) },
@@ -352,14 +405,14 @@ export default async function (t, db) {
     // المرحلة 1 (WP2، §2.12): التوائم لكل عضو (read)، والنطاق بالموقع والمخزن (الأمين مخزنه بس، وعامل القاعة وحدته بس)، ويوم
     // التشغيل للمدير (opening.post، Q1)، والنطاق الجديد للمالك بس (members.manage).
     find_item_twins: { sql: () => ["select jsonb_array_length(public.find_item_twins('ذره صفراء', '{}')) as v", []], value: true, expect: all('ok:1') },
-    in_scope_site: { sql: () => ['select public.in_scope_site($1) as v', [millSite]], value: true, expect: only(['owner', 'manager', 'accountant'], 'ok:true', 'ok:false') },
+    in_scope_site: { sql: () => ['select public.in_scope_site($1) as v', [millSite]], value: true, expect: only(['owner', 'manager', 'accountant', 'mill_operator'], 'ok:true', 'ok:false') },
     in_scope_wh: { sql: () => ['select public.in_scope_wh($1) as v', [generalStore]], value: true, expect: only(['owner', 'manager', 'accountant', 'storekeeper'], 'ok:true', 'ok:false') },
     set_division_go_live: { sql: () => ['select public.set_division_go_live($1, public.app_today() - 1)', [layer]], expect: only(['owner', 'manager']) },
     set_member_scopes_v2: { sql: () => ["select public.set_member_scopes_v2($1, array[$2]::uuid[], '{}', '{}')", [member.hall_worker, layer]], expect: only(['owner']) },
     // المرحلة 1 (WP3، §2.12): الافتتاح للمدير (opening.post)، والقبض والدفع والنقل والمعاينة للمحاسب والمدير (payment.post)، والتسوية
     // والإعفاء للمدير (party.adjust)، وكل إلغاء للمدير (void)، والتقارير لأدوار الحسابات (accounts.view ويّا can_see_accounts)،
     // والرئيسية لكل عضو وبطاقة الحسابات لأدوارها، والتوائم لمن يضيف جهة (party.create)، والدفتر بالنطاق (E49).
-    in_scope_book: { sql: () => ['select public.in_scope_book($1) as v', [millBook]], value: true, expect: only(ACCOUNTS, 'ok:true', 'ok:false') },
+    in_scope_book: { sql: () => ['select public.in_scope_book($1) as v', [millBook]], value: true, expect: only([...ACCOUNTS, 'mill_operator'], 'ok:true', 'ok:false') },
     record_opening_balance: { sql: () => ['select public.record_opening_balance(gen_random_uuid(), $1, $2, 100000, public.app_today() - 3, gen_random_uuid())', [ledger.fresh, millBook]], expect: only(['owner', 'manager']) },
     record_party_payment: { sql: () => ['select public.record_party_payment(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.debtor, millBook, ledger.box]], expect: only(ACCOUNTS) },
     pay_party: { sql: () => ['select public.pay_party(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.fresh, millBook, ledger.box]], expect: only(ACCOUNTS) },
@@ -444,6 +497,23 @@ export default async function (t, db) {
     // (دفعة جذر واحدة من استلام WP7 المرحّل)، والمخزن خارج النطاق out_of_scope؛ وبطاقات المخازن تنجح للكل،
     // ومن بلا نطاق (غير المالك والمدير والمحاسب) لا يرى بطاقة المخزن العامّ.
     item_purchases: { sql: () => ["select jsonb_array_length(public.item_purchases($1, $2, null, 50) -> 'rows') as v", [wp7.fuelA, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
+    // 0015 (معمل العلف): التفعيل للمالك والمدير (recipe.activate)، والتسويد لمشغّل المعمل بنطاقه (production.draft)، وختم
+    // الكلف للمحاسب والمدير (costs.load)، والترحيل لهم ولمشغّل المعمل بعد الختم (هنا بلا ختم: forbidden له)، والإلغاء للمالك
+    // والمدير (void)؛ والقرّاء: الخلطة للمنشأة كلّها، والدفعة بنطاق مخزن مدخلاتها.
+    activate_recipe_version: { sql: () => ["select public.activate_recipe_version($1, $2) ->> 'status' as v", [p3.draftVersion, p3.draftVersionNo]], value: true, expect: only(RECIPE, 'ok:active') },
+    create_production: { sql: () => ["select public.create_production(gen_random_uuid(), $1, 50, $2, $3, public.app_today()) ->> 'status' as v", [p3.version, p3.raw, p3.feedStore]], value: true, expect: only(MILL_DRAFT, 'ok:draft') },
+    confirm_production_costs: { sql: () => ["select public.confirm_production_costs($1, $2) ->> 'costs_confirmed' as v", [p3.draftBatch, p3.draftBatchVersion]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    post_production: {
+      sql: () => ["select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid()) ->> 'status' as v", [p3.draftBatch]],
+      value: true,
+      expect: { ...only(MILL_POST, 'ok:posted', 'out_of_scope'), mill_operator: 'forbidden' },
+    },
+    void_production: { sql: () => ["select public.void_production($1, 'خطأ في الوزن', gen_random_uuid()) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(RECIPE, 'ok:void') },
+    preview_production: { sql: () => ["select public.preview_production($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:posted', 'out_of_scope') },
+    production_detail: { sql: () => ["select public.production_detail($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:posted', 'out_of_scope') },
+    productions_overview: { sql: () => ["select public.productions_overview(null, 30) -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:true', 'ok:false') },
+    recipes_overview: { sql: () => ["select public.recipes_overview() -> 'recipes' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [p3.recipe]], value: true, expect: all('ok:true') },
+    recipe_detail: { sql: () => ['select public.recipe_detail($1, null) ->> $2 as v', [p3.recipe, 'name']], value: true, expect: all('ok:خلطة المصفوفة') },
     stores_overview: { sql: () => ["select public.stores_overview() -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [generalStore]], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
     // 0014 (سعر البيع): الكتابة لمن يدير المخازن ويرى الكلفة (المالك والمدير)؛ والنداء الثاني بنفس السعر يرجّعه نفسه
     // (المحفوظ = المطلوب ← انكتب، فلا price_changed لأنّ المصفوفة لا تراجع بين الأدوار).
@@ -696,6 +766,33 @@ export default async function (t, db) {
       insert: ['insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, 1)', [wp7.empty, wp7.receiptLine]],
       update: ['update public.supplier_return_lines set qty_base = qty_base where id = $1', [wp7.line]],
     },
+    // 0015: الخلطة ونسخها وسطورها بفعل recipe.activate (المنشأة كلّها)، ورأس الدفعة وسطرها بالتعديل وحده (الإدراج من
+    // create_production باللقطة) بفعل production.draft ونطاق مخزن مدخلاتها.
+    recipes: {
+      allowed: RECIPE,
+      insert: ["insert into public.recipes (name, output_item_id) values ('خلطة ثالثة', $1)", [p3.output]],
+      update: ['update public.recipes set note = note where id = $1', [p3.recipe]],
+    },
+    recipe_versions: {
+      allowed: RECIPE,
+      insert: ['insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100)', [p3.spare]],
+      update: ['update public.recipe_versions set note = note where id = $1', [p3.draftVersion]],
+    },
+    recipe_lines: {
+      allowed: RECIPE,
+      // حارس السطر (definer) يفحص recipe.activate قبل أن تُقيَّم سياسة الإدراج، فالرفض بالفعل لا بالسياسة.
+      insertDenied: 'forbidden',
+      insert: ["insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 10, 'kg')", [p3.draftVersion, p3.bran]],
+      update: ['update public.recipe_lines set qty = qty where id = $1', [p3.draftLine]],
+    },
+    production_batches: {
+      allowed: MILL_DRAFT,
+      update: ['update public.production_batches set note = note where id = $1', [p3.draftBatch]],
+    },
+    production_inputs: {
+      allowed: MILL_DRAFT,
+      update: ['update public.production_inputs set actual_qty_base = actual_qty_base where id = $1', [p3.draftInput]],
+    },
     // 0012: القاعة بفعل flock.manage ونطاق حقلها (in_scope_site)، مثل المخزن بنطاق موقعه.
     halls: {
       allowed: FLOCK_MANAGE,
@@ -714,7 +811,7 @@ export default async function (t, db) {
   // الفعل لكل أمر ({ insert, update }، الجهات من 0006) أو واحد للأمرين؛ والمسموح لكل أمر = can(فعله) بـpermissions.ts.
   const actionOf = (table, verb) => (typeof CLASSES.directWrite[table].action === 'string' ? CLASSES.directWrite[table].action : CLASSES.directWrite[table].action[verb]);
   for (const [table, row] of Object.entries(WRITES)) {
-    for (const verb of ['insert', 'update']) {
+    for (const verb of CLASSES.directWrite[table].privileges) {
       const allowed = row[`${verb}Allowed`] ?? row.allowed;
       t.same([...allowed].sort(), ROLES.filter((role) => role === 'owner' || can(role, actionOf(table, verb))).sort(), `${table}.${verb}: المسموح = can(${actionOf(table, verb)}) بـpermissions.ts`);
       const got = {};
@@ -732,5 +829,6 @@ export default async function (t, db) {
       t.same(got, expected, `${table}.${verb}: كل دور بنتيجته`);
     }
   }
-  t.eq(writeCells, Object.keys(WRITES).length * 2 * ROLES.length, `خانات الكتابة المباشرة: ${Object.keys(WRITES).length} جدول × إدخال وتعديل × ${ROLES.length} أدوار`);
+  const writeVerbs = Object.keys(WRITES).reduce((sum, table) => sum + CLASSES.directWrite[table].privileges.length, 0);
+  t.eq(writeCells, writeVerbs * ROLES.length, `خانات الكتابة المباشرة: ${writeVerbs} (جدول × أمر) × ${ROLES.length} أدوار`);
 }

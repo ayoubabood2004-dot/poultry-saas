@@ -339,6 +339,33 @@ export default async function (t, db) {
 
   // 0012: حقل لحم بقاعة وفوج مفتوح (1,000 طير)، وجولة يومه ووزن عيّنة، وجولة من الطابور أقدم من 7 أيام مركونة، فبكل جدول من جداول
   // الحقول صفوف للطرفين؛ والفوج لقارئه flock_detail.
+  // 0015: خلطة مفعَّلة (100 كغم ذرة لأساس 100 كغم) ودفعة إنتاج مرحَّلة (50 كغم) بمعمل كلّ منشأة، فبكلّ جدول من جداول المعمل
+  // صفوف للطرفين؛ والخلطة والدفعة لقارئيهما (recipe_detail وproduction_detail وpreview_production).
+  const millOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    millOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+        const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+        const corn = await value(q, "insert into public.items (name, kind, base_unit) values ('ذرة الخلطة', 'raw', 'kg') returning id");
+        const output = await value(q, "insert into public.items (name, kind, base_unit) values ('علف الخلطة', 'feed', 'kg') returning id");
+        const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
+        await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 90000)', [doc, corn]);
+        await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [doc]);
+        const recipe = await value(q, "insert into public.recipes (name, output_item_id) values ('خلطة الذرة', $1) returning id", [output]);
+        const version = await value(q, 'insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100) returning id', [recipe]);
+        await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'kg')", [version, corn]);
+        await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+        const batch = await value(q, 'select gen_random_uuid()');
+        await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [batch, version, raw, feedWh]);
+        await q("select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid())", [batch]);
+        return { recipe, version, batch };
+      },
+      { commit: true },
+    );
+  }
+
   const flocksOf = {};
   for (const [key, owner, broiler] of [['a', U.aOwner, aBroiler], ['b', U.bOwner, bBroiler]]) {
     flocksOf[key] = await db.asUser(
@@ -656,6 +683,11 @@ export default async function (t, db) {
     item_purchases: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel, stockOf[persona === U.bOwner ? 'b' : 'a'].general, null, 50],
     // 0012: الفوج بفوج كل مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
     flock_detail: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    // 0015: الخلطة والدفعة لكلّ منشأة، وقائمة الدفعات بلا مؤشّر.
+    recipe_detail: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].recipe, null],
+    production_detail: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].batch],
+    preview_production: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].batch],
+    productions_overview: () => [null, 30],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -688,6 +720,12 @@ export default async function (t, db) {
     // 0013: سجلّ الشراء لمن المخزن بنطاقه (العامل بحقول اللحم out_of_scope)، وبلا منشأة forbidden؛
     // وstores_overview بلا وسائط وبلا رفض: من لا نطاق له بطاقاته فارغة، وبلا منشأة جواب فارغ (مثل home_summary).
     item_purchases: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
+    // 0015: قرّاء المعمل لكلّ دور بمنشأة (read)، وبلا منشأة forbidden؛ وبطاقة الدفعة ومعاينتها بنطاق مخزن مدخلاتها.
+    recipes_overview: { [U.aSpare]: 'forbidden' },
+    recipe_detail: { [U.aSpare]: 'forbidden' },
+    productions_overview: { [U.aSpare]: 'forbidden' },
+    production_detail: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
+    preview_production: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

@@ -191,7 +191,7 @@ function resolveSpecifier(file, specifier) {
  * يقرون أدوات الشكل والكتابة من inventory (نفس الحزمة)، وinventory ما كان يكبر فوك سقف الألفي سطر. WP6: الاستلام (purchasing، E39)
  * بنفس الحزمة وبنفس القاعدة. المرحلة 2 (النسخة الأولى): القاعات والأفواج والجولة اليومية وناقل الطابور (flocks) بحزمة شاشات الحقول.
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

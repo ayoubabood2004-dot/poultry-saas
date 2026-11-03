@@ -37,6 +37,8 @@ export const EXCLUDED_BY_NAME = [
   { name: 'accounts-office', pattern: /^assets\/accounts-office-[\w-]+\.(js|css)$/ },
   // المرحلة 1 WP4: المخزون بمسار واحد (لوحات المخازن وبطاقة المادّة ومستندات الافتتاح والتحويل ورفّ مسوّدات الجهاز).
   { name: 'StockRoutes', pattern: /^assets\/StockRoutes-[\w-]+\.(js|css)$/ },
+  // 0015: المعمل بمسار واحد (الخلطات وبطاقة الخلطة ودفعة الإنتاج): الإنتاج يحتاج الخادم (سحب من دفعات ببصمة معاينة).
+  { name: 'MillRoutes', pattern: /^assets\/MillRoutes-[\w-]+\.(js|css)$/ },
 ];
 
 /** ملفات ما تنحسب بالتثبيت المسبق: الخدمة العاملة، والمستثناة بالاسم. */

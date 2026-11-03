@@ -254,7 +254,59 @@ const priceSeed = async (db) => {
 
 const PRICE_CONDITION = 'v_rows > 0 and';
 
+/**
+ * 0015: خلطة مفعَّلة (المدير): «علف بادئ 1» ناتجها مادّة علف، ونسختها الأولى سطر واحد ذرة 1,000 كغم لأساس 1,000 كغم.
+ * التراجع يُسقط جدول الخلطات فيمسح التشكيلة التي كتبها المالك بيده، فطريق الرفض يوقفه. والطفرة تُبقي فرع دفعات الإنتاج
+ * وحده: هذه البذرة بلا دفعة، فالتراجع يكمل ويمسح الخلطة بصمت.
+ */
+const recipeSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف بادئ', 'feed', 'kg') returning id");
+    const recipe = await value(q, "insert into public.recipes (name, output_item_id) values ('علف بادئ 1', $1) returning id", [feed]);
+    const version = await value(q, 'insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 1000) returning id', [recipe]);
+    await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 1000, 'kg')", [version, corn]);
+    await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+  }, { commit: true });
+};
+
+/**
+ * 0015: دفعة إنتاج مسوّدة بلقطة العليقة (بلا ترحيل): فرع الدفعات هو الذي يوقف التراجع هنا. ولا تصلح دفعة مرحَّلة بذرةً:
+ * دفعة ناتجها وحركاتها تبقى في المخزون بعد إسقاط الجداول، فالقيد المستعاد (stock_lots_source_kind_check بلا 'production')
+ * يرفض الملف حتّى بلا كتلة الرفض، فلا يُفحَص الحرّاس. والحقيقة أقوى: المرحَّلة توقفه بفرعها وبقيده سواء.
+ */
+const draftBatchSeed = async (db) => {
+  await recipeSeed(db);
+  await db.asUser(U.manager, async (q) => {
+    const mill = await value(q, "select id from public.divisions where kind = 'feed_mill'");
+    await q('select public.set_division_go_live($1, public.app_today() - 3)', [mill]);
+    const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+    const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+    const version = await value(q, "select id from public.recipe_versions where status = 'active'");
+    await q('select public.create_production($1, $2, 500, $3, $4, public.app_today())', [REF(22), version, raw, feedWh]);
+  }, { commit: true });
+};
+
+const MILL_CONDITION = 'v_recipes + v_versions > 0 or v_batches + v_moves + v_lots > 0';
+
 export const BLOCKING_SEEDS = {
+  15: [
+    {
+      name: 'خلطة مفعَّلة',
+      code: 'rollback_blocked',
+      seed: recipeSeed,
+      data: "select (select count(*) from public.recipes)::text || '/' || (select count(*) from public.recipe_versions)::text || '/' || (select count(*) from public.recipe_lines)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(MILL_CONDITION, 'v_batches + v_moves + v_lots > 0'),
+    },
+    {
+      name: 'دفعة إنتاج مسوّدة',
+      code: 'rollback_blocked',
+      seed: draftBatchSeed,
+      data: "select (select count(*) from public.production_batches)::text || '/' || (select count(*) from public.production_inputs)::text || '/' || (select count(*) from public.recipes)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(MILL_CONDITION, 'false'),
+    },
+  ],
   5: [
     {
       name: 'نطاق بموقع',
@@ -399,4 +451,5 @@ export const BLOCKING_REQUIRED = [
   [11, 1, 'استلام منسوخ بأصله يوقف التراجع'],
   [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
   [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
+  [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
 ];

@@ -18,6 +18,8 @@
     "party_allocations",
     "party_entries",
     "period_locks",
+    "production_input_values",
+    "production_values",
     "receipt_charge_lines",
     "receipt_charge_shares",
     "receipt_revaluations",
@@ -265,6 +267,34 @@
         ]
       }
     },
+    "production_batches": {
+      "privileges": [
+        "update"
+      ],
+      "action": "production.draft",
+      "draft": true,
+      "scope": "in_scope_wh(input_warehouse_id)",
+      "columns": {
+        "update": [
+          "produced_on",
+          "output_qty_kg",
+          "output_expiry_on",
+          "shrink_reason",
+          "note"
+        ]
+      }
+    },
+    "production_inputs": {
+      "privileges": [
+        "update"
+      ],
+      "action": "production.draft",
+      "columns": {
+        "update": [
+          "actual_qty_base"
+        ]
+      }
+    },
     "receipt_amounts": {
       "privileges": [
         "insert",
@@ -383,6 +413,67 @@
           "received_on",
           "note",
           "status"
+        ]
+      }
+    },
+    "recipe_lines": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "recipe.activate",
+      "columns": {
+        "insert": [
+          "id",
+          "version_id",
+          "item_id",
+          "qty",
+          "unit"
+        ],
+        "update": [
+          "item_id",
+          "qty",
+          "unit"
+        ]
+      }
+    },
+    "recipe_versions": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "recipe.activate",
+      "columns": {
+        "insert": [
+          "id",
+          "recipe_id",
+          "basis_kg",
+          "note"
+        ],
+        "update": [
+          "basis_kg",
+          "note"
+        ]
+      }
+    },
+    "recipes": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "recipe.activate",
+      "columns": {
+        "insert": [
+          "id",
+          "name",
+          "output_item_id",
+          "note"
+        ],
+        "update": [
+          "name",
+          "output_item_id",
+          "note",
+          "archived_at"
         ]
       }
     },
@@ -674,6 +765,8 @@
     "expenses",
     "item_prices",
     "opening_lines",
+    "production_input_values",
+    "production_values",
     "receipt_amounts",
     "receipt_charge_lines",
     "receipt_charge_shares",
@@ -708,8 +801,6 @@
       "hatch_candlings",
       "hatch_costs",
       "party_offsets",
-      "production_input_values",
-      "production_values",
       "sales_line_costs",
       "sales_line_sources",
       "sales_return_line_sources"
@@ -721,8 +812,6 @@
       "hatch_costs",
       "party_offsets",
       "production_costs",
-      "production_input_values",
-      "production_values",
       "sales_invoices",
       "sales_line_costs",
       "sales_line_sources",

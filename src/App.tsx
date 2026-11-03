@@ -8,7 +8,7 @@ import { SessionProvider, useSession } from './lib/session';
 
 // كل صفحة كسولة وتمرّ من page() حتى فشل تحميل حزمتها بعد نشر جديد يمرّ من التعافي.
 const HomePage = page(() => import('./pages/home/HomePage'));
-const MillPage = page(() => import('./pages/mill/MillPage'));
+const MillRoutes = page(() => import('./pages/mill/MillRoutes'));
 // حقول اللحم والبيض (المرحلة 2، النسخة الأولى): القاعات والأفواج والجولة اليومية بمساراتها الداخلية (pages/farm/FarmRoutes).
 const BroilerPage = page(() => import('./pages/broiler/BroilerPage'));
 const LayersPage = page(() => import('./pages/layers/LayersPage'));
@@ -53,7 +53,7 @@ function AppRoutes() {
       <Suspense fallback={<PageLoading />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/mill" element={<MillPage />} />
+          <Route path="/mill/*" element={<MillRoutes />} />
           <Route path="/broiler/*" element={<BroilerPage />} />
           <Route path="/layers/*" element={<LayersPage />} />
           <Route path="/hatchery" element={<HatcheryPage />} />
