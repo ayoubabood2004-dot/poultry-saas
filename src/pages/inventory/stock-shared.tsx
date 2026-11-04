@@ -286,7 +286,7 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
             </Notice>
           ) : (
             <Notice tone="info" title={t('stock.item.none', 'لا مادّة باسم «{name}»', { name: deferred })}>
-              {onCreate ? t('stock.item.none.add', 'راجع الاسم، أو أضفها الآن بالزرّ أدناه.') : t('stock.item.none.detail', 'راجع الاسم، أو أضفها من «كل المخازن».')}
+              {onCreate ? t('stock.item.none.add', 'راجع الاسم، أو أضفها الآن بالزرّ أدناه.') : t('stock.item.none.detail', 'راجع الاسم، أو أضفها من «المخزن» ثم «المواد».')}
             </Notice>
           )}
           {onCreate && all.length === 0 ? (
@@ -795,7 +795,12 @@ export function InventoryLinks({ role }: { role: Role | undefined }) {
   if (role && can(role, 'count.enter')) links.push({ to: '/inventory/counts', icon: ClipboardCheck, label: t('stock.counts', 'الجرد'), action: 'open-counts' });
   if (role && can(role, 'opening.post')) links.push({ to: '/inventory/openings', icon: ClipboardList, label: t('stock.openings', 'الرصيد عند البداية'), action: 'open-openings' });
   links.push({ to: '/inventory/items', icon: Boxes, label: t('items.title', 'المواد'), action: 'open-items' });
-  links.push({ to: '/settings/org', icon: Building2, label: t('org.title', 'إعدادات المنشأة'), action: 'open-org-settings' });
+  // كلمة المالك 2026-11-04: المخازن والمواقع وأحجام التعبئة والتصنيفات يتحكّم بها من داخل تبويب المخزن، مو من داخل
+  // الإعدادات؛ فالرابط هنا لـ/inventory/setup (ومن يملك stores.manage وحده، مثل شرط الخادم)، ومحلّ «إعدادات المنشأة»
+  // (يوم التشغيل وفئات المصاريف) بقي بشاشة الإعدادات.
+  // بلا شرط دور، مثل رابط إعدادات المنشأة قبله: الصفحة نفسها تحكم (أزرار الكتابة بـstores.manage،
+  // و«للقراءة فقط» لغيره)؛ والأمين والمحاسب يقرأان أحجام التعبئة والتصنيفات التي يختاران منها (مراجعة 2026-11-04).
+  links.push({ to: '/inventory/setup', icon: Building2, label: t('stores.setup.title', 'إعداد المخزن'), action: 'open-store-setup' });
   return (
     <nav className="flex flex-wrap gap-2" aria-label={t('stock.board.links', 'روابط المخزون')}>
       {links.map(({ to, icon: Icon, label, action }) => (

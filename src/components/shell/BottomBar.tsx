@@ -1,4 +1,4 @@
-import { ClipboardList, Factory, House, Menu, Warehouse } from 'lucide-react';
+import { ClipboardList, Factory, House, Menu } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { can } from '../../domain/permissions';
 import { t } from '../../lib/i18n';
@@ -7,7 +7,7 @@ import { useSession, type SessionState } from '../../lib/session';
 import { sound } from '../../lib/sound';
 
 // شريط سفلي بالهاتف (كلمة المالك 2026-11-02، «الاستخدام اليومي»): التنقّل اليومي بلمسة، بدل كل شي خلف زرّ القائمة. أربعة أو
-// خمسة بنود: الرئيسية، ثم الموجود من نطاق المستخدم (الجولة ← المخازن ← الحسابات، بحدّ أقصى ثلاثة)، وآخر بند «القائمة» يفتح
+// خمسة بنود: الرئيسية، ثم الموجود من نطاق المستخدم (الجولة ← المخزن ← الحسابات، بحدّ أقصى ثلاثة)، وآخر بند «القائمة» يفتح
 // الدرج نفسه (Sidebar/MobileDrawer) بكل الأقسام. حزمة كسولة تنحمّل بعد الإقلاع (برّا حزمة الإقلاع، هامشها بايتات): القشرة
 // تنادي البنود كسولةً مثل رافع الجولات (StatusChips/RoundQueue). وبالحاسبة (md:) الشريط الجانبي كما هو وهذا مخبّى.
 
@@ -19,7 +19,7 @@ export function bottomItems(session: SessionState): NavItem[] {
   const items = visibleNav(session);
   const pick = (to: string) => items.find((item) => item.to === to);
   const workspace = session.status === 'ready' ? session.workspace : null;
-  // الرئيسية ويّا ثلاثة بالأكثر (الجولة والمخازن والحسابات)، وبعدهم «القائمة» بالشريط نفسه.
+  // الرئيسية ويّا ثلاثة بالأكثر (الجولة والمخزن والحسابات)، وبعدهم «القائمة» بالشريط نفسه.
   const shown: NavItem[] = [pick('/') ?? { to: '/', label: t('nav.home', 'الرئيسية'), icon: House }];
   // الجولة اليومية: لمن يحفظ يوم الفوج وبنطاقه حقل، وتفتح جولة نوع حقله (اللحم أوّلاً).
   const saves = !workspace || can(workspace.role, 'flock_day.save');
@@ -28,9 +28,10 @@ export function bottomItems(session: SessionState): NavItem[] {
   // شغل اليوم لمن لا جولة له: مشغّل المعمل يفتح معمله بلمسة (0015)، ومن له جولة يبقى شريطه كما هو (الحدّ أربعة).
   const mill = !farm && (!workspace || can(workspace.role, 'production.draft')) ? pick('/mill') : undefined;
   if (mill) shown.push({ ...mill, label: t('nav.mill_short', 'المعمل'), icon: Factory });
-  // المخازن: «كل المخازن» لمن يراها، وإلا مخزن وحدته (مشغّل المعمل والمفقس).
-  const stores = pick('/inventory') ?? items.find((item) => item.to.startsWith('/inventory/'));
-  if (stores) shown.push({ ...stores, label: t('nav.stores', 'المخازن'), icon: Warehouse });
+  // «المخزن»: تبويب واحد وداخله كل مخازن النطاق (كلمة المالك 2026-11-04)، فما بقي بند لمخزن وحدة ينتقى بديلاً عنه —
+  // بنده بالشريط الجانبي اسمه «المخزن» وأيقونته Warehouse، فينضاف كما هو بلا اسم قصير له.
+  const stores = pick('/inventory');
+  if (stores) shown.push(stores);
   const accounts = pick('/accounts');
   if (accounts) shown.push(accounts);
   return shown;
@@ -48,7 +49,7 @@ export default function BottomBar({ onMenu }: { onMenu: () => void }) {
         <NavLink
           key={to}
           to={to}
-          end={to === '/' || to === '/inventory'}
+          end={to === '/'}
           onClick={() => sound.click()}
           className={({ isActive }) =>
             `flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-2xs font-medium transition-colors ${

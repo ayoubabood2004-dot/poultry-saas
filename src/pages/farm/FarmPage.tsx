@@ -271,7 +271,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
       {state.data?.savedAt ? <Notice tone="warning" title={t('farm.offline', 'بلا اتصال: هذه آخر نسخة محفوظة على الجهاز.')} /> : null}
       {state.data && sites.length === 0 ? (
         <Notice tone="info" title={t('farm.no_sites', 'لا حقول في نطاقك بعد.')}>
-          {t('farm.no_sites.hint', 'يضيف المدير الحقل (موقعاً) من إعدادات المنشأة، ثم القاعات من هنا.')}
+          {t('farm.no_sites.hint', 'يضيف المدير الحقل (موقعاً) من «المخزن» ثم «إعداد المخزن»، ثم القاعات من هنا.')}
         </Notice>
       ) : null}
       {sites.map((site) => (

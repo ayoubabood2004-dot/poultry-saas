@@ -278,7 +278,7 @@ export default function WarehousePage() {
               </Button>
             ) : null}
             <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-stores">
-              {t('stores.back', 'كل المخازن')}
+              {t('stores.back', 'المخزن')}
             </Link>
           </div>
         }

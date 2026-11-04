@@ -19,7 +19,7 @@ function NavLinks({ items, compact, onNavigate }: { items: readonly NavItem[]; c
         <NavLink
           key={to}
           to={to}
-          end={to === '/' || to === '/inventory'}
+          end={to === '/'}
           title={compact ? label : undefined}
           onClick={() => {
             sound.click();

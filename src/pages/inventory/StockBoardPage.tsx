@@ -203,7 +203,7 @@ function boardTitle(division: DivisionKind | undefined): string {
   if (division === 'general') return t('nav.general', 'المخازن العامة');
   if (division === 'feed_mill') return t('stock.board.mill', 'مخازن معمل العلف');
   if (division === 'hatchery') return t('stock.board.hatchery', 'مخازن المفقس');
-  return t('nav.inventory', 'كل المخازن');
+  return t('nav.store', 'المخزن');
 }
 
 export default function StockBoardPage({ division }: { division?: DivisionKind }) {

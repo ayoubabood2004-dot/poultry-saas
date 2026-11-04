@@ -93,8 +93,11 @@ export function recoverFromStaleShell(): RecoveryState {
   return next;
 }
 
-/** كل صفحة كسولة تمرّ من هنا حتى فشل تحميل حزمتها يمرّ من التعافي. */
-export function page(load: () => Promise<{ default: ComponentType }>) {
+/**
+ * كل صفحة كسولة تمرّ من هنا حتى فشل تحميل حزمتها يمرّ من التعافي. وهي عامّة بخصائص الصفحة (P) حتى صفحة وحدة تُركّب على
+ * أكثر من مسار بخصائص مختلفة من نفس الاستيراد الكسول (مسار واحد = حزمة وحدة باسمها، مو حزمة ثالثة باسم جديد).
+ */
+export function page<P extends object>(load: () => Promise<{ default: ComponentType<P> }>) {
   return lazy(async () => {
     try {
       return await load();

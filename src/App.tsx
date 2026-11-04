@@ -22,7 +22,12 @@ const ReportsPage = page(() => import('./pages/reports/ReportsPage'));
 const StaffPage = page(() => import('./pages/staff/StaffPage'));
 const AccountPage = page(() => import('./pages/account/AccountPage'));
 const SettingsPage = page(() => import('./pages/settings/SettingsPage'));
+// «إعداد المخزن» و«إعدادات المنشأة» شاشة وحدة بأقسام مختلفة، من نفس الاستيراد الكسول: الحزمة وحدة باسمها القديم
+// (OrgSettingsPage، مستثناة من التثبيت المسبق بالاسم)، فما تنولد ثالثة باسم جديد يحرسه pwa-guard. والنصوص داخلها
+// (حزمة كسولة) مو هنا، حتى ما تثقل حزمة الإقلاع.
 const OrgSettingsPage = page(() => import('./pages/settings/OrgSettingsPage'));
+const STORE_SETUP_SECTIONS = ['places', 'packs', 'categories'] as const;
+const ORG_SECTIONS = ['go_live', 'expenses'] as const;
 const ItemsPage = page(() => import('./pages/inventory/ItemsPage'));
 const NotFoundPage = page(() => import('./pages/NotFoundPage'));
 // ما قبل المنشأة: برّا القشرة (بلا شريط أقسام).
@@ -58,6 +63,7 @@ function AppRoutes() {
           <Route path="/layers/*" element={<LayersPage />} />
           <Route path="/hatchery" element={<HatcheryPage />} />
           <Route path="/inventory/items" element={<ItemsPage />} />
+          <Route path="/inventory/setup" element={<OrgSettingsPage sections={STORE_SETUP_SECTIONS} />} />
           <Route path="/inventory/*" element={<StockRoutes />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/accounts/*" element={<AccountsRoutes />} />
@@ -65,7 +71,7 @@ function AppRoutes() {
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/settings/org" element={<OrgSettingsPage />} />
+          <Route path="/settings/org" element={<OrgSettingsPage sections={ORG_SECTIONS} />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>

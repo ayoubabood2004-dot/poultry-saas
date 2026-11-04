@@ -1,19 +1,4 @@
-import {
-  Bird,
-  Drumstick,
-  Egg,
-  Factory,
-  Fuel,
-  House,
-  Pill,
-  Settings,
-  UserRound,
-  Users,
-  Wallet,
-  Warehouse,
-  Wheat,
-  type LucideIcon,
-} from 'lucide-react';
+import { Drumstick, Egg, Factory, House, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import type { DivisionKind } from '../domain/divisions';
 import { canManageMembers, type Role } from '../domain/permissions';
 import type { Workspace } from '../domain/workspace';
@@ -32,23 +17,34 @@ export interface NavItem {
   visibleTo?: (workspace: Workspace) => boolean;
 }
 
-const STORE_ROLES: ReadonlySet<Role> = new Set<Role>(['owner', 'manager', 'storekeeper', 'accountant', 'viewer']);
+/**
+ * من يشوف تبويب «المخزن» (كلمة المالك 2026-11-04: تبويب واحد وداخله كل المخازن): أدوار المخزن والكلفة، ومعهم مشغّلا المعمل
+ * والمفقس بعد شطب بندي مخازنهما — بندهم الواحد يفتح مخازن نطاقهم. عامل القاعة برّاها (ما له مخزن). والرئيسية تتبعه ببطاقة
+ * «المخزن» (HomePage) حتى ما تختفي بطاقة أمين مخزن نطاقه وحدة وحدة (الأدوية مثلاً) بلا «العامّة».
+ */
+export const STORE_ROLES: ReadonlySet<Role> = new Set<Role>([
+  'owner',
+  'manager',
+  'storekeeper',
+  'accountant',
+  'viewer',
+  'mill_operator',
+  'hatchery_operator',
+]);
 
 export function navItems(): NavItem[] {
   return [
     { to: '/', label: t('nav.home', 'الرئيسية'), icon: House },
-    // معمل العلف شغّال (0015، كلمة المالك 2026-11-03): خلطاته وإنتاجه ببنده، ومواده والعلف الجاهز بمخازنه. والمفقس الشغّال منه
-    // مخازنه بس (صفحته تخطيط). حقول اللحم والبيض شغّالة من
-    // المرحلة 2 (النسخة الأولى بكلمة المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المبيعات والتقارير صفحات تخطيط بلا شاشة
-    // شغّالة: مساراتها باقية وتنفتح بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية.
+    // تبويب واحد اسمه «المخزن» (كلمة المالك 2026-11-04: «ما أريد هذه المخازن الجانبية بنوداً… أريد تبويباً واحداً وداخله
+    // المخازن الجانبية»): بند `/inventory` وحده، وداخله بطاقة لكل مخزن بنطاق المستخدم ومعها التحكّم بها. فلا بنود للمخازن
+    // بالوحدات (المعمل والمفقس والأدوية والعامّة): لوحاتها تبقى تنفتح بالرابط بس (StockRoutes). ومعمل العلف شغّال (0015،
+    // كلمة المالك 2026-11-03) ببنده: خلطاته وإنتاجه، لا مخازنه. وحقول اللحم والبيض شغّالة من المرحلة 2 (النسخة الأولى بكلمة
+    // المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المفقس والمبيعات والتقارير صفحات تخطيط بلا شاشة شغّالة: مساراتها
+    // باقية وتنفتح بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية.
     { to: '/broiler', label: t('nav.broiler', 'حقول اللحم'), icon: Drumstick, division: 'broiler' },
     { to: '/layers', label: t('nav.layers', 'حقول البيض'), icon: Egg, division: 'layer' },
     { to: '/mill', label: t('nav.mill', 'معمل العلف'), icon: Factory, division: 'feed_mill' },
-    { to: '/inventory/mill', label: t('nav.mill_stores', 'مخازن المعمل'), icon: Wheat, division: 'feed_mill' },
-    { to: '/inventory/hatchery', label: t('nav.hatchery_stores', 'مخازن المفقس'), icon: Bird, division: 'hatchery' },
-    { to: '/inventory/medicine', label: t('nav.medicine', 'مخزن الأدوية'), icon: Pill, division: 'medicine' },
-    { to: '/inventory/general', label: t('nav.general', 'المخازن العامة'), icon: Fuel, division: 'general' },
-    { to: '/inventory', label: t('nav.inventory', 'كل المخازن'), icon: Warehouse, visibleTo: (w) => STORE_ROLES.has(w.role) },
+    { to: '/inventory', label: t('nav.store', 'المخزن'), icon: Warehouse, visibleTo: (w) => STORE_ROLES.has(w.role) },
     { to: '/accounts', label: t('nav.accounts', 'الحسابات'), icon: Wallet, visibleTo: (w) => w.canSeeAccounts },
     { to: '/staff', label: t('nav.staff', 'الموظفون'), icon: Users, visibleTo: (w) => canManageMembers(w.role) },
     { to: '/account', label: t('nav.account', 'حسابي'), icon: UserRound },

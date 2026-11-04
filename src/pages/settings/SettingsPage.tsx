@@ -73,7 +73,7 @@ export default function SettingsPage() {
       <Link to="/settings/org" className="card flex items-center justify-between gap-3 p-5 hover:bg-surface-2" data-action="open-org-settings">
         <span className="flex flex-col gap-0.5">
           <span className="font-semibold">{t('org.title', 'إعدادات المنشأة')}</span>
-          <span className="text-sm text-ink-muted">{t('settings.org.detail', 'لكل أجهزة المنشأة: يوم تشغيل الوحدات، والمواقع والمخازن، وأحجام التعبئة، والتصنيفات.')}</span>
+          <span className="text-sm text-ink-muted">{t('settings.org.detail', 'لكل أجهزة المنشأة: يوم تشغيل الوحدات وفئات المصاريف. والمواقع والمخازن وأحجام التعبئة والتصنيفات مع المخازن، لمن يديرها.')}</span>
         </span>
         <Building2 aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
       </Link>

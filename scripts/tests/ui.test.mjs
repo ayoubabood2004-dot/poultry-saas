@@ -395,30 +395,46 @@ export default async function (t) {
     t.ok(eggs.includes('5 طبقات + 5 بيضات'), 'المعدود 3–10 جمع: «5 طبقات + 5 بيضات»');
     const few = render({ layer: { eggsToday: 0, hdepPercent: null, traysInStore: 32_000n } });
     t.ok(few.includes('طبقة واحدة + بيضتان'), 'الواحد والاثنان كلمة: «طبقة واحدة + بيضتان» مو «1 طبقة + 2 بيضة»');
-    // E22: «تحت الحدّ الأدنى» على بطاقة كل وحدة تستلم المادّة من المورّد (المعمل والأدوية والعامّة والمفقس).
-    const low = render({ millBelowMinimum: 4, medicine: { nearExpiry: 0, belowMinimum: 1 }, general: { belowMinimum: 3 }, hatcheryBelowMinimum: 2 });
-    const lowOf = (key) => {
-      const card = m.cardSpecs({ millBelowMinimum: 4, medicine: { nearExpiry: 0, belowMinimum: 1 }, general: { belowMinimum: 3 }, hatcheryBelowMinimum: 2 }).find((spec) => spec.key === key);
-      return card?.metrics.find((metric) => metric.label === 'تحت الحدّ الأدنى')?.value ?? null;
+    // E22 بعد كلمة المالك 2026-11-04 (تبويب «المخزن» واحد وداخله المخازن): «تحت الحدّ الأدنى» بقي على بطاقة المعمل وحدها،
+    // وبطاقة «المخزن» الواحدة تحمل رقمَي الخادم كما هما (الأدوية قريب الانتهاء، وأفراخ المفقس): جمعه عبر الوحدات حساب
+    // بالشاشة، وشارته على بطاقة كل مخزن داخل التبويب.
+    const SUMMARY_LOW = { millBelowMinimum: 4, medicine: { nearExpiry: 6, belowMinimum: 1 }, general: { belowMinimum: 3 }, oldChicks: 2, hatcheryBelowMinimum: 2 };
+    const metricOf = (key, label) => {
+      const card = m.cardSpecs(SUMMARY_LOW).find((spec) => spec.key === key);
+      return card?.metrics.find((metric) => metric.label === label)?.value ?? null;
     };
-    t.same(['feed_mill', 'medicine', 'general', 'hatchery'].map(lowOf), ['4', '1', '3', '2'], 'بطاقات المعمل والأدوية والعامّة والمفقس: «تحت الحدّ الأدنى» بعددها');
-    t.ok((low.match(/تحت الحدّ الأدنى/gu) ?? []).length === 4, 'أربع بطاقات بـ«تحت الحدّ الأدنى»');
+    t.eq(metricOf('feed_mill', 'تحت الحدّ الأدنى'), '4', 'بطاقة المعمل: «تحت الحدّ الأدنى» بعددها');
+    t.same([metricOf('general', 'الأدوية — قريب الانتهاء'), metricOf('general', 'المفقس — أفراخ فاتها 48 ساعة')], ['6', '2'], 'بطاقة «المخزن»: رقما الخادم كما هما');
+    t.eq(m.cardSpecs(SUMMARY_LOW).filter((spec) => spec.to.startsWith('/inventory')).length, 1, 'ما بقت بطاقة لكل مخزن: بطاقة واحدة تفتح التبويب');
+    t.same(
+      m.cardSpecs(SUMMARY_LOW).find((spec) => spec.key === 'general').metrics.map((metric) => [metric.label, metric.value]),
+      [['الأدوية — قريب الانتهاء', '6'], ['المفقس — أفراخ فاتها 48 ساعة', '2'], ['المخازن العامة — تحت الحدّ الأدنى', '3'], ['الأدوية — تحت الحدّ الأدنى', '1'], ['المفقس — تحت الحدّ الأدنى', '2']],
+      'بطاقة «المخزن»: سطر لكل وحدة وصلت من الخادم، كلّ واحد يسمّي مخزنه، بلا جمع بالشاشة',
+    );
+    t.same(
+      m.cardSpecs({ millBelowMinimum: 4 }).find((spec) => spec.key === 'general').metrics.map((metric) => [metric.label, metric.value]),
+      [['تحت الحدّ الأدنى', null]],
+      'نطاق بلا أدوية ولا مفقس ولا عامّة (مشغّل المعمل): سطر واحد بـ«—»، لا سطران فارغان',
+    );
+    t.same(['medicine', 'hatchery'].map((key) => m.cardSpecs(SUMMARY_LOW).some((spec) => spec.key === key)), [false, false], 'ولا بطاقة للأدوية ولا لمخازن المفقس: داخل التبويب');
     const none = render({ broiler: { activeFlocks: 0, deadToday: 0, ageDays: null }, hatchery: { batchesSetting: 0, chicksWaiting: 0, nextHatchInDays: null } });
     t.ok(/الأعمار<\/dt><dd[^>]*>—<\/dd>/.test(none) && /أقرب إخراج<\/dt><dd[^>]*>—<\/dd>/.test(none), 'ماكو فوج أو وجبة: «—» مو صفر');
 
-    // الرئيسية بلا بطاقات وأرقام التخطيط: المعمل والمفقس بأرقام مخازنهما بس وتفتح مخازنهما؛ وحقول اللحم والبيض (المرحلة 2) بأرقام
-    // قراءة الحقول (farmCards)، و«—» قبلها.
+    // الرئيسية بلا بطاقات وأرقام التخطيط: المعمل بأرقام مخازنه ويفتح المعمل نفسه، والمخازن ببطاقة واحدة تفتح تبويب «المخزن»
+    // (كلمة المالك 2026-11-04)؛ وحقول اللحم والبيض (المرحلة 2) بأرقام قراءة الحقول (farmCards)، و«—» قبلها.
     const live = m.cardSpecs({});
-    t.same(live.map((spec) => spec.key), ['broiler', 'layer', 'feed_mill', 'hatchery', 'medicine', 'general', 'accounts'], 'بطاقات الرئيسية: حقول اللحم والبيض أوّلاً');
+    t.same(live.map((spec) => spec.key), ['broiler', 'layer', 'feed_mill', 'general', 'accounts'], 'بطاقات الرئيسية: حقول اللحم والبيض أوّلاً، وبطاقة مخازن واحدة');
     const farmOf = (key, farms) => m.cardSpecs({}, farms).find((spec) => spec.key === key).metrics.map((metric) => metric.value);
     t.same(farmOf('broiler', null), [null, null, null], 'حقول اللحم قبل القراءة: «—»');
     t.same(farmOf('layer', { broiler: { active: 0, live: 0, deadToday: 0 }, layer: { active: 2, eggsToday: null, liveStart: 0 } }), ['2', null, null], 'حقول البيض بلا بيض مسجّل اليوم: «—» مو صفر (القاعدة 32)');
     t.same(farmOf('layer', { broiler: { active: 1, live: 4_980, deadToday: 7 }, layer: { active: 2, eggsToday: 8_520, liveStart: 10_000 } }), ['2', '8,520', '85.20%'], 'حقول البيض: بيض اليوم ونسبة الإنتاج من الحيّ بداية اليوم');
     t.same(farmOf('broiler', { broiler: { active: 1, live: 4_980, deadToday: 7 }, layer: { active: 0, eggsToday: null, liveStart: 0 } }), ['1', '4,980', '7'], 'حقول اللحم: الأفواج والحيّ ونافق اليوم بفواصل');
     const liveOf = (key) => live.find((spec) => spec.key === key);
-    t.same([liveOf('feed_mill').to, liveOf('hatchery').to], ['/mill', '/inventory/hatchery'], 'بطاقة المعمل تفتح المعمل نفسه (0015) والمفقس مخازنه (صفحته تخطيط)');
+    t.same([liveOf('feed_mill').to, liveOf('general').to], ['/mill', '/inventory'], 'بطاقة المعمل تفتح المعمل نفسه (0015)، وبطاقة المخازن تفتح التبويب الواحد');
+    t.same(live.map((spec) => spec.to).filter((to) => to.startsWith('/inventory')), ['/inventory'], 'ولا بطاقة تفتح مخزن وحدة (/inventory/medicine و/inventory/general و/inventory/hatchery)');
+    t.eq(liveOf('general').title, 'المخزن', 'واسمها «المخزن» مثل بندها بالشريط');
     t.same(liveOf('feed_mill').metrics.map((metric) => metric.label), ['تحت الحدّ الأدنى'], 'المعمل: بلا إنتاج اليوم والعلف الجاهز');
-    t.same(liveOf('hatchery').metrics.map((metric) => metric.label), ['أفراخ فاتها 48 ساعة', 'تحت الحدّ الأدنى'], 'المفقس: بلا الوجبات وأقرب إخراج');
+    t.same(liveOf('general').metrics.map((metric) => [metric.label, metric.value]), [['تحت الحدّ الأدنى', null]], 'بطاقة «المخزن» قبل أيّ قراءة: سطر واحد بـnull («—» بالرسم)');
     t.eq(liveOf('accounts').metrics.length, 3, 'الحسابات كما هي');
     t.same(m.plannedCardSpecs({}).map((spec) => spec.to), ['/mill', '/broiler', '/layers', '/hatchery'], 'البطاقات المخطّطة لصفحات التخطيط بس');
 

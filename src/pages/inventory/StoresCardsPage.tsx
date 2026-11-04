@@ -160,8 +160,8 @@ function WarehouseDialog({ sites, onClose, onSaved }: { sites: readonly StoreSit
           <Notice tone="info" title={t('stores.site.first', 'أضف الموقع أوّلاً')}>
             <span className="flex flex-col gap-2">
               {t('stores.site.first.detail', 'المخزن يحتاج موقعاً فعّالاً في نطاقك (حقلاً أو معملاً أو مفقساً أو مخزناً).')}
-              <Link to="/settings/org" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-org-sites">
-                {t('stores.site.first.link', 'افتح إعدادات المنشأة وأضف موقعاً')}
+              <Link to="/inventory/setup" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-org-sites">
+                {t('stores.site.first.link', 'افتح إعداد المخزن وأضف موقعاً')}
               </Link>
             </span>
           </Notice>
@@ -231,7 +231,7 @@ export default function StoresCardsPage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={t('nav.inventory', 'كل المخازن')}
+        title={t('nav.store', 'المخزن')}
         subtitle={t('stores.subtitle', 'افتح المخزن لترى مواده في أقسام بالتصنيف، وأسعار بيعها وربحها المتوقّع.')}
         actions={
           <div className="flex flex-col gap-2">

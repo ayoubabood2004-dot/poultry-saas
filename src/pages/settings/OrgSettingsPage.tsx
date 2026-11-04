@@ -30,6 +30,9 @@ import { useLoad } from '../../lib/useLoad';
 // التعبئة، وتصنيفات المواد وفئات المصاريف (النظامية للقراءة). الصلاحية من الدور (Q1): المخازن والأحجام والتصنيفات
 // stores.manage، وفئات المصاريف expense_categories.manage، ويوم التشغيل opening.post؛ والحكم بالقاعدة. ماكو حذف: الأرشفة
 // بتأكيد يسمّي السجلّ ونتيجته، والإعادة بنفس المعرّف.
+// كلمة المالك 2026-11-04: المخازن يتحكّم بها من داخل تبويب المخزن، مو من داخل الإعدادات. فالشاشة نفسها تخدم مسارين
+// بخاصيّة sections (حزمة وحدة، App.tsx): «إعداد المخزن» (/inventory/setup) بالمواقع والمخازن وأحجام التعبئة وتصنيفات
+// المواد، و«إعدادات المنشأة» (/settings/org) بيوم التشغيل وفئات المصاريف وحدهما.
 
 type Renamable = 'sites' | 'warehouses' | 'pack_types' | 'item_categories' | 'expense_categories';
 
@@ -43,6 +46,14 @@ type DialogState =
   | { kind: 'expense' }
   | { kind: 'rename'; table: Renamable; id: string; version: number; name: string }
   | { kind: 'archive'; table: MasterTable; id: string; version: number; name: string; archived: boolean; consequence: string };
+
+/** أقسام الشاشة: كل مسار يعرض ما يخصّه، والترتيب ثابت هنا لا بترتيب المصفوفة. */
+export type SetupSection = 'go_live' | 'places' | 'packs' | 'categories' | 'expenses';
+
+const ALL_SECTIONS: readonly SetupSection[] = ['go_live', 'places', 'packs', 'categories', 'expenses'];
+
+/** أقسام المخزن: من يملك stores.manage يكتب فيها، وغيره يقرا. */
+const STORE_SECTIONS: readonly SetupSection[] = ['places', 'packs', 'categories'];
 
 const order = (kind: DivisionKind) => DIVISION_ORDER.indexOf(kind);
 
@@ -295,14 +306,18 @@ export function SetupTables({
   setup,
   permissions,
   allowed = () => true,
+  sections = ALL_SECTIONS,
   onOpen,
 }: {
   setup: OrgSetup;
   permissions: { stores: boolean; expenses: boolean; goLive: boolean };
   /** الشي بنطاق الداخل (inScope، مرآة in_scope_division وin_scope_site وin_scope_wh): أزرار الكتابة عليه بس. */
   allowed?: (target: ScopeTarget) => boolean;
+  /** الأقسام المعروضة؛ بلاها الخمسة كلها بترتيبها. */
+  sections?: readonly SetupSection[];
   onOpen: (state: DialogState) => void;
 }) {
+  const show = (section: SetupSection) => sections.includes(section);
   const archive = (table: MasterTable, row: { id: string; version: number; archived: boolean }, name: string, consequence: string) =>
     onOpen({ kind: 'archive', table, id: row.id, version: row.version, name, archived: row.archived, consequence });
   const divisions = [...setup.divisions].sort((a, b) => order(a.kind) - order(b.kind));
@@ -423,40 +438,61 @@ export function SetupTables({
     ) : undefined;
   return (
     <div className="flex flex-col gap-6">
-      <Section title={t('org.divisions', 'الوحدات ويوم تشغيلها')}>
-        <DataTable caption={t('org.divisions', 'الوحدات ويوم تشغيلها')} columns={goLive} rows={divisions} rowKey={(division) => division.id} empty={t('org.empty', 'لا شيء بعد.')} />
-      </Section>
-      <Section
-        title={t('org.places', 'المواقع والمخازن')}
-        action={
-          <div className="flex gap-2">
-            {add({ kind: 'site' }, t('org.site.new', 'موقع جديد'), 'new-site', permissions.stores)}
-            {add({ kind: 'warehouse' }, t('org.warehouse.new', 'مخزن جديد'), 'new-warehouse', permissions.stores)}
-          </div>
-        }
-      >
-        <DataTable caption={t('org.places', 'المواقع والمخازن')} columns={places} rows={placeRows(setup)} rowKey={(row) => row.store?.id ?? row.site.id} empty={t('org.empty', 'لا شيء بعد.')} />
-      </Section>
-      <Section title={t('org.packs', 'أحجام التعبئة')} action={add({ kind: 'pack' }, t('org.pack.new', 'حجم تعبئة جديد'), 'new-pack', permissions.stores)}>
-        <DataTable caption={t('org.packs', 'أحجام التعبئة')} columns={packs} rows={setup.packTypes} rowKey={(pack) => pack.id} empty={t('org.empty', 'لا شيء بعد.')} />
-      </Section>
-      <Section title={t('org.categories', 'تصنيفات المواد')} action={add({ kind: 'category' }, t('org.category.new', 'تصنيف مواد جديد'), 'new-category', permissions.stores)}>
-        <DataTable caption={t('org.categories', 'تصنيفات المواد')} columns={named<CategoryRow>('item_categories', permissions.stores, () => false)} rows={setup.itemCategories} rowKey={(row) => row.id} empty={t('org.empty', 'لا شيء بعد.')} />
-      </Section>
-      <Section title={t('org.expenses', 'فئات المصاريف')} action={add({ kind: 'expense' }, t('org.expense.new', 'فئة مصروف جديدة'), 'new-expense', permissions.expenses)}>
-        <DataTable
-          caption={t('org.expenses', 'فئات المصاريف')}
-          columns={named<ExpenseCategoryRow>('expense_categories', permissions.expenses, (row) => row.systemCode !== null)}
-          rows={setup.expenseCategories}
-          rowKey={(row) => row.id}
-          empty={t('org.empty', 'لا شيء بعد.')}
-        />
-      </Section>
+      {show('go_live') ? (
+        <Section title={t('org.divisions', 'الوحدات ويوم تشغيلها')}>
+          <DataTable caption={t('org.divisions', 'الوحدات ويوم تشغيلها')} columns={goLive} rows={divisions} rowKey={(division) => division.id} empty={t('org.empty', 'لا شيء بعد.')} />
+        </Section>
+      ) : null}
+      {show('places') ? (
+        <Section
+          title={t('org.places', 'المواقع والمخازن')}
+          action={
+            <div className="flex gap-2">
+              {add({ kind: 'site' }, t('org.site.new', 'موقع جديد'), 'new-site', permissions.stores)}
+              {add({ kind: 'warehouse' }, t('org.warehouse.new', 'مخزن جديد'), 'new-warehouse', permissions.stores)}
+            </div>
+          }
+        >
+          <DataTable caption={t('org.places', 'المواقع والمخازن')} columns={places} rows={placeRows(setup)} rowKey={(row) => row.store?.id ?? row.site.id} empty={t('org.empty', 'لا شيء بعد.')} />
+        </Section>
+      ) : null}
+      {show('packs') ? (
+        <Section title={t('org.packs', 'أحجام التعبئة')} action={add({ kind: 'pack' }, t('org.pack.new', 'حجم تعبئة جديد'), 'new-pack', permissions.stores)}>
+          <DataTable caption={t('org.packs', 'أحجام التعبئة')} columns={packs} rows={setup.packTypes} rowKey={(pack) => pack.id} empty={t('org.empty', 'لا شيء بعد.')} />
+        </Section>
+      ) : null}
+      {show('categories') ? (
+        <Section title={t('org.categories', 'تصنيفات المواد')} action={add({ kind: 'category' }, t('org.category.new', 'تصنيف مواد جديد'), 'new-category', permissions.stores)}>
+          <DataTable caption={t('org.categories', 'تصنيفات المواد')} columns={named<CategoryRow>('item_categories', permissions.stores, () => false)} rows={setup.itemCategories} rowKey={(row) => row.id} empty={t('org.empty', 'لا شيء بعد.')} />
+        </Section>
+      ) : null}
+      {show('expenses') ? (
+        <Section title={t('org.expenses', 'فئات المصاريف')} action={add({ kind: 'expense' }, t('org.expense.new', 'فئة مصروف جديدة'), 'new-expense', permissions.expenses)}>
+          <DataTable
+            caption={t('org.expenses', 'فئات المصاريف')}
+            columns={named<ExpenseCategoryRow>('expense_categories', permissions.expenses, (row) => row.systemCode !== null)}
+            rows={setup.expenseCategories}
+            rowKey={(row) => row.id}
+            empty={t('org.empty', 'لا شيء بعد.')}
+          />
+        </Section>
+      ) : null}
     </div>
   );
 }
 
-export default function OrgSettingsPage() {
+/**
+ * خصائص الشاشة: الأقسام المعروضة، والعنوان والوصف واسم الشي بالفشل. بلا عنوان أو وصف أو اسم تنحسب من الأقسام
+ * («إعداد المخزن» إن ماكو يوم تشغيل ولا فئات مصاريف، وإلا «إعدادات المنشأة»)، فالنصوص تبقى بالحزمة الكسولة لا بـApp.tsx.
+ */
+export interface SetupPageProps {
+  sections?: readonly SetupSection[];
+  title?: string;
+  subtitle?: string;
+  what?: string;
+}
+
+export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtitle, what }: SetupPageProps) {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
   const setup = useLoad(inventory.loadOrgSetup, workspace ? `${workspace.userId}:${workspace.orgId}` : 'none');
@@ -479,14 +515,35 @@ export default function OrgSettingsPage() {
     toast({ tone: 'danger', title, detail });
   };
 
-  const header = <PageHeader title={t('org.title', 'إعدادات المنشأة')} subtitle={t('org.subtitle', 'الوحدات ويوم تشغيلها، والمواقع والمخازن، وأحجام التعبئة، والتصنيفات.')} />;
+  // الأقسام المعروضة وحدها تحكم: «للقراءة فقط» تُقال لمن لا يكتب في أيّ قسم معروض (المخزن stores.manage، وفئات
+  // المصاريف expense_categories.manage، ويوم التشغيل opening.post). فالشرط على الثلاثة مجتمعة صار يخطئ بعد التقسيم:
+  // محاسب يفتح «إعداد المخزن» لا يملك stores.manage ولا بدّ أن تظهر له، وكان يخفيها عنه امتلاكه فئات المصاريف.
+  const storeSetup = !sections.includes('go_live') && !sections.includes('expenses');
+  const writable =
+    (sections.includes('go_live') && permissions.goLive) ||
+    (sections.includes('expenses') && permissions.expenses) ||
+    (STORE_SECTIONS.some((section) => sections.includes(section)) && permissions.stores);
+  const pageWhat = what ?? (storeSetup ? t('stores.setup.what', 'إعداد المخزن') : t('org.what', 'إعدادات المنشأة'));
+
+  const header = (
+    <PageHeader
+      title={title ?? (storeSetup ? t('stores.setup.title', 'إعداد المخزن') : t('org.title', 'إعدادات المنشأة'))}
+      subtitle={
+        subtitle ??
+        (storeSetup
+          ? t('stores.setup.subtitle', 'مواقع المنشأة ومخازنها، وأحجام التعبئة، وتصنيفات المواد. كلّها من هنا، لا من الإعدادات.')
+          : t('org.subtitle', 'يوم تشغيل الوحدات وفئات المصاريف. والمواقع والمخازن وأحجام التعبئة والتصنيفات مع المخازن، لمن يديرها.'))
+      }
+    />
+  );
   if (setup.error instanceof NotConnectedError) {
-    const { title, detail } = describeError(setup.error);
+    // بلا تظليل خاصيّة title: الرسالة شي والعنوان شي.
+    const offline = describeError(setup.error);
     return (
       <div className="flex flex-col gap-4">
         {header}
-        <Notice tone="info" title={title}>
-          {detail}
+        <Notice tone="info" title={offline.title}>
+          {offline.detail}
         </Notice>
       </div>
     );
@@ -494,15 +551,15 @@ export default function OrgSettingsPage() {
   return (
     <div className="flex flex-col gap-4">
       {header}
-      {!permissions.stores && !permissions.expenses && !permissions.goLive ? <Notice tone="info" title={t('org.readonly', 'للقراءة فقط: التعديل للمدير أو مالك المنشأة')} /> : null}
+      {writable ? null : <Notice tone="info" title={t('org.readonly', 'للقراءة فقط: التعديل للمدير أو مالك المنشأة')} />}
       {setup.error ? (
-        <LoadFailed what={t('org.what', 'إعدادات المنشأة')} error={setup.error} onRetry={setup.retry} />
+        <LoadFailed what={pageWhat} error={setup.error} onRetry={setup.retry} />
       ) : !setup.data ? (
         <p role="status" className="py-6 text-center text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : (
-        <SetupTables setup={setup.data} permissions={permissions} allowed={allowed} onOpen={setDialog} />
+        <SetupTables setup={setup.data} permissions={permissions} allowed={allowed} sections={sections} onOpen={setDialog} />
       )}
       {dialog && dialog.kind !== 'archive' && setup.data ? <EditDialog state={dialog} setup={setup.data} allowed={allowed} onClose={() => setDialog(null)} onSaved={done} /> : null}
       <ConfirmDialog

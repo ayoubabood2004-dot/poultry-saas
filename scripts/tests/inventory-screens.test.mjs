@@ -661,7 +661,9 @@ async function reviewFixes(t, m, setup) {
       const hatchery = at('/inventory/hatchery');
       t.ok(hatchery.includes('مخازن المفقس'), '/inventory/hatchery لوحة مخازن المفقس');
       const pages = inv.renderToStaticMarkup(inv.h(inv.MemoryRouter, null, inv.h(inv.MillPage), inv.h(inv.HatcheryPage)));
-      t.ok(pages.includes('href="/inventory/mill"') && pages.includes('href="/inventory/hatchery"'), 'صفحتا المعمل والمفقس تفتحان مخازنهما (والبطاقة بالرئيسية توصل)');
+      // كلمة المالك 2026-11-04: لا بند بالشريط ولا بطاقة بالرئيسية لمخزن وحدة (تبويب «المخزن» واحد)، فصفحتا الوحدتين
+      // ورابطاهما هما طريق لوحتيهما الباقي.
+      t.ok(pages.includes('href="/inventory/mill"') && pages.includes('href="/inventory/hatchery"'), 'صفحتا المعمل والمفقس تفتحان لوحتَي مخازنهما (طريقهما الباقي بعد شطب بنديهما وبطاقتيهما)');
     }),
   );
 

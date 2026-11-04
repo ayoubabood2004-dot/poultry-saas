@@ -596,22 +596,33 @@ export default async function (t) {
 
   // ── الشريط يتبع الخادم ───────────────────────────────────────────────────────────────────────────────
   const nav = (workspace) => m.visibleNav({ status: 'ready', workspace, offline: false }).map((item) => item.to);
+  /** [الاسم، المسار] لكل بند: اسم البند نفسه يُفحص، لا مساره وحده. */
+  const navLabels = (workspace) => m.visibleNav({ status: 'ready', workspace, offline: false }).map((item) => [item.label, item.to]);
+  const ALL_DIVISIONS = { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] };
   t.same(
     nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
     ['/', '/broiler', '/account', '/settings'],
-    'عامل القاعة: حقول اللحم (المرحلة 2) وحسابه، بلا حقول البيض خارج نطاقه ولا مخازن ولا مبيعات ولا حسابات ولا تقارير ولا موظفين',
+    'عامل القاعة: حقول اللحم (المرحلة 2) وحسابه، بلا حقول البيض خارج نطاقه ولا مخزن ولا مبيعات ولا حسابات ولا تقارير ولا موظفين',
   );
-  // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ والمعمل والمفقس يفتحان مخازنهما؛ وحقول اللحم والبيض شغّالة.
-  const everything = nav(ws('u-1', { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] }));
+  // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
+  // المخازن كلها؛ وحقول اللحم والبيض شغّالة.
+  const everything = nav(ws('u-1', ALL_DIVISIONS));
   t.same(['/hatchery', '/sales', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
-  t.same(['/mill', '/inventory/mill'].filter((to) => everything.includes(to)), ['/mill', '/inventory/mill'], 'المالك: المعمل ومخازنه بالشريط (0015 شغّال)');
+  t.same(['/mill', '/inventory'].filter((to) => everything.includes(to)), ['/mill', '/inventory'], 'المالك: المعمل (خلطاته وإنتاجه) وتبويب المخزن بالشريط (0015 شغّال)');
   t.same(['/broiler', '/layers'].filter((to) => everything.includes(to)), ['/broiler', '/layers'], 'المالك: حقول اللحم والبيض بالشريط');
+  // كلمة المالك 2026-11-04: «كل هذه المخازن الجانبية ما أريدها بنوداً… أريد تبويباً واحداً اسمه المخزن وداخله هذه المخازن»:
+  // بند واحد اسمه «المخزن»، والبنود الأربعة للمخازن بالوحدات مشطوبة (مساراتها تبقى تنفتح بالرابط).
+  t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to.startsWith('/inventory')), [['المخزن', '/inventory']], 'المالك: بند واحد للمخزن اسمه «المخزن»، ولا بند لمخزن وحدة');
   t.same(
     nav(ws('u-1', { role: 'mill_operator', divisions: ['feed_mill'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/mill', '/inventory/mill', '/account', '/settings'],
-    'مشغّل المعمل: مخازن معمله من الشريط',
+    ['/', '/mill', '/inventory', '/account', '/settings'],
+    'مشغّل المعمل: المعمل وتبويب المخزن (وداخله مخازن معمله)، بدل بند «مخازن المعمل»',
   );
-  t.ok(everything.includes('/inventory/hatchery'), 'المفقس: مخازنه من الشريط');
+  t.same(
+    nav(ws('u-1', { role: 'hatchery_operator', divisions: ['hatchery'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
+    ['/', '/inventory', '/account', '/settings'],
+    'مشغّل المفقس: تبويب المخزن (وداخله مخازن مفقسه)، بدل بند «مخازن المفقس»',
+  );
   t.ok(nav(ws('u-1')).includes('/staff'), 'المالك يشوف «الموظفون»');
   t.ok(!nav(ws('u-1', { role: 'manager' })).includes('/staff'), 'المدير ما يشوف «الموظفون» (المالك بس)');
   t.ok(!nav(ws('u-1', { role: 'accountant', canSeeAccounts: false })).includes('/accounts'), 'الحسابات تتبع علامة الخادم مو الدور وحده');

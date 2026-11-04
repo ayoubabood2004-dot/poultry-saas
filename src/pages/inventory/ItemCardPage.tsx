@@ -571,7 +571,7 @@ export default function ItemCardPage() {
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
         actions={
           <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
-            {t('stores.back', 'كل المخازن')}
+            {t('stores.back', 'المخزن')}
           </Link>
         }
       />

@@ -5,7 +5,8 @@
 // الاستلام يخفي صفّها ولا يكسر البطاقة؛ D4 فشل قراءة الحقول سطر بـ«أعد المحاولة» ولا يكسر الصفحة، والإعادة تقرا من جديد؛
 // D5 بلا نت: صفّ الجهاز يبقى وصفوف الخادم تُخفى بهدوء؛ D6 أثناء القراءة هيكل هادئ بلا أرقام؛ D7 عامل القاعة: جولته بس وبلا
 // قراءة استلام؛ D8 ترتيب الأزرار لكل دور و«أعمال أخرى» مطوية والزرّ الأوّل عريض؛ D9 بنود الشريط السفلي لكل دور وmd:hidden،
-// وزرّ «القائمة» يفتح الدرج، وما بقى زرّ قائمة بالشريط العلوي.
+// وزرّ «القائمة» يفتح الدرج، وما بقى زرّ قائمة بالشريط العلوي؛ D13 (كلمة المالك 2026-11-04) بطاقة «المخزن» واحدة بـ«أرقام
+// اليوم» تفتح التبويب، ولا بطاقة تفتح مخزن وحدة، وظهورها بالدور لا بالوحدة، و«—» قبل القراءة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -324,13 +325,17 @@ export default async function (t) {
     // ── D9: الشريط السفلي: الرئيسية ثم الموجود من نطاقه (بحدّ أقصى ثلاثة) ثم «القائمة»، وmd:hidden، والشريط العلوي بلا قائمة ──
     {
       const items = (workspace) => m.bottomItems(workspace ? { status: 'ready', workspace, offline: false } : { status: 'loading' }).map((item) => [item.label, item.to]);
-      t.same(items(ws({ role: 'owner' })), [['الرئيسية', '/'], ['الجولة', '/broiler/round'], ['المخازن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المالك: الرئيسية والجولة والمخازن والحسابات');
+      t.same(items(ws({ role: 'owner' })), [['الرئيسية', '/'], ['الجولة', '/broiler/round'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المالك: الرئيسية والجولة والمخزن والحسابات');
       t.same(items(ws({ role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false })), [['الرئيسية', '/'], ['الجولة', '/layers/round']], 'D9: عامل قاعة البيض: جولته بس (وجولته تفتح البيض)');
-      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخازن', '/inventory']], 'D9: أمين المخزن: المخازن بلا جولة');
-      t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخازن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المحاسب: المخازن والحسابات بلا جولة');
-      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخازن', '/inventory/mill']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ مخزنه (0015)');
+      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: أمين المخزن: المخزن بلا جولة');
+      t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المحاسب: المخزن والحسابات بلا جولة');
+      // كلمة المالك 2026-11-04: بند «المخزن» واحد، فالشريط السفلي يأخذ بند الشريط كما هو (اسمه وأيقونته)، ولا ينتقي مخزن وحدة
+      // بديلاً عنه: مشغّل المعمل كان يروح لـ/inventory/mill.
+      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخزن', '/inventory']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ تبويب المخزن (0015)');
+      t.same(items(ws({ role: 'hatchery_operator', divisions: ['hatchery'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: مشغّل المفقس: تبويب المخزن (بدل «مخازن المفقس»)');
+      t.same(items(ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false })).map(([, to]) => to), ['/', '/broiler/round'], 'D9: عامل القاعة: جولته بلا مخزن');
       t.same(items(ws({ role: 'owner' })).map(([, to]) => to).includes('/mill'), false, 'D9: من له جولة شريطه كما هو (الحدّ أربعة)');
-      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخازن', '/inventory'], ['الحسابات', '/accounts']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
+      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
       t.ok([ws({ role: 'owner' }), ws({ role: 'hall_worker', divisions: ['broiler'] }), ws({ role: 'viewer' }), ws({ role: 'accountant' })].every((w) => items(w).length <= 4), 'D9: الرئيسية ويّا ثلاثة بالأكثر لكل دور (و«القائمة» بعدهم)');
       t.eq(items(null).length, 4, 'D9: بلا منشأة مؤكّدة الهيكل كلّه بحدّ أقصى أربعة');
       let menu = 0;
@@ -347,6 +352,49 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws(), offline: false }, {});
       await mount(m.h(m.TopBar));
       t.ok(!text().includes('القائمة') && all().every((node) => node.getAttribute('aria-label') !== 'القائمة'), 'D9: الشريط العلوي بلا زرّ قائمة (ماكو قائمتان)');
+      await unmount();
+    }
+
+    // ── D13: «أرقام اليوم»: بطاقة «المخزن» واحدة تفتح التبويب، وظهورها بالدور لا بالوحدة (كلمة المالك 2026-11-04) ──
+    {
+      /** [الرابط، نصّ البطاقة] لبطاقات «أرقام اليوم» بس (أزرار «ماذا تريد أن تفعل؟» برّا القسم). */
+      const numberCards = () => {
+        const heading = all().find((node) => node.localName === 'h2' && node.textContent === 'أرقام اليوم');
+        const section = heading?.parentNode;
+        return section ? descendants(section).filter((node) => node.localName === 'a').map((node) => [node.getAttribute('href'), node.textContent]) : [];
+      };
+      const summary = { millBelowMinimum: 4, medicine: { nearExpiry: 3, belowMinimum: 1 }, general: { belowMinimum: 2 }, oldChicks: 1_250, hatcheryBelowMinimum: 2 };
+      fresh({ status: 'ready', workspace: ws({ role: 'owner', divisions: ['broiler', 'layer', 'feed_mill', 'hatchery', 'medicine', 'general'] }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => summary, countDraftReceipts: () => 0 });
+      await mount(m.h(m.HomePage));
+      const cards = numberCards();
+      t.same(cards.map(([href]) => href), ['/broiler', '/layers', '/mill', '/inventory', '/accounts'], 'D13: المالك: بطاقة واحدة للمخزن تفتح التبويب، وبطاقة المعمل تفتح المعمل نفسه');
+      t.same(cards.map(([href]) => href).filter((href) => href.startsWith('/inventory/')), [], 'D13: ولا بطاقة تفتح مخزن وحدة (/inventory/medicine و/inventory/general و/inventory/hatchery)');
+      const store = cards.find(([href]) => href === '/inventory')?.[1] ?? '';
+      t.ok(store.includes('المخزن') && store.includes('3') && store.includes('1,250'), `D13: بطاقة «المخزن» بأرقام الخادم (الأدوية قريب الانتهاء وأفراخ المفقس) (${store})`);
+      await unmount();
+    }
+    {
+      // أمين مخزن نطاقه «الأدوية» وحدها: بطاقته تبقى، لأن ظهورها بالدور (STORE_ROLES) لا بمفتاح الوحدة.
+      fresh({ status: 'ready', workspace: ws({ role: 'storekeeper', divisions: ['medicine'], canSeeAccounts: false }), offline: false }, { loadHomeSummary: () => ({ medicine: { nearExpiry: 3, belowMinimum: 1 } }), countDraftReceipts: () => 0 });
+      await mount(m.h(m.HomePage));
+      const cards = all().filter((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory');
+      t.eq(cards.length, 1, 'D13: أمين مخزن الأدوية: بطاقة «المخزن» موجودة وتفتح التبويب');
+      await unmount();
+    }
+    {
+      // قبل أيّ قراءة ناجحة: «—» مو صفر (القاعدة 32)، والبطاقة موجودة.
+      fresh({ status: 'ready', workspace: ws({ role: 'storekeeper', divisions: ['general'], canSeeAccounts: false }), offline: false }, { countDraftReceipts: () => 0 });
+      await mount(m.h(m.HomePage));
+      const store = all().find((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory');
+      const values = store ? descendants(store).filter((node) => node.localName === 'dd').map((node) => node.textContent) : [];
+      t.same(values, ['—'], `D13: قبل القراءة: سطر واحد بـ«—» مو صفر، ولا بطاقة بسطور فارغة (${values.join('|')})`);
+      await unmount();
+    }
+    {
+      // عامل القاعة: ما له مخزن (برّا STORE_ROLES)، فما تظهر له البطاقة ولا بنده.
+      fresh({ status: 'ready', workspace: ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({ general: { belowMinimum: 2 } }), countDraftReceipts: () => 0 });
+      await mount(m.h(m.HomePage));
+      t.same(all().filter((node) => node.localName === 'a').map((node) => node.getAttribute('href')).filter((href) => href.startsWith('/inventory')), [], 'D13: عامل القاعة: ولا بطاقة ولا رابط للمخزن بالرئيسية');
       await unmount();
     }
 

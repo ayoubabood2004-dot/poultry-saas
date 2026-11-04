@@ -8,7 +8,13 @@
 // ومن 0014: S11 المادّة برصيد صفر تظهر بقسمها وسعر بيعها وقيمته بأعمدتها وشريط أرقام المخزن من مجاميع الخادم؛
 // S12 نموذج المادّة بالباركود وسعر البيع بدالّته (والأمين بلا حقله)؛ S13 بطاقة سعر البيع بمحرّرها وهامشها؛
 // S14 دفتر المادّة بالبيان وداخل وخارج.
+// ومن كلمة المالك 2026-11-04 (تبويب «المخزن» واحد، والتحكّم بالمخازن من داخله لا من الإعدادات): S15 رابط «إعداد المخزن»
+// بروابط المخزون لمن يملك stores.manage وحده (وما بقي رابط إلى /settings/org)؛ S16 «إعداد المخزن» (/inventory/setup)
+// أقسام المخزن وحدها بأزرارها، و«إعدادات المنشأة» (/settings/org) يوم التشغيل وفئات المصاريف وحدهما — والأقسام تُقرأ من
+// App.tsx نفسه لا منسوخة هنا؛ S17 تنبيه «للقراءة فقط» يقيس صلاحيات الأقسام المعروضة وحدها (المحاسب يراه بصفحة المخزن
+// ولا يراه بصفحة الإعدادات).
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -61,6 +67,8 @@ async function bundle() {
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
     "export { default as StockRoutes } from './src/pages/inventory/StockRoutes.tsx';",
+    // «إعداد المخزن» داخل التبويب: نفس شاشة «إعدادات المنشأة» بأقسام مختلفة (كلمة المالك 2026-11-04).
+    "export { default as OrgSettingsPage } from './src/pages/settings/OrgSettingsPage.tsx';",
     "export { sectionsOf, sectionValue } from './src/pages/inventory/WarehousePage.tsx';",
     "export { suggestedKind, addItemFields } from './src/pages/inventory/ItemCreate.tsx';",
     "export { comparePrices, packQty, tabOf, cardParams } from './src/pages/inventory/ItemCardPage.tsx';",
@@ -226,6 +234,15 @@ export default async function (t) {
       await settle();
       return container;
     };
+    /** شاشة بلا مسار داخلي (شاشة «إعداد المخزن» مركّبة بمسارها من App.tsx): نفس الجلسة والقراءات البديلة. */
+    const mountElement = async (element) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: ['/'] }, element)));
+      await settle();
+      return container;
+    };
     const unmount = async () => {
       m.flushSync(() => root.unmount());
       body().textContent = '';
@@ -277,7 +294,8 @@ export default async function (t) {
       fire(byAction('add-warehouse')[0], 'click');
       await settle();
       t.ok(text().includes('أضف الموقع أوّلاً'), `S2: بلا موقع فعّال النافذة تقول «أضف الموقع أوّلاً» (${text().slice(-200)})`);
-      t.ok(all().some((n) => n.getAttribute('href') === '/settings/org' && n.getAttribute('data-action') === 'open-org-sites'), 'S2: ومعها رابط إضافة الموقع');
+      // كلمة المالك 2026-11-04: الموقع يُضاف من داخل التبويب (/inventory/setup)، مو من الإعدادات.
+      t.ok(all().some((n) => n.getAttribute('href') === '/inventory/setup' && n.getAttribute('data-action') === 'open-org-sites'), 'S2: ومعها رابط إضافة الموقع، إلى «إعداد المخزن» داخل التبويب');
       t.ok(off(byAction('save-warehouse')[0]), 'S2: والحفظ معطّل بلا موقع');
       await unmount();
     }
@@ -466,6 +484,90 @@ export default async function (t) {
       t.ok(page.includes('البيان') && page.includes('داخل') && page.includes('خارج') && page.includes('الرصيد'), 'S14: وأعمدته مثل الكشف: التاريخ والمستند والبيان وداخل وخارج والرصيد');
       t.ok(page.includes('شراء من مورّد الحبوب') && page.includes('تحويل إلى مخزن حقل 1'), `S14: والبيان يقول من أين جاءت الحركة أو إلى أين ذهبت (${page.slice(0, 400)})`);
       t.ok(page.includes('قيمة الحركة') && page.includes('160,000.00'), 'S14: وقيمة الحركة لأدوار الكلفة');
+      await unmount();
+    }
+
+    // ── S15: رابط «إعداد المخزن» بروابط المخزون، لمن يملك stores.manage وحده (كلمة المالك 2026-11-04) ─────────
+    {
+      fresh({ status: 'ready', workspace: ws() }, handlers());
+      await mount('/inventory');
+      const links = all()
+        .filter((n) => (n.getAttribute('data-action') ?? '').startsWith('open-'))
+        .map((n) => [n.getAttribute('data-action'), n.getAttribute('href')]);
+      t.ok(links.some(([action, href]) => action === 'open-store-setup' && href === '/inventory/setup'), `S15: المدير يرى «إعداد المخزن» إلى /inventory/setup (${JSON.stringify(links)})`);
+      t.same(links.filter(([, href]) => href === '/settings/org'), [], 'S15: وما بقي رابط للإعدادات بروابط المخزون (التحكّم من داخل التبويب)');
+      t.ok(text().includes('إعداد المخزن'), 'S15: واسم الرابط «إعداد المخزن»');
+      await unmount();
+    }
+    {
+      fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false }) }));
+      await mount('/inventory');
+      // مراجعة 2026-11-04: الرابط لكل من يرى التبويب، والصفحة نفسها تحكم (أزرار الكتابة
+      // بـstores.manage و«للقراءة فقط» لغيره، S17): الأمين والمحاسب يقرأان أحجام التعبئة
+      // والتصنيفات التي يختاران منها، وإلا صارت صفحة لا يوصل إليها إلا من كتب الرابط (خطأ المعمل أمس).
+      t.eq(byAction('open-store-setup').length, 1, 'S15: أمين المخزن (بلا stores.manage): يرى الرابط والصفحة تقول «للقراءة فقط»');
+      t.eq(byAction('open-items').length, 1, 'S15: ضابط: رابط «المواد» باقٍ له');
+      await unmount();
+    }
+
+    // ── S16 وS17: «إعداد المخزن» (/inventory/setup) أقسام المخزن وحدها، و«إعدادات المنشأة» (/settings/org) الباقي ──
+    // الأقسام تُقرأ من App.tsx نفسه لا منسوخة بالفحص: لو تبدّل تركيب الشاشة بأيّ مسار، تبدّلت الأقسام المرسومة وفشل الفحص.
+    const app = readFileSync(path.join(ROOT, 'src', 'App.tsx'), 'utf8');
+    const sectionsAt = (route) => {
+      const at = new RegExp(`<Route path="${route}" element=\\{<OrgSettingsPage sections=\\{(\\w+)\\}`, 'u').exec(app);
+      if (!at) return null;
+      const list = new RegExp(`const ${at[1]} = \\[([^\\]]*)\\]`, 'u').exec(app);
+      return list ? [...list[1].matchAll(/'([a-z_]+)'/gu)].map((found) => found[1]) : null;
+    };
+    t.same([sectionsAt('/inventory/setup'), sectionsAt('/settings/org')], [['places', 'packs', 'categories'], ['go_live', 'expenses']], 'S16: App.tsx يركّب الشاشة الواحدة بأقسام كلّ مسار');
+    const orgSetup = {
+      divisions: [{ id: 'd-gen', kind: 'general', goLiveOn: null, frozen: false }],
+      sites: [{ id: 's-store', version: 1, archived: false, divisionId: 'd-gen', name: 'مخزن المشروع', kind: 'store' }],
+      warehouses: [{ id: 'w-gen', version: 1, archived: false, divisionId: 'd-gen', siteId: 's-store', name: 'المخزن العامّ', kind: 'general' }],
+      packTypes: [{ id: 'p-25', version: 1, archived: false, label: 'كيس 25 كغم', dimension: 'mass', factor: 25_000_000n }],
+      itemCategories: [{ id: 'c-feed', version: 1, archived: false, name: 'مواد الأكل' }],
+      expenseCategories: [{ id: 'e-1', version: 1, archived: false, name: 'كهرباء', systemCode: null }],
+    };
+    /** عناوين أقسام الشاشة (h2؛ عنوان الصفحة h1). */
+    const headings = () => all().filter((n) => n.localName === 'h2').map((n) => n.textContent);
+    /** جداول الشاشة بأسمائها (caption): القسم ما ينعدّ معروضاً إلا بجدوله. */
+    const captions = () => all().filter((n) => n.localName === 'caption').map((n) => n.textContent);
+    {
+      fresh({ status: 'ready', workspace: ws() }, handlers({ loadOrgSetup: () => orgSetup }));
+      await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/inventory/setup') }));
+      t.same(headings(), ['المواقع والمخازن', 'أحجام التعبئة', 'تصنيفات المواد'], `S16: /inventory/setup: أقسام المخزن وحدها (${headings().join('|')})`);
+      t.same(captions(), ['المواقع والمخازن', 'أحجام التعبئة', 'تصنيفات المواد'], 'S16: وجداولها الثلاثة، بلا جدول الوحدات ولا جدول فئات المصاريف');
+      t.ok(text().includes('إعداد المخزن') && !text().includes('إعدادات المنشأة'), 'S16: وعنوانها «إعداد المخزن»');
+      t.same([byAction('new-site').length, byAction('new-warehouse').length, byAction('new-pack').length, byAction('new-category').length], [1, 1, 1, 1], 'S16: والتحكّم بها من هنا: أزرار الموقع والمخزن وحجم التعبئة والتصنيف');
+      t.ok(!text().includes('للقراءة فقط'), 'S17: والمدير (stores.manage) بلا تنبيه «للقراءة فقط»');
+      await unmount();
+    }
+    {
+      fresh({ status: 'ready', workspace: ws() }, handlers({ loadOrgSetup: () => orgSetup }));
+      await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/settings/org') }));
+      t.same(headings(), ['الوحدات ويوم تشغيلها', 'فئات المصاريف'], `S16: /settings/org: يوم تشغيل الوحدات وفئات المصاريف وحدهما (${headings().join('|')})`);
+      t.same(captions(), ['الوحدات ويوم تشغيلها', 'فئات المصاريف'], 'S16: وجدولاهما، بلا جداول المواقع والمخازن وأحجام التعبئة وتصنيفات المواد');
+      t.same([byAction('new-site').length, byAction('new-warehouse').length, byAction('new-pack').length, byAction('new-category').length], [0, 0, 0, 0], 'S16: ولا أزرارها');
+      t.ok(text().includes('إعدادات المنشأة'), 'S16: وعنوانها «إعدادات المنشأة»');
+      await unmount();
+    }
+    {
+      // «للقراءة فقط» تقيس صلاحيات الأقسام المعروضة وحدها: المحاسب يملك فئات المصاريف ولا يملك stores.manage، فالتنبيه
+      // يظهر له بـ«إعداد المخزن» ولا يظهر بـ«إعدادات المنشأة».
+      fresh({ status: 'ready', workspace: ws({ role: 'accountant' }) }, handlers({ loadOrgSetup: () => orgSetup }));
+      await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/inventory/setup') }));
+      t.ok(text().includes('للقراءة فقط'), `S17: المحاسب بصفحة المخزن: «للقراءة فقط» (${text().slice(0, 200)})`);
+      t.eq(byAction('new-site').length, 0, 'S17: وبلا أزرار المواقع');
+      await unmount();
+      fresh({ status: 'ready', workspace: ws({ role: 'accountant' }) }, handlers({ loadOrgSetup: () => orgSetup }));
+      await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/settings/org') }));
+      t.ok(!text().includes('للقراءة فقط') && byAction('new-expense').length === 1, 'S17: ضابط: وبصفحة الإعدادات يكتب فئات المصاريف بلا تنبيه');
+      await unmount();
+    }
+    {
+      fresh({ status: 'ready', workspace: keeper }, handlers({ loadOrgSetup: () => orgSetup }));
+      await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/inventory/setup') }));
+      t.ok(text().includes('للقراءة فقط'), 'S17: أمين المخزن (بلا stores.manage) يرى «للقراءة فقط» بصفحة المخزن');
       await unmount();
     }
 

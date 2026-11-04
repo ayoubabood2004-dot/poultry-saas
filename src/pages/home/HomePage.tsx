@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bird, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, Fuel, HandCoins, HardDrive, PackageMinus, PackagePlus, Pill, Receipt, Reply, TriangleAlert, Wallet, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import { useCallback, useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
@@ -14,6 +14,7 @@ import type { Workspace } from '../../domain/workspace';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { countForm, fmtDay, fmtInt, fmtMoney, fmtPercent } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
+import { STORE_ROLES } from '../../lib/nav';
 import type { FlocksOverview } from '../../lib/repo/flocks';
 import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
@@ -26,8 +27,9 @@ import { loadOverviewKept } from '../farm/shared';
 // الرئيسية بثلاث طبقات (كلمة المالك 2026-11-02، «الاستخدام اليومي»): «شغل اليوم» أوّل شي (مهامّ اليوم بعدّاداتها، كل صفّ لمسة
 // وحدة لفعله)، ثم «ماذا تريد أن تفعل؟» بأربعة أزرار بأولوية الدور والباقي خلف «أعمال أخرى»، ثم «أرقام اليوم» ببطاقة لكل وحدة
 // ضمن نطاق المستخدم، والحسابات (لنا وعلينا) لأدوارها بس. حقول اللحم والبيض بأرقام قراءة الحقول (flocks_overview). الوحدات التي
-// لم تُبنَ شاشاتها بعد (إنتاج المعمل ووجبات المفقس) بـplannedCards.tsx، لا تُعرض هنا: بطاقتا المعمل والمفقس بأرقام مخازنهما
-// وتفتحان مخازنهما، مثل الشريط (nav.ts). الرقم الغايب «—» مو صفر: ما ينكال رقم إلا بعد قراءة ناجحة.
+// لم تُبنَ شاشاتها بعد (إنتاج المعمل ووجبات المفقس) بـplannedCards.tsx، لا تُعرض هنا: بطاقة المعمل بأرقام مخازنه وتفتح المعمل
+// نفسه (0015). والمخازن ببطاقة واحدة «المخزن» تفتح التبويب الواحد (كلمة المالك 2026-11-04)، مثل الشريط (nav.ts). الرقم الغايب
+// «—» مو صفر: ما ينكال رقم إلا بعد قراءة ناجحة.
 
 /**
  * number: رقم صافي (fmtInt، fmtMoney، نسبة) بـdd dir="ltr" حتى الفواصل والإشارة تبقى بمكانها.
@@ -272,6 +274,30 @@ export function TodayCard({
   );
 }
 
+/**
+ * أرقام بطاقة «المخزن»: كلّ رقم كما أرسله الخادم لوحدة بنطاق القارئ، **بلا جمع بالشاشة** (المجاميع من SQL):
+ * وحدة لم يرسلها الخادم (ليس للقارئ مخزن فيها، home_summary) لا يُرسم سطرها، فلا بطاقة
+ * بسطرين «—» لمشغّل المعمل أو لمن نطاقه بلا أدوية ولا مفقس (مراجعة 2026-11-04). وقريب
+ * الانتهاء وأفراخ 48 ساعة تنبيهان استثنائيان، فلا يغمران البطاقة إلا إن وجدا. وقبل أيّ
+ * قراءة (ملخّص فارغ) سطر واحد بـ«—» مثل بقية البطاقات.
+ */
+export function storeMetrics(s: HomeSummary): Metric[] {
+  const out: Metric[] = [];
+  if (s.medicine && s.medicine.nearExpiry > 0) {
+    out.push({ label: t('home.store.expiry', 'الأدوية — قريب الانتهاء'), kind: 'number', value: fmtInt(s.medicine.nearExpiry) });
+  }
+  if (s.oldChicks !== undefined && s.oldChicks > 0) {
+    out.push({ label: t('home.store.old_chicks', 'المفقس — أفراخ فاتها 48 ساعة'), kind: 'number', value: fmtInt(s.oldChicks) });
+  }
+  if (s.general) out.push({ label: t('home.store.low.general', 'المخازن العامة — تحت الحدّ الأدنى'), kind: 'number', value: fmtInt(s.general.belowMinimum) });
+  if (s.medicine) out.push({ label: t('home.store.low.medicine', 'الأدوية — تحت الحدّ الأدنى'), kind: 'number', value: fmtInt(s.medicine.belowMinimum) });
+  if (s.hatcheryBelowMinimum !== undefined) {
+    out.push({ label: t('home.store.low.hatchery', 'المفقس — تحت الحدّ الأدنى'), kind: 'number', value: fmtInt(s.hatcheryBelowMinimum) });
+  }
+  if (out.length === 0) out.push({ label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: null });
+  return out;
+}
+
 /** مصدّرة حتى ينفحص اتّجاه كل رقم بلا متصفّح. */
 export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null = null): CardSpec[] {
   // بلا ملخّص (لسّه يتحمّل أو فشل) كل رقم «—»: ملخّص فارغ بدل null حتى الفحوص أقصر (حزمة الرئيسية بالتثبيت المسبق).
@@ -303,7 +329,7 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
     },
     {
       key: 'feed_mill',
-      // المعمل نفسه (خلطاته وإنتاجه)، لا مخازنه: هناك يُنتج العلف، ومخازنه ببنده في الشريط وفي «كل المخازن».
+      // المعمل نفسه (خلطاته وإنتاجه)، لا مخازنه: هناك يُنتج العلف، ومخازنه داخل تبويب «المخزن» مثل باقي المخازن.
       to: '/mill',
       title: t('nav.mill', 'معمل العلف'),
       icon: Factory,
@@ -312,31 +338,15 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
       ],
     },
     {
-      key: 'hatchery',
-      to: '/inventory/hatchery',
-      title: t('nav.hatchery_stores', 'مخازن المفقس'),
-      icon: Bird,
-      metrics: [
-        { label: t('home.hatchery.old', 'أفراخ فاتها 48 ساعة'), kind: 'number', value: s.oldChicks !== undefined ? fmtInt(s.oldChicks) : null },
-        { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.hatcheryBelowMinimum !== undefined ? fmtInt(s.hatcheryBelowMinimum) : null },
-      ],
-    },
-    {
-      key: 'medicine',
-      to: '/inventory/medicine',
-      title: t('nav.medicine', 'مخزن الأدوية'),
-      icon: Pill,
-      metrics: [
-        { label: t('home.medicine.expiry', 'قريب الانتهاء'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.nearExpiry) : null },
-        { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.medicine ? fmtInt(s.medicine.belowMinimum) : null },
-      ],
-    },
-    {
+      // بطاقة واحدة للمخازن كلها (كلمة المالك 2026-11-04: تبويب واحد اسمه «المخزن»، والمخازن الجانبية داخله)، بدل بطاقة
+      // لكل وحدة. مفتاحها general لأن المفتاح نوع وحدة (CardSpec.key)، وظهورها بالدور لا بالوحدة (ظهور بندها بالشريط).
+      // الرقمان من الخادم كما هما، بلا جمع بالشاشة: «تحت الحدّ الأدنى» شارة على بطاقة كل مخزن داخل التبويب، وجمعه هنا
+      // عبر الوحدات يكون حساباً بالشاشة (المجاميع من SQL).
       key: 'general',
-      to: '/inventory/general',
-      title: t('nav.general', 'المخازن العامة'),
-      icon: Fuel,
-      metrics: [{ label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.general ? fmtInt(s.general.belowMinimum) : null }],
+      to: '/inventory',
+      title: t('nav.store', 'المخزن'),
+      icon: Warehouse,
+      metrics: storeMetrics(s),
     },
     {
       key: 'accounts',
@@ -557,8 +567,12 @@ export default function HomePage() {
   const actions = homeActions(session.status === 'ready' ? session.workspace : null);
   const specs = cardSpecs(summary.data, farms.data?.cards ?? null).filter((spec) => {
     if (session.status !== 'ready') return true;
-    const { divisions: scope, canSeeAccounts } = session.workspace;
-    return spec.key === 'accounts' ? canSeeAccounts : scope.includes(spec.key);
+    const { divisions: scope, role, canSeeAccounts } = session.workspace;
+    if (spec.key === 'accounts') return canSeeAccounts;
+    // بطاقة «المخزن» تفتح التبويب الواحد بكل مخازن النطاق، فظهورها بظهور بنده بالشريط (الدور) لا بوحدة واحدة: أمين مخزن
+    // الأدوية نطاقه بلا «العامّة»، ولو تبعت المفتاح (general) اختفت عنه بطاقته و«قريب الانتهاء» اللي يحتاجه.
+    if (spec.to === '/inventory') return STORE_ROLES.has(role);
+    return scope.includes(spec.key);
   });
   const numbersId = useId();
 
