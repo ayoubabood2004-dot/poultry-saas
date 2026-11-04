@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bird, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Fuel, HandCoins, HardDrive, PackageMinus, PackagePlus, Pill, Receipt, Reply, TriangleAlert, Wallet, Wheat, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Bird, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, Fuel, HandCoins, HardDrive, PackageMinus, PackagePlus, Pill, Receipt, Reply, TriangleAlert, Wallet, type LucideIcon } from 'lucide-react';
 import { useCallback, useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
@@ -303,9 +303,10 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
     },
     {
       key: 'feed_mill',
-      to: '/inventory/mill',
-      title: t('nav.mill_stores', 'مخازن المعمل'),
-      icon: Wheat,
+      // المعمل نفسه (خلطاته وإنتاجه)، لا مخازنه: هناك يُنتج العلف، ومخازنه ببنده في الشريط وفي «كل المخازن».
+      to: '/mill',
+      title: t('nav.mill', 'معمل العلف'),
+      icon: Factory,
       metrics: [
         { label: t('home.general.low', 'تحت الحدّ الأدنى'), kind: 'number', value: s.millBelowMinimum !== undefined ? fmtInt(s.millBelowMinimum) : null },
       ],
@@ -356,7 +357,7 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
   ];
 }
 
-export type HomeActionKey = 'round_broiler' | 'round_layer' | 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
+export type HomeActionKey = 'round_broiler' | 'round_layer' | 'produce' | 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
 
 export interface HomeAction {
   key: HomeActionKey;
@@ -374,6 +375,7 @@ export const HOME_ACTIONS_SHOWN = 4;
  */
 const PRIORITY: Partial<Record<Role, readonly HomeActionKey[]>> = {
   hall_worker: ['round_broiler', 'round_layer'],
+  mill_operator: ['produce'],
   storekeeper: ['receipt', 'use', 'transfer', 'count'],
   accountant: ['payout', 'payment', 'expense', 'receipt'],
   owner: ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment'],
@@ -398,6 +400,8 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     [{ key: 'payment', to: '/accounts?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
     [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف'), icon: Receipt }, allowed('expense.post', true)],
     [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد'), icon: ClipboardCheck }, allowed('count.enter')],
+    // إنتاج العلف (0015): لمن يسوّد الدفعة (مشغّل المعمل والمدير والمالك)؛ والمحاسب يرحّل ولا يسوّد، فلا زرّ له.
+    [{ key: 'produce', to: '/mill', label: t('home.do.produce', 'أنتج علفاً'), icon: Factory }, allowed('production.draft')],
   ];
   const shown = all.filter(([, show]) => show).map(([action]) => action);
   const order = workspace ? PRIORITY[workspace.role] : undefined;

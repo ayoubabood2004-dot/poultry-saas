@@ -603,11 +603,12 @@ export default async function (t) {
   );
   // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ والمعمل والمفقس يفتحان مخازنهما؛ وحقول اللحم والبيض شغّالة.
   const everything = nav(ws('u-1', { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] }));
-  t.same(['/mill', '/hatchery', '/sales', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  t.same(['/hatchery', '/sales', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  t.same(['/mill', '/inventory/mill'].filter((to) => everything.includes(to)), ['/mill', '/inventory/mill'], 'المالك: المعمل ومخازنه بالشريط (0015 شغّال)');
   t.same(['/broiler', '/layers'].filter((to) => everything.includes(to)), ['/broiler', '/layers'], 'المالك: حقول اللحم والبيض بالشريط');
   t.same(
     nav(ws('u-1', { role: 'mill_operator', divisions: ['feed_mill'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/inventory/mill', '/account', '/settings'],
+    ['/', '/mill', '/inventory/mill', '/account', '/settings'],
     'مشغّل المعمل: مخازن معمله من الشريط',
   );
   t.ok(everything.includes('/inventory/hatchery'), 'المفقس: مخازنه من الشريط');

@@ -314,7 +314,7 @@ export default async function (t) {
         return false;
       };
       t.eq(links.filter((node) => !inDetails(node)).length, m.HOME_ACTIONS_SHOWN, 'D8: أربعة أزرار ظاهرة');
-      t.eq(links.filter(inDetails).length, 5, 'D8: الخمسة الباقية جوّا «أعمال أخرى»');
+      t.eq(links.filter(inDetails).length, 6, 'D8: الستة الباقية جوّا «أعمال أخرى»');
       t.ok(details && !details.hasAttribute('open') && text().includes('أعمال أخرى'), 'D8: «أعمال أخرى» مطوية افتراضياً');
       t.ok((links[0]?.getAttribute('class') ?? '').includes('col-span-2'), 'D8: الزرّ الأوّل عريض بالهاتف (عمودان)');
       t.ok(!(links[1]?.getAttribute('class') ?? '').includes('col-span-2'), 'D8: ضابط: الثاني بعمود واحد');
@@ -328,7 +328,8 @@ export default async function (t) {
       t.same(items(ws({ role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false })), [['الرئيسية', '/'], ['الجولة', '/layers/round']], 'D9: عامل قاعة البيض: جولته بس (وجولته تفتح البيض)');
       t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخازن', '/inventory']], 'D9: أمين المخزن: المخازن بلا جولة');
       t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخازن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المحاسب: المخازن والحسابات بلا جولة');
-      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخازن', '/inventory/mill']], 'D9: مشغّل المعمل: مخزن معمله');
+      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخازن', '/inventory/mill']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ مخزنه (0015)');
+      t.same(items(ws({ role: 'owner' })).map(([, to]) => to).includes('/mill'), false, 'D9: من له جولة شريطه كما هو (الحدّ أربعة)');
       t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخازن', '/inventory'], ['الحسابات', '/accounts']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
       t.ok([ws({ role: 'owner' }), ws({ role: 'hall_worker', divisions: ['broiler'] }), ws({ role: 'viewer' }), ws({ role: 'accountant' })].every((w) => items(w).length <= 4), 'D9: الرئيسية ويّا ثلاثة بالأكثر لكل دور (و«القائمة» بعدهم)');
       t.eq(items(null).length, 4, 'D9: بلا منشأة مؤكّدة الهيكل كلّه بحدّ أقصى أربعة');

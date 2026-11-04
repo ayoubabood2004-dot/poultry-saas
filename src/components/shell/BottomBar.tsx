@@ -1,4 +1,4 @@
-import { ClipboardList, House, Menu, Warehouse } from 'lucide-react';
+import { ClipboardList, Factory, House, Menu, Warehouse } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { can } from '../../domain/permissions';
 import { t } from '../../lib/i18n';
@@ -25,6 +25,9 @@ export function bottomItems(session: SessionState): NavItem[] {
   const saves = !workspace || can(workspace.role, 'flock_day.save');
   const farm = saves ? (pick('/broiler') ? '/broiler/round' : pick('/layers') ? '/layers/round' : null) : null;
   if (farm) shown.push({ to: farm, label: t('nav.round', 'الجولة'), icon: ClipboardList });
+  // شغل اليوم لمن لا جولة له: مشغّل المعمل يفتح معمله بلمسة (0015)، ومن له جولة يبقى شريطه كما هو (الحدّ أربعة).
+  const mill = !farm && (!workspace || can(workspace.role, 'production.draft')) ? pick('/mill') : undefined;
+  if (mill) shown.push({ ...mill, label: t('nav.mill_short', 'المعمل'), icon: Factory });
   // المخازن: «كل المخازن» لمن يراها، وإلا مخزن وحدته (مشغّل المعمل والمفقس).
   const stores = pick('/inventory') ?? items.find((item) => item.to.startsWith('/inventory/'));
   if (stores) shown.push({ ...stores, label: t('nav.stores', 'المخازن'), icon: Warehouse });

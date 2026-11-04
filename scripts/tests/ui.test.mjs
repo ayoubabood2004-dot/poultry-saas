@@ -416,7 +416,7 @@ export default async function (t) {
     t.same(farmOf('layer', { broiler: { active: 1, live: 4_980, deadToday: 7 }, layer: { active: 2, eggsToday: 8_520, liveStart: 10_000 } }), ['2', '8,520', '85.20%'], 'حقول البيض: بيض اليوم ونسبة الإنتاج من الحيّ بداية اليوم');
     t.same(farmOf('broiler', { broiler: { active: 1, live: 4_980, deadToday: 7 }, layer: { active: 0, eggsToday: null, liveStart: 0 } }), ['1', '4,980', '7'], 'حقول اللحم: الأفواج والحيّ ونافق اليوم بفواصل');
     const liveOf = (key) => live.find((spec) => spec.key === key);
-    t.same([liveOf('feed_mill').to, liveOf('hatchery').to], ['/inventory/mill', '/inventory/hatchery'], 'المعمل والمفقس يفتحان مخازنهما');
+    t.same([liveOf('feed_mill').to, liveOf('hatchery').to], ['/mill', '/inventory/hatchery'], 'بطاقة المعمل تفتح المعمل نفسه (0015) والمفقس مخازنه (صفحته تخطيط)');
     t.same(liveOf('feed_mill').metrics.map((metric) => metric.label), ['تحت الحدّ الأدنى'], 'المعمل: بلا إنتاج اليوم والعلف الجاهز');
     t.same(liveOf('hatchery').metrics.map((metric) => metric.label), ['أفراخ فاتها 48 ساعة', 'تحت الحدّ الأدنى'], 'المفقس: بلا الوجبات وأقرب إخراج');
     t.eq(liveOf('accounts').metrics.length, 3, 'الحسابات كما هي');
@@ -425,21 +425,24 @@ export default async function (t) {
     // «ماذا تريد أن تفعل؟»: كل زرّ بشرط صفحته (can بالدور، والحسابات بعلامة الخادم)، والترتيب بأولوية الدور
     // (الاستخدام اليومي 2026-11-02): المالك والمدير الجولة ثم الاستلام ثم الدفع والقبض، والباقي بعدهم بترتيبه الافتراضي.
     const acts = (role, canSeeAccounts = true) => m.homeActions({ role, canSeeAccounts }).map((action) => action.key);
-    const ALL = ['round_broiler', 'round_layer', 'receipt', 'use', 'transfer', 'payout', 'payment', 'expense', 'count'];
-    const OWNER = ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment', 'use', 'transfer', 'expense', 'count'];
-    t.same(acts('owner'), OWNER, 'المالك: الأزرار التسعة بأولوية يومه');
-    t.same(acts('manager'), OWNER, 'المدير: الأزرار التسعة بأولوية يومه');
+    const ALL = ['round_broiler', 'round_layer', 'receipt', 'use', 'transfer', 'payout', 'payment', 'expense', 'count', 'produce'];
+    const OWNER = ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment', 'use', 'transfer', 'expense', 'count', 'produce'];
+    t.same(acts('owner'), OWNER, 'المالك: الأزرار العشرة بأولوية يومه (والإنتاج بالترتيب الافتراضي بعدها)');
+    t.same(acts('manager'), OWNER, 'المدير: الأزرار العشرة بأولوية يومه');
     t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler'], 'عامل قاعة بحقول اللحم: جولة اللحم بس');
     t.same(acts('storekeeper', false), ['receipt', 'use', 'transfer', 'count'], 'أمين المخزن: أزرار المخزن بس');
     t.same(acts('accountant'), ['payout', 'payment', 'expense'], 'المحاسب: الدفع والقبض والمصروف');
     t.same(acts('accountant', false), [], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات');
-    for (const role of ['viewer', 'mill_operator', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
+    for (const role of ['viewer', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
+    // مشغّل المعمل كان يفتح النظام ولا زرّ له (0015 بنت شاشاته ولم تفتح له مدخلًا): الإنتاج هو شغل يومه.
+    t.same(acts('mill_operator', false), ['produce'], 'مشغّل المعمل: زرّ الإنتاج');
+    t.same(acts('accountant').includes('produce'), false, 'المحاسب يرحّل ولا يسوّد: بلا زرّ إنتاج');
     t.same(acts('hall_worker', false), ['round_broiler', 'round_layer'], 'عامل القاعة: الجولة اليومية بس');
     t.same(m.homeActions(null).map((action) => action.key), ALL, 'بلا منشأة مؤكّدة: كلها مثل الشريط');
     const byKey = new Map(m.homeActions(null).map((action) => [action.key, action.to]));
     t.same(
       ALL.map((key) => byKey.get(key)),
-      ['/broiler/round', '/layers/round', '/inventory/receipts', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts'],
+      ['/broiler/round', '/layers/round', '/inventory/receipts', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts', '/mill'],
       'كل زرّ يفتح نموذجه',
     );
     const buttons = m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: m.homeActions({ role: 'storekeeper', canSeeAccounts: false }) })));
