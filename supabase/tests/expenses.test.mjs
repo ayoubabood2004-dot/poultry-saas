@@ -229,7 +229,9 @@ async function scenario(t, db) {
     }
     await q('savepoint y');
     try {
-      await q('truncate public.expenses');
+      // cascade: تحميلات الإنتاج (0016) تشير للمصاريف، فبلاها يرفض المفتاح الأجنبي قبل المشغّل؛ وcascade يوصل مشغّل الأمر (مثل
+      // cash_moves بـledger.test).
+      await q('truncate public.expenses cascade');
       result.push('ok');
     } catch (error) {
       result.push(error.message);

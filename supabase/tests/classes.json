@@ -18,6 +18,7 @@
     "party_allocations",
     "party_entries",
     "period_locks",
+    "production_cost_allocations",
     "production_input_values",
     "production_values",
     "receipt_charge_lines",
@@ -284,6 +285,24 @@
         ]
       }
     },
+    "production_costs": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "costs.load",
+      "columns": {
+        "insert": [
+          "id",
+          "batch_id",
+          "category_id",
+          "amount"
+        ],
+        "update": [
+          "amount"
+        ]
+      }
+    },
     "production_inputs": {
       "privileges": [
         "update"
@@ -413,6 +432,24 @@
           "received_on",
           "note",
           "status"
+        ]
+      }
+    },
+    "recipe_cost_rates": {
+      "privileges": [
+        "insert",
+        "update"
+      ],
+      "action": "recipe.activate",
+      "columns": {
+        "insert": [
+          "id",
+          "version_id",
+          "category_id",
+          "amount_per_ton"
+        ],
+        "update": [
+          "amount_per_ton"
         ]
       }
     },
@@ -765,6 +802,8 @@
     "expenses",
     "item_prices",
     "opening_lines",
+    "production_cost_allocations",
+    "production_costs",
     "production_input_values",
     "production_values",
     "receipt_amounts",
@@ -773,6 +812,7 @@
     "receipt_charges",
     "receipt_line_amounts",
     "receipt_revaluations",
+    "recipe_cost_rates",
     "stock_balances",
     "stock_count_line_costs",
     "stock_lots",
@@ -811,7 +851,6 @@
       "hatch_batch_values",
       "hatch_costs",
       "party_offsets",
-      "production_costs",
       "sales_invoices",
       "sales_line_costs",
       "sales_line_sources",

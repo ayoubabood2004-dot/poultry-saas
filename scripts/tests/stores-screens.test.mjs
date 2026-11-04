@@ -179,7 +179,7 @@ export default async function (t) {
       qtyLeft: 0n, money: { invoiceTotal: 350_000_00n, landedValue: 350_000_00n, unitCost: 700_00n, corrected: false },
     });
     const purchases = (rows, over = {}) => ({
-      item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: 1_750_00n },
+      item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: 1_750_00n, costPrice: null },
       warehouse: null, today: '2026-11-02', rows, next: null, total: rows.length, ...over,
     });
 
@@ -456,20 +456,20 @@ export default async function (t) {
     }
     {
       // سعر بيع أقلّ من الكلفة: تنبيه خسارة لا ربح.
-      fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([purchase({}), older], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: 700_00n } }) }));
+      fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([purchase({}), older], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: 700_00n, costPrice: null } }) }));
       await mount('/inventory/items/i-corn');
       t.ok(text().includes('أقلّ من كلفتها بـ105.00 لكل كغم (13.04%)'), `S13: وسعر أقلّ من الكلفة يقول خسارتها (${text().slice(0, 300)})`);
       await unmount();
     }
     {
-      fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null } }) }));
+      fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null, costPrice: null } }) }));
       await mount('/inventory/items/i-corn');
       t.ok(text().includes('لم يُكتب سعر بيع لهذه المادّة'), 'S13: ومادّة بلا سعر تقول ذلك');
       t.eq(byAction('edit-sell-price').length, 1, 'S13: ومعها زرّ كتابته');
       await unmount();
     }
     {
-      fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases([purchase({ money: null })], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null } }) }));
+      fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases([purchase({ money: null })], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null, costPrice: null } }) }));
       await mount('/inventory/items/i-corn');
       t.ok(!text().includes('سعر البيع'), 'S13: ودور بلا كلفة لا يرى بطاقة سعر البيع أبداً');
       await unmount();

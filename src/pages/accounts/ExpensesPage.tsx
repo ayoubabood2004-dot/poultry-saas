@@ -329,6 +329,19 @@ export function HatcheryBookSelect({ id, books, value, onChange, error }: { id: 
   );
 }
 
+/**
+ * ما أخذه العلف من المصروف (0016، كلمة المالك D2: «حصّة العلف فقط»): الأيدي العاملة والكهرباء والنقل مصروف مرّة واحدة، ودفعة
+ * الإنتاج تحمّل حصّتها منه عند ترحيلها؛ فالصفّ يقول كم حُمِّل، والإلغاء يُرفض بتلميح الخادم (expense_allocated) حتى تُلغى الدفعة.
+ */
+export function allocatedText(row: Pick<ExpenseRow, 'allocated'>): string | null {
+  return row.allocated > 0n ? t('expense.feed_allocated', 'محمَّل على العلف: {amount}', { amount: fmtMoney(row.allocated) }) : null;
+}
+
+/** تنبيه قبل إلغاء مصروف عليه تحميل: الإلغاء يُرفض حتى تُلغى دفعات الإنتاج التي حمّلته (ونصّ الرفض من الخادم يسمّيها). */
+export function allocatedVoidWarning(row: Pick<ExpenseRow, 'allocated'>): string | null {
+  return row.allocated > 0n ? t('expense.void.feed_allocated', 'من هذا المصروف {amount} محمَّلة على دفعات إنتاج العلف؛ يُرفض إلغاؤه حتى تُلغى تلك الدفعات.', { amount: fmtMoney(row.allocated) }) : null;
+}
+
 /** جملة الإلغاء: المصروف والمبلغ ونتيجته على الصندوق أو الجهة. */
 export function expenseVoidSentence(row: ExpenseRow): string {
   const vars = { category: row.categoryName, amount: fmtMoney(row.amount, 0), payee: row.accountName ?? row.partyName ?? '—' };
@@ -401,7 +414,21 @@ export default function ExpensesPage() {
               ? t('expense.col.doc', '{source} — {no}', { source: sourceLabel(row.source), no: row.docNo })
               : sourceLabel(row.source),
     },
-    { key: 'note', header: t('expense.col.note', 'البيان'), cell: (row) => (row.reverses ? t('expense.col.reversal', 'إلغاء: {reason}', { reason: row.reason ?? '' }) : (row.note ?? '')) },
+    {
+      key: 'note',
+      header: t('expense.col.note', 'البيان'),
+      cell: (row) => {
+        const memo = row.reverses ? t('expense.col.reversal', 'إلغاء: {reason}', { reason: row.reason ?? '' }) : (row.note ?? '');
+        const allocated = allocatedText(row);
+        if (allocated === null) return memo;
+        return (
+          <span className="flex flex-col gap-1">
+            {memo ? <span>{memo}</span> : null}
+            <span className="text-sm font-medium">{allocated}</span>
+          </span>
+        );
+      },
+    },
     { key: 'amount', header: t('expense.col.amount', 'المبلغ (دينار)'), kind: 'number', cell: (row) => <Num><MoneyText amount={row.amount} /></Num> },
   ];
   if (canVoid) {
@@ -474,7 +501,16 @@ export default function ExpensesPage() {
         <VoidDialog
           slot={`expense:${dialog.id}`}
           title={t('expense.void.title', 'ألغِ مصروف «{category}»', { category: dialog.categoryName })}
-          consequence={expenseVoidSentence(dialog)}
+          consequence={
+            allocatedVoidWarning(dialog) ? (
+              <span className="flex flex-col gap-2">
+                <span>{expenseVoidSentence(dialog)}</span>
+                <span className="font-medium text-warn-800 dark:text-warn-200">{allocatedVoidWarning(dialog)}</span>
+              </span>
+            ) : (
+              expenseVoidSentence(dialog)
+            )
+          }
           run={(clientRef, reason) => cash.voidExpense(clientRef, dialog.id, reason)}
           onClose={() => setDialog(null)}
           onDone={changed}

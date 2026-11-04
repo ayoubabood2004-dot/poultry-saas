@@ -401,6 +401,19 @@ export function createItem(fields: ItemFields): Promise<ItemRow> {
   return written(async (db) => updatedRows(withStatus(await db.from('items').insert(fields).select(ITEM_COLUMNS)))).then(parseItemRow);
 }
 
+/**
+ * مادّة واحدة بمعرّفها (رابط «اشترِ كمية»: ‎/inventory/receipts?new=1&item=…)، أو null إن لم تكن في منشأتك. المؤرشفة ترجع
+ * بعلامتها، والشاشة تقول إنّها لا تُستلم.
+ */
+export async function loadItem(id: string): Promise<ItemRow | null> {
+  const { result, wasOnline } = await send(
+    (db) => db.from('items').select(ITEM_COLUMNS).eq('id', id).limit(1),
+    (answer) => [answer],
+  );
+  const [row] = rowsOf([result], wasOnline)(0);
+  return row ? parseItemRow(row) : null;
+}
+
 /** الحقول المتغيّرة بس، بشرط النسخة. */
 export function updateItem(id: string, version: number, patch: Partial<ItemFields>): Promise<ItemRow> {
   return written(async (db) => updatedRows(withStatus(await db.from('items').update(patch).eq('id', id).eq('version', version).select(ITEM_COLUMNS)))).then(parseItemRow);
@@ -726,9 +739,10 @@ export interface LotRow {
   expiryOn: string | null;
   expired: boolean;
   nearExpiry: boolean;
-  sourceKind: 'opening' | 'receipt' | 'transfer' | 'count_gain';
+  /** من أين جاءت الدفعة: الإنتاج (0015) دفعة علف صُنعت بدفعة إنتاج، ورابطها صفحة الدفعة (ج٦). */
+  sourceKind: LotSourceKind;
   sourceId: string;
-  /** رقم المستند أو «رصيد افتتاح بتاريخ …». */
+  /** رقم المستند أو «رصيد افتتاح بتاريخ …» (private.stock_doc_label). */
   source: string;
   supplierLotNo: string | null;
 }
@@ -752,7 +766,23 @@ export interface ItemLots {
   total: number | null;
 }
 
-const SOURCE_KINDS = ['opening', 'receipt', 'transfer', 'count_gain'] as const;
+const SOURCE_KINDS = ['opening', 'receipt', 'transfer', 'count_gain', 'production'] as const;
+export type LotSourceKind = (typeof SOURCE_KINDS)[number];
+
+/**
+ * مصدر الدفعة: 0016 (ج٦) يرسله كائناً {"kind","id","label"}، وقبله نصّ التسمية وحده بجانب source_kind وsource_id (0007).
+ * الشكلان يُقرآن بصرامة كلّ واحد؛ وإن جاء الكائن ومعه source_kind أو source_id يخالفانه فالجواب خطأ شكل لا اختيار أحدهما.
+ */
+function lotSource(row: Row): { kind: LotSourceKind; id: string; label: string } {
+  const value = row.source;
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const source = value as Row;
+    const out = { kind: oneOf(source, 'kind', SOURCE_KINDS), id: str(source, 'id'), label: str(source, 'label') };
+    if ((row.source_kind !== undefined && row.source_kind !== out.kind) || (row.source_id !== undefined && row.source_id !== out.id)) throw new RowShapeError('source');
+    return out;
+  }
+  return { kind: oneOf(row, 'source_kind', SOURCE_KINDS), id: str(row, 'source_id'), label: str(row, 'source') };
+}
 
 export function parseItemLots(value: unknown): ItemLots {
   const json = obj(value, 'item_lots_qty');
@@ -774,6 +804,7 @@ export function parseItemLots(value: unknown): ItemLots {
       const row = obj(item, 'rows');
       const ageDays = count(row, 'age_days');
       if (ageDays === null) throw new RowShapeError('age_days');
+      const source = lotSource(row);
       return {
         lotId: str(row, 'lot_id'),
         qtyLeft: qtyOf(row, 'qty_left'),
@@ -785,9 +816,9 @@ export function parseItemLots(value: unknown): ItemLots {
         expiryOn: optStr(row, 'expiry_on'),
         expired: row.expired === true,
         nearExpiry: row.near_expiry === true,
-        sourceKind: oneOf(row, 'source_kind', SOURCE_KINDS),
-        sourceId: str(row, 'source_id'),
-        source: str(row, 'source'),
+        sourceKind: source.kind,
+        sourceId: source.id,
+        source: source.label,
         supplierLotNo: optStr(row, 'supplier_lot_no'),
       };
     }),
@@ -1461,6 +1492,11 @@ export interface PurchaseItem {
   archived: boolean;
   /** سعر البيع الحالي لوحدة الأساس (0014)، أو null: بلا سعر، أو دور بلا كلفة (القناع يشيل money). */
   sellPrice: Fils | null;
+  /**
+   * سعر الكلفة المكتوب لوحدة الأساس (0016، D1): للتخطيط وحده (كلفة الطنّ المتوقّعة في الخلطات)، ولا يصير قيمة دفعة مخزون
+   * أبداً. null: لم يُكتب، أو دور بلا كلفة.
+   */
+  costPrice: Fils | null;
 }
 
 export interface ItemPurchases {
@@ -1492,6 +1528,7 @@ export function parseItemPurchases(value: unknown): ItemPurchases {
       minQty: scaled(i, 'min_qty', 3),
       archived: bool(i, 'archived'),
       sellPrice: itemMoney ? scaled(itemMoney, 'sell_price', 2) : null,
+      costPrice: itemMoney ? scaled(itemMoney, 'cost_price', 2) : null,
     },
     warehouse: w ? { id: str(w, 'id'), name: str(w, 'name'), kind: oneOf(w, 'kind', WAREHOUSE_KINDS) } : null,
     today: str(json, 'today'),
@@ -1631,6 +1668,23 @@ export async function setItemSellPrice(itemId: string, price: Fils | null, expec
     'set_item_sell_price',
   );
   return scaled(json, 'sell_price', 2);
+}
+
+/**
+ * سعر الكلفة المكتوب (0016، كلمة المالك D1: «اكتب سعر كلفة كل مادة بعدها يعني همين اني اكتبها»): نسخة من سعر البيع بالضبط —
+ * بالفلس لوحدة الأساس وnull يشيله، والكتابة مشروطة بالسعر الذي شافته الشاشة (expected)، ونفس الصلاحية. للتخطيط وحده: كلفة
+ * المخزون الفعلية من الشراء الحقيقي (FOUNDATION القاعدة ٢١)، والخادم يرجّع ما كُتب.
+ */
+export async function setItemCostPrice(itemId: string, price: Fils | null, expected: Fils | null): Promise<Fils | null> {
+  const json = obj(
+    await call<unknown>('set_item_cost_price', {
+      p_item: itemId,
+      p_price: price === null ? null : decimalText(price, 2),
+      p_expected: expected === null ? null : decimalText(expected, 2),
+    }),
+    'set_item_cost_price',
+  );
+  return scaled(json, 'cost_price', 2);
 }
 
 // مشتركة لملفّي المخزون الكسولين uses.ts وcounts.ts (WP5، نفس حزمة الشاشات): قراءة الشكل، والكتابة المباشرة بـupdatedRows، والقراءة.

@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -31,7 +31,7 @@ import { t } from '../../lib/i18n';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
-import type { CategoryRow, ItemRow } from '../../lib/repo/inventory';
+import type { CategoryRow, ItemRow, ItemTwin } from '../../lib/repo/inventory';
 import * as purchasing from '../../lib/repo/purchasing';
 import type { BoxPick, PartyPick, ReceiptAmounts, ReceiptBundle, ReceiptCharge, ReceiptDoc, ReceiptLine, ReceiptLineAmount, ReceiptPreview } from '../../lib/repo/purchasing';
 import { useSession } from '../../lib/session';
@@ -289,7 +289,7 @@ export function ReceiptLinesTable({ lines, values, totals, onDelete }: { lines: 
  * هنا: مَن يكتب المبالغ (receipt.amounts) يكتب سعر الوحدة مع الكمية، والمبلغ يُحسب لحظته بـlineAmount (دينار صحيح،
  * Q7) ويُعرض قبل الحفظ؛ والحفظ سطرٌ ثمّ مبلغه (كتابتان مثل اليوم: السطر بلا مبلغ حالة معروفة، ولوحة المبالغ تكمّلها).
  */
-function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, onAdded }: {
+function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, initialItem = null, onAdded }: {
   doc: ReceiptDoc;
   store: StoreRef;
   stores: readonly StoreRef[];
@@ -297,16 +297,21 @@ function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, o
   canPrice: boolean;
   /** can('item.create'): الأمين يملكه بـ0013، فيضيف المادّة من الورقة نفسها بدل أن يقف. */
   canCreate: boolean;
+  /**
+   * المادّة معبّأة من رابط «اشترِ كمية» (?item=، كلمة المالك 2026-11-04): السطر ينفتح بها، ومعرّفه يولد بالجهاز مرّة كما في
+   * الاختيار (الإعادة بعد جواب ضاع 23505 تكتب فوقه، لا سطراً ثانياً). المحرّر يمرّرها فقط إن كان مخزن الورقة يستلمها.
+   */
+  initialItem?: ItemRow | null;
   onAdded: () => void;
 }) {
   const id = useId();
-  const [item, setItem] = useState<ItemRow | null>(null);
+  const [item, setItem] = useState<ItemRow | null>(initialItem);
   const [packs, setPacks] = useState<readonly inventory.ItemUnitRow[] | null>(null);
   const [loadFailed, setLoadFailed] = useState<unknown>(null);
   const [lineId, setLineId] = useState(() => crypto.randomUUID());
   const [qty, setQty] = useState<QtyValue>({ text: '', unitId: 'base' });
   const [expiry, setExpiry] = useState('');
-  const [bornAt, setBornAt] = useState('');
+  const [bornAt, setBornAt] = useState(() => (initialItem?.kind === 'chick' ? `${fmtDay(doc.onDate)} 00:00` : ''));
   const [lotNo, setLotNo] = useState('');
   const [price, setPrice] = useState('');
   const [creating, setCreating] = useState<string | null>(null);
@@ -392,6 +397,25 @@ function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, o
       })
       .finally(() => setBusy(false));
   };
+  /**
+   * توأم بالاسم نفسه وجدته نافذة «مادّة جديدة» (كلمة المالك 2026-11-04): الشراء الجديد هو هذه الورقة نفسها، فالمادّة الموجودة
+   * تُختار في السطر بدل مادّة ثانية بالاسم نفسه. تُقرأ بمعرّفها (التوأم بلا نوعها)، ومادّة لا يستلمها مخزن الورقة تُقال ولا تُختار.
+   */
+  const takeTwin = (twin: ItemTwin) => {
+    setFailure(null);
+    // النافذة تُغلق في الحالين، فالفشل يظهر بنموذج السطر لا خلفها.
+    inventory.loadItem(twin.id).then(
+      (row) => {
+        setCreating(null);
+        if (row && !row.archived && receivable(row)) pickItem(row);
+        else setFailure(new RejectedError('not_receivable', row ? notReceivableHere([row], store, stores) : t('buy.item.missing', 'لم تُوجد المادّة المطلوبة في منشأتك.')));
+      },
+      (error: unknown) => {
+        setCreating(null);
+        setFailure(error);
+      },
+    );
+  };
   const failed = failure ? describeError(failure, 'once') : null;
   // مبلغ السطر المعروض قبل الحفظ: الكمية المكتوبة × سعر الوحدة، بالدينار الصحيح (lineAmount).
   const livePrice = price.trim() ? parseMoneyText(price, false) : null;
@@ -415,6 +439,7 @@ function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, o
           kinds={kinds}
           initialName={creating}
           costs={canPrice}
+          onUseTwin={takeTwin}
           onClose={() => setCreating(null)}
           onSaved={(made) => {
             setCreating(null);
@@ -928,6 +953,24 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const originId = bundle && bundle.doc.status === 'draft' ? bundle.doc.copiedFrom : null;
   const loadOrigin = useCallback(() => (originId ? purchasing.loadReceiptOrigin(originId, canPrice) : Promise.resolve(null)), [originId, canPrice]);
   const originLoad = useLoad(loadOrigin, `origin#${originId ?? ''}#${canPrice}`);
+  // «اشترِ كمية» (?item=): الورقة الجديدة تنفتح وسطرها بالمادّة. تُقرأ المادّة مرّة قبل رسم نموذج السطر (فيبدأ بها)، وبلا «أعد
+  // المحاولة» لفشلها: الإعادة كانت تطوي النموذج وتولّد للسطر معرّفاً جديداً بعد جواب ضاع (درس WP4)، فالفشل تنبيه والمادّة تُختار
+  // بالبحث. والعلامة تُشال من الرابط بعد إضافة السطر فلا تعود بإعادة التحميل.
+  const [params, setParams] = useSearchParams();
+  const buyItemId = params.get('item') ?? '';
+  const loadBuyItem = useCallback(() => (buyItemId ? inventory.loadItem(buyItemId) : Promise.resolve(null)), [buyItemId]);
+  const buyItem = useLoad(loadBuyItem, `buy#${buyItemId}`);
+  const dropBuyItem = () => {
+    if (!params.has('item')) return;
+    setParams(
+      (now) => {
+        const next = new URLSearchParams(now);
+        next.delete('item');
+        return next;
+      },
+      { replace: true },
+    );
+  };
   if (!bundle && loadError) return <LoadFailed what={t('receipt.what', 'الاستلام')} error={loadError} onRetry={reload} />;
   if (setup.error) return <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />;
   if (!bundle || !setup.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
@@ -1052,6 +1095,9 @@ function ReceiptEditor({ docId }: { docId: string }) {
   };
   const ready = online && preview !== null && preview.ready && preview.problems.length === 0 && preview.lines.every((line) => approved.has(line.lineId));
   const title = current.docNo ? t('receipt.title.no', 'الاستلام {no}', { no: current.docNo }) : t('receipt.title.draft', 'استلام غير محفوظ بعد');
+  const buyRow = buyItemId && buyItem.data ? buyItem.data : null;
+  const buyFits = buyRow !== null && store !== undefined && !buyRow.archived && receivableKinds(store.kind).includes(buyRow.kind);
+  const buyWaiting = draft && canDraft && buyItemId !== '' && buyItem.loading;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -1074,8 +1120,30 @@ function ReceiptEditor({ docId }: { docId: string }) {
       {current.voidReason ? <Notice tone="warning" title={t('receipt.voided', 'أُلغي هذا الاستلام')}>{current.voidReason}</Notice> : null}
       {draft && canDraft ? <DraftDayField day={current.onDate} save={(day) => purchasing.updateReceiptDraft(current, { day })} onSaved={refresh} /> : null}
       <ReceiptLinesTable lines={bundle.lines} values={live ? live.values : null} totals={totals} onDelete={draft && canDraft ? setLineToDelete : null} />
-      {draft && canDraft && store ? (
-        <AddReceiptLine doc={current} store={store} stores={storesOf(setup.data)} categories={setup.data?.itemCategories ?? []} canPrice={canPrice} canCreate={canCreate} onAdded={refresh} />
+      {draft && canDraft && buyItemId && buyItem.error ? (
+        <Notice tone="warning" title={t('buy.item.failed', 'تعذّر تحميل المادّة المطلوب شراؤها؛ اخترها بالبحث في السطر.')}>
+          {describeError(buyItem.error, 'read').detail}
+        </Notice>
+      ) : null}
+      {draft && canDraft && store && buyRow && !buyFits ? <Notice tone="warning" title={t('buy.item.not_here', 'لم تُفتح الورقة بالمادّة المطلوبة')}>{notReceivableHere([buyRow], store, storesOf(setup.data))}</Notice> : null}
+      {buyWaiting ? (
+        <p role="status" className="text-sm text-ink-muted">
+          {t('page.loading', 'جارٍ الفتح…')}
+        </p>
+      ) : draft && canDraft && store ? (
+        <AddReceiptLine
+          doc={current}
+          store={store}
+          stores={storesOf(setup.data)}
+          categories={setup.data?.itemCategories ?? []}
+          canPrice={canPrice}
+          canCreate={canCreate}
+          initialItem={buyFits ? buyRow : null}
+          onAdded={() => {
+            dropBuyItem();
+            refresh();
+          }}
+        />
       ) : null}
       {current.status !== 'draft' && (canDraft || canPrice) ? <ReceiptReturnsPanel receipt={current} canDraft={canDraft} /> : null}
       {current.status === 'posted' && canRevalue && totals ? <PriceCorrectionPanel receipt={current} lines={bundle.lines} totals={totals} /> : null}
@@ -1177,28 +1245,43 @@ function ReceiptEditor({ docId }: { docId: string }) {
   );
 }
 
-function NewReceipt({ stores, onSaved }: { stores: readonly StoreRef[]; onSaved: (id: string) => void }) {
+/**
+ * المخازن التي تصلح لورقة استلام جديدة: فعّالة وتستلم من المورّد، ومع مادّة «اشترِ كمية» تستلم نوعها هي (مرآة receiving_kinds،
+ * والحكم بالخادم عند السطر).
+ */
+export function receivingStores(stores: readonly StoreRef[], item: Pick<ItemRow, 'kind'> | null): StoreRef[] {
+  return stores.filter((store) => !store.archived && receivableKinds(store.kind).length > 0 && (!item || receivableKinds(store.kind).includes(item.kind)));
+}
+
+/**
+ * «استلام جديد». ومن رابط «اشترِ كمية» (‎?new=1&wh=&item=، كلمة المالك 2026-11-04): المخزن معبّأ إن كان يستلم المادّة (أو
+ * المخزن الوحيد الذي يستلمها)، والمخازن محصورة بما يستلمها؛ والمسوّدة بالطريق نفسه — معرّف الجهاز لقيم النموذج (useDraftIds)،
+ * فالإعادة بعد جواب ضاع ترجع 23505 وتنفتح الورقة نفسها لا ورقة ثانية — ثم تنفتح الورقة وسطرها بالمادّة.
+ */
+function NewReceipt({ stores, initialStoreId = '', item = null, onSaved }: { stores: readonly StoreRef[]; initialStoreId?: string; item?: ItemRow | null; onSaved: (id: string) => void }) {
   const id = useId();
-  const [storeId, setStoreId] = useState('');
+  const receiving = receivingStores(stores, item);
+  const [storeId, setStoreId] = useState(() => (receiving.some((store) => store.id === initialStoreId) ? initialStoreId : item && receiving.length === 1 ? (receiving[0]?.id ?? '') : ''));
   const [party, setParty] = useState<PartyPick | null>(null);
   const [day, setDay] = useState(fmtDay(localDay()));
   const draftIds = useDraftIds();
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const receiving = stores.filter((store) => !store.archived && receivableKinds(store.kind).length > 0);
+  // المخزن المختار من القائمة المعروضة نفسها: قيمة خارجها (لا يستلم المادّة) تُعامل «لم يُختر» فلا تُرسل.
+  const picked = receiving.find((store) => store.id === storeId);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const date = postingDay(day);
-    if (!storeId || !party || !date.day) {
+    if (!picked || !party || !date.day) {
       setFailure(new RejectedError('fields', date.error ?? t('receipt.new.fields', 'اختر المخزن والمورّد واكتب التاريخ.')));
       return;
     }
-    const values = JSON.stringify([storeId, party.id, date.day]);
+    const values = JSON.stringify([picked.id, party.id, date.day]);
     const docId = draftIds.idFor(values);
     setBusy(true);
     setFailure(null);
     purchasing
-      .createReceiptDraft(docId, storeId, party.id, date.day)
+      .createReceiptDraft(docId, picked.id, party.id, date.day)
       .then(
         (doc) => onSaved(doc.id),
         (error: unknown) => {
@@ -1211,12 +1294,20 @@ function NewReceipt({ stores, onSaved }: { stores: readonly StoreRef[]; onSaved:
       )
       .finally(() => setBusy(false));
   };
-  const picked = receiving.find((store) => store.id === storeId);
   const failed = failure ? describeError(failure, 'once') : null;
   return (
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <h2 className="font-semibold">{t('receipt.new', 'استلام جديد')}</h2>
-      <StoreSelect id={`${id}-store`} label={t('receipt.store', 'إلى مخزن')} stores={receiving} value={storeId} onChange={setStoreId} />
+      {item ? <p className="text-sm">{t('buy.receipt.line', 'تنفتح الورقة وسطرها بـ«{item}»: اختر المورّد والتاريخ ثم «ابدأ».', { item: item.name })}</p> : null}
+      {item && receiving.length === 0 ? (
+        <Notice tone="warning" title={t('buy.receipt.no_store', 'لا مخزن في نطاقك يستلم «{item}»', { item: item.name })}>
+          {(() => {
+            const home = RECEIVING_KINDS[item.kind][0];
+            return home ? t('buy.receipt.no_store.kind', '«{kind}» تُستلم في مخزن من نوع «{store}».', { kind: itemKindLabel(item.kind), store: warehouseKindLabel(home) }) : t('receipt.not_here.never', 'هذا النوع لا يُشترى من مورّد.');
+          })()}
+        </Notice>
+      ) : null}
+      <StoreSelect id={`${id}-store`} label={t('receipt.store', 'إلى مخزن')} stores={receiving} value={picked ? storeId : ''} onChange={setStoreId} />
       {picked ? <p className="text-sm text-ink-muted">{t('receipt.book', 'الحساب: «{book}» (من نوع المخزن)', { book: receiptBook(picked) })}</p> : null}
       <SupplierPicker id={`${id}-party`} label={t('receipt.party', 'المورّد')} value={party} onChange={setParty} />
       <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('use.day', 'اليوم أو قبله حتى 7 أيام.')} />
@@ -1237,6 +1328,16 @@ export function ReceiptsList() {
   const navigate = useNavigate();
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
+  // «اشترِ كمية» (‎?new=1&wh=&item=، كلمة المالك 2026-11-04): نموذج «استلام جديد» معبّأ بالمخزن، والمادّة تُقرأ قبل رسمه
+  // (فيحصر المخازن بما يستلمها)؛ والورقة الجديدة تنفتح بـ?item= فيبدأ سطرها بالمادّة.
+  const [params] = useSearchParams();
+  const buying = params.get('new') === '1';
+  const buyItemId = buying ? (params.get('item') ?? '') : '';
+  const loadBuyItem = useCallback(() => (buyItemId ? inventory.loadItem(buyItemId) : Promise.resolve(null)), [buyItemId]);
+  const buyLoad = useLoad(loadBuyItem, `buy#${buyItemId}`);
+  const buyItem = buyLoad.data && !buyLoad.data.archived ? buyLoad.data : null;
+  // المادّة تُحمل إلى الورقة الجديدة: المعروفة، أو التي تعذّرت قراءتها هنا (تُجرَّب هناك مرّة)؛ لا الغائبة ولا المؤرشفة.
+  const carried = buyItem ? buyItem.id : buyItemId && buyLoad.error ? buyItemId : null;
   const [draftsOnly, setDraftsOnly] = useState(false);
   const loadFirst = useCallback(() => purchasing.listReceipts(null, draftsOnly), [draftsOnly]);
   const first = useLoad(loadFirst, `receipts#${draftsOnly}`);
@@ -1283,7 +1384,22 @@ export function ReceiptsList() {
       <PageHeader title={t('stock.receipts', 'الاستلام من المورّدين')} subtitle={t('receipt.list.subtitle', 'الأمين يكتب الكميات، والمحاسب أو المدير يكتب المبالغ ويحفظ نهائياً.')} />
       {!canDraft && !canPrice ? <Notice tone="info" title={t('receipt.forbidden', 'الاستلام لأمين المخزن والمحاسب والمدير ومالك المنشأة.')} /> : null}
       {canDraft && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
-      {canDraft && setup.data ? <NewReceipt stores={scopedStores(stores, workspace)} onSaved={(id) => navigate(`/inventory/receipts/${id}`)} /> : null}
+      {canDraft && buyItemId && buyLoad.error ? (
+        <Notice tone="warning" title={t('buy.item.failed.list', 'تعذّر تحميل المادّة المطلوب شراؤها؛ ابدأ الورقة وتُختار فيها.')}>
+          {describeError(buyLoad.error, 'read').detail}
+        </Notice>
+      ) : null}
+      {canDraft && buyItemId && !buyLoad.loading && !buyLoad.error && !buyItem ? (
+        <Notice tone="warning" title={buyLoad.data?.archived ? t('buy.item.archived', '«{item}» مؤرشفة، فلا تُستلم؛ أعدها من «المواد» أوّلاً.', { item: buyLoad.data.name }) : t('buy.item.missing', 'لم تُوجد المادّة المطلوبة في منشأتك.')} />
+      ) : null}
+      {canDraft && setup.data && !(buyItemId && buyLoad.loading) ? (
+        <NewReceipt
+          stores={scopedStores(stores, workspace)}
+          initialStoreId={buying ? (params.get('wh') ?? '') : ''}
+          item={buyItem}
+          onSaved={(id) => navigate(carried ? `/inventory/receipts/${id}?item=${encodeURIComponent(carried)}` : `/inventory/receipts/${id}`)}
+        />
+      ) : null}
       {canPrice ? (
         <Segmented
           label={t('use.list.show', 'اعرض')}

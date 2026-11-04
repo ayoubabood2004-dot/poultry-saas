@@ -11,29 +11,38 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
+import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseQty } from '../../domain/units';
 import { describeError } from '../../lib/errors';
 import { columnDecimals, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { setItemCostPrice } from '../../lib/repo/inventory';
 import {
   activateVersion,
   addRecipeLine,
+  addRecipeRate,
   createVersion,
   deleteRecipeLine,
+  deleteRecipeRate,
   loadRecipe,
   setRecipeLine,
+  setRecipeRate,
   setVersionBasis,
   type RecipeDetail,
   type RecipeLine,
+  type RecipeRate,
   type RecipeUnit,
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { Chip, CompositionBar, pct } from './shared';
+import { CellEdit, unitWord, useDrafts } from './pickers';
+import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
 // وشريط التركيبة بلمحة. النسخة المسوّدة تُعدَّل وتُفعَّل؛ والمفعَّلة مجمَّدة، فالتعديل نسخة جديدة (التاريخ لا يُعاد كتابته).
+// النسخة الثانية (0016): لكلّ مادّة سعر الشراء التلقائي (آخر استلام) وسعر الكلفة المكتوب (يُكتب هنا لمن يملك الصلاحية) بجانب
+// متوسّط المتاح؛ و«تكاليف لكلّ طنّ» بفئة مصروف (تُكتب في المسوّدة)؛ وكلفة الطنّ المتوقّعة من الخادم للتخطيط.
 
 function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -45,7 +54,7 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
   const picked = recipe.pickItems.find((candidate) => candidate.id === item) ?? null;
   const value = parseQty(qty);
   const bad = qty.trim() !== '' && (value === null || value <= 0n);
-  const liquid = picked?.baseUnit === 'L';
+  const liquid = picked?.baseUnit === 'L' || line?.baseUnit === 'L';
 
   const save = async () => {
     if (!value || value <= 0n || (!line && item === '')) return;
@@ -106,27 +115,55 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
   );
 }
 
+/** كلفة الطنّ المتوقّعة من الخادم (ج٧): للتخطيط، والفعلية من السحب الحقيقي عند الإنتاج. */
+export function ExpectedPanel({ expected }: { expected: NonNullable<RecipeDetail['expected']> }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-2xl bg-surface-2 p-3" data-action="expected-cost">
+      <p className="font-semibold">
+        {expected.unpriced === 0
+          ? t('mill.expected.title', 'كلفة الطنّ المتوقّعة: {ton}', { ton: fmtMoney(expected.costPerTon) })
+          : t('mill.expected.partial', 'كلفة الطنّ المتوقّعة: {ton} على الأقلّ', { ton: fmtMoney(expected.costPerTon) })}
+      </p>
+      <p className="text-sm text-ink-muted">
+        {t('mill.builder.planned_parts', 'المواد {materials} والتكاليف {rates} لكلّ طنّ.', { materials: fmtMoney(expected.materialsPerTon), rates: fmtMoney(expected.ratesPerTon) })}
+        {expected.unpriced > 0 ? ` ${t('mill.expected.unpriced', '{count} من المواد بلا أيّ سعر فلم تُحسب: اكتب سعر كلفتها.', { count: fmtInt(expected.unpriced) })}` : ''}
+      </p>
+      <p className="text-xs text-ink-muted">{t('mill.expected.note', 'سعر كلّ مادّة: سعر الكلفة المكتوب، وإلّا آخر شراء، وإلّا متوسّط المتاح. الكلفة الفعلية للعلف من السحب الحقيقي عند الإنتاج.')}</p>
+    </div>
+  );
+}
+
 export default function RecipePage() {
   const { id = '' } = useParams();
   const session = useSession();
-  const role = session.status === 'ready' ? session.workspace.role : null;
+  const workspace = session.status === 'ready' ? session.workspace : null;
+  const role = workspace?.role ?? null;
   const canEdit = role !== null && can(role, 'recipe.activate');
+  const costs = Boolean(workspace?.canSeeCost);
+  const canPrice = costs && role !== null && can(role, 'stores.manage');
   const [versionId, setVersionId] = useState<string | null>(null);
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
   const { data, error, loading, retry } = useLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
   const [editing, setEditing] = useState<RecipeLine | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<RecipeLine | null>(null);
+  const [removingRate, setRemovingRate] = useState<RecipeRate | null>(null);
   const [basis, setBasis] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const prices = useDrafts<Fils | null>();
+  const rateDrafts = useDrafts<Fils>();
+  const [newRate, setNewRate] = useState({ categoryId: '', amount: '' });
   const basisId = useId();
+  const fieldId = useId();
 
-  const lines = data?.lines ?? [];
+  const lines = useMemo(() => data?.lines ?? [], [data]);
   const massDecimals = useMemo(() => columnDecimals(lines.map((line) => line.massKg), 3) as 0 | 1 | 2 | 3, [lines]);
   const qtyDecimals = useMemo(() => columnDecimals(lines.map((line) => line.qty), 3) as 0 | 1 | 2 | 3, [lines]);
-  const costShown = lines.some((line) => line.unitCost !== null);
+  // أعمدة الأسعار مال: لأدوار الكلفة وحدها (الخادم يحذف money عن غيرهم).
+  const costShown = costs;
   const isDraft = data?.status === 'draft';
+  const hue = recipeColor(id).hue;
 
   const sections = useMemo(() => {
     const groups = new Map<string, bigint>();
@@ -137,7 +174,43 @@ export default function RecipePage() {
     return [...groups.entries()].map(([name, mass]) => ({ name, mass }));
   }, [lines]);
 
-  const columns = useMemo<Column<RecipeLine>[]>(() => {
+  const act = async (run: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await run();
+      if (done) toast({ tone: 'success', title: done });
+      retry();
+    } catch (problem) {
+      const { title, detail } = describeError(problem);
+      setFailure(`${title} ${detail}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savePrice = (line: RecipeLine) => {
+    const draft = prices.get(line.itemId);
+    if (!draft) return;
+    const value = draft.text.trim() === '' ? null : parseMoney(draft.text);
+    if (draft.text.trim() !== '' && (value === null || value <= 0n)) return;
+    void act(async () => {
+      await setItemCostPrice(line.itemId, value, draft.before);
+      prices.clear(line.itemId);
+    }, t('mill.price.saved', 'حُفظ سعر كلفة «{name}».', { name: line.itemName }));
+  };
+
+  const saveRate = (rate: RecipeRate) => {
+    const draft = rateDrafts.get(rate.id);
+    const value = draft ? parseMoney(draft.text) : null;
+    if (!draft || value === null || value <= 0n) return;
+    void act(async () => {
+      await setRecipeRate(rate.id, draft.before, value);
+      rateDrafts.clear(rate.id);
+    });
+  };
+
+  const columns = ((): Column<RecipeLine>[] => {
     const base: Column<RecipeLine>[] = [
       { key: 'item', header: t('mill.line.item', 'المادّة'), wrap: true, sticky: true, cell: (line) => line.itemName },
       { key: 'section', header: t('mill.col.section', 'القسم'), cell: (line) => line.categoryName ?? t('mill.section.none', 'بلا قسم') },
@@ -154,16 +227,49 @@ export default function RecipePage() {
         key: 'share',
         header: t('mill.col.share', 'الحصّة'),
         kind: 'number',
-        cell: (line) => <Num>{(data?.basisKg ?? 0n) > 0n ? pct(line.massKg, data?.basisKg ?? 1n) : t('mill.col.no_doc', '—')}</Num>,
+        cell: (line) => <Num>{(data?.basisKg ?? 0n) > 0n ? pct(line.massKg, data?.basisKg ?? 1n) : dash()}</Num>,
       },
     ];
     if (costShown) {
-      base.push({
-        key: 'cost',
-        header: t('mill.col.unit_cost', 'كلفة الوحدة'),
-        kind: 'number',
-        cell: (line) => <Num>{line.unitCost === null ? t('mill.col.no_doc', '—') : fmtMoney(line.unitCost)}</Num>,
-      });
+      base.push(
+        {
+          key: 'last',
+          header: t('mill.col.last_price', 'سعر الشراء (آخر شراء)'),
+          kind: 'number',
+          cell: (line) => <Num>{line.lastPrice === null ? dash() : fmtMoney(line.lastPrice)}</Num>,
+        },
+        {
+          key: 'cost_price',
+          header: t('mill.col.cost_price', 'سعر الكلفة'),
+          kind: 'number',
+          cell: (line) => {
+            if (!canPrice) return <Num>{line.costPrice === null ? dash() : fmtMoney(line.costPrice)}</Num>;
+            const saved = line.costPrice === null ? '' : decimalText(line.costPrice, 2);
+            const draft = prices.get(line.itemId);
+            const text = draft?.text ?? saved;
+            const parsed = text.trim() === '' ? null : parseMoney(text);
+            return (
+              <CellEdit
+                id={`${fieldId}-cost-${line.itemId}`}
+                label={t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: line.itemName, unit: unitWord(line.baseUnit) })}
+                value={text}
+                dirty={draft !== undefined && text !== saved}
+                invalid={text.trim() !== '' && (parsed === null || parsed <= 0n)}
+                busy={busy}
+                action="cost-price"
+                onChange={(next) => prices.write(line.itemId, next, line.costPrice)}
+                onSave={() => savePrice(line)}
+              />
+            );
+          },
+        },
+        {
+          key: 'cost',
+          header: t('mill.col.avg_cost', 'متوسّط المتاح'),
+          kind: 'number',
+          cell: (line) => <Num>{line.unitCost === null ? dash() : fmtMoney(line.unitCost)}</Num>,
+        },
+      );
     }
     if (isDraft && canEdit) {
       base.push({
@@ -182,28 +288,59 @@ export default function RecipePage() {
       });
     }
     return base;
-  }, [canEdit, costShown, data?.basisKg, data?.massKg, isDraft, massDecimals, qtyDecimals]);
+  })();
 
   if (error) return <LoadFailed what={t('mill.recipe.what', 'بطاقة الخلطة')} error={error} onRetry={retry} />;
   if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
 
   const gap = data.basisKg - data.massKg;
   const balanced = gap === 0n && lines.length > 0;
+  const rates = data.rates ?? [];
+  const canRates = isDraft && canEdit && costs;
+  const freeCategories = data.expenseCategories.filter((category) => !rates.some((rate) => rate.categoryId === category.id));
+  const newRateValue = newRate.amount.trim() === '' ? null : parseMoney(newRate.amount);
+  const newRateOk = newRate.categoryId !== '' && newRateValue !== null && newRateValue > 0n;
 
-  const act = async (run: () => Promise<unknown>, done?: string) => {
-    setBusy(true);
-    setFailure(null);
-    try {
-      await run();
-      if (done) toast({ tone: 'success', title: done });
-      retry();
-    } catch (problem) {
-      const { title, detail } = describeError(problem);
-      setFailure(`${title} ${detail}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const rateColumns: Column<RecipeRate>[] = [
+    { key: 'category', header: t('mill.rates.category', 'فئة المصروف'), wrap: true, cell: (rate) => rate.categoryName },
+    {
+      key: 'amount',
+      header: t('mill.rates.amount', 'المبلغ لكلّ طنّ (دينار)'),
+      kind: 'number',
+      cell: (rate) => {
+        if (!canRates) return <Num>{fmtMoney(rate.amountPerTon)}</Num>;
+        const saved = decimalText(rate.amountPerTon, 2);
+        const draft = rateDrafts.get(rate.id);
+        const text = draft?.text ?? saved;
+        const parsed = parseMoney(text);
+        return (
+          <CellEdit
+            id={`${fieldId}-rate-${rate.id}`}
+            label={t('mill.rates.amount_named', 'مبلغ «{name}» لكلّ طنّ', { name: rate.categoryName })}
+            value={text}
+            dirty={draft !== undefined && text !== saved}
+            invalid={parsed === null || parsed <= 0n}
+            busy={busy}
+            action="rate-amount"
+            onChange={(next) => rateDrafts.write(rate.id, next, rate.amountPerTon)}
+            onSave={() => saveRate(rate)}
+          />
+        );
+      },
+      total: data.expected ? <Num>{fmtMoney(data.expected.ratesPerTon)}</Num> : undefined,
+    },
+  ];
+  if (canRates) {
+    rateColumns.push({
+      key: 'actions',
+      header: t('mill.col.actions', 'إجراءات'),
+      cell: (rate) => (
+        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} onClick={() => setRemovingRate(rate)} data-action="remove-rate">
+          {t('common.delete', 'احذف')}
+        </Button>
+      ),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -242,10 +379,10 @@ export default function RecipePage() {
 
       <section className="card flex flex-col gap-3 p-4">
         <p className="text-sm text-ink-muted">{t('mill.detail.basis', 'الأساس: {basis}', { basis: fmtQty(data.basisKg, 'kg').main })}</p>
-        <CompositionBar pieces={lines.map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={data.basisKg > 0n ? data.basisKg : 1n} />
+        <CompositionBar pieces={lines.map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={data.basisKg > 0n ? data.basisKg : 1n} hue={hue} />
         <div className="flex flex-wrap gap-1.5">
-          {sections.map((section) => (
-            <Chip key={section.name}>
+          {sections.map((section, index) => (
+            <Chip key={section.name} dot={pieceColor(hue, index)}>
               <span className="truncate">{section.name}</span>
               <Num>{fmtQty(section.mass, 'kg').main}</Num>
             </Chip>
@@ -319,6 +456,85 @@ export default function RecipePage() {
         </div>
       ) : null}
 
+      {data.rates !== null ? (
+        <section className="card flex flex-col gap-3 p-4">
+          <h2 className="text-lg font-semibold">{t('mill.rates.title', 'تكاليف لكلّ طنّ')}</h2>
+          <p className="text-sm text-ink-muted">
+            {t('mill.rates.hint', 'أيدي عاملة أو كهرباء أو نقل: مبلغ لكلّ طنّ يُحسب على كلّ دفعة بكميتها، ويُحمَّل عند الإنتاج من مصروف مسجّل بفئته.')}
+          </p>
+          <DataTable
+            caption={t('mill.rates.caption', 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')}
+            columns={rateColumns}
+            rows={rates}
+            rowKey={(rate) => rate.id}
+            empty={t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
+            totalLabel={t('mill.detail.total', 'المجموع')}
+          />
+          {canRates && freeCategories.length ? (
+            <div className="flex flex-wrap items-end gap-3">
+              <Field id={`${fieldId}-new-rate-category`} label={t('mill.rates.category', 'فئة المصروف')}>
+                <select
+                  id={`${fieldId}-new-rate-category`}
+                  className="input"
+                  value={newRate.categoryId}
+                  onChange={(event) => setNewRate((current) => ({ ...current, categoryId: event.target.value }))}
+                  data-action="new-rate-category"
+                >
+                  <option value="">{t('mill.rates.category_pick', 'اختر فئة المصروف')}</option>
+                  {freeCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field id={`${fieldId}-new-rate-amount`} label={t('mill.rates.amount', 'المبلغ لكلّ طنّ (دينار)')}>
+                <input
+                  id={`${fieldId}-new-rate-amount`}
+                  className="input text-end tabular-nums"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={newRate.amount}
+                  onChange={(event) => setNewRate((current) => ({ ...current, amount: event.target.value }))}
+                  data-action="new-rate-amount"
+                />
+              </Field>
+              <Button
+                variant="secondary"
+                icon={<Plus className="size-5" aria-hidden="true" />}
+                busy={busy}
+                disabled={!newRateOk || !data.versionId}
+                onClick={() => {
+                  if (!newRateOk || newRateValue === null || !data.versionId) return;
+                  const slot = `rate:${data.versionId}:${newRate.categoryId}`;
+                  const versionOf = data.versionId;
+                  void act(async () => {
+                    await addRecipeRate(versionOf, millRef(slot), newRate.categoryId, newRateValue);
+                    forgetMillRef(slot);
+                    setNewRate({ categoryId: '', amount: '' });
+                  });
+                }}
+                data-action="add-rate"
+              >
+                {t('mill.rates.add', 'أضف تكلفة')}
+              </Button>
+            </div>
+          ) : null}
+          {canRates && !data.expenseCategories.length ? (
+            <Notice
+              tone="info"
+              title={t('mill.rates.no_categories', 'لا فئة مصروف بعد.')}
+              action={
+                <Link to="/settings/org" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-expense-categories">
+                  {t('mill.rates.categories_link', 'أضف فئات المصاريف')}
+                </Link>
+              }
+            />
+          ) : null}
+          {data.expected ? <ExpectedPanel expected={data.expected} /> : null}
+        </section>
+      ) : null}
+
       {adding ? (
         <LineDialog
           recipe={data}
@@ -356,6 +572,24 @@ export default function RecipePage() {
             })
           }
           onCancel={() => setRemoving(null)}
+        />
+      ) : null}
+      {removingRate ? (
+        <ConfirmDialog
+          open
+          tone="danger"
+          title={t('mill.rates.remove.title', 'حذف تكلفة «{name}» من الخلطة؟', { name: removingRate.categoryName })}
+          consequence={t('mill.rates.remove.body', 'تُحذف من هذه النسخة المسوّدة وحدها: الدفعات الجديدة بعد تفعيلها لا تُحسب عليها هذه التكلفة.')}
+          confirmLabel={t('common.delete', 'احذف')}
+          busy={busy}
+          action="confirm-remove-rate"
+          onConfirm={() =>
+            void act(async () => {
+              await deleteRecipeRate(removingRate.id, data.versionVersion);
+              setRemovingRate(null);
+            })
+          }
+          onCancel={() => setRemovingRate(null)}
         />
       ) : null}
     </div>

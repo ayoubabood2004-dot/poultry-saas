@@ -4,6 +4,7 @@ import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { Fils } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
 import { RejectedError, ZeroRowsError } from '../errors';
+import { t } from '../i18n';
 import './constraints-mill';
 import { authed, call, classifyPostgrest, explained, send, updatedRows, type PostgrestFailure } from './core';
 
@@ -11,6 +12,9 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // (recipe.activate)، والتفعيل والإنتاج دوالّ (activate_recipe_version وcreate_production وpreview_production
 // وpost_production وvoid_production)، والقراءة من أربعة قرّاء. ملف كسول تستورده شاشات المعمل مباشرةً
 // (write-guard PAGE_MODULES)، والمال كلّه داخل money (private.mask يشيله عن غير أدوار الكلفة) فيقرأ null.
+// النسخة الثانية (0016، كلمة المالك 2026-11-04): بانية الخلطة بنداء واحد (create_recipe)، وتكاليف لكلّ طنّ بالخلطة
+// (recipe_cost_rates) وسطور تكاليف الدفعة (production_costs) كتابة مباشرة مشروطة بالمبلغ الذي شافته الشاشة، وإضافة مادّة
+// للدفعة أو تبديلها بسبب (add_production_input)، والقرّاء يزيدون الأسعار وكلفة الطنّ المتوقّعة والتكاليف وتحميلاتها.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -55,9 +59,17 @@ const scaled = (row: Row, field: string, scale: number): bigint | null => {
   return toScale(value, scale);
 };
 const qty = (row: Row, field: string): bigint => scaled(row, field, 3) ?? 0n;
+/** مبلغ إلزامي (المال داخل صندوق money موجود): الغائب خطأ شكل لا صفر صامت. */
+const amount = (row: Row, field: string): Fils => {
+  const value = scaled(row, field, 2);
+  if (value === null) throw new MillShapeError(field);
+  return value;
+};
+/** صندوق المال: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
+const moneyBox = (row: Row): Row | null => optRecord(row.money, 'money');
 /** المال داخل money: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
 const money = (row: Row, key: string): Fils | null => {
-  const box = optRecord(row.money, 'money');
+  const box = moneyBox(row);
   return box ? scaled(box, key, 2) : null;
 };
 const baseUnit = (row: Row, key: string): BaseUnit => {
@@ -116,6 +128,11 @@ export interface RecipeCard {
   batches: number;
   lastBatch: LastBatch | null;
   lastCostPerKg: Fils | null;
+  /**
+   * كلفة الكيلو المتوقّعة للتخطيط (0016، ج٧): سعر كلّ مادّة المكتوب وإلّا آخر شراء وإلّا متوسّط المتاح، ومعها تكاليف الطنّ.
+   * null: دور بلا كلفة، أو خلطة بلا نسخة مفعَّلة، أو بقيت مادّة بلا سعر (لا رقم ناقص بصمت).
+   */
+  expectedCostPerKg: Fils | null;
   /** مواد النسخة المفعَّلة بكتلتها بالكيلو من الأكبر: شريط التركيبة ورقاقاته. */
   pieces: RecipePiece[];
   /** ما لا يظهر في الرقاقات الأربع الأولى. */
@@ -170,6 +187,7 @@ export function parseRecipes(value: unknown): RecipeCard[] {
       batches: int(row, 'batches'),
       lastBatch: last,
       lastCostPerKg: last?.costPerKg ?? null,
+      expectedCostPerKg: money(row, 'expected_cost_per_kg'),
       pieces,
       moreLines: Math.max(0, pieces.length - CHIPS),
     };
@@ -189,7 +207,12 @@ export interface RecipeLine {
   unit: RecipeUnit;
   massKg: bigint;
   sharePct: bigint;
+  /** متوسّط المتاح لوحدة الأساس (0015). */
   unitCost: Fils | null;
+  /** سعر الكلفة المكتوب لوحدة الأساس (0016، D1): للتخطيط وحده. */
+  costPrice: Fils | null;
+  /** سعر وحدة الأساس في آخر استلام مرحَّل للمادّة (0016، «سعر الشراء التلقائي»). */
+  lastPrice: Fils | null;
 }
 
 export interface RecipeVersionRow {
@@ -206,6 +229,28 @@ export interface PickItem {
   name: string;
   baseUnit: BaseUnit;
   categoryName: string | null;
+}
+
+/** معدّل تكاليف لكلّ طنّ بالخلطة (0016، D2 وD3): مبلغ بفئة مصروف. */
+export interface RecipeRate {
+  id: string;
+  lineNo: number;
+  categoryId: string;
+  categoryName: string;
+  amountPerTon: Fils;
+}
+
+/** كلفة الطنّ المتوقّعة للتخطيط من الخادم (0016، ج٧)، وunpriced عدد المواد بلا أيّ سعر (لم تُحسب). */
+export interface RecipeExpected {
+  materialsPerTon: Fils;
+  ratesPerTon: Fils;
+  costPerTon: Fils;
+  unpriced: number;
+}
+
+export interface CategoryOption {
+  id: string;
+  name: string;
 }
 
 export interface RecipeDetail {
@@ -225,6 +270,12 @@ export interface RecipeDetail {
   massKg: bigint;
   /** مواد مرشَّحة لسطر جديد: فعّالة، يستلمها مخزن المواد الأوّلية، وتُقاس بالكيلو أو اللتر. */
   pickItems: PickItem[];
+  /** معدّلات تكاليف الطنّ للنسخة المختارة، أو null لغير أدوار الكلفة. */
+  rates: RecipeRate[] | null;
+  /** كلفة الطنّ المتوقّعة، أو null (دور بلا كلفة، أو خلطة بلا نسخة). */
+  expected: RecipeExpected | null;
+  /** فئات المصاريف الفعّالة غير النظامية لمنتقي المعدّلات (بلا مال). */
+  expenseCategories: CategoryOption[];
 }
 
 const versionStatus = (row: Row): VersionStatus => {
@@ -233,10 +284,30 @@ const versionStatus = (row: Row): VersionStatus => {
   return value;
 };
 
+const nonNegative = (row: Row, field: string): number => {
+  const value = int(row, field);
+  if (value < 0) throw new MillShapeError(field);
+  return value;
+};
+
+const category = (row: Row): CategoryOption => ({ id: str(row, 'id'), name: str(row, 'name') });
+
+function expectedOf(value: unknown): RecipeExpected | null {
+  const row = optRecord(value, 'expected');
+  if (!row) return null;
+  return {
+    materialsPerTon: amount(row, 'materials_per_ton'),
+    ratesPerTon: amount(row, 'rates_per_ton'),
+    costPerTon: amount(row, 'cost_per_ton'),
+    unpriced: nonNegative(row, 'unpriced'),
+  };
+}
+
 export function parseRecipe(value: unknown): RecipeDetail {
   const json = record(value, 'recipe');
   const item = record(json.output_item, 'output_item');
   const version = optRecord(json.selected, 'selected');
+  const box = moneyBox(json);
   return {
     id: str(json, 'id'),
     name: str(json, 'name'),
@@ -277,6 +348,8 @@ export function parseRecipe(value: unknown): RecipeDetail {
       massKg: qty(row, 'mass_kg'),
       sharePct: scaled(row, 'share_pct', 2) ?? 0n,
       unitCost: money(row, 'unit_cost'),
+      costPrice: money(row, 'cost_price'),
+      lastPrice: money(row, 'last_price'),
     })),
     massKg: qty(json, 'mass_kg'),
     pickItems: list(json.pick_items, 'pick_items').map((row) => ({
@@ -285,6 +358,17 @@ export function parseRecipe(value: unknown): RecipeDetail {
       baseUnit: baseUnit(row, 'base_unit'),
       categoryName: optStr(row, 'category_name'),
     })),
+    rates: box
+      ? list(box.rates, 'rates').map((row) => ({
+          id: str(row, 'id'),
+          lineNo: int(row, 'line_no'),
+          categoryId: str(row, 'category_id'),
+          categoryName: str(row, 'category_name'),
+          amountPerTon: amount(row, 'amount_per_ton'),
+        }))
+      : null,
+    expected: box ? expectedOf(box.expected) : null,
+    expenseCategories: list(json.expense_categories, 'expense_categories').map(category),
   };
 }
 
@@ -304,8 +388,40 @@ export interface PreviewLine {
 export interface MillProblem {
   code: string;
   itemName: string | null;
+  /** كميات مشكلة الرصيد (بالآلاف من وحدة الأساس). */
   need: bigint | null;
   have: bigint | null;
+  /** مشكلة costs_unfunded (0016): الفئة، والمطلوب والمتاح مالاً — لأدوار الكلفة فقط، ولغيرهم الرمز وحده. */
+  categoryId: string | null;
+  categoryName: string | null;
+  needAmount: Fils | null;
+  haveAmount: Fils | null;
+}
+
+/** تحميل سطر تكاليف من مصروف مسجّل (0016، القاعدة ٢٠): يكتبه الترحيل وحده. */
+export interface CostAllocation {
+  expenseId: string;
+  onDate: Day;
+  amount: Fils;
+  label: string;
+}
+
+export type CostSource = 'recipe' | 'manual';
+
+/** سطر تكاليف الدفعة (0016): المحسوب من الخلطة (planned) والمبلغ الذي يُرحَّل، والمتاح من المصاريف في المعاينة. */
+export interface BatchCost {
+  id: string;
+  lineNo: number;
+  categoryId: string;
+  categoryName: string;
+  /** المحسوب من معدّل الخلطة لحظة إنشاء الدفعة، أو null للسطر اليدوي. */
+  plannedAmount: Fils | null;
+  amount: Fils;
+  source: CostSource;
+  /** المتبقّي غير المحمَّل من المصاريف المؤهّلة (المعاينة فقط، بلا أقفال)، وnull في بطاقة الدفعة. */
+  available: Fils | null;
+  /** تحميلاته الفعّالة (بطاقة الدفعة فقط)، وفارغة في المعاينة. */
+  allocations: CostAllocation[];
 }
 
 export interface ProductionPreview {
@@ -328,8 +444,12 @@ export interface ProductionPreview {
   canPost: boolean;
   planToken: string;
   inputValue: Fils | null;
+  /** مجموع سطور التكاليف (0016)؛ الكلفة الكلّية = المواد + هذا. */
+  extraValue: Fils | null;
   totalValue: Fils | null;
   costPerKg: Fils | null;
+  /** سطور التكاليف بالمتاح لكلّ سطر، أو null لغير أدوار الكلفة. */
+  costs: BatchCost[] | null;
 }
 
 const batchStatus = (row: Row): BatchStatus => {
@@ -343,8 +463,54 @@ const warehouse = (value: unknown, field_: string): { id: string; name: string }
   return { id: str(row, 'id'), name: str(row, 'name') };
 };
 
+const costSource = (row: Row): CostSource => {
+  const value = str(row, 'source');
+  if (value !== 'recipe' && value !== 'manual') throw new MillShapeError('source');
+  return value;
+};
+
+/** سطر تكاليف: المعاينة تحمل available ولا تحميلات، وبطاقة الدفعة تحمل التحميلات ولا available. */
+function costOf(row: Row, from: 'preview' | 'detail'): BatchCost {
+  return {
+    id: str(row, 'cost_id'),
+    lineNo: int(row, 'line_no'),
+    categoryId: str(row, 'category_id'),
+    categoryName: str(row, 'category_name'),
+    plannedAmount: scaled(row, 'planned_amount', 2),
+    amount: amount(row, 'amount'),
+    source: costSource(row),
+    available: from === 'preview' ? amount(row, 'available') : null,
+    allocations:
+      from === 'detail'
+        ? list(row.allocations, 'allocations').map((entry) => ({
+            expenseId: str(entry, 'expense_id'),
+            onDate: str(entry, 'on_date'),
+            amount: amount(entry, 'amount'),
+            label: str(entry, 'label'),
+          }))
+        : [],
+  };
+}
+
+function problemOf(row: Row): MillProblem {
+  const code = str(row, 'code');
+  // costs_unfunded: need وhave مال بمرتبتين (لأدوار الكلفة فقط)، وغيرها كميات بثلاث.
+  const funds = code === 'costs_unfunded';
+  return {
+    code,
+    itemName: optStr(row, 'item_name'),
+    need: funds ? null : scaled(row, 'need', 3),
+    have: funds ? null : scaled(row, 'have', 3),
+    categoryId: optStr(row, 'category_id'),
+    categoryName: optStr(row, 'category_name'),
+    needAmount: funds ? scaled(row, 'need', 2) : null,
+    haveAmount: funds ? scaled(row, 'have', 2) : null,
+  };
+}
+
 export function parsePreview(value: unknown): ProductionPreview {
   const json = record(value, 'preview');
+  const box = moneyBox(json);
   return {
     id: str(json, 'id'),
     status: batchStatus(json),
@@ -372,18 +538,24 @@ export function parsePreview(value: unknown): ProductionPreview {
       inBasis: flag(row, 'in_basis'),
       value: money(row, 'value'),
     })),
-    problems: list(json.problems, 'problems').map((row) => ({
-      code: str(row, 'code'),
-      itemName: optStr(row, 'item_name'),
-      need: scaled(row, 'need', 3),
-      have: scaled(row, 'have', 3),
-    })),
+    problems: list(json.problems, 'problems').map(problemOf),
     canPost: flag(json, 'can_post'),
     planToken: str(json, 'plan_token'),
     inputValue: money(json, 'input_value'),
+    extraValue: money(json, 'extra_value'),
     totalValue: money(json, 'total_value'),
     costPerKg: money(json, 'cost_per_kg'),
+    costs: box ? list(box.costs, 'costs').map((row) => costOf(row, 'preview')) : null,
   };
+}
+
+/** وجبة سُحب منها سطر الدفعة المرحَّلة (مفتاح مقترح draws في production_detail، انظر تقرير العقد): الكمية ومصدر الوجبة. */
+export interface LotDraw {
+  lotId: string;
+  qty: bigint;
+  receivedOn: Day;
+  /** رقم مستند الوجبة («RC-2026-0004» أو «رصيد افتتاح بتاريخ …»). */
+  source: string;
 }
 
 export interface BatchLine {
@@ -396,7 +568,13 @@ export interface BatchLine {
   actualQty: bigint | null;
   usedQty: bigint | null;
   inBasis: boolean;
+  /** مادّة بديلة (القاعدة ١٩) وسببها الإلزامي، واسم المادّة التي حلّت محلّها (0016). */
+  isSubstitute: boolean;
+  reason: string | null;
+  replacedItemName: string | null;
   value: Fils | null;
+  /** الوجبات التي سُحب منها السطر بعد الترحيل، أو null إن لم يرسلها الخادم. */
+  draws: LotDraw[] | null;
 }
 
 export interface ProductionBatch {
@@ -423,14 +601,23 @@ export interface ProductionBatch {
   outputWarehouse: { id: string; name: string };
   lines: BatchLine[];
   inputValue: Fils | null;
+  extraValue: Fils | null;
   totalValue: Fils | null;
   costPerKg: Fils | null;
+  /** سطور التكاليف بتحميلاتها، أو null لغير أدوار الكلفة. */
+  costs: BatchCost[] | null;
+}
+
+function drawsOf(value: unknown): LotDraw[] | null {
+  if (value === null || value === undefined) return null;
+  return list(value, 'draws').map((row) => ({ lotId: str(row, 'lot_id'), qty: qty(row, 'qty'), receivedOn: str(row, 'received_on'), source: str(row, 'source') }));
 }
 
 export function parseBatch(value: unknown): ProductionBatch {
   const json = record(value, 'batch');
   const recipe = record(json.recipe, 'recipe');
   const item = record(json.output_item, 'output_item');
+  const box = moneyBox(json);
   return {
     id: str(json, 'id'),
     docNo: optStr(json, 'doc_no'),
@@ -463,11 +650,17 @@ export function parseBatch(value: unknown): ProductionBatch {
       actualQty: scaled(row, 'actual_qty', 3),
       usedQty: scaled(row, 'used_qty', 3),
       inBasis: flag(row, 'in_basis'),
+      isSubstitute: flag(row, 'is_substitute'),
+      reason: optStr(row, 'reason'),
+      replacedItemName: optStr(row, 'replaced_item_name'),
       value: money(row, 'value'),
+      draws: drawsOf(row.draws),
     })),
     inputValue: money(json, 'input_value'),
+    extraValue: money(json, 'extra_value'),
     totalValue: money(json, 'total_value'),
     costPerKg: money(json, 'cost_per_kg'),
+    costs: box ? list(box.costs, 'costs').map((row) => costOf(row, 'detail')) : null,
   };
 }
 
@@ -551,6 +744,10 @@ export interface MillHome {
   productions: ProductionsPage;
 }
 
+const storesOf = (json: Row): MillStore[] =>
+  list(json.stores, 'stores').map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), kind: str(row, 'kind') === 'feed' ? 'feed' : 'raw' }));
+const feedItemsOf = (json: Row): { id: string; name: string }[] => list(json.feed_items, 'feed_items').map((row) => ({ id: str(row, 'id'), name: str(row, 'name') }));
+
 export async function loadRecipes(): Promise<RecipeCard[]> {
   return parseRecipes(await call<unknown>('recipes_overview'));
 }
@@ -562,9 +759,45 @@ export async function loadMill(): Promise<MillHome> {
   return {
     today: str(json, 'today'),
     recipes: parseRecipes(overview),
-    stores: list(json.stores, 'stores').map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), kind: str(row, 'kind') === 'feed' ? 'feed' : 'raw' })),
-    feedItems: list(json.feed_items, 'feed_items').map((row) => ({ id: str(row, 'id'), name: str(row, 'name') })),
+    stores: storesOf(json),
+    feedItems: feedItemsOf(json),
     productions: parseProductions(productions),
+  };
+}
+
+/**
+ * فئات المصاريف الفعّالة غير النظامية (منتقي تكاليف الدفعة وبانية الخلطة): نفس شرط حارسَي recipe_cost_rates وproduction_costs،
+ * فلا تُعرض فئة يرفضها الخادم. قراءة مباشرة بسياسة المنشأة (البيانات الأساسية بلا مال).
+ */
+export async function loadExpenseCategories(): Promise<CategoryOption[]> {
+  const { result, wasOnline } = await send(
+    (db) => db.from('expense_categories').select('id, name').is('archived_at', null).is('system_code', null).order('name').order('id'),
+    (answer) => [answer],
+  );
+  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
+  return ((result.data ?? []) as Row[]).map(category);
+}
+
+export interface BuilderData {
+  /** مواد العلف الجاهز (منتج الخلطة). */
+  feedItems: { id: string; name: string }[];
+  /** أسماء الخلطات غير المؤرشفة (الخادم يرفض الاسم المكرّر recipe_name_taken، والشاشة تقوله قبل الإرسال). */
+  recipeNames: string[];
+  stores: MillStore[];
+  categories: CategoryOption[];
+}
+
+/** بانية الخلطة الجديدة: مواد العلف والخلطات القائمة من recipes_overview، وفئات المصاريف لتكاليف الطنّ. */
+export async function loadBuilder(): Promise<BuilderData> {
+  const [overview, categories] = await Promise.all([call<unknown>('recipes_overview'), loadExpenseCategories()]);
+  const json = record(overview, 'overview');
+  return {
+    feedItems: feedItemsOf(json),
+    recipeNames: parseRecipes(overview)
+      .filter((recipe) => !recipe.archived)
+      .map((recipe) => recipe.name),
+    stores: storesOf(json),
+    categories,
   };
 }
 
@@ -611,10 +844,12 @@ async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Ro
   return row;
 }
 
-export function createRecipe(name: string, outputItemId: string, note: string | null = null): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('recipes').insert({ name: name.trim(), output_item_id: outputItemId, note: note?.trim() || null }).select('id'))),
-  ).then((row) => str(row, 'id'));
+/** صفّ واحد بقراءة مباشرة (بعد كتابة مشروطة رجعت بصفر صفوف أو 23505)، أو null إن لم يكن. */
+async function oneRow(make: (db: SupabaseClient) => PromiseLike<{ data: unknown; error: PostgrestFailure | null; status: number }>): Promise<Row | null> {
+  const { result, wasOnline } = await send(make, (answer) => [answer]);
+  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
+  const rows = Array.isArray(result.data) ? (result.data as Row[]) : [];
+  return rows[0] ?? null;
 }
 
 export function renameRecipe(recipeId: string, name: string, version: number): Promise<string> {
@@ -672,11 +907,41 @@ export function setBatchFields(
   return written(async (db) => updatedRows(withStatus(await db.from('production_batches').update(patch).eq('id', batchId).select('id')))).then((row) => str(row, 'id'));
 }
 
-/** الكمية الفعلية الموزونة لمدخل (القاعدة ١٩): المرحَّل هو هذه، والفارغة تعني «كما خُطّط». */
-export function setInputActual(inputId: string, actual: bigint | null): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('production_inputs').update({ actual_qty_base: actual === null ? null : decimalText(actual, 3) }).eq('id', inputId).select('id'))),
-  ).then((row) => str(row, 'id'));
+const qtyText = (value: bigint | null): string | null => (value === null ? null : decimalText(value, 3));
+const moneyText = (value: Fils): string => decimalText(value, 2);
+
+function qtyChanged(): RejectedError {
+  return new RejectedError(
+    'qty_changed',
+    t('mill.input.changed', 'تغيّرت الكمية الفعلية لهذه المادّة من نافذة أو جهاز آخر بعد أن بدأت تعديلها؛ قُرئت من جديد، فراجعها واحفظ مرّة أخرى.'),
+  );
+}
+
+/**
+ * الكمية الفعلية الموزونة لمدخل (القاعدة ١٩): المرحَّل هو هذه، والفارغة تعني «كما خُطّط». الكتابة مشروطة بالقيمة التي شافتها
+ * الشاشة حين بدأ التعديل (درس WP6): صفر صفوف يقرأ الصفّ — المطلوب = انكتب (جواب ضاع)، وإلّا qty_changed ولا يُداس كاتب ثانٍ.
+ */
+export async function setInputActual(inputId: string, before: bigint | null, actual: bigint | null): Promise<void> {
+  if (before === actual) return;
+  try {
+    await written(async (db) =>
+      updatedRows(
+        withStatus(
+          await db
+            .from('production_inputs')
+            .update({ actual_qty_base: qtyText(actual) })
+            .eq('id', inputId)
+            .filter('actual_qty_base', before === null ? 'is' : 'eq', qtyText(before))
+            .select('id'),
+        ),
+      ),
+    );
+  } catch (error) {
+    if (!(error instanceof ZeroRowsError)) throw error;
+    const now = await oneRow((db) => db.from('production_inputs').select('actual_qty_base::text').eq('id', inputId));
+    if (now && scaled(now, 'actual_qty_base', 3) === actual) return;
+    throw qtyChanged();
+  }
 }
 
 // ─── الدوالّ ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -716,6 +981,169 @@ export function voidProduction(batchId: string, reason: string, clientRef: strin
 
 export function discardBatch(batchId: string, version: number): Promise<unknown> {
   return call<unknown>('discard_draft', { p_doc_kind: 'production', p_id: batchId, p_expected_version: version });
+}
+
+// ─── بانية الخلطة (0016، ج٢) ────────────────────────────────────────────────────────────────────────────────
+
+export interface RecipeInput {
+  /** معرّفا الخلطة ونسختها من الجهاز: الإعادة بالاسم والمنتج نفسيهما ترجّع الموجود (جواب ضاع)، وبغيرهما id_conflict. */
+  id: string;
+  versionId: string;
+  name: string;
+  outputItemId: string;
+  /** الأساس بالآلاف من الكيلو (1,000 كغم ← 1000000n). */
+  basisKg: bigint;
+  lines: readonly { itemId: string; qty: bigint; unit: RecipeUnit }[];
+  rates: readonly { categoryId: string; amountPerTon: Fils }[];
+  /** تفعيلها بالمعاملة نفسها (المجموع بالكيلو = الأساس، وإلّا basis_mismatch ويرجع كلّ شيء). */
+  activate: boolean;
+}
+
+export interface CreatedRecipe {
+  id: string;
+  versionId: string;
+  versionNo: number;
+  status: VersionStatus;
+  lines: number;
+  rates: number;
+}
+
+export function parseCreatedRecipe(value: unknown): CreatedRecipe {
+  const json = record(value, 'create_recipe');
+  return {
+    id: str(json, 'id'),
+    versionId: str(json, 'version_id'),
+    versionNo: int(json, 'version_no'),
+    status: versionStatus(json),
+    lines: nonNegative(json, 'lines'),
+    rates: nonNegative(json, 'rates'),
+  };
+}
+
+/** الخلطة ونسختها الأولى وسطورها ومعدّلات تكاليفها (وتفعيلها إن طُلب) بنداء create_recipe واحد: معاملة واحدة. */
+export async function createRecipe(input: RecipeInput): Promise<CreatedRecipe> {
+  return parseCreatedRecipe(
+    await call<unknown>('create_recipe', {
+      p_id: input.id,
+      p_version_id: input.versionId,
+      p_name: input.name.trim(),
+      p_output_item: input.outputItemId,
+      p_basis_kg: decimalText(input.basisKg, 3),
+      p_lines: input.lines.map((line) => ({ item_id: line.itemId, qty: decimalText(line.qty, 3), unit: line.unit })),
+      p_rates: input.rates.map((rate) => ({ category_id: rate.categoryId, amount_per_ton: moneyText(rate.amountPerTon) })),
+      p_activate: input.activate,
+    }),
+  );
+}
+
+// ─── مدخلات الدفعة (0016، ج٥) ───────────────────────────────────────────────────────────────────────────────
+
+export interface ProductionInputAdded {
+  id: string;
+  lineNo: number;
+  version: number;
+}
+
+/**
+ * مادّة جديدة في الدفعة المسوّدة، أو بديل لسطر قائم بسببه الإلزامي (القاعدة ١٩): replaces سطر الدفعة المبدَّل، والسبب
+ * للتبديل وحده. المعرّف من الجهاز: الإعادة بعد جواب ضاع ترجّع السطر نفسه.
+ */
+export async function addProductionInput(input: { batchId: string; id: string; itemId: string; qty: bigint; replaces: string | null; reason: string | null }): Promise<ProductionInputAdded> {
+  const json = record(
+    await call<unknown>('add_production_input', {
+      p_batch: input.batchId,
+      p_id: input.id,
+      p_item: input.itemId,
+      p_qty: decimalText(input.qty, 3),
+      p_replaces: input.replaces,
+      p_reason: input.reason?.trim() || null,
+    }),
+    'add_production_input',
+  );
+  return { id: str(json, 'id'), lineNo: int(json, 'line_no'), version: int(json, 'version') };
+}
+
+export function deleteProductionInput(inputId: string, batchVersion: number): Promise<unknown> {
+  return call<unknown>('delete_draft_line', { p_doc_kind: 'production_input', p_line_id: inputId, p_expected_version: batchVersion });
+}
+
+// ─── المبالغ: معدّلات الخلطة وسطور تكاليف الدفعة (0016، ج٣ وج٤) ──────────────────────────────────────────────────
+// كتابة مباشرة بـupdatedRows، والتعديل مشروط بالمبلغ الذي شافته الشاشة حين بدأ التعديل (درس WP6 وFOUNDATION ٨١٧): صفر صفوف
+// أو 23505 (محاولة ضاع جوابها، أو كاتب ثانٍ) يقرأ الصفّ — المطلوب = انكتب، وإلّا amount_changed فالشاشة تقرأ من جديد.
+
+function amountChanged(): RejectedError {
+  return new RejectedError('amount_changed', t('mill.amount.changed', 'تغيّر هذا المبلغ من نافذة أو جهاز آخر بعد أن بدأت تعديله؛ قُرئ من جديد، فراجعه واحفظ مرّة أخرى.'));
+}
+
+const batchCostNow = (costId: string): Promise<Row | null> =>
+  oneRow((db) => db.from('production_costs').select('batch_id, category_id, amount::text').eq('id', costId) /* unbounded: صفّ واحد بمعرّفه */);
+
+/** سطر تكاليف يدوي في الدفعة المسوّدة (أدوار الكلفة، costs.load): يفرّغ ختم الكلف بالخادم. */
+export async function addBatchCost(batchId: string, id: string, categoryId: string, value: Fils): Promise<void> {
+  try {
+    await written(async (db) => updatedRows(withStatus(await db.from('production_costs').insert({ id, batch_id: batchId, category_id: categoryId, amount: moneyText(value) }).select('id'))));
+  } catch (error) {
+    if (!isDuplicate(error)) throw error;
+    const now = await batchCostNow(id);
+    if (now && now.batch_id === batchId && now.category_id === categoryId && scaled(now, 'amount', 2) === value) return;
+    throw amountChanged();
+  }
+}
+
+/** مبلغ سطر تكاليف الدفعة مشروطاً بما شافته الشاشة (before)؛ الصفر مسموح («صفّر السطر» حين لا يكفيه المتاح). */
+export async function setBatchCost(costId: string, before: Fils, value: Fils): Promise<void> {
+  if (before === value) return;
+  try {
+    await written(async (db) =>
+      updatedRows(withStatus(await db.from('production_costs').update({ amount: moneyText(value) }).eq('id', costId).eq('amount', moneyText(before)).select('id'))),
+    );
+  } catch (error) {
+    if (!(error instanceof ZeroRowsError)) throw error;
+    const now = await batchCostNow(costId);
+    if (now && scaled(now, 'amount', 2) === value) return;
+    throw amountChanged();
+  }
+}
+
+export function deleteBatchCost(costId: string, batchVersion: number): Promise<unknown> {
+  return call<unknown>('delete_draft_line', { p_doc_kind: 'production_cost', p_line_id: costId, p_expected_version: batchVersion });
+}
+
+const recipeRateNow = (rateId: string): Promise<Row | null> =>
+  oneRow((db) => db.from('recipe_cost_rates').select('version_id, category_id, amount_per_ton::text').eq('id', rateId) /* unbounded: صفّ واحد بمعرّفه */);
+
+/** معدّل تكاليف لكلّ طنّ في نسخة مسوّدة (recipe.activate وأدوار الكلفة). */
+export async function addRecipeRate(versionId: string, id: string, categoryId: string, perTon: Fils): Promise<void> {
+  try {
+    await written(async (db) =>
+      updatedRows(withStatus(await db.from('recipe_cost_rates').insert({ id, version_id: versionId, category_id: categoryId, amount_per_ton: moneyText(perTon) }).select('id'))),
+    );
+  } catch (error) {
+    if (!isDuplicate(error)) throw error;
+    const now = await recipeRateNow(id);
+    if (now && now.version_id === versionId && now.category_id === categoryId && scaled(now, 'amount_per_ton', 2) === perTon) return;
+    throw amountChanged();
+  }
+}
+
+export async function setRecipeRate(rateId: string, before: Fils, perTon: Fils): Promise<void> {
+  if (before === perTon) return;
+  try {
+    await written(async (db) =>
+      updatedRows(
+        withStatus(await db.from('recipe_cost_rates').update({ amount_per_ton: moneyText(perTon) }).eq('id', rateId).eq('amount_per_ton', moneyText(before)).select('id')),
+      ),
+    );
+  } catch (error) {
+    if (!(error instanceof ZeroRowsError)) throw error;
+    const now = await recipeRateNow(rateId);
+    if (now && scaled(now, 'amount_per_ton', 2) === perTon) return;
+    throw amountChanged();
+  }
+}
+
+export function deleteRecipeRate(rateId: string, versionVersion: number): Promise<unknown> {
+  return call<unknown>('delete_draft_line', { p_doc_kind: 'recipe_cost_rate', p_line_id: rateId, p_expected_version: versionVersion });
 }
 
 /** الجلسة قبل أي طلب (درس 2026-10-26): الشاشة تستعملها قبل أن ترسم زرّ الإنتاج. */

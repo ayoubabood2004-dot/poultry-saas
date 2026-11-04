@@ -44,6 +44,17 @@ export const MILL_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   production_values_extra_check: () => t('constraint.production_values_extra_check', 'الكلف اليدوية يحسبها الخادم.'),
   production_values_total_check: () => t('constraint.production_values_total_check', 'كلفة الدفعة = كلفة المدخلات + الكلف اليدوية، يحسبها الخادم.'),
   production_input_values_value_check: () => t('constraint.production_input_values_value_check', 'قيمة المدخل يحسبها الخادم من سحبه.'),
+  // 0016: سعر الكلفة المكتوب، وتكاليف الخلطة لكلّ طنّ، وسطور تكاليف الدفعة وتحميلها من المصاريف.
+  item_prices_cost_price_check: () => t('constraint.item_prices_cost_price_check', 'سعر الكلفة أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  item_prices_some_price_check: () => t('constraint.item_prices_some_price_check', 'صفّ الأسعار يحمل سعر البيع أو سعر الكلفة على الأقلّ، ويكتبه الخادم.'),
+  recipe_cost_rates_amount_check: () => t('constraint.recipe_cost_rates_amount_check', 'مبلغ الكلفة لكلّ طنّ أكبر من صفر، بمرتبتين عشريتين على الأكثر.'),
+  recipe_cost_rates_line_no_check: () => t('constraint.recipe_cost_rates_line_no_check', 'رقم سطر التكاليف يكتبه الخادم.'),
+  production_costs_planned_check: () => t('constraint.production_costs_planned_check', 'المبلغ المحسوب من الخلطة يكتبه الخادم.'),
+  production_costs_amount_check: () => t('constraint.production_costs_amount_check', 'مبلغ الكلفة لا يقلّ عن صفر، بمرتبتين عشريتين على الأكثر.'),
+  production_costs_source_check: () => t('constraint.production_costs_source_check', 'مصدر سطر الكلفة غير معروف.'),
+  production_costs_planned_source_check: () => t('constraint.production_costs_planned_source_check', 'سطر الخلطة بمبلغه المحسوب منها، والسطر اليدوي بلا محسوب، ويكتبهما الخادم.'),
+  production_costs_line_no_check: () => t('constraint.production_costs_line_no_check', 'رقم سطر الكلفة يكتبه الخادم.'),
+  production_cost_allocations_amount_check: () => t('constraint.production_cost_allocations_amount_check', 'مبلغ التحميل من المصروف يحسبه الخادم عند الترحيل.'),
 };
 
 registerConstraintHints(MILL_CONSTRAINT_HINTS);

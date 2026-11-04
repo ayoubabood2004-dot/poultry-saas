@@ -10,17 +10,17 @@ import { Notice } from '../../components/ui/Notice';
 import type { Fils, Milli } from '../../domain/money';
 import { unitCost4 } from '../../domain/money';
 import { can } from '../../domain/permissions';
-import { CHICK_WARNING_HOURS } from '../../domain/stock';
+import { CHICK_WARNING_HOURS, RECEIVING_KINDS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
 import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQtyCell, fmtScaledCell, fmtUnitCost } from '../../lib/format';
 import { describeError } from '../../lib/errors';
-import { t } from '../../lib/i18n';
+import { t, Trans } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { ItemLots, ItemMoves, ItemPurchases, LotRow, MoveRow, PurchaseItem, PurchaseRow } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { countingLabel, countName, PageFooter, qtyCell, qtyColumns, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
+import { BuyLink, countingLabel, countName, PageFooter, qtyCell, qtyColumns, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
 
 // بطاقة المادّة (الخطّة WP4، FOUNDATION ٧٨٥): دفعاتها المتبقّية بترتيب السحب بعمرها (ساعات من الفقس للأفراخ وتنبيه 48 ساعة،
 // وأيام من استلام الجذر لغيرها، E24) وانتهائها ومصدرها ورقم دفعة المورّد، وللكلفة القيمة المتبقّية وكلفة الوحدة بأربع مراتب
@@ -40,11 +40,24 @@ function age(lot: LotRow): string {
   return fmtCounted(BigInt(lot.ageDays) * 1000n, t('stock.age.day', 'يوم'), { one: t('stock.age.day.one', 'يوم واحد'), two: t('stock.age.day.two', 'يومان'), few: t('stock.age.day.few', 'أيام'), many: t('stock.age.day.many', 'يوماً') });
 }
 
+/**
+ * مصدر الدفعة (ج٦، كلمة المالك «المادة المنتجة تروح لمخزن خاص واعرف منين صنعتها بالضبط»): دفعة العلف المنتج تقول «صُنعت
+ * بدفعة PD-…» برابط صفحة الدفعة في المعمل (المواد التي سُحبت منها وكلفتها)؛ وغيرها رقم مستندها كما كان.
+ */
+function LotSource({ lot }: { lot: LotRow }) {
+  if (lot.sourceKind !== 'production') return <bdi dir="ltr">{lot.source}</bdi>;
+  return (
+    <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/mill/batch/${lot.sourceId}`} data-action="open-production">
+      <Trans k="stock.lot.made_in" text="صُنعت بدفعة {no}" vars={{ no: <bdi dir="ltr">{lot.source}</bdi> }} />
+    </Link>
+  );
+}
+
 /** دفعات المادّة. values = null لدور بلا كلفة: عمودا القيمة وكلفة الوحدة ما ينبنون أصلاً. */
 export function LotsTable({ lots, values, baseUnit, unitLabel }: { lots: readonly LotRow[]; values: ReadonlyMap<string, LotValue> | null; baseUnit: BaseUnit; unitLabel?: string }) {
   const decimals = qtyDecimals(lots.map((lot) => lot.qtyLeft), baseUnit);
   const columns: Column<LotRow>[] = [
-    { key: 'source', header: t('stock.lot.source', 'المصدر'), cell: (lot) => <bdi dir="ltr">{lot.source}</bdi> },
+    { key: 'source', header: t('stock.lot.source', 'المصدر'), wrap: true, cell: (lot) => <LotSource lot={lot} /> },
     { key: 'received', header: t('stock.lot.received', 'الاستلام'), cell: (lot) => fmtDay(lot.receivedOn) },
     {
       key: 'age',
@@ -87,9 +100,19 @@ export function LotsTable({ lots, values, baseUnit, unitLabel }: { lots: readonl
   return <DataTable caption={t('stock.lots.caption', 'الوجبات المتبقّية بترتيب السحب')} columns={columns} rows={lots} rowKey={(lot) => lot.lotId} empty={t('stock.lots.empty', 'لا وجبات متبقّية.')} />;
 }
 
-/** مستند الحركة (والعكسية بمستند أصلها نفسه) رابط لشاشته: التحويل أو الافتتاح؛ غيرها (الحزم الجاية) نصّ لحد ما تنبني شاشته. */
+/**
+ * مستند الحركة (والعكسية بمستند أصلها نفسه) رابط لشاشته: التحويل أو الافتتاح أو دفعة الإنتاج (سحب المادّة الأوّلية أو دخول العلف،
+ * فيُعرف إلى أين ذهبت المادّة ومن أين جاء العلف)؛ غيرها (الحزم الجاية) نصّ لحد ما تنبني شاشته.
+ */
 function DocLabel({ move }: { move: MoveRow }) {
-  const to = move.docKind === 'transfer' ? `/inventory/transfers/${move.docId}` : move.docKind === 'opening' ? `/inventory/openings/${move.docId}` : null;
+  const to =
+    move.docKind === 'transfer'
+      ? `/inventory/transfers/${move.docId}`
+      : move.docKind === 'opening'
+        ? `/inventory/openings/${move.docId}`
+        : move.docKind === 'production'
+          ? `/mill/batch/${move.docId}`
+          : null;
   if (!to) return <bdi dir="ltr">{move.doc}</bdi>;
   return (
     <Link className="font-medium text-brand-700 dark:text-brand-200" to={to} data-action="open-move-doc">
@@ -321,13 +344,71 @@ export function SellPriceNumbers({ sellPrice, lastCost, baseUnit }: { sellPrice:
   );
 }
 
-/** بطاقة سعر البيع بمحرّرها: تُعرض لأدوار الكلفة، والتغيير لمن يدير المخازن. */
-function SellPriceCard({ itemId, item, lastCost, canEdit, onSaved }: { itemId: string; item: PurchaseItem; lastCost: Fils | null; canEdit: boolean; onSaved: () => void }) {
+/**
+ * سعر الكلفة المكتوب (0016، كلمة المالك D1: «يكون اكو سعر شراء لكل مادة وايضا اكتب سعر كلفة كل مادة بعدها يعني همين اني
+ * اكتبها»): سعر الشراء تلقائي من مشترياتها الفعلية (آخر شراء)، وسعر الكلفة يكتبه هو. المكتوب للتخطيط وحده — كلفة الطنّ المتوقّعة
+ * في خلطات المعمل — وكلفة المخزون الفعلية من الشراء نفسه (FOUNDATION القاعدة ٢١)، فالبطاقة تقول ذلك ولا تخلط بينهما.
+ */
+export function CostPriceNumbers({ costPrice, lastCost, baseUnit }: { costPrice: Fils | null; lastCost: Fils | null; baseUnit: BaseUnit }) {
+  const unit = baseUnitLabel(baseUnit);
+  return (
+    <>
+      {costPrice === null ? (
+        <p className="text-sm text-ink-muted">{t('item_card.cost_price.empty', 'لم يُكتب سعر كلفة لهذه المادّة، فتُحسب كلفتها المتوقّعة في خلطات المعمل بسعر آخر شراء.')}</p>
+      ) : (
+        <p>
+          {t('item_card.cost_price.now', 'سعر الكلفة الآن')}: <Num>{fmtMoney(costPrice)}</Num> {t('purchases.per_unit', 'لكل {unit}', { unit })}
+        </p>
+      )}
+      {lastCost !== null ? (
+        <p>
+          {t('item_card.cost_price.bought', 'سعر الشراء (آخر شراء، تلقائياً)')}: <Num>{fmtMoney(lastCost)}</Num> {t('purchases.per_unit', 'لكل {unit}', { unit })}
+        </p>
+      ) : null}
+      <p className="text-xs text-ink-muted">{t('item_card.cost_price.hint', 'للتخطيط فقط: منه تُحسب كلفة الطنّ المتوقّعة في خلطات المعمل، وكلفة المخزون الفعلية من الشراء نفسه.')}</p>
+    </>
+  );
+}
+
+type PriceKind = 'sell' | 'cost';
+
+/** كلمات المحرّر لكلّ سعر: المحرّر واحد (كلمة العقد «بنفس محرّر سعر البيع»)، والنصوص والأفعال لكلّ نوع. */
+function priceWords(kind: PriceKind, unit: string) {
+  return kind === 'sell'
+    ? {
+        title: t('items.sell_price', 'سعر البيع'),
+        set: t('items.sell_price.set', 'اكتب سعر البيع'),
+        label: t('items.sell_price.for', 'سعر البيع لكل {unit} (اختياري)', { unit }),
+        clear: t('items.sell_price.clear', 'اتركه فارغاً لتشيل السعر، فلا تُحسب لها قيمة بيع.'),
+        invalid: t('items.sell_price.invalid', 'اكتب سعر البيع بالدينار، رقماً أكبر من صفر.'),
+        edit: 'edit-sell-price',
+        save: 'save-sell-price',
+        input: 'sell',
+      }
+    : {
+        title: t('item_card.cost_price', 'سعر الكلفة'),
+        set: t('item_card.cost_price.set', 'اكتب سعر الكلفة'),
+        label: t('item_card.cost_price.for', 'سعر الكلفة لكل {unit} (اختياري)', { unit }),
+        clear: t('item_card.cost_price.clear', 'اتركه فارغاً لحذف السعر، فتُحسب الخلطات بسعر آخر شراء.'),
+        invalid: t('item_card.cost_price.invalid', 'اكتب سعر الكلفة بالدينار، رقماً أكبر من صفر.'),
+        edit: 'edit-cost-price',
+        save: 'save-cost-price',
+        input: 'cost',
+      };
+}
+
+/**
+ * بطاقة سعر بمحرّرها — سعر البيع (0014) أو سعر الكلفة المكتوب (0016) — تُعرض لأدوار الكلفة، والتغيير لمن يدير المخازن (صلاحية
+ * الدالّتين واحدة). الكتابة مشروطة بالسعر الذي شافته الشاشة (price_changed إن غيّره غيره).
+ */
+function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: PriceKind; itemId: string; item: PurchaseItem; lastCost: Fils | null; canEdit: boolean; onSaved: () => void }) {
   const id = useId();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const saved = kind === 'sell' ? item.sellPrice : item.costPrice;
+  const words = priceWords(kind, baseUnitLabel(item.baseUnit));
   const next = text.trim() === '' ? null : parseMoneyText(text, false);
   const bad = text.trim() !== '' && (next === null || next <= 0n);
   const save = async () => {
@@ -335,7 +416,8 @@ function SellPriceCard({ itemId, item, lastCost, canEdit, onSaved }: { itemId: s
     if (bad) return;
     setBusy(true);
     try {
-      await inventory.setItemSellPrice(itemId, next, item.sellPrice);
+      if (kind === 'sell') await inventory.setItemSellPrice(itemId, next, saved);
+      else await inventory.setItemCostPrice(itemId, next, saved);
       setEditing(false);
       onSaved();
     } catch (caught) {
@@ -346,45 +428,38 @@ function SellPriceCard({ itemId, item, lastCost, canEdit, onSaved }: { itemId: s
   };
   const failed = failure ? describeError(failure, 'once') : null;
   return (
-    <section className="card flex flex-col gap-1.5 p-4" aria-label={t('items.sell_price', 'سعر البيع')}>
+    <section className="card flex flex-col gap-1.5 p-4" aria-label={words.title}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold">{t('items.sell_price', 'سعر البيع')}</h3>
+        <h3 className="font-semibold">{words.title}</h3>
         {canEdit && !editing ? (
           <Button
             variant="secondary"
             onClick={() => {
-              setText(item.sellPrice === null ? '' : fmtMoney(item.sellPrice));
+              setText(saved === null ? '' : fmtMoney(saved));
               setEditing(true);
             }}
-            data-action="edit-sell-price"
+            data-action={words.edit}
           >
-            {item.sellPrice === null ? t('items.sell_price.set', 'اكتب سعر البيع') : t('items.sell_price.change', 'غيّر السعر')}
+            {saved === null ? words.set : t('items.sell_price.change', 'غيّر السعر')}
           </Button>
         ) : null}
       </div>
       {editing ? (
         <div className="flex flex-col gap-3">
-          <MoneyInput
-            id={`${id}-sell`}
-            label={t('items.sell_price.for', 'سعر البيع لكل {unit} (اختياري)', { unit: baseUnitLabel(item.baseUnit) })}
-            hint={t('items.sell_price.clear', 'اتركه فارغاً لتشيل السعر، فلا تُحسب لها قيمة بيع.')}
-            error={bad ? t('items.sell_price.invalid', 'اكتب سعر البيع بالدينار، رقماً أكبر من صفر.') : null}
-            whole={false}
-            value={text}
-            onChange={setText}
-            autoFocus
-          />
+          <MoneyInput id={`${id}-${words.input}`} label={words.label} hint={words.clear} error={bad ? words.invalid : null} whole={false} value={text} onChange={setText} autoFocus />
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
-            <Button onClick={() => void save()} busy={busy} data-action="save-sell-price">
+            <Button onClick={() => void save()} busy={busy} data-action={words.save}>
               {t('org.save', 'احفظ')}
             </Button>
           </div>
         </div>
-      ) : (
+      ) : kind === 'sell' ? (
         <SellPriceNumbers sellPrice={item.sellPrice} lastCost={lastCost} baseUnit={item.baseUnit} />
+      ) : (
+        <CostPriceNumbers costPrice={item.costPrice} lastCost={lastCost} baseUnit={item.baseUnit} />
       )}
       {failed ? (
         <Notice tone="danger" title={failed.title}>
@@ -420,7 +495,12 @@ function PurchasesTab({ itemId, warehouseId, costs, canManage }: { itemId: strin
   const lastCost = rows[0]?.money?.unitCost ?? null;
   return (
     <div className="flex flex-col gap-3">
-      {costs ? <SellPriceCard itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} /> : null}
+      {costs ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PriceCard kind="sell" itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} />
+          <PriceCard kind="cost" itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} />
+        </div>
+      ) : null}
       <LastPurchase rows={rows} />
       <ul className="flex flex-col gap-2 sm:hidden">
         {rows.map((row) => (
@@ -564,15 +644,25 @@ export default function ItemCardPage() {
   const warehouseId = stores.some((store) => store.id === picked) ? picked : '';
   const costs = Boolean(workspace?.canSeeCost);
   const canManage = workspace ? can(workspace.role, 'stores.manage') : false;
+  // «اشترِ كمية» (كلمة المالك 2026-11-04) لمن يكتب ورقة الاستلام: المادّة نفسها تُقرأ لنوعها (فلا زرّ لمادّة لا تُشترى من مورّد
+  // ولا لمؤرشفة)، والمخزن المختار يُملأ بالرابط إن كان يستلم نوعها. فشل القراءة يخفي الزرّ ولا يوقف البطاقة.
+  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
+  const loadRow = useCallback(() => (canBuy ? inventory.loadItem(itemId) : Promise.resolve(null)), [itemId, canBuy]);
+  const row = useLoad(loadRow, `${itemId}#${canBuy}`);
+  const buyItem = row.data && !row.data.archived && RECEIVING_KINDS[row.data.kind].length > 0 ? row.data : null;
+  const buyStore = buyItem ? stores.find((store) => store.id === warehouseId && !store.archived && RECEIVING_KINDS[buyItem.kind].includes(store.kind)) : undefined;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title={t('stock.card.title', 'بطاقة المادّة')}
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
         actions={
-          <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
-            {t('stores.back', 'المخزن')}
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {buyItem ? <BuyLink itemId={buyItem.id} warehouseId={buyStore?.id ?? null} /> : null}
+            <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
+              {t('stores.back', 'المخزن')}
+            </Link>
+          </div>
         }
       />
       {setup.error ? (

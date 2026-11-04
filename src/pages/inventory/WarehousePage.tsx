@@ -11,6 +11,9 @@ import { Notice } from '../../components/ui/Notice';
 import { StatStrip } from '../../components/ui/StatStrip';
 import type { Fils } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
+import { can } from '../../domain/permissions';
+import { RECEIVING_KINDS } from '../../domain/stock';
+import type { WarehouseKind } from '../../domain/stores';
 import { fmtInt, fmtMoney, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
@@ -19,10 +22,10 @@ import { divisionLabel } from '../../lib/roles';
 import { useSession } from '../../lib/session';
 import { warehouseKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { AddItemDialog } from './ItemCreate';
+import { AddItemDialog, notListedHere } from './ItemCreate';
 import { alerts } from './StockBoardPage';
 import { StoreBadges } from './StoresCardsPage';
-import { PageFooter, qtyColumns } from './stock-shared';
+import { BuyLink, PageFooter, qtyColumns } from './stock-shared';
 
 // داخل المخزن (كلمة المالك 2026-11-02: «اني شنو افتح سكشن جديد مثلا مواد الاكل، ضمن الاكل راح يندرج هواية مواد»، و«اريد
 // تسويلي سعر البيع والربح المتوقع»، و«سوي طريقة اضافة المواد داخل المخزن مثل طريقة دكتور فيت»):
@@ -87,35 +90,50 @@ export function sectionValue(rows: readonly StockRow[]): Fils | null {
   return rows.length ? sum : null;
 }
 
-/** سطر مادّة بالهاتف: بطاقة لا جدول. */
-function ItemCardRow({ row, warehouseId, costs }: { row: StockRow; warehouseId: string; costs: boolean }) {
+/**
+ * «اشترِ كمية» لصفّ مادّة (كلمة المالك 2026-11-04): لمن يكتب ورقة الاستلام (receipt.draft)، والمخزن غير مؤرشف ويستلم نوع
+ * المادّة من المورّد (RECEIVING_KINDS، مرآة receiving_kinds) — فلا زرّ في مخزن حقل ولا لبيض المائدة. الحكم بالخادم.
+ */
+export function buyableIn(storeKind: WarehouseKind | undefined, archived: boolean, canBuy: boolean): (row: Pick<StockRow, 'kind' | 'archived'>) => boolean {
+  return (row) => canBuy && !archived && storeKind !== undefined && !row.archived && RECEIVING_KINDS[row.kind].includes(storeKind);
+}
+
+/** سطر مادّة بالهاتف: بطاقة لا جدول، و«اشترِ كمية» تحتها (رابطان متجاوران لا متداخلان). */
+function ItemCardRow({ row, warehouseId, costs, buy }: { row: StockRow; warehouseId: string; costs: boolean; buy: boolean }) {
   const alert = alerts(row);
   const sell = row.money?.sellPrice ?? null;
   return (
-    <Link to={`/inventory/items/${row.itemId}?wh=${warehouseId}`} className="card flex items-center gap-3 p-3" data-action="open-item-card">
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="font-medium">{row.name}</span>
-        <span className="text-sm text-ink-muted">{fmtQty(row.available, row.baseUnit).main}</span>
-        {row.expired > 0n ? <span className="text-sm text-danger-800 dark:text-danger-100">{t('stores.row.expired', 'منتهٍ: {qty}', { qty: fmtQty(row.expired, row.baseUnit).main })}</span> : null}
-        {costs && row.money ? (
-          <span className="text-sm text-ink-muted">
-            {t('stock.col.value', 'قيمة المتاح')}: <MoneyText amount={row.money.stockValue} />
-          </span>
-        ) : null}
-        {costs && sell !== null ? (
-          <span className="text-sm text-ink-muted">
-            {t('items.sell_price', 'سعر البيع')}: <MoneyText amount={sell} />
-          </span>
-        ) : null}
-        {alert ? <span className="text-sm text-warn-800 dark:text-warn-200">{alert}</span> : null}
-      </span>
-      <ChevronLeft aria-hidden="true" className="size-5 shrink-0 text-ink-muted ltr:rotate-180" />
-    </Link>
+    <div className="card flex flex-col gap-2 p-3">
+      <Link to={`/inventory/items/${row.itemId}?wh=${warehouseId}`} className="flex items-center gap-3" data-action="open-item-card">
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="font-medium">{row.name}</span>
+          <span className="text-sm text-ink-muted">{fmtQty(row.available, row.baseUnit).main}</span>
+          {row.expired > 0n ? <span className="text-sm text-danger-800 dark:text-danger-100">{t('stores.row.expired', 'منتهٍ: {qty}', { qty: fmtQty(row.expired, row.baseUnit).main })}</span> : null}
+          {costs && row.money ? (
+            <span className="text-sm text-ink-muted">
+              {t('stock.col.value', 'قيمة المتاح')}: <MoneyText amount={row.money.stockValue} />
+            </span>
+          ) : null}
+          {costs && sell !== null ? (
+            <span className="text-sm text-ink-muted">
+              {t('items.sell_price', 'سعر البيع')}: <MoneyText amount={sell} />
+            </span>
+          ) : null}
+          {alert ? <span className="text-sm text-warn-800 dark:text-warn-200">{alert}</span> : null}
+        </span>
+        <ChevronLeft aria-hidden="true" className="size-5 shrink-0 text-ink-muted ltr:rotate-180" />
+      </Link>
+      {buy ? (
+        <div>
+          <BuyLink itemId={row.itemId} warehouseId={warehouseId} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-/** جدول القسم بالحاسوب: المادّة والمتاح والمنتهي وسعر البيع وقيمة المتاح وقيمة البيع والتنبيه. */
-export function SectionTable({ section, warehouseId, costs }: { section: Section; warehouseId: string; costs: boolean }) {
+/** جدول القسم بالحاسوب: المادّة والمتاح والمنتهي وسعر البيع وقيمة المتاح وقيمة البيع والتنبيه، و«اشترِ كمية» لمن يشتري. */
+export function SectionTable({ section, warehouseId, costs, buy }: { section: Section; warehouseId: string; costs: boolean; buy?: (row: StockRow) => boolean }) {
   const rows = section.rows;
   const columns: Column<StockRow>[] = [
     {
@@ -161,11 +179,12 @@ export function SectionTable({ section, warehouseId, costs }: { section: Section
     );
   }
   columns.push({ key: 'alerts', header: t('stock.col.alerts', 'تنبيه'), wrap: true, cell: (row) => <span className="text-warn-800 dark:text-warn-200">{alerts(row)}</span> });
+  if (buy && rows.some(buy)) columns.push({ key: 'buy', header: t('org.col.actions', 'إجراءات'), cell: (row) => (buy(row) ? <BuyLink itemId={row.itemId} warehouseId={warehouseId} /> : null) });
   return <DataTable caption={t('stores.section.caption', 'مواد قسم {name}', { name: section.name })} columns={columns} rows={rows} rowKey={(row) => row.itemId} empty={t('stock.board.none', 'لا مواد.')} />;
 }
 
 /** قسم تصنيف قابل للطيّ: العنوان بعدد مواده ومجموع قيمتها لأدوار الكلفة. */
-export function SectionBlock({ section, warehouseId, costs }: { section: Section; warehouseId: string; costs: boolean }) {
+export function SectionBlock({ section, warehouseId, costs, buy }: { section: Section; warehouseId: string; costs: boolean; buy?: (row: StockRow) => boolean }) {
   const total = costs ? sectionValue(section.rows) : null;
   return (
     <details open className="card p-4">
@@ -180,11 +199,11 @@ export function SectionBlock({ section, warehouseId, costs }: { section: Section
       </summary>
       <div className="flex flex-col gap-2 pt-4 sm:hidden">
         {section.rows.map((row) => (
-          <ItemCardRow key={row.itemId} row={row} warehouseId={warehouseId} costs={costs} />
+          <ItemCardRow key={row.itemId} row={row} warehouseId={warehouseId} costs={costs} buy={buy ? buy(row) : false} />
         ))}
       </div>
       <div className="hidden pt-4 sm:block">
-        <SectionTable section={section} warehouseId={warehouseId} costs={costs} />
+        <SectionTable section={section} warehouseId={warehouseId} costs={costs} buy={buy} />
       </div>
     </details>
   );
@@ -213,15 +232,39 @@ export function WarehouseStats({ items, money }: { items: number | null; money: 
   );
 }
 
+/**
+ * مخزن العلف الجاهز (كلمة المالك 2026-11-04): المالك أنشأ «ذرة» و«صويا» و«زيت» بنوع «علف» فظهرت في هذا المخزن. التنبيه يقول
+ * ما مكان هذا المخزن وأين المواد الأوّلية، برابط أوّل مخزن موادّ أوّلية بنطاقه (ووحدته أوّلاً). بلا مخزن منها يقول ذلك.
+ */
+export function FeedStoreNotice({ store, stores }: { store: { kind: WarehouseKind; divisionId: string }; stores: readonly Pick<StoreCard, 'id' | 'name' | 'kind' | 'divisionId'>[] }) {
+  if (store.kind !== 'feed') return null;
+  const raw = stores.find((row) => row.kind === 'raw' && row.divisionId === store.divisionId) ?? stores.find((row) => row.kind === 'raw');
+  return (
+    <Notice
+      tone="info"
+      title={t('stores.feed.notice', 'هذا مخزن العلف الجاهز من المعمل؛ الذرة والصويا وبقيّة المواد الأوّلية مكانها «مخزن المواد الأوّلية».')}
+      action={
+        raw ? (
+          <Link to={`/inventory/store/${raw.id}`} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-raw-store">
+            {t('stores.feed.open_raw', 'افتح «{name}»', { name: raw.name })}
+          </Link>
+        ) : undefined
+      }
+    >
+      {raw ? null : t('stores.feed.no_raw', 'لا مخزن موادّ أوّلية في نطاقك بعد؛ يضيفه المدير من «المخزن» ثم «أضف مخزناً».')}
+    </Notice>
+  );
+}
+
 /** جسم الصفحة من صفوفه (دالّة عرض صافية، تنفحص بلا متصفّح). */
-export function WarehouseBody({ sections, warehouseId, costs, searching }: { sections: readonly Section[]; warehouseId: string; costs: boolean; searching: boolean }) {
+export function WarehouseBody({ sections, warehouseId, costs, searching, buy }: { sections: readonly Section[]; warehouseId: string; costs: boolean; searching: boolean; buy?: (row: StockRow) => boolean }) {
   if (sections.length === 0) {
     return <Notice tone="info" title={searching ? t('items.empty', 'لا موادّ بهذا البحث.') : t('stores.items.empty', 'لا مواد في هذا المخزن بعد.')} />;
   }
   return (
     <div className="flex flex-col gap-4">
       {sections.map((section) => (
-        <SectionBlock key={section.id || 'none'} section={section} warehouseId={warehouseId} costs={costs} />
+        <SectionBlock key={section.id || 'none'} section={section} warehouseId={warehouseId} costs={costs} buy={buy} />
       ))}
     </div>
   );
@@ -264,6 +307,11 @@ export default function WarehousePage() {
 
   const sections = sectionsOf(rows, setup.data?.itemCategories ?? [], search);
   const title = card?.name ?? first.data?.warehouse.name ?? t('stock.store', 'المخزن');
+  // نوع المخزن ووحدته من بطاقته، أو من رأس القائمة إن سبقت (الاثنان من الخادم).
+  const store = card ?? first.data?.warehouse;
+  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
+  const buy = buyableIn(store?.kind, Boolean(first.data?.warehouse.archived), canBuy);
+  const addedElsewhere = added ? notListedHere(added.kind, store ? { name: title, kind: store.kind } : undefined) : null;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -284,12 +332,14 @@ export default function WarehousePage() {
         }
       />
       {added ? (
-        <Notice tone="info" title={t('stores.item.added', 'أُضيفت المادّة «{name}»', { name: added.name })}>
+        <Notice tone={addedElsewhere ? 'warning' : 'info'} title={t('stores.item.added', 'أُضيفت المادّة «{name}»', { name: added.name })}>
+          {addedElsewhere ? <p>{addedElsewhere}</p> : null}
           <Link to={`/inventory/items/${added.id}?wh=${warehouseId}`} className="font-medium text-brand-700 dark:text-brand-200" data-action="open-added-item">
-            {t('stores.item.added.detail', 'تظهر في قسمها الآن برصيد صفر. افتح بطاقتها.')}
+            {addedElsewhere ? t('stores.item.added.card', 'افتح بطاقتها.') : t('stores.item.added.detail', 'تظهر في قسمها الآن برصيد صفر. افتح بطاقتها.')}
           </Link>
         </Notice>
       ) : null}
+      {store ? <FeedStoreNotice store={store} stores={overview.data?.rows ?? []} /> : null}
       {first.data ? <WarehouseStats items={first.data.total} money={costs ? first.data.money : null} /> : null}
       <Field id={`${id}-search`} label={t('stores.search', 'ابحث عن مادّة')}>
         <input id={`${id}-search`} type="search" autoComplete="off" className="input" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -303,7 +353,7 @@ export default function WarehousePage() {
         </p>
       ) : (
         <>
-          <WarehouseBody sections={sections} warehouseId={warehouseId} costs={costs} searching={search.trim() !== ''} />
+          <WarehouseBody sections={sections} warehouseId={warehouseId} costs={costs} searching={search.trim() !== ''} buy={buy} />
           <PageFooter
             shown={rows.length}
             total={first.data.total}
@@ -319,8 +369,10 @@ export default function WarehousePage() {
       {adding ? (
         <AddItemDialog
           categories={setup.data?.itemCategories ?? []}
-          storeKind={card?.kind}
+          storeKind={store?.kind}
           costs={costs}
+          purchase={{ warehouseId: first.data?.warehouse.archived ? null : warehouseId, canBuy }}
+          listStore={store ? { name: title, kind: store.kind } : undefined}
           onClose={() => setAdding(false)}
           onSaved={(item) => {
             setAdding(false);

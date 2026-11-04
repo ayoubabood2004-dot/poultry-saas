@@ -341,8 +341,11 @@ export default async function (t, db) {
   // الحقول صفوف للطرفين؛ والفوج لقارئه flock_detail.
   // 0015: خلطة مفعَّلة (100 كغم ذرة لأساس 100 كغم) ودفعة إنتاج مرحَّلة (50 كغم) بمعمل كلّ منشأة، فبكلّ جدول من جداول المعمل
   // صفوف للطرفين؛ والخلطة والدفعة لقارئيهما (recipe_detail وproduction_detail وpreview_production).
+  // 0016: معدّل «أجور المعمل» 2,000 لكلّ طنّ على النسخة قبل تفعيلها، ومصروف نقدي بفئته على وحدة المعمل، فالدفعة (50 كغم) تحمل
+  // سطر تكاليف 100.00 (2,000 × 50 ÷ 1000) ويحمّله الترحيل من المصروف: صفوف للطرفين في جداول المعدّلات والتكاليف والتحميلات.
   const millOf = {};
   for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    const { box } = ledgerOf[key];
     millOf[key] = await db.asUser(
       owner,
       async (q) => {
@@ -356,7 +359,11 @@ export default async function (t, db) {
         const recipe = await value(q, "insert into public.recipes (name, output_item_id) values ('خلطة الذرة', $1) returning id", [output]);
         const version = await value(q, 'insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100) returning id', [recipe]);
         await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'kg')", [version, corn]);
+        const wages = await value(q, "insert into public.expense_categories (name) values ('أجور المعمل') returning id");
+        await q('insert into public.recipe_cost_rates (version_id, category_id, amount_per_ton) values ($1, $2, 2000)', [version, wages]);
         await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+        const millDivision = await value(q, "select id from public.divisions where kind = 'feed_mill'");
+        await q("select public.record_expense(gen_random_uuid(), $1, $2, 5000, public.app_today(), 'cash', $3, null, null, null, null, null, 'أجور الأسبوع', null, gen_random_uuid())", [wages, millDivision, box]);
         const batch = await value(q, 'select gen_random_uuid()');
         await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [batch, version, raw, feedWh]);
         await q("select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid())", [batch]);

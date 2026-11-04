@@ -68,6 +68,39 @@ export function itemKindLabel(kind: ItemKind): string {
   }
 }
 
+/**
+ * اسم النوع بمثال لقائمة الاختيار في نموذج المادّة (كلمة المالك 2026-11-04): أنشأ «ذرة» و«صويا» و«زيت» بنوع «علف» لأنّ
+ * الاسم وحده لا يقول إنّ «علف» هو العلف الجاهز من المعمل وإنّ الذرة «مادّة أوّلية». المثال يقول ما يدخل تحت كلّ نوع.
+ */
+export function itemKindOption(kind: ItemKind): string {
+  switch (kind) {
+    case 'raw':
+      return t('item.kind.option.raw', 'مادّة أوّلية للعلف: ذرة، صويا، نخالة…');
+    case 'additive':
+      return t('item.kind.option.additive', 'إضافة للعلف: فيتامينات، أملاح، إنزيمات…');
+    case 'feed':
+      return t('item.kind.option.feed', 'علف جاهز: ناتج المعمل، أو علف يُشترى جاهزاً');
+    case 'medicine':
+      return t('item.kind.option.medicine', 'دواء: مضادّات حيوية، فيتامينات للماء…');
+    case 'vaccine':
+      return t('item.kind.option.vaccine', 'لقاح: نيوكاسل، كمبورو…');
+    case 'fuel':
+      return t('item.kind.option.fuel', 'وقود: كاز، بنزين، غاز…');
+    case 'packaging':
+      return t('item.kind.option.packaging', 'تعبئة: أكياس، كراتين، أطباق…');
+    case 'hatching_egg':
+      return t('item.kind.option.hatching_egg', 'بيض تفقيس');
+    case 'chick':
+      return t('item.kind.option.chick', 'أفراخ عمر يوم');
+    case 'table_egg':
+      return t('item.kind.option.table_egg', 'بيض مائدة');
+    case 'equipment':
+      return t('item.kind.option.equipment', 'معدّات: معالف، مناهل، أدوات…');
+    case 'other':
+      return t('item.kind.option.other', 'أخرى');
+  }
+}
+
 export function baseUnitLabel(unit: BaseUnit): string {
   switch (unit) {
     case 'kg':

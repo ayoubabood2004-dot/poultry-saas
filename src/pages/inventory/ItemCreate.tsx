@@ -7,17 +7,22 @@ import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { decimalText, toScale } from '../../domain/decimal';
 import type { Fils } from '../../domain/money';
+import { searchable } from '../../domain/normalize';
+import { RECEIVING_KINDS } from '../../domain/stock';
 import { BASE_UNITS, COUNTED_KINDS, ITEM_KINDS, itemProblems, type ItemKind, type WarehouseKind } from '../../domain/stores';
 import { parseFactor, parseQty, type BaseUnit } from '../../domain/units';
 import { describeError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { CategoryRow, ItemTwin } from '../../lib/repo/inventory';
-import { itemKindLabel } from '../../lib/storeLabels';
-import { countingLabel, unitName } from './stock-shared';
+import { itemKindLabel, itemKindOption, warehouseKindLabel } from '../../lib/storeLabels';
+import { BuyLink, countingLabel, unitName } from './stock-shared';
 
 // إضافة مادّة بأسلوب دكتور فيت (كلمة المالك 2026-11-02): وحدة مشتركة لأنّ المادّة تُضاف من مكانين: قائمة المخزن
 // («أضف مادّة») وورقة الاستلام نفسها (البحث ما لكى المادّة، 2026-11-03). بلا نسختين من النموذج ولا من قواعد حقوله.
+// وكلمة المالك 2026-11-04 («لمن اضيف ذرة ما اكدر اضيف مادة ثانية بنفس التصنيف بنفس الاسم… اني اشتريت ذرة اليوم وبعد اسبوع
+// اشتريت ذرة بغير حساب»): المادّة تُضاف مرّة واحدة وكلّ شراء ورقة استلام — فالتوأم بالاسم نفسه يقترح «سجّل شراءً جديداً»
+// أوّلاً و«احفظ مادّة أخرى» ثانياً؛ والنوع بأمثلة (الذرة مادّة أوّلية لا «علف»)؛ والتصنيف قسم لا اسم مادّة.
 
 /** نوع المادّة المقترح من نوع المخزن: المستخدم يقدر يغيّره، والحكم بالقاعدة. */
 export function suggestedKind(kind: WarehouseKind | undefined): ItemKind {
@@ -78,6 +83,33 @@ export function addItemFields(form: AddItemForm): { fields: inventory.ItemFields
 }
 
 /**
+ * التصنيف المختار باسم المادّة نفسه (كلمة المالك 2026-11-04: أنشأ تصنيف «ذرة» لمادّة «ذرة» وتصنيف «صويا» لـ«صويا»): التصنيف
+ * قسم يجمع موادّ كثيرة، فاسمه مثل اسم المادّة علامة على أنّه أُنشئ لها وحدها. المقارنة بالاسم المطبَّع (searchable).
+ */
+export function categoryNamedLikeItem(itemName: string, category: Pick<CategoryRow, 'name'> | undefined): boolean {
+  if (!category) return false;
+  const name = searchable(itemName);
+  return name !== '' && searchable(category.name) === name;
+}
+
+/**
+ * نوع مادّة لا يستلمه مخزن القائمة: المادّة الجديدة بلا رصيد تظهر في قوائم المخازن التي تستلم نوعها وحدها (stock_on_hand، 0014)،
+ * فالنافذة تقول ذلك قبل الحفظ، وتسمّي نوع المخزن الذي تُستلم فيه (RECEIVING_KINDS، مرآة receiving_kinds). null = تظهر هنا.
+ */
+export function notListedHere(kind: ItemKind, store: { name: string; kind: WarehouseKind } | undefined): string | null {
+  if (!store || RECEIVING_KINDS[kind].includes(store.kind)) return null;
+  const home = RECEIVING_KINDS[kind][0];
+  return home
+    ? t('item_form.listed.elsewhere', 'لن تظهر في «{store}» قبل أن يدخلها رصيد: «{kind}» مكانها مخزن «{home}».', { store: store.name, kind: itemKindLabel(kind), home: warehouseKindLabel(home) })
+    : t('item_form.listed.never', 'لن تظهر في «{store}» قبل أن يدخلها رصيد: «{kind}» لا تُشترى من مورّد.', { store: store.name, kind: itemKindLabel(kind) });
+}
+
+/** التوائم التي يصحّ أن يُسجَّل لها شراء أو تُستعمل: فعّالة، بالاسم نفسه أو برمز مشترك (الرمز يدلّ على المادّة نفسها). */
+export function activeTwins(twins: readonly ItemTwin[] | null): ItemTwin[] {
+  return (twins ?? []).filter((twin) => !twin.archived && (twin.sameName || twin.codes.length > 0));
+}
+
+/**
  * نافذة «أضف مادّة» بأسلوب دكتور فيت: حقول مرتّبة بعمودين — الاسم، والنوع والتصنيف، وكيف تُعدّ، والتعبئة ومعاملها،
  * والباركود والحدّ الأدنى، وسعر البيع لأدوار الكلفة. سعر البيع يُكتب بعد المادّة بدالّته (set_item_sell_price): فشله لا
  * يُلغي المادّة، ويُكتب بعدها من بطاقتها.
@@ -88,6 +120,9 @@ export function AddItemDialog({
   kinds,
   initialName = '',
   costs,
+  purchase,
+  onUseTwin,
+  listStore,
   onClose,
   onSaved,
 }: {
@@ -98,6 +133,15 @@ export function AddItemDialog({
   /** الاسم مكتوباً مسبقاً: بحثٌ لم يجد المادّة يفتح النافذة بما كتبه المستخدم بدل أن يكتبه مرّتين. */
   initialName?: string;
   costs: boolean;
+  /**
+   * «سجّل شراءً جديداً» لتوأم بالاسم نفسه: المخزن الذي فُتحت منه النافذة يُملأ برابط الشراء، وcanBuy صلاحية receipt.draft.
+   * بلا هذا ولا onUseTwin يبقى التنبيه كما كان («احفظ رغم التشابه»).
+   */
+  purchase?: { warehouseId: string | null; canBuy: boolean };
+  /** داخل ورقة استلام: التوأم يُستعمل في سطر الورقة نفسها بدل ورقة جديدة. */
+  onUseTwin?: (twin: ItemTwin) => void;
+  /** مخزن القائمة التي فُتحت منها النافذة: تنبيه قبل الحفظ إن كان النوع المختار لا يظهر فيه. */
+  listStore?: { name: string; kind: WarehouseKind };
   onClose: () => void;
   onSaved: (item: inventory.ItemRow) => void;
 }) {
@@ -119,6 +163,10 @@ export function AddItemDialog({
   const { fields, sellPrice, errors: found } = addItemFields(form);
   // التنبيه بالاسم يمرّ بالتأكيد مرّة لنفس الاسم (مثل نافذة المواد): تغيير أيّ حقل يرجّع الفحص.
   const confirmed = twins !== null && twins.length > 0;
+  // التوأم الفعّال بسياق شراء أو ورقة: الفعل الأوّل له (شراء جديد أو استعماله)، و«احفظ مادّة أخرى بالاسم نفسه» ثانياً.
+  const active = activeTwins(twins);
+  const explain = confirmed && active.length > 0 && (purchase !== undefined || onUseTwin !== undefined);
+  const twinActions = explain && (onUseTwin !== undefined || purchase?.canBuy === true) ? active.slice(0, 3) : [];
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -154,6 +202,9 @@ export function AddItemDialog({
   const formId = `${id}-form`;
   const failed = failure ? describeError(failure, 'once') : null;
   const counted = COUNTED_KINDS.has(form.kind);
+  const sameNamed = categoryNamedLikeItem(form.name, categories.find((category) => category.id === form.categoryId));
+  const elsewhere = notListedHere(form.kind, listStore);
+  const twinNames = (twins ?? []).map((twin) => (twin.archived ? t('items.archived.name', '{name} (مؤرشفة)', { name: twin.name }) : twin.name)).join(t('list.separator', '، '));
   return (
     <Dialog
       open
@@ -166,9 +217,18 @@ export function AddItemDialog({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button type="submit" form={formId} busy={busy} data-action={confirmed ? 'save-new-item-twin' : 'save-new-item'}>
-            {confirmed ? t('items.save.twin', 'احفظ رغم التشابه') : t('org.save', 'احفظ')}
+          <Button type="submit" form={formId} busy={busy} variant={twinActions.length ? 'secondary' : 'primary'} data-action={confirmed ? 'save-new-item-twin' : 'save-new-item'}>
+            {explain ? t('twin.save_other', 'احفظ مادّة أخرى بالاسم نفسه') : confirmed ? t('items.save.twin', 'احفظ رغم التشابه') : t('org.save', 'احفظ')}
           </Button>
+          {twinActions.map((twin) =>
+            onUseTwin ? (
+              <Button key={twin.id} onClick={() => onUseTwin(twin)} disabled={busy} data-action="use-twin">
+                {t('twin.use', 'استعمل «{name}» في هذه الورقة', { name: twin.name })}
+              </Button>
+            ) : (
+              <BuyLink key={twin.id} primary itemId={twin.id} warehouseId={purchase?.warehouseId ?? null} label={t('twin.buy', 'سجّل شراءً جديداً لـ«{name}»', { name: twin.name })} />
+            ),
+          )}
         </div>
       }
     >
@@ -177,7 +237,7 @@ export function AddItemDialog({
           <input id={`${id}-name`} className="input" maxLength={120} value={form.name} onChange={(event) => set({ name: event.target.value })} data-autofocus />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field id={`${id}-kind`} label={t('items.kind', 'النوع')}>
+          <Field id={`${id}-kind`} label={t('items.kind', 'النوع')} hint={t('item_form.kind.hint', 'النوع يحدّد المخزن الذي تُستلم فيه المادّة.')}>
             <select
               id={`${id}-kind`}
               className="input"
@@ -186,15 +246,16 @@ export function AddItemDialog({
                 const kind = event.target.value as ItemKind;
                 set(COUNTED_KINDS.has(kind) ? { kind, baseUnit: 'pc' } : { kind });
               }}
+              data-action="pick-kind"
             >
               {offered.map((kind) => (
                 <option key={kind} value={kind}>
-                  {itemKindLabel(kind)}
+                  {itemKindOption(kind)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field id={`${id}-category`} label={t('items.category', 'التصنيف')}>
+          <Field id={`${id}-category`} label={t('items.category', 'التصنيف')} hint={t('item_form.category.hint', 'التصنيف قسم يجمع موادّ متشابهة، مثل «الغذاء» أو «الإضافات».')}>
             <select id={`${id}-category`} className="input" value={form.categoryId} onChange={(event) => set({ categoryId: event.target.value })} data-action="pick-category">
               <option value="">{t('items.category.none', 'دون تصنيف')}</option>
               {categories.filter((category) => !category.archived).map((category) => (
@@ -205,6 +266,12 @@ export function AddItemDialog({
             </select>
           </Field>
         </div>
+        {elsewhere ? <Notice tone="warning" title={elsewhere} /> : null}
+        {sameNamed ? (
+          <Notice tone="warning" title={t('item_form.category.same_name', 'اسم التصنيف مثل اسم المادّة')}>
+            {t('item_form.category.same_name.detail', 'التصنيف قسم يجمع موادّ كثيرة؛ اختر قسماً أعمّ مثل «الغذاء»، أو اترك المادّة دون تصنيف.')}
+          </Notice>
+        ) : null}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('items.base_unit', 'كيف تُعدّ هذه المادّة؟')}</span>
           <Segmented<BaseUnit>
@@ -243,7 +310,9 @@ export function AddItemDialog({
         ) : null}
         {twins?.length ? (
           <Notice tone="warning" title={t('items.twin.names', 'مادّة بالاسم نفسه موجودة')}>
-            {t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twins.map((twin) => (twin.archived ? t('items.archived.name', '{name} (مؤرشفة)', { name: twin.name }) : twin.name)).join(t('list.separator', '، ')) })}
+            {explain
+              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام.', { names: twinNames })
+              : t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twinNames })}
           </Notice>
         ) : null}
         {failed ? (

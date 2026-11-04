@@ -783,6 +783,37 @@ export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inv
   return out;
 }
 
+// ─── «اشترِ كمية» (كلمة المالك 2026-11-04) ─────────────────────────────────────────────────────────────────────────
+// «اني اشتريت ذرة اليوم وبعد اسبوع اشتريت ذرة بغير حساب ما اكدر اكول اني اشتريت ذرة بهاي الطريقة»: المادّة تُضاف مرّة
+// واحدة، وكلّ شراء جديد ورقة استلام. الرابط يفتح صفحة الاستلام بنموذج «استلام جديد» معبّأ بالمخزن، وبعد إنشاء المسوّدة (بمعرّف
+// الجهاز، الطريق نفسه) تنفتح الورقة وسطرها بالمادّة.
+
+/** ‎/inventory/receipts?new=1&wh=<المخزن>&item=<المادّة>؛ بلا مخزن يُختار المخزن بالنموذج. */
+export function buyPath(itemId: string, warehouseId: string | null): string {
+  const params = new URLSearchParams({ new: '1' });
+  if (warehouseId) params.set('wh', warehouseId);
+  params.set('item', itemId);
+  return `/inventory/receipts?${params.toString()}`;
+}
+
+/** زرّ «اشترِ كمية» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. */
+export function BuyLink({ itemId, warehouseId, label, primary = false }: { itemId: string; warehouseId: string | null; label?: string; primary?: boolean }) {
+  return (
+    <Link
+      to={buyPath(itemId, warehouseId)}
+      className={
+        primary
+          ? 'inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400'
+          : 'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2'
+      }
+      data-action="buy-item"
+    >
+      <PackagePlus aria-hidden="true" className="size-4" />
+      {label ?? t('buy.action', 'اشترِ كمية')}
+    </Link>
+  );
+}
+
 // ─── رأس قسم المخزون: روابطه وموافقاته (تجربة الاستخدام 2026-11-02) ───────────────────────────────────────────────
 // بطاقات المخازن صارت صفحة /inventory، واللوحة بالوحدة بقيت بمسارها، فالروابط والموافقات المنتظرة بمكان واحد لهما.
 

@@ -347,12 +347,18 @@ export default async function (t, db) {
       await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
       const draftVersion = await one('insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100) returning id', [recipe]);
       const draftLine = await one("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'kg') returning id", [draftVersion, corn]);
+      // 0016: فئتا مصروف للمعمل، ومعدّل «أجور المعمل» على النسخة المسوّدة (لتعديله وحذفه)، وسطر كلفة يدوي بالمبلغ صفر على الدفعة
+      // المسوّدة (لتعديله وحذفه؛ الصفر لا يحتاج تحميلاً، فترحيل المسوّدة في خانته ينجح كما كان).
+      const labor = await one("insert into public.expense_categories (name) values ('أجور المعمل') returning id");
+      const transport = await one("insert into public.expense_categories (name) values ('نقل المعمل') returning id");
+      const draftRate = await one('insert into public.recipe_cost_rates (version_id, category_id, amount_per_ton) values ($1, $2, 1000) returning id', [draftVersion, labor]);
       const opening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
       await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 500, 450000)', [opening, corn]);
       await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [opening]);
       const draftBatch = await one('select gen_random_uuid()');
       await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [draftBatch, version, raw, feedStore]);
       const draftInput = await one('select id from public.production_inputs where batch_id = $1', [draftBatch]);
+      const draftCost = await one('insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 0) returning id', [draftBatch, labor]);
       const postedBatch = await one('select gen_random_uuid()');
       await q('select public.create_production($1, $2, 50, $3, $4, public.app_today())', [postedBatch, version, raw, feedStore]);
       await q("select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid())", [postedBatch]);
@@ -369,6 +375,10 @@ export default async function (t, db) {
         draftLine,
         draftBatch,
         draftInput,
+        labor,
+        transport,
+        draftRate,
+        draftCost,
         draftBatchVersion: await one('select version from public.production_batches where id = $1', [draftBatch]),
         postedBatch,
       };
@@ -518,6 +528,18 @@ export default async function (t, db) {
     // 0014 (سعر البيع): الكتابة لمن يدير المخازن ويرى الكلفة (المالك والمدير)؛ والنداء الثاني بنفس السعر يرجّعه نفسه
     // (المحفوظ = المطلوب ← انكتب، فلا price_changed لأنّ المصفوفة لا تراجع بين الأدوار).
     set_item_sell_price: { sql: () => ["select public.set_item_sell_price($1, 1500, null) ->> 'sell_price' as v", [wp7.fuelA]], value: true, expect: only(['owner', 'manager'], 'ok:1500') },
+    // 0016: سعر الكلفة بصلاحية سعر البيع نفسها (stores.manage ويرى الكلفة)؛ وبانية الخلطة بفعل التفعيل (recipe.activate)؛ وإضافة مادّة
+    // لدفعة مسوّدة بفعل التسويد ونطاق مخزن مدخلاتها (production.draft)، فالسطر الثاني بعد سطر الذرة.
+    set_item_cost_price: { sql: () => ["select public.set_item_cost_price($1, 1200, null) ->> 'cost_price' as v", [wp7.fuelA]], value: true, expect: only(['owner', 'manager'], 'ok:1200') },
+    create_recipe: {
+      sql: () => [
+        "select public.create_recipe(gen_random_uuid(), gen_random_uuid(), 'خلطة البانية', $1, 100, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', 100, 'unit', 'kg')), jsonb_build_array(jsonb_build_object('category_id', $3::uuid, 'amount_per_ton', 1000)), true) ->> 'status' as v",
+        [p3.output, p3.bran, p3.labor],
+      ],
+      value: true,
+      expect: only(RECIPE, 'ok:active'),
+    },
+    add_production_input: { sql: () => ["select public.add_production_input($1, gen_random_uuid(), $2, 5, null, null) ->> 'line_no' as v", [p3.draftBatch, p3.bran]], value: true, expect: only(MILL_DRAFT, 'ok:2') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -561,6 +583,11 @@ export default async function (t, db) {
     // 0011: نسخة الافتتاح الملغى بـopening.post (المالك والمدير)، والمخزن العامّ بنطاق الأمين (فلو فرع الافتتاح صار transfer.post
     // ينجح الأمين وينمسك).
     "copy_doc_to_draft('opening')": { sql: ["select public.copy_doc_to_draft('opening', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.opening]], value: true, expect: only(['owner', 'manager'], 'ok:draft') },
+    // 0016: معدّل الخلطة بفعل التفعيل، وسطر الكلفة بفعل costs.load لأدوار الكلفة (مشغّل المعمل ممنوع)، وسطر المدخلات بفعل التسويد
+    // (المحاسب ممنوع)؛ والنسخة بعد إضافة المعدّل وسطر الكلفة.
+    "delete_draft_line('recipe_cost_rate')": { sql: ["select public.delete_draft_line('recipe_cost_rate', $1, $2) ->> 'deleted' as v", [p3.draftRate, p3.draftVersionNo]], value: true, expect: only(RECIPE, 'ok:true') },
+    "delete_draft_line('production_cost')": { sql: ["select public.delete_draft_line('production_cost', $1, $2) ->> 'deleted' as v", [p3.draftCost, p3.draftBatchVersion]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    "delete_draft_line('production_input')": { sql: ["select public.delete_draft_line('production_input', $1, $2) ->> 'deleted' as v", [p3.draftInput, p3.draftBatchVersion]], value: true, expect: only(MILL_DRAFT, 'ok:true') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};
@@ -792,6 +819,20 @@ export default async function (t, db) {
     production_inputs: {
       allowed: MILL_DRAFT,
       update: ['update public.production_inputs set actual_qty_base = actual_qty_base where id = $1', [p3.draftInput]],
+    },
+    // 0016: معدّل تكاليف الخلطة بفعل التفعيل، وسطر تكاليف الدفعة بفعل costs.load؛ وحارس كلّ منهما (definer) يرفض الممنوع بالفعل قبل
+    // سياسة الإدراج، والتعديل الممنوع صفر صفوف (USING وسياسة الكلفة المقيِّدة تحجبان الصفّ).
+    recipe_cost_rates: {
+      allowed: RECIPE,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.recipe_cost_rates (version_id, category_id, amount_per_ton) values ($1, $2, 500)', [p3.draftVersion, p3.transport]],
+      update: ['update public.recipe_cost_rates set amount_per_ton = amount_per_ton where id = $1', [p3.draftRate]],
+    },
+    production_costs: {
+      allowed: ACCOUNTS,
+      insertDenied: 'forbidden',
+      insert: ['insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 10)', [p3.draftBatch, p3.transport]],
+      update: ['update public.production_costs set amount = amount where id = $1', [p3.draftCost]],
     },
     // 0012: القاعة بفعل flock.manage ونطاق حقلها (in_scope_site)، مثل المخزن بنطاق موقعه.
     halls: {

@@ -9,6 +9,8 @@
 // WP5 (0008): البذرة نفسها (بلا مصروف ولا صرف ولا جرد، فالتراجع يكمل). والطريق الثاني: مصروف نقدي (المدير) أو مسوّدة صرف أو
 // مسوّدة جرد (الأمين): كل وحدة توقف التراجع بصوت.
 // 0012: البذرة نفسها (بلا قاعة ولا فوج، فالتراجع يكمل). والطريق الثاني: قاعة بفوج مفتوح وجولة يومه (المدير) توقف التراجع بصوت.
+// 0016: البذرة نفسها (بلا معدّل تكاليف ولا سطر تكاليف ولا بديل ولا سعر كلفة، فالتراجع يكمل). والطريق الثاني: معدّل تكاليف بخلطة،
+// وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب: كل وحدة توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -290,7 +292,74 @@ const draftBatchSeed = async (db) => {
 
 const MILL_CONDITION = 'v_recipes + v_versions > 0 or v_batches + v_moves + v_lots > 0';
 
+/**
+ * 0016: خلطة مفعَّلة بتكاليف لكلّ طنّ (المدير، create_recipe بنداء واحد): «علف بادئ 2» بسطر ذرة 1,000 كغم لأساس 1,000 كغم،
+ * و«أيدي عاملة» 5,000 لكلّ طنّ. التراجع يُسقط جدول المعدّلات فيمسح ما كتبه المالك بيده، فطريق الرفض يوقفه؛ والطفرة تشيل فرع
+ * المعدّلات وحده (البذرة بلا دفعة ولا سعر كلفة)، فيكمل التراجع ويمسحها بصمت.
+ */
+const rateSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف بادئ', 'feed', 'kg') returning id");
+    const labor = await value(q, "insert into public.expense_categories (name) values ('أيدي عاملة') returning id");
+    await q(
+      "select public.create_recipe($1, $2, 'علف بادئ 2', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg')), jsonb_build_array(jsonb_build_object('category_id', $5::uuid, 'amount_per_ton', 5000)), true)",
+      [REF(30), REF(31), feed, corn, labor],
+    );
+  }, { commit: true });
+};
+
+/**
+ * 0016: دفعة مسوّدة من خلطة 0015 (بلا معدّلات): سطر تكاليف يدوي «نقل» 25,000 يكتبه المدير، ومادّة بديلة (النخالة بدل الذرة
+ * بسببها). فرع الدفعات (سطور التكاليف والتحميلات والبدائل) هو الذي يوقف التراجع هنا وحده.
+ */
+const batchCostSeed = async (db) => {
+  await draftBatchSeed(db);
+  await db.asUser(U.manager, async (q) => {
+    const transport = await value(q, "insert into public.expense_categories (name) values ('نقل') returning id");
+    await q('insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 25000)', [REF(22), transport]);
+    const bran = await value(q, "insert into public.items (name, kind, base_unit) values ('نخالة', 'raw', 'kg') returning id");
+    const cornLine = await value(q, 'select id from public.production_inputs where batch_id = $1', [REF(22)]);
+    await q("select public.add_production_input($1, $2, $3, 500, $4, 'نفدت الذرة في المخزن')", [REF(22), REF(32), bran, cornLine]);
+  }, { commit: true });
+};
+
+/** 0016: سعر كلفة مكتوب لمادّة بلا سعر بيع (المدير): التراجع يُسقط العمود فيمسحه، والطفرة تشيل فرع الأسعار وحده. */
+const costPriceSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const item = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    await q('select public.set_item_cost_price($1, 1500, null)', [item]);
+  }, { commit: true });
+};
+
+const COSTS_CONDITION = 'v_rates > 0 or v_costs + v_allocs + v_replaced > 0 or v_prices > 0';
+
 export const BLOCKING_SEEDS = {
+  16: [
+    {
+      name: 'معدّل تكاليف بخلطة',
+      code: 'rollback_blocked',
+      seed: rateSeed,
+      data: "select (select count(*) from public.recipe_cost_rates)::text || '/' || (select count(*) from public.recipes)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(COSTS_CONDITION, 'v_costs + v_allocs + v_replaced > 0 or v_prices > 0'),
+    },
+    {
+      name: 'سطر تكاليف ومادّة بديلة بدفعة مسوّدة',
+      code: 'rollback_blocked',
+      seed: batchCostSeed,
+      data: "select (select count(*) from public.production_costs)::text || '/' || (select count(*) from public.production_inputs where replaced_item_id is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(COSTS_CONDITION, 'v_rates > 0 or v_prices > 0'),
+    },
+    {
+      name: 'سعر كلفة مكتوب',
+      code: 'rollback_blocked',
+      seed: costPriceSeed,
+      data: "select (select count(*) from public.item_prices where cost_price is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(COSTS_CONDITION, 'v_rates > 0 or v_costs + v_allocs + v_replaced > 0'),
+    },
+  ],
   15: [
     {
       name: 'خلطة مفعَّلة',
@@ -452,4 +521,5 @@ export const BLOCKING_REQUIRED = [
   [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
   [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
   [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
+  [16, 3, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، كل وحدة توقف التراجع'],
 ];

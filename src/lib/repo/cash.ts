@@ -273,6 +273,11 @@ export interface ExpenseRow {
   /** أُلغي بصفّ عكسي. */
   reversed: boolean;
   amount: Fils;
+  /**
+   * مجموع تحميلاته الفعّالة على دفعات إنتاج العلف (0016، D2: «حصّة العلف فقط»): ما أخذه العلف من هذا المصروف. صفر بلا تحميل؛
+   * والمصروف المحمَّل يرفض الخادم إلغاءه (expense_allocated) حتى تُلغى الدفعة.
+   */
+  allocated: Fils;
 }
 
 export interface ExpenseTotals {
@@ -332,6 +337,8 @@ export function parseExpenseReport(value: unknown): ExpenseReport {
         reverses: optStr(row, 'reverses'),
         reversed: flag(row, 'reversed'),
         amount: filsOf(row, 'amount'),
+        // مجموع بلا صفوف قد يصل null (sum بلا coalesce): لا تحميل = صفر. وغياب المفتاح خطأ شكل كبقيّة المفاتيح.
+        allocated: row.allocated === null ? 0n : filsOf(row, 'allocated'),
       };
     }),
     next: json.next === null || json.next === undefined ? null : object(json.next, 'next'),

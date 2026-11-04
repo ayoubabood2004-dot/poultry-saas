@@ -2,34 +2,40 @@ import type { ReactNode } from 'react';
 import { fmtPercent } from '../../lib/format';
 import { t } from '../../lib/i18n';
 
-// مشترك شاشات المعمل (0015، كلمة المالك 2026-11-03: «خلّيها كأنّها لعبة هاي داي، فيها ألوان ومفعمة بالحياة»):
-// لون ثابت لكلّ خلطة من سلالم النظام (لا ألوان خام: ui-guard يقرأ الأصناف من إعداد Tailwind)، وشريط التركيبة الذي يُري
-// الخلطة بلمحة، وبطاقة رقم. الحياة من اللون والشكل لا من الرموز التعبيرية: الأيقونات SVG (lucide) كما في بقيّة الشاشات.
+// مشترك شاشات المعمل (0015، كلمة المالك 2026-11-03: «خلّيها كأنّها لعبة هاي داي، فيها ألوان ومفعمة بالحياة»؛ و2026-11-04:
+// «تكون اكو الوان حلوة وزاهية شوية مو بس الوان محددة»): لون لكلّ خلطة من معرّفها بـhsl() في style — بلا حدّ لعدد الألوان،
+// وبلا صنف Tailwind جديد (ملف CSS الوحيد داخل حزمة الإقلاع بسقف مقيس) — وشريط التركيبة الذي يُري الخلطة بلمحة، وبطاقة رقم.
+// الحياة من اللون والشكل لا من الرموز التعبيرية: الأيقونات SVG (lucide) كما في بقيّة الشاشات.
 
-export interface Tint {
-  /** شريط رأس البطاقة وقطعة الشريط (نفس الصنف). */
-  bar: string;
-  /** دائرة الأيقونة: اللون صريحاً ونصّ أبيض، فتقرأ في الفاتح والغامق سواء بلا نسخة ثانية. */
-  badge: string;
+/** درجة لون ثابتة لمعرّف (0–359) بتجزئة FNV-1a: نفس الخلطة بنفس اللون في كلّ شاشة وكلّ فتحة (لا عشوائية). */
+export function hueOf(id: string): number {
+  let hash = 0x811c9dc5;
+  for (const ch of id) {
+    hash ^= ch.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % 360;
 }
 
-const FALLBACK: Tint = { bar: 'bg-brand-500', badge: 'bg-brand-500 text-white' };
+export interface RecipeColor {
+  hue: number;
+  /** لون الشريط والشارة: تشبّع عالٍ وإضاءة وسطى تقرأ على الفاتح والغامق، والأيقونة فوقه بيضاء. */
+  solid: string;
+  /** خلفية خفيفة من اللون نفسه (شفافية)، فتصلح فوق سطح الفاتح والغامق معاً. */
+  soft: string;
+}
+
+export function recipeColor(id: string): RecipeColor {
+  const hue = hueOf(id);
+  return { hue, solid: `hsl(${hue} 85% 45%)`, soft: `hsl(${hue} 85% 45% / 0.14)` };
+}
 
 /**
- * ثلاثة ألوان من سلالم النظام بدرجة واحدة لكلّ واحد، **وكلّها مستعملة في المشروع أصلاً**: كلّ صنف Tailwind جديد يزيد ملف
- * CSS الوحيد وهو داخل حزمة الإقلاع (سقف مقيس)، و`bg-accent-500` كان وحده الجديد فخرج. والرقاقات محايدة (bg-surface-2).
+ * لون قطعة مادّة في شريط التركيبة: يبدأ من لون الخلطة ويدور بالزاوية الذهبية (137°)، فالقطع المتجاورة متباعدة اللون مهما
+ * كثرت المواد، والمادّة نفسها في الخلطة نفسها بلونها في كلّ رسم.
  */
-export const TINTS: readonly Tint[] = [
-  { bar: 'bg-brand-500', badge: 'bg-brand-500 text-white' },
-  { bar: 'bg-success-500', badge: 'bg-success-500 text-white' },
-  { bar: 'bg-warn-500', badge: 'bg-warn-500 text-white' },
-];
-
-/** لون ثابت لمعرّف: نفس الخلطة بنفس اللون في كلّ شاشة وفي كلّ فتحة (لا عشوائية). */
-export function tintOf(id: string): Tint {
-  let sum = 0;
-  for (const ch of id) sum = (sum + ch.charCodeAt(0)) % 1024;
-  return TINTS[sum % TINTS.length] ?? FALLBACK;
+export function pieceColor(hue: number, index: number): string {
+  return `hsl(${(hue + index * 137) % 360} 78% 50%)`;
 }
 
 export interface BarPiece {
@@ -40,9 +46,9 @@ export interface BarPiece {
 
 /**
  * شريط التركيبة: قطعة لكلّ مادّة بحصّتها من الأساس، فالخلطة تُقرأ بلمحة قبل الأرقام. الحصّة في العنوان بالمئة من
- * fmtPercent (قانون الأرقام)، وعرض القطعة وزن تخطيط لا رقم معروض.
+ * fmtPercent (قانون الأرقام)، وعرض القطعة وزن تخطيط لا رقم معروض. اللون من درجة الخلطة (hue).
  */
-export function CompositionBar({ pieces, total }: { pieces: readonly BarPiece[]; total: bigint }) {
+export function CompositionBar({ pieces, total, hue = 210 }: { pieces: readonly BarPiece[]; total: bigint; hue?: number }) {
   const shown = pieces.filter((piece) => piece.weight > 0n);
   if (!shown.length || total <= 0n) return null;
   return (
@@ -50,9 +56,9 @@ export function CompositionBar({ pieces, total }: { pieces: readonly BarPiece[];
       {shown.map((piece, index) => (
         <span
           key={piece.key}
-          className={`${(TINTS[index % TINTS.length] ?? FALLBACK).bar} block`}
+          className="block"
           // number-ok: وزن تخطيط للقطعة، لا رقم معروض (الحصّة بالمئة في العنوان)
-          style={{ flexGrow: Number(piece.weight), flexBasis: 0 }}
+          style={{ flexGrow: Number(piece.weight), flexBasis: 0, background: pieceColor(hue, index) }}
           title={t('mill.bar.piece', '{name}: {pct}٪', { name: piece.label, pct: fmtPercent(piece.weight, total) })}
         />
       ))}
@@ -60,9 +66,14 @@ export function CompositionBar({ pieces, total }: { pieces: readonly BarPiece[];
   );
 }
 
-/** رقاقة صغيرة: اسم ورقمه (الرقم يجيء منسَّقاً من المستدعي). */
-export function Chip({ tone, children }: { tone?: string; children: ReactNode }) {
-  return <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ${tone ?? 'bg-surface-2 text-ink-muted'}`}>{children}</span>;
+/** رقاقة صغيرة: اسم ورقمه (الرقم يجيء منسَّقاً من المستدعي)، ونقطة بلون قطعتها في الشريط إن أُعطيت. */
+export function Chip({ tone, dot, children }: { tone?: string; dot?: string; children: ReactNode }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ${tone ?? 'bg-surface-2 text-ink-muted'}`}>
+      {dot ? <span className="block shrink-0 rounded-full p-1" style={{ background: dot }} aria-hidden="true" /> : null}
+      {children}
+    </span>
+  );
 }
 
 /** نسبة بالمئة بعلامتها داخل t() (i18n-guard يرفض «٪» خارج النداء). */
@@ -82,6 +93,9 @@ export function Stats({ stats }: { stats: readonly { key: string; label: string;
     </dl>
   );
 }
+
+/** «—» لقيمة غائبة في خلية أو رقم (مال لدور بلا كلفة، أو مادّة بلا سعر). */
+export const dash = (): string => t('mill.col.no_doc', '—');
 
 // ─── المحاولة بمرجع ثابت (FOUNDATION ٥١٩) ───────────────────────────────────────────────────────────────────────
 // «ما نعرف شنو صار» تحتفظ بالمرجع، والإعادة تسأل الخادم به؛ والنتيجة المعروفة (نجاح أو رفض أكيد) تنسيه فالمحاولة
