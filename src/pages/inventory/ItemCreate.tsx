@@ -7,7 +7,6 @@ import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { decimalText, toScale } from '../../domain/decimal';
 import type { Fils } from '../../domain/money';
-import { searchable } from '../../domain/normalize';
 import { RECEIVING_KINDS } from '../../domain/stock';
 import { BASE_UNITS, COUNTED_KINDS, ITEM_KINDS, itemProblems, type ItemKind, type WarehouseKind } from '../../domain/stores';
 import { parseFactor, parseQty, type BaseUnit } from '../../domain/units';
@@ -15,8 +14,11 @@ import { describeError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { CategoryRow, ItemTwin } from '../../lib/repo/inventory';
-import { itemKindLabel, itemKindOption, warehouseKindLabel } from '../../lib/storeLabels';
+import { activeTwins, categoryNamedLikeItem, itemKindLabel, itemKindOption, warehouseKindLabel } from '../../lib/storeLabels';
 import { BuyLink, countingLabel, unitName } from './stock-shared';
+
+// التوأم والتصنيف باسم المادّة صارا في storeLabels (صفحة «المواد» تستعملهما بالتدفّق نفسه، #21)؛ الاسمان باقيان من هنا كما كانا.
+export { activeTwins, categoryNamedLikeItem };
 
 // إضافة مادّة بأسلوب دكتور فيت (كلمة المالك 2026-11-02): وحدة مشتركة لأنّ المادّة تُضاف من مكانين: قائمة المخزن
 // («أضف مادّة») وورقة الاستلام نفسها (البحث ما لكى المادّة، 2026-11-03). بلا نسختين من النموذج ولا من قواعد حقوله.
@@ -83,16 +85,6 @@ export function addItemFields(form: AddItemForm): { fields: inventory.ItemFields
 }
 
 /**
- * التصنيف المختار باسم المادّة نفسه (كلمة المالك 2026-11-04: أنشأ تصنيف «ذرة» لمادّة «ذرة» وتصنيف «صويا» لـ«صويا»): التصنيف
- * قسم يجمع موادّ كثيرة، فاسمه مثل اسم المادّة علامة على أنّه أُنشئ لها وحدها. المقارنة بالاسم المطبَّع (searchable).
- */
-export function categoryNamedLikeItem(itemName: string, category: Pick<CategoryRow, 'name'> | undefined): boolean {
-  if (!category) return false;
-  const name = searchable(itemName);
-  return name !== '' && searchable(category.name) === name;
-}
-
-/**
  * نوع مادّة لا يستلمه مخزن القائمة: المادّة الجديدة بلا رصيد تظهر في قوائم المخازن التي تستلم نوعها وحدها (stock_on_hand، 0014)،
  * فالنافذة تقول ذلك قبل الحفظ، وتسمّي نوع المخزن الذي تُستلم فيه (RECEIVING_KINDS، مرآة receiving_kinds). null = تظهر هنا.
  */
@@ -102,11 +94,6 @@ export function notListedHere(kind: ItemKind, store: { name: string; kind: Wareh
   return home
     ? t('item_form.listed.elsewhere', 'لن تظهر في «{store}» قبل أن يدخلها رصيد: «{kind}» مكانها مخزن «{home}».', { store: store.name, kind: itemKindLabel(kind), home: warehouseKindLabel(home) })
     : t('item_form.listed.never', 'لن تظهر في «{store}» قبل أن يدخلها رصيد: «{kind}» لا تُشترى من مورّد.', { store: store.name, kind: itemKindLabel(kind) });
-}
-
-/** التوائم التي يصحّ أن يُسجَّل لها شراء أو تُستعمل: فعّالة، بالاسم نفسه أو برمز مشترك (الرمز يدلّ على المادّة نفسها). */
-export function activeTwins(twins: readonly ItemTwin[] | null): ItemTwin[] {
-  return (twins ?? []).filter((twin) => !twin.archived && (twin.sameName || twin.codes.length > 0));
 }
 
 /**

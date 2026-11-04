@@ -1,9 +1,38 @@
+import { searchable } from '../domain/normalize';
 import type { ItemKind, SiteKind, WarehouseKind } from '../domain/stores';
 import type { BaseUnit, Dimension } from '../domain/units';
 import { t } from './i18n';
+import type { CategoryRow, ItemTwin } from './repo/inventory';
 
 // أسماء أنواع المواقع والمخازن والمواد ووحدات الأساس بالعرض (0005). ملف كسول (شاشات المخازن والإعدادات بس)، فما يدخل حزمة
 // الإقلاع. مفاتيح t() حرفية (i18n-guard يرفض المفتاح المركّب).
+//
+// ومعها أدوات المادّة المشتركة بين صفحة «المواد» ونافذة «مادّة جديدة» (الملاحظة #21: صفحة المواد بالتدفّق نفسه): رابط الشراء
+// والتوائم الفعّالة والتصنيف باسم المادّة. هنا لا في stock-shared لأنّ هذا الملف بحزمة stores-admin المشتركة (المستثناة من
+// التثبيت المسبق)، واستيراد stock-shared أو ItemCreate من صفحة المواد يقسمهما حزمة محفوظة تستورد المستثناة (pwa-guard).
+
+/** ‎/inventory/receipts?new=1&wh=<المخزن>&item=<المادّة>؛ بلا مخزن يُختار المخزن بالنموذج (كلمة المالك 2026-11-04). */
+export function buyPath(itemId: string, warehouseId: string | null): string {
+  const params = new URLSearchParams({ new: '1' });
+  if (warehouseId) params.set('wh', warehouseId);
+  params.set('item', itemId);
+  return `/inventory/receipts?${params.toString()}`;
+}
+
+/** التوائم التي يصحّ أن يُسجَّل لها شراء أو تُستعمل: فعّالة، بالاسم نفسه أو برمز مشترك (الرمز يدلّ على المادّة نفسها). */
+export function activeTwins(twins: readonly ItemTwin[] | null): ItemTwin[] {
+  return (twins ?? []).filter((twin) => !twin.archived && (twin.sameName || twin.codes.length > 0));
+}
+
+/**
+ * التصنيف المختار باسم المادّة نفسه (كلمة المالك 2026-11-04: أنشأ تصنيف «ذرة» لمادّة «ذرة» وتصنيف «صويا» لـ«صويا»): التصنيف
+ * قسم يجمع موادّ كثيرة، فاسمه مثل اسم المادّة علامة على أنّه أُنشئ لها وحدها. المقارنة بالاسم المطبَّع (searchable).
+ */
+export function categoryNamedLikeItem(itemName: string, category: Pick<CategoryRow, 'name'> | undefined): boolean {
+  if (!category) return false;
+  const name = searchable(itemName);
+  return name !== '' && searchable(category.name) === name;
+}
 
 export function siteKindLabel(kind: SiteKind): string {
   switch (kind) {

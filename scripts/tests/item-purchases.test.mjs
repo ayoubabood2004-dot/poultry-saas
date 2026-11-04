@@ -131,6 +131,7 @@ export default async function (t) {
       rows: [ROW],
       next: { received_on: '2026-10-28', seq: '41', id: 'l-1' },
       total: 7,
+      last_production: null,
     };
     const page = await m.loadItemPurchases('i-corn', 'w-gen');
     const sent = server.requests.at(-1);
@@ -154,16 +155,16 @@ export default async function (t) {
 
     // ── P3: بلا money (دور بلا كلفة) ─────────────────────────────────────────────────────────────────────────
     const bare = Object.fromEntries(Object.entries(ROW).filter(([key]) => key !== 'money'));
-    const masked = m.parseItemPurchases({ item: ITEM, warehouse: null, today: '2026-11-02', rows: [bare], next: null, total: 1 });
+    const masked = m.parseItemPurchases({ item: ITEM, warehouse: null, today: '2026-11-02', rows: [bare], next: null, total: 1, last_production: null });
     t.eq(masked.rows[0].money, null, 'P3: money الغايبة = null، ولا يرمي');
     t.same([masked.rows[0].partyName, masked.rows[0].qtyIn, masked.rows[0].unitLabel, masked.rows[0].qtyLeft], ['مورّد الحبوب', 500_000n, 'كيس 50 كغم', 300_000n], 'P3: والصفّ يبقى بمن ومتى وبأي وحدة وكم بقي');
     t.eq(masked.warehouse, null, 'P3: ومخزن فارغ = كل المخازن');
-    t.eq(m.parseItemPurchases({ item: Object.fromEntries(Object.entries(ITEM).filter(([key]) => key !== 'money')), warehouse: null, today: '2026-11-02', rows: [bare], next: null, total: 1 }).item.sellPrice, null, 'P3: وسعر البيع غائب = null');
+    t.eq(m.parseItemPurchases({ item: Object.fromEntries(Object.entries(ITEM).filter(([key]) => key !== 'money')), warehouse: null, today: '2026-11-02', rows: [bare], next: null, total: 1, last_production: null }).item.sellPrice, null, 'P3: وسعر البيع غائب = null');
     t.eq(masked.total, 1, 'P3: والمجموع كما جاء');
 
     // ── P5: جواب بشكل غلط يرمي ───────────────────────────────────────────────────────────────────────────────
     const bad = (mutate) => {
-      const json = { item: ITEM, warehouse: null, today: '2026-11-02', rows: [{ ...ROW }], next: null, total: 1 };
+      const json = { item: ITEM, warehouse: null, today: '2026-11-02', rows: [{ ...ROW }], next: null, total: 1, last_production: null };
       mutate(json);
       return () => m.parseItemPurchases(json);
     };
@@ -172,7 +173,7 @@ export default async function (t) {
     t.throws(bad((json) => (json.rows[0].base_unit = 'ton')), 'P5: ووحدة أساس مجهولة ترمي');
     t.throws(bad((json) => (json.rows[0].money.corrected = 'yes')), 'P5: وعلامة تصحيح مو boolean ترمي');
     t.throws(bad((json) => delete json.today), 'P5: ويوم الخادم الناقص يرمي');
-    t.throws(() => m.parseItemPurchases({ item: ITEM, warehouse: null, today: '2026-11-02', rows: [{ ...ROW }], next: { received_on: '2026-10-28', id: 'l-1' }, total: 1 }), 'P5: ومؤشّر بلا seq يرمي');
+    t.throws(() => m.parseItemPurchases({ item: ITEM, warehouse: null, today: '2026-11-02', rows: [{ ...ROW }], next: { received_on: '2026-10-28', id: 'l-1' }, total: 1, last_production: null }), 'P5: ومؤشّر بلا seq يرمي');
 
     // ── P6: stores_overview ──────────────────────────────────────────────────────────────────────────────────
     server.rpc.stores_overview = {

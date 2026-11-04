@@ -13,16 +13,16 @@ import { parseMoney, roundHalfAway, type Fils } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { kgToLiters, litersToKg, parseQty, type BaseUnit } from '../../domain/units';
-import { describeError } from '../../lib/errors';
+import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
-import { createItem, loadItemPurchases, setItemCostPrice } from '../../lib/repo/inventory';
+import { createItem, loadItemPurchases, setItemCostPrice, updateItem, type ItemRow } from '../../lib/repo/inventory';
 import { createRecipe, loadBuilder, type BuilderData, type CategoryOption, type RecipeUnit } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { CellEdit, MaterialPicker, newItemFields, unitWord, type PickedMaterial } from './pickers';
+import { CellEdit, inBasisKind, kindFixFailure, MaterialPicker, NewCategoryField, newItemFields, sameNameTwins, unitWord, type PickedMaterial, type TwinView } from './pickers';
 import { CompositionBar, dash, pct } from './shared';
 
 // بانية الخلطة بشاشة واحدة (0016، كلمة المالك 2026-11-04: «لمن اسوي خلطة… المفروض تطلعلي قائمة انتاج كاملة اضيف منها المواد
@@ -31,6 +31,9 @@ import { CompositionBar, dash, pct } from './shared';
 // يُنشأ هنا) والأساس وجدول المواد (يُختار أو يُنشأ هنا، بسعر الشراء التلقائي وسعر الكلفة المكتوب) وجدول تكاليف الطنّ، وسطر حيّ
 // للمجموع والفرق عن الأساس وكلفة الطنّ المتوقّعة. والحفظ نداء create_recipe واحد (معاملة واحدة). الحساب الحيّ هنا عرض أثناء
 // الكتابة فقط بالأعداد الصحيحة (bigint)؛ المرجع للتفعيل حساب الخادم (basis_mismatch)، ولكلفة الطنّ قارئ الخلطة بعد الحفظ.
+// إصلاحات المراجعة: id_conflict يُقال برابط الخلطة المحفوظة والبانية بمحتواها ولا يُولَّد معرّفان بصمت (م١)؛ فئة المصروف من
+// مكانها ولا رابط يغادر البانية (م٣)؛ ما ينقص للحفظ والتفعيل مكتوب تحت الزرّين (م٥)؛ سعر الكلفة المكتوب يُحفظ قبل الخلطة
+// (م٦)؛ المنتج يمرّ بالتوائم قبل إنشائه (م٨)؛ والوقود والتعبئة خارج المجموع والأساس (م١١، مرآة in_basis).
 
 type PriceState =
   | { status: 'loading' }
@@ -111,9 +114,12 @@ export default function RecipeBuilderPage() {
   const role = workspace?.role ?? null;
   const canBuild = role !== null && can(role, 'recipe.activate');
   const canCreateItem = role !== null && can(role, 'item.create');
+  // تعديل نوع مادّة موجودة («اجعلها مادّة أوّلية»/«اجعلها علفاً جاهزاً»): تعديل المادّة للمدير (stores.manage).
+  const canFixKind = role !== null && can(role, 'stores.manage');
+  const canCategories = role !== null && can(role, 'expense_categories.manage');
   const costs = Boolean(workspace?.canSeeCost);
   // سعر الكلفة يكتبه من يكتب سعر البيع (set_item_cost_price: stores.manage وأدوار الكلفة).
-  const canPrice = costs && role !== null && can(role, 'stores.manage');
+  const canPrice = costs && canFixKind;
   const load = useCallback(() => loadBuilder(), []);
   const { data, error, retry } = useLoad<BuilderData>(load);
 
@@ -123,14 +129,18 @@ export default function RecipeBuilderPage() {
   const [newOutput, setNewOutput] = useState('');
   const [outputBusy, setOutputBusy] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
+  const [outputTwins, setOutputTwins] = useState<{ query: string; rows: readonly TwinView[] } | null>(null);
   const [basisText, setBasisText] = useState(DEFAULT_BASIS);
   const [lines, setLines] = useState<readonly BuilderLine[]>([]);
   const [costTexts, setCostTexts] = useState<Readonly<Record<string, string>>>({});
   const [priceBusy, setPriceBusy] = useState<string | null>(null);
   const [priceErrors, setPriceErrors] = useState<Readonly<Record<string, string>>>({});
   const [rates, setRates] = useState<readonly RateRow[]>([]);
+  const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
   const [saving, setSaving] = useState<'draft' | 'active' | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  /** معرّف خلطة حُفظت بمحاولة سابقة بمحتوى غير الذي تراه الشاشة (id_conflict، م١). */
+  const [conflict, setConflict] = useState<string | null>(null);
   const ids = useRef<{ recipe: string; version: string } | null>(null);
   const rateSeq = useRef(0);
 
@@ -138,6 +148,10 @@ export default function RecipeBuilderPage() {
   useDirtyForm(dirty && saving === null);
 
   const outputs = useMemo(() => [...(data?.feedItems ?? []), ...madeOutputs.filter((made) => !(data?.feedItems ?? []).some((item) => item.id === made.id))], [data, madeOutputs]);
+  const categories = useMemo(
+    () => [...(data?.categories ?? []), ...madeCategories.filter((made) => !(data?.categories ?? []).some((category) => category.id === made.id))],
+    [data, madeCategories],
+  );
   const basis = parseQty(basisText);
   const basisOk = basis !== null && basis > 0n;
   const nameTaken = name.trim() !== '' && (data?.recipeNames ?? []).some((taken) => searchable(taken) === searchable(name));
@@ -145,29 +159,80 @@ export default function RecipeBuilderPage() {
   const view = lines.map((line) => {
     const qty = line.qtyText.trim() === '' ? null : parseQty(line.qtyText);
     const qtyOk = qty !== null && qty > 0n;
+    const inBasis = inBasisKind(line.item.kind);
     const mass = qtyOk ? lineMassKg(qty, line.unit, line.item.density) : null;
-    const typedText = costTexts[line.item.id];
-    const typed = typedText === undefined || typedText.trim() === '' ? null : parseMoney(typedText);
+    const priceText = costTexts[line.item.id];
+    const typedValue = priceText === undefined || priceText.trim() === '' ? null : parseMoney(priceText);
+    const priceInvalid = priceText !== undefined && priceText.trim() !== '' && (typedValue === null || typedValue <= 0n);
     const saved = line.price.status === 'ready' ? line.price : null;
-    const price = planningPrice(typed !== null && typed > 0n ? typed : null, saved?.costPrice ?? null, saved?.lastPrice ?? null);
-    return { line, qty, qtyOk, mass, price, qtyBase: qtyOk ? lineBaseQty(qty, line.unit, line.item.baseUnit, line.item.density) : null };
+    const savedText = saved === null || saved.costPrice === null ? '' : decimalText(saved.costPrice, 2);
+    // سعر مكتوب لم يُحفظ (م٦): يُرسل قبل الخلطة بشرط السعر الذي رأته الشاشة؛ وما كُتب والسعر يُقرأ من جديد ينتظر القراءة.
+    const pricePending = canPrice && priceText !== undefined && !priceInvalid && (saved === null || priceText !== savedText);
+    const price = planningPrice(typedValue !== null && typedValue > 0n ? typedValue : null, saved?.costPrice ?? null, saved?.lastPrice ?? null);
+    return { line, qty, qtyOk, inBasis, mass, price, priceText, priceInvalid, pricePending, qtyBase: qtyOk ? lineBaseQty(qty, line.unit, line.item.baseUnit, line.item.density) : null };
   });
-  const massKnown = view.every((row) => row.mass !== null);
-  const sum = view.reduce((total, row) => total + (row.mass ?? 0n), 0n);
+  const basisRows = view.filter((row) => row.inBasis);
+  const massKnown = basisRows.every((row) => row.mass !== null);
+  const sum = basisRows.reduce((total, row) => total + (row.mass ?? 0n), 0n);
   const gap = basisOk ? basis - sum : 0n;
+  const categoryName = (categoryId: string) => categories.find((category) => category.id === categoryId)?.name ?? dash();
   const ratesView = rates.map((rate) => {
     const value = rate.amountText.trim() === '' ? null : parseMoney(rate.amountText);
-    return { rate, value, ok: rate.categoryId !== '' && value !== null && value > 0n };
+    // سطر تكلفة فارغ كلّه (بلا فئة ولا مبلغ) يُتجاهل ولا يعطّل الحفظ (م٥)، والناقص يُقال.
+    const empty = rate.categoryId === '' && rate.amountText.trim() === '';
+    return { rate, value, empty, ok: rate.categoryId !== '' && value !== null && value > 0n };
   });
-  const linesOk = view.every((row) => row.qtyOk);
-  const ratesOk = ratesView.every((row) => row.ok);
-  const nameOk = name.trim().length > 0 && name.trim().length <= 80 && !nameTaken;
-  const canDraft = canBuild && nameOk && outputId !== '' && basisOk && linesOk && ratesOk;
-  const balanced = view.length > 0 && massKnown && basisOk && gap === 0n;
-  const canActivate = canDraft && balanced;
-  const planned = costs && basisOk ? plannedCost(view.map((row) => ({ qtyBase: row.qtyBase, price: row.price })), ratesView.map((row) => row.value ?? 0n), basis) : null;
-  const massDecimals = columnDecimals(view.map((row) => row.mass ?? 0n), 3) as 0 | 1 | 2 | 3;
+  const sentRates = ratesView.filter((row) => row.ok);
+
+  // ما ينقص للحفظ ثم للتفعيل (م٥): كلّ سبب يعطّل زرّاً مكتوب تحته، و«جاهزة للتفعيل» لا تُقال إلّا حين يمكن التفعيل فعلاً.
+  const draftMissing: string[] = [];
+  if (name.trim() === '') draftMissing.push(t('mill.builder.need_name', 'اكتب اسم الخلطة.'));
+  else if (nameTaken) draftMissing.push(t('mill.builder.need_other_name', 'اسم الخلطة لخلطة أخرى: اختر اسماً غيره.'));
+  if (outputId === '') {
+    draftMissing.push(
+      newOutput.trim() !== ''
+        ? t('mill.builder.need_output_create', 'المنتج «{name}» مكتوب ولم يُنشأ: اضغط «أنشئ» أو اختر منتجاً من القائمة.', { name: newOutput.trim() })
+        : t('mill.builder.need_output', 'اختر المادّة المنتَجة، أو اكتب اسم منتج جديد واضغط «أنشئ».'),
+    );
+  }
+  if (!basisOk) draftMissing.push(t('mill.builder.need_basis', 'اكتب أساس الخلطة: وزناً أكبر من صفر.'));
+  for (const row of view) if (!row.qtyOk) draftMissing.push(t('mill.builder.need_qty', 'اكتب كمية «{name}» أكبر من صفر.', { name: row.line.item.name }));
+  for (const row of ratesView) {
+    if (row.ok || row.empty) continue;
+    draftMissing.push(
+      row.rate.categoryId === ''
+        ? t('mill.builder.need_rate_category', 'اختر فئة المصروف لسطر التكلفة المكتوب، أو احذف السطر.')
+        : t('mill.builder.need_rate_amount', 'اكتب مبلغ تكلفة «{category}» لكلّ طنّ أكبر من صفر، أو احذف السطر.', { category: categoryName(row.rate.categoryId) }),
+    );
+  }
+  for (const row of view) {
+    if (row.priceInvalid) draftMissing.push(t('mill.builder.need_price', 'سعر كلفة «{name}» غير صالح: صحّحه أو امسحه.', { name: row.line.item.name }));
+    else if (row.pricePending && row.line.price.status === 'failed') draftMissing.push(t('mill.builder.price_unread', 'تعذّرت قراءة سعر «{name}»: أعد قراءته ثم احفظ، أو امسح السعر المكتوب.', { name: row.line.item.name }));
+    else if (row.pricePending && row.line.price.status !== 'ready') draftMissing.push(t('mill.builder.price_wait', 'سعر «{name}» يُقرأ الآن: انتظر لحظة ثم احفظ.', { name: row.line.item.name }));
+  }
+  const activateMissing: string[] = [];
+  if (!basisRows.length) {
+    activateMissing.push(
+      view.length
+        ? t('mill.builder.need_basis_line', 'أضف مادّة داخل الكتلة: الوقود والتعبئة وحدهما لا يكوّنان خلطة.')
+        : t('mill.builder.need_line', 'أضف مادّة واحدة على الأقلّ.'),
+    );
+  } else if (!massKnown) {
+    activateMissing.push(t('mill.builder.need_density', 'في المواد سائل بلا كثافة فلا يُحسب وزنه: اكتب كميته بالكيلوغرام أو أكمل كثافته من بطاقته.'));
+  } else if (basisOk && gap !== 0n) {
+    const vars = { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(gap > 0n ? gap : -gap, 'kg').main };
+    activateMissing.push(
+      gap > 0n
+        ? t('mill.builder.need_gap_short', 'المجموع {sum} أقلّ من الأساس {basis} بـ{gap}.', vars)
+        : t('mill.builder.need_gap_over', 'المجموع {sum} أكبر من الأساس {basis} بـ{gap}.', vars),
+    );
+  }
+  const canDraft = canBuild && draftMissing.length === 0;
+  const canActivate = canDraft && activateMissing.length === 0;
+  const planned = costs && basisOk ? plannedCost(view.map((row) => ({ qtyBase: row.qtyBase, price: row.price })), sentRates.map((row) => row.value ?? 0n), basis) : null;
+  const massDecimals = columnDecimals(basisRows.map((row) => row.mass ?? 0n), 3) as 0 | 1 | 2 | 3;
   const exclude = useMemo(() => new Set(lines.map((line) => line.item.id)), [lines]);
+  const pendingPrices = view.filter((row) => row.pricePending && row.line.price.status === 'ready');
 
   const loadPrice = (item: PickedMaterial) => {
     loadItemPurchases(item.id).then(
@@ -190,6 +255,18 @@ export default function RecipeBuilderPage() {
   };
 
   const patchLine = (itemId: string, patch: Partial<BuilderLine>) => setLines((current) => current.map((line) => (line.item.id === itemId ? { ...line, ...patch } : line)));
+  const dropCostText = (itemId: string) =>
+    setCostTexts((current) => {
+      if (!(itemId in current)) return current;
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+  /** سعر رُفض: يُقرأ من جديد (تغيّر من غير هذه الشاشة ربّما)، والمكتوب يبقى ليُراجَع ويُحفظ ثانية. */
+  const reloadPrice = (item: PickedMaterial) => {
+    setLines((current) => current.map((row) => (row.item.id === item.id ? { ...row, price: { status: 'loading' } } : row)));
+    loadPrice(item);
+  };
 
   const savePrice = async (line: BuilderLine) => {
     const text = costTexts[line.item.id] ?? '';
@@ -200,43 +277,62 @@ export default function RecipeBuilderPage() {
     try {
       const written = await setItemCostPrice(line.item.id, price, line.price.costPrice);
       patchLine(line.item.id, { price: { ...line.price, costPrice: written } });
-      setCostTexts((current) => {
-        const next = { ...current };
-        delete next[line.item.id];
-        return next;
-      });
+      dropCostText(line.item.id);
     } catch (problem) {
       const { title, detail } = describeError(problem);
       setPriceErrors((current) => ({ ...current, [line.item.id]: `${title} ${detail}` }));
-      // سعر تغيّر من غير هذه الشاشة: يُقرأ من جديد، والمكتوب يبقى ليُراجَع ويُحفظ ثانية.
-      setLines((current) => current.map((row) => (row.item.id === line.item.id ? { ...row, price: { status: 'loading' } } : row)));
-      loadPrice(line.item);
+      reloadPrice(line.item);
     } finally {
       setPriceBusy(null);
     }
   };
 
-  const createOutput = async () => {
+  const pickOutput = (row: { id: string; name: string }) => {
+    setMadeOutputs((current) => (current.some((made) => made.id === row.id) ? current : [...current, { id: row.id, name: row.name }]));
+    setOutputId(row.id);
+    setNewOutput('');
+    setOutputTwins(null);
+  };
+
+  /** «أنشئ» المنتج: الموجود في قائمة العلف يُختار، والتوأم بالاسم من نوع آخر يُعرض أوّلاً (م٨)، والإنشاء رغمه بفعل ثانٍ. */
+  const createOutput = async (despite: boolean) => {
     const wanted = newOutput.trim();
     if (!wanted || outputBusy) return;
     const same = outputs.find((item) => searchable(item.name) === searchable(wanted));
     if (same) {
       // المنتج موجود بالاسم نفسه: يُختار بدل إنشاء ثانٍ (المالك كرّر «ذرة» فصار «ذراء»).
-      setOutputId(same.id);
-      setNewOutput('');
       setOutputError(null);
+      pickOutput(same);
       return;
     }
     setOutputBusy(true);
     setOutputError(null);
     try {
-      const row = await createItem(newItemFields(wanted, 'feed'));
-      setMadeOutputs((current) => [...current, { id: row.id, name: row.name }]);
-      setOutputId(row.id);
-      setNewOutput('');
+      if (!despite) {
+        const twins = await sameNameTwins(wanted);
+        if (twins.length) {
+          setOutputTwins({ query: wanted, rows: twins });
+          return;
+        }
+      }
+      pickOutput(await createItem(newItemFields(wanted, 'feed')));
     } catch (problem) {
       const { title, detail } = describeError(problem);
       setOutputError(`${title} ${detail}`);
+    } finally {
+      setOutputBusy(false);
+    }
+  };
+
+  /** «اجعلها علفاً جاهزاً»: تعديل نوع التوأم بشرط نسخته، ثم يُختار منتجاً. النوع مجمَّد بحركات مخزون ← جملة تقول ما العمل. */
+  const makeFeed = async (row: ItemRow) => {
+    if (outputBusy) return;
+    setOutputBusy(true);
+    setOutputError(null);
+    try {
+      pickOutput(await updateItem(row.id, row.version, { kind: 'feed' }));
+    } catch (problem) {
+      setOutputError(kindFixFailure(problem, row, 'feed'));
     } finally {
       setOutputBusy(false);
     }
@@ -248,37 +344,73 @@ export default function RecipeBuilderPage() {
     setRates((current) => [...current, { key, categoryId: '', amountText: '' }]);
   };
 
+  /** فئة أُضيفت أو وُجدت بالاسم (م٣): تُختار في سطر تكلفة فارغ، وإلّا في سطر جديد، والمكتوبة أصلاً تبقى في سطرها. */
+  const pickCategory = (category: CategoryOption) => {
+    setMadeCategories((current) => (current.some((made) => made.id === category.id) ? current : [...current, category]));
+    rateSeq.current += 1;
+    const key = `rate-${rateSeq.current}`;
+    setRates((current) => {
+      if (current.some((rate) => rate.categoryId === category.id)) return current;
+      const empty = current.findIndex((rate) => rate.categoryId === '');
+      if (empty >= 0) return current.map((rate, index) => (index === empty ? { ...rate, categoryId: category.id } : rate));
+      return [...current, { key, categoryId: category.id, amountText: '' }];
+    });
+  };
+
   const save = async (activate: boolean) => {
     if (!(activate ? canActivate : canDraft) || !basisOk || saving) return;
     // المعرّفان من الجهاز ويبقيان لهذه الشاشة حتى تُعرف النتيجة: إعادةٌ بعد جواب ضائع ترجّع الخلطة نفسها لا ثانية.
     ids.current ??= { recipe: crypto.randomUUID(), version: crypto.randomUUID() };
+    const attempt = ids.current;
     setSaving(activate ? 'active' : 'draft');
     setFailure(null);
+    setConflict(null);
+    // أسعار الكلفة المكتوبة أوّلاً (م٦)، واحداً واحداً بشرط السعر الذي رأته الشاشة: أيّ فشل يوقف الحفظ ويسمّي المادّة.
+    const priced: string[] = [];
+    for (const row of pendingPrices) {
+      const item = row.line.item;
+      const text = row.priceText ?? '';
+      const before = row.line.price.status === 'ready' ? row.line.price.costPrice : null;
+      try {
+        const written = await setItemCostPrice(item.id, text.trim() === '' ? null : parseMoney(text), before);
+        patchLine(item.id, { price: { status: 'ready', costPrice: written, lastPrice: row.line.price.status === 'ready' ? row.line.price.lastPrice : null } });
+        dropCostText(item.id);
+        priced.push(item.name);
+      } catch (problem) {
+        const { title, detail } = describeError(problem);
+        setFailure(t('mill.builder.price_failed', 'لم يُحفظ سعر كلفة «{name}»، فلم تُحفظ الخلطة بعد: {reason}', { name: item.name, reason: `${title} ${detail}` }));
+        reloadPrice(item);
+        setSaving(null);
+        return;
+      }
+    }
+    const prices = priced.length ? t('mill.builder.prices_saved', 'وحُفظ سعر الكلفة لـ{names}.', { names: priced.join(t('list.separator', '، ')) }) : '';
     try {
       const created = await createRecipe({
-        id: ids.current.recipe,
-        versionId: ids.current.version,
+        id: attempt.recipe,
+        versionId: attempt.version,
         name: name.trim(),
         outputItemId: outputId,
         basisKg: basis,
         lines: view.map((row) => ({ itemId: row.line.item.id, qty: row.qty ?? 0n, unit: row.line.unit })),
-        rates: ratesView.map((row) => ({ categoryId: row.rate.categoryId, amountPerTon: row.value ?? 0n })),
+        rates: sentRates.map((row) => ({ categoryId: row.rate.categoryId, amountPerTon: row.value ?? 0n })),
         activate,
       });
       ids.current = null;
-      toast({
-        tone: 'success',
-        title:
-          created.status === 'active'
-            ? t('mill.builder.saved_active', 'حُفظت الخلطة «{name}» وفُعّلت: صارت جاهزة للإنتاج.', { name: name.trim() })
-            : t('mill.builder.saved_draft', 'حُفظت الخلطة «{name}» مسوّدة.', { name: name.trim() }),
-      });
+      const done =
+        created.status === 'active'
+          ? t('mill.builder.saved_active', 'حُفظت الخلطة «{name}» وفُعّلت: صارت جاهزة للإنتاج.', { name: name.trim() })
+          : t('mill.builder.saved_draft', 'حُفظت الخلطة «{name}» مسوّدة.', { name: name.trim() });
+      toast({ tone: 'success', title: prices ? `${done} ${prices}` : done });
       navigate(`/mill/recipe/${created.id}`);
     } catch (problem) {
-      const { title, detail } = describeError(problem);
-      // معرّف لخلطة أخرى (محاولة سابقة كُتبت باسم غير هذا): المحاولة التالية بمعرّفين جديدين.
-      if (problem instanceof Error && problem.message === 'id_conflict') ids.current = null;
-      setFailure(`${title} ${detail}`);
+      // ما حُفظ بمحاولة سابقة غير ما تراه الشاشة (id_conflict، ق٥): يُقال برابطه، والمعرّفان يبقيان فلا تُكتب خلطة ثانية بصمت.
+      if (problem instanceof RejectedError && problem.code === 'id_conflict') setConflict(attempt.recipe);
+      else {
+        const { title, detail } = describeError(problem);
+        // الأسعار التي حُفظت قبل الخلطة تبقى محفوظة: يُقال ذلك مع الفشل، فلا يظنّ المستخدم أنّ شيئاً لم يُكتب.
+        setFailure(prices ? `${title} ${detail} ${prices}` : `${title} ${detail}`);
+      }
       setSaving(null);
     }
   };
@@ -292,7 +424,11 @@ export default function RecipeBuilderPage() {
       cell: (row) => (
         <span className="flex flex-col">
           <span className="font-medium">{row.line.item.name}</span>
-          <span className="text-xs text-ink-muted">{t('mill.builder.item_meta', '{kind} · تُقاس بـ{unit}', { kind: itemKindLabel(row.line.item.kind), unit: unitWord(row.line.item.baseUnit) })}</span>
+          <span className="text-xs text-ink-muted">
+            {row.inBasis
+              ? t('mill.builder.item_meta', '{kind} · تُقاس بـ{unit}', { kind: itemKindLabel(row.line.item.kind), unit: unitWord(row.line.item.baseUnit) })
+              : t('mill.builder.item_meta_out', '{kind} · تُقاس بـ{unit} · خارج الكتلة', { kind: itemKindLabel(row.line.item.kind), unit: unitWord(row.line.item.baseUnit) })}
+          </span>
         </span>
       ),
     },
@@ -339,14 +475,22 @@ export default function RecipeBuilderPage() {
       key: 'mass',
       header: t('mill.col.mass', 'بالكيلوغرام'),
       kind: 'number',
-      cell: (row) => <Num>{row.mass === null ? dash() : fmtQtyCell(row.mass, massDecimals)}</Num>,
+      // الوقود والتعبئة خارج الكتلة (م١١): لا رقم في عمود يُجمع إلى الأساس.
+      cell: (row) => <Num>{row.mass === null || !row.inBasis ? dash() : fmtQtyCell(row.mass, massDecimals)}</Num>,
       total: <Num>{massKnown ? fmtQtyCell(sum, massDecimals) : dash()}</Num>,
     },
     {
       key: 'share',
       header: t('mill.col.share', 'الحصّة'),
       kind: 'number',
-      cell: (row) => <Num>{row.mass === null || !basisOk ? dash() : pct(row.mass, basis)}</Num>,
+      cell: (row) =>
+        !row.inBasis ? (
+          <span className="text-xs text-ink-muted" data-action="out-of-basis">
+            {t('mill.line.out_of_basis', 'خارج الكتلة')}
+          </span>
+        ) : (
+          <Num>{row.mass === null || !basisOk ? dash() : pct(row.mass, basis)}</Num>
+        ),
       total: <Num>{massKnown && basisOk ? pct(sum, basis) : dash()}</Num>,
     },
   ];
@@ -376,8 +520,6 @@ export default function RecipeBuilderPage() {
           if (price.status !== 'ready') return dash();
           const saved = price.costPrice === null ? '' : decimalText(price.costPrice, 2);
           const text = costTexts[row.line.item.id] ?? saved;
-          const parsed = text.trim() === '' ? null : parseMoney(text);
-          const invalid = text.trim() !== '' && (parsed === null || parsed <= 0n);
           const problem = priceErrors[row.line.item.id];
           if (!canPrice) return <Num>{price.costPrice === null ? dash() : fmtMoney(price.costPrice)}</Num>;
           return (
@@ -387,7 +529,7 @@ export default function RecipeBuilderPage() {
                 label={t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: row.line.item.name, unit: unitWord(row.line.item.baseUnit) })}
                 value={text}
                 dirty={text !== saved}
-                invalid={invalid}
+                invalid={row.priceInvalid}
                 busy={priceBusy === row.line.item.id}
                 action="cost-price"
                 onChange={(next) => setCostTexts((current) => ({ ...current, [row.line.item.id]: next }))}
@@ -428,8 +570,8 @@ export default function RecipeBuilderPage() {
           data-action="rate-category"
         >
           <option value="">{t('mill.rates.category_pick', 'اختر فئة المصروف')}</option>
-          {(data?.categories ?? [])
-            .filter((option: CategoryOption) => option.id === row.rate.categoryId || !rates.some((rate) => rate.categoryId === option.id))
+          {categories
+            .filter((option) => option.id === row.rate.categoryId || !rates.some((rate) => rate.categoryId === option.id))
             .map((option) => (
               <option key={option.id} value={option.id}>
                 {option.name}
@@ -456,7 +598,7 @@ export default function RecipeBuilderPage() {
           data-action="rate-amount"
         />
       ),
-      total: <Num>{fmtMoney(ratesView.reduce((total, row) => total + (row.value ?? 0n), 0n))}</Num>,
+      total: <Num>{fmtMoney(sentRates.reduce((total, row) => total + (row.value ?? 0n), 0n))}</Num>,
     },
     {
       key: 'remove',
@@ -482,6 +624,8 @@ export default function RecipeBuilderPage() {
   if (!data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
 
   const unpricedNote = planned && planned.unpriced > 0 ? t('mill.builder.unpriced', 'ومنها {count} بلا سعر لم تُحسب.', { count: planned.unpriced }) : null;
+  const shownOutputTwins = outputTwins && outputTwins.query === newOutput.trim() ? outputTwins.rows : null;
+  const outsideBasis = view.some((row) => !row.inBasis);
 
   return (
     <div className="flex flex-col gap-5">
@@ -528,20 +672,50 @@ export default function RecipeBuilderPage() {
             <Field id={`${id}-new-output`} label={t('mill.builder.new_output', 'أو أنشئ منتجاً جديداً باسمه')} error={outputError} hint={t('mill.builder.new_output_hint', 'يُنشأ علفاً جاهزاً بالكيلوغرام، ويُختار منتجاً لهذه الخلطة.')}>
               <span className="flex items-center gap-2">
                 <input id={`${id}-new-output`} className="input" maxLength={120} value={newOutput} onChange={(event) => setNewOutput(event.target.value)} data-action="new-output-name" />
-                <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} busy={outputBusy} disabled={newOutput.trim() === ''} onClick={() => void createOutput()} data-action="create-output">
+                <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} busy={outputBusy} disabled={newOutput.trim() === ''} onClick={() => void createOutput(false)} data-action="create-output">
                   {t('mill.builder.create_output', 'أنشئ')}
                 </Button>
               </span>
             </Field>
           ) : null}
         </div>
+        {shownOutputTwins ? (
+          <div className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-3" data-action="output-twins">
+            <p className="text-sm font-medium">{t('mill.builder.output_twins', 'توجد مادّة بالاسم «{name}» نفسه، فلا يُنشأ منتج ثانٍ قبل أن تختار:', { name: newOutput.trim() })}</p>
+            <ul className="flex flex-col gap-2">
+              {shownOutputTwins.map(({ twin, row }) => (
+                <li key={twin.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  {row && !row.archived ? (
+                    <>
+                      <span>{t('mill.builder.output_twin_kind', '«{name}» موجودة بنوع «{kind}»، والمنتج علف جاهز.', { name: row.name, kind: itemKindLabel(row.kind) })}</span>
+                      {canFixKind && row.baseUnit === 'kg' ? (
+                        <Button size="sm" variant="secondary" busy={outputBusy} onClick={() => void makeFeed(row)} data-action="make-feed">
+                          {t('mill.builder.make_feed', 'اجعلها علفاً جاهزاً')}
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : row ? (
+                    <span>{t('mill.builder.output_twin_archived', '«{name}» مؤرشفة بنوع «{kind}».', { name: row.name, kind: itemKindLabel(row.kind) })}</span>
+                  ) : (
+                    <span>{t('mill.twins.unread', '«{name}» موجودة في منشأتك.', { name: twin.name })}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div>
+              <Button size="sm" variant="ghost" icon={<Plus className="size-4" aria-hidden="true" />} busy={outputBusy} onClick={() => void createOutput(true)} data-action="create-output-anyway">
+                {t('mill.builder.create_output_anyway', 'أنشئ «{name}» منتجاً آخر بالاسم نفسه رغم ذلك', { name: newOutput.trim() })}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="card flex flex-col gap-3 p-4">
         <h2 className="text-lg font-semibold">{t('mill.builder.materials', 'المواد')}</h2>
-        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={canCreateItem} onPick={addLine} />
-        {view.length ? (
-          <CompositionBar pieces={view.map((row) => ({ key: row.line.item.id, label: row.line.item.name, weight: row.mass ?? 0n }))} total={basisOk ? basis : 0n} hue={210} />
+        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={canCreateItem} canFixKind={canFixKind} onPick={addLine} />
+        {basisRows.length ? (
+          <CompositionBar pieces={basisRows.map((row) => ({ key: row.line.item.id, label: row.line.item.name, weight: row.mass ?? 0n }))} total={basisOk ? basis : 0n} hue={210} />
         ) : null}
         <DataTable
           caption={t('mill.builder.caption', 'مواد الخلطة الجديدة بكمياتها وحصصها وأسعارها')}
@@ -552,18 +726,25 @@ export default function RecipeBuilderPage() {
           totalLabel={t('mill.detail.total', 'المجموع')}
         />
         <p className="text-sm font-medium" data-action="builder-sum">
-          {!view.length
+          {!basisRows.length
             ? t('mill.builder.sum_empty', 'المجموع صفر من {basis}.', { basis: basisOk ? fmtQty(basis, 'kg').main : dash() })
             : !massKnown
               ? t('mill.builder.sum_unknown', 'في المواد سائل بلا كثافة، فلا يُحسب وزنه؛ اكتب كميته بالكيلوغرام أو أكمل كثافته من بطاقته.')
               : !basisOk
                 ? t('mill.builder.sum_no_basis', 'المجموع {sum}، والأساس غير مكتوب.', { sum: fmtQty(sum, 'kg').main })
                 : gap === 0n
-                  ? t('mill.builder.sum_ok', 'المجموع {sum} = الأساس: الخلطة جاهزة للتفعيل.', { sum: fmtQty(sum, 'kg').main })
+                  ? canActivate
+                    ? t('mill.builder.sum_ok', 'المجموع {sum} = الأساس: الخلطة جاهزة للتفعيل.', { sum: fmtQty(sum, 'kg').main })
+                    : t('mill.builder.sum_equal', 'المجموع {sum} = الأساس.', { sum: fmtQty(sum, 'kg').main })
                   : gap > 0n
                     ? t('mill.builder.sum_short', 'المجموع {sum} من {basis}: ينقص {gap}.', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(gap, 'kg').main })
                     : t('mill.builder.sum_over', 'المجموع {sum} من {basis}: يزيد {gap}.', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(-gap, 'kg').main })}
         </p>
+        {outsideBasis ? (
+          <p className="text-sm text-ink-muted" data-action="mass-note">
+            {t('mill.builder.basis_note', 'الوقود والتعبئة خارج كتلة الخلطة: يُسحبان وتُحسب كلفتهما، ولا يدخلان المجموع ولا الأساس.')}
+          </p>
+        ) : null}
       </section>
 
       {costs ? (
@@ -572,33 +753,20 @@ export default function RecipeBuilderPage() {
           <p className="text-sm text-ink-muted">
             {t('mill.rates.hint', 'أيدي عاملة أو كهرباء أو نقل: مبلغ لكلّ طنّ يُحسب على كلّ دفعة بكميتها، ويُحمَّل عند الإنتاج من مصروف مسجّل بفئته.')}
           </p>
-          {data.categories.length ? (
-            <>
-              <DataTable
-                caption={t('mill.rates.caption', 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')}
-                columns={rateColumns}
-                rows={ratesView}
-                rowKey={(row) => row.rate.key}
-                empty={t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
-                totalLabel={t('mill.detail.total', 'المجموع')}
-              />
-              <div>
-                <Button variant="secondary" size="sm" icon={<Plus className="size-4" aria-hidden="true" />} disabled={rates.length >= data.categories.length} onClick={addRate} data-action="add-rate">
-                  {t('mill.rates.add', 'أضف تكلفة')}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <Notice
-              tone="info"
-              title={t('mill.rates.no_categories', 'لا فئة مصروف بعد.')}
-              action={
-                <Link to="/settings/org" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-expense-categories">
-                  {t('mill.rates.categories_link', 'أضف فئات المصاريف')}
-                </Link>
-              }
-            />
-          )}
+          <DataTable
+            caption={t('mill.rates.caption', 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')}
+            columns={rateColumns}
+            rows={ratesView}
+            rowKey={(row) => row.rate.key}
+            empty={t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
+            totalLabel={t('mill.detail.total', 'المجموع')}
+          />
+          <div className="flex flex-wrap items-end gap-3">
+            <Button variant="secondary" size="sm" icon={<Plus className="size-4" aria-hidden="true" />} disabled={rates.length >= categories.length} onClick={addRate} data-action="add-rate">
+              {t('mill.rates.add', 'أضف تكلفة')}
+            </Button>
+          </div>
+          <NewCategoryField id={`${id}-new-category`} categories={categories} canManage={canCategories} onPick={pickCategory} />
           {planned ? (
             <div className="flex flex-col gap-1 rounded-2xl bg-surface-2 p-3" data-action="planned-cost">
               <p className="font-semibold">
@@ -615,6 +783,17 @@ export default function RecipeBuilderPage() {
         </section>
       ) : null}
 
+      {conflict ? (
+        <Notice
+          tone="danger"
+          title={t('mill.builder.id_conflict', 'حُفظت هذه الخلطة بمحاولة سابقة بمحتوى غير الذي تراه الآن. افتحها لترى ما حُفظ، وعدّلها بنسخة جديدة.')}
+          action={
+            <Link to={`/mill/recipe/${conflict}`} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-saved-recipe">
+              {t('mill.builder.open_saved', 'افتح الخلطة المحفوظة')}
+            </Link>
+          }
+        />
+      ) : null}
       {failure ? <Notice tone="danger" title={failure} /> : null}
       <div className="flex flex-wrap gap-2">
         <Button
@@ -639,7 +818,25 @@ export default function RecipeBuilderPage() {
           {t('mill.builder.save_draft', 'احفظ مسوّدة')}
         </Button>
       </div>
-      {!canActivate && canDraft ? <p className="text-sm text-ink-muted">{t('mill.builder.activate_hint', 'التفعيل يحتاج مادّة واحدة على الأقلّ ومجموعاً يساوي الأساس بالضبط؛ المسوّدة تُحفظ في كلّ حال وتُكمل من بطاقة الخلطة.')}</p> : null}
+      {!canDraft && draftMissing.length ? (
+        <div className="flex flex-col gap-1 text-sm" data-action="save-missing">
+          <p className="font-medium">{t('mill.builder.missing_draft', 'لا تُحفظ الخلطة قبل ما يلي:')}</p>
+          <ul className="list-disc ps-5 text-ink-muted">
+            {draftMissing.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : canDraft && !canActivate ? (
+        <div className="flex flex-col gap-1 text-sm" data-action="save-missing">
+          <p className="font-medium">{t('mill.builder.missing_activate', 'لا تُفعَّل الخلطة قبل ما يلي (المسوّدة تُحفظ الآن وتُكمل من بطاقتها):')}</p>
+          <ul className="list-disc ps-5 text-ink-muted">
+            {activateMissing.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

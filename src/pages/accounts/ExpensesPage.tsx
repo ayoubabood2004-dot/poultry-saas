@@ -1,6 +1,6 @@
 import { Plus, Undo2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -12,6 +12,7 @@ import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { MoneyText } from '../../components/ui/MoneyText';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
+import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Fils } from '../../domain/money';
@@ -81,6 +82,40 @@ export function divisionsOf(books: readonly BookRef[]): { id: string; kind: Divi
   return [...seen.entries()].map(([id, kind]) => ({ id, kind }));
 }
 
+/**
+ * مسار الرجوع بعد الحفظ (ع١، الملاحظة #16): صفحة دفعة إنتاج في المعمل وحدها (‎/mill/batch/<المعرّف>)؛ وغيرها يُتجاهل، فلا تنقّل
+ * إلى خارج التطبيق ولا إلى صفحة أخرى برابط مصنوع.
+ */
+export function safeBack(value: string | null): string | null {
+  return value !== null && /^\/mill\/batch\/[\w-]{1,64}$/.test(value) ? value : null;
+}
+
+/** تعبئة نافذة «مصروف جديد» من الرابط (ع١): ما جاء به «سجّل مصروفاً» في دفعة الإنتاج، بعد فحص شكله. */
+export interface ExpensePrefill {
+  divisionId: string | null;
+  categoryId: string | null;
+  /** المبلغ بالفلس كما جاء (موجب)، أو null. يُكتب في الحقل إن كان بالدينار الصحيح، وإلّا يُذكر تحته. */
+  amount: Fils | null;
+  back: string | null;
+}
+
+const PREFILL_ID = /^[\w-]{1,64}$/;
+const PREFILL_KEYS = ['new', 'division', 'category', 'amount', 'back'] as const;
+
+/**
+ * ‎?new=1&division=<الوحدة>&category=<الفئة>&amount=<الدينار نصّاً>&back=/mill/batch/<الدفعة> (رابط «سجّل مصروفاً» في دفعة
+ * الإنتاج، م٤): كلّ قيمة بشكل غير صالح تُتجاهل بلا رمي، والوحدة والفئة تُفحصان بعدها بنطاق المستخدم وبالفئات القابلة للاختيار.
+ */
+export function expensePrefill(params: URLSearchParams): ExpensePrefill {
+  const id = (key: string) => {
+    const value = params.get(key);
+    return value !== null && PREFILL_ID.test(value) ? value : null;
+  };
+  const raw = params.get('amount');
+  const amount = raw === null ? null : parseMoneyText(raw, false);
+  return { divisionId: id('division'), categoryId: id('category'), amount: amount !== null && amount > 0n ? amount : null, back: safeBack(params.get('back')) };
+}
+
 interface ExpenseForm {
   divisionId: string;
   categoryId: string;
@@ -135,13 +170,23 @@ export function expenseProblems(form: ExpenseForm, hatcheryIds: ReadonlySet<stri
   };
 }
 
-function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[]; onClose: () => void; onSaved: () => void }) {
+function ExpenseDialog({ books, prefill = null, onClose, onSaved }: { books: readonly BookRef[]; prefill?: ExpensePrefill | null; onClose: () => void; onSaved: (recorded: boolean) => void }) {
   const id = useId();
   const categories = useLoad(cash.listExpenseCategories, 'expense-categories');
   const from = useMemo(() => `${localDay().slice(0, 4)}-01-01`, []);
   const loadBoxes = useCallback(() => cash.loadCashBalances(from, null), [from]);
   const boxes = useLoad(loadBoxes, 'boxes');
-  const [form, setForm] = useState<ExpenseForm>({ divisionId: '', categoryId: '', amount: '', day: fmtDay(localDay()), month: '', source: 'cash', accountId: '', party: null, bookId: '', note: '' });
+  // التعبئة من رابط دفعة الإنتاج (ع١): الوحدة إن كانت من وحدات نطاق المستخدم، والمبلغ إن كان بالدينار الصحيح (المصروف لا يقبل
+  // الفلوس، فالمبلغ بكسر يُذكر تحت الحقل ولا يُقرَّب عنه)؛ والفئة حين تصل الفئات وتكون فيها قابلة للاختيار.
+  const [start] = useState(() => {
+    const asked = prefill?.amount ?? null;
+    return {
+      divisionId: prefill?.divisionId && divisionsOf(books).some((d) => d.id === prefill.divisionId) ? prefill.divisionId : '',
+      amount: asked !== null && asked % 100n === 0n ? fmtMoney(asked, 0) : '',
+    };
+  });
+  const [form, setForm] = useState<ExpenseForm>(() => ({ divisionId: start.divisionId, categoryId: '', amount: start.amount, day: fmtDay(localDay()), month: '', source: 'cash', accountId: '', party: null, bookId: '', note: '' }));
+  const [wanted, setWanted] = useState(prefill?.categoryId ?? '');
   const [errors, setErrors] = useState<ReturnType<typeof expenseProblems>['errors']>({});
   const { attempt, run } = useAttempt<cash.ExpenseInput>('expense');
   const [checked, setChecked] = useState<Sent<cash.ExpenseInput> | null>(null);
@@ -152,11 +197,17 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
   const division = divisions.find((d) => d.id === form.divisionId);
   const hatcheryBooks = books.filter((book) => book.divisionId === form.divisionId && hatcheryIds.has(book.divisionId));
   const choosable = (categories.data ?? []).filter((c) => !c.archived && c.systemCode === null);
+  // اختيار المستخدم يغلب الفئة المطلوبة بالرابط، والمطلوبة لا تُختار إلّا إن كانت بين القابلة للاختيار.
+  const categoryId = form.categoryId !== '' ? form.categoryId : choosable.some((c) => c.id === wanted) ? wanted : '';
+  const effective: ExpenseForm = { ...form, categoryId };
+  // وحدة الدفعة (جاء من «سجّل مصروفاً» فيها): مصروف على غيرها لا يغطّي تكاليفها (mill_expense_free بوحدة مخزن المدخلات).
+  const batchDivision = prefill?.back ? divisions.find((d) => d.id === start.divisionId) : undefined;
+  const fils = prefill?.amount ?? null;
   const set = (patch: Partial<ExpenseForm>) => setForm((current) => ({ ...current, ...patch }));
   const parsedDay = postingDay(form.day).day;
   const review = (event: FormEvent) => {
     event.preventDefault();
-    const { input, errors: found } = expenseProblems(form, hatcheryIds);
+    const { input, errors: found } = expenseProblems(effective, hatcheryIds);
     setErrors(found);
     // «input === null» مو النفي بعلامة التعجّب: Tailwind يقرا ذاك صنفاً مهمّاً ويولّد له CSS بالحزمة المحفوظة (درس WP3).
     if (input === null) return;
@@ -173,10 +224,10 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
     const outcome = await run(sent, (ref, input) => cash.recordExpense(ref, input));
     setBusy(false);
     setChecked(null);
-    if (outcome.kind === 'posted') onSaved();
+    if (outcome.kind === 'posted') onSaved(false);
     else if (outcome.kind === 'recorded') {
       recordedToast();
-      onSaved();
+      onSaved(true);
     } else setFailure(outcome.error);
   };
   const title = t('expense.new', 'مصروف جديد');
@@ -215,7 +266,7 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
         open={checked === null}
         onClose={onClose}
         title={title}
-        dirty={form.amount !== '' || form.categoryId !== '' || form.note !== ''}
+        dirty={form.amount !== start.amount || form.categoryId !== '' || form.note !== ''}
         locked={busy}
         footer={
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -231,8 +282,13 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
         <form id={formId} className="flex flex-col gap-4" onSubmit={review} noValidate>
           {categories.error ? <LoadFailed what={t('expense.categories', 'تصنيفات المصاريف')} error={categories.error} onRetry={categories.retry} /> : null}
           {boxes.error ? <LoadFailed what={t('cash.list', 'قائمة الصناديق')} error={boxes.error} onRetry={boxes.retry} /> : null}
-          <Field id={`${id}-division`} label={t('expense.division', 'الوحدة')} error={errors.divisionId}>
-            <select id={`${id}-division`} className="input" value={form.divisionId} onChange={(event) => set({ divisionId: event.target.value, bookId: '' })} data-autofocus>
+          <Field
+            id={`${id}-division`}
+            label={t('expense.division', 'الوحدة')}
+            error={errors.divisionId}
+            hint={prefill?.back || division?.kind === 'feed_mill' ? t('expense.division.batch_hint', 'تكاليف الدفعة تُحمَّل من مصاريف وحدة مخزن موادّها.') : undefined}
+          >
+            <select id={`${id}-division`} className="input" value={form.divisionId} onChange={(event) => set({ divisionId: event.target.value, bookId: '' })} data-autofocus data-action="pick-expense-division">
               <option value="">{t('expense.division.pick', 'اختر الوحدة')}</option>
               {divisions.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -241,8 +297,20 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
               ))}
             </select>
           </Field>
+          {batchDivision && form.divisionId !== batchDivision.id ? (
+            <Notice tone="warning" title={t('expense.division.off_batch', 'تكاليف الدفعة تُحمَّل من مصاريف «{division}» وحدها؛ مصروف على وحدة أخرى لا يغطّيها.', { division: divisionLabel(batchDivision.kind) })} />
+          ) : null}
           <Field id={`${id}-category`} label={t('expense.category', 'التصنيف')} error={errors.categoryId} hint={categories.data && choosable.length === 0 ? t('expense.category.empty', 'لا تصنيف بعد؛ أضفه من إعدادات المنشأة.') : undefined}>
-            <select id={`${id}-category`} className="input" value={form.categoryId} onChange={(event) => set({ categoryId: event.target.value })}>
+            <select
+              id={`${id}-category`}
+              className="input"
+              value={categoryId}
+              onChange={(event) => {
+                set({ categoryId: event.target.value });
+                setWanted('');
+              }}
+              data-action="pick-expense-category"
+            >
               <option value="">{t('expense.category.pick', 'اختر التصنيف')}</option>
               {choosable.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -251,7 +319,14 @@ function ExpenseDialog({ books, onClose, onSaved }: { books: readonly BookRef[];
               ))}
             </select>
           </Field>
-          <MoneyInput id={`${id}-amount`} label={t('payment.amount', 'المبلغ (دينار)')} value={form.amount} onChange={(amount) => set({ amount })} error={errors.amount} />
+          <MoneyInput
+            id={`${id}-amount`}
+            label={t('payment.amount', 'المبلغ (دينار)')}
+            value={form.amount}
+            onChange={(amount) => set({ amount })}
+            error={errors.amount}
+            hint={fils !== null && fils % 100n !== 0n ? t('expense.amount.prefill_fils', 'المطلوب {amount} دينار، والمصروف يُسجَّل بالدينار الصحيح؛ اكتب مبلغه.', { amount: fmtMoney(fils) }) : undefined}
+          />
           <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={form.day} onChange={(day) => set({ day, month: '' })} error={errors.day} />
           <Field id={`${id}-month`} label={t('expense.month', 'الشهر الذي ينتسب إليه')} error={errors.month} hint={t('expense.month.hint', 'فاتورة متأخّرة تُنسب لشهرها ما دام غير مقفل.')}>
             <select id={`${id}-month`} className="input" value={form.month} onChange={(event) => set({ month: event.target.value })} disabled={!parsedDay}>
@@ -362,14 +437,19 @@ export default function ExpensesPage() {
   const books = useLoad(parties.listBooks, 'books');
   const [pages, setPages] = useState<{ key: string; list: ExpenseReport[] }>({ key: '', list: [] });
   const [more, setMore] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
-  // زرّ «مصروف» بالرئيسية يفتح النافذة مباشرةً (?new=1)، والإغلاق يشيل العلامة.
+  // زرّ «مصروف» بالرئيسية يفتح النافذة مباشرةً (?new=1)، والإغلاق يشيل العلامة. و«سجّل مصروفاً» في دفعة الإنتاج (ع١) يعبّئها بالوحدة
+  // والفئة والمبلغ، ويرجع إلى الدفعة بعد الحفظ.
   const [params, setParams] = useSearchParams();
-  const [dialog, setDialog] = useState<'new' | ExpenseRow | null>(() => (params.get('new') === '1' && workspace && can(workspace.role, 'expense.post') ? 'new' : null));
+  const navigate = useNavigate();
+  const opened = params.get('new') === '1' && workspace !== null && can(workspace.role, 'expense.post');
+  const [dialog, setDialog] = useState<'new' | ExpenseRow | null>(() => (opened ? 'new' : null));
+  const [prefill, setPrefill] = useState<ExpensePrefill | null>(() => (opened ? expensePrefill(params) : null));
   const closeDialog = () => {
     setDialog(null);
-    if (params.has('new')) setParams((current) => {
+    setPrefill(null);
+    if (PREFILL_KEYS.some((name) => params.has(name))) setParams((current) => {
       const next = new URLSearchParams(current);
-      next.delete('new');
+      for (const name of PREFILL_KEYS) next.delete(name);
       return next;
     }, { replace: true });
   };
@@ -396,6 +476,17 @@ export default function ExpensesPage() {
   const changed = () => {
     closeDialog();
     setTick((n) => n + 1);
+  };
+  // بعد حفظ ناجح من رابط الدفعة: الرجوع إليها مكان صفحة المصاريف في السجلّ (replace)، فزرّ الرجوع لا يفتح النافذة المعبّأة ثانيةً
+  // فيُسجَّل المصروف مرّتين. وبلا مسار رجوع صالح تبقى الصفحة كما كانت.
+  const expenseSaved = (recorded: boolean) => {
+    const back = prefill?.back ?? null;
+    if (back === null) {
+      changed();
+      return;
+    }
+    if (!recorded) toast({ tone: 'success', title: t('expense.saved.back', 'سُجّل المصروف، وعُدتَ إلى دفعة الإنتاج.') });
+    navigate(back, { replace: true });
   };
   const columns: Column<ExpenseRow>[] = [
     { key: 'day', header: t('ledger.date', 'التاريخ'), cell: (row) => fmtDay(row.onDate) },
@@ -496,7 +587,7 @@ export default function ExpensesPage() {
           {more.error ? <LoadFailed what={t('expense.list', 'المصاريف')} error={more.error} onRetry={loadMore} /> : null}
         </>
       ) : null}
-      {dialog === 'new' && scopedBooks && scopedBooks.length > 0 ? <ExpenseDialog books={scopedBooks} onClose={closeDialog} onSaved={changed} /> : null}
+      {dialog === 'new' && scopedBooks && scopedBooks.length > 0 ? <ExpenseDialog books={scopedBooks} prefill={prefill} onClose={closeDialog} onSaved={expenseSaved} /> : null}
       {dialog && dialog !== 'new' ? (
         <VoidDialog
           slot={`expense:${dialog.id}`}

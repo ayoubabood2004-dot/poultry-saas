@@ -14,7 +14,7 @@ import { decimalText } from '../../domain/decimal';
 import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseQty, type BaseUnit } from '../../domain/units';
-import { describeError } from '../../lib/errors';
+import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import {
@@ -42,7 +42,7 @@ import {
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { CellEdit, MaterialPicker, unitWord, useDrafts, type PickedMaterial } from './pickers';
+import { CellEdit, MaterialPicker, NewCategoryField, unitWord, useDrafts, type PickedMaterial } from './pickers';
 import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 
 // بطاقة دفعة الإنتاج (0015): المسوّدة تُعرض بمعاينتها (ما سيُسحب من كلّ مادّة، والهدر، وكلفة الكيلو) قبل «أنتج الآن»؛
@@ -51,6 +51,9 @@ import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 // واعرف منين صنعتها بالضبط»): المواد بالمخطّط بالتناسب والفعلي قابلاً للتعديل، و«أضف مادّة» و«بدّل مادّة» بسبب و«احذف»؛
 // وجدول التكاليف (المحسوب من الخلطة، والمبلغ قابلاً للتعديل، والمتاح من المصاريف لكلّ سطر)؛ والكلفة الكلّية مواد + تكاليف؛
 // و«المصاريف لا تكفي» بجملة وفعل؛ والمرحَّلة تقول أين ذهب الناتج ومن أين سُحبت كلّ مادّة.
+// إصلاحات المراجعة: مفتاح معرّف المادّة المضافة يحمل كميتها وسببها (م٢)؛ فئة المصروف من مكانها (م٣)؛ «المصاريف لا تكفي» وتلميح
+// التكاليف يسمّيان وحدة مخزن المدخلات، و«سجّل مصروفاً» يعبّئ النافذة ويرجع إلى الدفعة (م٤)؛ حذف المسوّدة بتأكيد (م١٠)؛ الوقود
+// والتعبئة «خارج الكتلة» (م١١)؛ التحميلات والمتاح المحجوبة بلا أرقام (م١٢)؛ والناتج المنتهي بجملة تسمّي التاريخين (م١٤).
 
 interface BatchState {
   batch: ProductionBatch;
@@ -64,18 +67,48 @@ const PROBLEM_TEXT: Readonly<Record<string, () => string>> = {
   costs_pending: () => t('mill.problem.costs', 'الكلف لم تُختَم بعد: يختمها المحاسب أو المدير'),
   item_archived: () => t('mill.problem.archived', 'المادّة مؤرشفة'),
   costs_unfunded: () => t('mill.problem.unfunded', 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: يسجّل المحاسب أو المدير المصروف أوّلاً أو يقلّل المبلغ'),
+  output_expired: () => t('mill.problem.output_expired', 'تاريخ انتهاء الناتج قبل يوم الإنتاج: صحّح التاريخ قبل الترحيل'),
 };
 
 export const problemText = (code: string): string => (PROBLEM_TEXT[code] ?? (() => t('mill.problem.other', 'مشكلة في الدفعة: {code}', { code })))();
 
-/** جملة «المصاريف لا تكفي» بأرقامها لأدوار الكلفة: الفئة والمطلوب والمتاح (الأرقام مال، فلا تصل لغيرهم أصلاً). */
-export function unfundedText(problem: MillProblem): string {
-  if (problem.needAmount === null || problem.haveAmount === null) return problemText('costs_unfunded');
-  return t('mill.problem.unfunded_named', '«{category}»: المطلوب {need} والمتاح من المصاريف المسجّلة {have}. سجّل المصروف أوّلاً أو قلّل المبلغ.', {
-    category: problem.categoryName ?? dash(),
+/** جملة مشكلة من مشاكل المعاينة: الناتج المنتهي يسمّي التاريخين (ق٨، م١٤)، ومشكلة المادّة تسمّي المادّة، وغيرها بجملتها. */
+export function problemLine(problem: MillProblem): string {
+  if (problem.code === 'output_expired' && problem.expiryOn !== null && problem.producedOn !== null) {
+    return t('mill.problem.output_expired_named', 'تاريخ انتهاء الناتج {expiry} قبل يوم الإنتاج {produced}: صحّح تاريخ الانتهاء قبل الترحيل.', {
+      expiry: fmtDay(problem.expiryOn),
+      produced: fmtDay(problem.producedOn),
+    });
+  }
+  return problem.itemName ? `${problemText(problem.code)} — ${problem.itemName}` : problemText(problem.code);
+}
+
+/**
+ * جملة «المصاريف لا تكفي» (م٤): تسمّي وحدة مخزن المدخلات، فالتكاليف تُحمَّل من مصاريف هذه الوحدة وحدها (مصروف على وحدة أخرى
+ * يترك المتاح صفراً). بأرقامها لمن يرى مصاريف الوحدة: الفئة والمطلوب والمتاح؛ ولغيره بلا رقم واحد (ق١١).
+ */
+export function unfundedText(problem: MillProblem, division: string): string {
+  if (problem.needAmount === null || problem.haveAmount === null) {
+    return t('mill.problem.unfunded_division', 'تكاليف الدفعة أكبر من المتاح في مصاريف وحدة «{division}» المسجّلة: يسجّل المحاسب أو المدير مصروفاً على هذه الوحدة أوّلاً أو يقلّل المبلغ.', { division });
+  }
+  const category = problem.categoryName ?? dash();
+  return t('mill.problem.unfunded_named', '«{category}»: المطلوب {need} والمتاح من مصاريف وحدة «{division}» المسجّلة {have}. سجّل مصروفاً على وحدة «{division}» بفئة «{category}» أو قلّل المبلغ.', {
+    category,
+    division,
     need: fmtMoney(problem.needAmount),
     have: fmtMoney(problem.haveAmount),
   });
+}
+
+/**
+ * رابط «سجّل مصروفاً» معبّأً (م٤): نافذة المصروف الجديد على وحدة المدخلات وفئة السطر وبالناقص (المطلوب − المتاح بالدينار نصّاً)،
+ * والرجوع إلى الدفعة بعد الحفظ. null حين لا أرقام (لا يرى مصاريف الوحدة، فلا يسجّل عليها).
+ */
+export function recordExpenseHref(problem: MillProblem, divisionId: string, batchId: string): string | null {
+  if (problem.needAmount === null || problem.haveAmount === null || problem.categoryId === null) return null;
+  const missing = problem.needAmount - problem.haveAmount;
+  const amount = decimalText(missing > 0n ? missing : 0n, 2);
+  return `/accounts/expenses?new=1&division=${divisionId}&category=${problem.categoryId}&amount=${amount}&back=/mill/batch/${batchId}`;
 }
 
 /** صفّ جدول المواد: سطر المعاينة (المسوّدة) أو سطر البطاقة (المرحَّلة)، ومعه ما تعرفه البطاقة عن البديل والوجبات. */
@@ -121,7 +154,21 @@ export function materialRows(batch: ProductionBatch, preview: ProductionPreview 
 }
 
 /** مادّة تُضاف للدفعة أو تُبدَّل بها سطراً: المنتقي، والكمية بوحدة أساس المادّة، والسبب للتبديل (القاعدة ١٩). */
-function InputDialog({ batch, replacing, exclude, onClose, onSaved }: { batch: ProductionBatch; replacing: MaterialRow | null; exclude: ReadonlySet<string>; onClose: () => void; onSaved: () => void }) {
+function InputDialog({
+  batch,
+  replacing,
+  exclude,
+  canFixKind,
+  onClose,
+  onSaved,
+}: {
+  batch: ProductionBatch;
+  replacing: MaterialRow | null;
+  exclude: ReadonlySet<string>;
+  canFixKind: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const id = useId();
   const [item, setItem] = useState<PickedMaterial | null>(null);
   const [qty, setQty] = useState('');
@@ -137,15 +184,23 @@ function InputDialog({ batch, replacing, exclude, onClose, onSaved }: { batch: P
     if (!ready || !item || value === null) return;
     setBusy(true);
     setError(null);
-    // المعرّف من الجهاز لنفس (الدفعة، السطر المبدَّل، المادّة): الإعادة بعد جواب ضاع ترجّع السطر نفسه.
-    const slot = `input:${batch.id}:${replacing?.id ?? 'new'}:${item.id}`;
+    // المعرّف من الجهاز لنفس (الدفعة، السطر المبدَّل، المادّة، الكمية، السبب) (م٢): الإعادة بعد جواب ضاع بالمحتوى نفسه ترجّع
+    // السطر نفسه، وكمية أو سبب آخر بعدها معرّف آخر — لا «نجح» بالكمية الأولى بصمت.
+    const why = replacing ? reason.trim() : '';
+    const slot = `input:${batch.id}:${replacing?.id ?? 'new'}:${item.id}:${value}:${why}`;
     try {
-      await addProductionInput({ batchId: batch.id, id: millRef(slot), itemId: item.id, qty: value, replaces: replacing?.id ?? null, reason: replacing ? reason : null });
+      await addProductionInput({ batchId: batch.id, id: millRef(slot), itemId: item.id, qty: value, replaces: replacing?.id ?? null, reason: replacing ? why : null });
       forgetMillRef(slot);
       onSaved();
     } catch (failure) {
-      const { title, detail } = describeError(failure);
-      setError(`${title} ${detail}`);
+      if (failure instanceof RejectedError && failure.code === 'id_conflict') {
+        // رفض أكيد: المعرّف لسطر كُتب بمحتوى آخر، فالمحاولة التالية بمعرّف جديد.
+        forgetMillRef(slot);
+        setError(t('mill.input.id_conflict', 'أُضيفت هذه المادّة بمحاولة سابقة بكمية أخرى؛ حدّث الصفحة وعدّل كميتها الفعلية.'));
+      } else {
+        const { title, detail } = describeError(failure);
+        setError(`${title} ${detail}`);
+      }
       setBusy(false);
     }
   };
@@ -178,7 +233,7 @@ function InputDialog({ batch, replacing, exclude, onClose, onSaved }: { batch: P
           </Button>
         </div>
       ) : (
-        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={false} onPick={setItem} />
+        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={false} canFixKind={canFixKind} onPick={setItem} />
       )}
       <Field
         id={`${id}-qty`}
@@ -232,6 +287,8 @@ export default function BatchPage() {
   const canSeal = role !== null && can(role, 'costs.load');
   const canCosts = canSeal && costs;
   const canExpense = role !== null && can(role, 'expense.post');
+  const canCategories = role !== null && can(role, 'expense_categories.manage');
+  const canFixKind = role !== null && can(role, 'stores.manage');
 
   const load = useCallback(async (): Promise<BatchState> => {
     const batch = await loadBatch(id);
@@ -251,6 +308,8 @@ export default function BatchPage() {
   const [removingInput, setRemovingInput] = useState<MaterialRow | null>(null);
   const [removingCost, setRemovingCost] = useState<BatchCost | null>(null);
   const [newCost, setNewCost] = useState({ categoryId: '', amount: '' });
+  const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
+  const [discarding, setDiscarding] = useState(false);
   const actuals = useDrafts<bigint | null>();
   const amounts = useDrafts<Fils>();
 
@@ -313,11 +372,12 @@ export default function BatchPage() {
     setFailure(null);
     try {
       await discardBatch(batch.id, batch.version);
-      toast({ tone: 'success', title: t('mill.discarded', 'طُويت المسوّدة.') });
+      toast({ tone: 'success', title: t('mill.discarded', 'حُذفت مسوّدة الدفعة.') });
       navigate('/mill');
     } catch (problem) {
       const { title, detail } = describeError(problem);
       setFailure(`${title} ${detail}`);
+      setDiscarding(false);
       setBusy(false);
     }
   };
@@ -381,7 +441,9 @@ export default function BatchPage() {
                 : t('mill.input.substitute', 'بديل: {reason}', { reason: row.detail.reason ?? dash() })}
             </span>
           ) : row.detail && !row.detail.inBasis ? (
-            <span className="text-xs text-ink-muted">{t('mill.input.extra', 'مادّة إضافية')}</span>
+            <span className="text-xs text-ink-muted" data-action="out-of-basis">
+              {t('mill.input.out_of_basis', 'خارج الكتلة: وقود أو تعبئة، تُسحب وتُحسب كلفتها ولا تدخل كتلة المواد')}
+            </span>
           ) : null}
         </span>
       ),
@@ -506,7 +568,11 @@ export default function BatchPage() {
       header: t('mill.costs.allocations', 'حُمّل من'),
       wrap: true,
       cell: (cost) =>
-        cost.allocations.length ? (
+        cost.allocations === null ? (
+          <span className="text-ink-muted" data-action="allocations-hidden">
+            {t('mill.costs.allocations_hidden', 'محمَّلة من مصاريف وحدة خارج نطاقك')}
+          </span>
+        ) : cost.allocations.length ? (
           <ul className="flex flex-col gap-0.5">
             {cost.allocations.map((allocation) => (
               <li key={allocation.expenseId}>
@@ -531,7 +597,11 @@ export default function BatchPage() {
     });
   }
 
-  const freeCategories = (categories.data ?? []).filter((category) => !costRows.some((cost) => cost.categoryId === category.id));
+  const loaded = categories.data ?? [];
+  const allCategories = [...loaded, ...madeCategories.filter((made) => !loaded.some((category) => category.id === made.id))];
+  const freeCategories = allCategories.filter((category) => !costRows.some((cost) => cost.categoryId === category.id));
+  // وحدة مخزن المدخلات (ق١٥): التكاليف تُحمَّل من مصاريفها وحدها، فالتلميح والتنبيه يسمّيانها.
+  const division = preview?.inputWarehouse ?? null;
   const newCostValue = newCost.amount.trim() === '' ? null : parseMoney(newCost.amount);
   const newCostOk = newCost.categoryId !== '' && newCostValue !== null && newCostValue > 0n;
   const problems = preview?.problems ?? [];
@@ -625,9 +695,11 @@ export default function BatchPage() {
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-semibold">{t('mill.costs.title', 'التكاليف')}</h2>
           <p className="text-sm text-ink-muted">
-            {draft
-              ? t('mill.costs.hint', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من المصاريف المسجّلة بفئته، الأقدم فالأحدث.')
-              : t('mill.costs.posted_hint', 'حُمّل كلّ سطر من المصاريف المسجّلة بفئته، ودخل مع المواد في كلفة العلف.')}
+            {draft && division
+              ? t('mill.costs.hint_division', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من مصاريف وحدة «{division}» المسجّلة بفئته، الأقدم فالأحدث؛ مصروف على وحدة أخرى لا يُحسب هنا.', { division: division.divisionName })
+              : draft
+                ? t('mill.costs.hint', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من المصاريف المسجّلة بفئته، الأقدم فالأحدث.')
+                : t('mill.costs.posted_hint', 'حُمّل كلّ سطر من المصاريف المسجّلة بفئته، ودخل مع المواد في كلفة العلف.')}
           </p>
           <DataTable
             caption={t('mill.costs.caption', 'تكاليف الدفعة ومن أين تُحمَّل')}
@@ -640,71 +712,83 @@ export default function BatchPage() {
           {editCosts ? (
             categories.error ? (
               <LoadFailed what={t('mill.costs.categories', 'فئات المصاريف')} error={categories.error} onRetry={categories.retry} />
-            ) : freeCategories.length ? (
-              <div className="flex flex-wrap items-end gap-3">
-                <Field id={`${fieldId}-new-cost-category`} label={t('mill.costs.category', 'التكلفة')}>
-                  <select
-                    id={`${fieldId}-new-cost-category`}
-                    className="input"
-                    value={newCost.categoryId}
-                    onChange={(event) => setNewCost((current) => ({ ...current, categoryId: event.target.value }))}
-                    data-action="new-cost-category"
+            ) : (
+              <>
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field id={`${fieldId}-new-cost-category`} label={t('mill.costs.category', 'التكلفة')}>
+                    <select
+                      id={`${fieldId}-new-cost-category`}
+                      className="input"
+                      value={newCost.categoryId}
+                      onChange={(event) => setNewCost((current) => ({ ...current, categoryId: event.target.value }))}
+                      data-action="new-cost-category"
+                    >
+                      <option value="">{t('mill.rates.category_pick', 'اختر فئة المصروف')}</option>
+                      {freeCategories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field id={`${fieldId}-new-cost-amount`} label={t('mill.costs.amount_dinar', 'المبلغ (دينار)')}>
+                    <input
+                      id={`${fieldId}-new-cost-amount`}
+                      className="input text-end tabular-nums"
+                      inputMode="decimal"
+                      dir="ltr"
+                      value={newCost.amount}
+                      onChange={(event) => setNewCost((current) => ({ ...current, amount: event.target.value }))}
+                      data-action="new-cost-amount"
+                    />
+                  </Field>
+                  <Button
+                    variant="secondary"
+                    icon={<Plus className="size-5" aria-hidden="true" />}
+                    busy={busy}
+                    disabled={!newCostOk}
+                    onClick={() => {
+                      if (!newCostOk || newCostValue === null) return;
+                      const slot = `cost:${batch.id}:${newCost.categoryId}`;
+                      const categoryId = newCost.categoryId;
+                      void act(async () => {
+                        await addBatchCost(batch.id, millRef(slot), categoryId, newCostValue);
+                        forgetMillRef(slot);
+                        setNewCost({ categoryId: '', amount: '' });
+                      });
+                    }}
+                    data-action="add-cost"
                   >
-                    <option value="">{t('mill.rates.category_pick', 'اختر فئة المصروف')}</option>
-                    {freeCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field id={`${fieldId}-new-cost-amount`} label={t('mill.costs.amount_dinar', 'المبلغ (دينار)')}>
-                  <input
-                    id={`${fieldId}-new-cost-amount`}
-                    className="input text-end tabular-nums"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={newCost.amount}
-                    onChange={(event) => setNewCost((current) => ({ ...current, amount: event.target.value }))}
-                    data-action="new-cost-amount"
-                  />
-                </Field>
-                <Button
-                  variant="secondary"
-                  icon={<Plus className="size-5" aria-hidden="true" />}
-                  busy={busy}
-                  disabled={!newCostOk}
-                  onClick={() => {
-                    if (!newCostOk || newCostValue === null) return;
-                    const slot = `cost:${batch.id}:${newCost.categoryId}`;
-                    const categoryId = newCost.categoryId;
-                    void act(async () => {
-                      await addBatchCost(batch.id, millRef(slot), categoryId, newCostValue);
-                      forgetMillRef(slot);
-                      setNewCost({ categoryId: '', amount: '' });
-                    });
+                    {t('mill.costs.add', 'أضف سطر تكلفة')}
+                  </Button>
+                </div>
+                <NewCategoryField
+                  id={`${fieldId}-new-category`}
+                  categories={allCategories}
+                  canManage={canCategories}
+                  onPick={(category) => {
+                    setMadeCategories((current) => (current.some((made) => made.id === category.id) ? current : [...current, category]));
+                    if (!costRows.some((cost) => cost.categoryId === category.id)) setNewCost((current) => ({ ...current, categoryId: category.id }));
                   }}
-                  data-action="add-cost"
-                >
-                  {t('mill.costs.add', 'أضف سطر تكلفة')}
-                </Button>
-              </div>
-            ) : null
+                />
+              </>
+            )
           ) : null}
         </section>
       ) : null}
 
       {unfunded.map((problem, index) => {
         const line = costRows.find((cost) => cost.categoryId === problem.categoryId) ?? null;
+        const record = division ? recordExpenseHref(problem, division.divisionId, batch.id) : null;
         return (
           <Notice
             key={`${problem.categoryId ?? 'unfunded'}-${index}`}
             tone="warning"
-            title={unfundedText(problem)}
+            title={division ? unfundedText(problem, division.divisionName) : problemText('costs_unfunded')}
             action={
               <span className="flex flex-wrap gap-2">
-                {canExpense ? (
-                  <Link to="/accounts/expenses?new=1" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="record-expense">
+                {canExpense && record ? (
+                  <Link to={record} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="record-expense">
                     {t('mill.unfunded.record', 'سجّل مصروفاً')}
                   </Link>
                 ) : null}
@@ -721,7 +805,7 @@ export default function BatchPage() {
 
       {otherProblems.length ? (
         <Notice tone="warning" title={t('mill.problems.title', 'قبل الإنتاج:')}>
-          {otherProblems.map((problem) => (problem.itemName ? `${problemText(problem.code)} — ${problem.itemName}` : problemText(problem.code))).join(' · ')}
+          {otherProblems.map(problemLine).join(' · ')}
         </Notice>
       ) : null}
       {failure ? <Notice tone="danger" title={failure} /> : null}
@@ -774,8 +858,8 @@ export default function BatchPage() {
             </Button>
           ) : null}
           {canDraft ? (
-            <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} busy={busy} onClick={() => void discard()} data-action="discard-batch">
-              {t('mill.discard', 'اطوِ المسوّدة')}
+            <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} busy={busy} onClick={() => setDiscarding(true)} data-action="discard-batch">
+              {t('mill.discard', 'احذف المسوّدة')}
             </Button>
           ) : null}
         </div>
@@ -793,6 +877,7 @@ export default function BatchPage() {
           batch={batch}
           replacing={null}
           exclude={exclude}
+          canFixKind={canFixKind}
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
@@ -805,11 +890,28 @@ export default function BatchPage() {
           batch={batch}
           replacing={replacing}
           exclude={exclude}
+          canFixKind={canFixKind}
           onClose={() => setReplacing(null)}
           onSaved={() => {
             setReplacing(null);
             retry();
           }}
+        />
+      ) : null}
+      {discarding ? (
+        <ConfirmDialog
+          open
+          tone="danger"
+          title={t('mill.discard.title', 'احذف مسوّدة الدفعة')}
+          consequence={t('mill.discard.body', 'تُلغى مسوّدة دفعة «{recipe}» ({kg}) بموادّها المعدّلة وأسباب التبديل وتكاليفها، بلا رقم ولا حركات، ولا ترجع. الخلطة لا تتغيّر.', {
+            recipe: batch.recipeName,
+            kg: fmtQty(batch.plannedKg, 'kg').main,
+          })}
+          confirmLabel={t('mill.discard', 'احذف المسوّدة')}
+          busy={busy}
+          action="confirm-discard"
+          onConfirm={() => void discard()}
+          onCancel={() => setDiscarding(false)}
         />
       ) : null}
       {removingInput ? (

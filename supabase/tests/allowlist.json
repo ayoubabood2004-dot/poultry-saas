@@ -42,6 +42,7 @@
     "public.item_purchases(uuid, uuid, jsonb, integer)",
     "public.leave_my_org()",
     "public.my_workspace()",
+    "public.new_recipe_version(uuid, uuid)",
     "public.open_flock(uuid, date, integer, integer, text, uuid)",
     "public.pay_party(uuid, uuid, uuid, numeric, uuid, date, uuid)",
     "public.post_count(uuid, integer, text, uuid)",

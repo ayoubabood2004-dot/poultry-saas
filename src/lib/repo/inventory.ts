@@ -1499,6 +1499,19 @@ export interface PurchaseItem {
   costPrice: Fils | null;
 }
 
+/**
+ * آخر دفعة إنتاج مرحَّلة صنعت المادّة (0016، الملاحظة #20): بطاقة العلف المنتج تقول إنّه يُصنع في المعمل وأين آخر دفعة، بلا مال.
+ * بنطاق القارئ (مخزن الناتج)، وبالمخزن المطلوب إن أُرسل.
+ */
+export interface LastProduction {
+  batchId: string;
+  docNo: string;
+  producedOn: string;
+  /** كمية الناتج بالكيلوغرام، بالآلاف. */
+  qtyKg: Milli;
+  warehouseName: string;
+}
+
 export interface ItemPurchases {
   item: PurchaseItem;
   /** null لمّا يُطلب كل مخازن النطاق. */
@@ -1508,6 +1521,17 @@ export interface ItemPurchases {
   next: PurchaseCursor | null;
   /** عدد كل صفوف الشراء، بأوّل صفحة بس. */
   total: number | null;
+  /** آخر دفعة إنتاج صنعت المادّة (0016)، أو null: لم تُصنع، أو لا دفعة لها بنطاق القارئ. */
+  lastProduction: LastProduction | null;
+}
+
+/** last_production إلزامي في الجواب (0016): كائن أو null، وغيابه خطأ شكل لا «لم تُصنع» صامتة. */
+function lastProductionOf(json: Row): LastProduction | null {
+  const value = json.last_production;
+  if (value === undefined) throw new RowShapeError('last_production');
+  if (value === null) return null;
+  const row = obj(value, 'last_production');
+  return { batchId: str(row, 'batch_id'), docNo: str(row, 'doc_no'), producedOn: str(row, 'produced_on'), qtyKg: qtyOf(row, 'qty_kg'), warehouseName: str(row, 'warehouse_name') };
 }
 
 export function parseItemPurchases(value: unknown): ItemPurchases {
@@ -1561,6 +1585,7 @@ export function parseItemPurchases(value: unknown): ItemPurchases {
     }),
     next: cursor && seq !== null ? { receivedOn: str(cursor, 'received_on'), seq, id: str(cursor, 'id') } : null,
     total: count(json, 'total'),
+    lastProduction: lastProductionOf(json),
   };
 }
 

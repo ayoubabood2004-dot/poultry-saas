@@ -65,6 +65,16 @@ const amount = (row: Row, field: string): Fils => {
   if (value === null) throw new MillShapeError(field);
   return value;
 };
+/**
+ * مفتاح إلزامي قد تكون قيمته null بقصد (إصلاحات مراجعة 0016): الغائب خطأ شكل، والـnull يُقرأ null. مثل available في المعاينة
+ * وallocations في البطاقة لمن لا يرى مصاريف وحدة المدخلات (ق١١)، وdraws لسطر دفعة مسوّدة (ق١٦).
+ */
+const present = (row: Row, field: string): unknown => {
+  if (!(field in row)) throw new MillShapeError(field);
+  return row[field];
+};
+/** مبلغ مفتاحه إلزامي وقيمته قد تكون null (محجوب عن القارئ): الغائب خطأ شكل لا null صامت. */
+const nullableAmount = (row: Row, field: string): Fils | null => (present(row, field) === null ? null : amount(row, field));
 /** صندوق المال: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
 const moneyBox = (row: Row): Row | null => optRecord(row.money, 'money');
 /** المال داخل money: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
@@ -207,6 +217,11 @@ export interface RecipeLine {
   unit: RecipeUnit;
   massKg: bigint;
   sharePct: bigint;
+  /**
+   * داخل كتلة الخلطة (إصلاح ق٣ للمراجعة): الوقود والتعبئة خارجها — يُسحبان وتُحسب كلفتهما، ولا يدخلان مجموع الأساس ولا
+   * حصص المواد ولا كتلة المدخلات التي يُحسب منها الهدر.
+   */
+  inBasis: boolean;
   /** متوسّط المتاح لوحدة الأساس (0015). */
   unitCost: Fils | null;
   /** سعر الكلفة المكتوب لوحدة الأساس (0016، D1): للتخطيط وحده. */
@@ -347,6 +362,7 @@ export function parseRecipe(value: unknown): RecipeDetail {
       unit: str(row, 'unit') === 'L' ? 'L' : 'kg',
       massKg: qty(row, 'mass_kg'),
       sharePct: scaled(row, 'share_pct', 2) ?? 0n,
+      inBasis: flag(row, 'in_basis'),
       unitCost: money(row, 'unit_cost'),
       costPrice: money(row, 'cost_price'),
       lastPrice: money(row, 'last_price'),
@@ -391,11 +407,16 @@ export interface MillProblem {
   /** كميات مشكلة الرصيد (بالآلاف من وحدة الأساس). */
   need: bigint | null;
   have: bigint | null;
-  /** مشكلة costs_unfunded (0016): الفئة، والمطلوب والمتاح مالاً — لأدوار الكلفة فقط، ولغيرهم الرمز وحده. */
+  /**
+   * مشكلة costs_unfunded (0016): الفئة، والمطلوب والمتاح مالاً — لمن يرى الكلفة ومصاريف وحدة المدخلات (ق١١)، ولغيره الرمز وحده.
+   */
   categoryId: string | null;
   categoryName: string | null;
   needAmount: Fils | null;
   haveAmount: Fils | null;
+  /** مشكلة output_expired (ق٨): تاريخ انتهاء الناتج المكتوب ويوم الإنتاج الذي سبقه. */
+  expiryOn: Day | null;
+  producedOn: Day | null;
 }
 
 /** تحميل سطر تكاليف من مصروف مسجّل (0016، القاعدة ٢٠): يكتبه الترحيل وحده. */
@@ -418,10 +439,16 @@ export interface BatchCost {
   plannedAmount: Fils | null;
   amount: Fils;
   source: CostSource;
-  /** المتبقّي غير المحمَّل من المصاريف المؤهّلة (المعاينة فقط، بلا أقفال)، وnull في بطاقة الدفعة. */
+  /**
+   * المتبقّي غير المحمَّل من المصاريف المؤهّلة (المعاينة فقط، بلا أقفال)، وnull في بطاقة الدفعة، وnull في المعاينة لمن لا يرى
+   * مصاريف وحدة المدخلات (ق١١): لا رقم يُعرض.
+   */
   available: Fils | null;
-  /** تحميلاته الفعّالة (بطاقة الدفعة فقط)، وفارغة في المعاينة. */
-  allocations: CostAllocation[];
+  /**
+   * تحميلاته الفعّالة (بطاقة الدفعة فقط)، وفارغة في المعاينة؛ وnull = محجوبة (ق١١): القارئ لا يرى مصاريف وحدة المدخلات، فالشاشة
+   * تقول إنّها محمَّلة من مصاريف وحدة خارج نطاقه بلا أرقام.
+   */
+  allocations: CostAllocation[] | null;
 }
 
 export interface ProductionPreview {
@@ -437,7 +464,8 @@ export interface ProductionPreview {
   shrinkReason: string | null;
   shrinkOk: boolean;
   costsConfirmed: boolean;
-  inputWarehouse: { id: string; name: string };
+  /** مخزن المدخلات ووحدته (ق١٥): التكاليف تُحمَّل من مصاريف هذه الوحدة وحدها، فالتنبيه ورابط «سجّل مصروفاً» يسمّيانها. */
+  inputWarehouse: InputWarehouse;
   outputWarehouse: { id: string; name: string };
   lines: PreviewLine[];
   problems: MillProblem[];
@@ -463,11 +491,36 @@ const warehouse = (value: unknown, field_: string): { id: string; name: string }
   return { id: str(row, 'id'), name: str(row, 'name') };
 };
 
+export interface InputWarehouse {
+  id: string;
+  name: string;
+  divisionId: string;
+  divisionName: string;
+}
+
+/** مخزن المدخلات في المعاينة بوحدته (ق١٥): مفتاحا الوحدة إلزاميان. */
+const inputWarehouseOf = (value: unknown): InputWarehouse => {
+  const row = record(value, 'input_warehouse');
+  return { id: str(row, 'id'), name: str(row, 'name'), divisionId: str(row, 'division_id'), divisionName: str(row, 'division_name') };
+};
+
 const costSource = (row: Row): CostSource => {
   const value = str(row, 'source');
   if (value !== 'recipe' && value !== 'manual') throw new MillShapeError('source');
   return value;
 };
+
+/** تحميلات سطر التكاليف في البطاقة: المفتاح إلزامي، وnull = محجوبة عن القارئ (ق١١)، وإلّا قائمة. */
+function allocationsOf(row: Row): CostAllocation[] | null {
+  const value = present(row, 'allocations');
+  if (value === null) return null;
+  return list(value, 'allocations').map((entry) => ({
+    expenseId: str(entry, 'expense_id'),
+    onDate: str(entry, 'on_date'),
+    amount: amount(entry, 'amount'),
+    label: str(entry, 'label'),
+  }));
+}
 
 /** سطر تكاليف: المعاينة تحمل available ولا تحميلات، وبطاقة الدفعة تحمل التحميلات ولا available. */
 function costOf(row: Row, from: 'preview' | 'detail'): BatchCost {
@@ -479,23 +532,17 @@ function costOf(row: Row, from: 'preview' | 'detail'): BatchCost {
     plannedAmount: scaled(row, 'planned_amount', 2),
     amount: amount(row, 'amount'),
     source: costSource(row),
-    available: from === 'preview' ? amount(row, 'available') : null,
-    allocations:
-      from === 'detail'
-        ? list(row.allocations, 'allocations').map((entry) => ({
-            expenseId: str(entry, 'expense_id'),
-            onDate: str(entry, 'on_date'),
-            amount: amount(entry, 'amount'),
-            label: str(entry, 'label'),
-          }))
-        : [],
+    available: from === 'preview' ? nullableAmount(row, 'available') : null,
+    allocations: from === 'detail' ? allocationsOf(row) : [],
   };
 }
 
 function problemOf(row: Row): MillProblem {
   const code = str(row, 'code');
-  // costs_unfunded: need وhave مال بمرتبتين (لأدوار الكلفة فقط)، وغيرها كميات بثلاث.
+  // costs_unfunded: need وhave مال بمرتبتين (لمن يرى مصاريف الوحدة فقط)، وغيرها كميات بثلاث.
   const funds = code === 'costs_unfunded';
+  // output_expired (ق٨): التاريخان إلزاميان، فالجملة تسمّيهما.
+  const expired = code === 'output_expired';
   return {
     code,
     itemName: optStr(row, 'item_name'),
@@ -505,6 +552,8 @@ function problemOf(row: Row): MillProblem {
     categoryName: optStr(row, 'category_name'),
     needAmount: funds ? scaled(row, 'need', 2) : null,
     haveAmount: funds ? scaled(row, 'have', 2) : null,
+    expiryOn: expired ? str(row, 'expiry_on') : null,
+    producedOn: expired ? str(row, 'produced_on') : null,
   };
 }
 
@@ -524,7 +573,7 @@ export function parsePreview(value: unknown): ProductionPreview {
     shrinkReason: optStr(json, 'shrink_reason'),
     shrinkOk: flag(json, 'shrink_ok'),
     costsConfirmed: flag(json, 'costs_confirmed'),
-    inputWarehouse: warehouse(json.input_warehouse, 'input_warehouse'),
+    inputWarehouse: inputWarehouseOf(json.input_warehouse),
     outputWarehouse: warehouse(json.output_warehouse, 'output_warehouse'),
     lines: list(json.lines, 'lines').map((row) => ({
       inputId: str(row, 'input_id'),
@@ -549,7 +598,7 @@ export function parsePreview(value: unknown): ProductionPreview {
   };
 }
 
-/** وجبة سُحب منها سطر الدفعة المرحَّلة (مفتاح مقترح draws في production_detail، انظر تقرير العقد): الكمية ومصدر الوجبة. */
+/** وجبة سُحب منها سطر الدفعة المرحَّلة (draws في production_detail، ق١٦): الكمية ومصدر الوجبة بترتيب السحب. */
 export interface LotDraw {
   lotId: string;
   qty: bigint;
@@ -573,7 +622,7 @@ export interface BatchLine {
   reason: string | null;
   replacedItemName: string | null;
   value: Fils | null;
-  /** الوجبات التي سُحب منها السطر بعد الترحيل، أو null إن لم يرسلها الخادم. */
+  /** الوجبات التي سُحب منها السطر بعد الترحيل (ق١٦)، وnull للمسوّدة. المفتاح إلزامي في كلّ سطر. */
   draws: LotDraw[] | null;
 }
 
@@ -608,9 +657,11 @@ export interface ProductionBatch {
   costs: BatchCost[] | null;
 }
 
-function drawsOf(value: unknown): LotDraw[] | null {
-  if (value === null || value === undefined) return null;
-  return list(value, 'draws').map((row) => ({ lotId: str(row, 'lot_id'), qty: qty(row, 'qty'), receivedOn: str(row, 'received_on'), source: str(row, 'source') }));
+/** الوجبات المسحوبة لسطر الدفعة (ق١٦): المفتاح إلزامي (الغائب خطأ شكل)، وnull للمسوّدة، وإلّا قائمة بترتيب السحب. */
+function drawsOf(row: Row): LotDraw[] | null {
+  const value = present(row, 'draws');
+  if (value === null) return null;
+  return list(value, 'draws').map((entry) => ({ lotId: str(entry, 'lot_id'), qty: qty(entry, 'qty'), receivedOn: str(entry, 'received_on'), source: str(entry, 'source') }));
 }
 
 export function parseBatch(value: unknown): ProductionBatch {
@@ -654,7 +705,7 @@ export function parseBatch(value: unknown): ProductionBatch {
       reason: optStr(row, 'reason'),
       replacedItemName: optStr(row, 'replaced_item_name'),
       value: money(row, 'value'),
-      draws: drawsOf(row.draws),
+      draws: drawsOf(row),
     })),
     inputValue: money(json, 'input_value'),
     extraValue: money(json, 'extra_value'),
@@ -864,13 +915,6 @@ export function archiveRecipe(recipeId: string, version: number, archived: boole
   ).then((row) => str(row, 'id'));
 }
 
-/** نسخة مسوّدة جديدة للخلطة (الأساس بالآلاف: 1,000 كغم ← 1000000n). */
-export function createVersion(recipeId: string, basisKg: bigint): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('recipe_versions').insert({ recipe_id: recipeId, basis_kg: decimalText(basisKg, 3) }).select('id'))),
-  ).then((row) => str(row, 'id'));
-}
-
 export function setVersionBasis(versionId: string, basisKg: bigint, version: number): Promise<string> {
   return written(async (db) =>
     updatedRows(withStatus(await db.from('recipe_versions').update({ basis_kg: decimalText(basisKg, 3) }).eq('id', versionId).eq('version', version).select('id'))),
@@ -986,7 +1030,10 @@ export function discardBatch(batchId: string, version: number): Promise<unknown>
 // ─── بانية الخلطة (0016، ج٢) ────────────────────────────────────────────────────────────────────────────────
 
 export interface RecipeInput {
-  /** معرّفا الخلطة ونسختها من الجهاز: الإعادة بالاسم والمنتج نفسيهما ترجّع الموجود (جواب ضاع)، وبغيرهما id_conflict. */
+  /**
+   * معرّفا الخلطة ونسختها من الجهاز: الإعادة بالمحتوى نفسه (الاسم والمنتج والأساس والسطور والمعدّلات وطلب التفعيل) ترجّع
+   * الموجود (جواب ضاع)، وبأيّ فرق id_conflict (ق٥): ما حُفظ غير ما تراه الشاشة، فلا تُولَّد خلطة ثانية بصمت (م١).
+   */
   id: string;
   versionId: string;
   name: string;
@@ -1034,6 +1081,47 @@ export async function createRecipe(input: RecipeInput): Promise<CreatedRecipe> {
       p_activate: input.activate,
     }),
   );
+}
+
+// ─── نسخة جديدة تنسخ المفعَّلة (إصلاح ق١٣ للمراجعة) ─────────────────────────────────────────────────────────────
+
+export interface NewRecipeVersion {
+  recipeId: string;
+  versionId: string;
+  versionNo: number;
+  status: VersionStatus;
+  /** عدد السطور والمعدّلات المنسوخة (أو الموجودة في المسوّدة القائمة). */
+  lines: number;
+  rates: number;
+  /** true: رجعت نسخة موجودة (إعادة بالمعرّف نفسه، أو مسوّدة سابقة للخلطة) بلا نسخ جديد. */
+  existing: boolean;
+}
+
+export function parseNewRecipeVersion(value: unknown): NewRecipeVersion {
+  const json = record(value, 'new_recipe_version');
+  return {
+    recipeId: str(json, 'recipe_id'),
+    versionId: str(json, 'version_id'),
+    versionNo: int(json, 'version_no'),
+    status: versionStatus(json),
+    lines: nonNegative(json, 'lines'),
+    rates: nonNegative(json, 'rates'),
+    existing: flag(json, 'existing'),
+  };
+}
+
+/**
+ * «نسخة جديدة» لخلطة (new_recipe_version): مسوّدة بأساس النسخة المفعَّلة وسطورها ومعدّلات تكاليفها بترتيبها، بمعاملة واحدة.
+ * المعرّف من الجهاز ويبقى للإعادة (جواب ضاع ← النسخة نفسها لا ثانية)، والمسوّدة القائمة للخلطة ترجع كما هي (existing).
+ */
+export async function newRecipeVersion(recipeId: string, versionId: string): Promise<NewRecipeVersion> {
+  return parseNewRecipeVersion(await call<unknown>('new_recipe_version', { p_recipe: recipeId, p_id: versionId }));
+}
+
+/** مخازن المعمل ويوم الخادم لنافذة «أنتج» من بطاقة الخلطة (recipes_overview يحملهما، كشاشة المعمل). */
+export async function loadMillStores(): Promise<{ today: string; stores: MillStore[] }> {
+  const json = record(await call<unknown>('recipes_overview'), 'overview');
+  return { today: str(json, 'today'), stores: storesOf(json) };
 }
 
 // ─── مدخلات الدفعة (0016، ج٥) ───────────────────────────────────────────────────────────────────────────────

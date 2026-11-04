@@ -135,7 +135,10 @@ export function produceKg(text: string, unitId: string): bigint | null {
   return (typed * unit.perUnit) / 1_000n;
 }
 
-export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: RecipeCard; stores: readonly MillStore[]; today: string; onClose: () => void }) {
+/**
+ * نافذة «أنتج»: من بطاقة الخلطة في المعمل ومن صفحة الخلطة نفسها (م٩)، فتأخذ الاسم والنسخة المفعَّلة وحدهما.
+ */
+export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick<RecipeCard, 'name' | 'activeId'>; stores: readonly MillStore[]; today: string; onClose: () => void }) {
   const id = useId();
   const navigate = useNavigate();
   const inputs = stores.filter((store) => store.kind === 'raw');

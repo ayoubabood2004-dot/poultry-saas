@@ -7,7 +7,11 @@
 //    أخرى» ثانياً، وداخل الورقة «استعمل» المادّة الموجودة؛ B4 النوع بأمثلة، وتنبيه مخزن العلف برابط مخزن المواد الأوّلية، وتنبيه
 //    نوع لا يظهر في المخزن؛ B5 تلميح التصنيف وتحذير «اسم التصنيف مثل اسم المادّة»؛ B6 سعر الكلفة ببطاقة المادّة بمحرّره المشروط،
 //    والدفعة المنتجة «صُنعت بدفعة PD-…» برابط صفحة الدفعة، وحركة الإنتاج بالدفتر رابط لها؛ B7 repo: setItemCostPrice وloadItem
-//    ومصدر الدفعة بشكليه وسعر الكلفة بقارئ المشتريات.
+//    ومصدر الدفعة بشكليه وسعر الكلفة بقارئ المشتريات، وlast_production إلزامياً (كائن أو null).
+// ومن مراجعة المعمل v2: B8 (ع٢، #20) بطاقة العلف المنتج: «صُنعت في المعمل — آخر دفعة …» فوق التبويبات برابطها، وفراغ المشتريات
+//    «تُصنع في المعمل»، ولا «اشترِ كمية» لعلف يُصنع في مخزن العلف ولم يُشترَ؛ B9 (ع٤) حفظ سعر في بطاقة لا يمسح تعديلاً جارياً في
+//    الأخرى، والسعر المحفوظ من جواب الخادم شرطاً للتعديل التالي؛ B10 (ع٣، #21) صفحة «المواد» بتدفّق نافذة «مادّة جديدة»: التوأم
+//    الفعّال «سجّل شراءً جديداً» أوّلاً، والنوع بأمثلة، والتصنيف قسم لا اسم مادّة.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,6 +110,9 @@ export default async function (t) {
         "export { categoryNamedLikeItem, notListedHere, activeTwins } from './src/pages/inventory/ItemCreate.tsx';",
         "export { receivingStores } from './src/pages/inventory/ReceiptsPage.tsx';",
         "export { buyableIn } from './src/pages/inventory/WarehousePage.tsx';",
+        // صفحة «المواد» (ع٣) والدوالّ الجديدة من مساحة الاسم: غيابها في الشفرة القديمة يُفشل فحوصها ولا يوقف الحزم.
+        "export * as itemsPage from './src/pages/inventory/ItemsPage.tsx';",
+        "export * as itemCard from './src/pages/inventory/ItemCardPage.tsx';",
       ].join('\n'),
       [stubs],
     );
@@ -209,7 +216,17 @@ export default async function (t) {
       const container = globalThis.document.createElement('div');
       body().appendChild(container);
       root = m.createRoot(container);
-      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(Probe), m.h(m.Routes, null, m.h(m.Route, { path: '/inventory/*', element: m.h(m.StockRoutes) })))));
+      // صفحة «المواد» بمسارها الثابت يغلب مسار المخزون، كما في App.tsx.
+      m.flushSync(() =>
+        root.render(
+          m.h(
+            m.MemoryRouter,
+            { initialEntries: [url] },
+            m.h(Probe),
+            m.h(m.Routes, null, m.h(m.Route, { path: '/inventory/items', element: m.h(m.itemsPage.default) }), m.h(m.Route, { path: '/inventory/*', element: m.h(m.StockRoutes) })),
+          ),
+        ),
+      );
       await settle();
       await settle();
     };
@@ -568,6 +585,162 @@ export default async function (t) {
       await unmount();
     });
 
+    // ── B8 (ع٢، الملاحظة #20): بطاقة العلف المنتج تعرف أنّه يُصنع في المعمل ────────────────────────────────────────
+    const made = { batchId: 'pb-1', docNo: 'PD-2026-0001', producedOn: '2026-11-03', qtyKg: 2_000_000n, warehouseName: 'مخزن العلف' };
+    const feed = item('f-1', 'علف بياض', 'feed');
+    const feedBuys = (over = {}) => ({ ...purchases({ id: 'f-1', name: 'علف بياض', kind: 'feed', sellPrice: null, costPrice: null }), rows: [], total: 0, lastProduction: made, ...over });
+    const MADE_LINE = 'صُنعت في المعمل — آخر دفعة PD-2026-0001 بتاريخ 03/11/2026، 2.000 طن';
+    await step('B8', async () => {
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys() }));
+      await mount('/inventory/items/f-1?wh=w-feed');
+      const open = byAction('open-last-production');
+      t.ok(text().includes(MADE_LINE), `B8: سطر «صُنعت في المعمل» برقم آخر دفعة وتاريخها وكميتها (${text().slice(0, 500)})`);
+      t.same(open.map((n) => n.getAttribute('href')), ['/mill/batch/pb-1'], 'B8: ورقم الدفعة رابط لصفحتها في المعمل');
+      t.ok(text().indexOf(MADE_LINE) >= 0 && text().indexOf(MADE_LINE) < text().indexOf('دفتر المادّة'), 'B8: والسطر فوق التبويبات');
+      t.ok(text().includes('لا شراء لهذه المادّة: تُصنع في المعمل.') && !text().includes('لا شراء لهذه المادّة بعد.'), 'B8: ونصّ فراغ المشتريات يدلّ على الإنتاج');
+      t.eq(byAction('buy-item').length, 0, 'B8: ولا «اشترِ كمية» لعلف يُصنع في مخزن العلف ولم يُشترَ قطّ');
+      await unmount();
+    });
+    await step('B8-tabs', async () => {
+      const lots = { item: { id: 'f-1', name: 'علف بياض', kind: 'feed', baseUnit: 'kg', tracksExpiry: false, minQty: null, density: null, pieceMassKg: null, archived: false }, rows: [], next: null, total: 0 };
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys(), loadItemLots: () => lots, loadItemLotValues: () => new Map() }));
+      await mount('/inventory/items/f-1?wh=w-feed&tab=lots');
+      t.ok(text().includes(MADE_LINE), 'B8: والسطر في تبويب الوجبات أيضاً (فوق التبويبات لا داخل المشتريات)');
+      t.same(named(calls, 'loadItemPurchases').at(-1), ['f-1', 'w-feed'], 'B8: من سجلّ شراء المادّة بالمخزن المختار');
+      await unmount();
+    });
+    await step('B8-controls', async () => {
+      // علف له شراء وله إنتاج: السطر يبقى، والشراء ممكن.
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => ({ ...purchases({ id: 'f-1', name: 'علف بياض', kind: 'feed' }), lastProduction: made }) }));
+      await mount('/inventory/items/f-1?wh=w-feed');
+      t.ok(text().includes(MADE_LINE) && byAction('buy-item').length === 1, 'B8: علف له شراء: السطر و«اشترِ كمية» معاً');
+      await unmount();
+      // علف بلا إنتاج ولا شراء: لا سطر، والفراغ كما كان، والشراء ممكن.
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys({ lastProduction: null }) }));
+      await mount('/inventory/items/f-1?wh=w-feed');
+      t.ok(byAction('open-last-production').length === 0 && !text().includes('صُنعت في المعمل'), 'B8: بلا دفعة إنتاج: لا سطر');
+      t.ok(text().includes('لا شراء لهذه المادّة بعد.') && byAction('buy-item').length === 1, 'B8: والفراغ كما كان و«اشترِ كمية» باقٍ');
+      await unmount();
+      // مادّة أوّلية بمخزنها: الإنتاج لا يمسّها.
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemPurchases: () => ({ ...purchases(), rows: [], total: 0, lastProduction: null }) }));
+      await mount('/inventory/items/i-corn?wh=w-raw');
+      t.ok(byAction('buy-item').length === 1 && !text().includes('تُصنع في المعمل'), 'B8: ضابط: مادّة أوّلية بلا شراء: «اشترِ كمية» كما كان');
+      await unmount();
+    });
+
+    // ── B9 (ع٤): حفظ سعر في بطاقة لا يمسح تعديلاً جارياً في البطاقة الأخرى ──────────────────────────────────────────
+    await step('B9', async () => {
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ setItemCostPrice: (_id, price) => price, setItemSellPrice: (_id, price) => price }));
+      await mount('/inventory/items/i-corn');
+      await click(byAction('edit-sell-price')[0]);
+      type(byIdSuffix('-sell')[0], '650');
+      await settle();
+      await click(byAction('edit-cost-price')[0]);
+      type(byIdSuffix('-cost')[0], '475.5');
+      await settle();
+      await click(byAction('save-cost-price')[0]);
+      await settle();
+      t.same(named(calls, 'setItemCostPrice'), [['i-corn', 475_50n, 450_00n]], 'B9: سعر الكلفة حُفظ مشروطاً بما رأته الشاشة');
+      t.eq(byIdSuffix('-sell')[0]?.value, '650', 'B9: وتعديل سعر البيع الجاري باقٍ بعد حفظ سعر الكلفة');
+      t.ok(text().includes('سعر الكلفة الآن') && text().includes('475.50'), 'B9: وسعر الكلفة المحفوظ معروض من جواب الخادم');
+      t.eq(named(calls, 'loadItemPurchases').length, 1, 'B9: بلا قراءة ثانية تطوي البطاقتين');
+      await click(byAction('save-sell-price')[0]);
+      t.same(named(calls, 'setItemSellPrice'), [['i-corn', 650_00n, 600_00n]], 'B9: ثمّ سعر البيع بالتعديل الذي بقي');
+      await click(byAction('edit-cost-price')[0]);
+      type(byIdSuffix('-cost')[0], '480');
+      await settle();
+      await click(byAction('save-cost-price')[0]);
+      t.same(named(calls, 'setItemCostPrice').at(-1), ['i-corn', 480_00n, 475_50n], 'B9: والتعديل التالي مشروط بالسعر المحفوظ لا بالقديم');
+      await unmount();
+    });
+
+    // ── B10 (ع٣، الملاحظة #21): صفحة «المواد» بتدفّق نافذة «مادّة جديدة» ─────────────────────────────────────────────
+    await step('B10', async () => {
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ findItemTwins: () => [twin], createItem: newItem }));
+      await mount('/inventory/items');
+      await click(byAction('new-item')[0]);
+      const options = (byAction('pick-kind')[0]?.options ?? []).map((o) => o.textContent);
+      t.ok(options.includes('مادّة أوّلية للعلف: ذرة، صويا، نخالة…') && options.some((o) => o.startsWith('علف جاهز: ناتج المعمل')), `B10: أنواع صفحة المواد بأمثلتها (${options.join(' | ')})`);
+      type(byIdSuffix('-name')[0], 'ذرة صفراء');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      t.same(named(calls, 'createItem'), [], 'B10: التوأم يوقف الحفظ أوّلاً');
+      const buy = byAction('buy-item').filter((n) => n.textContent.includes('سجّل شراءً جديداً'));
+      t.same(buy.map((n) => [n.textContent, n.getAttribute('href')]), [['سجّل شراءً جديداً لـ«ذرة صفراء»', '/inventory/receipts?new=1&item=i-old']], `B10: الفعل الأوّل «سجّل شراءً جديداً» برابط شراء المادّة الموجودة (${text().slice(-500)})`);
+      t.ok(text().includes('المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام'), 'B10: والجملة تشرح');
+      t.ok(byAction('save-item-twin')[0]?.textContent.includes('احفظ مادّة أخرى بالاسم نفسه'), 'B10: و«احفظ مادّة أخرى بالاسم نفسه» ثانياً');
+      await follow(buy[0]);
+      await settle();
+      t.same([where.pathname, where.search], ['/inventory/receipts', '?new=1&item=i-old'], 'B10: والنقر يفتح ورقة الاستلام للمادّة الموجودة');
+      t.same(named(calls, 'createItem'), [], 'B10: ولا مادّة ثانية كُتبت');
+      await unmount();
+    });
+    await step('B10-other', async () => {
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ findItemTwins: () => [twin], createItem: newItem }));
+      await mount('/inventory/items');
+      await click(byAction('new-item')[0]);
+      type(byIdSuffix('-name')[0], 'ذرة صفراء');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      t.eq(named(calls, 'createItem').length, 1, 'B10: «احفظ مادّة أخرى بالاسم نفسه» يكتبها إن أصرّ');
+      await unmount();
+    });
+    await step('B10-archived', async () => {
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ findItemTwins: () => [{ ...twin, name: 'ذراء', archived: true }] }));
+      await mount('/inventory/items');
+      await click(byAction('new-item')[0]);
+      type(byIdSuffix('-name')[0], 'ذراء');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      t.ok(text().includes('احفظ رغم التشابه') && byAction('buy-item').length === 0, 'B10: توأم مؤرشف وحده: لا شراء له، والتنبيه كما كان');
+      await unmount();
+    });
+    await step('B10-code', async () => {
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ findItemTwins: () => [{ ...twin, name: 'ذرة صفراء مستوردة', sameName: false, codes: ['X1'] }] }));
+      await mount('/inventory/items');
+      await click(byAction('new-item')[0]);
+      type(byIdSuffix('-name')[0], 'ذرة');
+      type(byIdSuffix('-barcode')[0], 'X1');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      t.ok(text().includes('رمز مستعمل لمادّة أخرى') && byAction('save-item')[0]?.hasAttribute('disabled') === true, `B10: رمز مشترك: الرفض كما كان (${text().slice(-400)})`);
+      t.same(byAction('buy-item').map((n) => n.getAttribute('href')), ['/inventory/receipts?new=1&item=i-old'], 'B10: ومعه شراء المادّة صاحبة الرمز (الرمز يدلّ على المادّة نفسها)');
+      t.same(named(calls, 'createItem'), [], 'B10: ولا مادّة ثانية');
+      await unmount();
+    });
+    await step('B10-edit', async () => {
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ listItems: () => ({ rows: [corn], total: 1, next: null }), findItemTwins: () => [{ ...twin, name: 'ذرة' }] }));
+      await mount('/inventory/items');
+      await click(byAction('edit-item')[0]);
+      type(byIdSuffix('-name')[0], 'ذرة');
+      await settle();
+      fire(dialogForm(), 'submit');
+      await settle();
+      t.ok(text().includes('احفظ رغم التشابه') && byAction('buy-item').length === 0, 'B10: تعديل مادّة قائمة باسم توأمها: لا شراء (لا يُحلّ بشراء)، والتنبيه كما كان');
+      await unmount();
+    });
+    await step('B10-category', async () => {
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers());
+      await mount('/inventory/items');
+      await click(byAction('new-item')[0]);
+      t.ok(text().includes('التصنيف قسم يجمع موادّ متشابهة، مثل «الغذاء» أو «الإضافات».'), 'B10: تلميح التصنيف في صفحة المواد');
+      type(byIdSuffix('-name')[0], 'ذرة');
+      await settle();
+      choose(byAction('pick-category')[0], 'c-corn');
+      await settle();
+      t.ok(text().includes('اسم التصنيف مثل اسم المادّة'), 'B10: وتصنيف «ذرة» لمادّة «ذرة» يحذّر');
+      choose(byAction('pick-category')[0], 'c-food');
+      await settle();
+      t.ok(!text().includes('اسم التصنيف مثل اسم المادّة'), 'B10: و«الغذاء» بلا تحذير');
+      await unmount();
+    });
+
     // ── دوالّ صافية ─────────────────────────────────────────────────────────────────────────────────────────────
     t.same([m.buyPath('i-1', 'w-1'), m.buyPath('i-1', null)], ['/inventory/receipts?new=1&wh=w-1&item=i-1', '/inventory/receipts?new=1&item=i-1'], 'buyPath: ?new=1&wh=&item= بترتيب العقد');
     t.same([m.categoryNamedLikeItem('ذرة', { name: 'ذرة' }), m.categoryNamedLikeItem('ذُرة ', { name: 'ذرة' }), m.categoryNamedLikeItem('ذرة', { name: 'الغذاء' }), m.categoryNamedLikeItem('', { name: '' }), m.categoryNamedLikeItem('ذرة', undefined)], [true, true, false, false, false], 'categoryNamedLikeItem: بالاسم المطبَّع، والفارغ لا يطابق');
@@ -645,14 +818,33 @@ export default async function (t) {
       ['row_shape:source', 'row_shape:kind', 'row_shape:label', 'row_shape:source'],
       'B7: والكائن المخالف لـsource_kind، ونوع غير معروف، وتسمية غائبة، وبلا مصدر أصلاً: كلّها خطأ شكل',
     );
-    const purchasesJson = (money) => ({
+    const purchasesJson = (money, extra = { last_production: null }) => ({
       item: { id: 'i-corn', name: 'ذرة', kind: 'raw', base_unit: 'kg', tracks_expiry: false, min_qty: null, archived: false, ...(money ? { money } : {}) },
-      warehouse: null, today: '2026-11-04', rows: [], next: null, total: 0,
+      warehouse: null, today: '2026-11-04', rows: [], next: null, total: 0, ...extra,
     });
     t.same(
       [repo.parseItemPurchases(purchasesJson({ sell_price: '600.00', cost_price: '450.50' })).item.costPrice, repo.parseItemPurchases(purchasesJson({ sell_price: '600.00', cost_price: null })).item.costPrice, repo.parseItemPurchases(purchasesJson(null)).item.costPrice],
       [450_50n, null, null],
       'B7: سعر الكلفة بقارئ المشتريات داخل money بالفلس، والفارغ أو بلا money (دور بلا كلفة) null',
+    );
+    // ع٢ (ق١٤): last_production على المستوى الأعلى، إلزامي: كائن أو null.
+    const lastJson = (over = {}) => ({ last_production: { batch_id: 'pb-1', doc_no: 'PD-2026-0001', produced_on: '2026-11-03', qty_kg: '2000.000', warehouse_name: 'مخزن العلف', ...over } });
+    t.same(
+      repo.parseItemPurchases(purchasesJson(null, lastJson())).lastProduction,
+      { batchId: 'pb-1', docNo: 'PD-2026-0001', producedOn: '2026-11-03', qtyKg: 2_000_000n, warehouseName: 'مخزن العلف' },
+      'B7: last_production مقروءاً: الدفعة ورقمها ويومها وكمية الناتج بالآلاف ومخزنه',
+    );
+    t.eq(repo.parseItemPurchases(purchasesJson(null)).lastProduction, null, 'B7: وnull = لم تُصنع');
+    t.same(
+      [
+        shape(() => repo.parseItemPurchases(purchasesJson(null, {}))),
+        shape(() => repo.parseItemPurchases(purchasesJson(null, { last_production: 'PD-2026-0001' }))),
+        shape(() => repo.parseItemPurchases(purchasesJson(null, lastJson({ qty_kg: '2000.0001' })))),
+        shape(() => repo.parseItemPurchases(purchasesJson(null, lastJson({ doc_no: null })))),
+        shape(() => repo.parseItemPurchases(purchasesJson(null, lastJson({ batch_id: undefined })))),
+      ],
+      ['row_shape:last_production', 'row_shape:last_production', 'row_shape:qty_kg', 'row_shape:doc_no', 'row_shape:batch_id'],
+      'B7: والمفتاح إلزامي، وقيمته كائن أو null، وكميته بثلاث مراتب، ورقم الدفعة ومعرّفها إلزاميان: كلّها خطأ شكل لا «لم تُصنع» صامتة',
     );
   } finally {
     delete globalThis.__buy;

@@ -1,9 +1,10 @@
 -- rollback_0016 — تراجع 0016_mill_v2 (سعر الكلفة، وبانية الخلطة، وتكاليف الطنّ، وسطور تكاليف الدفعة وتحميلها، والمادّة البديلة؛
 -- مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦). يرجّع أجسام set_item_sell_price وitem_purchases (كما في 0014) وdelete_draft_line
 -- وcreate_production وpreview_production وpost_production وvoid_production وrecipes_overview وrecipe_detail وproduction_detail
--- وverify_mill (كما في 0015) وvoid_expense وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه
--- بالكتالوج)، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input والمساعدات والحرّاس، والجداول الثلاثة، وعمودَي
--- production_inputs.replaced_item_id وitem_prices.cost_price، ويعيد item_prices.sell_price غير قابل للفراغ.
+-- وverify_mill وactivate_recipe_version وconfirm_production_costs (كما في 0015) وvoid_expense وreport_expenses (كما في 0008)
+-- وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه بالكتالوج)، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input
+-- وnew_recipe_version والمساعدات (ومنها shrink_ok) والحرّاس، وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016)،
+-- والجداول الثلاثة، وعمودَي production_inputs.replaced_item_id وitem_prices.cost_price، ويعيد item_prices.sell_price غير قابل للفراغ.
 -- **طريق رفض (الكتلة أدناه):** إسقاط الجداول والعمودين يمسح معدّلات تكاليف كتبها المالك بيده في خلطاته، وسطور تكاليف الدفعات
 -- وتحميلاتها من المصاريف (كلفة العلف المنتَج ومصدرها)، والمادّة التي حلّ محلّها كلّ بديل، وأسعار الكلفة المكتوبة؛ ولا تُستخرج من
 -- مكان آخر. فالملف يرفض نفسه إن كان في القاعدة منها صفّ واحد. الفروع الثلاثة منفصلة حتّى يُفحص كلّ واحد وحده.
@@ -1593,14 +1594,119 @@ language sql stable security definer set search_path = public, pg_temp as $$
   )
 $$;
 
+-- public.activate_recipe_version كما في 0015_mill_recipes_production.sql حرفاً بحرف:
+create or replace function public.activate_recipe_version(p_id uuid, p_expected_version int) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  v public.recipe_versions;
+  r public.recipes;
+  ln record;
+  v_sum numeric := 0;
+  v_count int := 0;
+  v_old uuid;
+begin
+  set local lock_timeout = '5s';
+  perform private.require('recipe.activate');
+  select * into v from public.recipe_versions where org_id = v_org and id = p_id;
+  if v.id is null then
+    raise exception 'doc_not_found' using hint = 'هذه النسخة من الخلطة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  select * into r from public.recipes where org_id = v_org and id = v.recipe_id for update;
+  if r.archived_at is not null then
+    raise exception 'recipe_archived' using hint = format('الخلطة «%s» مؤرشفة. أعِدها من الأرشيف قبل التفعيل.', r.name);
+  end if;
+  select * into v from public.recipe_versions where org_id = v_org and id = p_id for update;
+  if v.status <> 'draft' then
+    raise exception 'not_draft' using hint = 'هذه النسخة مفعَّلة أو مقاعدة من قبل.';
+  end if;
+  if p_expected_version is null or v.version <> p_expected_version then
+    raise exception 'stale_draft' using hint = 'تغيّرت الخلطة بعد فتحها. حدّث الشاشة وراجع سطورها قبل التفعيل.';
+  end if;
+  for ln in
+    select l.id, l.qty, l.unit, l.item_id, i.name, i.base_unit, i.density_kg_per_l
+    from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
+    where l.org_id = v_org and l.version_id = v.id order by l.line_no
+  loop
+    if ln.base_unit not in ('kg', 'L') then
+      raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والعليقة تُحسب بالكتلة: احذف سطرها.', ln.name);
+    end if;
+    if ln.base_unit = 'L' and ln.density_kg_per_l is null then
+      raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته في بطاقة المادّة ثمّ فعّل.', ln.name);
+    end if;
+    if ln.qty is null or not (abs(ln.qty) < 'Infinity') or ln.qty <= 0 then
+      raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة يجب أن تكون أكبر من صفر.', ln.name);
+    end if;
+    if ln.base_unit = 'L' then
+      update public.recipe_lines set density_kg_per_l = round(ln.density_kg_per_l, 4) where org_id = v_org and id = ln.id;
+    end if;
+    v_sum := v_sum + private.recipe_line_kg(ln.qty, ln.unit, ln.density_kg_per_l);
+    v_count := v_count + 1;
+  end loop;
+  if v_count = 0 then
+    raise exception 'doc_empty' using hint = 'الخلطة بلا مواد. أضف مادّة واحدة على الأقلّ قبل التفعيل.';
+  end if;
+  if v_sum <> v.basis_kg then
+    raise exception 'basis_mismatch' using hint = format('مجموع مواد الخلطة %s كغم، والأساس %s كغم: الفرق %s كغم. عدّل الكميات أو الأساس حتّى يتساويا.',
+      to_char(v_sum, 'FM999999990.999'), to_char(v.basis_kg, 'FM999999990.999'), to_char(v_sum - v.basis_kg, 'FM999999990.999'));
+  end if;
+  select x.id into v_old from public.recipe_versions x where x.org_id = v_org and x.recipe_id = v.recipe_id and x.status = 'active' for update;
+  if v_old is not null then
+    update public.recipe_versions set status = 'retired', retired_at = now(), version = version + 1 where org_id = v_org and id = v_old;
+  end if;
+  update public.recipe_versions set status = 'active', activated_at = now(), activated_by = auth.uid(), version = version + 1
+  where org_id = v_org and id = v.id;
+  return jsonb_build_object('id', v.id, 'recipe_id', v.recipe_id, 'version_no', v.version_no, 'status', 'active',
+    'basis_kg', v.basis_kg::text, 'lines', v_count, 'retired_id', v_old);
+end
+$$;
+
+-- public.confirm_production_costs كما في 0015_mill_recipes_production.sql حرفاً بحرف:
+create or replace function public.confirm_production_costs(p_id uuid, p_expected_version int) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  d public.production_batches;
+begin
+  set local lock_timeout = '5s';
+  perform private.require('costs.load');
+  select * into d from public.production_batches where org_id = v_org and id = p_id;
+  if d.id is null then
+    raise exception 'doc_not_found' using hint = 'هذه الدفعة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  perform private.stock_wh(d.input_warehouse_id, false);
+  select * into d from public.production_batches where org_id = v_org and id = p_id for update;
+  if d.status <> 'draft' then
+    raise exception 'not_draft' using hint = 'هذه الدفعة مرحَّلة أو ملغاة؛ لا يُختَم كلفها.';
+  end if;
+  if p_expected_version is null or d.version <> p_expected_version then
+    raise exception 'stale_draft' using hint = 'تغيّرت الدفعة بعد فتحها. حدّث الشاشة وأعد المحاولة.';
+  end if;
+  if d.costs_confirmed_at is not null then
+    return jsonb_build_object('id', d.id, 'costs_confirmed', true, 'written', false, 'version', d.version);
+  end if;
+  update public.production_batches set costs_confirmed_at = now(), costs_confirmed_by = auth.uid(), version = version + 1
+  where org_id = v_org and id = d.id;
+  return jsonb_build_object('id', d.id, 'costs_confirmed', true, 'written', true, 'version', d.version + 1);
+end
+$$;
+
 -- ٢) الدوالّ الجديدة والمساعدات:
 drop function if exists public.create_recipe(uuid, uuid, text, uuid, numeric, jsonb, jsonb, boolean);
+drop function if exists public.new_recipe_version(uuid, uuid);
+drop function if exists private.shrink_ok(numeric, numeric);
 drop function if exists public.set_item_cost_price(uuid, numeric, numeric);
 drop function if exists public.add_production_input(uuid, uuid, uuid, numeric, uuid, text);
 drop function if exists private.recipe_expected(uuid);
 drop function if exists private.item_last_price(uuid);
 drop function if exists private.mill_expense_free(uuid, uuid);
 drop function if exists private.money_text(numeric);
+
+-- ٢-ب) سياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016؛ سياستا جدولَي التكاليف والتحميلات تسقطان بإسقاطهما في ٣):
+drop policy if exists production_inputs_batch_scope on public.production_inputs;
+drop policy if exists production_values_batch_scope on public.production_values;
+drop policy if exists production_input_values_batch_scope on public.production_input_values;
+drop policy if exists audit_log_mill_scope on public.audit_log;
 
 -- ٣) الجداول (الأبناء قبل الآباء؛ إسقاط الجدول يُسقط مشغّلاته وسياساته)، ثمّ حرّاسها:
 drop table if exists public.production_cost_allocations;

@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { useCallback, useDeferredValue, useId, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -22,13 +23,15 @@ import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { ItemCursor, ItemFields, ItemRow, ItemTwin, ItemUnitRow, OrgSetup, PackTypeRow } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
-import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
+import { activeTwins, baseUnitLabel, buyPath, categoryNamedLikeItem, itemKindLabel, itemKindOption } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 
 // المواد (خطّة المرحلة 1 WP2، FOUNDATION ٢٦٨–٢٧٣ و٨١٢–٨١٣): جدول بالبحث بالاسم (searchable) والرمز (normalizeCode)، وصفحات
 // بالمعرّف، و«N من المجموع» من القاعدة. النموذج: النوع ووحدة الأساس والكثافة وكتلة القطعة والانتهاء والخطوة والحدّ الأدنى
 // والباركود والرموز الإضافية (تنضاف وتنشال من هنا بس، ماكو «اربط رمزاً بمادّة»). قبل الحفظ التوائم: نفس الاسم تنبيه يمرّ
 // بالتأكيد، ونفس الرمز رفض (الرمز يدلّ على مادّة واحدة). ووحدات التعبئة من أحجام الإعدادات أو مخصّصة، بافتراضي واحد.
+// والمادّة الجديدة بالتدفّق نفسه لنافذة «مادّة جديدة» في المخزن (الملاحظة #21، كلمة المالك 2026-11-04): التوأم الفعّال يقترح
+// «سجّل شراءً جديداً لـ«س»» أوّلاً و«احفظ مادّة أخرى بالاسم نفسه» ثانياً، والنوع بأمثلة، والتصنيف قسم لا اسم مادّة.
 
 const PROBLEM_TEXT: Record<ItemProblem, () => string> = {
   name: () => t('constraint.items_name_check', 'اسم المادّة مطلوب، ولا يزيد على 120 حرفاً.'),
@@ -152,6 +155,32 @@ export function twinVerdict(twins: readonly ItemTwin[], selfId: string | null): 
 }
 
 /**
+ * التوائم التي يُسجَّل لها شراء بدل مادّة ثانية (#21، مثل نافذة «مادّة جديدة»): الفعّالة بالاسم نفسه أو برمز مشترك، بلا تكرار،
+ * وثلاث على الأكثر. للمادّة الجديدة وحدها: تعديل مادّة قائمة باسم توأمها لا يُحلّ بشراء.
+ */
+export function buyableTwins(verdict: { codes: readonly ItemTwin[]; names: readonly ItemTwin[] }): ItemTwin[] {
+  const out: ItemTwin[] = [];
+  for (const twin of activeTwins([...verdict.codes, ...verdict.names])) if (!out.some((other) => other.id === twin.id)) out.push(twin);
+  return out.slice(0, 3);
+}
+
+/**
+ * «سجّل شراءً جديداً لـ«س»» رابطاً إلى ورقة استلام للمادّة الموجودة (المخزن يُختار بالنموذج: صفحة المواد بلا مخزن). نسخة من
+ * زرّ BuyLink الأوّل في stock-shared بأصنافه نفسها: استيراده من هنا يقسمه حزمة محفوظة تستورد stores-admin المستثناة (pwa-guard).
+ */
+function TwinBuyLink({ twin }: { twin: ItemTwin }) {
+  return (
+    <Link
+      to={buyPath(twin.id, null)}
+      className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400"
+      data-action="buy-item"
+    >
+      {t('twin.buy', 'سجّل شراءً جديداً لـ«{name}»', { name: twin.name })}
+    </Link>
+  );
+}
+
+/**
  * الحدّ الأدنى عمود لكل وحدة أساس بالصفحة، والوحدة برأسه (قانون الجداول وE23): الكمية بـfmtQtyCell بمراتب ثابتة للعمود، ثلاث
  * للكيلو واللتر وصفر للقطع (القطع أعداد صحيحة، items_pieces_whole_check). عمود واحد لكل الوحدات كان يطلّع «10.0» قطع.
  */
@@ -214,14 +243,14 @@ export function ItemForm({ form, setForm, categories, errors, id, isNew = false 
         <input id={`${id}-name`} className="input" maxLength={120} value={form.name} onChange={(event) => set({ name: event.target.value })} data-autofocus />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id={`${id}-kind`} label={t('items.kind', 'النوع')} error={errors.kind}>
+        <Field id={`${id}-kind`} label={t('items.kind', 'النوع')} error={errors.kind} hint={t('item_form.kind.hint', 'النوع يحدّد المخزن الذي تُستلم فيه المادّة.')}>
           <select id={`${id}-kind`} className="input" value={form.kind} onChange={(event) => {
             const kind = event.target.value as ItemKind;
             set(COUNTED_KINDS.has(kind) ? { kind, baseUnit: 'pc', step: '1', density: '' } : { kind });
-          }}>
+          }} data-action="pick-kind">
             {ITEM_KINDS.map((kind) => (
               <option key={kind} value={kind}>
-                {itemKindLabel(kind)}
+                {itemKindOption(kind)}
               </option>
             ))}
           </select>
@@ -259,8 +288,8 @@ export function ItemForm({ form, setForm, categories, errors, id, isNew = false 
             </div>
           </Field>
         ) : null}
-        <Field id={`${id}-category`} label={t('items.category', 'التصنيف')}>
-          <select id={`${id}-category`} className="input" value={form.categoryId} onChange={(event) => set({ categoryId: event.target.value })}>
+        <Field id={`${id}-category`} label={t('items.category', 'التصنيف')} hint={t('item_form.category.hint', 'التصنيف قسم يجمع موادّ متشابهة، مثل «الغذاء» أو «الإضافات».')}>
+          <select id={`${id}-category`} className="input" value={form.categoryId} onChange={(event) => set({ categoryId: event.target.value })} data-action="pick-category">
             <option value="">{t('items.category.none', 'دون تصنيف')}</option>
             {categories.filter((category) => !category.archived || category.id === form.categoryId).map((category) => (
               <option key={category.id} value={category.id}>
@@ -269,6 +298,13 @@ export function ItemForm({ form, setForm, categories, errors, id, isNew = false 
             ))}
           </select>
         </Field>
+        {categoryNamedLikeItem(form.name, categories.find((category) => category.id === form.categoryId)) ? (
+          <div className="sm:col-span-2">
+            <Notice tone="warning" title={t('item_form.category.same_name', 'اسم التصنيف مثل اسم المادّة')}>
+              {t('item_form.category.same_name.detail', 'التصنيف قسم يجمع موادّ كثيرة؛ اختر قسماً أعمّ مثل «الغذاء»، أو اترك المادّة دون تصنيف.')}
+            </Notice>
+          </div>
+        ) : null}
         {form.baseUnit === 'L' ? (
           <Field id={`${id}-density`} label={t('items.density', 'الكثافة (كغم لكل لتر)')} hint={t('items.density.hint', 'أربع مراتب كحدّ أقصى، مثل 0.92.')} error={errors.density}>
             <input id={`${id}-density`} inputMode="decimal" dir="ltr" className="input tabular-nums" value={form.density} onChange={(event) => set({ density: event.target.value })} />
@@ -327,7 +363,7 @@ export function ItemForm({ form, setForm, categories, errors, id, isNew = false 
   );
 }
 
-function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; setup: Pick<OrgSetup, 'itemCategories'>; onClose: () => void; onSaved: (item: ItemRow) => void }) {
+function ItemDialog({ item, setup, canBuy, onClose, onSaved }: { item: ItemRow | null; setup: Pick<OrgSetup, 'itemCategories'>; canBuy: boolean; onClose: () => void; onSaved: (item: ItemRow) => void }) {
   const id = useId();
   const [form, setForm] = useState(() => formOf(item));
   const [errors, setErrors] = useState<ReturnType<typeof fieldsOf>['errors']>({});
@@ -340,6 +376,10 @@ function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; s
   const dirty = Object.keys(item ? patch : changedFields(original, fields)).length > 0;
   // التنبيه بالاسم يمرّ بالتأكيد مرّة لنفس الاسم: تغيير الاسم بعده يرجّع الفحص.
   const confirmed = twins !== null && twins.codes.length === 0 && twins.names.length > 0;
+  // مادّة جديدة وتوأمها فعّال (#21): الفعل الأوّل «سجّل شراءً جديداً» له (المادّة تُضاف مرّة واحدة، وكلّ شراء ورقة استلام)،
+  // و«احفظ مادّة أخرى بالاسم نفسه» ثانياً. بلا صلاحية الاستلام يبقى التنبيه كما كان.
+  const buyable = item === null && canBuy && twins !== null ? buyableTwins(twins) : [];
+  const twinNames = (list: readonly ItemTwin[]) => list.map((twin) => (twin.archived ? t('items.archived.name', '{name} (مؤرشفة)', { name: twin.name }) : twin.name)).join(t('list.separator', '، '));
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -389,9 +429,12 @@ function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; s
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button type="submit" form={formId} busy={busy} disabled={(item !== null && !dirty) || (twins?.codes.length ?? 0) > 0} data-action={confirmed ? 'save-item-twin' : 'save-item'}>
-            {confirmed ? t('items.save.twin', 'احفظ رغم التشابه') : t('org.save', 'احفظ')}
+          <Button type="submit" form={formId} busy={busy} variant={buyable.length ? 'secondary' : 'primary'} disabled={(item !== null && !dirty) || (twins?.codes.length ?? 0) > 0} data-action={confirmed ? 'save-item-twin' : 'save-item'}>
+            {confirmed && buyable.length ? t('twin.save_other', 'احفظ مادّة أخرى بالاسم نفسه') : confirmed ? t('items.save.twin', 'احفظ رغم التشابه') : t('org.save', 'احفظ')}
           </Button>
+          {buyable.map((twin) => (
+            <TwinBuyLink key={twin.id} twin={twin} />
+          ))}
         </div>
       }
     >
@@ -403,10 +446,13 @@ function ItemDialog({ item, setup, onClose, onSaved }: { item: ItemRow | null; s
         {twins?.codes.length ? (
           <Notice tone="danger" title={t('items.twin.codes', 'رمز مستعمل لمادّة أخرى')}>
             {twins.codes.map((twin) => t('items.twin.code', '«{codes}» للمادّة «{name}».', { codes: twin.codes.join(t('list.separator', '، ')), name: twin.name })).join(' ')}
+            {buyable.length ? ` ${t('twin.buy.code', 'الرمز يدلّ على المادّة نفسها: سجّل لها شراءً جديداً بدل مادّة ثانية.')}` : null}
           </Notice>
         ) : twins?.names.length ? (
           <Notice tone="warning" title={t('items.twin.names', 'مادّة بالاسم نفسه موجودة')}>
-            {t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twins.names.map((twin) => (twin.archived ? t('items.archived.name', '{name} (مؤرشفة)', { name: twin.name }) : twin.name)).join(t('list.separator', '، ')) })}
+            {buyable.length
+              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام.', { names: twinNames(twins.names) })
+              : t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twinNames(twins.names) })}
           </Notice>
         ) : null}
         {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
@@ -567,6 +613,8 @@ export default function ItemsPage() {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
   const manage = workspace ? can(workspace.role, 'stores.manage') : false;
+  // «سجّل شراءً جديداً» للتوأم لمن يكتب ورقة الاستلام (#21)، مثل نافذة «مادّة جديدة» في المخزن.
+  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const searchId = useId();
@@ -662,6 +710,7 @@ export default function ItemsPage() {
         <ItemDialog
           item={dialog.kind === 'edit' ? dialog.item : null}
           setup={setup.data}
+          canBuy={canBuy}
           onClose={() => setDialog(null)}
           onSaved={(item) => {
             setDialog(null);

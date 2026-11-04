@@ -16,10 +16,10 @@ import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQt
 import { describeError } from '../../lib/errors';
 import { t, Trans } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
-import type { ItemLots, ItemMoves, ItemPurchases, LotRow, MoveRow, PurchaseItem, PurchaseRow } from '../../lib/repo/inventory';
+import type { ItemLots, ItemMoves, ItemPurchases, LastProduction, LotRow, MoveRow, PurchaseItem, PurchaseRow } from '../../lib/repo/inventory';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
-import { useLoad } from '../../lib/useLoad';
+import { useLoad, type LoadState } from '../../lib/useLoad';
 import { BuyLink, countingLabel, countName, PageFooter, qtyCell, qtyColumns, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
 
 // بطاقة المادّة (الخطّة WP4، FOUNDATION ٧٨٥): دفعاتها المتبقّية بترتيب السحب بعمرها (ساعات من الفقس للأفراخ وتنبيه 48 ساعة،
@@ -270,8 +270,37 @@ function PurchaseCard({ row }: { row: PurchaseRow }) {
   );
 }
 
+/**
+ * «صُنعت في المعمل — آخر دفعة PD-… بتاريخ …، الكمية» فوق التبويبات (الملاحظة #20): بطاقة العلف المنتج تُفتح من مخزن العلف على
+ * «المشتريات»، فالسطر يقول من أوّل نظرة إنّ المادّة تُصنع، ورقم آخر دفعة رابط لصفحتها (من أيّ موادّ صُنعت وبكم). بلا مال.
+ */
+export function MadeInMill({ made }: { made: LastProduction }) {
+  return (
+    <p className="card p-3 text-sm">
+      <Trans
+        k="item_card.made_in_mill"
+        text="صُنعت في المعمل — آخر دفعة {no} بتاريخ {day}، {qty}"
+        vars={{
+          no: (
+            <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/mill/batch/${made.batchId}`} data-action="open-last-production">
+              <bdi dir="ltr">{made.docNo}</bdi>
+            </Link>
+          ),
+          day: fmtDay(made.producedOn),
+          qty: fmtQty(made.qtyKg, 'kg').main,
+        }}
+      />
+    </p>
+  );
+}
+
+/** نصّ فراغ المشتريات: المادّة التي تُصنع في المعمل لا تُشترى، فالفراغ يقول ذلك بدل «لا شراء بعد». */
+function purchasesEmpty(made: boolean): string {
+  return made ? t('purchases.empty.made', 'لا شراء لهذه المادّة: تُصنع في المعمل.') : t('purchases.empty', 'لا شراء لهذه المادّة بعد.');
+}
+
 /** جدول المشتريات: التاريخ ورقم الاستلام والمورّد والمخزن والكمية بوحدتيها والأسعار والمتبقّي. بلا كلفة: بلا أعمدة مال. */
-export function PurchasesTable({ rows, costs }: { rows: readonly PurchaseRow[]; costs: boolean }) {
+export function PurchasesTable({ rows, costs, made = false }: { rows: readonly PurchaseRow[]; costs: boolean; made?: boolean }) {
   const columns: Column<PurchaseRow>[] = [
     { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.receivedOn) },
     {
@@ -309,7 +338,7 @@ export function PurchasesTable({ rows, costs }: { rows: readonly PurchaseRow[]; 
     );
   }
   columns.push(...qtyColumns(rows, (row) => row.qtyLeft, (unit) => t('purchases.col.left', 'المتبقّي من الوجبة ({unit})', { unit })));
-  return <DataTable caption={t('purchases.caption', 'مشتريات المادّة، الأحدث أوّلاً')} columns={columns} rows={rows} rowKey={(row) => row.lotId} empty={t('purchases.empty', 'لا شراء لهذه المادّة بعد.')} />;
+  return <DataTable caption={t('purchases.caption', 'مشتريات المادّة، الأحدث أوّلاً')} columns={columns} rows={rows} rowKey={(row) => row.lotId} empty={purchasesEmpty(made)} />;
 }
 
 /**
@@ -399,9 +428,10 @@ function priceWords(kind: PriceKind, unit: string) {
 
 /**
  * بطاقة سعر بمحرّرها — سعر البيع (0014) أو سعر الكلفة المكتوب (0016) — تُعرض لأدوار الكلفة، والتغيير لمن يدير المخازن (صلاحية
- * الدالّتين واحدة). الكتابة مشروطة بالسعر الذي شافته الشاشة (price_changed إن غيّره غيره).
+ * الدالّتين واحدة). الكتابة مشروطة بالسعر الذي شافته الشاشة (price_changed إن غيّره غيره). والسعر المحفوظ يرجع للأب من جواب
+ * الخادم نفسه (ع٤): لا قراءة من جديد تطوي البطاقتين وتمسح تعديلاً جارياً في البطاقة الأخرى.
  */
-function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: PriceKind; itemId: string; item: PurchaseItem; lastCost: Fils | null; canEdit: boolean; onSaved: () => void }) {
+function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: PriceKind; itemId: string; item: PurchaseItem; lastCost: Fils | null; canEdit: boolean; onSaved: (price: Fils | null) => void }) {
   const id = useId();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
@@ -416,10 +446,9 @@ function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: P
     if (bad) return;
     setBusy(true);
     try {
-      if (kind === 'sell') await inventory.setItemSellPrice(itemId, next, saved);
-      else await inventory.setItemCostPrice(itemId, next, saved);
+      const price = kind === 'sell' ? await inventory.setItemSellPrice(itemId, next, saved) : await inventory.setItemCostPrice(itemId, next, saved);
       setEditing(false);
-      onSaved();
+      onSaved(price);
     } catch (caught) {
       setFailure(caught);
     } finally {
@@ -470,15 +499,33 @@ function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: P
   );
 }
 
-/** تبويب المشتريات بصفحاته: المخزن فارغ = كل مخازن النطاق. */
-function PurchasesTab({ itemId, warehouseId, costs, canManage }: { itemId: string; warehouseId: string; costs: boolean; canManage: boolean }) {
-  const load = useCallback(() => inventory.loadItemPurchases(itemId, warehouseId || null), [itemId, warehouseId]);
-  const first = useLoad(load, `${itemId}:${warehouseId}`);
+/** السعران كما حفظتهما البطاقة (ع٤): من جواب الخادم، ولقراءة بعينها (قراءة جديدة تأتي بما في الخادم فتغلبهما). */
+interface SavedPrices {
+  of: ItemPurchases | null;
+  sell?: Fils | null;
+  cost?: Fils | null;
+}
+
+/** المادّة بالسعرين المحفوظين من البطاقة فوق القراءة نفسها. */
+export function withSavedPrices(item: PurchaseItem, saved: Pick<SavedPrices, 'sell' | 'cost'>): PurchaseItem {
+  return { ...item, sellPrice: saved.sell !== undefined ? saved.sell : item.sellPrice, costPrice: saved.cost !== undefined ? saved.cost : item.costPrice };
+}
+
+/**
+ * تبويب المشتريات بصفحاته: المخزن فارغ = كل مخازن النطاق. الصفحة الأولى تقرؤها البطاقة نفسها (first) لأنّ سطر «صُنعت في المعمل»
+ * فوق التبويبات منها، فلا قراءتان.
+ */
+function PurchasesTab({ first, itemId, warehouseId, costs, canManage }: { first: LoadState<ItemPurchases>; itemId: string; warehouseId: string; costs: boolean; canManage: boolean }) {
   const [pages, setPages] = useState<ItemPurchases[]>([]);
   const [more, setMore] = useState<More>({ busy: false, error: null });
+  const [saved, setSaved] = useState<SavedPrices>({ of: null });
   if (first.error) return <LoadFailed what={t('purchases.what', 'مشتريات المادّة')} error={first.error} onRetry={first.retry} />;
   if (!first.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
-  const all = [first.data, ...pages];
+  const data = first.data;
+  const item = withSavedPrices(data.item, saved.of === data ? saved : {});
+  const onSaved = (kind: PriceKind) => (price: Fils | null) => setSaved((current) => ({ ...(current.of === data ? current : {}), of: data, [kind]: price }));
+  const made = Boolean(data.lastProduction);
+  const all = [data, ...pages];
   const rows = all.flatMap((page) => page.rows);
   const next = all.at(-1)?.next ?? null;
   const loadMore = () => {
@@ -497,8 +544,8 @@ function PurchasesTab({ itemId, warehouseId, costs, canManage }: { itemId: strin
     <div className="flex flex-col gap-3">
       {costs ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <PriceCard kind="sell" itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} />
-          <PriceCard kind="cost" itemId={itemId} item={first.data.item} lastCost={lastCost} canEdit={canManage} onSaved={first.retry} />
+          <PriceCard kind="sell" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={onSaved('sell')} />
+          <PriceCard kind="cost" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={onSaved('cost')} />
         </div>
       ) : null}
       <LastPurchase rows={rows} />
@@ -506,12 +553,12 @@ function PurchasesTab({ itemId, warehouseId, costs, canManage }: { itemId: strin
         {rows.map((row) => (
           <PurchaseCard key={row.lotId} row={row} />
         ))}
-        {rows.length === 0 ? <li className="card p-4 text-center text-sm text-ink-muted">{t('purchases.empty', 'لا شراء لهذه المادّة بعد.')}</li> : null}
+        {rows.length === 0 ? <li className="card p-4 text-center text-sm text-ink-muted">{purchasesEmpty(made)}</li> : null}
       </ul>
       <div className="hidden sm:block">
-        <PurchasesTable rows={rows} costs={costs} />
+        <PurchasesTable rows={rows} costs={costs} made={made} />
       </div>
-      <PageFooter shown={rows.length} total={first.data.total} next={Boolean(next)} busy={more.busy} error={more.error} what={t('purchases.what', 'مشتريات المادّة')} onMore={loadMore} action="more-purchases" />
+      <PageFooter shown={rows.length} total={data.total} next={Boolean(next)} busy={more.busy} error={more.error} what={t('purchases.what', 'مشتريات المادّة')} onMore={loadMore} action="more-purchases" />
     </div>
   );
 }
@@ -649,8 +696,15 @@ export default function ItemCardPage() {
   const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
   const loadRow = useCallback(() => (canBuy ? inventory.loadItem(itemId) : Promise.resolve(null)), [itemId, canBuy]);
   const row = useLoad(loadRow, `${itemId}#${canBuy}`);
+  // الصفحة الأولى من المشتريات تُقرأ هنا لكلّ تبويب (الملاحظة #20): منها سطر «صُنعت في المعمل» فوق التبويبات، وتبويب المشتريات
+  // يعرضها كما هي بلا قراءة ثانية.
+  const loadPurchases = useCallback(() => inventory.loadItemPurchases(itemId, warehouseId || null), [itemId, warehouseId]);
+  const purchases = useLoad(loadPurchases, `${itemId}:${warehouseId}`);
+  const made = purchases.data?.lastProduction ?? null;
   const buyItem = row.data && !row.data.archived && RECEIVING_KINDS[row.data.kind].length > 0 ? row.data : null;
   const buyStore = buyItem ? stores.find((store) => store.id === warehouseId && !store.archived && RECEIVING_KINDS[buyItem.kind].includes(store.kind)) : undefined;
+  // علف في مخزن العلف لم يُشترَ قطّ وله دفعة إنتاج: يُصنع في المعمل، فلا «اشترِ كمية» تقود إلى ورقة استلام لا تخصّه (#20).
+  const madeFeed = buyItem?.kind === 'feed' && stores.find((store) => store.id === warehouseId)?.kind === 'feed' && made !== null && purchases.data?.rows.length === 0;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -658,7 +712,7 @@ export default function ItemCardPage() {
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {buyItem ? <BuyLink itemId={buyItem.id} warehouseId={buyStore?.id ?? null} /> : null}
+            {buyItem && !madeFeed ? <BuyLink itemId={buyItem.id} warehouseId={buyStore?.id ?? null} /> : null}
             <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
               {t('stores.back', 'المخزن')}
             </Link>
@@ -679,6 +733,7 @@ export default function ItemCardPage() {
           }}
         />
       )}
+      {made ? <MadeInMill made={made} /> : null}
       <Segmented<ItemTab>
         label={t('stock.card.tabs', 'أقسام بطاقة المادّة')}
         options={[
@@ -690,7 +745,7 @@ export default function ItemCardPage() {
         onChange={(next) => setSearch(cardParams(picked, next))}
       />
       {tab === 'purchases' ? (
-        <PurchasesTab key={`${itemId}:${warehouseId}`} itemId={itemId} warehouseId={warehouseId} costs={costs} canManage={canManage} />
+        <PurchasesTab key={`${itemId}:${warehouseId}`} first={purchases} itemId={itemId} warehouseId={warehouseId} costs={costs} canManage={canManage} />
       ) : warehouseId ? (
         <Card key={warehouseId} itemId={itemId} warehouseId={warehouseId} costs={costs} only={tab} />
       ) : setup.data ? (

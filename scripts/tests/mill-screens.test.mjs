@@ -164,9 +164,13 @@ export default async function (t) {
   );
   t.ok(m.problemText('weird_code').includes('weird_code'), 'S3 الرمز المجهول يُسمّى ولا يُخفى');
   const funded = { code: 'costs_unfunded', itemName: null, need: null, have: null, categoryId: 'c-labor', categoryName: 'أيدي عاملة', needAmount: 10_000_00n, haveAmount: 4_000_00n };
-  t.eq(m.unfundedText(funded), '«أيدي عاملة»: المطلوب 10,000.00 والمتاح من المصاريف المسجّلة 4,000.00. سجّل المصروف أوّلاً أو قلّل المبلغ.', 'S3 المصاريف لا تكفي: الفئة والمطلوب والمتاح بفواصل');
-  const blind = m.unfundedText({ ...funded, categoryName: null, needAmount: null, haveAmount: null });
-  t.ok(blind.includes('أكبر من المتاح') && !/\d/u.test(blind), 'S3 ولغير أدوار الكلفة جملة بلا رقم واحد');
+  t.eq(
+    m.unfundedText(funded, 'معمل العلف'),
+    '«أيدي عاملة»: المطلوب 10,000.00 والمتاح من مصاريف وحدة «معمل العلف» المسجّلة 4,000.00. سجّل مصروفاً على وحدة «معمل العلف» بفئة «أيدي عاملة» أو قلّل المبلغ.',
+    'S3 المصاريف لا تكفي: الفئة والمطلوب والمتاح بفواصل، ووحدة المدخلات التي يُسجَّل عليها المصروف (م٤)',
+  );
+  const blind = m.unfundedText({ ...funded, categoryName: null, needAmount: null, haveAmount: null }, 'معمل العلف');
+  t.ok(blind.includes('أكبر من المتاح') && blind.includes('«معمل العلف»') && !/\d/u.test(blind), 'S3 ولمن لا يرى مصاريف الوحدة جملة بلا رقم واحد، والوحدة مسمّاة');
 
   // ── S4: كميات الإنتاج: كيلوغرام وطن، وأربع كميات سريعة ─────────────────────────────────────────────────────────────
   t.same(m.PRODUCE_UNITS.map((option) => [option.id, option.perUnit]), [['kg', 1_000n], ['ton', 1_000_000n]], 'S4 الإنتاج بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)');
@@ -240,6 +244,7 @@ function recipeJson(money) {
         unit: 'kg',
         mass_kg: '600.000',
         share_pct: '60.00',
+        in_basis: true,
         ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}),
       },
     ],
@@ -272,7 +277,7 @@ function previewJson(money) {
     shrink_reason: null,
     shrink_ok: true,
     costs_confirmed: false,
-    input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
+    input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية', division_id: 'd-mill', division_name: 'معمل العلف' },
     output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
     lines: [
       { input_id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, draw_qty: '600.000', in_basis: true, tracks_expiry: false, ...(money ? { money: { value: '270000.00' } } : {}) },
@@ -322,8 +327,8 @@ function batchJson(status, money) {
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
     output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
     lines: [
-      { id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, used_qty: posted ? '600.000' : null, in_basis: true, is_substitute: false, reason: null, replaced_item_name: null, ...(money ? { money: { value: posted ? '270000.00' : null } } : {}) },
-      { id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, used_qty: posted ? '300.000' : null, in_basis: true, is_substitute: true, reason: 'نفدت الكسبة 44٪', replaced_item_name: 'كسبة صويا 44٪', ...(money ? { money: { value: posted ? '279000.00' : null } } : {}) },
+      { id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, used_qty: posted ? '600.000' : null, in_basis: true, is_substitute: false, reason: null, replaced_item_name: null, draws: posted ? [] : null, ...(money ? { money: { value: posted ? '270000.00' : null } } : {}) },
+      { id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, used_qty: posted ? '300.000' : null, in_basis: true, is_substitute: true, reason: 'نفدت الكسبة 44٪', replaced_item_name: 'كسبة صويا 44٪', draws: posted ? [] : null, ...(money ? { money: { value: posted ? '279000.00' : null } } : {}) },
     ],
   };
   if (money) {
@@ -407,11 +412,11 @@ async function parsers(t, repo) {
   const short = preview.problems.find((p) => p.code === 'insufficient_stock');
   t.same([short.need, short.have, short.needAmount], [310_000n, 300_000n, null], 'S7 ومشكلة الرصيد كميات كما كانت');
   const blindPreview = repo.parsePreview(previewJson(false));
-  t.same([blindPreview.costs, blindPreview.extraValue, blindPreview.problems[1]], [null, null, { code: 'costs_unfunded', itemName: null, need: null, have: null, categoryId: null, categoryName: null, needAmount: null, haveAmount: null }], 'S7 لغير أدوار الكلفة: لا سطور تكاليف، وcosts_unfunded رمز بلا أرقام');
+  t.same([blindPreview.costs, blindPreview.extraValue, blindPreview.problems[1]], [null, null, { code: 'costs_unfunded', itemName: null, need: null, have: null, categoryId: null, categoryName: null, needAmount: null, haveAmount: null, expiryOn: null, producedOn: null }], 'S7 لغير أدوار الكلفة: لا سطور تكاليف، وcosts_unfunded رمز بلا أرقام');
 
   // production_detail: البديل وما حلّ محلّه، والتحميلات، والوجبات المسحوبة إن أرسلها الخادم.
   const posted = repo.parseBatch(batchJson('posted', true));
-  t.same([posted.lines[1].isSubstitute, posted.lines[1].reason, posted.lines[1].replacedItemName, posted.lines[0].draws], [true, 'نفدت الكسبة 44٪', 'كسبة صويا 44٪', null], 'S7 سطر الدفعة: بديل بسببه واسم ما حلّ محلّه، وبلا draws null');
+  t.same([posted.lines[1].isSubstitute, posted.lines[1].reason, posted.lines[1].replacedItemName, posted.lines[0].draws], [true, 'نفدت الكسبة 44٪', 'كسبة صويا 44٪', []], 'S7 سطر الدفعة: بديل بسببه واسم ما حلّ محلّه، والوجبات قائمة (فارغة هنا)');
   t.same(posted.costs?.[0].allocations, [{ expenseId: 'e-1', onDate: '2026-11-01', amount: 15_000_00n, label: 'نقداً من الصندوق' }], 'S7 تحميلات سطر التكاليف من المصاريف');
   t.same([posted.extraValue, posted.costs?.[0].available], [15_000_00n, null], 'S7 extra_value للمرحَّلة، ولا available في البطاقة');
   const draftBatch = repo.parseBatch(batchJson('draft', true));

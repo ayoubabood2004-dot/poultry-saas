@@ -31,7 +31,7 @@ async function screensParser() {
       ...BUNDLE,
       stdin: {
         contents: [
-          "export { parseRecipes, parseRecipe, parsePreview, parseBatch, parseProductions, parseCreatedRecipe } from './src/lib/repo/mill.ts';",
+          "export { parseRecipes, parseRecipe, parsePreview, parseBatch, parseProductions, parseCreatedRecipe, parseNewRecipeVersion } from './src/lib/repo/mill.ts';",
           "export { parseItemLots, parseItemPurchases } from './src/lib/repo/inventory.ts';",
           "export { parseExpenseReport } from './src/lib/repo/cash.ts';",
         ].join('\n'),
@@ -70,8 +70,9 @@ async function screensRepo() {
         contents: [
           'export { createRecipe, loadRecipe, loadMill, loadBuilder, createProduction, previewProduction, loadBatch, addProductionInput,',
           '  deleteProductionInput, addBatchCost, setBatchCost, deleteBatchCost, addRecipeRate, setRecipeRate, deleteRecipeRate, setInputActual,',
-          "  confirmCosts, postProduction } from './src/lib/repo/mill.ts';",
-          "export { loadItemLots, loadItemPurchases, setItemCostPrice } from './src/lib/repo/inventory.ts';",
+          "  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories } from './src/lib/repo/mill.ts';",
+          'export { loadItemLots, loadItemPurchases, setItemCostPrice, createExpenseCategory, createItem, loadItem, updateItem, findItemTwins }',
+          "  from './src/lib/repo/inventory.ts';",
           "export { loadExpenses, voidExpense } from './src/lib/repo/cash.ts';",
           "export { RejectedError } from './src/lib/errors.ts';",
         ].join('\n'),
@@ -234,7 +235,8 @@ const local = (canonical) => `0${canonical.slice(3)}`;
 let refs = 0;
 const ref = () => id(900 + (refs += 1));
 
-const U = { owner: id(1), manager: id(2), miller: id(3), accountant: id(4), keeper: id(5) };
+// accRaw: محاسب نطاقه مخزن المواد الأوّلية وحده (إصلاحات مراجعة 0016، ق١١): يرى الكلفة ولا يرى مصاريف وحدة المعمل.
+const U = { owner: id(1), manager: id(2), miller: id(3), accountant: id(4), keeper: id(5), accRaw: id(6) };
 
 export default async function (t, db) {
   await db.setToday(TODAY, () => scenario(t, db));
@@ -254,14 +256,15 @@ async function scenario(t, db) {
   const RAW = await wh('raw');
   const FEEDWH = await wh('feed');
 
-  const invite = async (user, n, role, divisions = []) => {
-    const member = await one(U.owner, 'select public.add_member_v2($1, $2, $3, $4::uuid[], $5::uuid[], $6::uuid[]) as id', [local(phone(n)), role, role, divisions, [], []]);
+  const invite = async (user, n, role, divisions = [], warehouses = []) => {
+    const member = await one(U.owner, 'select public.add_member_v2($1, $2, $3, $4::uuid[], $5::uuid[], $6::uuid[]) as id', [local(phone(n)), role, role, divisions, [], warehouses]);
     await db.acceptInvite(U.owner, user, member);
   };
   await invite(U.manager, 2, 'manager');
   await invite(U.miller, 3, 'mill_operator', [MILL]);
   await invite(U.accountant, 4, 'accountant');
   await invite(U.keeper, 5, 'storekeeper');
+  await invite(U.accRaw, 6, 'accountant', [], [RAW]);
 
   /** نداء بمعاملة تثبت إذا نجح: { ok, v, rows } أو { ok: false, code, hint }. */
   const call = async (user, sql, params = []) => {
@@ -479,13 +482,19 @@ async function scenario(t, db) {
     'الرفض يرجّع كلّ شيء: الدفعة مسوّدة ولا تحميل',
   );
   const confirm = (user, batch) => call(user, 'select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [batch]);
-  t.ok((await confirm(U.accountant, B1)).ok, 'المحاسب يختم الكلف');
-  const millerOverloaded = await post(U.miller, B1);
-  t.ok(code(millerOverloaded) === 'expense_overloaded' && /أيدي عاملة/u.test(millerOverloaded.hint ?? '') && !/[0-9]/u.test(millerOverloaded.hint ?? ''),
-    `مشغّل المعمل بعد الختم: expense_overloaded يسمّي الفئة بلا رقم (${millerOverloaded.hint})`);
+  // مراجعة 0016 (#1 و#8): الختم يأذن لمشغّل المعمل بالترحيل، فلا يُختم ما يُرفض ترحيله (FOUNDATION ٥٦٠): المتاح 8,000 والسطر 10,000.
+  // (كان الختم يمرّ هنا فيُرفض بعده ترحيل مشغّل المعمل؛ وتلميحه بلا أرقام لمن لا يرى وحدة المدخلات في mill2-fixes.)
+  const unfundedSeal = await confirm(U.accountant, B1);
+  t.same(
+    [code(unfundedSeal), unfundedSeal.hint, (await db.admin('select costs_confirmed_at is null as open from public.production_batches where id = $1', [B1])).rows[0].open],
+    ['expense_overloaded', 'أيدي عاملة: المطلوب 10,000 والمتاح من المصاريف المسجّلة 8,000. سجّل المصروف أوّلاً أو قلّل المبلغ.', true],
+    'الختم والمتاح أقلّ من السطر: expense_overloaded بأرقامه للمحاسب، والدفعة تبقى بلا ختم',
+  );
+  t.eq(code(await post(U.miller, B1)), 'forbidden', 'مشغّل المعمل لا يرحّل دفعة لم تُختم كلفها');
   const E2 = await expense(502, LABOR, MILL, 5000, 2, 'أجور الأسبوع الثاني');
   const p2 = await preview(U.accountant, B1);
   t.same([p2.money.costs.map((c) => c.available), p2.problems, p2.can_post], [['13000.00', '4000.00'], [], true], 'بعد مصروف ثانٍ: المتاح 13,000 يكفي، ولا مشكلة');
+  t.ok((await confirm(U.accountant, B1)).ok, 'المحاسب يختم الكلف بعد أن كفتها المصاريف');
   const posted = await post(U.miller, B1);
   t.ok(posted.ok && posted.v.status === 'posted' && posted.v.money === undefined, `مشغّل المعمل يرحّل بعد الختم، وجوابه بلا مال (${posted.code ?? ''} ${posted.hint ?? ''})`);
   const DOC1 = posted.v.doc_no;
@@ -535,12 +544,9 @@ async function scenario(t, db) {
   t.ok((await create(U.miller, B2, V1, 1000)).ok, 'دفعة ثانية 1,000 كغم: أيدي عاملة 5,000.00 وكهرباء 1,500.00');
   const stamp = async (batch) => (await db.admin('select costs_confirmed_at is not null as s, version from public.production_batches where id = $1', [batch])).rows[0];
   const laborB2 = (await db.admin('select id from public.production_costs where batch_id = $1 and category_id = $2', [B2, LABOR])).rows[0].id;
-  await confirm(U.accountant, B2);
-  const sealed = await stamp(B2);
-  const edited = await call(U.accountant, 'update public.production_costs set amount = 6000 where id = $1 returning amount::text', [laborB2]);
-  const afterEdit = await stamp(B2);
-  t.same([sealed.s, edited.v, afterEdit.s, afterEdit.version], [true, '6000.00', false, sealed.version + 1], 'تعديل مبلغ سطر بعد الختم يفرّغ الختم ويزيد نسخة الدفعة');
-  await confirm(U.accountant, B2);
+  // المتاح بعد إلغاء B1 وE1: «أيدي عاملة» E2 (5,000) و«كهرباء» E3 (4,000)، فالسطران (5,000 و1,500) مكفيّان والختم يمرّ. (تعديل السطر
+  // إلى 6,000 آخر القسم: بعده لا يُختم، مراجعة 0016 #1.)
+  t.ok((await confirm(U.accountant, B2)).ok, 'ختم الدفعة الثانية والمصاريف تكفي سطريها');
   const same = await call(U.accountant, 'update public.production_costs set amount = amount where id = $1 returning id', [laborB2]);
   t.same([same.ok, (await stamp(B2)).s], [true, true], 'كتابة السطر بالمبلغ نفسه ليست تعديلاً: الختم يبقى');
   const manual = await call(U.manager, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 2000) returning line_no', [B2, TRANSPORT]);
@@ -580,9 +586,20 @@ async function scenario(t, db) {
     'المصدر والفئة غير ممنوحين: سطر «الخلطة» لا يكتبه إلّا create_production، والفئة لا تتغيّر',
   );
   const transportB2 = (await db.admin('select id from public.production_costs where batch_id = $1 and category_id = $2', [B2, TRANSPORT])).rows[0].id;
-  await confirm(U.accountant, B2);
+  t.ok((await confirm(U.accountant, B2)).ok, 'ختم ثالث: «نقل» 2,000 من مصروف النقل 20,000 مكفيّ');
   const dropped = await call(U.accountant, "select public.delete_draft_line('production_cost', $1, (select version from public.production_batches where id = $2)) ->> 'deleted' as v", [transportB2, B2]);
   t.same([dropped.v, (await stamp(B2)).s], ['true', false], 'delete_draft_line(production_cost) يحذف السطر ويفرّغ الختم');
+  t.ok((await confirm(U.accountant, B2)).ok, 'ختم رابع بعد حذف «نقل»');
+  const sealed = await stamp(B2);
+  const edited = await call(U.accountant, 'update public.production_costs set amount = 6000 where id = $1 returning amount::text', [laborB2]);
+  const afterEdit = await stamp(B2);
+  t.same([sealed.s, edited.v, afterEdit.s, afterEdit.version], [true, '6000.00', false, sealed.version + 1], 'تعديل مبلغ سطر بعد الختم يفرّغ الختم ويزيد نسخة الدفعة');
+  const overSeal = await confirm(U.accountant, B2);
+  t.same(
+    [code(overSeal), overSeal.hint, (await stamp(B2)).s],
+    ['expense_overloaded', 'أيدي عاملة: المطلوب 6,000 والمتاح من المصاريف المسجّلة 5,000. سجّل المصروف أوّلاً أو قلّل المبلغ.', false],
+    'مراجعة 0016 (#1): ختم سطر 6,000 والمتاح 5,000 يُرفض expense_overloaded، والدفعة تبقى بلا ختم',
+  );
   // بعد إلغاء B1 وE1: «أيدي عاملة» المؤهّلة E2 وحده (5,000)، والسطر 6,000 ← ناقص؛ و«كهرباء» E3 كلّه (4,000) يكفي 1,500.
   const pAcc = await preview(U.accountant, B2);
   const pMil = await preview(U.miller, B2);
@@ -766,7 +783,10 @@ async function scenario(t, db) {
     ['production_extra_value', [[POST_FN, [['v_extra := v_extra + c.amount;', 'v_extra := v_extra + 0;']]]], 'الترحيل يتجاهل التكاليف في extra_value وقيمة الناتج'],
     ['production_cost_allocated', [[POST_FN, [['v_left := v_left - v_take;', 'v_left := 0;']]]], 'الترحيل يكتفي بأوّل مصروف (300 من سطر 1,000)'],
     ['expense_over_allocated', [[POST_FN, [['v_take := round(least(v_left, e.free), 2);', 'v_take := v_left;']]]], 'الترحيل يحمّل السطر كلّه على أوّل مصروف (1,000 من مصروف 300)'],
-    ['allocation_mismatch', [[POST_FN, [['x.category_id = c.category_id and ', '']]]], 'الترحيل يحمّل من مصروف أيّ فئة (الأقدم «نقل»)'],
+    // مراجعة 0016 (#0): التحميل ممّا قفلته جملة القفل وحدها، فـ«أيّ فئة» تُنسى في الجملتين معاً (القفل والحلقة).
+    ['allocation_mismatch', [[POST_FN, [['x.category_id = c.category_id and ', ''],
+      ['and x.category_id in (select pc.category_id from public.production_costs pc where pc.org_id = v_org and pc.batch_id = d.id and pc.amount > 0)', '']]]],
+    'الترحيل يحمّل من مصروف أيّ فئة (الأقدم «نقل»)'],
   ];
   for (const [check, fns, label] of cases) {
     const outcome = await mutated(fns, (oq) => runBatch(oq, id(402)));
@@ -791,7 +811,8 @@ async function scenario(t, db) {
   }, U.manager).catch((error) => error.message);
   t.eq(guarded, 'expense_allocated', 'ضابط: الإلغاء السليم يرفض expense_allocated في السيناريو نفسه');
   const inputFn = 'public.add_production_input(uuid, uuid, uuid, numeric, uuid, text)';
-  const noReason = await mutated([[inputFn, [['if v_reason is null or length(v_reason) < 3 then', 'if false then'], ['true, p_replaces is not null, v_reason, o.item_id);', 'true, p_replaces is not null, null, o.item_id);']]]], async (oq) => {
+  const noReason = await mutated([[inputFn, [['if v_reason is null or length(v_reason) < 3 then', 'if false then'],
+    ["i.kind not in ('fuel', 'packaging'), p_replaces is not null, v_reason, o.item_id);", "i.kind not in ('fuel', 'packaging'), p_replaces is not null, null, o.item_id);"]]]], async (oq) => {
     await oq('select public.create_production($1, $2, 100, $3, $4, public.app_today())', [id(405), V4, RAW, FEEDWH]);
     const line = (await oq('select id from public.production_inputs where batch_id = $1', [id(405)])).rows[0].id;
     await oq("select public.add_production_input($1, $2, $3, 100, $4, 'نفدت النخالة')", [id(405), id(406), WHEAT, line]);
@@ -864,6 +885,12 @@ async function scenario(t, db) {
     [['costs_unfunded', LABOR, 'أيدي عاملة', 1000000n, 0n, null, null], ['costs_unfunded', POWER, 'كهرباء', 300000n, 0n, null, null]],
     'parsePreview: costs_unfunded مالاً بمرتبتين (needAmount وhaveAmount)، لا كمية',
   );
+  // مخزن المدخلات بوحدته (مراجعة 0016، ق١٥ وم٤): التنبيه ورابط «سجّل مصروفاً» يسمّيان الوحدة التي تُحمَّل التكاليف من مصاريفها.
+  const nameOf = async (table, rowId) => (await db.admin(`select name from public.${table} where id = $1`, [rowId])).rows[0].name;
+  const RAW_NAME = await nameOf('warehouses', RAW);
+  const FEEDWH_NAME = await nameOf('warehouses', FEEDWH);
+  const MILL_NAME = await nameOf('divisions', MILL);
+  t.same(view0?.inputWarehouse, { id: RAW, name: RAW_NAME, divisionId: MILL, divisionName: MILL_NAME }, `parsePreview: مخزن المدخلات بوحدته (division_id وdivision_name: «${MILL_NAME}»)`);
   const viewMiller = parsed('parsePreview (مشغّل المعمل)', () => ui.parsePreview(pm));
   t.same(
     viewMiller && [viewMiller.inputValue, viewMiller.extraValue, viewMiller.totalValue, viewMiller.costPerKg, viewMiller.costs, viewMiller.lines.map((l) => l.value), viewMiller.canPost],
@@ -875,6 +902,7 @@ async function scenario(t, db) {
     [['costs_unfunded', null, null, null, null], ['costs_pending', null, null, null, null]],
     'parsePreview (مشغّل المعمل): costs_unfunded بلا فئة ولا أرقام، وانتظار الختم',
   );
+  t.same(viewMiller?.inputWarehouse, view0?.inputWarehouse, 'parsePreview (مشغّل المعمل): مخزن المدخلات بوحدته بلا مال');
   const view2 = parsed('parsePreview (بعد المصروف الثاني)', () => ui.parsePreview(p2));
   t.same(view2 && [view2.costs.map((c) => c.available), view2.problems, view2.canPost], [[1300000n, 400000n], [], true], 'parsePreview: بعد المصروف الثاني المتاح 13,000.00 و4,000.00 ولا مشكلة');
   // الدفعة الثانية (1,000 كغم، القسم ٤): المواد 600 × 900 + 400 × 1,500 = 1,140,000.00، والتكاليف 6,000 + 1,500 = 7,500.00،
@@ -926,6 +954,24 @@ async function scenario(t, db) {
     ],
     'parseBatch (مرحَّلة): التحميلات بالمصروف وتاريخه ومبلغه ووصفه',
   );
+  // من أيّ وجبات سُحب كلّ سطر (ق١٦، م١٣): وجبة استلام الذرة الوحيدة (2,000 كغم) ووجبة الصويا، بالكمية موجبة ورقم الاستلام.
+  const receiptLot = async (itemId) => (await db.admin(`select l.id, r.doc_no from public.stock_lots l join public.receipts r on r.id = l.source_id
+    where l.org_id = $1 and l.item_id = $2 and l.warehouse_id = $3 and l.source_kind = 'receipt'`, [org, itemId, RAW])).rows;
+  const [cornLot] = await receiptLot(CORN);
+  const [soyLot] = await receiptLot(SOY);
+  t.same(
+    batch3?.lines.map((l) => [l.itemName, l.draws?.map((d) => [d.lotId, d.qty, d.receivedOn, d.source])]),
+    [['ذرة صفراء', [[cornLot.id, 60000n, TODAY, cornLot.doc_no]]], ['كسبة صويا', [[soyLot.id, 40000n, TODAY, soyLot.doc_no]]]],
+    `parseBatch (مرحَّلة): draws لكلّ سطر من وجبته ورقم استلامها (${cornLot.doc_no} و${soyLot.doc_no})`,
+  );
+  // والملغاة تبقى تقول من أين سُحبت (السحوبات الأصلية بلا عكسها): الأولى 1,200 ذرة و800 صويا.
+  const detail1Raw = (await call(U.manager, 'select public.production_detail($1)', [B1])).v;
+  const batch1 = parsed('parseBatch (ملغاة)', () => ui.parseBatch(detail1Raw));
+  t.same(
+    batch1 && [batch1.status, batch1.lines.map((l) => [l.itemName, l.draws?.map((d) => [d.lotId, d.qty, d.source])])],
+    ['void', [['ذرة صفراء', [[cornLot.id, 1200000n, cornLot.doc_no]]], ['كسبة صويا', [[soyLot.id, 800000n, soyLot.doc_no]]]]],
+    'parseBatch (ملغاة): draws بالسحوبات الأصلية، لا صفر ولا null',
+  );
   const batch3MillerRaw = (await call(U.miller, 'select public.production_detail($1)', [B3])).v;
   const batch3Miller = parsed('parseBatch (مشغّل المعمل)', () => ui.parseBatch(batch3MillerRaw));
   t.same(
@@ -957,6 +1003,7 @@ async function scenario(t, db) {
     [95000n, null, 1, 2000000n, { invoiceTotal: 180000000n, landedValue: 180000000n, unitCost: 90000n, corrected: false }],
     'parseItemPurchases: سعر الكلفة 950.00 بالفلس بجانب سعر البيع الفارغ، وكلفة وحدة الشراء 900.00',
   );
+  t.eq(buysManager?.lastProduction, null, 'parseItemPurchases: last_production null لمادّة أوّلية لم تُصنع (المفتاح موجود بقيمته)');
   const buysMiller = parsed('parseItemPurchases (مشغّل المعمل)', () => ui.parseItemPurchases(buysMillerRaw));
   t.same(buysMiller && [buysMiller.item.costPrice, buysMiller.item.sellPrice, buysMiller.rows[0].money], [null, null, null], 'parseItemPurchases (مشغّل المعمل): بلا أسعار ولا مال');
 
@@ -1022,6 +1069,109 @@ async function scenario(t, db) {
     t.same(page && [page.drafts.map((d) => d.id), page.rows.length], [[B2], 5], `parseProductions (${label}): المسوّدة والدفعات الخمس`);
   }
 
+  // ─── إصلاحات مراجعة 0016 بمحلّلات الشاشات: كلّ مفتاح جديد من جواب القاعدة الحقيقي ─────────────────────────────────
+  // المحاسب المحصور بمخزن المواد وحده (ق١١، م١٢): يرى الكلفة ولا يرى مصاريف وحدة المعمل، فالمتاح null وcosts_unfunded بلا أرقام.
+  // الدفعة الثانية الآن: صويا 400 وحنطة 600 بديلاً للذرة (القسم ٥)، والحنطة المتاحة 300 وحدها؛ المواد 400 × 1,500 + 300 × 800 =
+  // 840,000.00، والتكاليف 6,000 + 1,500 = 7,500.00، فالكلّي 847,500.00 والكيلو (الكتلة المخطّطة 1,000) 847.50. والمتاح لمن يرى
+  // الوحدة: «أيدي عاملة» 5,000 − 500 (الثالثة) = 4,500.00، و«كهرباء» 4,000 − 150 = 3,850.00.
+  const hiddenRaw = await preview(U.accRaw, B2);
+  const hiddenView = parsed('parsePreview (محاسب المواد)', () => ui.parsePreview(hiddenRaw));
+  t.same(
+    hiddenView && [hiddenView.inputValue, hiddenView.extraValue, hiddenView.totalValue, hiddenView.costPerKg, hiddenView.inputWarehouse,
+      hiddenView.costs?.map((c) => [c.lineNo, c.categoryName, c.plannedAmount, c.amount, c.available])],
+    [84000000n, 750000n, 84750000n, 84750n, { id: RAW, name: RAW_NAME, divisionId: MILL, divisionName: MILL_NAME },
+      [[1, 'أيدي عاملة', 500000n, 600000n, null], [2, 'كهرباء', 150000n, 150000n, null]]],
+    'parsePreview (محاسب المواد): المال ظاهر (دور كلفة) ووحدة المخزن، والمتاح null لكلّ سطر (المفتاح موجود بقيمته)',
+  );
+  t.same(
+    hiddenView?.problems.map((x) => [x.code, x.itemName, x.need, x.have, x.categoryId, x.categoryName, x.needAmount, x.haveAmount]),
+    [['insufficient_stock', 'حنطة', 600000n, 300000n, null, null, null, null], ['costs_unfunded', null, null, null, null, null, null, null]],
+    'parsePreview (محاسب المواد): costs_unfunded واحدة بلا فئة ولا أرقام كغير أدوار الكلفة، بعد نقص الحنطة',
+  );
+  const seenRaw = await preview(U.accountant, B2);
+  const seenView = parsed('parsePreview (المحاسب، الآن)', () => ui.parsePreview(seenRaw));
+  t.same(
+    seenView && [seenView.costs?.map((c) => c.available), seenView.problems.filter((x) => x.code === 'costs_unfunded').map((x) => [x.categoryId, x.needAmount, x.haveAmount])],
+    [[450000n, 385000n], [[LABOR, 600000n, 450000n]]],
+    'ضابط: المحاسب بلا نطاق يرى في اللحظة نفسها المتاح 4,500.00 و3,850.00 والنقص بأرقامه',
+  );
+  // بطاقة الدفعة الثالثة لمحاسب المواد (ق١١، م١٢): القيم ظاهرة، والتحميلات null = «محمَّلة من مصاريف وحدة خارج نطاقك».
+  const hiddenBatchRaw = (await call(U.accRaw, 'select public.production_detail($1)', [B3])).v;
+  const hiddenBatch = parsed('parseBatch (محاسب المواد)', () => ui.parseBatch(hiddenBatchRaw));
+  t.same(
+    hiddenBatch && [hiddenBatch.inputValue, hiddenBatch.extraValue, hiddenBatch.totalValue,
+      hiddenBatch.costs?.map((c) => [c.categoryName, c.amount, c.available, c.allocations]), hiddenBatch.lines.map((l) => l.draws?.map((d) => d.qty))],
+    [11400000n, 65000n, 11465000n, [['أيدي عاملة', 50000n, null, null], ['كهرباء', 15000n, null, null]], [[60000n], [40000n]]],
+    'parseBatch (محاسب المواد): allocations null لكلّ سطر تكاليف (المفتاح موجود)، والقيم والوجبات ظاهرة',
+  );
+
+  // آخر دفعة صنعت العلف (ق١٤، ع٢): الثالثة (الأولى ملغاة لا تُعدّ)، 100 كغم في مخزن العلف، بلا مال.
+  const feedBuys = (user, warehouse) => call(user, 'select public.item_purchases($1, $2, null, 50)', [FEED, warehouse]);
+  const madeFeed = { batchId: B3, docNo: posted3.v.doc_no, producedOn: TODAY, qtyKg: 100000n, warehouseName: FEEDWH_NAME };
+  for (const [label, user] of [['المدير', U.manager], ['مشغّل المعمل', U.miller]]) {
+    const raw = (await feedBuys(user, FEEDWH)).v;
+    const page = parsed(`parseItemPurchases (${label}، العلف)`, () => ui.parseItemPurchases(raw));
+    t.same(page && [page.lastProduction, page.rows.length], [madeFeed, 0], `parseItemPurchases (${label}): last_production آخر دفعة مرحَّلة صنعت العلف، ولا شراء`);
+  }
+  const rawScopeBuys = (await feedBuys(U.accRaw, null)).v;
+  t.eq(parsed('parseItemPurchases (محاسب المواد، العلف)', () => ui.parseItemPurchases(rawScopeBuys))?.lastProduction, null,
+    'parseItemPurchases (محاسب المواد): مخزن العلف خارج نطاقه، فـlast_production null');
+  t.eq(code(await feedBuys(U.accRaw, FEEDWH)), 'out_of_scope', 'ضابط: محاسب المواد لا يقرأ مخزن العلف نفسه');
+
+  // الوقود خارج كتلة الخلطة (ق٣، م١١): «بادئ بالكاز» ذرة 1,000 كغم + كاز 20 لتراً (بكثافة 0.85 = 17.000 كغم) للأساس 1,000 يتفعّل،
+  // وحصّة الكاز 17 × 100 ÷ 1,000 = 1.70٪ خارج الكتلة.
+  const KEROSENE = await one(U.manager, "insert into public.items (name, kind, base_unit, density_kg_per_l) values ('كاز المولّدة', 'fuel', 'L', 0.85) returning id");
+  const R5 = id(143);
+  const fueled = await createRecipe(U.manager, R5, id(144), 'بادئ بالكاز', FEED2, 1000, [{ item_id: CORN, qty: 1000, unit: 'kg' }, { item_id: KEROSENE, qty: 20, unit: 'L' }], [], true);
+  t.same(parsed('parseCreatedRecipe (بالكاز)', () => ui.parseCreatedRecipe(fueled.v)), { id: R5, versionId: id(144), versionNo: 1, status: 'active', lines: 2, rates: 0 },
+    `parseCreatedRecipe: خلطة بسطر كاز مفعَّلة والمجموع بلا الكاز = الأساس (${fueled.code ?? ''} ${fueled.hint ?? ''})`);
+  const fueledRaw = (await call(U.manager, 'select public.recipe_detail($1, null)', [R5])).v;
+  const fueledCard = parsed('parseRecipe (بالكاز)', () => ui.parseRecipe(fueledRaw));
+  t.same(
+    fueledCard && [fueledCard.basisKg, fueledCard.massKg, fueledCard.lines.map((l) => [l.itemName, l.kind, l.unit, l.qty, l.massKg, l.sharePct, l.inBasis])],
+    [1000000n, 1000000n, [['ذرة صفراء', 'raw', 'kg', 1000000n, 1000000n, 10000n, true], ['كاز المولّدة', 'fuel', 'L', 20000n, 17000n, 170n, false]]],
+    'parseRecipe: in_basis لكلّ سطر (الكاز خارج الكتلة)، وmass_kg 1,000 بلا الكاز',
+  );
+
+  // «نسخة جديدة» تنسخ المفعَّلة (ق١٣، م٧): مسوّدة «بادئ ذهبي» الثانية بسطري المفعَّلة ومعدّليها، والإعادة والمسوّدة القائمة ترجعانها.
+  const newVersion = (user, recipe, vid) => call(user, 'select public.new_recipe_version($1, $2)', [recipe, vid]);
+  const copiedRaw = await newVersion(U.manager, R1, id(141));
+  const againRaw = await newVersion(U.manager, R1, id(141));
+  const otherRaw = await newVersion(U.manager, R1, id(142));
+  const COPIED = { recipeId: R1, versionId: id(141), versionNo: 2, status: 'draft', lines: 2, rates: 2, existing: false };
+  t.same(parsed('parseNewRecipeVersion', () => ui.parseNewRecipeVersion(copiedRaw.v)), COPIED, `parseNewRecipeVersion: مسوّدة بسطري المفعَّلة ومعدّليها (${copiedRaw.code ?? ''} ${copiedRaw.hint ?? ''})`);
+  t.same(
+    [parsed('parseNewRecipeVersion (إعادة)', () => ui.parseNewRecipeVersion(againRaw.v)), parsed('parseNewRecipeVersion (مسوّدة قائمة)', () => ui.parseNewRecipeVersion(otherRaw.v))],
+    [{ ...COPIED, existing: true }, { ...COPIED, existing: true }],
+    'parseNewRecipeVersion: الإعادة بالمعرّف نفسه، ومعرّف آخر والمسوّدة قائمة: النسخة نفسها بـexisting',
+  );
+  const copiedDetail = (await call(U.manager, 'select public.recipe_detail($1, $2)', [R1, id(141)])).v;
+  const copiedCard = parsed('parseRecipe (المسوّدة المنسوخة)', () => ui.parseRecipe(copiedDetail));
+  t.same(
+    copiedCard && [copiedCard.versionId, copiedCard.status, copiedCard.basisKg, copiedCard.lines.map((l) => [l.itemName, l.qty, l.unit, l.inBasis]),
+      copiedCard.rates?.map((r) => [r.lineNo, r.categoryName, r.amountPerTon])],
+    [id(141), 'draft', 1000000n, [['ذرة صفراء', 600000n, 'kg', true], ['كسبة صويا', 400000n, 'kg', true]], [[1, 'أيدي عاملة', 500000n], [2, 'كهرباء', 150000n]]],
+    'parseRecipe (المسوّدة المنسوخة): الأساس والسطور والمعدّلات بترتيبها كما في المفعَّلة',
+  );
+  t.eq(code(await newVersion(U.miller, R1, id(142))), 'forbidden', 'new_recipe_version لفعل التفعيل: مشغّل المعمل ممنوع');
+
+  // الناتج لا يولد منتهياً (ق٨، م١٤): علف يتابَع انتهاؤه بتاريخ قبل يوم الإنتاج بثلاثين يوماً (2026-11-04 − 30 = 2026-10-05)،
+  // بمعاملة ترجع فلا يبقى منها صفّ.
+  const expiredRaw = await db.asUser(U.manager, async (q) => {
+    const feedX = (await q("insert into public.items (name, kind, base_unit, tracks_expiry) values ('علف بصلاحية', 'feed', 'kg', true) returning id")).rows[0].id;
+    await q("select public.create_recipe($1, $2, 'خلطة بصلاحية', $3, 1000, $4::jsonb, '[]'::jsonb, true)", [id(145), id(146), feedX, JSON.stringify([{ item_id: CORN, qty: 1000, unit: 'kg' }])]);
+    await q('select public.create_production($1, $2, 100, $3, $4, public.app_today())', [id(147), id(146), RAW, FEEDWH]);
+    await q('update public.production_batches set output_expiry_on = public.app_today() - 30 where id = $1', [id(147)]);
+    return (await q('select public.preview_production($1) as p', [id(147)])).rows[0].p;
+  });
+  const expiredView = parsed('parsePreview (ناتج منتهٍ)', () => ui.parsePreview(expiredRaw));
+  t.same(
+    expiredView && [expiredView.outputExpiryOn, expiredView.canPost, expiredView.problems.map((x) => [x.code, x.expiryOn, x.producedOn, x.itemName])],
+    ['2026-10-05', false, [['output_expired', '2026-10-05', TODAY, null]]],
+    'parsePreview: output_expired بتاريخ انتهاء الناتج ويوم الإنتاج',
+  );
+  t.eq((await db.admin('select count(*)::int as n from public.production_batches where id = $1', [id(147)])).rows[0].n, 0, 'ضابط: معاملة الناتج المنتهي رجعت، لا دفعة باقية');
+
   // ─── ١١) الدمج (ب): repo الحقيقي على القاعدة الحقيقية — الطلب كما تبنيه الشاشة، والجواب بمحلّلها ──────────────────────────────
   // postgrest-js الحقيقي وfetch إلى miniPostgrest فوق db.asUser: اسم معامل لا تعرفه الدالّة يرجع PGRST202 كما يردّ PostgREST، وعمود
   // غير ممنوح أو سياسة ترفض بخطئها؛ والكتابة المشروطة تُعاد بعد «جواب ضاع» فتعرف نتيجتها (درس WP5 وWP6).
@@ -1058,6 +1208,20 @@ async function scenario(t, db) {
     t.same(created, { id: id(131), versionId: id(132), versionNo: 1, status: 'active', lines: 2, rates: 1 }, 'createRecipe من الشاشة: create_recipe بمعاملاته كما تبنيها (الكميات والمبالغ نصوصاً)');
     t.same(await repo.createRecipe(NEW), created, 'createRecipe: الإعادة بالمعرّفين نفسيهما (جواب ضاع) ترجّع الموجود');
     t.eq(await rejected(repo.createRecipe({ ...NEW, name: 'بادئ آخر' })), 'id_conflict', 'createRecipe: المعرّف نفسه باسم آخر: id_conflict');
+    // إصلاح ق٥ وم١: الإعادة تعرف نتيجتها هي — أيّ فرق في السطور أو ترتيبها أو المعدّلات أو الأساس أو طلب التفعيل id_conflict، لا «نجح»
+    // بالمحفوظ القديم (والشاشة تُبقي المعرّفين وتقول إنّ ما حُفظ غير ما تراه، برابطه). والمحفوظ لا يتغيّر (loadRecipe بعده).
+    t.same(
+      [
+        await rejected(repo.createRecipe({ ...NEW, lines: [{ itemId: CORN, qty: 600000n, unit: 'kg' }, { itemId: SOY, qty: 400000n, unit: 'kg' }] })),
+        await rejected(repo.createRecipe({ ...NEW, lines: [...NEW.lines].reverse() })),
+        await rejected(repo.createRecipe({ ...NEW, rates: [] })),
+        await rejected(repo.createRecipe({ ...NEW, rates: [{ categoryId: LABOR, amountPerTon: 450000n }] })),
+        await rejected(repo.createRecipe({ ...NEW, basisKg: 2000000n, lines: [{ itemId: CORN, qty: 1400000n, unit: 'kg' }, { itemId: SOY, qty: 600000n, unit: 'kg' }] })),
+        await rejected(repo.createRecipe({ ...NEW, activate: false })),
+      ],
+      ['id_conflict', 'id_conflict', 'id_conflict', 'id_conflict', 'id_conflict', 'id_conflict'],
+      'createRecipe: الإعادة بالمعرّفين نفسيهما بمحتوى آخر (السطور، وترتيبها، والمعدّلات، والأساس، وطلب التفعيل): id_conflict',
+    );
     // سعر الطنّ للتخطيط: 700 × 950 (المكتوب) + 300 × 1,500 (آخر شراء) = 1,115,000.00، والمعدّل 4,000.00، فالطنّ 1,119,000.00.
     const builtCard = await repo.loadRecipe(id(131));
     t.same(
@@ -1102,9 +1266,21 @@ async function scenario(t, db) {
     const added = await repo.addProductionInput(bran);
     t.same([added.id, added.lineNo], [id(231), 3], 'addProductionInput: نخالة 20 كغم سطراً ثالثاً');
     t.same(await repo.addProductionInput(bran), added, 'addProductionInput: الإعادة بالمعرّف نفسه ترجّع السطر نفسه');
+    // إصلاح ق٦ وم٢: المعرّف نفسه بكمية أخرى id_conflict، لا السطر بكميته الأولى بصمت (والشاشة تولّد معرّفاً جديداً للكمية الجديدة).
+    t.eq(await rejected(repo.addProductionInput({ ...bran, qty: 30000n })), 'id_conflict', 'addProductionInput: المعرّف نفسه بكمية أخرى (30 كغم بعد 20): id_conflict');
     const soyLine = fresh.lines.find((l) => l.itemName === 'كسبة صويا')?.id ?? null;
-    const swap = await repo.addProductionInput({ batchId: BATCH, id: id(232), itemId: WHEAT, qty: 150000n, replaces: soyLine, reason: ' نفدت الصويا ' });
+    const swapInput = { batchId: BATCH, id: id(232), itemId: WHEAT, qty: 150000n, replaces: soyLine, reason: ' نفدت الصويا ' };
+    const swap = await repo.addProductionInput(swapInput);
     t.eq(swap.lineNo, 4, 'addProductionInput: الحنطة بدل الصويا سطراً رابعاً');
+    t.same(
+      [
+        await repo.addProductionInput(swapInput),
+        await rejected(repo.addProductionInput({ ...swapInput, reason: 'سبب آخر للتبديل' })),
+        await rejected(repo.addProductionInput({ ...swapInput, replaces: null, reason: null })),
+      ],
+      [swap, 'id_conflict', 'id_conflict'],
+      'addProductionInput: إعادة التبديل بعد جواب ضاع (والسطر المبدَّل حُذف) ترجّع السطر نفسه، وبسبب آخر أو بلا تبديل id_conflict',
+    );
     t.eq(
       await rejected(repo.addProductionInput({ batchId: BATCH, id: id(233), itemId: SOY, qty: 1000n, replaces: id(231), reason: '  ' })),
       'reason_required',
@@ -1141,7 +1317,31 @@ async function scenario(t, db) {
     t.eq(await rejected(repo.setInputActual(id(232), null, 151000n)), 'ok', 'setInputActual: الإعادة بعد جواب ضاع = انكتب');
     t.eq(await rejected(repo.setInputActual(id(232), null, 152000n)), 'qty_changed', 'setInputActual: السابق تغيّر: qty_changed');
 
+    // فئة مصروف من مكانها (م٣): حقل «فئة جديدة» في صفحة الدفعة يكتبها بـcreateExpenseCategory، وتصل منتقي التكاليف فوراً.
     actAs(U.accountant);
+    const upkeep = await repo.createExpenseCategory('  صيانة المعمل  ');
+    t.same([upkeep.name, upkeep.systemCode, upkeep.archived], ['صيانة المعمل', null, false], 'createExpenseCategory (م٣): المحاسب يضيف الفئة باسمها المشذَّب، غير نظامية');
+    t.ok((await repo.loadExpenseCategories()).some((c) => c.id === upkeep.id && c.name === 'صيانة المعمل'), 'loadExpenseCategories: الفئة الجديدة في منتقي تكاليف الدفعة');
+    // الختم بلا مصروف (ق٢): سطر «صيانة المعمل» 500.00 ولا مصروف بفئته، فلا يُختم ما يُرفض ترحيله.
+    await repo.addBatchCost(BATCH, id(240), upkeep.id, 50000n);
+    const sealNoFunds = await repo.confirmCosts(BATCH, (await repo.previewProduction(BATCH)).version).then(() => null, (error) => error);
+    t.same(
+      [sealNoFunds?.code, sealNoFunds?.hint],
+      ['expense_overloaded', 'صيانة المعمل: المطلوب 500 والمتاح من المصاريف المسجّلة 0. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
+      'confirmCosts بلا مصروف للفئة: expense_overloaded بأرقامه للمحاسب كما تعرضه الشاشة',
+    );
+    // محاسب المواد (ق١١): المعاينة بلا متاح ولا أرقام، والختم يُرفض بتلميح بلا رقم واحد.
+    actAs(U.accRaw);
+    const rawLook = await repo.previewProduction(BATCH);
+    t.same(
+      [rawLook.costs?.map((c) => [c.categoryName, c.amount, c.available]), rawLook.problems.map((x) => [x.code, x.categoryId, x.needAmount, x.haveAmount])],
+      [[['أيدي عاملة', 200000n, null], ['صيانة المعمل', 50000n, null]], [['costs_unfunded', null, null, null]]],
+      'previewProduction (محاسب المواد): المتاح null لكلّ سطر، وcosts_unfunded بلا أرقام',
+    );
+    const rawSeal = await repo.confirmCosts(BATCH, rawLook.version).then(() => null, (error) => error);
+    t.same([rawSeal?.code, /\d/u.test(rawSeal?.hint ?? '0'), (rawSeal?.hint ?? '').includes('صيانة المعمل')], ['expense_overloaded', false, true], `confirmCosts (محاسب المواد): expense_overloaded بالفئة وبلا رقم (${rawSeal?.hint})`);
+    actAs(U.accountant);
+    await repo.deleteBatchCost(id(240), (await repo.previewProduction(BATCH)).version);
     await repo.confirmCosts(BATCH, (await repo.previewProduction(BATCH)).version);
     actAs(U.miller);
     const ready = await repo.previewProduction(BATCH);
@@ -1164,6 +1364,20 @@ async function scenario(t, db) {
     actAs(U.miller);
     const madeLot = (await repo.loadItemLots(FEED2, FEEDWH)).rows.find((r) => r.sourceId === BATCH);
     t.same(madeLot && [madeLot.sourceKind, madeLot.source, madeLot.qtyLeft], ['production', done.docNo, 501000n], 'loadItemLots (مشغّل المعمل): دفعة العلف «صُنعت بدفعة» رقمها');
+    // بطاقة العلف المنتج (ع٢): loadItemPurchases يحمل آخر دفعة صنعته — هذه الدفعة (501 كغم)، أحدث من دفعات السباق الثلاث.
+    const madeHere = { batchId: BATCH, docNo: done.docNo, producedOn: TODAY, qtyKg: 501000n, warehouseName: FEEDWH_NAME };
+    t.same((await repo.loadItemPurchases(FEED2, FEEDWH)).lastProduction, madeHere, 'loadItemPurchases (مشغّل المعمل): lastProduction لبطاقة العلف المنتج');
+    actAs(U.manager);
+    t.same((await repo.loadItemPurchases(FEED2, null)).lastProduction, madeHere, 'loadItemPurchases (المدير، كلّ المخازن): lastProduction نفسه');
+    actAs(U.accRaw);
+    t.eq((await repo.loadItemPurchases(FEED2, null)).lastProduction, null, 'loadItemPurchases (محاسب المواد): مخزن العلف خارج نطاقه، فلا lastProduction');
+    // وتحميلات بطاقة الدفعة محجوبة عنه (ق١١، م١٢): allocations null والقيم ظاهرة.
+    const doneRaw = await repo.loadBatch(BATCH);
+    t.same(
+      [doneRaw.totalValue, doneRaw.costs?.map((c) => [c.categoryName, c.amount, c.allocations]), doneRaw.lines.map((l) => [l.itemName, l.draws?.map((d) => d.qty)])],
+      [43780000n, [['أيدي عاملة', 200000n, null]], [['ذرة صفراء', [350000n]], ['حنطة', [151000n]]]],
+      'loadBatch (محاسب المواد): التحميلات null، والقيمة والوجبات ظاهرة',
+    );
 
     actAs(U.accountant);
     const second = (await repo.loadExpenses('2026-10-01', TODAY, null)).rows.find((r) => r.id === E2);
@@ -1201,6 +1415,42 @@ async function scenario(t, db) {
       [null, null],
       'loadMill (مشغّل المعمل): البطاقة والدفعة بلا كلفة',
     );
+
+    // «نسخة جديدة» من بطاقة الخلطة (م٧): newRecipeVersion بمعرّف من الجهاز يبقى للإعادة، والمسوّدة بسطور المفعَّلة ومعدّليها.
+    actAs(U.manager);
+    const COPY = { recipeId: id(131), versionId: id(241), versionNo: 2, status: 'draft', lines: 2, rates: 1, existing: false };
+    t.same(await repo.newRecipeVersion(id(131), id(241)), COPY, 'newRecipeVersion: مسوّدة ثانية بسطري «بادئ الشاشة» ومعدّله');
+    t.same(
+      [await repo.newRecipeVersion(id(131), id(241)), await repo.newRecipeVersion(id(131), id(242))],
+      [{ ...COPY, existing: true }, { ...COPY, existing: true }],
+      'newRecipeVersion: الإعادة بعد جواب ضاع، ومعرّف آخر والمسوّدة قائمة: المسوّدة نفسها (existing)',
+    );
+    const copyCard = await repo.loadRecipe(id(131), id(241));
+    t.same(
+      [copyCard.versionId, copyCard.status, copyCard.basisKg, copyCard.lines.map((l) => [l.itemName, l.qty, l.unit, l.inBasis]), copyCard.rates?.map((r) => [r.categoryName, r.amountPerTon])],
+      [id(241), 'draft', 1000000n, [['ذرة صفراء', 700000n, 'kg', true], ['كسبة صويا', 300000n, 'kg', true]], [['أيدي عاملة', 400000n]]],
+      'loadRecipe (المسوّدة المنسوخة): السطور والمعدّل كما في المفعَّلة',
+    );
+    t.eq((await repo.loadRecipe(id(131))).versionId, id(132), 'ضابط: بطاقة الخلطة بلا نسخة مختارة تبقى على المفعَّلة');
+    actAs(U.miller);
+    t.eq(await rejected(repo.newRecipeVersion(id(131), id(242))), 'forbidden', 'newRecipeVersion (مشغّل المعمل): forbidden');
+    // «أنتج» من بطاقة الخلطة (م٩): مخازن المعمل ويوم الخادم من recipes_overview.
+    t.same(
+      (({ today, stores }) => [today, stores.map((s) => [s.id, s.kind])])(await repo.loadMillStores()),
+      [TODAY, [[FEEDWH, 'feed'], [RAW, 'raw']]],
+      'loadMillStores (مشغّل المعمل): يوم الخادم ومخزنا المعمل',
+    );
+    // «اجعلها مادّة أوّلية» (م٨): التوأم بالاسم من find_item_twins، وصفّه بـloadItem، والنوع بـupdateItem مشروطاً بالنسخة؛ والمادّة
+    // التي عليها حركات مخزون frozen_column (الشاشة تقول أنشئ باسم آخر).
+    actAs(U.manager);
+    const made = await repo.createItem({ name: 'نخالة خشنة', category_id: null, kind: 'feed', base_unit: 'kg', density_kg_per_l: null, piece_mass_kg: null,
+      tracks_expiry: false, scale_step: '0.100', min_qty: null, barcode: null, alt_codes: [] });
+    const twins = await repo.findItemTwins(' نخالة  خشنة ', []);
+    t.same(twins.filter((x) => x.sameName).map((x) => [x.id, x.archived]), [[made.id, false]], 'findItemTwins: التوأم بالاسم المطبَّع قبل أيّ إنشاء');
+    const twinRow = await repo.loadItem(made.id);
+    t.same([twinRow?.kind, (await repo.updateItem(made.id, twinRow.version, { kind: 'raw' })).kind], ['feed', 'raw'], 'updateItem: «اجعلها مادّة أوّلية» لمادّة بلا حركات');
+    const feedRow = await repo.loadItem(FEED);
+    t.eq(await rejected(repo.updateItem(FEED, feedRow.version, { kind: 'raw' })), 'frozen_column', 'updateItem: مادّة عليها حركات مخزون: frozen_column (pickers.kindFixFailure)');
 
     // معدّل تكاليف بنسخة مسوّدة (الخلطة التجريبية) بكتابة مباشرة (recipe.activate).
     actAs(U.manager);

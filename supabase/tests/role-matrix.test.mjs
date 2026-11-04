@@ -540,6 +540,9 @@ export default async function (t, db) {
       expect: only(RECIPE, 'ok:active'),
     },
     add_production_input: { sql: () => ["select public.add_production_input($1, gen_random_uuid(), $2, 5, null, null) ->> 'line_no' as v", [p3.draftBatch, p3.bran]], value: true, expect: only(MILL_DRAFT, 'ok:2') },
+    // مراجعة 0016 (#19): «نسخة جديدة» بفعل التفعيل (recipe.activate) للمالك والمدير؛ للخلطة مسوّدة قائمة (النسخة الثانية)، فترجع هي
+    // بمعرّفها بلا نسخ (existing) والمعرّف الجديد لا يُستعمل.
+    new_recipe_version: { sql: () => ["select public.new_recipe_version($1, gen_random_uuid()) ->> 'version_id' = $2::text as v", [p3.recipe, p3.draftVersion]], value: true, expect: only(RECIPE, 'ok:true') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

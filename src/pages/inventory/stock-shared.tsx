@@ -27,7 +27,7 @@ import * as inventory from '../../lib/repo/inventory';
 import { sessionStore } from '../../lib/session';
 import type { DocStatus, ItemRow, OrgSetup, StockRef, WarehouseRow } from '../../lib/repo/inventory';
 import { divisionLabel } from '../../lib/roles';
-import { baseUnitLabel, itemKindLabel, warehouseKindLabel } from '../../lib/storeLabels';
+import { baseUnitLabel, buyPath, itemKindLabel, warehouseKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 
 // أدوات شاشات المخزون (المرحلة 1 WP4): المخازن بنطاق المستخدم (مرآة in_scope_wh)، ومنتقي المادّة بالبحث والرمز (E54: ماسح
@@ -788,13 +788,8 @@ export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inv
 // واحدة، وكلّ شراء جديد ورقة استلام. الرابط يفتح صفحة الاستلام بنموذج «استلام جديد» معبّأ بالمخزن، وبعد إنشاء المسوّدة (بمعرّف
 // الجهاز، الطريق نفسه) تنفتح الورقة وسطرها بالمادّة.
 
-/** ‎/inventory/receipts?new=1&wh=<المخزن>&item=<المادّة>؛ بلا مخزن يُختار المخزن بالنموذج. */
-export function buyPath(itemId: string, warehouseId: string | null): string {
-  const params = new URLSearchParams({ new: '1' });
-  if (warehouseId) params.set('wh', warehouseId);
-  params.set('item', itemId);
-  return `/inventory/receipts?${params.toString()}`;
-}
+// buyPath نفسه في storeLabels (صفحة «المواد» تبني به رابط الشراء للتوأم، #21)، والاسم باقٍ من هنا كما كان.
+export { buyPath };
 
 /** زرّ «اشترِ كمية» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. */
 export function BuyLink({ itemId, warehouseId, label, primary = false }: { itemId: string; warehouseId: string | null; label?: string; primary?: boolean }) {

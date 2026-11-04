@@ -21,8 +21,9 @@ const MILL = [
   'loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'previewProduction', 'loadExpenseCategories', 'createRecipe', 'createProduction', 'addProductionInput',
   'deleteProductionInput', 'setInputActual', 'addBatchCost', 'setBatchCost', 'deleteBatchCost', 'addRecipeRate', 'setRecipeRate', 'deleteRecipeRate', 'activateVersion',
   'postProduction', 'confirmCosts', 'discardBatch', 'voidProduction', 'setBatchFields', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'createVersion', 'setVersionBasis',
+  'newRecipeVersion', 'loadMillStores',
 ];
-const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins'];
+const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
@@ -103,7 +104,7 @@ const recipeJson = (money) => ({
   versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 }],
   selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
   lines: [
-    { id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '600.000', unit: 'kg', mass_kg: '600.000', share_pct: '60.00', ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}) },
+    { id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '600.000', unit: 'kg', mass_kg: '600.000', share_pct: '60.00', in_basis: true, ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}) },
   ],
   mass_kg: '600.000',
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
@@ -113,8 +114,8 @@ const recipeJson = (money) => ({
     : {}),
 });
 const batchLines = (posted, money) => [
-  { id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, used_qty: posted ? '600.000' : null, in_basis: true, is_substitute: false, reason: null, replaced_item_name: null, ...(posted ? { draws: [{ lot_id: 'lot-1', qty: '600.000', received_on: '2026-10-20', source: 'RC-2026-0004' }] } : {}), ...(money ? { money: { value: posted ? '270000.00' : null } } : {}) },
-  { id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, used_qty: posted ? '300.000' : null, in_basis: true, is_substitute: true, reason: 'نفدت الكسبة 44٪', replaced_item_name: 'كسبة صويا 44٪', ...(money ? { money: { value: posted ? '279000.00' : null } } : {}) },
+  { id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, used_qty: posted ? '600.000' : null, in_basis: true, is_substitute: false, reason: null, replaced_item_name: null, draws: posted ? [{ lot_id: 'lot-1', qty: '600.000', received_on: '2026-10-20', source: 'RC-2026-0004' }] : null, ...(money ? { money: { value: posted ? '270000.00' : null } } : {}) },
+  { id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, used_qty: posted ? '300.000' : null, in_basis: true, is_substitute: true, reason: 'نفدت الكسبة 44٪', replaced_item_name: 'كسبة صويا 44٪', draws: posted ? [] : null, ...(money ? { money: { value: posted ? '279000.00' : null } } : {}) },
 ];
 const batchJson = (status, money) => {
   const posted = status === 'posted';
@@ -140,7 +141,7 @@ const batchJson = (status, money) => {
 const previewJson = (money) => ({
   id: 'b-1', kind: 'production', status: 'draft', version: 7, produced_on: '2026-11-04', planned_kg: '1000.000', input_mass_kg: '900.000', output_qty_kg: '900.000',
   output_expiry_on: null, shrink_kg: '0.000', shrink_pct: '0.00', shrink_reason: null, shrink_ok: true, costs_confirmed: false,
-  input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' }, output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
+  input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية', division_id: 'd-mill', division_name: 'معمل العلف' }, output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
   lines: [
     { input_id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, draw_qty: '600.000', in_basis: true, tracks_expiry: false, ...(money ? { money: { value: '270000.00' } } : {}) },
     { input_id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, draw_qty: '300.000', in_basis: true, tracks_expiry: false, ...(money ? { money: { value: '279000.00' } } : {}) },
@@ -216,6 +217,8 @@ export default async function (t) {
         rows: itemId === 'i-corn' ? [{ money: { unitCost: 440_25n, invoiceTotal: 0n, landedValue: 0n, corrected: false } }] : [],
       }),
       createItem: (fields) => itemRow(`new-${fields.kind}-${fields.name}`, fields.name, fields.kind, fields.base_unit),
+      findItemTwins: () => [],
+      loadItem: () => null,
       setItemCostPrice: (itemId, price) => price,
       createRecipe: (input) => ({ id: input.id, versionId: input.versionId, versionNo: 1, status: input.activate ? 'active' : 'draft', lines: input.lines.length, rates: input.rates.length }),
       ...over,
@@ -245,7 +248,7 @@ export default async function (t) {
       // المواد: «ذرة» تُظهر الصالحة، و«ذرة» بنوع علف تُسمّى بنوعها لا تُخفى.
       await search('ذرة');
       t.ok(text().includes('«ذرة» موجودة بنوع «علف»، فلا تدخل الخلطة مادّةً أوّلية.'), 'F1 مطابق الاسم بنوع آخر يُسمّى بنوعه ورابط بطاقته');
-      t.ok(byAction('open-misfit')[0]?.getAttribute('href') === '/inventory/items/i-fc', 'F1 ورابط بطاقته لتصحيح نوعه');
+      t.ok(byAction('open-misfit').length === 0 && byAction('make-raw').length === 1 && !all().some((n) => n.localName === 'a' && (n.getAttribute('href') ?? '').startsWith('/inventory')), 'F1 ولا رابط يغادر البانية إلى بطاقتها: «اجعلها مادّة أوّلية» بدله (م٨)');
       const picks = byAction('pick-material');
       t.same(picks.map((node) => node.textContent), ['ذرة صفراء · مادّة أوّلية · كغم'], 'F1 الصالح وحده زرّ إضافة (لا العلف)');
       t.ok(byAction('create-material').length === 1, 'F1 لا مطابق صالح بالاسم «ذرة» نفسه: «أنشئ» معروض');
@@ -442,8 +445,8 @@ export default async function (t) {
       t.ok(/^[0-9a-f-]{36}$/u.test(cost?.[1] ?? ''), 'F3 بمعرّف الجهاز');
 
       // «المصاريف لا تكفي» بأرقامها وفعليها.
-      t.ok(text().includes('«أيدي عاملة»: المطلوب 15,000.00 والمتاح من المصاريف المسجّلة 4,000.00.'), 'F3 costs_unfunded بجملة تسمّي الفئة والمطلوب والمتاح');
-      t.eq(byAction('record-expense')[0]?.getAttribute('href'), '/accounts/expenses?new=1', 'F3 «سجّل مصروفاً» يفتح نافذة المصروف الجديد');
+      t.ok(text().includes('«أيدي عاملة»: المطلوب 15,000.00 والمتاح من مصاريف وحدة «معمل العلف» المسجّلة 4,000.00.'), 'F3 costs_unfunded بجملة تسمّي الفئة والمطلوب والمتاح ووحدة المدخلات');
+      t.eq(byAction('record-expense')[0]?.getAttribute('href'), '/accounts/expenses?new=1&division=d-mill&category=c-labor&amount=11000.00&back=/mill/batch/b-1', 'F3 «سجّل مصروفاً» يفتح النافذة معبّأة بالوحدة والفئة والناقص ويرجع إلى الدفعة');
       await click(byAction('zero-cost')[0]);
       t.same(named(calls, 'setBatchCost').at(-1), ['pc-1', 15_000_00n, 0n], 'F3 «صفّر السطر» يكتب صفراً بشرط المبلغ المعروض');
       await click(byAction('remove-cost')[0]);

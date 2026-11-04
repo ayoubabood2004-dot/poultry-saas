@@ -1,22 +1,25 @@
 import { Plus, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Notice';
 import { decimalText } from '../../domain/decimal';
 import { searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
-import { describeError } from '../../lib/errors';
+import { describeError, RejectedError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
-import { createItem, listItems, type ItemFields, type ItemRow } from '../../lib/repo/inventory';
+import { createExpenseCategory, createItem, findItemTwins, listItems, loadItem, updateItem, type ItemFields, type ItemRow, type ItemTwin } from '../../lib/repo/inventory';
+import type { CategoryOption } from '../../lib/repo/mill';
 import { itemKindLabel } from '../../lib/storeLabels';
 
 // منتقي مادّة المعمل ومحرّرات الخلايا (0016، كلمة المالك 2026-11-04: «تطلعلي قائمة انتاج كاملة اضيف منها المواد… حتى لو ما
 // موجودة بالمعمل»). المنتقي بثلاث حالات لا يسكت (درس «البحث الصامت» 2026-11-03): مطابقات تصلح، أو «لا مادّة باسم س» ويّا
-// «أنشئها الآن»، أو «موجودة لكنّها لا تصلح هنا» بنوعها ورابط بطاقتها (المالك أنشأ «ذرة» بنوع «علف» فلم تظهر في الخلطة).
+// «أنشئها الآن»، أو «موجودة لكنّها لا تصلح هنا» بنوعها (المالك أنشأ «ذرة» بنوع «علف» فلم تظهر في الخلطة).
 // والإنشاء بـcreateItem القائم في وحدة المخزون (لا نسخة ثانية منه)، ومعه أسماء الأنواع من storeLabels: الوحدتان تُستوردان
 // معاً فتبقيان في حزمة المخزون المستثناة نفسها (stores-admin) بدل أن تنفصل الأسماء حزمةً محفوظة.
+// إصلاحات المراجعة (م٨): لا رابط يغادر البانية (رابط البطاقة كان يمسحها ويصل إلى بطاقة لا تغيّر النوع)؛ بدله «اجعلها مادّة
+// أوّلية» بتعديل المادّة القائم بشرط نسختها، و«أنشئ» يمرّ بـfindItemTwins أوّلاً فالتوأم بالاسم يُعرض قبل أيّ إنشاء، والإنشاء
+// رغمه فعل صريح ثانٍ. و(م٣) فئة المصروف تُضاف من مكانها (NewCategoryField) بدل رابط إعدادات المنشأة الذي يمسح البانية.
 
 /**
  * أنواع المواد التي يقبلها مخزن المواد الأوّلية (مرآة private.item_admissible('raw', …) = ADMISSIBLE.raw في domain/stock،
@@ -40,6 +43,53 @@ export const materialOf = (row: ItemRow): PickedMaterial => ({ id: row.id, name:
 /** مادّة تصلح سطراً في الخلطة أو الدفعة: فعّالة، يقبلها مخزن المواد الأوّلية، وتُقاس بالكيلو أو اللتر (القطعة لا تدخل العليقة). */
 export function millAdmissible(row: Pick<ItemRow, 'archived' | 'kind' | 'baseUnit'>): boolean {
   return !row.archived && MILL_RAW_KINDS.includes(row.kind) && (row.baseUnit === 'kg' || row.baseUnit === 'L');
+}
+
+/**
+ * الوقود والتعبئة خارج كتلة الخلطة (مرآة in_basis في القاعدة، إصلاح ق٣ للمراجعة: «بدون الأكياس والوقود»): يُسحبان وتُحسب
+ * كلفتهما، ولا يدخلان مجموع الأساس ولا كتلة المدخلات التي يُحسب منها الهدر.
+ */
+const OUT_OF_BASIS: readonly ItemKind[] = ['fuel', 'packaging'];
+export const inBasisKind = (kind: ItemKind): boolean => !OUT_OF_BASIS.includes(kind);
+
+/** مطابق بالاسم لا يصلح ونوعه وحده السبب (فعّالة وبالكيلو أو اللتر): «اجعلها مادّة أوّلية» يصلحها. */
+export function kindFixable(row: Pick<ItemRow, 'archived' | 'kind' | 'baseUnit'>): boolean {
+  return !row.archived && !MILL_RAW_KINDS.includes(row.kind) && (row.baseUnit === 'kg' || row.baseUnit === 'L');
+}
+
+/** لماذا لا تدخل المادّة الخلطة: مؤرشفة، أو بنوع لا يقبله مخزن المواد الأوّلية، أو تُقاس بالقطعة. */
+export function misfitText(row: Pick<ItemRow, 'name' | 'archived' | 'kind' | 'baseUnit'>): string {
+  if (row.archived) return t('mill.picker.misfit_archived', '«{name}» مؤرشفة بنوع «{kind}»، فلا تدخل الخلطة.', { name: row.name, kind: itemKindLabel(row.kind) });
+  if (!MILL_RAW_KINDS.includes(row.kind)) return t('mill.picker.misfit', '«{name}» موجودة بنوع «{kind}»، فلا تدخل الخلطة مادّةً أوّلية.', { name: row.name, kind: itemKindLabel(row.kind) });
+  return t('mill.picker.misfit_unit', '«{name}» تُقاس بالقطعة، والخلطة تقبل الكيلوغرام واللتر وحدهما.', { name: row.name });
+}
+
+/**
+ * رفض تغيير النوع بجملة تقول ما العمل: النوع ووحدة الأساس ثابتان بعد أوّل حركة مخزون (items_stock_guard، frozen_column)،
+ * فالحلّ مادّة جديدة باسم آخر؛ وغير ذلك من describeError.
+ */
+export function kindFixFailure(error: unknown, row: Pick<ItemRow, 'name' | 'kind'>, target: 'raw' | 'feed'): string {
+  if (error instanceof RejectedError && error.code === 'frozen_column') {
+    const vars = { name: row.name, kind: itemKindLabel(row.kind) };
+    return target === 'raw'
+      ? t('mill.picker.kind_frozen', 'على «{name}» حركات مخزون بنوع «{kind}» فلا يتغيّر نوعها؛ أنشئ مادّة أوّلية باسم آخر (مثل «{name} خام»).', vars)
+      : t('mill.builder.output_frozen', 'على «{name}» حركات مخزون بنوع «{kind}» فلا يتغيّر نوعها؛ أنشئ المنتج باسم آخر (مثل «علف {name}»).', vars);
+  }
+  const { title, detail } = describeError(error);
+  return `${title} ${detail}`;
+}
+
+/** توأم بالاسم (find_item_twins) ومعه صفّ المادّة كاملاً (النوع والوحدة والنسخة) إن قُرئ. */
+export interface TwinView {
+  twin: ItemTwin;
+  row: ItemRow | null;
+}
+
+/** التوائم بالاسم نفسه قبل أيّ إنشاء (م٨): find_item_twins بالتطبيع على الطرفين (والمؤرشفة معها)، ثم صفّ كلّ توأم. */
+export async function sameNameTwins(name: string): Promise<TwinView[]> {
+  const twins = (await findItemTwins(name, [])).filter((twin) => twin.sameName);
+  const rows = await Promise.all(twins.map((twin) => loadItem(twin.id)));
+  return twins.map((twin, index) => ({ twin, row: rows[index] ?? null }));
 }
 
 /** حقول مادّة تُنشأ من المعمل باسمها وحده: بالكيلوغرام وخطوة عدّاد 0.1 (افتراض نموذج المادّة)، والباقي يُكمَل من بطاقتها. */
@@ -74,17 +124,21 @@ export function pickerView(rows: readonly ItemRow[], query: string, exclude: Rea
 
 /**
  * منتقي مادّة أوّلية للمعمل: بحث بالاسم (listItems) والنتائج المقبولة أزرار، و«أنشئ» حين لا مطابق صالح بالاسم نفسه (لمن
- * يملك item.create)، والمطابق غير الصالح يُسمّى بنوعه مع رابط بطاقته. exclude: المواد المكتوبة أصلاً في الجدول.
+ * يملك item.create)، والمطابق غير الصالح يُسمّى بسببه ومعه «اجعلها مادّة أوّلية» لمن يملك stores.manage (canFixKind) — بلا رابط
+ * يغادر الشاشة. و«أنشئ» يسأل find_item_twins أوّلاً. exclude: المواد المكتوبة أصلاً في الجدول.
  */
 export function MaterialPicker({
   id,
   exclude,
   canCreate,
+  canFixKind,
   onPick,
 }: {
   id: string;
   exclude: ReadonlySet<string>;
   canCreate: boolean;
+  /** تعديل نوع المادّة (stores.manage): «اجعلها مادّة أوّلية» بدالّة تعديل المادّة القائمة بشرط نسختها. */
+  canFixKind: boolean;
   /** created: أُنشئت الآن من المنتقي (بلا شراء ولا سعر بعد). */
   onPick: (item: PickedMaterial, created: boolean) => void;
 }) {
@@ -92,6 +146,9 @@ export function MaterialPicker({
   const [found, setFound] = useState<{ query: string; rows: readonly ItemRow[] } | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
+  const [twins, setTwins] = useState<{ query: string; rows: readonly TwinView[] } | null>(null);
+  const [fixing, setFixing] = useState<string | null>(null);
+  const [fixProblem, setFixProblem] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<string | null>('');
 
@@ -118,6 +175,8 @@ export function MaterialPicker({
   };
   const onText = (value: string) => {
     setText(value);
+    setTwins(null);
+    setFixProblem(null);
     const query = value.trim();
     latest.current = query;
     if (timer.current) clearTimeout(timer.current);
@@ -131,12 +190,22 @@ export function MaterialPicker({
 
   const query = text.trim();
   const view = found && found.query === query ? pickerView(found.rows, query, exclude) : null;
+  const shownTwins = twins && twins.query === query ? twins.rows : null;
 
-  const create = async () => {
+  /** «أنشئ»: التوأم بالاسم نفسه يُعرض أوّلاً (استعملها أو اجعلها مادّة أوّلية)، والإنشاء رغمه بفعل صريح ثانٍ (despite). */
+  const create = async (despite: boolean) => {
     if (!query || creating) return;
     setCreating(true);
     setFailure(null);
+    setFixProblem(null);
     try {
+      if (!despite) {
+        const same = await sameNameTwins(query);
+        if (same.length) {
+          setTwins({ query, rows: same });
+          return;
+        }
+      }
       const row = await createItem(newItemFields(query, 'raw'));
       onPick(materialOf(row), true);
       onText('');
@@ -146,6 +215,29 @@ export function MaterialPicker({
       setCreating(false);
     }
   };
+
+  /** «اجعلها مادّة أوّلية»: تعديل نوع المادّة بشرط نسختها التي قُرئت، ثم تُضاف سطراً (لها مشتريات ربّما، فيُقرأ سعرها). */
+  const fixKind = async (row: ItemRow) => {
+    if (fixing) return;
+    setFixing(row.id);
+    setFixProblem(null);
+    try {
+      const updated = await updateItem(row.id, row.version, { kind: 'raw' });
+      onPick(materialOf(updated), false);
+      onText('');
+    } catch (error) {
+      setFixProblem(kindFixFailure(error, row, 'raw'));
+    } finally {
+      setFixing(null);
+    }
+  };
+
+  const fixButton = (row: ItemRow) =>
+    kindFixable(row) && canFixKind ? (
+      <Button size="sm" variant="secondary" busy={fixing === row.id} onClick={() => void fixKind(row)} data-action="make-raw">
+        {t('mill.picker.make_raw', 'اجعلها مادّة أوّلية')}
+      </Button>
+    ) : null;
 
   const problem = failure ? describeError(failure) : null;
   return (
@@ -180,25 +272,145 @@ export function MaterialPicker({
         </p>
       ) : null}
       {view?.misfits.map((row) => (
-        <Notice
-          key={row.id}
-          tone="warning"
-          title={t('mill.picker.misfit', '«{name}» موجودة بنوع «{kind}»، فلا تدخل الخلطة مادّةً أوّلية.', { name: row.name, kind: itemKindLabel(row.kind) })}
-          action={
-            <Link to={`/inventory/items/${row.id}`} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-misfit">
-              {t('mill.picker.fix_kind', 'صحّح نوعها من بطاقتها')}
-            </Link>
-          }
-        />
+        <Notice key={row.id} tone="warning" title={misfitText(row)} action={fixButton(row) ?? undefined}>
+          {kindFixable(row) && !canFixKind ? t('mill.picker.ask_kind', 'إن كانت مادّة أوّلية فعلاً فاطلب من المدير تصحيح نوعها.') : null}
+        </Notice>
       ))}
-      {view && !view.exactFit && canCreate ? (
+      {shownTwins ? (
+        <div className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-3" data-action="material-twins">
+          <p className="text-sm font-medium">{t('mill.twins.title', 'توجد مادّة بالاسم «{name}» نفسه؛ المادّة تُضاف مرّة واحدة:', { name: query })}</p>
+          <ul className="flex flex-col gap-2">
+            {shownTwins.map(({ twin, row }) => (
+              <li key={twin.id} className="flex flex-wrap items-center gap-2 text-sm">
+                {row && millAdmissible(row) ? (
+                  exclude.has(row.id) ? (
+                    <span>{t('mill.twins.in_table', '«{name}» مكتوبة في الجدول؛ عدّل كميتها هناك.', { name: row.name })}</span>
+                  ) : (
+                    <>
+                      <span>{t('mill.twins.fit', '«{name}» مادّة أوّلية تصلح للخلطة.', { name: row.name })}</span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          onPick(materialOf(row), false);
+                          onText('');
+                        }}
+                        data-action="use-twin"
+                      >
+                        {t('mill.twins.use', 'استعملها')}
+                      </Button>
+                    </>
+                  )
+                ) : row ? (
+                  <>
+                    <span>{misfitText(row)}</span>
+                    {fixButton(row)}
+                  </>
+                ) : (
+                  <span>{t('mill.twins.unread', '«{name}» موجودة في منشأتك.', { name: twin.name })}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div>
+            <Button size="sm" variant="ghost" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} onClick={() => void create(true)} data-action="create-anyway">
+              {t('mill.twins.create_anyway', 'أنشئ «{name}» مادّةً أوّلية أخرى بالاسم نفسه رغم ذلك', { name: query })}
+            </Button>
+          </div>
+        </div>
+      ) : view && !view.exactFit && canCreate ? (
         <div>
-          <Button size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} onClick={() => void create()} data-action="create-material">
+          <Button size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} onClick={() => void create(false)} data-action="create-material">
             {t('mill.picker.create', 'أنشئ «{name}» مادّةً أوّلية جديدة بالكيلوغرام', { name: query })}
           </Button>
         </div>
       ) : null}
+      {fixProblem ? <Notice tone="danger" title={fixProblem} /> : null}
       {problem ? <Notice tone="danger" title={problem.title}>{problem.detail}</Notice> : null}
+    </div>
+  );
+}
+
+/**
+ * «فئة مصروف جديدة» من مكانها (م٣): في البانية وبطاقة الخلطة وصفحة الدفعة، فلا يغادر المستخدم ما يكتبه إلى الإعدادات. لمن
+ * يملك expense_categories.manage حقل وزرّ «أضف الفئة» (createExpenseCategory القائم)، والفئة الجديدة تُختار فوراً (onPick)؛
+ * ولغيره جملة «اطلب من المدير أو المحاسب». الاسم الموجود في القائمة يُختار بدل فئة ثانية بالاسم نفسه (لا قيد اسم بالخادم).
+ */
+export function NewCategoryField({
+  id,
+  categories,
+  canManage,
+  onPick,
+}: {
+  id: string;
+  /** الفئات التي تعرضها الشاشة (الفعّالة غير النظامية): الاسم الموجود فيها يُختار ولا يُكرَّر. */
+  categories: readonly CategoryOption[];
+  canManage: boolean;
+  onPick: (category: CategoryOption) => void;
+}) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  if (!canManage) {
+    return (
+      <p className="text-sm text-ink-muted" data-action="ask-category">
+        {t('mill.category.ask', 'لا فئة مناسبة؟ اطلب من المدير أو المحاسب إضافتها.')}
+      </p>
+    );
+  }
+
+  const exists = (name: string) => t('mill.category.exists', 'الفئة «{name}» موجودة: اخترها من القائمة.', { name });
+  const create = async () => {
+    const wanted = text.trim();
+    if (!wanted || busy) return;
+    setNote(null);
+    setProblem(null);
+    const same = categories.find((category) => searchable(category.name) === searchable(wanted));
+    if (same) {
+      onPick(same);
+      setNote(exists(same.name));
+      setText('');
+      return;
+    }
+    setBusy(true);
+    try {
+      const row = await createExpenseCategory(wanted);
+      onPick({ id: row.id, name: row.name });
+      setNote(t('mill.category.created', 'أُضيفت الفئة «{name}» إلى فئات المصاريف واختيرت هنا.', { name: row.name }));
+      setText('');
+    } catch (error) {
+      if (error instanceof RejectedError && error.code === '23505') setNote(exists(wanted));
+      else {
+        const { title, detail } = describeError(error);
+        setProblem(`${title} ${detail}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium text-ink">
+        {t('mill.category.new', 'فئة مصروف جديدة')}
+      </label>
+      <span className="flex items-center gap-2">
+        <input id={id} className="input" maxLength={80} autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} data-action="new-category-name" />
+        <Button variant="secondary" size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={busy} disabled={text.trim() === ''} onClick={() => void create()} data-action="create-category">
+          {t('mill.category.add', 'أضف الفئة')}
+        </Button>
+      </span>
+      {problem ? (
+        <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
+          {problem}
+        </p>
+      ) : (
+        <p className="text-sm text-ink-muted" data-action="category-note">
+          {note ?? t('mill.category.hint', 'مثل: أيدي عاملة، كهرباء، نقل. تُضاف إلى فئات المصاريف وتُختار هنا مباشرة.')}
+        </p>
+      )}
     </div>
   );
 }
