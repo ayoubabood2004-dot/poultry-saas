@@ -247,6 +247,7 @@ function recipeJson(money) {
         in_basis: true,
         unit_changed: false,
         unit_mismatch: false,
+        density_missing: false,
         ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}),
       },
     ],

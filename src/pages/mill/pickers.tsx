@@ -24,6 +24,7 @@ import { itemKindLabel } from '../../lib/storeLabels';
 // category_name_taken يُعرض بتلميحه؛ والمنتقي ومحرّر الخلية يُقفلان أثناء حفظ البانية (ب١٢، disabled).
 // الجولة الرابعة (ب٣٢): Enter في محرّر الخلية لا يحفظ أثناء الحفظ، والمسوَّد يُمسح بعد الحفظ إن بقي كما أُرسل وحده (settle)، و«أرجع
 // ما لم يُحفظ» يعيد الخانات كلّها إلى المحفوظ (reset، ب٣٥).
+// الجولة الخامسة (ب٤٢): بعد رفض «تغيّر من جهاز آخر» وقراءة جديدة يُعاد شرط المسوَّد المرفوض إلى المقروء الآن ويبقى نصّه (rebase).
 
 /**
  * أنواع المواد التي يقبلها مخزن المواد الأوّلية (مرآة private.item_admissible('raw', …) = ADMISSIBLE.raw في domain/stock،
@@ -498,6 +499,20 @@ export function useDrafts<V>() {
         if (!draft) return current;
         const next = { ...current };
         if (draft.text === sent) delete next[key];
+        else next[key] = { text: draft.text, before: saved };
+        return next;
+      }),
+    /**
+     * بعد رفض «تغيّر من نافذة أو جهاز آخر» وقراءة جديدة (الجولة الخامسة، ب٤٢): شرط المسوَّد يصير المقروء الآن (saved) ونصّه يبقى كما
+     * كتبه المستخدم، فيرى المحفوظ الجديد وما كتبه معاً، والحفظ التالي المقصود مشروط بما قُرئ لا بما قبل الرفض (لا حلقة رفض)؛ وإن طابق
+     * نصّه المحفوظ الآن (savedText) فلا مسوَّد.
+     */
+    rebase: (key: string, saved: V, savedText: string) =>
+      setDrafts((current) => {
+        const draft = current[key];
+        if (!draft) return current;
+        const next = { ...current };
+        if (draft.text === savedText) delete next[key];
         else next[key] = { text: draft.text, before: saved };
         return next;
       }),

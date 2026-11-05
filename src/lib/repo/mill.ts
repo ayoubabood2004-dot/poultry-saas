@@ -19,6 +19,8 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // بطاقة الدفعة المرحَّلة null لمن لا يكون مخزن المدخلات بنطاقه (ق٣٢)، ويوم الإنتاج يُكتب بـsetBatchFields({ producedOn }) (ب٢٦).
 // الجولة الرابعة (ق٤٢، ب٣١): سطر الخلطة يحمل unit_mismatch (سطر باللتر ومادّته الآن ليست باللتر) بمفتاح إلزامي، وكتلة السطر وحصّته
 // ومجموع الكتلة وكتلة قطعة شريط التركيبة مفاتيح إلزامية قد تكون قيمتها null (القارئ لا يرمي بسطر لا تُعرف كتلته): لا صفر صامت.
+// الجولة الخامسة: سطر الخلطة يحمل density_missing (ق٥١، ب٤٩: سائل بلا كثافة، وهو ما يرفض التفعيل لأجله density_required) بمفتاح إلزامي،
+// وجواب «نسخة جديدة» يحمل skipped (ق٥٥، ب٤٨: أسماء المواد التي صارت بالقطعة فلم تُنسخ) مصفوفةً إلزامية فارغة غالباً.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -52,6 +54,15 @@ const int = (row: Row, field: string): number => {
 const flag = (row: Row, field: string): boolean => {
   if (typeof row[field] !== 'boolean') throw new MillShapeError(field);
   return row[field] as boolean;
+};
+/** مصفوفة أسماء إلزامية (ق٥٥: skipped حاضرة دائماً): الغائبة أو غير المصفوفة أو فيها اسم غير نصّي أو فارغ خطأ شكل لا قائمة فارغة صامتة. */
+const names = (row: Row, field: string): string[] => {
+  const value = row[field];
+  if (!Array.isArray(value)) throw new MillShapeError(field);
+  return value.map((entry: unknown) => {
+    if (typeof entry !== 'string' || entry === '') throw new MillShapeError(field);
+    return entry;
+  });
 };
 /** نصّ عشري بمراتبه ← عدد صحيح بمقياسه (الكمية 3، والمال 2، والكثافة 4). الغائب null، والمكسور يرمي. */
 const scaled = (row: Row, field: string, scale: number): bigint | null => {
@@ -260,6 +271,11 @@ export interface RecipeLine {
    * حتّى يُحذف ويُضاف بالكيلوغرام؛ وفي النسخة المجمَّدة تُخطَّط كتلته من لقطة الكثافة (ق٤١). المفتاح إلزامي في كلّ سطر.
    */
   unitMismatch: boolean;
+  /**
+   * مادّة السطر سائل بلا كثافة (الجولة الخامسة، ق٥١: وحدة الأساس لتر ولا كثافة في اللقطة ولا في المادّة): التفعيل يرفضها density_required،
+   * فبطاقة المسوّدة تسمّيها قبل النقر بجملة تقول أين تُكتب الكثافة (ب٤٩). المفتاح إلزامي في كلّ سطر.
+   */
+  densityMissing: boolean;
 }
 
 export interface RecipeVersionRow {
@@ -401,6 +417,7 @@ export function parseRecipe(value: unknown): RecipeDetail {
       lastPrice: money(row, 'last_price'),
       unitChanged: flag(row, 'unit_changed'),
       unitMismatch: flag(row, 'unit_mismatch'),
+      densityMissing: flag(row, 'density_missing'),
     })),
     massKg: nullableScaled(json, 'mass_kg', 3),
     pickItems: list(json.pick_items, 'pick_items').map((row) => ({
@@ -1170,6 +1187,11 @@ export interface NewRecipeVersion {
   rates: number;
   /** true: رجعت نسخة موجودة (إعادة بالمعرّف نفسه، أو مسوّدة سابقة للخلطة) بلا نسخ جديد. */
   existing: boolean;
+  /**
+   * أسماء المواد التي لم تُنسخ لأنّ وحدتها صارت غير الكتلة (الجولة الخامسة، ق٥٥: قطعة لا تدخل الخلطة)، فارغة غالباً؛ والصفحة تقولها (ب٤٨).
+   * المفتاح إلزامي.
+   */
+  skipped: string[];
 }
 
 export function parseNewRecipeVersion(value: unknown): NewRecipeVersion {
@@ -1182,6 +1204,7 @@ export function parseNewRecipeVersion(value: unknown): NewRecipeVersion {
     lines: nonNegative(json, 'lines'),
     rates: nonNegative(json, 'rates'),
     existing: flag(json, 'existing'),
+    skipped: names(json, 'skipped'),
   };
 }
 

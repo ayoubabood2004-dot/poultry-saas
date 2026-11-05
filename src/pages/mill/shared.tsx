@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { fmtPercent } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { useLoad, type LoadState } from '../../lib/useLoad';
 
 // مشترك شاشات المعمل (0015، كلمة المالك 2026-11-03: «خلّيها كأنّها لعبة هاي داي، فيها ألوان ومفعمة بالحياة»؛ و2026-11-04:
 // «تكون اكو الوان حلوة وزاهية شوية مو بس الوان محددة»): لون لكلّ خلطة من معرّفها بـhsl() في style — بلا حدّ لعدد الألوان،
@@ -100,6 +101,27 @@ export function Stats({ stats }: { stats: readonly { key: string; label: string;
 
 /** «—» لقيمة غائبة في خلية أو رقم (مال لدور بلا كلفة، أو مادّة بلا سعر). */
 export const dash = (): string => t('mill.col.no_doc', '—');
+
+export interface KeptLoad<T> extends LoadState<T> {
+  /** قراءة جديدة جارية والصفحة مرسومة بآخر ما قُرئ للمفتاح نفسه: الأفعال معطَّلة حتّى تصل (ب٤٣). */
+  refreshing: boolean;
+}
+
+/**
+ * قراءة تبقى مرسومة أثناء إعادتها (الجولة الخامسة، ب٤٣): useLoad يجعل data = null أثناء كلّ قراءة جديدة، فكانت صفحتا الدفعة والخلطة
+ * تُطويان إلى «جارٍ التحميل…» بعد كلّ حفظ، وتُطوى معهما نافذة مفتوحة ويُمحى ما كُتب فيها. هنا آخر بيانات ناجحة للمفتاح نفسه تبقى
+ * معروضة وrefreshing يقول إنّ قراءة جديدة جارية؛ ومفتاح آخر (خلطة أو نسخة أو دفعة أخرى) يبدأ فارغاً. والفشل في error كما في useLoad،
+ * والصفحتان تعرضانه قبل البيانات (LoadFailed بزرّ «أعد المحاولة»)، فلا تُعرض قراءة قديمة كأنّها المحفوظ الآن.
+ * حفظ آخر بيانات للمفتاح حالةً من حالة أثناء الرسم بشرط يتوقّف (نمط React «معلومة من رسم سابق»)، لا متغيّراً عامّاً ولا مرجعاً.
+ */
+export function useKeptLoad<T>(load: () => Promise<T>, key: string): KeptLoad<T> {
+  const state = useLoad(load, key);
+  const [kept, setKept] = useState<{ key: string; data: T } | null>(null);
+  if (state.data !== null && (kept === null || kept.key !== key || kept.data !== state.data)) setKept({ key, data: state.data });
+  const held = kept !== null && kept.key === key ? kept.data : null;
+  const data = state.data ?? held;
+  return { data, error: state.error, loading: data === null && !state.error, refreshing: state.loading && data !== null, retry: state.retry };
+}
 
 // ─── المحاولة بمرجع ثابت (FOUNDATION ٥١٩) ───────────────────────────────────────────────────────────────────────
 // «ما نعرف شنو صار» تحتفظ بالمرجع، والإعادة تسأل الخادم به؛ والنتيجة المعروفة (نجاح أو رفض أكيد) تنسيه فالمحاولة

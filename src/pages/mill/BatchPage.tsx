@@ -44,7 +44,7 @@ import {
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { CellEdit, MaterialPicker, NewCategoryField, NO_CATEGORY_DRAFT, unitWord, useDrafts, type CategoryDraft, type PickedMaterial } from './pickers';
-import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
+import { dash, forgetMillRef, millRef, pct, Stats, useKeptLoad } from './shared';
 
 // بطاقة دفعة الإنتاج (0015): المسوّدة تُعرض بمعاينتها (ما سيُسحب من كلّ مادّة، والهدر، وكلفة الكيلو) قبل «أنتج الآن»؛
 // والمرحَّلة بأرقامها وبزرّ الإلغاء. الرفض يُعرض كما هو من الخادم، ولا يُرحَّل شيء لم يره المستخدم (بصمة المعاينة).
@@ -67,6 +67,23 @@ import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 // الجولة الرابعة: قاعدة ب٢٢ للصفحة كلّها — خانتا الكمية الفعلية ومبلغ سطر التكلفة وحقلا السطر الجديد و«فئة جديدة» مقفولة أثناء الحفظ،
 // وEnter لا يحفظ أثناءه، ولا يُمسح مسوَّد إلّا إن بقي كما أُرسل (ب٣٢)؛ والبطاقة والمعاينة من نسخة واحدة، وإلّا تُعادان (ب٣٣)؛
 // و«اختم الكلف» يقف عند مبلغ لم يُحفظ (ب٣٤)؛ و«أرجع ما لم يُحفظ» يعيد الصفحة إلى المحفوظ، ويوم الإنتاج الفارغ غير مكتوب (ب٣٥).
+// الجولة الخامسة: رفض «تغيّر من نافذة أو جهاز آخر» (qty_changed وamount_changed وstale_draft وstale_preview) يقرأ الدفعة من جديد، والخانة
+// المرفوضة تبقى بما كتبه المستخدم مشروطةً بالمقروء الجديد، وجملة تقول المحفوظ الآن، و«أرجع» يرجع إلى آخر ما قُرئ (ب٤٢)؛ والصفحة تبقى
+// مرسومة أثناء القراءة من جديد فلا تُطوى نافذة ولا يُمحى ما فيها، والأفعال و«أضف مادّة» و«بدّل» و«احذف» معطَّلة أثناء الحفظ والقراءة (ب٤٣).
+
+/** رفض «تغيّر من نافذة أو جهاز آخر» (ب٤٢): الدفعة تُقرأ من جديد، فالحفظ أو الختم أو الترحيل التالي بما يعرضه الخادم الآن. */
+const CHANGED_ELSEWHERE = new Set(['qty_changed', 'amount_changed', 'stale_draft', 'stale_preview']);
+const changedElsewhere = (problem: unknown): boolean => problem instanceof RejectedError && CHANGED_ELSEWHERE.has(problem.code);
+
+/**
+ * رفض «تغيّر من جهاز آخر» ينتظر قراءته الجديدة (ب٤٢): seen ما كان معروضاً لحظة الرفض (القراءة الجديدة غيره)، وcell الخانة المرفوضة
+ * (الكمية الفعلية لسطر، أو مبلغ سطر تكلفة) أو null لرفض الدفعة كلّها (stale_draft وstale_preview)، وrebased بعد أن صار شرطها المقروء الجديد.
+ */
+interface Conflict {
+  seen: BatchState;
+  cell: { kind: 'actual' | 'amount'; id: string } | null;
+  rebased: boolean;
+}
 
 interface BatchState {
   batch: ProductionBatch;
@@ -352,7 +369,8 @@ export default function BatchPage() {
       if (!stale || attempt >= READ_TRIES) return { batch, preview, stale };
     }
   }, [id]);
-  const { data, error, loading, retry } = useLoad<BatchState>(load, id);
+  // الدفعة تبقى مرسومة بآخر ما قُرئ لها أثناء القراءة من جديد (ب٤٣)، فلا تُطوى نافذة مفتوحة ولا يُمحى ما فيها، والأفعال معطَّلة حتّى تصل.
+  const { data, error, loading, refreshing, retry } = useKeptLoad<BatchState>(load, id);
   const loadCategories = useCallback((): Promise<CategoryOption[]> => (canCosts ? loadExpenseCategories() : Promise.resolve([])), [canCosts]);
   const categories = useLoad<CategoryOption[]>(loadCategories, `${canCosts}`);
   // حقول قسم الوزن: null = لم يُكتب فيه فيُعرض المحفوظ ويتبعه، ونصّ = ما كتبه المستخدم (ب٥، ب٦، ب٢٦).
@@ -360,8 +378,10 @@ export default function BatchPage() {
   const [reason, setReason] = useState<string | null>(null);
   const [expiry, setExpiry] = useState<string | null>(null);
   const [producedDay, setProducedDay] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [working, setBusy] = useState(false);
+  const busy = working || refreshing;
   const [failure, setFailure] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [adding, setAdding] = useState(false);
   const [replacing, setReplacing] = useState<MaterialRow | null>(null);
@@ -401,9 +421,29 @@ export default function BatchPage() {
   const costLines = preview?.costs ?? batch.costs;
   const costShown = costLines !== null && !blind;
 
-  const act = async (run: () => Promise<unknown>, done?: string): Promise<boolean> => {
+  // ب٤٢: وصلت القراءة الجديدة بعد رفض «تغيّر من جهاز آخر»: شرط الخانة المرفوضة يصير ما قُرئ الآن ويبقى نصّها كما كتبه المستخدم، فالحفظ
+  // التالي المقصود ينجح ولا يُرفض ثانيةً بشرط ما قبل الرفض. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (rebased)، فلا أثر جانبي ولا حلقة.
+  if (conflict && !conflict.rebased && data !== conflict.seen) {
+    const cell = conflict.cell;
+    if (cell?.kind === 'actual') {
+      const row = rows.find((entry) => entry.id === cell.id);
+      if (row) actuals.rebase(row.id, row.actualQty, row.actualQty === null ? '' : decimalText(row.actualQty, 3));
+    } else if (cell?.kind === 'amount') {
+      const cost = (costLines ?? []).find((entry) => entry.id === cell.id);
+      if (cost) amounts.rebase(cost.id, cost.amount, decimalText(cost.amount, 2));
+    }
+    setConflict({ ...conflict, rebased: true });
+  }
+
+  /**
+   * كلّ كتابة من الصفحة: بعد النجاح تُقرأ الدفعة من جديد؛ ورفض «تغيّر من نافذة أو جهاز آخر» (ب٤٢) يقرؤها من جديد أيضاً — كان النجاح وحده
+   * يقرأ، فبقيت الصفحة على لقطتها و«أرجع» إليها، وكلّ حفظ أو ختم أو ترحيل بعده يُرفض بالجملة نفسها — والخانة المرفوضة (cell) يُعاد
+   * شرطها إلى المقروء الجديد حين يصل.
+   */
+  const act = async (run: () => Promise<unknown>, done?: string, cell: Conflict['cell'] = null): Promise<boolean> => {
     setBusy(true);
     setFailure(null);
+    setConflict(null);
     try {
       await run();
       if (done) toast({ tone: 'success', title: done });
@@ -412,6 +452,10 @@ export default function BatchPage() {
     } catch (problem) {
       const { title, detail } = describeError(problem);
       setFailure(`${title} ${detail}`);
+      if (data && changedElsewhere(problem)) {
+        setConflict({ seen: data, cell, rebased: false });
+        retry();
+      }
       return false;
     } finally {
       setBusy(false);
@@ -467,6 +511,7 @@ export default function BatchPage() {
   const discard = async () => {
     setBusy(true);
     setFailure(null);
+    setConflict(null);
     try {
       await discardBatch(batch.id, batch.version);
       toast({ tone: 'success', title: t('mill.discarded', 'حُذفت مسوّدة الدفعة.') });
@@ -476,6 +521,11 @@ export default function BatchPage() {
       setFailure(`${title} ${detail}`);
       setDiscarding(false);
       setBusy(false);
+      // تغيّرت المسوّدة بعد فتحها (ب٤٢): تُقرأ من جديد، فالحذف التالي بنسختها الآن لا بالنسخة القديمة.
+      if (data && changedElsewhere(problem)) {
+        setConflict({ seen: data, cell: null, rebased: false });
+        retry();
+      }
     }
   };
 
@@ -504,19 +554,27 @@ export default function BatchPage() {
     if (busy || !edit) return;
     const value = edit.text.trim() === '' ? null : parseQty(edit.text);
     if (edit.text.trim() !== '' && (value === null || value <= 0n)) return;
-    void act(async () => {
-      await setInputActual(row.id, edit.before, value);
-      actuals.settle(row.id, edit.text, value);
-    });
+    void act(
+      async () => {
+        await setInputActual(row.id, edit.before, value);
+        actuals.settle(row.id, edit.text, value);
+      },
+      undefined,
+      { kind: 'actual', id: row.id },
+    );
   };
 
   const saveAmount = (cost: BatchCost, value: Fils) => {
     if (busy) return;
     const edit = amounts.get(cost.id);
-    void act(async () => {
-      await setBatchCost(cost.id, edit?.before ?? cost.amount, value);
-      amounts.settle(cost.id, edit?.text ?? null, value);
-    });
+    void act(
+      async () => {
+        await setBatchCost(cost.id, edit?.before ?? cost.amount, value);
+        amounts.settle(cost.id, edit?.text ?? null, value);
+      },
+      undefined,
+      { kind: 'amount', id: cost.id },
+    );
   };
 
   const mass = preview?.inputMassKg ?? batch.inputMassKg;
@@ -606,12 +664,13 @@ export default function BatchPage() {
     columns.push({
       key: 'actions',
       header: t('mill.col.actions', 'إجراءات'),
+      // أثناء الحفظ والقراءة من جديد (ب٤٣): لا تُفتح نافذة تتبدّل الدفعة تحتها.
       cell: (row) => (
         <span className="flex gap-1">
-          <Button size="sm" variant="ghost" icon={<Repeat className="size-4" aria-hidden="true" />} onClick={() => setReplacing(row)} data-action="replace-input">
+          <Button size="sm" variant="ghost" icon={<Repeat className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setReplacing(row)} data-action="replace-input">
             {t('mill.input.replace', 'بدّل')}
           </Button>
-          <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} onClick={() => setRemovingInput(row)} data-action="remove-input">
+          <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setRemovingInput(row)} data-action="remove-input">
             {t('common.delete', 'احذف')}
           </Button>
         </span>
@@ -700,7 +759,7 @@ export default function BatchPage() {
       key: 'actions',
       header: t('mill.col.actions', 'إجراءات'),
       cell: (cost) => (
-        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} onClick={() => setRemovingCost(cost)} data-action="remove-cost">
+        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setRemovingCost(cost)} data-action="remove-cost">
           {t('common.delete', 'احذف')}
         </Button>
       ),
@@ -713,7 +772,9 @@ export default function BatchPage() {
   // وحدة مخزن المدخلات (ق١٥): التكاليف تُحمَّل من مصاريفها وحدها، فالتلميح والتنبيه يسمّيانها.
   const division = preview?.inputWarehouse ?? null;
   const newCostValue = newCost.amount.trim() === '' ? null : parseMoney(newCost.amount);
-  const newCostOk = newCost.categoryId !== '' && newCostValue !== null && newCostValue > 0n;
+  // فئة صار لها سطر (أُضيف من جهاز آخر، أو بمحاولة ضاع جوابها ثمّ رُفضت amount_changed وقُرئت الدفعة، ب٤٢) لا تُضاف ثانيةً بالمعرّف نفسه
+  // فتُرفض في حلقة: المبلغ يُعدَّل في سطرها.
+  const newCostOk = newCost.categoryId !== '' && freeCategories.some((option) => option.id === newCost.categoryId) && newCostValue !== null && newCostValue > 0n;
   const unfunded = problems.filter((problem) => problem.code === 'costs_unfunded');
   const otherProblems = problems.filter((problem) => problem.code !== 'costs_unfunded');
 
@@ -745,6 +806,27 @@ export default function BatchPage() {
   // فارغة ولا تعود وحدها بكتابة لاحقة. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (نمط React «معلومة من رسم سابق»).
   if (leaving !== null && !unsaved.length) setLeaving(null);
 
+  // بعد رفض «تغيّر من جهاز آخر» وقراءته الجديدة (ب٤٢): المحفوظ الآن وما كتبه المستخدم معاً — الخانة تبقى بما كتبه، والجملة تقول المحفوظ.
+  const conflictNote = ((): string | null => {
+    if (!conflict?.rebased) return null;
+    const cell = conflict.cell;
+    if (cell?.kind === 'actual') {
+      const row = rows.find((entry) => entry.id === cell.id);
+      if (row && actuals.get(cell.id)) {
+        return t('mill.conflict.actual', 'المحفوظ الآن للكمية الفعلية من «{name}»: {saved}، وما كتبته باقٍ في خانته: احفظه ليحلّ محلّه.', {
+          name: row.itemName,
+          saved: row.actualQty === null ? t('mill.conflict.as_planned', 'فارغة (كما خُطّط)') : fmtQty(row.actualQty, row.baseUnit).main,
+        });
+      }
+    } else if (cell?.kind === 'amount') {
+      const cost = costRows.find((entry) => entry.id === cell.id);
+      if (cost && amounts.get(cell.id)) {
+        return t('mill.conflict.amount', 'المحفوظ الآن لمبلغ «{name}»: {saved}، وما كتبته باقٍ في خانته: احفظه ليحلّ محلّه.', { name: cost.categoryName, saved: fmtMoney(cost.amount) });
+      }
+    }
+    return t('mill.conflict.batch', 'قُرئت الدفعة من جديد بما حُفظ الآن: راجعها ثمّ أعد المحاولة.');
+  })();
+
   const post = () => {
     // الترحيل يأخذ المحفوظ وحده (ب٢١، درس WP8): ما كُتب ولم يُحفظ يُحفظ أو يُرجَع أوّلاً، والزرّ معطَّل حتّى ذلك؛ ونسخة المعاينة هي
     // نسخة البطاقة المعروضة (ب٣٣)، وإلّا لا ترحيل.
@@ -763,6 +845,8 @@ export default function BatchPage() {
 
   // «أرجع ما لم يُحفظ» (ب٣٥): المخرج الذي تسمّيه البوّابة — كلّ مسوّدات الصفحة إلى المحفوظ (حقول الوزن واليوم، والكميات الفعلية،
   // والمبالغ، والسطر الجديد، واسم الفئة الجديدة)، فلا يُضطرّ أحد إلى حفظ فراغ يمحو وزناً موزوناً. المسح المقصود للوزن يبقى بالحفظ.
+  // والمحفوظ هو آخر ما قُرئ (ب٤٢): رفض «تغيّر من جهاز آخر» يقرأ الدفعة من جديد، فالإرجاع إلى ما في الخادم الآن لا إلى لقطة قديمة؛
+  // وجملة الرفض («ما كتبته باقٍ») تذهب معه.
   const revert = () => {
     if (busy) return;
     setWeight(null);
@@ -773,6 +857,10 @@ export default function BatchPage() {
     amounts.reset();
     setNewCost(NO_NEW_COST);
     setCategory((current) => ({ ...current, text: '', problem: null }));
+    if (conflict) {
+      setConflict(null);
+      setFailure(null);
+    }
   };
   const postGate = canPost && unsaved.length > 0;
   const sealShown = !batch.costsConfirmed && canSeal && expensesVisible;
@@ -875,7 +963,7 @@ export default function BatchPage() {
         />
         {editInputs ? (
           <div>
-            <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} onClick={() => setAdding(true)} data-action="add-input">
+            <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setAdding(true)} data-action="add-input">
               {t('mill.input.add', 'أضف مادّة')}
             </Button>
           </div>
@@ -1026,7 +1114,11 @@ export default function BatchPage() {
           {otherProblems.map(problemLine).join(' · ')}
         </Notice>
       ) : null}
-      {failure ? <Notice tone="danger" title={failure} /> : null}
+      {failure ? (
+        <Notice tone="danger" title={failure}>
+          {conflictNote}
+        </Notice>
+      ) : null}
 
       {editInputs ? (
         <section className="card flex flex-col gap-3 p-4">

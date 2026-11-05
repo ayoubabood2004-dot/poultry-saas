@@ -14,7 +14,7 @@ import { decimalText } from '../../domain/decimal';
 import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseQty, type BaseUnit } from '../../domain/units';
-import { describeError } from '../../lib/errors';
+import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
 import { columnDecimals, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { setItemCostPrice } from '../../lib/repo/inventory';
@@ -38,10 +38,9 @@ import {
   type RecipeUnit,
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
-import { useLoad } from '../../lib/useLoad';
 import { ProduceDialog } from './MillPage';
 import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, unitWord, useDrafts, type CategoryDraft } from './pickers';
-import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor } from './shared';
+import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
 // وشريط التركيبة بلمحة. النسخة المسوّدة تُعدَّل وتُفعَّل؛ والمفعَّلة مجمَّدة، فالتعديل نسخة جديدة (التاريخ لا يُعاد كتابته).
@@ -56,6 +55,26 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // الجولة الرابعة: سطر المسوّدة المكتوب باللتر ومادّته صارت بالكيلوغرام (unit_mismatch) بجملة تقول ما العمل، وكتلته «—» (لا تُعرف بلا
 // كثافة: القارئ يرسل null بدل أن يرمي)، وشريط التركيبة يتخطّاه، والمجموع «—» إن جهلت كتلة سطر داخل الكتلة (ب٣١)؛ ونصّ «لا تكاليف» لمن
 // لا يضيف تكلفة (بلا recipe.activate) لا يدلّه على فعل ليس له (ب٣٧).
+// الجولة الخامسة: «فعّل النسخة» و«المجموع مطابق» لا يقولان «جاهزة» وفي المسوّدة سطر يرفض الخادم التفعيل به (ب٤١: unit_mismatch أو سائل
+// بلا كثافة أو مادّة صارت بالقطعة)، ولكلّ منها جملة فوق (ب٤٩ للكثافة برابط بطاقة المادّة)؛ ورفض «تغيّر من جهاز آخر» يقرأ الخلطة من جديد
+// ويبقي المكتوب مشروطاً بالمقروء الجديد (ب٤٢)؛ والصفحة تبقى مرسومة أثناء القراءة والأفعال معطَّلة (ب٤٣)؛ وخانات المال وحقول التكلفة
+// الجديدة مقفولة أثناء الحفظ ولا يُمسح منها إلّا ما أُرسل (ب٤٤)؛ وجملة «بلا أيّ سعر» بالدور (ب٤٥)؛ و«عدّل» لا يظهر لسطر لا يُعدَّل
+// (ب٤٧)؛ و«نسخة جديدة» تقول المواد التي لم تُنسخ (ب٤٨).
+
+/** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
+const CHANGED_ELSEWHERE = new Set(['price_changed', 'amount_changed', 'stale_draft']);
+// وحفظ الأساس المشروط بنسخة المسوّدة يرجع بصفر صفوف إن تغيّرت (ZeroRowsError): المخرج نفسه، فلا يُعاد بالنسخة القديمة أبداً.
+const changedElsewhere = (problem: unknown): boolean => (problem instanceof RejectedError && CHANGED_ELSEWHERE.has(problem.code)) || problem instanceof ZeroRowsError;
+
+/**
+ * رفض «تغيّر من جهاز آخر» ينتظر قراءته الجديدة (ب٤٢): seen ما كان معروضاً لحظة الرفض (القراءة الجديدة غيره)، وcell الخانة المرفوضة
+ * (سعر كلفة مادّة، أو مبلغ تكلفة لكلّ طنّ) أو null لرفض الخلطة كلّها، وrebased بعد أن صار شرط الخانة المقروء الجديد.
+ */
+interface Conflict {
+  seen: RecipeDetail;
+  cell: { kind: 'price' | 'rate'; id: string } | null;
+  rebased: boolean;
+}
 
 function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -128,8 +147,11 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
   );
 }
 
-/** كلفة الطنّ المتوقّعة من الخادم (ج٧): للتخطيط، والفعلية من السحب الحقيقي عند الإنتاج. */
-export function ExpectedPanel({ expected }: { expected: NonNullable<RecipeDetail['expected']> }) {
+/**
+ * كلفة الطنّ المتوقّعة من الخادم (ج٧): للتخطيط، والفعلية من السحب الحقيقي عند الإنتاج. وجملة المواد «بلا أيّ سعر» تدلّ على كتابة سعر
+ * الكلفة من يكتبه وحده (ب٤٥، درس ب٣٧: set_item_cost_price يشترط stores.manage)، ولغيره تقول من يكتبه.
+ */
+export function ExpectedPanel({ expected, canPrice = false }: { expected: NonNullable<RecipeDetail['expected']>; canPrice?: boolean }) {
   return (
     <div className="flex flex-col gap-1 rounded-2xl bg-surface-2 p-3" data-action="expected-cost">
       <p className="font-semibold">
@@ -139,7 +161,13 @@ export function ExpectedPanel({ expected }: { expected: NonNullable<RecipeDetail
       </p>
       <p className="text-sm text-ink-muted">
         {t('mill.builder.planned_parts', 'المواد {materials} والتكاليف {rates} لكلّ طنّ.', { materials: fmtMoney(expected.materialsPerTon), rates: fmtMoney(expected.ratesPerTon) })}
-        {expected.unpriced > 0 ? ` ${t('mill.expected.unpriced', '{count} من المواد بلا أيّ سعر فلم تُحسب: اكتب سعر كلفتها.', { count: fmtInt(expected.unpriced) })}` : ''}
+        {expected.unpriced > 0
+          ? ` ${
+              canPrice
+                ? t('mill.expected.unpriced', '{count} من المواد بلا أيّ سعر فلم تُحسب: اكتب سعر كلفتها.', { count: fmtInt(expected.unpriced) })
+                : t('mill.expected.unpriced_others', '{count} من المواد بلا أيّ سعر فلم تُحسب: يكتبه المالك أو المدير.', { count: fmtInt(expected.unpriced) })
+            }`
+          : ''}
       </p>
       <p className="text-xs text-ink-muted">{t('mill.expected.note', 'سعر كلّ مادّة: سعر الكلفة المكتوب، وإلّا آخر شراء، وإلّا متوسّط المتاح. الكلفة الفعلية للعلف من السحب الحقيقي عند الإنتاج.')}</p>
     </div>
@@ -155,17 +183,24 @@ export default function RecipePage() {
   const canProduce = role !== null && can(role, 'production.draft');
   const canCategories = role !== null && can(role, 'expense_categories.manage');
   const costs = Boolean(workspace?.canSeeCost);
-  const canPrice = costs && role !== null && can(role, 'stores.manage');
+  // من يعدّل المواد (كثافتها ووحدتها وسعر كلفتها): stores.manage، كما يشترطها الخادم (ب٤٩، ب٤٥).
+  const canItems = role !== null && can(role, 'stores.manage');
+  const canPrice = costs && canItems;
   const [versionId, setVersionId] = useState<string | null>(null);
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
-  const { data, error, loading, retry } = useLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
+  // الخلطة تبقى مرسومة بآخر ما قُرئ للنسخة نفسها أثناء القراءة من جديد (ب٤٣)، والأفعال معطَّلة حتّى تصل.
+  const { data, error, loading, refreshing, retry } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
   const [editing, setEditing] = useState<RecipeLine | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<RecipeLine | null>(null);
   const [removingRate, setRemovingRate] = useState<RecipeRate | null>(null);
   const [basis, setBasis] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [working, setBusy] = useState(false);
+  const busy = working || refreshing;
   const [failure, setFailure] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
+  /** المواد التي لم تنسخها «نسخة جديدة» لأنّها صارت بالقطعة (ب٤٨)، للنسخة التي أُنشئت. */
+  const [skipped, setSkipped] = useState<{ versionId: string; names: readonly string[] } | null>(null);
   const prices = useDrafts<Fils | null>();
   const rateDrafts = useDrafts<Fils>();
   const [newRate, setNewRate] = useState({ categoryId: '', amount: '' });
@@ -200,9 +235,14 @@ export default function RecipePage() {
     return [...groups.entries()].map(([name, mass]) => ({ name, mass }));
   }, [lines]);
 
-  const act = async (run: () => Promise<unknown>, done?: string) => {
+  /**
+   * كلّ كتابة من الصفحة: بعد النجاح تُقرأ الخلطة من جديد؛ ورفض «تغيّر من نافذة أو جهاز آخر» (ب٤٢) يقرؤها من جديد أيضاً، والخانة
+   * المرفوضة (cell) يُعاد شرطها إلى المقروء الجديد حين يصل ويبقى ما كتبه المستخدم فيها، فالحفظ التالي المقصود لا يُرفض بالشرط القديم.
+   */
+  const act = async (run: () => Promise<unknown>, done?: string, cell: Conflict['cell'] = null) => {
     setBusy(true);
     setFailure(null);
+    setConflict(null);
     try {
       await run();
       if (done) toast({ tone: 'success', title: done });
@@ -210,30 +250,44 @@ export default function RecipePage() {
     } catch (problem) {
       const { title, detail } = describeError(problem);
       setFailure(`${title} ${detail}`);
+      if (data && changedElsewhere(problem)) {
+        setConflict({ seen: data, cell, rebased: false });
+        retry();
+      }
     } finally {
       setBusy(false);
     }
   };
 
+  // بعد الحفظ (ب٤٤، قاعدة ب٣٢): يُمسح المسوَّد إن بقي نصّه كما أُرسل، وإلّا يبقى ما كُتب أثناء الحفظ (والخانة مقفولة أثناءه أصلاً)
+  // مشروطاً بما حُفظ الآن، فلا يضيع بصمت ولا يُرفض حفظه التالي «من جهاز آخر».
   const savePrice = (line: RecipeLine) => {
     const draft = prices.get(line.itemId);
-    if (!draft) return;
+    if (busy || !draft) return;
     const value = draft.text.trim() === '' ? null : parseMoney(draft.text);
     if (draft.text.trim() !== '' && (value === null || value <= 0n)) return;
-    void act(async () => {
-      await setItemCostPrice(line.itemId, value, draft.before);
-      prices.clear(line.itemId);
-    }, t('mill.price.saved', 'حُفظ سعر كلفة «{name}».', { name: line.itemName }));
+    void act(
+      async () => {
+        await setItemCostPrice(line.itemId, value, draft.before);
+        prices.settle(line.itemId, draft.text, value);
+      },
+      t('mill.price.saved', 'حُفظ سعر كلفة «{name}».', { name: line.itemName }),
+      { kind: 'price', id: line.itemId },
+    );
   };
 
   const saveRate = (rate: RecipeRate) => {
     const draft = rateDrafts.get(rate.id);
     const value = draft ? parseMoney(draft.text) : null;
-    if (!draft || value === null || value <= 0n) return;
-    void act(async () => {
-      await setRecipeRate(rate.id, draft.before, value);
-      rateDrafts.clear(rate.id);
-    });
+    if (busy || !draft || value === null || value <= 0n) return;
+    void act(
+      async () => {
+        await setRecipeRate(rate.id, draft.before, value);
+        rateDrafts.settle(rate.id, draft.text, value);
+      },
+      undefined,
+      { kind: 'rate', id: rate.id },
+    );
   };
 
   /**
@@ -246,9 +300,12 @@ export default function RecipePage() {
     const slot = `version:${data.id}`;
     setBusy(true);
     setFailure(null);
+    setConflict(null);
     try {
       const made = await newRecipeVersion(data.id, millRef(slot));
       forgetMillRef(slot);
+      // سطر مادّة صارت بالقطعة لا يُنسخ (ق٥٥): الصفحة تسمّيها فوق النسخة الجديدة بدل أن تختفي من الخلطة بصمت (ب٤٨).
+      setSkipped(made.skipped.length ? { versionId: made.versionId, names: made.skipped } : null);
       toast({
         tone: 'success',
         title: made.existing
@@ -355,6 +412,7 @@ export default function RecipePage() {
                 dirty={draft !== undefined && text !== saved}
                 invalid={text.trim() !== '' && (parsed === null || parsed <= 0n)}
                 busy={busy}
+                disabled={busy}
                 action="cost-price"
                 onChange={(next) => prices.write(line.itemId, next, line.costPrice)}
                 onSave={() => savePrice(line)}
@@ -376,10 +434,14 @@ export default function RecipePage() {
         header: t('mill.col.actions', 'إجراءات'),
         cell: (line) => (
           <span className="flex gap-1">
-            <Button size="sm" variant="ghost" icon={<Pencil className="size-4" aria-hidden="true" />} onClick={() => setEditing(line)} data-action="edit-line">
-              {t('common.edit', 'عدّل')}
-            </Button>
-            <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} onClick={() => setRemoving(line)} data-action="remove-line">
+            {line.unitMismatch || line.baseUnit === 'pc' ? null : (
+              // سطر باللتر لمادّة صارت بالكيلو، أو مادّة صارت بالقطعة (ب٤٧): حارس السطر يرفض تعديله (bad_recipe_unit) ولا اختيار للوحدة
+              // يصلحه، فلا «عدّل» يقود إلى رفض؛ يبقى «احذف»، والجملة فوق تقول ما بعده.
+              <Button size="sm" variant="ghost" icon={<Pencil className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setEditing(line)} data-action="edit-line">
+                {t('common.edit', 'عدّل')}
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setRemoving(line)} data-action="remove-line">
               {t('common.delete', 'احذف')}
             </Button>
           </span>
@@ -392,10 +454,27 @@ export default function RecipePage() {
   if (error) return <LoadFailed what={t('mill.recipe.what', 'بطاقة الخلطة')} error={error} onRetry={retry} />;
   if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
 
+  // ب٤٢: وصلت القراءة الجديدة بعد رفض «تغيّر من جهاز آخر»: شرط الخانة المرفوضة يصير ما قُرئ الآن ويبقى نصّها كما كتبه المستخدم. ضبط
+  // حالة من حالة أثناء الرسم بشرط يتوقّف (rebased)، فلا أثر جانبي ولا حلقة.
+  if (conflict && !conflict.rebased && data !== conflict.seen) {
+    const cell = conflict.cell;
+    if (cell?.kind === 'price') {
+      const line = data.lines.find((entry) => entry.itemId === cell.id);
+      if (line) prices.rebase(cell.id, line.costPrice, line.costPrice === null ? '' : decimalText(line.costPrice, 2));
+    } else if (cell?.kind === 'rate') {
+      const rate = (data.rates ?? []).find((entry) => entry.id === cell.id);
+      if (rate) rateDrafts.rebase(cell.id, rate.amountPerTon, decimalText(rate.amountPerTon, 2));
+    }
+    setConflict({ ...conflict, rebased: true });
+  }
+
   // مجموع لا يُعرف (ب٣١: سطر داخل الكتلة بلا كتلة) لا فرق له، فلا «مطابق» ولا تفعيل (الخادم يرفضه أصلاً).
   const sum = data.massKg;
   const gap = sum === null ? null : data.basisKg - sum;
-  const balanced = gap === 0n && lines.length > 0;
+  // سطور المسوّدة التي يرفض الخادم التفعيل بها ولو طابق المجموع الأساس (ب٤١): مكتوب باللتر ومادّته ليست باللتر (bad_recipe_unit)، أو مادّة
+  // صارت بالقطعة بأيّ وحدة كُتب (bad_recipe_unit)، أو سائل بلا كثافة (density_required) — داخل الكتلة وخارجها. لكلّ منها جملة فوق.
+  const blocked = isDraft ? lines.filter((line) => line.unitMismatch || line.densityMissing || line.baseUnit === 'pc') : [];
+  const balanced = gap === 0n && lines.length > 0 && blocked.length === 0;
   const rates = data.rates ?? [];
   const canRates = isDraft && canEdit && costs;
   const activeVersion = data.versions.find((version) => version.status === 'active') ?? null;
@@ -403,12 +482,14 @@ export default function RecipePage() {
   const categories = [...data.expenseCategories, ...madeCategories.filter((made) => !data.expenseCategories.some((category) => category.id === made.id))];
   const freeCategories = categories.filter((category) => !rates.some((rate) => rate.categoryId === category.id));
   const newRateValue = newRate.amount.trim() === '' ? null : parseMoney(newRate.amount);
-  const newRateOk = newRate.categoryId !== '' && newRateValue !== null && newRateValue > 0n;
+  // فئة صار لها سطر (أُضيف من جهاز آخر، أو بمحاولة ضاع جوابها ثمّ رُفضت amount_changed وقُرئت الخلطة، ب٤٢) لا تُضاف ثانيةً بالمعرّف نفسه
+  // فتُرفض في حلقة: المبلغ يُعدَّل في سطرها.
+  const newRateOk = newRate.categoryId !== '' && freeCategories.some((category) => category.id === newRate.categoryId) && newRateValue !== null && newRateValue > 0n;
   // سطور النسخة المفعَّلة التي تغيّرت وحدة مادّتها بعد التفعيل (ق٣١، ب٢٧): الخادم يرفض الإنتاج بها (item_changed) حتّى نسخة جديدة.
   const unitChanged = data.status === 'active' ? lines.filter((line) => line.unitChanged) : [];
-  // سطور المسوّدة المكتوبة باللتر ومادّتها الآن ليست باللتر (ق٤٢، ب٣١): لا تُعرف كتلتها ولا تُفعَّل النسخة بها (bad_recipe_unit) حتّى
-  // يُحذف السطر ويُضاف بوحدة المادّة. وفي النسخة المجمَّدة تُخطَّط من لقطة الكثافة (ق٤١)، فلا جملة هناك.
-  const mismatched = isDraft ? lines.filter((line) => line.unitMismatch) : [];
+  // سطور المسوّدة المكتوبة باللتر ومادّتها الآن ليست باللتر (ق٤٢، ب٣١)، أو مادّتها صارت بالقطعة ولو كُتبت بالكيلو (ب٤١): لا تُفعَّل النسخة بها
+  // (bad_recipe_unit) حتّى يُحذف السطر (ويُضاف بوحدة المادّة إن صلحت). وفي النسخة المجمَّدة تُخطَّط من لقطة الكثافة (ق٤١)، فلا جملة هناك.
+  const mismatched = blocked.filter((line) => line.unitMismatch || line.baseUnit === 'pc');
   const mismatchText = (line: RecipeLine): string =>
     line.baseUnit === 'pc'
       ? t('mill.recipe.unit_mismatch_pc', 'صارت «{name}» تُقاس بالقطعة، فلا تدخل الخلطة: يُحذف سطرها.', { name: line.itemName })
@@ -416,6 +497,50 @@ export default function RecipePage() {
         ? t('mill.recipe.unit_mismatch', 'صارت «{name}» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.', { name: line.itemName })
         : // من لا يعدّل الخلطة (درس ب٣٧): لا يُدلّ على فعل ليس له.
           t('mill.recipe.unit_mismatch_others', 'صارت «{name}» تُقاس بالكيلوغرام: يحذف المالك أو المدير سطرها ويضيفه بالكيلوغرام.', { name: line.itemName });
+  // سائل بلا كثافة (ق٥١، ب٤٩): التفعيل يرفضه density_required، فالبطاقة تسمّيه قبل النقر؛ والكثافة تُكتب في المادّة، فلمن يعدّل المواد
+  // «اكتب كثافته» ولغيره من يكتبها (درس ب٣٧).
+  const densityMissing = blocked.filter((line) => line.densityMissing);
+  const densityText = (line: RecipeLine): string =>
+    canItems
+      ? t('mill.recipe.density_missing', '«{name}» سائل بلا كثافة: اكتب كثافته في بطاقة المادّة ثمّ فعّل.', { name: line.itemName })
+      : t('mill.recipe.density_missing_others', '«{name}» سائل بلا كثافة: يكتبها المالك أو المدير في بطاقة المادّة.', { name: line.itemName });
+  // ما كُتب في الصفحة ولم يُحفظ (ب٤٩): رابط بطاقة المادّة يغادر الصفحة فيضيّعه، فلا يظهر حتّى يُحفظ أو يُمسح.
+  const pageDirty =
+    lines.some((line) => {
+      const draft = prices.get(line.itemId);
+      return draft !== undefined && draft.text !== (line.costPrice === null ? '' : decimalText(line.costPrice, 2));
+    }) ||
+    rates.some((rate) => {
+      const draft = rateDrafts.get(rate.id);
+      return draft !== undefined && draft.text !== decimalText(rate.amountPerTon, 2);
+    }) ||
+    newRate.categoryId !== '' ||
+    newRate.amount.trim() !== '' ||
+    (basis.trim() !== '' && basis !== decimalText(data.basisKg, 3)) ||
+    category.text.trim() !== '';
+  // بعد رفض «تغيّر من جهاز آخر» وقراءته الجديدة (ب٤٢): المحفوظ الآن وما كتبه المستخدم معاً — الخانة تبقى بما كتبه، والجملة تقول المحفوظ.
+  const conflictNote = ((): string | null => {
+    if (!conflict?.rebased) return null;
+    const cell = conflict.cell;
+    if (cell?.kind === 'price') {
+      const line = lines.find((entry) => entry.itemId === cell.id);
+      if (line && prices.get(cell.id)) {
+        return t('mill.conflict.price', 'المحفوظ الآن لسعر كلفة «{name}»: {saved}، وما كتبته باقٍ في خانته: احفظه ليحلّ محلّه.', {
+          name: line.itemName,
+          saved: line.costPrice === null ? t('mill.conflict.no_price', 'بلا سعر') : fmtMoney(line.costPrice),
+        });
+      }
+    } else if (cell?.kind === 'rate') {
+      const rate = rates.find((entry) => entry.id === cell.id);
+      if (rate && rateDrafts.get(cell.id)) {
+        return t('mill.conflict.rate', 'المحفوظ الآن لمبلغ «{name}» لكلّ طنّ: {saved}، وما كتبته باقٍ في خانته: احفظه ليحلّ محلّه.', {
+          name: rate.categoryName,
+          saved: fmtMoney(rate.amountPerTon),
+        });
+      }
+    }
+    return t('mill.conflict.recipe', 'قُرئت الخلطة من جديد بما حُفظ الآن: راجعها ثمّ أعد المحاولة.');
+  })();
 
   const rateColumns: Column<RecipeRate>[] = [
     { key: 'category', header: t('mill.rates.category', 'فئة المصروف'), wrap: true, cell: (rate) => rate.categoryName },
@@ -437,6 +562,7 @@ export default function RecipePage() {
             dirty={draft !== undefined && text !== saved}
             invalid={parsed === null || parsed <= 0n}
             busy={busy}
+            disabled={busy}
             action="rate-amount"
             onChange={(next) => rateDrafts.write(rate.id, next, rate.amountPerTon)}
             onSave={() => saveRate(rate)}
@@ -451,7 +577,7 @@ export default function RecipePage() {
       key: 'actions',
       header: t('mill.col.actions', 'إجراءات'),
       cell: (rate) => (
-        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} onClick={() => setRemovingRate(rate)} data-action="remove-rate">
+        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setRemovingRate(rate)} data-action="remove-rate">
           {t('common.delete', 'احذف')}
         </Button>
       ),
@@ -493,6 +619,15 @@ export default function RecipePage() {
         ) : null}
       </div>
 
+      {skipped && skipped.versionId === data.versionId ? (
+        <Notice
+          tone="warning"
+          title={t('mill.version.skipped', 'نُسخت النسخة بلا {names}: صارت تُقاس بالقطعة فلا تدخل الخلطة.', {
+            names: skipped.names.map((name) => t('mill.version.skipped_name', '«{name}»', { name })).join(t('list.separator', '، ')),
+          })}
+        />
+      ) : null}
+
       {activeVersion && canProduce && !data.archived ? (
         <div>
           <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} busy={producing === 'loading'} onClick={openProduce} data-action="produce">
@@ -521,6 +656,25 @@ export default function RecipePage() {
         </div>
       ) : null}
 
+      {densityMissing.length ? (
+        <div className="flex flex-col gap-2" data-action="density-missing">
+          {densityMissing.map((line) => (
+            <Notice
+              key={line.id}
+              tone="warning"
+              title={densityText(line)}
+              action={
+                pageDirty ? undefined : (
+                  <Link to={`/inventory/items/${line.itemId}`} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-item-card">
+                    {t('mill.recipe.open_item', 'افتح بطاقة المادّة')}
+                  </Link>
+                )
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+
       <section className="card flex flex-col gap-3 p-4">
         <p className="text-sm text-ink-muted">{t('mill.detail.basis', 'الأساس: {basis}', { basis: fmtQty(data.basisKg, 'kg').main })}</p>
         <CompositionBar pieces={lines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={data.basisKg > 0n ? data.basisKg : 1n} hue={hue} />
@@ -538,7 +692,12 @@ export default function RecipePage() {
         gap === null || sum === null ? (
           <Notice tone="warning" title={t('mill.detail.gap_unknown', 'لا يُحسب المجموع: كتلة سطر أو أكثر لا تُعرف.')} />
         ) : gap === 0n ? (
-          <Notice tone="info" title={t('mill.detail.balanced', 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.')} />
+          blocked.length ? (
+            // المجموع مطابق وفي المسوّدة سطر يرفض الخادم التفعيل به (ب٤١): لا «جاهزة»، والجمل فوق تسمّي السطور وما العمل.
+            <Notice tone="warning" title={t('mill.detail.balanced_blocked', 'المجموع مطابق للأساس، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.')} />
+          ) : (
+            <Notice tone="info" title={t('mill.detail.balanced', 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.')} />
+          )
         ) : (
           <Notice
             tone="warning"
@@ -548,7 +707,11 @@ export default function RecipePage() {
           </Notice>
         )
       ) : null}
-      {failure ? <Notice tone="danger" title={failure} /> : null}
+      {failure ? (
+        <Notice tone="danger" title={failure}>
+          {conflictNote}
+        </Notice>
+      ) : null}
 
       <DataTable
         caption={t('mill.detail.caption', 'مواد الخلطة وحصّة كلّ مادّة من الأساس')}
@@ -561,7 +724,8 @@ export default function RecipePage() {
 
       {isDraft && canEdit ? (
         <div className="flex flex-wrap items-end gap-3">
-          <Button icon={<Plus className="size-5" aria-hidden="true" />} onClick={() => setAdding(true)} data-action="add-line">
+          {/* أثناء الحفظ والقراءة من جديد (ب٤٣): لا تُفتح نافذة سطر تتبدّل الصفحة تحتها. */}
+          <Button icon={<Plus className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setAdding(true)} data-action="add-line">
             {t('mill.detail.add_line', 'أضف مادّة')}
           </Button>
           <Field id={basisId} label={t('mill.detail.set_basis', 'أساس الخلطة (كغم)')}>
@@ -571,6 +735,7 @@ export default function RecipePage() {
               inputMode="decimal"
               dir="ltr"
               value={basis === '' ? decimalText(data.basisKg, 3) : basis}
+              disabled={busy}
               onChange={(event) => setBasis(event.target.value)}
             />
           </Field>
@@ -578,13 +743,15 @@ export default function RecipePage() {
             variant="secondary"
             busy={busy}
             disabled={basis.trim() === '' || !parseQty(basis) || (parseQty(basis) ?? 0n) <= 0n}
-            onClick={() =>
+            onClick={() => {
+              const sent = basis;
+              const value = parseQty(sent);
               void act(async () => {
-                const value = parseQty(basis);
                 if (value && data.versionId) await setVersionBasis(data.versionId, value, data.versionVersion);
-                setBasis('');
-              }, t('mill.detail.basis_saved', 'حُفظ الأساس.'))
-            }
+                // قاعدة ب٣٢: لا يُفرَّغ الحقل إلّا إن بقي كما أُرسل.
+                setBasis((current) => (current === sent ? '' : current));
+              }, t('mill.detail.basis_saved', 'حُفظ الأساس.'));
+            }}
             data-action="save-basis"
           >
             {t('mill.detail.save_basis', 'احفظ الأساس')}
@@ -651,6 +818,7 @@ export default function RecipePage() {
                   id={`${fieldId}-new-rate-category`}
                   className="input"
                   value={newRate.categoryId}
+                  disabled={busy}
                   onChange={(event) => setNewRate((current) => ({ ...current, categoryId: event.target.value }))}
                   data-action="new-rate-category"
                 >
@@ -669,6 +837,7 @@ export default function RecipePage() {
                   inputMode="decimal"
                   dir="ltr"
                   value={newRate.amount}
+                  disabled={busy}
                   onChange={(event) => setNewRate((current) => ({ ...current, amount: event.target.value }))}
                   data-action="new-rate-amount"
                 />
@@ -679,13 +848,15 @@ export default function RecipePage() {
                 busy={busy}
                 disabled={!newRateOk || !data.versionId}
                 onClick={() => {
-                  if (!newRateOk || newRateValue === null || !data.versionId) return;
+                  if (busy || !newRateOk || newRateValue === null || !data.versionId) return;
                   const slot = `rate:${data.versionId}:${newRate.categoryId}`;
                   const versionOf = data.versionId;
+                  const sent = newRate;
                   void act(async () => {
-                    await addRecipeRate(versionOf, millRef(slot), newRate.categoryId, newRateValue);
+                    await addRecipeRate(versionOf, millRef(slot), sent.categoryId, newRateValue);
                     forgetMillRef(slot);
-                    setNewRate({ categoryId: '', amount: '' });
+                    // ب٤٤ (قاعدة ب٣٢): لا يُفرَّغ السطر الجديد إلّا إن بقي كما أُرسل.
+                    setNewRate((current) => (current.categoryId === sent.categoryId && current.amount === sent.amount ? { categoryId: '', amount: '' } : current));
                   });
                 }}
                 data-action="add-rate"
@@ -701,13 +872,14 @@ export default function RecipePage() {
               canManage={canCategories}
               value={category}
               onChange={setCategory}
+              disabled={busy}
               onPick={(picked) => {
                 setMadeCategories((current) => (current.some((made) => made.id === picked.id) ? current : [...current, picked]));
                 if (!rates.some((rate) => rate.categoryId === picked.id)) setNewRate((current) => ({ ...current, categoryId: picked.id }));
               }}
             />
           ) : null}
-          {data.expected ? <ExpectedPanel expected={data.expected} /> : null}
+          {data.expected ? <ExpectedPanel expected={data.expected} canPrice={canPrice} /> : null}
         </section>
       ) : null}
 

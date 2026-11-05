@@ -115,7 +115,7 @@ const itemRow = (id, name, kind, baseUnit = 'kg', density = null, over = {}) => 
 // ─── أجوبة بشكل العقد والقسم «أ» ─────────────────────────────────────────────────────────────────────────────────────
 const recipeLine = (over = {}) => ({
   id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '1000.000', unit: 'kg',
-  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, unit_mismatch: false, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
+  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, unit_mismatch: false, density_missing: false, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
 });
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], rates = [], categories = [{ id: 'c-labor', name: 'أيدي عاملة' }] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
@@ -508,7 +508,7 @@ export default async function (t) {
           newRecipeVersion: (recipeId) => {
             attempt += 1;
             if (attempt === 1) throw new m.UnknownOutcomeError();
-            return { recipeId, versionId: 'v-3', versionNo: 3, status: 'draft', lines: 1, rates: 0, existing: false };
+            return { recipeId, versionId: 'v-3', versionNo: 3, status: 'draft', lines: 1, rates: 0, existing: false, skipped: [] };
           },
         },
       );
@@ -725,8 +725,8 @@ export default async function (t) {
         'P output_expired بتاريخيه',
       );
       t.eq(safe(() => repo.parsePreview(previewJson({ problems: [{ code: 'output_expired', produced_on: '2026-11-04' }] })) && 'ok'), 'mill_shape:expiry_on', 'P وoutput_expired بلا تاريخ الانتهاء خطأ شكل');
-      const made = { recipe_id: 'r-1', version_id: 'v-3', version_no: 3, status: 'draft', lines: 2, rates: 1, existing: false };
-      t.same(safe(() => repo.parseNewRecipeVersion(made)), { recipeId: 'r-1', versionId: 'v-3', versionNo: 3, status: 'draft', lines: 2, rates: 1, existing: false }, 'P جواب new_recipe_version');
+      const made = { recipe_id: 'r-1', version_id: 'v-3', version_no: 3, status: 'draft', lines: 2, rates: 1, existing: false, skipped: [] };
+      t.same(safe(() => repo.parseNewRecipeVersion(made)), { recipeId: 'r-1', versionId: 'v-3', versionNo: 3, status: 'draft', lines: 2, rates: 1, existing: false, skipped: [] }, 'P جواب new_recipe_version');
       const noExisting = { ...made };
       delete noExisting.existing;
       t.eq(safe(() => repo.parseNewRecipeVersion(noExisting) && 'ok'), 'mill_shape:existing', 'P وexisting الغائب خطأ شكل');
