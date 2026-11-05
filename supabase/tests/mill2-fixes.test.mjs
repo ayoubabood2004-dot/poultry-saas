@@ -5,6 +5,9 @@
 // فيه فحص فاشل باسمه ولا توقف الملف. الأرقام محسوبة باليد بالتعليق جنب كلّ واحد.
 // والجولة الثانية (scratchpad/mill2/fixes2.md القسم أ، ق٢١–ق٢٧) بأقسامها في آخر الملف، وكلّ فحص منها يفشل على 0016 كما كانت عند
 // 203bacb؛ والفحوص التي ثبّتت السلوك القديم (ق٢، وق١١ وق١٥، وطفرتا ق٣) حُدّثت بأسماء تقول الجديد.
+// والجولة الثالثة (scratchpad/mill2/fixes3.md القسم أ، ق٣١–ق٣٧) بأقسامها: ق٣١ (لقطة وحدة الأساس) وق٣٥ في آخر الملف، وق٣٢ بعد ق٢٥، وق٣٣ بعد
+// ق٢١، وق٣٦ بعد ق٢٦؛ وكلّ إصلاح منها يفشل على 0016 كما كانت عند ff8423c، والفحوص لإصلاحات سابقة (ق٣٣ وق٣٥ وق٣٦) بطفرات داخلها؛ وق٣٧ ضابط
+// «طفرة P2» ينتظر A محبوساً على جلسة الإلغاء نفسها (pg_blocking_pids) أو منتهياً، لا أيّ انتظار.
 import { readFileSync } from 'node:fs';
 
 /** نصّ 0016 نفسه (جملة ملء لقطة «داخل الكتلة» تُشغَّل كما هي، ق٢٢). */
@@ -750,6 +753,25 @@ async function scenario(t, db) {
     };
   };
   const onX = async (X) => (await db.admin('select count(*)::int as n, coalesce(sum(amount), 0)::text as a from public.production_cost_allocations where expense_id = $1 and voided_at is null', [X])).rows[0];
+  /**
+   * ق٣٧ (#6): ينتظر حتّى تنتهي الجلسة pid أو تُحبس على قفل تمسكه الجلسة blocker تحديداً (pg_blocking_pids)، لا أيّ انتظار. كان db.settle بعد ثبات
+   * B يقرأ انتظار A القديم على قفل W قبل أن يستيقظ، فتُثبَّت جلسة X (الإلغاء في P2، والتحميل في P1) قبل أن تقرأ حلقة الطفرة المصاريف، فترى ما
+   * ثُبّت ولا يظهر الخرق (3 من 46 تشغيلاً تحت الحمل). بلا طفرة ينتهي A دون أن ينتظرها، وبالطفرة يقرأ X ثمّ يُحبس عليها (مفتاح التحميل على صفّ
+   * المصروف المقفول)، فالثبات بعده.
+   */
+  const settleOn = async (promise, pid, blocker, timeoutMs = 5000) => {
+    let done = false;
+    promise.then(() => {
+      done = true;
+    });
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      if (done) return 'finished';
+      if ((await db.admin('select $2::int = any (pg_blocking_pids($1::int)) as held', [pid, blocker])).rows[0].held) return 'blocked';
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`الجلسة ${pid} ما انتهت ولا انحبست على الجلسة ${blocker} خلال ${timeoutMs}ms`);
+  };
   /** P1 (X يُسجَّل وA ينتظر) وضابطه C1 (X قبل A): B يرحّل ويبقى مفتوحاً، وA ينتظر Z، وC يحمّل من X ثمّ ينتظر B عند المواد. */
   const raceP1 = async (k, xDuringWait) => {
     await expense(k.b, 1000, 5, `مصروف Z ${k.tag}`);
@@ -772,7 +794,7 @@ async function scenario(t, db) {
       await sB.commit();
       const rC = await pC;
       out.c = rC.ok ? 'ok' : rC.error;
-      out.aAfterB = await db.settle(pA, sA.pid);
+      out.aAfterB = await settleOn(pA, sA.pid, sC.pid);
       await sC.commit();
       const rA = await pA;
       out.a = rA.ok ? 'ok' : rA.error;
@@ -809,7 +831,7 @@ async function scenario(t, db) {
         out.v = (await sV.run(VOID, [X, ref()])).ok ? 'ok' : 'failed';
       }
       await sB.commit();
-      out.aAfterB = await db.settle(pA, sA.pid);
+      out.aAfterB = await settleOn(pA, sA.pid, sV.pid);
       await sV.commit();
       const rA = await pA;
       out.a = rA.ok ? 'ok' : rA.error;
@@ -976,6 +998,43 @@ async function scenario(t, db) {
     const mDetail = await asRaw([[DETAIL_FN, [["'expenses_visible', v_exp,", "'expenses_visible', public.can_see_cost(),"]]]],
       "select (public.production_detail($1) ->> 'expenses_visible')::boolean", [BU]);
     t.same(mDetail, ['ok', true], 'طفرة: expenses_visible في بطاقة الدفعة من دور الكلفة وحده ← true لمحاسب المواد');
+  });
+
+  // ─── ق٣٣ (#0، في نطاق ق٢١): «سطر كلفة موجب» — المحصور بمخزن يرحّل قبل الختم دفعةً لا يُحمَّل عليها شيء ─────────────────────────
+  await section('ق٣٣', async () => {
+    // لكلّ من مدير المواد ومحاسب المواد دفعتان 10 كغم بلا ختم: الأولى من خلطة الذرة وحدها (بلا سطر كلفة)، والثانية من خلطة بمعدّل صفّر المحاسب
+    // بلا نطاق سطرها (أيدي عاملة 5,000 للطنّ × 10 ÷ 1,000 = 50.00 ← 0). لا مبلغ يُحمَّل من مصاريف الوحدة، فالترحيل كما في 0015 ونصّ fixes2 ق٢١-٤.
+    const ZERO = await category('أيدي عاملة صفرية');
+    const RZ = await recipe('خلطة السطر الصفري', [[CORN, 1000]], [[ZERO, 5000]]);
+    const cases = [];
+    for (const [label, user] of [['مدير المواد', U.mgrRaw], ['محاسب المواد', U.accRaw]]) {
+      const bare = await batch(R0.version, 10);
+      const zero = await batch(RZ.version, 10);
+      await must(U.accountant, 'update public.production_costs set amount = 0 where batch_id = $1 returning id', [zero]);
+      cases.push({ label, user, bare, zero });
+    }
+    const shape = (p) => [p.problems.map((x) => x.code), p.can_post];
+    // الطفرتان أوّلاً بمعاملة ترجع (الدفعات لم تُرحَّل بعد)، لكلّ مستخدم ولكلّ دفعة: v_positive صحيح دائماً في المعاينة، وexists صحيح دائماً في الترحيل.
+    const sweep = (pairs, run) => mutated(pairs, [], async ({ as, attempt }) => {
+      const out = [];
+      for (const { user, bare, zero } of cases) {
+        await as(user);
+        for (const b of [bare, zero]) out.push(await run(attempt, b));
+      }
+      return out;
+    });
+    const mPreview = await sweep([[PREVIEW_FN, [['  v_positive boolean := false;', '  v_positive boolean := true;']]]],
+      async (attempt, b) => shape((await attempt('select public.preview_production($1)', [b])).v));
+    const mPost = await sweep([[POST_FN, [['    and exists (select 1 from public.production_costs pc where pc.org_id = v_org and pc.batch_id = d.id and pc.amount > 0) then', '    and true then']]]],
+      async (attempt, b) => code(await attempt(POST, [b, null, ref()])));
+    t.same([mPreview, mPost], [Array(4).fill([['costs_unsealed_scope'], false]), Array(4).fill('costs_unsealed_scope')],
+      'طفرتان: v_positive يبدأ صحيحاً ← المعاينة تقفل «أنتج الآن» بـcosts_unsealed_scope عن مصاريف لا تُحمَّل، وexists صحيح دائماً ← الترحيل يُرفض (الحالات الأربع)');
+    for (const { label, user, bare, zero } of cases) {
+      for (const [kind, b] of [['بلا سطر كلفة', bare], ['سطرها صفر', zero]]) {
+        const p = await preview(user, b);
+        t.same([p.problems, p.can_post, code(await post(user, b))], [[], true, 'ok'], `${label} قبل الختم، دفعة ${kind}: problems = [] وcan_post = true والترحيل ok`);
+      }
+    }
   });
 
   // ─── ق٢٢ (#2، #5): «داخل الكتلة» لقطة على سطر الخلطة عند التفعيل (FOUNDATION القاعدة ٤، مثل الكثافة) ──────────────────────
@@ -1182,6 +1241,33 @@ async function scenario(t, db) {
       'طفرات: سياسة القراءة بمخزن المدخلات وحده ← محاسب العلف بلا سطور، وسجلّ الدفعة بالمدخلات وحدها ← بلا تدقيق، وبطاقة الدفعة بالمدخلات ← out_of_scope، ولوحة المعمل بلا نطاق ← أمين العامة يرى 3');
   });
 
+  // ─── ق٣٢ (#1، في نطاق ق٢٥): وجبات مخزن المواد لا تخرج لطرف الناتج وحده (سابقة التحويل: الوجهة ترى مصدر مرآتها لا استلامات المصدر) ──────
+  await section('ق٣٢', async () => {
+    const { BR1, BR3 } = S;
+    if (!BR3) throw new Error('تجهيز النطاق لم يكتمل');
+    /** لكلّ سطر: مصادر وجباته، أو null (والمفتاح موجود)، أو absent. */
+    const sources = async (user, b) => (await detail(user, b)).lines.map((l) => {
+      if (!('draws' in l)) return 'absent';
+      return l.draws === null ? null : l.draws.map((d) => d.source);
+    });
+    const used = async (user, b) => (await detail(user, b)).lines.map((l) => l.used_qty);
+    const managerBR1 = await sources(U.manager, BR1);
+    t.ok(managerBR1.length === 1 && Array.isArray(managerBR1[0]) && managerBR1[0].length > 0 && managerBR1[0].every((s) => /^PU-/u.test(s)),
+      `ضابط: المدير يرى وجبات BR1 بأرقام استلاماتها (${JSON.stringify(managerBR1)})`);
+    t.same(
+      [await sources(U.keepFeed, BR1), await sources(U.keepFeed, BR3), await sources(U.accFeed, BR1), await sources(U.accFeed, BR3), await sources(U.accRaw, BR1), await sources(U.mgrRaw, BR1)],
+      [[null], [null], [null], [null], managerBR1, managerBR1],
+      'production_detail: draws = null لأمين العلف ومحاسبه (طرف الناتج وحده)، وكما هي لمحاسب المواد ومدير المواد (كان أمين العلف يقرأ أرقام استلامات مخزن المواد وتواريخها ومعرّفات وجباتها)');
+    t.same([await used(U.keepFeed, BR1), await used(U.accFeed, BR3)], [await used(U.manager, BR1), await used(U.manager, BR3)],
+      'والمسحوب الفعلي (used_qty) ظاهر لطرف الناتج كما للمدير: يرى المواد وكمياتها');
+    const m = await mutated([['public.production_detail(uuid)', [["'draws', case when d.status = 'draft' or not v_in then null", "'draws', case when d.status = 'draft' then null"]]]], [],
+      async ({ as, attempt }) => {
+        await as(U.keepFeed);
+        return (await attempt("select jsonb_typeof(public.production_detail($1) -> 'lines' -> 0 -> 'draws')", [BR1])).v;
+      });
+    t.eq(m, 'array', 'طفرة: draws بلا شرط مخزن المدخلات ← أمين العلف يقرأ وجبات مخزن المواد');
+  });
+
   // ─── ق٢٦ (التكامل B1): اسم فئة المصروف لا يتكرّر في المنشأة ─────────────────────────────────────────────────────
   await section('ق٢٦', async () => {
     const add = (name, user = U.accountant) => call(user, 'insert into public.expense_categories (name) values ($1) returning id', [name]);
@@ -1264,6 +1350,42 @@ async function scenario(t, db) {
       'طفرة: بلا القفل الاستشاري تنجح الجلستان بالاسم نفسه (فئتان)؛ والمحفّز بعدها بجسمه الأصلي حرفاً بحرف');
   });
 
+  // ─── ق٣٦ (#5): جزءا ق٢٦ بلا فحص سلوكي — تكرار قائم قبل المحفّز ─────────────────────────────────────────────────────────
+  await section('ق٣٦', async () => {
+    const result = (out) => (out.ok ? 'ok' : [out.code, out.hint]);
+    const NAME = 'صيانة المولّد';
+    const live = await must(U.accountant, 'insert into public.expense_categories (name) values ($1) returning id', [NAME]);
+    // تكرار أقدم من المحفّز («المحفّز لا يفترض» خلوّ البيانات منه): يُعطَّل بدور صاحب الجدول في معاملة تثبت، فتُدرج «صيانه المولّد» (التاء المربوطة
+    // هاءً: الاسم المطبَّع نفسه)، ثمّ يُعاد المحفّز وتُؤرشف. الحيّة أقدم من المؤرشفة.
+    const twin = await db.asOwner(async (q) => {
+      await q('alter table public.expense_categories disable trigger expense_categories_name_guard');
+      const row = (await q("insert into public.expense_categories (name) values ('صيانه المولّد') returning id")).rows[0].id;
+      await q('alter table public.expense_categories enable trigger expense_categories_name_guard');
+      return row;
+    }, U.manager, { commit: true });
+    await must(U.accountant, 'update public.expense_categories set archived_at = now() where id = $1 returning id', [twin]);
+    t.same(
+      [(await db.admin('select archived_at is not null as archived from public.expense_categories where id = any ($1) order by created_at', [[live, twin]])).rows.map((r) => r.archived),
+        (await db.admin("select tgenabled from pg_trigger where tgrelid = 'public.expense_categories'::regclass and tgname = 'expense_categories_name_guard'")).rows[0].tgenabled],
+      [[false, true], 'O'], 'ضابط: فئتان بالاسم المطبَّع نفسه (الحيّة أقدم من المؤرشفة)، والمحفّز مفعَّل بعد المعاملة');
+    const SAME = 'update public.expense_categories set name = $2 where id = $1 returning name';
+    const INSERT = 'insert into public.expense_categories (name) values ($1) returning id';
+    t.same([result(await call(U.accountant, SAME, [live, NAME])), result(await call(U.accountant, INSERT, [NAME]))],
+      ['ok', ['category_name_taken', `توجد فئة «${NAME}»: اخترها بدل إنشاء أخرى.`]],
+      'مع تكرار قائم قبل المحفّز: إعادة حفظ اسم الحيّة كما هو تمرّ، وفئة جديدة بالاسم يسمّي تلميحها الحيّة لا المؤرشفة');
+    const NAME_FN = 'private.expense_categories_name_guard()';
+    const asAcc = (pairs, sql, params) => mutated([[NAME_FN, pairs]], [], async ({ as, attempt }) => {
+      await as(U.accountant, 'authenticated');
+      return result(await attempt(sql, params));
+    });
+    const ARCHIVED = ['category_name_taken', 'توجد فئة «صيانه المولّد» مؤرشفة: أعِدها من الأرشيف بدل إنشاء أخرى.'];
+    t.same(
+      [await asAcc([["(tg_op = 'UPDATE' and new.name is not distinct from old.name) or ", '']], SAME, [live, NAME]),
+        await asAcc([['order by x.archived_at is not null, x.system_code is not null, x.created_at, x.id', 'order by x.created_at desc, x.id']], INSERT, [NAME])],
+      [ARCHIVED, ARCHIVED],
+      'طفرتان: بلا «التعديل بلا تغيير الاسم لا يُفحص» تُرفض إعادة حفظ الحيّة بتلميح المؤرشفة، وبترتيب الأحدث أوّلاً يسمّي التلميح المؤرشفة والحيّة موجودة');
+  });
+
   // ─── ق٢٧ (#3 و#8، و#4): فحوص لإصلاحَي ق١٢ وق١٣ بلا فحص ─────────────────────────────────────────────────────────
   await section('ق٢٧ متوسّط المتاح', async () => {
     const SALT = await item('ملح المراجعة', 'raw', 'kg');
@@ -1316,6 +1438,154 @@ async function scenario(t, db) {
       });
     t.same(m, ['item_not_found', 'هذه المادّة غير موجودة في منشأتك أو مؤرشفة. حدّث الشاشة واختر من جديد.'], 'طفرة: بلا شرط المادّة المؤرشفة ← item_not_found من حارس السطر بتلميح لا يسمّيها');
     await must(U.manager, 'update public.items set archived_at = null where id = $1 returning id', [PREMIX]);
+  });
+
+  // ═══ الجولة الثالثة (scratchpad/mill2/fixes3.md القسم أ؛ الملاحظات #0–#6 بنصّها وإثباتها في findings3.txt) ═══
+  // ─── ق٣١ (#2): وحدة أساس المادّة لقطة على سطر الخلطة عند التفعيل (كالكثافة و«داخل الكتلة»؛ FOUNDATION القاعدة ٤ وE46) ─────────────
+  const K31 = {};
+  /** وحدات أساس سطور نسخة بترتيبها، من داخل معاملة. */
+  const unitsOn = async (q, version) => (await q('select array_agg(base_unit order by line_no) as v from public.recipe_lines where version_id = $1', [version])).rows[0].v;
+  await section('ق٣١', async () => {
+    // «كاز البانية» يُنشأ من زرّ «أنشئ» في البانية بحقول newItemFields(query, 'raw'): مادّة أوّلية بالكيلو بخطوة 0.1، بلا أيّ حركة مخزون (#2
+    // بخطواته)، ويدخل خلطة مفعَّلة: 983 ذرة + 17 كغم كاز = 1,000.
+    const KAZ = await item('كاز البانية', 'raw', 'kg');
+    const RK = await recipe('خلطة كاز البانية', [[CORN, 983], [KAZ, 17]]);
+    const snapOf = async (version) => (await db.admin(`select i.name, l.base_unit, l.in_basis, l.density_kg_per_l::text as d from public.recipe_lines l
+      join public.items i on i.id = l.item_id where l.version_id = $1 order by l.line_no`, [version])).rows.map((r) => [r.name, r.base_unit, r.in_basis, r.d]);
+    t.same(await snapOf(RK.version), [['ذرة المراجعة', 'kg', true, null], ['كاز البانية', 'kg', true, null]],
+      'التفعيل يكتب لقطة وحدة الأساس لكلّ سطر بجملة لقطتَي «داخل الكتلة» والكثافة');
+    // التصحيح من نافذة المادّة: النوع والوحدة والكثافة معاً (items_stock_guard يسمح قبل أوّل حركة).
+    await must(U.manager, "update public.items set kind = 'fuel', base_unit = 'L', density_kg_per_l = 0.85 where id = $1 returning id", [KAZ]);
+    t.same(await nonZero(), {}, 'verify_mill صفر بعد تصحيح الكاز إلى وقود باللتر (كان recipe_frozen_bad_lines = 1 لا يزول بنسخة جديدة)');
+    const refused = await call(U.manager, 'select public.create_production($1, $2, 1000, $3, $4, public.app_today())', [fresh(), RK.version, RAW, FEEDWH]);
+    t.same([code(refused), refused.hint], ['item_changed', 'تغيّرت وحدة «كاز البانية» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.'],
+      'create_production من النسخة المفعَّلة: item_changed بتلميحه (كانت تخطّط 17 كغم كازاً لتراتٍ بكثافة المادّة الحالية)');
+    // طفرة (والنسخة ما زالت المفعَّلة): بلا فحص اللقطة تُنتَج، وسطر الكاز المكتوب 17 كغم يُخطَّط لتراتٍ بكثافة المادّة الآن:
+    // 17 × 1,000 ÷ (1,000 × 0.85 × 0.1) = 200 خطوة ← 20.0 لتراً بكثافة 0.8500.
+    const mChanged = await mutated([[CREATE_FN, [['if ln.line_base is not null and ln.line_base is distinct from ln.base_unit then', 'if false then']]]], [], async ({ attempt }) => {
+      const b = fresh();
+      const out = await attempt('select public.create_production($1, $2, 1000, $3, $4, public.app_today())', [b, RK.version, RAW, FEEDWH]);
+      return [code(out), (await attempt('select planned_qty_base::text as q, density_kg_per_l::text as d from public.production_inputs where batch_id = $1 and item_id = $2', [b, KAZ])).rows[0] ?? null];
+    });
+    t.same(mChanged, ['ok', { q: '20.000', d: '0.8500' }], 'طفرة: create_production بلا فحص اللقطة ← النسخة تُنتَج والكيلو المكتوب يصير لتراتٍ بكثافة المادّة الآن');
+    const card = async (version = null) => (await must(U.manager, 'select public.recipe_detail($1, $2)', [RK.id, version])).lines.map((l) => [l.item_name, l.base_unit, l.unit_changed]);
+    t.same(await card(), [['ذرة المراجعة', 'kg', false], ['كاز البانية', 'kg', true]], 'recipe_detail: base_unit من لقطة السطر، وunit_changed = true للكاز وfalse للذرة');
+    // نسخة جديدة منسوخة من المفعَّلة (مسوّدة بلا لقطة فتقرأ الوحدة الحيّة)، ثمّ 1,000 ذرة + 20 لتر كاز (وقود خارج الكتلة) وتُفعَّل.
+    const N = fresh();
+    await must(U.manager, 'select public.new_recipe_version($1, $2)', [RK.id, N]);
+    t.same(await card(N), [['ذرة المراجعة', 'kg', false], ['كاز البانية', 'L', false]], 'المسوّدة بلا لقطة: الوحدة الحيّة، وunit_changed = false');
+    await must(U.manager, 'update public.recipe_lines set qty = 1000 where version_id = $1 and item_id = $2 returning id', [N, CORN]);
+    await must(U.manager, "update public.recipe_lines set qty = 20, unit = 'L' where version_id = $1 and item_id = $2 returning id", [N, KAZ]);
+    const activated = await call(U.manager, 'select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [N]);
+    t.same([code(activated), activated.v?.retired_id], ['ok', RK.version], 'النسخة الجديدة (1,000 ذرة + 20 لتر كاز) تتفعّل وتقاعد القديمة');
+    t.same([await snapOf(N), await nonZero(), await card(RK.version)],
+      [[['ذرة المراجعة', 'kg', true, null], ['كاز البانية', 'L', false, '0.8500']], {}, [['ذرة المراجعة', 'kg', false], ['كاز البانية', 'kg', true]]],
+      'لقطات النسخة الجديدة (الكاز لتر بكثافة 0.8500 خارج الكتلة)، وverify_mill صفر: المقاعدة بلقطة الكيلو لا تُعدّ خرقاً، وبطاقتها تقول unit_changed');
+    // رصيد افتتاحي للكاز باللتر (أوّل حركة، بعد التصحيح)، ودفعة 500 كغم: الكاز 17 × 500 ÷ (1,000 × 0.85 × 0.1) = 100 خطوة ← 10.0 لترات.
+    const opening = await must(U.manager, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 10) returning id', [RAW]);
+    await must(U.manager, 'insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 100000) returning id', [opening, KAZ]);
+    await must(U.manager, 'select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [opening, ref()]);
+    const B = await batch(N, 500);
+    t.same([(await inputRows(B)).map((r) => [r.name, r.in_basis, r.qty, r.d]), code(await post(U.manager, B))],
+      [[['ذرة المراجعة', true, '500.000', null], ['كاز البانية', false, '10.000', '0.8500']], 'ok'], 'دفعة من النسخة الجديدة: الكاز 10.000 لترات بكثافة اللقطة، وتُرحَّل');
+    // كثافة المادّة 0.80 بعدها: خطّة دفعة جديدة بلقطة السطر 0.85 (في #2 تبعت كثافة المادّة: 21.300 لتراً بـ0.8000).
+    await must(U.manager, 'update public.items set density_kg_per_l = 0.80 where id = $1 returning id', [KAZ]);
+    const B2 = await batch(N, 1000);
+    t.same((await inputRows(B2)).map((r) => [r.name, r.qty, r.mass, r.d]), [['ذرة المراجعة', '1000.000', '1000.000', null], ['كاز البانية', '20.000', '17.000', '0.8500']],
+      'بعد تعديل كثافة المادّة إلى 0.80: خطّة دفعة جديدة من النسخة بلقطة 0.8500 (20.000 لتراً، 17 كغم)');
+    t.same(await nonZero(), {}, 'verify_mill صفر بعد الدفعتين');
+    Object.assign(K31, { KAZ, RK, N });
+  });
+  await section('ق٣١ طفرات', async () => {
+    const { KAZ, RK, N } = K31;
+    if (!N) throw new Error('ق٣١ لم يكتمل');
+    // (١) الفحص ٣ بالوحدة الحيّة كما كان ← المقاعدة (لقطة كيلو والكاز لتر الآن) خرق أبديّ؛ (٢) وبلا «لقطة فارغة» يعبر سطر نسخة مفعَّلة بلا وحدة.
+    const live3 = await mutated([['public.verify_mill()', [["      where l.org_id = v.org_id and l.version_id = v.id and (l.base_unit is null or (l.base_unit = 'L' and l.density_kg_per_l is null)))",
+      "      join public.items i on i.org_id = l.org_id and i.id = l.item_id where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null)"]]]], [],
+    ({ oq }) => nonZeroOn(oq));
+    const nulled = (pairs) => mutated(pairs, [], async ({ oq }) => {
+      await oq('update public.recipe_lines set base_unit = null where version_id = $1', [N]);
+      return nonZeroOn(oq);
+    });
+    t.same([live3, await nulled([]), await nulled([['public.verify_mill()', [['l.base_unit is null or ', '']]]])], [{ recipe_frozen_bad_lines: 1 }, { recipe_frozen_bad_lines: 1 }, {}],
+      'طفرتا الفحص ٣: بالوحدة الحيّة تُعدّ المقاعدة خرقاً بعد التصحيح؛ وبلا شرط اللقطة الفارغة يعبر سطر نسخة مفعَّلة بلا وحدة (والضابط بلا طفرة يمسكه)');
+    // (٣) create_production بكثافة المادّة لا لقطة السطر ← خطّة النسخة الجديدة بـ0.80: 20 لتراً × 0.80 = 16 كغم (كانت 17 بلقطة 0.85).
+    const mDensity = await mutated([[CREATE_FN, [
+      ['v_line_kg := private.recipe_line_kg(ln.qty, ln.unit, coalesce(ln.density_kg_per_l, ln.item_density));', 'v_line_kg := private.recipe_line_kg(ln.qty, ln.unit, ln.item_density);'],
+      ["v_density := case when ln.base_unit = 'L' then round(coalesce(ln.density_kg_per_l, ln.item_density), 4) end;", "v_density := case when ln.base_unit = 'L' then round(ln.item_density, 4) end;"],
+    ]]], [], async ({ attempt }) => {
+      const b = fresh();
+      await attempt('select public.create_production($1, $2, 1000, $3, $4, public.app_today())', [b, N, RAW, FEEDWH]);
+      return (await attempt('select planned_qty_base::text as q, planned_mass_kg::text as m, density_kg_per_l::text as d from public.production_inputs where batch_id = $1 and item_id = $2', [b, KAZ])).rows[0] ?? null;
+    });
+    t.same(mDensity, { q: '20.000', m: '16.000', d: '0.8000' }, 'طفرة: create_production بكثافة المادّة ← خطّة الكاز بـ0.80 لا لقطة 0.85');
+    // (٤) التفعيل بلا لقطة الوحدة ← سطر النسخة بلا وحدة، وverify_mill يمسكه.
+    const mActivate = await mutated([['public.activate_recipe_version(uuid, integer)', [['update public.recipe_lines set in_basis = v_in, base_unit = ln.base_unit,', 'update public.recipe_lines set in_basis = v_in,']]]], [],
+      async ({ oq, attempt }) => {
+        const vid = fresh();
+        await attempt("select public.create_recipe($1, $2, 'خلطة بلا لقطة وحدة', $3, 1000, $4::jsonb, '[]'::jsonb, true)", [fresh(), vid, FEED, JSON.stringify([{ item_id: CORN, qty: 1000, unit: 'kg' }])]);
+        return [await unitsOn(oq, vid), await nonZeroOn(oq)];
+      });
+    t.same(mActivate, [[null], { recipe_frozen_bad_lines: 1 }], 'طفرة: التفعيل بلا لقطة الوحدة ← السطر بلا وحدة وverify_mill يمسكه');
+    // (٥) الملء بنصّ 0016 نفسه على سطور فُرّغت وحدتها: وحدة يوم التفعيل من لقطة الكثافة — المقاعدة كيلو والكيلو، والجديدة كيلو ولتر — والثوابت صفر.
+    // وحارس السطر بلا «تغيّر الوحدة وحدها يمرّ» يرفض الجملة not_draft؛ والملء من وحدة المادّة الآن (نصّ المواصفة حرفاً) يعطي المقاعدة لتراً بلا
+    // كثافة فيبقى الخرق.
+    const BACKFILL_UNIT = /update public\.recipe_lines l set base_unit = [\s\S]*?;/u.exec(MIGRATION_0016)?.[0];
+    t.ok(Boolean(BACKFILL_UNIT), 'جملة ملء الوحدة موجودة في نصّ 0016');
+    const refill = (guardEdits, sql = BACKFILL_UNIT) => mutated([], [], async ({ oq, attempt }) => {
+      await oq('update public.recipe_lines set base_unit = null where version_id = any ($1)', [[RK.version, N]]);
+      if (guardEdits.length) {
+        let broken = (await oq("select pg_get_functiondef('private.recipe_lines_guard()'::regprocedure) as d")).rows[0].d;
+        for (const [from, to] of guardEdits) {
+          if (broken.split(from).length !== 2) throw new Error(`طفرة الحارس: المرساة ليست مرّة واحدة: ${from}`);
+          broken = broken.split(from).join(to);
+        }
+        await oq(broken);
+      }
+      const out = await attempt(sql);
+      return [out.ok ? 'ok' : out.code, await unitsOn(oq, RK.version), await unitsOn(oq, N), await nonZeroOn(oq)];
+    });
+    const LIVE_UNIT = BACKFILL_UNIT?.split("case when l.density_kg_per_l is not null then 'L' else 'kg' end").join('(select i.base_unit from public.items i where i.org_id = l.org_id and i.id = l.item_id)');
+    t.same(
+      [await refill([]), (await refill([["\n    or new.base_unit is distinct from old.base_unit) then", ') then']]))[0], await refill([], LIVE_UNIT)],
+      [['ok', ['kg', 'kg'], ['kg', 'L'], {}], 'not_draft', ['ok', ['kg', 'L'], ['kg', 'L'], { recipe_frozen_bad_lines: 1 }]],
+      'الملء: وحدة يوم التفعيل من لقطة الكثافة والثوابت صفر؛ وطفرة الحارس ← not_draft؛ والملء من وحدة المادّة الآن ← المقاعدة لتر بلا كثافة فيبقى الخرق');
+    // (٦) recipe_detail: unit_changed ثابت false، والوحدة الحيّة بدل اللقطة.
+    const detailOf = (pairs) => mutated([['public.recipe_detail(uuid, uuid)', pairs]], [], async ({ oq }) =>
+      (await oq('select public.recipe_detail($1, $2) as v', [RK.id, RK.version])).rows[0].v.lines.map((l) => [l.item_name, l.base_unit, l.unit_changed]));
+    t.same([await detailOf([["'unit_changed', coalesce(l.base_unit <> i.base_unit, false),", "'unit_changed', false,"]]),
+      await detailOf([["'base_unit', coalesce(l.base_unit, i.base_unit),", "'base_unit', i.base_unit,"]])],
+    [[['ذرة المراجعة', 'kg', false], ['كاز البانية', 'kg', false]], [['ذرة المراجعة', 'kg', false], ['كاز البانية', 'L', true]]],
+    'طفرتا recipe_detail: unit_changed ثابت لا يقول إنّ وحدة الكاز تغيّرت، وbase_unit من المادّة الآن يقول لتراً لسطر حُسب بالكيلو');
+    // (٧) المنح: العمود غير ممنوح بالإدراج ولا بالتعديل لأحد (الحدّ هو المنح، درس 0015) وضابطه؛ والقيد يرفض غير الكيلو واللتر.
+    const grants = async (q) => (await q(`select has_column_privilege('authenticated', 'public.recipe_lines', 'base_unit', 'INSERT') as ai,
+      has_column_privilege('authenticated', 'public.recipe_lines', 'base_unit', 'UPDATE') as au, has_column_privilege('anon', 'public.recipe_lines', 'base_unit', 'INSERT') as ni,
+      has_column_privilege('anon', 'public.recipe_lines', 'base_unit', 'UPDATE') as nu`)).rows[0];
+    t.same(await grants(db.admin), { ai: false, au: false, ni: false, nu: false }, 'الكتالوج: base_unit غير ممنوح بالإدراج ولا بالتعديل لأحد');
+    t.eq((await mutated([], ['grant update (base_unit) on public.recipe_lines to authenticated'], ({ oq }) => grants(oq))).au, true, 'ضابط: منح العمود بمعاملة ترجع يقلب فحص الكتالوج');
+    t.eq(code(await call(U.manager, "update public.recipe_lines set base_unit = 'L' where version_id = $1", [K22.DA])), 'permission denied for table recipe_lines',
+      'المدير لا يكتب لقطة الوحدة مباشرةً ولو على المسوّدة');
+    const bad = await mutated([], [], async ({ attempt }) => code(await attempt("update public.recipe_lines set base_unit = 'pc' where version_id = $1", [N])));
+    t.ok(/recipe_lines_base_unit_check/u.test(bad), `القيد: لقطة غير الكيلو واللتر تُرفض (${bad})`);
+  });
+
+  // ─── ق٣٥ (#4): الحارس يفرّغ اللقطات الثلاث عند الإدراج ───────────────────────────────────────────────────────────────
+  await section('ق٣٥', async () => {
+    const DV = fresh();
+    await must(U.manager, "select public.create_recipe($1, $2, 'خلطة الإدراج المباشر', $3, 1000, $4::jsonb, '[]'::jsonb, false)", [fresh(), DV, FEED, JSON.stringify([{ item_id: CORN, qty: 500, unit: 'kg' }])]);
+    // الأعمدة الثلاثة غير ممنوحة، فلا طريق إليها إلّا صاحب الجدول: إدراج مباشر بدور postgres وهويّة المدير، بمعاملة ترجع، بلقطات مكتوبة.
+    const INSERT = "insert into public.recipe_lines (version_id, item_id, qty, unit, in_basis, base_unit, density_kg_per_l) values ($1, $2, 10, 'L', false, 'L', 0.92) returning in_basis, base_unit, density_kg_per_l::text as d";
+    const GUARD = 'private.recipe_lines_guard()';
+    const direct = (pairs) => mutated(pairs, [], async ({ attempt }) => {
+      const out = await attempt(INSERT, [DV, OIL]);
+      return out.ok ? out.rows[0] : out.code;
+    });
+    t.same(await direct([]), { in_basis: null, base_unit: null, d: null }, 'إدراج مباشر في مسوّدة بـin_basis = false وbase_unit = L وكثافة 0.92: الحارس يفرّغ الثلاث');
+    t.same(
+      [await direct([[GUARD, [['    new.density_kg_per_l := null;\n', '']]]]), await direct([[GUARD, [['    new.in_basis := null;\n', '']]]]), await direct([[GUARD, [['    new.base_unit := null;\n', '']]]])],
+      [{ in_basis: null, base_unit: null, d: '0.92' }, { in_basis: false, base_unit: null, d: null }, { in_basis: null, base_unit: 'L', d: null }],
+      'طفرات: بلا تفريغ الكثافة أو «داخل الكتلة» أو وحدة الأساس تبقى قيمتها المكتوبة في سطر المسوّدة',
+    );
   });
 
 

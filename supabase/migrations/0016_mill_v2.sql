@@ -37,14 +37,19 @@
 --   طرفيها كالتحويل (سياسة production_batches_read وسجلّ التدقيق وproduction_detail بمفتاح scope، وعدّ دفعات الخلطة في لوحة المعمل
 --   بنطاق القارئ)، والكتابة كلّها تبقى بمخزن المدخلات؛ واسم فئة المصروف لا يتكرّر في المنشأة (expense_categories_name_guard،
 --   category_name_taken).
+-- مراجعة 0016 الثالثة (scratchpad/mill2/fixes3.md القسم أ، ق٣١–ق٣٧): وحدة أساس المادّة لقطة ثالثة على سطر الخلطة عند التفعيل
+--   (recipe_lines.base_unit، كالكثافة و«داخل الكتلة»؛ FOUNDATION القاعدة ٤ وE46): تصحيح وحدة مادّة بعد التفعيل (كاز أُنشئ بالكيلو ثمّ
+--   صُحّح لتراً) لا يكسر verify_mill ولا يبقى خرقاً على نسخة مقاعدة، وcreate_production يرفض تلك النسخة item_changed فتُنشأ غيرها،
+--   وrecipe_detail يقول unit_changed، والملء من لقطة الكثافة (وحدة يوم التفعيل لا وحدة المادّة الآن)؛ وبطاقة الدفعة لا تُخرج وجبات مخزن
+--   المواد واستلاماته لطرف الناتج وحده (draws = null، سابقة التحويل).
 -- تراجع: rollback_0016.sql — يرجّع أجسام set_item_sell_price وitem_purchases (كما في 0014) وdelete_draft_line ودوالّ المعمل
 --   الثماني وactivate_recipe_version وconfirm_production_costs وrecipe_lines_guard وسياسة production_batches_read (كما في 0015)
 --   وvoid_expense وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف، ويُسقط الجداول الثلاثة ودوالّها
 --   وnew_recipe_version وshrink_ok وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق ومحفّز اسم فئة المصروف ودالّته، وأعمدة cost_price
---   وreplaced_item_id وrecipe_lines.in_basis ويعيد sell_price غير قابل للفراغ. **طريق رفض**: أيّ معدّل تكاليف بخلطة، أو سطر تكاليف
+--   وreplaced_item_id وrecipe_lines.in_basis وrecipe_lines.base_unit ويعيد sell_price غير قابل للفراغ. **طريق رفض**: أيّ معدّل تكاليف بخلطة، أو سطر تكاليف
 --   أو تحميل أو مادّة بديلة بدفعة، أو سعر كلفة مكتوب، يوقف التراجع بصوت بلا أن يحذف شيئاً (أرقام كتبها المالك بيده وكلفة دفعات لا
 --   تُستخرج من مكان آخر)؛ وكذلك نسخة خلطة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (الوقود أو التعبئة خارج كتلتها، ففحص 0015
---   الثاني يرفضها بعد التراجع).
+--   الثاني يرفضها بعد التراجع)، ونسخة غير مسوّدة فيها مادّة صارت باللتر بعد تفعيلها بالكيلو (فحص 0015 الثالث يقرأ الوحدة الحيّة).
 -- تنعاد بأمان: create table if not exists، وadd column if not exists، وcreate or replace، وكتل do تفحص الكتالوج قبل القيود والسياسات.
 
 set lock_timeout = '5s';
@@ -154,6 +159,18 @@ create index if not exists production_inputs_replaced_item on public.production_
 -- قابلاً للتغيير ما دامت بلا حركة مخزون، وكان الأساس يُحسب من النوع الحيّ، فتصحيحه بعد التفعيل يكسر verify_mill وينقص كتلة كلّ دفعة
 -- جديدة من النسخة بصمت. والمسوّدة بلا لقطة (فارغ)، فقرّاؤها يقرأون النوع الحيّ.
 alter table public.recipe_lines add column if not exists in_basis boolean;
+-- ووحدة أساس المادّة لقطة ثالثة بالقاعدة نفسها (مراجعة 0016 الثالثة #2، ق٣١؛ FOUNDATION القاعدة ٤ وE46): الوحدة كالنوع تتغيّر ما دامت المادّة
+-- بلا حركة مخزون، فكاز أُنشئ بالكيلو ودخل خلطة مفعَّلة ثمّ صُحّح لتراً كان يكسر verify_mill كسراً لا يزول (الفحص الثالث يقرأ الوحدة الحيّة لكلّ
+-- نسخة غير مسوّدة) وتُخطَّط دفعات النسخة بكثافة المادّة الحالية. يكتبها activate_recipe_version وحده مع اللقطتين الأخريين، والحارس يفرّغها
+-- عند الإدراج، ولا منح.
+alter table public.recipe_lines add column if not exists base_unit text;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.recipe_lines'::regclass and conname = 'recipe_lines_base_unit_check') then
+    alter table public.recipe_lines add constraint recipe_lines_base_unit_check check (base_unit is null or base_unit in ('kg', 'L'));
+  end if;
+end
+$$;
 
 create or replace trigger audit_recipe_cost_rates after insert or update or delete on public.recipe_cost_rates
   for each row execute function private.audit_row();
@@ -397,7 +414,8 @@ create or replace trigger production_costs_guard before insert or update on publ
   for each row execute function private.production_costs_guard();
 
 -- سطر العليقة (0015) على جسمه حرفاً، إلّا أنّ «داخل الكتلة» لقطة ثانية كالكثافة (مراجعة 0016 الثانية #2 و#5): عمود غير ممنوح لأحد،
--- فتغيّره لا يكون إلّا من دالّة التفعيل (حدّها المنح لا current_user)، والإدراج يفرّغه كما يفرّغ لقطة الكثافة.
+-- فتغيّره لا يكون إلّا من دالّة التفعيل (حدّها المنح لا current_user)، والإدراج يفرّغه كما يفرّغ لقطة الكثافة. ووحدة أساس المادّة لقطة ثالثة
+-- بالقاعدة نفسها (مراجعة 0016 الثالثة #2 و#4، ق٣١ وق٣٥)، وتغيّرها وحدها يمرّ كذلك (جملة الملء بالهجرة تكتبها وحدها).
 create or replace function private.recipe_lines_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -405,8 +423,10 @@ declare
   i public.items;
 begin
   set local lock_timeout = '5s';
-  -- لقطتا الكثافة و«داخل الكتلة» عمودان غير ممنوحين لأحد، فتغيّرهما لا يكون إلا من دالّة التفعيل (حدّها المنح لا current_user).
-  if tg_op = 'UPDATE' and (new.density_kg_per_l is distinct from old.density_kg_per_l or new.in_basis is distinct from old.in_basis) then
+  -- لقطات الكثافة و«داخل الكتلة» ووحدة الأساس أعمدة غير ممنوحة لأحد، فتغيّرها لا يكون إلا من دالّة التفعيل أو الملء بالهجرة (حدّها المنح لا
+  -- current_user).
+  if tg_op = 'UPDATE' and (new.density_kg_per_l is distinct from old.density_kg_per_l or new.in_basis is distinct from old.in_basis
+    or new.base_unit is distinct from old.base_unit) then
     return new;
   end if;
   if tg_op = 'UPDATE' and new.version_id is distinct from old.version_id then
@@ -444,6 +464,7 @@ begin
   if tg_op = 'INSERT' then
     new.density_kg_per_l := null;
     new.in_basis := null;
+    new.base_unit := null;
     new.line_no := coalesce((select max(l.line_no) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id), 0) + 1;
   else
     new.line_no := old.line_no;
@@ -453,12 +474,18 @@ begin
 end
 $$;
 
--- ملء القائم: نسخ 0015 غير المسوّدة عدّت سطورها كلّها في الأساس (فحصها الثاني يجمع كلّ السطور)، فلقطتها «داخل الكتلة». بعد الحارس
--- الجديد (يمرّ تغيير اللقطة)، وتنعاد بأمان (لا فراغ بعد أوّل مرّة). الإنتاج اليوم بلا نسخة غير مسوّدة (قيس 2026-11-04)، والحزمة ومشغّل
--- التراجع يمرّان به.
+-- ملء القائم بجملتين بعد الحارس الجديد (يمرّ تغيير اللقطة؛ والقديم يرفض تغيير سطر نسخة غير مسوّدة إلّا كثافتها: not_draft). نسخ 0015 غير
+-- المسوّدة عدّت سطورها كلّها في الأساس (فحصها الثاني يجمع كلّ السطور)، فلقطتها «داخل الكتلة». ووحدة الأساس يوم التفعيل من لقطة الكثافة
+-- نفسها (مراجعة 0016 الثالثة، ق٣١): التفعيل في 0015 و0016 يكتب الكثافة لسطر مادّة باللتر وحده ويرفض لتراً بلا كثافة، والإدراج يفرّغها، فكثافة
+-- محفوظة تعني «لتر» يوم التفعيل وغيابها «كيلوغرام»؛ لا وحدة المادّة الآن، فقد تكون صُحّحت بعده (سيناريو #2 نفسه، فيبقى الخرق) أو صارت قطعة
+-- (فيرفضها القيد ويتوقّف التطبيق). وتنعاد بأمان (لا فراغ بعد أوّل مرّة). الإنتاج اليوم بلا نسخة غير مسوّدة (قيس 2026-11-04)، ومشغّل التراجع
+-- يمرّ بهما على بيانات: بذرة معمل، وخلطة تُفعَّل بدوالّ 0015 بين التراجع والإعادة (مراجعة 0016 الثالثة #3، ق٣٤).
 update public.recipe_lines l set in_basis = true
 from public.recipe_versions v
 where v.org_id = l.org_id and v.id = l.version_id and v.status <> 'draft' and l.in_basis is null;
+update public.recipe_lines l set base_unit = case when l.density_kg_per_l is not null then 'L' else 'kg' end
+from public.recipe_versions v
+where v.org_id = l.org_id and v.id = l.version_id and v.status <> 'draft' and l.base_unit is null;
 
 -- اسم فئة المصروف لا يتكرّر في المنشأة (مراجعة 0016 الثانية، التكامل B1): الشاشة كانت تفحص التكرار على قائمتها وحدها، فيمرّ اسم فئة
 -- مؤرشفة أو نظامية، واسم يكتبه جهازان معاً. الاسم المطبَّع (private.searchable: الهمزات والتشكيل وحالة اللاتيني والمسافات) يُقارن بفئات
@@ -1376,7 +1403,8 @@ end
 $$;
 
 -- إنشاء الدفعة (0015) كما هو، ويّا سطر تكاليف لكلّ معدّل في النسخة المفعَّلة (0016، D3): المبلغ المحسوب = المعدّل × الكمية
--- المخطّطة ÷ 1000 بضربة تقريب واحدة، والمبلغ نفسه يُعدَّل بالدفعة.
+-- المخطّطة ÷ 1000 بضربة تقريب واحدة، والمبلغ نفسه يُعدَّل بالدفعة. ومراجعة 0016 الثالثة: item_changed حين تخالف وحدة المادّة الآن لقطة سطر
+-- الخلطة.
 create or replace function public.create_production(p_id uuid, p_recipe_version uuid, p_planned_kg numeric, p_wh_in uuid, p_wh_out uuid,
   p_produced_on date) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -1432,10 +1460,16 @@ begin
   returning * into d;
   for ln in
     select l.line_no, l.qty, l.unit, l.density_kg_per_l, i.id as item_id, i.name, i.base_unit, i.density_kg_per_l as item_density, i.scale_step,
-      l.in_basis
+      l.in_basis, l.base_unit as line_base
     from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
     where l.org_id = v_org and l.version_id = v.id order by l.line_no
   loop
+    -- وحدة أساس المادّة لقطة السطر عند التفعيل (مراجعة 0016 الثالثة #2، FOUNDATION القاعدة ٤ وE46، كما يقارن الترحيل لقطة سطر الدفعة): تغيّرها
+    -- بعده كان يخطّط الدفعة بوحدة غير التي حُسبت بها الخلطة (كيلو مكتوب يصير لتراً بكثافة المادّة الحالية)، فتُرفض النسخة وتُنشأ غيرها. والكثافة
+    -- للتخطيط لقطة السطر (التفعيل يكتبها لكلّ سطر وحدته لتر، وverify_mill الفحص ٣ يمسك غيابها).
+    if ln.line_base is not null and ln.line_base is distinct from ln.base_unit then
+      raise exception 'item_changed' using hint = format('تغيّرت وحدة «%s» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.', ln.name);
+    end if;
     if ln.base_unit not in ('kg', 'L') then
       raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، فلا تُسحب بالكتلة. راجع الخلطة.', ln.name);
     end if;
@@ -1981,7 +2015,8 @@ end
 $$;
 
 -- بطاقة الخلطة (0015) كما هي، وتزيد لبانية الخلطة (0016): لكلّ سطر تحت money سعر الكلفة المكتوب وآخر شراء بجانب متوسّط المتاح؛
--- وتحت money معدّلات تكاليف الطنّ وكلفة الطنّ المتوقّعة (للتخطيط)؛ وفئات المصاريف الفعّالة غير النظامية لمنتقي المعدّلات (بلا مال).
+-- وتحت money معدّلات تكاليف الطنّ وكلفة الطنّ المتوقّعة (للتخطيط)؛ وفئات المصاريف الفعّالة غير النظامية لمنتقي المعدّلات (بلا مال). ومراجعة
+-- 0016 الثالثة: لكلّ سطر وحدة الأساس من لقطته وunit_changed.
 create or replace function public.recipe_detail(p_id uuid, p_version uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -2017,7 +2052,10 @@ begin
     'lines', case when v.id is null then '[]'::jsonb else coalesce((
       select jsonb_agg(jsonb_build_object('id', l.id, 'line_no', l.line_no, 'item_id', l.item_id, 'item_name', i.name,
         -- «داخل الكتلة» لقطة النسخة المجمَّدة، والنوع الحيّ للمسوّدة (مراجعة 0016 الثانية #2)، ومجموع الكتلة بالشرط نفسه.
-        'kind', i.kind, 'base_unit', i.base_unit, 'in_basis', coalesce(l.in_basis, i.kind not in ('fuel', 'packaging')), 'category_id', i.category_id,
+        -- ووحدة الأساس لقطتها (والوحدة الحيّة للمسوّدة)، وunit_changed حين تخالف اللقطةُ وحدةَ المادّة الآن (مراجعة 0016 الثالثة #2): النسخة لا
+        -- يُنتَج بها حتّى تُنشأ غيرها (create_production: item_changed).
+        'kind', i.kind, 'base_unit', coalesce(l.base_unit, i.base_unit), 'unit_changed', coalesce(l.base_unit <> i.base_unit, false),
+        'in_basis', coalesce(l.in_basis, i.kind not in ('fuel', 'packaging')), 'category_id', i.category_id,
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id),
         'qty', l.qty::text, 'unit', l.unit, 'mass_kg', private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))::text,
         'share_pct', private._mul_div_round(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)), 100, v.basis_kg, 2)::text,
@@ -2049,7 +2087,8 @@ end
 $$;
 
 -- بطاقة الدفعة (0015) كما هي، وتزيد (0016): لكلّ سطر اسم المادّة التي حلّ محلّها البديل، وmoney كائناً للمسوّدة أيضاً (قيمها
--- فارغة قبل الترحيل) فيه سطور التكاليف وتحميلاتها الفعّالة من المصاريف (التاريخ والمبلغ ووصف المصروف).
+-- فارغة قبل الترحيل) فيه سطور التكاليف وتحميلاتها الفعّالة من المصاريف (التاريخ والمبلغ ووصف المصروف). ومراجعة 0016 الثالثة: draws لمن
+-- يرى مخزن المدخلات وحده.
 create or replace function public.production_detail(p_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -2098,8 +2137,9 @@ begin
         'in_basis', p.in_basis, 'is_substitute', p.is_substitute, 'reason', p.reason,
         'replaced_item_name', (select x.name from public.items x where x.org_id = v_org and x.id = p.replaced_item_id),
         -- من أيّ وجبات سُحب السطر (طلب المالك «أعرف منين صنعتها بالضبط»): السحوبات الأصلية بترتيبها، بالكمية موجبة ومصدر كلّ وجبة
-        -- (رقم الاستلام أو الافتتاح أو التحويل)، بلا مال؛ وللمسوّدة null.
-        'draws', case when d.status = 'draft' then null else coalesce((select jsonb_agg(jsonb_build_object('lot_id', m.lot_id, 'qty', (-m.qty)::text,
+        -- (رقم الاستلام أو الافتتاح أو التحويل)، بلا مال؛ وللمسوّدة null، ولطرف الناتج وحده null (مراجعة 0016 الثالثة #1، ق٣٢): وجبات مخزن
+        -- المواد واستلاماته صفوف تمنعها سياسات جداولها عنه، كطرف الوجهة في التحويل يرى مصدر مرآته لا استلامات المصدر.
+        'draws', case when d.status = 'draft' or not v_in then null else coalesce((select jsonb_agg(jsonb_build_object('lot_id', m.lot_id, 'qty', (-m.qty)::text,
             'received_on', l.received_on, 'source', private.stock_doc_label(l.source_kind, l.source_id)) order by m.seq, m.id)
           from public.stock_moves m join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
           where m.org_id = v_org and m.doc_kind = 'production' and m.doc_id = d.id and m.doc_line_id = p.id
@@ -2148,12 +2188,13 @@ language sql stable security definer set search_path = public, pg_temp as $$
       filter (where l.in_basis), 0) <> v.basis_kg
   ) as x
   union all
-  -- ٣) نسخة غير مسوّدة بلا سطور، أو سطر سائل بلا لقطة كثافة، أو سطر بلا لقطة «داخل الكتلة» (مراجعة 0016 الثانية #2).
+  -- ٣) نسخة غير مسوّدة بلا سطور، أو سطر بلا لقطة وحدة أساس أو لقطته لتر بلا لقطة كثافة (مراجعة 0016 الثالثة #2: اللقطة لا وحدة المادّة الآن،
+  --    فتصحيح الوحدة بعد التفعيل لا يكسره ولا يبقى خرقاً على نسخة مقاعدة)، أو سطر بلا لقطة «داخل الكتلة» (مراجعة 0016 الثانية #2).
   select 'recipe_frozen_bad_lines', count(*) from public.recipe_versions v
   where v.status <> 'draft' and (
     not exists (select 1 from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id)
-    or exists (select 1 from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
-      where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null)
+    or exists (select 1 from public.recipe_lines l
+      where l.org_id = v.org_id and l.version_id = v.id and (l.base_unit is null or (l.base_unit = 'L' and l.density_kg_per_l is null)))
     or exists (select 1 from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id and l.in_basis is null))
   union all
   -- ٤) قيمة دفعة الناتج = كلفة الدفعة بالضبط (القاعدة ٢١: لا يضيع فلس بين الإنتاج والمخزن).
@@ -2831,7 +2872,7 @@ $$;
 
 -- تفعيل النسخة (0015) على جسمه حرفاً، إلّا أنّ الوقود والتعبئة خارج مجموع الأساس (القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016
 -- #2): السطر يبقى ويُسحب ويُحسب بكلفته، وdoc_empty على السطور كلّها، وتلميح basis_mismatch يقول إنّهما خارج الكتلة إن وُجدا؛ و«داخل
--- الكتلة» لقطة على كلّ سطر مع لقطة الكثافة (مراجعة 0016 الثانية #2 و#5).
+-- الكتلة» لقطة على كلّ سطر مع لقطة الكثافة (مراجعة 0016 الثانية #2 و#5)، ووحدة أساس المادّة كذلك (مراجعة 0016 الثالثة #2).
 create or replace function public.activate_recipe_version(p_id uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -2877,11 +2918,12 @@ begin
       raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة يجب أن تكون أكبر من صفر.', ln.name);
     end if;
     -- الوقود والتعبئة خارج كتلة الخلطة (FOUNDATION القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016 #2): السطر يبقى ويُسحب ويُحسب
-    -- بكلفته، ولا يدخل مجموع الأساس؛ وخلطة كلّها وقود أو تعبئة مجموعها صفر فترفض basis_mismatch. ولقطتا السطر بجملة واحدة (FOUNDATION
-    -- القاعدة ٤): الكثافة للسائل، و«داخل الكتلة» من نوع المادّة الآن (مراجعة 0016 الثانية #2 و#5)، والمجموع منها؛ فتصحيح النوع بعد التفعيل
-    -- لا يغيّر النسخة المجمَّدة (verify_mill وcreate_production وrecipe_detail يقرأون اللقطة).
+    -- بكلفته، ولا يدخل مجموع الأساس؛ وخلطة كلّها وقود أو تعبئة مجموعها صفر فترفض basis_mismatch. ولقطات السطر الثلاث بجملة واحدة
+    -- (FOUNDATION القاعدة ٤): الكثافة للسائل، و«داخل الكتلة» من نوع المادّة الآن (مراجعة 0016 الثانية #2 و#5)، ووحدة أساس المادّة الآن
+    -- (مراجعة 0016 الثالثة #2)، والمجموع منها؛ فتصحيح النوع أو الوحدة بعد التفعيل لا يغيّر النسخة المجمَّدة (verify_mill وcreate_production
+    -- وrecipe_detail يقرأون اللقطة).
     v_in := ln.kind not in ('fuel', 'packaging');
-    update public.recipe_lines set in_basis = v_in,
+    update public.recipe_lines set in_basis = v_in, base_unit = ln.base_unit,
       density_kg_per_l = case when ln.base_unit = 'L' then round(ln.density_kg_per_l, 4) else density_kg_per_l end
     where org_id = v_org and id = ln.id;
     if not v_in then

@@ -159,8 +159,10 @@ export async function rollbackBlockedCase({ fresh, migrations, rollbackSql, seed
 /**
  * حالة تراجع وحدة بقاعدة جديدة. migrations: الهجرات لحد الهجرة المفحوصة وياها (آخر وحدة)، و{ fresh } يرجّع عميلاً بقاعدة
  * فارغة جاهزة بالقالب ومعه makeDb، وseed(db) يزرع من الدوالّ الحقيقية. يرجّع المخالفات (فارغة = التراجع صادق).
+ * afterRollback(db) يكتب بدوالّ الإصدار القديم بين التراجع والإعادة، وafterRedo(db) يرجّع مشاكل بعد الإعادة (مراجعة 0016 الثالثة #3، ق٣٤:
+ * الهجرة تُعاد فوق كتالوج قديم فيه بيانات كتبها هو، فملؤها يجري على صفوف؛ اختياريان، وبلاهما الحالة كما كانت).
  */
-export async function rollbackCase({ fresh, migrations, rollbackSql, seed }) {
+export async function rollbackCase({ fresh, migrations, rollbackSql, seed, afterRollback = null, afterRedo = null }) {
   const target = migrations.at(-1);
   const problems = [];
   const { client, db, close } = await fresh();
@@ -177,11 +179,13 @@ export async function rollbackCase({ fresh, migrations, rollbackSql, seed }) {
     // بعد الإعادة وحدها يجري بدوالّ الهجرة (verify_mill في 0016 يستثني الوقود فيرى خلطة بكاز خارج الكتلة سليمة، وفحص 0015 يرفضها).
     const rolled = await verifyAll(db);
     if (rolled.bad.length) problems.push(`الثوابت بعد التراجع (كتالوج ما قبل ${target.name}): ${rolled.bad.join('، ')}`);
+    if (afterRollback) await afterRollback(db);
     await applySql(client, target.text, `${target.name} بعد التراجع`);
     const redone = snapshotDiff(after, await snapshot(client));
     if (redone.length) problems.push(`إعادة ${target.name} بعد التراجع ما رجّعت كتالوجها (${redone.length} فرق): ${redone.slice(0, 5).join(' | ')}`);
     const { bad } = await verifyAll(db);
     if (bad.length) problems.push(`الثوابت بعد التراجع والإعادة: ${bad.join('، ')}`);
+    if (afterRedo) problems.push(...(await afterRedo(db)).map((problem) => `بعد إعادة ${target.name}: ${problem}`));
   } catch (error) {
     problems.push(error.message);
   } finally {

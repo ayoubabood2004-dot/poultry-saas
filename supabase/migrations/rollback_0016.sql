@@ -5,13 +5,14 @@
 -- وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه بالكتالوج)، وسياسة production_batches_read كما في
 -- 0015، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input وnew_recipe_version والمساعدات (ومنها shrink_ok) والحرّاس،
 -- وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016)، ومحفّز اسم فئة المصروف ودالّته (مراجعة 0016 الثانية)، والجداول
--- الثلاثة، وأعمدة production_inputs.replaced_item_id وitem_prices.cost_price وrecipe_lines.in_basis، ويعيد item_prices.sell_price غير قابل
--- للفراغ.
+-- الثلاثة، وأعمدة production_inputs.replaced_item_id وitem_prices.cost_price وrecipe_lines.in_basis وrecipe_lines.base_unit (مراجعة 0016
+-- الثالثة)، ويعيد item_prices.sell_price غير قابل للفراغ.
 -- **طريق رفض (الكتلة أدناه):** إسقاط الجداول والعمودين يمسح معدّلات تكاليف كتبها المالك بيده في خلطاته، وسطور تكاليف الدفعات
 -- وتحميلاتها من المصاريف (كلفة العلف المنتَج ومصدرها)، والمادّة التي حلّ محلّها كلّ بديل، وأسعار الكلفة المكتوبة؛ ولا تُستخرج من
 -- مكان آخر. فالملف يرفض نفسه إن كان في القاعدة منها صفّ واحد. ونسخة خلطة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (فُعّلت بقاعدة
 -- 0016 والوقود أو التعبئة خارج كتلتها) يرفضها فحص 0015 الثاني بعد التراجع، والمجمَّدة لا تُعدَّل، فتوقفه كذلك (مراجعة 0016 الثانية
--- #1). الفروع الأربعة منفصلة حتّى يُفحص كلّ واحد وحده.
+-- #1). ونسخة غير مسوّدة فيها مادّة صارت باللتر بعد تفعيلها بالكيلو (سطر بلا لقطة كثافة) سليمة بقاعدة 0016 (لقطة الوحدة كيلوغرام)، ويرفضها
+-- فحص 0015 الثالث بعد التراجع (يقرأ الوحدة الحيّة)، فتوقفه كذلك (مراجعة 0016 الثالثة #2). الفروع الخمسة منفصلة حتّى يُفحص كلّ واحد وحده.
 -- تنعاد بأمان: drop if exists، وcreate or replace، وdrop constraint/column if exists.
 
 set lock_timeout = '5s';
@@ -26,6 +27,8 @@ declare
   v_prices bigint;
   v_basis bigint;
   v_recipe text;
+  v_units bigint;
+  v_unit_recipe text;
 begin
   select count(*) into v_rates from public.recipe_cost_rates;
   select count(*) into v_costs from public.production_costs;
@@ -52,6 +55,19 @@ begin
     raise exception 'rollback_blocked'
       using hint = format('في القاعدة %s نسخة خلطة مفعَّلة أو مقاعدة فيها وقود أو تعبئة خارج أساسها، أوّلها في خلطة «%s». قاعدة 0015 تعدّ كلّ السطور في الأساس فيرفض فحصها هذه النسخ بعد التراجع، والنسخة المجمَّدة لا تُعدَّل: لا تراجع عن 0016 ما دامت موجودة.',
         v_basis, v_recipe);
+  end if;
+  -- سطر نسخة غير مسوّدة لمادّة باللتر بلا لقطة كثافة (مراجعة 0016 الثالثة #2): فُعّل والمادّة بالكيلو ثمّ صُحّحت لتراً، فلقطة وحدته في 0016
+  -- كيلوغرام وverify_mill يراه سليماً؛ وفحص 0015 الثالث يقرأ الوحدة الحيّة فيرفضه بعد التراجع (recipe_frozen_bad_lines)، والمجمَّدة لا تُعدَّل.
+  select count(distinct v.id), (array_agg(r.name order by r.name collate "C", r.id))[1] into v_units, v_unit_recipe
+  from public.recipe_versions v
+  join public.recipes r on r.org_id = v.org_id and r.id = v.recipe_id
+  join public.recipe_lines l on l.org_id = v.org_id and l.version_id = v.id
+  join public.items i on i.org_id = l.org_id and i.id = l.item_id
+  where v.status <> 'draft' and i.base_unit = 'L' and l.density_kg_per_l is null;
+  if v_units > 0 then
+    raise exception 'rollback_blocked'
+      using hint = format('في القاعدة %s نسخة خلطة مفعَّلة أو مقاعدة فيها مادّة صارت باللتر بعد تفعيلها بالكيلو، أوّلها في خلطة «%s». قاعدة 0015 تقرأ وحدة المادّة الآن فيرفض فحصها هذه النسخ بعد التراجع، والنسخة المجمَّدة لا تُعدَّل: لا تراجع عن 0016 ما دامت موجودة.',
+        v_units, v_unit_recipe);
   end if;
 end
 $$;
@@ -1805,8 +1821,10 @@ drop index if exists public.production_inputs_replaced_item;
 alter table public.production_inputs drop constraint if exists production_inputs_replaced_item_fkey;
 alter table public.production_inputs drop column if exists replaced_item_id;
 
--- ٤-ب) «داخل الكتلة» على سطر الخلطة (مراجعة 0016 الثانية): حارس السطر رجع لجسم 0015 فوق، والعمود يُسقط.
+-- ٤-ب) لقطتا «داخل الكتلة» ووحدة الأساس على سطر الخلطة (مراجعتا 0016 الثانية والثالثة): حارس السطر رجع لجسم 0015 فوق، والعمودان يُسقطان
+-- (وقيد الوحدة معه).
 alter table public.recipe_lines drop column if exists in_basis;
+alter table public.recipe_lines drop column if exists base_unit;
 
 -- ٥) جدول الأسعار بسعر البيع وحده كما في 0014 (صفّ بلا سعر بيع لا يكون إلّا لسعر كلفة، وطريق الرفض أوقف التراجع قبله):
 delete from public.item_prices where sell_price is null;

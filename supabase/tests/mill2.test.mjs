@@ -12,6 +12,10 @@
 // يرسلها الخادم تعرضها BatchPage بجملتها لا بالجملة العامّة؛ وrepo: الختم وكتابة المبلغ وإضافة السطر وحذفه out_of_scope لمحاسب المواد،
 // وترحيله costs_unsealed_scope قبل الختم ونجاحه بعده، وloadBatch من طرف العلف من روابط بطاقة العلف الثلاثة، والاسم المكرّر لفئة المصروف
 // category_name_taken (createExpenseCategory وrename)، وتاريخ انتهاء الناتج بـsetBatchFields، وno_mass_inputs في الترحيل.
+// ودمج الجولة الثالثة (fixes3.md القسم د): لقطة وحدة الأساس على جواب recipe_detail الحقيقي بمحلّله (unit_changed لسطر تغيّرت وحدة مادّته بعد
+// التفعيل، والوحدة و«داخل الكتلة» من اللقطة، والمسوّدة بالوحدة الحيّة)، وdraws = null لطرف الناتج (أمين العلف ومحاسبه، في المرحَّلة والملغاة)
+// بمحلّل البطاقة وloadBatch، وcreate_production وcreateProduction يُرفضان item_changed بتلميحه (RejectedError كما تعرضه نافذة «أنتج»)، والكثافة
+// للتخطيط لقطة السطر؛ وsetBatchFields({ producedOn }) من حقل يوم الإنتاج ثمّ المعاينة (date_too_old وdate_in_future بجملتي الخادم) والترحيل بيومه.
 // الأرقام محسوبة باليد بالتعليق جنب كلّ واحد، لا منسوخة من جواب الدالّة.
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -104,7 +108,8 @@ async function screensRepo() {
         contents: [
           'export { createRecipe, loadRecipe, loadMill, loadBuilder, createProduction, previewProduction, loadBatch, addProductionInput,',
           '  deleteProductionInput, addBatchCost, setBatchCost, deleteBatchCost, addRecipeRate, setRecipeRate, deleteRecipeRate, setInputActual,',
-          "  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch } from './src/lib/repo/mill.ts';",
+          "  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch, setRecipeLine,",
+          "  activateVersion } from './src/lib/repo/mill.ts';",
           'export { loadItemLots, loadItemMoves, loadItemPurchases, setItemCostPrice, createExpenseCategory, rename, createItem, loadItem, updateItem, findItemTwins }',
           "  from './src/lib/repo/inventory.ts';",
           "export { loadExpenses, voidExpense } from './src/lib/repo/cash.ts';",
@@ -1051,14 +1056,24 @@ async function scenario(t, db) {
   const feedAcc = await sideBatch('محاسب العلف', U.accFeed, B3);
   t.same(
     feedSide && [feedSide.scope, feedSide.expensesVisible, feedSide.costs, feedSide.totalValue, feedSide.lines.map((l) => [l.itemName, l.usedQty, l.value, l.draws?.map((d) => d.qty)])],
-    [{ input: false, output: true }, false, null, null, [['ذرة صفراء', 60000n, null, [60000n]], ['كسبة صويا', 40000n, null, [40000n]]]],
-    'parseBatch (أمين العلف): scope = {input: false, output: true}، بلا مال ولا مصاريف، والكميات ووجباتها ظاهرة (ق٢٥، ب٣)',
+    [{ input: false, output: true }, false, null, null, [['ذرة صفراء', 60000n, null, null], ['كسبة صويا', 40000n, null, null]]],
+    'parseBatch (أمين العلف): scope = {input: false, output: true}، بلا مال ولا مصاريف، والكميات ظاهرة ووجبات مخزن المواد null (ق٢٥، ب٣؛ والجولة الثالثة ق٣٢: طرف الناتج وحده لا يقرأ وجبات المدخلات واستلاماتها)',
   );
   t.same(rawSide && [rawSide.scope, rawSide.expensesVisible, rawSide.costs], [{ input: true, output: false }, false, null], 'parseBatch (أمين المواد): scope = {input: true, output: false}، بلا مال (ق٢٥، ب٣)');
   t.same(
     feedAcc && [feedAcc.scope, feedAcc.expensesVisible, feedAcc.totalValue, feedAcc.costs?.map((c) => [c.categoryName, c.amount, c.allocations])],
     [{ input: false, output: true }, false, 11465000n, [['أيدي عاملة', 50000n, null], ['كهرباء', 15000n, null]]],
     'parseBatch (محاسب العلف): القيم ظاهرة (دور كلفة) والتحميلات null، وexpenses_visible = false (وحدة المعمل خارج نطاقه، ق٢١ وق٢٥)',
+  );
+  // وجبات مخزن المواد واستلاماته لا تخرج لطرف الناتج وحده (الجولة الثالثة، ق٣٢ وب٢٨؛ سابقة التحويل): draws = null في كلّ سطر لأمين العلف
+  // ومحاسبه، في المرحَّلة والملغاة (الأولى)، مع scope.input = false — الحالة التي تقول فيها خانة «من أيّ وجبات» «وجبات مخزن المواد خارج
+  // نطاقك» بلا رابط؛ وأمين المواد (مخزن المدخلات بنطاقه) يراها بوجبتها ورقم استلامها. null صريح لا «غائب» (same يسوّي بينهما في المصفوفة).
+  const feedVoid = await sideBatch('أمين العلف، الملغاة', U.keepFeed, B1);
+  const drawsOfLines = (batch) => batch?.lines.map((l) => (l.draws === null ? 'null' : l.draws?.map((d) => [d.lotId, d.qty, d.source]) ?? 'غائب'));
+  t.same(
+    [drawsOfLines(feedSide), drawsOfLines(feedAcc), feedVoid && [feedVoid.status, feedVoid.scope, drawsOfLines(feedVoid)], drawsOfLines(rawSide)],
+    [['null', 'null'], ['null', 'null'], ['void', { input: false, output: true }, ['null', 'null']], [[[cornLot.id, 60000n, cornLot.doc_no]], [[soyLot.id, 40000n, soyLot.doc_no]]]],
+    'parseBatch: draws = null لأمين العلف ومحاسبه في المرحَّلة والملغاة، وبوجباتها ورقم استلامها لأمين المواد (ق٣٢، ب٢٨)',
   );
   // مسوّدة من طرف العلف (ب٣): البطاقة تُقرأ والمعاينة out_of_scope، فالشاشة لا تطلبها بلا scope.input. والإلغاء بمخزن المدخلات وحده
   // (void_production: stock_wh للمدخلات بنطاق وللناتج بلا نطاق): مدير نطاقه مخزن المواد يلغي ومدير نطاقه مخزن العلف لا، كما تُظهر الشاشة
@@ -1266,6 +1281,44 @@ async function scenario(t, db) {
     [[true, false], [1000000n, [['raw', true], ['raw', false]]], ['draft', 1017000n, [['raw', true], ['raw', true]]]],
     'in_basis من لقطة السطر في اللوحة وبطاقة النسخة المفعَّلة بعد تغيير نوع الكاز، والمسوّدة بالنوع الحيّ (ق٢٢، ب٨ وب٩)',
   );
+  // ووحدة الأساس لقطة ثالثة (الجولة الثالثة، ق٣١ وب٢٧): «كاز البانية» يُنشأ من «أنشئ» في البانية مادّة أوّلية بالكيلو (newItemFields: raw
+  // وkg وخطوة 0.100) ويدخل خلطة مفعَّلة 983 ذرة + 17 كغم كاز = 1,000 = الأساس، ثمّ يصحّحه المدير من نافذة المادّة وقوداً باللتر بكثافة 0.85
+  // (قبل أوّل حركة). جواب recipe_detail الحقيقي بمحلّل الشاشة: سطر الكاز في المفعَّلة بلقطته (الوحدة kg و«داخل الكتلة»، والكتلة 1,000)
+  // ونوعه الحيّ fuel، وunit_changed = true له وحده — فبطاقة الخلطة تقول «تغيّرت وحدة» تحت المفعَّلة، ومشغّل المعمل الذي يضغط «أنتج» يقرؤه
+  // بلا مال؛ وcreate_production من النسخة item_changed بتلميح يسمّي المادّة (نافذة «أنتج» تعرضه كما هو)؛ والمسوّدة المنسوخة بعده بالوحدة
+  // والنوع الحيّين (L، والكاز خارج الكتلة فهي 983) وبلا unit_changed (لا لقطة).
+  const KAZ_B = await one(U.manager, "insert into public.items (name, kind, base_unit, scale_step) values ('كاز البانية', 'raw', 'kg', 0.100) returning id");
+  const R6 = id(161);
+  const V6 = id(162);
+  const kazBuilt = await createRecipe(U.manager, R6, V6, 'بادئ بكاز البانية', FEED2, 1000, [{ item_id: CORN, qty: 983, unit: 'kg' }, { item_id: KAZ_B, qty: 17, unit: 'kg' }], [], true);
+  t.eq(kazBuilt.v?.status, 'active', `خلطة بكاز البانية مفعَّلة: 983 + 17 = 1,000 (${kazBuilt.code ?? ''} ${kazBuilt.hint ?? ''})`);
+  await one(U.manager, "update public.items set kind = 'fuel', base_unit = 'L', density_kg_per_l = 0.85 where id = $1 returning id", [KAZ_B]);
+  const unitLine = (l) => [l.itemName, l.kind, l.baseUnit, l.unit, l.qty, l.massKg, l.inBasis, l.unitChanged];
+  const kazActiveRaw = (await call(U.manager, 'select public.recipe_detail($1, null)', [R6])).v;
+  const kazMillerRaw = (await call(U.miller, 'select public.recipe_detail($1, null)', [R6])).v;
+  const kazActive = parsed('parseRecipe (بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazActiveRaw));
+  const kazMiller = parsed('parseRecipe (مشغّل المعمل، بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazMillerRaw));
+  t.same(
+    [kazActive && [kazActive.status, kazActive.massKg, kazActive.lines.map(unitLine)], kazMiller && [kazMiller.rates, kazMiller.lines.map((l) => [l.itemName, l.unitChanged])]],
+    [['active', 1000000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'kg', 'kg', 17000n, 17000n, true, true]]],
+      [null, [['ذرة صفراء', false], ['كاز البانية', true]]]],
+    'parseRecipe: unit_changed للكاز وحده (لقطة kg والمادّة L الآن)، والوحدة و«داخل الكتلة» والكتلة من اللقطة، ومشغّل المعمل يقرؤه بلا مال (ق٣١، ب٢٧)',
+  );
+  const kazRefused = await create(U.miller, id(260), V6, 100);
+  t.same(
+    [code(kazRefused), kazRefused.hint, (await db.admin('select count(*)::int as n from public.production_batches where id = $1', [id(260)])).rows[0].n],
+    ['item_changed', 'تغيّرت وحدة «كاز البانية» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.', 0],
+    'create_production من النسخة بعد تصحيح الوحدة: item_changed بتلميح يسمّي المادّة ويقول ما العمل، ولا دفعة (ق٣١، ب٢٧)',
+  );
+  const kazCopy = await call(U.manager, 'select public.new_recipe_version($1, $2)', [R6, id(163)]);
+  const kazDraftRaw = (await call(U.manager, 'select public.recipe_detail($1, $2)', [R6, id(163)])).v;
+  const kazDraft = parsed('parseRecipe (المسوّدة بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazDraftRaw));
+  t.same(
+    [code(kazCopy), kazDraft && [kazDraft.status, kazDraft.massKg, kazDraft.lines.map(unitLine)]],
+    ['ok', ['draft', 983000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'L', 'kg', 17000n, 17000n, false, false]]]],
+    'parseRecipe (المسوّدة المنسوخة بعد التصحيح): الوحدة والنوع الحيّان (L وfuel خارج الكتلة، فالكتلة 983)، وunit_changed = false (لا لقطة)',
+  );
+  t.same(await nonZero('verify_mill'), {}, 'verify_mill صفر بعد تصحيح وحدة مادّة في خلطة مفعَّلة (الفحص الثالث يقرأ لقطة الوحدة، ق٣١)');
 
   // «نسخة جديدة» تنسخ المفعَّلة (ق١٣، م٧): مسوّدة «بادئ ذهبي» الثانية بسطري المفعَّلة ومعدّليها، والإعادة والمسوّدة القائمة ترجعانها.
   const newVersion = (user, recipe, vid) => call(user, 'select public.new_recipe_version($1, $2)', [recipe, vid]);
@@ -1565,6 +1618,15 @@ async function scenario(t, db) {
       ['draft', { input: false, output: true }, 'out_of_scope', `المخزن «${RAW_NAME}» خارج نطاقك.`],
       'loadBatch (أمين العلف، مسوّدة): تُقرأ بطرف العلف، وpreviewProduction out_of_scope (ب٣)',
     );
+    // ووجبات مخزن المواد واستلاماته لا تصل طرف الناتج (الجولة الثالثة، ق٣٢ وب٢٨): draws = null في كلّ سطر مع scope.input = false — فخانة
+    // «من أيّ وجبات» تقول «وجبات مخزن المواد خارج نطاقك» بلا رابط؛ ومحاسب العلف كذلك والقيمة ظاهرة له (دور كلفة)؛ ومحاسب المواد يراها (أدناه).
+    actAs(U.accFeed);
+    const feedAccCard = await repo.loadBatch(BATCH);
+    t.same(
+      [fromFeed.lines.map((l) => [l.itemName, l.draws === null]), [feedAccCard.scope, feedAccCard.totalValue, feedAccCard.lines.map((l) => [l.itemName, l.draws === null])]],
+      [[['ذرة صفراء', true], ['حنطة', true]], [{ input: false, output: true }, 43780000n, [['ذرة صفراء', true], ['حنطة', true]]]],
+      'loadBatch (أمين العلف ومحاسبه): draws = null لكلّ سطر وscope.input = false، والقيمة 437,800.00 ظاهرة لمحاسب العلف (ق٣٢، ب٢٨)',
+    );
     actAs(U.miller);
     const madeLot = (await repo.loadItemLots(FEED2, FEEDWH)).rows.find((r) => r.sourceId === BATCH);
     t.same(madeLot && [madeLot.sourceKind, madeLot.source, madeLot.qtyLeft], ['production', done.docNo, 501000n], 'loadItemLots (مشغّل المعمل): دفعة العلف «صُنعت بدفعة» رقمها');
@@ -1708,11 +1770,121 @@ async function scenario(t, db) {
     const datedLot = (await repo.loadItemLots(dated.id, FEEDWH)).rows[0];
     t.same([datedPosted, datedLot && [datedLot.sourceId, datedLot.expiryOn, datedLot.qtyLeft]], ['ok', [id(248), '2026-12-04', 100000n]], 'postProduction ثمّ loadItemLots: وجبة العلف بتاريخ انتهائه من الدفعة (ب٦)');
 
+    // لقطة وحدة الأساس من الشاشة (الجولة الثالثة، ق٣١ وب٢٧): «كاز الشاشة» من «أنشئ» في البانية (createItem بحقول newItemFields: raw وkg)
+    // يدخل خلطة مفعَّلة 983 + 17 كغم، ثمّ يصحّحه المدير من نافذة المادّة (updateItem بالنوع والوحدة والكثافة معاً كما يرسلها changedFields، قبل
+    // أوّل حركة). loadRecipe يقول unitChanged لسطره وحده (والوحدة من اللقطة kg)، وcreateProduction من النسخة يُرفض RejectedError برمز
+    // item_changed وتلميحه — الشرط الذي تعرض به نافذة «أنتج» التلميح كما هو. ثمّ «نسخة جديدة» بالوحدة الحيّة: الكاز 17 كغم (سائل يُكتب
+    // بالكيلو) خارج الكتلة والذرة 1,000، تُفعَّل بنداءَي صفحة الخلطة (setRecipeLine وactivateVersion)، فيُنتَج بها: الكاز 17 ÷ 0.85 = 20
+    // لتراً، وبعد تعديل كثافة المادّة إلى 0.80 يبقى 20 (لقطة التفعيل؛ بالكثافة الحيّة 17 ÷ 0.80 = 21.25 ← 21.3). والمسوّدتان تُحذفان.
+    /** نداء repo يرمي = فحص فاشل باسمه وnull، لا توقّف الملف (كـparsed): كلّ فرق في الكتلتين التاليتين يظهر في التشغيل نفسه. */
+    const tried = async (label, run) => {
+      try {
+        return await run();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.name}: ${error?.code ?? error?.message}`);
+        return null;
+      }
+    };
+    actAs(U.manager);
+    const kazItem = await tried('createItem (كاز الشاشة)', () =>
+      repo.createItem({ name: 'كاز الشاشة', category_id: null, kind: 'raw', base_unit: 'kg', density_kg_per_l: null, piece_mass_kg: null,
+        tracks_expiry: false, scale_step: '0.100', min_qty: null, barcode: null, alt_codes: [] }));
+    const KR = id(250);
+    const kazRecipe = await rejected(repo.createRecipe({ id: KR, versionId: id(251), name: 'بادئ بكاز الشاشة', outputItemId: FEED2, basisKg: 1000000n,
+      lines: [{ itemId: CORN, qty: 983000n, unit: 'kg' }, { itemId: kazItem?.id ?? '', qty: 17000n, unit: 'kg' }], rates: [], activate: true }));
+    const kazFixed = await tried('updateItem (تصحيح الكاز)', () => repo.updateItem(kazItem?.id ?? '', kazItem?.version ?? 0, { kind: 'fuel', base_unit: 'L', density_kg_per_l: '0.8500' }));
+    actAs(U.miller);
+    const kazStale = await tried('loadRecipe (بعد تصحيح الكاز)', () => repo.loadRecipe(KR));
+    const kazRefusal = await repo.createProduction(id(252), id(251), 100000n, RAW, FEEDWH, TODAY).then(() => null, (error) => error);
+    t.same(
+      [kazRecipe, kazFixed && [kazFixed.kind, kazFixed.baseUnit], kazStale && [kazStale.status, kazStale.lines.map((l) => [l.itemName, l.baseUnit, l.inBasis, l.unitChanged])],
+        kazRefusal instanceof repo.RejectedError, kazRefusal?.code, kazRefusal?.hint],
+      ['ok', ['fuel', 'L'], ['active', [['ذرة صفراء', 'kg', true, false], ['كاز الشاشة', 'kg', true, true]]], true, 'item_changed',
+        'تغيّرت وحدة «كاز الشاشة» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.'],
+      'loadRecipe (مشغّل المعمل): unitChanged لسطر الكاز وحده، وcreateProduction يُرفض item_changed بتلميحه كما تعرضه نافذة «أنتج» (ق٣١، ب٢٧)',
+    );
+    actAs(U.manager);
+    const kazCopied = await tried('newRecipeVersion (الكاز)', () => repo.newRecipeVersion(KR, id(253)));
+    const kazDraftCard = await tried('loadRecipe (مسوّدة الكاز)', () => repo.loadRecipe(KR, id(253)));
+    const kazLine = await rejected(repo.setRecipeLine(kazDraftCard?.lines.find((l) => l.itemId === CORN)?.id ?? '', 1000000n, 'kg'));
+    const kazActivated = await rejected((async () => repo.activateVersion(id(253), (await repo.loadRecipe(KR, id(253))).versionVersion))());
+    const kazRenewed = await tried('loadRecipe (الكاز بعد التفعيل)', () => repo.loadRecipe(KR));
+    t.same(
+      [kazCopied && [kazCopied.versionId, kazCopied.existing], kazDraftCard?.lines.map((l) => [l.itemName, l.baseUnit, l.inBasis, l.unitChanged]), kazLine, kazActivated,
+        kazRenewed && [kazRenewed.versionId, kazRenewed.status, kazRenewed.massKg], kazRenewed?.lines.map((l) => [l.itemName, l.qty, l.unit, l.baseUnit, l.inBasis, l.unitChanged])],
+      [[id(253), false], [['ذرة صفراء', 'kg', true, false], ['كاز الشاشة', 'L', false, false]], 'ok', 'ok',
+        [id(253), 'active', 1000000n], [['ذرة صفراء', 1000000n, 'kg', 'kg', true, false], ['كاز الشاشة', 17000n, 'kg', 'L', false, false]]],
+      'newRecipeVersion ثمّ setRecipeLine وactivateVersion: المسوّدة بالوحدة الحيّة، والمفعَّلة الجديدة بلقطة L والكاز خارج الكتلة وبلا unitChanged (ق٣١)',
+    );
+    actAs(U.miller);
+    const firstMade = await rejected(repo.createProduction(id(254), id(253), 1000000n, RAW, FEEDWH, TODAY));
+    actAs(U.manager);
+    const thinner = await rejected((async () => repo.updateItem(kazItem?.id ?? '', (await repo.loadItem(kazItem?.id ?? ''))?.version ?? 0, { density_kg_per_l: '0.8000' }))());
+    actAs(U.miller);
+    const secondMade = await rejected(repo.createProduction(id(255), id(253), 1000000n, RAW, FEEDWH, TODAY));
+    const plannedOf = async (batchId) => (await tried(`loadBatch (${batchId})`, () => repo.loadBatch(batchId)))?.lines.map((l) => [l.itemName, l.baseUnit, l.plannedQty]) ?? null;
+    t.same(
+      [firstMade, thinner, secondMade, await plannedOf(id(254)), await plannedOf(id(255))],
+      ['ok', 'ok', 'ok', [['ذرة صفراء', 'kg', 1000000n], ['كاز الشاشة', 'L', 20000n]], [['ذرة صفراء', 'kg', 1000000n], ['كاز الشاشة', 'L', 20000n]]],
+      'createProduction من النسخة الجديدة ثمّ loadBatch: الكاز 17 ÷ 0.85 = 20 لتراً، ويبقى 20 بعد تعديل كثافة المادّة إلى 0.80 (لقطة التفعيل، ق٣١)',
+    );
+    for (const batchId of [id(254), id(255)]) {
+      const card = await repo.loadBatch(batchId).catch(() => null);
+      if (card) await repo.discardBatch(batchId, card.version);
+    }
+
+    // يوم الإنتاج من صفحة الدفعة (ب٢٦): مسوّدة سوّدها مشغّل المعمل قبل ثمانية أيام (27/10/2026) لا تُرحَّل اليوم — date_too_old بتلميح الخادم،
+    // ووجبات الذرة (استُلمت 04/11/2026) بعد يومها فلا رصيد لها بذلك اليوم. فيكتب في حقل «يوم الإنتاج» (editInputs: مشغّل المعمل) يوماً بعد
+    // اليوم فيحكم الخادم date_in_future بجملته، ثمّ «4/11/2026»: parseDayText يوم تقويم، وsetBatchFields({ producedOn }) وحده كما ترسله
+    // الصفحة، فالمعاينة بلا مشكلة، ويرحّلها المدير؛ والسحب ووجبة العلف بذلك اليوم، والمحفوظ يعود للحقل بـfmtDay. خلطة بلا تكاليف (ذرة
+    // 1,000 كغم للأساس 1,000)، والدفعة 50 كغم.
+    actAs(U.manager);
+    const dayRecipe = await rejected(repo.createRecipe({ id: id(256), versionId: id(257), name: 'بادئ يوم الإنتاج', outputItemId: FEED2, basisKg: 1000000n,
+      lines: [{ itemId: CORN, qty: 1000000n, unit: 'kg' }], rates: [], activate: true }));
+    const LATE = id(258);
+    actAs(U.miller);
+    const lateMade = await rejected(db.setToday('2026-10-27', () => repo.createProduction(LATE, id(257), 50000n, RAW, FEEDWH, '2026-10-27')));
+    actAs(U.manager);
+    const lateLook = await tried('previewProduction (مسوّدة 27/10/2026)', () => repo.previewProduction(LATE));
+    t.same(
+      [dayRecipe, lateMade, lateLook && [lateLook.producedOn, lateLook.problems.map((x) => [x.code, x.hint]), lateLook.canPost]],
+      ['ok', 'ok', ['2026-10-27', [['date_too_old', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به 28/10/2026.'], ['insufficient_stock', null]], false]],
+      'previewProduction لمسوّدة عمرها ثمانية أيام: date_too_old بتلميح الخادم، والذرة بلا رصيد بيومها (استُلمت بعده) — فلا تُرحَّل (ب٢٦)',
+    );
+    actAs(U.miller);
+    const aheadDay = repo.parseDayText('5/11/2026');
+    const aheadSaved = await rejected(repo.setBatchFields(LATE, { producedOn: aheadDay }));
+    actAs(U.manager);
+    const aheadLook = await tried('previewProduction (يوم بعد اليوم)', () => repo.previewProduction(LATE));
+    actAs(U.miller);
+    const fixedDay = repo.parseDayText('4/11/2026');
+    const fixedSaved = await rejected(repo.setBatchFields(LATE, { producedOn: fixedDay }));
+    const fixedCard = await tried('loadBatch (بعد تصحيح اليوم)', () => repo.loadBatch(LATE));
+    actAs(U.manager);
+    const fixedLook = await tried('previewProduction (بعد تصحيح اليوم)', () => repo.previewProduction(LATE));
+    t.same(
+      [aheadDay, aheadSaved, aheadLook && [aheadLook.producedOn, aheadLook.problems.map((x) => [x.code, x.hint]), aheadLook.canPost],
+        fixedDay, fixedSaved, fixedCard && [fixedCard.producedOn, repo.fmtDay(fixedCard.producedOn)], fixedLook && [fixedLook.producedOn, fixedLook.problems, fixedLook.canPost]],
+      ['2026-11-05', 'ok', ['2026-11-05', [['date_in_future', 'التاريخ 05/11/2026 بعد تاريخ اليوم 04/11/2026.']], false],
+        '2026-11-04', 'ok', ['2026-11-04', '04/11/2026'], ['2026-11-04', [], true]],
+      'setBatchFields({ producedOn }) من حقل يوم الإنتاج (مشغّل المعمل): يوم بعد اليوم date_in_future بجملة الخادم، ثمّ يوم صالح فالمعاينة بلا مشكلة (ب٢٦)',
+    );
+    const latePosted = fixedLook ? await rejected(repo.postProduction(LATE, fixedLook.version, fixedLook.planToken, ref())) : 'بلا معاينة';
+    const lateDone = await tried('loadBatch (بعد ترحيل اليوم المصحَّح)', () => repo.loadBatch(LATE));
+    const lateLot = (await tried('loadItemLots (العلف بعد ترحيل اليوم المصحَّح)', () => repo.loadItemLots(FEED2, FEEDWH)))?.rows.find((r) => r.sourceId === LATE);
+    const lateMove = (await tried('loadItemMoves (الذرة بعد ترحيل اليوم المصحَّح)', () => repo.loadItemMoves(CORN, RAW)))?.rows.find((r) => r.docId === LATE);
+    t.same(
+      [latePosted, lateDone && [lateDone.status, lateDone.producedOn], lateLot && [lateLot.receivedOn, lateLot.qtyLeft], lateMove && [lateMove.movedOn, lateMove.qty]],
+      ['ok', ['posted', '2026-11-04'], ['2026-11-04', 50000n], ['2026-11-04', -50000n]],
+      'postProduction بعد تصحيح اليوم: الدفعة مرحَّلة بيومها الجديد، وسحب الذرة ووجبة العلف 50 كغم بذلك اليوم (ب٢٦)',
+    );
+
     // جمل المشاكل كما تعرضها صفحة الدفعة (ب٢): محلّل المعاينة يقبل أيّ رمز، ففرق اسمه بين الطرفين لا يظهر إلّا هنا — كلّ مشكلة أرسلتها القاعدة
     // في هذا الملف تعرضها BatchPage بجملتها (problemLine) لا بالجملة العامّة «مشكلة في الدفعة: {code}»، والجملتان الجديدتان بنصّ المواصفة،
-    // ومشكلة التاريخ بتلميح الخادم.
+    // ومشكلة التاريخ بتلميح الخادم (ومنها date_in_future من حقل يوم الإنتاج، ب٢٦).
     const page = (await screensText()).batchPage;
-    const served = [view0, viewMiller, view2, viewB2, viewB2Miller, hiddenView, seenView, agedView, expiredView, rawLook, massless, undated].flatMap((view) => view?.problems ?? []);
+    const served = [view0, viewMiller, view2, viewB2, viewB2Miller, hiddenView, seenView, agedView, expiredView, rawLook, massless, undated, lateLook, aheadLook, fixedLook]
+      .flatMap((view) => view?.problems ?? []);
     const codes = [...new Set(served.map((x) => x.code))].sort();
     const generic = page.problemText('zz_probe');
     const lineOf = (wanted) => {
@@ -1721,7 +1893,7 @@ async function scenario(t, db) {
     };
     t.same(
       [codes, [...new Set(served.filter((x) => page.problemLine(x) === generic.replace('zz_probe', x.code)).map((x) => x.code))]],
-      [['costs_pending', 'costs_unfunded', 'costs_unsealed_scope', 'date_too_old', 'expiry_required', 'insufficient_stock', 'no_mass_inputs', 'output_expired', 'shrink_out_of_range'], []],
+      [['costs_pending', 'costs_unfunded', 'costs_unsealed_scope', 'date_in_future', 'date_too_old', 'expiry_required', 'insufficient_stock', 'no_mass_inputs', 'output_expired', 'shrink_out_of_range'], []],
       'BatchPage.problemLine: لكلّ مشكلة من القاعدة جملتها، لا الجملة العامّة (ب٢)',
     );
     t.same(
@@ -1730,6 +1902,7 @@ async function scenario(t, db) {
         'الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به 05/11/2026.'],
       'BatchPage.problemLine: costs_unsealed_scope تسمّي الوحدة من division_name، وno_mass_inputs بجملتها، ومشكلة التاريخ بتلميح الخادم (ب٢)',
     );
+    t.eq(lineOf('date_in_future'), 'التاريخ 05/11/2026 بعد تاريخ اليوم 04/11/2026.', 'BatchPage.problemLine: date_in_future (يوم إنتاج بعد اليوم من حقله، ب٢٦) بتلميح الخادم لا بالجملة العامّة');
   } finally {
     delete globalThis.__millPg;
   }

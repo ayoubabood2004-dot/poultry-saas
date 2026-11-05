@@ -60,6 +60,10 @@ import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 // طرفا الدفعة في النطاق (ب٣، scope): بلا مخزن المواد لا معاينة ولا فعل ولا إلغاء ولا رابط دفتر، وبلا مخزن العلف لا رابط وجباته؛
 // «سجّل مصروفاً» يسأل قبل أن يضيّع ما كُتب ولم يُحفظ (ب٤)؛ سبب الهدر وتاريخ انتهاء الناتج يبدآن من المحفوظ ويتبعان الكتابة
 // (ب٥، ب٦)؛ والملغاة «أُوقف تحميلها بالإلغاء» (ب٧)؛ ونصّ «فئة جديدة» في الصفحة (ب١١).
+// الجولة الثالثة: «أنتج الآن» معطَّل ما دام في الصفحة مكتوب لم يُحفظ، وتحته جملة تسمّيه (ب٢١، درس WP8: الترحيل لا يأخذ من الشاشة إلّا
+// المحفوظ)؛ وأثناء الحفظ يُقفل قسم الوزن ورابط «سجّل مصروفاً»، ولا يُفرَّغ حقل إلّا إن بقي كما أُرسل، ونافذة «لم يُحفظ» تُغلق حين يُحفظ
+// ما فيها (ب٢٢)؛ ويوم الإنتاج يُعدَّل في المسوّدة بيوم تقويم فتُصحَّح المسوّدة القديمة بدل أن تُحذف (ب٢٦)؛ ووجبات مخزن المواد لمن هو
+// خارج نطاقه جملةٌ بلا رابط (ب٢٨، draws = null).
 
 interface BatchState {
   batch: ProductionBatch;
@@ -273,9 +277,17 @@ function InputDialog({
 
 /**
  * الوجبات التي سُحبت منها مادّة (المرحَّلة)، وبلاها رابط دفتر المادّة في مخزن المدخلات حيث حركة السحب برقم الدفعة؛ ومن لا يكون
- * مخزن المدخلات بنطاقه (ق٢٥، ب٣) يرى «دفتر المادّة» نصّاً بلا رابط، فالدفتر لا يُفتح له.
+ * مخزن المدخلات بنطاقه (ق٢٥، ب٣) يرى «دفتر المادّة» نصّاً بلا رابط، فالدفتر لا يُفتح له. والخادم لا يرسل له الوجبات أصلاً (ق٣٢،
+ * draws = null): لا يرى وجبات مخزن المواد ولا استلاماتها، فالخانة تقول ذلك بلا رابط (ب٢٨).
  */
 function DrawsCell({ draws, itemId, unit, warehouseId, linked }: { draws: readonly LotDraw[] | null; itemId: string; unit: BaseUnit; warehouseId: string; linked: boolean }) {
+  if (draws === null && !linked) {
+    return (
+      <span className="text-ink-muted" data-action="draws-hidden">
+        {t('mill.trace.draws_hidden', 'وجبات مخزن المواد خارج نطاقك')}
+      </span>
+    );
+  }
   if (draws && draws.length) {
     return (
       <ul className="flex flex-col gap-0.5">
@@ -325,12 +337,11 @@ export default function BatchPage() {
   const { data, error, loading, retry } = useLoad<BatchState>(load, id);
   const loadCategories = useCallback((): Promise<CategoryOption[]> => (canCosts ? loadExpenseCategories() : Promise.resolve([])), [canCosts]);
   const categories = useLoad<CategoryOption[]>(loadCategories, `${canCosts}`);
-  const [weight, setWeight] = useState('');
-  const [touched, setTouched] = useState(false);
-  const [reason, setReason] = useState('');
-  const [reasonTouched, setReasonTouched] = useState(false);
-  const [expiry, setExpiry] = useState('');
-  const [expiryTouched, setExpiryTouched] = useState(false);
+  // حقول قسم الوزن: null = لم يُكتب فيه فيُعرض المحفوظ ويتبعه، ونصّ = ما كتبه المستخدم (ب٥، ب٦، ب٢٦).
+  const [weight, setWeight] = useState<string | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
+  const [expiry, setExpiry] = useState<string | null>(null);
+  const [producedDay, setProducedDay] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
@@ -391,39 +402,44 @@ export default function BatchPage() {
   // الحقول تبدأ من المحفوظ (إن وُجد) وتتبع الكتابة بعدها، فلا تُداس كتابة المستخدم بكلّ قراءة (درس WP5)، ولا يُرسل منها إلّا ما
   // كتبه المستخدم: حفظ الوزن لا يمسح سبباً أو تاريخاً محفوظاً لم يُعِد كتابته (ب٥).
   const savedWeight = batch.outputQtyKg > 0n ? decimalText(batch.outputQtyKg, 3) : '';
-  const shownWeight = touched ? weight : savedWeight;
+  const shownWeight = weight ?? savedWeight;
   const typedWeight = shownWeight.trim() === '' ? null : parseQty(shownWeight);
   const weightBad = shownWeight.trim() !== '' && (typedWeight === null || typedWeight <= 0n);
   const savedReason = batch.shrinkReason ?? '';
-  const shownReason = reasonTouched ? reason : savedReason;
+  const shownReason = reason ?? savedReason;
   const problems = preview?.problems ?? [];
   // تاريخ انتهاء الناتج (ب٦): يوم تقويم (parseDayText، لا تاريخ ترحيل)، ويظهر حين يُتابَع انتهاء المنتج أو تطلبه المعاينة.
   const expiryShown = batch.outputItem.tracksExpiry || problems.some((problem) => problem.code === 'expiry_required' || problem.code === 'output_expired');
   const savedExpiry = batch.outputExpiryOn ? fmtDay(batch.outputExpiryOn) : '';
-  const shownExpiry = expiryTouched ? expiry : savedExpiry;
+  const shownExpiry = expiry ?? savedExpiry;
   const typedExpiry = shownExpiry.trim() === '' ? null : parseDayText(shownExpiry);
   const expiryBad = shownExpiry.trim() !== '' && typedExpiry === null;
-  const fieldsTouched = touched || reasonTouched || (expiryShown && expiryTouched);
+  // يوم الإنتاج (ب٢٦): يوم تقويم إلزامي بـparseDayText كتاريخ الانتهاء (فلا تنفصل حزمة حقل التاريخ)، والخادم يحكم عليه بمعاينته
+  // وجملته (أقدم من سبعة أيام، أو فترة مقفلة، أو قبل يوم التشغيل)؛ فالمسوّدة التي كبرت على يومها يُصحَّح يومها بدل أن تُحذف.
+  const savedDay = fmtDay(batch.producedOn);
+  const shownDay = producedDay ?? savedDay;
+  const typedDay = parseDayText(shownDay);
+  const dayBad = typedDay === null;
+  const fieldsTouched = weight !== null || reason !== null || (expiryShown && expiry !== null) || producedDay !== null;
 
-  const saveFields = () =>
+  const saveFields = () => {
+    if (busy || weightBad || expiryBad || dayBad || !fieldsTouched) return;
+    // ما أُرسل من كلّ حقل بنصّه (ب٢٢): بعد الحفظ لا يُفرَّغ حقل إلّا إن بقي المعروض فيه كما أُرسل، وما لم يُرسل لا يُمسّ، فلا يضيع
+    // ما كُتب أثناء الحفظ (الحقول مقفولة أثناءه أصلاً).
+    const sent = { weight, reason, expiry: expiryShown ? expiry : null, day: producedDay };
+    const fields: { producedOn?: string; outputQtyKg?: bigint | null; shrinkReason?: string | null; outputExpiryOn?: string | null } = {};
+    if (sent.weight !== null) fields.outputQtyKg = typedWeight;
+    if (sent.reason !== null) fields.shrinkReason = sent.reason.trim() === '' ? null : sent.reason;
+    if (sent.expiry !== null) fields.outputExpiryOn = typedExpiry;
+    if (sent.day !== null && typedDay !== null) fields.producedOn = typedDay;
+    const settled = (was: string | null) => (now: string | null) => (was !== null && now === was ? null : now);
     void act(async () => {
-      if (weightBad || expiryBad || !fieldsTouched) return;
-      const fields: { outputQtyKg?: bigint | null; shrinkReason?: string | null; outputExpiryOn?: string | null } = {};
-      if (touched) fields.outputQtyKg = typedWeight;
-      if (reasonTouched) fields.shrinkReason = shownReason.trim() === '' ? null : shownReason;
-      if (expiryShown && expiryTouched) fields.outputExpiryOn = typedExpiry;
       await setBatchFields(batch.id, fields);
-      setTouched(false);
-      setReasonTouched(false);
-      setExpiryTouched(false);
+      setWeight(settled(sent.weight));
+      setReason(settled(sent.reason));
+      setExpiry(settled(sent.expiry));
+      setProducedDay(settled(sent.day));
     });
-
-  const post = () => {
-    if (!preview) return;
-    void act(async () => {
-      await postProduction(batch.id, preview.version, preview.planToken, millRef(`post:${batch.id}`));
-      forgetMillRef(`post:${batch.id}`);
-    }, t('mill.posted', 'تمّ الإنتاج: دخل العلف مخزنه.'));
   };
 
   const discard = async () => {
@@ -672,12 +688,14 @@ export default function BatchPage() {
   const unfunded = problems.filter((problem) => problem.code === 'costs_unfunded');
   const otherProblems = problems.filter((problem) => problem.code !== 'costs_unfunded');
 
-  // ما كُتب ولم يُحفظ (ب٤): «سجّل مصروفاً» يغادر الصفحة، فيُسأل عنه بالاسم قبل أن يضيع.
+  // ما كُتب ولم يُحفظ (ب٤): «سجّل مصروفاً» يغادر الصفحة، فيُسأل عنه بالاسم قبل أن يضيع؛ و«أنتج الآن» يرحّل المحفوظ وحده، فيُعطَّل
+  // حتّى يُحفظ أو يُمسح (ب٢١). القائمة من شرط editInputs، فتشمل مشغّل المعمل، ومن شرط editCosts للتكاليف.
   const unsaved: string[] = [];
   if (editInputs) {
-    if (touched && (weightBad || (typedWeight ?? 0n) !== batch.outputQtyKg)) unsaved.push(t('mill.unsaved.weight', 'وزن الناتج'));
-    if (reasonTouched && shownReason.trim() !== savedReason.trim()) unsaved.push(t('mill.unsaved.reason', 'سبب الهدر'));
-    if (expiryShown && expiryTouched && (expiryBad || typedExpiry !== batch.outputExpiryOn)) unsaved.push(t('mill.unsaved.expiry', 'تاريخ انتهاء الناتج'));
+    if (weight !== null && (weightBad || (typedWeight ?? 0n) !== batch.outputQtyKg)) unsaved.push(t('mill.unsaved.weight', 'وزن الناتج'));
+    if (reason !== null && shownReason.trim() !== savedReason.trim()) unsaved.push(t('mill.unsaved.reason', 'سبب الهدر'));
+    if (expiryShown && expiry !== null && (expiryBad || typedExpiry !== batch.outputExpiryOn)) unsaved.push(t('mill.unsaved.expiry', 'تاريخ انتهاء الناتج'));
+    if (producedDay !== null && (dayBad || typedDay !== batch.producedOn)) unsaved.push(t('mill.unsaved.produced_on', 'يوم الإنتاج'));
     for (const row of rows) {
       const edit = actuals.get(row.id);
       if (edit && edit.text !== (row.actualQty === null ? '' : decimalText(row.actualQty, 3))) unsaved.push(t('mill.unsaved.actual', 'الكمية الفعلية من «{name}»', { name: row.itemName }));
@@ -691,6 +709,18 @@ export default function BatchPage() {
     if (newCost.categoryId !== '' || newCost.amount.trim() !== '') unsaved.push(t('mill.unsaved.new_cost', 'سطر التكلفة الجديد'));
     if (category.text.trim() !== '') unsaved.push(t('mill.unsaved.category', 'اسم الفئة الجديدة «{name}»', { name: category.text.trim() }));
   }
+  // نافذة «ما كتبته هنا لم يُحفظ» تُغلق إن صارت القائمة فارغة وهي مفتوحة (ب٢٢: حُفظ ما فيها، أو أُنشئت الفئة المكتوبة)، فلا تبقى بجملة
+  // فارغة ولا تعود وحدها بكتابة لاحقة. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (نمط React «معلومة من رسم سابق»).
+  if (leaving !== null && !unsaved.length) setLeaving(null);
+
+  const post = () => {
+    // الترحيل يأخذ المحفوظ وحده (ب٢١، درس WP8): ما كُتب ولم يُحفظ يُحفظ أو يُمسح أوّلاً، والزرّ معطَّل حتّى ذلك.
+    if (!preview || unsaved.length) return;
+    void act(async () => {
+      await postProduction(batch.id, preview.version, preview.planToken, millRef(`post:${batch.id}`));
+      forgetMillRef(`post:${batch.id}`);
+    }, t('mill.posted', 'تمّ الإنتاج: دخل العلف مخزنه.'));
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -744,7 +774,10 @@ export default function BatchPage() {
             )
           }
         >
-          {t('mill.trace.inputs', 'سُحبت المواد من «{store}»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.', { store: batch.inputWarehouse.name })}
+          {inputScope
+            ? t('mill.trace.inputs', 'سُحبت المواد من «{store}»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.', { store: batch.inputWarehouse.name })
+            : // طرف الناتج وحده (ق٣٢): الخادم لا يرسل له وجبات مخزن المواد (draws = null) فالعمود يقول «خارج نطاقك»، والجملة لا تعِد بمصدر (التكامل).
+              t('mill.trace.inputs_hidden', 'سُحبت المواد من «{store}»، ووجبات ذلك المخزن خارج نطاقك.', { store: batch.inputWarehouse.name })}
         </Notice>
       ) : null}
 
@@ -898,7 +931,12 @@ export default function BatchPage() {
             title={division ? unfundedText(problem, division.divisionName) : problemText('costs_unfunded')}
             action={
               <span className="flex flex-wrap gap-2">
-                {canExpense && record ? (
+                {canExpense && record && busy ? (
+                  // أثناء الحفظ (ب٢٢): الرابط مقفول نصّاً، فلا تُغادَر الصفحة وحفظها لم ينتهِ ولا تُفتح نافذة تتبدّل قائمتها تحتها.
+                  <span className="text-sm font-medium text-ink-muted" aria-disabled="true" data-action="record-expense">
+                    {t('mill.unfunded.record', 'سجّل مصروفاً')}
+                  </span>
+                ) : canExpense && record ? (
                   <Link
                     to={record}
                     onClick={(event) => {
@@ -932,8 +970,8 @@ export default function BatchPage() {
 
       {editInputs ? (
         <section className="card flex flex-col gap-3 p-4">
-          <h2 className="text-lg font-semibold">{t('mill.weigh.title', 'وزن الناتج')}</h2>
-          <p className="text-sm text-ink-muted">{t('mill.weigh.hint', 'اتركه فارغاً إن لم تزنه: يُحسب الناتج بكتلة المواد نفسها (بلا هدر).')}</p>
+          <h2 className="text-lg font-semibold">{t('mill.weigh.title_day', 'وزن الناتج ويوم الإنتاج')}</h2>
+          <p className="text-sm text-ink-muted">{t('mill.weigh.hint_weight', 'اترك الوزن فارغاً إن لم تزنه: يُحسب الناتج بكتلة المواد نفسها (بلا هدر).')}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field id={`${fieldId}-weight`} label={t('mill.weigh.kg', 'الوزن بالكيلوغرام')} error={weightBad ? t('mill.weigh.bad', 'اكتب وزناً أكبر من صفر.') : undefined}>
               <input
@@ -942,10 +980,8 @@ export default function BatchPage() {
                 inputMode="decimal"
                 dir="ltr"
                 value={shownWeight}
-                onChange={(event) => {
-                  setTouched(true);
-                  setWeight(event.target.value);
-                }}
+                disabled={busy}
+                onChange={(event) => setWeight(event.target.value)}
                 data-action="output-weight"
               />
             </Field>
@@ -955,10 +991,8 @@ export default function BatchPage() {
                 className="input"
                 maxLength={500}
                 value={shownReason}
-                onChange={(event) => {
-                  setReasonTouched(true);
-                  setReason(event.target.value);
-                }}
+                disabled={busy}
+                onChange={(event) => setReason(event.target.value)}
                 data-action="waste-reason"
               />
             </Field>
@@ -977,44 +1011,68 @@ export default function BatchPage() {
                   autoComplete="off"
                   placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
                   value={shownExpiry}
-                  onChange={(event) => {
-                    setExpiryTouched(true);
-                    setExpiry(event.target.value);
-                  }}
+                  disabled={busy}
+                  onChange={(event) => setExpiry(event.target.value)}
                   data-action="output-expiry"
                 />
               </Field>
             ) : null}
+            <Field
+              id={`${fieldId}-day`}
+              label={t('mill.weigh.day', 'يوم الإنتاج')}
+              error={dayBad ? t('mill.weigh.day_bad', 'اكتب يوم الإنتاج يوم/شهر/سنة، مثل 04/11/2026.') : undefined}
+              hint={t('mill.weigh.day_hint', 'يوم/شهر/سنة: بهذا اليوم تُسحب المواد ويدخل العلف مخزنه.')}
+            >
+              <input
+                id={`${fieldId}-day`}
+                className="input tabular-nums"
+                inputMode="numeric"
+                dir="ltr"
+                autoComplete="off"
+                placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
+                value={shownDay}
+                disabled={busy}
+                onChange={(event) => setProducedDay(event.target.value)}
+                data-action="produced-on"
+              />
+            </Field>
           </div>
-          <Button variant="secondary" busy={busy} disabled={weightBad || expiryBad || !fieldsTouched} onClick={saveFields} data-action="save-weight">
-            {expiryShown ? t('mill.weigh.save_expiry', 'احفظ الوزن والتاريخ') : t('mill.weigh.save', 'احفظ الوزن')}
+          <Button variant="secondary" busy={busy} disabled={weightBad || expiryBad || dayBad || !fieldsTouched} onClick={saveFields} data-action="save-weight">
+            {t('mill.weigh.save_typed', 'احفظ ما كتبته هنا')}
           </Button>
         </section>
       ) : null}
 
       {draft && inputScope ? (
-        <div className="flex flex-wrap gap-2">
-          {canPost ? (
-            <Button
-              size="lg"
-              icon={<Factory className="size-5" aria-hidden="true" />}
-              busy={busy}
-              disabled={!preview?.canPost}
-              onClick={post}
-              data-action="post-production"
-            >
-              {t('mill.post', 'أنتج الآن')}
-            </Button>
-          ) : null}
-          {!batch.costsConfirmed && canSeal && expensesVisible ? (
-            <Button variant="secondary" busy={busy} onClick={() => void act(() => confirmCosts(batch.id, batch.version))} data-action="seal-costs">
-              {t('mill.seal', 'اختم الكلف')}
-            </Button>
-          ) : null}
-          {canDraft ? (
-            <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} busy={busy} onClick={() => setDiscarding(true)} data-action="discard-batch">
-              {t('mill.discard', 'احذف المسوّدة')}
-            </Button>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            {canPost ? (
+              <Button
+                size="lg"
+                icon={<Factory className="size-5" aria-hidden="true" />}
+                busy={busy}
+                disabled={!preview?.canPost || unsaved.length > 0}
+                onClick={post}
+                data-action="post-production"
+              >
+                {t('mill.post', 'أنتج الآن')}
+              </Button>
+            ) : null}
+            {!batch.costsConfirmed && canSeal && expensesVisible ? (
+              <Button variant="secondary" busy={busy} onClick={() => void act(() => confirmCosts(batch.id, batch.version))} data-action="seal-costs">
+                {t('mill.seal', 'اختم الكلف')}
+              </Button>
+            ) : null}
+            {canDraft ? (
+              <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} busy={busy} onClick={() => setDiscarding(true)} data-action="discard-batch">
+                {t('mill.discard', 'احذف المسوّدة')}
+              </Button>
+            ) : null}
+          </div>
+          {canPost && unsaved.length ? (
+            <p className="text-sm font-medium" data-action="post-unsaved">
+              {t('mill.post.unsaved', 'احفظ ما كتبته أو امسحه قبل الإنتاج: {list}.', { list: unsaved.join(t('list.separator', '، ')) })}
+            </p>
           ) : null}
         </div>
       ) : null}

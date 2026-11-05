@@ -9,9 +9,9 @@
 // WP5 (0008): البذرة نفسها (بلا مصروف ولا صرف ولا جرد، فالتراجع يكمل). والطريق الثاني: مصروف نقدي (المدير) أو مسوّدة صرف أو
 // مسوّدة جرد (الأمين): كل وحدة توقف التراجع بصوت.
 // 0012: البذرة نفسها (بلا قاعة ولا فوج، فالتراجع يكمل). والطريق الثاني: قاعة بفوج مفتوح وجولة يومه (المدير) توقف التراجع بصوت.
-// 0016: البذرة نفسها (بلا معدّل تكاليف ولا سطر تكاليف ولا بديل ولا سعر كلفة، فالتراجع يكمل). والطريق الثاني: معدّل تكاليف بخلطة،
-// وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة (مراجعة 0016 الثانية #1): كل وحدة توقف
-// التراجع بصوت.
+// 0016: البذرة نفسها وفوقها بيانات معمل يمرّ عليها التراجع (مراجعة 0016 الثالثة #3، ق٣٤: ROLLBACK_EXTRAS أدناه)، فالتراجع يكمل. والطريق
+// الثاني: معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة (مراجعة 0016 الثانية
+// #1)، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها (مراجعة 0016 الثالثة #2): كل وحدة توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -356,6 +356,26 @@ const fuelRecipeSeed = async (db) => {
   }, { commit: true });
 };
 
+/**
+ * 0016 (مراجعة 0016 الثالثة #2): خلطة مفعَّلة فيها مادّة أوّلية بالكيلو بلا حركة («زيت مسجّل بالكيلو» 17 كغم مع ذرة 983 لأساس 1,000)، ثمّ تُصحَّح
+ * المادّة لتراً بكثافة. قاعدة 0016 تقرأ لقطة الوحدة (كيلوغرام) فالثوابت صفر، وفحص 0015 الثالث يقرأ الوحدة الحيّة فيرفض النسخة بعد التراجع
+ * (recipe_frozen_bad_lines)، والمجمَّدة لا تُعدَّل؛ فطريق الرفض يوقفه. والطفرة تشيل فرع الوحدة وحده (البذرة بلا معدّل ولا دفعة ولا سعر كلفة،
+ * ومجموع كلّ سطورها = الأساس)، فيكمل التراجع ويترك الخلطة مخالفة.
+ */
+const unitChangedSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const oil = await value(q, "insert into public.items (name, kind, base_unit) values ('زيت مسجّل بالكيلو', 'raw', 'kg') returning id");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف بادئ', 'feed', 'kg') returning id");
+    await q(
+      "select public.create_recipe($1, $2, 'علف بادئ بالزيت', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 983, 'unit', 'kg'), jsonb_build_object('item_id', $5::uuid, 'qty', 17, 'unit', 'kg')), '[]'::jsonb, true)",
+      [REF(35), REF(36), feed, corn, oil],
+    );
+    await q("update public.items set base_unit = 'L', density_kg_per_l = 0.85 where id = $1", [oil]);
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
   16: [
     {
@@ -385,6 +405,13 @@ export const BLOCKING_SEEDS = {
       seed: fuelRecipeSeed,
       data: "select (select count(*) from public.recipe_lines)::text || '/' || (select count(*) from public.recipe_versions where status = 'active')::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace('if v_basis > 0 then', 'if false then'),
+    },
+    {
+      name: 'خلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها',
+      code: 'rollback_blocked',
+      seed: unitChangedSeed,
+      data: "select (select count(*) from public.recipe_lines where base_unit = 'kg')::text || '/' || (select count(*) from public.items where base_unit = 'L')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_units > 0 then', 'if false then'),
     },
   ],
   15: [
@@ -548,5 +575,110 @@ export const BLOCKING_REQUIRED = [
   [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
   [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
   [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
-  [16, 4, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، كل وحدة توقف التراجع'],
+  [16, 5, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها، كل وحدة توقف التراجع'],
 ];
+
+/**
+ * 0016 (مراجعة 0016 الثالثة #3، ق٣٤): حالة التراجع الكاملة على بيانات معمل يمرّ عليها التراجع، لا على صفر نسخ (كانت البذرة بفرعَي المواد والجهات
+ * وحدهما، فخطوتا «الثوابت بعد التراجع» و«الإعادة» تجريان بلا نسخة خلطة ولا دفعة، وملء اللقطات في الإعادة على لا شيء). المدير بدوالّ 0016:
+ * يوم تشغيل المعمل ورصيد افتتاحي للذرة والكاز في مخزن المواد، وخلطة مفعَّلة بلا وقود (ذرة 1,000 لأساس 1,000)، ودفعة 100 كغم منها أُضيف لها
+ * لتران من الكاز (وقود خارج الكتلة، بلا تبديل) ورُحّلت. بلا معدّل ولا سطر تكاليف ولا بديل ولا سعر كلفة، فالتراجع يكمل.
+ */
+const millRollbackSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const mill = await value(q, "select id from public.divisions where kind = 'feed_mill'");
+    await q('select public.set_division_go_live($1, public.app_today() - 3)', [mill]);
+    const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+    const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const kerosene = await value(q, "insert into public.items (name, kind, base_unit, density_kg_per_l) values ('كاز المعمل', 'fuel', 'L', 0.85) returning id");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف نامي', 'feed', 'kg') returning id");
+    const opening = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 1000, 900000)', [opening, corn]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 100000)', [opening, kerosene]);
+    await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [opening, REF(40)]);
+    await q(
+      "select public.create_recipe($1, $2, 'علف نامي 1', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg')), '[]'::jsonb, true)",
+      [REF(41), REF(42), feed, corn],
+    );
+    await q('select public.create_production($1, $2, 100, $3, $4, public.app_today())', [REF(43), REF(42), raw, feedWh]);
+    await q('select public.add_production_input($1, $2, $3, 2, null, null)', [REF(43), REF(44), kerosene]);
+    await q("select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', $2)", [REF(43), REF(45)]);
+  }, { commit: true });
+};
+
+/**
+ * بين التراجع والإعادة (كتالوج 0015، بدوالّه وحارسه كما كانا قبل 0016: لا لقطة «داخل الكتلة» ولا لقطة وحدة): المدير ينشئ خلطة ويفعّلها كما في
+ * recipeSeed — ذرة 900 كغم وزيت 100 لتر (92 كغم، لقطة كثافته 0.92 من تفعيل 0015) وملح 8 كغم لأساس 1,000 — ثمّ يُصحَّح الملح لتراً بعد التفعيل
+ * (بلا حركة، فقاعدة 0015 تسمح). فإعادة 0016 تملأ لقطاتها على صفوف حقيقية: «داخل الكتلة» صحيح، ووحدة يوم التفعيل من لقطة الكثافة (الملح
+ * كيلوغرام لا لتر الآن).
+ */
+const millOn0015 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "select id from public.items where name = 'علف نامي'");
+    const oil = await value(q, "insert into public.items (name, kind, base_unit, density_kg_per_l) values ('زيت الصويا', 'raw', 'L', 0.92) returning id");
+    const salt = await value(q, "insert into public.items (name, kind, base_unit) values ('ملح الطعام', 'raw', 'kg') returning id");
+    const recipe = await value(q, "insert into public.recipes (name, output_item_id) values ('علف نامي بقاعدة 0015', $1) returning id", [feed]);
+    const version = await value(q, 'insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 1000) returning id', [recipe]);
+    await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 900, 'kg')", [version, corn]);
+    await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 100, 'L')", [version, oil]);
+    await q("insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 8, 'kg')", [version, salt]);
+    await q('select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+    await q("update public.items set base_unit = 'L', density_kg_per_l = 1.2 where id = $1", [salt]);
+  }, { commit: true });
+};
+
+/** بعد إعادة 0016: لقطتا كلّ سطر نسخة غير مسوّدة (خلطة البذرة وخلطة كتالوج 0015) كما يجب أن يملأهما الملء. */
+const millRedone = async (db) => {
+  const got = (await db.admin(`select r.name as recipe, i.name as item, l.in_basis, l.base_unit from public.recipe_lines l
+    join public.recipe_versions v on v.org_id = l.org_id and v.id = l.version_id join public.recipes r on r.org_id = v.org_id and r.id = v.recipe_id
+    join public.items i on i.org_id = l.org_id and i.id = l.item_id where v.status <> 'draft' order by r.name collate "C", l.line_no`)).rows
+    .map((row) => `${row.recipe}: ${row.item} ${row.in_basis} ${row.base_unit}`);
+  const want = ['علف نامي 1: ذرة صفراء true kg', 'علف نامي بقاعدة 0015: ذرة صفراء true kg', 'علف نامي بقاعدة 0015: زيت الصويا true L', 'علف نامي بقاعدة 0015: ملح الطعام true kg'];
+  return JSON.stringify(got) === JSON.stringify(want) ? [] : [`لقطات سطور النسخ غير المسوّدة بعد الملء ${JSON.stringify(got)} والمتوقّع ${JSON.stringify(want)}`];
+};
+
+const BACKFILL = /\nupdate public\.recipe_lines l set in_basis = true\n[\s\S]*?\nupdate public\.recipe_lines l set base_unit = [\s\S]*?;\n/u;
+const UNIT_BACKFILL = /\nupdate public\.recipe_lines l set base_unit = [\s\S]*?;\n/u;
+const UNIT_COLUMN_END = "    alter table public.recipe_lines add constraint recipe_lines_base_unit_check check (base_unit is null or base_unit in ('kg', 'L'));\n  end if;\nend\n$$;\n";
+const DERIVED_UNIT = "set base_unit = case when l.density_kg_per_l is not null then 'L' else 'kg' end";
+
+/**
+ * إضافات حالة التراجع الكاملة بالرقم (rollbackCase في rollback.mjs): seed بدل seedThroughRpcs، وafterRollback يكتب بدوالّ الإصدار القديم بين التراجع
+ * والإعادة، وafterRedo يرجّع مشاكل بعد الإعادة؛ وcontrols طفرات في نصّ الهجرة كلّ واحدة لازم تُفشل الحالة بنصّ expect (وإلّا فالبذرة لا تمرّ على ما
+ * تحرسه). 0016 (ق٣٤): جملتا الملء قبل استبدال حارس السطر ← not_draft (الحارس القديم يرفض تغيير سطر نسخة غير مسوّدة)؛ وملء الوحدة من وحدة
+ * المادّة الآن أو بلا ملء ← recipe_frozen_bad_lines بعد الإعادة.
+ */
+export const ROLLBACK_EXTRAS = {
+  16: {
+    seed: millRollbackSeed,
+    afterRollback: millOn0015,
+    afterRedo: millRedone,
+    controls: [
+      {
+        name: 'جملتا الملء قبل استبدال حارس السطر',
+        expect: 'not_draft',
+        mutate: (sql) => {
+          const block = BACKFILL.exec(sql)?.[0];
+          if (!block || sql.split(UNIT_COLUMN_END).length !== 2) return sql;
+          return sql.split(block).join('\n').split(UNIT_COLUMN_END).join(UNIT_COLUMN_END + block.slice(1));
+        },
+      },
+      {
+        name: 'ملء الوحدة من وحدة المادّة الآن',
+        expect: 'recipe_frozen_bad_lines',
+        mutate: (sql) => sql.split(DERIVED_UNIT).join('set base_unit = (select i.base_unit from public.items i where i.org_id = l.org_id and i.id = l.item_id)'),
+      },
+      {
+        name: 'بلا ملء الوحدة',
+        expect: 'recipe_frozen_bad_lines',
+        mutate: (sql) => {
+          const statement = UNIT_BACKFILL.exec(sql)?.[0];
+          return statement ? sql.split(statement).join('\n') : sql;
+        },
+      },
+    ],
+  },
+};

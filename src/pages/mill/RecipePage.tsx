@@ -51,6 +51,8 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // «لا تكاليف» على نسخة مجمَّدة يدلّ عليها؛ وزرّ «أنتج» للنسخة المفعَّلة (م٩)؛ والوقود والتعبئة «خارج الكتلة» (in_basis، م١١).
 // الجولة الثانية: خلية «بالكيلوغرام» لسطر خارج الكتلة «—» كالبانية، فالمجموع = الخلايا (ب٩)؛ نصّ «لا تكاليف» تحت نسخة غير مفعَّلة
 // يقول إنّ النسخة الجديدة تبدأ من المفعَّلة (أو آخر نسخة) لا من المعروضة (ب١٠)؛ ونصّ «فئة جديدة» في الصفحة (ب١١).
+// الجولة الثالثة: حين تكون للخلطة مسوّدة يدلّ نصّ «لا تكاليف» عليها برقمها لا على «نسخة جديدة» (ب٢٣)؛ وتحت النسخة المفعَّلة جملة لكلّ
+// سطر تغيّرت وحدة مادّته بعد التفعيل (ب٢٧، unit_changed من لقطة وحدة الأساس).
 
 function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -321,7 +323,13 @@ export default function RecipePage() {
             return (
               <CellEdit
                 id={`${fieldId}-cost-${line.itemId}`}
-                label={t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: line.itemName, unit: unitWord(line.baseUnit) })}
+                label={
+                  // سعر الكلفة لوحدة أساس المادّة الآن، وbase_unit في سطر نسخة مجمَّدة لقطة يوم التفعيل (ق٣١): إن تغيّرت الوحدة بعده فوحدة اللقطة
+                  // ليست وحدة السعر، فلا تُسمّى (التكامل، الجولة الثالثة).
+                  line.unitChanged
+                    ? t('mill.builder.cost_of_current', 'سعر كلفة «{name}» بوحدتها الحالية', { name: line.itemName })
+                    : t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: line.itemName, unit: unitWord(line.baseUnit) })
+                }
                 value={text}
                 dirty={draft !== undefined && text !== saved}
                 invalid={text.trim() !== '' && (parsed === null || parsed <= 0n)}
@@ -373,6 +381,8 @@ export default function RecipePage() {
   const freeCategories = categories.filter((category) => !rates.some((rate) => rate.categoryId === category.id));
   const newRateValue = newRate.amount.trim() === '' ? null : parseMoney(newRate.amount);
   const newRateOk = newRate.categoryId !== '' && newRateValue !== null && newRateValue > 0n;
+  // سطور النسخة المفعَّلة التي تغيّرت وحدة مادّتها بعد التفعيل (ق٣١، ب٢٧): الخادم يرفض الإنتاج بها (item_changed) حتّى نسخة جديدة.
+  const unitChanged = data.status === 'active' ? lines.filter((line) => line.unitChanged) : [];
 
   const rateColumns: Column<RecipeRate>[] = [
     { key: 'category', header: t('mill.rates.category', 'فئة المصروف'), wrap: true, cell: (rate) => rate.categoryName },
@@ -455,6 +465,18 @@ export default function RecipePage() {
           <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} busy={producing === 'loading'} onClick={openProduce} data-action="produce">
             {t('mill.card.produce', 'أنتج')}
           </Button>
+        </div>
+      ) : null}
+
+      {unitChanged.length ? (
+        <div className="flex flex-col gap-2" data-action="unit-changed">
+          {unitChanged.map((line) => (
+            <Notice
+              key={line.id}
+              tone="warning"
+              title={t('mill.recipe.unit_changed', 'تغيّرت وحدة «{name}» بعد التفعيل: لا يُنتَج بهذه النسخة حتّى تُنشأ نسخة جديدة وتُفعَّل.', { name: line.itemName })}
+            />
+          ))}
         </div>
       ) : null}
 
@@ -551,7 +573,10 @@ export default function RecipePage() {
             empty={
               isDraft
                 ? t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')
-                : // «نسخة جديدة» تنسخ النسخة المفعَّلة (وإلّا آخر نسخة)، لا النسخة المعروضة (ب١٠، new_recipe_version).
+                : draftVersion
+                  ? // مسوّدة قائمة (ب٢٣): «نسخة جديدة» لا تنسخ شيئاً بل ترجّعها كما هي (new_recipe_version)، فالجملة تدلّ عليها.
+                    t('mill.rates.empty_draft_exists', 'لهذه الخلطة مسوّدة قائمة (نسخة {no}): افتحها لإضافة تكلفة.', { no: fmtInt(draftVersion.versionNo) })
+                  : // «نسخة جديدة» تنسخ النسخة المفعَّلة (وإلّا آخر نسخة)، لا النسخة المعروضة (ب١٠، new_recipe_version).
                   data.status === 'active'
                   ? t('mill.rates.empty_frozen', 'لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة، فهي تبدأ بموادّ هذه النسخة وتكاليفها.')
                   : activeVersion

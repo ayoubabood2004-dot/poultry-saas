@@ -10,7 +10,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { can } from '../../domain/permissions';
 import { parseQty } from '../../domain/units';
-import { describeError } from '../../lib/errors';
+import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { createProduction, isDuplicate, loadMill, type MillHome, type MillStore, type RecipeCard } from '../../lib/repo/mill';
@@ -25,6 +25,7 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pieceColor, recipeC
 // وكلفة كيلوه الفعلية، أو المتوقّعة قبل أوّل إنتاج، وعدد الدفعات)، و«خلطة جديدة» تفتح البانية بشاشة واحدة، و«أنتج» بكميات
 // سريعة («احدد الكميات الي اريد اسويها بكل مرة»).
 // الجولة الثانية (ب٨): شريط التركيبة ورقاقاته يستثنيان الوقود والتعبئة (in_basis من لقطة سطر الخلطة)، كبطاقة الخلطة والبانية.
+// الجولة الثالثة (ب٢٧): نافذة «أنتج» تعرض رفض item_changed بجملة الخادم كما هي (تغيّرت وحدة مادّة بعد تفعيل الخلطة).
 
 /** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
 export const PRODUCE_UNITS = [
@@ -173,8 +174,13 @@ export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick
         navigate(`/mill/batch/${batchId}`);
         return;
       }
-      const { title, detail } = describeError(failure);
-      setError(`${title} ${detail}`);
+      if (failure instanceof RejectedError && failure.code === 'item_changed' && failure.hint) {
+        // تغيّرت وحدة مادّة بعد تفعيل الخلطة (ق٣١، ب٢٧): جملة الخادم كما هي، فهي تسمّي المادّة وتقول ما العمل (نسخة جديدة تُفعَّل).
+        setError(failure.hint);
+      } else {
+        const { title, detail } = describeError(failure);
+        setError(`${title} ${detail}`);
+      }
       setBusy(false);
     }
   };

@@ -8,6 +8,8 @@
 // Y9 عمود الكتلة في بطاقة الخلطة = مجموعه على جواب بشكل القاعدة ومحلّله الحقيقي (ب٩)؛ Y10 «نسخة جديدة» تبدأ من المفعَّلة (ب١٠)؛
 // Y11 نصّ «فئة جديدة» يبقى بعد حفظ آخر، وcategory_name_taken بتلميحه (ب١١)؛ Y12 البانية مقفولة أثناء الحفظ (ب١٢)؛ Y13 الخلية
 // الممسوحة لا تحذف السعر (ب١٣)؛ Y14 بعد نتيجة مجهولة تتجمّد البانية والإعادة بالحمولة نفسها (ب١٤)؛ Q المحلّلات الصارمة للمفاتيح الجديدة.
+// الجولة الثالثة (ب٢٥): قائمة الحقول المقفولة في Y12 وY14 تزيد خانات جدول «تكاليف لكلّ طنّ» (الفئة والمبلغ و«احذف») ووحدة السطر لتر/كغم،
+// بسطر تكلفة ومادّة باللتر (fillBuilderLocked).
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -149,7 +151,7 @@ const previewJson = ({ problems = [], costs = [], canPost = null, expensesVisibl
 const previewCost = (over = {}) => ({ cost_id: 'pc-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', planned_amount: '15000.00', amount: '15000.00', source: 'recipe', available: '4000.00', ...over });
 const recipeLine = (over = {}) => ({
   id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '1000.000', unit: 'kg',
-  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
+  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
 });
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], massKg = '1000.000', rates = [] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
@@ -562,7 +564,7 @@ export default async function (t) {
     });
 
     // ── البانية (ب١٢–ب١٤) ──────────────────────────────────────────────────────────────────────────────────────────
-    const catalog = [itemRow('i-corn', 'ذرة صفراء', 'raw'), itemRow('i-soy', 'كسبة صويا', 'raw')];
+    const catalog = [itemRow('i-corn', 'ذرة صفراء', 'raw'), itemRow('i-soy', 'كسبة صويا', 'raw'), itemRow('i-diesel', 'كاز المولّدة', 'fuel', 'L', 8500n)];
     const builderHandlers = (over = {}) => ({
       loadBuilder: () => ({ feedItems: [{ id: 'f-1', name: 'علف بادئ' }], recipeNames: [], stores: [], categories: [{ id: 'c-labor', name: 'أيدي عاملة' }] }),
       listItems: ({ search: query }) => ({ rows: catalog.filter((row) => m.searchable(row.name).includes(m.searchable(query))), total: null, next: null }),
@@ -586,7 +588,19 @@ export default async function (t) {
       type(byAction('line-qty')[0], '1000');
       await settle();
     };
-    const fields = ['recipe-name', 'recipe-basis', 'recipe-output', 'new-output-name', 'search-material', 'line-qty', 'cost-price', 'remove-line', 'add-rate', 'new-category-name'];
+    /** البانية بسطر تكلفة ومادّة باللتر (ب٢٥): فتظهر في قائمة القفل خانات جدول «تكاليف لكلّ طنّ» ووحدة السطر لتر/كغم. */
+    const fillBuilderLocked = async () => {
+      await fillBuilder();
+      await search('كاز المولّدة');
+      await click(byAction('pick-material')[0]);
+      type(byAction('line-qty')[1], '20');
+      await settle();
+      await click(byAction('add-rate')[0]);
+      choose(byAction('rate-category')[0], 'c-labor');
+      type(byAction('rate-amount')[0], '5000');
+      await settle();
+    };
+    const fields = ['recipe-name', 'recipe-basis', 'recipe-output', 'new-output-name', 'search-material', 'line-qty', 'cost-price', 'remove-line', 'add-rate', 'new-category-name', 'rate-category', 'rate-amount', 'remove-rate', 'line-unit'];
 
     // ── Y12 (ب١٢): البانية مقفولة أثناء الحفظ، ومنه انتظار حفظ الأسعار ─────────────────────────────────────────────────────
     await step('Y12', async () => {
@@ -601,7 +615,7 @@ export default async function (t) {
         }),
       );
       await mount('/mill/new');
-      await fillBuilder();
+      await fillBuilderLocked();
       type(byAction('cost-price')[0], '470');
       await settle();
       await click(byAction('save-activate')[0]);
@@ -609,7 +623,8 @@ export default async function (t) {
       t.same(fields.map((name) => disabled(byAction(name)[0])), fields.map(() => true), `Y12 وكلّ حقل وزرّ في البانية مقفول أثناءه (${fields.filter((name) => disabled(byAction(name)[0]) !== true).join('، ')})`);
       release?.();
       await settle();
-      t.same(named(calls, 'createRecipe')[0]?.[0]?.lines, [{ itemId: 'i-corn', qty: 1_000_000n, unit: 'kg' }], 'Y12 ثم تُرسل الخلطة بما على الشاشة');
+      const sent = named(calls, 'createRecipe')[0]?.[0];
+      t.same([sent?.lines, sent?.rates], [[{ itemId: 'i-corn', qty: 1_000_000n, unit: 'kg' }, { itemId: 'i-diesel', qty: 20_000n, unit: 'L' }], [{ categoryId: 'c-labor', amountPerTon: 500_000n }]], 'Y12 ثم تُرسل الخلطة بما على الشاشة (المواد وتكاليف الطنّ)');
     });
 
     // ── Y13 (ب١٣): الخلية الممسوحة ليست سعراً معلّقاً ──────────────────────────────────────────────────────────────────
@@ -640,7 +655,7 @@ export default async function (t) {
         }),
       );
       await mount('/mill/new');
-      await fillBuilder();
+      await fillBuilderLocked();
       type(byAction('cost-price')[0], '470');
       await settle();
       await click(byAction('save-activate')[0]);

@@ -245,6 +245,7 @@ function recipeJson(money) {
         mass_kg: '600.000',
         share_pct: '60.00',
         in_basis: true,
+        unit_changed: false,
         ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}),
       },
     ],

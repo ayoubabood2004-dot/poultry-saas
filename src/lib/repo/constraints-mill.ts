@@ -55,6 +55,8 @@ export const MILL_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   production_costs_planned_source_check: () => t('constraint.production_costs_planned_source_check', 'سطر الخلطة بمبلغه المحسوب منها، والسطر اليدوي بلا محسوب، ويكتبهما الخادم.'),
   production_costs_line_no_check: () => t('constraint.production_costs_line_no_check', 'رقم سطر الكلفة يكتبه الخادم.'),
   production_cost_allocations_amount_check: () => t('constraint.production_cost_allocations_amount_check', 'مبلغ التحميل من المصروف يحسبه الخادم عند الترحيل.'),
+  // 0016 (المراجعة الثالثة، ق٣١): وحدة أساس المادّة لقطة على سطر الخلطة عند التفعيل.
+  recipe_lines_base_unit_check: () => t('constraint.recipe_lines_base_unit_check', 'وحدة أساس المادّة في سطر الخلطة لقطة يكتبها الخادم عند التفعيل: كيلوغرام أو لتر.'),
 };
 
 registerConstraintHints(MILL_CONSTRAINT_HINTS);

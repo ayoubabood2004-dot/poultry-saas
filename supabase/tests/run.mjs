@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHarness } from '../../scripts/tests/harness.mjs';
 import { coverageGaps, makeDb, ROLES } from './db.mjs';
 import { applySql, blockingShortfall, declaredRollback, heavyChanges, rollbackBlockedCase, rollbackCase, rollbackDeclarationProblems, verifyAll, zeroRollbacksProblem } from './rollback.mjs';
-import { BLOCKING_REQUIRED, BLOCKING_SEEDS, seedThroughRpcs } from './seed.mjs';
+import { BLOCKING_REQUIRED, BLOCKING_SEEDS, ROLLBACK_EXTRAS, seedThroughRpcs } from './seed.mjs';
 import { DIGEST_SQL, elementsSql, snapshot, snapshotDiff } from './snapshot.mjs';
 
 export { makeDb } from './db.mjs';
@@ -281,6 +281,7 @@ async function main() {
       };
       const rollbackProblems = [];
       let ran = 0;
+      let redoControls = 0;
       let blockedRan = 0;
       const blockedBy = new Map();
       let blockedRefused = 0;
@@ -297,8 +298,20 @@ async function main() {
         }
         ran += 1;
         const rollbackSql = readFileSync(file, 'utf8');
-        const problems = await rollbackCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql, seed: seedThroughRpcs });
+        // إضافات الحالة الكاملة بالرقم (مراجعة 0016 الثالثة #3، ق٣٤): بذرة أوسع، وكتابة بدوالّ الإصدار القديم بين التراجع والإعادة، وفحص بعد الإعادة.
+        const extra = ROLLBACK_EXTRAS[declared.number] ?? {};
+        const fullCase = (target) => rollbackCase({ fresh, migrations: [...migrations.slice(0, index), target], rollbackSql, seed: extra.seed ?? seedThroughRpcs,
+          afterRollback: extra.afterRollback ?? null, afterRedo: extra.afterRedo ?? null });
+        const problems = await fullCase(migration);
         rollbackProblems.push(...problems.map((problem) => `${declared.file}: ${problem}`));
+        // ضوابط الإعادة على بيانات: كلّ طفرة في نصّ الهجرة (جملتا الملء قبل الحارس، والملء من وحدة المادّة الآن، وبلا ملء) لازم تُفشل الحالة
+        // بنصّها المتوقَّع، وإلّا فالبذرة لا تمرّ على ما تحرسه (كانت الحزمة خضراء والملء قبل الحارس يكسر تطبيق 0016 على كلّ قاعدة فيها نسخة مفعَّلة).
+        for (const control of extra.controls ?? []) {
+          const text = control.mutate(migration.text);
+          const found = text === migration.text ? ['ما لكيت مرساة الطفرة في نصّ الهجرة'] : await fullCase({ ...migration, text });
+          if (found.some((problem) => problem.includes(control.expect))) redoControls += 1;
+          else rollbackProblems.push(`${declared.file} (ضابط الإعادة: ${control.name}): ما فشلت الحالة بـ«${control.expect}» (${found.join(' | ')})`);
+        }
         // الطريق الثاني (WP2): كل بذرة يلزم التراجع يرفضها بصوت وما يغيّر شي، وضابطاها: نفس الملف بلا كتلة الرفض يكمل، ونفس
         // الملف بلا فرع الحالة من شرط الرفض (mutate) يكمل هو هم، فكل فرع من الشرط إله حالة تحتاجه (طفرة فرع ما تعبر بصمت).
         for (const blocking of [].concat(BLOCKING_SEEDS[declared.number] ?? [])) {
@@ -434,7 +447,7 @@ async function main() {
       if (rollbackProblems.length) fail(`مشغّل التراجع: ${rollbackProblems.length} مشكلة`, rollbackProblems);
       else {
         const heavyCount = migrations.filter((m) => declaredRollback(m.name, m.text).kind !== 'legacy' && (heavy.get(m.name) ?? []).length).length;
-        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع وطريق الرفض بـ${blockedRan} حالة رفضها التراجع كلّها بصدق، وضوابطه مسكت الرمز الثاني والكتالوج والبيانات والبذرة الفارغة والثوابت (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت بعد التراجع وبعد الإعادة، والتراجع اللي تُصلحه الإعادة فشل بالثوابت بعد التراجع وحدها`);
+        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع (وضوابط الإعادة على بيانات ${redoControls} فشلت كلّها بنصّها) وطريق الرفض بـ${blockedRan} حالة رفضها التراجع كلّها بصدق، وضوابطه مسكت الرمز الثاني والكتالوج والبيانات والبذرة الفارغة والثوابت (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت بعد التراجع وبعد الإعادة، والتراجع اللي تُصلحه الإعادة فشل بالثوابت بعد التراجع وحدها`);
       }
 
       // ── سجلّ التغطية: كل دالّة بقائمة السماح نادتها الأدوار الثمانية كلها بدور authenticated ───────────────────

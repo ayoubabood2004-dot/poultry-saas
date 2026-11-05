@@ -15,6 +15,8 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // النسخة الثانية (0016، كلمة المالك 2026-11-04): بانية الخلطة بنداء واحد (create_recipe)، وتكاليف لكلّ طنّ بالخلطة
 // (recipe_cost_rates) وسطور تكاليف الدفعة (production_costs) كتابة مباشرة مشروطة بالمبلغ الذي شافته الشاشة، وإضافة مادّة
 // للدفعة أو تبديلها بسبب (add_production_input)، والقرّاء يزيدون الأسعار وكلفة الطنّ المتوقّعة والتكاليف وتحميلاتها.
+// الجولة الثالثة: سطر الخلطة يحمل unit_changed (ق٣١، لقطة وحدة الأساس يوم التفعيل تخالف وحدة المادّة الآن) بمفتاح إلزامي، وdraws في
+// بطاقة الدفعة المرحَّلة null لمن لا يكون مخزن المدخلات بنطاقه (ق٣٢)، ويوم الإنتاج يُكتب بـsetBatchFields({ producedOn }) (ب٢٦).
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -233,6 +235,11 @@ export interface RecipeLine {
   costPrice: Fils | null;
   /** سعر وحدة الأساس في آخر استلام مرحَّل للمادّة (0016، «سعر الشراء التلقائي»). */
   lastPrice: Fils | null;
+  /**
+   * وحدة أساس المادّة الآن تخالف لقطتها على السطر يوم التفعيل (الجولة الثالثة، ق٣١): لا يُنتَج بالنسخة (create_production يرفض
+   * item_changed) حتّى تُنشأ نسخة جديدة وتُفعَّل. false لسطر المسوّدة (بلا لقطة). المفتاح إلزامي في كلّ سطر.
+   */
+  unitChanged: boolean;
 }
 
 export interface RecipeVersionRow {
@@ -371,6 +378,7 @@ export function parseRecipe(value: unknown): RecipeDetail {
       unitCost: money(row, 'unit_cost'),
       costPrice: money(row, 'cost_price'),
       lastPrice: money(row, 'last_price'),
+      unitChanged: flag(row, 'unit_changed'),
     })),
     massKg: qty(json, 'mass_kg'),
     pickItems: list(json.pick_items, 'pick_items').map((row) => ({
@@ -647,7 +655,10 @@ export interface BatchLine {
   reason: string | null;
   replacedItemName: string | null;
   value: Fils | null;
-  /** الوجبات التي سُحب منها السطر بعد الترحيل (ق١٦)، وnull للمسوّدة. المفتاح إلزامي في كلّ سطر. */
+  /**
+   * الوجبات التي سُحب منها السطر بعد الترحيل (ق١٦)، وnull للمسوّدة؛ وnull للمرحَّلة حين لا يكون مخزن المدخلات بنطاق القارئ (الجولة
+   * الثالثة، ق٣٢: طرف الناتج يرى المواد وكمياتها لا وجبات مخزن المواد واستلاماتها). المفتاح إلزامي في كلّ سطر.
+   */
   draws: LotDraw[] | null;
 }
 
@@ -689,7 +700,9 @@ export interface ProductionBatch {
   scope: { input: boolean; output: boolean };
 }
 
-/** الوجبات المسحوبة لسطر الدفعة (ق١٦): المفتاح إلزامي (الغائب خطأ شكل)، وnull للمسوّدة، وإلّا قائمة بترتيب السحب. */
+/**
+ * الوجبات المسحوبة لسطر الدفعة (ق١٦): المفتاح إلزامي (الغائب خطأ شكل)، وnull للمسوّدة ولطرف الناتج (ق٣٢)، وإلّا قائمة بترتيب السحب.
+ */
 function drawsOf(row: Row): LotDraw[] | null {
   const value = present(row, 'draws');
   if (value === null) return null;
