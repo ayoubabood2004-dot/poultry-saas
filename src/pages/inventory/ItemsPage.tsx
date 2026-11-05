@@ -1,6 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { useCallback, useDeferredValue, useId, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -32,6 +32,16 @@ import { useLoad } from '../../lib/useLoad';
 // بالتأكيد، ونفس الرمز رفض (الرمز يدلّ على مادّة واحدة). ووحدات التعبئة من أحجام الإعدادات أو مخصّصة، بافتراضي واحد.
 // والمادّة الجديدة بالتدفّق نفسه لنافذة «مادّة جديدة» في المخزن (الملاحظة #21، كلمة المالك 2026-11-04): التوأم الفعّال يقترح
 // «سجّل شراءً جديداً لـ«س»» أوّلاً و«احفظ مادّة أخرى بالاسم نفسه» ثانياً، والنوع بأمثلة، والتصنيف قسم لا اسم مادّة.
+// ونافذة «عدّل» بالرابط (مراجعة المعمل v2، الجولة السادسة، ب٦١): ?edit=<المادّة> يفتحها لتلك المادّة لمن يعدّل المواد — رابط «اكتب الكثافة»
+// من بطاقة الخلطة وزرّ «عدّل المادّة» في بطاقة المادّة، فهنا وحدها تُكتب الكثافة — و?back= يرجع بعد الحفظ إلى بطاقة الخلطة بنسختها.
+
+/**
+ * مسار الرجوع بعد حفظ نافذة «عدّل» المفتوحة بالرابط (ب٦١): بطاقة خلطة في المعمل بنسختها وحدها (/mill/recipe/<المعرّف> وبعدها
+ * ?version=<المعرّف> اختياراً)، وغيره null: لا تنقّل برابط مصنوع إلى مسار آخر أو إلى خارج التطبيق.
+ */
+export function recipeBack(value: string | null): string | null {
+  return value !== null && /^\/mill\/recipe\/[\w-]+(?:\?version=[\w-]+)?$/u.test(value) ? value : null;
+}
 
 const PROBLEM_TEXT: Record<ItemProblem, () => string> = {
   name: () => t('constraint.items_name_check', 'اسم المادّة مطلوب، ولا يزيد على 120 حرفاً.'),
@@ -628,6 +638,16 @@ export default function ItemsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busy, setBusy] = useState(false);
+  // ?edit= (ب٦١): المادّة تُقرأ بمعرّفها (قد لا تكون في الصفحة الأولى من الجدول) لمن يعدّل المواد وحده، ولغيره تفتح الصفحة بلا نافذة.
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const editId = manage ? params.get('edit') || null : null;
+  const back = recipeBack(params.get('back'));
+  const loadLinked = useCallback(() => (editId ? inventory.loadItem(editId) : Promise.resolve(null)), [editId]);
+  const linked = useLoad(loadLinked, editId ?? '');
+  const linkedItem = editId !== null && linked.data !== null && linked.data.id === editId && !linked.data.archived ? linked.data : null;
+  // إغلاق النافذة المفتوحة بالرابط يشيل المعاملين فتبقى الصفحة كما هي (والرجوع في المتصفّح إلى ما قبلها).
+  const leaveLink = () => setParams({}, { replace: true });
   const extra = more?.key === key ? more : null;
   const rows = first.data ? [...first.data.rows, ...(extra?.rows ?? [])] : [];
   const next = extra ? extra.next : (first.data?.next ?? null);
@@ -679,6 +699,14 @@ export default function ItemsPage() {
   return (
     <div className="flex flex-col gap-4">
       {header}
+      {editId !== null && !linked.loading && linkedItem === null ? (
+        // الرابط لا يفتح نافذة لمادّة غائبة أو مؤرشفة، ويقول ذلك بدل أن يسكت.
+        linked.error ? (
+          <LoadFailed what={t('items.linked.what', 'المادّة المطلوبة للتعديل')} error={linked.error} onRetry={linked.retry} />
+        ) : (
+          <Notice tone="warning" title={t('items.linked.missing', 'لا تُفتح هذه المادّة للتعديل: ليست في منشأتك، أو مؤرشفة.')} />
+        )
+      ) : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1">
           <Field id={searchId} label={t('items.search', 'ابحث بالاسم أو الرمز')}>
@@ -716,6 +744,24 @@ export default function ItemsPage() {
             setDialog(null);
             refresh();
             toast({ tone: 'success', title: t('items.saved', 'حُفظت المادّة «{name}»', { name: item.name }) });
+          }}
+        />
+      ) : null}
+      {linkedItem && dialog === null && setup.data ? (
+        <ItemDialog
+          item={linkedItem}
+          setup={setup.data}
+          canBuy={canBuy}
+          onClose={leaveLink}
+          onSaved={(item) => {
+            toast({ tone: 'success', title: t('items.saved', 'حُفظت المادّة «{name}»', { name: item.name }) });
+            // بعد الحفظ إلى بطاقة الخلطة بنسختها إن جاء منها (مكان هذه الصفحة في السجلّ، فلا يعيد الرجوع فتح النافذة)، وإلّا تبقى الصفحة.
+            if (back) {
+              navigate(back, { replace: true });
+              return;
+            }
+            leaveLink();
+            refresh();
           }}
         />
       ) : null}

@@ -21,6 +21,8 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // ومجموع الكتلة وكتلة قطعة شريط التركيبة مفاتيح إلزامية قد تكون قيمتها null (القارئ لا يرمي بسطر لا تُعرف كتلته): لا صفر صامت.
 // الجولة الخامسة: سطر الخلطة يحمل density_missing (ق٥١، ب٤٩: سائل بلا كثافة، وهو ما يرفض التفعيل لأجله density_required) بمفتاح إلزامي،
 // وجواب «نسخة جديدة» يحمل skipped (ق٥٥، ب٤٨: أسماء المواد التي صارت بالقطعة فلم تُنسخ) مصفوفةً إلزامية فارغة غالباً.
+// الجولة السادسة: كلفة الطنّ المتوقّعة تحمل unconverted (ق٦١، ب٦٢: سطور لها سعر ولا تتحوّل كميتها إلى وحدة سعرها، سائل بلا كثافة أو لتر لمادّة
+// صارت بالكيلو) عدداً إلزامياً منفصلاً عن unpriced، فلا تُقال «بلا أيّ سعر» تحت سطر سعره مكتوب.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -303,12 +305,16 @@ export interface RecipeRate {
   amountPerTon: Fils;
 }
 
-/** كلفة الطنّ المتوقّعة للتخطيط من الخادم (0016، ج٧)، وunpriced عدد المواد بلا أيّ سعر (لم تُحسب). */
+/**
+ * كلفة الطنّ المتوقّعة للتخطيط من الخادم (0016، ج٧)، وunpriced عدد المواد بلا أيّ سعر (لم تُحسب)، وunconverted عدد المواد التي لها سعر ولا
+ * تتحوّل كميتها إلى وحدة سعرها (ق٦١: سائل بلا كثافة، أو سطر لتر لمادّة صارت بالكيلو) فلم تُحسب حتّى تُصحَّح سطورها.
+ */
 export interface RecipeExpected {
   materialsPerTon: Fils;
   ratesPerTon: Fils;
   costPerTon: Fils;
   unpriced: number;
+  unconverted: number;
 }
 
 export interface CategoryOption {
@@ -364,6 +370,8 @@ function expectedOf(value: unknown): RecipeExpected | null {
     ratesPerTon: amount(row, 'rates_per_ton'),
     costPerTon: amount(row, 'cost_per_ton'),
     unpriced: nonNegative(row, 'unpriced'),
+    // مفتاح إلزامي (ق٦١): الغائب خطأ شكل لا صفر صامت يعيد «بلا أيّ سعر» تحت سطر سعره مكتوب.
+    unconverted: nonNegative(row, 'unconverted'),
   };
 }
 

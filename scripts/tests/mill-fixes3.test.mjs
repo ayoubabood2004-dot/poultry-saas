@@ -144,7 +144,7 @@ const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versio
   mass_kg: massKg,
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
   expense_categories: [{ id: 'c-labor', name: 'أيدي عاملة' }],
-  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced: 0 } },
+  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced: 0, unconverted: 0 } },
 });
 
 export default async function (t) {

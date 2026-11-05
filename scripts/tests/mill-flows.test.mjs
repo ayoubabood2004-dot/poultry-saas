@@ -110,7 +110,7 @@ const recipeJson = (money) => ({
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
   expense_categories: [{ id: 'c-labor', name: 'أيدي عاملة' }, { id: 'c-power', name: 'كهرباء' }],
   ...(money
-    ? { money: { rates: [{ id: 'rt-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', amount_per_ton: '15000.00' }], expected: { materials_per_ton: '270000.00', rates_per_ton: '15000.00', cost_per_ton: '285000.00', unpriced: 0 } } }
+    ? { money: { rates: [{ id: 'rt-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', amount_per_ton: '15000.00' }], expected: { materials_per_ton: '270000.00', rates_per_ton: '15000.00', cost_per_ton: '285000.00', unpriced: 0, unconverted: 0 } } }
     : {}),
 });
 const batchLines = (posted, money) => [

@@ -1,6 +1,6 @@
 import { CheckCircle2, Factory, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -56,10 +56,14 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // كثافة: القارئ يرسل null بدل أن يرمي)، وشريط التركيبة يتخطّاه، والمجموع «—» إن جهلت كتلة سطر داخل الكتلة (ب٣١)؛ ونصّ «لا تكاليف» لمن
 // لا يضيف تكلفة (بلا recipe.activate) لا يدلّه على فعل ليس له (ب٣٧).
 // الجولة الخامسة: «فعّل النسخة» و«المجموع مطابق» لا يقولان «جاهزة» وفي المسوّدة سطر يرفض الخادم التفعيل به (ب٤١: unit_mismatch أو سائل
-// بلا كثافة أو مادّة صارت بالقطعة)، ولكلّ منها جملة فوق (ب٤٩ للكثافة برابط بطاقة المادّة)؛ ورفض «تغيّر من جهاز آخر» يقرأ الخلطة من جديد
+// بلا كثافة أو مادّة صارت بالقطعة)، ولكلّ منها جملة فوق (ب٤٩ للكثافة)؛ ورفض «تغيّر من جهاز آخر» يقرأ الخلطة من جديد
 // ويبقي المكتوب مشروطاً بالمقروء الجديد (ب٤٢)؛ والصفحة تبقى مرسومة أثناء القراءة والأفعال معطَّلة (ب٤٣)؛ وخانات المال وحقول التكلفة
 // الجديدة مقفولة أثناء الحفظ ولا يُمسح منها إلّا ما أُرسل (ب٤٤)؛ وجملة «بلا أيّ سعر» بالدور (ب٤٥)؛ و«عدّل» لا يظهر لسطر لا يُعدَّل
 // (ب٤٧)؛ و«نسخة جديدة» تقول المواد التي لم تُنسخ (ب٤٨).
+// الجولة السادسة: رابط الكثافة يصل إلى محرّر حقيقي — نافذة «عدّل» في «المواد» (/inventory/items?edit=) — ويرجع بعد الحفظ إلى المسوّدة نفسها:
+// النسخة المعروضة في الرابط (?version=) لا في حالة الصفحة، فالرجوع إليها (أو زرّ الرجوع في المتصفّح) يفتحها هي (ب٦١)؛ ولوحة كلفة الطنّ تقول
+// للسطور المسعَّرة التي لا تتحوّل كميتها «لا تُحسب حتّى تُصحَّح سطورها» لا «اكتب سعر كلفتها» (ب٦٢، unconverted). وتكامل الجولة: سطر لتر تُقرَّب
+// كتلته صفراً (ق٦٤: يرفض الخادم التفعيل به qty_not_positive) سطرٌ لا تُفعَّل النسخة به كشروط ب٤١، بجملة تسمّيه فوق.
 
 /** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
 const CHANGED_ELSEWHERE = new Set(['price_changed', 'amount_changed', 'stale_draft']);
@@ -149,13 +153,15 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
 
 /**
  * كلفة الطنّ المتوقّعة من الخادم (ج٧): للتخطيط، والفعلية من السحب الحقيقي عند الإنتاج. وجملة المواد «بلا أيّ سعر» تدلّ على كتابة سعر
- * الكلفة من يكتبه وحده (ب٤٥، درس ب٣٧: set_item_cost_price يشترط stores.manage)، ولغيره تقول من يكتبه.
+ * الكلفة من يكتبه وحده (ب٤٥، درس ب٣٧: set_item_cost_price يشترط stores.manage)، ولغيره تقول من يكتبه. والمادّة التي لها سعر ولا تتحوّل
+ * كميتها إلى وحدة سعره (ب٦٢، unconverted: سائل بلا كثافة، أو سطر لتر لمادّة صارت بالكيلو) لا تُعدّ «بلا سعر»: علاجها في سطرها لا في سعره،
+ * وكلاهما لا يُحسب، فالرقم «على الأقلّ».
  */
 export function ExpectedPanel({ expected, canPrice = false }: { expected: NonNullable<RecipeDetail['expected']>; canPrice?: boolean }) {
   return (
     <div className="flex flex-col gap-1 rounded-2xl bg-surface-2 p-3" data-action="expected-cost">
       <p className="font-semibold">
-        {expected.unpriced === 0
+        {expected.unpriced === 0 && expected.unconverted === 0
           ? t('mill.expected.title', 'كلفة الطنّ المتوقّعة: {ton}', { ton: fmtMoney(expected.costPerTon) })
           : t('mill.expected.partial', 'كلفة الطنّ المتوقّعة: {ton} على الأقلّ', { ton: fmtMoney(expected.costPerTon) })}
       </p>
@@ -168,6 +174,7 @@ export function ExpectedPanel({ expected, canPrice = false }: { expected: NonNul
                 : t('mill.expected.unpriced_others', '{count} من المواد بلا أيّ سعر فلم تُحسب: يكتبه المالك أو المدير.', { count: fmtInt(expected.unpriced) })
             }`
           : ''}
+        {expected.unconverted > 0 ? ` ${t('mill.expected.unconverted', '{count} من المواد لا تُحسب حتّى تُصحَّح سطورها أعلاه.', { count: fmtInt(expected.unconverted) })}` : ''}
       </p>
       <p className="text-xs text-ink-muted">{t('mill.expected.note', 'سعر كلّ مادّة: سعر الكلفة المكتوب، وإلّا آخر شراء، وإلّا متوسّط المتاح. الكلفة الفعلية للعلف من السحب الحقيقي عند الإنتاج.')}</p>
     </div>
@@ -186,7 +193,11 @@ export default function RecipePage() {
   // من يعدّل المواد (كثافتها ووحدتها وسعر كلفتها): stores.manage، كما يشترطها الخادم (ب٤٩، ب٤٥).
   const canItems = role !== null && can(role, 'stores.manage');
   const canPrice = costs && canItems;
-  const [versionId, setVersionId] = useState<string | null>(null);
+  // النسخة المعروضة في الرابط (ب٦١) لا في حالة الصفحة: الرجوع من «المواد» بعد كتابة الكثافة، وزرّ الرجوع في المتصفّح، يفتحان النسخة نفسها
+  // (المسوّدة التي كان عليها) لا النسخة الافتراضية. بلا ?version= يختار الخادم (المفعَّلة، وإلّا آخر نسخة).
+  const [params, setParams] = useSearchParams();
+  const versionId = params.get('version') || null;
+  const setVersionId = (next: string) => setParams({ version: next });
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
   // الخلطة تبقى مرسومة بآخر ما قُرئ للنسخة نفسها أثناء القراءة من جديد (ب٤٣)، والأفعال معطَّلة حتّى تصل.
   const { data, error, loading, refreshing, retry } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
@@ -472,8 +483,9 @@ export default function RecipePage() {
   const sum = data.massKg;
   const gap = sum === null ? null : data.basisKg - sum;
   // سطور المسوّدة التي يرفض الخادم التفعيل بها ولو طابق المجموع الأساس (ب٤١): مكتوب باللتر ومادّته ليست باللتر (bad_recipe_unit)، أو مادّة
-  // صارت بالقطعة بأيّ وحدة كُتب (bad_recipe_unit)، أو سائل بلا كثافة (density_required) — داخل الكتلة وخارجها. لكلّ منها جملة فوق.
-  const blocked = isDraft ? lines.filter((line) => line.unitMismatch || line.densityMissing || line.baseUnit === 'pc') : [];
+  // صارت بالقطعة بأيّ وحدة كُتب (bad_recipe_unit)، أو سائل بلا كثافة (density_required)، أو سطر لتر تُقرَّب كتلته صفراً (qty_not_positive، ق٦٤:
+  // كُتب بكثافة أكبر ثمّ صغرت كثافة مادّته) — داخل الكتلة وخارجها. لكلّ منها جملة فوق.
+  const blocked = isDraft ? lines.filter((line) => line.unitMismatch || line.densityMissing || line.baseUnit === 'pc' || line.massKg === 0n) : [];
   const balanced = gap === 0n && lines.length > 0 && blocked.length === 0;
   const rates = data.rates ?? [];
   const canRates = isDraft && canEdit && costs;
@@ -497,14 +509,24 @@ export default function RecipePage() {
         ? t('mill.recipe.unit_mismatch', 'صارت «{name}» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.', { name: line.itemName })
         : // من لا يعدّل الخلطة (درس ب٣٧): لا يُدلّ على فعل ليس له.
           t('mill.recipe.unit_mismatch_others', 'صارت «{name}» تُقاس بالكيلوغرام: يحذف المالك أو المدير سطرها ويضيفه بالكيلوغرام.', { name: line.itemName });
-  // سائل بلا كثافة (ق٥١، ب٤٩): التفعيل يرفضه density_required، فالبطاقة تسمّيه قبل النقر؛ والكثافة تُكتب في المادّة، فلمن يعدّل المواد
-  // «اكتب كثافته» ولغيره من يكتبها (درس ب٣٧).
+  // سائل بلا كثافة (ق٥١، ب٤٩): التفعيل يرفضه density_required، فالبطاقة تسمّيه قبل النقر. والكثافة تُكتب في نافذة «عدّل» من «المواد» (ب٦١:
+  // بطاقة المادّة تعرضها قراءةً فقط)، فلمن يعدّل المواد «اكتب كثافته من «المواد»» برابط يفتح النافذة لتلك المادّة ويرجع بعد الحفظ إلى هذه
+  // المسوّدة بنسختها، ولغيره من يكتبها بلا رابط (درس ب٣٧: لا يُدلّ على فعل ليس له).
   const densityMissing = blocked.filter((line) => line.densityMissing);
   const densityText = (line: RecipeLine): string =>
     canItems
-      ? t('mill.recipe.density_missing', '«{name}» سائل بلا كثافة: اكتب كثافته في بطاقة المادّة ثمّ فعّل.', { name: line.itemName })
-      : t('mill.recipe.density_missing_others', '«{name}» سائل بلا كثافة: يكتبها المالك أو المدير في بطاقة المادّة.', { name: line.itemName });
-  // ما كُتب في الصفحة ولم يُحفظ (ب٤٩): رابط بطاقة المادّة يغادر الصفحة فيضيّعه، فلا يظهر حتّى يُحفظ أو يُمسح.
+      ? t('mill.recipe.density_items', '«{name}» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.', { name: line.itemName })
+      : t('mill.recipe.density_items_others', '«{name}» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».', { name: line.itemName });
+  const densityPath = (line: RecipeLine): string =>
+    `/inventory/items?${new URLSearchParams({ edit: line.itemId, back: data.versionId ? `/mill/recipe/${id}?version=${data.versionId}` : `/mill/recipe/${id}` }).toString()}`;
+  // سطر لتر تُقرَّب كتلته صفراً (ق٦٤): التفعيل يرفضه qty_not_positive، فالبطاقة تسمّيه قبل النقر بعلاج الخادم نفسه (كمية أكبر في «عدّل»)، ولمن لا
+  // يعدّل الخلطة من يكتبها (درس ب٣٧).
+  const zeroMass = blocked.filter((line) => line.massKg === 0n);
+  const zeroMassText = (line: RecipeLine): string =>
+    canEdit
+      ? t('mill.recipe.zero_mass', 'كمية «{name}» في الخلطة تُقرَّب صفراً بالكيلوغرام: اكتب كمية أكبر.', { name: line.itemName })
+      : t('mill.recipe.zero_mass_others', 'كمية «{name}» في الخلطة تُقرَّب صفراً بالكيلوغرام: يكتب المالك أو المدير كمية أكبر.', { name: line.itemName });
+  // ما كُتب في الصفحة ولم يُحفظ (ب٤٩): رابط الكثافة يغادر الصفحة فيضيّعه، فلا يظهر حتّى يُحفظ أو يُمسح.
   const pageDirty =
     lines.some((line) => {
       const draft = prices.get(line.itemId);
@@ -664,13 +686,21 @@ export default function RecipePage() {
               tone="warning"
               title={densityText(line)}
               action={
-                pageDirty ? undefined : (
-                  <Link to={`/inventory/items/${line.itemId}`} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-item-card">
-                    {t('mill.recipe.open_item', 'افتح بطاقة المادّة')}
+                !canItems || pageDirty ? undefined : (
+                  <Link to={densityPath(line)} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="write-density">
+                    {t('mill.recipe.write_density', 'اكتب الكثافة')}
                   </Link>
                 )
               }
             />
+          ))}
+        </div>
+      ) : null}
+
+      {zeroMass.length ? (
+        <div className="flex flex-col gap-2" data-action="zero-mass">
+          {zeroMass.map((line) => (
+            <Notice key={line.id} tone="warning" title={zeroMassText(line)} />
           ))}
         </div>
       ) : null}

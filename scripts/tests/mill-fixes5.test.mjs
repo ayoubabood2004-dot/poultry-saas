@@ -154,7 +154,7 @@ const recipeLine = (over = {}) => ({
   money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
 });
 const CORN_PICK = { id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' };
-const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', rates = [], pickItems = [CORN_PICK], unpriced = 0 } = {}) => ({
+const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', rates = [], pickItems = [CORN_PICK], unpriced = 0, unconverted = 0 } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
   versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
@@ -164,7 +164,7 @@ const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versio
   mass_kg: massKg,
   pick_items: pickItems,
   expense_categories: CATEGORIES,
-  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced } },
+  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced, unconverted } },
 });
 
 // جواب recipe_detail الحقيقي لمسوّدة «كاز المولّد» خارج الكتلة (مسبار المراجعة الخامسة P1 على بوستغريس الحزمة بالهجرات الستّ عشرة،
@@ -184,7 +184,7 @@ const KAZ_DRAFT = () => ({
       category_id: null, unit_changed: false, category_name: null, unit_mismatch: true, density_missing: false,
     },
   ],
-  money: { rates: [], expected: { unpriced: 2, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
+  money: { rates: [], expected: { unpriced: 2, unconverted: 0, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
   mass_kg: '1000.000', version: 1, archived: false,
   selected: { id: 'e5050000-0000-4000-8000-000000000102', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
   versions: [{ id: 'e5050000-0000-4000-8000-000000000102', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
@@ -213,7 +213,7 @@ const SYRUP_DRAFT = () => ({
       category_id: null, unit_changed: false, category_name: null, unit_mismatch: false, density_missing: true,
     },
   ],
-  money: { rates: [], expected: { unpriced: 2, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
+  money: { rates: [], expected: { unpriced: 2, unconverted: 0, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
   mass_kg: null, version: 1, archived: false,
   selected: { id: 'c2950000-0000-4000-8000-000000020148', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
   versions: [{ id: 'c2950000-0000-4000-8000-000000020148', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
@@ -227,8 +227,9 @@ const SYRUP_DRAFT = () => ({
 
 const BALANCED_BLOCKED = 'المجموع مطابق للأساس، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
 const READY = 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.';
-const DENSITY_MANAGER = '«شراب بلا كثافة 83» سائل بلا كثافة: اكتب كثافته في بطاقة المادّة ثمّ فعّل.';
-const DENSITY_OTHERS = '«شراب بلا كثافة 83» سائل بلا كثافة: يكتبها المالك أو المدير في بطاقة المادّة.';
+// الجولة السادسة (ب٦١): الكثافة تُكتب من «المواد» (نافذة «عدّل»)، لا في بطاقة المادّة.
+const DENSITY_MANAGER = '«شراب بلا كثافة 83» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
+const DENSITY_OTHERS = '«شراب بلا كثافة 83» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
 
 export default async function (t) {
   const restore = installDom();
@@ -498,7 +499,7 @@ export default async function (t) {
       const calls = fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: [recipeLine(), fuel] })) });
       await mount('/mill/recipe/r-1');
       t.same(
-        [noticeTitles().includes('«كاز سائل» سائل بلا كثافة: اكتب كثافته في بطاقة المادّة ثمّ فعّل.'), noticeTitles().includes(BALANCED_BLOCKED), disabled(byAction('activate-version')[0])],
+        [noticeTitles().includes('«كاز سائل» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.'), noticeTitles().includes(BALANCED_BLOCKED), disabled(byAction('activate-version')[0])],
         [true, true, true],
         'V41 سطر بلا كثافة خارج الكتلة: جملته فوق، و«لا تُفعَّل»، والزرّ معطَّل',
       );
@@ -1128,16 +1129,21 @@ export default async function (t) {
       await mount('/mill/recipe/r-1');
       const block = byAction('density-missing')[0];
       t.ok(block ? noticeTitles().filter((title) => block.textContent.includes(title)).join(' | ') === DENSITY_MANAGER : false, `V49 جملة السائل بلا كثافة لمن يعدّل المواد (${block?.textContent ?? 'لا جملة'})`);
-      const link = byAction('open-item-card')[0];
-      t.same([link?.textContent ?? null, link?.getAttribute('href') ?? null], ['افتح بطاقة المادّة', `/inventory/items/${SYRUP_ID}`], 'V49 ومعها رابط «افتح بطاقة المادّة»');
+      const link = byAction('write-density')[0];
+      const target = link ? new URL(link.getAttribute('href') ?? '', 'http://localhost') : null;
+      t.same(
+        [link?.textContent ?? null, target?.pathname ?? null, target?.searchParams.get('edit') ?? null, target?.searchParams.get('back') ?? null],
+        ['اكتب الكثافة', '/inventory/items', SYRUP_ID, '/mill/recipe/r-1?version=c2950000-0000-4000-8000-000000020148'],
+        'V49 ومعها رابط «اكتب الكثافة» إلى نافذة «عدّل» للمادّة، ويرجع إلى المسوّدة بنسختها (ب٦١)',
+      );
       t.same([noticeTitles().includes('لا يُحسب المجموع: كتلة سطر أو أكثر لا تُعرف.'), disabled(byAction('activate-version')[0])], [true, true], 'V49 ضابط: المجموع لا يُحسب والزرّ معطَّل');
       // ما كُتب ولم يُحفظ في الصفحة: الرابط يغادرها فيضيّعه، فلا يظهر حتّى يُحفظ أو يُمسح.
       type(byAction('cost-price')[0], '700');
       await settle();
-      t.eq(byAction('open-item-card').length, 0, 'V49 مع مكتوب لم يُحفظ لا رابط يغادر الصفحة');
+      t.eq(byAction('write-density').length, 0, 'V49 مع مكتوب لم يُحفظ لا رابط يغادر الصفحة');
       type(byAction('cost-price')[0], '');
       await settle();
-      t.eq(byAction('open-item-card').length, 1, 'V49 ضابط: المكتوب رجع إلى المحفوظ فيعود الرابط');
+      t.eq(byAction('write-density').length, 1, 'V49 ضابط: المكتوب رجع إلى المحفوظ فيعود الرابط');
     });
     await step('V49 كلّ مكتوب في الصفحة يخفي الرابط', async () => {
       // مسوّدة الشراب ومعها تكلفة لكلّ طنّ وفئتان: مبلغ الطنّ، والتكلفة الجديدة (فئتها أو مبلغها)، والأساس، واسم فئة جديدة.
@@ -1159,10 +1165,10 @@ export default async function (t) {
       for (const [kind, write, undo] of kinds) {
         write();
         await settle();
-        const hidden = byAction('open-item-card').length;
+        const hidden = byAction('write-density').length;
         undo();
         await settle();
-        t.same([hidden, byAction('open-item-card').length], [0, 1], `V49 ${kind} لم يُحفظ: لا رابط، ويعود حين يرجع إلى المحفوظ`);
+        t.same([hidden, byAction('write-density').length], [0, 1], `V49 ${kind} لم يُحفظ: لا رابط، ويعود حين يرجع إلى المحفوظ`);
       }
     });
     await step('V49 المحاسب', async () => {

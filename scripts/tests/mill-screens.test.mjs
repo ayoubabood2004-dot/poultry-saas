@@ -189,7 +189,7 @@ export default async function (t) {
   t.same([whole.materialsPerTon, whole.costPerKg, whole.unpriced], [673_33n, 67n, 0], 'S5 تقريب واحد نصفاً بعيداً عن الصفر لكلّ رقم');
   t.eq(m.plannedCost([], [], 0n), null, 'S5 بلا أساس لا حساب');
   t.same([m.planningPrice(500_00n, 450_00n, 400_00n), m.planningPrice(null, 450_00n, 400_00n), m.planningPrice(null, null, 400_00n), m.planningPrice(null, null, null)], [500_00n, 450_00n, 400_00n, null], 'S5 السعر: المكتوب الآن، وإلّا سعر الكلفة المحفوظ، وإلّا آخر شراء');
-  const expected = m.renderToStaticMarkup(m.h(m.ExpectedPanel, { expected: { materialsPerTon: 540_000_00n, ratesPerTon: 20_000_00n, costPerTon: 560_000_00n, unpriced: 2 } }));
+  const expected = m.renderToStaticMarkup(m.h(m.ExpectedPanel, { expected: { materialsPerTon: 540_000_00n, ratesPerTon: 20_000_00n, costPerTon: 560_000_00n, unpriced: 2, unconverted: 0 } }));
   t.ok(textOf(expected).includes('كلفة الطنّ المتوقّعة: 560,000.00 على الأقلّ') && textOf(expected).includes('2 من المواد بلا أيّ سعر'), 'S5 كلفة الطنّ من الخادم ببطاقة الخلطة، وغير المسعَّر يُقال ولا يُجمع ناقصاً بصمت');
 
   // ── S6: المنتقي بحالاته الثلاث، ومرآة أنواع مخزن المواد الأوّلية ─────────────────────────────────────────────────────
@@ -258,7 +258,7 @@ function recipeJson(money) {
   if (money) {
     json.money = {
       rates: [{ id: 'rt-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', amount_per_ton: '15000.00' }],
-      expected: { materials_per_ton: '270000.00', rates_per_ton: '15000.00', cost_per_ton: '285000.00', unpriced: 0 },
+      expected: { materials_per_ton: '270000.00', rates_per_ton: '15000.00', cost_per_ton: '285000.00', unpriced: 0, unconverted: 0 },
     };
   }
   return json;
@@ -392,7 +392,7 @@ async function parsers(t, repo) {
   const detail = repo.parseRecipe(recipeJson(true));
   t.same([detail.lines[0].costPrice, detail.lines[0].lastPrice, detail.lines[0].unitCost], [450_00n, 440_25n, 430_50n], 'S7 سطر الخلطة: سعر الكلفة المكتوب وآخر شراء ومتوسّط المتاح');
   t.same(detail.rates, [{ id: 'rt-1', lineNo: 1, categoryId: 'c-labor', categoryName: 'أيدي عاملة', amountPerTon: 15_000_00n }], 'S7 معدّلات تكاليف الطنّ');
-  t.same(detail.expected, { materialsPerTon: 270_000_00n, ratesPerTon: 15_000_00n, costPerTon: 285_000_00n, unpriced: 0 }, 'S7 كلفة الطنّ المتوقّعة');
+  t.same(detail.expected, { materialsPerTon: 270_000_00n, ratesPerTon: 15_000_00n, costPerTon: 285_000_00n, unpriced: 0, unconverted: 0 }, 'S7 كلفة الطنّ المتوقّعة');
   t.same(detail.expenseCategories.map((c) => c.name), ['أيدي عاملة', 'كهرباء'], 'S7 فئات المصاريف لمنتقي المعدّلات');
   const blindDetail = repo.parseRecipe(recipeJson(false));
   t.same([blindDetail.rates, blindDetail.expected, blindDetail.lines[0].costPrice, blindDetail.expenseCategories.length], [null, null, null, 2], 'S7 بلا money (دور بلا كلفة): لا معدّلات ولا كلفة ولا أسعار، والفئات باقية');

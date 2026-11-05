@@ -53,6 +53,12 @@
 --   خرق يُعدّ لا رمية تُسقط الثوابت كلّها؛ وكلفة الطنّ المتوقّعة (private.recipe_expected) تحوّل سطر اللتر لمادّة صارت بالكيلو بلقطة كثافته وتسعّره
 --   بسعر الكيلو كما يخطّطه create_production، لا «بلا سعر»؛ وnew_recipe_version لا تنسخ سطر مادّة صارت قطعة وتسمّيها في skipped، فلا تبقى خلطة
 --   لا يُنتَج بها ولا تُنسخ. والتراجع لا يتغيّر (يرجّع verify_mill وrecipe_detail كما في 0015، ويُسقط recipe_expected وnew_recipe_version).
+-- مراجعة 0016 السادسة (scratchpad/mill2/fixes6.md القسم أ، ق٦١–ق٦٥): كلفة الطنّ المتوقّعة تعدّ السطر الذي له سعر ولا تتحوّل كميته إلى وحدة سعره (سائل بلا
+--   كثافة، أو سطر لتر لمادّة صارت بالكيلو بلا لقطة، أو مادّة صارت قطعة) في unconverted لا في unpriced، وكلفة الكيلو فارغة معه كذلك؛ وفحص الأرشفة المسبق في
+--   new_recipe_version لمواد الكتلة وحدها (المؤرشفة التي صارت قطعة تُترك وتُسمّى في skipped)، والإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة (existing = false،
+--   وskipped محسوبة من النسخة المصدر)؛ وسطر تُقرَّب كتلته صفراً لا يُسقط بطاقة الخلطة (الحصّة 0.00)، ويرفضه حارس السطر والتفعيل وتحويل «نسخة جديدة» برفض
+--   مسمّى qty_not_positive؛ وتلميحات density_required لسطر الخلطة وللدفعة تسمّي المكان الذي تُكتب فيه الكثافة («المواد» في المخزن، زرّ «عدّل»). والتراجع لا
+--   يتغيّر (يرجّع الأجسام كما في 0015 بتلميحاتها، ويُسقط recipe_expected وnew_recipe_version وadd_production_input).
 -- تراجع: rollback_0016.sql — يرجّع أجسام set_item_sell_price وitem_purchases (كما في 0014) وdelete_draft_line ودوالّ المعمل
 --   الثماني وactivate_recipe_version وconfirm_production_costs وrecipe_lines_guard وسياسة production_batches_read (كما في 0015)
 --   وvoid_expense وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف، ويُسقط الجداول الثلاثة ودوالّها
@@ -426,7 +432,8 @@ create or replace trigger production_costs_guard before insert or update on publ
 
 -- سطر العليقة (0015) على جسمه حرفاً، إلّا أنّ «داخل الكتلة» لقطة ثانية كالكثافة (مراجعة 0016 الثانية #2 و#5): عمود غير ممنوح لأحد،
 -- فتغيّره لا يكون إلّا من دالّة التفعيل (حدّها المنح لا current_user)، والإدراج يفرّغه كما يفرّغ لقطة الكثافة. ووحدة أساس المادّة لقطة ثالثة
--- بالقاعدة نفسها (مراجعة 0016 الثالثة #2 و#4، ق٣١ وق٣٥)، وتغيّرها وحدها يمرّ كذلك (جملة الملء بالهجرة تكتبها وحدها).
+-- بالقاعدة نفسها (مراجعة 0016 الثالثة #2 و#4، ق٣١ وق٣٥)، وتغيّرها وحدها يمرّ كذلك (جملة الملء بالهجرة تكتبها وحدها). ومراجعة 0016 السادسة: تلميح
+-- density_required يسمّي المكان الذي تُكتب فيه الكثافة (#4، ق٦٥)، وسطر لتر تُقرَّب كتلته صفراً بالكيلو يُرفض qty_not_positive (#2، ق٦٤).
 create or replace function private.recipe_lines_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -462,8 +469,17 @@ begin
   if new.unit = 'L' and i.base_unit <> 'L' then
     raise exception 'bad_recipe_unit' using hint = format('«%s» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.', i.name);
   end if;
+  -- الكثافة تُكتب من نافذة «عدّل» في «المواد» (مراجعة 0016 السادسة #4، ق٦٥): كان التلميح يقول «بطاقة المادّة»، والكثافة فيها قراءة فقط.
   if new.unit = 'L' and i.density_kg_per_l is null then
-    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه في الخلطة. اكتب كثافته في بطاقة المادّة أوّلاً.', i.name);
+    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.', i.name);
+  end if;
+  -- سطر لتر تُقرَّب كتلته صفراً بالكيلو (مراجعة 0016 السادسة #2، ق٦٤؛ القاعدة ٤: kg = round3(L × الكثافة)): 0.001 لتر بكثافة أقلّ من 0.5 كتلته 0.000، فكانت
+  -- بطاقة الخلطة ترمي mul_div_domain لكلّ قارئ والإنتاج يرفضه بلا اسم. يُرفض هنا مسمّى، والكمية غير الصالحة (فارغة، أو صفر، أو بأكثر من ثلاث مراتب) يرفضها
+  -- قيدها برسالته. والسطر بالكيلو كتلته كميته فلا يصير صفراً.
+  if new.unit = 'L' and abs(new.qty) < 'Infinity' and new.qty > 0 and new.qty = round(new.qty, 3) then
+    if private.liters_to_kg(new.qty, i.density_kg_per_l) = 0 then
+      raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة تُقرَّب صفراً بالكيلوغرام. اكتب كمية أكبر.', i.name);
+    end if;
   end if;
   -- مادّة مرّتين في نسخة واحدة (FOUNDATION ٥٥٨): تُسمّى هنا قبل أن يصل القيد الفريد برسالته الخام. النسخة مقفولة فوق.
   if exists (select 1 from public.recipe_lines l where l.org_id = new.org_id and l.version_id = new.version_id and l.item_id = new.item_id and l.id <> new.id) then
@@ -576,7 +592,10 @@ $$;
 -- فارغة إن بقيت مادّة بلا سعر. ومراجعة 0016 الخامسة (التكامل، ق٥٤): سطر مكتوب باللتر لمادّة صارت بالكيلو يُحوَّل كيلوغراماً بلقطة كثافته
 -- (liters_to_kg، الكتلة نفسها التي يخطّطها create_production منذ ق٤١) ويُسعَّر بسعر الكيلو؛ كان يُعدّ «بلا سعر» وسعره مكتوب، فتفرغ كلفة الكيلو في
 -- لوحة المعمل وتقول البطاقة «اكتب سعر كلفتها». والكثافة هنا لقطة السطر (items_density_unit_check: لا كثافة لمادّة غير سائلة)، وبلاها (مسوّدة
--- سطرها unit_mismatch، أو حالة مجمَّدة بلا لقطة) يبقى السطر بلا سعر لا رمية تُسقط البطاقة واللوحة.
+-- سطرها unit_mismatch، أو حالة مجمَّدة بلا لقطة) لا يُحسب السطر، لا رمية تُسقط البطاقة واللوحة. ومراجعة 0016 السادسة (#0، ق٦١): السطر الذي له سعر ولا
+-- تتحوّل كميته إلى وحدة سعره (سائل بلا كثافة density_missing، أو سطر لتر لمادّة صارت بالكيلو بلا لقطة unit_mismatch، أو مادّة صارت قطعة) يُعدّ في
+-- unconverted لا في unpriced: كان يُعدّ «بلا سعر» وسعره مكتوب، فتقول البطاقة «اكتب سعر كلفتها» لسطر علاجه تصحيحه. والسطر بلا أيّ سعر يبقى في unpriced ولو
+-- لم تتحوّل كميته (السعر أوّل ما يُكتب له)، وكلفة الكيلو فارغة إن بقي سطر من أيّ العدّين (لا رقم ناقص بصمت).
 create or replace function private.recipe_expected(p_version uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -586,6 +605,7 @@ declare
   v_qty numeric;
   v_sum numeric := 0;
   v_unpriced int := 0;
+  v_unconverted int := 0;
   v_rates numeric;
   v_materials numeric;
 begin
@@ -607,8 +627,10 @@ begin
     v_qty := case when ln.unit = ln.base_unit then ln.qty
       when ln.unit = 'kg' and ln.base_unit = 'L' and ln.density is not null then private.kg_to_liters(ln.qty, ln.density)
       when ln.unit = 'L' and ln.base_unit = 'kg' and ln.density is not null then private.liters_to_kg(ln.qty, ln.density) end;
-    if v_price is null or v_qty is null then
+    if v_price is null then
       v_unpriced := v_unpriced + 1;
+    elsif v_qty is null then
+      v_unconverted := v_unconverted + 1;
     else
       v_sum := v_sum + v_qty * v_price;
     end if;
@@ -616,8 +638,9 @@ begin
   v_rates := coalesce((select sum(r.amount_per_ton) from public.recipe_cost_rates r where r.org_id = v.org_id and r.version_id = v.id), 0.00);
   v_materials := private._mul_div_round(1000, v_sum, v.basis_kg, 2);
   return jsonb_build_object('materials_per_ton', v_materials::text, 'rates_per_ton', v_rates::text,
-    'cost_per_ton', (v_materials + v_rates)::text, 'unpriced', v_unpriced,
-    'cost_per_kg', case when v_unpriced = 0 then private._mul_div_round(1, v_sum * 1000 + v_rates * v.basis_kg, v.basis_kg * 1000, 2)::text end);
+    'cost_per_ton', (v_materials + v_rates)::text, 'unpriced', v_unpriced, 'unconverted', v_unconverted,
+    'cost_per_kg', case when v_unpriced = 0 and v_unconverted = 0
+      then private._mul_div_round(1, v_sum * 1000 + v_rates * v.basis_kg, v.basis_kg * 1000, 2)::text end);
 end
 $$;
 
@@ -888,8 +911,9 @@ begin
   if i.base_unit not in ('kg', 'L') then
     raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والدفعة تُحسب بالكتلة: لا تدخل فيها بهذه النسخة.', i.name);
   end if;
+  -- الكثافة تُكتب من نافذة «عدّل» في «المواد» (مراجعة 0016 السادسة #4، ق٦٥).
   if i.base_unit = 'L' and i.density_kg_per_l is null then
-    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته في بطاقة المادّة أوّلاً.', i.name);
+    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) أوّلاً.', i.name);
   end if;
   if p_qty is null or not (abs(p_qty) < 'Infinity') or p_qty <= 0 or p_qty <> round(p_qty, 3) then
     raise exception 'qty_not_positive' using hint = format('كمية «%s» أكبر من صفر، بثلاث مراتب عشرية على الأكثر.', i.name);
@@ -936,7 +960,12 @@ $$;
 -- أو فئة مؤرشفة في المنسوخ تُسمّى قبل النسخ (حارس السطر يرفضها برسالة لا تسمّيها). ومراجعة 0016 الرابعة (ق٤١): سطر مكتوب باللتر لمادّة صارت
 -- بالكيلو يُنسخ سطراً بالكيلوغرام بالكتلة نفسها. والخامسة (التكامل، ق٥٥): سطر مادّة صارت قطعة بعد التفعيل لا يُنسخ — كان حارس السطر يرفضه
 -- bad_recipe_unit فلا تُنشأ المسوّدة، وcreate_production يرفض النسخة item_changed، فتبقى خلطة لا يُنتَج بها ولا تُنسخ — واسم مادّته في skipped
--- بترتيب السطور تقوله الشاشة. والمفتاح حاضر دائماً: فارغ غالباً، وفارغ للمسوّدة القائمة (لم يُنسخ شيء بهذا النداء).
+-- بترتيب السطور تقوله الشاشة. والمفتاح حاضر دائماً: فارغ غالباً، وفارغ للمسوّدة القائمة (لم يُنسخ شيء بهذا النداء). والسادسة: فحص الأرشفة المسبق لمواد
+-- الكتلة وحدها (#1، ق٦٢: المؤرشفة التي صارت قطعة تُترك وتُسمّى كغيرها، وكان رفضها يطلب إعادة مادّة ستُترك على كلّ حال)؛ والإعادة بالمعرّف نفسه (جواب ضاع،
+-- #5، ق٦٣؛ FOUNDATION ٥١٩ §4: «نجحت ← ترجّع نتيجتها») ترجع ما رجع أوّل مرّة: existing = false (هي النسخة التي أنشأها هذا الطلب)، وskipped محسوبة من النسخة
+-- المصدر — المفعَّلة قبلها، وإلّا آخر نسخة غير مسوّدة قبلها — أسماءَ سطورها التي صارت مادّتها غير كتلة وليست في هذه النسخة، بترتيب السطور. كانت ترجع
+-- existing = true وskipped فارغاً، فلا تقول الشاشة أبداً إنّ مادّة لم تُنسخ وتختفي من الخلطة بصمت. ومسوّدة أخرى قائمة (معرّف آخر) تبقى existing = true وskipped
+-- فارغاً. وسطر اللتر المحوَّل كيلوغراماً تُقرَّب كتلته صفراً (#2، ق٦٤) رفض مسمّى qty_not_positive لا خطأ قيد خام.
 create or replace function public.new_recipe_version(p_recipe uuid, p_id uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -965,7 +994,20 @@ begin
   if v.id is not null and (v.org_id is distinct from v_org or v.recipe_id is distinct from r.id) then
     raise exception 'id_conflict' using hint = 'هذا المعرّف لنسخة خلطة أخرى. حدّث الشاشة وأعد المحاولة.';
   end if;
-  if v.id is null then
+  if v.id is not null then
+    -- الإعادة بالمعرّف نفسه (مراجعة 0016 السادسة #5، ق٦٣): النسخة التي أنشأها هذا الطلب، فما رجع أوّل مرّة. والمصدر نسخة قبلها (رقمها أصغر): ما دامت هذه
+    -- مسوّدة فلا تُنشأ غيرها ولا تُفعَّل غيرها، فالمفعَّلة قبلها وآخر نسخة غير مسوّدة قبلها هما ما نُسخ منه أوّل مرّة.
+    v_existing := false;
+    select * into s from public.recipe_versions x where x.org_id = v_org and x.recipe_id = r.id and x.status = 'active' and x.version_no < v.version_no;
+    if s.id is null then
+      select * into s from public.recipe_versions x where x.org_id = v_org and x.recipe_id = r.id and x.status <> 'draft' and x.version_no < v.version_no
+      order by x.version_no desc limit 1;
+    end if;
+    v_skipped := coalesce((select jsonb_agg(i.name order by l.line_no)
+      from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
+      where l.org_id = v_org and l.version_id = s.id and i.base_unit not in ('kg', 'L')
+        and not exists (select 1 from public.recipe_lines y where y.org_id = v_org and y.version_id = v.id and y.item_id = l.item_id)), '[]'::jsonb);
+  else
     select * into v from public.recipe_versions where org_id = v_org and recipe_id = r.id and status = 'draft';
   end if;
   if v.id is null then
@@ -973,8 +1015,9 @@ begin
     if s.id is null then
       select * into s from public.recipe_versions where org_id = v_org and recipe_id = r.id order by version_no desc limit 1;
     end if;
+    -- مواد الكتلة وحدها (مراجعة 0016 السادسة #1، ق٦٢): المؤرشفة التي صارت قطعة تُترك في الحلقة أدناه وتُسمّى في skipped كغيرها.
     select i.name into v_name from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
-    where l.org_id = v_org and l.version_id = s.id and i.archived_at is not null order by l.line_no limit 1;
+    where l.org_id = v_org and l.version_id = s.id and i.archived_at is not null and i.base_unit in ('kg', 'L') order by l.line_no limit 1;
     if v_name is not null then
       raise exception 'item_archived' using hint = format('«%s» في الخلطة مؤرشفة، فلا تُنسخ إلى نسخة جديدة. أعِدها من الأرشيف أوّلاً.', v_name);
     end if;
@@ -998,6 +1041,10 @@ begin
       if ln.unit = 'L' and ln.base_unit = 'kg' then
         if ln.density_kg_per_l is null then
           raise exception 'density_required' using hint = format('«%s» صارت تُقاس بالكيلوغرام وسطرها في الخلطة باللتر بلا كثافة محفوظة، فلا تُحسب كميتها بالكيلوغرام. أنشئ خلطة جديدة واكتب كميتها بالكيلوغرام.', ln.name);
+        end if;
+        -- كتلة تُقرَّب صفراً (مراجعة 0016 السادسة #2، ق٦٤): كان الإدراج يرمي خطأ قيد الكمية خاماً بلا اسم.
+        if private.liters_to_kg(ln.qty, ln.density_kg_per_l) = 0 then
+          raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة تُقرَّب صفراً بالكيلوغرام. اكتب كمية أكبر.', ln.name);
         end if;
         insert into public.recipe_lines (org_id, version_id, item_id, qty, unit) values (v_org, v.id, ln.item_id, private.liters_to_kg(ln.qty, ln.density_kg_per_l), 'kg');
       else
@@ -1522,8 +1569,9 @@ begin
     if ln.base_unit not in ('kg', 'L') then
       raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، فلا تُسحب بالكتلة. راجع الخلطة.', ln.name);
     end if;
+    -- الكثافة تُكتب من نافذة «عدّل» في «المواد» (مراجعة 0016 السادسة #4، ق٦٥).
     if ln.base_unit = 'L' and coalesce(ln.density_kg_per_l, ln.item_density) is null then
-      raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة. اكتب كثافته في بطاقة المادّة ثمّ أعد الإنتاج.', ln.name);
+      raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ أعد الإنتاج.', ln.name);
     end if;
     if not private.item_admissible(wi.kind, (select i2.kind from public.items i2 where i2.org_id = v_org and i2.id = ln.item_id)) then
       raise exception 'item_kind_mismatch' using hint = format('«%s» لا تُخزَّن في «%s»: اختر مخزن المواد الذي فيه مواد الخلطة.', ln.name, wi.name);
@@ -2069,6 +2117,7 @@ $$;
 -- وتحت money معدّلات تكاليف الطنّ وكلفة الطنّ المتوقّعة (للتخطيط)؛ وفئات المصاريف الفعّالة غير النظامية لمنتقي المعدّلات (بلا مال). ومراجعة
 -- 0016 الثالثة: لكلّ سطر وحدة الأساس من لقطته وunit_changed. والرابعة: unit_changed بشرط رفض الإنتاج نفسه، وunit_mismatch، والكتل بالمساعد
 -- الذي لا يرمي (كتلة السطر وحصّته فارغتان لسطر باللتر بلا كثافة، ومجموع الكتلة فارغ إن كان داخلها). والخامسة (ق٥١): density_missing لكلّ سطر.
+-- والسادسة (#2، ق٦٤): حصّة سطر كتلته صفر 0.00 (سطر لتر تُقرَّب كتلته صفراً، يرفضه التفعيل)، وكانت ترمي mul_div_domain فتسقط البطاقة لكلّ قارئ.
 create or replace function public.recipe_detail(p_id uuid, p_version uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -2118,7 +2167,7 @@ begin
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id),
         -- كتلة السطر وحصّته بالمساعد الذي لا يرمي (الرابعة #1، ق٤٢): فارغتان لسطر باللتر بلا كثافة، وكانت البطاقة كلّها ترمي density_not_positive.
         'qty', l.qty::text, 'unit', l.unit, 'mass_kg', m.kg::text,
-        'share_pct', case when m.kg is not null then private._mul_div_round(m.kg, 100, v.basis_kg, 2) end::text,
+        'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,
         'money', jsonb_build_object('unit_cost', (select private.per_unit(sum(s.value_left), sum(s.qty_left))::text
           from public.stock_lots s where s.org_id = v_org and s.item_id = l.item_id and s.qty_left > 0 and public.in_scope_wh(s.warehouse_id)),
           'cost_price', (select p.cost_price::text from public.item_prices p where p.org_id = v_org and p.item_id = l.item_id),
@@ -2941,7 +2990,8 @@ $$;
 -- تفعيل النسخة (0015) على جسمه حرفاً، إلّا أنّ الوقود والتعبئة خارج مجموع الأساس (القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016
 -- #2): السطر يبقى ويُسحب ويُحسب بكلفته، وdoc_empty على السطور كلّها، وتلميح basis_mismatch يقول إنّهما خارج الكتلة إن وُجدا؛ و«داخل
 -- الكتلة» لقطة على كلّ سطر مع لقطة الكثافة (مراجعة 0016 الثانية #2 و#5)، ووحدة أساس المادّة كذلك (مراجعة 0016 الثالثة #2)؛ وسطر مكتوب
--- باللتر لمادّة ليست باللتر الآن يُرفض قبل أيّ حساب (مراجعة 0016 الرابعة #1).
+-- باللتر لمادّة ليست باللتر الآن يُرفض قبل أيّ حساب (مراجعة 0016 الرابعة #1)؛ وتلميح density_required يسمّي المكان الذي تُكتب فيه الكثافة، وسطر تُقرَّب
+-- كتلته صفراً يُرفض qty_not_positive (مراجعة 0016 السادسة #4 و#2، ق٦٥ وق٦٤).
 create or replace function public.activate_recipe_version(p_id uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -2987,11 +3037,18 @@ begin
     if ln.unit = 'L' and ln.base_unit <> 'L' then
       raise exception 'bad_recipe_unit' using hint = format('«%s» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.', ln.name);
     end if;
+    -- الكثافة تُكتب من نافذة «عدّل» في «المواد» (مراجعة 0016 السادسة #4، ق٦٥): كان التلميح يقول «بطاقة المادّة»، والكثافة فيها قراءة فقط.
     if ln.base_unit = 'L' and ln.density_kg_per_l is null then
-      raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته في بطاقة المادّة ثمّ فعّل.', ln.name);
+      raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.', ln.name);
     end if;
     if ln.qty is null or not (abs(ln.qty) < 'Infinity') or ln.qty <= 0 then
       raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة يجب أن تكون أكبر من صفر.', ln.name);
+    end if;
+    -- كتلة السطر تُقرَّب صفراً (مراجعة 0016 السادسة #2، ق٦٤): سطر لتر كُتب بكثافة أكبر ثمّ صغرت كثافة مادّته، فالمجموع يساوي الأساس بلاه والنسخة كانت
+    -- تُفعَّل، ثمّ ترمي بطاقتها وإنتاجها mul_div_domain بلا اسم. يُرفض داخل الكتلة وخارجها (الإنتاج يحسب كتلة كلّ سطر). والكتلة بالمساعد الذي لا يرمي: فحصا
+    -- الوحدة والكثافة قبله يضمنان كثافة لكلّ سطر لتر، والكتلة التي لا تُحسب ليست صفراً فلا يُسمّى بها شيء.
+    if private.recipe_line_kg_or_null(ln.qty, ln.unit, ln.density_kg_per_l) = 0 then
+      raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة تُقرَّب صفراً بالكيلوغرام. اكتب كمية أكبر.', ln.name);
     end if;
     -- الوقود والتعبئة خارج كتلة الخلطة (FOUNDATION القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016 #2): السطر يبقى ويُسحب ويُحسب
     -- بكلفته، ولا يدخل مجموع الأساس؛ وخلطة كلّها وقود أو تعبئة مجموعها صفر فترفض basis_mismatch. ولقطات السطر الثلاث بجملة واحدة

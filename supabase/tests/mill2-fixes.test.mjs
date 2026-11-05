@@ -14,6 +14,10 @@
 // والجولة الخامسة (scratchpad/mill2/fixes5.md القسم أ، ق٥١–ق٥٥) بأقسامها في آخر الملف: ق٥١ (density_missing) وق٥٢ (الفحص ٢ لا يرمي، والكتلة الفارغة
 // داخل الكتلة خرق) وق٥٣ (تحويل «نسخة جديدة» بحالتين) وق٥٤ (كلفة الطنّ المتوقّعة لسطر لتر لمادّة صارت بالكيلو) وق٥٥ (skipped)، وكلّ فحص لإصلاح منها يفشل
 // على 0016 كما كانت عند ff22f80؛ وفحوص ق١٣ الثلاثة التي ثبّتت شكل جواب new_recipe_version القديم حُدّثت بمفتاح skipped وأسماء تقوله.
+// والجولة السادسة (scratchpad/mill2/fixes6.md القسم أ، ق٦١–ق٦٥) بأقسامها في آخر الملف: ق٦١ (unconverted) وق٦٢ (المؤرشفة التي صارت قطعة، وسطر اللتر
+// لسائل صار قطعة) وق٦٣ (الإعادة بالمعرّف نفسه) وق٦٤ (الكتلة الصفرية) وق٦٥ (مكان الكثافة في التلميح)، وكلّ فحص لإصلاح منها يفشل على 0016 كما كانت عند
+// bffd349؛ والفحوص التي ثبّتت السلوك القديم حُدّثت بأسماء تقول الجديد: إعادة ق١٣ وق٥٥ (existing = false وskipped الأولى)، وتلميح ق٥١، وعدّ ق٥٤ وطفرته
+// (unconverted)، ومرساة حصّة السطر في طفرات ق٤٢ (لم يتغيّر ما تفحصه).
 import { readFileSync } from 'node:fs';
 
 /** نصّ 0016 نفسه (جملة ملء لقطة «داخل الكتلة» تُشغَّل كما هي، ق٢٢). */
@@ -509,8 +513,8 @@ async function scenario(t, db) {
         (await db.admin('select basis_kg::text as b from public.recipe_versions where id = $1', [R13.version])).rows[0].b],
       'المنسوخ بترتيبه: الذرة 600 والصويا 400، و«أيدي عاملة» 5,000 و«كهرباء» 1,500، والأساس أساس المفعَّلة',
     );
-    t.same(canon((await call(U.manager, NEW, [R13.id, N1])).v), canon({ ...made.v, existing: true, skipped: [] }),
-      'الإعادة بالمعرّف نفسه: النسخة نفسها (existing)، وskipped فارغ: لم يُنسخ شيء بهذا النداء (ق٥٥)');
+    t.same(canon((await call(U.manager, NEW, [R13.id, N1])).v), canon(made.v),
+      'الإعادة بالمعرّف نفسه (جواب ضاع): ما رجع أوّل مرّة — existing = false (هي النسخة التي أنشأها هذا الطلب)، وskipped فارغ (لا مادّة صارت قطعة) (ق٦٣؛ كانت existing = true)');
     const N2 = fresh();
     const again = await call(U.manager, NEW, [R13.id, N2]);
     t.same([again.v?.version_id, again.v?.existing, (await db.admin('select count(*)::int as n from public.recipe_versions where id = $1', [N2])).rows[0].n], [N1, true, 0],
@@ -1833,7 +1837,7 @@ async function scenario(t, db) {
     const LINES_LATERAL = "        cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m\n      where l.org_id = v_org and l.version_id = v.id), '[]'::jsonb) end,";
     t.same([
       await detailIn([[LINES_LATERAL, LINES_LATERAL.split('recipe_line_kg_or_null(').join('recipe_line_kg(')]], DK),
-      await detailIn([["'share_pct', case when m.kg is not null then private._mul_div_round(m.kg, 100, v.basis_kg, 2) end::text,", "'share_pct', private._mul_div_round(m.kg, 100, v.basis_kg, 2)::text,"]], DK),
+      await detailIn([["'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,", "'share_pct', private._mul_div_round(m.kg, 100, v.basis_kg, 2)::text,"]], DK),
       (await detailIn([['case when bool_or(m.kg is null) then null else coalesce(sum(m.kg), 0) end', 'coalesce(sum(m.kg), 0)']], DM))[0],
       (await detailIn([["'unit_mismatch', l.unit = 'L' and i.base_unit <> 'L',", "'unit_mismatch', false,"]], DK))[1]?.[1]?.[3],
     ], ['density_not_positive', 'mul_div_domain', '986.000', false],
@@ -1878,7 +1882,8 @@ async function scenario(t, db) {
     t.same(await card(D),
       [null, [['ذرة المراجعة', 'kg', '974.000', false, false], ['شراب الجولة الخامسة', 'L', null, false, true], ['زيت بالكيلو الجولة الخامسة', 'kg', '6.000', false, true]]],
       'recipe_detail لمسوّدة سائلين فُرّغت كثافتاهما: density_missing = true للشراب (كتلته فارغة وليس unit_mismatch) وللزيت المكتوب بالكيلو (كتلته معروفة)، وfalse للذرة (كان المفتاح غائباً: كتلة فارغة بلا سبب ولا اسم)');
-    const DENSITY_HINT = (name) => `«${name}» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته في بطاقة المادّة ثمّ فعّل.`;
+    // التلميح بالمكان الذي تُكتب فيه الكثافة (الجولة السادسة، ق٦٥؛ كان «في بطاقة المادّة» حيث الكثافة قراءة فقط).
+    const DENSITY_HINT = (name) => `«${name}» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.`;
     const refused = await call(U.manager, ACTIVATE, [D.version]);
     // وبلا سطر الشراب (بمعاملة ترجع، والذرة 994 + زيت 6): سطر الزيت المكتوب بالكيلو يرفضه التفعيل كذلك، فالمفتاح لا يتبع وحدة السطر.
     const oilOnly = await mutated([], [], async ({ oq, attempt }) => {
@@ -2043,19 +2048,19 @@ async function scenario(t, db) {
     await price(CORN54, 900, null);
     await price(DIBS54, 2000, null);
     const R = await recipe('خلطة كلفة الدبس', [[CORN54, 972], [DIBS54, 20, 'L']]);
-    /** [مواد الطنّ، عدد غير المسعَّر، كلفة الطنّ] من بطاقة الخلطة، وكلفة الكيلو المتوقّعة من لوحة المعمل. */
+    /** [مواد الطنّ، عدد غير المسعَّر، عدد غير المحوَّل (الجولة السادسة، ق٦١)، كلفة الطنّ] من بطاقة الخلطة، وكلفة الكيلو المتوقّعة من لوحة المعمل. */
     const expectedOf = async (get) => {
       const e = (await get('select public.recipe_detail($1, null)', [R.id])).money.expected;
       const board = (await get('select public.recipes_overview()', [])).recipes.find((x) => x.id === R.id).money.expected_cost_per_kg;
-      return [e.materials_per_ton, e.unpriced, e.cost_per_ton, board];
+      return [e.materials_per_ton, e.unpriced, e.unconverted, e.cost_per_ton, board];
     };
     const asManager = (sql, params) => must(U.manager, sql, params);
     // قبل التصحيح: 972 × 900 + 20 × 2,000 = 874,800 + 40,000 = 914,800 للطنّ، والكيلو 914.80.
-    t.same(await expectedOf(asManager), ['914800.00', 0, '914800.00', '914.80'], 'ضابط: قبل التصحيح الطنّ 914,800.00 والكيلو 914.80 (الدبس باللتر بسعر اللتر)');
+    t.same(await expectedOf(asManager), ['914800.00', 0, 0, '914800.00', '914.80'], 'ضابط: قبل التصحيح الطنّ 914,800.00 والكيلو 914.80 (الدبس باللتر بسعر اللتر)');
     await must(U.manager, "update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1 returning id", [DIBS54]);
     await price(DIBS54, 1500, 2000);
     // بعده: سطر الدبس 20 لتراً × لقطة 1.4 = 28 كغم بسعر الكيلو 1,500 = 42,000، فالطنّ 874,800 + 42,000 = 916,800 والكيلو 916.80.
-    t.same(await expectedOf(asManager), ['916800.00', 0, '916800.00', '916.80'],
+    t.same(await expectedOf(asManager), ['916800.00', 0, 0, '916800.00', '916.80'],
       'بعد تصحيح الدبس كيلوغراماً بسعر 1,500: سطره 28 كغم من لقطة الكثافة بسعر الكيلو، فالطنّ 916,800.00 والكيلو 916.80 (كان unpriced = 1 والمواد 874,800.00 وكلفة الكيلو فارغة والسعر مكتوب)');
     // والرقم نفسه من «نسخة جديدة» (بمعاملة ترجع): السطر المنسوخ 28 كغم بالكيلو، فمسوّدتها 916,800.00 كذلك.
     const copied = await mutated([], [], async ({ oq, attempt }) => {
@@ -2080,8 +2085,8 @@ async function scenario(t, db) {
     const guarded = await K42.readers();
     t.same([await expectedWith(' end;'), await expectedWith("\n      when ln.unit = 'L' and ln.base_unit = 'kg' and ln.density is not null then ln.qty end;"),
       [guarded.card[0], unguarded.pieces, unguarded.card]],
-    [['874800.00', 1, '874800.00', null], ['904800.00', 0, '904800.00', '904.80'], ['1000.000', ['density_not_positive', 'density_not_positive'], 'density_not_positive']],
-    'طفرات recipe_expected: بلا فرع اللتر ← الدبس «بلا سعر» (874,800.00 وكلفة الكيلو فارغة)؛ وبلا تحويل ← 20 «كغم» بسعر الكيلو (904,800.00)؛ وبلا شرط اللقطة ← سطر لتر بلا كثافة يُسقط لوحة المعمل للمدير ومشغّل المعمل وبطاقة الخلطة (وبه: البطاقة 1,000)');
+    [['874800.00', 0, 1, '874800.00', null], ['904800.00', 0, 0, '904800.00', '904.80'], ['1000.000', ['density_not_positive', 'density_not_positive'], 'density_not_positive']],
+    'طفرات recipe_expected: بلا فرع اللتر ← سطر الدبس لا يُحسب (غير محوَّل منذ الجولة السادسة، ق٦١: 874,800.00 وكلفة الكيلو فارغة)؛ وبلا تحويل ← 20 «كغم» بسعر الكيلو (904,800.00)؛ وبلا شرط اللقطة ← سطر لتر بلا كثافة يُسقط لوحة المعمل للمدير ومشغّل المعمل وبطاقة الخلطة (وبه: البطاقة 1,000)');
   });
 
   // ─── ق٥٥ (التكامل): «نسخة جديدة» لا تنسخ سطر مادّة صارت قطعة، وتسمّيها في skipped ─────────────────────────────────────────────
@@ -2114,8 +2119,8 @@ async function scenario(t, db) {
     });
     t.same(await copyOf(), [
       canon({ recipe_id: R.id, version_id: true, version_no: 2, status: 'draft', lines: 1, rates: 0, existing: false, skipped: ['ملح صار قطعة الجولة الخامسة', 'خميرة صارت قطعة الجولة الخامسة'] }),
-      [['ذرة المراجعة', '980.000', 'kg']], [true, []], 'ok', 'ok'],
-    'new_recipe_version والمادّتان صارتا قطعة: مسوّدة بسطر الذرة وحده، وskipped بالاسمين بترتيب السطور (كانت bad_recipe_unit ولا مسوّدة)؛ والإعادة بالمعرّف نفسه existing وskipped فارغ؛ ثمّ الذرة 1,000 تتفعّل ويُنتَج بها');
+      [['ذرة المراجعة', '980.000', 'kg']], [false, ['ملح صار قطعة الجولة الخامسة', 'خميرة صارت قطعة الجولة الخامسة']], 'ok', 'ok'],
+    'new_recipe_version والمادّتان صارتا قطعة: مسوّدة بسطر الذرة وحده، وskipped بالاسمين بترتيب السطور (كانت bad_recipe_unit ولا مسوّدة)؛ والإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة (existing = false وskipped بالاسمين، الجولة السادسة ق٦٣؛ كانت existing وskipped فارغ)؛ ثمّ الذرة 1,000 تتفعّل ويُنتَج بها');
     t.same(await skippedOf(NORMAL), [true, []], 'نسخة جديدة بلا قطعة: skipped حاضر فارغ');
     Object.assign(K55, { R, NORMAL, copyOf, skippedOf });
   });
@@ -2129,6 +2134,334 @@ async function scenario(t, db) {
       await skippedOf(NORMAL, [["'skipped', v_skipped);", "'skipped', case when jsonb_array_length(v_skipped) > 0 then v_skipped end);"]]),
     ], ['bad_recipe_unit', [true, []], [true, null]],
     'طفرات ق٥٥: بلا ترك سطر القطعة ← حارس السطر يرفض bad_recipe_unit فلا مسوّدة؛ وتركه بصمت ← skipped فارغ والمادّتان غائبتان بلا كلمة؛ والفارغ null ← المفتاح ليس «حاضراً دائماً»');
+  });
+
+  // ═══ الجولة السادسة (scratchpad/mill2/fixes6.md القسم أ، ق٦١–ق٦٥؛ الملاحظات #0–#5 بنصّها وإثباتها في findings6.txt) ═══
+  // كلّ إصلاح بفحص يفشل على 0016 كما كانت عند bffd349 وينجح بعده، والسلوك أوّلاً ثمّ الطفرات في قسم وحده (ق٤٣): رمية مرساة في طفرة لا تحجب فحصاً
+  // سلوكياً. والطفرة بمعاملة ترجع تكسر فحصها بالضبط، وضابطها النصّ نفسه في معاملة الطفرة حيث يُخشى أن يغيّر الإطار الجواب.
+
+  // ─── ق٦١ (#0): السطر الذي له سعر ولا تتحوّل كميته يُعدّ في unconverted لا في unpriced ─────────────────────────────────────────────
+  const K61 = {};
+  await section('ق٦١', async () => {
+    // أرقام المسبار (#0) بموادّ جديدة أسعارها مكتوبة: «ذرة» بسعر كلفة 900 للكيلو؛ و«زيت» سائل بكثافة 0.9 بسعر 2,000 للتر يُكتب في الخلطة بالكيلو؛ و«دبس»
+    // سائل بكثافة 1.4 يُكتب باللتر ثمّ يصير بالكيلو بسعر 1,500؛ و«شراب» سائل بكثافة 1.25 بلا أيّ سعر؛ و«كاز» أوّلي بالكيلو في خلطة مفعَّلة يُصحَّح لتراً بلا كثافة
+    // بسعر 1,000 للتر.
+    const CORN61 = await item('ذرة الجولة السادسة', 'raw', 'kg');
+    const OIL61 = await item('زيت الجولة السادسة', 'raw', 'L', 0.9);
+    const DIBS61 = await item('دبس الجولة السادسة', 'raw', 'L', 1.4);
+    const SYR61 = await item('شراب بلا سعر الجولة السادسة', 'raw', 'L', 1.25);
+    const KZ61 = await item('كاز الجولة السادسة', 'raw', 'kg');
+    const price = (itemId, p, before = null) => must(U.manager, 'select public.set_item_cost_price($1, $2, $3)', [itemId, p, before]);
+    await price(CORN61, 900);
+    await price(OIL61, 2000);
+    // (أ) مسوّدة الزيت: ذرة 994 + زيت 6 كغم. (ب) مسوّدة الدبس: ذرة 972 + دبس 20 لتراً. (ج) مسوّدة الشراب: ذرة 980 + شراب 20 كغم مكتوب بالكيلو (فبلا كثافة
+    // لا تتحوّل كميته إلى لتر، وسطر اللتر لسائل باللتر يتحوّل دائماً). (د) خلطة الكاز المفعَّلة: ذرة 990 + كاز 10 كغم.
+    const DO = await draftRecipe('مسوّدة زيت الجولة السادسة', [[CORN61, 994], [OIL61, 6]]);
+    const DD = await draftRecipe('مسوّدة دبس الجولة السادسة', [[CORN61, 972], [DIBS61, 20, 'L']]);
+    const DS = await draftRecipe('مسوّدة شراب بلا سعر الجولة السادسة', [[CORN61, 980], [SYR61, 20]]);
+    const RK = await recipe('خلطة كاز الجولة السادسة', [[CORN61, 990], [KZ61, 10]]);
+    /** كلفة الطنّ المتوقّعة من بطاقة الخلطة لنسخة: [مواد الطنّ، unpriced، unconverted، كلفة الطنّ]. */
+    const expectedOf = async (get, r, version = r.version) => {
+      const e = (await get('select public.recipe_detail($1, $2)', [r.id, version])).money.expected;
+      return [e.materials_per_ton, e.unpriced, e.unconverted ?? 'غائب', e.cost_per_ton];
+    };
+    /** كلفة الكيلو المتوقّعة لخلطة الكاز من لوحة المعمل. */
+    const boardOf = async (get) => (await get('select public.recipes_overview()', [])).recipes.find((x) => x.id === RK.id).money.expected_cost_per_kg;
+    const asManager = (sql, params) => must(U.manager, sql, params);
+    const asAccountant = (sql, params) => must(U.accountant, sql, params);
+    // ضابط قبل التصحيحات (#0): الزيت 6 كغم ← round3(6 ÷ 0.9) = 6.667 لتر × 2,000 = 13,334، والذرة 994 × 900 = 894,600، فالطنّ 907,934.00.
+    const before = await expectedOf(asManager, DO);
+    t.same([before[0], before[1], before[3]], ['907934.00', 0, '907934.00'], 'ضابط: مسوّدة الزيت قبل تفريغ كثافته بلا سطر متروك، والطنّ 907,934.00 (6 كغم = 6.667 لتر بسعر اللتر)');
+    // التصحيحات قبل أيّ حركة: تُفرَّغ كثافتا الزيت والشراب وهما باللتر، ويصير الدبس بالكيلو بسعر 1,500، ويصير الكاز لتراً بلا كثافة بسعر 1,000.
+    await must(U.manager, 'update public.items set density_kg_per_l = null where id = any ($1) returning id', [[OIL61, SYR61]]);
+    await must(U.manager, "update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1 returning id", [DIBS61]);
+    await price(DIBS61, 1500);
+    await must(U.manager, "update public.items set base_unit = 'L', density_kg_per_l = null where id = $1 returning id", [KZ61]);
+    await price(KZ61, 1000);
+    const linesOf = async (r) => (await asManager('select public.recipe_detail($1, $2)', [r.id, r.version])).lines
+      .map((l) => [l.item_name, l.unit_mismatch, l.density_missing, l.money.cost_price]);
+    t.same([await linesOf(DO), await linesOf(DD)], [
+      [['ذرة الجولة السادسة', false, false, '900'], ['زيت الجولة السادسة', false, true, '2000']],
+      [['ذرة الجولة السادسة', false, false, '900'], ['دبس الجولة السادسة', true, false, '1500']],
+    ], 'ضابط: سطر الزيت سائل بلا كثافة (density_missing) وسطر الدبس لتر لمادّة صارت بالكيلو (unit_mismatch)، وسعر كلفة كلٍّ مكتوب في سطره');
+    t.same([await expectedOf(asManager, DO), await expectedOf(asAccountant, DO), await expectedOf(asManager, DD)],
+      [['894600.00', 0, 1, '894600.00'], ['894600.00', 0, 1, '894600.00'], ['874800.00', 0, 1, '874800.00']],
+      'المسوّدتان (#0): سطر الزيت بلا كثافة وسطر الدبس المكتوب باللتر لمادّة صارت بالكيلو، ولكلٍّ سعر مكتوب، في unconverted = 1 لا في unpriced (كان unpriced = 1 فتقول البطاقة «بلا أيّ سعر… اكتب سعر كلفتها» تحت سطر سعره مكتوب)، للمدير والمحاسب؛ والمواد بلاهما 894,600.00 و874,800.00');
+    t.same([await expectedOf(asManager, DS), await expectedOf(asManager, RK, null)], [['882000.00', 1, 0, '882000.00'], ['891000.00', 0, 1, '891000.00']],
+      'والحدّان: سطر شراب مكتوب بالكيلو بلا أيّ سعر ولا كثافة (لا يتحوّل ولا سعر له) يبقى في unpriced (السعر أوّل ما يُكتب له)؛ والنسخة المفعَّلة بسطر كاز لقطته كيلوغرام صار لتراً بلا كثافة وسعره مكتوب في unconverted');
+    t.eq(await boardOf(asManager), null, 'لوحة المعمل: كلفة الكيلو المتوقّعة لخلطة الكاز فارغة (سطر لم يُحسب، فلا رقم ناقص بصمت)');
+    Object.assign(K61, { DO, DS, expectedOf, boardOf });
+  });
+  await section('ق٦١ طفرات', async () => {
+    const { DO, DS, expectedOf, boardOf } = K61;
+    if (!boardOf) throw new Error('ق٦١ لم يكتمل');
+    const EXPECTED_FN = 'private.recipe_expected(uuid)';
+    const COUNT = '    if v_price is null then\n      v_unpriced := v_unpriced + 1;\n    elsif v_qty is null then\n      v_unconverted := v_unconverted + 1;\n';
+    /** [مسوّدة الزيت، مسوّدة الشراب، كلفة الكيلو لخلطة الكاز] بطفرة على recipe_expected. */
+    const probe = (from, to) => mutated([[EXPECTED_FN, [[from, to]]]], [], async ({ oq }) => {
+      const get = valueOn(oq);
+      return [await expectedOf(get, DO), await expectedOf(get, DS), await boardOf(get)];
+    });
+    t.same(await probe(COUNT, COUNT), [['894600.00', 0, 1, '894600.00'], ['882000.00', 1, 0, '882000.00'], null], 'ضابط: النصّ نفسه في معاملة الطفرة يعطي جواب القسم');
+    // (١) العدّ القديم (كلّ ما لا يُحسب «بلا سعر»)؛ (٢) غير المحوَّل أوّلاً ← سطر بلا سعر ولا كثافة يُعدّ غير محوَّل؛ (٣) العدّان معاً ← السطر نفسه «بلا سعر» كذلك؛
+    // (٤) كلفة الكيلو بشرط unpriced وحده ← رقم ناقص للوحة.
+    t.same([
+      await probe(COUNT, '    if v_price is null or v_qty is null then\n      v_unpriced := v_unpriced + 1;\n'),
+      await probe(COUNT, '    if v_qty is null then\n      v_unconverted := v_unconverted + 1;\n    elsif v_price is null then\n      v_unpriced := v_unpriced + 1;\n'),
+      await probe(COUNT, `${COUNT}      v_unpriced := v_unpriced + 1;\n`),
+      await probe("'cost_per_kg', case when v_unpriced = 0 and v_unconverted = 0", "'cost_per_kg', case when v_unpriced = 0"),
+    ], [
+      [['894600.00', 1, 0, '894600.00'], ['882000.00', 1, 0, '882000.00'], null],
+      [['894600.00', 0, 1, '894600.00'], ['882000.00', 0, 1, '882000.00'], null],
+      [['894600.00', 1, 1, '894600.00'], ['882000.00', 1, 0, '882000.00'], null],
+      [['894600.00', 0, 1, '894600.00'], ['882000.00', 1, 0, '882000.00'], '891.00'],
+    ], 'طفرات recipe_expected: العدّ القديم يعيد الزيت «بلا سعر»؛ وغير المحوَّل أوّلاً يسمّي الشراب بلا سعر «غير محوَّل»؛ والعدّان معاً يعدّان الزيت مرّتين؛ وكلفة الكيلو بشرط unpriced وحده تعطي لوحة المعمل 891.00 بلا سطر الكاز');
+  });
+
+  // ─── ق٦٢ (#1، #3): «نسخة جديدة» تترك المادّة التي صارت قطعة ولو أُرشفت، وسطرها المكتوب باللتر كذلك ─────────────────────────────────
+  const K62 = {};
+  await section('ق٦٢', async () => {
+    // خلطة مفعَّلة: ذرة 980 + «كيس» 10 كغم + «فيتامين» سائل 8 لترات بكثافة 1.25 (10 كغم) = 1,000. ثمّ يصير الكيس قطعة ويُؤرشف (#1 بخطواته: لا حركة ولا
+    // رصيد، ولا حارس يمنع أرشفة مادّة في خلطة مفعَّلة)، ويصير الفيتامين قطعة بلا كثافة (#3: سطر مكتوب باللتر لسائل صار قطعة). ترتيب السطور (الكيس ثمّ
+    // الفيتامين) غير ترتيب الأسماء.
+    const BAG62 = await item('كيس صار قطعة الجولة السادسة', 'raw', 'kg');
+    const VIT62 = await item('فيتامين سائل صار قطعة الجولة السادسة', 'raw', 'L', 1.25);
+    const R = await recipe('خلطة كيس وفيتامين صارا قطعة', [[CORN, 980], [BAG62, 10], [VIT62, 8, 'L']]);
+    await must(U.manager, "update public.items set base_unit = 'pc', scale_step = 1 where id = $1 returning id", [BAG62]);
+    await must(U.manager, 'update public.items set archived_at = now() where id = $1 returning id', [BAG62]);
+    await must(U.manager, "update public.items set base_unit = 'pc', density_kg_per_l = null, scale_step = 1 where id = $1 returning id", [VIT62]);
+    t.eq(code(await call(U.manager, PRODUCE, [fresh(), R.version, RAW, FEEDWH])), 'item_changed', 'ضابط: create_production من النسخة المفعَّلة يُرفض item_changed');
+    /** «نسخة جديدة» بمعاملة ترجع (فتبقى المفعَّلة للطفرات): [الرمز، skipped، عدد السطور، سطور المسوّدة، رمز تفعيلها بعد الذرة 1,000]. */
+    const copyOf = (pairs = []) => mutated(pairs.length ? [[NEW_VERSION_FN, pairs]] : [], [], async ({ oq, attempt }) => {
+      const nv = fresh();
+      const out = await attempt('select public.new_recipe_version($1, $2)', [R.id, nv]);
+      if (!out.ok) return [out.code, out.hint];
+      const lines = await linesOn(oq, nv);
+      await oq('update public.recipe_lines set qty = 1000 where version_id = $1 and item_id = $2', [nv, CORN]);
+      return ['ok', out.v.skipped, out.v.lines, lines, code(await attempt(ACTIVATE, [nv]))];
+    });
+    t.same(await copyOf(), ['ok', ['كيس صار قطعة الجولة السادسة', 'فيتامين سائل صار قطعة الجولة السادسة'], 1, [['ذرة المراجعة', '980.000', 'kg']], 'ok'],
+      'new_recipe_version: الكيس المؤرشف الذي صار قطعة يُترك ويُسمّى (كان item_archived يطلب إعادة مادّة ستُترك)، وسطر الفيتامين المكتوب باللتر لسائل صار قطعة يُترك ويُسمّى، بترتيب السطور؛ والمسوّدة بالذرة وحدها تتفعّل');
+    Object.assign(K62, { copyOf });
+  });
+  await section('ق٦٢ طفرات', async () => {
+    const { copyOf } = K62;
+    if (!copyOf) throw new Error('ق٦٢ لم يكتمل');
+    // (١) فحص الأرشفة على كلّ السطور كما كان ← item_archived يسمّي الكيس؛ (٢) طفرة M5 في #3 (الترك لسطر الكيلو وحده) ← حارس السطر يرفض سطر الفيتامين باللتر.
+    t.same([
+      (await copyOf([[" and i.archived_at is not null and i.base_unit in ('kg', 'L') order by l.line_no limit 1;", ' and i.archived_at is not null order by l.line_no limit 1;']]))[0],
+      (await copyOf([["      if ln.base_unit not in ('kg', 'L') then\n        v_skipped", "      if ln.base_unit not in ('kg', 'L') and ln.unit = 'kg' then\n        v_skipped"]]))[0],
+    ], ['item_archived', 'bad_recipe_unit'],
+    'طفرتا new_recipe_version: فحص الأرشفة على كلّ السطور يرفض النسخ item_archived؛ والترك لسطر الكيلو وحده يرسل سطر الفيتامين باللتر إلى حارس السطر فيُرفض bad_recipe_unit ولا مسوّدة');
+  });
+
+  // ─── ق٦٣ (#5): الإعادة بالمعرّف نفسه (جواب ضاع) ترجع ما رجع أوّل مرّة ─────────────────────────────────────────────────────────────
+  const K63 = {};
+  await section('ق٦٣', async () => {
+    // خلطة مفعَّلة: ذرة 970 + «ملح» 10 + «خميرة» 10 + «نخالة» 10 كغم، ثمّ يصير الملح والخميرة قطعة. «نسخة جديدة» ضاع جوابها، ثمّ «أعد المحاولة» بالمعرّف نفسه
+    // كما تطلب الصفحة (#5 بخطواته).
+    const SALT63 = await item('ملح صار قطعة الجولة السادسة', 'raw', 'kg');
+    const YEAST63 = await item('خميرة صارت قطعة الجولة السادسة', 'raw', 'kg');
+    const BRAN63 = await item('نخالة الجولة السادسة', 'raw', 'kg');
+    const R = await recipe('خلطة الإعادة الجولة السادسة', [[CORN, 970], [SALT63, 10], [YEAST63, 10], [BRAN63, 10]]);
+    for (const x of [SALT63, YEAST63]) await must(U.manager, "update public.items set base_unit = 'pc', scale_step = 1 where id = $1 returning id", [x]);
+    const NEW = 'select public.new_recipe_version($1, $2)';
+    /** جواب «نسخة جديدة»: [existing، skipped، المعرّف هو المرسَل أوّل مرّة؟، رقم النسخة، حالتها، عدد سطورها]، أو رمز الرفض. */
+    const shape = (out, nv) => (out.ok ? [out.v.existing, out.v.skipped, out.v.version_id === nv, out.v.version_no, out.v.status, out.v.lines] : out.code);
+    // بمعاملة ترجع (فتبقى المفعَّلة للطفرات): الأولى، ثمّ الإعادة بالمعرّف نفسه، ثمّ معرّف آخر والمسوّدة قائمة، ثمّ تصير النخالة قطعة وهي في المسوّدة (نُسخت قبل
+    // أن تصير) فالإعادة لا تسمّيها: لم يتركها هذا الطلب.
+    const retryOf = (pairs = []) => mutated(pairs.length ? [[NEW_VERSION_FN, pairs]] : [], [], async ({ oq, attempt }) => {
+      const nv = fresh();
+      const first = shape(await attempt(NEW, [R.id, nv]), nv);
+      const again = shape(await attempt(NEW, [R.id, nv]), nv);
+      const other = shape(await attempt(NEW, [R.id, fresh()]), nv);
+      await oq("update public.items set base_unit = 'pc', scale_step = 1 where id = $1", [BRAN63]);
+      return [first, again, other, shape(await attempt(NEW, [R.id, nv]), nv)];
+    });
+    // والإعادة بعد أن فُعّلت المسوّدة من جهاز آخر (الذرة 990 فالمجموع 1,000): المصدر النسخة التي قبلها (صارت مقاعدة)، فالجواب نفسه وحالة النسخة «مفعَّلة».
+    const activatedRetryOf = (pairs = []) => mutated(pairs.length ? [[NEW_VERSION_FN, pairs]] : [], [], async ({ oq, attempt }) => {
+      const nv = fresh();
+      const first = await attempt(NEW, [R.id, nv]);
+      if (!first.ok) return [first.code];
+      await oq('update public.recipe_lines set qty = 990 where version_id = $1 and item_id = $2', [nv, CORN]);
+      const activated = await attempt(ACTIVATE, [nv]);
+      return [code(activated), shape(await attempt(NEW, [R.id, nv]), nv)];
+    });
+    const SKIPPED = ['ملح صار قطعة الجولة السادسة', 'خميرة صارت قطعة الجولة السادسة'];
+    const FIRST = [false, SKIPPED, true, 2, 'draft', 2];
+    t.same(await retryOf(), [FIRST, FIRST, [true, [], true, 2, 'draft', 2], FIRST],
+      'new_recipe_version: الإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة — existing = false وskipped بالاسمين بترتيب السطور (كانت existing = true وskipped فارغاً فتختفي المادّتان بصمت) — ولو صارت مادّة في المسوّدة قطعة بعدها؛ ومعرّف آخر والمسوّدة قائمة existing = true وskipped فارغ');
+    t.same(await activatedRetryOf(), ['ok', [false, SKIPPED, true, 2, 'active', 2]],
+      'والإعادة بعد تفعيل المسوّدة: المصدر النسخة التي قبلها، فالجواب نفسه (existing = false وskipped بالاسمين) وحالة النسخة مفعَّلة');
+    Object.assign(K63, { retryOf, activatedRetryOf, SKIPPED });
+  });
+  await section('ق٦٣ طفرات', async () => {
+    const { retryOf, activatedRetryOf, SKIPPED } = K63;
+    if (!retryOf) throw new Error('ق٦٣ لم يكتمل');
+    const AGG = 'jsonb_agg(i.name order by l.line_no)';
+    // (١) الإعادة existing كما كانت؛ (٢) skipped فارغ كما كان؛ (٣) بلا «ليست في هذه النسخة» ← النخالة التي صارت قطعة في المسوّدة تُسمّى؛ (٤) بترتيب الأسماء؛
+    // (٥) المصدر المفعَّلة بلا «قبلها» ← بعد تفعيل المسوّدة تصير هي المصدر فيفرغ skipped.
+    const m1 = await retryOf([['    v_existing := false;\n    select * into s from public.recipe_versions x', '    select * into s from public.recipe_versions x']]);
+    const m2 = await retryOf([[`    v_skipped := coalesce((select ${AGG}`, `    v_skipped := '[]'::jsonb;\n    perform coalesce((select ${AGG}`]]);
+    const m3 = await retryOf([['\n        and not exists (select 1 from public.recipe_lines y where y.org_id = v_org and y.version_id = v.id and y.item_id = l.item_id)', '']]);
+    const m4 = await retryOf([[AGG, 'jsonb_agg(i.name order by i.name collate "C")']]);
+    const m5 = await activatedRetryOf([["x.status = 'active' and x.version_no < v.version_no;", "x.status = 'active';"]]);
+    t.same([m1[1], m2[1], m3[3], m4[1], m5[1]], [
+      [true, SKIPPED, true, 2, 'draft', 2],
+      [false, [], true, 2, 'draft', 2],
+      [false, [...SKIPPED, 'نخالة الجولة السادسة'], true, 2, 'draft', 2],
+      [false, [SKIPPED[1], SKIPPED[0]], true, 2, 'draft', 2],
+      [false, [], true, 2, 'active', 2],
+    ], 'طفرات ق٦٣: الإعادة existing كما كانت؛ وskipped فارغ كما كان؛ وبلا «ليست في هذه النسخة» تُسمّى نخالة نُسخت؛ وبترتيب الأسماء؛ والمصدر بلا «قبلها» يفرغ skipped بعد التفعيل');
+  });
+
+  // ─── ق٦٤ (#2): سطر تُقرَّب كتلته صفراً بالكيلو: البطاقة لا ترمي، والكتابة ترفضه برفض مسمّى ────────────────────────────────────────────
+  const K64 = {};
+  const ZERO_HINT = (name) => `كمية «${name}» في الخلطة تُقرَّب صفراً بالكيلوغرام. اكتب كمية أكبر.`;
+  const ZERO_CHECK = "    if private.recipe_line_kg_or_null(ln.qty, ln.unit, ln.density_kg_per_l) = 0 then\n      raise exception 'qty_not_positive'";
+  await section('ق٦٤', async () => {
+    // أرقام المسبار (#2): «سائل خفيف» أوّلي باللتر بكثافة 0.4، والسطر 0.001 لتر: 0.001 × 0.4 = 0.0004 ← 0.000 كغم (والحدّ: 0.002 × 0.4 = 0.0008 ← 0.001).
+    const NAME = 'سائل خفيف الجولة السادسة';
+    const LIGHT = await item(NAME, 'raw', 'L', 0.4);
+    /** البانية بمسوّدة سطراها ذرة 1,000 والسائل بكميته باللتر، بمعاملة ترجع: [الرمز، التلميح أو الحالة]. */
+    const built = (pairs, qty) => mutated(pairs, [], async ({ attempt }) => {
+      const out = await attempt("select public.create_recipe($1, $2, 'مسوّدة سائل خفيف', $3, 1000, $4::jsonb, '[]'::jsonb, false) ->> 'status'",
+        [fresh(), fresh(), FEED, JSON.stringify([{ item_id: CORN, qty: 1000, unit: 'kg' }, { item_id: LIGHT, qty, unit: 'L' }])]);
+      return [code(out), out.ok ? out.v : out.hint];
+    });
+    t.same([await built([], 0.001), await built([], 0.002)], [['qty_not_positive', ZERO_HINT(NAME)], ['ok', 'draft']],
+      'حارس السطر: سطر 0.001 لتر بكثافة 0.4 (كتلته 0.000) يُرفض qty_not_positive يسمّيه (كانت المسوّدة تُنشأ وبطاقتها ترمي mul_div_domain لكلّ قارئ)، و0.002 لتر (كتلته 0.001) يُقبل');
+    // مسوّدة كُتب سطرها 0.001 لتر والكثافة 1 (كتلته 0.001 فيقبله الحارس)، ثمّ صارت الكثافة 0.4: كتلته 0.000 (الحالة التي لا يبلغها حارس السطر).
+    await must(U.manager, 'update public.items set density_kg_per_l = 1 where id = $1 returning id', [LIGHT]);
+    const D = await draftRecipe('مسوّدة سائل صغرت كثافته', [[CORN, 1000], [LIGHT, 0.001, 'L']]);
+    await must(U.manager, 'update public.items set density_kg_per_l = 0.4 where id = $1 returning id', [LIGHT]);
+    const cards = [];
+    for (const user of [U.manager, U.miller, U.accountant]) {
+      const out = await call(user, 'select public.recipe_detail($1, $2)', [D.id, D.version]);
+      cards.push(out.ok ? [out.v.mass_kg, out.v.lines.map((l) => [l.item_name, l.qty, l.unit, l.mass_kg, l.share_pct])] : out.code);
+    }
+    const CARD = ['1000.000', [['ذرة المراجعة', '1000.000', 'kg', '1000.000', '100.00'], [NAME, '0.001', 'L', '0.000', '0.00']]];
+    t.same(cards, [CARD, CARD, CARD],
+      'recipe_detail لمسوّدة سطرها 0.001 لتر بكثافة 0.4: لا ترمي للمدير ومشغّل المعمل والمحاسب، والسطر بكتلة 0.000 وحصّة 0.00 (كانت mul_div_domain للثلاثة)');
+    const activated = await mutated([], [], async ({ attempt }) => {
+      const out = await attempt(ACTIVATE, [D.version]);
+      return [code(out), out.ok ? null : out.hint];
+    });
+    t.same(activated, ['qty_not_positive', ZERO_HINT(NAME)], 'activate_recipe_version: السطر الذي تُقرَّب كتلته صفراً يُرفض qty_not_positive يسمّيه (كانت النسخة تُفعَّل: 1,000 + 0.000 = الأساس)');
+    // نسخة مفعَّلة بالسطر الصفري مزروعة كما تتركها قاعدة 0015 أو 0016 قبل الإصلاح: التفعيل بلا فحص الكتلة الصفرية بمعاملة ترجع (والفحص يُشال إن وُجد).
+    const planted = (pairs, run) => mutated(pairs, [], async (ctx) => {
+      const def = (await ctx.oq('select pg_get_functiondef($1::regprocedure) as d', [ACTIVATE_FN])).rows[0].d;
+      if (def.split(ZERO_CHECK).length === 2) await ctx.oq(def.split(ZERO_CHECK).join("    if false then\n      raise exception 'qty_not_positive'"));
+      const out = await ctx.attempt(ACTIVATE, [D.version]);
+      if (!out.ok) throw new Error(`الزرع: ${out.code}`);
+      return run(ctx);
+    });
+    // (أ) والمادّة ما زالت باللتر: البطاقة، ثمّ «نسخة جديدة» (السطر يُنسخ باللتر فيمرّ بحارس السطر).
+    const copied = (pairs = []) => planted(pairs, async ({ attempt }) => {
+      const card = await attempt('select public.recipe_detail($1, null)', [D.id]);
+      const copy = await attempt('select public.new_recipe_version($1, $2)', [D.id, fresh()]);
+      return [card.ok ? card.v.lines.map((l) => [l.mass_kg, l.share_pct]) : card.code, [code(copy), copy.ok ? null : copy.hint]];
+    });
+    // (ب) وقد صارت المادّة بالكيلو: «نسخة جديدة» تحوّل السطر كيلوغراماً بلقطة كثافته 0.4.
+    const converted = (pairs = []) => planted(pairs, async ({ oq, attempt }) => {
+      await oq("update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1", [LIGHT]);
+      const out = await attempt('select public.new_recipe_version($1, $2)', [D.id, fresh()]);
+      return [code(out), out.ok ? null : out.hint];
+    });
+    t.same(await copied(), [[['1000.000', '100.00'], ['0.000', '0.00']], ['qty_not_positive', ZERO_HINT(NAME)]],
+      'نسخة مفعَّلة بالسطر الصفري (مزروعة): بطاقتها لا ترمي (الحصّة 0.00، وكانت mul_div_domain)؛ و«نسخة جديدة» والمادّة باللتر يرفضها حارس السطر qty_not_positive (كانت تُنسخ ومسوّدتها ترمي)');
+    t.same(await converted(), ['qty_not_positive', ZERO_HINT(NAME)],
+      'وبعد أن تصير المادّة بالكيلو: تحويل «نسخة جديدة» (0.001 × لقطة 0.4 ← 0.000 كغم) يُرفض qty_not_positive يسمّيها (كان خطأ قيد الكمية خاماً بلا اسم)');
+    Object.assign(K64, { D, built, converted });
+  });
+  await section('ق٦٤ طفرات', async () => {
+    const { D, built, converted } = K64;
+    if (!converted) throw new Error('ق٦٤ لم يكتمل');
+    // (١) الحصّة كما كانت (لكلّ كتلة معروفة) ← mul_div_domain؛ (٢) بلا فرع الصفر ← حصّة فارغة لسطر كتلته معروفة صفراً.
+    const SHARE = "'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,";
+    const shareWith = (to) => mutated([[RECIPE_DETAIL_FN, [[SHARE, to]]]], [], async ({ attempt }) => {
+      const out = await attempt('select public.recipe_detail($1, $2)', [D.id, D.version]);
+      return out.ok ? out.v.lines.map((l) => l.share_pct) : out.code;
+    });
+    t.same([await shareWith(SHARE), await shareWith("'share_pct', case when m.kg is not null then private._mul_div_round(m.kg, 100, v.basis_kg, 2) end::text,"),
+      await shareWith("'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) end::text,")],
+    [['100.00', '0.00'], 'mul_div_domain', ['100.00', null]],
+    'طفرتا recipe_detail (والضابط): الحصّة كما كانت ترمي mul_div_domain للبطاقة كلّها، وبلا فرع الصفر حصّة فارغة لسطر كتلته معروفة');
+    // (٣) حارس السطر بلا الفحص ← 0.001 لتر يُقبل؛ (٤) بالضرب المضبوط لا بالكتلة المقرَّبة ← 0.002 لتر (كتلته 0.001) يُرفض.
+    const GUARD_ZERO = 'private.liters_to_kg(new.qty, i.density_kg_per_l) = 0';
+    t.same([(await built([['private.recipe_lines_guard()', [[GUARD_ZERO, 'false']]]], 0.001))[0],
+      (await built([['private.recipe_lines_guard()', [[GUARD_ZERO, 'new.qty * i.density_kg_per_l < 0.001']]]], 0.002))[0]],
+    ['ok', 'qty_not_positive'], 'طفرتا حارس السطر: بلا الفحص يُقبل سطر 0.001 لتر؛ وبالضرب المضبوط يُرفض سطر 0.002 لتر وكتلته المقرَّبة 0.001');
+    // (٥) التفعيل بلا الفحص ← يُفعَّل؛ (٦) التحويل بلا الفحص ← خطأ قيد الكمية خام.
+    const activatedBare = await mutated([[ACTIVATE_FN, [[ZERO_CHECK, "    if false then\n      raise exception 'qty_not_positive'"]]]], [], async ({ attempt }) => code(await attempt(ACTIVATE, [D.version])));
+    const convertedBare = (await converted([[NEW_VERSION_FN, [["        if private.liters_to_kg(ln.qty, ln.density_kg_per_l) = 0 then\n          raise exception 'qty_not_positive'",
+      "        if false then\n          raise exception 'qty_not_positive'"]]]]))[0];
+    t.same([activatedBare, /recipe_lines_qty_check/u.test(convertedBare)], ['ok', true],
+      'طفرتا الكتابة: التفعيل بلا الفحص يُفعِّل النسخة بالسطر الصفري؛ والتحويل بلا الفحص يرمي خطأ قيد الكمية خاماً');
+  });
+
+  // ─── ق٦٥ (#4، جزء القاعدة): تلميحات density_required تسمّي المكان الذي تُكتب فيه الكثافة ────────────────────────────────────────────
+  const K65 = {};
+  /** المكان الفعلي (ب٦١): نافذة «عدّل» في صفحة «المواد» بالمخزن؛ وكانت التلميحات تقول «بطاقة المادّة» والكثافة فيها قراءة فقط. */
+  const PLACE = 'اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها)';
+  await section('ق٦٥', async () => {
+    // «شراب» سائل أوّلي بكثافة 1.25: خلطة مفعَّلة (ذرة 980 + 16 لتراً بلقطة 1.2500) ومسوّدة بالسطرين نفسيهما، ثمّ تُفرَّغ كثافته وهو باللتر.
+    const NAME = 'شراب الجولة السادسة';
+    const SYR65 = await item(NAME, 'raw', 'L', 1.25);
+    const RS = await recipe('خلطة شراب الجولة السادسة', [[CORN, 980], [SYR65, 16, 'L']]);
+    const D = await draftRecipe('مسوّدة شراب الجولة السادسة', [[CORN, 980], [SYR65, 16, 'L']]);
+    await must(U.manager, 'update public.items set density_kg_per_l = null where id = $1 returning id', [SYR65]);
+    /**
+     * التلميحات الأربعة بمعاملة ترجع: التفعيل، وحارس السطر (البانية بسطر لتر للشراب)، وإضافة الشراب لدفعة، والإنتاج من خلطة فُرّغت لقطة كثافة سطرها (حالة
+     * مزروعة بدور postgres يعدّها الفحص ٣ خرقاً، ولا طريق إلى تلميح الإنتاج غيرها).
+     */
+    const hintsOf = (fns = []) => mutated(fns, [], async ({ oq, attempt }) => {
+      const pair = (out) => [code(out), out.ok ? null : out.hint];
+      const activated = pair(await attempt(ACTIVATE, [D.version]));
+      const guarded = pair(await attempt("select public.create_recipe($1, $2, 'مسوّدة شراب بلا كثافة', $3, 1000, $4::jsonb, '[]'::jsonb, false)",
+        [fresh(), fresh(), FEED, JSON.stringify([{ item_id: CORN, qty: 999, unit: 'kg' }, { item_id: SYR65, qty: 1, unit: 'L' }])]));
+      const b = fresh();
+      await attempt('select public.create_production($1, $2, 100, $3, $4, public.app_today())', [b, R0.version, RAW, FEEDWH]);
+      const added = pair(await attempt('select public.add_production_input($1, $2, $3, 5, null, null)', [b, fresh(), SYR65]));
+      await oq("update public.recipe_lines set density_kg_per_l = null where version_id = $1 and unit = 'L'", [RS.version]);
+      const produced = pair(await attempt(PRODUCE, [fresh(), RS.version, RAW, FEEDWH]));
+      return [activated, guarded, added, produced];
+    });
+    const live = await hintsOf();
+    t.same(live.slice(0, 2), [
+      ['density_required', `«${NAME}» سائل بلا كثافة، فلا يُحسب وزنه. ${PLACE} ثمّ فعّل.`],
+      ['density_required', `«${NAME}» سائل بلا كثافة، فلا يُحسب وزنه. ${PLACE} ثمّ فعّل.`],
+    ], 'تلميحا density_required في التفعيل وحارس السطر يسمّيان المكان الفعلي: «المواد» في المخزن وزرّ «عدّل» بجانبها (كانا «في بطاقة المادّة» حيث الكثافة قراءة فقط)');
+    t.same(live.slice(2), [
+      ['density_required', `«${NAME}» سائل بلا كثافة، فلا يُحسب وزنه. ${PLACE} أوّلاً.`],
+      ['density_required', `«${NAME}» سائل بلا كثافة. ${PLACE} ثمّ أعد الإنتاج.`],
+    ], 'وما يشبههما في 0016: تلميح إضافة مادّة للدفعة وتلميح الإنتاج يسمّيان المكان نفسه');
+    // والتراجع يعيد نصوص 0015 حرفاً: أجسام التفعيل وحارس السطر والإنتاج في rollback_0016 هي أجسامها في 0015 بتلميحاتها القديمة، و0016 بالمكان الجديد (ومشغّل التراجع
+    // في الحزمة الكاملة يقارن الكتالوج بعد التراجع بما قبل 0016).
+    const MIGRATION_0015 = readFileSync(new URL('../migrations/0015_mill_recipes_production.sql', import.meta.url), 'utf8');
+    /** كتلة دالّة كاملة من نصّ هجرة: من رأسها إلى أوّل «$$;» على سطره بعده. */
+    const block = (text, head) => {
+      const start = text.indexOf(`create or replace function ${head}(`);
+      const end = start < 0 ? -1 : text.indexOf('\n$$;\n', start);
+      return end < 0 ? null : text.slice(start, end + 4);
+    };
+    const heads = ['public.activate_recipe_version', 'private.recipe_lines_guard', 'public.create_production'];
+    t.same(heads.map((h) => [block(ROLLBACK_0016, h) !== null && block(ROLLBACK_0016, h) === block(MIGRATION_0015, h),
+      (block(ROLLBACK_0016, h) ?? '').includes('اكتب كثافته في بطاقة المادّة'), (block(MIGRATION_0016, h) ?? '').includes(PLACE)]),
+    heads.map(() => [true, true, true]),
+    'التراجع يعيد أجسام التفعيل وحارس السطر والإنتاج كما في 0015 حرفاً بتلميحاتها القديمة، وفي 0016 التلميح بالمكان الجديد');
+    Object.assign(K65, { hintsOf });
+  });
+  await section('ق٦٥ طفرات', async () => {
+    const { hintsOf } = K65;
+    if (!hintsOf) throw new Error('ق٦٥ لم يكتمل');
+    // التلميح القديم في كلّ دالّة وحدها ← تلميحها وحده يعود «في بطاقة المادّة».
+    const OLD = 'اكتب كثافته في بطاقة المادّة';
+    const fns = [ACTIVATE_FN, 'private.recipe_lines_guard()', 'public.add_production_input(uuid, uuid, uuid, numeric, uuid, text)', CREATE_FN];
+    const seen = [];
+    for (const fn of fns) seen.push((await hintsOf([[fn, [[PLACE, OLD]]]])).map(([, hint]) => (hint ?? '').includes(OLD)));
+    t.same(seen, [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, true]],
+      'طفرات ق٦٥: التلميح القديم في التفعيل أو حارس السطر أو إضافة المادّة للدفعة أو الإنتاج يعيد تلميح تلك الدالّة وحدها إلى «بطاقة المادّة»');
   });
 
   t.same([await nonZero('verify_mill'), await nonZero('verify_stock')], [{}, {}], 'الثوابت صفر بنهاية الملف');

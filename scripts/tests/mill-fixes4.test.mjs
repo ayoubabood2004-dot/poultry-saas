@@ -177,7 +177,7 @@ const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versio
   mass_kg: massKg,
   pick_items: pickItems,
   expense_categories: [{ id: 'c-labor', name: 'أيدي عاملة' }],
-  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced: 0 } },
+  money: { rates, expected: { materials_per_ton: '450000.00', rates_per_ton: '0.00', cost_per_ton: '450000.00', unpriced: 0, unconverted: 0 } },
 });
 // مسوّدة فيها «دبس» داخل الكتلة و«كاز» خارجها، كلاهما مكتوب باللتر ومادّته صُحّحت كيلوغراماً (ق٤٢): الكتلة لا تُعرف، والمجموع null.
 const cornLine = recipeLine({ qty: '972.000', mass_kg: '972.000', share_pct: '97.20' });
