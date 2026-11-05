@@ -41,15 +41,19 @@ export function pieceColor(hue: number, index: number): string {
 export interface BarPiece {
   key: string;
   label: string;
-  weight: bigint;
+  /** null: كتلة لا تُعرف (ق٤٢، سطر باللتر بلا كثافة)، فلا قطعة لها في الشريط. */
+  weight: bigint | null;
 }
+
+/** قطعة بكتلة معروفة موجبة: وحدها تُرسم (الجولة الرابعة، ب٣١: القارئ يرسل null لكتلة لا تُعرف بدل أن يرمي). */
+const drawable = (piece: BarPiece): piece is BarPiece & { weight: bigint } => piece.weight !== null && piece.weight > 0n;
 
 /**
  * شريط التركيبة: قطعة لكلّ مادّة بحصّتها من الأساس، فالخلطة تُقرأ بلمحة قبل الأرقام. الحصّة في العنوان بالمئة من
- * fmtPercent (قانون الأرقام)، وعرض القطعة وزن تخطيط لا رقم معروض. اللون من درجة الخلطة (hue).
+ * fmtPercent (قانون الأرقام)، وعرض القطعة وزن تخطيط لا رقم معروض. اللون من درجة الخلطة (hue). القطعة بلا كتلة تُتخطّى (ب٣١).
  */
 export function CompositionBar({ pieces, total, hue = 210 }: { pieces: readonly BarPiece[]; total: bigint; hue?: number }) {
-  const shown = pieces.filter((piece) => piece.weight > 0n);
+  const shown = pieces.filter(drawable);
   if (!shown.length || total <= 0n) return null;
   return (
     <div className="flex h-2 overflow-hidden rounded-full bg-surface-2" role="presentation">

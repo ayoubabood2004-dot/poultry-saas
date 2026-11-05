@@ -133,7 +133,7 @@ const previewCost = (over = {}) => ({ cost_id: 'pc-1', line_no: 1, category_id: 
 const unfundedProblem = { code: 'costs_unfunded', category_id: 'c-labor', category_name: 'أيدي عاملة', need: '15000.00', have: '4000.00' };
 const recipeLine = (over = {}) => ({
   id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '1000.000', unit: 'kg',
-  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
+  mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, unit_mismatch: false, money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
 });
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], massKg = '1000.000', rates = [] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
@@ -256,7 +256,7 @@ export default async function (t) {
         type(byAction(gate.field)[0], gate.value);
         await settle();
         t.eq(disabled(byAction('post-production')[0]), true, `Z21 ${gate.key} مكتوب لم يُحفظ: «أنتج الآن» معطَّل`);
-        t.eq(byAction('post-unsaved')[0]?.textContent ?? null, `احفظ ما كتبته أو امسحه قبل الإنتاج: ${gate.label}.`, `Z21 ${gate.key}: وتحته جملة تسمّي ما لم يُحفظ`);
+        t.eq(byAction('post-unsaved')[0]?.textContent ?? null, `احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: ${gate.label}.`, `Z21 ${gate.key}: وتحته جملة تسمّي ما لم يُحفظ`);
         await click(byAction('post-production')[0]);
         t.eq(named(calls, 'postProduction').length, 0, `Z21 ${gate.key}: النقرة لا ترحّل`);
         await click(byAction(gate.save)[0]);
@@ -276,7 +276,7 @@ export default async function (t) {
       await click(byAction('post-production')[0]);
       t.same(
         [disabled(byAction('post-production')[0]), byAction('post-unsaved')[0]?.textContent ?? null, named(calls, 'postProduction').length],
-        [true, 'احفظ ما كتبته أو امسحه قبل الإنتاج: وزن الناتج.', 0],
+        [true, 'احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: وزن الناتج.', 0],
         'Z21 مشغّل المعمل بعد الختم: وزن لم يُحفظ يعطّل «أنتج الآن» ويُسمّى ولا يُرحَّل',
       );
     });
@@ -419,7 +419,7 @@ export default async function (t) {
         await click(byAction('post-production')[0]);
         t.same(
           [disabled(byAction('post-production')[0]), byAction('post-unsaved')[0]?.textContent ?? null, named(calls, 'postProduction').length],
-          [true, `احفظ ما كتبته أو امسحه قبل الإنتاج: ${kind.label}.`, 0],
+          [true, `احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: ${kind.label}.`, 0],
           `Z24 ${kind.key} وحده: «أنتج الآن» معطَّل ويسمّيه ولا يرحّل`,
         );
       });
@@ -437,7 +437,7 @@ export default async function (t) {
       t.same([text().includes('اكتب يوم الإنتاج يوم/شهر/سنة، مثل 04/11/2026.'), disabled(byAction('save-weight')[0])], [true, true], 'Z26 يوم غير موجود بالتقويم: يُقال ولا يُحفظ');
       type(byAction('produced-on')[0], '05/11/2026');
       await settle();
-      t.eq(byAction('post-unsaved')[0]?.textContent ?? null, 'احفظ ما كتبته أو امسحه قبل الإنتاج: يوم الإنتاج.', 'Z26 اليوم المكتوب يدخل قائمة ما لم يُحفظ');
+      t.eq(byAction('post-unsaved')[0]?.textContent ?? null, 'احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: يوم الإنتاج.', 'Z26 اليوم المكتوب يدخل قائمة ما لم يُحفظ');
       await click(byAction('save-weight')[0]);
       t.same(named(calls, 'setBatchFields').map(([batchId, fields]) => [batchId, fields]), [['b-1', { producedOn: '2026-11-05' }]], 'Z26 يُحفظ يوم تقويم وحده بـsetBatchFields({ producedOn })');
       t.same([text().includes(oldHint), valueOf('produced-on'), disabled(byAction('post-production')[0])], [false, '05/11/2026', false], 'Z26 بعد القراءة: لا مشكلة، والحقل من المحفوظ، و«أنتج الآن» مفعَّل');

@@ -8,10 +8,15 @@
 // والجولة الثالثة (scratchpad/mill2/fixes3.md القسم أ، ق٣١–ق٣٧) بأقسامها: ق٣١ (لقطة وحدة الأساس) وق٣٥ في آخر الملف، وق٣٢ بعد ق٢٥، وق٣٣ بعد
 // ق٢١، وق٣٦ بعد ق٢٦؛ وكلّ إصلاح منها يفشل على 0016 كما كانت عند ff8423c، والفحوص لإصلاحات سابقة (ق٣٣ وق٣٥ وق٣٦) بطفرات داخلها؛ وق٣٧ ضابط
 // «طفرة P2» ينتظر A محبوساً على جلسة الإلغاء نفسها (pg_blocking_pids) أو منتهياً، لا أيّ انتظار.
+// والجولة الرابعة (scratchpad/mill2/fixes4.md القسم أ، ق٤١–ق٤٣) بأقسامها في آخر الملف: ق٤١ (لقطة لتر ومادّة صارت بالكيلو تُنتَج وتُنسخ) وق٤٢ (لا
+// سطر لتر بلا كثافة في نسخة تُفعَّل، ولا قارئ يرمي بسطر واحد)، وكلّ فحص منها يفشل على 0016 كما كانت عند 93a85f0؛ وق٤٣ يقدّم السلوك على الطفرات في
+// ق٣٣ و«ق٣١ طفرات»؛ ومراسي طفرات ق٢٢ وق٣١ على النصوص التي تغيّرت حُدّثت ولم يتغيّر ما تفحصه.
 import { readFileSync } from 'node:fs';
 
 /** نصّ 0016 نفسه (جملة ملء لقطة «داخل الكتلة» تُشغَّل كما هي، ق٢٢). */
 const MIGRATION_0016 = readFileSync(new URL('../migrations/0016_mill_v2.sql', import.meta.url), 'utf8');
+/** نصّ rollback_0016 نفسه (كتلة الرفض بفرع الأساس، ق٤٢). */
+const ROLLBACK_0016 = readFileSync(new URL('../migrations/rollback_0016.sql', import.meta.url), 'utf8');
 
 const TODAY = '2026-11-04';
 const id = (n) => `c2170000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -1006,15 +1011,26 @@ async function scenario(t, db) {
     // بلا نطاق سطرها (أيدي عاملة 5,000 للطنّ × 10 ÷ 1,000 = 50.00 ← 0). لا مبلغ يُحمَّل من مصاريف الوحدة، فالترحيل كما في 0015 ونصّ fixes2 ق٢١-٤.
     const ZERO = await category('أيدي عاملة صفرية');
     const RZ = await recipe('خلطة السطر الصفري', [[CORN, 1000]], [[ZERO, 5000]]);
-    const cases = [];
-    for (const [label, user] of [['مدير المواد', U.mgrRaw], ['محاسب المواد', U.accRaw]]) {
+    const USERS = [['مدير المواد', U.mgrRaw], ['محاسب المواد', U.accRaw]];
+    const pairFor = async () => {
       const bare = await batch(R0.version, 10);
       const zero = await batch(RZ.version, 10);
       await must(U.accountant, 'update public.production_costs set amount = 0 where batch_id = $1 returning id', [zero]);
-      cases.push({ label, user, bare, zero });
+      return { bare, zero };
+    };
+    // الحالات السلوكية أوّلاً على دفعاتها (مراجعة 0016 الرابعة #2، ق٤٣): كانت بعد الطفرتين، ومرساتاهما على السطرين المحروسين نفسيهما، فانحدار في
+    // نصّ الهجرة نفسه (exists صحيح دائماً في الترحيل، أو v_positive يبدأ صحيحاً في المعاينة) لا يُمسك إلّا برمية «المرساة ليست مرّة واحدة» قبلها.
+    for (const [label, user] of USERS) {
+      const { bare, zero } = await pairFor();
+      for (const [kind, b] of [['بلا سطر كلفة', bare], ['سطرها صفر', zero]]) {
+        const p = await preview(user, b);
+        t.same([p.problems, p.can_post, code(await post(user, b))], [[], true, 'ok'], `${label} قبل الختم، دفعة ${kind}: problems = [] وcan_post = true والترحيل ok`);
+      }
     }
+    // ثمّ الطفرتان بمعاملة ترجع على دفعات أخرى لم تُرحَّل، لكلّ مستخدم ولكلّ دفعة: v_positive صحيح دائماً في المعاينة، وexists صحيح دائماً في الترحيل.
+    const cases = [];
+    for (const [label, user] of USERS) cases.push({ label, user, ...(await pairFor()) });
     const shape = (p) => [p.problems.map((x) => x.code), p.can_post];
-    // الطفرتان أوّلاً بمعاملة ترجع (الدفعات لم تُرحَّل بعد)، لكلّ مستخدم ولكلّ دفعة: v_positive صحيح دائماً في المعاينة، وexists صحيح دائماً في الترحيل.
     const sweep = (pairs, run) => mutated(pairs, [], async ({ as, attempt }) => {
       const out = [];
       for (const { user, bare, zero } of cases) {
@@ -1029,12 +1045,6 @@ async function scenario(t, db) {
       async (attempt, b) => code(await attempt(POST, [b, null, ref()])));
     t.same([mPreview, mPost], [Array(4).fill([['costs_unsealed_scope'], false]), Array(4).fill('costs_unsealed_scope')],
       'طفرتان: v_positive يبدأ صحيحاً ← المعاينة تقفل «أنتج الآن» بـcosts_unsealed_scope عن مصاريف لا تُحمَّل، وexists صحيح دائماً ← الترحيل يُرفض (الحالات الأربع)');
-    for (const { label, user, bare, zero } of cases) {
-      for (const [kind, b] of [['بلا سطر كلفة', bare], ['سطرها صفر', zero]]) {
-        const p = await preview(user, b);
-        t.same([p.problems, p.can_post, code(await post(user, b))], [[], true, 'ok'], `${label} قبل الختم، دفعة ${kind}: problems = [] وcan_post = true والترحيل ok`);
-      }
-    }
   });
 
   // ─── ق٢٢ (#2، #5): «داخل الكتلة» لقطة على سطر الخلطة عند التفعيل (FOUNDATION القاعدة ٤، مثل الكثافة) ──────────────────────
@@ -1120,7 +1130,7 @@ async function scenario(t, db) {
     });
     const mDetail = await mutated([['public.recipe_detail(uuid, uuid)', [
       [`'in_basis', coalesce(l.in_basis, ${live}), 'category_id'`, `'in_basis', ${live}, 'category_id'`],
-      [`l.version_id = v.id and coalesce(l.in_basis, ${live})), 0)`, `l.version_id = v.id and ${live}), 0)`],
+      [`l.version_id = v.id and coalesce(l.in_basis, ${live}))::text end`, `l.version_id = v.id and ${live})::text end`],
     ]]], [], async ({ oq }) => {
       const d = (await oq('select public.recipe_detail($1, null) as v', [RA.id])).rows[0].v;
       return [d.mass_kg, d.lines.map((l) => [l.item_name, l.in_basis])];
@@ -1462,7 +1472,7 @@ async function scenario(t, db) {
       'create_production من النسخة المفعَّلة: item_changed بتلميحه (كانت تخطّط 17 كغم كازاً لتراتٍ بكثافة المادّة الحالية)');
     // طفرة (والنسخة ما زالت المفعَّلة): بلا فحص اللقطة تُنتَج، وسطر الكاز المكتوب 17 كغم يُخطَّط لتراتٍ بكثافة المادّة الآن:
     // 17 × 1,000 ÷ (1,000 × 0.85 × 0.1) = 200 خطوة ← 20.0 لتراً بكثافة 0.8500.
-    const mChanged = await mutated([[CREATE_FN, [['if ln.line_base is not null and ln.line_base is distinct from ln.base_unit then', 'if false then']]]], [], async ({ attempt }) => {
+    const mChanged = await mutated([[CREATE_FN, [["if ln.line_base is not null and ((ln.line_base = 'kg' and ln.base_unit = 'L') or ln.base_unit not in ('kg', 'L')) then", 'if false then']]]], [], async ({ attempt }) => {
       const b = fresh();
       const out = await attempt('select public.create_production($1, $2, 1000, $3, $4, public.app_today())', [b, RK.version, RAW, FEEDWH]);
       return [code(out), (await attempt('select planned_qty_base::text as q, density_kg_per_l::text as d from public.production_inputs where batch_id = $1 and item_id = $2', [b, KAZ])).rows[0] ?? null];
@@ -1499,16 +1509,19 @@ async function scenario(t, db) {
   await section('ق٣١ طفرات', async () => {
     const { KAZ, RK, N } = K31;
     if (!N) throw new Error('ق٣١ لم يكتمل');
-    // (١) الفحص ٣ بالوحدة الحيّة كما كان ← المقاعدة (لقطة كيلو والكاز لتر الآن) خرق أبديّ؛ (٢) وبلا «لقطة فارغة» يعبر سطر نسخة مفعَّلة بلا وحدة.
-    const live3 = await mutated([['public.verify_mill()', [["      where l.org_id = v.org_id and l.version_id = v.id and (l.base_unit is null or (l.base_unit = 'L' and l.density_kg_per_l is null)))",
-      "      join public.items i on i.org_id = l.org_id and i.id = l.item_id where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null)"]]]], [],
-    ({ oq }) => nonZeroOn(oq));
+    // الضابط السلوكي أوّلاً (مراجعة 0016 الرابعة #2، ق٤٣): سطر نسخة مفعَّلة فُرّغت لقطة وحدته يمسكه الفحص ٣ كما هو، قبل أيّ طفرة بمرساة على نصّه
+    // (كان بعد طفرة الوحدة الحيّة، فانحدار في نصّ الفحص نفسه لا يُمسك إلّا برمية مرساتها).
     const nulled = (pairs) => mutated(pairs, [], async ({ oq }) => {
       await oq('update public.recipe_lines set base_unit = null where version_id = $1', [N]);
       return nonZeroOn(oq);
     });
-    t.same([live3, await nulled([]), await nulled([['public.verify_mill()', [['l.base_unit is null or ', '']]]])], [{ recipe_frozen_bad_lines: 1 }, { recipe_frozen_bad_lines: 1 }, {}],
-      'طفرتا الفحص ٣: بالوحدة الحيّة تُعدّ المقاعدة خرقاً بعد التصحيح؛ وبلا شرط اللقطة الفارغة يعبر سطر نسخة مفعَّلة بلا وحدة (والضابط بلا طفرة يمسكه)');
+    t.same(await nulled([]), { recipe_frozen_bad_lines: 1 }, 'ضابط: سطر نسخة مفعَّلة فُرّغت لقطة وحدته يمسكه الفحص ٣');
+    // (١) الفحص ٣ بالوحدة الحيّة كما كان ← المقاعدة (لقطة كيلو والكاز لتر الآن) خرق أبديّ؛ (٢) وبلا «لقطة فارغة» يعبر سطر نسخة مفعَّلة بلا وحدة.
+    const live3 = await mutated([['public.verify_mill()', [["      where l.org_id = v.org_id and l.version_id = v.id and (l.base_unit is null or (l.base_unit = 'L' and l.density_kg_per_l is null)\n        or (l.unit = 'L' and l.density_kg_per_l is null)))",
+      "      join public.items i on i.org_id = l.org_id and i.id = l.item_id where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null)"]]]], [],
+    ({ oq }) => nonZeroOn(oq));
+    t.same([live3, await nulled([['public.verify_mill()', [['l.base_unit is null or ', '']]]])], [{ recipe_frozen_bad_lines: 1 }, {}],
+      'طفرتا الفحص ٣: بالوحدة الحيّة تُعدّ المقاعدة خرقاً بعد التصحيح؛ وبلا شرط اللقطة الفارغة يعبر سطر نسخة مفعَّلة بلا وحدة');
     // (٣) create_production بكثافة المادّة لا لقطة السطر ← خطّة النسخة الجديدة بـ0.80: 20 لتراً × 0.80 = 16 كغم (كانت 17 بلقطة 0.85).
     const mDensity = await mutated([[CREATE_FN, [
       ['v_line_kg := private.recipe_line_kg(ln.qty, ln.unit, coalesce(ln.density_kg_per_l, ln.item_density));', 'v_line_kg := private.recipe_line_kg(ln.qty, ln.unit, ln.item_density);'],
@@ -1553,7 +1566,7 @@ async function scenario(t, db) {
     // (٦) recipe_detail: unit_changed ثابت false، والوحدة الحيّة بدل اللقطة.
     const detailOf = (pairs) => mutated([['public.recipe_detail(uuid, uuid)', pairs]], [], async ({ oq }) =>
       (await oq('select public.recipe_detail($1, $2) as v', [RK.id, RK.version])).rows[0].v.lines.map((l) => [l.item_name, l.base_unit, l.unit_changed]));
-    t.same([await detailOf([["'unit_changed', coalesce(l.base_unit <> i.base_unit, false),", "'unit_changed', false,"]]),
+    t.same([await detailOf([["'unit_changed', l.base_unit is not null and ((l.base_unit = 'kg' and i.base_unit = 'L') or i.base_unit not in ('kg', 'L')),", "'unit_changed', false,"]]),
       await detailOf([["'base_unit', coalesce(l.base_unit, i.base_unit),", "'base_unit', i.base_unit,"]])],
     [[['ذرة المراجعة', 'kg', false], ['كاز البانية', 'kg', false]], [['ذرة المراجعة', 'kg', false], ['كاز البانية', 'L', true]]],
     'طفرتا recipe_detail: unit_changed ثابت لا يقول إنّ وحدة الكاز تغيّرت، وbase_unit من المادّة الآن يقول لتراً لسطر حُسب بالكيلو');
@@ -1588,6 +1601,247 @@ async function scenario(t, db) {
     );
   });
 
+
+  // ═══ الجولة الرابعة (scratchpad/mill2/fixes4.md القسم أ، ق٤١–ق٤٣؛ الملاحظات #0–#2 بنصّها وإثباتها في findings4.txt) ═══
+  // كلّ إصلاح بفحص يفشل على 0016 كما كانت عند 93a85f0 وينجح بعده، والسلوك أوّلاً ثمّ الطفرات في قسم وحده (ق٤٣): رمية مرساة في طفرة لا تحجب فحصاً
+  // سلوكياً. والطفرة بمعاملة ترجع تكسر فحصها بالضبط.
+  const ACTIVATE_FN = 'public.activate_recipe_version(uuid, integer)';
+  const RECIPE_DETAIL_FN = 'public.recipe_detail(uuid, uuid)';
+  const OVERVIEW_FN = 'public.recipes_overview()';
+  const NEW_VERSION_FN = 'public.new_recipe_version(uuid, uuid)';
+  const ACTIVATE = 'select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))';
+  const PRODUCE = 'select public.create_production($1, $2, 1000, $3, $4, public.app_today())';
+  /** سطور نسخة بترتيبها: [المادّة، الكمية، الوحدة]. */
+  const linesOn = async (q, version) => (await q(`select i.name, l.qty::text as qty, l.unit from public.recipe_lines l join public.items i on i.id = l.item_id
+    where l.version_id = $1 order by l.line_no`, [version])).rows.map((r) => [r.name, r.qty, r.unit]);
+  /** نصّ بمرساة مستبدلة، والمرساة مرّة واحدة بالضبط (طفرة لا تعبر بصمت بلا أثر). */
+  const swap = (text, from, to) => {
+    if (text.split(from).length !== 2) throw new Error(`المرساة ليست مرّة واحدة: ${from.slice(0, 80)}`);
+    return text.split(from).join(to);
+  };
+
+  // ─── ق٤١ (#0): لا يُرفض إلّا ما لا تستطيع اللقطة تخطيطه، و«نسخة جديدة» تنسخ سطر اللتر لمادّة صارت بالكيلو ─────────────────────
+  const K41 = {};
+  await section('ق٤١', async () => {
+    // «دبس» مادّة أوّلية باللتر بكثافة 1.4 في خلطة مفعَّلة: ذرة 972 + دبس 20 لتراً (28 كغم) = 1,000، فلقطة سطره لتر بكثافة 1.4000 داخل الكتلة.
+    // والضابطان في الاتّجاهين الآخرين: «زيت» أوّلي بالكيلو (983 + 17) يُصحَّح لتراً بكثافة 0.9، و«بريمكس» بالكيلو (990 + 10) يُصحَّح قطعة.
+    const DIBS = await item('دبس الجولة الرابعة', 'raw', 'L', 1.4);
+    const OIL41 = await item('زيت الجولة الرابعة', 'raw', 'kg');
+    const PRE41 = await item('بريمكس الجولة الرابعة', 'raw', 'kg');
+    const RD = await recipe('خلطة الدبس', [[CORN, 972], [DIBS, 20, 'L']]);
+    const RO = await recipe('خلطة زيت سُجّل بالكيلو', [[CORN, 983], [OIL41, 17]]);
+    const RP = await recipe('خلطة بريمكس صار قطعة', [[CORN, 990], [PRE41, 10]]);
+    // التصحيحات قبل أيّ حركة (items_stock_guard يسمح): الدبس كيلوغراماً بلا كثافة (items_density_unit_check)، والزيت لتراً، والبريمكس قطعة بخطوة 1.
+    await must(U.manager, "update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1 returning id", [DIBS]);
+    await must(U.manager, "update public.items set base_unit = 'L', density_kg_per_l = 0.9 where id = $1 returning id", [OIL41]);
+    await must(U.manager, "update public.items set base_unit = 'pc', scale_step = 1 where id = $1 returning id", [PRE41]);
+    t.same(await nonZero(), {}, 'verify_mill صفر بعد التصحيحات الثلاث (اللقطات كما كتبها التفعيل)');
+    // create_production 1,000 كغم من خلطة الدبس: كتلة السطر من لقطة الكثافة 20 × 1.4 = 28 كغم، والمخطّط بالكيلو بخطوة 0.1:
+    // 28 × 1,000 ÷ (1,000 × 0.1) = 280 خطوة ← 28.0 كغم، وسطر الدفعة بالكيلو بلا كثافة؛ والذرة 972.0.
+    const planOf = async (b) => (await db.admin(`select i.name, p.base_unit, p.in_basis, p.planned_qty_base::text as qty, p.planned_mass_kg::text as mass,
+      p.density_kg_per_l::text as d from public.production_inputs p join public.items i on i.id = p.item_id where p.batch_id = $1 order by p.line_no`, [b]))
+      .rows.map((r) => [r.name, r.base_unit, r.in_basis, r.qty, r.mass, r.d]);
+    const B = fresh();
+    const made = await call(U.manager, PRODUCE, [B, RD.version, RAW, FEEDWH]);
+    t.same([code(made), made.hint ?? null, await planOf(B)],
+      ['ok', null, [['ذرة المراجعة', 'kg', true, '972.000', '972.000', null], ['دبس الجولة الرابعة', 'kg', true, '28.000', '28.000', null]]],
+      'create_production بلقطة لتر ومادّة صارت بالكيلو: تنجح، والدبس 28.000 كغم لكلّ 1,000 بالكيلو بلا كثافة (كانت item_changed)');
+    const refusals = [];
+    for (const [r, name] of [[RO, 'زيت الجولة الرابعة'], [RP, 'بريمكس الجولة الرابعة']]) {
+      const out = await call(U.manager, PRODUCE, [fresh(), r.version, RAW, FEEDWH]);
+      refusals.push([code(out), out.hint === `تغيّرت وحدة «${name}» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.`]);
+    }
+    t.same(refusals, [['item_changed', true], ['item_changed', true]],
+      'والاتّجاهان الآخران يبقيان يُرفضان item_changed بتلميحه: لقطة كيلوغرام ومادّة صارت باللتر (كثافة لم تُلقط)، ومادّة صارت قطعة');
+    const flags = [];
+    for (const [r, name] of [[RD, 'دبس الجولة الرابعة'], [RO, 'زيت الجولة الرابعة'], [RP, 'بريمكس الجولة الرابعة']]) {
+      const l = (await must(U.manager, 'select public.recipe_detail($1, null)', [r.id])).lines.find((x) => x.item_name === name);
+      flags.push(l && [l.base_unit, l.unit, l.mass_kg, l.share_pct, l.unit_changed, l.unit_mismatch]);
+    }
+    t.same(flags, [['L', 'L', '28.000', '2.80', false, true], ['kg', 'kg', '17.000', '1.70', true, false], ['kg', 'kg', '10.000', '1.00', true, false]],
+      'recipe_detail.unit_changed بشرط الرفض نفسه: false للدبس (يُنتَج بها) وtrue للزيت والبريمكس؛ وunit_mismatch = true لسطر الدبس المكتوب باللتر وحده');
+    // «نسخة جديدة» بمعاملة ترجع (فتبقى النسخ المفعَّلة للطفرات): سطر الدبس المكتوب باللتر يُنسخ 28.000 كغم (20 × 1.4، الكتلة نفسها) وتتفعّل
+    // (972 + 28 = 1,000)؛ وسطر الزيت المكتوب بالكيلو يُنسخ كما هو لمادّة صارت باللتر وتتفعّل.
+    const copies = [];
+    for (const r of [RD, RO]) {
+      copies.push(await mutated([], [], async ({ oq, attempt }) => {
+        const nv = fresh();
+        const out = await attempt('select public.new_recipe_version($1, $2)', [r.id, nv]);
+        if (!out.ok) return [out.code];
+        return ['ok', await linesOn(oq, nv), code(await attempt(ACTIVATE, [nv]))];
+      }));
+    }
+    t.same(copies,
+      [['ok', [['ذرة المراجعة', '972.000', 'kg'], ['دبس الجولة الرابعة', '28.000', 'kg']], 'ok'], ['ok', [['ذرة المراجعة', '983.000', 'kg'], ['زيت الجولة الرابعة', '17.000', 'kg']], 'ok']],
+      'new_recipe_version: سطر الدبس المكتوب باللتر يُنسخ 28.000 كغم وتتفعّل النسخة (كانت bad_recipe_unit ولا مسوّدة)، وسطر الزيت بالكيلو كما هو');
+    // رصيد افتتاحي للدبس بالكيلو (أوّل حركة، فتتجمّد وحدته كيلوغراماً) ودفعة 100 كغم: الدبس 28 × 100 ÷ (1,000 × 0.1) = 28 خطوة ← 2.8 كغم،
+    // والذرة 97.2؛ تُعاين بلا مشكلة وتُرحَّل، والثوابت صفر.
+    const opening = await must(U.manager, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 10) returning id', [RAW]);
+    await must(U.manager, 'insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 60000) returning id', [opening, DIBS]);
+    await must(U.manager, 'select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [opening, ref()]);
+    const B100 = await batch(RD.version, 100);
+    const look = await preview(U.manager, B100);
+    t.same([(await planOf(B100)).map((r) => [r[0], r[3]]), look.problems, look.can_post, code(await post(U.manager, B100))],
+      [[['ذرة المراجعة', '97.200'], ['دبس الجولة الرابعة', '2.800']], [], true, 'ok'], 'دفعة 100 كغم من خلطة الدبس: دبس 2.800 كغم وذرة 97.200، بلا مشكلة، وتُرحَّل');
+    t.same([await nonZero(), await nonZero('verify_stock')], [{}, {}], 'الثوابت صفر بعد ترحيل دفعة الدبس');
+    Object.assign(K41, { RD, RP });
+  });
+  await section('ق٤١ طفرات', async () => {
+    const { RD, RP } = K41;
+    if (!RP) throw new Error('ق٤١ لم يكتمل');
+    // (١) شرط الرفض كما كان (أيّ تغيّر للوحدة) ← خلطة الدبس تُرفض item_changed؛ (٢) بلا فرع القطعة ← البريمكس يصل bad_recipe_unit لا item_changed.
+    const COND = "if ln.line_base is not null and ((ln.line_base = 'kg' and ln.base_unit = 'L') or ln.base_unit not in ('kg', 'L')) then";
+    const produce = (to, version) => mutated([[CREATE_FN, [[COND, to]]]], [], async ({ attempt }) => code(await attempt(PRODUCE, [fresh(), version, RAW, FEEDWH])));
+    t.same([await produce('if ln.line_base is not null and ln.line_base is distinct from ln.base_unit then', RD.version),
+      await produce("if ln.line_base is not null and ln.line_base = 'kg' and ln.base_unit = 'L' then", RP.version)],
+    ['item_changed', 'bad_recipe_unit'], 'طفرتا create_production: الرفض بأيّ تغيّر للوحدة يوقف خلطة الدبس، وبلا فرع القطعة يمرّ البريمكس إلى رفض آخر');
+    // (٣) unit_changed بأيّ تغيّر ← ينبّه لخلطة الدبس التي يُنتَج بها؛ (٤) بلا فرع القطعة ← يسكت عن البريمكس.
+    const UNIT_CHANGED = "'unit_changed', l.base_unit is not null and ((l.base_unit = 'kg' and i.base_unit = 'L') or i.base_unit not in ('kg', 'L')),";
+    const flagged = (to, r, name) => mutated([[RECIPE_DETAIL_FN, [[UNIT_CHANGED, to]]]], [], async ({ oq }) =>
+      (await oq('select public.recipe_detail($1, null) as v', [r.id])).rows[0].v.lines.find((l) => l.item_name === name).unit_changed);
+    t.same([await flagged("'unit_changed', coalesce(l.base_unit <> i.base_unit, false),", RD, 'دبس الجولة الرابعة'),
+      await flagged("'unit_changed', coalesce(l.base_unit = 'kg' and i.base_unit = 'L', false),", RP, 'بريمكس الجولة الرابعة')],
+    [true, false], 'طفرتا recipe_detail: unit_changed بأيّ تغيّر ينبّه لخلطة الدبس التي يُنتَج بها، وبلا فرع القطعة يسكت عن البريمكس');
+    // (٥) «نسخة جديدة» بلا التحويل ← حارس السطر يرفض سطر اللتر فلا مسوّدة (#0)؛ (٦) بالوحدة وحدها ← 20 لتراً تصير 20 كغم لا 28.
+    const copied = (pairs) => mutated([[NEW_VERSION_FN, pairs]], [], async ({ oq, attempt }) => {
+      const nv = fresh();
+      const out = await attempt('select public.new_recipe_version($1, $2)', [RD.id, nv]);
+      return out.ok ? linesOn(oq, nv) : out.code;
+    });
+    t.same([await copied([["if ln.unit = 'L' and ln.base_unit = 'kg' then", 'if false then']]),
+      await copied([["private.liters_to_kg(ln.qty, ln.density_kg_per_l), 'kg');", "ln.qty, 'kg');"]])],
+    ['bad_recipe_unit', [['ذرة المراجعة', '972.000', 'kg'], ['دبس الجولة الرابعة', '20.000', 'kg']]],
+    'طفرتا new_recipe_version: بلا التحويل يرفض حارس السطر سطر اللتر فلا مسوّدة، وبالوحدة وحدها تصير 20 لتراً 20 كغم لا 28');
+  });
+
+  // ─── ق٤٢ (#1): لا سطر باللتر بلا كثافة في نسخة مفعَّلة، ولا قارئ يرمي بسطر واحد ─────────────────────────────────────────────
+  const K42 = {};
+  const UNIT_CHECK = "if ln.unit = 'L' and ln.base_unit <> 'L' then";
+  await section('ق٤٢', async () => {
+    // «كاز» وقود باللتر بكثافة 0.85، و«مولاس» أوّلي باللتر بكثافة 1.4، كلّ واحد في مسوّدة (create_recipe بلا تفعيل): ذرة 1,000 + كاز 20 لتراً،
+    // وذرة 986 + مولاس 10 لترات (14 كغم)؛ ثمّ تُصحَّح المادّتان كيلوغراماً قبل أيّ حركة (#1 بخطواته).
+    const KAZ42 = await item('كاز الجولة الرابعة', 'fuel', 'L', 0.85);
+    const MOL42 = await item('مولاس الجولة الرابعة', 'raw', 'L', 1.4);
+    const draft = async (name, lines) => {
+      const rid = fresh();
+      const vid = fresh();
+      await must(U.manager, "select public.create_recipe($1, $2, $3, $4, 1000, $5::jsonb, '[]'::jsonb, false)",
+        [rid, vid, name, FEED, JSON.stringify(lines.map(([itemId, qty, unit = 'kg']) => ({ item_id: itemId, qty, unit })))]);
+      return { id: rid, version: vid };
+    };
+    const DK = await draft('مسوّدة كاز باللتر', [[CORN, 1000], [KAZ42, 20, 'L']]);
+    const DM = await draft('مسوّدة مولاس باللتر', [[CORN, 986], [MOL42, 10, 'L']]);
+    for (const x of [KAZ42, MOL42]) await must(U.manager, "update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1 returning id", [x]);
+    const cardOf = async (r) => {
+      const out = await call(U.manager, 'select public.recipe_detail($1, $2)', [r.id, r.version]);
+      return out.ok ? [out.v.mass_kg, out.v.lines.map((l) => [l.item_name, l.unit, l.mass_kg, l.share_pct, l.in_basis, l.unit_mismatch])] : out.code;
+    };
+    t.same(await cardOf(DK), ['1000.000', [['ذرة المراجعة', 'kg', '1000.000', '100.00', true, false], ['كاز الجولة الرابعة', 'L', null, null, false, true]]],
+      'recipe_detail لمسوّدة الكاز: سطره (وقود خارج الكتلة) بكتلة وحصّة فارغتين وunit_mismatch = true، ومجموع الكتلة 1,000 (كانت البطاقة ترمي density_not_positive)');
+    t.same(await cardOf(DM), [null, [['ذرة المراجعة', 'kg', '986.000', '98.60', true, false], ['مولاس الجولة الرابعة', 'L', null, null, true, true]]],
+      'recipe_detail لمسوّدة المولاس: سطره داخل الكتلة بكتلة فارغة، فمجموع الكتلة فارغ لا 986 ناقصاً بصمت');
+    // التفعيل (بمعاملة ترجع) يُرفض قبل أيّ حساب بجملة حارس السطر، خارج الكتلة وداخلها.
+    const activateIn = (pairs, version) => mutated(pairs, [], async ({ attempt }) => {
+      const out = await attempt(ACTIVATE, [version]);
+      return [code(out), out.ok ? null : out.hint];
+    });
+    const unitHint = (name) => `«${name}» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.`;
+    t.same([await activateIn([], DK.version), await activateIn([], DM.version)],
+      [['bad_recipe_unit', unitHint('كاز الجولة الرابعة')], ['bad_recipe_unit', unitHint('مولاس الجولة الرابعة')]],
+      'activate_recipe_version: سطر باللتر لمادّة صارت بالكيلو يُرفض bad_recipe_unit ويسمّيها، خارج الكتلة (كان يُفعَّل) وداخلها (كان density_not_positive)');
+    // حالة مجمَّدة مزروعة بدور postgres كما تركها التفعيل قبل الإصلاح (#1): مسوّدة الكاز تُفعَّل بالتفعيل بلا فحص سطر اللتر بمعاملة ترجع، فلقطة سطر
+    // الكاز لتر ووحدة أساس كيلوغرام خارج الكتلة بلا كثافة. والزرع يجري على التفعيل قبل الإصلاح وبعده: الفحص يُشال إن وُجد.
+    const planted = (pairs, run) => mutated(pairs, [], async (ctx) => {
+      const def = (await ctx.oq('select pg_get_functiondef($1::regprocedure) as d', [ACTIVATE_FN])).rows[0].d;
+      if (def.split(UNIT_CHECK).length === 2) await ctx.oq(def.split(UNIT_CHECK).join('if false then'));
+      const out = await ctx.attempt(ACTIVATE, [DK.version]);
+      if (!out.ok) throw new Error(`الزرع: ${out.code}`);
+      return run(ctx);
+    });
+    /** ما يراه القرّاء في الحالة المزروعة: لقطة السطر، والثوابت، وقطع لوحة المعمل للمدير ومشغّل المعمل، وبطاقة النسخة. */
+    const readers = (pairs = []) => planted(pairs, async ({ oq, as, attempt }) => {
+      const snap = (await oq('select unit, base_unit, in_basis, density_kg_per_l::text as d from public.recipe_lines where version_id = $1 and item_id = $2', [DK.version, KAZ42])).rows[0];
+      const verify = await nonZeroOn(oq);
+      const pieces = [];
+      for (const user of [U.manager, U.miller]) {
+        await as(user);
+        const out = await attempt('select public.recipes_overview()');
+        pieces.push(out.ok ? out.v.recipes.find((x) => x.id === DK.id).active.pieces.map((p) => [p.item_name, p.mass_kg]) : out.code);
+      }
+      await as(U.manager);
+      const detail = await attempt('select public.recipe_detail($1, null)', [DK.id]);
+      const card = detail.ok ? [detail.v.mass_kg, detail.v.lines.map((l) => [l.item_name, l.mass_kg, l.share_pct, l.in_basis, l.unit_changed, l.unit_mismatch])] : detail.code;
+      return { snap, verify, pieces, card };
+    });
+    const live = await readers();
+    t.same(live.snap, { unit: 'L', base_unit: 'kg', in_basis: false, d: null }, 'الزرع: لقطة سطر الكاز كما في #1 (لتر، ووحدة أساس كيلوغرام، خارج الكتلة، بلا كثافة)');
+    t.same(live.verify, { recipe_frozen_bad_lines: 1 }, 'verify_mill الفحص ٣ يمسك سطراً مكتوباً باللتر بلا لقطة كثافة في نسخة مفعَّلة (كان {})');
+    const PIECES = [['ذرة المراجعة', '1000.000'], ['كاز الجولة الرابعة', null]];
+    t.same(live.pieces, [PIECES, PIECES], 'recipes_overview للمدير ومشغّل المعمل لا يرمي: قطعة الكاز بكتلة فارغة أخيراً (كانت لوحة المعمل كلّها ترمي density_not_positive)');
+    t.same(live.card, ['1000.000', [['ذرة المراجعة', '1000.000', '100.00', true, false, false], ['كاز الجولة الرابعة', null, null, false, false, true]]],
+      'recipe_detail للنسخة المزروعة لا يرمي: الكاز بكتلة وحصّة فارغتين وunit_mismatch = true، ومجموع الكتلة 1,000');
+    // «نسخة جديدة» من النسخة المزروعة: لا لقطة كثافة لسطر الكاز المكتوب باللتر ومادّته بالكيلو، فرفض مسمّى ولا مسوّدة.
+    const copyPlanted = (pairs = []) => planted(pairs, async ({ oq, attempt }) => {
+      const nv = fresh();
+      const out = await attempt('select public.new_recipe_version($1, $2)', [DK.id, nv]);
+      return [code(out), out.ok ? null : out.hint, (await oq('select count(*)::int as n from public.recipe_versions where id = $1', [nv])).rows[0].n];
+    });
+    t.same(await copyPlanted(),
+      ['density_required', '«كاز الجولة الرابعة» صارت تُقاس بالكيلوغرام وسطرها في الخلطة باللتر بلا كثافة محفوظة، فلا تُحسب كميتها بالكيلوغرام. أنشئ خلطة جديدة واكتب كميتها بالكيلوغرام.', 0],
+      'new_recipe_version من نسخة سطرها باللتر بلا لقطة كثافة: density_required يسمّي المادّة، ولا مسوّدة');
+    // فرع الأساس في rollback_0016: كتلة الرفض وحدها بفرعَي المال والوحدة معطَّلين (في قاعدة الحزمة معدّلات وتكاليف وأسعار من هذا الملف ومن غيره،
+    // فيوقف فرع المال التراجع قبل أن يصل الأساس). النسخة المزروعة تزيد ما يوقفه بواحد (كتلة الكاز لا تُحسب، والمجموع بلاها = الأساس) بـrollback_blocked،
+    // وكان يرمي density_not_positive.
+    const refusal = /\ndo \$\$\n[\s\S]*?\n\$\$;\n/u.exec(ROLLBACK_0016)?.[0] ?? '';
+    const basisOnly = swap(swap(refusal, 'if v_rates > 0 or v_costs + v_allocs + v_replaced > 0 or v_prices > 0 then', 'if false then'), 'if v_units > 0 then', 'if false then');
+    const blockedCount = (sql) => async ({ attempt }) => {
+      const out = await attempt(sql);
+      if (out.ok) return 0;
+      const n = out.code === 'rollback_blocked' ? /في القاعدة (\d+) نسخة/u.exec(out.hint ?? '')?.[1] : null;
+      return n ? Number(n) : out.code;
+    };
+    const control = await mutated([], [], blockedCount(basisOnly));
+    const withPlanted = await planted([], blockedCount(basisOnly));
+    t.same([typeof control, withPlanted], ['number', typeof control === 'number' ? control + 1 : 'عدد'],
+      `فرع الأساس في التراجع: النسخة المزروعة توقفه rollback_blocked وتزيد العدد من ${control} إلى ${typeof control === 'number' ? control + 1 : '؟'} (كان density_not_positive)`);
+    Object.assign(K42, { DK, DM, activateIn, readers, copyPlanted, planted, blockedCount, basisOnly, control });
+  });
+  await section('ق٤٢ طفرات', async () => {
+    const { DK, DM, activateIn, readers, copyPlanted, planted, blockedCount, basisOnly, control } = K42;
+    if (!planted) throw new Error('ق٤٢ لم يكتمل');
+    // (١) التفعيل بلا فحص سطر اللتر ← مسوّدة الكاز تُفعَّل خارج الكتلة (#1)، ومسوّدة المولاس ترمي density_not_positive بتلميح يطلب كثافة لمادّة لا تقبلها.
+    const noCheck = [[ACTIVATE_FN, [[UNIT_CHECK, 'if false then']]]];
+    t.same([(await activateIn(noCheck, DK.version))[0], (await activateIn(noCheck, DM.version))[0]], ['ok', 'density_not_positive'],
+      'طفرة: التفعيل بلا فحص سطر اللتر ← الكاز يُفعَّل بلقطة كيلوغرام بلا كثافة، والمولاس يرمي density_not_positive');
+    // (٢) الفحص ٣ بلا شرط سطر اللتر ← الحالة المزروعة تعبر.
+    t.same((await readers([['public.verify_mill()', [["\n        or (l.unit = 'L' and l.density_kg_per_l is null)", '']]]])).verify, {},
+      'طفرة: الفحص ٣ بلا شرط سطر اللتر بلا لقطة كثافة ← verify_mill = {} على الحالة المزروعة');
+    // (٣) لوحة المعمل بالرامي ← density_not_positive لكلّ قارئ؛ (٤) بلا nulls last ← القطعة الفارغة أوّلاً.
+    const mThrow = await readers([[OVERVIEW_FN, [['(select private.recipe_line_kg_or_null(', '(select private.recipe_line_kg(']]]]);
+    const mOrder = await readers([[OVERVIEW_FN, [['order by m.kg desc nulls last,', 'order by m.kg desc,']]]]);
+    t.same([mThrow.pieces, mOrder.pieces[0]], [['density_not_positive', 'density_not_positive'], [['كاز الجولة الرابعة', null], ['ذرة المراجعة', '1000.000']]],
+      'طفرتا recipes_overview: بالرامي ترمي اللوحة للمدير ومشغّل المعمل، وبلا nulls last تأتي القطعة الفارغة أوّلاً');
+    // (٥–٨) بطاقة الخلطة على المسوّدتين: كتلة السطر بالرامي، والحصّة بلا شرطها، والمجموع يتخطّى الفارغ، وunit_mismatch ثابت.
+    const detailIn = (pairs, r) => mutated([[RECIPE_DETAIL_FN, pairs]], [], async ({ attempt }) => {
+      const out = await attempt('select public.recipe_detail($1, $2)', [r.id, r.version]);
+      return out.ok ? [out.v.mass_kg, out.v.lines.map((l) => [l.item_name, l.mass_kg, l.share_pct, l.unit_mismatch])] : out.code;
+    });
+    const LINES_LATERAL = "        cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m\n      where l.org_id = v_org and l.version_id = v.id), '[]'::jsonb) end,";
+    t.same([
+      await detailIn([[LINES_LATERAL, LINES_LATERAL.split('recipe_line_kg_or_null(').join('recipe_line_kg(')]], DK),
+      await detailIn([["'share_pct', case when m.kg is not null then private._mul_div_round(m.kg, 100, v.basis_kg, 2) end::text,", "'share_pct', private._mul_div_round(m.kg, 100, v.basis_kg, 2)::text,"]], DK),
+      (await detailIn([['case when bool_or(m.kg is null) then null else coalesce(sum(m.kg), 0) end', 'coalesce(sum(m.kg), 0)']], DM))[0],
+      (await detailIn([["'unit_mismatch', l.unit = 'L' and i.base_unit <> 'L',", "'unit_mismatch', false,"]], DK))[1]?.[1]?.[3],
+    ], ['density_not_positive', 'mul_div_domain', '986.000', false],
+    'طفرات recipe_detail: كتلة السطر بالرامي ترمي البطاقة، والحصّة بلا شرطها ترمي mul_div_domain، والمجموع يتخطّى الفارغ فيصير 986 ناقصاً، وunit_mismatch ثابت يسكت');
+    // (٩) «نسخة جديدة» بلا فحص الكثافة المحفوظة ← liters_to_kg يرمي density_not_positive بتلميح يطلب كثافة لمادّة بالكيلو.
+    t.eq((await copyPlanted([[NEW_VERSION_FN, [["        if ln.density_kg_per_l is null then\n          raise exception 'density_required'", "        if false then\n          raise exception 'density_required'"]]]]))[0], 'density_not_positive',
+      'طفرة: new_recipe_version بلا فحص الكثافة المحفوظة ← density_not_positive بتلميح يطلب كثافة لمادّة بالكيلو');
+    // (١٠) فرع الأساس بالرامي ← density_not_positive؛ (١١) بتخطّي الفارغ ← لا تُعدّ النسخة المزروعة فيكمل التراجع إلى حالة يرمي عليها فحص 0015 الثاني.
+    t.same([await planted([], blockedCount(swap(basisOnly, '(select private.recipe_line_kg_or_null(', '(select private.recipe_line_kg('))),
+      await planted([], blockedCount(swap(basisOnly, 'having bool_or(m.kg is null) or sum(m.kg) <> v.basis_kg', 'having sum(m.kg) <> v.basis_kg')))],
+    ['density_not_positive', control], 'طفرتا فرع الأساس في التراجع: بالرامي يرمي density_not_positive، وبتخطّي الفارغ لا تُعدّ النسخة المزروعة');
+  });
 
   t.same([await nonZero('verify_mill'), await nonZero('verify_stock')], [{}, {}], 'الثوابت صفر بنهاية الملف');
 }

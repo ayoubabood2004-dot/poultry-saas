@@ -3,7 +3,7 @@
 -- وcreate_production وpreview_production وpost_production وvoid_production وrecipes_overview وrecipe_detail وproduction_detail
 -- وverify_mill وactivate_recipe_version وconfirm_production_costs وprivate.recipe_lines_guard (كما في 0015) وvoid_expense
 -- وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه بالكتالوج)، وسياسة production_batches_read كما في
--- 0015، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input وnew_recipe_version والمساعدات (ومنها shrink_ok) والحرّاس،
+-- 0015، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input وnew_recipe_version والمساعدات (ومنها shrink_ok وrecipe_line_kg_or_null) والحرّاس،
 -- وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016)، ومحفّز اسم فئة المصروف ودالّته (مراجعة 0016 الثانية)، والجداول
 -- الثلاثة، وأعمدة production_inputs.replaced_item_id وitem_prices.cost_price وrecipe_lines.in_basis وrecipe_lines.base_unit (مراجعة 0016
 -- الثالثة)، ويعيد item_prices.sell_price غير قابل للفراغ.
@@ -12,7 +12,9 @@
 -- مكان آخر. فالملف يرفض نفسه إن كان في القاعدة منها صفّ واحد. ونسخة خلطة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (فُعّلت بقاعدة
 -- 0016 والوقود أو التعبئة خارج كتلتها) يرفضها فحص 0015 الثاني بعد التراجع، والمجمَّدة لا تُعدَّل، فتوقفه كذلك (مراجعة 0016 الثانية
 -- #1). ونسخة غير مسوّدة فيها مادّة صارت باللتر بعد تفعيلها بالكيلو (سطر بلا لقطة كثافة) سليمة بقاعدة 0016 (لقطة الوحدة كيلوغرام)، ويرفضها
--- فحص 0015 الثالث بعد التراجع (يقرأ الوحدة الحيّة)، فتوقفه كذلك (مراجعة 0016 الثالثة #2). الفروع الخمسة منفصلة حتّى يُفحص كلّ واحد وحده.
+-- فحص 0015 الثالث بعد التراجع (يقرأ الوحدة الحيّة)، فتوقفه كذلك (مراجعة 0016 الثالثة #2). وفرع الأساس يحسب كتلة السطر بالمساعد الذي لا يرمي
+-- (مراجعة 0016 الرابعة #1، ق٤٢)، فسطر باللتر بلا كثافة يوقفه بـrollback_blocked لا density_not_positive، ويُسقط المساعد مع مساعدات 0016. الفروع
+-- الخمسة منفصلة حتّى يُفحص كلّ واحد وحده.
 -- تنعاد بأمان: drop if exists، وcreate or replace، وdrop constraint/column if exists.
 
 set lock_timeout = '5s';
@@ -41,19 +43,22 @@ begin
         v_rates, v_costs, v_allocs, v_replaced, v_prices);
   end if;
   -- نسخة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (حساب 0015 بلا استثناء الوقود والتعبئة، فحصه الثاني): فُعّلت بقاعدة 0016 والوقود
-  -- أو التعبئة خارج كتلتها، فبعد التراجع يرفضها verify_mill كما في 0015 (recipe_basis_mismatch)، والنسخة المجمَّدة لا تُعدَّل.
+  -- أو التعبئة خارج كتلتها، فبعد التراجع يرفضها verify_mill كما في 0015 (recipe_basis_mismatch)، والنسخة المجمَّدة لا تُعدَّل. وكتلة السطر بالمساعد
+  -- الذي لا يرمي (مراجعة 0016 الرابعة #1، ق٤٢): سطر باللتر بلا كثافة (لا يكون إلّا خرقاً لفحص 0016 الثالث) كان يرمي هنا density_not_positive بدل
+  -- rollback_blocked؛ وكتلته لا تُحسب فلا يساوي المجموعُ الأساسَ، وفحص 0015 الثاني يرمي عليه بعد التراجع، فيوقفه كذلك.
   select count(*), (array_agg(x.name order by x.name collate "C", x.id))[1] into v_basis, v_recipe from (
     select r.id, r.name from public.recipe_versions v
     join public.recipes r on r.org_id = v.org_id and r.id = v.recipe_id
     join public.recipe_lines l on l.org_id = v.org_id and l.version_id = v.id
     join public.items i on i.org_id = l.org_id and i.id = l.item_id
+    cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m
     where v.status <> 'draft'
     group by v.id, v.basis_kg, r.id, r.name
-    having sum(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))) <> v.basis_kg
+    having bool_or(m.kg is null) or sum(m.kg) <> v.basis_kg
   ) as x;
   if v_basis > 0 then
     raise exception 'rollback_blocked'
-      using hint = format('في القاعدة %s نسخة خلطة مفعَّلة أو مقاعدة فيها وقود أو تعبئة خارج أساسها، أوّلها في خلطة «%s». قاعدة 0015 تعدّ كلّ السطور في الأساس فيرفض فحصها هذه النسخ بعد التراجع، والنسخة المجمَّدة لا تُعدَّل: لا تراجع عن 0016 ما دامت موجودة.',
+      using hint = format('في القاعدة %s نسخة خلطة مفعَّلة أو مقاعدة لا يساوي مجموعُ كلّ سطورها أساسَها (وقود أو تعبئة خارج كتلتها، أو سطر باللتر بلا كثافة)، أوّلها في خلطة «%s». قاعدة 0015 تعدّ كلّ السطور في الأساس فيرفض فحصها هذه النسخ بعد التراجع، والنسخة المجمَّدة لا تُعدَّل: لا تراجع عن 0016 ما دامت موجودة.',
         v_basis, v_recipe);
   end if;
   -- سطر نسخة غير مسوّدة لمادّة باللتر بلا لقطة كثافة (مراجعة 0016 الثالثة #2): فُعّل والمادّة بالكيلو ثمّ صُحّحت لتراً، فلقطة وحدته في 0016
@@ -1788,6 +1793,7 @@ $$;
 drop function if exists public.create_recipe(uuid, uuid, text, uuid, numeric, jsonb, jsonb, boolean);
 drop function if exists public.new_recipe_version(uuid, uuid);
 drop function if exists private.shrink_ok(numeric, numeric);
+drop function if exists private.recipe_line_kg_or_null(numeric, text, numeric);
 drop function if exists public.set_item_cost_price(uuid, numeric, numeric);
 drop function if exists public.add_production_input(uuid, uuid, uuid, numeric, uuid, text);
 drop function if exists private.recipe_expected(uuid);

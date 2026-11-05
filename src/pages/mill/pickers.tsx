@@ -22,6 +22,8 @@ import { itemKindLabel } from '../../lib/storeLabels';
 // رغمه فعل صريح ثانٍ. و(م٣) فئة المصروف تُضاف من مكانها (NewCategoryField) بدل رابط إعدادات المنشأة الذي يمسح البانية.
 // الجولة الثانية: نصّ «فئة جديدة» وملاحظته في الصفحة لا في الحقل (ب١١، مكوّن متحكَّم به)، فلا يضيع بقراءة الصفحة من جديد، ورفض
 // category_name_taken يُعرض بتلميحه؛ والمنتقي ومحرّر الخلية يُقفلان أثناء حفظ البانية (ب١٢، disabled).
+// الجولة الرابعة (ب٣٢): Enter في محرّر الخلية لا يحفظ أثناء الحفظ، والمسوَّد يُمسح بعد الحفظ إن بقي كما أُرسل وحده (settle)، و«أرجع
+// ما لم يُحفظ» يعيد الخانات كلّها إلى المحفوظ (reset، ب٣٥).
 
 /**
  * أنواع المواد التي يقبلها مخزن المواد الأوّلية (مرآة private.item_admissible('raw', …) = ADMISSIBLE.raw في domain/stock،
@@ -486,6 +488,21 @@ export function useDrafts<V>() {
         delete next[key];
         return next;
       }),
+    /**
+     * بعد حفظ ناجح (الجولة الرابعة، ب٣٢، قاعدة قسم الوزن ب٢٢): يُمسح المسوَّد إن بقي نصّه كما كان لحظة الإرسال (sent)، وإلّا يبقى بما كُتب
+     * أثناء الحفظ وقيمته المحفوظة الآن saved، فالحفظ التالي مشروط بما كتبته الصفحة نفسها لا بما قبله (فلا يقول «من جهاز آخر» لكتابتها).
+     */
+    settle: (key: string, sent: string | null, saved: V) =>
+      setDrafts((current) => {
+        const draft = current[key];
+        if (!draft) return current;
+        const next = { ...current };
+        if (draft.text === sent) delete next[key];
+        else next[key] = { text: draft.text, before: saved };
+        return next;
+      }),
+    /** «أرجع ما لم يُحفظ» (ب٣٥): كلّ الخانات إلى المحفوظ. */
+    reset: () => setDrafts((current) => (Object.keys(current).length ? {} : current)),
   };
 }
 
@@ -529,7 +546,8 @@ export function CellEdit({
         aria-invalid={invalid || undefined}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && dirty && !invalid && !disabled) onSave();
+          // لا حفظ ثانٍ أثناء الحفظ (ب٣٢): Enter كان يرسل الكتابة الجديدة مشروطةً بما قبل الأولى، فيرفضها الخادم «من جهاز آخر».
+          if (event.key === 'Enter' && dirty && !invalid && !disabled && !busy) onSave();
         }}
         data-action={action}
       />

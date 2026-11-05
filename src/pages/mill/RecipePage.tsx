@@ -13,7 +13,7 @@ import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
 import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
-import { parseQty } from '../../domain/units';
+import { parseQty, type BaseUnit } from '../../domain/units';
 import { describeError } from '../../lib/errors';
 import { columnDecimals, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -53,6 +53,9 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // يقول إنّ النسخة الجديدة تبدأ من المفعَّلة (أو آخر نسخة) لا من المعروضة (ب١٠)؛ ونصّ «فئة جديدة» في الصفحة (ب١١).
 // الجولة الثالثة: حين تكون للخلطة مسوّدة يدلّ نصّ «لا تكاليف» عليها برقمها لا على «نسخة جديدة» (ب٢٣)؛ وتحت النسخة المفعَّلة جملة لكلّ
 // سطر تغيّرت وحدة مادّته بعد التفعيل (ب٢٧، unit_changed من لقطة وحدة الأساس).
+// الجولة الرابعة: سطر المسوّدة المكتوب باللتر ومادّته صارت بالكيلوغرام (unit_mismatch) بجملة تقول ما العمل، وكتلته «—» (لا تُعرف بلا
+// كثافة: القارئ يرسل null بدل أن يرمي)، وشريط التركيبة يتخطّاه، والمجموع «—» إن جهلت كتلة سطر داخل الكتلة (ب٣١)؛ ونصّ «لا تكاليف» لمن
+// لا يضيف تكلفة (بلا recipe.activate) لا يدلّه على فعل ليس له (ب٣٧).
 
 function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -173,8 +176,11 @@ export default function RecipePage() {
   const fieldId = useId();
 
   const lines = useMemo(() => data?.lines ?? [], [data]);
-  // عمود الكتلة يجمع ما داخل الكتلة وحده (ب٩)، فمراتبه منه.
-  const massDecimals = useMemo(() => columnDecimals(lines.filter((line) => line.inBasis).map((line) => line.massKg), 3) as 0 | 1 | 2 | 3, [lines]);
+  // عمود الكتلة يجمع ما داخل الكتلة وحده (ب٩)، فمراتبه منه؛ والكتلة التي لا تُعرف (ب٣١) «—» لا تدخل المراتب.
+  const massDecimals = useMemo(
+    () => columnDecimals(lines.flatMap((line) => (line.inBasis && line.massKg !== null ? [line.massKg] : [])), 3) as 0 | 1 | 2 | 3,
+    [lines],
+  );
   const qtyDecimals = useMemo(() => columnDecimals(lines.map((line) => line.qty), 3) as 0 | 1 | 2 | 3, [lines]);
   // أعمدة الأسعار مال: لأدوار الكلفة وحدها (الخادم يحذف money عن غيرهم).
   const costShown = costs;
@@ -182,12 +188,14 @@ export default function RecipePage() {
   const hue = recipeColor(id).hue;
 
   const sections = useMemo(() => {
-    const groups = new Map<string, bigint>();
+    // null: في القسم سطر لا تُعرف كتلته (ب٣١)، فرقاقته «—» لا مجموع ناقص بصمت.
+    const groups = new Map<string, bigint | null>();
     for (const line of lines) {
       // الوقود والتعبئة خارج الكتلة (م١١): لا يدخلان أقسام الحصص.
       if (!line.inBasis) continue;
       const key = line.categoryName ?? t('mill.section.none', 'بلا قسم');
-      groups.set(key, (groups.get(key) ?? 0n) + line.massKg);
+      const sum = groups.has(key) ? (groups.get(key) ?? null) : 0n;
+      groups.set(key, sum === null || line.massKg === null ? null : sum + line.massKg);
     }
     return [...groups.entries()].map(([name, mass]) => ({ name, mass }));
   }, [lines]);
@@ -274,6 +282,18 @@ export default function RecipePage() {
     );
   };
 
+  /**
+   * وحدة سعر الكلفة: وحدة أساس المادّة الآن (السعر لها)، وbase_unit في سطر نسخة مجمَّدة لقطة يوم التفعيل (ق٣١). وunit_changed صار لاتّجاه
+   * رفض الإنتاج وحده (ق٤١)، فلقطة لتر لمادّة صارت بالكيلو لا يقولها؛ فالوحدة الحيّة من pick_items (المادّة المقبولة في الخلطة الآن بوحدتها)،
+   * وإلّا اللقطة ما لم يدلّ unit_changed أو unit_mismatch على تغيّرها، وإلّا لا تُسمّى وحدة (ب٣١). والمسوّدة بلا لقطة: base_unit حيّة.
+   */
+  const priceUnit = (line: RecipeLine): BaseUnit | null => {
+    if (isDraft) return line.baseUnit;
+    const live = data?.pickItems.find((item) => item.id === line.itemId)?.baseUnit;
+    if (live) return live;
+    return line.unitChanged || line.unitMismatch ? null : line.baseUnit;
+  };
+
   const columns = ((): Column<RecipeLine>[] => {
     const base: Column<RecipeLine>[] = [
       { key: 'item', header: t('mill.line.item', 'المادّة'), wrap: true, sticky: true, cell: (line) => line.itemName },
@@ -284,9 +304,10 @@ export default function RecipePage() {
         key: 'mass',
         header: t('mill.col.mass', 'بالكيلوغرام'),
         kind: 'number',
-        // الوقود والتعبئة خارج الكتلة (ب٩، مرآة البانية): لا رقم في عمود مجموعه كتلة المواد، فالمجموع = الخلايا.
-        cell: (line) => <Num>{line.inBasis ? fmtQtyCell(line.massKg, massDecimals) : dash()}</Num>,
-        total: <Num>{fmtQtyCell(data?.massKg ?? 0n, massDecimals)}</Num>,
+        // الوقود والتعبئة خارج الكتلة (ب٩، مرآة البانية): لا رقم في عمود مجموعه كتلة المواد، فالمجموع = الخلايا. والكتلة التي لا تُعرف
+        // (ب٣١، سطر باللتر بلا كثافة) «—»، ومعها المجموع.
+        cell: (line) => <Num>{line.inBasis && line.massKg !== null ? fmtQtyCell(line.massKg, massDecimals) : dash()}</Num>,
+        total: <Num>{data?.massKg === null || data?.massKg === undefined ? dash() : fmtQtyCell(data.massKg, massDecimals)}</Num>,
       },
       {
         key: 'share',
@@ -298,7 +319,7 @@ export default function RecipePage() {
               {t('mill.line.out_of_basis', 'خارج الكتلة')}
             </span>
           ) : (
-            <Num>{(data?.basisKg ?? 0n) > 0n ? pct(line.massKg, data?.basisKg ?? 1n) : dash()}</Num>
+            <Num>{line.massKg !== null && (data?.basisKg ?? 0n) > 0n ? pct(line.massKg, data?.basisKg ?? 1n) : dash()}</Num>
           ),
       },
     ];
@@ -320,15 +341,15 @@ export default function RecipePage() {
             const draft = prices.get(line.itemId);
             const text = draft?.text ?? saved;
             const parsed = text.trim() === '' ? null : parseMoney(text);
+            const unit = priceUnit(line);
             return (
               <CellEdit
                 id={`${fieldId}-cost-${line.itemId}`}
                 label={
-                  // سعر الكلفة لوحدة أساس المادّة الآن، وbase_unit في سطر نسخة مجمَّدة لقطة يوم التفعيل (ق٣١): إن تغيّرت الوحدة بعده فوحدة اللقطة
-                  // ليست وحدة السعر، فلا تُسمّى (التكامل، الجولة الثالثة).
-                  line.unitChanged
+                  // سعر الكلفة لوحدة أساس المادّة الآن (التكامل، الجولة الثالثة؛ وب٣١ بعد ق٤١): وحدة لا تُعرف حيّةً لا تُسمّى.
+                  unit === null
                     ? t('mill.builder.cost_of_current', 'سعر كلفة «{name}» بوحدتها الحالية', { name: line.itemName })
-                    : t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: line.itemName, unit: unitWord(line.baseUnit) })
+                    : t('mill.builder.cost_of', 'سعر كلفة «{name}» لكلّ {unit}', { name: line.itemName, unit: unitWord(unit) })
                 }
                 value={text}
                 dirty={draft !== undefined && text !== saved}
@@ -371,7 +392,9 @@ export default function RecipePage() {
   if (error) return <LoadFailed what={t('mill.recipe.what', 'بطاقة الخلطة')} error={error} onRetry={retry} />;
   if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
 
-  const gap = data.basisKg - data.massKg;
+  // مجموع لا يُعرف (ب٣١: سطر داخل الكتلة بلا كتلة) لا فرق له، فلا «مطابق» ولا تفعيل (الخادم يرفضه أصلاً).
+  const sum = data.massKg;
+  const gap = sum === null ? null : data.basisKg - sum;
   const balanced = gap === 0n && lines.length > 0;
   const rates = data.rates ?? [];
   const canRates = isDraft && canEdit && costs;
@@ -383,6 +406,16 @@ export default function RecipePage() {
   const newRateOk = newRate.categoryId !== '' && newRateValue !== null && newRateValue > 0n;
   // سطور النسخة المفعَّلة التي تغيّرت وحدة مادّتها بعد التفعيل (ق٣١، ب٢٧): الخادم يرفض الإنتاج بها (item_changed) حتّى نسخة جديدة.
   const unitChanged = data.status === 'active' ? lines.filter((line) => line.unitChanged) : [];
+  // سطور المسوّدة المكتوبة باللتر ومادّتها الآن ليست باللتر (ق٤٢، ب٣١): لا تُعرف كتلتها ولا تُفعَّل النسخة بها (bad_recipe_unit) حتّى
+  // يُحذف السطر ويُضاف بوحدة المادّة. وفي النسخة المجمَّدة تُخطَّط من لقطة الكثافة (ق٤١)، فلا جملة هناك.
+  const mismatched = isDraft ? lines.filter((line) => line.unitMismatch) : [];
+  const mismatchText = (line: RecipeLine): string =>
+    line.baseUnit === 'pc'
+      ? t('mill.recipe.unit_mismatch_pc', 'صارت «{name}» تُقاس بالقطعة، فلا تدخل الخلطة: يُحذف سطرها.', { name: line.itemName })
+      : canEdit
+        ? t('mill.recipe.unit_mismatch', 'صارت «{name}» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.', { name: line.itemName })
+        : // من لا يعدّل الخلطة (درس ب٣٧): لا يُدلّ على فعل ليس له.
+          t('mill.recipe.unit_mismatch_others', 'صارت «{name}» تُقاس بالكيلوغرام: يحذف المالك أو المدير سطرها ويضيفه بالكيلوغرام.', { name: line.itemName });
 
   const rateColumns: Column<RecipeRate>[] = [
     { key: 'category', header: t('mill.rates.category', 'فئة المصروف'), wrap: true, cell: (rate) => rate.categoryName },
@@ -480,6 +513,14 @@ export default function RecipePage() {
         </div>
       ) : null}
 
+      {mismatched.length ? (
+        <div className="flex flex-col gap-2" data-action="unit-mismatch">
+          {mismatched.map((line) => (
+            <Notice key={line.id} tone="warning" title={mismatchText(line)} />
+          ))}
+        </div>
+      ) : null}
+
       <section className="card flex flex-col gap-3 p-4">
         <p className="text-sm text-ink-muted">{t('mill.detail.basis', 'الأساس: {basis}', { basis: fmtQty(data.basisKg, 'kg').main })}</p>
         <CompositionBar pieces={lines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={data.basisKg > 0n ? data.basisKg : 1n} hue={hue} />
@@ -487,19 +528,21 @@ export default function RecipePage() {
           {sections.map((section, index) => (
             <Chip key={section.name} dot={pieceColor(hue, index)}>
               <span className="truncate">{section.name}</span>
-              <Num>{fmtQty(section.mass, 'kg').main}</Num>
+              <Num>{section.mass === null ? dash() : fmtQty(section.mass, 'kg').main}</Num>
             </Chip>
           ))}
         </div>
       </section>
 
       {isDraft ? (
-        gap === 0n ? (
+        gap === null || sum === null ? (
+          <Notice tone="warning" title={t('mill.detail.gap_unknown', 'لا يُحسب المجموع: كتلة سطر أو أكثر لا تُعرف.')} />
+        ) : gap === 0n ? (
           <Notice tone="info" title={t('mill.detail.balanced', 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.')} />
         ) : (
           <Notice
             tone="warning"
-            title={t('mill.detail.gap', 'المجموع {sum} من {basis}', { sum: fmtQty(data.massKg, 'kg').main, basis: fmtQty(data.basisKg, 'kg').main })}
+            title={t('mill.detail.gap', 'المجموع {sum} من {basis}', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(data.basisKg, 'kg').main })}
           >
             {gap > 0n ? t('mill.detail.missing', 'ينقص {gap}', { gap: fmtQty(gap, 'kg').main }) : t('mill.detail.extra', 'يزيد {gap}', { gap: fmtQty(-gap, 'kg').main })}
           </Notice>
@@ -571,7 +614,10 @@ export default function RecipePage() {
             rows={rates}
             rowKey={(rate) => rate.id}
             empty={
-              isDraft
+              !canEdit
+                ? // من لا يضيف تكلفة (بلا recipe.activate، كالمحاسب، ب٣٧): لا «افتحها» ولا «أضفها» ولا «أنشئ نسخة جديدة» وكلّها ليست له.
+                  t('mill.rates.empty_others', 'لا تكاليف على هذه النسخة؛ يضيفها المالك أو المدير في مسوّدة الخلطة.')
+                : isDraft
                 ? t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')
                 : draftVersion
                   ? // مسوّدة قائمة (ب٢٣): «نسخة جديدة» لا تنسخ شيئاً بل ترجّعها كما هي (new_recipe_version)، فالجملة تدلّ عليها.

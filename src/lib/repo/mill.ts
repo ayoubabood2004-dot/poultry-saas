@@ -17,6 +17,8 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // للدفعة أو تبديلها بسبب (add_production_input)، والقرّاء يزيدون الأسعار وكلفة الطنّ المتوقّعة والتكاليف وتحميلاتها.
 // الجولة الثالثة: سطر الخلطة يحمل unit_changed (ق٣١، لقطة وحدة الأساس يوم التفعيل تخالف وحدة المادّة الآن) بمفتاح إلزامي، وdraws في
 // بطاقة الدفعة المرحَّلة null لمن لا يكون مخزن المدخلات بنطاقه (ق٣٢)، ويوم الإنتاج يُكتب بـsetBatchFields({ producedOn }) (ب٢٦).
+// الجولة الرابعة (ق٤٢، ب٣١): سطر الخلطة يحمل unit_mismatch (سطر باللتر ومادّته الآن ليست باللتر) بمفتاح إلزامي، وكتلة السطر وحصّته
+// ومجموع الكتلة وكتلة قطعة شريط التركيبة مفاتيح إلزامية قد تكون قيمتها null (القارئ لا يرمي بسطر لا تُعرف كتلته): لا صفر صامت.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -77,6 +79,11 @@ const present = (row: Row, field: string): unknown => {
 };
 /** مبلغ مفتاحه إلزامي وقيمته قد تكون null (محجوب عن القارئ): الغائب خطأ شكل لا null صامت. */
 const nullableAmount = (row: Row, field: string): Fils | null => (present(row, field) === null ? null : amount(row, field));
+/**
+ * عدد عشري مفتاحه إلزامي وقيمته قد تكون null (ق٤٢: كتلة سطر باللتر بلا كثافة لا تُعرف): الغائب خطأ شكل، والـnull يُقرأ null لا صفراً،
+ * فالشاشة تعرض «—» بدل كتلة صفرية تُجمع.
+ */
+const nullableScaled = (row: Row, field: string, scale: number): bigint | null => (present(row, field) === null ? null : scaled(row, field, scale));
 /** صندوق المال: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
 const moneyBox = (row: Row): Row | null => optRecord(row.money, 'money');
 /** المال داخل money: غائب كلّه لغير أدوار الكلفة (private.mask)، فالشاشة تعرض «—» ولا تكسر. */
@@ -122,7 +129,8 @@ export interface LastBatch {
 export interface RecipePiece {
   key: string;
   label: string;
-  weight: bigint;
+  /** الكتلة بالكيلو (بالآلاف)، أو null حين لا تُعرف (ق٤٢: سطر باللتر بلا كثافة): شريط التركيبة يتخطّاها والرقاقة «—». */
+  weight: bigint | null;
   /**
    * داخل كتلة الخلطة (الجولة الثانية، ب٨، من لقطة in_basis على سطر الخلطة): الوقود والتعبئة خارجها، فلا يدخلان شريط التركيبة
    * ولا رقاقاته في شاشة المعمل. المفتاح إلزامي.
@@ -187,7 +195,12 @@ export function parseRecipes(value: unknown): RecipeCard[] {
     const last = lastBatch(row.last_batch);
     const item = record(row.output_item, 'output_item');
     const pieces = active
-      ? list(active.pieces, 'pieces').map((piece) => ({ key: str(piece, 'item_id'), label: str(piece, 'item_name'), weight: qty(piece, 'mass_kg'), inBasis: flag(piece, 'in_basis') }))
+      ? list(active.pieces, 'pieces').map((piece) => ({
+          key: str(piece, 'item_id'),
+          label: str(piece, 'item_name'),
+          weight: nullableScaled(piece, 'mass_kg', 3),
+          inBasis: flag(piece, 'in_basis'),
+        }))
       : [];
     return {
       id: str(row, 'id'),
@@ -222,8 +235,10 @@ export interface RecipeLine {
   categoryName: string | null;
   qty: bigint;
   unit: RecipeUnit;
-  massKg: bigint;
-  sharePct: bigint;
+  /** كتلة السطر بالكيلو، أو null حين لا تُعرف (ق٤٢: سطر باللتر ومادّته بلا كثافة، كسطر unit_mismatch في المسوّدة). */
+  massKg: bigint | null;
+  /** حصّة السطر من الأساس بمرتبتين، أو null مع الكتلة. */
+  sharePct: bigint | null;
   /**
    * داخل كتلة الخلطة (إصلاح ق٣ للمراجعة): الوقود والتعبئة خارجها — يُسحبان وتُحسب كلفتهما، ولا يدخلان مجموع الأساس ولا
    * حصص المواد ولا كتلة المدخلات التي يُحسب منها الهدر.
@@ -240,6 +255,11 @@ export interface RecipeLine {
    * item_changed) حتّى تُنشأ نسخة جديدة وتُفعَّل. false لسطر المسوّدة (بلا لقطة). المفتاح إلزامي في كلّ سطر.
    */
   unitChanged: boolean;
+  /**
+   * سطر مكتوب باللتر ومادّته الآن ليست باللتر (الجولة الرابعة، ق٤٢): في المسوّدة لا تُعرف كتلته ولا تُفعَّل النسخة به (bad_recipe_unit)
+   * حتّى يُحذف ويُضاف بالكيلوغرام؛ وفي النسخة المجمَّدة تُخطَّط كتلته من لقطة الكثافة (ق٤١). المفتاح إلزامي في كلّ سطر.
+   */
+  unitMismatch: boolean;
 }
 
 export interface RecipeVersionRow {
@@ -294,7 +314,8 @@ export interface RecipeDetail {
   basisKg: bigint;
   versionVersion: number;
   lines: RecipeLine[];
-  massKg: bigint;
+  /** مجموع كتلة ما داخل الكتلة، أو null: خلطة بلا نسخة، أو سطر داخل الكتلة لا تُعرف كتلته (ق٤٢). */
+  massKg: bigint | null;
   /** مواد مرشَّحة لسطر جديد: فعّالة، يستلمها مخزن المواد الأوّلية، وتُقاس بالكيلو أو اللتر. */
   pickItems: PickItem[];
   /** معدّلات تكاليف الطنّ للنسخة المختارة، أو null لغير أدوار الكلفة. */
@@ -372,15 +393,16 @@ export function parseRecipe(value: unknown): RecipeDetail {
       categoryName: optStr(row, 'category_name'),
       qty: qty(row, 'qty'),
       unit: str(row, 'unit') === 'L' ? 'L' : 'kg',
-      massKg: qty(row, 'mass_kg'),
-      sharePct: scaled(row, 'share_pct', 2) ?? 0n,
+      massKg: nullableScaled(row, 'mass_kg', 3),
+      sharePct: nullableScaled(row, 'share_pct', 2),
       inBasis: flag(row, 'in_basis'),
       unitCost: money(row, 'unit_cost'),
       costPrice: money(row, 'cost_price'),
       lastPrice: money(row, 'last_price'),
       unitChanged: flag(row, 'unit_changed'),
+      unitMismatch: flag(row, 'unit_mismatch'),
     })),
-    massKg: qty(json, 'mass_kg'),
+    massKg: nullableScaled(json, 'mass_kg', 3),
     pickItems: list(json.pick_items, 'pick_items').map((row) => ({
       id: str(row, 'id'),
       name: str(row, 'name'),

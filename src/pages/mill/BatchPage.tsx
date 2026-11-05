@@ -64,11 +64,22 @@ import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 // المحفوظ)؛ وأثناء الحفظ يُقفل قسم الوزن ورابط «سجّل مصروفاً»، ولا يُفرَّغ حقل إلّا إن بقي كما أُرسل، ونافذة «لم يُحفظ» تُغلق حين يُحفظ
 // ما فيها (ب٢٢)؛ ويوم الإنتاج يُعدَّل في المسوّدة بيوم تقويم فتُصحَّح المسوّدة القديمة بدل أن تُحذف (ب٢٦)؛ ووجبات مخزن المواد لمن هو
 // خارج نطاقه جملةٌ بلا رابط (ب٢٨، draws = null).
+// الجولة الرابعة: قاعدة ب٢٢ للصفحة كلّها — خانتا الكمية الفعلية ومبلغ سطر التكلفة وحقلا السطر الجديد و«فئة جديدة» مقفولة أثناء الحفظ،
+// وEnter لا يحفظ أثناءه، ولا يُمسح مسوَّد إلّا إن بقي كما أُرسل (ب٣٢)؛ والبطاقة والمعاينة من نسخة واحدة، وإلّا تُعادان (ب٣٣)؛
+// و«اختم الكلف» يقف عند مبلغ لم يُحفظ (ب٣٤)؛ و«أرجع ما لم يُحفظ» يعيد الصفحة إلى المحفوظ، ويوم الإنتاج الفارغ غير مكتوب (ب٣٥).
 
 interface BatchState {
   batch: ProductionBatch;
   preview: ProductionPreview | null;
+  /** البطاقة والمعاينة بنسختين مختلفتين بعد كلّ المحاولات (ب٣٣): الصفحة تقول ذلك، ولا تُرحَّل نسخة لم تُعرض. */
+  stale: boolean;
 }
+
+/** محاولات قراءة البطاقة والمعاينة بنسخة واحدة (ب٣٣): جهاز آخر يحفظ بين القراءتين فتُعادان. */
+const READ_TRIES = 3;
+
+/** السطر الجديد فارغاً: لا فئة ولا مبلغ. */
+const NO_NEW_COST = { categoryId: '', amount: '' };
 
 const PROBLEM_TEXT: Readonly<Record<string, () => string>> = {
   insufficient_stock: () => t('mill.problem.short', 'الرصيد لا يكفي'),
@@ -330,9 +341,16 @@ export default function BatchPage() {
   const canFixKind = role !== null && can(role, 'stores.manage');
 
   const load = useCallback(async (): Promise<BatchState> => {
-    const batch = await loadBatch(id);
-    // المعاينة بنطاق مخزن المدخلات وحده (ق٢٥، ب٣): من يقرأ الدفعة من طرف العلف لا يُطلب له ما يرفضه الخادم، فلا تفشل الصفحة.
-    return { batch, preview: batch.status === 'draft' && batch.scope.input ? await previewProduction(id) : null };
+    for (let attempt = 1; ; attempt += 1) {
+      const batch = await loadBatch(id);
+      // المعاينة بنطاق مخزن المدخلات وحده (ق٢٥، ب٣): من يقرأ الدفعة من طرف العلف لا يُطلب له ما يرفضه الخادم، فلا تفشل الصفحة.
+      if (batch.status !== 'draft' || !batch.scope.input) return { batch, preview: null, stale: false };
+      const preview = await previewProduction(id);
+      // القراءتان بنداءين (ب٣٣): إن حفظ جهاز آخر بينهما (يوم الإنتاج أو الوزن…) فالمعاينة بنسخة غير التي تعرضها الصفحة، و«أنتج الآن»
+      // يرسل نسخة المعاينة وبصمتها؛ فتُعادان معاً حتّى تتطابقا، وإلّا لا ترحيل بنسخة لم تُعرض.
+      const stale = preview.version !== batch.version;
+      if (!stale || attempt >= READ_TRIES) return { batch, preview, stale };
+    }
   }, [id]);
   const { data, error, loading, retry } = useLoad<BatchState>(load, id);
   const loadCategories = useCallback((): Promise<CategoryOption[]> => (canCosts ? loadExpenseCategories() : Promise.resolve([])), [canCosts]);
@@ -349,7 +367,7 @@ export default function BatchPage() {
   const [replacing, setReplacing] = useState<MaterialRow | null>(null);
   const [removingInput, setRemovingInput] = useState<MaterialRow | null>(null);
   const [removingCost, setRemovingCost] = useState<BatchCost | null>(null);
-  const [newCost, setNewCost] = useState({ categoryId: '', amount: '' });
+  const [newCost, setNewCost] = useState(NO_NEW_COST);
   const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
   const [category, setCategory] = useState<CategoryDraft>(NO_CATEGORY_DRAFT);
   const [discarding, setDiscarding] = useState(false);
@@ -360,6 +378,7 @@ export default function BatchPage() {
 
   const batch = data?.batch ?? null;
   const preview = data?.preview ?? null;
+  const stale = data?.stale ?? false;
   const rows = useMemo(() => (batch ? materialRows(batch, preview) : []), [batch, preview]);
   const decimals = useMemo(
     () => columnDecimals(rows.flatMap((row) => [row.plannedQty, row.drawQty, row.actualQty ?? 0n]), 3) as 0 | 1 | 2 | 3,
@@ -418,15 +437,18 @@ export default function BatchPage() {
   // وجملته (أقدم من سبعة أيام، أو فترة مقفلة، أو قبل يوم التشغيل)؛ فالمسوّدة التي كبرت على يومها يُصحَّح يومها بدل أن تُحذف.
   const savedDay = fmtDay(batch.producedOn);
   const shownDay = producedDay ?? savedDay;
-  const typedDay = parseDayText(shownDay);
+  // يوم الإنتاج إلزامي فلا معنى لفراغه (ب٣٥): الحقل الفارغ غير مكتوب — لا يدخل قائمة ما لم يُحفظ ولا يُرسل ولا يقفل «احفظ» — ويعود إلى
+  // المحفوظ حين يُغادَر (onBlur).
+  const dayTyped = producedDay !== null && producedDay.trim() !== '';
+  const typedDay = dayTyped ? parseDayText(shownDay) : batch.producedOn;
   const dayBad = typedDay === null;
-  const fieldsTouched = weight !== null || reason !== null || (expiryShown && expiry !== null) || producedDay !== null;
+  const fieldsTouched = weight !== null || reason !== null || (expiryShown && expiry !== null) || dayTyped;
 
   const saveFields = () => {
     if (busy || weightBad || expiryBad || dayBad || !fieldsTouched) return;
     // ما أُرسل من كلّ حقل بنصّه (ب٢٢): بعد الحفظ لا يُفرَّغ حقل إلّا إن بقي المعروض فيه كما أُرسل، وما لم يُرسل لا يُمسّ، فلا يضيع
     // ما كُتب أثناء الحفظ (الحقول مقفولة أثناءه أصلاً).
-    const sent = { weight, reason, expiry: expiryShown ? expiry : null, day: producedDay };
+    const sent = { weight, reason, expiry: expiryShown ? expiry : null, day: dayTyped ? producedDay : null };
     const fields: { producedOn?: string; outputQtyKg?: bigint | null; shrinkReason?: string | null; outputExpiryOn?: string | null } = {};
     if (sent.weight !== null) fields.outputQtyKg = typedWeight;
     if (sent.reason !== null) fields.shrinkReason = sent.reason.trim() === '' ? null : sent.reason;
@@ -475,22 +497,27 @@ export default function BatchPage() {
     }
   };
 
+  // بعد الحفظ (ب٣٢، قاعدة ب٢٢): يُمسح المسوَّد إن بقي نصّه كما أُرسل، وإلّا يبقى ما كُتب أثناء الحفظ (والخانة مقفولة أثناءه أصلاً)
+  // مشروطاً بما حُفظ الآن، فلا تنفتح بوّابة «أنتج الآن» على القيمة الأقدم ولا يُرفض حفظه التالي «من جهاز آخر».
   const saveActual = (row: MaterialRow) => {
     const edit = actuals.get(row.id);
-    if (!edit) return;
+    if (busy || !edit) return;
     const value = edit.text.trim() === '' ? null : parseQty(edit.text);
     if (edit.text.trim() !== '' && (value === null || value <= 0n)) return;
     void act(async () => {
       await setInputActual(row.id, edit.before, value);
-      actuals.clear(row.id);
+      actuals.settle(row.id, edit.text, value);
     });
   };
 
-  const saveAmount = (cost: BatchCost, value: Fils) =>
+  const saveAmount = (cost: BatchCost, value: Fils) => {
+    if (busy) return;
+    const edit = amounts.get(cost.id);
     void act(async () => {
-      await setBatchCost(cost.id, amounts.get(cost.id)?.before ?? cost.amount, value);
-      amounts.clear(cost.id);
+      await setBatchCost(cost.id, edit?.before ?? cost.amount, value);
+      amounts.settle(cost.id, edit?.text ?? null, value);
     });
+  };
 
   const mass = preview?.inputMassKg ?? batch.inputMassKg;
   const output = preview?.outputQtyKg ?? batch.outputQtyKg;
@@ -542,6 +569,7 @@ export default function BatchPage() {
             dirty={edit !== undefined && text !== saved}
             invalid={text.trim() !== '' && (parsed === null || parsed <= 0n)}
             busy={busy}
+            disabled={busy}
             action="input-actual"
             onChange={(next) => actuals.write(row.id, next, row.actualQty)}
             onSave={() => saveActual(row)}
@@ -620,6 +648,7 @@ export default function BatchPage() {
             dirty={edit !== undefined && text !== saved}
             invalid={parsed === null || parsed < 0n}
             busy={busy}
+            disabled={busy}
             action="cost-amount"
             onChange={(next) => amounts.write(cost.id, next, cost.amount)}
             onSave={() => {
@@ -689,13 +718,15 @@ export default function BatchPage() {
   const otherProblems = problems.filter((problem) => problem.code !== 'costs_unfunded');
 
   // ما كُتب ولم يُحفظ (ب٤): «سجّل مصروفاً» يغادر الصفحة، فيُسأل عنه بالاسم قبل أن يضيع؛ و«أنتج الآن» يرحّل المحفوظ وحده، فيُعطَّل
-  // حتّى يُحفظ أو يُمسح (ب٢١). القائمة من شرط editInputs، فتشمل مشغّل المعمل، ومن شرط editCosts للتكاليف.
+  // حتّى يُحفظ أو يُرجَع إلى المحفوظ (ب٢١، ب٣٥). القائمة من شرط editInputs، فتشمل مشغّل المعمل، ومن شرط editCosts للتكاليف؛ وبنود
+  // التكاليف وحدها (costUnsaved) بوّابة «اختم الكلف» أيضاً (ب٣٤): الختم يأخذ المبالغ المحفوظة، ثمّ يرحّل بها مشغّل المعمل.
   const unsaved: string[] = [];
+  const costUnsaved: string[] = [];
   if (editInputs) {
     if (weight !== null && (weightBad || (typedWeight ?? 0n) !== batch.outputQtyKg)) unsaved.push(t('mill.unsaved.weight', 'وزن الناتج'));
     if (reason !== null && shownReason.trim() !== savedReason.trim()) unsaved.push(t('mill.unsaved.reason', 'سبب الهدر'));
     if (expiryShown && expiry !== null && (expiryBad || typedExpiry !== batch.outputExpiryOn)) unsaved.push(t('mill.unsaved.expiry', 'تاريخ انتهاء الناتج'));
-    if (producedDay !== null && (dayBad || typedDay !== batch.producedOn)) unsaved.push(t('mill.unsaved.produced_on', 'يوم الإنتاج'));
+    if (dayTyped && (dayBad || typedDay !== batch.producedOn)) unsaved.push(t('mill.unsaved.produced_on', 'يوم الإنتاج'));
     for (const row of rows) {
       const edit = actuals.get(row.id);
       if (edit && edit.text !== (row.actualQty === null ? '' : decimalText(row.actualQty, 3))) unsaved.push(t('mill.unsaved.actual', 'الكمية الفعلية من «{name}»', { name: row.itemName }));
@@ -704,23 +735,48 @@ export default function BatchPage() {
   if (editCosts) {
     for (const cost of costRows) {
       const edit = amounts.get(cost.id);
-      if (edit && edit.text !== decimalText(cost.amount, 2)) unsaved.push(t('mill.unsaved.amount', 'مبلغ «{name}»', { name: cost.categoryName }));
+      if (edit && edit.text !== decimalText(cost.amount, 2)) costUnsaved.push(t('mill.unsaved.amount', 'مبلغ «{name}»', { name: cost.categoryName }));
     }
-    if (newCost.categoryId !== '' || newCost.amount.trim() !== '') unsaved.push(t('mill.unsaved.new_cost', 'سطر التكلفة الجديد'));
-    if (category.text.trim() !== '') unsaved.push(t('mill.unsaved.category', 'اسم الفئة الجديدة «{name}»', { name: category.text.trim() }));
+    if (newCost.categoryId !== '' || newCost.amount.trim() !== '') costUnsaved.push(t('mill.unsaved.new_cost', 'سطر التكلفة الجديد'));
+    if (category.text.trim() !== '') costUnsaved.push(t('mill.unsaved.category', 'اسم الفئة الجديدة «{name}»', { name: category.text.trim() }));
+    unsaved.push(...costUnsaved);
   }
   // نافذة «ما كتبته هنا لم يُحفظ» تُغلق إن صارت القائمة فارغة وهي مفتوحة (ب٢٢: حُفظ ما فيها، أو أُنشئت الفئة المكتوبة)، فلا تبقى بجملة
   // فارغة ولا تعود وحدها بكتابة لاحقة. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (نمط React «معلومة من رسم سابق»).
   if (leaving !== null && !unsaved.length) setLeaving(null);
 
   const post = () => {
-    // الترحيل يأخذ المحفوظ وحده (ب٢١، درس WP8): ما كُتب ولم يُحفظ يُحفظ أو يُمسح أوّلاً، والزرّ معطَّل حتّى ذلك.
-    if (!preview || unsaved.length) return;
+    // الترحيل يأخذ المحفوظ وحده (ب٢١، درس WP8): ما كُتب ولم يُحفظ يُحفظ أو يُرجَع أوّلاً، والزرّ معطَّل حتّى ذلك؛ ونسخة المعاينة هي
+    // نسخة البطاقة المعروضة (ب٣٣)، وإلّا لا ترحيل.
+    if (!preview || stale || unsaved.length) return;
     void act(async () => {
       await postProduction(batch.id, preview.version, preview.planToken, millRef(`post:${batch.id}`));
       forgetMillRef(`post:${batch.id}`);
     }, t('mill.posted', 'تمّ الإنتاج: دخل العلف مخزنه.'));
   };
+
+  const seal = () => {
+    // الختم يأخذ المبالغ المحفوظة (ب٣٤): مبلغ أو سطر أو فئة لم تُحفظ يُحفظ أو يُرجَع أوّلاً، والزرّ معطَّل حتّى ذلك.
+    if (busy || costUnsaved.length) return;
+    void act(() => confirmCosts(batch.id, batch.version));
+  };
+
+  // «أرجع ما لم يُحفظ» (ب٣٥): المخرج الذي تسمّيه البوّابة — كلّ مسوّدات الصفحة إلى المحفوظ (حقول الوزن واليوم، والكميات الفعلية،
+  // والمبالغ، والسطر الجديد، واسم الفئة الجديدة)، فلا يُضطرّ أحد إلى حفظ فراغ يمحو وزناً موزوناً. المسح المقصود للوزن يبقى بالحفظ.
+  const revert = () => {
+    if (busy) return;
+    setWeight(null);
+    setReason(null);
+    setExpiry(null);
+    setProducedDay(null);
+    actuals.reset();
+    amounts.reset();
+    setNewCost(NO_NEW_COST);
+    setCategory((current) => ({ ...current, text: '', problem: null }));
+  };
+  const postGate = canPost && unsaved.length > 0;
+  const sealShown = !batch.costsConfirmed && canSeal && expensesVisible;
+  const sealGate = sealShown && costUnsaved.length > 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -862,6 +918,7 @@ export default function BatchPage() {
                       id={`${fieldId}-new-cost-category`}
                       className="input"
                       value={newCost.categoryId}
+                      disabled={busy}
                       onChange={(event) => setNewCost((current) => ({ ...current, categoryId: event.target.value }))}
                       data-action="new-cost-category"
                     >
@@ -880,6 +937,7 @@ export default function BatchPage() {
                       inputMode="decimal"
                       dir="ltr"
                       value={newCost.amount}
+                      disabled={busy}
                       onChange={(event) => setNewCost((current) => ({ ...current, amount: event.target.value }))}
                       data-action="new-cost-amount"
                     />
@@ -890,13 +948,14 @@ export default function BatchPage() {
                     busy={busy}
                     disabled={!newCostOk}
                     onClick={() => {
-                      if (!newCostOk || newCostValue === null) return;
+                      if (busy || !newCostOk || newCostValue === null) return;
                       const slot = `cost:${batch.id}:${newCost.categoryId}`;
-                      const categoryId = newCost.categoryId;
+                      const sent = newCost;
                       void act(async () => {
-                        await addBatchCost(batch.id, millRef(slot), categoryId, newCostValue);
+                        await addBatchCost(batch.id, millRef(slot), sent.categoryId, newCostValue);
                         forgetMillRef(slot);
-                        setNewCost({ categoryId: '', amount: '' });
+                        // ب٣٢: لا يُفرَّغ السطر الجديد إلّا إن بقي كما أُرسل.
+                        setNewCost((current) => (current.categoryId === sent.categoryId && current.amount === sent.amount ? NO_NEW_COST : current));
                       });
                     }}
                     data-action="add-cost"
@@ -910,6 +969,7 @@ export default function BatchPage() {
                   canManage={canCategories}
                   value={category}
                   onChange={setCategory}
+                  disabled={busy}
                   onPick={(picked) => {
                     setMadeCategories((current) => (current.some((made) => made.id === picked.id) ? current : [...current, picked]));
                     if (!costRows.some((cost) => cost.categoryId === picked.id)) setNewCost((current) => ({ ...current, categoryId: picked.id }));
@@ -1033,6 +1093,8 @@ export default function BatchPage() {
                 value={shownDay}
                 disabled={busy}
                 onChange={(event) => setProducedDay(event.target.value)}
+                // اليوم الممسوح غير مكتوب (ب٣٥): يعود إلى المحفوظ حين يُغادَر الحقل، فلا يبقى فارغاً بلا معنى.
+                onBlur={() => setProducedDay((current) => (current !== null && current.trim() === '' ? null : current))}
                 data-action="produced-on"
               />
             </Field>
@@ -1045,21 +1107,33 @@ export default function BatchPage() {
 
       {draft && inputScope ? (
         <div className="flex flex-col gap-2">
+          {stale ? (
+            // البطاقة والمعاينة بنسختين بعد كلّ المحاولات (ب٣٣): لا ترحيل بنسخة لم تُعرض.
+            <Notice
+              tone="warning"
+              title={t('mill.batch.stale', 'تغيّرت الدفعة الآن من جهاز آخر؛ حدّث الصفحة.')}
+              action={
+                <Button size="sm" variant="secondary" disabled={busy} onClick={retry} data-action="reload-batch">
+                  {t('mill.batch.reload', 'حدّث الصفحة')}
+                </Button>
+              }
+            />
+          ) : null}
           <div className="flex flex-wrap gap-2">
             {canPost ? (
               <Button
                 size="lg"
                 icon={<Factory className="size-5" aria-hidden="true" />}
                 busy={busy}
-                disabled={!preview?.canPost || unsaved.length > 0}
+                disabled={!preview?.canPost || stale || unsaved.length > 0}
                 onClick={post}
                 data-action="post-production"
               >
                 {t('mill.post', 'أنتج الآن')}
               </Button>
             ) : null}
-            {!batch.costsConfirmed && canSeal && expensesVisible ? (
-              <Button variant="secondary" busy={busy} onClick={() => void act(() => confirmCosts(batch.id, batch.version))} data-action="seal-costs">
+            {sealShown ? (
+              <Button variant="secondary" busy={busy} disabled={costUnsaved.length > 0} onClick={seal} data-action="seal-costs">
                 {t('mill.seal', 'اختم الكلف')}
               </Button>
             ) : null}
@@ -1069,10 +1143,24 @@ export default function BatchPage() {
               </Button>
             ) : null}
           </div>
-          {canPost && unsaved.length ? (
-            <p className="text-sm font-medium" data-action="post-unsaved">
-              {t('mill.post.unsaved', 'احفظ ما كتبته أو امسحه قبل الإنتاج: {list}.', { list: unsaved.join(t('list.separator', '، ')) })}
-            </p>
+          {postGate || sealGate ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2">
+                {postGate ? (
+                  <p className="text-sm font-medium" data-action="post-unsaved">
+                    {t('mill.post.unsaved', 'احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: {list}.', { list: unsaved.join(t('list.separator', '، ')) })}
+                  </p>
+                ) : null}
+                {sealGate ? (
+                  <p className="text-sm font-medium" data-action="seal-unsaved">
+                    {t('mill.seal.unsaved', 'احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الختم: {list}.', { list: costUnsaved.join(t('list.separator', '، ')) })}
+                  </p>
+                ) : null}
+              </div>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={revert} data-action="revert-unsaved">
+                {t('mill.unsaved.revert', 'أرجع ما لم يُحفظ')}
+              </Button>
+            </div>
           ) : null}
         </div>
       ) : null}

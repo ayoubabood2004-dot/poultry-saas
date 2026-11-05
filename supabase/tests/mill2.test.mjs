@@ -16,6 +16,10 @@
 // التفعيل، والوحدة و«داخل الكتلة» من اللقطة، والمسوّدة بالوحدة الحيّة)، وdraws = null لطرف الناتج (أمين العلف ومحاسبه، في المرحَّلة والملغاة)
 // بمحلّل البطاقة وloadBatch، وcreate_production وcreateProduction يُرفضان item_changed بتلميحه (RejectedError كما تعرضه نافذة «أنتج»)، والكثافة
 // للتخطيط لقطة السطر؛ وsetBatchFields({ producedOn }) من حقل يوم الإنتاج ثمّ المعاينة (date_too_old وdate_in_future بجملتي الخادم) والترحيل بيومه.
+// ودمج الجولة الرابعة (fixes4.md القسم د): unit_mismatch على كلّ سطر من جواب recipe_detail الحقيقي بمحلّله، والكتل null (كتلة السطر وحصّته ومجموع
+// الكتلة في المسوّدة، وقطعة لوحة المعمل في حالة مجمَّدة بلا كثافة مزروعة بمعاملة ترجع) لا صفراً؛ ولقطة لتر لمادّة صارت بالكيلو: create_production
+// وcreateProduction ينجحان بالكتلة من لقطة الكثافة، وnew_recipe_version وnewRecipeVersion يحوّلان السطر كيلوغراماً، وactivate_recipe_version
+// وactivateVersion يُرفضان bad_recipe_unit بتلميح يسمّي المادّة، ثمّ الحذف والإضافة بالكيلوغرام كما تقول جملة البطاقة.
 // الأرقام محسوبة باليد بالتعليق جنب كلّ واحد، لا منسوخة من جواب الدالّة.
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -109,7 +113,7 @@ async function screensRepo() {
           'export { createRecipe, loadRecipe, loadMill, loadBuilder, createProduction, previewProduction, loadBatch, addProductionInput,',
           '  deleteProductionInput, addBatchCost, setBatchCost, deleteBatchCost, addRecipeRate, setRecipeRate, deleteRecipeRate, setInputActual,',
           "  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch, setRecipeLine,",
-          "  activateVersion } from './src/lib/repo/mill.ts';",
+          "  activateVersion, addRecipeLine, deleteRecipeLine } from './src/lib/repo/mill.ts';",
           'export { loadItemLots, loadItemMoves, loadItemPurchases, setItemCostPrice, createExpenseCategory, rename, createItem, loadItem, updateItem, findItemTwins }',
           "  from './src/lib/repo/inventory.ts';",
           "export { loadExpenses, voidExpense } from './src/lib/repo/cash.ts';",
@@ -1318,7 +1322,154 @@ async function scenario(t, db) {
     ['ok', ['draft', 983000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'L', 'kg', 17000n, 17000n, false, false]]]],
     'parseRecipe (المسوّدة المنسوخة بعد التصحيح): الوحدة والنوع الحيّان (L وfuel خارج الكتلة، فالكتلة 983)، وunit_changed = false (لا لقطة)',
   );
+  // والجولة الرابعة (ق٤٢، ب٣١): سطر الكاز مكتوب بالكيلو، فـunit_mismatch = false في المفعَّلة (لمن يقرؤها) والمسوّدة — هذا الاتّجاه (kg ← L) يقوله
+  // unit_changed وحده، وunit_mismatch لسطر مكتوب باللتر ومادّته الآن ليست باللتر (أدناه).
+  t.same(
+    [kazActive?.lines.map((l) => l.unitMismatch), kazMiller?.lines.map((l) => l.unitMismatch), kazDraft?.lines.map((l) => l.unitMismatch)],
+    [[false, false], [false, false], [false, false]],
+    'parseRecipe: unit_mismatch = false لسطر الكاز المكتوب بالكيلو في المفعَّلة والمسوّدة (الاتّجاه kg ← L يقوله unit_changed وحده، ق٤١ وق٤٢)',
+  );
   t.same(await nonZero('verify_mill'), {}, 'verify_mill صفر بعد تصحيح وحدة مادّة في خلطة مفعَّلة (الفحص الثالث يقرأ لقطة الوحدة، ق٣١)');
+
+  // ─── دمج الجولة الرابعة (fixes4.md القسم د؛ ق٤١ وق٤٢ وب٣١): جواب القاعدة الحقيقي بمحلّلات الشاشات ─────────────────────────────
+  /** جواب القاعدة بمحلّل الشاشة، أو فحص فاشل باسمه ورمز رفض القاعدة (لا يُمرَّر جواب غائب للمحلّل فيرمي بخطأ شكل يخفي الرمز). */
+  const servedAs = async (label, user, sql, params, parser) => {
+    const out = await call(user, sql, params);
+    if (!out.ok) {
+      t.ok(false, `${label}: رمت القاعدة ${out.code}`);
+      return null;
+    }
+    return parsed(label, () => parser(out.v));
+  };
+  const fullLine = (l) => [l.itemName, l.baseUnit, l.unit, l.qty, l.massKg, l.sharePct, l.inBasis, l.unitChanged, l.unitMismatch];
+  const liquidItem = (name, kind, density) =>
+    one(U.manager, "insert into public.items (name, kind, base_unit, density_kg_per_l) values ($1, $2, 'L', $3) returning id", [name, kind, density]);
+  // التصحيح كما يرسله نموذج المادّة (changedFields): الوحدة كيلوغرام والكثافة فارغة معاً (items_density_unit_check)، قبل أيّ حركة.
+  const toKg = (itemId) => one(U.manager, "update public.items set base_unit = 'kg', density_kg_per_l = null where id = $1 returning id", [itemId]);
+  const ACTIVATE_V = 'select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))';
+
+  // الاتّجاه الآخر (ق٤١): «دبس الدمج» أوّلي باللتر بكثافة 1.4 في خلطة مفعَّلة (ذرة 972 + دبس 20 لتراً = 28 كغم ← 1,000)، ثمّ يُصحَّح كيلوغراماً قبل أيّ
+  // حركة. جواب recipe_detail بمحلّل الشاشة: سطر الدبس بلقطته (L و«داخل الكتلة»، وكتلته 20 × 1.4 = 28 وحصّته 28 × 100 ÷ 1,000 = 2.80٪ من لقطة
+  // الكثافة)، وunit_changed = false (يُنتَج بها، فلا تنبيه «تغيّرت وحدة»)، وunit_mismatch = true (مكتوب باللتر ومادّته الآن بالكيلو)؛ وقطعة لوحة المعمل
+  // 28 كغم. وcreate_production ينجح (كان item_changed): الدبس بالكيلو 28 × 1,000 ÷ (1,000 × 0.1) = 280 خطوة ← 28.0 كغم والذرة 972.0، بمحلّل البطاقة.
+  // و«نسخة جديدة» تنسخ سطره 28 كغم (round3(20 × 1.4)) بالكيلو فلا unit_mismatch، وتتفعّل (972 + 28 = 1,000) فيصير سطر المفعَّلة بالكيلو.
+  const DIBS_I = await liquidItem('دبس الدمج', 'raw', 1.4);
+  const R7 = id(171);
+  const V7 = id(172);
+  const dibsBuilt = await createRecipe(U.manager, R7, V7, 'بادئ بدبس الدمج', FEED2, 1000, [{ item_id: CORN, qty: 972, unit: 'kg' }, { item_id: DIBS_I, qty: 20, unit: 'L' }], [], true);
+  t.eq(dibsBuilt.v?.status, 'active', `خلطة بدبس الدمج مفعَّلة: 972 + 20 × 1.4 = 1,000 (${dibsBuilt.code ?? ''} ${dibsBuilt.hint ?? ''})`);
+  await toKg(DIBS_I);
+  const CORN_972 = ['ذرة صفراء', 'kg', 'kg', 972000n, 972000n, 9720n, true, false, false];
+  const dibsActive = await servedAs('parseRecipe (الدبس بعد تصحيحه كيلوغراماً)', U.manager, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
+  const dibsMiller = await servedAs('parseRecipe (مشغّل المعمل، الدبس بعد تصحيحه)', U.miller, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
+  t.same(
+    [dibsActive && [dibsActive.status, dibsActive.massKg, dibsActive.lines.map(fullLine)], dibsMiller && [dibsMiller.rates, dibsMiller.lines.map((l) => [l.itemName, l.massKg, l.unitChanged, l.unitMismatch])]],
+    [['active', 1000000n, [CORN_972, ['دبس الدمج', 'L', 'L', 20000n, 28000n, 280n, true, false, true]]], [null, [['ذرة صفراء', 972000n, false, false], ['دبس الدمج', 28000n, false, true]]]],
+    'parseRecipe: لقطة لتر ومادّة صارت بالكيلو — الكتلة 28 والحصّة 2.80٪ من لقطة الكثافة، وunit_changed = false (يُنتَج بها) وunit_mismatch = true، ولمشغّل المعمل بلا مال (ق٤١ وق٤٢، ب٣١)',
+  );
+  const dibsCards = await servedAs('parseRecipes (بعد تصحيح الدبس)', U.manager, 'select public.recipes_overview()', [], ui.parseRecipes);
+  t.same(cardOf(dibsCards, R7)?.pieces.map((p) => [p.label, p.weight, p.inBasis]), [['ذرة صفراء', 972000n, true], ['دبس الدمج', 28000n, true]],
+    'parseRecipes: قطعة الدبس 28 كغم من لقطة الكثافة بعد تصحيح مادّته كيلوغراماً (ق٤١)');
+  const DIBS_B = id(173);
+  const dibsMade = await create(U.miller, DIBS_B, V7, 1000);
+  const dibsBatch = await servedAs('parseBatch (دفعة الدبس)', U.miller, 'select public.production_detail($1)', [DIBS_B], ui.parseBatch);
+  t.same(
+    [code(dibsMade), dibsMade.hint ?? null, dibsBatch && dibsBatch.lines.map((l) => [l.itemName, l.baseUnit, l.plannedQty, l.inBasis])],
+    ['ok', null, [['ذرة صفراء', 'kg', 972000n, true], ['دبس الدمج', 'kg', 28000n, true]]],
+    'create_production بلقطة لتر ومادّة صارت بالكيلو: تنجح (كانت item_changed)، والدبس 28.0 كغم بالكيلو بمحلّل البطاقة (ق٤١)',
+  );
+  if (dibsMade.ok) await call(U.miller, "select public.discard_draft('production', $1, (select version from public.production_batches where id = $1))", [DIBS_B]);
+  const dibsCopy = await call(U.manager, 'select public.new_recipe_version($1, $2)', [R7, id(174)]);
+  const dibsDraft = await servedAs('parseRecipe (مسوّدة الدبس المنسوخة)', U.manager, 'select public.recipe_detail($1, $2)', [R7, id(174)], ui.parseRecipe);
+  const dibsRenewed = await call(U.manager, ACTIVATE_V, [id(174)]);
+  const dibsNow = await servedAs('parseRecipe (الدبس بعد تفعيل النسخة الجديدة)', U.manager, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
+  const DIBS_KG = ['دبس الدمج', 'kg', 'kg', 28000n, 28000n, 280n, true, false, false];
+  t.same(
+    [dibsCopy.ok ? parsed('parseNewRecipeVersion (الدبس)', () => ui.parseNewRecipeVersion(dibsCopy.v)) : dibsCopy.code,
+      dibsDraft && [dibsDraft.status, dibsDraft.massKg, dibsDraft.lines.map(fullLine)], code(dibsRenewed), dibsNow && [dibsNow.versionId, dibsNow.status, dibsNow.massKg, dibsNow.lines.map(fullLine)]],
+    [{ recipeId: R7, versionId: id(174), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false }, ['draft', 1000000n, [CORN_972, DIBS_KG]], 'ok',
+      [id(174), 'active', 1000000n, [CORN_972, DIBS_KG]]],
+    'new_recipe_version: سطر الدبس المكتوب باللتر يُنسخ 28 كغم بالكيلو (20 × 1.4) فلا unit_mismatch، وتتفعّل (972 + 28 = 1,000) (ق٤١، ب٣١)',
+  );
+
+  // لا سطر لتر بلا كثافة في نسخة تُفعَّل، ولا قارئ يرمي بسطر واحد (ق٤٢): «مولاس الدمج» أوّلي باللتر بكثافة 1.4 و«كاز مسوّدة الدمج» وقود باللتر بكثافة
+  // 0.85 في مسوّدة (ذرة 986 + مولاس 10 لترات + كاز 20 لتراً)، ومسوّدة ثانية (ذرة 1,000 + الكاز 20 لتراً)، ثمّ تُصحَّح المادّتان كيلوغراماً قبل أيّ حركة.
+  // جواب recipe_detail بمحلّل الشاشة: سطرا اللتر بكتلة وحصّة null (لا تُعرف بلا كثافة، والقارئ لا يرمي) وunit_mismatch = true، ومجموع الكتلة null لا
+  // 986 ناقصاً (المولاس داخلها)؛ والتفعيل bad_recipe_unit يسمّي أوّل سطر منهما (المولاس) بجملة حارس السطر.
+  const MOL_I = await liquidItem('مولاس الدمج', 'raw', 1.4);
+  const KAZ_I = await liquidItem('كاز مسوّدة الدمج', 'fuel', 0.85);
+  const R8 = id(175);
+  const V8 = id(176);
+  const R9 = id(177);
+  const V9 = id(178);
+  const molDraft = await createRecipe(U.manager, R8, V8, 'مسوّدة المولاس والكاز', FEED2, 1000,
+    [{ item_id: CORN, qty: 986, unit: 'kg' }, { item_id: MOL_I, qty: 10, unit: 'L' }, { item_id: KAZ_I, qty: 20, unit: 'L' }], [], false);
+  const kazOnly = await createRecipe(U.manager, R9, V9, 'مسوّدة كاز الدمج', FEED2, 1000, [{ item_id: CORN, qty: 1000, unit: 'kg' }, { item_id: KAZ_I, qty: 20, unit: 'L' }], [], false);
+  t.same([molDraft.v?.status, kazOnly.v?.status], ['draft', 'draft'], `مسوّدتا سطور اللتر قبل التصحيح (${molDraft.code ?? ''} ${kazOnly.code ?? ''})`);
+  await toKg(MOL_I);
+  await toKg(KAZ_I);
+  const molCard = await servedAs('parseRecipe (مسوّدة المولاس والكاز)', U.manager, 'select public.recipe_detail($1, $2)', [R8, V8], ui.parseRecipe);
+  t.same(
+    molCard && [molCard.status, molCard.massKg, molCard.lines.map(fullLine)],
+    ['draft', null, [['ذرة صفراء', 'kg', 'kg', 986000n, 986000n, 9860n, true, false, false], ['مولاس الدمج', 'kg', 'L', 10000n, null, null, true, false, true],
+      ['كاز مسوّدة الدمج', 'kg', 'L', 20000n, null, null, false, false, true]]],
+    'parseRecipe (مسوّدة): سطرا اللتر لمادّتين صارتا بالكيلو بكتلة وحصّة null وunit_mismatch = true، ومجموع الكتلة null (المولاس داخلها) لا 986 ناقصاً (ق٤٢، ب٣١)',
+  );
+  const molActivate = await call(U.manager, ACTIVATE_V, [V8]);
+  t.same([code(molActivate), molActivate.hint], ['bad_recipe_unit', '«مولاس الدمج» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.'],
+    'activate_recipe_version: bad_recipe_unit يسمّي أوّل سطر باللتر لمادّة صارت بالكيلو، بجملة حارس السطر (ق٤٢)');
+  // حالة مجمَّدة كما تركها التفعيل قبل الإصلاح (#1)، بمعاملة ترجع بدور postgres: «مسوّدة كاز الدمج» تُفعَّل بالتفعيل بلا فحص سطر اللتر (يُشال إن وُجد)،
+  // فلقطة سطر الكاز لتر ووحدة أساس كيلوغرام خارج الكتلة بلا كثافة. لوحة المعمل وبطاقة الخلطة بدور authenticated للمدير ومشغّل المعمل كما يطلبها
+  // PostgREST، والجواب بمحلّلي الشاشة: قطعة الكاز weight = null أخيراً (nulls last)، وسطره بكتلة وحصّة null وunit_mismatch = true، ومجموع الكتلة
+  // 1,000 (الكاز خارجها) — كانت اللوحة كلّها والبطاقة ترميان density_not_positive لكلّ قارئ.
+  const UNIT_CHECK = "if ln.unit = 'L' and ln.base_unit <> 'L' then";
+  const planted = await db.asOwner(async (q) => {
+    const def = (await q("select pg_get_functiondef('public.activate_recipe_version(uuid, integer)'::regprocedure) as d")).rows[0].d;
+    if (def.split(UNIT_CHECK).length === 2) await q(def.split(UNIT_CHECK).join('if false then'));
+    await q(ACTIVATE_V, [V9]);
+    const snap = (await q('select unit, base_unit, in_basis, density_kg_per_l::text as density from public.recipe_lines where version_id = $1 and item_id = $2', [V9, KAZ_I])).rows[0];
+    const read = async (user, sql, params = []) => {
+      await q('savepoint integ_read');
+      try {
+        await q('set local role authenticated');
+        await q("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, role: 'authenticated' })]);
+        const v = (await q(sql, params)).rows[0].v;
+        await q('release savepoint integ_read');
+        return { ok: true, v };
+      } catch (error) {
+        await q('rollback to savepoint integ_read');
+        return { ok: false, code: error.message };
+      }
+    };
+    return {
+      snap,
+      overview: await read(U.manager, 'select public.recipes_overview() as v'),
+      millerOverview: await read(U.miller, 'select public.recipes_overview() as v'),
+      detail: await read(U.manager, 'select public.recipe_detail($1, null) as v', [R9]),
+    };
+  }, U.manager);
+  const plantedParse = (label, read, parser) => {
+    if (read.ok) return parsed(label, () => parser(read.v));
+    t.ok(false, `${label}: رمت القاعدة ${read.code}`);
+    return null;
+  };
+  const plantedCards = plantedParse('parseRecipes (المدير، حالة مجمَّدة بلا كثافة)', planted.overview, ui.parseRecipes);
+  const plantedMiller = plantedParse('parseRecipes (مشغّل المعمل، حالة مجمَّدة بلا كثافة)', planted.millerOverview, ui.parseRecipes);
+  const plantedCard = plantedParse('parseRecipe (حالة مجمَّدة بلا كثافة)', planted.detail, ui.parseRecipe);
+  const PLANTED_PIECES = [['ذرة صفراء', 1000000n, true], ['كاز مسوّدة الدمج', null, false]];
+  t.same(
+    [planted.snap, cardOf(plantedCards, R9)?.pieces.map((p) => [p.label, p.weight, p.inBasis]), cardOf(plantedMiller, R9)?.pieces.map((p) => [p.label, p.weight, p.inBasis]),
+      cardOf(plantedCards, R9)?.moreLines],
+    [{ unit: 'L', base_unit: 'kg', in_basis: false, density: null }, PLANTED_PIECES, PLANTED_PIECES, 0],
+    'parseRecipes على حالة مجمَّدة بسطر لتر بلا كثافة (#1): لوحة المعمل لا ترمي للمدير ومشغّل المعمل، وقطعة الكاز weight = null أخيراً (ق٤٢، ب٣١)',
+  );
+  t.same(
+    plantedCard && [plantedCard.status, plantedCard.massKg, plantedCard.lines.map(fullLine)],
+    ['active', 1000000n, [['ذرة صفراء', 'kg', 'kg', 1000000n, 1000000n, 10000n, true, false, false], ['كاز مسوّدة الدمج', 'kg', 'L', 20000n, null, null, false, false, true]]],
+    'parseRecipe على الحالة المجمَّدة: سطر الكاز بكتلة وحصّة null وunit_mismatch = true، ومجموع الكتلة 1,000 (الكاز خارجها) (ق٤٢، ب٣١)',
+  );
+  t.same([await nonZero('verify_mill'), (await db.admin('select status from public.recipe_versions where id = $1', [V9])).rows[0].status], [{}, 'draft'],
+    'ضابط: معاملة الحالة المجمَّدة رجعت (المسوّدة مسوّدة)، والثوابت صفر');
 
   // «نسخة جديدة» تنسخ المفعَّلة (ق١٣، م٧): مسوّدة «بادئ ذهبي» الثانية بسطري المفعَّلة ومعدّليها، والإعادة والمسوّدة القائمة ترجعانها.
   const newVersion = (user, recipe, vid) => call(user, 'select public.new_recipe_version($1, $2)', [recipe, vid]);
@@ -1437,6 +1588,34 @@ async function scenario(t, db) {
       ['draft', [['ذرة صفراء', 350000n], ['كسبة صويا', 150000n]], null],
       'createProduction ثمّ loadBatch (مشغّل المعمل): المخطّط بالتناسب، وبلا تكاليف',
     );
+    // نسختا القراءتين اللتين يقارنهما BatchPage.load (الجولة الرابعة، ب٣٣ وfindings4 #4)، على دفعة تجربة 100 كغم من النسخة نفسها تُحذف بعده: بلا
+    // كاتب بينهما تتطابق نسخة production_detail ونسخة preview_production لمشغّل المعمل والمدير والمحاسب (فلا تقول الصفحة «تغيّرت الدفعة الآن من جهاز
+    // آخر» لدفعة لم تتغيّر)، وحفظ من جهاز آخر بينهما (مشغّل المعمل يكتب الوزن بـsetBatchFields) يجعل المعاينة أحدث بواحد، فتُعاد القراءتان ولا يُرحَّل
+    // بنسخة لم تُعرض.
+    const PAIR = id(267);
+    await repo.createProduction(PAIR, id(132), 100000n, RAW, FEEDWH, TODAY);
+    const readPair = async (user, between = null) => {
+      try {
+        actAs(user);
+        const shown = await repo.loadBatch(PAIR);
+        if (between) await between();
+        actAs(user);
+        return (await repo.previewProduction(PAIR)).version - shown.version;
+      } catch (error) {
+        return `${error?.name}: ${error?.code ?? error?.message}`;
+      }
+    };
+    t.same(
+      [await readPair(U.miller), await readPair(U.manager), await readPair(U.accountant),
+        await readPair(U.manager, async () => {
+          actAs(U.miller);
+          await repo.setBatchFields(PAIR, { outputQtyKg: 99000n });
+        })],
+      [0, 0, 0, 1],
+      'BatchPage.load (ب٣٣): نسخة production_detail = نسخة preview_production بلا كاتب بينهما لكلّ قارئ، وحفظ من جهاز آخر بينهما يجعل المعاينة أحدث بواحد',
+    );
+    actAs(U.miller);
+    await repo.discardBatch(PAIR, (await repo.loadBatch(PAIR)).version);
     // المتاح من «أيدي عاملة» = الأسبوع الثاني 5,000 − تحميل الدفعة الثالثة 500 = 4,500.00. المواد 350 × 900 + 150 × 1,500 =
     // 540,000.00، والكلّي 542,000.00، والكيلو 1,084.00.
     actAs(U.accountant);
@@ -1832,6 +2011,91 @@ async function scenario(t, db) {
       const card = await repo.loadBatch(batchId).catch(() => null);
       if (card) await repo.discardBatch(batchId, card.version);
     }
+    // والجولة الرابعة (ق٤٢، ب٣١): سطر «كاز الشاشة» مكتوب بالكيلو، فـunitMismatch = false في المفعَّلة القديمة والمسوّدة والمفعَّلة الجديدة (الاتّجاه kg ← L
+    // يقوله unitChanged وحده).
+    t.same(
+      [kazStale?.lines.map((l) => l.unitMismatch), kazDraftCard?.lines.map((l) => l.unitMismatch), kazRenewed?.lines.map((l) => l.unitMismatch)],
+      [[false, false], [false, false], [false, false]],
+      'loadRecipe: unitMismatch = false لسطر الكاز المكتوب بالكيلو قبل «نسخة جديدة» وبعدها (ق٤٢، ب٣١)',
+    );
+
+    // دمج الجولة الرابعة من الشاشة (fixes4.md القسم د؛ ق٤١ وق٤٢ وب٣١). الاتّجاه الآخر (ق٤١): «دبس الشاشة» سائل من نافذة «مادّة جديدة» (createItem:
+    // raw وL وكثافة 1.4000) يدخل خلطة مفعَّلة من البانية (ذرة 972 كغم + دبس 20 لتراً = 28 كغم)، ثمّ يصحّحه المدير من نافذة المادّة كيلوغراماً (updateItem
+    // بما يرسله changedFields: base_unit = kg والكثافة فارغة، قبل أوّل حركة). loadRecipe لمشغّل المعمل: سطر الدبس بلقطته L وكتلته 28 وحصّته 2.80٪،
+    // وunitChanged = false وunitMismatch = true؛ وcreateProduction 500 كغم ينجح (كان RejectedError برمز item_changed)، والدبس بالكيلو 28 × 500 ÷
+    // (1,000 × 0.1) = 140 خطوة ← 14.0 كغم والذرة 486.0. و«نسخة جديدة» (newRecipeVersion) تنسخ سطره 28 كغم بالكيلو فلا unitMismatch، وactivateVersion
+    // من صفحة الخلطة ينجح (972 + 28 = 1,000).
+    actAs(U.manager);
+    const liquidFromScreen = (name, kind, density) =>
+      repo.createItem({ name, category_id: null, kind, base_unit: 'L', density_kg_per_l: density, piece_mass_kg: null, tracks_expiry: false, scale_step: '0.100',
+        min_qty: null, barcode: null, alt_codes: [] });
+    const toKgFromScreen = async (made) => repo.updateItem(made?.id ?? '', (await repo.loadItem(made?.id ?? ''))?.version ?? 0, { base_unit: 'kg', density_kg_per_l: null });
+    const screenLine = (l) => [l.itemName, l.baseUnit, l.unit, l.qty, l.massKg, l.sharePct, l.inBasis, l.unitChanged, l.unitMismatch];
+    const dibsItem = await tried('createItem (دبس الشاشة)', () => liquidFromScreen('دبس الشاشة', 'raw', '1.4000'));
+    const DR = id(261);
+    const dibsRecipe = await rejected(repo.createRecipe({ id: DR, versionId: id(262), name: 'بادئ بدبس الشاشة', outputItemId: FEED2, basisKg: 1000000n,
+      lines: [{ itemId: CORN, qty: 972000n, unit: 'kg' }, { itemId: dibsItem?.id ?? '', qty: 20000n, unit: 'L' }], rates: [], activate: true }));
+    const dibsToKg = await tried('updateItem (الدبس كيلوغراماً)', () => toKgFromScreen(dibsItem));
+    actAs(U.miller);
+    const dibsCard = await tried('loadRecipe (الدبس بعد تصحيحه)', () => repo.loadRecipe(DR));
+    const dibsMade = await rejected(repo.createProduction(id(263), id(262), 500000n, RAW, FEEDWH, TODAY));
+    const SCREEN_CORN = ['ذرة صفراء', 'kg', 'kg', 972000n, 972000n, 9720n, true, false, false];
+    t.same(
+      [dibsRecipe, dibsToKg && [dibsToKg.kind, dibsToKg.baseUnit], dibsCard && [dibsCard.status, dibsCard.massKg, dibsCard.lines.map(screenLine)], dibsMade, await plannedOf(id(263))],
+      ['ok', ['raw', 'kg'], ['active', 1000000n, [SCREEN_CORN, ['دبس الشاشة', 'L', 'L', 20000n, 28000n, 280n, true, false, true]]], 'ok',
+        [['ذرة صفراء', 'kg', 486000n], ['دبس الشاشة', 'kg', 14000n]]],
+      'loadRecipe (مشغّل المعمل) ثمّ createProduction ثمّ loadBatch: لقطة لتر ومادّة صارت بالكيلو — unitChanged = false وunitMismatch = true والكتلة 28 من لقطة الكثافة، والدفعة تُنشأ والدبس 14 كغم بالكيلو (ق٤١، ب٣١)',
+    );
+    const dibsBatchCard = await repo.loadBatch(id(263)).catch(() => null);
+    if (dibsBatchCard) await repo.discardBatch(id(263), dibsBatchCard.version);
+    actAs(U.manager);
+    const dibsCopied = await tried('newRecipeVersion (الدبس)', () => repo.newRecipeVersion(DR, id(264)));
+    const dibsDraftCard = await tried('loadRecipe (مسوّدة الدبس)', () => repo.loadRecipe(DR, id(264)));
+    const dibsRenewed = await rejected((async () => repo.activateVersion(id(264), (await repo.loadRecipe(DR, id(264))).versionVersion))());
+    const dibsNow = await tried('loadRecipe (الدبس بعد التفعيل)', () => repo.loadRecipe(DR));
+    const SCREEN_DIBS_KG = ['دبس الشاشة', 'kg', 'kg', 28000n, 28000n, 280n, true, false, false];
+    t.same(
+      [dibsCopied, dibsDraftCard && [dibsDraftCard.status, dibsDraftCard.massKg, dibsDraftCard.lines.map(screenLine)], dibsRenewed,
+        dibsNow && [dibsNow.versionId, dibsNow.status, dibsNow.massKg, dibsNow.lines.map(screenLine)]],
+      [{ recipeId: DR, versionId: id(264), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false }, ['draft', 1000000n, [SCREEN_CORN, SCREEN_DIBS_KG]], 'ok',
+        [id(264), 'active', 1000000n, [SCREEN_CORN, SCREEN_DIBS_KG]]],
+      'newRecipeVersion ثمّ activateVersion: سطر الدبس المكتوب باللتر يُنسخ 28 كغم بالكيلو فلا unitMismatch، والنسخة تتفعّل بنداء صفحة الخلطة (ق٤١، ب٣١)',
+    );
+
+    // ق٤٢ من الشاشة: مسوّدة من البانية بلا تفعيل (createRecipe بـactivate = false): ذرة 986 + «مولاس الشاشة» سائل أوّلي 10 لترات + «كاز مسوّدة
+    // الشاشة» وقود 20 لتراً، ثمّ يصحّح المدير المادّتين كيلوغراماً. loadRecipe: سطرا اللتر بكتلة وحصّة null وunitMismatch = true، ومجموع الكتلة null
+    // (المولاس داخلها) — فبطاقة الخلطة تعرض «—» وجملة «احذف سطرها وأضفه بالكيلوغرام»؛ وactivateVersion يرمي RejectedError برمز bad_recipe_unit
+    // وتلميح يسمّي المولاس (تعرضه الصفحة بـdescribeError). ثمّ ما تقوله الجملة: deleteRecipeLine لسطرَي اللتر وaddRecipeLine بالكيلوغرام (مولاس
+    // 14 = 10 × 1.4، وكاز 17 = 20 × 0.85)، فلا unitMismatch والمجموع 986 + 14 = 1,000 (الكاز خارج الكتلة) وتتفعّل.
+    const molItem = await tried('createItem (مولاس الشاشة)', () => liquidFromScreen('مولاس الشاشة', 'raw', '1.4000'));
+    const kazDraftItem = await tried('createItem (كاز مسوّدة الشاشة)', () => liquidFromScreen('كاز مسوّدة الشاشة', 'fuel', '0.8500'));
+    const MR = id(265);
+    const MV = id(266);
+    const molRecipe = await rejected(repo.createRecipe({ id: MR, versionId: MV, name: 'مسوّدة مولاس الشاشة', outputItemId: FEED2, basisKg: 1000000n,
+      lines: [{ itemId: CORN, qty: 986000n, unit: 'kg' }, { itemId: molItem?.id ?? '', qty: 10000n, unit: 'L' }, { itemId: kazDraftItem?.id ?? '', qty: 20000n, unit: 'L' }],
+      rates: [], activate: false }));
+    const corrected = [await tried('updateItem (المولاس كيلوغراماً)', () => toKgFromScreen(molItem)), await tried('updateItem (كاز المسوّدة كيلوغراماً)', () => toKgFromScreen(kazDraftItem))];
+    const molCard = await tried('loadRecipe (مسوّدة المولاس)', () => repo.loadRecipe(MR, MV));
+    const molRefusal = await (async () => repo.activateVersion(MV, (await repo.loadRecipe(MR, MV)).versionVersion))().then(() => null, (error) => error);
+    t.same(
+      [molRecipe, corrected.map((x) => x?.baseUnit), molCard && [molCard.status, molCard.massKg, molCard.lines.map(screenLine)], molRefusal instanceof repo.RejectedError, molRefusal?.code,
+        molRefusal?.hint],
+      ['ok', ['kg', 'kg'], ['draft', null, [['ذرة صفراء', 'kg', 'kg', 986000n, 986000n, 9860n, true, false, false], ['مولاس الشاشة', 'kg', 'L', 10000n, null, null, true, false, true],
+        ['كاز مسوّدة الشاشة', 'kg', 'L', 20000n, null, null, false, false, true]]], true, 'bad_recipe_unit', '«مولاس الشاشة» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.'],
+      'loadRecipe (المسوّدة) ثمّ activateVersion: سطرا اللتر بكتلة وحصّة null وunitMismatch، والمجموع null، والتفعيل RejectedError برمز bad_recipe_unit وتلميح يسمّي المادّة (ق٤٢، ب٣١)',
+    );
+    for (const line of (molCard?.lines ?? []).filter((l) => l.unitMismatch)) {
+      await tried(`deleteRecipeLine (${line.itemName})`, async () => repo.deleteRecipeLine(line.id, (await repo.loadRecipe(MR, MV)).versionVersion));
+    }
+    await tried('addRecipeLine (المولاس بالكيلوغرام)', () => repo.addRecipeLine(MV, molItem?.id ?? '', 14000n, 'kg'));
+    await tried('addRecipeLine (كاز المسوّدة بالكيلوغرام)', () => repo.addRecipeLine(MV, kazDraftItem?.id ?? '', 17000n, 'kg'));
+    const molFixed = await tried('loadRecipe (المسوّدة بعد الحذف والإضافة)', () => repo.loadRecipe(MR, MV));
+    const molActivated = await rejected((async () => repo.activateVersion(MV, (await repo.loadRecipe(MR, MV)).versionVersion))());
+    t.same(
+      [molFixed && [molFixed.massKg, molFixed.lines.map((l) => [l.itemName, l.unit, l.qty, l.massKg, l.inBasis, l.unitMismatch])], molActivated],
+      [[1000000n, [['ذرة صفراء', 'kg', 986000n, 986000n, true, false], ['مولاس الشاشة', 'kg', 14000n, 14000n, true, false], ['كاز مسوّدة الشاشة', 'kg', 17000n, 17000n, false, false]]], 'ok'],
+      'ما تقوله جملة البطاقة: deleteRecipeLine ثمّ addRecipeLine بالكيلوغرام، فلا unitMismatch والمجموع 986 + 14 = 1,000، وactivateVersion ينجح (ق٤٢، ب٣١)',
+    );
 
     // يوم الإنتاج من صفحة الدفعة (ب٢٦): مسوّدة سوّدها مشغّل المعمل قبل ثمانية أيام (27/10/2026) لا تُرحَّل اليوم — date_too_old بتلميح الخادم،
     // ووجبات الذرة (استُلمت 04/11/2026) بعد يومها فلا رصيد لها بذلك اليوم. فيكتب في حقل «يوم الإنتاج» (editInputs: مشغّل المعمل) يوماً بعد

@@ -26,6 +26,7 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pieceColor, recipeC
 // سريعة («احدد الكميات الي اريد اسويها بكل مرة»).
 // الجولة الثانية (ب٨): شريط التركيبة ورقاقاته يستثنيان الوقود والتعبئة (in_basis من لقطة سطر الخلطة)، كبطاقة الخلطة والبانية.
 // الجولة الثالثة (ب٢٧): نافذة «أنتج» تعرض رفض item_changed بجملة الخادم كما هي (تغيّرت وحدة مادّة بعد تفعيل الخلطة).
+// الجولة الرابعة (ب٣١): قطعة بكتلة لا تُعرف (null من القارئ) رقاقتها «—» والشريط يتخطّاها.
 
 /** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
 export const PRODUCE_UNITS = [
@@ -71,7 +72,8 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
               {pieces.slice(0, 4).map((piece, index) => (
                 <Chip key={piece.key} dot={pieceColor(color.hue, index)}>
                   <span className="truncate">{piece.label}</span>
-                  <Num>{fmtQty(piece.weight, 'kg').main}</Num>
+                  {/* كتلة لا تُعرف (ق٤٢، ب٣١): «—» لا صفر، والشريط يتخطّى قطعتها. */}
+                  <Num>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</Num>
                 </Chip>
               ))}
               {recipe.moreLines > 0 ? <Chip>{t('mill.card.more', 'و{count} أخرى', { count: fmtInt(recipe.moreLines) })}</Chip> : null}
