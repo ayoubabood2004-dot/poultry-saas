@@ -29,12 +29,22 @@
 --   المدخلات وحده، والترحيل نفسه مسموح للمحصور بمخزن (التحميل يكتبه النظام)؛ وآخر شراء ومتوسّط المتاح من مخازن نطاق القارئ؛
 --   وnew_recipe_version تنسخ النسخة المفعَّلة بسطورها ومعدّلاتها؛ وitem_purchases يزيد last_production؛ والمعاينة تسمّي وحدة مخزن
 --   المدخلات؛ وبطاقة الدفعة المرحَّلة تقول من أيّ وجبات سُحب كلّ سطر (draws).
+-- مراجعة 0016 الثانية (scratchpad/mill2/fixes2.md القسم أ، ق٢١–ق٢٧): من يحدّد مبلغاً يُحمَّل من مصاريف وحدة مخزن المدخلات أو يختمه يرى
+--   تلك الوحدة (حارس سطر الكلفة وحذفه والختم: out_of_scope)، والمحصور بمخزن يرحّل بعد الختم فقط (costs_unsealed_scope)، ولا تقول له
+--   المعاينة costs_unfunded قبل الختم (كان يستخرج المتاح بالفلس بالتنصيف عليها وعلى الختم)، وexpenses_visible على جذر المعاينة وبطاقة
+--   الدفعة؛ و«داخل الكتلة» لقطة على سطر الخلطة عند التفعيل (recipe_lines.in_basis، مثل الكثافة: تصحيح نوع المادّة بعده لا يكسر
+--   verify_mill ولا ينقص كتلة دفعة جديدة)؛ ودفعة بلا مادّة داخل الكتلة مشكلة مسمّاة (no_mass_inputs) لا خطأ قيد خام؛ والدفعة تُقرأ من
+--   طرفيها كالتحويل (سياسة production_batches_read وسجلّ التدقيق وproduction_detail بمفتاح scope، وعدّ دفعات الخلطة في لوحة المعمل
+--   بنطاق القارئ)، والكتابة كلّها تبقى بمخزن المدخلات؛ واسم فئة المصروف لا يتكرّر في المنشأة (expense_categories_name_guard،
+--   category_name_taken).
 -- تراجع: rollback_0016.sql — يرجّع أجسام set_item_sell_price وitem_purchases (كما في 0014) وdelete_draft_line ودوالّ المعمل
---   الثماني وactivate_recipe_version وconfirm_production_costs (كما في 0015) وvoid_expense وreport_expenses (كما في 0008)
---   وverify_stock (كما في 0010) حرفاً بحرف، ويُسقط الجداول الثلاثة ودوالّها وnew_recipe_version وshrink_ok وسياسات نطاق الدفعة على
---   جداول 0015 وسجلّ التدقيق، وعمودَي cost_price وreplaced_item_id ويعيد sell_price غير قابل للفراغ. **طريق رفض**: أيّ معدّل تكاليف بخلطة،
---   أو سطر تكاليف أو تحميل أو مادّة بديلة بدفعة، أو سعر كلفة مكتوب، يوقف التراجع بصوت بلا أن يحذف شيئاً (أرقام كتبها المالك بيده
---   وكلفة دفعات لا تُستخرج من مكان آخر).
+--   الثماني وactivate_recipe_version وconfirm_production_costs وrecipe_lines_guard وسياسة production_batches_read (كما في 0015)
+--   وvoid_expense وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف، ويُسقط الجداول الثلاثة ودوالّها
+--   وnew_recipe_version وshrink_ok وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق ومحفّز اسم فئة المصروف ودالّته، وأعمدة cost_price
+--   وreplaced_item_id وrecipe_lines.in_basis ويعيد sell_price غير قابل للفراغ. **طريق رفض**: أيّ معدّل تكاليف بخلطة، أو سطر تكاليف
+--   أو تحميل أو مادّة بديلة بدفعة، أو سعر كلفة مكتوب، يوقف التراجع بصوت بلا أن يحذف شيئاً (أرقام كتبها المالك بيده وكلفة دفعات لا
+--   تُستخرج من مكان آخر)؛ وكذلك نسخة خلطة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (الوقود أو التعبئة خارج كتلتها، ففحص 0015
+--   الثاني يرفضها بعد التراجع).
 -- تنعاد بأمان: create table if not exists، وadd column if not exists، وcreate or replace، وكتل do تفحص الكتالوج قبل القيود والسياسات.
 
 set lock_timeout = '5s';
@@ -139,6 +149,12 @@ end
 $$;
 create index if not exists production_inputs_replaced_item on public.production_inputs (org_id, replaced_item_id);
 
+-- ─── ب-5. «داخل الكتلة» لقطة على سطر الخلطة (مراجعة 0016 الثانية #2 و#5؛ FOUNDATION القاعدة ٤ مثل لقطة الكثافة) ──────────
+-- يكتبه activate_recipe_version وحده من نوع المادّة لحظة التفعيل (الحارس يفرّغه عند الإدراج، والعمود غير ممنوح لأحد). نوع المادّة يبقى
+-- قابلاً للتغيير ما دامت بلا حركة مخزون، وكان الأساس يُحسب من النوع الحيّ، فتصحيحه بعد التفعيل يكسر verify_mill وينقص كتلة كلّ دفعة
+-- جديدة من النسخة بصمت. والمسوّدة بلا لقطة (فارغ)، فقرّاؤها يقرأون النوع الحيّ.
+alter table public.recipe_lines add column if not exists in_basis boolean;
+
 create or replace trigger audit_recipe_cost_rates after insert or update or delete on public.recipe_cost_rates
   for each row execute function private.audit_row();
 create or replace trigger audit_production_costs after insert or update or delete on public.production_costs
@@ -185,8 +201,8 @@ $$;
 
 -- نطاق القراءة لجداول الدفعة وسجلّ تدقيقها (مراجعة 0016، #11؛ E49 ودرس حقول اللحم والبيض: سياسات القراءة بالنطاق نفسه لكلّ جدول،
 -- لا دوالّ القراءة وحدها): سطور الدفعة ومالها وتكاليفها وتحميلاتها مقيَّدة بدفعة يقرأها القارئ (سياسة قراءة production_batches
--- بنطاق مخزن المدخلات تنطبق داخل الاستعلام)، والتحميل كذلك بمصروف يقرأه (expenses_read بنطاق الوحدة)؛ وسجلّ التدقيق يحمل الصفّ
--- كلّه، فصفوفه بالقاعدة نفسها (الدفعات لا تُحذف أبداً: discard_draft يجعلها void، فسجلّ سطر محذوف يجد دفعته).
+-- بطرفيها تنطبق داخل الاستعلام، مراجعة 0016 الثانية #7)، والتحميل كذلك بمصروف يقرأه (expenses_read بنطاق الوحدة)؛ وسجلّ التدقيق
+-- يحمل الصفّ كلّه، فصفوفه بالقاعدة نفسها (الدفعات لا تُحذف أبداً: discard_draft يجعلها void، فسجلّ سطر محذوف يجد دفعته).
 do $$
 declare
   t text;
@@ -202,9 +218,11 @@ begin
       using (exists (select 1 from public.expenses x where x.org_id = production_cost_allocations.org_id and x.id = production_cost_allocations.expense_id));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'audit_log' and policyname = 'audit_log_mill_scope') then
+    -- الدفعة بطرفيها كسياسة قراءتها (مراجعة 0016 الثانية #7)، وسطورها ومالها بدفعة يقرأها القارئ.
     create policy audit_log_mill_scope on public.audit_log as restrictive for select to authenticated
       using (case
         when table_name = 'production_batches' then public.in_scope_wh((coalesce("new", "old") ->> 'input_warehouse_id')::uuid)
+          or public.in_scope_wh((coalesce("new", "old") ->> 'output_warehouse_id')::uuid)
         when table_name in ('production_inputs', 'production_values', 'production_input_values', 'production_costs') then exists (
           select 1 from public.production_batches b where b.org_id = audit_log.org_id and b.id = (coalesce("new", "old") ->> 'batch_id')::uuid)
         when table_name = 'production_cost_allocations' then exists (
@@ -215,6 +233,14 @@ begin
   end if;
 end
 $$;
+
+-- الدفعة تُقرأ من طرفيها كالتحويل (مراجعة 0016 الثانية #7 و#15، سابقة transfers_read في 0007): طرفاها مخزن المواد ومخزن العلف، ومن
+-- نطاقه أحدهما يقرؤها؛ فرابط «صُنعت في المعمل» في بطاقة العلف (item_purchases بنطاق مخزن الناتج) يفتح دفعته لأمين العلف ومحاسبه، وكان
+-- يفتح out_of_scope. سياسات نطاق الدفعة على جداولها تتبعها (exists على production_batches)، والكتابة كلّها تبقى بنطاق مخزن المدخلات
+-- (stock_wh(…, true) وسياسة التعديل)، وقائمة دفعات المعمل (productions_overview) بنطاقه كذلك. تُسقط وتُنشأ، فتنعاد بأمان.
+drop policy if exists production_batches_read on public.production_batches;
+create policy production_batches_read on public.production_batches for select to authenticated
+  using (org_id = (select public.auth_org()) and ((select public.in_scope_wh(input_warehouse_id)) or (select public.in_scope_wh(output_warehouse_id))));
 
 revoke all on table public.recipe_cost_rates, public.production_costs, public.production_cost_allocations from anon, authenticated;
 grant select on table public.recipe_cost_rates, public.production_costs, public.production_cost_allocations to authenticated;
@@ -294,6 +320,7 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   d public.production_batches;
   c public.expense_categories;
+  v_div uuid;
 begin
   set local lock_timeout = '5s';
   if tg_op = 'INSERT' and new.source = 'recipe' then
@@ -320,6 +347,14 @@ begin
   end if;
   if not public.in_scope_wh(d.input_warehouse_id) then
     raise exception 'out_of_scope' using hint = 'مخزن مدخلات هذه الدفعة خارج نطاقك.';
+  end if;
+  -- من يحدّد مبلغاً يُحمَّل من مصاريف وحدة مخزن المدخلات يرى تلك الوحدة (مراجعة 0016 الثانية #0، ق٢١): المحصور بمخزن بلا وحدته كان
+  -- يكتب المبلغ ثمّ يقرأ costs_unfunded من المعاينة أو expense_overloaded من الختم صحّاً أو خطأً، فيستخرج بالتنصيف المتاح المحجوب عنه.
+  -- سطر الخلطة من create_production عبر فوق (source = 'recipe').
+  select w.division_id into v_div from public.warehouses w where w.org_id = d.org_id and w.id = d.input_warehouse_id;
+  if not public.in_scope_division(v_div) then
+    raise exception 'out_of_scope' using hint = format('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «%s» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.',
+      (select dv.name from public.divisions dv where dv.org_id = d.org_id and dv.id = v_div));
   end if;
   if tg_op = 'INSERT' then
     select * into c from public.expense_categories where org_id = new.org_id and id = new.category_id for share;
@@ -360,6 +395,109 @@ $$;
 
 create or replace trigger production_costs_guard before insert or update on public.production_costs
   for each row execute function private.production_costs_guard();
+
+-- سطر العليقة (0015) على جسمه حرفاً، إلّا أنّ «داخل الكتلة» لقطة ثانية كالكثافة (مراجعة 0016 الثانية #2 و#5): عمود غير ممنوح لأحد،
+-- فتغيّره لا يكون إلّا من دالّة التفعيل (حدّها المنح لا current_user)، والإدراج يفرّغه كما يفرّغ لقطة الكثافة.
+create or replace function private.recipe_lines_guard() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v public.recipe_versions;
+  i public.items;
+begin
+  set local lock_timeout = '5s';
+  -- لقطتا الكثافة و«داخل الكتلة» عمودان غير ممنوحين لأحد، فتغيّرهما لا يكون إلا من دالّة التفعيل (حدّها المنح لا current_user).
+  if tg_op = 'UPDATE' and (new.density_kg_per_l is distinct from old.density_kg_per_l or new.in_basis is distinct from old.in_basis) then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.version_id is distinct from old.version_id then
+    raise exception 'frozen_column' using hint = 'السطر يبقى في نسخته.';
+  end if;
+  select * into v from public.recipe_versions where org_id = new.org_id and id = new.version_id for update;
+  if v.id is null then
+    raise exception 'doc_not_found' using hint = 'هذه النسخة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  if v.status <> 'draft' then
+    raise exception 'not_draft' using hint = 'هذه النسخة مفعَّلة أو مقاعدة، فلا تُعدَّل سطورها. أنشئ نسخة جديدة وفعّلها.';
+  end if;
+  perform private.require('recipe.activate');
+  select * into i from public.items where org_id = new.org_id and id = new.item_id;
+  if i.id is null or i.archived_at is not null then
+    raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك أو مؤرشفة. حدّث الشاشة واختر من جديد.';
+  end if;
+  -- النسخة الأولى: العليقة بالكتلة، فمادّة وحدتها «قطعة» (كيس، معدّة) لا تدخل سطراً. الأكياس مدخل إضافي في النسخة الثانية.
+  if i.base_unit not in ('kg', 'L') then
+    raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والعليقة تُحسب بالكتلة: لا تدخل في الخلطة بهذه النسخة.', i.name);
+  end if;
+  if new.unit = 'L' and i.base_unit <> 'L' then
+    raise exception 'bad_recipe_unit' using hint = format('«%s» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.', i.name);
+  end if;
+  if new.unit = 'L' and i.density_kg_per_l is null then
+    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه في الخلطة. اكتب كثافته في بطاقة المادّة أوّلاً.', i.name);
+  end if;
+  -- مادّة مرّتين في نسخة واحدة (FOUNDATION ٥٥٨): تُسمّى هنا قبل أن يصل القيد الفريد برسالته الخام. النسخة مقفولة فوق.
+  if exists (select 1 from public.recipe_lines l where l.org_id = new.org_id and l.version_id = new.version_id and l.item_id = new.item_id and l.id <> new.id) then
+    raise exception 'item_duplicated' using hint = format('«%s» مكتوبة في الخلطة مرّتين. عدّل كميتها بدل إضافة سطر ثانٍ.', i.name);
+  end if;
+  if new.qty = round(new.qty, 3) then
+    new.qty := round(new.qty, 3);
+  end if;
+  if tg_op = 'INSERT' then
+    new.density_kg_per_l := null;
+    new.in_basis := null;
+    new.line_no := coalesce((select max(l.line_no) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id), 0) + 1;
+  else
+    new.line_no := old.line_no;
+  end if;
+  update public.recipe_versions set version = version + 1 where org_id = v.org_id and id = v.id;
+  return new;
+end
+$$;
+
+-- ملء القائم: نسخ 0015 غير المسوّدة عدّت سطورها كلّها في الأساس (فحصها الثاني يجمع كلّ السطور)، فلقطتها «داخل الكتلة». بعد الحارس
+-- الجديد (يمرّ تغيير اللقطة)، وتنعاد بأمان (لا فراغ بعد أوّل مرّة). الإنتاج اليوم بلا نسخة غير مسوّدة (قيس 2026-11-04)، والحزمة ومشغّل
+-- التراجع يمرّان به.
+update public.recipe_lines l set in_basis = true
+from public.recipe_versions v
+where v.org_id = l.org_id and v.id = l.version_id and v.status <> 'draft' and l.in_basis is null;
+
+-- اسم فئة المصروف لا يتكرّر في المنشأة (مراجعة 0016 الثانية، التكامل B1): الشاشة كانت تفحص التكرار على قائمتها وحدها، فيمرّ اسم فئة
+-- مؤرشفة أو نظامية، واسم يكتبه جهازان معاً. الاسم المطبَّع (private.searchable: الهمزات والتشكيل وحالة اللاتيني والمسافات) يُقارن بفئات
+-- المنشأة كلّها تحت قفل استشاري بالمعاملة على (المنشأة، الاسم المطبَّع)، فالجهاز الثاني ينتظر الأوّل ثمّ يرى فئته. بلا قيد فريد ولا مسّ
+-- لبيانات قائمة. والإدراج النظامي يمرّ (system_code لا يكتبه إلّا الخادم: إدراج الواجهة الممنوح هو الاسم وحده): البذور تُزرع بـon conflict
+-- do nothing، والمحفّز قبل الإدراج يجري حتّى للصفّ الذي يُطوى بالتعارض، فلو فُحص لرفضت إعادة الزرع نفسها.
+create or replace function private.expense_categories_name_guard() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_norm text;
+  c public.expense_categories;
+begin
+  set local lock_timeout = '5s';
+  if tg_op = 'INSERT' and new.system_code is not null then
+    return new;
+  end if;
+  -- التعديل بلا تغيير الاسم لا يُفحص، والاسم الفارغ يرفضه قيده برسالته.
+  if (tg_op = 'UPDATE' and new.name is not distinct from old.name) or btrim(coalesce(new.name, '')) = '' then
+    return new;
+  end if;
+  v_norm := private.searchable(btrim(new.name));
+  perform pg_advisory_xact_lock(hashtextextended('expense_category:' || new.org_id::text || ':' || v_norm, 0));
+  -- إن تكرّر الاسم من قبل (بيانات قبل المحفّز) فالأنفع أوّلاً: فئة حيّة تُختار، ثمّ نظامية، ثمّ مؤرشفة تُعاد.
+  select * into c from public.expense_categories x
+  where x.org_id = new.org_id and x.id is distinct from new.id and private.searchable(btrim(x.name)) = v_norm
+  order by x.archived_at is not null, x.system_code is not null, x.created_at, x.id
+  limit 1;
+  if c.id is not null then
+    raise exception 'category_name_taken' using hint = case
+      when c.archived_at is not null then format('توجد فئة «%s» مؤرشفة: أعِدها من الأرشيف بدل إنشاء أخرى.', c.name)
+      when c.system_code is not null then format('«%s» اسم فئة نظامية يكتبها النظام؛ اختر اسماً آخر.', c.name)
+      else format('توجد فئة «%s»: اخترها بدل إنشاء أخرى.', c.name) end;
+  end if;
+  return new;
+end
+$$;
+
+create or replace trigger expense_categories_name_guard before insert or update of name on public.expense_categories
+  for each row execute function private.expense_categories_name_guard();
 
 -- ─── هـ. المساعدات ───────────────────────────────────────────────────────────────────────────────────────────────
 -- مبلغ للتلميح بفواصل الآلاف، والفلس إن وُجد (الواجهة تعرض أرقاماً غربية بفواصل، قانون المالك للأرقام).
@@ -1034,6 +1172,13 @@ begin
   if v_wh is not null then
     perform private.stock_wh(v_wh, true);
   end if;
+  -- حذف سطر كلفة يغيّر ما يُحمَّل من مصاريف وحدة مخزن المدخلات، فلمن يرى تلك الوحدة كحارس السطر (مراجعة 0016 الثانية #0).
+  if p_doc_kind = 'production_cost'
+    and not public.in_scope_division((select w.division_id from public.warehouses w where w.org_id = public.auth_org() and w.id = v_wh)) then
+    raise exception 'out_of_scope' using hint = format('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «%s» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.',
+      (select dv.name from public.warehouses w join public.divisions dv on dv.org_id = w.org_id and dv.id = w.division_id
+        where w.org_id = public.auth_org() and w.id = v_wh));
+  end if;
   if v_status <> 'draft' then
     raise exception 'not_draft' using hint = 'المستند مرحَّل أو ملغى أو مسلَّم؛ لا تُحذف سطوره.';
   end if;
@@ -1287,7 +1432,7 @@ begin
   returning * into d;
   for ln in
     select l.line_no, l.qty, l.unit, l.density_kg_per_l, i.id as item_id, i.name, i.base_unit, i.density_kg_per_l as item_density, i.scale_step,
-      i.kind
+      l.in_basis
     from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
     where l.org_id = v_org and l.version_id = v.id order by l.line_no
   loop
@@ -1316,9 +1461,10 @@ begin
       raise exception 'qty_not_positive' using hint = format('كمية «%s» المخطّطة أصغر من دقّة عدّادها. أنتج كمية أكبر.', ln.name);
     end if;
     -- الوقود والتعبئة خارج كتلة المدخلات (FOUNDATION القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016 #2): السطر يُسحب ويُحسب
-    -- بكلفته، والهدر على الباقي.
+    -- بكلفته، والهدر على الباقي. و«داخل الكتلة» لقطة سطر الخلطة عند تفعيلها لا نوع المادّة الآن (مراجعة 0016 الثانية #2): تصحيح النوع
+    -- بعد التفعيل لا ينقص كتلة دفعة جديدة من النسخة؛ والفراغ (نسخة بلا لقطة) داخل الكتلة دفاعاً، وverify_mill الفحص ٣ يمسكه.
     insert into public.production_inputs (org_id, batch_id, line_no, item_id, base_unit, density_kg_per_l, planned_qty_base, planned_mass_kg, in_basis)
-    values (v_org, d.id, ln.line_no, ln.item_id, ln.base_unit, v_density, v_qty, v_mass, ln.kind not in ('fuel', 'packaging'));
+    values (v_org, d.id, ln.line_no, ln.item_id, ln.base_unit, v_density, v_qty, v_mass, coalesce(ln.in_basis, true));
     v_lines := v_lines + 1;
   end loop;
   if v_lines = 0 then
@@ -1341,7 +1487,9 @@ $$;
 
 -- المعاينة (0015) كما هي، ويّا سطور التكاليف داخل money (المحسوب والمبلغ والمتاح غير المحمَّل من المصاريف المؤهّلة، بلا قفل)
 -- والكلف اليدوية الحقيقية في extra_value والكلفة الكلّية وكلفة الكيلو؛ ومشكلة costs_unfunded لكلّ سطر لا يكفيه المتاح بأرقامها
--- لأدوار الكلفة، ولغيرهم مشكلة واحدة بلا أرقام كي لا يتسرّب مال (0016، القاعدة ٢٠).
+-- لأدوار الكلفة، ولغيرهم مشكلة واحدة بلا أرقام كي لا يتسرّب مال (0016، القاعدة ٢٠). ومراجعة 0016 الثانية: تلك المشكلة بلا أرقام بعد
+-- الختم فقط، وقبله لمن يملك الترحيل ولا يرى مصاريف الوحدة costs_unsealed_scope تسمّيها؛ وno_mass_inputs لدفعة بلا مادّة داخل الكتلة؛
+-- وexpenses_visible على الجذر.
 create or replace function public.preview_production(p_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -1375,6 +1523,8 @@ declare
   v_free numeric;
   v_unfunded boolean := false;
   v_exp boolean;
+  v_positive boolean := false;
+  v_has_mass boolean := false;
 begin
   perform private.require('read');
   select * into d from public.production_batches where org_id = v_org and id = p_id;
@@ -1428,6 +1578,7 @@ begin
     v_total := v_total + v_value;
     if r.in_basis then
       v_mass := v_mass + coalesce(private.input_mass_kg(v_need, r.base_unit, r.density_kg_per_l), 0);
+      v_has_mass := true;
     end if;
     v_plan := v_plan || r.id::text || '|' || array_to_string(v_pieces, ';') || '/';
     v_lines := v_lines || jsonb_build_array(jsonb_build_object('input_id', r.id, 'line_no', r.line_no, 'item_id', r.item_id,
@@ -1435,6 +1586,11 @@ begin
       'draw_qty', v_got::text, 'in_basis', r.in_basis, 'tracks_expiry', r.tracks_expiry,
       'money', jsonb_build_object('value', v_value::text)));
   end loop;
+  -- دفعة بلا مادّة داخل الكتلة (مراجعة 0016 الثانية #6): كلّ سطورها وقود أو تعبئة (بالتبديل أو بحذف آخر مادّة أوّلية) فكتلتها صفر،
+  -- والترحيل كان يرمي خطأ القيد الخام 23514 بلا تلميح. مشكلة مسمّاة تمنع الترحيل.
+  if not v_has_mass then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'no_mass_inputs'));
+  end if;
   v_out := coalesce(d.output_qty_kg, round(v_mass, 3));
   v_shrink := round(v_mass - v_out, 3);
   v_pct := private.shrink_pct(v_shrink, v_mass);
@@ -1455,6 +1611,7 @@ begin
   loop
     v_free := private.mill_expense_free(c.category_id, wi.division_id);
     v_extra := v_extra + c.amount;
+    v_positive := v_positive or c.amount > 0;
     v_costs := v_costs || jsonb_build_array(jsonb_build_object('cost_id', c.id, 'line_no', c.line_no, 'category_id', c.category_id,
       'category_name', c.category_name, 'planned_amount', c.planned_amount::text, 'amount', c.amount::text, 'source', c.source,
       'available', case when v_exp then v_free::text end));
@@ -1466,8 +1623,15 @@ begin
       end if;
     end if;
   end loop;
-  if v_unfunded and not v_exp then
+  -- لمن لا يرى مصاريف الوحدة: costs_unfunded بلا أرقام بعد الختم فقط (مراجعة 0016 الثانية #0): قبله هو بالضبط الوحي الذي يستخرج به
+  -- المتاح (يكتب المبلغ ثمّ يسأل)، وبعده لا يتغيّر مبلغ إلّا ويُفرَّغ الختم. وقبل الختم لمن يملك الترحيل مشكلة تسمّي الوحدة: يُرحّل بعد
+  -- أن يختمها من يراها (ومشغّل المعمل يغطّيه costs_pending).
+  if v_unfunded and not v_exp and d.costs_confirmed_at is not null then
     v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'costs_unfunded'));
+  end if;
+  if not v_exp and d.status = 'draft' and d.costs_confirmed_at is null and v_positive and public.can('production.post') then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'costs_unsealed_scope',
+      'division_name', (select dv.name from public.divisions dv where dv.org_id = v_org and dv.id = wi.division_id)));
   end if;
   if d.status = 'draft' and d.costs_confirmed_at is null and not public.can('production.post') then
     v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'costs_pending'));
@@ -1476,6 +1640,8 @@ begin
     'produced_on', d.produced_on, 'planned_kg', d.planned_kg::text, 'input_mass_kg', round(v_mass, 3)::text,
     'output_qty_kg', v_out::text, 'output_expiry_on', d.output_expiry_on, 'shrink_kg', v_shrink::text, 'shrink_pct', v_pct::text,
     'shrink_reason', d.shrink_reason, 'shrink_ok', private.shrink_ok(v_shrink, round(v_mass, 3)), 'costs_confirmed', d.costs_confirmed_at is not null,
+    -- خارج money (ليس مالاً، مراجعة 0016 الثانية): هل يرى القارئ مصاريف وحدة مخزن المدخلات (المتاح وأرقام النقص)؛ الشاشة تقفل به التكاليف.
+    'expenses_visible', v_exp,
     'input_warehouse', jsonb_build_object('id', wi.id, 'name', wi.name, 'division_id', wi.division_id,
       'division_name', (select dv.name from public.divisions dv where dv.org_id = v_org and dv.id = wi.division_id)),
     'output_warehouse', jsonb_build_object('id', wo.id, 'name', wo.name),
@@ -1546,8 +1712,8 @@ begin
   end if;
   wi := private.stock_wh(d.input_warehouse_id, true);
   wo := private.stock_wh(d.output_warehouse_id, false);
-  -- أرقام المصاريف في التلميح لمن يرى الكلفة ووحدة مخزن المدخلات بنطاقه (E40، مراجعة 0016 #12)، والترحيل نفسه مسموح لغيره: التحميل
-  -- يكتبه النظام، كمشغّل المعمل الذي يرحّل بعد الختم ولا يرى المال.
+  -- أرقام المصاريف في التلميح لمن يرى الكلفة ووحدة مخزن المدخلات بنطاقه (E40، مراجعة 0016 #12)، والترحيل لغيره بعد الختم فقط (مراجعة
+  -- 0016 الثانية #0: costs_unsealed_scope أدناه): التحميل يكتبه النظام، كمشغّل المعمل الذي يرحّل بعد الختم ولا يرى المال.
   v_exp := v_cost and public.in_scope_division(wi.division_id);
   v_date := d.produced_on;
   for v_div in select distinct x from unnest(array[wi.division_id, wo.division_id]) as x order by 1 loop
@@ -1567,6 +1733,18 @@ begin
   select array_agg(distinct p.item_id) into v_items from public.production_inputs p where p.org_id = v_org and p.batch_id = d.id;
   if v_items is null then
     raise exception 'doc_empty' using hint = 'الدفعة بلا مواد. اطوِها وأنشئ غيرها من خلطة فيها مواد.';
+  end if;
+  -- دفعة بلا مادّة داخل الكتلة (مراجعة 0016 الثانية #6): الكتلة صفر، وقيد production_batches_input_mass_check كان يرفضها خطأً خاماً بعد
+  -- السحب كلّه. قبل قفل المصاريف والمواد.
+  if not exists (select 1 from public.production_inputs p where p.org_id = v_org and p.batch_id = d.id and p.in_basis) then
+    raise exception 'no_mass_inputs' using hint = 'الدفعة بلا مادّة داخل الكتلة: الوقود والتعبئة وحدهما لا يصنعان علفاً. أضف مادّة أوّلية أو احذف المسوّدة.';
+  end if;
+  -- من لا يرى مصاريف وحدة مخزن المدخلات يرحّل بعد الختم فقط (مراجعة 0016 الثانية #0، ق٢١): الختم يكتبه من يراها، فلا يُحمَّل منها مبلغ
+  -- لم يقرّه أحد يراها. ودفعة بلا سطر كلفة موجب تُرحَّل كما كانت لمن يملك الفعل. تحت قفل الدفعة (سطور الكلفة وختمها تُكتب تحته).
+  if not v_exp and d.costs_confirmed_at is null
+    and exists (select 1 from public.production_costs pc where pc.org_id = v_org and pc.batch_id = d.id and pc.amount > 0) then
+    raise exception 'costs_unsealed_scope' using hint = format('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «%s» خارج نطاقك، فتُرحَّل بعد أن يختمها محاسب أو مدير يرى تلك الوحدة.',
+      (select dv.name from public.divisions dv where dv.org_id = v_org and dv.id = wi.division_id));
   end if;
   -- المصاريف المؤهّلة هي ما قفلته جملة القفل نفسها (مراجعة 0016 #0 و#7): حلقة التحميل جملة جديدة بلقطة جديدة (READ COMMITTED)، فكانت
   -- ترى مصروفاً ثُبّت بينما الترحيل ينتظر قفلاً آخر فتحمّل منه بلا قفله، فيُحمَّل الدينار مرّتين أو يبقى تحميل فعّال على مصروف أُلغي
@@ -1766,7 +1944,9 @@ begin
           'lines', (select count(*) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id),
           -- مواد النسخة بكتلتها بالكيلو من الأكبر: شريط التركيبة ورقاقاتها تُقرأ بلمحة قبل الأرقام.
           'pieces', coalesce((select jsonb_agg(jsonb_build_object('item_id', l.item_id, 'item_name', i.name,
-              'mass_kg', private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))::text)
+              'mass_kg', private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))::text,
+              -- لقطة «داخل الكتلة» (مراجعة 0016 الثانية #2، والشاشة ب-٨): شريط التركيبة يستثني الوقود والتعبئة.
+              'in_basis', coalesce(l.in_basis, i.kind not in ('fuel', 'packaging')))
               order by private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) desc, i.name collate "C", l.id)
             from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
             where l.org_id = v.org_id and l.version_id = v.id), '[]'::jsonb))
@@ -1774,8 +1954,10 @@ begin
       'draft', (select jsonb_build_object('id', v.id, 'version_no', v.version_no, 'basis_kg', v.basis_kg::text, 'version', v.version,
           'lines', (select count(*) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id))
         from public.recipe_versions v where v.org_id = r.org_id and v.recipe_id = r.id and v.status = 'draft'),
+      -- الدفعات التي يقرؤها القارئ (أحد طرفيها بنطاقه، مراجعة 0016 الثانية #15): كانت بلا نطاق، فيرى المحصور عددها وآخر رقم وكلفته.
       'batches', (select count(*) from public.production_batches b join public.recipe_versions v2 on v2.org_id = b.org_id and v2.id = b.recipe_version_id
-        where v2.org_id = r.org_id and v2.recipe_id = r.id and b.status = 'posted'),
+        where v2.org_id = r.org_id and v2.recipe_id = r.id and b.status = 'posted'
+          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))),
       'last_batch', (select jsonb_build_object('id', b.id, 'doc_no', b.doc_no, 'produced_on', b.produced_on, 'output_qty_kg', b.output_qty_kg::text,
           'money', jsonb_build_object('total_value', pv.total_value::text,
             'cost_per_kg', private.per_unit(pv.total_value, b.output_qty_kg)::text))
@@ -1783,6 +1965,7 @@ begin
         join public.recipe_versions v3 on v3.org_id = b.org_id and v3.id = b.recipe_version_id
         left join public.production_values pv on pv.org_id = b.org_id and pv.batch_id = b.id
         where v3.org_id = r.org_id and v3.recipe_id = r.id and b.status = 'posted'
+          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
         order by b.produced_on desc, b.id desc limit 1),
       'money', jsonb_build_object('expected_cost_per_kg', (select private.recipe_expected(v4.id) ->> 'cost_per_kg'
         from public.recipe_versions v4 where v4.org_id = r.org_id and v4.recipe_id = r.id and v4.status = 'active'))
@@ -1833,7 +2016,8 @@ begin
       'basis_kg', v.basis_kg::text, 'note', v.note, 'activated_at', v.activated_at, 'version', v.version) end,
     'lines', case when v.id is null then '[]'::jsonb else coalesce((
       select jsonb_agg(jsonb_build_object('id', l.id, 'line_no', l.line_no, 'item_id', l.item_id, 'item_name', i.name,
-        'kind', i.kind, 'base_unit', i.base_unit, 'in_basis', i.kind not in ('fuel', 'packaging'), 'category_id', i.category_id,
+        -- «داخل الكتلة» لقطة النسخة المجمَّدة، والنوع الحيّ للمسوّدة (مراجعة 0016 الثانية #2)، ومجموع الكتلة بالشرط نفسه.
+        'kind', i.kind, 'base_unit', i.base_unit, 'in_basis', coalesce(l.in_basis, i.kind not in ('fuel', 'packaging')), 'category_id', i.category_id,
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id),
         'qty', l.qty::text, 'unit', l.unit, 'mass_kg', private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))::text,
         'share_pct', private._mul_div_round(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)), 100, v.basis_kg, 2)::text,
@@ -1846,7 +2030,7 @@ begin
       where l.org_id = v_org and l.version_id = v.id), '[]'::jsonb) end,
     'mass_kg', case when v.id is null then null else coalesce((select sum(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)))
       from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
-      where l.org_id = v_org and l.version_id = v.id and i.kind not in ('fuel', 'packaging')), 0)::text end,
+      where l.org_id = v_org and l.version_id = v.id and coalesce(l.in_basis, i.kind not in ('fuel', 'packaging'))), 0)::text end,
     -- المرشَّحات لسطر جديد: مادّة فعّالة يستلمها مخزن المواد الأوّلية وتُقاس بالكيلو أو اللتر (القطعة لا تدخل العليقة).
     'pick_items', coalesce((select jsonb_agg(jsonb_build_object('id', i.id, 'name', i.name, 'base_unit', i.base_unit,
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id))
@@ -1875,14 +2059,20 @@ declare
   r public.recipes;
   pv public.production_values;
   v_exp boolean;
+  v_in boolean;
+  v_out boolean;
 begin
   perform private.require('read');
   select * into d from public.production_batches where org_id = v_org and id = p_id;
   if d.id is null then
     raise exception 'doc_not_found' using hint = 'هذه الدفعة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
-  if not public.in_scope_wh(d.input_warehouse_id) then
-    raise exception 'out_of_scope' using hint = 'مخزن مدخلات هذه الدفعة خارج نطاقك.';
+  -- من طرفيها كالتحويل (مراجعة 0016 الثانية #7 و#15): من نطاقه مخزن المواد أو مخزن العلف يقرؤها، وscope يقول أيّهما فتخفي الشاشة ما
+  -- لا يُفتح له (المعاينة وأفعال المسوّدة والإلغاء بمخزن المدخلات، ووجبات العلف بمخزنه).
+  v_in := public.in_scope_wh(d.input_warehouse_id);
+  v_out := public.in_scope_wh(d.output_warehouse_id);
+  if not (v_in or v_out) then
+    raise exception 'out_of_scope' using hint = 'مخزنا هذه الدفعة (مخزن المواد ومخزن العلف) خارج نطاقك.';
   end if;
   -- تحميلات المصاريف (ملاحظة المصروف وتاريخه ومبلغه) لمن يرى الكلفة ووحدة مخزن المدخلات بنطاقه (E40، مراجعة 0016 #12)، ولغيره null.
   v_exp := public.can_see_cost() and public.in_scope_division((select w.division_id from public.warehouses w where w.org_id = v_org and w.id = d.input_warehouse_id));
@@ -1895,6 +2085,7 @@ begin
     'input_mass_kg', d.input_mass_kg::text, 'shrink_kg', d.shrink_kg::text,
     'shrink_pct', private.shrink_pct(d.shrink_kg, d.input_mass_kg)::text, 'shrink_reason', d.shrink_reason,
     'note', d.note, 'void_reason', d.void_reason, 'costs_confirmed', d.costs_confirmed_at is not null,
+    'scope', jsonb_build_object('input', v_in, 'output', v_out), 'expenses_visible', v_exp,
     'recipe', jsonb_build_object('id', r.id, 'name', r.name, 'version_id', v.id, 'version_no', v.version_no, 'basis_kg', v.basis_kg::text),
     'output_item', (select jsonb_build_object('id', i.id, 'name', i.name, 'base_unit', i.base_unit, 'tracks_expiry', i.tracks_expiry)
       from public.items i where i.org_id = v_org and i.id = d.output_item_id),
@@ -1945,7 +2136,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select v.recipe_id from public.recipe_versions v where v.status = 'active' group by v.org_id, v.recipe_id having count(*) > 1
   ) as x
   union all
-  -- ٢) كلّ نسخة غير مسوّدة مجموع موادّها بالكيلو = أساسها (التفعيل يفحصه، والجمود يحفظه)، بلا الوقود والتعبئة (القاعدة ٢٢، 0016).
+  -- ٢) كلّ نسخة غير مسوّدة مجموع موادّها بالكيلو = أساسها (التفعيل يفحصه، والجمود يحفظه)، بلا الوقود والتعبئة (القاعدة ٢٢، 0016): السطور
+  --    التي لقطتها «داخل الكتلة» عند التفعيل، لا نوع المادّة الآن (مراجعة 0016 الثانية #2: النوع يتغيّر ما دامت المادّة بلا حركة).
   select 'recipe_basis_mismatch', count(*) from (
     select v.id from public.recipe_versions v
     join public.recipe_lines l on l.org_id = v.org_id and l.version_id = v.id
@@ -1953,15 +2145,16 @@ language sql stable security definer set search_path = public, pg_temp as $$
     where v.status <> 'draft'
     group by v.id, v.basis_kg
     having coalesce(sum(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)))
-      filter (where i.kind not in ('fuel', 'packaging')), 0) <> v.basis_kg
+      filter (where l.in_basis), 0) <> v.basis_kg
   ) as x
   union all
-  -- ٣) نسخة غير مسوّدة بلا سطور، أو سطر سائل بلا لقطة كثافة.
+  -- ٣) نسخة غير مسوّدة بلا سطور، أو سطر سائل بلا لقطة كثافة، أو سطر بلا لقطة «داخل الكتلة» (مراجعة 0016 الثانية #2).
   select 'recipe_frozen_bad_lines', count(*) from public.recipe_versions v
   where v.status <> 'draft' and (
     not exists (select 1 from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id)
     or exists (select 1 from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
-      where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null))
+      where l.org_id = v.org_id and l.version_id = v.id and i.base_unit = 'L' and l.density_kg_per_l is null)
+    or exists (select 1 from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id and l.in_basis is null))
   union all
   -- ٤) قيمة دفعة الناتج = كلفة الدفعة بالضبط (القاعدة ٢١: لا يضيع فلس بين الإنتاج والمخزن).
   select 'production_output_value', count(*) from public.production_batches b
@@ -2637,7 +2830,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- تفعيل النسخة (0015) على جسمه حرفاً، إلّا أنّ الوقود والتعبئة خارج مجموع الأساس (القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016
--- #2): السطر يبقى ويُسحب ويُحسب بكلفته، وdoc_empty على السطور كلّها، وتلميح basis_mismatch يقول إنّهما خارج الكتلة إن وُجدا.
+-- #2): السطر يبقى ويُسحب ويُحسب بكلفته، وdoc_empty على السطور كلّها، وتلميح basis_mismatch يقول إنّهما خارج الكتلة إن وُجدا؛ و«داخل
+-- الكتلة» لقطة على كلّ سطر مع لقطة الكثافة (مراجعة 0016 الثانية #2 و#5).
 create or replace function public.activate_recipe_version(p_id uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -2649,6 +2843,7 @@ declare
   v_count int := 0;
   v_old uuid;
   v_outside int := 0;
+  v_in boolean;
 begin
   set local lock_timeout = '5s';
   perform private.require('recipe.activate');
@@ -2681,12 +2876,15 @@ begin
     if ln.qty is null or not (abs(ln.qty) < 'Infinity') or ln.qty <= 0 then
       raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة يجب أن تكون أكبر من صفر.', ln.name);
     end if;
-    if ln.base_unit = 'L' then
-      update public.recipe_lines set density_kg_per_l = round(ln.density_kg_per_l, 4) where org_id = v_org and id = ln.id;
-    end if;
     -- الوقود والتعبئة خارج كتلة الخلطة (FOUNDATION القاعدة ٢٢: «بدون الأكياس والوقود»، مراجعة 0016 #2): السطر يبقى ويُسحب ويُحسب
-    -- بكلفته، ولا يدخل مجموع الأساس؛ وخلطة كلّها وقود أو تعبئة مجموعها صفر فترفض basis_mismatch.
-    if ln.kind in ('fuel', 'packaging') then
+    -- بكلفته، ولا يدخل مجموع الأساس؛ وخلطة كلّها وقود أو تعبئة مجموعها صفر فترفض basis_mismatch. ولقطتا السطر بجملة واحدة (FOUNDATION
+    -- القاعدة ٤): الكثافة للسائل، و«داخل الكتلة» من نوع المادّة الآن (مراجعة 0016 الثانية #2 و#5)، والمجموع منها؛ فتصحيح النوع بعد التفعيل
+    -- لا يغيّر النسخة المجمَّدة (verify_mill وcreate_production وrecipe_detail يقرأون اللقطة).
+    v_in := ln.kind not in ('fuel', 'packaging');
+    update public.recipe_lines set in_basis = v_in,
+      density_kg_per_l = case when ln.base_unit = 'L' then round(ln.density_kg_per_l, 4) else density_kg_per_l end
+    where org_id = v_org and id = ln.id;
+    if not v_in then
       v_outside := v_outside + 1;
     else
       v_sum := v_sum + private.recipe_line_kg(ln.qty, ln.unit, ln.density_kg_per_l);
@@ -2713,8 +2911,8 @@ end
 $$;
 
 -- ختم الكلف (0015) على جسمه، بنطاقه وبكفاية المصاريف (مراجعة 0016 #1 و#8 و#14): مخزن المدخلات بنطاق الخاتم (كحارس سطر الكلفة
--- وحذفه)، ولكلّ سطر تكاليف مبلغه أكبر من المتاح من المصاريف المؤهّلة expense_overloaded (FOUNDATION ٥٦٠)، بأرقامه لمن يرى الكلفة
--- ووحدة مخزن المدخلات بنطاقه وبلاها لغيره.
+-- وحذفه)، ووحدته كذلك (مراجعة 0016 الثانية #0)، ولكلّ سطر تكاليف مبلغه أكبر من المتاح من المصاريف المؤهّلة expense_overloaded
+-- (FOUNDATION ٥٦٠) بأرقامه دائماً (الخاتم يرى الوحدة).
 create or replace function public.confirm_production_costs(p_id uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -2723,7 +2921,6 @@ declare
   wi public.warehouses;
   c record;
   v_free numeric;
-  v_exp boolean;
 begin
   set local lock_timeout = '5s';
   perform private.require('costs.load');
@@ -2732,7 +2929,12 @@ begin
     raise exception 'doc_not_found' using hint = 'هذه الدفعة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
   wi := private.stock_wh(d.input_warehouse_id, true);
-  v_exp := public.can_see_cost() and public.in_scope_division(wi.division_id);
+  -- من يختم مبلغاً يُحمَّل من مصاريف وحدة مخزن المدخلات يرى تلك الوحدة (مراجعة 0016 الثانية #0، ق٢١): الختم بمبلغ ثمّ ok أو
+  -- expense_overloaded كان جواب صحّ/خطأ يستخرج به المحصور بمخزن المتاح المحجوب عنه. فالتلميح بعده بأرقامه دائماً.
+  if not public.in_scope_division(wi.division_id) then
+    raise exception 'out_of_scope' using hint = format('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «%s» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.',
+      (select dv.name from public.divisions dv where dv.org_id = v_org and dv.id = wi.division_id));
+  end if;
   select * into d from public.production_batches where org_id = v_org and id = p_id for update;
   if d.status <> 'draft' then
     raise exception 'not_draft' using hint = 'هذه الدفعة مرحَّلة أو ملغاة؛ لا يُختَم كلفها.';
@@ -2752,10 +2954,8 @@ begin
   loop
     v_free := private.mill_expense_free(c.category_id, wi.division_id);
     if c.amount > v_free then
-      raise exception 'expense_overloaded' using hint = case when v_exp
-        then format('%s: المطلوب %s والمتاح من المصاريف المسجّلة %s. سجّل المصروف أوّلاً أو قلّل المبلغ.', c.category_name,
-          private.money_text(c.amount), private.money_text(v_free))
-        else format('تكاليف «%s» أكبر من المصاريف المسجّلة لها. اطلب من المحاسب أو المدير تسجيل المصروف أو تعديل السطر.', c.category_name) end;
+      raise exception 'expense_overloaded' using hint = format('%s: المطلوب %s والمتاح من المصاريف المسجّلة %s. سجّل المصروف أوّلاً أو قلّل المبلغ.',
+        c.category_name, private.money_text(c.amount), private.money_text(v_free));
     end if;
   end loop;
   update public.production_batches set costs_confirmed_at = now(), costs_confirmed_by = auth.uid(), version = version + 1

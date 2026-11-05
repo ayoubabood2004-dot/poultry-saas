@@ -70,11 +70,11 @@ const recipe = (money, over = {}) => ({
   lastCostPerKg: money ? 1_194_40n : null,
   expectedCostPerKg: money ? 1_150_00n : null,
   pieces: [
-    { key: 'i-1', label: 'ذرة صفراء', weight: 600_000n },
-    { key: 'i-2', label: 'كسبة صويا', weight: 300_000n },
-    { key: 'i-3', label: 'نخالة', weight: 80_000n },
-    { key: 'i-4', label: 'حجر', weight: 15_000n },
-    { key: 'i-5', label: 'ملح', weight: 5_000n },
+    { key: 'i-1', label: 'ذرة صفراء', weight: 600_000n, inBasis: true },
+    { key: 'i-2', label: 'كسبة صويا', weight: 300_000n, inBasis: true },
+    { key: 'i-3', label: 'نخالة', weight: 80_000n, inBasis: true },
+    { key: 'i-4', label: 'حجر', weight: 15_000n, inBasis: true },
+    { key: 'i-5', label: 'ملح', weight: 5_000n, inBasis: true },
   ],
   moreLines: 1,
   ...over,
@@ -291,6 +291,7 @@ function previewJson(money) {
       : [{ code: 'insufficient_stock', item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', need: '310.000', have: '300.000', unit: 'kg' }, { code: 'costs_unfunded' }],
     can_post: false,
     plan_token: 'tok-7',
+    expenses_visible: money,
   };
   if (money) {
     json.money = {
@@ -326,6 +327,8 @@ function batchJson(status, money) {
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: false },
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
     output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
+    expenses_visible: money,
+    scope: { input: true, output: true },
     lines: [
       { id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '600.000', actual_qty: null, used_qty: posted ? '600.000' : null, in_basis: true, is_substitute: false, reason: null, replaced_item_name: null, draws: posted ? [] : null, ...(money ? { money: { value: posted ? '270000.00' : null } } : {}) },
       { id: 'in-2', line_no: 3, item_id: 'i-soy48', item_name: 'كسبة صويا 48٪', base_unit: 'kg', planned_qty: '300.000', actual_qty: null, used_qty: posted ? '300.000' : null, in_basis: true, is_substitute: true, reason: 'نفدت الكسبة 44٪', replaced_item_name: 'كسبة صويا 44٪', draws: posted ? [] : null, ...(money ? { money: { value: posted ? '279000.00' : null } } : {}) },
@@ -370,7 +373,7 @@ async function parsers(t, repo) {
       {
         id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1,
         output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-        active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 1, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '1000.000' }] },
+        active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 1, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '1000.000', in_basis: true }] },
         draft: null, batches: 0, last_batch: null,
         ...(money ? { money: { expected_cost_per_kg: '285.00' } } : {}),
       },
@@ -412,7 +415,7 @@ async function parsers(t, repo) {
   const short = preview.problems.find((p) => p.code === 'insufficient_stock');
   t.same([short.need, short.have, short.needAmount], [310_000n, 300_000n, null], 'S7 ومشكلة الرصيد كميات كما كانت');
   const blindPreview = repo.parsePreview(previewJson(false));
-  t.same([blindPreview.costs, blindPreview.extraValue, blindPreview.problems[1]], [null, null, { code: 'costs_unfunded', itemName: null, need: null, have: null, categoryId: null, categoryName: null, needAmount: null, haveAmount: null, expiryOn: null, producedOn: null }], 'S7 لغير أدوار الكلفة: لا سطور تكاليف، وcosts_unfunded رمز بلا أرقام');
+  t.same([blindPreview.costs, blindPreview.extraValue, blindPreview.problems[1]], [null, null, { code: 'costs_unfunded', itemName: null, need: null, have: null, categoryId: null, categoryName: null, needAmount: null, haveAmount: null, expiryOn: null, producedOn: null, divisionName: null, hint: null }], 'S7 لغير أدوار الكلفة: لا سطور تكاليف، وcosts_unfunded رمز بلا أرقام');
 
   // production_detail: البديل وما حلّ محلّه، والتحميلات، والوجبات المسحوبة إن أرسلها الخادم.
   const posted = repo.parseBatch(batchJson('posted', true));

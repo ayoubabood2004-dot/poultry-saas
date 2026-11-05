@@ -121,6 +121,11 @@ export interface RecipePiece {
   key: string;
   label: string;
   weight: bigint;
+  /**
+   * داخل كتلة الخلطة (الجولة الثانية، ب٨، من لقطة in_basis على سطر الخلطة): الوقود والتعبئة خارجها، فلا يدخلان شريط التركيبة
+   * ولا رقاقاته في شاشة المعمل. المفتاح إلزامي.
+   */
+  inBasis: boolean;
 }
 
 export interface RecipeCard {
@@ -143,9 +148,9 @@ export interface RecipeCard {
    * null: دور بلا كلفة، أو خلطة بلا نسخة مفعَّلة، أو بقيت مادّة بلا سعر (لا رقم ناقص بصمت).
    */
   expectedCostPerKg: Fils | null;
-  /** مواد النسخة المفعَّلة بكتلتها بالكيلو من الأكبر: شريط التركيبة ورقاقاته. */
+  /** مواد النسخة المفعَّلة بكتلتها بالكيلو من الأكبر (ومعها ما هو خارج الكتلة بعلامته): شريط التركيبة ورقاقاته. */
   pieces: RecipePiece[];
-  /** ما لا يظهر في الرقاقات الأربع الأولى. */
+  /** مواد داخل الكتلة لا تظهر في الرقاقات الأربع الأولى. */
   moreLines: number;
 }
 
@@ -180,7 +185,7 @@ export function parseRecipes(value: unknown): RecipeCard[] {
     const last = lastBatch(row.last_batch);
     const item = record(row.output_item, 'output_item');
     const pieces = active
-      ? list(active.pieces, 'pieces').map((piece) => ({ key: str(piece, 'item_id'), label: str(piece, 'item_name'), weight: qty(piece, 'mass_kg') }))
+      ? list(active.pieces, 'pieces').map((piece) => ({ key: str(piece, 'item_id'), label: str(piece, 'item_name'), weight: qty(piece, 'mass_kg'), inBasis: flag(piece, 'in_basis') }))
       : [];
     return {
       id: str(row, 'id'),
@@ -199,7 +204,7 @@ export function parseRecipes(value: unknown): RecipeCard[] {
       lastCostPerKg: last?.costPerKg ?? null,
       expectedCostPerKg: money(row, 'expected_cost_per_kg'),
       pieces,
-      moreLines: Math.max(0, pieces.length - CHIPS),
+      moreLines: Math.max(0, pieces.filter((piece) => piece.inBasis).length - CHIPS),
     };
   });
 }
@@ -417,6 +422,16 @@ export interface MillProblem {
   /** مشكلة output_expired (ق٨): تاريخ انتهاء الناتج المكتوب ويوم الإنتاج الذي سبقه. */
   expiryOn: Day | null;
   producedOn: Day | null;
+  /**
+   * مشكلة costs_unsealed_scope (الجولة الثانية، ق٢١): وحدة مخزن المدخلات التي تُحمَّل التكاليف من مصاريفها وهي خارج نطاق القارئ،
+   * فيختمها محاسب أو مدير يراها ثمّ تُرحَّل. إلزامي لهذا الرمز، وnull لغيره.
+   */
+  divisionName: string | null;
+  /**
+   * جملة الخادم لمشكلة التاريخ (private.date_problem منذ 0015: date_too_old وperiod_locked وbefore_go_live…) بتواريخها، فتعرضها الصفحة
+   * بدل الرمز الخام (صفحة الدفعة لا تغيّر يومها، فالمسوّدة تكبر عليه). null للمشاكل التي لا يرسل لها الخادم جملة.
+   */
+  hint: string | null;
 }
 
 /** تحميل سطر تكاليف من مصروف مسجّل (0016، القاعدة ٢٠): يكتبه الترحيل وحده. */
@@ -478,6 +493,11 @@ export interface ProductionPreview {
   costPerKg: Fils | null;
   /** سطور التكاليف بالمتاح لكلّ سطر، أو null لغير أدوار الكلفة. */
   costs: BatchCost[] | null;
+  /**
+   * يرى القارئ مصاريف وحدة مخزن المدخلات (الجولة الثانية، ق٢١: can_see_cost وفي نطاقه تلك الوحدة): بلاها لا يكتب مبلغ تكلفة ولا
+   * يختمها ولا يسجّل مصروفاً منها. ليس مالاً، فهو على الجذر خارج money، وإلزامي.
+   */
+  expensesVisible: boolean;
 }
 
 const batchStatus = (row: Row): BatchStatus => {
@@ -543,6 +563,8 @@ function problemOf(row: Row): MillProblem {
   const funds = code === 'costs_unfunded';
   // output_expired (ق٨): التاريخان إلزاميان، فالجملة تسمّيهما.
   const expired = code === 'output_expired';
+  // costs_unsealed_scope (ق٢١): اسم الوحدة إلزامي، فالجملة تسمّيها.
+  const unsealed = code === 'costs_unsealed_scope';
   return {
     code,
     itemName: optStr(row, 'item_name'),
@@ -554,6 +576,8 @@ function problemOf(row: Row): MillProblem {
     haveAmount: funds ? scaled(row, 'have', 2) : null,
     expiryOn: expired ? str(row, 'expiry_on') : null,
     producedOn: expired ? str(row, 'produced_on') : null,
+    divisionName: unsealed ? str(row, 'division_name') : null,
+    hint: optStr(row, 'hint'),
   };
 }
 
@@ -595,6 +619,7 @@ export function parsePreview(value: unknown): ProductionPreview {
     totalValue: money(json, 'total_value'),
     costPerKg: money(json, 'cost_per_kg'),
     costs: box ? list(box.costs, 'costs').map((row) => costOf(row, 'preview')) : null,
+    expensesVisible: flag(json, 'expenses_visible'),
   };
 }
 
@@ -655,6 +680,13 @@ export interface ProductionBatch {
   costPerKg: Fils | null;
   /** سطور التكاليف بتحميلاتها، أو null لغير أدوار الكلفة. */
   costs: BatchCost[] | null;
+  /** يرى القارئ مصاريف وحدة مخزن المدخلات (ق٢١)، كما في المعاينة. */
+  expensesVisible: boolean;
+  /**
+   * طرفا الدفعة في نطاق القارئ (الجولة الثانية، ق٢٥: الدفعة تُقرأ من مخزن المواد أو مخزن العلف كالتحويل): بلا input لا معاينة
+   * ولا فعل مسوّدة ولا إلغاء ولا رابط دفتر في مخزن المواد، وبلا output لا رابط وجبات العلف. المفتاح وطرفاه إلزاميان.
+   */
+  scope: { input: boolean; output: boolean };
 }
 
 /** الوجبات المسحوبة لسطر الدفعة (ق١٦): المفتاح إلزامي (الغائب خطأ شكل)، وnull للمسوّدة، وإلّا قائمة بترتيب السحب. */
@@ -662,6 +694,12 @@ function drawsOf(row: Row): LotDraw[] | null {
   const value = present(row, 'draws');
   if (value === null) return null;
   return list(value, 'draws').map((entry) => ({ lotId: str(entry, 'lot_id'), qty: qty(entry, 'qty'), receivedOn: str(entry, 'received_on'), source: str(entry, 'source') }));
+}
+
+/** طرفا الدفعة في نطاق القارئ (ق٢٥): المفتاح وطرفاه إلزاميان، فالغائب خطأ شكل لا «في النطاق» صامت. */
+function scopeOf(value: unknown): { input: boolean; output: boolean } {
+  const row = record(value, 'scope');
+  return { input: flag(row, 'input'), output: flag(row, 'output') };
 }
 
 export function parseBatch(value: unknown): ProductionBatch {
@@ -712,6 +750,8 @@ export function parseBatch(value: unknown): ProductionBatch {
     totalValue: money(json, 'total_value'),
     costPerKg: money(json, 'cost_per_kg'),
     costs: box ? list(box.costs, 'costs').map((row) => costOf(row, 'detail')) : null,
+    expensesVisible: flag(json, 'expenses_visible'),
+    scope: scopeOf(json.scope),
   };
 }
 

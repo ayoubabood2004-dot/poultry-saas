@@ -128,6 +128,8 @@ const batchJson = (status, money) => {
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
     output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
     lines: batchLines(posted, money),
+    expenses_visible: money,
+    scope: { input: true, output: true },
     ...(money
       ? {
           money: {
@@ -149,6 +151,7 @@ const previewJson = (money) => ({
   problems: money ? [{ code: 'costs_unfunded', category_id: 'c-labor', category_name: 'أيدي عاملة', need: '15000.00', have: '4000.00' }] : [{ code: 'costs_unfunded' }],
   can_post: false,
   plan_token: 'tok-7',
+  expenses_visible: money,
   ...(money
     ? { money: { input_value: '549000.00', extra_value: '15000.00', total_value: '564000.00', cost_per_kg: '626.67', costs: [{ cost_id: 'pc-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', planned_amount: '15000.00', amount: '15000.00', source: 'recipe', available: '4000.00' }] } }
     : {}),
@@ -330,8 +333,8 @@ export default async function (t) {
       await settle();
       t.eq(byAction('builder-sum')[0]?.textContent, 'المجموع 9.2 كغم من 1.000 طن: ينقص 990.8 كغم.', 'F1 عشرة لترات من زيت كثافته 0.92 = 9.2 كغم في المجموع');
       await click(byAction('save-draft')[0]);
-      t.ok(text().includes('نتيجة العملية غير معروفة'), 'F1 نتيجة مجهولة تُقال');
-      await click(byAction('save-draft')[0]);
+      t.ok(text().includes('لا نعرف إن حُفظت الخلطة: أعد المحاولة قبل أيّ تعديل؛ لن تُكتب مرّتين.'), 'F1 نتيجة مجهولة تُقال');
+      await click(byAction('retry-save')[0]);
       const [first, second] = named(calls, 'createRecipe').map(([input]) => input);
       t.same([second?.id, second?.versionId, second?.activate, second?.lines], [first?.id, first?.versionId, false, [{ itemId: 'i-oil', qty: 10_000n, unit: 'L' }]], 'F1 الإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما (لا خلطة ثانية)، والمسوّدة بلا تفعيل');
       await unmount();
@@ -340,7 +343,7 @@ export default async function (t) {
     // ── F2: «خلطة جديدة» و«أنتج» بكميات سريعة ───────────────────────────────────────────────────────────────────
     const card = (over = {}) => ({
       id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1, output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 2, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '600.000' }, { item_id: 'i-soy', item_name: 'كسبة صويا', mass_kg: '400.000' }] },
+      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 2, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '600.000', in_basis: true }, { item_id: 'i-soy', item_name: 'كسبة صويا', mass_kg: '400.000', in_basis: true }] },
       draft: null, batches: 0, last_batch: null, money: { expected_cost_per_kg: '285.00' }, ...over,
     });
     const millHome = (recipes) => ({

@@ -387,6 +387,18 @@ async function main() {
         rollbackSql: `alter table public.orgs drop column probe_note;\n${original};\nupdate public.divisions set archived_at = now() where kind = 'medicine';`,
         seed: seedThroughRpcs,
       });
+      // ضابط الثوابت بعد التراجع مباشرةً (مراجعة 0016 الثانية #1): هجرة تُصلح البيانات بإعادتها وتراجع يكسرها، فالثوابت بعد الإعادة صفر
+      // ولا يمسكه إلّا الفحص على كتالوج ما قبل الهجرة (كحالة خلطة بكاز تفعّلت بقاعدة 0016 ثمّ رجع فحص 0015).
+      const healing = {
+        name: fake.name,
+        text: [
+          `-- ${fake.name.slice(0, 4)}_probe — ضابط الثوابت بعد التراجع`,
+          '-- تراجع: إضافية فقط',
+          "set lock_timeout = '5s';",
+          "update public.divisions set archived_at = null where kind = 'medicine' and archived_at is not null;",
+        ].join('\n'),
+      };
+      const healed = await rollbackCase({ fresh, migrations: [...migrations, healing], rollbackSql: "update public.divisions set archived_at = now() where kind = 'medicine';", seed: seedThroughRpcs });
       const { client: probeClient, close: closeProbe } = await fresh();
       let detected = [];
       try {
@@ -404,20 +416,25 @@ async function main() {
         forgetful[0].startsWith(`بعد التراجع الكتالوج مو مثل قبل ${fake.name}`) &&
         redo.length === 1 &&
         redo[0].startsWith(`إعادة ${fake.name} بعد التراجع`) &&
-        breaker.length === 1 &&
-        breaker[0].startsWith('الثوابت بعد التراجع والإعادة') &&
+        breaker.length === 2 &&
+        breaker[0].startsWith(`الثوابت بعد التراجع (كتالوج ما قبل ${fake.name})`) &&
         breaker[0].includes('divisions_per_org') &&
+        breaker[1].startsWith('الثوابت بعد التراجع والإعادة') &&
+        breaker[1].includes('divisions_per_org') &&
+        healed.length === 1 &&
+        healed[0].startsWith(`الثوابت بعد التراجع (كتالوج ما قبل ${fake.name})`) &&
+        healed[0].includes('divisions_per_org') &&
         detected.some((reason) => reason.includes('probe_note')) &&
         detected.some((reason) => reason.includes('app_today')) &&
         declaredProblems.length === 1 &&
         declaredProblems[0].startsWith(`${fake.name}: «إضافية فقط» وهي غيّرت الموجود`);
       if (!probeOk) {
-        rollbackProblems.push(`ضابط المشغّل ما اشتغل: الصادق ${JSON.stringify(honest)}، الناقص ${JSON.stringify(forgetful)}، الإعادة ${JSON.stringify(redo)}، مخرّب البذرة ${JSON.stringify(breaker)}، الكشف ${JSON.stringify(detected)}، سطر «تراجع:» ${JSON.stringify(declaredProblems)}`);
+        rollbackProblems.push(`ضابط المشغّل ما اشتغل: الصادق ${JSON.stringify(honest)}، الناقص ${JSON.stringify(forgetful)}، الإعادة ${JSON.stringify(redo)}، مخرّب البذرة ${JSON.stringify(breaker)}، المُصلَح بالإعادة ${JSON.stringify(healed)}، الكشف ${JSON.stringify(detected)}، سطر «تراجع:» ${JSON.stringify(declaredProblems)}`);
       }
       if (rollbackProblems.length) fail(`مشغّل التراجع: ${rollbackProblems.length} مشكلة`, rollbackProblems);
       else {
         const heavyCount = migrations.filter((m) => declaredRollback(m.name, m.text).kind !== 'legacy' && (heavy.get(m.name) ?? []).length).length;
-        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع وطريق الرفض بـ${blockedRan} حالة رفضها التراجع كلّها بصدق، وضوابطه مسكت الرمز الثاني والكتالوج والبيانات والبذرة الفارغة والثوابت (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت`);
+        console.log(`✓ مشغّل التراجع: جرى ${ran} ملف تراجع وطريق الرفض بـ${blockedRan} حالة رفضها التراجع كلّها بصدق، وضوابطه مسكت الرمز الثاني والكتالوج والبيانات والبذرة الفارغة والثوابت (${heavyCount} هجرة ثقيلة بعد 0003؛ والقديمة معفيّة بالاسم والكشف يسمّي منها ${legacyHeavy.join(' و') || 'ولا وحدة'} ثقيلة)، والضابط: الكشف سمّى الهجرة المصنوعة ثقيلة، و«إضافية فقط» عليها انرفض، والتراجع الصادق عبر والناقص فشل، والهجرة اللي تتبع البيانات فشلت بإعادتها، والتراجع اللي يخرّب البذرة فشل بالثوابت بعد التراجع وبعد الإعادة، والتراجع اللي تُصلحه الإعادة فشل بالثوابت بعد التراجع وحدها`);
       }
 
       // ── سجلّ التغطية: كل دالّة بقائمة السماح نادتها الأدوار الثمانية كلها بدور authenticated ───────────────────

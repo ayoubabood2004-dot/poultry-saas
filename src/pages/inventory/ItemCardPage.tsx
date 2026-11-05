@@ -42,7 +42,8 @@ function age(lot: LotRow): string {
 
 /**
  * مصدر الدفعة (ج٦، كلمة المالك «المادة المنتجة تروح لمخزن خاص واعرف منين صنعتها بالضبط»): دفعة العلف المنتج تقول «صُنعت
- * بدفعة PD-…» برابط صفحة الدفعة في المعمل (المواد التي سُحبت منها وكلفتها)؛ وغيرها رقم مستندها كما كان.
+ * بدفعة PD-…» برابط صفحة الدفعة في المعمل (المواد التي سُحبت منها وكلفتها)؛ وغيرها رقم مستندها كما كان. الرابط يُفتح لكلّ من يرى
+ * الوجبة (ج٢، ق٢٥): وجبة الإنتاج الجذر في مخزن الناتج نفسه (المنقولة وجبة تحويل بمستندها)، والدفعة تُقرأ من طرفيها كالتحويل.
  */
 function LotSource({ lot }: { lot: LotRow }) {
   if (lot.sourceKind !== 'production') return <bdi dir="ltr">{lot.source}</bdi>;
@@ -102,7 +103,8 @@ export function LotsTable({ lots, values, baseUnit, unitLabel }: { lots: readonl
 
 /**
  * مستند الحركة (والعكسية بمستند أصلها نفسه) رابط لشاشته: التحويل أو الافتتاح أو دفعة الإنتاج (سحب المادّة الأوّلية أو دخول العلف،
- * فيُعرف إلى أين ذهبت المادّة ومن أين جاء العلف)؛ غيرها (الحزم الجاية) نصّ لحد ما تنبني شاشته.
+ * فيُعرف إلى أين ذهبت المادّة ومن أين جاء العلف)؛ غيرها (الحزم الجاية) نصّ لحد ما تنبني شاشته. حركة الدفعة في مخزن مدخلاتها أو
+ * مخزن ناتجها، ومن يرى دفتر أحدهما يفتح الدفعة (ج٢، ق٢٥: production_detail بالطرفين).
  */
 function DocLabel({ move }: { move: MoveRow }) {
   const to =
@@ -273,6 +275,7 @@ function PurchaseCard({ row }: { row: PurchaseRow }) {
 /**
  * «صُنعت في المعمل — آخر دفعة PD-… بتاريخ …، الكمية» فوق التبويبات (الملاحظة #20): بطاقة العلف المنتج تُفتح من مخزن العلف على
  * «المشتريات»، فالسطر يقول من أوّل نظرة إنّ المادّة تُصنع، ورقم آخر دفعة رابط لصفحتها (من أيّ موادّ صُنعت وبكم). بلا مال.
+ * last_production بنطاق مخزن الناتج، والدفعة تُفتح منه (ج٢، ق٢٥، الملاحظتان #7 و#15)، فالرقم رابط لكلّ من يرى السطر.
  */
 export function MadeInMill({ made }: { made: LastProduction }) {
   return (
@@ -499,11 +502,22 @@ function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: P
   );
 }
 
-/** السعران كما حفظتهما البطاقة (ع٤): من جواب الخادم، ولقراءة بعينها (قراءة جديدة تأتي بما في الخادم فتغلبهما). */
+/**
+ * السعران كما حفظتهما البطاقة (ع٤): من جواب الخادم، ولقراءة بعينها (قراءة جديدة تأتي بما في الخادم فتغلبهما). يحفظهما
+ * ItemCardPage لا تبويب المشتريات (ج١، الملاحظة #9): التبويب يُزال من الشاشة حين يُبدَّل فتضيع حالته، فكان السعر القديم يرجع
+ * والتعديل التالي يُرسله سعراً سابقاً فيرفضه الخادم price_changed.
+ */
 interface SavedPrices {
   of: ItemPurchases | null;
   sell?: Fils | null;
   cost?: Fils | null;
+}
+
+const NO_SAVED_PRICES: SavedPrices = { of: null };
+
+/** السعر المحفوظ من جواب الخادم فوق القراءة التي رآها المحرّر: لقراءة أخرى يبدأ من جديد، وإلّا يُبقي السعر الآخر. */
+function savePrice(current: SavedPrices, of: ItemPurchases, kind: PriceKind, price: Fils | null): SavedPrices {
+  return { ...(current.of === of ? current : {}), of, [kind]: price };
 }
 
 /** المادّة بالسعرين المحفوظين من البطاقة فوق القراءة نفسها. */
@@ -513,17 +527,32 @@ export function withSavedPrices(item: PurchaseItem, saved: Pick<SavedPrices, 'se
 
 /**
  * تبويب المشتريات بصفحاته: المخزن فارغ = كل مخازن النطاق. الصفحة الأولى تقرؤها البطاقة نفسها (first) لأنّ سطر «صُنعت في المعمل»
- * فوق التبويبات منها، فلا قراءتان.
+ * فوق التبويبات منها، فلا قراءتان. والسعران المحفوظان من البطاقة أيضاً (saved، ج١)، فيبقيان بعد تبديل التبويب.
  */
-function PurchasesTab({ first, itemId, warehouseId, costs, canManage }: { first: LoadState<ItemPurchases>; itemId: string; warehouseId: string; costs: boolean; canManage: boolean }) {
+function PurchasesTab({
+  first,
+  itemId,
+  warehouseId,
+  costs,
+  canManage,
+  saved,
+  onSaved,
+}: {
+  first: LoadState<ItemPurchases>;
+  itemId: string;
+  warehouseId: string;
+  costs: boolean;
+  canManage: boolean;
+  saved: SavedPrices;
+  onSaved: (of: ItemPurchases, kind: PriceKind, price: Fils | null) => void;
+}) {
   const [pages, setPages] = useState<ItemPurchases[]>([]);
   const [more, setMore] = useState<More>({ busy: false, error: null });
-  const [saved, setSaved] = useState<SavedPrices>({ of: null });
   if (first.error) return <LoadFailed what={t('purchases.what', 'مشتريات المادّة')} error={first.error} onRetry={first.retry} />;
   if (!first.data) return <p role="status" className="text-sm text-ink-muted">{t('page.loading', 'جارٍ الفتح…')}</p>;
   const data = first.data;
   const item = withSavedPrices(data.item, saved.of === data ? saved : {});
-  const onSaved = (kind: PriceKind) => (price: Fils | null) => setSaved((current) => ({ ...(current.of === data ? current : {}), of: data, [kind]: price }));
+  const savedFor = (kind: PriceKind) => (price: Fils | null) => onSaved(data, kind, price);
   const made = Boolean(data.lastProduction);
   const all = [data, ...pages];
   const rows = all.flatMap((page) => page.rows);
@@ -544,8 +573,8 @@ function PurchasesTab({ first, itemId, warehouseId, costs, canManage }: { first:
     <div className="flex flex-col gap-3">
       {costs ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <PriceCard kind="sell" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={onSaved('sell')} />
-          <PriceCard kind="cost" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={onSaved('cost')} />
+          <PriceCard kind="sell" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={savedFor('sell')} />
+          <PriceCard kind="cost" itemId={itemId} item={item} lastCost={lastCost} canEdit={canManage} onSaved={savedFor('cost')} />
         </div>
       ) : null}
       <LastPurchase rows={rows} />
@@ -700,6 +729,9 @@ export default function ItemCardPage() {
   // يعرضها كما هي بلا قراءة ثانية.
   const loadPurchases = useCallback(() => inventory.loadItemPurchases(itemId, warehouseId || null), [itemId, warehouseId]);
   const purchases = useLoad(loadPurchases, `${itemId}:${warehouseId}`);
+  // السعران المحفوظان من بطاقتيهما (ج١، الملاحظة #9) هنا مع القراءة نفسها، لا في التبويب الذي يُزال حين يُبدَّل.
+  const [saved, setSaved] = useState<SavedPrices>(NO_SAVED_PRICES);
+  const onSavedPrice = useCallback((of: ItemPurchases, kind: PriceKind, price: Fils | null) => setSaved((current) => savePrice(current, of, kind, price)), []);
   const made = purchases.data?.lastProduction ?? null;
   const buyItem = row.data && !row.data.archived && RECEIVING_KINDS[row.data.kind].length > 0 ? row.data : null;
   const buyStore = buyItem ? stores.find((store) => store.id === warehouseId && !store.archived && RECEIVING_KINDS[buyItem.kind].includes(store.kind)) : undefined;
@@ -745,7 +777,16 @@ export default function ItemCardPage() {
         onChange={(next) => setSearch(cardParams(picked, next))}
       />
       {tab === 'purchases' ? (
-        <PurchasesTab key={`${itemId}:${warehouseId}`} first={purchases} itemId={itemId} warehouseId={warehouseId} costs={costs} canManage={canManage} />
+        <PurchasesTab
+          key={`${itemId}:${warehouseId}`}
+          first={purchases}
+          itemId={itemId}
+          warehouseId={warehouseId}
+          costs={costs}
+          canManage={canManage}
+          saved={saved.of !== null && saved.of === purchases.data ? saved : NO_SAVED_PRICES}
+          onSaved={onSavedPrice}
+        />
       ) : warehouseId ? (
         <Card key={warehouseId} itemId={itemId} warehouseId={warehouseId} costs={costs} only={tab} />
       ) : setup.data ? (

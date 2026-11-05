@@ -1,5 +1,5 @@
 import { Plus, Search } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Notice';
 import { decimalText } from '../../domain/decimal';
@@ -20,6 +20,8 @@ import { itemKindLabel } from '../../lib/storeLabels';
 // إصلاحات المراجعة (م٨): لا رابط يغادر البانية (رابط البطاقة كان يمسحها ويصل إلى بطاقة لا تغيّر النوع)؛ بدله «اجعلها مادّة
 // أوّلية» بتعديل المادّة القائم بشرط نسختها، و«أنشئ» يمرّ بـfindItemTwins أوّلاً فالتوأم بالاسم يُعرض قبل أيّ إنشاء، والإنشاء
 // رغمه فعل صريح ثانٍ. و(م٣) فئة المصروف تُضاف من مكانها (NewCategoryField) بدل رابط إعدادات المنشأة الذي يمسح البانية.
+// الجولة الثانية: نصّ «فئة جديدة» وملاحظته في الصفحة لا في الحقل (ب١١، مكوّن متحكَّم به)، فلا يضيع بقراءة الصفحة من جديد، ورفض
+// category_name_taken يُعرض بتلميحه؛ والمنتقي ومحرّر الخلية يُقفلان أثناء حفظ البانية (ب١٢، disabled).
 
 /**
  * أنواع المواد التي يقبلها مخزن المواد الأوّلية (مرآة private.item_admissible('raw', …) = ADMISSIBLE.raw في domain/stock،
@@ -132,6 +134,7 @@ export function MaterialPicker({
   exclude,
   canCreate,
   canFixKind,
+  disabled = false,
   onPick,
 }: {
   id: string;
@@ -139,6 +142,8 @@ export function MaterialPicker({
   canCreate: boolean;
   /** تعديل نوع المادّة (stores.manage): «اجعلها مادّة أوّلية» بدالّة تعديل المادّة القائمة بشرط نسختها. */
   canFixKind: boolean;
+  /** مقفول أثناء حفظ البانية (ب١٢): لا بحث ولا إضافة ولا إنشاء. */
+  disabled?: boolean;
   /** created: أُنشئت الآن من المنتقي (بلا شراء ولا سعر بعد). */
   onPick: (item: PickedMaterial, created: boolean) => void;
 }) {
@@ -194,7 +199,7 @@ export function MaterialPicker({
 
   /** «أنشئ»: التوأم بالاسم نفسه يُعرض أوّلاً (استعملها أو اجعلها مادّة أوّلية)، والإنشاء رغمه بفعل صريح ثانٍ (despite). */
   const create = async (despite: boolean) => {
-    if (!query || creating) return;
+    if (!query || creating || disabled) return;
     setCreating(true);
     setFailure(null);
     setFixProblem(null);
@@ -218,7 +223,7 @@ export function MaterialPicker({
 
   /** «اجعلها مادّة أوّلية»: تعديل نوع المادّة بشرط نسختها التي قُرئت، ثم تُضاف سطراً (لها مشتريات ربّما، فيُقرأ سعرها). */
   const fixKind = async (row: ItemRow) => {
-    if (fixing) return;
+    if (fixing || disabled) return;
     setFixing(row.id);
     setFixProblem(null);
     try {
@@ -234,7 +239,7 @@ export function MaterialPicker({
 
   const fixButton = (row: ItemRow) =>
     kindFixable(row) && canFixKind ? (
-      <Button size="sm" variant="secondary" busy={fixing === row.id} onClick={() => void fixKind(row)} data-action="make-raw">
+      <Button size="sm" variant="secondary" busy={fixing === row.id} disabled={disabled} onClick={() => void fixKind(row)} data-action="make-raw">
         {t('mill.picker.make_raw', 'اجعلها مادّة أوّلية')}
       </Button>
     ) : null;
@@ -247,14 +252,14 @@ export function MaterialPicker({
       </label>
       <div className="flex items-center gap-2">
         <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
-        <input id={id} className="input" value={text} maxLength={120} autoComplete="off" onChange={(event) => onText(event.target.value)} data-action="search-material" />
+        <input id={id} className="input" value={text} maxLength={120} autoComplete="off" disabled={disabled} onChange={(event) => onText(event.target.value)} data-action="search-material" />
       </div>
       {query && !view && !problem ? <p className="text-sm text-ink-muted">{t('mill.picker.searching', 'جارٍ البحث…')}</p> : null}
       {view?.fit.length ? (
         <ul className="flex flex-wrap gap-2">
           {view.fit.map((row) => (
             <li key={row.id}>
-              <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} onClick={() => onPick(materialOf(row), false)} data-action="pick-material">
+              <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} disabled={disabled} onClick={() => onPick(materialOf(row), false)} data-action="pick-material">
                 {t('mill.picker.option', '{name} · {kind} · {unit}', { name: row.name, kind: itemKindLabel(row.kind), unit: unitWord(row.baseUnit) })}
               </Button>
             </li>
@@ -291,6 +296,7 @@ export function MaterialPicker({
                       <Button
                         size="sm"
                         variant="secondary"
+                        disabled={disabled}
                         onClick={() => {
                           onPick(materialOf(row), false);
                           onText('');
@@ -313,14 +319,14 @@ export function MaterialPicker({
             ))}
           </ul>
           <div>
-            <Button size="sm" variant="ghost" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} onClick={() => void create(true)} data-action="create-anyway">
+            <Button size="sm" variant="ghost" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} disabled={disabled} onClick={() => void create(true)} data-action="create-anyway">
               {t('mill.twins.create_anyway', 'أنشئ «{name}» مادّةً أوّلية أخرى بالاسم نفسه رغم ذلك', { name: query })}
             </Button>
           </div>
         </div>
       ) : view && !view.exactFit && canCreate ? (
         <div>
-          <Button size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} onClick={() => void create(false)} data-action="create-material">
+          <Button size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} disabled={disabled} onClick={() => void create(false)} data-action="create-material">
             {t('mill.picker.create', 'أنشئ «{name}» مادّةً أوّلية جديدة بالكيلوغرام', { name: query })}
           </Button>
         </div>
@@ -332,27 +338,44 @@ export function MaterialPicker({
 }
 
 /**
+ * ما كُتب في «فئة مصروف جديدة» وملاحظته (الجولة الثانية، ب١١، درس WP5): يعيش في الصفحة (useState فيها) لا في الحقل، فقراءة الصفحة
+ * من جديد بعد أيّ حفظ آخر — وهي تطوي الأبناء أثناءها — لا تمسح ما كُتب. busy معه، فإعادة رسم الحقل أثناء الإنشاء لا تفتح نقرة ثانية.
+ */
+export interface CategoryDraft {
+  text: string;
+  note: string | null;
+  problem: string | null;
+  busy: boolean;
+}
+
+export const NO_CATEGORY_DRAFT: CategoryDraft = { text: '', note: null, problem: null, busy: false };
+
+/**
  * «فئة مصروف جديدة» من مكانها (م٣): في البانية وبطاقة الخلطة وصفحة الدفعة، فلا يغادر المستخدم ما يكتبه إلى الإعدادات. لمن
  * يملك expense_categories.manage حقل وزرّ «أضف الفئة» (createExpenseCategory القائم)، والفئة الجديدة تُختار فوراً (onPick)؛
- * ولغيره جملة «اطلب من المدير أو المحاسب». الاسم الموجود في القائمة يُختار بدل فئة ثانية بالاسم نفسه (لا قيد اسم بالخادم).
+ * ولغيره جملة «اطلب من المدير أو المحاسب». الاسم الموجود في القائمة يُختار بدل فئة ثانية بالاسم نفسه، والخادم يرفض الاسم المكرّر
+ * في المنشأة (category_name_taken، ق٢٦: مؤرشفة أو نظامية أو أُضيفت من جهاز آخر) بتلميح يقول ما العمل فيُعرض كما هو.
+ * مكوّن متحكَّم به (ب١١): value وonChange من الصفحة.
  */
 export function NewCategoryField({
   id,
   categories,
   canManage,
+  value,
+  onChange,
+  disabled = false,
   onPick,
 }: {
   id: string;
   /** الفئات التي تعرضها الشاشة (الفعّالة غير النظامية): الاسم الموجود فيها يُختار ولا يُكرَّر. */
   categories: readonly CategoryOption[];
   canManage: boolean;
+  value: CategoryDraft;
+  onChange: Dispatch<SetStateAction<CategoryDraft>>;
+  /** مقفول أثناء حفظ البانية (ب١٢). */
+  disabled?: boolean;
   onPick: (category: CategoryOption) => void;
 }) {
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-
   if (!canManage) {
     return (
       <p className="text-sm text-ink-muted" data-action="ask-category">
@@ -363,31 +386,36 @@ export function NewCategoryField({
 
   const exists = (name: string) => t('mill.category.exists', 'الفئة «{name}» موجودة: اخترها من القائمة.', { name });
   const create = async () => {
-    const wanted = text.trim();
-    if (!wanted || busy) return;
-    setNote(null);
-    setProblem(null);
+    const wanted = value.text.trim();
+    if (!wanted || value.busy || disabled) return;
     const same = categories.find((category) => searchable(category.name) === searchable(wanted));
     if (same) {
       onPick(same);
-      setNote(exists(same.name));
-      setText('');
+      onChange((current) => ({ ...current, text: '', note: exists(same.name), problem: null }));
       return;
     }
-    setBusy(true);
+    onChange((current) => ({ ...current, busy: true, note: null, problem: null }));
     try {
       const row = await createExpenseCategory(wanted);
       onPick({ id: row.id, name: row.name });
-      setNote(t('mill.category.created', 'أُضيفت الفئة «{name}» إلى فئات المصاريف واختيرت هنا.', { name: row.name }));
-      setText('');
+      onChange((current) => ({
+        ...current,
+        busy: false,
+        text: '',
+        note: t('mill.category.created', 'أُضيفت الفئة «{name}» إلى فئات المصاريف واختيرت هنا.', { name: row.name }),
+        problem: null,
+      }));
     } catch (error) {
-      if (error instanceof RejectedError && error.code === '23505') setNote(exists(wanted));
-      else {
+      if (error instanceof RejectedError && error.code === 'category_name_taken') {
+        // تلميح الخادم يقول حال الفئة الموجودة وما العمل (أعِدها من الأرشيف، أو اختر اسماً آخر، أو اخترها).
+        const hint = error.hint ?? describeError(error).detail;
+        onChange((current) => ({ ...current, busy: false, problem: hint }));
+      } else if (error instanceof RejectedError && error.code === '23505') {
+        onChange((current) => ({ ...current, busy: false, note: exists(wanted) }));
+      } else {
         const { title, detail } = describeError(error);
-        setProblem(`${title} ${detail}`);
+        onChange((current) => ({ ...current, busy: false, problem: `${title} ${detail}` }));
       }
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -397,18 +425,38 @@ export function NewCategoryField({
         {t('mill.category.new', 'فئة مصروف جديدة')}
       </label>
       <span className="flex items-center gap-2">
-        <input id={id} className="input" maxLength={80} autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} data-action="new-category-name" />
-        <Button variant="secondary" size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={busy} disabled={text.trim() === ''} onClick={() => void create()} data-action="create-category">
+        <input
+          id={id}
+          className="input"
+          maxLength={80}
+          autoComplete="off"
+          value={value.text}
+          disabled={disabled || value.busy}
+          onChange={(event) => {
+            const text = event.target.value;
+            onChange((current) => ({ ...current, text }));
+          }}
+          data-action="new-category-name"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Plus className="size-4" aria-hidden="true" />}
+          busy={value.busy}
+          disabled={disabled || value.text.trim() === ''}
+          onClick={() => void create()}
+          data-action="create-category"
+        >
           {t('mill.category.add', 'أضف الفئة')}
         </Button>
       </span>
-      {problem ? (
-        <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
-          {problem}
+      {value.problem ? (
+        <p role="alert" className="text-sm text-danger-700 dark:text-danger-300" data-action="category-problem">
+          {value.problem}
         </p>
       ) : (
         <p className="text-sm text-ink-muted" data-action="category-note">
-          {note ?? t('mill.category.hint', 'مثل: أيدي عاملة، كهرباء، نقل. تُضاف إلى فئات المصاريف وتُختار هنا مباشرة.')}
+          {value.note ?? t('mill.category.hint', 'مثل: أيدي عاملة، كهرباء، نقل. تُضاف إلى فئات المصاريف وتُختار هنا مباشرة.')}
         </p>
       )}
     </div>
@@ -449,6 +497,7 @@ export function CellEdit({
   dirty,
   invalid,
   busy,
+  disabled = false,
   action,
   onChange,
   onSave,
@@ -459,6 +508,8 @@ export function CellEdit({
   dirty: boolean;
   invalid: boolean;
   busy: boolean;
+  /** مقفول أثناء حفظ البانية (ب١٢): لا كتابة ولا حفظ. */
+  disabled?: boolean;
   action: string;
   onChange: (text: string) => void;
   onSave: () => void;
@@ -474,15 +525,16 @@ export function CellEdit({
         dir="ltr"
         autoComplete="off"
         value={value}
+        disabled={disabled}
         aria-invalid={invalid || undefined}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && dirty && !invalid) onSave();
+          if (event.key === 'Enter' && dirty && !invalid && !disabled) onSave();
         }}
         data-action={action}
       />
       {dirty ? (
-        <Button size="sm" variant="secondary" busy={busy} disabled={invalid} onClick={onSave} data-action={`${action}-save`}>
+        <Button size="sm" variant="secondary" busy={busy} disabled={invalid || disabled} onClick={onSave} data-action={`${action}-save`}>
           {t('common.save', 'حفظ')}
         </Button>
       ) : null}

@@ -132,7 +132,7 @@ const batchLine = (over = {}) => ({
   id: 'in-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', base_unit: 'kg', planned_qty: '1000.000', actual_qty: null, used_qty: null, in_basis: true,
   is_substitute: false, reason: null, replaced_item_name: null, draws: null, money: { value: null }, ...over,
 });
-const batchJson = ({ status = 'draft', lines = [batchLine()], costs = [] } = {}) => ({
+const batchJson = ({ status = 'draft', lines = [batchLine()], costs = [], expensesVisible = true, scope = { input: true, output: true } } = {}) => ({
   id: 'b-1', doc_no: status === 'posted' ? 'PD-2026-0003' : null, status, version: 7, produced_on: '2026-11-04', planned_kg: '1000.000',
   output_qty_kg: status === 'posted' ? '990.000' : null, output_expiry_on: null, input_mass_kg: status === 'posted' ? '1000.000' : null,
   shrink_kg: status === 'posted' ? '10.000' : null, shrink_pct: null, shrink_reason: null, note: null, void_reason: null, costs_confirmed: status === 'posted',
@@ -141,13 +141,15 @@ const batchJson = ({ status = 'draft', lines = [batchLine()], costs = [] } = {})
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
   output_warehouse: { id: 'w-feed', name: 'مخزن العلف' },
   lines,
+  expenses_visible: expensesVisible,
+  scope,
   money: {
     input_value: status === 'posted' ? '450000.00' : null, extra_value: status === 'posted' ? '15000.00' : null,
     total_value: status === 'posted' ? '465000.00' : null, cost_per_kg: status === 'posted' ? '469.70' : null, costs,
   },
 });
 const detailCost = (over = {}) => ({ cost_id: 'pc-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', planned_amount: '15000.00', amount: '15000.00', source: 'recipe', allocations: [], ...over });
-const previewJson = ({ problems = [], costs = [], lines = null } = {}) => ({
+const previewJson = ({ problems = [], costs = [], lines = null, expensesVisible = true } = {}) => ({
   id: 'b-1', kind: 'production', status: 'draft', version: 7, produced_on: '2026-11-04', planned_kg: '1000.000', input_mass_kg: '1000.000', output_qty_kg: '1000.000',
   output_expiry_on: null, shrink_kg: '0.000', shrink_pct: '0.00', shrink_reason: null, shrink_ok: true, costs_confirmed: false,
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية', division_id: 'd-mill', division_name: 'معمل العلف' },
@@ -156,6 +158,7 @@ const previewJson = ({ problems = [], costs = [], lines = null } = {}) => ({
   problems,
   can_post: problems.length === 0,
   plan_token: 'tok-7',
+  expenses_visible: expensesVisible,
   money: { input_value: '450000.00', extra_value: '15000.00', total_value: '465000.00', cost_per_kg: '465.00', costs },
 });
 const previewCost = (over = {}) => ({ cost_id: 'pc-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', planned_amount: '15000.00', amount: '15000.00', source: 'recipe', available: '4000.00', ...over });
@@ -278,13 +281,14 @@ export default async function (t) {
       await mount('/mill/new');
       await fillBuilder('1000');
       await click(byAction('save-draft')[0]);
-      type(byAction('line-qty')[0], '900');
-      await settle();
-      await click(byAction('save-draft')[0]);
+      // بعد النتيجة المجهولة تتجمّد البانية (ب١٤): الإعادة بـ«أعد المحاولة» وحدها، وid_conflict (من جهاز آخر) جوابها هنا.
+      await click(byAction('retry-save')[0]);
       const [first] = named(calls, 'createRecipe').map(([input]) => input);
       t.ok(text().includes('حُفظت هذه الخلطة بمحاولة سابقة بمحتوى غير الذي تراه الآن. افتحها لترى ما حُفظ، وعدّلها بنسخة جديدة.'), 'X1 id_conflict بجملة تقول إنّ ما حُفظ غير ما تراه');
       t.eq(byAction('open-saved-recipe')[0]?.getAttribute('href'), `/mill/recipe/${first?.id}`, 'X1 ورابط الخلطة المحفوظة بالمعرّف الذي أُرسل');
-      t.same([globalThis.__mill.location, byAction('recipe-name')[0]?.value, byAction('line-qty')[0]?.value], ['/mill/new', 'علف بياض', '900'], 'X1 والبانية بمحتواها (لا انتقال ولا مسح)');
+      type(byAction('line-qty')[0], '900');
+      await settle();
+      t.same([globalThis.__mill.location, byAction('recipe-name')[0]?.value, byAction('line-qty')[0]?.value], ['/mill/new', 'علف بياض', '900'], 'X1 والبانية بمحتواها تُعدَّل بعد الجواب النهائي (لا انتقال ولا مسح)');
       await click(byAction('save-draft')[0]);
       const third = named(calls, 'createRecipe')[2]?.[0];
       t.same([third?.id, third?.versionId], [first?.id, first?.versionId], 'X1 والمحاولة التالية بالمعرّفين أنفسهما: لا خلطة ثانية تُولد بصمت');
@@ -412,8 +416,8 @@ export default async function (t) {
       fresh(
         { status: 'ready', workspace: ws() },
         batchHandlers({
-          loadBatch: () => m.parseBatch(batchJson({ costs: [detailCost()] })),
-          previewProduction: () => m.parsePreview(previewJson({ costs: [previewCost({ available: null })], problems: [{ code: 'costs_unfunded' }] })),
+          loadBatch: () => m.parseBatch(batchJson({ costs: [detailCost()], expensesVisible: false })),
+          previewProduction: () => m.parsePreview(previewJson({ costs: [previewCost({ available: null })], problems: [{ code: 'costs_unfunded' }], expensesVisible: false })),
         }),
       );
       await mount('/mill/batch/b-1');
@@ -663,9 +667,10 @@ export default async function (t) {
       t.ok(byAction('allocations-hidden')[0]?.textContent === 'محمَّلة من مصاريف وحدة خارج نطاقك', 'X12 allocations = null: «محمَّلة من مصاريف وحدة خارج نطاقك» بلا أرقام');
       await unmount();
       root = null;
-      fresh({ status: 'ready', workspace: ws() }, batchHandlers({ loadBatch: () => m.parseBatch(batchJson({ costs: [detailCost()] })), previewProduction: () => m.parsePreview(previewJson({ costs: [previewCost({ available: null })] })) }));
+      // available = null يعني أنّ القارئ لا يرى مصاريف الوحدة (ق١١، ق٢١): لا رقم يُعرض، ولا مبلغ يُكتب (ب٢).
+      fresh({ status: 'ready', workspace: ws() }, batchHandlers({ loadBatch: () => m.parseBatch(batchJson({ costs: [detailCost()], expensesVisible: false })), previewProduction: () => m.parsePreview(previewJson({ costs: [previewCost({ available: null })], expensesVisible: false })) }));
       await mount('/mill/batch/b-1');
-      t.ok(text().includes('المتاح من المصاريف') && !text().includes('4,000.00') && byAction('cost-amount').length === 1, 'X12 available = null في المعاينة: لا رقم يُعرض والصفحة تعمل');
+      t.ok(text().includes('المتاح من المصاريف') && !text().includes('4,000.00') && byAction('cost-amount').length === 0, 'X12 available = null في المعاينة: لا رقم يُعرض والصفحة تعمل (والمبلغ لا يُكتب)');
     });
 
     // ── X14 (م١٤): الناتج المنتهي بجملة تسمّي التاريخين ─────────────────────────────────────────────────────────────────

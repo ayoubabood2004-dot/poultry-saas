@@ -10,7 +10,8 @@
 // مسوّدة جرد (الأمين): كل وحدة توقف التراجع بصوت.
 // 0012: البذرة نفسها (بلا قاعة ولا فوج، فالتراجع يكمل). والطريق الثاني: قاعة بفوج مفتوح وجولة يومه (المدير) توقف التراجع بصوت.
 // 0016: البذرة نفسها (بلا معدّل تكاليف ولا سطر تكاليف ولا بديل ولا سعر كلفة، فالتراجع يكمل). والطريق الثاني: معدّل تكاليف بخلطة،
-// وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب: كل وحدة توقف التراجع بصوت.
+// وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة (مراجعة 0016 الثانية #1): كل وحدة توقف
+// التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -336,6 +337,25 @@ const costPriceSeed = async (db) => {
 
 const COSTS_CONDITION = 'v_rates > 0 or v_costs + v_allocs + v_replaced > 0 or v_prices > 0';
 
+/**
+ * 0016 (مراجعة 0016 الثانية #1): خلطة مفعَّلة فيها كاز خارج الكتلة (المدير، create_recipe بنداء واحد): «علف بادئ بالكاز» ذرة 1,000 كغم
+ * وكاز 20 لتراً (17 كغم بكثافة 0.85) لأساس 1,000 كغم. مجموع كلّ سطورها 1,017 ≠ الأساس، فبعد التراجع يرفضها فحص 0015 الثاني
+ * (recipe_basis_mismatch) والنسخة المجمَّدة لا تُعدَّل؛ فطريق الرفض يوقفه. والطفرة تشيل فرع الأساس وحده (البذرة بلا معدّل ولا دفعة ولا سعر
+ * كلفة)، فيكمل التراجع ويترك الخلطة مخالفة.
+ */
+const fuelRecipeSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const kerosene = await value(q, "insert into public.items (name, kind, base_unit, density_kg_per_l) values ('كاز المولّدة', 'fuel', 'L', 0.85) returning id");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف بادئ', 'feed', 'kg') returning id");
+    await q(
+      "select public.create_recipe($1, $2, 'علف بادئ بالكاز', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg'), jsonb_build_object('item_id', $5::uuid, 'qty', 20, 'unit', 'L')), '[]'::jsonb, true)",
+      [REF(33), REF(34), feed, corn, kerosene],
+    );
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
   16: [
     {
@@ -358,6 +378,13 @@ export const BLOCKING_SEEDS = {
       seed: costPriceSeed,
       data: "select (select count(*) from public.item_prices where cost_price is not null)::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace(COSTS_CONDITION, 'v_rates > 0 or v_costs + v_allocs + v_replaced > 0'),
+    },
+    {
+      name: 'خلطة مفعَّلة بكاز خارج الكتلة',
+      code: 'rollback_blocked',
+      seed: fuelRecipeSeed,
+      data: "select (select count(*) from public.recipe_lines)::text || '/' || (select count(*) from public.recipe_versions where status = 'active')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_basis > 0 then', 'if false then'),
     },
   ],
   15: [
@@ -521,5 +548,5 @@ export const BLOCKING_REQUIRED = [
   [12, 2, 'قاعة بفوج وجولة يومية، وقاعة بلا فوج، كل وحدة توقف التراجع'],
   [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
   [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
-  [16, 3, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، كل وحدة توقف التراجع'],
+  [16, 4, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، كل وحدة توقف التراجع'],
 ];

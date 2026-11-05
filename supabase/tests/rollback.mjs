@@ -3,8 +3,8 @@
 // (عمود أو قيد أو مشغّل أو سياسة بجدول قديم، أو جسم دالّة قديمة أو صلاحيتها، أو أزالت شي)، وإعادة كتابة دوالّ verify_*
 // للقراءة بس ما تنحسب. الثقيلة لازم إلها ملف تراجع، وكل ملف ينفحص بقاعدة جديدة: الهجرات لحد قبلها، ثم هي، ثم بذرة من
 // الدوالّ الحقيقية، ثم ملف التراجع ← الكتالوج = اللي قبل الهجرة بالضبط، ثم الهجرة مرّة ثانية ← الكتالوج = اللي بعدها
-// بالضبط، وكل verify_* صفر. (الخطّة تكول «كل الهجرات»؛ تراجع هجرة قبل الأخيرة فوك هجرات بعدها ما إله معنى، فالقاعدة
-// تقف عندها.) 0001–0003 انطبقت بالإنتاج قبل هالقاعدة وتراجعها ورقي كما كتبته: معفيّة بالاسم.
+// بالضبط، وكل verify_* صفر بعد التراجع (على كتالوج ما قبل الهجرة نفسه) وبعد الإعادة. (الخطّة تكول «كل الهجرات»؛ تراجع هجرة
+// قبل الأخيرة فوك هجرات بعدها ما إله معنى، فالقاعدة تقف عندها.) 0001–0003 انطبقت بالإنتاج قبل هالقاعدة وتراجعها ورقي كما كتبته: معفيّة بالاسم.
 import { snapshot, snapshotDiff } from './snapshot.mjs';
 
 export const LEGACY_THROUGH = 3;
@@ -173,6 +173,10 @@ export async function rollbackCase({ fresh, migrations, rollbackSql, seed }) {
     await applySql(client, rollbackSql, `تراجع ${target.name}`);
     const undone = snapshotDiff(before, await snapshot(client));
     if (undone.length) problems.push(`بعد التراجع الكتالوج مو مثل قبل ${target.name} (${undone.length} فرق): ${undone.slice(0, 5).join(' | ')}`);
+    // الثوابت على كتالوج ما قبل الهجرة نفسه (مراجعة 0016 الثانية #1): تراجع يترك بيانات يرفضها فحص الإصدار القديم كان يعبر، لأنّ الفحص
+    // بعد الإعادة وحدها يجري بدوالّ الهجرة (verify_mill في 0016 يستثني الوقود فيرى خلطة بكاز خارج الكتلة سليمة، وفحص 0015 يرفضها).
+    const rolled = await verifyAll(db);
+    if (rolled.bad.length) problems.push(`الثوابت بعد التراجع (كتالوج ما قبل ${target.name}): ${rolled.bad.join('، ')}`);
     await applySql(client, target.text, `${target.name} بعد التراجع`);
     const redone = snapshotDiff(after, await snapshot(client));
     if (redone.length) problems.push(`إعادة ${target.name} بعد التراجع ما رجّعت كتالوجها (${redone.length} فرق): ${redone.slice(0, 5).join(' | ')}`);

@@ -24,6 +24,7 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pieceColor, recipeC
 // النسخة الثانية (كلمة المالك 2026-11-04): لون كلّ خلطة من معرّفها بلا حدّ، وأرقام الإنتاج على البطاقة (آخر إنتاج وكميته
 // وكلفة كيلوه الفعلية، أو المتوقّعة قبل أوّل إنتاج، وعدد الدفعات)، و«خلطة جديدة» تفتح البانية بشاشة واحدة، و«أنتج» بكميات
 // سريعة («احدد الكميات الي اريد اسويها بكل مرة»).
+// الجولة الثانية (ب٨): شريط التركيبة ورقاقاته يستثنيان الوقود والتعبئة (in_basis من لقطة سطر الخلطة)، كبطاقة الخلطة والبانية.
 
 /** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
 export const PRODUCE_UNITS = [
@@ -43,6 +44,8 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
   const color = recipeColor(recipe.id);
   const basis = recipe.activeBasisKg ?? 0n;
   const last = recipe.lastBatch;
+  // ما داخل كتلة الخلطة وحده (ب٨): الوقود والتعبئة يُسحبان ولا يدخلان الأساس، فلا قطعة لهما في الشريط ولا رقاقة.
+  const pieces = recipe.pieces.filter((piece) => piece.inBasis);
   return (
     <article className="card animate-fade-in overflow-hidden rounded-3xl p-0">
       <div className="h-2" style={{ background: color.solid }} aria-hidden="true" />
@@ -62,9 +65,9 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
         </div>
         {recipe.activeId ? (
           <>
-            <CompositionBar pieces={recipe.pieces} total={basis} hue={color.hue} />
+            <CompositionBar pieces={pieces} total={basis} hue={color.hue} />
             <div className="flex flex-wrap gap-1.5">
-              {recipe.pieces.slice(0, 4).map((piece, index) => (
+              {pieces.slice(0, 4).map((piece, index) => (
                 <Chip key={piece.key} dot={pieceColor(color.hue, index)}>
                   <span className="truncate">{piece.label}</span>
                   <Num>{fmtQty(piece.weight, 'kg').main}</Num>

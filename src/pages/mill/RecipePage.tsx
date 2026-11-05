@@ -40,7 +40,7 @@ import {
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { ProduceDialog } from './MillPage';
-import { CellEdit, NewCategoryField, unitWord, useDrafts } from './pickers';
+import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, unitWord, useDrafts, type CategoryDraft } from './pickers';
 import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
@@ -49,6 +49,8 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // متوسّط المتاح؛ و«تكاليف لكلّ طنّ» بفئة مصروف (تُكتب في المسوّدة)؛ وكلفة الطنّ المتوقّعة من الخادم للتخطيط.
 // إصلاحات المراجعة: فئة المصروف تُضاف من مكانها (م٣)؛ «نسخة جديدة» تنسخ المفعَّلة بسطورها وتكاليفها (new_recipe_version، م٧)، ونصّ
 // «لا تكاليف» على نسخة مجمَّدة يدلّ عليها؛ وزرّ «أنتج» للنسخة المفعَّلة (م٩)؛ والوقود والتعبئة «خارج الكتلة» (in_basis، م١١).
+// الجولة الثانية: خلية «بالكيلوغرام» لسطر خارج الكتلة «—» كالبانية، فالمجموع = الخلايا (ب٩)؛ نصّ «لا تكاليف» تحت نسخة غير مفعَّلة
+// يقول إنّ النسخة الجديدة تبدأ من المفعَّلة (أو آخر نسخة) لا من المعروضة (ب١٠)؛ ونصّ «فئة جديدة» في الصفحة (ب١١).
 
 function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -163,12 +165,14 @@ export default function RecipePage() {
   const rateDrafts = useDrafts<Fils>();
   const [newRate, setNewRate] = useState({ categoryId: '', amount: '' });
   const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
+  const [category, setCategory] = useState<CategoryDraft>(NO_CATEGORY_DRAFT);
   const [producing, setProducing] = useState<{ today: string; stores: MillStore[] } | 'loading' | null>(null);
   const basisId = useId();
   const fieldId = useId();
 
   const lines = useMemo(() => data?.lines ?? [], [data]);
-  const massDecimals = useMemo(() => columnDecimals(lines.map((line) => line.massKg), 3) as 0 | 1 | 2 | 3, [lines]);
+  // عمود الكتلة يجمع ما داخل الكتلة وحده (ب٩)، فمراتبه منه.
+  const massDecimals = useMemo(() => columnDecimals(lines.filter((line) => line.inBasis).map((line) => line.massKg), 3) as 0 | 1 | 2 | 3, [lines]);
   const qtyDecimals = useMemo(() => columnDecimals(lines.map((line) => line.qty), 3) as 0 | 1 | 2 | 3, [lines]);
   // أعمدة الأسعار مال: لأدوار الكلفة وحدها (الخادم يحذف money عن غيرهم).
   const costShown = costs;
@@ -228,6 +232,7 @@ export default function RecipePage() {
    */
   const startVersion = async () => {
     if (busy || !data) return;
+    const fromActive = data.versions.some((version) => version.status === 'active');
     const slot = `version:${data.id}`;
     setBusy(true);
     setFailure(null);
@@ -238,7 +243,9 @@ export default function RecipePage() {
         tone: 'success',
         title: made.existing
           ? t('mill.version.opened', 'لهذه الخلطة مسوّدة قائمة: فُتحت لتكملها.')
-          : t('mill.version.copied', 'أُنشئت نسخة مسوّدة بموادّ النسخة المفعَّلة وتكاليفها: عدّلها ثم فعّلها.'),
+          : fromActive
+            ? t('mill.version.copied', 'أُنشئت نسخة مسوّدة بموادّ النسخة المفعَّلة وتكاليفها: عدّلها ثم فعّلها.')
+            : t('mill.version.copied_last', 'أُنشئت نسخة مسوّدة بموادّ آخر نسخة وتكاليفها: عدّلها ثم فعّلها.'),
       });
       if (made.versionId === versionId) retry();
       else setVersionId(made.versionId);
@@ -275,7 +282,8 @@ export default function RecipePage() {
         key: 'mass',
         header: t('mill.col.mass', 'بالكيلوغرام'),
         kind: 'number',
-        cell: (line) => <Num>{fmtQtyCell(line.massKg, massDecimals)}</Num>,
+        // الوقود والتعبئة خارج الكتلة (ب٩، مرآة البانية): لا رقم في عمود مجموعه كتلة المواد، فالمجموع = الخلايا.
+        cell: (line) => <Num>{line.inBasis ? fmtQtyCell(line.massKg, massDecimals) : dash()}</Num>,
         total: <Num>{fmtQtyCell(data?.massKg ?? 0n, massDecimals)}</Num>,
       },
       {
@@ -543,7 +551,12 @@ export default function RecipePage() {
             empty={
               isDraft
                 ? t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')
-                : t('mill.rates.empty_frozen', 'لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة، فهي تبدأ بموادّ هذه النسخة وتكاليفها.')
+                : // «نسخة جديدة» تنسخ النسخة المفعَّلة (وإلّا آخر نسخة)، لا النسخة المعروضة (ب١٠، new_recipe_version).
+                  data.status === 'active'
+                  ? t('mill.rates.empty_frozen', 'لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة، فهي تبدأ بموادّ هذه النسخة وتكاليفها.')
+                  : activeVersion
+                    ? t('mill.rates.empty_frozen_active', 'لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة، فهي تبدأ بموادّ النسخة المفعَّلة وتكاليفها.')
+                    : t('mill.rates.empty_frozen_last', 'لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة، فهي تبدأ بموادّ آخر نسخة وتكاليفها.')
             }
             totalLabel={t('mill.detail.total', 'المجموع')}
           />
@@ -615,9 +628,11 @@ export default function RecipePage() {
               id={`${fieldId}-new-category`}
               categories={categories}
               canManage={canCategories}
-              onPick={(category) => {
-                setMadeCategories((current) => (current.some((made) => made.id === category.id) ? current : [...current, category]));
-                if (!rates.some((rate) => rate.categoryId === category.id)) setNewRate((current) => ({ ...current, categoryId: category.id }));
+              value={category}
+              onChange={setCategory}
+              onPick={(picked) => {
+                setMadeCategories((current) => (current.some((made) => made.id === picked.id) ? current : [...current, picked]));
+                if (!rates.some((rate) => rate.categoryId === picked.id)) setNewRate((current) => ({ ...current, categoryId: picked.id }));
               }}
             />
           ) : null}

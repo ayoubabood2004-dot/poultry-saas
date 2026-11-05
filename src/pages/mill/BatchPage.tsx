@@ -14,6 +14,7 @@ import { decimalText } from '../../domain/decimal';
 import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseQty, type BaseUnit } from '../../domain/units';
+import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -42,7 +43,7 @@ import {
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { CellEdit, MaterialPicker, NewCategoryField, unitWord, useDrafts, type PickedMaterial } from './pickers';
+import { CellEdit, MaterialPicker, NewCategoryField, NO_CATEGORY_DRAFT, unitWord, useDrafts, type CategoryDraft, type PickedMaterial } from './pickers';
 import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 
 // بطاقة دفعة الإنتاج (0015): المسوّدة تُعرض بمعاينتها (ما سيُسحب من كلّ مادّة، والهدر، وكلفة الكيلو) قبل «أنتج الآن»؛
@@ -54,6 +55,11 @@ import { dash, forgetMillRef, millRef, pct, Stats } from './shared';
 // إصلاحات المراجعة: مفتاح معرّف المادّة المضافة يحمل كميتها وسببها (م٢)؛ فئة المصروف من مكانها (م٣)؛ «المصاريف لا تكفي» وتلميح
 // التكاليف يسمّيان وحدة مخزن المدخلات، و«سجّل مصروفاً» يعبّئ النافذة ويرجع إلى الدفعة (م٤)؛ حذف المسوّدة بتأكيد (م١٠)؛ الوقود
 // والتعبئة «خارج الكتلة» (م١١)؛ التحميلات والمتاح المحجوبة بلا أرقام (م١٢)؛ والناتج المنتهي بجملة تسمّي التاريخين (م١٤).
+// الجولة الثانية: «أنتج الآن» بسياق الختم، فمشغّل المعمل يراه بعد ختم الكلف (ب١)؛ كتابة التكاليف وختمها وتسجيل المصروف والفئة
+// الجديدة لمن يرى مصاريف وحدة المدخلات وحده (ب٢، expenses_visible)، ومشكلتا costs_unsealed_scope وno_mass_inputs بجملتيهما؛
+// طرفا الدفعة في النطاق (ب٣، scope): بلا مخزن المواد لا معاينة ولا فعل ولا إلغاء ولا رابط دفتر، وبلا مخزن العلف لا رابط وجباته؛
+// «سجّل مصروفاً» يسأل قبل أن يضيّع ما كُتب ولم يُحفظ (ب٤)؛ سبب الهدر وتاريخ انتهاء الناتج يبدآن من المحفوظ ويتبعان الكتابة
+// (ب٥، ب٦)؛ والملغاة «أُوقف تحميلها بالإلغاء» (ب٧)؛ ونصّ «فئة جديدة» في الصفحة (ب١١).
 
 interface BatchState {
   batch: ProductionBatch;
@@ -68,11 +74,16 @@ const PROBLEM_TEXT: Readonly<Record<string, () => string>> = {
   item_archived: () => t('mill.problem.archived', 'المادّة مؤرشفة'),
   costs_unfunded: () => t('mill.problem.unfunded', 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: يسجّل المحاسب أو المدير المصروف أوّلاً أو يقلّل المبلغ'),
   output_expired: () => t('mill.problem.output_expired', 'تاريخ انتهاء الناتج قبل يوم الإنتاج: صحّح التاريخ قبل الترحيل'),
+  costs_unsealed_scope: () => t('mill.problem.unsealed_scope', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.'),
+  no_mass_inputs: () => t('mill.problem.no_mass', 'الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.'),
 };
 
 export const problemText = (code: string): string => (PROBLEM_TEXT[code] ?? (() => t('mill.problem.other', 'مشكلة في الدفعة: {code}', { code })))();
 
-/** جملة مشكلة من مشاكل المعاينة: الناتج المنتهي يسمّي التاريخين (ق٨، م١٤)، ومشكلة المادّة تسمّي المادّة، وغيرها بجملتها. */
+/**
+ * جملة مشكلة من مشاكل المعاينة: الناتج المنتهي يسمّي التاريخين (ق٨، م١٤)، والتكاليف المحمَّلة من وحدة خارج النطاق تسمّي الوحدة
+ * (ق٢١، ب٢)، ومشكلة التاريخ بجملة الخادم (hint)، ومشكلة المادّة تسمّي المادّة، وغيرها بجملتها.
+ */
 export function problemLine(problem: MillProblem): string {
   if (problem.code === 'output_expired' && problem.expiryOn !== null && problem.producedOn !== null) {
     return t('mill.problem.output_expired_named', 'تاريخ انتهاء الناتج {expiry} قبل يوم الإنتاج {produced}: صحّح تاريخ الانتهاء قبل الترحيل.', {
@@ -80,6 +91,13 @@ export function problemLine(problem: MillProblem): string {
       produced: fmtDay(problem.producedOn),
     });
   }
+  if (problem.code === 'costs_unsealed_scope' && problem.divisionName !== null) {
+    return t('mill.problem.unsealed_scope_named', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «{division}» خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.', {
+      division: problem.divisionName,
+    });
+  }
+  // مشكلة التاريخ (أقدم من سبعة أيام، أو قفل الفترة، أو قبل يوم التشغيل): الخادم يرسل جملتها بتواريخها، فلا يظهر الرمز الخام.
+  if (problem.hint !== null) return problem.hint;
   return problem.itemName ? `${problemText(problem.code)} — ${problem.itemName}` : problemText(problem.code);
 }
 
@@ -253,8 +271,11 @@ function InputDialog({
   );
 }
 
-/** الوجبات التي سُحبت منها مادّة (المرحَّلة)، وبلاها رابط دفتر المادّة في مخزن المدخلات حيث حركة السحب برقم الدفعة. */
-function DrawsCell({ draws, itemId, unit, warehouseId }: { draws: readonly LotDraw[] | null; itemId: string; unit: BaseUnit; warehouseId: string }) {
+/**
+ * الوجبات التي سُحبت منها مادّة (المرحَّلة)، وبلاها رابط دفتر المادّة في مخزن المدخلات حيث حركة السحب برقم الدفعة؛ ومن لا يكون
+ * مخزن المدخلات بنطاقه (ق٢٥، ب٣) يرى «دفتر المادّة» نصّاً بلا رابط، فالدفتر لا يُفتح له.
+ */
+function DrawsCell({ draws, itemId, unit, warehouseId, linked }: { draws: readonly LotDraw[] | null; itemId: string; unit: BaseUnit; warehouseId: string; linked: boolean }) {
   if (draws && draws.length) {
     return (
       <ul className="flex flex-col gap-0.5">
@@ -264,6 +285,13 @@ function DrawsCell({ draws, itemId, unit, warehouseId }: { draws: readonly LotDr
           </li>
         ))}
       </ul>
+    );
+  }
+  if (!linked) {
+    return (
+      <span className="text-ink-muted" data-action="item-ledger-text">
+        {t('mill.trace.ledger', 'دفتر المادّة')}
+      </span>
     );
   }
   return (
@@ -281,7 +309,6 @@ export default function BatchPage() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const role = workspace?.role ?? null;
   const costs = Boolean(workspace?.canSeeCost);
-  const canPost = role !== null && can(role, 'production.post');
   const canDraft = role !== null && can(role, 'production.draft');
   const canVoid = role !== null && can(role, 'void');
   const canSeal = role !== null && can(role, 'costs.load');
@@ -292,14 +319,18 @@ export default function BatchPage() {
 
   const load = useCallback(async (): Promise<BatchState> => {
     const batch = await loadBatch(id);
-    return { batch, preview: batch.status === 'draft' ? await previewProduction(id) : null };
+    // المعاينة بنطاق مخزن المدخلات وحده (ق٢٥، ب٣): من يقرأ الدفعة من طرف العلف لا يُطلب له ما يرفضه الخادم، فلا تفشل الصفحة.
+    return { batch, preview: batch.status === 'draft' && batch.scope.input ? await previewProduction(id) : null };
   }, [id]);
   const { data, error, loading, retry } = useLoad<BatchState>(load, id);
   const loadCategories = useCallback((): Promise<CategoryOption[]> => (canCosts ? loadExpenseCategories() : Promise.resolve([])), [canCosts]);
   const categories = useLoad<CategoryOption[]>(loadCategories, `${canCosts}`);
   const [weight, setWeight] = useState('');
-  const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonTouched, setReasonTouched] = useState(false);
+  const [expiry, setExpiry] = useState('');
+  const [expiryTouched, setExpiryTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
@@ -309,7 +340,10 @@ export default function BatchPage() {
   const [removingCost, setRemovingCost] = useState<BatchCost | null>(null);
   const [newCost, setNewCost] = useState({ categoryId: '', amount: '' });
   const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
+  const [category, setCategory] = useState<CategoryDraft>(NO_CATEGORY_DRAFT);
   const [discarding, setDiscarding] = useState(false);
+  /** رابط «سجّل مصروفاً» ينتظر التأكيد لأنّ في الصفحة ما كُتب ولم يُحفظ (ب٤). */
+  const [leaving, setLeaving] = useState<string | null>(null);
   const actuals = useDrafts<bigint | null>();
   const amounts = useDrafts<Fils>();
 
@@ -326,9 +360,16 @@ export default function BatchPage() {
   if (loading || !batch) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
 
   const draft = batch.status === 'draft';
-  const editInputs = draft && canDraft;
+  const inputScope = batch.scope.input;
+  // مسوّدة يقرؤها من نطاقه مخزن العلف وحده (ق٢٥، ب٣): تُعمل من طرف المواد، فلا معاينة لها ولا فعل هنا.
+  const blind = draft && !inputScope;
+  // مشغّل المعمل يرحّل بعد ختم الكلف وحده (ب١): السياق من الدفعة، كما يشترطه الخادم.
+  const canPost = role !== null && can(role, 'production.post', { costsConfirmed: batch.costsConfirmed });
+  // يرى مصاريف وحدة مخزن المدخلات (ق٢١، ب٢): بلاها لا يكتب مبلغ تكلفة ولا يختمها ولا يسجّل مصروفاً منها.
+  const expensesVisible = batch.expensesVisible;
+  const editInputs = draft && canDraft && inputScope;
   const costLines = preview?.costs ?? batch.costs;
-  const costShown = costLines !== null;
+  const costShown = costLines !== null && !blind;
 
   const act = async (run: () => Promise<unknown>, done?: string): Promise<boolean> => {
     setBusy(true);
@@ -347,16 +388,34 @@ export default function BatchPage() {
     }
   };
 
-  // الحقل يبدأ من الوزن المحفوظ (إن وُجد) ويتبع الكتابة بعدها، فلا تُداس كتابة المستخدم بكلّ قراءة (درس WP5).
-  const shownWeight = touched ? weight : batch.outputQtyKg > 0n ? decimalText(batch.outputQtyKg, 3) : '';
+  // الحقول تبدأ من المحفوظ (إن وُجد) وتتبع الكتابة بعدها، فلا تُداس كتابة المستخدم بكلّ قراءة (درس WP5)، ولا يُرسل منها إلّا ما
+  // كتبه المستخدم: حفظ الوزن لا يمسح سبباً أو تاريخاً محفوظاً لم يُعِد كتابته (ب٥).
+  const savedWeight = batch.outputQtyKg > 0n ? decimalText(batch.outputQtyKg, 3) : '';
+  const shownWeight = touched ? weight : savedWeight;
   const typedWeight = shownWeight.trim() === '' ? null : parseQty(shownWeight);
   const weightBad = shownWeight.trim() !== '' && (typedWeight === null || typedWeight <= 0n);
+  const savedReason = batch.shrinkReason ?? '';
+  const shownReason = reasonTouched ? reason : savedReason;
+  const problems = preview?.problems ?? [];
+  // تاريخ انتهاء الناتج (ب٦): يوم تقويم (parseDayText، لا تاريخ ترحيل)، ويظهر حين يُتابَع انتهاء المنتج أو تطلبه المعاينة.
+  const expiryShown = batch.outputItem.tracksExpiry || problems.some((problem) => problem.code === 'expiry_required' || problem.code === 'output_expired');
+  const savedExpiry = batch.outputExpiryOn ? fmtDay(batch.outputExpiryOn) : '';
+  const shownExpiry = expiryTouched ? expiry : savedExpiry;
+  const typedExpiry = shownExpiry.trim() === '' ? null : parseDayText(shownExpiry);
+  const expiryBad = shownExpiry.trim() !== '' && typedExpiry === null;
+  const fieldsTouched = touched || reasonTouched || (expiryShown && expiryTouched);
 
-  const saveWeight = () =>
+  const saveFields = () =>
     void act(async () => {
-      if (weightBad) return;
-      await setBatchFields(batch.id, { outputQtyKg: typedWeight, shrinkReason: reason.trim() === '' ? null : reason });
+      if (weightBad || expiryBad || !fieldsTouched) return;
+      const fields: { outputQtyKg?: bigint | null; shrinkReason?: string | null; outputExpiryOn?: string | null } = {};
+      if (touched) fields.outputQtyKg = typedWeight;
+      if (reasonTouched) fields.shrinkReason = shownReason.trim() === '' ? null : shownReason;
+      if (expiryShown && expiryTouched) fields.outputExpiryOn = typedExpiry;
+      await setBatchFields(batch.id, fields);
       setTouched(false);
+      setReasonTouched(false);
+      setExpiryTouched(false);
     });
 
   const post = () => {
@@ -496,7 +555,7 @@ export default function BatchPage() {
       key: 'lots',
       header: t('mill.trace.from', 'من أيّ وجبات'),
       wrap: true,
-      cell: (row) => <DrawsCell draws={row.detail?.draws ?? null} itemId={row.itemId} unit={row.baseUnit} warehouseId={batch.inputWarehouse.id} />,
+      cell: (row) => <DrawsCell draws={row.detail?.draws ?? null} itemId={row.itemId} unit={row.baseUnit} warehouseId={batch.inputWarehouse.id} linked={inputScope} />,
     });
   }
   if (editInputs) {
@@ -517,7 +576,8 @@ export default function BatchPage() {
   }
 
   const costRows = costLines ?? [];
-  const editCosts = draft && canCosts;
+  // كتابة التكاليف لمن يرى مصاريف وحدة المدخلات وحده (ق٢١، ب٢)، ومن طرف مخزن المواد (ق٢٥).
+  const editCosts = draft && canCosts && expensesVisible && inputScope;
   const costColumns: Column<BatchCost>[] = [
     { key: 'category', header: t('mill.costs.category', 'التكلفة'), wrap: true, cell: (cost) => cost.categoryName },
     {
@@ -568,7 +628,12 @@ export default function BatchPage() {
       header: t('mill.costs.allocations', 'حُمّل من'),
       wrap: true,
       cell: (cost) =>
-        cost.allocations === null ? (
+        // الملغاة (ب٧): أُوقفت تحميلاتها كلّها بالإلغاء، فالجملة نفسها لكلّ قارئ بدل «خارج نطاقك».
+        batch.status === 'void' ? (
+          <span className="text-ink-muted" data-action="allocations-void">
+            {t('mill.costs.allocations_void', 'أُوقف تحميلها بالإلغاء')}
+          </span>
+        ) : cost.allocations === null ? (
           <span className="text-ink-muted" data-action="allocations-hidden">
             {t('mill.costs.allocations_hidden', 'محمَّلة من مصاريف وحدة خارج نطاقك')}
           </span>
@@ -598,15 +663,34 @@ export default function BatchPage() {
   }
 
   const loaded = categories.data ?? [];
-  const allCategories = [...loaded, ...madeCategories.filter((made) => !loaded.some((category) => category.id === made.id))];
-  const freeCategories = allCategories.filter((category) => !costRows.some((cost) => cost.categoryId === category.id));
+  const allCategories = [...loaded, ...madeCategories.filter((made) => !loaded.some((option) => option.id === made.id))];
+  const freeCategories = allCategories.filter((option) => !costRows.some((cost) => cost.categoryId === option.id));
   // وحدة مخزن المدخلات (ق١٥): التكاليف تُحمَّل من مصاريفها وحدها، فالتلميح والتنبيه يسمّيانها.
   const division = preview?.inputWarehouse ?? null;
   const newCostValue = newCost.amount.trim() === '' ? null : parseMoney(newCost.amount);
   const newCostOk = newCost.categoryId !== '' && newCostValue !== null && newCostValue > 0n;
-  const problems = preview?.problems ?? [];
   const unfunded = problems.filter((problem) => problem.code === 'costs_unfunded');
   const otherProblems = problems.filter((problem) => problem.code !== 'costs_unfunded');
+
+  // ما كُتب ولم يُحفظ (ب٤): «سجّل مصروفاً» يغادر الصفحة، فيُسأل عنه بالاسم قبل أن يضيع.
+  const unsaved: string[] = [];
+  if (editInputs) {
+    if (touched && (weightBad || (typedWeight ?? 0n) !== batch.outputQtyKg)) unsaved.push(t('mill.unsaved.weight', 'وزن الناتج'));
+    if (reasonTouched && shownReason.trim() !== savedReason.trim()) unsaved.push(t('mill.unsaved.reason', 'سبب الهدر'));
+    if (expiryShown && expiryTouched && (expiryBad || typedExpiry !== batch.outputExpiryOn)) unsaved.push(t('mill.unsaved.expiry', 'تاريخ انتهاء الناتج'));
+    for (const row of rows) {
+      const edit = actuals.get(row.id);
+      if (edit && edit.text !== (row.actualQty === null ? '' : decimalText(row.actualQty, 3))) unsaved.push(t('mill.unsaved.actual', 'الكمية الفعلية من «{name}»', { name: row.itemName }));
+    }
+  }
+  if (editCosts) {
+    for (const cost of costRows) {
+      const edit = amounts.get(cost.id);
+      if (edit && edit.text !== decimalText(cost.amount, 2)) unsaved.push(t('mill.unsaved.amount', 'مبلغ «{name}»', { name: cost.categoryName }));
+    }
+    if (newCost.categoryId !== '' || newCost.amount.trim() !== '') unsaved.push(t('mill.unsaved.new_cost', 'سطر التكلفة الجديد'));
+    if (category.text.trim() !== '') unsaved.push(t('mill.unsaved.category', 'اسم الفئة الجديدة «{name}»', { name: category.text.trim() }));
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -625,6 +709,15 @@ export default function BatchPage() {
         }
       />
 
+      {blind ? (
+        <Notice
+          tone="info"
+          title={t('mill.batch.draft_out_of_scope', 'هذه الدفعة مسوّدة تُعمل من مخزن «{store}» خارج نطاقك، فلا تُعرض معاينتها ولا تُعدَّل من هنا؛ تظهر كاملة بعد ترحيلها.', {
+            store: batch.inputWarehouse.name,
+          })}
+        />
+      ) : null}
+
       {batch.status === 'posted' ? (
         <Notice
           tone="info"
@@ -635,33 +728,42 @@ export default function BatchPage() {
             doc: batch.docNo ?? dash(),
           })}
           action={
-            <Link
-              to={`/inventory/items/${batch.outputItem.id}?wh=${batch.outputWarehouse.id}&tab=lots`}
-              className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
-              data-action="open-output-lots"
-            >
-              {t('mill.trace.output_lots', 'افتح وجبات العلف في مخزنه')}
-            </Link>
+            // وجبات العلف في مخزنه لمن مخزن العلف بنطاقه (ق٢٥، ب٣)، ولغيره نصّاً بلا رابط لا يُفتح.
+            batch.scope.output ? (
+              <Link
+                to={`/inventory/items/${batch.outputItem.id}?wh=${batch.outputWarehouse.id}&tab=lots`}
+                className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
+                data-action="open-output-lots"
+              >
+                {t('mill.trace.output_lots', 'افتح وجبات العلف في مخزنه')}
+              </Link>
+            ) : (
+              <span className="text-sm text-ink-muted" data-action="output-lots-text">
+                {t('mill.trace.output_lots_text', 'وجبات العلف في «{store}» خارج نطاقك.', { store: batch.outputWarehouse.name })}
+              </span>
+            )
           }
         >
           {t('mill.trace.inputs', 'سُحبت المواد من «{store}»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.', { store: batch.inputWarehouse.name })}
         </Notice>
       ) : null}
 
-      <Stats
-        stats={[
-          { key: 'planned', label: t('mill.stat.planned', 'المخطّط'), value: <Num>{fmtQty(batch.plannedKg, 'kg').main}</Num> },
-          { key: 'mass', label: t('mill.stat.mass', 'كتلة المواد'), value: <Num>{fmtQty(mass, 'kg').main}</Num> },
-          { key: 'output', label: t('mill.stat.output', 'الناتج'), value: <Num>{fmtQty(output, 'kg').main}</Num> },
-          {
-            key: 'shrink',
-            label: t('mill.stat.shrink', 'الهدر'),
-            value: <Num>{mass > 0n ? pct(shrink, mass) : fmtQty(shrink, 'kg').main}</Num>,
-          },
-        ]}
-      />
+      {blind ? null : (
+        <Stats
+          stats={[
+            { key: 'planned', label: t('mill.stat.planned', 'المخطّط'), value: <Num>{fmtQty(batch.plannedKg, 'kg').main}</Num> },
+            { key: 'mass', label: t('mill.stat.mass', 'كتلة المواد'), value: <Num>{fmtQty(mass, 'kg').main}</Num> },
+            { key: 'output', label: t('mill.stat.output', 'الناتج'), value: <Num>{fmtQty(output, 'kg').main}</Num> },
+            {
+              key: 'shrink',
+              label: t('mill.stat.shrink', 'الهدر'),
+              value: <Num>{mass > 0n ? pct(shrink, mass) : fmtQty(shrink, 'kg').main}</Num>,
+            },
+          ]}
+        />
+      )}
 
-      {costPerKg !== null || totalValue !== null ? (
+      {!blind && (costPerKg !== null || totalValue !== null) ? (
         <Stats
           stats={[
             { key: 'materials', label: t('mill.stat.materials', 'قيمة المواد'), value: <Num>{inputValue === null ? dash() : fmtMoney(inputValue)}</Num> },
@@ -696,7 +798,9 @@ export default function BatchPage() {
           <h2 className="text-lg font-semibold">{t('mill.costs.title', 'التكاليف')}</h2>
           <p className="text-sm text-ink-muted">
             {draft && division
-              ? t('mill.costs.hint_division', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من مصاريف وحدة «{division}» المسجّلة بفئته، الأقدم فالأحدث؛ مصروف على وحدة أخرى لا يُحسب هنا.', { division: division.divisionName })
+              ? editCosts
+                ? t('mill.costs.hint_division', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من مصاريف وحدة «{division}» المسجّلة بفئته، الأقدم فالأحدث؛ مصروف على وحدة أخرى لا يُحسب هنا.', { division: division.divisionName })
+                : t('mill.costs.hint_division_read', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة. عند الإنتاج يُحمَّل كلّ سطر من مصاريف وحدة «{division}» المسجّلة بفئته، الأقدم فالأحدث؛ مصروف على وحدة أخرى لا يُحسب هنا.', { division: division.divisionName })
               : draft
                 ? t('mill.costs.hint', 'محسوبة من تكاليف الخلطة لكلّ طنّ بكمية هذه الدفعة، وتُعدَّل هنا. عند الإنتاج يُحمَّل كلّ سطر من المصاريف المسجّلة بفئته، الأقدم فالأحدث.')
                 : t('mill.costs.posted_hint', 'حُمّل كلّ سطر من المصاريف المسجّلة بفئته، ودخل مع المواد في كلفة العلف.')}
@@ -709,6 +813,11 @@ export default function BatchPage() {
             empty={t('mill.costs.empty', 'لا تكاليف على هذه الدفعة.')}
             totalLabel={extraValue === null ? undefined : t('mill.detail.total', 'المجموع')}
           />
+          {draft && !expensesVisible && division ? (
+            <p className="text-sm text-ink-muted" data-action="costs-out-of-scope">
+              {t('mill.costs.out_of_scope', 'تُحمَّل هذه التكاليف من مصاريف وحدة «{division}» خارج نطاقك: يكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.', { division: division.divisionName })}
+            </p>
+          ) : null}
           {editCosts ? (
             categories.error ? (
               <LoadFailed what={t('mill.costs.categories', 'فئات المصاريف')} error={categories.error} onRetry={categories.retry} />
@@ -724,9 +833,9 @@ export default function BatchPage() {
                       data-action="new-cost-category"
                     >
                       <option value="">{t('mill.rates.category_pick', 'اختر فئة المصروف')}</option>
-                      {freeCategories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
+                      {freeCategories.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
                         </option>
                       ))}
                     </select>
@@ -766,9 +875,11 @@ export default function BatchPage() {
                   id={`${fieldId}-new-category`}
                   categories={allCategories}
                   canManage={canCategories}
-                  onPick={(category) => {
-                    setMadeCategories((current) => (current.some((made) => made.id === category.id) ? current : [...current, category]));
-                    if (!costRows.some((cost) => cost.categoryId === category.id)) setNewCost((current) => ({ ...current, categoryId: category.id }));
+                  value={category}
+                  onChange={setCategory}
+                  onPick={(picked) => {
+                    setMadeCategories((current) => (current.some((made) => made.id === picked.id) ? current : [...current, picked]));
+                    if (!costRows.some((cost) => cost.categoryId === picked.id)) setNewCost((current) => ({ ...current, categoryId: picked.id }));
                   }}
                 />
               </>
@@ -779,7 +890,7 @@ export default function BatchPage() {
 
       {unfunded.map((problem, index) => {
         const line = costRows.find((cost) => cost.categoryId === problem.categoryId) ?? null;
-        const record = division ? recordExpenseHref(problem, division.divisionId, batch.id) : null;
+        const record = division && expensesVisible ? recordExpenseHref(problem, division.divisionId, batch.id) : null;
         return (
           <Notice
             key={`${problem.categoryId ?? 'unfunded'}-${index}`}
@@ -788,7 +899,16 @@ export default function BatchPage() {
             action={
               <span className="flex flex-wrap gap-2">
                 {canExpense && record ? (
-                  <Link to={record} className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="record-expense">
+                  <Link
+                    to={record}
+                    onClick={(event) => {
+                      if (!unsaved.length) return;
+                      event.preventDefault();
+                      setLeaving(record);
+                    }}
+                    className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
+                    data-action="record-expense"
+                  >
                     {t('mill.unfunded.record', 'سجّل مصروفاً')}
                   </Link>
                 ) : null}
@@ -810,7 +930,7 @@ export default function BatchPage() {
       ) : null}
       {failure ? <Notice tone="danger" title={failure} /> : null}
 
-      {draft && canDraft ? (
+      {editInputs ? (
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-semibold">{t('mill.weigh.title', 'وزن الناتج')}</h2>
           <p className="text-sm text-ink-muted">{t('mill.weigh.hint', 'اتركه فارغاً إن لم تزنه: يُحسب الناتج بكتلة المواد نفسها (بلا هدر).')}</p>
@@ -826,19 +946,53 @@ export default function BatchPage() {
                   setTouched(true);
                   setWeight(event.target.value);
                 }}
+                data-action="output-weight"
               />
             </Field>
             <Field id={`${fieldId}-reason`} label={t('mill.weigh.reason', 'سبب الهدر (إن خرج عن المدى)')}>
-              <input id={`${fieldId}-reason`} className="input" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} />
+              <input
+                id={`${fieldId}-reason`}
+                className="input"
+                maxLength={500}
+                value={shownReason}
+                onChange={(event) => {
+                  setReasonTouched(true);
+                  setReason(event.target.value);
+                }}
+                data-action="waste-reason"
+              />
             </Field>
+            {expiryShown ? (
+              <Field
+                id={`${fieldId}-expiry`}
+                label={t('mill.weigh.expiry', 'تاريخ انتهاء الناتج')}
+                error={expiryBad ? t('mill.weigh.expiry_bad', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : undefined}
+                hint={t('mill.weigh.expiry_hint', 'يوم/شهر/سنة، ولا يكون قبل يوم الإنتاج.')}
+              >
+                <input
+                  id={`${fieldId}-expiry`}
+                  className="input tabular-nums"
+                  inputMode="numeric"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
+                  value={shownExpiry}
+                  onChange={(event) => {
+                    setExpiryTouched(true);
+                    setExpiry(event.target.value);
+                  }}
+                  data-action="output-expiry"
+                />
+              </Field>
+            ) : null}
           </div>
-          <Button variant="secondary" busy={busy} disabled={weightBad} onClick={saveWeight} data-action="save-weight">
-            {t('mill.weigh.save', 'احفظ الوزن')}
+          <Button variant="secondary" busy={busy} disabled={weightBad || expiryBad || !fieldsTouched} onClick={saveFields} data-action="save-weight">
+            {expiryShown ? t('mill.weigh.save_expiry', 'احفظ الوزن والتاريخ') : t('mill.weigh.save', 'احفظ الوزن')}
           </Button>
         </section>
       ) : null}
 
-      {draft ? (
+      {draft && inputScope ? (
         <div className="flex flex-wrap gap-2">
           {canPost ? (
             <Button
@@ -852,7 +1006,7 @@ export default function BatchPage() {
               {t('mill.post', 'أنتج الآن')}
             </Button>
           ) : null}
-          {!batch.costsConfirmed && canSeal ? (
+          {!batch.costsConfirmed && canSeal && expensesVisible ? (
             <Button variant="secondary" busy={busy} onClick={() => void act(() => confirmCosts(batch.id, batch.version))} data-action="seal-costs">
               {t('mill.seal', 'اختم الكلف')}
             </Button>
@@ -865,7 +1019,7 @@ export default function BatchPage() {
         </div>
       ) : null}
 
-      {batch.status === 'posted' && canVoid ? (
+      {batch.status === 'posted' && canVoid && inputScope ? (
         <Button variant="danger" onClick={() => setVoiding(true)} data-action="void-batch">
           {t('mill.void', 'ألغِ الدفعة')}
         </Button>
@@ -960,6 +1114,24 @@ export default function BatchPage() {
           busy={busy}
           onConfirm={() => void kill()}
           onCancel={() => setVoiding(false)}
+        />
+      ) : null}
+      {leaving ? (
+        <ConfirmDialog
+          open
+          tone="danger"
+          title={t('mill.leave.title', 'ما كتبته هنا لم يُحفظ')}
+          consequence={t('mill.leave.body', 'لم يُحفظ بعد: {list}. الانتقال إلى صفحة المصاريف يُضيّع ما كتبته، والأفضل أن تحفظه أوّلاً ثمّ تسجّل المصروف.', {
+            list: unsaved.join(t('list.separator', '، ')),
+          })}
+          confirmLabel={t('mill.leave.go', 'انتقل بلا حفظ')}
+          action="confirm-leave"
+          onConfirm={() => {
+            const to = leaving;
+            setLeaving(null);
+            navigate(to);
+          }}
+          onCancel={() => setLeaving(null)}
         />
       ) : null}
     </div>

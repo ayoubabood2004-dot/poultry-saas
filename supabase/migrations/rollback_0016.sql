@@ -1,13 +1,17 @@
 -- rollback_0016 — تراجع 0016_mill_v2 (سعر الكلفة، وبانية الخلطة، وتكاليف الطنّ، وسطور تكاليف الدفعة وتحميلها، والمادّة البديلة؛
 -- مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦). يرجّع أجسام set_item_sell_price وitem_purchases (كما في 0014) وdelete_draft_line
 -- وcreate_production وpreview_production وpost_production وvoid_production وrecipes_overview وrecipe_detail وproduction_detail
--- وverify_mill وactivate_recipe_version وconfirm_production_costs (كما في 0015) وvoid_expense وreport_expenses (كما في 0008)
--- وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه بالكتالوج)، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input
--- وnew_recipe_version والمساعدات (ومنها shrink_ok) والحرّاس، وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016)،
--- والجداول الثلاثة، وعمودَي production_inputs.replaced_item_id وitem_prices.cost_price، ويعيد item_prices.sell_price غير قابل للفراغ.
+-- وverify_mill وactivate_recipe_version وconfirm_production_costs وprivate.recipe_lines_guard (كما في 0015) وvoid_expense
+-- وreport_expenses (كما في 0008) وverify_stock (كما في 0010) حرفاً بحرف (md5 نفسه بالكتالوج)، وسياسة production_batches_read كما في
+-- 0015، ثمّ يُسقط create_recipe وset_item_cost_price وadd_production_input وnew_recipe_version والمساعدات (ومنها shrink_ok) والحرّاس،
+-- وسياسات نطاق الدفعة على جداول 0015 وسجلّ التدقيق (مراجعة 0016)، ومحفّز اسم فئة المصروف ودالّته (مراجعة 0016 الثانية)، والجداول
+-- الثلاثة، وأعمدة production_inputs.replaced_item_id وitem_prices.cost_price وrecipe_lines.in_basis، ويعيد item_prices.sell_price غير قابل
+-- للفراغ.
 -- **طريق رفض (الكتلة أدناه):** إسقاط الجداول والعمودين يمسح معدّلات تكاليف كتبها المالك بيده في خلطاته، وسطور تكاليف الدفعات
 -- وتحميلاتها من المصاريف (كلفة العلف المنتَج ومصدرها)، والمادّة التي حلّ محلّها كلّ بديل، وأسعار الكلفة المكتوبة؛ ولا تُستخرج من
--- مكان آخر. فالملف يرفض نفسه إن كان في القاعدة منها صفّ واحد. الفروع الثلاثة منفصلة حتّى يُفحص كلّ واحد وحده.
+-- مكان آخر. فالملف يرفض نفسه إن كان في القاعدة منها صفّ واحد. ونسخة خلطة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (فُعّلت بقاعدة
+-- 0016 والوقود أو التعبئة خارج كتلتها) يرفضها فحص 0015 الثاني بعد التراجع، والمجمَّدة لا تُعدَّل، فتوقفه كذلك (مراجعة 0016 الثانية
+-- #1). الفروع الأربعة منفصلة حتّى يُفحص كلّ واحد وحده.
 -- تنعاد بأمان: drop if exists، وcreate or replace، وdrop constraint/column if exists.
 
 set lock_timeout = '5s';
@@ -20,6 +24,8 @@ declare
   v_allocs bigint;
   v_replaced bigint;
   v_prices bigint;
+  v_basis bigint;
+  v_recipe text;
 begin
   select count(*) into v_rates from public.recipe_cost_rates;
   select count(*) into v_costs from public.production_costs;
@@ -30,6 +36,22 @@ begin
     raise exception 'rollback_blocked'
       using hint = format('في القاعدة %s معدّل تكاليف بخلطة و%s سطر تكاليف بدفعة و%s تحميلاً من مصروف و%s مادّة بديلة و%s سعر كلفة مكتوب. التراجع يمسحها كلّها: صدّرها أوّلاً، أو احذفها بالشاشة وألغِ الدفعات.',
         v_rates, v_costs, v_allocs, v_replaced, v_prices);
+  end if;
+  -- نسخة غير مسوّدة لا يساوي مجموعُ كلّ سطورها أساسَها (حساب 0015 بلا استثناء الوقود والتعبئة، فحصه الثاني): فُعّلت بقاعدة 0016 والوقود
+  -- أو التعبئة خارج كتلتها، فبعد التراجع يرفضها verify_mill كما في 0015 (recipe_basis_mismatch)، والنسخة المجمَّدة لا تُعدَّل.
+  select count(*), (array_agg(x.name order by x.name collate "C", x.id))[1] into v_basis, v_recipe from (
+    select r.id, r.name from public.recipe_versions v
+    join public.recipes r on r.org_id = v.org_id and r.id = v.recipe_id
+    join public.recipe_lines l on l.org_id = v.org_id and l.version_id = v.id
+    join public.items i on i.org_id = l.org_id and i.id = l.item_id
+    where v.status <> 'draft'
+    group by v.id, v.basis_kg, r.id, r.name
+    having sum(private.recipe_line_kg(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l))) <> v.basis_kg
+  ) as x;
+  if v_basis > 0 then
+    raise exception 'rollback_blocked'
+      using hint = format('في القاعدة %s نسخة خلطة مفعَّلة أو مقاعدة فيها وقود أو تعبئة خارج أساسها، أوّلها في خلطة «%s». قاعدة 0015 تعدّ كلّ السطور في الأساس فيرفض فحصها هذه النسخ بعد التراجع، والنسخة المجمَّدة لا تُعدَّل: لا تراجع عن 0016 ما دامت موجودة.',
+        v_basis, v_recipe);
   end if;
 end
 $$;
@@ -1691,6 +1713,61 @@ begin
 end
 $$;
 
+-- private.recipe_lines_guard كما في 0015_mill_recipes_production.sql حرفاً بحرف (مراجعة 0016 الثانية زادته لقطة «داخل الكتلة»):
+create or replace function private.recipe_lines_guard() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v public.recipe_versions;
+  i public.items;
+begin
+  set local lock_timeout = '5s';
+  -- لقطة الكثافة عمود غير ممنوح لأحد، فتغيّرها لا يكون إلا من دالّة التفعيل (حدّها المنح لا current_user).
+  if tg_op = 'UPDATE' and new.density_kg_per_l is distinct from old.density_kg_per_l then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.version_id is distinct from old.version_id then
+    raise exception 'frozen_column' using hint = 'السطر يبقى في نسخته.';
+  end if;
+  select * into v from public.recipe_versions where org_id = new.org_id and id = new.version_id for update;
+  if v.id is null then
+    raise exception 'doc_not_found' using hint = 'هذه النسخة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  if v.status <> 'draft' then
+    raise exception 'not_draft' using hint = 'هذه النسخة مفعَّلة أو مقاعدة، فلا تُعدَّل سطورها. أنشئ نسخة جديدة وفعّلها.';
+  end if;
+  perform private.require('recipe.activate');
+  select * into i from public.items where org_id = new.org_id and id = new.item_id;
+  if i.id is null or i.archived_at is not null then
+    raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك أو مؤرشفة. حدّث الشاشة واختر من جديد.';
+  end if;
+  -- النسخة الأولى: العليقة بالكتلة، فمادّة وحدتها «قطعة» (كيس، معدّة) لا تدخل سطراً. الأكياس مدخل إضافي في النسخة الثانية.
+  if i.base_unit not in ('kg', 'L') then
+    raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والعليقة تُحسب بالكتلة: لا تدخل في الخلطة بهذه النسخة.', i.name);
+  end if;
+  if new.unit = 'L' and i.base_unit <> 'L' then
+    raise exception 'bad_recipe_unit' using hint = format('«%s» تُقاس بالكيلوغرام، فاكتب كميتها في الخلطة بالكيلوغرام.', i.name);
+  end if;
+  if new.unit = 'L' and i.density_kg_per_l is null then
+    raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه في الخلطة. اكتب كثافته في بطاقة المادّة أوّلاً.', i.name);
+  end if;
+  -- مادّة مرّتين في نسخة واحدة (FOUNDATION ٥٥٨): تُسمّى هنا قبل أن يصل القيد الفريد برسالته الخام. النسخة مقفولة فوق.
+  if exists (select 1 from public.recipe_lines l where l.org_id = new.org_id and l.version_id = new.version_id and l.item_id = new.item_id and l.id <> new.id) then
+    raise exception 'item_duplicated' using hint = format('«%s» مكتوبة في الخلطة مرّتين. عدّل كميتها بدل إضافة سطر ثانٍ.', i.name);
+  end if;
+  if new.qty = round(new.qty, 3) then
+    new.qty := round(new.qty, 3);
+  end if;
+  if tg_op = 'INSERT' then
+    new.density_kg_per_l := null;
+    new.line_no := coalesce((select max(l.line_no) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id), 0) + 1;
+  else
+    new.line_no := old.line_no;
+  end if;
+  update public.recipe_versions set version = version + 1 where org_id = v.org_id and id = v.id;
+  return new;
+end
+$$;
+
 -- ٢) الدوالّ الجديدة والمساعدات:
 drop function if exists public.create_recipe(uuid, uuid, text, uuid, numeric, jsonb, jsonb, boolean);
 drop function if exists public.new_recipe_version(uuid, uuid);
@@ -1707,6 +1784,14 @@ drop policy if exists production_inputs_batch_scope on public.production_inputs;
 drop policy if exists production_values_batch_scope on public.production_values;
 drop policy if exists production_input_values_batch_scope on public.production_input_values;
 drop policy if exists audit_log_mill_scope on public.audit_log;
+-- سياسة قراءة الدفعة بنطاق مخزن المدخلات وحده كما في 0015 (مراجعة 0016 الثانية وسّعتها لطرفيها).
+drop policy if exists production_batches_read on public.production_batches;
+create policy production_batches_read on public.production_batches for select to authenticated
+  using (org_id = (select public.auth_org()) and (select public.in_scope_wh(input_warehouse_id)));
+
+-- ٢-ج) اسم فئة المصروف (مراجعة 0016 الثانية): المحفّز ثمّ دالّته.
+drop trigger if exists expense_categories_name_guard on public.expense_categories;
+drop function if exists private.expense_categories_name_guard();
 
 -- ٣) الجداول (الأبناء قبل الآباء؛ إسقاط الجدول يُسقط مشغّلاته وسياساته)، ثمّ حرّاسها:
 drop table if exists public.production_cost_allocations;
@@ -1719,6 +1804,9 @@ drop function if exists private.recipe_cost_rates_guard();
 drop index if exists public.production_inputs_replaced_item;
 alter table public.production_inputs drop constraint if exists production_inputs_replaced_item_fkey;
 alter table public.production_inputs drop column if exists replaced_item_id;
+
+-- ٤-ب) «داخل الكتلة» على سطر الخلطة (مراجعة 0016 الثانية): حارس السطر رجع لجسم 0015 فوق، والعمود يُسقط.
+alter table public.recipe_lines drop column if exists in_basis;
 
 -- ٥) جدول الأسعار بسعر البيع وحده كما في 0014 (صفّ بلا سعر بيع لا يكون إلّا لسعر كلفة، وطريق الرفض أوقف التراجع قبله):
 delete from public.item_prices where sell_price is null;
