@@ -471,10 +471,12 @@ export default async function (t) {
       await mount(`/inventory/items?edit=${OIL}`);
       t.same([dialogForm(), named(keeperCalls, 'loadItem').length, text().includes('المواد')], [null, 0, true], 'W61 والأمين كذلك: «المواد» بلا نافذة');
     });
+    // «المخزن ببساطة» (2026-11-06): بطاقة المادّة القديمة صارت «دفتر المادّة والوجبات» على ‎/inventory/items/:id/details (والمسار بلا
+    // /details ملفّ المادّة الجديد، وله «عدّل المادّة» برجوعه إليه: simple-purchase.test).
     await step('W61 «عدّل المادّة» في بطاقة المادّة', async () => {
       const server = journeyServer(m);
       const calls = fresh(MANAGER, server.handlers);
-      await mount(`/inventory/items/${OIL}`);
+      await mount(`/inventory/items/${OIL}/details`);
       const link = byAction('edit-item-card')[0] ?? null;
       t.same([link?.textContent ?? null, target(link)], ['عدّل المادّة', { path: '/inventory/items', edit: OIL, back: null }], 'W61 زرّ «عدّل المادّة» لمن يعدّل المواد يفتح الطريق نفسه');
       await follow(link);
@@ -491,18 +493,18 @@ export default async function (t) {
     });
     await step('W61 بطاقة المادّة لغير المدير وللمؤرشفة', async () => {
       fresh(ACCOUNTANT, journeyServer(m).handlers);
-      await mount(`/inventory/items/${OIL}`);
-      t.ok(text().includes('بطاقة المادّة'), 'W61 ضابط: المحاسب يرى البطاقة');
+      await mount(`/inventory/items/${OIL}/details`);
+      t.ok(text().includes('دفتر المادّة والوجبات'), 'W61 ضابط: المحاسب يرى البطاقة');
       t.eq(byAction('edit-item-card').length, 0, 'W61 والمحاسب (بلا stores.manage) بلا «عدّل المادّة»');
       await unmount();
       root = null;
       fresh(KEEPER, journeyServer(m).handlers);
-      await mount(`/inventory/items/${OIL}`);
-      t.same([byAction('buy-item').length, byAction('edit-item-card').length], [1, 0], 'W61 والأمين (قُرئت المادّة فله «اشترِ كمية»، ولا يعدّل المواد) بلا «عدّل المادّة»');
+      await mount(`/inventory/items/${OIL}/details`);
+      t.same([byAction('buy-item').length, byAction('edit-item-card').length], [0, 0], 'W61 والأمين (لا يعدّل المواد) بلا «عدّل المادّة»، ولا «اشترِ» هنا: الشراء من ملفّ المادّة وحده');
       await unmount();
       root = null;
       fresh(MANAGER, journeyServer(m, { archived: true }).handlers);
-      await mount(`/inventory/items/${OIL}`);
+      await mount(`/inventory/items/${OIL}/details`);
       t.eq(byAction('edit-item-card').length, 0, 'W61 ولا «عدّل المادّة» لمؤرشفة (لا تُعدَّل)');
     });
     await step('W61 مسار الرجوع', async () => {
@@ -511,11 +513,13 @@ export default async function (t) {
         '/mill/recipe/r-1', BACK, '/mill/recipe/e6f60000-0000-4000-8000-000000020013?version=e6f60000-0000-4000-8000-000000020014',
         null, '', '/mill/batch/b-1', '/inventory/items', '/mill/recipe/', 'https://evil.example/mill/recipe/r-1', '//evil.example/mill/recipe/r-1',
         '/mill/recipe/../../inventory', '/mill/recipe/r-1?version=v-2&next=//evil.example', '/mill/recipe/r-1#x', 'javascript:alert(1)', '/mill/recipe/r-1/../../x',
+        // ملفّ المادّة (0017) يُقبل وحده بمعرّفه، لا ما تحته ولا ما بعده.
+        `/inventory/items/${OIL}`, `/inventory/items/${OIL}/details`, '/inventory/items/../x', `/inventory/items/${OIL}?buy=1`, '//evil.example/inventory/items/i-oil',
       ].map((value) => (typeof back === 'function' ? back(value) : 'absent'));
       t.same(
         verdicts,
-        ['/mill/recipe/r-1', BACK, '/mill/recipe/e6f60000-0000-4000-8000-000000020013?version=e6f60000-0000-4000-8000-000000020014', null, null, null, null, null, null, null, null, null, null, null, null],
-        'W61 ‎?back= يُقبل لبطاقة خلطة بنسختها وحدها، وغيره null (لا تنقّل خارجي ولا إلى مسار آخر)',
+        ['/mill/recipe/r-1', BACK, '/mill/recipe/e6f60000-0000-4000-8000-000000020013?version=e6f60000-0000-4000-8000-000000020014', null, null, null, null, null, null, null, null, null, null, null, null, `/inventory/items/${OIL}`, null, null, null, null],
+        'W61 ‎?back= يُقبل لبطاقة خلطة بنسختها ولملفّ مادّة وحدهما، وغيرهما null (لا تنقّل خارجي ولا إلى مسار آخر)',
       );
       for (const [label, bad] of [['رابط خارجي', 'https://evil.example/'], ['مسار آخر في المعمل', '/mill/batch/b-1']]) {
         const server = journeyServer(m);

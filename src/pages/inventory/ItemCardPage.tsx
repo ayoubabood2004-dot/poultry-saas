@@ -11,7 +11,7 @@ import { Notice } from '../../components/ui/Notice';
 import type { Fils, Milli } from '../../domain/money';
 import { unitCost4 } from '../../domain/money';
 import { can } from '../../domain/permissions';
-import { CHICK_WARNING_HOURS, RECEIVING_KINDS } from '../../domain/stock';
+import { CHICK_WARNING_HOURS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
 import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQtyCell, fmtScaledCell, fmtUnitCost } from '../../lib/format';
 import { describeError } from '../../lib/errors';
@@ -21,7 +21,7 @@ import type { ItemLots, ItemMoves, ItemPurchases, LastProduction, LotRow, MoveRo
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, itemKindLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
-import { BuyLink, countingLabel, countName, PageFooter, qtyCell, qtyColumns, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
+import { countingLabel, countName, PageFooter, qtyCell, qtyColumns, qtyDecimals, scopedStores, StoreSelect, storesOf, unitName } from './stock-shared';
 
 // بطاقة المادّة (الخطّة WP4، FOUNDATION ٧٨٥): دفعاتها المتبقّية بترتيب السحب بعمرها (ساعات من الفقس للأفراخ وتنبيه 48 ساعة،
 // وأيام من استلام الجذر لغيرها، E24) وانتهائها ومصدرها ورقم دفعة المورّد، وللكلفة القيمة المتبقّية وكلفة الوحدة بأربع مراتب
@@ -721,13 +721,12 @@ export default function ItemCardPage() {
   const warehouseId = stores.some((store) => store.id === picked) ? picked : '';
   const costs = Boolean(workspace?.canSeeCost);
   const canManage = workspace ? can(workspace.role, 'stores.manage') : false;
-  // «اشترِ كمية» (كلمة المالك 2026-11-04) لمن يكتب ورقة الاستلام: المادّة نفسها تُقرأ لنوعها (فلا زرّ لمادّة لا تُشترى من مورّد
-  // ولا لمؤرشفة)، والمخزن المختار يُملأ بالرابط إن كان يستلم نوعها. فشل القراءة يخفي الزرّ ولا يوقف البطاقة.
-  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
+  // «المخزن ببساطة» (كلمة المالك 2026-11-06): هذه البطاقة صارت «دفتر المادّة والوجبات» تحت ملفّ المادّة (/details)، والشراء من الملفّ
+  // وحده («سجّل شراء»)، فلا زرّ «اشترِ كمية» هنا بعد اليوم.
   // «عدّل المادّة» (مراجعة المعمل v2، الجولة السادسة، ب٦١) لمن يعدّل المواد: الكثافة والوحدة وغيرهما تُكتب في نافذة «عدّل» من «المواد» لا
   // هنا (البطاقة تعرضها قراءةً)، فالزرّ يفتح تلك النافذة لهذه المادّة؛ ولا زرّ لمؤرشفة (لا تُعدَّل) ولا قبل قراءة المادّة.
-  const loadRow = useCallback(() => (canBuy || canManage ? inventory.loadItem(itemId) : Promise.resolve(null)), [itemId, canBuy, canManage]);
-  const row = useLoad(loadRow, `${itemId}#${canBuy || canManage}`);
+  const loadRow = useCallback(() => (canManage ? inventory.loadItem(itemId) : Promise.resolve(null)), [itemId, canManage]);
+  const row = useLoad(loadRow, `${itemId}#${canManage}`);
   // الصفحة الأولى من المشتريات تُقرأ هنا لكلّ تبويب (الملاحظة #20): منها سطر «صُنعت في المعمل» فوق التبويبات، وتبويب المشتريات
   // يعرضها كما هي بلا قراءة ثانية.
   const loadPurchases = useCallback(() => inventory.loadItemPurchases(itemId, warehouseId || null), [itemId, warehouseId]);
@@ -736,19 +735,14 @@ export default function ItemCardPage() {
   const [saved, setSaved] = useState<SavedPrices>(NO_SAVED_PRICES);
   const onSavedPrice = useCallback((of: ItemPurchases, kind: PriceKind, price: Fils | null) => setSaved((current) => savePrice(current, of, kind, price)), []);
   const made = purchases.data?.lastProduction ?? null;
-  const buyItem = canBuy && row.data && !row.data.archived && RECEIVING_KINDS[row.data.kind].length > 0 ? row.data : null;
   const editItem = canManage && row.data && !row.data.archived ? row.data : null;
-  const buyStore = buyItem ? stores.find((store) => store.id === warehouseId && !store.archived && RECEIVING_KINDS[buyItem.kind].includes(store.kind)) : undefined;
-  // علف في مخزن العلف لم يُشترَ قطّ وله دفعة إنتاج: يُصنع في المعمل، فلا «اشترِ كمية» تقود إلى ورقة استلام لا تخصّه (#20).
-  const madeFeed = buyItem?.kind === 'feed' && stores.find((store) => store.id === warehouseId)?.kind === 'feed' && made !== null && purchases.data?.rows.length === 0;
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={t('stock.card.title', 'بطاقة المادّة')}
+        title={t('file.details', 'دفتر المادّة والوجبات')}
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {buyItem && !madeFeed ? <BuyLink itemId={buyItem.id} warehouseId={buyStore?.id ?? null} /> : null}
             {editItem ? (
               <Link
                 to={`/inventory/items?${new URLSearchParams({ edit: editItem.id }).toString()}`}
@@ -759,8 +753,8 @@ export default function ItemCardPage() {
                 {t('item_card.edit', 'عدّل المادّة')}
               </Link>
             ) : null}
-            <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-board">
-              {t('stores.back', 'المخزن')}
+            <Link to={`/inventory/items/${itemId}`} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-file">
+              {t('file.back', 'ملفّ المادّة')}
             </Link>
           </div>
         }

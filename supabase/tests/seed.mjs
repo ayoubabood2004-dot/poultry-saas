@@ -12,6 +12,8 @@
 // 0016: البذرة نفسها وفوقها بيانات معمل يمرّ عليها التراجع (مراجعة 0016 الثالثة #3، ق٣٤: ROLLBACK_EXTRAS أدناه)، فالتراجع يكمل. والطريق
 // الثاني: معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة (مراجعة 0016 الثانية
 // #1)، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها (مراجعة 0016 الثالثة #2): كل وحدة توقف التراجع بصوت.
+// 0017: البذرة نفسها وفوقها استلام مرحَّل بـpost_receipt (الجسم المشترك)، وبين التراجع والإعادة استلام ثانٍ بجسم 0009، وبعد الإعادة شراء
+// بـrecord_purchase (ROLLBACK_EXTRAS أدناه)، فالتراجع يكمل. والطريق الثاني: شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -376,7 +378,31 @@ const unitChangedSeed = async (db) => {
   }, { commit: true });
 };
 
+/**
+ * 0017: شراء مسجَّل بنداء واحد (المدير، record_purchase): كاز بالمخزن العامّ من «مورّد الحبوب» بالدين، 20 لتراً بـ750 وسعر بيع 900. التراجع
+ * يُسقط purchase_prices فيمسح سعر الوحدة كما كُتب وسعر البيع لكلّ شراء، فطريق الرفض يوقفه؛ والطفرة تشيل شرط «في الجدول صفّ» فيكمل ويمسحها.
+ */
+const purchaseSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز الشراء', 'fuel', 'L') returning id");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 20, 750, 900, 'credit', null, null)", [REF(50), REF(51), REF(52), fuel, party]);
+  }, { commit: true });
+};
+
+const PURCHASE_CONDITION = 'if v_rows > 0 then';
+
 export const BLOCKING_SEEDS = {
+  17: [
+    {
+      name: 'شراء مسجَّل بسعره',
+      code: 'rollback_blocked',
+      seed: purchaseSeed,
+      data: "select (select count(*) from public.purchase_prices)::text || '/' || (select count(*) from public.receipts where status = 'posted')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(PURCHASE_CONDITION, 'if false then'),
+    },
+  ],
   16: [
     {
       name: 'معدّل تكاليف بخلطة',
@@ -576,6 +602,7 @@ export const BLOCKING_REQUIRED = [
   [14, 1, 'سعر بيع مكتوب يوقف التراجع (لا تُمسح قائمة الأسعار بلا تصدير)'],
   [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
   [16, 5, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها، كل وحدة توقف التراجع'],
+  [17, 1, 'شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع'],
 ];
 
 /**
@@ -651,7 +678,60 @@ const DERIVED_UNIT = "set base_unit = case when l.density_kg_per_l is not null t
  * تحرسه). 0016 (ق٣٤): جملتا الملء قبل استبدال حارس السطر ← not_draft (الحارس القديم يرفض تغيير سطر نسخة غير مسوّدة)؛ وملء الوحدة من وحدة
  * المادّة الآن أو بلا ملء ← recipe_frozen_bad_lines بعد الإعادة.
  */
+/**
+ * 0017: حالة التراجع الكاملة على استلام رحّله الجسم المشترك (post_receipt_core): المدير يكتب مسوّدة كاز بالمخزن العامّ ومبلغها ويرحّلها
+ * بـpost_receipt. بلا شراء مسجَّل بسعره، فالتراجع يكمل.
+ */
+const receiptPostedSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز الاستلام', 'fuel', 'L') returning id");
+    const general = await value(q, "select id from public.warehouses where kind = 'general'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    const doc = await value(q, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [party, general]);
+    const line = await value(q, 'insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 10) returning id', [doc, fuel]);
+    await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 7500)', [line]);
+    await q('select public.post_receipt($1, (select version from public.receipts where id = $1), $2)', [doc, REF(53)]);
+  }, { commit: true });
+};
+
+/** بين التراجع والإعادة (كتالوج 0016، post_receipt بجسم 0009 وحرّاسه): المدير يرحّل استلاماً ثانياً، فالمستعاد يعمل على البيانات. */
+const receiptOn0016 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "select id from public.items where name = 'كاز الاستلام'");
+    const general = await value(q, "select id from public.warehouses where kind = 'general'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    const doc = await value(q, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today()) returning id', [party, general]);
+    const line = await value(q, 'insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 4) returning id', [doc, fuel]);
+    await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 3000)', [line]);
+    await q('select public.post_receipt($1, (select version from public.receipts where id = $1), $2)', [doc, REF(54)]);
+  }, { commit: true });
+};
+
+/** بعد إعادة 0017: الأمين (بنطاق الوحدة العامّة) يسجّل شراءً بنداء واحد على البيانات القائمة، ومجموع ما اشتُري من الكاز = الاستلامات الثلاثة. */
+const purchaseRedone = async (db) => {
+  const problems = [];
+  try {
+    await db.asUser(U.storekeeper, async (q) => {
+      const fuel = await value(q, "select id from public.items where name = 'كاز الاستلام'");
+      const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+      await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 6, 800, null, 'credit', null, null)", [REF(55), REF(56), REF(57), fuel, party]);
+    }, { commit: true });
+  } catch (error) {
+    problems.push(`record_purchase بعد الإعادة رفض: ${error.message}`);
+  }
+  const file = await db.asUser(U.manager, (q) => value(q, "select public.item_file((select id from public.items where name = 'كاز الاستلام'))"));
+  const got = [Number(file?.purchased_qty), file?.purchases_count, Number(file?.money?.purchased_value)].join('/');
+  if (got !== '20/3/15300') problems.push(`ملفّ الكاز بعد الإعادة ${got} والمتوقّع 20/3/15300`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  17: {
+    seed: receiptPostedSeed,
+    afterRollback: receiptOn0016,
+    afterRedo: purchaseRedone,
+  },
   16: {
     seed: millRollbackSeed,
     afterRollback: millOn0015,

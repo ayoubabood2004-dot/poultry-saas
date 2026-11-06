@@ -3,14 +3,18 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Notice';
 import { decimalText } from '../../domain/decimal';
+import type { Milli } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
+import { fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { createExpenseCategory, createItem, findItemTwins, listItems, loadItem, updateItem, type ItemFields, type ItemRow, type ItemTwin } from '../../lib/repo/inventory';
 import type { CategoryOption } from '../../lib/repo/mill';
+import { loadItemsOverview, type ItemsOverview } from '../../lib/repo/purchases';
 import { itemKindLabel } from '../../lib/storeLabels';
+import { useLoad } from '../../lib/useLoad';
 
 // منتقي مادّة المعمل ومحرّرات الخلايا (0016، كلمة المالك 2026-11-04: «تطلعلي قائمة انتاج كاملة اضيف منها المواد… حتى لو ما
 // موجودة بالمعمل»). المنتقي بثلاث حالات لا يسكت (درس «البحث الصامت» 2026-11-03): مطابقات تصلح، أو «لا مادّة باسم س» ويّا
@@ -116,6 +120,42 @@ export function newItemFields(name: string, kind: ItemKind): ItemFields {
 
 export const unitWord = (unit: BaseUnit): string => (unit === 'L' ? t('unit.L', 'لتر') : unit === 'pc' ? t('unit.pc', 'قطعة') : t('unit.kg', 'كغم'));
 
+// ─── «عندك» بجانب كلّ مادّة (كلمة المالك 2026-11-06: «لما اروح لمعمل العلف وافتح خلطة اكدر اشوف المواد الي عندي بالمخزن») ──────
+// الموجود الآن لكلّ مادّة بمخازن نطاق القارئ من items_overview (0017) بقراءة واحدة للصفحة. فشلها يخفي «عندك» ولا يوقف الشاشة.
+
+export interface OnHand {
+  qty: Milli;
+  baseUnit: BaseUnit;
+}
+
+export type OnHandMap = ReadonlyMap<string, OnHand>;
+
+export function onHandMap(overview: ItemsOverview | null): OnHandMap | null {
+  if (!overview) return null;
+  return new Map(overview.items.map((item) => [item.id, { qty: item.onHand, baseUnit: item.baseUnit }]));
+}
+
+/** «عندك: 20,000 كغم» بوحدة أساس المادّة (لا «20 طن»: كلمة المالك «مجموع كيلوات»). */
+export function onHandText(entry: OnHand): string {
+  const shown = fmtQty(entry.qty, entry.baseUnit);
+  return t('mill.on_hand', 'عندك: {qty}', { qty: shown.sub ?? shown.main });
+}
+
+/** «عندك» صغيرة بجانب اسم مادّة، ولا شيء بلا قراءة. */
+export function OnHandNote({ entry }: { entry: OnHand | undefined }) {
+  if (!entry) return null;
+  return (
+    <span className="text-xs font-normal text-ink-muted" data-action="material-on-hand">
+      {onHandText(entry)}
+    </span>
+  );
+}
+
+/** الموجود لكلّ مادّة، أو null قبل القراءة وعند فشلها. */
+export function useOnHand(): OnHandMap | null {
+  return onHandMap(useLoad(loadItemsOverview).data);
+}
+
 /** نتيجة البحث بحالاتها الثلاث: ما يصلح، والمطابق بالاسم الذي لا يصلح (بنوعه)، وهل وُجد مطابق صالح بالاسم نفسه. */
 export function pickerView(rows: readonly ItemRow[], query: string, exclude: ReadonlySet<string>) {
   const key = searchable(query);
@@ -138,10 +178,13 @@ export function MaterialPicker({
   canCreate,
   canFixKind,
   disabled = false,
+  onHand = null,
   onPick,
 }: {
   id: string;
   exclude: ReadonlySet<string>;
+  /** «عندك: …» بجانب كلّ مادّة (useOnHand)، أو null. */
+  onHand?: OnHandMap | null;
   canCreate: boolean;
   /** تعديل نوع المادّة (stores.manage): «اجعلها مادّة أوّلية» بدالّة تعديل المادّة القائمة بشرط نسختها. */
   canFixKind: boolean;
@@ -264,6 +307,7 @@ export function MaterialPicker({
             <li key={row.id}>
               <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} disabled={disabled} onClick={() => onPick(materialOf(row), false)} data-action="pick-material">
                 {t('mill.picker.option', '{name} · {kind} · {unit}', { name: row.name, kind: itemKindLabel(row.kind), unit: unitWord(row.baseUnit) })}
+                <OnHandNote entry={onHand?.get(row.id)} />
               </Button>
             </li>
           ))}

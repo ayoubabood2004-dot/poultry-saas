@@ -51,7 +51,7 @@ export function BoardTables({ board, values, warehouseId }: { board: StockBoard;
             header: t('stock.col.item', 'المادّة'),
             sticky: true,
             cell: (row) => (
-              <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/inventory/items/${row.itemId}?wh=${warehouseId}`} data-action="open-item-card">
+              <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/inventory/items/${row.itemId}/details?wh=${warehouseId}`} data-action="open-item-card">
                 {row.name}
               </Link>
             ),

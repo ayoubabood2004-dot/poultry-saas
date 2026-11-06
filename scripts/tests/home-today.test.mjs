@@ -7,6 +7,9 @@
 // قراءة استلام؛ D8 ترتيب الأزرار لكل دور و«أعمال أخرى» مطوية والزرّ الأوّل عريض؛ D9 بنود الشريط السفلي لكل دور وmd:hidden،
 // وزرّ «القائمة» يفتح الدرج، وما بقى زرّ قائمة بالشريط العلوي؛ D13 (كلمة المالك 2026-11-04) بطاقة «المخزن» واحدة بـ«أرقام
 // اليوم» تفتح التبويب، ولا بطاقة تفتح مخزن وحدة، وظهورها بالدور لا بالوحدة، و«—» قبل القراءة.
+// «المخزن ببساطة» (كلمة المالك 2026-11-06): صفّ «أوراق استلام تنتظر الحفظ النهائي» انشال (الشراء يُحفظ فوراً من ملفّ المادّة)، فـD1
+// أربعة صفوف، وD3 يحرس الغياب نفسه (لا صفّ ولا قراءة لمسوّدات الاستلام ولو كانت في الخادم)، وD10 أنّ repo/home لا يعدّها أصلاً؛
+// و«وصلتني بضاعة» صار «سجّل شراء» إلى بطاقات المواد (D8).
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -76,10 +79,10 @@ export function addAuthListener() { return () => {}; }
 export async function dropClient() {}
 `;
 
-/** repo/home الحقيقي (countDraftReceipts) على postgrest-js حقيقي وخادم مزيّف: الطلب نفسه ينفحص. */
+/** repo/home الحقيقي على supabase-js حقيقي وخادم مزيّف: الطلب نفسه ينفحص. */
 async function repoHome() {
   const result = await build({
-    stdin: { contents: "export { countDraftReceipts } from './src/lib/repo/home.ts';", resolveDir: ROOT, loader: 'ts' },
+    stdin: { contents: "export * from './src/lib/repo/home.ts';", resolveDir: ROOT, loader: 'ts' },
     bundle: true,
     write: false,
     format: 'esm',
@@ -196,15 +199,14 @@ export default async function (t) {
           ['round_layer', '/layers/round'],
           ['pending', '/layers/round'],
           ['rejects', '/layers'],
-          ['receipt_drafts', '/inventory/receipts'],
         ],
-        'D1: الصفوف الخمسة بترتيبها وروابطها (وصفّ الجهاز يفتح جولة نوع أوّل عملية)',
+        'D1: الصفوف الأربعة بترتيبها وروابطها (وصفّ الجهاز يفتح جولة نوع أوّل عملية)',
       );
       t.ok(text().includes('جولة حقول اللحم: قاعتان باقيتان'), `D1: «قاعتان باقيتان» بالفصحى (${text().slice(0, 120)})`);
       t.ok(text().includes('جولة حقول البيض: قاعة واحدة باقية'), 'D1: «قاعة واحدة باقية» (القاعة بلا فوج والمسكّن غداً والتحضير ما ينعدّون)');
       t.ok(text().includes('تنتظر الإرسال: جولة واحدة'), 'D1: جولة الجهاز بعدّادها');
       t.ok(text().includes('رُدّت إليك: 3 جولات'), 'D1: المردودة بصيغة 3–10');
-      t.ok(text().includes('أوراق استلام تنتظر الحفظ النهائي: ورقتان'), 'D1: مسوّدات الاستلام بصيغة المثنّى');
+      t.ok(!text().includes('أوراق استلام') && !all().some((n) => (n.getAttribute('href') ?? '').startsWith('/inventory/receipts')), 'D1: ولا صفّ لأوراق الاستلام ولا رابط إليها (الشراء يُحفظ فوراً)');
       t.ok(!text().includes('أنجزت شغل اليوم'), 'D1: ماكو «أنجزت» وبيدك شغل');
       const page = text();
       t.ok(page.indexOf('شغل اليوم') < page.indexOf('ماذا تريد أن تفعل؟') && page.indexOf('ماذا تريد أن تفعل؟') < page.indexOf('أرقام اليوم'), 'D1: الترتيب: شغل اليوم ← ماذا تريد أن تفعل؟ ← أرقام اليوم');
@@ -220,17 +222,19 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── D3: فشل قراءة الاستلام ← صفّها بس يُخفى، والبطاقة وباقي الصفوف كما هي ──
+    // ── D3: مسوّدات استلام في الخادم (الأوراق القديمة) ← لا صفّ ولا قراءة لها: المالك والأمين بشغل يومهم فقط ──
     {
-      fresh({ status: 'ready', workspace: ws(), offline: false }, {
-        loadOverviewJson: () => overview(),
-        loadHomeSummary: () => ({}),
-        countDraftReceipts: () => Promise.reject(new m.NetworkError()),
-      });
-      await mount(m.h(m.HomePage));
-      t.same(taskRows().map(([key]) => key), ['round_broiler', 'round_layer', 'pending', 'rejects'], 'D3: صفّ الاستلام اختفى والباقي كما هو');
-      t.ok(!text().includes('أوراق استلام') && !text().includes('تعذّر تحميل شغل اليوم'), 'D3: بلا سطر فشل ولا أثر لصفّ الاستلام');
-      await unmount();
+      for (const role of ['owner', 'storekeeper']) {
+        const calls = fresh({ status: 'ready', workspace: ws({ role }), offline: false }, {
+          loadOverviewJson: () => overview(),
+          loadHomeSummary: () => ({}),
+          countDraftReceipts: () => 5,
+        });
+        await mount(m.h(m.HomePage));
+        t.ok(!taskRows().some(([key]) => key === 'receipt_drafts') && !calls.includes('countDraftReceipts'), `D3: ${role}: لا صفّ لأوراق الاستلام ولا قراءة لها`);
+        t.ok(!text().includes('أوراق استلام') && !text().includes('تعذّر تحميل شغل اليوم'), `D3: ${role}: بلا أثر لها ولا سطر فشل`);
+        await unmount();
+      }
     }
 
     // ── D4: فشل قراءة الحقول ← «تعذّر تحميل شغل اليوم» بزرّ «أعد المحاولة»، وباقي الصفحة شغّالة، والإعادة تقرا من جديد ──
@@ -302,9 +306,10 @@ export default async function (t) {
     // ── D8: ترتيب الأزرار بأولوية الدور، وأربعة بس، والباقي خلف «أعمال أخرى» مطوية، والأوّل عريض ──
     {
       const keys = (role, over = {}) => m.homeActions({ role, canSeeAccounts: true, ...over }).map((action) => action.key);
-      t.same(keys('owner').slice(0, m.HOME_ACTIONS_SHOWN), ['round_broiler', 'round_layer', 'receipt', 'payout'], 'D8: المالك: الجولة ثم الاستلام ثم الدفع');
-      t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['receipt', 'use', 'transfer', 'count'], 'D8: أمين المخزن: الاستلام والصرف والنقل والجرد');
-      t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'payment', 'expense'], 'D8: المحاسب: الدفع والقبض والمصروف');
+      t.same(keys('owner').slice(0, m.HOME_ACTIONS_SHOWN), ['round_broiler', 'round_layer', 'purchase', 'payout'], 'D8: المالك: الجولة ثم الشراء ثم الدفع');
+      t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['purchase', 'use', 'transfer', 'count'], 'D8: أمين المخزن: الشراء والصرف والنقل والجرد');
+      t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'payment', 'expense', 'purchase'], 'D8: المحاسب: الدفع والقبض والمصروف ثم الشراء');
+      t.same(m.homeActions(null).find((action) => action.key === 'purchase')?.to, '/inventory', 'D8: «سجّل شراء» يفتح بطاقات المواد (لا ورقة الاستلام)');
       t.same(keys('hall_worker', { divisions: ['broiler'] }), ['round_broiler'], 'D8: عامل القاعة: جولته بس');
       fresh({ status: 'ready', workspace: ws({ role: 'owner' }), offline: false }, {});
       await mount(m.h(m.HomeActions, { actions: m.homeActions({ role: 'owner', canSeeAccounts: true }) }));
@@ -377,15 +382,17 @@ export default async function (t) {
       // أمين مخزن نطاقه «الأدوية» وحدها: بطاقته تبقى، لأن ظهورها بالدور (STORE_ROLES) لا بمفتاح الوحدة.
       fresh({ status: 'ready', workspace: ws({ role: 'storekeeper', divisions: ['medicine'], canSeeAccounts: false }), offline: false }, { loadHomeSummary: () => ({ medicine: { nearExpiry: 3, belowMinimum: 1 } }), countDraftReceipts: () => 0 });
       await mount(m.h(m.HomePage));
-      const cards = all().filter((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory');
+      // زرّ «سجّل شراء» (0017) يفتح التبويب نفسه، فالبطاقة تُعرف بأنّها ليست زرّ الفعل.
+      const cards = all().filter((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory' && node.getAttribute('data-action') !== 'home-purchase');
       t.eq(cards.length, 1, 'D13: أمين مخزن الأدوية: بطاقة «المخزن» موجودة وتفتح التبويب');
+      t.eq(byAction('home-purchase').length, 1, 'D13: وزرّ «سجّل شراء» له أيضاً');
       await unmount();
     }
     {
       // قبل أيّ قراءة ناجحة: «—» مو صفر (القاعدة 32)، والبطاقة موجودة.
       fresh({ status: 'ready', workspace: ws({ role: 'storekeeper', divisions: ['general'], canSeeAccounts: false }), offline: false }, { countDraftReceipts: () => 0 });
       await mount(m.h(m.HomePage));
-      const store = all().find((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory');
+      const store = all().find((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory' && node.getAttribute('data-action') !== 'home-purchase');
       const values = store ? descendants(store).filter((node) => node.localName === 'dd').map((node) => node.textContent) : [];
       t.same(values, ['—'], `D13: قبل القراءة: سطر واحد بـ«—» مو صفر، ولا بطاقة بسطور فارغة (${values.join('|')})`);
       await unmount();
@@ -428,7 +435,7 @@ export default async function (t) {
     restore();
   }
 
-  // ── D10: عدّ مسوّدات الاستلام من repo الحقيقي: رأس بلا صفوف ومفلتر بالمسوّدات بس ──
+  // ── D10: repo/home الحقيقي لا يعدّ مسوّدات الاستلام (2026-11-06)، وأرقام الرئيسية نداء home_summary وحده بلا طلب على receipts ──
   {
     const savedNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, configurable: true, writable: true });
@@ -438,13 +445,12 @@ export default async function (t) {
         calls: [],
         async fetch(url, init) {
           server.calls.push({ url: String(url), method: init?.method ?? 'GET', prefer: init?.headers?.Prefer ?? init?.headers?.prefer ?? '' });
-          return new Response(null, { status: 200, headers: { 'content-range': '*/7', 'content-type': 'application/json' } });
+          return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
         },
       });
-      t.eq(await repo.countDraftReceipts(), 7, 'D10: العدد من رأس content-range (بلا سحب صفوف)');
-      const call = server.calls[0] ?? {};
-      t.ok(call.url.includes('/receipts?') && call.url.includes('status=eq.draft'), `D10: الطلب على receipts بفلتر المسوّدات (${call.url})`);
-      t.ok(call.method === 'HEAD' && String(call.prefer).includes('count=exact'), `D10: رأس بس بعدّ دقيق (${call.method}، ${call.prefer})`);
+      t.ok(!('countDraftReceipts' in repo) && typeof repo.loadHomeSummary === 'function', 'D10: لا countDraftReceipts في repo/home، وloadHomeSummary باقٍ');
+      t.same(await repo.loadHomeSummary(), {}, 'D10: ضابط: أرقام الرئيسية تُقرأ');
+      t.same(server.calls.map((call) => call.url.replace(/^.*\/rest\/v1/u, '')), ['/rpc/home_summary'], `D10: نداء واحد لـhome_summary، ولا طلب على receipts (${JSON.stringify(server.calls.map((call) => call.url))})`);
     } finally {
       delete globalThis.__homeServer;
       if (savedNav) Object.defineProperty(globalThis, 'navigator', savedNav);

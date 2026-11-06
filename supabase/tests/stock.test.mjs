@@ -634,7 +634,8 @@ async function scenario(t, db) {
   const voidCountDef = await fnDef('public.void_count(uuid,text,uuid)');
   const snapshotDef = await fnDef('private.count_snapshot(uuid,date,public.stock_count_lines)');
   // WP6: استلام بسطرين (30 و70 لتراً بـ1,000 و2,000) وخصم 100 ونقل 50 بالقيمة لناقل، بدالّته داخل معاملة الضابط والدالّة المكسورة قبلها.
-  const receiptDef = await fnDef('public.post_receipt(uuid,integer,uuid)');
+  // 0017: جسم الترحيل انتقل إلى private.post_receipt_core (يناديه post_receipt وrecord_purchase)، فالطفرة على الجسم المشترك نفسه.
+  const receiptDef = await fnDef('private.post_receipt_core(uuid,integer,uuid)');
   const breakSupplier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد الضوابط', true) returning id");
   const breakCarrier = await S.one(U.accountant, "insert into public.parties (name, is_supplier) values ('ناقل الضوابط', true) returning id");
   const postReceiptBreak = async (q) => {

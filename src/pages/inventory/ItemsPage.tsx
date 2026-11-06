@@ -40,7 +40,8 @@ import { useLoad } from '../../lib/useLoad';
  * ?version=<المعرّف> اختياراً)، وغيره null: لا تنقّل برابط مصنوع إلى مسار آخر أو إلى خارج التطبيق.
  */
 export function recipeBack(value: string | null): string | null {
-  return value !== null && /^\/mill\/recipe\/[\w-]+(?:\?version=[\w-]+)?$/u.test(value) ? value : null;
+  // وملفّ المادّة نفسه (0017): «عدّل المادّة» من الملفّ يرجع إليه بعد الحفظ.
+  return value !== null && (/^\/mill\/recipe\/[\w-]+(?:\?version=[\w-]+)?$/u.test(value) || /^\/inventory\/items\/[\w-]+$/u.test(value)) ? value : null;
 }
 
 const PROBLEM_TEXT: Record<ItemProblem, () => string> = {
@@ -175,13 +176,13 @@ export function buyableTwins(verdict: { codes: readonly ItemTwin[]; names: reado
 }
 
 /**
- * «سجّل شراءً جديداً لـ«س»» رابطاً إلى ورقة استلام للمادّة الموجودة (المخزن يُختار بالنموذج: صفحة المواد بلا مخزن). نسخة من
+ * «سجّل شراءً جديداً لـ«س»» رابطاً إلى ملفّ المادّة الموجودة ونافذة شرائها (buyPath، «المخزن ببساطة» 2026-11-06). نسخة من
  * زرّ BuyLink الأوّل في stock-shared بأصنافه نفسها: استيراده من هنا يقسمه حزمة محفوظة تستورد stores-admin المستثناة (pwa-guard).
  */
 function TwinBuyLink({ twin }: { twin: ItemTwin }) {
   return (
     <Link
-      to={buyPath(twin.id, null)}
+      to={buyPath(twin.id)}
       className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400"
       data-action="buy-item"
     >
@@ -461,7 +462,7 @@ function ItemDialog({ item, setup, canBuy, onClose, onSaved }: { item: ItemRow |
         ) : twins?.names.length ? (
           <Notice tone="warning" title={t('items.twin.names', 'مادّة بالاسم نفسه موجودة')}>
             {buyable.length
-              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام.', { names: twinNames(twins.names) })
+              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل في ملفّها.', { names: twinNames(twins.names) })
               : t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twinNames(twins.names) })}
           </Notice>
         ) : null}
@@ -624,7 +625,7 @@ export default function ItemsPage() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const manage = workspace ? can(workspace.role, 'stores.manage') : false;
   // «سجّل شراءً جديداً» للتوأم لمن يكتب ورقة الاستلام (#21)، مثل نافذة «مادّة جديدة» في المخزن.
-  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
+  const canBuy = workspace ? can(workspace.role, 'purchase.record') : false;
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const searchId = useId();

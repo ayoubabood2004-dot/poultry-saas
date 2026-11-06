@@ -402,6 +402,19 @@ export default async function (t, db) {
     );
   }
 
+  // 0017: شراء بنداء واحد لكلّ منشأة (5 لترات كاز بالمخزن العامّ بالدين من «مورّد الكاز»)، فجدول أسعار الشراء بصفوف للطرفين.
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    const { fuel } = stockOf[key];
+    await db.asUser(
+      owner,
+      async (q) => {
+        const supplier = await value(q, "select id from public.parties where name = 'مورّد الكاز'");
+        await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 5, 800, null, 'credit', null, null)", [fuel, supplier]);
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -695,6 +708,8 @@ export default async function (t, db) {
     production_detail: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].batch],
     preview_production: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].batch],
     productions_overview: () => [null, 30],
+    // 0017: ملفّ مادّة كاز كلّ مالك (العامل يقرأ ملفّ مادّة منشأته بلا مال، والمادّة للمنشأة كلّها).
+    item_file: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -733,6 +748,9 @@ export default async function (t, db) {
     productions_overview: { [U.aSpare]: 'forbidden' },
     production_detail: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
     preview_production: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
+    // 0017: ملفّ المادّة وبطاقات المواد لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
+    item_file: { [U.aSpare]: 'forbidden' },
+    items_overview: { [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

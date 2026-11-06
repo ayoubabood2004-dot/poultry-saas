@@ -112,7 +112,7 @@ export function flockKinds(overview: FlocksOverview): Record<string, FlockKind> 
   return kinds;
 }
 
-export type TaskKey = 'round_broiler' | 'round_layer' | 'pending' | 'rejects' | 'receipt_drafts';
+export type TaskKey = 'round_broiler' | 'round_layer' | 'pending' | 'rejects';
 
 /** صفّ بـ«شغل اليوم»: رابط فعله وعدّاده. العدّاد صفر ما يصير صفّاً أبداً. */
 export interface TaskRow {
@@ -131,13 +131,14 @@ export interface TodaySources {
   farms: FarmTasks | null;
   /** عمليات الجهاز اللي ما انرفعت (pendingOps) ونوع أوّل عملية؛ null = ما تنقرا لهذا الدور. */
   pending: { n: number; kind: FlockKind } | null;
-  /** مسوّدات الاستلام؛ null = ما تنقرا لهذا الدور أو فشلت قراءتها (صفّها يُخفى بس). */
-  drafts: number | null;
 }
 
-/** صفوف «شغل اليوم» بترتيب يومه: الجولة أوّلاً، ثم اللي بالجهاز، ثم المردود، ثم أوراق الاستلام. */
+/**
+ * صفوف «شغل اليوم» بترتيب يومه: الجولة أوّلاً، ثم اللي بالجهاز، ثم المردود. «المخزن ببساطة» (كلمة المالك 2026-11-06): صفّ «أوراق
+ * استلام تنتظر الحفظ النهائي» انشال — الشراء يُحفظ فوراً من ملفّ المادّة، فلا ورقة تنتظر أحداً.
+ */
 export function todayRows(sources: TodaySources): TaskRow[] {
-  const { rounds, manage, farms, pending, drafts } = sources;
+  const { rounds, manage, farms, pending } = sources;
   const rows: TaskRow[] = [];
   if (farms) {
     if (rounds.broiler && farms.left.broiler > 0) rows.push({ key: 'round_broiler', to: '/broiler/round', n: farms.left.broiler, icon: ClipboardList });
@@ -148,7 +149,6 @@ export function todayRows(sources: TodaySources): TaskRow[] {
     const rejects = farms.rejects.broiler + farms.rejects.layer;
     if (rejects > 0) rows.push({ key: 'rejects', to: farms.rejects.broiler > 0 ? '/broiler' : '/layers', n: rejects, icon: Reply });
   }
-  if (drafts !== null && drafts > 0) rows.push({ key: 'receipt_drafts', to: '/inventory/receipts', n: drafts, icon: PackagePlus });
   return rows;
 }
 
@@ -174,23 +174,11 @@ function Rounds({ n }: { n: number }) {
   return <Trans k="home.today.rounds.hundreds" text="{n} جولة" vars={vars} />;
 }
 
-/** أوراق بصيغة المعدود: «ورقة واحدة»، «ورقتان»، «5 أوراق»، «12 ورقةً». */
-function Papers({ n }: { n: number }) {
-  if (n === 1) return <>{t('home.today.papers.one', 'ورقة واحدة')}</>;
-  if (n === 2) return <>{t('home.today.papers.two', 'ورقتان')}</>;
-  const vars = { n: <Num n={n} /> };
-  const form = countForm(n);
-  if (form === 'few') return <Trans k="home.today.papers.few" text="{n} أوراق" vars={vars} />;
-  if (form === 'many') return <Trans k="home.today.papers.many" text="{n} ورقةً" vars={vars} />;
-  return <Trans k="home.today.papers.hundreds" text="{n} ورقة" vars={vars} />;
-}
-
 function taskLabel({ key, n }: TaskRow): ReactNode {
   if (key === 'round_broiler') return <Trans k="home.today.round_broiler" text="جولة حقول اللحم: {halls}" vars={{ halls: <HallsLeft n={n} /> }} />;
   if (key === 'round_layer') return <Trans k="home.today.round_layer" text="جولة حقول البيض: {halls}" vars={{ halls: <HallsLeft n={n} /> }} />;
   if (key === 'pending') return <Trans k="home.today.pending" text="تنتظر الإرسال: {rounds}" vars={{ rounds: <Rounds n={n} /> }} />;
-  if (key === 'rejects') return <Trans k="home.today.rejects" text="رُدّت إليك: {rounds}" vars={{ rounds: <Rounds n={n} /> }} />;
-  return <Trans k="home.today.receipt_drafts" text="أوراق استلام تنتظر الحفظ النهائي: {papers}" vars={{ papers: <Papers n={n} /> }} />;
+  return <Trans k="home.today.rejects" text="رُدّت إليك: {rounds}" vars={{ rounds: <Rounds n={n} /> }} />;
 }
 
 function TaskLink({ row }: { row: TaskRow }) {
@@ -367,7 +355,7 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
   ];
 }
 
-export type HomeActionKey = 'round_broiler' | 'round_layer' | 'produce' | 'receipt' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
+export type HomeActionKey = 'round_broiler' | 'round_layer' | 'produce' | 'purchase' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
 
 export interface HomeAction {
   key: HomeActionKey;
@@ -386,10 +374,10 @@ export const HOME_ACTIONS_SHOWN = 4;
 const PRIORITY: Partial<Record<Role, readonly HomeActionKey[]>> = {
   hall_worker: ['round_broiler', 'round_layer'],
   mill_operator: ['produce'],
-  storekeeper: ['receipt', 'use', 'transfer', 'count'],
-  accountant: ['payout', 'payment', 'expense', 'receipt'],
-  owner: ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment'],
-  manager: ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment'],
+  storekeeper: ['purchase', 'use', 'transfer', 'count'],
+  accountant: ['payout', 'payment', 'expense', 'purchase'],
+  owner: ['round_broiler', 'round_layer', 'purchase', 'payout', 'payment'],
+  manager: ['round_broiler', 'round_layer', 'purchase', 'payout', 'payment'],
 };
 
 /**
@@ -403,7 +391,9 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
   const all: [HomeAction, boolean][] = [
     [{ key: 'round_broiler', to: '/broiler/round', label: t('home.do.round_broiler', 'جولة حقول اللحم'), icon: ClipboardList }, farm('broiler')],
     [{ key: 'round_layer', to: '/layers/round', label: t('home.do.round_layer', 'جولة حقول البيض'), icon: ClipboardList }, farm('layer')],
-    [{ key: 'receipt', to: '/inventory/receipts', label: t('home.do.receipt', 'وصلتني بضاعة'), icon: PackagePlus }, allowed('receipt.draft')],
+    // «سجّل شراء» (كلمة المالك 2026-11-06، «المخزن ببساطة»): يفتح بطاقات المواد، ومنها ملفّ المادّة وشراؤها الفوري — لا ورقة الاستلام
+    // المقسومة بين الأمين والمحاسب. لمن يسجّل الشراء (purchase.record: المالك والمدير والمحاسب والأمين).
+    [{ key: 'purchase', to: '/inventory', label: t('home.do.purchase', 'سجّل شراء'), icon: PackagePlus }, allowed('purchase.record')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
     [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],
@@ -534,7 +524,6 @@ export default function HomePage() {
   const savesBroiler = saves('broiler');
   const savesLayer = saves('layer');
   const manage = allows('flock.manage');
-  const canDraft = allows('receipt.draft');
   // جولات الجهاز اللي ما انرفعت (الطابور نفسه، ويشتغل بلا نت)، وتُقرأ من جديد بعد كل رفع من أيّ شاشة أو من القشرة.
   const queue = useStore(roundQueueStore);
   const wantsPending = (savesBroiler || savesLayer) && userId !== null && orgId !== null;
@@ -545,9 +534,6 @@ export default function HomePage() {
     return { n: ops.length, flockId: ops[0]?.flockId ?? null };
   }, [wantsPending, userId, orgId, displayName]);
   const pending = useLoad(loadPending, `${queue.seq}:${queue.mine}`);
-  // مسوّدات الاستلام لمن يسوّي استلاماً بس، وفشلها يخفي صفّها بس (قراءة غير معرقلة).
-  const loadDrafts = useCallback(async () => (canDraft ? home.countDraftReceipts() : null), [canDraft]);
-  const drafts = useLoad(loadDrafts);
 
   const kindOf = (flockId: string | null): FlockKind => {
     const known = flockId ? farms.data?.kinds[flockId] : undefined;
@@ -558,10 +544,9 @@ export default function HomePage() {
     manage,
     farms: farms.data?.tasks ?? null,
     pending: pending.data ? { n: pending.data.n, kind: kindOf(pending.data.flockId) } : null,
-    drafts: drafts.data,
   });
   const needFarms = wantsFarms && (savesBroiler || savesLayer || manage);
-  const todayLoading = (needFarms && farms.loading) || (wantsPending && pending.loading) || (canDraft && drafts.loading);
+  const todayLoading = (needFarms && farms.loading) || (wantsPending && pending.loading);
   const farmsFailed = needFarms && farms.error !== null && !(farms.error instanceof NotConnectedError);
 
   const actions = homeActions(session.status === 'ready' ? session.workspace : null);

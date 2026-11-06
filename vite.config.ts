@@ -23,10 +23,12 @@ export default defineConfig({
         // الحزمة المشتركة لشاشتي البيانات الأساسية (المرحلة 1 WP2، بيها repo/inventory.ts) والحزم المشتركة لشاشات الحسابات (WP3:
         // repo/parties.ts وrepo/cash.ts وقطع pages/accounts ومكوّنات الكشف والمبلغ) باسم ثابت، حتى استثناؤها من التثبيت المسبق يبقى
         // بالاسم. الاسم بس يتغيّر؛ تقسيم الحزم كما يقرّره Rollup (manualChunks كان يسحب وحدات الإقلاع ويّاها).
+        // و«المخزن ببساطة» (0017): repo/purchases.ts يستورده المخزون والمعمل معاً فينفصل حزمةً لحاله؛ اسمها stores-admin أيضاً حتى
+        // تبقى خارج التثبيت المسبق بالاستثناء نفسه (الشاشتان المستوردتان مستثناتان بالاسم، وحزمة محفوظة لا تستوردها).
         chunkFileNames: (chunk) => {
           const ids = chunk.moduleIds.map((id) => id.replace(/\\/g, '/'));
           if (chunk.isDynamicEntry) return 'assets/[name]-[hash].js';
-          if (ids.some((id) => /\/src\/lib\/repo\/inventory\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
+          if (ids.some((id) => /\/src\/lib\/repo\/(inventory|purchases)\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
           if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle|DayField)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
           return 'assets/[name]-[hash].js';
         },

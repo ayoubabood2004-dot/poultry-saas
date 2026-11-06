@@ -91,7 +91,7 @@ export function sectionValue(rows: readonly StockRow[]): Fils | null {
 }
 
 /**
- * «اشترِ كمية» لصفّ مادّة (كلمة المالك 2026-11-04): لمن يكتب ورقة الاستلام (receipt.draft)، والمخزن غير مؤرشف ويستلم نوع
+ * «سجّل شراء» لصفّ مادّة (كلمة المالك 2026-11-04، و«المخزن ببساطة» 2026-11-06): لمن يسجّل الشراء (purchase.record)، والمخزن غير مؤرشف ويستلم نوع
  * المادّة من المورّد (RECEIVING_KINDS، مرآة receiving_kinds) — فلا زرّ في مخزن حقل ولا لبيض المائدة. الحكم بالخادم.
  */
 export function buyableIn(storeKind: WarehouseKind | undefined, archived: boolean, canBuy: boolean): (row: Pick<StockRow, 'kind' | 'archived'>) => boolean {
@@ -104,7 +104,7 @@ function ItemCardRow({ row, warehouseId, costs, buy }: { row: StockRow; warehous
   const sell = row.money?.sellPrice ?? null;
   return (
     <div className="card flex flex-col gap-2 p-3">
-      <Link to={`/inventory/items/${row.itemId}?wh=${warehouseId}`} className="flex items-center gap-3" data-action="open-item-card">
+      <Link to={`/inventory/items/${row.itemId}/details?wh=${warehouseId}`} className="flex items-center gap-3" data-action="open-item-card">
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="font-medium">{row.name}</span>
           <span className="text-sm text-ink-muted">{fmtQty(row.available, row.baseUnit).main}</span>
@@ -125,7 +125,7 @@ function ItemCardRow({ row, warehouseId, costs, buy }: { row: StockRow; warehous
       </Link>
       {buy ? (
         <div>
-          <BuyLink itemId={row.itemId} warehouseId={warehouseId} />
+          <BuyLink itemId={row.itemId} />
         </div>
       ) : null}
     </div>
@@ -141,7 +141,7 @@ export function SectionTable({ section, warehouseId, costs, buy }: { section: Se
       header: t('stock.col.item', 'المادّة'),
       sticky: true,
       cell: (row) => (
-        <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/inventory/items/${row.itemId}?wh=${warehouseId}`} data-action="open-item-card">
+        <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/inventory/items/${row.itemId}/details?wh=${warehouseId}`} data-action="open-item-card">
           {row.name}
         </Link>
       ),
@@ -179,7 +179,7 @@ export function SectionTable({ section, warehouseId, costs, buy }: { section: Se
     );
   }
   columns.push({ key: 'alerts', header: t('stock.col.alerts', 'تنبيه'), wrap: true, cell: (row) => <span className="text-warn-800 dark:text-warn-200">{alerts(row)}</span> });
-  if (buy && rows.some(buy)) columns.push({ key: 'buy', header: t('org.col.actions', 'إجراءات'), cell: (row) => (buy(row) ? <BuyLink itemId={row.itemId} warehouseId={warehouseId} /> : null) });
+  if (buy && rows.some(buy)) columns.push({ key: 'buy', header: t('org.col.actions', 'إجراءات'), cell: (row) => (buy(row) ? <BuyLink itemId={row.itemId} /> : null) });
   return <DataTable caption={t('stores.section.caption', 'مواد قسم {name}', { name: section.name })} columns={columns} rows={rows} rowKey={(row) => row.itemId} empty={t('stock.board.none', 'لا مواد.')} />;
 }
 
@@ -309,7 +309,7 @@ export default function WarehousePage() {
   const title = card?.name ?? first.data?.warehouse.name ?? t('stock.store', 'المخزن');
   // نوع المخزن ووحدته من بطاقته، أو من رأس القائمة إن سبقت (الاثنان من الخادم).
   const store = card ?? first.data?.warehouse;
-  const canBuy = workspace ? can(workspace.role, 'receipt.draft') : false;
+  const canBuy = workspace ? can(workspace.role, 'purchase.record') : false;
   const buy = buyableIn(store?.kind, Boolean(first.data?.warehouse.archived), canBuy);
   const addedElsewhere = added ? notListedHere(added.kind, store ? { name: title, kind: store.kind } : undefined) : null;
   return (
@@ -334,7 +334,7 @@ export default function WarehousePage() {
       {added ? (
         <Notice tone={addedElsewhere ? 'warning' : 'info'} title={t('stores.item.added', 'أُضيفت المادّة «{name}»', { name: added.name })}>
           {addedElsewhere ? <p>{addedElsewhere}</p> : null}
-          <Link to={`/inventory/items/${added.id}?wh=${warehouseId}`} className="font-medium text-brand-700 dark:text-brand-200" data-action="open-added-item">
+          <Link to={`/inventory/items/${added.id}`} className="font-medium text-brand-700 dark:text-brand-200" data-action="open-added-item">
             {addedElsewhere ? t('stores.item.added.card', 'افتح بطاقتها.') : t('stores.item.added.detail', 'تظهر في قسمها الآن برصيد صفر. افتح بطاقتها.')}
           </Link>
         </Notice>

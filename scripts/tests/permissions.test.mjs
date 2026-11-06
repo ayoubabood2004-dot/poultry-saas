@@ -28,6 +28,8 @@ const TABLE = [
   { actions: ['party.create'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   // قرار المالك 2026-11-02 (أ-1 بعقد 0013): الأمين «يضيف» مادّة ووحدتها، والتعديل والأرشفة تبقى stores.manage.
   { actions: ['item.create'], roles: ['storekeeper', 'manager', 'owner'] },
+  // قرار المالك 2026-11-06 («المخزن ببساطة»، الجواب ٢): كلّ من يعمل في المخزن، ومنهم الأمين، يسجّل الشراء بكميته وسعره.
+  { actions: ['purchase.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

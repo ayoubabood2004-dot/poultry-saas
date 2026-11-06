@@ -1,6 +1,6 @@
 import { parseDecimal, toScale } from '../../domain/decimal';
 import type { Fils, Milli } from '../../domain/money';
-import { call, classifyPostgrest, send } from './core';
+import { call } from './core';
 
 // أرقام اليوم لبطاقات الرئيسية من دالّة وحدة بالقاعدة (home_summary، E38) تكبر بكل حزمة، مو من سحب الصفوف. ملف كسول بحزمة
 // الرئيسية (المرحلة 1 WP3): index ما يصدّره، فما يدخل مسار الجلسة الحرج.
@@ -88,18 +88,4 @@ export function parseHomeSummary(value: unknown): HomeSummary {
 
 export async function loadHomeSummary(): Promise<HomeSummary> {
   return parseHomeSummary(await call<unknown>('home_summary'));
-}
-
-/**
- * مسوّدات الاستلام لصفّ «شغل اليوم» بالرئيسية: نفس عدّ `listReceipts(null, true).total` (رأس بلا صفوف)، لأن وحدة الاستلام
- * (repo/purchasing) بحزمة شاشات المخزون المستثناة من التثبيت المسبق، فاستيرادها من الرئيسية يجرّها لحزمة محفوظة
- * (pwa-guard: حزمة محفوظة تستورد مستثنى، والتثبيت المسبق يعبر سقفه بـ12 كيلوبايت). الصفوف تبقى بشاشة الاستلام.
- */
-export async function countDraftReceipts(): Promise<number> {
-  const { result, wasOnline } = await send(
-    (db) => db.from('receipts').select('id', { count: 'exact', head: true }).eq('status', 'draft'),
-    (answer) => [answer],
-  );
-  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
-  return result.count ?? 0;
 }

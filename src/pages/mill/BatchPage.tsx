@@ -335,7 +335,7 @@ function DrawsCell({ draws, itemId, unit, warehouseId, linked }: { draws: readon
     );
   }
   return (
-    <Link to={`/inventory/items/${itemId}?wh=${warehouseId}&tab=moves`} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-item-ledger">
+    <Link to={`/inventory/items/${itemId}/details?wh=${warehouseId}&tab=moves`} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-item-ledger">
       {t('mill.trace.ledger', 'دفتر المادّة')}
     </Link>
   );
@@ -905,7 +905,7 @@ export default function BatchPage() {
             // وجبات العلف في مخزنه لمن مخزن العلف بنطاقه (ق٢٥، ب٣)، ولغيره نصّاً بلا رابط لا يُفتح.
             batch.scope.output ? (
               <Link
-                to={`/inventory/items/${batch.outputItem.id}?wh=${batch.outputWarehouse.id}&tab=lots`}
+                to={`/inventory/items/${batch.outputItem.id}/details?wh=${batch.outputWarehouse.id}&tab=lots`}
                 className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
                 data-action="open-output-lots"
               >

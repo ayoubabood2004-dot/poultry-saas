@@ -3,6 +3,8 @@ import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
 import { CountDocPage, CountsList } from './CountsPage';
 import ItemCardPage from './ItemCardPage';
+import ItemFilePage from './ItemFilePage';
+import ItemsBoardPage from './ItemsBoardPage';
 import { OpeningDoc, OpeningsList } from './OpeningsPage';
 import { ReceiptDocPage, ReceiptsList } from './ReceiptsPage';
 import StockBoardPage from './StockBoardPage';
@@ -18,17 +20,22 @@ import WarehousePage from './WarehousePage';
 // (المشتريات والوجبات والحركات)، ومستندات الافتتاح والتحويل، والصرف والإتلاف والجرد (WP5)، والاستلام من المورّدين
 // (WP6) ومرتجعه (WP7). كلها تحتاج الخادم، فهي برّا التثبيت المسبق بالاسم (StockRoutes، DECISIONS «السقوف المقيسة»).
 // صفحة المواد (/inventory/items) مسارها الثابت بالقشرة يغلب هذا المسار.
+// «المخزن ببساطة» (كلمة المالك 2026-11-06): الصفحة الأولى بطاقات المواد (ItemsBoardPage)، والمادّة تفتح ملفّها (ItemFilePage:
+// أرقامها و«سجّل شراء» وجدول مشترياتها)؛ وبطاقات المخازن انتقلت إلى /inventory/stores، وبطاقة المادّة القديمة (الوجبات ودفتر
+// الحركات بالمخازن) إلى /inventory/items/:id/details. صفحة الاستلام باقية بمسارها للمدير (سجلّ وإلغاء)، بلا رابط من الطريق اليومي.
 
 export default function StockRoutes() {
   return (
     <Routes>
-      <Route index element={<StoresCardsPage />} />
+      <Route index element={<ItemsBoardPage />} />
+      <Route path="stores" element={<StoresCardsPage />} />
       <Route path="store/:id" element={<WarehousePage />} />
       <Route path="medicine" element={<StockBoardPage division="medicine" />} />
       <Route path="general" element={<StockBoardPage division="general" />} />
       <Route path="mill" element={<StockBoardPage division="feed_mill" />} />
       <Route path="hatchery" element={<StockBoardPage division="hatchery" />} />
-      <Route path="items/:id" element={<ItemCardPage />} />
+      <Route path="items/:id" element={<ItemFilePage />} />
+      <Route path="items/:id/details" element={<ItemCardPage />} />
       <Route path="openings" element={<OpeningsList />} />
       <Route path="openings/:id" element={<OpeningDoc />} />
       <Route path="transfers" element={<TransfersList />} />

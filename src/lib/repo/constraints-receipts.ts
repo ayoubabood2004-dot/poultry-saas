@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { registerConstraintHints } from './constraints';
 
-// جمل قيود 0009 و0010 (الاستلام ومبالغه وتحميلاته، ومرتجع المورّد وتصحيح السعر)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>، والحزمة (constraints.test) تقارن
+// جمل قيود 0009 و0010 و0017 (الاستلام ومبالغه وتحميلاته، ومرتجع المورّد وتصحيح السعر، وسعر الشراء كما كُتب)، بنفس عقد constraints.ts: مفتاح constraint.<اسم القيد>، والحزمة (constraints.test) تقارن
 // القواميس كلها سوا بكتالوج القاعدة. ينحمّل ويّا purchasing.ts بس (حزم شاشات الاستلام، برّا التثبيت المسبق).
 
 export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
@@ -55,6 +55,8 @@ export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = 
   receipt_revaluations_lifecycle_check: () => t('constraint.receipt_revaluations_lifecycle_check', 'حالة التصحيح لا تناسب ختم إلغائه وسببه.'),
   receipt_revaluations_void_reason_check: () => t('constraint.receipt_revaluations_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
   receipt_revaluations_rev_no_check: () => t('constraint.receipt_revaluations_rev_no_check', 'رقم التصحيح يبدأ من 1.'),
+  purchase_prices_unit_price_check: () => t('constraint.purchase_prices_unit_price_check', 'سعر الشراء لكلّ وحدة أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  purchase_prices_sell_price_check: () => t('constraint.purchase_prices_sell_price_check', 'سعر البيع لكلّ وحدة فارغ أو أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
 };
 
 registerConstraintHints(RECEIPT_CONSTRAINT_HINTS);

@@ -11,12 +11,13 @@ import type { CategoryRow, ItemTwin } from './repo/inventory';
 // والتوائم الفعّالة والتصنيف باسم المادّة. هنا لا في stock-shared لأنّ هذا الملف بحزمة stores-admin المشتركة (المستثناة من
 // التثبيت المسبق)، واستيراد stock-shared أو ItemCreate من صفحة المواد يقسمهما حزمة محفوظة تستورد المستثناة (pwa-guard).
 
-/** ‎/inventory/receipts?new=1&wh=<المخزن>&item=<المادّة>؛ بلا مخزن يُختار المخزن بالنموذج (كلمة المالك 2026-11-04). */
-export function buyPath(itemId: string, warehouseId: string | null): string {
-  const params = new URLSearchParams({ new: '1' });
-  if (warehouseId) params.set('wh', warehouseId);
-  params.set('item', itemId);
-  return `/inventory/receipts?${params.toString()}`;
+/**
+ * رابط الشراء: ملفّ المادّة ونافذة «سجّل شراء» مفتوحة (‎/inventory/items/<المادّة>?buy=1). «المخزن ببساطة» (كلمة المالك
+ * 2026-11-06: «الغي هاي التعقيدات مال غير مستلم»): كلّ «اشترِ» في الشاشات (صفوف المخزن وتوائم الاسم) يقود إلى الشراء الفوري
+ * نفسه، لا إلى ورقة استلام مسوّدة؛ والمخزن يختاره الخادم من نوع المادّة.
+ */
+export function buyPath(itemId: string): string {
+  return `/inventory/items/${itemId}?buy=1`;
 }
 
 /** التوائم التي يصحّ أن يُسجَّل لها شراء أو تُستعمل: فعّالة، بالاسم نفسه أو برمز مشترك (الرمز يدلّ على المادّة نفسها). */

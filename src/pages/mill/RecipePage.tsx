@@ -39,7 +39,7 @@ import {
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { ProduceDialog } from './MillPage';
-import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, unitWord, useDrafts, type CategoryDraft } from './pickers';
+import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, unitWord, useDrafts, useOnHand, type CategoryDraft, type OnHandMap } from './pickers';
 import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
@@ -80,7 +80,7 @@ interface Conflict {
   rebased: boolean;
 }
 
-function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onClose: () => void; onSaved: () => void }) {
+function LineDialog({ recipe, line, onHand, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onHand: OnHandMap | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
   const [item, setItem] = useState(line?.itemId ?? '');
   const [qty, setQty] = useState(line ? decimalText(line.qty, 3) : '');
@@ -88,6 +88,7 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const picked = recipe.pickItems.find((candidate) => candidate.id === item) ?? null;
+  const pickedStock = picked ? onHand?.get(picked.id) : undefined;
   const value = parseQty(qty);
   const bad = qty.trim() !== '' && (value === null || value <= 0n);
   const liquid = picked?.baseUnit === 'L' || line?.baseUnit === 'L';
@@ -124,14 +125,18 @@ function LineDialog({ recipe, line, onClose, onSaved }: { recipe: RecipeDetail; 
         {t('mill.line.hint', 'الكمية لكلّ {basis} من الخلطة: مجموع المواد يجب أن يساوي هذا الأساس بالضبط.', { basis: fmtQty(recipe.basisKg, 'kg').main })}
       </p>
       {line ? null : (
-        <Field id={`${id}-item`} label={t('mill.line.item', 'المادّة')}>
-          <select id={`${id}-item`} className="input" value={item} onChange={(event) => setItem(event.target.value)}>
+        <Field id={`${id}-item`} label={t('mill.line.item', 'المادّة')} hint={pickedStock ? onHandText(pickedStock) : undefined}>
+          <select id={`${id}-item`} className="input" value={item} onChange={(event) => setItem(event.target.value)} data-action="line-item">
             <option value="">{t('mill.line.pick', 'اختر المادّة')}</option>
-            {recipe.pickItems.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.categoryName ? `${candidate.name} — ${candidate.categoryName}` : candidate.name}
-              </option>
-            ))}
+            {recipe.pickItems.map((candidate) => {
+              const named = candidate.categoryName ? `${candidate.name} — ${candidate.categoryName}` : candidate.name;
+              const stock = onHand?.get(candidate.id);
+              return (
+                <option key={candidate.id} value={candidate.id}>
+                  {stock ? t('mill.line.option_on_hand', '{item} ({on_hand})', { item: named, on_hand: onHandText(stock) }) : named}
+                </option>
+              );
+            })}
           </select>
         </Field>
       )}
@@ -201,6 +206,8 @@ export default function RecipePage() {
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
   // الخلطة تبقى مرسومة بآخر ما قُرئ للنسخة نفسها أثناء القراءة من جديد (ب٤٣)، والأفعال معطَّلة حتّى تصل.
   const { data, error, loading, refreshing, retry } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
+  // «عندك» لكلّ مادّة (0017، كلمة المالك 2026-11-06: «وافتح خلطة اكدر اشوف المواد الي عندي بالمخزن»): قراءة واحدة للصفحة.
+  const onHand = useOnHand();
   const [editing, setEditing] = useState<RecipeLine | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<RecipeLine | null>(null);
@@ -751,6 +758,15 @@ export default function RecipePage() {
         empty={t('mill.detail.empty', 'لا مواد في هذه النسخة بعد.')}
         totalLabel={t('mill.detail.total', 'المجموع')}
       />
+      {onHand && lines.length ? (
+        <div className="flex flex-wrap items-center gap-2" data-action="recipe-on-hand">
+          <span className="text-sm font-medium">{t('mill.detail.on_hand', 'في المخزن الآن:')}</span>
+          {lines.map((line) => {
+            const stock = onHand.get(line.itemId);
+            return stock ? <Chip key={line.id}>{t('mill.detail.on_hand_item', '{item} — {on_hand}', { item: line.itemName, on_hand: onHandText(stock) })}</Chip> : null;
+          })}
+        </div>
+      ) : null}
 
       {isDraft && canEdit ? (
         <div className="flex flex-wrap items-end gap-3">
@@ -917,6 +933,7 @@ export default function RecipePage() {
         <LineDialog
           recipe={data}
           line={null}
+          onHand={onHand}
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
@@ -928,6 +945,7 @@ export default function RecipePage() {
         <LineDialog
           recipe={data}
           line={editing}
+          onHand={onHand}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

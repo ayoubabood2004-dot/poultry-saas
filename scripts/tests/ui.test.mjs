@@ -439,16 +439,17 @@ export default async function (t) {
     t.same(m.plannedCardSpecs({}).map((spec) => spec.to), ['/mill', '/broiler', '/layers', '/hatchery'], 'البطاقات المخطّطة لصفحات التخطيط بس');
 
     // «ماذا تريد أن تفعل؟»: كل زرّ بشرط صفحته (can بالدور، والحسابات بعلامة الخادم)، والترتيب بأولوية الدور
-    // (الاستخدام اليومي 2026-11-02): المالك والمدير الجولة ثم الاستلام ثم الدفع والقبض، والباقي بعدهم بترتيبه الافتراضي.
+    // (الاستخدام اليومي 2026-11-02): المالك والمدير الجولة ثم الشراء ثم الدفع والقبض، والباقي بعدهم بترتيبه الافتراضي. و«المخزن ببساطة»
+    // (2026-11-06): «وصلتني بضاعة» (ورقة الاستلام) صار «سجّل شراء» إلى بطاقات المواد، لمن يسجّل الشراء (purchase.record، والمحاسب منهم).
     const acts = (role, canSeeAccounts = true) => m.homeActions({ role, canSeeAccounts }).map((action) => action.key);
-    const ALL = ['round_broiler', 'round_layer', 'receipt', 'use', 'transfer', 'payout', 'payment', 'expense', 'count', 'produce'];
-    const OWNER = ['round_broiler', 'round_layer', 'receipt', 'payout', 'payment', 'use', 'transfer', 'expense', 'count', 'produce'];
+    const ALL = ['round_broiler', 'round_layer', 'purchase', 'use', 'transfer', 'payout', 'payment', 'expense', 'count', 'produce'];
+    const OWNER = ['round_broiler', 'round_layer', 'purchase', 'payout', 'payment', 'use', 'transfer', 'expense', 'count', 'produce'];
     t.same(acts('owner'), OWNER, 'المالك: الأزرار العشرة بأولوية يومه (والإنتاج بالترتيب الافتراضي بعدها)');
     t.same(acts('manager'), OWNER, 'المدير: الأزرار العشرة بأولوية يومه');
     t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler'], 'عامل قاعة بحقول اللحم: جولة اللحم بس');
-    t.same(acts('storekeeper', false), ['receipt', 'use', 'transfer', 'count'], 'أمين المخزن: أزرار المخزن بس');
-    t.same(acts('accountant'), ['payout', 'payment', 'expense'], 'المحاسب: الدفع والقبض والمصروف');
-    t.same(acts('accountant', false), [], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات');
+    t.same(acts('storekeeper', false), ['purchase', 'use', 'transfer', 'count'], 'أمين المخزن: أزرار المخزن بس، والشراء أوّلها');
+    t.same(acts('accountant'), ['payout', 'payment', 'expense', 'purchase'], 'المحاسب: الدفع والقبض والمصروف ثم الشراء');
+    t.same(acts('accountant', false), ['purchase'], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات، ويبقى «سجّل شراء»');
     for (const role of ['viewer', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
     // مشغّل المعمل كان يفتح النظام ولا زرّ له (0015 بنت شاشاته ولم تفتح له مدخلًا): الإنتاج هو شغل يومه.
     t.same(acts('mill_operator', false), ['produce'], 'مشغّل المعمل: زرّ الإنتاج');
@@ -458,11 +459,12 @@ export default async function (t) {
     const byKey = new Map(m.homeActions(null).map((action) => [action.key, action.to]));
     t.same(
       ALL.map((key) => byKey.get(key)),
-      ['/broiler/round', '/layers/round', '/inventory/receipts', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts', '/mill'],
+      ['/broiler/round', '/layers/round', '/inventory', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts', '/mill'],
       'كل زرّ يفتح نموذجه',
     );
     const buttons = m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: m.homeActions({ role: 'storekeeper', canSeeAccounts: false }) })));
-    t.ok(buttons.includes('ماذا تريد أن تفعل؟') && buttons.includes('وصلتني بضاعة') && buttons.includes('href="/inventory/counts"') && !buttons.includes('دفعت لجهة'), 'الأزرار تنرسم بأسمائها وروابطها');
+    t.ok(buttons.includes('ماذا تريد أن تفعل؟') && buttons.includes('سجّل شراء') && buttons.includes('href="/inventory"') && buttons.includes('href="/inventory/counts"') && !buttons.includes('دفعت لجهة'), 'الأزرار تنرسم بأسمائها وروابطها');
+    t.ok(!buttons.includes('/inventory/receipts') && !buttons.includes('وصلتني بضاعة'), 'ولا زرّ لورقة الاستلام القديمة');
     t.ok(/\bgrid-cols-2\b/.test(buttons), 'عمودان على الهاتف');
     t.eq(m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: [] }))), '', 'بلا زرّ مسموح: بلا القسم');
   });

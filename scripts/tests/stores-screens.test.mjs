@@ -13,6 +13,8 @@
 // أقسام المخزن وحدها بأزرارها، و«إعدادات المنشأة» (/settings/org) يوم التشغيل وفئات المصاريف وحدهما — والأقسام تُقرأ من
 // App.tsx نفسه لا منسوخة هنا؛ S17 تنبيه «للقراءة فقط» يقيس صلاحيات الأقسام المعروضة وحدها (المحاسب يراه بصفحة المخزن
 // ولا يراه بصفحة الإعدادات).
+// «المخزن ببساطة» (كلمة المالك 2026-11-06): بطاقات المخازن انتقلت من /inventory إلى /inventory/stores، وبطاقة المادّة القديمة
+// (المشتريات والوجبات والدفتر بالمخازن) إلى /inventory/items/:id/details؛ فالحالات نفسها تفتح المسارين الجديدين.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -266,7 +268,7 @@ export default async function (t) {
     // ── S1: بطاقة لكل مخزن بتنبيهاتها، والقيمة لأدوار الكلفة بس ───────────────────────────────────────────────
     {
       fresh({ status: 'ready', workspace: ws() }, handlers());
-      await mount('/inventory');
+      await mount('/inventory/stores');
       const tiles = byAction('open-store');
       t.eq(tiles.length, 2, 'S1: بطاقة لكل مخزن بنطاق المستخدم');
       t.same(tiles.map((n) => n.getAttribute('href')), ['/inventory/store/w-gen', '/inventory/store/w-med'], 'S1: كل بطاقة رابط يفتح مخزنها');
@@ -280,7 +282,7 @@ export default async function (t) {
     {
       // البطاقة تجي بقيمة (لو الخادم ما شالها): الشاشة ما تعرضها لدور بلا كلفة.
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false, rows: [card({})], canCreateItem: true }) }));
-      await mount('/inventory');
+      await mount('/inventory/stores');
       t.ok(!text().includes('402,500.00') && text().includes('المخزن العامّ'), 'S1: دور بلا كلفة: البطاقة بلا قيمة المتاح');
       t.eq(byAction('add-warehouse').length, 0, 'S2: بلا stores.manage: ماكو «أضف مخزناً»');
       await unmount();
@@ -289,7 +291,7 @@ export default async function (t) {
     // ── S2 وS3: «أضف مخزناً» وحالة «بلا موقع» والكتابة ────────────────────────────────────────────────────────
     {
       fresh({ status: 'ready', workspace: ws() }, handlers({ loadStoresOverview: () => overview({ sites: [] }) }));
-      await mount('/inventory');
+      await mount('/inventory/stores');
       t.eq(byAction('add-warehouse').length, 1, 'S2: «أضف مخزناً» لمن يملك stores.manage');
       fire(byAction('add-warehouse')[0], 'click');
       await settle();
@@ -301,7 +303,7 @@ export default async function (t) {
     }
     {
       const calls = fresh({ status: 'ready', workspace: ws() }, handlers({ createWarehouse: (divisionId, siteId, name, kind) => ({ id: 'w-new', version: 1, archived: false, divisionId, siteId, name, kind }) }));
-      await mount('/inventory');
+      await mount('/inventory/stores');
       fire(byAction('add-warehouse')[0], 'click');
       await settle();
       type(byIdSuffix('-name')[0], 'مخزن القاعة');
@@ -414,7 +416,7 @@ export default async function (t) {
     // ── S8 وS9 وS10: تبويب المشتريات ────────────────────────────────────────────────────────────────────────
     {
       const calls = fresh({ status: 'ready', workspace: ws() }, handlers());
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.same(calls.filter(([name]) => name === 'loadItemPurchases'), [['loadItemPurchases', ['i-corn', null]]], 'S10: التبويب الافتراضي المشتريات، وبلا مخزن مختار = كل المخازن');
       const page = text();
       t.ok(page.includes('PU-2026-0003') && page.includes('مورّد الحبوب') && page.includes('المخزن العامّ'), `S8: صفّ الشراء: رقم الاستلام والمورّد والمخزن (${page.slice(0, 200)})`);
@@ -430,7 +432,7 @@ export default async function (t) {
     {
       const rows = [purchase({ money: null }), older ? purchase({ lotId: 'l-0', docNo: 'PU-2026-0001', money: null }) : null].filter(Boolean);
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases(rows) }));
-      await mount('/inventory/items/i-corn?wh=w-gen');
+      await mount('/inventory/items/i-corn/details?wh=w-gen');
       const page = text();
       t.ok(page.includes('PU-2026-0003') && page.includes('مورّد الحبوب') && page.includes('10 كيس 50 كغم') && page.includes('500.000'), 'S9: دور بلا كلفة يرى من اشترى ومتى وبأي وحدة وكم');
       t.ok(!page.includes('805.00') && !page.includes('402,500.00') && !page.includes('سعر الوحدة') && !page.includes('مبلغ الفاتورة'), `S9: وبلا أسعار ولا أعمدة مال (${page.slice(0, 200)})`);
@@ -440,7 +442,7 @@ export default async function (t) {
     // ── S13: بطاقة سعر البيع بمحرّرها (0014) ────────────────────────────────────────────────────────────────
     {
       const calls = fresh({ status: 'ready', workspace: ws() }, handlers());
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       const page = text();
       t.ok(page.includes('سعر البيع الآن') && page.includes('1,750.00'), `S13: سعر البيع الحالي لوحدة الأساس (${page.slice(0, 200)})`);
       t.ok(page.includes('كلفة آخر شراء') && page.includes('805.00'), 'S13: وكلفة آخر شراء بجنبه');
@@ -457,20 +459,20 @@ export default async function (t) {
     {
       // سعر بيع أقلّ من الكلفة: تنبيه خسارة لا ربح.
       fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([purchase({}), older], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: 700_00n, costPrice: null } }) }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(text().includes('أقلّ من كلفتها بـ105.00 لكل كغم (13.04%)'), `S13: وسعر أقلّ من الكلفة يقول خسارتها (${text().slice(0, 300)})`);
       await unmount();
     }
     {
       fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemPurchases: () => purchases([], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null, costPrice: null } }) }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(text().includes('لم يُكتب سعر بيع لهذه المادّة'), 'S13: ومادّة بلا سعر تقول ذلك');
       t.eq(byAction('edit-sell-price').length, 1, 'S13: ومعها زرّ كتابته');
       await unmount();
     }
     {
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases([purchase({ money: null })], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null, costPrice: null } }) }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(!text().includes('سعر البيع'), 'S13: ودور بلا كلفة لا يرى بطاقة سعر البيع أبداً');
       await unmount();
     }
@@ -478,7 +480,7 @@ export default async function (t) {
     // ── S14: دفتر المادّة بالبيان وداخل وخارج (0014) ─────────────────────────────────────────────────────────
     {
       fresh({ status: 'ready', workspace: ws() }, handlers({ loadItemLots: () => lots, loadItemLotValues: () => new Map(), loadItemMoves: () => moves }));
-      await mount('/inventory/items/i-corn?wh=w-gen&tab=moves');
+      await mount('/inventory/items/i-corn/details?wh=w-gen&tab=moves');
       const page = text();
       t.ok(page.includes('دفتر المادّة'), `S14: التبويب اسمه «دفتر المادّة» (${page.slice(0, 160)})`);
       t.ok(page.includes('البيان') && page.includes('داخل') && page.includes('خارج') && page.includes('الرصيد'), 'S14: وأعمدته مثل الكشف: التاريخ والمستند والبيان وداخل وخارج والرصيد');
@@ -490,7 +492,7 @@ export default async function (t) {
     // ── S15: رابط «إعداد المخزن» بروابط المخزون، لمن يملك stores.manage وحده (كلمة المالك 2026-11-04) ─────────
     {
       fresh({ status: 'ready', workspace: ws() }, handlers());
-      await mount('/inventory');
+      await mount('/inventory/stores');
       const links = all()
         .filter((n) => (n.getAttribute('data-action') ?? '').startsWith('open-'))
         .map((n) => [n.getAttribute('data-action'), n.getAttribute('href')]);
@@ -501,7 +503,7 @@ export default async function (t) {
     }
     {
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false }) }));
-      await mount('/inventory');
+      await mount('/inventory/stores');
       // مراجعة 2026-11-04: الرابط لكل من يرى التبويب، والصفحة نفسها تحكم (أزرار الكتابة
       // بـstores.manage و«للقراءة فقط» لغيره، S17): الأمين والمحاسب يقرأان أحجام التعبئة
       // والتصنيفات التي يختاران منها، وإلا صارت صفحة لا يوصل إليها إلا من كتب الرابط (خطأ المعمل أمس).

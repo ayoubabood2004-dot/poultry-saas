@@ -325,7 +325,7 @@ export default async function (t) {
   t.same(headers, ['المتاح (كغم)', 'المتاح (لتر)', 'المتاح (قطعة)'], 'جدول لكل وحدة أساس والوحدة برأس العمود (E23)');
   t.ok(keeper.includes('<bdi dir="ltr">1,000.000</bdi>') && keeper.includes('<bdi dir="ltr">150</bdi>'), 'اللتر بثلاث مراتب ثابتة والقطع عدد صحيح (fmtQtyCell)');
   t.ok(keeper.includes('تحت الحدّ الأدنى') && keeper.includes('أفراخ فاتها 48 ساعة'), 'تنبيه الحدّ الأدنى وتنبيه الفرخ بعد 48 ساعة');
-  t.ok(keeper.includes('href="/inventory/items/i-1?wh=w-1"'), 'اسم المادّة يفتح بطاقتها بمخزنها');
+  t.ok(keeper.includes('href="/inventory/items/i-1/details?wh=w-1"'), 'اسم المادّة يفتح بطاقتها بمخزنها');
   const values = new Map([['i-1', { available: 80_000_000n, expired: 0n }], ['i-2', { available: 37_500_000n, expired: 0n }]]);
   const manager = routed(s.h(s.BoardTables, { board, values, warehouseId: 'w-1' }));
   t.ok(manager.includes('قيمة المتاح') && manager.includes('<bdi dir="ltr">800,000.00</bdi>'), 'لوحة المدير: القيمة من stock_values بعمودها');
@@ -632,8 +632,8 @@ async function reviewFixes(t, m, setup) {
       },
       async (g) => {
         // التبويب بالرابط (tab): الوجبات والحركات كلٌّ بتبويبه، والمشتريات الافتراضي.
-        const lotsHtml = at('/inventory/items/i-1?wh=w-med&tab=lots');
-        const movesHtml = at('/inventory/items/i-1?wh=w-med&tab=moves');
+        const lotsHtml = at('/inventory/items/i-1/details?wh=w-med&tab=lots');
+        const movesHtml = at('/inventory/items/i-1/details?wh=w-med&tab=moves');
         t.ok(lotsHtml.includes('1 من المجموع 150') && movesHtml.includes('1 من المجموع 250'), 'البطاقة تقول «N من المجموع» للدفعات وللحركات');
         const lots = g.buttons.find((props) => props['data-action'] === 'more-lots');
         const moves = g.buttons.find((props) => props['data-action'] === 'more-moves');

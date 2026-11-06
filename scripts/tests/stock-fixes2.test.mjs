@@ -253,7 +253,7 @@ export default async function (t) {
           return price;
         },
       });
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(card('سعر البيع').includes('600.00') && card('سعر الكلفة').includes('450.00'), `C1: ضابط: البطاقتان بسعري الخادم (${card('سعر البيع')} | ${card('سعر الكلفة')})`);
 
       // سعر البيع: يُحفظ 650، ثمّ «دفتر المادّة»، ثمّ «المشتريات».
@@ -366,7 +366,7 @@ export default async function (t) {
 
     await step('C2-last', async () => {
       fresh({ status: 'ready', workspace: feedKeeper }, millHandlers({ input: false, output: true }, false));
-      await mount('/inventory/items/f-1?wh=w-feed');
+      await mount('/inventory/items/f-1/details?wh=w-feed');
       const last = byAction('open-last-production');
       t.same(last.map((n) => n.getAttribute('href')), ['/mill/batch/pb-1'], `C2: «آخر دفعة» فوق التبويبات رابط لأمين مخزن العلف (${text().slice(0, 300)})`);
       await follow(last[0]);
@@ -374,7 +374,7 @@ export default async function (t) {
     });
     await step('C2-lots', async () => {
       fresh({ status: 'ready', workspace: feedKeeper }, millHandlers({ input: false, output: true }, false));
-      await mount('/inventory/items/f-1?wh=w-feed&tab=lots');
+      await mount('/inventory/items/f-1/details?wh=w-feed&tab=lots');
       const lot = byAction('open-production');
       t.same(lot.map((n) => [n.textContent, n.getAttribute('href')]), [['صُنعت بدفعة PD-2026-0001', '/mill/batch/pb-1']], 'C2: «صُنعت بدفعة» في الوجبات رابط');
       await follow(lot[0]);
@@ -382,25 +382,25 @@ export default async function (t) {
     });
     await step('C2-moves', async () => {
       const calls = fresh({ status: 'ready', workspace: feedKeeper }, millHandlers({ input: false, output: true }, false));
-      await mount('/inventory/items/f-1?wh=w-feed&tab=moves');
+      await mount('/inventory/items/f-1/details?wh=w-feed&tab=moves');
       const doc = byAction('open-move-doc');
       t.same(doc.map((n) => n.getAttribute('href')), ['/mill/batch/pb-1'], 'C2: مستند حركة الإنتاج في الدفتر رابط');
       await follow(doc[0]);
       reached('مستند الحركة في الدفتر');
       t.same(linksTo('w-raw'), [], 'C2: ومن صفحة الدفعة لا رابط إلى دفتر مخزن المواد الذي لا يُفتح له (ب٣)');
       const back = byAction('open-output-lots');
-      t.same(back.map((n) => n.getAttribute('href')), ['/inventory/items/f-1?wh=w-feed&tab=lots'], 'C2: و«افتح وجبات العلف في مخزنه» رابط لبطاقة المادّة في مخزنه');
+      t.same(back.map((n) => n.getAttribute('href')), ['/inventory/items/f-1/details?wh=w-feed&tab=lots'], 'C2: و«افتح وجبات العلف في مخزنه» رابط لبطاقة المادّة في مخزنه');
       await follow(back[0]);
-      t.ok(where?.pathname === '/inventory/items/f-1' && byAction('open-production').length === 1, `C2: والرابط يرجع إلى وجبات العلف بدفعتها (${where?.pathname})`);
+      t.ok(where?.pathname === '/inventory/items/f-1/details' && byAction('open-production').length === 1, `C2: والرابط يرجع إلى وجبات العلف بدفعتها (${where?.pathname})`);
       t.same(named(calls, 'previewProduction'), [], 'C2: ولا معاينة تُطلب لدفعة مرحَّلة');
       t.same(named(calls, 'loadBatch'), [['pb-1']], 'C2: والدفعة قُرئت بمعرّفها مرّة');
     });
     await step('C2-control', async () => {
       fresh({ status: 'ready', workspace: ws('manager') }, millHandlers({ input: true, output: true }, true));
-      await mount('/inventory/items/f-1?wh=w-feed&tab=moves');
+      await mount('/inventory/items/f-1/details?wh=w-feed&tab=moves');
       await follow(byAction('open-move-doc')[0]);
       reached('الدفتر (المدير)');
-      t.same(linksTo('w-raw'), ['/inventory/items/i-gas?wh=w-raw&tab=moves'], 'C2: ضابط: المدير (مخزن المواد بنطاقه) يرى رابط دفتر الكاز في مخزن المواد');
+      t.same(linksTo('w-raw'), ['/inventory/items/i-gas/details?wh=w-raw&tab=moves'], 'C2: ضابط: المدير (مخزن المواد بنطاقه) يرى رابط دفتر الكاز في مخزن المواد');
     });
 
     // ── C3 (ج٣، ق٢٦): رفض category_name_taken بتلميحه في «إعدادات المنشأة» ───────────────────────────────────────────────

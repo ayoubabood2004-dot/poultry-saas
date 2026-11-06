@@ -36,10 +36,12 @@
     "public.in_scope_site(uuid)",
     "public.in_scope_wh(uuid)",
     "public.invite_code(uuid)",
+    "public.item_file(uuid)",
     "public.item_lots_qty(uuid, uuid, jsonb, integer)",
     "public.item_lots_value(uuid, uuid, jsonb, integer)",
     "public.item_moves_qty(uuid, uuid, bigint, integer)",
     "public.item_purchases(uuid, uuid, jsonb, integer)",
+    "public.items_overview()",
     "public.leave_my_org()",
     "public.my_workspace()",
     "public.new_recipe_version(uuid, uuid)",
@@ -72,6 +74,7 @@
     "public.record_opening_balance(uuid, uuid, uuid, numeric, date, uuid)",
     "public.record_party_adjustment(uuid, uuid, uuid, text, numeric, date, text, uuid)",
     "public.record_party_payment(uuid, uuid, uuid, numeric, uuid, date, uuid)",
+    "public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid)",
     "public.refresh_count(uuid, integer, uuid)",
     "public.report_accounts_summary(date, date)",
     "public.report_cash_balances(date, date)",
@@ -114,6 +117,7 @@
     "public.verify_flocks()",
     "public.verify_ledger()",
     "public.verify_mill()",
+    "public.verify_purchases()",
     "public.verify_stock()",
     "public.verify_stores()"
   ]

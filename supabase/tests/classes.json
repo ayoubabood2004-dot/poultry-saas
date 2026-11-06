@@ -21,6 +21,7 @@
     "production_cost_allocations",
     "production_input_values",
     "production_values",
+    "purchase_prices",
     "receipt_charge_lines",
     "receipt_charge_shares",
     "receipt_revaluations",

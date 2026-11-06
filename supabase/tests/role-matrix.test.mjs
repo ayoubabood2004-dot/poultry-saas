@@ -543,6 +543,17 @@ export default async function (t, db) {
     // مراجعة 0016 (#19): «نسخة جديدة» بفعل التفعيل (recipe.activate) للمالك والمدير؛ للخلطة مسوّدة قائمة (النسخة الثانية)، فترجع هي
     // بمعرّفها بلا نسخ (existing) والمعرّف الجديد لا يُستعمل.
     new_recipe_version: { sql: () => ["select public.new_recipe_version($1, gen_random_uuid()) ->> 'version_id' = $2::text as v", [p3.recipe, p3.draftVersion]], value: true, expect: only(RECIPE, 'ok:true') },
+    // 0017 (المخزن ببساطة، قرار المالك 2026-11-06): الشراء بنداء واحد لكلّ من يعمل في المخزن (purchase.record: المالك والمدير والمحاسب
+    // والأمين)، والمخزن يُختار من نوع المادّة (الكاز للمخزن العامّ). الأمين هنا محصور بالمخزن العامّ دون وحدته، فدين المورّد في دفتر
+    // الوحدة العامّة خارج نطاقه: out_of_scope (قاعدة book_for_post، E49؛ قرار مفتوح للمالك). والقارئان لكلّ دور: ملفّ كاز المرتجع بعدد
+    // شراءاته بنطاق القارئ (استلام WP7 المرحَّل بالمخزن العامّ)، وبطاقات المواد بعلم «يسجّل الشراء».
+    record_purchase: {
+      sql: () => ["select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 10, 750, null, 'credit', null, null) ->> 'payment' as v", [wp7.fuelA, ledger.fresh]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:credit'), storekeeper: 'out_of_scope' },
+    },
+    item_file: { sql: () => ["select public.item_file($1) ->> 'purchases_count' as v", [wp7.fuelA]], value: true, expect: only(STOCK, 'ok:1', 'ok:0') },
+    items_overview: { sql: () => ["select public.items_overview() ->> 'can_record' as v", []], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

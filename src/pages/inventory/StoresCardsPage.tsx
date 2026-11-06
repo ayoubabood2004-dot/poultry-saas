@@ -25,6 +25,8 @@ import { InventoryLinks, PendingApprovals } from './stock-shared';
 // مواده وقيمة متاحه (لأدوار الكلفة من money، والخادم يشيلها لغيرهم)، وشارات التنبيه الملوّنة عند وجودها. و«أضف مخزناً» لمن
 // يملك stores.manage (حكم الخادم بـcan_manage): نافذة بالاسم والموقع والنوع بنفس كتابة createWarehouse، وتحتاج موقعاً
 // فعّالاً من sites. الجدول القديم صار داخل المخزن (WarehousePage)، لا هنا.
+// «المخزن ببساطة» (كلمة المالك 2026-11-06): الصفحة الأولى للتبويب صارت بطاقات المواد (ItemsBoardPage)، وهذه انتقلت إلى
+// /inventory/stores باسم «المخازن»، يُوصل إليها من «أعمال أخرى في المخزن».
 
 /** شارة تنبيه ملوّنة واحدة. */
 function Badge({ tone, children }: { tone: 'warning' | 'danger'; children: string }) {
@@ -231,7 +233,7 @@ export default function StoresCardsPage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={t('nav.store', 'المخزن')}
+        title={t('stock.stores', 'المخازن')}
         subtitle={t('stores.subtitle', 'افتح المخزن لترى مواده في أقسام بالتصنيف، وأسعار بيعها وربحها المتوقّع.')}
         actions={
           <div className="flex flex-col gap-2">

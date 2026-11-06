@@ -12,6 +12,10 @@
 //    «تُصنع في المعمل»، ولا «اشترِ كمية» لعلف يُصنع في مخزن العلف ولم يُشترَ؛ B9 (ع٤) حفظ سعر في بطاقة لا يمسح تعديلاً جارياً في
 //    الأخرى، والسعر المحفوظ من جواب الخادم شرطاً للتعديل التالي؛ B10 (ع٣، #21) صفحة «المواد» بتدفّق نافذة «مادّة جديدة»: التوأم
 //    الفعّال «سجّل شراءً جديداً» أوّلاً، والنوع بأمثلة، والتصنيف قسم لا اسم مادّة.
+// «المخزن ببساطة» (كلمة المالك 2026-11-06): كلّ «اشترِ» صار «سجّل شراء» إلى ملفّ المادّة ونافذة شرائها الفوري (buyPath:
+//    ‎/inventory/items/<المادّة>?buy=1)، لمن يسجّل الشراء (purchase.record: والمحاسب منهم)؛ وبطاقة المادّة القديمة صارت «دفتر المادّة
+//    والوجبات» على ‎/details بلا زرّ شراء. فـB1 وB3 وB10 تحرس الرابط الجديد، وB2-follow أنّ النقر يفتح النافذة في الملفّ، وB2 باقٍ
+//    على صفحة الاستلام نفسها (مسارها باقٍ للمدير بالرابط)، وB6 وB8 وB9 على ‎/details.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,10 +29,12 @@ const INVENTORY = [
   'setItemSellPrice', 'setItemCostPrice', 'loadItem',
 ];
 const PURCHASING = ['loadReceipt', 'loadReceiptOrigin', 'listReceipts', 'createReceiptDraft', 'addReceiptLine', 'updateReceiptLine', 'setLineTotal', 'searchSuppliers', 'supplierTwins', 'createSupplier', 'listBoxes'];
+const PURCHASES = ['loadItemsOverview', 'loadItemFile', 'recordPurchase'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__buy.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   inventory: routed('inventory', INVENTORY),
   purchasing: routed('purchasing', PURCHASING),
+  purchases: routed('purchases', PURCHASES),
   counts: `export * from ${real('counts')}; export const loadApprovals = () => Promise.resolve({ counts: 0, uses: 0 });`,
   session: 'export const useSession = () => globalThis.__buy.session; export const sessionStore = { get: () => globalThis.__buy?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__buy.toasts.push(spec); }; export function Toaster() { return null; }',
@@ -36,7 +42,7 @@ const STUBS = {
 const stubs = {
   name: 'buy-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(inventory|purchasing|counts)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'buy-stub' }));
+    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(inventory|purchasing|purchases|counts)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'buy-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'buy-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
   },
 };
@@ -250,28 +256,33 @@ export default async function (t) {
     const hrefs = (action) => byAction(action).map((n) => n.getAttribute('href'));
     const dialogForm = () => all().find((n) => n.nodeName === 'FORM' && n.id.endsWith('-form'));
 
-    // ── B1: «اشترِ كمية» على صفوف المخزن، لمن يكتب ورقة الاستلام وللمادّة التي يستلمها المخزن ─────────────────────────
+    // ── B1: «سجّل شراء» على صفوف المخزن، لمن يسجّل الشراء وللمادّة التي يستلمها المخزن ─────────────────────────────────
     await step('B1', async () => {
       fresh({ status: 'ready', workspace: ws('manager') }, handlers());
       await mount('/inventory/store/w-raw');
       const links = hrefs('buy-item');
-      const corn = '/inventory/receipts?new=1&wh=w-raw&item=i-corn';
-      const salt = '/inventory/receipts?new=1&wh=w-raw&item=i-salt';
-      t.same(links.filter((href) => href === corn).length, 2, `B1: «اشترِ كمية» للذرة بالهاتف وبجدول الحاسوب برابط المخزن والمادّة (${JSON.stringify(links)})`);
+      const corn = '/inventory/items/i-corn?buy=1';
+      const salt = '/inventory/items/i-salt?buy=1';
+      t.same(links.filter((href) => href === corn).length, 2, `B1: «سجّل شراء» للذرة بالهاتف وبجدول الحاسوب برابط ملفّها ونافذة الشراء (${JSON.stringify(links)})`);
       t.same(links.filter((href) => href === salt).length, 2, 'B1: وللإضافة (يستلمها مخزن المواد الأوّلية)');
       t.ok(!links.some((href) => href?.includes('i-gas')), 'B1: ولا زرّ لوقود لا يُستلم من المورّد في هذا المخزن');
-      t.ok(text().includes('اشترِ كمية'), 'B1: واسم الزرّ «اشترِ كمية»');
+      t.ok(!links.some((href) => href?.includes('/inventory/receipts')), 'B1: ولا رابط لورقة استلام مسوّدة');
+      t.ok(text().includes('سجّل شراء') && !text().includes('اشترِ كمية'), 'B1: واسم الزرّ «سجّل شراء»');
       await unmount();
     });
     await step('B1-roles', async () => {
       fresh({ status: 'ready', workspace: ws('accountant') }, handlers({ loadStoresOverview: () => overview({ canManage: false, canCreateItem: false }) }));
       await mount('/inventory/store/w-raw');
       t.ok(text().includes('ذرة صفراء'), 'B1: ضابط: المحاسب يرى المواد');
-      t.eq(byAction('buy-item').length, 0, 'B1: والمحاسب (بلا receipt.draft) بلا «اشترِ كمية»');
+      t.eq(byAction('buy-item').length, 4, 'B1: والمحاسب (purchase.record) يسجّل الشراء');
       await unmount();
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false }) }));
       await mount('/inventory/store/w-raw');
-      t.eq(byAction('buy-item').length, 4, 'B1: والأمين (receipt.draft) يراه');
+      t.eq(byAction('buy-item').length, 4, 'B1: والأمين (purchase.record) يراه');
+      await unmount();
+      fresh({ status: 'ready', workspace: ws('viewer') }, handlers({ loadStoresOverview: () => overview({ canManage: false, canCreateItem: false }) }));
+      await mount('/inventory/store/w-raw');
+      t.ok(text().includes('ذرة صفراء') && byAction('buy-item').length === 0, 'B1: والمشاهد (بلا purchase.record) بلا «سجّل شراء»');
       await unmount();
     });
     await step('B1-archived', async () => {
@@ -281,25 +292,15 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── B1ب: «اشترِ كمية» على بطاقة المادّة ───────────────────────────────────────────────────────────────────────
+    // ── B1ب: «دفتر المادّة والوجبات» (البطاقة القديمة على ‎/details) بلا زرّ شراء: الشراء من ملفّ المادّة وحده ────────────────
     await step('B1-card', async () => {
-      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers());
-      await mount('/inventory/items/i-corn?wh=w-raw');
-      t.same(named(calls, 'loadItem'), [['i-corn']], 'B1: البطاقة تقرأ المادّة لنوعها');
-      t.same(hrefs('buy-item'), ['/inventory/receipts?new=1&wh=w-raw&item=i-corn'], 'B1: وزرّ «اشترِ كمية» بالمخزن المختار والمادّة');
-      await unmount();
-      fresh({ status: 'ready', workspace: ws('manager') }, handlers());
-      await mount('/inventory/items/i-corn?wh=w-gen');
-      t.same(hrefs('buy-item'), ['/inventory/receipts?new=1&item=i-corn'], 'B1: ومخزن مختار لا يستلم المادّة لا يُملأ (يُختار بالنموذج)');
-      await unmount();
-      fresh({ status: 'ready', workspace: ws('accountant') }, handlers());
-      await mount('/inventory/items/i-corn');
-      t.eq(byAction('buy-item').length, 0, 'B1: والمحاسب بلا الزرّ على البطاقة');
-      await unmount();
-      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => item('i-egg', 'بيض مائدة', 'table_egg', { baseUnit: 'pc' }) }));
-      await mount('/inventory/items/i-egg');
-      t.eq(byAction('buy-item').length, 0, 'B1: ولا زرّ لمادّة لا تُشترى من مورّد (بيض المائدة)');
-      await unmount();
+      for (const who of [ws('manager'), keeper, ws('accountant')]) {
+        fresh({ status: 'ready', workspace: who }, handlers());
+        await mount('/inventory/items/i-corn/details?wh=w-raw');
+        t.ok(text().includes('دفتر المادّة والوجبات') && byAction('buy-item').length === 0, `B1: ${who.role}: البطاقة القديمة بلا «اشترِ كمية» ولا «سجّل شراء»`);
+        t.same(hrefs('back-to-file'), ['/inventory/items/i-corn'], `B1: ${who.role}: ورابطها يرجع إلى ملفّ المادّة`);
+        await unmount();
+      }
     });
 
     // ── B2: الرابط يفتح «استلام جديد» معبّأً، والمسوّدة بمعرّف الجهاز، ثم الورقة وسطرها بالمادّة ─────────────────────────
@@ -404,13 +405,21 @@ export default async function (t) {
       await unmount();
     });
     await step('B2-follow', async () => {
-      // من صفّ المخزن إلى النموذج المعبّأ بنقرة واحدة.
-      fresh({ status: 'ready', workspace: ws('manager') }, handlers());
+      // من صفّ المخزن إلى ملفّ المادّة ونافذة شرائها بنقرة واحدة (لا ورقة استلام).
+      const file = {
+        today: '2026-11-04', canRecord: true, canEdit: true,
+        item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, archived: false },
+        onHand: 0n, purchased: 0n, purchasesCount: 0, money: { purchasedValue: 0n, avgUnitPrice: null, sellPrice: null, lastUnitPrice: null }, purchases: [], more: false,
+      };
+      const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemFile: () => file }));
       await mount('/inventory/store/w-raw');
       await follow(byAction('buy-item').find((n) => n.getAttribute('href')?.includes('i-corn')));
       await settle();
-      t.same([where.pathname, where.search], ['/inventory/receipts', '?new=1&wh=w-raw&item=i-corn'], 'B2: النقر ينقل لصفحة الاستلام بالرابط');
-      t.eq(picked(byAction('pick-store')[0]), 'w-raw', 'B2: والنموذج معبّأ');
+      await settle();
+      t.same([where.pathname, where.search], ['/inventory/items/i-corn', '?buy=1'], 'B2: النقر ينقل لملفّ المادّة بعلامة الشراء');
+      t.same(named(calls, 'loadItemFile'), [['i-corn']], 'B2: والملفّ يُقرأ');
+      t.ok(text().includes('سجّل شراء «ذرة صفراء»') && byAction('save-purchase').length === 1, `B2: ونافذة «سجّل شراء» مفتوحة (${text().slice(0, 300)})`);
+      t.same(named(calls, 'createReceiptDraft'), [], 'B2: ولا ورقة استلام مسوّدة');
       await unmount();
     });
 
@@ -428,12 +437,12 @@ export default async function (t) {
       t.same(named(calls, 'createItem'), [], 'B3: التوأم يوقف الحفظ أوّلاً');
       const buy = byAction('buy-item').filter((n) => n.textContent.includes('سجّل شراءً جديداً'));
       t.eq(buy.length, 1, `B3: الفعل الأوّل «سجّل شراءً جديداً لـ«ذرة صفراء»» (${text().slice(-500)})`);
-      t.eq(buy[0]?.getAttribute('href'), '/inventory/receipts?new=1&wh=w-raw&item=i-old', 'B3: برابط شراء المادّة الموجودة لهذا المخزن');
-      t.ok(text().includes('المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام'), 'B3: والجملة تشرح');
+      t.eq(buy[0]?.getAttribute('href'), '/inventory/items/i-old?buy=1', 'B3: برابط ملفّ المادّة الموجودة ونافذة شرائها');
+      t.ok(text().includes('المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل في ملفّها'), 'B3: والجملة تشرح');
       t.ok(byAction('save-new-item-twin')[0]?.textContent.includes('احفظ مادّة أخرى بالاسم نفسه'), 'B3: و«احفظ مادّة أخرى بالاسم نفسه» ثانياً');
       await follow(buy[0]);
       await settle();
-      t.same([where.pathname, where.search], ['/inventory/receipts', '?new=1&wh=w-raw&item=i-old'], 'B3: والنقر يفتح ورقة الاستلام للمادّة الموجودة');
+      t.same([where.pathname, where.search], ['/inventory/items/i-old', '?buy=1'], 'B3: والنقر يفتح ملفّ المادّة الموجودة ونافذة شرائها');
       t.same(named(calls, 'createItem'), [], 'B3: ولا مادّة ثانية كُتبت');
       await unmount();
     });
@@ -534,7 +543,7 @@ export default async function (t) {
     // ── B6: سعر الكلفة ببطاقة المادّة، والدفعة المنتجة ومصدرها ───────────────────────────────────────────────────
     await step('B6', async () => {
       const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ setItemCostPrice: (_id, price) => price }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       const page = text();
       t.ok(page.includes('سعر الكلفة') && page.includes('سعر الكلفة الآن') && page.includes('450.00'), `B6: سعر الكلفة المكتوب بجانب سعر البيع (${page.slice(0, 400)})`);
       t.ok(page.includes('سعر الشراء (آخر شراء، تلقائياً)') && page.includes('500.00'), 'B6: وسعر الشراء تلقائياً من آخر شراء');
@@ -549,15 +558,15 @@ export default async function (t) {
     });
     await step('B6-roles', async () => {
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemPurchases: () => purchases({ costPrice: null }) }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(text().includes('لم يُكتب سعر كلفة لهذه المادّة') && byAction('edit-cost-price')[0]?.textContent === 'اكتب سعر الكلفة', 'B6: بلا سعر كلفة يقول ذلك ومعه زرّ كتابته');
       await unmount();
       fresh({ status: 'ready', workspace: ws('accountant') }, handlers());
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(text().includes('سعر الكلفة الآن') && byAction('edit-cost-price').length === 0, 'B6: المحاسب يراه ولا يكتبه (صلاحية سعر البيع نفسها)');
       await unmount();
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases({ sellPrice: null, costPrice: null }) }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       t.ok(!text().includes('سعر الكلفة'), 'B6: ودور بلا كلفة لا يرى بطاقة سعر الكلفة');
       await unmount();
     });
@@ -569,7 +578,7 @@ export default async function (t) {
         next: null, total: 2,
       };
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemLots: () => lots, loadItemLotValues: () => new Map(), loadItem: () => item('i-feed', 'علف بياض', 'feed') }));
-      await mount('/inventory/items/i-feed?wh=w-feed&tab=lots');
+      await mount('/inventory/items/i-feed/details?wh=w-feed&tab=lots');
       const made = byAction('open-production');
       t.ok(made.length === 1 && made[0].textContent === 'صُنعت بدفعة PD-2026-0003', `B6: الدفعة المنتجة «صُنعت بدفعة PD-…» (${text().slice(0, 400)})`);
       t.eq(made[0]?.getAttribute('href'), '/mill/batch/pb-1', 'B6: برابط صفحة الدفعة في المعمل');
@@ -580,7 +589,7 @@ export default async function (t) {
         next: null, total: 1,
       };
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemLots: () => lots, loadItemLotValues: () => new Map(), loadItemMoves: () => moves, loadItem: () => item('i-feed', 'علف بياض', 'feed') }));
-      await mount('/inventory/items/i-feed?wh=w-feed&tab=moves');
+      await mount('/inventory/items/i-feed/details?wh=w-feed&tab=moves');
       t.same(all().filter((n) => n.getAttribute('data-action') === 'open-move-doc').map((n) => n.getAttribute('href')), ['/mill/batch/pb-1'], 'B6: وحركة الإنتاج بالدفتر رابط لصفحة الدفعة');
       await unmount();
     });
@@ -592,19 +601,19 @@ export default async function (t) {
     const MADE_LINE = 'صُنعت في المعمل — آخر دفعة PD-2026-0001 بتاريخ 03/11/2026، 2.000 طن';
     await step('B8', async () => {
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys() }));
-      await mount('/inventory/items/f-1?wh=w-feed');
+      await mount('/inventory/items/f-1/details?wh=w-feed');
       const open = byAction('open-last-production');
       t.ok(text().includes(MADE_LINE), `B8: سطر «صُنعت في المعمل» برقم آخر دفعة وتاريخها وكميتها (${text().slice(0, 500)})`);
       t.same(open.map((n) => n.getAttribute('href')), ['/mill/batch/pb-1'], 'B8: ورقم الدفعة رابط لصفحتها في المعمل');
-      t.ok(text().indexOf(MADE_LINE) >= 0 && text().indexOf(MADE_LINE) < text().indexOf('دفتر المادّة'), 'B8: والسطر فوق التبويبات');
+      t.ok(text().indexOf(MADE_LINE) >= 0 && text().indexOf(MADE_LINE) < text().indexOf('الوجبات المتبقّية'), 'B8: والسطر فوق التبويبات');
       t.ok(text().includes('لا شراء لهذه المادّة: تُصنع في المعمل.') && !text().includes('لا شراء لهذه المادّة بعد.'), 'B8: ونصّ فراغ المشتريات يدلّ على الإنتاج');
-      t.eq(byAction('buy-item').length, 0, 'B8: ولا «اشترِ كمية» لعلف يُصنع في مخزن العلف ولم يُشترَ قطّ');
+      t.eq(byAction('buy-item').length, 0, 'B8: ولا «اشترِ كمية» هنا (الشراء من ملفّ المادّة وحده)');
       await unmount();
     });
     await step('B8-tabs', async () => {
       const lots = { item: { id: 'f-1', name: 'علف بياض', kind: 'feed', baseUnit: 'kg', tracksExpiry: false, minQty: null, density: null, pieceMassKg: null, archived: false }, rows: [], next: null, total: 0 };
       const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys(), loadItemLots: () => lots, loadItemLotValues: () => new Map() }));
-      await mount('/inventory/items/f-1?wh=w-feed&tab=lots');
+      await mount('/inventory/items/f-1/details?wh=w-feed&tab=lots');
       t.ok(text().includes(MADE_LINE), 'B8: والسطر في تبويب الوجبات أيضاً (فوق التبويبات لا داخل المشتريات)');
       t.same(named(calls, 'loadItemPurchases').at(-1), ['f-1', 'w-feed'], 'B8: من سجلّ شراء المادّة بالمخزن المختار');
       await unmount();
@@ -612,26 +621,26 @@ export default async function (t) {
     await step('B8-controls', async () => {
       // علف له شراء وله إنتاج: السطر يبقى، والشراء ممكن.
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => ({ ...purchases({ id: 'f-1', name: 'علف بياض', kind: 'feed' }), lastProduction: made }) }));
-      await mount('/inventory/items/f-1?wh=w-feed');
-      t.ok(text().includes(MADE_LINE) && byAction('buy-item').length === 1, 'B8: علف له شراء: السطر و«اشترِ كمية» معاً');
+      await mount('/inventory/items/f-1/details?wh=w-feed');
+      t.ok(text().includes(MADE_LINE) && byAction('buy-item').length === 0, 'B8: علف له شراء: السطر باقٍ، والشراء من ملفّ المادّة لا من هنا');
       await unmount();
       // علف بلا إنتاج ولا شراء: لا سطر، والفراغ كما كان، والشراء ممكن.
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => feed, loadItemPurchases: () => feedBuys({ lastProduction: null }) }));
-      await mount('/inventory/items/f-1?wh=w-feed');
+      await mount('/inventory/items/f-1/details?wh=w-feed');
       t.ok(byAction('open-last-production').length === 0 && !text().includes('صُنعت في المعمل'), 'B8: بلا دفعة إنتاج: لا سطر');
-      t.ok(text().includes('لا شراء لهذه المادّة بعد.') && byAction('buy-item').length === 1, 'B8: والفراغ كما كان و«اشترِ كمية» باقٍ');
+      t.ok(text().includes('لا شراء لهذه المادّة بعد.') && byAction('buy-item').length === 0, 'B8: والفراغ كما كان (بلا زرّ شراء هنا)');
       await unmount();
       // مادّة أوّلية بمخزنها: الإنتاج لا يمسّها.
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemPurchases: () => ({ ...purchases(), rows: [], total: 0, lastProduction: null }) }));
-      await mount('/inventory/items/i-corn?wh=w-raw');
-      t.ok(byAction('buy-item').length === 1 && !text().includes('تُصنع في المعمل'), 'B8: ضابط: مادّة أوّلية بلا شراء: «اشترِ كمية» كما كان');
+      await mount('/inventory/items/i-corn/details?wh=w-raw');
+      t.ok(byAction('buy-item').length === 0 && !text().includes('تُصنع في المعمل'), 'B8: ضابط: مادّة أوّلية بلا شراء: لا «تُصنع في المعمل»');
       await unmount();
     });
 
     // ── B9 (ع٤): حفظ سعر في بطاقة لا يمسح تعديلاً جارياً في البطاقة الأخرى ──────────────────────────────────────────
     await step('B9', async () => {
       const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ setItemCostPrice: (_id, price) => price, setItemSellPrice: (_id, price) => price }));
-      await mount('/inventory/items/i-corn');
+      await mount('/inventory/items/i-corn/details');
       await click(byAction('edit-sell-price')[0]);
       type(byIdSuffix('-sell')[0], '650');
       await settle();
@@ -667,12 +676,12 @@ export default async function (t) {
       await settle();
       t.same(named(calls, 'createItem'), [], 'B10: التوأم يوقف الحفظ أوّلاً');
       const buy = byAction('buy-item').filter((n) => n.textContent.includes('سجّل شراءً جديداً'));
-      t.same(buy.map((n) => [n.textContent, n.getAttribute('href')]), [['سجّل شراءً جديداً لـ«ذرة صفراء»', '/inventory/receipts?new=1&item=i-old']], `B10: الفعل الأوّل «سجّل شراءً جديداً» برابط شراء المادّة الموجودة (${text().slice(-500)})`);
-      t.ok(text().includes('المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام'), 'B10: والجملة تشرح');
+      t.same(buy.map((n) => [n.textContent, n.getAttribute('href')]), [['سجّل شراءً جديداً لـ«ذرة صفراء»', '/inventory/items/i-old?buy=1']], `B10: الفعل الأوّل «سجّل شراءً جديداً» برابط ملفّ المادّة الموجودة ونافذة شرائها (${text().slice(-500)})`);
+      t.ok(text().includes('المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل في ملفّها'), 'B10: والجملة تشرح');
       t.ok(byAction('save-item-twin')[0]?.textContent.includes('احفظ مادّة أخرى بالاسم نفسه'), 'B10: و«احفظ مادّة أخرى بالاسم نفسه» ثانياً');
       await follow(buy[0]);
       await settle();
-      t.same([where.pathname, where.search], ['/inventory/receipts', '?new=1&item=i-old'], 'B10: والنقر يفتح ورقة الاستلام للمادّة الموجودة');
+      t.same([where.pathname, where.search], ['/inventory/items/i-old', '?buy=1'], 'B10: والنقر يفتح ملفّ المادّة الموجودة ونافذة شرائها');
       t.same(named(calls, 'createItem'), [], 'B10: ولا مادّة ثانية كُتبت');
       await unmount();
     });
@@ -710,7 +719,7 @@ export default async function (t) {
       fire(dialogForm(), 'submit');
       await settle();
       t.ok(text().includes('رمز مستعمل لمادّة أخرى') && byAction('save-item')[0]?.hasAttribute('disabled') === true, `B10: رمز مشترك: الرفض كما كان (${text().slice(-400)})`);
-      t.same(byAction('buy-item').map((n) => n.getAttribute('href')), ['/inventory/receipts?new=1&item=i-old'], 'B10: ومعه شراء المادّة صاحبة الرمز (الرمز يدلّ على المادّة نفسها)');
+      t.same(byAction('buy-item').map((n) => n.getAttribute('href')), ['/inventory/items/i-old?buy=1'], 'B10: ومعه شراء المادّة صاحبة الرمز (الرمز يدلّ على المادّة نفسها)');
       t.same(named(calls, 'createItem'), [], 'B10: ولا مادّة ثانية');
       await unmount();
     });
@@ -742,7 +751,7 @@ export default async function (t) {
     });
 
     // ── دوالّ صافية ─────────────────────────────────────────────────────────────────────────────────────────────
-    t.same([m.buyPath('i-1', 'w-1'), m.buyPath('i-1', null)], ['/inventory/receipts?new=1&wh=w-1&item=i-1', '/inventory/receipts?new=1&item=i-1'], 'buyPath: ?new=1&wh=&item= بترتيب العقد');
+    t.same(m.buyPath('i-1'), '/inventory/items/i-1?buy=1', 'buyPath: ملفّ المادّة ونافذة الشراء (لا ورقة استلام)');
     t.same([m.categoryNamedLikeItem('ذرة', { name: 'ذرة' }), m.categoryNamedLikeItem('ذُرة ', { name: 'ذرة' }), m.categoryNamedLikeItem('ذرة', { name: 'الغذاء' }), m.categoryNamedLikeItem('', { name: '' }), m.categoryNamedLikeItem('ذرة', undefined)], [true, true, false, false, false], 'categoryNamedLikeItem: بالاسم المطبَّع، والفارغ لا يطابق');
     t.same([m.notListedHere('raw', { name: 'م', kind: 'raw' }), m.notListedHere('raw', undefined)], [null, null], 'notListedHere: نوع يستلمه المخزن (أو بلا مخزن قائمة) بلا تنبيه');
     t.ok((m.notListedHere('table_egg', { name: 'مخزن العلف', kind: 'feed' }) ?? '').includes('لا تُشترى من مورّد'), 'notListedHere: ونوع لا يُشترى يقول ذلك');

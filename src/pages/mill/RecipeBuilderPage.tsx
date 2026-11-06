@@ -22,7 +22,7 @@ import { createRecipe, loadBuilder, type BuilderData, type CategoryOption, type 
 import { useSession } from '../../lib/session';
 import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { CellEdit, inBasisKind, kindFixFailure, MaterialPicker, NewCategoryField, newItemFields, NO_CATEGORY_DRAFT, sameNameTwins, unitWord, type CategoryDraft, type PickedMaterial, type TwinView } from './pickers';
+import { CellEdit, inBasisKind, kindFixFailure, MaterialPicker, NewCategoryField, newItemFields, NO_CATEGORY_DRAFT, sameNameTwins, unitWord, useOnHand, type CategoryDraft, type PickedMaterial, type TwinView } from './pickers';
 import { CompositionBar, dash, pct } from './shared';
 
 // بانية الخلطة بشاشة واحدة (0016، كلمة المالك 2026-11-04: «لمن اسوي خلطة… المفروض تطلعلي قائمة انتاج كاملة اضيف منها المواد
@@ -141,6 +141,8 @@ export default function RecipeBuilderPage() {
   const canPrice = costs && canFixKind;
   const load = useCallback(() => loadBuilder(), []);
   const { data, error, retry } = useLoad<BuilderData>(load);
+  // «عندك» بجانب كلّ مادّة في المنتقي (0017، كلمة المالك 2026-11-06): قراءة واحدة للصفحة.
+  const onHand = useOnHand();
 
   const [name, setName] = useState('');
   const [outputId, setOutputId] = useState('');
@@ -767,7 +769,7 @@ export default function RecipeBuilderPage() {
 
       <section className="card flex flex-col gap-3 p-4">
         <h2 className="text-lg font-semibold">{t('mill.builder.materials', 'المواد')}</h2>
-        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={canCreateItem} canFixKind={canFixKind} disabled={locked} onPick={addLine} />
+        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={canCreateItem} canFixKind={canFixKind} disabled={locked} onHand={onHand} onPick={addLine} />
         {basisRows.length ? (
           <CompositionBar pieces={basisRows.map((row) => ({ key: row.line.item.id, label: row.line.item.name, weight: row.mass ?? 0n }))} total={basisOk ? basis : 0n} hue={210} />
         ) : null}

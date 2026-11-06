@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
@@ -9,7 +10,7 @@ import { decimalText, toScale } from '../../domain/decimal';
 import type { Fils } from '../../domain/money';
 import { RECEIVING_KINDS } from '../../domain/stock';
 import { BASE_UNITS, COUNTED_KINDS, ITEM_KINDS, itemProblems, type ItemKind, type WarehouseKind } from '../../domain/stores';
-import { parseFactor, parseQty, type BaseUnit } from '../../domain/units';
+import { parseDensity, parseFactor, parseQty, type BaseUnit } from '../../domain/units';
 import { describeError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
@@ -121,7 +122,8 @@ export function AddItemDialog({
   initialName?: string;
   costs: boolean;
   /**
-   * «سجّل شراءً جديداً» لتوأم بالاسم نفسه: المخزن الذي فُتحت منه النافذة يُملأ برابط الشراء، وcanBuy صلاحية receipt.draft.
+   * «سجّل شراءً جديداً» لتوأم بالاسم نفسه (ملفّ التوأم ونافذة الشراء، buyPath)، وcanBuy صلاحية purchase.record. warehouseId باقٍ
+   * للتوافق مع من يمرّره، والمخزن يختاره الخادم من نوع المادّة.
    * بلا هذا ولا onUseTwin يبقى التنبيه كما كان («احفظ رغم التشابه»).
    */
   purchase?: { warehouseId: string | null; canBuy: boolean };
@@ -213,7 +215,7 @@ export function AddItemDialog({
                 {t('twin.use', 'استعمل «{name}» في هذه الورقة', { name: twin.name })}
               </Button>
             ) : (
-              <BuyLink key={twin.id} primary itemId={twin.id} warehouseId={purchase?.warehouseId ?? null} label={t('twin.buy', 'سجّل شراءً جديداً لـ«{name}»', { name: twin.name })} />
+              <BuyLink key={twin.id} primary itemId={twin.id} label={t('twin.buy', 'سجّل شراءً جديداً لـ«{name}»', { name: twin.name })} />
             ),
           )}
         </div>
@@ -298,8 +300,179 @@ export function AddItemDialog({
         {twins?.length ? (
           <Notice tone="warning" title={t('items.twin.names', 'مادّة بالاسم نفسه موجودة')}>
             {explain
-              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل ورقة استلام.', { names: twinNames })
+              ? t('twin.buy.detail', 'تشبهها: {names}. المادّة تُضاف مرّة واحدة، وكلّ شراء جديد (بكميته وسعره) يُسجَّل في ملفّها.', { names: twinNames })
               : t('items.twin.names.detail', 'تشبهها: {names}. احفظ إن كانت مادّة أخرى فعلاً.', { names: twinNames })}
+          </Notice>
+        ) : null}
+        {failed ? (
+          <Notice tone="danger" title={failed.title}>
+            {failed.detail}
+          </Notice>
+        ) : null}
+      </form>
+    </Dialog>
+  );
+}
+
+// ─── «أضف مادّة» ببساطة (كلمة المالك 2026-11-06، «المخزن ببساطة») ──────────────────────────────────────────────────
+// «لما اجي اكتب اسم مادة معينة لمرة وحدة اختار طريقة حساب هاي المادة مثلا ذرة بالكيلو، راح ينفتحلي ملف الذرة»: الاسم وطريقة
+// الحساب (كيلوغرام أو لتر أو قطعة) والنوع بكلمات بسيطة، ووزن اللتر إن كانت باللتر — ولا شيء غيرها. التصنيف والتعبئة والباركود
+// والحدّ الأدنى تبقى في نافذة «المواد» الكاملة. والإنشاء بطريق createItem القائم (item.create)، والتوأم بالاسم نفسه يُعرض قبل الحفظ
+// برابط ملفّه («موجودة: افتح ملفّها»)، فالمادّة تُضاف مرّة واحدة وكلّ شراء يُسجَّل في ملفّها.
+
+/** الأنواع المعروضة في «أضف مادّة» البسيطة، بالترتيب، والأوّل الافتراضي (الذرة والصويا والزيت موادّ للمعمل). */
+export const SIMPLE_KINDS: readonly ItemKind[] = ['raw', 'feed', 'medicine', 'other'];
+
+/** اسم النوع بكلمات المالك. */
+export function simpleKindLabel(kind: ItemKind): string {
+  if (kind === 'raw') return t('simple_item.kind.raw', 'مادّة للمعمل');
+  if (kind === 'feed') return t('simple_item.kind.feed', 'علف جاهز');
+  if (kind === 'medicine') return t('simple_item.kind.medicine', 'دواء');
+  return t('simple_item.kind.other', 'أخرى');
+}
+
+/** «طريقة الحساب» بكلمة واحدة لكلّ وحدة. */
+export function countingWord(unit: BaseUnit): string {
+  if (unit === 'kg') return t('simple_item.unit.kg', 'كيلوغرام');
+  if (unit === 'L') return t('simple_item.unit.L', 'لتر');
+  return t('simple_item.unit.pc', 'قطعة');
+}
+
+export interface SimpleItemForm {
+  name: string;
+  baseUnit: BaseUnit;
+  kind: ItemKind;
+  density: string;
+}
+
+/** حقول المادّة من النموذج البسيط أو أخطاء حقوله (قيود القاعدة نفسها: itemProblems، والكثافة للسائل وحده). */
+export function simpleItemFields(form: SimpleItemForm): { fields: inventory.ItemFields; errors: Partial<Record<'name' | 'density', string>> } {
+  const liquid = form.baseUnit === 'L';
+  const density = liquid && form.density.trim() ? parseDensity(form.density) : null;
+  const errors: Partial<Record<'name' | 'density', string>> = {};
+  if (liquid && density === null) {
+    errors.density = form.density.trim()
+      ? t('simple_item.density.invalid', 'اكتب وزن اللتر بالكيلوغرام رقماً أكبر من صفر، بأربع مراتب عشرية كحدّ أقصى (مثل 0.92).')
+      : t('simple_item.density.required', 'اكتب كم يزن اللتر بالكيلوغرام، فمنه تُحسب كميتها في خلطات المعمل.');
+  }
+  const step = form.baseUnit === 'pc' ? 1000n : 100n;
+  if (itemProblems({ name: form.name, kind: form.kind, baseUnit: form.baseUnit, density, pieceMassKg: null, scaleStep: step, minQty: null }).some((problem) => problem === 'name' || problem === 'name_norm')) {
+    errors.name = t('simple_item.name.required', 'اكتب اسم المادّة بحروف، ولا يزيد على 120 حرفاً.');
+  }
+  return {
+    fields: {
+      name: form.name.trim(),
+      category_id: null,
+      kind: form.kind,
+      base_unit: form.baseUnit,
+      density_kg_per_l: density === null ? null : decimalText(density, 4),
+      piece_mass_kg: null,
+      tracks_expiry: false,
+      scale_step: decimalText(step, 3),
+      min_qty: null,
+      barcode: null,
+      alt_codes: [],
+    },
+    errors,
+  };
+}
+
+/**
+ * نافذة «أضف مادّة» البسيطة: الاسم، وطريقة الحساب، والنوع، ووزن اللتر للسائل. الحفظ يسأل عن التوائم بالاسم أوّلاً (find_item_twins):
+ * التوأم الفعّال رابط «افتح ملفّها»، والحفظ رغمه فعل صريح ثانٍ. onSaved بالمادّة الجديدة، والشاشة تفتح ملفّها.
+ */
+export function SimpleItemDialog({ initialName = '', onClose, onSaved }: { initialName?: string; onClose: () => void; onSaved: (item: inventory.ItemRow) => void }) {
+  const id = useId();
+  const [form, setForm] = useState<SimpleItemForm>({ name: initialName, baseUnit: 'kg', kind: 'raw', density: '' });
+  const [errors, setErrors] = useState<Partial<Record<'name' | 'density', string>>>({});
+  const [twins, setTwins] = useState<readonly ItemTwin[] | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (patch: Partial<SimpleItemForm>) => {
+    setForm({ ...form, ...patch });
+    setTwins(null);
+  };
+  const { fields, errors: found } = simpleItemFields(form);
+  const confirmed = twins !== null && twins.length > 0;
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setErrors(found);
+    setFailure(null);
+    if (Object.keys(found).length) return;
+    setBusy(true);
+    try {
+      if (!confirmed) {
+        const same = (await inventory.findItemTwins(fields.name, [])).filter((twin) => twin.sameName);
+        if (same.length) {
+          setTwins(same);
+          return;
+        }
+      }
+      onSaved(await inventory.createItem(fields));
+    } catch (caught) {
+      setFailure(caught);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const formId = `${id}-form`;
+  const failed = failure ? describeError(failure, 'once') : null;
+  const open = activeTwins(twins);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('simple_item.title', 'أضف مادّة')}
+      dirty={form.name.trim() !== '' || form.density.trim() !== ''}
+      locked={busy}
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            {t('confirm.cancel', 'لا، تراجع')}
+          </Button>
+          <Button type="submit" form={formId} busy={busy} variant={open.length ? 'secondary' : 'primary'} data-action={confirmed ? 'save-simple-item-twin' : 'save-simple-item'}>
+            {confirmed ? t('twin.save_other', 'احفظ مادّة أخرى بالاسم نفسه') : t('simple_item.save', 'احفظ وافتح ملفّها')}
+          </Button>
+        </div>
+      }
+    >
+      <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void save(event)} noValidate>
+        <Field id={`${id}-name`} label={t('items.name', 'اسم المادّة')} error={errors.name}>
+          <input id={`${id}-name`} className="input" maxLength={120} value={form.name} onChange={(event) => set({ name: event.target.value })} data-autofocus data-action="simple-item-name" />
+        </Field>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">{t('simple_item.unit', 'طريقة الحساب')}</span>
+          <Segmented<BaseUnit> label={t('simple_item.unit', 'طريقة الحساب')} options={BASE_UNITS.map((unit) => ({ value: unit, label: countingWord(unit) }))} value={form.baseUnit} onChange={(baseUnit) => set({ baseUnit })} />
+        </div>
+        {form.baseUnit === 'L' ? (
+          <Field id={`${id}-density`} label={t('simple_item.density', 'كم يزن اللتر بالكيلوغرام؟')} hint={t('simple_item.density.hint', 'مثل 0.92 لزيت الصويا.')} error={errors.density}>
+            <input id={`${id}-density`} inputMode="decimal" dir="ltr" autoComplete="off" className="input tabular-nums" value={form.density} onChange={(event) => set({ density: event.target.value })} data-action="simple-item-density" />
+          </Field>
+        ) : null}
+        <Field id={`${id}-kind`} label={t('simple_item.kind', 'نوع المادّة')} hint={t('simple_item.kind.hint', 'النوع يحدّد المخزن الذي تدخله عند الشراء.')}>
+          <select id={`${id}-kind`} className="input" value={form.kind} onChange={(event) => set({ kind: event.target.value as ItemKind })} data-action="simple-item-kind">
+            {SIMPLE_KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {simpleKindLabel(kind)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {twins?.length ? (
+          <Notice tone="warning" title={t('simple_item.twin', 'مادّة بالاسم نفسه موجودة')}>
+            <span className="flex flex-col gap-2">
+              {t('simple_item.twin.detail', 'المادّة تُضاف مرّة واحدة، وكلّ شراء جديد يُسجَّل في ملفّها.')}
+              {open.map((twin) => (
+                <Link key={twin.id} to={`/inventory/items/${twin.id}`} className="font-medium text-brand-700 dark:text-brand-200" data-action="open-twin-file">
+                  {t('simple_item.twin.open', 'موجودة: افتح ملفّ «{name}»', { name: twin.name })}
+                </Link>
+              ))}
+              {twins.filter((twin) => twin.archived).map((twin) => (
+                <span key={twin.id}>{t('items.archived.name', '{name} (مؤرشفة)', { name: twin.name })}</span>
+              ))}
+            </span>
           </Notice>
         ) : null}
         {failed ? (

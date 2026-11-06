@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus, Plus, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Boxes, Building2, ClipboardCheck, ClipboardList, PackageMinus, PackagePlus, Plus, Warehouse, type LucideIcon } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { DayField, postingDay } from '../../components/ui/DayField';
@@ -783,19 +783,19 @@ export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inv
   return out;
 }
 
-// ─── «اشترِ كمية» (كلمة المالك 2026-11-04) ─────────────────────────────────────────────────────────────────────────
+// ─── «سجّل شراء» (كلمة المالك 2026-11-04، و«المخزن ببساطة» 2026-11-06) ────────────────────────────────────────────
 // «اني اشتريت ذرة اليوم وبعد اسبوع اشتريت ذرة بغير حساب ما اكدر اكول اني اشتريت ذرة بهاي الطريقة»: المادّة تُضاف مرّة
-// واحدة، وكلّ شراء جديد ورقة استلام. الرابط يفتح صفحة الاستلام بنموذج «استلام جديد» معبّأ بالمخزن، وبعد إنشاء المسوّدة (بمعرّف
-// الجهاز، الطريق نفسه) تنفتح الورقة وسطرها بالمادّة.
+// واحدة، وكلّ شراء جديد يُسجَّل في ملفّها. الرابط يفتح ملفّ المادّة ونافذة «سجّل شراء» (record_purchase، يُحفظ فوراً)، لا ورقة
+// استلام مسوّدة؛ والمخزن يختاره الخادم من نوع المادّة.
 
 // buyPath نفسه في storeLabels (صفحة «المواد» تبني به رابط الشراء للتوأم، #21)، والاسم باقٍ من هنا كما كان.
 export { buyPath };
 
-/** زرّ «اشترِ كمية» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. */
-export function BuyLink({ itemId, warehouseId, label, primary = false }: { itemId: string; warehouseId: string | null; label?: string; primary?: boolean }) {
+/** زرّ «سجّل شراء» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. */
+export function BuyLink({ itemId, label, primary = false }: { itemId: string; label?: string; primary?: boolean }) {
   return (
     <Link
-      to={buyPath(itemId, warehouseId)}
+      to={buyPath(itemId)}
       className={
         primary
           ? 'inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400'
@@ -804,7 +804,7 @@ export function BuyLink({ itemId, warehouseId, label, primary = false }: { itemI
       data-action="buy-item"
     >
       <PackagePlus aria-hidden="true" className="size-4" />
-      {label ?? t('buy.action', 'اشترِ كمية')}
+      {label ?? t('buy.record', 'سجّل شراء')}
     </Link>
   );
 }
@@ -812,10 +812,15 @@ export function BuyLink({ itemId, warehouseId, label, primary = false }: { itemI
 // ─── رأس قسم المخزون: روابطه وموافقاته (تجربة الاستخدام 2026-11-02) ───────────────────────────────────────────────
 // بطاقات المخازن صارت صفحة /inventory، واللوحة بالوحدة بقيت بمسارها، فالروابط والموافقات المنتظرة بمكان واحد لهما.
 
-/** روابط قسم المخزون بأولوية الدور (نفس شروط صلاحياتها بالخادم، والحكم إله). */
-export function InventoryLinks({ role }: { role: Role | undefined }) {
+/**
+ * روابط قسم المخزون بأولوية الدور (نفس شروط صلاحياتها بالخادم، والحكم إله). «المخزن ببساطة» (كلمة المالك 2026-11-06): ورقة
+ * الاستلام القديمة خرجت من الطريق اليومي — كلّ شراء من ملفّ مادّته بـ«سجّل شراء» — فلا رابط لها هنا (صفحتها باقية للمدير: سجلّ
+ * وإلغاء، تُفتح من رقم الاستلام في «دفتر المادّة والوجبات»). وboard: داخل «أعمال أخرى» في بطاقات المواد، فأوّلها «المخازن»
+ * (بطاقات المخازن انتقلت من /inventory إلى /inventory/stores)، و«إعداد المخزن» رابط وحده هناك لمن يدير المخازن.
+ */
+export function InventoryLinks({ role, board = false }: { role: Role | undefined; board?: boolean }) {
   const links: { to: string; icon: LucideIcon; label: string; action: string }[] = [];
-  if (role && (can(role, 'receipt.draft') || can(role, 'receipt.amounts'))) links.push({ to: '/inventory/receipts', icon: PackagePlus, label: t('stock.receipts', 'الاستلام من المورّدين'), action: 'open-receipts' });
+  if (board) links.push({ to: '/inventory/stores', icon: Warehouse, label: t('stock.stores', 'المخازن'), action: 'open-stores' });
   if (role && can(role, 'transfer.post')) links.push({ to: '/inventory/transfers', icon: ArrowLeftRight, label: t('stock.transfers', 'التحويلات'), action: 'open-transfers' });
   if (role && can(role, 'stock_use.post')) links.push({ to: '/inventory/uses', icon: PackageMinus, label: t('stock.uses', 'الصرف والإتلاف'), action: 'open-uses' });
   if (role && can(role, 'count.enter')) links.push({ to: '/inventory/counts', icon: ClipboardCheck, label: t('stock.counts', 'الجرد'), action: 'open-counts' });
@@ -826,7 +831,7 @@ export function InventoryLinks({ role }: { role: Role | undefined }) {
   // (يوم التشغيل وفئات المصاريف) بقي بشاشة الإعدادات.
   // بلا شرط دور، مثل رابط إعدادات المنشأة قبله: الصفحة نفسها تحكم (أزرار الكتابة بـstores.manage،
   // و«للقراءة فقط» لغيره)؛ والأمين والمحاسب يقرأان أحجام التعبئة والتصنيفات التي يختاران منها (مراجعة 2026-11-04).
-  links.push({ to: '/inventory/setup', icon: Building2, label: t('stores.setup.title', 'إعداد المخزن'), action: 'open-store-setup' });
+  if (!board) links.push({ to: '/inventory/setup', icon: Building2, label: t('stores.setup.title', 'إعداد المخزن'), action: 'open-store-setup' });
   return (
     <nav className="flex flex-wrap gap-2" aria-label={t('stock.board.links', 'روابط المخزون')}>
       {links.map(({ to, icon: Icon, label, action }) => (
