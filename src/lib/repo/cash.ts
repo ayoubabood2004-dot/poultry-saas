@@ -216,7 +216,7 @@ function parseCashPosted(value: unknown): CashPosted {
   return { id: str(json, 'id'), amount: money ? filsOf(money, 'amount') : null };
 }
 
-/** الرصيد الافتتاحي للصندوق (موقّع؛ المصرف يكدر يبدي بالسالب)، بيوم تشغيل أقدم وحدة أو قبله. */
+/** الرصيد الافتتاحي للصندوق (موقّع؛ المصرف يكدر يبدي بالسالب)، بتاريخ اليوم أو قبله وليس في فترة مقفلة (بلا يوم تشغيل منذ 0018). */
 export async function recordCashOpening(ref: PostRef, input: { accountId: string; amount: Fils; onDate: Day }): Promise<CashPosted> {
   return parseCashPosted(await call<unknown>('record_cash_opening', { p_id: ref.id, p_account: input.accountId, p_amount: dinarText(input.amount), p_on_date: input.onDate, p_client_ref: ref.clientRef }));
 }

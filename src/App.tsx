@@ -27,7 +27,8 @@ const SettingsPage = page(() => import('./pages/settings/SettingsPage'));
 // (حزمة كسولة) مو هنا، حتى ما تثقل حزمة الإقلاع.
 const OrgSettingsPage = page(() => import('./pages/settings/OrgSettingsPage'));
 const STORE_SETUP_SECTIONS = ['places', 'packs', 'categories'] as const;
-const ORG_SECTIONS = ['go_live', 'expenses'] as const;
+// «إعدادات المنشأة» بفئات المصاريف وحدها: قسم يوم التشغيل انشال بكلمة المالك 2026-11-06 («ما النا علاقة بيوم التشغيل»).
+const ORG_SECTIONS = ['expenses'] as const;
 const ItemsPage = page(() => import('./pages/inventory/ItemsPage'));
 const NotFoundPage = page(() => import('./pages/NotFoundPage'));
 // ما قبل المنشأة: برّا القشرة (بلا شريط أقسام).

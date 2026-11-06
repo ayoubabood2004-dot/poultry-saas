@@ -97,6 +97,7 @@ export default async function (t) {
       "export { CashTable, boxName } from './src/pages/accounts/CashPage.tsx';",
       "export { CashLedger, cashVoidSentence } from './src/pages/accounts/CashStatementPage.tsx';",
       "export { signedOpening, OpeningCell, default as OpeningBalancesPage } from './src/pages/accounts/OpeningBalancesPage.tsx';",
+      "export * as openingBalances from './src/pages/accounts/OpeningBalancesPage.tsx';",
       // المراجعة العدائية لـWP3: بمساحات أسماء حتى كل فحص جديد يفشل لحاله على الشفرة القديمة (مو الحزمة كلها).
       "export * as shared from './src/pages/accounts/shared.tsx';",
       "export * as accountsPage from './src/pages/accounts/AccountsPage.tsx';",
@@ -288,8 +289,19 @@ export default async function (t) {
     t.ok(textOf(opened).includes('عليه500,000') && opened.includes('data-action="void-opening"'), 'افتتاح فعّال: مبلغه بكلمته وزرّ الإلغاء');
     const blank = render(m.h(m.OpeningCell, { row: page.rows[1], book: BOOK_REFS[0], draft: undefined, busy: false, onDraft() {}, onSave() {}, onVoid() {} }));
     t.ok(blank.includes('عليه') && blank.includes('له') && /<button[^>]*disabled=""[^>]*data-action="save-opening"/.test(blank), 'خانة فارغة: زرّ الجهة، و«سجّل» معطّل بلا مبلغ');
+    // كلمة المالك 2026-11-06 («خليها من دون يوم التشغيل»، 0018): دفتر وحدة بلا يوم تشغيل يُكتب افتتاحه كغيره، والتاريخ حقل الصفحة.
     const noGoLive = render(m.h(m.OpeningCell, { row: page.rows[1], book: { ...BOOK_REFS[0], goLiveOn: null }, draft: undefined, busy: false, onDraft() {}, onSave() {}, onVoid() {} }));
-    t.ok(noGoLive.includes('حدّد يوم التشغيل أوّلاً') && !noGoLive.includes('<input'), 'بلا يوم تشغيل ماكو افتتاح');
+    t.ok(!noGoLive.includes('حدّد يوم التشغيل') && noGoLive.includes('<input') && noGoLive.includes('data-action="save-opening"'), 'بلا يوم تشغيل: الخانة تُكتب كغيرها');
+    const draftRef = { id: 'x', clientRef: 'y' };
+    const badDay = render(m.h(m.OpeningCell, { row: page.rows[1], book: BOOK_REFS[0], draft: { text: '500', side: 'debit', ref: draftRef }, busy: false, dayOk: false, onDraft() {}, onSave() {}, onVoid() {} }));
+    const goodDay = render(m.h(m.OpeningCell, { row: page.rows[1], book: BOOK_REFS[0], draft: { text: '500', side: 'debit', ref: draftRef }, busy: false, dayOk: true, onDraft() {}, onSave() {}, onVoid() {} }));
+    t.ok(/<button[^>]*disabled=""[^>]*data-action="save-opening"/.test(badDay) && !/<button[^>]*disabled=""[^>]*data-action="save-opening"/.test(goodDay), 'تاريخ الصفحة غير صالح: «سجّل» معطّل، وصالح: يعمل');
+    const od = m.openingBalances.openingDay ?? (() => ({ day: 'absent', error: null }));
+    t.same(
+      [od('06/11/2026', '2026-11-06'), od('01/01/2025', '2026-11-06'), od('07/11/2026', '2026-11-06').error, od('أمس', '2026-11-06').day],
+      [{ day: '2026-11-06', error: null }, { day: '2025-01-01', error: null }, 'التاريخ بعد اليوم.', null],
+      'تاريخ الأرصدة عند البداية: اليوم أو قبله بلا حدّ أيّام (والفترة المقفلة يحكمها الخادم)، والمستقبل يُرفض',
+    );
 
     // ── المراجعة العدائية لـWP3. كل فحص لحاله: رمي الشفرة (دالّة ما موجودة) فشل باسمه، مو انهيار الملف.
     const check = (label, fn) => {

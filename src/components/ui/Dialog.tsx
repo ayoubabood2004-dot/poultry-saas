@@ -27,6 +27,11 @@ export interface DialogProps {
    * (ما ينحفظ غير بصمته، فالضياع يعني رمزاً جديداً).
    */
   dismissible?: boolean;
+  /**
+   * عرض البطاقة من sm فما فوق: normal (الافتراض) ضيّقة، وwide عريضة لنموذج بعمودين (كلمة المالك 2026-11-06 عن نافذة الشراء على
+   * الآيباد: «الصفحة صغيرة سويها واسعة»). بالهاتف ورقة من الأسفل بعرض الشاشة في الحالتين.
+   */
+  size?: 'normal' | 'wide';
   footer?: ReactNode;
   children: ReactNode;
 }
@@ -37,7 +42,9 @@ export function closeIntent(locked: boolean, dirty: boolean, dismissible = true)
   return dirty ? 'ask' : 'close';
 }
 
-export function Dialog({ open, onClose, title, dirty = false, locked = false, dismissible = true, footer, children }: DialogProps) {
+const WIDTHS: Readonly<Record<NonNullable<DialogProps['size']>, string>> = { normal: 'sm:max-w-lg', wide: 'sm:max-w-3xl' };
+
+export function Dialog({ open, onClose, title, dirty = false, locked = false, dismissible = true, size = 'normal', footer, children }: DialogProps) {
   const id = useId();
   const titleId = `${id}-title`;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -84,7 +91,7 @@ export function Dialog({ open, onClose, title, dirty = false, locked = false, di
         aria-labelledby={titleId}
         aria-busy={locked || undefined}
         tabIndex={-1}
-        className="relative flex max-h-sheet w-full animate-sheet-in flex-col overflow-hidden rounded-t-4xl border border-line bg-surface-1 shadow-raised outline-none sm:max-w-lg sm:animate-dialog-in sm:rounded-3xl"
+        className={`relative flex max-h-sheet w-full animate-sheet-in flex-col overflow-hidden rounded-t-4xl border border-line bg-surface-1 shadow-raised outline-none sm:animate-dialog-in sm:rounded-3xl ${WIDTHS[size]}`}
       >
         <header className="flex items-center justify-between gap-3 border-b border-line py-3 pe-3 ps-5">
           <h2 id={titleId} className="text-lg font-semibold">

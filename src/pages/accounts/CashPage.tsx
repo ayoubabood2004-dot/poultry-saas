@@ -26,7 +26,7 @@ import { useLoad } from '../../lib/useLoad';
 import { CashAccountPicker, cashKindLabel, DayField, defaultPeriod, FrozenAttempt, postingDay, recordedToast, useAttempt, type Sent } from './shared';
 
 // الصناديق (خطّة المرحلة 1 WP3، Q10): كل صندوق برصيده (مجموع حركاته بالقاعدة)، والسالب مسموح ويّا تنبيه ظاهر؛ والرصيد الافتتاحي
-// (المدير، بيوم تشغيل أقدم وحدة أو قبله)، والنقل بين الصناديق (المحاسب أو المدير)، وكل واحد بتأكيد يسمّي الصندوق والمبلغ ومحاولة
+// (المدير، بتاريخ اليوم أو قبله؛ بلا يوم تشغيل منذ 0018)، والنقل بين الصناديق (المحاسب أو المدير)، وكل واحد بتأكيد يسمّي الصندوق والمبلغ ومحاولة
 // بمرجع ثابت؛ والإضافة والتسمية والأرشفة (صندوق بلا رصيد بس، E35)، والمؤرشف وعليه رصيد بعلامته (E43). المجموع من الخادم مو من
 // الصفوف، والأرصدة لحد يوم الخادم.
 
@@ -163,7 +163,7 @@ interface OpeningInput {
   onDate: Day;
 }
 
-/** الرصيد الافتتاحي للصندوق: موقّع (المصرف يكدر يبدي بالسالب)، بيوم تشغيل أقدم وحدة أو قبله، ثم تأكيد يسمّي الصندوق والمبلغ. */
+/** الرصيد الافتتاحي للصندوق: موقّع (المصرف يكدر يبدي بالسالب)، بتاريخ اليوم أو قبله (لا يوم تشغيل، 0018)، ثم تأكيد يسمّي الصندوق والمبلغ. */
 export function OpeningDialog({ box, onClose, onSaved }: { box: CashBalance; onClose: () => void; onSaved: () => void }) {
   const id = useId();
   const [amount, setAmount] = useState('');
@@ -179,7 +179,7 @@ export function OpeningDialog({ box, onClose, onSaved }: { box: CashBalance; onC
     const value = parseMoneyText(amount);
     const date = parseDayText(day);
     if (value === null || value <= 0n || !date) {
-      setFailure(new RejectedError('fields', t('cash.opening.fields', 'اكتب المبلغ بالدينار الصحيح والتاريخ يوم/شهر/سنة (يوم التشغيل أو قبله).')));
+      setFailure(new RejectedError('fields', t('cash.opening.fields', 'اكتب المبلغ بالدينار الصحيح والتاريخ يوم/شهر/سنة (اليوم أو قبله، وليس في فترة مقفلة).')));
       return;
     }
     setFailure(null);
@@ -229,7 +229,7 @@ export function OpeningDialog({ box, onClose, onSaved }: { box: CashBalance; onC
             <input type="checkbox" className="size-5 accent-brand-600" checked={negative} onChange={(event) => setNegative(event.target.checked)} />
             {t('cash.opening.negative', 'الرصيد سالب (سحب على المكشوف)')}
           </label>
-          <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('cash.opening.day', 'يوم تشغيل أقدم وحدة أو قبله.')} />
+          <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={day} onChange={setDay} hint={t('cash.opening.day', 'اليوم أو قبله، وليس في فترة مقفلة.')} />
           {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
         </form>
       </Dialog>

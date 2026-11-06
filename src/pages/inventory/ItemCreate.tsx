@@ -425,6 +425,7 @@ export function SimpleItemDialog({ initialName = '', onClose, onSaved }: { initi
       open
       onClose={onClose}
       title={t('simple_item.title', 'أضف مادّة')}
+      size="wide"
       dirty={form.name.trim() !== '' || form.density.trim() !== ''}
       locked={busy}
       footer={
@@ -439,27 +440,30 @@ export function SimpleItemDialog({ initialName = '', onClose, onSaved }: { initi
       }
     >
       <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void save(event)} noValidate>
-        <Field id={`${id}-name`} label={t('items.name', 'اسم المادّة')} error={errors.name}>
-          <input id={`${id}-name`} className="input" maxLength={120} value={form.name} onChange={(event) => set({ name: event.target.value })} data-autofocus data-action="simple-item-name" />
-        </Field>
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium">{t('simple_item.unit', 'طريقة الحساب')}</span>
-          <Segmented<BaseUnit> label={t('simple_item.unit', 'طريقة الحساب')} options={BASE_UNITS.map((unit) => ({ value: unit, label: countingWord(unit) }))} value={form.baseUnit} onChange={(baseUnit) => set({ baseUnit })} />
-        </div>
-        {form.baseUnit === 'L' ? (
-          <Field id={`${id}-density`} label={t('simple_item.density', 'كم يزن اللتر بالكيلوغرام؟')} hint={t('simple_item.density.hint', 'مثل 0.92 لزيت الصويا.')} error={errors.density}>
-            <input id={`${id}-density`} inputMode="decimal" dir="ltr" autoComplete="off" className="input tabular-nums" value={form.density} onChange={(event) => set({ density: event.target.value })} data-action="simple-item-density" />
+        {/* عريضة على الآيباد (كلمة المالك 2026-11-06): الاسم | النوع، وطريقة الحساب | وزن اللتر. */}
+        <div className="grid gap-4 sm:grid-cols-2" data-action="simple-item-grid">
+          <Field id={`${id}-name`} label={t('items.name', 'اسم المادّة')} error={errors.name}>
+            <input id={`${id}-name`} className="input" maxLength={120} value={form.name} onChange={(event) => set({ name: event.target.value })} data-autofocus data-action="simple-item-name" />
           </Field>
-        ) : null}
-        <Field id={`${id}-kind`} label={t('simple_item.kind', 'نوع المادّة')} hint={t('simple_item.kind.hint', 'النوع يحدّد المخزن الذي تدخله عند الشراء.')}>
-          <select id={`${id}-kind`} className="input" value={form.kind} onChange={(event) => set({ kind: event.target.value as ItemKind })} data-action="simple-item-kind">
-            {SIMPLE_KINDS.map((kind) => (
-              <option key={kind} value={kind}>
-                {simpleKindLabel(kind)}
-              </option>
-            ))}
-          </select>
-        </Field>
+          <Field id={`${id}-kind`} label={t('simple_item.kind', 'نوع المادّة')} hint={t('simple_item.kind.hint', 'النوع يحدّد المخزن الذي تدخله عند الشراء.')}>
+            <select id={`${id}-kind`} className="input" value={form.kind} onChange={(event) => set({ kind: event.target.value as ItemKind })} data-action="simple-item-kind">
+              {SIMPLE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {simpleKindLabel(kind)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">{t('simple_item.unit', 'طريقة الحساب')}</span>
+            <Segmented<BaseUnit> label={t('simple_item.unit', 'طريقة الحساب')} options={BASE_UNITS.map((unit) => ({ value: unit, label: countingWord(unit) }))} value={form.baseUnit} onChange={(baseUnit) => set({ baseUnit })} />
+          </div>
+          {form.baseUnit === 'L' ? (
+            <Field id={`${id}-density`} label={t('simple_item.density', 'كم يزن اللتر بالكيلوغرام؟')} hint={t('simple_item.density.hint', 'مثل 0.92 لزيت الصويا.')} error={errors.density}>
+              <input id={`${id}-density`} inputMode="decimal" dir="ltr" autoComplete="off" className="input tabular-nums" value={form.density} onChange={(event) => set({ density: event.target.value })} data-action="simple-item-density" />
+            </Field>
+          ) : null}
+        </div>
         {twins?.length ? (
           <Notice tone="warning" title={t('simple_item.twin', 'مادّة بالاسم نفسه موجودة')}>
             <span className="flex flex-col gap-2">

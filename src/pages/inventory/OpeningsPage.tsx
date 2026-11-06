@@ -32,7 +32,8 @@ import { useLoad } from '../../lib/useLoad';
 import { AddItemDialog } from './ItemCreate';
 import { notAdmittedHere, canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, ItemPicker, PageFooter, qtyColumns, readTime, runWithRef, unitOptions, scopedStores, StoreSelect, storeLabel, storesOf, useCopyDraft, useDocPages, useDraftIds, VoidDocDialog, type StoreRef, type VoidChoice } from './stock-shared';
 
-// رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بيوم التشغيل أو قبله، وسطورها
+// رصيد الافتتاح (الخطّة WP4، FOUNDATION ٥٤٨، DECISIONS القرار 15): المدير يكتب لكل مخزن مسوّدة بتاريخ اليوم أو قبله (بلا يوم تشغيل منذ
+// كلمة المالك 2026-11-06 و0018، وليس في فترة مقفلة)، وسطورها
 // بالكمية بوحدة الأساس والقيمة بمرتبتين (الصفر ويّا سببه بس، Q9؛ الانتهاء للمادّة اللي تتابعه، ووقت الفقس للأفراخ)، ثم معاينة
 // الدفعات اللي راح تنخلق (LotsPreview) والموافقة سطراً سطراً، ثم تأكيد يسمّي المخزن والقيمة، والترحيل بمرجع ثابت. والإلغاء
 // بسببه، والمسوّدة تنطوي بلا رقم ولا حركات. المعاينة والترحيل يحتاجان الشبكة: بلا نت زرّاهما معطّلان والسبب ظاهر (الخطّة WP4).
@@ -459,7 +460,7 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
     event.preventDefault();
     const parsed = parseDayText(day);
     if (!store || !parsed) {
-      setFailure(new RejectedError('fields', t('opening.new.fields', 'اختر المخزن واكتب التاريخ يوم/شهر/سنة (يوم التشغيل أو قبله).')));
+      setFailure(new RejectedError('fields', t('opening.new.fields', 'اختر المخزن واكتب التاريخ يوم/شهر/سنة (اليوم أو قبله، وليس في فترة مقفلة).')));
       return;
     }
     // معرّف الجهاز لقيم النموذج (مراجعة WP8): الإعادة بعد جواب ضاع تفتح نفس المسوّدة بدل ثانية فارغة.
@@ -486,7 +487,7 @@ function NewOpening({ stores }: { stores: readonly StoreRef[] }) {
     <form className="card flex flex-col gap-3 p-4" onSubmit={submit} noValidate>
       <h2 className="font-semibold">{t('opening.new', 'رصيد عند البداية لمخزن')}</h2>
       <StoreSelect id={`${id}-store`} label={t('stock.store', 'المخزن')} stores={stores.filter((s) => !s.archived)} value={store} onChange={setStore} />
-      <Field id={`${id}-day`} label={t('opening.day', 'التاريخ (يوم/شهر/سنة)')} hint={t('opening.day.hint', 'يوم تشغيل الوحدة أو قبله، مثل {day}.', { day: fmtDay(localDay()) })}>
+      <Field id={`${id}-day`} label={t('opening.day', 'التاريخ (يوم/شهر/سنة)')} hint={t('opening.day.hint', 'اليوم أو قبله، وليس في فترة مقفلة، مثل {day}.', { day: fmtDay(localDay()) })}>
         <input id={`${id}-day`} className="input" dir="ltr" inputMode="numeric" value={day} onChange={(event) => setDay(event.target.value)} />
       </Field>
       {failed ? (
@@ -516,7 +517,7 @@ export function OpeningsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.openings', 'الرصيد عند البداية')} subtitle={t('opening.list.subtitle', 'مستند لكل مخزن بيوم تشغيل وحدته أو قبله.')} />
+      <PageHeader title={t('stock.openings', 'الرصيد عند البداية')} subtitle={t('opening.list.subtitle', 'مستند لكل مخزن بتاريخ اليوم أو قبله، وليس في فترة مقفلة.')} />
       {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'الرصيد عند البداية للمدير ومالك المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewOpening stores={stores} /> : null}

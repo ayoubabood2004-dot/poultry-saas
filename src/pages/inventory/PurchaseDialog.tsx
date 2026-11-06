@@ -41,6 +41,7 @@ import { readTime, scopedStores, StoreSelect, storesOf } from './stock-shared';
 // مراجعة الجولة الأولى: إعادة نتيجة مجهولة تفشل بغير رفض (تزاحم 55P03 خلف الأصل الذي ما زال يعمل، أو انقطاع) تُبقي النتيجة مجهولة
 // (م١)؛ و«تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس» للأفراخ بقواعد سطر الاستلام نفسها (م٣)؛ وقائمة المخازن بعد store_required
 // تقول «جارٍ التحميل» وتعرض فشلها بزرّ «أعد المحاولة» (ل٧).
+// وكلمة المالك بعد تجربته على الآيباد (2026-11-06، «الصفحة صغيرة سويها واسعة»): النافذة عريضة، وحقولها بعمودين من sm فما فوق.
 
 export interface PurchaseForm {
   day: string;
@@ -226,6 +227,7 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
       open
       onClose={close}
       title={t('purchase.title', 'سجّل شراء «{name}»', { name: file.item.name })}
+      size="wide"
       dirty={dirty && !pending}
       locked={state.busy}
       footer={
@@ -265,27 +267,32 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
             </p>
           </>
         ) : (
-          <>
+          // من sm فما فوق عمودان (كلمة المالك على الآيباد): التاريخ | المورّد، الكمية | سعر الشراء، المجموع بعرضها، سعر البيع | الدفع.
+          <div className="grid gap-4 sm:grid-cols-2" data-action="purchase-grid">
             <DayField id={`${id}-day`} label={t('purchase.day', 'التاريخ')} value={form.day} onChange={(day) => set({ day: toWesternDigits(day) })} error={shown.day} />
-            <SupplierPicker id={`${id}-party`} label={t('receipt.party', 'المورّد')} value={form.party} onChange={(party) => set({ party })} />
-            {shown.party ? (
-              <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
-                {shown.party}
-              </p>
-            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <SupplierPicker id={`${id}-party`} label={t('receipt.party', 'المورّد')} value={form.party} onChange={(party) => set({ party })} />
+              {shown.party ? (
+                <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
+                  {shown.party}
+                </p>
+              ) : null}
+            </div>
             <Field id={`${id}-qty`} label={t('purchase.qty', 'الكمية ({unit})', { unit })} error={shown.qty} hint={qty !== null && qty > 0n ? t('purchase.qty.read_back', '= {qty}', { qty: baseQty(qty, file.item.baseUnit) }) : undefined}>
               <input id={`${id}-qty`} inputMode="decimal" dir="ltr" autoComplete="off" className="input text-end tabular-nums" value={form.qty} onChange={(event) => set({ qty: toWesternDigits(event.target.value) })} data-action="purchase-qty" />
             </Field>
             <MoneyInput id={`${id}-price`} label={t('purchase.price', 'سعر الشراء لكل {unit}', { unit })} whole={false} value={form.price} onChange={(text) => set({ price: text })} error={shown.price} />
-            <p className="rounded-2xl bg-surface-2 px-4 py-3 text-lg font-semibold" data-action="purchase-total">
-              {live ? t('purchase.total', 'المجموع: {total} دينار', { total: fmtMoney(live.total, 0) }) : t('purchase.total.empty', 'المجموع: اكتب الكمية والسعر')}
-              {live?.rounded ? <span className="ms-2 text-sm font-normal text-ink-muted">{t('purchase.total.rounded', '(مقرَّب لأقرب دينار)')}</span> : null}
-            </p>
-            {shown.total ? (
-              <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
-                {shown.total}
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <p className="rounded-2xl bg-surface-2 px-4 py-3 text-lg font-semibold" data-action="purchase-total">
+                {live ? t('purchase.total', 'المجموع: {total} دينار', { total: fmtMoney(live.total, 0) }) : t('purchase.total.empty', 'المجموع: اكتب الكمية والسعر')}
+                {live?.rounded ? <span className="ms-2 text-sm font-normal text-ink-muted">{t('purchase.total.rounded', '(مقرَّب لأقرب دينار)')}</span> : null}
               </p>
-            ) : null}
+              {shown.total ? (
+                <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
+                  {shown.total}
+                </p>
+              ) : null}
+            </div>
             <MoneyInput
               id={`${id}-sell`}
               label={t('purchase.sell', 'سعر البيع لكل {unit} (اختياري)', { unit })}
@@ -306,6 +313,16 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                 value={form.payment}
                 onChange={(payment) => set({ payment })}
               />
+              {form.payment === 'cash' ? (
+                <>
+                  <BoxPicker id={`${id}-box`} label={t('purchase.box', 'الصندوق')} boxes={boxes} value={box} onChange={(value) => set({ box: value })} />
+                  {shown.box ? (
+                    <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
+                      {shown.box}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
             </div>
             {file.item.tracksExpiry ? (
               <div data-action="purchase-expiry">
@@ -332,18 +349,8 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                 <input id={`${id}-born`} className="input" dir="ltr" autoComplete="off" value={form.born} onChange={(event) => set({ born: toWesternDigits(event.target.value) })} data-action="purchase-born" />
               </Field>
             ) : null}
-            {form.payment === 'cash' ? (
-              <>
-                <BoxPicker id={`${id}-box`} label={t('purchase.box', 'الصندوق')} boxes={boxes} value={box} onChange={(value) => set({ box: value })} />
-                {shown.box ? (
-                  <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
-                    {shown.box}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
             {pickStore ? (
-              <div className="flex flex-col gap-2" data-action="purchase-store-pick">
+              <div className="flex flex-col gap-2 sm:col-span-2" data-action="purchase-store-pick">
                 <Notice tone="info" title={t('purchase.store.pick', 'لهذه المادّة أكثر من مخزن؛ اختر المخزن الذي دخلته')}>
                   {storeHint || null}
                 </Notice>
@@ -359,7 +366,7 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                 )}
               </div>
             ) : null}
-          </>
+          </div>
         )}
         {failed ? (
           <Notice tone="danger" title={failed.title}>

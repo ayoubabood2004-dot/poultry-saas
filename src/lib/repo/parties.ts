@@ -85,7 +85,7 @@ export interface BookRef {
   divisionKind: DivisionKind;
   code: BookCode;
   name: string;
-  /** يوم تشغيل الوحدة (الافتتاح بيه أو قبله)، أو null. */
+  /** يوم تشغيل الوحدة كما في القاعدة، أو null. لم يعد شرطاً منذ 0018 (كلمة المالك 2026-11-06)، ولا تعتمد عليه شاشة. */
   goLiveOn: Day | null;
 }
 
@@ -573,7 +573,7 @@ export async function payParty(ref: PostRef, input: PaymentInput): Promise<Poste
   );
 }
 
-/** رصيد الجهة الافتتاحي بدفتر (موقّع: موجب «عليه»، سالب «له»)، بيوم التشغيل أو قبله. */
+/** رصيد الجهة الافتتاحي بدفتر (موقّع: موجب «عليه»، سالب «له»)، بتاريخ اليوم أو قبله وليس في فترة مقفلة (بلا يوم تشغيل منذ 0018). */
 export async function recordOpeningBalance(ref: PostRef, input: { partyId: string; bookId: string; amount: Fils; onDate: Day }): Promise<PostedEntry> {
   return parsePosted(await call<unknown>('record_opening_balance', { p_id: ref.id, p_party: input.partyId, p_book: input.bookId, p_amount: dinarText(input.amount), p_on_date: input.onDate, p_client_ref: ref.clientRef }));
 }

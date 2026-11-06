@@ -13,6 +13,7 @@
 // أقسام المخزن وحدها بأزرارها، و«إعدادات المنشأة» (/settings/org) يوم التشغيل وفئات المصاريف وحدهما — والأقسام تُقرأ من
 // App.tsx نفسه لا منسوخة هنا؛ S17 تنبيه «للقراءة فقط» يقيس صلاحيات الأقسام المعروضة وحدها (المحاسب يراه بصفحة المخزن
 // ولا يراه بصفحة الإعدادات).
+// وكلمة المالك 2026-11-06 («ما النا علاقة بيوم التشغيل خليها من دون يوم التشغيل»): «إعدادات المنشأة» بفئات المصاريف وحدها.
 // «المخزن ببساطة» (كلمة المالك 2026-11-06): بطاقات المخازن انتقلت من /inventory إلى /inventory/stores، وبطاقة المادّة القديمة
 // (المشتريات والوجبات والدفتر بالمخازن) إلى /inventory/items/:id/details؛ فالحالات نفسها تفتح المسارين الجديدين.
 import { build } from 'esbuild';
@@ -521,7 +522,7 @@ export default async function (t) {
       const list = new RegExp(`const ${at[1]} = \\[([^\\]]*)\\]`, 'u').exec(app);
       return list ? [...list[1].matchAll(/'([a-z_]+)'/gu)].map((found) => found[1]) : null;
     };
-    t.same([sectionsAt('/inventory/setup'), sectionsAt('/settings/org')], [['places', 'packs', 'categories'], ['go_live', 'expenses']], 'S16: App.tsx يركّب الشاشة الواحدة بأقسام كلّ مسار');
+    t.same([sectionsAt('/inventory/setup'), sectionsAt('/settings/org')], [['places', 'packs', 'categories'], ['expenses']], 'S16: App.tsx يركّب الشاشة الواحدة بأقسام كلّ مسار، و«إعدادات المنشأة» بلا يوم التشغيل (كلمة المالك 2026-11-06)');
     const orgSetup = {
       divisions: [{ id: 'd-gen', kind: 'general', goLiveOn: null, frozen: false }],
       sites: [{ id: 's-store', version: 1, archived: false, divisionId: 'd-gen', name: 'مخزن المشروع', kind: 'store' }],
@@ -547,8 +548,9 @@ export default async function (t) {
     {
       fresh({ status: 'ready', workspace: ws() }, handlers({ loadOrgSetup: () => orgSetup }));
       await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/settings/org') }));
-      t.same(headings(), ['الوحدات ويوم تشغيلها', 'فئات المصاريف'], `S16: /settings/org: يوم تشغيل الوحدات وفئات المصاريف وحدهما (${headings().join('|')})`);
-      t.same(captions(), ['الوحدات ويوم تشغيلها', 'فئات المصاريف'], 'S16: وجدولاهما، بلا جداول المواقع والمخازن وأحجام التعبئة وتصنيفات المواد');
+      t.same(headings(), ['فئات المصاريف'], `S16: /settings/org: فئات المصاريف وحدها، بلا «الوحدات ويوم تشغيلها» (${headings().join('|')})`);
+      t.same(captions(), ['فئات المصاريف'], 'S16: وجدولها، بلا جداول الوحدات والمواقع والمخازن وأحجام التعبئة وتصنيفات المواد');
+      t.ok(!/يوم (ال)?تشغيل/u.test(text()) && byAction('set-go-live').length === 0, 'S16: ولا ذكر ليوم التشغيل ولا زرّ له');
       t.same([byAction('new-site').length, byAction('new-warehouse').length, byAction('new-pack').length, byAction('new-category').length], [0, 0, 0, 0], 'S16: ولا أزرارها');
       t.ok(text().includes('إعدادات المنشأة'), 'S16: وعنوانها «إعدادات المنشأة»');
       await unmount();

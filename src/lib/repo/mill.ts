@@ -483,7 +483,7 @@ export interface MillProblem {
    */
   divisionName: string | null;
   /**
-   * جملة الخادم لمشكلة التاريخ (private.date_problem منذ 0015: date_too_old وperiod_locked وbefore_go_live…) بتواريخها، فتعرضها الصفحة
+   * جملة الخادم لمشكلة التاريخ (private.date_problem منذ 0015: date_too_old وperiod_locked…؛ وبلا يوم التشغيل منذ 0018) بتواريخها، فتعرضها الصفحة
    * بدل الرمز الخام (صفحة الدفعة لا تغيّر يومها، فالمسوّدة تكبر عليه). null للمشاكل التي لا يرسل لها الخادم جملة.
    */
   hint: string | null;

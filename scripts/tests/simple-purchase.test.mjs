@@ -11,6 +11,7 @@
 // ومراجعة الجولة الأولى: م١ إعادة النتيجة المجهولة تبقى مجهولة ما لم يرفضها الخادم رفضاً أكيداً (55P03 وانقطاع)، والإغلاق يقرأ الملفّ؛
 //    ل٧ قائمة المخازن بعد store_required بـ«جارٍ التحميل» وفشلها بـ«أعد المحاولة»؛ م٣ «تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس»
 //    للأفراخ، وp_expiry_on وp_born_at مفتاحان دائماً؛ م٢ «مصحَّح» على السطر المصحَّح.
+// وتجربة المالك على الآيباد (2026-11-06، «الصفحة صغيرة سويها واسعة»): ي٢ نافذتا الشراء و«أضف مادّة» عريضتان بعمودين.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -724,6 +725,27 @@ export default async function (t) {
       const cells = all().filter((n) => n.localName === 'td').map((n) => n.textContent);
       t.same([cells[4], cells[11]], ['11,000,000مصحَّح', '11,250,000'], 'م٢: «مصحَّح» على السطر المصحَّح وحده، بجانب مجموعه');
       t.eq(byAction('purchase-corrected').length, 1, 'م٢: علامة واحدة');
+    });
+
+    // ي٢: «الصفحة صغيرة سويها واسعة»: نافذتا الشراء و«أضف مادّة» عريضتان بعمودين من sm فما فوق.
+    await step('R2-wide', async () => {
+      fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson(), items_overview: async () => overviewJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      const grid = byAction('purchase-grid')[0];
+      const panel = all().find((n) => n.getAttribute('role') === 'dialog' && grid && n.contains(grid));
+      t.ok((panel?.getAttribute('class') ?? '').split(' ').includes('sm:max-w-3xl') && !(panel?.getAttribute('class') ?? '').includes('sm:max-w-lg'), `ي٢: نافذة الشراء عريضة (${panel?.getAttribute('class')})`);
+      const cls = (grid?.getAttribute('class') ?? '').split(' ');
+      t.ok(cls.includes('grid') && cls.includes('sm:grid-cols-2'), 'ي٢: وحقولها بعمودين');
+      const total = byAction('purchase-total')[0]?.parentNode;
+      t.ok(grid?.contains(byIdSuffix('-day')[0]) && grid.contains(byAction('purchase-qty')[0]) && (total?.getAttribute('class') ?? '').split(' ').includes('sm:col-span-2'), 'ي٢: التاريخ والكمية في الشبكة، والمجموع بعرضها');
+      await unmount();
+      fresh({ status: 'ready', workspace: MANAGER }, {}, { items_overview: async () => overviewJson() });
+      await mount('/inventory');
+      await click(byAction('add-item')[0]);
+      const itemGrid = byAction('simple-item-grid')[0];
+      const itemPanel = all().find((n) => n.getAttribute('role') === 'dialog' && itemGrid && n.contains(itemGrid));
+      t.ok((itemPanel?.getAttribute('class') ?? '').split(' ').includes('sm:max-w-3xl') && (itemGrid?.getAttribute('class') ?? '').split(' ').includes('sm:grid-cols-2'), 'ي٢: و«أضف مادّة» عريضة بعمودين');
     });
   } finally {
     if (root) {

@@ -1,7 +1,7 @@
 // شاشات المرحلة 1 WP2 مرسومة نصّاً من المصدر الحقيقي: جدول المواد (الرموز LTR، الحدّ الأدنى بمراتب العمود الثابتة،
 // الإجراءات أوّل عمود)، ونموذج المادّة (حقول وحدة الأساس، والقراءة لنصوص عشرية بقيود القاعدة نفسها، والحقول المتغيّرة
-// بس، والتوائم)، وفلتر البحث بالاسم والرمز، و«إعدادات المنشأة» (يوم التشغيل والثابت، والمواقع ثم مخازنها، والنظامية
-// للقراءة)، ومنتقي النطاق بالوحدة والموقع والمخزن بشاشة الموظفين.
+// بس، والتوائم)، وفلتر البحث بالاسم والرمز، و«إعدادات المنشأة» (المواقع ثم مخازنها، والنظامية للقراءة، وبلا يوم التشغيل منذ كلمة
+// المالك 2026-11-06)، ومنتقي النطاق بالوحدة والموقع والمخزن بشاشة الموظفين.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,7 +84,8 @@ export default async function (t) {
   const m = await bundle(
     [
       "export { ItemsTable, ItemForm, formOf, fieldsOf, changedFields, twinVerdict, unitFactor, unitsDirty, countUnitToCreate } from './src/pages/inventory/ItemsPage.tsx';",
-      "export { SetupTables, placeRows, goLiveText, GoLiveField, parseDayText, packFactor } from './src/pages/settings/OrgSettingsPage.tsx';",
+      "export { SetupTables, placeRows, parseDayText, packFactor } from './src/pages/settings/OrgSettingsPage.tsx';",
+      "export * as orgSettings from './src/pages/settings/OrgSettingsPage.tsx';",
       "export { ScopeChecks, divisionsText } from './src/pages/staff/StaffPage.tsx';",
       "export { itemSearchFilter, parseItemRow } from './src/lib/repo/inventory.ts';",
       "export { columnDecimals, fmtScaledCell } from './src/lib/format.ts';",
@@ -239,25 +240,20 @@ export default async function (t) {
     ],
   };
   t.same(m.placeRows(setup).map((row) => row.store?.id ?? row.site.id), ['s-mill', 'w-raw', 's-gen', 'w-gen'], 'المواقع بترتيب الوحدات، وكل موقع ومخازنه بعده');
-  t.eq(m.goLiveText(setup.divisions[0]), '30/09/2026 — ثابت: بدأ الحفظ النهائي في الوحدة', 'يوم التشغيل DD/MM/YYYY، وثابت بعد أوّل ترحيل');
-  t.eq(m.goLiveText(setup.divisions[1]), 'لم يُحدَّد', 'بلا يوم: «لم يُحدَّد»');
-  const all = { stores: true, expenses: true, goLive: true };
+  // كلمة المالك 2026-11-06 («ما النا علاقة بيوم التشغيل خليها من دون يوم التشغيل»): قسم «الوحدات ويوم تشغيلها» وحقله انشالا.
+  const all = { stores: true, expenses: true };
   const page = render(m.h(m.SetupTables, { setup, permissions: all, onOpen: () => {} }));
   t.ok(page.indexOf('معمل العلف') < page.indexOf('المخازن العامة</td>'), 'الوحدات بترتيبها الثابت');
-  t.eq((page.match(/data-action="set-go-live"/g) ?? []).length, 1, 'زرّ يوم التشغيل للوحدة غير الثابتة بس');
+  t.ok(!/يوم (ال)?تشغيل/u.test(page) && !page.includes('data-action="set-go-live"'), 'بلا قسم يوم التشغيل ولا زرّه، ولو كانت وحدة بلا يوم تشغيل');
+  t.same([m.orgSettings.GoLiveField, m.orgSettings.goLiveText], [undefined, undefined], 'وحقل يوم التشغيل ونصّه انشالا من الشاشة');
   const packHeaders = [...page.matchAll(/<th[^>]*>(الحجم \([^<]*\))<\/th>/gu)].map((match) => match[1]);
   t.same(packHeaders, ['الحجم (كغم)', 'الحجم (لتر)', 'الحجم (قطعة)'], 'حجم التعبئة عمود لكل بُعد، والوحدة برأسه');
   t.ok(page.includes('<bdi dir="ltr">25.0</bdi>') && page.includes('<bdi dir="ltr">12.5</bdi>') && page.includes('<bdi dir="ltr">0.5</bdi>') && page.includes('<bdi dir="ltr">360</bdi>'), 'كل عمود بمراتبه الثابتة: الكارتون عدد صحيح (360 مو 360.0)');
   t.ok(!page.includes('360.0'), 'ولا كسر بعدد القطع');
-  // المدير المحصور بوحدة (FOUNDATION ٥٤٤): أزرار يوم التشغيل والمواقع والمخازن بوحدات نطاقه بس، مثل سياسات القاعدة.
+  // المدير المحصور بوحدة (FOUNDATION ٥٤٤): أزرار المواقع والمخازن بوحدات نطاقه بس، مثل سياسات القاعدة.
   const inMill = (target) => target.divisionId === 'd-mill';
   const scoped = render(m.h(m.SetupTables, { setup, permissions: all, allowed: inMill, onOpen: () => {} }));
   t.ok(scoped.includes('aria-label="أرشف مخزن المواد الأوّلية"') && !scoped.includes('aria-label="أعِد المخزن العام"'), 'المحصور: أزرار مخازن وحدته بس');
-  t.eq((scoped.match(/data-action="set-go-live"/g) ?? []).length, 1, 'المحصور: يوم تشغيل وحدته (غير الثابتة) بس');
-  const elsewhere = render(m.h(m.SetupTables, { setup, permissions: all, allowed: (target) => target.divisionId === 'd-gen', onOpen: () => {} }));
-  t.eq((elsewhere.match(/data-action="set-go-live"/g) ?? []).length, 0, 'ضابط: محصور بوحدة ثابتة: ولا زرّ يوم تشغيل');
-  const goLiveField = render(m.h(m.GoLiveField, { id: 'g', value: '30/09/2026', error: null, onChange: () => {} }));
-  t.ok(!goLiveField.includes('type="date"') && goLiveField.includes('inputMode="numeric"') && goLiveField.includes('dir="ltr"') && goLiveField.includes('value="30/09/2026"'), 'يوم التشغيل حقل نصّ بأرقام غربية (مو منتقي الجهاز بلغته وأرقامه)');
   t.same(
     [m.parseDayText('30/09/2026'), m.parseDayText(' ٣٠/٠٩/٢٠٢٦ '), m.parseDayText('1/2/2026'), m.parseDayText('31/02/2026'), m.parseDayText('2026-09-30'), m.parseDayText('30/9/26'), m.parseDayText(''), m.parseDayText('29/02/2028'), m.parseDayText('29/02/2026'), m.parseDayText('00/01/2026'), m.parseDayText('01/13/2026'), m.parseDayText('30092026'), m.parseDayText('30-09-2026'), m.parseDayText('30.9.2026'), m.parseDayText('30 09 2026'), m.parseDayText('3092026')],
     ['2026-09-30', '2026-09-30', '2026-02-01', null, null, null, null, '2028-02-29', null, null, null, '2026-09-30', '2026-09-30', '2026-09-30', '2026-09-30', null],
@@ -266,9 +262,9 @@ export default async function (t) {
   t.ok(page.includes('نظامية') && page.includes('للقراءة فقط'), 'الفئة النظامية للقراءة بس');
   t.ok(page.includes('data-action="restore"') && page.includes('مؤرشف'), 'المخزن المؤرشف بحالته وزرّ إعادته');
   t.ok(page.includes('aria-label="أرشف مخزن المواد الأوّلية"'), 'زرّ الأرشفة يسمّي السجلّ');
-  const viewer = render(m.h(m.SetupTables, { setup, permissions: { stores: false, expenses: false, goLive: false }, onOpen: () => {} }));
+  const viewer = render(m.h(m.SetupTables, { setup, permissions: { stores: false, expenses: false }, onOpen: () => {} }));
   t.ok(!viewer.includes('data-action=') && !viewer.includes('إجراءات</th>'), 'بلا صلاحية: جداول للقراءة بلا أزرار');
-  const accountant = render(m.h(m.SetupTables, { setup, permissions: { stores: false, expenses: true, goLive: false }, onOpen: () => {} }));
+  const accountant = render(m.h(m.SetupTables, { setup, permissions: { stores: false, expenses: true }, onOpen: () => {} }));
   t.ok(accountant.includes('data-action="new-expense"') && !accountant.includes('data-action="new-site"'), 'المحاسب: فئات المصاريف بس');
 
   // ── منتقي النطاق بالموظفين ─────────────────────────────────────────────────────────────────────────────
@@ -836,7 +832,7 @@ async function reviewFixes(t, m, setup) {
     t.ok(inv.shared.storeLabel({ name: 'مخزن قديم', kind: 'general', divisionKind: 'general', archived: true, hasBalance: true }).includes('مؤرشف وعليه رصيد'), 'منتقي المخزن: المؤرشف وعليه رصيد بعلامته');
     t.ok(!inv.shared.storeLabel({ name: 'مخزن قديم', kind: 'general', divisionKind: 'general', archived: true, hasBalance: false }).includes('عليه رصيد'), 'ضابط: المؤرشف بلا رصيد «مؤرشف» بس');
     const flagged = { ...setup, warehouses: setup.warehouses.map((w) => (w.id === 'w-gen' ? { ...w, hasBalance: true } : w)) };
-    const page = m.renderToStaticMarkup(m.h(m.SetupTables, { setup: flagged, permissions: { stores: true, expenses: true, goLive: true }, onOpen: () => {} }));
+    const page = m.renderToStaticMarkup(m.h(m.SetupTables, { setup: flagged, permissions: { stores: true, expenses: true }, onOpen: () => {} }));
     t.ok(page.includes('مؤرشف وعليه رصيد') && page.includes('data-action="restore"'), 'إعدادات المنشأة: المخزن المؤرشف وعليه رصيد بعلامته جنب «أعِد»');
   });
 }

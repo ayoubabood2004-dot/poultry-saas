@@ -29,7 +29,7 @@ export interface DivisionSetup {
   kind: DivisionKind;
   /** YYYY-MM-DD أو null (ما تحدّد بعد). */
   goLiveOn: string | null;
-  /** أوّل ترحيل بالوحدة: يوم التشغيل ثابت بعده (E14). */
+  /** بدأ الترحيل في الوحدة (first_posted_at). */
   frozen: boolean;
 }
 
@@ -152,7 +152,8 @@ function rowsOf(answers: readonly (Answer & { data: unknown })[], wasOnline: boo
 }
 
 /**
- * كل إعداد المنشأة لشاشتي «إعداد المخزن» (داخل تبويب المخزن) و«إعدادات المنشأة»، كلّ واحدة بأقسامها: الوحدات ويوم تشغيلها، والمواقع والمخازن (والمؤرشف وعليه رصيد بعلامته، من دالّة بلا
+ * كل إعداد المنشأة لشاشتي «إعداد المخزن» (داخل تبويب المخزن) و«إعدادات المنشأة»، كلّ واحدة بأقسامها: الوحدات (ويوم تشغيلها يُقرأ ولا يُعرض منذ
+ * 0018)، والمواقع والمخازن (والمؤرشف وعليه رصيد بعلامته، من دالّة بلا
  * قيم لكل دور بنطاقه)، والأحجام والتصنيفات.
  */
 export async function loadOrgSetup(): Promise<OrgSetup> {
@@ -188,12 +189,7 @@ export async function loadOrgSetup(): Promise<OrgSetup> {
   };
 }
 
-/** يوم تشغيل الوحدة (opening.post، المدير). يرجّع اليوم كما انحفظ. */
-export async function setDivisionGoLive(divisionId: string, day: string): Promise<string> {
-  const saved = await call<unknown>('set_division_go_live', { p_division: divisionId, p_go_live_on: day });
-  if (typeof saved !== 'string') throw new RowShapeError('go_live_on');
-  return saved;
-}
+// set_division_go_live لا تناديه شاشة منذ كلمة المالك 2026-11-06 («خليها من دون يوم التشغيل»، 0018): انشال من repo.
 
 type Raw = { data: unknown; error: PostgrestFailure | null; status: number };
 type Failed = PostgrestFailure & { status: number };

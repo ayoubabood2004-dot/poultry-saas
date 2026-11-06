@@ -128,7 +128,7 @@ export function problemLine(problem: MillProblem): string {
       division: problem.divisionName,
     });
   }
-  // مشكلة التاريخ (أقدم من سبعة أيام، أو قفل الفترة، أو قبل يوم التشغيل): الخادم يرسل جملتها بتواريخها، فلا يظهر الرمز الخام.
+  // مشكلة التاريخ (أقدم من سبعة أيام، أو قفل الفترة): الخادم يرسل جملتها بتواريخها، فلا يظهر الرمز الخام.
   if (problem.hint !== null) return problem.hint;
   return problem.itemName ? `${problemText(problem.code)} — ${problem.itemName}` : problemText(problem.code);
 }
@@ -478,7 +478,7 @@ export default function BatchPage() {
   const typedExpiry = shownExpiry.trim() === '' ? null : parseDayText(shownExpiry);
   const expiryBad = shownExpiry.trim() !== '' && typedExpiry === null;
   // يوم الإنتاج (ب٢٦): يوم تقويم إلزامي بـparseDayText كتاريخ الانتهاء (فلا تنفصل حزمة حقل التاريخ)، والخادم يحكم عليه بمعاينته
-  // وجملته (أقدم من سبعة أيام، أو فترة مقفلة، أو قبل يوم التشغيل)؛ فالمسوّدة التي كبرت على يومها يُصحَّح يومها بدل أن تُحذف.
+  // وجملته (أقدم من سبعة أيام، أو فترة مقفلة)؛ فالمسوّدة التي كبرت على يومها يُصحَّح يومها بدل أن تُحذف.
   const savedDay = fmtDay(batch.producedOn);
   const shownDay = producedDay ?? savedDay;
   // يوم الإنتاج إلزامي فلا معنى لفراغه (ب٣٥): الحقل الفارغ غير مكتوب — لا يدخل قائمة ما لم يُحفظ ولا يُرسل ولا يقفل «احفظ» — ويعود إلى

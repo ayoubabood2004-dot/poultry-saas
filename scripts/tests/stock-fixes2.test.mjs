@@ -468,7 +468,7 @@ export default async function (t) {
       const container = globalThis.document.createElement('div');
       body().appendChild(container);
       root = { root: s.createRoot(container), flushSync: s.flushSync };
-      s.flushSync(() => root.root.render(s.h(s.MemoryRouter, { initialEntries: ['/settings/org'] }, s.h(s.OrgSettingsPage, { sections: ['go_live', 'expenses'] }))));
+      s.flushSync(() => root.root.render(s.h(s.MemoryRouter, { initialEntries: ['/settings/org'] }, s.h(s.OrgSettingsPage, { sections: ['expenses'] }))));
       await settle();
       await settle();
     };

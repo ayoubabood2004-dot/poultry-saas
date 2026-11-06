@@ -3,15 +3,18 @@ import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, type Column } from '../../components/ui/DataTable';
+import { DayField } from '../../components/ui/DayField';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { parseMoneyText } from '../../components/ui/MoneyInput';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { SideToggle, type Side } from '../../components/ui/SideToggle';
 import { toast } from '../../components/ui/Toast';
+import { localDay, type Day } from '../../domain/dates';
 import type { DivisionKind } from '../../domain/divisions';
 import type { Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
+import { parseDayText } from '../../lib/dayText';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -22,8 +25,17 @@ import { useLoad } from '../../lib/useLoad';
 import { bookLabel, defaultPeriod, divisionFilterLabel, SideAmount, VoidDialog } from './shared';
 
 // أرصدة الافتتاح (خطّة المرحلة 1 WP3، المدير opening.post): الجهات صفوفاً والدفاتر أعمدةً، والجهة «عليه / له» بزرّ بدل الإشارة،
-// وكل خانة برقمها ومرجعها لحالها (مرجع لكل خانة يبقى لحد ما تنعرف نتيجتها، FOUNDATION ٥١٩). التاريخ يوم تشغيل وحدة الدفتر
-// (الافتتاح بيه أو قبله، FOUNDATION ٥٢١)، والخانة بافتتاح فعّال تعرضه ويّا «ألغِ».
+// وكل خانة برقمها ومرجعها لحالها (مرجع لكل خانة يبقى لحد ما تنعرف نتيجتها، FOUNDATION ٥١٩). والخانة بافتتاح فعّال تعرضه ويّا «ألغِ».
+// التاريخ حقل واحد بالصفحة (اليوم افتراضياً): اليوم أو قبله، وليس في فترة مقفلة. كان يوم تشغيل وحدة الدفتر، وبلاه لا خانة («حدّد يوم
+// التشغيل أوّلاً»)؛ وكلمة المالك 2026-11-06 («ما النا علاقة بيوم التشغيل خليها من دون يوم التشغيل») شالته، والقاعدة بلاه بعد 0018.
+
+/** تاريخ الأرصدة عند البداية: يوم مكتوب يوم/شهر/سنة، اليوم أو قبله (الفترة المقفلة يحكمها الخادم بتلميحه)، أو رسالة الخطأ. */
+export function openingDay(text: string, today: Day = localDay()): { day: Day | null; error: string | null } {
+  const day = parseDayText(text);
+  if (!day) return { day: null, error: t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') };
+  if (day > today) return { day: null, error: t('day.future', 'التاريخ بعد اليوم.') };
+  return { day, error: null };
+}
 
 const DIVISIONS: readonly DivisionKind[] = ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'];
 
@@ -42,7 +54,7 @@ export function signedOpening(text: string, side: Side): Fils | null {
   return side === 'debit' ? amount : -amount;
 }
 
-export function OpeningCell({ row, book, draft, busy, onDraft, onSave, onVoid }: { row: PartyBalanceRow; book: BookRef; draft: Draft | undefined; busy: boolean; onDraft: (draft: Draft) => void; onSave: () => void; onVoid: () => void }) {
+export function OpeningCell({ row, book, draft, busy, dayOk = true, onDraft, onSave, onVoid }: { row: PartyBalanceRow; book: BookRef; draft: Draft | undefined; busy: boolean; dayOk?: boolean; onDraft: (draft: Draft) => void; onSave: () => void; onVoid: () => void }) {
   const existing = row.cells.get(book.id)?.openingEntry ?? null;
   if (existing) {
     return (
@@ -54,7 +66,6 @@ export function OpeningCell({ row, book, draft, busy, onDraft, onSave, onVoid }:
       </span>
     );
   }
-  if (!book.goLiveOn) return <span className="text-xs text-ink-muted">{t('openings.no_go_live', 'حدّد يوم التشغيل أوّلاً')}</span>;
   const value = draft ?? { text: '', side: 'debit' as Side, ref: parties.newRef() };
   return (
     <span className="flex w-72 items-center gap-2">
@@ -68,7 +79,7 @@ export function OpeningCell({ row, book, draft, busy, onDraft, onSave, onVoid }:
         onChange={(event) => onDraft({ ...value, text: event.target.value })}
       />
       <SideToggle label={t('openings.side', 'الجهة')} value={value.side} onChange={(side) => onDraft({ ...value, side })} />
-      <Button size="sm" busy={busy} disabled={signedOpening(value.text, value.side) === null} onClick={onSave} data-action="save-opening">
+      <Button size="sm" busy={busy} disabled={!dayOk || signedOpening(value.text, value.side) === null} onClick={onSave} data-action="save-opening">
         {t('openings.save', 'سجّل')}
       </Button>
     </span>
@@ -93,6 +104,9 @@ export default function OpeningBalancesPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [voiding, setVoiding] = useState<{ row: PartyBalanceRow; book: BookRef; entryId: string } | null>(null);
   const segmentId = useId();
+  const dayId = useId();
+  const [dayText, setDayText] = useState(() => fmtDay(localDay()));
+  const onDate = openingDay(dayText);
   const extra = more?.key === key ? more : null;
   const rows = first.data ? [...first.data.rows, ...(extra?.rows ?? [])] : [];
   const next = extra ? extra.next : (first.data?.next ?? null);
@@ -104,10 +118,10 @@ export default function OpeningBalancesPage() {
     const k = cellKey(row.partyId, book.id);
     const draft = drafts[k];
     const amount = draft ? signedOpening(draft.text, draft.side) : null;
-    if (!draft || amount === null || !book.goLiveOn) return;
+    if (!draft || amount === null || !onDate.day) return;
     setSaving(k);
     parties
-      .recordOpeningBalance(draft.ref, { partyId: row.partyId, bookId: book.id, amount, onDate: book.goLiveOn })
+      .recordOpeningBalance(draft.ref, { partyId: row.partyId, bookId: book.id, amount, onDate: onDate.day })
       .then(
         () => {
           setDrafts((current) => {
@@ -153,7 +167,7 @@ export default function OpeningBalancesPage() {
     { key: 'name', header: t('party.name.col', 'الجهة'), sticky: true, cell: (row) => row.name },
     ...shown.map((book): Column<PartyBalanceRow> => ({
       key: book.id,
-      header: book.goLiveOn ? t('openings.col', '{book} ({day})', { book: bookLabel(book), day: fmtDay(book.goLiveOn) }) : bookLabel(book),
+      header: bookLabel(book),
       kind: 'number',
       cell: (row) => {
         const k = cellKey(row.partyId, book.id);
@@ -164,6 +178,7 @@ export default function OpeningBalancesPage() {
             book={book}
             draft={drafts[k]}
             busy={saving === k}
+            dayOk={onDate.day !== null}
             onDraft={(draft) => setDrafts((current) => ({ ...current, [k]: draft }))}
             onSave={() => save(row, book)}
             onVoid={() => (entryId ? setVoiding({ row, book, entryId }) : undefined)}
@@ -180,6 +195,9 @@ export default function OpeningBalancesPage() {
       </Link>
       <div id={segmentId}>
         <Segmented label={t('accounts.filter', 'الوحدة')} options={DIVISIONS.map((value) => ({ value, label: divisionFilterLabel(value) }))} value={division} onChange={setDivision} />
+      </div>
+      <div className="max-w-xs" data-action="openings-day">
+        <DayField id={dayId} label={t('openings.day', 'تاريخ الأرصدة')} value={dayText} onChange={setDayText} error={onDate.error} hint={t('openings.day.hint', 'اليوم أو قبله، وليس في فترة مقفلة.')} />
       </div>
       {error ? (
         <LoadFailed what={t('openings.title', 'الأرصدة عند البداية')} error={error} onRetry={() => (books.error ? books.retry() : refresh())} />

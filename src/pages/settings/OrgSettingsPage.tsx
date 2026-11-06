@@ -17,28 +17,28 @@ import { inScope } from '../../domain/scope';
 import { DIVISION_ORDER, SITE_KIND_FOR, WAREHOUSE_KINDS_FOR, type WarehouseKind } from '../../domain/stores';
 import { parseFactor, type BaseUnit, type Dimension } from '../../domain/units';
 import { describeError, NotConnectedError, ZeroRowsError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtScaledCell } from '../../lib/format';
+import { columnDecimals, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
-import type { CategoryRow, DivisionSetup, ExpenseCategoryRow, MasterTable, OrgSetup, PackTypeRow, SiteRow, WarehouseRow } from '../../lib/repo/inventory';
+import type { CategoryRow, ExpenseCategoryRow, MasterTable, OrgSetup, PackTypeRow, SiteRow, WarehouseRow } from '../../lib/repo/inventory';
 import { divisionLabel } from '../../lib/roles';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel, dimensionLabel, siteKindLabel, warehouseKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 
-// «إعدادات المنشأة» (خطّة المرحلة 1 WP2): يوم تشغيل كل وحدة (يتجمّد بعد أوّل ترحيل)، والمواقع والمخازن بكل وحدة، وأحجام
-// التعبئة، وتصنيفات المواد وفئات المصاريف (النظامية للقراءة). الصلاحية من الدور (Q1): المخازن والأحجام والتصنيفات
-// stores.manage، وفئات المصاريف expense_categories.manage، ويوم التشغيل opening.post؛ والحكم بالقاعدة. ماكو حذف: الأرشفة
-// بتأكيد يسمّي السجلّ ونتيجته، والإعادة بنفس المعرّف.
+// «إعدادات المنشأة» (خطّة المرحلة 1 WP2): المواقع والمخازن بكل وحدة، وأحجام التعبئة، وتصنيفات المواد وفئات المصاريف (النظامية
+// للقراءة). الصلاحية من الدور (Q1): المخازن والأحجام والتصنيفات stores.manage، وفئات المصاريف expense_categories.manage؛ والحكم
+// بالقاعدة. ماكو حذف: الأرشفة بتأكيد يسمّي السجلّ ونتيجته، والإعادة بنفس المعرّف.
+// كلمة المالك 2026-11-06 («ما النا علاقة بيوم التشغيل خليها من دون يوم التشغيل»): قسم «الوحدات ويوم تشغيلها» انشال، والقاعدة
+// لا تشترط يوم تشغيل بعد 0018 (الأرصدة عند البداية: اليوم أو قبله، وليس في فترة مقفلة).
 // كلمة المالك 2026-11-04: المخازن يتحكّم بها من داخل تبويب المخزن، مو من داخل الإعدادات. فالشاشة نفسها تخدم مسارين
 // بخاصيّة sections (حزمة وحدة، App.tsx): «إعداد المخزن» (/inventory/setup) بالمواقع والمخازن وأحجام التعبئة وتصنيفات
-// المواد، و«إعدادات المنشأة» (/settings/org) بيوم التشغيل وفئات المصاريف وحدهما.
+// المواد، و«إعدادات المنشأة» (/settings/org) بفئات المصاريف وحدها.
 
 type Renamable = 'sites' | 'warehouses' | 'pack_types' | 'item_categories' | 'expense_categories';
 
 type DialogState =
   | null
-  | { kind: 'go_live'; division: DivisionSetup }
   | { kind: 'site' }
   | { kind: 'warehouse' }
   | { kind: 'pack' }
@@ -48,9 +48,9 @@ type DialogState =
   | { kind: 'archive'; table: MasterTable; id: string; version: number; name: string; archived: boolean; consequence: string };
 
 /** أقسام الشاشة: كل مسار يعرض ما يخصّه، والترتيب ثابت هنا لا بترتيب المصفوفة. */
-export type SetupSection = 'go_live' | 'places' | 'packs' | 'categories' | 'expenses';
+export type SetupSection = 'places' | 'packs' | 'categories' | 'expenses';
 
-const ALL_SECTIONS: readonly SetupSection[] = ['go_live', 'places', 'packs', 'categories', 'expenses'];
+const ALL_SECTIONS: readonly SetupSection[] = ['places', 'packs', 'categories', 'expenses'];
 
 /** أقسام المخزن: من يملك stores.manage يكتب فيها، وغيره يقرا. */
 const STORE_SECTIONS: readonly SetupSection[] = ['places', 'packs', 'categories'];
@@ -78,7 +78,7 @@ export function placeRows(setup: Pick<OrgSetup, 'divisions' | 'sites' | 'warehou
 
 const status = (archived: boolean) => (archived ? t('org.status.archived', 'مؤرشف') : t('org.status.active', 'فعّال'));
 
-// قراءة اليوم المكتوب (يوم/شهر/سنة) بـsrc/lib/dayText.ts: نفس القراءة لحقل يوم التشغيل هنا ولحقول التاريخ بشاشات الحسابات (WP3).
+// قراءة اليوم المكتوب (يوم/شهر/سنة) بـsrc/lib/dayText.ts، كحقول التاريخ بشاشات الحسابات (WP3).
 export { parseDayText };
 
 /** حجم التعبئة بستّ مراتب (pack_types_factor_check، الخطّة §2.7)، موجب، أو null. */
@@ -87,26 +87,8 @@ export function packFactor(text: string): bigint | null {
   return value === null ? null : toScale(value, 6);
 }
 
-/**
- * حقل يوم التشغيل: نصّ بيوم/شهر/سنة بأرقام غربية، مو <input type="date"> (الجهاز يرسم قيمته ومنتقيه بلغته وأرقامه، شرقية
- * بجهاز عربي وشهر/يوم بجهاز أمريكي، برّا format.ts وdigits.ts؛ numbers-guard يرفضه).
- */
-export function GoLiveField({ id, value, error, onChange }: { id: string; value: string; error: string | null; onChange: (value: string) => void }) {
-  return (
-    <Field id={id} label={t('org.go_live', 'يوم التشغيل')} hint={t('org.go_live.hint.text', 'يوم/شهر/سنة، مثل 30/09/2026 أو 30092026. الأرصدة عند البداية بهذا اليوم أو قبله، والأوراق العادية بعده. يثبت بعد أوّل حفظ نهائي في الوحدة.')} error={error}>
-      <input id={id} inputMode="numeric" dir="ltr" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} className="input tabular-nums" value={value} onChange={(event) => onChange(event.target.value)} data-autofocus />
-    </Field>
-  );
-}
-
 /** وحدة أساس البُعد: عمود الحجم برأسه وحدته (الكيس بالكيلو، والعبوة باللتر، والكارتون بالقطعة). */
 const DIMENSION_UNIT: Readonly<Record<Dimension, BaseUnit>> = { mass: 'kg', volume: 'L', count: 'pc' };
-
-/** «يوم التشغيل»: التاريخ، أو «لم يُحدَّد»، ومعه «ثابت» بعد أوّل ترحيل. */
-export function goLiveText(division: DivisionSetup): string {
-  const day = division.goLiveOn ? fmtDay(division.goLiveOn) : t('org.go_live.none', 'لم يُحدَّد');
-  return division.frozen ? t('org.go_live.frozen', '{day} — ثابت: بدأ الحفظ النهائي في الوحدة', { day }) : day;
-}
 
 function RowActions({ onRename, onArchive, archived, label }: { onRename?: () => void; onArchive: () => void; archived: boolean; label: string }) {
   return (
@@ -135,7 +117,7 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
   );
 }
 
-/** نافذة واحدة لكل إنشاء وتعديل اسم ويوم تشغيل: الحقول حسب النوع، والحفظ يقفلها، والخطأ بمكانه. */
+/** نافذة واحدة لكل إنشاء وتعديل اسم: الحقول حسب النوع، والحفظ يقفلها، والخطأ بمكانه. */
 function EditDialog({
   state,
   setup,
@@ -163,15 +145,12 @@ function EditDialog({
   const kind = storeKind && kinds.includes(storeKind) ? storeKind : (kinds[0] ?? 'general');
   const [dimension, setDimension] = useState<Dimension>('mass');
   const [factor, setFactor] = useState('');
-  const initialDay = state.kind === 'go_live' && state.division.goLiveOn ? fmtDay(state.division.goLiveOn) : '';
-  const [day, setDay] = useState(initialDay);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const dirty = state.kind === 'go_live' ? day !== initialDay : state.kind === 'rename' ? name !== state.name : name !== '' || factor !== '';
+  const dirty = state.kind === 'rename' ? name !== state.name : name !== '' || factor !== '';
 
   const title = {
-    go_live: () => t('org.go_live.title', 'يوم تشغيل {division}', { division: state.kind === 'go_live' ? divisionLabel(state.division.kind) : '' }),
     site: () => t('org.site.new', 'موقع جديد'),
     warehouse: () => t('org.warehouse.new', 'مخزن جديد'),
     pack: () => t('org.pack.new', 'حجم تعبئة جديد'),
@@ -185,9 +164,8 @@ function EditDialog({
     setFailure(null);
     const text = name.trim();
     const factor6 = packFactor(factor);
-    const goLiveOn = state.kind === 'go_live' ? parseDayText(day) : null;
-    if (state.kind === 'go_live' ? goLiveOn === null : !text) {
-      setError(state.kind === 'go_live' ? t('org.go_live.required', 'اكتب يوم التشغيل يوم/شهر/سنة، مثل 30/09/2026 أو 30092026.') : t('org.name.required', 'اكتب الاسم.'));
+    if (!text) {
+      setError(t('org.name.required', 'اكتب الاسم.'));
       return;
     }
     if (state.kind === 'site' && !siteDivisions.some((division) => division.id === divisionId)) {
@@ -205,14 +183,13 @@ function EditDialog({
     setError(null);
     setBusy(true);
     try {
-      if (state.kind === 'go_live') await inventory.setDivisionGoLive(state.division.id, goLiveOn ?? '');
-      else if (state.kind === 'site') await inventory.createSite(divisionId, text, SITE_KIND_FOR[kindOf.get(divisionId) ?? 'general']);
+      if (state.kind === 'site') await inventory.createSite(divisionId, text, SITE_KIND_FOR[kindOf.get(divisionId) ?? 'general']);
       else if (state.kind === 'warehouse') await inventory.createWarehouse(activeSites.find((site) => site.id === siteId)?.divisionId ?? '', siteId, text, kind);
       else if (state.kind === 'pack') await inventory.createPackType(text, dimension, factor6 ?? 0n);
       else if (state.kind === 'category') await inventory.createItemCategory(text);
       else if (state.kind === 'expense') await inventory.createExpenseCategory(text);
       else await inventory.rename(state.table, state.id, state.version, text);
-      onSaved(state.kind === 'go_live' ? t('org.go_live.saved', 'حُفظ يوم التشغيل') : t('org.saved', 'حُفظ'));
+      onSaved(t('org.saved', 'حُفظ'));
     } catch (caught) {
       setFailure(caught);
     } finally {
@@ -241,7 +218,6 @@ function EditDialog({
       }
     >
       <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void save(event)} noValidate>
-        {state.kind === 'go_live' ? <GoLiveField id={`${id}-day`} value={day} error={error} onChange={setDay} /> : null}
         {state.kind === 'site' ? (
           <Field id={`${id}-division`} label={t('org.division', 'الوحدة')} hint={t('org.site.kind', 'نوع الموقع: {kind}', { kind: siteKindLabel(SITE_KIND_FOR[kindOf.get(divisionId) ?? 'general']) })}>
             <select id={`${id}-division`} className="input" value={divisionId} onChange={(event) => setDivisionId(event.target.value)}>
@@ -275,11 +251,9 @@ function EditDialog({
             </Field>
           </>
         ) : null}
-        {state.kind !== 'go_live' ? (
-          <Field id={`${id}-name`} label={state.kind === 'pack' ? t('org.pack.label', 'اسم الحجم') : t('org.name', 'الاسم')} hint={state.kind === 'pack' ? t('org.pack.label.hint', 'مثل «كيس 25 كغم» أو «كارتون 12 طبقة».') : undefined} error={error}>
-            <input id={`${id}-name`} className="input" maxLength={state.kind === 'pack' ? 40 : 80} value={name} onChange={(event) => setName(event.target.value)} data-autofocus />
-          </Field>
-        ) : null}
+        <Field id={`${id}-name`} label={state.kind === 'pack' ? t('org.pack.label', 'اسم الحجم') : t('org.name', 'الاسم')} hint={state.kind === 'pack' ? t('org.pack.label.hint', 'مثل «كيس 25 كغم» أو «كارتون 12 طبقة».') : undefined} error={error}>
+          <input id={`${id}-name`} className="input" maxLength={state.kind === 'pack' ? 40 : 80} value={name} onChange={(event) => setName(event.target.value)} data-autofocus />
+        </Field>
         {state.kind === 'pack' ? (
           <>
             <Field id={`${id}-dimension`} label={t('org.pack.dimension', 'يُقاس')}>
@@ -310,33 +284,16 @@ export function SetupTables({
   onOpen,
 }: {
   setup: OrgSetup;
-  permissions: { stores: boolean; expenses: boolean; goLive: boolean };
+  permissions: { stores: boolean; expenses: boolean };
   /** الشي بنطاق الداخل (inScope، مرآة in_scope_division وin_scope_site وin_scope_wh): أزرار الكتابة عليه بس. */
   allowed?: (target: ScopeTarget) => boolean;
-  /** الأقسام المعروضة؛ بلاها الخمسة كلها بترتيبها. */
+  /** الأقسام المعروضة؛ بلاها الأربعة كلها بترتيبها. */
   sections?: readonly SetupSection[];
   onOpen: (state: DialogState) => void;
 }) {
   const show = (section: SetupSection) => sections.includes(section);
   const archive = (table: MasterTable, row: { id: string; version: number; archived: boolean }, name: string, consequence: string) =>
     onOpen({ kind: 'archive', table, id: row.id, version: row.version, name, archived: row.archived, consequence });
-  const divisions = [...setup.divisions].sort((a, b) => order(a.kind) - order(b.kind));
-  const goLive: Column<DivisionSetup>[] = [
-    { key: 'division', header: t('org.division', 'الوحدة'), cell: (division) => divisionLabel(division.kind) },
-    { key: 'go_live', header: t('org.go_live', 'يوم التشغيل'), wrap: true, cell: (division) => goLiveText(division) },
-  ];
-  if (permissions.goLive) {
-    goLive.unshift({
-      key: 'actions',
-      header: t('org.col.actions', 'إجراءات'),
-      cell: (division) =>
-        division.frozen || !allowed({ divisionId: division.id }) ? null : (
-          <Button size="sm" variant="secondary" onClick={() => onOpen({ kind: 'go_live', division })} aria-label={t('org.go_live.for', 'حدّد يوم تشغيل {division}', { division: divisionLabel(division.kind) })} data-action="set-go-live">
-            {t('org.go_live.set', 'حدّد')}
-          </Button>
-        ),
-    });
-  }
   const places: Column<PlaceRow>[] = [
     { key: 'division', header: t('org.division', 'الوحدة'), cell: (row) => (row.store ? '' : divisionLabel(row.division)) },
     { key: 'site', header: t('org.site', 'الموقع'), cell: (row) => (row.store ? '' : row.site.name) },
@@ -438,11 +395,6 @@ export function SetupTables({
     ) : undefined;
   return (
     <div className="flex flex-col gap-6">
-      {show('go_live') ? (
-        <Section title={t('org.divisions', 'الوحدات ويوم تشغيلها')}>
-          <DataTable caption={t('org.divisions', 'الوحدات ويوم تشغيلها')} columns={goLive} rows={divisions} rowKey={(division) => division.id} empty={t('org.empty', 'لا شيء بعد.')} />
-        </Section>
-      ) : null}
       {show('places') ? (
         <Section
           title={t('org.places', 'المواقع والمخازن')}
@@ -483,7 +435,7 @@ export function SetupTables({
 
 /**
  * خصائص الشاشة: الأقسام المعروضة، والعنوان والوصف واسم الشي بالفشل. بلا عنوان أو وصف أو اسم تنحسب من الأقسام
- * («إعداد المخزن» إن ماكو يوم تشغيل ولا فئات مصاريف، وإلا «إعدادات المنشأة»)، فالنصوص تبقى بالحزمة الكسولة لا بـApp.tsx.
+ * («إعداد المخزن» إن ماكو فئات مصاريف، وإلا «إعدادات المنشأة»)، فالنصوص تبقى بالحزمة الكسولة لا بـApp.tsx.
  */
 export interface SetupPageProps {
   sections?: readonly SetupSection[];
@@ -499,7 +451,7 @@ export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtit
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busy, setBusy] = useState(false);
   const role = workspace?.role ?? 'viewer';
-  const permissions = { stores: can(role, 'stores.manage'), expenses: can(role, 'expense_categories.manage'), goLive: can(role, 'opening.post') };
+  const permissions = { stores: can(role, 'stores.manage'), expenses: can(role, 'expense_categories.manage') };
   const scopeRows = workspace?.scopes ?? [];
   const allowed = (target: ScopeTarget) => inScope(role, scopeRows, target);
 
@@ -516,11 +468,10 @@ export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtit
   };
 
   // الأقسام المعروضة وحدها تحكم: «للقراءة فقط» تُقال لمن لا يكتب في أيّ قسم معروض (المخزن stores.manage، وفئات
-  // المصاريف expense_categories.manage، ويوم التشغيل opening.post). فالشرط على الثلاثة مجتمعة صار يخطئ بعد التقسيم:
-  // محاسب يفتح «إعداد المخزن» لا يملك stores.manage ولا بدّ أن تظهر له، وكان يخفيها عنه امتلاكه فئات المصاريف.
-  const storeSetup = !sections.includes('go_live') && !sections.includes('expenses');
+  // المصاريف expense_categories.manage). فالشرط على الاثنين مجتمعين كان يخطئ بعد التقسيم: محاسب يفتح «إعداد المخزن» لا يملك
+  // stores.manage ولا بدّ أن تظهر له، وكان يخفيها عنه امتلاكه فئات المصاريف.
+  const storeSetup = !sections.includes('expenses');
   const writable =
-    (sections.includes('go_live') && permissions.goLive) ||
     (sections.includes('expenses') && permissions.expenses) ||
     (STORE_SECTIONS.some((section) => sections.includes(section)) && permissions.stores);
   const pageWhat = what ?? (storeSetup ? t('stores.setup.what', 'إعداد المخزن') : t('org.what', 'إعدادات المنشأة'));
@@ -532,7 +483,7 @@ export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtit
         subtitle ??
         (storeSetup
           ? t('stores.setup.subtitle', 'مواقع المنشأة ومخازنها، وأحجام التعبئة، وتصنيفات المواد. كلّها من هنا، لا من الإعدادات.')
-          : t('org.subtitle', 'يوم تشغيل الوحدات وفئات المصاريف. والمواقع والمخازن وأحجام التعبئة والتصنيفات مع المخازن، لمن يديرها.'))
+          : t('org.subtitle', 'فئات المصاريف. والمواقع والمخازن وأحجام التعبئة والتصنيفات مع المخازن، لمن يديرها.'))
       }
     />
   );
