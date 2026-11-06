@@ -25,6 +25,7 @@ end
 $$;
 
 -- ١) الدوالّ الجديدة:
+drop function if exists public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid, date, timestamptz);
 drop function if exists public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid);
 drop function if exists public.item_file(uuid);
 drop function if exists public.items_overview();

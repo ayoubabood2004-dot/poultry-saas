@@ -8,6 +8,7 @@
 // واحد لا يتقافلان، والشراء وset_item_sell_price يتراتبان. وكلّ رفض وحارس أضافته 0017 بطفرة تكسره فيفشل فحصه (قسم الطفرات آخر الملف).
 import { writeFileSync } from 'node:fs';
 import { call, canon, makeOrg, uid } from './ledger-kit.mjs';
+import { mutant } from './purchase-kit.mjs';
 import { receiptDraft } from './receipt-kit.mjs';
 
 const TODAY = '2026-11-06';
@@ -17,7 +18,7 @@ const phone = (n) => `96477099700${String(n).padStart(2, '0')}`;
 
 const RP = 'select public.record_purchase($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) as v';
 const FN = {
-  record: 'public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid)',
+  record: 'public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid, date, timestamptz)',
   file: 'public.item_file(uuid)',
   overview: 'public.items_overview()',
   lines: 'private.receipt_lines_guard()',
@@ -303,8 +304,8 @@ async function scenario(t, db) {
   const keeperFile = await file(U.storekeeper, I.corn);
   t.same(keys(keeperFile), ['can_edit', 'can_record', 'cash_accounts', 'item', 'money', 'more', 'on_hand_qty', 'purchased_qty', 'purchases', 'purchases_count', 'today'], 'item_file: مفاتيح الجذر');
   t.same([keys(keeperFile.item), keys(keeperFile.money), keys(keeperFile.purchases[0]), keys(keeperFile.purchases[0]?.money)],
-    [['archived', 'base_unit', 'density_kg_per_l', 'id', 'kind', 'name'], ['avg_unit_price', 'last_unit_price', 'purchased_value', 'sell_price'],
-      ['doc_id', 'doc_no', 'line_id', 'money', 'party_id', 'party_name', 'payment', 'qty', 'received_on', 'warehouse_name'], ['line_total', 'sell_price', 'unit_price']],
+    [['archived', 'base_unit', 'density_kg_per_l', 'id', 'kind', 'name', 'tracks_expiry'], ['avg_unit_price', 'last_unit_price', 'purchased_value', 'sell_price'],
+      ['doc_id', 'doc_no', 'line_id', 'money', 'party_id', 'party_name', 'payment', 'qty', 'received_on', 'warehouse_name'], ['corrected', 'line_total', 'sell_price', 'unit_price']],
     'item_file: مفاتيح المادّة والمال والسطر');
   t.same(
     [keeperFile.today, keeperFile.can_record, keeperFile.can_edit, norm(keeperFile.on_hand_qty), norm(keeperFile.purchased_qty), keeperFile.purchases_count, keeperFile.more,
@@ -441,8 +442,8 @@ async function scenario(t, db) {
     { name: 'item_not_found', fns: [[FN.record, [off('  if i.id is null then\n')]]], run: recordAs(U.manager, { item: uid(), qty: 1, price: 1 }), expect: code('item_not_found') },
     { name: 'item_archived', fns: [[FN.record, [off('  if i.archived_at is not null then\n')]]], run: recordAs(U.manager, { item: I.old, qty: 1, price: 1, wh: W.raw }), expect: code('item_archived', 'شراء جديد') },
     { name: 'not_purchasable', fns: [[FN.record, [off('  if cardinality(v_kinds) = 0 then\n')]]], run: recordAs(U.manager, { item: I.eggs, qty: 1, price: 1 }), expect: code('not_purchasable') },
-    { name: 'born_at_required', fns: [[FN.record, [off("  if i.kind = 'chick' then\n")]]], run: recordAs(U.manager, { item: I.chicks, qty: 10, price: 1 }), expect: code('born_at_required', 'الشراء السريع') },
-    { name: 'expiry_required', fns: [[FN.record, [off('  if i.tracks_expiry then\n')]]], run: recordAs(U.owner, { item: I.vaccine, qty: 10, price: 1, wh: null }), expect: code('expiry_required', 'الشراء السريع') },
+    { name: 'born_at_required', fns: [[FN.record, [off("  if i.kind = 'chick' and p_born_at is null then\n")]]], run: recordAs(U.manager, { item: I.chicks, qty: 10, price: 1 }), expect: code('born_at_required', '«وقت الفقس»') },
+    { name: 'expiry_required', fns: [[FN.record, [off('  if i.tracks_expiry and p_expiry_on is null then\n')]]], run: recordAs(U.owner, { item: I.vaccine, qty: 10, price: 1, wh: null }), expect: code('expiry_required', '«تاريخ الانتهاء»') },
     { name: 'warehouse_not_found', fns: [[FN.record, [off('    if w.id is null then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, wh: uid() }), expect: code('warehouse_not_found') },
     { name: 'warehouse_archived', fns: [[FN.record, [off('    if w.archived_at is not null then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, wh: archivedRaw }), expect: code('warehouse_archived', 'شراء جديد') },
     { name: 'out_of_scope (المخزن المختار)', fns: [[FN.record, [off('    if not public.in_scope_wh(w.id) then\n')]]], run: recordAs(U.storekeeper, { item: I.fuel, qty: 1, price: 1, wh: W.general }), expect: code('out_of_scope', 'فلا تسجّل فيه شراءً') },
@@ -462,7 +463,7 @@ async function scenario(t, db) {
     { name: 'party_archived', fns: [[FN.record, [off('  if p.archived_at is not null then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, party: P.old, wh: W.raw }), expect: code('party_archived', 'شراء جديد') },
     {
       name: 'سعر البيع الحاليّ',
-      fns: [[FN.record, [['  if p_sell_price is not null then\n    insert into public.item_prices', '  if false then\n    insert into public.item_prices']]]],
+      fns: [[FN.record, [['  ) then\n    insert into public.item_prices', '  ) and false then\n    insert into public.item_prices']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => {
         await q(RP, args({ item: I.corn, qty: 1, price: 1, sell: 777, wh: W.raw }));
         return (await q('select sell_price::text as v from public.item_prices where item_id = $1', [I.corn])).rows[0].v;
@@ -610,38 +611,4 @@ async function scenario(t, db) {
   if (process.env.PURCHASE_SAMPLES_OUT) {
     writeFileSync(process.env.PURCHASE_SAMPLES_OUT, `${JSON.stringify({ record_purchase: first.value, item_file: keeperFile, items_overview: keeperBoard, item_file_mill_operator: millFile }, null, 2)}\n`);
   }
-}
-
-/**
- * معاملة صاحب الجداول (ترجع دائماً): كلّ دالّة بطفراتها (مرساة مرّة واحدة بالضبط في تعريفها)، ثمّ attempt(مستخدم، fn، دور) يجري fn بهويّته
- * بدور authenticated (أو postgres فوق RLS) داخل نقطة حفظ، ويرجّع { ok, value } أو { ok: false, code, hint }.
- */
-async function mutant(db, asUserId, fns, run) {
-  return db.asOwner(async (oq) => {
-    for (const [signature, pairs] of fns) {
-      const def = (await oq('select pg_get_functiondef($1::regprocedure) as d', [signature])).rows[0].d;
-      let broken = def;
-      for (const [from, to] of pairs) {
-        if (broken.split(from).length !== 2) throw new Error(`طفرة ${signature}: المرساة ليست مرّة واحدة: ${from}`);
-        broken = broken.split(from).join(to);
-      }
-      await oq(broken);
-    }
-    const attempt = async (user, fn, role = 'authenticated') => {
-      await oq('savepoint probe');
-      try {
-        await oq("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, role: 'authenticated' })]);
-        await oq("select set_config('poultry.purchase_doc', '', true)");
-        if (role !== 'postgres') await oq(`set local role ${role}`);
-        const value = await fn(oq);
-        await oq('set local role postgres');
-        await oq('release savepoint probe');
-        return { ok: true, value };
-      } catch (error) {
-        await oq('rollback to savepoint probe');
-        return { ok: false, code: error.message, hint: error.hint ?? '' };
-      }
-    };
-    return run({ oq, attempt });
-  }, asUserId);
 }

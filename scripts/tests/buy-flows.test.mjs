@@ -408,8 +408,8 @@ export default async function (t) {
       // من صفّ المخزن إلى ملفّ المادّة ونافذة شرائها بنقرة واحدة (لا ورقة استلام).
       const file = {
         today: '2026-11-04', canRecord: true, canEdit: true,
-        item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, archived: false },
-        onHand: 0n, purchased: 0n, purchasesCount: 0, money: { purchasedValue: 0n, avgUnitPrice: null, sellPrice: null, lastUnitPrice: null }, purchases: [], more: false,
+        item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, archived: false, tracksExpiry: false },
+        onHand: 0n, purchased: 0n, purchasesCount: 0, money: { purchasedValue: 0n, avgUnitPrice: null, sellPrice: null, lastUnitPrice: null }, purchases: [], more: false, cashAccounts: [],
       };
       const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemFile: () => file }));
       await mount('/inventory/store/w-raw');

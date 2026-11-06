@@ -8,6 +8,9 @@
 //    الوحيد؛ P6 رسائل الحقول، والتقريب لأقرب دينار (333.333 × 1.50 = 500)، والمجموع صفر، والقطع عدد صحيح، والتاريخ الأقدم من 7 أيام؛
 //    P7 store_required: قائمة المخازن والإعادة بالمعرّفات نفسها؛ P8 نتيجة مجهولة: «لم يُعرف إن حُفظ» والإعادة بالمعرّفات والمحتوى نفسه؛
 //    P9 بلا اتصال «يحتاج اتصالاً» ولا إرسال؛ P10 «عندك» في منتقي البانية وفي بطاقة الخلطة ونافذة سطرها؛ P11 ‎?buy=1 يفتح النافذة.
+// ومراجعة الجولة الأولى: م١ إعادة النتيجة المجهولة تبقى مجهولة ما لم يرفضها الخادم رفضاً أكيداً (55P03 وانقطاع)، والإغلاق يقرأ الملفّ؛
+//    ل٧ قائمة المخازن بعد store_required بـ«جارٍ التحميل» وفشلها بـ«أعد المحاولة»؛ م٣ «تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس»
+//    للأفراخ، وp_expiry_on وp_born_at مفتاحان دائماً؛ م٢ «مصحَّح» على السطر المصحَّح.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +48,7 @@ async function bundle() {
     "export { default as MillRoutes } from './src/pages/mill/MillRoutes.tsx';",
     "export { parseRecipe } from './src/lib/repo/mill.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
-    "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
+    "export { NetworkError, RejectedError, RetryableError, UnknownOutcomeError } from './src/lib/errors.ts';",
     "export { purchaseTotal } from './src/pages/inventory/PurchaseDialog.tsx';",
   ].join('\n');
   const result = await build({
@@ -108,13 +111,13 @@ const withoutMoney = (row) => Object.fromEntries(Object.entries(row).filter(([ke
 const masked = (json) => ({ ...json, items: json.items.map(withoutMoney) });
 const purchaseRow = (over = {}) => ({
   line_id: 'rl-1', doc_id: 'r-1', doc_no: 'PU-2026-0001', received_on: '2026-11-05', party_id: 'p-1', party_name: 'مورّد الحبوب', warehouse_name: 'مخزن المواد الأوّلية',
-  qty: '25000.000', payment: 'credit', money: { unit_price: '450.00', line_total: '11250000.00', sell_price: '600.00' }, ...over,
+  qty: '25000.000', payment: 'credit', money: { unit_price: '450.00', line_total: '11250000.00', sell_price: '600.00', corrected: false }, ...over,
 });
 const fileJson = (over = {}) => ({
   today: TODAY,
   can_record: true,
   can_edit: false,
-  item: { id: 'i-corn', name: 'ذرة', kind: 'raw', base_unit: 'kg', density_kg_per_l: null, archived: false },
+  item: { id: 'i-corn', name: 'ذرة', kind: 'raw', base_unit: 'kg', density_kg_per_l: null, archived: false, tracks_expiry: false },
   on_hand_qty: '20000.000',
   purchased_qty: '25000.000',
   purchases_count: 1,
@@ -130,7 +133,7 @@ const fileAfter = (payment) =>
     purchased_qty: '26000.000',
     purchases_count: 2,
     money: { purchased_value: '11700000.00', avg_unit_price: '450.00', sell_price: '600.00', last_unit_price: '450.00' },
-    purchases: [purchaseRow({ line_id: 'rl-2', doc_id: 'r-2', doc_no: 'PU-2026-0002', received_on: TODAY, qty: '1000.000', payment, money: { unit_price: '450.00', line_total: '450000.00', sell_price: '600.00' } }), purchaseRow()],
+    purchases: [purchaseRow({ line_id: 'rl-2', doc_id: 'r-2', doc_no: 'PU-2026-0002', received_on: TODAY, qty: '1000.000', payment, money: { unit_price: '450.00', line_total: '450000.00', sell_price: '600.00', corrected: false } }), purchaseRow()],
   });
 const recorded = (args) => ({
   id: args.p_receipt_id, doc_no: 'PU-2026-0002', line_id: args.p_line_id, lot_id: 'lot-9', item_id: args.p_item, warehouse_id: args.p_warehouse ?? 'w-raw', warehouse_name: 'مخزن المواد الأوّلية',
@@ -285,7 +288,7 @@ export default async function (t) {
       const { calls } = fresh(
         { status: 'ready', workspace: MANAGER },
         { findItemTwins: () => [], createItem: (fields) => ({ ...itemRow('i-new', fields.name, fields.kind, fields.base_unit), density: 9200n }) },
-        { items_overview: async () => overviewJson(), item_file: async () => fileJson({ item: { id: 'i-new', name: 'زيت صويا', kind: 'raw', base_unit: 'L', density_kg_per_l: '0.9200', archived: false }, purchases: [], purchases_count: 0 }) },
+        { items_overview: async () => overviewJson(), item_file: async () => fileJson({ item: { id: 'i-new', name: 'زيت صويا', kind: 'raw', base_unit: 'L', density_kg_per_l: '0.9200', archived: false, tracks_expiry: false }, purchases: [], purchases_count: 0 }) },
       );
       await mount('/inventory');
       await click(byAction('add-item')[0]);
@@ -377,7 +380,7 @@ export default async function (t) {
       const args = sent[0] ?? {};
       t.same(
         { ...args, p_client_ref: typeof args.p_client_ref, p_receipt_id: typeof args.p_receipt_id, p_line_id: typeof args.p_line_id },
-        { p_client_ref: 'string', p_receipt_id: 'string', p_line_id: 'string', p_item: 'i-corn', p_party: 'p-1', p_received_on: TODAY, p_qty: '1000.000', p_unit_price: '450.00', p_sell_price: '600.00', p_payment: 'credit', p_cash_account: null, p_warehouse: null },
+        { p_client_ref: 'string', p_receipt_id: 'string', p_line_id: 'string', p_item: 'i-corn', p_party: 'p-1', p_received_on: TODAY, p_qty: '1000.000', p_unit_price: '450.00', p_sell_price: '600.00', p_payment: 'credit', p_cash_account: null, p_warehouse: null, p_expiry_on: null, p_born_at: null },
         'P4: المعاملات بالعقد: الكمية والسعر نصّان عشريان، والمخزن يختاره الخادم',
       );
       t.ok(new Set([args.p_client_ref, args.p_receipt_id, args.p_line_id]).size === 3, 'P4: ثلاثة معرّفات مختلفة من الجهاز');
@@ -453,7 +456,7 @@ export default async function (t) {
       t.ok(text().includes('التاريخ بعد اليوم.') && named(rpcCalls, 'record_purchase').length === 0, 'P6: وتاريخ بعد اليوم كذلك');
     });
     await step('P6-pieces', async () => {
-      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson({ item: { id: 'i-box', name: 'معلف', kind: 'other', base_unit: 'pc', density_kg_per_l: null, archived: false }, on_hand_qty: '3.000', purchased_qty: '3.000', purchases: [] }) });
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson({ item: { id: 'i-box', name: 'معلف', kind: 'other', base_unit: 'pc', density_kg_per_l: null, archived: false, tracks_expiry: false }, on_hand_qty: '3.000', purchased_qty: '3.000', purchases: [] }) });
       await mount('/inventory/items/i-box');
       await openDialog();
       await fillPurchase({ qty: '2.5', price: '1000' });
@@ -585,6 +588,142 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: MILLER }, suppliers, { item_file: async () => fileJson({ can_record: false }) });
       await mount('/inventory/items/i-corn?buy=1');
       t.eq(byAction('save-purchase').length, 0, 'P11: ولمن لا يسجّل الشراء لا تُفتح');
+    });
+
+    // ── مراجعة الجولة الأولى ───────────────────────────────────────────────────────────────────────────────────────
+    // م١: إعادة نتيجة مجهولة تفشل بغير رفض أكيد (55P03: انتظرت خلف الأصل الذي ما زال يعمل، أو انقطاع) تُبقيها مجهولة.
+    await step('R1-M1', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, {
+        item_file: async (_args, n) => (n === 1 ? fileJson() : fileAfter('credit')),
+        record_purchase: async (_args, n) => {
+          if (n === 1) throw new m.UnknownOutcomeError('fetch_failed');
+          if (n === 2) throw new m.RetryableError('55P03');
+          throw new m.NetworkError();
+        },
+      });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      await fillPurchase();
+      await submit();
+      await submit();
+      await settle();
+      t.eq(named(rpcCalls, 'record_purchase').length, 2, 'م١: الإعادة أُرسلت');
+      t.ok(text().includes('لم يُعرف إن حُفظ؛ أعد المحاولة') && !text().includes('لم يُحفظ'), `م١: إعادة فشلت بـ55P03 تُبقي «لم يُعرف إن حُفظ» ولا تقول «لم يُحفظ شيء» (${text().slice(-500)})`);
+      t.same([saveButton()?.textContent, byAction('purchase-cancel')[0]?.textContent, byAction('purchase-qty').length], ['أعد المحاولة', 'أغلق', 0], 'م١: والزرّ «أعد المحاولة» والحقول مقفلة والثاني «أغلق»');
+      t.eq(byAction('purchase-retry-unknown').length, 1, 'م١: ويقول إنّ الإعادة لم تكتمل أيضاً');
+      await submit();
+      await settle();
+      const [first, second, third] = named(rpcCalls, 'record_purchase');
+      t.ok(text().includes('لم يُعرف إن حُفظ') && !text().includes('لم يُحفظ'), 'م١: وانقطاع الإعادة الثانية كذلك');
+      t.same([second, third], [first, first], 'م١: كلّ إعادة بالمعرّفات والمحتوى نفسه');
+      await click(byAction('purchase-cancel')[0]);
+      await settle();
+      t.same([byAction('save-purchase').length, named(rpcCalls, 'item_file').length], [0, 2], 'م١: والإغلاق يقرأ الملفّ من جديد');
+    });
+    await step('R1-M1-control', async () => {
+      // ضابط: رفض أكيد للإعادة (id_conflict) يُنهي «المجهول» ويعرض تلميح الخادم.
+      const hint = 'هذا الشراء سُجّل بمحتوى آخر؛ أغلق النافذة وراجع الملفّ.';
+      fresh({ status: 'ready', workspace: KEEPER }, suppliers, {
+        item_file: async () => fileJson(),
+        record_purchase: async (_args, n) => {
+          if (n === 1) throw new m.UnknownOutcomeError();
+          throw new m.RejectedError('id_conflict', hint);
+        },
+      });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      await fillPurchase();
+      await submit();
+      await submit();
+      await settle();
+      t.ok(!text().includes('لم يُعرف إن حُفظ') && text().includes(hint), 'م١ ضابط: الرفض الأكيد يُنهي «المجهول» ويقول سببه');
+    });
+
+    // ل٧: قائمة المخازن بعد store_required: «جارٍ التحميل» أثناءها، وفشلها بزرّ «أعد المحاولة».
+    await step('R1-L7', async () => {
+      let rejectFirst = null;
+      const { calls, rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {
+        ...suppliers,
+        loadOrgSetup: () => {
+          const n = calls.filter(([name]) => name === 'loadOrgSetup').length;
+          if (n === 1) return new Promise((_resolve, reject) => { rejectFirst = reject; });
+          return org([['w-raw', 'مخزن المواد الأوّلية'], ['w-grain', 'مخزن الحبوب']]);
+        },
+      }, {
+        item_file: async () => fileJson(),
+        record_purchase: async (args, n) => {
+          if (n === 1) throw new m.RejectedError('store_required', 'اختر المخزن.');
+          return recorded(args);
+        },
+      });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      await fillPurchase();
+      await submit();
+      await settle();
+      t.ok(byAction('purchase-stores-loading')[0]?.textContent === 'جارٍ تحميل المخازن…' && byAction('pick-store').length === 0, 'ل٧: «جارٍ تحميل المخازن…» أثناء القراءة');
+      rejectFirst?.(new m.RetryableError('55P03'));
+      await settle();
+      t.ok(text().includes('تعذّر تحميل قائمة المخازن') && byAction('retry').length === 1 && byAction('pick-store').length === 0, `ل٧: فشلها يُعرض بـ«أعد المحاولة» لا قائمة فارغة (${text().slice(-300)})`);
+      await click(byAction('retry')[0]);
+      await settle();
+      const options = (byAction('pick-store')[0]?.options ?? []).map((o) => o.getAttribute('value')).filter(Boolean);
+      t.same([named(calls, 'loadOrgSetup').length, options], [2, ['w-grain', 'w-raw']], 'ل٧: «أعد المحاولة» يقرأ من جديد فتظهر المخازن');
+      choose(byAction('pick-store')[0], 'w-raw');
+      await settle();
+      await submit();
+      await settle();
+      t.same(named(rpcCalls, 'record_purchase').map((args) => args.p_warehouse), [null, 'w-raw'], 'ل٧: ثمّ الإعادة بالمخزن المختار');
+    });
+
+    // م٣: «تاريخ الانتهاء» لمادّة تتبّعه، و«وقت الفقس» للأفراخ، والمفتاحان يُرسلان دائماً.
+    await step('R1-M3-expiry', async () => {
+      const medicine = { id: 'i-med', name: 'مضادّ حيوي', kind: 'medicine', base_unit: 'pc', density_kg_per_l: null, archived: false, tracks_expiry: true };
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson({ item: medicine, purchases: [] }), record_purchase: async (args) => recorded(args) });
+      await mount('/inventory/items/i-med');
+      await openDialog();
+      t.same([byAction('purchase-expiry').length, byAction('purchase-born').length], [1, 0], 'م٣: مادّة تتبّع الانتهاء: «تاريخ الانتهاء» وحده');
+      await fillPurchase({ qty: '10', price: '2500' });
+      await submit();
+      t.ok(text().includes('اكتب تاريخ انتهاء «مضادّ حيوي».') && named(rpcCalls, 'record_purchase').length === 0, 'م٣: بلا تاريخ الانتهاء رسالة ولا إرسال');
+      type(byIdSuffix('-expiry')[0], '01/12/2026');
+      await settle();
+      await submit();
+      const args = named(rpcCalls, 'record_purchase')[0] ?? {};
+      t.same([args.p_expiry_on, args.p_born_at, 'p_born_at' in args], ['2026-12-01', null, true], 'م٣: p_expiry_on باليوم المقروء، وp_born_at مفتاح بـnull');
+    });
+    await step('R1-M3-chick', async () => {
+      const chick = { id: 'i-chick', name: 'أفراخ لاحم', kind: 'chick', base_unit: 'pc', density_kg_per_l: null, archived: false, tracks_expiry: false };
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson({ item: chick, purchases: [] }), record_purchase: async (args) => recorded(args) });
+      await mount('/inventory/items/i-chick');
+      await openDialog();
+      t.same([byAction('purchase-expiry').length, byAction('purchase-born')[0]?.value], [0, '06/11/2026 00:00'], 'م٣: الأفراخ: «وقت الفقس» يبدأ بيوم الشراء، ولا «تاريخ انتهاء»');
+      await fillPurchase({ qty: '5000', price: '650' });
+      type(byAction('purchase-born')[0], 'أمس');
+      await settle();
+      await submit();
+      t.ok(text().includes('اكتب وقت الفقس يوم/شهر/سنة ثم الساعة والدقيقة') && named(rpcCalls, 'record_purchase').length === 0, 'م٣: وقت فقس لا يُقرأ: رسالة ولا إرسال');
+      type(byAction('purchase-born')[0], '05/11/2026 06:30');
+      await settle();
+      t.ok(text().includes('يُقرأ: 05/11/2026 الساعة 6:30'), 'م٣: والقراءة تحت الحقل');
+      await submit();
+      const args = named(rpcCalls, 'record_purchase')[0] ?? {};
+      t.same([args.p_born_at, args.p_expiry_on, 'p_expiry_on' in args], [new Date(2026, 10, 5, 6, 30).toISOString(), null, true], 'م٣: p_born_at لحظة الفقس، وp_expiry_on مفتاح بـnull');
+    });
+    await step('R1-M3-plain', async () => {
+      fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      t.same([byAction('purchase-expiry').length, byAction('purchase-born').length], [0, 0], 'م٣: مادّة عادية بلا الحقلين');
+    });
+    await step('R1-M2-corrected', async () => {
+      // م٢ (شاشة): سطر عليه تصحيح سعر مرحَّل يقول «مصحَّح» بجانب مجموعه.
+      const rows = [purchaseRow({ line_id: 'rl-c', money: { unit_price: '440.00', line_total: '11000000.00', sell_price: '600.00', corrected: true } }), purchaseRow({ line_id: 'rl-p' })];
+      fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => fileJson({ purchases: rows, purchases_count: 2 }) });
+      await mount('/inventory/items/i-corn');
+      const cells = all().filter((n) => n.localName === 'td').map((n) => n.textContent);
+      t.same([cells[4], cells[11]], ['11,000,000مصحَّح', '11,250,000'], 'م٢: «مصحَّح» على السطر المصحَّح وحده، بجانب مجموعه');
+      t.eq(byAction('purchase-corrected').length, 1, 'م٢: علامة واحدة');
     });
   } finally {
     if (root) {

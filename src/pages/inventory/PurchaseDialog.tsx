@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { DayField, postingDay } from '../../components/ui/DayField';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
+import { LoadFailed } from '../../components/ui/LoadFailed';
 import { MoneyInput, parseMoneyText } from '../../components/ui/MoneyInput';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
@@ -13,6 +14,7 @@ import { toWesternDigits } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { RECEIVING_KINDS } from '../../domain/stock';
 import { parseQty } from '../../domain/units';
+import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { fmtDay, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -28,7 +30,7 @@ import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { BoxPicker, SupplierPicker } from './purchase-shared';
 import { baseQty } from './simple-shared';
-import { scopedStores, StoreSelect, storesOf } from './stock-shared';
+import { readTime, scopedStores, StoreSelect, storesOf } from './stock-shared';
 
 // «سجّل شراء» (كلمة المالك 2026-11-06، «المخزن ببساطة»: «اشتريت بهذا اليوم من هذا المورد هاي الكمية وبهذا السعر وراح ابيعه بهذا
 // السعر»): نافذة واحدة تُحفظ فوراً بدالّة record_purchase — التاريخ والمورّد والكمية وسعر الشراء لوحدة الأساس، والمجموع حيّاً بالدينار
@@ -36,6 +38,9 @@ import { scopedStores, StoreSelect, storesOf } from './stock-shared';
 // جواب المالك ١) أو نقداً من صندوق. زرّ الحفظ يسمّي أثره كاملاً. والمخزن يختاره الخادم من نوع المادّة؛ فإن كان لها أكثر من مخزن
 // (store_required) تظهر قائمة المخازن ويُعاد بالمعرّفات نفسها. والمعرّفات والمرجع تولد مرّة لكلّ نافذة، فالنتيجة المجهولة (انقطع
 // الاتصال بعد الإرسال) تُعاد بالشراء نفسه كما أُرسل لا بما في الحقول، ولا يُسجَّل مرّتين.
+// مراجعة الجولة الأولى: إعادة نتيجة مجهولة تفشل بغير رفض (تزاحم 55P03 خلف الأصل الذي ما زال يعمل، أو انقطاع) تُبقي النتيجة مجهولة
+// (م١)؛ و«تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس» للأفراخ بقواعد سطر الاستلام نفسها (م٣)؛ وقائمة المخازن بعد store_required
+// تقول «جارٍ التحميل» وتعرض فشلها بزرّ «أعد المحاولة» (ل٧).
 
 export interface PurchaseForm {
   day: string;
@@ -45,9 +50,13 @@ export interface PurchaseForm {
   sell: string;
   payment: Payment;
   box: string;
+  /** تاريخ الانتهاء يوم/شهر/سنة، لمادّة تتبّع الانتهاء وحدها. */
+  expiry: string;
+  /** وقت الفقس «يوم/شهر/سنة ساعة:دقيقة»، للأفراخ وحدها. */
+  born: string;
 }
 
-export type PurchaseField = 'day' | 'party' | 'qty' | 'price' | 'total' | 'sell' | 'box';
+export type PurchaseField = 'day' | 'party' | 'qty' | 'price' | 'total' | 'sell' | 'box' | 'expiry' | 'born';
 
 /** مجموع الشراء بالدينار الصحيح كما يحسبه الخادم، وهل قُرِّب (الكمية × السعر ليس ديناراً صحيحاً). */
 export function purchaseTotal(qty: Milli, price: Fils): { total: Fils; rounded: boolean } {
@@ -75,12 +84,29 @@ export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 
   const sell = form.sell.trim() ? parseMoneyText(form.sell, false) : null;
   if (form.sell.trim() && (sell === null || sell <= 0n)) errors.sell = t('purchase.sell.invalid', 'اكتب سعر البيع بالدينار رقماً أكبر من صفر، أو اتركه فارغاً.');
   if (form.payment === 'cash' && !box) errors.box = t('purchase.box.required', 'اختر الصندوق الذي دُفع منه.');
+  // قواعد سطر الاستلام (م٣): الانتهاء إلزامي لمادّة تتبّعه، ووقت الفقس للأفراخ؛ وما بعدهما (المنتهي يوم الشراء، والفقس في المستقبل)
+  // يحكمه الخادم بتلميح يسمّي الحقل.
+  const expiryOn = file.item.tracksExpiry ? parseDayText(form.expiry) : null;
+  if (file.item.tracksExpiry && !expiryOn) errors.expiry = t('receipt.line.expiry_required', 'اكتب تاريخ انتهاء «{item}».', { item: file.item.name });
+  const born = file.item.kind === 'chick' ? parseMomentText(form.born) : null;
+  if (file.item.kind === 'chick' && !born) errors.born = t('opening.born.invalid', 'اكتب وقت الفقس يوم/شهر/سنة ثم الساعة والدقيقة، مثل 28/10/2026 06:00.');
   if (qty !== null && qty > 0n && price !== null && price > 0n && !errors.qty && purchaseTotal(qty, price).total === 0n) {
     errors.total = t('purchase.total.zero', 'المجموع صفر بعد التقريب لأقرب دينار؛ راجع الكمية والسعر.');
   }
   if (Object.keys(errors).length || !day.day || !form.party || qty === null || price === null) return { input: null, errors };
   return {
-    input: { itemId: file.item.id, partyId: form.party.id, receivedOn: day.day, qty, unitPrice: price, sellPrice: sell, payment: form.payment, cashAccountId: form.payment === 'cash' ? box : null },
+    input: {
+      itemId: file.item.id,
+      partyId: form.party.id,
+      receivedOn: day.day,
+      qty,
+      unitPrice: price,
+      sellPrice: sell,
+      payment: form.payment,
+      cashAccountId: form.payment === 'cash' ? box : null,
+      expiryOn,
+      bornAt: born?.iso ?? null,
+    },
     errors,
   };
 }
@@ -120,7 +146,18 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
   // المعرّفات والمرجع مرّة لكلّ نافذة (FOUNDATION ٥١٩): كلّ إعادة بها حتى تُعرف النتيجة.
   const [ids] = useState(purchases.newPurchaseIds);
   const unit = baseUnitLabel(file.item.baseUnit);
-  const [form, setForm] = useState<PurchaseForm>(() => ({ day: fmtDay(file.today), party: null, qty: '', price: '', sell: priceText(file.money?.sellPrice ?? null), payment: 'credit', box: '' }));
+  // وقت فقس الأفراخ المشتراة يبدأ بيوم الشراء (E21، كورقة الاستلام).
+  const [form, setForm] = useState<PurchaseForm>(() => ({
+    day: fmtDay(file.today),
+    party: null,
+    qty: '',
+    price: '',
+    sell: priceText(file.money?.sellPrice ?? null),
+    payment: 'credit',
+    box: '',
+    expiry: '',
+    born: file.item.kind === 'chick' ? `${fmtDay(file.today)} 00:00` : '',
+  }));
   const [tried, setTried] = useState(false);
   const [state, setState] = useState<SendState>(IDLE);
   // store_required: الخادم وجد للمادّة أكثر من مخزن يستلمها، فتظهر القائمة (من المخازن بنطاقك التي تستلم نوعها).
@@ -149,6 +186,9 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
   const storeMissing = pickStore && !warehouseId;
 
   const send = async (sent: PurchaseInput) => {
+    // إعادة لنتيجة مجهولة (م١): ما لم يرفضها الخادم رفضاً أكيداً تبقى النتيجة مجهولة — 55P03 يعني أنّ الإعادة انتظرت خلف الأصل الذي ما زال
+    // يعمل، والانقطاع لا يقول شيئاً عن الأصل — فلا «لم يُحفظ شيء»، والإغلاق يقرأ الملفّ من جديد.
+    const retrying = pending !== null;
     setState({ busy: true, failure: null, unknown: pending });
     try {
       onSaved(await purchases.recordPurchase(ids, sent));
@@ -158,7 +198,8 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
         setState(IDLE);
         return;
       }
-      setState({ busy: false, failure: error, unknown: error instanceof UnknownOutcomeError ? sent : null });
+      const unknown = error instanceof UnknownOutcomeError || (retrying && !(error instanceof RejectedError));
+      setState({ busy: false, failure: error, unknown: unknown ? sent : null });
     }
   };
 
@@ -208,6 +249,11 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
           <>
             <Notice tone="warning" title={t('purchase.unknown', 'لم يُعرف إن حُفظ؛ أعد المحاولة')}>
               {t('purchase.unknown.detail', 'أُرسل الشراء ولم يصل الردّ. «أعد المحاولة» يرسله نفسه، ولن يُسجَّل مرّتين.')}
+              {state.failure ? (
+                <span className="mt-1 block" data-action="purchase-retry-unknown">
+                  {t('purchase.unknown.again', 'ولم تكتمل الإعادة أيضاً؛ أعد المحاولة بعد قليل، أو أغلق لترى ما حُفظ.')}
+                </span>
+              ) : null}
             </Notice>
             <p className="text-sm" data-action="purchase-sent">
               {t('purchase.sent', 'المرسَل: {qty} {item} بـ{total} دينار، بتاريخ {day}.', {
@@ -261,6 +307,31 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                 onChange={(payment) => set({ payment })}
               />
             </div>
+            {file.item.tracksExpiry ? (
+              <div data-action="purchase-expiry">
+                <DayField
+                  id={`${id}-expiry`}
+                  label={t('receipt.line.expiry', 'تاريخ الانتهاء')}
+                  value={form.expiry}
+                  onChange={(expiry) => set({ expiry: toWesternDigits(expiry) })}
+                  hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يحفظه المدير فقط.')}
+                  error={shown.expiry}
+                />
+              </div>
+            ) : null}
+            {file.item.kind === 'chick' ? (
+              <Field
+                id={`${id}-born`}
+                label={t('opening.born', 'وقت الفقس (يوم/شهر/سنة ساعة:دقيقة)')}
+                error={shown.born}
+                hint={(() => {
+                  const read = parseMomentText(form.born);
+                  return read ? t('opening.born.read', 'يُقرأ: {day} الساعة {time}', { day: fmtDay(read.day), time: readTime(read.iso) }) : t('opening.born.hint', 'مثل 28/10/2026 06:00');
+                })()}
+              >
+                <input id={`${id}-born`} className="input" dir="ltr" autoComplete="off" value={form.born} onChange={(event) => set({ born: toWesternDigits(event.target.value) })} data-action="purchase-born" />
+              </Field>
+            ) : null}
             {form.payment === 'cash' ? (
               <>
                 <BoxPicker id={`${id}-box`} label={t('purchase.box', 'الصندوق')} boxes={boxes} value={box} onChange={(value) => set({ box: value })} />
@@ -276,7 +347,16 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                 <Notice tone="info" title={t('purchase.store.pick', 'لهذه المادّة أكثر من مخزن؛ اختر المخزن الذي دخلته')}>
                   {storeHint || null}
                 </Notice>
-                <StoreSelect id={`${id}-store`} label={t('stock.store', 'المخزن')} stores={stores} value={warehouseId} onChange={setWarehouseId} error={tried && storeMissing ? t('purchase.store.required', 'اختر المخزن.') : null} />
+                {/* قائمة المخازن تُقرأ حين يطلبها الخادم (ل٧): «جارٍ التحميل» أثناءها، وفشلها بزرّ «أعد المحاولة» لا قائمة فارغة صامتة. */}
+                {setup.error ? (
+                  <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />
+                ) : !setup.data ? (
+                  <p role="status" className="text-sm text-ink-muted" data-action="purchase-stores-loading">
+                    {t('purchase.stores.loading', 'جارٍ تحميل المخازن…')}
+                  </p>
+                ) : (
+                  <StoreSelect id={`${id}-store`} label={t('stock.store', 'المخزن')} stores={stores} value={warehouseId} onChange={setWarehouseId} error={tried && storeMissing ? t('purchase.store.required', 'اختر المخزن.') : null} />
+                )}
               </div>
             ) : null}
           </>

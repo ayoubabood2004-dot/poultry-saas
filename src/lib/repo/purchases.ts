@@ -93,6 +93,8 @@ export interface FileItem {
   /** كغم/لتر بوحدة ١/١٠٠٠٠، للسائل بس. */
   density: bigint | null;
   archived: boolean;
+  /** تتبّع تاريخ الانتهاء: الشراء يطلب «تاريخ الانتهاء» (مراجعة الجولة الأولى، م٣). */
+  tracksExpiry: boolean;
 }
 
 export interface FileMoney {
@@ -110,6 +112,8 @@ export interface FilePurchaseMoney {
   lineTotal: Fils;
   /** سعر البيع المكتوب مع هذا الشراء، أو null (والشراء القديم من ورقة الاستلام بلا سعر بيع). */
   sellPrice: Fils | null;
+  /** على السطر تصحيح سعر مرحَّل: المجموع وسعر الشراء من آخر تصحيح (م٢)، والشاشة تقول «مصحَّح». */
+  corrected: boolean;
 }
 
 export interface FilePurchase {
@@ -162,6 +166,7 @@ export function parseItemFile(value: unknown): ItemFile {
       baseUnit: oneOf(item, 'base_unit', BASE_UNITS),
       density: scaled(item, 'density_kg_per_l', 4),
       archived: bool(item, 'archived'),
+      tracksExpiry: bool(item, 'tracks_expiry'),
     },
     onHand: qtyOf(json, 'on_hand_qty'),
     purchased: qtyOf(json, 'purchased_qty'),
@@ -187,7 +192,9 @@ export function parseItemFile(value: unknown): ItemFile {
         warehouseName: str(row, 'warehouse_name'),
         qty: qtyOf(row, 'qty'),
         payment: oneOf(row, 'payment', PAYMENTS),
-        money: rowMoney ? { unitPrice: filsOf(rowMoney, 'unit_price'), lineTotal: filsOf(rowMoney, 'line_total'), sellPrice: scaled(rowMoney, 'sell_price', 2) } : null,
+        money: rowMoney
+          ? { unitPrice: filsOf(rowMoney, 'unit_price'), lineTotal: filsOf(rowMoney, 'line_total'), sellPrice: scaled(rowMoney, 'sell_price', 2), corrected: bool(rowMoney, 'corrected') }
+          : null,
       };
     }),
     more: bool(json, 'more'),
@@ -236,6 +243,10 @@ export interface PurchaseInput {
   cashAccountId: string | null;
   /** null: الخادم يختار مخزن المادّة الوحيد (وstore_required إن كانت لها أكثر من مخزن). */
   warehouseId: string | null;
+  /** YYYY-MM-DD لمادّة تتبّع الانتهاء، وnull لغيرها (م٣). */
+  expiryOn: string | null;
+  /** لحظة الفقس (ISO) للأفراخ وحدها، وnull لغيرها (م٣). */
+  bornAt: string | null;
 }
 
 export interface RecordedPurchase {
@@ -291,6 +302,10 @@ export async function recordPurchase(ids: PurchaseIds, input: PurchaseInput): Pr
       p_payment: input.payment,
       p_cash_account: input.payment === 'cash' ? input.cashAccountId : null,
       p_warehouse: input.warehouseId,
+      // المفتاحان دائماً (null لغير المعنيّ): توقيع الدالّة باثني عشر معاملاً وزيادتين في آخره (0017، م٣).
+      // المفتاحان حاضران دائماً (فارغان لغير المادّة التي تتابع الانتهاء وغير الأفراخ): مفتاح ناقص يغيّر بصمة الإعادة.
+      p_expiry_on: input.expiryOn ?? null,
+      p_born_at: input.bornAt ?? null,
     }),
   );
 }

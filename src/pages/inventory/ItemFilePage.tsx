@@ -74,7 +74,18 @@ export function PurchasesList({ file }: { file: ItemFile }) {
         key: 'total',
         header: t('file.col.total', 'المجموع'),
         kind: 'number',
-        cell: (row) => (row.money ? <Num>{fmtMoney(row.money.lineTotal, whole)}</Num> : null),
+        // سطر عليه تصحيح سعر مرحَّل (م٢): المجموع وسعر الشراء من آخر تصحيح، وكلمة «مصحَّح» بجانبه كما في سجلّ المشتريات القديم.
+        cell: (row) =>
+          row.money ? (
+            <span className="inline-flex items-center gap-1">
+              <Num>{fmtMoney(row.money.lineTotal, whole)}</Num>
+              {row.money.corrected ? (
+                <span className="text-xs text-ink-muted" data-action="purchase-corrected">
+                  {t('purchases.corrected.short', 'مصحَّح')}
+                </span>
+              ) : null}
+            </span>
+          ) : null,
         ...(totals && file.money && (whole === 2 || file.money.purchasedValue % 100n === 0n) ? { total: <Num>{fmtMoney(file.money.purchasedValue, whole)}</Num> } : {}),
       },
       { key: 'sell', header: t('file.col.sell', 'سعر البيع'), kind: 'number', cell: (row) => <Num>{row.money && row.money.sellPrice !== null ? fmtMoney(row.money.sellPrice) : t('file.none', '—')}</Num> },

@@ -199,7 +199,8 @@ async function scenario(t, db) {
     const lastSent = (fn) => server.sent.filter((s) => s.fn === fn).at(-1);
     const lastReply = () => JSON.parse(server.replies.at(-1).text);
     const ids = () => repo.newPurchaseIds();
-    const base = { partyId: SUPPLIER, receivedOn: TODAY, sellPrice: null, payment: 'credit', cashAccountId: null, warehouseId: null };
+    // expiryOn وbornAt (مراجعة 0017 الأولى M3): null للمواد التي لا تتابع الانتهاء ولغير الأفراخ، ومفتاحاهما في الجسم دائماً.
+    const base = { partyId: SUPPLIER, receivedOn: TODAY, sellPrice: null, payment: 'credit', cashAccountId: null, warehouseId: null, expiryOn: null, bornAt: null };
 
     // ─── ١) جسم الطلب = توقيع الدالّة ────────────────────────────────────────────────────────────────────────────
     // P1 (الأمين، بالدين): 1,000 كغم ذرة × 450 = 450,000 دينار، وسعر البيع 500. Milli 1,000,000 وFils 45,000 و50,000.
@@ -208,17 +209,18 @@ async function scenario(t, db) {
     const p1 = await outcome(repo.recordPurchase(p1Ids, { ...base, itemId: CORN, qty: 1000000n, unitPrice: 45000n, sellPrice: 50000n }));
     t.ok(p1.ok, `الأمين يسجّل شراء الذرة من الشاشة بـrepo الحقيقي (${p1.code ?? ''} ${p1.hint ?? ''})`);
     const p1Raw = lastReply();
-    const sig = (await db.admin("select p.proargnames as names, array(select format_type(x, null) from unnest(p.proargtypes::oid[]) as x) as types from pg_proc p where p.oid = 'public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid)'::regprocedure")).rows[0];
+    const sig = (await db.admin("select p.proargnames as names, array(select format_type(x, null) from unnest(p.proargtypes::oid[]) as x) as types from pg_proc p where p.oid = 'public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid, date, timestamptz)'::regprocedure")).rows[0];
     const body1 = JSON.parse(lastSent('record_purchase').body);
-    t.same(Object.keys(body1).sort(), [...sig.names].sort(), 'جسم recordPurchase: مفاتيحه الاثنا عشر = أسماء معاملات record_purchase بالكتالوج بالضبط (لا زائد ولا ناقص)');
+    t.same(Object.keys(body1).sort(), [...sig.names].sort(), 'جسم recordPurchase: مفاتيحه الأربعة عشر = أسماء معاملات record_purchase بالكتالوج بالضبط (لا زائد ولا ناقص؛ والتاريخان من مراجعة 0017 الأولى M3)');
     t.same(
       sig.names.map((name) => [name, sig.types[sig.names.indexOf(name)], body1[name] === null ? 'null' : typeof body1[name]]),
       [
         ['p_client_ref', 'uuid', 'string'], ['p_receipt_id', 'uuid', 'string'], ['p_line_id', 'uuid', 'string'], ['p_item', 'uuid', 'string'], ['p_party', 'uuid', 'string'],
         ['p_received_on', 'date', 'string'], ['p_qty', 'numeric', 'string'], ['p_unit_price', 'numeric', 'string'], ['p_sell_price', 'numeric', 'string'],
         ['p_payment', 'text', 'string'], ['p_cash_account', 'uuid', 'null'], ['p_warehouse', 'uuid', 'null'],
+        ['p_expiry_on', 'date', 'null'], ['p_born_at', 'timestamp with time zone', 'null'],
       ],
-      'جسم recordPurchase: كلّ معامل بنوعه بالكتالوج، والأعداد نصوص عشرية لا أعداد JS (E3)، والصندوق والمخزن null للدين والمخزن الذي يختاره الخادم',
+      'جسم recordPurchase: كلّ معامل بنوعه بالكتالوج، والأعداد نصوص عشرية لا أعداد JS (E3)، والصندوق والمخزن null للدين والمخزن الذي يختاره الخادم، والتاريخان null لذرة لا تتابع الانتهاء',
     );
     t.same(
       [body1.p_client_ref, body1.p_receipt_id, body1.p_line_id, body1.p_item, body1.p_party, body1.p_received_on, body1.p_qty, body1.p_unit_price, body1.p_sell_price, body1.p_payment],
@@ -243,7 +245,7 @@ async function scenario(t, db) {
     );
     t.same([p1Raw.qty, p1Raw.money.unit_price, p1Raw.money.sell_price, p1Raw.money.line_total, p1Raw.money.paid_now], ['1000.000', '450.00', '500.00', '450000', '0'], 'نصّ الجواب الخام بمراتب الإرسال (الكمية بثلاث والسعران بمرتبتين، والمبلغ دينار صحيح)');
 
-    // P3 (المدير، SQL بأعداد بلا كسور = مراتب إدخال صفر): 1,000 × 450 = 450,000 بتاريخ 2026-11-04، وسعر البيع 520 (آخر سعر بيع كُتب).
+    // P3 (المدير، SQL بأعداد بلا كسور = مراتب إدخال صفر): 1,000 × 450 = 450,000 بتاريخ 2026-11-04، وسعر البيع 520 (كُتب بعد P1 لكنّ تاريخه أقدم، فلا يصير سعر المادّة: مراجعة 0017 الأولى L2).
     const p3Ids = { ref: uid(), receipt: uid(), line: uid() };
     const p3 = await call(db, U.manager, RP, [p3Ids.ref, p3Ids.receipt, p3Ids.line, CORN, OTHER, '2026-11-04', 1000, 450, 520, 'credit', null, null]);
     t.ok(p3.ok, `المدير يسجّل الشراء نفسه بأعداد صحيحة (${p3.code ?? ''} ${p3.hint ?? ''})`);
@@ -343,23 +345,23 @@ async function scenario(t, db) {
     // ─── ٧) ملفّ الذرة بمحلّله لكلّ دور ──────────────────────────────────────────────────────────────────────────────
     // الشراءات الفعّالة (الأحدث أوّلاً: التاريخ ثمّ وقت الترحيل): P4 (اليوم، بعد P1) ← P1 (اليوم) ← P2 (11-05) ← P3 (11-04) ← O1 (11-03) ← O2 (11-02).
     // الكمية 10.5 + 1,000 + 333.333 + 1,000 + 250 + 300 = 2,893.833 كغم؛ والمبالغ 4,833 + 450,000 + 500 + 450,000 + 112,345 + 100,000 = 1,117,678؛
-    // والمتوسّط 1,117,678 ÷ 2,893.833 = 386.2275… ← 386.23؛ وآخر سعر شراء 460.25 (P4)؛ وسعر البيع 520 (P3 آخر من كتب سعراً).
+    // والمتوسّط 1,117,678 ÷ 2,893.833 = 386.2275… ← 386.23؛ وآخر سعر شراء 460.25 (P4)؛ وسعر البيع 500 (P1 أحدث شراء مسعَّر بتاريخه؛ P3 بـ520 كُتب بعده بتاريخ أقدم، L2).
     const FILE_ROWS = [
-      [p4Ids.lineId, TODAY, 'محمد علي', 10500n, 'cash', { unitPrice: 46025n, lineTotal: 483300n, sellPrice: null }],
-      [p1Ids.lineId, TODAY, 'محمد علي', 1000000n, 'credit', { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 50000n }],
-      [p2Ids.lineId, '2026-11-05', 'محمد علي', 333333n, 'cash', { unitPrice: 150n, lineTotal: 50000n, sellPrice: null }],
-      [p3Ids.line, '2026-11-04', 'شركة الحبوب', 1000000n, 'credit', { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 52000n }],
-      [o1.lines[0], '2026-11-03', 'شركة الحبوب', 250000n, 'credit', { unitPrice: 44938n, lineTotal: 11234500n, sellPrice: null }],
-      [o2.lines[0], '2026-11-02', 'محمد علي', 300000n, 'cash', { unitPrice: 33333n, lineTotal: 10000000n, sellPrice: null }],
+      [p4Ids.lineId, TODAY, 'محمد علي', 10500n, 'cash', { unitPrice: 46025n, lineTotal: 483300n, sellPrice: null, corrected: false }],
+      [p1Ids.lineId, TODAY, 'محمد علي', 1000000n, 'credit', { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 50000n, corrected: false }],
+      [p2Ids.lineId, '2026-11-05', 'محمد علي', 333333n, 'cash', { unitPrice: 150n, lineTotal: 50000n, sellPrice: null, corrected: false }],
+      [p3Ids.line, '2026-11-04', 'شركة الحبوب', 1000000n, 'credit', { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 52000n, corrected: false }],
+      [o1.lines[0], '2026-11-03', 'شركة الحبوب', 250000n, 'credit', { unitPrice: 44938n, lineTotal: 11234500n, sellPrice: null, corrected: false }],
+      [o2.lines[0], '2026-11-02', 'محمد علي', 300000n, 'cash', { unitPrice: 33333n, lineTotal: 10000000n, sellPrice: null, corrected: false }],
     ];
     const fileShape = (f) => ({
-      head: [f.item.id, f.item.name, f.item.kind, f.item.baseUnit, f.item.density, f.item.archived, f.today, f.onHand, f.purchased, f.purchasesCount, f.more],
+      head: [f.item.id, f.item.name, f.item.kind, f.item.baseUnit, f.item.density, f.item.archived, f.today, f.onHand, f.purchased, f.purchasesCount, f.more, f.item.tracksExpiry],
       money: f.money,
       rows: f.purchases.map((r) => [r.lineId, r.receivedOn, r.partyName, r.qty, r.payment, r.money]),
       stores: [...new Set(f.purchases.map((r) => r.warehouseName))],
     });
-    const cornHead = [CORN, 'ذرة الدمج', 'raw', 'kg', null, false, TODAY, 2893833n, 2893833n, 6, false];
-    const cornMoney = { purchasedValue: 111767800n, avgUnitPrice: 38623n, sellPrice: 52000n, lastUnitPrice: 46025n };
+    const cornHead = [CORN, 'ذرة الدمج', 'raw', 'kg', null, false, TODAY, 2893833n, 2893833n, 6, false, false];
+    const cornMoney = { purchasedValue: 111767800n, avgUnitPrice: 38623n, sellPrice: 50000n, lastUnitPrice: 46025n };
     const viaRepo = async (user, load) => {
       actAs(user);
       return outcome(load());
@@ -376,7 +378,7 @@ async function scenario(t, db) {
       t.same(
         fileShape(files[label]),
         { head: cornHead, money: cornMoney, rows: withMoney(FILE_ROWS), stores: [storeName[W.raw]] },
-        `parseItemFile(${label}): 2,893.833 كغم موجودة ومشتراة بستّ شراءات (الملغى خارجها)، و1,117,678 دينار بمتوسّط 386.23، وآخر سعر 460.25، والبيع 520، والقديمان بسعر مشتقّ (449.38 و333.33) بلا سعر بيع`,
+        `parseItemFile(${label}): 2,893.833 كغم موجودة ومشتراة بستّ شراءات (الملغى خارجها)، و1,117,678 دينار بمتوسّط 386.23، وآخر سعر 460.25، والبيع 500 (أحدث شراء مسعَّر بتاريخه)، والقديمان بسعر مشتقّ (449.38 و333.33) بلا سعر بيع`,
       );
     }
     t.same(
@@ -391,7 +393,7 @@ async function scenario(t, db) {
     );
     t.same(
       [fileShape(files.hallWorker), files.hallWorker.canRecord],
-      [{ head: [CORN, 'ذرة الدمج', 'raw', 'kg', null, false, TODAY, 0n, 0n, 0, false], money: null, rows: [], stores: [] }, false],
+      [{ head: [CORN, 'ذرة الدمج', 'raw', 'kg', null, false, TODAY, 0n, 0n, 0, false, false], money: null, rows: [], stores: [] }, false],
       'parseItemFile(عامل القاعة، نطاقه وحدة اللحم): صفر موجود وصفر مشترى ولا صفوف، بلا مال',
     );
     // الجواب الخام للمقنَّع بلا أيّ مفتاح money بأيّ عمق (القناع، لا المحلّل، هو الذي يُخفي).
@@ -405,9 +407,9 @@ async function scenario(t, db) {
     t.same(
       oilFile.ok ? fileShape(oilFile.value) : oilFile.code,
       {
-        head: [OIL, 'زيت الدمج', 'raw', 'L', 9200n, false, TODAY, 200500n, 200500n, 1, false],
+        head: [OIL, 'زيت الدمج', 'raw', 'L', 9200n, false, TODAY, 200500n, 200500n, 1, false, false],
         money: { purchasedValue: 25067500n, avgUnitPrice: 125025n, sellPrice: 140075n, lastUnitPrice: 125025n },
-        rows: [[oil.value?.lineId, TODAY, 'محمد علي', 200500n, 'credit', { unitPrice: 125025n, lineTotal: 25067500n, sellPrice: 140075n }]],
+        rows: [[oil.value?.lineId, TODAY, 'محمد علي', 200500n, 'credit', { unitPrice: 125025n, lineTotal: 25067500n, sellPrice: 140075n, corrected: false }]],
         stores: [storeName[W.raw]],
       },
       'parseItemFile(الزيت): الكثافة 0.92 بأربع مراتب، و200.5 لتر بـ250,675 دينار ومتوسّط 1,250.25 والبيع 1,400.75',
@@ -450,7 +452,7 @@ async function scenario(t, db) {
         [v.today, v.canRecord, v.canAddItem, v.items.map((x) => x.name), cardOf(v, CORN), cardOf(v, OIL), cardOf(v, BAGS)],
         [
           TODAY, ...flags, ['أكياس الدمج', 'ذرة الدمج', 'زيت الدمج'],
-          ['raw', 'kg', 2893833n, 2893833n, TODAY, money ? { sellPrice: 52000n, avgUnitPrice: 38623n } : null],
+          ['raw', 'kg', 2893833n, 2893833n, TODAY, money ? { sellPrice: 50000n, avgUnitPrice: 38623n } : null],
           ['raw', 'L', 200500n, 200500n, TODAY, money ? { sellPrice: 140075n, avgUnitPrice: 125025n } : null],
           ['packaging', 'pc', bagsQty, bagsQty, TODAY, money ? { sellPrice: null, avgUnitPrice: bagsQty === 5000n ? 100000n : 558824n } : null],
         ],

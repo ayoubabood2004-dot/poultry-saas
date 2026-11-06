@@ -18,12 +18,22 @@
 --     كانا يتقافلان (40P01). ولا قفل for no key update على المادّة لسعر البيع: الترحيل يقفلها for share بموضعها، فالترقية بعده
 --     تتقافل مع شراء ثانٍ للمادّة نفسها؛ وقفل المشاركة نفسه يرتّبها مع set_item_sell_price (for no key update) فيرى أحدهما الآخر.
 --   • رفوض المخزن المختار بأسمائها كبقيّة القاعدة: warehouse_not_found وwarehouse_archived وout_of_scope وwrong_receiving_store؛
---     والمادّة التي تتابع الانتهاء (expiry_required) والأفراخ (born_at_required) تُرفض قبل أيّ كتابة بتلميح يقول إنّ الشراء السريع لا
---     يكتب التاريخ؛ والمخزن الذي يُكتب دين مورّده في دفتر وحدة خارج نطاق الكاتب يُرفض out_of_scope بتلميح يسمّي الدفتر (قاعدة
---     book_for_post نفسها، E49: الأمين المحصور بمخزن دون وحدته لا يكتب في دفتر الوحدة؛ قرار للمالك).
+--     والمخزن الذي يُكتب دين مورّده في دفتر وحدة خارج نطاق الكاتب يُرفض out_of_scope بتلميح يسمّي الدفتر (قاعدة book_for_post نفسها،
+--     E49: الأمين المحصور بمخزن دون وحدته لا يكتب في دفتر الوحدة؛ قرار للمالك).
 --   • item_file يزيد cash_accounts (الصناديق الفعّالة بالاسم، لمن يسجّل الشراء): الأمين لا يقرأ جدول الصناديق (accountsRestricted)،
 --     وجواب المالك ١ يجعله يختار «نقداً من الصندوق».
 --   • لا بيانات تُكتب بالهجرة (العقد ٢.٧).
+-- مراجعة 0017 الأولى (scratchpad/simple/review/triage.md):
+--   • M2: الملفّ والبطاقات بمبلغ الفاتورة الحاليّ (أحدث تصحيح سعر مرحَّل، وإلّا المبلغ المكتوب؛ مرآة item_purchases في 0013)، وسعر وحدة
+--     السطر المصحَّح = مبلغه ÷ كميته بمرتبتين، وcorrected داخل money؛ وverify_purchases يبقى على المبلغ المكتوب (سعر الشراء كما كُتب).
+--   • M3: المادّة التي تتابع الانتهاء والأفراخ تُشترى بالنداء نفسه: معاملان أخيران p_expiry_on وp_born_at (افتراضهما فارغ)، بقواعد سطر
+--     الاستلام نفسها (الانتهاء إلزاميّ لمن تتابعه وممنوع لغيرها، ولا منتهٍ يوم الشراء إلّا بـexpired.release؛ ووقت الفقس إلزاميّ للأفراخ
+--     وممنوع لغيرها ولا بعد الآن)، وتلميحاتها تسمّي حقلَي النافذة؛ والتوقيع القديم (12 معاملاً) يُسقط؛ وitem_file.item.tracks_expiry.
+--   • L1: item_file.can_record = purchase.record ومخزن فعّال بنطاق القارئ يستلم نوع المادّة ودفتر وحدته بنطاقه (ما يشترطه الشراء نفسه)؛
+--     وitems_overview يبقى علم الدور.
+--   • L2: سعر البيع الحاليّ يتبع أحدث شراء مسعَّر بتاريخه ثمّ وقت ترحيله: الشراء المؤرَّخ قبل شراء مسعَّر أحدث لا يكتب فوقه، تحت قفل
+--     استشاريّ للمادّة (شراءان مسعَّران بلحظة واحدة يرى ثانيهما الأوّل).
+--   • L6: الإعادة بالمرجع نفسه أو بمعرّف الاستلام نفسه لشراء أُلغي بعدها: id_conflict بتلميح «أُلغي»، لا «حُفظ».
 -- تراجع: rollback_0017.sql — يرجّع جسمَي private.actions وprivate.role_can (كما في 0013) وpost_receipt وprivate.receipt_lines_guard
 --   وprivate.receipt_amounts_guard (كما في 0009) حرفاً بحرف، ويُسقط record_purchase وitem_file وitems_overview وverify_purchases
 --   وpost_receipt_core ومساعدات العلامة والنتيجة، وسياسة نطاق سجلّ التدقيق، وجدول purchase_prices. **طريق رفض**: أيّ صفّ في
@@ -533,8 +543,11 @@ $$;
 -- ومرجع client_ref (FOUNDATION ١٩٩، القاعدة 10). المعرّفات تولد بالجهاز مرّة لكلّ نموذج: الإعادة بالمرجع نفسه ترجع النتيجة المخزّنة،
 -- والإعادة بمعرّف الاستلام نفسه بمحتواه ترجعها كذلك، وبغير محتواه id_conflict. المخزن يُختار من نوع المادّة (receiving_kinds) بنطاق
 -- الكاتب: واحد ← هو، ولا واحد ← no_receiving_store، وأكثر ← store_required بأسمائها (والشاشة تعيد بالمعرّفات نفسها ومعها المخزن).
+-- وتاريخ الانتهاء ووقت الفقس معاملان أخيران (مراجعة 0017 الأولى M3) بقواعد سطر الاستلام نفسها، فالتوقيع الأوّل (12 معاملاً) يُسقط.
+drop function if exists public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid);
 create or replace function public.record_purchase(p_client_ref uuid, p_receipt_id uuid, p_line_id uuid, p_item uuid, p_party uuid,
-  p_received_on date, p_qty numeric, p_unit_price numeric, p_sell_price numeric, p_payment text, p_cash_account uuid, p_warehouse uuid) returns jsonb
+  p_received_on date, p_qty numeric, p_unit_price numeric, p_sell_price numeric, p_payment text, p_cash_account uuid, p_warehouse uuid,
+  p_expiry_on date default null, p_born_at timestamptz default null) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_fn constant text := 'record_purchase';
@@ -553,13 +566,18 @@ declare
   v_paid numeric;
   v_version int;
   v_same boolean;
+  v_posted_at timestamptz;
 begin
   set local lock_timeout = '5s';
   perform private.require('purchase.record');
   v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('receipt', p_receipt_id, 'line', p_line_id, 'item', p_item,
     'party', p_party, 'on', p_received_on, 'qty', p_qty, 'price', p_unit_price, 'sell', p_sell_price, 'payment', p_payment,
-    'box', p_cash_account, 'warehouse', p_warehouse));
+    'box', p_cash_account, 'warehouse', p_warehouse, 'expiry', p_expiry_on, 'born', p_born_at));
   if v_cached is not null then
+    -- شراء حُفظ ثمّ أُلغي (مراجعة 0017 الأولى L6): الإعادة لا تقول «حُفظ» بنتيجته القديمة، بل تعارض يسمّي الإلغاء.
+    if exists (select 1 from public.receipts x where x.org_id = v_org and x.id = p_receipt_id and x.status = 'void') then
+      raise exception 'id_conflict' using hint = 'حُفظ هذا الشراء من قبل ثمّ أُلغي. افتح ملفّ المادّة وسجّل شراءً جديداً.';
+    end if;
     -- ref_claim يقنّع لمن لا يرى الكلفة، ومن يسجّل الشراء يرى سعره (جواب المالك ٢): المخزَّن نفسه بلا قناع.
     select x.result into v_cached from public.rpc_refs x where x.org_id = v_org and x.fn = v_fn and x.client_ref = p_client_ref;
     return v_cached;
@@ -578,6 +596,7 @@ begin
         join public.purchase_prices pp on pp.org_id = x.org_id and pp.line_id = x.id
         left join public.receipt_amounts a on a.org_id = x.org_id and a.doc_id = x.doc_id
         where x.org_id = r.org_id and x.doc_id = r.id and x.id = p_line_id and x.item_id = p_item and x.qty_in_unit = p_qty
+          and x.expiry_on is not distinct from p_expiry_on and x.born_at is not distinct from p_born_at
           and pp.unit_price = p_unit_price and pp.sell_price is not distinct from p_sell_price
           and (case when coalesce(a.paid_now, 0) > 0 then 'cash' else 'credit' end) = p_payment
           and a.cash_account_id is not distinct from p_cash_account);
@@ -595,7 +614,7 @@ begin
     raise exception 'id_conflict' using hint = 'معرّف سطر الشراء مستعمل لاستلام آخر. حدّث الشاشة وأعد المحاولة.';
   end if;
 
-  -- المادّة: موجودة وفعّالة وتُشترى من مورّد، والشراء السريع لا يكتب تاريخ انتهاء ولا وقت فقس.
+  -- المادّة: موجودة وفعّالة وتُشترى من مورّد.
   select * into i from public.items x where x.org_id = v_org and x.id = p_item;
   if i.id is null then
     raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
@@ -607,11 +626,25 @@ begin
   if cardinality(v_kinds) = 0 then
     raise exception 'not_purchasable' using hint = format('«%s» لا تُشترى من مورّد: تدخل المخزن بالإنتاج أو بالتحويل.', i.name);
   end if;
-  if i.kind = 'chick' then
-    raise exception 'born_at_required' using hint = format('«%s» أفراخ يُكتب وقت فقسها، وتسجيل الشراء السريع لا يكتبه. سجّل شراءها من صفحة الاستلام.', i.name);
+  -- تاريخ الانتهاء ووقت الفقس بقواعد سطر الاستلام (private.receipt_line_problem، FOUNDATION ٥٥٠، Q5)، والتلميح يسمّي حقل النافذة.
+  if i.tracks_expiry and p_expiry_on is null then
+    raise exception 'expiry_required' using hint = format('«%s» تتابع تاريخ الانتهاء: اكتب «تاريخ الانتهاء» المكتوب على العبوة.', i.name);
   end if;
-  if i.tracks_expiry then
-    raise exception 'expiry_required' using hint = format('«%s» تتابع تاريخ الانتهاء، وتسجيل الشراء السريع لا يكتب التاريخ. سجّل شراءها من صفحة الاستلام.', i.name);
+  if not i.tracks_expiry and p_expiry_on is not null then
+    raise exception 'expiry_not_tracked' using hint = format('«%s» لا تتابع تاريخ الانتهاء؛ اترك «تاريخ الانتهاء» فارغاً.', i.name);
+  end if;
+  if private.lot_expired(i.tracks_expiry, p_expiry_on, p_received_on) and not public.can('expired.release') then
+    raise exception 'expired_on_receipt' using hint = format('«%s» منتهية في %s قبل يوم الشراء %s؛ راجع «تاريخ الانتهاء». المنتهي لا يُشترى إلا بإذن المدير.',
+      i.name, to_char(p_expiry_on, 'DD/MM/YYYY'), to_char(p_received_on, 'DD/MM/YYYY'));
+  end if;
+  if i.kind = 'chick' and p_born_at is null then
+    raise exception 'born_at_required' using hint = format('«%s» أفراخ: اكتب «وقت الفقس» باليوم والساعة.', i.name);
+  end if;
+  if i.kind <> 'chick' and p_born_at is not null then
+    raise exception 'born_at_not_chick' using hint = format('«%s» ليست أفراخاً؛ اترك «وقت الفقس» فارغاً.', i.name);
+  end if;
+  if p_born_at > now() then
+    raise exception 'born_at_future' using hint = format('«وقت الفقس» لـ«%s» بعد الآن؛ اكتب وقتاً مضى.', i.name);
   end if;
 
   -- المخزن: المختار يُفحص، وبلا اختيار فالمخزن الوحيد بنطاق الكاتب من نوع يستلم المادّة.
@@ -704,7 +737,8 @@ begin
   -- الكتابات بعلامة هذا المستند (الحارسان يمرّرانها وحدها)، ثمّ تُمسح قبل الترحيل.
   perform set_config('poultry.purchase_doc', coalesce(private.purchase_marker(p_receipt_id), ''), true);
   insert into public.receipts (id, org_id, party_id, warehouse_id, received_on) values (p_receipt_id, v_org, p.id, w.id, p_received_on);
-  insert into public.receipt_lines (id, org_id, doc_id, item_id, qty_in_unit) values (p_line_id, v_org, p_receipt_id, i.id, p_qty);
+  insert into public.receipt_lines (id, org_id, doc_id, item_id, qty_in_unit, expiry_on, born_at)
+  values (p_line_id, v_org, p_receipt_id, i.id, p_qty, p_expiry_on, p_born_at);
   insert into public.receipt_line_amounts (org_id, line_id, line_total) values (v_org, p_line_id, v_total);
   insert into public.receipt_amounts (org_id, doc_id, discount, paid_now, cash_account_id)
   values (v_org, p_receipt_id, 0, v_paid, case when p_payment = 'cash' then p_cash_account end);
@@ -715,8 +749,19 @@ begin
   select x.version into v_version from public.receipts x where x.org_id = v_org and x.id = p_receipt_id;
   perform private.post_receipt_core(p_receipt_id, v_version, p_client_ref);
 
-  -- سعر البيع الحاليّ = سعر آخر شراء كُتب له سعر (جواب المالك ٣)؛ سعر الكلفة المكتوب (0016) لا يُمسّ.
+  -- سعر البيع الحاليّ = سعر أحدث شراء كُتب له سعر (جواب المالك ٣) بتاريخ الشراء ثمّ وقت ترحيله (مراجعة 0017 الأولى L2): شراء مؤرَّخ
+  -- قبل شراء مسعَّر أحدث مرحَّل لا يكتب فوقه. القفل الاستشاريّ للمادّة قبل الفحص: شراءان مسعَّران بلحظة واحدة يترتّبان، فيرى الثاني
+  -- الأوّل بعد ثباته (فحص بجملة جديدة). سعر الكلفة المكتوب (0016) لا يُمسّ.
+  select x.posted_at into v_posted_at from public.receipts x where x.org_id = v_org and x.id = p_receipt_id;
   if p_sell_price is not null then
+    perform pg_advisory_xact_lock(hashtextextended('item_sell_price:' || i.id::text, 0));
+  end if;
+  if p_sell_price is not null and not exists (
+    select 1 from public.purchase_prices pp
+    join public.receipts y on y.org_id = pp.org_id and y.id = pp.doc_id
+    where pp.org_id = v_org and pp.item_id = i.id and pp.sell_price is not null and y.status = 'posted' and y.id <> p_receipt_id
+      and (y.received_on > p_received_on or (y.received_on = p_received_on and y.posted_at > v_posted_at))
+  ) then
     insert into public.item_prices (org_id, item_id, sell_price) values (v_org, i.id, p_sell_price)
     on conflict (org_id, item_id) do update set sell_price = excluded.sell_price, version = public.item_prices.version + 1
     where public.item_prices.sell_price is distinct from excluded.sell_price;
@@ -732,6 +777,10 @@ $$;
 -- ملفّ المادّة (read): الموجود الآن (أرصدة المادّة بمخازن نطاق القارئ)، ومجموع ما اشتُري (الوجبات الجذر من استلام مرحَّل بنطاقه:
 -- مرآة التحويل ليست شراءً، والملغى ليس شراءً)، وعدد الشراءات، ومتوسّط سعر الشراء (مجموع المبالغ ÷ مجموع الكمية بمرتبتين)، وسعر البيع،
 -- وآخر سعر شراء؛ وسطر لكلّ شراء الأحدث أوّلاً (200 حدّاً) بسعره كما كُتب (purchase_prices)، أو للاستلام القديم المبلغ ÷ الكمية بمرتبتين.
+-- المبلغ مبلغ الفاتورة الحاليّ (مراجعة 0017 الأولى M2، مرآة item_purchases في 0013): أحدث تصحيح سعر مرحَّل، وإلّا المكتوب؛ وسعر وحدة السطر
+-- المصحَّح = مبلغه ÷ كميته بمرتبتين، وcorrected داخل money (خبر مال)؛ والدفع من المبلغ المكتوب (كيف دُفع يوم الشراء).
+-- can_record (مراجعة 0017 الأولى L1) = purchase.record ومخزن فعّال بنطاق القارئ يستلم نوع المادّة ودفتر وحدته بنطاقه، أي ما يشترطه
+-- record_purchase نفسه، فلا يُعرض «سجّل شراء» لمن يُرفض شراؤه دائماً؛ والصناديق معه.
 -- المال داخل money: لأدوار الكلفة ولمن يسجّل الشراء (جواب المالك ٢)، ولغيرهم يُشال بـprivate.mask.
 create or replace function public.item_file(p_item uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -746,6 +795,7 @@ declare
   v_rows jsonb;
   v_sell numeric;
   v_record boolean;
+  v_can_buy boolean;
   v_result jsonb;
 begin
   perform private.require('read');
@@ -754,12 +804,18 @@ begin
     raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
   v_record := public.can('purchase.record');
+  -- الدفتر بـCASE بعد نوع المخزن: receipt_book يرفض مخزناً لا يستلم، وترتيب شروط WHERE غير مضمون.
+  v_can_buy := v_record and i.archived_at is null and exists (
+    select 1 from public.warehouses x
+    where x.org_id = v_org and x.archived_at is null and x.kind = any (private.receiving_kinds(i.kind)) and public.in_scope_wh(x.id)
+      and public.in_scope_book(case when x.kind = any (private.receiving_kinds(i.kind)) then private.receipt_book(x.id) end));
   select coalesce(sum(s.qty), 0) into v_on_hand from public.stock_balances s
   where s.org_id = v_org and s.item_id = i.id and public.in_scope_wh(s.warehouse_id);
   with buys as (
     select x.id as line_id, r.id as doc_id, r.doc_no, r.received_on, r.posted_at, r.party_id, t.name as party_name, y.name as warehouse_name,
-      l.qty_in, coalesce(la.line_total, 0) as line_total,
-      coalesce(pp.unit_price, private._mul_div_round(1, coalesce(la.line_total, 0), l.qty_in, 2)) as unit_price,
+      l.qty_in, coalesce(rv.new_total, la.line_total, 0) as line_total, rv.new_total is not null as corrected,
+      case when rv.new_total is not null then private._mul_div_round(1, rv.new_total, l.qty_in, 2)
+        else coalesce(pp.unit_price, private._mul_div_round(1, coalesce(la.line_total, 0), l.qty_in, 2)) end as unit_price,
       pp.sell_price,
       case when coalesce(a.paid_now, 0) > 0 and coalesce(a.paid_now, 0) >= coalesce(la.line_total, 0) then 'cash' else 'credit' end as payment
     from public.stock_lots l
@@ -770,6 +826,10 @@ begin
     left join public.receipt_line_amounts la on la.org_id = x.org_id and la.line_id = x.id
     left join public.receipt_amounts a on a.org_id = r.org_id and a.doc_id = r.id
     left join public.purchase_prices pp on pp.org_id = x.org_id and pp.line_id = x.id
+    left join lateral (
+      select v.new_total from public.receipt_revaluations v
+      where v.org_id = x.org_id and v.receipt_line_id = x.id and v.status = 'posted' order by v.rev_no desc limit 1
+    ) as rv on true
     where l.org_id = v_org and l.item_id = i.id and l.source_kind = 'receipt' and l.origin_lot_id is null and r.status = 'posted'
       and public.in_scope_wh(l.warehouse_id)
   ), ordered as (
@@ -778,21 +838,22 @@ begin
   select count(*)::int, coalesce(sum(o.qty_in), 0), coalesce(sum(o.line_total), 0), min(o.unit_price) filter (where o.n = 1),
     coalesce(jsonb_agg(jsonb_build_object('line_id', o.line_id, 'doc_id', o.doc_id, 'doc_no', o.doc_no, 'received_on', o.received_on,
       'party_id', o.party_id, 'party_name', o.party_name, 'warehouse_name', o.warehouse_name, 'qty', o.qty_in::text, 'payment', o.payment,
-      'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.line_total::text, 'sell_price', o.sell_price::text))
+      'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.line_total::text, 'sell_price', o.sell_price::text,
+        'corrected', o.corrected))
       order by o.n) filter (where o.n <= 200), '[]'::jsonb)
   into v_count, v_qty, v_value, v_last, v_rows
   from ordered o;
   select s.sell_price into v_sell from public.item_prices s where s.org_id = v_org and s.item_id = i.id;
-  v_result := jsonb_build_object('today', public.app_today(), 'can_record', v_record, 'can_edit', public.can('stores.manage'),
+  v_result := jsonb_build_object('today', public.app_today(), 'can_record', v_can_buy, 'can_edit', public.can('stores.manage'),
     'item', jsonb_build_object('id', i.id, 'name', i.name, 'kind', i.kind, 'base_unit', i.base_unit,
-      'density_kg_per_l', i.density_kg_per_l::text, 'archived', i.archived_at is not null),
+      'density_kg_per_l', i.density_kg_per_l::text, 'archived', i.archived_at is not null, 'tracks_expiry', i.tracks_expiry),
     'on_hand_qty', v_on_hand::text, 'purchased_qty', v_qty::text, 'purchases_count', v_count,
     'money', jsonb_build_object('purchased_value', v_value::text,
       'avg_unit_price', case when v_qty > 0 then private._mul_div_round(1, v_value, v_qty, 2)::text end,
       'sell_price', v_sell::text, 'last_unit_price', v_last::text),
     'purchases', v_rows, 'more', v_count > 200,
-    -- الصناديق الفعّالة لنافذة «سجّل شراء» (الأمين لا يقرأ جدولها): لمن يسجّل الشراء وحده.
-    'cash_accounts', case when v_record then (
+    -- الصناديق الفعّالة لنافذة «سجّل شراء» (الأمين لا يقرأ جدولها): لمن يسجّل شراء هذه المادّة وحده.
+    'cash_accounts', case when v_can_buy then (
       select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) order by c.name collate "C", c.id), '[]'::jsonb)
       from public.cash_accounts c where c.org_id = v_org and c.archived_at is null) else '[]'::jsonb end);
   if v_record then
@@ -803,7 +864,8 @@ end
 $$;
 
 -- بطاقات المواد (read): كلّ مادّة فعّالة بالموجود ومجموع المشترى وآخر يوم شراء بنطاق القارئ (تعريفات item_file نفسها)، وسعر البيع
--- ومتوسّط سعر الشراء داخل money بقاعدة الرؤية نفسها. الترتيب بالاسم المطبَّع ثمّ المعرّف.
+-- ومتوسّط سعر الشراء داخل money بقاعدة الرؤية نفسها (المبلغ مبلغ الفاتورة الحاليّ كالملفّ، M2). الترتيب بالاسم المطبَّع ثمّ المعرّف.
+-- can_record هنا علم الدور (purchase.record)، والملفّ يزيد عليه شرط المخزن (L1).
 create or replace function public.items_overview() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -818,10 +880,14 @@ begin
     where s.org_id = v_org and public.in_scope_wh(s.warehouse_id)
     group by s.item_id
   ), buys as (
-    select l.item_id, sum(l.qty_in) as qty, sum(coalesce(la.line_total, 0)) as value, max(r.received_on) as last_on
+    select l.item_id, sum(l.qty_in) as qty, sum(coalesce(rv.new_total, la.line_total, 0)) as value, max(r.received_on) as last_on
     from public.stock_lots l
     join public.receipts r on r.org_id = l.org_id and r.id = l.source_id
     left join public.receipt_line_amounts la on la.org_id = l.org_id and la.line_id = l.source_line_id
+    left join lateral (
+      select v.new_total from public.receipt_revaluations v
+      where v.org_id = l.org_id and v.receipt_line_id = l.source_line_id and v.status = 'posted' order by v.rev_no desc limit 1
+    ) as rv on true
     where l.org_id = v_org and l.source_kind = 'receipt' and l.origin_lot_id is null and r.status = 'posted' and public.in_scope_wh(l.warehouse_id)
     group by l.item_id
   )
@@ -864,10 +930,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- ─── ط. الصلاحيات ───────────────────────────────────────────────────────────────────────────────────────────────
-revoke all on function public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid),
+revoke all on function public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid, date, timestamptz),
   public.item_file(uuid), public.items_overview(), public.verify_purchases()
   from public, anon;
-grant execute on function public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid),
+grant execute on function public.record_purchase(uuid, uuid, uuid, uuid, uuid, date, numeric, numeric, numeric, text, uuid, uuid, date, timestamptz),
   public.item_file(uuid), public.items_overview() to authenticated;
 revoke all on function public.verify_purchases() from authenticated;
 grant execute on function public.verify_purchases() to service_role;
