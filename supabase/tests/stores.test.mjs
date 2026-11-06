@@ -43,7 +43,6 @@ const ZERO = {
   item_unit_pieces: 0,
   item_unit_defaults: 0,
   member_scope_targets: 0,
-  first_post_without_go_live: 0,
   org_default_seeds: 0,
 };
 
@@ -624,7 +623,7 @@ export default async function (t, db) {
 
   // ── الثوابت: verify_stores صفر بأسماء فحوصه كلها، وكل فحص يمسك كسره وحده (نمط ZERO وBREAKS بـcore.test) ─────────────
   // كل ضابط بمعاملة ترجع، والمشغّل أو الفهرس أو القيد اللي يحرسه معطَّل حتى ينكتب الخرق؛ والعدّ بالمنشأة كلها، فالكسر صفّ واحد.
-  t.same(await db.asService(verifyMap), ZERO, 'verify_stores صفر بأسماء فحوصه الاثني عشر بالضبط (بمفتاح الخادم)');
+  t.same(await db.asService(verifyMap), ZERO, 'verify_stores صفر بأسماء فحوصه الأحد عشر بالضبط (بمفتاح الخادم؛ first_post_without_go_live انشال بـ0018)');
   const generalDivision = "(select id from public.divisions where org_id = $1 and kind = 'general')";
   const BREAKS = {
     site_division_kind: ['alter table public.sites disable trigger sites_check', "update public.sites set kind = 'farm' where org_id = $1 and kind = 'mill'"],
@@ -647,7 +646,6 @@ export default async function (t, db) {
       "insert into public.item_units (org_id, item_id, label, factor_to_base, is_default) select $1, i.id, x.l, x.f, true from public.items i, (values ('أ', 2), ('ب', 3)) as x(l, f) where i.org_id = $1 and i.name = 'غاز'",
     ],
     member_scope_targets: ['alter table public.member_scopes drop constraint member_scopes_one_target', "insert into public.member_scopes (org_id, member_id) select org_id, id from public.members where org_id = $1 and role = 'viewer'"],
-    first_post_without_go_live: ["update public.divisions set first_posted_at = now() where org_id = $1 and kind = 'medicine' and go_live_on is null"],
     org_default_seeds: ['alter table public.expense_categories disable trigger expense_categories_check', "update public.expense_categories set system_code = null where org_id = $1 and system_code = 'count_diff'"],
   };
   t.same(Object.keys(BREAKS).sort(), Object.keys(ZERO).sort(), `كل فحص بـverify_stores إله ضابط كسر (${Object.keys(ZERO).length})`);

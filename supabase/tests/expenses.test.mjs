@@ -50,7 +50,7 @@ async function scenario(t, db) {
   const broilerSite = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل الأمل', 'farm') returning id", [D.broiler]);
 
   /** تسجيل مصروف بالدالّة الحقيقية: الافتراض نقدي 25,000 كهرباء على العامّة من الصندوق، بتاريخ اليوم. */
-  const rec = (user, o = {}, ref = uid()) =>
+  const rec = (user, o = {}, ref = uid(), options = undefined) =>
     call(db, user, 'select public.record_expense($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)', [
       o.id ?? uid(),
       'category' in o ? o.category : power,
@@ -67,7 +67,7 @@ async function scenario(t, db) {
       o.note ?? null,
       o.forMonth ?? null,
       ref,
-    ]);
+    ], options);
   const voidIt = (user, expenseId, reason = 'مصروف خاطئ', ref = uid()) => call(db, user, 'select public.void_expense($1, $2, $3)', [expenseId, reason, ref]);
   const boxBalance = async (account) => (await db.admin('select coalesce(sum(amount), 0)::text as v from public.cash_moves where account_id = $1', [account])).rows[0].v;
   const row = async (expenseId) =>
@@ -182,16 +182,16 @@ async function scenario(t, db) {
     site: [{ site: otherSite }, 'site_mismatch'],
     future: [{ onDate: '2026-11-11' }, 'date_in_future'],
     tooOld: [{ onDate: '2026-11-02' }, 'date_too_old'],
-    beforeGoLive: [{ onDate: '2026-11-05', division: D.layer }, null],
     nextMonth: [{ forMonth: '2026-12-01' }, 'for_month_invalid'],
     longNote: [{ note: 'ن'.repeat(501) }, 'note_too_long'],
   };
-  // يوم تشغيل البيّاض بعد التاريخ: before_go_live (الوحدة الثانية بلا ترحيل، فيوم تشغيلها يتغيّر).
-  await one(U.owner, 'select public.set_division_go_live($1, $2)', [D.layer, '2026-11-08']);
-  rejects.beforeGoLive[1] = 'before_go_live';
   const got = {};
   for (const [key, [o]] of Object.entries(rejects)) got[key] = shown(await rec(U.accountant, o));
   t.same(got, Object.fromEntries(Object.entries(rejects).map(([key, [, code]]) => [key, code])), 'كل رفض برمزه');
+  // 0018 (كلمة المالك «ما النا علاقة بيوم التشغيل»): يوم تشغيل البيّاض بعد التاريخ (08/11) لا يرفض مصروف 05/11 بعد الآن (كان before_go_live)؛
+  // بمعاملة ترجع حتّى لا يغيّر مجاميع ما بعده.
+  await one(U.owner, 'select public.set_division_go_live($1, $2)', [D.layer, '2026-11-08']);
+  t.eq(shown(await rec(U.accountant, { onDate: '2026-11-05', division: D.layer }, uid(), { commit: false })), 'ok', '0018: مصروف قبل يوم تشغيل وحدته يمرّ');
   t.same(
     [shown(await rec(U.storekeeper)), shown(await rec(U.viewer)), shown(await rec(U.scopedAccountant)), shown(await rec(U.scopedAccountant, { division: D.broiler, amount: '1000' }))],
     ['forbidden', 'forbidden', 'out_of_scope', 'ok'],

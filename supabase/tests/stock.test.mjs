@@ -121,12 +121,15 @@ async function scenario(t, db) {
     'ترحيل الافتتاح للمدير والمالك بس (opening.post)',
   );
   const lateDoc = await openingDraft(db, U.manager, W.general2, '2026-10-21', [{ item: I.gas, qty: 1, value: 7000 }]);
-  t.eq(shown(await postOpening(db, U.manager, lateDoc)), 'after_go_live', 'افتتاح بعد يوم التشغيل ← after_go_live');
+  // 0018 (كلمة المالك «ما النا علاقة بيوم التشغيل»): الافتتاح بعد يوم التشغيل وبوحدة بلا يوم يمرّ؛ بمعاملة ترجع حتّى لا يغيّر ما بعده
+  // (دفعات الغاز، وتجميد يوم تشغيل المنشأة الثانية بأوّل ترحيل).
+  const openUnguarded = (user, doc) => call(db, user, 'select public.post_opening_stock($1, $2, $3)', [doc.id, doc.version, uid()], { commit: false });
+  t.eq(shown(await openUnguarded(U.manager, lateDoc)), 'ok', '0018: افتتاح بعد يوم التشغيل يمرّ');
   const bare = await makeOrg(db, { name: 'منشأة بلا تشغيل', id: bareId, phone: barePhone, roles: [['owner', 'owner'], ['manager', 'manager']] });
   const bareGeneral = (await db.admin("select id from public.warehouses where org_id = $1 and kind = 'general'", [bare.org])).rows[0].id;
   const bareFuel = (await call(db, bare.users.manager, "insert into public.items (name, kind, base_unit) values ('كاز', 'fuel', 'L') returning id")).value;
   const bareDoc = await openingDraft(db, bare.users.manager, bareGeneral, '2026-10-20', [{ item: bareFuel, qty: 1, value: 1 }]);
-  t.eq(shown(await postOpening(db, bare.users.manager, bareDoc)), 'no_go_live', 'وحدة بلا يوم تشغيل ← no_go_live');
+  t.eq(shown(await openUnguarded(bare.users.manager, bareDoc)), 'ok', '0018: افتتاح بوحدة بلا يوم تشغيل يمرّ');
 
   // ── ترتيب الدفعات لكل منشأة (E4، درس 0006): المدير يقرأ fifo_seq من stock_lots، فرقم مشترك بين المنشآت يكشف نشاطها ──────────
   const fifoMax = async () => BigInt((await asM('select max(fifo_seq)::text as v from public.stock_lots')).value ?? '0');

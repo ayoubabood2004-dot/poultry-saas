@@ -408,9 +408,10 @@ async function scenario(t, db) {
   );
   const o2Box = (await call(db, O2.users.manager, "insert into public.cash_accounts (name, kind) values ('صندوق المنشأة الثانية', 'cash') returning id")).value;
   const o2Opening = (day) => call(db, O2.users.manager, 'select public.record_cash_opening($1, $2, $3, $4, $5)', [uid(), o2Box, '1000', day, uid()]);
-  const noGoLive = shown(await o2Opening('2026-09-22'));
+  // 0018: بلا يوم تشغيل لأيّ وحدة يمرّ افتتاح الصندوق (كان no_go_live)؛ بمعاملة ترجع حتّى لا يغيّر ما بعده.
+  const noGoLive = shown(await call(db, O2.users.manager, 'select public.record_cash_opening($1, $2, $3, $4, $5)', [uid(), o2Box, '1000', '2026-09-22', uid()], { commit: false }));
   t.eq(shown(await call(db, O2.users.manager, 'select public.set_division_go_live($1, $2)', [O2.divisions.medicine, '2026-11-05'])), 'ok', 'ضابط: يوم تشغيل الأدوية بالمستقبل بالمنشأة الثانية');
-  t.same([noGoLive, shown(await o2Opening('2026-11-02'))], ['no_go_live', 'date_in_future'], 'افتتاح الصندوق بلا يوم تشغيل لأيّ وحدة يرفض، وبالمستقبل يرفض حتى قبل أقدم يوم تشغيل');
+  t.same([noGoLive, shown(await o2Opening('2026-11-02'))], ['ok', 'date_in_future'], '0018: افتتاح الصندوق بلا يوم تشغيل لأيّ وحدة يمرّ، وبالمستقبل يرفض date_in_future');
 
   // ── محرّك التوزيع (القاعدة 27) ───────────────────────────────────────────────────────────────────────────────
   // قيد المستند نفسه أوّلاً (p_first، WP6 يمرّره): الخطّة على قيدين «عليه» بنفس الدفتر.
@@ -688,8 +689,8 @@ async function scenario(t, db) {
   const Pg = await o3Party('جهة يوم التشغيل');
   t.same(
     await race(db, { user: O3.users.manager2, sql: 'select public.set_division_go_live($1, $2::date)', params: [O3.divisions.general, D2] }, { user: O3.users.manager, sql: 'select public.record_party_payment($1, $2, $3, $4, $5, $6, $7)', params: [uid(), Pg, O3.books.general, '1000', Bg, '2026-10-26', uid()] }),
-    { first: 'ok', state: 'blocked', second: 'before_go_live' },
-    'أوّل ترحيل بالوحدة ينتظر صفّها: يوم التشغيل اللي ينتقل بنفس اللحظة لـ28/10 يرفض قبضاً بتاريخ 26/10',
+    { first: 'ok', state: 'blocked', second: 'ok' },
+    'أوّل ترحيل بالوحدة ينتظر صفّها (division_for_post باقٍ): يوم التشغيل الذي ينتقل بنفس اللحظة لـ28/10 لا يرفض قبض 26/10 بعد 0018',
   );
   const Pg2 = await o3Party('جهة ترتيب الافتتاح');
   t.same(

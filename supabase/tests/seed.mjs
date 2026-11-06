@@ -14,6 +14,8 @@
 // #1)، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها (مراجعة 0016 الثالثة #2): كل وحدة توقف التراجع بصوت.
 // 0017: البذرة نفسها وفوقها استلام مرحَّل بـpost_receipt (الجسم المشترك)، وبين التراجع والإعادة استلام ثانٍ بجسم 0009، وبعد الإعادة شراء
 // بـrecord_purchase (ROLLBACK_EXTRAS أدناه)، فالتراجع يكمل. والطريق الثاني: شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع بصوت.
+// 0018: البذرة نفسها وفوقها شراء بالعامّة بعد يوم تشغيلها وافتتاح بيومه، وبعد الإعادة شراء بالمعمل بلا يوم تشغيل (ROLLBACK_EXTRAS)، فالتراجع يكمل.
+// والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -393,7 +395,56 @@ const purchaseSeed = async (db) => {
 
 const PURCHASE_CONDITION = 'if v_rows > 0 then';
 
+/**
+ * 0018 (بلا يوم تشغيل): ثلاث بذور، كلّ واحدة تحتاج فرعها من شرط الرفض. المدير بدوالّ 0018:
+ * (١) شراء ذرة بالمعمل ويوم تشغيله فارغ (first_posted_at بلا go_live_on)؛ (٢) يوم تشغيل المعمل بعد خمسة أيّام ثمّ شراء اليوم (مستند قبل يومه)؛
+ * (٣) افتتاح كاز بالمخزن العامّ اليوم ويوم تشغيل العامّة قبل ثلاثة أيّام (افتتاح بعد يومه).
+ */
+const goLiveSeed = (kind) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    if (kind === 'unset') {
+      await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 10, 450, null, 'credit', null, null)", [REF(60), REF(61), REF(62), corn, party]);
+    } else if (kind === 'early') {
+      const mill = await value(q, "select id from public.divisions where kind = 'feed_mill'");
+      await q('select public.set_division_go_live($1, public.app_today() + 5)', [mill]);
+      await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 10, 450, null, 'credit', null, null)", [REF(63), REF(64), REF(65), corn, party]);
+    } else {
+      const general = await value(q, "select id from public.warehouses where kind = 'general'");
+      const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز الافتتاح', 'fuel', 'L') returning id");
+      const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today()) returning id', [general]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 50, 40000)', [doc, fuel]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [doc, REF(66)]);
+    }
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  18: [
+    {
+      name: 'ترحيل بوحدة بلا يوم تشغيل',
+      code: 'rollback_blocked',
+      seed: goLiveSeed('unset'),
+      data: "select (select count(*) from public.divisions where first_posted_at is not null and go_live_on is null)::text || '/' || (select count(*) from public.receipts where status = 'posted')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_unset > 0 then', 'if false then'),
+    },
+    {
+      name: 'مستند عاديّ قبل يوم تشغيل وحدته',
+      code: 'rollback_blocked',
+      seed: goLiveSeed('early'),
+      data: "select (select count(*) from public.stock_moves where doc_kind = 'receipt')::text || '/' || (select count(*) from public.divisions where go_live_on > public.app_today())::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_early > 0 then', 'if false then'),
+    },
+    {
+      name: 'افتتاح بعد يوم تشغيل وحدته',
+      code: 'rollback_blocked',
+      seed: goLiveSeed('late'),
+      data: "select (select count(*) from public.stock_moves where doc_kind = 'opening')::text || '/' || (select count(*) from public.opening_docs)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_late > 0 then', 'if false then'),
+    },
+  ],
   17: [
     {
       name: 'شراء مسجَّل بسعره',
@@ -603,6 +654,7 @@ export const BLOCKING_REQUIRED = [
   [15, 2, 'خلطة مفعَّلة، ودفعة إنتاج مسوّدة، كل وحدة توقف التراجع'],
   [16, 5, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها، كل وحدة توقف التراجع'],
   [17, 1, 'شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع'],
+  [18, 3, 'ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -726,7 +778,56 @@ const purchaseRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0018: حالة التراجع الكاملة على مستندات تقبلها القواعد القديمة: شراء كاز بالعامّة اليوم (يوم تشغيلها قبل ثلاثة أيّام) وافتتاح كاز ثانٍ بيوم
+ * تشغيلها نفسه. فالتراجع يكمل، وبين التراجع والإعادة شراء ثانٍ بالعامّة بقاعدة 0006 المستعادة، وبعد الإعادة شراء ذرة بالمعمل بلا يوم تشغيل.
+ */
+const goLiveRollbackSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const general = await value(q, "select id from public.warehouses where kind = 'general'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز العامّة', 'fuel', 'L') returning id");
+    const stocked = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز الرصيد', 'fuel', 'L') returning id");
+    await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 20, 750, null, 'credit', null, null)", [REF(67), REF(68), REF(69), fuel, party]);
+    const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [general]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 30, 21000)', [doc, stocked]);
+    await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [doc, REF(70)]);
+  }, { commit: true });
+};
+
+/** بين التراجع والإعادة (قواعد 0006 المستعادة): شراء ثانٍ بالعامّة بعد يوم تشغيلها يمرّ. */
+const goLiveOn0017 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "select id from public.items where name = 'كاز العامّة'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 5, 760, null, 'credit', null, null)", [REF(71), REF(72), REF(73), fuel, party]);
+  }, { commit: true });
+};
+
+/** بعد إعادة 0018: شراء ذرة بالمعمل ويومه فارغ يمرّ، والوحدة رُحّل فيها بلا يوم تشغيل. */
+const goLiveRedone = async (db) => {
+  const problems = [];
+  try {
+    await db.asUser(U.manager, async (q) => {
+      const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+      const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+      await q("select public.record_purchase($1, $2, $3, $4, $5, public.app_today(), 10, 450, null, 'credit', null, null)", [REF(74), REF(75), REF(76), corn, party]);
+    }, { commit: true });
+  } catch (error) {
+    problems.push(`شراء بالمعمل بلا يوم تشغيل بعد الإعادة رُفض: ${error.message}`);
+  }
+  const mill = (await db.admin("select first_posted_at is not null as posted, go_live_on from public.divisions where kind = 'feed_mill'")).rows;
+  if (!mill.every((row) => row.posted && row.go_live_on === null)) problems.push(`وحدة المعمل بعد الإعادة ${JSON.stringify(mill)} والمتوقّع مرحَّلة بلا يوم تشغيل`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  18: {
+    seed: goLiveRollbackSeed,
+    afterRollback: goLiveOn0017,
+    afterRedo: goLiveRedone,
+  },
   17: {
     seed: receiptPostedSeed,
     afterRollback: receiptOn0016,

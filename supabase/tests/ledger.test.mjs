@@ -41,8 +41,9 @@ async function scenario(t, db) {
   const gold = await asM('select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), abuAli, B.feed_mill, '2026-09-30', uid()]);
   t.eq(shown(gold), 'ok', 'GOLD-07: افتتاح أبو علي 500,000 بدفتر المعمل يوم تشغيله ينقبل');
   t.eq((await db.admin("select $1::date - date '2026-09-30' as d", [TODAY])).rows[0].d, 30, 'والافتتاح قبل اليوم بثلاثين يوماً (مستثنى من حدّ الأيام السبعة)');
-  const late = await asM('select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), await party('أبو علي الثاني'), B.feed_mill, '2026-10-01', uid()]);
-  t.eq(shown(late), 'after_go_live', 'GOLD-07: نفس الافتتاح بتاريخ 01/10 ← after_go_live');
+  // 0018 (كلمة المالك «ما النا علاقة بيوم التشغيل»): الافتتاح بعد يوم التشغيل يمرّ (كان after_go_live)؛ بمعاملة ترجع حتّى لا يغيّر ما بعده.
+  const late = await call(db, U.manager, 'select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), await party('أبو علي الثاني'), B.feed_mill, '2026-10-01', uid()], { commit: false });
+  t.eq(shown(late), 'ok', '0018: نفس الافتتاح بتاريخ 01/10 (بعد يوم التشغيل) يمرّ');
   t.same([gold.value.money.amount, gold.value.money.remaining, gold.value.doc_no], ['500000', '500000', null], 'الافتتاح بلا رقم (E12) ومتبقّيه كامل');
 
   // ── القاعدة 27: 2,000,000 «قبضنا» ← 500,000 للسابق، والفائض «له 1,500,000» بنفس الدفتر، ودفتر الأفراخ ما يتحرّك ───────────

@@ -115,20 +115,21 @@ export default async function (t, db) {
   const outOfScope = await at('2026-10-01', () => call(db, U.millKeeper, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [P.vaccine, W.medicine, '2026-10-01']));
   t.eq(shown(outOfScope), 'rls', 'ضابط النطاق: أمين المعمل ما يكتب مسوّدة بمخزن الأدوية');
 
-  // افتتاح أبو علي (2026-09-30) بدفتر المعمل، ونفسه بعد التشغيل after_go_live.
+  // افتتاح أبو علي (2026-09-30) بدفتر المعمل، ونفسه بعد التشغيل: يوم التشغيل لا يحكم التاريخ بعد 0018، فيصل إلى «افتتاح فعّال واحد» (opening_exists).
   await at('2026-09-30', () => one(U.manager, 'select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), P.abuAli, B.feed_mill, '2026-09-30', uid()]));
   const late = await at('2026-10-01', () => call(db, U.manager, 'select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), P.abuAli, B.feed_mill, '2026-10-01', uid()]));
-  t.eq(shown(late), 'after_go_live', 'افتتاح بعد يوم التشغيل يرفض after_go_live');
+  t.eq(shown(late), 'opening_exists', '0018: افتتاح ثانٍ بعد يوم التشغيل لا يُرفض بيومه بل بالافتتاح الفعّال (opening_exists)');
 
-  // R1 (2026-10-01): نقداً بمخزن مواد المعمل؛ وقبله مستند بتاريخ 2026-09-29 قبل التشغيل.
+  // R1 (2026-10-01): نقداً بمخزن مواد المعمل؛ وقبله مستند بتاريخ 2026-09-29 قبل التشغيل: بعد 0018 يترحّل (يوم التشغيل لا يحكم التاريخ)،
+  // والترحيل هنا بمعاملة ترجع ثمّ تُطوى المسوّدة، فلا يتغيّر رقم ولا دفعة في المثال الذهبيّ.
   const before = await at('2026-10-01', async () => {
     const doc = await receiptDraft(db, U.millKeeper, { wh: W.raw, party: P.cash1, on: '2026-09-29', lines: [{ item: I.corn, qty: 1 }] });
     const version = await priceReceipt(db, U.accountant, doc, { totals: [450] });
-    const result = await postReceipt(db, U.accountant, doc.id, version);
+    const result = await call(db, U.accountant, 'select public.post_receipt($1, $2, $3)', [doc.id, version, uid()], { commit: false });
     await one(U.millKeeper, "select public.discard_draft('receipt', $1, $2)", [doc.id, version]);
     return result;
   });
-  t.eq(shown(before), 'before_go_live', 'استلام بالمعمل بتاريخ قبل يوم تشغيله ← before_go_live');
+  t.eq(shown(before), 'ok', '0018: استلام بالمعمل بتاريخ قبل يوم تشغيله يترحّل (بمعاملة ترجع)');
   const r1Lines = [
     { item: I.corn, qty: 4000 }, { item: I.soy, qty: 4000 }, { item: I.oil, qty: 1000 }, { item: I.lime, qty: 1000 }, { item: I.dcp, qty: 500 },
     { item: I.premix, qty: 8, unit: sack, expiry: '2027-03-01' }, { item: I.salt, qty: 500 }, { item: I.bags, qty: 1000 },

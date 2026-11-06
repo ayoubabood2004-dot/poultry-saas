@@ -157,10 +157,6 @@ async function scenario(t, db) {
     noParty: shown(await pay('record_party_payment', null, B.feed_mill, '1000')),
     future: shown(await pay('record_party_payment', E, B.feed_mill, '1000', BOX, '2026-10-31')),
     tooOld: shown(await pay('record_party_payment', E, B.feed_mill, '1000', BOX, '2026-10-22')),
-    beforeGoLive: shown(await pay('record_party_payment', E, B.medicine, '1000', BOX, '2026-10-27')),
-    noGoLive: shown(await pay('record_party_payment', E, B.broiler, '1000')),
-    openingAfterGoLive: shown(await opening(E, B.feed_mill, '1000', '2026-10-01')),
-    openingNoGoLive: shown(await opening(E, B.layer, '1000', '2026-09-30')),
     direction: shown(await adjust(E, B.feed_mill, 'up', '1000')),
     reason: shown(await adjust(E, B.feed_mill, 'debit', '1000', '   ')),
     balanceZero: shown(await forgive(E, B.feed_mill, '1000')),
@@ -186,10 +182,6 @@ async function scenario(t, db) {
       noParty: 'party_required',
       future: 'date_in_future',
       tooOld: 'date_too_old',
-      beforeGoLive: 'before_go_live',
-      noGoLive: 'no_go_live',
-      openingAfterGoLive: 'after_go_live',
-      openingNoGoLive: 'no_go_live',
       direction: 'direction_required',
       reason: 'reason_required',
       balanceZero: 'balance_zero',
@@ -201,7 +193,20 @@ async function scenario(t, db) {
       voidReason: 'reason_required',
       missing: 'entry_not_found',
     },
-    'رفض المعطيات برموزها: نصف دينار، صفر، سالب، NaN، بلا دفتر أو صندوق أو جهة، التاريخ (مستقبل، أقدم من 7 أيام، قبل التشغيل، بلا يوم تشغيل، الافتتاح بعده)، الاتّجاه، السبب، الرصيد، والإلغاء',
+    'رفض المعطيات برموزها: نصف دينار، صفر، سالب، NaN، بلا دفتر أو صندوق أو جهة، التاريخ (مستقبل، أقدم من 7 أيام)، الاتّجاه، السبب، الرصيد، والإلغاء',
+  );
+  // 0018 (كلمة المالك 2026-11-06: «ما النا علاقة بيوم التشغيل»): يوم التشغيل لا يحكم التاريخ بعد الآن، فما كان يُرفض به يمرّ (بمعاملة ترجع حتّى
+  // لا يغيّر ما بعده): القبض قبل يوم تشغيل الأدوية، وبدفتر اللحم بلا يوم تشغيل، والافتتاح بعد يوم تشغيل المعمل، وبدفتر البيض بلا يوم.
+  const unguarded = (sql, params) => call(db, U.manager, sql, params, { commit: false });
+  t.same(
+    {
+      beforeGoLive: shown(await unguarded('select public.record_party_payment($1, $2, $3, $4, $5, $6, $7)', [uid(), E, B.medicine, '1000', BOX, '2026-10-27', uid()])),
+      noGoLive: shown(await unguarded('select public.record_party_payment($1, $2, $3, $4, $5, $6, $7)', [uid(), E, B.broiler, '1000', BOX, TODAY, uid()])),
+      openingAfterGoLive: shown(await unguarded('select public.record_opening_balance($1, $2, $3, $4, $5, $6)', [uid(), E, B.feed_mill, '1000', '2026-10-01', uid()])),
+      openingNoGoLive: shown(await unguarded('select public.record_opening_balance($1, $2, $3, $4, $5, $6)', [uid(), E, B.layer, '1000', '2026-09-30', uid()])),
+    },
+    { beforeGoLive: 'ok', noGoLive: 'ok', openingAfterGoLive: 'ok', openingNoGoLive: 'ok' },
+    '0018: القبض قبل يوم التشغيل وبلا يوم تشغيل، والافتتاح بعده وبلا يوم، كلّها تمرّ',
   );
   const sevenDays = await pay('record_party_payment', E, B.feed_mill, '1000', BOX, '2026-10-23');
   t.eq(shown(sevenDays), 'ok', 'ضابط: الرجوع 7 أيام بالضبط مقبول');
@@ -226,14 +231,15 @@ async function scenario(t, db) {
   const moved = await transfer(BOX, BANK, '300000', 'إيداع');
   t.same([shown(opened), shown(moved)], ['ok', 'ok'], 'ضابط: افتتاح الصندوق بيوم أقدم تشغيل والنقل ينسجّلان');
   const cash = {
-    afterGoLive: shown(await cashOpening(BANK, '1000', '2026-09-25')),
     again: shown(await cashOpening(BOX, '1000', '2026-09-20')),
     zero: shown(await cashOpening(BANK, '0', '2026-09-20')),
     same: shown(await transfer(BOX, BOX, '1000')),
     noTarget: shown(await transfer(BOX, null, '1000')),
     fromSource: shown(await voidMove((await one('select id from public.cash_moves where party_entry_id = $1', [sevenDays.value.id])).id)),
   };
-  t.same(cash, { afterGoLive: 'after_go_live', again: 'opening_exists', zero: 'amount_zero', same: 'same_account', noTarget: 'cash_account_required', fromSource: 'void_from_source' }, 'رفض الصناديق برموزها');
+  t.same(cash, { again: 'opening_exists', zero: 'amount_zero', same: 'same_account', noTarget: 'cash_account_required', fromSource: 'void_from_source' }, 'رفض الصناديق برموزها');
+  // 0018: افتتاح المصرف بعد أقدم يوم تشغيل (24/09) يمرّ (بمعاملة ترجع)؛ كان after_go_live.
+  t.eq(shown(await call(db, U.manager, 'select public.record_cash_opening($1, $2, $3, $4, $5)', [uid(), BANK, '1000', '2026-09-25', uid()], { commit: false })), 'ok', '0018: افتتاح صندوق بعد أقدم يوم تشغيل يمرّ');
   const legs = await db.admin('select account_id = $2 as from_box, amount::text as amount from public.cash_moves where doc_kind = $3 and doc_id = $1 order by amount', [moved.value.id, BOX, 'cash_transfer']);
   t.same(legs.rows, [{ from_box: true, amount: '-300000' }, { from_box: false, amount: '300000' }], 'النقل وجهان متعاكسان بنفس المستند');
   t.eq(shown(await voidMove(moved.value.moves[1])), 'ok', 'إلغاء النقل من أيّ وجه');

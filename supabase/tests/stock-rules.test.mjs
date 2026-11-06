@@ -299,19 +299,21 @@ async function scenario(t, db) {
   const live = await call(db, U.manager, "select public.void_opening_stock($1, 'خطأ', $2)", [voidOpening.id, uid()]);
   t.same([newest.code, newest.hint.includes(bNo) && !newest.hint.includes(aNo), live.code, live.hint.includes(aNo) && !live.hint.includes(bNo)], ['lot_consumed', true, 'lot_consumed', true], `lot_consumed يسمّي الأحدث (${bNo})، وبعد إلغائه الحيّ اللي قبله (${aNo})`);
 
-  // ── حدود يوم التشغيل بالمعاينة والترحيل، والافتتاح معفى من الأيام السبعة، والتاريخ بالوحدتين ─────────────────────────────
+  // ── يوم التشغيل لا يحكم المعاينة ولا الترحيل بعد 0018 (كلمة المالك «ما النا علاقة بيوم التشغيل»)، والافتتاح معفى من الأيام السبعة ──
   const goLiveItem = await item('كاز التشغيل', 'fuel', 'L');
   const openingCodes = async (day) => codes(await previewOf('preview_opening_stock', (await openingDraft(db, U.manager, W.general2, day, [{ item: goLiveItem, qty: 1, value: 1 }])).id));
   // رمز لكل مشكلة (الوحدتان بتلميحين يسمّيان كل وحدة).
   const transferCodes = async (to, day) => [...new Set(codes(await previewOf('preview_transfer', (await transferDraft(db, U.manager, W.general, to, day, [{ item: probeItem, qty: 1 }])).id)))];
   t.same(
     { openingOnGoLive: await openingCodes(GO_LIVE), openingAfter: await openingCodes('2026-10-26'), transferBefore: await transferCodes(W.raw, '2026-10-24'), transferOnGoLive: await transferCodes(W.raw, GO_LIVE), destinationBefore: await transferCodes(W.farm1, '2026-10-27') },
-    { openingOnGoLive: [], openingAfter: ['after_go_live'], transferBefore: ['before_go_live'], transferOnGoLive: [], destinationBefore: ['before_go_live'] },
-    'المعاينة: الافتتاح بيوم التشغيل بلا مشكلة وبعده after_go_live، والتحويل قبله before_go_live (والوجهة بوحدتها)',
+    { openingOnGoLive: [], openingAfter: [], transferBefore: [], transferOnGoLive: [], destinationBefore: [] },
+    '0018: المعاينة بلا مشكلة يوم تشغيل: الافتتاح بعده، والتحويل قبله (والوجهة بوحدتها)',
   );
   const lateDestination = await transferDraft(db, U.manager, W.general, W.farm1, '2026-10-27', [{ item: probeItem, qty: 1 }]);
   const lateCheck = await previewOf('preview_transfer', lateDestination.id);
-  t.same([lateCheck.ready, lateCheck.lines[0].problem, shown(await postTransfer(db, U.manager, lateDestination))], [false, null, 'before_go_live'], 'تحويل لوحدة يومها بعد تاريخه: المعاينة غير جاهزة والترحيل before_go_live');
+  // الترحيل بمعاملة ترجع حتّى لا تتغيّر أرصدة ما بعده.
+  const lateDestinationPost = await call(db, U.manager, "select public.post_transfer($1, $2, public.preview_transfer($1) ->> 'plan', $3)", [lateDestination.id, lateDestination.version, uid()], { commit: false });
+  t.same([lateCheck.ready, lateCheck.lines[0].problem, shown(lateDestinationPost)], [true, null, 'ok'], '0018: تحويل لوحدة يومها بعد تاريخه: المعاينة جاهزة والترحيل يمرّ');
   const oldItem = await item('كاز قديم', 'fuel', 'L');
   const oldDoc = await openingDraft(db, U.manager, W.general2, '2026-10-20', [{ item: oldItem, qty: 10, value: 100 }]);
   const oldPreview = await previewOf('preview_opening_stock', oldDoc.id);
@@ -333,8 +335,8 @@ async function scenario(t, db) {
   const bareTransfer = await transferDraft(db, bareOrg.users.manager, bareStores.general, bareStores.raw, TODAY, [{ item: bareFuel, qty: 1 }]);
   t.same(
     [[...new Set(codes(await previewOf('preview_opening_stock', bareOpening.id, bareOrg.users.manager)))], [...new Set(codes(await previewOf('preview_transfer', bareTransfer.id, bareOrg.users.manager)))]],
-    [['no_go_live'], ['no_go_live']],
-    'المعاينة بوحدة بلا يوم تشغيل: no_go_live',
+    [[], []],
+    '0018: المعاينة بوحدة بلا يوم تشغيل بلا مشكلة (لا no_go_live) للافتتاح والتحويل',
   );
 
   // ── الافتتاح: النطاق والفراغ والمؤرشف، والإلغاء (السبب والنطاق والحالة والتاريخ) ───────────────────────────────────────
