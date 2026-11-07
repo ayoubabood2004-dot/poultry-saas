@@ -196,7 +196,8 @@ const VERSIONS = [
 ];
 const DENSITY_TEXT = '«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
 const DENSITY_OTHERS = '«زيت» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
-const READY = 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.';
+// لا أساس يُطابَق (كلمة المالك 2026-11-07): المسوّدة تقول مجموعها.
+const READY = 'مجموع الخلطة 1,000 كغم: الخلطة جاهزة للتفعيل.';
 const BACK = '/mill/recipe/r-1?version=v-2';
 
 /**
@@ -753,7 +754,7 @@ export default async function (t) {
     const ZERO_LINES = [recipeLine(), lightLine('0.001', '0.000')];
     const ZERO_TEXT = 'كمية «سائل خفيف» في الخلطة تُقرَّب صفراً بالكيلوغرام: اكتب كمية أكبر.';
     const ZERO_OTHERS = 'كمية «سائل خفيف» في الخلطة تُقرَّب صفراً بالكيلوغرام: يكتب المالك أو المدير كمية أكبر.';
-    const BLOCKED = 'المجموع مطابق للأساس، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
+    const BLOCKED = 'مجموع الخلطة 1,000 كغم، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
     await step('W66 المدير', async () => {
       fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: ZERO_LINES })) });
       await mount('/mill/recipe/r-1');

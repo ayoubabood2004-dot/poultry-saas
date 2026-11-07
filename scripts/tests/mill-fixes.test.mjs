@@ -24,17 +24,19 @@ const MILL = [
   'newRecipeVersion', 'loadMillStores',
 ];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
   inventory: routed('inventory', INVENTORY),
+  purchases: routed('purchases', PURCHASES),
   session: 'export const useSession = () => globalThis.__mill.session; export const sessionStore = { get: () => globalThis.__mill?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__mill.toasts.push(spec); }; export function Toaster() { return null; }',
 };
 const stubs = {
   name: 'mill-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
+    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory|purchases)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'mill-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
   },
 };
@@ -100,6 +102,15 @@ const search = async (value) => {
   await settle();
 };
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
+/** بطاقة مادّة بمعرّفها، ولمسها، وخانة كميتها باسمها (بطاقات المعمل، كلمة المالك 2026-11-07). */
+const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
+const pick = (id) => click(cardOf(id));
+const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
+/** جواب items_overview بعد محلّله: كلّ المواد الفعّالة بموجودها. */
+const overviewOf = (rows) => ({
+  today: '2026-11-04', canRecord: true, canAddItem: true,
+  items: rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit, onHand: 0n, purchased: 0n, lastPurchaseOn: null, money: null })),
+});
 /** القيمة المختارة في <select> مُدار: React يعلّم الخيار المختار (selected) ولا يكتب value على العنصر نفسه. */
 const picked = (select) => (select ? (select.options.find((option) => option.selected === true)?.value ?? null) : null);
 const hrefs = () => all().filter((n) => n.localName === 'a').map((n) => n.getAttribute('href') ?? '');
@@ -248,7 +259,8 @@ export default async function (t) {
       }),
       createItem: (fields) => itemRow(`new-${fields.kind}-${fields.name}`, fields.name, fields.kind, fields.base_unit),
       findItemTwins: () => [],
-      loadItem: () => null,
+      loadItem: (id) => catalog.find((row) => row.id === id) ?? null,
+      loadItemsOverview: () => overviewOf(catalog),
       setItemCostPrice: (itemId, price) => price,
       createExpenseCategory: (name) => ({ id: `c-new-${name}`, version: 1, archived: false, name, systemCode: null }),
       createRecipe: (input) => ({ id: input.id, versionId: input.versionId, versionNo: 1, status: input.activate ? 'active' : 'draft', lines: input.lines.length, rates: input.rates.length }),
@@ -259,9 +271,8 @@ export default async function (t) {
       type(byAction('recipe-name')[0], 'علف بياض');
       choose(byAction('recipe-output')[0], 'f-1');
       await settle();
-      await search('ذرة صفراء');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[0], qty);
+      await pick('i-corn');
+      type(qtyOf('ذرة صفراء'), qty);
       await settle();
     };
 
@@ -286,9 +297,9 @@ export default async function (t) {
       const [first] = named(calls, 'createRecipe').map(([input]) => input);
       t.ok(text().includes('حُفظت هذه الخلطة بمحاولة سابقة بمحتوى غير الذي تراه الآن. افتحها لترى ما حُفظ، وعدّلها بنسخة جديدة.'), 'X1 id_conflict بجملة تقول إنّ ما حُفظ غير ما تراه');
       t.eq(byAction('open-saved-recipe')[0]?.getAttribute('href'), `/mill/recipe/${first?.id}`, 'X1 ورابط الخلطة المحفوظة بالمعرّف الذي أُرسل');
-      type(byAction('line-qty')[0], '900');
+      type(qtyOf('ذرة صفراء'), '900');
       await settle();
-      t.same([globalThis.__mill.location, byAction('recipe-name')[0]?.value, byAction('line-qty')[0]?.value], ['/mill/new', 'علف بياض', '900'], 'X1 والبانية بمحتواها تُعدَّل بعد الجواب النهائي (لا انتقال ولا مسح)');
+      t.same([globalThis.__mill.location, byAction('recipe-name')[0]?.value, qtyOf('ذرة صفراء')?.value], ['/mill/new', 'علف بياض', '900'], 'X1 والبانية بمحتواها تُعدَّل بعد الجواب النهائي (لا انتقال ولا مسح)');
       await click(byAction('save-draft')[0]);
       const third = named(calls, 'createRecipe')[2]?.[0];
       t.same([third?.id, third?.versionId], [first?.id, first?.versionId], 'X1 والمحاولة التالية بالمعرّفين أنفسهما: لا خلطة ثانية تُولد بصمت');
@@ -433,17 +444,15 @@ export default async function (t) {
       type(byAction('recipe-name')[0], 'علف بياض');
       type(byAction('new-output-name')[0], 'علف جديد');
       await settle();
-      await search('ذرة صفراء');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[0], '1000');
+      await pick('i-corn');
+      type(qtyOf('ذرة صفراء'), '1000');
       await settle();
       t.same([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])], [true, true], 'X5 منتج مكتوب لم يُنشأ: الزرّان معطّلان');
       t.ok(byAction('save-missing')[0]?.textContent.includes('المنتج «علف جديد» مكتوب ولم يُنشأ: اضغط «أنشئ» أو اختر منتجاً من القائمة.'), `X5 والسبب مكتوب تحتهما (${byAction('save-missing')[0]?.textContent ?? 'لا قائمة'})`);
-      t.ok(!byAction('builder-sum')[0]?.textContent.includes('جاهزة للتفعيل'), `X5 ولا تُقال «جاهزة للتفعيل» والحفظ معطّل (${byAction('builder-sum')[0]?.textContent})`);
       type(byAction('new-output-name')[0], '');
       choose(byAction('recipe-output')[0], 'f-1');
       await settle();
-      t.ok(byAction('builder-sum')[0]?.textContent.includes('جاهزة للتفعيل') && byAction('save-missing').length === 0, 'X5 كلّ شيء صالح: «جاهزة للتفعيل» ولا قائمة');
+      t.ok([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])].every((value) => value === false) && byAction('save-missing').length === 0, 'X5 كلّ شيء صالح: الزرّان يعملان ولا قائمة');
       await click(byAction('add-rate')[0]);
       t.same([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])], [false, false], 'X5 سطر تكلفة فارغ كلّه يُتجاهل ولا يعطّل الحفظ');
       choose(byAction('rate-category')[0], 'c-labor');
@@ -451,10 +460,10 @@ export default async function (t) {
       t.ok(disabled(byAction('save-draft')[0]) === true && byAction('save-missing')[0]?.textContent.includes('اكتب مبلغ تكلفة «أيدي عاملة» لكلّ طنّ أكبر من صفر، أو احذف السطر.'), 'X5 سطر تكلفة بفئة بلا مبلغ: الحفظ معطّل والسبب مكتوب');
       choose(byAction('rate-category')[0], '');
       await settle();
-      type(byAction('line-qty')[0], '900');
+      type(qtyOf('ذرة صفراء'), '');
       await settle();
-      t.ok(disabled(byAction('save-draft')[0]) === false && byAction('save-missing')[0]?.textContent.includes('المجموع 900 كغم أقلّ من الأساس 1.000 طن بـ100 كغم.'), `X5 المجموع ≠ الأساس: المسوّدة تُحفظ والتفعيل يقول ما ينقص بالأرقام (${byAction('save-missing')[0]?.textContent ?? ''})`);
-      type(byAction('line-qty')[0], '1000');
+      t.ok(disabled(byAction('save-draft')[0]) === true && byAction('save-missing')[0]?.textContent.includes('اكتب كمية «ذرة صفراء» أكبر من صفر.'), `X5 مادّة مختارة بلا كمية: الحفظ معطّل والسبب يسمّيها (${byAction('save-missing')[0]?.textContent ?? ''})`);
+      type(qtyOf('ذرة صفراء'), '1000');
       await settle();
       await click(byAction('save-activate')[0]);
       t.same(named(calls, 'createRecipe')[0]?.[0]?.rates, [], 'X5 والسطر الفارغ لا يُرسل');
@@ -531,7 +540,7 @@ export default async function (t) {
       t.ok(byAction('make-raw').length === 1 && !hrefs().some((href) => href.startsWith('/inventory')), 'X8 مطابق بنوع علف: «اجعلها مادّة أوّلية» ولا رابط يغادر البانية');
       await click(byAction('make-raw')[0]);
       t.same(named(calls, 'updateItem'), [['i-fc', 1, { kind: 'raw' }]], 'X8 تعديل نوعها بدالّة تعديل المادّة القائمة بشرط نسختها');
-      t.ok(byAction('line-qty').length === 1 && text().includes('ذرة'), 'X8 ثم تُضاف سطراً في الخلطة');
+      t.ok(byAction('card-qty').length === 1 && cardOf('i-fc')?.getAttribute('aria-pressed') === 'true', 'X8 ثم تُختار بطاقتها في الخلطة');
     });
     await step('X8 مجمّد', async () => {
       fresh(
@@ -580,9 +589,8 @@ export default async function (t) {
       t.ok(byAction('output-twins')[0]?.textContent.includes('«كسبة صويا» موجودة بنوع «مادّة أوّلية»') && byAction('make-feed').length === 1 && byAction('create-output-anyway').length === 1, 'X8 ويُعرض التوأم بنوعه و«اجعلها علفاً جاهزاً» و«أنشئ رغم ذلك»');
       await click(byAction('make-feed')[0]);
       type(byAction('recipe-name')[0], 'علف بياض');
-      await search('ذرة صفراء');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[0], '1000');
+      await pick('i-corn');
+      type(qtyOf('ذرة صفراء'), '1000');
       await settle();
       await click(byAction('save-draft')[0]);
       t.same([named(calls, 'updateItem'), named(calls, 'createRecipe')[0]?.[0]?.outputItemId], [[['i-soy', 1, { kind: 'feed' }]], 'i-soy'], 'X8 «اجعلها علفاً جاهزاً» بشرط نسختها، ثم تُختار منتجاً للخلطة');
@@ -630,15 +638,15 @@ export default async function (t) {
       const calls = fresh({ status: 'ready', workspace: ws() }, builderHandlers());
       await mount('/mill/new');
       await fillBuilder('1000');
-      await search('كاز');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[1], '20');
+      await pick('i-diesel');
+      type(qtyOf('كاز المولّدة'), '20');
       await settle();
-      t.ok(byAction('builder-sum')[0]?.textContent.includes('المجموع 1.000 طن = الأساس'), `X11 الكاز لا يدخل المجموع (${byAction('builder-sum')[0]?.textContent})`);
+      t.eq(byAction('builder-sum')[0]?.textContent, 'مجموع الخلطة: 1,000 كغم', 'X11 الكاز لا يدخل المجموع');
       t.ok(byAction('out-of-basis').length === 1 && byAction('mass-note').length === 1, 'X11 والسطر «خارج الكتلة» بجملة تشرح');
-      t.eq(disabled(byAction('save-activate')[0]), false, 'X11 و«احفظ وفعّل» يعمل (1,000 ذرة + 20 لتر كاز = الأساس)');
+      t.eq(disabled(byAction('save-activate')[0]), false, 'X11 و«احفظ وفعّل» يعمل (1,000 ذرة + 20 لتر كاز خارج الكتلة)');
       await click(byAction('save-activate')[0]);
       t.same(named(calls, 'createRecipe')[0]?.[0]?.lines.map((line) => line.itemId), ['i-corn', 'i-diesel'], 'X11 والكاز يُرسل سطراً (يُسحب وتُحسب كلفته)');
+      t.eq(named(calls, 'createRecipe')[0]?.[0]?.basisKg, 1_000_000n, 'X11 والأساس المرسَل = ما داخل الكتلة وحده');
     });
     await step('X11 البطاقة والدفعة', async () => {
       const fuel = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-diesel', item_name: 'كاز المولّدة', kind: 'fuel', base_unit: 'L', category_name: null, qty: '20.000', unit: 'L', mass_kg: '17.000', share_pct: '0.00', in_basis: false });

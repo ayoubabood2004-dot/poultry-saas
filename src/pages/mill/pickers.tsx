@@ -43,11 +43,9 @@ export interface PickedMaterial {
   baseUnit: BaseUnit;
   /** ١/١٠٠٠٠ كغم/لتر، للسائل بس. */
   density: bigint | null;
-  /** خطوة عدّاد المادّة بالآلاف (القاعدة ١٨). */
-  scaleStep: bigint;
 }
 
-export const materialOf = (row: ItemRow): PickedMaterial => ({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit, density: row.density, scaleStep: row.scaleStep });
+export const materialOf = (row: ItemRow): PickedMaterial => ({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit, density: row.density });
 
 /** مادّة تصلح سطراً في الخلطة أو الدفعة: فعّالة، يقبلها مخزن المواد الأوّلية، وتُقاس بالكيلو أو اللتر (القطعة لا تدخل العليقة). */
 export function millAdmissible(row: Pick<ItemRow, 'archived' | 'kind' | 'baseUnit'>): boolean {
@@ -167,6 +165,25 @@ export function pickerView(rows: readonly ItemRow[], query: string, exclude: Rea
   return { fit, exactFit, misfits, exactIn };
 }
 
+/** بحث المنتقي بالاسم: الجواب يُكتب إن بقي البحث نفسه آخر ما كُتب (latest)، وإلّا يُهمل. */
+function searchItems(
+  query: string,
+  latest: { current: string | null },
+  setFound: (found: { query: string; rows: readonly ItemRow[] }) => void,
+  setFailure: (error: unknown) => void,
+): void {
+  listItems({ search: query }).then(
+    (page) => {
+      if (latest.current !== query) return;
+      setFound({ query, rows: page.rows });
+      setFailure(null);
+    },
+    (error: unknown) => {
+      if (latest.current === query) setFailure(error);
+    },
+  );
+}
+
 /**
  * منتقي مادّة أوّلية للمعمل: بحث بالاسم (listItems) والنتائج المقبولة أزرار، و«أنشئ» حين لا مطابق صالح بالاسم نفسه (لمن
  * يملك item.create)، والمطابق غير الصالح يُسمّى بسببه ومعه «اجعلها مادّة أوّلية» لمن يملك stores.manage (canFixKind) — بلا رابط
@@ -180,6 +197,9 @@ export function MaterialPicker({
   disabled = false,
   onHand = null,
   onPick,
+  text: controlled,
+  onText: reportText,
+  listFits = true,
 }: {
   id: string;
   exclude: ReadonlySet<string>;
@@ -190,10 +210,19 @@ export function MaterialPicker({
   canFixKind: boolean;
   /** مقفول أثناء حفظ البانية (ب١٢): لا بحث ولا إضافة ولا إنشاء. */
   disabled?: boolean;
-  /** created: أُنشئت الآن من المنتقي (بلا شراء ولا سعر بعد). */
-  onPick: (item: PickedMaterial, created: boolean) => void;
+  /** created: أُنشئت الآن من المنتقي (بلا شراء ولا سعر بعد). row: صفّ المادّة كاملاً (كثافتها ونسختها). */
+  onPick: (item: PickedMaterial, created: boolean, row: ItemRow) => void;
+  /**
+   * نصّ البحث من الصفحة (بطاقات المواد، كلمة المالك 2026-11-07): حقل البحث نفسه يصفّي البطاقات، فالنصّ يعيش في الصفحة (درس WP5) ويُبلَّغ
+   * بكلّ كتابة (onText). بلاه يملك المنتقي نصّه كما كان.
+   */
+  text?: string;
+  onText?: (text: string) => void;
+  /** false: البطاقات تعرض المطابقات، فالمنتقي يقول ما لا تقوله وحده (لا مادّة، أو موجودة بنوع آخر، أو «أنشئ»). */
+  listFits?: boolean;
 }) {
-  const [text, setText] = useState('');
+  const [own, setOwn] = useState('');
+  const text = controlled ?? own;
   const [found, setFound] = useState<{ query: string; rows: readonly ItemRow[] } | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [creating, setCreating] = useState(false);
@@ -201,31 +230,25 @@ export function MaterialPicker({
   const [fixing, setFixing] = useState<string | null>(null);
   const [fixProblem, setFixProblem] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef<string | null>('');
+  const latest = useRef<string | null>(text.trim());
+
+  const search = (query: string) => searchItems(query, latest, setFound, setFailure);
 
   useEffect(() => {
     const pending = timer;
     const query = latest;
+    // نصّ من الصفحة بقي بعد إعادة تركيب المنتقي: يُبحث عنه بعد المهلة كما لو كُتب الآن، فلا يبقى «جارٍ البحث» بلا طلب.
+    const initial = query.current;
+    if (initial) pending.current = setTimeout(() => searchItems(initial, query, setFound, setFailure), 250);
     return () => {
       if (pending.current) clearTimeout(pending.current);
       query.current = null;
     };
   }, []);
 
-  const search = (query: string) => {
-    listItems({ search: query }).then(
-      (page) => {
-        if (latest.current !== query) return;
-        setFound({ query, rows: page.rows });
-        setFailure(null);
-      },
-      (error: unknown) => {
-        if (latest.current === query) setFailure(error);
-      },
-    );
-  };
   const onText = (value: string) => {
-    setText(value);
+    setOwn(value);
+    reportText?.(value);
     setTwins(null);
     setFixProblem(null);
     const query = value.trim();
@@ -243,6 +266,21 @@ export function MaterialPicker({
   const view = found && found.query === query ? pickerView(found.rows, query, exclude) : null;
   const shownTwins = twins && twins.query === query ? twins.rows : null;
 
+  /**
+   * بعد إضافة مادّة من المنتقي: بلا بطاقات يُمسح البحث؛ ومع البطاقات يبقى النصّ فتبقى البطاقة المختارة ظاهرة تحته، ويُبحث من جديد
+   * فلا يبقى «أنشئ» لمادّة صارت موجودة.
+   */
+  const picked = (item: PickedMaterial, created: boolean, row: ItemRow) => {
+    onPick(item, created, row);
+    if (listFits) {
+      onText('');
+      return;
+    }
+    setTwins(null);
+    setFound(null);
+    search(query);
+  };
+
   /** «أنشئ»: التوأم بالاسم نفسه يُعرض أوّلاً (استعملها أو اجعلها مادّة أوّلية)، والإنشاء رغمه بفعل صريح ثانٍ (despite). */
   const create = async (despite: boolean) => {
     if (!query || creating || disabled) return;
@@ -258,8 +296,7 @@ export function MaterialPicker({
         }
       }
       const row = await createItem(newItemFields(query, 'raw'));
-      onPick(materialOf(row), true);
-      onText('');
+      picked(materialOf(row), true, row);
     } catch (error) {
       setFailure(error);
     } finally {
@@ -274,8 +311,7 @@ export function MaterialPicker({
     setFixProblem(null);
     try {
       const updated = await updateItem(row.id, row.version, { kind: 'raw' });
-      onPick(materialOf(updated), false);
-      onText('');
+      picked(materialOf(updated), false, updated);
     } catch (error) {
       setFixProblem(kindFixFailure(error, row, 'raw'));
     } finally {
@@ -300,12 +336,12 @@ export function MaterialPicker({
         <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
         <input id={id} className="input" value={text} maxLength={120} autoComplete="off" disabled={disabled} onChange={(event) => onText(event.target.value)} data-action="search-material" />
       </div>
-      {query && !view && !problem ? <p className="text-sm text-ink-muted">{t('mill.picker.searching', 'جارٍ البحث…')}</p> : null}
-      {view?.fit.length ? (
+      {listFits && query && !view && !problem ? <p className="text-sm text-ink-muted">{t('mill.picker.searching', 'جارٍ البحث…')}</p> : null}
+      {listFits && view?.fit.length ? (
         <ul className="flex flex-wrap gap-2">
           {view.fit.map((row) => (
             <li key={row.id}>
-              <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} disabled={disabled} onClick={() => onPick(materialOf(row), false)} data-action="pick-material">
+              <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} disabled={disabled} onClick={() => picked(materialOf(row), false, row)} data-action="pick-material">
                 {t('mill.picker.option', '{name} · {kind} · {unit}', { name: row.name, kind: itemKindLabel(row.kind), unit: unitWord(row.baseUnit) })}
                 <OnHandNote entry={onHand?.get(row.id)} />
               </Button>
@@ -318,7 +354,7 @@ export function MaterialPicker({
           {t('mill.picker.none', 'لا مادّة أوّلية باسم «{name}» في منشأتك.', { name: query })}
         </p>
       ) : null}
-      {view?.exactIn && !view.fit.length ? (
+      {view?.exactIn && (!listFits || !view.fit.length) ? (
         <p className="text-sm text-ink-muted" data-action="picker-already">
           {t('mill.picker.already', '«{name}» مكتوبة في الجدول؛ عدّل كميتها هناك.', { name: query })}
         </p>
@@ -344,10 +380,7 @@ export function MaterialPicker({
                         size="sm"
                         variant="secondary"
                         disabled={disabled}
-                        onClick={() => {
-                          onPick(materialOf(row), false);
-                          onText('');
-                        }}
+                        onClick={() => picked(materialOf(row), false, row)}
                         data-action="use-twin"
                       >
                         {t('mill.twins.use', 'استعملها')}

@@ -12,9 +12,9 @@ import { decimalText } from '../../domain/decimal';
 import { parseMoney, roundHalfAway, type Fils } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
-import { kgToLiters, litersToKg, parseQty, type BaseUnit } from '../../domain/units';
+import { kgToLiters, type BaseUnit } from '../../domain/units';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
-import { columnDecimals, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
+import { columnDecimals, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { createItem, loadItemPurchases, setItemCostPrice, updateItem, type ItemRow } from '../../lib/repo/inventory';
@@ -22,8 +22,11 @@ import { createRecipe, loadBuilder, type BuilderData, type CategoryOption, type 
 import { useSession } from '../../lib/session';
 import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { CellEdit, inBasisKind, kindFixFailure, MaterialPicker, NewCategoryField, newItemFields, NO_CATEGORY_DRAFT, sameNameTwins, unitWord, useOnHand, type CategoryDraft, type PickedMaterial, type TwinView } from './pickers';
+import { cardTotals, CardSums, MaterialCards, useCardLines, useMillStock, viewCardLine } from './cards';
+import { CellEdit, kindFixFailure, NewCategoryField, newItemFields, NO_CATEGORY_DRAFT, sameNameTwins, unitWord, type CategoryDraft, type PickedMaterial, type TwinView } from './pickers';
 import { CompositionBar, dash, pct } from './shared';
+
+export { lineMassKg } from './cards';
 
 // بانية الخلطة بشاشة واحدة (0016، كلمة المالك 2026-11-04: «لمن اسوي خلطة… المفروض تطلعلي قائمة انتاج كاملة اضيف منها المواد
 // وكميات المواد واكثر من مادة واحدد سعر كل مادة وايضا اضيف اشياء اختيارية وتكاليف اختيارية حتى لو ما موجودة بالمعمل»). كانت
@@ -37,19 +40,16 @@ import { CompositionBar, dash, pct } from './shared';
 // الجولة الثانية: نصّ «فئة جديدة» في الصفحة (ب١١)؛ الحقول والأزرار كلّها مقفولة أثناء الحفظ، بما فيه انتظار حفظ أسعار الكلفة (ب١٢)؛
 // خلية سعر الكلفة الممسوحة ليست سعراً معلّقاً فلا يحذفه الحفظ (ب١٣)؛ وبعد نتيجة مجهولة تتجمّد البانية وفعلها الوحيد «أعد المحاولة»
 // بطلب create_recipe نفسه حرفاً (ب١٤)، فلا يُكتب غير ما أُرسل أوّلاً.
+// المواد بطاقاتٍ (كلمة المالك 2026-11-07: «اشوف المواد على شكل بطاقات واحدد على كل مادة… وكل ما اسوي انتاج يحسبلي الناتج الي صار من مجموع
+// المواد»): تُختار بلمسة وأكثر من مادّة معاً وكمية كلّ واحدة على بطاقتها (cards.tsx)، ولا «أساس الخلطة» يُكتب ويُطابَق: الأساس المرسَل
+// مجموع ما داخل الكتلة بالكيلوغرام، فيُقال حيّاً «مجموع الخلطة» و«الناتج المتوقّع»، والتفعيل لا يُرفض basis_mismatch. والجدول تحت البطاقات
+// ملخّص للقراءة (الكمية والكتلة والحصّة وأسعار المادّة)، والكمية تُكتب على البطاقة وحدها.
 
 type PriceState =
   | { status: 'loading' }
   | { status: 'ready'; costPrice: Fils | null; lastPrice: Fils | null }
   | { status: 'failed'; error: unknown }
   | { status: 'hidden' };
-
-interface BuilderLine {
-  item: PickedMaterial;
-  qtyText: string;
-  unit: RecipeUnit;
-  price: PriceState;
-}
 
 interface RateRow {
   key: string;
@@ -72,12 +72,6 @@ interface PendingSave {
  */
 const surelyUnsaved = (problem: unknown): boolean =>
   problem instanceof RejectedError || problem instanceof NetworkError || problem instanceof RetryableError || problem instanceof NotConnectedError || problem instanceof IdentityError;
-
-/** كتلة السطر بالكيلو (بالآلاف): الكيلو كما هو، واللتر بكثافة المادّة (مرآة private.recipe_line_kg)، وبلا كثافة null. */
-export function lineMassKg(qty: bigint, unit: RecipeUnit, density: bigint | null): bigint | null {
-  if (unit === 'kg') return qty;
-  return density !== null && density > 0n ? litersToKg(qty, density) : null;
-}
 
 /** كمية السطر بوحدة أساس المادّة (لضربها بسعر وحدة الأساس): كيلو مكتوب لسائل يصير لتراً بكثافته، وبلاها null. */
 export function lineBaseQty(qty: bigint, unit: RecipeUnit, baseUnit: BaseUnit, density: bigint | null): bigint | null {
@@ -123,8 +117,6 @@ export function planningPrice(typed: Fils | null, costPrice: Fils | null, lastPr
   return typed ?? costPrice ?? lastPrice;
 }
 
-const DEFAULT_BASIS = '1,000';
-
 export default function RecipeBuilderPage() {
   const id = useId();
   const navigate = useNavigate();
@@ -141,8 +133,12 @@ export default function RecipeBuilderPage() {
   const canPrice = costs && canFixKind;
   const load = useCallback(() => loadBuilder(), []);
   const { data, error, retry } = useLoad<BuilderData>(load);
-  // «عندك» بجانب كلّ مادّة في المنتقي (0017، كلمة المالك 2026-11-06): قراءة واحدة للصفحة.
-  const onHand = useOnHand();
+  // البطاقات و«عندك» (0017، كلمة المالك 2026-11-06) من قراءة items_overview واحدة للصفحة.
+  const stock = useMillStock();
+  // المختار وكمياته ونصّ البحث في الصفحة (درس WP5).
+  const picks = useCardLines();
+  const [query, setQuery] = useState('');
+  const [prices, setPrices] = useState<Readonly<Record<string, PriceState>>>({});
 
   const [name, setName] = useState('');
   const [outputId, setOutputId] = useState('');
@@ -151,8 +147,6 @@ export default function RecipeBuilderPage() {
   const [outputBusy, setOutputBusy] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
   const [outputTwins, setOutputTwins] = useState<{ query: string; rows: readonly TwinView[] } | null>(null);
-  const [basisText, setBasisText] = useState(DEFAULT_BASIS);
-  const [lines, setLines] = useState<readonly BuilderLine[]>([]);
   const [costTexts, setCostTexts] = useState<Readonly<Record<string, string>>>({});
   const [priceBusy, setPriceBusy] = useState<string | null>(null);
   const [priceErrors, setPriceErrors] = useState<Readonly<Record<string, string>>>({});
@@ -168,6 +162,7 @@ export default function RecipeBuilderPage() {
   const ids = useRef<{ recipe: string; version: string } | null>(null);
   const rateSeq = useRef(0);
 
+  const lines = picks.lines;
   const dirty = name.trim() !== '' || lines.length > 0 || rates.length > 0 || newOutput.trim() !== '' || outputId !== '';
   useDirtyForm(dirty && saving === null);
   // كلّ حقل وزرّ مقفول أثناء الحفظ (ب١٢: ما يُكتب أثناء انتظار الأسعار كان يُهمَل بصمت) وبعد نتيجة مجهولة (ب١٤).
@@ -178,30 +173,30 @@ export default function RecipeBuilderPage() {
     () => [...(data?.categories ?? []), ...madeCategories.filter((made) => !(data?.categories ?? []).some((category) => category.id === made.id))],
     [data, madeCategories],
   );
-  const basis = parseQty(basisText);
-  const basisOk = basis !== null && basis > 0n;
   const nameTaken = name.trim() !== '' && (data?.recipeNames ?? []).some((taken) => searchable(taken) === searchable(name));
 
   const view = lines.map((line) => {
-    const qty = line.qtyText.trim() === '' ? null : parseQty(line.qtyText);
-    const qtyOk = qty !== null && qty > 0n;
-    const inBasis = inBasisKind(line.item.kind);
-    const mass = qtyOk ? lineMassKg(qty, line.unit, line.item.density) : null;
+    const shown = viewCardLine(line);
+    const { qty } = shown;
+    const linePrice: PriceState = prices[line.item.id] ?? { status: 'hidden' };
     const priceText = costTexts[line.item.id];
     const typedValue = priceText === undefined || priceText.trim() === '' ? null : parseMoney(priceText);
     const priceInvalid = priceText !== undefined && priceText.trim() !== '' && (typedValue === null || typedValue <= 0n);
     const typed = typedValue !== null && typedValue > 0n ? typedValue : null;
-    const saved = line.price.status === 'ready' ? line.price : null;
+    const saved = linePrice.status === 'ready' ? linePrice : null;
     // سعر مكتوب لم يُحفظ (م٦): قيمة > 0 تخالف المحفوظ وحدها (ب١٣)، تُرسل قبل الخلطة بشرط السعر الذي رأته الشاشة؛ وما كُتب والسعر
     // يُقرأ من جديد ينتظر القراءة. الخلية الممسوحة ليست سعراً معلّقاً: الحفظ لا يحذف سعراً محفوظاً (يُحذف بزرّ «حفظ» في الخلية نفسها).
     const pricePending = canPrice && typed !== null && (saved === null || typed !== saved.costPrice);
     const price = planningPrice(typed, saved?.costPrice ?? null, saved?.lastPrice ?? null);
-    return { line, qty, qtyOk, inBasis, mass, price, priceText, priceInvalid, pricePending, typed, qtyBase: qtyOk ? lineBaseQty(qty, line.unit, line.item.baseUnit, line.item.density) : null };
+    return { ...shown, line, linePrice, price, priceText, priceInvalid, pricePending, typed, qtyBase: qty !== null && shown.qtyOk && shown.densityUnread === false ? lineBaseQty(qty, line.unit, line.item.baseUnit, line.item.density) : null };
   });
   const basisRows = view.filter((row) => row.inBasis);
-  const massKnown = basisRows.every((row) => row.mass !== null);
-  const sum = basisRows.reduce((total, row) => total + (row.mass ?? 0n), 0n);
-  const gap = basisOk ? basis - sum : 0n;
+  const totals = cardTotals(view);
+  const massKnown = totals.known;
+  const sum = totals.sum;
+  // لا أساس يُكتب (كلمة المالك 2026-11-07): الأساس المرسَل مجموع ما داخل الكتلة بالكيلوغرام، فالتفعيل يطابقه دائماً.
+  const basis = sum;
+  const basisOk = massKnown && sum > 0n;
   const categoryName = (categoryId: string) => categories.find((category) => category.id === categoryId)?.name ?? dash();
   const ratesView = rates.map((rate) => {
     const value = rate.amountText.trim() === '' ? null : parseMoney(rate.amountText);
@@ -222,8 +217,15 @@ export default function RecipeBuilderPage() {
         : t('mill.builder.need_output', 'اختر المادّة المنتَجة، أو اكتب اسم منتج جديد واضغط «أنشئ».'),
     );
   }
-  if (!basisOk) draftMissing.push(t('mill.builder.need_basis', 'اكتب أساس الخلطة: وزناً أكبر من صفر.'));
+  if (!view.length) draftMissing.push(t('mill.builder.need_cards', 'اختر مادّة واحدة على الأقلّ من البطاقات واكتب كميتها.'));
+  else if (!basisRows.length) draftMissing.push(t('mill.builder.need_basis_line', 'أضف مادّة داخل الكتلة: الوقود والتعبئة وحدهما لا يكوّنان خلطة.'));
   for (const row of view) if (!row.qtyOk) draftMissing.push(t('mill.builder.need_qty', 'اكتب كمية «{name}» أكبر من صفر.', { name: row.line.item.name }));
+  for (const row of view) {
+    if (row.densityMissing) draftMissing.push(t('mill.builder.need_density_of', '«{name}» سائل بلا كثافة، فلا يُحسب وزنه: اكتب كثافته على بطاقته.', { name: row.line.item.name }));
+    else if (row.densityUnread) draftMissing.push(t('mill.builder.density_unread', 'كثافة «{name}» لم تُقرأ بعد: انتظر لحظة أو أعد قراءتها من بطاقته.', { name: row.line.item.name }));
+    // سطر لتر تُقرَّب كتلته صفراً (ق٦٤): الخادم يرفضه qty_not_positive، فيُسمّى قبل الإرسال.
+    else if (row.mass === 0n) draftMissing.push(t('mill.builder.zero_mass', 'كمية «{name}» تُقرَّب صفراً بالكيلوغرام: اكتب كمية أكبر.', { name: row.line.item.name }));
+  }
   for (const row of ratesView) {
     if (row.ok || row.empty) continue;
     draftMissing.push(
@@ -234,54 +236,33 @@ export default function RecipeBuilderPage() {
   }
   for (const row of view) {
     if (row.priceInvalid) draftMissing.push(t('mill.builder.need_price', 'سعر كلفة «{name}» غير صالح: صحّحه أو امسحه.', { name: row.line.item.name }));
-    else if (row.pricePending && row.line.price.status === 'failed') draftMissing.push(t('mill.builder.price_unread', 'تعذّرت قراءة سعر «{name}»: أعد قراءته ثم احفظ، أو امسح السعر المكتوب.', { name: row.line.item.name }));
-    else if (row.pricePending && row.line.price.status !== 'ready') draftMissing.push(t('mill.builder.price_wait', 'سعر «{name}» يُقرأ الآن: انتظر لحظة ثم احفظ.', { name: row.line.item.name }));
+    else if (row.pricePending && row.linePrice.status === 'failed') draftMissing.push(t('mill.builder.price_unread', 'تعذّرت قراءة سعر «{name}»: أعد قراءته ثم احفظ، أو امسح السعر المكتوب.', { name: row.line.item.name }));
+    else if (row.pricePending && row.linePrice.status !== 'ready') draftMissing.push(t('mill.builder.price_wait', 'سعر «{name}» يُقرأ الآن: انتظر لحظة ثم احفظ.', { name: row.line.item.name }));
   }
-  const activateMissing: string[] = [];
-  if (!basisRows.length) {
-    activateMissing.push(
-      view.length
-        ? t('mill.builder.need_basis_line', 'أضف مادّة داخل الكتلة: الوقود والتعبئة وحدهما لا يكوّنان خلطة.')
-        : t('mill.builder.need_line', 'أضف مادّة واحدة على الأقلّ.'),
-    );
-  } else if (!massKnown) {
-    activateMissing.push(t('mill.builder.need_density', 'في المواد سائل بلا كثافة فلا يُحسب وزنه: اكتب كميته بالكيلوغرام أو أكمل كثافته من بطاقته.'));
-  } else if (basisOk && gap !== 0n) {
-    const vars = { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(gap > 0n ? gap : -gap, 'kg').main };
-    activateMissing.push(
-      gap > 0n
-        ? t('mill.builder.need_gap_short', 'المجموع {sum} أقلّ من الأساس {basis} بـ{gap}.', vars)
-        : t('mill.builder.need_gap_over', 'المجموع {sum} أكبر من الأساس {basis} بـ{gap}.', vars),
-    );
-  }
-  const canDraft = canBuild && draftMissing.length === 0;
-  const canActivate = canDraft && activateMissing.length === 0;
+  // المسوّدة والتفعيل بالشروط نفسها الآن: الأساس هو المجموع، فلا فرق يمنع التفعيل وحده.
+  if (view.length && basisRows.length && massKnown && !basisOk) draftMissing.push(t('mill.builder.need_sum', 'مجموع الخلطة صفر: اكتب كمية أكبر من صفر.'));
+  const canDraft = canBuild && draftMissing.length === 0 && basisOk;
+  const canActivate = canDraft;
   const planned = costs && basisOk ? plannedCost(view.map((row) => ({ qtyBase: row.qtyBase, price: row.price })), sentRates.map((row) => row.value ?? 0n), basis) : null;
   const massDecimals = columnDecimals(basisRows.map((row) => row.mass ?? 0n), 3) as 0 | 1 | 2 | 3;
-  const exclude = useMemo(() => new Set(lines.map((line) => line.item.id)), [lines]);
-  const pendingPrices = view.filter((row) => row.pricePending && row.line.price.status === 'ready');
+  const qtyDecimals = columnDecimals(view.map((row) => row.qty ?? 0n), 3) as 0 | 1 | 2 | 3;
+  const noExclude = useMemo(() => new Set<string>(), []);
+  const pendingPrices = view.filter((row) => row.pricePending && row.linePrice.status === 'ready');
 
+  const setPrice = (itemId: string, price: PriceState) => setPrices((current) => ({ ...current, [itemId]: price }));
   const loadPrice = (item: PickedMaterial) => {
     loadItemPurchases(item.id).then(
-      (found) =>
-        setLines((current) =>
-          current.map((line) =>
-            line.item.id === item.id ? { ...line, price: { status: 'ready', costPrice: found.item.costPrice, lastPrice: found.rows[0]?.money?.unitCost ?? null } } : line,
-          ),
-        ),
-      (problem: unknown) => setLines((current) => current.map((line) => (line.item.id === item.id ? { ...line, price: { status: 'failed', error: problem } } : line))),
+      (found) => setPrice(item.id, { status: 'ready', costPrice: found.item.costPrice, lastPrice: found.rows[0]?.money?.unitCost ?? null }),
+      (problem: unknown) => setPrice(item.id, { status: 'failed', error: problem }),
     );
   };
 
-  const addLine = (item: PickedMaterial, fresh: boolean) => {
-    if (lines.some((line) => line.item.id === item.id)) return;
-    // مادّة أُنشئت الآن بلا شراء ولا سعر: لا قراءة. والسعر مال، فلا يُقرأ لدور بلا كلفة.
+  /** مادّة اختيرت من بطاقتها أو أُنشئت من المنتقي: سعرها يُقرأ (مال، فلأدوار الكلفة وحدها)، والمُنشأة الآن بلا شراء ولا سعر. */
+  const onAdded = (item: PickedMaterial, fresh: boolean) => {
     const price: PriceState = !costs ? { status: 'hidden' } : fresh ? { status: 'ready', costPrice: null, lastPrice: null } : { status: 'loading' };
-    setLines((current) => [...current, { item, qtyText: '', unit: item.baseUnit === 'L' ? 'L' : 'kg', price }]);
+    setPrice(item.id, price);
     if (costs && !fresh) loadPrice(item);
   };
-
-  const patchLine = (itemId: string, patch: Partial<BuilderLine>) => setLines((current) => current.map((line) => (line.item.id === itemId ? { ...line, ...patch } : line)));
   const dropCostText = (itemId: string) =>
     setCostTexts((current) => {
       if (!(itemId in current)) return current;
@@ -291,19 +272,20 @@ export default function RecipeBuilderPage() {
     });
   /** سعر رُفض: يُقرأ من جديد (تغيّر من غير هذه الشاشة ربّما)، والمكتوب يبقى ليُراجَع ويُحفظ ثانية. */
   const reloadPrice = (item: PickedMaterial) => {
-    setLines((current) => current.map((row) => (row.item.id === item.id ? { ...row, price: { status: 'loading' } } : row)));
+    setPrice(item.id, { status: 'loading' });
     loadPrice(item);
   };
 
-  const savePrice = async (line: BuilderLine) => {
-    const text = costTexts[line.item.id] ?? '';
+  const savePrice = async (item: PickedMaterial, linePrice: PriceState) => {
+    const text = costTexts[item.id] ?? '';
     const price = text.trim() === '' ? null : parseMoney(text);
-    if (line.price.status !== 'ready' || (price !== null && price <= 0n) || (text.trim() !== '' && price === null)) return;
+    if (linePrice.status !== 'ready' || (price !== null && price <= 0n) || (text.trim() !== '' && price === null)) return;
+    const line = { item };
     setPriceBusy(line.item.id);
     setPriceErrors((current) => ({ ...current, [line.item.id]: '' }));
     try {
-      const written = await setItemCostPrice(line.item.id, price, line.price.costPrice);
-      patchLine(line.item.id, { price: { ...line.price, costPrice: written } });
+      const written = await setItemCostPrice(line.item.id, price, linePrice.costPrice);
+      setPrice(line.item.id, { ...linePrice, costPrice: written });
       dropCostText(line.item.id);
     } catch (problem) {
       const { title, detail } = describeError(problem);
@@ -433,10 +415,10 @@ export default function RecipeBuilderPage() {
     const priced: string[] = [];
     for (const row of pendingPrices) {
       const item = row.line.item;
-      const before = row.line.price.status === 'ready' ? row.line.price.costPrice : null;
+      const before = row.linePrice.status === 'ready' ? row.linePrice.costPrice : null;
       try {
         const written = await setItemCostPrice(item.id, row.typed, before);
-        patchLine(item.id, { price: { status: 'ready', costPrice: written, lastPrice: row.line.price.status === 'ready' ? row.line.price.lastPrice : null } });
+        setPrice(item.id, { status: 'ready', costPrice: written, lastPrice: row.linePrice.status === 'ready' ? row.linePrice.lastPrice : null });
         dropCostText(item.id);
         priced.push(item.name);
       } catch (problem) {
@@ -487,42 +469,13 @@ export default function RecipeBuilderPage() {
       key: 'qty',
       header: t('mill.line.qty', 'الكمية'),
       kind: 'number',
-      cell: (row) => (
-        <input
-          id={`${id}-qty-${row.line.item.id}`}
-          aria-label={t('mill.builder.qty_of', 'كمية «{name}»', { name: row.line.item.name })}
-          className="input text-end tabular-nums"
-          size={9}
-          inputMode="decimal"
-          dir="ltr"
-          autoComplete="off"
-          value={row.line.qtyText}
-          disabled={locked}
-          aria-invalid={(row.line.qtyText.trim() !== '' && !row.qtyOk) || undefined}
-          onChange={(event) => patchLine(row.line.item.id, { qtyText: event.target.value })}
-          data-action="line-qty"
-        />
-      ),
+      // الكمية تُكتب على البطاقة (cards.tsx)؛ الجدول ملخّص يقرؤها.
+      cell: (row) => <Num>{row.qtyOk && row.qty !== null ? fmtQtyCell(row.qty, qtyDecimals) : dash()}</Num>,
     },
     {
       key: 'unit',
       header: t('mill.line.unit_col', 'الوحدة'),
-      cell: (row) =>
-        row.line.item.baseUnit === 'L' ? (
-          <select
-            aria-label={t('mill.builder.unit_of', 'وحدة «{name}»', { name: row.line.item.name })}
-            className="input"
-            value={row.line.unit}
-            disabled={locked}
-            onChange={(event) => patchLine(row.line.item.id, { unit: event.target.value === 'L' ? 'L' : 'kg' })}
-            data-action="line-unit"
-          >
-            <option value="L">{t('unit.L', 'لتر')}</option>
-            <option value="kg">{t('unit.kg', 'كغم')}</option>
-          </select>
-        ) : (
-          t('unit.kg', 'كغم')
-        ),
+      cell: (row) => (row.line.unit === 'L' ? t('unit.L', 'لتر') : t('unit.kg', 'كغم')),
     },
     {
       key: 'mass',
@@ -544,7 +497,7 @@ export default function RecipeBuilderPage() {
         ) : (
           <Num>{row.mass === null || !basisOk ? dash() : pct(row.mass, basis)}</Num>
         ),
-      total: <Num>{massKnown && basisOk ? pct(sum, basis) : dash()}</Num>,
+      total: <Num>{basisOk ? pct(sum, basis) : dash()}</Num>,
     },
   ];
   if (costs) {
@@ -554,14 +507,14 @@ export default function RecipeBuilderPage() {
         header: t('mill.col.last_price', 'سعر الشراء (آخر شراء)'),
         kind: 'number',
         cell: (row) =>
-          row.line.price.status === 'loading' ? (
+          row.linePrice.status === 'loading' ? (
             t('mill.builder.price_loading', '…')
-          ) : row.line.price.status === 'failed' ? (
+          ) : row.linePrice.status === 'failed' ? (
             <Button size="sm" variant="ghost" disabled={locked} onClick={() => loadPrice(row.line.item)} data-action="retry-price">
               {t('mill.builder.price_retry', 'أعد قراءة السعر')}
             </Button>
           ) : (
-            <Num>{row.line.price.status === 'ready' && row.line.price.lastPrice !== null ? fmtMoney(row.line.price.lastPrice) : dash()}</Num>
+            <Num>{row.linePrice.status === 'ready' && row.linePrice.lastPrice !== null ? fmtMoney(row.linePrice.lastPrice) : dash()}</Num>
           ),
       },
       {
@@ -569,7 +522,7 @@ export default function RecipeBuilderPage() {
         header: t('mill.col.cost_price', 'سعر الكلفة'),
         kind: 'number',
         cell: (row) => {
-          const price = row.line.price;
+          const price = row.linePrice;
           if (price.status !== 'ready') return dash();
           const saved = price.costPrice === null ? '' : decimalText(price.costPrice, 2);
           const text = costTexts[row.line.item.id] ?? saved;
@@ -587,7 +540,7 @@ export default function RecipeBuilderPage() {
                 disabled={locked}
                 action="cost-price"
                 onChange={(next) => setCostTexts((current) => ({ ...current, [row.line.item.id]: next }))}
-                onSave={() => void savePrice(row.line)}
+                onSave={() => void savePrice(row.line.item, row.linePrice)}
               />
               {problem ? (
                 <span role="alert" className="text-xs text-danger-700 dark:text-danger-300">
@@ -604,7 +557,7 @@ export default function RecipeBuilderPage() {
     key: 'remove',
     header: t('mill.col.actions', 'إجراءات'),
     cell: (row) => (
-      <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={locked} onClick={() => setLines((current) => current.filter((line) => line.item.id !== row.line.item.id))} data-action="remove-line">
+      <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={locked} onClick={() => picks.remove(row.line.item.id)} data-action="remove-line">
         {t('common.delete', 'احذف')}
       </Button>
     ),
@@ -687,7 +640,7 @@ export default function RecipeBuilderPage() {
     <div className="flex flex-col gap-5">
       <PageHeader
         title={t('mill.builder.title', 'خلطة جديدة')}
-        subtitle={t('mill.builder.subtitle', 'اكتب الخلطة كاملة هنا: اسمها ومنتجها وموادّها بكمياتها وتكاليفها لكلّ طنّ، ثم احفظها مسوّدة أو فعّلها للإنتاج.')}
+        subtitle={t('mill.builder.subtitle_cards', 'سمِّ الخلطة واختر منتجها، ثمّ المس بطاقات المواد واكتب كمية كلّ واحدة: مجموعها هو حجم الخلطة وناتجها.')}
         actions={
           <Link to="/mill" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="back-to-mill">
             {t('mill.back', 'المعمل')}
@@ -700,19 +653,14 @@ export default function RecipeBuilderPage() {
           <ChefHat aria-hidden="true" className="size-6 text-brand-700 dark:text-brand-200" />
           <h2 className="text-lg font-semibold">{t('mill.builder.head', 'الخلطة ومنتجها')}</h2>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            id={`${id}-name`}
-            label={t('mill.recipe.name', 'اسم الخلطة')}
-            hint={t('mill.recipe.name_hint', 'مثل: علف بادئ، علف ناهٍ.')}
-            error={nameTaken ? t('mill.builder.name_taken', 'توجد خلطة بهذا الاسم؛ اختر اسماً آخر أو افتحها من المعمل.') : null}
-          >
-            <input id={`${id}-name`} className="input" maxLength={80} value={name} disabled={locked} onChange={(event) => setName(event.target.value)} data-action="recipe-name" />
-          </Field>
-          <Field id={`${id}-basis`} label={t('mill.builder.basis', 'أساس الخلطة (كغم)')} hint={t('mill.builder.basis_hint', 'الكميات تُكتب لكلّ هذا الوزن، والإنتاج يحسبها بالتناسب.')} error={basisText.trim() !== '' && !basisOk ? t('mill.builder.basis_bad', 'اكتب وزناً أكبر من صفر.') : null}>
-            <input id={`${id}-basis`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={basisText} disabled={locked} onChange={(event) => setBasisText(event.target.value)} data-action="recipe-basis" />
-          </Field>
-        </div>
+        <Field
+          id={`${id}-name`}
+          label={t('mill.recipe.name', 'اسم الخلطة')}
+          hint={t('mill.recipe.name_hint', 'مثل: علف بادئ، علف ناهٍ.')}
+          error={nameTaken ? t('mill.builder.name_taken', 'توجد خلطة بهذا الاسم؛ اختر اسماً آخر أو افتحها من المعمل.') : null}
+        >
+          <input id={`${id}-name`} className="input" maxLength={80} value={name} disabled={locked} onChange={(event) => setName(event.target.value)} data-action="recipe-name" />
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field id={`${id}-output`} label={t('mill.recipe.output', 'المادّة المنتَجة')} hint={t('mill.builder.output_hint', 'العلف الجاهز الذي يخرج من الخلطة ويدخل مخزن العلف.')}>
             <select id={`${id}-output`} className="input" value={outputId} disabled={locked} onChange={(event) => setOutputId(event.target.value)} data-action="recipe-output">
@@ -769,36 +717,37 @@ export default function RecipeBuilderPage() {
 
       <section className="card flex flex-col gap-3 p-4">
         <h2 className="text-lg font-semibold">{t('mill.builder.materials', 'المواد')}</h2>
-        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={canCreateItem} canFixKind={canFixKind} disabled={locked} onHand={onHand} onPick={addLine} />
-        {basisRows.length ? (
-          <CompositionBar pieces={basisRows.map((row) => ({ key: row.line.item.id, label: row.line.item.name, weight: row.mass ?? 0n }))} total={basisOk ? basis : 0n} hue={210} />
-        ) : null}
+        <p className="text-sm text-ink-muted">{t('mill.cards.hint', 'المس البطاقة لتختار المادّة، واكتب كميتها عليها؛ لمسة ثانية تتركها. تختار أكثر من مادّة معاً.')}</p>
+        <MaterialCards
+          id={`${id}-cards`}
+          stock={stock}
+          picks={picks}
+          query={query}
+          onQuery={setQuery}
+          exclude={noExclude}
+          canCreate={canCreateItem}
+          canFixKind={canFixKind}
+          canWriteDensity={canFixKind}
+          disabled={locked}
+          onAdded={onAdded}
+        />
+        <div className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-3" data-action="builder-totals">
+          <CardSums totals={totals} lines={view.length} />
+          {basisRows.length ? (
+            <CompositionBar pieces={basisRows.map((row) => ({ key: row.line.item.id, label: row.line.item.name, weight: row.mass ?? 0n }))} total={basisOk ? basis : 0n} hue={210} />
+          ) : null}
+        </div>
         <DataTable
           caption={t('mill.builder.caption', 'مواد الخلطة الجديدة بكمياتها وحصصها وأسعارها')}
           columns={columns}
           rows={view}
           rowKey={(row) => row.line.item.id}
-          empty={t('mill.builder.empty', 'لم تُضف مادّة بعد: ابحث عنها بالاسم فوق، أو أنشئها إن لم تكن موجودة.')}
+          empty={t('mill.builder.empty_cards', 'لم تختر مادّة بعد: المس بطاقتها فوق، أو اكتب اسمها في البحث وأنشئها إن لم تكن موجودة.')}
           totalLabel={t('mill.detail.total', 'المجموع')}
         />
-        <p className="text-sm font-medium" data-action="builder-sum">
-          {!basisRows.length
-            ? t('mill.builder.sum_empty', 'المجموع صفر من {basis}.', { basis: basisOk ? fmtQty(basis, 'kg').main : dash() })
-            : !massKnown
-              ? t('mill.builder.sum_unknown', 'في المواد سائل بلا كثافة، فلا يُحسب وزنه؛ اكتب كميته بالكيلوغرام أو أكمل كثافته من بطاقته.')
-              : !basisOk
-                ? t('mill.builder.sum_no_basis', 'المجموع {sum}، والأساس غير مكتوب.', { sum: fmtQty(sum, 'kg').main })
-                : gap === 0n
-                  ? canActivate
-                    ? t('mill.builder.sum_ok', 'المجموع {sum} = الأساس: الخلطة جاهزة للتفعيل.', { sum: fmtQty(sum, 'kg').main })
-                    : t('mill.builder.sum_equal', 'المجموع {sum} = الأساس.', { sum: fmtQty(sum, 'kg').main })
-                  : gap > 0n
-                    ? t('mill.builder.sum_short', 'المجموع {sum} من {basis}: ينقص {gap}.', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(gap, 'kg').main })
-                    : t('mill.builder.sum_over', 'المجموع {sum} من {basis}: يزيد {gap}.', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(basis, 'kg').main, gap: fmtQty(-gap, 'kg').main })}
-        </p>
         {outsideBasis ? (
           <p className="text-sm text-ink-muted" data-action="mass-note">
-            {t('mill.builder.basis_note', 'الوقود والتعبئة خارج كتلة الخلطة: يُسحبان وتُحسب كلفتهما، ولا يدخلان المجموع ولا الأساس.')}
+            {t('mill.builder.outside_note', 'الوقود والتعبئة خارج كتلة الخلطة: يُسحبان وتُحسب كلفتهما، ولا يدخلان مجموع الخلطة ولا ناتجها.')}
           </p>
         ) : null}
       </section>
@@ -891,15 +840,6 @@ export default function RecipeBuilderPage() {
           <p className="font-medium">{t('mill.builder.missing_draft', 'لا تُحفظ الخلطة قبل ما يلي:')}</p>
           <ul className="list-disc ps-5 text-ink-muted">
             {draftMissing.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        </div>
-      ) : canDraft && !canActivate ? (
-        <div className="flex flex-col gap-1 text-sm" data-action="save-missing">
-          <p className="font-medium">{t('mill.builder.missing_activate', 'لا تُفعَّل الخلطة قبل ما يلي (المسوّدة تُحفظ الآن وتُكمل من بطاقتها):')}</p>
-          <ul className="list-disc ps-5 text-ink-muted">
-            {activateMissing.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>

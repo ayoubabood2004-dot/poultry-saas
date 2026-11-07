@@ -1,7 +1,8 @@
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useParams } from 'react-router-dom';
 import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
 import { CountDocPage, CountsList } from './CountsPage';
+import FlockIssuePage from './FlockIssuePage';
 import ItemCardPage from './ItemCardPage';
 import ItemFilePage from './ItemFilePage';
 import ItemsBoardPage from './ItemsBoardPage';
@@ -23,6 +24,13 @@ import WarehousePage from './WarehousePage';
 // «المخزن ببساطة» (كلمة المالك 2026-11-06): الصفحة الأولى بطاقات المواد (ItemsBoardPage)، والمادّة تفتح ملفّها (ItemFilePage:
 // أرقامها و«سجّل شراء» وجدول مشترياتها)؛ وبطاقات المخازن انتقلت إلى /inventory/stores، وبطاقة المادّة القديمة (الوجبات ودفتر
 // الحركات بالمخازن) إلى /inventory/items/:id/details. صفحة الاستلام باقية بمسارها للمدير (سجلّ وإلغاء)، بلا رابط من الطريق اليومي.
+// والصرف لفوج القاعة (0019، /inventory/issue/:flockId): يُرحَّل فوراً بالخادم، فهنا لا في حزمة الحقول المحفوظة؛ وشاشة الفوج وجدول الحقل يدلّان عليه.
+
+/** الصرف لفوج القاعة (0019) بمفتاح الفوج: الانتقال إلى فوج آخر يركّب الصفحة من جديد، فلا تبقى فيها نافذة الفوج السابق ومعرّفاته. */
+function FlockIssueById() {
+  const { flockId = '' } = useParams();
+  return <FlockIssuePage key={flockId} />;
+}
 
 export default function StockRoutes() {
   return (
@@ -47,6 +55,7 @@ export default function StockRoutes() {
       <Route path="receipts" element={<ReceiptsList />} />
       <Route path="receipts/:id" element={<ReceiptDocPage />} />
       <Route path="supplier-returns/:id" element={<SupplierReturnDocPage />} />
+      <Route path="issue/:flockId" element={<FlockIssueById />} />
       <Route path="*" element={<Notice tone="info" title={t('stock.not_found', 'هذه الصفحة غير موجودة في المخزون.')} />} />
     </Routes>
   );

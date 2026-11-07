@@ -4,6 +4,9 @@ import { BASE_UNITS } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { ZeroRowsError } from '../errors';
 import { call, classifyPostgrest, send, updatedRows } from './core';
+// الصرف لفوج القاعة (0019) في ملفّه، ويُصدَّر من هنا: صفحة الصرف (حزمة المخزون) تستورده من ملفّ الحزمة نفسه (write-guard PAGE_MODULES)،
+// فلا يدخل حزم الحقول المحفوظة للفتح بلا نت.
+export * from './flockIssues';
 import {
   arr,
   bool,

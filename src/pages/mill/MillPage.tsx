@@ -80,9 +80,9 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
             </div>
             <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-action="recipe-numbers">
               <div className="flex items-center gap-1">
-                <dt className="text-ink-muted">{t('mill.card.basis', 'الأساس')}</dt>
+                <dt className="text-ink-muted">{t('mill.card.total', 'مجموع الخلطة')}</dt>
                 <dd className="font-medium">
-                  <Num>{fmtQty(basis, 'kg').main}</Num>
+                  <Num>{fmtQty(basis, 'kg').sub ?? fmtQty(basis, 'kg').main}</Num>
                 </dd>
               </div>
               <div className="flex items-center gap-1">
@@ -142,14 +142,16 @@ export function produceKg(text: string, unitId: string): bigint | null {
 }
 
 /**
- * نافذة «أنتج»: من بطاقة الخلطة في المعمل ومن صفحة الخلطة نفسها (م٩)، فتأخذ الاسم والنسخة المفعَّلة وحدهما.
+ * نافذة «أنتج»: من بطاقة الخلطة في المعمل ومن صفحة الخلطة نفسها (م٩)، فتأخذ الاسم والنسخة المفعَّلة ومجموعها. «كم تنتج؟» يبدأ بمجموع الخلطة
+ * (كلمة المالك 2026-11-07: «يحسبلي الناتج الي صار من مجموع المواد») ويُعدَّل أو يُختار من الكميات السريعة؛ والناتج قبل الهدر مجموع ما يُسحب.
  */
-export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick<RecipeCard, 'name' | 'activeId'>; stores: readonly MillStore[]; today: string; onClose: () => void }) {
+export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick<RecipeCard, 'name' | 'activeId' | 'activeBasisKg'>; stores: readonly MillStore[]; today: string; onClose: () => void }) {
   const id = useId();
   const navigate = useNavigate();
   const inputs = stores.filter((store) => store.kind === 'raw');
   const outputs = stores.filter((store) => store.kind === 'feed');
-  const [text, setText] = useState('');
+  const initial = recipe.activeBasisKg !== null && recipe.activeBasisKg > 0n ? fmtMilli(recipe.activeBasisKg) : '';
+  const [text, setText] = useState(initial);
   const [unitId, setUnitId] = useState('kg');
   const [from, setFrom] = useState(inputs[0]?.id ?? '');
   const [to, setTo] = useState(outputs[0]?.id ?? '');
@@ -192,7 +194,7 @@ export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick
       open
       onClose={onClose}
       locked={busy}
-      dirty={text !== ''}
+      dirty={text !== initial}
       title={t('mill.produce.title', 'إنتاج «{name}»', { name: recipe.name })}
       footer={
         <Button size="lg" busy={busy} disabled={!kg || kg <= 0n || from === '' || to === ''} onClick={() => void start()} data-action="produce-start">
@@ -201,6 +203,11 @@ export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick
       }
     >
       <p className="text-sm text-ink-muted">{t('mill.produce.hint', 'اختر الكمية أو اكتبها، ثم تُعرض عليك المواد التي ستُسحب بالتناسب وكلفة الكيلو قبل أن تُثبّت.')}</p>
+      {recipe.activeBasisKg !== null && recipe.activeBasisKg > 0n ? (
+        <p className="text-sm font-medium" data-action="produce-total">
+          {t('mill.produce.total', 'مجموع الخلطة {kg}: الناتج قبل الهدر = مجموع المواد المسحوبة.', { kg: fmtQty(recipe.activeBasisKg, 'kg').sub ?? fmtQty(recipe.activeBasisKg, 'kg').main })}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2" role="group" aria-label={t('mill.produce.quick', 'كميات سريعة')}>
         {QUICK_AMOUNTS.map((quick) => {
           const picked = kg === quick.kg && unitId === 'kg';
@@ -222,7 +229,7 @@ export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick
         })}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field id={`${id}-qty`} label={t('mill.produce.qty', 'كمية الإنتاج')} hint={kg === null ? undefined : t('mill.produce.same', 'أي {qty}', { qty: fmtQty(kg, 'kg').main })}>
+        <Field id={`${id}-qty`} label={t('mill.produce.how_much', 'كم تنتج؟')} hint={kg === null ? undefined : t('mill.produce.same', 'أي {qty}', { qty: fmtQty(kg, 'kg').main })}>
           <input id={`${id}-qty`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={text} onChange={(event) => setText(event.target.value)} data-action="produce-qty" />
         </Field>
         <Field id={`${id}-unit`} label={t('mill.produce.unit', 'الوحدة')}>

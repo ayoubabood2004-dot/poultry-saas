@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Day } from '../../domain/dates';
 import { parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
+import type { BaseUnit } from '../../domain/units';
 import { IdentityError, RejectedError, ZeroRowsError } from '../errors';
 import type { OutboxOp, SendResult, Transport } from '../outbox';
 import './constraints-flocks';
@@ -248,6 +249,108 @@ export function parseDetail(value: unknown): FlockDetail {
     days: list(json.days, 'days').map((row) => ({ ...parseDayRow(row), liveStart: int(row, 'live_start'), liveEnd: int(row, 'live_end'), hdep: scaled(row, 'hdep', 2) })),
     weights: list(json.weights, 'weights').map((row) => ({ onDate: str(row, 'on_date'), sampleCount: int(row, 'sample_count'), avgG: scaled(row, 'avg_g', 1) ?? 0n, version: int(row, 'version') })),
   };
+}
+
+// ─── علف القاعة وسجلّ صرفها (0019) ─────────────────────────────────────────────────────────────────────────────
+// flock_feed: المصروف للقاعة من المخزن والمستهلك المسجّل في الجولات والباقي، وسطر لكلّ صرف. تقرؤه شاشة الفوج (محفوظة) وصفحة الصرف (المخزن)،
+// فهنا بأدوات هذا الملف لا في flockIssues (ما يُصرف والصرف وإلغاؤه، لحزمة المخزون وحدها). والمال يغيب مفتاحه لغير أدوار الكلفة، وخاناته قد
+// تأتي null (درس WP7).
+
+export type CostKind = 'feed' | 'medicine' | 'vaccine' | 'fuel' | 'other';
+const COST_KINDS: readonly CostKind[] = ['feed', 'medicine', 'vaccine', 'fuel', 'other'];
+const BASE_UNITS: readonly BaseUnit[] = ['kg', 'L', 'pc'];
+const pick = <T extends string>(row: Row, field: string, allowed: readonly T[]): T => {
+  if (!allowed.includes(row[field] as T)) throw new FlockShapeError(field);
+  return row[field] as T;
+};
+const qty3 = (row: Row, field: string): bigint => {
+  const value = scaled(row, field, 3);
+  if (value === null) throw new FlockShapeError(field);
+  return value;
+};
+const moneyOf = (row: Row): Row | null => (row.money === undefined || row.money === null ? null : record(row.money, 'money'));
+
+export interface FeedIssue {
+  id: string;
+  docNo: string;
+  issuedOn: Day;
+  status: 'posted' | 'void';
+  itemId: string;
+  itemName: string;
+  costKind: CostKind;
+  qty: bigint;
+  baseUnit: BaseUnit;
+  warehouseId: string;
+  warehouseName: string;
+  voidedOn: Day | null;
+  voidReason: string | null;
+  /** null: المال مخفيّ عن هذا الدور؛ value بالفلس، وقد يأتي null. */
+  money: { value: bigint | null } | null;
+}
+
+export interface FlockFeed {
+  flockId: string;
+  flockStatus: FlockSummary['status'];
+  hallName: string;
+  today: Day;
+  /** مجموع العلف المصروف بالكيلوغرام بالآلاف (اللتر بلقطة كثافته، والقطعة خارجه). */
+  issuedFeedKg: bigint;
+  /** مجموع العلف المسجّل في الجولات اليومية. */
+  consumedFeedKg: bigint;
+  /** المصروف − المستهلك، وقد يكون سالباً (يُعرض كما هو). */
+  remainingFeedKg: bigint;
+  /** سطور علف سائل بلا كثافة لم يُحسب وزنها في المصروف. */
+  unweighedFeedLines: number;
+  /** الأحدث أوّلاً. */
+  issues: FeedIssue[];
+  more: boolean;
+  /** void والفوج غير مغلق: «ألغِ» يظهر. */
+  canVoid: boolean;
+  /** null لغير أدوار الكلفة. */
+  money: { issuedValue: bigint | null } | null;
+}
+
+export function parseFlockFeed(value: unknown): FlockFeed {
+  const json = record(value, 'flock_feed');
+  const box = moneyOf(json);
+  const unweighed = int(json, 'unweighed_feed_lines');
+  if (unweighed < 0) throw new FlockShapeError('unweighed_feed_lines');
+  return {
+    flockId: str(json, 'flock_id'),
+    flockStatus: pick(json, 'flock_status', STATUSES),
+    hallName: str(json, 'hall_name'),
+    today: str(json, 'today'),
+    issuedFeedKg: qty3(json, 'issued_feed_kg'),
+    consumedFeedKg: qty3(json, 'consumed_feed_kg'),
+    remainingFeedKg: qty3(json, 'remaining_feed_kg'),
+    unweighedFeedLines: unweighed,
+    issues: list(json.issues, 'issues').map((row) => {
+      const money = moneyOf(row);
+      return {
+        id: str(row, 'id'),
+        docNo: str(row, 'doc_no'),
+        issuedOn: str(row, 'issued_on'),
+        status: pick(row, 'status', ['posted', 'void'] as const),
+        itemId: str(row, 'item_id'),
+        itemName: str(row, 'item_name'),
+        costKind: pick(row, 'cost_kind', COST_KINDS),
+        qty: qty3(row, 'qty'),
+        baseUnit: pick(row, 'base_unit', BASE_UNITS),
+        warehouseId: str(row, 'warehouse_id'),
+        warehouseName: str(row, 'warehouse_name'),
+        voidedOn: optStr(row, 'voided_on'),
+        voidReason: optStr(row, 'void_reason'),
+        money: money ? { value: scaled(money, 'value', 2) } : null,
+      };
+    }),
+    more: flag(json, 'more'),
+    canVoid: flag(json, 'can_void'),
+    money: box ? { issuedValue: scaled(box, 'issued_value', 2) } : null,
+  };
+}
+
+export async function loadFlockFeed(flockId: string): Promise<FlockFeed> {
+  return parseFlockFeed(await call<unknown>('flock_feed', { p_flock: flockId }));
 }
 
 export async function loadFlockDetail(flockId: string): Promise<FlockDetail> {

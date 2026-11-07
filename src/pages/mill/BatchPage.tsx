@@ -1124,6 +1124,10 @@ export default function BatchPage() {
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-semibold">{t('mill.weigh.title_day', 'وزن الناتج ويوم الإنتاج')}</h2>
           <p className="text-sm text-ink-muted">{t('mill.weigh.hint_weight', 'اترك الوزن فارغاً إن لم تزنه: يُحسب الناتج بكتلة المواد نفسها (بلا هدر).')}</p>
+          {/* الناتج قبل الهدر = مجموع المواد المستعملة (كلمة المالك 2026-11-07: «يحسبلي الناتج الي صار من مجموع المواد»)، بالكيلوغرام وبلا حساب. */}
+          <p className="text-sm font-medium" data-action="output-plain">
+            {t('mill.weigh.output_plain', 'الناتج قبل الهدر = مجموع المواد المستعملة: {kg}.', { kg: fmtQty(mass, 'kg').sub ?? fmtQty(mass, 'kg').main })}
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field id={`${fieldId}-weight`} label={t('mill.weigh.kg', 'الوزن بالكيلوغرام')} error={weightBad ? t('mill.weigh.bad', 'اكتب وزناً أكبر من صفر.') : undefined}>
               <input

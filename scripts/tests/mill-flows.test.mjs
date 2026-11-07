@@ -2,9 +2,9 @@
 // (dom.mjs) يشغّل MillRoutes الحقيقية، وrepo المعمل والمخزون والجلسة والرسائل بدائل (والمحلّلات الحقيقية تقرأ أجوبة بشكل العقد).
 // كل حالة تفشل على الشفرة قبلها:
 // F1 بانية الخلطة بشاشة واحدة: الاسم (والمكرّر يُمنع)، والمنتج يُختار أو يُنشأ هنا (الموجود بالاسم نفسه يُختار لا يُكرَّر)، والمواد
-//    بالبحث (المطابق بنوع آخر يُسمّى بنوعه) أو تُنشأ هنا مادّةً أوّلية، وسعر الشراء التلقائي وسعر الكلفة المكتوب (ويُحفظ بشرط
-//    السابق)، وتكاليف الطنّ، والسطر الحيّ للمجموع، وكلفة الطنّ المتوقّعة، و«احفظ وفعّل» حين المجموع = الأساس، و«احفظ مسوّدة»
-//    دائماً، بنداء create_recipe واحد، والإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما؛
+//    بطاقاتٍ يصفّيها البحث (المطابق بنوع آخر يُسمّى بنوعه) أو تُنشأ هنا مادّةً أوّلية، وسعر الشراء التلقائي وسعر الكلفة المكتوب (ويُحفظ
+//    بشرط السابق)، وتكاليف الطنّ، و«مجموع الخلطة» الحيّ وهو الأساس المرسَل (كلمة المالك 2026-11-07: لا أساس يُطابَق)، وكلفة الطنّ
+//    المتوقّعة، بنداء create_recipe واحد، والإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما؛
 // F2 «خلطة جديدة» تفتح البانية، و«أنتج» بكميات سريعة ثم صفحة الدفعة؛ F3 صفحة الدفعة المسوّدة: الفعلي يُعدَّل بشرط ما شافته الشاشة،
 //    و«أضف مادّة» و«بدّل مادّة» بسبب إلزامي و«احذف» بتأكيد، وجدول التكاليف (المحسوب والمبلغ المعدَّل والمتاح وسطر جديد بفئة وحذف)،
 //    و«المصاريف لا تكفي» بأرقامها وفعليها («سجّل مصروفاً» و«صفّر السطر»)؛ F4 مشغّل المعمل بلا مال؛ F5 المرحَّلة تقول أين ذهب الناتج
@@ -24,17 +24,19 @@ const MILL = [
   'newRecipeVersion', 'loadMillStores',
 ];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
   inventory: routed('inventory', INVENTORY),
+  purchases: routed('purchases', PURCHASES),
   session: 'export const useSession = () => globalThis.__mill.session; export const sessionStore = { get: () => globalThis.__mill?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__mill.toasts.push(spec); }; export function Toaster() { return null; }',
 };
 const stubs = {
   name: 'mill-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
+    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory|purchases)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'mill-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
   },
 };
@@ -90,6 +92,15 @@ const search = async (value) => {
   await settle();
 };
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
+/** بطاقة مادّة بمعرّفها، ولمسها، وخانة كميتها باسمها (بطاقات المعمل، كلمة المالك 2026-11-07). */
+const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
+const pick = (id) => click(cardOf(id));
+const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
+/** جواب items_overview بعد محلّله: كلّ المواد الفعّالة بموجودها. */
+const overviewOf = (rows, hand = {}) => ({
+  today: '2026-11-04', canRecord: true, canAddItem: true,
+  items: rows.map((row) => ({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit, onHand: hand[row.id] ?? 0n, purchased: 0n, lastPurchaseOn: null, money: null })),
+});
 
 const ws = (over = {}) => ({
   userId: 'u-1', orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role: 'manager', scopes: [],
@@ -221,7 +232,8 @@ export default async function (t) {
       }),
       createItem: (fields) => itemRow(`new-${fields.kind}-${fields.name}`, fields.name, fields.kind, fields.base_unit),
       findItemTwins: () => [],
-      loadItem: () => null,
+      loadItem: (id) => catalog.find((row) => row.id === id) ?? null,
+      loadItemsOverview: () => overviewOf(catalog, { 'i-corn': 20_000_000n }),
       setItemCostPrice: (itemId, price) => price,
       createRecipe: (input) => ({ id: input.id, versionId: input.versionId, versionNo: 1, status: input.activate ? 'active' : 'draft', lines: input.lines.length, rates: input.rates.length }),
       ...over,
@@ -229,7 +241,9 @@ export default async function (t) {
     await step('F1 البانية', async () => {
       const calls = fresh({ status: 'ready', workspace: ws() }, builderHandlers());
       await mount('/mill/new');
-      t.ok(text().includes('خلطة جديدة') && text().includes('لم تُضف مادّة بعد'), 'F1 البانية بشاشة واحدة: العنوان وجدول المواد الفارغ');
+      t.ok(text().includes('خلطة جديدة') && text().includes('لم تختر مادّة بعد'), 'F1 البانية بشاشة واحدة: العنوان وجدول المواد الفارغ');
+      t.same(byAction('material-card').map((node) => node.getAttribute('data-item')), ['i-corn', 'i-soy', 'i-oil'], 'F1 بطاقات المواد الصالحة وحدها (لا العلف ولا القطعة)');
+      t.ok(cardOf('i-corn')?.textContent.includes('عندك: 20,000 كغم'), `F1 «عندك» على البطاقة (${cardOf('i-corn')?.textContent})`);
       t.same([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])], [true, true], 'F1 بلا اسم ولا منتج: الحفظ معطّل');
 
       type(byAction('recipe-name')[0], 'علف قديم');
@@ -248,21 +262,22 @@ export default async function (t) {
       await click(byAction('create-output')[0]);
       t.same(named(calls, 'createItem').map(([fields]) => [fields.name, fields.kind, fields.base_unit]), [['علف ناهٍ 19٪', 'feed', 'kg']], 'F1 المنتج يُنشأ هنا باسمه: علف جاهز بالكيلوغرام');
 
-      // المواد: «ذرة» تُظهر الصالحة، و«ذرة» بنوع علف تُسمّى بنوعها لا تُخفى.
+      // المواد: «ذرة» تصفّي البطاقات إلى الصالحة، و«ذرة» بنوع علف تُسمّى بنوعها لا تُخفى.
       await search('ذرة');
       t.ok(text().includes('«ذرة» موجودة بنوع «علف»، فلا تدخل الخلطة مادّةً أوّلية.'), 'F1 مطابق الاسم بنوع آخر يُسمّى بنوعه ورابط بطاقته');
       t.ok(byAction('open-misfit').length === 0 && byAction('make-raw').length === 1 && !all().some((n) => n.localName === 'a' && (n.getAttribute('href') ?? '').startsWith('/inventory')), 'F1 ولا رابط يغادر البانية إلى بطاقتها: «اجعلها مادّة أوّلية» بدله (م٨)');
-      const picks = byAction('pick-material');
-      t.same(picks.map((node) => node.textContent), ['ذرة صفراء · مادّة أوّلية · كغم'], 'F1 الصالح وحده زرّ إضافة (لا العلف)');
+      t.same(byAction('material-card').map((node) => node.getAttribute('data-item')), ['i-corn'], 'F1 البحث يصفّي البطاقات: الصالح وحده (لا العلف)');
+      t.eq(byAction('pick-material').length, 0, 'F1 ولا قائمة أزرار ثانية تحت البحث');
       t.ok(byAction('create-material').length === 1, 'F1 لا مطابق صالح بالاسم «ذرة» نفسه: «أنشئ» معروض');
-      await click(picks[0]);
+      await pick('i-corn');
+      t.eq(cardOf('i-corn')?.getAttribute('aria-pressed'), 'true', 'F1 البطاقة المختارة مضاءة');
       t.same(named(calls, 'loadItemPurchases').map(([id]) => id), ['i-corn'], 'F1 سعر الشراء التلقائي يُقرأ للمادّة المضافة');
       t.ok(text().includes('440.25'), 'F1 سعر الشراء (آخر شراء) ظاهر');
       const costInput = byAction('cost-price')[0];
       t.eq(costInput?.value, '450.00', 'F1 سعر الكلفة المكتوب محفوظاً يبدأ به الحقل');
 
       await search('ذرة صفراء');
-      t.ok(byAction('picker-already').length === 1 && byAction('create-material').length === 0 && byAction('pick-material').length === 0, 'F1 المادّة المكتوبة في الجدول: يُقال ذلك، ولا «أنشئ» ولا إضافة ثانية');
+      t.ok(cardOf('i-corn')?.getAttribute('aria-pressed') === 'true' && byAction('create-material').length === 0 && byAction('picker-none').length === 0, 'F1 المادّة المختارة بطاقتها مضاءة تحت البحث، ولا «أنشئ» ولا «لا مادّة»');
 
       // مادّة غير موجودة: «لا مادّة» و«أنشئها» مادّةً أوّلية.
       await search('صويا هندية');
@@ -270,18 +285,17 @@ export default async function (t) {
       await click(byAction('create-material')[0]);
       t.same(named(calls, 'createItem').at(-1)?.[0]?.kind, 'raw', 'F1 المادّة تُنشأ هنا مادّةً أوّلية');
       t.eq(named(calls, 'loadItemPurchases').length, 1, 'F1 ولا قراءة سعر لمادّة أُنشئت الآن');
-      t.ok(text().includes('صويا هندية') && byAction('line-qty').length === 2, 'F1 والسطر الثاني في الجدول');
+      t.ok(cardOf('new-raw-صويا هندية')?.getAttribute('aria-pressed') === 'true' && byAction('card-qty').length === 2, 'F1 والمادّة الجديدة بطاقة مختارة، فخانتا كمية');
 
-      const [cornQty, soyQty] = byAction('line-qty');
-      type(cornQty, '600');
-      type(soyQty, '300');
+      type(qtyOf('ذرة صفراء'), '600');
+      type(qtyOf('صويا هندية'), '300');
       await settle();
-      t.ok(byAction('builder-sum')[0]?.textContent.includes('ينقص 100 كغم'), `F1 السطر الحيّ: المجموع وما ينقص (${byAction('builder-sum')[0]?.textContent})`);
-      t.same([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])], [true, false], 'F1 المجموع ≠ الأساس: «احفظ وفعّل» معطّل و«احفظ مسوّدة» يعمل');
-      type(soyQty, '400');
+      t.eq(byAction('builder-sum')[0]?.textContent, 'مجموع الخلطة: 900 كغم', 'F1 السطر الحيّ: مجموع الخلطة بالكيلوغرام');
+      t.eq(byAction('builder-output')[0]?.textContent, 'الناتج المتوقّع: 900 كغم (قبل الهدر)', 'F1 والناتج المتوقّع = المجموع');
+      t.same([disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0])], [false, false], 'F1 لا أساس يُطابَق: الحفظ والتفعيل يعملان بأيّ مجموع');
+      type(qtyOf('صويا هندية'), '400');
       await settle();
-      t.ok(byAction('builder-sum')[0]?.textContent.includes('= الأساس'), 'F1 المجموع = الأساس');
-      t.eq(disabled(byAction('save-activate')[0]), false, 'F1 «احفظ وفعّل» يعمل حين المجموع = الأساس');
+      t.eq(byAction('builder-sum')[0]?.textContent, 'مجموع الخلطة: 1,000 كغم', 'F1 المجموع يتبع الكمية');
 
       // تكاليف الطنّ وكلفة الطنّ المتوقّعة (للتخطيط).
       await click(byAction('add-rate')[0]);
@@ -303,7 +317,7 @@ export default async function (t) {
       t.same(
         [input.name, input.outputItemId, input.basisKg, input.lines, input.rates, input.activate],
         ['علف ناهٍ', 'new-feed-علف ناهٍ 19٪', 1_000_000n, [{ itemId: 'i-corn', qty: 600_000n, unit: 'kg' }, { itemId: 'new-raw-صويا هندية', qty: 400_000n, unit: 'kg' }], [{ categoryId: 'c-labor', amountPerTon: 15_000_00n }], true],
-        'F1 الاسم والمنتج المُنشأ والأساس والسطور والتكاليف والتفعيل بنداء واحد',
+        'F1 الاسم والمنتج المُنشأ والأساس (= المجموع) والسطور والتكاليف والتفعيل بنداء واحد',
       );
       t.ok(/^[0-9a-f-]{36}$/u.test(input.id) && /^[0-9a-f-]{36}$/u.test(input.versionId) && input.id !== input.versionId, 'F1 المعرّفان من الجهاز');
       t.eq(globalThis.__mill.location, `/mill/recipe/${input.id}`, 'F1 بعد الحفظ تُفتح بطاقة الخلطة');
@@ -326,17 +340,16 @@ export default async function (t) {
       type(byAction('recipe-name')[0], 'علف تجريبي');
       choose(byAction('recipe-output')[0], 'f-1');
       await settle();
-      await search('زيت');
-      await click(byAction('pick-material')[0]);
-      t.ok(byAction('line-unit').length === 1, 'F1 السائل يُكتب باللتر أو بالكيلوغرام');
-      type(byAction('line-qty')[0], '10');
+      await pick('i-oil');
+      t.ok(byAction('card-unit').length === 1, 'F1 السائل يُكتب باللتر أو بالكيلوغرام');
+      type(qtyOf('زيت'), '10');
       await settle();
-      t.eq(byAction('builder-sum')[0]?.textContent, 'المجموع 9.2 كغم من 1.000 طن: ينقص 990.8 كغم.', 'F1 عشرة لترات من زيت كثافته 0.92 = 9.2 كغم في المجموع');
+      t.eq(byAction('builder-sum')[0]?.textContent, 'مجموع الخلطة: 9.2 كغم', 'F1 عشرة لترات من زيت كثافته 0.92 = 9.2 كغم في المجموع');
       await click(byAction('save-draft')[0]);
       t.ok(text().includes('لا نعرف إن حُفظت الخلطة: أعد المحاولة قبل أيّ تعديل؛ لن تُكتب مرّتين.'), 'F1 نتيجة مجهولة تُقال');
       await click(byAction('retry-save')[0]);
       const [first, second] = named(calls, 'createRecipe').map(([input]) => input);
-      t.same([second?.id, second?.versionId, second?.activate, second?.lines], [first?.id, first?.versionId, false, [{ itemId: 'i-oil', qty: 10_000n, unit: 'L' }]], 'F1 الإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما (لا خلطة ثانية)، والمسوّدة بلا تفعيل');
+      t.same([second?.id, second?.versionId, second?.activate, second?.lines, second?.basisKg], [first?.id, first?.versionId, false, [{ itemId: 'i-oil', qty: 10_000n, unit: 'L' }], 9_200n], 'F1 الإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما (لا خلطة ثانية)، والمسوّدة بلا تفعيل، والأساس = 9.2 كغم');
       await unmount();
     });
 
@@ -394,6 +407,8 @@ export default async function (t) {
       const calls = fresh({ status: 'ready', workspace: ws() }, batchHandlers('draft', true));
       await mount('/mill/batch/b-1');
       t.ok(byAction('substitute-note')[0]?.textContent === 'بديل عن «كسبة صويا 44٪»: نفدت الكسبة 44٪', 'F3 البديل يقول ما حلّ محلّه وسببه');
+      // الناتج قبل الهدر = مجموع المواد المستعملة (كلمة المالك 2026-11-07)، بالكيلوغرام في قسم الوزن.
+      t.eq(byAction('output-plain')[0]?.textContent ?? null, 'الناتج قبل الهدر = مجموع المواد المستعملة: 900 كغم.', 'F3 الناتج قبل الهدر يُقال بلا حساب: مجموع المواد المستعملة');
       // الفعلي يُعدَّل بشرط ما شافته الشاشة.
       const actual = byAction('input-actual')[0];
       type(actual, '610');

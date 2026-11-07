@@ -21,17 +21,19 @@ const MILL = [
   'newRecipeVersion', 'loadMillStores',
 ];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
   inventory: routed('inventory', INVENTORY),
+  purchases: routed('purchases', PURCHASES),
   session: 'export const useSession = () => globalThis.__mill.session; export const sessionStore = { get: () => globalThis.__mill?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__mill.toasts.push(spec); }; export function Toaster() { return null; }',
 };
 const stubs = {
   name: 'mill-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
+    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory|purchases)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'mill-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
   },
 };
@@ -74,6 +76,8 @@ const press = async (node) => {
   if (node) await click(node);
 };
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
+const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
+const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
 const valueOf = (name) => byAction(name)[0]?.value ?? null;
 const deferred = () => {
   let resolve = null;
@@ -225,8 +229,17 @@ const SYRUP_DRAFT = () => ({
   expense_categories: [],
 });
 
-const BALANCED_BLOCKED = 'المجموع مطابق للأساس، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
-const READY = 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.';
+// لا أساس يُطابَق (كلمة المالك 2026-11-07): المسوّدة تقول مجموعها، و«جاهزة» أو «لا تُفعَّل حتّى تُصحَّح السطور».
+const BALANCED_BLOCKED = 'مجموع الخلطة 1,000 كغم، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
+const READY = 'مجموع الخلطة 1,000 كغم: الخلطة جاهزة للتفعيل.';
+/** بطاقات «أضف مواد»: جواب items_overview بعد محلّله، والبطاقة بمعرّفها، وخانة كميتها باسمها. */
+const OVERVIEW = {
+  today: '2026-11-04', canRecord: true, canAddItem: true,
+  items: [
+    { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', onHand: 20_000_000n, purchased: 0n, lastPurchaseOn: null, money: null },
+    { id: 'i-soy', name: 'كسبة صويا', kind: 'raw', baseUnit: 'kg', onHand: 0n, purchased: 0n, lastPurchaseOn: null, money: null },
+  ],
+};
 // الجولة السادسة (ب٦١): الكثافة تُكتب من «المواد» (نافذة «عدّل»)، لا في بطاقة المادّة.
 const DENSITY_MANAGER = '«شراب بلا كثافة 83» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
 const DENSITY_OTHERS = '«شراب بلا كثافة 83» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
@@ -420,6 +433,8 @@ export default async function (t) {
         state,
         reads: () => reads,
         handlers: {
+          loadItemsOverview: () => OVERVIEW,
+          addRecipeLine: (versionId, itemId) => later('addRecipeLine', () => itemId),
           loadRecipe: () => {
             reads += 1;
             return holds.reread && reads > 1 ? holds.reread.promise.then(answer) : answer();
@@ -761,22 +776,37 @@ export default async function (t) {
       t.same(named(calls, 'activateVersion'), [['v-1', 5], ['v-1', 6]], 'V42 والتفعيل التالي بنسخة المسوّدة الآن فينجح');
       t.eq(server.state.status, 'active', 'V42 وفُعّلت');
     });
+    await step('V42 التفعيل يكتب الأساس = المجموع', async () => {
+      // لا أساس يُطابَق (كلمة المالك 2026-11-07): مسوّدة أساسها المحفوظ 1,200 ومجموعها 1,000 تُفعَّل، والأساس يُكتب = المجموع أوّلاً بشرط نسختها.
+      const server = recipeServer();
+      server.state.basis = '1200.000';
+      const calls = fresh(MANAGER, server.handlers);
+      await mount('/mill/recipe/r-1');
+      t.same([fieldByLabel('أساس الخلطة (كغم)'), byAction('save-basis').length, byAction('recipe-total')[0]?.textContent ?? null], [undefined, 0, 'مجموع الخلطة: 1,000 كغمالناتج المتوقّع: 1,000 كغم (قبل الهدر)'], 'V42 لا حقل أساس: مجموع الخلطة والناتج المتوقّع');
+      t.eq(disabled(byAction('activate-version')[0]), false, 'V42 والتفعيل مفتوح ولو خالف الأساس المحفوظ المجموع');
+      await press(byAction('activate-version')[0]);
+      t.same(
+        [named(calls, 'setVersionBasis').map(([versionId, basisKg, version]) => [versionId, basisKg, version]), named(calls, 'activateVersion')],
+        [[['v-1', 1_000_000n, 5]], [['v-1', 6]]],
+        'V42 الأساس = المجموع بنسخة المسوّدة، ثمّ التفعيل بالنسخة التالية',
+      );
+      t.same([server.state.basis, server.state.status], ['1000.000', 'active'], 'V42 وحُفظ الأساس وفُعّلت');
+    });
     await step('V42 الأساس بعد تغيّر المسوّدة', async () => {
       const server = recipeServer();
+      server.state.basis = '1200.000';
       const calls = fresh(MANAGER, server.handlers);
       await mount('/mill/recipe/r-1');
       server.state.version = 6;
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1200');
-      await settle();
-      await click(byAction('save-basis')[0]);
-      t.same([server.reads(), fieldByLabel('أساس الخلطة (كغم)')?.value ?? null], [2, '1200'], 'V42 حفظ الأساس بصفر صفوف (تغيّرت النسخة) يقرأ الخلطة من جديد وما كتبه باقٍ');
-      await press(byAction('save-basis')[0]);
+      await press(byAction('activate-version')[0]);
+      t.same([server.reads(), named(calls, 'activateVersion').length, text().includes('قُرئت الخلطة من جديد بما حُفظ الآن: راجعها ثمّ أعد المحاولة.')], [2, 0, true], 'V42 كتابة الأساس بصفر صفوف (تغيّرت النسخة) تقرأ الخلطة من جديد ولا تفعيل');
+      await press(byAction('activate-version')[0]);
       t.same(
-        named(calls, 'setVersionBasis').map(([versionId, basisKg, version]) => [versionId, basisKg, version]),
-        [['v-1', 1_200_000n, 5], ['v-1', 1_200_000n, 6]],
-        'V42 والحفظ التالي بنسخة المسوّدة الآن فينجح (لا يُعاد بالقديمة أبداً)',
+        [named(calls, 'setVersionBasis').map(([versionId, basisKg, version]) => [versionId, basisKg, version]), named(calls, 'activateVersion')],
+        [[['v-1', 1_000_000n, 5], ['v-1', 1_000_000n, 6]], [['v-1', 7]]],
+        'V42 والمحاولة التالية بنسخة المسوّدة الآن فتنجح (لا تُعاد بالقديمة أبداً)',
       );
-      t.eq(server.state.basis, '1200.000', 'V42 وحُفظ الأساس');
+      t.eq(server.state.status, 'active', 'V42 وفُعّلت');
     });
 
     // ── V43 (ب٤٣): الصفحة مرسومة أثناء القراءة من جديد، والأفعال معطَّلة أثناء الحفظ ─────────────────────────────────────────────────
@@ -821,36 +851,39 @@ export default async function (t) {
       t.same([byAction('input-qty').length, valueOf('input-qty')], [1, '50'], 'V43 حفظ معلَّق ثمّ نافذة مفتوحة: ما كُتب فيها يبقى بعد الحفظ والقراءة');
     });
     await step('V43 الخلطة أثناء الحفظ', async () => {
+      // كتابة الأساس قبل التفعيل معلَّقة، ثمّ تُرفض بصفر صفوف (جهاز آخر غيّر المسوّدة) فتبقى مسوّدة وتُقرأ من جديد.
       const holds = { setVersionBasis: deferred() };
       const server = recipeServer({ holds });
+      server.state.basis = '1200.000';
       fresh(MANAGER, server.handlers);
       await mount('/mill/recipe/r-1');
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1200');
-      await settle();
-      await click(byAction('save-basis')[0]);
+      await click(byAction('activate-version')[0]);
       t.same(
         ['add-line', 'edit-line', 'remove-line', 'remove-rate'].map((name) => disabled(byAction(name)[0])),
         [true, true, true, true],
-        'V43 أثناء حفظ الأساس: «أضف مادّة» و«عدّل» و«احذف» (السطر والتكلفة) معطَّلة',
+        'V43 أثناء كتابة الأساس للتفعيل: «أضف مواد» و«عدّل» و«احذف» (السطر والتكلفة) معطَّلة',
       );
+      server.state.version = 6;
       holds.setVersionBasis.resolve();
       await settle();
       t.same(['add-line', 'edit-line', 'remove-line', 'remove-rate'].map((name) => disabled(byAction(name)[0])), [false, false, false, false], 'V43 ضابط: بعده مفعَّلة');
     });
     await step('V43 نافذة الخلطة تبقى', async () => {
+      // «أضف مواد» مفتوحة وفيها مادّة مختارة بكميتها، وكتابة خلفها تقرأ الخلطة من جديد: المختار يعيش في الصفحة (درس WP5) فيبقى.
       const holds = { setVersionBasis: deferred() };
       const server = recipeServer({ holds });
+      server.state.basis = '1200.000';
       fresh(MANAGER, server.handlers);
       await mount('/mill/recipe/r-1');
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1200');
-      await settle();
       await click(byAction('add-line')[0]);
-      type(fieldByLabel('الكمية'), '25');
+      await press(cardOf('i-soy'));
+      type(qtyOf('كسبة صويا'), '25');
       await settle();
-      await click(byAction('save-basis')[0]);
+      await click(byAction('activate-version')[0]);
+      server.state.version = 6;
       holds.setVersionBasis.resolve();
       await settle();
-      t.same([byAction('line-save').length, fieldByLabel('الكمية')?.value ?? null], [1, '25'], 'V43 نافذة السطر المفتوحة أثناء الحفظ: ما كُتب فيها يبقى بعد القراءة من جديد');
+      t.same([server.reads(), byAction('add-lines-save').length, cardOf('i-soy')?.getAttribute('aria-pressed') ?? null, qtyOf('كسبة صويا')?.value ?? null], [2, 1, 'true', '25'], 'V43 نافذة «أضف مواد» المفتوحة أثناء الحفظ: المختار وكميته يبقيان بعد القراءة من جديد');
     });
     await step('V43 نسخة أخرى لا تُرسم بالسابقة', async () => {
       // البقاء مرسومة للمعرّف نفسه وحده: اختيار نسخة أخرى يقرؤها من أوّلها، فلا تُعرض موادّ النسخة السابقة باسم اللاحقة.
@@ -882,12 +915,10 @@ export default async function (t) {
           if (reads > 1) throw new m.RejectedError('read_failed', null);
           return m.parseRecipe(recipeJson());
         },
-        setVersionBasis: (versionId) => versionId,
+        activateVersion: () => ({ ok: true }),
       });
       await mount('/mill/recipe/r-1');
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1200');
-      await settle();
-      await click(byAction('save-basis')[0]);
+      await click(byAction('activate-version')[0]);
       t.same([reads, byAction('add-line').length, text().includes('أعد المحاولة')], [2, 0, true], 'V43 فشل القراءة من جديد يُعرض فشلاً لا بيانات قديمة');
     });
 
@@ -979,20 +1010,22 @@ export default async function (t) {
       await click(byAction('add-rate')[0]);
       t.same([valueOf('new-rate-amount'), server.state.rates.length], ['', 2], 'V44 ضابط: التكلفة الجديدة كما أُرسلت تُفرَّغ بعد إضافتها');
     });
-    await step('V44 الأساس', async () => {
-      const holds = { setVersionBasis: deferred() };
+    await step('V44 «أضف مواد»', async () => {
+      // البطاقات وخانات كمياتها مقفولة أثناء الإضافة، ثمّ تُغلق النافذة بعد إضافة كلّ المختار.
+      const holds = { addRecipeLine: deferred() };
       const server = recipeServer({ holds });
       const calls = fresh(MANAGER, server.handlers);
       await mount('/mill/recipe/r-1');
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1200');
+      await click(byAction('add-line')[0]);
+      t.same(byAction('material-card').map((node) => node.getAttribute('data-item')), ['i-soy'], 'V44 المادّة المكتوبة في الخلطة لا بطاقة لها');
+      await press(cardOf('i-soy'));
+      type(qtyOf('كسبة صويا'), '25');
       await settle();
-      await click(byAction('save-basis')[0]);
-      t.eq(disabled(fieldByLabel('أساس الخلطة (كغم)')), true, 'V44 حقل الأساس مقفول أثناء حفظه');
-      type(fieldByLabel('أساس الخلطة (كغم)'), '1300');
+      await click(byAction('add-lines-save')[0]);
+      t.same([disabled(qtyOf('كسبة صويا')), disabled(cardOf('i-soy')), disabled(byAction('add-lines-save')[0])], [true, true, true], 'V44 البطاقة وكميتها والإضافة مقفولة أثناءها');
+      holds.addRecipeLine.resolve();
       await settle();
-      holds.setVersionBasis.resolve();
-      await settle();
-      t.same([fieldByLabel('أساس الخلطة (كغم)')?.value ?? null, named(calls, 'setVersionBasis').map(([, basisKg]) => basisKg)], ['1300', [1_200_000n]], 'V44 ما كُتب في الأساس أثناء حفظه يبقى');
+      t.same([named(calls, 'addRecipeLine').map(([versionId, itemId, qty, unit]) => [versionId, itemId, qty, unit]), byAction('add-lines-save').length], [[['v-1', 'i-soy', 25_000n, 'kg']], 0], 'V44 ثمّ أُضيفت بكميتها وأُغلقت النافذة');
     });
 
     // ── V45 (ب٤٥): جملة «بلا أيّ سعر» بالدور ────────────────────────────────────────────────────────────────────────────────
@@ -1146,7 +1179,7 @@ export default async function (t) {
       t.eq(byAction('write-density').length, 1, 'V49 ضابط: المكتوب رجع إلى المحفوظ فيعود الرابط');
     });
     await step('V49 كلّ مكتوب في الصفحة يخفي الرابط', async () => {
-      // مسوّدة الشراب ومعها تكلفة لكلّ طنّ وفئتان: مبلغ الطنّ، والتكلفة الجديدة (فئتها أو مبلغها)، والأساس، واسم فئة جديدة.
+      // مسوّدة الشراب ومعها تكلفة لكلّ طنّ وفئتان: مبلغ الطنّ، والتكلفة الجديدة (فئتها أو مبلغها)، واسم فئة جديدة (ولا أساس يُكتب بعد 2026-11-07).
       const withRate = () => {
         const answer = SYRUP_DRAFT();
         answer.money.rates = [{ id: 'rr-1', line_no: 1, category_id: 'c-labor', category_name: 'أيدي عاملة', amount_per_ton: '5000.00' }];
@@ -1159,7 +1192,6 @@ export default async function (t) {
         ['مبلغ الطنّ', () => type(byAction('rate-amount')[0], '5500'), () => type(byAction('rate-amount')[0], '5000.00')],
         ['فئة التكلفة الجديدة', () => choose(byAction('new-rate-category')[0], 'c-power'), () => choose(byAction('new-rate-category')[0], '')],
         ['مبلغ التكلفة الجديدة', () => type(byAction('new-rate-amount')[0], '700'), () => type(byAction('new-rate-amount')[0], '')],
-        ['الأساس', () => type(fieldByLabel('أساس الخلطة (كغم)'), '1200'), () => type(fieldByLabel('أساس الخلطة (كغم)'), '1000.000')],
         ['اسم فئة جديدة', () => type(byAction('new-category-name')[0], 'نقل'), () => type(byAction('new-category-name')[0], '')],
       ];
       for (const [kind, write, undo] of kinds) {

@@ -370,10 +370,11 @@ export default async function (t) {
         ['صارت «دبس» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.', 'صارت «كاز» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.'],
         'W31 لكلّ سطر unit_mismatch في المسوّدة جملة تقول ما العمل',
       );
-      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من الأساس');
+      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من مجموعها');
       const mass = table?.headers.indexOf('بالكيلوغرام') ?? -1;
       const share = table?.headers.indexOf('الحصّة') ?? -1;
-      t.same((table?.rows ?? []).map((row) => [row[0], row[mass], row[share]]), [['ذرة صفراء', '972', '97.20٪'], ['دبس', '—', '—'], ['كاز', '—', 'خارج الكتلة']], 'W31 كتلة السطر وحصّته «—» حين لا تُعرف');
+      // الحصّة من مجموع الخلطة (لا أساس يُطابَق، 2026-11-07): مجموع لا يُعرف فحصّة كلّ سطر «—» لا نسبة من أساس قديم.
+      t.same((table?.rows ?? []).map((row) => [row[0], row[mass], row[share]]), [['ذرة صفراء', '972', '—'], ['دبس', '—', '—'], ['كاز', '—', 'خارج الكتلة']], 'W31 كتلة السطر وحصّته «—» حين لا تُعرف');
       t.eq(table?.footAt(mass) ?? null, '—', 'W31 والمجموع «—» (سطر داخل الكتلة بلا كتلة)');
       const titles = barTitles(all().find((n) => n.getAttribute('role') === 'presentation'));
       t.ok(titles.length === 1 && titles[0].startsWith('ذرة صفراء') && !titles.some((title) => title.includes('دبس')), `W31 شريط التركيبة يتخطّى القطعة بلا كتلة (${titles.join(' | ')})`);
@@ -401,7 +402,7 @@ export default async function (t) {
       const frozen = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-dbs', item_name: 'دبس', qty: '20.000', unit: 'L', mass_kg: '28.000', share_pct: '2.80', unit_mismatch: true });
       fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [cornLine, frozen] })) });
       await mount('/mill/recipe/r-1');
-      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من الأساس');
+      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من مجموعها');
       const mass = table?.headers.indexOf('بالكيلوغرام') ?? -1;
       t.same([byAction('unit-mismatch').length, table?.rows[1]?.[mass] ?? null], [0, '28'], 'W31 ضابط: في المفعَّلة لا جملة، والكتلة من لقطة الكثافة');
     });

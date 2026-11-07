@@ -39,7 +39,8 @@ import {
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { ProduceDialog } from './MillPage';
-import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, unitWord, useDrafts, useOnHand, type CategoryDraft, type OnHandMap } from './pickers';
+import { cardTotals, kgText, MaterialCards, useCardLines, useMillStock, viewCardLine, type CardLines, type MillStock } from './cards';
+import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, unitWord, useDrafts, type CategoryDraft } from './pickers';
 import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
@@ -64,6 +65,9 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // النسخة المعروضة في الرابط (?version=) لا في حالة الصفحة، فالرجوع إليها (أو زرّ الرجوع في المتصفّح) يفتحها هي (ب٦١)؛ ولوحة كلفة الطنّ تقول
 // للسطور المسعَّرة التي لا تتحوّل كميتها «لا تُحسب حتّى تُصحَّح سطورها» لا «اكتب سعر كلفتها» (ب٦٢، unconverted). وتكامل الجولة: سطر لتر تُقرَّب
 // كتلته صفراً (ق٦٤: يرفض الخادم التفعيل به qty_not_positive) سطرٌ لا تُفعَّل النسخة به كشروط ب٤١، بجملة تسمّيه فوق.
+// المواد بطاقاتٍ (كلمة المالك 2026-11-07): «أضف مواد» تفتح بطاقات المواد في نافذة عريضة، يُختار منها أكثر من مادّة معاً بكمياتها وتُضاف بنقرة؛
+// والمختار يعيش في الصفحة فلا تمسحه القراءة من جديد (درس WP5). ولا «أساس» يُكتب ويُطابَق: «فعّل النسخة» تكتب أساس المسوّدة = مجموع ما داخل
+// الكتلة (setVersionBasis بشرط نسختها) ثمّ تفعّلها بالنسخة التالية، فلا basis_mismatch؛ والصفحة تقول «مجموع الخلطة» و«الناتج المتوقّع».
 
 /** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
 const CHANGED_ELSEWHERE = new Set(['price_changed', 'amount_changed', 'stale_draft']);
@@ -80,26 +84,23 @@ interface Conflict {
   rebased: boolean;
 }
 
-function LineDialog({ recipe, line, onHand, onClose, onSaved }: { recipe: RecipeDetail; line: RecipeLine | null; onHand: OnHandMap | null; onClose: () => void; onSaved: () => void }) {
+/** تعديل كمية سطر قائم في المسوّدة (الإضافة بالبطاقات: AddMaterialsDialog). */
+function LineDialog({ line, onClose, onSaved }: { line: RecipeLine; onClose: () => void; onSaved: () => void }) {
   const id = useId();
-  const [item, setItem] = useState(line?.itemId ?? '');
-  const [qty, setQty] = useState(line ? decimalText(line.qty, 3) : '');
-  const [unit, setUnit] = useState<RecipeUnit>(line?.unit ?? 'kg');
+  const [qty, setQty] = useState(decimalText(line.qty, 3));
+  const [unit, setUnit] = useState<RecipeUnit>(line.unit);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const picked = recipe.pickItems.find((candidate) => candidate.id === item) ?? null;
-  const pickedStock = picked ? onHand?.get(picked.id) : undefined;
   const value = parseQty(qty);
   const bad = qty.trim() !== '' && (value === null || value <= 0n);
-  const liquid = picked?.baseUnit === 'L' || line?.baseUnit === 'L';
+  const liquid = line.baseUnit === 'L';
 
   const save = async () => {
-    if (!value || value <= 0n || (!line && item === '')) return;
+    if (!value || value <= 0n) return;
     setBusy(true);
     setError(null);
     try {
-      if (line) await setRecipeLine(line.id, value, unit);
-      else if (recipe.versionId) await addRecipeLine(recipe.versionId, item, value, unit);
+      await setRecipeLine(line.id, value, unit);
       onSaved();
     } catch (failure) {
       const { title, detail } = describeError(failure);
@@ -113,33 +114,15 @@ function LineDialog({ recipe, line, onHand, onClose, onSaved }: { recipe: Recipe
       open
       onClose={onClose}
       locked={busy}
-      dirty={qty !== (line ? decimalText(line.qty, 3) : '') || item !== (line?.itemId ?? '')}
-      title={line ? t('mill.line.edit', 'تعديل «{name}»', { name: line.itemName }) : t('mill.line.add', 'مادّة في الخلطة')}
+      dirty={qty !== decimalText(line.qty, 3)}
+      title={t('mill.line.edit', 'تعديل «{name}»', { name: line.itemName })}
       footer={
-        <Button onClick={() => void save()} busy={busy} disabled={!value || value <= 0n || (!line && item === '')} data-action="line-save">
+        <Button onClick={() => void save()} busy={busy} disabled={!value || value <= 0n} data-action="line-save">
           {t('common.save', 'حفظ')}
         </Button>
       }
     >
-      <p className="text-sm text-ink-muted">
-        {t('mill.line.hint', 'الكمية لكلّ {basis} من الخلطة: مجموع المواد يجب أن يساوي هذا الأساس بالضبط.', { basis: fmtQty(recipe.basisKg, 'kg').main })}
-      </p>
-      {line ? null : (
-        <Field id={`${id}-item`} label={t('mill.line.item', 'المادّة')} hint={pickedStock ? onHandText(pickedStock) : undefined}>
-          <select id={`${id}-item`} className="input" value={item} onChange={(event) => setItem(event.target.value)} data-action="line-item">
-            <option value="">{t('mill.line.pick', 'اختر المادّة')}</option>
-            {recipe.pickItems.map((candidate) => {
-              const named = candidate.categoryName ? `${candidate.name} — ${candidate.categoryName}` : candidate.name;
-              const stock = onHand?.get(candidate.id);
-              return (
-                <option key={candidate.id} value={candidate.id}>
-                  {stock ? t('mill.line.option_on_hand', '{item} ({on_hand})', { item: named, on_hand: onHandText(stock) }) : named}
-                </option>
-              );
-            })}
-          </select>
-        </Field>
-      )}
+      <p className="text-sm text-ink-muted">{t('mill.line.hint_total', 'الكمية بالكيلوغرام، أو باللتر للسائل. مجموع المواد هو حجم الخلطة وناتجها.')}</p>
       <Field id={`${id}-qty`} label={t('mill.line.qty', 'الكمية')} error={bad ? t('mill.line.qty_bad', 'اكتب كمية أكبر من صفر.') : undefined}>
         <input id={`${id}-qty`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={qty} onChange={(event) => setQty(event.target.value)} />
       </Field>
@@ -152,6 +135,89 @@ function LineDialog({ recipe, line, onHand, onClose, onSaved }: { recipe: Recipe
         </Field>
       ) : null}
       {error ? <Notice tone="danger" title={error} /> : null}
+    </Dialog>
+  );
+}
+
+/**
+ * «أضف مواد» بالبطاقات (كلمة المالك 2026-11-07): أكثر من مادّة معاً بكمياتها، والمختار وما كُتب في الصفحة (picks وquery من RecipePage، درس WP5).
+ * المواد المكتوبة في المسوّدة لا تُعرض (exclude)، وما وصل منها بمحاولة ضاع جوابها يُسقط من الإرسال بعد القراءة من جديد.
+ */
+function AddMaterialsDialog({
+  recipe,
+  stock,
+  picks,
+  query,
+  onQuery,
+  canCreate,
+  canFixKind,
+  canWriteDensity,
+  busy,
+  failure,
+  onClose,
+  onSave,
+}: {
+  recipe: RecipeDetail;
+  stock: MillStock;
+  picks: CardLines;
+  query: string;
+  onQuery: (text: string) => void;
+  canCreate: boolean;
+  canFixKind: boolean;
+  canWriteDensity: boolean;
+  busy: boolean;
+  failure: string | null;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const cardsId = useId();
+  const inRecipe = useMemo(() => new Set(recipe.lines.map((line) => line.itemId)), [recipe.lines]);
+  const views = picks.lines.filter((line) => !inRecipe.has(line.item.id)).map(viewCardLine);
+  const totals = cardTotals(views);
+  const ready = views.length > 0 && views.every((row) => row.qtyOk && !row.densityMissing && !row.densityUnread && row.mass !== 0n);
+  const after = recipe.massKg !== null && totals.known ? recipe.massKg + totals.sum : null;
+  return (
+    <Dialog
+      open
+      size="wide"
+      onClose={onClose}
+      locked={busy}
+      dirty={views.length > 0}
+      title={t('mill.add.title', 'أضف مواد إلى «{name}»', { name: recipe.name })}
+      footer={
+        <Button size="lg" icon={<Plus className="size-5" aria-hidden="true" />} busy={busy} disabled={!ready} onClick={onSave} data-action="add-lines-save">
+          {t('mill.add.save', 'أضف المختار إلى الخلطة')}
+        </Button>
+      }
+    >
+      <p className="text-sm text-ink-muted">{t('mill.cards.hint', 'المس البطاقة لتختار المادّة، واكتب كميتها عليها؛ لمسة ثانية تتركها. تختار أكثر من مادّة معاً.')}</p>
+      <MaterialCards
+        id={cardsId}
+        stock={stock}
+        picks={picks}
+        query={query}
+        onQuery={onQuery}
+        exclude={inRecipe}
+        canCreate={canCreate}
+        canFixKind={canFixKind}
+        canWriteDensity={canWriteDensity}
+        disabled={busy}
+      />
+      {views.length ? (
+        <div className="flex flex-col gap-1 rounded-2xl bg-surface-2 p-3 text-sm" data-action="add-sum">
+          <p className="font-medium">
+            {t('mill.add.picked', 'المختار: {names}', { names: views.map((row) => row.line.item.name).join(t('list.separator', '، ')) })}
+          </p>
+          <p>
+            {totals.known
+              ? after !== null
+                ? t('mill.add.after', 'يزيد الخلطة {added}، فيصير مجموعها {total}.', { added: kgText(totals.sum), total: kgText(after) })
+                : t('mill.add.added', 'يزيد الخلطة {added}.', { added: kgText(totals.sum) })
+              : t('mill.cards.sum_unknown', 'مجموع الخلطة لا يُحسب بعد: اكتب كمية كلّ مادّة مختارة، وكثافة كلّ سائل بلا كثافة.')}
+          </p>
+        </div>
+      ) : null}
+      {failure ? <Notice tone="danger" title={failure} /> : null}
     </Dialog>
   );
 }
@@ -194,6 +260,7 @@ export default function RecipePage() {
   const canEdit = role !== null && can(role, 'recipe.activate');
   const canProduce = role !== null && can(role, 'production.draft');
   const canCategories = role !== null && can(role, 'expense_categories.manage');
+  const canCreateItem = role !== null && can(role, 'item.create');
   const costs = Boolean(workspace?.canSeeCost);
   // من يعدّل المواد (كثافتها ووحدتها وسعر كلفتها): stores.manage، كما يشترطها الخادم (ب٤٩، ب٤٥).
   const canItems = role !== null && can(role, 'stores.manage');
@@ -206,13 +273,17 @@ export default function RecipePage() {
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
   // الخلطة تبقى مرسومة بآخر ما قُرئ للنسخة نفسها أثناء القراءة من جديد (ب٤٣)، والأفعال معطَّلة حتّى تصل.
   const { data, error, loading, refreshing, retry } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
-  // «عندك» لكلّ مادّة (0017، كلمة المالك 2026-11-06: «وافتح خلطة اكدر اشوف المواد الي عندي بالمخزن»): قراءة واحدة للصفحة.
-  const onHand = useOnHand();
+  // «عندك» لكلّ مادّة (0017، كلمة المالك 2026-11-06: «وافتح خلطة اكدر اشوف المواد الي عندي بالمخزن») وبطاقات «أضف مواد»: قراءة واحدة للصفحة.
+  const stock = useMillStock();
+  const onHand = stock.onHand;
+  // المختار في «أضف مواد» ونصّ بحثها وجملة فشلها في الصفحة (درس WP5): القراءة من جديد بعد كلّ إضافة لا تمسحها.
+  const picks = useCardLines();
+  const [query, setQuery] = useState('');
+  const [addFailure, setAddFailure] = useState<string | null>(null);
   const [editing, setEditing] = useState<RecipeLine | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<RecipeLine | null>(null);
   const [removingRate, setRemovingRate] = useState<RecipeRate | null>(null);
-  const [basis, setBasis] = useState('');
   const [working, setBusy] = useState(false);
   const busy = working || refreshing;
   const [failure, setFailure] = useState<string | null>(null);
@@ -225,7 +296,6 @@ export default function RecipePage() {
   const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
   const [category, setCategory] = useState<CategoryDraft>(NO_CATEGORY_DRAFT);
   const [producing, setProducing] = useState<{ today: string; stores: MillStore[] } | 'loading' | null>(null);
-  const basisId = useId();
   const fieldId = useId();
 
   const lines = useMemo(() => data?.lines ?? [], [data]);
@@ -238,6 +308,8 @@ export default function RecipePage() {
   // أعمدة الأسعار مال: لأدوار الكلفة وحدها (الخادم يحذف money عن غيرهم).
   const costShown = costs;
   const isDraft = data?.status === 'draft';
+  // الحصّة من مجموع الخلطة في المسوّدة (لا أساس يُكتب)، ومن الأساس المجمَّد في غيرها.
+  const shareOf = isDraft ? (data?.massKg ?? null) : (data?.basisKg ?? null);
   const hue = recipeColor(id).hue;
 
   const sections = useMemo(() => {
@@ -342,6 +414,74 @@ export default function RecipePage() {
     }
   };
 
+  /**
+   * «أضف المختار إلى الخلطة»: سطر لكلّ مادّة مختارة بترتيب اختيارها (كتابة مباشرة لكلّ سطر كـ«أضف مادّة» من قبل)، وما أُضيف يُترك من المختار
+   * فوراً؛ وأوّل رفض يوقف ما بعده ويُقال باسم ما أُضيف قبله، ثمّ تُقرأ الخلطة من جديد في الحالتين. المادّة المكتوبة في المسوّدة (أُضيفت بمحاولة ضاع
+   * جوابها، أو من جهاز آخر) لا تُرسل ثانية.
+   */
+  const addPicked = async () => {
+    if (busy || !data?.versionId) return;
+    const versionOf = data.versionId;
+    const inRecipe = new Set(data.lines.map((line) => line.itemId));
+    const sending = picks.lines.filter((line) => !inRecipe.has(line.item.id));
+    setBusy(true);
+    setAddFailure(null);
+    setFailure(null);
+    setConflict(null);
+    const added: string[] = [];
+    try {
+      for (const line of sending) {
+        const qty = viewCardLine(line).qty;
+        if (qty === null || qty <= 0n) continue;
+        await addRecipeLine(versionOf, line.item.id, qty, line.unit);
+        picks.remove(line.item.id);
+        added.push(line.item.name);
+      }
+      setAdding(false);
+      setQuery('');
+      picks.reset();
+      toast({ tone: 'success', title: t('mill.add.done', 'أُضيفت إلى الخلطة: {names}.', { names: added.join(t('list.separator', '، ')) }) });
+    } catch (problem) {
+      const { title, detail } = describeError(problem);
+      setAddFailure(
+        added.length
+          ? t('mill.add.partial', 'أُضيفت {names}، ثمّ توقّفت الإضافة: {reason}', { names: added.join(t('list.separator', '، ')), reason: `${title} ${detail}` })
+          : `${title} ${detail}`,
+      );
+    } finally {
+      setBusy(false);
+      retry();
+    }
+  };
+
+  /** «أغلق» نافذة «أضف مواد»: المختار فيها يُترك (والنافذة تسأل قبل إغلاقها وفيها مختار). */
+  const closeAdding = () => {
+    setAdding(false);
+    setQuery('');
+    setAddFailure(null);
+    picks.reset();
+  };
+
+  /**
+   * «فعّل النسخة» بلا أساس يُطابَق (كلمة المالك 2026-11-07): إن خالف أساسُ المسوّدة مجموعَ ما داخل الكتلة يُكتب الأساس = المجموع بشرط نسخة
+   * المسوّدة (صفر صفوف = تغيّرت من جهاز آخر فتُقرأ من جديد)، ثمّ التفعيل بالنسخة التالية؛ فتغيّرٌ بين الخطوتين يُرفض stale_draft ويُقرأ من جديد.
+   */
+  const activate = () => {
+    if (!data?.versionId || data.massKg === null) return;
+    const versionOf = data.versionId;
+    const total = data.massKg;
+    const seen = data.versionVersion;
+    const basisNow = data.basisKg;
+    void act(async () => {
+      let expected = seen;
+      if (basisNow !== total) {
+        await setVersionBasis(versionOf, total, seen);
+        expected = seen + 1;
+      }
+      await activateVersion(versionOf, expected);
+    }, t('mill.detail.activated', 'فُعّلت النسخة: صارت هي خلطة الإنتاج.'));
+  };
+
   /** «أنتج» من بطاقة الخلطة (م٩): نافذة الإنتاج نفسها، ومخازن المعمل ويوم الخادم تُقرأ حين تُفتح. */
   const openProduce = () => {
     if (producing) return;
@@ -394,7 +534,7 @@ export default function RecipePage() {
               {t('mill.line.out_of_basis', 'خارج الكتلة')}
             </span>
           ) : (
-            <Num>{line.massKg !== null && (data?.basisKg ?? 0n) > 0n ? pct(line.massKg, data?.basisKg ?? 1n) : dash()}</Num>
+            <Num>{line.massKg !== null && shareOf !== null && shareOf > 0n ? pct(line.massKg, shareOf) : dash()}</Num>
           ),
       },
     ];
@@ -488,12 +628,13 @@ export default function RecipePage() {
 
   // مجموع لا يُعرف (ب٣١: سطر داخل الكتلة بلا كتلة) لا فرق له، فلا «مطابق» ولا تفعيل (الخادم يرفضه أصلاً).
   const sum = data.massKg;
-  const gap = sum === null ? null : data.basisKg - sum;
+  // حجم الخلطة المعروض: مجموع ما داخل الكتلة في المسوّدة (لا أساس يُكتب)، والأساس المجمَّد (= المجموع يوم التفعيل) في غيرها.
+  const total = isDraft ? sum : data.basisKg;
   // سطور المسوّدة التي يرفض الخادم التفعيل بها ولو طابق المجموع الأساس (ب٤١): مكتوب باللتر ومادّته ليست باللتر (bad_recipe_unit)، أو مادّة
   // صارت بالقطعة بأيّ وحدة كُتب (bad_recipe_unit)، أو سائل بلا كثافة (density_required)، أو سطر لتر تُقرَّب كتلته صفراً (qty_not_positive، ق٦٤:
   // كُتب بكثافة أكبر ثمّ صغرت كثافة مادّته) — داخل الكتلة وخارجها. لكلّ منها جملة فوق.
   const blocked = isDraft ? lines.filter((line) => line.unitMismatch || line.densityMissing || line.baseUnit === 'pc' || line.massKg === 0n) : [];
-  const balanced = gap === 0n && lines.length > 0 && blocked.length === 0;
+  const balanced = sum !== null && sum > 0n && lines.length > 0 && blocked.length === 0;
   const rates = data.rates ?? [];
   const canRates = isDraft && canEdit && costs;
   const activeVersion = data.versions.find((version) => version.status === 'active') ?? null;
@@ -545,7 +686,7 @@ export default function RecipePage() {
     }) ||
     newRate.categoryId !== '' ||
     newRate.amount.trim() !== '' ||
-    (basis.trim() !== '' && basis !== decimalText(data.basisKg, 3)) ||
+    picks.lines.length > 0 ||
     category.text.trim() !== '';
   // بعد رفض «تغيّر من جهاز آخر» وقراءته الجديدة (ب٤٢): المحفوظ الآن وما كتبه المستخدم معاً — الخانة تبقى بما كتبه، والجملة تقول المحفوظ.
   const conflictNote = ((): string | null => {
@@ -713,8 +854,11 @@ export default function RecipePage() {
       ) : null}
 
       <section className="card flex flex-col gap-3 p-4">
-        <p className="text-sm text-ink-muted">{t('mill.detail.basis', 'الأساس: {basis}', { basis: fmtQty(data.basisKg, 'kg').main })}</p>
-        <CompositionBar pieces={lines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={data.basisKg > 0n ? data.basisKg : 1n} hue={hue} />
+        <div className="flex flex-col gap-1" data-action="recipe-total">
+          <p className="text-lg font-semibold">{t('mill.cards.sum', 'مجموع الخلطة: {kg}', { kg: total === null ? dash() : kgText(total) })}</p>
+          <p className="text-sm text-ink-muted">{t('mill.cards.output', 'الناتج المتوقّع: {kg} (قبل الهدر)', { kg: total === null ? dash() : kgText(total) })}</p>
+        </div>
+        <CompositionBar pieces={lines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={total !== null && total > 0n ? total : 1n} hue={hue} />
         <div className="flex flex-wrap gap-1.5">
           {sections.map((section, index) => (
             <Chip key={section.name} dot={pieceColor(hue, index)}>
@@ -725,23 +869,16 @@ export default function RecipePage() {
         </div>
       </section>
 
-      {isDraft ? (
-        gap === null || sum === null ? (
+      {isDraft && lines.length ? (
+        sum === null ? (
           <Notice tone="warning" title={t('mill.detail.gap_unknown', 'لا يُحسب المجموع: كتلة سطر أو أكثر لا تُعرف.')} />
-        ) : gap === 0n ? (
-          blocked.length ? (
-            // المجموع مطابق وفي المسوّدة سطر يرفض الخادم التفعيل به (ب٤١): لا «جاهزة»، والجمل فوق تسمّي السطور وما العمل.
-            <Notice tone="warning" title={t('mill.detail.balanced_blocked', 'المجموع مطابق للأساس، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.')} />
-          ) : (
-            <Notice tone="info" title={t('mill.detail.balanced', 'المجموع مطابق للأساس: الخلطة جاهزة للتفعيل.')} />
-          )
+        ) : sum === 0n ? (
+          <Notice tone="warning" title={t('mill.detail.sum_zero', 'مجموع الخلطة صفر: أضف مادّة داخل الكتلة (الوقود والتعبئة خارجها).')} />
+        ) : blocked.length ? (
+          // في المسوّدة سطر يرفض الخادم التفعيل به (ب٤١): لا «جاهزة»، والجمل فوق تسمّي السطور وما العمل.
+          <Notice tone="warning" title={t('mill.detail.sum_blocked', 'مجموع الخلطة {kg}، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.', { kg: kgText(sum) })} />
         ) : (
-          <Notice
-            tone="warning"
-            title={t('mill.detail.gap', 'المجموع {sum} من {basis}', { sum: fmtQty(sum, 'kg').main, basis: fmtQty(data.basisKg, 'kg').main })}
-          >
-            {gap > 0n ? t('mill.detail.missing', 'ينقص {gap}', { gap: fmtQty(gap, 'kg').main }) : t('mill.detail.extra', 'يزيد {gap}', { gap: fmtQty(-gap, 'kg').main })}
-          </Notice>
+          <Notice tone="info" title={t('mill.detail.sum_ready', 'مجموع الخلطة {kg}: الخلطة جاهزة للتفعيل.', { kg: kgText(sum) })} />
         )
       ) : null}
       {failure ? (
@@ -751,7 +888,7 @@ export default function RecipePage() {
       ) : null}
 
       <DataTable
-        caption={t('mill.detail.caption', 'مواد الخلطة وحصّة كلّ مادّة من الأساس')}
+        caption={t('mill.detail.caption_total', 'مواد الخلطة وحصّة كلّ مادّة من مجموعها')}
         columns={columns}
         rows={lines}
         rowKey={(line) => line.id}
@@ -771,45 +908,18 @@ export default function RecipePage() {
       {isDraft && canEdit ? (
         <div className="flex flex-wrap items-end gap-3">
           {/* أثناء الحفظ والقراءة من جديد (ب٤٣): لا تُفتح نافذة سطر تتبدّل الصفحة تحتها. */}
-          <Button icon={<Plus className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setAdding(true)} data-action="add-line">
-            {t('mill.detail.add_line', 'أضف مادّة')}
-          </Button>
-          <Field id={basisId} label={t('mill.detail.set_basis', 'أساس الخلطة (كغم)')}>
-            <input
-              id={basisId}
-              className="input tabular-nums"
-              inputMode="decimal"
-              dir="ltr"
-              value={basis === '' ? decimalText(data.basisKg, 3) : basis}
-              disabled={busy}
-              onChange={(event) => setBasis(event.target.value)}
-            />
-          </Field>
           <Button
-            variant="secondary"
-            busy={busy}
-            disabled={basis.trim() === '' || !parseQty(basis) || (parseQty(basis) ?? 0n) <= 0n}
+            icon={<Plus className="size-5" aria-hidden="true" />}
+            disabled={busy}
             onClick={() => {
-              const sent = basis;
-              const value = parseQty(sent);
-              void act(async () => {
-                if (value && data.versionId) await setVersionBasis(data.versionId, value, data.versionVersion);
-                // قاعدة ب٣٢: لا يُفرَّغ الحقل إلّا إن بقي كما أُرسل.
-                setBasis((current) => (current === sent ? '' : current));
-              }, t('mill.detail.basis_saved', 'حُفظ الأساس.'));
+              setAddFailure(null);
+              setAdding(true);
             }}
-            data-action="save-basis"
+            data-action="add-line"
           >
-            {t('mill.detail.save_basis', 'احفظ الأساس')}
+            {t('mill.detail.add_lines', 'أضف مواد')}
           </Button>
-          <Button
-            size="lg"
-            icon={<CheckCircle2 className="size-5" aria-hidden="true" />}
-            busy={busy}
-            disabled={!balanced}
-            onClick={() => void act(() => activateVersion(data.versionId ?? '', data.versionVersion), t('mill.detail.activated', 'فُعّلت النسخة: صارت هي خلطة الإنتاج.'))}
-            data-action="activate-version"
-          >
+          <Button size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={busy} disabled={!balanced} onClick={activate} data-action="activate-version">
             {t('mill.detail.activate', 'فعّل النسخة')}
           </Button>
         </div>
@@ -930,22 +1040,24 @@ export default function RecipePage() {
       ) : null}
 
       {adding ? (
-        <LineDialog
+        <AddMaterialsDialog
           recipe={data}
-          line={null}
-          onHand={onHand}
-          onClose={() => setAdding(false)}
-          onSaved={() => {
-            setAdding(false);
-            retry();
-          }}
+          stock={stock}
+          picks={picks}
+          query={query}
+          onQuery={setQuery}
+          canCreate={canCreateItem}
+          canFixKind={canItems}
+          canWriteDensity={canItems}
+          busy={busy}
+          failure={addFailure}
+          onClose={closeAdding}
+          onSave={() => void addPicked()}
         />
       ) : null}
       {editing ? (
         <LineDialog
-          recipe={data}
           line={editing}
-          onHand={onHand}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -989,7 +1101,7 @@ export default function RecipePage() {
         />
       ) : null}
       {producing && producing !== 'loading' && activeVersion ? (
-        <ProduceDialog recipe={{ name: data.name, activeId: activeVersion.id }} stores={producing.stores} today={producing.today} onClose={() => setProducing(null)} />
+        <ProduceDialog recipe={{ name: data.name, activeId: activeVersion.id, activeBasisKg: activeVersion.basisKg }} stores={producing.stores} today={producing.today} onClose={() => setProducing(null)} />
       ) : null}
     </div>
   );

@@ -11,11 +11,14 @@ import { addDays, localDay } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
 import { parseDayText } from '../../lib/dayText';
+import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQty, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadFlockDetail, recordFlockWeight, type DayLine, type FlockDetail } from '../../lib/repo/flocks';
+import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type FlockDetail } from '../../lib/repo/flocks';
+import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { FeedLine, issuePath } from './feed';
 import { farmPath, farmTitle, fmtPct, Metric } from './shared';
 
 // شاشة الفوج (FOUNDATION ٧٨٢): الأرقام المهمّة ثابتة بالرأس (العمر، الحيّ، النفوق، العلف، ومعامل التحويل للّاحم، وبيض اليوم ونسبته
@@ -173,6 +176,33 @@ function FlockView({ detail, kind, onChanged }: { detail: FlockDetail; kind: Flo
   );
 }
 
+/**
+ * علف القاعة (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف والمستهلك والباقي بسطر، وزرّ «اصرف علفاً أو
+ * دواءً» لمن يصرف والفوج قائم، ورابط سجلّ الصرف. الصرف نفسه في صفحة المخزن (يحتاج الخادم)، فهنا القراءة والرابطان وحدهما؛ وبلا اتصال لا شيء.
+ */
+function FeedSection({ flockId, active, back }: { flockId: string; active: boolean; back: string }) {
+  const session = useSession();
+  const canIssue = active && session.status === 'ready' && can(session.workspace.role, 'issue.post');
+  const load = useCallback(() => loadFlockFeed(flockId), [flockId]);
+  const { data } = useLoad(load);
+  if (!data) return null;
+  return (
+    <section className="card flex flex-col gap-3 p-4" data-action="flock-feed">
+      <FeedLine feed={data} />
+      <div className="flex flex-wrap items-center gap-3">
+        {canIssue ? (
+          <Link to={issuePath(flockId, back, true)} data-action="flock-issue" className="inline-flex h-11 items-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700">
+            {t('issue.open', 'اصرف علفاً أو دواءً')}
+          </Link>
+        ) : null}
+        <Link to={issuePath(flockId, back, false)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="flock-issues">
+          {t('feed.history', 'سجلّ الصرف لهذه القاعة')}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default function FlockPage({ kind }: { kind: FlockKind }) {
   const { id = '' } = useParams();
   const load = useCallback(() => loadFlockDetail(id), [id]);
@@ -202,6 +232,7 @@ export default function FlockPage({ kind }: { kind: FlockKind }) {
       ) : state.error ? (
         <LoadFailed what={t('flock.what', 'الفوج')} error={state.error} onRetry={state.retry} />
       ) : null}
+      {detail ? <FeedSection flockId={detail.flock.id} active={detail.flock.status === 'active'} back={`${base}/flock/${detail.flock.id}`} /> : null}
       {detail ? <FlockView detail={detail} kind={kind} onChanged={state.retry} /> : null}
     </div>
   );

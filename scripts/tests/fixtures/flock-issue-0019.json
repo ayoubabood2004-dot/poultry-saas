@@ -1,0 +1,1014 @@
+{
+  "generated_by": "supabase/tests/flock-issue.test.mjs (embedded Postgres 17، اليوم المثبَّت 2026-11-07)",
+  "flock_issue_options": {
+    "owner": {
+      "items": [
+        {
+          "kind": "feed",
+          "name": "علف بادئ",
+          "stores": [
+            {
+              "qty": "1200.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1200.000",
+          "made_in_mill": true,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "feed",
+          "name": "علف التزامن",
+          "stores": [
+            {
+              "qty": "100.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "60805ef2-7cc8-4f2e-8815-02c5388974a0",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "100.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "feed",
+          "name": "علف ناهي",
+          "stores": [
+            {
+              "qty": "1500.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "9ed9cd2f-a5db-4408-ae33-cde8feae16b6",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1500.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "دبس",
+          "stores": [
+            {
+              "qty": "50.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "e871e7f9-cc7a-479e-8235-e7fc50d88e70",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "on_hand_qty": "50.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "ذرة صفراء",
+          "stores": [
+            {
+              "qty": "1000.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "43e9ce1e-bedd-485a-97cb-969bfcd9d4f1",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1000.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "زيت الصويا",
+          "stores": [
+            {
+              "qty": "200.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "on_hand_qty": "200.000",
+          "made_in_mill": false,
+          "density_kg_per_l": "0.92"
+        },
+        {
+          "kind": "equipment",
+          "name": "ستائر",
+          "stores": [
+            {
+              "qty": "10.000",
+              "name": "المخزن العام",
+              "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2"
+            }
+          ],
+          "item_id": "fc0bd3d5-431f-4b92-b6bd-999e82969a62",
+          "base_unit": "pc",
+          "cost_kind": "other",
+          "on_hand_qty": "10.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "medicine",
+          "name": "فيتامين",
+          "stores": [
+            {
+              "qty": "20.000",
+              "name": "مخزن الأدوية",
+              "warehouse_id": "0e1f9a22-2ec9-4bdc-9932-4aed2b8d3d32"
+            }
+          ],
+          "item_id": "1f51988f-c442-426e-990b-0179f0976a85",
+          "base_unit": "kg",
+          "cost_kind": "medicine",
+          "on_hand_qty": "20.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "fuel",
+          "name": "كاز",
+          "stores": [
+            {
+              "qty": "1000.000",
+              "name": "المخزن العام",
+              "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2"
+            }
+          ],
+          "item_id": "b012f09b-bf0d-4c4a-9578-fb878e5991c4",
+          "base_unit": "L",
+          "cost_kind": "fuel",
+          "on_hand_qty": "1000.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "vaccine",
+          "name": "لقاح نيوكاسل",
+          "stores": [
+            {
+              "qty": "300.000",
+              "name": "مخزن الأدوية",
+              "warehouse_id": "0e1f9a22-2ec9-4bdc-9932-4aed2b8d3d32"
+            }
+          ],
+          "item_id": "773daf1d-8404-4945-9b77-fd1f0c83dd28",
+          "base_unit": "pc",
+          "cost_kind": "vaccine",
+          "on_hand_qty": "300.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        }
+      ],
+      "today": "2026-11-07",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "site_id": "ca4ceccc-663d-4deb-afab-33bbda5b82f9",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "can_issue": true,
+      "hall_name": "قاعة 1",
+      "placed_on": "2026-10-28",
+      "site_name": "حقل الأمل",
+      "earliest_on": "2026-10-31",
+      "flock_status": "active"
+    },
+    "storekeeper": {
+      "items": [
+        {
+          "kind": "feed",
+          "name": "علف بادئ",
+          "stores": [
+            {
+              "qty": "1200.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1200.000",
+          "made_in_mill": true,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "feed",
+          "name": "علف التزامن",
+          "stores": [
+            {
+              "qty": "100.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "60805ef2-7cc8-4f2e-8815-02c5388974a0",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "100.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "feed",
+          "name": "علف ناهي",
+          "stores": [
+            {
+              "qty": "1500.000",
+              "name": "مخزن العلف",
+              "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a"
+            }
+          ],
+          "item_id": "9ed9cd2f-a5db-4408-ae33-cde8feae16b6",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1500.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "دبس",
+          "stores": [
+            {
+              "qty": "50.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "e871e7f9-cc7a-479e-8235-e7fc50d88e70",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "on_hand_qty": "50.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "ذرة صفراء",
+          "stores": [
+            {
+              "qty": "1000.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "43e9ce1e-bedd-485a-97cb-969bfcd9d4f1",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "on_hand_qty": "1000.000",
+          "made_in_mill": false,
+          "density_kg_per_l": null
+        },
+        {
+          "kind": "raw",
+          "name": "زيت الصويا",
+          "stores": [
+            {
+              "qty": "200.000",
+              "name": "مخزن المواد الأوّلية",
+              "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08"
+            }
+          ],
+          "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "on_hand_qty": "200.000",
+          "made_in_mill": false,
+          "density_kg_per_l": "0.92"
+        }
+      ],
+      "today": "2026-11-07",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "site_id": "ca4ceccc-663d-4deb-afab-33bbda5b82f9",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "can_issue": true,
+      "hall_name": "قاعة 1",
+      "placed_on": "2026-10-28",
+      "site_name": "حقل الأمل",
+      "earliest_on": "2026-10-31",
+      "flock_status": "active"
+    },
+    "hall_worker": {
+      "items": [],
+      "today": "2026-11-07",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "site_id": "ca4ceccc-663d-4deb-afab-33bbda5b82f9",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "can_issue": false,
+      "hall_name": "قاعة 1",
+      "placed_on": "2026-10-28",
+      "site_name": "حقل الأمل",
+      "earliest_on": "2026-10-31",
+      "flock_status": "active"
+    }
+  },
+  "record_flock_issue": {
+    "storekeeper": {
+      "id": "45e793dc-1d17-4f49-9bfb-fc7d0b2247ac",
+      "qty": "500",
+      "doc_no": "FI-2026-0001",
+      "status": "posted",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+      "line_id": "1b69ae5b-562b-4c43-8e6b-09e0dd5d26ee",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "base_unit": "kg",
+      "cost_kind": "feed",
+      "hall_name": "قاعة 1",
+      "issued_on": "2026-11-07",
+      "item_name": "علف بادئ",
+      "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+      "warehouse_name": "مخزن العلف"
+    },
+    "owner": {
+      "id": "79bb068f-54a1-484a-8ee7-68bfb8e4ae5a",
+      "qty": "100",
+      "money": {
+        "value": "150000.00"
+      },
+      "doc_no": "FI-2026-0003",
+      "status": "posted",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+      "line_id": "81fbac10-4bbc-4596-82ec-4e0fdfcce04e",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "base_unit": "L",
+      "cost_kind": "feed",
+      "hall_name": "قاعة 1",
+      "issued_on": "2026-11-07",
+      "item_name": "زيت الصويا",
+      "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+      "warehouse_name": "مخزن المواد الأوّلية"
+    },
+    "owner_farm_store_by_keeper_farm": {
+      "id": "4cc4e067-0677-4aa7-b7bc-d41818422db8",
+      "qty": "100",
+      "doc_no": "FI-2026-0002",
+      "status": "posted",
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+      "line_id": "f0355af3-6eae-4e13-9d61-77fab27c182b",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "base_unit": "kg",
+      "cost_kind": "feed",
+      "hall_name": "قاعة 1",
+      "issued_on": "2026-11-07",
+      "item_name": "علف بادئ",
+      "warehouse_id": "bd42665f-380c-4672-94ef-e7209b0ea9e0",
+      "warehouse_name": "مخزن حقل الأمل"
+    }
+  },
+  "void_flock_issue": {
+    "manager": {
+      "id": "771a169d-70f4-4523-beb6-9ebe43bc0dec",
+      "money": {
+        "value": "156000.00"
+      },
+      "doc_no": "FI-2026-0008",
+      "status": "void",
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "voided_on": "2026-11-07",
+      "reversed_moves": 1
+    }
+  },
+  "flock_feed": {
+    "owner": {
+      "more": false,
+      "money": {
+        "issued_value": "491000.00"
+      },
+      "today": "2026-11-07",
+      "issues": [
+        {
+          "id": "c75407e4-984f-4f09-aa5b-f29dca11b710",
+          "qty": "2",
+          "money": {
+            "value": "10000.00"
+          },
+          "doc_no": "FI-2026-0007",
+          "status": "posted",
+          "item_id": "fc0bd3d5-431f-4b92-b6bd-999e82969a62",
+          "base_unit": "pc",
+          "cost_kind": "other",
+          "issued_on": "2026-11-07",
+          "item_name": "ستائر",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "16db7a42-7c53-47a7-ba73-272d332046f7",
+          "qty": "20",
+          "money": {
+            "value": "16000.00"
+          },
+          "doc_no": "FI-2026-0006",
+          "status": "posted",
+          "item_id": "b012f09b-bf0d-4c4a-9578-fb878e5991c4",
+          "base_unit": "L",
+          "cost_kind": "fuel",
+          "issued_on": "2026-11-07",
+          "item_name": "كاز",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "08677b14-899b-46f1-9ac4-897e26d5f04a",
+          "qty": "50",
+          "money": {
+            "value": "30000.00"
+          },
+          "doc_no": "FI-2026-0005",
+          "status": "posted",
+          "item_id": "773daf1d-8404-4945-9b77-fd1f0c83dd28",
+          "base_unit": "pc",
+          "cost_kind": "vaccine",
+          "issued_on": "2026-11-07",
+          "item_name": "لقاح نيوكاسل",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "0e1f9a22-2ec9-4bdc-9932-4aed2b8d3d32",
+          "warehouse_name": "مخزن الأدوية"
+        },
+        {
+          "id": "534d4f40-582e-4604-81de-30a5f44b54da",
+          "qty": "10",
+          "money": {
+            "value": "5000.00"
+          },
+          "doc_no": "FI-2026-0004",
+          "status": "posted",
+          "item_id": "e871e7f9-cc7a-479e-8235-e7fc50d88e70",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "دبس",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "79bb068f-54a1-484a-8ee7-68bfb8e4ae5a",
+          "qty": "100",
+          "money": {
+            "value": "150000.00"
+          },
+          "doc_no": "FI-2026-0003",
+          "status": "posted",
+          "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "زيت الصويا",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "4cc4e067-0677-4aa7-b7bc-d41818422db8",
+          "qty": "100",
+          "money": {
+            "value": "45000.00"
+          },
+          "doc_no": "FI-2026-0002",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "bd42665f-380c-4672-94ef-e7209b0ea9e0",
+          "warehouse_name": "مخزن حقل الأمل"
+        },
+        {
+          "id": "45e793dc-1d17-4f49-9bfb-fc7d0b2247ac",
+          "qty": "500",
+          "money": {
+            "value": "235000.00"
+          },
+          "doc_no": "FI-2026-0001",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        },
+        {
+          "id": "771a169d-70f4-4523-beb6-9ebe43bc0dec",
+          "qty": "300",
+          "money": {
+            "value": "156000.00"
+          },
+          "doc_no": "FI-2026-0008",
+          "status": "void",
+          "item_id": "9ed9cd2f-a5db-4408-ae33-cde8feae16b6",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-06",
+          "item_name": "علف ناهي",
+          "voided_on": "2026-11-07",
+          "void_reason": "كمية خاطئة",
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        }
+      ],
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "can_void": true,
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "hall_name": "قاعة 1",
+      "flock_status": "active",
+      "issued_feed_kg": "692.000",
+      "consumed_feed_kg": "250.500",
+      "remaining_feed_kg": "441.500",
+      "unweighed_feed_lines": 1
+    },
+    "storekeeper": {
+      "more": false,
+      "today": "2026-11-07",
+      "issues": [
+        {
+          "id": "c75407e4-984f-4f09-aa5b-f29dca11b710",
+          "qty": "2",
+          "doc_no": "FI-2026-0007",
+          "status": "posted",
+          "item_id": "fc0bd3d5-431f-4b92-b6bd-999e82969a62",
+          "base_unit": "pc",
+          "cost_kind": "other",
+          "issued_on": "2026-11-07",
+          "item_name": "ستائر",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "16db7a42-7c53-47a7-ba73-272d332046f7",
+          "qty": "20",
+          "doc_no": "FI-2026-0006",
+          "status": "posted",
+          "item_id": "b012f09b-bf0d-4c4a-9578-fb878e5991c4",
+          "base_unit": "L",
+          "cost_kind": "fuel",
+          "issued_on": "2026-11-07",
+          "item_name": "كاز",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "08677b14-899b-46f1-9ac4-897e26d5f04a",
+          "qty": "50",
+          "doc_no": "FI-2026-0005",
+          "status": "posted",
+          "item_id": "773daf1d-8404-4945-9b77-fd1f0c83dd28",
+          "base_unit": "pc",
+          "cost_kind": "vaccine",
+          "issued_on": "2026-11-07",
+          "item_name": "لقاح نيوكاسل",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "0e1f9a22-2ec9-4bdc-9932-4aed2b8d3d32",
+          "warehouse_name": "مخزن الأدوية"
+        },
+        {
+          "id": "534d4f40-582e-4604-81de-30a5f44b54da",
+          "qty": "10",
+          "doc_no": "FI-2026-0004",
+          "status": "posted",
+          "item_id": "e871e7f9-cc7a-479e-8235-e7fc50d88e70",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "دبس",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "79bb068f-54a1-484a-8ee7-68bfb8e4ae5a",
+          "qty": "100",
+          "doc_no": "FI-2026-0003",
+          "status": "posted",
+          "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "زيت الصويا",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "4cc4e067-0677-4aa7-b7bc-d41818422db8",
+          "qty": "100",
+          "doc_no": "FI-2026-0002",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "bd42665f-380c-4672-94ef-e7209b0ea9e0",
+          "warehouse_name": "مخزن حقل الأمل"
+        },
+        {
+          "id": "45e793dc-1d17-4f49-9bfb-fc7d0b2247ac",
+          "qty": "500",
+          "doc_no": "FI-2026-0001",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        },
+        {
+          "id": "771a169d-70f4-4523-beb6-9ebe43bc0dec",
+          "qty": "300",
+          "doc_no": "FI-2026-0008",
+          "status": "void",
+          "item_id": "9ed9cd2f-a5db-4408-ae33-cde8feae16b6",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-06",
+          "item_name": "علف ناهي",
+          "voided_on": "2026-11-07",
+          "void_reason": "كمية خاطئة",
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        }
+      ],
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "can_void": false,
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "hall_name": "قاعة 1",
+      "flock_status": "active",
+      "issued_feed_kg": "692.000",
+      "consumed_feed_kg": "250.500",
+      "remaining_feed_kg": "441.500",
+      "unweighed_feed_lines": 1
+    },
+    "accountant": {
+      "more": false,
+      "money": {
+        "issued_value": "491000.00"
+      },
+      "today": "2026-11-07",
+      "issues": [
+        {
+          "id": "c75407e4-984f-4f09-aa5b-f29dca11b710",
+          "qty": "2",
+          "money": {
+            "value": "10000.00"
+          },
+          "doc_no": "FI-2026-0007",
+          "status": "posted",
+          "item_id": "fc0bd3d5-431f-4b92-b6bd-999e82969a62",
+          "base_unit": "pc",
+          "cost_kind": "other",
+          "issued_on": "2026-11-07",
+          "item_name": "ستائر",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "16db7a42-7c53-47a7-ba73-272d332046f7",
+          "qty": "20",
+          "money": {
+            "value": "16000.00"
+          },
+          "doc_no": "FI-2026-0006",
+          "status": "posted",
+          "item_id": "b012f09b-bf0d-4c4a-9578-fb878e5991c4",
+          "base_unit": "L",
+          "cost_kind": "fuel",
+          "issued_on": "2026-11-07",
+          "item_name": "كاز",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "22bb179f-d891-4d05-8143-0d2c886c58a2",
+          "warehouse_name": "المخزن العام"
+        },
+        {
+          "id": "08677b14-899b-46f1-9ac4-897e26d5f04a",
+          "qty": "50",
+          "money": {
+            "value": "30000.00"
+          },
+          "doc_no": "FI-2026-0005",
+          "status": "posted",
+          "item_id": "773daf1d-8404-4945-9b77-fd1f0c83dd28",
+          "base_unit": "pc",
+          "cost_kind": "vaccine",
+          "issued_on": "2026-11-07",
+          "item_name": "لقاح نيوكاسل",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "0e1f9a22-2ec9-4bdc-9932-4aed2b8d3d32",
+          "warehouse_name": "مخزن الأدوية"
+        },
+        {
+          "id": "534d4f40-582e-4604-81de-30a5f44b54da",
+          "qty": "10",
+          "money": {
+            "value": "5000.00"
+          },
+          "doc_no": "FI-2026-0004",
+          "status": "posted",
+          "item_id": "e871e7f9-cc7a-479e-8235-e7fc50d88e70",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "دبس",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "79bb068f-54a1-484a-8ee7-68bfb8e4ae5a",
+          "qty": "100",
+          "money": {
+            "value": "150000.00"
+          },
+          "doc_no": "FI-2026-0003",
+          "status": "posted",
+          "item_id": "82747fce-9474-46aa-bbb5-550ad44eebc6",
+          "base_unit": "L",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "زيت الصويا",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "d4245f8b-0538-490c-a5a2-7f6295c2ec08",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "4cc4e067-0677-4aa7-b7bc-d41818422db8",
+          "qty": "100",
+          "money": {
+            "value": "45000.00"
+          },
+          "doc_no": "FI-2026-0002",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "bd42665f-380c-4672-94ef-e7209b0ea9e0",
+          "warehouse_name": "مخزن حقل الأمل"
+        },
+        {
+          "id": "45e793dc-1d17-4f49-9bfb-fc7d0b2247ac",
+          "qty": "500",
+          "money": {
+            "value": "235000.00"
+          },
+          "doc_no": "FI-2026-0001",
+          "status": "posted",
+          "item_id": "2f78becf-acdf-484a-bdc1-830089df0047",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-07",
+          "item_name": "علف بادئ",
+          "voided_on": null,
+          "void_reason": null,
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        },
+        {
+          "id": "771a169d-70f4-4523-beb6-9ebe43bc0dec",
+          "qty": "300",
+          "money": {
+            "value": "156000.00"
+          },
+          "doc_no": "FI-2026-0008",
+          "status": "void",
+          "item_id": "9ed9cd2f-a5db-4408-ae33-cde8feae16b6",
+          "base_unit": "kg",
+          "cost_kind": "feed",
+          "issued_on": "2026-11-06",
+          "item_name": "علف ناهي",
+          "voided_on": "2026-11-07",
+          "void_reason": "كمية خاطئة",
+          "warehouse_id": "c5816799-487c-4dc2-8574-1498c4290a7a",
+          "warehouse_name": "مخزن العلف"
+        }
+      ],
+      "hall_id": "b9aa9c8c-238a-48d5-9e0c-203da5d42b36",
+      "can_void": false,
+      "flock_id": "8912b4b6-1a8d-47e6-a792-56ea7bcd4b7f",
+      "hall_name": "قاعة 1",
+      "flock_status": "active",
+      "issued_feed_kg": "692.000",
+      "consumed_feed_kg": "250.500",
+      "remaining_feed_kg": "441.500",
+      "unweighed_feed_lines": 1
+    }
+  },
+  "refusals": {
+    "id_conflict (المحتوى)": {
+      "code": "id_conflict",
+      "hint": "سُجّل بهذا المعرّف صرف غير الذي أرسلته الآن. افتح صفحة القاعة لترى ما سُجّل، ثمّ سجّل من جديد."
+    },
+    "id_conflict (سطر مستعمل)": {
+      "code": "id_conflict",
+      "hint": "معرّف سطر الصرف مستعمل لصرف آخر. حدّث الشاشة وأعد المحاولة."
+    },
+    "ref_reused": {
+      "code": "ref_reused",
+      "hint": "مرجع هذه العملية استُعمل لعملية أخرى. حدّث الشاشة وأعد العملية من جديد."
+    },
+    "store_required": {
+      "code": "store_required",
+      "hint": "«علف بادئ» موجودة في أكثر من مخزن في نطاقك: «مخزن العلف» (600 كغم)، «مخزن حقل الأمل» (100 كغم). اختر المخزن الذي تصرف منه."
+    },
+    "forbidden (مشغّل المعمل)": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "forbidden (عامل القاعة)": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "forbidden (المحاسب)": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "forbidden (المشاهد)": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "id_required": {
+      "code": "id_required",
+      "hint": "تعذّر الإرسال دون معرّفات الصرف والفوج والمادّة. حدّث الشاشة وأعد المحاولة."
+    },
+    "flock_not_found": {
+      "code": "flock_not_found",
+      "hint": "هذا الفوج غير موجود في منشأتك. حدّث الشاشة."
+    },
+    "out_of_scope (الفوج)": {
+      "code": "out_of_scope",
+      "hint": "قاعة هذا الفوج خارج نطاقك، فلا تصرف لها. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك."
+    },
+    "out_of_scope (المخزن)": {
+      "code": "out_of_scope",
+      "hint": "المخزن «مخزن العلف» خارج نطاقك، فلا تصرف منه."
+    },
+    "flock_not_placed": {
+      "code": "flock_not_placed",
+      "hint": "فوج «قاعة 3» لم يُسكَّن بعد، فلا يُصرف له شيء."
+    },
+    "item_not_found": {
+      "code": "item_not_found",
+      "hint": "هذه المادّة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد."
+    },
+    "item_archived": {
+      "code": "item_archived",
+      "hint": "المادّة «علف قديم» مؤرشفة، فلا تُصرف. أعِدها من الأرشيف أوّلاً."
+    },
+    "not_issuable": {
+      "code": "not_issuable",
+      "hint": "«أفراخ لحم» لا تُصرف للفوج: الأفراخ تدخله بالتسكين، والبيض يخرج منه ولا يُصرف له."
+    },
+    "qty_not_positive (صفر)": {
+      "code": "qty_not_positive",
+      "hint": "اكتب كمية «علف بادئ» أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى."
+    },
+    "qty_not_positive (مراتب)": {
+      "code": "qty_not_positive",
+      "hint": "اكتب كمية «علف بادئ» أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى."
+    },
+    "pieces_not_whole": {
+      "code": "pieces_not_whole",
+      "hint": "«ستائر» تُعدّ بالقطعة؛ اكتب عدداً صحيحاً من القطع."
+    },
+    "date_required": {
+      "code": "date_required",
+      "hint": "اكتب تاريخ الصرف."
+    },
+    "date_in_future": {
+      "code": "date_in_future",
+      "hint": "التاريخ 08/11/2026 بعد تاريخ اليوم 07/11/2026. سجّل المستند بتاريخ اليوم أو بتاريخ سابق."
+    },
+    "date_too_old": {
+      "code": "date_too_old",
+      "hint": "لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به 31/10/2026. راجع التاريخ."
+    },
+    "before_placement": {
+      "code": "before_placement",
+      "hint": "التاريخ 03/11/2026 قبل تسكين الفوج في 04/11/2026."
+    },
+    "warehouse_not_found": {
+      "code": "warehouse_not_found",
+      "hint": "هذا المخزن غير موجود في منشأتك. حدّث الشاشة واختر من جديد."
+    },
+    "warehouse_archived": {
+      "code": "warehouse_archived",
+      "hint": "المخزن «مخزن علف مؤرشف» مؤرشف، فلا يُصرف منه. اختر مخزناً آخر."
+    },
+    "item_kind_mismatch": {
+      "code": "item_kind_mismatch",
+      "hint": "«علف بادئ» لا تُخزَّن في «مخزن الأدوية»، فلا تُصرف منه. اختر مخزناً فيه هذه المادّة."
+    },
+    "insufficient_stock (المخزن)": {
+      "code": "insufficient_stock",
+      "hint": "لا يكفي رصيد «علف بادئ» في «مخزن العلف»: طلبت 5,000 كغم، وعندك 600 كغم بتاريخ 07/11/2026."
+    },
+    "insufficient_stock (المنتهي في المخزن)": {
+      "code": "insufficient_stock",
+      "hint": "لا يكفي رصيد «لقاح نيوكاسل» في «مخزن الأدوية»: طلبت 300 قطعة، وعندك 250 قطعة بتاريخ 07/11/2026. وفي المخزن 100 قطعة منتهية الصلاحية لا تُصرف إلا بإتلاف أو مرتجع."
+    },
+    "insufficient_stock (لا شيء في النطاق)": {
+      "code": "insufficient_stock",
+      "hint": "لا يوجد «ذرة صفراء» متاح في مخازن نطاقك بتاريخ 07/11/2026: طلبت 5 كغم، وعندك 0 كغم."
+    },
+    "insufficient_stock (المنتهي كلّه)": {
+      "code": "insufficient_stock",
+      "hint": "لا يوجد «لقاح جمبورو» متاح في مخازن نطاقك بتاريخ 07/11/2026: طلبت 5 قطع، وعندك 0 قطعة. وفي مخازنك 40 قطعة منتهية الصلاحية لا تُصرف إلا بإتلاف أو مرتجع."
+    },
+    "insufficient_stock (قبل الاستلام)": {
+      "code": "insufficient_stock",
+      "hint": "لا يكفي رصيد «علف ناهي» في «مخزن العلف»: طلبت 1,200 كغم، وعندك 1,000 كغم بتاريخ 04/11/2026. و500 كغم استُلمت بعد هذا التاريخ."
+    },
+    "void: forbidden (الأمين)": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "void: reason_required": {
+      "code": "reason_required",
+      "hint": "اكتب السبب (حتى 500 حرف)."
+    },
+    "void: doc_not_found": {
+      "code": "doc_not_found",
+      "hint": "هذا الصرف غير موجود في منشأتك. حدّث الشاشة."
+    },
+    "void: already_void": {
+      "code": "already_void",
+      "hint": "الصرف FI-2026-0008 ملغى من قبل."
+    },
+    "id_conflict (أُلغي، المرجع نفسه)": {
+      "code": "id_conflict",
+      "hint": "سُجّل هذا الصرف من قبل ثمّ أُلغي. افتح صفحة القاعة وسجّل صرفاً جديداً."
+    },
+    "id_conflict (أُلغي، مرجع جديد)": {
+      "code": "id_conflict",
+      "hint": "سُجّل هذا الصرف من قبل ثمّ أُلغي. افتح صفحة القاعة وسجّل صرفاً جديداً."
+    },
+    "void: out_of_scope (الفوج)": {
+      "code": "out_of_scope",
+      "hint": "قاعة هذا الصرف خارج نطاقك، فلا تلغيه. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك."
+    },
+    "flock_closed": {
+      "code": "flock_closed",
+      "hint": "فوج «قاعة 2» مغلق، فلا يُصرف له شيء."
+    },
+    "void: flock_closed": {
+      "code": "flock_closed",
+      "hint": "الفوج مغلق، فلا يُلغى الصرف FI-2026-0009 له."
+    },
+    "period_locked": {
+      "code": "period_locked",
+      "hint": "الحسابات مقفلة حتى 02/11/2026 (هذا اليوم وما قبله)، فلا يُسجَّل مستند بتاريخ 01/11/2026. إن كان التاريخ صحيحاً فاطلب من مالك المنشأة فتح الفترة."
+    }
+  }
+}

@@ -24,17 +24,19 @@ const MILL = [
   'newRecipeVersion', 'loadMillStores',
 ];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
   inventory: routed('inventory', INVENTORY),
+  purchases: routed('purchases', PURCHASES),
   session: 'export const useSession = () => globalThis.__mill.session; export const sessionStore = { get: () => globalThis.__mill?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__mill.toasts.push(spec); }; export function Toaster() { return null; }',
 };
 const stubs = {
   name: 'mill-stubs',
   setup(b) {
-    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
+    b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(mill|inventory|purchases)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'mill-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
   },
 };
@@ -75,14 +77,11 @@ const clickLink = async (node) => {
   fire(node, 'click', { button: 0 });
   await settle();
 };
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const search = async (value) => {
-  const input = byAction('search-material').at(-1);
-  type(input, value);
-  await wait(320);
-  await settle();
-};
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
+/** بطاقة مادّة بمعرّفها، ولمسها، وخانة كميتها باسمها (بطاقات المعمل، كلمة المالك 2026-11-07). */
+const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
+const pick = (id) => click(cardOf(id));
+const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
 const buttonByText = (label) => all().find((n) => n.localName === 'button' && n.textContent === label) ?? null;
 /** جدول DataTable بعنوانه (caption): رؤوس الأعمدة، وخلايا كلّ صفّ، وخلايا صفّ المجموع. */
 const tableOf = (caption) => {
@@ -493,7 +492,7 @@ export default async function (t) {
       const diesel = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-diesel', item_name: 'كاز المولّدة', kind: 'fuel', base_unit: 'L', category_name: null, qty: '20.000', unit: 'L', mass_kg: '17.000', share_pct: '1.70', in_basis: false });
       fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [recipeLine(), diesel] })) });
       await mount('/mill/recipe/r-1');
-      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من الأساس');
+      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من مجموعها');
       const column = table?.headers.indexOf('بالكيلوغرام') ?? -1;
       const cells = (table?.rows ?? []).map((row) => row[column]);
       const sum = cells.map(number).filter((value) => value !== null).reduce((total, value) => total + value, 0);
@@ -574,7 +573,11 @@ export default async function (t) {
         rows: itemId === 'i-corn' ? [{ money: { unitCost: 400_00n, invoiceTotal: 0n, landedValue: 0n, corrected: false } }] : [],
       }),
       findItemTwins: () => [],
-      loadItem: () => null,
+      loadItem: (id) => catalog.find((row) => row.id === id) ?? null,
+      loadItemsOverview: () => ({
+        today: '2026-11-04', canRecord: true, canAddItem: true,
+        items: catalog.map((row) => ({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit, onHand: 0n, purchased: 0n, lastPurchaseOn: null, money: null })),
+      }),
       setItemCostPrice: (itemId, price) => price,
       createRecipe: (input) => ({ id: input.id, versionId: input.versionId, versionNo: 1, status: input.activate ? 'active' : 'draft', lines: input.lines.length, rates: input.rates.length }),
       ...over,
@@ -583,24 +586,23 @@ export default async function (t) {
       type(byAction('recipe-name')[0], 'علف بياض');
       choose(byAction('recipe-output')[0], 'f-1');
       await settle();
-      await search('ذرة صفراء');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[0], '1000');
+      await pick('i-corn');
+      type(qtyOf('ذرة صفراء'), '1000');
       await settle();
     };
     /** البانية بسطر تكلفة ومادّة باللتر (ب٢٥): فتظهر في قائمة القفل خانات جدول «تكاليف لكلّ طنّ» ووحدة السطر لتر/كغم. */
     const fillBuilderLocked = async () => {
       await fillBuilder();
-      await search('كاز المولّدة');
-      await click(byAction('pick-material')[0]);
-      type(byAction('line-qty')[1], '20');
+      await pick('i-diesel');
+      type(qtyOf('كاز المولّدة'), '20');
       await settle();
       await click(byAction('add-rate')[0]);
       choose(byAction('rate-category')[0], 'c-labor');
       type(byAction('rate-amount')[0], '5000');
       await settle();
     };
-    const fields = ['recipe-name', 'recipe-basis', 'recipe-output', 'new-output-name', 'search-material', 'line-qty', 'cost-price', 'remove-line', 'add-rate', 'new-category-name', 'rate-category', 'rate-amount', 'remove-rate', 'line-unit'];
+    // بطاقات المواد (2026-11-07): الكمية والوحدة على البطاقة (card-qty وcard-unit) والبطاقة نفسها زرّ، ولا «أساس» يُكتب.
+    const fields = ['recipe-name', 'recipe-output', 'new-output-name', 'search-material', 'material-card', 'card-qty', 'cost-price', 'remove-line', 'add-rate', 'new-category-name', 'rate-category', 'rate-amount', 'remove-rate', 'card-unit'];
 
     // ── Y12 (ب١٢): البانية مقفولة أثناء الحفظ، ومنه انتظار حفظ الأسعار ─────────────────────────────────────────────────────
     await step('Y12', async () => {
@@ -663,7 +665,7 @@ export default async function (t) {
       t.same([byAction('save-activate').length, byAction('save-draft').length], [0, 0], 'Y14 وفعل واحد ظاهر (لا زرّا الحفظ)');
       t.same(fields.map((name) => disabled(byAction(name)[0])), fields.map(() => true), `Y14 والحقول والأزرار معطّلة (${fields.filter((name) => disabled(byAction(name)[0]) !== true).join('، ')})`);
       // محاولة تغيير حقل رغم القفل: الإعادة بالحمولة الأولى حرفاً.
-      type(byAction('line-qty')[0], '900');
+      type(byAction('card-qty')[0], '900');
       type(byAction('recipe-name')[0], 'اسم آخر');
       await settle();
       await click(byAction('retry-save')[0]);
@@ -690,11 +692,11 @@ export default async function (t) {
       await fillBuilder();
       await click(byAction('save-draft')[0]);
       await click(byAction('retry-save')[0]);
-      t.ok(byAction('retry-save').length === 1 && text().includes('لم تصل الإعادة إلى الخادم: أعد المحاولة عند عودة الاتصال.') && disabled(byAction('line-qty')[0]) === true, 'Y14 إعادة لم تصل: تبقى البانية مجمَّدة وتقول ذلك');
+      t.ok(byAction('retry-save').length === 1 && text().includes('لم تصل الإعادة إلى الخادم: أعد المحاولة عند عودة الاتصال.') && disabled(byAction('card-qty')[0]) === true, 'Y14 إعادة لم تصل: تبقى البانية مجمَّدة وتقول ذلك');
       await click(byAction('retry-save')[0]);
       const sent = named(calls, 'createRecipe').map(([input]) => input);
       t.ok(sent.length === 3 && sent.every((input) => JSON.stringify(input, (key, value) => (typeof value === 'bigint' ? `${value}` : value)) === JSON.stringify(sent[0], (key, value) => (typeof value === 'bigint' ? `${value}` : value))), 'Y14 والإعادات كلّها بالحمولة الأولى');
-      t.same([byAction('retry-save').length, disabled(byAction('line-qty')[0]), disabled(byAction('save-draft')[0])], [0, false, false], 'Y14 رفض نهائي يفكّ التجميد: الحقول والحفظ يعودان');
+      t.same([byAction('retry-save').length, disabled(byAction('card-qty')[0]), disabled(byAction('save-draft')[0])], [0, false, false], 'Y14 رفض نهائي يفكّ التجميد: الحقول والحفظ يعودان');
       t.ok(text().includes('مجموع مواد الخلطة 1,000 كغم، والأساس 900 كغم.'), 'Y14 والرفض يُقال بتلميحه');
     });
     await step('Y14 لم يُحفظ', async () => {
@@ -709,7 +711,7 @@ export default async function (t) {
       await mount('/mill/new');
       await fillBuilder();
       await click(byAction('save-draft')[0]);
-      t.same([byAction('retry-save').length, disabled(byAction('line-qty')[0]), disabled(byAction('save-draft')[0]), named(calls, 'createRecipe').length], [0, false, false, 1], 'Y14 ضابط: NetworkError يعني «لم يُحفظ»، فلا تجميد');
+      t.same([byAction('retry-save').length, disabled(byAction('card-qty')[0]), disabled(byAction('save-draft')[0]), named(calls, 'createRecipe').length], [0, false, false, 1], 'Y14 ضابط: NetworkError يعني «لم يُحفظ»، فلا تجميد');
     });
 
     // ── Q: المحلّلات الصارمة للمفاتيح الجديدة ─────────────────────────────────────────────────────────────────────────

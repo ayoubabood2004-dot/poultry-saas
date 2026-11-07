@@ -7,7 +7,7 @@
 //    P4 شراء بالدين: المجموع حيّاً، وزرّ يسمّي أثره، ومعاملات الدالّة بالعقد، ثمّ الصفّ والأرقام من قراءة جديدة؛ P5 شراء نقداً بالصندوق
 //    الوحيد؛ P6 رسائل الحقول، والتقريب لأقرب دينار (333.333 × 1.50 = 500)، والمجموع صفر، والقطع عدد صحيح، والتاريخ الأقدم من 7 أيام؛
 //    P7 store_required: قائمة المخازن والإعادة بالمعرّفات نفسها؛ P8 نتيجة مجهولة: «لم يُعرف إن حُفظ» والإعادة بالمعرّفات والمحتوى نفسه؛
-//    P9 بلا اتصال «يحتاج اتصالاً» ولا إرسال؛ P10 «عندك» في منتقي البانية وفي بطاقة الخلطة ونافذة سطرها؛ P11 ‎?buy=1 يفتح النافذة.
+//    P9 بلا اتصال «يحتاج اتصالاً» ولا إرسال؛ P10 «عندك» على بطاقات مواد البانية وفي بطاقة الخلطة وبطاقات «أضف مواد» (2026-11-07)، بمحلّل items_overview الحقيقي؛ P11 ‎?buy=1 يفتح النافذة.
 // ومراجعة الجولة الأولى: م١ إعادة النتيجة المجهولة تبقى مجهولة ما لم يرفضها الخادم رفضاً أكيداً (55P03 وانقطاع)، والإغلاق يقرأ الملفّ؛
 //    ل٧ قائمة المخازن بعد store_required بـ«جارٍ التحميل» وفشلها بـ«أعد المحاولة»؛ م٣ «تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس»
 //    للأفراخ، وp_expiry_on وp_born_at مفتاحان دائماً؛ م٢ «مصحَّح» على السطر المصحَّح.
@@ -84,7 +84,6 @@ const click = async (node, init = {}) => {
   fire(node, 'click', init);
   await settle();
 };
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const off = (node) => node?.hasAttribute('disabled') ?? null;
 /** الزرّ أو الخيار بنصّه (الشريحة المقسّمة أزرار radio بلا data-action). */
 const buttonWith = (label) => all().find((n) => n.localName === 'button' && n.textContent === label);
@@ -562,20 +561,22 @@ export default async function (t) {
         { items_overview: async () => overviewJson() },
       );
       await mount('/mill/new');
-      type(byAction('search-material').at(-1), 'ذرة');
-      await wait(320);
-      await settle();
-      const option = byAction('pick-material')[0];
-      t.ok(option?.textContent.includes('ذرة') && option.textContent.includes('عندك: 20,000 كغم'), `P10: منتقي البانية يقول «عندك: 20,000 كغم» (${option?.textContent})`);
-      t.eq(named(rpcCalls, 'items_overview').length, 1, 'P10: بقراءة واحدة للصفحة');
+      const cards = byAction('material-card');
+      t.same(cards.map((node) => node.getAttribute('data-item')), ['i-corn', 'i-oil'], 'P10: بطاقات مواد البانية من items_overview (بمحلّله الحقيقي)');
+      t.ok(cards[0]?.textContent.includes('ذرة') && cards[0].textContent.includes('عندك: 20,000 كغم'), `P10: بطاقة البانية تقول «عندك: 20,000 كغم» (${cards[0]?.textContent})`);
+      t.eq(named(rpcCalls, 'items_overview').length, 1, 'P10: بقراءة واحدة للصفحة (البطاقات و«عندك» معاً)');
     });
     await step('P10-recipe', async () => {
       fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: () => m.parseRecipe(recipeJson()) }, { items_overview: async () => overviewJson({ items: [...overviewJson().items, { id: 'i-soy', name: 'صويا', kind: 'raw', base_unit: 'kg', on_hand_qty: '1500.500', purchased_qty: '2000.000', last_purchase_on: '2026-11-01' }] }) });
       await mount('/mill/recipe/r-1');
       t.ok(byAction('recipe-on-hand')[0]?.textContent.includes('ذرة — عندك: 20,000 كغم'), `P10: بطاقة الخلطة: «في المخزن الآن» لكلّ مادّة (${byAction('recipe-on-hand')[0]?.textContent})`);
       await click(byAction('add-line')[0]);
-      const options = (byAction('line-item')[0]?.options ?? []).map((o) => o.textContent);
-      t.same(options.slice(1), ['ذرة — الغذاء (عندك: 20,000 كغم)', 'صويا (عندك: 1,500.5 كغم)'], 'P10: ونافذة سطر الخلطة تقول «عندك» بجانب كلّ مادّة');
+      const cards = byAction('material-card');
+      t.same(
+        cards.map((node) => [node.getAttribute('data-item'), node.textContent.includes('عندك: ') ? node.textContent.slice(node.textContent.indexOf('عندك: ')) : null]),
+        [['i-oil', 'عندك: 0 لتر'], ['i-soy', 'عندك: 1,500.5 كغم']],
+        'P10: وبطاقات «أضف مواد» تقول «عندك» لكلّ مادّة ليست في الخلطة',
+      );
     });
 
     // ── P11: ‎?buy=1 يفتح النافذة ───────────────────────────────────────────────────────────────────────────────────
