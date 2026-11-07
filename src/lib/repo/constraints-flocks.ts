@@ -41,6 +41,7 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_issue_lines_qty_check: () => t('constraint.flock_issue_lines_qty_check', 'كمية الصرف أكبر من صفر، بثلاث مراتب عشرية على الأكثر.'),
   flock_issue_lines_unit_check: () => t('constraint.flock_issue_lines_unit_check', 'وحدة الصرف كيلوغرام أو لتر أو قطعة، والقطع عدد صحيح.'),
   flock_issue_lines_density_check: () => t('constraint.flock_issue_lines_density_check', 'كثافة سطر الصرف للمادّة باللتر فقط، رقم أكبر من صفر بأربع مراتب عشرية على الأكثر.'),
+  flock_issue_lines_piece_mass_check: () => t('constraint.flock_issue_lines_piece_mass_check', 'وزن القطعة في سطر الصرف للمادّة بالقطعة فقط، رقم أكبر من صفر بثلاث مراتب عشرية على الأكثر.'),
   flock_issue_lines_cost_kind_check: () => t('constraint.flock_issue_lines_cost_kind_check', 'نوع كلفة سطر الصرف غير معروف.'),
   flock_issue_lines_line_no_check: () => t('constraint.flock_issue_lines_line_no_check', 'رقم سطر الصرف يبدأ من 1.'),
 };

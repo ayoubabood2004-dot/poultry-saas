@@ -686,7 +686,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
   end
 $$;
 
-drop function if exists private.issue_mass_kg(numeric, text, numeric);
+drop function if exists private.issue_mass_kg(numeric, text, numeric, numeric);
 drop function if exists private.flock_cost_kind(text);
 
 -- ٤) سياسة نطاق سجلّ التدقيق والجداول (سياساتها ومحفّزاتها وفهارسها تسقط معها):

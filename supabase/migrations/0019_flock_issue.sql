@@ -13,7 +13,7 @@
 --   ويحكم ترتيب سحبه؛ وبيان الحركة ورقمها في بطاقة المادّة (stock_doc_memo وstock_doc_label).
 -- نوع الكلفة من نوع المادّة: العلف والمواد الأوّلية والإضافات feed، والدواء medicine، واللقاح vaccine، والوقود fuel، وغيرها other؛ وبيض
 --   التفقيس والأفراخ وبيض المائدة لا تُصرف للفوج (الأفراخ تدخله بالتسكين لاحقاً). وكيلوغرامات العلف للقارئ: الكيلو كما هو، واللتر بلقطة
---   الكثافة على السطر، والقطعة خارجها.
+--   الكثافة على السطر، والقطعة (كيس العلف) بلقطة وزن القطعة على السطر؛ وسطر علف بلا كتلة (لتر بلا كثافة أو قطعة بلا وزن) يُعدّ ولا يُوزن.
 -- انحرافات مكتوبة عن FOUNDATION (قرارات الجلسة 2026-11-07 مع العقد scratchpad/simple/contract-0019.md):
 --   • بلا مسوّدة: الصرف يُرحَّل فوراً بنداء واحد مثل الشراء البسيط (0017)، والنقص يُرفض insufficient_stock بتلميح يسمّي المادّة والمطلوب
 --     والموجود («عندك …») والمنتهي، ولا يُحفظ شيء (FOUNDATION ١٤ تقول «يبقى مسوّدة»؛ هنا لا مسوّدة أصلاً).
@@ -22,9 +22,19 @@
 --   • التحقّق من المعرّف (الإعادة بمعرّف الصرف نفسه بعد جواب ضاع) قبل فحوص المدخلات، تحت قفل استشاريّ للمعرّف: صرف حُفظ ثمّ تغيّر شيء
 --     يرجع «حُفظ» بنتيجته لا رفضاً (درس 0017)، وصرف أُلغي بعدها id_conflict بتلميح «أُلغي».
 --   • التاريخ بقواعد 0018 (لا مستقبل، ولا أقدم من 7 أيام، ولا فترة مقفولة) لوحدة المخزن ووحدة الفوج، بترتيب المعرّف؛ ولا قبل التسكين.
+--   • الصرف لفوج قائم (active) وحده: FOUNDATION ٥٧١ و٥٧٦ تسمحان بالصرف لفوج قيد التحضير (preparing) قبل تسكينه، ولا طريق في النسخة
+--     الأولى يُنشئ فوجاً قيد التحضير (open_flock يفتح ويسكّن معاً)، فيُرفض flock_not_placed؛ وفحص issue_shape في verify_flock_issues يفترض
+--     فوجاً مسكَّناً (placed_on غير فارغ والصرف لا يسبقه). يُفتح هذا مع التسكين من المفقس أو المورّد.
 --   • بين وحدتين صادر داخليّ بالكلفة: لا قيد جهة ولا مصروف ولا دفتر.
 --   • flock_costs يزيد site_id (نطاق سياسة القراءة بعمود الصفّ، FOUNDATION ٥٤٤) وdoc_line_id (نوع الكلفة لكلّ سطر)، وflock_issues يزيد
---     site_id وdivision_id من الفوج، وسطر الصرف يحفظ لقطة نوع الكلفة والكثافة ووحدة الأساس.
+--     site_id وdivision_id من الفوج، وسطر الصرف يحفظ لقطة نوع الكلفة والكثافة ووزن القطعة ووحدة الأساس.
+-- مراجعة 0019 الأولى (قبل الإنتاج؛ flock-issue-fixes.test، كلّ إصلاح بفحص يفشل قبله):
+--   • M1: علف بالقطعة (كيس بوزن قطعته) كان يختفي من «علف القاعة» (المصروف صفر والباقي سالب، ولا يُعدّ بلا وزن): لقطة piece_mass_kg على
+--     السطر، وissue_mass_kg تزنه (القطع × وزن القطعة، round3 كالاستلام)، وكلّ سطر علف بلا كتلة يُعدّ في unweighed_feed_lines.
+--   • L1: معرّف سطر واحد في صرفين بلحظة واحدة كان يرجع تعارض مفتاح خاماً (flock_issue_lines_pkey): قفل استشاريّ لمعرّف السطر بعد قفل
+--     معرّف الصرف (ترتيب ثابت)، والفحص بعده، فيرى الثاني الأوّل ويرجع id_conflict بتلميحه.
+--   • «ألغِ» لكلّ صرف بحاله في flock_feed (can_void على السطر: مرحَّل، والفوج غير مغلق، وفعل void، ونطاق حقل الفوج ومخزن الصرف كلاهما مثل
+--     void_flock_issue)، وcan_void أعلى الجواب = سطر واحد على الأقلّ يُلغى: مدير بنطاق الحقول كان يرى «ألغِ» على صرف من مخزن المعمل فيُرفض.
 -- تراجع: rollback_0019.sql — يرجّع أجسام verify_stock (كما في 0016) وprivate.stock_doc_memo وprivate.stock_doc_label (كما في 0015) حرفاً
 --   بحرف، وقيدَي stock_moves_doc_kind_check وdoc_counters_kind_check بلا 'flock_issue' و'FI'، ويُسقط الدوالّ الجديدة وسياسة نطاق سجلّ
 --   التدقيق والجداول الثلاثة. **طريق رفض**: أيّ صفّ في flock_issues أو flock_issue_lines أو flock_costs يوقف التراجع بصوت بلا أن يحذف
@@ -105,7 +115,7 @@ create index if not exists flock_issues_flock on public.flock_issues (org_id, fl
 create index if not exists flock_issues_hall on public.flock_issues (org_id, division_id, site_id, hall_id);
 create index if not exists flock_issues_warehouse on public.flock_issues (org_id, warehouse_id);
 
--- سطر الصرف: الكمية بوحدة أساس المادّة، ولقطة وحدة الأساس والكثافة (للتر) ونوع الكلفة لحظة الصرف (كلّ ما يُحسب منه السطر لقطة عليه،
+-- سطر الصرف: الكمية بوحدة أساس المادّة، ولقطة وحدة الأساس والكثافة (للتر) ووزن القطعة (للقطعة) ونوع الكلفة لحظة الصرف (كلّ ما يُحسب منه السطر لقطة عليه،
 -- درس 0009 و0016). مخزن الرأس وحقله منسوخان (السياسة بعمود الصفّ).
 create table if not exists public.flock_issue_lines (
   id uuid primary key default gen_random_uuid(),
@@ -118,6 +128,7 @@ create table if not exists public.flock_issue_lines (
   qty_base numeric not null,
   base_unit text not null,
   density_kg_per_l numeric,
+  piece_mass_kg numeric,
   cost_kind text not null,
   created_at timestamptz not null default now(),
   created_by uuid default auth.uid(),
@@ -125,6 +136,9 @@ create table if not exists public.flock_issue_lines (
   constraint flock_issue_lines_unit_check check (base_unit in ('kg', 'L', 'pc') and (base_unit <> 'pc' or qty_base = trunc(qty_base))),
   constraint flock_issue_lines_density_check check (density_kg_per_l is null
     or (base_unit = 'L' and abs(density_kg_per_l) < 'Infinity' and density_kg_per_l > 0 and density_kg_per_l = round(density_kg_per_l, 4))),
+  -- وزن القطعة لقطة للمادّة بالقطعة وحدها (كيس العلف بوزنه، مثل سطر الاستلام في 0009): كيلوغرامات المصروف = القطع × وزنها لحظة الصرف.
+  constraint flock_issue_lines_piece_mass_check check (piece_mass_kg is null
+    or (base_unit = 'pc' and abs(piece_mass_kg) < 'Infinity' and piece_mass_kg > 0 and piece_mass_kg = round(piece_mass_kg, 3))),
   constraint flock_issue_lines_cost_kind_check check (cost_kind in ('feed', 'medicine', 'vaccine', 'fuel', 'other')),
   constraint flock_issue_lines_line_no_check check (line_no >= 1),
   unique (org_id, id),
@@ -279,14 +293,15 @@ language sql immutable set search_path = pg_catalog, pg_temp as $$
   end
 $$;
 
--- كتلة السطر بالكيلو للقارئ: الكيلو كما هو، واللتر × لقطة الكثافة (القاعدة ٤: round3)، والقطعة أو اللتر بلا كثافة null. لا ترمي أبداً
--- (درس 0016: سطر واحد لا يُسقط القارئ؛ القارئ يعدّ ما لم يُوزن).
-create or replace function private.issue_mass_kg(p_qty numeric, p_unit text, p_density numeric) returns numeric
+-- كتلة السطر بالكيلو للقارئ: الكيلو كما هو، واللتر × لقطة الكثافة (القاعدة ٤: round3)، والقطعة × لقطة وزن القطعة (round3، كتلة سطر
+-- الاستلام في 0009)، واللتر بلا كثافة أو القطعة بلا وزن null. لا ترمي أبداً (درس 0016: سطر واحد لا يُسقط القارئ؛ القارئ يعدّ ما لم يُوزن).
+create or replace function private.issue_mass_kg(p_qty numeric, p_unit text, p_density numeric, p_piece_mass numeric) returns numeric
 language sql immutable set search_path = pg_catalog, pg_temp as $$
   select case
     when p_qty is null or not (abs(p_qty) < 'Infinity') then null
     when p_unit = 'kg' then round(p_qty, 3)
     when p_unit = 'L' and p_density is not null and abs(p_density) < 'Infinity' and p_density > 0 then round(p_qty * p_density, 3)
+    when p_unit = 'pc' and p_piece_mass is not null and abs(p_piece_mass) < 'Infinity' and p_piece_mass > 0 then round(p_qty * p_piece_mass, 3)
     else null
   end
 $$;
@@ -370,6 +385,9 @@ begin
       else 'سُجّل بهذا المعرّف صرف غير الذي أرسلته الآن. افتح صفحة القاعة لترى ما سُجّل، ثمّ سجّل من جديد.'
     end;
   end if;
+  -- معرّف السطر بقفله بعد قفل معرّف الصرف (ترتيب ثابت، فلا تقافل): صرفان بمعرّف سطر واحد بلحظة واحدة يترتّبان، فيرى الثاني سطر الأوّل
+  -- بعد ثباته ويرجع id_conflict بتلميحه بدل تعارض مفتاح خام (مراجعة 0019 الأولى L1).
+  perform pg_advisory_xact_lock(hashtextextended('flock_issue_line:' || p_line_id::text, 0));
   if exists (select 1 from public.flock_issue_lines y where y.id = p_line_id) then
     raise exception 'id_conflict' using hint = 'معرّف سطر الصرف مستعمل لصرف آخر. حدّث الشاشة وأعد المحاولة.';
   end if;
@@ -484,8 +502,10 @@ begin
   v_no := private.next_doc_no('FI', p_issued_on);
   insert into public.flock_issues (id, org_id, doc_no, flock_id, hall_id, site_id, division_id, warehouse_id, issued_on, status, client_ref, posted_at, posted_by)
   values (p_issue_id, v_org, v_no, f.id, f.hall_id, f.site_id, f.division_id, w.id, p_issued_on, 'posted', p_client_ref, now(), auth.uid());
-  insert into public.flock_issue_lines (id, org_id, issue_id, warehouse_id, site_id, line_no, item_id, qty_base, base_unit, density_kg_per_l, cost_kind)
-  values (p_line_id, v_org, p_issue_id, w.id, f.site_id, 1, i.id, p_qty, i.base_unit, case when i.base_unit = 'L' then i.density_kg_per_l end, v_kind);
+  insert into public.flock_issue_lines (id, org_id, issue_id, warehouse_id, site_id, line_no, item_id, qty_base, base_unit, density_kg_per_l,
+    piece_mass_kg, cost_kind)
+  values (p_line_id, v_org, p_issue_id, w.id, f.site_id, 1, i.id, p_qty, i.base_unit, case when i.base_unit = 'L' then i.density_kg_per_l end,
+    case when i.base_unit = 'pc' then i.piece_mass_kg end, v_kind);
   insert into public.flock_costs (org_id, flock_id, site_id, kind, amount, doc_kind, doc_id, doc_line_id, on_date)
   values (v_org, f.id, f.site_id, v_kind, v_total, 'flock_issue', p_issue_id, p_line_id, p_issued_on);
   perform private.mark_division_posted(w.division_id);
@@ -624,9 +644,10 @@ begin
 end
 $$;
 
--- «علف القاعة»: المصروف من العلف بالكيلو (الصرف المرحَّل غير الملغى بنوع كلفة feed: الكيلو كما هو، واللتر بلقطة الكثافة، والقطعة خارجه،
--- واللتر بلا كثافة يُعدّ في unweighed_feed_lines)، والمستهلك المسجّل بالجولات اليومية، والباقي = الفرق (قد يكون سالباً)؛ وسطر لكلّ صرف
--- الأحدث أوّلاً بقيمته داخل money، ومجموع قيمة الصرف الصافي داخل money. المال يُقنَّع لغير أدوار الكلفة بـprivate.mask.
+-- «علف القاعة»: المصروف من العلف بالكيلو (الصرف المرحَّل غير الملغى بنوع كلفة feed: الكيلو كما هو، واللتر بلقطة الكثافة، والقطعة بلقطة
+-- وزن القطعة، وكلّ سطر علف بلا كتلة يُعدّ في unweighed_feed_lines)، والمستهلك المسجّل بالجولات اليومية، والباقي = الفرق (قد يكون سالباً)؛ وسطر لكلّ صرف
+-- الأحدث أوّلاً بقيمته داخل money وcan_void لكلّ سطر (مرحَّل، والفوج غير مغلق، وفعل void، ونطاق حقل الفوج ومخزن الصرف، شروط void_flock_issue)،
+-- وcan_void أعلى الجواب = سطر واحد على الأقلّ يُلغى؛ ومجموع قيمة الصرف الصافي داخل money. المال يُقنَّع لغير أدوار الكلفة بـprivate.mask.
 create or replace function public.flock_feed(p_flock uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -639,6 +660,8 @@ declare
   v_value numeric;
   v_rows jsonb;
   v_count int;
+  v_void boolean;
+  v_any_void boolean;
 begin
   perform private.require('read');
   select * into f from public.flocks x where x.org_id = v_org and x.id = p_flock;
@@ -649,8 +672,9 @@ begin
     raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك.';
   end if;
   select * into h from public.halls x where x.org_id = f.org_id and x.id = f.hall_id;
-  select coalesce(sum(private.issue_mass_kg(y.qty_base, y.base_unit, y.density_kg_per_l)), 0),
-    (count(*) filter (where y.base_unit <> 'pc' and private.issue_mass_kg(y.qty_base, y.base_unit, y.density_kg_per_l) is null))::int
+  v_void := public.can('void') and f.status <> 'closed';
+  select coalesce(sum(private.issue_mass_kg(y.qty_base, y.base_unit, y.density_kg_per_l, y.piece_mass_kg)), 0),
+    (count(*) filter (where private.issue_mass_kg(y.qty_base, y.base_unit, y.density_kg_per_l, y.piece_mass_kg) is null))::int
   into v_issued, v_unweighed
   from public.flock_issues x join public.flock_issue_lines y on y.org_id = x.org_id and y.issue_id = x.id
   where x.org_id = v_org and x.flock_id = f.id and x.status = 'posted' and y.cost_kind = 'feed';
@@ -659,6 +683,7 @@ begin
   with listed as (
     select x.id, x.doc_no, x.issued_on, x.status, x.posted_at, x.void_reason, x.warehouse_id, w.name as warehouse_name,
       y.item_id, i.name as item_name, y.cost_kind, y.qty_base, y.base_unit, c.amount, r.on_date as voided_on,
+      v_void and x.status = 'posted' and public.in_scope_site(x.site_id) and public.in_scope_wh(x.warehouse_id) as voidable,
       row_number() over (order by x.issued_on desc, x.posted_at desc, x.id desc) as n
     from public.flock_issues x
     join public.flock_issue_lines y on y.org_id = x.org_id and y.issue_id = x.id and y.line_no = 1
@@ -672,13 +697,14 @@ begin
   select count(*)::int, coalesce(jsonb_agg(jsonb_build_object('id', o.id, 'doc_no', o.doc_no, 'issued_on', o.issued_on, 'status', o.status,
       'item_id', o.item_id, 'item_name', o.item_name, 'cost_kind', o.cost_kind, 'qty', o.qty_base::text, 'base_unit', o.base_unit,
       'warehouse_id', o.warehouse_id, 'warehouse_name', o.warehouse_name, 'voided_on', o.voided_on, 'void_reason', o.void_reason,
-      'money', jsonb_build_object('value', o.amount::text)) order by o.n) filter (where o.n <= 500), '[]'::jsonb)
-  into v_count, v_rows
+      'can_void', o.voidable, 'money', jsonb_build_object('value', o.amount::text)) order by o.n) filter (where o.n <= 500), '[]'::jsonb),
+    coalesce(bool_or(o.voidable), false)
+  into v_count, v_rows, v_any_void
   from listed o;
   return private.mask(jsonb_build_object('flock_id', f.id, 'flock_status', f.status, 'hall_id', h.id, 'hall_name', h.name, 'today', public.app_today(),
     'issued_feed_kg', round(v_issued, 3)::text, 'consumed_feed_kg', round(v_consumed, 3)::text, 'remaining_feed_kg', round(v_issued - v_consumed, 3)::text,
     'unweighed_feed_lines', v_unweighed, 'issues', v_rows, 'more', v_count > 500,
-    'can_void', public.can('void') and f.status <> 'closed',
+    'can_void', v_any_void,
     'money', jsonb_build_object('issued_value', v_value::text)));
 end
 $$;

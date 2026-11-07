@@ -25,7 +25,7 @@ const FN = {
   void: 'public.void_flock_issue(uuid, text, uuid)',
   options: 'public.flock_issue_options(uuid)',
   feed: 'public.flock_feed(uuid)',
-  mass: 'private.issue_mass_kg(numeric, text, numeric)',
+  mass: 'private.issue_mass_kg(numeric, text, numeric, numeric)',
   kind: 'private.flock_cost_kind(text)',
   verify: 'public.verify_flock_issues()',
   verifyStock: 'public.verify_stock()',
@@ -398,7 +398,8 @@ async function scenario(t, db) {
   } finally {
     await db.asOwner((q) => q(original), undefined, { commit: true });
   }
-  t.ok(!lockMutant.a2.ok && /duplicate key|flock_issues_pkey/u.test(lockMutant.a2.error), `طفرة: بلا قفل المعرّف يرى الثاني تعارض مفتاح بدل «حُفظ» (${lockMutant.st2}: ${lockMutant.a2.error ?? 'ok'})`);
+  // بلا قفل المعرّف يمضي الثاني حتى قفل معرّف السطر (مراجعة 0019 الأولى L1) فيرى السطر ويرجع id_conflict، أو تعارض مفتاح الرأس: رفضٌ لإعادة حُفظت.
+  t.ok(!lockMutant.a2.ok && /id_conflict|duplicate key/u.test(lockMutant.a2.error), `طفرة: بلا قفل المعرّف يُرفض الثاني بدل «حُفظ» (${lockMutant.st2}: ${lockMutant.a2.error ?? 'ok'})`);
   t.eq((await db.admin('select md5(pg_get_functiondef($1::regprocedure)) = md5($2) as same', [FN.record, original])).rows[0].same, true, 'الدالّة رجعت بتعريفها كما كان');
 
   // ── ١٠) الثوابت وضوابطها: بيانات حقيقية صفر، وكلّ خرق مزروع بمعاملة ترجع يُمسك باسمه ───────────────────────────────────────
