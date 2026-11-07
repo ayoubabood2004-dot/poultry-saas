@@ -12,6 +12,8 @@
 // ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): F10 صرف لم يُعرف جوابه يبقى بعد إغلاق النافذة (والإغلاق يسأل) وفتحها يعيده بالنداء نفسه، فلا
 // يُصرف مرّتين بمعرّفين؛ F1 اليوم مقفول بعد النتيجة المجهولة؛ F34 قيمة الملغى «—»؛ F7 فشل «ما يُصرف» يُقال بإعادته، وفشل القراءة من جديد ولو بقي
 // المعروض القديم؛ F8 شاشة الفوج: فشل علف القاعة يُقال وزرّ الصرف باقٍ؛ F9 id_conflict ← معرّفات جديدة بتلميح الخادم.
+// ويوم المالك (2026-11-07؛ تفشلان على df1c736): K1 البطاقة تقول نوع المادّة («مادّة أوّلية»، «وقود»، «دواء»…) لا نوع كلفتها، وتحت المادّة
+// الأوّلية «تُحسب كلفةَ علف»؛ K2 الزرّ لا يجعل الكمية مفعولاً («اصرف قطعتان «كاز»» لحن): «اصرف «كاز» (قطعتان) لـ«قاعة 2»» لكلّ عدد.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -311,7 +313,7 @@ export default async function (t) {
       t.ok(text().includes('عندك 1,200 كغم فقط.') && disabled(byAction('issue-save')[0]) === true, 'D1 كمية أكبر من الموجود تُقال قبل الإرسال');
       type(qty, '500');
       await settle();
-      t.same([textOf('issue-save'), disabled(byAction('issue-save')[0])], ['اصرف 500 كغم «علف بادئ» لـ«قاعة 1»', false], 'D1 الزرّ يسمّي ما سيحدث');
+      t.same([textOf('issue-save'), disabled(byAction('issue-save')[0])], ['اصرف «علف بادئ» (500 كغم) لـ«قاعة 1»', false], 'D1 الزرّ يسمّي ما سيحدث');
       await click(byAction('issue-save')[0]);
       const [args] = named(calls, 'rpc:record_flock_issue');
       t.same(Object.keys(args ?? {}).sort(), ['p_client_ref', 'p_flock', 'p_issue_id', 'p_issued_on', 'p_item', 'p_line_id', 'p_qty', 'p_warehouse'], 'D1 record_flock_issue بالمفاتيح الثمانية');
@@ -319,6 +321,62 @@ export default async function (t) {
       t.ok([args?.p_client_ref, args?.p_issue_id, args?.p_line_id].every((value) => UUID.test(value ?? '')) && new Set([args?.p_client_ref, args?.p_issue_id, args?.p_line_id]).size === 3, 'D1 المرجع والمعرّفان من الجهاز');
       t.eq(globalThis.__fi.toasts.at(-1)?.title, 'صُرف 500 كغم «علف بادئ» لـ«قاعة 1» من «مخزن العلف» (FI-2026-0001).', 'D1 الرسالة تقول ما صُرف ومن أين ورقمه');
       t.same([byAction('issue-card').length, named(calls, 'rpc:flock_feed').length, named(calls, 'rpc:flock_issue_options').length], [0, 2, 2], 'D1 ثمّ تُغلق النافذة وتُقرأ علف القاعة وما يُصرف من جديد');
+    });
+
+    // ── K1: البطاقة بنوع المادّة، و«تُحسب كلفةَ علف» تحت المادّة الأوّلية والإضافة ─────────────────────────────────────────────
+    await step('K1', async () => {
+      fresh('owner', ownerRpc());
+      await mount(ISSUE_URL);
+      const KIND = { feed: 'علف', raw: 'مادّة أوّلية', additive: 'إضافة', equipment: 'معدّات', medicine: 'دواء', vaccine: 'لقاح', fuel: 'وقود', other: 'أخرى' };
+      const items = SAMPLES.flock_issue_options.owner.items;
+      const shown = byAction('issue-card').map((card) => {
+        const inner = descendants(card);
+        const pick = (name) => inner.find((n) => n.getAttribute('data-action') === name)?.textContent ?? null;
+        return [card.getAttribute('data-item'), pick('made-in-mill') ? 'من إنتاج المعمل' : pick('issue-kind'), pick('issue-feed-cost')];
+      });
+      t.same(
+        shown,
+        items.map((item) => [item.item_id, item.made_in_mill ? 'من إنتاج المعمل' : KIND[item.kind], item.kind === 'raw' || item.kind === 'additive' ? 'تُحسب كلفةَ علف' : null]),
+        'K1 كلّ بطاقة بنوع مادّتها (وعلف المعمل بشارته)، و«تُحسب كلفةَ علف» تحت المادّة الأوّلية وحدها',
+      );
+      const named = (name) => byAction('issue-card').find((card) => card.textContent.startsWith(name))?.textContent ?? '';
+      t.ok(named('كاز').includes('وقود') && !named('كاز').includes('كلفةَ علف') && named('ذرة صفراء').includes('مادّة أوّلية') && named('ستائر').includes('معدّات'), `K1 «كاز» وقود و«ذرة صفراء» مادّة أوّلية و«ستائر» معدّات (${named('ذرة صفراء')})`);
+    });
+
+    // ── K2: الكمية بين قوسين لا مفعولاً للفعل، لكلّ عدد ───────────────────────────────────────────────────────────────────
+    await step('K2', async () => {
+      fresh('owner', ownerRpc());
+      await mount(ISSUE_URL);
+      const idOf = (name) => SAMPLES.flock_issue_options.owner.items.find((item) => item.name === name).item_id;
+      const said = [];
+      const sayFor = async (name, qtys) => {
+        await click(cardOf(idOf(name)));
+        for (const qty of qtys) {
+          type(byAction('issue-qty')[0], qty);
+          await settle();
+          said.push(textOf('issue-save'));
+        }
+        await click(cardOf(idOf(name)));
+      };
+      await sayFor('ستائر', ['1', '2', '3', '10']);
+      await sayFor('لقاح نيوكاسل', ['11', '100']);
+      await sayFor('كاز', ['20']);
+      await sayFor('علف بادئ', ['500', '1.5']);
+      t.same(
+        said,
+        [
+          'اصرف «ستائر» (قطعة واحدة) لـ«قاعة 1»',
+          'اصرف «ستائر» (قطعتان) لـ«قاعة 1»',
+          'اصرف «ستائر» (3 قطع) لـ«قاعة 1»',
+          'اصرف «ستائر» (10 قطع) لـ«قاعة 1»',
+          'اصرف «لقاح نيوكاسل» (11 قطعة) لـ«قاعة 1»',
+          'اصرف «لقاح نيوكاسل» (100 قطعة) لـ«قاعة 1»',
+          'اصرف «كاز» (20 لتراً) لـ«قاعة 1»',
+          'اصرف «علف بادئ» (500 كغم) لـ«قاعة 1»',
+          'اصرف «علف بادئ» (1.5 كغم) لـ«قاعة 1»',
+        ],
+        'K2 «اصرف «المادّة» (الكمية) لـ«القاعة»»: الكمية بين قوسين للقطعة والقطعتين والقطع والكيلو واللتر',
+      );
     });
 
     // ── D2: store_required ← المخازن بكمياتها والإرسال ثانيةً بالمعرّفات نفسها ───────────────────────────────────────────────

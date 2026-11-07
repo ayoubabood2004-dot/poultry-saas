@@ -1,14 +1,15 @@
 import type { Day } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { Fils, Milli } from '../../domain/money';
+import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import type { CostKind } from './flocks';
 
 // الصرف لفوج القاعة (0019، كلمة المالك 2026-11-07: «لمن اروح للقاعات اريد اصرفلهم مادة معينة الكي المواد الي اني صنعتها بالمعمل… ويكلي
 // شكد عندك واكدر اصرف منها للقاعة»): ما يُصرف (flock_issue_options)، والصرف بنداء واحد يُرحَّل فوراً (record_flock_issue)، وإلغاؤه
-// (void_flock_issue). تصدّره uses.ts (ملف حزمة شاشات المخزون، write-guard PAGE_MODULES)، فلا يمرّ بـindex ولا يدخل حزم الحقول المحفوظة
-// للفتح بلا نت (الصرف يحتاج الخادم). وعلف القاعة وسجلّ صرفها (flock_feed) في flocks.ts: تقرؤه شاشة الفوج.
+// (void_flock_issue). تستورده صفحة الصرف مباشرةً (write-guard PAGE_MODULES)، فلا يمرّ بـindex ولا يدخل حزم الحقول المحفوظة للفتح بلا
+// نت (الصرف يحتاج الخادم). وعلف القاعة وسجلّ صرفها (flock_feed) في flocks.ts: تقرؤه شاشة الفوج.
 // الأرقام نصوص عشرية بالسلك (E3): الكمية بالآلاف (Milli)، والكثافة بأربع مراتب، والمال بالفلس؛ والمال يغيب مفتاحه كلّه لغير أدوار الكلفة
 // (الأمين يصرف ولا يرى القيمة)، وخاناته قد تأتي null (درس WP7)، فالمحلّل يقبل الغياب ويقرأ null ولا يفترضهما.
 
@@ -77,7 +78,8 @@ export interface IssueStore {
 export interface IssueItem {
   itemId: string;
   name: string;
-  kind: string;
+  /** نوع المادّة (البطاقة تقوله: «مادّة أوّلية»، «وقود»…)، ونوع كلفتها على الفوج منفصل عنه. */
+  kind: ItemKind;
   costKind: CostKind;
   baseUnit: BaseUnit;
   /** ١/١٠٠٠٠ كغم/لتر، للسائل إن كُتبت. */
@@ -120,7 +122,7 @@ export function parseIssueOptions(value: unknown): IssueOptions {
     items: list(json.items, 'items').map((row) => ({
       itemId: str(row, 'item_id'),
       name: str(row, 'name'),
-      kind: str(row, 'kind'),
+      kind: oneOf(row, 'kind', ITEM_KINDS),
       costKind: oneOf(row, 'cost_kind', COST_KINDS),
       baseUnit: oneOf(row, 'base_unit', UNITS),
       density: optScaled(row, 'density_kg_per_l', 4),

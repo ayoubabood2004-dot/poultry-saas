@@ -13,6 +13,7 @@ import { FILS_PER_DINAR, lineAmount, MILLI_PER_UNIT, type Fils, type Milli } fro
 import { toWesternDigits } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { RECEIVING_KINDS } from '../../domain/stock';
+import type { ItemKind } from '../../domain/stores';
 import { parseQty } from '../../domain/units';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
@@ -25,12 +26,12 @@ import type { BoxPick, PartyPick } from '../../lib/repo/purchasing';
 import * as purchases from '../../lib/repo/purchases';
 import type { ItemFile, Payment, PurchaseInput, RecordedPurchase } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
-import { baseUnitLabel } from '../../lib/storeLabels';
+import { baseUnitLabel, warehouseKindLabel } from '../../lib/storeLabels';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { BoxPicker, SupplierPicker } from './purchase-shared';
-import { baseQty } from './simple-shared';
-import { readTime, scopedStores, StoreSelect, storesOf } from './stock-shared';
+import { baseQty, itemFilePath } from './simple-shared';
+import { readTime, scopedStores, StoreSelect, storesOf, type StoreRef } from './stock-shared';
 
 // «سجّل شراء» (كلمة المالك 2026-11-06، «المخزن ببساطة»: «اشتريت بهذا اليوم من هذا المورد هاي الكمية وبهذا السعر وراح ابيعه بهذا
 // السعر»): نافذة واحدة تُحفظ فوراً بدالّة record_purchase — التاريخ والمورّد والكمية وسعر الشراء لوحدة الأساس، والمجموع حيّاً بالدينار
@@ -42,6 +43,9 @@ import { readTime, scopedStores, StoreSelect, storesOf } from './stock-shared';
 // (م١)؛ و«تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس» للأفراخ بقواعد سطر الاستلام نفسها (م٣)؛ وقائمة المخازن بعد store_required
 // تقول «جارٍ التحميل» وتعرض فشلها بزرّ «أعد المحاولة» (ل٧).
 // وكلمة المالك بعد تجربته على الآيباد (2026-11-06، «الصفحة صغيرة سويها واسعة»): النافذة عريضة، وحقولها بعمودين من sm فما فوق.
+// ويوم المالك (2026-11-07): «كاز» المسجَّل «مادّة للمعمل» دخل مخزن المواد الأوّلية بلا أن يُقال له قبل الحفظ؛ فأوّل النافذة سطر يسمّي أين يدخل
+// الشراء (المخازن بنطاقك التي تستلم نوع المادّة، مرآة receiving_kinds وin_scope_wh، والحكم للخادم)، ولمن يعدّل الموادّ رابط «عدّل نوع
+// المادّة» ما دامت بلا مخزون ولا شراء (النوع يُجمَّد بأوّل حركة). والمخازن تُقرأ مرّة عند الفتح، وتخدم قائمة store_required نفسها.
 
 export interface PurchaseForm {
   day: string;
@@ -120,6 +124,26 @@ export function saveLabel(input: Omit<PurchaseInput, 'warehouseId'> | null, file
   return boxName ? t('purchase.save.cash', 'احفظ الشراء: {qty} {item} بـ{total} دينار نقداً من {box}', vars) : t('purchase.save.cash_any', 'احفظ الشراء: {qty} {item} بـ{total} دينار نقداً', vars);
 }
 
+/** المخازن بنطاقك التي تستلم نوع المادّة (مرآة private.receiving_kinds؛ والحكم للخادم). */
+export function receivingStores(kind: ItemKind, stores: readonly StoreRef[]): StoreRef[] {
+  return stores.filter((store) => !store.archived && RECEIVING_KINDS[kind].includes(store.kind));
+}
+
+/** سطر «أين يدخل» قبل الحفظ: المخزن الوحيد باسمه، أو المخازن إن كانت أكثر من واحد، أو نوع المخزن الناقص. */
+export function destinationText(kind: ItemKind, stores: readonly StoreRef[]): string {
+  const quoted = (name: string) => t('purchase.dest.name', '«{name}»', { name });
+  const [only] = stores;
+  if (only && stores.length === 1) return t('purchase.dest.one', 'يدخل «{store}».', { store: only.name });
+  if (stores.length > 1) {
+    return t('purchase.dest.many', 'يدخل أحد هذه المخازن: {stores}؛ يُطلب اختياره عند الحفظ.', { stores: stores.map((store) => quoted(store.name)).join(t('list.separator', '، ')) });
+  }
+  const kinds = RECEIVING_KINDS[kind];
+  if (!kinds.length) return t('purchase.dest.never', 'لا يستلم أيّ مخزن هذا النوع من الموادّ، فلن يُحفظ شراؤها.');
+  return t('purchase.dest.none', 'لا يوجد في نطاقك مخزن {kinds} يستلم هذه المادّة، فلن يُحفظ شراؤها.', {
+    kinds: kinds.map((store) => quoted(warehouseKindLabel(store))).join(t('purchase.dest.or', ' أو ')),
+  });
+}
+
 /** المخزن المختار يُرسل لمن طلب الخادم اختياره، والصندوق الوحيد يُختار وحده. */
 function effectiveBox(form: PurchaseForm, boxes: readonly BoxPick[] | null): string {
   if (form.box) return form.box;
@@ -161,13 +185,15 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
   }));
   const [tried, setTried] = useState(false);
   const [state, setState] = useState<SendState>(IDLE);
-  // store_required: الخادم وجد للمادّة أكثر من مخزن يستلمها، فتظهر القائمة (من المخازن بنطاقك التي تستلم نوعها).
+  // store_required: الخادم وجد للمادّة أكثر من مخزن يستلمها، فتظهر القائمة (من المخازن بنطاقك التي تستلم نوعها). والمخازن نفسها تُقرأ
+  // عند الفتح لسطر «يدخل…».
   const [storeHint, setStoreHint] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
   const pickStore = storeHint !== null;
-  const loadStores = useCallback(() => (pickStore ? inventory.loadOrgSetup() : Promise.resolve(null)), [pickStore]);
-  const setup = useLoad(loadStores, `${pickStore}`);
-  const stores = setup.data ? scopedStores(storesOf(setup.data), workspace).filter((store) => !store.archived && RECEIVING_KINDS[file.item.kind].includes(store.kind)) : [];
+  const setup = useLoad(inventory.loadOrgSetup);
+  const stores = setup.data ? receivingStores(file.item.kind, scopedStores(storesOf(setup.data), workspace)) : [];
+  // النوع يُجمَّد بأوّل حركة مخزون؛ والملفّ لا يقول «بلا حركة» فالقرينة: لا موجود ولا شراء (وإن كانت له حركة يرفض الخادم التعديل بسببه).
+  const editKind = file.canEdit && !file.item.archived && file.onHand === 0n && file.purchasesCount === 0;
   // الصناديق من الملفّ نفسه (الأمين لا يقرأ جدولها)، ومن جدولها إن لم يرسلها الخادم.
   const fromFile = file.cashAccounts;
   const wantsBoxes = form.payment === 'cash' && fromFile === null;
@@ -269,6 +295,32 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
         ) : (
           // من sm فما فوق عمودان (كلمة المالك على الآيباد): التاريخ | المورّد، الكمية | سعر الشراء، المجموع بعرضها، سعر البيع | الدفع.
           <div className="grid gap-4 sm:grid-cols-2" data-action="purchase-grid">
+            {/* أين يدخل الشراء، أوّلَ النافذة (يوم المالك 2026-11-07)؛ وبعد store_required تقوله القائمة. */}
+            {!pickStore ? (
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                {setup.error ? (
+                  <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} />
+                ) : setup.data ? (
+                  <p className="text-sm">
+                    <span data-action="purchase-destination">{destinationText(file.item.kind, stores)}</span>
+                    {editKind ? (
+                      <Link
+                        to={`/inventory/items?${new URLSearchParams({ edit: file.item.id, back: itemFilePath(file.item.id) }).toString()}`}
+                        className="ms-2 font-medium text-brand-700 dark:text-brand-200"
+                        data-action="purchase-edit-kind"
+                      >
+                        {t('purchase.edit_kind', 'عدّل نوع المادّة')}
+                      </Link>
+                    ) : null}
+                    {!stores.length && canSetup && !noStore ? (
+                      <Link to="/inventory/setup" className="ms-2 font-medium text-brand-700 dark:text-brand-200" data-action="purchase-dest-setup">
+                        {t('stores.setup.title', 'إعداد المخزن')}
+                      </Link>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <DayField id={`${id}-day`} label={t('purchase.day', 'التاريخ')} value={form.day} onChange={(day) => set({ day: toWesternDigits(day) })} error={shown.day} />
             <div className="flex flex-col gap-1.5">
               <SupplierPicker id={`${id}-party`} label={t('receipt.party', 'المورّد')} value={form.party} onChange={(party) => set({ party })} />

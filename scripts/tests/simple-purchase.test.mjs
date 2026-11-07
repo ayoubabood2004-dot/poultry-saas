@@ -12,6 +12,9 @@
 //    ل٧ قائمة المخازن بعد store_required بـ«جارٍ التحميل» وفشلها بـ«أعد المحاولة»؛ م٣ «تاريخ الانتهاء» لمادّة تتبّعه و«وقت الفقس»
 //    للأفراخ، وp_expiry_on وp_born_at مفتاحان دائماً؛ م٢ «مصحَّح» على السطر المصحَّح.
 // وتجربة المالك على الآيباد (2026-11-06، «الصفحة صغيرة سويها واسعة»): ي٢ نافذتا الشراء و«أضف مادّة» عريضتان بعمودين.
+// ويوم المالك (2026-11-07؛ كلّها تفشل على df1c736): U1 «أضف مادّة» فيها «وقود: كاز، غاز، بنزين» (fuel)، وشراؤه يقول «يدخل «المخزن العام»»؛
+//    U2 سطر «أين يدخل» قبل الحفظ: المخزن الوحيد بنطاقك، أو المخازن إن تعدّدت، أو نوع المخزن الناقص (و«إعداد المخزن» للمدير)، وفشل قراءة
+//    المخازن بـ«أعد المحاولة»؛ U3 «عدّل نوع المادّة» لمن يعدّل الموادّ ما دامت بلا موجود ولا شراء، إلى نافذة التعديل وبالرجوع إلى الملفّ.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,7 +155,7 @@ const MILLER = ws('mill_operator', { scopes: [{ siteId: 's-mill' }] });
 const org = (stores) => ({
   divisions: [{ id: 'd-mill', kind: 'feed_mill', goLiveOn: '2026-10-01', frozen: true }],
   sites: [], packTypes: [], expenseCategories: [], itemCategories: [],
-  warehouses: stores.map(([id, name]) => ({ id, version: 1, archived: false, divisionId: 'd-mill', siteId: 's-mill', name, kind: 'raw', hasBalance: false })),
+  warehouses: stores.map(([id, name, kind = 'raw']) => ({ id, version: 1, archived: false, divisionId: 'd-mill', siteId: 's-mill', name, kind, hasBalance: false })),
 });
 const itemRow = (id, name, kind, baseUnit = 'kg') => ({ id, version: 1, archived: false, name, nameNorm: name, categoryId: null, kind, baseUnit, density: null, pieceMassKg: null, tracksExpiry: false, scaleStep: 100n, minQty: null, barcode: null, altCodes: [] });
 const recipeJson = () => ({
@@ -293,7 +296,7 @@ export default async function (t) {
       await mount('/inventory');
       await click(byAction('add-item')[0]);
       const options = (byAction('simple-item-kind')[0]?.options ?? []).map((o) => o.textContent);
-      t.same(options, ['مادّة للمعمل', 'علف جاهز', 'دواء', 'أخرى'], 'P2: النوع بكلمات بسيطة، والأوّل «مادّة للمعمل»');
+      t.same(options, ['مادّة للمعمل', 'علف جاهز', 'دواء', 'وقود: كاز، غاز، بنزين', 'أخرى'], 'P2: النوع بكلمات بسيطة، والأوّل «مادّة للمعمل»');
       t.ok(['كيلوغرام', 'لتر', 'قطعة'].every((label) => buttonWith(label)), 'P2: «طريقة الحساب» كيلوغرام / لتر / قطعة');
       type(byAction('simple-item-name')[0], 'زيت صويا');
       await click(buttonWith('لتر'));
@@ -480,7 +483,7 @@ export default async function (t) {
       await submit();
       await settle();
       t.ok(byAction('purchase-store-pick').length === 1 && text().includes(hint), `P7: قائمة المخازن وتلميح الخادم (${text().slice(-500)})`);
-      t.eq(named(calls, 'loadOrgSetup').length, 1, 'P7: المخازن تُقرأ حين يطلبها الخادم');
+      t.eq(named(calls, 'loadOrgSetup').length, 1, 'P7: المخازن قراءة واحدة (عند الفتح لسطر «يدخل…»)، والقائمة منها');
       const select = byAction('pick-store')[0];
       t.same((select?.options ?? []).map((o) => o.getAttribute('value')).filter(Boolean), ['w-grain', 'w-raw'], 'P7: المخازن التي تستلم نوعها');
       await submit();
@@ -493,6 +496,110 @@ export default async function (t) {
       t.same([second?.p_client_ref, second?.p_receipt_id, second?.p_line_id], [first?.p_client_ref, first?.p_receipt_id, first?.p_line_id], 'P7: الإعادة بالمعرّفات نفسها');
       t.same([first?.p_warehouse, second?.p_warehouse], [null, 'w-grain'], 'P7: والمخزن المختار');
       t.eq(byAction('save-purchase').length, 0, 'P7: وحُفظ فأُغلقت النافذة');
+    });
+
+    // ── يوم المالك ────────────────────────────────────────────────────────────────────────────────────────────────
+    const fuelFile = (over = {}) =>
+      fileJson({
+        can_edit: true,
+        item: { id: 'i-new', name: 'كاز', kind: 'fuel', base_unit: 'L', density_kg_per_l: '0.8000', archived: false, tracks_expiry: false },
+        on_hand_qty: '0.000',
+        purchased_qty: '0.000',
+        purchases_count: 0,
+        purchases: [],
+        money: { purchased_value: '0.00', avg_unit_price: null, sell_price: null, last_unit_price: null },
+        ...over,
+      });
+    const STORES = [['w-raw', 'مخزن المواد الأوّلية', 'raw'], ['w-gen', 'المخزن العام', 'general']];
+    await step('U1-fuel', async () => {
+      const { calls } = fresh(
+        { status: 'ready', workspace: MANAGER },
+        { findItemTwins: () => [], createItem: (fields) => itemRow('i-new', fields.name, fields.kind, fields.base_unit), loadOrgSetup: () => org(STORES), ...suppliers },
+        { items_overview: async () => overviewJson(), item_file: async () => fuelFile() },
+      );
+      await mount('/inventory');
+      await click(byAction('add-item')[0]);
+      const select = byAction('simple-item-kind')[0];
+      t.ok((select?.options ?? []).some((o) => o.getAttribute('value') === 'fuel' && o.textContent === 'وقود: كاز، غاز، بنزين'), 'U1: «أضف مادّة» فيها «وقود: كاز، غاز، بنزين»');
+      type(byAction('simple-item-name')[0], 'كاز');
+      choose(select, 'fuel');
+      await settle();
+      await submit();
+      await settle();
+      const created = named(calls, 'createItem')[0]?.[0] ?? {};
+      t.same([created.name, created.kind], ['كاز', 'fuel'], 'U1: والمادّة تُنشأ وقوداً');
+      t.eq(where?.pathname, '/inventory/items/i-new', 'U1: ثمّ ملفّها');
+      await openDialog();
+      t.eq(byAction('purchase-destination')[0]?.textContent, 'يدخل «المخزن العام».', 'U1: وشراؤها يقول قبل الحفظ إنّه يدخل «المخزن العام» (مرآة receiving_kinds: الوقود ← العامّ)');
+    });
+    await step('U2-destination', async () => {
+      // الأمين بنطاق «مخزن المواد الأوّلية» وحده: المخزن الوحيد بنطاقه ولو كان في المنشأة مخزن موادّ آخر.
+      fresh({ status: 'ready', workspace: KEEPER }, { ...suppliers, loadOrgSetup: () => org([['w-raw', 'مخزن المواد الأوّلية'], ['w-grain', 'مخزن الحبوب']]) }, { item_file: async () => fileJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      t.same([byAction('purchase-destination')[0]?.textContent, byAction('purchase-edit-kind').length, byAction('purchase-dest-setup').length], ['يدخل «مخزن المواد الأوّلية».', 0, 0], 'U2: الأمين: المخزن الوحيد بنطاقه، بلا روابط');
+      await unmount();
+      fresh({ status: 'ready', workspace: MANAGER }, { ...suppliers, loadOrgSetup: () => org([['w-raw', 'مخزن المواد الأوّلية'], ['w-grain', 'مخزن الحبوب'], ['w-gen', 'المخزن العام', 'general']]) }, { item_file: async () => fileJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      t.eq(byAction('purchase-destination')[0]?.textContent, 'يدخل أحد هذه المخازن: «مخزن الحبوب»، «مخزن المواد الأوّلية»؛ يُطلب اختياره عند الحفظ.', 'U2: المدير ومخزنا موادّ: يسمّيهما ويقول إنّ الاختيار عند الحفظ (والعامّ لا يستلم الذرة)');
+      await unmount();
+      fresh({ status: 'ready', workspace: MANAGER }, { ...suppliers, loadOrgSetup: () => org([['w-gen', 'المخزن العام', 'general']]) }, { item_file: async () => fileJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      t.same(
+        [byAction('purchase-destination')[0]?.textContent, byAction('purchase-dest-setup')[0]?.getAttribute('href')],
+        ['لا يوجد في نطاقك مخزن «موادّ أوّلية» يستلم هذه المادّة، فلن يُحفظ شراؤها.', '/inventory/setup'],
+        'U2: بلا مخزن يستلمها: يسمّي نوع المخزن الناقص، و«إعداد المخزن» للمدير',
+      );
+      await unmount();
+      let failNext = true;
+      const { calls } = fresh({ status: 'ready', workspace: KEEPER }, {
+        ...suppliers,
+        loadOrgSetup: () => {
+          if (failNext) {
+            failNext = false;
+            throw new m.RetryableError('55P03');
+          }
+          return org([['w-raw', 'مخزن المواد الأوّلية']]);
+        },
+      }, { item_file: async () => fileJson() });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      await settle();
+      t.ok(text().includes('تعذّر تحميل قائمة المخازن') && byAction('retry').length === 1 && byAction('purchase-destination').length === 0, 'U2: فشل قراءة المخازن يُقال بـ«أعد المحاولة» لا سطراً فارغاً');
+      await click(byAction('retry')[0]);
+      await settle();
+      t.same([named(calls, 'loadOrgSetup').length, byAction('purchase-destination')[0]?.textContent], [2, 'يدخل «مخزن المواد الأوّلية».'], 'U2: والإعادة تقرأ من جديد فيظهر السطر');
+    });
+    await step('U3-edit-kind', async () => {
+      fresh({ status: 'ready', workspace: MANAGER }, { ...suppliers, loadOrgSetup: () => org(STORES) }, { item_file: async () => fuelFile({ item: { id: 'i-new', name: 'كاز', kind: 'raw', base_unit: 'pc', density_kg_per_l: null, archived: false, tracks_expiry: false } }) });
+      await mount('/inventory/items/i-new');
+      await openDialog();
+      const link = byAction('purchase-edit-kind')[0];
+      t.same(
+        [byAction('purchase-destination')[0]?.textContent, link?.textContent, link?.getAttribute('href')],
+        ['يدخل «مخزن المواد الأوّلية».', 'عدّل نوع المادّة', '/inventory/items?edit=i-new&back=%2Finventory%2Fitems%2Fi-new'],
+        'U3: «كاز» مادّةً أوّلية بلا شراء: يقول أين يدخل، و«عدّل نوع المادّة» إلى نافذة التعديل بالرجوع إلى الملفّ',
+      );
+      fire(link, 'click', { button: 0 });
+      await settle();
+      t.eq(`${where?.pathname}${where?.search}`, '/inventory/items?edit=i-new&back=%2Finventory%2Fitems%2Fi-new', 'U3: والرابط يفتح التعديل');
+      await unmount();
+      // بموجود أو شراء النوع مجمَّد: لا رابط؛ ولمن لا يعدّل الموادّ لا رابط.
+      fresh({ status: 'ready', workspace: MANAGER }, { ...suppliers, loadOrgSetup: () => org(STORES) }, { item_file: async () => fileJson({ can_edit: true }) });
+      await mount('/inventory/items/i-corn');
+      await openDialog();
+      t.same([byAction('purchase-destination').length, byAction('purchase-edit-kind').length], [1, 0], 'U3: مادّة لها موجود وشراء: بلا رابط');
+      await unmount();
+      fresh({ status: 'ready', workspace: KEEPER }, { ...suppliers, loadOrgSetup: () => org(STORES) }, { item_file: async () => fuelFile({ can_edit: false }) });
+      await mount('/inventory/items/i-new');
+      await openDialog();
+      t.same(
+        [byAction('purchase-destination')[0]?.textContent, byAction('purchase-edit-kind').length, byAction('purchase-dest-setup').length],
+        ['لا يوجد في نطاقك مخزن «عامّ» يستلم هذه المادّة، فلن يُحفظ شراؤها.', 0, 0],
+        'U3: الأمين بنطاق مخزن الموادّ وحده (لا يعدّل الموادّ ولا المخازن): الوقود لا مخزن له بنطاقه، والسطر يقوله بلا روابط',
+      );
     });
 
     // ── P8: نتيجة مجهولة ───────────────────────────────────────────────────────────────────────────────────────────

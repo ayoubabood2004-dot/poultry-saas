@@ -17,9 +17,10 @@ import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadFlockFeed, type CostKind, type FeedIssue } from '../../lib/repo/flocks';
+import { loadFlockFeed, type FeedIssue } from '../../lib/repo/flocks';
 import { loadIssueOptions, newIssueIds, recordFlockIssue, voidFlockIssue, type IssueIds, type IssueInput, type IssueItem, type IssueOptions } from '../../lib/repo/flockIssues';
 import { useSession } from '../../lib/session';
+import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { FeedLine } from '../farm/feed';
 
@@ -53,13 +54,8 @@ const qtyText = (qty: bigint, unit: BaseUnit): string => {
 
 const unitWord = (unit: BaseUnit): string => (unit === 'L' ? t('unit.L', 'لتر') : unit === 'pc' ? t('unit.pc', 'قطعة') : t('unit.kg', 'كغم'));
 
-const COST_LABELS: Readonly<Record<CostKind, () => string>> = {
-  feed: () => t('issue.kind.feed', 'علف'),
-  medicine: () => t('issue.kind.medicine', 'دواء'),
-  vaccine: () => t('issue.kind.vaccine', 'لقاح'),
-  fuel: () => t('issue.kind.fuel', 'وقود'),
-  other: () => t('issue.kind.other', 'أخرى'),
-};
+/** المادّة الأوّلية والإضافة تُحسبان على الفوج كلفةَ علف (flock_cost_kind)، فالبطاقة تقول ذلك تحت نوعها (يوم المالك 2026-11-07). */
+const FEED_COST_KINDS: ReadonlySet<string> = new Set(['raw', 'additive']);
 
 /** رموز رفض التاريخ: تُقال تحت حقل اليوم. */
 const DATE_CODES = new Set(['date_required', 'date_in_future', 'date_too_old', 'before_placement', 'period_locked']);
@@ -144,9 +140,10 @@ function IssueDialog({
         ? { title: refused.hint, detail: refused.code === 'id_conflict' ? t('issue.id_conflict', 'المحاولة السابقة سُجّلت أو أُلغيت؛ ما تكتبه الآن صرف جديد.') : null }
         : describeError(failure)
       : null;
+  // الكمية بين قوسين لا مفعولاً للفعل: «اصرف «كاز» (قطعتان)» تصحّ لكلّ عدد، و«اصرف قطعتان» لا تصحّ.
   const effect =
     item && qty !== null && qty > 0n
-      ? t('issue.save', 'اصرف {qty} «{item}» لـ«{hall}»', { qty: qtyText(qty, item.baseUnit), item: item.name, hall: options.hallName })
+      ? t('issue.save', 'اصرف «{item}» ({qty}) لـ«{hall}»', { qty: qtyText(qty, item.baseUnit), item: item.name, hall: options.hallName })
       : t('issue.save_pick', 'اختر المادّة واكتب كميتها');
   return (
     <Dialog
@@ -191,8 +188,15 @@ function IssueDialog({
                       {t('issue.made_in_mill', 'من إنتاج المعمل')}
                     </span>
                   ) : (
-                    <span className="text-xs text-ink-muted">{COST_LABELS[entry.costKind]()}</span>
+                    <span className="text-xs text-ink-muted" data-action="issue-kind">
+                      {itemKindLabel(entry.kind)}
+                    </span>
                   )}
+                  {FEED_COST_KINDS.has(entry.kind) ? (
+                    <span className="text-xs text-ink-muted" data-action="issue-feed-cost">
+                      {t('issue.feed_cost', 'تُحسب كلفةَ علف')}
+                    </span>
+                  ) : null}
                   <span className="text-xs text-ink-muted" data-action="issue-on-hand">
                     {t('mill.on_hand', 'عندك: {qty}', { qty: qtyText(entry.onHand, entry.baseUnit) })}
                   </span>

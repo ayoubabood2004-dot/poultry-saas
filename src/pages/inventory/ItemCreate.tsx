@@ -320,14 +320,18 @@ export function AddItemDialog({
 // والحدّ الأدنى تبقى في نافذة «المواد» الكاملة. والإنشاء بطريق createItem القائم (item.create)، والتوأم بالاسم نفسه يُعرض قبل الحفظ
 // برابط ملفّه («موجودة: افتح ملفّها»)، فالمادّة تُضاف مرّة واحدة وكلّ شراء يُسجَّل في ملفّها.
 
-/** الأنواع المعروضة في «أضف مادّة» البسيطة، بالترتيب، والأوّل الافتراضي (الذرة والصويا والزيت موادّ للمعمل). */
-export const SIMPLE_KINDS: readonly ItemKind[] = ['raw', 'feed', 'medicine', 'other'];
+/**
+ * الأنواع المعروضة في «أضف مادّة» البسيطة، بالترتيب، والأوّل الافتراضي (الذرة والصويا والزيت موادّ للمعمل). والوقود منها (يوم المالك
+ * 2026-11-07: «كاز» أُضيف «مادّة للمعمل» لغياب الوقود هنا، فدخل مخزن المواد الأوّلية وحُسب على الفوج كلفةَ علف): الوقود يدخل المخزن العامّ.
+ */
+export const SIMPLE_KINDS: readonly ItemKind[] = ['raw', 'feed', 'medicine', 'fuel', 'other'];
 
 /** اسم النوع بكلمات المالك. */
 export function simpleKindLabel(kind: ItemKind): string {
   if (kind === 'raw') return t('simple_item.kind.raw', 'مادّة للمعمل');
   if (kind === 'feed') return t('simple_item.kind.feed', 'علف جاهز');
   if (kind === 'medicine') return t('simple_item.kind.medicine', 'دواء');
+  if (kind === 'fuel') return t('simple_item.kind.fuel', 'وقود: كاز، غاز، بنزين');
   return t('simple_item.kind.other', 'أخرى');
 }
 
