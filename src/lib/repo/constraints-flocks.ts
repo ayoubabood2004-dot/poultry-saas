@@ -28,6 +28,21 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_day_rejects_decision_check: () => t('constraint.flock_day_rejects_decision_check', 'القرار على الجولة المركونة إمّا «عولجت» أو «مرفوضة».'),
   flock_weights_sample_check: () => t('constraint.flock_weights_sample_check', 'عدد طيور العيّنة من 1 إلى 100,000.'),
   flock_weights_avg_check: () => t('constraint.flock_weights_avg_check', 'معدّل وزن الطير بالغرام من 20 إلى 20,000، بمرتبة عشرية واحدة على الأكثر.'),
+  // 0019: الصرف لفوج القاعة ودفتر كلفة الفوج (تكتبها دالّتا الصرف والإلغاء وحدهما).
+  flock_costs_kind_check: () => t('constraint.flock_costs_kind_check', 'نوع كلفة الفوج غير معروف.'),
+  flock_costs_amount_check: () => t('constraint.flock_costs_amount_check', 'مبلغ كلفة الفوج رقم محدود بمرتبتين عشريتين على الأكثر.'),
+  flock_costs_doc_kind_check: () => t('constraint.flock_costs_doc_kind_check', 'مصدر كلفة الفوج غير معروف.'),
+  flock_costs_expense_check: () => t('constraint.flock_costs_expense_check', 'الصرف للفوج صادر داخلي بالكلفة، فلا يُربط بمصروف.'),
+  flock_issues_doc_no_check: () => t('constraint.flock_issues_doc_no_check', 'رقم الصرف للفوج بصيغة FI-السنة-الرقم.'),
+  flock_issues_status_check: () => t('constraint.flock_issues_status_check', 'حالة الصرف للفوج إمّا مرحَّل أو ملغى.'),
+  flock_issues_void_check: () => t('constraint.flock_issues_void_check', 'الصرف الملغى له وقت إلغاء وسببه، والمرحَّل بلا إلغاء.'),
+  flock_issues_void_reason_check: () => t('constraint.flock_issues_void_reason_check', 'سبب إلغاء الصرف لا يزيد على 500 حرف.'),
+  flock_issues_version_check: () => t('constraint.flock_issues_version_check', 'رقم نسخة الصرف غير صالح.'),
+  flock_issue_lines_qty_check: () => t('constraint.flock_issue_lines_qty_check', 'كمية الصرف أكبر من صفر، بثلاث مراتب عشرية على الأكثر.'),
+  flock_issue_lines_unit_check: () => t('constraint.flock_issue_lines_unit_check', 'وحدة الصرف كيلوغرام أو لتر أو قطعة، والقطع عدد صحيح.'),
+  flock_issue_lines_density_check: () => t('constraint.flock_issue_lines_density_check', 'كثافة سطر الصرف للمادّة باللتر فقط، رقم أكبر من صفر بأربع مراتب عشرية على الأكثر.'),
+  flock_issue_lines_cost_kind_check: () => t('constraint.flock_issue_lines_cost_kind_check', 'نوع كلفة سطر الصرف غير معروف.'),
+  flock_issue_lines_line_no_check: () => t('constraint.flock_issue_lines_line_no_check', 'رقم سطر الصرف يبدأ من 1.'),
 };
 
 registerConstraintHints(FLOCK_CONSTRAINT_HINTS);

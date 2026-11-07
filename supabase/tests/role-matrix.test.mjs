@@ -389,6 +389,21 @@ export default async function (t, db) {
   const MILL_DRAFT = ['owner', 'manager', 'mill_operator'];
   const MILL_POST = ['owner', 'manager', 'accountant'];
   const MILL_SCOPE = ['owner', 'manager', 'accountant', 'mill_operator'];
+  // 0019 (الصرف لفوج القاعة): مادّة علف لحالها برصيد افتتاح 100 كغم في مخزن العلف (لا تمسّ دفعة ناتج الإنتاج المرحَّل، فإلغاؤه يبقى ممكناً)،
+  // وصرف 10 كغم منها لفوج قاعة 1 مثبَّت لخانة الإلغاء؛ وكلّ خانة صرف تُرجَع.
+  const p19 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const feedItem = await one("insert into public.items (name, kind, base_unit) values ('علف الصرف', 'feed', 'kg') returning id");
+      const opening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [p3.feedStore]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 60000)', [opening, feedItem]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [opening]);
+      const issue = await one("select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 10, public.app_today(), null) ->> 'id'", [p2.flock, feedItem]);
+      return { feedItem, issue };
+    },
+    { commit: true },
+  );
 
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -554,6 +569,21 @@ export default async function (t, db) {
     },
     item_file: { sql: () => ["select public.item_file($1) ->> 'purchases_count' as v", [wp7.fuelA]], value: true, expect: only(STOCK, 'ok:1', 'ok:0') },
     items_overview: { sql: () => ["select public.items_overview() ->> 'can_record' as v", []], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
+    // 0019 (صرف العلف للقاعات، قرار المالك 2026-11-07): الصرف بفعل issue.post (المالك والمدير والأمين) ونطاق حقل الفوج، والأمين هنا محصور
+    // بالمخزن العامّ فقاعة اللحم خارج نطاقه (out_of_scope)؛ والإلغاء بفعل void (المالك والمدير)؛ والقارئان لمن بنطاقه حقل الفوج (read)، و«يصرف»
+    // علم الفعل، والمصروف من العلف بالكيلو للجميع.
+    record_flock_issue: {
+      sql: () => ["select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, public.app_today(), null) ->> 'status' as v", [p2.flock, p19.feedItem]],
+      value: true,
+      expect: { ...only(['owner', 'manager'], 'ok:posted'), storekeeper: 'out_of_scope' },
+    },
+    void_flock_issue: { sql: () => ["select public.void_flock_issue($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p19.issue]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    flock_issue_options: {
+      sql: () => ["select public.flock_issue_options($1) ->> 'can_issue' as v", [p2.flock]],
+      value: true,
+      expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
+    },
+    flock_feed: { sql: () => ["select public.flock_feed($1) ->> 'issued_feed_kg' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:10.000', 'out_of_scope') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

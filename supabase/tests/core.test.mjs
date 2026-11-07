@@ -390,6 +390,21 @@ export default async function (t, db) {
     );
   }
 
+  // 0019: صرف 10 كغم من علف المعمل (ناتج الدفعة المرحَّلة) لفوج كلّ منشأة، وصرف ثانٍ 5 كغم يُلغى، فبجداول الصرف وكلفة الفوج صفوف للطرفين.
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    await db.asUser(
+      owner,
+      async (q) => {
+        const output = await value(q, "select id from public.items where name = 'علف الخلطة'");
+        const flock = flocksOf[key].flock;
+        await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 10, public.app_today(), null)', [flock, output]);
+        const second = await value(q, "select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 5, public.app_today(), null) ->> 'id'", [flock, output]);
+        await q("select public.void_flock_issue($1, 'صرف مكرّر', gen_random_uuid())", [second]);
+      },
+      { commit: true },
+    );
+  }
+
   // 0014: سعر بيع لمادّة الطرفين، فجدول الأسعار بصفوف لكلّ منشأة (والمالك يرى الكلفة، فيقرأها).
   for (const owner of [U.aOwner, U.bOwner]) {
     await db.asUser(
@@ -710,6 +725,9 @@ export default async function (t, db) {
     productions_overview: () => [null, 30],
     // 0017: ملفّ مادّة كاز كلّ مالك (العامل يقرأ ملفّ مادّة منشأته بلا مال، والمادّة للمنشأة كلّها).
     item_file: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel],
+    // 0019: «ما يُصرف» و«علف القاعة» بفوج كلّ مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
+    flock_issue_options: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    flock_feed: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -751,6 +769,9 @@ export default async function (t, db) {
     // 0017: ملفّ المادّة وبطاقات المواد لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
     item_file: { [U.aSpare]: 'forbidden' },
     items_overview: { [U.aSpare]: 'forbidden' },
+    // 0019: قارئا الصرف لكلّ دور بمنشأة بنطاقه حقل الفوج (read)، وبلا منشأة forbidden.
+    flock_issue_options: { [U.aSpare]: 'forbidden' },
+    flock_feed: { [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

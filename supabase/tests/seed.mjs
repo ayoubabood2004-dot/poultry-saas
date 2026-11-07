@@ -16,6 +16,8 @@
 // بـrecord_purchase (ROLLBACK_EXTRAS أدناه)، فالتراجع يكمل. والطريق الثاني: شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع بصوت.
 // 0018: البذرة نفسها وفوقها شراء بالعامّة بعد يوم تشغيلها وافتتاح بيومه، وبعد الإعادة شراء بالمعمل بلا يوم تشغيل (ROLLBACK_EXTRAS)، فالتراجع يكمل.
 // والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده.
+// 0019: البذرة نفسها وفوقها قاعة بفوج مفتوح و«علف البذرة» برصيد افتتاح في مخزن الحقل (ROLLBACK_EXTRAS)، وبعد الإعادة صرف منه للفوج، فالتراجع
+// يكمل. والطريق الثاني: صرف لفوج (صفّ في flock_issues وflock_issue_lines وflock_costs، وحركات تشير إليه) يوقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -421,7 +423,55 @@ const goLiveSeed = (kind) => async (db) => {
   }, { commit: true });
 };
 
+/**
+ * 0019: قاعة «قاعة البذرة» في «حقل الأمل» بفوج مفتوح قبل ثلاثة أيّام، و«علف البذرة» برصيد افتتاح 50 كغم في مخزن الحقل (المدير). بلا صرف.
+ */
+const flockReady = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    const store = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
+    const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة البذرة') returning id", [site]);
+    await q('select public.open_flock($1, public.app_today() - 3, 1000, 0, null, $2)', [hall, REF(80)]);
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف البذرة', 'feed', 'kg') returning id");
+    const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [store]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 50, 30000)', [doc, feed]);
+    await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [doc, REF(81)]);
+  }, { commit: true });
+};
+
+const SEED_FLOCK = "select f.id from public.flocks f join public.halls h on h.org_id = f.org_id and h.id = f.hall_id where h.name = 'قاعة البذرة'";
+
+/** صرف 5 كغم «علف البذرة» لفوج «قاعة البذرة» من مخزن الحقل (المدير، record_flock_issue). */
+const issueToSeedFlock = (refs) => async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+    await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today(), null)', [...refs.map(REF), flock, feed]);
+  }, { commit: true });
+};
+
+/**
+ * 0019 (طريق الرفض): صرف لفوج. التراجع يُسقط دفتر كلفة الفوج ورؤوس الصرف وحركاتُ المخزون تشير إليها، فطريق الرفض يوقفه؛ والطفرة تشيل شرط
+ * «في الجداول صفّ» فيكمل.
+ */
+const flockIssueSeed = async (db) => {
+  await flockReady(db);
+  await issueToSeedFlock([82, 83, 84])(db);
+};
+
+const FLOCK_ISSUE_CONDITION = 'v_issues + v_lines + v_costs > 0';
+
 export const BLOCKING_SEEDS = {
+  19: [
+    {
+      name: 'صرف لفوج',
+      code: 'rollback_blocked',
+      seed: flockIssueSeed,
+      data: "select (select count(*) from public.flock_issues)::text || '/' || (select count(*) from public.flock_costs)::text || '/' || (select count(*) from public.stock_moves where doc_kind = 'flock_issue')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(FLOCK_ISSUE_CONDITION, 'false'),
+    },
+  ],
   18: [
     {
       name: 'ترحيل بوحدة بلا يوم تشغيل',
@@ -655,6 +705,7 @@ export const BLOCKING_REQUIRED = [
   [16, 5, 'معدّل تكاليف بخلطة، وسطر تكاليف ومادّة بديلة بدفعة مسوّدة، وسعر كلفة مكتوب، وخلطة مفعَّلة بكاز خارج الكتلة، وخلطة مفعَّلة تغيّرت وحدة مادّة فيها بعد تفعيلها، كل وحدة توقف التراجع'],
   [17, 1, 'شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع'],
   [18, 3, 'ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده، كلّ واحد يوقف التراجع'],
+  [19, 1, 'صرف لفوج (صفّ في flock_issues وflock_issue_lines وflock_costs) يوقف التراجع'],
 ];
 
 /**
@@ -822,7 +873,27 @@ const goLiveRedone = async (db) => {
   return problems;
 };
 
+/** بعد إعادة 0019: المدير يصرف من «علف البذرة» للفوج على البيانات القائمة، و«علف القاعة» 5 كغم، وثوابت الصرف والمخزون صفر. */
+const flockIssueRedone = async (db) => {
+  const problems = [];
+  try {
+    await issueToSeedFlock([85, 86, 87])(db);
+  } catch (error) {
+    problems.push(`record_flock_issue بعد الإعادة رفض: ${error.message}`);
+  }
+  const fed = await db.asUser(U.manager, (q) => value(q, `select public.flock_feed((${SEED_FLOCK})) ->> 'issued_feed_kg'`));
+  if (fed !== '5.000') problems.push(`علف القاعة بعد الإعادة ${fed} والمتوقّع 5.000`);
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_flock_issues() union all select check_name, violations::text from public.verify_stock()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الصرف: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  19: {
+    seed: flockReady,
+    afterRedo: flockIssueRedone,
+  },
   18: {
     seed: goLiveRollbackSeed,
     afterRollback: goLiveOn0017,
