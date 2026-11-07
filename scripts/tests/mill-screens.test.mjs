@@ -194,7 +194,7 @@ export default async function (t) {
 
   // ── S6: المنتقي بحالاته الثلاث، ومرآة أنواع مخزن المواد الأوّلية ─────────────────────────────────────────────────────
   t.same([...m.MILL_RAW_KINDS].sort(), [...m.ADMISSIBLE.raw].sort(), 'S6 أنواع المعمل = ADMISSIBLE.raw (مرآة private.item_admissible)');
-  const row = (id, name, kind, baseUnit = 'kg', archived = false) => ({ id, name, kind, baseUnit, archived, density: null, scaleStep: 100n });
+  const row = (id, name, kind, baseUnit = 'kg', archived = false) => ({ id, name, kind, baseUnit, archived, density: null, scaleStep: 100n, barcode: null, altCodes: [] });
   const rows = [row('i-c', 'ذرة صفراء', 'raw'), row('i-f', 'ذرة', 'feed'), row('i-o', 'زيت', 'raw', 'L'), row('i-b', 'كيس', 'packaging', 'pc'), row('i-x', 'ذرة قديمة', 'raw', 'kg', true)];
   const corn = m.pickerView(rows, 'ذرة', new Set());
   t.same([corn.fit.map((r) => r.id), corn.exactFit, corn.misfits.map((r) => r.id)], [['i-c', 'i-o'], false, ['i-f']], 'S6 «ذرة»: الصالحة (لا المؤرشفة ولا القطعة)، ولا مطابق صالح بالاسم نفسه، و«ذرة» بنوع علف تُسمّى');

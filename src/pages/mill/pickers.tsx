@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Notice';
 import { decimalText } from '../../domain/decimal';
 import type { Milli } from '../../domain/money';
-import { searchable } from '../../domain/normalize';
+import { normalizeCode, searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
@@ -162,7 +162,10 @@ export function pickerView(rows: readonly ItemRow[], query: string, exclude: Rea
   const misfits = rows.filter((row) => !millAdmissible(row) && searchable(row.name) === key);
   /** المطابق الصالح بالاسم نفسه مكتوب في الجدول أصلاً: يُقال بدل صمت المنتقي. */
   const exactIn = rows.some((row) => millAdmissible(row) && searchable(row.name) === key && exclude.has(row.id));
-  return { fit, exactFit, misfits, exactIn };
+  /** البحث رمزُ مادّة صالحة (باركود أو رمز إضافي): لا «أنشئ» مادّةً اسمها الرمز (مراجعة الشاشات M1). */
+  const code = normalizeCode(query);
+  const codeFit = code !== '' && rows.some((row) => millAdmissible(row) && (row.barcode === code || row.altCodes.includes(code)));
+  return { fit, exactFit, misfits, exactIn, codeFit };
 }
 
 /** بحث المنتقي بالاسم: الجواب يُكتب إن بقي البحث نفسه آخر ما كُتب (latest)، وإلّا يُهمل. */
@@ -200,6 +203,7 @@ export function MaterialPicker({
   text: controlled,
   onText: reportText,
   listFits = true,
+  cardIds,
 }: {
   id: string;
   exclude: ReadonlySet<string>;
@@ -220,6 +224,11 @@ export function MaterialPicker({
   onText?: (text: string) => void;
   /** false: البطاقات تعرض المطابقات، فالمنتقي يقول ما لا تقوله وحده (لا مادّة، أو موجودة بنوع آخر، أو «أنشئ»). */
   listFits?: boolean;
+  /**
+   * مع البطاقات: المواد الظاهرة بطاقاتٍ الآن. مطابقات الخادم غيرها (أُضيفت بعد قراءة البطاقات، أو طابقت باركودها أو رمزها لا اسمها) تُعرض أزرارَ
+   * اختيار، فلا يبقى «أنشئ» وحده لمادّة موجودة (مراجعة الشاشات M1).
+   */
+  cardIds?: ReadonlySet<string>;
 }) {
   const [own, setOwn] = useState('');
   const text = controlled ?? own;
@@ -264,6 +273,7 @@ export function MaterialPicker({
 
   const query = text.trim();
   const view = found && found.query === query ? pickerView(found.rows, query, exclude) : null;
+  const buttons = view ? (listFits ? view.fit : view.fit.filter((row) => !cardIds?.has(row.id))) : [];
   const shownTwins = twins && twins.query === query ? twins.rows : null;
 
   /**
@@ -337,9 +347,9 @@ export function MaterialPicker({
         <input id={id} className="input" value={text} maxLength={120} autoComplete="off" disabled={disabled} onChange={(event) => onText(event.target.value)} data-action="search-material" />
       </div>
       {listFits && query && !view && !problem ? <p className="text-sm text-ink-muted">{t('mill.picker.searching', 'جارٍ البحث…')}</p> : null}
-      {listFits && view?.fit.length ? (
+      {buttons.length ? (
         <ul className="flex flex-wrap gap-2">
-          {view.fit.map((row) => (
+          {buttons.map((row) => (
             <li key={row.id}>
               <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden="true" />} disabled={disabled} onClick={() => picked(materialOf(row), false, row)} data-action="pick-material">
                 {t('mill.picker.option', '{name} · {kind} · {unit}', { name: row.name, kind: itemKindLabel(row.kind), unit: unitWord(row.baseUnit) })}
@@ -404,7 +414,7 @@ export function MaterialPicker({
             </Button>
           </div>
         </div>
-      ) : view && !view.exactFit && canCreate ? (
+      ) : view && !view.exactFit && !view.codeFit && canCreate ? (
         <div>
           <Button size="sm" icon={<Plus className="size-4" aria-hidden="true" />} busy={creating} disabled={disabled} onClick={() => void create(false)} data-action="create-material">
             {t('mill.picker.create', 'أنشئ «{name}» مادّةً أوّلية جديدة بالكيلوغرام', { name: query })}

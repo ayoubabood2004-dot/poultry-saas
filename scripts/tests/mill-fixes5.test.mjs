@@ -740,8 +740,9 @@ export default async function (t) {
         'V42 الحفظ التالي مشروط بالمقروء الجديد',
       );
       t.same([server.state.costPrice, text().includes('من نافذة أو جهاز آخر')], ['500.00', false], 'V42 فينجح بلا حلقة رفض');
-      // رفض آخر بعد حلّ الأوّل (التفعيل يُرفض برمز آخر): جملته وحدها بلا جملة «قُرئت من جديد» قديمة.
-      server.state.rejectActivate = 'basis_mismatch';
+      // رفض آخر بعد حلّ الأوّل (التفعيل يُرفض برمز آخر): جملته وحدها بلا جملة «قُرئت من جديد» قديمة. (basis_mismatch صار «تغيّر من جهاز آخر»
+      // فيُقرأ من جديد، مراجعة الشاشات M3؛ فالرفض اللاحق هنا doc_empty.)
+      server.state.rejectActivate = 'doc_empty';
       await press(byAction('activate-version')[0]);
       t.same([text().includes('الخادم رفض العملية'), text().includes('قُرئت الخلطة من جديد'), text().includes('المحفوظ الآن')], [true, false, false], 'V42 رفض لاحق في بطاقة الخلطة بلا جملة رفض قديمة');
     });

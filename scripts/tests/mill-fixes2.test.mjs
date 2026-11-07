@@ -684,7 +684,8 @@ export default async function (t) {
             attempt += 1;
             if (attempt === 1) throw new m.UnknownOutcomeError();
             if (attempt === 2) throw new m.NetworkError();
-            throw new m.RejectedError('basis_mismatch', 'مجموع مواد الخلطة 1,000 كغم، والأساس 900 كغم.');
+            // رفض نهائيّ بتلميحه (basis_mismatch صار يُعاد قراءة المواد بجملتنا، مراجعة الشاشات M3؛ فهنا recipe_name_taken).
+            throw new m.RejectedError('recipe_name_taken', 'توجد خلطة باسم «علف بياض». اختر اسماً آخر أو افتح الخلطة الموجودة.');
           },
         }),
       );
@@ -697,7 +698,7 @@ export default async function (t) {
       const sent = named(calls, 'createRecipe').map(([input]) => input);
       t.ok(sent.length === 3 && sent.every((input) => JSON.stringify(input, (key, value) => (typeof value === 'bigint' ? `${value}` : value)) === JSON.stringify(sent[0], (key, value) => (typeof value === 'bigint' ? `${value}` : value))), 'Y14 والإعادات كلّها بالحمولة الأولى');
       t.same([byAction('retry-save').length, disabled(byAction('card-qty')[0]), disabled(byAction('save-draft')[0])], [0, false, false], 'Y14 رفض نهائي يفكّ التجميد: الحقول والحفظ يعودان');
-      t.ok(text().includes('مجموع مواد الخلطة 1,000 كغم، والأساس 900 كغم.'), 'Y14 والرفض يُقال بتلميحه');
+      t.ok(text().includes('توجد خلطة باسم «علف بياض». اختر اسماً آخر أو افتح الخلطة الموجودة.'), 'Y14 والرفض يُقال بتلميحه');
     });
     await step('Y14 لم يُحفظ', async () => {
       const calls = fresh(

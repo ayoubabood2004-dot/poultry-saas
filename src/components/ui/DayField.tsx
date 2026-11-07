@@ -16,10 +16,27 @@ export function postingDay(text: string, today: Day = localDay()): { day: Day | 
   return { day, error: null };
 }
 
-export function DayField({ id, label, value, onChange, error, hint }: { id: string; label: string; value: string; onChange: (text: string) => void; error?: string | null; hint?: string }) {
+export function DayField({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  disabled = false,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (text: string) => void;
+  error?: string | null;
+  hint?: string;
+  /** مقفول أثناء الإرسال وبعد نتيجة مجهولة: ما يُكتب بعدها لا يُرسل، فلا يُكتب. */
+  disabled?: boolean;
+}) {
   return (
     <Field id={id} label={label} error={error} hint={hint ?? t('day.hint', 'يوم/شهر/سنة.')}>
-      <input id={id} inputMode="numeric" dir="ltr" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} className="input tabular-nums" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input id={id} inputMode="numeric" dir="ltr" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} className="input tabular-nums" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
     </Field>
   );
 }

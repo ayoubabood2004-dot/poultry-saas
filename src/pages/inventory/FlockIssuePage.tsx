@@ -18,7 +18,7 @@ import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/err
 import { columnDecimals, fmtDay, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadFlockFeed, type CostKind, type FeedIssue } from '../../lib/repo/flocks';
-import { loadIssueOptions, newIssueIds, recordFlockIssue, voidFlockIssue, type IssueIds, type IssueInput, type IssueItem, type IssueOptions } from '../../lib/repo/uses';
+import { loadIssueOptions, newIssueIds, recordFlockIssue, voidFlockIssue, type IssueIds, type IssueInput, type IssueItem, type IssueOptions } from '../../lib/repo/flockIssues';
 import { useSession } from '../../lib/session';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { FeedLine } from '../farm/feed';
@@ -30,6 +30,9 @@ import { FeedLine } from '../farm/feed';
 // وبطاقات الحقل تدلّ عليها. المعرّفات ومرجع العملية مرّة لكلّ نافذة: بعد نتيجة مجهولة تتجمّد النافذة وفعلها «أعد المحاولة» بالنداء نفسه حرفاً،
 // وبعد رفض نهائيّ (لم يُكتب شيء) تُصحَّح ويُعاد إرسالها بالمعرّفات نفسها (store_required ← اختيار المخزن).
 // ما يُكتب في النافذة يعيش في الصفحة (درس WP5): القراءة من جديد بعد كلّ صرف أو رفض لا تمسحه.
+// مراجعة الشاشات: صرف لم يُعرف جوابه يبقى بعد إغلاق النافذة (والإغلاق يسأل)، وفتحها ثانيةً يرجّعه بفعله الوحيد «أعد المحاولة» بالنداء نفسه، فلا
+// يُصرف مرّتين بمعرّفين؛ واليوم مقفول معه؛ وid_conflict يولّد معرّفات جديدة بتلميح الخادم؛ وفشل القراءة من جديد يُقال ولو بقي المعروض القديم؛
+// وقيمة الصرف الملغى «—» (المجموع صافي المرحَّل).
 
 /** طريق الرجوع: صفحة الفوج أو الحقل وحدهما (لا رابط خارجي من المعامل). */
 export function farmBack(value: string | null): string | null {
@@ -135,7 +138,12 @@ function IssueDialog({
   const refused = failure instanceof RejectedError ? failure : null;
   const storeAsked = refused?.code === 'store_required';
   const serverDay = refused && DATE_CODES.has(refused.code) ? (refused.hint ?? describeError(refused).detail) : null;
-  const shownFailure = failure && !storeAsked && !serverDay && form.pending === null ? (refused?.code === 'insufficient_stock' && refused.hint ? { title: refused.hint, detail: null } : describeError(failure)) : null;
+  const shownFailure =
+    failure && !storeAsked && !serverDay && form.pending === null
+      ? refused && (refused.code === 'insufficient_stock' || refused.code === 'id_conflict') && refused.hint
+        ? { title: refused.hint, detail: refused.code === 'id_conflict' ? t('issue.id_conflict', 'المحاولة السابقة سُجّلت أو أُلغيت؛ ما تكتبه الآن صرف جديد.') : null }
+        : describeError(failure)
+      : null;
   const effect =
     item && qty !== null && qty > 0n
       ? t('issue.save', 'اصرف {qty} «{item}» لـ«{hall}»', { qty: qtyText(qty, item.baseUnit), item: item.name, hall: options.hallName })
@@ -146,7 +154,8 @@ function IssueDialog({
       size="wide"
       onClose={onClose}
       locked={form.busy}
-      dirty={(form.itemId !== null || form.qty.trim() !== '') && form.pending === null}
+      // صرف لم يُعرف جوابه «وسخ» أيضاً: الإغلاق يسأل، وما أُرسل يبقى في الصفحة.
+      dirty={form.itemId !== null || form.qty.trim() !== '' || form.pending !== null}
       title={t('issue.title', 'اصرف لـ«{hall}»', { hall: options.hallName })}
       footer={
         <Button size="lg" icon={<PackageMinus className="size-5" aria-hidden="true" />} busy={form.busy} disabled={form.pending === null && !ready} onClick={onSend} data-action="issue-save">
@@ -208,7 +217,7 @@ function IssueDialog({
               data-action="issue-qty"
             />
           </Field>
-          <DayField id={`${id}-day`} label={t('issue.day', 'يوم الصرف')} value={form.day} error={serverDay ?? dayError} onChange={(text) => setForm({ day: text, failure: null })} />
+          <DayField id={`${id}-day`} label={t('issue.day', 'يوم الصرف')} value={form.day} error={serverDay ?? dayError} disabled={locked} onChange={(text) => setForm({ day: text, failure: null })} />
         </div>
       ) : null}
       {item && (item.stores.length > 1 || storeAsked) ? (
@@ -296,6 +305,12 @@ export default function FlockIssuePage() {
       refresh();
     } catch (failure) {
       const unknown = failure instanceof UnknownOutcomeError || (retrying && !(failure instanceof RejectedError));
+      if (failure instanceof RejectedError && failure.code === 'id_conflict') {
+        // المعرّفات لصرف سُجّل أو أُلغي من قبل: كلّ إرسال بها يُرفض كذلك، فمعرّفات جديدة، وتلميح الخادم يقول ما حدث، والصفحة تُقرأ من جديد.
+        setForm({ busy: false, failure, pending: null, ids: newIssueIds() });
+        refresh();
+        return;
+      }
       setForm({ busy: false, failure, pending: unknown ? input : null });
       // رفض المخزن أو الرصيد: «ما يُصرف» تُقرأ من جديد (المخازن وكمياتها الآن)، والمعرّفات تبقى (الرفض لم يكتب شيئاً).
       if (failure instanceof RejectedError && (failure.code === 'store_required' || failure.code === 'insufficient_stock')) optionsState.retry();
@@ -303,10 +318,17 @@ export default function FlockIssuePage() {
   };
 
   const closeIssue = () => {
-    // بعد نتيجة مجهولة: الإغلاق يقرأ الصفحة من جديد، فإن كان الصرف قد سُجّل ظهر في الجدول.
-    if (form?.pending) refresh();
-    setFormState(null);
+    // بعد نتيجة مجهولة: الإغلاق يقرأ الصفحة من جديد (إن سُجّل الصرف ظهر في الجدول)، والنموذج المرسَل يبقى ليُعاد به وحده عند الفتح ثانيةً.
+    if (form?.pending) {
+      refresh();
+      setForm({ busy: false });
+    } else setFormState(null);
     setOpen(false);
+  };
+  /** «اصرف علفاً أو دواءً»: صرف لم يُعرف جوابه يُفتح كما هو (فعله «أعد المحاولة»)، وغيره نموذج جديد بمعرّفات جديدة. */
+  const openIssue = () => {
+    setOpen(true);
+    if (options && !form?.pending) setFormState(freshForm(options.today));
   };
 
   const confirmVoid = async () => {
@@ -349,7 +371,8 @@ export default function FlockIssuePage() {
             key: 'value',
             header: t('issue.col.value', 'القيمة'),
             kind: 'number' as const,
-            cell: (row: FeedIssue) => <Num>{row.money?.value === null || row.money?.value === undefined ? '—' : fmtMoney(row.money.value)}</Num>,
+            // الملغى بلا قيمة في عمود يجمع صافي المرحَّل (issued_value)، وحالته تقول إنّه ملغى.
+            cell: (row: FeedIssue) => <Num>{row.status === 'void' || row.money?.value === null || row.money?.value === undefined ? '—' : fmtMoney(row.money.value)}</Num>,
             total: <Num>{feed?.money?.issuedValue === null || feed?.money?.issuedValue === undefined ? '—' : fmtMoney(feed.money.issuedValue)}</Num>,
           },
         ]
@@ -374,7 +397,6 @@ export default function FlockIssuePage() {
     },
   ];
 
-  const error = feedState.error ?? optionsState.error;
   const voidFailure = voiding?.failure ? (voiding.failure instanceof RejectedError && voiding.failure.hint ? voiding.failure.hint : `${describeError(voiding.failure).title} ${describeError(voiding.failure).detail}`) : null;
   return (
     <div className="flex flex-col gap-4">
@@ -389,7 +411,20 @@ export default function FlockIssuePage() {
           ) : undefined
         }
       />
-      {error && !feed ? <LoadFailed what={t('issue.what', 'علف القاعة')} error={error} onRetry={refresh} /> : null}
+      {/* فشل القراءة يُقال ولو بقي آخر ما قُرئ معروضاً (لا بيانات قديمة كأنّها الآن)، ولكلّ قراءة إعادتها. */}
+      {feedState.error ? <LoadFailed what={t('issue.what', 'علف القاعة')} error={feedState.error} onRetry={feedState.retry} /> : null}
+      {optionsState.error ? <LoadFailed what={t('issue.options_what', 'ما يُصرف للقاعة')} error={optionsState.error} onRetry={optionsState.retry} /> : null}
+      {form?.pending && !open ? (
+        <Notice
+          tone="warning"
+          title={t('issue.unknown', 'لا نعرف إن سُجّل الصرف: أعد المحاولة؛ لن يُسجَّل مرّتين.')}
+          action={
+            <Button size="sm" onClick={openIssue} data-action="issue-pending">
+              {t('issue.retry', 'أعد المحاولة')}
+            </Button>
+          }
+        />
+      ) : null}
       {feed ? (
         <section className="card flex flex-col gap-3 p-4">
           <FeedLine feed={feed} />
@@ -398,10 +433,7 @@ export default function FlockIssuePage() {
               <Button
                 size="lg"
                 icon={<PackageMinus className="size-5" aria-hidden="true" />}
-                onClick={() => {
-                  setOpen(true);
-                  if (options) setFormState(freshForm(options.today));
-                }}
+                onClick={openIssue}
                 data-action="issue-open"
               >
                 {t('issue.open', 'اصرف علفاً أو دواءً')}

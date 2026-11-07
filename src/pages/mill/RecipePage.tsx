@@ -70,7 +70,9 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // الكتلة (setVersionBasis بشرط نسختها) ثمّ تفعّلها بالنسخة التالية، فلا basis_mismatch؛ والصفحة تقول «مجموع الخلطة» و«الناتج المتوقّع».
 
 /** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
-const CHANGED_ELSEWHERE = new Set(['price_changed', 'amount_changed', 'stale_draft']);
+// وbasis_mismatch (مراجعة الشاشات M3): تغيّر مجموع المسوّدة على الخادم بلا نسخة جديدة (كثافة مادّة أو وحدتها من جهاز آخر)، فتُقرأ من جديد
+// والتفعيل التالي يكتب الأساس = المجموع المقروء الآن.
+const CHANGED_ELSEWHERE = new Set(['price_changed', 'amount_changed', 'stale_draft', 'basis_mismatch']);
 // وحفظ الأساس المشروط بنسخة المسوّدة يرجع بصفر صفوف إن تغيّرت (ZeroRowsError): المخرج نفسه، فلا يُعاد بالنسخة القديمة أبداً.
 const changedElsewhere = (problem: unknown): boolean => (problem instanceof RejectedError && CHANGED_ELSEWHERE.has(problem.code)) || problem instanceof ZeroRowsError;
 
@@ -175,6 +177,15 @@ function AddMaterialsDialog({
   const views = picks.lines.filter((line) => !inRecipe.has(line.item.id)).map(viewCardLine);
   const totals = cardTotals(views);
   const ready = views.length > 0 && views.every((row) => row.qtyOk && !row.densityMissing && !row.densityUnread && row.mass !== 0n);
+  // ما يمنع «أضف المختار» مكتوب تحته (مراجعة الشاشات M4)، كالبانية: لا زرّ معطّل بلا سبب.
+  const missing: string[] = [];
+  for (const row of views) {
+    const name = row.line.item.name;
+    if (!row.qtyOk) missing.push(t('mill.builder.need_qty', 'اكتب كمية «{name}» أكبر من صفر.', { name }));
+    if (row.densityMissing) missing.push(t('mill.builder.need_density_of', '«{name}» سائل بلا كثافة، فلا يُحسب وزنه: اكتب كثافته على بطاقته.', { name }));
+    else if (row.densityUnread) missing.push(t('mill.builder.density_unread', 'كثافة «{name}» لم تُقرأ بعد: انتظر لحظة أو أعد قراءتها من بطاقته.', { name }));
+    else if (row.mass === 0n) missing.push(t('mill.builder.zero_mass', 'كمية «{name}» تُقرَّب صفراً بالكيلوغرام: اكتب كمية أكبر.', { name }));
+  }
   const after = recipe.massKg !== null && totals.known ? recipe.massKg + totals.sum : null;
   return (
     <Dialog
@@ -185,9 +196,18 @@ function AddMaterialsDialog({
       dirty={views.length > 0}
       title={t('mill.add.title', 'أضف مواد إلى «{name}»', { name: recipe.name })}
       footer={
-        <Button size="lg" icon={<Plus className="size-5" aria-hidden="true" />} busy={busy} disabled={!ready} onClick={onSave} data-action="add-lines-save">
-          {t('mill.add.save', 'أضف المختار إلى الخلطة')}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button size="lg" icon={<Plus className="size-5" aria-hidden="true" />} busy={busy} disabled={!ready} onClick={onSave} data-action="add-lines-save">
+            {t('mill.add.save', 'أضف المختار إلى الخلطة')}
+          </Button>
+          {views.length && missing.length ? (
+            <ul className="list-disc ps-5 text-sm text-ink-muted" data-action="add-missing">
+              {missing.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       }
     >
       <p className="text-sm text-ink-muted">{t('mill.cards.hint', 'المس البطاقة لتختار المادّة، واكتب كميتها عليها؛ لمسة ثانية تتركها. تختار أكثر من مادّة معاً.')}</p>
@@ -339,7 +359,12 @@ export default function RecipePage() {
       retry();
     } catch (problem) {
       const { title, detail } = describeError(problem);
-      setFailure(`${title} ${detail}`);
+      // basis_mismatch بجملتنا لا بتلميح الخادم: تلميحه يطلب تعديل «الأساس»، ولا حقل أساس في الصفحة (M3).
+      setFailure(
+        problem instanceof RejectedError && problem.code === 'basis_mismatch'
+          ? t('mill.recipe.total_changed', 'تغيّر مجموع الخلطة على الخادم بعد ما قُرئ (كثافة مادّة أو وحدتها تغيّرت من جهاز آخر).')
+          : `${title} ${detail}`,
+      );
       if (data && changedElsewhere(problem)) {
         setConflict({ seen: data, cell, rebased: false });
         retry();
@@ -415,6 +440,18 @@ export default function RecipePage() {
   };
 
   /**
+   * بعد كلّ تغيير في سطور المسوّدة (مراجعة الشاشات M2): أساسها المحفوظ يصير مجموعها الآن، فكلفة الطنّ المتوقّعة (يقسمها الخادم على الأساس) صحيحة.
+   * تُقرأ المسوّدة بنسختها بعد التغيير ويُكتب الأساس بشرطها كالتفعيل؛ صفر صفوف (تغيّرت من جهاز آخر) يرمي، فتُقرأ الصفحة من جديد وتبقى لوحة الكلفة
+   * مخفيّة ما دام الأساس غير المجموع.
+   */
+  const syncBasis = async () => {
+    if (!data?.versionId) return;
+    const now = await loadRecipe(id, data.versionId);
+    if (now.status !== 'draft' || !now.versionId || now.massKg === null || now.massKg <= 0n || now.basisKg === now.massKg) return;
+    await setVersionBasis(now.versionId, now.massKg, now.versionVersion);
+  };
+
+  /**
    * «أضف المختار إلى الخلطة»: سطر لكلّ مادّة مختارة بترتيب اختيارها (كتابة مباشرة لكلّ سطر كـ«أضف مادّة» من قبل)، وما أُضيف يُترك من المختار
    * فوراً؛ وأوّل رفض يوقف ما بعده ويُقال باسم ما أُضيف قبله، ثمّ تُقرأ الخلطة من جديد في الحالتين. المادّة المكتوبة في المسوّدة (أُضيفت بمحاولة ضاع
    * جوابها، أو من جهاز آخر) لا تُرسل ثانية.
@@ -448,10 +485,18 @@ export default function RecipePage() {
           ? t('mill.add.partial', 'أُضيفت {names}، ثمّ توقّفت الإضافة: {reason}', { names: added.join(t('list.separator', '، ')), reason: `${title} ${detail}` })
           : `${title} ${detail}`,
       );
-    } finally {
-      setBusy(false);
-      retry();
     }
+    // ما أُضيف غيّر مجموع المسوّدة: الأساس يتبعه (M2). فشله لا يُسكت: لوحة الكلفة تبقى مخفيّة بجملة وزرّ «حدّث كلفة الطنّ».
+    if (added.length) {
+      try {
+        await syncBasis();
+      } catch (problem) {
+        const { title, detail } = describeError(problem);
+        setFailure(t('mill.add.sync_failed', 'أُضيفت المواد، ولم يُحفظ مجموع الخلطة الجديد بعد ({reason}): تُحدَّث كلفة الطنّ بزرّ «حدّث كلفة الطنّ».', { reason: `${title} ${detail}` }));
+      }
+    }
+    setBusy(false);
+    retry();
   };
 
   /** «أغلق» نافذة «أضف مواد»: المختار فيها يُترك (والنافذة تسأل قبل إغلاقها وفيها مختار). */
@@ -635,6 +680,9 @@ export default function RecipePage() {
   // كُتب بكثافة أكبر ثمّ صغرت كثافة مادّته) — داخل الكتلة وخارجها. لكلّ منها جملة فوق.
   const blocked = isDraft ? lines.filter((line) => line.unitMismatch || line.densityMissing || line.baseUnit === 'pc' || line.massKg === 0n) : [];
   const balanced = sum !== null && sum > 0n && lines.length > 0 && blocked.length === 0;
+  // كلفة الطنّ المتوقّعة من الخادم تقسم على الأساس المحفوظ: في المسوّدة لا تُعرض والأساس غير المجموع الآن (M2). ومجموع لا يُعرف (سطر بلا كتلة)
+  // تقول اللوحة نفسها إنّها «على الأقلّ» ومعها ما لم يُحسب، فتبقى.
+  const expectedCurrent = !isDraft || sum === null || sum === data.basisKg;
   const rates = data.rates ?? [];
   const canRates = isDraft && canEdit && costs;
   const activeVersion = data.versions.find((version) => version.status === 'active') ?? null;
@@ -1035,7 +1083,21 @@ export default function RecipePage() {
               }}
             />
           ) : null}
-          {data.expected ? <ExpectedPanel expected={data.expected} canPrice={canPrice} /> : null}
+          {data.expected && expectedCurrent ? <ExpectedPanel expected={data.expected} canPrice={canPrice} /> : null}
+          {data.expected && !expectedCurrent ? (
+            // الخادم يقسم كلفة المواد على الأساس المحفوظ، فلا تُعرض كلفة طنّ من أساس غير المجموع الآن (M2).
+            <Notice
+              tone="info"
+              title={t('mill.expected.stale', 'تُحدَّث كلفة الطنّ المتوقّعة بعد حفظ مجموع الخلطة الجديد.')}
+              action={
+                canEdit && sum !== null && sum > 0n ? (
+                  <Button size="sm" variant="secondary" busy={busy} onClick={() => void act(syncBasis)} data-action="sync-basis">
+                    {t('mill.expected.sync', 'حدّث كلفة الطنّ')}
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -1061,7 +1123,7 @@ export default function RecipePage() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
-            retry();
+            void act(syncBasis);
           }}
         />
       ) : null}
@@ -1077,6 +1139,7 @@ export default function RecipePage() {
             void act(async () => {
               await deleteRecipeLine(removing.id, data.versionVersion);
               setRemoving(null);
+              await syncBasis();
             })
           }
           onCancel={() => setRemoving(null)}

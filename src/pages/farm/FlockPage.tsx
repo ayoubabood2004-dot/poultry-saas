@@ -184,11 +184,22 @@ function FeedSection({ flockId, active, back }: { flockId: string; active: boole
   const session = useSession();
   const canIssue = active && session.status === 'ready' && can(session.workspace.role, 'issue.post');
   const load = useCallback(() => loadFlockFeed(flockId), [flockId]);
-  const { data } = useLoad(load);
-  if (!data) return null;
+  const { data, error, retry } = useLoad(load);
+  // بلا قاعدة (NotConnected) لا قسم، فشاشة الفوج تعمل كما هي؛ وغير ذلك القسم ظاهر: زرّ الصرف لا يحتاج سطر العلف، والفشل يُقال بإعادته.
+  if (error instanceof NotConnectedError) return null;
   return (
     <section className="card flex flex-col gap-3 p-4" data-action="flock-feed">
-      <FeedLine feed={data} />
+      {data ? <FeedLine feed={data} /> : null}
+      {error ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-action="feed-failed">
+          <span role="alert" className="text-danger-700 dark:text-danger-300">
+            {t('feed.failed', 'تعذّرت قراءة علف القاعة.')}
+          </span>
+          <Button size="sm" variant="ghost" onClick={retry} data-action="feed-retry">
+            {t('common.retry', 'أعد المحاولة')}
+          </Button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
         {canIssue ? (
           <Link to={issuePath(flockId, back, true)} data-action="flock-issue" className="inline-flex h-11 items-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700">

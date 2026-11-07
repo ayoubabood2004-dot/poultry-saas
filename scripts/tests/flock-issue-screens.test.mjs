@@ -9,6 +9,9 @@
 //    صرفاً من مخزن المعمل)، بتأكيد يسمّي الأثر وسبب إلزامي؛ D6 الأمين بلا عمود القيمة ولا
 //    «ألغِ»؛ E المداخل: «اصرف» في جدول الحقل لكلّ قاعة بفوج قائم يفتح نافذة الصرف لفوجها، وشاشة الفوج بسطر العلف وزرّها (لا لعامل القاعة).
 // كلّ حالة تفشل على الشفرة قبل 0019 في الشاشات (لا flockIssues ولا صفحة issue/:flockId ولا سطر العلف ولا رابط «اصرف»).
+// ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): F10 صرف لم يُعرف جوابه يبقى بعد إغلاق النافذة (والإغلاق يسأل) وفتحها يعيده بالنداء نفسه، فلا
+// يُصرف مرّتين بمعرّفين؛ F1 اليوم مقفول بعد النتيجة المجهولة؛ F34 قيمة الملغى «—»؛ F7 فشل «ما يُصرف» يُقال بإعادته، وفشل القراءة من جديد ولو بقي
+// المعروض القديم؛ F8 شاشة الفوج: فشل علف القاعة يُقال وزرّ الصرف باقٍ؛ F9 id_conflict ← معرّفات جديدة بتلميح الخادم.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -201,7 +204,7 @@ export default async function (t) {
         "export { onlineStore } from './src/lib/online.ts';",
         "export { localDay } from './src/domain/dates.ts';",
         "export { parseDetail } from './src/lib/repo/flocks.ts';",
-        "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
+        "export { RejectedError, UnknownOutcomeError, NetworkError } from './src/lib/errors.ts';",
         "export { fmtQty, fmtInt } from './src/lib/format.ts';",
       ].join('\n'),
       true,
@@ -449,6 +452,142 @@ export default async function (t) {
       t.same([byAction('issue-void').length, byAction('issue-open').length], [0, 1], 'D6 ولا «ألغِ» (can_void = false)، و«اصرف» له');
       fresh('owner', ownerRpc());
       await settle();
+    });
+
+    // ── مراجعة الشاشات ─────────────────────────────────────────────────────────────────────────────────────────────────
+    const dayInput = () => all().find((n) => n.localName === 'input' && labelOf(n) === 'يوم الصرف');
+    const unknownThenStored = () => {
+      let attempt = 0;
+      return () => {
+        attempt += 1;
+        if (attempt === 1) throw new m.UnknownOutcomeError();
+        return clone(SAMPLES.record_flock_issue.storekeeper);
+      };
+    };
+    await step('R F10', async () => {
+      const calls = fresh('owner', ownerRpc({ record_flock_issue: unknownThenStored() }));
+      await mount(ISSUE_URL);
+      await click(cardOf(STARTER));
+      type(byAction('issue-qty')[0], '500');
+      await settle();
+      await click(byAction('issue-save')[0]);
+      await click(byAction('dialog-close')[0]);
+      t.eq(byAction('dialog-discard').length, 1, 'R F10 إغلاق النافذة بعد نتيجة مجهولة يسأل أوّلاً (الصرف المرسَل «وسخ»)');
+      await click(byAction('dialog-discard')[0]);
+      t.same([byAction('issue-card').length, byAction('issue-pending').length], [0, 1], 'R F10 أُغلقت، وفي الصفحة تنبيه بالصرف الذي لم يُعرف جوابه');
+      await click(byAction('issue-open')[0]);
+      t.same([textOf('issue-save'), byAction('issue-qty')[0]?.value ?? null, disabled(byAction('issue-qty')[0])], ['أعد المحاولة', '500', true], 'R F10 فتحها ثانيةً يرجّع الصرف المرسَل بفعله الوحيد «أعد المحاولة»');
+      await click(byAction('issue-save')[0]);
+      const [one, two] = named(calls, 'rpc:record_flock_issue');
+      t.same([named(calls, 'rpc:record_flock_issue').length, two], [2, one], 'R F10 والإعادة بالنداء نفسه حرفاً: لا صرف ثانٍ بمعرّفات جديدة');
+    });
+    await step('R F1', async () => {
+      fresh('owner', ownerRpc({ record_flock_issue: () => Promise.reject(new m.UnknownOutcomeError()) }));
+      await mount(ISSUE_URL);
+      await click(cardOf(STARTER));
+      type(byAction('issue-qty')[0], '500');
+      await settle();
+      t.eq(disabled(dayInput()), false, 'R F1 ضابط: اليوم يُكتب قبل الإرسال');
+      await click(byAction('issue-save')[0]);
+      t.eq(disabled(dayInput()), true, 'R F1 بعد نتيجة مجهولة: اليوم مقفول كالكمية (ما يُكتب بعدها لا يُرسل)');
+    });
+    await step('R F34', async () => {
+      fresh('owner', ownerRpc());
+      await mount(`/inventory/issue/${FLOCK}`);
+      const voided = SAMPLES.flock_feed.owner.issues.find((issue) => issue.status === 'void');
+      const row = byAction('issue-void-note')[0]?.parentNode;
+      const tr = (() => {
+        let node = row;
+        while (node && node.localName !== 'tr') node = node.parentNode;
+        return node;
+      })();
+      const headers = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
+      const cells = tr ? descendants(tr).filter((n) => n.localName === 'td' || n.localName === 'th').map((n) => n.textContent) : [];
+      const value = cells[headers.indexOf('القيمة')] ?? null;
+      t.same([value, cells.some((cell) => cell.startsWith('ملغى'))], ['—', true], `R F34 الصرف الملغى بلا قيمة في عمود يجمع صافي المرحَّل، وحالته ظاهرة (${voided.doc_no})`);
+    });
+    await step('R F7', async () => {
+      let reads = 0;
+      fresh(
+        'owner',
+        ownerRpc({
+          flock_issue_options: () => {
+            reads += 1;
+            if (reads === 1) throw new m.NetworkError();
+            return clone(SAMPLES.flock_issue_options.owner);
+          },
+        }),
+      );
+      await mount(ISSUE_URL);
+      t.ok(text().includes('تعذّر تحميل ما يُصرف للقاعة') && byAction('issue-card').length === 0, 'R F7 فشل «ما يُصرف» يُقال (لا صمت) ولو طُلبت النافذة');
+      const retry = byAction('retry').find((node) => node.parentNode?.textContent.includes('ما يُصرف للقاعة'));
+      await click(retry);
+      t.eq(byAction('issue-card').length, 10, 'R F7 «أعد المحاولة» يقرؤها فتنفتح النافذة المطلوبة');
+    });
+    await step('R F7 القراءة من جديد', async () => {
+      let feeds = 0;
+      fresh(
+        'owner',
+        ownerRpc({
+          flock_feed: () => {
+            feeds += 1;
+            if (feeds > 1) throw new m.NetworkError();
+            return clone(SAMPLES.flock_feed.owner);
+          },
+        }),
+      );
+      await mount(ISSUE_URL);
+      await click(cardOf(STARTER));
+      type(byAction('issue-qty')[0], '500');
+      await settle();
+      await click(byAction('issue-save')[0]);
+      t.same([byAction('feed-line').length, text().includes('تعذّر تحميل علف القاعة')], [1, true], 'R F7 فشل القراءة بعد الصرف يُقال، والمعروض القديم باقٍ تحته');
+    });
+    await step('R F9', async () => {
+      const hint = SAMPLES.refusals['id_conflict (أُلغي، المرجع نفسه)'].hint;
+      let attempt = 0;
+      const calls = fresh(
+        'owner',
+        ownerRpc({
+          record_flock_issue: () => {
+            attempt += 1;
+            if (attempt === 1) throw new m.RejectedError('id_conflict', hint);
+            return clone(SAMPLES.record_flock_issue.storekeeper);
+          },
+        }),
+      );
+      await mount(ISSUE_URL);
+      await click(cardOf(STARTER));
+      type(byAction('issue-qty')[0], '500');
+      await settle();
+      await click(byAction('issue-save')[0]);
+      t.same([text().includes(hint), named(calls, 'rpc:flock_feed').length], [true, 2], 'R F9 id_conflict بتلميح الخادم، والصفحة تُقرأ من جديد');
+      await click(byAction('issue-save')[0]);
+      const [one, two] = named(calls, 'rpc:record_flock_issue');
+      t.ok(two && two.p_issue_id !== one.p_issue_id && two.p_line_id !== one.p_line_id && two.p_client_ref !== one.p_client_ref, 'R F9 والإرسال التالي بمعرّفات جديدة، فلا يُرفض بالسبب نفسه أبداً');
+      t.eq(byAction('issue-card').length, 0, 'R F9 فيُصرف وتُغلق النافذة');
+    });
+    await step('R F8', async () => {
+      let feeds = 0;
+      const detailOf = () => ({
+        flock: { id: FLOCK, kind: 'broiler', breed: null, status: 'active', version: 1, placed_on: '2026-10-28', placed_count: 5000, age_days_at_placement: 0, age_days: 11, days_since_placement: 11, dead_total: 0, culled_total: 0, live: 5000, live_start_today: 5000, mortality_pct: '0.00', feed_kg_total: '0.000', feed_days: 0, feed_span_days: 11, last_weight: null, fcr: null, today: null, eggs_today: null, hdep_today: null, rejects_pending: 0, hall_id: 'h-1', hall_name: 'قاعة 1', site_id: 's-1', site_name: 'حقل الأمل', closed_on: null, close_note: null },
+        can_manage: false, can_save: true, days: [], weights: [],
+      });
+      fresh(
+        'owner',
+        {
+          flock_feed: () => {
+            feeds += 1;
+            if (feeds === 1) throw new m.NetworkError();
+            return clone(SAMPLES.flock_feed.owner);
+          },
+        },
+        { loadFlockDetail: () => m.parseDetail(detailOf()) },
+      );
+      await mount(`/broiler/flock/${FLOCK}`);
+      t.same([byAction('feed-failed').length, byAction('flock-issue').length, byAction('feed-line').length], [1, 1, 0], 'R F8 فشل علف القاعة يُقال، وزرّ «اصرف علفاً أو دواءً» باقٍ (لا يحتاج سطر العلف)');
+      await click(byAction('feed-retry')[0]);
+      t.same([byAction('feed-failed').length, byAction('feed-line').length], [0, 1], 'R F8 «أعد المحاولة» يقرأ السطر');
     });
 
     // ── E: المداخل — «اصرف» في جدول الحقل، وسطر العلف وزرّه في شاشة الفوج ────────────────────────────────────────────────────

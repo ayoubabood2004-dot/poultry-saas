@@ -393,6 +393,12 @@ export default function RecipeBuilderPage() {
         // ما حُفظ بمحاولة سابقة غير ما تراه الشاشة (id_conflict، ق٥): يُقال برابطه، والمعرّفان يبقيان فلا تُكتب خلطة ثانية بصمت.
         setFrozen(null);
         setConflict(pending.input.id);
+      } else if (problem instanceof RejectedError && problem.code === 'basis_mismatch') {
+        // مجموع الخادم غير ما حسبته الشاشة (كثافة سائل أو نوع مادّة تغيّر من جهاز آخر بعد قراءة البطاقة، M3): كلّ مادّة مختارة تُقرأ من جديد، والحفظ
+        // ينتظر الكثافات ثمّ يُحسب المجموع منها؛ والجملة لا تطلب «أساساً» لا حقل له.
+        setFrozen(null);
+        for (const line of lines) picks.retryDensity(line.item.id);
+        setFailure(t('mill.builder.total_changed', 'تغيّرت مادّة في الخلطة من جهاز آخر (كثافتها أو نوعها)، فقُرئت من جديد وتغيّر المجموع: راجعه ثمّ احفظ.'));
       } else {
         setFrozen(null);
         const { title, detail } = describeError(problem);

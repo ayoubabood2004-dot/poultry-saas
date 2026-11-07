@@ -191,8 +191,9 @@ function resolveSpecifier(file, specifier) {
  * يقرون أدوات الشكل والكتابة من inventory (نفس الحزمة)، وinventory ما كان يكبر فوك سقف الألفي سطر. WP6: الاستلام (purchasing، E39)
  * بنفس الحزمة وبنفس القاعدة. المرحلة 2 (النسخة الأولى): القاعات والأفواج والجولة اليومية وناقل الطابور (flocks) بحزمة شاشات الحقول.
  * و«المخزن ببساطة» (0017): بطاقات المواد وملفّ المادّة والشراء الفوري (purchases) بحزمة شاشات المخزون، والمعمل يقرأ منه «عندك».
+ * والصرف لفوج القاعة (0019): ما يُصرف والصرف وإلغاؤه (flockIssues) تستورده صفحة الصرف وحدها (حزمة المخزون)، لا حزم الحقول المحفوظة.
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

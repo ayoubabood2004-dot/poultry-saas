@@ -112,8 +112,9 @@ const itemRow = (id, name, kind, baseUnit = 'kg', density = null) => ({ id, vers
 const recipeJson = (money) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 }],
-  selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+  // الأساس المحفوظ = مجموع المسوّدة (600): بعد مراجعة الشاشات M2 لا تُعرض كلفة الطنّ من أساس غير المجموع.
+  versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', activated_at: null, version: 5 }],
+  selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', note: null, activated_at: null, version: 5 },
   lines: [
     { id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '600.000', unit: 'kg', mass_kg: '600.000', share_pct: '60.00', in_basis: true, unit_changed: false, unit_mismatch: false, density_missing: false, ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}) },
   ],

@@ -273,6 +273,7 @@ export function MaterialCards({
         text={query}
         onText={onQuery}
         listFits={false}
+        cardIds={new Set(shown.map((material) => material.id))}
         onPick={(item, created, row) => {
           if (picks.add(item, row)) onAdded?.(item, created);
         }}
