@@ -25,7 +25,7 @@ export function FeedLine({ feed }: { feed: FlockFeed }) {
       </p>
       {feed.unweighedFeedLines > 0 ? (
         <p className="text-sm text-ink-muted" data-action="feed-unweighed">
-          {t('feed.unweighed', 'سطور علف سائل بلا كثافة لم يُحسب وزنها في المصروف: {n}.', { n: fmtInt(feed.unweighedFeedLines) })}
+          {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب في المصروف: {n}.', { n: fmtInt(feed.unweighedFeedLines) })}
         </p>
       ) : null}
     </div>

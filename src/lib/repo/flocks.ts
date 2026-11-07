@@ -284,6 +284,11 @@ export interface FeedIssue {
   warehouseName: string;
   voidedOn: Day | null;
   voidReason: string | null;
+  /**
+   * «ألغِ» لهذا الصرف بعينه (void ونطاق مخزنه وفوجه): مدير حقل وحده لا يلغي صرفاً من مخزن المعمل ولو ألغى غيره. مفتاح السطر اختياريّ (عقد
+   * 0019 الأوّل بلاه)، وغيابه = لا إلغاء.
+   */
+  canVoid: boolean;
   /** null: المال مخفيّ عن هذا الدور؛ value بالفلس، وقد يأتي null. */
   money: { value: bigint | null } | null;
 }
@@ -299,12 +304,12 @@ export interface FlockFeed {
   consumedFeedKg: bigint;
   /** المصروف − المستهلك، وقد يكون سالباً (يُعرض كما هو). */
   remainingFeedKg: bigint;
-  /** سطور علف سائل بلا كثافة لم يُحسب وزنها في المصروف. */
+  /** سطور علف لا يُعرف وزنها (سائل بلا كثافة، أو قطعة بلا وزن قطعة) فلم تُحسب في المصروف. */
   unweighedFeedLines: number;
   /** الأحدث أوّلاً. */
   issues: FeedIssue[];
   more: boolean;
-  /** void والفوج غير مغلق: «ألغِ» يظهر. */
+  /** void والفوج غير مغلق: عمود الإلغاء؛ و«ألغِ» لكلّ سطر من canVoid السطر نفسه. */
   canVoid: boolean;
   /** null لغير أدوار الكلفة. */
   money: { issuedValue: bigint | null } | null;
@@ -340,6 +345,7 @@ export function parseFlockFeed(value: unknown): FlockFeed {
         warehouseName: str(row, 'warehouse_name'),
         voidedOn: optStr(row, 'voided_on'),
         voidReason: optStr(row, 'void_reason'),
+        canVoid: row.can_void === undefined ? false : flag(row, 'can_void'),
         money: money ? { value: scaled(money, 'value', 2) } : null,
       };
     }),

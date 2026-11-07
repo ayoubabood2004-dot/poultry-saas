@@ -356,14 +356,15 @@ export default function FlockIssuePage() {
       : []),
     {
       key: 'status',
-      header: t('issue.col.status', 'الحالة'),
+      header: feed?.canVoid ? t('issue.col.status_void', 'الحالة والإلغاء') : t('issue.col.status', 'الحالة'),
       wrap: true,
       cell: (row) =>
         row.status === 'void' ? (
           <span className="text-sm text-ink-muted" data-action="issue-void-note">
             {t('issue.voided', 'ملغى: {reason}', { reason: row.voidReason ?? '—' })}
           </span>
-        ) : feed?.canVoid ? (
+        ) : row.canVoid ? (
+          // «ألغِ» من صلاحية السطر نفسه (مخزنه في نطاق من يلغي)، لا من رأس الجدول.
           <Button size="sm" variant="ghost" onClick={() => setVoiding({ issue: row, reason: '', ref: crypto.randomUUID(), busy: false, failure: null, sent: false })} data-action="issue-void">
             {t('issue.void', 'ألغِ')}
           </Button>

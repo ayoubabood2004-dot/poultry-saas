@@ -5,7 +5,8 @@
 // P المحلّلات بأجوبة القاعدة: ما يُصرف (المالك والأمين وعامل القاعة)، والصرف (بالمال وبلاه)، والإلغاء، وعلف القاعة (المال يغيب للأمين)، والصرامة؛
 // D1 «اصرف علفاً أو دواءً»: بطاقات بـ«عندك» وشارة «من إنتاج المعمل»، والكمية بوحدتها واليوم، وزرّ يسمّي ما سيحدث، وrecord_flock_issue بمفاتيحه
 //    الثمانية، ثمّ تُقرأ الصفحة من جديد؛ D2 store_required ← المخازن بكمياتها، والإرسال ثانيةً بالمعرّفات نفسها ومعه المخزن؛ D3 insufficient_stock
-//    بتلميح الخادم؛ D4 نتيجة مجهولة ← «أعد المحاولة» بالنداء نفسه حرفاً؛ D5 «ألغِ» بتأكيد يسمّي الأثر وسبب إلزامي؛ D6 الأمين بلا عمود القيمة ولا
+//    بتلميح الخادم؛ D4 نتيجة مجهولة ← «أعد المحاولة» بالنداء نفسه حرفاً؛ D5 «ألغِ» لكلّ سطر من can_void السطر نفسه (لا من رأس الجدول: مدير حقل لا يلغي
+//    صرفاً من مخزن المعمل)، بتأكيد يسمّي الأثر وسبب إلزامي؛ D6 الأمين بلا عمود القيمة ولا
 //    «ألغِ»؛ E المداخل: «اصرف» في جدول الحقل لكلّ قاعة بفوج قائم يفتح نافذة الصرف لفوجها، وشاشة الفوج بسطر العلف وزرّها (لا لعامل القاعة).
 // كلّ حالة تفشل على الشفرة قبل 0019 في الشاشات (لا flockIssues ولا صفحة issue/:flockId ولا سطر العلف ولا رابط «اصرف»).
 import 'fake-indexeddb/auto';
@@ -84,6 +85,21 @@ const click = async (node) => {
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const clone = (value) => JSON.parse(JSON.stringify(value));
+/** نصّ عشريّ من الخادم ← آلاف (الكمية بثلاث مراتب)، والمال ← فلس: الأرقام المتوقّعة من الجواب نفسه لا مكتوبة باليد. */
+const scaledOf = (text, scale) => {
+  const [whole, frac = ''] = text.replace('-', '').split('.');
+  const value = BigInt(whole + frac.padEnd(scale, '0').slice(0, scale));
+  return text.startsWith('-') ? -value : value;
+};
+/**
+ * علف القاعة بصلاحية الإلغاء لكلّ سطر: عقد 0019 الأوّل بلا can_void على السطر، والمراجع يضيفه؛ الجواب القديم يُكمَّل بما يقوله رأسه لكلّ سطر
+ * مرحَّل (الشكل الجديد)، والجديد يبقى كما هو.
+ */
+const withRowVoid = (json) => {
+  const copy = clone(json);
+  for (const issue of copy.issues) if (issue.can_void === undefined) issue.can_void = copy.can_void && issue.status === 'posted';
+  return copy;
+};
 
 const FLOCK = SAMPLES.flock_issue_options.owner.flock_id;
 const STARTER = SAMPLES.record_flock_issue.storekeeper.item_id; // «علف بادئ» من إنتاج المعمل
@@ -123,7 +139,7 @@ export default async function (t) {
     const oil = owner.items.find((item) => item.name === 'زيت الصويا');
     t.same(
       [owner.hallName, owner.siteName, owner.today, owner.earliestOn, owner.canIssue, owner.items.length, owner.items[0].name, owner.items[0].madeInMill, owner.items[0].onHand, owner.items[0].stores[0].qty],
-      ['قاعة 1', 'حقل الأمل', '2026-11-07', '2026-10-31', true, 10, 'علف بادئ', true, 1_200_000n, 1_200_000n],
+      ['قاعة 1', 'حقل الأمل', '2026-11-07', '2026-10-31', true, SAMPLES.flock_issue_options.owner.items.length, 'علف بادئ', true, 1_200_000n, 1_200_000n],
       'P ما يُصرف للمالك: القاعة والحقل واليوم وأقدم تاريخ، وعلف المعمل أوّلاً بموجوده ومخزنه',
     );
     t.same([oil.baseUnit, oil.density, owner.items.find((item) => item.name === 'دبس').density, owner.items.map((item) => item.costKind).join(',')], ['L', 9_200n, null, 'feed,feed,feed,feed,feed,feed,other,medicine,fuel,vaccine'], 'P الكثافة بأربع مراتب (0.92) أو null، ونوع الكلفة لكلّ مادّة');
@@ -136,14 +152,27 @@ export default async function (t) {
     t.same([owned.qty, owned.baseUnit, owned.money], [100_000n, 'L', { value: 15_000_000n }], 'P الصرف للمالك بقيمته بالفلس');
     t.same(p.parseVoidedIssue(SAMPLES.void_flock_issue.manager), { id: SAMPLES.void_flock_issue.manager.id, docNo: 'FI-2026-0008', voidedOn: '2026-11-07' }, 'P الإلغاء');
     const feedOwner = p.parseFlockFeed(SAMPLES.flock_feed.owner);
+    const raw = SAMPLES.flock_feed.owner;
     const feedKeeper = p.parseFlockFeed(SAMPLES.flock_feed.storekeeper);
     const feedAccountant = p.parseFlockFeed(SAMPLES.flock_feed.accountant);
     t.same(
       [feedOwner.issuedFeedKg, feedOwner.consumedFeedKg, feedOwner.remainingFeedKg, feedOwner.unweighedFeedLines, feedOwner.issues.length, feedOwner.issues.at(-1).status, feedOwner.canVoid, feedOwner.money],
-      [692_000n, 250_500n, 441_500n, 1, 8, 'void', true, { issuedValue: 49_100_000n }],
+      [scaledOf(raw.issued_feed_kg, 3), scaledOf(raw.consumed_feed_kg, 3), scaledOf(raw.remaining_feed_kg, 3), raw.unweighed_feed_lines, raw.issues.length, 'void', true, { issuedValue: scaledOf(raw.money.issued_value, 2) }],
       'P علف القاعة للمالك: المصروف والمستهلك والباقي، والسطور الأحدث أوّلاً والملغى بحاله، و«ألغِ» والمال',
     );
     t.same([feedKeeper.money, feedKeeper.issues.every((issue) => issue.money === null), feedKeeper.canVoid, feedAccountant.money !== null, feedAccountant.canVoid], [null, true, false, true, false], 'P الأمين بلا مال (المفتاح غائب) ولا إلغاء، والمحاسب يرى المال ولا يلغي');
+    // can_void على السطر: غيابه (العقد الأوّل) = لا إلغاء، وحضوره كما هو.
+    const rowVoid = withRowVoid(SAMPLES.flock_feed.owner);
+    rowVoid.issues[0].can_void = false;
+    const noRowVoid = clone(SAMPLES.flock_feed.owner);
+    for (const issue of noRowVoid.issues) delete issue.can_void;
+    const badRowVoid = withRowVoid(SAMPLES.flock_feed.owner);
+    badRowVoid.issues[0].can_void = 'yes';
+    t.same(
+      [p.parseFlockFeed(noRowVoid).issues.some((issue) => issue.canVoid), p.parseFlockFeed(rowVoid).issues.map((issue) => issue.canVoid), shape(() => p.parseFlockFeed(badRowVoid))],
+      [false, rowVoid.issues.map((issue) => issue.can_void), 'flock_shape:can_void'],
+      'P «ألغِ» لكلّ سطر من can_void السطر: غيابه لا إلغاء، وحضوره كما هو، وغير المنطقيّ خطأ شكل',
+    );
     const noKey = clone(SAMPLES.flock_feed.owner);
     delete noKey.remaining_feed_kg;
     const negative = clone(SAMPLES.flock_feed.owner);
@@ -173,9 +202,18 @@ export default async function (t) {
         "export { localDay } from './src/domain/dates.ts';",
         "export { parseDetail } from './src/lib/repo/flocks.ts';",
         "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
+        "export { fmtQty, fmtInt } from './src/lib/format.ts';",
       ].join('\n'),
       true,
     );
+    // سطر علف القاعة المتوقّع من جواب المالك نفسه (بالكيلوغرام بمنسّق الشاشات).
+    const kgOf = (text) => {
+      const shown = m.fmtQty(scaledOf(text, 3), 'kg');
+      return shown.sub ?? shown.main;
+    };
+    const OWNER_FEED = SAMPLES.flock_feed.owner;
+    const FEED_LINE = `المصروف للقاعة: ${kgOf(OWNER_FEED.issued_feed_kg)} — المستهلك المسجّل: ${kgOf(OWNER_FEED.consumed_feed_kg)} — الباقي بالقاعة: ${kgOf(OWNER_FEED.remaining_feed_kg)}`;
+    const UNWEIGHED = OWNER_FEED.unweighed_feed_lines > 0 ? `سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب في المصروف: ${m.fmtInt(OWNER_FEED.unweighed_feed_lines)}.` : '';
     const ws = (role, over = {}) => ({
       userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'feed_mill', 'general'],
       canSeeCost: role !== 'storekeeper' && role !== 'hall_worker', canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
@@ -255,7 +293,7 @@ export default async function (t) {
     await step('D1', async () => {
       const calls = fresh('owner', ownerRpc());
       await mount(ISSUE_URL);
-      t.eq(textOf('feed-line'), 'المصروف للقاعة: 692 كغم — المستهلك المسجّل: 250.5 كغم — الباقي بالقاعة: 441.5 كغمسطور علف سائل بلا كثافة لم يُحسب وزنها في المصروف: 1.', 'D1 سطر علف القاعة ومعه السطر الذي لم يُحسب وزنه');
+      t.eq(textOf('feed-line'), `${FEED_LINE}${UNWEIGHED}`, 'D1 سطر علف القاعة ومعه ما لم يُحسب وزنه');
       t.eq(byAction('issue-card').length, 10, 'D1 ‎?open=1 يفتح نافذة الصرف ببطاقة لكلّ مادّة متاحة');
       const first = byAction('issue-card')[0];
       t.ok(first?.textContent.startsWith('علف بادئ') && first.textContent.includes('من إنتاج المعمل') && first.textContent.includes('عندك: 1,200 كغم'), `D1 علف المعمل أوّلاً بشارته و«عندك» (${first?.textContent})`);
@@ -376,13 +414,22 @@ export default async function (t) {
 
     // ── D5: «ألغِ» بتأكيد يسمّي الأثر وسبب إلزامي ─────────────────────────────────────────────────────────────────────────
     await step('D5', async () => {
-      const calls = fresh('owner', ownerRpc({ void_flock_issue: () => clone(SAMPLES.void_flock_issue.manager) }));
+      // سطر أوّل لا يلغيه هذا القارئ (صرف من مخزن خارج نطاقه، والرأس can_void = true): لا «ألغِ» عليه وحده.
+      const feedJson = withRowVoid(SAMPLES.flock_feed.owner);
+      const blockedRow = feedJson.issues.find((issue) => issue.status === 'posted');
+      blockedRow.can_void = false;
+      const calls = fresh('owner', ownerRpc({ flock_feed: () => clone(feedJson), void_flock_issue: () => clone(SAMPLES.void_flock_issue.manager) }));
       await mount(`/inventory/issue/${FLOCK}`);
       t.same([byAction('issue-card').length, byAction('issue-open').length], [0, 1], 'D5 بلا ‎?open=1 لا نافذة، والزرّ الكبير ظاهر');
-      const posted = SAMPLES.flock_feed.owner.issues.filter((issue) => issue.status === 'posted');
-      t.same([byAction('issue-void').length, byAction('issue-void-note').length], [posted.length, 1], 'D5 «ألغِ» لكلّ صرف مرحَّل، والملغى بسببه');
+      const posted = feedJson.issues.filter((issue) => issue.status === 'posted' && issue.can_void);
+      t.same(
+        [byAction('issue-void').length, byAction('issue-void-note').length, all().some((n) => n.localName === 'th' && n.textContent === 'الحالة والإلغاء')],
+        [posted.length, 1, true],
+        'D5 «ألغِ» لكلّ سطر يلغيه هذا القارئ (can_void السطر) لا للسطر الممنوع، والملغى بسببه، وعمود الإلغاء من الرأس',
+      );
+      t.ok(posted.length > 0, 'D5 ضابط: في الجواب سطر يُلغى');
       await click(byAction('issue-void')[0]);
-      t.ok(text().includes('إلغاء الصرف FI-2026-0007؟') && text().includes('ترجع قطعتان من «ستائر» إلى «المخزن العام»، وتُلغى كلفته على الفوج.'), 'D5 التأكيد يسمّي الصرف وأثره');
+      t.ok(text().includes(`إلغاء الصرف ${posted[0].doc_no}؟`) && text().includes(`من «${posted[0].item_name}» إلى «${posted[0].warehouse_name}»، وتُلغى كلفته على الفوج.`), 'D5 التأكيد يسمّي الصرف وأثره');
       await click(byAction('issue-void-confirm')[0]);
       t.same([named(calls, 'rpc:void_flock_issue').length, text().includes('اكتب سبب الإلغاء.')], [0, true], 'D5 بلا سبب: لا إرسال، وجملة تطلبه');
       type(byAction('issue-void-reason')[0], 'صُرفت لقاعة أخرى');
@@ -447,7 +494,7 @@ export default async function (t) {
     await step('E شاشة الفوج', async () => {
       fresh('owner', { flock_feed: () => clone(SAMPLES.flock_feed.owner) }, { loadFlockDetail: () => m.parseDetail(detail()) });
       await mount(`/broiler/flock/${FLOCK}`);
-      t.ok(textOf('feed-line')?.startsWith('المصروف للقاعة: 692 كغم — المستهلك المسجّل: 250.5 كغم — الباقي بالقاعة: 441.5 كغم'), `E شاشة الفوج: سطر علف القاعة (${textOf('feed-line')})`);
+      t.ok(textOf('feed-line')?.startsWith(FEED_LINE), `E شاشة الفوج: سطر علف القاعة (${textOf('feed-line')})`);
       const back = encodeURIComponent(`/broiler/flock/${FLOCK}`);
       t.same(
         [textOf('flock-issue'), byAction('flock-issue')[0]?.getAttribute('href'), byAction('flock-issues')[0]?.getAttribute('href')],
