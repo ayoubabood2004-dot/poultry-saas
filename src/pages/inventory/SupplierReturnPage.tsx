@@ -575,7 +575,9 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
         setConfirm(null);
       });
   };
-  const ready = online && preview !== null && preview.ready && preview.plan !== null && preview.problems.length === 0 && preview.lines.every((line) => approved.has(line.lineId));
+  // سطر بمشكلة (insufficient_stock، وunpriced_line لشراء بلا سعر في 0020) يمنع الترحيل هنا أيضاً، لا بعلامة ready وحدها.
+  const ready =
+    online && preview !== null && preview.ready && preview.plan !== null && preview.problems.length === 0 && preview.lines.every((line) => line.problem === null && approved.has(line.lineId));
   const title = current.docNo ? t('return.title.no', 'المرتجع {no}', { no: current.docNo }) : t('return.title.draft', 'مرتجع غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">

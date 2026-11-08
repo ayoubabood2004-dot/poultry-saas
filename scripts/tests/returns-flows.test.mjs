@@ -242,6 +242,41 @@ export default async function (t) {
       await unmount();
     });
 
+    // ── F4b: شراء بلا سعر (0020): unpriced_line مشكلة سطر في المعاينة تمنع الترحيل، ورفض الترحيل بها يُقال بتلميحه ──────────────
+    await step('F4b', async () => {
+      const hint = 'شراء «ذرة صفراء» هذا بلا سعر بعد: أكمل سعر الشراء أوّلاً، ثمّ أرجِع للمورّد.';
+      // ready من الخادم false بسطر بمشكلة؛ والشاشة تمنع الترحيل بالسطر نفسه ولو جاءت ready صحيحة.
+      for (const ready of [false, true]) {
+        const calls = fresh('accountant', returnHandlers({
+          loadSupplierReturn: () => retBundle({ credits: [savedCredit] }),
+          previewSupplierReturn: () => retPreview({ ready, lines: [previewLine({ problem: { code: 'unpriced_line', hint } })] }),
+          postSupplierReturn: (ref, id, version) => ({ id, status: 'posted', docNo: 'RT-2026-0001', version }),
+        }));
+        await mount('/inventory/supplier-returns/rt-1');
+        await click(byAction('preview-return')[0]);
+        tick(byAction('approve-return-line')[0]);
+        await settle();
+        await click(byAction('post-return')[0]);
+        t.same([text().includes(hint), disabled(byAction('post-return')[0]), named(calls, 'postSupplierReturn').length], [true, true, 0], `F4b: unpriced_line على السطر يُقال ويمنع الترحيل (ready=${ready})`);
+        await unmount();
+      }
+      const calls = fresh('accountant', returnHandlers({
+        loadSupplierReturn: () => retBundle({ credits: [savedCredit] }),
+        previewSupplierReturn: () => retPreview(),
+        postSupplierReturn: () => {
+          throw new m.RejectedError('unpriced_line', hint);
+        },
+      }));
+      await mount('/inventory/supplier-returns/rt-1');
+      await click(byAction('preview-return')[0]);
+      tick(byAction('approve-return-line')[0]);
+      await settle();
+      await click(byAction('post-return')[0]);
+      await settle();
+      t.same([named(calls, 'postSupplierReturn').length, text().includes(hint)], [1, true], 'F4b: رفض الترحيل unpriced_line يُقال بتلميح الخادم');
+      await unmount();
+    });
+
     // ── F5: stale_draft بالترحيل يقرا المرتجع من جديد ويبقى تنبيهه ──────────────────────────────────────────────────────
     await step('F5', async () => {
       const calls = fresh('accountant', returnHandlers({

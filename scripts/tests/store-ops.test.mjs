@@ -16,8 +16,9 @@
 // ومراجعة الشاشات (كلّ حالة R تفشل على f066d09): H1 نتيجة مجهولة ثمّ «أغلق» تبقي النداء ومعرّفاته في الصفحة (شريط «لم يُعرف إن حُفظ — أعد
 //    المحاولة»)، وفتحه يعيده حرفاً — للبيع من الملفّ ومن صفحة المبيعات وللتحويل والنقل، ومعرّفات جديدة بعد الحفظ وحده؛ M1 الملغى «—» في السعر
 //    والمبلغ؛ M2 «ملفّ المادّة» بجانب الرجوع؛ M3 store_required في «بِع» ← قائمة المخازن من جديد، وfrom_store_required في «حوّل» ← مخزن المصدر
-//    (وstore_required بتلميح «تحوّل منه» كذلك)؛ L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»؛ والمدّة من يوم الخادم؛ وبعد item_in_use
-//    «أخفِها» وحدها؛ و«المرسَل» للتسليم بلا مقابل بلا «بـ0 دينار»؛ وإلغاء مجهول يُعاد بالسبب والمرجع نفسيهما.
+//    وstore_required ← مخزن الوجهة (الرفضان الحقيقيّان)؛ L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»؛ والمدّة من يوم الخادم؛ وبعد item_in_use
+//    «أخفِها» وحدها؛ و«المرسَل» للتسليم بلا مقابل بلا «بـ0 دينار»؛ وإلغاء مجهول يُعاد بالسبب والمرجع نفسيهما؛ والنقد المردود (payment_refunded)
+//    «نقداً، ثمّ رُدّ المبلغ» وإلغاؤه لا يدّعي رصيداً باقياً.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -625,6 +626,12 @@ export default async function (t) {
       t.same([m.parseSalesReport(S21.sales_report.owner_party).rows[0].qty, m.parseSalesReport(S21.sales_report.storekeeper_party).totals.cost], [null, null], 'S9 بالجهة بلا كمية، وللأمين بلا كلفة');
     }
 
+    // payment_refunded (مراجعة 0021): النقد المردود يُقرأ بالدين، والعلامة تقول إنّه رُدّ.
+    {
+      const refunded = m.parseSalesOverview(S21.sales_overview.owner).rows.find((row) => row.docNo === 'MS-2026-0001');
+      t.same([refunded?.payment, refunded?.paymentRefunded, m.parseRecordedSale(S21.record_sale.owner_cash).paymentRefunded], ['credit', true, false], 'S9 payment_refunded: البيع النقديّ المردود مبلغه بالدين وعلامته true');
+    }
+
     // ── S10: «بِع» من ملفّ المادّة بجواب حقيقيّ ──────────────────────────────────────────────────────────────────────
     await step('S10', async () => {
       const starter = S21.item_file_storekeeper_starter;
@@ -692,10 +699,10 @@ export default async function (t) {
 
     // ── S12: «ألغِ» البيع ──────────────────────────────────────────────────────────────────────────────────────────────
     await step('S12', async () => {
-      // صفّ البيع النقديّ محفوظاً (قبل إلغائه) من الجواب الحقيقيّ نفسه.
+      // صفّ البيع النقديّ محفوظاً قبل إلغائه وقبل ردّ مبلغه، من الجواب الحقيقيّ نفسه (في العيّنة أُلغي ورُدّ مبلغه فقُرئ بالدين).
       const overview = clone(S21.sales_overview.owner);
       const cashRow = overview.rows.find((row) => row.doc_no === 'MS-2026-0001');
-      cashRow.status = 'posted';
+      Object.assign(cashRow, { status: 'posted', payment: 'cash', payment_refunded: false });
       const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {}, { sales_overview: async (_args, n) => (n === 1 ? overview : clone(S21.sales_overview.owner)), void_sale: async () => clone(S21.void_sale.manager_cash_kept) });
       await mount('/sales');
       const buttons = byAction('void-sale');
@@ -857,6 +864,18 @@ export default async function (t) {
       await click(descendants(freeRow).find((n) => n.getAttribute('data-action') === 'void-sale'));
       t.ok(text().includes('تسليم بلا مقابل لـ«أبو أحمد»: لا قيد عليه') && !text().includes('ويُعكس قيد الفاتورة'), 'L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»');
     });
+    await step('R-refunded', async () => {
+      // بيع نقديّ رُدّ مبلغه (ألغِ القبض) ثمّ يُلغى: لا يُقال إنّ المقبوض يبقى رصيداً.
+      const overview = clone(S21.sales_overview.owner);
+      const row = overview.rows.find((x) => x.doc_no === 'MS-2026-0001');
+      row.status = 'posted';
+      fresh({ status: 'ready', workspace: MANAGER }, {}, { sales_overview: async () => overview });
+      await mount('/sales');
+      const tr = all().find((n) => n.localName === 'tr' && n.textContent.includes('MS-2026-0001'));
+      t.ok(tr?.textContent.includes('نقداً، ثمّ رُدّ المبلغ'), `الجدول يقول «نقداً، ثمّ رُدّ المبلغ» (${tr?.textContent})`);
+      await click(descendants(tr).find((n) => n.getAttribute('data-action') === 'void-sale'));
+      t.same([byAction('void-refunded')[0]?.textContent, byAction('void-cash-kept').length], ['ومبلغها المقبوض رُدّ لـ«شركة الدواجن» من قبل، فلا يبقى منه رصيد.', 0], 'تأكيد الإلغاء لا يدّعي أنّ المقبوض يبقى رصيداً بعد ردّه');
+    });
     await step('R-M2', async () => {
       fresh({ status: 'ready', workspace: MANAGER }, {});
       await mount(`/inventory/items/i-corn/details?${new URLSearchParams({ wh: 'w-raw', back: '/inventory/store/w-raw' })}`);
@@ -898,11 +917,12 @@ export default async function (t) {
       const [first, second] = named(rpcCalls, 'record_sale');
       t.same([second?.p_sale_id, second?.p_warehouse, first?.p_warehouse], [first?.p_sale_id, soldCredit.warehouse_id, null], 'M3 البيع: الإعادة بالمعرّفات نفسها ومعها المخزن');
     });
-    for (const [label, code, hint, expect] of [
-      ['from_store_required', 'from_store_required', '«صويا» موجودة في أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تحوّل منه.', 'from'],
-      ['store_required «تحوّل منه»', 'store_required', '«صويا» موجودة في أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تحوّل منه.', 'from'],
-      ['store_required للوجهة', 'store_required', '«صويا مجروشة» تدخل أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تدخله.', 'to'],
+    // الرفضان الحقيقيّان من القاعدة (مراجعة 0020): from_store_required لمخزن المصدر، وstore_required لمخزن الوجهة.
+    for (const [label, refusal, expect] of [
+      ['from_store_required', S20.refusals['conversion.from_store_required'], 'from'],
+      ['store_required للوجهة', S20.refusals['conversion.store_required'], 'to'],
     ]) {
+      const { code, hint } = refusal;
       await step(`R-M3-convert ${label}`, async () => {
         const crushed = S20.items_overview.storekeeper.items.find((x) => x.name === 'صويا مجروشة');
         const two = { ...clone(SK), stores: [clone(SK.stores[0]), { ...clone(SK.stores[0]), warehouse_id: SK.transfer_targets[1].warehouse_id, name: 'مخزن مواد ثانٍ', qty: '50.000', available: '50.000' }] };

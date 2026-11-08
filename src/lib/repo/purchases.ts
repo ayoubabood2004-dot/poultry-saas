@@ -605,6 +605,8 @@ export interface RecordedSale {
   baseUnit: BaseUnit;
   /** تسليم بلا مقابل (المبلغ صفر). */
   free: boolean;
+  /** بيع نقديّ رُدّ مبلغه (ألغِ القبض): الدفع يُقرأ بالدين بعدها (مراجعة 0021). false من جواب قبلها. */
+  paymentRefunded: boolean;
   /** null لمن لا يرى المبلغ (القناع). */
   money: SaleMoney | null;
   cost: SaleCost | null;
@@ -625,6 +627,7 @@ export function parseRecordedSale(value: unknown): RecordedSale {
     qty: qtyOf(json, 'qty'),
     baseUnit: oneOf(json, 'base_unit', BASE_UNITS),
     free: bool(json, 'free'),
+    paymentRefunded: flagOr(json, 'payment_refunded', false),
     money: money ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: filsOf(money, 'line_total') } : null,
     cost: costOf(json),
   };
@@ -658,6 +661,8 @@ export interface SaleRow {
   qty: Milli;
   baseUnit: BaseUnit;
   free: boolean;
+  /** نقداً ثمّ رُدّ المبلغ (الدفع يُقرأ بالدين). */
+  paymentRefunded: boolean;
   money: SaleMoney | null;
   cost: SaleCost | null;
 }
@@ -698,6 +703,7 @@ export function parseSalesOverview(value: unknown): SalesOverview {
         qty: qtyOf(row, 'qty'),
         baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
         free: bool(row, 'free'),
+        paymentRefunded: flagOr(row, 'payment_refunded', false),
         money: money ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: filsOf(money, 'line_total') } : null,
         cost: costOf(row),
       };

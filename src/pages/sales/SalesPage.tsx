@@ -91,7 +91,9 @@ function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRo
   columns.push({
     key: 'payment',
     header: t('sales.col.payment', 'الدفع'),
-    cell: (row) => (row.free ? t('sales.free', 'بلا مقابل') : row.payment === 'cash' ? t('file.payment.cash', 'نقداً') : t('file.payment.credit', 'بالدين')),
+    // نقداً ثمّ رُدّ المبلغ (ألغِ القبض): الخادم يقرؤه بالدين، والجدول يقول ما حدث.
+    cell: (row) =>
+      row.free ? t('sales.free', 'بلا مقابل') : row.paymentRefunded ? t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ') : row.payment === 'cash' ? t('file.payment.cash', 'نقداً') : t('file.payment.credit', 'بالدين'),
   });
   columns.push({
     key: 'status',
@@ -192,7 +194,12 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
               {t('sales.void.unknown', 'لم يُعرف إن أُلغي؛ «ألغِ البيع» يعيده بالسبب نفسه، ولن يُلغى مرّتين.')}
             </p>
           ) : null}
-          {row.payment === 'cash' && !row.free && total ? (
+          {row.paymentRefunded ? (
+            <p data-action="void-refunded">
+              {t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })}
+            </p>
+          ) : null}
+          {row.payment === 'cash' && !row.paymentRefunded && !row.free && total ? (
             <p data-action="void-cash-kept">
               {t('sales.void.cash_kept', 'والمبلغ المقبوض نقداً ({total} دينار) يبقى رصيداً لـ«{party}»: يُرجَع له من كشفه بـ«ألغِ القبض»، أو يُخصم من فاتورة لاحقة.', { total, party: row.partyName })}
             </p>

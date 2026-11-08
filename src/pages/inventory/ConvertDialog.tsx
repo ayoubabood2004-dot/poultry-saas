@@ -96,14 +96,10 @@ export function convertLabel(input: ConversionInput | null, item: OpItem, target
   });
 }
 
-/**
- * مخزن المصدر أم الوجهة: from_store_required للمصدر وstore_required للوجهة؛ وقبل أن يرسل الخادم الرمز الأوّل يقول التلميح «تحوّل منه»
- * للمصدر (store_required بالرمزين معاً)، فالتلميح يفرّقهما ما دام الرمز واحداً.
- */
+/** مخزن المصدر أم الوجهة: from_store_required للمصدر (مراجعة 0020)، وstore_required للوجهة. */
 export function storeAsked(error: RejectedError): 'from' | 'to' | null {
   if (error.code === 'from_store_required') return 'from';
-  if (error.code !== 'store_required') return null;
-  return (error.hint ?? '').includes('تحوّل منه') ? 'from' : 'to'; // i18n-ok: مطابقة تلميح الخادم (لا يُعرض) حتى يصل رمز from_store_required
+  return error.code === 'store_required' ? 'to' : null;
 }
 
 export function ConvertDialog({
