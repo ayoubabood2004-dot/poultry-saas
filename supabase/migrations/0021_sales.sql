@@ -18,7 +18,8 @@
 --     سحب البيع).
 -- انحرافات مكتوبة (قرارات بلا سؤال داخل الخطوط الحمر، والعقد scratchpad/simple/contract-0020.md وأجوبة المنسّق):
 --   • قيد البيع بنوع invoice القائم (لا نوع جديد)، والقبض النقديّ payment وحركة party_payment القائمان بمستند sale (فـ«ألغِ القبض» يعمل عليهما).
---   • البيض والأفراخ لا تُباع هنا (not_sellable): بيعها مع الطيور في النسخة القادمة. والسعر صفر لا يُقبض نقداً (price_required_for_cash)، وسعر
+--   • البيض والأفراخ لا تُباع هنا (not_sellable): بيعها مع الطيور في النسخة القادمة، ووحدة بلا دفتر رئيسيّ لا تبيع (no_sales_book، مراجعة L5). والبيع
+--     النقديّ الذي رُدّ مقبوضه يُعرض بالدين (payment_refunded، مراجعة L4). والسعر صفر لا يُقبض نقداً (price_required_for_cash)، وسعر
 --     موجب مجموعه يُقرَّب إلى صفر دينار يُرفض (total_zero).
 --   • المخزن إن لم يُختر: الوحيد بالنطاق الذي فيه منها متاح بتاريخ البيع (مثل الصرف والتحويل)، وإلّا store_required أو insufficient_stock.
 --   • سطر واحد لكلّ فاتورة في هذه النسخة (النافذة «بِع» لمادّة واحدة)، والجداول تقبل أكثر لاحقاً.
@@ -257,17 +258,20 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- ─── ج. المساعدات ────────────────────────────────────────────────────────────────────────────────────────────────
--- دفتر البيع: الدفتر الرئيسيّ لوحدة المخزن (القاعدة 36). وحدة المفقس بلا دفتر رئيسيّ، ومخازنها للبيض والأفراخ (لا تُباع هنا).
+-- دفتر البيع: الدفتر الرئيسيّ لوحدة المخزن (القاعدة 36). وحدة بلا دفتر رئيسيّ (المفقس: دفترا الأفراخ وبيض التفقيس) لا تبيع من مخازنها في هذه النسخة
+-- (no_sales_book بتلميح يسمّي الوحدة، مراجعة 0021 L5).
 create or replace function private.sale_book(p_wh uuid) returns uuid
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   w public.warehouses;
+  v_division text;
   v_book uuid;
 begin
   select * into w from public.warehouses where org_id = public.auth_org() and id = p_wh;
   select b.id into v_book from public.ledger_books b where b.org_id = w.org_id and b.division_id = w.division_id and b.code = 'main';
   if v_book is null then
-    raise exception 'not_sellable' using hint = format('«%s» لا يبيع في هذه النسخة: بيع البيض والأفراخ يأتي مع الطيور.', w.name);
+    select d.name into v_division from public.divisions d where d.org_id = w.org_id and d.id = w.division_id;
+    raise exception 'no_sales_book' using hint = format('لا دفتر مبيعات لوحدة «%s»، فلا يُباع من «%s» في هذه النسخة.', v_division, w.name);
   end if;
   return v_book;
 end
@@ -298,15 +302,17 @@ language sql stable security definer set search_path = public, pg_temp as $$
   select case when public.can_see_cost() then p else private.strip_cost(p) end
 $$;
 
--- نتيجة الفاتورة من صفوفها (أوّل نداء والإعادة والقارئ): المبلغ داخل money، والكلفة والربح داخل cost.money.
+-- نتيجة الفاتورة من صفوفها (أوّل نداء والإعادة والقارئ): المبلغ داخل money، والكلفة والربح داخل cost.money. البيع النقديّ الذي رُدّ مقبوضه
+-- («ألغِ القبض»: قيد القبض معكوس) بالدين وبلا مقبوض، وpayment_refunded يقول ذلك (مراجعة 0021 L4).
 create or replace function private.sale_result(p_sale uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
-  select jsonb_build_object('id', s.id, 'doc_no', s.doc_no, 'status', s.status, 'sold_on', s.sold_on, 'payment', s.payment,
+  select jsonb_build_object('id', s.id, 'doc_no', s.doc_no, 'status', s.status, 'sold_on', s.sold_on,
+    'payment', case when s.payment = 'cash' and not k.refunded then 'cash' else 'credit' end, 'payment_refunded', k.refunded,
     'party_id', s.party_id, 'party_name', p.name, 'warehouse_id', s.warehouse_id, 'warehouse_name', w.name, 'book_id', s.book_id,
     'cash_account_id', s.cash_account_id, 'line_id', l.id, 'item_id', l.item_id, 'item_name', i.name, 'qty', l.qty::text, 'base_unit', l.base_unit,
     'free', l.line_total = 0, 'voided_at', s.voided_at, 'void_reason', s.void_reason,
     'money', jsonb_build_object('unit_price', l.unit_price::text, 'line_total', l.line_total::text,
-      'paid_now', case when s.payment = 'cash' then l.line_total else 0 end::text),
+      'paid_now', case when s.payment = 'cash' and not k.refunded then l.line_total else 0 end::text),
     'cost', jsonb_build_object('money', jsonb_build_object('cost', c.cost::text, 'profit', (l.line_total - c.cost)::text)))
   from public.sales_invoices s
   join public.sales_lines l on l.org_id = s.org_id and l.sale_id = s.id and l.line_no = 1
@@ -314,6 +320,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
   join public.items i on i.org_id = l.org_id and i.id = l.item_id
   join public.parties p on p.org_id = s.org_id and p.id = s.party_id
   join public.warehouses w on w.org_id = s.org_id and w.id = s.warehouse_id
+  cross join lateral (select s.payment_entry_id is not null and exists (select 1 from public.party_entries r where r.org_id = s.org_id
+    and r.reverses_entry_id = s.payment_entry_id) as refunded) as k
   where s.org_id = public.auth_org() and s.id = p_sale
 $$;
 
@@ -577,7 +585,8 @@ end
 $$;
 
 -- ─── هـ. القرّاء ──────────────────────────────────────────────────────────────────────────────────────────────────
--- المبيعات بفترة (من ← إلى): الصفوف الأحدث أوّلاً (1,000 حدّاً، والمجاميع على الفترة كلّها) بنطاق المخزن، والملغاة بحالتها خارج المجاميع.
+-- المبيعات بفترة (من ← إلى): الصفوف الأحدث أوّلاً (1,000 حدّاً، والمجاميع على الفترة كلّها) بنطاق المخزن، والملغاة بحالتها خارج المجاميع. النقد
+-- والدين من قيد القبض: نقديّ رُدّ مقبوضه بالدين (مراجعة 0021 L4).
 create or replace function public.sales_overview(p_from date, p_to date) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -592,7 +601,10 @@ begin
     raise exception 'period_required' using hint = 'حدّد المدّة: من تاريخ إلى تاريخ لا يسبقه.';
   end if;
   with listed as (
-    select s.id, s.doc_no, s.sold_on, s.status, s.payment, s.party_id, p.name as party_name, s.warehouse_id, w.name as warehouse_name,
+    select s.id, s.doc_no, s.sold_on, s.status, case when s.payment = 'cash' and not exists (select 1 from public.party_entries r where r.org_id = s.org_id
+        and r.reverses_entry_id = s.payment_entry_id) then 'cash' else 'credit' end as payment,
+      s.payment = 'cash' and exists (select 1 from public.party_entries r where r.org_id = s.org_id and r.reverses_entry_id = s.payment_entry_id) as refunded,
+      s.party_id, p.name as party_name, s.warehouse_id, w.name as warehouse_name,
       l.item_id, i.name as item_name, l.qty, l.base_unit, l.unit_price, l.line_total, c.cost, s.posted_at
     from public.sales_invoices s
     join public.sales_lines l on l.org_id = s.org_id and l.sale_id = s.id and l.line_no = 1
@@ -606,6 +618,7 @@ begin
   )
   select jsonb_build_object('from', p_from, 'to', p_to, 'today', public.app_today(), 'can_record', public.can('sale.record'), 'can_void', public.can('void'),
     'rows', coalesce(jsonb_agg(jsonb_build_object('id', o.id, 'doc_no', o.doc_no, 'sold_on', o.sold_on, 'status', o.status, 'payment', o.payment,
+        'payment_refunded', o.refunded,
         'party_id', o.party_id, 'party_name', o.party_name, 'warehouse_id', o.warehouse_id, 'warehouse_name', o.warehouse_name,
         'item_id', o.item_id, 'item_name', o.item_name, 'qty', o.qty::text, 'base_unit', o.base_unit, 'free', o.line_total = 0,
         'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.line_total::text),

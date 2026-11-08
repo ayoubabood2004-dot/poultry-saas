@@ -13,6 +13,11 @@
 // وأجوبة 0021 الحقيقية (fixtures/sales-0021.json من supabase/tests/sales.test.mjs): S9 المحلّلات (الفاتورة والإلغاء والقائمة والتقرير، والكلفة والربح
 //    تغيب لغير أدوار الكلفة)؛ S10 «بِع» من ملفّ المادّة بجواب حقيقيّ؛ S11 صفحة المبيعات: المجاميع والجدول و«ملغى» و«بلا مقابل» و«ألغِ» لمن يلغي،
 //    والتقرير بالجهة والمادّة واليوم (الربح للمالك وحده)، والمدّة؛ S12 «ألغِ» بسبب إلزاميّ والمقبوض نقداً يبقى رصيداً للجهة؛ S13 «بيع جديد» (?new=1).
+// ومراجعة الشاشات (كلّ حالة R تفشل على f066d09): H1 نتيجة مجهولة ثمّ «أغلق» تبقي النداء ومعرّفاته في الصفحة (شريط «لم يُعرف إن حُفظ — أعد
+//    المحاولة»)، وفتحه يعيده حرفاً — للبيع من الملفّ ومن صفحة المبيعات وللتحويل والنقل، ومعرّفات جديدة بعد الحفظ وحده؛ M1 الملغى «—» في السعر
+//    والمبلغ؛ M2 «ملفّ المادّة» بجانب الرجوع؛ M3 store_required في «بِع» ← قائمة المخازن من جديد، وfrom_store_required في «حوّل» ← مخزن المصدر
+//    (وstore_required بتلميح «تحوّل منه» كذلك)؛ L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»؛ والمدّة من يوم الخادم؛ وبعد item_in_use
+//    «أخفِها» وحدها؛ و«المرسَل» للتسليم بلا مقابل بلا «بـ0 دينار»؛ وإلغاء مجهول يُعاد بالسبب والمرجع نفسيهما.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -652,18 +657,19 @@ export default async function (t) {
       const stats = all().filter((n) => n.localName === 'dt').map((n) => `${n.textContent}=${n.nextSibling?.textContent}`);
       t.same(stats, ['فواتير محفوظة=2', 'مجموع البيع=75,000 دينار', 'منه نقداً=0 دينار', 'منه بالدين=75,000 دينار', 'كلفة المبيع=68,000 دينار', 'الربح=7,000 دينار'], 'S11 المجاميع من الخادم، والكلفة والربح للمالك');
       const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
-      t.same(heads.slice(0, 9), ['التاريخ', 'الرقم', 'الجهة', 'المادّة', 'الكمية', 'السعر', 'المبلغ', 'الدفع', 'الحالة'], 'S11 جدول واحد بأعمدة العقد');
-      const firstRow = all().filter((n) => n.localName === 'td').slice(0, 8).map((n) => n.textContent);
-      t.same(firstRow, ['08/11/2026', 'MS-2026-0002', 'أبو أحمد', 'كاز', '10 لترات', '0.00', '0', 'بلا مقابل'], 'S11 صفّ التسليم بلا مقابل');
+      // والكمية رقماً بمراتب العمود والوحدة بعمودها (مراجعة 0021 L2، نمط 0019).
+      t.same(heads.slice(0, 10), ['التاريخ', 'الرقم', 'الجهة', 'المادّة', 'الكمية', 'الوحدة', 'السعر', 'المبلغ', 'الدفع', 'الحالة'], 'S11 جدول واحد بأعمدة العقد، والوحدة بعمودها');
+      const firstRow = all().filter((n) => n.localName === 'td').slice(0, 9).map((n) => n.textContent);
+      t.same(firstRow, ['08/11/2026', 'MS-2026-0002', 'أبو أحمد', 'كاز', '10', 'لتر', '0.00', '0', 'بلا مقابل'], 'S11 صفّ التسليم بلا مقابل');
       t.same([byAction('sale-voided').length, byAction('void-sale').length], [2, 2], 'S11 الملغاة «ملغى»، والمحفوظة بـ«ألغِ» للمالك');
       t.ok(text().includes('مجموع المحفوظ'), 'S11 وصفّ المجموع');
       await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب المادّة'));
       await settle();
       t.same(named(rpcCalls, 'sales_report').map((args) => args.p_group), ['item'], 'S11 «حسب المادّة» يقرأ التقرير');
       const reportHeads = headCells();
-      t.same(reportHeads, ['المادّة', 'عدد الفواتير', 'الكمية', 'المبلغ', 'الكلفة', 'الربح'], 'S11 التقرير بالمادّة بالكمية والكلفة والربح');
+      t.same(reportHeads, ['المادّة', 'عدد الفواتير', 'الكمية', 'الوحدة', 'المبلغ', 'الكلفة', 'الربح'], 'S11 التقرير بالمادّة بالكمية ووحدتها والكلفة والربح');
       const reportCells = all().filter((n) => n.localName === 'td').map((n) => n.textContent);
-      t.same(reportCells.slice(0, 6), ['علف بادئ', '1', '100 كغم', '75,000', '60,000', '15,000'], 'S11 صفّ المادّة بأرقامه');
+      t.same(reportCells.slice(0, 7), ['علف بادئ', '1', '100', 'كغم', '75,000', '60,000', '15,000'], 'S11 صفّ المادّة بأرقامه');
       await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب الجهة'));
       await settle();
       t.same(headCells(), ['الجهة', 'عدد الفواتير', 'المبلغ', 'الكلفة', 'الربح'], 'S11 بالجهة بلا كمية (وحدات مختلفة)');
@@ -720,6 +726,274 @@ export default async function (t) {
       t.ok(byAction('save-sale').length === 1 && named(rpcCalls, 'item_file').length === 1, 'S13 ثمّ نافذة «بِع» بأرقام ملفّ المادّة');
       await click(byAction('sale-cancel')[0]);
       t.same([byAction('save-sale').length, where?.search], [0, ''], 'S13 والإغلاق يشيل العلامة');
+    });
+
+    // ── R: مراجعة الشاشات ─────────────────────────────────────────────────────────────────────────────────────────
+    const unknownOnce = (result) => {
+      let first = true;
+      return async () => {
+        if (first) {
+          first = false;
+          throw new m.UnknownOutcomeError('fetch_failed');
+        }
+        return clone(result);
+      };
+    };
+    const starter = S21.item_file_storekeeper_starter;
+    const soldCredit = S21.record_sale.storekeeper_credit;
+    const sellFromFile = async () => {
+      await click(byAction('sell-item')[0]);
+      await click(byAction('pick-party')[0]);
+      choose(byAction('sale-store')[0], soldCredit.warehouse_id);
+      typeIn(byAction('sale-qty')[0], '100');
+      typeIn(all().find((n) => n.id.endsWith('-price')), '750');
+      await settle();
+      await submit();
+    };
+    await step('R-H1-sale-file', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, { searchSuppliers: () => ({ parties: [{ id: soldCredit.party_id, name: soldCredit.party_name }], total: 1 }) }, { item_file: async () => clone(starter), record_sale: unknownOnce(soldCredit) });
+      await mount(`/inventory/items/${starter.item.id}`);
+      await sellFromFile();
+      t.ok(text().includes('لم يُعرف إن حُفظ؛ أعد المحاولة') && byAction('save-sale')[0]?.textContent === 'أعد المحاولة', 'H1 البيع: نتيجة مجهولة');
+      await click(byAction('sale-cancel')[0]);
+      await settle();
+      t.ok(byAction('save-sale').length === 0 && byAction('retry-pending-sell').length === 1 && text().includes('لم يُعرف إن حُفظ البيع — أعد المحاولة') && text().includes('المرسَل: 100 كغم علف بادئ بـ75,000 دينار، بتاريخ 08/11/2026.'), `H1 البيع: «أغلق» يبقي النداء بشريط في الملفّ (${text().slice(0, 400)})`);
+      await click(byAction('sell-item')[0]);
+      t.same([byAction('save-sale')[0]?.textContent, byAction('sale-sent')[0]?.textContent, byAction('sale-qty').length], ['أعد المحاولة', 'المرسَل: 100 كغم علف بادئ بـ75,000 دينار، بتاريخ 08/11/2026.', 0], 'H1 البيع: «بِع» ثانيةً يفتح النداء المعلَّق نفسه لا نموذجاً جديداً');
+      await submit();
+      await settle();
+      const [first, second] = named(rpcCalls, 'record_sale');
+      t.same(second, first, 'H1 البيع: الإعادة بالمعرّفات والمحتوى نفسه حرفاً (لا بيع ثانٍ بمعرّفين)');
+      t.ok(text().includes('حُفظ البيع FD-2026-0001') && byAction('retry-pending-sell').length === 0, 'H1 البيع: ثمّ حُفظ وانتهى الشريط');
+    });
+    await step('R-H1-sale-new-ids', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, { searchSuppliers: () => ({ parties: [{ id: soldCredit.party_id, name: soldCredit.party_name }], total: 1 }) }, { item_file: async () => clone(starter), record_sale: async () => clone(soldCredit) });
+      await mount(`/inventory/items/${starter.item.id}`);
+      await sellFromFile();
+      await settle();
+      await sellFromFile();
+      await settle();
+      const [a, b] = named(rpcCalls, 'record_sale');
+      t.ok(a && b && a.p_sale_id !== b.p_sale_id && a.p_client_ref !== b.p_client_ref, 'H1 البيع: بعد الحفظ بيع جديد بمعرّفات جديدة');
+    });
+    await step('R-H1-sale-page', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, { searchSuppliers: () => ({ parties: [{ id: soldCredit.party_id, name: soldCredit.party_name }], total: 1 }) }, {
+        sales_overview: async () => clone(S21.sales_overview.storekeeper),
+        items_overview: async () => clone(S20.items_overview.storekeeper),
+        item_file: async () => clone(starter),
+        record_sale: unknownOnce(soldCredit),
+      });
+      await mount('/sales?new=1');
+      await settle();
+      await click(byAction('op-item-card')[0]);
+      await settle();
+      await click(byAction('pick-party')[0]);
+      choose(byAction('sale-store')[0], soldCredit.warehouse_id);
+      typeIn(byAction('sale-qty')[0], '100');
+      typeIn(all().find((n) => n.id.endsWith('-price')), '750');
+      await settle();
+      await submit();
+      await click(byAction('sale-cancel')[0]);
+      await settle();
+      t.ok(byAction('retry-pending-sale').length === 1 && byAction('save-sale').length === 0, 'H1 صفحة المبيعات: الإغلاق بعد نتيجة مجهولة يبقي شريط «أعد المحاولة»');
+      await click(byAction('retry-pending-sale')[0]);
+      await settle();
+      t.eq(byAction('save-sale')[0]?.textContent, 'أعد المحاولة', 'H1 صفحة المبيعات: الشريط يفتح النداء المعلَّق نفسه');
+      await submit();
+      await settle();
+      const [first, second] = named(rpcCalls, 'record_sale');
+      t.same(second, first, 'H1 صفحة المبيعات: الإعادة بالنداء نفسه حرفاً');
+      t.ok(text().includes('حُفظ البيع FD-2026-0001') && byAction('retry-pending-sale').length === 0, 'H1 صفحة المبيعات: ثمّ حُفظ');
+    });
+    await step('R-H1-convert', async () => {
+      const conv = S20.record_conversion.owner;
+      const crushed = S20.items_overview.storekeeper.items.find((x) => x.name === 'صويا مجروشة');
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => clone(SK), items_overview: async () => clone(S20.items_overview.storekeeper), record_conversion: unknownOnce(conv) });
+      await mount(`/inventory/items/${SK_ID}`);
+      await click(byAction('convert-item')[0]);
+      await settle();
+      await click(byAction('op-item-card').find((n) => n.getAttribute('data-item') === crushed.id));
+      typeIn(byAction('convert-from-qty')[0], '250');
+      await settle();
+      await submit();
+      await click(byAction('convert-cancel')[0]);
+      await settle();
+      t.ok(byAction('retry-pending-convert').length === 1 && text().includes('لم يُعرف إن حُفظ التحويل — أعد المحاولة'), 'H1 التحويل: الإغلاق يبقي الشريط');
+      await click(byAction('retry-pending-convert')[0]);
+      t.ok(byAction('convert-sent')[0]?.textContent.includes('حوّل 250 كغم من «صويا» إلى 250 كغم من «صويا مجروشة»') && byAction('save-convert')[0]?.textContent === 'أعد المحاولة', 'H1 التحويل: النداء المعلَّق بملخّصه');
+      await submit();
+      await settle();
+      const [first, second] = named(rpcCalls, 'record_conversion');
+      t.same(second, first, 'H1 التحويل: الإعادة بالنداء نفسه حرفاً');
+    });
+    await step('R-H1-move', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => clone(SK), record_transfer: unknownOnce(S20.record_transfer.storekeeper) });
+      await mount(`/inventory/items/${SK_ID}`);
+      await click(byAction('move-item')[0]);
+      typeIn(byAction('move-qty')[0], '100');
+      choose(byAction('move-to-store')[0], SK.transfer_targets[1].warehouse_id);
+      await settle();
+      await submit();
+      await click(byAction('move-cancel')[0]);
+      await settle();
+      t.ok(byAction('retry-pending-move').length === 1, 'H1 النقل: الإغلاق يبقي الشريط');
+      await click(byAction('move-item')[0]);
+      t.ok(byAction('move-sent')[0]?.textContent.includes('انقل 100 كغم «صويا» من «مخزن المواد الأوّلية» إلى «مخزن مواد ثانٍ»') && byAction('move-qty').length === 0, 'H1 النقل: «انقل» ثانيةً يفتح النداء المعلَّق نفسه');
+      await submit();
+      await settle();
+      const [first, second] = named(rpcCalls, 'record_transfer');
+      t.same(second, first, 'H1 النقل: الإعادة بالنداء نفسه حرفاً');
+      t.ok(text().includes('(TR-2026-0001)') && byAction('retry-pending-move').length === 0, 'H1 النقل: ثمّ حُفظ');
+    });
+
+    await step('R-M1-L1', async () => {
+      fresh({ status: 'ready', workspace: ws('owner') }, {}, { sales_overview: async () => clone(S21.sales_overview.owner) });
+      await mount('/sales');
+      const rows = all().filter((n) => n.localName === 'tr' && n.parentNode?.localName === 'tbody').map((tr) => descendants(tr).filter((n) => n.localName === 'td').map((n) => n.textContent));
+      const voided = rows.filter((cells) => cells.includes('ملغى'));
+      t.same(voided.map((cells) => [cells[1], cells[6], cells[7]]), [['MD-2026-0001', '—', '—'], ['MS-2026-0001', '—', '—']], 'M1 الملغاة: «—» في السعر والمبلغ (المجموع للمحفوظ وحده)');
+      // التسليم بلا مقابل: لا «يُعكس قيد الفاتورة».
+      const freeRow = all().find((n) => n.localName === 'tr' && n.textContent.includes('MS-2026-0002'));
+      await click(descendants(freeRow).find((n) => n.getAttribute('data-action') === 'void-sale'));
+      t.ok(text().includes('تسليم بلا مقابل لـ«أبو أحمد»: لا قيد عليه') && !text().includes('ويُعكس قيد الفاتورة'), 'L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»');
+    });
+    await step('R-M2', async () => {
+      fresh({ status: 'ready', workspace: MANAGER }, {});
+      await mount(`/inventory/items/i-corn/details?${new URLSearchParams({ wh: 'w-raw', back: '/inventory/store/w-raw' })}`);
+      t.same(byAction('open-item-file').map((n) => [n.getAttribute('href'), n.textContent]), [['/inventory/items/i-corn', 'ملفّ المادّة']], 'M2 الرجوع إلى المخزن ومعه «ملفّ المادّة»');
+      await unmount();
+      fresh({ status: 'ready', workspace: MANAGER }, {});
+      await mount('/inventory/items/i-corn/details');
+      t.eq(byAction('open-item-file').length, 0, 'M2 والرجوع إلى الملفّ نفسه بلا رابط ثانٍ');
+    });
+    await step('R-M3-sale', async () => {
+      // الملفّ بمخزن واحد ثمّ صار مخزنين (المادّة دخلت مخزناً ثانياً بعد الفتح): store_required ← القائمة من جديد بتلميح الخادم.
+      const one = { ...clone(starter), stores: [clone(starter.stores[0])] };
+      let sales = 0;
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, { searchSuppliers: () => ({ parties: [{ id: soldCredit.party_id, name: soldCredit.party_name }], total: 1 }) }, {
+        item_file: async (_args, n) => (n === 1 ? one : clone(starter)),
+        record_sale: async () => {
+          sales += 1;
+          if (sales === 1) throw new m.RejectedError(S21.refusals['sale.store_required'].code, S21.refusals['sale.store_required'].hint);
+          return clone(soldCredit);
+        },
+      });
+      await mount(`/inventory/items/${starter.item.id}`);
+      await click(byAction('sell-item')[0]);
+      await click(byAction('pick-party')[0]);
+      t.eq(byAction('sale-store').length, 0, 'M3 البيع: مخزن واحد في الملفّ بلا اختيار');
+      typeIn(byAction('sale-qty')[0], '100');
+      typeIn(all().find((n) => n.id.endsWith('-price')), '750');
+      await settle();
+      await submit();
+      await settle();
+      t.ok(byAction('sale-store-hint')[0]?.textContent.includes(S21.refusals['sale.store_required'].hint) && byAction('sale-store').length === 1 && named(rpcCalls, 'item_file').length === 2, 'M3 البيع: store_required يقرأ المخازن من جديد ويعرض الاختيار بتلميح الخادم');
+      t.same((byAction('sale-store')[0]?.options ?? []).map((o) => o.getAttribute('value')).filter(Boolean), starter.stores.map((x) => x.warehouse_id), 'M3 البيع: بالمخزنين');
+      await submit();
+      t.ok(text().includes('اختر المخزن.') && named(rpcCalls, 'record_sale').length === 1, 'M3 البيع: بلا اختيار رسالة ولا إرسال');
+      choose(byAction('sale-store')[0], soldCredit.warehouse_id);
+      await settle();
+      await submit();
+      await settle();
+      const [first, second] = named(rpcCalls, 'record_sale');
+      t.same([second?.p_sale_id, second?.p_warehouse, first?.p_warehouse], [first?.p_sale_id, soldCredit.warehouse_id, null], 'M3 البيع: الإعادة بالمعرّفات نفسها ومعها المخزن');
+    });
+    for (const [label, code, hint, expect] of [
+      ['from_store_required', 'from_store_required', '«صويا» موجودة في أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تحوّل منه.', 'from'],
+      ['store_required «تحوّل منه»', 'store_required', '«صويا» موجودة في أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تحوّل منه.', 'from'],
+      ['store_required للوجهة', 'store_required', '«صويا مجروشة» تدخل أكثر من مخزن في نطاقك: «أ»، «ب». اختر المخزن الذي تدخله.', 'to'],
+    ]) {
+      await step(`R-M3-convert ${label}`, async () => {
+        const crushed = S20.items_overview.storekeeper.items.find((x) => x.name === 'صويا مجروشة');
+        const two = { ...clone(SK), stores: [clone(SK.stores[0]), { ...clone(SK.stores[0]), warehouse_id: SK.transfer_targets[1].warehouse_id, name: 'مخزن مواد ثانٍ', qty: '50.000', available: '50.000' }] };
+        let n = 0;
+        const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, { ...suppliers, loadOrgSetup: () => ({ divisions: [], sites: [], packTypes: [], expenseCategories: [], itemCategories: [], warehouses: [] }) }, {
+          item_file: async (_args, k) => (k === 1 ? clone(SK) : two),
+          items_overview: async () => clone(S20.items_overview.storekeeper),
+          record_conversion: async () => {
+            n += 1;
+            if (n === 1) throw new m.RejectedError(code, hint);
+            return clone(S20.record_conversion.owner);
+          },
+        });
+        await mount(`/inventory/items/${SK_ID}`);
+        await click(byAction('convert-item')[0]);
+        await settle();
+        await click(byAction('op-item-card').find((node) => node.getAttribute('data-item') === crushed.id));
+        typeIn(byAction('convert-from-qty')[0], '20');
+        await settle();
+        await submit();
+        await settle();
+        if (expect === 'from') {
+          t.ok(byAction('convert-from-hint')[0]?.textContent.includes(hint) && byAction('convert-from-store').length === 1 && byAction('convert-to-store-pick').length === 0 && named(rpcCalls, 'item_file').length === 2, `M3 التحويل (${label}): اختيار مخزن المصدر بعد قراءة المخازن من جديد`);
+          choose(byAction('convert-from-store')[0], two.stores[1].warehouse_id);
+          await settle();
+          await submit();
+          await settle();
+          const [first, second] = named(rpcCalls, 'record_conversion');
+          t.same([second?.p_doc_id, second?.p_from_warehouse, second?.p_to_warehouse], [first?.p_doc_id, two.stores[1].warehouse_id, null], `M3 التحويل (${label}): الإعادة بمخزن المصدر`);
+        } else {
+          t.ok(byAction('convert-to-store-pick').length === 1 && byAction('convert-from-hint').length === 0, `M3 التحويل (${label}): اختيار مخزن الوجهة`);
+        }
+      });
+    }
+    await step('R-today', async () => {
+      // يوم الخادم غير يوم الجهاز: المدّة الافتراضية تُعاد منه.
+      const later = { ...clone(S21.sales_overview.storekeeper), today: '2026-12-03', from: '2026-12-01', to: '2026-12-03' };
+      const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, {}, { sales_overview: async () => later });
+      await mount('/sales');
+      await settle();
+      t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-01', p_to: '2026-12-03' }, 'المدّة الافتراضية من يوم الخادم (أوّل شهره إلى يومه)');
+      t.eq(all().find((n) => n.id.endsWith('-to'))?.value, '03/12/2026', 'وحقل «إلى» يقول يوم الخادم');
+    });
+    await step('R-in-use', async () => {
+      const file = S20.item_file.manager_fresh_before_delete;
+      fresh({ status: 'ready', workspace: MANAGER }, {}, { item_file: async () => clone(file), delete_item: async () => { throw new m.RejectedError(S20.refusals.item_in_use.code, S20.refusals.item_in_use.hint); } });
+      await mount(`/inventory/items/${file.item.id}`);
+      await click(byAction('delete-item')[0]);
+      await click(byAction('confirm-delete-item')[0]);
+      await settle();
+      t.same([byAction('confirm-delete-item').length, byAction('hide-instead')[0]?.textContent, all().some((n) => n.localName === 'button' && n.textContent === 'احذفها')], [0, 'أخفِها بدلاً من ذلك', false], 'بعد item_in_use: لا «احذفها»، والفعل الوحيد «أخفِها بدلاً من ذلك»');
+    });
+    await step('R-free-pending', async () => {
+      const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, { searchSuppliers: () => ({ parties: [{ id: 'p-1', name: 'أبو أحمد' }], total: 1 }) }, { item_file: async () => clone(SK), record_sale: async () => { throw new m.UnknownOutcomeError(); } });
+      await mount(`/inventory/items/${SK_ID}`);
+      await click(byAction('sell-item')[0]);
+      await click(byAction('pick-party')[0]);
+      typeIn(byAction('sale-qty')[0], '10');
+      typeIn(all().find((n) => n.id.endsWith('-price')), '0');
+      await settle();
+      await submit();
+      await click(byAction('confirm-free-sale')[0]);
+      await settle();
+      t.same([named(rpcCalls, 'record_sale').length, byAction('sale-sent')[0]?.textContent], [1, 'المرسَل: تسليم 10 كغم صويا بلا مقابل، بتاريخ 08/11/2026.'], '«المرسَل» للتسليم بلا مقابل بلا «بـ0 دينار»');
+    });
+    await step('R-void-unknown', async () => {
+      const overview = clone(S21.sales_overview.owner);
+      const target = overview.rows.find((row) => row.status === 'posted' && !row.free);
+      let n = 0;
+      const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {}, {
+        sales_overview: async () => clone(overview),
+        void_sale: async () => {
+          n += 1;
+          if (n === 1) throw new m.UnknownOutcomeError();
+          return clone(S21.void_sale.manager_credit);
+        },
+      });
+      await mount('/sales');
+      const row = all().find((node) => node.localName === 'tr' && node.textContent.includes(target.doc_no));
+      await click(descendants(row).find((node) => node.getAttribute('data-action') === 'void-sale'));
+      typeIn(byAction('void-sale-reason')[0], 'خطأ في الكمية');
+      await settle();
+      await click(byAction('confirm-void-sale')[0]);
+      await settle();
+      t.ok(byAction('void-sale-unknown').length === 1 && byAction('void-sale-reason')[0]?.hasAttribute('disabled'), 'إلغاء مجهول: يقول ذلك والسبب مقفول');
+      typeIn(byAction('void-sale-reason')[0], 'سبب آخر');
+      await settle();
+      await click(byAction('confirm-void-sale')[0]);
+      await settle();
+      const [first, second] = named(rpcCalls, 'void_sale');
+      t.same([second?.p_client_ref, second?.p_reason], [first?.p_client_ref, 'خطأ في الكمية'], 'إلغاء مجهول: الإعادة بالمرجع والسبب نفسيهما (لا ref_reused)');
     });
 
     await step('K4-keeper', async () => {

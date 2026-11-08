@@ -738,14 +738,23 @@ export default function ItemCardPage() {
   const made = purchases.data?.lastProduction ?? null;
   const editItem = canManage && row.data && !row.data.archived ? row.data : null;
   // الرجوع إلى حيث جاء (?back=: المخزن أو دفعة المعمل)، وإلّا إلى ملفّ المادّة (كلمة المالك 2026-11-08: زرّ رجوع واضح).
-  const back = backTarget(search.get('back'), `/inventory/items/${itemId}`);
+  const filePath = `/inventory/items/${itemId}`;
+  const back = backTarget(search.get('back'), filePath);
   return (
     <div className="flex flex-col gap-4">
-      <BackButton
-        to={back}
-        label={back.startsWith('/inventory/store/') ? t('back.store', 'رجوع إلى المخزن') : back.startsWith('/mill') ? t('back.mill', 'رجوع إلى المعمل') : t('back.file', 'رجوع إلى ملفّ المادّة')}
-        action="back-to-file"
-      />
+      {/* الرجوع إلى حيث جاء، ورابط ملفّ المادّة بجانبه ما دام الرجوع إلى غيره (مراجعة 0020 M2): لا يضيع الطريق إلى الملفّ. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <BackButton
+          to={back}
+          label={back.startsWith('/inventory/store/') ? t('back.store', 'رجوع إلى المخزن') : back.startsWith('/mill') ? t('back.mill', 'رجوع إلى المعمل') : t('back.file', 'رجوع إلى ملفّ المادّة')}
+          action="back-to-file"
+        />
+        {back !== filePath ? (
+          <Link to={filePath} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-item-file">
+            {t('file.back', 'ملفّ المادّة')}
+          </Link>
+        ) : null}
+      </div>
       <PageHeader
         title={t('file.details', 'دفتر المادّة والوجبات')}
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}

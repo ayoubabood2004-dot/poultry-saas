@@ -252,6 +252,12 @@ async function scenario(t, db) {
   t.same(Object.fromEntries(Object.entries(M).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(M).map((key) => [key, key])),
     'رفض النقل: كلّ حالة برمزها');
   t.ok(M.store_required.hint.includes('«مخزن العلف»') && M.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما بكمياتهما (${M.store_required.hint})`);
+  // التحويل (مراجعة 0020، للشاشة): غموض مخزن المصدر (الصويا في مخزني المواد) from_store_required بالكميات، وغموض المستلم («مخلوط» يدخل مخزني العلف)
+  // store_required.
+  const fromStore = refusal('conversion.from_store_required', await convert(U.owner, { from: I.soy, fromQty: 1, to: I.soyGrits, toQty: 1 }));
+  const toStore = refusal('conversion.store_required', await convert(U.owner, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1, fromWh: W.raw }));
+  t.same([fromStore.code, fromStore.hint.includes('«مخزن مواد ثانٍ» (100 كغم)'), toStore.code, toStore.hint.includes('«مخزن علف ثانٍ»')],
+    ['from_store_required', true, 'store_required', true], `التحويل: from_store_required للمصدر بكمياته، وstore_required للمستلم (${fromStore.hint} | ${toStore.hint})`);
   const t3 = { doc: uid(), item: I.diesel, qty: 10, to: W.farm };
   await one(U.storekeeper, RT, moveArgs(t3));
   const voidMove = await call(db, U.manager, 'select public.void_transfer($1, $2, $3) as v', [t3.doc, 'نقل للتجربة', uid()]);
@@ -382,7 +388,7 @@ async function scenario(t, db) {
   // ── ١٠) الثوابت وضوابطها ──────────────────────────────────────────────────────────────────────────────────────
   const verifyMap = async (q, fn) => Object.fromEntries((await q(`select check_name, violations::int as v from public.${fn}()`)).rows.map((r) => [r.check_name, r.v]));
   t.same(await db.asService((q) => verifyMap(q, 'verify_store_ops')), { conversion_moves: 0, conversion_orphans: 0 }, 'verify_store_ops: صفر على بيانات حقيقية (مرحَّل وملغى)');
-  t.same(await db.asService((q) => verifyMap(q, 'verify_purchases')), { purchase_price_ties: 0, purchase_price_draft: 0, purchase_pricing_ties: 0 },
+  t.same(await db.asService((q) => verifyMap(q, 'verify_purchases')), { purchase_price_ties: 0, purchase_price_draft: 0, purchase_pricing_ties: 0, unpriced_returns: 0 },
     'verify_purchases: صفر مع الشراء بلا سعر والتسعير والتصحيح');
   const stockChecks = await db.asService((q) => verifyMap(q, 'verify_stock'));
   t.same(Object.entries(stockChecks).filter(([, v]) => v !== 0), [], 'verify_stock: كلّ الفحوص صفر');

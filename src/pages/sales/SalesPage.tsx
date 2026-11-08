@@ -16,16 +16,18 @@ import type { Fils } from '../../domain/money';
 import { toWesternDigits } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
-import { describeError, RejectedError } from '../../lib/errors';
-import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
+import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
+import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
 import type { SaleCost, SaleRow, SalesGroup, SalesOverview, SalesReport, SalesReportRow } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
+import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
+import { PendingBanner } from '../inventory/ItemOps';
 import { saleDoneText } from '../inventory/SaleDialog';
 import { baseQty } from '../inventory/simple-shared';
-import { NewSale } from './NewSale';
+import { NewSale, newSaleFlow, type SaleFlow } from './NewSale';
 
 // صفحة المبيعات (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع… واكدر اسجل مبيعاتي لمنو وتطلعلي هاي السوالف بالتقارير»):
 // «بيع جديد» (المادّة ثمّ نافذة «بِع» نفسها)، وفواتير المدّة بجدول ومجاميعها من الخادم، والتقرير حسب الجهة أو المادّة أو اليوم (الكلفة والربح لأدوار
@@ -54,23 +56,34 @@ function costColumns<R>(costs: boolean, of: (row: R) => SaleCost | null, total: 
   ];
 }
 
+/** عمودا الكمية والوحدة (نمط 0019): الكمية بمراتب العمود كلّه، والوحدة بعمودها لأنّ المواد بوحدات مختلفة. */
+function qtyColumns<R>(rows: readonly R[], of: (row: R) => { qty: bigint; unit: SaleRow['baseUnit'] } | null): Column<R>[] {
+  const decimals = columnDecimals(rows.flatMap((row) => { const q = of(row); return q ? [q.qty] : []; }), 3) as 0 | 1 | 2 | 3;
+  return [
+    { key: 'qty', header: t('sales.col.qty', 'الكمية'), kind: 'number', cell: (row) => { const q = of(row); return q ? <Num>{fmtQtyCell(q.qty, decimals)}</Num> : null; } },
+    { key: 'unit', header: t('sales.col.unit', 'الوحدة'), cell: (row) => { const q = of(row); return q ? baseUnitLabel(q.unit) : null; } },
+  ];
+}
+
 function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRow) => void }) {
   const money = data.rows.every((row) => row.money !== null) && data.totals.money !== null;
+  // الملغى خارج المجموع (مجموع المحفوظ من الخادم)، فخانتا سعره ومبلغه «—» وحالته تقول إنّه ملغى (مراجعة 0021 M1).
+  const shownMoney = (row: SaleRow) => (row.status === 'void' ? null : row.money);
   const columns: Column<SaleRow>[] = [
     { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.soldOn) },
     { key: 'no', header: t('sales.col.no', 'الرقم'), cell: (row) => row.docNo },
     { key: 'party', header: t('sales.col.party', 'الجهة'), wrap: true, cell: (row) => row.partyName },
     { key: 'item', header: t('sales.col.item', 'المادّة'), wrap: true, cell: (row) => row.itemName },
-    { key: 'qty', header: t('sales.col.qty', 'الكمية'), cell: (row) => baseQty(row.qty, row.baseUnit) },
+    ...qtyColumns(data.rows, (row) => ({ qty: row.qty, unit: row.baseUnit })),
   ];
   if (money) {
     columns.push(
-      { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: (row) => (row.money ? <Num>{fmtMoney(row.money.unitPrice)}</Num> : null) },
+      { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: (row) => { const m = shownMoney(row); return <Num>{m ? fmtMoney(m.unitPrice) : t('file.none', '—')}</Num>; } },
       {
         key: 'amount',
         header: t('sales.col.amount', 'المبلغ'),
         kind: 'number',
-        cell: (row) => (row.money ? money0(row.money.lineTotal) : null),
+        cell: (row) => { const m = shownMoney(row); return m ? money0(m.lineTotal) : <Num>{t('file.none', '—')}</Num>; },
         ...(data.totals.money ? { total: money0(data.totals.money.revenue) } : {}),
       },
     );
@@ -115,7 +128,7 @@ function ReportTable({ data, costs }: { data: SalesReport; costs: boolean }) {
     { key: 'label', header: label, sticky: true, wrap: true, cell: (row) => row.label },
     { key: 'count', header: t('sales.col.count', 'عدد الفواتير'), kind: 'number', cell: (row) => <Num>{fmtInt(row.count)}</Num>, total: <Num>{fmtInt(data.totals.count)}</Num> },
   ];
-  if (data.group === 'item') columns.push({ key: 'qty', header: t('sales.col.qty', 'الكمية'), cell: (row) => (row.qty !== null && row.baseUnit !== null ? baseQty(row.qty, row.baseUnit) : null) });
+  if (data.group === 'item') columns.push(...qtyColumns(data.rows, (row) => (row.qty !== null && row.baseUnit !== null ? { qty: row.qty, unit: row.baseUnit } : null)));
   if (money) {
     columns.push({ key: 'revenue', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (row) => (row.revenue !== null ? money0(row.revenue) : null), ...(data.totals.revenue !== null ? { total: money0(data.totals.revenue) } : {}) });
   }
@@ -153,12 +166,14 @@ function overviewStats(data: SalesOverview): Stat[] {
 /** «ألغِ» البيع بسبب إلزاميّ: البضاعة ترجع لوجباتها ويُعكس قيد الفاتورة، والمقبوض نقداً يبقى رصيداً للجهة. */
 function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () => void; onDone: (text: string) => void }) {
   const id = useId();
-  const [clientRef] = useState(() => crypto.randomUUID());
+  const [clientRef, setClientRef] = useState(() => crypto.randomUUID());
   const [reason, setReason] = useState('');
+  // السبب المرسَل بعد نتيجة مجهولة: الإعادة به وبالمرجع نفسه (سبب آخر بالمرجع نفسه ref_reused)، والحقل مقفول حتى يُعرف.
+  const [sent, setSent] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
-  const missing = reason.trim() === '' ? t('sales.void.reason_required', 'اكتب سبب الإلغاء.') : null;
+  const missing = (sent ?? reason).trim() === '' ? t('sales.void.reason_required', 'اكتب سبب الإلغاء.') : null;
   const failed = failure ? (failure instanceof RejectedError && failure.hint ? failure.hint : `${describeError(failure).title}. ${describeError(failure).detail}`) : null;
   const total = row.money ? fmtMoney(row.money.lineTotal, 0) : null;
   return (
@@ -168,15 +183,22 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
       consequence={
         <div className="flex flex-col gap-3">
           <p>
-            {t('sales.void.body', 'ترجع {qty} من «{item}» إلى مخزنها، ويُعكس قيد الفاتورة على «{party}».', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName, party: row.partyName })}
+            {row.free
+              ? t('sales.void.body_free', 'ترجع {qty} من «{item}» إلى مخزنها (تسليم بلا مقابل لـ«{party}»: لا قيد عليه).', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName, party: row.partyName })
+              : t('sales.void.body', 'ترجع {qty} من «{item}» إلى مخزنها، ويُعكس قيد الفاتورة على «{party}».', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName, party: row.partyName })}
           </p>
+          {sent !== null ? (
+            <p className="text-sm" data-action="void-sale-unknown">
+              {t('sales.void.unknown', 'لم يُعرف إن أُلغي؛ «ألغِ البيع» يعيده بالسبب نفسه، ولن يُلغى مرّتين.')}
+            </p>
+          ) : null}
           {row.payment === 'cash' && !row.free && total ? (
             <p data-action="void-cash-kept">
               {t('sales.void.cash_kept', 'والمبلغ المقبوض نقداً ({total} دينار) يبقى رصيداً لـ«{party}»: يُرجَع له من كشفه بـ«ألغِ القبض»، أو يُخصم من فاتورة لاحقة.', { total, party: row.partyName })}
             </p>
           ) : null}
           <Field id={`${id}-reason`} label={t('sales.void.reason', 'سبب الإلغاء')} error={tried ? (missing ?? failed) : failed}>
-            <input id={`${id}-reason`} className="input" maxLength={500} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} data-action="void-sale-reason" />
+            <input id={`${id}-reason`} className="input" maxLength={500} value={sent ?? reason} disabled={busy || sent !== null} onChange={(event) => setReason(event.target.value)} data-action="void-sale-reason" />
           </Field>
         </div>
       }
@@ -187,9 +209,10 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
       onConfirm={() => {
         setTried(true);
         if (missing) return;
+        const text = (sent ?? reason).trim();
         setBusy(true);
         setFailure(null);
-        purchases.voidSale(clientRef, row.id, reason.trim()).then(
+        purchases.voidSale(clientRef, row.id, text).then(
           (voided) => {
             const kept = voided.paymentKept !== null && voided.paymentKept > 0n ? t('sales.void.done_kept', ' والمقبوض {total} دينار باقٍ رصيداً لـ«{party}».', { total: fmtMoney(voided.paymentKept, 0), party: row.partyName }) : '';
             onDone(`${t('sales.void.done', 'أُلغي البيع {no}.', { no: voided.docNo })}${kept}`);
@@ -197,6 +220,12 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
           (caught: unknown) => {
             setBusy(false);
             setFailure(caught);
+            // نتيجة مجهولة (أو إعادة لها لم تُرفض رفضاً أكيداً): السبب والمرجع يتجمّدان؛ والرفض الأكيد يفكّهما بمرجع جديد للمحاولة التالية.
+            if (caught instanceof UnknownOutcomeError || (sent !== null && !(caught instanceof RejectedError))) setSent(text);
+            else {
+              setSent(null);
+              setClientRef(crypto.randomUUID());
+            }
           },
         );
       }}
@@ -210,11 +239,17 @@ export default function SalesPage() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const [search, setSearch] = useSearchParams();
   const [selling, setSelling] = useState(false);
+  // «بيع جديد»: المادّة والمعرّفات والنداء المعلَّق في الصفحة (مراجعة 0021 H1): الإغلاق بعد نتيجة مجهولة يبقيها، والشريط يعيد فتحها.
+  const [flow, setFlow] = useState<SaleFlow | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [voiding, setVoiding] = useState<SaleRow | null>(null);
-  const today = localDay();
-  const [fromText, setFromText] = useState(fmtDay(monthStart(today)));
-  const [toText, setToText] = useState(fmtDay(today));
+  // المدّة الافتراضية من يوم الخادم حين يُعرف (لا ساعة الجهاز)؛ وما يكتبه المستخدم يبقى كما كتبه.
+  const [serverToday, setServerToday] = useState<string | null>(null);
+  const today = serverToday ?? localDay();
+  const [fromEdit, setFromEdit] = useState<string | null>(null);
+  const [toEdit, setToEdit] = useState<string | null>(null);
+  const fromText = fromEdit ?? fmtDay(monthStart(today));
+  const toText = toEdit ?? fmtDay(today);
   const [view, setView] = useState<View>('list');
   const [round, setRound] = useState(0);
   const from = parseDayText(fromText);
@@ -226,6 +261,7 @@ export default function SalesPage() {
   const loadReport = useCallback(() => (ready && view !== 'list' ? purchases.loadSalesReport(from, to, view) : Promise.resolve(null)), [ready, view, from, to]);
   const report = useLoad(loadReport, `${from}|${to}|${view}|${round}`);
   const shownList = useKept(list);
+  if (shownList && shownList.today !== serverToday) setServerToday(shownList.today);
   const shownReport = useKept(report);
   const costs = Boolean(workspace?.canSeeCost);
   const canSell = workspace ? can(workspace.role, 'sale.record') : false;
@@ -234,7 +270,10 @@ export default function SalesPage() {
   const close = () => {
     setSelling(false);
     if (search.has('new')) setSearch({}, { replace: true });
+    // بلا نداء معلَّق تنتهي الجلسة؛ ومعه تبقى بمعرّفاتها.
+    if (!flow?.call.pending) setFlow(null);
   };
+  const pendingSale = flow?.call.pending ?? null;
   const refresh = () => setRound((n) => n + 1);
   const failure = view === 'list' ? list.error : report.error;
   const retry = view === 'list' ? list.retry : report.retry;
@@ -253,9 +292,10 @@ export default function SalesPage() {
         }
       />
       {saved ? <Notice tone="info" title={saved} /> : null}
+      {pendingSale && !open ? <PendingBanner what={t('op.what.sale', 'البيع')} summary={pendingSale.summary} onRetry={() => setSelling(true)} action="retry-pending-sale" /> : null}
       <div className="grid gap-3 sm:grid-cols-2" data-action="sales-period">
-        <DayField id={`${id}-from`} label={t('sales.from', 'من')} value={fromText} onChange={(text) => setFromText(toWesternDigits(text))} error={from ? null : periodError} />
-        <DayField id={`${id}-to`} label={t('sales.to', 'إلى')} value={toText} onChange={(text) => setToText(toWesternDigits(text))} error={from && periodError ? periodError : null} />
+        <DayField id={`${id}-from`} label={t('sales.from', 'من')} value={fromText} onChange={(text) => setFromEdit(toWesternDigits(text))} error={from ? null : periodError} />
+        <DayField id={`${id}-to`} label={t('sales.to', 'إلى')} value={toText} onChange={(text) => setToEdit(toWesternDigits(text))} error={from && periodError ? periodError : null} />
       </div>
       <Segmented<View>
         label={t('sales.view', 'العرض')}
@@ -290,12 +330,16 @@ export default function SalesPage() {
       )}
       {open ? (
         <NewSale
+          flow={flow ?? newSaleFlow()}
+          onFlow={setFlow}
           onClose={() => {
             close();
             refresh();
           }}
           onSaved={(result) => {
-            close();
+            setFlow(null);
+            setSelling(false);
+            if (search.has('new')) setSearch({}, { replace: true });
             setSaved(saleDoneText(result));
             refresh();
           }}

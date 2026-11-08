@@ -103,7 +103,7 @@ export function convertLabel(input: ConversionInput | null, item: OpItem, target
 export function storeAsked(error: RejectedError): 'from' | 'to' | null {
   if (error.code === 'from_store_required') return 'from';
   if (error.code !== 'store_required') return null;
-  return (error.hint ?? '').includes('تحوّل منه') ? 'from' : 'to';
+  return (error.hint ?? '').includes('تحوّل منه') ? 'from' : 'to'; // i18n-ok: مطابقة تلميح الخادم (لا يُعرض) حتى يصل رمز from_store_required
 }
 
 export function ConvertDialog({

@@ -352,7 +352,7 @@ async function scenario(t, db) {
 
   // ── ١٣) الثوابت ────────────────────────────────────────────────────────────────────────────────────────────────────
   const verify = await db.asService(async (q) => (await q('select check_name, violations::int as v from public.verify_purchases() order by 1')).rows);
-  t.same(verify, [{ check_name: 'purchase_price_draft', v: 0 }, { check_name: 'purchase_price_ties', v: 0 }, { check_name: 'purchase_pricing_ties', v: 0 }], 'verify_purchases: الفحوص صفر (و0020 التسعير)');
+  t.same(verify, [{ check_name: 'purchase_price_draft', v: 0 }, { check_name: 'purchase_price_ties', v: 0 }, { check_name: 'purchase_pricing_ties', v: 0 }, { check_name: 'unpriced_returns', v: 0 }], 'verify_purchases: الفحوص صفر (و0020 التسعير والمرتجع)');
 
   // ── ١٤) التزامن ─────────────────────────────────────────────────────────────────────────────────────────────────
   // (أ) شراءان نقداً من صندوق واحد للمادّة نفسها ومورّدين: الأوّل محبوس على قفل مورّده بجلسة ثالثة قبل أيّ كتابة، والثاني يكمل؛ وبعد فكّ

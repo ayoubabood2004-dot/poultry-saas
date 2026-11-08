@@ -89,19 +89,19 @@ function DeleteDialog({ file, onCancel, onDeleted, onHide }: { file: ItemFile; o
               {hint ?? `${failed.title}. ${failed.detail}`}
             </span>
           ) : null}
-          {inUse ? (
-            <Button variant="secondary" size="sm" className="self-start" onClick={onHide} data-action="hide-instead">
-              <EyeOff aria-hidden="true" className="size-4" />
-              {t('file.hide.instead', 'أخفِها بدلاً من ذلك')}
-            </Button>
-          ) : null}
         </span>
       }
-      confirmLabel={t('file.delete.confirm', 'احذفها')}
+      // بعد item_in_use لا حذف (مراجعة 0020): الفعل الوحيد «أخفِها بدلاً من ذلك»، ينقل إلى تأكيد الإخفاء.
+      confirmLabel={inUse ? t('file.hide.instead', 'أخفِها بدلاً من ذلك') : t('file.delete.confirm', 'احذفها')}
+      tone={inUse ? 'primary' : 'danger'}
       busy={busy}
-      action="confirm-delete-item"
+      action={inUse ? 'hide-instead' : 'confirm-delete-item'}
       onCancel={onCancel}
       onConfirm={() => {
+        if (inUse) {
+          onHide();
+          return;
+        }
         setBusy(true);
         setFailure(null);
         (file.item.version === null ? inventory.loadItem(file.item.id).then((item) => item?.version ?? 0) : Promise.resolve(file.item.version))

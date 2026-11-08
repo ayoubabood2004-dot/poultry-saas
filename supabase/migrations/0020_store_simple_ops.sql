@@ -21,8 +21,12 @@
 --     والمرجع والجسم بفحص بصمته كما كان)، بالجداول نفسها ودفعات المرآة نفسها، ويُلغى بـvoid_transfer القائمة.
 --   • ملفّ المادّة يزيد can_delete وuses وcan_convert وcan_transfer وcan_sell وstores (أين المادّة وكم في كلّ مخزن) وpriced لكلّ شراء
 --     وunpriced_count وcan_price؛ وبطاقات المواد تزيد unpriced_count؛ والمتوسّط وآخر سعر من المسعَّر وحده.
---   • الثوابت: verify_purchases (الشراء بلا سعر مبلغه صفر بسببه، والتسعير يطابق سعره)، وverify_stock (ترتيب سحب التحويل، وقيد التسعير
---     purchase)، وverify_store_ops (التحويل = حركاته ودفعته).
+--   • الثوابت: verify_purchases (الشراء بلا سعر مبلغه صفر بسببه، والتسعير يطابق سعره، ولا مرتجع من شراء وهو بلا سعر)، وverify_stock (ترتيب سحب
+--     التحويل، وقيد التسعير purchase)، وverify_store_ops (التحويل = حركاته ودفعته).
+--   • مراجعة 0020 (المنسّق 2026-11-08): المرتجع من شراء بلا سعر يُرفض في الترحيل والمعاينة (unpriced_line)، والتسعير يرفض شراءً أُرجع منه وهو بلا سعر
+--     (returned_before_pricing، دفاعيّ)؛ وقيد شراء الاستلام لشراء سُعِّر لاحقاً قيد تسعيره (التصحيح والمرتجع بعده يتوزّعان عليه)؛ و«أكمل السعر» في الملفّ
+--     بنطاق مخازن الشراء كلّها وتلميح التسعير بكلماته؛ ومادّة حُذفت بلحظة قفل المواد item_not_found؛ وغموض مخزن المصدر في التحويل from_store_required
+--     (store_required للمستلم وحده).
 -- انحرافات مكتوبة (قرارات بلا سؤال داخل الخطوط الحمر، والعقد scratchpad/simple/contract-0020.md):
 --   • التحويل بفعل stock_use.post (الأمين والمدير والمالك): فعل «يُخرج من المخزن» القائم لأدوار المخزن نفسها، بلا فعل جديد ولا تغيير جدول
 --     الصلاحيات؛ والمخزنان بنطاق الكاتب. والمخزن الهدف إن لم يُختر: مخزن المصدر إن قبل الثانية (تغيير التعبئة في مخزنه)، وإلّا المخزن
@@ -33,7 +37,8 @@
 --   • النقل بلا معاينة (المستخدم يوافق على كمية فقط)، والمخزن المرسِل إن لم يُختر هو الوحيد بالنطاق الذي فيه من المادّة متاح بالتاريخ.
 --   • الإعادة بالمعرّف (التحويل والنقل) تحت قفل استشاريّ لمعرّف المستند، مثل 0019.
 -- تراجع: rollback_0020.sql — يرجّع أجسام private.actions وprivate.role_can وrecord_purchase وprivate.purchase_result وitem_file
---   وitems_overview وverify_purchases (كما في 0017) وpost_receipt_revalue (0010) وpost_transfer (0007) وverify_stock وstock_doc_memo
+--   وitems_overview وverify_purchases (كما في 0017) وpost_receipt_revalue وpost_supplier_return وpreview_supplier_return وprivate.receipt_purchase_entry
+--   (0010) وpost_transfer وprivate.lock_masters (0007) وverify_stock وstock_doc_memo
 --   وstock_doc_label (0019) حرفاً بحرف، والقيود كما كانت، ويُسقط الجديد. **طريق رفض**: شراء بلا سعر (purchase_prices.unit_price فارغ، ومنه
 --   كلّ شراء أُكمل سعره لاحقاً)، أو أيّ تحويل مادّة، يوقف التراجع بصوت بلا أن يحذف شيئاً.
 -- تنعاد بأمان: create table if not exists، وadd column if not exists، وcreate or replace، وكتل do تفحص الكتالوج قبل القيود والسياسات.
@@ -688,10 +693,22 @@ begin
   if not v_pricing and v_unpriced then
     raise exception 'unpriced_line' using hint = 'هذا الشراء بلا سعر بعد؛ اكتب سعره من ملفّ المادّة («أكمل السعر»)، ثمّ يُصحَّح إن لزم.';
   end if;
+  -- مرتجع من شراء بلا سعر (مراجعة 0020 M1، دفاعيّ: الترحيل يرفضه): المورّد كان سيُحمَّل ثمن المُرجَع بالسعر الذي يُكتب الآن.
+  if v_pricing and exists (select 1 from public.supplier_return_lines x join public.supplier_returns s on s.org_id = x.org_id and s.id = x.doc_id
+    where x.org_id = r.org_id and x.receipt_line_id = ln.id and s.status = 'posted') then
+    raise exception 'returned_before_pricing' using hint = 'أُرجع جزء من هذا الشراء إلى المورّد وهو بلا سعر، فلا يُكتب سعره الآن: ألغِ المرتجع أوّلاً، ثمّ أكمل السعر وأعد الإرجاع.';
+  end if;
   select coalesce(jsonb_object_agg(top_seq.warehouse_id, top_seq.seq), '{}'::jsonb) into v_marks
   from (select sm.warehouse_id, max(sm.seq) as seq from public.stock_moves sm
     where sm.org_id = r.org_id and sm.item_id = ln.item_id and sm.warehouse_id = any (v_whs) group by sm.warehouse_id) as top_seq;
   v_plan := private.revalue_plan(ln.id, p_new_total);
+  -- مخزن من مخازن الشراء خارج النطاق (مراجعة 0020 L2): تلميح التسعير بكلماته، لا «يمسّها التصحيح».
+  if v_pricing and v_plan -> 'problem' ->> 'code' = 'out_of_scope' then
+    raise exception 'out_of_scope' using hint = format('جزء من هذا الشراء في «%s»، وهو خارج نطاقك، فلا تكتب سعره: يكمله من نطاقه مخازن الشراء كلّها.',
+      (select w2.name from public.stock_lots fl join public.warehouses w2 on w2.org_id = fl.org_id and w2.id = fl.warehouse_id
+        where fl.org_id = r.org_id and (fl.id = v_root or fl.origin_lot_id = v_root) and fl.qty_left > 0 and not public.in_scope_wh(fl.warehouse_id)
+        order by w2.name collate "C", w2.id limit 1));
+  end if;
   if not (v_pricing and v_plan -> 'problem' ->> 'code' = 'not_drawn') then
     perform private.raise_revalue_problem(v_plan -> 'problem');
   end if;
@@ -833,6 +850,265 @@ begin
 end
 $$;
 
+-- ─── و٢. مراجعة 0020: المرتجع من شراء بلا سعر، وقيد الشراء المسعَّر لاحقاً، وقفل المواد ─────────────────────────────────────────
+-- قيد شراء المورّد لاستلامه (0010 كما هو)، ولشراء سُعِّر لاحقاً (بلا قيد استلام) قيد تسعيره المرحَّل (مراجعة 0020 L1، E16): التصحيح والمرتجع بعده
+-- يتوزّعان عليه أوّلاً لا على أقدم قيد للمورّد.
+create or replace function private.receipt_purchase_entry(p_receipt uuid) returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce((
+  select x.id from public.party_entries x
+  join public.receipts r on r.org_id = x.org_id and r.id = x.doc_id
+  where x.org_id = public.auth_org() and x.doc_kind = 'receipt' and x.doc_id = p_receipt and x.kind = 'purchase' and x.party_id = r.party_id
+    and x.reverses_entry_id is null
+    and not exists (select 1 from public.receipt_charges c where c.org_id = x.org_id and c.party_entry_id = x.id)
+  order by x.seq limit 1
+  ), (
+    -- شراء سُعِّر لاحقاً (0020): قيد تسعيره المرحَّل.
+    select v.party_entry_id from public.receipt_revaluations v
+    where v.org_id = public.auth_org() and v.receipt_id = p_receipt and v.unit_price is not null and v.status = 'posted' and v.party_entry_id is not null
+    order by v.rev_no desc limit 1
+  ))
+$$;
+
+-- ترحيل المرتجع (0010 كما هو، ويّا رفض سطر من شراء بلا سعر بعد قفل الدفعات، مراجعة 0020 M1): قيمة دفعته صفر، فالمورّد كان يُحمَّل ثمن المُرجَع
+-- حين يُكتب السعر (والمصروف «فرق سعر شراء» بقيمة ما أُرجع).
+create or replace function public.post_supplier_return(p_id uuid, p_expected_version int, p_expected_plan text, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'post_supplier_return';
+  v_cached jsonb;
+  d public.supplier_returns;
+  r public.receipts;
+  w public.warehouses;
+  ln public.supplier_return_lines;
+  l public.stock_lots;
+  e public.party_entries;
+  v_date date;
+  v_items uuid[];
+  v_item text;
+  v_credit numeric;
+  v_value numeric;
+  v_credit_total numeric := 0;
+  v_value_total numeric := 0;
+  v_no text;
+  v_category uuid;
+  v_lines jsonb := '[]'::jsonb;
+  v_plan text := '';
+begin
+  set local lock_timeout = '5s';
+  perform private.require('receipt.amounts');
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('id', p_id, 'version', p_expected_version, 'plan', p_expected_plan));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  select * into d from public.supplier_returns where org_id = public.auth_org() and id = p_id;
+  if d.id is null then
+    raise exception 'doc_not_found' using hint = 'هذا المستند غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  w := private.stock_wh(d.warehouse_id, true);
+  perform private.book_for_post(d.book_id);
+  perform private.lock_parties(array[d.party_id]);
+  v_date := d.returned_on;
+  perform private.check_post_date(v_date, w.division_id);
+  perform private.lock_return_rows(d.id);
+  select * into d from public.supplier_returns where org_id = w.org_id and id = p_id for update;
+  if d.status <> 'draft' then
+    raise exception 'not_draft' using hint = 'هذا المستند ليس مسوّدة: رُحّل أو أُلغي من قبل.';
+  end if;
+  if p_expected_version is null or d.version <> p_expected_version then
+    raise exception 'stale_draft' using hint = 'تغيّرت المسوّدة بعد المعاينة. راجعها وعاينها من جديد قبل الترحيل.';
+  end if;
+  if d.returned_on is distinct from v_date then
+    raise exception 'stale_draft' using hint = 'تغيّر تاريخ المرتجع أثناء الترحيل. راجعه وعاينه من جديد.';
+  end if;
+  select * into r from public.receipts where org_id = d.org_id and id = d.receipt_id for share;
+  if r.status <> 'posted' then
+    raise exception 'receipt_not_posted' using hint = 'الاستلام ليس مرحَّلاً (مسوّدة أو ملغى)، فلا يُرجَع منه شيء.';
+  end if;
+  if d.returned_on < r.received_on then
+    raise exception 'return_before_receipt' using hint = format('تاريخ المرتجع %s قبل استلام البضاعة %s؛ اكتب يوم الإرجاع الصحيح.',
+      to_char(d.returned_on, 'DD/MM/YYYY'), to_char(r.received_on, 'DD/MM/YYYY'));
+  end if;
+  select array_agg(distinct x.item_id) into v_items from public.supplier_return_lines x where x.org_id = d.org_id and x.doc_id = d.id;
+  if v_items is null then
+    raise exception 'return_empty' using hint = 'المرتجع بلا سطور. أضف سطراً واحداً على الأقلّ.';
+  end if;
+  perform private.lock_masters(array[w.id], v_items, false);
+  perform private.lock_balances(v_items, array_fill(w.id, array[cardinality(v_items)]));
+  perform 1 from public.stock_lots x
+  where x.org_id = d.org_id and x.id in (select y.lot_id from public.supplier_return_lines y where y.org_id = d.org_id and y.doc_id = d.id)
+  order by x.id for no key update;
+  -- مرتجع من شراء بلا سعر (مراجعة 0020 M1): بعد قفل الدفعات، والتسعير يقفلها نفسها فيرى أحدهما الآخر.
+  for ln in select * from public.supplier_return_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
+    if private.purchase_unpriced(ln.receipt_line_id) then
+      select i.name into v_item from public.items i where i.org_id = ln.org_id and i.id = ln.item_id;
+      raise exception 'unpriced_line' using hint = format('شراء «%s» هذا بلا سعر بعد: أكمل سعر الشراء أوّلاً، ثمّ أرجِع للمورّد.', v_item);
+    end if;
+  end loop;
+  select x.id into v_category from public.expense_categories x where x.org_id = d.org_id and x.system_code = 'supplier_return_diff';
+  for ln in select * from public.supplier_return_lines x where x.org_id = d.org_id and x.doc_id = d.id order by x.line_no loop
+    select a.credit_amount into v_credit from public.supplier_return_line_amounts a where a.org_id = ln.org_id and a.line_id = ln.id;
+    if v_credit is null then
+      select i.name into v_item from public.items i where i.org_id = ln.org_id and i.id = ln.item_id;
+      raise exception 'credit_required' using hint = format('اكتب المبلغ الذي قبله المورّد لسطر «%s» (صفر إن لم يقبل شيئاً).', v_item);
+    end if;
+    select * into l from public.stock_lots where org_id = ln.org_id and id = ln.lot_id;
+    if l.qty_left < ln.qty_base then
+      raise exception 'insufficient_stock' using hint = format('لا يكفي المتبقّي من دفعة الاستلام لهذا المرتجع: %s', private.return_shortage_detail(l.id, ln.qty_base));
+    end if;
+    v_value := case when ln.qty_base = l.qty_left then l.value_left else private._mul_div_round2(ln.qty_base, l.value_left, l.qty_left) end;
+    v_plan := v_plan || ln.id::text || '|' || private.plan_piece(l.id, l.qty_left, l.value_left) || '|' || private.plan_piece(l.id, ln.qty_base, v_value) || '/';
+    perform private.apply_move(l.id, 'supplier_return', d.id, ln.id, -ln.qty_base, -v_value, d.returned_on, null, false);
+    v_credit_total := v_credit_total + v_credit;
+    v_value_total := v_value_total + v_value;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', ln.id, 'lot_id', l.id, 'item_id', ln.item_id, 'qty', ln.qty_base::text,
+      'money', jsonb_build_object('value', v_value::text, 'credit', v_credit::text)));
+  end loop;
+  -- قيمة السحب = اللي شافها المحاسب بالمعاينة (FOUNDATION ٥٢٠): سحب أو تصحيح سعر على الدفعة بعد المعاينة يغيّر قيمة المُرجَع، أو
+  -- يخلّي السطر ياخذ متبقّيها كلّه بلا تأكيده (E31)، بلا ما تتغيّر نسخة المسوّدة.
+  if p_expected_plan is null or private.plan_token(v_plan) is distinct from p_expected_plan then
+    raise exception 'stale_preview' using hint = 'تغيّر متبقّي دفعة بعد المعاينة فتغيّرت قيمة المُرجَع. عاين المرتجع من جديد ووافق عليه قبل الترحيل.';
+  end if;
+  v_no := private.next_doc_no('RT', d.returned_on);
+  if v_credit_total > 0 then
+    e := private.write_entry(gen_random_uuid(), d.party_id, d.book_id, 'supplier_return', v_credit_total, 'supplier_return', d.id, v_no, d.returned_on, null);
+    perform private.allocate_entry(e.id, private.receipt_purchase_entry(r.id));
+  end if;
+  if v_value_total <> v_credit_total then
+    insert into public.expenses (org_id, category_id, division_id, amount, on_date, for_month, source, doc_kind, doc_id)
+    values (d.org_id, v_category, w.division_id, v_value_total - v_credit_total, d.returned_on, date_trunc('month', d.returned_on)::date, 'adjustment',
+      'supplier_return', d.id);
+  end if;
+  perform private.mark_division_posted(w.division_id);
+  update public.supplier_returns set status = 'posted', doc_no = v_no, posted_at = now(), posted_by = auth.uid(), client_ref = p_client_ref
+  where org_id = d.org_id and id = d.id;
+  return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', d.id, 'kind', 'supplier_return', 'status', 'posted', 'doc_no', v_no,
+    'version', d.version, 'lines', v_lines,
+    'money', jsonb_build_object('value_total', v_value_total::text, 'credit_total', v_credit_total::text, 'diff', (v_value_total - v_credit_total)::text)));
+end
+$$;
+
+-- معاينة المرتجع (0010 كما هي، ويّا مشكلة السطر نفسها؛ قيمة السحب وبصمته كما كانتا).
+create or replace function public.preview_supplier_return(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  d public.supplier_returns;
+  r public.receipts;
+  w public.warehouses;
+  c record;
+  v_cost boolean := public.can_see_cost();
+  v_problems jsonb := '[]'::jsonb;
+  v_lines jsonb := '[]'::jsonb;
+  v_money jsonb := '[]'::jsonb;
+  v_date jsonb;
+  v_problem jsonb;
+  v_value numeric;
+  v_value_total numeric := 0;
+  v_credit_total numeric := 0;
+  v_missing boolean := false;
+  v_line_problems boolean := false;
+  v_plan text := '';
+begin
+  perform private.require(case when public.can('receipt.draft') then 'receipt.draft' else 'receipt.amounts' end);
+  select * into d from public.supplier_returns where org_id = public.auth_org() and id = p_id;
+  if d.id is null then
+    raise exception 'doc_not_found' using hint = 'هذا المستند غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  w := private.stock_wh(d.warehouse_id, true);
+  select * into r from public.receipts where org_id = d.org_id and id = d.receipt_id;
+  if d.status <> 'draft' then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'not_draft', 'hint', 'هذا المستند ليس مسوّدة.'));
+  end if;
+  v_date := private.date_problem(d.returned_on, w.division_id, false);
+  if v_date is not null then
+    v_problems := v_problems || jsonb_build_array(v_date);
+  end if;
+  if r.status <> 'posted' then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'receipt_not_posted', 'hint', 'الاستلام ليس مرحَّلاً (مسوّدة أو ملغى)، فلا يُرجَع منه شيء.'));
+  end if;
+  if d.returned_on < r.received_on then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'return_before_receipt', 'hint',
+      format('تاريخ المرتجع %s قبل استلام البضاعة %s؛ اكتب يوم الإرجاع الصحيح.', to_char(d.returned_on, 'DD/MM/YYYY'), to_char(r.received_on, 'DD/MM/YYYY'))));
+  end if;
+  for c in
+    select x.id, x.line_no, x.receipt_line_id, x.item_id, x.lot_id, x.qty_base, i.name as item_name, i.base_unit, i.tracks_expiry,
+      l.qty_left, l.value_left, l.expiry_on, a.credit_amount
+    from public.supplier_return_lines x
+    join public.items i on i.org_id = x.org_id and i.id = x.item_id
+    join public.stock_lots l on l.org_id = x.org_id and l.id = x.lot_id
+    left join public.supplier_return_line_amounts a on a.org_id = x.org_id and a.line_id = x.id
+    where x.org_id = d.org_id and x.doc_id = d.id
+    order by x.line_no
+  loop
+    v_problem := case when c.qty_base > c.qty_left then jsonb_build_object('code', 'insufficient_stock',
+      'hint', format('لا يكفي المتبقّي من دفعة الاستلام لهذا المرتجع: %s', private.return_shortage_detail(c.lot_id, c.qty_base))) end;
+    v_value := case when v_problem is not null then null when c.qty_base = c.qty_left then c.value_left
+      else private._mul_div_round2(c.qty_base, c.value_left, c.qty_left) end;
+    -- شراء بلا سعر (مراجعة 0020 M1): لا يُرجَع قبل «أكمل السعر» (قيمة السحب وبصمة الترحيل كما كانتا).
+    if v_problem is null and private.purchase_unpriced(c.receipt_line_id) then
+      v_problem := jsonb_build_object('code', 'unpriced_line', 'hint', format('شراء «%s» هذا بلا سعر بعد: أكمل سعر الشراء أوّلاً، ثمّ أرجِع للمورّد.', c.item_name));
+    end if;
+    v_line_problems := v_line_problems or v_problem is not null;
+    -- بصمة الترحيل (stale_preview): الدفعة بمتبقّيها وقيمته، والسطر بكميته وقيمة سحبه (صفر لسطر بمشكلة: الترحيل يرفضه قبلها).
+    v_plan := v_plan || c.id::text || '|' || private.plan_piece(c.lot_id, c.qty_left, c.value_left) || '|' || private.plan_piece(c.lot_id, c.qty_base, coalesce(v_value, 0)) || '/';
+    v_missing := v_missing or c.credit_amount is null;
+    v_value_total := v_value_total + coalesce(v_value, 0);
+    v_credit_total := v_credit_total + coalesce(c.credit_amount, 0);
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object('line_id', c.id, 'line_no', c.line_no, 'receipt_line_id', c.receipt_line_id,
+      'item_id', c.item_id, 'item_name', c.item_name, 'base_unit', c.base_unit, 'qty', c.qty_base::text, 'lot_id', c.lot_id,
+      'lot_qty_left', c.qty_left::text, 'whole_balance', c.qty_base = c.qty_left, 'problem', v_problem,
+      'warning', case when private.lot_expired(c.tracks_expiry, c.expiry_on, d.returned_on) then jsonb_build_object('code', 'expired_lot',
+        'hint', format('دفعة «%s» منتهية الصلاحية؛ يُرجعها المرتجع إلى المورّد.', c.item_name)) end));
+    v_money := v_money || jsonb_build_array(jsonb_build_object('line_id', c.id, 'value', v_value::text, 'credit', c.credit_amount::text,
+      'diff', case when v_value is not null and c.credit_amount is not null then (v_value - c.credit_amount)::text end));
+  end loop;
+  if jsonb_array_length(v_lines) = 0 then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'return_empty', 'hint', 'المرتجع بلا سطور. أضف سطراً واحداً على الأقلّ.'));
+  end if;
+  if v_cost and v_missing then
+    v_problems := v_problems || jsonb_build_array(jsonb_build_object('code', 'credit_required', 'hint', 'اكتب المبلغ الذي قبله المورّد لكل سطر (صفر إن لم يقبل شيئاً).'));
+  end if;
+  return private.mask(jsonb_build_object('id', d.id, 'kind', 'supplier_return', 'status', d.status, 'version', d.version, 'receipt_id', r.id,
+    'receipt_no', r.doc_no, 'party_id', d.party_id, 'warehouse_id', d.warehouse_id, 'book_id', d.book_id, 'returned_on', d.returned_on,
+    'problems', v_problems, 'lines', v_lines, 'plan', private.plan_token(v_plan),
+    'ready', v_cost and jsonb_array_length(v_problems) = 0 and jsonb_array_length(v_lines) > 0 and not v_line_problems,
+    'money', jsonb_build_object('lines', v_money, 'value_total', v_value_total::text, 'credit_total', v_credit_total::text,
+      'diff_total', (v_value_total - v_credit_total)::text)));
+end
+$$;
+
+-- قفل المخازن والمواد (0007 كما هو، ويّا: مادّة حُذفت بلحظة القفل تُرفض item_not_found، مراجعة 0020 L3). delete_item يقفل صفّها for update،
+-- فمستند يسابقه ينتظر هنا ثمّ لا يجدها؛ وبلا الفحص يصل إلى إدراج الرصيد فيرمي 23503 خاماً. كلّ متّصل يمرّر مواد من صفوف قائمة.
+create or replace function private.lock_masters(p_whs uuid[], p_items uuid[], p_original boolean) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  r record;
+  v_found int := 0;
+begin
+  set local lock_timeout = '5s';
+  for r in
+    select w.id, w.name, w.archived_at from public.warehouses w
+    where w.org_id = public.auth_org() and w.id = any (p_whs) order by w.id for share
+  loop
+    if p_original and r.archived_at is not null then
+      raise exception 'warehouse_archived' using hint = format('المخزن «%s» مؤرشف، فلا تُسجَّل فيه حركة جديدة. أعِده من الأرشيف أوّلاً.', r.name);
+    end if;
+  end loop;
+  for r in
+    select i.id, i.name, i.archived_at from public.items i
+    where i.org_id = public.auth_org() and i.id = any (p_items) order by i.id for share
+  loop
+    v_found := v_found + 1;
+    if p_original and r.archived_at is not null then
+      raise exception 'item_archived' using hint = format('المادّة «%s» مؤرشفة، فلا تُسجَّل لها حركة جديدة. أعِدها من الأرشيف أوّلاً.', r.name);
+    end if;
+  end loop;
+  if v_found < (select count(distinct x.id) from unnest(p_items) as x(id) where x.id is not null) then
+    raise exception 'item_not_found' using hint = 'حُذفت مادّة من هذا المستند من نافذة أو جهاز آخر قبل حفظه. حدّث الشاشة واختر من جديد.';
+  end if;
+end
+$$;
+
 -- ─── ز. تحويل مادّة إلى مادّة ──────────────────────────────────────────────────────────────────────────────────────
 -- نتيجة التحويل من صفوفه: نفسها لأوّل نداء وللإعادة بالمعرّف. القيمة داخل money (يقنّعها ref_store لغير أدوار الكلفة).
 create or replace function private.conversion_result(p_doc uuid) returns jsonb
@@ -967,7 +1243,7 @@ begin
         case when v_expired > 0 then format(' وفي مخازنك %s منتهية الصلاحية لا تُحوَّل.', private.qty_text(v_expired, a.base_unit)) else '' end);
     end if;
     if v_count > 1 then
-      raise exception 'store_required' using hint = format('«%s» موجودة في أكثر من مخزن في نطاقك: %s. اختر المخزن الذي تحوّل منه.', a.name, v_names);
+      raise exception 'from_store_required' using hint = format('«%s» موجودة في أكثر من مخزن في نطاقك: %s. اختر المخزن الذي تحوّل منه.', a.name, v_names);
     end if;
     select y.* into wf from public.warehouses y cross join lateral private.stock_at(a.id, y.id, p_on) as q
     where y.org_id = v_org and y.archived_at is null and private.item_admissible(y.kind, a.kind) and public.in_scope_wh(y.id) and q.available > 0;
@@ -1388,7 +1664,7 @@ begin
   where s.org_id = v_org and s.item_id = i.id and public.in_scope_wh(s.warehouse_id);
   with buys as (
     select x.id as line_id, r.id as doc_id, r.doc_no, r.received_on, r.posted_at, r.party_id, t.name as party_name, y.name as warehouse_name,
-      r.book_id, l.qty_in,
+      r.book_id, l.id as lot_id, l.qty_in,
       (pp.id is not null and pp.unit_price is null and rv.new_total is null) as unpriced,
       coalesce(rv.new_total, la.line_total, 0) as line_total, rv.new_total is not null and rv.unit_price is null as corrected,
       case when pp.id is not null and pp.unit_price is null and rv.new_total is null then null
@@ -1413,7 +1689,10 @@ begin
       and public.in_scope_wh(l.warehouse_id)
   ), ordered as (
     select b.*, row_number() over (order by b.received_on desc, b.posted_at desc, b.line_id desc) as n,
-      v_record and b.unpriced and public.in_scope_book(b.book_id) as can_price from buys b
+      -- «أكمل السعر» بالقاعدة التي يفرضها التسعير (revalue_plan): الدفتر بنطاقه، وكلّ مخزن فيه من الشراء متبقٍّ بنطاقه (مراجعة 0020 L2).
+      v_record and b.unpriced and public.in_scope_book(b.book_id) and not exists (
+        select 1 from public.stock_lots f where f.org_id = v_org and (f.id = b.lot_id or f.origin_lot_id = b.lot_id) and f.qty_left > 0
+          and not public.in_scope_wh(f.warehouse_id)) as can_price from buys b
   )
   select count(*)::int, coalesce(sum(o.qty_in), 0), coalesce(sum(o.qty_in) filter (where not o.unpriced), 0), coalesce(sum(o.line_total), 0),
     (array_agg(o.unit_price order by o.n) filter (where not o.unpriced))[1], (count(*) filter (where o.unpriced))::int, coalesce(bool_or(o.can_price), false),
@@ -2151,6 +2430,16 @@ language sql stable security definer set search_path = public, pg_temp as $$
     or (v.unit_price is null and v.status = 'posted' and pp.id is not null and pp.unit_price is null
       and not exists (select 1 from public.receipt_revaluations z where z.org_id = v.org_id and z.receipt_line_id = v.receipt_line_id
         and z.unit_price is not null and z.status = 'posted' and z.rev_no < v.rev_no))
+  union all
+  -- ٤) لا مرتجع مرحَّل من شراء وهو بلا سعر (مراجعة 0020 M1): كلّ سحب مرتجع من سطر سعره فارغ بعد تسعير مرحَّل له (seq السحب أكبر من علامة
+  --    التسعير لمخزنه، والعلامة تحت قفل الرصيد نفسه)، وإلّا فالمورّد حُمِّل ثمن المُرجَع.
+  select 'unpriced_returns', count(*) from public.stock_moves m
+  join public.supplier_return_lines rl on rl.org_id = m.org_id and rl.id = m.doc_line_id and rl.doc_id = m.doc_id
+  join public.purchase_prices pp on pp.org_id = rl.org_id and pp.line_id = rl.receipt_line_id
+  where m.doc_kind = 'supplier_return' and m.reverses_move_id is null and pp.unit_price is null
+    and not exists (select 1 from public.stock_moves r where r.org_id = m.org_id and r.reverses_move_id = m.id)
+    and not exists (select 1 from public.receipt_revaluations v where v.org_id = rl.org_id and v.receipt_line_id = rl.receipt_line_id
+      and v.unit_price is not null and v.status = 'posted' and m.seq > coalesce((v.marks ->> m.warehouse_id::text)::bigint, 0))
 $$;
 
 create or replace function public.verify_store_ops() returns table (check_name text, violations bigint)
