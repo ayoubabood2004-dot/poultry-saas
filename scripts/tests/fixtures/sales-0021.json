@@ -2,7 +2,7 @@
   "generated_by": "supabase/tests/sales.test.mjs (embedded Postgres 17، اليوم المثبَّت 2026-11-08)",
   "record_sale": {
     "storekeeper_credit": {
-      "id": "0776c711-f7f2-40c5-9c8d-30e12c85f0ca",
+      "id": "641caf6e-a8ad-4241-ae28-e477d48677fe",
       "qty": "100",
       "cost": {},
       "free": false,
@@ -13,23 +13,23 @@
       },
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "book_id": "be98e0a5-c595-42e3-808a-ef8d0e7f33b9",
-      "item_id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
-      "line_id": "e9a4cf5e-943c-4673-8a9d-9152af3ff64b",
+      "book_id": "45650132-cf4d-4835-8282-37f6722f02d7",
+      "item_id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
+      "line_id": "e9c2e8d2-add5-499b-9101-5422af106bab",
       "payment": "credit",
       "sold_on": "2026-11-08",
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "base_unit": "kg",
       "item_name": "علف بادئ",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "void_reason": null,
-      "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7",
+      "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0",
       "warehouse_name": "مخزن العلف",
       "cash_account_id": null
     },
     "owner_cash": {
-      "id": "f191c5dd-628c-4f2a-bddc-e1d8f7d36216",
+      "id": "4ae093f8-08d6-4b54-8d4e-e7f37748d0c5",
       "qty": "200",
       "cost": {
         "money": {
@@ -45,23 +45,23 @@
       },
       "doc_no": "MS-2026-0001",
       "status": "posted",
-      "book_id": "be98e0a5-c595-42e3-808a-ef8d0e7f33b9",
-      "item_id": "8935fbe1-c91f-48c1-80a0-3b75f3e69f32",
-      "line_id": "07482d8e-876c-4d20-b9ac-c52af0cfa766",
+      "book_id": "45650132-cf4d-4835-8282-37f6722f02d7",
+      "item_id": "0694a26d-60db-4963-919f-14689bb3ad92",
+      "line_id": "b38b0d6a-4bdc-4d94-86a7-df06a4d68e4d",
       "payment": "cash",
       "sold_on": "2026-11-08",
-      "party_id": "94d02c4c-ac40-494c-90a2-012984667707",
+      "party_id": "cd4fe8d6-4136-4996-a643-7888939162b7",
       "base_unit": "kg",
       "item_name": "ذرة صفراء",
       "voided_at": null,
       "party_name": "شركة الدواجن",
       "void_reason": null,
-      "warehouse_id": "a7b3e45e-6121-4f03-aaa6-3699dd0ccd8c",
+      "warehouse_id": "dded095f-72bb-4fe4-b2b4-2420d346f235",
       "warehouse_name": "مخزن المواد الأوّلية",
-      "cash_account_id": "2a06a457-746c-48af-ab6e-9da67e7618ae"
+      "cash_account_id": "8300ba66-c55f-4607-947b-5e304764124e"
     },
     "owner_medicine": {
-      "id": "c6b91a85-18b5-47b0-8d18-eb174e8497d8",
+      "id": "d310f199-0b39-4bce-9056-e657d8da0909",
       "qty": "10",
       "cost": {
         "money": {
@@ -77,23 +77,23 @@
       },
       "doc_no": "MD-2026-0001",
       "status": "posted",
-      "book_id": "4ee0edb1-9c1f-42a1-a8b2-2539cf7c2285",
-      "item_id": "aa18fc03-b5fa-43e2-90df-1d3891cf8607",
-      "line_id": "137e0b94-59c3-44da-93af-78c1bae4cc59",
+      "book_id": "2781e3fc-2c68-4444-a02e-3db2dc886f48",
+      "item_id": "6a139693-9d48-4872-91c0-cea86276dd40",
+      "line_id": "46597234-7904-4e6c-8bdf-d4b1b8f6249a",
       "payment": "credit",
       "sold_on": "2026-11-08",
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "base_unit": "pc",
       "item_name": "لقاح نيوكاسل",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "void_reason": null,
-      "warehouse_id": "e911c494-1e7a-4090-acff-cc430bb18e41",
+      "warehouse_id": "5714571e-c875-4474-a181-6ee4f3bd0ba1",
       "warehouse_name": "مخزن الأدوية",
       "cash_account_id": null
     },
     "storekeeper_free": {
-      "id": "f03d8072-e49a-4bb0-821c-d0bffd549d5b",
+      "id": "bba8ecfa-8777-412c-a2ab-73389aafcb47",
       "qty": "10",
       "cost": {},
       "free": true,
@@ -104,45 +104,45 @@
       },
       "doc_no": "MS-2026-0002",
       "status": "posted",
-      "book_id": "6949e0c9-2074-475a-a0fd-1773eee1ed88",
-      "item_id": "16291f1d-eb77-4162-bb3b-dc18ec65330e",
-      "line_id": "5b50200e-cff6-4edf-91be-ca7692076642",
+      "book_id": "4bcfc005-a560-4dd5-9461-74199c8c6155",
+      "item_id": "7e3785dd-523b-41df-af37-bbb4274a300b",
+      "line_id": "f8720494-6933-4dfc-8378-308a74e212d0",
       "payment": "credit",
       "sold_on": "2026-11-08",
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "base_unit": "L",
       "item_name": "كاز",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "void_reason": null,
-      "warehouse_id": "9ac07bd0-1fb8-4eb8-975c-fab54f646af5",
+      "warehouse_id": "459c5d38-61ac-4cd2-83ee-cec7f74f0143",
       "warehouse_name": "المخزن العام",
       "cash_account_id": null
     }
   },
   "void_sale": {
     "manager_cash_kept": {
-      "id": "f191c5dd-628c-4f2a-bddc-e1d8f7d36216",
+      "id": "4ae093f8-08d6-4b54-8d4e-e7f37748d0c5",
       "money": {
         "line_total": "120000",
         "payment_kept": "120000"
       },
       "doc_no": "MS-2026-0001",
       "status": "void",
-      "party_id": "94d02c4c-ac40-494c-90a2-012984667707",
+      "party_id": "cd4fe8d6-4136-4996-a643-7888939162b7",
       "voided_on": "2026-11-08",
       "reversed_moves": 1,
-      "payment_entry_id": "c3e4f4fd-9c9c-4e31-84d7-23da7fd8e6dc"
+      "payment_entry_id": "32b64290-ab6c-45b9-81e4-e989cd6a5661"
     },
     "manager_credit": {
-      "id": "c6b91a85-18b5-47b0-8d18-eb174e8497d8",
+      "id": "d310f199-0b39-4bce-9056-e657d8da0909",
       "money": {
         "line_total": "8000",
         "payment_kept": "0"
       },
       "doc_no": "MD-2026-0001",
       "status": "void",
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "voided_on": "2026-11-08",
       "reversed_moves": 1,
       "payment_entry_id": null
@@ -155,7 +155,7 @@
       "more": false,
       "rows": [
         {
-          "id": "f03d8072-e49a-4bb0-821c-d0bffd549d5b",
+          "id": "bba8ecfa-8777-412c-a2ab-73389aafcb47",
           "qty": "10",
           "cost": {
             "money": {
@@ -170,18 +170,18 @@
           },
           "doc_no": "MS-2026-0002",
           "status": "posted",
-          "item_id": "16291f1d-eb77-4162-bb3b-dc18ec65330e",
+          "item_id": "7e3785dd-523b-41df-af37-bbb4274a300b",
           "payment": "credit",
           "sold_on": "2026-11-08",
-          "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "أبو أحمد",
-          "warehouse_id": "9ac07bd0-1fb8-4eb8-975c-fab54f646af5",
+          "warehouse_id": "459c5d38-61ac-4cd2-83ee-cec7f74f0143",
           "warehouse_name": "المخزن العام"
         },
         {
-          "id": "c6b91a85-18b5-47b0-8d18-eb174e8497d8",
+          "id": "d310f199-0b39-4bce-9056-e657d8da0909",
           "qty": "10",
           "cost": {
             "money": {
@@ -196,18 +196,18 @@
           },
           "doc_no": "MD-2026-0001",
           "status": "void",
-          "item_id": "aa18fc03-b5fa-43e2-90df-1d3891cf8607",
+          "item_id": "6a139693-9d48-4872-91c0-cea86276dd40",
           "payment": "credit",
           "sold_on": "2026-11-08",
-          "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "base_unit": "pc",
           "item_name": "لقاح نيوكاسل",
           "party_name": "أبو أحمد",
-          "warehouse_id": "e911c494-1e7a-4090-acff-cc430bb18e41",
+          "warehouse_id": "5714571e-c875-4474-a181-6ee4f3bd0ba1",
           "warehouse_name": "مخزن الأدوية"
         },
         {
-          "id": "f191c5dd-628c-4f2a-bddc-e1d8f7d36216",
+          "id": "4ae093f8-08d6-4b54-8d4e-e7f37748d0c5",
           "qty": "200",
           "cost": {
             "money": {
@@ -222,18 +222,18 @@
           },
           "doc_no": "MS-2026-0001",
           "status": "void",
-          "item_id": "8935fbe1-c91f-48c1-80a0-3b75f3e69f32",
+          "item_id": "0694a26d-60db-4963-919f-14689bb3ad92",
           "payment": "cash",
           "sold_on": "2026-11-08",
-          "party_id": "94d02c4c-ac40-494c-90a2-012984667707",
+          "party_id": "cd4fe8d6-4136-4996-a643-7888939162b7",
           "base_unit": "kg",
           "item_name": "ذرة صفراء",
           "party_name": "شركة الدواجن",
-          "warehouse_id": "a7b3e45e-6121-4f03-aaa6-3699dd0ccd8c",
+          "warehouse_id": "dded095f-72bb-4fe4-b2b4-2420d346f235",
           "warehouse_name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "0776c711-f7f2-40c5-9c8d-30e12c85f0ca",
+          "id": "641caf6e-a8ad-4241-ae28-e477d48677fe",
           "qty": "100",
           "cost": {
             "money": {
@@ -248,14 +248,14 @@
           },
           "doc_no": "FD-2026-0001",
           "status": "posted",
-          "item_id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
+          "item_id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
           "payment": "credit",
           "sold_on": "2026-11-08",
-          "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "أبو أحمد",
-          "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7",
+          "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0",
           "warehouse_name": "مخزن العلف"
         }
       ],
@@ -284,7 +284,7 @@
       "more": false,
       "rows": [
         {
-          "id": "f03d8072-e49a-4bb0-821c-d0bffd549d5b",
+          "id": "bba8ecfa-8777-412c-a2ab-73389aafcb47",
           "qty": "10",
           "cost": {},
           "free": true,
@@ -294,18 +294,18 @@
           },
           "doc_no": "MS-2026-0002",
           "status": "posted",
-          "item_id": "16291f1d-eb77-4162-bb3b-dc18ec65330e",
+          "item_id": "7e3785dd-523b-41df-af37-bbb4274a300b",
           "payment": "credit",
           "sold_on": "2026-11-08",
-          "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "أبو أحمد",
-          "warehouse_id": "9ac07bd0-1fb8-4eb8-975c-fab54f646af5",
+          "warehouse_id": "459c5d38-61ac-4cd2-83ee-cec7f74f0143",
           "warehouse_name": "المخزن العام"
         },
         {
-          "id": "f191c5dd-628c-4f2a-bddc-e1d8f7d36216",
+          "id": "4ae093f8-08d6-4b54-8d4e-e7f37748d0c5",
           "qty": "200",
           "cost": {},
           "free": false,
@@ -315,18 +315,18 @@
           },
           "doc_no": "MS-2026-0001",
           "status": "void",
-          "item_id": "8935fbe1-c91f-48c1-80a0-3b75f3e69f32",
+          "item_id": "0694a26d-60db-4963-919f-14689bb3ad92",
           "payment": "cash",
           "sold_on": "2026-11-08",
-          "party_id": "94d02c4c-ac40-494c-90a2-012984667707",
+          "party_id": "cd4fe8d6-4136-4996-a643-7888939162b7",
           "base_unit": "kg",
           "item_name": "ذرة صفراء",
           "party_name": "شركة الدواجن",
-          "warehouse_id": "a7b3e45e-6121-4f03-aaa6-3699dd0ccd8c",
+          "warehouse_id": "dded095f-72bb-4fe4-b2b4-2420d346f235",
           "warehouse_name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "0776c711-f7f2-40c5-9c8d-30e12c85f0ca",
+          "id": "641caf6e-a8ad-4241-ae28-e477d48677fe",
           "qty": "100",
           "cost": {},
           "free": false,
@@ -336,14 +336,14 @@
           },
           "doc_no": "FD-2026-0001",
           "status": "posted",
-          "item_id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
+          "item_id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
           "payment": "credit",
           "sold_on": "2026-11-08",
-          "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "أبو أحمد",
-          "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7",
+          "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0",
           "warehouse_name": "مخزن العلف"
         }
       ],
@@ -364,7 +364,7 @@
   },
   "sale_detail": {
     "owner": {
-      "id": "0776c711-f7f2-40c5-9c8d-30e12c85f0ca",
+      "id": "641caf6e-a8ad-4241-ae28-e477d48677fe",
       "qty": "100",
       "cost": {
         "money": {
@@ -381,7 +381,7 @@
               "value": "60000.00"
             }
           },
-          "lot_id": "4bb63764-be59-4166-91b7-4c4fb6f17e63",
+          "lot_id": "fd8370a5-b089-4708-a71d-a255d3b87296",
           "expiry_on": null,
           "received_on": "2026-11-03"
         }
@@ -393,28 +393,28 @@
       },
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "book_id": "be98e0a5-c595-42e3-808a-ef8d0e7f33b9",
-      "item_id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
-      "line_id": "e9a4cf5e-943c-4673-8a9d-9152af3ff64b",
+      "book_id": "45650132-cf4d-4835-8282-37f6722f02d7",
+      "item_id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
+      "line_id": "e9c2e8d2-add5-499b-9101-5422af106bab",
       "payment": "credit",
       "sold_on": "2026-11-08",
       "can_void": true,
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "base_unit": "kg",
       "item_name": "علف بادئ",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "void_reason": null,
       "cash_move_id": null,
-      "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7",
+      "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0",
       "warehouse_name": "مخزن العلف",
       "cash_account_id": null,
-      "invoice_entry_id": "604f59cf-ba71-4d51-aeb4-69767069faac",
+      "invoice_entry_id": "a51ea0ee-b0cd-47c8-b36a-91e429c70dfe",
       "payment_entry_id": null,
       "payment_reversed": false
     },
     "storekeeper": {
-      "id": "0776c711-f7f2-40c5-9c8d-30e12c85f0ca",
+      "id": "641caf6e-a8ad-4241-ae28-e477d48677fe",
       "qty": "100",
       "cost": {},
       "free": false,
@@ -422,7 +422,7 @@
         {
           "qty": "100",
           "cost": {},
-          "lot_id": "4bb63764-be59-4166-91b7-4c4fb6f17e63",
+          "lot_id": "fd8370a5-b089-4708-a71d-a255d3b87296",
           "expiry_on": null,
           "received_on": "2026-11-03"
         }
@@ -434,23 +434,23 @@
       },
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "book_id": "be98e0a5-c595-42e3-808a-ef8d0e7f33b9",
-      "item_id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
-      "line_id": "e9a4cf5e-943c-4673-8a9d-9152af3ff64b",
+      "book_id": "45650132-cf4d-4835-8282-37f6722f02d7",
+      "item_id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
+      "line_id": "e9c2e8d2-add5-499b-9101-5422af106bab",
       "payment": "credit",
       "sold_on": "2026-11-08",
       "can_void": false,
-      "party_id": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+      "party_id": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
       "base_unit": "kg",
       "item_name": "علف بادئ",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "void_reason": null,
       "cash_move_id": null,
-      "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7",
+      "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0",
       "warehouse_name": "مخزن العلف",
       "cash_account_id": null,
-      "invoice_entry_id": "604f59cf-ba71-4d51-aeb4-69767069faac",
+      "invoice_entry_id": "a51ea0ee-b0cd-47c8-b36a-91e429c70dfe",
       "payment_entry_id": null,
       "payment_reversed": false
     }
@@ -461,7 +461,7 @@
       "from": "2026-11-01",
       "rows": [
         {
-          "key": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "key": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "qty": null,
           "cost": {
             "money": {
@@ -496,7 +496,7 @@
       "from": "2026-11-01",
       "rows": [
         {
-          "key": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
+          "key": "04a65322-f9c3-4bb4-878d-8510bc31c332",
           "qty": "100",
           "cost": {
             "money": {
@@ -512,7 +512,7 @@
           "base_unit": "kg"
         },
         {
-          "key": "16291f1d-eb77-4162-bb3b-dc18ec65330e",
+          "key": "7e3785dd-523b-41df-af37-bbb4274a300b",
           "qty": "10",
           "cost": {
             "money": {
@@ -582,7 +582,7 @@
       "from": "2026-11-01",
       "rows": [
         {
-          "key": "f137572d-9afd-4dbd-a975-7c7dd0586eb6",
+          "key": "843f6b2c-ec6e-4fec-bcc0-bf632db70d54",
           "qty": null,
           "cost": {},
           "count": 3,
@@ -605,7 +605,7 @@
   },
   "item_file_storekeeper_starter": {
     "item": {
-      "id": "19dafd74-6a98-4882-b886-c9b087a2dcc3",
+      "id": "04a65322-f9c3-4bb4-878d-8510bc31c332",
       "kind": "feed",
       "name": "علف بادئ",
       "version": 1,
@@ -635,7 +635,7 @@
         "name": "مخزن العلف",
         "expired": "0",
         "available": "350.000",
-        "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7"
+        "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0"
       },
       {
         "qty": "50.000",
@@ -643,7 +643,7 @@
         "name": "مخزن علف ثانٍ",
         "expired": "0",
         "available": "50.000",
-        "warehouse_id": "5cf56c7b-a72e-4a16-ac69-133616e1cce7"
+        "warehouse_id": "429cc16b-014f-41ac-b53c-cdfabda7aac8"
       }
     ],
     "can_edit": false,
@@ -657,7 +657,7 @@
     "can_transfer": true,
     "cash_accounts": [
       {
-        "id": "2a06a457-746c-48af-ab6e-9da67e7618ae",
+        "id": "8300ba66-c55f-4607-947b-5e304764124e",
         "name": "الصندوق"
       }
     ],
@@ -668,12 +668,12 @@
       {
         "kind": "feed",
         "name": "مخزن العلف",
-        "warehouse_id": "b32543c3-16c6-4370-ac5e-0cf89d30c0b7"
+        "warehouse_id": "95ea7b0c-d37d-4384-904e-5c148e1ef4f0"
       },
       {
         "kind": "feed",
         "name": "مخزن علف ثانٍ",
-        "warehouse_id": "5cf56c7b-a72e-4a16-ac69-133616e1cce7"
+        "warehouse_id": "429cc16b-014f-41ac-b53c-cdfabda7aac8"
       }
     ]
   },
