@@ -15,13 +15,13 @@ import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as inventory from '../../lib/repo/inventory';
 import * as purchases from '../../lib/repo/purchases';
-import type { ConversionInput, FileStore, OpIds, RecordedConversion } from '../../lib/repo/purchases';
+import type { ConversionInput, FileStore, RecordedConversion } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { SimpleItemDialog } from './ItemCreate';
-import { FailureNotice, ItemPickCards, UnknownNotice, useSend, type OpItem } from './ItemOps';
+import { FailureNotice, ItemPickCards, UnknownNotice, useSend, type OpItem, type OpSession, type Pending } from './ItemOps';
 import { receivingStores } from './PurchaseDialog';
 import { baseQty } from './simple-shared';
 import { scopedStores, StoreSelect, storesOf } from './stock-shared';
@@ -53,14 +53,18 @@ const qtyProblem = (text: string, unit: OpItem['baseUnit']): { qty: Milli | null
   return { qty, error: null };
 };
 
-/** التحويل من النموذج أو أخطاء حقوله. pickTo: طلب الخادم اختيار مخزن الثانية (store_required). */
-export function conversionInput(form: ConvertForm, item: OpItem, today: Day, stores: readonly FileStore[], pickTo: boolean): { input: ConversionInput | null; errors: Partial<Record<ConvertField, string>> } {
+/**
+ * التحويل من النموذج أو أخطاء حقوله. pickTo: طلب الخادم اختيار مخزن الثانية (store_required)؛ وpickFrom: طلب اختيار مخزن الأولى
+ * (from_store_required: صارت في أكثر من مخزن بعد فتح الملفّ).
+ */
+export function conversionInput(form: ConvertForm, item: OpItem, today: Day, stores: readonly FileStore[], pickTo: boolean, pickFrom = false): { input: ConversionInput | null; errors: Partial<Record<ConvertField, string>> } {
   const errors: Partial<Record<ConvertField, string>> = {};
   if (!form.target) errors.target = t('convert.target.required', 'اختر المادّة التي تحوّل إليها.');
   const from = qtyProblem(form.fromQty, item.baseUnit);
   if (from.error) errors.fromQty = from.error;
-  const store = stores.length > 1 ? stores.find((row) => row.warehouseId === form.fromWarehouseId) : stores[0];
-  if (stores.length > 1 && !store) errors.from = t('purchase.store.required', 'اختر المخزن.');
+  const chooseFrom = pickFrom || stores.length > 1;
+  const store = chooseFrom ? stores.find((row) => row.warehouseId === form.fromWarehouseId) : stores[0];
+  if (chooseFrom && !store) errors.from = t('purchase.store.required', 'اختر المخزن.');
   else if (from.qty !== null && store && from.qty > store.available) errors.fromQty = t('sale.qty.over', 'الموجود {qty} فقط.', { qty: baseQty(store.available, item.baseUnit) });
   const to = form.target ? qtyProblem(form.toQty, form.target.baseUnit) : { qty: null, error: null };
   if (form.target && to.error) errors.toQty = to.error;
@@ -75,7 +79,7 @@ export function conversionInput(form: ConvertForm, item: OpItem, today: Day, sto
       toItemId: form.target.id,
       toQty: to.qty,
       on: day.day,
-      fromWarehouseId: stores.length > 1 ? (store?.warehouseId ?? null) : null,
+      fromWarehouseId: chooseFrom ? (store?.warehouseId ?? null) : null,
       toWarehouseId: pickTo ? form.toWarehouseId : null,
     },
     errors,
@@ -92,12 +96,46 @@ export function convertLabel(input: ConversionInput | null, item: OpItem, target
   });
 }
 
-export function ConvertDialog({ item, today, stores, onClose, onAbandon, onSaved }: { item: OpItem; today: Day; stores: readonly FileStore[]; onClose: () => void; onAbandon: () => void; onSaved: (result: RecordedConversion, input: ConversionInput, target: OpItem) => void }) {
+/**
+ * مخزن المصدر أم الوجهة: from_store_required للمصدر وstore_required للوجهة؛ وقبل أن يرسل الخادم الرمز الأوّل يقول التلميح «تحوّل منه»
+ * للمصدر (store_required بالرمزين معاً)، فالتلميح يفرّقهما ما دام الرمز واحداً.
+ */
+export function storeAsked(error: RejectedError): 'from' | 'to' | null {
+  if (error.code === 'from_store_required') return 'from';
+  if (error.code !== 'store_required') return null;
+  return (error.hint ?? '').includes('تحوّل منه') ? 'from' : 'to';
+}
+
+export function ConvertDialog({
+  item,
+  today,
+  stores,
+  session,
+  onPending,
+  onStoresStale,
+  onClose,
+  onAbandon,
+  onSaved,
+}: {
+  item: OpItem;
+  today: Day;
+  stores: readonly FileStore[];
+  /** معرّفات التحويل ونداؤه المعلَّق من الصفحة (يبقيان بعد إغلاق النافذة). */
+  session: OpSession<ConversionInput>;
+  onPending: (pending: Pending<ConversionInput> | null) => void;
+  /** from_store_required: تغيّر المخزون عن الملفّ، فالصفحة تقرأ أين المادّة من جديد. */
+  onStoresStale: () => void;
+  onClose: () => void;
+  onAbandon: () => void;
+  onSaved: (result: RecordedConversion, input: ConversionInput, target: OpItem) => void;
+}) {
   const id = useId();
   const online = useStore(onlineStore);
-  const session = useSession();
-  const workspace = session.status === 'ready' ? session.workspace : null;
-  const [ids] = useState<OpIds>(purchases.newOpIds);
+  const account = useSession();
+  const workspace = account.status === 'ready' ? account.workspace : null;
+  const ids = session.ids;
+  const [fromHint, setFromHint] = useState<string | null>(null);
+  const pickFrom = fromHint !== null;
   const [form, setForm] = useState<ConvertForm>({ target: null, fromQty: '', toQty: '', toTouched: false, day: fmtDay(today), fromWarehouseId: '', toWarehouseId: '' });
   const [adding, setAdding] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
@@ -113,27 +151,36 @@ export function ConvertDialog({ item, today, stores, onClose, onAbandon, onSaved
       if (!next.toTouched && next.target && next.target.baseUnit === item.baseUnit && patch.toQty === undefined) next.toQty = next.fromQty;
       return next;
     });
-  const { input, errors } = conversionInput(form, item, today, stores, pickTo);
+  const { input, errors } = conversionInput(form, item, today, stores, pickTo, pickFrom);
   const shown = tried ? errors : {};
-  const { state, send } = useSend(
+  const { state, send, pending: lifted } = useSend(
     (sent: ConversionInput) => purchases.recordConversion(ids, sent),
     (result, sent) => onSaved(result, sent, form.target ?? item),
     (error: RejectedError) => {
-      if (error.code !== 'store_required') return false;
-      setToHint(error.hint ?? '');
-      return true;
+      const asked = storeAsked(error);
+      if (asked === 'from') {
+        setFromHint(error.hint ?? '');
+        onStoresStale();
+        return true;
+      }
+      if (asked === 'to') {
+        setToHint(error.hint ?? '');
+        return true;
+      }
+      return false;
     },
+    { pending: session.pending, onPending },
   );
   const pending = state.unknown;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!online || state.busy) return;
     if (pending) {
-      void send(pending);
+      void send(pending, '');
       return;
     }
     setTried(true);
-    if (input) void send(input);
+    if (input) void send(input, t('convert.sent', 'المرسَل: {label}، بتاريخ {day}.', { label: convertLabel(input, item, form.target), day: fmtDay(input.on) }));
   };
   const formId = `${id}-form`;
   const close = pending ? onAbandon : onClose;
@@ -160,7 +207,12 @@ export function ConvertDialog({ item, today, stores, onClose, onAbandon, onSaved
       <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {!online ? <Notice tone="warning" title={t('purchase.offline', 'يحتاج اتصالاً')} /> : null}
         {pending ? (
-          <UnknownNotice again={state.failure !== null} />
+          <>
+            <UnknownNotice again={state.failure !== null} />
+            <p className="text-sm" data-action="convert-sent">
+              {lifted?.summary}
+            </p>
+          </>
         ) : target === null ? (
           <div className="flex flex-col gap-2">
             <p className="font-medium">{t('convert.pick', 'إلى أيّ مادّة؟')}</p>
@@ -181,7 +233,14 @@ export function ConvertDialog({ item, today, stores, onClose, onAbandon, onSaved
                 {t('party.pick.change', 'غيّر')}
               </Button>
             </div>
-            {stores.length > 1 ? (
+            {pickFrom ? (
+              <div className="sm:col-span-2" data-action="convert-from-hint">
+                <Notice tone="info" title={t('convert.from_store.pick', '«{name}» في أكثر من مخزن؛ اختر المخزن الذي تحوّل منه', { name: item.name })}>
+                  {fromHint || null}
+                </Notice>
+              </div>
+            ) : null}
+            {stores.length > 1 || pickFrom ? (
               <Field id={`${id}-from`} label={t('convert.from_store', 'يخرج من مخزن')} error={shown.from}>
                 <select id={`${id}-from`} className="input" value={form.fromWarehouseId} onChange={(event) => set({ fromWarehouseId: event.target.value })} data-action="convert-from-store">
                   <option value="">{t('stock.store.pick', 'اختر المخزن')}</option>

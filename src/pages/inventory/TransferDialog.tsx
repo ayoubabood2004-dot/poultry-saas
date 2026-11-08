@@ -12,10 +12,10 @@ import { fmtDay } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as purchases from '../../lib/repo/purchases';
-import type { FileStore, FileTarget, OpIds, RecordedTransfer, TransferInput } from '../../lib/repo/purchases';
+import type { FileStore, FileTarget, RecordedTransfer, TransferInput } from '../../lib/repo/purchases';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useStore } from '../../lib/store';
-import { FailureNotice, UnknownNotice, useSend, type OpItem } from './ItemOps';
+import { FailureNotice, UnknownNotice, useSend, type OpItem, type OpSession, type Pending } from './ItemOps';
 import { baseQty } from './simple-shared';
 
 // «انقل» (0020، كلمة المالك 2026-11-08: «اريد ارسل مواد الى غير احد او غير كمية»، والتحويل من مخزن إلى مخزن بين أجوبته): من مخزن فيه المادّة
@@ -56,6 +56,8 @@ export function TransferDialog({
   today,
   stores,
   targets: allTargets,
+  session,
+  onPending,
   onClose,
   onAbandon,
   onSaved,
@@ -64,13 +66,16 @@ export function TransferDialog({
   today: Day;
   stores: readonly FileStore[];
   targets: readonly FileTarget[];
+  /** معرّفات النقل ونداؤه المعلَّق من الصفحة (يبقيان بعد إغلاق النافذة). */
+  session: OpSession<TransferInput>;
+  onPending: (pending: Pending<TransferInput> | null) => void;
   onClose: () => void;
   onAbandon: () => void;
   onSaved: (result: RecordedTransfer, input: TransferInput) => void;
 }) {
   const id = useId();
   const online = useStore(onlineStore);
-  const [ids] = useState<OpIds>(purchases.newOpIds);
+  const ids = session.ids;
   const [form, setForm] = useState<TransferForm>({ fromWarehouseId: '', toWarehouseId: '', qty: '', day: fmtDay(today) });
   const [tried, setTried] = useState(false);
   const set = (patch: Partial<TransferForm>) => setForm((current) => ({ ...current, ...patch }));
@@ -78,7 +83,7 @@ export function TransferDialog({
   const targets = transferTargets(allTargets, fromId);
   const { input, errors } = transferInput(form, item, today, stores);
   const shown = tried ? errors : {};
-  const { state, send } = useSend((sent: TransferInput) => purchases.recordTransfer(ids, sent), onSaved);
+  const { state, send, pending: lifted } = useSend((sent: TransferInput) => purchases.recordTransfer(ids, sent), onSaved, undefined, { pending: session.pending, onPending });
   const pending = state.unknown;
   const names = new Map(targets.map((store) => [store.warehouseId, store.name]));
   const fromName = stores.find((row) => row.warehouseId === fromId)?.name ?? '';
@@ -89,11 +94,11 @@ export function TransferDialog({
     event.preventDefault();
     if (!online || state.busy) return;
     if (pending) {
-      void send(pending);
+      void send(pending, '');
       return;
     }
     setTried(true);
-    if (input) void send(input);
+    if (input) void send(input, t('move.sent', 'المرسَل: {label}، بتاريخ {day}.', { label, day: fmtDay(input.on) }));
   };
   const formId = `${id}-form`;
   const close = pending ? onAbandon : onClose;
@@ -119,7 +124,12 @@ export function TransferDialog({
       <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {!online ? <Notice tone="warning" title={t('purchase.offline', 'يحتاج اتصالاً')} /> : null}
         {pending ? (
-          <UnknownNotice again={state.failure !== null} />
+          <>
+            <UnknownNotice again={state.failure !== null} />
+            <p className="text-sm" data-action="move-sent">
+              {lifted?.summary}
+            </p>
+          </>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2" data-action="move-grid">
             {stores.length === 1 && stores[0] ? (

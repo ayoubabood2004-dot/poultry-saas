@@ -9,7 +9,7 @@ import type { BaseUnit } from '../../domain/units';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
-import type { OverviewItem } from '../../lib/repo/purchases';
+import type { OpIds, OverviewItem } from '../../lib/repo/purchases';
 import { useLoad } from '../../lib/useLoad';
 import { baseQty } from './simple-shared';
 
@@ -23,36 +23,82 @@ export interface OpItem {
   baseUnit: BaseUnit;
 }
 
-/** حالة الإرسال: النداء المرسَل بعد نتيجة مجهولة يجمّد النافذة وفعلها «أعد المحاولة» به وحده. */
-export interface SendState<I> {
-  busy: boolean;
-  failure: unknown;
-  unknown: I | null;
+/** نداء أُرسل ولم يُعرف جوابه، بما يُعرض عنه («المرسَل: …»): الإعادة به وحده حرفاً. */
+export interface Pending<I> {
+  input: I;
+  summary: string;
+}
+
+/**
+ * معرّفات النداء ونداؤه المعلَّق، في الصفحة لا في النافذة (مراجعة 0020، كدرس 0019 F10): إغلاق النافذة بعد نتيجة مجهولة ثمّ فتحها يعيدان النداء
+ * نفسه بمعرّفاته، فلا يُسجَّل البيع أو التحويل أو النقل مرّتين بمعرّفين. معرّفات جديدة بعد الحفظ وحده (والرفض الأكيد يُصحَّح ويُعاد بها نفسها).
+ */
+export interface OpSession<I> {
+  /** المادّة (أو مفتاح العملية) التي فُتحت لها: جلسة مادّة أخرى لا تُستعمل هنا. */
+  key: string;
+  ids: OpIds;
+  pending: Pending<I> | null;
+}
+
+export function newSession<I>(key: string): OpSession<I> {
+  return { key, ids: purchases.newOpIds(), pending: null };
+}
+
+/** الجلسة للمفتاح نفسه، أو جديدة. */
+export function sessionFor<I>(current: OpSession<I> | null, key: string): OpSession<I> {
+  return current && current.key === key ? current : newSession<I>(key);
+}
+
+export interface Lifted<I> {
+  pending: Pending<I> | null;
+  onPending: (pending: Pending<I> | null) => void;
 }
 
 /**
  * الإرسال بنداء واحد وإعادته: النتيجة المجهولة تبقى مجهولة ما لم يرفضها الخادم رفضاً أكيداً (55P03 خلف الأصل، أو انقطاع)، والرفض الأكيد
- * يعيد النافذة للتصحيح. onRefused يأخذ الرفض أوّلاً (store_required ← اختيار المخزن) ويرجّع true إن عالجه.
+ * يعيد النافذة للتصحيح. onRefused يأخذ الرفض أوّلاً (store_required ← اختيار المخزن) ويرجّع true إن عالجه. والنداء المعلَّق في الصفحة إن
+ * أُعطيت lifted (يبقى بعد إغلاق النافذة)، وإلّا في النافذة.
  */
-export function useSend<I, R>(run: (input: I) => Promise<R>, onSaved: (result: R, input: I) => void, onRefused?: (error: RejectedError) => boolean) {
-  const [state, setState] = useState<SendState<I>>({ busy: false, failure: null, unknown: null });
-  const send = async (input: I) => {
-    const retrying = state.unknown !== null;
-    setState({ busy: true, failure: null, unknown: state.unknown });
+export function useSend<I, R>(run: (input: I) => Promise<R>, onSaved: (result: R, input: I) => void, onRefused?: (error: RejectedError) => boolean, lifted?: Lifted<I>) {
+  const [own, setOwn] = useState<Pending<I> | null>(null);
+  const pending = lifted ? lifted.pending : own;
+  const setPending = lifted ? lifted.onPending : setOwn;
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>(null);
+  const send = async (input: I, summary: string) => {
+    const retrying = pending !== null;
+    const sent = pending ? pending.input : input;
+    setBusy(true);
+    setFailure(null);
     try {
-      const result = await run(input);
-      setState({ busy: false, failure: null, unknown: null });
-      onSaved(result, input);
+      const result = await run(sent);
+      setBusy(false);
+      setPending(null);
+      onSaved(result, sent);
     } catch (error) {
-      if (!retrying && error instanceof RejectedError && onRefused?.(error)) {
-        setState({ busy: false, failure: null, unknown: null });
-        return;
-      }
+      setBusy(false);
+      if (!retrying && error instanceof RejectedError && onRefused?.(error)) return;
+      setFailure(error);
       const unknown = error instanceof UnknownOutcomeError || (retrying && !(error instanceof RejectedError));
-      setState({ busy: false, failure: error, unknown: unknown ? (state.unknown ?? input) : null });
+      if (unknown && !retrying) setPending({ input, summary });
+      else if (!unknown && retrying) setPending(null);
     }
   };
-  return { state, send };
+  return { state: { busy, failure, unknown: pending?.input ?? null }, pending, send };
+}
+
+/** شريط الصفحة لنداء معلَّق بعد إغلاق نافذته: «لم يُعرف إن حُفظ … — أعد المحاولة» يفتحها بالنداء نفسه. */
+export function PendingBanner({ what, summary, onRetry, action }: { what: string; summary: string; onRetry: () => void; action: string }) {
+  return (
+    <Notice tone="warning" title={t('op.pending', 'لم يُعرف إن حُفظ {what} — أعد المحاولة', { what })}>
+      <span className="flex flex-col items-start gap-2">
+        <span>{summary}</span>
+        <Button size="sm" variant="secondary" onClick={onRetry} data-action={action}>
+          {t('purchase.retry', 'أعد المحاولة')}
+        </Button>
+      </span>
+    </Notice>
+  );
 }
 
 /** رسالة الفشل تحت النافذة: تلميح الخادم إن وُجد (يسمّي ما ينقص)، وإلّا الوصف العامّ. */
@@ -74,7 +120,7 @@ export function UnknownNotice({ again }: { again: boolean }) {
       {t('op.unknown.detail', 'أُرسل ولم يصل الردّ. «أعد المحاولة» يرسله نفسه، ولن يُسجَّل مرّتين.')}
       {again ? (
         <span className="mt-1 block" data-action="op-retry-unknown">
-          {t('op.unknown.again', 'ولم تكتمل الإعادة أيضاً؛ أعد المحاولة بعد قليل، أو أغلق لترى ما حُفظ.')}
+          {t('op.unknown.again_kept', 'ولم تكتمل الإعادة أيضاً؛ أعد المحاولة بعد قليل. وإن أغلقت تبقى «أعد المحاولة» في الصفحة حتى يُعرف، فلا يُسجَّل مرّتين.')}
         </span>
       ) : null}
     </Notice>

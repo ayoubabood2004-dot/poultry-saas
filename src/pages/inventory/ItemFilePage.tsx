@@ -17,12 +17,12 @@ import { columnDecimals, fmtDay, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import * as purchases from '../../lib/repo/purchases';
-import type { FilePurchase, ItemFile, RecordedPurchase } from '../../lib/repo/purchases';
+import type { ConversionInput, FilePurchase, ItemFile, RecordedPurchase, SaleInput, TransferInput } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { ConvertDialog } from './ConvertDialog';
-import type { OpItem } from './ItemOps';
+import { PendingBanner, sessionFor, type OpItem, type OpSession } from './ItemOps';
 import { PriceDialog } from './PriceDialog';
 import { PurchaseDialog } from './PurchaseDialog';
 import { SaleDialog, saleDoneText } from './SaleDialog';
@@ -277,6 +277,10 @@ export default function ItemFilePage() {
   const navigate = useNavigate();
   const [buying, setBuying] = useState(false);
   const [op, setOp] = useState<Op>(null);
+  // معرّفات «بِع» و«حوّل» و«انقل» ونداؤها المعلَّق في الصفحة (مراجعة 0020 H1): إغلاق النافذة بعد نتيجة مجهولة يبقيها، وفتحها يعيد النداء نفسه.
+  const [sale, setSale] = useState<OpSession<SaleInput> | null>(null);
+  const [conversion, setConversion] = useState<OpSession<ConversionInput> | null>(null);
+  const [transfer, setTransfer] = useState<OpSession<TransferInput> | null>(null);
   const [saved, setSaved] = useState<{ itemId: string; text: string } | null>(null);
   const back = backTarget(search.get('back'), '/inventory');
   const costs = Boolean(workspace?.canSeeCost);
@@ -324,6 +328,26 @@ export default function ItemFilePage() {
     setOp(null);
     state.retry();
   };
+  const saleNow = sessionFor(sale, itemId);
+  const conversionNow = sessionFor(conversion, itemId);
+  const transferNow = sessionFor(transfer, itemId);
+  // الفتح يثبّت الجلسة (معرّفاتها)؛ والإغلاق بلا نداء معلَّق ينهيها، ومعه يبقيها والشريط يقول «أعد المحاولة».
+  const openOp = (kind: 'sell' | 'convert' | 'move') => {
+    if (kind === 'sell') setSale(saleNow);
+    if (kind === 'convert') setConversion(conversionNow);
+    if (kind === 'move') setTransfer(transferNow);
+    setOp(kind);
+  };
+  const closeOp = (kind: 'sell' | 'convert' | 'move') => {
+    if (kind === 'sell' && !saleNow.pending) setSale(null);
+    if (kind === 'convert' && !conversionNow.pending) setConversion(null);
+    if (kind === 'move' && !transferNow.pending) setTransfer(null);
+    setOp(null);
+  };
+  const banners: { kind: 'sell' | 'convert' | 'move'; what: string; summary: string }[] = [];
+  if (saleNow.pending && op !== 'sell') banners.push({ kind: 'sell', what: t('op.what.sale', 'البيع'), summary: saleNow.pending.summary });
+  if (conversionNow.pending && op !== 'convert') banners.push({ kind: 'convert', what: t('op.what.conversion', 'التحويل'), summary: conversionNow.pending.summary });
+  if (transferNow.pending && op !== 'move') banners.push({ kind: 'move', what: t('op.what.transfer', 'النقل'), summary: transferNow.pending.summary });
   const live = !file.item.archived;
   const anyAction = canBuy || (live && (file.canSell || file.canConvert || file.canTransfer)) || manage;
   return (
@@ -353,6 +377,9 @@ export default function ItemFilePage() {
       ) : null}
       {file.item.archived ? <Notice tone="info" title={t('file.archived', 'هذه المادّة مؤرشفة، فلا يُسجَّل لها شراء.')} /> : null}
       <StatStrip stats={fileStats(file)} />
+      {banners.map((banner) => (
+        <PendingBanner key={banner.kind} what={banner.what} summary={banner.summary} onRetry={() => openOp(banner.kind)} action={`retry-pending-${banner.kind}`} />
+      ))}
       {anyAction ? (
         // صفّ الأفعال (كلمة المالك 2026-11-08): «اشترِ» أوّلاً كبيراً، ثمّ ما يملكه الدور وما تسمح به المادّة؛ يلتفّ على الهاتف.
         <div className="flex flex-wrap items-center gap-2" data-action="file-actions">
@@ -363,19 +390,19 @@ export default function ItemFilePage() {
             </Button>
           ) : null}
           {live && file.canSell ? (
-            <Button size="lg" variant="secondary" onClick={() => setOp('sell')} disabled={state.loading} data-action="sell-item">
+            <Button size="lg" variant="secondary" onClick={() => openOp('sell')} disabled={state.loading} data-action="sell-item">
               <Banknote aria-hidden="true" className="size-5" />
               {t('file.sell_action', 'بِع')}
             </Button>
           ) : null}
           {live && file.canConvert ? (
-            <Button size="lg" variant="secondary" onClick={() => setOp('convert')} disabled={state.loading} data-action="convert-item">
+            <Button size="lg" variant="secondary" onClick={() => openOp('convert')} disabled={state.loading} data-action="convert-item">
               <Repeat aria-hidden="true" className="size-5" />
               {t('file.convert', 'حوّل')}
             </Button>
           ) : null}
           {live && file.canTransfer ? (
-            <Button size="lg" variant="secondary" onClick={() => setOp('move')} disabled={state.loading} data-action="move-item">
+            <Button size="lg" variant="secondary" onClick={() => openOp('move')} disabled={state.loading} data-action="move-item">
               <ArrowLeftRight aria-hidden="true" className="size-5" />
               {t('file.move', 'انقل')}
             </Button>
@@ -442,9 +469,15 @@ export default function ItemFilePage() {
           sellPrice={file.money?.sellPrice ?? null}
           stores={file.stores}
           cashAccounts={file.cashAccounts}
-          onClose={() => setOp(null)}
+          session={saleNow}
+          onPending={(pending) => setSale({ ...saleNow, pending })}
+          onStoresStale={state.retry}
+          onClose={() => closeOp('sell')}
           onAbandon={abandon}
-          onSaved={(result) => done(saleDoneText(result))}
+          onSaved={(result) => {
+            setSale(null);
+            done(saleDoneText(result));
+          }}
         />
       ) : null}
       {op === 'convert' ? (
@@ -452,9 +485,13 @@ export default function ItemFilePage() {
           item={opItem}
           today={file.today}
           stores={file.stores}
-          onClose={() => setOp(null)}
+          session={conversionNow}
+          onPending={(pending) => setConversion({ ...conversionNow, pending })}
+          onStoresStale={state.retry}
+          onClose={() => closeOp('convert')}
           onAbandon={abandon}
-          onSaved={(result) =>
+          onSaved={(result) => {
+            setConversion(null);
             done(
               t('convert.done', 'حُوِّل {from} من «{item}» في «{fromStore}» إلى {to} من «{target}» في «{toStore}» ({no}).', {
                 from: baseQty(result.from.qty, file.item.baseUnit),
@@ -465,8 +502,8 @@ export default function ItemFilePage() {
                 toStore: result.to.warehouseName,
                 no: result.docNo,
               }),
-            )
-          }
+            );
+          }}
         />
       ) : null}
       {op === 'move' ? (
@@ -475,11 +512,14 @@ export default function ItemFilePage() {
           today={file.today}
           stores={file.stores}
           targets={file.transferTargets}
-          onClose={() => setOp(null)}
+          session={transferNow}
+          onPending={(pending) => setTransfer({ ...transferNow, pending })}
+          onClose={() => closeOp('move')}
           onAbandon={abandon}
-          onSaved={(result) =>
-            done(t('move.done', 'نُقل {qty} «{item}» من «{from}» إلى «{to}» ({no}).', { qty: baseQty(result.qty, file.item.baseUnit), item: file.item.name, from: result.fromName, to: result.toName, no: result.docNo }))
-          }
+          onSaved={(result) => {
+            setTransfer(null);
+            done(t('move.done', 'نُقل {qty} «{item}» من «{from}» إلى «{to}» ({no}).', { qty: baseQty(result.qty, file.item.baseUnit), item: file.item.name, from: result.fromName, to: result.toName, no: result.docNo }));
+          }}
         />
       ) : null}
       {op !== null && typeof op === 'object' ? (

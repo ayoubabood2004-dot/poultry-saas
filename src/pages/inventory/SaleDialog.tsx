@@ -15,13 +15,13 @@ import { fmtDay, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import * as purchases from '../../lib/repo/purchases';
-import type { FileStore, OpIds, Payment, RecordedSale, SaleInput } from '../../lib/repo/purchases';
+import type { FileStore, Payment, RecordedSale, SaleInput } from '../../lib/repo/purchases';
 import * as purchasing from '../../lib/repo/purchasing';
 import type { BoxPick, PartyPick } from '../../lib/repo/purchasing';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { FailureNotice, UnknownNotice, useSend, type OpItem } from './ItemOps';
+import { FailureNotice, UnknownNotice, useSend, type OpItem, type OpSession, type Pending } from './ItemOps';
 import { BoxPicker, SupplierPicker } from './purchase-shared';
 import { priceText } from './PurchaseDialog';
 import { baseQty } from './simple-shared';
@@ -43,13 +43,17 @@ export interface SaleForm {
 
 export type SaleField = 'party' | 'qty' | 'price' | 'box' | 'day' | 'store';
 
-/** البيع من النموذج أو أخطاء حقوله بأسمائها. stores: أين المادّة؛ أكثر من مخزن يطلب الاختيار. */
-export function saleInput(form: SaleForm, item: OpItem, today: Day, stores: readonly FileStore[], box: string): { input: SaleInput | null; errors: Partial<Record<SaleField, string>> } {
+/**
+ * البيع من النموذج أو أخطاء حقوله بأسمائها. stores: أين المادّة؛ أكثر من مخزن يطلب الاختيار، وكذلك pick (طلبه الخادم: store_required بعد أن
+ * تغيّر المخزون عن الملفّ).
+ */
+export function saleInput(form: SaleForm, item: OpItem, today: Day, stores: readonly FileStore[], box: string, pick = false): { input: SaleInput | null; errors: Partial<Record<SaleField, string>> } {
   const errors: Partial<Record<SaleField, string>> = {};
   const unit = baseUnitLabel(item.baseUnit);
   if (!form.party) errors.party = t('sale.party.required', 'اختر الجهة التي بعتها، أو أضفها باسمها.');
   const qty = form.qty.trim() ? parseQty(form.qty) : null;
-  const store = stores.length > 1 ? stores.find((row) => row.warehouseId === form.warehouseId) : stores[0];
+  const choose = pick || stores.length > 1;
+  const store = choose ? stores.find((row) => row.warehouseId === form.warehouseId) : stores[0];
   // المتاح غير المنتهي: البيع يسحب منه وحده.
   const available = store ? store.available : stores.reduce((most, row) => (row.available > most ? row.available : most), 0n);
   if (qty === null || qty <= 0n) errors.qty = t('sale.qty.required', 'اكتب الكمية ({unit}) رقماً أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.', { unit });
@@ -58,7 +62,7 @@ export function saleInput(form: SaleForm, item: OpItem, today: Day, stores: read
   const price = form.price.trim() ? parseMoneyText(form.price, false) : null;
   if (price === null || price < 0n) errors.price = t('sale.price.required', 'اكتب سعر البيع لكل {unit} بالدينار (صفر للتسليم بلا مقابل).', { unit });
   else if (price > 0n && qty !== null && qty > 0n && !errors.qty && saleTotal(qty, price) === 0n) errors.price = t('sale.total.zero', 'مجموع البيع صفر بعد التقريب لأقرب دينار؛ راجع الكمية والسعر، أو اكتب السعر صفراً لتسليم بلا مقابل.');
-  if (stores.length > 1 && !store) errors.store = t('purchase.store.required', 'اختر المخزن.');
+  if (choose && !store) errors.store = t('purchase.store.required', 'اختر المخزن.');
   // التسليم بلا مقابل لا يُقبض نقداً (price_required_for_cash بالخادم): بالدين وحده.
   const payment: Payment = price === 0n ? 'credit' : form.payment;
   if (payment === 'cash' && !box) errors.box = t('purchase.box.required', 'اختر الصندوق الذي دُفع منه.');
@@ -74,7 +78,7 @@ export function saleInput(form: SaleForm, item: OpItem, today: Day, stores: read
       soldOn: day.day,
       payment,
       cashAccountId: payment === 'cash' ? box : null,
-      warehouseId: stores.length > 1 ? (store?.warehouseId ?? null) : null,
+      warehouseId: choose ? (store?.warehouseId ?? null) : null,
     },
     errors,
   };
@@ -90,6 +94,14 @@ export function saleLabel(input: SaleInput | null, item: OpItem, partyName: stri
   if (input.unitPrice === 0n) return t('sale.save.free', 'سلّم {qty} {item} لـ«{party}» بلا مقابل', vars);
   if (input.payment === 'credit') return t('sale.save.credit', 'بِع {qty} {item} لـ«{party}» بـ{total} دينار بالدين', vars);
   return boxName ? t('sale.save.cash', 'بِع {qty} {item} لـ«{party}» بـ{total} دينار نقداً إلى {box}', vars) : t('sale.save.cash_any', 'بِع {qty} {item} لـ«{party}» بـ{total} دينار نقداً', vars);
+}
+
+/** «المرسَل: …» لبيع لم يُعرف جوابه (والتسليم بلا مقابل بلا «بـ0 دينار»). */
+export function saleSent(sent: SaleInput, item: OpItem): string {
+  const vars = { qty: baseQty(sent.qty, item.baseUnit), item: item.name, day: fmtDay(sent.soldOn) };
+  return sent.unitPrice === 0n
+    ? t('sale.sent.free', 'المرسَل: تسليم {qty} {item} بلا مقابل، بتاريخ {day}.', vars)
+    : t('sale.sent', 'المرسَل: {qty} {item} بـ{total} دينار، بتاريخ {day}.', { ...vars, total: fmtMoney(saleTotal(sent.qty, sent.unitPrice), 0) });
 }
 
 /** جملة «حُفظ البيع» من جواب الخادم نفسه (الرقم والمخزن الذي سُحب منه والمبلغ). */
@@ -109,6 +121,9 @@ export function SaleDialog({
   sellPrice,
   stores,
   cashAccounts,
+  session,
+  onPending,
+  onStoresStale,
   onClose,
   onAbandon,
   onSaved,
@@ -119,13 +134,19 @@ export function SaleDialog({
   stores: readonly FileStore[];
   /** الصناديق من الخادم (الأمين لا يقرأ جدولها)، أو null فتُقرأ من جدولها. */
   cashAccounts: readonly BoxPick[] | null;
+  /** معرّفات البيع ونداؤه المعلَّق من الصفحة (يبقيان بعد إغلاق النافذة). */
+  session: OpSession<SaleInput>;
+  onPending: (pending: Pending<SaleInput> | null) => void;
+  /** store_required: تغيّر المخزون عن الملفّ، فالصفحة تقرأ أين المادّة من جديد. */
+  onStoresStale: () => void;
   onClose: () => void;
   onAbandon: () => void;
   onSaved: (result: RecordedSale, input: SaleInput) => void;
 }) {
   const id = useId();
   const online = useStore(onlineStore);
-  const [ids] = useState<OpIds>(purchases.newOpIds);
+  const ids = session.ids;
+  const [storeHint, setStoreHint] = useState<string | null>(null);
   const [form, setForm] = useState<SaleForm>({ party: null, qty: '', price: priceText(sellPrice), payment: 'credit', box: '', day: fmtDay(today), warehouseId: '' });
   const [tried, setTried] = useState(false);
   const [askFree, setAskFree] = useState(false);
@@ -136,16 +157,28 @@ export function SaleDialog({
   const boxes = cashAccounts ?? listed.data;
   const box = form.box || (boxes && boxes.length === 1 && boxes[0] ? boxes[0].id : '');
   const boxName = boxes?.find((row) => row.id === box)?.name ?? null;
-  const { input, errors } = saleInput(form, item, today, stores, box);
+  const pick = storeHint !== null;
+  const { input, errors } = saleInput(form, item, today, stores, box, pick);
   const shown = tried ? errors : {};
-  const { state, send } = useSend((sent: SaleInput) => purchases.recordSale(ids, sent), onSaved);
+  const { state, send } = useSend(
+    (sent: SaleInput) => purchases.recordSale(ids, sent),
+    onSaved,
+    (error) => {
+      // المادّة صارت في أكثر من مخزن بعد فتح الملفّ: قائمة المخازن من جديد، والاختيار بتلميح الخادم (لا رسالة فشل).
+      if (error.code !== 'store_required') return false;
+      setStoreHint(error.hint ?? '');
+      onStoresStale();
+      return true;
+    },
+    { pending: session.pending, onPending },
+  );
   const pending = state.unknown;
   const qty = form.qty.trim() ? parseQty(form.qty) : null;
   const price = form.price.trim() ? parseMoneyText(form.price, false) : null;
   const live = qty !== null && qty > 0n && price !== null && price >= 0n ? saleTotal(qty, price) : null;
   const unit = baseUnitLabel(item.baseUnit);
 
-  const go = (sent: SaleInput) => void send(sent);
+  const go = (sent: SaleInput) => void send(sent, saleSent(sent, item));
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!online || state.busy) return;
@@ -193,12 +226,7 @@ export function SaleDialog({
           <>
             <UnknownNotice again={state.failure !== null} />
             <p className="text-sm" data-action="sale-sent">
-              {t('sale.sent', 'المرسَل: {qty} {item} بـ{total} دينار، بتاريخ {day}.', {
-                qty: baseQty(pending.qty, item.baseUnit),
-                item: item.name,
-                total: fmtMoney(saleTotal(pending.qty, pending.unitPrice), 0),
-                day: fmtDay(pending.soldOn),
-              })}
+              {saleSent(pending, item)}
             </p>
           </>
         ) : (
@@ -211,7 +239,14 @@ export function SaleDialog({
                 </p>
               ) : null}
             </div>
-            {stores.length > 1 ? (
+            {pick ? (
+              <div className="sm:col-span-2" data-action="sale-store-hint">
+                <Notice tone="info" title={t('sale.store.pick', 'هذه المادّة في أكثر من مخزن؛ اختر المخزن الذي تبيع منه')}>
+                  {storeHint || null}
+                </Notice>
+              </div>
+            ) : null}
+            {stores.length > 1 || pick ? (
               <Field id={`${id}-store`} label={t('sale.store', 'من أيّ مخزن')} error={shown.store}>
                 <select id={`${id}-store`} className="input" value={form.warehouseId} onChange={(event) => set({ warehouseId: event.target.value })} data-action="sale-store">
                   <option value="">{t('stock.store.pick', 'اختر المخزن')}</option>

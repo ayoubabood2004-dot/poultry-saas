@@ -1,13 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
-import type { OverviewItem, RecordedSale, SaleInput } from '../../lib/repo/purchases';
+import type { Fils } from '../../domain/money';
+import type { FileStore, ItemFile, OverviewItem, RecordedSale, SaleInput } from '../../lib/repo/purchases';
 import { useLoad } from '../../lib/useLoad';
-import { ItemPickCards, type OpItem } from '../inventory/ItemOps';
+import { ItemPickCards, newSession, sessionFor, type OpItem, type OpSession, type Pending } from '../inventory/ItemOps';
 import { SaleDialog } from '../inventory/SaleDialog';
 
 // «بيع جديد» من صفحة المبيعات (0021، كلمة المالك 2026-11-08): تختار المادّة ببطاقات وبحث (ما في المخزن منها شيء)، ثمّ نافذة «بِع» نفسها التي في
@@ -16,9 +17,50 @@ import { SaleDialog } from '../inventory/SaleDialog';
 /** البيض والأفراخ والطيور لاحقاً (جواب المالك): لا تُباع من هنا بعد. */
 const NOT_SELLABLE: readonly OverviewItem['kind'][] = ['hatching_egg', 'chick', 'table_egg'];
 
-function SaleForItem({ item, onBack, onClose, onSaved }: { item: OpItem; onBack: () => void; onClose: () => void; onSaved: (result: RecordedSale, input: SaleInput, item: OpItem) => void }) {
+/** «بيع جديد»: المادّة المختارة (أو لا شيء بعد)، ومعرّفات البيع ونداؤه المعلَّق (في الصفحة، فإغلاق النافذة لا يضيّعها: مراجعة 0020 H1). */
+export interface SaleFlow {
+  item: OpItem | null;
+  call: OpSession<SaleInput>;
+}
+
+export function newSaleFlow(): SaleFlow {
+  return { item: null, call: newSession<SaleInput>('') };
+}
+
+function SaleForItem({
+  item,
+  call,
+  onPending,
+  onBack,
+  onClose,
+  onSaved,
+}: {
+  item: OpItem;
+  call: OpSession<SaleInput>;
+  onPending: (pending: Pending<SaleInput> | null) => void;
+  onBack: () => void;
+  onClose: () => void;
+  onSaved: (result: RecordedSale, input: SaleInput, item: OpItem) => void;
+}) {
   const load = useCallback(() => purchases.loadItemFile(item.id), [item.id]);
   const file = useLoad(load, item.id);
+  const dialog = (data: { today: string; sellPrice: Fils | null; stores: readonly FileStore[]; cashAccounts: ItemFile['cashAccounts'] }) => (
+    <SaleDialog
+      item={item}
+      today={data.today}
+      sellPrice={data.sellPrice}
+      stores={data.stores}
+      cashAccounts={data.cashAccounts}
+      session={call}
+      onPending={onPending}
+      onStoresStale={file.retry}
+      onClose={onClose}
+      onAbandon={onClose}
+      onSaved={(result, input) => onSaved(result, input, item)}
+    />
+  );
+  // نداء معلَّق يُعاد كما أُرسل، ولو تغيّر الملفّ (ربّما حُفظ البيع فنفد الموجود) أو لم يُقرأ بعد.
+  if (call.pending) return dialog(file.data ? { today: file.data.today, sellPrice: file.data.money?.sellPrice ?? null, stores: file.data.stores, cashAccounts: file.data.cashAccounts } : { today: call.pending.input.soldOn, sellPrice: null, stores: [], cashAccounts: null });
   if (!file.data) {
     return (
       <Dialog open onClose={onClose} title={t('sale.title', 'بِع «{name}»', { name: item.name })}>
@@ -48,28 +90,28 @@ function SaleForItem({ item, onBack, onClose, onSaved }: { item: OpItem; onBack:
       </Dialog>
     );
   }
-  return (
-    <SaleDialog
-      item={item}
-      today={file.data.today}
-      sellPrice={file.data.money?.sellPrice ?? null}
-      stores={file.data.stores}
-      cashAccounts={file.data.cashAccounts}
-      onClose={onClose}
-      onAbandon={onClose}
-      onSaved={(result, input) => onSaved(result, input, item)}
-    />
-  );
+  return dialog({ today: file.data.today, sellPrice: file.data.money?.sellPrice ?? null, stores: file.data.stores, cashAccounts: file.data.cashAccounts });
 }
 
-export function NewSale({ onClose, onSaved }: { onClose: () => void; onSaved: (result: RecordedSale, input: SaleInput, item: OpItem) => void }) {
-  const [item, setItem] = useState<OpItem | null>(null);
-  if (item) return <SaleForItem item={item} onBack={() => setItem(null)} onClose={onClose} onSaved={onSaved} />;
+export function NewSale({ flow, onFlow, onClose, onSaved }: { flow: SaleFlow; onFlow: (flow: SaleFlow) => void; onClose: () => void; onSaved: (result: RecordedSale, input: SaleInput, item: OpItem) => void }) {
+  if (flow.item) {
+    return (
+      <SaleForItem
+        item={flow.item}
+        call={flow.call}
+        onPending={(pending) => onFlow({ ...flow, call: { ...flow.call, pending } })}
+        onBack={() => onFlow({ ...flow, item: null })}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
+  }
   return (
     <Dialog open onClose={onClose} title={t('sale.new.title', 'بيع جديد: ماذا تبيع؟')} size="wide">
       <ItemPickCards
         filter={(row) => row.onHand > 0n && !NOT_SELLABLE.includes(row.kind)}
-        onPick={(row) => setItem({ id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit })}
+        // المعرّفات للمادّة المختارة: مادّة أخرى بلا نداء معلَّق معرّفاتها جديدة.
+        onPick={(row) => onFlow({ item: { id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit }, call: sessionFor(flow.call, row.id) })}
         emptyHint={t('sale.new.empty', 'لا مادّة في مخازنك تُباع الآن؛ اشترِ أوّلاً أو أنتج.')}
       />
     </Dialog>

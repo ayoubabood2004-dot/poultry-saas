@@ -46,11 +46,11 @@ export function PriceDialog({ item, line, sellPrice, onClose, onAbandon, onSaved
     event.preventDefault();
     if (!online || state.busy) return;
     if (pending) {
-      void send(pending);
+      void send(pending, '');
       return;
     }
     setTried(true);
-    if (input) void send(input);
+    if (input) void send(input, '');
   };
   const formId = `${id}-form`;
   const close = pending ? onAbandon : onClose;
