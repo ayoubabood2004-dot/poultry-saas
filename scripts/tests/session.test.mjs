@@ -607,7 +607,14 @@ export default async function (t) {
   // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
   // المخازن كلها؛ وحقول اللحم والبيض شغّالة.
   const everything = nav(ws('u-1', ALL_DIVISIONS));
-  t.same(['/hatchery', '/sales', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  t.same(['/hatchery', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  // «المبيعات» شغّالة (0021، كلمة المالك 2026-11-08) بعلامة الخادم can_see_sales (يقرأ الفواتير، ويبيع منهم من له sale.record)، ولا لغيرهم.
+  t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to === '/sales'), [['المبيعات', '/sales']], 'المالك: بند «المبيعات» بالشريط');
+  t.same(
+    [['storekeeper', true], ['accountant', true], ['viewer', true], ['mill_operator', false], ['hall_worker', false]].map(([role, canSeeSales]) => nav(ws('u-1', { ...ALL_DIVISIONS, role, canSeeSales })).includes('/sales')),
+    [true, true, true, false, false],
+    '«المبيعات» بعلامة الخادم: للأمين والمحاسب والمشاهد، لا لمشغّل المعمل ولا لعامل القاعة',
+  );
   t.same(['/mill', '/inventory'].filter((to) => everything.includes(to)), ['/mill', '/inventory'], 'المالك: المعمل (خلطاته وإنتاجه) وتبويب المخزن بالشريط (0015 شغّال)');
   t.same(['/broiler', '/layers'].filter((to) => everything.includes(to)), ['/broiler', '/layers'], 'المالك: حقول اللحم والبيض بالشريط');
   // كلمة المالك 2026-11-04: «كل هذه المخازن الجانبية ما أريدها بنوداً… أريد تبويباً واحداً اسمه المخزن وداخله هذه المخازن»:

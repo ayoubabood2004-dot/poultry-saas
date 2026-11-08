@@ -78,6 +78,16 @@ export const STOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   stock_count_line_costs_gain_unit_cost_check: () => t('constraint.stock_count_line_costs_gain_unit_cost_check', 'كلفة وحدة الزيادة صفر أو أكثر، بأربع مراتب عشرية كحدّ أقصى.'),
   stock_count_line_costs_gain_value_check: () => t('constraint.stock_count_line_costs_gain_value_check', 'قيمة الزيادة صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
   stock_count_line_costs_shortage_value_check: () => t('constraint.stock_count_line_costs_shortage_value_check', 'قيمة النقص صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  // 0020: تحويل مادّة إلى مادّة.
+  stock_conversions_doc_no_check: () => t('constraint.stock_conversions_doc_no_check', 'رقم التحويل بصيغة CV-السنة-الرقم.'),
+  stock_conversions_from_qty_check: () => t('constraint.stock_conversions_from_qty_check', 'كمية المادّة المحوَّلة أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى، وعدد صحيح للقطع.'),
+  stock_conversions_to_qty_check: () => t('constraint.stock_conversions_to_qty_check', 'كمية المادّة الناتجة أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى، وعدد صحيح للقطع.'),
+  stock_conversions_units_check: () => t('constraint.stock_conversions_units_check', 'وحدة المادّة كيلوغرام أو لتر أو قطعة.'),
+  stock_conversions_items_check: () => t('constraint.stock_conversions_items_check', 'التحويل من مادّة إلى مادّة أخرى، لا إليها نفسها.'),
+  stock_conversions_status_check: () => t('constraint.stock_conversions_status_check', 'حالة التحويل غير معروفة.'),
+  stock_conversions_void_check: () => t('constraint.stock_conversions_void_check', 'حالة التحويل لا تناسب ختم إلغائه وسببه.'),
+  stock_conversions_void_reason_check: () => t('constraint.stock_conversions_void_reason_check', 'سبب الإلغاء بين حرف و500 حرف.'),
+  stock_conversions_version_check: () => t('constraint.stock_conversions_version_check', 'نسخة التحويل تبدأ من 1.'),
 };
 
 registerConstraintHints(STOCK_CONSTRAINT_HINTS);

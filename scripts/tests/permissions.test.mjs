@@ -30,6 +30,8 @@ const TABLE = [
   { actions: ['item.create'], roles: ['storekeeper', 'manager', 'owner'] },
   // قرار المالك 2026-11-06 («المخزن ببساطة»، الجواب ٢): كلّ من يعمل في المخزن، ومنهم الأمين، يسجّل الشراء بكميته وسعره.
   { actions: ['purchase.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
+  // قرار المالك 2026-11-08 (البيع، عقد 0020): sale.record لأدوار purchase.record نفسها.
+  { actions: ['sale.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

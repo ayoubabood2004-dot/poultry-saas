@@ -2,6 +2,7 @@ import { Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -1173,14 +1174,10 @@ function CountEditor({ docId }: { docId: string }) {
   const entryFailed = entryFailure && current.status === 'draft' ? countFailure(entryFailure) : null;
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/counts" label={t('back.counts', 'رجوع إلى الجرد')} />
       <PageHeader
         title={current.docNo ? t('count.title.no', 'الجرد {no}', { no: current.docNo }) : t('count.title', 'جرد «{store}»', { store: store?.name ?? '—' })}
         subtitle={t('count.subtitle', '{status} — بتاريخ {day}', { status: countStatusLabel(current.status), day: fmtDay(current.onDate) })}
-        actions={
-          <Link to="/inventory/counts" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('count.back', 'كل الجرود')}
-          </Link>
-        }
       />
       {entryFailed ? (
         <Notice tone="danger" title={entryFailed.title}>

@@ -175,7 +175,7 @@ export default async function (t, db) {
   const writeClasses = [...CLASSES.functionOnly, ...Object.keys(CLASSES.directWrite)];
   t.same(sorted(writeClasses), sorted(tableNames), `classes.json: كل جدول public بصنف كتابة (functionOnly أو directWrite)، ولا زايد (${tableNames.length})`);
   t.same(writeClasses.filter((name, i) => writeClasses.indexOf(name) !== i), [], 'classes.json: ماكو جدول بصنفين');
-  for (const tag of ['appendOnly', 'costRestricted', 'accountsRestricted', 'salesRestricted', 'global']) {
+  for (const tag of ['appendOnly', 'costRestricted', 'accountsRestricted', 'salesRestricted', 'global', 'money']) {
     t.same(CLASSES[tag].filter((name) => !tableNames.includes(name)), [], `classes.json: كل ${tag} جدول موجود`);
   }
   t.same(CLASSES.appendOnly.filter((name) => !CLASSES.functionOnly.includes(name)), [], 'classes.json: الدفتر الثابت (appendOnly) ما يكتبه إلا دالّة');

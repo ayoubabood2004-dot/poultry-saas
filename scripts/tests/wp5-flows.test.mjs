@@ -170,6 +170,8 @@ export default async function (t) {
     {
       const calls = fresh('storekeeper', countHandlers());
       await mount('/inventory/counts/c-1');
+      // زرّ الرجوع الواضح أعلى المستند (كلمة المالك 2026-11-08) إلى قائمته.
+      t.same([byAction('back')[0]?.getAttribute('href'), byAction('back')[0]?.textContent], ['/inventory/counts', 'رجوع إلى الجرد'], 'C1: «رجوع إلى الجرد» أعلى ورقة الجرد');
       await click(byAction('edit-count-line')[0]);
       type(byIdSuffix('-qty')[0], '45');
       await settle();

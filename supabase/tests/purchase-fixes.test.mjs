@@ -177,9 +177,9 @@ async function scenario(t, db) {
   const CASES = [
     { name: 'M2 الملفّ: مبلغ السطر المصحَّح', fns: [[FN.file, [['coalesce(rv.new_total, la.line_total, 0) as line_total', 'coalesce(la.line_total, 0) as line_total']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.money.purchased_value), expect: okWith(norm, '546000') },
-    { name: 'M2 الملفّ: سعر وحدة السطر المصحَّح', fns: [[FN.file, [['case when rv.new_total is not null then private._mul_div_round(1, rv.new_total, l.qty_in, 2)', 'case when false then private._mul_div_round(1, rv.new_total, l.qty_in, 2)']]]],
+    { name: 'M2 الملفّ: سعر وحدة السطر المصحَّح', fns: [[FN.file, [['when rv.new_total is not null then private._mul_div_round(1, rv.new_total, l.qty_in, 2)', 'when false then private._mul_div_round(1, rv.new_total, l.qty_in, 2)']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.purchases[1].money.unit_price), expect: okWith(norm, '500') },
-    { name: 'M2 البطاقات: المبلغ المصحَّح', fns: [[FN.overview, [['sum(coalesce(rv.new_total, la.line_total, 0)) as value', 'sum(coalesce(la.line_total, 0)) as value']]]],
+    { name: 'M2 البطاقات: المبلغ المصحَّح', fns: [[FN.overview, [['coalesce(rv.new_total, la.line_total, 0) as value,', 'coalesce(la.line_total, 0) as value,']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.items_overview() as v')).rows[0].v.items.find((row) => row.id === I.corn).money.avg_unit_price), expect: okWith((v) => v, '496.36') },
     { name: 'M3 expiry_required', fns: [[FN.record, [off('  if i.tracks_expiry and p_expiry_on is null then\n')]]], run: recordAs(U.owner, M3_REFUSALS[0][2]), expect: code('expiry_required', '«تاريخ الانتهاء»') },
     { name: 'M3 expiry_not_tracked', fns: [[FN.record, [off('  if not i.tracks_expiry and p_expiry_on is not null then\n')]]], run: recordAs(U.manager, M3_REFUSALS[1][2]), expect: code('expiry_not_tracked', '«تاريخ الانتهاء»') },

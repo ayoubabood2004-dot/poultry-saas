@@ -15,7 +15,8 @@ const LayersPage = page(() => import('./pages/layers/LayersPage'));
 const HatcheryPage = page(() => import('./pages/hatchery/HatcheryPage'));
 // المخزون (اللوحات والبطاقة والافتتاح والتحويل) بمسار واحد وحزمة وحدة (StockRoutes، WP4)، والمواد مسارها الثابت.
 const StockRoutes = page(() => import('./pages/inventory/StockRoutes'));
-const SalesPage = page(() => import('./pages/sales/SalesPage'));
+// المبيعات (0021، كلمة المالك 2026-11-08) في حزمة المخزون نفسها (StockRoutes، خارج التثبيت المسبق بالاسم): البيع يُحفظ بالخادم فوراً.
+const SalesRoutes = page<object>(() => import('./pages/inventory/StockRoutes').then((routes) => ({ default: routes.SalesRoutes })));
 // الحسابات والصناديق بمسار واحد وحزمة وحدة (AccountsRoutes، WP3): مساراتها الداخلية هناك.
 const AccountsRoutes = page(() => import('./pages/accounts/AccountsRoutes'));
 const ReportsPage = page(() => import('./pages/reports/ReportsPage'));
@@ -66,7 +67,7 @@ function AppRoutes() {
           <Route path="/inventory/items" element={<ItemsPage />} />
           <Route path="/inventory/setup" element={<OrgSettingsPage sections={STORE_SETUP_SECTIONS} />} />
           <Route path="/inventory/*" element={<StockRoutes />} />
-          <Route path="/sales" element={<SalesPage />} />
+          <Route path="/sales/*" element={<SalesRoutes />} />
           <Route path="/accounts/*" element={<AccountsRoutes />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />

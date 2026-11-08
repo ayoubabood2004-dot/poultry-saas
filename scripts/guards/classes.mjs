@@ -15,7 +15,7 @@ export function functionOnlyTables(classes = loadClasses()) {
   return new Set([...classes.functionOnly, ...(classes.reserved?.functionOnly ?? [])]);
 }
 
-/** جداول المال والكلف: سياستا الكلفة والحسابات المقيِّدتان، والمحجوز للمراحل الجاية. */
+/** جداول المال والكلف: سياستا الكلفة والحسابات المقيِّدتان، وجداول المال الأخرى (money: فواتير البيع بمبلغها لأدوار المبيعات، 0021)، والمحجوز للمراحل الجاية. */
 export function moneyTables(classes = loadClasses()) {
-  return new Set([...classes.costRestricted, ...classes.accountsRestricted, ...(classes.reserved?.money ?? [])]);
+  return new Set([...classes.costRestricted, ...classes.accountsRestricted, ...(classes.money ?? []), ...(classes.reserved?.money ?? [])]);
 }

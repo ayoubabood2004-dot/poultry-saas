@@ -47,16 +47,17 @@ export function AmountField({ id, label, value, onChange, hint }: { id: string; 
 
 /**
  * منتقي المورّد: بحث بالاسم (أوّل 20 ويّا العدد)، و«مورّد جديد» لمن يضيف الجهات بعد تنبيه التوائم (Q1، Q2). مشترك بين ورقة الاستلام
- * ونافذة «سجّل شراء» في ملفّ المادّة (0017)، فلا نسختان من البحث ولا من طريق إضافة المورّد.
+ * ونافذة «سجّل شراء» في ملفّ المادّة (0017)، فلا نسختان من البحث ولا من طريق إضافة المورّد. وcustomer لنافذة «بِع» (0021): الجهة الجديدة زبون،
+ * لمن يدير الجهات (الأمين يضيف مورّداً فقط، والخادم يحكم).
  */
-export function SupplierPicker({ id, label, value, onChange }: { id: string; label: string; value: PartyPick | null; onChange: (party: PartyPick | null) => void }) {
+export function SupplierPicker({ id, label, value, onChange, customer = false }: { id: string; label: string; value: PartyPick | null; onChange: (party: PartyPick | null) => void; customer?: boolean }) {
   const [search, setSearch] = useState('');
   const deferred = useDeferredValue(search);
   const load = useCallback(() => purchasing.searchSuppliers(deferred), [deferred]);
   const found = useLoad(load, deferred);
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
-  const canCreate = workspace ? can(workspace.role, 'party.create') : false;
+  const canCreate = workspace ? can(workspace.role, customer ? 'parties.manage' : 'party.create') : false;
   const [twins, setTwins] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -83,7 +84,7 @@ export function SupplierPicker({ id, label, value, onChange }: { id: string; lab
           setTwins(seen);
           return undefined;
         }
-        return purchasing.createSupplier(name).then(onChange);
+        return (customer ? purchasing.createCustomer(name) : purchasing.createSupplier(name)).then(onChange);
       })
       .catch(setFailure)
       .finally(() => setBusy(false));
@@ -108,12 +109,25 @@ export function SupplierPicker({ id, label, value, onChange }: { id: string; lab
           {found.data && found.data.parties.length === 0 ? <li className="px-4 py-2 text-sm text-ink-muted">{t('party.pick.empty', 'لا جهة بهذا الاسم.')}</li> : null}
         </ul>
       )}
-      {twins && twins.length > 0 ? <Notice tone="warning" title={t('receipt.supplier.twins', 'يشبه اسماً موجوداً: {names}. اختره من القائمة، أو اضغط «أضف المورّد» مرّة أخرى إن كان مورّداً آخر.', { names: twins.join(t('list.separator', '، ')) })} /> : null}
+      {twins && twins.length > 0 ? (
+        <Notice
+          tone="warning"
+          title={
+            customer
+              ? t('sale.party.twins', 'يشبه اسماً موجوداً: {names}. اختره من القائمة، أو اضغط «أضف الجهة» مرّة أخرى إن كانت جهة أخرى.', { names: twins.join(t('list.separator', '، ')) })
+              : t('receipt.supplier.twins', 'يشبه اسماً موجوداً: {names}. اختره من القائمة، أو اضغط «أضف المورّد» مرّة أخرى إن كان مورّداً آخر.', { names: twins.join(t('list.separator', '، ')) })
+          }
+        />
+      ) : null}
       {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
       {canCreate && search.trim() ? (
-        <Button size="sm" variant="secondary" busy={busy} onClick={create} data-action="create-supplier">
-          {t('receipt.supplier.create', 'أضف المورّد «{name}»', { name: search.trim() })}
+        <Button size="sm" variant="secondary" busy={busy} onClick={create} data-action={customer ? 'create-party' : 'create-supplier'}>
+          {customer ? t('sale.party.create', 'جهة جديدة: أضف «{name}»', { name: search.trim() }) : t('receipt.supplier.create', 'أضف المورّد «{name}»', { name: search.trim() })}
         </Button>
+      ) : customer && !canCreate && search.trim() ? (
+        <p className="text-sm text-ink-muted" data-action="party-create-hint">
+          {t('sale.party.create_hint', 'الجهة الجديدة يضيفها المحاسب أو المدير؛ اختر جهة من القائمة.')}
+        </p>
       ) : null}
     </div>
   );

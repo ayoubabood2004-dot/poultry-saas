@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -184,14 +185,10 @@ function OpeningEditor({ docId }: { docId: string }) {
   const storeName = store ? storeLabel(store) : '—';
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/openings" label={t('back.openings', 'رجوع إلى أوراق الرصيد عند البداية')} />
       <PageHeader
         title={t('opening.title', 'الرصيد عند البداية لـ«{store}»', { store: store?.name ?? '—' })}
         subtitle={t('opening.subtitle', '{status} — بتاريخ {day}', { status: docStatusLabel(current.status), day: fmtDay(current.onDate) })}
-        actions={
-          <Link to="/inventory/openings" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('opening.back', 'كل أوراق الرصيد عند البداية')}
-          </Link>
-        }
       />
       <CopiedNotice draft={draft} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('opening.voided', 'أُلغي هذا الرصيد')}>{current.voidReason}</Notice> : null}

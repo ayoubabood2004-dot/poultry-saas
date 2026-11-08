@@ -405,6 +405,23 @@ export default async function (t, db) {
     );
   }
 
+  // 0020: تحويل 5 كغم من «ذرة الخلطة» إلى «جريش الخلطة» في مخزن المواد لكلّ منشأة، فبجدول التحويل صفوف للطرفين.
+  // 0021: بيع كيلوين من «جريش الخلطة» بالدين لـ«زبون العزل»، فبجداول البيع صفوف للطرفين؛ والفاتورة لقارئها sale_detail.
+  const salesOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    salesOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const corn = await value(q, "select id from public.items where name = 'ذرة الخلطة'");
+        const grits = await value(q, "insert into public.items (name, kind, base_unit) values ('جريش الخلطة', 'raw', 'kg') returning id");
+        await q('select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 5, $2, 5, public.app_today(), null, null)', [corn, grits]);
+        const buyer = await value(q, "insert into public.parties (name, is_customer) values ('زبون العزل', true) returning id");
+        return value(q, "select public.record_sale(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 2, 1000, public.app_today(), 'credit', null, null) ->> 'id'", [buyer, grits]);
+      },
+      { commit: true },
+    );
+  }
+
   // 0014: سعر بيع لمادّة الطرفين، فجدول الأسعار بصفوف لكلّ منشأة (والمالك يرى الكلفة، فيقرأها).
   for (const owner of [U.aOwner, U.bOwner]) {
     await db.asUser(
@@ -728,6 +745,10 @@ export default async function (t, db) {
     // 0019: «ما يُصرف» و«علف القاعة» بفوج كلّ مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
     flock_issue_options: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     flock_feed: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    // 0021: المبيعات بسنة، وفاتورة كلّ منشأة، والتقرير بالجهة.
+    sales_overview: () => ['2026-01-01', '2026-12-31'],
+    sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
+    sales_report: () => ['2026-01-01', '2026-12-31', 'party'],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -772,6 +793,10 @@ export default async function (t, db) {
     // 0019: قارئا الصرف لكلّ دور بمنشأة بنطاقه حقل الفوج (read)، وبلا منشأة forbidden.
     flock_issue_options: { [U.aSpare]: 'forbidden' },
     flock_feed: { [U.aSpare]: 'forbidden' },
+    // 0021: قرّاء المبيعات لأدوار المبيعات (عامل القاعة forbidden)، وبلا منشأة forbidden.
+    sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    sales_report: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

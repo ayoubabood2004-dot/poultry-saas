@@ -55,8 +55,23 @@ export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = 
   receipt_revaluations_lifecycle_check: () => t('constraint.receipt_revaluations_lifecycle_check', 'حالة التصحيح لا تناسب ختم إلغائه وسببه.'),
   receipt_revaluations_void_reason_check: () => t('constraint.receipt_revaluations_void_reason_check', 'سبب الإلغاء لا يزيد على 500 حرف.'),
   receipt_revaluations_rev_no_check: () => t('constraint.receipt_revaluations_rev_no_check', 'رقم التصحيح يبدأ من 1.'),
-  purchase_prices_unit_price_check: () => t('constraint.purchase_prices_unit_price_check', 'سعر الشراء لكلّ وحدة أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  purchase_prices_unit_price_check: () => t('constraint.purchase_prices_unit_price_check', 'سعر الشراء لكلّ وحدة فارغ (يُكمَّل لاحقاً) أو أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  // 0020: سعر الوحدة كما كُتب في «أكمل السعر» على صفّ التصحيح.
+  receipt_revaluations_unit_price_check: () => t('constraint.receipt_revaluations_unit_price_check', 'سعر الوحدة في «أكمل السعر» أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى، ولشراء بلا سعر فقط.'),
   purchase_prices_sell_price_check: () => t('constraint.purchase_prices_sell_price_check', 'سعر البيع لكلّ وحدة فارغ أو أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
+  // 0021: فواتير البيع وسطورها وكلفتها (البيع بنداء واحد من نافذة «بِع»، بجوار الشراء).
+  sales_invoices_doc_no_check: () => t('constraint.sales_invoices_doc_no_check', 'رقم فاتورة البيع بصيغة FD أو MD أو MS-السنة-الرقم.'),
+  sales_invoices_payment_check: () => t('constraint.sales_invoices_payment_check', 'البيع نقداً بصندوق وقيد قبض، وبالدين بلا صندوق ولا قبض.'),
+  sales_invoices_status_check: () => t('constraint.sales_invoices_status_check', 'حالة فاتورة البيع غير معروفة.'),
+  sales_invoices_void_check: () => t('constraint.sales_invoices_void_check', 'حالة فاتورة البيع لا تناسب ختم إلغائها وسببه.'),
+  sales_invoices_void_reason_check: () => t('constraint.sales_invoices_void_reason_check', 'سبب الإلغاء بين حرف و500 حرف.'),
+  sales_invoices_version_check: () => t('constraint.sales_invoices_version_check', 'نسخة فاتورة البيع تبدأ من 1.'),
+  sales_lines_qty_check: () => t('constraint.sales_lines_qty_check', 'كمية البيع أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى، وعدد صحيح للقطع.'),
+  sales_lines_base_unit_check: () => t('constraint.sales_lines_base_unit_check', 'وحدة المادّة كيلوغرام أو لتر أو قطعة.'),
+  sales_lines_unit_price_check: () => t('constraint.sales_lines_unit_price_check', 'سعر البيع لكلّ وحدة صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  sales_lines_line_total_check: () => t('constraint.sales_lines_line_total_check', 'مبلغ سطر البيع صفر أو أكثر، بالدينار الصحيح.'),
+  sales_lines_line_no_check: () => t('constraint.sales_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
+  sales_line_costs_cost_check: () => t('constraint.sales_line_costs_cost_check', 'كلفة سطر البيع صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
 };
 
 registerConstraintHints(RECEIPT_CONSTRAINT_HINTS);

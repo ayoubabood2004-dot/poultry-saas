@@ -2,6 +2,7 @@ import { CheckCircle2, Factory, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -804,14 +805,10 @@ export default function RecipePage() {
 
   return (
     <div className="flex flex-col gap-5">
+      <BackButton to="/mill" label={t('back.mill', 'رجوع إلى المعمل')} action="back-to-mill" />
       <PageHeader
         title={data.name}
         subtitle={t('mill.card.output', 'تنتج: {item}', { item: data.outputItem.name })}
-        actions={
-          <Link to="/mill" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="back-to-mill">
-            {t('mill.back', 'المعمل')}
-          </Link>
-        }
       />
 
       <div className="flex flex-wrap items-center gap-2">

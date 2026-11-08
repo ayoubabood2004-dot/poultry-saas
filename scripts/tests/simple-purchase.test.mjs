@@ -372,8 +372,10 @@ export default async function (t) {
       t.ok(text().includes('سجّل شراء «ذرة»'), 'P4: النافذة باسم المادّة');
       t.eq(byIdSuffix('-day')[0]?.value, '06/11/2026', 'P4: التاريخ اليوم افتراضياً');
       t.eq(byIdSuffix('-sell')[0]?.value, '600', 'P4: سعر البيع معبّأ من الملفّ');
-      t.eq(buttonWith('بالدين على المورّد')?.getAttribute('aria-checked'), 'true', 'P4: الدفع بالدين افتراضياً');
+      // السعر اختياريّ (0020): قبل كتابته الدفع بالدين وحده بسطر يقول ذلك، وبعده الاختيار والدين افتراضاً.
+      t.ok(byAction('purchase-unpriced')[0]?.textContent === 'بالدين على المورّد: يدخل المخزن الآن، وتكمّل السعر لاحقاً.' && !buttonWith('نقداً من الصندوق'), 'P4: بلا سعر: بالدين وحده بسطر يشرحه');
       await fillPurchase();
+      t.eq(buttonWith('بالدين على المورّد')?.getAttribute('aria-checked'), 'true', 'P4: الدفع بالدين افتراضياً');
       t.ok(byAction('purchase-total')[0]?.textContent === 'المجموع: 450,000 دينار', `P4: المجموع حيّاً (${byAction('purchase-total')[0]?.textContent})`);
       t.eq(saveButton()?.textContent, 'احفظ الشراء: 1,000 كغم ذرة بـ450,000 دينار بالدين على مورّد الحبوب', 'P4: زرّ الحفظ يسمّي أثره');
       await submit();
@@ -437,7 +439,7 @@ export default async function (t) {
       await openDialog();
       await submit();
       const page = text();
-      t.ok(page.includes('اختر المورّد، أو أضفه باسمه.') && page.includes('اكتب الكمية (كغم) رقماً أكبر من صفر') && page.includes('اكتب سعر الشراء لكل كغم بالدينار'), `P6: رسائل الحقول الفارغة (${page.slice(0, 600)})`);
+      t.ok(page.includes('اختر المورّد، أو أضفه باسمه.') && page.includes('اكتب الكمية (كغم) رقماً أكبر من صفر') && !page.includes('اكتب سعر الشراء لكل كغم'), `P6: رسائل الحقول الفارغة، والسعر اختياريّ بلا رسالة (${page.slice(0, 600)})`);
       t.eq(named(rpcCalls, 'record_purchase').length, 0, 'P6: ولا إرسال');
       await fillPurchase({ qty: '333.333', price: '1.5' });
       t.eq(byAction('purchase-total')[0]?.textContent, 'المجموع: 500 دينار(مقرَّب لأقرب دينار)', 'P6: 333.333 × 1.50 = 500 دينار، ويقول إنّه مقرَّب');

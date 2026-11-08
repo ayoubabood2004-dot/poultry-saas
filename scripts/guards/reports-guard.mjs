@@ -116,8 +116,8 @@ export function selfTest() {
   // طفرات الاختبار: المدّة بطرفيها (gte وحده مو مدّة)، والاشتقاق يجمع الأصناف الثلاثة (accountsRestricted فارغ اليوم).
   const halfRange = check([{ path: 'src/lib/repo/self.ts', text: "export const h = (db, a) => db.from('party_entries').select('*').gte('on_date', a);" }]);
   if (halfRange.problems.length !== 1) return `قراءة بـgte وحده (بلا lte/lt) ما انمسكت (${halfRange.problems.length})`;
-  const fake = [...moneyTables(loadClasses('{"costRestricted": ["a"], "accountsRestricted": ["b"], "reserved": {"money": ["c"]}}'))].sort().join();
-  if (fake !== 'a,b,c') return `الاشتقاق من classes.json ما جمع الكلفة والحسابات والمحجوز: ${fake}`;
+  const fake = [...moneyTables(loadClasses('{"costRestricted": ["a"], "accountsRestricted": ["b"], "money": ["d"], "reserved": {"money": ["c"]}}'))].sort().join();
+  if (fake !== 'a,b,c,d') return `الاشتقاق من classes.json ما جمع الكلفة والحسابات وجداول المال والمحجوز: ${fake}`;
   const good = check([
     {
       path: 'src/lib/repo/ok.ts',

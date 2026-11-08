@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -1014,6 +1015,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const buyWaiting = draft && canDraft && buyItemId !== '' && buyItem.loading;
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/receipts" label={t('back.receipts', 'رجوع إلى الاستلامات')} />
       <PageHeader
         title={title}
         subtitle={t('receipt.subtitle', '{status} — من «{party}» إلى «{store}» بتاريخ {day}، في حساب «{book}»', {
@@ -1023,11 +1025,6 @@ function ReceiptEditor({ docId }: { docId: string }) {
           day: fmtDay(current.onDate),
           book: store ? receiptBook(store) : '—',
         })}
-        actions={
-          <Link to="/inventory/receipts" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('receipt.back', 'كل الاستلامات')}
-          </Link>
-        }
       />
       {loadError ? <LoadFailed what={t('receipt.what', 'الاستلام')} error={loadError} onRetry={reload} /> : null}
       <CopiedNotice draft={draft} next={copyNextStep} origin={origin} />

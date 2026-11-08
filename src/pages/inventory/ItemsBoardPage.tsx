@@ -7,7 +7,7 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
-import { fmtDay, fmtMoney } from '../../lib/format';
+import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
 import type { ItemsOverview, OverviewItem } from '../../lib/repo/purchases';
@@ -60,6 +60,12 @@ export function ItemTile({ item }: { item: OverviewItem }) {
           </div>
         ) : null}
       </dl>
+      {/* مشتريات دخلت بلا سعر (0020): تُكمَّل من الملفّ («أكمل السعر»). */}
+      {item.unpricedCount > 0 ? (
+        <span className="text-sm font-medium text-warn-700 dark:text-warn-300" data-action="tile-unpriced">
+          {t('board.unpriced', 'مشتريات بلا سعر: {n}', { n: fmtInt(item.unpricedCount) })}
+        </span>
+      ) : null}
       <span className="text-xs text-ink-muted">
         {item.lastPurchaseOn ? t('board.last', 'آخر شراء: {day}', { day: fmtDay(item.lastPurchaseOn) }) : t('board.never', 'لم تُشترَ بعد')}
       </span>

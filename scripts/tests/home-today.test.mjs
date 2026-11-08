@@ -306,7 +306,8 @@ export default async function (t) {
     // ── D8: ترتيب الأزرار بأولوية الدور، وأربعة بس، والباقي خلف «أعمال أخرى» مطوية، والأوّل عريض ──
     {
       const keys = (role, over = {}) => m.homeActions({ role, canSeeAccounts: true, ...over }).map((action) => action.key);
-      t.same(keys('owner').slice(0, m.HOME_ACTIONS_SHOWN), ['round_broiler', 'round_layer', 'purchase', 'payout'], 'D8: المالك: الجولة ثم الشراء ثم الدفع');
+      // «بِع» بعد الشراء للمالك (كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع»).
+      t.same(keys('owner').slice(0, m.HOME_ACTIONS_SHOWN), ['round_broiler', 'round_layer', 'purchase', 'sale'], 'D8: المالك: الجولة ثم الشراء ثم البيع');
       t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['purchase', 'use', 'transfer', 'count'], 'D8: أمين المخزن: الشراء والصرف والنقل والجرد');
       t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'payment', 'expense', 'purchase'], 'D8: المحاسب: الدفع والقبض والمصروف ثم الشراء');
       t.same(m.homeActions(null).find((action) => action.key === 'purchase')?.to, '/inventory', 'D8: «سجّل شراء» يفتح بطاقات المواد (لا ورقة الاستلام)');
@@ -320,7 +321,7 @@ export default async function (t) {
         return false;
       };
       t.eq(links.filter((node) => !inDetails(node)).length, m.HOME_ACTIONS_SHOWN, 'D8: أربعة أزرار ظاهرة');
-      t.eq(links.filter(inDetails).length, 6, 'D8: الستة الباقية جوّا «أعمال أخرى»');
+      t.eq(links.filter(inDetails).length, 7, 'D8: السبعة الباقية جوّا «أعمال أخرى»');
       t.ok(details && !details.hasAttribute('open') && text().includes('أعمال أخرى'), 'D8: «أعمال أخرى» مطوية افتراضياً');
       t.ok((links[0]?.getAttribute('class') ?? '').includes('col-span-2'), 'D8: الزرّ الأوّل عريض بالهاتف (عمودان)');
       t.ok(!(links[1]?.getAttribute('class') ?? '').includes('col-span-2'), 'D8: ضابط: الثاني بعمود واحد');

@@ -544,7 +544,7 @@ async function scenario(t, db) {
     },
     {
       name: 'verify_stock: الصرف للفوج خارج بقيمته',
-      fns: [[FN.verifyStock, [["\n      + coalesce((select sum(c.amount) from public.flock_costs c where c.org_id = o.id and c.doc_kind = 'flock_issue'), 0) as outputs", ' as outputs']]]],
+      fns: [[FN.verifyStock, [["      + coalesce((select sum(c.amount) from public.flock_costs c where c.org_id = o.id and c.doc_kind = 'flock_issue'), 0)\n", '']]]],
       run: async ({ attempt }) => attempt(U.owner, async (q) => (await q("select violations::int as v from public.verify_stock() where check_name = 'value_conservation'")).rows[0].v, 'postgres'),
       expect: okWith((v) => v, 0),
     },

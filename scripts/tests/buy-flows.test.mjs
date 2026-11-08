@@ -261,8 +261,9 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws('manager') }, handlers());
       await mount('/inventory/store/w-raw');
       const links = hrefs('buy-item');
-      const corn = '/inventory/items/i-corn?buy=1';
-      const salt = '/inventory/items/i-salt?buy=1';
+      // ومعه طريق الرجوع إلى هذا المخزن (زرّ «رجوع إلى المخزن» في الملفّ، كلمة المالك 2026-11-08).
+      const corn = '/inventory/items/i-corn?buy=1&back=%2Finventory%2Fstore%2Fw-raw';
+      const salt = '/inventory/items/i-salt?buy=1&back=%2Finventory%2Fstore%2Fw-raw';
       t.same(links.filter((href) => href === corn).length, 2, `B1: «سجّل شراء» للذرة بالهاتف وبجدول الحاسوب برابط ملفّها ونافذة الشراء (${JSON.stringify(links)})`);
       t.same(links.filter((href) => href === salt).length, 2, 'B1: وللإضافة (يستلمها مخزن المواد الأوّلية)');
       t.ok(!links.some((href) => href?.includes('i-gas')), 'B1: ولا زرّ لوقود لا يُستلم من المورّد في هذا المخزن');
@@ -408,7 +409,9 @@ export default async function (t) {
       // من صفّ المخزن إلى ملفّ المادّة ونافذة شرائها بنقرة واحدة (لا ورقة استلام).
       const file = {
         today: '2026-11-04', canRecord: true, canEdit: true,
-        item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, archived: false, tracksExpiry: false },
+        item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, archived: false, tracksExpiry: false, version: 1 },
+        // حقول 0020 (الأفعال وأين المادّة) بقيمها لمادّة جديدة بلا موجود.
+        canDelete: true, uses: [], canConvert: false, canTransfer: false, canSell: false, canPrice: false, unpricedCount: 0, stores: [], transferTargets: [],
         onHand: 0n, purchased: 0n, purchasesCount: 0, money: { purchasedValue: 0n, avgUnitPrice: null, sellPrice: null, lastUnitPrice: null }, purchases: [], more: false, cashAccounts: [],
       };
       const calls = fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItemFile: () => file }));
@@ -416,7 +419,7 @@ export default async function (t) {
       await follow(byAction('buy-item').find((n) => n.getAttribute('href')?.includes('i-corn')));
       await settle();
       await settle();
-      t.same([where.pathname, where.search], ['/inventory/items/i-corn', '?buy=1'], 'B2: النقر ينقل لملفّ المادّة بعلامة الشراء');
+      t.same([where.pathname, where.search], ['/inventory/items/i-corn', '?buy=1&back=%2Finventory%2Fstore%2Fw-raw'], 'B2: النقر ينقل لملفّ المادّة بعلامة الشراء وطريق الرجوع إلى المخزن');
       t.same(named(calls, 'loadItemFile'), [['i-corn']], 'B2: والملفّ يُقرأ');
       t.ok(text().includes('سجّل شراء «ذرة صفراء»') && byAction('save-purchase').length === 1, `B2: ونافذة «سجّل شراء» مفتوحة (${text().slice(0, 300)})`);
       t.same(named(calls, 'createReceiptDraft'), [], 'B2: ولا ورقة استلام مسوّدة');

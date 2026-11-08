@@ -239,7 +239,7 @@ async function scenario(t, db) {
       p1.value,
       {
         id: p1Ids.receiptId, docNo: 'PU-2026-0001', lineId: p1Ids.lineId, lotId: lot1, itemId: CORN, warehouseId: W.raw, warehouseName: storeName[W.raw], receivedOn: TODAY,
-        qty: 1000000n, payment: 'credit', partyId: SUPPLIER, partyName: 'محمد علي', money: { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 50000n, paidNow: 0n },
+        qty: 1000000n, payment: 'credit', partyId: SUPPLIER, partyName: 'محمد علي', priced: true, money: { unitPrice: 45000n, lineTotal: 45000000n, sellPrice: 50000n, paidNow: 0n },
       },
       'parseRecordPurchase على جواب القاعدة للأمين: المخزن الوحيد الذي اختاره الخادم، و1,000 كغم، و450 للكيلو، و450,000 دينار، والبيع 500، ولا دفع — والمال ظاهر للأمين',
     );

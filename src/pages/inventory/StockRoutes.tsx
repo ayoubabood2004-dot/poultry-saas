@@ -1,6 +1,7 @@
 import { Route, Routes, useParams } from 'react-router-dom';
 import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
+import SalesPage from '../sales/SalesPage';
 import { CountDocPage, CountsList } from './CountsPage';
 import FlockIssuePage from './FlockIssuePage';
 import ItemCardPage from './ItemCardPage';
@@ -30,6 +31,19 @@ import WarehousePage from './WarehousePage';
 function FlockIssueById() {
   const { flockId = '' } = useParams();
   return <FlockIssuePage key={flockId} />;
+}
+
+/**
+ * المبيعات تحت /sales (كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات… واكدر اسجل مبيعاتي لمنو وتطلعلي بالتقارير»): في هذه الحزمة نفسها
+ * (القشرة تستوردها من هنا)، فتبقى خارج التثبيت المسبق مع المخزون: البيع يسحب من الوجبات ويُحفظ بالخادم فوراً.
+ */
+export function SalesRoutes() {
+  return (
+    <Routes>
+      <Route index element={<SalesPage />} />
+      <Route path="*" element={<Notice tone="info" title={t('sales.not_found', 'هذه الصفحة غير موجودة في المبيعات.')} />} />
+    </Routes>
+  );
 }
 
 export default function StockRoutes() {

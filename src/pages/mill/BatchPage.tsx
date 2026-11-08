@@ -2,6 +2,7 @@ import { Factory, Plus, Repeat, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -868,6 +869,7 @@ export default function BatchPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      <BackButton to="/mill" label={t('back.mill', 'رجوع إلى المعمل')} action="back-to-mill" />
       <PageHeader
         title={t('mill.batch.title', 'دفعة «{name}»', { name: batch.recipeName })}
         subtitle={
@@ -875,11 +877,6 @@ export default function BatchPage() {
             {fmtDay(batch.producedOn)}
             {batch.docNo ? ` · ${batch.docNo}` : ''}
           </>
-        }
-        actions={
-          <Link to="/mill" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="back-to-mill">
-            {t('mill.back', 'المعمل')}
-          </Link>
         }
       />
 
@@ -905,7 +902,7 @@ export default function BatchPage() {
             // وجبات العلف في مخزنه لمن مخزن العلف بنطاقه (ق٢٥، ب٣)، ولغيره نصّاً بلا رابط لا يُفتح.
             batch.scope.output ? (
               <Link
-                to={`/inventory/items/${batch.outputItem.id}/details?wh=${batch.outputWarehouse.id}&tab=lots`}
+                to={`/inventory/items/${batch.outputItem.id}/details?${new URLSearchParams({ wh: batch.outputWarehouse.id, tab: 'lots', back: `/mill/batch/${batch.id}` }).toString()}`}
                 className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
                 data-action="open-output-lots"
               >

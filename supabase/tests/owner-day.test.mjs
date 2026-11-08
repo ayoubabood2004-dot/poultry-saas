@@ -4,7 +4,8 @@
 // قبل ستّة أيّام و«قاعة 2» أمس)، ومواده كما أنشأها هو: «ذرة» و«صويا» بالكيلو، و«زيت» باللتر بلا كثافة، و«كاز» مادّة أوّلية بالقطعة، و«ذراء»
 // علف مؤرشف، وخلطة مؤرشفة، وبلا شراء ولا مخزون. ثمّ يومه بالمالك عبر الدوالّ نفسها التي تناديها الشاشات وبترتيبها: الشراء (المخزن يختاره
 // الخادم كنافذة «سجّل شراء»)، و«غاز» بالاختيارين المعقولين (وقود بالقطعة، ومادّة أوّلية بالقطعة)، والخلطة بثلاث مواد (الزيت بلا كثافة ثمّ
-// بكثافته من خانة البطاقة)، والإنتاج، والصرف للقاعتين، والجولة اليومية، والثوابت.
+// بكثافته من خانة البطاقة)، والإنتاج، والصرف للقاعتين، والجولة اليومية، والثوابت. و0020 (كلمة المالك 2026-11-08): شراء «نخالة» بلا سعر يدخل
+// المخزن ويُستعمل في دفعة ثمّ «أكمل السعر»، وتحويل «ذرة» إلى «مخلوط»؛ و0021: بيع «علف بادئ» المنتَج لزبون نقداً وبالدين.
 // الفحص يثبّت السلوك الحاليّ بصدق: كلّ خطوة بنتيجتها (ok أو رمز الرفض)، والملاحظات الدلالية (الكاز مادّة أوّلية فكلفته «علف» على الفوج
 // ويُعدّ «علفاً بلا وزن») مثبَّتة كما هي، فتُقلب حين تُصلح. والتقرير الكامل (الخطوة ← النتيجة والتلميح) بمتغيّر البيئة OWNER_DAY_OUT.
 import { writeFileSync } from 'node:fs';
@@ -154,6 +155,55 @@ async function scenario(t, db) {
   const listed = options.items.map((x) => [x.name, x.cost_kind]);
   t.same(listed, [['علف بادئ', 'feed'], ['ذرة', 'feed'], ['زيت', 'feed'], ['صويا', 'feed'], ['غاز (مادّة أوّلية)', 'feed'], ['كاز', 'feed'], ['غاز', 'fuel'], ['غاز (أخرى)', 'other']],
     '«ما يُصرف»: العلف المنتَج أوّلاً، والكاز والغاز (مادّة أوّلية) بين علف الكلفة (ملاحظة دلالية)');
+
+  // ── ٨) شراء بلا سعر يُستعمل في دفعة ثمّ «أكمل السعر» (0020) ─────────────────────────────────────────────────────────
+  // «نخالة» 1,000 كغم بلا سعر (بالدين)، وخلطة «علف ناهي» (ذرة 900 + نخالة 100) تُنتج 1,000 كغم فتسحب 100 كغم نخالة بقيمة صفر، ثمّ يكتب المالك
+  // سعرها 300 للكيلو من ملفّ المادّة: 900 كغم الباقية ترتفع 270,000، والـ100 المستعملة قبل السعر مصروف «فرق سعر شراء» 30,000، وقيد المورّد
+  // −300,000. دفعة العلف المنتَجة قبل السعر لا تُمسّ (قاعدة تصحيح السعر في 0010).
+  const bran = await item('نخالة', 'raw', 'kg');
+  const branLine = uid();
+  const branBuy = step('٨) شراء نخالة 1,000 كغم بلا سعر', await call(db, owner, RP, [uid(), uid(), branLine, bran, supplier, TODAY, 1000, null]));
+  t.same(branBuy.ok ? [branBuy.value.priced, branBuy.value.warehouse_name, norm(branBuy.value.money.line_total)] : branBuy.code, [false, 'مخزن المواد الأوّلية', '0'],
+    'الشراء بلا سعر يُحفظ ويدخل «مخزن المواد الأوّلية» بقيمة صفر');
+  const finisher = await item('علف ناهي', 'feed', 'kg');
+  const finisherRecipe = { id: uid(), version: uid() };
+  step('٨) خلطة «علف ناهي» (ذرة 900 + نخالة 100)', await call(db, owner, "select public.create_recipe($1, $2, 'علف ناهي', $3, $4, $5::jsonb, '[]'::jsonb, $6) as v", [finisherRecipe.id, finisherRecipe.version, finisher, '1000.000',
+    JSON.stringify([{ item_id: I.corn, qty: '900.000', unit: 'kg' }, { item_id: bran, qty: '100.000', unit: 'kg' }]), true]));
+  const finisherBatch = uid();
+  step('٨) دفعة «علف ناهي» 1,000 كغم', await call(db, owner, 'select public.create_production($1, $2, 1000, $3, $4, $5) as v', [finisherBatch, finisherRecipe.version, W.raw, W.feed, TODAY]));
+  const finisherPreview = step('٨) معاينة دفعة «علف ناهي»', await call(db, owner, 'select public.preview_production($1) as v', [finisherBatch], { commit: false }));
+  const finisherPosted = step('٨) ترحيل دفعة «علف ناهي»', await call(db, owner, 'select public.post_production($1, $2, $3, $4) as v',
+    [finisherBatch, finisherPreview.value?.version ?? null, finisherPreview.value?.plan_token ?? null, uid()]));
+  const finisherLot = async () => (await db.admin("select trim_scale(value_in)::text as v from public.stock_lots where source_kind = 'production' and source_id = $1", [finisherBatch])).rows[0]?.v;
+  const finisherValue = await finisherLot();
+  t.same([finisherPosted.ok, finisherValue], [true, '405000'], 'الدفعة تُرحَّل والنخالة بلا سعر بقيمة صفر فيها (ذرة 900 × 450 = 405,000)');
+  const priced = step('٨) «أكمل السعر»: نخالة 300 للكيلو', await call(db, owner, 'select public.price_purchase($1, $2, 300, null) as v', [uid(), branLine]));
+  const branLot = (await db.admin("select trim_scale(qty_left)::text as q, trim_scale(value_left)::text as v from public.stock_lots where item_id = $1 and source_kind = 'receipt'", [bran])).rows[0];
+  t.same(priced.ok ? [norm(priced.value.money.line_total), priced.value.used_before_pricing, norm(priced.value.valuation.money.lot_share), norm(priced.value.valuation.money.expense_amount),
+    branLot.q, branLot.v, await finisherLot()] : priced.code, ['300000', true, '270000', '30000', '900', '270000', '405000'],
+  '«أكمل السعر» بعد الاستعمال: الباقي 900 كغم بـ270,000، والمستعمل قبل السعر مصروف 30,000، ودفعة العلف المنتَجة قبله كما هي');
+  const branEntry = (await db.admin("select e.kind, e.amount::text as amount from public.party_entries e where e.party_id = $1 and e.doc_kind = 'receipt_revalue'", [supplier])).rows;
+  t.same(branEntry, [{ kind: 'purchase', amount: '-300000' }], 'قيد شراء للمورّد −300,000 يوم كتابة السعر');
+
+  // ── ٩) تحويل «ذرة» إلى «مخلوط» (0020): 500 كغم من «مخزن المواد الأوّلية» إلى «مخزن العلف» بقيمتها ──────────────────────────────
+  const mash = await item('مخلوط', 'feed', 'kg');
+  const conversion = step('٩) تحويل ذرة 500 كغم إلى «مخلوط» 500 كغم', await call(db, owner, 'select public.record_conversion($1, $2, $3, 500, $4, 500, $5, null, null) as v', [uid(), uid(), I.corn, mash, TODAY]));
+  t.same(conversion.ok ? [conversion.value.doc_no, conversion.value.from.warehouse_name, conversion.value.to.warehouse_name, norm(conversion.value.money.value)] : conversion.code,
+    ['CV-2026-0001', 'مخزن المواد الأوّلية', 'مخزن العلف', '225000'], 'التحويل: من «مخزن المواد الأوّلية» إلى «مخزن العلف» بقيمة الذرة (500 × 450)');
+
+  // ── ١٠) بيع العلف المنتَج (0021): «علف بادئ» لزبون، 100 كغم نقداً و50 كغم بالدين بـ800 للكيلو، من «مخزن العلف» (FD) ──────────────
+  const customer = await one("insert into public.parties (name, is_customer) values ('زبون المزرعة', true) returning id");
+  const cashBox = await one("insert into public.cash_accounts (name, kind) values ('الصندوق', 'cash') returning id");
+  const RS = 'select public.record_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, null) as v';
+  const cashSale = step('١٠) بيع «علف بادئ» 100 كغم نقداً', await call(db, owner, RS, [uid(), uid(), uid(), customer, starter, 100, 800, TODAY, 'cash', cashBox]));
+  const creditSale = step('١٠) بيع «علف بادئ» 50 كغم بالدين', await call(db, owner, RS, [uid(), uid(), uid(), customer, starter, 50, 800, TODAY, 'credit', null]));
+  const drawnOf = async (r) => (r.ok ? norm((await db.admin("select -sum(m.value) as v from public.stock_moves m join public.stock_lots l on l.id = m.lot_id where m.doc_kind = 'sale' and m.doc_id = $1 and l.source_kind = 'production' and l.source_id = $2", [r.value.id, batch])).rows[0].v) : null);
+  const saleRow = async (r) => (r.ok ? [r.value.doc_no, r.value.warehouse_name, r.value.payment, norm(r.value.money.line_total), norm(r.value.cost.money.cost) === await drawnOf(r)] : r.code);
+  t.same([await saleRow(cashSale), await saleRow(creditSale)], [['FD-2026-0001', 'مخزن العلف', 'cash', '80000', true], ['FD-2026-0002', 'مخزن العلف', 'credit', '40000', true]],
+    'البيع: نقداً وبالدين من «مخزن العلف» برقمي FD، والكلفة = قيمة السحب من دفعة الإنتاج');
+  const customerBalance = (await db.admin('select coalesce(sum(amount), 0)::text as b from public.party_entries where party_id = $1', [customer])).rows[0].b;
+  const boxBalance = (await db.admin('select coalesce(sum(amount), 0)::text as b from public.cash_moves where account_id = $1', [cashBox])).rows[0].b;
+  t.same([customerBalance, boxBalance], ['40000', '80000'], 'الزبون مدين بـ40,000 (البيع بالدين)، والصندوق قبض 80,000');
 
   // ── ٧) الثوابت كلّها صفر ──────────────────────────────────────────────────────────────────────────────────────
   const bad = await db.asService(async (q) => {

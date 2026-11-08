@@ -18,6 +18,10 @@
 // والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده.
 // 0019: البذرة نفسها وفوقها قاعة بفوج مفتوح و«علف البذرة» برصيد افتتاح في مخزن الحقل (ROLLBACK_EXTRAS)، وبعد الإعادة صرف منه للفوج، فالتراجع
 // يكمل. والطريق الثاني: صرف لفوج (صفّ في flock_issues وflock_issue_lines وflock_costs، وحركات تشير إليه) يوقف التراجع بصوت.
+// 0020: البذرة نفسها وفوقها شراء كاز بسعره ونقل منه بالورقة وتصحيح سعره (الجسمان المشتركان: post_transfer وpost_receipt_revalue على نواتيهما)
+// (ROLLBACK_EXTRAS)، وبين التراجع والإعادة نقل وتصحيح ثانيان بجسمَي 0007 و0010، وبعد الإعادة نقل بخطوة وتحويل مادّة وشراء بلا سعر يُكمَّل
+// وحذف مادّة، فالتراجع يكمل. والطريق الثاني بفرعين، كلّ واحد ببذرته: تحويل مادّة، وشراء بلا سعر.
+// 0021: البذرة نفسها (بلا بيع، فالتراجع يكمل). والطريق الثاني: فاتورة بيع (صفّ في الجداول الثلاثة، وحركات وقيد تشير إليها) توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -462,7 +466,67 @@ const flockIssueSeed = async (db) => {
 
 const FLOCK_ISSUE_CONDITION = 'v_issues + v_lines + v_costs > 0';
 
+/**
+ * 0020 (طريق الرفض): فرعان، كلّ واحد ببذرته (المدير بدوالّ 0020): (١) شراء ذرة بالمعمل بسعرها ثمّ تحويل 5 كغم منها إلى «جريش البذرة» (التراجع
+ * يُسقط جدول التحويل وحركاتُ المخزون تشير إليه)؛ (٢) شراء ذرة بلا سعر (قيد 0017 يطلب سعراً لكلّ شراء). الطفرة تشيل فرع الحالة فيكمل.
+ */
+const storeOpsSeed = (kind) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    if (kind === 'conversion') {
+      await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 10, 450, null, 'credit', null, null)", [corn, party]);
+      const grits = await value(q, "insert into public.items (name, kind, base_unit) values ('جريش البذرة', 'raw', 'kg') returning id");
+      await q('select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 5, $2, 5, public.app_today(), null, null)', [corn, grits]);
+    } else {
+      await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 10, null, null, 'credit', null, null)", [corn, party]);
+    }
+  }, { commit: true });
+};
+
+/**
+ * 0021 (طريق الرفض): المدير يشتري ذرة بالمعمل بسعرها ثمّ يبيع 3 كغم منها بالدين لـ«مورّد الحبوب». التراجع يُسقط فواتير البيع وكلفتها وحركاتُ
+ * المخزون وقيد الجهة تشير إليها، فطريق الرفض يوقفه؛ والطفرة تشيل شرط «في الجداول صفّ» فيكمل.
+ */
+const saleSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 10, 450, null, 'credit', null, null)", [corn, party]);
+    await q("select public.record_sale(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 3, 600, public.app_today(), 'credit', null, null)", [party, corn]);
+  }, { commit: true });
+};
+
+const SALE_CONDITION = 'v_sales + v_lines + v_costs > 0';
+
 export const BLOCKING_SEEDS = {
+  21: [
+    {
+      name: 'فاتورة بيع',
+      code: 'rollback_blocked',
+      seed: saleSeed,
+      data: "select (select count(*) from public.sales_invoices)::text || '/' || (select count(*) from public.stock_moves where doc_kind = 'sale')::text || '/' || (select count(*) from public.party_entries where doc_kind = 'sale')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace(SALE_CONDITION, 'false'),
+    },
+  ],
+  20: [
+    {
+      name: 'تحويل مادّة',
+      code: 'rollback_blocked',
+      seed: storeOpsSeed('conversion'),
+      data: "select (select count(*) from public.stock_conversions)::text || '/' || (select count(*) from public.stock_moves where doc_kind = 'conversion')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_conversions > 0 then', 'if false then'),
+    },
+    {
+      name: 'شراء بلا سعر',
+      code: 'rollback_blocked',
+      seed: storeOpsSeed('unpriced'),
+      data: "select (select count(*) from public.purchase_prices where unit_price is null)::text || '/' || (select count(*) from public.receipts where status = 'posted')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_unpriced > 0 then', 'if false then'),
+    },
+  ],
   19: [
     {
       name: 'صرف لفوج',
@@ -706,6 +770,8 @@ export const BLOCKING_REQUIRED = [
   [17, 1, 'شراء مسجَّل بسعره (صفّ في purchase_prices) يوقف التراجع'],
   [18, 3, 'ترحيل بوحدة بلا يوم تشغيل، ومستند عاديّ قبل يوم تشغيل وحدته، وافتتاح بعده، كلّ واحد يوقف التراجع'],
   [19, 1, 'صرف لفوج (صفّ في flock_issues وflock_issue_lines وflock_costs) يوقف التراجع'],
+  [20, 2, 'تحويل مادّة، وشراء بلا سعر، كلّ واحد يوقف التراجع'],
+  [21, 1, 'فاتورة بيع (صفّ في sales_invoices وsales_lines وsales_line_costs) توقف التراجع'],
 ];
 
 /**
@@ -889,7 +955,82 @@ const flockIssueRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0020: حالة التراجع الكاملة على بيانات يمرّ عليها الجسمان المشتركان (المدير): شراء «كاز الرجوع» 20 لتراً بـ750 في المخزن العامّ، ونقل 5 لترات منه
+ * إلى مخزن الحقل بالورقة (post_transfer على post_transfer_core)، وصرف لترين، وتصحيح سعره إلى 16,000 (post_receipt_revalue على revaluation_post).
+ * بلا تحويل ولا شراء بلا سعر، فالتراجع يكمل.
+ */
+const storeOpsReady = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "insert into public.items (name, kind, base_unit) values ('كاز الرجوع', 'fuel', 'L') returning id");
+    const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    const line = await value(q, 'select gen_random_uuid()');
+    await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), $1, $2, $3, public.app_today(), 20, 750, null, 'credit', null, null)", [line, fuel, party]);
+    await storeOpsTransfer(q, fuel, 5);
+    // صرف لترين (stock_use) قبل التصحيح: التصحيح يرفض دفعة لم يُسحب منها شيء (not_drawn)، والنقل لا يُعدّ سحباً.
+    const general = await value(q, "select id from public.warehouses where kind = 'general'");
+    const category = await value(q, "insert into public.expense_categories (name) values ('تشغيل الرجوع') returning id");
+    const use = await value(q, 'insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today()) returning id', [general, category]);
+    await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 2)', [use, fuel]);
+    await q("select public.post_stock_use($1, (select version from public.stock_uses where id = $1), public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [use]);
+    await q("select public.post_receipt_revalue($1, 16000, public.preview_receipt_revalue($1, 16000) ->> 'plan', 'فاتورة معدّلة', gen_random_uuid())", [line]);
+  }, { commit: true });
+};
+
+/** نقل بالورقة من المخزن العامّ إلى مخزن الحقل (مسوّدة ومعاينة وترحيل). */
+const storeOpsTransfer = async (q, fuel, qty) => {
+  const general = await value(q, "select id from public.warehouses where kind = 'general'");
+  const farm = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
+  const doc = await value(q, 'insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today()) returning id', [general, farm]);
+  await q('insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, $3)', [doc, fuel, qty]);
+  await q("select public.post_transfer($1, (select version from public.transfers where id = $1), public.preview_transfer($1) ->> 'plan', gen_random_uuid())", [doc]);
+};
+
+/** بين التراجع والإعادة (كتالوج 0019، post_transfer بجسم 0007 وpost_receipt_revalue بجسم 0010): نقل ثانٍ وتصحيح ثانٍ إلى 16,500. */
+const storeOpsOn0019 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const fuel = await value(q, "select id from public.items where name = 'كاز الرجوع'");
+    await storeOpsTransfer(q, fuel, 3);
+    const line = await value(q, 'select id from public.receipt_lines where item_id = $1', [fuel]);
+    await q("select public.post_receipt_revalue($1, 16500, public.preview_receipt_revalue($1, 16500) ->> 'plan', 'فاتورة معدّلة ثانية', gen_random_uuid())", [line]);
+  }, { commit: true });
+};
+
+/** بعد الإعادة: نقل بخطوة، وتحويل مادّة، وشراء بلا سعر يُكمَّل بعد نقل منه، وحذف مادّة؛ ثمّ الثوابت. */
+const storeOpsRedone = async (db) => {
+  const problems = [];
+  try {
+    await db.asUser(U.manager, async (q) => {
+      const fuel = await value(q, "select id from public.items where name = 'كاز الرجوع'");
+      const farm = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
+      await q('select public.record_transfer(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, 2, null, $2, public.app_today())', [fuel, farm]);
+      const oil = await value(q, "insert into public.items (name, kind, base_unit) values ('زيت الرجوع', 'fuel', 'L') returning id");
+      const general = await value(q, "select id from public.warehouses where kind = 'general'");
+      await q('select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 1, $2, 1, public.app_today(), $3, null)', [fuel, oil, general]);
+      const party = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+      const line = await value(q, 'select gen_random_uuid()');
+      await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), $1, $2, $3, public.app_today(), 10, null, null, 'credit', null, null)", [line, oil, party]);
+      await q('select public.record_transfer(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, 4, null, $2, public.app_today())', [oil, farm]);
+      await q('select public.price_purchase(gen_random_uuid(), $1, 900, null)', [line]);
+      const spare = await value(q, "insert into public.items (name, kind, base_unit) values ('مادّة الرجوع', 'raw', 'kg') returning id");
+      await q('select public.delete_item($1, 1)', [spare]);
+    }, { commit: true });
+  } catch (error) {
+    problems.push(`عمليات 0020 بعد الإعادة رفضت: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_store_ops() union all select check_name, violations::text from public.verify_purchases() union all select check_name, violations::text from public.verify_stock()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد عمليات 0020: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  20: {
+    seed: storeOpsReady,
+    afterRollback: storeOpsOn0019,
+    afterRedo: storeOpsRedone,
+  },
   19: {
     seed: flockReady,
     afterRedo: flockIssueRedone,

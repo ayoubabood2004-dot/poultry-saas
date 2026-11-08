@@ -791,11 +791,14 @@ export function unitOptions(item: Pick<ItemRow, 'baseUnit'>, packs: readonly inv
 // buyPath نفسه في storeLabels (صفحة «المواد» تبني به رابط الشراء للتوأم، #21)، والاسم باقٍ من هنا كما كان.
 export { buyPath };
 
-/** زرّ «سجّل شراء» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. */
-export function BuyLink({ itemId, label, primary = false }: { itemId: string; label?: string; primary?: boolean }) {
+/**
+ * زرّ «سجّل شراء» رابطاً (فيُفتح بتبويب آخر أيضاً)؛ primary للفعل الأوّل بالنافذة، والصغير لصفوف القوائم. وback: صفحة المخزن التي فُتح منها،
+ * فزرّ الرجوع في ملفّ المادّة يعود إليها (كلمة المالك 2026-11-08).
+ */
+export function BuyLink({ itemId, label, primary = false, back }: { itemId: string; label?: string; primary?: boolean; back?: string }) {
   return (
     <Link
-      to={buyPath(itemId)}
+      to={back ? `${buyPath(itemId)}&${new URLSearchParams({ back }).toString()}` : buyPath(itemId)}
       className={
         primary
           ? 'inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400'

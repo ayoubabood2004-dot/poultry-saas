@@ -1,7 +1,8 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useId, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, type Column } from '../../components/ui/DataTable';
@@ -578,6 +579,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
   const title = current.docNo ? t('return.title.no', 'المرتجع {no}', { no: current.docNo }) : t('return.title.draft', 'مرتجع غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to={`/inventory/receipts/${current.receiptId}`} label={t('back.receipt', 'رجوع إلى الاستلام {no}', { no: receiptNo })} action="back-to-receipt" />
       <PageHeader
         title={title}
         subtitle={t('return.subtitle', '{status} — إلى «{party}» من الاستلام {receipt} بتاريخ {day}', {
@@ -586,11 +588,6 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
           receipt: receiptNo,
           day: fmtDay(current.onDate),
         })}
-        actions={
-          <Link to={`/inventory/receipts/${current.receiptId}`} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-receipt">
-            {t('return.back', 'الاستلام {no}', { no: receiptNo })}
-          </Link>
-        }
       />
       {loadError ? <LoadFailed what={t('return.what', 'المرتجع')} error={loadError} onRetry={reload} /> : null}
       <CopiedNotice draft={draft} next={copyNextStep} />

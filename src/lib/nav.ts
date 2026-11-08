@@ -1,4 +1,4 @@
-import { Drumstick, Egg, Factory, House, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
+import { Drumstick, Egg, Factory, House, Receipt, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import type { DivisionKind } from '../domain/divisions';
 import { canManageMembers, type Role } from '../domain/permissions';
 import type { Workspace } from '../domain/workspace';
@@ -39,12 +39,15 @@ export function navItems(): NavItem[] {
     // المخازن الجانبية»): بند `/inventory` وحده، وداخله بطاقة لكل مخزن بنطاق المستخدم ومعها التحكّم بها. فلا بنود للمخازن
     // بالوحدات (المعمل والمفقس والأدوية والعامّة): لوحاتها تبقى تنفتح بالرابط بس (StockRoutes). ومعمل العلف شغّال (0015،
     // كلمة المالك 2026-11-03) ببنده: خلطاته وإنتاجه، لا مخازنه. وحقول اللحم والبيض شغّالة من المرحلة 2 (النسخة الأولى بكلمة
-    // المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المفقس والمبيعات والتقارير صفحات تخطيط بلا شاشة شغّالة: مساراتها
-    // باقية وتنفتح بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية.
+    // المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المفقس والتقارير صفحات تخطيط بلا شاشة شغّالة: مساراتها باقية وتنفتح
+    // بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية؛ والمبيعات شغّالة (0021).
     { to: '/broiler', label: t('nav.broiler', 'حقول اللحم'), icon: Drumstick, division: 'broiler' },
     { to: '/layers', label: t('nav.layers', 'حقول البيض'), icon: Egg, division: 'layer' },
     { to: '/mill', label: t('nav.mill', 'معمل العلف'), icon: Factory, division: 'feed_mill' },
     { to: '/inventory', label: t('nav.store', 'المخزن'), icon: Warehouse, visibleTo: (w) => STORE_ROLES.has(w.role) },
+    // «المبيعات» (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات»): لأدوار المبيعات كما أكّدها الخادم (can_see_sales: يقرأ
+    // الفواتير والتقرير، ويبيع منهم من له sale.record)، والصفحة في حزمة المخزون خارج التثبيت المسبق.
+    { to: '/sales', label: t('nav.sales', 'المبيعات'), icon: Receipt, visibleTo: (w) => w.canSeeSales },
     { to: '/accounts', label: t('nav.accounts', 'الحسابات'), icon: Wallet, visibleTo: (w) => w.canSeeAccounts },
     { to: '/staff', label: t('nav.staff', 'الموظفون'), icon: Users, visibleTo: (w) => canManageMembers(w.role) },
     { to: '/account', label: t('nav.account', 'حسابي'), icon: UserRound },

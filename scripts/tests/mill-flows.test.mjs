@@ -491,7 +491,7 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws() }, batchHandlers('posted', true));
       await mount('/mill/batch/b-1');
       t.ok(text().includes('دخل الناتج 890 كغم من «علف بادئ» مخزن «مخزن العلف» بدفعة PD-2026-0003.'), 'F5 الناتج: كميته ومخزنه ورقم دفعته');
-      t.eq(byAction('open-output-lots')[0]?.getAttribute('href'), '/inventory/items/f-1/details?wh=w-feed&tab=lots', 'F5 ورابط وجبات العلف في مخزنه');
+      t.eq(byAction('open-output-lots')[0]?.getAttribute('href'), '/inventory/items/f-1/details?wh=w-feed&tab=lots&back=%2Fmill%2Fbatch%2Fb-1', 'F5 ورابط وجبات العلف في مخزنه (وزرّ الرجوع هناك يعود إلى الدفعة)');
       t.ok(text().includes('«RC-2026-0004» (20/10/2026): 600 كغم'), 'F5 المادّة تقول من أيّ وجبة سُحبت وكميتها');
       t.eq(byAction('open-item-ledger')[0]?.getAttribute('href'), '/inventory/items/i-soy48/details?wh=w-raw&tab=moves', 'F5 وبلا وجبات من الخادم: رابط دفتر المادّة في مخزن المدخلات');
       t.ok(text().includes('01/11/2026 · نقداً من الصندوق: 15,000.00'), 'F5 كلّ سطر تكاليف يقول من أيّ مصروف حُمّل');

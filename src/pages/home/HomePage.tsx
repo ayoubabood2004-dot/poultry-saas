@@ -1,4 +1,4 @@
-import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, ShoppingCart, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import { useCallback, useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
@@ -355,7 +355,7 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
   ];
 }
 
-export type HomeActionKey = 'round_broiler' | 'round_layer' | 'produce' | 'purchase' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
+export type HomeActionKey = 'round_broiler' | 'round_layer' | 'produce' | 'purchase' | 'sale' | 'use' | 'transfer' | 'payout' | 'payment' | 'expense' | 'count';
 
 export interface HomeAction {
   key: HomeActionKey;
@@ -374,10 +374,10 @@ export const HOME_ACTIONS_SHOWN = 4;
 const PRIORITY: Partial<Record<Role, readonly HomeActionKey[]>> = {
   hall_worker: ['round_broiler', 'round_layer'],
   mill_operator: ['produce'],
-  storekeeper: ['purchase', 'use', 'transfer', 'count'],
-  accountant: ['payout', 'payment', 'expense', 'purchase'],
-  owner: ['round_broiler', 'round_layer', 'purchase', 'payout', 'payment'],
-  manager: ['round_broiler', 'round_layer', 'purchase', 'payout', 'payment'],
+  storekeeper: ['purchase', 'use', 'transfer', 'count', 'sale'],
+  accountant: ['payout', 'payment', 'expense', 'purchase', 'sale'],
+  owner: ['round_broiler', 'round_layer', 'purchase', 'sale', 'payout', 'payment'],
+  manager: ['round_broiler', 'round_layer', 'purchase', 'sale', 'payout', 'payment'],
 };
 
 /**
@@ -394,6 +394,8 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     // «سجّل شراء» (كلمة المالك 2026-11-06، «المخزن ببساطة»): يفتح بطاقات المواد، ومنها ملفّ المادّة وشراؤها الفوري — لا ورقة الاستلام
     // المقسومة بين الأمين والمحاسب. لمن يسجّل الشراء (purchase.record: المالك والمدير والمحاسب والأمين).
     [{ key: 'purchase', to: '/inventory', label: t('home.do.purchase', 'سجّل شراء'), icon: PackagePlus }, allowed('purchase.record')],
+    // «بِع» (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع»): يفتح «بيع جديد» في صفحة المبيعات، لأدوار الشراء نفسها.
+    [{ key: 'sale', to: '/sales?new=1', label: t('home.do.sale', 'بِع'), icon: ShoppingCart }, allowed('sale.record')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
     [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],

@@ -1,7 +1,8 @@
 import { CheckCircle2, Factory, PackageMinus, Plus } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -404,16 +405,10 @@ export default function FlockIssuePage() {
   const voidFailure = voiding?.failure ? (voiding.failure instanceof RejectedError && voiding.failure.hint ? voiding.failure.hint : `${describeError(voiding.failure).title} ${describeError(voiding.failure).detail}`) : null;
   return (
     <div className="flex flex-col gap-4">
+      {back ? <BackButton to={back} label={t('back.hall', 'رجوع إلى القاعة')} action="issue-back" /> : null}
       <PageHeader
         title={feed ? t('issue.page.title', 'الصرف لـ«{hall}»', { hall: feed.hallName }) : t('issue.page.loading', 'الصرف للقاعة')}
         subtitle={options ? t('issue.page.subtitle', '{site} — تُصرف المادّة من المخزن إلى فوج القاعة بكلفتها.', { site: options.siteName }) : undefined}
-        actions={
-          back ? (
-            <Link to={back} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="issue-back">
-              {t('issue.back', 'إلى القاعة')}
-            </Link>
-          ) : undefined
-        }
       />
       {/* فشل القراءة يُقال ولو بقي آخر ما قُرئ معروضاً (لا بيانات قديمة كأنّها الآن)، ولكلّ قراءة إعادتها. */}
       {feedState.error ? <LoadFailed what={t('issue.what', 'علف القاعة')} error={feedState.error} onRetry={feedState.retry} /> : null}

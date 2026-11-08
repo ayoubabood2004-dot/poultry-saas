@@ -128,7 +128,7 @@ async function scenario(t, db) {
   const lot1 = await lotOf(r1.line);
   const expected1 = {
     id: r1.receipt, doc_no: 'PU-2026-0001', line_id: r1.line, lot_id: lot1?.id, item_id: I.corn, warehouse_id: W.raw, warehouse_name: 'مخزن المواد الأوّلية',
-    received_on: TODAY, qty: '1000', payment: 'credit', party_id: P.supplier, party_name: 'محمد علي',
+    received_on: TODAY, qty: '1000', payment: 'credit', party_id: P.supplier, party_name: 'محمد علي', priced: true,
     money: { unit_price: '450', line_total: '450000', sell_price: '500', paid_now: '0' },
   };
   t.eq(canon(first.value), canon(expected1), 'نتيجة الشراء: الرقم والمخزن الذي اختير وحده والمورّد والكمية والمال للأمين (لا قناع)');
@@ -302,10 +302,13 @@ async function scenario(t, db) {
 
   // ── ١٠) ملفّ المادّة: الأمين يرى المال، ومشغّل المعمل وعامل القاعة بلا مال، والملغى خارج المجاميع ─────────────────────────────
   const keeperFile = await file(U.storekeeper, I.corn);
-  t.same(keys(keeperFile), ['can_edit', 'can_record', 'cash_accounts', 'item', 'money', 'more', 'on_hand_qty', 'purchased_qty', 'purchases', 'purchases_count', 'today'], 'item_file: مفاتيح الجذر');
+  // 0020 زاد أفعال الملفّ وأين المادّة والشراء بلا سعر (can_delete وuses وcan_convert وcan_transfer وcan_sell وstores وtransfer_targets وcan_price
+  // وunpriced_count)، ونسخة المادّة (للحذف)، وpriced وcan_price لكلّ شراء.
+  t.same(keys(keeperFile), ['can_convert', 'can_delete', 'can_edit', 'can_price', 'can_record', 'can_sell', 'can_transfer', 'cash_accounts', 'item', 'money', 'more', 'on_hand_qty',
+    'purchased_qty', 'purchases', 'purchases_count', 'stores', 'today', 'transfer_targets', 'unpriced_count', 'uses'], 'item_file: مفاتيح الجذر');
   t.same([keys(keeperFile.item), keys(keeperFile.money), keys(keeperFile.purchases[0]), keys(keeperFile.purchases[0]?.money)],
-    [['archived', 'base_unit', 'density_kg_per_l', 'id', 'kind', 'name', 'tracks_expiry'], ['avg_unit_price', 'last_unit_price', 'purchased_value', 'sell_price'],
-      ['doc_id', 'doc_no', 'line_id', 'money', 'party_id', 'party_name', 'payment', 'qty', 'received_on', 'warehouse_name'], ['corrected', 'line_total', 'sell_price', 'unit_price']],
+    [['archived', 'base_unit', 'density_kg_per_l', 'id', 'kind', 'name', 'tracks_expiry', 'version'], ['avg_unit_price', 'last_unit_price', 'purchased_value', 'sell_price'],
+      ['can_price', 'doc_id', 'doc_no', 'line_id', 'money', 'party_id', 'party_name', 'payment', 'priced', 'qty', 'received_on', 'warehouse_name'], ['corrected', 'line_total', 'sell_price', 'unit_price']],
     'item_file: مفاتيح المادّة والمال والسطر');
   t.same(
     [keeperFile.today, keeperFile.can_record, keeperFile.can_edit, norm(keeperFile.on_hand_qty), norm(keeperFile.purchased_qty), keeperFile.purchases_count, keeperFile.more,
@@ -328,7 +331,7 @@ async function scenario(t, db) {
   // ── ١١) بطاقات المواد: المجاميع والمتوسّط وآخر يوم، والترتيب، والمؤرشف خارجها، والقناع والعلمان ───────────────────────────────
   const keeperBoard = await overview(U.storekeeper);
   t.same([keys(keeperBoard), keys(keeperBoard.items[0]), keys(keeperBoard.items[0]?.money)],
-    [['can_add_item', 'can_record', 'items', 'today'], ['base_unit', 'id', 'kind', 'last_purchase_on', 'money', 'name', 'on_hand_qty', 'purchased_qty'], ['avg_unit_price', 'sell_price']], 'items_overview: المفاتيح');
+    [['can_add_item', 'can_record', 'items', 'today'], ['base_unit', 'id', 'kind', 'last_purchase_on', 'money', 'name', 'on_hand_qty', 'purchased_qty', 'unpriced_count'], ['avg_unit_price', 'sell_price']], 'items_overview: المفاتيح (و0020 unpriced_count)');
   const cornCard = keeperBoard.items.find((row) => row.id === I.corn);
   t.same([norm(cornCard?.on_hand_qty), norm(cornCard?.purchased_qty), cornCard?.last_purchase_on, cornCard?.money?.avg_unit_price, norm(cornCard?.money?.sell_price)], ['1500', '1500', TODAY, '453.33', '500'],
     'بطاقة الذرة: الموجود ومجموع المشترى (بلا الملغى) وآخر يوم والمتوسّط وسعر البيع');
@@ -349,7 +352,7 @@ async function scenario(t, db) {
 
   // ── ١٣) الثوابت ────────────────────────────────────────────────────────────────────────────────────────────────────
   const verify = await db.asService(async (q) => (await q('select check_name, violations::int as v from public.verify_purchases() order by 1')).rows);
-  t.same(verify, [{ check_name: 'purchase_price_draft', v: 0 }, { check_name: 'purchase_price_ties', v: 0 }], 'verify_purchases: الفحصان صفر');
+  t.same(verify, [{ check_name: 'purchase_price_draft', v: 0 }, { check_name: 'purchase_price_ties', v: 0 }, { check_name: 'purchase_pricing_ties', v: 0 }], 'verify_purchases: الفحوص صفر (و0020 التسعير)');
 
   // ── ١٤) التزامن ─────────────────────────────────────────────────────────────────────────────────────────────────
   // (أ) شراءان نقداً من صندوق واحد للمادّة نفسها ومورّدين: الأوّل محبوس على قفل مورّده بجلسة ثالثة قبل أيّ كتابة، والثاني يكمل؛ وبعد فكّ
@@ -453,8 +456,8 @@ async function scenario(t, db) {
     { name: 'out_of_scope (الدفتر)', fns: [[FN.record, [off('  if not public.in_scope_book(b.id) then\n')]]], run: recordAs(U.keeperRaw, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: code('out_of_scope', 'دون وحدته') },
     { name: 'qty_not_positive', fns: [[FN.record, [off("  if p_qty is null or not (abs(p_qty) < 'Infinity') or p_qty <= 0 or p_qty <> round(p_qty, 3) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1.2345, price: 1, wh: W.raw }), expect: code('qty_not_positive') },
     { name: 'pieces_not_whole', fns: [[FN.record, [off("  if i.base_unit = 'pc' and p_qty <> round(p_qty, 0) then\n")]]], run: recordAs(U.manager, { item: I.crates, qty: 2.5, price: 1 }), expect: code('pieces_not_whole', 'عدداً صحيحاً من القطع') },
-    { name: 'bad_price (الشراء)', fns: [[FN.record, [off("  if p_unit_price is null or not (abs(p_unit_price) < 'Infinity') or p_unit_price <= 0 or p_unit_price <> round(p_unit_price, 2) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1000, price: 1.234, wh: W.raw }), expect: code('bad_price') },
-    { name: 'total_zero', fns: [[FN.record, [off('  if v_total = 0 then\n')]]], run: recordAs(U.manager, { item: I.bran, qty: 0.001, price: 0.25, wh: W.raw }), expect: code('total_zero') },
+    { name: 'bad_price (الشراء)', fns: [[FN.record, [off("  if p_unit_price is not null and (not (abs(p_unit_price) < 'Infinity') or p_unit_price <= 0 or p_unit_price <> round(p_unit_price, 2)) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1000, price: 1.234, wh: W.raw }), expect: code('bad_price') },
+    { name: 'total_zero', fns: [[FN.record, [off('  if p_unit_price is not null and v_total = 0 then\n')]]], run: recordAs(U.manager, { item: I.bran, qty: 0.001, price: 0.25, wh: W.raw }), expect: code('total_zero') },
     { name: 'bad_price (البيع)', fns: [[FN.record, [off("  if p_sell_price is not null and not (abs(p_sell_price) < 'Infinity' and p_sell_price > 0 and p_sell_price = round(p_sell_price, 2)) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, sell: 1.001, wh: W.raw }), expect: code('bad_price') },
     { name: 'bad_payment (غير معروف)', fns: [[FN.record, [off("  if p_payment is null or p_payment not in ('credit', 'cash') then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, payment: 'card', wh: W.raw }), expect: code('bad_payment') },
     { name: 'bad_payment (بالدين بصندوق)', fns: [[FN.record, [off("  if p_payment = 'credit' and p_cash_account is not null then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, payment: 'credit', box, wh: W.raw }), expect: code('bad_payment') },
@@ -530,8 +533,8 @@ async function scenario(t, db) {
       expect: code('forbidden'),
     },
     // الفعل بجدول الأدوار (0017 أ): الأمين والمحاسب بلا purchase.record يُرفضان (ومرآته permissions.ts بفحص parity خانةً خانة).
-    { name: 'role_can: الأمين يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'stock_use.post', 'party.create', 'purchase.record')", "'stock_use.post', 'party.create')"]]]], run: recordAs(U.storekeeper, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
-    { name: 'role_can: المحاسب يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'cash_accounts.manage', 'expense_categories.manage', 'purchase.record')", "'cash_accounts.manage', 'expense_categories.manage')"]]]], run: recordAs(U.accountant, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
+    { name: 'role_can: الأمين يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'stock_use.post', 'party.create', 'purchase.record', 'sale.record')", "'stock_use.post', 'party.create', 'sale.record')"]]]], run: recordAs(U.storekeeper, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
+    { name: 'role_can: المحاسب يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'cash_accounts.manage', 'expense_categories.manage', 'purchase.record',\n      'sale.record')", "'cash_accounts.manage', 'expense_categories.manage',\n      'sale.record')"]]]], run: recordAs(U.accountant, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
     {
       name: 'ملفّ المادّة بماله لمن يسجّل',
       fns: [[FN.file, [['  if v_record then\n    return v_result;\n  end if;\n  return private.mask(v_result);', '  return private.mask(v_result);']]]],
@@ -570,7 +573,7 @@ async function scenario(t, db) {
     },
     {
       name: 'verify_purchases: ربط المبلغ بالسعر',
-      fns: [[FN.verify, [['\n      and a.line_total = private._mul_div_round(x.qty_in_unit, pp.unit_price, 1, 0))', ')']]]],
+      fns: [[FN.verify, [['\n        else a.line_total = private._mul_div_round(x.qty_in_unit, pp.unit_price, 1, 0) end)', '\n        else true end)']]]],
       run: async ({ attempt }) => attempt(U.owner, async (q) => {
         await q('update public.purchase_prices set unit_price = unit_price + 1 where line_id = $1', [r1.line]);
         return (await q("select violations::int as v from public.verify_purchases() where check_name = 'purchase_price_ties'")).rows[0].v;

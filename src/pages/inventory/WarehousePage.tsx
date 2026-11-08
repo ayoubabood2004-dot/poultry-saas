@@ -2,6 +2,7 @@ import { ChevronLeft, Plus } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Field } from '../../components/ui/Field';
@@ -104,7 +105,7 @@ function ItemCardRow({ row, warehouseId, costs, buy }: { row: StockRow; warehous
   const sell = row.money?.sellPrice ?? null;
   return (
     <div className="card flex flex-col gap-2 p-3">
-      <Link to={`/inventory/items/${row.itemId}/details?wh=${warehouseId}`} className="flex items-center gap-3" data-action="open-item-card">
+      <Link to={`/inventory/items/${row.itemId}/details?${new URLSearchParams({ wh: warehouseId, back: `/inventory/store/${warehouseId}` }).toString()}`} className="flex items-center gap-3" data-action="open-item-card">
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="font-medium">{row.name}</span>
           <span className="text-sm text-ink-muted">{fmtQty(row.available, row.baseUnit).main}</span>
@@ -125,7 +126,7 @@ function ItemCardRow({ row, warehouseId, costs, buy }: { row: StockRow; warehous
       </Link>
       {buy ? (
         <div>
-          <BuyLink itemId={row.itemId} />
+          <BuyLink itemId={row.itemId} back={`/inventory/store/${warehouseId}`} />
         </div>
       ) : null}
     </div>
@@ -179,7 +180,7 @@ export function SectionTable({ section, warehouseId, costs, buy }: { section: Se
     );
   }
   columns.push({ key: 'alerts', header: t('stock.col.alerts', 'تنبيه'), wrap: true, cell: (row) => <span className="text-warn-800 dark:text-warn-200">{alerts(row)}</span> });
-  if (buy && rows.some(buy)) columns.push({ key: 'buy', header: t('org.col.actions', 'إجراءات'), cell: (row) => (buy(row) ? <BuyLink itemId={row.itemId} /> : null) });
+  if (buy && rows.some(buy)) columns.push({ key: 'buy', header: t('org.col.actions', 'إجراءات'), cell: (row) => (buy(row) ? <BuyLink itemId={row.itemId} back={`/inventory/store/${warehouseId}`} /> : null) });
   return <DataTable caption={t('stores.section.caption', 'مواد قسم {name}', { name: section.name })} columns={columns} rows={rows} rowKey={(row) => row.itemId} empty={t('stock.board.none', 'لا مواد.')} />;
 }
 
@@ -314,6 +315,7 @@ export default function WarehousePage() {
   const addedElsewhere = added ? notListedHere(added.kind, store ? { name: title, kind: store.kind } : undefined) : null;
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/stores" label={t('back.stores', 'رجوع إلى المخازن')} action="back-to-stores" />
       <PageHeader
         title={title}
         subtitle={card ? t('stores.where', '{site} — {division} — {kind}', { site: card.siteName, division: divisionLabel(card.divisionKind), kind: warehouseKindLabel(card.kind) }) : undefined}
@@ -325,9 +327,6 @@ export default function WarehousePage() {
                 {t('stores.item.add', 'أضف مادّة')}
               </Button>
             ) : null}
-            <Link to="/inventory" className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-stores">
-              {t('stores.back', 'المخزن')}
-            </Link>
           </div>
         }
       />

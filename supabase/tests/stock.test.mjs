@@ -627,7 +627,8 @@ async function scenario(t, db) {
   const freeItem = await item('كاز هدية', 'fuel', 'L');
   await postedOpening(db, U.manager, W.general, GO_LIVE, [{ item: freeItem, qty: 10, value: 0, zeroReason: 'هدية من المورّد' }]);
   const freeDraft = await transferDraft(db, U.manager, W.general, W.raw, TODAY, [{ item: freeItem, qty: 4 }]);
-  const postDef = await fnDef('public.post_transfer(uuid,integer,text,uuid)');
+  // 0020: جسم الترحيل في نواته (post_transfer_core)، والغلاف يناديها كما كان.
+  const postDef = await fnDef('private.post_transfer_core(uuid,integer,text,uuid,boolean)');
   const LIFO = ['order by l.expiry_on asc nulls last, l.fifo_seq, l.id', 'order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id'];
   const LIFO_PLAN = ['over (order by l.expiry_on asc nulls last, l.fifo_seq, l.id)', 'over (order by l.expiry_on asc nulls last, l.fifo_seq desc, l.id)'];
   // WP5: الصرف والجرد بدوالّهم داخل معاملة الضابط (صاحب الجداول بهويّة المالك)، والدالّة المكسورة قبلهم.
@@ -655,7 +656,8 @@ async function scenario(t, db) {
   // WP7: استلام كاز جديد (مادّة بالمعاملة نفسها حتى السحب يكون من دفعته) بـ1,000 لـ100 لتر، ومرتجع 5 لترات بمقبول 40، أو صرف 10 لترات
   // وتصحيح سعر السطر لـ1,100؛ بدوالّهم داخل معاملة الضابط والدالّة المكسورة قبلهم.
   const returnDef = await fnDef('public.post_supplier_return(uuid,integer,text,uuid)');
-  const revalueDef = await fnDef('public.post_receipt_revalue(uuid,numeric,text,text,uuid)');
+  // 0020: جسم التصحيح في نواته (revaluation_post) مع «أكمل السعر»، والغلاف يناديها كما كان.
+  const revalueDef = await fnDef('private.revaluation_post(uuid,numeric,text,text,uuid,numeric)');
   const breakReceipt = async (q) => {
     const fuel = (await q("insert into public.items (name, kind, base_unit) values ('كاز ضوابط WP7', 'fuel', 'L') returning id")).rows[0].id;
     const doc = (await q('insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [breakSupplier, W.general, TODAY])).rows[0].id;
@@ -779,7 +781,7 @@ async function scenario(t, db) {
       await postReturnBreak(q);
     }],
     revaluation_ties: [{ revaluation_ties: 1 }, async (q) => {
-      await q(swap(revalueDef, "'adjustment', -v_diff, 'receipt_revalue'", "'adjustment', -v_diff - 1, 'receipt_revalue'"));
+      await q(swap(revalueDef, "else 'adjustment' end, -v_diff,", "else 'adjustment' end, -v_diff - 1,"));
       await postRevalueBreak(q);
     }],
   });

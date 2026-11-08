@@ -405,6 +405,34 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0020 (عمليات المخزن البسيطة): مادّة بلا استعمال للحذف، وشراء كاز بلا سعر بالمخزن العامّ (10 لترات) يُسعَّر في خانته، وتحويل لترين منه إلى
+  // «زيت المصفوفة» مثبَّت لخانة الإلغاء؛ وكلّ خانة تُرجَع.
+  const p20 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const fresh = await one("insert into public.items (name, kind, base_unit) values ('مادّة الحذف', 'raw', 'kg') returning id");
+      const fuel = await one("insert into public.items (name, kind, base_unit) values ('كاز التسعير', 'fuel', 'L') returning id");
+      const oil = await one("insert into public.items (name, kind, base_unit) values ('زيت المصفوفة', 'fuel', 'L') returning id");
+      const line = await one('select gen_random_uuid()');
+      await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), $1, $2, $3, public.app_today(), 10, null, null, 'credit', null, null)", [line, fuel, ledger.fresh]);
+      const conversion = await one("select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2, public.app_today(), null, null) ->> 'id'", [fuel, oil]);
+      return { fresh, fuel, oil, line, conversion };
+    },
+    { commit: true },
+  );
+
+  // 0021 (البيع): بيع لتر من «كاز التسعير» بـ1,000 لـ«الجهة الجديدة» بالدين من المخزن العامّ مثبَّت لخانتي الإلغاء والتفصيل؛ وكلّ خانة تُرجَع.
+  const p21 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const sale = await one("select public.record_sale(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, 1000, public.app_today(), 'credit', null, null) ->> 'id'", [ledger.fresh, p20.fuel]);
+      return { sale };
+    },
+    { commit: true },
+  );
+
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
     add_member: { sql: () => ["select public.add_member($1, 'viewer', 'ضيف')", [local(phone(20))]], expect: only(['owner']) },
@@ -468,8 +496,8 @@ export default async function (t, db) {
     delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
     // WP7 زاد مادّتين بالمخزن العامّ (6,750 بعد مرتجع لتر، و6,080 بعد صرف لترين وتصحيح بحصّة 80)، وجهة برصيد، وثلاث مصاريف.
     // 0014: القائمة تشمل كلّ مادّة فعّالة يستلم المخزن نوعها ولو برصيد صفر (كانت 5: من لها رصيد أو حدّ أدنى)،
-    // فالمادّة التي تُضاف اليوم تظهر بقسمها اليوم.
-    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:8', 'out_of_scope') },
+    // فالمادّة التي تُضاف اليوم تظهر بقسمها اليوم. و0020 زاد مادّتي وقود («كاز التسعير» المشترى بلا سعر و«زيت المصفوفة» المحوَّل إليه) بقيمة صفر.
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:10', 'out_of_scope') },
     item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
     item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
     stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
@@ -584,6 +612,50 @@ export default async function (t, db) {
       expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
     },
     flock_feed: { sql: () => ["select public.flock_feed($1) ->> 'issued_feed_kg' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:10.000', 'out_of_scope') },
+    // 0020 (قرار المالك 2026-11-08): الحذف لمن يدير المخازن (المالك والمدير)؛ و«أكمل السعر» بفعل الشراء (purchase.record)، والأمين هنا محصور
+    // بالمخزن العامّ دون وحدته فقيد المورّد في دفتر الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ وتحويل المادّة بفعل الصرف
+    // (stock_use.post: المالك والمدير والأمين بنطاق المخزن)؛ وإلغاؤه بفعل void؛ والنقل بخطوة واحدة بفعل النقل (transfer.post) إلى مخزن الحقل.
+    delete_item: { sql: () => ["select public.delete_item($1, (select version from public.items where id = $1)) ->> 'deleted' as v", [p20.fresh]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    price_purchase: {
+      sql: () => ["select public.price_purchase(gen_random_uuid(), $1, 800, null) ->> 'priced' as v", [p20.line]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:true'), storekeeper: 'out_of_scope' },
+    },
+    record_conversion: {
+      sql: () => ["select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 1, $2, 1, public.app_today(), null, null) ->> 'status' as v", [p20.fuel, p20.oil]],
+      value: true,
+      expect: only(TRANSFER, 'ok:posted'),
+    },
+    void_conversion: { sql: () => ["select public.void_conversion($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p20.conversion]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    record_transfer: {
+      sql: () => ["select public.record_transfer(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, 1, null, $2, public.app_today()) ->> 'status' as v", [p20.fuel, farm.store]],
+      value: true,
+      expect: only(TRANSFER, 'ok:posted'),
+    },
+    // 0021 (قرار المالك 2026-11-08): البيع بفعل sale.record (أدوار الشراء نفسها)، والأمين هنا محصور بالمخزن العامّ دون وحدته فقيد الجهة في دفتر
+    // الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ والإلغاء بفعل void؛ والقرّاء لأدوار المبيعات بنطاق المخزن (المشاهد بلا نطاق يرى صفراً،
+    // وتفصيل فاتورة خارج نطاقه out_of_scope)، وعامل القاعة ومشغّلا المفقس والمعمل forbidden.
+    record_sale: {
+      sql: () => ["select public.record_sale(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, 1000, public.app_today(), 'credit', null, null) ->> 'status' as v", [ledger.fresh, p20.fuel]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:posted'), storekeeper: 'out_of_scope' },
+    },
+    void_sale: { sql: () => ["select public.void_sale($1, 'بيع خاطئ', gen_random_uuid()) ->> 'status' as v", [p21.sale]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    sales_overview: {
+      sql: () => ["select public.sales_overview(public.app_today() - 1, public.app_today()) -> 'totals' ->> 'count' as v", []],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1'), viewer: 'ok:0' },
+    },
+    sale_detail: {
+      sql: () => ["select public.sale_detail($1) ->> 'status' as v", [p21.sale]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:posted'), viewer: 'out_of_scope' },
+    },
+    sales_report: {
+      sql: () => ["select public.sales_report(public.app_today() - 1, public.app_today(), 'party') -> 'totals' ->> 'count' as v", []],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1'), viewer: 'ok:0' },
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

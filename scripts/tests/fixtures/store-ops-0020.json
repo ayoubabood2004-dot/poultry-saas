@@ -1,0 +1,912 @@
+{
+  "generated_by": "supabase/tests/simple-ops.test.mjs (embedded Postgres 17، اليوم المثبَّت 2026-11-08)",
+  "delete_item": {
+    "manager": {
+      "id": "5c7f04d8-2416-449b-8a1c-4a6526316d51",
+      "name": "مادّة للحذف",
+      "deleted": true
+    },
+    "item_in_use": {
+      "code": "item_in_use",
+      "hint": "«ذرة صفراء» في رصيد افتتاحي، لها حركات مخزون، فلا تُحذف حتى لا يضيع سجلّها. أخفِها بدلاً من ذلك: تختفي من القوائم ويبقى سجلّها."
+    }
+  },
+  "record_purchase_unpriced": {
+    "storekeeper": {
+      "id": "7610ba93-d93d-4a13-8aa4-aca7da810c39",
+      "qty": "1000",
+      "money": {
+        "paid_now": "0",
+        "line_total": "0",
+        "sell_price": null,
+        "unit_price": null
+      },
+      "doc_no": "PU-2026-0001",
+      "lot_id": "53ac956a-a8a4-47bb-b727-276f43138203",
+      "priced": false,
+      "item_id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+      "line_id": "7403a36a-61e5-4215-bafa-5b5dd013774e",
+      "payment": "credit",
+      "party_id": "7b6ae9a4-deaf-4349-ad80-be44876066e8",
+      "party_name": "مورّد الحبوب",
+      "received_on": "2026-11-05",
+      "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c",
+      "warehouse_name": "مخزن المواد الأوّلية"
+    }
+  },
+  "price_purchase": {
+    "storekeeper": {
+      "qty": "1000",
+      "money": {
+        "line_total": "500000",
+        "sell_price": "700",
+        "unit_price": "500"
+      },
+      "doc_no": "PU-2026-0001",
+      "priced": true,
+      "item_id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+      "line_id": "7403a36a-61e5-4215-bafa-5b5dd013774e",
+      "base_unit": "kg",
+      "item_name": "صويا",
+      "valuation": {},
+      "receipt_id": "7610ba93-d93d-4a13-8aa4-aca7da810c39",
+      "revaluation_id": "41975caa-f359-4d23-9fbb-83df4cd52f80",
+      "used_before_pricing": true
+    },
+    "accountant_untouched": {
+      "qty": "300",
+      "money": {
+        "line_total": "90000",
+        "sell_price": null,
+        "unit_price": "300"
+      },
+      "doc_no": "PU-2026-0005",
+      "priced": true,
+      "item_id": "00664467-c11d-4199-9367-e0e69a1bde03",
+      "line_id": "9797219a-33a8-44d0-9a3e-8cba924ec5b3",
+      "base_unit": "kg",
+      "item_name": "شوفان",
+      "valuation": {
+        "money": {
+          "lot_share": "90000.00",
+          "expense_amount": "0.00"
+        }
+      },
+      "receipt_id": "711b248f-95df-4999-afb3-978b0e334111",
+      "revaluation_id": "ec6cf3e6-1754-4f41-a1c9-b93d6a66527d",
+      "used_before_pricing": false
+    }
+  },
+  "record_conversion": {
+    "storekeeper": {
+      "id": "eff3ebe3-be84-41a3-9da2-fdad78de62eb",
+      "to": {
+        "qty": "500",
+        "item_id": "f2b1e5cd-6481-4cc2-98a1-859bc4d0634f",
+        "base_unit": "kg",
+        "item_name": "مخلوط",
+        "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626",
+        "warehouse_name": "مخزن العلف"
+      },
+      "from": {
+        "qty": "500",
+        "item_id": "76315ff7-92c6-4050-a83c-79e32ffaeff4",
+        "base_unit": "kg",
+        "item_name": "ذرة صفراء",
+        "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c",
+        "warehouse_name": "مخزن المواد الأوّلية"
+      },
+      "doc_no": "CV-2026-0001",
+      "status": "posted",
+      "converted_on": "2026-11-08"
+    },
+    "owner": {
+      "id": "d9f9f80c-a477-4b1b-84c9-c495f9d5fc5c",
+      "to": {
+        "qty": "1000",
+        "item_id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+        "base_unit": "kg",
+        "item_name": "علف بادئ سائب",
+        "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626",
+        "warehouse_name": "مخزن العلف"
+      },
+      "from": {
+        "qty": "20",
+        "item_id": "efb8d74a-a2a1-460d-a425-78be0b35e1bc",
+        "base_unit": "pc",
+        "item_name": "علف بادئ أكياس",
+        "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626",
+        "warehouse_name": "مخزن العلف"
+      },
+      "money": {
+        "value": "200000.00"
+      },
+      "doc_no": "CV-2026-0002",
+      "status": "posted",
+      "converted_on": "2026-11-08"
+    }
+  },
+  "void_conversion": {
+    "manager": {
+      "id": "eff3ebe3-be84-41a3-9da2-fdad78de62eb",
+      "money": {
+        "value": "225000.00"
+      },
+      "doc_no": "CV-2026-0001",
+      "status": "void",
+      "voided_on": "2026-11-08",
+      "reversed_moves": 2
+    }
+  },
+  "record_transfer": {
+    "storekeeper": {
+      "id": "21ae0bd1-05fa-40cc-a9e3-6361c18d3d42",
+      "qty": "100.000",
+      "kind": "transfer",
+      "lines": [
+        {
+          "qty": "100.000",
+          "draws": [
+            {
+              "qty": "100.000",
+              "lot_id": "53ac956a-a8a4-47bb-b727-276f43138203",
+              "mirror_lot_id": "b8a3fda1-e85d-45bf-aafe-47f0f418b259"
+            }
+          ],
+          "item_id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+          "line_id": "ec16e051-a544-4fad-ad4f-2da7bf653175"
+        }
+      ],
+      "doc_no": "TR-2026-0001",
+      "status": "posted",
+      "item_id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+      "line_id": "ec16e051-a544-4fad-ad4f-2da7bf653175",
+      "moved_on": "2026-11-08",
+      "base_unit": "kg",
+      "item_name": "صويا",
+      "internal_export": false,
+      "to_warehouse_id": "093c1e31-ef5a-439a-b0d3-7cbb5afa16a5",
+      "from_warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c",
+      "to_warehouse_name": "مخزن مواد ثانٍ",
+      "from_warehouse_name": "مخزن المواد الأوّلية"
+    },
+    "owner_farm": {
+      "id": "f0e1031a-4dae-4d08-a68d-6fc2e5b49634",
+      "qty": "300.000",
+      "kind": "transfer",
+      "lines": [
+        {
+          "qty": "300.000",
+          "draws": [
+            {
+              "qty": "300.000",
+              "lot_id": "50ba6383-e2ef-458a-80ab-f3b7ef2dc7ea",
+              "mirror_lot_id": "6a646d5f-a720-4f8b-a890-ddee8f58967b"
+            }
+          ],
+          "item_id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+          "line_id": "4c24db34-1bd8-466f-bc42-73bc339bfcd3"
+        }
+      ],
+      "doc_no": "TR-2026-0002",
+      "status": "posted",
+      "item_id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+      "line_id": "4c24db34-1bd8-466f-bc42-73bc339bfcd3",
+      "moved_on": "2026-11-08",
+      "base_unit": "kg",
+      "item_name": "علف بادئ سائب",
+      "internal_export": true,
+      "to_warehouse_id": "a62d208a-7a0b-4749-95a9-5d8dc2652dfc",
+      "from_warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626",
+      "to_warehouse_name": "مخزن حقل الأمل",
+      "from_warehouse_name": "مخزن العلف"
+    }
+  },
+  "item_file": {
+    "storekeeper_unpriced": {
+      "item": {
+        "id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+        "kind": "raw",
+        "name": "صويا",
+        "version": 1,
+        "archived": false,
+        "base_unit": "kg",
+        "tracks_expiry": false,
+        "density_kg_per_l": null
+      },
+      "more": false,
+      "uses": [
+        "لها مشتريات",
+        "لها حركات مخزون"
+      ],
+      "money": {
+        "sell_price": null,
+        "avg_unit_price": null,
+        "last_unit_price": null,
+        "purchased_value": "0"
+      },
+      "today": "2026-11-08",
+      "stores": [
+        {
+          "qty": "1000.000",
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية",
+          "expired": "0",
+          "available": "1000.000",
+          "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c"
+        }
+      ],
+      "can_edit": false,
+      "can_sell": true,
+      "can_price": true,
+      "purchases": [
+        {
+          "qty": "1000.000",
+          "money": {
+            "corrected": false,
+            "line_total": "0",
+            "sell_price": null,
+            "unit_price": null
+          },
+          "doc_id": "7610ba93-d93d-4a13-8aa4-aca7da810c39",
+          "doc_no": "PU-2026-0001",
+          "priced": false,
+          "line_id": "7403a36a-61e5-4215-bafa-5b5dd013774e",
+          "payment": "credit",
+          "party_id": "7b6ae9a4-deaf-4349-ad80-be44876066e8",
+          "can_price": true,
+          "party_name": "مورّد الحبوب",
+          "received_on": "2026-11-05",
+          "warehouse_name": "مخزن المواد الأوّلية"
+        }
+      ],
+      "can_delete": false,
+      "can_record": true,
+      "can_convert": true,
+      "on_hand_qty": "1000.000",
+      "can_transfer": true,
+      "cash_accounts": [],
+      "purchased_qty": "1000.000",
+      "unpriced_count": 1,
+      "purchases_count": 1,
+      "transfer_targets": [
+        {
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية",
+          "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c"
+        },
+        {
+          "kind": "raw",
+          "name": "مخزن مواد ثانٍ",
+          "warehouse_id": "093c1e31-ef5a-439a-b0d3-7cbb5afa16a5"
+        }
+      ]
+    },
+    "viewer_unpriced": {
+      "item": {
+        "id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+        "kind": "raw",
+        "name": "صويا",
+        "version": 1,
+        "archived": false,
+        "base_unit": "kg",
+        "tracks_expiry": false,
+        "density_kg_per_l": null
+      },
+      "more": false,
+      "uses": [
+        "لها مشتريات",
+        "لها حركات مخزون"
+      ],
+      "today": "2026-11-08",
+      "stores": [],
+      "can_edit": false,
+      "can_sell": false,
+      "can_price": false,
+      "purchases": [],
+      "can_delete": false,
+      "can_record": false,
+      "can_convert": false,
+      "on_hand_qty": "0",
+      "can_transfer": false,
+      "cash_accounts": [],
+      "purchased_qty": "0",
+      "unpriced_count": 0,
+      "purchases_count": 0,
+      "transfer_targets": [
+        {
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية",
+          "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c"
+        },
+        {
+          "kind": "raw",
+          "name": "مخزن مواد ثانٍ",
+          "warehouse_id": "093c1e31-ef5a-439a-b0d3-7cbb5afa16a5"
+        }
+      ]
+    },
+    "storekeeper_bulk": {
+      "item": {
+        "id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+        "kind": "feed",
+        "name": "علف بادئ سائب",
+        "version": 1,
+        "archived": false,
+        "base_unit": "kg",
+        "tracks_expiry": false,
+        "density_kg_per_l": null
+      },
+      "more": false,
+      "uses": [
+        "لها حركات مخزون",
+        "في تحويل مادّة",
+        "في نقل بين المخازن"
+      ],
+      "money": {
+        "sell_price": null,
+        "avg_unit_price": null,
+        "last_unit_price": null,
+        "purchased_value": "0"
+      },
+      "today": "2026-11-08",
+      "stores": [
+        {
+          "qty": "600.000",
+          "kind": "feed",
+          "name": "مخزن العلف",
+          "expired": "0",
+          "available": "600.000",
+          "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626"
+        },
+        {
+          "qty": "100.000",
+          "kind": "feed",
+          "name": "مخزن علف ثانٍ",
+          "expired": "0",
+          "available": "100.000",
+          "warehouse_id": "8fa64d27-dca7-4f9f-af3a-80fceb657cf3"
+        }
+      ],
+      "can_edit": false,
+      "can_sell": true,
+      "can_price": false,
+      "purchases": [],
+      "can_delete": false,
+      "can_record": true,
+      "can_convert": true,
+      "on_hand_qty": "700.000",
+      "can_transfer": true,
+      "cash_accounts": [],
+      "purchased_qty": "0",
+      "unpriced_count": 0,
+      "purchases_count": 0,
+      "transfer_targets": [
+        {
+          "kind": "feed",
+          "name": "مخزن العلف",
+          "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626"
+        },
+        {
+          "kind": "farm",
+          "name": "مخزن حقل الأمل",
+          "warehouse_id": "a62d208a-7a0b-4749-95a9-5d8dc2652dfc"
+        },
+        {
+          "kind": "feed",
+          "name": "مخزن علف ثانٍ",
+          "warehouse_id": "8fa64d27-dca7-4f9f-af3a-80fceb657cf3"
+        }
+      ]
+    },
+    "owner_bulk": {
+      "item": {
+        "id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+        "kind": "feed",
+        "name": "علف بادئ سائب",
+        "version": 1,
+        "archived": false,
+        "base_unit": "kg",
+        "tracks_expiry": false,
+        "density_kg_per_l": null
+      },
+      "more": false,
+      "uses": [
+        "لها حركات مخزون",
+        "في تحويل مادّة",
+        "في نقل بين المخازن"
+      ],
+      "money": {
+        "sell_price": null,
+        "avg_unit_price": null,
+        "last_unit_price": null,
+        "purchased_value": "0"
+      },
+      "today": "2026-11-08",
+      "stores": [
+        {
+          "qty": "600.000",
+          "kind": "feed",
+          "name": "مخزن العلف",
+          "expired": "0",
+          "available": "600.000",
+          "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626"
+        },
+        {
+          "qty": "300.000",
+          "kind": "farm",
+          "name": "مخزن حقل الأمل",
+          "expired": "0",
+          "available": "300.000",
+          "warehouse_id": "a62d208a-7a0b-4749-95a9-5d8dc2652dfc"
+        },
+        {
+          "qty": "100.000",
+          "kind": "feed",
+          "name": "مخزن علف ثانٍ",
+          "expired": "0",
+          "available": "100.000",
+          "warehouse_id": "8fa64d27-dca7-4f9f-af3a-80fceb657cf3"
+        }
+      ],
+      "can_edit": true,
+      "can_sell": true,
+      "can_price": false,
+      "purchases": [],
+      "can_delete": false,
+      "can_record": true,
+      "can_convert": true,
+      "on_hand_qty": "1000.000",
+      "can_transfer": true,
+      "cash_accounts": [],
+      "purchased_qty": "0",
+      "unpriced_count": 0,
+      "purchases_count": 0,
+      "transfer_targets": [
+        {
+          "kind": "feed",
+          "name": "مخزن العلف",
+          "warehouse_id": "685a61f8-ee97-4f48-b023-af9fffb1f626"
+        },
+        {
+          "kind": "farm",
+          "name": "مخزن حقل الأمل",
+          "warehouse_id": "a62d208a-7a0b-4749-95a9-5d8dc2652dfc"
+        },
+        {
+          "kind": "feed",
+          "name": "مخزن علف ثانٍ",
+          "warehouse_id": "8fa64d27-dca7-4f9f-af3a-80fceb657cf3"
+        }
+      ]
+    },
+    "manager_fresh_before_delete": {
+      "item": {
+        "id": "5c7f04d8-2416-449b-8a1c-4a6526316d51",
+        "kind": "raw",
+        "name": "مادّة للحذف",
+        "version": 1,
+        "archived": false,
+        "base_unit": "kg",
+        "tracks_expiry": false,
+        "density_kg_per_l": null
+      },
+      "more": false,
+      "uses": [],
+      "money": {
+        "sell_price": "900",
+        "avg_unit_price": null,
+        "last_unit_price": null,
+        "purchased_value": "0"
+      },
+      "today": "2026-11-08",
+      "stores": [],
+      "can_edit": true,
+      "can_sell": false,
+      "can_price": false,
+      "purchases": [],
+      "can_delete": true,
+      "can_record": true,
+      "can_convert": false,
+      "on_hand_qty": "0",
+      "can_transfer": false,
+      "cash_accounts": [],
+      "purchased_qty": "0",
+      "unpriced_count": 0,
+      "purchases_count": 0,
+      "transfer_targets": [
+        {
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية",
+          "warehouse_id": "10b9daaa-26ca-49f1-b0d0-9b5c1f95f18c"
+        },
+        {
+          "kind": "raw",
+          "name": "مخزن مواد ثانٍ",
+          "warehouse_id": "093c1e31-ef5a-439a-b0d3-7cbb5afa16a5"
+        }
+      ]
+    }
+  },
+  "items_overview": {
+    "storekeeper": {
+      "items": [
+        {
+          "id": "b3d5dcf9-5431-48bd-85c5-d0369cd0d002",
+          "kind": "additive",
+          "name": "إضافة في خلطة",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "50aae490-bef7-4f85-ae60-c21111b55155",
+          "kind": "chick",
+          "name": "أفراخ لحم",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "pc",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "76315ff7-92c6-4050-a83c-79e32ffaeff4",
+          "kind": "raw",
+          "name": "ذرة صفراء",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "2000.000",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "b5ccd409-7462-401e-8db9-3f27db69f43c",
+          "kind": "raw",
+          "name": "شعير",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "00664467-c11d-4199-9367-e0e69a1bde03",
+          "kind": "raw",
+          "name": "شوفان",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "dfe1a27c-d1ab-4166-ba2a-481019030b21",
+          "kind": "raw",
+          "name": "صويا",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "1000.000",
+          "purchased_qty": "1000.000",
+          "unpriced_count": 1,
+          "last_purchase_on": "2026-11-05"
+        },
+        {
+          "id": "4438e0b8-e2b7-42af-8a3d-fa25674f885b",
+          "kind": "raw",
+          "name": "صويا مجروشة",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "efb8d74a-a2a1-460d-a425-78be0b35e1bc",
+          "kind": "feed",
+          "name": "علف بادئ أكياس",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "pc",
+          "on_hand_qty": "100.000",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "629f12d6-b16d-4990-af7f-862fa04b0607",
+          "kind": "feed",
+          "name": "علف بادئ سائب",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "6ab354b5-a863-4835-bc23-43eb796dc34c",
+          "kind": "fuel",
+          "name": "كاز",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "L",
+          "on_hand_qty": "500.000",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "e6dd2a27-18f5-4864-bc82-5be734d3207f",
+          "kind": "vaccine",
+          "name": "لقاح نيوكاسل",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "pc",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "d1d976e3-68e7-45da-aa1c-69fca3830de9",
+          "kind": "raw",
+          "name": "مادّة بنسخة",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "f2b1e5cd-6481-4cc2-98a1-859bc4d0634f",
+          "kind": "feed",
+          "name": "مخلوط",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "47a5fe80-0259-4e6f-9f89-51b6779dc52c",
+          "kind": "raw",
+          "name": "ملح",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "0",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        },
+        {
+          "id": "7011afec-19a7-4d02-ac25-1ae1b733ffa0",
+          "kind": "raw",
+          "name": "نخالة التزامن",
+          "money": {
+            "sell_price": null,
+            "avg_unit_price": null
+          },
+          "base_unit": "kg",
+          "on_hand_qty": "100.000",
+          "purchased_qty": "0",
+          "unpriced_count": 0,
+          "last_purchase_on": null
+        }
+      ],
+      "today": "2026-11-08",
+      "can_record": true,
+      "can_add_item": true
+    }
+  },
+  "refusals": {
+    "forbidden": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "stale_item": {
+      "code": "stale_item",
+      "hint": "تغيّرت «مادّة بنسخة» من نافذة أو جهاز آخر بعد أن فتحتها. حدّث الشاشة ثمّ أعد المحاولة."
+    },
+    "item_not_found": {
+      "code": "item_not_found",
+      "hint": "هذه المادّة غير موجودة في منشأتك، أو حُذفت من قبل. حدّث الشاشة."
+    },
+    "item_in_use": {
+      "code": "item_in_use",
+      "hint": "«ذرة صفراء» في رصيد افتتاحي، لها حركات مخزون، فلا تُحذف حتى لا يضيع سجلّها. أخفِها بدلاً من ذلك: تختفي من القوائم ويبقى سجلّها."
+    },
+    "price_required_for_cash": {
+      "code": "price_required_for_cash",
+      "hint": "الشراء بلا سعر يُسجَّل بالدين على المورّد؛ اكتب السعر إن دفعت الآن نقداً."
+    },
+    "id_conflict": {
+      "code": "id_conflict",
+      "hint": "سُجّل بهذا المعرّف تحويل غير الذي أرسلته الآن. حدّث الشاشة لترى ما سُجّل، ثمّ سجّل من جديد."
+    },
+    "conversion.same_item": {
+      "code": "same_item",
+      "hint": "التحويل من «ذرة صفراء» إليها نفسها لا معنى له؛ اختر مادّة أخرى."
+    },
+    "conversion.not_convertible": {
+      "code": "not_convertible",
+      "hint": "البيض والأفراخ لا تُحوَّل إلى مادّة أخرى ولا يُحوَّل إليها."
+    },
+    "conversion.conversion_expiry": {
+      "code": "conversion_expiry",
+      "hint": "«لقاح نيوكاسل» تتابع تاريخ الانتهاء، والتحويل لا يكتب تاريخاً للدفعة الجديدة؛ سجّلها شراءً أو رصيداً افتتاحياً."
+    },
+    "conversion.qty_not_positive": {
+      "code": "qty_not_positive",
+      "hint": "اكتب الكميتين أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى."
+    },
+    "conversion.pieces_not_whole": {
+      "code": "pieces_not_whole",
+      "hint": "«علف بادئ أكياس» تُعدّ بالقطعة؛ اكتب عدداً صحيحاً من القطع."
+    },
+    "conversion.item_archived": {
+      "code": "item_archived",
+      "hint": "المادّة «مادّة مؤرشفة» مؤرشفة، فلا تدخل تحويلاً. أعِدها من الأرشيف أوّلاً."
+    },
+    "conversion.item_not_found": {
+      "code": "item_not_found",
+      "hint": "إحدى المادّتين غير موجودة في منشأتك. حدّث الشاشة واختر من جديد."
+    },
+    "conversion.id_required": {
+      "code": "id_required",
+      "hint": "تعذّر الإرسال دون معرّف التحويل والمادّتين. حدّث الشاشة وأعد المحاولة."
+    },
+    "conversion.insufficient_stock": {
+      "code": "insufficient_stock",
+      "hint": "لا يكفي رصيد «ذرة صفراء» في «مخزن المواد الأوّلية»: طلبت 99,999 كغم، وعندك 1,500 كغم بتاريخ 08/11/2026."
+    },
+    "conversion.item_kind_mismatch": {
+      "code": "item_kind_mismatch",
+      "hint": "«مخلوط» لا تُخزَّن في «المخزن العام». اختر مخزناً يقبلها."
+    },
+    "conversion.out_of_scope": {
+      "code": "out_of_scope",
+      "hint": "المخزن «مخزن المواد الأوّلية» خارج نطاقك، فلا تحوّل منه."
+    },
+    "conversion.forbidden": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "conversion.date_in_future": {
+      "code": "date_in_future",
+      "hint": "التاريخ 09/11/2026 بعد تاريخ اليوم 08/11/2026. سجّل المستند بتاريخ اليوم أو بتاريخ سابق."
+    },
+    "transfer.same_warehouse": {
+      "code": "same_warehouse",
+      "hint": "المخزن المرسِل والمستلم واحد؛ اختر مخزناً آخر للاستلام."
+    },
+    "transfer.to_store_required": {
+      "code": "to_store_required",
+      "hint": "اختر المخزن الذي تنقل إليه."
+    },
+    "transfer.item_kind_mismatch": {
+      "code": "item_kind_mismatch",
+      "hint": "«ذرة صفراء» لا تُخزَّن في «مخزن حقل الأمل». اختر مخزناً يقبلها."
+    },
+    "transfer.insufficient_stock": {
+      "code": "insufficient_stock",
+      "hint": "لا يكفي رصيد «كاز»: المطلوب 99,999 لتراً، وبهذا التاريخ (08/11/2026) لم يكن موجوداً إلا 500 لتر."
+    },
+    "transfer.store_required": {
+      "code": "store_required",
+      "hint": "«علف بادئ سائب» موجودة في أكثر من مخزن في نطاقك: «مخزن العلف» (600 كغم)، «مخزن علف ثانٍ» (100 كغم). اختر المخزن الذي تنقل منه."
+    },
+    "transfer.out_of_scope": {
+      "code": "out_of_scope",
+      "hint": "المخزن «مخزن العلف» خارج نطاقك، فلا تنقل منه."
+    },
+    "transfer.forbidden": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "transfer.item_archived": {
+      "code": "item_archived",
+      "hint": "المادّة «مادّة مؤرشفة» مؤرشفة، فلا تُنقل. أعِدها من الأرشيف أوّلاً."
+    },
+    "transfer.pieces_not_whole": {
+      "code": "pieces_not_whole",
+      "hint": "«علف بادئ أكياس» تُعدّ بالقطعة؛ اكتب عدداً صحيحاً من القطع."
+    },
+    "ref_reused": {
+      "code": "ref_reused",
+      "hint": "مرجع هذه العملية استُعمل لعملية أخرى. حدّث الشاشة وأعد العملية من جديد."
+    },
+    "already_priced": {
+      "code": "already_priced",
+      "hint": "لهذا الشراء سعر مكتوب من قبل. إن كان خاطئاً فصحّحه من «تصحيح السعر»."
+    },
+    "purchase_voided": {
+      "code": "purchase_voided",
+      "hint": "أُلغي شراء «شعير» هذا، فلا يُكتب سعره. سجّل شراءً جديداً إن لزم."
+    },
+    "price.total_zero": {
+      "code": "total_zero",
+      "hint": "مجموع الشراء يُقرَّب إلى صفر دينار. راجع السعر."
+    },
+    "price.bad_price": {
+      "code": "bad_price",
+      "hint": "سعر الشراء لكلّ وحدة أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى."
+    },
+    "price.line_not_found": {
+      "code": "line_not_found",
+      "hint": "سطر الشراء غير موجود في منشأتك. حدّث الشاشة."
+    },
+    "price.id_required": {
+      "code": "id_required",
+      "hint": "تعذّر الإرسال دون معرّف سطر الشراء. حدّث الشاشة وأعد المحاولة."
+    },
+    "price.forbidden": {
+      "code": "forbidden",
+      "hint": "لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه."
+    },
+    "price.out_of_scope": {
+      "code": "out_of_scope",
+      "hint": "المخزن «مخزن المواد الأوّلية» خارج نطاقك، فلا تسجّل فيه ولا تلغي منه."
+    },
+    "unpriced_line": {
+      "code": "unpriced_line",
+      "hint": "هذا الشراء بلا سعر بعد؛ اكتب سعره من ملفّ المادّة («أكمل السعر»)، ثمّ يُصحَّح إن لزم."
+    },
+    "lot_consumed": {
+      "code": "lot_consumed",
+      "hint": "انسحب من دفعة «علف بادئ سائب» بالمستند TR-2026-0003، فلا يُلغى هذا قبل إلغاء ذلك المستند."
+    },
+    "already_void": {
+      "code": "already_void",
+      "hint": "التحويل CV-2026-0001 ملغى من قبل."
+    }
+  }
+}

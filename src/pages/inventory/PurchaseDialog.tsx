@@ -46,6 +46,8 @@ import { readTime, scopedStores, StoreSelect, storesOf, type StoreRef } from './
 // ويوم المالك (2026-11-07): «كاز» المسجَّل «مادّة للمعمل» دخل مخزن المواد الأوّلية بلا أن يُقال له قبل الحفظ؛ فأوّل النافذة سطر يسمّي أين يدخل
 // الشراء (المخازن بنطاقك التي تستلم نوع المادّة، مرآة receiving_kinds وin_scope_wh، والحكم للخادم)، ولمن يعدّل الموادّ رابط «عدّل نوع
 // المادّة» ما دامت بلا مخزون ولا شراء (النوع يُجمَّد بأوّل حركة). والمخازن تُقرأ مرّة عند الفتح، وتخدم قائمة store_required نفسها.
+// وكلمة المالك 2026-11-08 («خلي ادخال السعر اختياري»، وجوابه «يدخل وأكمّل السعر بعدين»): سعر الشراء اختياريّ؛ فارغاً يدخل المخزن الآن بالدين
+// وحده (لا مبلغ يُدفع نقداً بعد)، وسطر يقول ذلك مكان الدفع، ويُكمَّل السعر لاحقاً من ملفّ المادّة («أكمل السعر»).
 
 export interface PurchaseForm {
   day: string;
@@ -74,6 +76,11 @@ export function priceText(price: Fils | null): string {
   return price % FILS_PER_DINAR === 0n ? decimalText(price / FILS_PER_DINAR, 0) : decimalText(price, 2);
 }
 
+/** الدفع الفعليّ: بلا سعر بالدين وحده (لا مبلغ يُدفع نقداً قبل السعر)، واختيار النقد يعود إن كُتب السعر. */
+export function paymentOf(form: Pick<PurchaseForm, 'price' | 'payment'>): Payment {
+  return form.price.trim() === '' ? 'credit' : form.payment;
+}
+
 /** الشراء من النموذج (بلا المخزن)، أو أخطاء حقوله بأسمائها. today يوم الخادم (قاعدة التاريخ: اليوم أو قبله لحدّ 7 أيام). */
 export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 'today'>, box: string): { input: Omit<PurchaseInput, 'warehouseId'> | null; errors: Partial<Record<PurchaseField, string>> } {
   const errors: Partial<Record<PurchaseField, string>> = {};
@@ -84,11 +91,14 @@ export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 
   const qty = form.qty.trim() ? parseQty(form.qty) : null;
   if (qty === null || qty <= 0n) errors.qty = t('purchase.qty.required', 'اكتب الكمية ({unit}) رقماً أكبر من صفر، بثلاث مراتب عشرية كحدّ أقصى.', { unit: baseUnitLabel(unit) });
   else if (unit === 'pc' && qty % MILLI_PER_UNIT !== 0n) errors.qty = t('purchase.qty.whole', 'القطع تُعدّ عدداً صحيحاً.');
-  const price = form.price.trim() ? parseMoneyText(form.price, false) : null;
-  if (price === null || price <= 0n) errors.price = t('purchase.price.required', 'اكتب سعر الشراء لكل {unit} بالدينار، رقماً أكبر من صفر.', { unit: baseUnitLabel(unit) });
+  // السعر اختياريّ (0020): الفارغ «بلا سعر» والدفع بالدين وحده؛ والمكتوب رقم أكبر من صفر.
+  const priced = form.price.trim() !== '';
+  const price = priced ? parseMoneyText(form.price, false) : null;
+  if (priced && (price === null || price <= 0n)) errors.price = t('purchase.price.invalid', 'اكتب سعر الشراء لكل {unit} بالدينار رقماً أكبر من صفر، أو اتركه فارغاً وأكمله لاحقاً.', { unit: baseUnitLabel(unit) });
+  const payment = paymentOf(form);
   const sell = form.sell.trim() ? parseMoneyText(form.sell, false) : null;
   if (form.sell.trim() && (sell === null || sell <= 0n)) errors.sell = t('purchase.sell.invalid', 'اكتب سعر البيع بالدينار رقماً أكبر من صفر، أو اتركه فارغاً.');
-  if (form.payment === 'cash' && !box) errors.box = t('purchase.box.required', 'اختر الصندوق الذي دُفع منه.');
+  if (payment === 'cash' && !box) errors.box = t('purchase.box.required', 'اختر الصندوق الذي دُفع منه.');
   // قواعد سطر الاستلام (م٣): الانتهاء إلزامي لمادّة تتبّعه، ووقت الفقس للأفراخ؛ وما بعدهما (المنتهي يوم الشراء، والفقس في المستقبل)
   // يحكمه الخادم بتلميح يسمّي الحقل.
   const expiryOn = file.item.tracksExpiry ? parseDayText(form.expiry) : null;
@@ -98,7 +108,7 @@ export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 
   if (qty !== null && qty > 0n && price !== null && price > 0n && !errors.qty && purchaseTotal(qty, price).total === 0n) {
     errors.total = t('purchase.total.zero', 'المجموع صفر بعد التقريب لأقرب دينار؛ راجع الكمية والسعر.');
   }
-  if (Object.keys(errors).length || !day.day || !form.party || qty === null || price === null) return { input: null, errors };
+  if (Object.keys(errors).length || !day.day || !form.party || qty === null || (priced && price === null)) return { input: null, errors };
   return {
     input: {
       itemId: file.item.id,
@@ -107,8 +117,8 @@ export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 
       qty,
       unitPrice: price,
       sellPrice: sell,
-      payment: form.payment,
-      cashAccountId: form.payment === 'cash' ? box : null,
+      payment,
+      cashAccountId: payment === 'cash' ? box : null,
       expiryOn,
       bornAt: born?.iso ?? null,
     },
@@ -119,6 +129,7 @@ export function purchaseInput(form: PurchaseForm, file: Pick<ItemFile, 'item' | 
 /** نصّ زرّ الحفظ يسمّي أثره: «احفظ الشراء: 1,000 كغم ذرة بـ450,000 دينار بالدين على محمد علي». */
 export function saveLabel(input: Omit<PurchaseInput, 'warehouseId'> | null, file: Pick<ItemFile, 'item'>, partyName: string, boxName: string | null): string {
   if (!input) return t('purchase.save', 'احفظ الشراء');
+  if (input.unitPrice === null) return t('purchase.save.unpriced', 'احفظ الشراء: {qty} {item} بلا سعر، بالدين على {party}', { qty: baseQty(input.qty, file.item.baseUnit), item: file.item.name, party: partyName });
   const vars = { qty: baseQty(input.qty, file.item.baseUnit), item: file.item.name, total: fmtMoney(purchaseTotal(input.qty, input.unitPrice).total, 0), party: partyName, box: boxName ?? '' };
   if (input.payment === 'credit') return t('purchase.save.credit', 'احفظ الشراء: {qty} {item} بـ{total} دينار بالدين على {party}', vars);
   return boxName ? t('purchase.save.cash', 'احفظ الشراء: {qty} {item} بـ{total} دينار نقداً من {box}', vars) : t('purchase.save.cash_any', 'احفظ الشراء: {qty} {item} بـ{total} دينار نقداً', vars);
@@ -196,7 +207,7 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
   const editKind = file.canEdit && !file.item.archived && file.onHand === 0n && file.purchasesCount === 0;
   // الصناديق من الملفّ نفسه (الأمين لا يقرأ جدولها)، ومن جدولها إن لم يرسلها الخادم.
   const fromFile = file.cashAccounts;
-  const wantsBoxes = form.payment === 'cash' && fromFile === null;
+  const wantsBoxes = paymentOf(form) === 'cash' && fromFile === null;
   const loadBoxes = useCallback(() => (wantsBoxes ? purchasing.listBoxes() : Promise.resolve(null)), [wantsBoxes]);
   const listed = useLoad(loadBoxes, `${wantsBoxes}`);
   const boxes = fromFile ?? listed.data;
@@ -284,12 +295,14 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
               ) : null}
             </Notice>
             <p className="text-sm" data-action="purchase-sent">
-              {t('purchase.sent', 'المرسَل: {qty} {item} بـ{total} دينار، بتاريخ {day}.', {
-                qty: baseQty(pending.qty, file.item.baseUnit),
-                item: file.item.name,
-                total: fmtMoney(purchaseTotal(pending.qty, pending.unitPrice).total, 0),
-                day: fmtDay(pending.receivedOn),
-              })}
+              {pending.unitPrice === null
+                ? t('purchase.sent.unpriced', 'المرسَل: {qty} {item} بلا سعر، بتاريخ {day}.', { qty: baseQty(pending.qty, file.item.baseUnit), item: file.item.name, day: fmtDay(pending.receivedOn) })
+                : t('purchase.sent', 'المرسَل: {qty} {item} بـ{total} دينار، بتاريخ {day}.', {
+                    qty: baseQty(pending.qty, file.item.baseUnit),
+                    item: file.item.name,
+                    total: fmtMoney(purchaseTotal(pending.qty, pending.unitPrice).total, 0),
+                    day: fmtDay(pending.receivedOn),
+                  })}
             </p>
           </>
         ) : (
@@ -333,10 +346,22 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
             <Field id={`${id}-qty`} label={t('purchase.qty', 'الكمية ({unit})', { unit })} error={shown.qty} hint={qty !== null && qty > 0n ? t('purchase.qty.read_back', '= {qty}', { qty: baseQty(qty, file.item.baseUnit) }) : undefined}>
               <input id={`${id}-qty`} inputMode="decimal" dir="ltr" autoComplete="off" className="input text-end tabular-nums" value={form.qty} onChange={(event) => set({ qty: toWesternDigits(event.target.value) })} data-action="purchase-qty" />
             </Field>
-            <MoneyInput id={`${id}-price`} label={t('purchase.price', 'سعر الشراء لكل {unit}', { unit })} whole={false} value={form.price} onChange={(text) => set({ price: text })} error={shown.price} />
+            <MoneyInput
+              id={`${id}-price`}
+              label={t('purchase.price.optional', 'سعر الشراء لكل {unit} (اختياري)', { unit })}
+              hint={t('purchase.price.hint', 'إن لم تعرفه الآن فاتركه فارغاً، وأكمله لاحقاً من ملفّ المادّة.')}
+              whole={false}
+              value={form.price}
+              onChange={(text) => set({ price: text })}
+              error={shown.price}
+            />
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <p className="rounded-2xl bg-surface-2 px-4 py-3 text-lg font-semibold" data-action="purchase-total">
-                {live ? t('purchase.total', 'المجموع: {total} دينار', { total: fmtMoney(live.total, 0) }) : t('purchase.total.empty', 'المجموع: اكتب الكمية والسعر')}
+                {live
+                  ? t('purchase.total', 'المجموع: {total} دينار', { total: fmtMoney(live.total, 0) })
+                  : form.price.trim() === '' && qty !== null && qty > 0n
+                    ? t('purchase.total.unpriced', 'المجموع: يُحسب حين تكتب السعر')
+                    : t('purchase.total.empty', 'المجموع: اكتب الكمية والسعر')}
                 {live?.rounded ? <span className="ms-2 text-sm font-normal text-ink-muted">{t('purchase.total.rounded', '(مقرَّب لأقرب دينار)')}</span> : null}
               </p>
               {shown.total ? (
@@ -356,16 +381,23 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
             />
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium">{t('purchase.payment', 'الدفع')}</span>
-              <Segmented<Payment>
-                label={t('purchase.payment', 'الدفع')}
-                options={[
-                  { value: 'credit', label: t('purchase.payment.credit', 'بالدين على المورّد') },
-                  { value: 'cash', label: t('purchase.payment.cash', 'نقداً من الصندوق') },
-                ]}
-                value={form.payment}
-                onChange={(payment) => set({ payment })}
-              />
-              {form.payment === 'cash' ? (
+              {form.price.trim() === '' ? (
+                // بلا سعر بالدين وحده (0020): لا مبلغ يُدفع نقداً قبل السعر، فلا اختيار هنا.
+                <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm" data-action="purchase-unpriced">
+                  {t('purchase.unpriced', 'بالدين على المورّد: يدخل المخزن الآن، وتكمّل السعر لاحقاً.')}
+                </p>
+              ) : (
+                <Segmented<Payment>
+                  label={t('purchase.payment', 'الدفع')}
+                  options={[
+                    { value: 'credit', label: t('purchase.payment.credit', 'بالدين على المورّد') },
+                    { value: 'cash', label: t('purchase.payment.cash', 'نقداً من الصندوق') },
+                  ]}
+                  value={form.payment}
+                  onChange={(payment) => set({ payment })}
+                />
+              )}
+              {paymentOf(form) === 'cash' ? (
                 <>
                   <BoxPicker id={`${id}-box`} label={t('purchase.box', 'الصندوق')} boxes={boxes} value={box} onChange={(value) => set({ box: value })} />
                   {shown.box ? (

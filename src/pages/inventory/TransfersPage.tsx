@@ -2,6 +2,7 @@ import { ChevronDown, Plus, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, type Column } from '../../components/ui/DataTable';
@@ -300,14 +301,10 @@ function TransferEditor({ docId }: { docId: string }) {
   const ready = transferPostReady(preview, approved, online);
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/transfers" label={t('back.transfers', 'رجوع إلى التحويلات')} />
       <PageHeader
         title={current.docNo ? t('transfer.title.no', 'التحويل {no}', { no: current.docNo }) : t('transfer.title.draft', 'تحويل غير محفوظ بعد')}
         subtitle={t('transfer.subtitle', '{status} — من «{from}» إلى «{to}» بتاريخ {day}', { status: docStatusLabel(current.status), from: from?.name ?? '—', to: to?.name ?? '—', day: fmtDay(current.onDate) })}
-        actions={
-          <Link to="/inventory/transfers" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('transfer.back', 'كل التحويلات')}
-          </Link>
-        }
       />
       {exportTo ? (
         <Notice tone="info" title={t('transfer.export', 'صادر داخلي إلى {division}', { division: divisionLabel(exportTo.divisionKind) })}>

@@ -270,6 +270,8 @@ export default async function (t) {
       });
       m.onlineStore.set(true);
       await mount('/inventory/transfers/t-7');
+      // زرّ الرجوع الواضح أعلى المستند (كلمة المالك 2026-11-08) إلى قائمته.
+      t.same([byAction('back')[0]?.getAttribute('href'), byAction('back')[0]?.textContent], ['/inventory/transfers', 'رجوع إلى التحويلات'], 'F6: «رجوع إلى التحويلات» أعلى ورقة التحويل');
       fire(byAction('preview-transfer')[0], 'click');
       await settle();
       tick(byAction('approve-line')[0]);

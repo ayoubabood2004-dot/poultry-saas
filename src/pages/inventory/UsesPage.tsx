@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, type Column } from '../../components/ui/DataTable';
@@ -389,6 +390,7 @@ function UseEditor({ docId }: { docId: string }) {
   const title = current.docNo ? t('use.title.no', 'الصرف {no}', { no: current.docNo }) : destroy ? t('use.title.destroy', 'إتلاف غير محفوظ بعد') : t('use.title.draft', 'إخراج غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
+      <BackButton to="/inventory/uses" label={t('back.uses', 'رجوع إلى الصرف والإتلاف')} />
       <PageHeader
         title={title}
         subtitle={t('use.subtitle', '{status} — من «{store}» بتاريخ {day}، تصنيف «{category}»', {
@@ -397,11 +399,6 @@ function UseEditor({ docId }: { docId: string }) {
           day: fmtDay(current.onDate),
           category: category?.name ?? t('use.category.none', 'بلا تصنيف'),
         })}
-        actions={
-          <Link to="/inventory/uses" className="text-sm font-medium text-brand-700 dark:text-brand-200">
-            {t('use.back', 'كل الصرف')}
-          </Link>
-        }
       />
       <CopiedNotice draft={current.status === 'draft'} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('use.voided', 'أُلغي هذا الصرف')}>{current.voidReason}</Notice> : null}

@@ -1,5 +1,5 @@
 {
-  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1؛ والمواد ووحداتها من 0013: الإضافة item.create والتعديل stores.manage). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
+  "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id)، وmoney (جداول مال موجودة بلا سياسة الكلفة أو الحسابات، مثل فواتير البيع بمبلغها لأدوار المبيعات من 0021: reports-guard يحرسها كجداول المال). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1؛ والمواد ووحداتها من 0013: الإضافة item.create والتعديل stores.manage). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
   "functionOnly": [
     "audit_log",
     "cash_moves",
@@ -29,7 +29,11 @@
     "receipt_charge_shares",
     "receipt_revaluations",
     "rpc_refs",
+    "sales_invoices",
+    "sales_line_costs",
+    "sales_lines",
     "stock_balances",
+    "stock_conversions",
     "stock_lots",
     "stock_moves",
     "units"
@@ -819,6 +823,7 @@
     "receipt_line_amounts",
     "receipt_revaluations",
     "recipe_cost_rates",
+    "sales_line_costs",
     "stock_balances",
     "stock_count_line_costs",
     "stock_lots",
@@ -832,10 +837,16 @@
     "party_entries"
   ],
   "salesRestricted": [
-    "parties"
+    "parties",
+    "sales_invoices",
+    "sales_lines"
   ],
   "global": [
     "units"
+  ],
+  "money": [
+    "sales_invoices",
+    "sales_lines"
   ],
   "reserved": {
     "functionOnly": [
@@ -846,7 +857,6 @@
       "hatch_candlings",
       "hatch_costs",
       "party_offsets",
-      "sales_line_costs",
       "sales_line_sources",
       "sales_return_line_sources"
     ],
@@ -855,10 +865,7 @@
       "hatch_batch_values",
       "hatch_costs",
       "party_offsets",
-      "sales_invoices",
-      "sales_line_costs",
       "sales_line_sources",
-      "sales_lines",
       "sales_return_line_sources",
       "sales_return_lines",
       "sales_returns"

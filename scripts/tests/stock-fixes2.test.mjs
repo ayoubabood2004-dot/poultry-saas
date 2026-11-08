@@ -389,7 +389,7 @@ export default async function (t) {
       reached('مستند الحركة في الدفتر');
       t.same(linksTo('w-raw'), [], 'C2: ومن صفحة الدفعة لا رابط إلى دفتر مخزن المواد الذي لا يُفتح له (ب٣)');
       const back = byAction('open-output-lots');
-      t.same(back.map((n) => n.getAttribute('href')), ['/inventory/items/f-1/details?wh=w-feed&tab=lots'], 'C2: و«افتح وجبات العلف في مخزنه» رابط لبطاقة المادّة في مخزنه');
+      t.same(back.map((n) => n.getAttribute('href')), ['/inventory/items/f-1/details?wh=w-feed&tab=lots&back=%2Fmill%2Fbatch%2Fpb-1'], 'C2: و«افتح وجبات العلف في مخزنه» رابط لبطاقة المادّة في مخزنه (والرجوع منها إلى الدفعة)');
       await follow(back[0]);
       t.ok(where?.pathname === '/inventory/items/f-1/details' && byAction('open-production').length === 1, `C2: والرابط يرجع إلى وجبات العلف بدفعتها (${where?.pathname})`);
       t.same(named(calls, 'previewProduction'), [], 'C2: ولا معاينة تُطلب لدفعة مرحَّلة');

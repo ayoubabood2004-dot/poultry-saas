@@ -2,6 +2,7 @@ import { Pencil } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
+import { BackButton, backTarget } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Segmented } from '../../components/ui/Segmented';
@@ -736,8 +737,15 @@ export default function ItemCardPage() {
   const onSavedPrice = useCallback((of: ItemPurchases, kind: PriceKind, price: Fils | null) => setSaved((current) => savePrice(current, of, kind, price)), []);
   const made = purchases.data?.lastProduction ?? null;
   const editItem = canManage && row.data && !row.data.archived ? row.data : null;
+  // الرجوع إلى حيث جاء (?back=: المخزن أو دفعة المعمل)، وإلّا إلى ملفّ المادّة (كلمة المالك 2026-11-08: زرّ رجوع واضح).
+  const back = backTarget(search.get('back'), `/inventory/items/${itemId}`);
   return (
     <div className="flex flex-col gap-4">
+      <BackButton
+        to={back}
+        label={back.startsWith('/inventory/store/') ? t('back.store', 'رجوع إلى المخزن') : back.startsWith('/mill') ? t('back.mill', 'رجوع إلى المعمل') : t('back.file', 'رجوع إلى ملفّ المادّة')}
+        action="back-to-file"
+      />
       <PageHeader
         title={t('file.details', 'دفتر المادّة والوجبات')}
         subtitle={t('stock.card.subtitle', 'سجلّ المادّة: من اشتريتها ومتى وبأي سعر وبكم تُباع، ودفترها الداخل والخارج برصيده، ووجباتها المتبقّية.')}
@@ -753,9 +761,6 @@ export default function ItemCardPage() {
                 {t('item_card.edit', 'عدّل المادّة')}
               </Link>
             ) : null}
-            <Link to={`/inventory/items/${itemId}`} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="back-to-file">
-              {t('file.back', 'ملفّ المادّة')}
-            </Link>
           </div>
         }
       />

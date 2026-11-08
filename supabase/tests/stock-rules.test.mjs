@@ -145,7 +145,8 @@ async function scenario(t, db) {
     stock_moves_qty_zero: [move({ qty: 0, value: 5 }), 'stock_moves_qty_check'],
     stock_moves_value_sign: [move({ qty: 1, value: -5 }), 'stock_moves_value_check'],
     stock_moves_revalue_zero: [move({ kind: 'receipt_revalue', qty: 0, value: 0 }), 'stock_moves_value_check'],
-    stock_moves_doc_kind: [move({ kind: 'sale', qty: 1, value: 1 }), 'stock_moves_doc_kind_check'],
+    // 'sale' صار نوعاً معروفاً في 0021؛ النوع المجهول هنا لا يكتبه شيء.
+    stock_moves_doc_kind: [move({ kind: 'gift', qty: 1, value: 1 }), 'stock_moves_doc_kind_check'],
     stock_moves_seq_unique: [
       [['alter table public.stock_moves disable trigger stock_moves_seq'], ...move({ qty: 1, value: 1 }).map(([sql, params]) => [sql.replace('reverses_move_id)', 'reverses_move_id, seq)').replace('$11)', '$11, 1)'), params])],
       'stock_moves_org_id_item_id_warehouse_id_seq_key',
