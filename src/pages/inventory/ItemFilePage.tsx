@@ -285,7 +285,7 @@ export function PurchasesList({ file, onPrice }: { file: ItemFile; onPrice?: (ro
 }
 
 /** المخزن الذي تُعرض حركاته أوّلاً: أوّل مخزن فيه شيء من المادّة، وإلّا الأوّل. */
-export function firstMovesStore(stores: ItemFile['stores']): string | null {
+export function firstMovesStore(stores: readonly { warehouseId: string; qty: bigint }[]): string | null {
   return (stores.find((store) => store.qty > 0n) ?? stores[0])?.warehouseId ?? null;
 }
 
@@ -297,13 +297,15 @@ interface MorePages {
 }
 
 /**
- * «حركات المادّة» في الملفّ: دفتر مخزن واحد (item_moves_qty، 100 حركة للصفحة و«المزيد» بعد آخر رقم)، وأزرار المخازن حين تكون المادّة في أكثر
- * من مخزن. كلّ قراءة جديدة للملفّ (بعد شراء أو بيع أو نقل) تقرأ الحركات من جديد: الملفّ الجديد كائن جديد.
+ * «حركات المادّة» في الملفّ: دفتر مخزن واحد (item_moves_qty، 100 حركة للصفحة و«المزيد» بعد آخر رقم)، وأزرار المخازن حين تكون للمادّة حركات في أكثر
+ * من مخزن — من move_stores (0022: كلّ مخزن لها فيه حركة ولو نفد رصيدها)، وإلّا stores من خادم قبله. كلّ قراءة جديدة للملفّ (بعد شراء أو بيع أو
+ * نقل) تقرأ الحركات من جديد: الملفّ الجديد كائن جديد.
  */
 function MovesSection({ file }: { file: ItemFile }) {
   const itemId = file.item.id;
+  const stores = file.moveStores ?? file.stores;
   const [picked, setPicked] = useState<string | null>(null);
-  const warehouseId = picked !== null && file.stores.some((store) => store.warehouseId === picked) ? picked : firstMovesStore(file.stores);
+  const warehouseId = picked !== null && stores.some((store) => store.warehouseId === picked) ? picked : firstMovesStore(stores);
   const [seen, setSeen] = useState<{ file: ItemFile; generation: number }>({ file, generation: 0 });
   if (seen.file !== file) setSeen({ file, generation: seen.generation + 1 });
   const key = `${itemId}:${warehouseId ?? ''}:${seen.generation}`;
@@ -322,13 +324,13 @@ function MovesSection({ file }: { file: ItemFile }) {
       (caught: unknown) => setMore((current) => (current.key === key ? { ...current, busy: false, error: caught } : current)),
     );
   };
-  const store = file.stores.find((entry) => entry.warehouseId === warehouseId);
+  const store = stores.find((entry) => entry.warehouseId === warehouseId);
   return (
     <section className="flex flex-col gap-2" data-action="file-moves">
       <h2 className="font-semibold">{t('file.moves', 'حركات المادّة')}</h2>
-      {file.stores.length > 1 ? (
+      {stores.length > 1 ? (
         <div role="group" aria-label={t('file.moves.stores', 'مخزن الحركات')} className="flex flex-wrap items-center gap-2">
-          {file.stores.map((entry) => (
+          {stores.map((entry) => (
             <Button
               key={entry.warehouseId}
               size="sm"

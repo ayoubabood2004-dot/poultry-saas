@@ -20,14 +20,14 @@
 --   • public.day_balance (read): لكلّ مادّة ظاهرة في التصنيف (أو كلّ الموادّ) تُخزَّن في مخزن بنطاقك (أو في المخزن المختار) رصيدها آخر يوم
 --     p_on = Σ كميات حركاتها بتاريخه أو قبله في تلك المخازن، والعكسيات بيومها (جواب المالك «يبقى حتى يوم الإلغاء»)، وملاحظة اليوم، ومعها
 --     اليوم وقائمة التصنيفات والمخازن وأعضاء التصنيف وما يملكه الدور. لا مال فيه. ومن لا مخزن بنطاقه: صفوف فارغة.
---   • public.item_move_stores (read): مخازن نطاقك التي للمادّة فيها حركة (ولو صار رصيدها صفراً)، لقسم «حركات المادّة» في ملفّها.
+--   • public.item_file (0020 كما هي، ويّا move_stores): مخازن نطاقك التي للمادّة فيها حركة (ولو صار رصيدها صفراً)، لقسم «حركات المادّة» في ملفّها.
 --   • public.item_moves_qty (0014 كما هي، والرصيد الجاري والترقيم بالتاريخ ثمّ ترتيب الترحيل): الدفتر يطابق الجدول ليوم المستند المؤرَّخ قبل غيره.
 --   • private.item_uses: ملاحظات الأيام استعمال («لها ملاحظات يومية»)، فـ«احذف» يُخفي المادّة وتبقى ملاحظاتها.
 -- انحرافات مكتوبة (قرارات بلا سؤال داخل الخطوط الحمر، والعقد scratchpad/daybal/contract-0022.md):
 --   • لا يوم في المستقبل (day_in_future) ولا يوم لا نهائيّ (date_required) للجدول وللملاحظة؛ والماضي كلّه مفتوح.
 --   • مخازن «كلّ المخازن» = كلّ مخزن بنطاقك ولو مؤرشفاً (رصيد الماضي فيه رصيد)؛ وقائمة الاختيار المخازن الظاهرة وحدها.
 --   • جدول يوم مضى بأعضاء التصنيف اليوم (التصنيف ترتيب عرض لا تاريخ له)، والمادّة المخفيّة غائبة عنه.
--- تراجع: rollback_0022.sql — يرجّع private.actions وprivate.role_can وprivate.item_uses كما في 0020 وpublic.item_moves_qty كما في 0014 حرفاً
+-- تراجع: rollback_0022.sql — يرجّع private.actions وprivate.role_can وprivate.item_uses وpublic.item_file كما في 0020 وpublic.item_moves_qty كما في 0014 حرفاً
 --   بحرف، ويُسقط الدوالّ الجديدة وجدول الملاحظات وعدّاد نسخها وعمود الترتيب. **طريق رفض**: ملاحظة يومية واحدة مكتوبة توقف التراجع بصوت بلا أن
 --   يحذف شيئاً (إسقاط الجدول يضيعها).
 -- تنعاد بأمان: create table/sequence if not exists، وadd column if not exists، وcreate or replace، وكتلة do تفحص الكتالوج.
@@ -324,25 +324,134 @@ begin
 end
 $$;
 
--- ─── ز. مخازن حركات المادّة ─────────────────────────────────────────────────────────────────────────────────────────
--- مخازن نطاقك التي للمادّة فيها حركة واحدة على الأقلّ (ولو صار رصيدها صفراً)، برصيدها الآن، بالاسم: لقسم «حركات المادّة» في ملفّها.
-create or replace function public.item_move_stores(p_item uuid) returns jsonb
+-- ─── ز. ملفّ المادّة: مخازن حركاتها ─────────────────────────────────────────────────────────────────────────────────
+-- item_file كما في 0020 ويّا move_stores: مخازن نطاقك التي للمادّة فيها حركة واحدة على الأقلّ (ولو صار رصيدها صفراً)، برصيدها الآن، بالاسم —
+-- لقسم «حركات المادّة» في الملفّ (stores تعدّ ما فيه رصيد وحده، فالمادّة التي نفدت كانت بلا حركات).
+create or replace function public.item_file(p_item uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
+  v_today date := public.app_today();
   i public.items;
+  v_on_hand numeric;
+  v_count int;
+  v_qty numeric;
+  v_priced_qty numeric;
+  v_value numeric;
+  v_last numeric;
+  v_unpriced int;
+  v_can_price boolean;
+  v_rows jsonb;
+  v_sell numeric;
+  v_record boolean;
+  v_can_buy boolean;
+  v_live boolean;
+  v_can_sell boolean;
+  v_uses text[];
+  v_stores jsonb;
+  v_result jsonb;
 begin
   perform private.require('read');
   select * into i from public.items x where x.org_id = v_org and x.id = p_item;
   if i.id is null then
-    raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك، أو حُذفت. حدّث الشاشة.';
+    raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
-  return coalesce((select jsonb_agg(jsonb_build_object('id', y.id, 'name', y.name, 'kind', y.kind, 'archived', y.archived_at is not null,
-      'qty', round(coalesce((select b.qty from public.stock_balances b where b.org_id = y.org_id and b.item_id = i.id and b.warehouse_id = y.id), 0), 3)::text)
-      order by y.name collate "C", y.id)
-    from public.warehouses y
-    where y.org_id = v_org and public.in_scope_wh(y.id)
-      and exists (select 1 from public.stock_moves m where m.org_id = v_org and m.item_id = i.id and m.warehouse_id = y.id)), '[]'::jsonb);
+  v_record := public.can('purchase.record');
+  -- الدفتر بـCASE بعد نوع المخزن: receipt_book يرفض مخزناً لا يستلم، وترتيب شروط WHERE غير مضمون.
+  v_can_buy := v_record and i.archived_at is null and exists (
+    select 1 from public.warehouses x
+    where x.org_id = v_org and x.archived_at is null and x.kind = any (private.receiving_kinds(i.kind)) and public.in_scope_wh(x.id)
+      and public.in_scope_book(case when x.kind = any (private.receiving_kinds(i.kind)) then private.receipt_book(x.id) end));
+  select coalesce(sum(s.qty), 0) into v_on_hand from public.stock_balances s
+  where s.org_id = v_org and s.item_id = i.id and public.in_scope_wh(s.warehouse_id);
+  with buys as (
+    select x.id as line_id, r.id as doc_id, r.doc_no, r.received_on, r.posted_at, r.party_id, t.name as party_name, y.name as warehouse_name,
+      r.book_id, l.id as lot_id, l.qty_in,
+      (pp.id is not null and pp.unit_price is null and rv.new_total is null) as unpriced,
+      coalesce(rv.new_total, la.line_total, 0) as line_total, rv.new_total is not null and rv.unit_price is null as corrected,
+      case when pp.id is not null and pp.unit_price is null and rv.new_total is null then null
+        when rv.unit_price is not null then rv.unit_price
+        when rv.new_total is not null then private._mul_div_round(1, rv.new_total, l.qty_in, 2)
+        else coalesce(pp.unit_price, private._mul_div_round(1, coalesce(la.line_total, 0), l.qty_in, 2)) end as unit_price,
+      pp.sell_price,
+      case when coalesce(a.paid_now, 0) > 0 and coalesce(a.paid_now, 0) >= coalesce(la.line_total, 0) then 'cash' else 'credit' end as payment
+    from public.stock_lots l
+    join public.receipts r on r.org_id = l.org_id and r.id = l.source_id
+    join public.receipt_lines x on x.org_id = l.org_id and x.id = l.source_line_id
+    join public.parties t on t.org_id = r.org_id and t.id = r.party_id
+    join public.warehouses y on y.org_id = l.org_id and y.id = l.warehouse_id
+    left join public.receipt_line_amounts la on la.org_id = x.org_id and la.line_id = x.id
+    left join public.receipt_amounts a on a.org_id = r.org_id and a.doc_id = r.id
+    left join public.purchase_prices pp on pp.org_id = x.org_id and pp.line_id = x.id
+    left join lateral (
+      select v.new_total, v.unit_price from public.receipt_revaluations v
+      where v.org_id = x.org_id and v.receipt_line_id = x.id and v.status = 'posted' order by v.rev_no desc limit 1
+    ) as rv on true
+    where l.org_id = v_org and l.item_id = i.id and l.source_kind = 'receipt' and l.origin_lot_id is null and r.status = 'posted'
+      and public.in_scope_wh(l.warehouse_id)
+  ), ordered as (
+    select b.*, row_number() over (order by b.received_on desc, b.posted_at desc, b.line_id desc) as n,
+      -- «أكمل السعر» بالقاعدة التي يفرضها التسعير (revalue_plan): الدفتر بنطاقه، وكلّ مخزن فيه من الشراء متبقٍّ بنطاقه (مراجعة 0020 L2).
+      v_record and b.unpriced and public.in_scope_book(b.book_id) and not exists (
+        select 1 from public.stock_lots f where f.org_id = v_org and (f.id = b.lot_id or f.origin_lot_id = b.lot_id) and f.qty_left > 0
+          and not public.in_scope_wh(f.warehouse_id)) as can_price from buys b
+  )
+  select count(*)::int, coalesce(sum(o.qty_in), 0), coalesce(sum(o.qty_in) filter (where not o.unpriced), 0), coalesce(sum(o.line_total), 0),
+    (array_agg(o.unit_price order by o.n) filter (where not o.unpriced))[1], (count(*) filter (where o.unpriced))::int, coalesce(bool_or(o.can_price), false),
+    coalesce(jsonb_agg(jsonb_build_object('line_id', o.line_id, 'doc_id', o.doc_id, 'doc_no', o.doc_no, 'received_on', o.received_on,
+      'party_id', o.party_id, 'party_name', o.party_name, 'warehouse_name', o.warehouse_name, 'qty', o.qty_in::text, 'payment', o.payment,
+      'priced', not o.unpriced, 'can_price', o.can_price,
+      'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.line_total::text, 'sell_price', o.sell_price::text,
+        'corrected', o.corrected))
+      order by o.n) filter (where o.n <= 200), '[]'::jsonb)
+  into v_count, v_qty, v_priced_qty, v_value, v_last, v_unpriced, v_can_price, v_rows
+  from ordered o;
+  select s.sell_price into v_sell from public.item_prices s where s.org_id = v_org and s.item_id = i.id;
+  v_live := i.archived_at is null and v_on_hand > 0;
+  v_uses := private.item_uses(i.id);
+  -- يبيع: مادّة فعّالة في مخزن بنطاقه فيه منها رصيد، ودفتر وحدة ذلك المخزن بنطاقه (قيد الجهة يُكتب فيه، book_for_post).
+  v_can_sell := public.can('sale.record') and i.archived_at is null and i.kind not in ('hatching_egg', 'chick', 'table_egg') and exists (
+    select 1 from public.stock_balances b join public.warehouses w on w.org_id = b.org_id and w.id = b.warehouse_id
+    join public.ledger_books k on k.org_id = w.org_id and k.division_id = w.division_id and k.code = 'main'
+    where b.org_id = v_org and b.item_id = i.id and b.qty > 0 and w.archived_at is null and public.in_scope_wh(w.id) and public.in_scope_book(k.id));
+  select coalesce(jsonb_agg(jsonb_build_object('warehouse_id', w.id, 'name', w.name, 'kind', w.kind, 'qty', b.qty::text,
+      'available', q.available::text, 'expired', q.expired::text)
+    order by w.name collate "C", w.id), '[]'::jsonb)
+  into v_stores
+  from public.stock_balances b
+  join public.warehouses w on w.org_id = b.org_id and w.id = b.warehouse_id
+  cross join lateral private.stock_at(i.id, w.id, v_today) as q
+  where b.org_id = v_org and b.item_id = i.id and b.qty <> 0 and public.in_scope_wh(w.id);
+  v_result := jsonb_build_object('today', v_today, 'can_record', v_can_buy, 'can_edit', public.can('stores.manage'),
+    'can_delete', public.can('stores.manage') and cardinality(v_uses) = 0, 'uses', to_jsonb(v_uses),
+    'can_convert', public.can('stock_use.post') and v_live and i.kind not in ('hatching_egg', 'chick', 'table_egg'),
+    'can_transfer', public.can('transfer.post') and v_live and (select count(*) from public.warehouses w
+      where w.org_id = v_org and w.archived_at is null and private.item_admissible(w.kind, i.kind)) > 1,
+    'can_sell', v_can_sell,
+    'can_price', v_can_price, 'unpriced_count', v_unpriced,
+    'item', jsonb_build_object('id', i.id, 'name', i.name, 'kind', i.kind, 'base_unit', i.base_unit, 'version', i.version,
+      'density_kg_per_l', i.density_kg_per_l::text, 'archived', i.archived_at is not null, 'tracks_expiry', i.tracks_expiry),
+    'on_hand_qty', v_on_hand::text, 'purchased_qty', v_qty::text, 'purchases_count', v_count, 'stores', v_stores,
+    'move_stores', (select coalesce(jsonb_agg(jsonb_build_object('warehouse_id', w.id, 'name', w.name, 'kind', w.kind,
+        'qty', round(coalesce((select b.qty from public.stock_balances b where b.org_id = w.org_id and b.item_id = i.id and b.warehouse_id = w.id), 0), 3)::text)
+        order by w.name collate "C", w.id), '[]'::jsonb)
+      from public.warehouses w where w.org_id = v_org and public.in_scope_wh(w.id)
+        and exists (select 1 from public.stock_moves m where m.org_id = v_org and m.item_id = i.id and m.warehouse_id = w.id)),
+    'transfer_targets', (select coalesce(jsonb_agg(jsonb_build_object('warehouse_id', w.id, 'name', w.name, 'kind', w.kind)
+        order by w.name collate "C", w.id), '[]'::jsonb)
+      from public.warehouses w where w.org_id = v_org and w.archived_at is null and private.item_admissible(w.kind, i.kind)),
+    'money', jsonb_build_object('purchased_value', v_value::text,
+      'avg_unit_price', case when v_priced_qty > 0 then private._mul_div_round(1, v_value, v_priced_qty, 2)::text end,
+      'sell_price', v_sell::text, 'last_unit_price', v_last::text),
+    'purchases', v_rows, 'more', v_count > 200,
+    -- الصناديق الفعّالة لنافذتي «سجّل شراء» و«بِع» (الأمين لا يقرأ جدولها): لمن يسجّل شراء هذه المادّة أو بيعها وحده.
+    'cash_accounts', case when v_can_buy or v_can_sell then (
+      select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) order by c.name collate "C", c.id), '[]'::jsonb)
+      from public.cash_accounts c where c.org_id = v_org and c.archived_at is null) else '[]'::jsonb end);
+  if v_record then
+    return v_result;
+  end if;
+  return private.mask(v_result);
 end
 $$;
 
@@ -472,7 +581,7 @@ end
 $$;
 
 -- ─── ي. الصلاحيات ───────────────────────────────────────────────────────────────────────────────────────────────
-revoke all on function public.day_balance(uuid, date, uuid), public.item_move_stores(uuid), public.set_day_note(uuid, date, text, bigint),
+revoke all on function public.day_balance(uuid, date, uuid), public.set_day_note(uuid, date, text, bigint),
   public.set_category_items(uuid, uuid[], uuid[]) from public, anon;
-grant execute on function public.day_balance(uuid, date, uuid), public.item_move_stores(uuid), public.set_day_note(uuid, date, text, bigint),
+grant execute on function public.day_balance(uuid, date, uuid), public.set_day_note(uuid, date, text, bigint),
   public.set_category_items(uuid, uuid[], uuid[]) to authenticated;

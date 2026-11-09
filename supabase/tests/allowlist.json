@@ -43,7 +43,6 @@
     "public.item_file(uuid)",
     "public.item_lots_qty(uuid, uuid, jsonb, integer)",
     "public.item_lots_value(uuid, uuid, jsonb, integer)",
-    "public.item_move_stores(uuid)",
     "public.item_moves_qty(uuid, uuid, bigint, integer)",
     "public.item_purchases(uuid, uuid, jsonb, integer)",
     "public.items_overview()",

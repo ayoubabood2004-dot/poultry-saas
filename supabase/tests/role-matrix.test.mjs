@@ -681,12 +681,6 @@ export default async function (t, db) {
       value: true,
       expect: only(['owner', 'manager'], 'ok:1'),
     },
-    // مخازن حركات المادّة (read): كاز التسعير اشتُري في المخزن العامّ، فيراه من بنطاقه المخزن العامّ (المالك والمدير والأمين والمحاسب).
-    item_move_stores: {
-      sql: () => ["select jsonb_array_length(public.item_move_stores($1))::text as v", [p20.fuel]],
-      value: true,
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1', 'ok:0') },
-    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

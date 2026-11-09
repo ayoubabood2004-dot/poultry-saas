@@ -115,6 +115,14 @@ export interface FileStore {
   expired: Milli;
 }
 
+/** مخزن للمادّة فيه حركة (0022): لقسم «حركات المادّة» في الملفّ، ولو صار رصيدها فيه صفراً. */
+export interface FileMoveStore {
+  warehouseId: string;
+  name: string;
+  kind: WarehouseKind;
+  qty: Milli;
+}
+
 /** مخزن فعّال يقبل نوع المادّة (0020): وجهات «انقل». */
 export interface FileTarget {
   warehouseId: string;
@@ -177,6 +185,8 @@ export interface ItemFile {
   unpricedCount: number;
   item: FileItem;
   stores: readonly FileStore[];
+  /** مخازن حركات المادّة (0022 move_stores)؛ null من خادم قبل 0022، فيُستعمل stores. */
+  moveStores: readonly FileMoveStore[] | null;
   transferTargets: readonly FileTarget[];
   onHand: Milli;
   purchased: Milli;
@@ -227,6 +237,13 @@ export function parseItemFile(value: unknown): ItemFile {
         : arr(json.stores, 'stores').map((entry) => {
             const row = obj(entry, 'stores');
             return { warehouseId: str(row, 'warehouse_id'), name: str(row, 'name'), kind: oneOf(row, 'kind', WAREHOUSE_KINDS), qty: qtyOf(row, 'qty'), available: qtyOf(row, 'available'), expired: qtyOf(row, 'expired') };
+          }),
+    moveStores:
+      json.move_stores === undefined || json.move_stores === null
+        ? null
+        : arr(json.move_stores, 'move_stores').map((entry) => {
+            const row = obj(entry, 'move_stores');
+            return { warehouseId: str(row, 'warehouse_id'), name: str(row, 'name'), kind: oneOf(row, 'kind', WAREHOUSE_KINDS), qty: qtyOf(row, 'qty') };
           }),
     transferTargets:
       json.transfer_targets === undefined

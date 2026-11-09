@@ -20,7 +20,7 @@ const DB = 'select public.day_balance($1, $2, $3) as v';
 const NOTE = 'select public.set_day_note($1, $2, $3, $4) as v';
 const CAT = 'select public.set_category_items($1, $2::uuid[], $3::uuid[]) as v';
 const MOVES = 'select public.item_moves_qty($1, $2, $3, $4) as v';
-const STORES = 'select public.item_move_stores($1) as v';
+const FILE = 'select public.item_file($1) as v';
 const FN = {
   balance: 'public.day_balance(uuid, date, uuid)',
   note: 'public.set_day_note(uuid, date, text, bigint)',
@@ -267,13 +267,14 @@ async function scenario(t, db) {
   const page2 = await one(U.owner, MOVES, [I.ledger, W.raw, page1.next, 2]);
   t.same([page1.rows.map((r) => r.moved_on), page2.rows.map((r) => r.moved_on), page2.next ?? null], [[day(-5), day(-3)], [day(-1)], null], 'وصفحاته بالترتيب نفسه بلا تكرار ولا ثغرة');
   const storesOf = async (user, itemId) => {
-    const result = await call(db, user, STORES, [itemId]);
-    return result.ok ? result.value.map((s) => [s.kind, s.qty]) : result.code;
+    const result = await call(db, user, FILE, [itemId]);
+    return result.ok ? result.value.move_stores.map((s) => [s.kind, s.qty]) : result.code;
   };
   t.same([await storesOf(U.owner, I.corn), await storesOf(U.owner, I.gone), await storesOf(U.owner, I.bran), (await storesOf(U.owner, I.kerosene)).map(([k]) => k).sort(),
     await storesOf(U.keeperRaw, I.kerosene), await storesOf(U.owner, uid())],
   [[['raw', '8000.000']], [['raw', '0.000']], [], ['general', 'raw'], [['raw', '40.000']], 'item_not_found'],
-  'مخازن حركات المادّة: ولو نفد رصيدها، وبلا حركة لا مخزن، وبنطاق القارئ، والمجهولة item_not_found');
+  'ملفّ المادّة: مخازن حركاتها (move_stores) ولو نفد رصيدها، وبلا حركة لا مخزن، وبنطاق القارئ، والمجهولة item_not_found');
+  t.same((await one(U.owner, FILE, [I.gone])).stores, [], 'وstores كما كانت: ما فيه رصيد وحده (لذلك move_stores)');
 
   // ── عيّنات الشاشات ──────────────────────────────────────────────────────────────────────────────────────────────
   await note(U.storekeeper, I.corn, day(-3), 'بيع لأبو أحمد', null);
@@ -289,7 +290,7 @@ async function scenario(t, db) {
     no_categories: samples.no_categories,
     owner_store: (await balanceAs(U.owner, C.add, day(-3), W.raw)).value,
   };
-  samples.item_move_stores = { owner_kerosene: (await one(U.owner, STORES, [I.kerosene])), owner_gone: (await one(U.owner, STORES, [I.gone])) };
+  samples.item_file = { owner_kerosene: await one(U.owner, FILE, [I.kerosene]), owner_gone: await one(U.owner, FILE, [I.gone]) };
   delete samples.no_categories;
 
   // ── ٩) التزامن: ملء التصنيف وتعديل مادّة يكتب category_id بنفس اللحظة لا يتعاكسان ────────────────────────────────────────

@@ -276,7 +276,9 @@ export default async function (t) {
     t.same([DB.owner_all.category, DB.owner_all.categories.length > 0], [null, true], 'شرط owner_all: كلّ المواد بتصنيفات');
     t.ok(units(DB.mixed_units).length > 1, 'شرط mixed_units: وحدتان فأكثر');
     t.same([DB.storekeeper.can_note, DB.storekeeper.can_manage, DB.storekeeper.rows.some((row) => !row.note)], [true, false, true], 'شرط storekeeper: يكتب الملاحظة ولا يدير، وله مادّة بلا ملاحظة');
-    t.same([DB.viewer.can_note, DB.viewer.can_manage, DB.viewer.rows.length > 0], [false, false, true], 'شرط viewer: لا يكتب ولا يدير');
+    // الأجوبة الحقيقية (مراجعة 0022 F9): المشاهد بلا مخزن في نطاقه لا صفوف له؛ والمحاسب (بنطاق المنشأة) يقرأ الجدول ولا يكتب ولا يدير.
+    t.same([DB.viewer.can_note, DB.viewer.can_manage, DB.viewer.stores.length, DB.viewer.rows.length], [false, false, 0, 0], 'شرط viewer: لا يكتب ولا يدير، وبلا مخزن في نطاقه ولا صفوف');
+    t.same([DB.accountant.can_note, DB.accountant.can_manage, DB.accountant.rows.length > 0], [false, false, true], 'شرط accountant: لا يكتب ولا يدير، وله صفوف');
     t.same([Boolean(DB.empty_category.category), DB.empty_category.rows.length, DB.empty_category.can_manage], [true, 0, true], 'شرط empty_category: تصنيف بلا موادّ (والمدير)');
     t.same([DB.no_categories.categories.length, DB.no_categories.category, DB.no_categories.can_manage], [0, null, true], 'شرط no_categories: بلا تصنيفات (والمدير)');
     t.same([F.set_day_note.saved.note !== null, F.set_day_note.cleared.note], [true, null], 'شرط set_day_note: محفوظة وممسوحة');
@@ -824,13 +826,17 @@ export default async function (t) {
       await mount(dayUrlOf(UNSTORED, { day: UNSTORED.on }));
       t.ok(text().includes(`لا يُخزَّن شيء من موادّ «${FEED.category.name}» في مخازن نطاقك.`), 'S12: وبكلّ المخازن: «في مخازن نطاقك»');
     });
-    for (const [label, session] of [['المشاهد', VIEWER], ['المحاسب', ACCOUNTANT]]) {
-      await step(`S12-${label}`, async () => {
-        fresh(session, {}, { day_balance: answer(DB.viewer) });
-        await mount(dayUrlOf(DB.viewer, { day: DB.viewer.on }));
-        t.same([bodyRows().length, byAction('edit-note').length, byAction('include-items').length, byAction('new-category').length, byAction('print-day').length, byAction('share-day').length], [DB.viewer.rows.length, 0, 0, 0, 1, 1], `S12: ${label}: الجدول والطباعة والمشاركة، بلا ملاحظة ولا «أدرج» ولا «تصنيف جديد»`);
-      });
-    }
+    await step('S12-المحاسب', async () => {
+      fresh(ACCOUNTANT, {}, { day_balance: answer(DB.accountant) });
+      await mount(dayUrlOf(DB.accountant, { day: DB.accountant.on }));
+      t.same([bodyRows().length, byAction('edit-note').length, byAction('include-items').length, byAction('new-category').length, byAction('print-day').length, byAction('share-day').length], [DB.accountant.rows.length, 0, 0, 0, 1, 1], 'S12: المحاسب: الجدول والطباعة والمشاركة، بلا ملاحظة ولا «أدرج» ولا «تصنيف جديد»');
+    });
+    await step('S12-المشاهد', async () => {
+      // جواب القاعدة الحقيقي للمشاهد بلا مخزن في نطاقه: «لا مخزن في نطاقك» بلا جدول ولا طباعة ولا مشاركة.
+      fresh(VIEWER, {}, { day_balance: answer(DB.viewer) });
+      await mount(dayUrlOf(DB.viewer, { day: DB.viewer.on }));
+      t.same([byAction('day-no-stores').length, all().some((n) => n.localName === 'table'), byAction('print-day').length, byAction('share-day').length, byAction('edit-note').length], [1, false, 0, 0, 0], 'S12: المشاهد بلا مخزن: «لا مخزن في نطاقك» بلا جدول ولا طباعة ولا مشاركة ولا ملاحظة');
+    });
     await step('S12-viewer-empty', async () => {
       fresh(VIEWER, {}, { day_balance: answer({ ...clone(DB.empty_category), can_note: false, can_manage: false }) });
       await mount(dayUrlOf(DB.empty_category));
@@ -933,6 +939,16 @@ export default async function (t) {
       const { calls } = fresh(VIEWER, {}, { item_file: async () => fileWith([]) });
       await mount('/inventory/items/i-corn');
       t.same([byAction('file-moves').length, named(calls, 'loadItemMoves').length], [0, 0], 'S16: بلا مخازن: بلا قسم ولا قراءة');
+    });
+    await step('S16-sold-out', async () => {
+      // جواب القاعدة الحقيقي لمادّة بيعت كلّها (0022 move_stores): stores فارغة (لا رصيد)، ومخازن حركاتها فيها مخزنها برصيد صفر — فالقسم يظهر بدفتره.
+      const gone = clone(F.item_file.owner_gone);
+      const where = gone.move_stores[0];
+      t.same([gone.stores.length, gone.move_stores.length, where.qty], [0, 1, '0.000'], 'S16: شرط العيّنة: بلا رصيد في أيّ مخزن، وحركات في مخزن واحد');
+      const { calls } = fresh(MANAGER, { loadItemMoves: () => ({ rows: [], next: null, total: 0 }) }, { item_file: async () => gone });
+      await mount(`/inventory/items/${gone.item.id}`);
+      t.same([byAction('file-moves').length, named(calls, 'loadItemMoves'), text().includes(`في «${where.name}»`)], [1, [[gone.item.id, where.warehouse_id]], true],
+        'S16: مادّة نفدت: «حركات المادّة» تظهر بدفتر مخزنها (move_stores)، لا تختفي');
     });
   } finally {
     if (root) {
