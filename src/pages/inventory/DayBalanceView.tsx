@@ -12,7 +12,7 @@ import { toast } from '../../components/ui/Toast';
 import { addDays, type Day } from '../../domain/dates';
 import { searchable } from '../../domain/normalize';
 import { parseDayText } from '../../lib/dayText';
-import { describeError, RejectedError } from '../../lib/errors';
+import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as dayBalance from '../../lib/repo/dayBalance';
@@ -36,6 +36,28 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 /** حدّ الملاحظة بعد القصّ، بالحروف (لا بوحدات UTF-16) كما يعدّها الخادم. */
 export const NOTE_MAX = 200;
+
+/**
+ * حروف قصّ طرفَي الملاحظة كما في private.note_text بالخادم رقماً برقم (مراجعة 0022 R5): trim() لا يقصّ U+0085 ولا U+200B–U+200F ولا
+ * U+202A–U+202E ولا U+2060، فكانت 200 حرف وعلامة اتّجاه بآخرها (لصق من واتساب) تُرفض هنا والخادم يقبلها، وعلامة خفيّة وحدها تُرسل فيقول
+ * «مُسحت» ولم يُمسح شيء.
+ */
+export const NOTE_SPACES: readonly number[] = [
+  9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8203, 8204, 8205, 8206, 8207, 8232, 8233,
+  8234, 8235, 8236, 8237, 8238, 8239, 8287, 8288, 12288, 65279,
+];
+const NOTE_SPACE = new Set(NOTE_SPACES);
+const isNoteSpace = (char: string | undefined): boolean => char !== undefined && NOTE_SPACE.has(char.codePointAt(0) ?? -1);
+
+/** الملاحظة مقصوصة الطرفين كما يقصّها الخادم (بالحروف لا بوحدات UTF-16). */
+export function noteText(value: string): string {
+  const chars = [...value];
+  let start = 0;
+  let end = chars.length;
+  while (start < end && isNoteSpace(chars[start])) start += 1;
+  while (end > start && isNoteSpace(chars[end - 1])) end -= 1;
+  return chars.slice(start, end).join('');
+}
 /** حدّ موادّ التصنيف الواحد (too_many_items بالخادم). */
 export const CATEGORY_MAX = 500;
 
@@ -111,8 +133,12 @@ export async function shareReport(title: string, text: string): Promise<'shared'
   return 'copied';
 }
 
-/** أعمدة الجدول كورقة المالك: الوحدة في رأس «الرصيد» إن اتّحدت وحدات الموادّ، وإلّا عمود «الوحدة». */
-export function dayColumns(data: DayBalance, here: string, onNote: ((row: DayRow) => void) | null): Column<DayRow>[] {
+/**
+ * أعمدة الجدول كورقة المالك: الوحدة في رأس «الرصيد» إن اتّحدت وحدات الموادّ، وإلّا عمود «الوحدة». «المادّة» بسطر واحد وزرّ الملاحظة أوّل
+ * خليّتها (أقرب إلى الرصيد): بعرض الهاتف كان العمودان الملفوفان (عرض أدنى 48 لكلّ منهما) يدفعان زرّ الملاحظة خارج الشاشة (مراجعة 0022 P1).
+ * وbusy (الجدول يُقرأ من جديد): أزرار الملاحظات معطّلة، فلا تُفتح نافذة على ملاحظة من قراءة قديمة.
+ */
+export function dayColumns(data: DayBalance, here: string, onNote: ((row: DayRow) => void) | null, busy = false): Column<DayRow>[] {
   const units = [...new Set(data.rows.map((row) => row.baseUnit))];
   const [single] = units.length === 1 ? units : [];
   const decimals = columnDecimals(data.rows.map((row) => row.qty), 3) as 0 | 1 | 2 | 3;
@@ -122,7 +148,6 @@ export function dayColumns(data: DayBalance, here: string, onNote: ((row: DayRow
     {
       key: 'item',
       header: t('dayb.col.item', 'المادّة'),
-      wrap: true,
       cell: (row) => (
         <Link to={`${itemFilePath(row.itemId)}?${back}`} className="font-medium text-brand-700 dark:text-brand-200" data-action="day-item">
           {row.name}
@@ -142,23 +167,24 @@ export function dayColumns(data: DayBalance, here: string, onNote: ((row: DayRow
     header: t('dayb.col.notes', 'الملاحظات'),
     wrap: true,
     cell: (row) => (
-      <span className="flex items-center justify-between gap-2">
-        <span className="min-w-0" data-action="day-note">
-          {row.note?.text ?? ''}
-        </span>
+      <span className="flex items-center gap-2">
         {onNote ? (
           <button
             type="button"
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface-2 hover:text-ink print:hidden"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50 print:hidden"
             aria-label={t('dayb.note.title', 'ملاحظة «{item}» ليوم {day}', { item: row.name, day: fmtDay(data.on) })}
             title={t('dayb.note.title', 'ملاحظة «{item}» ليوم {day}', { item: row.name, day: fmtDay(data.on) })}
             onClick={() => onNote(row)}
+            disabled={busy}
             data-action="edit-note"
             data-id={row.itemId}
           >
             <NotebookPen aria-hidden="true" className="size-5" />
           </button>
         ) : null}
+        <span className="min-w-0" data-action="day-note">
+          {row.note?.text ?? ''}
+        </span>
       </span>
     ),
   });
@@ -175,38 +201,55 @@ function failureText(failure: unknown, context: 'write' | 'once'): string {
 // ─── ملاحظة اليوم ──────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * ملاحظة مادّة ليوم واحد. الكتابة بشرط النسخة التي يراها المستخدم الآن (current من آخر قراءة للجدول: لا قراءة جديدة والنافذة مفتوحة إلّا
- * بعد note_changed). وnote_changed يقول إنّ غيره غيّرها، ويقرأ الجدول من جديد فيعرض الملاحظة الحاليّة، ويُبقي ما كتبه ليحفظه فوقها إن شاء.
+ * ملاحظة مادّة ليوم واحد. الكتابة بشرط النسخة التي عرضتها النافذة (basis: الملاحظة كما رآها حين فتحها، لا نسخة قراءة لاحقة لم يرها —
+ * مراجعة 0022 M1). وnote_changed يقول إنّ غيره غيّرها ويقرأ الجدول من جديد، وأوّل قراءة ناجحة بعده تصير الأساس وتُعرض («الملاحظة الآن»)،
+ * ويبقى ما كتبه ليحفظه فوقها إن شاء؛ وإن فشلت القراءة يُقال ذلك بـ«أعد القراءة» ولا حفظ بنسخة لم تُقرأ (R6).
  */
 function NoteDialog({
   item,
   day,
-  current,
-  loading,
+  shown,
+  latest,
+  reads,
+  failed,
   onClose,
   onSaved,
-  onChanged,
+  onReread,
 }: {
   item: Named;
   day: Day;
-  current: DayNote | null;
-  loading: boolean;
-  onClose: () => void;
+  /** الملاحظة كما عرضها الجدول حين فُتحت النافذة. */
+  shown: DayNote | null;
+  /** ملاحظة المادّة في آخر قراءة ناجحة للجدول، وعدد القراءات الناجحة حتى الآن. */
+  latest: DayNote | null;
+  reads: number;
+  /** فشلت آخر قراءة للجدول. */
+  failed: boolean;
+  /** uncertain: نتيجة الحفظ مجهولة (لعلّها حُفظت)، فالجدول يُقرأ من جديد. */
+  onClose: (uncertain: boolean) => void;
   onSaved: (result: DayNoteResult) => void;
-  onChanged: () => void;
+  onReread: () => void;
 }) {
   const id = useId();
-  const [opened] = useState(current?.text ?? '');
-  const [text, setText] = useState(opened);
+  const [basis, setBasis] = useState<DayNote | null>(shown);
+  const [text, setText] = useState(shown?.text ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [changed, setChanged] = useState(false);
+  // عدد القراءات حين رُفض الحفظ بـnote_changed: القراءة الناجحة التالية تصير الأساس.
+  const [changedAt, setChangedAt] = useState<number | null>(null);
+  if (changedAt !== null && reads > changedAt) {
+    setBasis(latest);
+    setChangedAt(null);
+  }
+  const waiting = changedAt !== null;
+  const close = () => onClose(failure instanceof UnknownOutcomeError);
   const send = async (value: string) => {
-    const trimmed = value.trim();
+    const trimmed = noteText(value);
     // لا ملاحظة ولا نصّ: لا شيء يُحفظ ولا يُمسح.
-    if (trimmed === '' && current === null && !changed) {
-      onClose();
+    if (trimmed === '' && basis === null && !changed) {
+      onClose(false);
       return;
     }
     const length = [...trimmed].length;
@@ -218,12 +261,13 @@ function NoteDialog({
     setFailure(null);
     setBusy(true);
     try {
-      onSaved(await dayBalance.setDayNote(item.id, day, trimmed, current?.version ?? null));
+      onSaved(await dayBalance.setDayNote(item.id, day, trimmed, basis?.version ?? null));
     } catch (caught) {
       setBusy(false);
       if (caught instanceof RejectedError && caught.code === 'note_changed') {
         setChanged(true);
-        onChanged();
+        setChangedAt(reads);
+        onReread();
       } else {
         setFailure(caught);
       }
@@ -237,21 +281,21 @@ function NoteDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('dayb.note.title', 'ملاحظة «{item}» ليوم {day}', { item: item.name, day: fmtDay(day) })}
-      dirty={text !== opened}
+      dirty={text !== (shown?.text ?? '')}
       locked={busy}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
+          <Button variant="secondary" onClick={close} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          {current ? (
-            <Button variant="ghost" onClick={() => void send('')} disabled={busy || loading} data-action="erase-note">
+          {basis ? (
+            <Button variant="ghost" onClick={() => void send('')} disabled={busy || waiting} data-action="erase-note">
               {t('dayb.note.erase', 'امسح الملاحظة')}
             </Button>
           ) : null}
-          <Button type="submit" form={formId} busy={busy} disabled={loading} data-action="save-note">
+          <Button type="submit" form={formId} busy={busy} disabled={waiting} data-action="save-note">
             {t('dayb.note.save', 'احفظ')}
           </Button>
         </div>
@@ -259,13 +303,22 @@ function NoteDialog({
     >
       <form id={formId} className="flex flex-col gap-3" onSubmit={submit} noValidate>
         {changed ? (
-          <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="note-changed">
-            {loading
-              ? t('dayb.note.changed.reading', 'غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. جارٍ قراءة الملاحظة الحاليّة…')
-              : current
-                ? t('dayb.note.changed', 'غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. الملاحظة الآن: «{text}». ما كتبته باقٍ هنا: احفظه ليحلّ محلّها، أو أغلق النافذة.', { text: current.text })
-                : t('dayb.note.changed.cleared', 'مُسحت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. ما كتبته باقٍ هنا: احفظه إن شئت، أو أغلق النافذة.')}
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="note-changed">
+              {waiting
+                ? failed
+                  ? t('dayb.note.changed.failed', 'غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت، وتعذّرت قراءة الملاحظة الحاليّة. أعد القراءة لتراها، ثمّ احفظ ما كتبت إن شئت.')
+                  : t('dayb.note.changed.reading', 'غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. جارٍ قراءة الملاحظة الحاليّة…')
+                : basis
+                  ? t('dayb.note.changed', 'غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. الملاحظة الآن: «{text}». ما كتبته باقٍ هنا: احفظه ليحلّ محلّها، أو أغلق النافذة.', { text: basis.text })
+                  : t('dayb.note.changed.cleared', 'مُسحت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت. ما كتبته باقٍ هنا: احفظه إن شئت، أو أغلق النافذة.')}
+            </p>
+            {waiting && failed ? (
+              <Button variant="secondary" size="sm" onClick={onReread} data-action="note-reread">
+                {t('dayb.reread', 'أعد القراءة')}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         <Field id={`${id}-text`} label={t('dayb.note.label', 'الملاحظة')} hint={t('dayb.note.hint', 'حتى {max} حرف. احفظها فارغة لتمسحها.', { max: fmtInt(NOTE_MAX) })} error={error}>
           <textarea id={`${id}-text`} className="input" rows={3} value={text} disabled={busy} onChange={(event) => setText(event.target.value)} data-action="note-text" data-autofocus />
@@ -292,31 +345,37 @@ interface Pages {
 /**
  * «أدرج مواد» (المدير): الموادّ المختارة بترتيبها (أعلى وأسفل)، وكلّ الموادّ الفعّالة بحثاً بمربّع اختيار، والمادّة في تصنيف آخر تقول «في «س»»
  * (الحفظ ينقلها إلى هذا التصنيف). تبدأ بموادّ التصنيف كلّها (members، ولو لم يُظهرها الجدول لأنّ مخازن النطاق لا تقبلها) بأسمائها من قراءة واحدة،
- * و«احفظ» يرسل القائمة كلّها بترتيبها ومعها ما عرضته النافذة (p_expected_items). وcategory_changed (غيّر غيره التصنيف بعد الفتح) يُقال بتلميحه،
- * ويُقرأ التصنيف من جديد، ويبقى الاختيار ليُحفظ ثانيةً على ما صار فيه.
+ * و«احفظ» يرسل القائمة كلّها بترتيبها ومعها ما عرضته النافذة (basis، p_expected_items: لا قائمة قراءة لاحقة لم تُعرض — مراجعة 0022 M2).
+ * وcategory_changed (غيّر غيره التصنيف بعد الفتح) يُقال بتلميحه ويُقرأ التصنيف من جديد، وأوّل قراءة ناجحة بعده تصير الأساس، ويبقى الاختيار
+ * ليُحفظ ثانيةً على ما صار فيه؛ وإن فشلت القراءة يُقال ذلك بـ«أعد القراءة» ولا حفظ بقائمة لم تُقرأ (R12).
  */
 function IncludeDialog({
   category,
   initial,
   members,
-  loading,
+  reads,
+  failed,
   rowNames,
   categories,
   onClose,
   onSaved,
-  onChanged,
+  onReread,
 }: {
   category: Named;
   /** موادّ التصنيف بترتيبها كما فُتحت النافذة (members). */
   initial: readonly string[];
-  /** members من آخر قراءة للتصنيف نفسه (تتغيّر بعد category_changed)، أو null قبل قراءته. */
+  /** members من آخر قراءة ناجحة للتصنيف نفسه، أو null إن كان العرض لغيره. */
   members: readonly string[] | null;
-  loading: boolean;
+  /** عدد القراءات الناجحة للجدول حتى الآن. */
+  reads: number;
+  /** فشلت آخر قراءة للجدول. */
+  failed: boolean;
   rowNames: ReadonlyMap<string, string>;
   categories: readonly DayCategory[];
-  onClose: () => void;
+  /** uncertain: نتيجة الحفظ مجهولة (لعلّه حُفظ)، فالجدول يُقرأ من جديد. */
+  onClose: (uncertain: boolean) => void;
   onSaved: (result: CategoryItemsResult) => void;
-  onChanged: () => void;
+  onReread: () => void;
 }) {
   const id = useId();
   const [chosen, setChosen] = useState<readonly string[]>(initial);
@@ -329,7 +388,14 @@ function IncludeDialog({
   const [known, setKnown] = useState<ReadonlyMap<string, string> | null>(null);
   if (names.data !== null && names.data !== known) setKnown(names.data);
   const [changed, setChanged] = useState<string | null>(null);
-  const expected = members ?? initial;
+  // ما عرضته النافذة من موادّ التصنيف: شرط الحفظ. وبعد category_changed أوّل قراءة ناجحة تصير هو (changedAt عدد القراءات حين رُفض).
+  const [basis, setBasis] = useState<readonly string[]>(initial);
+  const [changedAt, setChangedAt] = useState<number | null>(null);
+  if (changedAt !== null && reads > changedAt) {
+    if (members !== null) setBasis(members);
+    setChangedAt(null);
+  }
+  const waiting = changedAt !== null;
   const [query, setQuery] = useState('');
   const search = useDeferredValue(query.trim());
   const load = useCallback(() => inventory.listItems({ search }), [search]);
@@ -338,6 +404,7 @@ function IncludeDialog({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
+  const close = () => onClose(failure instanceof UnknownOutcomeError);
   const extra = more.key === search ? more : { key: search, pages: [], busy: false, error: null };
   const pages = first.data ? [first.data, ...extra.pages] : [];
   const seen = new Set<string>();
@@ -379,14 +446,15 @@ function IncludeDialog({
     setFailure(null);
     setBusy(true);
     try {
-      onSaved(await dayBalance.setCategoryItems(category.id, chosen, expected));
+      onSaved(await dayBalance.setCategoryItems(category.id, chosen, basis));
     } catch (caught) {
       setBusy(false);
       if (caught instanceof RejectedError && caught.code === 'category_changed') {
         // الاختيار باقٍ، والتصنيف (members وأسماؤه) يُقرأ من جديد فيصير الحفظ التالي على ما صار فيه.
         setChanged(caught.hint ?? t('dayb.include.changed', 'تغيّرت موادّ هذا التصنيف بعد أن فتحت النافذة.'));
+        setChangedAt(reads);
         setGeneration((n) => n + 1);
-        onChanged();
+        onReread();
       } else {
         setFailure(caught);
       }
@@ -400,7 +468,7 @@ function IncludeDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('dayb.include.title', 'موادّ «{name}»', { name: category.name })}
       size="wide"
       dirty={dirty}
@@ -413,11 +481,11 @@ function IncludeDialog({
             </p>
           ) : null}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={busy}>
+            <Button variant="secondary" onClick={close} disabled={busy}>
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
-            {/* لا حفظ قبل أن تُعرف موادّ التصنيف بأسمائها، ولا أثناء قراءته من جديد: الحفظ بشرط ما عُرض. */}
-            <Button onClick={() => void save()} busy={busy} disabled={loading || known === null} data-action="save-include">
+            {/* لا حفظ قبل أن تُعرف موادّ التصنيف بأسمائها، ولا قبل أن يُقرأ من جديد بعد category_changed: الحفظ بشرط ما عُرض. */}
+            <Button onClick={() => void save()} busy={busy} disabled={waiting || known === null} data-action="save-include">
               {t('dayb.include.save', 'احفظ الموادّ بترتيبها')}
             </Button>
           </div>
@@ -426,12 +494,29 @@ function IncludeDialog({
     >
       <div className="flex flex-col gap-4">
         {changed ? (
-          <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="include-changed">
-            {changed}{' '}
-            {loading || names.loading
-              ? t('dayb.include.changed.reading', 'جارٍ قراءة التصنيف من جديد…')
-              : t('dayb.include.changed.kept', 'قُرئ التصنيف من جديد، واختيارك باقٍ: احفظه ليحلّ محلّ ما فيه الآن، أو أغلق النافذة.')}
-          </p>
+          <div className="flex flex-col items-start gap-2">
+            <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="include-changed">
+              {changed}{' '}
+              {waiting
+                ? failed
+                  ? t('dayb.include.changed.failed', 'وتعذّرت قراءة التصنيف من جديد. أعد القراءة، ثمّ احفظ اختيارك إن شئت.')
+                  : t('dayb.include.changed.reading', 'جارٍ قراءة التصنيف من جديد…')
+                : t('dayb.include.changed.kept', 'قُرئ التصنيف من جديد، واختيارك باقٍ: احفظه ليحلّ محلّ ما فيه الآن، أو أغلق النافذة.')}
+            </p>
+            {waiting && failed ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  onReread();
+                  if (names.error) names.retry();
+                }}
+                data-action="include-reread"
+              >
+                {t('dayb.reread', 'أعد القراءة')}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         <section className="flex flex-col gap-2">
           <h3 className="font-semibold">{t('dayb.include.chosen', 'الموادّ المختارة بترتيبها: {n}', { n: fmtInt(chosen.length) })}</h3>
@@ -513,27 +598,59 @@ function IncludeDialog({
 
 // ─── تصنيف جديد واختيار اليوم ──────────────────────────────────────────────────────────────────────────────────
 
-/** «تصنيف جديد» (المدير): الإدراج القائم في item_categories، والاسم المكرّر يُقال قبل الإرسال (لا قيد فريد على الاسم). */
-function CategoryDialog({ categories, onClose, onCreated }: { categories: readonly DayCategory[]; onClose: () => void; onCreated: (category: Named) => void }) {
+/**
+ * «تصنيف جديد» (المدير): الإدراج القائم في item_categories، والاسم المكرّر يُقال قبل الإرسال (لا قيد فريد على الاسم). ونتيجة مجهولة (لعلّه
+ * أُنشئ) تقرأ التصنيفات من جديد قبل أيّ «احفظ» ثانٍ (مراجعة 0022 R4: كان يُدرج ثانيةً فيصير تصنيفان بالاسم نفسه): إن وُجد يُقال ويُفتح، وإلّا
+ * يُحفظ من جديد.
+ */
+function CategoryDialog({
+  categories,
+  reads,
+  failed,
+  onClose,
+  onCreated,
+  onReread,
+}: {
+  categories: readonly DayCategory[];
+  /** عدد القراءات الناجحة للجدول حتى الآن (التصنيفات منها). */
+  reads: number;
+  /** فشلت آخر قراءة للجدول. */
+  failed: boolean;
+  onClose: () => void;
+  onCreated: (category: Named) => void;
+  onReread: () => void;
+}) {
   const id = useId();
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  // نتيجة مجهولة: عدد القراءات حينها، والقراءة الناجحة التالية تقول هل أُنشئ.
+  const [checkAt, setCheckAt] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
+  if (checkAt !== null && reads > checkAt) {
+    setCheckAt(null);
+    setChecked(true);
+  }
+  const checking = checkAt !== null;
+  const twinOf = (text: string) => categories.find((entry) => searchable(entry.name) === searchable(text));
+  const landed = checked && name.trim() !== '' ? twinOf(name.trim()) : undefined;
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (checking || landed) return;
     const text = name.trim();
     if (!text) {
       setError(t('dayb.cat.required', 'اكتب اسم التصنيف.'));
       return;
     }
-    const twin = categories.find((entry) => searchable(entry.name) === searchable(text));
+    const twin = twinOf(text);
     if (twin) {
       setError(t('dayb.cat.twin', 'يوجد تصنيف باسم «{name}»: اختره من التصنيفات.', { name: twin.name }));
       return;
     }
     setError(null);
     setFailure(null);
+    setChecked(false);
     setBusy(true);
     try {
       const row = await inventory.createItemCategory(text);
@@ -541,6 +658,10 @@ function CategoryDialog({ categories, onClose, onCreated }: { categories: readon
     } catch (caught) {
       setBusy(false);
       setFailure(caught);
+      if (caught instanceof UnknownOutcomeError) {
+        setCheckAt(reads);
+        onReread();
+      }
     }
   };
   const formId = `${id}-form`;
@@ -549,24 +670,51 @@ function CategoryDialog({ categories, onClose, onCreated }: { categories: readon
       open
       onClose={onClose}
       title={t('dayb.cat.title', 'تصنيف جديد')}
-      dirty={name !== ''}
+      dirty={name !== '' && !landed}
       locked={busy}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button type="submit" form={formId} busy={busy} data-action="save-category">
-            {t('dayb.cat.save', 'أنشئه واختر موادّه')}
-          </Button>
+          {landed ? (
+            <Button onClick={() => onCreated({ id: landed.id, name: landed.name })} data-action="category-landed-open">
+              {t('dayb.cat.landed.open', 'اختر موادّه')}
+            </Button>
+          ) : (
+            <Button type="submit" form={formId} busy={busy} disabled={checking} data-action="save-category">
+              {t('dayb.cat.save', 'أنشئه واختر موادّه')}
+            </Button>
+          )}
         </div>
       }
     >
       <form id={formId} className="flex flex-col gap-3" onSubmit={(event) => void save(event)} noValidate>
         <Field id={`${id}-name`} label={t('dayb.cat.name', 'اسم التصنيف')} hint={t('dayb.cat.hint', 'مثل «مواد العلف» أو «الأدوية».')} error={error}>
-          <input id={`${id}-name`} className="input" maxLength={80} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} data-action="category-name" data-autofocus />
+          <input id={`${id}-name`} className="input" maxLength={80} value={name} disabled={busy || checking} onChange={(event) => setName(event.target.value)} data-action="category-name" data-autofocus />
         </Field>
-        {failure ? (
+        {landed ? (
+          <p role="status" className="text-sm text-success-700 dark:text-success-300" data-action="category-landed">
+            {t('dayb.cat.landed', 'أُنشئ التصنيف «{name}» قبل أن ينقطع الجواب. اختر موادّه الآن.', { name: landed.name })}
+          </p>
+        ) : checking ? (
+          <div className="flex flex-col items-start gap-2">
+            <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="category-checking">
+              {failed
+                ? t('dayb.cat.check_failed', 'لا نعرف هل أُنشئ التصنيف، وتعذّرت قراءة التصنيفات. أعد القراءة قبل أن تحفظه ثانيةً.')
+                : t('dayb.cat.checking', 'لا نعرف هل أُنشئ التصنيف. جارٍ قراءة التصنيفات…')}
+            </p>
+            {failed ? (
+              <Button variant="secondary" size="sm" onClick={onReread} data-action="category-reread">
+                {t('dayb.reread', 'أعد القراءة')}
+              </Button>
+            ) : null}
+          </div>
+        ) : checked ? (
+          <p role="status" className="text-sm text-ink-muted" data-action="category-absent">
+            {t('dayb.cat.absent', 'لم يُنشأ التصنيف. احفظه مرّة أخرى.')}
+          </p>
+        ) : failure ? (
           <p role="alert" className="text-sm text-danger-700 dark:text-danger-300" data-action="category-failed">
             {failureText(failure, 'once')}
           </p>
@@ -620,7 +768,27 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 // ─── العرض ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Open = null | { kind: 'note'; key: string; item: Named; day: Day } | { kind: 'include'; category: Named; initial: readonly string[] } | { kind: 'category' } | { kind: 'day' };
+type Open =
+  | null
+  | { kind: 'note'; key: string; item: Named; day: Day; shown: DayNote | null }
+  | { kind: 'include'; category: Named; initial: readonly string[] }
+  | { kind: 'category' }
+  | { kind: 'day' };
+
+/**
+ * اطبع بعنوان الصفحة عنوانَ التقرير وتاريخه (Chrome يسمّي ملفّ «احفظ PDF» بعنوان الصفحة، فكان كلّ تقرير «نظام الدواجن.pdf»)، ثمّ يعود
+ * العنوان بعد الطباعة.
+ */
+function printAs(title: string): void {
+  const before = document.title;
+  const restore = () => {
+    document.title = before;
+    window.removeEventListener('afterprint', restore);
+  };
+  window.addEventListener('afterprint', restore);
+  document.title = title;
+  window.print();
+}
 
 /** رفض قراءة يعرف المستخدم طريقه منه: التلميح العربي من الخادم وزرّ الطريق. */
 function Refusal({ failure, params, go, onRetry }: { failure: unknown; params: DayParams; go: (patch: Partial<DayParams>) => void; onRetry: () => void }) {
@@ -660,11 +828,14 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
   const here = dayUrl(params);
   const state = useLoad(load, here);
   // آخر قراءة ناجحة: للعرض نفسه تبقى مرسومة أثناء القراءة من جديد (بعد حفظ ملاحظة)، والتصنيفات والمخازن ويوم الخادم منها للأزرار حين يتغيّر
-  // العرض (يوم آخر) فلا تختفي الأسهم أثناء القراءة.
-  const [kept, setKept] = useState<{ key: string; data: DayBalance } | null>(null);
-  if (state.data !== null && (kept === null || kept.key !== here || kept.data !== state.data)) setKept({ key: here, data: state.data });
+  // العرض (يوم آخر) فلا تختفي الأسهم أثناء القراءة. وreads عدد القراءات الناجحة: النوافذ تعرف به أنّ ما تعرضه قُرئ بعد رفضٍ طلب القراءة.
+  const [kept, setKept] = useState<{ key: string; data: DayBalance; reads: number } | null>(null);
+  if (state.data !== null && (kept === null || kept.key !== here || kept.data !== state.data)) setKept({ key: here, data: state.data, reads: (kept?.reads ?? 0) + 1 });
   const data = state.data ?? (kept !== null && kept.key === here ? kept.data : null);
   const meta = state.data ?? kept?.data ?? null;
+  const reads = kept?.reads ?? 0;
+  // القراءة من جديد بعد رفض فشلت: النوافذ تقول ذلك بـ«أعد القراءة».
+  const failed = !state.loading && state.error !== null;
   const [open, setOpen] = useState<Open>(null);
   // نافذة ملاحظة لعرض آخر (رجع المستخدم بزرّ المتصفّح) لا تبقى: ملاحظتها ليوم غير المعروض.
   if (open?.kind === 'note' && open.key !== here) setOpen(null);
@@ -702,11 +873,12 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
   const unstored = data !== null && !noStores && data.category !== null && data.category.members.length > 0 && data.rows.length === 0;
   const printable = data !== null && !noStores && data.rows.length > 0;
   const openInclude = () => {
-    if (!data?.category) return;
+    if (!data?.category || state.loading) return;
     setOpen({ kind: 'include', category: { id: data.category.id, name: data.category.name }, initial: data.category.members });
   };
+  // أثناء القراءة من جديد (بعد حفظ) لا تُفتح «أدرج مواد» ولا ملاحظة: كانت تعرض ما قبل الحفظ وتشترط ما بعده (مراجعة 0022 M1 وM2).
   const includeButton = (
-    <Button variant="secondary" size="sm" onClick={openInclude} disabled={!data?.category} data-action="include-items">
+    <Button variant="secondary" size="sm" onClick={openInclude} disabled={!data?.category || state.loading} data-action="include-items">
       <ListPlus aria-hidden="true" className="size-4" />
       {t('dayb.include', 'أدرج مواد')}
     </Button>
@@ -727,6 +899,10 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
     }
   };
   const noteRow = open?.kind === 'note' ? (data?.rows.find((row) => row.itemId === open.item.id) ?? null) : null;
+  const closeAfter = (uncertain: boolean) => {
+    setOpen(null);
+    if (uncertain) state.retry();
+  };
 
   return (
     <section className="flex flex-col gap-4" aria-label={t('board.view.day', 'الرصيد اليومي')} data-action="day-view">
@@ -778,7 +954,7 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
           <div className="flex flex-wrap items-center gap-2">
             {noStores ? null : (
               <>
-                <Button size="sm" variant="secondary" onClick={() => window.print()} disabled={!printable} data-action="print-day">
+                <Button size="sm" variant="secondary" onClick={() => (data ? printAs(`${reportTitle(data)} ${reportDate(data)}`) : undefined)} disabled={!printable} data-action="print-day">
                   <Printer aria-hidden="true" className="size-4" />
                   {t('dayb.print', 'اطبع أو احفظ PDF')}
                 </Button>
@@ -849,7 +1025,12 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
             <div className="print:[&>div]:max-h-none print:[&>div]:overflow-visible">
               <DataTable
                 caption={`${reportTitle(data)} ${reportDate(data)}`}
-                columns={dayColumns(data, here, canNote ? (row) => setOpen({ kind: 'note', key: here, item: { id: row.itemId, name: row.name }, day: data.on }) : null)}
+                columns={dayColumns(
+                  data,
+                  here,
+                  canNote ? (row) => setOpen({ kind: 'note', key: here, item: { id: row.itemId, name: row.name }, day: data.on, shown: row.note }) : null,
+                  state.loading,
+                )}
                 rows={data.rows}
                 rowKey={(row) => row.itemId}
                 empty={t('dayb.empty_all', 'لا موادّ بعد.')}
@@ -866,10 +1047,12 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
         <NoteDialog
           item={open.item}
           day={open.day}
-          current={noteRow?.note ?? null}
-          loading={state.loading}
-          onClose={() => setOpen(null)}
-          onChanged={state.retry}
+          shown={open.shown}
+          latest={noteRow?.note ?? null}
+          reads={reads}
+          failed={failed}
+          onClose={closeAfter}
+          onReread={state.retry}
           onSaved={(result) => {
             setOpen(null);
             toast({
@@ -887,11 +1070,12 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
           category={open.category}
           initial={open.initial}
           members={data?.category?.id === open.category.id ? data.category.members : null}
-          loading={state.loading}
+          reads={reads}
+          failed={failed}
           rowNames={new Map(data?.rows.map((row) => [row.itemId, row.name]) ?? [])}
           categories={categories}
-          onClose={() => setOpen(null)}
-          onChanged={state.retry}
+          onClose={closeAfter}
+          onReread={state.retry}
           onSaved={(result) => {
             setOpen(null);
             toast({
@@ -908,6 +1092,9 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
       {open?.kind === 'category' ? (
         <CategoryDialog
           categories={categories}
+          reads={reads}
+          failed={failed}
+          onReread={state.retry}
           onClose={() => setOpen(null)}
           onCreated={(created) => {
             // التصنيف الجديد يُعرض، ونافذة موادّه تُفتح فوقه فارغة (لا موادّ فيه بعد).

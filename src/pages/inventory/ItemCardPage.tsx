@@ -15,6 +15,7 @@ import { can } from '../../domain/permissions';
 import { CHICK_WARNING_HOURS } from '../../domain/stock';
 import type { BaseUnit } from '../../domain/units';
 import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQtyCell, fmtScaledCell, fmtUnitCost } from '../../lib/format';
+import { toast } from '../../components/ui/Toast';
 import { describeError } from '../../lib/errors';
 import { t, Trans } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
@@ -124,6 +125,19 @@ function DocLabel({ move }: { move: MoveRow }) {
     </Link>
   );
 }
+
+/**
+ * صفحة «المزيد» من دفتر المادّة بعد ما في الشاشة. الصفحات برقم الصفّ بترتيب التاريخ ثمّ الترحيل (0022): حركة بتاريخ قبل آخر صفّ معروض رُحّلت
+ * بين الصفحتين تُزيح الترقيم فتعود في الصفحة التالية صفوفٌ معروضة، وأرصدتها الجارية تحسب حركة لا تُرى (مراجعة 0022 R9). التكرار بمعرّف الحركة
+ * يعني ذلك دائماً (الحركات لا تُحذف، فالإزاحة إلى الأمام وحدها)، فالجواب null: تُقرأ القائمة من أوّلها بدل أن تُلصق.
+ */
+export function appendMovesPage(pages: readonly ItemMoves[], page: ItemMoves): ItemMoves[] | null {
+  const shown = new Set(pages.flatMap((entry) => entry.rows.map((row) => row.moveId)));
+  return page.rows.some((row) => shown.has(row.moveId)) ? null : [...pages, page];
+}
+
+/** يُقال حين تُقرأ الحركات من أوّلها بعد صفحة تكرّرت. */
+export const movesShiftedText = (): string => t('stock.moves.shifted', 'رُحّلت حركة بتاريخ أقدم أثناء عرض الحركات، فقُرئت من أوّلها.');
 
 /**
  * دفتر المادّة بترتيب الكشف الذي اختاره المالك (2026-11-02: «ترتيب دفتر الديون الي بدكتور فيت يصير مثله لكن خاص بكل
@@ -636,8 +650,15 @@ function Card({ itemId, warehouseId, costs, only }: { itemId: string; warehouseI
     setMoreMoves({ busy: true, error: null });
     inventory.loadItemMoves(itemId, warehouseId, after).then(
       (page) => {
-        setMovePages((current) => [...current, page]);
+        const next = moves.data ? appendMovesPage([moves.data, ...movePages], page) : null;
         setMoreMoves({ busy: false, error: null });
+        if (next) {
+          setMovePages(next.slice(1));
+          return;
+        }
+        setMovePages([]);
+        moves.retry();
+        toast({ tone: 'info', title: movesShiftedText() });
       },
       (error: unknown) => setMoreMoves({ busy: false, error }),
     );

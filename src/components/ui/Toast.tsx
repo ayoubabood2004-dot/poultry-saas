@@ -66,7 +66,8 @@ export function Toaster() {
   const items = useStore(toasts);
   if (items.length === 0) return null;
   return createPortal(
-    <div data-toaster className="pointer-events-none fixed inset-x-0 top-0 z-toast flex flex-col items-center gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    // لا يُطبع: fixed يتكرّر في كلّ صفحة مطبوعة فوق التقرير، والخطر لا يختفي وحده (مراجعة 0022 M3).
+    <div data-toaster className="pointer-events-none fixed inset-x-0 top-0 z-toast flex flex-col items-center gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] print:hidden">
       {items.map((item) => {
         const { className, Icon } = TONES[item.tone];
         return (

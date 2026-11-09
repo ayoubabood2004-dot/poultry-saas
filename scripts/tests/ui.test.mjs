@@ -498,7 +498,11 @@ export default async function (t) {
     const saved = new Map([[KEY, JSON.stringify({ scale: 100 })]]);
     const storage = { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, String(value)) };
     const listeners = new Map();
-    const root = { classList: { toggle() {} }, style: { fontSize: '' } };
+    const classes = new Set();
+    const root = { classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)), remove: (name) => classes.delete(name) }, style: { fontSize: '' } };
+    const emit = (type) => {
+      for (const fn of listeners.get(type) ?? []) fn({});
+    };
     const win = {
       matchMedia: () => ({ matches: false, addEventListener() {} }),
       addEventListener: (type, fn) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
@@ -522,6 +526,13 @@ export default async function (t) {
       saved.delete(KEY);
       fire(null);
       t.eq(d.displayStore.get().scale, 100, 'تخزين انمسح: الافتراضي');
+      // مراجعة 0022: الداكن كان يُطبع أرقاماً رمادية وخطوطاً كحلية؛ الطباعة فاتحة دائماً ثمّ يعود الاختيار.
+      d.updateDisplay({ theme: 'dark' });
+      t.ok(classes.has('dark'), 'الداكن على الشاشة');
+      emit('beforeprint');
+      t.ok(!classes.has('dark'), 'والطباعة فاتحة');
+      emit('afterprint');
+      t.ok(classes.has('dark'), 'ثمّ يعود الداكن بعد الطباعة');
     });
   });
 }

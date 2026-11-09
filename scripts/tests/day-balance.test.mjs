@@ -67,8 +67,9 @@ async function bundle() {
     "export { recoveryStore } from './src/lib/pwa/recovery.ts';",
     "export { parseDayBalance, parseDayNote, parseCategoryItems } from './src/lib/repo/dayBalance.ts';",
     "export { RowShapeError } from './src/lib/repo/inventory.ts';",
-    "export { dayParams, dayUrl, shareText } from './src/pages/inventory/DayBalanceView.tsx';",
+    "export { dayParams, dayUrl, shareText, NOTE_SPACES } from './src/pages/inventory/DayBalanceView.tsx';",
     "export { backTarget } from './src/components/ui/BackButton.tsx';",
+    "export { recipeBack } from './src/pages/inventory/ItemsPage.tsx';",
     "export { baseQty } from './src/pages/inventory/simple-shared.ts';",
     "export { columnDecimals, fmtQtyCell } from './src/lib/format.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
@@ -949,6 +950,373 @@ export default async function (t) {
       await mount(`/inventory/items/${gone.item.id}`);
       t.same([byAction('file-moves').length, named(calls, 'loadItemMoves'), text().includes(`في «${where.name}»`)], [1, [[gone.item.id, where.warehouse_id]], true],
         'S16: مادّة نفدت: «حركات المادّة» تظهر بدفتر مخزنها (move_stores)، لا تختفي');
+    });
+
+    // ── R: مراجعة الشاشات العدائية (0022)، كلّ حالة تفشل على الشفرة قبل إصلاحها ─────────────────────────────────────────
+    const deferred = () => {
+      let resolve;
+      let reject;
+      const promise = new Promise((ok, no) => {
+        resolve = ok;
+        reject = no;
+      });
+      return { promise, resolve, reject };
+    };
+    const inDialog = (action) => descendants(dialog() ?? body()).filter((n) => n.getAttribute('data-action') === action);
+    t.ok(keepNoted !== null, 'R شرط: للأمين مادّة بملاحظة في العيّنة');
+    const OTHER_NOTE = { text: 'كتبها المدير من جهاز آخر', version: 7_340_099 };
+    const otherNoted = () => {
+      const sample = clone(KEEP);
+      sample.rows.find((row) => row.item_id === keepNoted.item_id).note = { ...OTHER_NOTE };
+      return sample;
+    };
+    const savedFor = (args) => ({ ...clone(F.set_day_note.saved), item_id: args.p_item, on: args.p_on, note: args.p_note ? { text: args.p_note, version: 7_340_100 } : null });
+    // M1: نافذة ملاحظة فُتحت والجدول يُقرأ من جديد كانت تعرض نصّ القراءة القديمة وتكتب بنسخة القراءة الجديدة (تمحو ما لم يره).
+    await step('R-M1', async () => {
+      const reread = deferred();
+      const { rpcCalls } = fresh(KEEPER, {}, {
+        day_balance: (args, n) => (n === 1 ? answer(KEEP)(args) : reread.promise.then(() => answer(otherNoted())(args))),
+        set_day_note: async (args) => savedFor(args),
+      });
+      await mount(urlAt(KEEP));
+      await click(withId('edit-note', keepPlain.item_id));
+      typeIn(byAction('note-text')[0], 'ناقصة كيس');
+      await settle();
+      await submitDialog();
+      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-M1: حُفظت الأولى والجدول يُقرأ من جديد');
+      t.ok(byAction('edit-note').length > 0 && byAction('edit-note').every((n) => disabled(n)), 'R-M1: أثناء القراءة أزرار الملاحظات معطّلة');
+      await click(withId('edit-note', keepNoted.item_id));
+      t.ok(dialog() === undefined, 'R-M1: فلا تُفتح نافذة على ملاحظة قديمة');
+      reread.resolve();
+      await settle();
+      await settle();
+      await click(withId('edit-note', keepNoted.item_id));
+      t.eq(byAction('note-text')[0]?.value, OTHER_NOTE.text, 'R-M1: بعد القراءة تُفتح بالملاحظة الحاليّة');
+      typeIn(byAction('note-text')[0], `${OTHER_NOTE.text}، وأخرى`);
+      await settle();
+      await submitDialog();
+      t.eq(named(rpcCalls, 'set_day_note').at(-1)?.p_expected_version, OTHER_NOTE.version, 'R-M1: والكتابة بشرط نسخة ما عرضته');
+    });
+    // R6: note_changed ثمّ فشلت القراءة: كانت تقول «الملاحظة الآن: …» بالقديمة وتعيد بنسختها.
+    await step('R-R6', async () => {
+      let notes = 0;
+      const { rpcCalls } = fresh(KEEPER, {}, {
+        day_balance: (args, n) => (n === 1 ? answer(KEEP)(args) : n === 2 ? Promise.reject(new m.UnknownOutcomeError('timeout')) : answer(otherNoted())(args)),
+        set_day_note: async (args) => {
+          notes += 1;
+          if (notes === 1) throw new m.RejectedError(F.refusals.note_changed.code, F.refusals.note_changed.hint);
+          return savedFor(args);
+        },
+      });
+      await mount(urlAt(KEEP));
+      await click(withId('edit-note', keepNoted.item_id));
+      typeIn(byAction('note-text')[0], 'نصّ جديد');
+      await settle();
+      await submitDialog();
+      await settle();
+      const said = byAction('note-changed')[0]?.textContent ?? '';
+      t.ok(!said.includes(`«${keepNoted.note.text}»`) && said.includes('تعذّرت قراءة الملاحظة الحاليّة'), `R-R6: القراءة فشلت: لا «الملاحظة الآن» بالقديمة بل «تعذّرت قراءتها»: «${said}»`);
+      t.ok(disabled(byAction('save-note')[0]) && byAction('erase-note').every((n) => disabled(n)), 'R-R6: ولا حفظ بشرط نسخة لم تُقرأ');
+      await click(inDialog('note-reread')[0]);
+      await settle();
+      t.ok((byAction('note-changed')[0]?.textContent ?? '').includes(`الملاحظة الآن: «${OTHER_NOTE.text}»`), 'R-R6: «أعد القراءة» ثمّ تُعرض الملاحظة الحاليّة');
+      await submitDialog();
+      t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['نصّ جديد', keepNoted.note.version], ['نصّ جديد', OTHER_NOTE.version]], 'R-R6: والإعادة بنسخة ما عُرض');
+    });
+    // R11: نتيجة مجهولة ثمّ «لا، تراجع»: لعلّها حُفظت، فالجدول يُقرأ من جديد (كان يبقى بلا الملاحظة ويُطبع ويُشارك كذلك).
+    await step('R-R11', async () => {
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async () => { throw new m.UnknownOutcomeError('fetch_failed'); } });
+      await mount(urlAt(KEEP));
+      await click(withId('edit-note', keepPlain.item_id));
+      typeIn(byAction('note-text')[0], 'ناقصة كيس');
+      await settle();
+      await submitDialog();
+      await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
+      if (byAction('dialog-discard')[0]) await click(byAction('dialog-discard')[0]);
+      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-R11: إغلاق نافذة ملاحظة نتيجتها مجهولة يقرأ الجدول من جديد');
+    });
+    await step('R-R11-include', async () => {
+      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, { day_balance: answer(S8S), set_category_items: async () => { throw new m.UnknownOutcomeError('fetch_failed'); } }, { items: () => memberNames() });
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
+      await click(byAction('include-items')[0]);
+      await click(withId('include-down', S8S.category.members[0]));
+      await click(byAction('save-include')[0]);
+      await settle();
+      await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
+      if (byAction('dialog-discard')[0]) await click(byAction('dialog-discard')[0]);
+      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-R11: وإغلاق «أدرج مواد» بنتيجة مجهولة يقرأ الجدول من جديد');
+    });
+    // R5: القصّ بحروف الخادم نفسها (private.note_text)، لا trim() الذي لا يقصّ علامات الاتّجاه والحروف الصفرية.
+    await step('R-R5', async () => {
+      const RLM = String.fromCodePoint(0x200f);
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async (args) => savedFor(args) });
+      await mount(urlAt(KEEP));
+      await click(withId('edit-note', keepPlain.item_id));
+      typeIn(byAction('note-text')[0], `${RLM} `);
+      await settle();
+      await submitDialog();
+      t.same([named(rpcCalls, 'set_day_note').length, dialog(), globalThis.__db.toasts.length], [0, undefined, 0], 'R-R5: علامة خفيّة وحدها لمادّة بلا ملاحظة: لا تُرسل ولا «مُسحت»');
+      await click(withId('edit-note', keepPlain.item_id));
+      typeIn(byAction('note-text')[0], `${'م'.repeat(200)}${RLM}`);
+      await settle();
+      await submitDialog();
+      t.same(named(rpcCalls, 'set_day_note').map((args) => args.p_note), ['م'.repeat(200)], 'R-R5: 200 حرف وعلامة اتّجاه بآخرها (لصق من واتساب) تُرسل مقصوصة كما يقصّها الخادم');
+      const sql = readFileSync(path.join(ROOT, 'supabase', 'migrations', '0022_day_balance.sql'), 'utf8');
+      const from = sql.indexOf('create or replace function private.note_text(');
+      const codes = [...sql.slice(from, sql.indexOf('$$;', from)).matchAll(/chr\((\d+)\)/gu)].map((match) => Number(match[1]));
+      t.same([codes.length > 30, [...(m.NOTE_SPACES ?? [])]], [true, codes], 'R-R5: حروف القصّ في الشاشة هي حروف private.note_text بالهجرة رقماً برقم');
+    });
+    // M2: «أدرج مواد» فُتحت والجدول يُقرأ بعد حفظ سابق: كانت تعرض ما قبل الحفظ وتشترط موادّ القراءة الجديدة (تُخرج ما أُضيف للتوّ بلا رفض).
+    await step('R-M2', async () => {
+      const reread = deferred();
+      const after = clone(S8S);
+      after.category.members = [...S8S.category.members, loose.id];
+      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, {
+        day_balance: (args, n) => (n === 1 ? answer(S8S)(args) : reread.promise.then(() => answer(after)(args))),
+        set_category_items: async (args) => ({ ...clone(F.set_category_items.manager), category_id: args.p_category }),
+      }, { items: () => [...memberNames(), { id: loose.id, name: loose.name }] });
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
+      await click(byAction('include-items')[0]);
+      tick(withId('include-pick', loose.id));
+      await settle();
+      await click(byAction('save-include')[0]);
+      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-M2: حُفظت والجدول يُقرأ من جديد');
+      t.ok(disabled(byAction('include-items')[0]), 'R-M2: أثناء القراءة «أدرج مواد» معطّل');
+      await click(byAction('include-items')[0]);
+      t.ok(dialog() === undefined, 'R-M2: فلا تُفتح على موادّ ما قبل الحفظ');
+      reread.resolve();
+      await settle();
+      await settle();
+      await click(byAction('include-items')[0]);
+      await settle();
+      t.same(chosen(), after.category.members, 'R-M2: بعد القراءة تُفتح بموادّ التصنيف كما حُفظت');
+      await click(withId('include-down', after.category.members[0]));
+      await click(byAction('save-include')[0]);
+      t.same(named(rpcCalls, 'set_category_items').at(-1)?.p_expected_items, after.category.members, 'R-M2: والحفظ بشرط ما عرضته');
+    });
+    // R12: category_changed ثمّ فشلت القراءة: كانت تقول «قُرئ التصنيف من جديد» وتعيد بالقائمة القديمة نفسها.
+    await step('R-R12', async () => {
+      const after = clone(S8S);
+      after.category.members = [...S8S.category.members, loose.id];
+      let puts = 0;
+      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, {
+        day_balance: (args, n) => (n === 1 ? answer(S8S)(args) : n === 2 ? Promise.reject(new m.UnknownOutcomeError('timeout')) : answer(after)(args)),
+        set_category_items: async (args) => {
+          puts += 1;
+          if (puts === 1) throw new m.RejectedError(REFUSE.category_changed.code, REFUSE.category_changed.hint);
+          return { ...clone(F.set_category_items.manager), category_id: args.p_category };
+        },
+      }, { items: () => [...memberNames(), { id: loose.id, name: loose.name }] });
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
+      await click(byAction('include-items')[0]);
+      await click(withId('include-down', S8S.category.members[0]));
+      const selection = chosen();
+      await click(byAction('save-include')[0]);
+      await settle();
+      const said = byAction('include-changed')[0]?.textContent ?? '';
+      t.ok(!said.includes('قُرئ التصنيف من جديد') && said.includes('تعذّرت قراءة التصنيف'), `R-R12: القراءة فشلت: لا «قُرئ التصنيف» بل «تعذّرت»: «${said}»`);
+      t.ok(disabled(byAction('save-include')[0]), 'R-R12: ولا حفظ بشرط قائمة لم تُقرأ');
+      await click(inDialog('include-reread')[0]);
+      await settle();
+      t.ok((byAction('include-changed')[0]?.textContent ?? '').includes('قُرئ التصنيف من جديد'), 'R-R12: «أعد القراءة» ثمّ «قُرئ»');
+      await click(byAction('save-include')[0]);
+      t.same(named(rpcCalls, 'set_category_items').map((args) => [args.p_items, args.p_expected_items]), [[selection, S8S.category.members], [selection, after.category.members]], 'R-R12: والإعادة بالاختيار نفسه وبموادّ التصنيف كما قُرئت');
+    });
+    // R4: «تصنيف جديد» بنتيجة مجهولة: كان «احفظ» يُدرج ثانيةً بلا قراءة (تصنيفان بالاسم نفسه إن كان الأوّل قد حُفظ).
+    const CREATED = { id: '9d1c1a00-0000-4000-8000-0000000000c8', version: 1, archived: false, name: 'الأدوية' };
+    const createdView = { ...clone(DB.empty_category), category: { id: CREATED.id, name: CREATED.name, members: [] }, categories: [...FEED.categories, { id: CREATED.id, name: CREATED.name, items: 0 }] };
+    await step('R-R4-landed', async () => {
+      const landed = { ...clone(FEED), categories: createdView.categories };
+      const { calls, rpcCalls } = fresh(MANAGER, {
+        createItemCategory: () => { throw new m.UnknownOutcomeError('fetch_failed'); },
+        listItems: () => ({ rows: [], total: 0, next: null }),
+      }, { day_balance: async (args, n) => answer(args.p_category === CREATED.id ? createdView : n === 1 ? FEED : landed)(args) }, { items: () => [] });
+      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      await click(byAction('new-category')[0]);
+      typeIn(byAction('category-name')[0], CREATED.name);
+      await settle();
+      await submitDialog();
+      await settle();
+      t.same([named(calls, 'createItemCategory').length, named(rpcCalls, 'day_balance').length], [1, 2], 'R-R4: نتيجة مجهولة: تُقرأ التصنيفات من جديد');
+      t.ok((byAction('category-landed')[0]?.textContent ?? '').length > 0 && !byAction('save-category').some((n) => !disabled(n)), 'R-R4: وقد حُفظ: يقول ذلك، ولا «احفظ» ثانٍ');
+      await click(inDialog('category-landed-open')[0]);
+      await settle();
+      t.same([named(calls, 'createItemCategory').length, search().cat, dialogTitle()], [1, CREATED.id, `موادّ «${CREATED.name}»`], 'R-R4: ثمّ يُعرض ونافذة موادّه، بإدراج واحد');
+    });
+    await step('R-R4-absent', async () => {
+      let tries = 0;
+      const { calls } = fresh(MANAGER, {
+        createItemCategory: () => {
+          tries += 1;
+          if (tries === 1) throw new m.UnknownOutcomeError('fetch_failed');
+          return CREATED;
+        },
+        listItems: () => ({ rows: [], total: 0, next: null }),
+      }, { day_balance: async (args) => answer(args.p_category === CREATED.id ? createdView : FEED)(args) }, { items: () => [] });
+      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      await click(byAction('new-category')[0]);
+      typeIn(byAction('category-name')[0], CREATED.name);
+      await settle();
+      await submitDialog();
+      await settle();
+      t.same([byAction('category-landed').length, disabled(byAction('save-category')[0])], [0, false], 'R-R4: لم يُحفظ: «احفظ» مفتوح بعد القراءة');
+      await submitDialog();
+      await settle();
+      t.same([named(calls, 'createItemCategory').length, search().cat], [2, CREATED.id], 'R-R4: والإعادة تُنشئه');
+    });
+    // M3: التنبيه (fixed أعلى الصفحة، والخطر لا يختفي وحده) كان يُطبع فوق التقرير في كلّ صفحة.
+    await step('R-M3', async () => {
+      const built = await build({
+        stdin: { contents: "export { createElement as h } from 'react'; export { createRoot } from 'react-dom/client'; export { flushSync } from 'react-dom'; export { Toaster, toast } from './src/components/ui/Toast.tsx';", resolveDir: ROOT, loader: 'tsx' },
+        bundle: true, write: false, format: 'esm', platform: 'node', target: 'node20', jsx: 'automatic', logLevel: 'silent',
+        define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+      });
+      const tm = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      const toastRoot = tm.createRoot(container);
+      try {
+        tm.flushSync(() => toastRoot.render(tm.h(tm.Toaster)));
+        tm.toast({ tone: 'danger', title: 'تعذّرت المشاركة والنسخ على هذا الجهاز.' });
+        await settle();
+        const toaster = all().find((n) => n.hasAttribute('data-toaster'));
+        t.ok(toaster !== undefined && underClass(toaster, 'print:hidden'), `R-M3: التنبيهات لا تُطبع (print:hidden): «${classOf(toaster)}»`);
+      } finally {
+        tm.flushSync(() => toastRoot.unmount());
+      }
+    });
+    // اسم ملفّ «احفظ PDF» (Chrome يسمّيه بعنوان الصفحة): عنوان التقرير وتاريخه، ثمّ يعود العنوان.
+    await step('R-title', async () => {
+      let titled = null;
+      globalThis.window.print = () => {
+        titled = globalThis.document.title;
+      };
+      globalThis.document.title = 'نظام الدواجن';
+      try {
+        fresh(MANAGER, {}, { day_balance: answer(FEED) });
+        await mount(urlAt(FEED));
+        await click(byAction('print-day')[0]);
+        t.eq(titled, `رصيد ${FEED.category.name} بتاريخ ${fmt(FEED.on)}`, 'R-title: عنوان الصفحة وقت الطباعة عنوان التقرير وتاريخه');
+        fire(globalThis.window, 'afterprint');
+        await settle();
+        t.eq(globalThis.document.title, 'نظام الدواجن', 'R-title: ثمّ يعود بعد الطباعة');
+      } finally {
+        delete globalThis.window.print;
+        delete globalThis.document.title;
+      }
+    });
+    // P1: بعرض الهاتف عمود «الملاحظات» وزرّه خارج الشاشة: «المادّة» بسطر واحد (لا عرض أدنى 48)، وزرّ الملاحظة أوّل خليّتها.
+    await step('R-P1', async () => {
+      fresh(KEEPER, {}, { day_balance: answer(KEEP) });
+      await mount(urlAt(KEEP));
+      const itemHead = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
+      const noteCell = withId('edit-note', keepNoted.item_id)?.parentNode;
+      const first = noteCell?.children.find((n) => n.nodeType === 1);
+      t.same([classOf(itemHead).includes('min-w-48'), classOf(itemHead).includes('whitespace-nowrap'), first?.getAttribute('data-action')], [false, true, 'edit-note'], 'R-P1: «المادّة» بسطر واحد، وزرّ الملاحظة قبل نصّها (أقرب إلى الرصيد)');
+    });
+    // R7: «عدّل المادّة» من ملفّ فُتح من الرصيد اليومي كان يعود إلى الملفّ بلا طريق رجوعه.
+    await step('R-R7', async () => {
+      const gone = clone(F.item_file.owner_gone);
+      fresh(MANAGER, { loadItemMoves: () => ({ rows: [], next: null, total: 0 }) }, { item_file: async () => gone });
+      const dayView = urlAt(FEED);
+      await mount(`/inventory/items/${gone.item.id}?${new URLSearchParams({ back: dayView }).toString()}`);
+      const href = byAction('edit-item-file')[0]?.getAttribute('href') ?? '';
+      const editBack = new URLSearchParams(href.split('?')[1] ?? '').get('back') ?? '';
+      const fileBack = new URLSearchParams(editBack.split('?')[1] ?? '').get('back');
+      t.same([editBack.split('?')[0], fileBack, m.backTarget(editBack, '/inventory')], [`/inventory/items/${gone.item.id}`, dayView, editBack], 'R-R7: «عدّل المادّة» يعود إلى الملفّ ومعه طريق رجوعه');
+      // ونافذة التعديل (recipeBack) تقبله فتعود إليه بعد الحفظ، وشكله وحده (?back= واحد مرمَّز يبدأ بـ«/»)، والطريق الداخلي يفحصه الملفّ
+      // بـbackTarget حين يستعمله: ما لا يقبله يصير «/inventory».
+      const fileOf = (query) => `/inventory/items/${gone.item.id}?${query}`;
+      t.same(
+        [m.recipeBack(editBack), m.recipeBack(fileOf(`back=${encodeURIComponent('https://evil.example/')}`)), m.recipeBack(fileOf(`back=${encodeURIComponent(dayView)}&buy=1`)), m.recipeBack(fileOf('back=')), m.recipeBack(fileOf('buy=1')), m.backTarget('//evil.example/inventory', '/inventory')],
+        [editBack, null, null, null, null, '/inventory'],
+        'R-R7: نافذة «عدّل المادّة» تعود إلى الملفّ بطريقه، ولا تقبل رابطاً خارجياً ولا وسيطاً آخر، وطريق داخلي لا يقبله الملفّ يصير «/inventory»',
+      );
+    });
+    // R8: كلّ إعادة قراءة للملفّ (بعد أيّ عملية) كانت تطوي «حركات المادّة» إلى «جارٍ الفتح…» وتُسقط صفحات «المزيد».
+    const mv = (id, memo, qty, running) => ({ moveId: `mv-${id}`, seq: 1n, movedOn: '2026-11-05', docKind: 'receipt', docId: `r-${id}`, doc: `PU-${id}`, memo, qty, running, lotId: `l-${id}`, reversesMoveId: null, reversed: false, money: null });
+    await step('R-R8', async () => {
+      const refile = deferred();
+      const removes = deferred();
+      let firsts = 0;
+      const file = (archived) => ({ ...fileWith([store(W_FULL, 'مخزن ب', '20000.000')]), can_edit: true, item: { ...fileWith([]).item, archived, version: 1 } });
+      fresh(MANAGER, {
+        loadItem: () => ({ ...itemRow('i-corn', 'ذرة', null), archived: true }),
+        setArchived: () => 2,
+        loadItemMoves: (_item, _wh, after) => {
+          if (after !== undefined) return { rows: [mv('b', 'بيع إلى أبي أحمد', -5_000_000n, 20_000_000n)], next: null, total: 2 };
+          firsts += 1;
+          const page = { rows: [mv('a', 'شراء من مورّد الحبوب', 25_000_000n, 25_000_000n)], next: 1n, total: 2 };
+          return firsts === 1 ? page : removes.promise.then(() => page);
+        },
+      }, { item_file: (_args, n) => (n === 1 ? Promise.resolve(file(true)) : refile.promise.then(() => file(false))) });
+      await mount('/inventory/items/i-corn');
+      await click(byAction('more-file-moves')[0]);
+      await click(byAction('show-item')[0]);
+      await click(byAction('confirm-hide-item')[0]);
+      refile.resolve();
+      await settle();
+      await settle();
+      const shown = byAction('file-moves')[0]?.textContent ?? '';
+      t.ok(shown.includes('شراء من مورّد الحبوب') && shown.includes('بيع إلى أبي أحمد') && !shown.includes('جارٍ الفتح'), `R-R8: إعادة قراءة الملفّ تُبقي الحركات المعروضة: «${shown.slice(0, 60)}»`);
+      t.eq(byAction('more-file-moves').length, 0, 'R-R8: ولا «المزيد» على قائمة تُقرأ من جديد');
+      removes.resolve();
+      await settle();
+      await settle();
+      t.same([(byAction('file-moves')[0]?.textContent ?? '').includes('شراء من مورّد الحبوب'), byAction('more-file-moves').length], [true, 1], 'R-R8: ثمّ الصفحة الأولى الجديدة و«المزيد»');
+    });
+    // R9: الترقيم بالتاريخ (0022): حركة بتاريخ أقدم رُحّلت بين صفحتين تُعيد صفّاً معروضاً في التالية (والرصيد الجاري يحسب حركة لا تُرى):
+    // التكرار بمعرّف الحركة يعني ذلك دائماً، فتُقرأ القائمة من أوّلها.
+    await step('R-R9', async () => {
+      let firsts = 0;
+      const { calls } = fresh(VIEWER, {
+        loadItemMoves: (_item, _wh, after) => {
+          if (after === undefined) {
+            firsts += 1;
+            return firsts === 1
+              ? { rows: [mv('a', 'حركة أ', 1_000_000n, 1_000_000n), mv('b', 'حركة ب', 1_000_000n, 2_000_000n)], next: 2n, total: 3 }
+              : { rows: [mv('x', 'حركة س المؤرّخة قبل', 1_000_000n, 1_000_000n), mv('a', 'حركة أ', 1_000_000n, 2_000_000n), mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: 4 };
+          }
+          return { rows: [mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: null };
+        },
+      }, { item_file: async () => fileWith([store(W_FULL, 'مخزن ب', '3000.000')]) });
+      await mount('/inventory/items/i-corn');
+      await click(byAction('more-file-moves')[0]);
+      await settle();
+      await settle();
+      const rowsWith = (memo) => all().filter((n) => n.localName === 'tr' && n.textContent.includes(memo)).length;
+      t.same([rowsWith('حركة ب'), rowsWith('حركة س المؤرّخة قبل'), named(calls, 'loadItemMoves').length], [1, 1, 3], 'R-R9: صفحة تكرّر حركة معروضة: تُقرأ الحركات من أوّلها، بلا تكرار، ومعها الحركة الجديدة');
+      t.ok(globalThis.__db.toasts.some((entry) => entry.title.includes('من أوّلها')), 'R-R9: ويُقال لماذا');
+    });
+    await step('R-R9-card', async () => {
+      // «دفتر المادّة» في بطاقتها (/details?tab=moves) بالدالّة نفسها والترقيم نفسه.
+      const setup = {
+        divisions: [{ id: 'd-mill', kind: 'feed_mill', goLiveOn: '2026-10-01', frozen: true }],
+        sites: [], packTypes: [], itemCategories: [], expenseCategories: [],
+        warehouses: [{ id: 'w-raw', version: 1, archived: false, divisionId: 'd-mill', siteId: 's-mill', name: 'مخزن المواد الأوّلية', kind: 'raw' }],
+      };
+      let firsts = 0;
+      const { calls } = fresh(KEEPER, {
+        loadOrgSetup: () => setup,
+        listItemUnits: () => [],
+        loadItemLots: () => ({ item: { id: 'i-corn', name: 'ذرة', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, density: null, pieceMassKg: null, archived: false }, rows: [], next: null, total: 0 }),
+        loadItemMoves: (_item, _wh, after) => {
+          if (after === undefined) {
+            firsts += 1;
+            return firsts === 1
+              ? { rows: [mv('a', 'حركة أ', 1_000_000n, 1_000_000n), mv('b', 'حركة ب', 1_000_000n, 2_000_000n)], next: 2n, total: 3 }
+              : { rows: [mv('x', 'حركة س المؤرّخة قبل', 1_000_000n, 1_000_000n), mv('a', 'حركة أ', 1_000_000n, 2_000_000n), mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: 4 };
+          }
+          return { rows: [mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: null };
+        },
+      }, {});
+      await mount('/inventory/items/i-corn/details?wh=w-raw&tab=moves');
+      t.ok(byAction('more-moves').length === 1, 'R-R9 شرط: «المزيد» في دفتر البطاقة');
+      await click(byAction('more-moves')[0]);
+      await settle();
+      await settle();
+      const rowsWith = (memo) => all().filter((n) => n.localName === 'tr' && n.textContent.includes(memo)).length;
+      t.same([rowsWith('حركة ب'), rowsWith('حركة س المؤرّخة قبل'), named(calls, 'loadItemMoves').length], [1, 1, 3], 'R-R9: وكذلك دفتر البطاقة: يُقرأ من أوّله، بلا تكرار');
     });
   } finally {
     if (root) {

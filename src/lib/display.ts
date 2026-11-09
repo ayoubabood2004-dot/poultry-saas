@@ -78,4 +78,7 @@ export function initDisplay(): void {
     if (displayStore.get().theme === 'system') applyDisplay();
   });
   window.addEventListener('storage', onDisplayStorage);
+  // الطباعة فاتحة دائماً (الورق أبيض): الداكن كان يُطبع أرقاماً رمادية وخطوطاً كحلية (مراجعة 0022)، ثمّ يعود الاختيار بعدها.
+  window.addEventListener('beforeprint', () => document.documentElement.classList.remove('dark'));
+  window.addEventListener('afterprint', applyDisplay);
 }

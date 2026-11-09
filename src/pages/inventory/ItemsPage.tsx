@@ -40,8 +40,13 @@ import { useLoad } from '../../lib/useLoad';
  * ?version=<المعرّف> اختياراً)، وغيره null: لا تنقّل برابط مصنوع إلى مسار آخر أو إلى خارج التطبيق.
  */
 export function recipeBack(value: string | null): string | null {
-  // وملفّ المادّة نفسه (0017): «عدّل المادّة» من الملفّ يرجع إليه بعد الحفظ.
-  return value !== null && (/^\/mill\/recipe\/[\w-]+(?:\?version=[\w-]+)?$/u.test(value) || /^\/inventory\/items\/[\w-]+$/u.test(value)) ? value : null;
+  // وملفّ المادّة نفسه (0017): «عدّل المادّة» من الملفّ يرجع إليه بعد الحفظ، ومعه طريق رجوعه إن كان (?back= واحد مرمَّز: الملفّ المفتوح من
+  // «الرصيد اليومي» كان يعود بعد التعديل بلا طريقه فيصير رجوعه إلى البطاقات، مراجعة 0022 R7). الطريق الداخلي يفحصه الملفّ نفسه بـbackTarget
+  // حين يستعمله (وما لا يقبله يصير «/inventory»)، وهنا شكله وحده: استيراد backTarget هنا يفصل BackButton حزمةً مثبّتة جديدة.
+  return value !== null &&
+    (/^\/mill\/recipe\/[\w-]+(?:\?version=[\w-]+)?$/u.test(value) || /^\/inventory\/items\/[\w-]+(?:\?back=%2F[\w\-%.]+)?$/u.test(value))
+    ? value
+    : null;
 }
 
 const PROBLEM_TEXT: Record<ItemProblem, () => string> = {

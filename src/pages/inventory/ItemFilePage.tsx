@@ -23,7 +23,7 @@ import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { ConvertDialog } from './ConvertDialog';
-import { MovesTable } from './ItemCardPage';
+import { appendMovesPage, MovesTable, movesShiftedText } from './ItemCardPage';
 import { PendingBanner, sessionFor, type OpItem, type OpSession } from './ItemOps';
 import { PriceDialog } from './PriceDialog';
 import { PurchaseDialog } from './PurchaseDialog';
@@ -296,10 +296,13 @@ interface MorePages {
   error: unknown;
 }
 
+const NO_PAGES: readonly ItemMoves[] = [];
+
 /**
  * «حركات المادّة» في الملفّ: دفتر مخزن واحد (item_moves_qty، 100 حركة للصفحة و«المزيد» بعد آخر رقم)، وأزرار المخازن حين تكون للمادّة حركات في أكثر
  * من مخزن — من move_stores (0022: كلّ مخزن لها فيه حركة ولو نفد رصيدها)، وإلّا stores من خادم قبله. كلّ قراءة جديدة للملفّ (بعد شراء أو بيع أو
- * نقل) تقرأ الحركات من جديد: الملفّ الجديد كائن جديد.
+ * نقل) تقرأ الحركات من جديد: الملفّ الجديد كائن جديد؛ وما في الشاشة يبقى مرسوماً حتى تصل (كان يُطوى إلى «جارٍ الفتح…» ويُسقط صفحات «المزيد»،
+ * مراجعة 0022 R8)، بلا «المزيد» عليه. وصفحة تكرّر حركة معروضة تعني أنّ الترقيم انزاح، فتُقرأ الحركات من أوّلها (appendMovesPage، R9).
  */
 function MovesSection({ file }: { file: ItemFile }) {
   const itemId = file.item.id;
@@ -308,19 +311,35 @@ function MovesSection({ file }: { file: ItemFile }) {
   const warehouseId = picked !== null && stores.some((store) => store.warehouseId === picked) ? picked : firstMovesStore(stores);
   const [seen, setSeen] = useState<{ file: ItemFile; generation: number }>({ file, generation: 0 });
   if (seen.file !== file) setSeen({ file, generation: seen.generation + 1 });
-  const key = `${itemId}:${warehouseId ?? ''}:${seen.generation}`;
+  const storeKey = `${itemId}:${warehouseId ?? ''}`;
+  const key = `${storeKey}:${seen.generation}`;
   const load = useCallback(() => (warehouseId === null ? Promise.resolve(null) : inventory.loadItemMoves(itemId, warehouseId)), [itemId, warehouseId]);
   const first = useLoad(load, key);
-  const [more, setMore] = useState<MorePages>({ key: '', pages: [], busy: false, error: null });
-  const extra = more.key === key ? more : { key, pages: [], busy: false, error: null };
+  const [more, setMore] = useState<MorePages>({ key: '', pages: NO_PAGES, busy: false, error: null });
+  const extra = more.key === key ? more : { key, pages: NO_PAGES, busy: false, error: null };
+  const [shown, setShown] = useState<{ storeKey: string; first: ItemMoves; extra: readonly ItemMoves[] } | null>(null);
+  if (first.data !== null && (shown === null || shown.storeKey !== storeKey || shown.first !== first.data || shown.extra !== extra.pages)) {
+    setShown({ storeKey, first: first.data, extra: extra.pages });
+  }
   if (warehouseId === null) return null;
-  const pages = first.data ? [first.data, ...extra.pages] : [];
-  const next = pages.at(-1)?.next ?? null;
+  const live = first.data !== null;
+  const pages = first.data !== null ? [first.data, ...extra.pages] : shown !== null && shown.storeKey === storeKey ? [shown.first, ...shown.extra] : [];
+  const next = live ? (pages.at(-1)?.next ?? null) : null;
   const loadMore = () => {
-    if (next === null) return;
+    if (next === null || first.data === null) return;
+    const base = [first.data, ...extra.pages];
     setMore({ ...extra, busy: true, error: null });
     inventory.loadItemMoves(itemId, warehouseId, next).then(
-      (page) => setMore((current) => (current.key === key ? { key, pages: [...current.pages, page], busy: false, error: null } : current)),
+      (page) => {
+        const joined = appendMovesPage(base, page);
+        if (joined === null) {
+          setMore((current) => (current.key === key ? { key, pages: NO_PAGES, busy: false, error: null } : current));
+          first.retry();
+          toast({ tone: 'info', title: movesShiftedText() });
+          return;
+        }
+        setMore((current) => (current.key === key ? { key, pages: joined.slice(1), busy: false, error: null } : current));
+      },
       (caught: unknown) => setMore((current) => (current.key === key ? { ...current, busy: false, error: caught } : current)),
     );
   };
@@ -347,18 +366,19 @@ function MovesSection({ file }: { file: ItemFile }) {
       ) : store ? (
         <p className="text-sm text-ink-muted">{t('file.moves.in', 'في «{store}»، الأحدث آخراً.', { store: store.name })}</p>
       ) : null}
-      {first.error ? (
-        <LoadFailed what={t('stock.moves.what', 'حركات المادّة')} error={first.error} onRetry={first.retry} />
-      ) : !first.data ? (
-        <p role="status" className="text-sm text-ink-muted">
-          {t('page.loading', 'جارٍ الفتح…')}
-        </p>
+      {first.error ? <LoadFailed what={t('stock.moves.what', 'حركات المادّة')} error={first.error} onRetry={first.retry} /> : null}
+      {pages[0] === undefined ? (
+        first.error ? null : (
+          <p role="status" className="text-sm text-ink-muted">
+            {t('page.loading', 'جارٍ الفتح…')}
+          </p>
+        )
       ) : (
         <>
           <MovesTable moves={pages.flatMap((page) => page.rows)} baseUnit={file.item.baseUnit} />
           <PageFooter
             shown={pages.reduce((sum, page) => sum + page.rows.length, 0)}
-            total={first.data.total}
+            total={pages[0].total}
             next={next !== null}
             busy={extra.busy}
             error={extra.error}
@@ -410,6 +430,8 @@ export default function ItemFilePage() {
   const [transfer, setTransfer] = useState<OpSession<TransferInput> | null>(null);
   const [saved, setSaved] = useState<{ itemId: string; text: string } | null>(null);
   const back = backTarget(search.get('back'), '/inventory');
+  // الملفّ نفسه بطريق رجوعه: «عدّل المادّة» يعود إليه ومنه إلى حيث جاء (كان يعود إلى الملفّ بلا ?back= فيصير الرجوع إلى البطاقات، مراجعة 0022 R7).
+  const fileHere = back === '/inventory' ? itemFilePath(itemId) : `${itemFilePath(itemId)}?${new URLSearchParams({ back }).toString()}`;
   const costs = Boolean(workspace?.canSeeCost);
   const purchasable = file !== null && !file.item.archived && RECEIVING_KINDS[file.item.kind].length > 0;
   const canBuy = file !== null && file.canRecord && purchasable;
@@ -487,7 +509,7 @@ export default function ItemFilePage() {
           <div className="flex flex-wrap items-center gap-2">
             {file.canEdit && !file.item.archived ? (
               <Link
-                to={`/inventory/items?${new URLSearchParams({ edit: file.item.id, back: itemFilePath(file.item.id) }).toString()}`}
+                to={`/inventory/items?${new URLSearchParams({ edit: file.item.id, back: fileHere }).toString()}`}
                 className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2"
                 data-action="edit-item-file"
               >
