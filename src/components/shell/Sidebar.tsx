@@ -44,7 +44,7 @@ function NavLinks({ items, compact, onNavigate }: { items: readonly NavItem[]; c
 export function Sidebar({ items, collapsed, onToggle }: { items: readonly NavItem[]; collapsed: boolean; onToggle: () => void }) {
   return (
     <aside
-      className={`fixed inset-y-0 start-0 z-bar hidden flex-col border-e border-line bg-surface-1 pt-[env(safe-area-inset-top)] md:flex ${
+      className={`fixed inset-y-0 start-0 z-bar hidden flex-col border-e border-line bg-surface-1 pt-[env(safe-area-inset-top)] md:flex print:hidden ${
         collapsed ? 'w-19' : 'w-64'
       }`}
     >

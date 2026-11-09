@@ -43,7 +43,7 @@ export default function BottomBar({ onMenu }: { onMenu: () => void }) {
   return (
     <nav
       aria-label={t('shell.bottom', 'التنقّل السريع')}
-      className="fixed inset-x-0 bottom-0 z-bar flex items-stretch border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-bar flex items-stretch border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden"
     >
       {items.map(({ to, label, icon: Icon }) => (
         <NavLink

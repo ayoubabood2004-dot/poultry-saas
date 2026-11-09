@@ -76,15 +76,17 @@ export const ACTIONS = [
   'purchase.record',
   // «يبيع» (قرار المالك 2026-11-08، 0020/0021): لأدوار purchase.record نفسها (المالك والمدير والمحاسب والأمين).
   'sale.record',
+  // ملاحظة المادّة لكلّ يوم في «الرصيد اليومي» (كلمة المالك 2026-11-09، 0022): لمن يعمل في المخازن (الأمين ومشغّلا المعمل والمفقس والمدير والمالك).
+  'stock_note.write',
   // الكل
   'read',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
 
-const STOREKEEPER: readonly Action[] = ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post', 'party.create', 'item.create', 'purchase.record', 'sale.record'];
-const MILL_OPERATOR: readonly Action[] = ['production.draft', 'production.post'];
-const HATCHERY_OPERATOR: readonly Action[] = ['hatch.operate'];
+const STOREKEEPER: readonly Action[] = ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post', 'party.create', 'item.create', 'purchase.record', 'sale.record', 'stock_note.write'];
+const MILL_OPERATOR: readonly Action[] = ['production.draft', 'production.post', 'stock_note.write'];
+const HATCHERY_OPERATOR: readonly Action[] = ['hatch.operate', 'stock_note.write'];
 const HALL_WORKER: readonly Action[] = ['flock_day.save', 'weigh_ticket.draft'];
 const ACCOUNTANT: readonly Action[] = [
   'receipt.amounts',

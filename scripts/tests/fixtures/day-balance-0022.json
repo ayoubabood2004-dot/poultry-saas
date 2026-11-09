@@ -1,0 +1,167 @@
+{
+  "generated_by": "بخطّ اليد بشكل عقد 0022 (scratchpad/daybal/contract-0022.md) إلى أن تحلّ محلّه أجوبة القاعدة الحقيقية بالمفاتيح نفسها",
+  "day_balance": {
+    "owner_feed": {
+      "today": "2026-11-09",
+      "on": "2026-11-04",
+      "category": { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف" },
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a2", "name": "مخزن العلف", "kind": "feed" },
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 5 }
+      ],
+      "can_note": true,
+      "can_manage": true,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": { "text": "وصلت شحنة من المورّد صباحاً", "version": 2 } },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000002", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "12500.500", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000004", "name": "حجر الكلس", "kind": "additive", "base_unit": "kg", "qty": "830.250", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000005", "name": "ملح الطعام", "kind": "additive", "base_unit": "kg", "qty": "45.000", "note": null }
+      ]
+    },
+    "owner_all": {
+      "today": "2026-11-09",
+      "on": "2026-11-09",
+      "category": null,
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a2", "name": "مخزن العلف", "kind": "feed" },
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 5 }
+      ],
+      "can_note": true,
+      "can_manage": true,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000007", "name": "أموكسيسيلين", "kind": "medicine", "base_unit": "pc", "qty": "40.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000004", "name": "حجر الكلس", "kind": "additive", "base_unit": "kg", "qty": "830.250", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000006", "name": "زيت الصويا", "kind": "raw", "base_unit": "L", "qty": "300.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000002", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "12500.500", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000005", "name": "ملح الطعام", "kind": "additive", "base_unit": "kg", "qty": "45.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null }
+      ]
+    },
+    "mixed_units": {
+      "today": "2026-11-09",
+      "on": "2026-11-04",
+      "category": { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف" },
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a2", "name": "مخزن العلف", "kind": "feed" },
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 6 }
+      ],
+      "can_note": true,
+      "can_manage": true,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000006", "name": "زيت الصويا", "kind": "raw", "base_unit": "L", "qty": "300.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null }
+      ]
+    },
+    "storekeeper": {
+      "today": "2026-11-09",
+      "on": "2026-11-09",
+      "category": { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف" },
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 5 }
+      ],
+      "can_note": true,
+      "can_manage": false,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "61200.000", "note": { "text": "وصلت شحنة من المورّد صباحاً", "version": 1 } },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000002", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "12500.500", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000004", "name": "حجر الكلس", "kind": "additive", "base_unit": "kg", "qty": "830.250", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000005", "name": "ملح الطعام", "kind": "additive", "base_unit": "kg", "qty": "45.000", "note": null }
+      ]
+    },
+    "viewer": {
+      "today": "2026-11-09",
+      "on": "2026-11-04",
+      "category": { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف" },
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a2", "name": "مخزن العلف", "kind": "feed" },
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 5 }
+      ],
+      "can_note": false,
+      "can_manage": false,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": { "text": "وصلت شحنة من المورّد صباحاً", "version": 2 } },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000002", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "12500.500", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null }
+      ]
+    },
+    "empty_category": {
+      "today": "2026-11-09",
+      "on": "2026-11-09",
+      "category": { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة" },
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a2", "name": "مخزن العلف", "kind": "feed" },
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c1", "name": "أكياس التعبئة", "items": 0 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c2", "name": "الأدوية", "items": 2 },
+        { "id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "name": "مواد العلف", "items": 5 }
+      ],
+      "can_note": true,
+      "can_manage": true,
+      "rows": []
+    },
+    "no_categories": {
+      "today": "2026-11-09",
+      "on": "2026-11-09",
+      "category": null,
+      "warehouse": null,
+      "stores": [
+        { "id": "6bc1bee2-2e40-4a9f-8f96-0000000000a1", "name": "مخزن المواد الأوّلية", "kind": "raw" }
+      ],
+      "categories": [],
+      "can_note": true,
+      "can_manage": true,
+      "rows": [
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": null },
+        { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000003", "name": "نخالة", "kind": "raw", "base_unit": "kg", "qty": "0.000", "note": null }
+      ]
+    }
+  },
+  "set_day_note": {
+    "saved": { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000002", "on": "2026-11-04", "note": { "text": "ناقصة كيسين عن الفاتورة", "version": 1 } },
+    "cleared": { "item_id": "ae2d8a57-1e03-4c6f-8a2b-000000000001", "on": "2026-11-04", "note": null }
+  },
+  "set_category_items": {
+    "manager": { "category_id": "2b7e1516-28ae-4d2a-9f15-0000000000c3", "count": 6, "moved": 1, "removed": 0 }
+  },
+  "refusals": {
+    "note_changed": { "code": "note_changed", "hint": "غُيّرت ملاحظة هذه المادّة لهذا اليوم بعد أن فتحتها. اقرأ الملاحظة الحاليّة ثمّ احفظ من جديد." },
+    "day_in_future": { "code": "day_in_future", "hint": "لا رصيد ليوم بعد اليوم. اختر اليوم أو يوماً قبله." }
+  }
+}

@@ -1,10 +1,11 @@
-import { Building2, ChevronLeft, Plus, Search } from 'lucide-react';
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Building2, CalendarDays, ChevronLeft, LayoutGrid, Plus, Search } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { Segmented } from '../../components/ui/Segmented';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
@@ -14,6 +15,7 @@ import type { ItemsOverview, OverviewItem } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
+import { DayBalanceView } from './DayBalanceView';
 import { SimpleItemDialog } from './ItemCreate';
 import { baseQty, itemFilePath } from './simple-shared';
 import { InventoryLinks, PendingApprovals } from './stock-shared';
@@ -23,6 +25,16 @@ import { InventoryLinks, PendingApprovals } from './stock-shared';
 // والبطاقة كلّها رابط ملفّ المادّة (فيه «سجّل شراء»). والبحث بالاسم المطبَّع بالجهاز (القائمة كلّها من قراءة واحدة)، و«أضف مادّة»
 // بحكم الخادم (can_add_item). والمخازن وأوراقها (التحويل والصرف والجرد والرصيد عند البداية) خلف «أعمال أخرى» مطويّة، و«إعداد
 // المخزن» رابط صغير لمن يدير المخازن. ورقة الاستلام القديمة ليست هنا (لا رابط ولا «بانتظار المبالغ»).
+// و«الرصيد اليومي» (كلمة المالك 2026-11-09، 0022: «بجانب ترتيب البطاقات… خيار ثاني الي هو رصيد مواد العلف اليومي»): مفتاح بخيارين تحت
+// العنوان، والعرض بالرابط (?view=day وتصنيفه ويومه ومخزنه، DayBalanceView) فينسخ ويرجع بزرّ الرجوع؛ بلا view تبقى البطاقات كما كانت.
+// وبالطباعة يُطبع التقرير وحده: العنوان والمفتاح والروابط print:hidden.
+
+export type BoardView = 'cards' | 'day';
+
+/** العرض من الرابط: ?view=day للرصيد اليومي، وغيره البطاقات. */
+export function boardView(value: string | null): BoardView {
+  return value === 'day' ? 'day' : 'cards';
+}
 
 /** بطاقة مادّة واحدة: كبيرة وبسيطة، وكلّها رابط ملفّها. */
 export function ItemTile({ item }: { item: OverviewItem }) {
@@ -122,7 +134,11 @@ export default function ItemsBoardPage() {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
   const navigate = useNavigate();
-  const overview = useLoad(purchases.loadItemsOverview);
+  const [search, setSearch] = useSearchParams();
+  const view = boardView(search.get('view'));
+  // بطاقات المواد تُقرأ للبطاقات وحدها: الرصيد اليومي يقرأ day_balance، فلا قراءة لا تُعرض.
+  const loadOverview = useCallback(() => (view === 'cards' ? purchases.loadItemsOverview() : Promise.resolve(null)), [view]);
+  const overview = useLoad(loadOverview, view);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState<{ name: string } | null>(null);
   const role = workspace?.role;
@@ -131,20 +147,39 @@ export default function ItemsBoardPage() {
   const add = canAdd ? (name: string) => setAdding({ name }) : null;
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader
-        title={t('nav.store', 'المخزن')}
-        subtitle={t('board.subtitle', 'افتح المادّة لترى ما عندك منها وكلّ شراء لها، وسجّل شراءً جديداً من ملفّها.')}
-        actions={
-          canAdd ? (
-            <Button onClick={() => setAdding({ name: '' })} data-action="add-item">
-              <Plus aria-hidden="true" className="size-4" />
-              {t('board.add', 'أضف مادّة')}
-            </Button>
-          ) : null
-        }
-      />
-      <PendingApprovals role={role} />
-      {overview.data && overview.data.items.length > 0 ? (
+      <div className="flex flex-col gap-4 print:hidden">
+        <PageHeader
+          title={t('nav.store', 'المخزن')}
+          subtitle={
+            view === 'day'
+              ? t('board.day.subtitle', 'رصيد كلّ مادّة في نهاية اليوم المختار، بتصنيفاتك وملاحظاتك، للطباعة والمشاركة.')
+              : t('board.subtitle', 'افتح المادّة لترى ما عندك منها وكلّ شراء لها، وسجّل شراءً جديداً من ملفّها.')
+          }
+          actions={
+            canAdd ? (
+              <Button onClick={() => setAdding({ name: '' })} data-action="add-item">
+                <Plus aria-hidden="true" className="size-4" />
+                {t('board.add', 'أضف مادّة')}
+              </Button>
+            ) : null
+          }
+        />
+        <Segmented<BoardView>
+          label={t('board.view', 'طريقة عرض المخزن')}
+          options={[
+            { value: 'cards', label: t('board.view.cards', 'البطاقات'), icon: LayoutGrid },
+            { value: 'day', label: t('board.view.day', 'الرصيد اليومي'), icon: CalendarDays },
+          ]}
+          value={view}
+          onChange={(next) => {
+            // الخيار المختار نفسه لا يمسح ما اختير داخل العرض (التصنيف واليوم والمخزن).
+            if (next !== view) setSearch(next === 'day' ? { view: 'day' } : {});
+          }}
+        />
+        <PendingApprovals role={role} />
+      </div>
+      {view === 'day' ? <DayBalanceView orgName={workspace?.orgName ?? ''} /> : null}
+      {view === 'cards' && overview.data && overview.data.items.length > 0 ? (
         <div className="flex items-center gap-2">
           <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
           <input
@@ -159,7 +194,7 @@ export default function ItemsBoardPage() {
           />
         </div>
       ) : null}
-      {overview.error ? (
+      {view === 'day' ? null : overview.error ? (
         <LoadFailed what={t('board.what', 'قائمة المواد')} error={overview.error} onRetry={overview.retry} />
       ) : !overview.data ? (
         <p role="status" className="text-sm text-ink-muted">
@@ -168,7 +203,7 @@ export default function ItemsBoardPage() {
       ) : (
         <BoardBody overview={overview.data} query={query} onAdd={add} />
       )}
-      <div className="flex flex-col gap-3 border-t border-line pt-4">
+      <div className="flex flex-col gap-3 border-t border-line pt-4 print:hidden">
         {canSetup ? (
           <Link to="/inventory/setup" className="inline-flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-store-setup">
             <Building2 aria-hidden="true" className="size-4" />

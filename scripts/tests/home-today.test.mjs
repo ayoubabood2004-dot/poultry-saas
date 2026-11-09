@@ -427,7 +427,9 @@ export default async function (t) {
       t.ok(bar && (bar.getAttribute('class') ?? '').includes('md:hidden'), 'د11: القشرة رسمت الشريط السفلي بالهاتف');
       t.ok(bar && descendants(bar).some((node) => node.getAttribute('data-action') === 'tab-menu'), 'د11: وبيه زرّ القائمة');
       const main = all().find((node) => node.localName === 'main');
-      t.ok(main && main.children.some((node) => node.localName === 'div' && (node.getAttribute('class') ?? '') === 'h-16 md:hidden'), 'د11: فاصل سفلي بالهاتف حتى المحتوى ما ينخبّى تحت الشريط');
+      // 0022 (تقرير الرصيد اليومي يُطبع وحده): الفاصل صار print:hidden أيضاً، فالفحص بأصنافه لا بنصّها كلّه.
+      const spacer = (node) => node.localName === 'div' && ['h-16', 'md:hidden', 'print:hidden'].every((cls) => (node.getAttribute('class') ?? '').split(' ').includes(cls));
+      t.ok(main && main.children.some(spacer), 'د11: فاصل سفلي بالهاتف حتى المحتوى ما ينخبّى تحت الشريط');
       t.ok(descendants(all().find((node) => node.localName === 'header') ?? body()).every((node) => node.getAttribute('aria-label') !== 'القائمة'), 'د11: وماكو زرّ قائمة بالشريط العلوي');
       await unmount();
     }

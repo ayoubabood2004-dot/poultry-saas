@@ -51,13 +51,14 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <Sidebar items={items} collapsed={collapsed} onToggle={toggleCollapsed} />
       {drawerOpen ? <MobileDrawer items={items} onClose={closeDrawer} /> : null}
-      <div className={collapsed ? 'md:ps-19' : 'md:ps-64'}>
+      {/* بالطباعة الصفحة وحدها (0022، تقرير الرصيد اليومي): الشريطان والأشرطة والفاصل print:hidden، والإزاحة عن الشريط الجانبي صفر. */}
+      <div className={collapsed ? 'md:ps-19 print:ps-0' : 'md:ps-64 print:ps-0'}>
         <TopBar />
         <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
           <AppBanners />
           {children}
           {/* فاصل بالهاتف بس: آخر الصفحة ما ينخبّى تحت الشريط السفلي (بأصناف موجودة، فما يكبر CSS الإقلاع). */}
-          <div aria-hidden="true" className="h-16 md:hidden" />
+          <div aria-hidden="true" className="h-16 md:hidden print:hidden" />
         </main>
       </div>
       <Suspense fallback={null}>
