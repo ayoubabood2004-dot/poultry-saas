@@ -2,13 +2,15 @@ import type { Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
 import { BASE_UNITS, ITEM_KINDS, WAREHOUSE_KINDS, type ItemKind, type WarehouseKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
-import { call } from './core';
+import { call, classifyPostgrest, send } from './core';
 import { arr, bool, count, obj, oneOf, qtyOf, RowShapeError, str } from './inventory';
 
 // «الرصيد اليومي» في المخزن (0022، كلمة المالك 2026-11-09 بصورة ورقته «رصيد مواد العلف — 4/11/2026»: ت | المادّة | الرصيد (كغم) |
 // الملاحظات): رصيد موادّ تصنيف واحد في نهاية يوم واحد (day_balance)، وملاحظة لكلّ مادّة لكلّ يوم (set_day_note)، وموادّ التصنيف بترتيبها
 // (set_category_items). ملف كسول بحزمة شاشات المخزون: صفحة المخزن تستورده مباشرةً، وindex ما يصدّره (write-guard PAGE_MODULES).
 // الكمية نصّ عشريّ بثلاث مراتب بالسلك (E3) ← Milli، وبلا مال أصلاً (الرصيد كميات لكلّ دور). وكلّ خانة قد تأتي null تُقرأ null (درس WP7).
+// وبعد مراجعة القاعدة: الصفوف ما يُخزَّن في مخازن النطاق (أو المخزن المختار) وحده، وcategory.members كلّ موادّ التصنيف الفعّالة بترتيبها (بلا تصفية
+// بنطاق ولا مخزن): منها تبدأ نافذة «أدرج مواد» وهي ما رآه المدير (p_expected_items، وcategory_changed إن تغيّر بعده). ونسخ الملاحظات أرقام من تسلسل.
 
 type Row = Record<string, unknown>;
 
@@ -30,7 +32,7 @@ const dayOf = (row: Row, field: string): Day => {
   return value;
 };
 
-/** ملاحظة اليوم أو null: النصّ (1..200 بعد القصّ) ونسختها (≥ 1)، والكتابة بشرط النسخة التي رآها الكاتب. */
+/** ملاحظة اليوم أو null: النصّ (1..200 بعد القصّ) ونسختها (رقم من تسلسل ≥ 1، لا عدّاد يبدأ من 1)، والكتابة بشرط النسخة التي رآها الكاتب. */
 export interface DayNote {
   text: string;
   version: number;
@@ -56,6 +58,21 @@ const namedOf = (row: Row, field: string): Named | null => {
   if (value === null || value === undefined) return null;
   const named = obj(value, field);
   return { id: str(named, 'id'), name: str(named, 'name') };
+};
+
+/** التصنيف المعروض: اسمه، وكلّ موادّه الفعّالة بترتيبه (members، ولو لم تظهر في الجدول لأنّ مخازن النطاق أو المخزن المختار لا تقبلها). */
+export interface DayCategoryNow extends Named {
+  members: readonly string[];
+}
+
+const categoryOf = (row: Row, field: string): DayCategoryNow | null => {
+  const named = namedOf(row, field);
+  if (named === null) return null;
+  const members = arr(obj(row[field], field).members, 'members').map((id) => {
+    if (typeof id !== 'string' || id === '') throw new RowShapeError('members');
+    return id;
+  });
+  return { ...named, members };
 };
 
 export interface DayStore {
@@ -88,10 +105,10 @@ export interface DayBalance {
   /** اليوم المعروض. */
   on: Day;
   /** null = «كل المواد». */
-  category: Named | null;
+  category: DayCategoryNow | null;
   /** null = كلّ مخازن النطاق مجموعةً. */
   warehouse: Named | null;
-  /** مخازن النطاق الفعّالة بأسمائها. */
+  /** مخازن النطاق الفعّالة بأسمائها؛ فارغة: لا مخزن في النطاق، والصفوف فارغة معها. */
   stores: readonly DayStore[];
   /** التصنيفات الفعّالة بأسمائها. */
   categories: readonly DayCategory[];
@@ -99,7 +116,7 @@ export interface DayBalance {
   canNote: boolean;
   /** can('stores.manage'): «تصنيف جديد» و«أدرج مواد». */
   canManage: boolean;
-  /** بترتيب التصنيف (ما اختاره المدير ثمّ الاسم)، أو بالاسم لـ«كل المواد». */
+  /** ما يُخزَّن في مخازن النطاق (أو المخزن المختار) وحده، بترتيب التصنيف (ما اختاره المدير ثمّ الاسم)، أو بالاسم لـ«كل المواد». */
   rows: readonly DayRow[];
 }
 
@@ -108,7 +125,7 @@ export function parseDayBalance(value: unknown): DayBalance {
   return {
     today: dayOf(json, 'today'),
     on: dayOf(json, 'on'),
-    category: namedOf(json, 'category'),
+    category: categoryOf(json, 'category'),
     warehouse: namedOf(json, 'warehouse'),
     stores: arr(json.stores, 'stores').map((entry) => {
       const row = obj(entry, 'stores');
@@ -164,7 +181,7 @@ export function parseDayNote(value: unknown): DayNoteResult {
 
 /**
  * ملاحظة مادّة ليوم (stock_note.write): النصّ الفارغ يمسحها، وexpectedVersion ما رآه الكاتب (null = «لم أرَ ملاحظة»). الخادم يرجّع الحال نفسها
- * إن كانت تساوي الطلب (إعادة آمنة)، وإلّا note_changed إن تغيّرت عمّا رآه.
+ * إن كانت تساوي الطلب (إعادة آمنة)، وإلّا note_changed إن تغيّرت عمّا رآه، وout_of_scope لمادّة لا يقبلها شيء من مخازن الكاتب.
  */
 export async function setDayNote(itemId: string, day: Day, text: string, expectedVersion: number | null): Promise<DayNoteResult> {
   return parseDayNote(await call<unknown>('set_day_note', { p_item: itemId, p_on: day, p_note: text, p_expected_version: expectedVersion }));
@@ -187,7 +204,28 @@ export function parseCategoryItems(value: unknown): CategoryItemsResult {
   return { categoryId: str(json, 'category_id'), count: nat(json, 'count'), moved: nat(json, 'moved'), removed: nat(json, 'removed') };
 }
 
-/** القائمة كلّها بترتيبها (stores.manage): ما فيها يدخل التصنيف (ولو من تصنيف آخر)، وما خرج منها يصير بلا تصنيف. إعادتها آمنة. */
-export async function setCategoryItems(categoryId: string, itemIds: readonly string[]): Promise<CategoryItemsResult> {
-  return parseCategoryItems(await call<unknown>('set_category_items', { p_category: categoryId, p_items: [...itemIds] }));
+/**
+ * القائمة كلّها بترتيبها (stores.manage): ما فيها يدخل التصنيف (ولو من تصنيف آخر)، وما خرج منها يصير بلا تصنيف. expectedItems موادّ التصنيف
+ * كما عرضتها النافذة (members بترتيبه)، وإن تغيّرت بعدها رفض الخادم category_changed؛ وإعادة الطلب نفسه آمنة.
+ */
+export async function setCategoryItems(categoryId: string, itemIds: readonly string[], expectedItems: readonly string[]): Promise<CategoryItemsResult> {
+  return parseCategoryItems(await call<unknown>('set_category_items', { p_category: categoryId, p_items: [...itemIds], p_expected_items: [...expectedItems] }));
+}
+
+/**
+ * أسماء موادّ التصنيف الفعّالة لنافذة «أدرج مواد»: members تشمل موادّ لا تظهر في الجدول (لا يقبلها شيء من مخازن النطاق أو المخزن المختار)،
+ * والنافذة تعرضها كلّها بأسمائها لأنّ الحفظ يُخرج من التصنيف ما ليس في القائمة. قراءة واحدة (لا يزيد التصنيف على 500 مادّة).
+ */
+export async function loadCategoryItemNames(categoryId: string): Promise<ReadonlyMap<string, string>> {
+  const { result, wasOnline } = await send(
+    (db) => db.from('items').select('id, name').eq('category_id', categoryId).is('archived_at', null),
+    (answer) => [answer],
+  );
+  if (result.error) throw classifyPostgrest(result.error, result.status, 'table', wasOnline);
+  return new Map(
+    arr(result.data ?? [], 'items').map((entry) => {
+      const row = obj(entry, 'items');
+      return [str(row, 'id'), str(row, 'name')] as const;
+    }),
+  );
 }

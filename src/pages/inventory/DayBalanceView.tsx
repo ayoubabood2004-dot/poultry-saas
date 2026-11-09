@@ -291,23 +291,45 @@ interface Pages {
 
 /**
  * «أدرج مواد» (المدير): الموادّ المختارة بترتيبها (أعلى وأسفل)، وكلّ الموادّ الفعّالة بحثاً بمربّع اختيار، والمادّة في تصنيف آخر تقول «في «س»»
- * (الحفظ ينقلها إلى هذا التصنيف). «احفظ» يرسل القائمة كلّها بترتيبها (set_category_items، وإعادتها آمنة).
+ * (الحفظ ينقلها إلى هذا التصنيف). تبدأ بموادّ التصنيف كلّها (members، ولو لم يُظهرها الجدول لأنّ مخازن النطاق لا تقبلها) بأسمائها من قراءة واحدة،
+ * و«احفظ» يرسل القائمة كلّها بترتيبها ومعها ما عرضته النافذة (p_expected_items). وcategory_changed (غيّر غيره التصنيف بعد الفتح) يُقال بتلميحه،
+ * ويُقرأ التصنيف من جديد، ويبقى الاختيار ليُحفظ ثانيةً على ما صار فيه.
  */
 function IncludeDialog({
   category,
   initial,
+  members,
+  loading,
+  rowNames,
   categories,
   onClose,
   onSaved,
+  onChanged,
 }: {
   category: Named;
-  initial: readonly Named[];
+  /** موادّ التصنيف بترتيبها كما فُتحت النافذة (members). */
+  initial: readonly string[];
+  /** members من آخر قراءة للتصنيف نفسه (تتغيّر بعد category_changed)، أو null قبل قراءته. */
+  members: readonly string[] | null;
+  loading: boolean;
+  rowNames: ReadonlyMap<string, string>;
   categories: readonly DayCategory[];
   onClose: () => void;
   onSaved: (result: CategoryItemsResult) => void;
+  onChanged: () => void;
 }) {
   const id = useId();
-  const [chosen, setChosen] = useState<readonly Named[]>(initial);
+  const [chosen, setChosen] = useState<readonly string[]>(initial);
+  // أسماء ما يُختار من القائمة (قد تخرج من الصفحات المقروءة إن تغيّر البحث).
+  const [pickedNames, setPickedNames] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // أسماء موادّ التصنيف كلّها، وتُقرأ من جديد بعد category_changed؛ وآخر قراءة ناجحة تبقى أثناء ذلك.
+  const [generation, setGeneration] = useState(0);
+  const loadNames = useCallback(() => dayBalance.loadCategoryItemNames(category.id), [category.id]);
+  const names = useLoad(loadNames, `${category.id}#${generation}`);
+  const [known, setKnown] = useState<ReadonlyMap<string, string> | null>(null);
+  if (names.data !== null && names.data !== known) setKnown(names.data);
+  const [changed, setChanged] = useState<string | null>(null);
+  const expected = members ?? initial;
   const [query, setQuery] = useState('');
   const search = useDeferredValue(query.trim());
   const load = useCallback(() => inventory.listItems({ search }), [search]);
@@ -321,10 +343,15 @@ function IncludeDialog({
   const seen = new Set<string>();
   const items = pages.flatMap((page) => page.rows).filter((row) => (seen.has(row.id) ? false : (seen.add(row.id), true)));
   const next = pages.at(-1)?.next ?? null;
-  const names = new Map(categories.map((entry) => [entry.id, entry.name]));
-  const picked = new Set(chosen.map((entry) => entry.id));
-  const dirty = chosen.length !== initial.length || chosen.some((entry, index) => entry.id !== initial[index]?.id);
-  const toggle = (item: ItemRow, on: boolean) => setChosen((list) => (on ? (list.some((entry) => entry.id === item.id) ? list : [...list, { id: item.id, name: item.name }]) : list.filter((entry) => entry.id !== item.id)));
+  const categoryNames = new Map(categories.map((entry) => [entry.id, entry.name]));
+  const pageNames = new Map(items.map((row) => [row.id, row.name]));
+  const nameOf = (itemId: string): string => known?.get(itemId) ?? pickedNames.get(itemId) ?? rowNames.get(itemId) ?? pageNames.get(itemId) ?? t('dayb.include.unnamed', 'مادّة');
+  const picked = new Set(chosen);
+  const dirty = chosen.length !== initial.length || chosen.some((itemId, index) => itemId !== initial[index]);
+  const toggle = (item: ItemRow, on: boolean) => {
+    if (on) setPickedNames((map) => new Map(map).set(item.id, item.name));
+    setChosen((list) => (on ? (list.includes(item.id) ? list : [...list, item.id]) : list.filter((itemId) => itemId !== item.id)));
+  };
   const move = (index: number, by: -1 | 1) =>
     setChosen((list) => {
       const target = index + by;
@@ -352,15 +379,22 @@ function IncludeDialog({
     setFailure(null);
     setBusy(true);
     try {
-      onSaved(await dayBalance.setCategoryItems(category.id, chosen.map((entry) => entry.id)));
+      onSaved(await dayBalance.setCategoryItems(category.id, chosen, expected));
     } catch (caught) {
       setBusy(false);
-      setFailure(caught);
+      if (caught instanceof RejectedError && caught.code === 'category_changed') {
+        // الاختيار باقٍ، والتصنيف (members وأسماؤه) يُقرأ من جديد فيصير الحفظ التالي على ما صار فيه.
+        setChanged(caught.hint ?? t('dayb.include.changed', 'تغيّرت موادّ هذا التصنيف بعد أن فتحت النافذة.'));
+        setGeneration((n) => n + 1);
+        onChanged();
+      } else {
+        setFailure(caught);
+      }
     }
   };
   const otherName = (row: ItemRow): string | null => {
     if (row.categoryId === null || row.categoryId === category.id) return null;
-    const name = names.get(row.categoryId);
+    const name = categoryNames.get(row.categoryId);
     return name ? t('dayb.include.in_other', 'في «{name}»', { name }) : t('dayb.include.in_other_unknown', 'في تصنيف آخر');
   };
   return (
@@ -382,7 +416,8 @@ function IncludeDialog({
             <Button variant="secondary" onClick={onClose} disabled={busy}>
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
-            <Button onClick={() => void save()} busy={busy} data-action="save-include">
+            {/* لا حفظ قبل أن تُعرف موادّ التصنيف بأسمائها، ولا أثناء قراءته من جديد: الحفظ بشرط ما عُرض. */}
+            <Button onClick={() => void save()} busy={busy} disabled={loading || known === null} data-action="save-include">
               {t('dayb.include.save', 'احفظ الموادّ بترتيبها')}
             </Button>
           </div>
@@ -390,26 +425,45 @@ function IncludeDialog({
       }
     >
       <div className="flex flex-col gap-4">
+        {changed ? (
+          <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="include-changed">
+            {changed}{' '}
+            {loading || names.loading
+              ? t('dayb.include.changed.reading', 'جارٍ قراءة التصنيف من جديد…')
+              : t('dayb.include.changed.kept', 'قُرئ التصنيف من جديد، واختيارك باقٍ: احفظه ليحلّ محلّ ما فيه الآن، أو أغلق النافذة.')}
+          </p>
+        ) : null}
         <section className="flex flex-col gap-2">
           <h3 className="font-semibold">{t('dayb.include.chosen', 'الموادّ المختارة بترتيبها: {n}', { n: fmtInt(chosen.length) })}</h3>
-          {chosen.length === 0 ? (
+          {known === null ? (
+            names.error ? (
+              <LoadFailed what={t('dayb.include.what', 'موادّ التصنيف')} error={names.error} onRetry={names.retry} />
+            ) : (
+              <p role="status" className="text-sm text-ink-muted">
+                {t('page.loading', 'جارٍ الفتح…')}
+              </p>
+            )
+          ) : chosen.length === 0 ? (
             <p className="text-sm text-ink-muted">{t('dayb.include.none_chosen', 'لم تختر مادّة بعد. اختر من القائمة أدناه.')}</p>
           ) : (
             <ol className="flex flex-col gap-1" data-action="include-chosen">
-              {chosen.map((entry, index) => (
-                <li key={entry.id} className="flex items-center gap-2 rounded-2xl border border-line px-3" data-action="include-chosen-row" data-id={entry.id}>
-                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                  <IconButton label={t('dayb.include.up', 'قدّم «{name}»', { name: entry.name })} onClick={() => move(index, -1)} disabled={index === 0 || busy} className="disabled:opacity-50" data-action="include-up" data-id={entry.id}>
-                    <ArrowUp aria-hidden="true" className="size-5" />
-                  </IconButton>
-                  <IconButton label={t('dayb.include.down', 'أخّر «{name}»', { name: entry.name })} onClick={() => move(index, 1)} disabled={index === chosen.length - 1 || busy} className="disabled:opacity-50" data-action="include-down" data-id={entry.id}>
-                    <ArrowDown aria-hidden="true" className="size-5" />
-                  </IconButton>
-                  <IconButton label={t('dayb.include.remove', 'أخرج «{name}» من التصنيف', { name: entry.name })} onClick={() => setChosen((list) => list.filter((other) => other.id !== entry.id))} disabled={busy} data-action="include-remove" data-id={entry.id}>
-                    <X aria-hidden="true" className="size-5" />
-                  </IconButton>
-                </li>
-              ))}
+              {chosen.map((itemId, index) => {
+                const name = nameOf(itemId);
+                return (
+                  <li key={itemId} className="flex items-center gap-2 rounded-2xl border border-line px-3" data-action="include-chosen-row" data-id={itemId}>
+                    <span className="min-w-0 flex-1 truncate">{name}</span>
+                    <IconButton label={t('dayb.include.up', 'قدّم «{name}»', { name })} onClick={() => move(index, -1)} disabled={index === 0 || busy} className="disabled:opacity-50" data-action="include-up" data-id={itemId}>
+                      <ArrowUp aria-hidden="true" className="size-5" />
+                    </IconButton>
+                    <IconButton label={t('dayb.include.down', 'أخّر «{name}»', { name })} onClick={() => move(index, 1)} disabled={index === chosen.length - 1 || busy} className="disabled:opacity-50" data-action="include-down" data-id={itemId}>
+                      <ArrowDown aria-hidden="true" className="size-5" />
+                    </IconButton>
+                    <IconButton label={t('dayb.include.remove', 'أخرج «{name}» من التصنيف', { name })} onClick={() => setChosen((list) => list.filter((other) => other !== itemId))} disabled={busy} data-action="include-remove" data-id={itemId}>
+                      <X aria-hidden="true" className="size-5" />
+                    </IconButton>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </section>
@@ -566,7 +620,7 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 // ─── العرض ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Open = null | { kind: 'note'; key: string; item: Named; day: Day } | { kind: 'include'; category: Named; initial: readonly Named[] } | { kind: 'category' } | { kind: 'day' };
+type Open = null | { kind: 'note'; key: string; item: Named; day: Day } | { kind: 'include'; category: Named; initial: readonly string[] } | { kind: 'category' } | { kind: 'day' };
 
 /** رفض قراءة يعرف المستخدم طريقه منه: التلميح العربي من الخادم وزرّ الطريق. */
 function Refusal({ failure, params, go, onRetry }: { failure: unknown; params: DayParams; go: (patch: Partial<DayParams>) => void; onRetry: () => void }) {
@@ -641,10 +695,15 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
   const pickCategory = (next: string) => {
     if (next !== (category ?? 'all')) go({ cat: next });
   };
-  const emptyCategory = data !== null && data.category !== null && data.rows.length === 0;
+  // لا مخزن في النطاق: لا جدول أصفار ولا طباعة ولا مشاركة، بل يُقال السبب. وتصنيف بلا موادّ (members فارغة) غير تصنيف موادّه لا تُخزَّن هنا
+  // (members بلا صفوف: لا يقبلها شيء من مخازن النطاق أو المخزن المختار).
+  const noStores = data !== null && data.stores.length === 0;
+  const emptyCategory = data !== null && data.category !== null && data.category.members.length === 0;
+  const unstored = data !== null && !noStores && data.category !== null && data.category.members.length > 0 && data.rows.length === 0;
+  const printable = data !== null && !noStores && data.rows.length > 0;
   const openInclude = () => {
     if (!data?.category) return;
-    setOpen({ kind: 'include', category: data.category, initial: data.rows.map((row) => ({ id: row.itemId, name: row.name })) });
+    setOpen({ kind: 'include', category: { id: data.category.id, name: data.category.name }, initial: data.category.members });
   };
   const includeButton = (
     <Button variant="secondary" size="sm" onClick={openInclude} disabled={!data?.category} data-action="include-items">
@@ -717,14 +776,18 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => window.print()} disabled={!data} data-action="print-day">
-              <Printer aria-hidden="true" className="size-4" />
-              {t('dayb.print', 'اطبع أو احفظ PDF')}
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => void share()} disabled={!data} data-action="share-day">
-              <Share2 aria-hidden="true" className="size-4" />
-              {t('dayb.share', 'شارك')}
-            </Button>
+            {noStores ? null : (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => window.print()} disabled={!printable} data-action="print-day">
+                  <Printer aria-hidden="true" className="size-4" />
+                  {t('dayb.print', 'اطبع أو احفظ PDF')}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => void share()} disabled={!printable} data-action="share-day">
+                  <Share2 aria-hidden="true" className="size-4" />
+                  {t('dayb.share', 'شارك')}
+                </Button>
+              </>
+            )}
             {canManage && category !== null && !emptyCategory ? includeButton : null}
           </div>
         </div>
@@ -741,7 +804,15 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
           </Notice>
         </div>
       ) : null}
-      {data ? (
+      {data && noStores ? (
+        <Notice tone="info" title={t('dayb.no_stores', 'لا مخزن في نطاقك، فلا رصيد يُعرض هنا.')}>
+          <span data-action="day-no-stores">
+            {data.canManage
+              ? t('dayb.no_stores.manage', 'أضف مخزناً من «إعداد المخزن»، أو اطلب من صاحب المنشأة أن يضيف مخزناً إلى نطاقك.')
+              : t('dayb.no_stores.ask', 'اطلب من صاحب المنشأة أن يضيف مخزناً إلى نطاقك.')}
+          </span>
+        </Notice>
+      ) : data ? (
         <div className="flex flex-col gap-2" data-action="day-report">
           {orgName ? (
             <p className="hidden text-sm text-ink-muted print:block" data-action="day-org">
@@ -758,6 +829,19 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
             <Notice tone="info" title={t('dayb.empty_category', 'لا موادّ في هذا التصنيف')} action={data.canManage ? <span className="print:hidden">{includeButton}</span> : null}>
               <span data-action="day-empty-category">
                 {data.canManage ? t('dayb.empty_category.manage', 'اختر موادّه بترتيبها من «أدرج مواد».') : t('dayb.empty_category.ask', 'يختار موادّ التصنيفات المدير.')}
+              </span>
+            </Notice>
+          ) : unstored && data.category ? (
+            <Notice
+              tone="info"
+              title={
+                data.warehouse
+                  ? t('dayb.unstored.store', 'لا يُخزَّن شيء من موادّ «{category}» في «{store}».', { category: data.category.name, store: data.warehouse.name })
+                  : t('dayb.unstored', 'لا يُخزَّن شيء من موادّ «{category}» في مخازن نطاقك.', { category: data.category.name })
+              }
+            >
+              <span data-action="day-unstored">
+                {data.warehouse ? t('dayb.unstored.store.hint', 'اختر «كل المخازن» أو مخزناً آخر.') : t('dayb.unstored.hint', 'موادّه تُخزَّن في مخازن خارج نطاقك.')}
               </span>
             </Notice>
           ) : (
@@ -802,8 +886,12 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
         <IncludeDialog
           category={open.category}
           initial={open.initial}
+          members={data?.category?.id === open.category.id ? data.category.members : null}
+          loading={state.loading}
+          rowNames={new Map(data?.rows.map((row) => [row.itemId, row.name]) ?? [])}
           categories={categories}
           onClose={() => setOpen(null)}
+          onChanged={state.retry}
           onSaved={(result) => {
             setOpen(null);
             toast({

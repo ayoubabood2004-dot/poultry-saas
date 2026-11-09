@@ -11,9 +11,13 @@
 // (navigator.share بالعنوان والنصّ، وإلّا النسخ، وإلغاء نافذة المشاركة بلا رسالة)؛ S12 الفراغ (لا تصنيف، وتصنيف بلا موادّ) والمشاهد والمحاسب بلا
 // ملاحظة ولا «أدرج»؛ S13 المخزن من قائمة حين يتعدّد وحده؛ S14 رفض day_in_future بتلميحه وزرّ «اليوم»؛ S15 القشرة print:hidden؛ S16 «حركات المادّة»
 // في ملفّ المادّة (المخازن، والمخزن الأوّل بموجود، و«المزيد»).
+// وتحديث العقد بعد مراجعة القاعدة: category.members (كلّ موادّ التصنيف بترتيبه) تبدأ منها «أدرج مواد» بأسمائها (قراءة واحدة لـitems، ولو لم يُظهرها
+// الجدول) وهي p_expected_items؛ وcategory_changed يُقال ويُقرأ التصنيف من جديد ويبقى الاختيار (S8-changed)؛ ولا مخزن في النطاق: لا جدول ولا طباعة ولا
+// مشاركة (S12-no-stores)، وموادّ لا تُخزَّن هنا غير تصنيف فارغ (S12-unstored)؛ وout_of_scope لملاحظة مادّة خارج مخازن الكاتب (S7-scope)؛ والنسخ أرقام
+// تسلسل.
 // شروط العيّنات (تُفحص أوّلاً، فعيّنة لا تحقّقها تفشل باسمها): owner_feed تصنيف بموادّ بوحدة واحدة، فيها صفر وملاحظة وغير صفر، ويومها قبل اليوم، ولها
 // أكثر من مخزن وتصنيفان فأكثر، والمدير يكتب ويدير؛ owner_all لكلّ المواد بتصنيفات؛ mixed_units بوحدتين فأكثر؛ storekeeper يكتب ولا يدير؛ viewer لا
-// يكتب ولا يدير؛ empty_category تصنيف بلا موادّ؛ no_categories بلا تصنيفات.
+// يكتب ولا يدير؛ empty_category تصنيف بلا موادّ؛ no_categories بلا تصنيفات؛ وصفوف كلّ تصنيف من members وبترتيبها.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -34,15 +38,21 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__db.session; export const sessionStore = { get: () => globalThis.__db?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__db.toasts.push(spec); }; export function Toaster() { return null; }',
 };
-// repo الحقيقي يبني النداء ويقرأ الجواب؛ core بديل له وحده يسجّل النداء ويجيب.
+// repo الحقيقي يبني النداء ويقرأ الجواب؛ core بديل له وحده يسجّل النداء ويجيب: call للدوالّ، وsend لقراءة جدول بسلسلة PostgREST مسجَّلة
+// (from/select/eq/is) يجيبها globalThis.__db.tables باسم الجدول.
 const CORE_FOR = /src\/lib\/repo\/(?:dayBalance|purchases)\.ts$/u;
+const CORE = [
+  'export const call = async (fn, args) => globalThis.__db.rpc(fn, args);',
+  'export const send = async (make) => ({ result: await make(globalThis.__db.db()), wasOnline: true });',
+  'export const classifyPostgrest = (error) => Object.assign(new Error(error.code ?? "postgrest"), error);',
+].join('\n');
 const stubs = {
   name: 'db-stubs',
   setup(b) {
     b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(inventory|purchasing|counts|mill)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'db-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'db-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
     b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'db-core' } : undefined));
-    b.onLoad({ filter: /.*/, namespace: 'db-core' }, () => ({ contents: 'export const call = async (fn, args) => globalThis.__db.rpc(fn, args);', resolveDir: ROOT, loader: 'js' }));
+    b.onLoad({ filter: /.*/, namespace: 'db-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
   },
 };
 
@@ -165,12 +175,42 @@ export default async function (t) {
       where = m.useLocation();
       return null;
     }
-    const fresh = (session, handlers = {}, rpcs = {}) => {
+    const fresh = (session, handlers = {}, rpcs = {}, tables = {}) => {
       const calls = [];
       const rpcCalls = [];
+      const reads = [];
       globalThis.__db = {
         session,
         toasts: [],
+        /** سلسلة PostgREST تسجّل القراءة كما بُنيت، وتجيب بما يرجّعه tables[الجدول] (أو لا تجيب أبداً). */
+        db() {
+          const query = { table: null, ops: [] };
+          const chain = {
+            from(table) {
+              query.table = table;
+              return chain;
+            },
+            select(columns) {
+              query.ops.push(['select', columns]);
+              return chain;
+            },
+            eq(column, value) {
+              query.ops.push(['eq', column, value]);
+              return chain;
+            },
+            is(column, value) {
+              query.ops.push(['is', column, value]);
+              return chain;
+            },
+            then(resolve, reject) {
+              reads.push(query);
+              const handler = tables[query.table];
+              const answer = handler ? Promise.resolve().then(() => handler(query, reads.filter((read) => read.table === query.table).length)).then((data) => ({ data, error: null, status: 200 })) : new Promise(() => {});
+              return answer.then(resolve, reject);
+            },
+          };
+          return chain;
+        },
         call(name, args) {
           calls.push([name, args]);
           const handler = handlers[name];
@@ -188,7 +228,7 @@ export default async function (t) {
           return handler(args, rpcCalls.filter(([name]) => name === fn).length);
         },
       };
-      return { calls, rpcCalls };
+      return { calls, rpcCalls, reads };
     };
     const named = (log, name) => log.filter(([n]) => n === name).map(([, args]) => args);
     const mount = async (url, element = null) => {
@@ -241,14 +281,28 @@ export default async function (t) {
     t.same([DB.no_categories.categories.length, DB.no_categories.category, DB.no_categories.can_manage], [0, null, true], 'شرط no_categories: بلا تصنيفات (والمدير)');
     t.same([F.set_day_note.saved.note !== null, F.set_day_note.cleared.note], [true, null], 'شرط set_day_note: محفوظة وممسوحة');
     t.same([F.refusals.note_changed.code, F.refusals.day_in_future.code, Boolean(F.refusals.note_changed.hint), Boolean(F.refusals.day_in_future.hint)], ['note_changed', 'day_in_future', true, true], 'شرط الرفضين بتلميحهما');
+    // members كلّ موادّ التصنيف بترتيبه، والجدول منها وحدها وبترتيبها (ما لا يُخزَّن في النطاق يغيب منه لا من members)؛ وإلّا اختلف ترتيب الجدول عن
+    // ترتيب نافذة «أدرج مواد».
+    for (const [name, sample] of Object.entries(DB).filter(([, sample]) => sample.category)) {
+      const members = sample.category.members;
+      const positions = sample.rows.map((row) => members.indexOf(row.item_id));
+      t.ok(Array.isArray(members) && positions.every((at, index) => at >= 0 && (index === 0 || at > positions[index - 1])), `شرط ${name}: الصفوف من category.members وبترتيبها`);
+    }
+    // رفضا التحديث (category_changed وout_of_scope) من العيّنة إن حضرا، وإلّا بتلميح مكتوب هنا.
+    const REFUSE = {
+      category_changed: F.refusals.category_changed ?? { code: 'category_changed', hint: 'تغيّرت موادّ هذا التصنيف بعد أن فتحت النافذة.' },
+      out_of_scope: F.refusals.out_of_scope ?? { code: 'out_of_scope', hint: 'لا تُخزَّن هذه المادّة في شيء من مخازن نطاقك.' },
+    };
 
     // ── P: المحلّلات الحقيقية بأجوبة القاعدة ────────────────────────────────────────────────────────────────────────
     for (const [name, sample] of Object.entries(DB)) {
       const parsed = m.parseDayBalance(clone(sample));
+      const categoryOf = (value) => (value ? [value.id, value.name, [...value.members]] : null);
+      const ref = (value) => (value ? [value.id, value.name] : null);
       t.same(
-        [parsed.today, parsed.on, parsed.category, parsed.warehouse, parsed.canNote, parsed.canManage, parsed.stores.map((s) => [s.id, s.name, s.kind]), parsed.categories.map((c) => [c.id, c.name, c.items])],
-        [sample.today, sample.on, sample.category, sample.warehouse, sample.can_note, sample.can_manage, sample.stores.map((s) => [s.id, s.name, s.kind]), sample.categories.map((c) => [c.id, c.name, c.items])],
-        `P ${name}: اليوم والتصنيف والمخزن والصلاحيتان والمخازن والتصنيفات`,
+        [parsed.today, parsed.on, categoryOf(parsed.category), ref(parsed.warehouse), parsed.canNote, parsed.canManage, parsed.stores.map((s) => [s.id, s.name, s.kind]), parsed.categories.map((c) => [c.id, c.name, c.items])],
+        [sample.today, sample.on, categoryOf(sample.category), ref(sample.warehouse), sample.can_note, sample.can_manage, sample.stores.map((s) => [s.id, s.name, s.kind]), sample.categories.map((c) => [c.id, c.name, c.items])],
+        `P ${name}: اليوم والتصنيف بموادّه (members) والمخزن والصلاحيتان والمخازن والتصنيفات`,
       );
       t.same(
         parsed.rows.map((row) => [row.itemId, row.name, row.kind, row.baseUnit, row.qty, row.note]),
@@ -267,7 +321,11 @@ export default async function (t) {
       t.throws(bad({ on: '2026-13-01' }), 'P صرامة: يوم غير موجود');
       t.throws(bad({ can_note: undefined }), 'P صرامة: can_note غائب');
       t.throws(bad({ categories: [{ id: 'c', name: 'x', items: -1 }] }), 'P صرامة: عدد سالب');
-      const nullable = m.parseDayBalance({ ...clone(FEED), category: null, warehouse: null, rows: [{ ...clone(row0), note: undefined }] });
+      t.throws(bad({ category: { id: FEED.category.id, name: FEED.category.name } }), 'P صرامة: التصنيف بلا members');
+      t.throws(bad({ category: { ...clone(FEED.category), members: [1] } }), 'P صرامة: members بغير معرّفات');
+      const large = m.parseDayBalance({ ...clone(FEED), rows: [{ ...clone(row0), note: { text: 'x', version: 9_007_199 } }] });
+      t.eq(large.rows[0].note?.version, 9_007_199, 'P النسخة رقم من تسلسل كما هو (لا عدّاد يبدأ من 1)');
+      const nullable = m.parseDayBalance({ ...clone(FEED), category: null, warehouse: undefined, rows: [{ ...clone(row0), note: undefined }] });
       t.same([nullable.category, nullable.warehouse, nullable.rows[0].note], [null, null, null], 'P الخانات التي تأتي null أو تغيب تُقرأ null');
       let shapeError = null;
       try {
@@ -447,7 +505,8 @@ export default async function (t) {
       const sample = clone(KEEP);
       const changed = clone(KEEP);
       const row = changed.rows.find((entry) => entry.item_id === keepPlain.item_id);
-      row.note = { text: 'كتبها المدير من جهاز آخر', version: 4 };
+      // النسخة رقم من تسلسل القاعدة (لا عدّاد للملاحظة)، فتُرسل كما قُرئت.
+      row.note = { text: 'كتبها المدير من جهاز آخر', version: 7_340_077 };
       let notes = 0;
       const { rpcCalls } = fresh(KEEPER, {}, {
         day_balance: async (args, n) => answer(n === 1 ? sample : changed)(args),
@@ -470,7 +529,7 @@ export default async function (t) {
       );
       t.ok(byAction('note-changed')[0]?.textContent.includes('غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت') && byAction('note-changed')[0]?.textContent.includes('كتبها المدير من جهاز آخر'), 'S7: ويقول إنّ غيره غيّرها ويعرض الملاحظة الحاليّة');
       await submitDialog();
-      t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['ما كتبه الأمين', null], ['ما كتبه الأمين', 4]], 'S7: الإعادة بالنصّ نفسه وبنسخة الملاحظة التي صار يراها');
+      t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['ما كتبه الأمين', null], ['ما كتبه الأمين', 7_340_077]], 'S7: الإعادة بالنصّ نفسه وبنسخة الملاحظة التي صار يراها');
       t.eq(dialog(), undefined, 'S7: ثمّ تُغلق');
     });
     await step('S7-long', async () => {
@@ -487,25 +546,50 @@ export default async function (t) {
       await submitDialog();
       t.eq(named(rpcCalls, 'set_day_note').length, 1, 'S7: 200 حرف خارج BMP تُرسل');
     });
+    await step('S7-scope', async () => {
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async () => { throw new m.RejectedError(REFUSE.out_of_scope.code, REFUSE.out_of_scope.hint); } });
+      await mount(urlAt(KEEP));
+      await click(withId('edit-note', keepPlain.item_id));
+      typeIn(byAction('note-text')[0], 'ملاحظة');
+      await settle();
+      await submitDialog();
+      t.same(
+        [named(rpcCalls, 'set_day_note').length, byAction('note-failed')[0]?.textContent, dialog() !== undefined, byAction('note-text')[0]?.value],
+        [1, REFUSE.out_of_scope.hint, true, 'ملاحظة'],
+        'S7: out_of_scope (مادّة لا يقبلها شيء من مخازن الكاتب): تلميح الخادم في النافذة، وما كُتب باقٍ',
+      );
+    });
 
     // ── S8: «أدرج مواد» ────────────────────────────────────────────────────────────────────────────────────────────
+    // عيّنة S8: موادّ التصنيف (members) ومعها مادّة منه لا يُظهرها الجدول (لا يقبلها شيء من مخازن النطاق)، فالنافذة تعرضها باسمها من قراءة items.
+    const other = FEED.categories.find((c) => c.id !== FEED.category.id);
+    const hidden = { id: '9d1c1a00-0000-4000-8000-0000000000f3', name: 'مادّة منه خارج مخازن النطاق' };
+    const S8S = clone(FEED);
+    S8S.category.members = [...FEED.category.members, hidden.id];
+    const memberNames = () => [...FEED.rows.map((row) => ({ id: row.item_id, name: row.name })), ...FEED.category.members.filter((id) => !FEED.rows.some((row) => row.item_id === id)).map((id) => ({ id, name: `مادّة ${id.slice(-4)}` })), hidden];
+    const outsider = itemRow('9d1c1a00-0000-4000-8000-0000000000f1', 'مادّة من تصنيف آخر', other.id);
+    const loose = itemRow('9d1c1a00-0000-4000-8000-0000000000f2', 'مادّة بلا تصنيف', null);
+    const listed = () => ({ rows: [...memberNames().map((entry) => itemRow(entry.id, entry.name, FEED.category.id)), outsider, loose], total: memberNames().length + 2, next: null });
+    const chosen = () => byAction('include-chosen-row').map((n) => n.getAttribute('data-id'));
+    const chosenNames = () => byAction('include-chosen-row').map((n) => descendants(n).find((child) => child.localName === 'span')?.textContent);
     await step('S8', async () => {
-      const other = FEED.categories.find((c) => c.id !== FEED.category.id);
-      const outsider = itemRow('9d1c1a00-0000-4000-8000-0000000000f1', 'مادّة من تصنيف آخر', other.id);
-      const loose = itemRow('9d1c1a00-0000-4000-8000-0000000000f2', 'مادّة بلا تصنيف', null);
-      const members = FEED.rows.map((row) => itemRow(row.item_id, row.name, FEED.category.id));
-      const { calls, rpcCalls } = fresh(MANAGER, { listItems: () => ({ rows: [...members, outsider, loose], total: members.length + 2, next: null }) }, { day_balance: answer(FEED), set_category_items: async () => clone(F.set_category_items.manager) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      const { calls, rpcCalls, reads } = fresh(MANAGER, { listItems: listed }, { day_balance: answer(S8S), set_category_items: async () => clone(F.set_category_items.manager) }, { items: () => memberNames() });
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
       await click(byAction('include-items')[0]);
-      const chosen = () => byAction('include-chosen-row').map((n) => n.getAttribute('data-id'));
-      t.same([dialogTitle(), chosen(), named(calls, 'listItems')], [`موادّ «${FEED.category.name}»`, FEED.rows.map((row) => row.item_id), [[{ search: '' }]]], 'S8: الموادّ المختارة بترتيب الجدول، وكلّ الموادّ الفعّالة للاختيار');
+      const nameOf = new Map(memberNames().map((entry) => [entry.id, entry.name]));
+      t.same(
+        [dialogTitle(), chosen(), chosenNames(), named(calls, 'listItems')],
+        [`موادّ «${FEED.category.name}»`, S8S.category.members, S8S.category.members.map((id) => nameOf.get(id)), [[{ search: '' }]]],
+        'S8: تبدأ بموادّ التصنيف كلّها بترتيبه (members، ومنها ما لا يُظهره الجدول) بأسمائها، وكلّ الموادّ الفعّالة للاختيار',
+      );
+      t.same(reads.map((read) => [read.table, read.ops]), [['items', [['select', 'id, name'], ['eq', 'category_id', FEED.category.id], ['is', 'archived_at', null]]]], 'S8: الأسماء بقراءة واحدة لموادّ التصنيف الفعّالة');
       t.same(byAction('include-in-other').map((n) => n.textContent), [`في «${other.name}»`], 'S8: المادّة في تصنيف آخر تقول «في «س»»');
-      t.same(byAction('include-pick').map((n) => n.checked === true || n.getAttribute('checked') !== null), [...members.map(() => true), false, false], 'S8: المختارة معلَّمة');
+      t.same(byAction('include-pick').map((n) => n.checked === true), [...memberNames().map(() => true), false, false], 'S8: موادّ التصنيف معلَّمة مسبقاً');
       tick(withId('include-pick', outsider.id));
       await settle();
       tick(withId('include-pick', loose.id));
       await settle();
-      t.same(chosen(), [...FEED.rows.map((row) => row.item_id), outsider.id, loose.id], 'S8: الاختيار يضيف في آخر القائمة');
+      t.same(chosen(), [...S8S.category.members, outsider.id, loose.id], 'S8: الاختيار يضيف في آخر القائمة');
       // المتوقّع بمحاكاة الخطوات نفسها على القائمة (أيّاً كان عدد موادّ العيّنة): قدّم مرّتين، وأخّر الأولى، وأخرج ما رصيده صفر.
       const swap = (list, id, by) => {
         const index = list.indexOf(id);
@@ -515,7 +599,7 @@ export default async function (t) {
         [copy[index], copy[target]] = [copy[target], copy[index]];
         return copy;
       };
-      let expected = [...FEED.rows.map((row) => row.item_id), outsider.id, loose.id];
+      let expected = [...S8S.category.members, outsider.id, loose.id];
       await click(withId('include-up', loose.id));
       expected = swap(expected, loose.id, -1);
       await click(withId('include-up', loose.id));
@@ -528,20 +612,89 @@ export default async function (t) {
       expected = expected.filter((id) => id !== zeroRow.item_id);
       t.same(chosen(), expected, 'S8: «أخّر» والإخراج');
       t.ok(disabled(withId('include-up', expected[0])) && disabled(withId('include-down', expected.at(-1))), 'S8: لا «قدّم» للأوّل ولا «أخّر» للأخير');
-      const reads = named(rpcCalls, 'day_balance').length;
+      const balances = named(rpcCalls, 'day_balance').length;
       await click(byAction('save-include')[0]);
       const put = F.set_category_items.manager;
-      t.same(named(rpcCalls, 'set_category_items'), [{ p_category: FEED.category.id, p_items: expected }], 'S8: set_category_items بالقائمة كلّها بترتيبها');
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, reads + 1], 'S8: تُغلق ويُقرأ الجدول من جديد');
+      t.same(named(rpcCalls, 'set_category_items'), [{ p_category: FEED.category.id, p_items: expected, p_expected_items: S8S.category.members }], 'S8: set_category_items بالقائمة كلّها بترتيبها، وp_expected_items موادّ التصنيف كما عُرضت');
+      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, balances + 1], 'S8: تُغلق ويُقرأ الجدول من جديد');
       t.eq(globalThis.__db.toasts.at(-1)?.title, put.moved > 0 ? `حُفظت موادّ «${FEED.category.name}»: ${put.count}، منها ${put.moved} نُقلت من تصنيف آخر.` : `حُفظت موادّ «${FEED.category.name}»: ${put.count}.`, 'S8: والرسالة من جواب الخادم');
+    });
+    await step('S8-names', async () => {
+      // لا حفظ قبل أن تُعرف موادّ التصنيف بأسمائها (الحفظ يُخرج ما ليس في القائمة)؛ وفشل قراءتها يُقال بـ«أعد المحاولة».
+      const { rpcCalls, reads } = fresh(
+        MANAGER,
+        { listItems: listed },
+        { day_balance: answer(S8S) },
+        {
+          items: (_query, n) => {
+            if (n === 1) throw new Error('names_down');
+            return memberNames();
+          },
+        },
+      );
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
+      await click(byAction('include-items')[0]);
+      const inDialog = (action) => descendants(dialog()).filter((n) => n.getAttribute('data-action') === action);
+      t.same([disabled(byAction('save-include')[0]), byAction('include-chosen-row').length, inDialog('retry').length], [true, 0, 1], 'S8: فشل قراءة أسماء التصنيف: «أعد المحاولة» والحفظ مقفول');
+      await click(byAction('save-include')[0]);
+      t.eq(named(rpcCalls, 'set_category_items').length, 0, 'S8: ولا نداء');
+      await click(inDialog('retry')[0]);
+      t.same([reads.length, disabled(byAction('save-include')[0]), chosen()], [2, false, S8S.category.members], 'S8: بعد الإعادة: الموادّ بأسمائها والحفظ مفتوح');
+    });
+    await step('S8-changed', async () => {
+      // غيّر غيره التصنيف بعد فتح النافذة: أضاف إليه مادّة.
+      const added = { id: '9d1c1a00-0000-4000-8000-0000000000f4', name: 'مادّة أضافها مدير آخر' };
+      const after = clone(S8S);
+      after.category.members = [...S8S.category.members, added.id];
+      let puts = 0;
+      const { rpcCalls, reads } = fresh(
+        MANAGER,
+        { listItems: listed },
+        {
+          day_balance: async (args, n) => answer(n === 1 ? S8S : after)(args),
+          set_category_items: async () => {
+            puts += 1;
+            if (puts === 1) throw new m.RejectedError(REFUSE.category_changed.code, REFUSE.category_changed.hint);
+            return clone(F.set_category_items.manager);
+          },
+        },
+        { items: (_query, n) => (n === 1 ? memberNames() : [...memberNames(), added]) },
+      );
+      await mount(dayUrlOf(S8S, { day: S8S.on }));
+      await click(byAction('include-items')[0]);
+      await click(withId('include-remove', zeroRow.item_id));
+      tick(withId('include-pick', loose.id));
+      await settle();
+      const selection = chosen();
+      await click(byAction('save-include')[0]);
+      await settle();
+      t.same(
+        [dialog() !== undefined, chosen(), named(rpcCalls, 'day_balance').length, reads.length],
+        [true, selection, 2, 2],
+        'S8: category_changed: النافذة باقية بالاختيار نفسه، والجدول وأسماء التصنيف يُقرآن من جديد',
+      );
+      t.ok(byAction('include-changed')[0]?.textContent.startsWith(REFUSE.category_changed.hint) && byAction('include-changed')[0]?.textContent.includes('اختيارك باقٍ'), 'S8: ويقول تلميح الخادم وأنّ الاختيار باقٍ');
+      await click(byAction('save-include')[0]);
+      t.same(
+        named(rpcCalls, 'set_category_items').map((args) => [args.p_items, args.p_expected_items]),
+        [[selection, S8S.category.members], [selection, after.category.members]],
+        'S8: الإعادة بالاختيار نفسه وبموادّ التصنيف كما صارت',
+      );
+      t.eq(dialog(), undefined, 'S8: ثمّ تُغلق');
     });
 
     // ── S9: «تصنيف جديد» ───────────────────────────────────────────────────────────────────────────────────────────
     await step('S9', async () => {
       const NONE = DB.no_categories;
       const created = { id: '9d1c1a00-0000-4000-8000-0000000000c9', version: 1, archived: false, name: 'مواد العلف الجديدة' };
-      const fresher = { ...clone(DB.empty_category), category: { id: created.id, name: created.name }, categories: [{ id: created.id, name: created.name, items: 0 }] };
-      const { calls, rpcCalls } = fresh(MANAGER, { createItemCategory: () => created, listItems: () => ({ rows: [], total: 0, next: null }) }, { day_balance: async (args) => answer(args.p_category === created.id ? fresher : NONE)(args) });
+      const fresher = { ...clone(DB.empty_category), category: { id: created.id, name: created.name, members: [] }, categories: [{ id: created.id, name: created.name, items: 0 }] };
+      const corn = itemRow(NONE.rows[0].item_id, NONE.rows[0].name, null);
+      const { calls, rpcCalls } = fresh(
+        MANAGER,
+        { createItemCategory: () => created, listItems: () => ({ rows: [corn], total: 1, next: null }) },
+        { day_balance: async (args) => answer(args.p_category === created.id ? fresher : NONE)(args), set_category_items: async () => ({ ...clone(F.set_category_items.manager), category_id: created.id }) },
+        { items: () => [] },
+      );
       await mount('/inventory?view=day');
       t.same([search().cat, byAction('day-no-categories').length, headers().length > 0, bodyRows().length], [undefined, 1, true, NONE.rows.length], 'S9: بلا تصنيفات: «لا تصنيف بعد» وجدول كلّ المواد بلا انتقال');
       t.ok(text().includes('لا تصنيف بعد.') && text().includes('أنشئ تصنيفاً مثل «مواد العلف»'), 'S9: وتقول ما العمل للمدير');
@@ -555,6 +708,10 @@ export default async function (t) {
       await settle();
       t.same(named(calls, 'createItemCategory'), [[created.name]], 'S9: الإدراج القائم بالاسم');
       t.same([search().cat, named(rpcCalls, 'day_balance').at(-1)?.p_category, dialogTitle(), text().includes('لم تختر مادّة بعد')], [created.id, created.id, `موادّ «${created.name}»`, true], 'S9: يُعرض التصنيف الجديد ونافذة موادّه فارغة فوقه');
+      tick(withId('include-pick', corn.id));
+      await settle();
+      await click(byAction('save-include')[0]);
+      t.same(named(rpcCalls, 'set_category_items'), [{ p_category: created.id, p_items: [corn.id], p_expected_items: [] }], 'S9: وحفظ موادّه بما عُرض فيه: لا شيء');
     });
     await step('S9-twin', async () => {
       const { calls } = fresh(MANAGER, {}, { day_balance: answer(FEED) });
@@ -633,11 +790,39 @@ export default async function (t) {
     // ── S12: الفراغ والأدوار ───────────────────────────────────────────────────────────────────────────────────────
     await step('S12-empty-category', async () => {
       const EMPTY = DB.empty_category;
-      fresh(MANAGER, { listItems: () => ({ rows: [], total: 0, next: null }) }, { day_balance: answer(EMPTY) });
+      fresh(MANAGER, { listItems: () => ({ rows: [], total: 0, next: null }) }, { day_balance: answer(EMPTY) }, { items: () => [] });
       await mount(dayUrlOf(EMPTY));
       t.same([byAction('day-empty-category').length, text().includes('لا موادّ في هذا التصنيف'), all().some((n) => n.localName === 'table'), byAction('include-items').length], [1, true, false, 1], 'S12: تصنيف بلا موادّ: «لا موادّ في هذا التصنيف» بلا جدول، و«أدرج مواد» واحد للمدير');
+      t.same([disabled(byAction('print-day')[0]), disabled(byAction('share-day')[0])], [true, true], 'S12: ولا شيء يُطبع أو يُشارك');
       await click(byAction('include-items')[0]);
-      t.same([dialogTitle(), byAction('include-chosen-row').length], [`موادّ «${EMPTY.category.name}»`, 0], 'S12: ويفتح نافذة موادّه');
+      t.same([dialogTitle(), byAction('include-chosen-row').length, text().includes('لم تختر مادّة بعد')], [`موادّ «${EMPTY.category.name}»`, 0, true], 'S12: ويفتح نافذة موادّه');
+    });
+    await step('S12-no-stores', async () => {
+      // لا مخزن في النطاق: الصفوف فارغة، فلا جدول أصفار ولا طباعة ولا مشاركة، بل يُقال السبب.
+      const NOSTORE = { ...clone(FEED), stores: [], rows: [] };
+      fresh(KEEPER, {}, { day_balance: answer({ ...NOSTORE, can_manage: false }) });
+      await mount(dayUrlOf(NOSTORE, { day: NOSTORE.on }));
+      t.same(
+        [byAction('day-no-stores').length, text().includes('لا مخزن في نطاقك، فلا رصيد يُعرض هنا.'), all().some((n) => n.localName === 'table'), byAction('day-report').length, byAction('print-day').length, byAction('share-day').length, byAction('day-store').length],
+        [1, true, false, 0, 0, 0, 0],
+        'S12: لا مخزن في النطاق: «لا مخزن في نطاقك» بلا جدول ولا عنوان تقرير ولا طباعة ولا مشاركة',
+      );
+      t.ok(text().includes('اطلب من صاحب المنشأة أن يضيف مخزناً إلى نطاقك.'), 'S12: ويقول ممّن يطلب');
+    });
+    await step('S12-unstored', async () => {
+      // موادّ في التصنيف (members) ولا يُخزَّن شيء منها في المخزن المختار: غير «لا موادّ في هذا التصنيف».
+      const UNSTORED = { ...clone(FEED), rows: [] };
+      fresh(MANAGER, {}, { day_balance: answer(UNSTORED) });
+      await mount(dayUrlOf(UNSTORED, { day: UNSTORED.on, store: FEED.stores[0].id }));
+      t.same(
+        [byAction('day-unstored').length, byAction('day-empty-category').length, text().includes(`لا يُخزَّن شيء من موادّ «${FEED.category.name}» في «${FEED.stores[0].name}».`), all().some((n) => n.localName === 'table'), disabled(byAction('print-day')[0]), byAction('include-items').length],
+        [1, 0, true, false, true, 1],
+        'S12: موادّ لا تُخزَّن في المخزن المختار: يقوله ويقترح غيره، بلا جدول ولا طباعة، و«أدرج مواد» باقٍ للمدير',
+      );
+      await unmount();
+      fresh(MANAGER, {}, { day_balance: answer(UNSTORED) });
+      await mount(dayUrlOf(UNSTORED, { day: UNSTORED.on }));
+      t.ok(text().includes(`لا يُخزَّن شيء من موادّ «${FEED.category.name}» في مخازن نطاقك.`), 'S12: وبكلّ المخازن: «في مخازن نطاقك»');
     });
     for (const [label, session] of [['المشاهد', VIEWER], ['المحاسب', ACCOUNTANT]]) {
       await step(`S12-${label}`, async () => {
