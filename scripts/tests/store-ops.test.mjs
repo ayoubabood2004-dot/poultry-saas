@@ -28,6 +28,15 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const S20 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'store-ops-0020.json'), 'utf8'));
 const S21 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0021.json'), 'utf8'));
+// يوم الخادم في العيّنة يوم التقاطها، والصفحة تعيد القراءة بيوم الخادم إن خالف يوم الجهاز (يفحصه R-today)؛ فـS11 وS12 اللذان يعدّان
+// النداءات يأخذان يوم الجهاز، وإلّا فشلا من اليوم التالي للالتقاط (2026-11-09، كما في farm-round).
+const DEVICE_DAY = (() => {
+  const d = new Date();
+  return `${String(d.getFullYear()).padStart(4, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
+for (const sample of [S21.sales_overview.owner, S21.sales_overview.storekeeper]) {
+  Object.assign(sample, { today: DEVICE_DAY, from: `${DEVICE_DAY.slice(0, 8)}01`, to: DEVICE_DAY });
+}
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
