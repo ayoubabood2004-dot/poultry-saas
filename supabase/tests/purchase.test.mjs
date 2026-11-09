@@ -303,8 +303,8 @@ async function scenario(t, db) {
   // ── ١٠) ملفّ المادّة: الأمين يرى المال، ومشغّل المعمل وعامل القاعة بلا مال، والملغى خارج المجاميع ─────────────────────────────
   const keeperFile = await file(U.storekeeper, I.corn);
   // 0020 زاد أفعال الملفّ وأين المادّة والشراء بلا سعر (can_delete وuses وcan_convert وcan_transfer وcan_sell وstores وtransfer_targets وcan_price
-  // وunpriced_count)، ونسخة المادّة (للحذف)، وpriced وcan_price لكلّ شراء.
-  t.same(keys(keeperFile), ['can_convert', 'can_delete', 'can_edit', 'can_price', 'can_record', 'can_sell', 'can_transfer', 'cash_accounts', 'item', 'money', 'more', 'on_hand_qty',
+  // وunpriced_count)، ونسخة المادّة (للحذف)، وpriced وcan_price لكلّ شراء؛ و0022 move_stores (مخازن حركات المادّة).
+  t.same(keys(keeperFile), ['can_convert', 'can_delete', 'can_edit', 'can_price', 'can_record', 'can_sell', 'can_transfer', 'cash_accounts', 'item', 'money', 'more', 'move_stores', 'on_hand_qty',
     'purchased_qty', 'purchases', 'purchases_count', 'stores', 'today', 'transfer_targets', 'unpriced_count', 'uses'], 'item_file: مفاتيح الجذر');
   t.same([keys(keeperFile.item), keys(keeperFile.money), keys(keeperFile.purchases[0]), keys(keeperFile.purchases[0]?.money)],
     [['archived', 'base_unit', 'density_kg_per_l', 'id', 'kind', 'name', 'tracks_expiry', 'version'], ['avg_unit_price', 'last_unit_price', 'purchased_value', 'sell_price'],

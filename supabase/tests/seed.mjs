@@ -502,12 +502,13 @@ const saleSeed = async (db) => {
 const SALE_CONDITION = 'v_sales + v_lines + v_costs > 0';
 
 /**
- * 0022 (طريق الرفض): الأمين يكتب ملاحظة اليوم على «ذرة صفراء» في «الرصيد اليومي». التراجع يُسقط جدول الملاحظات فتضيع، فطريق الرفض يوقفه؛
+ * 0022 (طريق الرفض): المدير يكتب ملاحظة اليوم على «ذرة صفراء» في «الرصيد اليومي» (أمين البذرة نطاقه مخزن لا يُخزَّن فيه الحبّ: out_of_scope).
+ * التراجع يُسقط جدول الملاحظات فتضيع، فطريق الرفض يوقفه؛
  * والطفرة تشيل شرط «في الجدول صفّ» فيكمل.
  */
 const dayNoteSeed = async (db) => {
   await seedThroughRpcs(db);
-  await db.asUser(U.storekeeper, async (q) => {
+  await db.asUser(U.manager, async (q) => {
     const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
     await q("select public.set_day_note($1, public.app_today(), 'وصلت شحنة ذرة', null)", [corn]);
   }, { commit: true });
