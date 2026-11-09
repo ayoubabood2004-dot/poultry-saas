@@ -45,7 +45,7 @@ const STUBS = {
   inventory: routed('inventory', ['loadOrgSetup', 'createItem', 'findItemTwins', 'listItems', 'loadItem', 'setArchived', 'listItemUnits', 'loadItemPurchases', 'loadStoresOverview', 'loadStockOnHand', 'loadStockValues', 'loadItemLots', 'loadItemMoves', 'updateItem']),
   purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createSupplier', 'createCustomer', 'listBoxes']),
   counts: `export * from ${real('counts')}; export const loadApprovals = () => Promise.resolve({ counts: 0, uses: 0 });`,
-  mill: routed('mill', ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'loadExpenseCategories', 'loadMillStores']),
+  mill: routed('mill', ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'loadExpenseCategories', 'loadMillStores', 'archiveRecipe', 'newRecipeVersion']),
   session: 'export const useSession = () => globalThis.__so.session; export const sessionStore = { get: () => globalThis.__so?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__so.toasts.push(spec); }; export function Toaster() { return null; }',
 };
@@ -276,25 +276,103 @@ export default async function (t) {
       t.same(backOf('back-to-mill'), ['/mill', 'رجوع إلى المعمل'], 'K3: وبانية الخلطة');
     });
 
-    // ── K4: صفّ الأفعال و«أخفِ» ──────────────────────────────────────────────────────────────────────────────────────
+    // ── K3-recipe: تعديل الخلطة وحذفها (كلمة المالك 2026-11-09: «ما اكدر اعدل عليها ولا احذفها») ─────────────────────────────
+    const noItems = { items_overview: async () => ({ today: TODAY, can_record: true, can_add_item: true, items: [] }) };
+    await step('K3-recipe-edit-delete', async () => {
+      const { calls } = fresh(
+        { status: 'ready', workspace: MANAGER },
+        { loadRecipe: () => m.parseRecipe(recipeJson()), newRecipeVersion: () => ({ versionId: 'v-3', existing: false, skipped: [] }), archiveRecipe: () => 'r-1' },
+        noItems,
+      );
+      await mount('/mill/recipe/r-1');
+      const row = byAction('recipe-actions')[0];
+      t.same([byAction('new-version')[0]?.textContent, byAction('delete-recipe')[0]?.textContent, Boolean(row?.contains(byAction('new-version')[0]))], ['عدّل الخلطة', 'احذف الخلطة', true], 'K3-recipe: «عدّل الخلطة» و«احذف الخلطة» في صفّ واحد');
+      t.ok(before(h1(), row) && before(row, byAction('pick-version')[0]), 'K3-recipe: تحت العنوان وقبل أزرار النسخ');
+      await click(byAction('new-version')[0]);
+      await settle();
+      t.same([named(calls, 'newRecipeVersion').map((args) => args[0]), where?.search], [['r-1'], '?version=v-3'], 'K3-recipe: «عدّل الخلطة» تنشئ مسوّدة من المفعَّلة وتفتحها');
+      await click(byAction('delete-recipe')[0]);
+      t.ok(text().includes('حذف الخلطة «علف بادئ»؟') && text().includes('تختفي «علف بادئ» من المعمل ولا يُنتَج بها بعد الآن، وتبقى دفعاتها السابقة في سجلّ الإنتاج'), 'K3-recipe: التأكيد يسمّي الخلطة وأثر حذفها');
+      t.eq(named(calls, 'archiveRecipe').length, 0, 'K3-recipe: ولا شيء قبل التأكيد');
+      await click(byAction('confirm-recipe-op')[0]);
+      await settle();
+      t.same(named(calls, 'archiveRecipe'), [['r-1', 2, true]], 'K3-recipe: الأرشفة القائمة بنسخة الخلطة كما قُرئت');
+      t.same([where?.pathname, globalThis.__so.toasts.at(-1)?.title], ['/mill', 'حُذفت الخلطة «علف بادئ» من المعمل.'], 'K3-recipe: ثمّ يرجع إلى المعمل ويقول إنّها حُذفت');
+    });
+    await step('K3-recipe-draft', async () => {
+      const draft = { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 1 };
+      const withDraft = (versionId) => ({ ...recipeJson(), versions: [...recipeJson().versions, draft], selected: versionId === 'v-3' ? { ...draft, note: null } : recipeJson().selected });
+      fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: (_id, versionId) => m.parseRecipe(withDraft(versionId)) }, noItems);
+      await mount('/mill/recipe/r-1');
+      t.same([byAction('new-version').length, byAction('open-draft')[0]?.textContent], [0, 'أكمل تعديل الخلطة'], 'K3-recipe: لها مسوّدة: «أكمل تعديل الخلطة» بدل نسخة ثانية');
+      await click(byAction('open-draft')[0]);
+      await settle();
+      t.same(
+        [where?.search, byAction('open-draft').length, byAction('editing-hint')[0]?.textContent],
+        ['?version=v-3', 0, 'تعدّل الآن مسوّدة الخلطة: غيّر الموادّ وكمياتها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.'],
+        'K3-recipe: تفتح المسوّدة وتقول ما بعدها',
+      );
+    });
+    await step('K3-recipe-restore', async () => {
+      let archived = true;
+      let fail = true;
+      const { calls } = fresh(
+        { status: 'ready', workspace: MANAGER },
+        {
+          loadRecipe: () => m.parseRecipe({ ...recipeJson(), archived }),
+          archiveRecipe: () => {
+            if (fail) {
+              fail = false;
+              throw new m.ZeroRowsError();
+            }
+            archived = false;
+            return 'r-1';
+          },
+        },
+        noItems,
+      );
+      await mount('/mill/recipe/r-1');
+      t.ok(text().includes('هذه الخلطة محذوفة من المعمل') && byAction('recipe-actions').length === 0 && byAction('produce').length === 0, 'K3-recipe: المحذوفة تقول ذلك بلا «عدّل» ولا «أنتج»');
+      await click(byAction('restore-recipe')[0]);
+      t.ok(text().includes('إعادة الخلطة «علف بادئ»؟') && text().includes('تعود «علف بادئ» إلى قائمة المعمل'), 'K3-recipe: «أعِدها» بتأكيد يسمّي الأثر');
+      await click(byAction('confirm-recipe-op')[0]);
+      await settle();
+      t.ok(byAction('recipe-op-failed').length === 1 && byAction('confirm-recipe-op').length === 1, 'K3-recipe: الفشل يُقال داخل التأكيد ولا يُغلق');
+      await click(byAction('confirm-recipe-op')[0]);
+      await settle();
+      t.same(named(calls, 'archiveRecipe').map((args) => args[2]), [false, false], 'K3-recipe: والإعادة تُظهرها');
+      t.ok(byAction('confirm-recipe-op').length === 0 && byAction('recipe-actions').length === 1 && byAction('restore-recipe').length === 0, 'K3-recipe: ثمّ تُقرأ من جديد ظاهرة');
+    });
+    await step('K3-recipe-viewer', async () => {
+      fresh({ status: 'ready', workspace: ws('viewer') }, { loadRecipe: () => m.parseRecipe(recipeJson()) }, noItems);
+      await mount('/mill/recipe/r-1');
+      t.same([byAction('recipe-actions').length, byAction('delete-recipe').length, byAction('new-version').length], [0, 0, 0], 'K3-recipe: من لا يفعّل الخلطات: بلا «عدّل» ولا «احذف»');
+    });
+
+    // ── K4: صفّ الأفعال و«احذف» للمستعملة──────────────────────────────────────────────────────────────────────────────────────
     await step('K4', async () => {
       const { calls, rpcCalls } = fresh(
         { status: 'ready', workspace: MANAGER },
         { loadItem: () => itemRow(), setArchived: () => 8 },
-        { item_file: async (_args, n) => (n === 1 ? fileJson({ can_edit: true }) : fileJson({ can_edit: true, item: { ...fileJson().item, archived: true } })) },
+        { item_file: async () => fileJson({ can_edit: true, can_delete: false, uses: ['لها مشتريات'] }) },
       );
+      // كلمة المالك 2026-11-09 («تختفي من كلّ مكان»): «احذف» واحد لا يرفض؛ المادّة المستعملة تختفي بالأرشفة القائمة ويبقى سجلّها.
       await mount('/inventory/items/i-corn');
       const row = byAction('file-actions')[0];
-      t.ok(row !== undefined && row.contains(byAction('record-purchase')[0]) && row.contains(byAction('hide-item')[0]), 'K4: صفّ أفعال واحد فيه «اشترِ» و«أخفِ»');
-      t.same([byAction('record-purchase')[0]?.textContent, byAction('hide-item')[0]?.textContent], ['اشترِ', 'أخفِ'], 'K4: بأسمائها');
-      await click(byAction('hide-item')[0]);
-      t.ok(text().includes('إخفاء «ذرة»؟') && text().includes('تختفي «ذرة» من بطاقات المخزن ومن قوائم الشراء والصرف، ويبقى سجلّها ومشترياتها كما هي'), 'K4: التأكيد يسمّي المادّة وأثر الإخفاء');
+      t.ok(row !== undefined && row.contains(byAction('record-purchase')[0]) && row.contains(byAction('delete-item')[0]) && byAction('hide-item').length === 0, 'K4: صفّ أفعال واحد فيه «اشترِ» و«احذف» بلا «أخفِ»');
+      t.same([byAction('record-purchase')[0]?.textContent, byAction('delete-item')[0]?.textContent], ['اشترِ', 'احذف'], 'K4: بأسمائها');
+      await click(byAction('delete-item')[0]);
+      t.ok(
+        text().includes('حذف «ذرة»؟') && !text().includes('نهائياً') && byAction('delete-hides').length === 1
+          && text().includes('«ذرة» لها مشتريات، فلا يُمحى سجلّها: تختفي من بطاقات المخزن وقوائم الشراء والبيع والصرف والخلطات'),
+        'K4: المستعملة: التأكيد يقول إنّها تختفي ويبقى سجلّها، لا «نهائياً»',
+      );
+      t.eq(byAction('delete-on-hand')[0]?.textContent, 'وعندك منها 20,000 كغم: تبقى محسوبة في قيمة المخزن.', 'K4: ويقول كم بقي منها');
       t.eq(named(calls, 'setArchived').length, 0, 'K4: ولا شيء قبل التأكيد');
-      await click(byAction('confirm-hide-item')[0]);
+      await click(byAction('confirm-delete-item')[0]);
       await settle();
-      t.same(named(calls, 'setArchived'), [['items', 'i-corn', 7, true]], 'K4: الأرشفة القائمة بنسخة المادّة كما تُقرأ الآن');
-      t.same([named(rpcCalls, 'item_file').length, byAction('confirm-hide-item').length], [2, 0], 'K4: ثمّ يُغلق التأكيد ويُقرأ الملفّ من جديد');
-      t.ok(text().includes('هذه المادّة مؤرشفة') && byAction('show-item')[0]?.textContent === 'أظهِرها' && byAction('record-purchase').length === 0, 'K4: المؤرشفة: «أظهِرها» بلا «اشترِ»');
+      t.same([named(calls, 'setArchived'), named(rpcCalls, 'delete_item').length], [[['items', 'i-corn', 7, true]], 0], 'K4: الأرشفة القائمة بنسخة المادّة كما تُقرأ الآن، بلا delete_item');
+      t.same([where?.pathname, globalThis.__so.toasts.at(-1)?.title], ['/inventory', 'حُذفت «ذرة» من القوائم، وسجلّها باقٍ في التقارير.'], 'K4: ثمّ يرجع ويقول إنّها حُذفت من القوائم');
     });
     await step('K4-show-and-fail', async () => {
       let fail = true;
@@ -533,19 +611,35 @@ export default async function (t) {
       await click(byAction('delete-item')[0]);
       await click(byAction('confirm-delete-item')[0]);
       await settle();
-      t.ok(byAction('delete-failed')[0]?.textContent === S20.refusals.item_in_use.hint && byAction('hide-instead').length === 1, 'S6 item_in_use: تلميح الخادم و«أخفِها بدلاً من ذلك»');
-      await click(byAction('hide-instead')[0]);
-      t.ok(text().includes('إخفاء «مادّة للحذف»؟'), 'S6 فيفتح تأكيد الإخفاء');
-      await click(byAction('confirm-hide-item')[0]);
+      // سباق (استُعملت بعد الفتح): التأكيد نفسه يصير تأكيد الإخفاء، بلا خطوة ثانية ولا رفض يُعرض (كلمة المالك 2026-11-09).
+      t.ok(byAction('delete-hides').length === 1 && byAction('delete-failed').length === 0 && byAction('hide-instead').length === 0
+        && text().includes('استُعملت «مادّة للحذف» للتوّ من نافذة أو جهاز آخر، فلا يُمحى سجلّها'), 'S6 item_in_use: التأكيد نفسه يقول إنّها تختفي ويبقى سجلّها');
+      await click(byAction('confirm-delete-item')[0]);
       await settle();
-      t.same(named(calls, 'setArchived'), [['items', file.item.id, 1, true]], 'S6 والإخفاء بالأرشفة القائمة');
+      t.same(named(calls, 'setArchived'), [['items', file.item.id, 1, true]], 'S6 والضغطة التالية تُخفيها بالأرشفة القائمة');
+      t.eq(globalThis.__so.toasts.at(-1)?.title, 'حُذفت «مادّة للحذف» من القوائم، وسجلّها باقٍ في التقارير.', 'S6 وتقول إنّها حُذفت من القوائم');
     });
     await step('S6-uses', async () => {
-      fresh({ status: 'ready', workspace: ws('owner') }, {}, { item_file: async () => clone(S20.item_file.owner_bulk) });
-      await mount(`/inventory/items/${S20.item_file.owner_bulk.item.id}`);
-      t.same([byAction('delete-item').length, byAction('hide-item').length], [0, 1], 'S6 مادّة مستعملة: «أخفِ» بلا «احذف»');
-      t.eq(byAction('file-uses')[0]?.textContent, `لا تُحذف لأنّها ${S20.item_file.owner_bulk.uses.join('، ')}؛ «أخفِ» يخفيها من القوائم ويبقى سجلّها.`, 'S6 ويقول لماذا لا تُحذف');
+      const file = S20.item_file.owner_bulk;
+      const { calls, rpcCalls } = fresh({ status: 'ready', workspace: ws('owner') }, { loadItem: () => itemRow({ id: file.item.id, name: file.item.name, version: 3 }), setArchived: () => 4 }, {
+        item_file: async () => clone(file),
+      });
+      await mount(`/inventory/items/${file.item.id}?${new URLSearchParams({ back: '/inventory/store/w-feed' })}`);
+      t.same([byAction('delete-item')[0]?.textContent, byAction('hide-item').length, byAction('file-uses').length], ['احذف', 0, 0], 'S6 مادّة مستعملة: «احذف» نفسه، بلا «أخفِ» ولا «لا تُحذف»');
       t.same(['sell-item', 'convert-item', 'move-item'].map((action) => byAction(action)[0]?.textContent), ['بِع', 'حوّل', 'انقل'], 'S6 صفّ الأفعال: «بِع» و«حوّل» و«انقل»');
+      await click(byAction('delete-item')[0]);
+      t.ok(text().includes(`«${file.item.name}» ${file.uses.join('، ')}، فلا يُمحى سجلّها`), 'S6 التأكيد يسمّي استعمالاتها من الخادم');
+      t.eq(byAction('delete-on-hand')[0]?.textContent, 'وعندك منها 1,000 كغم: تبقى محسوبة في قيمة المخزن.', 'S6 ورصيدها الباقي');
+      await click(byAction('confirm-delete-item')[0]);
+      await settle();
+      t.same([named(calls, 'setArchived'), named(rpcCalls, 'delete_item').length, where?.pathname], [[['items', file.item.id, 3, true]], 0, '/inventory/store/w-feed'], 'S6 تُخفى بنسختها بلا delete_item، ويرجع إلى حيث جاء');
+    });
+    await step('S6-recipe-uses', async () => {
+      // في خلطة أو ناتج خلطة: التأكيد يقول ما يلزم بعد إخفائها (وإلّا لا يُنتَج بها).
+      fresh({ status: 'ready', workspace: MANAGER }, {}, { item_file: async () => fileJson({ can_edit: true, can_delete: false, uses: ['لها مشتريات', 'في خلطة', 'ناتج خلطة'] }) });
+      await mount('/inventory/items/i-corn');
+      await click(byAction('delete-item')[0]);
+      t.same([byAction('delete-in-recipe')[0]?.textContent, byAction('delete-recipe-output')[0]?.textContent], ['وهي في خلطة: عدّل الخلطة وأزلها منها، وإلّا لا يُنتَج بها.', 'وهي ما تنتجه خلطة: احذف الخلطة من المعمل أيضاً، فلا يُنتَج بها بعد.'], 'S6 في خلطة وناتج خلطة: ما يلزم بعد الإخفاء');
     });
     await step('S6-viewer', async () => {
       fresh({ status: 'ready', workspace: ws('viewer') }, {}, { item_file: async () => clone(S20.item_file.viewer_unpriced) });
@@ -982,7 +1076,8 @@ export default async function (t) {
       await click(byAction('delete-item')[0]);
       await click(byAction('confirm-delete-item')[0]);
       await settle();
-      t.same([byAction('confirm-delete-item').length, byAction('hide-instead')[0]?.textContent, all().some((n) => n.localName === 'button' && n.textContent === 'احذفها')], [0, 'أخفِها بدلاً من ذلك', false], 'بعد item_in_use: لا «احذفها»، والفعل الوحيد «أخفِها بدلاً من ذلك»');
+      // كلمة المالك 2026-11-09: بعد item_in_use لا رفض ولا خطوة ثانية؛ «احذفها» نفسها تُخفيها الآن (وليس delete_item مرّة ثانية).
+      t.same([byAction('confirm-delete-item')[0]?.textContent, byAction('hide-instead').length, byAction('delete-hides').length], ['احذفها', 0, 1], 'بعد item_in_use: «احذفها» نفسها صارت إخفاءً');
     });
     await step('R-free-pending', async () => {
       const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, { searchSuppliers: () => ({ parties: [{ id: 'p-1', name: 'أبو أحمد' }], total: 1 }) }, { item_file: async () => clone(SK), record_sale: async () => { throw new m.UnknownOutcomeError(); } });

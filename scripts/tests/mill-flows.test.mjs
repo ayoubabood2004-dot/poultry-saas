@@ -390,7 +390,19 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── F3: صفحة الدفعة المسوّدة (المدير: مواد وتكاليف) ────────────────────────────────────────────────────────────
+    // ── F2-archived: الخلطة المحذوفة (المؤرشفة، كلمة المالك 2026-11-09) لا تظهر في المعمل ─────────────────────────────
+    await step('F2-archived', async () => {
+      fresh({ status: 'ready', workspace: ws() }, { loadMill: () => millHome([card(), card({ id: 'r-2', name: 'خلطة محذوفة', archived: true, output_item: { id: 'f-2', name: 'علف ناهي', base_unit: 'kg', kind: 'feed' } })]) });
+      await mount('/mill');
+      t.same([byAction('open-recipe').map((n) => n.textContent), text().includes('خلطة محذوفة')], [['علف بادئ'], false], 'F2 المحذوفة لا تظهر في قائمة الخلطات');
+      await unmount();
+      fresh({ status: 'ready', workspace: ws() }, { loadMill: () => millHome([card({ archived: true })]) });
+      await mount('/mill');
+      t.ok(text().includes('لا توجد خلطة بعد.') && byAction('open-recipe').length === 0, 'F2 وإن حُذفت كلّها: «لا توجد خلطة بعد» كأنّها لم تكن');
+      await unmount();
+    });
+
+    // ── F3: صفحة الدفعة المسوّدة (المدير: مواد وتكاليف)────────────────────────────────────────────────────────────
     const batchHandlers = (status, money, over = {}) => ({
       loadBatch: () => m.parseBatch(batchJson(status, money)),
       previewProduction: () => m.parsePreview(previewJson(money)),

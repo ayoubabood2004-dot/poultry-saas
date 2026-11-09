@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Banknote, Eye, EyeOff, NotebookText, PackagePlus, Pencil, Repeat, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Banknote, Eye, NotebookText, PackagePlus, Pencil, Repeat, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -66,50 +66,83 @@ async function setItemHidden(itemId: string, hidden: boolean): Promise<void> {
   await inventory.setArchived('items', item.id, item.version, hidden);
 }
 
+// وسما item_uses (0020) كما يرسلهما الخادم: يُقارَنان ولا يُعرضان من هنا (العرض بـt أدناه).
+const USE_IN_RECIPE = 'في خلطة'; // i18n-ok: وسم الخادم يُقارَن ولا يُعرض
+const USE_RECIPE_OUTPUT = 'ناتج خلطة'; // i18n-ok: وسم الخادم يُقارَن ولا يُعرض
+
 /**
- * «احذف» (0020): لمادّة لم تُستعمل قطّ، بشرط نسختها كما في الملفّ. وإن صارت مستعملة بعد الفتح يرفض الخادم item_in_use بتلميح يسمّي أين،
- * والتأكيد يعرض «أخفِها بدلاً من ذلك».
+ * «احذف» لا يرفض (كلمة المالك 2026-11-09، «تختفي من كلّ مكان»): المادّة التي لم تُستعمل قطّ تُحذف نهائياً (delete_item بنسختها كما في
+ * الملفّ)، والمستعملة تختفي بالأرشفة القائمة من بطاقات المخزن وقوائم الشراء والبيع والصرف والخلطات، ويبقى سجلّها (لا تُمحى حركة مخزون ولا
+ * سطر مال). وإن صارت مستعملة بعد فتح الملفّ يرفض الخادم item_in_use، فيصير التأكيد نفسه تأكيدَ الإخفاء بلا خطوة ثانية.
  */
-function DeleteDialog({ file, onCancel, onDeleted, onHide }: { file: ItemFile; onCancel: () => void; onDeleted: () => void; onHide: () => void }) {
+function DeleteDialog({ file, onCancel, onDeleted, onHidden }: { file: ItemFile; onCancel: () => void; onDeleted: () => void; onHidden: () => void }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const name = file.item.name;
-  const inUse = failure instanceof RejectedError && failure.code === 'item_in_use';
-  const failed = failure ? describeError(failure, 'once') : null;
-  const hint = failure instanceof RejectedError ? failure.hint : null;
+  const raced = failure instanceof RejectedError && failure.code === 'item_in_use';
+  const hide = !file.canDelete || raced;
+  const failed = failure && !raced ? describeError(failure, 'once') : null;
+  const inRecipe = file.uses.includes(USE_IN_RECIPE);
+  const recipeOutput = file.uses.includes(USE_RECIPE_OUTPUT);
+  const finish = (caught: unknown) => {
+    setBusy(false);
+    setFailure(caught);
+  };
   return (
     <ConfirmDialog
       open
-      title={t('file.delete.title', 'حذف «{name}» نهائياً؟', { name })}
+      title={hide ? t('file.delete.title_used', 'حذف «{name}»؟', { name }) : t('file.delete.title', 'حذف «{name}» نهائياً؟', { name })}
       consequence={
-        <span className="flex flex-col gap-2">
-          {t('file.delete.consequence', 'تُحذف «{name}» من منشأتك نهائياً مع وحداتها وسعرها؛ لم تُشترَ ولم تتحرّك ولم تدخل خلطة ولا مستنداً، فلا يضيع سجلّ.', { name })}
+        <span className="flex flex-col gap-2" data-action={hide ? 'delete-hides' : 'delete-erases'}>
+          {hide ? (
+            <>
+              <span>
+                {raced
+                  ? t('file.delete.raced', 'استُعملت «{name}» للتوّ من نافذة أو جهاز آخر، فلا يُمحى سجلّها: تختفي من بطاقات المخزن وقوائم الشراء والبيع والصرف والخلطات، ويبقى سجلّها في التقارير.', { name })
+                  : file.uses.length
+                    ? t('file.delete.used', '«{name}» {uses}، فلا يُمحى سجلّها: تختفي من بطاقات المخزن وقوائم الشراء والبيع والصرف والخلطات، وتبقى مشترياتها وحركاتها في التقارير ودفتر المادّة.', {
+                        name,
+                        uses: file.uses.join(t('list.separator', '، ')),
+                      })
+                    : t('file.delete.used_plain', '«{name}» مستعملة، فلا يُمحى سجلّها: تختفي من بطاقات المخزن وقوائم الشراء والبيع والصرف والخلطات، وتبقى مشترياتها وحركاتها في التقارير ودفتر المادّة.', { name })}
+              </span>
+              {file.onHand > 0n ? (
+                <span data-action="delete-on-hand">
+                  {t('file.delete.on_hand', 'وعندك منها {qty}: تبقى محسوبة في قيمة المخزن.', { qty: baseQty(file.onHand, file.item.baseUnit) })}
+                </span>
+              ) : null}
+              {inRecipe ? (
+                <span data-action="delete-in-recipe">{t('file.delete.in_recipe', 'وهي في خلطة: عدّل الخلطة وأزلها منها، وإلّا لا يُنتَج بها.')}</span>
+              ) : null}
+              {recipeOutput ? (
+                <span data-action="delete-recipe-output">{t('file.delete.recipe_output', 'وهي ما تنتجه خلطة: احذف الخلطة من المعمل أيضاً، فلا يُنتَج بها بعد.')}</span>
+              ) : null}
+            </>
+          ) : (
+            t('file.delete.consequence', 'تُحذف «{name}» من منشأتك نهائياً مع وحداتها وسعرها؛ لم تُشترَ ولم تتحرّك ولم تدخل خلطة ولا مستنداً، فلا يضيع سجلّ.', { name })
+          )}
           {failed ? (
             <span role="alert" className="text-danger-700 dark:text-danger-300" data-action="delete-failed">
-              {hint ?? `${failed.title}. ${failed.detail}`}
+              {failure instanceof RejectedError && failure.hint ? failure.hint : `${failed.title}. ${failed.detail}`}
             </span>
           ) : null}
         </span>
       }
-      // بعد item_in_use لا حذف (مراجعة 0020): الفعل الوحيد «أخفِها بدلاً من ذلك»، ينقل إلى تأكيد الإخفاء.
-      confirmLabel={inUse ? t('file.hide.instead', 'أخفِها بدلاً من ذلك') : t('file.delete.confirm', 'احذفها')}
-      tone={inUse ? 'primary' : 'danger'}
+      confirmLabel={t('file.delete.confirm', 'احذفها')}
+      tone="danger"
       busy={busy}
-      action={inUse ? 'hide-instead' : 'confirm-delete-item'}
+      action="confirm-delete-item"
       onCancel={onCancel}
       onConfirm={() => {
-        if (inUse) {
-          onHide();
-          return;
-        }
         setBusy(true);
         setFailure(null);
+        if (hide) {
+          setItemHidden(file.item.id, true).then(onHidden, finish);
+          return;
+        }
         (file.item.version === null ? inventory.loadItem(file.item.id).then((item) => item?.version ?? 0) : Promise.resolve(file.item.version))
           .then((version) => purchases.deleteItem(file.item.id, version))
-          .then(onDeleted, (caught: unknown) => {
-            setBusy(false);
-            setFailure(caught);
-          });
+          .then(onDeleted, finish);
       }}
     />
   );
@@ -407,24 +440,20 @@ export default function ItemFilePage() {
               {t('file.move', 'انقل')}
             </Button>
           ) : null}
-          {manage && file.canDelete ? (
+          {/* «احذف» واحد لكلّ مادّة ظاهرة (كلمة المالك 2026-11-09): يحذف غير المستعملة ويُخفي المستعملة؛ و«أظهِرها» للمخفيّة. */}
+          {manage && !file.item.archived ? (
             <Button variant="ghost" onClick={() => setOp('delete')} disabled={state.loading} data-action="delete-item">
               <Trash2 aria-hidden="true" className="size-5" />
               {t('file.delete', 'احذف')}
             </Button>
           ) : null}
-          {manage && (!file.canDelete || file.item.archived) ? (
-            <Button variant="ghost" onClick={() => setOp('hide')} disabled={state.loading} data-action={file.item.archived ? 'show-item' : 'hide-item'}>
-              {file.item.archived ? <Eye aria-hidden="true" className="size-5" /> : <EyeOff aria-hidden="true" className="size-5" />}
-              {file.item.archived ? t('file.show', 'أظهِرها') : t('file.hide', 'أخفِ')}
+          {manage && file.item.archived ? (
+            <Button variant="ghost" onClick={() => setOp('hide')} disabled={state.loading} data-action="show-item">
+              <Eye aria-hidden="true" className="size-5" />
+              {t('file.show', 'أظهِرها')}
             </Button>
           ) : null}
         </div>
-      ) : null}
-      {manage && !file.canDelete && !file.item.archived && file.uses.length > 0 ? (
-        <p className="text-sm text-ink-muted" data-action="file-uses">
-          {t('file.uses', 'لا تُحذف لأنّها {uses}؛ «أخفِ» يخفيها من القوائم ويبقى سجلّها.', { uses: file.uses.join(t('list.separator', '، ')) })}
-        </p>
       ) : null}
       <section className="flex flex-col gap-2">
         <h2 className="font-semibold">{t('file.purchases', 'المشتريات')}</h2>
@@ -455,9 +484,12 @@ export default function ItemFilePage() {
         <DeleteDialog
           file={file}
           onCancel={() => setOp(null)}
-          onHide={() => setOp('hide')}
           onDeleted={() => {
             toast({ tone: 'success', title: t('file.deleted', 'حُذفت «{name}».', { name: file.item.name }) });
+            navigate(back, { replace: true });
+          }}
+          onHidden={() => {
+            toast({ tone: 'success', title: t('file.deleted_hidden', 'حُذفت «{name}» من القوائم، وسجلّها باقٍ في التقارير.', { name: file.item.name }) });
             navigate(back, { replace: true });
           }}
         />

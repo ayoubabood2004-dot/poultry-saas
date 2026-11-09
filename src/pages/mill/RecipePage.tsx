@@ -1,6 +1,6 @@
 import { CheckCircle2, Factory, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
@@ -23,6 +23,7 @@ import {
   activateVersion,
   addRecipeLine,
   addRecipeRate,
+  archiveRecipe,
   deleteRecipeLine,
   deleteRecipeRate,
   loadMillStores,
@@ -309,6 +310,11 @@ export default function RecipePage() {
   const busy = working || refreshing;
   const [failure, setFailure] = useState<string | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  /** «احذف الخلطة» أو «أعِدها» (كلمة المالك 2026-11-09): تأكيدها وفشلها داخله. */
+  const [recipeOp, setRecipeOp] = useState<'delete' | 'restore' | null>(null);
+  const [recipeOpBusy, setRecipeOpBusy] = useState(false);
+  const [recipeOpFailure, setRecipeOpFailure] = useState<string | null>(null);
+  const navigate = useNavigate();
   /** المواد التي لم تنسخها «نسخة جديدة» لأنّها صارت بالقطعة (ب٤٨)، للنسخة التي أُنشئت. */
   const [skipped, setSkipped] = useState<{ versionId: string; names: readonly string[] } | null>(null);
   const prices = useDrafts<Fils | null>();
@@ -410,6 +416,32 @@ export default function RecipePage() {
    * «نسخة جديدة» (م٧): new_recipe_version تنسخ سطور المفعَّلة ومعدّلاتها إلى مسوّدة بمعرّف من الجهاز يبقى للإعادة (جواب ضاع ←
    * النسخة نفسها)، والمسوّدة القائمة ترجع كما هي؛ ثم تُفتح المسوّدة بسطورها وتكاليفها.
    */
+  /**
+   * «احذف الخلطة» (كلمة المالك 2026-11-09): الأرشفة القائمة بنسخة الخلطة كما قُرئت — تختفي من المعمل ولا يُنتَج بها، ودفعاتها السابقة تبقى
+   * في سجلّ الإنتاج (لا تُمحى حركة مخزون). و«أعِدها» تُرجعها. الفشل (تغيّرت من نافذة أخرى، أو اسمها أخذته خلطة ظاهرة) يُقال داخل التأكيد.
+   */
+  const runRecipeOp = async () => {
+    if (!data || !recipeOp || recipeOpBusy) return;
+    const op = recipeOp;
+    setRecipeOpBusy(true);
+    setRecipeOpFailure(null);
+    try {
+      await archiveRecipe(data.id, data.version, op === 'delete');
+      setRecipeOp(null);
+      if (op === 'delete') {
+        toast({ tone: 'success', title: t('mill.recipe.deleted_toast', 'حُذفت الخلطة «{name}» من المعمل.', { name: data.name }) });
+        navigate('/mill', { replace: true });
+      } else {
+        retry();
+      }
+    } catch (problem) {
+      const { title, detail } = describeError(problem);
+      setRecipeOpFailure(`${title} ${detail}`);
+    } finally {
+      setRecipeOpBusy(false);
+    }
+  };
+
   const startVersion = async () => {
     if (busy || !data) return;
     const fromActive = data.versions.some((version) => version.status === 'active');
@@ -811,6 +843,70 @@ export default function RecipePage() {
         subtitle={t('mill.card.output', 'تنتج: {item}', { item: data.outputItem.name })}
       />
 
+      {/* تعديل الخلطة وحذفها (كلمة المالك 2026-11-09: «ما اكدر اعدل عليها ولا احذفها»): النسخة المفعَّلة مجمَّدة، فالتعديل مسوّدة تُفعَّل. */}
+      {canEdit && data.archived ? (
+        <Notice
+          tone="warning"
+          title={t('mill.recipe.archived', 'هذه الخلطة محذوفة من المعمل: لا تظهر في قائمته ولا يُنتَج بها.')}
+          action={
+            <Button variant="secondary" disabled={busy} onClick={() => setRecipeOp('restore')} data-action="restore-recipe">
+              {t('mill.recipe.restore', 'أعِدها')}
+            </Button>
+          }
+        />
+      ) : null}
+      {canEdit && !data.archived ? (
+        <div className="flex flex-wrap items-center gap-2" data-action="recipe-actions">
+          {!draftVersion ? (
+            <Button size="lg" variant="secondary" icon={<Pencil className="size-5" aria-hidden="true" />} busy={busy} onClick={() => void startVersion()} data-action="new-version">
+              {t('mill.recipe.edit', 'عدّل الخلطة')}
+            </Button>
+          ) : data.versionId !== draftVersion.id ? (
+            <Button size="lg" variant="secondary" icon={<Pencil className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setVersionId(draftVersion.id)} data-action="open-draft">
+              {t('mill.recipe.continue_edit', 'أكمل تعديل الخلطة')}
+            </Button>
+          ) : (
+            <span className="text-sm text-ink-muted" data-action="editing-hint">
+              {t('mill.recipe.editing', 'تعدّل الآن مسوّدة الخلطة: غيّر الموادّ وكمياتها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.')}
+            </span>
+          )}
+          <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setRecipeOp('delete')} data-action="delete-recipe">
+            {t('mill.recipe.delete', 'احذف الخلطة')}
+          </Button>
+        </div>
+      ) : null}
+      {recipeOp ? (
+        <ConfirmDialog
+          open
+          tone={recipeOp === 'delete' ? 'danger' : 'primary'}
+          title={
+            recipeOp === 'delete'
+              ? t('mill.recipe.delete_title', 'حذف الخلطة «{name}»؟', { name: data.name })
+              : t('mill.recipe.restore_title', 'إعادة الخلطة «{name}»؟', { name: data.name })
+          }
+          consequence={
+            <span className="flex flex-col gap-2">
+              {recipeOp === 'delete'
+                ? t('mill.recipe.delete_consequence', 'تختفي «{name}» من المعمل ولا يُنتَج بها بعد الآن، وتبقى دفعاتها السابقة في سجلّ الإنتاج. وتعيدها من صفحتها متى شئت.', { name: data.name })
+                : t('mill.recipe.restore_consequence', 'تعود «{name}» إلى قائمة المعمل ويُنتَج بها من جديد.', { name: data.name })}
+              {recipeOpFailure ? (
+                <span role="alert" className="text-danger-700 dark:text-danger-300" data-action="recipe-op-failed">
+                  {recipeOpFailure}
+                </span>
+              ) : null}
+            </span>
+          }
+          confirmLabel={recipeOp === 'delete' ? t('mill.recipe.delete_confirm', 'احذفها') : t('mill.recipe.restore', 'أعِدها')}
+          busy={recipeOpBusy}
+          action="confirm-recipe-op"
+          onCancel={() => {
+            setRecipeOp(null);
+            setRecipeOpFailure(null);
+          }}
+          onConfirm={() => void runRecipeOp()}
+        />
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         {data.versions.map((version) => (
           <Button
@@ -827,11 +923,6 @@ export default function RecipePage() {
                 : t('mill.version.retired', 'نسخة {no} (مقاعدة)', { no: fmtInt(version.versionNo) })}
           </Button>
         ))}
-        {canEdit && !draftVersion ? (
-          <Button size="sm" variant="ghost" icon={<Plus className="size-4" aria-hidden="true" />} busy={busy} onClick={() => void startVersion()} data-action="new-version">
-            {t('mill.version.new', 'نسخة جديدة')}
-          </Button>
-        ) : null}
       </div>
 
       {skipped && skipped.versionId === data.versionId ? (

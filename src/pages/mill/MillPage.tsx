@@ -284,6 +284,8 @@ export default function MillPage() {
   const { data, error, loading, retry } = useLoad<MillHome>(load);
   const [producing, setProducing] = useState<RecipeCard | null>(null);
 
+  // الخلطة المحذوفة (المؤرشفة، كلمة المالك 2026-11-09) لا تظهر في المعمل؛ صفحتها باقية برابطها لتُعاد منها.
+  const recipes = useMemo(() => data?.recipes.filter((recipe) => !recipe.archived) ?? [], [data]);
   const rows = useMemo(() => data?.productions.rows ?? [], [data]);
   const costShown = rows.some((row) => row.costPerKg !== null);
   const qtyDecimals = useMemo(() => columnDecimals(rows.map((row) => row.outputQtyKg), 3) as 0 | 1 | 2 | 3, [rows]);
@@ -356,7 +358,7 @@ export default function MillPage() {
         </section>
       ) : null}
 
-      {data && !data.recipes.length ? (
+      {data && !recipes.length ? (
         <Notice
           tone="info"
           title={t('mill.empty.title', 'لا توجد خلطة بعد.')}
@@ -372,11 +374,11 @@ export default function MillPage() {
         </Notice>
       ) : null}
 
-      {data?.recipes.length ? (
+      {recipes.length ? (
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-semibold">{t('mill.recipes.title', 'الخلطات')}</h2>
           <ul className="grid gap-3 sm:grid-cols-2">
-            {data.recipes.map((recipe) => (
+            {recipes.map((recipe) => (
               <li key={recipe.id}>
                 <RecipeCardView recipe={recipe} canProduce={canDraft && recipe.activeId !== null} onProduce={() => setProducing(recipe)} />
               </li>
