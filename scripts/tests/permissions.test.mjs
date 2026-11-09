@@ -32,6 +32,8 @@ const TABLE = [
   { actions: ['purchase.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   // قرار المالك 2026-11-08 (البيع، عقد 0020): sale.record لأدوار purchase.record نفسها.
   { actions: ['sale.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
+  // قرار المالك 2026-11-09 («الرصيد اليومي»، عقد 0022): ملاحظة اليوم لمن يعمل في المخازن.
+  { actions: ['stock_note.write'], roles: ['storekeeper', 'mill_operator', 'hatchery_operator', 'manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

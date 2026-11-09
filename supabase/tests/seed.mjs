@@ -501,7 +501,28 @@ const saleSeed = async (db) => {
 
 const SALE_CONDITION = 'v_sales + v_lines + v_costs > 0';
 
+/**
+ * 0022 (طريق الرفض): الأمين يكتب ملاحظة اليوم على «ذرة صفراء» في «الرصيد اليومي». التراجع يُسقط جدول الملاحظات فتضيع، فطريق الرفض يوقفه؛
+ * والطفرة تشيل شرط «في الجدول صفّ» فيكمل.
+ */
+const dayNoteSeed = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.storekeeper, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    await q("select public.set_day_note($1, public.app_today(), 'وصلت شحنة ذرة', null)", [corn]);
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  22: [
+    {
+      name: 'ملاحظة يومية',
+      code: 'rollback_blocked',
+      seed: dayNoteSeed,
+      data: "select (select count(*) from public.stock_day_notes)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_notes > 0 then', 'if false then'),
+    },
+  ],
   21: [
     {
       name: 'فاتورة بيع',
@@ -772,6 +793,7 @@ export const BLOCKING_REQUIRED = [
   [19, 1, 'صرف لفوج (صفّ في flock_issues وflock_issue_lines وflock_costs) يوقف التراجع'],
   [20, 2, 'تحويل مادّة، وشراء بلا سعر، كلّ واحد يوقف التراجع'],
   [21, 1, 'فاتورة بيع (صفّ في sales_invoices وsales_lines وsales_line_costs) توقف التراجع'],
+  [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
 ];
 
 /**

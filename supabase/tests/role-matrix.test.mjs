@@ -433,6 +433,13 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0022 (الرصيد اليومي): تصنيف «تصنيف المصفوفة» يُملأ بـ«كاز التسعير» في خانته؛ وكلّ خانة تُرجَع.
+  const p22 = await db.asUser(
+    USERS.owner,
+    async (q) => ({ category: Object.values((await q("insert into public.item_categories (name) values ('تصنيف المصفوفة') returning id")).rows[0])[0] }),
+    { commit: true },
+  );
+
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
     add_member: { sql: () => ["select public.add_member($1, 'viewer', 'ضيف')", [local(phone(20))]], expect: only(['owner']) },
@@ -655,6 +662,23 @@ export default async function (t, db) {
       sql: () => ["select public.sales_report(public.app_today() - 1, public.app_today(), 'party') -> 'totals' ->> 'count' as v", []],
       value: true,
       expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1'), viewer: 'ok:0' },
+    },
+    // 0022 (قرار المالك 2026-11-09): الجدول لكلّ دور (read)، و«يكتب ملاحظة اليوم» علم الفعل stock_note.write (الأمين ومشغّلا المعمل والمفقس والمدير
+    // والمالك)؛ والملاحظة بالفعل نفسه؛ وملء التصنيف لمن يدير المخازن (المالك والمدير).
+    day_balance: {
+      sql: () => ["select public.day_balance(null, public.app_today(), null) ->> 'can_note' as v", []],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator'], 'ok:true', 'ok:false') },
+    },
+    set_day_note: {
+      sql: () => ["select public.set_day_note($1, public.app_today(), 'ملاحظة المصفوفة', null) -> 'note' ->> 'text' as v", [p20.fuel]],
+      value: true,
+      expect: only(['owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator'], 'ok:ملاحظة المصفوفة'),
+    },
+    set_category_items: {
+      sql: () => ["select public.set_category_items($1, array[$2]::uuid[]) ->> 'count' as v", [p22.category, p20.fuel]],
+      value: true,
+      expect: only(['owner', 'manager'], 'ok:1'),
     },
   };
 

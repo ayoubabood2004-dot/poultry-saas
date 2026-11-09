@@ -422,6 +422,18 @@ export default async function (t, db) {
     );
   }
 
+  // 0022: ملاحظة اليوم على «ذرة الخلطة» لكلّ منشأة، فبجدول الملاحظات صفوف للطرفين.
+  for (const owner of [U.aOwner, U.bOwner]) {
+    await db.asUser(
+      owner,
+      async (q) => {
+        const corn = await value(q, "select id from public.items where name = 'ذرة الخلطة'");
+        await q("select public.set_day_note($1, public.app_today(), 'ملاحظة العزل', null)", [corn]);
+      },
+      { commit: true },
+    );
+  }
+
   // 0014: سعر بيع لمادّة الطرفين، فجدول الأسعار بصفوف لكلّ منشأة (والمالك يرى الكلفة، فيقرأها).
   for (const owner of [U.aOwner, U.bOwner]) {
     await db.asUser(
@@ -749,6 +761,8 @@ export default async function (t, db) {
     sales_overview: () => ['2026-01-01', '2026-12-31'],
     sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
     sales_report: () => ['2026-01-01', '2026-12-31', 'party'],
+    // 0022: الرصيد اليومي لكلّ الموادّ (بلا تصنيف) بيوم مضى وبكلّ مخازن النطاق.
+    day_balance: () => [null, '2026-01-01', null],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -797,6 +811,8 @@ export default async function (t, db) {
     sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sales_report: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    // 0022: الرصيد اليومي لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
+    day_balance: { [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

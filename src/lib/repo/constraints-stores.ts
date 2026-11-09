@@ -35,6 +35,9 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   item_units_factor_check: () => t('constraint.item_units_factor_check', 'معامل الوحدة أكبر من صفر، بستّ مراتب عشرية كحدّ أقصى.'),
   expense_categories_name_check: () => t('constraint.expense_categories_name_check', 'اسم فئة المصروف مطلوب، ولا يزيد على 80 حرفاً.'),
   expense_categories_system_code_check: () => t('constraint.expense_categories_system_code_check', 'رمز الفئة النظامية غير صالح.'),
+  // 0022: ملاحظة الرصيد اليومي.
+  stock_day_notes_note_check: () => t('constraint.stock_day_notes_note_check', 'الملاحظة مطلوبة، ولا تزيد على 200 حرف.'),
+  stock_day_notes_version_check: () => t('constraint.stock_day_notes_version_check', 'نسخة الملاحظة يكتبها الخادم.'),
 };
 
 
