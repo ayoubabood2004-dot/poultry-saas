@@ -8,7 +8,7 @@ import { StatusChips } from './StatusChips';
 
 export function TopBar() {
   return (
-    <header className="sticky top-0 z-bar border-b border-line bg-surface/85 pt-[env(safe-area-inset-top)] backdrop-blur">
+    <header className="sticky top-0 z-bar border-b border-line bg-surface/85 pt-[env(safe-area-inset-top)] backdrop-blur print:hidden">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:px-6">
         <Link to="/" className="flex shrink-0 items-center gap-2 rounded-full md:hidden" aria-label={t('nav.home', 'الرئيسية')}>
           <Logo className="size-8" />

@@ -16,17 +16,20 @@ import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
+import type { ItemMoves } from '../../lib/repo/inventory';
 import * as purchases from '../../lib/repo/purchases';
 import type { ConversionInput, FilePurchase, ItemFile, RecordedPurchase, SaleInput, TransferInput } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { ConvertDialog } from './ConvertDialog';
+import { MovesTable } from './ItemCardPage';
 import { PendingBanner, sessionFor, type OpItem, type OpSession } from './ItemOps';
 import { PriceDialog } from './PriceDialog';
 import { PurchaseDialog } from './PurchaseDialog';
 import { SaleDialog, saleDoneText } from './SaleDialog';
 import { baseQty, itemFilePath } from './simple-shared';
+import { PageFooter } from './stock-shared';
 import { TransferDialog } from './TransferDialog';
 
 // ملفّ المادّة (كلمة المالك 2026-11-06، «المخزن ببساطة»: «راح ينفتحلي ملف الذرة بشكل بطاقة… هذا الملف يسجلي بالضبط كل شراء ذرة»):
@@ -38,6 +41,9 @@ import { TransferDialog } from './TransferDialog';
 // وصفّ أفعال واحد تحت الأرقام: «اشترِ» ثمّ «بِع» و«حوّل» و«انقل» بحكم الخادم (can_sell وcan_convert وcan_transfer)، ولمن يدير المخازن
 // «احذف» لمادّة لم تُستعمل قطّ (can_delete) وإلّا «أخفِ» (الأرشفة القائمة، والسجلّ باقٍ) بتأكيد يسمّي أثره، و«أظهِرها» للمؤرشفة.
 // والشراء الذي دخل بلا سعر «بلا سعر» في جدوله ومعه «أكمل السعر».
+// و«حركات المادّة» (كلمة المالك 2026-11-09، 0022: «لما يدوس على مادة الذرة… يدخل لملف الذرة كامل ويشوف كل تحركاتها وشوكت اشترينا وشوكت بعنا
+// وشنو اشترينا ومنين»): دفتر المادّة بمخزن واحد (MovesTable القائم: التاريخ | المستند | البيان | داخل | خارج | الرصيد) تحت المشتريات لكلّ من يفتح
+// الملفّ، وأزرار المخازن حين تكون المادّة في أكثر من مخزن، و«المزيد».
 
 /** نصّ سعر لوحدة الأساس: «450.00 دينار لكل كغم». */
 function perUnit(price: Fils, file: Pick<ItemFile, 'item'>): string {
@@ -278,6 +284,92 @@ export function PurchasesList({ file, onPrice }: { file: ItemFile; onPrice?: (ro
   );
 }
 
+/** المخزن الذي تُعرض حركاته أوّلاً: أوّل مخزن فيه شيء من المادّة، وإلّا الأوّل. */
+export function firstMovesStore(stores: ItemFile['stores']): string | null {
+  return (stores.find((store) => store.qty > 0n) ?? stores[0])?.warehouseId ?? null;
+}
+
+interface MorePages {
+  key: string;
+  pages: readonly ItemMoves[];
+  busy: boolean;
+  error: unknown;
+}
+
+/**
+ * «حركات المادّة» في الملفّ: دفتر مخزن واحد (item_moves_qty، 100 حركة للصفحة و«المزيد» بعد آخر رقم)، وأزرار المخازن حين تكون المادّة في أكثر
+ * من مخزن. كلّ قراءة جديدة للملفّ (بعد شراء أو بيع أو نقل) تقرأ الحركات من جديد: الملفّ الجديد كائن جديد.
+ */
+function MovesSection({ file }: { file: ItemFile }) {
+  const itemId = file.item.id;
+  const [picked, setPicked] = useState<string | null>(null);
+  const warehouseId = picked !== null && file.stores.some((store) => store.warehouseId === picked) ? picked : firstMovesStore(file.stores);
+  const [seen, setSeen] = useState<{ file: ItemFile; generation: number }>({ file, generation: 0 });
+  if (seen.file !== file) setSeen({ file, generation: seen.generation + 1 });
+  const key = `${itemId}:${warehouseId ?? ''}:${seen.generation}`;
+  const load = useCallback(() => (warehouseId === null ? Promise.resolve(null) : inventory.loadItemMoves(itemId, warehouseId)), [itemId, warehouseId]);
+  const first = useLoad(load, key);
+  const [more, setMore] = useState<MorePages>({ key: '', pages: [], busy: false, error: null });
+  const extra = more.key === key ? more : { key, pages: [], busy: false, error: null };
+  if (warehouseId === null) return null;
+  const pages = first.data ? [first.data, ...extra.pages] : [];
+  const next = pages.at(-1)?.next ?? null;
+  const loadMore = () => {
+    if (next === null) return;
+    setMore({ ...extra, busy: true, error: null });
+    inventory.loadItemMoves(itemId, warehouseId, next).then(
+      (page) => setMore((current) => (current.key === key ? { key, pages: [...current.pages, page], busy: false, error: null } : current)),
+      (caught: unknown) => setMore((current) => (current.key === key ? { ...current, busy: false, error: caught } : current)),
+    );
+  };
+  const store = file.stores.find((entry) => entry.warehouseId === warehouseId);
+  return (
+    <section className="flex flex-col gap-2" data-action="file-moves">
+      <h2 className="font-semibold">{t('file.moves', 'حركات المادّة')}</h2>
+      {file.stores.length > 1 ? (
+        <div role="group" aria-label={t('file.moves.stores', 'مخزن الحركات')} className="flex flex-wrap items-center gap-2">
+          {file.stores.map((entry) => (
+            <Button
+              key={entry.warehouseId}
+              size="sm"
+              variant={entry.warehouseId === warehouseId ? 'primary' : 'secondary'}
+              aria-pressed={entry.warehouseId === warehouseId}
+              onClick={() => setPicked(entry.warehouseId)}
+              data-action="moves-store"
+              data-id={entry.warehouseId}
+            >
+              {entry.name}
+            </Button>
+          ))}
+        </div>
+      ) : store ? (
+        <p className="text-sm text-ink-muted">{t('file.moves.in', 'في «{store}»، الأحدث آخراً.', { store: store.name })}</p>
+      ) : null}
+      {first.error ? (
+        <LoadFailed what={t('stock.moves.what', 'حركات المادّة')} error={first.error} onRetry={first.retry} />
+      ) : !first.data ? (
+        <p role="status" className="text-sm text-ink-muted">
+          {t('page.loading', 'جارٍ الفتح…')}
+        </p>
+      ) : (
+        <>
+          <MovesTable moves={pages.flatMap((page) => page.rows)} baseUnit={file.item.baseUnit} />
+          <PageFooter
+            shown={pages.reduce((sum, page) => sum + page.rows.length, 0)}
+            total={first.data.total}
+            next={next !== null}
+            busy={extra.busy}
+            error={extra.error}
+            what={t('stock.moves.what', 'حركات المادّة')}
+            onMore={loadMore}
+            action="more-file-moves"
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
 /**
  * آخر قراءة ناجحة تبقى مرسومة أثناء إعادة القراءة (بعد الحفظ): useLoad يجعل data = null أثناء كلّ قراءة جديدة، فكانت الصفحة تُطوى
  * إلى «جارٍ الفتح…» لحظة. والمفتاح الآخر (مادّة أخرى) يبدأ فارغاً. نمط React «معلومة من رسم سابق» بشرط يتوقّف، لا متغيّراً عامّاً.
@@ -464,6 +556,7 @@ export default function ItemFilePage() {
           </p>
         ) : null}
       </section>
+      <MovesSection file={file} />
       {costs ? (
         <Link to={`/inventory/items/${file.item.id}/details`} className="inline-flex items-center gap-2 self-start text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-item-details">
           <NotebookText aria-hidden="true" className="size-4" />

@@ -1,4 +1,5 @@
 import { RefreshCw } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { t } from '../../lib/i18n';
 import { recoveryStore } from '../../lib/pwa/recovery';
 import { updateStore } from '../../lib/pwa/update';
@@ -6,13 +7,14 @@ import { useStore } from '../../lib/store';
 import { Button } from '../ui/Button';
 import { Notice } from '../ui/Notice';
 
-/** أشرطة التحديث والتعافي فوك كل صفحة. الحفظ يبقى شغّال، والتطبيق يتحدّث لحاله بعد الحفظ. */
+/** أشرطة التحديث والتعافي فوك كل صفحة، ولا تُطبع (0022). الحفظ يبقى شغّال، والتطبيق يتحدّث لحاله بعد الحفظ. */
 export function AppBanners() {
   const update = useStore(updateStore);
   const recovery = useStore(recoveryStore);
 
+  let banner: ReactNode = null;
   if (recovery === 'looped') {
-    return (
+    banner = (
       <Notice
         tone="danger"
         title={t('banner.looped.title', 'تعذّر تحميل النسخة الجديدة')}
@@ -25,20 +27,18 @@ export function AppBanners() {
         {t('banner.looped.detail', 'أغلق التطبيق وافتحه من جديد. لم تُمَسّ جولاتك ولا ما حُفظ على الجهاز.')}
       </Notice>
     );
-  }
-  if (update.reloadAfterSave || recovery === 'pending_save') {
-    return (
+  } else if (update.reloadAfterSave || recovery === 'pending_save') {
+    banner = (
       <Notice tone="warning" title={t('banner.loaded_new.title', 'حُمّلت نسخة جديدة — احفظ عملك ثم نكمل')}>
         {t('banner.loaded_new.detail', 'الحفظ يعمل. بعد الحفظ تُحدَّث الشاشة تلقائياً.')}
       </Notice>
     );
-  }
-  if (update.waitingBlocked) {
-    return (
+  } else if (update.waitingBlocked) {
+    banner = (
       <Notice tone="info" title={t('banner.waiting.title', 'نسخة جديدة — تُطبَّق بعد الحفظ')}>
         {t('banner.waiting.detail', 'يوجد نموذج لم يُحفظ في إحدى نوافذ التطبيق. احفظه وسيُطبَّق التحديث تلقائياً.')}
       </Notice>
     );
   }
-  return null;
+  return banner ? <div className="print:hidden">{banner}</div> : null;
 }
