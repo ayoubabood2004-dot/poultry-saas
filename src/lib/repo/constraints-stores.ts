@@ -38,6 +38,7 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   // 0022: ملاحظة الرصيد اليومي.
   stock_day_notes_note_check: () => t('constraint.stock_day_notes_note_check', 'الملاحظة مطلوبة، ولا تزيد على 200 حرف.'),
   stock_day_notes_version_check: () => t('constraint.stock_day_notes_version_check', 'نسخة الملاحظة يكتبها الخادم.'),
+  stock_day_notes_on_date_check: () => t('constraint.stock_day_notes_on_date_check', 'يوم الملاحظة يوم من التقويم.'),
 };
 
 

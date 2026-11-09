@@ -673,12 +673,19 @@ export default async function (t, db) {
     set_day_note: {
       sql: () => ["select public.set_day_note($1, public.app_today(), 'ملاحظة المصفوفة', null) -> 'note' ->> 'text' as v", [p20.fuel]],
       value: true,
-      expect: only(['owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator'], 'ok:ملاحظة المصفوفة'),
+      // مشغّل المفقس يملك الفعل، لكنّ الكاز لا يُخزَّن في مخازن المفقس التي بنطاقه (out_of_scope).
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'mill_operator'], 'ok:ملاحظة المصفوفة'), hatchery_operator: 'out_of_scope' },
     },
     set_category_items: {
-      sql: () => ["select public.set_category_items($1, array[$2]::uuid[]) ->> 'count' as v", [p22.category, p20.fuel]],
+      sql: () => ["select public.set_category_items($1, array[$2]::uuid[], '{}'::uuid[]) ->> 'count' as v", [p22.category, p20.fuel]],
       value: true,
       expect: only(['owner', 'manager'], 'ok:1'),
+    },
+    // مخازن حركات المادّة (read): كاز التسعير اشتُري في المخزن العامّ، فيراه من بنطاقه المخزن العامّ (المالك والمدير والأمين والمحاسب).
+    item_move_stores: {
+      sql: () => ["select jsonb_array_length(public.item_move_stores($1))::text as v", [p20.fuel]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1', 'ok:0') },
     },
   };
 
