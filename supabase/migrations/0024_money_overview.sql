@@ -1006,6 +1006,7 @@ declare
   v_over jsonb;
   v_recv jsonb;
   v_pay jsonb;
+  v_cross boolean;
 begin
   return query
   with rem as (
@@ -1056,6 +1057,15 @@ begin
       v_over := public.money_overview();
       v_recv := public.debts_overview('receivable', null, null, null, 'amount', null, false, null, 1);
       v_pay := public.debts_overview('payable', null, null, null, 'amount', null, false, null, 1);
+      -- الأعمار من المتبقّي بعد التوزيع القائم (حالة الآن)، والرصيد حتى اليوم: يتّفقان ما دام لا توزيع يصل قيداً حتى اليوم بقيد بعده.
+      -- والترحيل يرفض التاريخ القادم (date_in_future)، فهذا لا يقع بالإنتاج؛ يقع في الحزمة وحدها حين يثبّت ملفّ يوماً أقدم من قيود
+      -- منشآت ملفّات قبله، فتُترك مقارنة الأعمار لتلك المنشأة وحدها.
+      select exists (
+        select 1 from public.party_allocations a
+        join public.party_entries d on d.org_id = a.org_id and d.id = a.debit_entry_id
+        join public.party_entries c on c.org_id = a.org_id and c.id = a.credit_entry_id
+        where a.org_id = v_org.org_id and (d.on_date > public.app_today()) <> (c.on_date > public.app_today()))
+      into v_cross;
       v_bad := v_bad + (
         case when (v_over -> 'cash' ->> 'total')::numeric is distinct from coalesce((select sum(m.amount) from public.cash_moves m
           where m.org_id = v_org.org_id and m.on_date <= public.app_today()), 0) then 1 else 0 end
@@ -1077,10 +1087,10 @@ begin
       ) + (
         case when (v_recv -> 'totals' ->> 'amount')::numeric is distinct from (v_over -> 'debts' ->> 'receivable')::numeric
           or (v_pay -> 'totals' ->> 'amount')::numeric is distinct from (v_over -> 'debts' ->> 'payable')::numeric
-          or (select sum((v_recv -> 'totals' -> 'aging' ->> k)::numeric) from unnest(array['d0_30', 'd31_60', 'd61_90', 'd91_plus']) as k)
-            is distinct from (v_recv -> 'totals' ->> 'amount')::numeric
-          or (select sum((v_pay -> 'totals' -> 'aging' ->> k)::numeric) from unnest(array['d0_30', 'd31_60', 'd61_90', 'd91_plus']) as k)
-            is distinct from (v_pay -> 'totals' ->> 'amount')::numeric
+          or (not v_cross and (select sum((v_recv -> 'totals' -> 'aging' ->> k)::numeric) from unnest(array['d0_30', 'd31_60', 'd61_90', 'd91_plus']) as k)
+            is distinct from (v_recv -> 'totals' ->> 'amount')::numeric)
+          or (not v_cross and (select sum((v_pay -> 'totals' -> 'aging' ->> k)::numeric) from unnest(array['d0_30', 'd31_60', 'd61_90', 'd91_plus']) as k)
+            is distinct from (v_pay -> 'totals' ->> 'amount')::numeric)
         then 1 else 0 end
       );
     exception when others then
