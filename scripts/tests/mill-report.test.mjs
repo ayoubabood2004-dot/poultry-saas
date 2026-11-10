@@ -668,6 +668,24 @@ export default async function (t) {
       });
     }
 
+    // ── V6: التركيز بعد تبديل العرض (مراجعة الشاشات S6)، وفشل على الشفرة قبله ─────────────────────────────────────────────────
+    await step('V6', async () => {
+      fresh();
+      await mount(page(`year=${Y}`));
+      const focused = () => globalThis.document.activeElement;
+      const seen = [];
+      await click(tile(M));
+      seen.push(focused()?.getAttribute('data-action') ?? null);
+      await click(cell(D));
+      seen.push(focused()?.getAttribute('data-action') ?? null);
+      await click(first('back-month'));
+      seen.push([focused()?.getAttribute('data-action') ?? null, focused()?.getAttribute('data-day') ?? null]);
+      await click(first('back-year'));
+      seen.push([focused()?.getAttribute('data-action') ?? null, focused()?.getAttribute('data-month') ?? null]);
+      t.same(seen, ['month-title', 'day-title', ['day-cell', D], ['month-tile', M]],
+        'V6 (S6) التركيز بعد كلّ تبديل: عنوان الشهر، ثمّ عنوان اليوم، ثمّ خليّة اليوم عند الرجوع، ثمّ بلاطة الشهر عند الرجوع إلى السنة');
+    });
+
     // ── R: تقليل الحركة ───────────────────────────────────────────────────────────────────────────────────────
     await step('R', async () => {
       fresh();

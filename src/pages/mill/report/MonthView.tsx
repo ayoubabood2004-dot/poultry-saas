@@ -61,6 +61,7 @@ export function MonthView({
   const card = useRef<HTMLDivElement>(null);
   const rest = useRef<HTMLDivElement>(null);
   const cells = useRef(new Map<Day, HTMLElement>());
+  const heading = useRef<HTMLHeadingElement>(null);
 
   useLayoutEffect(() => {
     const from = motionRef.current;
@@ -72,6 +73,9 @@ export function MonthView({
       const cell = from.kind === 'day' && from.card ? cells.current.get(from.key) : undefined;
       if (tile && zoomFrom(card.current, tile)) fadeIn([bar.current, rest.current]);
       else if (cell && from.card && zoomFrom(cell, from.card, { lift: true })) fadeIn([bar.current, rest.current]);
+      // التركيز (مراجعة شاشات 0023، S6): من السنة على عنوان الشهر، ومن يوم على خليّته؛ كان يسقط إلى الصفحة.
+      const target = cell ?? heading.current;
+      if (target && typeof target.focus === 'function') target.focus({ preventScroll: true });
     }
     const cardNode = card.current;
     const nodes = cells.current;
@@ -115,7 +119,7 @@ export function MonthView({
       </div>
       <div ref={card} className="card flex w-full max-w-xl flex-col gap-3 p-4 print:hidden" data-action="month-card">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold" data-action="month-title">
+          <h2 ref={heading} tabIndex={-1} className="text-lg font-semibold" data-action="month-title">
             {monthLabel(month)}
           </h2>
           <span className="text-sm text-ink-muted" data-action="month-total">

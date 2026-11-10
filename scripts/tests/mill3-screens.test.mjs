@@ -70,7 +70,8 @@ async function bundle() {
     "export { default as MillRoutes } from './src/pages/mill/MillRoutes.tsx';",
     "export { AddItemDialog, addItemFields, liquidDensity, simpleItemFields } from './src/pages/inventory/ItemCreate.tsx';",
     "export { parseRecipes, parseRecipe, parseRecipeOrder, parseLineOrder, parseRecordedProduction, MillShapeError } from './src/lib/repo/mill.ts';",
-    "export { plannedQty, plannedMass, massOf, gapQty, nextTon, tonsText } from './src/pages/mill/ProducePage.tsx';",
+    "export { plannedQty, plannedMass, massOf, gapQty, nextTon, tonsText, pendingKey, storePending, readPending } from './src/pages/mill/ProducePage.tsx';",
+    "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
     "export { reconcileOrder, moveId, sameOrder } from './src/pages/mill/shared.tsx';",
     "export { RejectedError, UnknownOutcomeError, NetworkError } from './src/lib/errors.ts';",
   ].join('\n');
@@ -213,6 +214,8 @@ export default async function (t) {
   try {
     const m = await bundle();
     const fresh = (session, { rpcs = {}, calls = {}, tables = {} } = {}) => {
+      // الطلب المعلَّق (S1) خارج المكوّن: كلّ خطوة تبدأ بلا طلب من خطوة قبلها لهذه الخلطة.
+      if (session?.workspace) m.storePending(m.pendingKey(`${session.workspace.userId}:${session.workspace.orgId}`, 'r-prod'), null);
       const rpcLog = [];
       const callLog = [];
       const reads = [];
@@ -643,7 +646,7 @@ export default async function (t) {
       await click(byAction('produce-go')[0]);
       const draft = F.record_production.draft;
       t.ok(
-        textOf('produced-draft-text')?.includes(`«${draft.recipe_name}» (${kgOfText(draft.planned_kg)})`) && textOf('produced-draft-text')?.includes('«اختم الكلف»'),
+        textOf('produced-draft-text')?.includes(`«${draft.recipe_name}» (المخطّط ${kgOfText(draft.planned_kg)})`) && textOf('produced-draft-text')?.includes('«اختم الكلف»'),
         `R7 حُفظت مسوّدة تنتظر ختم الكلف (${textOf('produced-draft-text')})`,
       );
       t.same([byAction('result-batch')[0]?.getAttribute('href'), byAction('result-report').length], [`/mill/batch/${draft.id}`, 0], 'R7 برابط صفحة الدفعة (هناك تُختم وتُرحَّل)');
@@ -827,6 +830,68 @@ export default async function (t) {
 
     // ── L: ترتيب موادّ المسوّدة ─────────────────────────────────────────────────────────────────────────────────────
     const lineIds = DRAFT.lines.map((entry) => entry.id);
+    // ── V: إصلاحات مراجعة الشاشات (S1 وS2 وS3 وS5)، وكلّها فشلت على الشفرة قبلها ─────────────────────────────────────────────────
+    const produceUrl = `/mill/produce/${P.recipe}`;
+    await step('V1 S1', async () => {
+      const { rpcLog } = produceSetup(MANAGER, {
+        record: (_args, n) => {
+          if (n === 1) throw new m.UnknownOutcomeError();
+          return clone(F.record_production.posted);
+        },
+      });
+      await mount(produceUrl);
+      await click(byAction('produce-go')[0]);
+      t.eq(byAction('retry-produce').length, 1, 'V1 نتيجة مجهولة: الشاشة مجمَّدة');
+      await unmount();
+      await mount(produceUrl);
+      t.same([byAction('retry-produce').length, byAction('produce-go').length], [1, 0], 'V1 (S1) الرجوع ثمّ العودة: الشاشة مجمَّدة بطلبها، لا «أنتج» بمعرّف جديد');
+      await click(byAction('retry-produce')[0]);
+      const sent = named(rpcLog, 'record_production');
+      t.same([sent.length, sent[1]], [2, sent[0]], 'V1 (S1) الإعادة بالطلب نفسه حرفاً (المعرّف والمرجع نفسيهما): لا دفعة ثانية');
+      await unmount();
+      await mount(produceUrl);
+      t.same([byAction('retry-produce').length, byAction('produce-go').length], [0, 1], 'V1 وبعد الجواب النهائي: لا طلب معلَّق، والشاشة من أوّلها');
+    });
+    await step('V1 S1 in flight', async () => {
+      const held = deferred();
+      const { rpcLog } = produceSetup(MANAGER, { record: (_args, n) => (n === 1 ? held.promise : clone(F.record_production.posted)) });
+      await mount(produceUrl);
+      await click(byAction('produce-go')[0]);
+      await unmount();
+      await mount(produceUrl);
+      t.same([byAction('retry-produce').length, byAction('produce-go').length], [1, 0], 'V1 (S1) الطلب في الطريق ثمّ الرجوع والعودة: الشاشة مجمَّدة بطلبها');
+      held.resolve(clone(F.record_production.posted));
+      await settle();
+      await click(byAction('retry-produce')[0]);
+      const sent = named(rpcLog, 'record_production');
+      t.same([sent.length, sent[1]], [2, sent[0]], 'V1 (S1) والإعادة بالطلب نفسه حرفاً');
+    });
+    await step('V2 S2', async () => {
+      const held = deferred();
+      produceSetup(MANAGER, { record: (_args, n) => (n === 1 ? held.promise : clone(F.record_production.posted)) });
+      await mount(produceUrl);
+      const before = m.isWindowDirty();
+      await click(byAction('produce-go')[0]);
+      const sending = m.isWindowDirty();
+      held.reject(new m.UnknownOutcomeError());
+      await settle();
+      const frozen = m.isWindowDirty();
+      await click(byAction('retry-produce')[0]);
+      t.same([before, sending, frozen, m.isWindowDirty()], [false, true, true, false],
+        'V2 (S2) النافذة «فيها ما لم يُحفظ» والطلب في الطريق وبعد النتيجة المجهولة (فلا يعيد التحديث تحميلها)، ونظيفة بعد الجواب');
+    });
+    await step('V3 S3', async () => {
+      produceSetup(MANAGER);
+      await mount(produceUrl);
+      t.ok(/(^|\s)w-32(\s|$)/u.test(qtyInput('ذرة صفراء')?.getAttribute('class') ?? ''), 'V3 (S3) خانة الكمية بعرض ثابت (w-32): لا تنكمش في الهاتف إلى عرض رأس العمود');
+    });
+    await step('V5 S5', async () => {
+      produceSetup(OPERATOR, { record: () => clone(F.record_production.draft) });
+      await mount(produceUrl);
+      await click(byAction('produce-go')[0]);
+      t.ok(textOf('produced-draft-text')?.includes(`(المخطّط ${kgOfText(F.record_production.draft.planned_kg)})`), `V5 (S5) رقم المسوّدة يُسمّى «المخطّط» (${textOf('produced-draft-text')})`);
+    });
+
     const draftUrl = `/mill/recipe/${DRAFT.id}?version=${DRAFT.selected.id}`;
     const tableNames = () => bodyRows().map((row) => row[0]);
     await step('L1', async () => {
@@ -906,6 +971,50 @@ export default async function (t) {
         [true, 0, 0, 2],
         'L5 not_draft: تلميحه، ويسقط الترتيب، وتُقرأ الخلطة مفعَّلةً بلا أسهم',
       );
+    });
+    // ── V4: ترتيب رجع إلى ما يعرفه لا يبقى ساكناً (S4)، وفشل على الشفرة قبله ─────────────────────────────────────────────────────
+    // «احذف» بلا data-id: زرّ السطر بجانب سهميه في الخليّة نفسها.
+    const removeOf = (id) => (withId('line-up', id)?.parentNode?.children ?? []).find((n) => n.getAttribute?.('data-action') === 'remove-line');
+    const withoutLast = (order) => {
+      const kept = clone(DRAFT);
+      // ترتيب الخادم بـline_no (الصفحة تعرض به)، لا بترتيب المصفوفة.
+      kept.lines = order.map((id, index) => ({ ...clone(DRAFT.lines.find((entry) => entry.id === id)), line_no: index + 1 }));
+      kept.mass_kg = kept.selected.basis_kg;
+      return kept;
+    };
+    await step('V4 S4 basis', async () => {
+      const [A, B, C] = lineIds;
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          recipe_detail: (_args, n) => (n === 1 ? clone(DRAFT) : withoutLast([A, B])),
+          delete_draft_line: () => ({ ok: true }),
+          set_recipe_line_order: () => clone(F.set_recipe_line_order.ok),
+        },
+        calls: { loadItemsOverview: () => overviewItems([]) },
+      });
+      await mount(draftUrl);
+      await click(withId('line-down', A));
+      await click(withId('line-up', A));
+      await click(removeOf(C));
+      await click(byAction('confirm')[0]);
+      await click(withId('line-up', B));
+      await click(byAction('save-line-order')[0]);
+      t.same(named(rpcLog, 'set_recipe_line_order')[0], { p_version: DRAFT.selected.id, p_lines: [B, A], p_expected: [A, B] },
+        'V4 (S4) نقل ثمّ إرجاع ثمّ حذف سطر: شرط الحفظ ما يعرضه الخادم الآن، لا أساس الترتيب الساكن');
+    });
+    await step('V4 S4 shown', async () => {
+      const [A, B, C] = lineIds;
+      fresh(MANAGER, {
+        rpcs: { recipe_detail: (_args, n) => (n === 1 ? clone(DRAFT) : withoutLast([B, A])), delete_draft_line: () => ({ ok: true }) },
+        calls: { loadItemsOverview: () => overviewItems([]) },
+      });
+      await mount(draftUrl);
+      await click(withId('line-down', A));
+      await click(withId('line-up', A));
+      await click(removeOf(C));
+      await click(byAction('confirm')[0]);
+      const name = (id) => DRAFT.lines.find((entry) => entry.id === id).item_name;
+      t.same([tableNames(), byAction('line-order-bar').length], [[name(B), name(A)], 0], 'V4 (S4) وبعد القراءة: ترتيب الخادم يُعرض، لا ترتيب ساكن بلا شريط');
     });
     await step('L4', async () => {
       fresh(MANAGER, { rpcs: { recipe_detail: () => activeJson() }, calls: { loadItemsOverview: () => overviewItems([]) } });

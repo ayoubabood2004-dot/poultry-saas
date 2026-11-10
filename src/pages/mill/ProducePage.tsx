@@ -150,6 +150,52 @@ const positive = (text: string): Milli | null => {
 /**
  * لم يُحفظ شيء أكيداً: رفض الخادم، أو لم يخرج الطلب أو لم يصل، أو تزاحم فرجع، أو لا قاعدة ولا جلسة. وغيرها نتيجة مجهولة: ربّما سُجّلت الدفعة.
  */
+// ─── الطلب المعلَّق (مراجعة شاشات 0023، S1) ─────────────────────────────────────────────────────────────────────────────────
+// طلب «أنتج» الذي لا تُعرف نتيجته (في الطريق، أو بعد نتيجة مجهولة) يبقى خارج المكوّن بمفتاح المستخدم والمنشأة والخلطة: كان في المكوّن وحده،
+// فالرجوع إلى المعمل ثمّ العودة (أو إعادة التحميل) تفتح الشاشة بـ«أنتج» عاديّ، فيُرسل معرّف ومرجع جديدان وتُسجَّل دفعة ثانية تسحب المخزون مرّتين.
+// الآن تعود الشاشة مجمَّدة بطلبها نفسه، والإعادة به وحده. في sessionStorage (يبقى بعد إعادة التحميل في التبويب نفسه) وفي الذاكرة إن تعذّر،
+// ويُمحى عند جواب نهائي (نجاح أو رفض أكيد).
+const pendingMemory = new Map<string, string>();
+
+export function pendingKey(scope: string, recipeId: string): string {
+  return `mill.produce.pending:${scope}:${recipeId}`;
+}
+
+export function storePending(key: string, request: ProductionRequest | null): void {
+  if (key === '') return;
+  const text = request === null ? null : JSON.stringify(request, (_field, value: unknown) => (typeof value === 'bigint' ? { big: String(value) } : value));
+  if (text === null) pendingMemory.delete(key);
+  else pendingMemory.set(key, text);
+  try {
+    if (text === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, text);
+  } catch {
+    // بلا sessionStorage (تصفّح خاصّ أو ممنوع): الذاكرة وحدها تحمي من الرجوع والعودة.
+  }
+}
+
+export function readPending(key: string): ProductionRequest | null {
+  if (key === '') return null;
+  const fromSession = (): string | null => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch { // swallow-ok: sessionStorage ممنوع (تصفّح خاصّ أو إعداد المتصفّح)؛ الطلب في الذاكرة بعده
+      return null;
+    }
+  };
+  const text = fromSession() ?? pendingMemory.get(key) ?? null;
+  if (text === null) return null;
+  try {
+    return JSON.parse(text, (_field, value: unknown) =>
+      value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && typeof (value as { big?: unknown }).big === 'string'
+        ? BigInt((value as { big: string }).big)
+        : value,
+    ) as ProductionRequest;
+  } catch { // swallow-ok: نصّ لم يكتبه storePending (تخزين تالف)؛ لا طلب معلَّق يُستعاد منه
+    return null;
+  }
+}
+
 const surelyUnsaved = (problem: unknown): boolean =>
   problem instanceof RejectedError || problem instanceof NetworkError || problem instanceof RetryableError || problem instanceof NotConnectedError || problem instanceof IdentityError;
 
@@ -301,7 +347,7 @@ function ProducedView({ result, recipeId, onAgain }: { result: RecordedProductio
       <section className="card flex flex-col gap-3 p-4" data-action="produced-draft">
         <h2 className="text-lg font-semibold">{t('mill.produced.draft_title', 'حُفظت الدفعة وتنتظر ختم الكلف')}</h2>
         <p data-action="produced-draft-text">
-          {t('mill.produced.draft', 'حُفظت دفعة «{recipe}» ({qty}) مسوّدة: يختم كلفها من صفحتها («اختم الكلف») محاسبٌ أو مدير يرى مصاريف وحدتها، ثمّ تُرحَّل فيدخل العلف مخزنه.', {
+          {t('mill.produced.draft', 'حُفظت دفعة «{recipe}» (المخطّط {qty}) مسوّدة بما كتبته من كميات: يختم كلفها من صفحتها («اختم الكلف») محاسبٌ أو مدير يرى مصاريف وحدتها، ثمّ تُرحَّل فيدخل العلف مخزنه.', {
             recipe: result.recipeName,
             qty: kgText(result.plannedKg),
           })}
@@ -374,6 +420,8 @@ export default function ProducePage() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const role = workspace?.role ?? null;
   const canProduce = role !== null && can(role, 'production.draft');
+  // مفتاح الطلب المعلَّق (S1): المستخدم والمنشأة والخلطة، فلا يعود طلب مستخدم لآخر دخل التبويب نفسه.
+  const pendingId = workspace ? pendingKey(`${workspace.userId}:${workspace.orgId}`, recipeId) : '';
   const load = useCallback(() => loadProduce(recipeId), [recipeId]);
   const { data, error, retry } = useLoad<ProduceData>(load, recipeId);
 
@@ -401,6 +449,13 @@ export default function ProducePage() {
   /** طلب في الطريق (record_production أو create_production): لا يُرسل ثانٍ قبل جوابه. */
   const sending = useRef(false);
   const [drafting, setDrafting] = useState(false);
+  // طلب معلَّق من شاشة سابقة (S1): تعود الشاشة مجمَّدة به، والإعادة به وحده. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (مرّة لكلّ مفتاح).
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  if (pendingId !== '' && restoredFor !== pendingId) {
+    setRestoredFor(pendingId);
+    const kept = readPending(pendingId);
+    if (kept !== null && kept.versionId !== undefined) setFrozen(kept);
+  }
   const [draftFailure, setDraftFailure] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -534,7 +589,9 @@ export default function ProducePage() {
   const draftReady = canProduce && active !== null && from !== '' && to !== '' && kgOk && blockedLines.length === 0 && zeroLines.length === 0 && dayProblem === null;
   const notCarried = adjust !== null || weighed || note.trim() !== '' || expiryText.trim() !== '';
   const dirty = qtyText !== null || adjust !== null || note.trim() !== '' || weighed || dayText !== null || expiryText.trim() !== '';
-  useDirtyForm(dirty && result === null && !busy);
+  // والطلب في الطريق أو مجمَّد بنتيجة مجهولة (مراجعة شاشات 0023، S2): كانت النافذة «نظيفة» أثناءهما، فيعيد التحديث تحميلها والجواب لم يصل
+  // فيضيع المعرّف وتُرسل دفعة ثانية.
+  useDirtyForm((dirty && result === null) || busy || frozen !== null);
 
   /** تعديل كمية سطر: للكمية الحالية (تعديلات كمية أخرى تُترك لها)، وكتابة على سطر «قرّب» تُسقط الإكمال (المستخدم أخذ الكمية). */
   const editLine = (lineNo: number, text: string) => {
@@ -597,8 +654,11 @@ export default function ProducePage() {
     sending.current = true;
     setBusy(true);
     setFailure(null);
+    // الطلب محفوظ خارج المكوّن قبل أن يخرج (S1): رجوع أو إعادة تحميل قبل الجواب تعيد الشاشة مجمَّدة به.
+    storePending(pendingId, request);
     try {
       const done = await recordProduction(request);
+      storePending(pendingId, null);
       attempt.current = null;
       setFrozen(null);
       setResult(done);
@@ -613,6 +673,7 @@ export default function ProducePage() {
         else if (retrying && surelyUnsaved(problem)) setFailure(t('mill.produce.retry_unreached', 'لم تصل الإعادة إلى الخادم: أعد المحاولة عند عودة الاتصال.'));
       } else {
         // جواب أكيد بلا تسجيل (ومنه qty_too_large وstale_preview بتلميحهما): المكتوب باقٍ، والمحاولة التالية بمعرّف ومرجع جديدين.
+        storePending(pendingId, null);
         attempt.current = null;
         setFrozen(null);
         setFailure(failureText(problem));
@@ -786,7 +847,8 @@ export default function ProducePage() {
         ) : (
           <input
             aria-label={t('mill.builder.qty_of', 'كمية «{name}»', { name: row.name })}
-            className="input text-end tabular-nums"
+            // عرض ثابت (مراجعة شاشات 0023، S3): بـw-full كانت تنكمش في الهاتف (390) إلى عرض رأس العمود، فلا تُرى الكمية.
+            className="input w-32 text-end tabular-nums"
             size={9}
             inputMode="decimal"
             dir="ltr"

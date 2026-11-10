@@ -638,6 +638,9 @@ export default function RecipePage() {
   // شرط الحفظ ويبقى ترتيب المستخدم (ما حُذف يخرج وما أُضيف في آخره). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف.
   const serverLineIds = lines.map((line) => line.id);
   if (lineOrder !== null && (!isDraft || data.versionId !== lineOrder.versionId)) setLineOrder(null);
+  // ترتيب رجع إلى ما يعرفه (نقل ثمّ إرجاع، أو قراءة بعد الرفض جعلته هو) لا يبقى ساكناً (مراجعة شاشات 0023، S4): كان أساسه القديم يُرسل شرطاً
+  // بعد حذف سطر أو إضافته (lines_changed بلا تغيير من جهاز آخر)، وترتيبه القديم يُعرض بعد كلّ قراءة بلا شريط «احفظ».
+  else if (lineOrder !== null && lineOrder.changedAt === null && sameOrder(lineOrder.ids, lineOrder.basis)) setLineOrder(null);
   else if (lineOrder !== null && lineOrder.changedAt !== null && reads > lineOrder.changedAt) {
     setLineOrder({ ...lineOrder, ids: reconcileOrder(lineOrder.ids, serverLineIds), basis: serverLineIds, changedAt: null });
   }

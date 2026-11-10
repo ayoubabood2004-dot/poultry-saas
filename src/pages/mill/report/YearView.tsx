@@ -55,6 +55,8 @@ export function YearView({
       const tile = from.kind === 'month' && from.card ? tiles.current.get(from.key) : undefined;
       if (tile && from.card) {
         if (typeof tile.scrollIntoView === 'function') tile.scrollIntoView({ block: 'nearest' });
+        // التركيز على بلاطة الشهر الذي رجع منه (مراجعة شاشات 0023، S6): كان يسقط إلى الصفحة فيبدأ قارئ الشاشة ولوحة المفاتيح من أوّلها.
+        if (typeof tile.focus === 'function') tile.focus({ preventScroll: true });
         if (zoomFrom(tile, from.card, { lift: true })) fadeIn([bar.current, ...[...tiles.current].filter(([month]) => month !== from.key).map(([, node]) => node)]);
       }
     }

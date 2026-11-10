@@ -27,6 +27,7 @@ export function DayView({
   const bar = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const rest = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
 
   useLayoutEffect(() => {
     const from = motionRef.current;
@@ -35,6 +36,8 @@ export function DayView({
       scrollToTop();
       const cell = from.kind === 'month' ? from.cells.get(day) : undefined;
       if (cell && zoomFrom(card.current, cell)) fadeIn([bar.current, rest.current]);
+      // التركيز على عنوان اليوم (مراجعة شاشات 0023، S6): كان يسقط إلى الصفحة.
+      if (heading.current && typeof heading.current.focus === 'function') heading.current.focus({ preventScroll: true });
     }
     const cardNode = card.current;
     return () => {
@@ -51,7 +54,7 @@ export function DayView({
         </Button>
       </div>
       <div ref={card} className="card flex w-full max-w-xl flex-col gap-1 p-4 print:hidden" data-action="day-card">
-        <h2 className="text-lg font-semibold" data-action="day-title">
+        <h2 ref={heading} tabIndex={-1} className="text-lg font-semibold" data-action="day-title">
           {dayLabel(day)}
         </h2>
         <p className="text-sm text-ink-muted" data-action="day-total">
