@@ -12,11 +12,12 @@ import { FILS_PER_DINAR, type Fils } from './money';
 // - المئة والألف والمليون والمليار تمييزها مفرد مجرور: «مئة دينار»، «ألف دينار»؛ ومثنّاها المضاف بلا نون: «مئتا دينار»،
 //   «ألفا دينار»، «مليونا دينار»، «مئتا ألف».
 // - المعدود يتبع آخر جزء من العدد: «مئة وثلاثة دنانير»، «مئة وأحد عشر ديناراً»، «ألف ومئة دينار».
-// - إذا انتهى العدد المركّب بواحد أو اثنين بعد مئة أو ألف فأكثر، يُعدّ الأوّل بتمييزه ثمّ يُعطف المعدود بلفظه
-//   («ألف ليلة وليلة»): «مئة دينار ودينار عراقي»، «ألف دينار وديناران عراقيان»، «مئة ألف وألف دينار».
+// - إذا انتهى العدد بواحد أو اثنين بعد مئة فأكثر فبصيغة المحاسبين العراقيين (قرار المنسّق، مراجعة 0024): الواحد والاثنان لفظاً
+//   معطوفين والمعدود بعدهما مفرد مجرور: «مئة وواحد دينار عراقي»، «ألف واثنان دينار عراقي»، «مئة وواحد ألف دينار»، «مليون
+//   واثنان دينار عراقي» (لا «مئة دينار ودينار» التي تُقرأ عند المحاسب مبلغين).
 // - النعت «عراقي» يطابق المعدود الأخير: عراقي، عراقيان، عراقية (جمع غير العاقل)، عراقياً.
-// - الفلس (١/١٠٠ دينار في هذا النظام) بالقواعد نفسها بعد «و»: «وخمسون فلساً»، «وفلس واحد»، «وثلاثة فلوس»؛ وبلا دينار:
-//   «فقط خمسون فلساً لا غير». والصفر: «فقط صفر دينار عراقي لا غير».
+// - الفلس (١/١٠٠ دينار في هذا النظام) بالقواعد نفسها بعد فاصلة و«و» فلا يُقرأ جزءاً من الدنانير: «دينار عراقي واحد، وعشرون
+//   فلساً»، «، وفلس واحد»، «، وثلاثة فلوس»؛ وبلا دينار: «فقط خمسون فلساً لا غير». والصفر: «فقط صفر دينار عراقي لا غير».
 // المراجعة النحوية عند المنسّق (العقد 0024 §6)، والفحص بجدول مكتوب باليد (scripts/tests/amount-words.test.mjs).
 
 /** اسم معدود مذكّر بصيغه بعد العدد. */
@@ -41,6 +42,7 @@ const TENS = ['', '', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون'
 const HUNDREDS = ['', 'مئة', 'مئتان', 'ثلاثمئة', 'أربعمئة', 'خمسمئة', 'ستمئة', 'سبعمئة', 'ثمانمئة', 'تسعمئة']; // i18n-ok: ألفاظ المئات
 const TWO_HUNDRED_OF = 'مئتا'; // i18n-ok: المثنّى المضاف «مئتا دينار»
 const AND = 'و'; // i18n-ok: واو العطف بين أجزاء العدد
+const COMMA_AND = '، و'; // i18n-ok: فاصلة ثمّ واو قبل الفلوس، فلا تُقرأ جزءاً من الدنانير
 
 const THOUSAND: Noun = { one: 'ألف', two: 'ألفان', twoOf: 'ألفا', few: 'آلاف', many: 'ألفاً', manyOf: 'ألف' }; // i18n-ok: صيغ الألف
 const MILLION: Noun = { one: 'مليون', two: 'مليونان', twoOf: 'مليونا', few: 'ملايين', many: 'مليوناً', manyOf: 'مليون' }; // i18n-ok: صيغ المليون
@@ -54,7 +56,7 @@ const SCALES: readonly [bigint, Noun][] = [
   [1_000n, THOUSAND],
 ];
 
-const DINAR = { one: 'دينار عراقي واحد', two: 'ديناران عراقيان', few: 'دنانير عراقية', many: 'ديناراً عراقياً', gen: 'دينار عراقي', bare: 'دينار' }; // i18n-ok: صيغ الدينار ونعته
+const DINAR = { one: 'دينار عراقي واحد', two: 'ديناران عراقيان', few: 'دنانير عراقية', many: 'ديناراً عراقياً', gen: 'دينار عراقي' }; // i18n-ok: صيغ الدينار ونعته
 const FILS = { one: 'فلس واحد', two: 'فلسان', few: 'فلوس', many: 'فلساً' }; // i18n-ok: صيغ الفلس
 const ZERO = 'صفر'; // i18n-ok: لفظ الصفر
 const ONLY = 'فقط'; // i18n-ok: صيغة المحاسب «فقط … لا غير»
@@ -88,19 +90,18 @@ function formAfter(rest: bigint, noun: Noun, construct: boolean): string {
   return construct ? noun.manyOf : noun.many;
 }
 
+/** عدد ينتهي بواحد أو اثنين بعد مئة فأكثر (101، 1002، 201…): صيغة المحاسبين «مئة وواحد دينار»، والمعدود بعده مفرد. */
+const endsInOneOrTwo = (n: bigint): boolean => n > 100n && (n % 100n === 1n || n % 100n === 2n);
+
 /**
- * count من الاسم noun (مرتبة: ألف أو مليون…): «ألف»، «ألفان»/«ألفا»، «ثلاثة آلاف»، «أحد عشر ألفاً»/«ألف»، «مئة ألف وألف».
+ * count من الاسم noun (مرتبة: ألف أو مليون…): «ألف»، «ألفان»/«ألفا»، «ثلاثة آلاف»، «أحد عشر ألفاً»/«ألف»، «مئة وواحد ألف».
  * construct: يليه مضاف إليه مباشرةً (الدينار أو مرتبة تحته بلا «و»)، فالمثنّى بلا نون والمنصوب بلا تنوين.
  */
 function countOf(count: bigint, noun: Noun, construct: boolean): string {
   if (count === 1n) return noun.one;
   if (count === 2n) return construct ? noun.twoOf : noun.two;
-  const rest = count % 100n;
-  if (count > 100n && (rest === 1n || rest === 2n)) {
-    const tail = rest === 1n ? noun.one : construct ? noun.twoOf : noun.two;
-    return `${countOf(count - rest, noun, false)} ${AND}${tail}`;
-  }
-  return `${number(count)} ${formAfter(rest, noun, construct)}`;
+  if (endsInOneOrTwo(count)) return `${number(count)} ${noun.one}`;
+  return `${number(count)} ${formAfter(count % 100n, noun, construct)}`;
 }
 
 /** العدد (≥ 1) لفظاً ومعدوده بعده مباشرةً: المراتب من الأعلى معطوفةً، وآخر مرتبة مضافة إلى ما بعدها إن لم يتبعها شيء. */
@@ -115,14 +116,13 @@ function number(n: bigint): string {
   return belowThousand(small(n));
 }
 
-/** الدنانير بمعدودها ونعته: «دينار عراقي واحد»، «مئتا دينار عراقي»، «مئة دينار ودينار عراقي». */
+/** الدنانير بمعدودها ونعته: «دينار عراقي واحد»، «مئتا دينار عراقي»، «مئة وواحد دينار عراقي». */
 function dinarsPhrase(dinars: bigint): string {
   if (dinars === 0n) return `${ZERO} ${DINAR.gen}`;
   if (dinars === 1n) return DINAR.one;
   if (dinars === 2n) return DINAR.two;
   const rest = dinars % 100n;
-  if (rest === 1n || rest === 2n) return `${number(dinars - rest)} ${DINAR.bare} ${AND}${rest === 1n ? DINAR.gen : DINAR.two}`;
-  if (rest === 0n) return `${number(dinars)} ${DINAR.gen}`;
+  if (rest === 0n || endsInOneOrTwo(dinars)) return `${number(dinars)} ${DINAR.gen}`;
   return `${number(dinars)} ${rest <= 10n ? DINAR.few : DINAR.many}`;
 }
 
@@ -134,7 +134,7 @@ function filsPhrase(fils: bigint): string {
 }
 
 /**
- * المبلغ كتابةً بصيغة المحاسب: «فقط مليونان ومئتان وخمسون ألف دينار عراقي لا غير»، وبالفلوس «… دينار عراقي وخمسون فلساً
+ * المبلغ كتابةً بصيغة المحاسب: «فقط مليونان ومئتان وخمسون ألف دينار عراقي لا غير»، وبالفلوس «… دينار عراقي، وخمسون فلساً
  * لا غير». السالب بقيمته المطلقة (الجهة «عليه» أو «له» يقولها المستدعي).
  */
 export function amountInWords(amount: Fils): string {
@@ -144,5 +144,5 @@ export function amountInWords(amount: Fils): string {
   const parts: string[] = [];
   if (dinars > 0n || fils === 0n) parts.push(dinarsPhrase(dinars));
   if (fils > 0n) parts.push(filsPhrase(fils));
-  return `${ONLY} ${parts.join(` ${AND}`)} ${NO_MORE}`;
+  return `${ONLY} ${parts.join(COMMA_AND)} ${NO_MORE}`;
 }
