@@ -522,7 +522,7 @@ export default async function (t) {
         ['hub-top-payable', O.top_payable],
       ]) {
         const items = byAction('hub-top-party', first(action));
-        t.same(items.map(hrefOf), rows.map((p) => `/accounts/parties/${p.party_id}`), `H26 ${action}: كلّ جهة تفتح كشفها بترتيب الخادم`);
+        t.same(items.map(hrefOf), rows.map((p) => `/accounts/parties/${p.party_id}?back=/accounts`), `H26 ${action}: كلّ جهة تفتح كشفها بترتيب الخادم (والرجوع منه إلى الخلاصة)`);
         t.ok(
           rows.every((p, index) => text(items[index]).includes(p.name) && text(items[index]).includes(fmt(fils(p.amount))) && (!p.oldest || text(items[index]).includes(fmtDay(p.oldest)))),
           `H27 ${action}: الاسم والمبلغ وأقدم دين`,
@@ -615,7 +615,7 @@ export default async function (t) {
           fils(row.outflow) === 0n ? '' : money(row.outflow),
           ...(running ? [money(row.balance)] : []),
         ];
-        const wantLinks = [href, `/accounts/cash/${row.account_id}`, row.party_id ? `/accounts/parties/${row.party_id}` : null];
+        const wantLinks = [href, `/accounts/cash/${row.account_id}`, row.party_id ? `/accounts/parties/${row.party_id}?back=/accounts/moves` : null];
         const gotLinks = [hrefOf(docLink), hrefOf(descendants(tr.children[2]).find((n) => n.localName === 'a')), hrefOf(descendants(tr.children[4]).find((n) => n.localName === 'a'))];
         const marks = [Boolean(first('move-reversal', tr)), Boolean(first('move-reversed', tr))];
         if (JSON.stringify([got, gotLinks, marks]) === JSON.stringify([want, wantLinks, [Boolean(row.reverses), Boolean(row.reversed && !row.reverses)]])) ok += 1;
@@ -713,7 +713,7 @@ export default async function (t) {
         D.rows.map((row) => [
           [row.doc_no ?? (expectedHref(row) ? 'سند التحويل' : ''), row.party_name ?? '', expectedMemo(row, true), fils(row.inflow) === 0n ? '' : money(row.inflow), fils(row.outflow) === 0n ? '' : money(row.outflow), money(row.balance)],
           expectedHref(row),
-          row.party_id ? `/accounts/parties/${row.party_id}` : null,
+          row.party_id ? `/accounts/parties/${row.party_id}?back=${encodeURIComponent(`/accounts/cash/${D.account.id}/day?on=${D.from}`)}` : null,
         ]),
         'D5 كلّ حركة برقمها (رابط سندها أو مستندها) وجهتها وبيانها ورصيدها',
       );

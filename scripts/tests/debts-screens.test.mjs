@@ -191,6 +191,14 @@ export default async function (t) {
     });
 
     // ── F: الفلاتر والترتيب في النداء ───────────────────────────────────────────────────────────────────────────
+    // F0: القسم من رابط «خلاصة المال» (?division=، تكامل 0024): أوّل نداء بقسمه.
+    await step('F0 division link', async () => {
+      env.fresh({ session: SESSION('manager'), rpc: { debts_overview: answer() }, tables });
+      const division = D.receivable.books[0].division_id;
+      await env.mount(`/accounts/debts?side=receivable&division=${division}`, [['/accounts/debts', m.DebtsPage]]);
+      t.same([env.calls('debts_overview')[0]?.p_division, env.calls('debts_overview')[0]?.p_book], [division, null], 'F0 رابط القسم من الخلاصة: أوّل نداء بقسمه');
+      await env.unmount();
+    });
     await step('F filters', async () => {
       env.fresh({ session: SESSION('manager'), rpc: { debts_overview: answer() }, tables });
       await env.mount('/accounts/debts?side=payable&over90=1', [['/accounts/debts', m.DebtsPage]]);

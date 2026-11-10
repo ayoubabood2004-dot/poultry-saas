@@ -109,7 +109,7 @@ export function MovesTable({ running, lines, totals, closing }: { running: boole
       header: t('moves.col.party', 'الجهة'),
       cell: (line) =>
         line.kind === 'move' && line.move.partyId && line.move.partyName ? (
-          <Link to={`/accounts/parties/${line.move.partyId}`} className={LINK} data-action="move-party">
+          <Link to={`/accounts/parties/${line.move.partyId}?back=/accounts/moves`} className={LINK} data-action="move-party">
             {line.move.partyName}
           </Link>
         ) : null,

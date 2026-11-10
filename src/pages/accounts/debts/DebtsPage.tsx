@@ -236,7 +236,11 @@ export default function DebtsPage() {
   const sortId = useId();
   const minId = useId();
   const overId = useId();
-  const [filter, setFilter] = useState('');
+  // قسم من رابط «خلاصة المال» (?division=، 0024): القائمة تبدأ بقسمه، والمستخدم يغيّره من الفلتر.
+  const [filter, setFilter] = useState(() => {
+    const division = params.get('division');
+    return division ? `division:${division}` : '';
+  });
   const [search, setSearch] = useState('');
   const [minText, setMinText] = useState('');
   const [sort, setSort] = useState<DebtSort>('amount');

@@ -288,7 +288,7 @@ export function TopCard({ title, rows, action }: { title: string; rows: readonly
         <ol className="flex flex-col gap-1">
           {rows.map((row) => (
             <li key={row.partyId}>
-              <Link to={`/accounts/parties/${row.partyId}`} className={`${ROW} rounded-xl px-2 py-1 hover:bg-surface-2`} data-action="hub-top-party">
+              <Link to={`/accounts/parties/${row.partyId}?back=/accounts`} className={`${ROW} rounded-xl px-2 py-1 hover:bg-surface-2`} data-action="hub-top-party">
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate font-medium">{row.name}</span>
                   {row.phone || row.oldest ? (

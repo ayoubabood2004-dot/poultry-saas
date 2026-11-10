@@ -31,6 +31,8 @@ export function DayBook({ data }: { data: MoneyMoves }) {
   const decimals = moneyDecimals(values);
   const amount = (value: Fils | null) => (value === null ? null : <Num>{fmtMoney(value, decimals)}</Num>);
   const side = (value: Fils) => (value === 0n ? null : amount(value));
+  // الرجوع من كشف الجهة إلى يومية هذا الصندوق بيومها (backTarget في الكشف يقبل المسار الداخليّ بسؤاله).
+  const back = encodeURIComponent(data.account ? `/accounts/cash/${data.account.id}/day?on=${data.from}` : '/accounts/cash');
   const columns: Column<BookLine>[] = [
     { key: 'doc', header: t('moves.col.doc', 'رقم السند'), cell: (line) => (line.kind === 'move' ? <DocCell row={line.move} /> : null) },
     {
@@ -38,7 +40,7 @@ export function DayBook({ data }: { data: MoneyMoves }) {
       header: t('moves.col.party', 'الجهة'),
       cell: (line) =>
         line.kind === 'move' && line.move.partyId && line.move.partyName ? (
-          <Link to={`/accounts/parties/${line.move.partyId}`} className={LINK} data-action="move-party">
+          <Link to={`/accounts/parties/${line.move.partyId}?back=${back}`} className={LINK} data-action="move-party">
             {line.move.partyName}
           </Link>
         ) : null,
