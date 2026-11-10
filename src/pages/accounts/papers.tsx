@@ -56,9 +56,12 @@ export function PageStyle({ size }: { size: 'A4' | 'A5' }) {
   return <style data-page-style={size}>{css}</style>;
 }
 
-/** طريق الرجوع من الرابط (?back=): مسار داخليّ في الحسابات أو المبيعات وحده، وإلّا البديل. */
+/**
+ * طريق الرجوع من الرابط (?back=): مسار داخليّ في الحسابات أو المبيعات وحده، وإلّا البديل. سؤال الطريق بترميز URLSearchParams كما تكتبه
+ * الصفحات (المسافة «+»، والعربية وما سواها %XX)، فقائمة الذمم ببحثها وحركة الأموال بفلاترها ترجعان كما كانتا.
+ */
 export function backTarget(value: string | null, fallback: string): string {
-  return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?]*)?$/u.test(value) ? value : fallback;
+  return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?+*]*)?$/u.test(value) ? value : fallback;
 }
 
 /** رابط «رجوع إلى…» بشكل زرّ الرجوع (بلا استيراد BackButton: حزمته مشتركة بين المخزون والمعمل، واستيراده هنا يقسمها حزمة محفوظة). */

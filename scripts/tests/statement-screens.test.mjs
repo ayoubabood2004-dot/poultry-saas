@@ -30,6 +30,7 @@ import {
   money,
   qtyText,
   SESSION,
+  settle,
   setupTables,
   side,
   tableOf,
@@ -39,7 +40,9 @@ import {
 
 const ST = FIXTURE.party_statement_v2;
 const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع للمورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
-const TYPE = { purchase: 'فاتورة شراء', purchase_payment: 'دفع عند الشراء', purchase_charge: 'أجور شراء', sale: 'فاتورة بيع', sale_payment: 'قبض عند البيع', supplier_return: 'مرتجع للمورّد', expense: 'مصروف بالدين' };
+const TYPE = { purchase: 'فاتورة شراء', purchase_payment: 'دفع عند الشراء', purchase_charge: 'أجور شراء', sale: 'فاتورة بيع', sale_payment: 'قبض عند البيع', supplier_return: 'مرتجع إلى المورّد', expense: 'مصروف بالدين' };
+// أسماء الأشهر كما تُكتب في العراق (منسّق خلاصة الشهر): بيان المصروف بالدين يقول الشهر باسمه لا «11/2026» (مراجعة 0024 L8).
+const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
 const UNIT = { kg: 'كغم', L: 'لتر', pc: 'قطعة', t: 'طن', g: 'غرام', mL: 'ملل' };
 const CASH_KIND = { cash: 'نقد', bank: 'مصرف', wallet: 'محفظة' };
 const SETTLERS = new Set(['payment', 'payout', 'return', 'supplier_return', 'forgiveness', 'offset']);
@@ -56,23 +59,33 @@ const localDayOf = (iso) => {
   return `${String(at.getFullYear()).padStart(4, '0')}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
 };
 
-// ── البيان ونوع المستند وما سدّده والروابط: القواعد مكتوبة هنا من العقد، مستقلّة عن الشاشة ─────────────────────────────
-function typeOf(line) {
+// ── البيان ونوع المستند وما سدّده والروابط: القواعد مكتوبة هنا من العقد وقرارات المنسّق، مستقلّة عن الشاشة ─────────────────
+/**
+ * نوع المستند بلا تفصيل (سطر الإلغاء والمفتوح، مراجعة 0024 M5): من نوع الحركة ونوع مستندها؛ وسند القبض أو الصرف لحركة بلا مستند وحدها،
+ * و«الرصيد عند البداية» بقاموس المالك (M1).
+ */
+function kindType(kind, docKind) {
+  if (docKind === 'receipt' && kind === 'purchase') return 'فاتورة شراء';
+  if (docKind === 'receipt' && kind === 'payout') return 'دفع عند الشراء';
+  if (docKind === 'sale' && kind === 'invoice') return 'فاتورة بيع';
+  if (docKind === 'sale' && kind === 'payment') return 'قبض عند البيع';
+  if (docKind === 'supplier_return') return 'مرتجع إلى المورّد';
+  if (docKind === 'expense' && kind === 'bill') return 'مصروف بالدين';
+  if (docKind === 'receipt_revalue') return kind === 'purchase' ? 'تسعير شراء' : kind === 'adjustment' ? 'تصحيح سعر' : 'تسعير أو تصحيح سعر';
+  if (docKind === null && kind === 'payment') return 'سند قبض';
+  if (docKind === null && kind === 'payout') return 'سند صرف';
+  return KIND[kind];
+}
+function detailType(line) {
   const d = line.detail;
-  const base = d
-    ? d.type === 'revaluation'
-      ? d.pricing
-        ? 'تسعير شراء'
-        : 'تصحيح سعر'
-      : TYPE[d.type]
-    : line.kind === 'payment'
-      ? 'سند قبض'
-      : line.kind === 'payout'
-        ? 'سند صرف'
-        : line.kind === 'opening'
-          ? 'رصيد افتتاحي'
-          : KIND[line.kind];
-  return line.reverses ? `إلغاء ${base}` : base;
+  if (!d) return kindType(line.kind, line.doc_kind);
+  return d.type === 'revaluation' ? (d.pricing ? 'تسعير شراء' : 'تصحيح سعر') : TYPE[d.type];
+}
+/** نوع السطر، والإلغاء «إلغاء {نوع الأصل}» (الأصل من سطور الحساب إن كان فيها). */
+function typeOf(line, lines = []) {
+  if (!line.reverses) return detailType(line);
+  const original = lines.find((entry) => entry.entry_id === line.reverses && !entry.reverses);
+  return `إلغاء ${detailType(original ?? line)}`;
 }
 
 function memoOf(line) {
@@ -110,7 +123,7 @@ function memoOf(line) {
           : `إرجاع ${itemsCount(d.lines.length)} إلى المورّد من ${d.receipt_doc_no} — ${d.warehouse.name}`;
         break;
       case 'expense': {
-        const month = `${d.for_month.slice(5, 7)}/${d.for_month.slice(0, 4)}`;
+        const month = `${MONTHS[Number(d.for_month.slice(5, 7)) - 1]} ${d.for_month.slice(0, 4)}`;
         base = d.note ? `مصروف ${d.category} لشهر ${month}: ${d.note}` : `مصروف ${d.category} لشهر ${month}`;
         break;
       }
@@ -133,50 +146,74 @@ function memoOf(line) {
 }
 
 const allocDoc = (a) => a.doc_no ?? `${KIND[a.kind]} ${fmtDay(a.on_date)}`;
-function settledOf(line) {
+/** الدفع عند الشراء والقبض عند البيع برقم الفاتورة نفسها: سطر الفاتورة يقولهما بكلمتهما لا برقمه هو (مراجعة 0024 L2). */
+const settledDocOf = (a, own) =>
+  a.doc_no !== null && a.doc_no === own && a.kind === 'payout' && a.doc_kind === 'receipt'
+    ? 'دُفع عند الشراء'
+    : a.doc_no !== null && a.doc_no === own && a.kind === 'payment' && a.doc_kind === 'sale'
+      ? 'قُبض عند البيع'
+      : allocDoc(a);
+/** ما سدّده السطر. periodEnd (فترة انتهت قبل اليوم، مراجعة 0024 H1): التسديدات حتى آخر الفترة وحدها، بلا الباقي. */
+function settledOf(line, periodEnd = null) {
   if (line.reverses) return null;
-  const items = line.allocations.map((a) => `${allocDoc(a)} (${money(fils(a.amount))})`).join('، ');
+  const shown = periodEnd === null ? line.allocations : line.allocations.filter((a) => a.on_date <= periodEnd);
+  const items = shown.map((a) => `${settledDocOf(a, line.doc_no)} (${money(fils(a.amount))})`).join('، ');
   const settler = SETTLERS.has(line.kind);
+  const head = items ? (settler ? `سدّد: ${items}` : `سُدّد منه: ${items}`) : null;
+  if (periodEnd !== null) return head;
   const rest = fils(line.unallocated);
-  if (!items) return settler && rest > 0n ? `لم يُخصَّص لفاتورة: ${money(rest)}` : null;
-  const head = settler ? `سدّد: ${items}` : `سُدّد منه: ${items}`;
+  if (!head) return settler && rest > 0n ? `لم يُخصَّص لفاتورة: ${money(rest)}` : null;
   if (rest === 0n) return head;
   return settler ? `${head}، وبقي ${money(rest)} غير مخصّص لفاتورة` : `${head}، والمتبقّي ${money(rest)}`;
 }
+const periodEndOf = (sample) => (sample.to < sample.today ? sample.to : null);
 
+/** كلّ رابط من الكشف يحمل ?back= إليه بفترته (السند والفاتورة والاستلام والمرتجع، مراجعة 0024 M4). */
+const backed = (path, here) => `${path}?back=${encodeURIComponent(here)}`;
 function linkOf(line, here) {
-  const back = `?back=${encodeURIComponent(here)}`;
-  if (line.voucher_id) return `/accounts/voucher/${line.voucher_id}${back}`;
+  if (line.voucher_id) return backed(`/accounts/voucher/${line.voucher_id}`, here);
   const d = line.detail;
   if (d) {
-    if (['purchase', 'purchase_payment', 'purchase_charge'].includes(d.type)) return `/inventory/receipts/${d.doc_id}`;
-    if (d.type === 'supplier_return') return `/inventory/supplier-returns/${d.doc_id}`;
-    if (d.type === 'revaluation') return `/inventory/receipts/${d.receipt_id}`;
-    if (d.type === 'sale' || d.type === 'sale_payment') return `/sales/${d.doc_id}${back}`;
+    if (['purchase', 'purchase_payment', 'purchase_charge'].includes(d.type)) return backed(`/inventory/receipts/${d.doc_id}`, here);
+    if (d.type === 'supplier_return') return backed(`/inventory/supplier-returns/${d.doc_id}`, here);
+    if (d.type === 'revaluation') return backed(`/inventory/receipts/${d.receipt_id}`, here);
+    if (d.type === 'sale' || d.type === 'sale_payment') return backed(`/sales/${d.doc_id}`, here);
     if (d.type === 'expense') return null;
   }
   return kindLink(line.doc_kind, line.doc_id, here);
 }
 function kindLink(docKind, docId, here) {
   if (!docId) return null;
-  if (docKind === 'receipt') return `/inventory/receipts/${docId}`;
-  if (docKind === 'supplier_return') return `/inventory/supplier-returns/${docId}`;
-  if (docKind === 'sale') return `/sales/${docId}?back=${encodeURIComponent(here)}`;
+  if (docKind === 'receipt') return backed(`/inventory/receipts/${docId}`, here);
+  if (docKind === 'supplier_return') return backed(`/inventory/supplier-returns/${docId}`, here);
+  if (docKind === 'sale') return backed(`/sales/${docId}`, here);
   return null;
 }
 function allocLink(a, here) {
-  if (a.doc_kind === null && (a.kind === 'payment' || a.kind === 'payout') && a.doc_no) return `/accounts/voucher/${a.entry_id}?back=${encodeURIComponent(here)}`;
+  if (a.doc_kind === null && (a.kind === 'payment' || a.kind === 'payout') && a.doc_no) return backed(`/accounts/voucher/${a.entry_id}`, here);
   return kindLink(a.doc_kind, a.doc_id, here);
 }
-function openType(item) {
-  if (item.doc_kind === 'receipt_revalue') return 'تسعير أو تصحيح سعر';
-  if (item.doc_kind === 'receipt' && item.kind === 'purchase') return 'فاتورة شراء';
-  if (item.doc_kind === 'sale' && item.kind === 'invoice') return 'فاتورة بيع';
-  if (item.doc_kind === null && item.kind === 'payment') return 'سند قبض';
-  if (item.doc_kind === null && item.kind === 'payout') return 'سند صرف';
-  if (item.kind === 'opening') return 'رصيد افتتاحي';
-  return KIND[item.kind];
+/** رقم الشراء ← معرّف استلامه من سطور الكشف ومفتوحه (فهرس روابط التسعير وتصحيح السعر المفتوحين، مراجعة 0024 L9). */
+function receiptIdsOf(sample) {
+  const ids = new Map();
+  for (const book of sample.books) {
+    for (const line of book.lines) {
+      const d = line.detail;
+      if (d && ['purchase', 'purchase_payment', 'purchase_charge'].includes(d.type)) ids.set(d.doc_no, d.doc_id);
+      else if (d && (d.type === 'revaluation' || d.type === 'supplier_return')) ids.set(d.receipt_doc_no, d.receipt_id);
+      else if (line.doc_kind === 'receipt' && line.doc_no && line.doc_id) ids.set(line.doc_no, line.doc_id);
+    }
+    for (const item of book.open_items) if (item.doc_kind === 'receipt' && item.doc_no && item.doc_id) ids.set(item.doc_no, item.doc_id);
+  }
+  return ids;
 }
+/** رابط المفتوح: الدفعة المقدّمة بسندها، والتسعير وتصحيح السعر باستلامهما، وما سواهما بمستنده. */
+function openLink(item, here, ids) {
+  if (item.doc_kind === null && (item.kind === 'payment' || item.kind === 'payout') && item.doc_no) return backed(`/accounts/voucher/${item.entry_id}`, here);
+  if (item.doc_kind === 'receipt_revalue') return ids.has(item.doc_no) ? backed(`/inventory/receipts/${ids.get(item.doc_no)}`, here) : null;
+  return kindLink(item.doc_kind, item.doc_id, here);
+}
+const openType = (item) => kindType(item.kind, item.doc_kind);
 const voidableOf = (line) => (line.reverses || line.reversed ? null : line.kind === 'payment' || line.kind === 'payout' ? 'payment' : line.doc_kind !== null ? null : ['opening', 'adjustment', 'forgiveness'].includes(line.kind) ? 'entry' : null);
 /** مراتب عمود الكمية: أقلّ مراتب تبيّن كلّ القيم (columnDecimals)، ثمّ الكمية بها (fmtQtyCell). */
 const qtyCells = (values) => {
@@ -221,6 +258,7 @@ export default async function (t) {
       "export { default as SaleDocPage } from './src/pages/sales/SaleDocPage.tsx';",
       "export { parsePartyStatement, parseVoucher, parseTransfer, parseSaleDoc } from './src/lib/repo/statement.ts';",
       "export { amountInWords } from './src/domain/amountWords.ts';",
+      "export { docType, settlementText, statementCsv } from './src/pages/accounts/statement/text.ts';",
     ]);
     const env = createEnv(m);
     const step = async (name, fn) => {
@@ -333,8 +371,8 @@ export default async function (t) {
             book.lines.map((line) => [
               fmtDay(line.on_date),
               line.doc_no ?? '',
-              typeOf(line),
-              `${memoOf(line)}${settledOf(line) ?? ''}`,
+              typeOf(line, book.lines),
+              `${memoOf(line)}${settledOf(line, periodEndOf(sample)) ?? ''}`,
               fils(line.debit) === 0n ? '' : money(fils(line.debit)),
               fils(line.credit) === 0n ? '' : money(fils(line.credit)),
               fils(line.balance) === 0n ? '0' : balanceText(fils(line.balance)),
@@ -352,6 +390,11 @@ export default async function (t) {
           const agingTotal = BUCKETS.reduce((s, bucket) => s + fils(book.aging[bucket]), 0n);
           t.same(aging.body[0], [book.aging.side === 'debit' ? 'عليه' : book.aging.side === 'credit' ? 'له' : 'لا مفتوح', ...BUCKETS.map((bucket) => money(fils(book.aging[bucket]))), money(agingTotal)], `S ${who} ${book.name}: أعمار الرصيد اليوم بجهتها`);
           t.eq(byAction('aging-today', section).length, sample.to < sample.today ? 1 : 0, `S ${who} ${book.name}: تنبيه «محسوبة لليوم» حين تنتهي الفترة قبله فقط`);
+          t.same(
+            byAction('settled-note', section).map((n) => n.textContent),
+            periodEndOf(sample) && book.lines.length ? ['التسديدات المذكورة حتى نهاية الفترة، بحسب التوزيع القائم اليوم.'] : [],
+            `S ${who} ${book.name}: كشف فترة مضت يقول تحت جدوله إنّ التسديدات حتى آخر الفترة بتوزيع اليوم (H1)، ولا جملة لكشف يصل إلى اليوم`,
+          );
           const open = book.open_items.map((item) => `${item.doc_no ?? openType(item)} (متبقٍّ ${money(fils(item.remaining))}، عمره ${daysWord(item.age_days)})`).join('، ');
           t.eq(text(first('open-summary', section)), open ? `المفتوح اليوم: ${open}` : '', `S ${who} ${book.name}: المفتوح اليوم بمتبقّيه وعمره`);
         }
@@ -387,20 +430,20 @@ export default async function (t) {
               t.same(items.headers, ['المادّة', 'الكمية', 'الوحدة', 'السعر', 'المبلغ'], `D ${d.doc_no}: أعمدة الموادّ`);
               const qty = qtyCells(d.lines.map((l) => l.qty));
               t.same(items.body, d.lines.map((l, i) => [l.item_name, qty[i], unitOf(l.unit_label), l.unit_price === null ? 'بلا سعر' : money(fils(l.unit_price)), l.amount === null ? 'بلا سعر' : money(fils(l.amount))]), `D ${d.doc_no}: كلّ مادّة بكميتها ووحدتها (لا «kg» خاماً) وسعرها ومبلغها، وبلا سعر «بلا سعر»`);
-              const charges = d.charges.map((c) => [c.paid === 'cash' ? `أجور ${c.label} ${money(fils(c.amount))}: نقداً، خارج هذا القيد` : `أجور ${c.label} ${money(fils(c.amount))}: على حساب جهة الأجرة، خارج هذا القيد`, '']);
-              t.same(items.foot, [['مجموع الموادّ', money(fils(d.lines_total))], ...(fils(d.discount) > 0n ? [['الخصم', money(-fils(d.discount))]] : []), ...charges, ['الصافي (مبلغ القيد)', money(amount)]], `D ${d.doc_no}: المجموع ثمّ الخصم ثمّ الأجور (خارج القيد، بلا مبلغ في عموده) ثمّ الصافي = مبلغ القيد`);
+              const charges = d.charges.map((c) => [c.paid === 'cash' ? `أجور ${c.label} ${money(fils(c.amount))}: نقداً، خارج هذه الحركة` : `أجور ${c.label} ${money(fils(c.amount))}: على حساب جهة الأجرة، خارج هذه الحركة`, '']);
+              t.same(items.foot, [['مجموع الموادّ', money(fils(d.lines_total))], ...(fils(d.discount) > 0n ? [['الخصم', money(-fils(d.discount))]] : []), ...charges, ['الصافي (مبلغ الحركة)', money(amount)]], `D ${d.doc_no}: المجموع ثمّ الخصم ثمّ الأجور (خارج الحركة، بلا مبلغ في عموده) ثمّ الصافي = مبلغ الحركة (بقاموس المالك: «حركة» لا «قيد»)`);
               t.eq(fils(d.lines_total) - fils(d.discount), amount, `D ${d.doc_no}: المجموع − الخصم = مبلغ القيد بالضبط`);
               const paid = fils(d.paid_now) > 0n ? (d.account ? `دُفع منه عند الشراء ${money(fils(d.paid_now))} من «${d.account.name}».` : `دُفع منه عند الشراء ${money(fils(d.paid_now))}.`) : '';
               t.eq(text(first('doc-note', block)), paid, `D ${d.doc_no}: المدفوع عند الشراء وصندوقه`);
             } else if (d.type === 'sale') {
               t.same(items.body, d.lines.map((l, i) => [l.item_name, qtyCells(d.lines.map((x) => x.qty))[i], unitOf(l.base_unit), money(fils(l.unit_price)), money(fils(l.amount))]), `D ${d.doc_no}: موادّ البيع`);
-              t.same(items.foot, [['مجموع الفاتورة (مبلغ القيد)', money(amount)]], `D ${d.doc_no}: مجموع الفاتورة = مبلغ القيد`);
+              t.same(items.foot, [['مجموع الفاتورة (مبلغ الحركة)', money(amount)]], `D ${d.doc_no}: مجموع الفاتورة = مبلغ الحركة`);
             } else if (d.type === 'supplier_return') {
               t.same(items.headers, ['المادّة', 'الكمية', 'الوحدة', 'المبلغ'], `D ${d.doc_no}: المرتجع بلا عمود سعر`);
-              t.same(items.foot, [['مجموع المرتجع (مبلغ القيد)', money(amount)]], `D ${d.doc_no}: مجموع المرتجع = مبلغ القيد`);
+              t.same(items.foot, [['مجموع المرتجع (مبلغ الحركة)', money(amount)]], `D ${d.doc_no}: مجموع المرتجع = مبلغ الحركة`);
             } else {
               t.same(items.body, [[d.item_name, qtyCells([d.qty])[0], unitOf(d.unit_label), d.unit_price === null ? 'بلا سعر' : money(fils(d.unit_price)), money(fils(d.new_total))]], `D ${d.receipt_doc_no}: التسعير بكميته ووحدته (لا «L» خاماً) وسعره`);
-              t.same(items.foot, [['المبلغ قبله', money(fils(d.old_total))], ['الفرق (مبلغ القيد)', money(amount)]], `D ${d.receipt_doc_no}: القديم ثمّ الفرق = مبلغ القيد`);
+              t.same(items.foot, [['المبلغ قبله', money(fils(d.old_total))], ['الفرق (مبلغ الحركة)', money(amount)]], `D ${d.receipt_doc_no}: القديم ثمّ الفرق = مبلغ الحركة`);
             }
           }
         }
@@ -427,7 +470,9 @@ export default async function (t) {
           book.open_items.map((item) => bucketOf(item.age_days)),
           `O ${book.name}: العمر بلون فئته`,
         );
-        t.same(byAction('doc-link', section).map((n) => n.getAttribute('href')), book.open_items.filter((item) => item.doc_no && kindLink(item.doc_kind, item.doc_id, here)).map((item) => kindLink(item.doc_kind, item.doc_id, here)), `O ${book.name}: روابط المفتوح`);
+        const ids = receiptIdsOf(aged);
+        const openHere = `${here}?mode=open`;
+        t.same(byAction('doc-link', section).map((n) => n.getAttribute('href')), book.open_items.filter((item) => item.doc_no && openLink(item, openHere, ids)).map((item) => openLink(item, openHere, ids)), `O ${book.name}: روابط المفتوح (والتسعير يفتح استلامه)`);
         t.eq(byAction('open-summary', section).length, 0, `O ${book.name}: بلا سطر «المفتوح اليوم» (الجدول هو المفتوح)`);
       }
     });
@@ -451,10 +496,10 @@ export default async function (t) {
       t.same(rows[2], ['الفترة', sample.from, sample.to], 'X الفترة بتاريخ يقرأه إكسل');
       const expected = [];
       for (const book of sample.books) {
-        expected.push([], ['الحساب', bookName(book)], ['التاريخ', 'رقم المستند', 'نوع المستند', 'البيان', 'عليه (مدين)', 'له (دائن)', 'الرصيد', 'الجهة'], [sample.from, '', '', 'رصيد سابق', '', '', plain(abs(fils(book.brought_forward))), side(fils(book.brought_forward))]);
+        expected.push([], ['الحساب', bookName(book)], ['التاريخ', 'رقم المستند', 'نوع المستند', 'البيان', 'عليه (مدين)', 'له (دائن)', 'الرصيد', 'عليه أو له'], [sample.from, '', '', 'رصيد سابق', '', '', plain(abs(fils(book.brought_forward))), side(fils(book.brought_forward))]);
         for (const line of book.lines) {
-          const settled = settledOf(line);
-          expected.push([line.on_date, line.doc_no ?? '', typeOf(line), settled ? `${memoOf(line)} — ${settled}` : memoOf(line), fils(line.debit) === 0n ? '' : plain(fils(line.debit)), fils(line.credit) === 0n ? '' : plain(fils(line.credit)), plain(abs(fils(line.balance))), side(fils(line.balance))]);
+          const settled = settledOf(line, periodEndOf(sample));
+          expected.push([line.on_date, line.doc_no ?? '', typeOf(line, book.lines), settled ? `${memoOf(line)} — ${settled}` : memoOf(line), fils(line.debit) === 0n ? '' : plain(fils(line.debit)), fils(line.credit) === 0n ? '' : plain(fils(line.credit)), plain(abs(fils(line.balance))), side(fils(line.balance))]);
         }
         expected.push(['', '', '', 'مجموع الفترة', plain(fils(book.total_debit)), plain(fils(book.total_credit)), plain(abs(fils(book.closing))), side(fils(book.closing))]);
       }
@@ -464,7 +509,7 @@ export default async function (t) {
       await click(descendantsOf('button').find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'المفتوح فقط'));
       await click(first('export-csv'));
       const openRows = parseCsv(new TextDecoder('utf-8', { ignoreBOM: true }).decode(new Uint8Array(await blobs[1].arrayBuffer())).slice(1));
-      t.same(openRows.find((row) => row[0] === 'التاريخ'), ['التاريخ', 'رقم المستند', 'نوع المستند', 'المبلغ', 'المسدَّد', 'المتبقّي', 'العمر بالأيام', 'الجهة'], 'X بصيغة «المفتوح فقط» يُصدَّر المفتوح');
+      t.same(openRows.find((row) => row[0] === 'التاريخ'), ['التاريخ', 'رقم المستند', 'نوع المستند', 'المبلغ', 'المسدَّد', 'المتبقّي', 'العمر بالأيام', 'عليه أو له'], 'X بصيغة «المفتوح فقط» يُصدَّر المفتوح');
       t.eq(openRows.filter((row) => row.length === 8 && row[0] !== 'التاريخ').length, sample.books.reduce((s, book) => s + book.open_items.length, 0), 'X صفّ لكلّ مفتوح');
     });
 
@@ -610,8 +655,8 @@ export default async function (t) {
         env.fresh({ session: SESSION('accountant'), rpc: { transfer_detail: async () => clone(sample) }, tables });
         await env.mount(`/accounts/transfer/${sample.id}`, [['/accounts/transfer/:id', m.TransferVoucherPage]]);
         t.same(env.calls('transfer_detail'), [{ p_id: sample.id }], `R ${name}: النداء بمعرّف التحويل`);
-        t.same([text(first('voucher-title')), byAction('voucher-no').length, text(first('voucher-date'))], ['سند تحويل بين صندوقين', 0, `التاريخ: ${fmtDay(sample.on_date)}`], `R ${name}: سند التحويل بلا رقم (الترقيم مؤجّل)`);
-        t.same([text(first('transfer-from')), text(first('transfer-to'))], [`حوّلنا من:«${sample.from.name}» (${CASH_KIND[sample.from.kind]})`, `إلى:«${sample.to.name}» (${CASH_KIND[sample.to.kind]})`], `R ${name}: الصندوقان بنوعيهما`);
+        t.same([text(first('voucher-title')), byAction('voucher-no').length, text(first('voucher-date'))], ['سند نقل بين الصناديق', 0, `التاريخ: ${fmtDay(sample.on_date)}`], `R ${name}: سند النقل بلا رقم (الترقيم مؤجّل)، و«نقل» لا «تحويل» (L8)`);
+        t.same([text(first('transfer-from')), text(first('transfer-to'))], [`نُقل من:صندوق «${sample.from.name}» (${CASH_KIND[sample.from.kind]})`, `إلى:صندوق «${sample.to.name}» (${CASH_KIND[sample.to.kind]})`], `R ${name}: «نُقل من صندوق … إلى صندوق …» بنوعيهما (L8)`);
         t.same([text(first('voucher-amount')), text(first('voucher-words'))], [`مبلغاً قدره:${money(fils(sample.amount))} دينار`, m.amountInWords(fils(sample.amount))], `R ${name}: المبلغ بالأرقام والكلمات`);
         t.eq(text(first('transfer-note')), `البيان:${sample.note ?? 'نقل بين الصناديق'}`, `R ${name}: البيان`);
         t.eq(text(first('void-stamp')), sample.void ? `ملغىأُلغي بتاريخ ${fmtDay(sample.void.on_date)}. السبب: ${sample.void.reason}` : '', `R ${name}: ختم «ملغى»`);
@@ -644,14 +689,250 @@ export default async function (t) {
         t.eq(text(first('sale-status')), sample.status === 'void' ? 'ملغى' : 'محفوظ', `Q ${name}: الحالة`);
         const lines = tableOf(tablesIn(globalThis.document.body)[0]);
         const price = fils(sample.money.unit_price);
-        t.same(lines.body, [[sample.item_name, qtyCells([sample.qty])[0], UNIT[sample.base_unit], `${money(price).split('.')[0]}.${(abs(price) % 100n).toString().padStart(2, '0')}`, money(fils(sample.money.line_total))]], `Q ${name}: سطر الفاتورة بالكمية والوحدة والسعر والمبلغ`);
-        t.same(lines.foot, [['المجموع', money(fils(sample.money.line_total))]], `Q ${name}: المجموع`);
+        const voidSale = sample.status === 'void';
+        t.same(
+          lines.body,
+          [[sample.item_name, qtyCells([sample.qty])[0], UNIT[sample.base_unit], ...(voidSale ? [] : [`${money(price).split('.')[0]}.${(abs(price) % 100n).toString().padStart(2, '0')}`, money(fils(sample.money.line_total))])]],
+          `Q ${name}: سطر الفاتورة بالكمية والوحدة والسعر والمبلغ (والملغاة بلا سعر ولا مبلغ، L6)`,
+        );
+        t.same(lines.foot, voidSale ? [] : [['المجموع', money(fils(sample.money.line_total))]], `Q ${name}: المجموع (والملغاة بلا مجموع)`);
         const stats = descendantsOf('dt').map((n) => n.textContent);
-        t.ok(['مبلغ الفاتورة', 'المقبوض نقداً', 'بالدين'].every((label) => stats.includes(label)) && stats.includes('الربح') === Boolean(sample.cost?.money), `Q ${name}: المبلغ والمقبوض والدين، والكلفة والربح لأدوار الكلفة وحدها`);
+        t.ok(
+          voidSale
+            ? ['مبلغ الفاتورة', 'المقبوض نقداً', 'بالدين', 'كلفة المبيع', 'الربح'].every((label) => !stats.includes(label))
+            : ['مبلغ الفاتورة', 'المقبوض نقداً', 'بالدين'].every((label) => stats.includes(label)) && stats.includes('الربح') === Boolean(sample.cost?.money),
+          `Q ${name}: المبلغ والمقبوض والدين، والكلفة والربح لأدوار الكلفة وحدها؛ والملغاة بلا أيّ منها (لا تُقرأ ديناً قائماً، L6)`,
+        );
         t.eq(first('back')?.getAttribute('href'), name === 'posted' ? `/accounts/parties/${S.party_id}` : '/sales', `Q ${name}: الرجوع إلى ?back (الحسابات أو المبيعات) وإلّا المبيعات`);
         if (sample.status === 'void') t.ok(text().includes('أُلغيت هذه الفاتورة') && text().includes(`السبب: ${sample.void_reason}`), 'Q الملغاة بسببها');
       });
     }
+
+    // ── مراجعة 0024 (الشاشات): كلّ إصلاح بفحص يفشل على الشفرة قبله، بالعيّنات الحقيقية أو نسخ منها ─────────────────────────────
+    const PAST = ST.supplier_past;
+    const SINCE = ST.supplier_since;
+    t.ok(
+      PAST.to < PAST.today && PAST.books[0].lines.some((line) => line.allocations.some((a) => a.on_date > PAST.to)) && fils(PAST.books[0].closing) !== 0n && fils(SINCE.books[0].brought_forward) !== 0n,
+      'شرط العيّنتين: supplier_past فترة انتهت قبل اليوم وسطر سُدّد بعد آخرها، وsupplier_since برصيد سابق غير صفر',
+    );
+    const csvRows = (statement, mode) => parseCsv(m.statementCsv(m.parsePartyStatement(clone(statement)), mode).slice(1));
+
+    // H1: كشف فترة مضت (supplier_past الحقيقية: الفترة إلى 15/10 واليوم 10/11): سطر الشراء لا يذكر تسديداً بعد آخر الفترة ولا «والمتبقّي»
+    // (باقي اليوم 635,000 يناقض الختام 980,000 له)، وتحت الجدول جملة واحدة تقول إنّ التسديدات حتى آخر الفترة بتوزيع اليوم؛ وإكسل كذلك.
+    await step('H1 past period', async () => {
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(PAST) }, tables });
+      await env.mount(`/accounts/parties/${PAST.party.id}?from=${PAST.from}&to=${PAST.to}`, statementRoute);
+      const book = PAST.books[0];
+      const purchase = book.lines.find((line) => line.detail?.type === 'purchase');
+      const settled = text(first('settled', byAction('memo').find((n) => n.getAttribute('data-entry') === purchase.entry_id)));
+      const within = purchase.allocations.filter((a) => a.on_date <= PAST.to);
+      const after = purchase.allocations.filter((a) => a.on_date > PAST.to);
+      t.ok(after.length > 0 && after.every((a) => !settled.includes(a.doc_no)) && !settled.includes('المتبقّي') && !settled.includes(money(fils(purchase.unallocated))), `H1 لا تسديد بعد آخر الفترة ولا باقي اليوم: «${settled}»`);
+      t.eq(settled, `سُدّد منه: ${within.map((a) => `${settledDocOf(a, purchase.doc_no)} (${money(fils(a.amount))})`).join('، ')}`, 'H1 التسديدات المؤرّخة حتى آخر الفترة وحدها');
+      t.eq(fils(purchase.credit) - within.reduce((sum, a) => sum + fils(a.amount), 0n), -fils(book.closing), 'H1 الشراء − المذكور = الرصيد الختامي للفترة (980,000 له): السطر لا يناقض الختام');
+      t.same(byAction('settled-note').map((n) => n.textContent), ['التسديدات المذكورة حتى نهاية الفترة، بحسب التوزيع القائم اليوم.'], 'H1 جملة واحدة تحت جدول الحساب ذي السطور (والحساب بلا سطور بلا جملة)');
+      t.eq(byAction('aging-today').length, PAST.books.length, 'H1 وتنبيه «الأعمار محسوبة لليوم» لكلّ حساب (MUT-7)');
+      const rows = csvRows(PAST, 'summary');
+      const csvPurchase = rows.find((row) => row[0] === purchase.on_date && row[2] === 'فاتورة شراء');
+      t.ok(csvPurchase && after.every((a) => !csvPurchase[3].includes(a.doc_no)) && !csvPurchase[3].includes('المتبقّي'), `H1 إكسل: البيان بلا تسديد بعد الفترة ولا الباقي: «${csvPurchase?.[3]}»`);
+      t.ok(rows.some((row) => row[3] === 'التسديدات المذكورة حتى نهاية الفترة، بحسب التوزيع القائم اليوم.'), 'H1 إكسل: والجملة تحت مجموع الفترة');
+      t.eq(m.settlementText(m.parsePartyStatement(clone(ST.supplier)).books[0].lines.find((line) => line.detail?.type === 'purchase'), null), settledOf(ST.supplier.books[0].lines.find((line) => line.detail?.type === 'purchase')), 'H1 كشف يصل إلى اليوم: التوزيع كلّه والمتبقّي كما كان');
+    });
+
+    // MUT-6 وMUT-8: «رصيد سابق» بقيمته (supplier_since الحقيقية، 680,000 له) على الورقة وفي إكسل.
+    await step('MUT-6/8 brought forward', async () => {
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(SINCE) }, tables });
+      await env.mount(`/accounts/parties/${SINCE.party.id}`, statementRoute);
+      const book = SINCE.books[0];
+      const bf = fils(book.brought_forward);
+      const section = descendantsOf('section').find((n) => n.getAttribute('data-book') === book.book_id);
+      t.same(tableOf(tablesIn(section)[0]).body[0], [fmtDay(SINCE.from), '', '', 'رصيد سابق', '', '', balanceText(bf)], 'MUT-6 أوّل سطر «رصيد سابق» برصيد ما قبل الفترة وجهته');
+      t.same(csvRows(SINCE, 'summary').find((row) => row[3] === 'رصيد سابق'), [SINCE.from, '', '', 'رصيد سابق', '', '', plain(abs(bf)), side(bf)], 'MUT-8 إكسل: «رصيد سابق» برقمه وجهته');
+    });
+
+    // M1: قاموس المالك (DECISIONS 2026-10-31 §1): «الرصيد عند البداية» لا «رصيد افتتاحي»، و«حركة» لا «قيد».
+    t.eq(m.docType({ entryId: 'o', kind: 'opening', docKind: null, detail: null, reverses: null }), 'الرصيد عند البداية', 'M1 نوع مستند الرصيد عند البداية بكلمة المالك');
+    t.eq(m.docType({ entryId: 'r', kind: 'opening', docKind: null, detail: null, reverses: 'o' }), 'إلغاء الرصيد عند البداية', 'M1 وإلغاؤه');
+    await step('M1 words', async () => {
+      const empty = { ...clone(ST.customer), books: [] };
+      env.fresh({ session: SESSION('manager'), rpc: { party_statement_v2: async () => clone(empty) }, tables });
+      await env.mount(`/accounts/parties/${empty.party.id}`, statementRoute);
+      t.ok(text().includes('لا حركات لهذه الجهة بعد.') && !text().includes('قيد'), 'M1 كشف بلا حركات: «لا حركات…» بلا كلمة «قيد»');
+      await env.unmount();
+      env.fresh({ session: SESSION('manager'), rpc: { party_statement_v2: async () => clone(ST.customer) }, tables });
+      await env.mount(`/accounts/parties/${ST.customer.party.id}?mode=detailed`, statementRoute);
+      const shown = text();
+      t.ok(shown.includes('حركات تُلغى من') && !/قيد|القيود|قيود|افتتاحي/u.test(shown), 'M1 الكشف التفصيلي وقائمة الإلغاء بلا «قيد» ولا «افتتاحي» («حركات تُلغى من …»)');
+    });
+
+    // M3: الفترة بالرابط: «اعرض المدّة» يكتبها فيه، وسند من الكشف يرجع إليه بفترته، والمشاركة ترسل رابطاً بها.
+    await step('M3 period in the URL', async () => {
+      setNavigator();
+      const sample = ST.customer;
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(sample), voucher_detail: async () => clone(FIXTURE.voucher_detail.receipt) }, tables });
+      await env.mount(`/accounts/parties/${sample.party.id}?mode=detailed`, [...statementRoute, ['/accounts/voucher/:id', m.VoucherPage]]);
+      const form = first('apply-period')?.parentNode;
+      const inputs = descendantsOf('input', form);
+      for (const [input, value] of [[inputs[0], '01/10/2026'], [inputs[1], '31/10/2026']]) {
+        input.value = value;
+        fire(input, 'input');
+        await settle();
+      }
+      fire(form, 'submit');
+      await settle();
+      await settle();
+      t.same([env.search().from, env.search().to, env.search().mode], ['2026-10-01', '2026-10-31', 'detailed'], 'M3 المدّة بالرابط مع الصيغة');
+      t.same([env.calls('party_statement_v2').at(-1)?.p_from, env.calls('party_statement_v2').at(-1)?.p_to], ['2026-10-01', '2026-10-31'], 'M3 والنداء بها');
+      const here = `/accounts/parties/${sample.party.id}?mode=detailed&from=2026-10-01&to=2026-10-31`;
+      const voucher = byAction('doc-link').find((n) => (n.getAttribute('href') ?? '').startsWith('/accounts/voucher/'));
+      t.eq(new URLSearchParams(voucher?.getAttribute('href')?.split('?')[1] ?? '').get('back'), here, 'M3 رابط السند يرجع إلى الكشف بفترته وصيغته');
+      await click(first('share-statement'));
+      t.eq(shared.at(-1)?.url, `http://localhost/accounts/parties/${sample.party.id}?from=2026-10-01&to=2026-10-31`, 'M3 رابط المشاركة بالفترة المختارة');
+      fire(voucher, 'click', { button: 0 });
+      await settle();
+      await settle();
+      t.eq(first('back')?.getAttribute('href'), here, 'M3 «رجوع» السند إلى الكشف بفترته');
+      fire(first('back'), 'click', { button: 0 });
+      await settle();
+      await settle();
+      t.same([env.calls('party_statement_v2').at(-1)?.p_from, env.calls('party_statement_v2').at(-1)?.p_to, env.search().mode], ['2026-10-01', '2026-10-31', 'detailed'], 'M3 الكشف يعود بالفترة نفسها والصيغة (REV-3)');
+    });
+
+    // M5: سطر الإلغاء بلا تفصيل يسمّي ما يلغيه من نوع الحركة ومستندها (العكس يحمل نوع الأصل ومستنده، REV-14)، لا «سند صرف».
+    {
+      const supplier = clone(ST.supplier);
+      const paid = supplier.books[0].lines.find((line) => line.detail?.type === 'purchase_payment');
+      supplier.books[0].lines.push({ ...clone(paid), entry_id: '00000000-0000-4000-8000-000000000014', seq: '9', on_date: supplier.today, debit: '0', credit: paid.debit, reverses: paid.entry_id, reversed: false, detail: null, allocations: [], unallocated: '0', reason: 'دفع مكرّر', voucher_id: null });
+      const parsed = m.parsePartyStatement(supplier);
+      const reversal = parsed.books[0].lines.at(-1);
+      t.same([m.docType(reversal), m.docType(reversal, parsed.books[0].lines)], ['إلغاء دفع عند الشراء', 'إلغاء دفع عند الشراء'], 'M5 إلغاء الدفع عند الشراء باسمه، بأصله وبلاه');
+      const cases = [
+        ['payout', 'receipt', 'دفع عند الشراء'],
+        ['payment', 'sale', 'قبض عند البيع'],
+        ['purchase', 'receipt', 'فاتورة شراء'],
+        ['invoice', 'sale', 'فاتورة بيع'],
+        ['supplier_return', 'supplier_return', 'مرتجع إلى المورّد'],
+        ['bill', 'expense', 'مصروف بالدين'],
+        ['adjustment', 'receipt_revalue', 'تصحيح سعر'],
+        ['purchase', 'receipt_revalue', 'تسعير شراء'],
+        ['payment', null, 'سند قبض'],
+        ['payout', null, 'سند صرف'],
+      ];
+      t.same(
+        cases.map(([kind, docKind]) => m.docType({ entryId: 'r', kind, docKind, detail: null, reverses: 'x' })),
+        cases.map(([, , type]) => `إلغاء ${type}`),
+        'M5 نوع الإلغاء من نوع الحركة ومستندها لكلّ نوع (وسند القبض والصرف لحركة بلا مستند وحدها)',
+      );
+      const charge = { entryId: 'c', kind: 'purchase', docKind: 'receipt', detail: { type: 'purchase_charge' }, reverses: null };
+      t.eq(m.docType({ entryId: 'rc', kind: 'purchase', docKind: 'receipt', detail: null, reverses: 'c' }, [charge]), 'إلغاء أجور شراء', 'M5 إلغاء أجرة الشراء من أصلها في سطور الحساب (لا «فاتورة شراء»)');
+    }
+
+    // M6: إكسل لا يقرأ نصّاً صيغةً: اسم جهة أو منشأة أو مادّة يبدأ بـ= أو + أو - أو @ أو جدولة أو رجوع سطر يُسبق بفاصلة عليا، والأرقام
+    // التي تكتبها الشاشة (والسالبة منها) تبقى أرقاماً.
+    {
+      const evil = clone(ST.supplier);
+      evil.party.name = '=HYPERLINK("http://example.invalid/x","افتح")';
+      evil.org.name = `${String.fromCharCode(9)}@SUM(A1)`;
+      const purchase = evil.books[0].lines.find((line) => line.detail?.type === 'purchase');
+      purchase.detail.lines[0].item_name = '+cmd|calc';
+      purchase.detail.lines[1].item_name = '-2+3';
+      purchase.detail.warehouse.name = '@مخزن';
+      const rows = csvRows(evil, 'detailed');
+      t.same([rows[0][1], rows[1][1]], [`'=HYPERLINK("http://example.invalid/x","افتح")`, `'${String.fromCharCode(9)}@SUM(A1)`], 'M6 اسم الجهة والمنشأة نصّاً لا صيغة (REV-6)');
+      t.same(rows.filter((row) => row[2] === 'مادّة' && row[1] === purchase.doc_no).map((row) => row[3]), [`'+cmd|calc`, "'-2+3"], 'M6 أسماء الموادّ نصّاً');
+      t.ok(rows.filter((row) => row[2] === 'فاتورة شراء').every((row) => row[3].startsWith('شراء')), 'M6 البيان الذي لا يبدأ بها كما هو');
+      t.ok(rows.some((row) => row[3] === 'الخصم' && row[11] === `-${plain(fils(purchase.detail.discount))}`), 'M6 الخصم سالباً رقماً كما هو (لا فاصلة عليا على رقم الشاشة)');
+      t.eq(csvRows({ ...clone(ST.supplier), party: { ...clone(ST.supplier.party), name: `${String.fromCharCode(13)}x` } }, 'summary')[0][1], `'${String.fromCharCode(13)}x`, 'M6 ورجوع السطر كذلك');
+    }
+
+    // L2: سطر الشراء أو البيع لا يذكر رقمه هو: الدفع عند الشراء والقبض عند البيع بكلمتهما.
+    await step('L2 own number', async () => {
+      for (const sample of [ST.supplier, ST.customer]) {
+        env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(sample) }, tables });
+        await env.mount(`/accounts/parties/${sample.party.id}`, statementRoute);
+        for (const line of sample.books.flatMap((book) => book.lines).filter((entry) => entry.detail?.type === 'purchase' || entry.detail?.type === 'sale')) {
+          const settled = text(first('settled', byAction('memo').find((n) => n.getAttribute('data-entry') === line.entry_id)));
+          const own = line.allocations.find((a) => a.doc_no === line.doc_no);
+          if (!own) continue;
+          t.ok(!settled.includes(`${line.doc_no} (`) && settled.includes(`${line.detail.type === 'purchase' ? 'دُفع عند الشراء' : 'قُبض عند البيع'} (${money(fils(own.amount))})`), `L2 ${line.doc_no}: «${settled}»`);
+        }
+        await env.unmount();
+      }
+    });
+
+    // L3: سند سدّد الرصيد عند البداية: تاريخه مرّة واحدة (REV-9).
+    await step('L3 voucher opening', async () => {
+      const v = clone(FIXTURE.voucher_detail.receipt);
+      v.allocations = [{ kind: 'opening', amount: v.amount, doc_id: null, doc_no: null, on_date: '2026-09-26', doc_kind: null, entry_id: '00000000-0000-4000-8000-000000000009' }];
+      env.fresh({ session: SESSION('accountant'), rpc: { voucher_detail: async () => v }, tables });
+      await env.mount(`/accounts/voucher/${v.entry_id}`, voucherRoute);
+      t.eq(text(first('voucher-allocation')), `تسديد الرصيد عند البداية بتاريخ ${fmtDay('2026-09-26')} (${money(fils(v.amount))})`, 'L3 التاريخ مرّة واحدة');
+    });
+
+    // L5: عمود السعر وعمود المبلغ في موادّ التفصيلي بمراتب واحدة لكلّ عمود (450.00 مع 333.33، REV-11).
+    await step('L5 decimals per column', async () => {
+      const x = clone(ST.supplier);
+      const purchase = x.books[0].lines.find((line) => line.detail?.type === 'purchase');
+      purchase.detail.lines[1].unit_price = '333.33';
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(x) }, tables });
+      await env.mount(`/accounts/parties/${x.party.id}?mode=detailed`, statementRoute);
+      const block = byAction('doc-items').find((n) => n.getAttribute('data-entry') === purchase.entry_id);
+      const items = tableOf(tablesIn(block)[0]);
+      t.same(items.body.map((row) => row[3]), purchase.detail.lines.map((line) => `${money(fils(line.unit_price)).split('.')[0]}.${(fils(line.unit_price) % 100n).toString().padStart(2, '0')}`), 'L5 السعر بمرتبتين في العمود كلّه («450.00» مع «333.33»)');
+      t.same(items.body.map((row) => row[4]), purchase.detail.lines.map((line) => money(fils(line.amount))), 'L5 والمبلغ بلا كسور (عموده كلّه صحيح)');
+    });
+
+    // L7: إكسل التفصيلي فيه موادّ كلّ مستند تحت سطره (REV-7): المادّة وكميتها ووحدتها وسعرها ومبلغها، ثمّ المجموع والخصم والأجور والصافي.
+    {
+      const rows = csvRows(ST.supplier, 'detailed');
+      t.same(rows.find((row) => row[0] === 'التاريخ'), ['التاريخ', 'رقم المستند', 'نوع المستند', 'البيان', 'عليه (مدين)', 'له (دائن)', 'الرصيد', 'عليه أو له', 'الكمية', 'الوحدة', 'السعر', 'المبلغ'], 'L7 رأس التفصيلي بأعمدة الموادّ بعد أعمدة الكشف');
+      const purchase = ST.supplier.books[0].lines.find((line) => line.detail?.type === 'purchase');
+      const d = purchase.detail;
+      const at = rows.findIndex((row) => row[0] === purchase.on_date && row[2] === 'فاتورة شراء');
+      const plainQty = (value) => qtyText(value).replace(/,/g, '');
+      t.same(
+        rows.slice(at + 1, at + 1 + d.lines.length),
+        d.lines.map((line) => ['', d.doc_no, 'مادّة', line.item_name, '', '', '', '', plainQty(line.qty), unitOf(line.unit_label), plain(fils(line.unit_price)), plain(fils(line.amount))]),
+        'L7 صفّ لكلّ مادّة تحت سطر الشراء بأرقام يقرأها إكسل',
+      );
+      const footers = [
+        ['مجموع الموادّ', plain(fils(d.lines_total))],
+        ...(fils(d.discount) > 0n ? [['الخصم', `-${plain(fils(d.discount))}`]] : []),
+        ...d.charges.map((c) => [c.paid === 'cash' ? `أجور ${c.label} ${money(fils(c.amount))}: نقداً، خارج هذه الحركة` : `أجور ${c.label} ${money(fils(c.amount))}: على حساب جهة الأجرة، خارج هذه الحركة`, '']),
+        ['الصافي (مبلغ الحركة)', plain(fils(d.net))],
+      ];
+      const foot = rows.slice(at + 1 + d.lines.length, at + 1 + d.lines.length + footers.length);
+      t.same(foot.map((row) => [row[3], row[11] ?? '']), footers, 'L7 ثمّ المجموع والخصم والأجور والصافي = مبلغ الحركة (في عمود المبلغ)');
+      t.eq(csvRows(ST.supplier, 'summary').filter((row) => row[2] === 'مادّة').length, 0, 'L7 والمختصر بلا موادّ');
+    }
+
+    // L8: عمود الجهة في أعمار الكشف «عليه أو له»، وشهر المصروف بالدين باسمه لا «11/2026».
+    await step('L8 words', async () => {
+      const x = clone(ST.supplier);
+      const [book] = x.books;
+      const template = book.lines[0];
+      book.lines.push({ ...clone(template), entry_id: '00000000-0000-4000-8000-000000000081', seq: '20', kind: 'bill', doc_kind: 'expense', doc_id: '00000000-0000-4000-8000-000000000082', doc_no: null, debit: '0', credit: '25000', detail: { type: 'expense', expense_id: '00000000-0000-4000-8000-000000000082', category: 'كهرباء', division_kind: 'feed_mill', note: null, for_month: '2026-10-01' }, allocations: [], unallocated: '25000' });
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(x) }, tables });
+      await env.mount(`/accounts/parties/${x.party.id}`, statementRoute);
+      const memo = text(byAction('memo').find((n) => n.getAttribute('data-entry') === '00000000-0000-4000-8000-000000000081'));
+      t.ok(memo.startsWith('مصروف كهرباء لشهر تشرين الأول 2026') && !memo.includes('10/2026'), `L8 شهر المصروف باسمه: «${memo}»`);
+      t.eq(tableOf(tablesIn(first('aging'))[0]).headers[0], 'عليه أو له', 'L8 عمود الجهة في الأعمار «عليه أو له»');
+    });
+
+    // L9: «المفتوح فقط»: دفعة مقدّمة بسند قبض تفتح سندها، والتسعير المفتوح يفتح استلامه (بفهرس رقم الشراء).
+    await step('L9 open links', async () => {
+      const x = clone(ST.supplier);
+      const [book] = x.books;
+      book.open_items.push({ kind: 'payout', side: 'debit', amount: '70000', doc_id: null, doc_no: 'PY-2026-0009', on_date: '2026-11-01', settled: '0', age_days: 9, doc_kind: null, entry_id: '00000000-0000-4000-8000-000000000091', remaining: '70000' });
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(x) }, tables });
+      const here = `/accounts/parties/${x.party.id}?mode=open`;
+      await env.mount(here, statementRoute);
+      const links = byAction('doc-link').map((n) => [n.textContent, n.getAttribute('href')]);
+      t.ok(links.some(([doc, href]) => doc === 'PY-2026-0009' && href === backed('/accounts/voucher/00000000-0000-4000-8000-000000000091', here)), 'L9 الدفعة المقدّمة تفتح سندها');
+      const revalue = x.books.flatMap((entry) => entry.open_items).find((item) => item.doc_kind === 'receipt_revalue');
+      const receipt = x.books.flatMap((entry) => entry.lines).find((line) => line.detail?.type === 'revaluation').detail.receipt_id;
+      t.ok(links.some(([doc, href]) => doc === revalue.doc_no && href === backed(`/inventory/receipts/${receipt}`, here)), 'L9 التسعير المفتوح يفتح استلامه');
+    });
   } finally {
     restoreDom();
     delete globalThis.__mb;

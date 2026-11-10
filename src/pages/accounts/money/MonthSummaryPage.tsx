@@ -13,15 +13,17 @@ import { fmtDay, fmtInt, fmtMoney, fmtQty } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import * as money from '../../../lib/repo/money';
 import type { CashFlow, MonthBlock } from '../../../lib/repo/money';
+import { divisionLabel } from '../../../lib/roles';
 import { useSession } from '../../../lib/session';
 import { useLoad } from '../../../lib/useLoad';
-import { divisionFilterLabel } from '../shared';
 import { A4_PORTRAIT, LINK, moneyDecimals, monthLabel, monthParam, PILL, printAs, shiftMonth, type Month } from './shared';
 
 // «خلاصة الشهر التشغيلية» (عقد 0024 §4.7 وF6، خطّة المحاسبة §8.1 1-و): قراءة واحدة (month_summary) لشهر من الرابط (?m=YYYY-MM، وافتراضاً الشهر
 // الحالي): المشروع كلّه ثمّ كلّ قسم بنطاق القارئ — المبيعات (الإيراد، والكلفة والربح الإجمالي لمن يرى الكلفة)، والمشتريات نقداً وبالدين، والمصاريف
 // بفئاتها، وإنتاج المعمل وكلفته، وصرف العلف للأفواج — ثمّ صافي التدفّق النقدي للمنشأة. رأسها يقول صراحةً إنّها خلاصة تشغيلية لا قائمة دخل محاسبية
 // (قائمة الدخل في المرحلة 3)، وسهمان للشهر السابق والتالي (لا شهر بعد الحالي)، وتُطبع A4 بعنوانها. القسم بلا حركة سطر واحد بدل جدول أصفار.
+// والقسم باسمه الكامل كما في الكشف والسندات («معمل العلف»، «حقول اللحم»)، وكلّ كتلة وبطاقة النقد لا تنقسم بين صفحتين بالطباعة (data-keep،
+// مراجعة 0024 L1 وL8).
 
 interface Line {
   key: string;
@@ -88,7 +90,7 @@ function CashBlock({ cash }: { cash: CashFlow }) {
     { key: 'net', label: t('hub.flow.net', 'صافي التدفّق النقدي'), value: cash.net },
   ];
   return (
-    <section className="card flex flex-col gap-2 p-4" data-action="monthsum-cash">
+    <section className="card flex flex-col gap-2 p-4" data-action="monthsum-cash" data-keep>
       <h2 className="font-semibold">{t('monthsum.cash', 'النقد في المنشأة كلّها')}</h2>
       <p className="text-xs text-ink-muted">{t('monthsum.cash.note', 'بلا النقل بين الصناديق ولا الرصيد عند البداية.')}</p>
       <dl className="flex flex-col gap-1">
@@ -169,14 +171,14 @@ export default function MonthSummaryPage() {
         </p>
       ) : (
         <>
-          <section className="flex flex-col gap-2" data-action="monthsum-project">
+          <section className="flex flex-col gap-2" data-action="monthsum-project" data-keep>
             <h2 className="text-lg font-semibold">{t('monthsum.project', 'المشروع كلّه')}</h2>
             <BlockTable caption={t('monthsum.project', 'المشروع كلّه')} block={data.project} />
           </section>
           {data.divisions.map((division) => {
-            const name = divisionFilterLabel(division.kind);
+            const name = divisionLabel(division.kind);
             return (
-              <section key={division.divisionId} className="flex flex-col gap-2" data-action="monthsum-division" data-division={division.divisionId}>
+              <section key={division.divisionId} className="flex flex-col gap-2" data-action="monthsum-division" data-division={division.divisionId} data-keep>
                 <h2 className="text-lg font-semibold">{name}</h2>
                 {emptyBlock(division) ? <p className="text-sm text-ink-muted">{t('monthsum.division.empty', 'لا بيع ولا شراء ولا مصروف هذا الشهر.')}</p> : <BlockTable caption={name} block={division} />}
               </section>

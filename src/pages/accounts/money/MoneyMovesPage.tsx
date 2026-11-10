@@ -1,5 +1,5 @@
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../../components/PageHeader';
 import { Button } from '../../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../../components/ui/DataTable';
@@ -18,13 +18,14 @@ import type { MoneyClass, MoneyMove, MoneyMoves, MoneyMovesDay, MovesCursor } fr
 import { useSession } from '../../../lib/session';
 import { useLoad } from '../../../lib/useLoad';
 import { defaultPeriod, PartyPicker, PeriodFilter } from '../shared';
-import { classLabel, dayParam, DocCell, LINK, moneyDecimals, monthStart, moveMemo, PILL } from './shared';
+import { classLabel, dayParam, DocCell, LINK, moneyDecimals, monthStart, moveMemo, PILL, withBack } from './shared';
 
 // «حركة الأموال» (عقد 0024 §4.2 وF2، خطّة المحاسبة §8.1 1-ب): جدول واحد لكلّ حركة نقدية في كلّ الصناديق، بأعمدة التاريخ | رقم السند | الصندوق |
 // النوع | الجهة | البيان | وارد | صادر | الرصيد. الفلاتر بالرابط (from وto وaccount وclass وparty، فرابط «حركات اليوم» و«الجهة» يفتحها جاهزة)،
 // والمدّة افتراضاً من أوّل الشهر إلى يوم الخادم. الصفحات بمؤشّر الخادم المبهم («حمّل المزيد» يضيف ويُسقط المكرّر بمعرّف الحركة)، ومجموع كلّ يوم
 // بعد آخر حركاته حين تكتمل حركاته المحمّلة (المجموع من الخادم بكامل اليوم، فلا يُعرض قبل أن يُرى اليوم كلّه)، والرصيد الجاري بلا فلتر نوع ولا جهة
-// وحده. كلّ رقم يفتح سنده أو مستنده (§5)، والصندوق كشفه، والجهة كشفها؛ والعكس بعلامته «إلغاء».
+// وحده. كلّ رقم يفتح سنده أو مستنده (§5)، والصندوق كشفه، والجهة كشفها؛ والعكس بعلامته «إلغاء». والسند والفاتورة والاستلام وكشف الجهة
+// تحمل ?back= إلى هذه الصفحة بفلاترها (مراجعة 0024 M4)، فالرجوع منها يعيدها كما كانت.
 
 const CLASS_SET: ReadonlySet<string> = new Set(money.MONEY_CLASSES);
 const classParam = (value: string | null): MoneyClass | null => (value !== null && CLASS_SET.has(value) ? (value as MoneyClass) : null);
@@ -63,7 +64,7 @@ export function movesLines(rows: readonly MoneyMove[], days: ReadonlyMap<Day, Mo
 
 const strong = (node: ReactNode) => <span className="font-semibold">{node}</span>;
 
-export function MovesTable({ running, lines, totals, closing }: { running: boolean; lines: readonly MovesLine[]; totals: MoneyMoves['totals']; closing: Fils | null }) {
+export function MovesTable({ running, lines, totals, closing, back }: { running: boolean; lines: readonly MovesLine[]; totals: MoneyMoves['totals']; closing: Fils | null; back: string }) {
   const values: Fils[] = [totals.inflow, totals.outflow];
   for (const line of lines) {
     if (line.kind === 'move') values.push(line.move.inflow, line.move.outflow, ...(line.move.balance === null ? [] : [line.move.balance]));
@@ -74,7 +75,7 @@ export function MovesTable({ running, lines, totals, closing }: { running: boole
   const side = (value: Fils) => (value === 0n ? null : amount(value));
   const columns: Column<MovesLine>[] = [
     { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (line) => <Num>{fmtDay(line.kind === 'move' ? line.move.onDate : line.day.onDate)}</Num> },
-    { key: 'doc', header: t('moves.col.doc', 'رقم السند'), cell: (line) => (line.kind === 'move' ? <DocCell row={line.move} /> : null) },
+    { key: 'doc', header: t('moves.col.doc', 'رقم السند'), cell: (line) => (line.kind === 'move' ? <DocCell row={line.move} back={back} /> : null) },
     {
       key: 'box',
       header: t('cash.col.name', 'الصندوق'),
@@ -98,7 +99,7 @@ export function MovesTable({ running, lines, totals, closing }: { running: boole
               </span>
             ) : line.move.reversed ? (
               <span className="text-xs text-ink-muted" data-action="move-reversed">
-                {t('moves.reversed', 'أُلغيت')}
+                {t('moves.reversed', 'أُلغي')}
               </span>
             ) : null}
           </span>
@@ -109,7 +110,7 @@ export function MovesTable({ running, lines, totals, closing }: { running: boole
       header: t('moves.col.party', 'الجهة'),
       cell: (line) =>
         line.kind === 'move' && line.move.partyId && line.move.partyName ? (
-          <Link to={`/accounts/parties/${line.move.partyId}?back=/accounts/moves`} className={LINK} data-action="move-party">
+          <Link to={withBack(`/accounts/parties/${line.move.partyId}`, back)} className={LINK} data-action="move-party">
             {line.move.partyName}
           </Link>
         ) : null,
@@ -183,6 +184,8 @@ export default function MoneyMovesPage() {
   const session = useSession();
   const orgId = session.status === 'ready' ? session.workspace.orgId : 'none';
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const here = `${location.pathname}${location.search}`;
   const today = localDay();
   const from = dayParam(params.get('from')) ?? monthStart(today);
   const to = dayParam(params.get('to'));
@@ -318,7 +321,7 @@ export default function MoneyMovesPage() {
         <>
           <MovesStats data={first.data} />
           {first.data.running ? null : <p className="text-sm text-ink-muted">{t('moves.no_balance', 'لا رصيد جارياً مع فلتر النوع أو الجهة: الأرقام لما يطابق الفلتر وحده.')}</p>}
-          <MovesTable running={first.data.running} lines={lines} totals={first.data.totals} closing={first.data.closing} />
+          <MovesTable running={first.data.running} lines={lines} totals={first.data.totals} closing={first.data.closing} back={here} />
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-muted">
             <span data-action="moves-count">{t('items.count', '{shown} من المجموع {total}', { shown: fmtInt(merged.rows.length), total: fmtInt(first.data.totals.count) })}</span>
             {merged.next ? (

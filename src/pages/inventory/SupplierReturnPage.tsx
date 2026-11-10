@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useId, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { BackButton } from '../../components/ui/BackButton';
 import { Button, IconButton } from '../../components/ui/Button';
@@ -29,6 +29,7 @@ import { sound } from '../../lib/sound';
 import { useStore } from '../../lib/store';
 import { AmountField, dinarText, parseDinar } from './purchase-shared';
 import { isOwnRetry } from './countDevice';
+import { docBack } from './ReceiptsPage';
 import { canCopyDraft, CopiedNotice, CopyDraftAction, copyNext, docStatusLabel, DraftDayField, qtyColumns, runWithRef, unitOptions, useCopyDraft, VoidDocDialog, type VoidChoice } from './stock-shared';
 
 // مرتجع المورّد (الخطّة WP7، FOUNDATION ٣٣٥–٣٣٧، ٥٥٣؛ E15، E31، E47): من استلام مرحَّل، والأمين يكتب المسوّدة بالكميات من سطور
@@ -379,6 +380,9 @@ const isStale = (error: unknown): boolean => error instanceof RejectedError && e
 
 function SupplierReturnEditor({ docId }: { docId: string }) {
   const navigate = useNavigate();
+  // الرجوع إلى حيث فُتح المرتجع (?back=: كشف الجهة، مراجعة 0024 M4)، وإلّا استلامه.
+  const [params] = useSearchParams();
+  const back = docBack(params.get('back'));
   const online = useStore(onlineStore);
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
@@ -581,7 +585,11 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
   const title = current.docNo ? t('return.title.no', 'المرتجع {no}', { no: current.docNo }) : t('return.title.draft', 'مرتجع غير محفوظ بعد');
   return (
     <div className="flex flex-col gap-4">
-      <BackButton to={`/inventory/receipts/${current.receiptId}`} label={t('back.receipt', 'رجوع إلى الاستلام {no}', { no: receiptNo })} action="back-to-receipt" />
+      <BackButton
+        to={back ?? `/inventory/receipts/${current.receiptId}`}
+        label={back ? t('back.generic', 'رجوع') : t('back.receipt', 'رجوع إلى الاستلام {no}', { no: receiptNo })}
+        action="back-to-receipt"
+      />
       <PageHeader
         title={title}
         subtitle={t('return.subtitle', '{status} — إلى «{party}» من الاستلام {receipt} بتاريخ {day}', {

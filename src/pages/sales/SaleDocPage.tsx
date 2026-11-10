@@ -19,10 +19,11 @@ import { useLoad } from '../../lib/useLoad';
 // صفحة البيع للقراءة (عقد 0024 F8، /sales/:id): رأس الفاتورة (رقمها وتاريخها وحالتها والجهة والمخزن والدفع)، وسطورها بجدول، ومجاميعها
 // (المبلغ والمقبوض نقداً والباقي بالدين، والكلفة والربح لأدوار الكلفة وحدها: cost.money يغيب لغيرها)، والملغاة بتاريخ إلغائها وسببه.
 // يفتحها كشف الجهة وحركة الأموال (§5)، وفي حزمة المخزون مع صفحة المبيعات؛ والرجوع إلى ?back= (الحسابات أو المبيعات) وإلّا المبيعات.
+// والملغاة (مراجعة 0024 L6): «ملغاة» في عنوانها، وبلا مبالغ ولا كلفة ولا ربح (كما تخفيها قائمة المبيعات لصفّ الملغى)، فلا تُقرأ ديناً قائماً.
 
-/** طريق الرجوع من الرابط: مسار في الحسابات أو المبيعات وحده، وإلّا صفحة المبيعات. */
+/** طريق الرجوع من الرابط: مسار في الحسابات أو المبيعات وحده (بترميز URLSearchParams: المسافة «+»)، وإلّا صفحة المبيعات. */
 export function saleBack(value: string | null): string {
-  return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?]*)?$/u.test(value) ? value : '/sales';
+  return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?+*]*)?$/u.test(value) ? value : '/sales';
 }
 
 /** الدفع بكلماته: بلا مقابل، أو نقداً ثمّ رُدّ المبلغ، أو نقداً، أو بالدين. */
@@ -35,12 +36,16 @@ export function salePaymentText(sale: Pick<SaleDoc, 'free' | 'paymentRefunded' |
 /** مبلغ بالدينار الصحيح، أو بمرتبتين إذا فيه فلوس (الكلفة من قيم الوجبات قد تحمل فلوساً). */
 const dinars = (amount: bigint): string => t('sales.dinar', '{amount} دينار', { amount: fmtMoney(amount, amount % 100n === 0n ? 0 : 2) });
 
+/** مال الفاتورة كما يُعرض: لا شيء للملغاة (لا مبلغ قائماً ولا دين ولا ربح)، وإلّا ما أرسله الخادم. */
+const shownMoney = (sale: SaleDoc): SaleDoc['money'] => (sale.status === 'void' ? null : sale.money);
+
 function saleStats(sale: SaleDoc): Stat[] {
-  if (!sale.money) return [];
+  const money = shownMoney(sale);
+  if (!money) return [];
   const stats: Stat[] = [
-    { key: 'total', label: t('sale.doc.total', 'مبلغ الفاتورة'), value: dinars(sale.money.lineTotal) },
-    { key: 'paid', label: t('sale.doc.paid', 'المقبوض نقداً'), value: dinars(sale.money.paidNow) },
-    { key: 'credit', label: t('sale.doc.credit', 'بالدين'), value: dinars(sale.money.lineTotal - sale.money.paidNow) },
+    { key: 'total', label: t('sale.doc.total', 'مبلغ الفاتورة'), value: dinars(money.lineTotal) },
+    { key: 'paid', label: t('sale.doc.paid', 'المقبوض نقداً'), value: dinars(money.paidNow) },
+    { key: 'credit', label: t('sale.doc.credit', 'بالدين'), value: dinars(money.lineTotal - money.paidNow) },
   ];
   if (sale.cost) {
     stats.push(
@@ -58,11 +63,11 @@ function SaleLines({ sale }: { sale: SaleDoc }) {
     { key: 'qty', header: t('sales.col.qty', 'الكمية'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.qty, decimals)}</Num> },
     { key: 'unit', header: t('sales.col.unit', 'الوحدة'), cell: (row) => baseUnitLabel(row.baseUnit) },
   ];
-  if (sale.money) {
-    const total = sale.money.lineTotal;
+  const money = shownMoney(sale);
+  if (money) {
     columns.push(
-      { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: (row) => (row.money ? <Num>{fmtMoney(row.money.unitPrice)}</Num> : null) },
-      { key: 'amount', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (row) => (row.money ? <Num>{fmtMoney(row.money.lineTotal, 0)}</Num> : null), total: <Num>{fmtMoney(total, 0)}</Num> },
+      { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: () => <Num>{fmtMoney(money.unitPrice)}</Num> },
+      { key: 'amount', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: () => <Num>{fmtMoney(money.lineTotal, 0)}</Num>, total: <Num>{fmtMoney(money.lineTotal, 0)}</Num> },
     );
   }
   return (
@@ -72,7 +77,7 @@ function SaleLines({ sale }: { sale: SaleDoc }) {
       rows={[sale]}
       rowKey={(row) => row.lineId}
       empty=""
-      {...(sale.money ? { totalLabel: t('sales.report.total', 'المجموع') } : {})}
+      {...(money ? { totalLabel: t('sales.report.total', 'المجموع') } : {})}
     />
   );
 }
@@ -111,12 +116,15 @@ export default function SaleDocPage() {
       ) : (
         <>
           <PageHeader
-            title={t('sale.doc.title', 'فاتورة بيع {doc}', { doc: data.docNo })}
+            title={data.status === 'void' ? t('sale.doc.title.void', 'فاتورة بيع {doc} — ملغاة', { doc: data.docNo }) : t('sale.doc.title', 'فاتورة بيع {doc}', { doc: data.docNo })}
             subtitle={data.status === 'void' ? t('sale.doc.void', 'فاتورة ملغاة') : t('sale.doc.posted', 'فاتورة محفوظة')}
           />
           {data.status === 'void' ? (
             <Notice tone="warning" title={t('sale.doc.void.title', 'أُلغيت هذه الفاتورة')}>
-              {data.voidReason ? t('sale.doc.void.reason', 'السبب: {reason}', { reason: data.voidReason }) : null}
+              <span className="flex flex-col gap-1" data-action="sale-void">
+                {data.voidReason ? <span>{t('sale.doc.void.reason', 'السبب: {reason}', { reason: data.voidReason })}</span> : null}
+                <span>{t('sale.doc.void.money', 'لا يُحتسب مبلغها ولا ربحها، ولا دين بها على الجهة.')}</span>
+              </span>
             </Notice>
           ) : null}
           <dl className="card grid gap-3 p-4 sm:grid-cols-2" data-action="sale-head">

@@ -27,9 +27,11 @@ import { bookLabel, divisionFilterLabel, entryKindLabel, PaymentDialog, SideAmou
 
 // قائمة الذمم (عقد 0024 F3 و§4.3، الخطّة §8.1 «1-ج» و§9.4): تبويبان «لنا عند الناس» و«علينا للناس» (?side=)، وفوق الجدول المجموع وتوزيعه
 // على الأعمار من الخادم للمجموعة المفلترة كلّها؛ والفلاتر: القسم أو الحساب، والحدّ الأدنى، وما تجاوز 90 يوماً (?over90=1، رابط تنبيه
-// الخلاصة)، والبحث بالاسم أو الهاتف؛ والترتيب بالمبلغ أو العمر أو الاسم. صفّ لكلّ جهة: الاسم (يفتح كشفها) والرصيد وتحته رصيد كلّ حساب إن
-// تعدّدت (الحسابات لا تُقاصّ)، وأعمار مفتوحها، وعمر أقدم دين بلون فئته، وآخر حركة وآخر تسديد والهاتف، وأفعال سريعة: الكشف، و«قبضت منه» أو
-// «دفعت له» بنافذة القبض والدفع نفسها، و«اتّصل»، و«أرسل الكشف». الصفحات بمؤشّر الخادم وتُلحق بلا تكرار جهة.
+// الخلاصة)، والبحث بالاسم أو الهاتف؛ والترتيب بالمبلغ أو العمر أو الاسم. صفّ لكلّ جهة: الاسم (يفتح كشفها) والرصيد بعده مباشرةً (يظهر على
+// الهاتف بلا تمرير، مراجعة 0024 M2) وتحته رصيد كلّ حساب إن تعدّدت (الحسابات لا تُقاصّ)، وأعمار مفتوحها، وعمر أقدم دين بلون فئته، وآخر
+// حركة وآخر تسديد والهاتف، والأفعال السريعة آخراً: الكشف، و«قبضت منه» أو «دفعت له» بنافذة القبض والدفع نفسها، و«اتّصل»، و«أرسل الكشف».
+// الصفحات بمؤشّر الخادم وتُلحق بلا تكرار جهة، ولا تُلحق صفحة طُلبت قبل تغيير فلتر أو قبل قراءة من جديد (بعد قبض أو دفع). وكلّ فلتر في
+// الرابط (debtsPath، مراجعة 0024 M4): الرجوع من الكشف يعيد القائمة كما كانت.
 
 /** الجهة كصفّ منتقٍ لنافذة القبض والدفع. */
 const asParty = (row: DebtRow): PartyRow => ({ id: row.partyId, version: row.version, archived: row.archived, name: row.name, phone: row.phone, isCustomer: row.isCustomer, isSupplier: row.isSupplier });
@@ -76,8 +78,31 @@ export function telHref(phone: string): string {
   return /^9647[0-9]{9}$/.test(phone) ? `tel:+${phone}` : `tel:${phone.replace(/[^0-9+]/g, '')}`;
 }
 
-/** طريق قائمة الذمم بتبويبها وفلتر الأعمار (رجوع الكشف إليها). */
-export const debtsPath = (side: DebtSide, over90: boolean): string => `/accounts/debts?side=${side}${over90 ? '&over90=1' : ''}`;
+/** فلاتر القائمة كلّها كما في الرابط: الجانب، والقسم أو الحساب (قيمة الفلتر)، والبحث والحدّ الأدنى كما كُتبا، والترتيب، وفوق 90 يوماً. */
+export interface DebtsFilters {
+  side: DebtSide;
+  filter: string;
+  search: string;
+  min: string;
+  sort: DebtSort;
+  over90: boolean;
+}
+
+/** سؤال الرابط من الفلاتر (side دائماً، والباقي حين يُختار): ?side=&division=|book=&q=&min=&sort=&over90=1. */
+export function debtsSearch(filters: DebtsFilters): string {
+  const params = new URLSearchParams({ side: filters.side });
+  const { divisionId, bookId } = filterArgs(filters.filter);
+  if (divisionId) params.set('division', divisionId);
+  if (bookId) params.set('book', bookId);
+  if (filters.search) params.set('q', filters.search);
+  if (filters.min) params.set('min', filters.min);
+  if (filters.sort !== 'amount') params.set('sort', filters.sort);
+  if (filters.over90) params.set('over90', '1');
+  return params.toString();
+}
+
+/** طريق قائمة الذمم بفلاترها كلّها (رجوع الكشف إليها). */
+export const debtsPath = (filters: DebtsFilters): string => `/accounts/debts?${debtsSearch(filters)}`;
 
 /** كشف الجهة من القائمة: الرجوع إلى القائمة نفسها، و«أرسل» يفتح نافذة المشاركة. */
 export const statementPath = (partyId: string, back: string, send = false): string => `/accounts/parties/${partyId}?${send ? 'send=1&' : ''}back=${encodeURIComponent(back)}`;
@@ -102,6 +127,7 @@ export function DebtsTable({
 }) {
   const books = new Map(data.books.map((book) => [book.bookId, book]));
   const receivable = data.side === 'receivable';
+  // الاسم (ثابت بالتمرير) ثمّ الرصيد: على الهاتف يظهر الاثنان بلا تمرير، والأفعال آخراً (مراجعة 0024 M2).
   const columns: Column<DebtRow>[] = [
     {
       key: 'name',
@@ -111,30 +137,6 @@ export function DebtsTable({
         <Link to={statementPath(row.partyId, back)} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="party-link">
           {row.archived ? t('party.archived.name', '{name} (مؤرشفة)', { name: row.name }) : row.name}
         </Link>
-      ),
-    },
-    {
-      key: 'actions',
-      header: t('org.col.actions', 'إجراءات'),
-      cell: (row) => (
-        <span className="flex gap-1.5">
-          <Link to={statementPath(row.partyId, back)} className={PILL} data-action="open-statement">
-            {t('debts.statement', 'كشف')}
-          </Link>
-          {onPay ? (
-            <Button size="sm" variant="secondary" onClick={() => onPay(row)} data-action={receivable ? 'row-payment' : 'row-payout'}>
-              {receivable ? t('debts.received', 'قبضت منه') : t('debts.paid', 'دفعت له')}
-            </Button>
-          ) : null}
-          {row.phone ? (
-            <a href={telHref(row.phone)} className={PILL} data-action="call">
-              {t('debts.call', 'اتّصل')}
-            </a>
-          ) : null}
-          <Link to={statementPath(row.partyId, back, true)} className={PILL} data-action="send-statement">
-            {t('debts.send', 'أرسل الكشف')}
-          </Link>
-        </span>
       ),
     },
     {
@@ -208,6 +210,30 @@ export function DebtsTable({
         ),
     },
     { key: 'phone', header: t('party.phone', 'الهاتف'), cell: (row) => (row.phone ? <bdi dir="ltr">{fmtPhone(row.phone)}</bdi> : t('file.none', '—')) },
+    {
+      key: 'actions',
+      header: t('org.col.actions', 'إجراءات'),
+      cell: (row) => (
+        <span className="flex gap-1.5">
+          <Link to={statementPath(row.partyId, back)} className={PILL} data-action="open-statement">
+            {t('debts.statement', 'كشف')}
+          </Link>
+          {onPay ? (
+            <Button size="sm" variant="secondary" onClick={() => onPay(row)} data-action={receivable ? 'row-payment' : 'row-payout'}>
+              {receivable ? t('debts.received', 'قبضت منه') : t('debts.paid', 'دفعت له')}
+            </Button>
+          ) : null}
+          {row.phone ? (
+            <a href={telHref(row.phone)} className={PILL} data-action="call">
+              {t('debts.call', 'اتّصل')}
+            </a>
+          ) : null}
+          <Link to={statementPath(row.partyId, back, true)} className={PILL} data-action="send-statement">
+            {t('debts.send', 'أرسل الكشف')}
+          </Link>
+        </span>
+      ),
+    },
   ];
   return (
     <DataTable
@@ -227,23 +253,25 @@ export default function DebtsPage() {
   const canPay = workspace ? can(workspace.role, 'payment.post') : false;
   const location = useLocation();
   const navigate = useNavigate();
+  // كلّ فلتر بالرابط (الرجوع من الكشف يعيد القائمة كما كانت): القسم من رابط «خلاصة المال» (?division=) كذلك. البحث والحدّ الأدنى يبدآن
+  // بما في الرابط ويُكتبان فيه مع كلّ حرف، وقيمتا حقليهما في الحالة (الحقل لا ينتظر الرابط فلا يقفز المؤشّر).
   const params = new URLSearchParams(location.search);
   const side: DebtSide = params.get('side') === 'payable' ? 'payable' : 'receivable';
   const over90 = params.get('over90') === '1';
-  const setUrl = (nextSide: DebtSide, nextOver90: boolean) => navigate({ search: `?side=${nextSide}${nextOver90 ? '&over90=1' : ''}` }, { replace: true });
+  const bookParam = params.get('book');
+  const divisionParam = params.get('division');
+  const filter = bookParam ? `book:${bookParam}` : divisionParam ? `division:${divisionParam}` : '';
+  const sortParam = params.get('sort');
+  const sort: DebtSort = sortParam === 'age' ? 'age' : sortParam === 'name' ? 'name' : 'amount';
+  const [search, setSearch] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
+  const [minText, setMinText] = useState(() => new URLSearchParams(location.search).get('min') ?? '');
+  const filters: DebtsFilters = { side, filter, search, min: minText, sort, over90 };
+  const setUrl = (patch: Partial<DebtsFilters>) => navigate({ search: `?${debtsSearch({ ...filters, ...patch })}` }, { replace: true });
   const filterId = useId();
   const searchId = useId();
   const sortId = useId();
   const minId = useId();
   const overId = useId();
-  // قسم من رابط «خلاصة المال» (?division=، 0024): القائمة تبدأ بقسمه، والمستخدم يغيّره من الفلتر.
-  const [filter, setFilter] = useState(() => {
-    const division = params.get('division');
-    return division ? `division:${division}` : '';
-  });
-  const [search, setSearch] = useState('');
-  const [minText, setMinText] = useState('');
-  const [sort, setSort] = useState<DebtSort>('amount');
   const deferredSearch = useDeferredValue(search);
   const deferredMin = useDeferredValue(minText);
   const min = parseMoneyText(deferredMin);
@@ -256,15 +284,20 @@ export default function DebtsPage() {
   );
   const loadFirst = useCallback(() => query(null), [query]);
   const first = useLoad(loadFirst, key);
+  // جيل القراءة: يزيد بكلّ قراءة من جديد (بعد قبض أو دفع)، فصفحة «حمّل المزيد» طُلبت قبلها (بمؤشّر وأرصدة ما قبل التسديد) لا تُلحق
+  // بالصفحة الأولى الجديدة؛ والصفحات محفوظة بمفتاح الفلاتر والجيل معاً.
+  const [generation, setGeneration] = useState(0);
+  const pagesKey = `${key}#${generation}`;
   const [more, setMore] = useState<{ key: string; rows: readonly DebtRow[]; next: DebtsCursor | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [paying, setPaying] = useState<DebtRow | null>(null);
-  const extra = more?.key === key ? more : null;
+  const extra = more?.key === pagesKey ? more : null;
   const rows = first.data ? mergeRows(first.data.rows, extra?.rows ?? []) : [];
   const next = extra ? extra.next : (first.data?.next ?? null);
-  const back = debtsPath(side, over90);
+  const back = debtsPath(filters);
   const refresh = () => {
     setMore(null);
+    setGeneration((value) => value + 1);
     first.retry();
   };
   const loadMore = () => {
@@ -272,7 +305,7 @@ export default function DebtsPage() {
     setLoadingMore(true);
     query(next)
       .then(
-        (page) => setMore({ key, rows: [...(extra?.rows ?? []), ...page.rows], next: page.next }),
+        (page) => setMore({ key: pagesKey, rows: [...(extra?.rows ?? []), ...page.rows], next: page.next }),
         (error: unknown) => {
           const { title, detail } = describeError(error, 'read');
           toast({ tone: 'danger', title, detail });
@@ -303,7 +336,7 @@ export default function DebtsPage() {
           { value: 'payable', label: t('home.accounts.payable', 'علينا للناس') },
         ]}
         value={side}
-        onChange={(value) => setUrl(value, over90)}
+        onChange={(value) => setUrl({ side: value })}
       />
       {totals ? (
         <section className="card flex flex-col gap-3 p-4" data-action="debts-total">
@@ -321,7 +354,7 @@ export default function DebtsPage() {
       ) : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field id={filterId} label={t('debts.filter', 'القسم أو الحساب')}>
-          <select id={filterId} className="input" value={filter} onChange={(event) => setFilter(event.target.value)} data-action="debts-filter">
+          <select id={filterId} className="input" value={filter} onChange={(event) => setUrl({ filter: event.target.value })} data-action="debts-filter">
             {filterOptions(books.data ?? []).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -329,19 +362,38 @@ export default function DebtsPage() {
             ))}
           </select>
         </Field>
-        <MoneyInput id={minId} label={t('debts.min', 'الحدّ الأدنى للرصيد (دينار)')} value={minText} onChange={setMinText} />
+        <MoneyInput
+          id={minId}
+          label={t('debts.min', 'الحدّ الأدنى للرصيد (دينار)')}
+          value={minText}
+          onChange={(value) => {
+            setMinText(value);
+            setUrl({ min: value });
+          }}
+        />
         <Field id={searchId} label={t('accounts.search', 'ابحث بالاسم أو الهاتف')}>
-          <input id={searchId} type="search" className="input" value={search} onChange={(event) => setSearch(event.target.value)} autoComplete="off" data-action="debts-search" />
+          <input
+            id={searchId}
+            type="search"
+            className="input"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setUrl({ search: event.target.value });
+            }}
+            autoComplete="off"
+            data-action="debts-search"
+          />
         </Field>
         <Field id={sortId} label={t('accounts.sort', 'الترتيب')}>
-          <select id={sortId} className="input" value={sort} onChange={(event) => setSort(event.target.value as DebtSort)} data-action="debts-sort">
+          <select id={sortId} className="input" value={sort} onChange={(event) => setUrl({ sort: event.target.value as DebtSort })} data-action="debts-sort">
             <option value="amount">{t('debts.sort.amount', 'الأكبر رصيداً')}</option>
             <option value="age">{t('debts.sort.age', 'الأقدم ديناً')}</option>
             <option value="name">{t('accounts.sort.name', 'الاسم')}</option>
           </select>
         </Field>
       </div>
-      <Switch id={overId} label={t('debts.over90', 'أكثر من 90 يوماً فقط')} description={t('debts.over90.detail', 'الجهات التي عمر أقدم دين مفتوح لها فوق 90 يوماً.')} checked={over90} onChange={(value) => setUrl(side, value)} />
+      <Switch id={overId} label={t('debts.over90', 'أكثر من 90 يوماً فقط')} description={t('debts.over90.detail', 'الجهات التي عمر أقدم دين مفتوح لها فوق 90 يوماً.')} checked={over90} onChange={(value) => setUrl({ over90: value })} />
       {books.error ? <LoadFailed what={t('book.list', 'قائمة الحسابات')} error={books.error} onRetry={books.retry} /> : null}
       {first.error ? (
         <LoadFailed what={t('debts.what', 'قائمة الذمم')} error={first.error} onRetry={refresh} />

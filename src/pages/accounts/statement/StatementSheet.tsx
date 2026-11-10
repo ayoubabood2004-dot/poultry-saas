@@ -2,12 +2,31 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DataTable, Num, type Column, type FooterRow } from '../../../components/ui/DataTable';
 import type { Fils } from '../../../domain/money';
-import { columnDecimals, fmtDay, fmtPhone, fmtQtyCell } from '../../../lib/format';
+import { columnDecimals, fmtDay, fmtMoney, fmtPhone, fmtQtyCell } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import { AGING_BUCKETS, bucketOf, type OpenItem, type PartyStatement, type StatementBook, type StatementLine } from '../../../lib/repo/statement';
-import { AgeText, bucketLabel, DocText, money, moneyText, Signatures, unitText } from '../papers';
+import { moneyDecimals } from '../money/shared';
+import { AgeText, bucketLabel, DocText, money, moneyText, Signatures } from '../papers';
 import { bookLabel } from '../shared';
-import { booksLabel, closingWords, docKindLink, docLink, docType, lineMemo, modeLabel, openItemType, openSummary, settlementText, sideWord, type StatementMode } from './text';
+import {
+  booksLabel,
+  closingWords,
+  docItemsOf,
+  docLink,
+  docType,
+  lineMemo,
+  modeLabel,
+  openItemLink,
+  openItemType,
+  openSummary,
+  pastPeriodEnd,
+  receiptIds,
+  settledNote,
+  settlementText,
+  sideWord,
+  type DocItem,
+  type StatementMode,
+} from './text';
 
 // ورقة كشف الحساب الاحترافي (عقد 0024 F4، الخطّة §8.1 «1-د» و§9.1): الرأس (المنشأة و«كشف حساب» والجهة وهاتفها والحساب والفترة والعملة
 // وتاريخ الطباعة)، ولكلّ حساب جدول بسبعة أعمدة «التاريخ | رقم المستند | نوع المستند | البيان | عليه (مدين) | له (دائن) | الرصيد» أوّله
@@ -96,96 +115,62 @@ export function hasDocItems(line: Pick<StatementLine, 'detail' | 'reverses'>): b
 }
 
 /**
- * موادّ المستند تحت سطره (التفصيلي): المادّة | الكمية | الوحدة | السعر | المبلغ، ثمّ المجموع والخصم وأجور الشراء والصافي = مبلغ القيد. الأجور
- * سطور بلا مبلغ في عمود المبلغ (المبلغ في اسمها): قيدها مستقلّ أو نقداً، فالصافي = المجموع − الخصم بالضبط (ثابت العقد §4.4).
+ * موادّ المستند تحت سطره (التفصيلي): المادّة | الكمية | الوحدة | السعر | المبلغ، ثمّ المجموع والخصم وأجور الشراء والصافي = مبلغ الحركة
+ * (docItemsOf). عمودا السعر والمبلغ بعدد مراتب واحد لكلّ عمود (450.00 مع 333.33، مراجعة 0024 L5): الآحاد تصطفّ، وصفوف التذييل في عمود
+ * المبلغ بمراتبه.
  */
 export function DocItems({ line }: { line: StatementLine }) {
-  const { detail } = line;
-  if (!detail || line.reverses) return null;
+  const spec = docItemsOf(line);
+  if (!spec) return null;
+  const { items } = spec;
   const none = t('stmt.items.unpriced', 'بلا سعر');
-  type Item = { key: string; name: string; qty: bigint; unit: string; price: Fils | null; amount: Fils | null };
-  let items: Item[];
-  let footers: FooterRow[];
-  let note: string | null = null;
-  switch (detail.type) {
-    case 'purchase':
-      items = detail.lines.map((entry) => ({ key: `${entry.lineNo}`, name: entry.itemName, qty: entry.qty, unit: unitText(entry.unitLabel), price: entry.unitPrice, amount: entry.amount }));
-      footers = [
-        { key: 'sum', label: t('stmt.items.sum', 'مجموع الموادّ'), cells: { amount: money(detail.linesTotal) } },
-        ...(detail.discount > 0n ? [{ key: 'discount', label: t('stmt.items.discount', 'الخصم'), cells: { amount: money(-detail.discount) } }] : []),
-        ...detail.charges.map((charge, index) => ({ key: `charge-${index}`, label: chargeLabel(charge), cells: {} })),
-        { key: 'net', label: t('stmt.items.net', 'الصافي (مبلغ القيد)'), cells: { amount: money(detail.net) } },
-      ];
-      note = paidNote(detail.paidNow, detail.account?.name ?? null);
-      break;
-    case 'sale':
-      items = detail.lines.map((entry) => ({ key: `${entry.lineNo}`, name: entry.itemName, qty: entry.qty, unit: unitText(entry.baseUnit), price: entry.unitPrice, amount: entry.amount }));
-      footers = [{ key: 'net', label: t('stmt.items.total', 'مجموع الفاتورة (مبلغ القيد)'), cells: { amount: money(detail.total) } }];
-      break;
-    case 'supplier_return':
-      items = detail.lines.map((entry) => ({ key: `${entry.lineNo}`, name: entry.itemName, qty: entry.qty, unit: unitText(entry.baseUnit), price: null, amount: entry.amount }));
-      footers = [{ key: 'net', label: t('stmt.items.return_total', 'مجموع المرتجع (مبلغ القيد)'), cells: { amount: money(detail.total) } }];
-      break;
-    case 'revaluation':
-      items = [{ key: 'item', name: detail.itemName, qty: detail.qty, unit: unitText(detail.unitLabel), price: detail.unitPrice, amount: detail.newTotal }];
-      footers = [
-        { key: 'old', label: t('stmt.items.old_total', 'المبلغ قبله'), cells: { amount: money(detail.oldTotal) } },
-        { key: 'net', label: t('stmt.items.diff', 'الفرق (مبلغ القيد)'), cells: { amount: money(detail.diff) } },
-      ];
-      break;
-    default:
-      return null;
-  }
-  const decimals = columnDecimals(items.map((item) => item.qty), 3) as 0 | 1 | 2 | 3;
-  const priced = detail.type !== 'supplier_return';
-  const columns: Column<Item>[] = [
+  const present = (values: readonly (Fils | null)[]): Fils[] => values.filter((value): value is Fils => value !== null);
+  const qtyDecimals = columnDecimals(items.map((item) => item.qty), 3) as 0 | 1 | 2 | 3;
+  const priceDecimals = moneyDecimals(present(items.map((item) => item.price)));
+  const amountDecimals = moneyDecimals(present([...items.map((item) => item.amount), ...spec.footers.map((footer) => footer.amount)]));
+  const amount = (value: Fils) => <Num>{fmtMoney(value, amountDecimals)}</Num>;
+  const columns: Column<DocItem>[] = [
     { key: 'item', header: t('stmt.items.item', 'المادّة'), wrap: true, cell: (item) => item.name },
-    { key: 'qty', header: t('stmt.items.qty', 'الكمية'), kind: 'number', cell: (item) => <Num>{fmtQtyCell(item.qty, decimals)}</Num> },
+    { key: 'qty', header: t('stmt.items.qty', 'الكمية'), kind: 'number', cell: (item) => <Num>{fmtQtyCell(item.qty, qtyDecimals)}</Num> },
     { key: 'unit', header: t('stmt.items.unit', 'الوحدة'), cell: (item) => item.unit },
-    ...(priced ? [{ key: 'price', header: t('stmt.items.price', 'السعر'), kind: 'number' as const, cell: (item: Item) => (item.price === null ? none : money(item.price)) }] : []),
-    { key: 'amount', header: t('stmt.items.amount', 'المبلغ'), kind: 'number', cell: (item) => (item.amount === null ? none : money(item.amount)) },
+    ...(spec.priced
+      ? [{ key: 'price', header: t('stmt.items.price', 'السعر'), kind: 'number' as const, cell: (item: DocItem) => (item.price === null ? none : <Num>{fmtMoney(item.price, priceDecimals)}</Num>) }]
+      : []),
+    { key: 'amount', header: t('stmt.items.amount', 'المبلغ'), kind: 'number', cell: (item) => (item.amount === null ? none : amount(item.amount)) },
   ];
+  const footers: FooterRow[] = spec.footers.map((footer) => ({ key: footer.key, label: footer.label, cells: footer.amount === null ? {} : { amount: amount(footer.amount) } }));
   return (
     <div className="flex flex-col gap-1.5 py-1" data-action="doc-items" data-entry={line.entryId}>
       <DataTable caption={t('stmt.items.caption', 'موادّ {doc}', { doc: line.docNo ?? docType(line) })} columns={columns} rows={items} rowKey={(item) => item.key} empty="" footers={footers} />
-      {note ? (
+      {spec.note ? (
         <p className="paper-note" data-action="doc-note">
-          {note}
+          {spec.note}
         </p>
       ) : null}
     </div>
   );
 }
 
-/** سطر أجرة الشراء: اسمها ومبلغها وأين قُيّدت (نقداً، أو على حساب جهة الأجرة)، خارج قيد الشراء. */
-function chargeLabel(charge: { label: string; amount: Fils; paid: 'cash' | 'party' }): string {
-  return charge.paid === 'cash'
-    ? t('stmt.charge.cash', 'أجور {label} {amount}: نقداً، خارج هذا القيد', { label: charge.label, amount: moneyText(charge.amount) })
-    : t('stmt.charge.party', 'أجور {label} {amount}: على حساب جهة الأجرة، خارج هذا القيد', { label: charge.label, amount: moneyText(charge.amount) });
-}
-
-/** ما دُفع عند الشراء ومن أيّ صندوق (قيد الدفع سطر مستقلّ في الكشف). */
-function paidNote(paidNow: Fils, box: string | null): string | null {
-  if (paidNow <= 0n) return null;
-  return box ? t('stmt.paid_now.box', 'دُفع منه عند الشراء {amount} من «{box}».', { amount: moneyText(paidNow), box }) : t('stmt.paid_now', 'دُفع منه عند الشراء {amount}.', { amount: moneyText(paidNow) });
-}
-
 type LedgerRow = { kind: 'bf' } | { kind: 'line'; line: StatementLine };
 
-/** جدول الحساب بالأعمدة السبعة: «رصيد سابق» أوّلاً، و«مجموع الفترة» من الخادم آخراً، وفي التفصيلي موادّ كلّ مستند تحت سطره. */
+/**
+ * جدول الحساب بالأعمدة السبعة: «رصيد سابق» أوّلاً، و«مجموع الفترة» من الخادم آخراً، وفي التفصيلي موادّ كلّ مستند تحت سطره. وكشف فترة
+ * مضت: ما سدّده كلّ سطر حتى آخر الفترة وحده بلا الباقي، وجملة تحت الجدول تقول ذلك (مراجعة 0024 H1).
+ */
 export function StatementTable({ statement, book, mode, back }: { statement: PartyStatement; book: StatementBook; mode: StatementMode; back: string }) {
+  const periodEnd = pastPeriodEnd(statement);
   const rows: LedgerRow[] = [{ kind: 'bf' }, ...book.lines.map((line): LedgerRow => ({ kind: 'line', line }))];
   const columns: Column<LedgerRow>[] = [
     { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.kind === 'bf' ? statement.from : row.line.onDate)}</Num> },
     { key: 'doc', header: t('stmt.col.doc', 'رقم المستند'), cell: (row) => (row.kind === 'line' ? <DocNo docNo={row.line.docNo} href={docLink(row.line, back)} /> : null) },
-    { key: 'type', header: t('stmt.col.type', 'نوع المستند'), cell: (row) => (row.kind === 'line' ? docType(row.line) : null) },
+    { key: 'type', header: t('stmt.col.type', 'نوع المستند'), cell: (row) => (row.kind === 'line' ? docType(row.line, book.lines) : null) },
     {
       key: 'memo',
       header: t('ledger.memo', 'البيان'),
       wrap: true,
       cell: (row) => {
         if (row.kind === 'bf') return t('ledger.opening', 'رصيد سابق');
-        const settled = settlementText(row.line);
+        const settled = settlementText(row.line, periodEnd);
         return (
           <span className="flex flex-col gap-0.5" data-action="memo" data-entry={row.line.entryId}>
             <span>
@@ -205,24 +190,31 @@ export function StatementTable({ statement, book, mode, back }: { statement: Par
     { key: 'balance', header: t('ledger.balance', 'الرصيد'), kind: 'number', cell: (row) => <BalanceCell amount={row.kind === 'bf' ? book.broughtForward : row.line.balance} />, total: <BalanceCell amount={book.closing} /> },
   ];
   return (
-    <DataTable
-      caption={t('stmt.caption', 'كشف حساب {book}', { book: bookLabel(book) })}
-      columns={columns}
-      rows={rows}
-      rowKey={(row) => (row.kind === 'bf' ? 'bf' : row.line.entryId)}
-      empty=""
-      totalLabel={t('stmt.total', 'مجموع الفترة')}
-      subRow={mode === 'detailed' ? (row) => (row.kind === 'line' && hasDocItems(row.line) ? <DocItems line={row.line} /> : null) : undefined}
-    />
+    <>
+      <DataTable
+        caption={t('stmt.caption', 'كشف حساب {book}', { book: bookLabel(book) })}
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => (row.kind === 'bf' ? 'bf' : row.line.entryId)}
+        empty=""
+        totalLabel={t('stmt.total', 'مجموع الفترة')}
+        subRow={mode === 'detailed' ? (row) => (row.kind === 'line' && hasDocItems(row.line) ? <DocItems line={row.line} /> : null) : undefined}
+      />
+      {periodEnd !== null && book.lines.length ? (
+        <p className="text-xs text-ink-muted" data-action="settled-note">
+          {settledNote()}
+        </p>
+      ) : null}
+    </>
   );
 }
 
-/** المفتوح اليوم (الصيغة «المفتوح فقط»): المبلغ والمسدَّد والمتبقّي والعمر بلون فئته. */
-export function OpenItemsTable({ book, back }: { book: StatementBook; back: string }) {
+/** المفتوح اليوم (الصيغة «المفتوح فقط»): المبلغ والمسدَّد والمتبقّي والعمر بلون فئته، ورقم كلّ مفتوح يفتح سنده أو استلامه (openItemLink). */
+export function OpenItemsTable({ book, back, receipts }: { book: StatementBook; back: string; receipts: ReadonlyMap<string, string> }) {
   const sum = (pick: (item: OpenItem) => Fils) => book.openItems.reduce((total, item) => total + pick(item), 0n);
   const columns: Column<OpenItem>[] = [
     { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (item) => <Num>{fmtDay(item.onDate)}</Num> },
-    { key: 'doc', header: t('stmt.col.doc', 'رقم المستند'), cell: (item) => <DocNo docNo={item.docNo} href={docKindLink(item.docKind, item.docId, back)} /> },
+    { key: 'doc', header: t('stmt.col.doc', 'رقم المستند'), cell: (item) => <DocNo docNo={item.docNo} href={openItemLink(item, back, receipts)} /> },
     { key: 'type', header: t('stmt.col.type', 'نوع المستند'), cell: (item) => openItemType(item) },
     { key: 'amount', header: t('stmt.open.amount', 'المبلغ'), kind: 'number', cell: (item) => money(item.amount), total: money(sum((item) => item.amount)) },
     { key: 'settled', header: t('stmt.open.settled', 'المسدَّد'), kind: 'number', cell: (item) => money(item.settled), total: money(sum((item) => item.settled)) },
@@ -249,7 +241,7 @@ function AgingTable({ book }: { book: StatementBook }) {
   const columns: Column<AgingRow>[] = [
     {
       key: 'side',
-      header: t('stmt.col.side', 'الجهة'),
+      header: t('stmt.col.side', 'عليه أو له'),
       cell: () => (aging.side === 'debit' ? t('ledger.side.debit', 'عليه') : aging.side === 'credit' ? t('ledger.side.credit', 'له') : t('stmt.aging.none', 'لا مفتوح')),
     },
     ...AGING_BUCKETS.map((bucket): Column<AgingRow> => ({
@@ -305,14 +297,15 @@ export function BookFooter({ statement, book, mode }: { statement: PartyStatemen
  * بطاقة على الشاشة، وبالطباعة A4 بلا إطار (papers.css).
  */
 export function StatementSheet({ statement, bookId, mode, back, extra }: { statement: PartyStatement; bookId: string; mode: StatementMode; back: string; extra?: (book: StatementBook) => ReactNode }) {
+  const receipts = receiptIds(statement);
   return (
     <article className="card flex flex-col gap-5 p-4 sm:p-6" data-paper data-action="statement-sheet">
       <StatementHead statement={statement} bookId={bookId} mode={mode} />
-      {statement.books.length === 0 ? <p className="text-sm text-ink-muted">{t('statement.empty', 'لا قيود لهذه الجهة بعد.')}</p> : null}
+      {statement.books.length === 0 ? <p className="text-sm text-ink-muted">{t('statement.empty', 'لا حركات لهذه الجهة بعد.')}</p> : null}
       {statement.books.map((book) => (
         <section key={book.bookId} className="flex flex-col gap-3" data-book={book.bookId}>
           <h3 className="font-semibold">{t('stmt.book', 'الحساب: {book}', { book: bookLabel(book) })}</h3>
-          {mode === 'open' ? <OpenItemsTable book={book} back={back} /> : <StatementTable statement={statement} book={book} mode={mode} back={back} />}
+          {mode === 'open' ? <OpenItemsTable book={book} back={back} receipts={receipts} /> : <StatementTable statement={statement} book={book} mode={mode} back={back} />}
           <BookFooter statement={statement} book={book} mode={mode} />
           {extra?.(book)}
         </section>

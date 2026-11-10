@@ -15,10 +15,11 @@ import { BackLink, backTarget, PageStyle, printAs } from '../papers';
 import { cashKindLabel } from '../shared';
 import { VoucherLine, VoucherPaper } from './VoucherPaper';
 
-// سند التحويل بين صندوقين (عقد 0024 F5 و§4.6): من أيّ صندوق إلى أيّها، والمبلغ بالأرقام والكلمات، والبيان، والتواقيع؛ يُطبع A5. بلا رقم:
-// ترقيم التحويل يغيّر دالّة ترحيل فهو مؤجّل (العقد §1). والملغى بختم «ملغى». الرجوع إلى ?back= وإلّا كشف الصندوق المحوِّل.
+// سند النقل بين الصناديق (عقد 0024 F5 و§4.6): من أيّ صندوق إلى أيّها، والمبلغ بالأرقام والكلمات، والبيان، والتواقيع؛ يُطبع A5. بلا رقم:
+// ترقيم النقل يغيّر دالّة ترحيل فهو مؤجّل (العقد §1). والملغى بختم «ملغى». الرجوع إلى ?back= وإلّا كشف الصندوق المنقول منه. والكلمة
+// «نقل» في كلّ مكان (اسم الصنف في حركة الأموال «نقل بين الصناديق»، مراجعة 0024 L8)، لا «تحويل».
 
-const boxText = (box: CashBox): string => t('cashtr.box', '«{name}» ({kind})', { name: box.name, kind: cashKindLabel(box.kind) });
+const boxText = (box: CashBox): string => t('cashtr.box', 'صندوق «{name}» ({kind})', { name: box.name, kind: cashKindLabel(box.kind) });
 
 export default function TransferVoucherPage() {
   const { id = '' } = useParams();
@@ -27,7 +28,7 @@ export default function TransferVoucherPage() {
   const transfer = useLoad(load, id);
   const data = transfer.data;
   const back = backTarget(new URLSearchParams(location.search).get('back'), data ? `/accounts/cash/${data.from.id}` : '/accounts/debts');
-  const title = t('cashtr.voucher', 'سند تحويل بين صندوقين');
+  const title = t('cashtr.voucher', 'سند نقل بين الصناديق');
   const header = (
     <div data-print="hide">
       <PageHeader
@@ -61,7 +62,7 @@ export default function TransferVoucherPage() {
       <BackLink to={back} label={t('paper.back', 'رجوع')} />
       {header}
       {transfer.error ? (
-        <LoadFailed what={t('cashtr.what', 'سند التحويل')} error={transfer.error} onRetry={transfer.retry} />
+        <LoadFailed what={t('cashtr.what', 'سند النقل')} error={transfer.error} onRetry={transfer.retry} />
       ) : !data ? (
         <p role="status" className="py-6 text-center text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
@@ -79,7 +80,7 @@ export default function TransferVoucherPage() {
             postedAt={data.postedAt}
             lead={
               <>
-                <VoucherLine label={t('cashtr.from', 'حوّلنا من:')} action="transfer-from">
+                <VoucherLine label={t('cashtr.from', 'نُقل من:')} action="transfer-from">
                   {boxText(data.from)}
                 </VoucherLine>
                 <VoucherLine label={t('cashtr.to', 'إلى:')} action="transfer-to">

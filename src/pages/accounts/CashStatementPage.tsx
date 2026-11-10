@@ -1,6 +1,6 @@
 import { Printer } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -16,7 +16,7 @@ import * as cash from '../../lib/repo/cash';
 import type { CashLine, CashStatement } from '../../lib/repo/cash';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { docHref } from './money/shared';
+import { docHref, withBack } from './money/shared';
 import { cashKindLabel, cashMoveKindLabel, defaultPeriod, PeriodFilter, VoidDialog } from './shared';
 
 // كشف الصندوق (خطّة المرحلة 1 WP3، Q12): نفس الجدول الكلاسيكي بستّة أعمدة، و«وارد | صادر» بدل «عليه | له»، ورصيد جارٍ من
@@ -43,26 +43,29 @@ export function cashVoidSentence(line: CashLine): string {
 }
 
 /**
- * طريق رقم الحركة (0024 §5): البيع والشراء وأجوره والتحويل إلى مستندها، والقبض والدفع (RC/PY) إلى سندهما (voucher_id من الكشف منذ 0024)؛
- * وبلاه (خادم أقدم) يفتح حركة الأموال لهذا الصندوق بيومه، وفيها رابط السند. المصروف والرصيد عند البداية بلا صفحة.
+ * طريق رقم الحركة (0024 §5): البيع والشراء وأجوره (برقم الشراء نفسه منذ 0024، لا «السند») والتحويل إلى مستندها، والقبض والدفع (RC/PY)
+ * إلى سندهما (voucher_id من الكشف منذ 0024)، بطريق الرجوع back إلى كشف الصندوق (مراجعة 0024 M4)؛ وبلا voucher_id (خادم أقدم) يفتح
+ * حركة الأموال لهذا الصندوق بيومه، وفيها رابط السند. المصروف والرصيد عند البداية بلا صفحة.
  */
-export function cashLineHref(line: CashLine, accountId: string): string | null {
+export function cashLineHref(line: CashLine, accountId: string, back: string | null = null): string | null {
   if ((line.kind === 'party_payment' || line.kind === 'party_payout') && !line.docKind) {
-    return line.voucherId ? `/accounts/voucher/${line.voucherId}` : `/accounts/moves?account=${accountId}&from=${line.onDate}&to=${line.onDate}`;
+    return line.voucherId ? withBack(`/accounts/voucher/${line.voucherId}`, back) : `/accounts/moves?account=${accountId}&from=${line.onDate}&to=${line.onDate}`;
   }
-  return docHref(line.docKind, line.docId);
+  const href = docHref(line.docKind, line.docId);
+  return href === null ? null : withBack(href, back);
 }
 
-export function cashEntries(statement: CashStatement): LinkedEntry[] {
-  return statement.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: cashMemo(line), debit: line.inflow, credit: line.outflow, href: cashLineHref(line, statement.account.id) }));
+export function cashEntries(statement: CashStatement, back: string | null = null): LinkedEntry[] {
+  return statement.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: cashMemo(line), debit: line.inflow, credit: line.outflow, href: cashLineHref(line, statement.account.id, back) }));
 }
 
-export function CashLedger({ statement }: { statement: CashStatement }) {
-  return <LedgerTable caption={t('cash.statement.of', 'كشف {name}', { name: statement.account.name })} entries={cashEntries(statement)} opening={statement.broughtForward} sides={cashSides()} />;
+export function CashLedger({ statement, back = null }: { statement: CashStatement; back?: string | null }) {
+  return <LedgerTable caption={t('cash.statement.of', 'كشف {name}', { name: statement.account.name })} entries={cashEntries(statement, back)} opening={statement.broughtForward} sides={cashSides()} />;
 }
 
 export default function CashStatementPage() {
   const { id = '' } = useParams();
+  const location = useLocation();
   const session = useSession();
   const allowed = session.status === 'ready' ? can(session.workspace.role, 'void') : false;
   const [period, setPeriod] = useState(defaultPeriod);
@@ -123,7 +126,7 @@ export default function CashStatementPage() {
       ) : (
         <>
           {statement.data.closing < 0n ? <Notice tone="warning" title={t('cash.negative.title.now', 'رصيد الصندوق سالب')} /> : null}
-          <CashLedger statement={statement.data} />
+          <CashLedger statement={statement.data} back={`${location.pathname}${location.search}`} />
           {voids.length ? (
             <div data-print="hide">
               <DataTable caption={t('cash.voids', 'حركات تُلغى من الصندوق')} columns={columns} rows={voids} rowKey={(line) => line.moveId} empty="" />

@@ -16,7 +16,7 @@ import type { MoneyMove, MoneyMoves } from '../../../lib/repo/money';
 import { useSession } from '../../../lib/session';
 import { useLoad } from '../../../lib/useLoad';
 import { cashKindLabel } from '../shared';
-import { A4_PORTRAIT, dayParam, DocCell, LINK, moneyDecimals, moveMemo, PILL, printAs, Signatures } from './shared';
+import { A4_PORTRAIT, dayParam, DocCell, LINK, moneyDecimals, moveMemo, PILL, printAs, Signatures, withBack } from './shared';
 
 // «يومية الصندوق» (عقد 0024 §4.2 وF2، خطّة المحاسبة §9.3): صندوق واحد ليوم واحد بنداء واحد (money_moves(اليوم، اليوم، الصندوق، …، 500)): رصيد أوّل
 // اليوم، ثمّ حركاته (رقم السند | الجهة | البيان | وارد | صادر | الرصيد)، ثمّ مجموع اليوم ورصيد آخره من الخادم، وسهمان لليوم السابق والتالي (لا يوم بعد
@@ -31,16 +31,17 @@ export function DayBook({ data }: { data: MoneyMoves }) {
   const decimals = moneyDecimals(values);
   const amount = (value: Fils | null) => (value === null ? null : <Num>{fmtMoney(value, decimals)}</Num>);
   const side = (value: Fils) => (value === 0n ? null : amount(value));
-  // الرجوع من كشف الجهة إلى يومية هذا الصندوق بيومها (backTarget في الكشف يقبل المسار الداخليّ بسؤاله).
-  const back = encodeURIComponent(data.account ? `/accounts/cash/${data.account.id}/day?on=${data.from}` : '/accounts/cash');
+  // الرجوع من كشف الجهة والسند والفاتورة والاستلام إلى يومية هذا الصندوق بيومها (backTarget في كلّ منها يقبل المسار الداخليّ بسؤاله،
+  // مراجعة 0024 M4).
+  const back = data.account ? `/accounts/cash/${data.account.id}/day?on=${data.from}` : '/accounts/cash';
   const columns: Column<BookLine>[] = [
-    { key: 'doc', header: t('moves.col.doc', 'رقم السند'), cell: (line) => (line.kind === 'move' ? <DocCell row={line.move} /> : null) },
+    { key: 'doc', header: t('moves.col.doc', 'رقم السند'), cell: (line) => (line.kind === 'move' ? <DocCell row={line.move} back={back} /> : null) },
     {
       key: 'party',
       header: t('moves.col.party', 'الجهة'),
       cell: (line) =>
         line.kind === 'move' && line.move.partyId && line.move.partyName ? (
-          <Link to={`/accounts/parties/${line.move.partyId}?back=${back}`} className={LINK} data-action="move-party">
+          <Link to={withBack(`/accounts/parties/${line.move.partyId}`, back)} className={LINK} data-action="move-party">
             {line.move.partyName}
           </Link>
         ) : null,

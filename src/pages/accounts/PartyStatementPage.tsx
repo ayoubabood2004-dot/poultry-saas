@@ -20,6 +20,7 @@ import * as statements from '../../lib/repo/statement';
 import type { PartyStatement, StatementBook, StatementLine } from '../../lib/repo/statement';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { dayParam } from './money/shared';
 import { BackLink, backTarget, DocText, PageStyle, printAs } from './papers';
 import { AdjustDialog, bookLabel, defaultPeriod, PaymentDialog, PeriodFilter, SideAmount, VoidDialog } from './shared';
 import { StatementSheet } from './statement/StatementSheet';
@@ -28,8 +29,9 @@ import { docType, lineMemo, modeLabel, shareText, statementCsv, statementTitle, 
 // كشف الحساب الاحترافي (عقد 0024 F4، الخطّة §8.1 «1-د»، يحلّ محلّ كشف WP3): ورقة واحدة بثلاث صيغ (مختصر، وتفصيلي بموادّ كلّ مستند، والمفتوح
 // فقط) من party_statement_v2، تُطبع A4 بعنوان «كشف حساب — الاسم — الفترة» وترقيم «صفحة س من ص»، وتُصدَّر إكسل (CSV) وتُشارك نصّاً من
 // الهاتف. ويبقى منه ما كان: الحساب بالرابط (?book=) و«الكل»، والمدّة (افتراضها السنة الجارية)، و«قبضنا» و«دفعنا»، والتسوية والإعفاء،
-// وإلغاء القبض والدفع والافتتاح والتسوية والإعفاء بقائمة لكلّ حساب على الشاشة وحدها (الورقة سبعة أعمدة بلا عمود إجراءات). والرجوع إلى
-// ?back= (مسار في الحسابات أو المبيعات) وإلّا قائمة الذمم؛ و?send=1 (من «أرسل الكشف» في قائمة الذمم) يفتح نافذة المشاركة.
+// وإلغاء القبض والدفع والرصيد عند البداية والتسوية والإعفاء بقائمة لكلّ حساب على الشاشة وحدها (الورقة سبعة أعمدة بلا عمود إجراءات). والرجوع
+// إلى ?back= (مسار في الحسابات أو المبيعات) وإلّا قائمة الذمم؛ و?send=1 (من «أرسل الكشف» في قائمة الذمم) يفتح نافذة المشاركة. والفترة
+// بالرابط مثل الحساب والصيغة (?from=&to=، مراجعة 0024 M3): الرجوع من سند أو فاتورة فُتحت من الكشف يعيده بفترته، والرابط المنسوخ كذلك.
 
 /**
  * القيود التي تُلغى من الكشف: القبض والدفع (ودفع الاستلام وقبض البيع، E44)، والافتتاح والتسوية والإعفاء، الأصلية التي لم تُلغَ؛
@@ -73,7 +75,7 @@ export function BookFilter({ books, value, onChange }: { books: readonly BookRef
   );
 }
 
-/** قيود الحساب التي تُلغى من هنا، بقائمة على الشاشة وحدها تحت الحساب. */
+/** حركات الحساب التي تُلغى من هنا، بقائمة على الشاشة وحدها تحت الحساب. */
 function VoidList({ book, onVoid }: { book: StatementBook; onVoid: (book: StatementBook, line: StatementLine) => void }) {
   const lines = book.lines.filter((line) => voidable(line) !== null);
   if (!lines.length) return null;
@@ -88,13 +90,13 @@ function VoidList({ book, onVoid }: { book: StatementBook; onVoid: (book: Statem
       ),
     },
     { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (line) => <Num>{fmtDay(line.onDate)}</Num> },
-    { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (line) => (line.docNo ? <bdi dir="ltr">{line.docNo}</bdi> : docType(line)) },
+    { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (line) => (line.docNo ? <bdi dir="ltr">{line.docNo}</bdi> : docType(line, book.lines)) },
     { key: 'memo', header: t('ledger.memo', 'البيان'), wrap: true, cell: (line) => <DocText text={lineMemo(line)} /> },
     { key: 'amount', header: t('statement.amount', 'المبلغ'), kind: 'number', cell: (line) => <SideAmount amount={line.debit - line.credit} /> },
   ];
   return (
     <div data-print="hide">
-      <DataTable caption={t('statement.voids', 'قيود تُلغى من {book}', { book: bookLabel(book) })} columns={columns} rows={lines} rowKey={(line) => line.entryId} empty="" />
+      <DataTable caption={t('statement.voids', 'حركات تُلغى من {book}', { book: bookLabel(book) })} columns={columns} rows={lines} rowKey={(line) => line.entryId} empty="" />
     </div>
   );
 }
@@ -111,8 +113,20 @@ function download(name: string, text: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-/** رابط الكشف لمن يملك حساباً في المنشأة (يرافق نصّ المشاركة). */
-const statementUrl = (partyId: string, bookId: string): string => `${window.location.origin}/accounts/parties/${partyId}${bookId ? `?book=${encodeURIComponent(bookId)}` : ''}`;
+/** الفترة المختارة بالرابط (?from=&to=، يومان صحيحان لا يسبق آخرهما أوّلهما)، أو null فالافتراض (السنة الجارية). */
+type Period = { from: string; to: string };
+
+/** رابط الكشف لمن يملك حساباً في المنشأة (يرافق نصّ المشاركة): بحسابه، وبفترته إن اختيرت (فيفتح الكشف الذي يصفه النصّ). */
+function statementUrl(partyId: string, bookId: string, period: Period | null = null): string {
+  const params = new URLSearchParams();
+  if (bookId) params.set('book', bookId);
+  if (period) {
+    params.set('from', period.from);
+    params.set('to', period.to);
+  }
+  const search = params.toString();
+  return `${window.location.origin}/accounts/parties/${partyId}${search ? `?${search}` : ''}`;
+}
 
 /** المشاركة من الهاتف بنصّ الخلاصة ورابط الكشف، وإلّا نسخ النصّ؛ false إذا تعذّر الاثنان (فتُعرض النافذة للنسخ باليد). */
 async function shareStatement(title: string, text: string, url: string): Promise<boolean> {
@@ -134,10 +148,10 @@ async function shareStatement(title: string, text: string, url: string): Promise
   }
 }
 
-function ShareDialog({ statement, bookId, onClose }: { statement: PartyStatement; bookId: string; onClose: () => void }) {
+function ShareDialog({ statement, bookId, period, onClose }: { statement: PartyStatement; bookId: string; period: Period | null; onClose: () => void }) {
   const id = useId();
   const text = shareText(statement);
-  const url = statementUrl(statement.party.id, bookId);
+  const url = statementUrl(statement.party.id, bookId, period);
   const [failed, setFailed] = useState(false);
   return (
     <Dialog
@@ -177,20 +191,27 @@ export default function PartyStatementPage() {
   const session = useSession();
   const role = session.status === 'ready' ? session.workspace.role : 'viewer';
   const allowed = { pay: can(role, 'payment.post'), adjust: can(role, 'party.adjust'), void: can(role, 'void') };
-  const [period, setPeriod] = useState(defaultPeriod);
-  // الحساب والصيغة بالرابط (الرابط المنسوخ يفتح الكشف نفسه)، بـuseLocation وuseNavigate كما كان.
+  // الحساب والصيغة والفترة بالرابط (الرابط المنسوخ والرجوع من سند أو فاتورة يفتحان الكشف نفسه)، بـuseLocation وuseNavigate كما كان.
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const bookId = params.get('book') ?? '';
   const wanted = params.get('mode');
   const mode: StatementMode = STATEMENT_MODES.find((value) => value === wanted) ?? 'summary';
+  const urlFrom = dayParam(params.get('from'));
+  const urlTo = dayParam(params.get('to'));
+  const chosen: Period | null = urlFrom && urlTo && urlFrom <= urlTo ? { from: urlFrom, to: urlTo } : null;
+  const period = chosen ?? defaultPeriod();
   const back = backTarget(params.get('back'), '/accounts/debts');
-  const here = `${location.pathname}${location.search}`;
+  // طريق الرجوع إلى الكشف نفسه (بحسابه وصيغته وفترته ورجوعه) بلا ?send، فالرجوع لا يفتح نافذة المشاركة ثانيةً.
+  const hereParams = new URLSearchParams(location.search);
+  hereParams.delete('send');
+  const hereSearch = hereParams.toString();
+  const here = `${location.pathname}${hereSearch ? `?${hereSearch}` : ''}`;
   // كلّ تغيير بالرابط يشيل ?send (نافذة المشاركة تُفتح مرّة من «أرسل الكشف»، لا بكلّ تحديث للصفحة).
-  const setParam = (name: string, value: string) => {
+  const setParams = (patch: Readonly<Record<string, string>>) => {
     const next = new URLSearchParams(location.search);
-    if (name) {
+    for (const [name, value] of Object.entries(patch)) {
       if (value) next.set(name, value);
       else next.delete(name);
     }
@@ -200,10 +221,10 @@ export default function PartyStatementPage() {
   };
   const closeDialog = () => {
     setDialog(null);
-    if (params.has('send')) setParam('', '');
+    if (params.has('send')) setParams({});
   };
   const [dialog, setDialog] = useState<DialogState>(() => (params.get('send') === '1' ? { kind: 'share' } : null));
-  const load = useCallback(() => statements.loadPartyStatement(id, bookId || null, period.from, period.to), [id, bookId, period]);
+  const load = useCallback(() => statements.loadPartyStatement(id, bookId || null, period.from, period.to), [id, bookId, period.from, period.to]);
   const statement = useLoad(load, `${id}|${bookId}|${period.from}|${period.to}`);
   const books = useLoad(parties.listBooks, 'books');
   const data = statement.data;
@@ -215,7 +236,7 @@ export default function PartyStatementPage() {
   };
   const share = () => {
     if (!data) return;
-    void shareStatement(statementTitle(data), shareText(data), statementUrl(data.party.id, bookId)).then((ok) => {
+    void shareStatement(statementTitle(data), shareText(data), statementUrl(data.party.id, bookId, chosen)).then((ok) => {
       if (!ok) setDialog({ kind: 'share' });
     });
   };
@@ -270,14 +291,14 @@ export default function PartyStatementPage() {
           <Notice tone="warning" title={t('party.archived.notice', 'هذه الجهة مؤرشفة: تقبل القبض والدفع والإلغاء، ولا يُسجَّل عليها دين جديد.')} />
         </div>
       ) : null}
-      <PeriodFilter from={period.from} to={period.to} onApply={setPeriod} />
+      <PeriodFilter key={`${period.from}|${period.to}`} from={period.from} to={period.to} onApply={(next) => setParams({ from: next.from, to: next.to })} />
       <div className="grid gap-3 sm:grid-cols-2" data-print="hide">
-        {books.data ? <BookFilter books={books.data} value={bookId} onChange={(next) => setParam('book', next)} /> : null}
+        {books.data ? <BookFilter books={books.data} value={bookId} onChange={(next) => setParams({ book: next })} /> : null}
         <Segmented<StatementMode>
           label={t('stmt.mode', 'صيغة الكشف')}
           options={STATEMENT_MODES.map((value) => ({ value, label: modeLabel(value) }))}
           value={mode}
-          onChange={(next) => setParam('mode', next === 'summary' ? '' : next)}
+          onChange={(next) => setParams({ mode: next === 'summary' ? '' : next })}
         />
       </div>
       {statement.error ? (
@@ -332,14 +353,14 @@ export default function PartyStatementPage() {
       {dialog?.kind === 'void' && party ? (
         <VoidDialog
           slot={dialog.line.entryId}
-          title={t('void.title', 'إلغاء {kind} {doc}', { kind: docType(dialog.line), doc: dialog.line.docNo ?? fmtDay(dialog.line.onDate) })}
+          title={t('void.title', 'إلغاء {kind} {doc}', { kind: docType(dialog.line, dialog.book.lines), doc: dialog.line.docNo ?? fmtDay(dialog.line.onDate) })}
           consequence={voidConsequence(dialog.line, bookLabel(dialog.book))}
           run={(clientRef, reason) => (voidable(dialog.line) === 'payment' ? parties.voidPayment(clientRef, dialog.line.entryId, reason) : parties.voidEntry(clientRef, dialog.line.entryId, reason))}
           onClose={() => setDialog(null)}
           onDone={() => done(t('void.done', 'أُلغيت الحركة'))}
         />
       ) : null}
-      {dialog?.kind === 'share' && data ? <ShareDialog statement={data} bookId={bookId} onClose={closeDialog} /> : null}
+      {dialog?.kind === 'share' && data ? <ShareDialog statement={data} bookId={bookId} period={chosen} onClose={closeDialog} /> : null}
     </div>
   );
 }

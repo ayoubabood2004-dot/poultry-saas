@@ -12,8 +12,8 @@ import type { CashBox, VoucherDetail } from '../../../lib/repo/statement';
 import * as statements from '../../../lib/repo/statement';
 import { useLoad } from '../../../lib/useLoad';
 import { BackLink, backTarget, DocText, moneyText, PageStyle, printAs } from '../papers';
-import { bookLabel, cashKindLabel } from '../shared';
-import { allocationDoc, allocationLink } from '../statement/text';
+import { bookLabel, cashKindLabel, entryKindLabel } from '../shared';
+import { allocationLink } from '../statement/text';
 import { VoucherLine, VoucherPaper } from './VoucherPaper';
 
 // سند القبض (RC) وسند الصرف (PY) (عقد 0024 F5 و§4.5، الخطّة §9.2): «استلمنا من السيّد» أو «دفعنا إلى السيّد»، والمبلغ بالأرقام والكلمات،
@@ -33,7 +33,10 @@ export function methodText(type: VoucherDetail['type'], box: CashBox): string {
   return t('voucher.method.out.cash', 'نقداً من صندوق «{box}»', vars);
 }
 
-/** «وذلك عن»: المستندات التي سدّدها السند بمبالغها، وما بقي منه بلا تخصيص. */
+/**
+ * «وذلك عن»: المستندات التي سدّدها السند بمبالغها وتواريخها، وما بقي منه بلا تخصيص. الحركة بلا رقم (الرصيد عند البداية) باسم نوعها
+ * وحده، فتاريخها يُذكر مرّة واحدة («تسديد الرصيد عند البداية بتاريخ 26/09/2026»، مراجعة 0024 L3).
+ */
 export function VoucherFor({ voucher, back }: { voucher: VoucherDetail; back: string }) {
   const rest =
     voucher.unallocated > 0n
@@ -49,7 +52,7 @@ export function VoucherFor({ voucher, back }: { voucher: VoucherDetail; back: st
         <ul className="flex flex-col gap-0.5">
           {voucher.allocations.map((allocation) => {
             const href = allocationLink(allocation, back);
-            const doc = <DocText text={allocationDoc(allocation)} />;
+            const doc = <DocText text={allocation.docNo ?? entryKindLabel(allocation.kind)} />;
             return (
               <li key={allocation.entryId} data-action="voucher-allocation">
                 {t('voucher.for.settle', 'تسديد')}{' '}

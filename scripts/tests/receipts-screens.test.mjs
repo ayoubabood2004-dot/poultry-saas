@@ -27,7 +27,7 @@ const textOf = (html) => html.replace(/<[^>]+>/g, '');
 export default async function (t) {
   const m = await bundle(
     [
-      "export { ReceiptLinesTable, ReceiptPreviewPanel, receiptBook, receiptVoidSentence, purchaseUnitOptions, receivableKinds, liveValuation, settleAmountEdits, rebaseEdits } from './src/pages/inventory/ReceiptsPage.tsx';",
+      "export { ReceiptLinesTable, ReceiptPreviewPanel, receiptBook, receiptVoidSentence, purchaseUnitOptions, receivableKinds, liveValuation, settleAmountEdits, rebaseEdits, docBack } from './src/pages/inventory/ReceiptsPage.tsx';",
       "export { QtyInput } from './src/components/ui/QtyInput.tsx';",
       "export { parseReceiptPreview } from './src/lib/repo/purchasing.ts';",
     ].join('\n'),
@@ -52,6 +52,12 @@ export default async function (t) {
   t.ok(priced.includes('سعر الوحدة') && textOf(priced).includes('470.0000') && textOf(priced).includes('900.0000'), `0014: سعر الوحدة بعموده بأربع مراتب (${textOf(priced).slice(0, 300)})`);
   t.ok(priced.includes('مجموع الفاتورة') && textOf(priced).includes('3,250,000'), `0014: ومجموع الفاتورة بسطر المجموع (${textOf(priced).slice(-200)})`);
   t.ok(!keeper.includes('سعر الوحدة') && !keeper.includes('مجموع الفاتورة'), '0014: والأمين بلا سعر وحدة ولا مجموع فاتورة');
+
+  // ── الرجوع إلى حيث فُتح الاستلام أو المرتجع (?back=، مراجعة 0024 M4): كشف الجهة بفترته، وقائمة الذمم ببحثها (المسافة «+»)، وحركة
+  // الأموال وكشف الصندوق؛ وما ليس مساراً داخلياً لا يُتّبع (null: رجوع الصفحة المعتاد).
+  const backs = ['/accounts/parties/p-1?mode=detailed&from=2026-10-01&to=2026-10-31', '/accounts/debts?side=receivable&q=%D8%A3%D8%A8%D9%88+%D8%B9%D9%84%D9%8A&sort=age', '/accounts/moves?account=a-1&from=2026-11-01&to=2026-11-10', '/accounts/cash/a-1', '/sales/s-1', '/inventory/items/i-1'];
+  t.same(backs.map((value) => m.docBack(value)), backs, 'M4 الاستلام والمرتجع يقبلان الرجوع إلى الحسابات والمبيعات والمخزن');
+  t.same(['https://example.com/x', '//evil.example', 'javascript:alert(1)', '/settings', null].map((value) => m.docBack(value)), [null, null, null, null, null], 'M4 ولا يتّبعان رجوعاً خارجياً أو إلى غير ذلك');
 
   // ── الدفتر للعرض من نوع المخزن (القاعدة 36)، والمخازن اللي تستلم ──────────────────────────────────────────────────────
   t.same(

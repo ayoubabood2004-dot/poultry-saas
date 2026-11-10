@@ -872,6 +872,8 @@ function ReceiptEditor({ docId }: { docId: string }) {
   // المحاولة» لفشلها: الإعادة كانت تطوي النموذج وتولّد للسطر معرّفاً جديداً بعد جواب ضاع (درس WP4)، فالفشل تنبيه والمادّة تُختار
   // بالبحث. والعلامة تُشال من الرابط بعد إضافة السطر فلا تعود بإعادة التحميل.
   const [params, setParams] = useSearchParams();
+  // الرجوع إلى حيث فُتح الاستلام (?back=: كشف الجهة أو حركة الأموال أو كشف الصندوق، مراجعة 0024 M4)، وإلّا قائمة الاستلامات.
+  const back = docBack(params.get('back'));
   const buyItemId = params.get('item') ?? '';
   const loadBuyItem = useCallback(() => (buyItemId ? inventory.loadItem(buyItemId) : Promise.resolve(null)), [buyItemId]);
   const buyItem = useLoad(loadBuyItem, `buy#${buyItemId}`);
@@ -1015,7 +1017,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
   const buyWaiting = draft && canDraft && buyItemId !== '' && buyItem.loading;
   return (
     <div className="flex flex-col gap-4">
-      <BackButton to="/inventory/receipts" label={t('back.receipts', 'رجوع إلى الاستلامات')} />
+      <BackButton to={back ?? '/inventory/receipts'} label={back ? t('back.generic', 'رجوع') : t('back.receipts', 'رجوع إلى الاستلامات')} />
       <PageHeader
         title={title}
         subtitle={t('receipt.subtitle', '{status} — من «{party}» إلى «{store}» بتاريخ {day}، في حساب «{book}»', {
@@ -1335,6 +1337,14 @@ export function ReceiptsList() {
       ) : null}
     </div>
   );
+}
+
+/**
+ * طريق الرجوع من رابط مستند الشراء أو المرتجع (?back=): مسار داخليّ في المخزن أو الحسابات أو المبيعات (كشف الجهة وحركة الأموال وكشف
+ * الصندوق تفتح المستند بطريقها، مراجعة 0024 M4)، بترميز URLSearchParams (المسافة «+»)؛ وإلّا null فرجوع الصفحة المعتاد.
+ */
+export function docBack(value: string | null): string | null {
+  return value !== null && /^\/(?:inventory|accounts|sales)(?:[/?][\w\-/=&%.?+*]*)?$/u.test(value) ? value : null;
 }
 
 export function ReceiptDocPage() {

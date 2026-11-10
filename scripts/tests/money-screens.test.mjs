@@ -17,6 +17,8 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'money-a.json'), 'utf8'));
+// عيّنات السند وفاتورة البيع (money-b) لفتحهما من حركة الأموال ويومية الصندوق والرجوع منهما (مراجعة 0024 M4).
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'money-b.json'), 'utf8'));
 const O = F.money_overview;
 const MM = F.money_moves;
 const MS = F.month_summary;
@@ -156,7 +158,8 @@ const expectedMemo = (row, withClass = false) => {
   const note = row.class === 'purchase_charge' ? null : row.note;
   let memo = note ? `${what} — ${note}` : what;
   if (row.reverses) memo = `إلغاء: ${memo}`;
-  if (row.reversed) memo = `${memo} (أُلغيت لاحقاً)`;
+  // «(أُلغي لاحقاً)» مذكّراً كما في الكشف: البيان يبدأ بمذكّر («سند قبض»، «نقل»)، مراجعة 0024 L8.
+  if (row.reversed) memo = `${memo} (أُلغي لاحقاً)`;
   return memo;
 };
 /** صفوف الجدول المنتظرة: الحركات بترتيبها، وبعد آخر حركة من كلّ يوم اكتملت حركاته المحمّلة صفّ مجموعه. */
@@ -232,6 +235,7 @@ export default async function (t) {
         "export { flushSync } from 'react-dom';",
         "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
         "export { default as AccountsRoutes } from './src/pages/accounts/AccountsRoutes.tsx';",
+        "export { default as SaleDocPage } from './src/pages/sales/SaleDocPage.tsx';",
         "export { parseMoneyOverview, parseMoneyMoves, parseMonthSummary, MONEY_CLASSES } from './src/lib/repo/money.ts';",
         "export { fmtMoney, fmtQty, fmtInt } from './src/lib/format.ts';",
         "export { moveHref } from './src/pages/accounts/money/shared.tsx';",
@@ -312,11 +316,13 @@ export default async function (t) {
       };
     };
     const callsOf = (fn) => calls.filter(([name]) => name === fn).map(([, args]) => args);
-    const mount = async (url) => {
+    /** sales: ومسار فاتورة البيع (/sales/:id) بجانب الحسابات، لفتحها من حركة الأموال والرجوع منها. */
+    const mount = async (url, sales = false) => {
       const container = globalThis.document.createElement('div');
       body().appendChild(container);
       root = m.createRoot(container);
-      m.flushSync(() => root.render(h(m.MemoryRouter, { initialEntries: [url] }, h(Probe), h(m.Routes, null, h(m.Route, { path: '/accounts/*', element: h(m.AccountsRoutes) })))));
+      const routes = [h(m.Route, { key: 'accounts', path: '/accounts/*', element: h(m.AccountsRoutes) }), ...(sales ? [h(m.Route, { key: 'sales', path: '/sales/:id', element: h(m.SaleDocPage) })] : [])];
+      m.flushSync(() => root.render(h(m.MemoryRouter, { initialEntries: [url] }, h(Probe), h(m.Routes, null, ...routes))));
       await settle();
       await settle();
     };
@@ -582,7 +588,9 @@ export default async function (t) {
 
     // ── M حركة الأموال ─────────────────────────────────────────────────────────────────────────────────────────
     /** يقارن جدول الحركة بالصفوف المنتظرة صفّاً صفّاً: النصوص والروابط وعلامتا الإلغاء. */
-    const checkMoves = (label, running, rows, days) => {
+    /** here: الصفحة بفلاترها كما في الرابط؛ كلّ رابط إلى سند أو مستند أو كشف جهة يحمل الرجوع إليها (مراجعة 0024 M4). */
+    const checkMoves = (label, running, rows, days, here) => {
+      const backed = (href) => (href ? `${href}?back=${encodeURIComponent(here)}` : null);
       const table = tableOf(body());
       const headers = ['التاريخ', 'رقم السند', 'الصندوق', 'النوع', 'الجهة', 'البيان', 'وارد', 'صادر', ...(running ? ['الرصيد'] : [])];
       t.same(table.headers, headers, `${label}: الأعمدة${running ? ' بالرصيد' : ' بلا الرصيد'}`);
@@ -602,20 +610,20 @@ export default async function (t) {
           return;
         }
         const row = line.move;
-        const href = expectedHref(row);
+        const href = backed(expectedHref(row));
         const docLink = descendants(tr.children[1]).find((n) => n.localName === 'a') ?? null;
         const want = [
           fmtDay(row.on_date),
-          row.doc_no ?? (href ? 'سند التحويل' : ''),
+          row.doc_no ?? (href ? 'سند النقل' : ''),
           row.account_name,
-          `${LABEL[row.class]}${row.reverses ? 'إلغاء' : row.reversed ? 'أُلغيت' : ''}`,
+          `${LABEL[row.class]}${row.reverses ? 'إلغاء' : row.reversed ? 'أُلغي' : ''}`,
           row.party_name ?? '',
           expectedMemo(row),
           fils(row.inflow) === 0n ? '' : money(row.inflow),
           fils(row.outflow) === 0n ? '' : money(row.outflow),
           ...(running ? [money(row.balance)] : []),
         ];
-        const wantLinks = [href, `/accounts/cash/${row.account_id}`, row.party_id ? `/accounts/parties/${row.party_id}?back=/accounts/moves` : null];
+        const wantLinks = [href, `/accounts/cash/${row.account_id}`, row.party_id ? backed(`/accounts/parties/${row.party_id}`) : null];
         const gotLinks = [hrefOf(docLink), hrefOf(descendants(tr.children[2]).find((n) => n.localName === 'a')), hrefOf(descendants(tr.children[4]).find((n) => n.localName === 'a'))];
         const marks = [Boolean(first('move-reversal', tr)), Boolean(first('move-reversed', tr))];
         if (JSON.stringify([got, gotLinks, marks]) === JSON.stringify([want, wantLinks, [Boolean(row.reverses), Boolean(row.reversed && !row.reverses)]])) ok += 1;
@@ -634,7 +642,7 @@ export default async function (t) {
         'M1 المدّة الافتراضية من أوّل الشهر إلى يوم الخادم، بلا فلاتر، وحدّ الصفحة 100',
       );
       const all = MM.all;
-      const { money } = checkMoves('M2 all', true, all.rows, all.days);
+      const { money } = checkMoves('M2 all', true, all.rows, all.days, '/accounts/moves');
       const foot = tableOf(body()).foot.map(cells);
       t.same(foot, [['مجموع المدّة', money(all.totals.inflow), money(all.totals.outflow), money(all.closing)]], 'M3 مجموع المدّة كلّها من الخادم (لا مجموع الصفحة) ورصيد آخرها');
       t.same(
@@ -649,7 +657,7 @@ export default async function (t) {
       t.same(second, { p_from: `${TODAY.slice(0, 7)}-01`, p_to: null, p_account: null, p_class: null, p_party: null, p_after: all.next, p_limit: 100 }, 'M6 الصفحة التالية بمؤشّر الخادم نفسه وبالفلاتر نفسها');
       const days = new Map([...all.days, ...MM.page2.days].map((day) => [day.on_date, day]));
       const merged = [...all.rows, ...MM.page2.rows];
-      checkMoves('M7 بعد «حمّل المزيد»', true, merged, [...days.values()]);
+      checkMoves('M7 بعد «حمّل المزيد»', true, merged, [...days.values()], '/accounts/moves');
       t.same([text(first('moves-count')), first('more-moves')], [`${m.fmtInt(merged.length)} من المجموع ${m.fmtInt(all.totals.count)}`, null], 'M9 المكرّر بمعرّف الحركة سقط، ولا «حمّل المزيد» بعد آخر صفحة');
     });
 
@@ -658,7 +666,7 @@ export default async function (t) {
       fresh();
       await mount(`/accounts/moves?class=${cls}`);
       t.same(callsOf('money_moves')[0], { p_from: `${TODAY.slice(0, 7)}-01`, p_to: null, p_account: null, p_class: cls, p_party: null, p_after: null, p_limit: 100 }, 'M10 فلتر الصنف من الرابط');
-      const { money } = checkMoves('M11 filtered', false, MM.filtered.rows, MM.filtered.days);
+      const { money } = checkMoves('M11 filtered', false, MM.filtered.rows, MM.filtered.days, `/accounts/moves?class=${cls}`);
       t.same(tableOf(body()).foot.map(cells), [['مجموع المدّة', money(MM.filtered.totals.inflow), money(MM.filtered.totals.outflow)]], 'M12 بلا رصيد جارٍ: المجموع بلا عمود الرصيد');
       t.same([first('moves-opening'), first('moves-closing'), text().includes('لا رصيد جارياً مع فلتر النوع أو الجهة')], [null, null, true], 'M13 بلا رصيد أوّل المدّة وآخرها، ويقول لماذا');
       await unmount();
@@ -667,7 +675,7 @@ export default async function (t) {
       fresh();
       await mount(`/accounts/moves?account=${box.account.id}&from=${box.from}&to=${box.to}`);
       t.same(callsOf('money_moves')[0], { p_from: box.from, p_to: box.to, p_account: box.account.id, p_class: null, p_party: null, p_after: null, p_limit: 100 }, 'M14 الصندوق والمدّة من الرابط');
-      checkMoves('M15 box', true, box.rows, box.days);
+      checkMoves('M15 box', true, box.rows, box.days, `/accounts/moves?account=${box.account.id}&from=${box.from}&to=${box.to}`);
       const classSelect = first('filter-class');
       await choose(classSelect, cls);
       t.same(callsOf('money_moves').at(-1), { p_from: box.from, p_to: box.to, p_account: box.account.id, p_class: cls, p_party: null, p_after: null, p_limit: 100 }, 'M16 اختيار الصنف يعيد القراءة بالفلاتر كلّها');
@@ -711,8 +719,8 @@ export default async function (t) {
       t.same(
         table.body.slice(1).map((tr) => [cells(tr), hrefOf(descendants(tr.children[0]).find((n) => n.localName === 'a')), hrefOf(descendants(tr.children[1]).find((n) => n.localName === 'a'))]),
         D.rows.map((row) => [
-          [row.doc_no ?? (expectedHref(row) ? 'سند التحويل' : ''), row.party_name ?? '', expectedMemo(row, true), fils(row.inflow) === 0n ? '' : money(row.inflow), fils(row.outflow) === 0n ? '' : money(row.outflow), money(row.balance)],
-          expectedHref(row),
+          [row.doc_no ?? (expectedHref(row) ? 'سند النقل' : ''), row.party_name ?? '', expectedMemo(row, true), fils(row.inflow) === 0n ? '' : money(row.inflow), fils(row.outflow) === 0n ? '' : money(row.outflow), money(row.balance)],
+          expectedHref(row) && `${expectedHref(row)}?back=${encodeURIComponent(`/accounts/cash/${D.account.id}/day?on=${D.from}`)}`,
           row.party_id ? `/accounts/parties/${row.party_id}?back=${encodeURIComponent(`/accounts/cash/${D.account.id}/day?on=${D.from}`)}` : null,
         ]),
         'D5 كلّ حركة برقمها (رابط سندها أو مستندها) وجهتها وبيانها ورصيدها',
@@ -854,7 +862,15 @@ export default async function (t) {
         return null;
       });
       const got = box.rows.map((_, index) => hrefOf(first('ledger-doc', ledger.body[index + offset])));
-      t.same(got, want, 'C3 كشف الصندوق: رقم البيع والشراء وأجوره والتحويل إلى مستنده، والقبض والدفع إلى سندهما (voucher_id، وللإلغاء السند الأصليّ)، والمصروف بلا رابط');
+      const boxBack = (href) => (href ? `${href}?back=${encodeURIComponent(`/accounts/cash/${box.account.id}`)}` : null);
+      t.same(got, want.map(boxBack), 'C3 كشف الصندوق: رقم البيع والشراء وأجوره والتحويل إلى مستنده، والقبض والدفع إلى سندهما (voucher_id، وللإلغاء السند الأصليّ)، والمصروف بلا رابط؛ وكلّ رابط يرجع إلى كشف الصندوق (M4)');
+      // L4: أجرة الشراء النقدية برقم الشراء نفسه (doc_no من الخادم منذ 0024) ورابط استلامه، لا «السند».
+      const charges = (F.cash_statement?.lines ?? []).map((line, index) => [line, index]).filter(([line]) => line.kind === 'receipt_charge');
+      t.ok(
+        charges.length > 0 && charges.every(([line, index]) => text(first('ledger-doc', ledger.body[index + offset])) === line.doc_no && hrefOf(first('ledger-doc', ledger.body[index + offset])) === boxBack(`/inventory/receipts/${line.doc_id}`)),
+        'L4 أجرة الشراء النقدية في كشف الصندوق برقم الشراء ورابط استلامه',
+      );
+      t.ok(!byAction('ledger-doc').some((n) => text(n) === 'السند' && (hrefOf(n) ?? '').startsWith('/inventory/receipts/')), 'L4 ولا «السند» على رابط استلام');
       t.ok(want.some((href) => href?.startsWith('/accounts/voucher/')) && want.some((href) => href?.startsWith('/inventory/receipts/')) && want.some((href) => href === null), 'شرط box: قبض أو دفع وشراء ومصروف');
       await unmount();
       // خادم أقدم بلا voucher_id: رقم القبض يفتح حركة الصندوق بيومه، وفيها رابط السند.
@@ -869,6 +885,79 @@ export default async function (t) {
         'C4 رقم القبض يفتح حركة الصندوق بيومه، وفيها رابط السند',
       );
     });
+
+    // ── مراجعة 0024 (الشاشات): كلّ إصلاح بفحص يفشل على الشفرة قبله ─────────────────────────────────────────────────────
+    // M4: السند والفاتورة المفتوحان من حركة الأموال ويومية الصندوق يرجعان إليهما بفلاترهما (REV-4، REV-15).
+    await step('M4 back to where it was opened', async () => {
+      const url = `/accounts/moves?account=${MM.box.account.id}&from=${MM.box.from}&to=${MM.box.to}`;
+      fresh({ voucher_detail: () => clone(B.voucher_detail.receipt) });
+      await mount(url);
+      t.eq(new URLSearchParams(hrefOf(first('move-party'))?.split('?')[1] ?? '').get('back'), url, 'M4 كشف الجهة من حركة الأموال يرجع إليها بفلاترها (REV-15)');
+      await click(byAction('move-doc').find((n) => (hrefOf(n) ?? '').startsWith('/accounts/voucher/')));
+      t.same([where?.pathname.startsWith('/accounts/voucher/'), hrefOf(first('back'))], [true, url], 'M4 «رجوع» السند المفتوح من حركة الأموال إليها بفلاترها (REV-4a)');
+      await click(first('back'));
+      t.same([`${where?.pathname}${where?.search}`, callsOf('money_moves').at(-1)?.p_account], [url, MM.box.account.id], 'M4 والرجوع يفتح حركة الأموال بفلاترها');
+      await unmount();
+      fresh({ sale_detail: () => clone(B.sale_detail) });
+      await mount(url, true);
+      await click(byAction('move-doc').find((n) => (hrefOf(n) ?? '').startsWith('/sales/')));
+      t.same([where?.pathname.startsWith('/sales/'), hrefOf(first('back'))], [true, url], 'M4 «رجوع» فاتورة البيع المفتوحة من حركة الأموال إليها (REV-4b)');
+      await unmount();
+      const dayUrl = `/accounts/cash/${D.account.id}/day?on=${D.from}`;
+      fresh({ voucher_detail: () => clone(B.voucher_detail.void) });
+      await mount(dayUrl);
+      await click(byAction('move-doc').find((n) => (hrefOf(n) ?? '').startsWith('/accounts/voucher/')));
+      t.eq(hrefOf(first('back')), dayUrl, 'M4 «رجوع» السند المفتوح من يومية الصندوق إليها بيومها (REV-4c)');
+    });
+
+    // MUT-2: تغيير فلتر و«حمّل المزيد» في الطريق: صفحة الفلتر القديم لا تُلحق بجدول الفلتر الجديد.
+    await step('MUT-2 filter change while loading more', async () => {
+      let release = () => {};
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      fresh({ money_moves: (args) => (args.p_after ? pending.then(() => page2()) : movesFor(args)) });
+      await mount('/accounts/moves');
+      await click(first('more-moves'));
+      const cls = MM.filtered.rows[0].class;
+      await choose(first('filter-class'), cls);
+      release();
+      await click(null);
+      await click(null);
+      const moves = tableOf(body()).body.filter((tr) => !cells(tr).includes('مجموع اليوم'));
+      t.same([moves.length, text(first('moves-count'))], [MM.filtered.rows.length, `${m.fmtInt(MM.filtered.rows.length)} من المجموع ${m.fmtInt(MM.filtered.totals.count)}`], 'MUT-2 صفحة طُلبت بالفلتر القديم لا تُلحق بعد تغييره');
+    });
+
+    // MUT-4 وMUT-5: كلفة المبيع بفلوس (نسخة بكلفة «1234.56»): الخلاصة وخلاصة الشهر تعرضانها بمراتبها، لا تسقطان.
+    await step('MUT-4/5 cost with fils', async () => {
+      const hub = clone(O);
+      hub.month.sales.cost = '1234.56';
+      fresh({ money_overview: () => clone(hub) });
+      await mount('/accounts');
+      t.ok(text(first('hub-sales')).includes(`كلفتها${fmt(fils('1234.56'))}`) && fmt(fils('1234.56')) === '1,234.56', `MUT-4 كلفة المبيعات بفلوسها في الخلاصة: «${text(first('hub-sales'))}»`);
+      await unmount();
+      const month = clone(MS);
+      month.project.sales.cost = '1234.56';
+      fresh({ month_summary: () => clone(month) });
+      await mount(`/accounts/month?m=${MS.month.slice(0, 7)}`);
+      const rows = tableOf(first('monthsum-project')).body.map(cells);
+      t.same(rows, blockExpect(month.project), 'MUT-5 كتلة المشروع بمرتبتين للعمود كلّه حين في كلفتها فلوس');
+      t.ok(rows.some(([label, , amount]) => label === 'كلفة المبيعات' && amount === '1,234.56'), 'MUT-5 والكلفة «1,234.56»');
+    });
+
+    // L1 وL8: خلاصة الشهر لا تنقسم كتلها وبطاقة النقد بين صفحتين، والأقسام بأسمائها الكاملة كما في الكشف والسندات.
+    await step('L1/L8 month summary', async () => {
+      fresh();
+      await mount(`/accounts/month?m=${MS.month.slice(0, 7)}`);
+      t.ok([first('monthsum-project'), ...byAction('monthsum-division'), first('monthsum-cash')].every((n) => n?.hasAttribute('data-keep')), 'L1 كلّ كتلة وبطاقة النقد data-keep (لا تنقسم بالطباعة)');
+      const FULL = { feed_mill: 'معمل العلف', broiler: 'حقول اللحم', layer: 'حقول البيض', hatchery: 'المفقس', medicine: 'مخزن الأدوية', general: 'المخازن العامة' };
+      t.same(
+        byAction('monthsum-division').map((section) => text(descendants(section).find((n) => n.localName === 'h2'))),
+        MS.divisions.map((division) => FULL[division.kind]),
+        'L8 الأقسام بأسمائها الكاملة («معمل العلف» لا «المعمل»)',
+      );
+    });
+
 
     // ── R نقل المسارات ─────────────────────────────────────────────────────────────────────────────────────────
     await step('R', async () => {

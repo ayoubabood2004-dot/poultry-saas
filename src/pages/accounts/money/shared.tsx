@@ -63,6 +63,12 @@ export function moveHref(row: Pick<MoneyMove, 'voucher' | 'voucherId' | 'docKind
   return docHref(row.docKind, row.docId);
 }
 
+/**
+ * المسار بطريق رجوعه (?back=، مرمَّزاً): السند والفاتورة والاستلام والمرتجع وكشف الجهة تعود إلى الصفحة التي فُتحت منها بفلاترها
+ * (مراجعة 0024 M4)، وكلّ صفحة منها تقبل الطريق إن كان مساراً داخلياً. بلا طريق: المسار كما هو.
+ */
+export const withBack = (path: string, back: string | null | undefined): string => (back ? `${path}?back=${encodeURIComponent(back)}` : path);
+
 /** قائمة الذمم بطرفها، وبقسم أو بما فات 90 يوماً إن طُلب. */
 export function debtsHref(side: 'receivable' | 'payable', options: { division?: string; over90?: boolean } = {}): string {
   const params = new URLSearchParams({ side });
@@ -74,10 +80,11 @@ export function debtsHref(side: 'receivable' | 'payable', options: { division?: 
 export const LINK = 'text-brand-700 dark:text-brand-200';
 export const PILL = 'inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2';
 
-/** رقم السند أو المستند: رابطاً حين يُعرف طريقه، والتحويل (بلا رقم بعد) باسم سنده. */
-export function DocCell({ row }: { row: Pick<MoneyMove, 'voucher' | 'voucherId' | 'docKind' | 'docId' | 'docNo'> }) {
-  const href = moveHref(row);
-  const label: ReactNode = row.docNo ? <Num>{row.docNo}</Num> : href ? t('moves.doc.transfer', 'سند التحويل') : null;
+/** رقم السند أو المستند: رابطاً حين يُعرف طريقه (بطريق الرجوع back إلى الصفحة)، والنقل (بلا رقم بعد) باسم سنده. */
+export function DocCell({ row, back }: { row: Pick<MoneyMove, 'voucher' | 'voucherId' | 'docKind' | 'docId' | 'docNo'>; back?: string }) {
+  const path = moveHref(row);
+  const href = path === null ? null : withBack(path, back);
+  const label: ReactNode = row.docNo ? <Num>{row.docNo}</Num> : href ? t('moves.doc.transfer', 'سند النقل') : null;
   if (!label) return null;
   return href ? (
     <Link to={href} className={LINK} data-action="move-doc">
@@ -124,8 +131,8 @@ function memoWhat(row: MoneyMove): string {
 const NEEDS_CLASS: ReadonlySet<MoneyClass> = new Set<MoneyClass>(['expense', 'transfer', 'purchase_charge']);
 
 /**
- * البيان: ما تقوله الحركة وملاحظتها، والإلغاء بعلامته («إلغاء: …» للعكس، و«أُلغيت لاحقاً» للملغاة). withClass: الجدول بلا عمود «النوع»،
- * فالمصروف والتحويل والأجرة يسبقها اسم صنفها («مصاريف: كهرباء»).
+ * البيان: ما تقوله الحركة وملاحظتها، والإلغاء بعلامته («إلغاء: …» للعكس، و«(أُلغي لاحقاً)» للملغى: مذكّراً كما في الكشف، فالبيان يبدأ
+ * بمذكّر «سند قبض» أو «نقل»، مراجعة 0024 L8). withClass: الجدول بلا عمود «النوع»، فالمصروف والنقل والأجرة يسبقها اسم صنفها («مصاريف: كهرباء»).
  */
 export function moveMemo(row: MoneyMove, withClass = false): string {
   const bare = memoWhat(row);
@@ -133,7 +140,7 @@ export function moveMemo(row: MoneyMove, withClass = false): string {
   const note = row.cls === 'purchase_charge' ? null : row.note;
   let text = note ? t('moves.memo.note', '{what} — {note}', { what, note }) : what;
   if (row.reverses) text = t('moves.memo.reversal', 'إلغاء: {what}', { what: text });
-  if (row.reversed) text = t('moves.memo.reversed', '{what} (أُلغيت لاحقاً)', { what: text });
+  if (row.reversed) text = t('moves.memo.reversed', '{what} (أُلغي لاحقاً)', { what: text });
   return text;
 }
 

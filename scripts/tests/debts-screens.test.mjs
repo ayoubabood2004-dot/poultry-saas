@@ -17,6 +17,7 @@ import {
   daysWord,
   FIXTURE,
   fils,
+  fire,
   first,
   fmtDay,
   installDom,
@@ -124,7 +125,11 @@ export default async function (t) {
       t.same(segments, BUCKETS.filter((bucket) => fils(sample.totals.aging[bucket]) > 0n), 'T شريط الأعمار: قطعة لكلّ فئة فيها مبلغ، بلونها');
 
       const table = tableOf(tablesIn(globalThis.document.body)[0]);
-      t.same(table.headers, ['الجهة', 'إجراءات', 'الرصيد', ...BUCKETS.map((bucket) => LABEL[bucket]), 'عمر أقدم دين', 'آخر حركة', 'آخر تسديد', 'الهاتف'], 'R أعمدة القائمة');
+      t.same(
+        table.headers,
+        ['الجهة', 'الرصيد', ...BUCKETS.map((bucket) => LABEL[bucket]), 'عمر أقدم دين', 'آخر حركة', 'آخر تسديد', 'الهاتف', 'إجراءات'],
+        'R وM2 أعمدة القائمة: الاسم ثمّ الرصيد (يظهران معاً على الهاتف)، والأفعال آخراً',
+      );
       t.eq(table.rows.length, sample.rows.length, 'R صفّ لكلّ جهة');
       const back = BACK('receivable');
       const links = byAction('party-link');
@@ -146,10 +151,11 @@ export default async function (t) {
             `R ${row.name}: كلّ حساب باسمه ورصيده الموقّع بكلمته (الحسابات لا تُقاصّ)`,
           );
         }
-        t.same(cells.slice(3, 7), BUCKETS.map((bucket) => (fils(row.aging[bucket]) > 0n ? money(fils(row.aging[bucket])) : '')), `R ${row.name}: أعمار المفتوح بفئاتها`);
-        t.eq(cells[7], row.age_days === null ? '—' : `${daysWord(row.age_days)}${fmtDay(row.oldest)}`, `R ${row.name}: عمر أقدم دين وتاريخه`);
-        t.eq(cells[8], row.last_move ? `${fmtDay(row.last_move.on_date)} ${KIND[row.last_move.kind]} ${row.last_move.doc_no ?? ''}` : '—', `R ${row.name}: آخر حركة بتاريخها ونوعها ورقمها`);
-        t.eq(cells[9], row.last_settlement ? `${fmtDay(row.last_settlement.on_date)} ${money(fils(row.last_settlement.amount))} دينار ${row.last_settlement.doc_no ?? ''}` : 'لا تسديد', `R ${row.name}: آخر تسديد`);
+        t.same(cells.slice(2, 6), BUCKETS.map((bucket) => (fils(row.aging[bucket]) > 0n ? money(fils(row.aging[bucket])) : '')), `R ${row.name}: أعمار المفتوح بفئاتها`);
+        t.eq(cells[6], row.age_days === null ? '—' : `${daysWord(row.age_days)}${fmtDay(row.oldest)}`, `R ${row.name}: عمر أقدم دين وتاريخه`);
+        t.eq(cells[7], row.last_move ? `${fmtDay(row.last_move.on_date)} ${KIND[row.last_move.kind]} ${row.last_move.doc_no ?? ''}` : '—', `R ${row.name}: آخر حركة بتاريخها ونوعها ورقمها`);
+        t.eq(cells[8], row.last_settlement ? `${fmtDay(row.last_settlement.on_date)} ${money(fils(row.last_settlement.amount))} دينار ${row.last_settlement.doc_no ?? ''}` : 'لا تسديد', `R ${row.name}: آخر تسديد`);
+        t.eq(cells[1].startsWith(money(fils(row.amount))), true, `M2 ${row.name}: الرصيد في العمود الثاني بجانب الاسم`);
       });
       const ages = descendantsOf('span').filter((n) => n.getAttribute('data-age') !== null);
       t.same(
@@ -158,7 +164,7 @@ export default async function (t) {
         'R عمر أقدم دين بلون فئته (0–30 و31–60 و61–90 وأكثر من 90)',
       );
       t.same(table.foot[0]?.slice(0, 1), [`المجموع (${partiesText(sample.totals.parties)})`], 'R التذييل باسمه وعدد الجهات');
-      t.same(table.foot[0]?.slice(1), [money(fils(sample.totals.amount)), ...BUCKETS.map((bucket) => money(fils(sample.totals.aging[bucket]))), '', '', '', ''], 'R التذييل من الخادم: المجموع والأعمار للمجموعة المفلترة كلّها');
+      t.same(table.foot[0]?.slice(1), [money(fils(sample.totals.amount)), ...BUCKETS.map((bucket) => money(fils(sample.totals.aging[bucket]))), '', '', '', '', ''], 'R التذييل من الخادم: المجموع والأعمار للمجموعة المفلترة كلّها');
       t.eq(text(first('debts-count')), `${sample.rows.length} من المجموع ${sample.totals.parties}`, 'R العدد من الخادم');
       t.eq(byAction('more-debts').length, sample.next ? 1 : 0, 'R «حمّل المزيد» بمؤشّر الخادم وحده');
 
@@ -248,6 +254,107 @@ export default async function (t) {
       t.eq(byAction('more-debts').length, 0, 'G لا مزيد بعد مؤشّر فارغ');
     });
 
+    // ── مراجعة 0024 (الشاشات): كلّ إصلاح بفحص يفشل على الشفرة قبله ─────────────────────────────────────────────────────
+    // M4: كلّ فلتر بالرابط (القسم أو الحساب، والبحث، والحدّ الأدنى، والترتيب، وفوق 90 يوماً)، فرجوع الكشف يعيد القائمة كما كانت (REV-2).
+    await step('M4 filters in the URL', async () => {
+      env.fresh({ session: SESSION('manager'), rpc: { debts_overview: answer() }, tables });
+      const division = D.receivable.books[0].division_id;
+      await env.mount(`/accounts/debts?side=receivable&division=${division}`, [['/accounts/debts', m.DebtsPage]]);
+      const backOf = (node) => new URLSearchParams(node?.getAttribute('href')?.split('?')[1] ?? '').get('back');
+      // الخيار مختار كما يضعه React (selected على الخيار؛ value القائمة لا يُكتب في DOM الفحص، ولا يُطفأ خيار سبقه).
+      const isSelected = (select, value) => select?.options.find((option) => option.getAttribute('value') === value)?.selected === true;
+      t.eq(backOf(first('party-link')), `/accounts/debts?side=receivable&division=${division}`, 'M4 رجوع الكشف بقسم القائمة المفتوحة من الخلاصة (REV-2)');
+      const hatch = D.receivable.books.filter((book) => book.division_kind === 'hatchery');
+      const filter = hatch.length > 1 ? `book:${hatch[0].book_id}` : `division:${D.receivable.books.at(-1).division_id}`;
+      await choose(first('debts-filter'), filter);
+      await choose(first('debts-sort'), 'age');
+      await typeIn(first('debts-search'), 'أبو علي');
+      await typeIn(descendantsOf('input').find((n) => (n.getAttribute('class') ?? '').includes('tabular-nums')), '100,000');
+      await click(descendantsOf('button').find((n) => n.getAttribute('role') === 'switch'));
+      const [kind, id] = filter.split(':');
+      const wanted = new URLSearchParams({ side: 'receivable', [kind]: id, q: 'أبو علي', min: '100,000', sort: 'age', over90: '1' });
+      t.same(env.search(), Object.fromEntries(wanted), 'M4 الفلاتر كلّها في الرابط');
+      const back = `/accounts/debts?${wanted.toString()}`;
+      t.ok(byAction('party-link').length > 0 && [...byAction('party-link'), ...byAction('open-statement'), ...byAction('send-statement')].every((n) => backOf(n) === back), `M4 الكشف يرجع إلى القائمة بفلاترها كلّها (${back})`);
+      await env.unmount();
+      env.fresh({ session: SESSION('manager'), rpc: { debts_overview: answer() }, tables });
+      await env.mount(back, [['/accounts/debts', m.DebtsPage]]);
+      const [args] = env.calls('debts_overview');
+      t.same(
+        [args.p_division, args.p_book, args.p_search, args.p_min, args.p_sort, args.p_over90],
+        [kind === 'division' ? id : null, kind === 'book' ? id : null, 'ابو علي', '100000.00', 'age', true],
+        'M4 الرجوع إلى ذلك الرابط يفتح القائمة بفلاترها في أوّل نداء',
+      );
+      const min = descendantsOf('input').find((n) => (n.getAttribute('class') ?? '').includes('tabular-nums'));
+      t.same(
+        [isSelected(first('debts-filter'), filter), isSelected(first('debts-sort'), 'age'), first('debts-search').value, min?.value, descendantsOf('button').find((n) => n.getAttribute('role') === 'switch')?.getAttribute('aria-checked')],
+        [true, true, 'أبو علي', '100,000', 'true'],
+        'M4 والحقول بقيمها كما تُركت',
+      );
+    });
+
+    // MUT-3: تغيير فلتر و«حمّل المزيد» في الطريق: صفحة الفلتر القديم لا تُلحق بقائمة الفلتر الجديد.
+    const pagedSample = () => {
+      const sample = D.receivable;
+      const split = Math.max(1, sample.rows.length - 1);
+      const cursor = { amount: sample.rows[split - 1].amount, party_id: sample.rows[split - 1].party_id };
+      return { page1: { ...clone(sample), rows: clone(sample.rows.slice(0, split)), next: cursor }, stale: (name) => ({ ...clone(sample), rows: [{ ...clone(sample.rows.at(-1)), party_id: '00000000-0000-4000-8000-0000000000ff', name }], next: null }) };
+    };
+    await step('MUT-3 filter change while loading more', async () => {
+      const { page1, stale } = pagedSample();
+      let release = () => {};
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      env.fresh({ session: SESSION('viewer'), rpc: { debts_overview: async (args) => (args.p_after ? pending.then(() => stale('جهة من صفحة الفلتر القديم')) : clone(page1)) }, tables });
+      await env.mount('/accounts/debts', [['/accounts/debts', m.DebtsPage]]);
+      await click(first('more-debts'));
+      await choose(first('debts-sort'), 'name');
+      release();
+      await click(null);
+      await click(null);
+      t.same(byAction('party-link').map((n) => n.textContent), page1.rows.map((row) => row.name), 'MUT-3 صفحة طُلبت بالفلتر القديم لا تُلحق بعد تغييره');
+    });
+
+    // قبض من القائمة و«حمّل المزيد» في الطريق (شبهة المراجعة): القراءة من جديد بعد القبض لا تُلحق بها صفحةٌ طُلبت قبله (بأرصدة ما قبله).
+    await step('refresh after a payment while loading more', async () => {
+      const { page1, stale } = pagedSample();
+      let release = () => {};
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      const box = { account_id: '00000000-0000-4000-8000-0000000000b1', name: 'الصندوق', kind: 'cash', archived: false, version: 1, has_opening: true, opening: '0', inflow: '0', outflow: '0', closing: '1000000' };
+      const today = page1.today;
+      env.fresh({
+        session: SESSION('accountant'),
+        rpc: {
+          debts_overview: async (args) => (args.p_after ? pending.then(() => stale('صفحة ما قبل القبض')) : clone(page1)),
+          report_cash_balances: async () => ({ to: today, accounts: [box], total: { opening: '0', inflow: '0', outflow: '0', closing: '1000000' } }),
+          preview_party_allocation: async (args) => ({ money: { amount: args.p_amount, balance_before: '0', balance_after: '0', allocations: [], surplus: args.p_amount } }),
+          record_party_payment: async (args) => ({ id: args.p_id, kind: 'payment', doc_no: 'RC-2026-0099', on_date: args.p_on_date }),
+        },
+        tables,
+      });
+      await env.mount('/accounts/debts', [['/accounts/debts', m.DebtsPage]]);
+      await click(first('more-debts'));
+      await click(byAction('row-payment')[0]);
+      const form = descendantsOf('form').at(-1);
+      const bookSelect = descendantsOf('select', form).find((n) => n.hasAttribute('data-autofocus'));
+      await choose(bookSelect, bookSelect.options.find((option) => option.getAttribute('value'))?.getAttribute('value'));
+      await typeIn(descendantsOf('input', form).find((n) => (n.getAttribute('class') ?? '').includes('tabular-nums')), '10,000');
+      await choose(descendantsOf('select', form).find((n) => n.options.some((option) => option.getAttribute('value') === box.account_id)), box.account_id);
+      fire(form, 'submit');
+      await click(null);
+      await click(first('confirm-payment'));
+      await click(null);
+      t.eq(env.calls('record_party_payment').length, 1, 'شرط: القبض سُجّل والقائمة قُرئت من جديد');
+      release();
+      await click(null);
+      await click(null);
+      t.same(byAction('party-link').map((n) => n.textContent), page1.rows.map((row) => row.name), 'الصفحة التي طُلبت قبل القبض لا تُلحق بالقائمة المقروءة بعده');
+      t.ok(Boolean(first('more-debts')), 'و«حمّل المزيد» باقٍ بمؤشّر القراءة الجديدة');
+    });
+
     // ── قراءة فاشلة: الفاشل ليس فارغاً ─────────────────────────────────────────────────────────────────────────
     await step('failure', async () => {
       env.fresh({ session: SESSION('accountant'), rpc: { debts_overview: async () => { throw new Error('boom'); } }, tables });
@@ -259,17 +366,17 @@ export default async function (t) {
     delete globalThis.__mb;
   }
 
-  function descendantsOf(tag) {
+  function descendantsOf(tag, scope = globalThis.document.body) {
     const out = [];
     const walk = (node) => {
-      for (const child of node.childNodes) {
+      for (const child of node?.childNodes ?? []) {
         if (child.nodeType === 1) {
           if (child.localName === tag) out.push(child);
           walk(child);
         }
       }
     };
-    walk(globalThis.document.body);
+    walk(scope);
     return out;
   }
   function bookOf(bookId) {
