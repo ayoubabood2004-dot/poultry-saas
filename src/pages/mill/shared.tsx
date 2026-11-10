@@ -102,9 +102,40 @@ export function Stats({ stats }: { stats: readonly { key: string; label: string;
 /** «—» لقيمة غائبة في خلية أو رقم (مال لدور بلا كلفة، أو مادّة بلا سعر). */
 export const dash = (): string => t('mill.col.no_doc', '—');
 
+// ─── الترتيب (0023، كلمة المالك 2026-11-10: «ويرتبها مثل ما هو يريد») ──────────────────────────────────────────────────
+
+/**
+ * ترتيب المستخدم مع قائمة جديدة قُرئت: ما بقي منها بترتيبه، وما أُضيف بعد القراءة في آخرها بترتيب الخادم (ولا يعود ما حُذف). مشترك بين ترتيب
+ * العلائق في المعمل وترتيب موادّ مسوّدة الخلطة.
+ */
+export function reconcileOrder(mine: readonly string[], live: readonly string[]): string[] {
+  const alive = new Set(live);
+  const kept = mine.filter((id) => alive.has(id));
+  const seen = new Set(kept);
+  return [...kept, ...live.filter((id) => !seen.has(id))];
+}
+
+/** الترتيبان واحد عنصراً بعنصر. */
+export const sameOrder = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((id, index) => id === b[index]);
+
+/** يقدّم العنصر الذي في index (by = -1) أو يؤخّره (by = 1) مرتبةً واحدة؛ وخارج الحدّين كما هو. */
+export function moveId(list: readonly string[], index: number, by: -1 | 1): string[] {
+  const target = index + by;
+  if (index < 0 || target < 0 || target >= list.length) return [...list];
+  const next = [...list];
+  const [entry] = next.splice(index, 1);
+  if (entry !== undefined) next.splice(target, 0, entry);
+  return next;
+}
+
 export interface KeptLoad<T> extends LoadState<T> {
   /** قراءة جديدة جارية والصفحة مرسومة بآخر ما قُرئ للمفتاح نفسه: الأفعال معطَّلة حتّى تصل (ب٤٣). */
   refreshing: boolean;
+  /**
+   * عدد القراءات الناجحة للمفتاح نفسه (0023، درس «أدرج مواد» في الرصيد اليومي): كتابةٌ رُفضت لأنّ ما عرضته الشاشة تغيّر تحفظ العدد لحظة الرفض،
+   * فأوّل قراءة ناجحة بعده تصير شرطها الجديد (لا قراءة قديمة جارية).
+   */
+  reads: number;
 }
 
 /**
@@ -116,11 +147,13 @@ export interface KeptLoad<T> extends LoadState<T> {
  */
 export function useKeptLoad<T>(load: () => Promise<T>, key: string): KeptLoad<T> {
   const state = useLoad(load, key);
-  const [kept, setKept] = useState<{ key: string; data: T } | null>(null);
-  if (state.data !== null && (kept === null || kept.key !== key || kept.data !== state.data)) setKept({ key, data: state.data });
-  const held = kept !== null && kept.key === key ? kept.data : null;
-  const data = state.data ?? held;
-  return { data, error: state.error, loading: data === null && !state.error, refreshing: state.loading && data !== null, retry: state.retry };
+  const [kept, setKept] = useState<{ key: string; data: T; reads: number } | null>(null);
+  if (state.data !== null && (kept === null || kept.key !== key || kept.data !== state.data)) {
+    setKept({ key, data: state.data, reads: kept !== null && kept.key === key ? kept.reads + 1 : 1 });
+  }
+  const held = kept !== null && kept.key === key ? kept : null;
+  const data = state.data ?? held?.data ?? null;
+  return { data, error: state.error, loading: data === null && !state.error, refreshing: state.loading && data !== null, retry: state.retry, reads: held?.reads ?? 0 };
 }
 
 // ─── المحاولة بمرجع ثابت (FOUNDATION ٥١٩) ───────────────────────────────────────────────────────────────────────

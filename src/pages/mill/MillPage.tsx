@@ -1,22 +1,21 @@
-import { ChefHat, Factory, Plus, Warehouse } from 'lucide-react';
-import { useCallback, useId, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChefHat, Factory, Plus, Warehouse } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
-import { Button } from '../../components/ui/Button';
+import { Button, IconButton } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
-import { Dialog } from '../../components/ui/Dialog';
-import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
 import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
+import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { createProduction, isDuplicate, loadMill, type MillHome, type MillStore, type RecipeCard } from '../../lib/repo/mill';
+import { loadMill, setRecipeOrder, type MillHome, type RecipeCard } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { Chip, CompositionBar, dash, forgetMillRef, millRef, pieceColor, recipeColor } from './shared';
+import { Chip, CompositionBar, dash, moveId, pieceColor, recipeColor, reconcileOrder, sameOrder } from './shared';
 
 // شاشة معمل العلف (0015، كلمة المالك 2026-11-03): الخلطات بطاقاتٍ ملوّنة، كلّ واحدة تُقرأ بلمحة (شريط التركيبة ورقاقات
 // موادّها)، وزرّ «أنتج» كبير عليها؛ وتحتها دفعات قيد العمل وآخر الدفعات بجدول كلاسيكي. الكلفة تظهر لأدوار الكلفة فقط
@@ -27,6 +26,9 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pieceColor, recipeC
 // الجولة الثانية (ب٨): شريط التركيبة ورقاقاته يستثنيان الوقود والتعبئة (in_basis من لقطة سطر الخلطة)، كبطاقة الخلطة والبانية.
 // الجولة الثالثة (ب٢٧): نافذة «أنتج» تعرض رفض item_changed بجملة الخادم كما هي (تغيّرت وحدة مادّة بعد تفعيل الخلطة).
 // الجولة الرابعة (ب٣١): قطعة بكتلة لا تُعرف (null من القارئ) رقاقتها «—» والشريط يتخطّاها.
+// «ترتيب معمل العلف» (0023، كلمة المالك 2026-11-10: «ينشئ كل انواع العلايق الي يريدها ويرتبها مثل ما هو يريد»): المالك والمدير يرتّبان العلائق
+// («رتّب العلائق» ثمّ «احفظ الترتيب»: set_recipe_order بشرط الترتيب الذي عرضته الشاشة، وrecipes_changed يُقال بتلميحه ويُقرأ المعمل من جديد ويبقى ترتيب
+// المستخدم ليُحفظ ثانيةً، كـ«أدرج مواد» في الرصيد اليومي)؛ و«أنتج» يفتح شاشة الإنتاج الواحدة (/mill/produce/:id) بدل النافذة.
 
 /** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
 export const PRODUCE_UNITS = [
@@ -142,135 +144,59 @@ export function produceKg(text: string, unitId: string): bigint | null {
 }
 
 /**
- * نافذة «أنتج»: من بطاقة الخلطة في المعمل ومن صفحة الخلطة نفسها (م٩)، فتأخذ الاسم والنسخة المفعَّلة ومجموعها. «كم تنتج؟» يبدأ بمجموع الخلطة
- * (كلمة المالك 2026-11-07: «يحسبلي الناتج الي صار من مجموع المواد») ويُعدَّل أو يُختار من الكميات السريعة؛ والناتج قبل الهدر مجموع ما يُسحب.
+ * «رتّب العلائق»: ترتيب المستخدم (ids)، والترتيب الذي عرضته الشاشة شرطاً للحفظ (basis، p_expected)؛ وبعد recipes_changed عدد القراءات لحظة
+ * الرفض (changedAt) وتلميح الخادم (changed)، فأوّل قراءة ناجحة بعده تصير الشرط ويبقى ترتيب المستخدم.
  */
-export function ProduceDialog({ recipe, stores, today, onClose }: { recipe: Pick<RecipeCard, 'name' | 'activeId' | 'activeBasisKg'>; stores: readonly MillStore[]; today: string; onClose: () => void }) {
-  const id = useId();
-  const navigate = useNavigate();
-  const inputs = stores.filter((store) => store.kind === 'raw');
-  const outputs = stores.filter((store) => store.kind === 'feed');
-  const initial = recipe.activeBasisKg !== null && recipe.activeBasisKg > 0n ? fmtMilli(recipe.activeBasisKg) : '';
-  const [text, setText] = useState(initial);
-  const [unitId, setUnitId] = useState('kg');
-  const [from, setFrom] = useState(inputs[0]?.id ?? '');
-  const [to, setTo] = useState(outputs[0]?.id ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface Arrangement {
+  ids: readonly string[];
+  basis: readonly string[];
+  changedAt: number | null;
+  changed: string | null;
+}
 
-  const kg = produceKg(text, unitId);
+/** رفضٌ يعني أنّ قائمة العلائق تغيّرت بعد القراءة: تُقرأ من جديد ويبقى ترتيب المستخدم (عليقة حُذفت: recipe_not_found). */
+const LIST_CHANGED = new Set(['recipes_changed', 'recipe_not_found']);
 
-  const start = async () => {
-    if (!kg || kg <= 0n || !recipe.activeId || from === '' || to === '') return;
-    setBusy(true);
-    setError(null);
-    // المعرّف يولد بالجهاز ويبقى لنفس (النسخة، الكمية): إعادةٌ بعد جواب ضائع تصطدم بالمفتاح (23505 = كُتبت) فتُفتح
-    // الدفعة نفسها، لا دفعة ثانية بنفس المواد (درس WP4).
-    const slot = `create:${recipe.activeId}:${kg}:${from}:${to}`;
-    const batchId = millRef(slot);
-    try {
-      await createProduction(batchId, recipe.activeId, kg, from, to, today);
-      forgetMillRef(slot);
-      navigate(`/mill/batch/${batchId}`);
-    } catch (failure) {
-      if (isDuplicate(failure)) {
-        forgetMillRef(slot);
-        navigate(`/mill/batch/${batchId}`);
-        return;
-      }
-      if (failure instanceof RejectedError && failure.code === 'item_changed' && failure.hint) {
-        // تغيّرت وحدة مادّة بعد تفعيل الخلطة (ق٣١، ب٢٧): جملة الخادم كما هي، فهي تسمّي المادّة وتقول ما العمل (نسخة جديدة تُفعَّل).
-        setError(failure.hint);
-      } else {
-        const { title, detail } = describeError(failure);
-        setError(`${title} ${detail}`);
-      }
-      setBusy(false);
-    }
-  };
+/** جملة الرفض: تلميح الخادم كما هو، وإلّا وصف الخطأ. */
+function failureText(problem: unknown): string {
+  if (problem instanceof RejectedError && problem.hint) return problem.hint;
+  const { title, detail } = describeError(problem);
+  return `${title} ${detail}`;
+}
 
+/** بطاقة العليقة في «رتّب العلائق»: رقمها في الترتيب واسمها ومنتجها وسهما «قدّم» و«أخّر». */
+function ArrangeCard({ recipe, index, count, disabled, onMove }: { recipe: RecipeCard; index: number; count: number; disabled: boolean; onMove: (by: -1 | 1) => void }) {
+  const color = recipeColor(recipe.id);
   return (
-    <Dialog
-      open
-      onClose={onClose}
-      locked={busy}
-      dirty={text !== initial}
-      title={t('mill.produce.title', 'إنتاج «{name}»', { name: recipe.name })}
-      footer={
-        <Button size="lg" busy={busy} disabled={!kg || kg <= 0n || from === '' || to === ''} onClick={() => void start()} data-action="produce-start">
-          {t('mill.produce.next', 'جهّز الدفعة')}
-        </Button>
-      }
-    >
-      <p className="text-sm text-ink-muted">{t('mill.produce.hint', 'اختر الكمية أو اكتبها، ثم تُعرض عليك المواد التي ستُسحب بالتناسب وكلفة الكيلو قبل أن تُثبّت.')}</p>
-      {recipe.activeBasisKg !== null && recipe.activeBasisKg > 0n ? (
-        <p className="text-sm font-medium" data-action="produce-total">
-          {t('mill.produce.total', 'مجموع الخلطة {kg}: الناتج قبل الهدر = مجموع المواد المسحوبة.', { kg: fmtQty(recipe.activeBasisKg, 'kg').sub ?? fmtQty(recipe.activeBasisKg, 'kg').main })}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-2" role="group" aria-label={t('mill.produce.quick', 'كميات سريعة')}>
-        {QUICK_AMOUNTS.map((quick) => {
-          const picked = kg === quick.kg && unitId === 'kg';
-          return (
-            <Button
-              key={quick.key}
-              size="sm"
-              variant={picked ? 'primary' : 'secondary'}
-              aria-pressed={picked}
-              onClick={() => {
-                setUnitId('kg');
-                setText(fmtMilli(quick.kg));
-              }}
-              data-action="quick-qty"
-            >
-              {quick.label()}
-            </Button>
-          );
-        })}
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field id={`${id}-qty`} label={t('mill.produce.how_much', 'كم تنتج؟')} hint={kg === null ? undefined : t('mill.produce.same', 'أي {qty}', { qty: fmtQty(kg, 'kg').main })}>
-          <input id={`${id}-qty`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={text} onChange={(event) => setText(event.target.value)} data-action="produce-qty" />
-        </Field>
-        <Field id={`${id}-unit`} label={t('mill.produce.unit', 'الوحدة')}>
-          <select id={`${id}-unit`} className="input" value={unitId} onChange={(event) => setUnitId(event.target.value)}>
-            {PRODUCE_UNITS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-      {inputs.length > 1 ? (
-        <Field id={`${id}-from`} label={t('mill.produce.from', 'مخزن المواد')}>
-          <select id={`${id}-from`} className="input" value={from} onChange={(event) => setFrom(event.target.value)}>
-            {inputs.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
-      {outputs.length > 1 ? (
-        <Field id={`${id}-to`} label={t('mill.produce.to', 'مخزن العلف')}>
-          <select id={`${id}-to`} className="input" value={to} onChange={(event) => setTo(event.target.value)}>
-            {outputs.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
-      {!inputs.length || !outputs.length ? (
-        <Notice tone="warning" title={t('mill.produce.no_stores', 'ينقص مخزن للمعمل.')}>
-          {t('mill.produce.no_stores_detail', 'الإنتاج يسحب من مخزن المواد الأوّلية ويضع الناتج في مخزن العلف، وأحدهما غير موجود في نطاقك.')}
-        </Notice>
-      ) : null}
-      {error ? <Notice tone="danger" title={error} /> : null}
-    </Dialog>
+    <article className="card flex items-center gap-3 rounded-3xl p-3" data-action="arrange-card" data-id={recipe.id}>
+      <span className="grid size-10 shrink-0 place-items-center rounded-2xl font-semibold text-white" style={{ background: color.solid }} aria-hidden="true">
+        {fmtInt(index + 1)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold">{recipe.name}</span>
+        <span className="block truncate text-sm text-ink-muted">{t('mill.card.output', 'تنتج: {item}', { item: recipe.outputItem.name })}</span>
+      </span>
+      <IconButton
+        label={t('mill.order.up', 'قدّم «{name}»', { name: recipe.name })}
+        className="disabled:opacity-50"
+        disabled={disabled || index === 0}
+        onClick={() => onMove(-1)}
+        data-action="recipe-up"
+        data-id={recipe.id}
+      >
+        <ArrowUp aria-hidden="true" className="size-5" />
+      </IconButton>
+      <IconButton
+        label={t('mill.order.down', 'أخّر «{name}»', { name: recipe.name })}
+        className="disabled:opacity-50"
+        disabled={disabled || index === count - 1}
+        onClick={() => onMove(1)}
+        data-action="recipe-down"
+        data-id={recipe.id}
+      >
+        <ArrowDown aria-hidden="true" className="size-5" />
+      </IconButton>
+    </article>
   );
 }
 
@@ -281,11 +207,26 @@ export default function MillPage() {
   const canRecipe = role !== null && can(role, 'recipe.activate');
   const canDraft = role !== null && can(role, 'production.draft');
   const load = useCallback(() => loadMill(), []);
-  const { data, error, loading, retry } = useLoad<MillHome>(load);
-  const [producing, setProducing] = useState<RecipeCard | null>(null);
+  const state = useLoad<MillHome>(load);
+  // آخر قراءة ناجحة تبقى مرسومة أثناء القراءة من جديد (بعد حفظ الترتيب أو رفضه)، وreads عدد القراءات الناجحة: الترتيب المرفوض يعرف به أنّ ما يعرضه
+  // قُرئ بعد الرفض (لا قراءة قديمة جارية).
+  const [kept, setKept] = useState<{ data: MillHome; reads: number } | null>(null);
+  if (state.data !== null && (kept === null || kept.data !== state.data)) setKept({ data: state.data, reads: (kept?.reads ?? 0) + 1 });
+  const data = state.data ?? kept?.data ?? null;
+  const reads = kept?.reads ?? 0;
+  const refreshing = state.loading && data !== null;
+  const [arranging, setArranging] = useState<Arrangement | null>(null);
+  const [arrangeBusy, setArrangeBusy] = useState(false);
+  const [arrangeFailure, setArrangeFailure] = useState<string | null>(null);
 
-  // الخلطة المحذوفة (المؤرشفة، كلمة المالك 2026-11-09) لا تظهر في المعمل؛ صفحتها باقية برابطها لتُعاد منها.
+  // الخلطة المحذوفة (المؤرشفة، كلمة المالك 2026-11-09) لا تظهر في المعمل؛ صفحتها باقية برابطها لتُعاد منها. والترتيب ترتيب الخادم (position ثمّ الاسم).
   const recipes = useMemo(() => data?.recipes.filter((recipe) => !recipe.archived) ?? [], [data]);
+  const liveIds = useMemo(() => recipes.map((recipe) => recipe.id), [recipes]);
+  // بعد recipes_changed: أوّل قراءة ناجحة تصير شرط الحفظ، وترتيب المستخدم يبقى (ما حُذف يخرج وما أُضيف في آخره). ضبط حالة من حالة أثناء الرسم
+  // بشرط يتوقّف (changedAt يصير null).
+  if (arranging !== null && arranging.changedAt !== null && reads > arranging.changedAt) {
+    setArranging({ ...arranging, ids: reconcileOrder(arranging.ids, liveIds), basis: liveIds, changedAt: null });
+  }
   const rows = useMemo(() => data?.productions.rows ?? [], [data]);
   const costShown = rows.some((row) => row.costPerKg !== null);
   const qtyDecimals = useMemo(() => columnDecimals(rows.map((row) => row.outputQtyKg), 3) as 0 | 1 | 2 | 3, [rows]);
@@ -314,9 +255,44 @@ export default function MillPage() {
     ];
   }, [costShown, qtyDecimals]);
 
-  if (error) return <LoadFailed what={t('nav.mill', 'معمل العلف')} error={error} onRetry={retry} />;
+  // فشل القراءة الأولى يطوي الصفحة (LoadFailed)؛ وفشل قراءة من جديد بعد ما رُسمت يُقال فوقها بزرّ «أعد القراءة» ويبقى الترتيب المكتوب.
+  if (state.error && !data) return <LoadFailed what={t('nav.mill', 'معمل العلف')} error={state.error} onRetry={state.retry} />;
 
   const newRecipe = () => navigate('/mill/new');
+  const waiting = arranging !== null && arranging.changedAt !== null;
+  const rereadFailed = !state.loading && state.error !== null;
+  const arrangeLocked = arrangeBusy || refreshing || waiting;
+  const arranged = arranging ? arranging.ids.flatMap((id) => recipes.filter((recipe) => recipe.id === id)) : [];
+  const arrangeDirty = arranging !== null && !sameOrder(arranging.ids, arranging.basis);
+
+  const startArranging = () => {
+    setArrangeFailure(null);
+    setArranging({ ids: liveIds, basis: liveIds, changedAt: null, changed: null });
+  };
+  const moveRecipe = (index: number, by: -1 | 1) => setArranging((current) => (current ? { ...current, ids: moveId(current.ids, index, by) } : current));
+  /** «احفظ الترتيب»: كلّ العلائق الظاهرة بالترتيب الجديد، بشرط الترتيب الذي عرضته الشاشة. */
+  const saveArrangement = async () => {
+    if (!arranging || arrangeLocked || !arrangeDirty) return;
+    const sent = arranging;
+    setArrangeBusy(true);
+    setArrangeFailure(null);
+    try {
+      await setRecipeOrder(sent.ids, sent.basis);
+      setArranging(null);
+      toast({ tone: 'success', title: t('mill.order.saved', 'حُفظ ترتيب العلائق.') });
+      state.retry();
+    } catch (problem) {
+      if (problem instanceof RejectedError && LIST_CHANGED.has(problem.code)) {
+        // الترتيب باقٍ، والمعمل يُقرأ من جديد فيصير الحفظ التالي على ما صار فيه.
+        setArranging((current) => (current ? { ...current, changed: failureText(problem), changedAt: reads } : current));
+        state.retry();
+      } else {
+        setArrangeFailure(failureText(problem));
+      }
+    } finally {
+      setArrangeBusy(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -337,7 +313,18 @@ export default function MillPage() {
         {t('mill.stores', 'مخازن المعمل: المواد الأوّلية والعلف')}
       </Link>
 
-      {loading ? <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p> : null}
+      {!data && !state.error ? <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p> : null}
+      {data && state.error && !waiting ? (
+        <Notice
+          tone="warning"
+          title={t('mill.reread_failed', 'تعذّرت قراءة المعمل من جديد، والمعروض آخر ما قُرئ.')}
+          action={
+            <Button size="sm" variant="secondary" onClick={state.retry} data-action="mill-reread">
+              {t('common.retry', 'أعد المحاولة')}
+            </Button>
+          }
+        />
+      ) : null}
 
       {data?.productions.drafts.length ? (
         <section className="flex flex-col gap-2">
@@ -374,13 +361,68 @@ export default function MillPage() {
         </Notice>
       ) : null}
 
-      {recipes.length ? (
+      {recipes.length && arranging ? (
+        <section className="flex flex-col gap-3" data-action="arranging">
+          <h2 className="text-lg font-semibold">{t('mill.order.title', 'رتّب العلائق')}</h2>
+          <p className="text-sm text-ink-muted">{t('mill.order.hint', 'قدّم العليقة أو أخّرها بالسهمين، ثمّ «احفظ الترتيب»: بهذا الترتيب تظهر في المعمل.')}</p>
+          {arranging.changed ? (
+            <div className="flex flex-col items-start gap-2">
+              <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="arrange-changed">
+                {arranging.changed}{' '}
+                {waiting
+                  ? rereadFailed
+                    ? t('mill.order.changed.failed', 'وتعذّرت قراءة العلائق من جديد. أعد القراءة، ثمّ احفظ ترتيبك إن شئت.')
+                    : t('mill.order.changed.reading', 'جارٍ قراءة العلائق من جديد…')
+                  : t('mill.order.changed.kept', 'قُرئت العلائق من جديد، وترتيبك باقٍ: احفظه ليحلّ محلّ الترتيب الحالي، أو تراجع.')}
+              </p>
+              {waiting && rereadFailed ? (
+                <Button size="sm" variant="secondary" onClick={state.retry} data-action="arrange-reread">
+                  {t('dayb.reread', 'أعد القراءة')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <ol className="flex flex-col gap-2" data-action="arrange-list">
+            {arranged.map((recipe, index) => (
+              <li key={recipe.id}>
+                <ArrangeCard recipe={recipe} index={index} count={arranged.length} disabled={arrangeLocked} onMove={(by) => moveRecipe(index, by)} />
+              </li>
+            ))}
+          </ol>
+          {arrangeFailure ? <Notice tone="danger" title={arrangeFailure} /> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button busy={arrangeBusy} disabled={arrangeLocked || !arrangeDirty} onClick={() => void saveArrangement()} data-action="save-arrangement">
+              {t('mill.order.save', 'احفظ الترتيب')}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={arrangeBusy}
+              onClick={() => {
+                setArranging(null);
+                setArrangeFailure(null);
+              }}
+              data-action="cancel-arrangement"
+            >
+              {t('mill.order.cancel', 'تراجع')}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {recipes.length && !arranging ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-lg font-semibold">{t('mill.recipes.title', 'الخلطات')}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">{t('mill.recipes.title', 'الخلطات')}</h2>
+            {canRecipe && recipes.length > 1 ? (
+              <Button size="sm" variant="secondary" icon={<ArrowUpDown className="size-4" aria-hidden="true" />} disabled={refreshing} onClick={startArranging} data-action="arrange-recipes">
+                {t('mill.order.start', 'رتّب العلائق')}
+              </Button>
+            ) : null}
+          </div>
           <ul className="grid gap-3 sm:grid-cols-2">
             {recipes.map((recipe) => (
               <li key={recipe.id}>
-                <RecipeCardView recipe={recipe} canProduce={canDraft && recipe.activeId !== null} onProduce={() => setProducing(recipe)} />
+                <RecipeCardView recipe={recipe} canProduce={canDraft && recipe.activeId !== null} onProduce={() => navigate(`/mill/produce/${recipe.id}`)} />
               </li>
             ))}
           </ul>
@@ -393,8 +435,6 @@ export default function MillPage() {
           <DataTable caption={t('mill.batches.caption', 'دفعات الإنتاج المرحَّلة والملغاة')} columns={columns} rows={rows} rowKey={(row) => row.id} empty={t('mill.batches.empty', 'لا دفعات بعد.')} />
         </section>
       ) : null}
-
-      {producing ? <ProduceDialog recipe={producing} stores={data?.stores ?? []} today={data?.today ?? ''} onClose={() => setProducing(null)} /> : null}
     </div>
   );
 }

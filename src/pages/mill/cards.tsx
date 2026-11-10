@@ -171,6 +171,20 @@ export function useCardLines() {
   };
 
   const remove = (itemId: string) => setLines((current) => current.filter((line) => line.item.id !== itemId));
+  /**
+   * يقدّم المادّة المختارة (by = -1) أو يؤخّرها (by = 1) مرتبةً واحدة (0023، كلمة المالك 2026-11-10: «يرتب المواد الي يستخدمهن»): ترتيب المختار
+   * هو ترتيب p_lines، وcreate_recipe يرقّم السطور به.
+   */
+  const move = (itemId: string, by: -1 | 1) =>
+    setLines((current) => {
+      const index = current.findIndex((line) => line.item.id === itemId);
+      const target = index + by;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      const [line] = next.splice(index, 1);
+      if (line) next.splice(target, 0, line);
+      return next;
+    });
   const setQty = (itemId: string, qtyText: string) => patch(itemId, (line) => ({ ...line, qtyText }));
   const setUnit = (itemId: string, unit: RecipeUnit) => patch(itemId, (line) => ({ ...line, unit }));
   const setDensityText = (itemId: string, densityText: string) => patch(itemId, (line) => ({ ...line, densityText, densityProblem: null }));
@@ -201,7 +215,7 @@ export function useCardLines() {
 
   const reset = () => setLines([]);
 
-  return { lines, made, add, remove, setQty, setUnit, setDensityText, retryDensity, saveDensity, reset };
+  return { lines, made, add, remove, move, setQty, setUnit, setDensityText, retryDensity, saveDensity, reset };
 }
 
 export type CardLines = ReturnType<typeof useCardLines>;
