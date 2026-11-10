@@ -460,7 +460,7 @@ export default async function (t) {
     const byKey = new Map(m.homeActions(null).map((action) => [action.key, action.to]));
     t.same(
       ALL.map((key) => byKey.get(key)),
-      ['/broiler/round', '/layers/round', '/inventory', '/sales?new=1', '/inventory/uses', '/inventory/transfers', '/accounts?new=payout', '/accounts?new=payment', '/accounts/expenses?new=1', '/inventory/counts', '/mill'],
+      ['/broiler/round', '/layers/round', '/inventory', '/sales?new=1', '/inventory/uses', '/inventory/transfers', '/accounts/parties?new=payout', '/accounts/parties?new=payment', '/accounts/expenses?new=1', '/inventory/counts', '/mill'],
       'كل زرّ يفتح نموذجه',
     );
     const buttons = m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.HomeActions, { actions: m.homeActions({ role: 'storekeeper', canSeeAccounts: false }) })));

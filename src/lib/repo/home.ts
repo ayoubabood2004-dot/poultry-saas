@@ -31,9 +31,9 @@ export interface HomeSummary {
   hatcheryBelowMinimum?: number;
   /**
    * لأدوار الحسابات بس (الخادم ما يرجّعها لغيرهم). visibleBooks من totalBooks: القارئ المحصور بوحدات (E49) أرقامه من دفاتر
-   * نطاقه بس، فالبطاقة تكتب «N من المجموع».
+   * نطاقه بس، فالبطاقة تكتب «N من المجموع». cashTotal: مجموع الصناديق كلّها اليوم (0024)، وغيابه (خادم أقدم) بلا سطر.
    */
-  accounts?: { receivable: Fils; payable: Fils; negativeBoxes: number; visibleBooks: number; totalBooks: number };
+  accounts?: { receivable: Fils; payable: Fils; negativeBoxes: number; visibleBooks: number; totalBooks: number; cashTotal?: Fils };
 }
 
 export class HomeShapeError extends Error {
@@ -67,6 +67,7 @@ export function parseHomeSummary(value: unknown): HomeSummary {
     const accounts = record(json.accounts, 'accounts');
     const books = record(accounts.books, 'books');
     out.accounts = { receivable: fils(accounts, 'receivable'), payable: fils(accounts, 'payable'), negativeBoxes: count(accounts, 'negative_boxes'), visibleBooks: count(books, 'visible'), totalBooks: count(books, 'total') };
+    if (accounts.cash_total !== undefined) out.accounts.cashTotal = fils(accounts, 'cash_total');
   }
   // تنبيهات المخزون لكل وحدة بمخازن النطاق (0007): تحت الحدّ الأدنى لكل وحدة تستلم المادّة من المورّد (E22: المعمل والأدوية
   // والعامّة والمفقس)، وقريب الانتهاء للأدوية، وأفراخ المفقس فاتها 48 ساعة. حقول اللحم والبيض ما تستلم من المورّد (صفر دائماً).

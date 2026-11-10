@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { balanceSide, runLedger, type LedgerEntry, type LedgerLine } from '../../domain/ledger';
 import type { Fils } from '../../domain/money';
 import { fmtDay, fmtMoney } from '../../lib/format';
@@ -50,8 +51,25 @@ function Balance({ balance, decimals, sides }: { balance: Fils; decimals: 0 | 2;
   );
 }
 
+/** سطر الكشف وطريق مستنده (0024: رقم المستند في كشف الصندوق يفتح سنده أو مستنده)، أو بلا طريق. */
+export interface LinkedEntry extends LedgerEntry {
+  href?: string | null;
+}
+
 interface Row extends LedgerLine {
   opening?: true;
+  href?: string | null;
+}
+
+/** رقم المستند: رابطاً حين يُعرف طريقه، وبلا رقم (التحويل) باسم «السند». */
+function DocNo({ row }: { row: Row }) {
+  const label = row.doc ? <Num>{row.doc}</Num> : null;
+  if (!row.href) return label;
+  return (
+    <Link to={row.href} className="text-brand-700 dark:text-brand-200" data-action="ledger-doc">
+      {label ?? t('ledger.doc.voucher', 'السند')}
+    </Link>
+  );
 }
 
 export function LedgerTable({
@@ -62,7 +80,7 @@ export function LedgerTable({
   sides = partySides(),
 }: {
   caption: string;
-  entries: readonly LedgerEntry[];
+  entries: readonly LinkedEntry[];
   /** الرصيد قبل أوّل سطر: سطر «رصيد سابق» إذا مو صفر. */
   opening?: Fils;
   decimals?: 0 | 2;
@@ -77,7 +95,7 @@ export function LedgerTable({
 
   const columns: Column<Row>[] = [
     { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (row) => (row.opening ? null : <Num>{fmtDay(row.date)}</Num>) },
-    { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (row) => (row.doc ? <Num>{row.doc}</Num> : null) },
+    { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (row) => <DocNo row={row} /> },
     { key: 'memo', header: t('ledger.memo', 'البيان'), wrap: true, cell: (row) => row.memo },
     {
       key: 'debit',

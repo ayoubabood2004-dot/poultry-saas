@@ -53,6 +53,16 @@ export function CashTable({ balances, actions }: { balances: CashBalances; actio
       ),
       total: <Num>{fmtMoney(balances.total.closing, 0)}</Num>,
     },
+    {
+      // يومية اليوم (0024): وارد الصندوق وصادره ليوم واحد، تُطبع بتوقيع أمين الصندوق.
+      key: 'day',
+      header: t('cash.col.day', 'اليومية'),
+      cell: (box) => (
+        <Link className="text-brand-700 dark:text-brand-200" to={`/accounts/cash/${box.accountId}/day`} data-action="cash-day">
+          {t('cash.day', 'يومية اليوم')}
+        </Link>
+      ),
+    },
   ];
   if (actions) columns.unshift({ key: 'actions', header: t('org.col.actions', 'إجراءات'), cell: actions });
   return <DataTable caption={t('cash.title', 'الصناديق')} columns={columns} rows={balances.accounts} rowKey={(box) => box.accountId} empty={t('cash.empty', 'لا صناديق بعد.')} totalLabel={t('ledger.total', 'المجموع')} />;

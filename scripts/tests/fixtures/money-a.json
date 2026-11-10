@@ -1,0 +1,1485 @@
+{
+  "generated_by": "supabase/tests/money.test.mjs (embedded Postgres 17، اليوم المثبَّت 2026-11-10)",
+  "money_overview": {
+    "day": {
+      "inflow": "20000",
+      "classes": [
+        {
+          "class": "customer_receipt",
+          "count": 2,
+          "inflow": "20000",
+          "outflow": "20000"
+        },
+        {
+          "class": "expense",
+          "count": 2,
+          "inflow": "0",
+          "outflow": "80000"
+        },
+        {
+          "class": "transfer",
+          "count": 6,
+          "inflow": "350000",
+          "outflow": "350000"
+        }
+      ],
+      "outflow": "100000"
+    },
+    "cash": {
+      "boxes": [
+        {
+          "kind": "cash",
+          "name": "الصندوق الرئيسي",
+          "balance": "4215000",
+          "archived": false,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d"
+        },
+        {
+          "kind": "cash",
+          "name": "صندوق السيّارة",
+          "balance": "-5000",
+          "archived": false,
+          "account_id": "92c064c0-22f2-464a-b11f-46a23515e14d"
+        },
+        {
+          "kind": "bank",
+          "name": "مصرف الرافدين",
+          "balance": "1250000",
+          "archived": false,
+          "account_id": "3f1b2d6f-91d3-45cd-8bde-4f9aa99e8834"
+        }
+      ],
+      "total": "5460000"
+    },
+    "debts": {
+      "net": "-585000",
+      "books": {
+        "total": 7,
+        "visible": 7
+      },
+      "payable": "915000",
+      "divisions": [
+        {
+          "kind": "broiler",
+          "payable": "0",
+          "receivable": "0",
+          "division_id": "313a003d-db97-46b5-a1e7-3eb300182924"
+        },
+        {
+          "kind": "feed_mill",
+          "payable": "725000",
+          "receivable": "250000",
+          "division_id": "f2c7838c-378e-45c6-b575-8e7efe87dbdb"
+        },
+        {
+          "kind": "general",
+          "payable": "190000",
+          "receivable": "80000",
+          "division_id": "127f42dc-0773-4d11-9dd9-fb188ac3c25a"
+        },
+        {
+          "kind": "hatchery",
+          "payable": "0",
+          "receivable": "0",
+          "division_id": "1b448ce3-1c34-420a-acb8-cebbce1951b6"
+        },
+        {
+          "kind": "layer",
+          "payable": "0",
+          "receivable": "0",
+          "division_id": "4a1ce671-f047-455f-a99d-532dbd1dc65b"
+        },
+        {
+          "kind": "medicine",
+          "payable": "0",
+          "receivable": "0",
+          "division_id": "2912b0e5-433d-4ba4-ab0a-8a826172383c"
+        }
+      ],
+      "receivable": "330000"
+    },
+    "month": {
+      "cash": {
+        "net": "170000",
+        "inflow": "270000",
+        "outflow": "100000"
+      },
+      "sales": {
+        "cost": "166300.00",
+        "count": 2,
+        "gross": "133700.00",
+        "revenue": "300000"
+      },
+      "expenses": {
+        "total": "120000",
+        "categories": [
+          {
+            "name": "كهرباء",
+            "amount": "75000",
+            "category_id": "ce3422da-bcfd-42f9-81bd-d0ec29ba2482"
+          },
+          {
+            "name": "صيانة",
+            "amount": "40000",
+            "category_id": "bec325d6-0efe-4fee-b1a0-6fa589b8829e"
+          },
+          {
+            "name": "وقود السيّارة",
+            "amount": "5000",
+            "category_id": "f914529b-6321-4dde-9643-7510a75556ee"
+          }
+        ]
+      },
+      "purchases": {
+        "cash": "0",
+        "count": 1,
+        "total": "150000",
+        "credit": "150000"
+      }
+    },
+    "today": "2026-11-10",
+    "alerts": {
+      "old_payable": {
+        "amount": "0",
+        "parties": 0
+      },
+      "negative_boxes": [
+        {
+          "name": "صندوق السيّارة",
+          "balance": "-5000",
+          "account_id": "92c064c0-22f2-464a-b11f-46a23515e14d"
+        }
+      ],
+      "old_receivable": {
+        "amount": "200000",
+        "parties": 1
+      }
+    },
+    "month_from": "2026-11-01",
+    "top_payable": [
+      {
+        "name": "مورّد الذرة",
+        "phone": "07701234567",
+        "amount": "785000",
+        "oldest": "2026-10-01",
+        "party_id": "3c751e35-75d6-4d9e-9be6-9acb653861d8"
+      },
+      {
+        "name": "ناقل البصرة",
+        "phone": null,
+        "amount": "70000",
+        "oldest": "2026-10-01",
+        "party_id": "01c42c2d-838a-44c4-b399-f7b6addba716"
+      },
+      {
+        "name": "جهة مزدوجة",
+        "phone": null,
+        "amount": "60000",
+        "oldest": "2026-09-26",
+        "party_id": "70919b3c-9030-41f5-9dfe-cb8a119adeac"
+      }
+    ],
+    "top_receivable": [
+      {
+        "name": "زبون قديم",
+        "phone": null,
+        "amount": "200000",
+        "oldest": "2026-07-13",
+        "party_id": "98b2e43b-def6-4f39-a1b0-c966e22e3f7a"
+      },
+      {
+        "name": "جهة مزدوجة",
+        "phone": null,
+        "amount": "80000",
+        "oldest": "2026-09-26",
+        "party_id": "70919b3c-9030-41f5-9dfe-cb8a119adeac"
+      },
+      {
+        "name": "زبون الدجاج",
+        "phone": "07809876543",
+        "amount": "50000",
+        "oldest": "2026-11-07",
+        "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e"
+      }
+    ]
+  },
+  "money_moves": {
+    "all": {
+      "to": "2026-11-10",
+      "days": [
+        {
+          "count": 1,
+          "inflow": "100000",
+          "closing": "5390000",
+          "on_date": "2026-11-05",
+          "outflow": "0"
+        },
+        {
+          "count": 1,
+          "inflow": "150000",
+          "closing": "5540000",
+          "on_date": "2026-11-09",
+          "outflow": "0"
+        },
+        {
+          "count": 10,
+          "inflow": "370000",
+          "closing": "5460000",
+          "on_date": "2026-11-10",
+          "outflow": "450000"
+        }
+      ],
+      "from": "2026-11-01",
+      "next": {
+        "seq": "1",
+        "on_date": "2026-11-10",
+        "account_id": "92c064c0-22f2-464a-b11f-46a23515e14d",
+        "created_at": "2026-11-10T19:16:07.999747+00:00"
+      },
+      "rows": [
+        {
+          "seq": "6",
+          "kind": "party_payment",
+          "note": null,
+          "class": "cash_sale",
+          "doc_id": "ee001454-1dcb-4aec-b751-1e4c367c1ab4",
+          "doc_no": "MS-2026-0001",
+          "inflow": "100000",
+          "balance": "5390000",
+          "move_id": "11d61cf8-e672-4663-9f47-9efd9e502f7d",
+          "on_date": "2026-11-05",
+          "outflow": "0",
+          "voucher": null,
+          "category": null,
+          "doc_kind": "sale",
+          "entry_id": "32de58d7-2a87-4703-814e-f25d102560ea",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "7",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0002",
+          "inflow": "150000",
+          "balance": "5540000",
+          "move_id": "97e0246e-8757-44e8-b9fc-4dcf99ac3844",
+          "on_date": "2026-11-09",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "8",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "20000",
+          "balance": "5560000",
+          "move_id": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "9",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "0",
+          "balance": "5540000",
+          "move_id": "cc579dc5-3a47-49b4-bc44-1e6383936002",
+          "on_date": "2026-11-10",
+          "outflow": "20000",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "1706f2a1-0d9b-4027-b680-b5affe2422f6",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "10",
+          "kind": "expense",
+          "note": "فاتورة تشرين الثاني",
+          "class": "expense",
+          "doc_id": "1cb010b6-1c4a-4fc9-9e76-48c8c4122711",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "5465000",
+          "move_id": "6749b17e-fcda-4c0a-85d0-68156bb31cd6",
+          "on_date": "2026-11-10",
+          "outflow": "75000",
+          "voucher": null,
+          "category": "كهرباء",
+          "doc_kind": "expense",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "1",
+          "kind": "expense",
+          "note": null,
+          "class": "expense",
+          "doc_id": "4fa75774-b54d-4a4f-a5f7-f8d2d0e1eb75",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "5460000",
+          "move_id": "8a1f3e5c-ae42-4ec0-a2a6-958ec5e839c0",
+          "on_date": "2026-11-10",
+          "outflow": "5000",
+          "voucher": null,
+          "category": "وقود السيّارة",
+          "doc_kind": "expense",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "92c064c0-22f2-464a-b11f-46a23515e14d",
+          "party_name": null,
+          "voucher_id": null,
+          "account_name": "صندوق السيّارة",
+          "counter_account": null
+        }
+      ],
+      "totals": {
+        "count": 12,
+        "inflow": "620000",
+        "outflow": "450000"
+      },
+      "account": null,
+      "closing": "5460000",
+      "opening": "5290000",
+      "running": true
+    },
+    "box": {
+      "to": "2026-11-10",
+      "days": [
+        {
+          "count": 2,
+          "inflow": "0",
+          "closing": "4590000",
+          "on_date": "2026-10-01",
+          "outflow": "510000"
+        },
+        {
+          "count": 1,
+          "inflow": "0",
+          "closing": "4290000",
+          "on_date": "2026-10-21",
+          "outflow": "300000"
+        },
+        {
+          "count": 1,
+          "inflow": "100000",
+          "closing": "4390000",
+          "on_date": "2026-11-05",
+          "outflow": "0"
+        },
+        {
+          "count": 1,
+          "inflow": "150000",
+          "closing": "4540000",
+          "on_date": "2026-11-09",
+          "outflow": "0"
+        },
+        {
+          "count": 6,
+          "inflow": "70000",
+          "closing": "4215000",
+          "on_date": "2026-11-10",
+          "outflow": "395000"
+        }
+      ],
+      "from": "2026-10-01",
+      "next": null,
+      "rows": [
+        {
+          "seq": "3",
+          "kind": "receipt_charge",
+          "note": "تحميل",
+          "class": "purchase_charge",
+          "doc_id": "f594dfbd-4490-42a5-a346-4dd17a6e6c0e",
+          "doc_no": "PU-2026-0001",
+          "inflow": "0",
+          "balance": "5090000",
+          "move_id": "487418ee-d72b-4fb7-9e44-99ddc7807e4c",
+          "on_date": "2026-10-01",
+          "outflow": "10000",
+          "voucher": null,
+          "category": null,
+          "doc_kind": "receipt",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "4",
+          "kind": "receipt_paid",
+          "note": null,
+          "class": "cash_purchase",
+          "doc_id": "f594dfbd-4490-42a5-a346-4dd17a6e6c0e",
+          "doc_no": "PU-2026-0001",
+          "inflow": "0",
+          "balance": "4590000",
+          "move_id": "4069ae6b-26cd-43b6-9cb9-aab6c93d88e4",
+          "on_date": "2026-10-01",
+          "outflow": "500000",
+          "voucher": null,
+          "category": null,
+          "doc_kind": "receipt",
+          "entry_id": "b4a67541-6ef4-4cdc-8cd2-ff37b7d6349b",
+          "party_id": "3c751e35-75d6-4d9e-9be6-9acb653861d8",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "مورّد الذرة",
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "5",
+          "kind": "party_payout",
+          "note": null,
+          "class": "supplier_payment",
+          "doc_id": null,
+          "doc_no": "PY-2026-0001",
+          "inflow": "0",
+          "balance": "4290000",
+          "move_id": "21e9415c-e467-4030-b646-e6a2c80d2fe3",
+          "on_date": "2026-10-21",
+          "outflow": "300000",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "e0dce789-0997-4524-b642-eccc1c90436c",
+          "party_id": "3c751e35-75d6-4d9e-9be6-9acb653861d8",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "مورّد الذرة",
+          "voucher_id": "e0dce789-0997-4524-b642-eccc1c90436c",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "6",
+          "kind": "party_payment",
+          "note": null,
+          "class": "cash_sale",
+          "doc_id": "ee001454-1dcb-4aec-b751-1e4c367c1ab4",
+          "doc_no": "MS-2026-0001",
+          "inflow": "100000",
+          "balance": "4390000",
+          "move_id": "11d61cf8-e672-4663-9f47-9efd9e502f7d",
+          "on_date": "2026-11-05",
+          "outflow": "0",
+          "voucher": null,
+          "category": null,
+          "doc_kind": "sale",
+          "entry_id": "32de58d7-2a87-4703-814e-f25d102560ea",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "7",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0002",
+          "inflow": "150000",
+          "balance": "4540000",
+          "move_id": "97e0246e-8757-44e8-b9fc-4dcf99ac3844",
+          "on_date": "2026-11-09",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "8",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "20000",
+          "balance": "4560000",
+          "move_id": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "9",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "0",
+          "balance": "4540000",
+          "move_id": "cc579dc5-3a47-49b4-bc44-1e6383936002",
+          "on_date": "2026-11-10",
+          "outflow": "20000",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "1706f2a1-0d9b-4027-b680-b5affe2422f6",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "10",
+          "kind": "expense",
+          "note": "فاتورة تشرين الثاني",
+          "class": "expense",
+          "doc_id": "1cb010b6-1c4a-4fc9-9e76-48c8c4122711",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4465000",
+          "move_id": "6749b17e-fcda-4c0a-85d0-68156bb31cd6",
+          "on_date": "2026-11-10",
+          "outflow": "75000",
+          "voucher": null,
+          "category": "كهرباء",
+          "doc_kind": "expense",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "11",
+          "kind": "transfer",
+          "note": "إيداع في المصرف",
+          "class": "transfer",
+          "doc_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4215000",
+          "move_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "on_date": "2026-11-10",
+          "outflow": "250000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "12",
+          "kind": "transfer",
+          "note": null,
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "50000",
+          "balance": "4265000",
+          "move_id": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "13",
+          "kind": "transfer",
+          "note": "تحويل خاطئ",
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4215000",
+          "move_id": "d042d81a-c9f7-4222-9491-f87cb171c19f",
+          "on_date": "2026-11-10",
+          "outflow": "50000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        }
+      ],
+      "totals": {
+        "count": 11,
+        "inflow": "320000",
+        "outflow": "1205000"
+      },
+      "account": {
+        "id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+        "kind": "cash",
+        "name": "الصندوق الرئيسي",
+        "archived": false
+      },
+      "closing": "4215000",
+      "opening": "5100000",
+      "running": true
+    },
+    "box_day": {
+      "to": "2026-11-10",
+      "days": [
+        {
+          "count": 6,
+          "inflow": "70000",
+          "closing": "4215000",
+          "on_date": "2026-11-10",
+          "outflow": "395000"
+        }
+      ],
+      "from": "2026-11-10",
+      "next": null,
+      "rows": [
+        {
+          "seq": "8",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "20000",
+          "balance": "4560000",
+          "move_id": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "9",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "0",
+          "balance": "4540000",
+          "move_id": "cc579dc5-3a47-49b4-bc44-1e6383936002",
+          "on_date": "2026-11-10",
+          "outflow": "20000",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "1706f2a1-0d9b-4027-b680-b5affe2422f6",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "10",
+          "kind": "expense",
+          "note": "فاتورة تشرين الثاني",
+          "class": "expense",
+          "doc_id": "1cb010b6-1c4a-4fc9-9e76-48c8c4122711",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4465000",
+          "move_id": "6749b17e-fcda-4c0a-85d0-68156bb31cd6",
+          "on_date": "2026-11-10",
+          "outflow": "75000",
+          "voucher": null,
+          "category": "كهرباء",
+          "doc_kind": "expense",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": null,
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "11",
+          "kind": "transfer",
+          "note": "إيداع في المصرف",
+          "class": "transfer",
+          "doc_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4215000",
+          "move_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "on_date": "2026-11-10",
+          "outflow": "250000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "12",
+          "kind": "transfer",
+          "note": null,
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "50000",
+          "balance": "4265000",
+          "move_id": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "13",
+          "kind": "transfer",
+          "note": "تحويل خاطئ",
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "4215000",
+          "move_id": "d042d81a-c9f7-4222-9491-f87cb171c19f",
+          "on_date": "2026-11-10",
+          "outflow": "50000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        }
+      ],
+      "totals": {
+        "count": 6,
+        "inflow": "70000",
+        "outflow": "395000"
+      },
+      "account": {
+        "id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+        "kind": "cash",
+        "name": "الصندوق الرئيسي",
+        "archived": false
+      },
+      "closing": "4215000",
+      "opening": "4540000",
+      "running": true
+    },
+    "filtered": {
+      "to": "2026-11-10",
+      "days": [
+        {
+          "count": 1,
+          "inflow": "100000",
+          "closing": null,
+          "on_date": "2026-09-11",
+          "outflow": "0"
+        },
+        {
+          "count": 1,
+          "inflow": "150000",
+          "closing": null,
+          "on_date": "2026-11-09",
+          "outflow": "0"
+        },
+        {
+          "count": 2,
+          "inflow": "20000",
+          "closing": null,
+          "on_date": "2026-11-10",
+          "outflow": "20000"
+        }
+      ],
+      "from": "2026-07-13",
+      "next": null,
+      "rows": [
+        {
+          "seq": "2",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0001",
+          "inflow": "100000",
+          "balance": null,
+          "move_id": "c364abb9-1baf-4021-ba1c-104f5d91ebc6",
+          "on_date": "2026-09-11",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "0ecca648-c9d8-496f-9ed0-c44ce41f9b2a",
+          "party_id": "98b2e43b-def6-4f39-a1b0-c966e22e3f7a",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون قديم",
+          "voucher_id": "0ecca648-c9d8-496f-9ed0-c44ce41f9b2a",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "7",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0002",
+          "inflow": "150000",
+          "balance": null,
+          "move_id": "97e0246e-8757-44e8-b9fc-4dcf99ac3844",
+          "on_date": "2026-11-09",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "cbd6dcdc-2d14-4a67-95f5-68d02bcfcc1b",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "8",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "20000",
+          "balance": null,
+          "move_id": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        },
+        {
+          "seq": "9",
+          "kind": "party_payment",
+          "note": null,
+          "class": "customer_receipt",
+          "doc_id": null,
+          "doc_no": "RC-2026-0003",
+          "inflow": "0",
+          "balance": null,
+          "move_id": "cc579dc5-3a47-49b4-bc44-1e6383936002",
+          "on_date": "2026-11-10",
+          "outflow": "20000",
+          "voucher": "entry",
+          "category": null,
+          "doc_kind": null,
+          "entry_id": "1706f2a1-0d9b-4027-b680-b5affe2422f6",
+          "party_id": "20f0f112-c669-4acd-87ea-4da0448e082e",
+          "reversed": false,
+          "reverses": "73a42da6-e295-42df-a488-2edee2baeb07",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": "زبون الدجاج",
+          "voucher_id": "95912c30-c8e0-4e6b-8562-7b5bdb8324cb",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": null
+        }
+      ],
+      "totals": {
+        "count": 4,
+        "inflow": "270000",
+        "outflow": "20000"
+      },
+      "account": null,
+      "closing": null,
+      "opening": null,
+      "running": false
+    },
+    "page2": {
+      "to": "2026-11-10",
+      "days": [
+        {
+          "count": 10,
+          "inflow": "370000",
+          "closing": "5460000",
+          "on_date": "2026-11-10",
+          "outflow": "450000"
+        }
+      ],
+      "from": "2026-11-01",
+      "next": null,
+      "rows": [
+        {
+          "seq": "2",
+          "kind": "transfer",
+          "note": "إيداع في المصرف",
+          "class": "transfer",
+          "doc_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "doc_no": null,
+          "inflow": "250000",
+          "balance": "5710000",
+          "move_id": "a0c312b2-fc8b-40d3-9530-d8bb64087a7f",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "3f1b2d6f-91d3-45cd-8bde-4f9aa99e8834",
+          "party_name": null,
+          "voucher_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "account_name": "مصرف الرافدين",
+          "counter_account": "الصندوق الرئيسي"
+        },
+        {
+          "seq": "11",
+          "kind": "transfer",
+          "note": "إيداع في المصرف",
+          "class": "transfer",
+          "doc_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "5460000",
+          "move_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "on_date": "2026-11-10",
+          "outflow": "250000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "f40303d2-caa7-4f43-9be6-e02fcbe5b754",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "3",
+          "kind": "transfer",
+          "note": null,
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "5410000",
+          "move_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "on_date": "2026-11-10",
+          "outflow": "50000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": true,
+          "reverses": null,
+          "account_id": "3f1b2d6f-91d3-45cd-8bde-4f9aa99e8834",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "مصرف الرافدين",
+          "counter_account": "الصندوق الرئيسي"
+        },
+        {
+          "seq": "12",
+          "kind": "transfer",
+          "note": null,
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "50000",
+          "balance": "5460000",
+          "move_id": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": true,
+          "reverses": null,
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        },
+        {
+          "seq": "4",
+          "kind": "transfer",
+          "note": "تحويل خاطئ",
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "50000",
+          "balance": "5510000",
+          "move_id": "786fa9bd-2fc8-4c45-b814-5ceff5221fa5",
+          "on_date": "2026-11-10",
+          "outflow": "0",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_id": "3f1b2d6f-91d3-45cd-8bde-4f9aa99e8834",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "مصرف الرافدين",
+          "counter_account": "الصندوق الرئيسي"
+        },
+        {
+          "seq": "13",
+          "kind": "transfer",
+          "note": "تحويل خاطئ",
+          "class": "transfer",
+          "doc_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "doc_no": null,
+          "inflow": "0",
+          "balance": "5460000",
+          "move_id": "d042d81a-c9f7-4222-9491-f87cb171c19f",
+          "on_date": "2026-11-10",
+          "outflow": "50000",
+          "voucher": "transfer",
+          "category": null,
+          "doc_kind": "cash_transfer",
+          "entry_id": null,
+          "party_id": null,
+          "reversed": false,
+          "reverses": "5a1c6700-fed8-4824-936b-84a6fccadadd",
+          "account_id": "a34848dc-5db1-4a3d-816e-bd6ddd9f719d",
+          "party_name": null,
+          "voucher_id": "83f5557b-dfc6-47d6-bb79-5ff58997daa9",
+          "account_name": "الصندوق الرئيسي",
+          "counter_account": "مصرف الرافدين"
+        }
+      ],
+      "totals": {
+        "count": 12,
+        "inflow": "620000",
+        "outflow": "450000"
+      },
+      "account": null,
+      "closing": "5460000",
+      "opening": "5290000",
+      "running": true
+    }
+  },
+  "month_summary": {
+    "to": "2026-11-10",
+    "cash": {
+      "net": "170000",
+      "inflow": "270000",
+      "outflow": "100000"
+    },
+    "from": "2026-11-01",
+    "month": "2026-11-01",
+    "project": {
+      "sales": {
+        "cost": "166300.00",
+        "count": 2,
+        "gross": "133700.00",
+        "revenue": "300000"
+      },
+      "expenses": {
+        "total": "120000",
+        "categories": [
+          {
+            "name": "كهرباء",
+            "amount": "75000",
+            "category_id": "ce3422da-bcfd-42f9-81bd-d0ec29ba2482"
+          },
+          {
+            "name": "صيانة",
+            "amount": "40000",
+            "category_id": "bec325d6-0efe-4fee-b1a0-6fa589b8829e"
+          },
+          {
+            "name": "وقود السيّارة",
+            "amount": "5000",
+            "category_id": "f914529b-6321-4dde-9643-7510a75556ee"
+          }
+        ]
+      },
+      "purchases": {
+        "cash": "0",
+        "count": 1,
+        "total": "150000",
+        "credit": "150000"
+      },
+      "feed_issue": {
+        "cost": "151400.00",
+        "issues": 1
+      },
+      "production": {
+        "cost": "757000.00",
+        "batches": 1,
+        "output_kg": "1000.000"
+      }
+    },
+    "divisions": [
+      {
+        "kind": "broiler",
+        "sales": {
+          "cost": "0",
+          "count": 0,
+          "gross": "0",
+          "revenue": "0"
+        },
+        "expenses": {
+          "total": "0",
+          "categories": []
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 0,
+          "total": "0",
+          "credit": "0"
+        },
+        "feed_issue": {
+          "cost": "151400.00",
+          "issues": 1
+        },
+        "production": null,
+        "division_id": "313a003d-db97-46b5-a1e7-3eb300182924"
+      },
+      {
+        "kind": "feed_mill",
+        "sales": {
+          "cost": "166300.00",
+          "count": 2,
+          "gross": "133700.00",
+          "revenue": "300000"
+        },
+        "expenses": {
+          "total": "0",
+          "categories": []
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 0,
+          "total": "0",
+          "credit": "0"
+        },
+        "feed_issue": null,
+        "production": {
+          "cost": "757000.00",
+          "batches": 1,
+          "output_kg": "1000.000"
+        },
+        "division_id": "f2c7838c-378e-45c6-b575-8e7efe87dbdb"
+      },
+      {
+        "kind": "general",
+        "sales": {
+          "cost": "0",
+          "count": 0,
+          "gross": "0",
+          "revenue": "0"
+        },
+        "expenses": {
+          "total": "120000",
+          "categories": [
+            {
+              "name": "كهرباء",
+              "amount": "75000",
+              "category_id": "ce3422da-bcfd-42f9-81bd-d0ec29ba2482"
+            },
+            {
+              "name": "صيانة",
+              "amount": "40000",
+              "category_id": "bec325d6-0efe-4fee-b1a0-6fa589b8829e"
+            },
+            {
+              "name": "وقود السيّارة",
+              "amount": "5000",
+              "category_id": "f914529b-6321-4dde-9643-7510a75556ee"
+            }
+          ]
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 1,
+          "total": "150000",
+          "credit": "150000"
+        },
+        "feed_issue": null,
+        "production": null,
+        "division_id": "127f42dc-0773-4d11-9dd9-fb188ac3c25a"
+      },
+      {
+        "kind": "hatchery",
+        "sales": {
+          "cost": "0",
+          "count": 0,
+          "gross": "0",
+          "revenue": "0"
+        },
+        "expenses": {
+          "total": "0",
+          "categories": []
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 0,
+          "total": "0",
+          "credit": "0"
+        },
+        "feed_issue": null,
+        "production": null,
+        "division_id": "1b448ce3-1c34-420a-acb8-cebbce1951b6"
+      },
+      {
+        "kind": "layer",
+        "sales": {
+          "cost": "0",
+          "count": 0,
+          "gross": "0",
+          "revenue": "0"
+        },
+        "expenses": {
+          "total": "0",
+          "categories": []
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 0,
+          "total": "0",
+          "credit": "0"
+        },
+        "feed_issue": null,
+        "production": null,
+        "division_id": "4a1ce671-f047-455f-a99d-532dbd1dc65b"
+      },
+      {
+        "kind": "medicine",
+        "sales": {
+          "cost": "0",
+          "count": 0,
+          "gross": "0",
+          "revenue": "0"
+        },
+        "expenses": {
+          "total": "0",
+          "categories": []
+        },
+        "purchases": {
+          "cash": "0",
+          "count": 0,
+          "total": "0",
+          "credit": "0"
+        },
+        "feed_issue": null,
+        "production": null,
+        "division_id": "2912b0e5-433d-4ba4-ab0a-8a826172383c"
+      }
+    ]
+  },
+  "home_summary": {
+    "stock": [
+      {
+        "kind": "feed_mill",
+        "below_min": 0,
+        "old_chicks": 0,
+        "division_id": "f2c7838c-378e-45c6-b575-8e7efe87dbdb",
+        "near_expiry": 0
+      },
+      {
+        "kind": "general",
+        "below_min": 0,
+        "old_chicks": 0,
+        "division_id": "127f42dc-0773-4d11-9dd9-fb188ac3c25a",
+        "near_expiry": 0
+      },
+      {
+        "kind": "hatchery",
+        "below_min": 0,
+        "old_chicks": 0,
+        "division_id": "1b448ce3-1c34-420a-acb8-cebbce1951b6",
+        "near_expiry": 0
+      },
+      {
+        "kind": "medicine",
+        "below_min": 0,
+        "old_chicks": 0,
+        "division_id": "2912b0e5-433d-4ba4-ab0a-8a826172383c",
+        "near_expiry": 0
+      }
+    ],
+    "accounts": {
+      "books": {
+        "total": 7,
+        "visible": 7
+      },
+      "payable": "915000",
+      "cash_total": "5460000",
+      "receivable": "330000",
+      "negative_boxes": 1
+    },
+    "approvals": {
+      "uses": 0,
+      "counts": 0
+    }
+  }
+}

@@ -4,11 +4,10 @@ import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
-import { cashSides, LedgerTable } from '../../components/ui/LedgerTable';
+import { cashSides, LedgerTable, type LinkedEntry } from '../../components/ui/LedgerTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
-import type { LedgerEntry } from '../../domain/ledger';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { fmtDay, fmtMoney } from '../../lib/format';
@@ -17,6 +16,7 @@ import * as cash from '../../lib/repo/cash';
 import type { CashLine, CashStatement } from '../../lib/repo/cash';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { docHref } from './money/shared';
 import { cashKindLabel, cashMoveKindLabel, defaultPeriod, PeriodFilter, VoidDialog } from './shared';
 
 // كشف الصندوق (خطّة المرحلة 1 WP3، Q12): نفس الجدول الكلاسيكي بستّة أعمدة، و«وارد | صادر» بدل «عليه | له»، ورصيد جارٍ من
@@ -42,8 +42,17 @@ export function cashVoidSentence(line: CashLine): string {
     : t('cash.void.transfer_out', 'يُعكس نقل {amount} الصادر من هذا الصندوق{note} بوجهيه (الصندوقين) بتاريخ اليوم.', { amount, note });
 }
 
-export function cashEntries(statement: CashStatement): LedgerEntry[] {
-  return statement.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: cashMemo(line), debit: line.inflow, credit: line.outflow }));
+/**
+ * طريق رقم الحركة (0024 §5): البيع والشراء وأجوره والتحويل إلى مستندها. القبض والدفع (RC/PY) بلا معرّف قيد في كشف الصندوق (report_cash_statement لا
+ * يرجّعه)، فرقمهما يفتح حركة الأموال لهذا الصندوق بيومه، وفيها رابط السند نفسه. المصروف والرصيد عند البداية بلا صفحة.
+ */
+export function cashLineHref(line: CashLine, accountId: string): string | null {
+  if ((line.kind === 'party_payment' || line.kind === 'party_payout') && !line.docKind) return `/accounts/moves?account=${accountId}&from=${line.onDate}&to=${line.onDate}`;
+  return docHref(line.docKind, line.docId);
+}
+
+export function cashEntries(statement: CashStatement): LinkedEntry[] {
+  return statement.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: cashMemo(line), debit: line.inflow, credit: line.outflow, href: cashLineHref(line, statement.account.id) }));
 }
 
 export function CashLedger({ statement }: { statement: CashStatement }) {

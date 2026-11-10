@@ -5,22 +5,31 @@ import AccountsPage from './AccountsPage';
 import CashPage from './CashPage';
 import CashStatementPage from './CashStatementPage';
 import ExpensesPage from './ExpensesPage';
+import CashDayPage from './money/CashDayPage';
+import MoneyHubPage from './money/MoneyHubPage';
+import MoneyMovesPage from './money/MoneyMovesPage';
+import MonthSummaryPage from './money/MonthSummaryPage';
 import OpeningBalancesPage from './OpeningBalancesPage';
 import PartyStatementPage from './PartyStatementPage';
 import './print.css';
 
 // شاشات الحسابات والصناديق (المرحلة 1 WP3) تحت /accounts بحزمة كسولة وحدة، ومساراتها هنا: مسار واحد بالقشرة بدل خمسة،
 // فحزمة الإقلاع ومسار الجلسة الحرج ما يكبرون بكل شاشة مكتب (السقفان المقيسان، DECISIONS «السقوف المقيسة»). كلها تحتاج الخادم،
-// فهي برّا التثبيت المسبق بالاسم (AccountsRoutes وaccounts-office)، وتنطبع بـprint.css.
+// فهي برّا التثبيت المسبق بالاسم (AccountsRoutes وaccounts-office)، وتنطبع بـprint.css. و«المال بين يديك» (0024): أوّل التبويب «خلاصة المال»،
+// وجدول الجهات انتقل إلى /accounts/parties كما هو، وحركة الأموال ويومية الصندوق وخلاصة الشهر بمساراتها (صفحات pages/accounts/money).
 
 export default function AccountsRoutes() {
   return (
     <Routes>
-      <Route index element={<AccountsPage />} />
+      <Route index element={<MoneyHubPage />} />
+      <Route path="parties" element={<AccountsPage />} />
       <Route path="parties/:id" element={<PartyStatementPage />} />
+      <Route path="moves" element={<MoneyMovesPage />} />
+      <Route path="month" element={<MonthSummaryPage />} />
       <Route path="openings" element={<OpeningBalancesPage />} />
       <Route path="cash" element={<CashPage />} />
       <Route path="cash/:id" element={<CashStatementPage />} />
+      <Route path="cash/:id/day" element={<CashDayPage />} />
       <Route path="expenses" element={<ExpensesPage />} />
       <Route path="*" element={<Notice tone="info" title={t('accounts.not_found', 'هذه الصفحة غير موجودة في الحسابات.')} />} />
     </Routes>
