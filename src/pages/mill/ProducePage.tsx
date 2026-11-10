@@ -1,4 +1,4 @@
-import { CheckCircle2, Factory, Scale, Undo2 } from 'lucide-react';
+import { CheckCircle2, Factory, Scale } from 'lucide-react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -936,7 +936,7 @@ export default function ProducePage() {
                 {/* المجموع فوق الطنّ قليلاً بخطوة عدّاد المادّة أو كثافتها (والكتلة الأصلية كما حُسب لها): يُقال ولا يُخفى. */}
                 {massKnown && !reached && topUp.gap === gap ? ` ${t('mill.gap.over', 'المجموع {kg}: لا يبلغ الطنّ بالضبط بخطوة عدّاد «{name}».', { kg: kgText(mass), name: topUp.name })}` : ''}
               </span>
-              <Button size="sm" variant="ghost" icon={<Undo2 className="size-4" aria-hidden="true" />} disabled={locked} onClick={undoTopUp} data-action="undo-round">
+              <Button size="sm" variant="ghost" disabled={locked} onClick={undoTopUp} data-action="undo-round">
                 {t('mill.gap.undo', 'تراجع عن الإكمال')}
               </Button>
             </div>

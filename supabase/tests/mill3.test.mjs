@@ -3,9 +3,64 @@
 // المدير، والإنتاج بنداء واحد (record_production: الكميات الفعلية والمادّة الإضافية للطنّ والملاحظة، وكلّ مشكلة ترفض النداء كلّه بتلميحها،
 // ومشغّل المعمل مسوّدة تنتظر ختم الكلف، والإعادة بالمرجع نفسه بلا إنتاج ثانٍ)، وتقرير العليقة بالأيام (mill_report: الدفعات المرحَّلة
 // بنطاق القارئ، والمواد المسحوبة بقيمها، والمال لكلّ قارئ)؛ والثوابت صفر؛ وطفرات تكسر كلّ قاعدة فيفشل فحصها؛ وعيّنات حقيقية للشاشات.
+import { build } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+/**
+ * محلّلات الشاشات الحقيقية لأجوبة 0023 وحساب شاشة الإنتاج (الدمج، درس 2026-11-02): المصدر نفسه محزوماً بـesbuild، لا نسخة منه. الجلسة
+ * والإشعار بديلان لا يُستعملان هنا (كما في mill2.test).
+ */
+async function screens() {
+  const STUBS = {
+    session: 'export const useSession = () => ({ status: "loading" }); export const sessionStore = { get: () => ({ status: "loading" }) };',
+    Toast: 'export const toast = () => {}; export function Toaster() { return null; }',
+  };
+  const result = await build({
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    logLevel: 'silent',
+    jsx: 'automatic',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    stdin: {
+      contents: [
+        "export { parseRecipes, parseRecipe, parseRecipeOrder, parseLineOrder, parseRecordedProduction } from './src/lib/repo/mill.ts';",
+        "export { parseMillReport } from './src/lib/repo/millReport.ts';",
+        "export * as producePage from './src/pages/mill/ProducePage.tsx';",
+      ].join('\n'),
+      resolveDir: ROOT,
+      loader: 'tsx',
+    },
+    plugins: [
+      {
+        name: 'mill3-stubs',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'mill3-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'mill3-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+}
+/** نصّ عشريّ بمراتبه من عدد صحيح بالآلاف (1234567n ← «1234.567»). */
+const milliText = (v) => {
+  const sign = v < 0n ? '-' : '';
+  const a = v < 0n ? -v : v;
+  return norm(`${sign}${a / 1000n}.${String(a % 1000n).padStart(3, '0')}`);
+};
+/** عدد صحيح بالآلاف (أو بعشرة آلاف) من نصّ عشريّ. */
+const scaledInt = (text, places) => {
+  const [whole, frac = ''] = String(text).split('.');
+  return BigInt(whole) * 10n ** BigInt(places) + BigInt((frac + '0'.repeat(places)).slice(0, places) || '0');
+};
 
 const TODAY = '2026-11-10';
 const id = (n) => `d2330000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -366,6 +421,88 @@ async function scenario(t, db) {
   }
   t.same(outcomes.filter((o) => !o.real).map((o) => `${o.name}: ${o.shown}`), [], `الطفرات (${CASES.length}): الشفرة الحقيقية بالصحيح في كلّ حالة`);
   t.same(outcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${o.broken}`), [], `الطفرات: ${outcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت`);
+
+  // ── ٧) الدمج: أجوبة القاعدة الحقيقية بمحلّلات الشاشات، وحساب شاشة الإنتاج بحساب الخادم ─────────────────────────────────────────
+  const ui = await screens();
+  const parsed = (label, fn) => {
+    try {
+      return fn();
+    } catch (error) {
+      return `رمى ${label}: ${error.message}`;
+    }
+  };
+  const cards = parsed('parseRecipes', () => ui.parseRecipes(samples.recipes_overview.ordered));
+  t.same(typeof cards === 'string' ? cards : (cards.recipes ?? cards).map((r) => [r.name, Boolean(r.archived)]),
+    [['علف ناهٍ', false], ['علف أمّهات', false], ['علف بادئ', false], ['علف تجربة', true]], 'parseRecipes: ترتيب المدير كما أرسله الخادم، والمؤرشفة بعده');
+  const draftView = parsed('parseRecipe', () => ui.parseRecipe(samples.recipe_detail.draft));
+  t.same(typeof draftView === 'string' ? draftView : [...draftView.lines].sort((a, b) => a.lineNo - b.lineNo).map((l) => l.itemId), [I.oil, I.corn, I.soy],
+    'parseRecipe: سطور المسوّدة بترتيبها الجديد (line_no)');
+  t.same([
+    parsed('parseRecipeOrder', () => ui.parseRecipeOrder(samples.set_recipe_order.ok)),
+    parsed('parseLineOrder', () => ui.parseLineOrder(samples.set_recipe_line_order.ok)),
+  ].map((v) => (typeof v === 'string' ? v : v.count)), [3, 3], 'parseRecipeOrder وparseLineOrder: عدد ما رُتّب');
+  const posted = parsed('parseRecordedProduction (المرحَّلة)', () => ui.parseRecordedProduction(samples.record_production.posted));
+  const awaiting = parsed('parseRecordedProduction (المسوّدة)', () => ui.parseRecordedProduction(samples.record_production.draft));
+  t.same([
+    typeof posted === 'string' ? posted : [posted.status, posted.docNo, posted.outputQtyKg, posted.inputMassKg, posted.shrinkKg, posted.note, posted.money !== null],
+    typeof awaiting === 'string' ? awaiting : [awaiting.status, awaiting.awaiting, awaiting.plannedKg, awaiting.recipeName],
+  ], [
+    ['posted', tonResult.value.doc_no, 1000000n, 1000000n, 0n, 'أكملنا الطنّ ببرمكس', true],
+    ['draft', 'costs', 980000n, 'علف ناهٍ'],
+  ], 'parseRecordedProduction: المرحَّلة (طنّ بلا هدر وملاحظتها ومالها) والمسوّدة التي تنتظر الكلف');
+  for (const key of ['year', 'month', 'day', 'empty']) {
+    const raw = samples.mill_report[key];
+    const view = parsed(`parseMillReport (${key})`, () => ui.parseMillReport(raw));
+    t.same(typeof view === 'string' ? view : [view.days.length, view.batches.length, view.materials.length, view.materials.map((m) => m.inBasis)],
+      [raw.days.length, raw.batches.length, raw.materials.length, raw.materials.map((m) => m.in_basis)], `parseMillReport (${key}): الأيام والدفعات والموادّ و in_basis كما أرسلها الخادم`);
+  }
+  const millerView = parsed('parseMillReport (مشغّل المعمل)', () => ui.parseMillReport(year.value));
+  t.same(typeof millerView === 'string' ? millerView : millerView.batches.every((b) => b.money && b.money.totalValue > 0n), true,
+    'parseMillReport: تقرير مشغّل المعمل بمال كلّ دفعة (كلمة المالك «كلشي مفتوح»)');
+
+  // تخطيط شاشة الإنتاج (plannedQty) = planned_qty_base من create_production، بخطوة عدّاد وسائل بكثافة، بكميات مختلفة (كلّه بمعاملة تُرجَع).
+  const planning = { rows: [], liquid: null };
+  {
+    const result = planning;
+    await db.asUser(U.owner, async (q) => {
+      const one1 = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const salt = await one1("insert into public.items (name, kind, base_unit, scale_step) values ('ملح التخطيط', 'raw', 'kg', 0.1) returning id");
+      const fat = await one1("insert into public.items (name, kind, base_unit, density_kg_per_l, scale_step) values ('دهن التخطيط', 'raw', 'L', 0.9137, 0.5) returning id");
+      const out = await one1("insert into public.items (name, kind, base_unit) values ('علف التخطيط', 'feed', 'kg') returning id");
+      const rid = uid();
+      const vid = uid();
+      const lines = [{ item_id: I.corn, qty: '512.345', unit: 'kg' }, { item_id: salt, qty: '3.333', unit: 'kg' }, { item_id: fat, qty: '7.777', unit: 'L' }];
+      await q("select public.create_recipe($1, $2, 'خلطة التخطيط', $3, 522.784, $4::jsonb, '[]'::jsonb, true)", [rid, vid, out, JSON.stringify(lines)]);
+      const detail = ui.parseRecipe((await q('select public.recipe_detail($1, null) as v', [rid])).rows[0].v);
+      const facts = (await q(`select l.id, l.line_no, coalesce(l.density_kg_per_l, i.density_kg_per_l)::text as density, i.base_unit, i.scale_step::text as step
+        from public.recipe_lines l join public.items i on i.id = l.item_id where l.version_id = $1 order by l.line_no`, [vid])).rows;
+      for (const kg of ['522.784', '1000.000', '1234.567', '333.333', '25000.000']) {
+        const batch = uid();
+        await q('select public.create_production($1, $2, $3, $4, $5, public.app_today())', [batch, vid, kg, W.raw, W.feed]);
+        const server = (await q('select line_no, planned_qty_base::text as q from public.production_inputs where batch_id = $1 order by line_no', [batch])).rows;
+        for (const f of facts) {
+          const line = detail.lines.find((l) => l.id === f.id);
+          const screen = ui.producePage.plannedQty({
+            lineKg: line.massKg,
+            baseUnit: f.base_unit,
+            density: f.base_unit === 'L' ? scaledInt(f.density, 4) : null,
+            scaleStep: scaledInt(f.step, 3),
+          }, scaledInt(kg, 3), detail.basisKg);
+          result.rows.push([kg, f.line_no, screen === null ? null : milliText(screen), norm(server.find((r) => r.line_no === f.line_no).q)]);
+        }
+      }
+      // «قرّب إلى طنّ» بالزيت (سائل): الفرق 22.4 كغم لترات بحساب الشاشة، ثمّ record_production بكميته الفعلية: الناتج طنّ بالضبط.
+      const oil = (await q('select l.line_no, i.scale_step::text as step from public.recipe_lines l join public.items i on i.id = l.item_id where l.version_id = $1 and l.item_id = $2', [R.starter.version, I.oil])).rows[0];
+      const gap = ui.producePage.gapQty(30000n, 22400n, 'L', 9200n, scaledInt(oil.step, 3), true);
+      const predicted = 950000n + ui.producePage.massOf(30000n + gap, 'L', 9200n);
+      const recorded = (await q(RP, [uid(), R.starter.version, '977.600', W.raw, W.feed, TODAY, JSON.stringify([{ line_no: oil.line_no, qty: milliText(30000n + gap) }]), '[]', null, null, null, null, uid()])).rows[0].v;
+      result.liquid = { liters: milliText(gap), step: norm(oil.step), predicted: milliText(predicted), input: norm(recorded.input_mass_kg), output: norm(recorded.output_qty_kg) };
+    }, { commit: false });
+  }
+  t.same(planning.rows.filter(([, , screen, server]) => screen !== server), [],
+    `تخطيط شاشة الإنتاج = create_production لكلّ سطر (${planning.rows.length} حالة: خطوة عدّاد 0.1، وسائل بكثافة 0.9137 وخطوة 0.5، بخمس كميات)`);
+  t.same([planning.liquid.input, planning.liquid.output, Number(planning.liquid.predicted) >= 1000], [planning.liquid.predicted, planning.liquid.predicted, true],
+    '«قرّب إلى طنّ» بالزيت (سطر خلطة، خطوة ' + planning.liquid.step + ' لتر): ' + planning.liquid.liters + ' لتر بحساب الشاشة، وكتلة الخادم = ما تعرضه الشاشة (' + planning.liquid.predicted + ' كغم) ولا تقلّ عن الطنّ');
 
   if (process.env.MILL3_SAMPLES_OUT) {
     // stale_preview لا يُستخرج بنداء حتمي (سباقان متتاليان داخل نداء واحد): جملته من نصّ الهجرة نفسه، الموضع الوحيد الذي يرفعها به record_production.

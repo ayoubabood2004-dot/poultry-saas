@@ -1008,13 +1008,21 @@ export default function RecipePage() {
         />
       ) : null}
 
-      {activeVersion && canProduce && !data.archived ? (
-        <div>
+      {/* «تقرير الإنتاج» (0023) لكلّ من يرى الخلطة، ولو مؤرشفة: تقويمها وتقاريرها المطبوعة بالشهر واليوم. */}
+      <div className="flex flex-wrap items-center gap-3">
+        {activeVersion && canProduce && !data.archived ? (
           <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} onClick={openProduce} data-action="produce">
             {t('mill.card.produce', 'أنتج')}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        <Link
+          to={`/mill/recipe/${id}/report`}
+          className="inline-flex h-11 items-center rounded-full border border-line-strong px-5 font-semibold hover:bg-surface-2"
+          data-action="open-report"
+        >
+          {t('mill.recipe.report', 'تقرير الإنتاج')}
+        </Link>
+      </div>
 
       {unitChanged.length ? (
         <div className="flex flex-col gap-2" data-action="unit-changed">
