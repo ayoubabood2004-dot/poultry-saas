@@ -107,7 +107,7 @@ export default async function (t) {
       "export * as statementPage from './src/pages/accounts/PartyStatementPage.tsx';",
       "export * as cashPage from './src/pages/accounts/CashPage.tsx';",
       "export * as errors from './src/lib/errors.ts';",
-      "export { parsePartyBalances, parseAccountsSummary, parseStatement, dinarText, newRef } from './src/lib/repo/parties.ts';",
+      "export { parsePartyBalances, parseAccountsSummary, dinarText, newRef } from './src/lib/repo/parties.ts';",
       "export { parseCashBalances, parseCashStatement } from './src/lib/repo/cash.ts';",
     ].join('\n'),
   );
