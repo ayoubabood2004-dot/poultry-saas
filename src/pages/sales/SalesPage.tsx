@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -71,7 +71,16 @@ function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRo
   const shownMoney = (row: SaleRow) => (row.status === 'void' ? null : row.money);
   const columns: Column<SaleRow>[] = [
     { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.soldOn) },
-    { key: 'no', header: t('sales.col.no', 'الرقم'), cell: (row) => row.docNo },
+    // الرقم يفتح فاتورة البيع للقراءة (/sales/:id، عقد 0024 F8).
+    {
+      key: 'no',
+      header: t('sales.col.no', 'الرقم'),
+      cell: (row) => (
+        <Link to={`/sales/${row.id}`} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-sale">
+          <bdi dir="ltr">{row.docNo}</bdi>
+        </Link>
+      ),
+    },
     { key: 'party', header: t('sales.col.party', 'الجهة'), wrap: true, cell: (row) => row.partyName },
     { key: 'item', header: t('sales.col.item', 'المادّة'), wrap: true, cell: (row) => row.itemName },
     ...qtyColumns(data.rows, (row) => ({ qty: row.qty, unit: row.baseUnit })),

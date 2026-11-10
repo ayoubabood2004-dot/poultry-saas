@@ -1,0 +1,84 @@
+/* أوراق الحسابات (عقد 0024: قائمة الذمم والكشف والسندات): ألوان أعمار الديون وسطور التوقيع وختم «ملغى» (وقواعد طباعتها في print.css). ملف كسول مع
+   قسم الحسابات (AccountsRoutes، خارج التثبيت المسبق): ما يُضاف هنا لا يكبّر CSS الإقلاع المحفوظ بسقفه، فلا أصناف Tailwind جديدة.
+   الفئة بخاصيّة data-bucket (0–30 أخضر، 31–60 كهرماني، 61–90 برتقالي، أكثر من 90 أحمر)، واللون مساعد لا بديل: العدد مكتوب دائماً. */
+
+[data-bucket='d0_30'] {
+  --bucket: 5 150 105;
+}
+[data-bucket='d31_60'] {
+  --bucket: 217 119 6;
+}
+[data-bucket='d61_90'] {
+  --bucket: 230 70 31;
+}
+[data-bucket='d91_plus'] {
+  --bucket: 220 38 38;
+}
+.dark [data-bucket='d0_30'] {
+  --bucket: 52 211 153;
+}
+.dark [data-bucket='d31_60'] {
+  --bucket: 251 191 36;
+}
+.dark [data-bucket='d61_90'] {
+  --bucket: 255 132 99;
+}
+.dark [data-bucket='d91_plus'] {
+  --bucket: 248 113 113;
+}
+
+.aging-ink {
+  color: rgb(var(--bucket));
+  font-weight: 600;
+}
+.aging-fill {
+  background-color: rgb(var(--bucket));
+}
+.aging-bar {
+  display: flex;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: rgb(var(--surface-3));
+}
+.aging-bar > * {
+  flex-basis: 0;
+  min-width: 2px;
+}
+.aging-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+}
+
+/* سطر التوقيع: الدور وفوقه خطّ يُوقَّع عليه. */
+.paper-sign {
+  min-width: 9rem;
+  padding-top: 2.25rem;
+  border-bottom: 1px dotted rgb(var(--ink-muted));
+  padding-bottom: 0.25rem;
+}
+
+/* ختم «ملغى» على السند والورقة. */
+.paper-stamp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 3px double rgb(220 38 38);
+  border-radius: 0.75rem;
+  color: rgb(185 28 28);
+  text-align: center;
+}
+.dark .paper-stamp {
+  color: rgb(252 165 165);
+}
+
+/* سطر الملاحظة تحت جدول موادّ المستند (المدفوع عند الشراء وصندوقه). */
+.paper-note {
+  font-size: 0.75rem;
+  color: rgb(var(--ink-muted));
+}

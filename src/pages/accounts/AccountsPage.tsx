@@ -286,6 +286,9 @@ export default function AccountsPage() {
     <div className="flex flex-col gap-4">
       {header}
       <nav className="flex flex-wrap gap-2" aria-label={t('accounts.nav', 'صفحات الحسابات')}>
+        <Link to="/accounts/debts" className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-debts">
+          {t('debts.title', 'الذمم')}
+        </Link>
         <Link to="/accounts/cash" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-cash">
           <Landmark aria-hidden="true" className="size-4" />
           {t('cash.title', 'الصناديق')}

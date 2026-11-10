@@ -1,5 +1,5 @@
 // شاشات الحسابات (خطّة المرحلة 1 WP3، FOUNDATION ٧٨٨ و٨٠٧) مرسومة نصّاً من المصدر الحقيقي، بقراءات من شكل الخادم نفسه
-// (parsePartyBalances وparseAccountsSummary وparseStatement وparseCashBalances): كلمة «عليه» أو «له» بكل خانة دفتر دائماً
+// (parsePartyBalances وparseAccountsSummary وparsePartyStatement وparseCashBalances): كلمة «عليه» أو «له» بكل خانة دفتر دائماً
 // والصفر «—»؛ صفّا التذييل وعدد «N من المجموع» من الملخّص والخادم، مو من الصفوف المحمّلة (صفحة ناقصة جهتين تبين مجاميع الكل)؛
 // نافذة «قبضنا» تسأل الدفتر أوّلاً بلا اختيار مسبق؛ الإرسال معطّل والقائمة فاشلة؛ والطباعة ترسم كل الصفوف. القراءات والجلسة
 // بدائل (useLoad وuseSession)، والنافذة ترسم بمكانها (createPortal بديل)؛ كل كائن عامّ يرجع كما كان بـfinally (درس 2026-10-26).
@@ -93,7 +93,10 @@ export default async function (t) {
     [
       "export { PartiesTable, SummaryCards, summaryFooters, partyName, default as AccountsPage } from './src/pages/accounts/AccountsPage.tsx';",
       "export { PaymentDialog, paymentProblems, SideAmount, negativeAfter, bookLabel, defaultPeriod } from './src/pages/accounts/shared.tsx';",
-      "export { StatementBooks, ledgerEntries, voidable, default as PartyStatementPage } from './src/pages/accounts/PartyStatementPage.tsx';",
+      "export { voidable, default as PartyStatementPage } from './src/pages/accounts/PartyStatementPage.tsx';",
+      "export { StatementSheet } from './src/pages/accounts/statement/StatementSheet.tsx';",
+      "export * as statementText from './src/pages/accounts/statement/text.ts';",
+      "export { parsePartyStatement } from './src/lib/repo/statement.ts';",
       "export { CashTable, boxName } from './src/pages/accounts/CashPage.tsx';",
       "export { CashLedger, cashVoidSentence } from './src/pages/accounts/CashStatementPage.tsx';",
       "export { signedOpening, OpeningCell, default as OpeningBalancesPage } from './src/pages/accounts/OpeningBalancesPage.tsx';",
@@ -225,31 +228,39 @@ export default async function (t) {
     t.eq(m.negativeAfter('payout', cashBalances.accounts[1], 10_000n * D), -50_000n * D, 'دفع يخلّي الصندوق سالباً: تنبيه برصيده بعدها');
     t.eq(m.negativeAfter('payment', cashBalances.accounts[1], 10_000n * D), null, 'القبض ما يخلّي صندوقاً سالباً');
 
-    // ── الكشف والطباعة: 150 سطراً كلها بالجدول (الطباعة ما تقصّ)، والمنطقة المطبوعة معلَّمة.
-    const lines = Array.from({ length: 150 }, (_, i) => ({ entry_id: `e-${i}`, on_date: '2026-10-01', kind: i % 2 ? 'payment' : 'invoice', doc_no: i % 2 ? `RC-2026-${String(i).padStart(4, '0')}` : null, reason: null, reverses: null, reversed: false, debit: i % 2 ? '0' : '20000', credit: i % 2 ? '10000' : '0', balance: '0' }));
+    // ── الكشف والطباعة (الكشف الاحترافي، عقد 0024): 150 سطراً كلها بالجدول (الطباعة ما تقصّ)، والمنطقة المطبوعة معلَّمة.
+    const lines = Array.from({ length: 150 }, (_, i) => ({
+      entry_id: `e-${i}`, seq: String(i + 1), on_date: '2026-10-01', kind: i % 2 ? 'payment' : 'invoice', doc_kind: null, doc_id: null,
+      doc_no: i % 2 ? `RC-2026-${String(i).padStart(4, '0')}` : null, reason: null, reverses: null, reversed: false,
+      debit: i % 2 ? '0' : '20000', credit: i % 2 ? '10000' : '0', balance: '0', account: i % 2 ? { id: 'c-1', name: 'القاصة' } : null,
+      voucher_id: i % 2 ? `e-${i}` : null, detail: null, allocations: [], unallocated: '0',
+    }));
+    const noAging = { side: null, d0_30: '0', d31_60: '0', d61_90: '0', d91_plus: '0' };
     const statementWire = {
+      org: { name: 'مشروع الدواجن' },
       party: { id: 'p-abu', name: 'أبو علي', phone: '07701234567', archived: false, version: 3, is_customer: true, is_supplier: false },
       from: '2026-01-01',
       to: '2026-10-30',
+      today: '2026-10-30',
       books: [
-        { book_id: 'b-mill', code: 'main', name: 'المعمل', division_kind: 'feed_mill', brought_forward: '500000', total_debit: '1500000', total_credit: '750000', closing: '1250000', lines },
-        { book_id: 'b-chicks', code: 'chicks', name: 'الأفراخ', division_kind: 'hatchery', brought_forward: '0', total_debit: '0', total_credit: '0', closing: '0', lines: [] },
+        { book_id: 'b-mill', code: 'main', name: 'المعمل', division_id: 'd-mill', division_kind: 'feed_mill', brought_forward: '500000', total_debit: '1500000', total_credit: '750000', closing: '1250000', lines, open_items: [], aging: noAging },
+        { book_id: 'b-chicks', code: 'chicks', name: 'الأفراخ', division_id: 'd-hatch', division_kind: 'hatchery', brought_forward: '0', total_debit: '0', total_credit: '0', closing: '0', lines: [], open_items: [], aging: noAging },
       ],
     };
-    const statement = m.parseStatement(statementWire);
-    const books = render(m.h(m.StatementBooks, { statement }));
+    const statement = m.parsePartyStatement(statementWire);
+    const books = render(m.h(m.StatementSheet, { statement, bookId: '', mode: 'summary', back: '/accounts/debts' }));
     const millTable = books.split('data-book="b-mill"')[1].split('data-book="b-chicks"')[0];
     t.eq(rowsOf(section(millTable, 'tbody')).length, 151, 'كل السطور الـ150 ويّا «رصيد سابق»: ماكو تقطيع ولا صفحات بالكشف');
-    t.ok(textOf(millTable).includes('رصيد سابق') && millTable.includes('1,250,000'), 'المدوَّر من الخادم، والرصيد الأخير = رصيد الدفتر');
-    t.same([...books.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((match) => match[1]), ['حساب معمل العلف', 'حساب المفقس: الأفراخ'], 'جدول لكل دفتر بعنوان دفتره (E50)، والدفتر بلا قيود يبقى');
-    const headers = [...millTable.matchAll(/<th scope="col"[^>]*>([^<]*)<\/th>/g)].map((match) => match[1]);
-    t.same(headers, ['التاريخ', 'المستند', 'البيان', 'عليه', 'له', 'الرصيد'], 'الكشف بستّة أعمدة بالضبط');
+    t.ok(textOf(millTable).includes('رصيد سابق') && section(millTable, 'tfoot').includes('1,250,000'), 'المدوَّر من الخادم، والرصيد الأخير = رصيد الدفتر');
+    t.same([...books.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((match) => match[1]), ['الحساب: معمل العلف', 'الحساب: المفقس: الأفراخ'], 'جدول لكل دفتر بعنوان دفتره (E50)، والدفتر بلا قيود يبقى');
+    const headers = [...section(millTable, 'thead').matchAll(/<th scope="col"[^>]*>([^<]*)<\/th>/g)].map((match) => match[1]);
+    t.same(headers, ['التاريخ', 'رقم المستند', 'نوع المستند', 'البيان', 'عليه (مدين)', 'له (دائن)', 'الرصيد'], 'الكشف الاحترافي بسبعة أعمدة بالضبط (القانون 2 بزيادة «نوع المستند»)');
     t.ok(/class="max-h-\[70dvh\] overflow-auto/.test(millTable), 'الجدول بغلاف overflow-auto (print.css يشيل حدّه بالطباعة)');
     t.eq(m.voidable(statement.books[0].lines[1]), 'payment', 'القبض ينلغى من الكشف');
-    // 0014 (كلمة المالك «دفتر ديون كامل»): بطاقة رصيد فوق كلّ كشف — الرصيد الآن والرصيد السابق ومجموع عليه ومجموع له.
+    // ذيل كلّ حساب (0024): الرصيد الختامي رقماً وجهته، ومجموعا الفترة من الخادم بصفّ «مجموع الفترة».
     // 75 سطراً عليه × 20,000 = 1,500,000، و75 له × 10,000 = 750,000، والرصيد 500,000 + 1,500,000 − 750,000 = 1,250,000.
-    t.ok(textOf(millTable).includes('رصيد الحساب') && textOf(millTable).includes('مجموع عليه') && textOf(millTable).includes('مجموع له'), `0014: بطاقة الرصيد فوق الكشف (${textOf(millTable).slice(0, 220)})`);
-    t.ok(textOf(millTable).includes('1,500,000') && textOf(millTable).includes('750,000') && textOf(millTable).includes('500,000'), '0014: ومجاميع المدّة والرصيد السابق بأرقامها');
+    t.ok(textOf(millTable).includes('الرصيد الختامي: 1,250,000 دينار عليه'), `0024: الرصيد الختامي بجهته تحت الكشف (${textOf(millTable).slice(-400)})`);
+    t.ok(textOf(section(millTable, 'tfoot')).includes('مجموع الفترة') && section(millTable, 'tfoot').includes('1,500,000') && section(millTable, 'tfoot').includes('750,000'), '0024: ومجموعا الفترة بأرقامهما');
     // الصفحة كلها: المنطقة المطبوعة بيها الكشف كلّه، والأزرار والفلتر والقيود الملغاة برّا الطباعة.
     const period = m.defaultPeriod();
     globalThis.__accounts.loads = { [`||${period.from}|${period.to}`]: { data: statement }, books: { data: BOOK_REFS } };
@@ -262,6 +273,9 @@ export default async function (t) {
     t.ok(/@media print[\s\S]*\[data-print-area\] \.overflow-auto \{\s*max-height: none;\s*overflow: visible;/u.test(printCss), 'الطباعة تشيل حدّ الارتفاع والتمرير عن كل جدول بالمنطقة المطبوعة');
     t.ok(/\[data-print='hide'\] \{\s*display: none !important;/u.test(printCss) && /body:has\(\[data-print-area\]\) \*/u.test(printCss), 'وتخفي الأزرار والفلاتر وكل شي برّا المنطقة');
     t.ok(readFileSync(path.join(ROOT, 'src/pages/accounts/AccountsRoutes.tsx'), 'utf8').includes("import './print.css';"), 'ملف الطباعة ينحمّل ويّا قسم الحسابات');
+    // عقد 0024 (فحص Chromium الحقيقي): قاعدة الإظهار أضعف من قاعدة الإخفاء «body:has([data-print-area]) *» (0،1،1) كانت تطبع الورقة بيضاء؛
+    // فالإظهار بخصوصيتها وزيادة، والمنطقة نفسها وكلّ ما فيها.
+    t.ok(/body:has\(\[data-print-area\]\) \[data-print-area\],\s*body:has\(\[data-print-area\]\) \[data-print-area\] \* \{\s*visibility: visible;/u.test(printCss), 'الطباعة: المنطقة المطبوعة تظهر فعلاً (الإظهار أخصّ من الإخفاء)');
 
     // ── الصناديق: «وارد | صادر»، والسالب بإشارته وبعلامة، والمؤرشف ويّا رصيد بعلامته، والمجموع من الخادم.
     const cashTable = render(m.h(m.CashTable, { balances: cashBalances }));
@@ -373,7 +387,7 @@ export default async function (t) {
     });
 
     // تأكيد إلغاء القبض أو الدفع يسمّي الصندوق واتّجاه الحركة العكسية (FOUNDATION ٧٦٦).
-    const payLine = { ...statement.books[0].lines[1], account: 'القاصة' };
+    const payLine = { ...statement.books[0].lines[1], account: { id: 'c-1', name: 'القاصة' } };
     check('إلغاء قبض: «ويخرج 10,000 من «القاصة» بتاريخ اليوم»', () => {
       const text = m.statementPage.voidConsequence(payLine, 'معمل العلف');
       return (text.includes('«معمل العلف»') && text.includes('ويخرج 10,000 من «القاصة»') && text.includes('بتاريخ اليوم')) || text;
@@ -512,13 +526,13 @@ export default async function (t) {
         { ...lines[1], entry_id: 'e-pay', reversed: true },
         { ...lines[1], entry_id: 'e-back', reverses: 'e-pay', debit: '10000', credit: '0' },
       ];
-      const parsed = m.parseStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: pair }] }).books[0].lines;
-      const got = [parsed.map((line) => m.voidable(line)), parsed.map((line) => line.reverses), m.statementPage.lineMemo(parsed[1]).startsWith('إلغاء')];
-      return JSON.stringify(got) === JSON.stringify([[null, null], [false, true], true]) || got;
+      const parsed = m.parsePartyStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: pair }] }).books[0].lines;
+      const got = [parsed.map((line) => m.voidable(line)), parsed.map((line) => line.reverses), m.statementText.lineMemo(parsed[1]).startsWith('إلغاء')];
+      return JSON.stringify(got) === JSON.stringify([[null, null], [null, 'e-pay'], true]) || got;
     });
     check('الكشف: الافتتاح والتسوية والإعفاء تنلغى بـ«ألغِ القيد»، والقبض والدفع بإلغاء القبض، وغيرها من مستندها', () => {
       const kinds = ['opening', 'adjustment', 'forgiveness', 'payment', 'payout', 'invoice', 'purchase'];
-      const got = kinds.map((kind) => m.voidable({ ...statement.books[0].lines[0], kind, reverses: false, reversed: false }));
+      const got = kinds.map((kind) => m.voidable({ ...statement.books[0].lines[0], kind, reverses: null, reversed: false }));
       return JSON.stringify(got) === JSON.stringify(['entry', 'entry', 'entry', 'payment', 'payment', null, null]) || got;
     });
     // مراجعة WP7: تسوية تتبع مستنداً (تصحيح سعر) تُلغى من مستندها (الخادم يرفضها من الكشف)، ودفع الاستلام يبقى يُلغى من الكشف (E44).
@@ -530,7 +544,7 @@ export default async function (t) {
     });
     check('الكشف: تسوية تصحيح السعر بلا زرّ إلغاء، ودفع الاستلام بإلغاء القبض، ونوع المستند من الخادم', () => {
       const owned = [{ ...lines[1], entry_id: 'e-rev', kind: 'adjustment', doc_kind: 'receipt_revalue' }, { ...lines[1], entry_id: 'e-paid', kind: 'payout', doc_kind: 'receipt' }, { ...lines[1], entry_id: 'e-adj', kind: 'adjustment' }];
-      const parsed = m.parseStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: owned }] }).books[0].lines;
+      const parsed = m.parsePartyStatement({ ...statementWire, books: [{ ...statementWire.books[0], lines: owned }] }).books[0].lines;
       const got = [parsed.map((line) => m.voidable(line)), parsed.map((line) => line.docKind)];
       return JSON.stringify(got) === JSON.stringify([[null, 'payment', 'entry'], ['receipt_revalue', 'receipt', null]]) || got;
     });

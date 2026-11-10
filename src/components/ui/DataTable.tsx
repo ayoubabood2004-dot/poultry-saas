@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 
 // الجدول الوحيد بالنظام (قانون المالك للجداول، docs/DECISIONS.md 2026-10-24): شبكة كلاسيكية مثل إكسل،
 // خطوط لكل خلية، رأس ثابت بالتمرير، صفّ مجاميع بخطّ مزدوج فوكه، والأرقام محاذية على خانة الآحاد.
@@ -69,6 +69,7 @@ export function DataTable<Row>({
   empty,
   totalLabel,
   footers = [],
+  subRow,
 }: {
   /** وصف الجدول لقارئ الشاشة. */
   caption: string;
@@ -81,6 +82,11 @@ export function DataTable<Row>({
   totalLabel?: string;
   /** صفوف تذييل بعد المجاميع، بأرقام من الخادم (تبين حتى لو الصفحة المحمّلة فارغة). */
   footers?: readonly FooterRow[];
+  /**
+   * تفصيل تحت الصفّ بعرض الجدول كلّه، أو null (عقد 0024: موادّ المستند تحت سطره في الكشف التفصيلي). جدول داخل خلية عمود واحد
+   * ينعصر بعرض البيان ويُقصّ بالطباعة، وبعرض الجدول يأخذ الورقة كلّها.
+   */
+  subRow?: (row: Row, index: number) => ReactNode;
 }) {
   const firstTotal = columns.findIndex(hasTotal);
   // «المجموع» ياخذ مكان الأعمدة النصّية قبل أوّل مجموع؛ مجموع بأوّل عمود كان يختفي بصمت.
@@ -122,15 +128,27 @@ export function DataTable<Row>({
               </td>
             </tr>
           ) : (
-            rows.map((row, index) => (
-              <tr key={rowKey(row, index)} className="hover:bg-surface-2">
-                {columns.map((column) => (
-                  <td key={column.key} className={`${BORDER} px-3 py-1.5 ${stickyOf(column)} ${cellClass(column)}`}>
-                    {column.cell(row, index)}
-                  </td>
-                ))}
-              </tr>
-            ))
+            rows.map((row, index) => {
+              const detail = subRow?.(row, index);
+              return (
+                <Fragment key={rowKey(row, index)}>
+                  <tr className="hover:bg-surface-2">
+                    {columns.map((column) => (
+                      <td key={column.key} className={`${BORDER} px-3 py-1.5 ${stickyOf(column)} ${cellClass(column)}`}>
+                        {column.cell(row, index)}
+                      </td>
+                    ))}
+                  </tr>
+                  {detail ? (
+                    <tr data-sub-row>
+                      <td colSpan={columns.length} className={`${BORDER} px-3 py-1.5`}>
+                        {detail}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })
           )}
         </tbody>
         {showFoot ? (
