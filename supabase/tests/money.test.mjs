@@ -4,12 +4,64 @@
 // والنقد في بطاقة الرئيسية، وأمين المخزن يضيف الزبون (#58)؛ كلّ رقم يقارَن بحساب مستقلّ من الجداول نفسها، والنطاق بمحاسب محصور،
 // والثوابت صفر ثمّ كلّ ثابت يمسك خرقه وحده، وطفرات تكسر كلّ قاعدة فيفشل فحصها.
 // العيّنات الحقيقية لفحوص الشاشات: MONEY_SAMPLES_DIR=scripts/tests/fixtures node supabase/tests/run.mjs money ← money-a.json وmoney-b.json.
+import { build } from 'esbuild';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedReceipt } from './receipt-kit.mjs';
 import { postedReturn } from './return-kit.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+/**
+ * محلّلات الشاشات الحقيقية لأجوبة 0024 (درس 2026-11-02): المصدر نفسه محزوماً بـesbuild، لا نسخة منه؛ والجلسة والإشعار بديلان
+ * لا يُستعملان هنا (كما في mill3.test).
+ */
+async function screens() {
+  const STUBS = {
+    session: 'export const useSession = () => ({ status: "loading" }); export const sessionStore = { get: () => ({ status: "loading" }) };',
+    Toast: 'export const toast = () => {}; export function Toaster() { return null; }',
+  };
+  const result = await build({
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    logLevel: 'silent',
+    jsx: 'automatic',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    stdin: {
+      contents: [
+        "export { parseMoneyOverview, parseMoneyMoves, parseMonthSummary } from './src/lib/repo/money.ts';",
+        "export { parseDebtsOverview } from './src/lib/repo/debts.ts';",
+        "export { parsePartyStatement, parseVoucher, parseTransfer, parseSaleDoc } from './src/lib/repo/statement.ts';",
+        "export { parseCashStatement } from './src/lib/repo/cash.ts';",
+        "export { parseHomeSummary } from './src/lib/repo/home.ts';",
+      ].join('\n'),
+      resolveDir: ROOT,
+      loader: 'tsx',
+    },
+    plugins: [
+      {
+        name: 'money-stubs',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'money-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'money-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+}
+/** فلس من نصّ دينار بمرتبتين ("12500.5" ← 1250050n). */
+const filsText = (text) => {
+  const negative = String(text).startsWith('-');
+  const [whole, frac = ''] = String(text).replace('-', '').split('.');
+  const v = BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
+  return negative ? -v : v;
+};
 
 const TODAY = '2026-11-10';
 const id = (n) => `d2400000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -632,6 +684,44 @@ async function scenario(t, db) {
     caught.push(verdict === true ? `${name}: عبر` : 'ok');
   }
   t.same(caught, MUTANTS.map(() => 'ok'), `ط كلّ طفرة (${MUTANTS.length}) يفشل فحصها`);
+
+  // ── ك. التكامل: كلّ جواب حيّ يمرّ بمحلّل شاشته الحقيقيّ، وأرقامه = أرقام الخادم ──────────────────────────────────────────
+  const m = await screens();
+  const parse = (name, fn, value) => {
+    try {
+      return fn(value);
+    } catch (error) {
+      return { failed: `${name}: ${error.message}` };
+    }
+  };
+  const failedOf = (...parsed) => parsed.filter((p) => p && p.failed).map((p) => p.failed);
+  const pO = parse('money_overview', m.parseMoneyOverview, O);
+  const pAll = parse('money_moves', m.parseMoneyMoves, all);
+  const pRc = parse('money_moves class', m.parseMoneyMoves, receipts);
+  const pNov = parse('month_summary', m.parseMonthSummary, Nov);
+  const pR = parse('debts receivable', m.parseDebtsOverview, R);
+  const pPay = parse('debts payable', m.parseDebtsOverview, Pay);
+  const pS1 = parse('statement supplier', m.parsePartyStatement, S1);
+  const pC1 = parse('statement customer', m.parsePartyStatement, C1);
+  const pS2 = parse('statement payee', m.parsePartyStatement, S2);
+  const pV = [V1, V2, V3].map((v, i) => parse(`voucher ${i}`, m.parseVoucher, v));
+  const pT = [T1, T2].map((v, i) => parse(`transfer ${i}`, m.parseTransfer, v));
+  const pSale = parse('sale_detail', m.parseSaleDoc, await value(U.owner, 'select public.sale_detail($1) as v', [D.sale2]));
+  const pCash = parse('report_cash_statement', m.parseCashStatement, cashStatement);
+  const pHome = parse('home_summary', m.parseHomeSummary, await value(U.owner, SQL.home));
+  t.same(failedOf(pO, pAll, pRc, pNov, pR, pPay, pS1, pC1, pS2, ...pV, ...pT, pSale, pCash, pHome), [], 'ك1 كلّ جواب حيّ لقرّاء 0024 (وكشف الصندوق والرئيسية والبيع) يمرّ بمحلّل شاشته الحقيقيّ');
+  t.same(
+    [pO.cash?.total, pO.debts?.receivable, pO.debts?.payable, pAll.rows?.length, pAll.running, pRc.running, pR.rows?.length, pR.totals?.amount, pPay.totals?.amount],
+    [filsText(O.cash.total), filsText(O.debts.receivable), filsText(O.debts.payable), all.rows.length, true, false, R.rows.length, filsText(R.totals.amount), filsText(Pay.totals.amount)],
+    'ك2 الأرقام بعد المحلّل = أرقام الخادم (النقد والذمم والحركة والقوائم)',
+  );
+  t.same(
+    [pS1.books?.map((b) => b.lines.length), pC1.books?.[0]?.lines.map((l) => l.detail?.type ?? null), pS2.books?.flatMap((b) => b.lines.map((l) => l.detail?.type ?? null)),
+      pV.map((v) => v.type), pT.map((v) => v.void === null), pCash.lines?.filter((l) => l.voucherId !== null).length, pHome.accounts?.cashTotal],
+    [S1.books.map((b) => b.lines.length), C1.books[0].lines.map((l) => l.detail?.type ?? null), S2.books.flatMap((b) => b.lines.map((l) => l.detail?.type ?? null)),
+      ['receipt', 'payment', 'receipt'], [true, false], cashStatement.lines.filter((l) => l.voucher_id !== null).length, filsText(O.cash.total)],
+    'ك3 الكشوف بسطورها وتفاصيلها، والسندات وإلغاؤها، وسند كشف الصندوق، ونقد الرئيسية: كما أرسلها الخادم',
+  );
 
   // ── ي. العيّنات الحقيقية لفحوص الشاشات (MONEY_SAMPLES_DIR) ──────────────────────────────────────────────────────────────
   if (process.env.MONEY_SAMPLES_DIR) {
