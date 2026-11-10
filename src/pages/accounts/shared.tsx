@@ -77,7 +77,7 @@ export function entryKindLabel(kind: EntryKind): string {
     case 'return':
       return t('entry.kind.return', 'مرتجع بيع');
     case 'supplier_return':
-      return t('entry.kind.supplier_return', 'مرتجع للمورّد');
+      return t('entry.kind.supplier_return', 'مرتجع إلى المورّد');
     case 'forgiveness':
       return t('entry.kind.forgiveness', 'إعفاء');
     case 'opening':

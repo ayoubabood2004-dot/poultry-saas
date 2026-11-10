@@ -39,7 +39,7 @@ import {
 } from './money-b-dom.mjs';
 
 const ST = FIXTURE.party_statement_v2;
-const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع للمورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
+const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع إلى المورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
 const TYPE = { purchase: 'فاتورة شراء', purchase_payment: 'دفع عند الشراء', purchase_charge: 'أجور شراء', sale: 'فاتورة بيع', sale_payment: 'قبض عند البيع', supplier_return: 'مرتجع إلى المورّد', expense: 'مصروف بالدين' };
 // أسماء الأشهر كما تُكتب في العراق (منسّق خلاصة الشهر): بيان المصروف بالدين يقول الشهر باسمه لا «11/2026» (مراجعة 0024 L8).
 const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];

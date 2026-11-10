@@ -35,7 +35,7 @@ const D = FIXTURE.debts_overview;
 const BACK = (sideName, over90 = false) => `/accounts/debts?side=${sideName}${over90 ? '&over90=1' : ''}`;
 const statementHref = (partyId, back, send = false) => `/accounts/parties/${partyId}?${send ? 'send=1&' : ''}back=${encodeURIComponent(back)}`;
 const LABEL = { d0_30: '0–30 يوماً', d31_60: '31–60 يوماً', d61_90: '61–90 يوماً', d91_plus: 'أكثر من 90 يوماً' };
-const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع للمورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
+const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع إلى المورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
 const partiesText = (n) => (n === 1 ? 'جهة واحدة' : n === 2 ? 'جهتان' : n % 100 >= 3 && n % 100 <= 10 ? `${n} جهات` : `${n} جهة`);
 const telOf = (phone) => (/^9647[0-9]{9}$/.test(phone) ? `tel:+${phone}` : `tel:${phone.replace(/[^0-9+]/g, '')}`);
 
