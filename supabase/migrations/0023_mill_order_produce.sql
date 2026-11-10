@@ -13,9 +13,10 @@
 --   • public.record_production (production.draft): الإنتاج بنداء واحد ومعاملة واحدة من الدوالّ القائمة نفسها: create_production ثمّ
 --     الكميات الفعلية والمواد الإضافية (add_production_input، ومنها مادّة «قرّب إلى طنّ») والوزن والانتهاء والسبب والملاحظة، ثمّ
 --     preview_production، ثمّ post_production ببصمة المعاينة نفسها. أيّ مشكلة تمنع الترحيل ترفض النداء كلّه (production_blocked بتلميح
---     يسمّيها، ولا مسوّدة تبقى)، إلّا مشغّل المعمل وكلف الدفعة لم تُختم (القاعدة القائمة: يرحّل بعد ختمها): تُحفظ مسوّدة تنتظر الختم.
+--     يسمّيها، ولا مسوّدة تبقى)، إلّا أن تكون المشاكل كلّها انتظار ختم الكلف (مشغّل المعمل، أو من لا يرى مصاريف وحدة المعمل):
+--     تُحفظ مسوّدة تنتظر الختم (القاعدة القائمة: تُرحَّل بعده من صفحتها).
 --   • public.mill_report (read): لعليقة (أو للمعمل كلّه) في مدّة حتى 366 يوماً: الأيام بإنتاجها، والدفعات المرحَّلة، والمواد المسحوبة
---     بكمياتها وقيمها، والمجاميع. والمال فيه لكلّ قارئ (كلمة المالك «كلشي مفتوح»، للتقرير وحده)؛ والدفعات بنطاق القارئ كما في recipes_overview.
+--     بكمياتها وقيمها، والمجاميع. والمال فيه لكلّ قارئ (كلمة المالك «كلشي مفتوح»، للتقرير وحده)؛ والدفعات بنطاق القارئ بمخزن موادّها كما في productions_overview.
 -- تراجع: rollback_0023.sql — يُسقط الدوالّ الجديدة وعمود الترتيب ويرجّع recipes_overview وrecipe_lines_guard كما في 0016 حرفاً بحرف.
 -- تنعاد بأمان: add column if not exists، وقيد بفحص الكتالوج، وcreate or replace.
 
@@ -149,6 +150,12 @@ begin
     raise exception 'not_draft' using hint = 'هذه النسخة مفعَّلة أو مقاعدة، فلا تُعدَّل سطورها. أنشئ نسخة جديدة وفعّلها.';
   end if;
   perform private.require('recipe.activate');
+  -- ترتيب السطور وحده (set_recipe_line_order، 0023؛ مراجعة 0023 #7): لا يُعاد فحص المادّة، فمادّة أُرشفت بعد إدراجها لا تمنع الترتيب
+  -- برسالة لا تسمّيها؛ ورقم النسخة يزيد كما في كلّ تعديل.
+  if tg_op = 'UPDATE' and current_setting('app.recipe_line_order', true) = 'on' and (to_jsonb(new) - 'line_no') = (to_jsonb(old) - 'line_no') then
+    update public.recipe_versions set version = version + 1 where org_id = v.org_id and id = v.id;
+    return new;
+  end if;
   select * into i from public.items where org_id = new.org_id and id = new.item_id;
   if i.id is null or i.archived_at is not null then
     raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك أو مؤرشفة. حدّث الشاشة واختر من جديد.';
@@ -213,10 +220,14 @@ begin
   if (select count(distinct x.id) from unnest(p_lines) as x(id)) <> cardinality(p_lines) then
     raise exception 'duplicate_item' using hint = 'مادّة مكرّرة في الترتيب. حدّث الشاشة وأعد المحاولة.';
   end if;
-  select * into v from public.recipe_versions where org_id = v_org and id = p_version for update;
+  -- الأقفال بترتيب التفعيل (مراجعة 0023 #6): الخلطة ثمّ النسخة. كانت النسخة أوّلاً ثمّ الخلطة (من حارس رقم النسخة عند أوّل سطر)،
+  -- وactivate_recipe_version يقفل الخلطة ثمّ النسخة، فيتقافلان (40P01).
+  select * into v from public.recipe_versions where org_id = v_org and id = p_version;
   if v.id is null then
     raise exception 'doc_not_found' using hint = 'هذه النسخة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
+  perform 1 from public.recipes r where r.org_id = v_org and r.id = v.recipe_id for update;
+  select * into v from public.recipe_versions where org_id = v_org and id = p_version for update;
   if v.status <> 'draft' then
     raise exception 'not_draft' using hint = 'هذه النسخة مفعَّلة أو مقاعدة، فلا يتغيّر ترتيب موادّها. اضغط «عدّل الخلطة» ورتّبها في المسوّدة.';
   end if;
@@ -251,16 +262,18 @@ begin
   return case p ->> 'code'
     when 'insufficient_stock' then format('لا يكفي رصيد «%s» في «%s»: المطلوب %s، والموجود %s. اشترِ الناقص أو قلّل الكمية.',
       p ->> 'item_name', p_store, private.qty_text((p ->> 'need')::numeric, p ->> 'unit'), private.qty_text((p ->> 'have')::numeric, p ->> 'unit'))
-    when 'item_archived' then format('«%s» محذوفة من القوائم، فلا تُسحب في الإنتاج. أظهِرها من ملفّها أو احذفها من موادّ الدفعة.', p ->> 'item_name')
+    when 'item_archived' then format('«%s» محذوفة من القوائم، فلا تُسحب في الإنتاج. أظهِرها من ملفّها، أو اضغط «احفظ مسوّدة» وأخرِجها من موادّ الدفعة.',
+      p ->> 'item_name')
     when 'no_mass_inputs' then 'الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.'
-    when 'shrink_out_of_range' then format('الهدر %s (%s٪) خارج المدى المقبول (صفر إلى ٣٪): اكتب سبب الفرق أو راجع وزن الناتج.',
+    when 'shrink_out_of_range' then format('الهدر %s (%s٪) خارج المدى المقبول (من 0 إلى 3٪): اكتب سبب الفرق أو راجع وزن الناتج.',
       private.qty_text((p ->> 'shrink_kg')::numeric, 'kg'), coalesce(p ->> 'shrink_pct', '—'))
     when 'expiry_required' then 'الناتج يُتابَع انتهاؤه: اكتب تاريخ انتهاء الناتج.'
     when 'output_expired' then 'تاريخ انتهاء الناتج قبل يوم الإنتاج: صحّح التاريخ.'
-    when 'costs_unfunded' then 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: يسجّل المحاسب أو المدير المصروف أوّلاً، أو تُعدَّل تكاليف الخلطة لكلّ طنّ.'
+    when 'costs_unfunded' then 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: يسجّل المحاسب أو المدير المصروف أوّلاً، أو تُعدَّل تكاليف الخلطة لكلّ طنّ، '
+      'أو اضغط «احفظ مسوّدة» وعدّل تكاليف الدفعة.'
     when 'costs_unsealed_scope' then format('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «%s» خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة.', p ->> 'division_name')
     when 'costs_pending' then 'الكلف لم تُختم بعد: يختمها المحاسب أو المدير من صفحة الدفعة.'
-    else coalesce(p ->> 'hint', format('في الدفعة ما يمنع الإنتاج (%s). افتحها من المعمل لتراه.', p ->> 'code'))
+    else coalesce(p ->> 'hint', format('في الدفعة ما يمنع الإنتاج (%s). اضغط «احفظ مسوّدة» لتراه في صفحة الدفعة.', p ->> 'code'))
   end;
 end
 $$;
@@ -290,10 +303,16 @@ declare
   v_post jsonb;
   v_result jsonb;
   v_store text;
+  v_try int;
+  v_constraint text;
+  -- مشاكل «انتظار ختم الكلف» وحدها: يختمها غيره، فالدفعة تُحفظ مسوّدة.
+  v_wait constant text[] := array['costs_pending', 'costs_unsealed_scope'];
 begin
   set local lock_timeout = '5s';
+  -- اليوم كما أُرسل لا كما حُلَّ (مراجعة 0023 #1): «اليوم» الفارغ يصير الغد بعد منتصف الليل، فكانت الإعادة بالقيم نفسها بعد جواب ضاع
+  -- تُرفض ref_reused وتلميحها يدعو إلى دفعة ثانية.
   v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('id', p_id, 'version', p_recipe_version, 'kg', p_planned_kg::text,
-    'in', p_wh_in, 'out', p_wh_out, 'on', v_on, 'actuals', v_actuals, 'extra', v_extra, 'output', p_output_kg::text, 'expiry', p_expiry,
+    'in', p_wh_in, 'out', p_wh_out, 'on', p_produced_on, 'actuals', v_actuals, 'extra', v_extra, 'output', p_output_kg::text, 'expiry', p_expiry,
     'reason', v_reason, 'note', v_note));
   if v_cached is not null then
     return v_cached;
@@ -305,11 +324,25 @@ begin
   if v_note is not null and length(v_note) > 500 then
     raise exception 'bad_note' using hint = format('الملاحظة %s حرفاً، والحدّ 500 حرف. اختصرها.', length(v_note));
   end if;
+  -- كمية أكبر من المعقول لدفعة واحدة (مراجعة 0023 #9): كانت تصل تلميح النقص فيعرض «#» بدل الرقم (qty_text حتى 15 رقماً).
+  if p_planned_kg >= 1000000000 or p_output_kg >= 1000000000 then
+    raise exception 'qty_too_large' using hint = 'الكمية أكبر من المعقول لدفعة واحدة (الحدّ أقلّ من 1,000,000,000). راجع الرقم.';
+  end if;
   -- معرّف دفعة سُجّلت بنداء آخر (ضغطتان بمرجعين، أو معرّف مكرَّر): يُسمّى بدل خطأ المفتاح الخام.
   if exists (select 1 from public.production_batches x where x.id = p_id) then
     raise exception 'id_conflict' using hint = 'هذه الدفعة سُجّلت من قبل. افتحها من المعمل لترى ما حُفظ.';
   end if;
-  perform public.create_production(p_id, p_recipe_version, p_planned_kg, p_wh_in, p_wh_out, v_on);
+  -- وضغطتان بمرجعين على المعرّف نفسه في اللحظة نفسها (مراجعة 0023 #8): فحص الوجود فوق لا يرى الأولى قبل تثبيتها، فالثانية تنتظر
+  -- على المفتاح ثمّ تصلها مخالفته الخام؛ تُسمّى هنا مثله.
+  begin
+    perform public.create_production(p_id, p_recipe_version, p_planned_kg, p_wh_in, p_wh_out, v_on);
+  exception when unique_violation then
+    get stacked diagnostics v_constraint = constraint_name;
+    if v_constraint is distinct from 'production_batches_pkey' then
+      raise;
+    end if;
+    raise exception 'id_conflict' using hint = 'هذه الدفعة سُجّلت من قبل. افتحها من المعمل لترى ما حُفظ.';
+  end;
   for a in select x from jsonb_array_elements(v_actuals) as e(x) loop
     if jsonb_typeof(a) <> 'object' or coalesce(a ->> 'line_no', '') !~ '^[0-9]{1,6}$' or coalesce(a ->> 'qty', '') !~ '^[0-9]{1,15}([.][0-9]{1,3})?$' then
       raise exception 'bad_line' using hint = 'كمية مادّة بشكل غير صالح. حدّث الشاشة وأعد المحاولة.';
@@ -317,7 +350,10 @@ begin
     v_line := (a ->> 'line_no')::int;
     v_qty := (a ->> 'qty')::numeric;
     if v_qty <= 0 then
-      raise exception 'qty_not_positive' using hint = 'كمية كلّ مادّة أكبر من صفر؛ لإخراج مادّة من الدفعة افتح صفحتها من المعمل.';
+      raise exception 'qty_not_positive' using hint = 'كمية كلّ مادّة أكبر من صفر. لإخراج مادّة من الدفعة أو تبديلها اضغط «احفظ مسوّدة» وعدّلها في صفحة الدفعة.';
+    end if;
+    if v_qty >= 1000000000 then
+      raise exception 'qty_too_large' using hint = 'الكمية أكبر من المعقول لدفعة واحدة (الحدّ أقلّ من 1,000,000,000). راجع الرقم.';
     end if;
     if (select count(*) from jsonb_array_elements(v_actuals) as e2(y) where e2.y ->> 'line_no' = a ->> 'line_no') > 1 then
       raise exception 'bad_line' using hint = 'مادّة مكرّرة في كميات الإنتاج. حدّث الشاشة وأعد المحاولة.';
@@ -333,26 +369,48 @@ begin
       or coalesce(a ->> 'item_id', '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
       raise exception 'bad_line' using hint = 'مادّة إضافية بشكل غير صالح. حدّث الشاشة وأعد المحاولة.';
     end if;
+    if (a ->> 'qty')::numeric >= 1000000000 then
+      raise exception 'qty_too_large' using hint = 'الكمية أكبر من المعقول لدفعة واحدة (الحدّ أقلّ من 1,000,000,000). راجع الرقم.';
+    end if;
     perform public.add_production_input(p_id, (a ->> 'id')::uuid, (a ->> 'item_id')::uuid, (a ->> 'qty')::numeric, null, null);
   end loop;
   update public.production_batches set output_qty_kg = p_output_kg, output_expiry_on = p_expiry, shrink_reason = v_reason, note = v_note
   where org_id = v_org and id = p_id;
-  v_prev := public.preview_production(p_id);
-  -- مشغّل المعمل والكلف لم تُختم وحدها: الدفعة تُحفظ مسوّدة تنتظر الختم (القاعدة القائمة)، وصفحتها تُكمل بعده.
-  if v_prev -> 'problems' = jsonb_build_array(jsonb_build_object('code', 'costs_pending')) then
+  -- الترحيل بمعاينة اللحظة مرّتين على الأكثر (مراجعة 0023 #4): المعاينة بلا أقفال، فإنتاج آخر يُثبَّت بينها وبين أقفال الترحيل يغيّر
+  -- البصمة (stale_preview) والرصيد يكفي، ولا معاينة يراها المستخدم هنا ليعيدها؛ فتُعاد مرّة هنا (الأقفال المأخوذة في المحاولة الأولى
+  -- تُفلت مع نقطة حفظها).
+  for v_try in 1 .. 2 loop
+    v_prev := public.preview_production(p_id);
+    -- المشاكل كلّها انتظار ختم الكلف (مشغّل المعمل، أو من يملك الترحيل ولا يرى مصاريف وحدة المعمل، مراجعة 0023 #2): الدفعة تُحفظ مسوّدة
+    -- تنتظر الختم كالقاعدة القائمة، وصفحتها تُكمل بعده. كان مدير بنطاق موقع المعمل يُرفض بلا دفعة يختمها أحد.
+    if jsonb_array_length(v_prev -> 'problems') > 0 and not exists (select 1 from jsonb_array_elements(v_prev -> 'problems') as p(x)
+        where not (p.x ->> 'code' = any (v_wait))) then
+      select * into d from public.production_batches where org_id = v_org and id = p_id;
+      v_result := jsonb_build_object('id', d.id, 'status', 'draft', 'awaiting', 'costs', 'version', d.version, 'planned_kg', d.planned_kg::text,
+        'recipe_name', (select r.name from public.recipe_versions x join public.recipes r on r.org_id = x.org_id and r.id = x.recipe_id
+          where x.org_id = v_org and x.id = d.recipe_version_id));
+      return private.ref_store(v_fn, p_client_ref, v_result);
+    end if;
+    if not coalesce((v_prev ->> 'can_post')::boolean, false) then
+      select w.name into v_store from public.warehouses w where w.org_id = v_org and w.id = p_wh_in;
+      -- أوّل مشكلة تمنع الإنتاج (لا انتظار الختم) بأرقامها.
+      raise exception 'production_blocked' using hint = coalesce(private.production_problem_hint((select p.x from jsonb_array_elements(v_prev -> 'problems')
+          with ordinality as p(x, n) where not (p.x ->> 'code' = any (v_wait)) order by p.n limit 1), v_store),
+        'في الدفعة ما يمنع الإنتاج. حدّث الشاشة وأعد المحاولة.');
+    end if;
     select * into d from public.production_batches where org_id = v_org and id = p_id;
-    v_result := jsonb_build_object('id', d.id, 'status', 'draft', 'awaiting', 'costs', 'version', d.version, 'planned_kg', d.planned_kg::text,
-      'recipe_name', (select r.name from public.recipe_versions x join public.recipes r on r.org_id = x.org_id and r.id = x.recipe_id
-        where x.org_id = v_org and x.id = d.recipe_version_id));
-    return private.ref_store(v_fn, p_client_ref, v_result);
-  end if;
-  if not coalesce((v_prev ->> 'can_post')::boolean, false) then
-    select w.name into v_store from public.warehouses w where w.org_id = v_org and w.id = p_wh_in;
-    raise exception 'production_blocked' using hint = coalesce(private.production_problem_hint(v_prev -> 'problems' -> 0, v_store),
-      'في الدفعة ما يمنع الإنتاج. حدّث الشاشة وأعد المحاولة.');
-  end if;
-  select * into d from public.production_batches where org_id = v_org and id = p_id;
-  v_post := public.post_production(p_id, d.version, v_prev ->> 'plan_token', p_client_ref);
+    begin
+      v_post := public.post_production(p_id, d.version, v_prev ->> 'plan_token', p_client_ref);
+      exit;
+    exception when raise_exception then
+      if sqlerrm is distinct from 'stale_preview' then
+        raise;
+      end if;
+      if v_try = 2 then
+        raise exception 'stale_preview' using hint = 'تغيّر المخزون من نافذة أو جهاز آخر أثناء الإنتاج، فلم يُحفظ شيء. اضغط «أنتج» مرّة أخرى.';
+      end if;
+    end;
+  end loop;
   select * into d from public.production_batches where org_id = v_org and id = p_id;
   v_result := jsonb_build_object('id', d.id, 'status', d.status, 'doc_no', d.doc_no, 'produced_on', d.produced_on,
     'recipe_name', (select r.name from public.recipe_versions x join public.recipes r on r.org_id = x.org_id and r.id = x.recipe_id
@@ -369,7 +427,8 @@ end
 $$;
 
 -- ─── د. تقرير العليقة بالأيام ─────────────────────────────────────────────────────────────────────────────────────
--- الدفعات المرحَّلة لعليقة (أو لكلّ العلائق) بيوم إنتاجها في المدّة، بنطاق القارئ (أحد طرفي الدفعة بنطاقه، كما في recipes_overview):
+-- الدفعات المرحَّلة لعليقة (أو لكلّ العلائق) بيوم إنتاجها في المدّة، بنطاق القارئ بمخزن موادّها كما في productions_overview (مراجعة
+-- 0023 #3: كان «أحد الطرفين»، فدفعة ناتجها في مخزن حقل تصل مالها عاملَ القاعة الذي لا يرى الكلفة ولا المعمل):
 -- الأيام بعدد دفعاتها وناتجها، والدفعات، والمواد المسحوبة (الكمية الفعلية وإلّا المخطّطة، كما يسحبها الترحيل) بكتلتها وقيمتها، والمجاميع.
 -- المال لكلّ قارئ (كلمة المالك «كلشي مفتوح»، 2026-11-10، للتقرير وحده): بلا private.mask.
 create or replace function public.mill_report(p_recipe uuid, p_from date, p_to date) returns jsonb
@@ -408,9 +467,9 @@ begin
     left join public.production_values pv on pv.org_id = d.org_id and pv.batch_id = d.id
     where d.org_id = v_org and d.status = 'posted' and d.produced_on between p_from and p_to
       and (p_recipe is null or v.recipe_id = p_recipe)
-      and (public.in_scope_wh(d.input_warehouse_id) or public.in_scope_wh(d.output_warehouse_id))
+      and public.in_scope_wh(d.input_warehouse_id)
   ), m as (
-    select p.item_id, i.name, p.base_unit,
+    select p.item_id, i.name, p.base_unit, p.in_basis,
       sum(coalesce(p.actual_qty_base, p.planned_qty_base)) as qty,
       sum(coalesce(private.input_mass_kg(coalesce(p.actual_qty_base, p.planned_qty_base), p.base_unit, p.density_kg_per_l), 0)) as mass_kg,
       sum(coalesce(iv.value, 0)) as value
@@ -419,7 +478,7 @@ begin
     join public.items i on i.org_id = p.org_id and i.id = p.item_id
     left join public.production_input_values iv on iv.org_id = p.org_id and iv.input_id = p.id
     where p.org_id = v_org
-    group by p.item_id, i.name, i.name_norm, p.base_unit
+    group by p.item_id, i.name, i.name_norm, p.base_unit, p.in_basis
   )
   select jsonb_build_object(
     'today', public.app_today(), 'from', p_from, 'to', p_to,
@@ -433,9 +492,11 @@ begin
         'money', jsonb_build_object('materials_value', b.input_value::text, 'extra_value', b.extra_value::text, 'total_value', b.total_value::text,
           'cost_per_kg', private.per_unit(b.total_value, b.output_qty_kg)::text))
       order by b.produced_on, b.doc_no) from b), '[]'::jsonb),
+    -- in_basis لكلّ مادّة (مراجعة 0023 #5): الوقود والتعبئة خارج الكتلة، فحصّة المادّة من الكتلة تُحسب على الداخل فيها وحده
+    -- (ومجموعه = كتلة الدفعات)، والخارج بعده.
     'materials', coalesce((select jsonb_agg(jsonb_build_object('item_id', m.item_id, 'name', m.name, 'base_unit', m.base_unit,
-        'qty', m.qty::text, 'mass_kg', round(m.mass_kg, 3)::text, 'value', m.value::text)
-      order by m.mass_kg desc, m.name collate "C", m.item_id) from m), '[]'::jsonb),
+        'in_basis', m.in_basis, 'qty', m.qty::text, 'mass_kg', round(m.mass_kg, 3)::text, 'value', m.value::text)
+      order by m.in_basis desc, m.mass_kg desc, m.name collate "C", m.item_id) from m), '[]'::jsonb),
     'totals', (select jsonb_build_object('batches', count(*)::int, 'output_kg', coalesce(sum(b.output_qty_kg), 0)::text,
         'mass_kg', coalesce(sum(b.input_mass_kg), 0)::text, 'materials_value', coalesce(sum(b.input_value), 0)::text,
         'extra_value', coalesce(sum(b.extra_value), 0)::text, 'total_value', coalesce(sum(b.total_value), 0)::text,

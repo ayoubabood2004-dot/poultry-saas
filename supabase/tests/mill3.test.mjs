@@ -282,7 +282,7 @@ async function scenario(t, db) {
     },
     {
       name: 'الحارس يجمّد رقم السطر دائماً',
-      fns: [[FN.guard, [["  elsif current_setting('app.recipe_line_order', true) is distinct from 'on' then\n", '  else\n']]]],
+      fns: [[FN.guard, [["(to_jsonb(old) - 'line_no') then\n    update public.recipe_versions", "(to_jsonb(old) - 'line_no') then\n    new.line_no := old.line_no;\n    update public.recipe_versions"]]]],
       run: ({ attempt }) => attempt(U.owner, async (q) => {
         const ids = (await q('select id from public.recipe_lines where version_id = $1 order by line_no', [draft.version_id])).rows.map((r) => r.id);
         await q(LINES, [draft.version_id, [ids[1], ids[0], ids[2]], ids]);
@@ -305,7 +305,7 @@ async function scenario(t, db) {
     },
     {
       name: 'مشغّل المعمل يُرفض بدل المسوّدة',
-      fns: [[FN.produce, [["  if v_prev -> 'problems' = jsonb_build_array(jsonb_build_object('code', 'costs_pending')) then", '  if false then']]]],
+      fns: [[FN.produce, [["if jsonb_array_length(v_prev -> 'problems') > 0 and not exists", 'if false and not exists']]]],
       run: ({ attempt }) => attempt(U.millOperator, async (q) => (await q(RP, [uid(), R.finisher.version, '980.000', W.raw, W.feed, TODAY, '[]', '[]', null, null, null, null, uid()])).rows[0].v.status),
       correct: (r) => r.ok && r.value === 'draft',
     },
@@ -317,7 +317,7 @@ async function scenario(t, db) {
     },
     {
       name: 'التقرير بلا نطاق القارئ',
-      fns: [[FN.report, [['      and (public.in_scope_wh(d.input_warehouse_id) or public.in_scope_wh(d.output_warehouse_id))\n', '\n']]]],
+      fns: [[FN.report, [['      and public.in_scope_wh(d.input_warehouse_id)\n', '\n']]]],
       run: ({ attempt }) => attempt(U.keeperGeneral, async (q) => (await q(REPORT, [null, '2026-01-01', '2026-12-31'])).rows[0].v.batches.length),
       correct: (r) => r.ok && r.value === 0,
     },
