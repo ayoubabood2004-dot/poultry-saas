@@ -681,6 +681,34 @@ export default async function (t, db) {
       value: true,
       expect: only(['owner', 'manager'], 'ok:1'),
     },
+    // 0023 (ترتيب معمل العلف، كلمة المالك 2026-11-10): ترتيب العلائق وموادّ المسوّدة لمن يفعّل الخلطة (المالك والمدير)، كلّ واحد بما يراه الآن؛
+    // والإنتاج بنداء واحد بفعل التسويد: المالك والمدير يرحّلان، ومشغّل المعمل مسوّدة تنتظر ختم الكلف؛ والتقرير لكلّ دور بمنشأة بنطاق الدفعة.
+    set_recipe_order: {
+      sql: () => [
+        "select (public.set_recipe_order(x.ids, x.ids) ->> 'count')::int = cardinality(x.ids) as v from (select array(select (e ->> 'id')::uuid from jsonb_array_elements(public.recipes_overview() -> 'recipes') as e where not (e ->> 'archived')::boolean) as ids) as x",
+        [],
+      ],
+      value: true,
+      expect: only(RECIPE, 'ok:true'),
+    },
+    set_recipe_line_order: {
+      sql: () => ["select public.set_recipe_line_order($1, array[$2]::uuid[], array[$2]::uuid[]) ->> 'count' as v", [p3.draftVersion, p3.draftLine]],
+      value: true,
+      expect: only(RECIPE, 'ok:1'),
+    },
+    record_production: {
+      sql: () => [
+        "select public.record_production(gen_random_uuid(), $1, 50, $2, $3, public.app_today(), '[]'::jsonb, '[]'::jsonb, null, null, null, null, gen_random_uuid()) ->> 'status' as v",
+        [p3.version, p3.raw, p3.feedStore],
+      ],
+      value: true,
+      expect: { ...only(RECIPE, 'ok:posted'), mill_operator: 'ok:draft' },
+    },
+    mill_report: {
+      sql: () => ["select public.mill_report($1, public.app_today(), public.app_today()) -> 'totals' ->> 'batches' as v", [p3.recipe]],
+      value: true,
+      expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

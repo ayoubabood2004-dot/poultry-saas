@@ -763,6 +763,8 @@ export default async function (t, db) {
     sales_report: () => ['2026-01-01', '2026-12-31', 'party'],
     // 0022: الرصيد اليومي لكلّ الموادّ (بلا تصنيف) بيوم مضى وبكلّ مخازن النطاق.
     day_balance: () => [null, '2026-01-01', null],
+    // 0023: تقرير المعمل كلّه بسنة.
+    mill_report: () => [null, '2026-01-01', '2026-12-31'],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -813,6 +815,8 @@ export default async function (t, db) {
     sales_report: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     // 0022: الرصيد اليومي لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
     day_balance: { [U.aSpare]: 'forbidden' },
+    // 0023: تقرير المعمل لكلّ دور بمنشأة (read) بنطاق الدفعة، وبلا منشأة forbidden.
+    mill_report: { [U.aSpare]: 'forbidden' },
   };
   const readOnlyFailures = [];
   let rejected = 0;

@@ -9,6 +9,7 @@ export const MILL_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   recipes_name_norm_check: () => t('constraint.recipes_name_norm_check', 'اسم الخلطة يحتاج حرفاً واحداً على الأقلّ غير التشكيل والتطويل.'),
   recipes_note_check: () => t('constraint.recipes_note_check', 'ملاحظة الخلطة لا تزيد على 500 حرف.'),
   recipes_version_check: () => t('constraint.recipes_version_check', 'نسخة الخلطة يكتبها الخادم.'),
+  recipes_position_check: () => t('constraint.recipes_position_check', 'ترتيب العليقة يكتبه الخادم حين ترتّب العلائق.'),
   recipe_versions_basis_check: () => t('constraint.recipe_versions_basis_check', 'أساس الخلطة بالكيلوغرام أكبر من صفر، بثلاث مراتب عشرية على الأكثر.'),
   recipe_versions_status_check: () => t('constraint.recipe_versions_status_check', 'حالة نسخة الخلطة غير معروفة.'),
   recipe_versions_version_no_check: () => t('constraint.recipe_versions_version_no_check', 'رقم نسخة الخلطة يكتبه الخادم.'),
