@@ -29,7 +29,7 @@ export function classLabel(cls: MoneyClass): string {
     case 'expense':
       return t('mclass.expense', 'مصاريف');
     case 'transfer':
-      return t('mclass.transfer', 'تحويل بين الصناديق');
+      return t('mclass.transfer', 'نقل بين الصناديق');
     case 'opening':
       return t('mclass.opening', 'الرصيد عند البداية');
     case 'other':
@@ -108,7 +108,7 @@ function memoWhat(row: MoneyMove): string {
       return row.category ?? t('moves.memo.expense', 'مصروف');
     case 'transfer': {
       const counter = row.counterAccount?.name;
-      if (!counter) return t('mclass.transfer', 'تحويل بين الصناديق');
+      if (!counter) return t('mclass.transfer', 'نقل بين الصناديق');
       // وجه التحويل بمعناه الأصلي: عكس الوجه الخارج يدخل، فـ«إلغاء: إلى …» تُقرأ صحيحة.
       const incoming = row.reverses ? row.outflow > 0n : row.inflow > 0n;
       return incoming ? t('moves.memo.from', 'من «{box}»', { box: counter }) : t('moves.memo.to', 'إلى «{box}»', { box: counter });

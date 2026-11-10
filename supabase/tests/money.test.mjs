@@ -287,6 +287,12 @@ async function scenario(t, db) {
     [cashStatement.lines.map((l) => [l.move_id, norm(l.balance)]), norm(cashStatement.closing), B.B1],
     'ب3 صندوق واحد بترتيب كشف الصندوق وأرصدته وختامه نفسها',
   );
+  t.same(
+    cashStatement.lines.filter((l) => l.voucher_id !== null).map((l) => [l.kind, l.voucher_id]),
+    boxMoves.rows.filter((r) => r.voucher === 'entry').map((r) => [r.kind, r.voucher_id]),
+    'ب3 كشف الصندوق يسمّي سند كلّ قبض ودفع (وللإلغاء السند الأصليّ) كحركة الأموال، وغيرهما بلا سند',
+  );
+  t.ok(cashStatement.lines.some((l) => l.voucher_id === D.RC2 && l.reverses !== null), 'ب3 شرط: إلغاء القبض في كشف الصندوق يفتح سند القبض الأصليّ');
   const dayBook = await moves(U.owner, TODAY, TODAY, B.B1, null, null, null, 500);
   t.same(
     [norm(dayBook.opening), norm(dayBook.closing), dayBook.days.length, norm(dayBook.days[0].closing)],
@@ -643,6 +649,7 @@ async function scenario(t, db) {
       },
       month_summary: Nov,
       home_summary: await value(U.owner, SQL.home),
+      cash_statement: cashStatement,
     };
     const b = {
       generated_by: a.generated_by,

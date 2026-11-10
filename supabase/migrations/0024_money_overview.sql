@@ -1103,6 +1103,51 @@ begin
 end
 $$;
 
+-- ─── م. كشف الصندوق: رقم القبض والدفع يفتح سنده (voucher_id = القيد الأصليّ، وللإلغاء أصله) — الباقي كما في 0006 حرفاً بحرف ─────────
+create or replace function public.report_cash_statement(p_account uuid, p_from date, p_to date) returns jsonb
+language plpgsql stable security invoker set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  v_to date := coalesce(p_to, public.app_today());
+  v_account jsonb;
+  v_bf numeric;
+begin
+  if not (public.can('accounts.view') and public.can_see_accounts()) then
+    raise exception 'forbidden' using hint = 'الحسابات للمالك والمدير والمحاسب فقط.';
+  end if;
+  if p_from is null or p_from > v_to then
+    raise exception 'period_required' using hint = 'حدّد المدّة: من تاريخ إلى تاريخ لا يسبقه.';
+  end if;
+  select jsonb_build_object('id', a.id, 'name', a.name, 'kind', a.kind, 'archived', a.archived_at is not null, 'version', a.version)
+  into v_account from public.cash_accounts a where a.org_id = v_org and a.id = p_account;
+  if v_account is null then
+    raise exception 'cash_account_not_found' using hint = 'هذا الصندوق غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  select coalesce(sum(m.amount), 0) into v_bf from public.cash_moves m where m.org_id = v_org and m.account_id = p_account and m.on_date < p_from;
+  return jsonb_build_object('account', v_account, 'from', p_from, 'to', v_to, 'brought_forward', v_bf::text,
+    'total_in', coalesce((select sum(m.amount) from public.cash_moves m where m.org_id = v_org and m.account_id = p_account and m.on_date between p_from and v_to and m.amount > 0), 0)::text,
+    'total_out', coalesce((select -sum(m.amount) from public.cash_moves m where m.org_id = v_org and m.account_id = p_account and m.on_date between p_from and v_to and m.amount < 0), 0)::text,
+    'closing', (v_bf + coalesce((select sum(m.amount) from public.cash_moves m where m.org_id = v_org and m.account_id = p_account and m.on_date between p_from and v_to), 0))::text,
+    'lines', coalesce((
+      select jsonb_agg(jsonb_build_object('move_id', l.id, 'on_date', l.on_date, 'seq', l.seq::text, 'kind', l.kind, 'doc_kind', l.doc_kind, 'doc_id', l.doc_id,
+          'doc_no', l.doc_no, 'party', l.party_name, 'note', l.note, 'reverses', l.reverses_move_id, 'reversed', l.reversed,
+          'voucher_id', case when l.kind in ('party_payment', 'party_payout') and l.doc_kind is null then coalesce(l.entry_reverses, l.party_entry_id) end,
+          'inflow', greatest(l.amount, 0)::text, 'outflow', greatest(-l.amount, 0)::text, 'balance', l.balance::text)
+        order by l.on_date, l.seq)
+      from (
+        select m.*, e.doc_no, e.reverses_entry_id as entry_reverses, p.name as party_name,
+          exists (select 1 from public.cash_moves r where r.org_id = m.org_id and r.reverses_move_id = m.id) as reversed,
+          v_bf + sum(m.amount) over (order by m.on_date, m.seq rows between unbounded preceding and current row) as balance
+        from public.cash_moves m
+        left join public.party_entries e on e.org_id = m.org_id and e.id = m.party_entry_id
+        left join public.parties p on p.org_id = e.org_id and p.id = e.party_id
+        where m.org_id = v_org and m.account_id = p_account and m.on_date between p_from and v_to
+      ) as l
+    ), '[]'::jsonb));
+end
+$$;
+
+
 -- ─── ل. الصلاحيات ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 revoke all on function public.money_overview(), public.money_moves(date, date, uuid, text, uuid, jsonb, integer),
   public.debts_overview(text, uuid, uuid, text, text, numeric, boolean, jsonb, integer), public.party_statement_v2(uuid, uuid, date, date),

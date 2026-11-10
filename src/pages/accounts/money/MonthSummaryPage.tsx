@@ -90,7 +90,7 @@ function CashBlock({ cash }: { cash: CashFlow }) {
   return (
     <section className="card flex flex-col gap-2 p-4" data-action="monthsum-cash">
       <h2 className="font-semibold">{t('monthsum.cash', 'النقد في المنشأة كلّها')}</h2>
-      <p className="text-xs text-ink-muted">{t('monthsum.cash.note', 'بلا التحويل بين الصناديق ولا الرصيد عند البداية.')}</p>
+      <p className="text-xs text-ink-muted">{t('monthsum.cash.note', 'بلا النقل بين الصناديق ولا الرصيد عند البداية.')}</p>
       <dl className="flex flex-col gap-1">
         {rows.map((row) => (
           <div key={row.key} className="flex items-center justify-between gap-2 text-sm" data-action={`monthsum-cash-${row.key}`}>

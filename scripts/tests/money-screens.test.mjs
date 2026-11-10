@@ -119,7 +119,7 @@ const LABEL = {
   cash_purchase: 'شراء نقدي',
   purchase_charge: 'أجور الشراء',
   expense: 'مصاريف',
-  transfer: 'تحويل بين الصناديق',
+  transfer: 'نقل بين الصناديق',
   opening: 'الرصيد عند البداية',
   other: 'أخرى',
 };
@@ -148,7 +148,7 @@ const expectedMemo = (row, withClass = false) => {
     cash_purchase: 'دفع عند الشراء',
     purchase_charge: row.note ?? 'أجور الشراء',
     expense: row.category ?? 'مصروف',
-    transfer: counter ? (incoming ? `من «${counter}»` : `إلى «${counter}»`) : 'تحويل بين الصناديق',
+    transfer: counter ? (incoming ? `من «${counter}»` : `إلى «${counter}»`) : 'نقل بين الصناديق',
     opening: 'الرصيد عند البداية',
     other: 'أخرى',
   }[row.class];
@@ -295,7 +295,8 @@ export default async function (t) {
       money_moves: movesFor,
       month_summary: () => clone(MS),
       report_cash_balances: () => cashBalances(),
-      report_cash_statement: () => cashStatement(MM.box),
+      // كشف الصندوق الحقيقيّ للصندوق والمدّة نفسيهما (عيّنة القاعدة، ومعه voucher_id منذ 0024)؛ والمحوَّل من الحركة لعيّنة أقدم بلاه.
+      report_cash_statement: () => F.cash_statement ?? cashStatement(MM.box),
     };
     const fresh = (overrides = {}, role = 'manager') => {
       calls = [];
@@ -846,17 +847,22 @@ export default async function (t) {
       const ledger = tableOf(body());
       const offset = fils(box.opening) === 0n ? 0 : 1;
       const want = box.rows.map((row) => {
-        if ((row.kind === 'party_payment' || row.kind === 'party_payout') && !row.doc_kind) return `/accounts/moves?account=${box.account.id}&from=${row.on_date}&to=${row.on_date}`;
+        if ((row.kind === 'party_payment' || row.kind === 'party_payout') && !row.doc_kind) return `/accounts/voucher/${row.voucher_id}`;
         if (row.doc_kind === 'receipt') return `/inventory/receipts/${row.doc_id}`;
         if (row.doc_kind === 'sale') return `/sales/${row.doc_id}`;
         if (row.doc_kind === 'cash_transfer') return `/accounts/transfer/${row.doc_id}`;
         return null;
       });
       const got = box.rows.map((_, index) => hrefOf(first('ledger-doc', ledger.body[index + offset])));
-      t.same(got, want, 'C3 كشف الصندوق: رقم البيع والشراء وأجوره والتحويل إلى مستنده، والقبض والدفع إلى حركة الأموال بيومه (لا معرّف قيد في الكشف)، والمصروف بلا رابط');
-      t.ok(want.some((href) => href?.startsWith('/accounts/moves')) && want.some((href) => href?.startsWith('/inventory/receipts/')) && want.some((href) => href === null), 'شرط box: قبض أو دفع وشراء ومصروف');
-      const viaMoves = box.rows.findIndex((row, index) => want[index]?.startsWith('/accounts/moves'));
-      await click(first('ledger-doc', ledger.body[viaMoves + offset]));
+      t.same(got, want, 'C3 كشف الصندوق: رقم البيع والشراء وأجوره والتحويل إلى مستنده، والقبض والدفع إلى سندهما (voucher_id، وللإلغاء السند الأصليّ)، والمصروف بلا رابط');
+      t.ok(want.some((href) => href?.startsWith('/accounts/voucher/')) && want.some((href) => href?.startsWith('/inventory/receipts/')) && want.some((href) => href === null), 'شرط box: قبض أو دفع وشراء ومصروف');
+      await unmount();
+      // خادم أقدم بلا voucher_id: رقم القبض يفتح حركة الصندوق بيومه، وفيها رابط السند.
+      fresh({ report_cash_statement: () => cashStatement(MM.box) });
+      await mount(`/accounts/cash/${box.account.id}`);
+      const oldLedger = tableOf(body());
+      const viaMoves = box.rows.findIndex((row) => (row.kind === 'party_payment' || row.kind === 'party_payout') && !row.doc_kind);
+      await click(first('ledger-doc', oldLedger.body[viaMoves + offset]));
       t.same(
         [where?.pathname, callsOf('money_moves').at(-1)],
         ['/accounts/moves', { p_from: box.rows[viaMoves].on_date, p_to: box.rows[viaMoves].on_date, p_account: box.account.id, p_class: null, p_party: null, p_after: null, p_limit: 100 }],

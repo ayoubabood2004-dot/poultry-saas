@@ -110,6 +110,8 @@ export interface CashLine {
   docKind: string | null;
   docId: string | null;
   docNo: string | null;
+  /** القبض والدفع (RC/PY): القيد الأصليّ لسنده (وللإلغاء أصله)، من 0024؛ null لغيرهما أو لخادم أقدم. */
+  voucherId: string | null;
   party: string | null;
   note: string | null;
   reverses: boolean;
@@ -152,6 +154,7 @@ export function parseCashStatement(value: unknown): CashStatement {
         docKind: optStr(row, 'doc_kind'),
         docId: optStr(row, 'doc_id'),
         docNo: optStr(row, 'doc_no'),
+        voucherId: optStr(row, 'voucher_id'),
         party: optStr(row, 'party'),
         note: optStr(row, 'note'),
         reverses: row.reverses !== null && row.reverses !== undefined,

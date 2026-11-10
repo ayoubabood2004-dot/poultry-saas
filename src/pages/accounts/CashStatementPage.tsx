@@ -43,11 +43,13 @@ export function cashVoidSentence(line: CashLine): string {
 }
 
 /**
- * طريق رقم الحركة (0024 §5): البيع والشراء وأجوره والتحويل إلى مستندها. القبض والدفع (RC/PY) بلا معرّف قيد في كشف الصندوق (report_cash_statement لا
- * يرجّعه)، فرقمهما يفتح حركة الأموال لهذا الصندوق بيومه، وفيها رابط السند نفسه. المصروف والرصيد عند البداية بلا صفحة.
+ * طريق رقم الحركة (0024 §5): البيع والشراء وأجوره والتحويل إلى مستندها، والقبض والدفع (RC/PY) إلى سندهما (voucher_id من الكشف منذ 0024)؛
+ * وبلاه (خادم أقدم) يفتح حركة الأموال لهذا الصندوق بيومه، وفيها رابط السند. المصروف والرصيد عند البداية بلا صفحة.
  */
 export function cashLineHref(line: CashLine, accountId: string): string | null {
-  if ((line.kind === 'party_payment' || line.kind === 'party_payout') && !line.docKind) return `/accounts/moves?account=${accountId}&from=${line.onDate}&to=${line.onDate}`;
+  if ((line.kind === 'party_payment' || line.kind === 'party_payout') && !line.docKind) {
+    return line.voucherId ? `/accounts/voucher/${line.voucherId}` : `/accounts/moves?account=${accountId}&from=${line.onDate}&to=${line.onDate}`;
+  }
   return docHref(line.docKind, line.docId);
 }
 
