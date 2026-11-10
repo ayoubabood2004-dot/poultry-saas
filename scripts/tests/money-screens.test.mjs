@@ -134,6 +134,31 @@ const expectedHref = (row) => {
   if (row.doc_kind === 'cash_transfer') return `/accounts/transfer/${row.doc_id}`;
   return null;
 };
+/**
+ * البيان المنتظر من الصفّ الخام: السند أو الفاتورة، وفئة المصروف، والصندوق الآخر بوجه التحويل الأصلي، واسم الأجرة، ثمّ الملاحظة، والإلغاء بعلامته.
+ * withClass: بلا عمود النوع (يومية الصندوق) يسبق المصروفَ والتحويل والأجرةَ اسمُ صنفها.
+ */
+const expectedMemo = (row, withClass = false) => {
+  const counter = typeof row.counter_account === 'string' ? row.counter_account : (row.counter_account?.name ?? null);
+  const incoming = row.reverses ? fils(row.outflow) > 0n : fils(row.inflow) > 0n;
+  const bare = {
+    customer_receipt: 'سند قبض',
+    supplier_payment: 'سند صرف',
+    cash_sale: 'بيع نقداً',
+    cash_purchase: 'دفع عند الشراء',
+    purchase_charge: row.note ?? 'أجور الشراء',
+    expense: row.category ?? 'مصروف',
+    transfer: counter ? (incoming ? `من «${counter}»` : `إلى «${counter}»`) : 'تحويل بين الصناديق',
+    opening: 'الرصيد عند البداية',
+    other: 'أخرى',
+  }[row.class];
+  const what = withClass && ['expense', 'transfer', 'purchase_charge'].includes(row.class) ? `${LABEL[row.class]}: ${bare}` : bare;
+  const note = row.class === 'purchase_charge' ? null : row.note;
+  let memo = note ? `${what} — ${note}` : what;
+  if (row.reverses) memo = `إلغاء: ${memo}`;
+  if (row.reversed) memo = `${memo} (أُلغيت لاحقاً)`;
+  return memo;
+};
 /** صفوف الجدول المنتظرة: الحركات بترتيبها، وبعد آخر حركة من كلّ يوم اكتملت حركاته المحمّلة صفّ مجموعه. */
 const expectedLines = (rows, days) => {
   const loaded = new Map();
@@ -209,7 +234,7 @@ export default async function (t) {
         "export { default as AccountsRoutes } from './src/pages/accounts/AccountsRoutes.tsx';",
         "export { parseMoneyOverview, parseMoneyMoves, parseMonthSummary, MONEY_CLASSES } from './src/lib/repo/money.ts';",
         "export { fmtMoney, fmtQty, fmtInt } from './src/lib/format.ts';",
-        "export { moveMemo, moveHref } from './src/pages/accounts/money/shared.tsx';",
+        "export { moveHref } from './src/pages/accounts/money/shared.tsx';",
         "export { RejectedError } from './src/lib/errors.ts';",
       ],
       [stubs],
@@ -346,6 +371,14 @@ export default async function (t) {
     const D = MM.box_day;
     t.eq(fils(D.opening) + fils(D.totals.inflow) - fils(D.totals.outflow), fils(D.closing), 'شرط box_day: أوّل اليوم + الوارد − الصادر = آخره');
 
+    t.ok(
+      ALL_ROWS.some((row) => row.class === 'expense' && row.note) &&
+        ALL_ROWS.some((row) => row.class === 'transfer' && row.reverses) &&
+        ALL_ROWS.some((row) => row.class === 'transfer' && !row.reverses && fils(row.outflow) > 0n) &&
+        ALL_ROWS.some((row) => row.class === 'purchase_charge' && row.note),
+      'شرط البيان: مصروف بملاحظة، وتحويل خارج، وعكس تحويل، وأجرة شراء باسمها',
+    );
+
     // ── P المحلّلات ─────────────────────────────────────────────────────────────────────────────────────────────
     await step('P', async () => {
       const overview = m.parseMoneyOverview(clone(O));
@@ -385,6 +418,15 @@ export default async function (t) {
       const [asObject] = m.parseMoneyMoves({ ...clone(MM.page2), rows: [{ ...clone(transfer), counter_account: { id: 'acc-1', name: 'صندوق آخر' } }] }).rows;
       t.same([asText.counterAccount, asObject.counterAccount], [{ id: null, name: typeof transfer.counter_account === 'string' ? transfer.counter_account : transfer.counter_account.name }, { id: 'acc-1', name: 'صندوق آخر' }], 'P8 الصندوق الآخر نصّاً أو {id, name}');
       t.throws(() => m.parseMoneyMoves({ ...clone(MM.all), rows: [{ ...clone(MM.all.rows[0]), voucher: 'cheque' }] }), 'P9 سند بنوع غير entry/transfer يرمي', /ledger_shape:voucher/);
+      t.same(
+        [
+          m.moveHref({ voucher: 'transfer', voucherId: 'v-1', docKind: null, docId: null }),
+          m.moveHref({ voucher: 'entry', voucherId: 'v-2', docKind: null, docId: null }),
+          m.moveHref({ voucher: null, voucherId: null, docKind: 'expense', docId: 'x-1' }),
+        ],
+        ['/accounts/transfer/v-1', '/accounts/voucher/v-2', null],
+        'P11 الرابط من السند أوّلاً (العقد §5)، والمصروف بلا رابط',
+      );
       const summary = m.parseMonthSummary(clone(MS));
       const milled = MS.divisions.find((d) => d.production);
       const parsedMilled = summary.divisions.find((d) => d.divisionId === milled.division_id);
@@ -548,7 +590,6 @@ export default async function (t) {
       const values = lines.flatMap((line) => (line.move ? [line.move.inflow, line.move.outflow, line.move.balance] : [line.day.inflow, line.day.outflow, line.day.closing])).filter((v) => v !== null);
       const decimals = decimalsOf(values.map(fils));
       const money = (value) => fmt(fils(value), decimals);
-      const parsed = new Map(m.parseMoneyMoves({ ...clone(MM.all), rows: clone(rows), next: null }).rows.map((row) => [row.moveId, row]));
       let ok = 0;
       lines.forEach((line, index) => {
         const tr = table.body[index];
@@ -568,7 +609,7 @@ export default async function (t) {
           row.account_name,
           `${LABEL[row.class]}${row.reverses ? 'إلغاء' : row.reversed ? 'أُلغيت' : ''}`,
           row.party_name ?? '',
-          m.moveMemo(parsed.get(row.move_id)),
+          expectedMemo(row),
           fils(row.inflow) === 0n ? '' : money(row.inflow),
           fils(row.outflow) === 0n ? '' : money(row.outflow),
           ...(running ? [money(row.balance)] : []),
@@ -666,11 +707,10 @@ export default async function (t) {
       const table = tableOf(body());
       t.same(table.headers, ['رقم السند', 'الجهة', 'البيان', 'وارد', 'صادر', 'الرصيد'], 'D3 أعمدة اليومية (§9.3)');
       t.same(cells(table.body[0]), ['', '', 'رصيد أوّل اليوم', '', '', money(D.opening)], 'D4 أوّل سطر رصيد أوّل اليوم');
-      const parsed = m.parseMoneyMoves(clone(D)).rows;
       t.same(
         table.body.slice(1).map((tr) => [cells(tr), hrefOf(descendants(tr.children[0]).find((n) => n.localName === 'a')), hrefOf(descendants(tr.children[1]).find((n) => n.localName === 'a'))]),
-        D.rows.map((row, index) => [
-          [row.doc_no ?? (expectedHref(row) ? 'سند التحويل' : ''), row.party_name ?? '', m.moveMemo(parsed[index], true), fils(row.inflow) === 0n ? '' : money(row.inflow), fils(row.outflow) === 0n ? '' : money(row.outflow), money(row.balance)],
+        D.rows.map((row) => [
+          [row.doc_no ?? (expectedHref(row) ? 'سند التحويل' : ''), row.party_name ?? '', expectedMemo(row, true), fils(row.inflow) === 0n ? '' : money(row.inflow), fils(row.outflow) === 0n ? '' : money(row.outflow), money(row.balance)],
           expectedHref(row),
           row.party_id ? `/accounts/parties/${row.party_id}` : null,
         ]),
