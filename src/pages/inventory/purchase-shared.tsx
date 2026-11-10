@@ -47,8 +47,9 @@ export function AmountField({ id, label, value, onChange, hint }: { id: string; 
 
 /**
  * منتقي المورّد: بحث بالاسم (أوّل 20 ويّا العدد)، و«مورّد جديد» لمن يضيف الجهات بعد تنبيه التوائم (Q1، Q2). مشترك بين ورقة الاستلام
- * ونافذة «سجّل شراء» في ملفّ المادّة (0017)، فلا نسختان من البحث ولا من طريق إضافة المورّد. وcustomer لنافذة «بِع» (0021): الجهة الجديدة زبون،
- * لمن يدير الجهات (الأمين يضيف مورّداً فقط، والخادم يحكم).
+ * ونافذة «سجّل شراء» في ملفّ المادّة (0017)، فلا نسختان من البحث ولا من طريق إضافة المورّد. وcustomer لنافذة «بِع» (0021): الجهة الجديدة زبون.
+ * والإضافة بـparty.create للمورّد والزبون معاً (0024، المهمّة #58، جواب المالك 2026-11-08: الأمين يضيف الزبون بنفسه)، والخادم يحكم
+ * (parties_check: غير المدير يضيف زبوناً أو مورّداً).
  */
 export function SupplierPicker({ id, label, value, onChange, customer = false }: { id: string; label: string; value: PartyPick | null; onChange: (party: PartyPick | null) => void; customer?: boolean }) {
   const [search, setSearch] = useState('');
@@ -57,7 +58,7 @@ export function SupplierPicker({ id, label, value, onChange, customer = false }:
   const found = useLoad(load, deferred);
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
-  const canCreate = workspace ? can(workspace.role, customer ? 'parties.manage' : 'party.create') : false;
+  const canCreate = workspace ? can(workspace.role, 'party.create') : false;
   const [twins, setTwins] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -126,7 +127,7 @@ export function SupplierPicker({ id, label, value, onChange, customer = false }:
         </Button>
       ) : customer && !canCreate && search.trim() ? (
         <p className="text-sm text-ink-muted" data-action="party-create-hint">
-          {t('sale.party.create_hint', 'الجهة الجديدة يضيفها المحاسب أو المدير؛ اختر جهة من القائمة.')}
+          {t('sale.party.create_hint', 'الجهة الجديدة يضيفها أمين المخزن أو المحاسب أو المدير؛ اختر جهة من القائمة.')}
         </p>
       ) : null}
     </div>

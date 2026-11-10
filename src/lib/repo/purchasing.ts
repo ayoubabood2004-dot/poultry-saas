@@ -510,7 +510,7 @@ export function createSupplier(name: string): Promise<PartyPick> {
   return written(async (db) => updatedRows(withStatus(await db.from('parties').insert({ name: name.trim(), is_supplier: true }).select('id, name')))).then((row) => ({ id: str(row, 'id'), name: str(row, 'name') }));
 }
 
-/** زبون جديد من نافذة «بِع» (0021)، بعد فحص التوائم؛ الزبائن لمن يدير الجهات (parties.manage، والخادم يحكم). */
+/** زبون جديد من نافذة «بِع» (0021)، بعد فحص التوائم؛ لمن يضيف الجهات (party.create، والأمين منهم منذ 0024 #58، والخادم يحكم). */
 export function createCustomer(name: string): Promise<PartyPick> {
   return written(async (db) => updatedRows(withStatus(await db.from('parties').insert({ name: name.trim(), is_customer: true }).select('id, name')))).then((row) => ({ id: str(row, 'id'), name: str(row, 'name') }));
 }

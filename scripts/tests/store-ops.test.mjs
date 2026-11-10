@@ -666,7 +666,8 @@ export default async function (t) {
       t.eq(all().find((n) => n.id.endsWith('-price'))?.value, '700', 'S8 السعر من سعر البيع الحاليّ');
       typeIn(all().find((n) => n.id.endsWith('-party')), 'زبون جديد');
       await settle();
-      t.ok(byAction('party-create-hint')[0]?.textContent === 'الجهة الجديدة يضيفها المحاسب أو المدير؛ اختر جهة من القائمة.' && byAction('create-party').length === 0, 'S8 الأمين لا يضيف زبوناً: سطر يقول من يضيفه');
+      // 0024 (المهمّة #58، جواب المالك 2026-11-08): الأمين يضيف الزبون بنفسه، فبوّابة «جهة جديدة» party.create لا parties.manage.
+      t.ok(byAction('create-party')[0]?.textContent === 'جهة جديدة: أضف «زبون جديد»' && byAction('party-create-hint').length === 0, 'S8 الأمين يضيف الزبون (0024 #58): «جهة جديدة» بالاسم المكتوب، بلا سطر «يضيفه غيره»');
       await click(byAction('pick-party')[0]);
       t.same((byAction('sale-store')[0]?.options ?? []).map((o) => o.textContent).slice(1), ['مخزن العلف (600 كغم)', 'مخزن علف ثانٍ (100 كغم)'], 'S8 مخزنان: الاختيار بمتاح كلّ واحد');
       typeIn(byAction('sale-qty')[0], '200');

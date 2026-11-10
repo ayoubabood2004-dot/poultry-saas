@@ -5,8 +5,10 @@
   body:has([data-print-area]) * {
     visibility: hidden;
   }
-  [data-print-area],
-  [data-print-area] * {
+  /* بخصوصية قاعدة الإخفاء نفسها وزيادة (0،2،1 فوق 0،1،1): «[data-print-area] *» وحدها أضعف منها، فكانت الورقة تُطبع بيضاء
+     (فحص Chromium الحقيقي، عقد 0024). */
+  body:has([data-print-area]) [data-print-area],
+  body:has([data-print-area]) [data-print-area] * {
     visibility: visible;
   }
   [data-print-area] {
@@ -19,5 +21,51 @@
   }
   [data-print='hide'] {
     display: none !important;
+  }
+}
+
+/* أوراق 0024 (الكشف الاحترافي A4 والسندات A5، والقياس وترقيم الصفحات بـ@page من الصفحة نفسها، PageStyle): الورقة بلا إطار البطاقة،
+   وبخطّ الورق، والجدول برأسه في كلّ صفحة وصفوفه لا تنقسم بين صفحتين، وألوان الأعمار والختم تُطبع كما هي. */
+@media print {
+  /* الورقة بيضاء ولو طُبعت «رسومات الخلفية» (خلفية الصفحة لون الشاشة الفاتح). */
+  body:has([data-paper]) {
+    background: #fff !important;
+  }
+  [data-paper] {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    font-size: 10pt;
+  }
+  [data-paper] table {
+    font-size: 8.5pt;
+  }
+  [data-paper] th,
+  [data-paper] td {
+    padding: 2px 4px;
+  }
+  [data-paper] thead {
+    display: table-header-group;
+  }
+  [data-paper] thead th {
+    position: static;
+  }
+  [data-paper] tr,
+  [data-keep] {
+    break-inside: avoid;
+  }
+  /* جدول موادّ المستند يبقى مع سطره في الصفحة نفسها. */
+  [data-paper] tr[data-sub-row] {
+    break-before: avoid;
+  }
+  [data-paper] .min-w-48 {
+    min-width: 0;
+  }
+  .aging-fill,
+  .aging-ink,
+  .paper-stamp {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

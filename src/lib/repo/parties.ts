@@ -285,97 +285,12 @@ export async function loadPartyBalances({ from, to, divisionId = null, nonzero =
   );
 }
 
-// ─── الكشف (E50) ───────────────────────────────────────────────────────────────────────────────────────────────
+// ─── أنواع القيود ─────────────────────────────────────────────────────────────────────────────────────────────
+// كشف الجهة صار party_statement_v2 (عقد 0024، repo/statement): محلّل report_party_statement القديم لم تعد تقرؤه شاشة فشيل؛ والدالّة
+// نفسها باقية بالقاعدة كما هي.
 
 export type EntryKind = 'invoice' | 'purchase' | 'bill' | 'payment' | 'payout' | 'return' | 'supplier_return' | 'forgiveness' | 'opening' | 'adjustment' | 'offset';
 const ENTRY_KINDS: readonly EntryKind[] = ['invoice', 'purchase', 'bill', 'payment', 'payout', 'return', 'supplier_return', 'forgiveness', 'opening', 'adjustment', 'offset'];
-
-export interface StatementLine {
-  entryId: string;
-  onDate: Day;
-  kind: EntryKind;
-  docNo: string | null;
-  /** نوع المستند للقيد اللي يتبع مستنداً (يُلغى بإلغاء مستنده، مراجعة WP7)، وnull لقيد يدوي. */
-  docKind?: string | null;
-  reason: string | null;
-  /** القيد عكسٌ لقيد آخر. */
-  reverses: boolean;
-  /** القيد انعكس (أُلغي). */
-  reversed: boolean;
-  /** صندوق حركة القبض أو الدفع (تأكيد إلغائه يسمّيه)، أو null. */
-  account: string | null;
-  debit: Fils;
-  credit: Fils;
-  balance: Fils;
-}
-
-export interface StatementBook {
-  bookId: string;
-  code: BookCode;
-  name: string;
-  divisionKind: DivisionKind;
-  broughtForward: Fils;
-  totalDebit: Fils;
-  totalCredit: Fils;
-  closing: Fils;
-  lines: readonly StatementLine[];
-}
-
-export interface PartyStatement {
-  party: { id: string; name: string; phone: string | null; archived: boolean; version: number; isCustomer: boolean; isSupplier: boolean };
-  from: Day;
-  to: Day;
-  books: readonly StatementBook[];
-}
-
-export function parseStatement(value: unknown): PartyStatement {
-  const json = object(value, 'statement');
-  const party = object(json.party, 'party');
-  const version = party.version;
-  if (typeof version !== 'number' || !Number.isInteger(version)) throw new LedgerShapeError('version');
-  return {
-    party: { id: str(party, 'id'), name: str(party, 'name'), phone: optStr(party, 'phone'), archived: flag(party, 'archived'), version, isCustomer: flag(party, 'is_customer'), isSupplier: flag(party, 'is_supplier') },
-    from: day(json, 'from'),
-    to: day(json, 'to'),
-    books: list(json.books, 'books').map((item): StatementBook => {
-      const row = object(item, 'books');
-      return {
-        bookId: str(row, 'book_id'),
-        code: codeOf(row.code),
-        name: str(row, 'name'),
-        divisionKind: kindOf(row.division_kind, 'division_kind'),
-        broughtForward: filsOf(row, 'brought_forward'),
-        totalDebit: filsOf(row, 'total_debit'),
-        totalCredit: filsOf(row, 'total_credit'),
-        closing: filsOf(row, 'closing'),
-        lines: list(row.lines, 'lines').map((lineItem): StatementLine => {
-          const line = object(lineItem, 'lines');
-          const kind = line.kind;
-          if (typeof kind !== 'string' || !(ENTRY_KINDS as readonly string[]).includes(kind)) throw new LedgerShapeError('kind');
-          return {
-            entryId: str(line, 'entry_id'),
-            onDate: day(line, 'on_date'),
-            kind: kind as EntryKind,
-            docNo: optStr(line, 'doc_no'),
-            docKind: optStr(line, 'doc_kind'),
-            reason: optStr(line, 'reason'),
-            reverses: line.reverses !== null && line.reverses !== undefined,
-            reversed: flag(line, 'reversed'),
-            account: optStr(line, 'account'),
-            debit: filsOf(line, 'debit'),
-            credit: filsOf(line, 'credit'),
-            balance: filsOf(line, 'balance'),
-          };
-        }),
-      };
-    }),
-  };
-}
-
-/** كشف الجهة بكل دفاترها الظاهرة (bookId = null) أو بدفتر واحد. */
-export async function loadStatement(partyId: string, bookId: string | null, from: Day, to: Day): Promise<PartyStatement> {
-  return parseStatement(await call<unknown>('report_party_statement', { p_party: partyId, p_book: bookId, p_from: from, p_to: to }));
-}
 
 // ─── الجهات (كتابة مباشرة، Q1 وQ2) ───────────────────────────────────────────────────────────────────────────────
 

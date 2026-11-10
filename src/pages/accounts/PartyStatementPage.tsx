@@ -1,89 +1,60 @@
-import { Printer } from 'lucide-react';
+import { FileSpreadsheet, Printer, Share2 } from 'lucide-react';
 import { useCallback, useId, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
+import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
-import { LedgerTable } from '../../components/ui/LedgerTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { StatStrip } from '../../components/ui/StatStrip';
+import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
-import type { LedgerEntry } from '../../domain/ledger';
-import { runLedger } from '../../domain/ledger';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
-import { fmtDay, fmtMoney, fmtPhone } from '../../lib/format';
+import { fmtDay, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as parties from '../../lib/repo/parties';
-import type { BookRef, PartyStatement, StatementBook, StatementLine } from '../../lib/repo/parties';
+import type { BookRef } from '../../lib/repo/parties';
+import * as statements from '../../lib/repo/statement';
+import type { PartyStatement, StatementBook, StatementLine } from '../../lib/repo/statement';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { AdjustDialog, bookLabel, defaultPeriod, entryKindLabel, PaymentDialog, PeriodFilter, SideAmount, VoidDialog } from './shared';
+import { BackLink, backTarget, DocText, PageStyle, printAs } from './papers';
+import { AdjustDialog, bookLabel, defaultPeriod, PaymentDialog, PeriodFilter, SideAmount, VoidDialog } from './shared';
+import { StatementSheet } from './statement/StatementSheet';
+import { docType, lineMemo, modeLabel, shareText, statementCsv, statementTitle, STATEMENT_MODES, type StatementMode } from './statement/text';
 
-// كشف الجهة (خطّة المرحلة 1 WP3، E50، FOUNDATION ٧٨٨): جدول كلاسيكي واحد لكل دفتر بستّة أعمدة بالضبط «التاريخ | المستند |
-// البيان | عليه | له | الرصيد»، بعنوان دفتره، ورصيد جارٍ لكل دفتر من المدوَّر قبل المدّة (من الخادم، E26)، وآخر سطر = رصيد الدفتر.
-// فلتر الدفتر (FOUNDATION ١١٤ و٧٨٨): «الكل» يكدّس الدفاتر، ودفتر واحد يعرض كشفه وحده ويطبعه لحاله (كشف المعمل للمورّد)، والدفتر
-// بالرابط (?book=) حتى الرابط المنسوخ يفتح نفس الكشف. المدّة
-// افتراضها السنة الجارية، والطباعة تطبع كل الصفوف. والإلغاء والتسوية والإعفاء للمدير بقائمة لحالها تحت كل دفتر (الكشف نفسه ستّة
-// أعمدة بلا عمود إجراءات)، وتأكيد إلغاء القبض أو الدفع يسمّي الصندوق اللي تُعكس منه الحركة.
-
-/** البيان: نوع القيد وسببه، والعكسي «إلغاء …». */
-export function lineMemo(line: StatementLine): string {
-  const kind = entryKindLabel(line.kind);
-  const base = line.reverses ? t('statement.memo.reversal', 'إلغاء {kind}', { kind }) : kind;
-  return line.reason ? t('statement.memo.reason', '{base}: {reason}', { base, reason: line.reason }) : base;
-}
-
-/** سطور الكشف للجدول الكلاسيكي (الرصيد الجاري يحسبه LedgerTable من المدوَّر، ويطابق رصيد الخادم). */
-export function ledgerEntries(book: StatementBook): LedgerEntry[] {
-  return book.lines.map((line) => ({ date: line.onDate, doc: line.docNo ?? '', memo: lineMemo(line), debit: line.debit, credit: line.credit }));
-}
+// كشف الحساب الاحترافي (عقد 0024 F4، الخطّة §8.1 «1-د»، يحلّ محلّ كشف WP3): ورقة واحدة بثلاث صيغ (مختصر، وتفصيلي بموادّ كلّ مستند، والمفتوح
+// فقط) من party_statement_v2، تُطبع A4 بعنوان «كشف حساب — الاسم — الفترة» وترقيم «صفحة س من ص»، وتُصدَّر إكسل (CSV) وتُشارك نصّاً من
+// الهاتف. ويبقى منه ما كان: الحساب بالرابط (?book=) و«الكل»، والمدّة (افتراضها السنة الجارية)، و«قبضنا» و«دفعنا»، والتسوية والإعفاء،
+// وإلغاء القبض والدفع والافتتاح والتسوية والإعفاء بقائمة لكلّ حساب على الشاشة وحدها (الورقة سبعة أعمدة بلا عمود إجراءات). والرجوع إلى
+// ?back= (مسار في الحسابات أو المبيعات) وإلّا قائمة الذمم؛ و?send=1 (من «أرسل الكشف» في قائمة الذمم) يفتح نافذة المشاركة.
 
 /**
- * بطاقة رصيد الدفتر فوق كشفه (كلمة المالك 2026-11-02: «اريد يكون اكو دفتر ديون كامل يعرف كل دين منين اجى»): الرصيد الآن،
- * والرصيد قبل المدّة، ومجموع «عليه» ومجموع «له» بالمدّة — فيُعرف حجم الدين وحركته قبل قراءة السطور سطراً سطراً. الأرقام
- * من runLedger نفسها التي يرسم بها LedgerTable، فلا حساب ثانٍ يختلف عنها.
+ * القيود التي تُلغى من الكشف: القبض والدفع (ودفع الاستلام وقبض البيع، E44)، والافتتاح والتسوية والإعفاء، الأصلية التي لم تُلغَ؛
+ * وتسوية تتبع مستنداً (تصحيح سعر) تُلغى من مستندها.
  */
-export function BookBalance({ book }: { book: StatementBook }) {
-  const run = runLedger(ledgerEntries(book), book.broughtForward);
-  return (
-    <StatStrip
-      stats={[
-        { key: 'closing', label: t('statement.balance.now', 'رصيد الحساب'), value: <SideAmount amount={run.closing} /> },
-        { key: 'opening', label: t('ledger.opening', 'رصيد سابق'), value: <SideAmount amount={book.broughtForward} /> },
-        { key: 'debit', label: t('statement.sum.debit', 'مجموع عليه'), value: <Num>{fmtMoney(run.totalDebit, 0)}</Num> },
-        { key: 'credit', label: t('statement.sum.credit', 'مجموع له'), value: <Num>{fmtMoney(run.totalCredit, 0)}</Num> },
-      ]}
-    />
-  );
-}
-
-/**
- * القيود اللي تنلغى من هنا: القبض والدفع (ودفع الاستلام، E44)، والافتتاح والتسوية والإعفاء، الأصلية اللي ما انلغت؛ وتسوية تتبع مستنداً
- * (تصحيح سعر) تُلغى من مستندها.
- */
-export function voidable(line: StatementLine): 'payment' | 'entry' | null {
+export function voidable(line: Pick<StatementLine, 'kind' | 'docKind' | 'reverses' | 'reversed'>): 'payment' | 'entry' | null {
   if (line.reverses || line.reversed) return null;
   if (line.kind === 'payment' || line.kind === 'payout') return 'payment';
-  if ((line.docKind ?? null) !== null) return null;
+  if (line.docKind !== null) return null;
   if (line.kind === 'opening' || line.kind === 'adjustment' || line.kind === 'forgiveness') return 'entry';
   return null;
 }
 
 /** نتيجة إلغاء السطر بكلماتها: القيد العكسي بدفتره، ولقبض أو دفع حركة الصندوق العكسية بصندوقها واتّجاهها (FOUNDATION ٧٦٦). */
-export function voidConsequence(line: StatementLine, book: string): string {
+export function voidConsequence(line: Pick<StatementLine, 'kind' | 'docKind' | 'reverses' | 'reversed' | 'debit' | 'credit' | 'account'>, book: string): string {
   const amount = fmtMoney(line.debit + line.credit, 0);
   const entry = t('void.consequence', 'تُكتب حركة تلغي السابقة بمبلغ {amount} بتاريخ اليوم في «{book}» ويُعاد تسديد ما انفكّ من الأقدم، ويبقى الأصل بيومه.', { amount, book });
   if (voidable(line) !== 'payment') return entry;
-  const box = line.account ?? t('void.box.unknown', 'صندوقه');
+  const box = line.account?.name ?? t('void.box.unknown', 'صندوقه');
   return line.kind === 'payment'
     ? t('void.consequence.payment', '{entry} ويخرج {amount} من «{box}» بتاريخ اليوم (قد يصير رصيده سالباً).', { entry, amount, box })
     : t('void.consequence.payout', '{entry} ويعود {amount} إلى «{box}» بتاريخ اليوم.', { entry, amount, box });
 }
 
-/** فلتر الدفتر: «الكل» أو دفتر واحد، بقائمة الدفاتر (برّا الطباعة). */
+/** فلتر الحساب: «الكل» أو حساب واحد، بقائمة الحسابات (خارج الطباعة). */
 export function BookFilter({ books, value, onChange }: { books: readonly BookRef[]; value: string; onChange: (bookId: string) => void }) {
   const id = useId();
   return (
@@ -102,48 +73,104 @@ export function BookFilter({ books, value, onChange }: { books: readonly BookRef
   );
 }
 
-export function StatementBooks({ statement, onVoid }: { statement: PartyStatement; onVoid?: (book: StatementBook, line: StatementLine) => void }) {
-  if (statement.books.length === 0) return <Notice tone="info" title={t('statement.empty', 'لا قيود لهذه الجهة بعد.')} />;
+/** قيود الحساب التي تُلغى من هنا، بقائمة على الشاشة وحدها تحت الحساب. */
+function VoidList({ book, onVoid }: { book: StatementBook; onVoid: (book: StatementBook, line: StatementLine) => void }) {
+  const lines = book.lines.filter((line) => voidable(line) !== null);
+  if (!lines.length) return null;
+  const columns: Column<StatementLine>[] = [
+    {
+      key: 'actions',
+      header: t('org.col.actions', 'إجراءات'),
+      cell: (line) => (
+        <Button size="sm" variant="ghost" onClick={() => onVoid(book, line)} data-action="void-entry">
+          {t('void.confirm', 'ألغِ')}
+        </Button>
+      ),
+    },
+    { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (line) => <Num>{fmtDay(line.onDate)}</Num> },
+    { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (line) => (line.docNo ? <bdi dir="ltr">{line.docNo}</bdi> : docType(line)) },
+    { key: 'memo', header: t('ledger.memo', 'البيان'), wrap: true, cell: (line) => <DocText text={lineMemo(line)} /> },
+    { key: 'amount', header: t('statement.amount', 'المبلغ'), kind: 'number', cell: (line) => <SideAmount amount={line.debit - line.credit} /> },
+  ];
   return (
-    <div className="flex flex-col gap-6">
-      {statement.books.map((book) => {
-        const voids = onVoid ? book.lines.filter((line) => voidable(line) !== null) : [];
-        const columns: Column<StatementLine>[] = [
-          {
-            key: 'actions',
-            header: t('org.col.actions', 'إجراءات'),
-            cell: (line) => (
-              <Button size="sm" variant="ghost" onClick={() => onVoid?.(book, line)} data-action="void-entry">
-                {t('void.confirm', 'ألغِ')}
-              </Button>
-            ),
-          },
-          { key: 'date', header: t('ledger.date', 'التاريخ'), cell: (line) => <Num>{fmtDay(line.onDate)}</Num> },
-          { key: 'doc', header: t('ledger.doc', 'المستند'), cell: (line) => (line.docNo ? <bdi dir="ltr">{line.docNo}</bdi> : '—') },
-          { key: 'memo', header: t('ledger.memo', 'البيان'), wrap: true, cell: (line) => lineMemo(line) },
-          { key: 'amount', header: t('statement.amount', 'المبلغ'), kind: 'number', cell: (line) => <SideAmount amount={line.debit - line.credit} /> },
-        ];
-        return (
-          <section key={book.bookId} className="flex flex-col gap-2" data-book={book.bookId}>
-            <h2 className="font-semibold">{t('statement.book', 'حساب {book}', { book: bookLabel(book) })}</h2>
-            <BookBalance book={book} />
-            <LedgerTable caption={t('statement.book', 'حساب {book}', { book: bookLabel(book) })} entries={ledgerEntries(book)} opening={book.broughtForward} />
-            <p className="text-sm text-ink-muted">
-              {t('statement.closing', 'رصيد الحساب بآخر المدّة:')} <SideAmount amount={book.closing} />
-            </p>
-            {voids.length ? (
-              <div data-print="hide">
-                <DataTable caption={t('statement.voids', 'قيود تُلغى من {book}', { book: bookLabel(book) })} columns={columns} rows={voids} rowKey={(line) => line.entryId} empty="" />
-              </div>
-            ) : null}
-          </section>
-        );
-      })}
+    <div data-print="hide">
+      <DataTable caption={t('statement.voids', 'قيود تُلغى من {book}', { book: bookLabel(book) })} columns={columns} rows={lines} rowKey={(line) => line.entryId} empty="" />
     </div>
   );
 }
 
-type DialogState = null | { kind: 'payment' | 'payout' } | { kind: 'adjust' | 'forgive'; book: BookRef } | { kind: 'void'; book: StatementBook; line: StatementLine };
+/** ملف نصّي يُنزَّل باسمه (إكسل يفتح CSV بعلامة البداية بالعربية). */
+function download(name: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+/** رابط الكشف لمن يملك حساباً في المنشأة (يرافق نصّ المشاركة). */
+const statementUrl = (partyId: string, bookId: string): string => `${window.location.origin}/accounts/parties/${partyId}${bookId ? `?book=${encodeURIComponent(bookId)}` : ''}`;
+
+/** المشاركة من الهاتف بنصّ الخلاصة ورابط الكشف، وإلّا نسخ النصّ؛ false إذا تعذّر الاثنان (فتُعرض النافذة للنسخ باليد). */
+async function shareStatement(title: string, text: string, url: string): Promise<boolean> {
+  const nav = navigator as Navigator & { share?: (data: { title: string; text: string; url: string }) => Promise<void> };
+  if (typeof nav.share === 'function') {
+    try {
+      await nav.share({ title, text, url });
+      return true;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return true;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}${String.fromCharCode(10)}${url}`);
+    toast({ tone: 'success', title: t('stmt.share.copied', 'نُسخ نصّ الكشف؛ ألصقه في الرسالة.') });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ShareDialog({ statement, bookId, onClose }: { statement: PartyStatement; bookId: string; onClose: () => void }) {
+  const id = useId();
+  const text = shareText(statement);
+  const url = statementUrl(statement.party.id, bookId);
+  const [failed, setFailed] = useState(false);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('stmt.send.title', 'أرسل كشف «{name}»', { name: statement.party.name })}
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={onClose}>
+            {t('stmt.send.close', 'أغلق')}
+          </Button>
+          <Button icon={<Share2 aria-hidden="true" className="size-4" />} onClick={() => void shareStatement(statementTitle(statement), text, url).then((done) => (done ? onClose() : setFailed(true)))} data-action="share-now">
+            {t('stmt.share', 'شارك')}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field id={id} label={t('stmt.send.text', 'نصّ الرسالة')}>
+          <textarea id={id} className="input" rows={6} readOnly value={`${text}${String.fromCharCode(10)}${url}`} data-action="share-text" />
+        </Field>
+        {failed ? <Notice tone="warning" title={t('stmt.share.failed', 'تعذّرت المشاركة والنسخ من هذا الجهاز؛ انسخ النصّ يدوياً.')} /> : null}
+      </div>
+    </Dialog>
+  );
+}
+
+type DialogState =
+  | null
+  | { kind: 'payment' | 'payout' }
+  | { kind: 'adjust' | 'forgive'; book: BookRef }
+  | { kind: 'void'; book: StatementBook; line: StatementLine }
+  | { kind: 'share' };
 
 export default function PartyStatementPage() {
   const { id = '' } = useParams();
@@ -151,25 +178,51 @@ export default function PartyStatementPage() {
   const role = session.status === 'ready' ? session.workspace.role : 'viewer';
   const allowed = { pay: can(role, 'payment.post'), adjust: can(role, 'party.adjust'), void: can(role, 'void') };
   const [period, setPeriod] = useState(defaultPeriod);
-  // الدفتر بالرابط بـuseLocation وuseNavigate (بحزمة الإقلاع من قبل؛ useSearchParams كان يزيدها بلا داعٍ).
+  // الحساب والصيغة بالرابط (الرابط المنسوخ يفتح الكشف نفسه)، بـuseLocation وuseNavigate كما كان.
   const location = useLocation();
   const navigate = useNavigate();
-  const bookId = new URLSearchParams(location.search).get('book') ?? '';
-  const setBookId = (next: string) => navigate({ search: next ? `?book=${encodeURIComponent(next)}` : '' }, { replace: true });
-  const [dialog, setDialog] = useState<DialogState>(null);
-  const load = useCallback(() => parties.loadStatement(id, bookId || null, period.from, period.to), [id, bookId, period]);
+  const params = new URLSearchParams(location.search);
+  const bookId = params.get('book') ?? '';
+  const wanted = params.get('mode');
+  const mode: StatementMode = STATEMENT_MODES.find((value) => value === wanted) ?? 'summary';
+  const back = backTarget(params.get('back'), '/accounts/debts');
+  const here = `${location.pathname}${location.search}`;
+  // كلّ تغيير بالرابط يشيل ?send (نافذة المشاركة تُفتح مرّة من «أرسل الكشف»، لا بكلّ تحديث للصفحة).
+  const setParam = (name: string, value: string) => {
+    const next = new URLSearchParams(location.search);
+    if (name) {
+      if (value) next.set(name, value);
+      else next.delete(name);
+    }
+    next.delete('send');
+    const search = next.toString();
+    navigate({ search: search ? `?${search}` : '' }, { replace: true });
+  };
+  const closeDialog = () => {
+    setDialog(null);
+    if (params.has('send')) setParam('', '');
+  };
+  const [dialog, setDialog] = useState<DialogState>(() => (params.get('send') === '1' ? { kind: 'share' } : null));
+  const load = useCallback(() => statements.loadPartyStatement(id, bookId || null, period.from, period.to), [id, bookId, period]);
   const statement = useLoad(load, `${id}|${bookId}|${period.from}|${period.to}`);
   const books = useLoad(parties.listBooks, 'books');
-  const party = statement.data?.party ?? null;
+  const data = statement.data;
+  const party = data?.party ?? null;
   const done = (title: string) => {
     setDialog(null);
     statement.retry();
     toast({ tone: 'success', title });
   };
+  const share = () => {
+    if (!data) return;
+    void shareStatement(statementTitle(data), shareText(data), statementUrl(data.party.id, bookId)).then((ok) => {
+      if (!ok) setDialog({ kind: 'share' });
+    });
+  };
   const header = (
     <PageHeader
       title={party ? party.name : t('statement.title', 'كشف الجهة')}
-      subtitle={party?.phone ? <bdi dir="ltr">{fmtPhone(party.phone)}</bdi> : t('statement.subtitle', 'كل حسابات الجهة بأرصدتها الجارية.')}
+      subtitle={t('stmt.subtitle', 'كشف حساب بثلاث صيغ، يُطبع ويُصدَّر ويُرسل.')}
       actions={
         <div className="flex flex-wrap gap-2" data-print="hide">
           {allowed.pay && party && !statement.error ? (
@@ -182,8 +235,14 @@ export default function PartyStatementPage() {
               </Button>
             </>
           ) : null}
-          <Button size="sm" variant="secondary" icon={<Printer aria-hidden="true" className="size-4" />} onClick={() => window.print()} data-action="print-statement">
-            {t('statement.print', 'اطبع')}
+          <Button size="sm" variant="secondary" icon={<Printer aria-hidden="true" className="size-4" />} disabled={!data} onClick={() => data && printAs(statementTitle(data))} data-action="print-statement">
+            {t('stmt.print', 'اطبع أو احفظ PDF')}
+          </Button>
+          <Button size="sm" variant="secondary" icon={<FileSpreadsheet aria-hidden="true" className="size-4" />} disabled={!data} onClick={() => data && download(`${statementTitle(data)}.csv`, statementCsv(data, mode))} data-action="export-csv">
+            {t('stmt.csv', 'إكسل')}
+          </Button>
+          <Button size="sm" variant="secondary" icon={<Share2 aria-hidden="true" className="size-4" />} disabled={!data} onClick={share} data-action="share-statement">
+            {t('stmt.share', 'شارك')}
           </Button>
         </div>
       }
@@ -193,6 +252,7 @@ export default function PartyStatementPage() {
     const { title, detail } = describeError(statement.error);
     return (
       <div className="flex flex-col gap-4">
+        <BackLink to={back} label={t('paper.back', 'رجوع')} />
         {header}
         <Notice tone="info" title={title}>
           {detail}
@@ -202,22 +262,38 @@ export default function PartyStatementPage() {
   }
   return (
     <div className="flex flex-col gap-4" data-print-area>
-      {header}
-      <Link to="/accounts" className="text-sm text-brand-700 dark:text-brand-200" data-print="hide">
-        {t('statement.back', 'عُد إلى الحسابات')}
-      </Link>
-      {party?.archived ? <Notice tone="warning" title={t('party.archived.notice', 'هذه الجهة مؤرشفة: تقبل القبض والدفع والإلغاء، ولا يُسجَّل عليها دين جديد.')} /> : null}
+      <PageStyle size="A4" />
+      <BackLink to={back} label={t('paper.back', 'رجوع')} />
+      <div data-print="hide">{header}</div>
+      {party?.archived ? (
+        <div data-print="hide">
+          <Notice tone="warning" title={t('party.archived.notice', 'هذه الجهة مؤرشفة: تقبل القبض والدفع والإلغاء، ولا يُسجَّل عليها دين جديد.')} />
+        </div>
+      ) : null}
       <PeriodFilter from={period.from} to={period.to} onApply={setPeriod} />
-      {books.data ? <BookFilter books={books.data} value={bookId} onChange={setBookId} /> : null}
-      <p className="text-sm text-ink-muted">{t('statement.period', 'المدّة من {from} إلى {to}', { from: fmtDay(period.from), to: fmtDay(period.to) })}</p>
+      <div className="grid gap-3 sm:grid-cols-2" data-print="hide">
+        {books.data ? <BookFilter books={books.data} value={bookId} onChange={(next) => setParam('book', next)} /> : null}
+        <Segmented<StatementMode>
+          label={t('stmt.mode', 'صيغة الكشف')}
+          options={STATEMENT_MODES.map((value) => ({ value, label: modeLabel(value) }))}
+          value={mode}
+          onChange={(next) => setParam('mode', next === 'summary' ? '' : next)}
+        />
+      </div>
       {statement.error ? (
         <LoadFailed what={t('statement.title', 'كشف الجهة')} error={statement.error} onRetry={statement.retry} />
-      ) : !statement.data ? (
+      ) : !data ? (
         <p role="status" className="py-6 text-center text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : (
-        <StatementBooks statement={statement.data} onVoid={allowed.void ? (book, line) => setDialog({ kind: 'void', book, line }) : undefined} />
+        <StatementSheet
+          statement={data}
+          bookId={bookId}
+          mode={mode}
+          back={here}
+          extra={allowed.void ? (book) => <VoidList book={book} onVoid={(entryBook, line) => setDialog({ kind: 'void', book: entryBook, line })} /> : undefined}
+        />
       )}
       {allowed.adjust && party && books.data ? (
         <div className="flex flex-wrap gap-2" data-print="hide">
@@ -256,13 +332,14 @@ export default function PartyStatementPage() {
       {dialog?.kind === 'void' && party ? (
         <VoidDialog
           slot={dialog.line.entryId}
-          title={t('void.title', 'إلغاء {kind} {doc}', { kind: entryKindLabel(dialog.line.kind), doc: dialog.line.docNo ?? fmtDay(dialog.line.onDate) })}
+          title={t('void.title', 'إلغاء {kind} {doc}', { kind: docType(dialog.line), doc: dialog.line.docNo ?? fmtDay(dialog.line.onDate) })}
           consequence={voidConsequence(dialog.line, bookLabel(dialog.book))}
           run={(clientRef, reason) => (voidable(dialog.line) === 'payment' ? parties.voidPayment(clientRef, dialog.line.entryId, reason) : parties.voidEntry(clientRef, dialog.line.entryId, reason))}
           onClose={() => setDialog(null)}
           onDone={() => done(t('void.done', 'أُلغيت الحركة'))}
         />
       ) : null}
+      {dialog?.kind === 'share' && data ? <ShareDialog statement={data} bookId={bookId} onClose={closeDialog} /> : null}
     </div>
   );
 }

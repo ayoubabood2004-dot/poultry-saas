@@ -73,7 +73,7 @@ export function summaryFooters(summary: AccountsSummary | null, bookIds: readonl
 
 export function PartiesTable({ page, rows, summary, divisionId, actions }: PartiesTableProps) {
   const columns: Column<PartyBalanceRow>[] = [
-    { key: 'name', header: t('party.name.col', 'الجهة'), sticky: true, cell: (row) => <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/accounts/parties/${row.partyId}`}>{partyName(row)}</Link> },
+    { key: 'name', header: t('party.name.col', 'الجهة'), sticky: true, cell: (row) => <Link className="font-medium text-brand-700 dark:text-brand-200" to={`/accounts/parties/${row.partyId}?back=/accounts/parties`}>{partyName(row)}</Link> },
     { key: 'phone', header: t('party.phone', 'الهاتف'), cell: (row) => (row.phone ? <bdi dir="ltr">{fmtPhone(row.phone)}</bdi> : '—') },
     ...page.books.map((book): Column<PartyBalanceRow> => ({
       key: book.id,
@@ -255,7 +255,7 @@ export default function AccountsPage() {
 
   const rowActions = (row: PartyBalanceRow) => (
     <div className="flex gap-1.5">
-      <Link to={`/accounts/parties/${row.partyId}`} className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-statement">
+      <Link to={`/accounts/parties/${row.partyId}?back=/accounts/parties`} className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-statement">
         {t('accounts.statement', 'الكشف')}
       </Link>
       {allowed.pay ? (
@@ -290,6 +290,9 @@ export default function AccountsPage() {
         <Link to="/accounts" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-hub">
           <Wallet aria-hidden="true" className="size-4" />
           {t('hub.title', 'خلاصة المال')}
+        </Link>
+        <Link to="/accounts/debts" className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-debts">
+          {t('debts.title', 'الذمم')}
         </Link>
         <Link to="/accounts/cash" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-cash">
           <Landmark aria-hidden="true" className="size-4" />
