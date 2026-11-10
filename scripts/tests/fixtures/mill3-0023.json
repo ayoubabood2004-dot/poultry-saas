@@ -1,0 +1,174 @@
+{
+  "recipes_overview": {
+    "ordered": {
+      "today": "2026-11-10",
+      "recipes": [
+        {
+          "id": "a1111111-0000-4000-8000-000000000001",
+          "name": "علف بادئ",
+          "note": null,
+          "archived": false,
+          "version": 3,
+          "output_item": { "id": "f1111111-0000-4000-8000-000000000001", "name": "علف بادئ", "base_unit": "kg", "kind": "feed" },
+          "active": {
+            "id": "b1111111-0000-4000-8000-000000000002",
+            "version_no": 2,
+            "basis_kg": "1000.000",
+            "lines": 5,
+            "pieces": [
+              { "item_id": "c1111111-0000-4000-8000-000000000001", "item_name": "ذرة صفراء", "mass_kg": "600.000", "in_basis": true },
+              { "item_id": "c1111111-0000-4000-8000-000000000002", "item_name": "كسبة صويا", "mass_kg": "377.700", "in_basis": true },
+              { "item_id": "c1111111-0000-4000-8000-000000000003", "item_name": "زيت", "mass_kg": "18.400", "in_basis": true },
+              { "item_id": "c1111111-0000-4000-8000-000000000004", "item_name": "ملح", "mass_kg": "3.900", "in_basis": true },
+              { "item_id": "c1111111-0000-4000-8000-000000000005", "item_name": "كاز المولّدة", "mass_kg": "1.700", "in_basis": false }
+            ]
+          },
+          "draft": null,
+          "batches": 4,
+          "last_batch": { "id": "d1111111-0000-4000-8000-000000000009", "doc_no": "PD-2026-0009", "produced_on": "2026-11-08", "output_qty_kg": "1000.000", "money": { "total_value": "620000.00", "cost_per_kg": "620.00" } },
+          "money": { "expected_cost_per_kg": "615.50" }
+        },
+        {
+          "id": "a1111111-0000-4000-8000-000000000002",
+          "name": "علف ناهٍ",
+          "note": null,
+          "archived": false,
+          "version": 2,
+          "output_item": { "id": "f1111111-0000-4000-8000-000000000002", "name": "علف ناهٍ", "base_unit": "kg", "kind": "feed" },
+          "active": {
+            "id": "b1111111-0000-4000-8000-000000000003",
+            "version_no": 1,
+            "basis_kg": "1000.000",
+            "lines": 2,
+            "pieces": [
+              { "item_id": "c1111111-0000-4000-8000-000000000001", "item_name": "ذرة صفراء", "mass_kg": "700.000", "in_basis": true },
+              { "item_id": "c1111111-0000-4000-8000-000000000002", "item_name": "كسبة صويا", "mass_kg": "300.000", "in_basis": true }
+            ]
+          },
+          "draft": null,
+          "batches": 0,
+          "last_batch": null,
+          "money": { "expected_cost_per_kg": "590.00" }
+        },
+        {
+          "id": "a1111111-0000-4000-8000-000000000003",
+          "name": "علف بيّاض",
+          "note": null,
+          "archived": false,
+          "version": 1,
+          "output_item": { "id": "f1111111-0000-4000-8000-000000000003", "name": "علف بيّاض", "base_unit": "kg", "kind": "feed" },
+          "active": null,
+          "draft": { "id": "b1111111-0000-4000-8000-000000000004", "version_no": 1, "basis_kg": "1000.000", "lines": 3, "version": 7 },
+          "batches": 0,
+          "last_batch": null,
+          "money": { "expected_cost_per_kg": null }
+        },
+        {
+          "id": "a1111111-0000-4000-8000-000000000004",
+          "name": "خلطة محذوفة",
+          "note": null,
+          "archived": true,
+          "version": 5,
+          "output_item": { "id": "f1111111-0000-4000-8000-000000000004", "name": "علف قديم", "base_unit": "kg", "kind": "feed" },
+          "active": null,
+          "draft": null,
+          "batches": 2,
+          "last_batch": null,
+          "money": { "expected_cost_per_kg": null }
+        }
+      ],
+      "stores": [
+        { "id": "e1111111-0000-4000-8000-000000000001", "name": "مخزن المواد الأوّلية", "kind": "raw" },
+        { "id": "e1111111-0000-4000-8000-000000000002", "name": "مخزن العلف", "kind": "feed" }
+      ],
+      "feed_items": [
+        { "id": "f1111111-0000-4000-8000-000000000003", "name": "علف بيّاض" },
+        { "id": "f1111111-0000-4000-8000-000000000001", "name": "علف بادئ" },
+        { "id": "f1111111-0000-4000-8000-000000000002", "name": "علف ناهٍ" }
+      ]
+    }
+  },
+  "recipe_detail": {
+    "draft": {
+      "id": "a1111111-0000-4000-8000-000000000003",
+      "name": "علف بيّاض",
+      "note": null,
+      "archived": false,
+      "version": 1,
+      "output_item": { "id": "f1111111-0000-4000-8000-000000000003", "name": "علف بيّاض", "base_unit": "kg", "kind": "feed", "tracks_expiry": false },
+      "versions": [{ "id": "b1111111-0000-4000-8000-000000000004", "version_no": 1, "status": "draft", "basis_kg": "1000.000", "activated_at": null, "version": 7 }],
+      "selected": { "id": "b1111111-0000-4000-8000-000000000004", "version_no": 1, "status": "draft", "basis_kg": "1000.000", "note": null, "activated_at": null, "version": 7 },
+      "lines": [
+        {
+          "id": "71111111-0000-4000-8000-000000000001", "line_no": 1, "item_id": "c1111111-0000-4000-8000-000000000001", "item_name": "ذرة صفراء", "kind": "raw", "base_unit": "kg",
+          "unit_changed": false, "unit_mismatch": false, "density_missing": false, "in_basis": true, "category_id": null, "category_name": null,
+          "qty": "620.000", "unit": "kg", "mass_kg": "620.000", "share_pct": "62.00",
+          "money": { "unit_cost": "430.50", "cost_price": "450.00", "last_price": "440.25" }
+        },
+        {
+          "id": "71111111-0000-4000-8000-000000000002", "line_no": 2, "item_id": "c1111111-0000-4000-8000-000000000002", "item_name": "كسبة صويا", "kind": "raw", "base_unit": "kg",
+          "unit_changed": false, "unit_mismatch": false, "density_missing": false, "in_basis": true, "category_id": null, "category_name": null,
+          "qty": "350.000", "unit": "kg", "mass_kg": "350.000", "share_pct": "35.00",
+          "money": { "unit_cost": "910.00", "cost_price": null, "last_price": "905.00" }
+        },
+        {
+          "id": "71111111-0000-4000-8000-000000000003", "line_no": 3, "item_id": "c1111111-0000-4000-8000-000000000004", "item_name": "ملح", "kind": "additive", "base_unit": "kg",
+          "unit_changed": false, "unit_mismatch": false, "density_missing": false, "in_basis": true, "category_id": null, "category_name": null,
+          "qty": "30.000", "unit": "kg", "mass_kg": "30.000", "share_pct": "3.00",
+          "money": { "unit_cost": "150.00", "cost_price": null, "last_price": null }
+        }
+      ],
+      "mass_kg": "1000.000",
+      "pick_items": [
+        { "id": "c1111111-0000-4000-8000-000000000001", "name": "ذرة صفراء", "base_unit": "kg", "category_name": null },
+        { "id": "c1111111-0000-4000-8000-000000000002", "name": "كسبة صويا", "base_unit": "kg", "category_name": null },
+        { "id": "c1111111-0000-4000-8000-000000000004", "name": "ملح", "base_unit": "kg", "category_name": null }
+      ],
+      "expense_categories": [{ "id": "91111111-0000-4000-8000-000000000001", "name": "أيدي عاملة" }],
+      "money": {
+        "rates": [],
+        "expected": { "materials_per_ton": "607850.00", "rates_per_ton": "0.00", "cost_per_ton": "607850.00", "unpriced": 0, "unconverted": 0 }
+      }
+    }
+  },
+  "set_recipe_order": {
+    "ok": { "count": 3 }
+  },
+  "set_recipe_line_order": {
+    "ok": { "version_id": "b1111111-0000-4000-8000-000000000004", "count": 3, "version": 8 }
+  },
+  "record_production": {
+    "posted": {
+      "id": "d1111111-0000-4000-8000-000000000010",
+      "status": "posted",
+      "doc_no": "PD-2026-0010",
+      "produced_on": "2026-11-10",
+      "recipe_name": "علف بادئ",
+      "output_item_name": "علف بادئ",
+      "input_warehouse_name": "مخزن المواد الأوّلية",
+      "output_warehouse_name": "مخزن العلف",
+      "output_qty_kg": "1000.000",
+      "input_mass_kg": "1000.000",
+      "shrink_kg": "0.000",
+      "note": "أكملنا الطنّ بالبرمكس",
+      "money": { "input_value": "607850.00", "extra_value": "0.00", "total_value": "607850.00", "cost_per_kg": "607.85" }
+    },
+    "draft": {
+      "id": "d1111111-0000-4000-8000-000000000011",
+      "status": "draft",
+      "awaiting": "costs",
+      "recipe_name": "علف بادئ",
+      "planned_kg": "985.000"
+    }
+  },
+  "refusals": {
+    "recipes_changed": { "code": "recipes_changed", "hint": "تغيّرت قائمة العلائق أو ترتيبها من جهاز آخر بعد أن فتحت الشاشة؛ قُرئت من جديد، فراجع الترتيب واحفظه مرّة أخرى." },
+    "lines_changed": { "code": "lines_changed", "hint": "تغيّرت موادّ هذه المسوّدة أو ترتيبها من جهاز آخر بعد أن فتحت الشاشة؛ قُرئت من جديد، فراجع الترتيب واحفظه مرّة أخرى." },
+    "not_draft": { "code": "not_draft", "hint": "هذه النسخة ليست مسوّدة؛ النسخة المفعَّلة مجمَّدة، فرتّب الموادّ في «عدّل الخلطة»." },
+    "production_blocked": { "code": "production_blocked", "hint": "لا يكفي رصيد «كسبة صويا» في «مخزن المواد الأوّلية»: المطلوب 372 كغم، والموجود 300 كغم." },
+    "ref_reused": { "code": "ref_reused", "hint": "استُعمل مرجع هذه المحاولة لطلب آخر؛ حدّث الشاشة وأعد الإنتاج." },
+    "qty_too_large": { "code": "qty_too_large", "hint": "الكمية أكبر ممّا يُسجَّل في دفعة واحدة (مليار كيلوغرام فأكثر)؛ اكتب كمية أصغر." },
+    "id_conflict": { "code": "id_conflict", "hint": "طلب آخر بمعرّف هذه الدفعة يُسجَّل الآن؛ أعد المحاولة بعد لحظة لترى نتيجته." },
+    "stale_preview": { "code": "stale_preview", "hint": "تغيّر رصيد مادّة أثناء التسجيل فلم يُسجَّل شيء؛ اضغط «أنتج» مرّة أخرى." }
+  }
+}

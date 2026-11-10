@@ -23,6 +23,9 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // وجواب «نسخة جديدة» يحمل skipped (ق٥٥، ب٤٨: أسماء المواد التي صارت بالقطعة فلم تُنسخ) مصفوفةً إلزامية فارغة غالباً.
 // الجولة السادسة: كلفة الطنّ المتوقّعة تحمل unconverted (ق٦١، ب٦٢: سطور لها سعر ولا تتحوّل كميتها إلى وحدة سعرها، سائل بلا كثافة أو لتر لمادّة
 // صارت بالكيلو) عدداً إلزامياً منفصلاً عن unpriced، فلا تُقال «بلا أيّ سعر» تحت سطر سعره مكتوب.
+// «ترتيب معمل العلف» (0023، كلمة المالك 2026-11-10): ترتيب العلائق (set_recipe_order) وترتيب موادّ المسوّدة (set_recipe_line_order) مشروطين بما
+// عرضته الشاشة، والإنتاج بنداء واحد (record_production) بمعرّف الدفعة ومرجع المحاولة من الجهاز، ومدخلات تخطيط كلّ سطر كما يخطّطه الخادم
+// (loadProduce: لقطة كثافة السطر وإلّا كثافة المادّة، ووحدة أساسها الحيّة، وخطوة عدّادها) لشاشة الإنتاج الواحدة.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -1224,7 +1227,10 @@ export async function newRecipeVersion(recipeId: string, versionId: string): Pro
   return parseNewRecipeVersion(await call<unknown>('new_recipe_version', { p_recipe: recipeId, p_id: versionId }));
 }
 
-/** مخازن المعمل ويوم الخادم لنافذة «أنتج» من بطاقة الخلطة (recipes_overview يحملهما، كشاشة المعمل). */
+/**
+ * مخازن المعمل ويوم الخادم (recipes_overview يحملهما، كشاشة المعمل). كانت لنافذة «أنتج» في بطاقة الخلطة؛ وشاشة الإنتاج الواحدة (0023) تقرؤهما
+ * مع الخلطة بـloadProduce.
+ */
 export async function loadMillStores(): Promise<{ today: string; stores: MillStore[] }> {
   const json = record(await call<unknown>('recipes_overview'), 'overview');
   return { today: str(json, 'today'), stores: storesOf(json) };
@@ -1344,4 +1350,244 @@ export function deleteRecipeRate(rateId: string, versionVersion: number): Promis
 export async function millReady(): Promise<boolean> {
   const { db } = await authed();
   return Boolean(db);
+}
+
+// ─── ترتيب المعمل والإنتاج بشاشة واحدة (0023، كلمة المالك 2026-11-10) ──────────────────────────────────────────────
+
+export interface RecipeOrderSaved {
+  count: number;
+}
+
+/** جواب set_recipe_order: عدد العلائق المرتَّبة. */
+export function parseRecipeOrder(value: unknown): RecipeOrderSaved {
+  return { count: nonNegative(record(value, 'set_recipe_order'), 'count') };
+}
+
+/**
+ * ترتيب العلائق الظاهرة (المالك والمدير، recipe.activate): ids كلّ العلائق غير المحذوفة بالترتيب الجديد، وexpected ترتيبها كما عرضته الشاشة
+ * (recipes_overview). تغيّرت القائمة أو ترتيبها بعد القراءة ← recipes_changed بتلميحه؛ والإعادة بالطلب نفسه بعد جواب ضاع لا تُرفض.
+ */
+export async function setRecipeOrder(ids: readonly string[], expected: readonly string[]): Promise<RecipeOrderSaved> {
+  return parseRecipeOrder(await call<unknown>('set_recipe_order', { p_ids: [...ids], p_expected: [...expected] }));
+}
+
+export interface LineOrderSaved {
+  versionId: string;
+  count: number;
+  /** نسخة المسوّدة بعد الترتيب (recipe_versions.version). */
+  version: number;
+}
+
+export function parseLineOrder(value: unknown): LineOrderSaved {
+  const json = record(value, 'set_recipe_line_order');
+  return { versionId: str(json, 'version_id'), count: nonNegative(json, 'count'), version: int(json, 'version') };
+}
+
+/**
+ * ترتيب موادّ نسخة مسوّدة («عدّل الخلطة»): lineIds كلّ سطورها بالترتيب الجديد، وexpected ترتيبها كما عرضته الشاشة؛ الخادم يعيد ترقيم line_no
+ * من 1. النسخة المفعَّلة مجمَّدة (not_draft)، وتغيّر السطور بعد القراءة lines_changed بتلميحه.
+ */
+export async function setRecipeLineOrder(versionId: string, lineIds: readonly string[], expected: readonly string[]): Promise<LineOrderSaved> {
+  return parseLineOrder(await call<unknown>('set_recipe_line_order', { p_version: versionId, p_lines: [...lineIds], p_expected: [...expected] }));
+}
+
+/**
+ * سطر الخلطة المفعَّلة بمدخلات تخطيطه كما في create_production (0016): كتلة السطر في الخلطة (recipe_detail.mass_kg)، ووحدة أساس المادّة الآن،
+ * والكثافة لقطة السطر وإلّا كثافة المادّة (للسائل وحده)، وخطوة عدّاد المادّة. blocked سبب يرفض به الخادم الإنتاج قبل أيّ تخطيط.
+ */
+export interface PlanLine {
+  lineId: string;
+  lineNo: number;
+  itemId: string;
+  itemName: string;
+  kind: string;
+  /** داخل الكتلة (لقطة السطر): الوقود والتعبئة خارجها، فلا يدخلان كتلة المواد ولا الناتج. */
+  inBasis: boolean;
+  /** وحدة أساس المادّة الآن (الخادم يخطّط بها ويكتبها على سطر الدفعة). */
+  baseUnit: BaseUnit;
+  /** كتلة السطر في الخلطة بالكيلو (بالآلاف)، أو null حين لا تُعرف. */
+  lineKg: bigint | null;
+  /** ١/١٠٠٠٠ كغم/لتر للسائل: لقطة السطر وإلّا كثافة المادّة؛ null للكيلوغرام أو بلا كثافة. */
+  density: bigint | null;
+  /** خطوة عدّاد المادّة بالآلاف من وحدة أساسها (scale_step). */
+  scaleStep: bigint;
+  /** item_changed (تغيّرت وحدتها بعد التفعيل أو صارت قطعة) أو density (سائل بلا كثافة أو كتلة لا تُعرف)، أو null. */
+  blocked: 'item_changed' | 'density' | null;
+}
+
+export interface ProduceData {
+  /** يوم الخادم (بغداد): يوم الإنتاج الافتراضي. */
+  today: Day;
+  stores: MillStore[];
+  recipe: RecipeDetail;
+  /** النسخة المفعَّلة التي يُنتَج بها (p_recipe_version)، أو null: الخلطة بلا نسخة مفعَّلة. */
+  active: { id: string; versionNo: number; basisKg: bigint } | null;
+  /** سطور النسخة المفعَّلة بترتيب line_no ومدخلات تخطيطها. */
+  lines: PlanLine[];
+}
+
+/**
+ * لقطات الكثافة على سطور النسخة ووحدة أساس كلّ مادّة وكثافتها وخطوة عدّادها الآن: قراءتان مباشرتان بسياسة المنشأة (البيانات الأساسية بلا مال)،
+ * لأنّ recipe_detail لا يرسلها والخادم يخطّط بها (create_production).
+ */
+async function planLines(versionId: string, lines: readonly RecipeLine[]): Promise<PlanLine[]> {
+  if (!lines.length) return [];
+  const ids = [...new Set(lines.map((line) => line.itemId))];
+  const { result, wasOnline } = await send(
+    (db) =>
+      Promise.all([
+        db.from('recipe_lines').select('id, density_kg_per_l::text').eq('version_id', versionId) /* unbounded: سطور نسخة واحدة */,
+        db.from('items').select('id, base_unit, density_kg_per_l::text, scale_step::text').in('id', ids) /* unbounded: موادّ سطور نسخة واحدة */,
+      ]),
+    (answers) => answers,
+  );
+  for (const answer of result) if (answer.error) throw classifyPostgrest(answer.error, answer.status, 'table', wasOnline);
+  const [linesAnswer, itemsAnswer] = result;
+  const snapshots = new Map(list(linesAnswer.data ?? [], 'recipe_lines').map((row) => [str(row, 'id'), scaled(row, 'density_kg_per_l', 4)]));
+  const items = new Map(
+    list(itemsAnswer.data ?? [], 'items').map((row) => [
+      str(row, 'id'),
+      { baseUnit: baseUnit(row, 'base_unit'), density: scaled(row, 'density_kg_per_l', 4), scaleStep: scaled(row, 'scale_step', 3) },
+    ]),
+  );
+  return [...lines]
+    .sort((a, b) => a.lineNo - b.lineNo)
+    .map((line) => {
+      const item = items.get(line.itemId);
+      if (!item) throw new MillShapeError('items');
+      const density = item.baseUnit === 'L' ? (snapshots.get(line.id) ?? item.density) : null;
+      // شروط رفض create_production قبل التخطيط بترتيبها: الوحدة (unit_changed من القارئ بشرط الخادم نفسه، أو مادّة صارت قطعة)، ثمّ سائل بلا كثافة.
+      const blocked = line.unitChanged || item.baseUnit === 'pc' ? 'item_changed' : (item.baseUnit === 'L' && density === null) || line.massKg === null ? 'density' : null;
+      return {
+        lineId: line.id,
+        lineNo: line.lineNo,
+        itemId: line.itemId,
+        itemName: line.itemName,
+        kind: line.kind,
+        inBasis: line.inBasis,
+        baseUnit: item.baseUnit,
+        lineKg: line.massKg,
+        density,
+        scaleStep: item.scaleStep !== null && item.scaleStep > 0n ? item.scaleStep : 0n,
+        blocked,
+      };
+    });
+}
+
+/**
+ * شاشة الإنتاج الواحدة (/mill/produce/:recipeId): يوم الخادم ومخازن المعمل (recipes_overview)، والخلطة بنسختها المفعَّلة (recipe_detail بلا نسخة
+ * يختار المفعَّلة)، ومدخلات تخطيط كلّ سطر فيها.
+ */
+export async function loadProduce(recipeId: string): Promise<ProduceData> {
+  const [overview, detail] = await Promise.all([call<unknown>('recipes_overview'), call<unknown>('recipe_detail', { p_id: recipeId, p_version: null })]);
+  const json = record(overview, 'overview');
+  const recipe = parseRecipe(detail);
+  const active = recipe.status === 'active' && recipe.versionId !== null && recipe.versionNo !== null ? { id: recipe.versionId, versionNo: recipe.versionNo, basisKg: recipe.basisKg } : null;
+  return { today: str(json, 'today'), stores: storesOf(json), recipe, active, lines: active ? await planLines(active.id, recipe.lines) : [] };
+}
+
+/** طلب record_production كما يُرسل، ويُعاد حرفاً بعد نتيجة مجهولة (المعرّف والمرجع نفسيهما): لا دفعة ثانية أبداً. */
+export interface ProductionRequest {
+  /** معرّف الدفعة من الجهاز. */
+  id: string;
+  versionId: string;
+  /** الكمية المختارة بالكيلو (بالآلاف). */
+  plannedKg: bigint;
+  inputWarehouseId: string;
+  outputWarehouseId: string;
+  producedOn: Day | null;
+  /** السطور التي تخالف كميتُها المخطّطَ (بوحدة أساس مادّتها، بالآلاف). */
+  actuals: readonly { lineNo: number; qty: bigint }[];
+  /** موادّ ليست في الخلطة تُضاف للدفعة (مادّة «قرّب إلى طنّ» حين لا تكون من موادّ الخلطة). */
+  extra: readonly { id: string; itemId: string; qty: bigint }[];
+  /** الناتج الموزون بالكيلو، أو null (= كتلة المواد، بلا هدر). */
+  outputKg: bigint | null;
+  expiry: Day | null;
+  shrinkReason: string | null;
+  note: string | null;
+  clientRef: string;
+}
+
+export interface PostedProduction {
+  status: 'posted';
+  id: string;
+  docNo: string;
+  producedOn: Day;
+  recipeName: string;
+  outputItemName: string;
+  inputWarehouseName: string;
+  outputWarehouseName: string;
+  outputQtyKg: bigint;
+  inputMassKg: bigint;
+  shrinkKg: bigint;
+  note: string | null;
+  /** null لغير أدوار الكلفة (private.mask يحذف money). */
+  money: { inputValue: Fils; extraValue: Fils; totalValue: Fils; costPerKg: Fils | null } | null;
+}
+
+/** دفعة مشغّل المعمل: حُفظت مسوّدة تنتظر ختم الكلف من المحاسب أو المدير على صفحتها، ثمّ يرحّلها. */
+export interface AwaitingProduction {
+  status: 'draft';
+  id: string;
+  awaiting: 'costs';
+  recipeName: string;
+  plannedKg: bigint;
+}
+
+export type RecordedProduction = PostedProduction | AwaitingProduction;
+
+/** كمية إلزامية في جواب الإنتاج: الغائبة خطأ شكل لا صفر صامت يُعرض «دخل 0 كغم». */
+const needQty = (row: Row, field: string): bigint => {
+  const value = scaled(row, field, 3);
+  if (value === null) throw new MillShapeError(field);
+  return value;
+};
+
+export function parseRecordedProduction(value: unknown): RecordedProduction {
+  const json = record(value, 'record_production');
+  const status = str(json, 'status');
+  if (status === 'draft') {
+    if (str(json, 'awaiting') !== 'costs') throw new MillShapeError('awaiting');
+    return { status: 'draft', id: str(json, 'id'), awaiting: 'costs', recipeName: str(json, 'recipe_name'), plannedKg: needQty(json, 'planned_kg') };
+  }
+  if (status !== 'posted') throw new MillShapeError('status');
+  const box = moneyBox(json);
+  return {
+    status: 'posted',
+    id: str(json, 'id'),
+    docNo: str(json, 'doc_no'),
+    producedOn: str(json, 'produced_on'),
+    recipeName: str(json, 'recipe_name'),
+    outputItemName: str(json, 'output_item_name'),
+    inputWarehouseName: str(json, 'input_warehouse_name'),
+    outputWarehouseName: str(json, 'output_warehouse_name'),
+    outputQtyKg: needQty(json, 'output_qty_kg'),
+    inputMassKg: needQty(json, 'input_mass_kg'),
+    shrinkKg: needQty(json, 'shrink_kg'),
+    note: optStr(json, 'note'),
+    money: box
+      ? { inputValue: amount(box, 'input_value'), extraValue: amount(box, 'extra_value'), totalValue: amount(box, 'total_value'), costPerKg: nullableAmount(box, 'cost_per_kg') }
+      : null,
+  };
+}
+
+/** الإنتاج بنداء واحد (معاملة واحدة): يخطّط الخادم كلّ سطر بنسبة الخلطة، ويطبّق الكميات المعدَّلة والمضافة، ثمّ يرحّل أو يحفظ مسوّدة تنتظر الكلف. */
+export async function recordProduction(request: ProductionRequest): Promise<RecordedProduction> {
+  return parseRecordedProduction(
+    await call<unknown>('record_production', {
+      p_id: request.id,
+      p_recipe_version: request.versionId,
+      p_planned_kg: decimalText(request.plannedKg, 3),
+      p_wh_in: request.inputWarehouseId,
+      p_wh_out: request.outputWarehouseId,
+      p_produced_on: request.producedOn,
+      p_actuals: request.actuals.map((line) => ({ line_no: line.lineNo, qty: decimalText(line.qty, 3) })),
+      p_extra: request.extra.map((line) => ({ id: line.id, item_id: line.itemId, qty: decimalText(line.qty, 3) })),
+      p_output_kg: qtyText(request.outputKg),
+      p_expiry: request.expiry,
+      p_shrink_reason: request.shrinkReason,
+      p_note: request.note,
+      p_client_ref: request.clientRef,
+    }),
+  );
 }

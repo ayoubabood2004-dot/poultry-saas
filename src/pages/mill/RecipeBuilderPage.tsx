@@ -1,9 +1,9 @@
-import { CheckCircle2, ChefHat, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, ChefHat, Plus, Save, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { BackButton } from '../../components/ui/BackButton';
-import { Button } from '../../components/ui/Button';
+import { Button, IconButton } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
@@ -560,13 +560,36 @@ export default function RecipeBuilderPage() {
       },
     );
   }
+  // الترتيب بالسهمين (0023، كلمة المالك 2026-11-10: «يرتب المواد الي يستخدمهن»): ترتيب الجدول ترتيب p_lines، وcreate_recipe يرقّم السطور به.
   columns.push({
     key: 'remove',
     header: t('mill.col.actions', 'إجراءات'),
-    cell: (row) => (
-      <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={locked} onClick={() => picks.remove(row.line.item.id)} data-action="remove-line">
-        {t('common.delete', 'احذف')}
-      </Button>
+    cell: (row, index) => (
+      <span className="flex items-center gap-1">
+        <IconButton
+          label={t('mill.order.up_line', 'قدّم «{name}»', { name: row.line.item.name })}
+          className="disabled:opacity-50"
+          disabled={locked || index === 0}
+          onClick={() => picks.move(row.line.item.id, -1)}
+          data-action="line-up"
+          data-id={row.line.item.id}
+        >
+          <ArrowUp aria-hidden="true" className="size-5" />
+        </IconButton>
+        <IconButton
+          label={t('mill.order.down_line', 'أخّر «{name}»', { name: row.line.item.name })}
+          className="disabled:opacity-50"
+          disabled={locked || index === view.length - 1}
+          onClick={() => picks.move(row.line.item.id, 1)}
+          data-action="line-down"
+          data-id={row.line.item.id}
+        >
+          <ArrowDown aria-hidden="true" className="size-5" />
+        </IconButton>
+        <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={locked} onClick={() => picks.remove(row.line.item.id)} data-action="remove-line">
+          {t('common.delete', 'احذف')}
+        </Button>
+      </span>
     ),
   });
 
@@ -748,6 +771,11 @@ export default function RecipeBuilderPage() {
           empty={t('mill.builder.empty_cards', 'لم تختر مادّة بعد: المس بطاقتها فوق، أو اكتب اسمها في البحث وأنشئها إن لم تكن موجودة.')}
           totalLabel={t('mill.detail.total', 'المجموع')}
         />
+        {view.length > 1 ? (
+          <p className="text-sm text-ink-muted" data-action="builder-order-note">
+            {t('mill.builder.order_note', 'تُحفظ الموادّ في الخلطة بترتيب هذا الجدول: قدّم أو أخّر أيّ مادّة بالسهمين.')}
+          </p>
+        ) : null}
         {outsideBasis ? (
           <p className="text-sm text-ink-muted" data-action="mass-note">
             {t('mill.builder.outside_note', 'الوقود والتعبئة خارج كتلة الخلطة: يُسحبان وتُحسب كلفتهما، ولا يدخلان مجموع الخلطة ولا ناتجها.')}

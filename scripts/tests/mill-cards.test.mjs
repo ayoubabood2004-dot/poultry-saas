@@ -8,7 +8,7 @@
 // C3 البحث يصفّي البطاقات فوراً، وبلا مطابق «لا مادّة باسم س» و«أنشئها»، والمُنشأة بطاقة مختارة تحت البحث؛
 // C4 بطاقة الخلطة: «أضف مواد» بالبطاقات (أكثر من مادّة بنقرة، والمكتوبة في الخلطة لا تُعرض)، وفشل في الوسط يُقال ويبقي الباقي مختاراً بعد
 //    القراءة من جديد؛ ولا حقل أساس: «فعّل النسخة» تكتب الأساس = المجموع بنسخة المسوّدة ثمّ تفعّل بالتالية؛
-// C5 «أنتج»: «كم تنتج؟» يبدأ بمجموع الخلطة ويُرسل كما هو.
+// C5 «أنتج» يفتح شاشة الإنتاج الواحدة (0023): «كم تنتج؟» يبدأ بمجموع الخلطة ويُرسل كما هو (record_production).
 // كلّ حالة تفشل على شاشات 1110eb0 (لا بطاقات material-card، ولا builder-output ولا add-lines-save ولا produce-total، و«كمية الإنتاج» فارغة).
 // ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): M1 مطابقات الخادم التي ليست بطاقة (أُنشئت بعد القراءة، أو طابقت باركودها) أزرارُ اختيار، ولا «أنشئ»
 // لرمز؛ M2 كلّ تغيير في سطور المسوّدة يكتب أساسها = مجموعها، ولوحة كلفة الطنّ لا تُعرض والأساس غير المجموع؛ M3 basis_mismatch يقرأ من جديد
@@ -22,8 +22,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 // createRecipe ليس هنا: الحقيقي يبني طلب create_recipe ويمرّ بـcore البديل.
-const MILL = ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'setVersionBasis', 'activateVersion', 'loadMillStores', 'createProduction', 'newRecipeVersion'];
-const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const MILL = ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'setVersionBasis', 'activateVersion', 'loadMillStores', 'createProduction', 'newRecipeVersion', 'loadProduce'];
+const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory', 'loadStockOnHand'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
   mill: routed('mill', MILL),
@@ -537,25 +537,39 @@ export default async function (t) {
       );
     });
 
-    // ── C5: «كم تنتج؟» يبدأ بمجموع الخلطة ────────────────────────────────────────────────────────────────────────────────────
+    // ── C5: «كم تنتج؟» يبدأ بمجموع الخلطة (شاشة الإنتاج الواحدة، 0023) ───────────────────────────────────────────────────────────
     await step('C5', async () => {
+      const active = m.parseRecipe(recipeJson({ status: 'active', basis: '1000.000', massKg: '1000.000', lines: [recipeLine({ qty: '1000.000', mass_kg: '1000.000' })] }));
       const calls = fresh(
         {
-          loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', basis: '1000.000', massKg: '1000.000', lines: [recipeLine({ qty: '1000.000', mass_kg: '1000.000' })] })),
-          loadMillStores: () => ({ today: '2026-11-07', stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }] }),
-          createProduction: (id) => ({ id }),
+          loadRecipe: () => active,
+          // شاشة الإنتاج: يوم الخادم ومخزنا المعمل والنسخة المفعَّلة ومدخلات تخطيط سطرها (loadProduce)؛ وrecord_production الحقيقي يمرّ بـcore البديل.
+          loadProduce: () => ({
+            today: '2026-11-07',
+            stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }],
+            recipe: active,
+            active: { id: 'v-2', versionNo: 1, basisKg: 1_000_000n },
+            lines: [{ lineId: 'l-1', lineNo: 1, itemId: 'i-corn', itemName: 'ذرة صفراء', kind: 'raw', inBasis: true, baseUnit: 'kg', lineKg: 1_000_000n, density: null, scaleStep: 100n, blocked: null }],
+          }),
         },
-        { items_overview: () => overviewJson() },
+        {
+          items_overview: () => overviewJson(),
+          record_production: (args) => ({
+            id: args.p_id, status: 'posted', doc_no: 'PD-2026-0001', produced_on: '2026-11-07', recipe_name: 'علف بادئ', output_item_name: 'علف بادئ',
+            input_warehouse_name: 'مخزن المواد الأوّلية', output_warehouse_name: 'مخزن العلف', output_qty_kg: '1000.000', input_mass_kg: '1000.000', shrink_kg: '0.000', note: null,
+          }),
+        },
       );
       await mount('/mill/recipe/r-1');
       await click(byAction('produce')[0]);
       await settle();
+      t.eq(globalThis.__mill.location, '/mill/produce/r-1', 'C5 «أنتج» يفتح شاشة الإنتاج الواحدة');
       const field = byAction('produce-qty')[0];
       const label = field ? all().find((n) => n.localName === 'label' && n.getAttribute('for') === field.getAttribute('id'))?.textContent : null;
       t.same([label, field?.value ?? null, textOf('produce-total')], ['كم تنتج؟', '1,000', 'مجموع الخلطة 1,000 كغم: الناتج قبل الهدر = مجموع المواد المسحوبة.'], 'C5 «كم تنتج؟» يبدأ بمجموع الخلطة، والجملة تقول إنّ الناتج مجموع المواد');
-      await click(byAction('produce-start')[0]);
-      const [, versionId, kg] = named(calls, 'createProduction')[0] ?? [];
-      t.same([versionId, kg], ['v-2', 1_000_000n], 'C5 «جهّز الدفعة» بلا كتابة يرسل مجموع الخلطة');
+      await click(byAction('produce-go')[0]);
+      const [args] = named(calls, 'rpc:record_production')[0] ?? [];
+      t.same([args?.p_recipe_version, args?.p_planned_kg], ['v-2', '1000.000'], 'C5 «أنتج» بلا كتابة يرسل مجموع الخلطة');
     });
   } finally {
     delete globalThis.__mill;

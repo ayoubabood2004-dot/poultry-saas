@@ -26,6 +26,8 @@ export { activeTwins, categoryNamedLikeItem };
 // وكلمة المالك 2026-11-04 («لمن اضيف ذرة ما اكدر اضيف مادة ثانية بنفس التصنيف بنفس الاسم… اني اشتريت ذرة اليوم وبعد اسبوع
 // اشتريت ذرة بغير حساب»): المادّة تُضاف مرّة واحدة وكلّ شراء ورقة استلام — فالتوأم بالاسم نفسه يقترح «سجّل شراءً جديداً»
 // أوّلاً و«احفظ مادّة أخرى» ثانياً؛ والنوع بأمثلة (الذرة مادّة أوّلية لا «علف»)؛ والتصنيف قسم لا اسم مادّة.
+// وكلمة المالك 2026-11-10 («الزيت ديكون بلا كثافة هنا… انت ثبتها وحددها»): السائل يُسأل عن وزن لتره مرّة عند إنشائه في «مادّة جديدة» كما في «أضف مادّة»
+// البسيطة (liquidDensity بقاعدة simpleItemFields نفسها)، فلا تُنشأ مادّة باللتر بلا كثافة تطلبها بطاقة الخلطة بعدها.
 
 /** نوع المادّة المقترح من نوع المخزن: المستخدم يقدر يغيّره، والحكم بالقاعدة. */
 export function suggestedKind(kind: WarehouseKind | undefined): ItemKind {
@@ -48,21 +50,41 @@ interface AddItemForm {
   minQty: string;
   barcode: string;
   sellPrice: string;
+  /** وزن اللتر بالكيلوغرام للسائل وحده (0023، كلمة المالك 2026-11-10: «الزيت… انت ثبتها وحددها»): يُسأل مرّة عند الإنشاء. */
+  density: string;
 }
 
-/** حقول المادّة من النموذج، أو أخطاء حقولها (نفس قيود القاعدة itemProblems). */
-export function addItemFields(form: AddItemForm): { fields: inventory.ItemFields; sellPrice: Fils | null; errors: Partial<Record<'name' | 'minQty' | 'packFactor' | 'barcode' | 'sellPrice', string>> } {
+/**
+ * وزن اللتر للسائل كما في «أضف مادّة» البسيطة (simpleItemFields): إلزامي للّتر، بأربع مراتب كحدّ أقصى؛ ولغير اللتر لا يُقرأ. فلا تُنشأ مادّة سائلة
+ * بلا كثافة تطلبها بطاقة الخلطة بعدها (كلمة المالك 2026-11-10).
+ */
+export function liquidDensity(baseUnit: BaseUnit, text: string): { density: bigint | null; error: string | null } {
+  if (baseUnit !== 'L') return { density: null, error: null };
+  const density = text.trim() ? parseDensity(text) : null;
+  if (density !== null) return { density, error: null };
+  return {
+    density: null,
+    error: text.trim()
+      ? t('simple_item.density.invalid', 'اكتب وزن اللتر بالكيلوغرام رقماً أكبر من صفر، بأربع مراتب عشرية كحدّ أقصى (مثل 0.92).')
+      : t('simple_item.density.required', 'اكتب كم يزن اللتر بالكيلوغرام، فمنه تُحسب كميتها في خلطات المعمل.'),
+  };
+}
+
+/** حقول المادّة من النموذج، أو أخطاء حقولها (نفس قيود القاعدة itemProblems، ووزن اللتر للسائل). */
+export function addItemFields(form: AddItemForm): { fields: inventory.ItemFields; sellPrice: Fils | null; errors: Partial<Record<'name' | 'minQty' | 'packFactor' | 'barcode' | 'sellPrice' | 'density', string>> } {
   const minQty = form.minQty.trim() ? parseQty(form.minQty) : null;
   const factor = form.packFactor.trim() ? parseFactor(form.packFactor) : null;
   const sellPrice = form.sellPrice.trim() ? parseMoneyText(form.sellPrice, false) : null;
+  const liquid = liquidDensity(form.baseUnit, form.density);
   const errors: ReturnType<typeof addItemFields>['errors'] = {};
   const numberError = t('items.number.invalid', 'اكتب رقماً صحيحاً بمراتبه المسموحة.');
   if (form.minQty.trim() && minQty === null) errors.minQty = numberError;
   if (form.packLabel.trim() && factor === null) errors.packFactor = t('stores.pack.factor', 'اكتب كم وحدة أساس في التعبئة، رقماً أكبر من صفر.');
   if (form.barcode.trim().length > 64) errors.barcode = t('constraint.items_barcode_check', 'الباركود لا يزيد على 64 حرفاً.');
   if (form.sellPrice.trim() && (sellPrice === null || sellPrice <= 0n)) errors.sellPrice = t('items.sell_price.invalid', 'اكتب سعر البيع بالدينار، رقماً أكبر من صفر.');
+  if (liquid.error) errors.density = liquid.error;
   const step = form.baseUnit === 'pc' ? 1000n : 100n;
-  for (const problem of itemProblems({ name: form.name, kind: form.kind, baseUnit: form.baseUnit, density: null, pieceMassKg: null, scaleStep: step, minQty })) {
+  for (const problem of itemProblems({ name: form.name, kind: form.kind, baseUnit: form.baseUnit, density: liquid.density, pieceMassKg: null, scaleStep: step, minQty })) {
     if (problem === 'min_qty' || problem === 'pieces_whole') errors.minQty ??= t('constraint.items_min_qty_check', 'الحدّ الأدنى صفر أو أكثر، بثلاث مراتب عشرية كحدّ أقصى.');
     else errors.name ??= t('constraint.items_name_check', 'اسم المادّة مطلوب، ولا يزيد على 120 حرفاً.');
   }
@@ -72,7 +94,7 @@ export function addItemFields(form: AddItemForm): { fields: inventory.ItemFields
       category_id: form.categoryId || null,
       kind: form.kind,
       base_unit: form.baseUnit,
-      density_kg_per_l: null,
+      density_kg_per_l: liquid.density === null ? null : decimalText(liquid.density, 4),
       piece_mass_kg: null,
       tracks_expiry: false,
       scale_step: decimalText(step, 3),
@@ -139,7 +161,7 @@ export function AddItemDialog({
   const [form, setForm] = useState<AddItemForm>(() => {
     const suggested = suggestedKind(storeKind);
     const kind = offered.includes(suggested) ? suggested : (offered[0] ?? suggested);
-    return { name: initialName, kind, baseUnit: COUNTED_KINDS.has(kind) ? 'pc' : 'kg', categoryId: '', packLabel: '', packFactor: '', minQty: '', barcode: '', sellPrice: '' };
+    return { name: initialName, kind, baseUnit: COUNTED_KINDS.has(kind) ? 'pc' : 'kg', categoryId: '', packLabel: '', packFactor: '', minQty: '', barcode: '', sellPrice: '', density: '' };
   });
   const [errors, setErrors] = useState<ReturnType<typeof addItemFields>['errors']>({});
   const [twins, setTwins] = useState<readonly ItemTwin[] | null>(null);
@@ -199,7 +221,7 @@ export function AddItemDialog({
       open
       onClose={onClose}
       title={t('stores.item.new', 'مادّة جديدة')}
-      dirty={form.name.trim() !== '' || form.packLabel.trim() !== '' || form.minQty.trim() !== '' || form.barcode.trim() !== '' || form.sellPrice.trim() !== ''}
+      dirty={form.name.trim() !== '' || form.packLabel.trim() !== '' || form.minQty.trim() !== '' || form.barcode.trim() !== '' || form.sellPrice.trim() !== '' || form.density.trim() !== ''}
       locked={busy}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -270,6 +292,12 @@ export function AddItemDialog({
             onChange={(baseUnit) => set({ baseUnit })}
           />
         </div>
+        {/* السائل يُسأل عن وزن لتره مرّة هنا (كلمة المالك 2026-11-10)، كنافذة «أضف مادّة» البسيطة، فلا تطلبه بطاقة الخلطة بعدها. */}
+        {form.baseUnit === 'L' ? (
+          <Field id={`${id}-density`} label={t('simple_item.density', 'كم يزن اللتر بالكيلوغرام؟')} hint={t('simple_item.density.hint', 'مثل 0.92 لزيت الصويا.')} error={errors.density}>
+            <input id={`${id}-density`} inputMode="decimal" dir="ltr" autoComplete="off" className="input tabular-nums" value={form.density} onChange={(event) => set({ density: event.target.value })} data-action="new-item-density" />
+          </Field>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field id={`${id}-pack`} label={t('stores.pack.label', 'التعبئة (اختيارية)')} hint={t('stores.pack.hint', 'مثل «كيس» أو «طبقة»، فتظهر الكمية بها.')}>
             <input id={`${id}-pack`} className="input" maxLength={40} value={form.packLabel} onChange={(event) => set({ packLabel: event.target.value })} />
@@ -351,14 +379,10 @@ export interface SimpleItemForm {
 
 /** حقول المادّة من النموذج البسيط أو أخطاء حقوله (قيود القاعدة نفسها: itemProblems، والكثافة للسائل وحده). */
 export function simpleItemFields(form: SimpleItemForm): { fields: inventory.ItemFields; errors: Partial<Record<'name' | 'density', string>> } {
-  const liquid = form.baseUnit === 'L';
-  const density = liquid && form.density.trim() ? parseDensity(form.density) : null;
+  // القاعدة نفسها في «مادّة جديدة» (liquidDensity): وزن اللتر إلزامي للسائل.
+  const { density, error } = liquidDensity(form.baseUnit, form.density);
   const errors: Partial<Record<'name' | 'density', string>> = {};
-  if (liquid && density === null) {
-    errors.density = form.density.trim()
-      ? t('simple_item.density.invalid', 'اكتب وزن اللتر بالكيلوغرام رقماً أكبر من صفر، بأربع مراتب عشرية كحدّ أقصى (مثل 0.92).')
-      : t('simple_item.density.required', 'اكتب كم يزن اللتر بالكيلوغرام، فمنه تُحسب كميتها في خلطات المعمل.');
-  }
+  if (error) errors.density = error;
   const step = form.baseUnit === 'pc' ? 1000n : 100n;
   if (itemProblems({ name: form.name, kind: form.kind, baseUnit: form.baseUnit, density, pieceMassKg: null, scaleStep: step, minQty: null }).some((problem) => problem === 'name' || problem === 'name_norm')) {
     errors.name = t('simple_item.name.required', 'اكتب اسم المادّة بحروف، ولا يزيد على 120 حرفاً.');

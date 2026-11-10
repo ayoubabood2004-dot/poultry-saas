@@ -1,9 +1,9 @@
-import { CheckCircle2, Factory, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, Factory, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { BackButton } from '../../components/ui/BackButton';
-import { Button } from '../../components/ui/Button';
+import { Button, IconButton } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
@@ -26,24 +26,22 @@ import {
   archiveRecipe,
   deleteRecipeLine,
   deleteRecipeRate,
-  loadMillStores,
   loadRecipe,
   newRecipeVersion,
   setRecipeLine,
+  setRecipeLineOrder,
   setRecipeRate,
   setVersionBasis,
   type CategoryOption,
-  type MillStore,
   type RecipeDetail,
   type RecipeLine,
   type RecipeRate,
   type RecipeUnit,
 } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
-import { ProduceDialog } from './MillPage';
 import { cardTotals, kgText, MaterialCards, useCardLines, useMillStock, viewCardLine, type CardLines, type MillStock } from './cards';
 import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, unitWord, useDrafts, type CategoryDraft } from './pickers';
-import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, recipeColor, useKeptLoad } from './shared';
+import { Chip, CompositionBar, dash, forgetMillRef, millRef, moveId, pct, pieceColor, recipeColor, reconcileOrder, sameOrder, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها، وموادّها بجدول كلاسيكي مع حصّة كلّ مادّة، وأقسامها (تصنيف المادّة) برقاقات فوق الجدول،
 // وشريط التركيبة بلمحة. النسخة المسوّدة تُعدَّل وتُفعَّل؛ والمفعَّلة مجمَّدة، فالتعديل نسخة جديدة (التاريخ لا يُعاد كتابته).
@@ -70,6 +68,9 @@ import { Chip, CompositionBar, dash, forgetMillRef, millRef, pct, pieceColor, re
 // المواد بطاقاتٍ (كلمة المالك 2026-11-07): «أضف مواد» تفتح بطاقات المواد في نافذة عريضة، يُختار منها أكثر من مادّة معاً بكمياتها وتُضاف بنقرة؛
 // والمختار يعيش في الصفحة فلا تمسحه القراءة من جديد (درس WP5). ولا «أساس» يُكتب ويُطابَق: «فعّل النسخة» تكتب أساس المسوّدة = مجموع ما داخل
 // الكتلة (setVersionBasis بشرط نسختها) ثمّ تفعّلها بالنسخة التالية، فلا basis_mismatch؛ والصفحة تقول «مجموع الخلطة» و«الناتج المتوقّع».
+// «ترتيب معمل العلف» (0023، كلمة المالك 2026-11-10): السطور بترتيب line_no (والقسم عمود ورقاقة لا تجميع)، وفي «عدّل الخلطة» سهما «قدّم» و«أخّر» لكلّ
+// مادّة ثمّ «احفظ ترتيب المواد» (set_recipe_line_order بشرط الترتيب الذي عرضته الشاشة، وlines_changed يُقال ويُقرأ من جديد ويبقى ترتيب المستخدم)؛
+// والترتيب الذي لم يُحفظ يقفل بقيّة تعديلات السطور والتفعيل. و«أنتج» يفتح شاشة الإنتاج الواحدة (/mill/produce/:id) بدل النافذة.
 
 /** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
 // وbasis_mismatch (مراجعة الشاشات M3): تغيّر مجموع المسوّدة على الخادم بلا نسخة جديدة (كثافة مادّة أو وحدتها من جهاز آخر)، فتُقرأ من جديد
@@ -294,7 +295,7 @@ export default function RecipePage() {
   const setVersionId = (next: string) => setParams({ version: next });
   const load = useCallback(() => loadRecipe(id, versionId), [id, versionId]);
   // الخلطة تبقى مرسومة بآخر ما قُرئ للنسخة نفسها أثناء القراءة من جديد (ب٤٣)، والأفعال معطَّلة حتّى تصل.
-  const { data, error, loading, refreshing, retry } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
+  const { data, error, loading, refreshing, retry, reads } = useKeptLoad<RecipeDetail>(load, `${id}#${versionId ?? ''}`);
   // «عندك» لكلّ مادّة (0017، كلمة المالك 2026-11-06: «وافتح خلطة اكدر اشوف المواد الي عندي بالمخزن») وبطاقات «أضف مواد»: قراءة واحدة للصفحة.
   const stock = useMillStock();
   const onHand = stock.onHand;
@@ -322,10 +323,15 @@ export default function RecipePage() {
   const [newRate, setNewRate] = useState({ categoryId: '', amount: '' });
   const [madeCategories, setMadeCategories] = useState<readonly CategoryOption[]>([]);
   const [category, setCategory] = useState<CategoryDraft>(NO_CATEGORY_DRAFT);
-  const [producing, setProducing] = useState<{ today: string; stores: MillStore[] } | 'loading' | null>(null);
+  /**
+   * ترتيب موادّ المسوّدة (0023، كلمة المالك 2026-11-10: «يرتب المواد الي يستخدمهن»): ترتيب المستخدم (ids) والترتيب الذي عرضته الشاشة شرطاً للحفظ
+   * (basis، p_expected)؛ وبعد lines_changed عدد القراءات لحظة الرفض وتلميح الخادم، فأوّل قراءة ناجحة بعده تصير الشرط ويبقى ترتيب المستخدم.
+   */
+  const [lineOrder, setLineOrder] = useState<{ versionId: string; ids: readonly string[]; basis: readonly string[]; changedAt: number | null; changed: string | null } | null>(null);
   const fieldId = useId();
 
-  const lines = useMemo(() => data?.lines ?? [], [data]);
+  // السطور بترتيب line_no دائماً (0023): الخادم يرسلها به، والترتيب هنا دفاع.
+  const lines = useMemo(() => [...(data?.lines ?? [])].sort((a, b) => a.lineNo - b.lineNo), [data]);
   // عمود الكتلة يجمع ما داخل الكتلة وحده (ب٩)، فمراتبه منه؛ والكتلة التي لا تُعرف (ب٣١) «—» لا تدخل المراتب.
   const massDecimals = useMemo(
     () => columnDecimals(lines.flatMap((line) => (line.inBasis && line.massKg !== null ? [line.massKg] : [])), 3) as 0 | 1 | 2 | 3,
@@ -560,19 +566,41 @@ export default function RecipePage() {
     }, t('mill.detail.activated', 'فُعّلت النسخة: صارت هي خلطة الإنتاج.'));
   };
 
-  /** «أنتج» من بطاقة الخلطة (م٩): نافذة الإنتاج نفسها، ومخازن المعمل ويوم الخادم تُقرأ حين تُفتح. */
-  const openProduce = () => {
-    if (producing) return;
-    setProducing('loading');
+  /** «أنتج» من بطاقة الخلطة (م٩): شاشة الإنتاج الواحدة (0023) بالكمية والمواد معاً. */
+  const openProduce = () => navigate(`/mill/produce/${id}`);
+
+  /**
+   * «احفظ ترتيب المواد»: كلّ سطور المسوّدة بالترتيب الجديد بشرط ما عرضته الشاشة (set_recipe_line_order). lines_changed (أو سطر حُذف من جهاز آخر)
+   * يُقال بتلميحه وتُقرأ الخلطة من جديد ويبقى ترتيب المستخدم ليُحفظ ثانيةً على ما صار فيه؛ وnot_draft (فُعّلت النسخة) يُسقط الترتيب.
+   */
+  const saveLineOrder = async () => {
+    if (!lineOrder || busy || lineOrder.changedAt !== null || sameOrder(lineOrder.ids, lineOrder.basis)) return;
+    const sent = lineOrder;
+    setBusy(true);
     setFailure(null);
-    loadMillStores().then(
-      (found) => setProducing(found),
-      (problem: unknown) => {
-        const { title, detail } = describeError(problem);
-        setFailure(`${title} ${detail}`);
-        setProducing(null);
-      },
-    );
+    setConflict(null);
+    try {
+      await setRecipeLineOrder(sent.versionId, sent.ids, sent.basis);
+      setLineOrder(null);
+      toast({ tone: 'success', title: t('mill.order.lines_saved', 'حُفظ ترتيب موادّ الخلطة.') });
+      retry();
+    } catch (problem) {
+      const changed = problem instanceof RejectedError && (problem.code === 'lines_changed' || problem.code === 'line_not_found');
+      const described = describeError(problem);
+      const text = problem instanceof RejectedError && problem.hint ? problem.hint : `${described.title} ${described.detail}`;
+      if (changed) {
+        setLineOrder((current) => (current ? { ...current, changed: text, changedAt: reads } : current));
+        retry();
+      } else {
+        setFailure(text);
+        if (problem instanceof RejectedError && problem.code === 'not_draft') {
+          setLineOrder(null);
+          retry();
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   /**
@@ -585,6 +613,48 @@ export default function RecipePage() {
     const live = data?.pickItems.find((item) => item.id === line.itemId)?.baseUnit;
     if (live) return live;
     return line.unitChanged || line.unitMismatch ? null : line.baseUnit;
+  };
+
+  // ترتيب ينتظر قراءته الجديدة بعد lines_changed: فشلها يُقال فوق الجدول بـ«أعد القراءة» ويبقى الترتيب المكتوب (لا تُطوى الصفحة).
+  const orderWaiting = lineOrder !== null && lineOrder.changedAt !== null;
+  if (error && !(orderWaiting && data)) return <LoadFailed what={t('mill.recipe.what', 'بطاقة الخلطة')} error={error} onRetry={retry} />;
+  if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
+
+  // ب٤٢: وصلت القراءة الجديدة بعد رفض «تغيّر من جهاز آخر»: شرط الخانة المرفوضة يصير ما قُرئ الآن ويبقى نصّها كما كتبه المستخدم. ضبط
+  // حالة من حالة أثناء الرسم بشرط يتوقّف (rebased)، فلا أثر جانبي ولا حلقة.
+  if (conflict && !conflict.rebased && data !== conflict.seen) {
+    const cell = conflict.cell;
+    if (cell?.kind === 'price') {
+      const line = data.lines.find((entry) => entry.itemId === cell.id);
+      if (line) prices.rebase(cell.id, line.costPrice, line.costPrice === null ? '' : decimalText(line.costPrice, 2));
+    } else if (cell?.kind === 'rate') {
+      const rate = (data.rates ?? []).find((entry) => entry.id === cell.id);
+      if (rate) rateDrafts.rebase(cell.id, rate.amountPerTon, decimalText(rate.amountPerTon, 2));
+    }
+    setConflict({ ...conflict, rebased: true });
+  }
+
+  // ترتيب الموادّ (0023) للمسوّدة المعروضة وحدها: نسخة أخرى أو نسخة لم تعد مسوّدة (فُعّلت) يسقط ترتيبها؛ وبعد lines_changed أوّل قراءة ناجحة تصير
+  // شرط الحفظ ويبقى ترتيب المستخدم (ما حُذف يخرج وما أُضيف في آخره). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف.
+  const serverLineIds = lines.map((line) => line.id);
+  if (lineOrder !== null && (!isDraft || data.versionId !== lineOrder.versionId)) setLineOrder(null);
+  else if (lineOrder !== null && lineOrder.changedAt !== null && reads > lineOrder.changedAt) {
+    setLineOrder({ ...lineOrder, ids: reconcileOrder(lineOrder.ids, serverLineIds), basis: serverLineIds, changedAt: null });
+  }
+  const lineById = new Map(lines.map((line) => [line.id, line]));
+  // المعروض بترتيب المستخدم إن غيّره، وإلّا بترتيب line_no؛ والسطر الذي لم يعرفه الترتيب (أُضيف بعده) في آخره.
+  const shownLines = lineOrder ? reconcileOrder(lineOrder.ids, serverLineIds).flatMap((lineId) => lineById.get(lineId) ?? []) : lines;
+  const orderPending = lineOrder !== null && (lineOrder.changedAt !== null || !sameOrder(lineOrder.ids, lineOrder.basis));
+  // ترتيب لم يُحفظ يقفل تعديل السطور وإضافتها وحذفها والتفعيل (التفعيل يجمّد النسخة بترتيبها المحفوظ): «احفظ» أو «تراجع» أوّلاً.
+  const linesLocked = busy || orderPending;
+  const moveLine = (index: number, by: -1 | 1) => {
+    if (!data.versionId || busy) return;
+    const versionOf = data.versionId;
+    const now = serverLineIds;
+    setLineOrder((current) => {
+      const start = current ?? { versionId: versionOf, ids: now, basis: now, changedAt: null, changed: null };
+      return { ...start, ids: moveId(reconcileOrder(start.ids, now), index, by) };
+    });
   };
 
   const columns = ((): Column<RecipeLine>[] => {
@@ -668,16 +738,37 @@ export default function RecipePage() {
       base.push({
         key: 'actions',
         header: t('mill.col.actions', 'إجراءات'),
-        cell: (line) => (
-          <span className="flex gap-1">
+        cell: (line, index) => (
+          <span className="flex items-center gap-1">
+            {/* الترتيب بالسهمين (0023): يبقى في الشاشة حتّى «احفظ ترتيب المواد»، ومعطّل أثناء الحفظ والقراءة. */}
+            <IconButton
+              label={t('mill.order.up_line', 'قدّم «{name}»', { name: line.itemName })}
+              className="disabled:opacity-50"
+              disabled={busy || orderWaiting || index === 0}
+              onClick={() => moveLine(index, -1)}
+              data-action="line-up"
+              data-id={line.id}
+            >
+              <ArrowUp aria-hidden="true" className="size-5" />
+            </IconButton>
+            <IconButton
+              label={t('mill.order.down_line', 'أخّر «{name}»', { name: line.itemName })}
+              className="disabled:opacity-50"
+              disabled={busy || orderWaiting || index === shownLines.length - 1}
+              onClick={() => moveLine(index, 1)}
+              data-action="line-down"
+              data-id={line.id}
+            >
+              <ArrowDown aria-hidden="true" className="size-5" />
+            </IconButton>
             {line.unitMismatch || line.baseUnit === 'pc' ? null : (
               // سطر باللتر لمادّة صارت بالكيلو، أو مادّة صارت بالقطعة (ب٤٧): حارس السطر يرفض تعديله (bad_recipe_unit) ولا اختيار للوحدة
               // يصلحه، فلا «عدّل» يقود إلى رفض؛ يبقى «احذف»، والجملة فوق تقول ما بعده.
-              <Button size="sm" variant="ghost" icon={<Pencil className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setEditing(line)} data-action="edit-line">
+              <Button size="sm" variant="ghost" icon={<Pencil className="size-4" aria-hidden="true" />} disabled={linesLocked} onClick={() => setEditing(line)} data-action="edit-line">
                 {t('common.edit', 'عدّل')}
               </Button>
             )}
-            <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={busy} onClick={() => setRemoving(line)} data-action="remove-line">
+            <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" aria-hidden="true" />} disabled={linesLocked} onClick={() => setRemoving(line)} data-action="remove-line">
               {t('common.delete', 'احذف')}
             </Button>
           </span>
@@ -686,23 +777,6 @@ export default function RecipePage() {
     }
     return base;
   })();
-
-  if (error) return <LoadFailed what={t('mill.recipe.what', 'بطاقة الخلطة')} error={error} onRetry={retry} />;
-  if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
-
-  // ب٤٢: وصلت القراءة الجديدة بعد رفض «تغيّر من جهاز آخر»: شرط الخانة المرفوضة يصير ما قُرئ الآن ويبقى نصّها كما كتبه المستخدم. ضبط
-  // حالة من حالة أثناء الرسم بشرط يتوقّف (rebased)، فلا أثر جانبي ولا حلقة.
-  if (conflict && !conflict.rebased && data !== conflict.seen) {
-    const cell = conflict.cell;
-    if (cell?.kind === 'price') {
-      const line = data.lines.find((entry) => entry.itemId === cell.id);
-      if (line) prices.rebase(cell.id, line.costPrice, line.costPrice === null ? '' : decimalText(line.costPrice, 2));
-    } else if (cell?.kind === 'rate') {
-      const rate = (data.rates ?? []).find((entry) => entry.id === cell.id);
-      if (rate) rateDrafts.rebase(cell.id, rate.amountPerTon, decimalText(rate.amountPerTon, 2));
-    }
-    setConflict({ ...conflict, rebased: true });
-  }
 
   // مجموع لا يُعرف (ب٣١: سطر داخل الكتلة بلا كتلة) لا فرق له، فلا «مطابق» ولا تفعيل (الخادم يرفضه أصلاً).
   const sum = data.massKg;
@@ -936,7 +1010,7 @@ export default function RecipePage() {
 
       {activeVersion && canProduce && !data.archived ? (
         <div>
-          <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} busy={producing === 'loading'} onClick={openProduce} data-action="produce">
+          <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} onClick={openProduce} data-action="produce">
             {t('mill.card.produce', 'أنتج')}
           </Button>
         </div>
@@ -994,7 +1068,7 @@ export default function RecipePage() {
           <p className="text-lg font-semibold">{t('mill.cards.sum', 'مجموع الخلطة: {kg}', { kg: total === null ? dash() : kgText(total) })}</p>
           <p className="text-sm text-ink-muted">{t('mill.cards.output', 'الناتج المتوقّع: {kg} (قبل الهدر)', { kg: total === null ? dash() : kgText(total) })}</p>
         </div>
-        <CompositionBar pieces={lines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={total !== null && total > 0n ? total : 1n} hue={hue} />
+        <CompositionBar pieces={shownLines.filter((line) => line.inBasis).map((line) => ({ key: line.id, label: line.itemName, weight: line.massKg }))} total={total !== null && total > 0n ? total : 1n} hue={hue} />
         <div className="flex flex-wrap gap-1.5">
           {sections.map((section, index) => (
             <Chip key={section.name} dot={pieceColor(hue, index)}>
@@ -1023,10 +1097,39 @@ export default function RecipePage() {
         </Notice>
       ) : null}
 
+      {isDraft && canEdit && lineOrder !== null && (orderPending || lineOrder.changed) ? (
+        <div className="flex flex-col gap-2 rounded-2xl bg-surface-2 p-3" data-action="line-order-bar">
+          {lineOrder.changed ? (
+            <p role="alert" className="text-sm text-warn-700 dark:text-warn-300" data-action="line-order-changed">
+              {lineOrder.changed}{' '}
+              {orderWaiting
+                ? error
+                  ? t('mill.order.lines_changed.failed', 'وتعذّرت قراءة الخلطة من جديد. أعد القراءة، ثمّ احفظ ترتيبك إن شئت.')
+                  : t('mill.order.lines_changed.reading', 'جارٍ قراءة الخلطة من جديد…')
+                : t('mill.order.lines_changed.kept', 'قُرئت الخلطة من جديد، وترتيبك باقٍ: احفظه ليحلّ محلّ الترتيب الحالي، أو تراجع.')}
+            </p>
+          ) : null}
+          <p className="text-sm">{t('mill.order.lines_pending', 'غيّرت ترتيب الموادّ: احفظه أو تراجع عنه قبل أيّ تعديل آخر في الخلطة.')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" busy={busy} disabled={busy || orderWaiting || sameOrder(lineOrder.ids, lineOrder.basis)} onClick={() => void saveLineOrder()} data-action="save-line-order">
+              {t('mill.order.lines_save', 'احفظ ترتيب المواد')}
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => setLineOrder(null)} data-action="cancel-line-order">
+              {t('mill.order.cancel', 'تراجع')}
+            </Button>
+            {orderWaiting && error ? (
+              <Button size="sm" variant="secondary" onClick={retry} data-action="line-order-reread">
+                {t('dayb.reread', 'أعد القراءة')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <DataTable
         caption={t('mill.detail.caption_total', 'مواد الخلطة وحصّة كلّ مادّة من مجموعها')}
         columns={columns}
-        rows={lines}
+        rows={shownLines}
         rowKey={(line) => line.id}
         empty={t('mill.detail.empty', 'لا مواد في هذه النسخة بعد.')}
         totalLabel={t('mill.detail.total', 'المجموع')}
@@ -1034,7 +1137,7 @@ export default function RecipePage() {
       {onHand && lines.length ? (
         <div className="flex flex-wrap items-center gap-2" data-action="recipe-on-hand">
           <span className="text-sm font-medium">{t('mill.detail.on_hand', 'في المخزن الآن:')}</span>
-          {lines.map((line) => {
+          {shownLines.map((line) => {
             const stock = onHand.get(line.itemId);
             return stock ? <Chip key={line.id}>{t('mill.detail.on_hand_item', '{item} — {on_hand}', { item: line.itemName, on_hand: onHandText(stock) })}</Chip> : null;
           })}
@@ -1043,10 +1146,10 @@ export default function RecipePage() {
 
       {isDraft && canEdit ? (
         <div className="flex flex-wrap items-end gap-3">
-          {/* أثناء الحفظ والقراءة من جديد (ب٤٣): لا تُفتح نافذة سطر تتبدّل الصفحة تحتها. */}
+          {/* أثناء الحفظ والقراءة من جديد (ب٤٣)، وترتيب موادّ لم يُحفظ (0023): لا تُفتح نافذة سطر تتبدّل الصفحة تحتها، ولا تُفعَّل النسخة بغير ترتيبها. */}
           <Button
             icon={<Plus className="size-5" aria-hidden="true" />}
-            disabled={busy}
+            disabled={linesLocked}
             onClick={() => {
               setAddFailure(null);
               setAdding(true);
@@ -1055,7 +1158,7 @@ export default function RecipePage() {
           >
             {t('mill.detail.add_lines', 'أضف مواد')}
           </Button>
-          <Button size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={busy} disabled={!balanced} onClick={activate} data-action="activate-version">
+          <Button size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={busy} disabled={!balanced || orderPending} onClick={activate} data-action="activate-version">
             {t('mill.detail.activate', 'فعّل النسخة')}
           </Button>
         </div>
@@ -1250,9 +1353,6 @@ export default function RecipePage() {
           }
           onCancel={() => setRemovingRate(null)}
         />
-      ) : null}
-      {producing && producing !== 'loading' && activeVersion ? (
-        <ProduceDialog recipe={{ name: data.name, activeId: activeVersion.id, activeBasisKg: activeVersion.basisKg }} stores={producing.stores} today={producing.today} onClose={() => setProducing(null)} />
       ) : null}
     </div>
   );

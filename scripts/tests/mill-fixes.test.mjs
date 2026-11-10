@@ -6,7 +6,7 @@
 // رابط إعدادات (م٣)؛ X4 تلميح التكاليف والتنبيه بلا أرقام يسمّيان الوحدة ولا رابط تسجيل بلا أرقام (م٤)؛ X5 ما ينقص تحت الزرّين،
 // والسطر الفارغ يُتجاهل، و«جاهزة للتفعيل» حين يمكن فعلاً (م٥)؛ X6 سعر الكلفة المكتوب يُحفظ قبل الخلطة أو يوقفها (م٦)؛ X7 «نسخة
 // جديدة» بـnew_recipe_version ومعرّف يبقى للإعادة، ونصّ «لا تكاليف» على نسخة مجمَّدة (م٧)؛ X8 «اجعلها مادّة أوّلية» بلا رابط يغادر،
-// و«أنشئ» المادّة والمنتج يمرّان بالتوائم (م٨)؛ X9 «أنتج» من بطاقة الخلطة (م٩)؛ X10 حذف المسوّدة بتأكيد (م١٠)؛ X11 الوقود
+// و«أنشئ» المادّة والمنتج يمرّان بالتوائم (م٨)؛ X9 «أنتج» من بطاقة الخلطة (م٩، وشاشة الإنتاج الواحدة منذ 0023)؛ X10 حذف المسوّدة بتأكيد (م١٠)؛ X11 الوقود
 // والتعبئة خارج الكتلة (م١١)؛ X12 التحميلات والمتاح المحجوبة (م١٢)؛ X13 draws إلزامي (م١٣)؛ X14 الناتج المنتهي بتاريخيه (م١٤)؛
 // P المحلّلات الصارمة وطلبا new_recipe_version وrecipes_overview.
 import { build } from 'esbuild';
@@ -21,9 +21,9 @@ const MILL = [
   'loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'previewProduction', 'loadExpenseCategories', 'createRecipe', 'createProduction', 'addProductionInput',
   'deleteProductionInput', 'setInputActual', 'addBatchCost', 'setBatchCost', 'deleteBatchCost', 'addRecipeRate', 'setRecipeRate', 'deleteRecipeRate', 'activateVersion',
   'postProduction', 'confirmCosts', 'discardBatch', 'voidProduction', 'setBatchFields', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'createVersion', 'setVersionBasis',
-  'newRecipeVersion', 'loadMillStores',
+  'newRecipeVersion', 'loadMillStores', 'loadProduce', 'recordProduction',
 ];
-const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory', 'loadStockOnHand'];
 const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
@@ -596,24 +596,39 @@ export default async function (t) {
       t.same([named(calls, 'updateItem'), named(calls, 'createRecipe')[0]?.[0]?.outputItemId], [[['i-soy', 1, { kind: 'feed' }]], 'i-soy'], 'X8 «اجعلها علفاً جاهزاً» بشرط نسختها، ثم تُختار منتجاً للخلطة');
     });
 
-    // ── X9 (م٩): «أنتج» من بطاقة الخلطة للنسخة المفعَّلة ────────────────────────────────────────────────────────────────
+    // ── X9 (م٩): «أنتج» من بطاقة الخلطة للنسخة المفعَّلة (شاشة الإنتاج الواحدة، 0023) ─────────────────────────────────────────────
     await step('X9', async () => {
+      const active = m.parseRecipe(recipeJson({ status: 'active' }));
       const calls = fresh(
         { status: 'ready', workspace: ws() },
         {
-          loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })),
-          loadMillStores: () => ({ today: '2026-11-04', stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }] }),
-          createProduction: (id) => ({ id }),
+          loadRecipe: () => active,
+          loadProduce: () => ({
+            today: '2026-11-04',
+            stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }],
+            recipe: active,
+            active: { id: 'v-1', versionNo: 1, basisKg: 1_000_000n },
+            lines: [{ lineId: 'l-1', lineNo: 1, itemId: 'i-corn', itemName: 'ذرة صفراء', kind: 'raw', inBasis: true, baseUnit: 'kg', lineKg: 1_000_000n, density: null, scaleStep: 100n, blocked: null }],
+          }),
+          recordProduction: (request) => ({
+            status: 'posted', id: request.id, docNo: 'PD-2026-0005', producedOn: request.producedOn, recipeName: 'علف بادئ', outputItemName: 'علف بادئ', inputWarehouseName: 'مخزن المواد الأوّلية',
+            outputWarehouseName: 'مخزن العلف', outputQtyKg: request.plannedKg, inputMassKg: request.plannedKg, shrinkKg: 0n, note: null, money: null,
+          }),
         },
       );
       await mount('/mill/recipe/r-1');
       t.eq(byAction('produce').length, 1, 'X9 بطاقة خلطة مفعَّلة فيها «أنتج»');
       await click(byAction('produce')[0]);
+      t.eq(globalThis.__mill.location, '/mill/produce/r-1', 'X9 «أنتج» يفتح شاشة الإنتاج الواحدة');
       await click(byAction('quick-qty')[1]);
-      await click(byAction('produce-start')[0]);
-      const [batchId, versionId, kg, from, to, day] = named(calls, 'createProduction')[0] ?? [];
-      t.same([versionId, kg, from, to, day], ['v-1', 1_000_000n, 'w-raw', 'w-feed', '2026-11-04'], 'X9 نافذة الإنتاج نفسها: النسخة المفعَّلة والكمية ومخزنا المعمل ويوم الخادم');
-      t.eq(globalThis.__mill.location, `/mill/batch/${batchId}`, 'X9 ثم صفحة الدفعة');
+      await click(byAction('produce-go')[0]);
+      const [request] = named(calls, 'recordProduction')[0] ?? [];
+      t.same(
+        [request?.versionId, request?.plannedKg, request?.inputWarehouseId, request?.outputWarehouseId, request?.producedOn],
+        ['v-1', 1_000_000n, 'w-raw', 'w-feed', '2026-11-04'],
+        'X9 شاشة الإنتاج: النسخة المفعَّلة والكمية ومخزنا المعمل ويوم الخادم',
+      );
+      t.eq(byAction('result-batch')[0]?.getAttribute('href'), `/mill/batch/${request?.id}`, 'X9 ثم رابط صفحة الدفعة');
       await unmount();
       root = null;
       fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: false }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });

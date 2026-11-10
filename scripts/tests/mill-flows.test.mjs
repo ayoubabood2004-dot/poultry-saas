@@ -5,7 +5,7 @@
 //    بطاقاتٍ يصفّيها البحث (المطابق بنوع آخر يُسمّى بنوعه) أو تُنشأ هنا مادّةً أوّلية، وسعر الشراء التلقائي وسعر الكلفة المكتوب (ويُحفظ
 //    بشرط السابق)، وتكاليف الطنّ، و«مجموع الخلطة» الحيّ وهو الأساس المرسَل (كلمة المالك 2026-11-07: لا أساس يُطابَق)، وكلفة الطنّ
 //    المتوقّعة، بنداء create_recipe واحد، والإعادة بعد نتيجة مجهولة بالمعرّفين أنفسهما؛
-// F2 «خلطة جديدة» تفتح البانية، و«أنتج» بكميات سريعة ثم صفحة الدفعة؛ F3 صفحة الدفعة المسوّدة: الفعلي يُعدَّل بشرط ما شافته الشاشة،
+// F2 «خلطة جديدة» تفتح البانية، و«أنتج» يفتح شاشة الإنتاج الواحدة (0023) بكميات سريعة ثم رابط صفحة الدفعة؛ F3 صفحة الدفعة المسوّدة: الفعلي يُعدَّل بشرط ما شافته الشاشة،
 //    و«أضف مادّة» و«بدّل مادّة» بسبب إلزامي و«احذف» بتأكيد، وجدول التكاليف (المحسوب والمبلغ المعدَّل والمتاح وسطر جديد بفئة وحذف)،
 //    و«المصاريف لا تكفي» بأرقامها وفعليها («سجّل مصروفاً» و«صفّر السطر»)؛ F4 مشغّل المعمل بلا مال؛ F5 المرحَّلة تقول أين ذهب الناتج
 //    ورقم دفعته ومن أيّ وجبات سُحبت كلّ مادّة؛ F6 بطاقة الخلطة: أسعار المادّة وسعر الكلفة المكتوب، وتكاليف الطنّ تُضاف وتُعدَّل
@@ -21,9 +21,9 @@ const MILL = [
   'loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'previewProduction', 'loadExpenseCategories', 'createRecipe', 'createProduction', 'addProductionInput',
   'deleteProductionInput', 'setInputActual', 'addBatchCost', 'setBatchCost', 'deleteBatchCost', 'addRecipeRate', 'setRecipeRate', 'deleteRecipeRate', 'activateVersion',
   'postProduction', 'confirmCosts', 'discardBatch', 'voidProduction', 'setBatchFields', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'createVersion', 'setVersionBasis',
-  'newRecipeVersion', 'loadMillStores',
+  'newRecipeVersion', 'loadMillStores', 'loadProduce', 'recordProduction',
 ];
-const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory'];
+const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory', 'loadStockOnHand'];
 const PURCHASES = ['loadItemsOverview'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
@@ -368,19 +368,56 @@ export default async function (t) {
       productions: { drafts: [], rows: [], total: 0 },
     });
     await step('F2 المعمل', async () => {
-      const calls = fresh({ status: 'ready', workspace: ws() }, { loadMill: () => millHome([card()]), createProduction: () => ({ id: 'x' }) });
+      // شاشة الإنتاج الواحدة (0023): الخلطة بنسختها المفعَّلة v-1 (ذرة 600 وكسبة 400 لكلّ 1,000 كغم) ومدخلات تخطيط سطريها.
+      const active = m.parseRecipe({
+        ...recipeJson(true),
+        versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 3 }],
+        selected: { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', note: null, activated_at: '2026-11-01T08:00:00Z', version: 3 },
+        lines: [
+          { ...recipeJson(true).lines[0], qty: '600.000', mass_kg: '600.000' },
+          { ...recipeJson(true).lines[0], id: 'l-2', line_no: 2, item_id: 'i-soy', item_name: 'كسبة صويا', qty: '400.000', mass_kg: '400.000' },
+        ],
+        mass_kg: '1000.000',
+      });
+      const calls = fresh(
+        { status: 'ready', workspace: ws() },
+        {
+          loadMill: () => millHome([card()]),
+          loadProduce: () => ({
+            today: '2026-11-04',
+            stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }],
+            recipe: active,
+            active: { id: 'v-1', versionNo: 1, basisKg: 1_000_000n },
+            lines: active.lines.map((entry) => ({ lineId: entry.id, lineNo: entry.lineNo, itemId: entry.itemId, itemName: entry.itemName, kind: entry.kind, inBasis: true, baseUnit: 'kg', lineKg: entry.massKg, density: null, scaleStep: 100n, blocked: null })),
+          }),
+          recordProduction: (request) => ({
+            status: 'posted', id: 'b-new', docNo: 'PD-2026-0004', producedOn: request.producedOn, recipeName: 'علف بادئ', outputItemName: 'علف بادئ', inputWarehouseName: 'مخزن المواد الأوّلية',
+            outputWarehouseName: 'مخزن العلف', outputQtyKg: request.plannedKg, inputMassKg: request.plannedKg, shrinkKg: 0n, note: null, money: null,
+          }),
+        },
+      );
       await mount('/mill');
       t.ok(text().includes('كلفة الكيلو المتوقّعة285.00'), 'F2 بطاقة لم تُنتج بعد: كلفة الكيلو المتوقّعة');
       await click(byAction('produce')[0]);
+      t.eq(globalThis.__mill.location, '/mill/produce/r-1', 'F2 «أنتج» يفتح شاشة الإنتاج الواحدة');
       const quick = byAction('quick-qty');
       t.same(quick.map((node) => node.textContent), ['نصف طنّ', 'طنّ', 'طنّان', '5 أطنان'], 'F2 أربع كميات سريعة');
       await click(quick[2]);
       t.eq(byAction('produce-qty')[0]?.value, '2,000', 'F2 «طنّان» تكتب 2,000 كغم في الحقل');
       t.ok(text().includes('أي 2.000 طن'), 'F2 والتحويل حيّ تحت الحقل');
-      await click(byAction('produce-start')[0]);
-      const [batchId, versionId, kg, from, to, day] = named(calls, 'createProduction')[0] ?? [];
-      t.same([versionId, kg, from, to, day], ['v-1', 2_000_000n, 'w-raw', 'w-feed', '2026-11-04'], 'F2 create_production بالكمية المختارة ومخزني المعمل ويوم الخادم');
-      t.eq(globalThis.__mill.location, `/mill/batch/${batchId}`, 'F2 ثم صفحة الدفعة');
+      t.same(
+        all().filter((node) => ['كمية «ذرة صفراء»', 'كمية «كسبة صويا»'].includes(node.getAttribute('aria-label'))).map((node) => node.value),
+        ['1,200', '800'],
+        'F2 والمواد بنسبتها لطنّين',
+      );
+      await click(byAction('produce-go')[0]);
+      const [request] = named(calls, 'recordProduction')[0] ?? [];
+      t.same(
+        [request?.versionId, request?.plannedKg, request?.inputWarehouseId, request?.outputWarehouseId, request?.producedOn, request?.actuals],
+        ['v-1', 2_000_000n, 'w-raw', 'w-feed', '2026-11-04', []],
+        'F2 record_production بالكمية المختارة ومخزني المعمل ويوم الخادم (والمواد على المخطّط)',
+      );
+      t.eq(byAction('result-batch')[0]?.getAttribute('href'), '/mill/batch/b-new', 'F2 ثم رابط صفحة الدفعة');
       await unmount();
 
       fresh({ status: 'ready', workspace: ws() }, { loadMill: () => millHome([]) });
