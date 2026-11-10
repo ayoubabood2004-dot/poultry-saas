@@ -193,8 +193,9 @@ function resolveSpecifier(file, specifier) {
  * و«المخزن ببساطة» (0017): بطاقات المواد وملفّ المادّة والشراء الفوري (purchases) بحزمة شاشات المخزون، والمعمل يقرأ منه «عندك».
  * والصرف لفوج القاعة (0019): ما يُصرف والصرف وإلغاؤه (flockIssues) تستورده صفحة الصرف وحدها (حزمة المخزون)، لا حزم الحقول المحفوظة.
  * و«الرصيد اليومي» (0022): رصيد اليوم والملاحظات وموادّ التصنيف (dayBalance) تستورده صفحة المخزن وحدها (حزمة المخزون).
+ * و«ترتيب معمل العلف» (0023): تقويم العليقة وتقاريرها المطبوعة (millReport، mill_report) تستورده صفحة التقرير وحدها (حزمة المعمل).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

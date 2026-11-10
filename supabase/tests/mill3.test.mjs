@@ -3,7 +3,7 @@
 // المدير، والإنتاج بنداء واحد (record_production: الكميات الفعلية والمادّة الإضافية للطنّ والملاحظة، وكلّ مشكلة ترفض النداء كلّه بتلميحها،
 // ومشغّل المعمل مسوّدة تنتظر ختم الكلف، والإعادة بالمرجع نفسه بلا إنتاج ثانٍ)، وتقرير العليقة بالأيام (mill_report: الدفعات المرحَّلة
 // بنطاق القارئ، والمواد المسحوبة بقيمها، والمال لكلّ قارئ)؛ والثوابت صفر؛ وطفرات تكسر كلّ قاعدة فيفشل فحصها؛ وعيّنات حقيقية للشاشات.
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 
@@ -69,12 +69,9 @@ async function scenario(t, db) {
     breeder: await item('علف أمّهات', 'feed', 'kg'),
   };
   const supplier = await one(U.owner, "insert into public.parties (name, is_supplier) values ('مورّد المعمل', true) returning id");
-  const buy = (itemId, qty, price) =>
-    one(U.owner, "select public.record_purchase($1, $2, $3, $4, $5, $6, $7, $8, null, 'credit', null, null) as v", [uid(), uid(), uid(), itemId, supplier, day(-2), qty, price]);
-  await buy(I.corn, 10000, 450);
-  await buy(I.soy, 5000, 900);
-  await buy(I.oil, 200, 2000);
-  await buy(I.premix, 100, 3000);
+  const buyOn = (on, itemId, qty, price) =>
+    one(U.owner, "select public.record_purchase($1, $2, $3, $4, $5, $6, $7, $8, null, 'credit', null, null) as v", [uid(), uid(), uid(), itemId, supplier, on, qty, price]);
+  const buy = (itemId, qty, price) => buyOn(day(-2), itemId, qty, price);
 
   const CR = "select public.create_recipe($1, $2, $3, $4, $5, $6::jsonb, '[]'::jsonb, true) as v";
   const recipe = async (name, output, basis, lines) => {
@@ -92,6 +89,23 @@ async function scenario(t, db) {
     finisher: await recipe('علف ناهٍ', I.finisher, '980.000', [{ item_id: I.corn, qty: '700.000', unit: 'kg' }, { item_id: I.soy, qty: '280.000', unit: 'kg' }]),
     breeder: await recipe('علف أمّهات', I.breeder, '1000.000', [{ item_id: I.corn, qty: '500.000', unit: 'kg' }, { item_id: I.soy, qty: '500.000', unit: 'kg' }]),
   };
+  // تاريخ البادئ قبل هذا الشهر (التقويم: شهران بإنتاج ودرجتان): دفعة في أيلول وأخرى في تشرين الأوّل بموادّ اشتُريت في أيلول. اليوم يُرجَع
+  // بـsetToday، فكلّ تاريخ في حدّ الأيام السبعة.
+  const history = [];
+  const produceOn = (on) => one(U.owner, RP, [uid(), R.starter.version, '977.600', W.raw, W.feed, on, '[]', '[]', null, null, null, null, uid()]);
+  await db.setToday('2026-09-14', async () => {
+    await buyOn('2026-09-12', I.corn, 1500, 430);
+    await buyOn('2026-09-12', I.soy, 800, 880);
+    await buyOn('2026-09-12', I.oil, 70, 1900);
+    history.push(await produceOn('2026-09-14'));
+  });
+  await db.setToday('2026-10-20', async () => history.push(await produceOn('2026-10-20')));
+  t.same(history.map((h) => [h.status, h.produced_on, norm(h.output_qty_kg)]), [['posted', '2026-09-14', '977.6'], ['posted', '2026-10-20', '977.6']],
+    'تاريخ البادئ: دفعة في أيلول وأخرى في تشرين الأوّل');
+  await buy(I.corn, 10000, 450);
+  await buy(I.soy, 5000, 900);
+  await buy(I.oil, 200, 2000);
+  await buy(I.premix, 100, 3000);
   const samples = { recipes_overview: {}, recipe_detail: {}, set_recipe_order: {}, set_recipe_line_order: {}, record_production: {}, mill_report: {}, refusals: {} };
   const refusal = (name, result) => {
     samples.refusals[name] = { code: result.code, hint: result.hint };
@@ -106,7 +120,6 @@ async function scenario(t, db) {
   const ordered = await call(db, U.manager, ORDER, [wanted, byName]);
   samples.set_recipe_order.ok = ordered.value;
   t.same([ordered.ok && ordered.value.count, await liveOrder()], [3, wanted], 'المدير يرتّب العلائق، وrecipes_overview يعرضها بترتيبه');
-  samples.recipes_overview.ordered = await one(U.owner, OVERVIEW, []);
   t.same((await call(db, U.manager, ORDER, [wanted, byName])).ok, true, 'إعادة الطلب نفسه بعد جواب ضاع بلا رفض (الحال هو المطلوب)');
   const stale = refusal('recipes_changed', await call(db, U.owner, ORDER, [[R.starter.id, R.finisher.id, R.breeder.id], byName]));
   t.same([stale.code, stale.hint.includes('من نافذة أو جهاز آخر'), await liveOrder()], ['recipes_changed', true, wanted],
@@ -115,6 +128,9 @@ async function scenario(t, db) {
   t.same((await call(db, U.manager, ORDER, [wanted, wanted])).code, 'recipes_changed', 'عليقة جديدة أُضيفت بعد فتح الشاشة: recipes_changed');
   await one(U.owner, 'update public.recipes set archived_at = now() where id = $1 returning id', [extraRecipe.id]);
   t.same([(await call(db, U.manager, ORDER, [wanted, wanted])).ok, await liveOrder()], [true, wanted], 'والمؤرشفة خارج الترتيب: يصحّ الترتيب الفعّال وحده');
+  samples.recipes_overview.ordered = await one(U.owner, OVERVIEW, []);
+  t.same(samples.recipes_overview.ordered.recipes.map((r) => [r.name, r.archived]), [['علف ناهٍ', false], ['علف أمّهات', false], ['علف بادئ', false], ['علف تجربة', true]],
+    'recipes_overview: الفعّالة بترتيب المدير ثمّ المؤرشفة');
   t.same([
     (await call(db, U.manager, ORDER, [[...wanted, wanted[0]], wanted])).code,
     (await call(db, U.manager, ORDER, [[wanted[0], uid(), wanted[2]], wanted])).code,
@@ -205,11 +221,12 @@ async function scenario(t, db) {
     (await produce(U.owner, { extra: [{ id: uid(), item_id: I.premix, qty: '-1' }] }).run()).code,
     (await produce(U.owner, { note: 'م'.repeat(501) }).run()).code,
     (await produce(U.owner, { kg: '0' }).run()).code,
+    refusal('qty_too_large', await produce(U.owner, { kg: '1000000000.000' }).run()).code,
     (await produce(U.owner, { out: W.raw }).run()).code,
     (await produce(U.storekeeper, {}).run()).code,
     (await produce(U.accountant, {}).run()).code,
-  ], ['bad_line', 'bad_line', 'bad_line', 'qty_not_positive', 'bad_line', 'bad_note', 'qty_not_positive', 'same_warehouse', 'forbidden', 'forbidden'],
-  'رفض الإنتاج: سطر غير موجود، وكمية غير رقم، وسطر مكرّر، وصفر، ومادّة إضافية سالبة، وملاحظة طويلة، وكمية صفر، والمخزن نفسه، والأمين والمحاسب بلا فعل التسويد');
+  ], ['bad_line', 'bad_line', 'bad_line', 'qty_not_positive', 'bad_line', 'bad_note', 'qty_not_positive', 'qty_too_large', 'same_warehouse', 'forbidden', 'forbidden'],
+  'رفض الإنتاج: سطر غير موجود، وكمية غير رقم، وسطر مكرّر، وصفر، ومادّة إضافية سالبة، وملاحظة طويلة، وكمية صفر، وكمية أكبر من المعقول، والمخزن نفسه، والأمين والمحاسب بلا فعل التسويد');
   // (د) مشغّل المعمل: مسوّدة تنتظر ختم الكلف، ثمّ يختمها المدير ويرحّلها المشغّل من صفحة الدفعة.
   const operator = produce(U.millOperator, { version: R.finisher.version, kg: '980.000' });
   const opResult = await operator.run();
@@ -230,19 +247,20 @@ async function scenario(t, db) {
   samples.mill_report.year = (await call(db, U.owner, REPORT, [R.starter.id, '2026-01-01', '2026-12-31'])).value;
   samples.mill_report.month = (await call(db, U.owner, REPORT, [R.starter.id, '2026-11-01', '2026-11-30'])).value;
   samples.mill_report.day = (await call(db, U.owner, REPORT, [R.starter.id, TODAY, TODAY])).value;
-  samples.mill_report.empty = (await call(db, U.owner, REPORT, [R.starter.id, '2026-10-01', '2026-10-31'])).value;
+  samples.mill_report.empty = (await call(db, U.owner, REPORT, [R.starter.id, '2026-08-01', '2026-08-31'])).value;
   const Y = samples.mill_report.year;
-  t.same([Y.recipe.name, Y.days.map((d) => [d.day, d.batches, norm(d.output_kg)]), Y.batches.length, Y.batches.map((b) => b.note).filter(Boolean)],
-    ['علف بادئ', [[TODAY, 3, '2900']], 3, ['أكملنا الطنّ ببرمكس']],
-    'تقرير السنة للبادئ: يوم واحد بثلاث دفعات مرحَّلة (2,900 كغم)، والملغاة خارجه، والملاحظة مع دفعتها');
-  const mats = Object.fromEntries(Y.materials.map((m) => [m.name, [m.base_unit, norm(m.qty), norm(m.mass_kg), Number(m.value) > 0]]));
+  const M = samples.mill_report.month;
+  t.same([Y.recipe.name, Y.days.map((d) => [d.day, d.batches, norm(d.output_kg)]), Y.batches.length, norm(Y.totals.output_kg), Y.batches.map((b) => b.note).filter(Boolean)],
+    ['علف بادئ', [['2026-09-14', 1, '977.6'], ['2026-10-20', 1, '977.6'], [TODAY, 3, '2900']], 5, '4855.2', ['أكملنا الطنّ ببرمكس']],
+    'تقرير السنة للبادئ: أيلول وتشرين الأوّل بدفعة لكلّ منهما واليوم بثلاث دفعات مرحَّلة (2,900 كغم)، والملغاة خارجه، والملاحظة مع دفعتها');
+  const mats = Object.fromEntries(M.materials.map((m) => [m.name, [m.base_unit, norm(m.qty), norm(m.mass_kg), Number(m.value) > 0]]));
   t.same(mats, {
     'ذرة': ['kg', '1822.4', '1822.4', true],
     'صويا': ['kg', '1050', '1050', true],
     'زيت': ['L', '90', '82.8', true],
     'برمكس': ['kg', '22.4', '22.4', true],
-  }, 'المواد المسحوبة مجموعةً: الذرة (600 + 622.4 + 600) والصويا والزيت باللتر وكتلته، والبرمكس الإضافي، وكلّها بقيمة');
-  t.same([Y.materials.map((m) => m.name), norm(Y.totals.output_kg), Y.totals.batches, Number(Y.totals.total_value) > 0],
+  }, 'المواد المسحوبة في تشرين الثاني مجموعةً: الذرة (600 + 622.4 + 600) والصويا والزيت باللتر وكتلته، والبرمكس الإضافي، وكلّها بقيمة');
+  t.same([M.materials.map((m) => m.name), norm(M.totals.output_kg), M.totals.batches, Number(M.totals.total_value) > 0],
     [['ذرة', 'صويا', 'زيت', 'برمكس'], '2900', 3, true], 'المواد بالكتلة من الأكبر، والمجاميع');
   t.same([year.ok, year.value.totals.total_value === Y.totals.total_value, Boolean(year.value.batches[0].money.cost_per_kg)], [true, true, true],
     'المال في التقرير لكلّ قارئ (كلمة المالك «كلشي مفتوح»): مشغّل المعمل (لا يرى الكلفة في غيره) يراها نفسها');
@@ -255,7 +273,7 @@ async function scenario(t, db) {
   t.same([
     refusal('range_too_long', await call(db, U.owner, REPORT, [R.starter.id, '2026-01-01', '2027-01-02'])).code,
     refusal('bad_range', await call(db, U.owner, REPORT, [R.starter.id, '2026-02-01', '2026-01-01'])).code,
-    (await call(db, U.owner, REPORT, [R.starter.id, null, '2026-01-01'])).code,
+    refusal('date_required', await call(db, U.owner, REPORT, [R.starter.id, null, '2026-01-01'])).code,
     (await call(db, U.owner, REPORT, [R.starter.id, '-infinity', '2026-01-01'])).code,
     (await call(db, U.owner, REPORT, [uid(), '2026-01-01', '2026-01-31'])).code,
   ], ['range_too_long', 'bad_range', 'date_required', 'date_required', 'recipe_not_found'], 'رفض التقرير: أطول من سنة، ومقلوب، وبلا تاريخ، ولا نهائيّ، وعليقة مجهولة');
@@ -324,13 +342,13 @@ async function scenario(t, db) {
     {
       name: 'التقرير بالملغاة',
       fns: [[FN.report, [["where d.org_id = v_org and d.status = 'posted' and", 'where d.org_id = v_org and d.status <> \'draft\' and']]]],
-      run: ({ attempt }) => attempt(U.owner, async (q) => (await q(REPORT, [R.starter.id, '2026-01-01', '2026-12-31'])).rows[0].v.batches.length),
+      run: ({ attempt }) => attempt(U.owner, async (q) => (await q(REPORT, [R.starter.id, '2026-11-01', '2026-11-30'])).rows[0].v.batches.length),
       correct: (r) => r.ok && r.value === 3,
     },
     {
       name: 'التقرير بالمخطّط لا بالفعلي',
       fns: [[FN.report, [['      sum(coalesce(p.actual_qty_base, p.planned_qty_base)) as qty,', '      sum(p.planned_qty_base) as qty,']]]],
-      run: ({ attempt }) => attempt(U.owner, async (q) => norm((await q(REPORT, [R.starter.id, '2026-01-01', '2026-12-31'])).rows[0].v.materials.find((m) => m.name === 'ذرة').qty)),
+      run: ({ attempt }) => attempt(U.owner, async (q) => norm((await q(REPORT, [R.starter.id, '2026-11-01', '2026-11-30'])).rows[0].v.materials.find((m) => m.name === 'ذرة').qty)),
       correct: (r) => r.ok && r.value === '1822.4',
     },
     {
@@ -350,6 +368,11 @@ async function scenario(t, db) {
   t.same(outcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${o.broken}`), [], `الطفرات: ${outcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت`);
 
   if (process.env.MILL3_SAMPLES_OUT) {
+    // stale_preview لا يُستخرج بنداء حتمي (سباقان متتاليان داخل نداء واحد): جملته من نصّ الهجرة نفسه، الموضع الوحيد الذي يرفعها به record_production.
+    const migration = readFileSync(new URL('../migrations/0023_mill_order_produce.sql', import.meta.url), 'utf8');
+    const stale = [...migration.matchAll(/raise exception 'stale_preview' using hint = '([^']+)'/gu)].map((m) => m[1]);
+    if (stale.length !== 1) throw new Error(`stale_preview في 0023: ${stale.length} موضع`);
+    samples.refusals.stale_preview = { code: 'stale_preview', hint: stale[0] };
     writeFileSync(process.env.MILL3_SAMPLES_OUT, `${JSON.stringify({ generated_by: `supabase/tests/mill3.test.mjs (embedded Postgres 17، اليوم المثبَّت ${TODAY})`, ...samples }, null, 2)}\n`);
   }
 }
