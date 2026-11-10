@@ -23,7 +23,8 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { bookLabel, defaultPeriod, DIVISION_FILTER, divisionFilterLabel, PartyDialog, PaymentDialog, SideAmount, type PaymentKind } from './shared';
 
-// صفحة الحسابات (خطّة المرحلة 1 WP3، FOUNDATION ١١٣ و٧٨٨، DECISIONS ٢١–٢٢ و٧٣): بالرأس «لنا عند الناس» و«علينا للناس» لكل
+// صفحة الجهات (/accounts/parties منذ 0024، و/accounts صارت «خلاصة المال»؛ خطّة المرحلة 1 WP3، FOUNDATION ١١٣ و٧٨٨، DECISIONS ٢١–٢٢ و٧٣):
+// بالرأس «لنا عند الناس» و«علينا للناس» لكل
 // وحدة وللمشروع؛ فلتر الوحدة؛ وجدول الجهات بعمود لكل دفتر بالكلمة «عليه» أو «له» دائماً، وعمود «المجموع» للعرض بس، والإجراءات
 // بأوّل عمود والاسم ثابت؛ وصفّا التذييل وعدد «N من المجموع» من دوالّ الخادم، مو من الصفوف المحمّلة (§2.8، الحدّ ألف صفّ). الصفوف
 // صفحات بالمعرّف (report_party_balances)، والبحث بالاسم والهاتف، والترتيب بالأكبر أو بأقدم دين أو بالاسم. الأرقام لحد يوم الخادم
@@ -216,7 +217,7 @@ export default function AccountsPage() {
 
   const header = (
     <PageHeader
-      title={t('nav.accounts', 'الحسابات')}
+      title={t('accounts.parties', 'الجهات')}
       subtitle={t('accounts.subtitle', 'لنا عند الناس وعلينا للناس لكل حساب، بلا مقاصّة بين حسابين.')}
       actions={
         <>
@@ -286,6 +287,10 @@ export default function AccountsPage() {
     <div className="flex flex-col gap-4">
       {header}
       <nav className="flex flex-wrap gap-2" aria-label={t('accounts.nav', 'صفحات الحسابات')}>
+        <Link to="/accounts" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-hub">
+          <Wallet aria-hidden="true" className="size-4" />
+          {t('hub.title', 'خلاصة المال')}
+        </Link>
         <Link to="/accounts/cash" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-4 text-sm font-semibold hover:bg-surface-2" data-action="open-cash">
           <Landmark aria-hidden="true" className="size-4" />
           {t('cash.title', 'الصناديق')}

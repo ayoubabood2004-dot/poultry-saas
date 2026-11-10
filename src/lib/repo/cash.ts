@@ -106,6 +106,9 @@ export interface CashLine {
   moveId: string;
   onDate: Day;
   kind: CashMoveKind;
+  /** مستند الحركة (sale وreceipt وcash_transfer وexpense)، أو null للقبض والدفع والرصيد عند البداية. رابط الرقم منه (0024 §5). */
+  docKind: string | null;
+  docId: string | null;
   docNo: string | null;
   party: string | null;
   note: string | null;
@@ -146,6 +149,8 @@ export function parseCashStatement(value: unknown): CashStatement {
         moveId: str(row, 'move_id'),
         onDate: str(row, 'on_date'),
         kind: kind as CashMoveKind,
+        docKind: optStr(row, 'doc_kind'),
+        docId: optStr(row, 'doc_id'),
         docNo: optStr(row, 'doc_no'),
         party: optStr(row, 'party'),
         note: optStr(row, 'note'),

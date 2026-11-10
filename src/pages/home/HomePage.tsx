@@ -342,6 +342,8 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
       title: t('nav.accounts', 'الحسابات'),
       icon: Wallet,
       metrics: [
+        // النقد كلّه أوّلاً (0024، خلاصة المال): مجموع الصناديق، وبلاه (خادم أقدم) بلا سطر.
+        ...(accounts?.cashTotal !== undefined ? [{ label: t('home.accounts.cash', 'النقد'), kind: 'number' as const, value: fmtMoney(accounts.cashTotal, 0) }] : []),
         { label: t('home.accounts.receivable', 'لنا عند الناس'), kind: 'number', value: accounts ? fmtMoney(accounts.receivable, 0) : null },
         { label: t('home.accounts.payable', 'علينا للناس'), kind: 'number', value: accounts ? fmtMoney(accounts.payable, 0) : null },
         // السالب مسموح بالصندوق ويّا تنبيه ظاهر (Q10): عدد الصناديق بالسالب.
@@ -398,8 +400,9 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     [{ key: 'sale', to: '/sales?new=1', label: t('home.do.sale', 'بِع'), icon: ShoppingCart }, allowed('sale.record')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
-    [{ key: 'payout', to: '/accounts?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],
-    [{ key: 'payment', to: '/accounts?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
+    // نافذتا الدفع والقبض في صفحة الجهات (/accounts/parties منذ 0024: /accounts صارت «خلاصة المال»).
+    [{ key: 'payout', to: '/accounts/parties?new=payout', label: t('home.do.payout', 'دفعت لجهة'), icon: Wallet }, allowed('payment.post', true)],
+    [{ key: 'payment', to: '/accounts/parties?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
     [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف'), icon: Receipt }, allowed('expense.post', true)],
     [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد'), icon: ClipboardCheck }, allowed('count.enter')],
     // إنتاج العلف (0015): لمن يسوّد الدفعة (مشغّل المعمل والمدير والمالك)؛ والمحاسب يرحّل ولا يسوّد، فلا زرّ له.
