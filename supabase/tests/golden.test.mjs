@@ -213,8 +213,9 @@ export default async function (t, db) {
   const wire = await at('2026-10-15', async () => ({
     balances: await one(U.accountant, 'select public.report_party_balances($1, $2, null, true, $3, null, null, 50)', ['2026-01-01', '2026-12-31', 'balance']),
     summary: await one(U.accountant, 'select public.report_accounts_summary($1, $2)', ['2026-01-01', '2026-12-31']),
-    grain: await one(U.accountant, 'select public.report_party_statement($1, null, $2, $3)', [P.grain, '2026-01-01', '2026-12-31']),
-    carrier: await one(U.accountant, 'select public.report_party_statement($1, null, $2, $3)', [P.carrier, '2026-01-01', '2026-12-31']),
+    // الكشف على الشاشة من party_statement_v2 منذ 0024.
+    grain: await one(U.accountant, 'select public.party_statement_v2($1, null, $2, $3)', [P.grain, '2026-01-01', '2026-12-31']),
+    carrier: await one(U.accountant, 'select public.party_statement_v2($1, null, $2, $3)', [P.carrier, '2026-01-01', '2026-12-31']),
   }));
   const parsers = await loadRepoParsers();
   const summary = parsers.parseAccountsSummary(wire.summary);
@@ -225,7 +226,7 @@ export default async function (t, db) {
     'D2: ملخّص الحسابات: المعمل «لنا» 500,000 و«علينا» 3,315,000، وباقي الوحدات صفر، والمشروع مثله',
   );
   const lastBalance = (statementWire) => {
-    const books = parsers.parseStatement(statementWire).books;
+    const books = parsers.parsePartyStatement(statementWire).books;
     const mill = books.find((book) => book.bookId === B.feed_mill);
     return [books.length, mill?.closing / D];
   };
@@ -234,8 +235,9 @@ export default async function (t, db) {
   const m = await bundleAccounts(
     [
       "export { PartiesTable } from './src/pages/accounts/AccountsPage.tsx';",
-      "export { StatementBooks } from './src/pages/accounts/PartyStatementPage.tsx';",
-      "export { parsePartyBalances, parseAccountsSummary, parseStatement } from './src/lib/repo/parties.ts';",
+      "export { StatementSheet } from './src/pages/accounts/statement/StatementSheet.tsx';",
+      "export { parsePartyBalances, parseAccountsSummary } from './src/lib/repo/parties.ts';",
+      "export { parsePartyStatement } from './src/lib/repo/statement.ts';",
     ].join('\n'),
   );
   const saved = { accounts: globalThis.__accounts, document: globalThis.document };
@@ -254,7 +256,8 @@ export default async function (t, db) {
       };
       const millCell = (name) => rowCells(name)[2 + millIndex];
       const foot = section(html, 'tfoot').split('<tr').slice(1).map((row) => [...row.matchAll(/<bdi dir="ltr">([^<]*)<\/bdi>/g)].map((match) => match[1]));
-      const statement = (statementWire) => textOf(m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.StatementBooks, { statement: m.parseStatement(statementWire) }))));
+      const statement = (statementWire) =>
+        textOf(m.renderToStaticMarkup(m.h(m.MemoryRouter, null, m.h(m.StatementSheet, { statement: m.parsePartyStatement(statementWire), bookId: B.feed_mill, mode: 'summary', back: '/accounts/debts' }))));
       return [
         millCell('مورّد الحبوب'),
         millCell('الناقل'),
@@ -263,8 +266,8 @@ export default async function (t, db) {
         foot[0]?.at(-1),
         foot[1]?.[millIndex],
         foot[1]?.at(-1),
-        statement(wire.grain).includes('له3,250,000'),
-        statement(wire.carrier).includes('له65,000'),
+        statement(wire.grain).includes('الرصيد الختامي: 3,250,000 دينار له'),
+        statement(wire.carrier).includes('الرصيد الختامي: 65,000 دينار له'),
       ];
     };
     const expected = ['له3,250,000', 'له65,000', 'عليه500,000', '500,000', '500,000', '3,315,000', '3,315,000', true, true];

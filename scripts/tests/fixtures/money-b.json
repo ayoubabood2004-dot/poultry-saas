@@ -14,7 +14,7 @@
           },
           "cells": [
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "200000"
             }
           ],
@@ -24,7 +24,7 @@
           "version": 1,
           "age_days": 120,
           "archived": false,
-          "party_id": "2a9ee83c-9d5a-4bc2-9fcd-85effaff4d8e",
+          "party_id": "bd4953f1-fdee-4448-8020-01ff39998d22",
           "last_move": {
             "kind": "payment",
             "doc_no": "RC-2026-0001",
@@ -37,7 +37,7 @@
             "amount": "100000",
             "doc_no": "RC-2026-0001",
             "on_date": "2026-09-11",
-            "entry_id": "d748b040-2596-47f9-80e0-bee0e618c122"
+            "entry_id": "caa6eb45-16db-4d16-8a32-0d7e6c8bab47"
           }
         },
         {
@@ -50,11 +50,11 @@
           },
           "cells": [
             {
-              "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
+              "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
               "closing": "80000"
             },
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "-60000"
             }
           ],
@@ -64,7 +64,7 @@
           "version": 1,
           "age_days": 45,
           "archived": false,
-          "party_id": "d2186022-cf38-4c9a-bdc5-2556578b8916",
+          "party_id": "54e276c8-6d1d-4b4e-ba80-4f6ba53ba5d2",
           "last_move": {
             "kind": "opening",
             "doc_no": null,
@@ -85,7 +85,7 @@
           },
           "cells": [
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "50000"
             }
           ],
@@ -95,7 +95,7 @@
           "version": 1,
           "age_days": 3,
           "archived": false,
-          "party_id": "7fb2e79e-b298-42d6-9664-9744032dc202",
+          "party_id": "140d4480-8269-42a3-a3e2-5b68077ffb98",
           "last_move": {
             "kind": "payment",
             "doc_no": "RC-2026-0003",
@@ -108,7 +108,7 @@
             "amount": "150000",
             "doc_no": "RC-2026-0002",
             "on_date": "2026-11-09",
-            "entry_id": "6801568a-b4b3-40e1-9a24-d5f4da5d4e53"
+            "entry_id": "1979a573-ea43-4872-9eaf-2cb85fa4de97"
           }
         }
       ],
@@ -117,50 +117,50 @@
         {
           "code": "main",
           "name": "دفتر حقول اللحم",
-          "book_id": "6950070e-5174-47f4-8298-e70b1bac1c38",
-          "division_id": "755d8be0-7d09-4e27-9a90-9cafe81fb55a",
+          "book_id": "c7e579e2-e6c3-4040-aef8-96fb33d03c66",
+          "division_id": "725a17c6-6bd7-4c1e-b6a8-f9ac96855780",
           "division_kind": "broiler"
         },
         {
           "code": "main",
           "name": "دفتر معمل العلف",
-          "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
-          "division_id": "36c038d5-bffc-44c0-88bc-bfc642e80717",
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
           "division_kind": "feed_mill"
         },
         {
           "code": "main",
           "name": "دفتر المخازن العامة",
-          "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
-          "division_id": "746f0aa3-3846-4c14-81bb-6b2b1429ac40",
+          "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
+          "division_id": "7308d609-8540-402c-bb8a-c7000eb88ba8",
           "division_kind": "general"
         },
         {
           "code": "chicks",
           "name": "دفتر الأفراخ",
-          "book_id": "4f696164-c6ce-4b8a-8a4c-6abc7f257490",
-          "division_id": "fc1e14f3-6e70-4a05-a3b1-6ba7223c4008",
+          "book_id": "c94810c1-18d2-46eb-8425-7cb6e95f6666",
+          "division_id": "53b1d84a-968f-4a15-81d3-745f49e9748d",
           "division_kind": "hatchery"
         },
         {
           "code": "hatching_eggs",
           "name": "دفتر بيض التفقيس",
-          "book_id": "d29db109-1329-439b-8bfb-bcaffbfc80a0",
-          "division_id": "fc1e14f3-6e70-4a05-a3b1-6ba7223c4008",
+          "book_id": "ed33ed8c-6e2b-43ad-9130-b7879e0e3770",
+          "division_id": "53b1d84a-968f-4a15-81d3-745f49e9748d",
           "division_kind": "hatchery"
         },
         {
           "code": "main",
           "name": "دفتر حقول البيض",
-          "book_id": "d3c741df-3cce-48ca-9199-9bdfdf84afae",
-          "division_id": "eef49062-db42-433c-90b5-737a2afc70a6",
+          "book_id": "9968a527-7177-48cd-8131-200927119d99",
+          "division_id": "65769c64-a2af-4200-94df-e2dfd66bb4af",
           "division_kind": "layer"
         },
         {
           "code": "main",
           "name": "دفتر مخزن الأدوية",
-          "book_id": "a035bb4f-31c2-4e52-b6e5-7177a63e867f",
-          "division_id": "038f28bf-f133-4d65-a44b-1cc0b14af7e9",
+          "book_id": "3bbe20c8-00a7-4fe6-a0e4-dd7504cb7016",
+          "division_id": "5c540eb0-c20c-41bd-8d30-73e673e8adbd",
           "division_kind": "medicine"
         }
       ],
@@ -189,11 +189,11 @@
           },
           "cells": [
             {
-              "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
+              "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
               "closing": "-150000"
             },
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "-635000"
             }
           ],
@@ -203,7 +203,7 @@
           "version": 1,
           "age_days": 40,
           "archived": false,
-          "party_id": "e90fd769-47d1-4b8c-9fd4-ecb62c6aa9f6",
+          "party_id": "71904d07-dbf7-42a2-b945-e6ec64214cbc",
           "last_move": {
             "kind": "purchase",
             "doc_no": "PU-2026-0002",
@@ -216,7 +216,7 @@
             "amount": "300000",
             "doc_no": "PY-2026-0001",
             "on_date": "2026-10-21",
-            "entry_id": "7b03d388-1b04-4529-a3cb-520df6eb5182"
+            "entry_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f"
           }
         },
         {
@@ -229,11 +229,11 @@
           },
           "cells": [
             {
-              "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
+              "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
               "closing": "-40000"
             },
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "-30000"
             }
           ],
@@ -243,7 +243,7 @@
           "version": 1,
           "age_days": 40,
           "archived": false,
-          "party_id": "06eedc24-c942-4698-9004-93fca66d459c",
+          "party_id": "09bada7e-bc42-4768-ad85-26088dfbac73",
           "last_move": {
             "kind": "bill",
             "doc_no": null,
@@ -264,11 +264,11 @@
           },
           "cells": [
             {
-              "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
+              "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
               "closing": "80000"
             },
             {
-              "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+              "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
               "closing": "-60000"
             }
           ],
@@ -278,7 +278,7 @@
           "version": 1,
           "age_days": 45,
           "archived": false,
-          "party_id": "d2186022-cf38-4c9a-bdc5-2556578b8916",
+          "party_id": "54e276c8-6d1d-4b4e-ba80-4f6ba53ba5d2",
           "last_move": {
             "kind": "opening",
             "doc_no": null,
@@ -295,50 +295,50 @@
         {
           "code": "main",
           "name": "دفتر حقول اللحم",
-          "book_id": "6950070e-5174-47f4-8298-e70b1bac1c38",
-          "division_id": "755d8be0-7d09-4e27-9a90-9cafe81fb55a",
+          "book_id": "c7e579e2-e6c3-4040-aef8-96fb33d03c66",
+          "division_id": "725a17c6-6bd7-4c1e-b6a8-f9ac96855780",
           "division_kind": "broiler"
         },
         {
           "code": "main",
           "name": "دفتر معمل العلف",
-          "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
-          "division_id": "36c038d5-bffc-44c0-88bc-bfc642e80717",
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
           "division_kind": "feed_mill"
         },
         {
           "code": "main",
           "name": "دفتر المخازن العامة",
-          "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
-          "division_id": "746f0aa3-3846-4c14-81bb-6b2b1429ac40",
+          "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
+          "division_id": "7308d609-8540-402c-bb8a-c7000eb88ba8",
           "division_kind": "general"
         },
         {
           "code": "chicks",
           "name": "دفتر الأفراخ",
-          "book_id": "4f696164-c6ce-4b8a-8a4c-6abc7f257490",
-          "division_id": "fc1e14f3-6e70-4a05-a3b1-6ba7223c4008",
+          "book_id": "c94810c1-18d2-46eb-8425-7cb6e95f6666",
+          "division_id": "53b1d84a-968f-4a15-81d3-745f49e9748d",
           "division_kind": "hatchery"
         },
         {
           "code": "hatching_eggs",
           "name": "دفتر بيض التفقيس",
-          "book_id": "d29db109-1329-439b-8bfb-bcaffbfc80a0",
-          "division_id": "fc1e14f3-6e70-4a05-a3b1-6ba7223c4008",
+          "book_id": "ed33ed8c-6e2b-43ad-9130-b7879e0e3770",
+          "division_id": "53b1d84a-968f-4a15-81d3-745f49e9748d",
           "division_kind": "hatchery"
         },
         {
           "code": "main",
           "name": "دفتر حقول البيض",
-          "book_id": "d3c741df-3cce-48ca-9199-9bdfdf84afae",
-          "division_id": "eef49062-db42-433c-90b5-737a2afc70a6",
+          "book_id": "9968a527-7177-48cd-8131-200927119d99",
+          "division_id": "65769c64-a2af-4200-94df-e2dfd66bb4af",
           "division_kind": "layer"
         },
         {
           "code": "main",
           "name": "دفتر مخزن الأدوية",
-          "book_id": "a035bb4f-31c2-4e52-b6e5-7177a63e867f",
-          "division_id": "038f28bf-f133-4d65-a44b-1cc0b14af7e9",
+          "book_id": "3bbe20c8-00a7-4fe6-a0e4-dd7504cb7016",
+          "division_id": "5c540eb0-c20c-41bd-8d30-73e673e8adbd",
           "division_kind": "medicine"
         }
       ],
@@ -386,7 +386,7 @@
                   {
                     "qty": "2000",
                     "amount": "900000",
-                    "item_id": "4384bce2-9770-41f5-9312-af87ae3ad2ac",
+                    "item_id": "80ab13e9-8632-4754-81da-1baf38bf0b71",
                     "line_no": 1,
                     "item_name": "ذرة صفراء",
                     "unit_label": "kg",
@@ -395,18 +395,18 @@
                   {
                     "qty": "500",
                     "amount": "600000",
-                    "item_id": "3c5439a0-32e3-40c1-957b-09b4b72c97be",
+                    "item_id": "035ec960-dfd1-48b5-9118-c083016173cd",
                     "line_no": 2,
                     "item_name": "كسبة صويا",
                     "unit_label": "kg",
                     "unit_price": "1200.00"
                   }
                 ],
-                "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                 "doc_no": "PU-2026-0001",
                 "status": "posted",
                 "account": {
-                  "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                   "name": "الصندوق الرئيسي"
                 },
                 "charges": [
@@ -424,20 +424,20 @@
                 "discount": "20000",
                 "paid_now": "500000",
                 "warehouse": {
-                  "id": "671d3b06-dc48-45cb-b680-33b24f4e0039",
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
                   "name": "مخزن المواد الأوّلية"
                 },
                 "lines_total": "1500000",
                 "received_on": "2026-10-01"
               },
-              "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
               "doc_no": "PU-2026-0001",
               "reason": null,
               "account": null,
               "balance": "-1480000",
               "on_date": "2026-10-01",
               "doc_kind": "receipt",
-              "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba",
+              "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -445,11 +445,11 @@
                 {
                   "kind": "payout",
                   "amount": "500000",
-                  "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                   "doc_no": "PU-2026-0001",
                   "on_date": "2026-10-01",
                   "doc_kind": "receipt",
-                  "entry_id": "5cc68fab-7b22-4ba4-9004-0b6729163b33"
+                  "entry_id": "94c9564e-249d-410a-ab2c-8e0a08f3b7cf"
                 },
                 {
                   "kind": "payout",
@@ -458,16 +458,16 @@
                   "doc_no": "PY-2026-0001",
                   "on_date": "2026-10-21",
                   "doc_kind": null,
-                  "entry_id": "7b03d388-1b04-4529-a3cb-520df6eb5182"
+                  "entry_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f"
                 },
                 {
                   "kind": "supplier_return",
                   "amount": "45000",
-                  "doc_id": "928324e3-a23e-4683-97c9-e97917d1135d",
+                  "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
                   "doc_no": "RT-2026-0001",
                   "on_date": "2026-10-31",
                   "doc_kind": "supplier_return",
-                  "entry_id": "c0bf53de-c370-4159-91cb-2791b8525db5"
+                  "entry_id": "af9553a4-9f57-4e29-a579-61fa662fa0c1"
                 }
               ],
               "unallocated": "635000"
@@ -479,24 +479,24 @@
               "credit": "0",
               "detail": {
                 "type": "purchase_payment",
-                "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                 "doc_no": "PU-2026-0001",
                 "account": {
-                  "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                   "name": "الصندوق الرئيسي"
                 }
               },
-              "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
               "doc_no": "PU-2026-0001",
               "reason": null,
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "-980000",
               "on_date": "2026-10-01",
               "doc_kind": "receipt",
-              "entry_id": "5cc68fab-7b22-4ba4-9004-0b6729163b33",
+              "entry_id": "94c9564e-249d-410a-ab2c-8e0a08f3b7cf",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -504,11 +504,11 @@
                 {
                   "kind": "purchase",
                   "amount": "500000",
-                  "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                   "doc_no": "PU-2026-0001",
                   "on_date": "2026-10-01",
                   "doc_kind": "receipt",
-                  "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba"
+                  "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
                 }
               ],
               "unallocated": "0"
@@ -523,25 +523,25 @@
               "doc_no": "PY-2026-0001",
               "reason": null,
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "-680000",
               "on_date": "2026-10-21",
               "doc_kind": null,
-              "entry_id": "7b03d388-1b04-4529-a3cb-520df6eb5182",
+              "entry_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f",
               "reversed": false,
               "reverses": null,
-              "voucher_id": "7b03d388-1b04-4529-a3cb-520df6eb5182",
+              "voucher_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f",
               "allocations": [
                 {
                   "kind": "purchase",
                   "amount": "300000",
-                  "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                   "doc_no": "PU-2026-0001",
                   "on_date": "2026-10-01",
                   "doc_kind": "receipt",
-                  "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba"
+                  "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
                 }
               ],
               "unallocated": "0"
@@ -557,32 +557,32 @@
                   {
                     "qty": "100",
                     "amount": "45000",
-                    "item_id": "4384bce2-9770-41f5-9312-af87ae3ad2ac",
+                    "item_id": "80ab13e9-8632-4754-81da-1baf38bf0b71",
                     "line_no": 1,
                     "base_unit": "kg",
                     "item_name": "ذرة صفراء"
                   }
                 ],
                 "total": "45000",
-                "doc_id": "928324e3-a23e-4683-97c9-e97917d1135d",
+                "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
                 "doc_no": "RT-2026-0001",
                 "status": "posted",
                 "warehouse": {
-                  "id": "671d3b06-dc48-45cb-b680-33b24f4e0039",
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
                   "name": "مخزن المواد الأوّلية"
                 },
-                "receipt_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                "receipt_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                 "returned_on": "2026-10-31",
                 "receipt_doc_no": "PU-2026-0001"
               },
-              "doc_id": "928324e3-a23e-4683-97c9-e97917d1135d",
+              "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
               "doc_no": "RT-2026-0001",
               "reason": null,
               "account": null,
               "balance": "-635000",
               "on_date": "2026-10-31",
               "doc_kind": "supplier_return",
-              "entry_id": "c0bf53de-c370-4159-91cb-2791b8525db5",
+              "entry_id": "af9553a4-9f57-4e29-a579-61fa662fa0c1",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -590,34 +590,34 @@
                 {
                   "kind": "purchase",
                   "amount": "45000",
-                  "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
                   "doc_no": "PU-2026-0001",
                   "on_date": "2026-10-01",
                   "doc_kind": "receipt",
-                  "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba"
+                  "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
                 }
               ],
               "unallocated": "0"
             }
           ],
-          "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
           "closing": "-635000",
           "open_items": [
             {
               "kind": "purchase",
               "side": "credit",
               "amount": "1480000",
-              "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
               "doc_no": "PU-2026-0001",
               "on_date": "2026-10-01",
               "settled": "845000",
               "age_days": 40,
               "doc_kind": "receipt",
-              "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba",
+              "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547",
               "remaining": "635000"
             }
           ],
-          "division_id": "36c038d5-bffc-44c0-88bc-bfc642e80717",
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
           "total_debit": "845000",
           "total_credit": "1480000",
           "division_kind": "feed_mill",
@@ -647,19 +647,19 @@
                 "item_name": "كاز",
                 "new_total": "150000",
                 "old_total": "0",
-                "receipt_id": "dd8294cc-0356-40fe-baed-84f876cf530c",
+                "receipt_id": "1ddb46a5-0948-4b71-8ac9-8b6349848b33",
                 "unit_label": "L",
                 "unit_price": "1500",
                 "receipt_doc_no": "PU-2026-0002"
               },
-              "doc_id": "c212d7f8-3a10-453c-87dd-daadfe9adc72",
+              "doc_id": "2a60d261-61db-477d-a61c-c53750923a1c",
               "doc_no": "PU-2026-0002",
               "reason": "سعر الشراء PU-2026-0002 أُكمل لاحقاً",
               "account": null,
               "balance": "-150000",
               "on_date": "2026-11-05",
               "doc_kind": "receipt_revalue",
-              "entry_id": "5b9bd912-e8e2-4f03-96b9-40f0876d4c12",
+              "entry_id": "1dfda108-2cd3-4bbd-9227-07bfd0861b6f",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -667,24 +667,24 @@
               "unallocated": "150000"
             }
           ],
-          "book_id": "831ed4d0-dce9-4dcf-8bac-5a65adeb0008",
+          "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
           "closing": "-150000",
           "open_items": [
             {
               "kind": "purchase",
               "side": "credit",
               "amount": "150000",
-              "doc_id": "c212d7f8-3a10-453c-87dd-daadfe9adc72",
+              "doc_id": "2a60d261-61db-477d-a61c-c53750923a1c",
               "doc_no": "PU-2026-0002",
               "on_date": "2026-11-05",
               "settled": "0",
               "age_days": 5,
               "doc_kind": "receipt_revalue",
-              "entry_id": "5b9bd912-e8e2-4f03-96b9-40f0876d4c12",
+              "entry_id": "1dfda108-2cd3-4bbd-9227-07bfd0861b6f",
               "remaining": "150000"
             }
           ],
-          "division_id": "746f0aa3-3846-4c14-81bb-6b2b1429ac40",
+          "division_id": "7308d609-8540-402c-bb8a-c7000eb88ba8",
           "total_debit": "0",
           "total_credit": "150000",
           "division_kind": "general",
@@ -692,7 +692,7 @@
         }
       ],
       "party": {
-        "id": "e90fd769-47d1-4b8c-9fd4-ecb62c6aa9f6",
+        "id": "71904d07-dbf7-42a2-b945-e6ec64214cbc",
         "name": "مورّد الذرة",
         "phone": "07701234567",
         "version": 1,
@@ -731,7 +731,7 @@
                   {
                     "qty": "100",
                     "amount": "100000",
-                    "item_id": "4384bce2-9770-41f5-9312-af87ae3ad2ac",
+                    "item_id": "80ab13e9-8632-4754-81da-1baf38bf0b71",
                     "line_no": 1,
                     "base_unit": "kg",
                     "item_name": "ذرة صفراء",
@@ -739,28 +739,28 @@
                   }
                 ],
                 "total": "100000",
-                "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+                "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
                 "doc_no": "MS-2026-0001",
                 "status": "posted",
                 "account": {
-                  "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                   "name": "الصندوق الرئيسي"
                 },
                 "payment": "cash",
                 "sold_on": "2026-11-05",
                 "warehouse": {
-                  "id": "671d3b06-dc48-45cb-b680-33b24f4e0039",
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
                   "name": "مخزن المواد الأوّلية"
                 }
               },
-              "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+              "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
               "doc_no": "MS-2026-0001",
               "reason": null,
               "account": null,
               "balance": "100000",
               "on_date": "2026-11-05",
               "doc_kind": "sale",
-              "entry_id": "1f85173a-b485-4509-99de-6b13479ef1d9",
+              "entry_id": "026ab7ae-c572-4da1-8e78-7a5e0a5f41f4",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -768,11 +768,11 @@
                 {
                   "kind": "payment",
                   "amount": "100000",
-                  "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+                  "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
                   "doc_no": "MS-2026-0001",
                   "on_date": "2026-11-05",
                   "doc_kind": "sale",
-                  "entry_id": "4e31b3c0-12c8-44f5-8a92-4ea06a5268fc"
+                  "entry_id": "766abd5b-3f83-467e-89df-af0841f98350"
                 }
               ],
               "unallocated": "0"
@@ -784,24 +784,24 @@
               "credit": "100000",
               "detail": {
                 "type": "sale_payment",
-                "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+                "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
                 "doc_no": "MS-2026-0001",
                 "account": {
-                  "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                   "name": "الصندوق الرئيسي"
                 }
               },
-              "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+              "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
               "doc_no": "MS-2026-0001",
               "reason": null,
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "0",
               "on_date": "2026-11-05",
               "doc_kind": "sale",
-              "entry_id": "4e31b3c0-12c8-44f5-8a92-4ea06a5268fc",
+              "entry_id": "766abd5b-3f83-467e-89df-af0841f98350",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -809,11 +809,11 @@
                 {
                   "kind": "invoice",
                   "amount": "100000",
-                  "doc_id": "c744bf4e-3cfd-4016-8aa8-046f89487164",
+                  "doc_id": "1b85d4a4-ee1a-4f45-87b3-d7a11a848719",
                   "doc_no": "MS-2026-0001",
                   "on_date": "2026-11-05",
                   "doc_kind": "sale",
-                  "entry_id": "1f85173a-b485-4509-99de-6b13479ef1d9"
+                  "entry_id": "026ab7ae-c572-4da1-8e78-7a5e0a5f41f4"
                 }
               ],
               "unallocated": "0"
@@ -829,7 +829,7 @@
                   {
                     "qty": "100",
                     "amount": "200000",
-                    "item_id": "3c5439a0-32e3-40c1-957b-09b4b72c97be",
+                    "item_id": "035ec960-dfd1-48b5-9118-c083016173cd",
                     "line_no": 1,
                     "base_unit": "kg",
                     "item_name": "كسبة صويا",
@@ -837,25 +837,25 @@
                   }
                 ],
                 "total": "200000",
-                "doc_id": "44063eb6-a148-4672-8484-4867969cf7c9",
+                "doc_id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
                 "doc_no": "MS-2026-0002",
                 "status": "posted",
                 "account": null,
                 "payment": "credit",
                 "sold_on": "2026-11-07",
                 "warehouse": {
-                  "id": "671d3b06-dc48-45cb-b680-33b24f4e0039",
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
                   "name": "مخزن المواد الأوّلية"
                 }
               },
-              "doc_id": "44063eb6-a148-4672-8484-4867969cf7c9",
+              "doc_id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
               "doc_no": "MS-2026-0002",
               "reason": null,
               "account": null,
               "balance": "200000",
               "on_date": "2026-11-07",
               "doc_kind": "sale",
-              "entry_id": "6dd1d1e3-2fea-4722-8d17-9eec27e3c530",
+              "entry_id": "2db77ef1-3247-4797-8a57-8934fc714d40",
               "reversed": false,
               "reverses": null,
               "voucher_id": null,
@@ -867,7 +867,7 @@
                   "doc_no": "RC-2026-0002",
                   "on_date": "2026-11-09",
                   "doc_kind": null,
-                  "entry_id": "6801568a-b4b3-40e1-9a24-d5f4da5d4e53"
+                  "entry_id": "1979a573-ea43-4872-9eaf-2cb85fa4de97"
                 }
               ],
               "unallocated": "50000"
@@ -882,25 +882,25 @@
               "doc_no": "RC-2026-0002",
               "reason": null,
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "50000",
               "on_date": "2026-11-09",
               "doc_kind": null,
-              "entry_id": "6801568a-b4b3-40e1-9a24-d5f4da5d4e53",
+              "entry_id": "1979a573-ea43-4872-9eaf-2cb85fa4de97",
               "reversed": false,
               "reverses": null,
-              "voucher_id": "6801568a-b4b3-40e1-9a24-d5f4da5d4e53",
+              "voucher_id": "1979a573-ea43-4872-9eaf-2cb85fa4de97",
               "allocations": [
                 {
                   "kind": "invoice",
                   "amount": "150000",
-                  "doc_id": "44063eb6-a148-4672-8484-4867969cf7c9",
+                  "doc_id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
                   "doc_no": "MS-2026-0002",
                   "on_date": "2026-11-07",
                   "doc_kind": "sale",
-                  "entry_id": "6dd1d1e3-2fea-4722-8d17-9eec27e3c530"
+                  "entry_id": "2db77ef1-3247-4797-8a57-8934fc714d40"
                 }
               ],
               "unallocated": "0"
@@ -915,16 +915,16 @@
               "doc_no": "RC-2026-0003",
               "reason": null,
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "30000",
               "on_date": "2026-11-10",
               "doc_kind": null,
-              "entry_id": "7f5f0ab2-bfce-4407-bdaa-d6475a7bad5b",
+              "entry_id": "b2e73079-f71f-426b-bcc8-5b1e3500863a",
               "reversed": true,
               "reverses": null,
-              "voucher_id": "7f5f0ab2-bfce-4407-bdaa-d6475a7bad5b",
+              "voucher_id": "b2e73079-f71f-426b-bcc8-5b1e3500863a",
               "allocations": [],
               "unallocated": "0"
             },
@@ -938,38 +938,38 @@
               "doc_no": "RC-2026-0003",
               "reason": "قبض مكرّر",
               "account": {
-                "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
                 "name": "الصندوق الرئيسي"
               },
               "balance": "50000",
               "on_date": "2026-11-10",
               "doc_kind": null,
-              "entry_id": "7fa03f8b-3516-45e1-9491-786334439608",
+              "entry_id": "c20d5554-89fd-4534-8b03-a5b90bdc31dc",
               "reversed": false,
-              "reverses": "7f5f0ab2-bfce-4407-bdaa-d6475a7bad5b",
-              "voucher_id": "7f5f0ab2-bfce-4407-bdaa-d6475a7bad5b",
+              "reverses": "b2e73079-f71f-426b-bcc8-5b1e3500863a",
+              "voucher_id": "b2e73079-f71f-426b-bcc8-5b1e3500863a",
               "allocations": [],
               "unallocated": "0"
             }
           ],
-          "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
           "closing": "50000",
           "open_items": [
             {
               "kind": "invoice",
               "side": "debit",
               "amount": "200000",
-              "doc_id": "44063eb6-a148-4672-8484-4867969cf7c9",
+              "doc_id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
               "doc_no": "MS-2026-0002",
               "on_date": "2026-11-07",
               "settled": "150000",
               "age_days": 3,
               "doc_kind": "sale",
-              "entry_id": "6dd1d1e3-2fea-4722-8d17-9eec27e3c530",
+              "entry_id": "2db77ef1-3247-4797-8a57-8934fc714d40",
               "remaining": "50000"
             }
           ],
-          "division_id": "36c038d5-bffc-44c0-88bc-bfc642e80717",
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
           "total_debit": "320000",
           "total_credit": "270000",
           "division_kind": "feed_mill",
@@ -977,13 +977,347 @@
         }
       ],
       "party": {
-        "id": "7fb2e79e-b298-42d6-9664-9744032dc202",
+        "id": "140d4480-8269-42a3-a3e2-5b68077ffb98",
         "name": "زبون الدجاج",
         "phone": "07809876543",
         "version": 1,
         "archived": false,
         "is_customer": true,
         "is_supplier": false
+      },
+      "today": "2026-11-10"
+    },
+    "supplier_past": {
+      "to": "2026-10-15",
+      "org": {
+        "name": "منشأة المال"
+      },
+      "from": "2026-09-26",
+      "books": [
+        {
+          "code": "main",
+          "name": "دفتر معمل العلف",
+          "aging": {
+            "side": "credit",
+            "d0_30": "0",
+            "d31_60": "635000",
+            "d61_90": "0",
+            "d91_plus": "0"
+          },
+          "lines": [
+            {
+              "seq": "1",
+              "kind": "purchase",
+              "debit": "0",
+              "credit": "1480000",
+              "detail": {
+                "net": "1480000",
+                "type": "purchase",
+                "lines": [
+                  {
+                    "qty": "2000",
+                    "amount": "900000",
+                    "item_id": "80ab13e9-8632-4754-81da-1baf38bf0b71",
+                    "line_no": 1,
+                    "item_name": "ذرة صفراء",
+                    "unit_label": "kg",
+                    "unit_price": "450.00"
+                  },
+                  {
+                    "qty": "500",
+                    "amount": "600000",
+                    "item_id": "035ec960-dfd1-48b5-9118-c083016173cd",
+                    "line_no": 2,
+                    "item_name": "كسبة صويا",
+                    "unit_label": "kg",
+                    "unit_price": "1200.00"
+                  }
+                ],
+                "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                "doc_no": "PU-2026-0001",
+                "status": "posted",
+                "account": {
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
+                  "name": "الصندوق الرئيسي"
+                },
+                "charges": [
+                  {
+                    "paid": "party",
+                    "label": "نقل",
+                    "amount": "30000"
+                  },
+                  {
+                    "paid": "cash",
+                    "label": "تحميل",
+                    "amount": "10000"
+                  }
+                ],
+                "discount": "20000",
+                "paid_now": "500000",
+                "warehouse": {
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
+                  "name": "مخزن المواد الأوّلية"
+                },
+                "lines_total": "1500000",
+                "received_on": "2026-10-01"
+              },
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+              "doc_no": "PU-2026-0001",
+              "reason": null,
+              "account": null,
+              "balance": "-1480000",
+              "on_date": "2026-10-01",
+              "doc_kind": "receipt",
+              "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547",
+              "reversed": false,
+              "reverses": null,
+              "voucher_id": null,
+              "allocations": [
+                {
+                  "kind": "payout",
+                  "amount": "500000",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                  "doc_no": "PU-2026-0001",
+                  "on_date": "2026-10-01",
+                  "doc_kind": "receipt",
+                  "entry_id": "94c9564e-249d-410a-ab2c-8e0a08f3b7cf"
+                },
+                {
+                  "kind": "payout",
+                  "amount": "300000",
+                  "doc_id": null,
+                  "doc_no": "PY-2026-0001",
+                  "on_date": "2026-10-21",
+                  "doc_kind": null,
+                  "entry_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f"
+                },
+                {
+                  "kind": "supplier_return",
+                  "amount": "45000",
+                  "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
+                  "doc_no": "RT-2026-0001",
+                  "on_date": "2026-10-31",
+                  "doc_kind": "supplier_return",
+                  "entry_id": "af9553a4-9f57-4e29-a579-61fa662fa0c1"
+                }
+              ],
+              "unallocated": "635000"
+            },
+            {
+              "seq": "2",
+              "kind": "payout",
+              "debit": "500000",
+              "credit": "0",
+              "detail": {
+                "type": "purchase_payment",
+                "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                "doc_no": "PU-2026-0001",
+                "account": {
+                  "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
+                  "name": "الصندوق الرئيسي"
+                }
+              },
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+              "doc_no": "PU-2026-0001",
+              "reason": null,
+              "account": {
+                "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
+                "name": "الصندوق الرئيسي"
+              },
+              "balance": "-980000",
+              "on_date": "2026-10-01",
+              "doc_kind": "receipt",
+              "entry_id": "94c9564e-249d-410a-ab2c-8e0a08f3b7cf",
+              "reversed": false,
+              "reverses": null,
+              "voucher_id": null,
+              "allocations": [
+                {
+                  "kind": "purchase",
+                  "amount": "500000",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                  "doc_no": "PU-2026-0001",
+                  "on_date": "2026-10-01",
+                  "doc_kind": "receipt",
+                  "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
+                }
+              ],
+              "unallocated": "0"
+            }
+          ],
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
+          "closing": "-980000",
+          "open_items": [
+            {
+              "kind": "purchase",
+              "side": "credit",
+              "amount": "1480000",
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+              "doc_no": "PU-2026-0001",
+              "on_date": "2026-10-01",
+              "settled": "845000",
+              "age_days": 40,
+              "doc_kind": "receipt",
+              "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547",
+              "remaining": "635000"
+            }
+          ],
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
+          "total_debit": "500000",
+          "total_credit": "1480000",
+          "division_kind": "feed_mill",
+          "brought_forward": "0"
+        },
+        {
+          "code": "main",
+          "name": "دفتر المخازن العامة",
+          "aging": {
+            "side": "credit",
+            "d0_30": "150000",
+            "d31_60": "0",
+            "d61_90": "0",
+            "d91_plus": "0"
+          },
+          "lines": [],
+          "book_id": "d1d464e6-9be8-417a-85f3-5bbb8a5d5c5b",
+          "closing": "0",
+          "open_items": [
+            {
+              "kind": "purchase",
+              "side": "credit",
+              "amount": "150000",
+              "doc_id": "2a60d261-61db-477d-a61c-c53750923a1c",
+              "doc_no": "PU-2026-0002",
+              "on_date": "2026-11-05",
+              "settled": "0",
+              "age_days": 5,
+              "doc_kind": "receipt_revalue",
+              "entry_id": "1dfda108-2cd3-4bbd-9227-07bfd0861b6f",
+              "remaining": "150000"
+            }
+          ],
+          "division_id": "7308d609-8540-402c-bb8a-c7000eb88ba8",
+          "total_debit": "0",
+          "total_credit": "0",
+          "division_kind": "general",
+          "brought_forward": "0"
+        }
+      ],
+      "party": {
+        "id": "71904d07-dbf7-42a2-b945-e6ec64214cbc",
+        "name": "مورّد الذرة",
+        "phone": "07701234567",
+        "version": 1,
+        "archived": false,
+        "is_customer": false,
+        "is_supplier": true
+      },
+      "today": "2026-11-10"
+    },
+    "supplier_since": {
+      "to": "2026-11-10",
+      "org": {
+        "name": "منشأة المال"
+      },
+      "from": "2026-10-26",
+      "books": [
+        {
+          "code": "main",
+          "name": "دفتر معمل العلف",
+          "aging": {
+            "side": "credit",
+            "d0_30": "0",
+            "d31_60": "635000",
+            "d61_90": "0",
+            "d91_plus": "0"
+          },
+          "lines": [
+            {
+              "seq": "4",
+              "kind": "supplier_return",
+              "debit": "45000",
+              "credit": "0",
+              "detail": {
+                "type": "supplier_return",
+                "lines": [
+                  {
+                    "qty": "100",
+                    "amount": "45000",
+                    "item_id": "80ab13e9-8632-4754-81da-1baf38bf0b71",
+                    "line_no": 1,
+                    "base_unit": "kg",
+                    "item_name": "ذرة صفراء"
+                  }
+                ],
+                "total": "45000",
+                "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
+                "doc_no": "RT-2026-0001",
+                "status": "posted",
+                "warehouse": {
+                  "id": "0f73e4ce-187e-475c-a941-4519291d1af6",
+                  "name": "مخزن المواد الأوّلية"
+                },
+                "receipt_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                "returned_on": "2026-10-31",
+                "receipt_doc_no": "PU-2026-0001"
+              },
+              "doc_id": "c58158fc-5c88-4d88-a5ba-2194c4e9dc68",
+              "doc_no": "RT-2026-0001",
+              "reason": null,
+              "account": null,
+              "balance": "-635000",
+              "on_date": "2026-10-31",
+              "doc_kind": "supplier_return",
+              "entry_id": "af9553a4-9f57-4e29-a579-61fa662fa0c1",
+              "reversed": false,
+              "reverses": null,
+              "voucher_id": null,
+              "allocations": [
+                {
+                  "kind": "purchase",
+                  "amount": "45000",
+                  "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+                  "doc_no": "PU-2026-0001",
+                  "on_date": "2026-10-01",
+                  "doc_kind": "receipt",
+                  "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
+                }
+              ],
+              "unallocated": "0"
+            }
+          ],
+          "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
+          "closing": "-635000",
+          "open_items": [
+            {
+              "kind": "purchase",
+              "side": "credit",
+              "amount": "1480000",
+              "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
+              "doc_no": "PU-2026-0001",
+              "on_date": "2026-10-01",
+              "settled": "845000",
+              "age_days": 40,
+              "doc_kind": "receipt",
+              "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547",
+              "remaining": "635000"
+            }
+          ],
+          "division_id": "862f1402-7c95-42ad-bda1-98349754d22e",
+          "total_debit": "45000",
+          "total_credit": "0",
+          "division_kind": "feed_mill",
+          "brought_forward": "-680000"
+        }
+      ],
+      "party": {
+        "id": "71904d07-dbf7-42a2-b945-e6ec64214cbc",
+        "name": "مورّد الذرة",
+        "phone": "07701234567",
+        "version": 1,
+        "archived": false,
+        "is_customer": false,
+        "is_supplier": true
       },
       "today": "2026-11-10"
     }
@@ -994,7 +1328,7 @@
         "name": "منشأة المال"
       },
       "book": {
-        "id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+        "id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
         "code": "main",
         "name": "دفتر معمل العلف",
         "division_kind": "feed_mill"
@@ -1002,30 +1336,30 @@
       "type": "receipt",
       "void": null,
       "party": {
-        "id": "7fb2e79e-b298-42d6-9664-9744032dc202",
+        "id": "140d4480-8269-42a3-a3e2-5b68077ffb98",
         "name": "زبون الدجاج",
         "phone": "07809876543"
       },
       "amount": "150000",
       "doc_no": "RC-2026-0002",
       "account": {
-        "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+        "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
         "kind": "cash",
         "name": "الصندوق الرئيسي"
       },
       "on_date": "2026-11-09",
-      "entry_id": "6801568a-b4b3-40e1-9a24-d5f4da5d4e53",
-      "posted_at": "2026-11-10T19:39:23.787948+00:00",
+      "entry_id": "1979a573-ea43-4872-9eaf-2cb85fa4de97",
+      "posted_at": "2026-11-10T20:41:57.253027+00:00",
       "posted_by": "accountant",
       "allocations": [
         {
           "kind": "invoice",
           "amount": "150000",
-          "doc_id": "44063eb6-a148-4672-8484-4867969cf7c9",
+          "doc_id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
           "doc_no": "MS-2026-0002",
           "on_date": "2026-11-07",
           "doc_kind": "sale",
-          "entry_id": "6dd1d1e3-2fea-4722-8d17-9eec27e3c530"
+          "entry_id": "2db77ef1-3247-4797-8a57-8934fc714d40"
         }
       ],
       "unallocated": "0"
@@ -1035,7 +1369,7 @@
         "name": "منشأة المال"
       },
       "book": {
-        "id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+        "id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
         "code": "main",
         "name": "دفتر معمل العلف",
         "division_kind": "feed_mill"
@@ -1043,30 +1377,30 @@
       "type": "payment",
       "void": null,
       "party": {
-        "id": "e90fd769-47d1-4b8c-9fd4-ecb62c6aa9f6",
+        "id": "71904d07-dbf7-42a2-b945-e6ec64214cbc",
         "name": "مورّد الذرة",
         "phone": "07701234567"
       },
       "amount": "300000",
       "doc_no": "PY-2026-0001",
       "account": {
-        "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+        "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
         "kind": "cash",
         "name": "الصندوق الرئيسي"
       },
       "on_date": "2026-10-21",
-      "entry_id": "7b03d388-1b04-4529-a3cb-520df6eb5182",
-      "posted_at": "2026-11-10T19:39:23.45759+00:00",
+      "entry_id": "f2822646-7c06-402e-8ca0-e1ffbcf2556f",
+      "posted_at": "2026-11-10T20:41:56.995142+00:00",
       "posted_by": "accountant",
       "allocations": [
         {
           "kind": "purchase",
           "amount": "300000",
-          "doc_id": "42877429-4007-45e2-b76a-a3374f8c5c99",
+          "doc_id": "3554476c-40eb-431a-9da3-b29bff20216e",
           "doc_no": "PU-2026-0001",
           "on_date": "2026-10-01",
           "doc_kind": "receipt",
-          "entry_id": "56d52eeb-1234-401b-bc54-a87a630e5dba"
+          "entry_id": "619173a9-e0dc-43b2-a77c-924268fff547"
         }
       ],
       "unallocated": "0"
@@ -1076,7 +1410,7 @@
         "name": "منشأة المال"
       },
       "book": {
-        "id": "bdb40736-5303-47bb-bece-1c107dc696d2",
+        "id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
         "code": "main",
         "name": "دفتر معمل العلف",
         "division_kind": "feed_mill"
@@ -1088,20 +1422,20 @@
         "on_date": "2026-11-10"
       },
       "party": {
-        "id": "7fb2e79e-b298-42d6-9664-9744032dc202",
+        "id": "140d4480-8269-42a3-a3e2-5b68077ffb98",
         "name": "زبون الدجاج",
         "phone": "07809876543"
       },
       "amount": "20000",
       "doc_no": "RC-2026-0003",
       "account": {
-        "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+        "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
         "kind": "cash",
         "name": "الصندوق الرئيسي"
       },
       "on_date": "2026-11-10",
-      "entry_id": "7f5f0ab2-bfce-4407-bdaa-d6475a7bad5b",
-      "posted_at": "2026-11-10T19:39:23.799626+00:00",
+      "entry_id": "b2e73079-f71f-426b-bcc8-5b1e3500863a",
+      "posted_at": "2026-11-10T20:41:57.268707+00:00",
       "posted_by": "accountant",
       "allocations": [],
       "unallocated": "0"
@@ -1109,9 +1443,9 @@
   },
   "transfer_detail": {
     "live": {
-      "id": "b89370fc-d934-492e-b4f5-756dde9b6945",
+      "id": "fd732ec4-1ee3-4c95-9423-04a0987113df",
       "to": {
-        "id": "56cc7bc2-55ed-498c-a73a-11e59256eec5",
+        "id": "eb4779ed-8831-404b-b202-a9d6980dbeae",
         "kind": "bank",
         "name": "مصرف الرافدين"
       },
@@ -1119,7 +1453,7 @@
         "name": "منشأة المال"
       },
       "from": {
-        "id": "c5c14e42-1c6a-495d-89c1-6dfe650d413f",
+        "id": "90c5597b-13b1-4032-9876-0b61a5b4c28c",
         "kind": "cash",
         "name": "الصندوق الرئيسي"
       },
@@ -1127,12 +1461,12 @@
       "void": null,
       "amount": "250000",
       "on_date": "2026-11-10",
-      "posted_at": "2026-11-10T19:39:23.854144+00:00",
+      "posted_at": "2026-11-10T20:41:57.326549+00:00",
       "posted_by": "accountant"
     }
   },
   "sale_detail": {
-    "id": "44063eb6-a148-4672-8484-4867969cf7c9",
+    "id": "ee9b2787-de9e-4334-9d1a-dc67d9e6b178",
     "qty": "100",
     "cost": {
       "money": {
@@ -1149,7 +1483,7 @@
             "value": "120400.00"
           }
         },
-        "lot_id": "56dd4d20-e735-48f4-a68b-2eacd79b4c01",
+        "lot_id": "efb317d0-e1c8-4437-8262-49bb0a27019f",
         "expiry_on": null,
         "received_on": "2026-10-01"
       }
@@ -1161,23 +1495,23 @@
     },
     "doc_no": "MS-2026-0002",
     "status": "posted",
-    "book_id": "bdb40736-5303-47bb-bece-1c107dc696d2",
-    "item_id": "3c5439a0-32e3-40c1-957b-09b4b72c97be",
-    "line_id": "a07f9397-f753-497e-bbc5-d50941340dd0",
+    "book_id": "e19e4cd6-8a27-4510-97c2-aa416faf3dba",
+    "item_id": "035ec960-dfd1-48b5-9118-c083016173cd",
+    "line_id": "3366ab5d-d0a0-4e61-8610-21402f5de2c3",
     "payment": "credit",
     "sold_on": "2026-11-07",
     "can_void": true,
-    "party_id": "7fb2e79e-b298-42d6-9664-9744032dc202",
+    "party_id": "140d4480-8269-42a3-a3e2-5b68077ffb98",
     "base_unit": "kg",
     "item_name": "كسبة صويا",
     "voided_at": null,
     "party_name": "زبون الدجاج",
     "void_reason": null,
     "cash_move_id": null,
-    "warehouse_id": "671d3b06-dc48-45cb-b680-33b24f4e0039",
+    "warehouse_id": "0f73e4ce-187e-475c-a941-4519291d1af6",
     "warehouse_name": "مخزن المواد الأوّلية",
     "cash_account_id": null,
-    "invoice_entry_id": "6dd1d1e3-2fea-4722-8d17-9eec27e3c530",
+    "invoice_entry_id": "2db77ef1-3247-4797-8a57-8934fc714d40",
     "payment_entry_id": null,
     "payment_refunded": false,
     "payment_reversed": false

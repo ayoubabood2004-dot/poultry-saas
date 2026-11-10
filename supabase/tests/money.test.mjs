@@ -345,6 +345,7 @@ async function scenario(t, db) {
     'ب3 كشف الصندوق يسمّي سند كلّ قبض ودفع (وللإلغاء السند الأصليّ) كحركة الأموال، وغيرهما بلا سند',
   );
   t.ok(cashStatement.lines.some((l) => l.voucher_id === D.RC2 && l.reverses !== null), 'ب3 شرط: إلغاء القبض في كشف الصندوق يفتح سند القبض الأصليّ');
+  t.same(cashStatement.lines.filter((l) => l.kind === 'receipt_charge').map((l) => [l.doc_no, l.doc_id]), [[D.R1no, D.R1.id]], 'ب3 أجرة الشراء النقدية في كشف الصندوق برقم شرائها (مراجعة الشاشات L4)');
   const dayBook = await moves(U.owner, TODAY, TODAY, B.B1, null, null, null, 500);
   t.same(
     [norm(dayBook.opening), norm(dayBook.closing), dayBook.days.length, norm(dayBook.days[0].closing)],
@@ -744,7 +745,8 @@ async function scenario(t, db) {
     const b = {
       generated_by: a.generated_by,
       debts_overview: { receivable: R, payable: Pay },
-      party_statement_v2: { supplier: S1, customer: C1 },
+      // مدّة سابقة (تنتهي قبل اليوم، فالتسديدات بعدها لا تُذكر) ومدّة برصيد سابق غير صفر، لفحوص الشاشات (مراجعة الشاشات H1).
+      party_statement_v2: { supplier: S1, customer: C1, supplier_past: await statement(U.owner, P.S1, null, day(-45), '2026-10-15'), supplier_since: later },
       voucher_detail: { receipt: V1, payment: V2, void: V3 },
       transfer_detail: { live: T1 },
       sale_detail: await value(U.owner, 'select public.sale_detail($1) as v', [D.sale2]),

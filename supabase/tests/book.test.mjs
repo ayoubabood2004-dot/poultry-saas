@@ -433,7 +433,7 @@ async function scenario(t, db) {
     home: (await call(db, U.millAccountant, 'select public.home_summary()')).value,
     summary: scopedSummary,
     balances: scopedBalances,
-    statement: (await call(db, U.accountant, 'select public.report_party_statement($1, null, $2, $3)', [P, '2026-01-01', TODAY])).value,
+    statement: (await call(db, U.accountant, 'select public.party_statement_v2($1, null, $2, $3)', [P, '2026-01-01', TODAY])).value,
     cash: (await call(db, U.accountant, 'select public.report_cash_balances($1, $2)', ['2026-01-01', TODAY])).value,
     cashStatement: (await call(db, U.accountant, 'select public.report_cash_statement($1, $2, $3)', [BOX, '2026-01-01', TODAY])).value,
   };
@@ -441,7 +441,7 @@ async function scenario(t, db) {
     home: parsers.parseHomeSummary(wire.home),
     summary: parsers.parseAccountsSummary(wire.summary),
     balances: parsers.parsePartyBalances(wire.balances),
-    statement: parsers.parseStatement(wire.statement),
+    statement: parsers.parsePartyStatement(wire.statement),
     cash: parsers.parseCashBalances(wire.cash),
     cashStatement: parsers.parseCashStatement(wire.cashStatement),
   };

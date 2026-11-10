@@ -15,7 +15,9 @@ export async function loadRepoParsers() {
   const result = await build({
     stdin: {
       contents: [
-        "export { parseAccountsSummary, parsePartyBalances, parseStatement } from './src/lib/repo/parties.ts';",
+        "export { parseAccountsSummary, parsePartyBalances } from './src/lib/repo/parties.ts';",
+        // الكشف على الشاشة من party_statement_v2 منذ 0024 (الكشف الاحترافي)، ومحلّله parsePartyStatement.
+        "export { parsePartyStatement } from './src/lib/repo/statement.ts';",
         "export { parseCashBalances, parseCashStatement } from './src/lib/repo/cash.ts';",
         "export { parseHomeSummary } from './src/lib/repo/home.ts';",
       ].join('\n'),

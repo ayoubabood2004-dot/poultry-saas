@@ -1103,7 +1103,7 @@ begin
 end
 $$;
 
--- ─── م. كشف الصندوق: رقم القبض والدفع يفتح سنده (voucher_id = القيد الأصليّ، وللإلغاء أصله) — الباقي كما في 0006 حرفاً بحرف ─────────
+-- ─── م. كشف الصندوق: رقم القبض والدفع يفتح سنده (voucher_id = القيد الأصليّ، وللإلغاء أصله)، وأجرة الشراء النقدية برقم شرائها — الباقي كما في 0006 ─────────
 create or replace function public.report_cash_statement(p_account uuid, p_from date, p_to date) returns jsonb
 language plpgsql stable security invoker set search_path = public, pg_temp as $$
 declare
@@ -1135,7 +1135,10 @@ begin
           'inflow', greatest(l.amount, 0)::text, 'outflow', greatest(-l.amount, 0)::text, 'balance', l.balance::text)
         order by l.on_date, l.seq)
       from (
-        select m.*, e.doc_no, e.reverses_entry_id as entry_reverses, p.name as party_name,
+        select m.*,
+          -- أجرة شراء نقدية بلا قيد جهة: رقم شرائها (مراجعة شاشات 0024 L4)، كما في حركة الأموال.
+          coalesce(e.doc_no, case when m.kind = 'receipt_charge' then (select r.doc_no from public.receipts r where r.org_id = m.org_id and r.id = m.doc_id) end) as doc_no,
+          e.reverses_entry_id as entry_reverses, p.name as party_name,
           exists (select 1 from public.cash_moves r where r.org_id = m.org_id and r.reverses_move_id = m.id) as reversed,
           v_bf + sum(m.amount) over (order by m.on_date, m.seq rows between unbounded preceding and current row) as balance
         from public.cash_moves m
