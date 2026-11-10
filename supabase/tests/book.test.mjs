@@ -3,7 +3,7 @@
 // وافتتاح واحد فعّال يتعاد بعد إلغائه (E20)؛ والصناديق (Q10: افتتاح ونقل وإلغاؤهما)؛ وفحص الفصل (FOUNDATION ٧٠٣–٧٠٥): «لنا»
 // و«علينا» لكل دفتر بلا تصافٍ، والدفتر الغلط يغيّر الدفترين والمجموع نفسه؛ وكشف أبو علي بمثال FOUNDATION ٧٠٢؛ والنطاق بالدفاتر
 // (E49: القيود والتوزيعات وسجلّ التدقيق والجدول والملخّص والرئيسية)؛ و«حتى اليوم» بيوم الخادم؛ وصندوق سطر القبض بالكشف؛ وقواعد
-// الجهات (الأمين مورّداً بس، والمطبَّع ومفتاح الهاتف، والتوائم بالهاتف)؛ والبحث بالاسم غير البحث بالهاتف؛ وأجوبة الخادم الحقيقية
+// الجهات (الأمين زبوناً أو مورّداً منذ 0024، والمطبَّع ومفتاح الهاتف، والتوائم بالهاتف)؛ والبحث بالاسم غير البحث بالهاتف؛ وأجوبة الخادم الحقيقية
 // بمحلّلات الواجهة. كل منع ويّاه ضابط إيجابي، واليوم ثابت (setToday) حتى التواريخ ما تتبع ساعة الجهاز.
 import { loadSrc } from '../../scripts/tests/load-src.mjs';
 import { balance, call, loadRepoParsers, makeOrg, shown, uid } from './ledger-kit.mjs';
@@ -385,7 +385,7 @@ async function scenario(t, db) {
   );
   t.ok(eLines.filter((l) => l.kind !== 'payment' && l.kind !== 'payout').every((l) => l.account === null), 'وسطور غير القبض والدفع بلا صندوق');
 
-  // ── الجهات (Q1، E34، Q2): الأمين يضيف مورّداً بس؛ الاسم المطبَّع ومفتاح الهاتف بالإضافة والتعديل؛ والتوائم بالهاتف المطبَّع ─────
+  // ── الجهات (Q1، E34، Q2؛ و0024 بجواب المالك 2026-11-08): الأمين يضيف زبوناً أو مورّداً؛ الاسم المطبَّع ومفتاح الهاتف بالإضافة والتعديل؛ والتوائم بالهاتف المطبَّع
   const normalize = await loadSrc('src/domain/normalize.ts');
   const phones = await loadSrc('src/domain/phone.ts');
   const keeper = (sql) => as(U.storekeeper, sql, []);
@@ -396,8 +396,8 @@ async function scenario(t, db) {
       both: shown(await keeper("insert into public.parties (name, is_customer, is_supplier) values ('زبون ومورّد', true, true) returning id")),
       supplier: shown(await keeper("insert into public.parties (name, is_supplier) values ('مورّد الأمين', true) returning id")),
     },
-    { customer: 'forbidden', neither: 'forbidden', both: 'forbidden', supplier: 'ok' },
-    'الأمين يضيف مورّداً بس: زبوناً أو جهة بلا صفة أو زبوناً ومورّداً forbidden (وضابطه: المورّد ينضاف)',
+    { customer: 'ok', neither: 'forbidden', both: 'ok', supplier: 'ok' },
+    'الأمين يضيف زبوناً أو مورّداً أو كليهما (جواب المالك 2026-11-08، 0024)، والجهة بلا صفة forbidden',
   );
   const keysOf = (partyId) => one('select name_norm, phone, phone_key from public.parties where id = $1', [partyId]);
   const renamed = (await asM("insert into public.parties (name, phone, is_customer) values ('مزرعة  التعديل', '0770 333 4455', true) returning id")).value;

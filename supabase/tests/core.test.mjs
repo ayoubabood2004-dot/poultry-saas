@@ -213,8 +213,12 @@ export default async function (t, db) {
         const party = await value(q, "insert into public.parties (name, is_customer) values ('أبو علي', true) returning id");
         const box = await value(q, "insert into public.cash_accounts (name, kind) values ('الصندوق', 'cash') returning id");
         await q('select public.record_opening_balance(gen_random_uuid(), $1, $2, 500000, public.app_today() - 3, gen_random_uuid())', [party, book]);
-        await q('select public.record_party_payment(gen_random_uuid(), $1, $2, 100000, $3, public.app_today(), gen_random_uuid())', [party, book, box]);
-        return { book, party, box };
+        const payment = await value(q, "select (public.record_party_payment(gen_random_uuid(), $1, $2, 100000, $3, public.app_today(), gen_random_uuid())) ->> 'id'", [party, book, box]);
+        // 0024: سند تحويل بين صندوقين لـtransfer_detail (معرّف التحويل = معرّف ساقه الخارجة).
+        const bank = await value(q, "insert into public.cash_accounts (name, kind) values ('المصرف', 'bank') returning id");
+        const transfer = await value(q, 'select gen_random_uuid()');
+        await q('select public.transfer_cash($1, $2, $3, 1000, public.app_today(), null, gen_random_uuid())', [transfer, box, bank]);
+        return { book, party, box, payment, transfer };
       },
       { commit: true },
     );
@@ -765,6 +769,13 @@ export default async function (t, db) {
     day_balance: () => [null, '2026-01-01', null],
     // 0023: تقرير المعمل كلّه بسنة.
     mill_report: () => [null, '2026-01-01', '2026-12-31'],
+    // 0024: «المال بين يديك»: الحركة والذمم بسنة، والكشف بجهة كلّ مالك، والسند بقبضه، والتحويل بتحويله، وخلاصة الشهر بشهر مضى.
+    money_moves: () => ['2026-01-01', '2026-12-31', null, null, null, null, 50],
+    debts_overview: () => ['receivable', null, null, null, 'amount', null, false, null, 50],
+    party_statement_v2: (persona) => [own(persona).party, null, '2026-01-01', '2026-12-31'],
+    voucher_detail: (persona) => [own(persona).payment],
+    transfer_detail: (persona) => [own(persona).transfer],
+    month_summary: () => ['2026-01-01'],
   };
   const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
   const REJECTS = {
@@ -817,6 +828,14 @@ export default async function (t, db) {
     day_balance: { [U.aSpare]: 'forbidden' },
     // 0023: تقرير المعمل لكلّ دور بمنشأة (read) بنطاق الدفعة، وبلا منشأة forbidden.
     mill_report: { [U.aSpare]: 'forbidden' },
+    // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
+    money_overview: NO_ACCOUNTS,
+    money_moves: NO_ACCOUNTS,
+    debts_overview: NO_ACCOUNTS,
+    party_statement_v2: NO_ACCOUNTS,
+    voucher_detail: NO_ACCOUNTS,
+    transfer_detail: NO_ACCOUNTS,
+    month_summary: NO_ACCOUNTS,
   };
   const readOnlyFailures = [];
   let rejected = 0;

@@ -491,6 +491,14 @@ export default async function (t, db) {
     report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
     home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000', 'ok:null') },
     find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
+    // 0024 («المال بين يديك»): القرّاء لأدوار الحسابات (accounts.view ويّا can_see_accounts)، والباقي forbidden؛ والأرقام نفسها لكلّ دور منها.
+    money_overview: { sql: () => ["select public.money_overview() -> 'debts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
+    money_moves: { sql: () => ["select public.money_moves(public.app_today() - 30, public.app_today(), $1, null, null, null, 100) ->> 'closing' as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:350000') },
+    debts_overview: { sql: () => ["select public.debts_overview('receivable', null, null, null, 'amount', null, false, null, 50) -> 'totals' ->> 'amount' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
+    party_statement_v2: { sql: () => ["select jsonb_array_length(public.party_statement_v2($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
+    voucher_detail: { sql: () => ["select public.voucher_detail($1) ->> 'type' as v", [ledger.payment]], value: true, expect: only(ACCOUNTS, 'ok:receipt') },
+    transfer_detail: { sql: () => ['select public.transfer_detail(gen_random_uuid())', []], expect: only(ACCOUNTS, 'transfer_not_found') },
+    month_summary: { sql: () => ["select public.month_summary(public.app_today()) ->> 'month' = date_trunc('month', public.app_today())::date::text as v", []], value: true, expect: only(ACCOUNTS, 'ok:true') },
     // المرحلة 1 (WP4، §2.12): الافتتاح ومعاينته للمدير (opening.post)، والتحويل ومعاينته والطيّ وحذف السطر للأمين والمدير (transfer.post،
     // والمحاسب ممنوع)، والإلغاء للمدير (void)، وقراءات الكميات لمن المخزن بنطاقه (والباقي out_of_scope)، والقيم لأدوار الحسابات.
     post_opening_stock: { sql: () => ['select public.post_opening_stock($1, $2, gen_random_uuid())', [stock.draftOpening, stock.openingVersion]], expect: only(['owner', 'manager']) },
