@@ -230,7 +230,7 @@ export default async function (t) {
   try {
     const m = await bundle(
       [
-        "export { createElement as h } from 'react';",
+        "export { createElement as h, Component } from 'react';",
         "export { createRoot } from 'react-dom/client';",
         "export { flushSync } from 'react-dom';",
         "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
@@ -244,6 +244,20 @@ export default async function (t) {
       [stubs],
     );
     const h = m.h;
+    // حدّ أخطاء الرسم: صفحة ترمي أثناء الرسم (منسّق يرمي على كسر مخفيّ) تُقال بعلامة render-error في الصفحة، لا بإسقاط عملية الفحص كلّها
+    // بلا اسم حالة (React يعيد رمي خطأ الرسم بلا حدّ).
+    class Boundary extends m.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+      render() {
+        return this.state.error ? h('p', { 'data-action': 'render-error' }, String(this.state.error?.message ?? this.state.error)) : this.props.children;
+      }
+    }
     const fmt = (value, decimals = decimalsOf([value])) => m.fmtMoney(value, decimals);
     let where = null;
     function Probe() {
@@ -322,7 +336,7 @@ export default async function (t) {
       body().appendChild(container);
       root = m.createRoot(container);
       const routes = [h(m.Route, { key: 'accounts', path: '/accounts/*', element: h(m.AccountsRoutes) }), ...(sales ? [h(m.Route, { key: 'sales', path: '/sales/:id', element: h(m.SaleDocPage) })] : [])];
-      m.flushSync(() => root.render(h(m.MemoryRouter, { initialEntries: [url] }, h(Probe), h(m.Routes, null, ...routes))));
+      m.flushSync(() => root.render(h(m.MemoryRouter, { initialEntries: [url] }, h(Probe), h(Boundary, null, h(m.Routes, null, ...routes)))));
       await settle();
       await settle();
     };
@@ -934,12 +948,14 @@ export default async function (t) {
       hub.month.sales.cost = '1234.56';
       fresh({ money_overview: () => clone(hub) });
       await mount('/accounts');
+      t.eq(text(first('render-error')), '', 'MUT-4 الخلاصة تُرسم بلا خطأ وكلفة مبيعاتها بفلوس');
       t.ok(text(first('hub-sales')).includes(`كلفتها${fmt(fils('1234.56'))}`) && fmt(fils('1234.56')) === '1,234.56', `MUT-4 كلفة المبيعات بفلوسها في الخلاصة: «${text(first('hub-sales'))}»`);
       await unmount();
       const month = clone(MS);
       month.project.sales.cost = '1234.56';
       fresh({ month_summary: () => clone(month) });
       await mount(`/accounts/month?m=${MS.month.slice(0, 7)}`);
+      t.eq(text(first('render-error')), '', 'MUT-5 خلاصة الشهر تُرسم بلا خطأ وكلفة مبيعاتها بفلوس');
       const rows = tableOf(first('monthsum-project')).body.map(cells);
       t.same(rows, blockExpect(month.project), 'MUT-5 كتلة المشروع بمرتبتين للعمود كلّه حين في كلفتها فلوس');
       t.ok(rows.some(([label, , amount]) => label === 'كلفة المبيعات' && amount === '1,234.56'), 'MUT-5 والكلفة «1,234.56»');

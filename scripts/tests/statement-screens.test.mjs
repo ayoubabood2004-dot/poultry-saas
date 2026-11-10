@@ -798,6 +798,24 @@ export default async function (t) {
       t.same([env.calls('party_statement_v2').at(-1)?.p_from, env.calls('party_statement_v2').at(-1)?.p_to, env.search().mode], ['2026-10-01', '2026-10-31', 'detailed'], 'M3 الكشف يعود بالفترة نفسها والصيغة (REV-3)');
     });
 
+    // M4: الرجوع إلى قائمة الذمم ببحث فيه مسافة (URLSearchParams يكتبها «+») يُقبل في الكشف وفاتورة البيع، فالقائمة تعود ببحثها.
+    await step('M4 back with a search', async () => {
+      const debtsBack = `/accounts/debts?${new URLSearchParams({ side: 'receivable', q: 'أبو علي', min: '100,000', sort: 'age' }).toString()}`;
+      t.ok(debtsBack.includes('+'), 'شرط: طريق القائمة فيه «+»');
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(ST.customer) }, tables });
+      await env.mount(`/accounts/parties/${ST.customer.party.id}?back=${encodeURIComponent(debtsBack)}`, statementRoute);
+      t.eq(first('back')?.getAttribute('href'), debtsBack, 'M4 «رجوع» الكشف إلى قائمة الذمم ببحثها وفلاترها');
+      await env.unmount();
+      env.fresh({ session: SESSION('manager'), rpc: { sale_detail: async () => clone(FIXTURE.sale_detail) }, tables });
+      const movesBack = `/accounts/moves?${new URLSearchParams({ party: FIXTURE.sale_detail.party_id, from: '2026-11-01', to: '2026-11-10' }).toString()}`;
+      await env.mount(`/sales/${FIXTURE.sale_detail.id}?back=${encodeURIComponent(debtsBack)}`, [['/sales/:id', m.SaleDocPage]]);
+      t.eq(first('back')?.getAttribute('href'), debtsBack, 'M4 «رجوع» فاتورة البيع كذلك');
+      await env.unmount();
+      env.fresh({ session: SESSION('manager'), rpc: { sale_detail: async () => clone(FIXTURE.sale_detail) }, tables });
+      await env.mount(`/sales/${FIXTURE.sale_detail.id}?back=${encodeURIComponent(movesBack)}`, [['/sales/:id', m.SaleDocPage]]);
+      t.eq(first('back')?.getAttribute('href'), movesBack, 'M4 والرجوع إلى حركة الأموال بفلاترها');
+    });
+
     // M5: سطر الإلغاء بلا تفصيل يسمّي ما يلغيه من نوع الحركة ومستندها (العكس يحمل نوع الأصل ومستنده، REV-14)، لا «سند صرف».
     {
       const supplier = clone(ST.supplier);
