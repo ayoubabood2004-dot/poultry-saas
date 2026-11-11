@@ -508,8 +508,8 @@ begin
     raise exception 'no_mass_inputs' using hint = 'أضف مادّة داخل كتلة الخلطة؛ الوقود والتعبئة خارجها.';
   end if;
   if not v_bare and v.basis_kg is null then
-    raise exception 'bad_basis' using hint = format('النسخة بكميات وبلا أساس (مجموع موادّها %s كغم): اكتب أساسها بالكيلوغرام، أو احذف الكميات كلّها.',
-      to_char(v_sum, 'FM999999990.999'));
+    raise exception 'bad_basis' using hint = format('النسخة بكميات وبلا أساس (مجموع موادّها %s): اكتب أساسها بالكيلوغرام، أو احذف الكميات كلّها.',
+      private.qty_text(v_sum, 'kg'));
   end if;
   if not v_bare and v_sum <> v.basis_kg then
     raise exception 'basis_mismatch' using hint = format('مجموع مواد الخلطة %s كغم%s، والأساس %s كغم: الفرق %s كغم. عدّل الكميات أو الأساس حتّى يتساويا.',
