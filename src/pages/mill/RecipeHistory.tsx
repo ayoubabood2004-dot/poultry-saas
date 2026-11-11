@@ -50,7 +50,6 @@ function printAs(title: string): void {
   window.print();
 }
 
-const unitWord = (unit: BaseUnit): string => (unit === 'L' ? t('unit.L', 'لتر') : unit === 'pc' ? t('unit.pc', 'قطعة') : t('unit.kg', 'كغم'));
 const amountText = (qty: bigint, unit: BaseUnit): string => {
   const shown = fmtQty(qty, unit);
   return shown.sub ?? shown.main;

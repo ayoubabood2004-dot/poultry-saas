@@ -14,6 +14,7 @@ import { toast } from '../../components/ui/Toast';
 import { decimalText } from '../../domain/decimal';
 import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
+import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
 import { fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -39,7 +40,7 @@ import { itemKindLabel } from '../../lib/storeLabels';
 import { MaterialCards, useCardLines, useMillStock, viewCardLine, type CardLines, type MillStock } from './cards';
 import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, useDrafts, type CategoryDraft } from './pickers';
 import { RecipeHistorySection } from './RecipeHistory';
-import { Chip, forgetMillRef, MaterialName, millRef, moveId, reconcileOrder, sameOrder, slotsOf, useKeptLoad } from './shared';
+import { Chip, dash, forgetMillRef, MaterialName, millRef, moveId, reconcileOrder, sameOrder, slotsOf, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها وموادّها بجدول كلاسيكي. النسخة المسوّدة تُعدَّل وتُفعَّل؛ والمفعَّلة مجمَّدة، فالتعديل نسخة جديدة (التاريخ لا يُعاد
 // كتابته). و«تكاليف لكلّ طنّ» بفئة مصروف (0016، تُكتب في المسوّدة لأدوار الكلفة)، وفئة المصروف تُضاف من مكانها (م٣)، و«نسخة جديدة» تنسخ المفعَّلة
@@ -52,6 +53,9 @@ import { Chip, forgetMillRef, MaterialName, millRef, moveId, reconcileOrder, sam
 // الخلطة لو لا… كلنا نشوف تاريخ كل تعديل»): الجدول # | المادّة (بنقطة لونها) | النوع | داخل الكتلة، بلا كمية ولا حصّة ولا أساس ولا مجموع ولا كلفة طنّ
 // متوقّعة. «عدّل الخلطة» مسوّدة بلا كميات (new_recipe_version) تُضاف إليها الموادّ وتُحذف وتُرتَّب ثمّ «فعّل»؛ ومسوّدة قديمة كُتبت بكميات قبل 0025 تُمحى
 // كمياتها بزرّ (مسوّدة تجمع الحالين لا تُفعَّل: mixed_quantities). وتحت ذلك «السجلّ» (recipe_history): كلّ تعديل وكلّ إنتاج في المدّة، ويُطبع وحده.
+
+/** اسم نوع المادّة بالعربية من رمز القارئ، و«—» لرمز لا يُعرف (لا يُعرض رمز خام). */
+const kindText = (kind: string): string => ((ITEM_KINDS as readonly string[]).includes(kind) ? itemKindLabel(kind as ItemKind) : dash());
 
 /** رفض «تغيّر من نافذة أو جهاز آخر» في بطاقة الخلطة (ب٤٢): الصفحة تُقرأ من جديد. */
 const CHANGED_ELSEWHERE = new Set(['amount_changed', 'stale_draft', 'mixed_quantities']);
@@ -454,7 +458,7 @@ export default function RecipePage() {
     const base: Column<RecipeLine>[] = [
       { key: 'no', header: t('mill.col.no', '#'), kind: 'number', cell: (_line, index) => <Num>{fmtInt(index + 1)}</Num> },
       { key: 'item', header: t('mill.line.item', 'المادّة'), wrap: true, sticky: true, cell: (line) => <MaterialName name={line.itemName} slot={slots.get(line.itemId) ?? null} /> },
-      { key: 'kind', header: t('mill.col.kind', 'النوع'), cell: (line) => itemKindLabel(line.kind) },
+      { key: 'kind', header: t('mill.col.kind', 'النوع'), cell: (line) => kindText(line.kind) },
       {
         key: 'basis',
         header: t('mill.col.in_basis', 'داخل الكتلة'),
@@ -647,6 +651,37 @@ export default function RecipePage() {
             </Button>
           </div>
         ) : null}
+        {recipeOp ? (
+          <ConfirmDialog
+            open
+            tone={recipeOp === 'delete' ? 'danger' : 'primary'}
+            title={
+              recipeOp === 'delete'
+                ? t('mill.recipe.delete_title', 'حذف الخلطة «{name}»؟', { name: data.name })
+                : t('mill.recipe.restore_title', 'إعادة الخلطة «{name}»؟', { name: data.name })
+            }
+            consequence={
+              <span className="flex flex-col gap-2">
+                {recipeOp === 'delete'
+                  ? t('mill.recipe.delete_consequence', 'تختفي «{name}» من المعمل ولا يُنتَج بها بعد الآن، وتبقى دفعاتها السابقة في سجلّ الإنتاج. وتعيدها من صفحتها متى شئت.', { name: data.name })
+                  : t('mill.recipe.restore_consequence', 'تعود «{name}» إلى قائمة المعمل ويُنتَج بها من جديد.', { name: data.name })}
+                {recipeOpFailure ? (
+                  <span role="alert" className="text-danger-700 dark:text-danger-300" data-action="recipe-op-failed">
+                    {recipeOpFailure}
+                  </span>
+                ) : null}
+              </span>
+            }
+            confirmLabel={recipeOp === 'delete' ? t('mill.recipe.delete_confirm', 'احذفها') : t('mill.recipe.restore', 'أعِدها')}
+            busy={recipeOpBusy}
+            action="confirm-recipe-op"
+            onCancel={() => {
+              setRecipeOp(null);
+              setRecipeOpFailure(null);
+            }}
+            onConfirm={() => void runRecipeOp()}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           {data.versions.map((version) => (
@@ -724,7 +759,7 @@ export default function RecipePage() {
             title={t('mill.recipe.legacy_qty', 'كُتبت هذه المسوّدة بكميات من قبل، والخلطة الآن موادّ بلا كميات: تُمحى كمياتها قبل التفعيل، وتُكتب الكميات عند كلّ إنتاج.')}
             action={
               canEdit ? (
-                <Button size="sm" variant="secondary" busy={busy} disabled={linesLocked} onClick={() => clearQuantities(withQty)} data-action="clear-qty">
+                <Button size="sm" variant="secondary" busy={busy} disabled={linesLocked} onClick={() => clearQuantities(withQty)} data-action="erase-qty">
                   {t('mill.recipe.clear_qty', 'امحُ الكميات')}
                 </Button>
               ) : undefined
