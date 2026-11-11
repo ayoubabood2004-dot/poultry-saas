@@ -25,10 +25,12 @@ export default defineConfig({
         // بالاسم. الاسم بس يتغيّر؛ تقسيم الحزم كما يقرّره Rollup (manualChunks كان يسحب وحدات الإقلاع ويّاها).
         // و«المخزن ببساطة» (0017): repo/purchases.ts يستورده المخزون والمعمل معاً فينفصل حزمةً لحاله؛ اسمها stores-admin أيضاً حتى
         // تبقى خارج التثبيت المسبق بالاستثناء نفسه (الشاشتان المستوردتان مستثناتان بالاسم، وحزمة محفوظة لا تستوردها).
+        // و«القاعات بين يديك» (0026): repo/halls يقرأ أنواع المواد (ITEM_KINDS) من domain/stores، فتنفصل وحدها حزمةً بين المخزون والمعمل
+        // والقاعات (كلّها مستثناة بالاسم)؛ اسمها stores-admin أيضاً حتّى لا تدخل التثبيت المسبق باسم stores-* (1,362 بايتاً فوق هامشه).
         chunkFileNames: (chunk) => {
           const ids = chunk.moduleIds.map((id) => id.replace(/\\/g, '/'));
           if (chunk.isDynamicEntry) return 'assets/[name]-[hash].js';
-          if (ids.some((id) => /\/src\/lib\/repo\/(inventory|purchases)\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
+          if (ids.some((id) => /\/src\/(lib\/repo\/(inventory|purchases)|domain\/stores)\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
           if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle|DayField)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
           return 'assets/[name]-[hash].js';
         },
