@@ -1,0 +1,251 @@
+{
+  "generated_by": "مكتوب باليد من عقد 0025 (scratchpad/mill4/contract-0025.md §3) بأشكاله وحدها، قبل أن تُبنى الهجرة: يحلّ محلّه جواب القاعدة الحقيقي (fixtures/mill4-0025.json من supabase/tests/mill4.test.mjs بـMILL4_SAMPLES_OUT).",
+  "production_form": {
+    "last": {
+      "today": "2026-11-10",
+      "recipe": { "id": "r-1", "name": "علف بادئ", "archived": false, "output_item": { "id": "f-1", "name": "علف بادئ 21٪" } },
+      "active": { "id": "v-3", "version_no": 3, "materials_only": true },
+      "materials": [
+        { "line_no": 1, "item_id": "i-corn", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "600.000", "default_source": "last" },
+        { "line_no": 2, "item_id": "i-soy", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "360.000", "default_source": "last" },
+        { "line_no": 3, "item_id": "i-oil", "name": "زيت", "kind": "raw", "base_unit": "L", "density": "0.9200", "in_basis": true, "scale_step": "0.100", "default_qty": "20.000", "default_source": "last" },
+        { "line_no": 4, "item_id": "i-salt", "name": "ملح", "kind": "additive", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "21.600", "default_source": "last" },
+        { "line_no": 5, "item_id": "i-diesel", "name": "كاز المولّدة", "kind": "fuel", "base_unit": "L", "density": "0.8500", "in_basis": false, "scale_step": "0.100", "default_qty": "2.000", "default_source": "last" }
+      ],
+      "last": {
+        "id": "b-9", "doc_no": "PD-2026-0009", "produced_on": "2026-11-08", "output_kg": "1000.000", "input_mass_kg": "1000.000",
+        "extra_items": [{ "item_id": "i-premix", "name": "برمكس" }]
+      },
+      "stores": [{ "id": "w-raw", "name": "مخزن المواد الأوّلية" }],
+      "output_store": { "id": "w-feed", "name": "رصيد العلف" },
+      "can_edit_recipe": true,
+      "draft_exists": false
+    },
+    "legacy": {
+      "today": "2026-11-10",
+      "recipe": { "id": "r-1", "name": "علف بادئ", "archived": false, "output_item": { "id": "f-1", "name": "علف بادئ 21٪" } },
+      "active": { "id": "v-2", "version_no": 2, "materials_only": false },
+      "materials": [
+        { "line_no": 1, "item_id": "i-corn", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "600.000", "default_source": "recipe" },
+        { "line_no": 2, "item_id": "i-soy", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "377.700", "default_source": "recipe" },
+        { "line_no": 3, "item_id": "i-oil", "name": "زيت", "kind": "raw", "base_unit": "L", "density": "0.9200", "in_basis": true, "scale_step": "0.100", "default_qty": "20.000", "default_source": "recipe" },
+        { "line_no": 4, "item_id": "i-salt", "name": "ملح", "kind": "additive", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": "3.900", "default_source": "recipe" }
+      ],
+      "last": null,
+      "stores": [{ "id": "w-raw", "name": "مخزن المواد الأوّلية" }, { "id": "w-raw2", "name": "مخزن موادّ ثانٍ" }],
+      "output_store": { "id": "w-feed", "name": "رصيد العلف" },
+      "can_edit_recipe": true,
+      "draft_exists": false
+    },
+    "first": {
+      "today": "2026-11-10",
+      "recipe": { "id": "r-1", "name": "علف بادئ", "archived": false, "output_item": { "id": "f-1", "name": "علف بادئ 21٪" } },
+      "active": { "id": "v-3", "version_no": 3, "materials_only": true },
+      "materials": [
+        { "line_no": 1, "item_id": "i-corn", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": "0.100", "default_qty": null, "default_source": null },
+        { "line_no": 2, "item_id": "i-soy", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "density": null, "in_basis": true, "scale_step": null, "default_qty": null, "default_source": null }
+      ],
+      "last": null,
+      "stores": [{ "id": "w-raw", "name": "مخزن المواد الأوّلية" }],
+      "output_store": null,
+      "can_edit_recipe": false,
+      "draft_exists": false
+    }
+  },
+  "produce_batch": {
+    "posted": {
+      "status": "posted", "id": "b-10", "doc_no": "PD-2026-0010", "produced_on": "2026-11-10", "recipe_name": "علف بادئ", "output_item_name": "علف بادئ 21٪",
+      "input_warehouse_name": "مخزن المواد الأوّلية", "output_warehouse_name": "رصيد العلف", "output_qty_kg": "1000.000", "input_mass_kg": "1000.000", "shrink_kg": "0.000",
+      "note": null,
+      "money": { "input_value": "600000.00", "extra_value": "15000.00", "total_value": "615000.00", "cost_per_kg": "615.00" },
+      "saved_to_recipe": false, "recipe_version_id": "v-3", "version_no": 3
+    },
+    "saved": {
+      "status": "posted", "id": "b-11", "doc_no": "PD-2026-0011", "produced_on": "2026-11-10", "recipe_name": "علف بادئ", "output_item_name": "علف بادئ 21٪",
+      "input_warehouse_name": "مخزن المواد الأوّلية", "output_warehouse_name": "رصيد العلف", "output_qty_kg": "1010.000", "input_mass_kg": "1010.000", "shrink_kg": "0.000",
+      "note": null,
+      "money": { "input_value": "606000.00", "extra_value": "15150.00", "total_value": "621150.00", "cost_per_kg": "615.00" },
+      "saved_to_recipe": true, "recipe_version_id": "v-4", "version_no": 4
+    },
+    "awaiting": {
+      "status": "draft", "id": "b-12", "awaiting": "costs", "recipe_name": "علف بادئ", "planned_kg": "1000.000",
+      "saved_to_recipe": false, "recipe_version_id": "v-3", "version_no": 3
+    },
+    "draft": { "id": "b-13", "status": "draft", "saved_to_recipe": false, "recipe_version_id": "v-3", "version_no": 3 }
+  },
+  "recipe_history": {
+    "period": {
+      "recipe": { "id": "r-1", "name": "علف بادئ" },
+      "versions": [
+        {
+          "id": "v-4", "version_no": 4, "status": "active", "activated_at": "2026-11-09T09:00:00Z", "activated_by": "علي", "retired_at": null, "materials_only": true,
+          "items": [{ "item_id": "i-corn", "name": "ذرة صفراء" }, { "item_id": "i-soy", "name": "كسبة صويا" }, { "item_id": "i-oil", "name": "زيت" }, { "item_id": "i-salt", "name": "ملح" }, { "item_id": "i-premix", "name": "برمكس" }],
+          "added": [{ "item_id": "i-premix", "name": "برمكس" }],
+          "removed": [{ "item_id": "i-diesel", "name": "كاز المولّدة" }],
+          "from_batch": { "id": "b-11", "doc_no": "PD-2026-0011" }
+        },
+        {
+          "id": "v-3", "version_no": 3, "status": "retired", "activated_at": "2026-11-01T08:00:00Z", "activated_by": "علي", "retired_at": "2026-11-09T09:00:00Z", "materials_only": true,
+          "items": [{ "item_id": "i-corn", "name": "ذرة صفراء" }, { "item_id": "i-soy", "name": "كسبة صويا" }, { "item_id": "i-oil", "name": "زيت" }, { "item_id": "i-salt", "name": "ملح" }, { "item_id": "i-diesel", "name": "كاز المولّدة" }],
+          "added": [],
+          "removed": [{ "item_id": "i-lime", "name": "حجر الكلس" }],
+          "from_batch": null
+        },
+        {
+          "id": "v-1", "version_no": 1, "status": "retired", "activated_at": "2026-10-01T08:00:00Z", "activated_by": null, "retired_at": "2026-11-01T08:00:00Z", "materials_only": false,
+          "items": [{ "item_id": "i-corn", "name": "ذرة صفراء" }, { "item_id": "i-soy", "name": "كسبة صويا" }, { "item_id": "i-oil", "name": "زيت" }, { "item_id": "i-salt", "name": "ملح" }, { "item_id": "i-diesel", "name": "كاز المولّدة" }, { "item_id": "i-lime", "name": "حجر الكلس" }],
+          "added": [],
+          "removed": [],
+          "from_batch": null
+        }
+      ],
+      "productions": [
+        {
+          "id": "b-11", "doc_no": "PD-2026-0011", "produced_on": "2026-11-09", "status": "posted", "version_no": 4, "output_kg": "1010.000", "input_mass_kg": "1010.000",
+          "saved_to_recipe": true, "note": null, "by": "علي",
+          "lines": [
+            { "item_id": "i-corn", "name": "ذرة صفراء", "qty": "600.000", "base_unit": "kg", "mass_kg": "600.000", "in_basis": true, "extra": false },
+            { "item_id": "i-soy", "name": "كسبة صويا", "qty": "360.000", "base_unit": "kg", "mass_kg": "360.000", "in_basis": true, "extra": false },
+            { "item_id": "i-oil", "name": "زيت", "qty": "20.000", "base_unit": "L", "mass_kg": "18.400", "in_basis": true, "extra": false },
+            { "item_id": "i-salt", "name": "ملح", "qty": "21.600", "base_unit": "kg", "mass_kg": "21.600", "in_basis": true, "extra": false },
+            { "item_id": "i-premix", "name": "برمكس", "qty": "10.000", "base_unit": "kg", "mass_kg": "10.000", "in_basis": true, "extra": false }
+          ],
+          "omitted": []
+        },
+        {
+          "id": "b-10", "doc_no": "PD-2026-0010", "produced_on": "2026-11-05", "status": "posted", "version_no": 3, "output_kg": "995.000", "input_mass_kg": "1001.000",
+          "saved_to_recipe": false, "note": "أكملنا الطنّ بالبرمكس", "by": "سعد",
+          "lines": [
+            { "item_id": "i-corn", "name": "ذرة صفراء", "qty": "600.000", "base_unit": "kg", "mass_kg": "600.000", "in_basis": true, "extra": false },
+            { "item_id": "i-soy", "name": "كسبة صويا", "qty": "360.000", "base_unit": "kg", "mass_kg": "360.000", "in_basis": true, "extra": false },
+            { "item_id": "i-oil", "name": "زيت", "qty": "20.000", "base_unit": "L", "mass_kg": "18.400", "in_basis": true, "extra": false },
+            { "item_id": "i-salt", "name": "ملح", "qty": "21.600", "base_unit": "kg", "mass_kg": "21.600", "in_basis": true, "extra": false },
+            { "item_id": "i-premix", "name": "برمكس", "qty": "1.000", "base_unit": "kg", "mass_kg": "1.000", "in_basis": true, "extra": true }
+          ],
+          "omitted": [{ "item_id": "i-diesel", "name": "كاز المولّدة" }]
+        },
+        {
+          "id": "b-8", "doc_no": "PD-2026-0008", "produced_on": "2026-10-20", "status": "void", "version_no": 1, "output_kg": "1000.000", "input_mass_kg": "1000.000",
+          "saved_to_recipe": false, "note": null, "by": null,
+          "lines": [
+            { "item_id": "i-corn", "name": "ذرة صفراء", "qty": "1000.000", "base_unit": "kg", "mass_kg": "1000.000", "in_basis": true, "extra": false }
+          ],
+          "omitted": []
+        }
+      ],
+      "totals": { "batches": 2, "output_kg": "2005.000" }
+    }
+  },
+  "recipes_overview": {
+    "materials_only": {
+      "today": "2026-11-10",
+      "recipes": [
+        {
+          "id": "r-1", "name": "علف بادئ", "note": null, "archived": false, "version": 4,
+          "output_item": { "id": "f-1", "name": "علف بادئ 21٪", "base_unit": "kg", "kind": "feed" },
+          "active": {
+            "id": "v-4", "version_no": 4, "basis_kg": null, "materials_only": true, "pieces_source": "last_batch", "lines": 5,
+            "pieces": [
+              { "item_id": "i-corn", "name": "ذرة صفراء", "mass_kg": "600.000", "in_basis": true },
+              { "item_id": "i-soy", "name": "كسبة صويا", "mass_kg": "360.000", "in_basis": true },
+              { "item_id": "i-oil", "name": "زيت", "mass_kg": "18.400", "in_basis": true },
+              { "item_id": "i-salt", "name": "ملح", "mass_kg": "21.600", "in_basis": true },
+              { "item_id": "i-premix", "name": "برمكس", "mass_kg": "10.000", "in_basis": true }
+            ]
+          },
+          "draft": null, "batches": 2,
+          "last_batch": { "id": "b-11", "doc_no": "PD-2026-0011", "produced_on": "2026-11-09", "output_qty_kg": "1010.000", "money": { "total_value": "621150.00", "cost_per_kg": "615.00" } },
+          "money": { "expected_cost_per_kg": null }
+        },
+        {
+          "id": "r-2", "name": "علف ناهٍ", "note": null, "archived": false, "version": 1,
+          "output_item": { "id": "f-2", "name": "علف ناهٍ 19٪", "base_unit": "kg", "kind": "feed" },
+          "active": {
+            "id": "v-21", "version_no": 1, "basis_kg": null, "materials_only": true, "pieces_source": "recipe", "lines": 3,
+            "pieces": [
+              { "item_id": "i-corn", "name": "ذرة صفراء", "mass_kg": null, "in_basis": true },
+              { "item_id": "i-soy", "name": "كسبة صويا", "mass_kg": null, "in_basis": true },
+              { "item_id": "i-diesel", "name": "كاز المولّدة", "mass_kg": null, "in_basis": false }
+            ]
+          },
+          "draft": null, "batches": 0, "last_batch": null,
+          "money": { "expected_cost_per_kg": null }
+        },
+        {
+          "id": "r-3", "name": "علف بادئ قديم", "note": null, "archived": false, "version": 2,
+          "output_item": { "id": "f-1", "name": "علف بادئ 21٪", "base_unit": "kg", "kind": "feed" },
+          "active": {
+            "id": "v-31", "version_no": 2, "basis_kg": "1000.000", "materials_only": false, "pieces_source": "recipe", "lines": 2,
+            "pieces": [
+              { "item_id": "i-corn", "item_name": "ذرة صفراء", "mass_kg": "650.000", "in_basis": true },
+              { "item_id": "i-soy", "item_name": "كسبة صويا", "mass_kg": "350.000", "in_basis": true }
+            ]
+          },
+          "draft": null, "batches": 0, "last_batch": null,
+          "money": { "expected_cost_per_kg": "610.50" }
+        },
+        {
+          "id": "r-9", "name": "خلطة محذوفة", "note": null, "archived": true, "version": 3,
+          "output_item": { "id": "f-9", "name": "علف تجريبي", "base_unit": "kg", "kind": "feed" },
+          "active": null, "draft": null, "batches": 0, "last_batch": null,
+          "money": { "expected_cost_per_kg": null }
+        }
+      ],
+      "stores": [{ "id": "w-raw", "name": "مخزن المواد الأوّلية", "kind": "raw" }, { "id": "w-feed", "name": "رصيد العلف", "kind": "feed" }],
+      "feed_items": [{ "id": "f-1", "name": "علف بادئ 21٪" }, { "id": "f-2", "name": "علف ناهٍ 19٪" }]
+    }
+  },
+  "recipe_detail": {
+    "materials_only": {
+      "id": "r-1", "name": "علف بادئ", "note": null, "archived": false, "version": 4,
+      "output_item": { "id": "f-1", "name": "علف بادئ 21٪", "base_unit": "kg", "kind": "feed", "tracks_expiry": false },
+      "versions": [
+        { "id": "v-4", "version_no": 4, "status": "active", "basis_kg": null, "materials_only": true, "activated_at": "2026-11-09T09:00:00Z", "version": 2 },
+        { "id": "v-3", "version_no": 3, "status": "retired", "basis_kg": null, "materials_only": true, "activated_at": "2026-11-01T08:00:00Z", "version": 3 },
+        { "id": "v-1", "version_no": 1, "status": "retired", "basis_kg": "1000.000", "materials_only": false, "activated_at": "2026-10-01T08:00:00Z", "version": 5 }
+      ],
+      "selected": { "id": "v-4", "version_no": 4, "status": "active", "basis_kg": null, "materials_only": true, "note": null, "activated_at": "2026-11-09T09:00:00Z", "version": 2 },
+      "lines": [
+        { "id": "l-41", "line_no": 1, "item_id": "i-corn", "item_name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "category_id": null, "category_name": null, "qty": null, "unit": "kg", "mass_kg": null, "share_pct": null, "in_basis": true, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": "430.50", "cost_price": null, "last_price": "440.25" } },
+        { "id": "l-42", "line_no": 2, "item_id": "i-soy", "item_name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "category_id": null, "category_name": null, "qty": null, "unit": "kg", "mass_kg": null, "share_pct": null, "in_basis": true, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": null, "cost_price": null, "last_price": null } },
+        { "id": "l-43", "line_no": 3, "item_id": "i-oil", "item_name": "زيت", "kind": "raw", "base_unit": "L", "category_id": null, "category_name": null, "qty": null, "unit": "L", "mass_kg": null, "share_pct": null, "in_basis": true, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": null, "cost_price": null, "last_price": null } },
+        { "id": "l-44", "line_no": 4, "item_id": "i-salt", "item_name": "ملح", "kind": "additive", "base_unit": "kg", "category_id": null, "category_name": null, "qty": null, "unit": "kg", "mass_kg": null, "share_pct": null, "in_basis": true, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": null, "cost_price": null, "last_price": null } },
+        { "id": "l-45", "line_no": 5, "item_id": "i-premix", "item_name": "برمكس", "kind": "additive", "base_unit": "kg", "category_id": null, "category_name": null, "qty": null, "unit": "kg", "mass_kg": null, "share_pct": null, "in_basis": true, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": null, "cost_price": null, "last_price": null } },
+        { "id": "l-46", "line_no": 6, "item_id": "i-diesel", "item_name": "كاز المولّدة", "kind": "fuel", "base_unit": "L", "category_id": null, "category_name": null, "qty": null, "unit": "L", "mass_kg": null, "share_pct": null, "in_basis": false, "unit_changed": false, "unit_mismatch": false, "density_missing": false, "money": { "unit_cost": null, "cost_price": null, "last_price": null } }
+      ],
+      "mass_kg": null,
+      "pick_items": [{ "id": "i-corn", "name": "ذرة صفراء", "base_unit": "kg", "category_name": null }],
+      "expense_categories": [{ "id": "c-labor", "name": "أيدي عاملة" }],
+      "money": { "rates": [{ "id": "rr-1", "line_no": 1, "category_id": "c-labor", "category_name": "أيدي عاملة", "amount_per_ton": "15000.00" }], "expected": null }
+    }
+  },
+  "production_detail": {
+    "saved": {
+      "id": "b-11", "doc_no": "PD-2026-0011", "status": "posted", "version": 9, "produced_on": "2026-11-09", "planned_kg": "1010.000",
+      "output_qty_kg": "1010.000", "output_expiry_on": null, "input_mass_kg": "1010.000", "shrink_kg": "0.000", "shrink_pct": "0.00", "shrink_reason": null, "note": null, "void_reason": null,
+      "costs_confirmed": true, "saved_to_recipe": true,
+      "recipe": { "id": "r-1", "name": "علف بادئ", "version_id": "v-4", "version_no": 4, "basis_kg": null },
+      "output_item": { "id": "f-1", "name": "علف بادئ 21٪", "base_unit": "kg", "tracks_expiry": false },
+      "input_warehouse": { "id": "w-raw", "name": "مخزن المواد الأوّلية" },
+      "output_warehouse": { "id": "w-feed", "name": "رصيد العلف" },
+      "lines": [
+        { "id": "in-1", "line_no": 1, "item_id": "i-corn", "item_name": "ذرة صفراء", "base_unit": "kg", "planned_qty": "600.000", "actual_qty": null, "used_qty": "600.000", "in_basis": true, "is_substitute": false, "reason": null, "replaced_item_name": null, "draws": [{ "lot_id": "lot-1", "qty": "600.000", "received_on": "2026-10-20", "source": "RC-2026-0004" }] }
+      ],
+      "expenses_visible": false,
+      "scope": { "input": true, "output": true }
+    }
+  },
+  "refusals": {
+    "recipe_changed": { "code": "recipe_changed", "hint": "تغيّرت هذه الخلطة من جهاز آخر؛ حدّث الشاشة ثمّ أنتج." },
+    "recipe_choice_required": { "code": "recipe_choice_required", "hint": "غيّرت موادّ الخلطة: اختر «عدّل الخلطة» أو «لهذه المرّة فقط»." },
+    "forbidden": { "code": "forbidden", "hint": "تعديل الخلطة للمالك أو المدير؛ اختر «لهذه المرّة فقط»." },
+    "draft_exists": { "code": "draft_exists", "hint": "للخلطة تعديل مفتوح لم يُفعَّل؛ فعّله أو احذفه من صفحة الخلطة، أو أنتج لهذه المرّة فقط." },
+    "feed_store_missing": { "code": "feed_store_missing", "hint": "لا يوجد «رصيد العلف» في المعمل: أضفه من إعداد المخزن." },
+    "quantities_required": { "code": "quantities_required", "hint": "هذه الخلطة بلا كميات؛ أنتج من شاشة الإنتاج واكتب الكميات فيها." },
+    "mixed_quantities": { "code": "mixed_quantities", "hint": "في هذه النسخة موادّ بكميات وموادّ بلا كميات: احذف الكميات كلّها." },
+    "no_mass_inputs": { "code": "no_mass_inputs", "hint": "أضف مادّة داخل كتلة الخلطة؛ الوقود والتعبئة خارجها." },
+    "production_blocked": { "code": "production_blocked", "hint": "الرصيد لا يكفي: «كسبة صويا» المطلوب 360 كغم والمتاح 300 كغم." },
+    "id_conflict": { "code": "id_conflict", "hint": "هذا المعرّف لدفعة أُرسلت بمحتوى غير هذا." },
+    "period_too_long": { "code": "period_too_long", "hint": "المدّة أطول من سنة: اختر 366 يوماً أو أقلّ." }
+  }
+}
