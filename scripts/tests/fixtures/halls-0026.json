@@ -5,14 +5,14 @@
   "logs": [
    {
     "id": "d2600000-0000-4000-8000-000000000401",
-    "flock_id": "8b80026b-745c-4154-910b-3cebaa930123"
+    "flock_id": "0db37603-c1e0-4af7-8ea7-17298883ff9f"
    }
   ],
   "issues": [
    {
     "qty": "1000",
     "doc_no": "FI-2026-0001",
-    "flock_id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
     "issue_id": "d2600000-0000-4000-8000-000000000201",
     "base_unit": "kg",
     "hall_name": "قاعة 1",
@@ -21,7 +21,7 @@
    {
     "qty": "1000",
     "doc_no": "FI-2026-0002",
-    "flock_id": "8b80026b-745c-4154-910b-3cebaa930123",
+    "flock_id": "0db37603-c1e0-4af7-8ea7-17298883ff9f",
     "issue_id": "d2600000-0000-4000-8000-000000000202",
     "base_unit": "kg",
     "hall_name": "قاعة 2",
@@ -30,7 +30,7 @@
    {
     "qty": "500",
     "doc_no": "FI-2026-0003",
-    "flock_id": "128e55c5-c15f-4aa0-9f01-71121c575057",
+    "flock_id": "20219ae7-c166-4f4f-aef1-9c87df6a154b",
     "issue_id": "d2600000-0000-4000-8000-000000000203",
     "base_unit": "kg",
     "hall_name": "قاعة 3",
@@ -39,7 +39,7 @@
    {
     "qty": "2",
     "doc_no": "FI-2026-0004",
-    "flock_id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
     "issue_id": "d2600000-0000-4000-8000-000000000204",
     "base_unit": "L",
     "hall_name": "قاعة 1",
@@ -51,7 +51,7 @@
     "id": "d2600000-0000-4000-8000-000000000501",
     "doc_no": "FI-2026-0005",
     "age_day": 7,
-    "flock_id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
     "issue_id": "d2600000-0000-4000-8000-000000000601",
     "vaccine_id": "d2600000-0000-4000-8000-000000000101"
    },
@@ -59,7 +59,7 @@
     "id": "d2600000-0000-4000-8000-000000000502",
     "doc_no": null,
     "age_day": 7,
-    "flock_id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
     "issue_id": null,
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
    }
@@ -68,15 +68,21 @@
  "vaccine_board": {
   "items": [
    {
-    "id": "dfc7cfaf-9955-4371-a979-1d0604a10c5f",
+    "id": "991508e8-1233-4ff8-a320-058e7117f69c",
     "kind": "medicine",
     "name": "فيتامين سائل",
     "base_unit": "L"
    },
    {
-    "id": "9666441e-5ebf-4b10-ac63-4a78a28e133d",
+    "id": "6c96b287-83f2-4b5a-9fb5-b570658f5bd2",
     "kind": "vaccine",
     "name": "لقاح IB",
+    "base_unit": "pc"
+   },
+   {
+    "id": "c3910209-241a-4570-a9ec-3bc8f766d00e",
+    "kind": "vaccine",
+    "name": "لقاح مربوط",
     "base_unit": "pc"
    }
   ],
@@ -95,21 +101,53 @@
       "vaccine_id": "d2600000-0000-4000-8000-000000000102"
      },
      {
+      "age_day": 9,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111"
+     },
+     {
       "age_day": 14,
       "vaccine_id": "d2600000-0000-4000-8000-000000000102"
+     },
+     {
+      "age_day": 30,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111"
      }
     ],
     "end_age": 42,
-    "version": 3
+    "version": 6
    }
   },
   "vaccines": [
+   {
+    "id": "d2600000-0000-4000-8000-000000000111",
+    "item": {
+     "id": "991508e8-1233-4ff8-a320-058e7117f69c",
+     "name": "فيتامين سائل",
+     "base_unit": "L"
+    },
+    "name": "MG",
+    "color": 0,
+    "in_use": true,
+    "version": 2
+   },
    {
     "id": "d2600000-0000-4000-8000-000000000102",
     "item": null,
     "name": "ND",
     "color": 1,
     "in_use": true,
+    "version": 1
+   },
+   {
+    "id": "d2600000-0000-4000-8000-000000000115",
+    "item": {
+     "id": "c3910209-241a-4570-a9ec-3bc8f766d00e",
+     "name": "لقاح مربوط",
+     "base_unit": "pc"
+    },
+    "name": "لقاح الربط",
+    "color": 2,
+    "in_use": false,
     "version": 1
    }
   ],
@@ -121,19 +159,23 @@
  "vaccine_reminders": {
   "items": [
    {
-    "item": null,
+    "item": {
+     "id": "991508e8-1233-4ff8-a320-058e7117f69c",
+     "name": "فيتامين سائل",
+     "base_unit": "L"
+    },
     "kind": "broiler",
-    "name": "ND",
-    "when": "tomorrow",
-    "color": 1,
-    "due_on": "2026-11-12",
-    "linked": false,
-    "age_day": 7,
-    "hall_id": "d8c55dea-9060-4372-b56a-856db588ca31",
-    "flock_id": "8b80026b-745c-4154-910b-3cebaa930123",
-    "hall_name": "قاعة 2",
+    "name": "MG",
+    "when": "overdue",
+    "color": 0,
+    "due_on": "2026-11-09",
+    "linked": true,
+    "age_day": 9,
+    "hall_id": "955dee34-552e-4590-af01-2184a829d710",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
+    "hall_name": "قاعة 1",
     "site_name": "حقل الأمير",
-    "vaccine_id": "d2600000-0000-4000-8000-000000000102"
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
    },
    {
     "item": null,
@@ -144,13 +186,32 @@
     "due_on": "2026-11-14",
     "linked": false,
     "age_day": 14,
-    "hall_id": "1ad5e346-af80-4973-9212-cccc9a657cd2",
-    "flock_id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+    "hall_id": "955dee34-552e-4590-af01-2184a829d710",
+    "flock_id": "3db6a883-a744-488e-8f0c-b91566933012",
     "hall_name": "قاعة 1",
     "site_name": "حقل الأمير",
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
    },
    {
+    "item": {
+     "id": "991508e8-1233-4ff8-a320-058e7117f69c",
+     "name": "فيتامين سائل",
+     "base_unit": "L"
+    },
+    "kind": "broiler",
+    "name": "MG",
+    "when": "soon",
+    "color": 0,
+    "due_on": "2026-11-14",
+    "linked": true,
+    "age_day": 9,
+    "hall_id": "a3caa31d-a1a8-4559-8cce-54c8785048e3",
+    "flock_id": "0db37603-c1e0-4af7-8ea7-17298883ff9f",
+    "hall_name": "قاعة 2",
+    "site_name": "حقل الأمير",
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
+   },
+   {
     "item": null,
     "kind": "broiler",
     "name": "ND",
@@ -159,8 +220,8 @@
     "due_on": "2026-11-14",
     "linked": false,
     "age_day": 14,
-    "hall_id": "1bbfd664-413f-40a2-82ab-7cabed5a6d5c",
-    "flock_id": "91aed6b8-7814-4f63-878c-809d7f4ac058",
+    "hall_id": "1c699c61-d293-46ce-a409-e6bc357c07f6",
+    "flock_id": "c884ffec-83b1-4ed5-8b0b-3fb73ab7c70c",
     "hall_name": "قاعة 4",
     "site_name": "حقل الأمير",
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
@@ -274,7 +335,18 @@
     "culled": null,
     "issues": [],
     "feed_kg": null,
-    "vaccines": []
+    "vaccines": [
+     {
+      "name": "MG",
+      "color": 0,
+      "state": "missed",
+      "doc_no": null,
+      "age_day": 9,
+      "issue_id": null,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111",
+      "vaccination_id": null
+     }
+    ]
    },
    {
     "on": "2026-11-10",
@@ -300,7 +372,7 @@
       "qty": "1000",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0001",
-      "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
+      "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
       "issue_id": "d2600000-0000-4000-8000-000000000201",
       "base_unit": "kg",
       "cost_kind": "feed"
@@ -310,7 +382,7 @@
       "qty": "2",
       "name": "فيتامين سائل",
       "doc_no": "FI-2026-0004",
-      "item_id": "dfc7cfaf-9955-4371-a979-1d0604a10c5f",
+      "item_id": "991508e8-1233-4ff8-a320-058e7117f69c",
       "issue_id": "d2600000-0000-4000-8000-000000000204",
       "base_unit": "L",
       "cost_kind": "medicine"
@@ -320,7 +392,7 @@
       "qty": "200",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0008",
-      "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
+      "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
       "issue_id": "d2600000-0000-4000-8000-000000000230",
       "base_unit": "kg",
       "cost_kind": "feed"
@@ -332,6 +404,7 @@
       "name": "IB",
       "color": 0,
       "state": "done",
+      "doc_no": "FI-2026-0007",
       "age_day": 7,
       "issue_id": "d2600000-0000-4000-8000-000000000620",
       "vaccine_id": "d2600000-0000-4000-8000-000000000101",
@@ -341,6 +414,7 @@
       "name": "ND",
       "color": 1,
       "state": "done",
+      "doc_no": null,
       "age_day": 7,
       "issue_id": null,
       "vaccine_id": "d2600000-0000-4000-8000-000000000102",
@@ -384,6 +458,7 @@
       "name": "ND",
       "color": 1,
       "state": "planned",
+      "doc_no": null,
       "age_day": 14,
       "issue_id": null,
       "vaccine_id": "d2600000-0000-4000-8000-000000000102",
@@ -565,19 +640,30 @@
     "culled": null,
     "issues": [],
     "feed_kg": null,
-    "vaccines": []
+    "vaccines": [
+     {
+      "name": "MG",
+      "color": 0,
+      "state": "planned",
+      "doc_no": null,
+      "age_day": 30,
+      "issue_id": null,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111",
+      "vaccination_id": null
+     }
+    ]
    }
   ],
   "next": true,
   "prev": false,
   "flock": {
-   "id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+   "id": "3db6a883-a744-488e-8f0c-b91566933012",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-12",
    "status": "active",
    "end_age": 42,
-   "hall_id": "1ad5e346-af80-4973-9212-cccc9a657cd2",
+   "hall_id": "955dee34-552e-4590-af01-2184a829d710",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -697,7 +783,18 @@
     "culled": null,
     "issues": [],
     "feed_kg": null,
-    "vaccines": []
+    "vaccines": [
+     {
+      "name": "MG",
+      "color": 0,
+      "state": "missed",
+      "doc_no": null,
+      "age_day": 9,
+      "issue_id": null,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111",
+      "vaccination_id": null
+     }
+    ]
    },
    {
     "on": "2026-11-10",
@@ -723,7 +820,7 @@
       "qty": "1000",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0001",
-      "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
+      "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
       "issue_id": "d2600000-0000-4000-8000-000000000201",
       "base_unit": "kg",
       "cost_kind": "feed"
@@ -733,7 +830,7 @@
       "qty": "2",
       "name": "فيتامين سائل",
       "doc_no": "FI-2026-0004",
-      "item_id": "dfc7cfaf-9955-4371-a979-1d0604a10c5f",
+      "item_id": "991508e8-1233-4ff8-a320-058e7117f69c",
       "issue_id": "d2600000-0000-4000-8000-000000000204",
       "base_unit": "L",
       "cost_kind": "medicine"
@@ -743,7 +840,7 @@
       "qty": "200",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0008",
-      "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
+      "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
       "issue_id": "d2600000-0000-4000-8000-000000000230",
       "base_unit": "kg",
       "cost_kind": "feed"
@@ -755,6 +852,7 @@
       "name": "IB",
       "color": 0,
       "state": "done",
+      "doc_no": "FI-2026-0007",
       "age_day": 7,
       "issue_id": "d2600000-0000-4000-8000-000000000620",
       "vaccine_id": "d2600000-0000-4000-8000-000000000101",
@@ -764,6 +862,7 @@
       "name": "ND",
       "color": 1,
       "state": "done",
+      "doc_no": null,
       "age_day": 7,
       "issue_id": null,
       "vaccine_id": "d2600000-0000-4000-8000-000000000102",
@@ -807,6 +906,7 @@
       "name": "ND",
       "color": 1,
       "state": "planned",
+      "doc_no": null,
       "age_day": 14,
       "issue_id": null,
       "vaccine_id": "d2600000-0000-4000-8000-000000000102",
@@ -988,19 +1088,30 @@
     "culled": null,
     "issues": [],
     "feed_kg": null,
-    "vaccines": []
+    "vaccines": [
+     {
+      "name": "MG",
+      "color": 0,
+      "state": "planned",
+      "doc_no": null,
+      "age_day": 30,
+      "issue_id": null,
+      "vaccine_id": "d2600000-0000-4000-8000-000000000111",
+      "vaccination_id": null
+     }
+    ]
    }
   ],
   "next": true,
   "prev": false,
   "flock": {
-   "id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+   "id": "3db6a883-a744-488e-8f0c-b91566933012",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-12",
    "status": "active",
    "end_age": 42,
-   "hall_id": "1ad5e346-af80-4973-9212-cccc9a657cd2",
+   "hall_id": "955dee34-552e-4590-af01-2184a829d710",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -1048,8 +1159,9 @@
      "kg": "1200.000",
      "qty": "1200",
      "name": "علف بادئ",
-     "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
-     "base_unit": "kg"
+     "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
+     "base_unit": "kg",
+     "unweighed": 0
     }
    ],
    "unweighed": 0,
@@ -1065,13 +1177,13 @@
    "mortality_pct": "0.30"
   },
   "flock": {
-   "id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+   "id": "3db6a883-a744-488e-8f0c-b91566933012",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-12",
    "status": "active",
    "end_age": 42,
-   "hall_id": "1ad5e346-af80-4973-9212-cccc9a657cd2",
+   "hall_id": "955dee34-552e-4590-af01-2184a829d710",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -1109,6 +1221,16 @@
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
    },
    {
+    "name": "MG",
+    "color": 0,
+    "state": "missed",
+    "doc_no": null,
+    "due_on": "2026-11-09",
+    "age_day": 9,
+    "done_on": null,
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
+   },
+   {
     "name": "ND",
     "color": 1,
     "state": "planned",
@@ -1117,6 +1239,16 @@
     "age_day": 14,
     "done_on": null,
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
+   },
+   {
+    "name": "MG",
+    "color": 0,
+    "state": "planned",
+    "doc_no": null,
+    "due_on": "2026-11-30",
+    "age_day": 30,
+    "done_on": null,
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
    }
   ],
   "medicines": [
@@ -1158,8 +1290,9 @@
      "kg": "1200.000",
      "qty": "1200",
      "name": "علف بادئ",
-     "item_id": "74adeb53-2d21-4147-bba5-6888295742bb",
-     "base_unit": "kg"
+     "item_id": "35fccd8f-f25b-4e5c-bd59-44fe46bf0d72",
+     "base_unit": "kg",
+     "unweighed": 0
     }
    ],
    "unweighed": 0,
@@ -1175,13 +1308,13 @@
    "mortality_pct": "0.30"
   },
   "flock": {
-   "id": "72583385-ab14-4580-bcd0-bccb760dae5a",
+   "id": "3db6a883-a744-488e-8f0c-b91566933012",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-12",
    "status": "active",
    "end_age": 42,
-   "hall_id": "1ad5e346-af80-4973-9212-cccc9a657cd2",
+   "hall_id": "955dee34-552e-4590-af01-2184a829d710",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -1212,6 +1345,16 @@
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
    },
    {
+    "name": "MG",
+    "color": 0,
+    "state": "missed",
+    "doc_no": null,
+    "due_on": "2026-11-09",
+    "age_day": 9,
+    "done_on": null,
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
+   },
+   {
     "name": "ND",
     "color": 1,
     "state": "planned",
@@ -1220,6 +1363,16 @@
     "age_day": 14,
     "done_on": null,
     "vaccine_id": "d2600000-0000-4000-8000-000000000102"
+   },
+   {
+    "name": "MG",
+    "color": 0,
+    "state": "planned",
+    "doc_no": null,
+    "due_on": "2026-11-30",
+    "age_day": 30,
+    "done_on": null,
+    "vaccine_id": "d2600000-0000-4000-8000-000000000111"
    }
   ],
   "medicines": [
