@@ -165,8 +165,8 @@ const line = (id, no, item, name, kind, baseUnit, qty, unit, mass, inBasis = tru
 const activeJson = ({ tracks = false, status = 'active', archived = false, lineOver = {} } = {}) => ({
   id: P.recipe, name: 'علف بادئ', note: null, archived, version: 3,
   output_item: { id: 'f-prod', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: tracks },
-  versions: [{ id: P.version, version_no: 2, status, basis_kg: '1000.000', activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 4 }],
-  selected: { id: P.version, version_no: 2, status, basis_kg: '1000.000', note: null, activated_at: null, version: 4 },
+  versions: [{ id: P.version, version_no: 2, status, basis_kg: '1000.000', materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 4 }],
+  selected: { id: P.version, version_no: 2, status, basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 4 },
   lines: [
     line('l-a1', 1, 'i-corn', 'ذرة صفراء', 'raw', 'kg', '600.000', 'kg', '600.000'),
     line('l-a2', 2, 'i-soy', 'كسبة صويا', 'raw', 'kg', '377.700', 'kg', '377.700'),

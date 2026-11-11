@@ -131,8 +131,8 @@ const recipeLine = (over = {}) => ({
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], rates = [], categories = [{ id: 'c-labor', name: 'أيدي عاملة' }] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 5 },
   lines,
   mass_kg: '1000.000',
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
@@ -147,6 +147,7 @@ const batchJson = ({ status = 'draft', lines = [batchLine()], costs = [], expens
   id: 'b-1', doc_no: status === 'posted' ? 'PD-2026-0003' : null, status, version: 7, produced_on: '2026-11-04', planned_kg: '1000.000',
   output_qty_kg: status === 'posted' ? '990.000' : null, output_expiry_on: null, input_mass_kg: status === 'posted' ? '1000.000' : null,
   shrink_kg: status === 'posted' ? '10.000' : null, shrink_pct: null, shrink_reason: null, note: null, void_reason: null, costs_confirmed: status === 'posted',
+  saved_to_recipe: false,
   recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: true },
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -510,7 +511,7 @@ export default async function (t) {
               versionId === 'v-3'
                 ? recipeJson({
                     status: 'draft', versionId: 'v-3', versionNo: 3,
-                    versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: null, version: 5 }, { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 1 }],
+                    versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 }, { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 1 }],
                   })
                 : recipeJson({ status: 'active' }),
             ),

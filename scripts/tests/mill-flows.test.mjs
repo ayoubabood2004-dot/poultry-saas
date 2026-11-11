@@ -113,8 +113,8 @@ const recipeJson = (money) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
   // الأساس المحفوظ = مجموع المسوّدة (600): بعد مراجعة الشاشات M2 لا تُعرض كلفة الطنّ من أساس غير المجموع.
-  versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', activated_at: null, version: 5 }],
-  selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', note: null, activated_at: null, version: 5 },
+  versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', materials_only: false, activated_at: null, version: 5 }],
+  selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '600.000', materials_only: false, note: null, activated_at: null, version: 5 },
   lines: [
     { id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة صفراء', kind: 'raw', base_unit: 'kg', category_id: null, category_name: 'الغذاء', qty: '600.000', unit: 'kg', mass_kg: '600.000', share_pct: '60.00', in_basis: true, unit_changed: false, unit_mismatch: false, density_missing: false, ...(money ? { money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' } } : {}) },
   ],
@@ -135,6 +135,7 @@ const batchJson = (status, money) => {
     id: 'b-1', doc_no: posted ? 'PD-2026-0003' : null, status, version: 7, produced_on: '2026-11-04', planned_kg: '1000.000',
     output_qty_kg: posted ? '890.000' : null, output_expiry_on: null, input_mass_kg: posted ? '900.000' : null, shrink_kg: posted ? '10.000' : null, shrink_pct: null,
     shrink_reason: null, note: null, void_reason: null, costs_confirmed: posted,
+    saved_to_recipe: false,
     recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: false },
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -357,7 +358,7 @@ export default async function (t) {
     // ── F2: «خلطة جديدة» و«أنتج» بكميات سريعة ───────────────────────────────────────────────────────────────────
     const card = (over = {}) => ({
       id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1, output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 2, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '600.000', in_basis: true }, { item_id: 'i-soy', item_name: 'كسبة صويا', mass_kg: '400.000', in_basis: true }] },
+      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', materials_only: false, pieces_source: 'recipe', lines: 2, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '600.000', in_basis: true }, { item_id: 'i-soy', item_name: 'كسبة صويا', mass_kg: '400.000', in_basis: true }] },
       draft: null, batches: 0, last_batch: null, money: { expected_cost_per_kg: '285.00' }, ...over,
     });
     const millHome = (recipes) => ({
@@ -371,8 +372,8 @@ export default async function (t) {
       // شاشة الإنتاج الواحدة (0023): الخلطة بنسختها المفعَّلة v-1 (ذرة 600 وكسبة 400 لكلّ 1,000 كغم) ومدخلات تخطيط سطريها.
       const active = m.parseRecipe({
         ...recipeJson(true),
-        versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 3 }],
-        selected: { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', note: null, activated_at: '2026-11-01T08:00:00Z', version: 3 },
+        versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 3 }],
+        selected: { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, note: null, activated_at: '2026-11-01T08:00:00Z', version: 3 },
         lines: [
           { ...recipeJson(true).lines[0], qty: '600.000', mass_kg: '600.000' },
           { ...recipeJson(true).lines[0], id: 'l-2', line_no: 2, item_id: 'i-soy', item_name: 'كسبة صويا', qty: '400.000', mass_kg: '400.000' },

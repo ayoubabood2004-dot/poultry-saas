@@ -8,7 +8,6 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
-import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -16,7 +15,7 @@ import { loadMill, setRecipeOrder, type MillHome, type RecipeCard } from '../../
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { kgText } from './cards';
-import { Chip, CompositionBar, dash, moveId, recipeColor, reconcileOrder, sameOrder } from './shared';
+import { Chip, CompositionBar, dash, moveId, PALETTE, recipeColor, reconcileOrder, sameOrder } from './shared';
 
 // شاشة معمل العلف (0015، كلمة المالك 2026-11-03): الخلطات بطاقاتٍ ملوّنة، كلّ واحدة تُقرأ بلمحة (شريط التركيبة ورقاقات
 // موادّها)، وزرّ «أنتج» كبير عليها؛ وتحتها دفعات قيد العمل وآخر الدفعات بجدول كلاسيكي. الكلفة تظهر لأدوار الكلفة فقط
@@ -31,20 +30,6 @@ import { Chip, CompositionBar, dash, moveId, recipeColor, reconcileOrder, sameOr
 // («رتّب العلائق» ثمّ «احفظ الترتيب»: set_recipe_order بشرط الترتيب الذي عرضته الشاشة، وrecipes_changed يُقال بتلميحه ويُقرأ المعمل من جديد ويبقى ترتيب
 // المستخدم ليُحفظ ثانيةً، كـ«أدرج مواد» في الرصيد اليومي)؛ و«أنتج» يفتح شاشة الإنتاج الواحدة (/mill/produce/:id) بدل النافذة.
 
-/** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
-export const PRODUCE_UNITS = [
-  { id: 'kg', label: t('unit.kg', 'كغم'), perUnit: 1_000n },
-  { id: 'ton', label: t('unit.t', 'طن'), perUnit: 1_000_000n },
-];
-
-/** كميات سريعة بالكيلوغرام (بالآلاف): نصف طنّ وطنّ وطنّان وخمسة أطنان، والحقل الحرّ لغيرها. */
-export const QUICK_AMOUNTS: readonly { key: string; kg: bigint; label: () => string }[] = [
-  { key: 'half', kg: 500_000n, label: () => t('mill.quick.half', 'نصف طنّ') },
-  { key: 'one', kg: 1_000_000n, label: () => t('mill.quick.one', 'طنّ') },
-  { key: 'two', kg: 2_000_000n, label: () => t('mill.quick.two', 'طنّان') },
-  { key: 'five', kg: 5_000_000n, label: () => t('mill.quick.five', '{count} أطنان', { count: 5 }) },
-];
-
 export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: RecipeCard; canProduce: boolean; onProduce: () => void }) {
   const color = recipeColor(recipe.id);
   const basis = recipe.activeBasisKg ?? 0n;
@@ -54,6 +39,9 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
   // الخلطة بلا كميات (0025): الشريط من آخر دفعة مرحَّلة بكتلها (مجموعها مقامه)، وبلا دفعة أسماء الموادّ وحدها بلا شريط.
   const total = recipe.materialsOnly ? pieces.reduce((sum, piece) => sum + (piece.weight ?? 0n), 0n) : basis;
   const fromLast = recipe.materialsOnly && recipe.piecesSource === 'last_batch';
+  // اللوحة خمسة ألوان بالموضع، وما بعدها قطعة رمادية واحدة «أخرى» في الشريط ورقاقة واحدة هنا.
+  const named = pieces.slice(0, PALETTE.length);
+  const others = pieces.length - named.length;
   return (
     <article className="card animate-fade-in overflow-hidden rounded-3xl p-0">
       <div className="h-2" style={{ background: color.solid }} aria-hidden="true" />
@@ -79,15 +67,20 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
                 {t('mill.card.from_last', 'التركيبة من آخر إنتاج')}
               </p>
             ) : null}
+            {/* دليل الشريط: رقاقة بنقطة لونها لكلّ مادّة لها لون في اللوحة، وما بعدها رقاقة «أخرى» بنقطة رمادية كقطعتها في الشريط. */}
             <div className="flex flex-wrap gap-1.5" data-action="recipe-chips">
-              {pieces.slice(0, 4).map((piece) => (
+              {named.map((piece) => (
                 <Chip key={piece.key} slot={piece.slot}>
                   <span className="truncate">{piece.label}</span>
                   {/* كتلة لا تُعرف (ق٤٢، ب٣١): «—» لا صفر، والشريط يتخطّى قطعتها. والخلطة بلا كميات قبل أوّل إنتاج: أسماء الموادّ وحدها. */}
                   {recipe.materialsOnly && !fromLast ? null : <Num>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</Num>}
                 </Chip>
               ))}
-              {recipe.moreLines > 0 ? <Chip>{t('mill.card.more', 'و{count} أخرى', { count: fmtInt(recipe.moreLines) })}</Chip> : null}
+              {others > 0 ? (
+                <Chip slot={PALETTE.length}>
+                  <span title={pieces.slice(PALETTE.length).map((piece) => piece.label).join(t('list.separator', '، '))}>{t('mill.card.more', 'و{count} أخرى', { count: fmtInt(others) })}</span>
+                </Chip>
+              ) : null}
             </div>
             <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-action="recipe-numbers">
               {recipe.materialsOnly ? null : (
@@ -144,14 +137,6 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
       </div>
     </article>
   );
-}
-
-/** الكمية بالآلاف من المكتوب ووحدته: المكتوب × (الآلاف في وحدته ÷ ألف) — الطن ألف كيلوغرام، فلا قسمة ولا تقريب. */
-export function produceKg(text: string, unitId: string): bigint | null {
-  const typed = parseQty(text);
-  const unit = PRODUCE_UNITS.find((option) => option.id === unitId) ?? PRODUCE_UNITS[0];
-  if (typed === null || !unit) return null;
-  return (typed * unit.perUnit) / 1_000n;
 }
 
 /**

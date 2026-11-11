@@ -120,6 +120,7 @@ const batchJson = ({ status = 'draft', lines = null, costs = [], expensesVisible
     output_qty_kg: posted ? '990.000' : null, output_expiry_on: null, input_mass_kg: posted ? '1000.000' : null,
     shrink_kg: posted ? '10.000' : null, shrink_pct: null, shrink_reason: null, note: null, void_reason: status === 'void' ? 'إلغاء دفعة إنتاج' : null,
     costs_confirmed: costsConfirmed ?? posted,
+    saved_to_recipe: false,
     recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: false },
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -155,8 +156,8 @@ const recipeLine = (over = {}) => ({
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], massKg = '1000.000', rates = [] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 5 },
   lines,
   mass_kg: massKg,
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
@@ -170,7 +171,7 @@ const overview = (pieces) => ({
     {
       id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1,
       output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: pieces.length, pieces },
+      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', materials_only: false, pieces_source: 'recipe', lines: pieces.length, pieces },
       draft: null, batches: 0, last_batch: null, money: { expected_cost_per_kg: '450.00' },
     },
   ],
@@ -504,8 +505,8 @@ export default async function (t) {
     // ── Y10 (ب١٠): «نسخة جديدة» تبدأ من المفعَّلة لا من المعروضة ─────────────────────────────────────────────────────────────
     await step('Y10', async () => {
       const versions = [
-        { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', activated_at: null, version: 5 },
-        { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', activated_at: null, version: 5 },
+        { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
+        { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
       ];
       fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'retired', versions })) });
       await mount('/mill/recipe/r-1');

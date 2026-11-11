@@ -2,10 +2,11 @@
 // ومحلّلاتها على أجوبة بشكل العقد، وطلبات repo الحقيقي على عميل مزيّف. كلّ حالة تفشل على الشفرة قبل النسخة الثانية:
 // S1 بطاقة الخلطة لمشغّل المعمل بلا أيّ رقم مال ومعها «أنتج»، ولأدوار الكلفة كلفة كيلو آخر إنتاج الفعلية، أو المتوقّعة قبل أوّل
 //    إنتاج، وعدد الدفعات وآخر إنتاج وكميته؛ S2 لون الخلطة من معرّفها بـhsl() بلا حدّ (لا أصناف Tailwind)، ثابت لكلّ معرّف،
-//    وقطع الشريط بألوان متباعدة؛ S3 مشاكل الدفعة بالعربية ومنها costs_unfunded بأرقامها لأدوار الكلفة وبلاها لغيرهم؛
-//    S4 كميات الإنتاج السريعة؛ S5 حساب البانية الحيّ (الكتلة واللتر والكلفة المتوقّعة) بالأعداد الصحيحة؛ S6 المنتقي بحالاته الثلاث
+//    وقطع الشريط بألوان متباعدة؛ S3 مشاكل الدفعة بالعربية ومنها costs_unfunded بأرقامها لأدوار الكلفة وبلاها لغيرهم؛ S6 المنتقي بحالاته الثلاث
 //    ومرآة أنواع مخزن المواد الأوّلية؛ S7 المحلّلات تقرأ مفاتيح 0016 (والمال غائب لغير أدوار الكلفة)؛ S8 طلبات repo: create_recipe
 //    وadd_production_input وحذف السطور الثلاثة، والمبالغ والكمية الفعلية مشروطة بما شافته الشاشة (صفر صفوف يقرأ الصفّ).
+// «الخلطة موادّ بلا كميات» (0025): كميات الإنتاج السريعة (S4) وحساب البانية الحيّ والكلفة المتوقّعة (S5) خرجت مع خانات الكمية (الكميات تُكتب عند الإنتاج،
+// وفحوصها في mill4-screens)؛ وS2 صار لوحة ألوان الموادّ الثابتة بالموضع (لا تُشتقّ من لون الخلطة)، وS1 رقاقات خمس بنقاطها و«أخرى» رمادية.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,12 +112,10 @@ function fakeDb(answer) {
 export default async function (t) {
   const m = await bundle(
     [
-      "export { RecipeCardView, PRODUCE_UNITS, QUICK_AMOUNTS, produceKg } from './src/pages/mill/MillPage.tsx';",
+      "export { RecipeCardView } from './src/pages/mill/MillPage.tsx';",
       "export { problemText, unfundedText, materialRows } from './src/pages/mill/BatchPage.tsx';",
-      "export { lineMassKg, lineBaseQty, plannedCost, planningPrice } from './src/pages/mill/RecipeBuilderPage.tsx';",
-      "export { ExpectedPanel } from './src/pages/mill/RecipePage.tsx';",
       "export { MILL_RAW_KINDS, millAdmissible, pickerView, newItemFields } from './src/pages/mill/pickers.tsx';",
-      "export { CompositionBar, recipeColor, hueOf, pieceColor, pct } from './src/pages/mill/shared.tsx';",
+      "export { CompositionBar, recipeColor, hueOf, pieceColor, pct, PALETTE, OTHER_COLOR } from './src/pages/mill/shared.tsx';",
       "export { ADMISSIBLE } from './src/domain/stock.ts';",
       "export { MemoryRouter } from 'react-router-dom';",
     ].join('\n'),
@@ -128,9 +127,16 @@ export default async function (t) {
   const miller = draw({ recipe: recipe(false), canProduce: true, onProduce: () => {} });
   t.ok(textOf(miller).includes('علف بادئ') && textOf(miller).includes('أنتج'), 'S1 بطاقة مشغّل المعمل: اسم الخلطة وزرّ «أنتج»');
   t.ok(!textOf(miller).includes('كلفة الكيلو') && !/1,194\.40|1,150\.00/u.test(miller), 'S1 ولا رقم مال ولا عنوان كلفة');
-  t.ok(textOf(miller).includes('الدفعات المنتَجة4') && textOf(miller).includes('آخر إنتاج02/11/2026 · 2.000 طن'), `S1 عدد الدفعات وآخر إنتاج بتاريخه وكميته (${textOf(miller)})`);
+  // آخر إنتاج بالكيلوغرام دائماً (0025، «آخر إنتاج: … كغم»)، لا «2.000 طن».
+  t.ok(textOf(miller).includes('الدفعات المنتَجة4') && textOf(miller).includes('آخر إنتاج02/11/2026 · 2,000 كغم'), `S1 عدد الدفعات وآخر إنتاج بتاريخه وكميته بالكيلوغرام (${textOf(miller)})`);
   t.ok(miller.includes('href="/mill/batch/b-9"'), 'S1 آخر إنتاج رابط لصفحة دفعته');
-  t.ok(textOf(miller).includes('600') && textOf(miller).includes('ذرة صفراء') && textOf(miller).includes('و1 أخرى') && !textOf(miller).includes('ملح'), 'S1 أربع رقاقات بكمياتها والخامسة تُعدّ («و1 أخرى»)');
+  t.ok(textOf(miller).includes('600') && textOf(miller).includes('ذرة صفراء') && textOf(miller).includes('ملح') && !textOf(miller).includes('أخرى'), 'S1 خمس رقاقات بكمياتها (لون لكلّ مادّة في اللوحة)، بلا «أخرى»');
+  const dots = (html) => [...html.matchAll(/data-action="dot" data-slot="(\d+)"/gu)].map((match) => Number(match[1]));
+  t.same(dots(miller), [0, 1, 2, 3, 4], 'S1 كلّ رقاقة بنقطة لونها بموضع مادّتها (دليل الشريط)');
+  const six = draw({ recipe: recipe(false, { pieces: [...recipe(false).pieces, { key: 'i-6', label: 'برمكس', weight: 2_000n, inBasis: true }] }), canProduce: true, onProduce: () => {} });
+  t.ok(textOf(six).includes('و1 أخرى') && !textOf(six).includes('برمكس5'), `S1 السادسة تُطوى في رقاقة «و1 أخرى» (${textOf(six)})`);
+  t.same(dots(six), [0, 1, 2, 3, 4, 5], 'S1 ورقاقة «أخرى» بنقطة كقطعتها الرمادية في الشريط');
+  t.ok(six.includes(`data-slot="5" style="background:${m.OTHER_COLOR}"`) || six.includes(`style="background:${m.OTHER_COLOR}" aria-hidden="true" data-action="dot" data-slot="5"`), 'S1 نقطة «أخرى» رمادية');
 
   // ── S1: أدوار الكلفة: كلفة كيلو آخر إنتاج الفعلية، والمتوقّعة قبل أوّل إنتاج ─────────────────────────────────────────
   const manager = draw({ recipe: recipe(true), canProduce: true, onProduce: () => {} });
@@ -147,13 +153,21 @@ export default async function (t) {
   t.eq(m.recipeColor('r-1').solid, m.recipeColor('r-1').solid, 'S2 نفس المعرّف نفس اللون في كلّ رسم');
   const hues = new Set(Array.from({ length: 40 }, (_, i) => m.hueOf(`recipe-${i}`)));
   t.ok(hues.size >= 30 && [...hues].every((hue) => hue >= 0 && hue < 360), `S2 أربعون خلطة بأكثر من ثلاثين لوناً (لا قائمة ثلاثة ألوان): ${hues.size}`);
-  const bar = m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: recipe(false).pieces, total: 1_000_000n, hue: color.hue }));
-  t.eq((bar.match(/<span/gu) ?? []).length, 5, 'S2 قطعة لكلّ مادّة');
-  const pieceColors = [...bar.matchAll(/background:(hsl\([^)]+\))/gu)].map((match) => match[1]);
-  t.ok(pieceColors.length === 5 && new Set(pieceColors).size === 5 && pieceColors[0] === m.pieceColor(color.hue, 0), `S2 كلّ قطعة بلون مختلف يبدأ من لون الخلطة (${pieceColors.join(' ')})`);
+  // لوحة ألوان الموادّ (0025): ثابتة بالموضع، لا من لون الخلطة؛ وما بعد اللوحة قطعة رمادية واحدة «أخرى»، وفاصل 2 بكسل.
+  const slotted = (pieces) => pieces.map((piece, slot) => ({ ...piece, slot }));
+  const bar = m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: slotted(recipe(false).pieces), total: 1_000_000n }));
+  t.eq((bar.match(/data-action="bar-piece"/gu) ?? []).length, 5, 'S2 قطعة لكلّ مادّة');
+  const pieceColors = [...bar.matchAll(/background:(#[0-9a-f]{6})/gu)].map((match) => match[1]);
+  t.same(pieceColors, [...m.PALETTE], `S2 القطع بألوان اللوحة بترتيبها (${pieceColors.join(' ')})`);
+  t.ok(bar.includes('gap:2px'), 'S2 فاصل 2 بكسل بين القطع');
   t.ok(bar.includes('ذرة صفراء: 60.00٪') && bar.includes('ملح: 0.50٪'), 'S2 الحصّة بالمئة بمرتبتين في عنوان القطعة');
+  const seven = slotted([...recipe(false).pieces, { key: 'i-6', label: 'برمكس', weight: 2_000n, inBasis: true }, { key: 'i-7', label: 'ملح طعام', weight: 3_000n, inBasis: true }]);
+  const folded = m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: seven, total: 1_005_000n }));
+  t.eq((folded.match(/data-action="bar-piece"/gu) ?? []).length, 6, 'S2 سبع موادّ: خمس قطع ملوّنة وقطعة «أخرى» واحدة');
+  t.ok(folded.includes(`background:${m.OTHER_COLOR}`) && folded.includes('أخرى (برمكس، ملح طعام): 0.50٪') && folded.includes('data-slot="other"'), `S2 «أخرى» رمادية تسمّي ما فيها وحصّتها معاً (${folded})`);
+  t.same([m.pieceColor(0), m.pieceColor(4), m.pieceColor(5), m.pieceColor(12)], [m.PALETTE[0], m.PALETTE[4], m.OTHER_COLOR, m.OTHER_COLOR], 'S2 اللون بالموضع لا يدور: ما بعد اللوحة رمادي');
   t.eq(m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: [], total: 1_000_000n })), '', 'S2 بلا مواد لا شريط');
-  t.eq(m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: recipe(false).pieces, total: 0n })), '', 'S2 بلا أساس لا شريط (لا قسمة على صفر)');
+  t.eq(m.renderToStaticMarkup(m.h(m.CompositionBar, { pieces: slotted(recipe(false).pieces), total: 0n })), '', 'S2 بلا أساس لا شريط (لا قسمة على صفر)');
 
   // ── S3: النسبة، ومشاكل الدفعة بالعربية، وcosts_unfunded بأرقامها لأدوار الكلفة وبلاها لغيرهم ─────────────────────────────
   t.eq(m.pct(20_000n, 1_000_000n), '2.00٪', 'S3 النسبة بمرتبتين وعلامتها');
@@ -171,26 +185,6 @@ export default async function (t) {
   );
   const blind = m.unfundedText({ ...funded, categoryName: null, needAmount: null, haveAmount: null }, 'معمل العلف');
   t.ok(blind.includes('أكبر من المتاح') && blind.includes('«معمل العلف»') && !/\d/u.test(blind), 'S3 ولمن لا يرى مصاريف الوحدة جملة بلا رقم واحد، والوحدة مسمّاة');
-
-  // ── S4: كميات الإنتاج: كيلوغرام وطن، وأربع كميات سريعة ─────────────────────────────────────────────────────────────
-  t.same(m.PRODUCE_UNITS.map((option) => [option.id, option.perUnit]), [['kg', 1_000n], ['ton', 1_000_000n]], 'S4 الإنتاج بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)');
-  t.same(m.QUICK_AMOUNTS.map((quick) => [quick.kg, quick.label()]), [[500_000n, 'نصف طنّ'], [1_000_000n, 'طنّ'], [2_000_000n, 'طنّان'], [5_000_000n, '5 أطنان']], 'S4 نصف طنّ وطنّ وطنّان وخمسة أطنان');
-  t.same([m.produceKg('2.5', 'ton'), m.produceKg('1,000', 'kg'), m.produceKg('abc', 'kg')], [2_500_000n, 1_000_000n, null], 'S4 الكمية من المكتوب ووحدته بلا قسمة ولا تقريب');
-
-  // ── S5: حساب البانية الحيّ: الكتلة واللتر والكلفة المتوقّعة بالأعداد الصحيحة ──────────────────────────────────────────
-  t.same([m.lineMassKg(600_000n, 'kg', null), m.lineMassKg(10_000n, 'L', 9_200n), m.lineMassKg(10_000n, 'L', null)], [600_000n, 9_200n, null], 'S5 الكتلة: الكيلو كما هو، و10 لتر × 0.92 = 9.2 كغم، وسائل بلا كثافة لا يُحسب');
-  t.same([m.lineBaseQty(9_200n, 'kg', 'L', 9_200n), m.lineBaseQty(5_000n, 'L', 'L', 9_200n), m.lineBaseQty(5_000n, 'kg', 'L', null)], [10_000n, 5_000n, null], 'S5 الكمية بوحدة الأساس: 9.2 كغم من زيت كثافته 0.92 = 10 لتر');
-  // 600 كغم × 450.00 + 300 كغم × 900.00 + 100 كغم بلا سعر، لأساس 1,000 كغم: (270,000 + 270,000) × 1000 ÷ 1000 = 540,000.00 للطنّ،
-  // والتكاليف 15,000.00 + 5,000.50؛ مادّة بلا سعر فلا كلفة كيلو.
-  const partial = m.plannedCost([{ qtyBase: 600_000n, price: 450_00n }, { qtyBase: 300_000n, price: 900_00n }, { qtyBase: 100_000n, price: null }], [15_000_00n, 5_000_50n], 1_000_000n);
-  t.same(partial, { materialsPerTon: 540_000_00n, ratesPerTon: 20_000_50n, costPerTon: 560_000_50n, costPerKg: null, unpriced: 1 }, 'S5 كلفة الطنّ المتوقّعة: مواد + تكاليف، وعدد غير المسعَّر بلا كلفة كيلو');
-  // أساس 500 كغم: 333.333 كغم × 1.01 = 336.66633 دينار ← للطنّ ×2 = 673.33266 ← 673.33؛ والكيلو (336.66633×1000 + 0) ÷ 500 ÷ 1000 = 0.67333 ← 0.67.
-  const whole = m.plannedCost([{ qtyBase: 333_333n, price: 1_01n }], [], 500_000n);
-  t.same([whole.materialsPerTon, whole.costPerKg, whole.unpriced], [673_33n, 67n, 0], 'S5 تقريب واحد نصفاً بعيداً عن الصفر لكلّ رقم');
-  t.eq(m.plannedCost([], [], 0n), null, 'S5 بلا أساس لا حساب');
-  t.same([m.planningPrice(500_00n, 450_00n, 400_00n), m.planningPrice(null, 450_00n, 400_00n), m.planningPrice(null, null, 400_00n), m.planningPrice(null, null, null)], [500_00n, 450_00n, 400_00n, null], 'S5 السعر: المكتوب الآن، وإلّا سعر الكلفة المحفوظ، وإلّا آخر شراء');
-  const expected = m.renderToStaticMarkup(m.h(m.ExpectedPanel, { expected: { materialsPerTon: 540_000_00n, ratesPerTon: 20_000_00n, costPerTon: 560_000_00n, unpriced: 2, unconverted: 0 } }));
-  t.ok(textOf(expected).includes('كلفة الطنّ المتوقّعة: 560,000.00 على الأقلّ') && textOf(expected).includes('2 من المواد بلا أيّ سعر'), 'S5 كلفة الطنّ من الخادم ببطاقة الخلطة، وغير المسعَّر يُقال ولا يُجمع ناقصاً بصمت');
 
   // ── S6: المنتقي بحالاته الثلاث، ومرآة أنواع مخزن المواد الأوّلية ─────────────────────────────────────────────────────
   t.same([...m.MILL_RAW_KINDS].sort(), [...m.ADMISSIBLE.raw].sort(), 'S6 أنواع المعمل = ADMISSIBLE.raw (مرآة private.item_admissible)');
@@ -228,8 +222,8 @@ function recipeJson(money) {
     archived: false,
     version: 2,
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-    versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 }],
-    selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+    versions: [{ id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 }],
+    selected: { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 5 },
     lines: [
       {
         id: 'l-1',
@@ -326,6 +320,7 @@ function batchJson(status, money) {
     note: null,
     void_reason: null,
     costs_confirmed: posted,
+    saved_to_recipe: false,
     recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: false },
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -376,7 +371,7 @@ async function parsers(t, repo) {
       {
         id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1,
         output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-        active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: 1, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '1000.000', in_basis: true }] },
+        active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', materials_only: false, pieces_source: 'recipe', lines: 1, pieces: [{ item_id: 'i-corn', item_name: 'ذرة صفراء', mass_kg: '1000.000', in_basis: true }] },
         draft: null, batches: 0, last_batch: null,
         ...(money ? { money: { expected_cost_per_kg: '285.00' } } : {}),
       },
@@ -453,8 +448,7 @@ async function requests(t, repo) {
       versionId: 'v-new',
       name: '  علف ناهٍ ',
       outputItemId: 'f-2',
-      basisKg: 1_000_000n,
-      lines: [{ itemId: 'i-corn', qty: 600_000n, unit: 'kg' }, { itemId: 'i-oil', qty: 25_500n, unit: 'L' }],
+      lines: [{ itemId: 'i-corn' }, { itemId: 'i-oil' }],
       rates: [{ categoryId: 'c-labor', amountPerTon: 15_000_00n }],
       activate: true,
     });
@@ -467,13 +461,14 @@ async function requests(t, repo) {
           p_version_id: 'v-new',
           p_name: 'علف ناهٍ',
           p_output_item: 'f-2',
-          p_basis_kg: '1000.000',
-          p_lines: [{ item_id: 'i-corn', qty: '600.000', unit: 'kg' }, { item_id: 'i-oil', qty: '25.500', unit: 'L' }],
+          // الخلطة موادّ بلا كميات (0025): لا أساس ولا كمية ولا وحدة في السطور.
+          p_basis_kg: null,
+          p_lines: [{ item_id: 'i-corn' }, { item_id: 'i-oil' }],
           p_rates: [{ category_id: 'c-labor', amount_per_ton: '15000.00' }],
           p_activate: true,
         },
       ],
-      'S8 create_recipe بنداء واحد: المعرّفان من الجهاز والأرقام نصوص عشرية بمراتبها',
+      'S8 create_recipe بنداء واحد: المعرّفان من الجهاز، والموادّ بلا كميات (p_basis_kg فارغ)، والمبالغ نصوص عشرية بمراتبها',
     );
     t.same([created.id, created.status, created.lines, created.rates], ['r-new', 'active', 2, 1], 'S8 وجوابه مقروء');
     const added = await repo.addProductionInput({ batchId: 'b-1', id: 'in-9', itemId: 'i-soy48', qty: 25_000n, replaces: 'in-2', reason: '  نفدت الكسبة ' });

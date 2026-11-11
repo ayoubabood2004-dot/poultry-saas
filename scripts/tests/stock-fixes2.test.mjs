@@ -318,6 +318,7 @@ export default async function (t) {
       id: 'pb-1', doc_no: 'PD-2026-0001', status: 'posted', version: 4, produced_on: '2026-11-03', planned_kg: '2000.000',
       output_qty_kg: '2000.000', output_expiry_on: null, input_mass_kg: '2010.000', shrink_kg: '10.000', shrink_pct: '0.50', shrink_reason: null,
       note: null, void_reason: null, costs_confirmed: true, scope, expenses_visible: money,
+      saved_to_recipe: false,
       recipe: { id: 'r-1', name: 'علف بياض', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
       output_item: { id: 'f-1', name: 'علف بياض', base_unit: 'kg', tracks_expiry: false },
       input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },

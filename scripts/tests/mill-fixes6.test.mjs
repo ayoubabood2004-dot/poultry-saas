@@ -132,8 +132,8 @@ const CORN_PICK = { id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', ca
 const recipeJson = ({ id = 'r-1', name = 'علف بادئ', status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', pickItems = [CORN_PICK], unpriced = 0, unconverted = 0 } = {}) => ({
   id, name, note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: basis, note: null, activated_at: null, version },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, note: null, activated_at: null, version },
   lines: lines.map((line) => ({ ...line, money: line.money ? { ...line.money } : line.money })),
   mass_kg: massKg,
   pick_items: pickItems,
@@ -152,8 +152,8 @@ const OIL_DRAFT = () => ({
   ],
   money: { rates: [], expected: { unpriced: 0, unconverted: 1, cost_per_ton: '894600.00', rates_per_ton: '0.00', materials_per_ton: '894600.00' } },
   mass_kg: '1000.000', version: 1, archived: false,
-  selected: { id: 'e6f60000-0000-4000-8000-000000020014', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
-  versions: [{ id: 'e6f60000-0000-4000-8000-000000020014', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
+  selected: { id: 'e6f60000-0000-4000-8000-000000020014', note: null, status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null },
+  versions: [{ id: 'e6f60000-0000-4000-8000-000000020014', status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null }],
   pick_items: [
     { id: '9c140b47-420f-49d3-9ce5-1cbf3ffb8f04', name: 'ذرة مسبار', base_unit: 'kg', category_name: null },
     { id: '34864c52-de5e-4cf6-b458-545d35d9ab98', name: 'زيت مسبار', base_unit: 'L', category_name: null },
@@ -172,8 +172,8 @@ const DIBS_DRAFT = () => ({
   ],
   money: { rates: [], expected: { unpriced: 0, unconverted: 1, cost_per_ton: '874800.00', rates_per_ton: '0.00', materials_per_ton: '874800.00' } },
   mass_kg: null, version: 1, archived: false,
-  selected: { id: 'e6f60000-0000-4000-8000-000000020016', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
-  versions: [{ id: 'e6f60000-0000-4000-8000-000000020016', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
+  selected: { id: 'e6f60000-0000-4000-8000-000000020016', note: null, status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null },
+  versions: [{ id: 'e6f60000-0000-4000-8000-000000020016', status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null }],
   pick_items: [
     { id: '0aa1cc52-6935-4f1c-8363-b4d3926b9af8', name: 'دبس مسبار', base_unit: 'kg', category_name: null },
     { id: '9c140b47-420f-49d3-9ce5-1cbf3ffb8f04', name: 'ذرة مسبار', base_unit: 'kg', category_name: null },
@@ -191,8 +191,8 @@ const ORG = {
 const OIL = 'i-oil';
 const OIL_PICK = { id: OIL, name: 'زيت', base_unit: 'L', category_name: null };
 const VERSIONS = [
-  { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 5 },
-  { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 2 },
+  { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
+  { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 2 },
 ];
 const DENSITY_TEXT = '«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
 const DENSITY_OTHERS = '«زيت» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
@@ -250,6 +250,7 @@ const batchJson = (id, state) => ({
   id, doc_no: null, status: 'draft', version: state.version, produced_on: state.day, planned_kg: '1000.000',
   output_qty_kg: state.weight, output_expiry_on: state.expiry, input_mass_kg: null, shrink_kg: null, shrink_pct: null, shrink_reason: state.reason, note: null, void_reason: null,
   costs_confirmed: false,
+  saved_to_recipe: false,
   recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: false },
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -625,7 +626,7 @@ export default async function (t) {
     const copiedDraft = (versionId) =>
       recipeJson({
         versionId, versionNo: 2, version: 1, massKg: '990.000',
-        versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: null, version: 5 }, { id: versionId, version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 1 }],
+        versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 }, { id: versionId, version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 1 }],
         lines: [recipeLine({ qty: '990.000', mass_kg: '990.000', share_pct: '99.00' })],
       });
     const SKIPPED = 'نُسخت النسخة بلا «خميرة»: صارت تُقاس بالقطعة فلا تدخل الخلطة.';

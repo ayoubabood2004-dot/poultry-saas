@@ -152,8 +152,8 @@ const recipeLine = (over = {}) => ({
 const recipeJson = ({ status = 'draft', version = 5, basis = '1000.000', lines = [recipeLine()], massKg = '600.000', perTon = '0.00' } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: [{ id: 'v-2', version_no: 1, status, basis_kg: basis, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
-  selected: { id: 'v-2', version_no: 1, status, basis_kg: basis, note: null, activated_at: null, version },
+  versions: [{ id: 'v-2', version_no: 1, status, basis_kg: basis, materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
+  selected: { id: 'v-2', version_no: 1, status, basis_kg: basis, materials_only: false, note: null, activated_at: null, version },
   lines,
   mass_kg: massKg,
   pick_items: [],

@@ -132,6 +132,7 @@ const batchJson = (state, { expensesVisible = true } = {}) => ({
   id: 'b-1', doc_no: null, status: 'draft', version: state.version, produced_on: state.day, planned_kg: '1000.000',
   output_qty_kg: state.weight, output_expiry_on: state.expiry, input_mass_kg: null, shrink_kg: null, shrink_pct: null, shrink_reason: state.reason, note: null, void_reason: null,
   costs_confirmed: state.costsConfirmed,
+  saved_to_recipe: false,
   recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: state.tracksExpiry },
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -170,8 +171,8 @@ const CORN_PICK = { id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', ca
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], massKg = '1000.000', rates = [], pickItems = [CORN_PICK] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 5 },
   // نسخ لكلّ جواب: فحص الشكل يحذف مفاتيح منه، فلا يمسّ السطور المشتركة بين الخطوات.
   lines: lines.map((line) => ({ ...line })),
   mass_kg: massKg,
@@ -190,7 +191,7 @@ const overview = (pieces) => ({
     {
       id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 1,
       output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed' },
-      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', lines: pieces.length, pieces },
+      active: { id: 'v-1', version_no: 1, basis_kg: '1000.000', materials_only: false, pieces_source: 'recipe', lines: pieces.length, pieces },
       draft: null, batches: 0, last_batch: null, money: { expected_cost_per_kg: '450.00' },
     },
   ],
@@ -760,9 +761,9 @@ export default async function (t) {
 
     // ── W37 (ب٣٧): «لا تكاليف» بالدور ─────────────────────────────────────────────────────────────────────────────────────
     const threeVersions = [
-      { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 },
-      { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 5 },
-      { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', activated_at: '2026-10-01T08:00:00Z', version: 5 },
+      { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
+      { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
+      { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', materials_only: false, activated_at: '2026-10-01T08:00:00Z', version: 5 },
     ];
     const others = 'لا تكاليف على هذه النسخة؛ يضيفها المالك أو المدير في مسوّدة الخلطة.';
     await step('W37 المحاسب ومسوّدة قائمة', async () => {

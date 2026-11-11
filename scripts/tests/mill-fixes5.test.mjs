@@ -122,6 +122,7 @@ const batchJson = (state, { expensesVisible = true } = {}) => ({
   id: 'b-1', doc_no: null, status: 'draft', version: state.version, produced_on: state.day, planned_kg: '1000.000',
   output_qty_kg: state.weight, output_expiry_on: state.expiry, input_mass_kg: null, shrink_kg: null, shrink_pct: null, shrink_reason: state.reason, note: null, void_reason: null,
   costs_confirmed: state.costsConfirmed,
+  saved_to_recipe: false,
   recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: state.tracksExpiry },
   input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -161,8 +162,8 @@ const CORN_PICK = { id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', ca
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', rates = [], pickItems = [CORN_PICK], unpriced = 0, unconverted = 0 } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: basis, note: null, activated_at: null, version },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, note: null, activated_at: null, version },
   // نسخ لكلّ جواب: فحص الشكل يحذف مفاتيح منه، فلا يمسّ السطور المشتركة بين الخطوات.
   lines: lines.map((line) => ({ ...line })),
   mass_kg: massKg,
@@ -190,8 +191,8 @@ const KAZ_DRAFT = () => ({
   ],
   money: { rates: [], expected: { unpriced: 2, unconverted: 0, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
   mass_kg: '1000.000', version: 1, archived: false,
-  selected: { id: 'e5050000-0000-4000-8000-000000000102', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
-  versions: [{ id: 'e5050000-0000-4000-8000-000000000102', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
+  selected: { id: 'e5050000-0000-4000-8000-000000000102', note: null, status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null },
+  versions: [{ id: 'e5050000-0000-4000-8000-000000000102', status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null }],
   pick_items: [
     { id: '362d2d13-738e-46c0-a427-a3205ffd234c', name: 'ذرة صفراء', base_unit: 'kg', category_name: null },
     { id: '3b7f8c80-040d-4e8f-bee7-a9a51c09a8e6', name: 'كاز المولّد', base_unit: 'kg', category_name: null },
@@ -219,8 +220,8 @@ const SYRUP_DRAFT = () => ({
   ],
   money: { rates: [], expected: { unpriced: 2, unconverted: 0, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' } },
   mass_kg: null, version: 1, archived: false,
-  selected: { id: 'c2950000-0000-4000-8000-000000020148', note: null, status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null },
-  versions: [{ id: 'c2950000-0000-4000-8000-000000020148', status: 'draft', version: 3, basis_kg: '1000', version_no: 1, activated_at: null }],
+  selected: { id: 'c2950000-0000-4000-8000-000000020148', note: null, status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null },
+  versions: [{ id: 'c2950000-0000-4000-8000-000000020148', status: 'draft', version: 3, basis_kg: '1000', materials_only: false, version_no: 1, activated_at: null }],
   pick_items: [
     { id: '0c057b21-0fe9-4092-99f6-9fb66f0c95b7', name: 'ذرة المسبار 1', base_unit: 'kg', category_name: null },
     { id: SYRUP_ID, name: 'شراب بلا كثافة 83', base_unit: 'L', category_name: null },
@@ -890,8 +891,8 @@ export default async function (t) {
       // البقاء مرسومة للمعرّف نفسه وحده: اختيار نسخة أخرى يقرؤها من أوّلها، فلا تُعرض موادّ النسخة السابقة باسم اللاحقة.
       const hold = deferred();
       const versions = [
-        { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 },
-        { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 5 },
+        { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
+        { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
       ];
       fresh(MANAGER, {
         loadRecipe: (recipeId, versionId) =>
@@ -1128,7 +1129,7 @@ export default async function (t) {
               versionId === 'v-3'
                 ? recipeJson({
                     status: 'draft', versionId: 'v-3', versionNo: 3,
-                    versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', activated_at: null, version: 5 }, { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 1 }],
+                    versions: [{ id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 }, { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 1 }],
                   })
                 : recipeJson({ status: 'active' }),
             ),

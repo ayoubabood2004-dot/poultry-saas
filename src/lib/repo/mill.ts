@@ -193,11 +193,11 @@ export interface RecipeCard {
    * دفعة مرحَّلة بكتلها بترتيب سطورها، وإلّا موادّ النسخة بأسمائها وكتلة null.
    */
   pieces: RecipePiece[];
-  /** مواد داخل الكتلة لا تظهر في الرقاقات الأربع الأولى. */
+  /** مواد داخل الكتلة بعد الرقاقات الخمس الأولى (0025: لوحة الشريط خمسة ألوان، وما بعدها «أخرى» رمادية). */
   moreLines: number;
 }
 
-const CHIPS = 4;
+const CHIPS = 5;
 
 const versionHead = (row: Row): RecipeVersionHead => ({
   id: str(row, 'id'),
