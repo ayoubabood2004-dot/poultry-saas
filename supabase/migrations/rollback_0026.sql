@@ -9,7 +9,7 @@ set lock_timeout = '5s';
 lock table public.flock_vaccinations, public.flock_logs, public.vaccine_program_days, public.vaccine_programs, public.vaccines in access exclusive mode;
 
 -- ٠) طريق الرفض، بفرع لكلّ حقيقة مستقلّة: لقاح في القائمة (التأشيرات وأيّام الجداول لا تقوم بلا لقاح: مفتاح، والمؤشَّر به لا يُمحى بل
---    يُخفى)، وجدول لقاحات (يقوم بلا أيّام)، وتسجيل دواء (لا يحتاج لقاحاً).
+--    يُخفى)، وجدول لقاحات (يقوم بلا أيّام)، وتسجيل دواء (لا يحتاج لقاحاً)، وسجلّ تدقيق لها بلا صفّ باقٍ (تسجيل حُذف أو لقاح مُحي).
 do $$
 declare
   v_vaccines bigint;
@@ -17,12 +17,15 @@ declare
   v_days bigint;
   v_programs bigint;
   v_logs bigint;
+  v_audit bigint;
 begin
   select count(*) into v_vaccines from public.vaccines;
   select count(*) into v_marks from public.flock_vaccinations;
   select count(*) into v_days from public.vaccine_program_days;
   select count(*) into v_programs from public.vaccine_programs;
   select count(*) into v_logs from public.flock_logs;
+  select count(*) into v_audit from public.audit_log
+  where table_name in ('vaccines', 'vaccine_programs', 'vaccine_program_days', 'flock_logs', 'flock_vaccinations');
   if v_vaccines > 0 then
     raise exception 'rollback_blocked' using hint = format('توجد %s لقاحاً في القائمة و%s تأشير لقاح و%s يوماً في جداول اللقاحات، والتراجع يمسحها. لا تراجع لـ0026 بعد استعمالها.',
       v_vaccines, v_marks, v_days);
@@ -32,6 +35,10 @@ begin
   end if;
   if v_logs > 0 then
     raise exception 'rollback_blocked' using hint = format('توجد %s تسجيل دواء للقاعات، والتراجع يمسحها. لا تراجع لـ0026 بعد استعمالها.', v_logs);
+  end if;
+  -- سجلّ التدقيق لا يُمحى، وسياسة نطاقه (audit_log_halls_scope) تسقط بالتراجع فيظهر ما فيه (اسم الدواء والجرعة والقاعة) لكلّ دور كلفة بلا نطاقه.
+  if v_audit > 0 and v_vaccines + v_programs + v_logs = 0 then
+    raise exception 'rollback_blocked' using hint = format('في سجلّ التدقيق %s صفّاً من جداول 0026 (تسجيلات أو لقاحات حُذفت)، والتراجع يُسقط سياسة نطاقها. لا تراجع لـ0026 بعد استعمالها.', v_audit);
   end if;
 end
 $$;

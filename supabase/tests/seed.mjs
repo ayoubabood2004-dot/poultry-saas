@@ -520,7 +520,7 @@ const dayNoteSeed = async (db) => {
 /**
  * 0026 (طريق الرفض): قاعدة 0025 لا تعرف اللقاحات ولا تسجيل الدواء، فالتراجع يرفض ما دام لقاح في القائمة (التأشيرات وأيّام الجداول لا تقوم
  * بلا لقاح)، أو جدول لقاحات (يقوم بلا أيّام)، أو تسجيل دواء؛ كلّ فرع ببذرته وحده بدوالّ 0026 (المدير): لقاح بلا جدول ولا تأشير (vaccine)، وجدول
- * اللاحم بلا أيّام ولا لقاح (program)، ودواء بلا مخزن لفوج قاعة جديدة (log).
+ * اللاحم بلا أيّام ولا لقاح (program)، ودواء بلا مخزن لفوج قاعة جديدة (log)، ودواء سُجّل ثمّ حُذف فبقي في سجلّ التدقيق وحده (audit).
  */
 /** معرّفات بذور 0026 خارج REF (مستعمل حتى 99). */
 const H26 = (n) => `60000000-0000-4000-8000-0000000026${String(n).padStart(2, '0')}`;
@@ -531,6 +531,14 @@ const halls26Seed = (variant) => async (db) => {
       await q("select public.save_vaccine($1, 'IB', null, null)", [H26(1)]);
     } else if (variant === 'program') {
       await q("select public.save_vaccine_program('broiler', 42, '[]'::jsonb, 0)");
+    } else if (variant === 'audit') {
+      // تسجيل دواء حُذف: الجداول الخمسة فارغة، وسجلّ التدقيق وحده يحمل صفّيه.
+      const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+      const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة الحذف') returning id", [site]);
+      const flock = await value(q, "select public.open_flock($1, public.app_today() - 2, 1000, 0, null, $2) ->> 'flock_id'", [hall, H26(5)]);
+      await q("select public.give_to_flocks($1, public.app_today(), jsonb_build_array(jsonb_build_object('kind', 'log', 'flock_id', $2::uuid, 'id', $3::uuid, 'name', 'فيتامين', 'dose', null)))",
+        [H26(6), flock, H26(7)]);
+      await q('select public.remove_flock_log($1)', [H26(7)]);
     } else {
       const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
       const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة الدواء') returning id", [site]);
@@ -593,6 +601,13 @@ export const BLOCKING_SEEDS = {
       seed: halls26Seed('log'),
       data: "select (select count(*) from public.flock_logs)::text || '/' || (select count(*) from public.flocks)::text as v",
       mutate: (sql) => sql.replace('if v_logs > 0 then', 'if false then'),
+    },
+    {
+      name: 'تسجيل دواء حُذف (سجلّ تدقيق وحده)',
+      code: 'rollback_blocked',
+      seed: halls26Seed('audit'),
+      data: "select (select count(*) from public.audit_log where table_name = 'flock_logs')::text || '/' || (select count(*) from public.flocks)::text as v",
+      mutate: (sql) => sql.replace('if v_audit > 0 and v_vaccines + v_programs + v_logs = 0 then', 'if false then'),
     },
   ],
   25: [
@@ -899,7 +914,7 @@ export const BLOCKING_REQUIRED = [
   [21, 1, 'فاتورة بيع (صفّ في sales_invoices وsales_lines وsales_line_costs) توقف التراجع'],
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
   [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
-  [26, 3, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، كلّ واحد يوقف التراجع'],
+  [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
 ];
 
 /**

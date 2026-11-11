@@ -123,7 +123,7 @@ async function scenario(t, db) {
     issue: (flock, itemId, wh, qty, n) => ({ kind: 'issue', flock_id: flock, issue_id: id(200 + n), line_id: id(300 + n), item_id: itemId, warehouse_id: wh, qty }),
     log: (flock, name, dose, n) => ({ kind: 'log', flock_id: flock, id: id(400 + n), name, dose }),
     vac: (flock, vaccine, age, n, issue = null) => ({ kind: 'vaccination', flock_id: flock, id: id(500 + n), vaccine_id: vaccine, age_day: age,
-      ...(issue ? { issue_id: id(600 + n), line_id: id(700 + n), warehouse_id: issue.wh, qty: issue.qty } : {}) }),
+      ...(issue ? { item_id: issue.item ?? I.ib, issue_id: id(600 + n), line_id: id(700 + n), warehouse_id: issue.wh, qty: issue.qty } : {}) }),
   };
   const give = (user, ref, on, list) => call(db, user, GIVE, [ref, on, JSON.stringify(list)]);
   const count = async (sql, params = [org]) => Number((await db.admin(sql, params)).rows[0].n);
@@ -170,7 +170,7 @@ async function scenario(t, db) {
     shown(await give(U.manager, uid(), TODAY, [lines.vac(F.a, V.gb, 13, 5)])),
     shown(await give(U.manager, uid(), TODAY, [lines.vac(F.a, V.nd, 7, 6)])),
     shown(await give(U.manager, uid(), TODAY, [lines.vac(F.b, V.ib, 7, 7)])),
-    shown(await give(U.manager, uid(), TODAY, [{ ...lines.vac(F.c, V.nd, 7, 8), issue_id: id(608), line_id: id(708), warehouse_id: W.medicine, qty: '1' }])),
+    shown(await give(U.manager, uid(), TODAY, [{ ...lines.vac(F.c, V.nd, 7, 8), item_id: I.ib, issue_id: id(608), line_id: id(708), warehouse_id: W.medicine, qty: '1' }])),
     shown(await give(U.manager, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '1', 8), lines.issue(F.c, I.starter, W.feed, '2', 9)])),
     shown(await give(U.manager, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '1', 10), { ...lines.issue(F.b, I.starter, W.feed, '1', 11), line_id: id(310) }])),
     shown(await give(U.manager, uid(), day(1), [lines.log(F.c, 'دواء', null, 9)])),
@@ -246,7 +246,7 @@ async function scenario(t, db) {
   // ── الثوابت.
   const verify = async (fn) => Object.fromEntries((await db.asService((q) => q(`select * from public.${fn}()`))).rows.map((r) => [r.check_name, Number(r.violations)]));
   t.same([await verify('verify_halls'), Object.values(await verify('verify_flock_issues')).every((n) => n === 0), Object.values(await verify('verify_stock')).every((n) => n === 0)],
-    [{ record_place: 0, vaccination_issue: 0, record_dates: 0, program_days: 0 }, true, true], 'الثوابت صفر: verify_halls وصرف الأفواج والمخزون');
+    [{ record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0 }, true, true], 'الثوابت صفر: verify_halls وصرف الأفواج والمخزون');
 
   // ── التزامن: إضافتان لعلف بادئ (الباقي 490) لقاعتين بلحظة واحدة: الثانية تنتظر أقفال الأولى ثمّ ترى النقص.
   const A1 = await db.session(U.manager);
@@ -265,6 +265,174 @@ async function scenario(t, db) {
     await B1.rollback();
   }
   t.same(race, { a: true, waited: 'blocked', b: 'insufficient_stock' }, 'إضافتان بلحظة واحدة لمادّة مشتركة تترتّبان، والثانية ترى ما بقي فتُرفض');
+
+  // ── مراجعة 0026 (جولة واحدة لكلّ جهة، كلّ إصلاح بفحص فشل على الهجرة قبله) ───────────────────────────────────────────
+  const boardVersion = async () => (await one(U.manager, BOARD, [])).programs.broiler.version;
+  const programNow = async () => (await one(U.manager, BOARD, [])).programs.broiler.days;
+  const addDays = async (extra) => {
+    const r = await sp(U.manager, 'broiler', 42, [...(await programNow()), ...extra], await boardVersion());
+    if (!r.ok) throw new Error(`الجدول: ${r.code} ${r.hint}`);
+  };
+  const V2 = { mg: id(111), md: id(112), nb: id(113) };
+  await sv(U.manager, V2.mg, 'MG', I.ib, null);
+  await sv(U.manager, V2.md, 'MD', null, null);
+  await sv(U.manager, V2.nb, 'NB', null, null);
+  // MG يوم 9 (لـ«قاعة 1» قبل يومين)، وMD يوم 10 وNB يوم 11 (لـ«قاعة 2» بعد أربعة وخمسة أيّام).
+  await addDays([{ vaccine_id: V2.mg, age_day: 9 }, { vaccine_id: V2.md, age_day: 10 }, { vaccine_id: V2.nb, age_day: 11 }, { vaccine_id: V2.mg, age_day: 30 }]);
+  const stale = await boardVersion();
+
+  // DB-1: سطر التأشير يحمل المادّة التي عرضتها الشاشة؛ لقاح رُبط بغيرها بعد القراءة يُرفض ولا يُصرف شيء (كان يصرف المادّة الجديدة بالكمية القديمة).
+  const mgLine = (n, itemId, qty = '1') => ({ ...lines.vac(F.a, V2.mg, 9, n, { wh: W.medicine, qty }), item_id: itemId });
+  const oldShape = { ...mgLine(60, I.ib) };
+  delete oldShape.item_id;
+  t.same(shown(await give(U.manager, uid(), TODAY, [oldShape])), 'bad_line', 'مراجعة DB-1: صرف التأشير بلا المادّة المعروضة شكل غير صالح');
+  await sv(U.manager, V2.mg, 'MG', I.vitamin, 1);
+  const vitBefore = await stock(I.vitamin, W.medicine);
+  const relinked = await give(U.manager, uid(), TODAY, [mgLine(61, I.ib)]);
+  t.same([relinked.code, relinked.hint?.includes('«فيتامين سائل»'), await stock(I.vitamin, W.medicine)], ['vaccine_relinked', true, vitBefore],
+    'مراجعة DB-1: لقاح رُبط بمادّة أخرى بعد قراءة الشاشة يُرفض بجملة تسمّي المادّة الجديدة، ولا يُصرف منها شيء');
+  const mgDone = await give(U.manager, uid(), TODAY, [mgLine(62, I.vitamin)]);
+  const mgMark = mgDone.ok ? mgDone.value.vaccinations[0] : null;
+  t.ok(mgMark?.doc_no?.startsWith('FI-'), 'مراجعة DB-1: التأشير بالمادّة المربوطة الآن يُصرف');
+
+  // DB-2: إعادة إضافة بمرجعها بعد إلغاء صرفها تقول «أُلغي» لا «حُفظ».
+  const RD = id(903);
+  const dLines = [lines.issue(F.b, I.starter, W.feed, '1', 70)];
+  const d1 = await give(U.manager, RD, TODAY, dLines);
+  await one(U.manager, 'select public.void_flock_issue($1, $2, $3) as v', [d1.value.issues[0].issue_id, 'لم يصل', uid()]);
+  const d2 = await give(U.manager, RD, TODAY, dLines);
+  t.same([d2.code, d2.hint?.includes('أُلغي')], ['id_conflict', true], 'مراجعة DB-2: الإعادة بالمرجع بعد إلغاء صرفها id_conflict «أُلغي»');
+
+  // DB-3: تأشير موعد آخر بمعرّفَي صرف تأشير قائم وبمحتواه نفسه (الكمية والمخزن واليوم والكاتب): النواة تراه إعادة فترجّع صرفه، فكان التأشير الثاني
+  // يتبنّاه بلا سحب، ولا يُلغى أيّهما بعدها.
+  const ibBeforeReuse = await stock(I.vitamin, W.medicine);
+  const reuse = await give(U.manager, uid(), TODAY, [{ ...lines.vac(F.a, V2.mg, 30, 63, { wh: W.medicine, qty: '1', item: I.vitamin }), issue_id: id(662), line_id: id(762) }]);
+  t.same([reuse.code, await stock(I.vitamin, W.medicine), Number((await db.admin('select count(*) as n from public.flock_vaccinations where issue_id = $1', [id(662)])).rows[0].n)],
+    ['id_conflict', ibBeforeReuse, 1], 'مراجعة DB-3: تأشير بمعرّف صرف قائم مرفوض، فلا تأشيران على صرف واحد');
+
+  // DB-8: جملة النقص للقاعتين فصيحة.
+  const two = await give(U.manager, uid(), TODAY, [lines.issue(F.a, I.starter, W.feed, '5000', 71), lines.issue(F.b, I.starter, W.feed, '5000', 72)]);
+  t.ok(two.code === 'insufficient_stock' && two.hint.includes('للقاعتين'), 'مراجعة DB-8: «للقاعتين» لا «لـ2 قاعات»');
+
+  // C وH: علف بالقطعة سُحب مرّة بلا وزن ومرّة بوزنه: المادّة بمجموع الموزون وعدد غير الموزون؛ وصرفان بإضافة واحدة بترتيب رقميهما.
+  I.bags = await item('علف أكياس', 'feed', 'pc');
+  await postedOpening(db, U.owner, W.feed, day(-9), [{ item: I.bags, qty: 10, value: '100000.00' }]);
+  t.ok((await give(U.manager, uid(), TODAY, [lines.issue(F.c, I.bags, W.feed, '2', 73)])).ok, 'C: كيسان بلا وزن قطعة');
+  await one(U.owner, 'update public.items set piece_mass_kg = 25 where id = $1 returning id', [I.bags]);
+  const ordered = await give(U.manager, uid(), TODAY, [{ ...lines.issue(F.c, I.bags, W.feed, '2', 74), issue_id: 'ffffffff-ffff-4fff-8fff-ffffffffff01' },
+    { ...lines.issue(F.c, I.starter, W.feed, '1', 75), issue_id: '00000000-0000-4000-8000-0000000000f2' }]);
+  t.ok(ordered.ok, 'C وH: إضافة بصرفين لـ«قاعة 3»');
+  const cReport = await one(U.manager, REPORT, [F.c]);
+  const bags = cReport.feed.by_item.find((x) => x.name === 'علف أكياس');
+  t.same([norm(bags?.kg), bags?.unweighed], ['50', 1], 'مراجعة C: المادّة بمجموع سطورها الموزونة وعدد غير الموزون (كانت بلا وزن كلّها)');
+  const docs = ordered.value.issues.map((x) => x.doc_no);
+  t.same(cReport.feed.lines.filter((x) => docs.includes(x.doc_no)).map((x) => x.doc_no), docs, 'مراجعة H: صرفا الإضافة الواحدة في التقرير بترتيب رقميهما لا بمعرّفيهما');
+
+  // A: رقم صرف اللقاح المؤشَّر في التقويم.
+  const mgDay = (await one(U.manager, MONTH, [F.a, TODAY])).days.find((x) => x.on === TODAY).vaccines.find((x) => x.name === 'MG');
+  t.same(mgDay?.doc_no ?? null, mgMark?.doc_no ?? 'missing', 'مراجعة A: تأشير MG في التقويم برقم صرفه');
+
+  // DB-5: إضافة بتأشيرين حولها صرف ينتظر عدّاد الأرقام، وحذف لقاحها الثاني في اللحظة نفسها: لا تقافل.
+  {
+    const X = await db.session(U.storekeeper);
+    const G = await db.session(U.manager);
+    const D = await db.session(U.owner);
+    let race;
+    try {
+      const x = await X.run('select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), uid(), uid(), F.c, I.bags, 1, TODAY, W.feed]);
+      const g = G.run(GIVE, [uid(), TODAY, JSON.stringify([lines.vac(F.b, V.nd, 7, 64), lines.issue(F.b, I.starter, W.feed, '1', 76), lines.vac(F.b, V2.md, 10, 65)])]);
+      const gWait = await db.settle(g, G.pid);
+      const d = D.run(DEL_V, [V2.md, (await db.admin('select version from public.vaccines where id = $1', [V2.md])).rows[0].version]);
+      const dWait = await db.settle(d, D.pid);
+      await X.commit();
+      const gr = await g;
+      await G.commit();
+      const dr = await d;
+      await D.commit();
+      race = { x: x.ok, gWait, dWait, g: gr.ok ? 'ok' : gr.error, d: dr.ok ? dr.rows[0].v.result : dr.error };
+    } finally {
+      await X.rollback();
+      await G.rollback();
+      await D.rollback();
+    }
+    t.same(race, { x: true, gWait: 'blocked', dWait: 'blocked', g: 'ok', d: 'archived' }, 'مراجعة DB-5: الإضافة تقفل لقاحاتها وجدولها أوّلاً، فالحذف ينتظرها ثمّ يُخفي المؤشَّر به، بلا تقافل');
+  }
+
+  // DB-6: التراجع عن تأشير مصروف وإضافة تؤشّر الموعد نفسه في اللحظة نفسها: لا تقافل، والإضافة ترى التأشير حيّاً.
+  {
+    const mark = mgMark?.id ?? uid();
+    const X = await db.session(U.storekeeper);
+    const G = await db.session(U.manager);
+    const R = await db.session(U.owner);
+    let race;
+    try {
+      const x = await X.run('select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), uid(), uid(), F.c, I.bags, 1, TODAY, W.feed]);
+      const g = G.run(GIVE, [uid(), TODAY, JSON.stringify([lines.issue(F.c, I.starter, W.feed, '1', 77), mgLine(66, I.vitamin)])]);
+      const gWait = await db.settle(g, G.pid);
+      const r = R.run(UNDO, [mark, 'خطأ في الكمية', uid()]);
+      const rWait = await db.settle(r, R.pid);
+      await X.commit();
+      const gr = await g;
+      await G.rollback();
+      const rr = await r;
+      await R.commit();
+      race = { x: x.ok, gWait, rWait, g: gr.ok ? 'ok' : gr.error, r: rr.ok ? rr.rows[0].v.status : rr.error };
+    } finally {
+      await X.rollback();
+      await G.rollback();
+      await R.rollback();
+    }
+    t.same(race, { x: true, gWait: 'blocked', rWait: 'blocked', g: 'already_vaccinated', r: 'void' }, 'مراجعة DB-6: التراجع يأخذ أقفال صرفه قبل التأشير، فلا تقافل مع إضافة تؤشّر الموعد نفسه');
+  }
+
+  // DB-7 وF: لقاح يُحذف أثناء انتظار إضافة تؤشّره: vaccine_not_found بجملته (كان not_in_program بـ«»)؛ وحفظ الجدول بنسخة قبل الحذف stale_program.
+  {
+    const D = await db.session(U.owner);
+    const G = await db.session(U.manager);
+    let race;
+    try {
+      const d = await D.run(DEL_V, [V2.nb, (await db.admin('select version from public.vaccines where id = $1', [V2.nb])).rows[0].version]);
+      const g = G.run(GIVE, [uid(), TODAY, JSON.stringify([lines.vac(F.b, V2.nb, 11, 67)])]);
+      const gWait = await db.settle(g, G.pid);
+      await D.commit();
+      const gr = await g;
+      await G.rollback();
+      race = { d: d.ok, gWait, g: gr.ok ? 'ok' : gr.error, hint: gr.ok ? null : !String(gr.hint ?? '').includes('«»') };
+    } finally {
+      await D.rollback();
+      await G.rollback();
+    }
+    t.same(race, { d: true, gWait: 'blocked', g: 'vaccine_not_found', hint: true }, 'مراجعة DB-7: لقاح حُذف أثناء الانتظار vaccine_not_found بجملته');
+  }
+  t.same(shown(await sp(U.manager, 'broiler', 42, [...program.filter((x) => x.vaccine_id === V.nd), { vaccine_id: V2.nb, age_day: 11 }], stale)), 'stale_program',
+    'مراجعة F: حفظ الجدول بنسخة قبل حذف لقاح فيه stale_program لا vaccine_not_found');
+
+  // H26-PERM-4: ربط لقاح بمادّة تُحذف في اللحظة نفسها item_not_found بجملته؛ وحذف مادّة مربوطة بلقاح يفكّ الربط ولا يُرفض بمفتاح خام.
+  {
+    const lone = await item('لقاح للحذف', 'vaccine', 'pc');
+    const D = await db.session(U.owner);
+    const S = await db.session(U.manager);
+    let race;
+    try {
+      const d = await D.run('select public.delete_item($1, (select version from public.items where id = $1)) as v', [lone]);
+      const s = S.run(SAVE_V, [id(114), 'لقاح عابر', lone, null]);
+      const sWait = await db.settle(s, S.pid);
+      await D.commit();
+      const sr = await s;
+      await S.rollback();
+      race = { d: d.ok, sWait, s: sr.ok ? 'ok' : sr.error };
+    } finally {
+      await D.rollback();
+      await S.rollback();
+    }
+    t.same(race, { d: true, sWait: 'blocked', s: 'item_not_found' }, 'مراجعة PERM-4: ربط بمادّة حُذفت في اللحظة نفسها item_not_found');
+    const linkedItem = await item('لقاح مربوط', 'vaccine', 'pc');
+    await sv(U.manager, id(115), 'لقاح الربط', linkedItem, null);
+    const del = await call(db, U.owner, 'select public.delete_item($1, (select version from public.items where id = $1)) as v', [linkedItem]);
+    t.same([shown(del), (await db.admin('select item_id from public.vaccines where id = $1', [id(115)])).rows[0].item_id], ['item_in_use', linkedItem],
+      'مراجعة PERM-4: مادّة مربوطة بلقاح مستعملة (item_uses يقرأ كلّ مفتاح إليها)، فحذفها يُرفض بجملته لا بمفتاح خام، والربط باقٍ');
+  }
+  t.same(await verify('verify_halls'), { record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0 }, 'مراجعة: الثوابت صفر بعد كلّ ما سبق');
 
   // ── الطفرات: كلّ قاعدة تُكسر فيفشل فحصها.
   await mutant(db, U.manager, [[FN.give, [['group by 1, 2 having count(*) > 1', 'group by 1, 2 having false']]]], async ({ attempt }) => {

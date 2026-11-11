@@ -139,7 +139,7 @@ create table if not exists public.flock_vaccinations (
 create unique index if not exists flock_vaccinations_live on public.flock_vaccinations (org_id, flock_id, vaccine_id, age_day) where status = 'done';
 create index if not exists flock_vaccinations_flock on public.flock_vaccinations (org_id, flock_id, done_on);
 create index if not exists flock_vaccinations_hall on public.flock_vaccinations (org_id, division_id, site_id, hall_id);
-create index if not exists flock_vaccinations_issue on public.flock_vaccinations (org_id, issue_id);
+create unique index if not exists flock_vaccinations_issue_once on public.flock_vaccinations (org_id, issue_id) where issue_id is not null;
 create index if not exists flock_vaccinations_vaccine on public.flock_vaccinations (org_id, vaccine_id);
 create index if not exists flock_vaccinations_item on public.flock_vaccinations (org_id, item_id);
 
@@ -276,8 +276,12 @@ $$;
 -- p_lines مصفوفة 1..100 سطراً بترتيب الشاشة، كلّ سطر لفوج قائم بنطاق الكاتب:
 --   issue: صرف مادّة من مخزن (issue.post) على نواة record_flock_issue بمرجع مشتقّ — FI بكلفته على الفوج؛
 --   log: دواء بلا مخزن باسمه وجرعته (flock_day.save)؛
---   vaccination: تأشير موعد في جدول نوع الفوج (flock_day.save)، والمربوط بمادّة يُصرف منها بالكمية المرسلة (issue.post) بالنداء نفسه.
--- أيّ رفض يرفض النداء كلّه، والإعادة بالمرجع نفسه ترجّع النتيجة نفسها.
+--   vaccination: تأشير موعد في جدول نوع الفوج (flock_day.save)، والمربوط بمادّة يُصرف منها بالكمية المرسلة (issue.post) بالنداء نفسه، والسطر يحمل
+--     المادّة التي عرضتها الشاشة: لقاحٌ رُبط بغيرها بعد القراءة يُرفض vaccine_relinked ولا يُصرف شيء (مراجعة 0026 DB-1: كان يصرف المادّة الجديدة
+--     بكمية كُتبت للقديمة)، ومعرّف الصرف جديد لا صرف قبله (DB-3: كان يتبنّى صرفاً قائماً بلا سحب).
+-- أيّ رفض يرفض النداء كلّه، والإعادة بالمرجع نفسه ترجّع النتيجة نفسها، إلّا إن أُلغي من بعدها شيء ممّا حفظته (صرف أو تأشير) أو حُذف تسجيل منه:
+-- id_conflict «أُلغي» كنواة الصرف (DB-2، درس 0017). الأقفال كلّها أوّل النداء بترتيب واحد: الفترة (قبل فحص التاريخ، DB-4) ← الأفواج ← اللقاحات
+-- ← جداولها (كترتيب delete_vaccine وsave_vaccine_program، DB-5) ← المخزن والمادّة ← الأرصدة (كترتيب النواة)، فكلّ قفل بعدها مأخوذ.
 create or replace function public.give_to_flocks(p_client_ref uuid, p_on date, p_lines jsonb) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -296,12 +300,13 @@ declare
   v_issue_any boolean := false;
   v_record_any boolean := false;
   v_flocks uuid[];
+  v_vaccines uuid[];
+  v_kinds text[];
   v_fid uuid;
   f public.flocks;
   h public.halls;
   vc public.vaccines;
   v_jobs jsonb := '[]';
-  v_job jsonb;
   v_items uuid[];
   v_whs uuid[];
   v_need record;
@@ -319,6 +324,15 @@ begin
   set local lock_timeout = '5s';
   v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('on', p_on, 'lines', p_lines));
   if v_cached is not null then
+    -- إضافة حُفظت ثمّ أُلغي منها صرف أو تأشير أو حُذف تسجيل: الإعادة لا تقول «حُفظ» بنتيجتها القديمة (مراجعة 0026 DB-2).
+    if exists (select 1 from jsonb_array_elements(coalesce(v_cached -> 'issues', '[]'::jsonb)) as e(x)
+          join public.flock_issues y on y.org_id = v_org and y.id = (e.x ->> 'issue_id')::uuid where y.status = 'void')
+        or exists (select 1 from jsonb_array_elements(coalesce(v_cached -> 'vaccinations', '[]'::jsonb)) as e(x)
+          join public.flock_vaccinations m on m.org_id = v_org and m.id = (e.x ->> 'id')::uuid where m.status = 'void')
+        or exists (select 1 from jsonb_array_elements(coalesce(v_cached -> 'logs', '[]'::jsonb)) as e(x)
+          where not exists (select 1 from public.flock_logs o where o.org_id = v_org and o.id = (e.x ->> 'id')::uuid)) then
+      raise exception 'id_conflict' using hint = 'سُجّلت هذه الإضافة من قبل ثمّ أُلغي منها شيء أو حُذف. افتح تقويم القاعة لترى ما بقي، ثمّ أضف من جديد.';
+    end if;
     return v_cached;
   end if;
 
@@ -358,15 +372,17 @@ begin
           or jsonb_typeof(a -> 'age_day') is distinct from 'number' or (a ->> 'age_day') !~ '^[0-9]{1,4}$' then
         raise exception 'bad_line' using hint = 'سطر لقاح بشكل غير صالح. حدّث الشاشة وأعد المحاولة.';
       end if;
-      v_part := (case when a ? 'issue_id' and a -> 'issue_id' <> 'null'::jsonb then 1 else 0 end) + (case when a ? 'line_id' and a -> 'line_id' <> 'null'::jsonb then 1 else 0 end)
+      -- صرف التأشير المربوط خمسة مفاتيح معاً (المادّة المعروضة والمعرّفان والمخزن والكمية) أو لا شيء منها.
+      v_part := (case when a ? 'item_id' and a -> 'item_id' <> 'null'::jsonb then 1 else 0 end)
+        + (case when a ? 'issue_id' and a -> 'issue_id' <> 'null'::jsonb then 1 else 0 end) + (case when a ? 'line_id' and a -> 'line_id' <> 'null'::jsonb then 1 else 0 end)
         + (case when a ? 'warehouse_id' and a -> 'warehouse_id' <> 'null'::jsonb then 1 else 0 end) + (case when a ? 'qty' and a -> 'qty' <> 'null'::jsonb then 1 else 0 end);
-      if v_part not in (0, 4) or (v_part = 4 and (coalesce(a ->> 'issue_id', '') !~ v_uuid or coalesce(a ->> 'line_id', '') !~ v_uuid
-          or coalesce(a ->> 'warehouse_id', '') !~ v_uuid or jsonb_typeof(a -> 'qty') <> 'string' or (a ->> 'qty') !~ v_qty)) then
+      if v_part not in (0, 5) or (v_part = 5 and (coalesce(a ->> 'item_id', '') !~ v_uuid or coalesce(a ->> 'issue_id', '') !~ v_uuid
+          or coalesce(a ->> 'line_id', '') !~ v_uuid or coalesce(a ->> 'warehouse_id', '') !~ v_uuid or jsonb_typeof(a -> 'qty') <> 'string' or (a ->> 'qty') !~ v_qty)) then
         raise exception 'bad_line' using hint = 'سطر لقاح بشكل غير صالح (صرفه ناقص). حدّث الشاشة وأعد المحاولة.';
       end if;
       v_key := 'v:' || lower(a ->> 'flock_id') || ':' || lower(a ->> 'vaccine_id') || ':' || (a ->> 'age_day');
       v_ids := v_ids || lower(a ->> 'id');
-      if v_part = 4 then
+      if v_part = 5 then
         v_ids := v_ids || lower(a ->> 'issue_id') || lower(a ->> 'line_id');
         v_issue_any := true;
       end if;
@@ -385,13 +401,15 @@ begin
     raise exception 'id_conflict' using hint = 'معرّف مكرّر داخل الطلب نفسه. حدّث الشاشة وأعد المحاولة.';
   end if;
 
-  -- ٢) الصلاحية والتاريخ: الصرف بفعل الصرف، والتسجيل والتأشير بفعل الجولة؛ والتاريخ بقواعد المستند (لا مستقبل ولا أقدم من 7 أيام ولا فترة مقفولة).
+  -- ٢) الصلاحية، ثمّ قفل الفترة قبل فحص التاريخ (كلّ فحص بعد قفله، مراجعة 0026 DB-4: قفل فترة يُثبَّت أثناء النداء كان يُدخل التسجيل والتأشير
+  --    غير المربوط فيها)، والتاريخ بقواعد المستند (لا مستقبل ولا أقدم من 7 أيام ولا فترة مقفولة).
   if v_record_any then
     perform private.require('flock_day.save');
   end if;
   if v_issue_any then
     perform private.require('issue.post');
   end if;
+  perform private.period_guard();
   perform private.check_doc_date(p_on);
 
   -- ٣) الأفواج بترتيب معرّفاتها: موجودة وبنطاق الكاتب وقائمة، والتاريخ لا يسبق تسكين أيّ منها.
@@ -404,15 +422,27 @@ begin
     end if;
   end loop;
 
-  -- ٤) اللقاحات: موجودة وحيّة، والمربوط يُرسل صرفه وغير المربوط بلاه؛ ومنها ومن سطور الصرف قائمة السحب (مادّة، مخزن، كمية).
+  -- ٤) الأقفال أوّلاً: الأفواج، ثمّ اللقاحات المذكورة بترتيب معرّفاتها وجداول أنواع أفواجها بترتيب النوع (للمشاركة: الحذف والتعديل من جهاز آخر
+  --    ينتظر أو يُرى). اللقاح المحذوف بعد قراءة الشاشة vaccine_not_found بجملته (DB-7: كان «» بلا اسم).
+  perform 1 from public.flocks x where x.org_id = v_org and x.id = any (v_flocks) order by x.id for share;
+  select array_agg(distinct (e.x ->> 'vaccine_id')::uuid order by (e.x ->> 'vaccine_id')::uuid) into v_vaccines
+  from jsonb_array_elements(p_lines) as e(x) where e.x ->> 'kind' = 'vaccination';
+  if v_vaccines is not null then
+    if (select count(*) from (select 1 from public.vaccines x where x.org_id = v_org and x.id = any (v_vaccines) order by x.id for share) as l) <> cardinality(v_vaccines) then
+      raise exception 'vaccine_not_found' using hint = 'لقاح في الطلب غير موجود في القائمة (ربّما حُذف الآن من جهاز آخر). حدّث الشاشة.';
+    end if;
+    select array_agg(distinct f2.kind order by f2.kind) into v_kinds
+    from jsonb_array_elements(p_lines) as e(x) join public.flocks f2 on f2.org_id = v_org and f2.id = (e.x ->> 'flock_id')::uuid
+    where e.x ->> 'kind' = 'vaccination';
+    perform 1 from public.vaccine_programs p where p.org_id = v_org and p.kind = any (v_kinds) order by p.kind for share;
+  end if;
+
+  -- ٥) اللقاحات تحت أقفالها: حيّة، والمربوط يُرسل صرفه بالمادّة التي هو مربوط بها الآن وغير المربوط بلاه؛ ومنها ومن سطور الصرف قائمة السحب.
   for a, v_n in select e.x, e.n from jsonb_array_elements(p_lines) with ordinality as e(x, n) loop
     if a ->> 'kind' = 'issue' then
       v_jobs := v_jobs || jsonb_build_object('n', v_n, 'flock_id', a ->> 'flock_id', 'item_id', a ->> 'item_id', 'warehouse_id', a ->> 'warehouse_id', 'qty', a ->> 'qty');
     elsif a ->> 'kind' = 'vaccination' then
       select * into vc from public.vaccines x where x.org_id = v_org and x.id = (a ->> 'vaccine_id')::uuid;
-      if vc.id is null then
-        raise exception 'vaccine_not_found' using hint = 'هذا اللقاح غير موجود في منشأتك. حدّث الشاشة.';
-      end if;
       if vc.archived_at is not null then
         raise exception 'vaccine_archived' using hint = format('اللقاح «%s» محذوف من القائمة. حدّث الشاشة.', vc.name);
       end if;
@@ -422,15 +452,20 @@ begin
       if vc.item_id is null and a ? 'qty' and a -> 'qty' <> 'null'::jsonb then
         raise exception 'vaccine_not_linked' using hint = format('اللقاح «%s» غير مربوط بمادّة في المخزن، فلا يُصرف شيء عند تأشيره. حدّث الشاشة.', vc.name);
       end if;
+      if vc.item_id is not null and vc.item_id <> (a ->> 'item_id')::uuid then
+        raise exception 'vaccine_relinked' using hint = (select format('اللقاح «%s» صار مربوطاً بـ«%s» في المخزن بعد قراءة الشاشة، فلم يُصرف شيء. حدّث الشاشة واكتب الكمية من جديد.', vc.name, i.name)
+          from public.items i where i.org_id = v_org and i.id = vc.item_id);
+      end if;
       if vc.item_id is not null then
+        if exists (select 1 from public.flock_issues y where y.id = (a ->> 'issue_id')::uuid) then
+          raise exception 'id_conflict' using hint = 'معرّف صرف هذا التأشير مستعمل لصرف قبله. حدّث الشاشة وأعد التأشير.';
+        end if;
         v_jobs := v_jobs || jsonb_build_object('n', v_n, 'flock_id', a ->> 'flock_id', 'item_id', vc.item_id, 'warehouse_id', a ->> 'warehouse_id', 'qty', a ->> 'qty');
       end if;
     end if;
   end loop;
 
-  -- ٥) الأقفال كلّها أوّلاً بترتيب النواة (الفترة ← الأفواج ← المخزن والمادّة ← الأرصدة)، فكلّ قفل تأخذه النواة بعدها مأخوذ.
-  perform private.period_guard();
-  perform 1 from public.flocks x where x.org_id = v_org and x.id = any (v_flocks) order by x.id for share;
+  -- ٦) المخزن والمادّة والأرصدة بترتيب النواة، ثمّ النقص عبر القاعات: مجموع كلّ (مادّة، مخزن) في أكثر من سطر مقابل المتاح بتاريخ الإضافة.
   if jsonb_array_length(v_jobs) > 0 then
     for v_fid in select distinct (j.x ->> 'warehouse_id')::uuid from jsonb_array_elements(v_jobs) as j(x) order by 1 loop
       if not exists (select 1 from public.warehouses w where w.org_id = v_org and w.id = v_fid) then
@@ -444,7 +479,6 @@ begin
     from jsonb_array_elements(v_jobs) with ordinality as j(x, n);
     perform private.lock_masters(v_whs, v_items, true);
     perform private.lock_balances(v_items, v_whs);
-    -- ٦) النقص عبر القاعات: مجموع كلّ (مادّة، مخزن) في أكثر من سطر مقابل المتاح بتاريخ الإضافة، بجملة واحدة قبل أوّل سحب.
     for v_need in
       select (j.x ->> 'item_id')::uuid as item_id, (j.x ->> 'warehouse_id')::uuid as warehouse_id, sum((j.x ->> 'qty')::numeric) as qty,
         count(distinct j.x ->> 'flock_id')::int as halls
@@ -456,8 +490,11 @@ begin
     loop
       select * into s from private.stock_at(v_need.item_id, v_need.warehouse_id, p_on);
       if s.available < v_need.qty then
-        raise exception 'insufficient_stock' using hint = (select format('لا يكفي رصيد «%s» في «%s» لكلّ القاعات: مجموع ما طلبته %s لـ%s قاعات، وعندك %s بتاريخ %s.',
-            i.name, w.name, private.qty_text(v_need.qty, i.base_unit), v_need.halls, private.qty_text(s.available, i.base_unit), to_char(p_on, 'DD/MM/YYYY'))
+        raise exception 'insufficient_stock' using hint = (select format('لا يكفي رصيد «%s» في «%s» لكلّ القاعات: مجموع ما طلبته %s %s، وعندك %s بتاريخ %s.',
+            i.name, w.name, private.qty_text(v_need.qty, i.base_unit),
+            case when v_need.halls = 1 then 'لقاعة واحدة' when v_need.halls = 2 then 'للقاعتين' when v_need.halls <= 10 then format('لـ%s قاعات', v_need.halls)
+              else format('لـ%s قاعة', v_need.halls) end,
+            private.qty_text(s.available, i.base_unit), to_char(p_on, 'DD/MM/YYYY'))
           from public.items i, public.warehouses w where i.org_id = v_org and i.id = v_need.item_id and w.org_id = v_org and w.id = v_need.warehouse_id);
       end if;
     end loop;
@@ -491,12 +528,8 @@ begin
       end;
       v_out_logs := v_out_logs || jsonb_build_object('id', (a ->> 'id')::uuid, 'flock_id', f.id);
     else
-      -- اللقاح وجدول نوع الفوج للمشاركة (حذفه أو تعديل الجدول من جهاز آخر ينتظر أو يُرى)، ثمّ الموعد في الجدول ولا تأشير حيّ له.
-      select * into vc from public.vaccines x where x.org_id = v_org and x.id = (a ->> 'vaccine_id')::uuid for share;
-      if vc.archived_at is not null then
-        raise exception 'vaccine_archived' using hint = format('اللقاح «%s» حُذف من القائمة الآن من جهاز آخر. حدّث الشاشة.', vc.name);
-      end if;
-      perform 1 from public.vaccine_programs p where p.org_id = v_org and p.kind = f.kind for share;
+      -- اللقاح مقفول منذ الخطوة ٤، فهذه القراءة هي الحالية؛ والموعد في جدول نوع الفوج ولا تأشير حيّ له.
+      select * into vc from public.vaccines x where x.org_id = v_org and x.id = (a ->> 'vaccine_id')::uuid;
       if not exists (select 1 from private.flock_slots(f.id) z where z.vaccine_id = vc.id and z.age_day = (a ->> 'age_day')::int) then
         select * into h from public.halls x where x.org_id = v_org and x.id = f.hall_id;
         raise exception 'not_in_program' using hint = format('«%s» في يوم العمر %s ليس في جدول لقاحات «%s» الآن. حدّث الشاشة.', vc.name, a ->> 'age_day', h.name);
@@ -518,7 +551,7 @@ begin
           select * into h from public.halls x where x.org_id = v_org and x.id = f.hall_id;
           raise exception 'already_vaccinated' using hint = format('«%s» ليوم العمر %s مؤشَّر «تمّ» لـ«%s» من قبل.', vc.name, a ->> 'age_day', h.name);
         end if;
-        raise exception 'id_conflict' using hint = 'سُجّل هذا التأشير من قبل. حدّث الشاشة لترى ما حُفظ.';
+        raise exception 'id_conflict' using hint = 'سُجّل هذا التأشير أو صرفه من قبل. حدّث الشاشة لترى ما حُفظ.';
       end;
       v_out_vaccinations := v_out_vaccinations || jsonb_build_object('id', (a ->> 'id')::uuid, 'flock_id', f.id, 'vaccine_id', vc.id,
         'age_day', (a ->> 'age_day')::int, 'issue_id', v_issue, 'doc_no', v_res ->> 'doc_no');
@@ -551,7 +584,8 @@ end
 $$;
 
 -- التأشير غير المربوط يُلغى بفعل الجولة؛ والمربوط بصرف بفعل الإلغاء وسبب إلزاميّ: التأشير أوّلاً ثمّ الصرف بحركات عكسية على دفعاته نفسها
--- (void_flock_issue بمرجع مشتقّ). والملغى من قبل يرجع كما هو.
+-- (void_flock_issue بمرجع مشتقّ). والملغى من قبل يرجع كما هو. والمربوط يأخذ أقفال صرفه بترتيب void_flock_issue (الفترة ← رأس الصرف ← الفوج ←
+-- المخزن والمادّة ← الأرصدة) قبل قفل التأشير (مراجعة 0026 DB-6: كان يقفل التأشير ثمّ ينتظر رصيداً تمسكه إضافة تؤشّر الموعد نفسه فتنتظر التأشير).
 create or replace function public.undo_vaccination(p_id uuid, p_reason text, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -560,6 +594,8 @@ declare
   v_cached jsonb;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   m public.flock_vaccinations;
+  v_items uuid[];
+  v_whs uuid[];
   v_result jsonb;
 begin
   set local lock_timeout = '5s';
@@ -568,11 +604,21 @@ begin
     return v_cached;
   end if;
   perform private.require('flock_day.save');
-  select * into m from public.flock_vaccinations x where x.org_id = v_org and x.id = p_id for update;
+  select * into m from public.flock_vaccinations x where x.org_id = v_org and x.id = p_id;
   if m.id is null then
     raise exception 'vaccination_not_found' using hint = 'هذا التأشير غير موجود في منشأتك. حدّث الشاشة.';
   end if;
   perform private.flock_for(m.flock_id, true);
+  if m.issue_id is not null and m.status = 'done' then
+    perform private.period_guard();
+    perform 1 from public.flock_issues y where y.org_id = v_org and y.id = m.issue_id for update;
+    perform 1 from public.flocks y where y.org_id = v_org and y.id = m.flock_id for share;
+    select array_agg(l.item_id order by l.line_no), array_agg(l.warehouse_id order by l.line_no) into v_items, v_whs
+    from public.flock_issue_lines l where l.org_id = v_org and l.issue_id = m.issue_id;
+    perform private.lock_masters(v_whs, v_items, false);
+    perform private.lock_balances(v_items, v_whs);
+  end if;
+  select * into m from public.flock_vaccinations x where x.org_id = v_org and x.id = p_id for update;
   if m.status = 'void' then
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', m.id, 'status', 'void', 'issue_voided', m.issue_id is not null));
   end if;
@@ -620,7 +666,7 @@ begin
     raise exception 'name_too_long' using hint = format('اسم اللقاح %s حرفاً، والحدّ 40 حرفاً. اختصره.', length(v_name));
   end if;
   if p_item is not null then
-    select * into i from public.items x where x.org_id = v_org and x.id = p_item;
+    select * into i from public.items x where x.org_id = v_org and x.id = p_item for share;
     if i.id is null then
       raise exception 'item_not_found' using hint = 'هذه المادّة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
     end if;
@@ -723,6 +769,11 @@ begin
       raise exception 'bad_day' using hint = 'يوم في الجدول بشكل غير صالح. حدّث الشاشة وأعد المحاولة.';
     end if;
   end loop;
+  -- النسخة أوّلاً بلا قفل (وتُعاد تحت قفل الجدول أدناه): جدول تغيّر من جهاز آخر، ومنه حذف لقاح فيه، يُقال stale_program قبل أيّ فحص للّقاحات، فتقرأ
+  -- الشاشة الجدول من جديد وتقارن (مراجعة 0026 F: كان vaccine_not_found أو vaccine_archived فيعلق المحرّر).
+  if coalesce((select x.version from public.vaccine_programs x where x.org_id = v_org and x.kind = p_kind), 0) is distinct from p_expected_version then
+    raise exception 'stale_program' using hint = 'تغيّر جدول اللقاحات من جهاز آخر. حدّث الشاشة وقارن، فإن كان التعديل منك فقد حُفظ.';
+  end if;
   -- اللقاحات بترتيب معرّفاتها للمشاركة: الحذف والتعديل من جهاز آخر ينتظر أو يُرى.
   for vc in
     select x.id, x.name, x.archived_at from public.vaccines x
@@ -875,7 +926,7 @@ begin
         'dead', y.dead, 'culled', y.culled, 'feed_kg', y.feed_kg::text, 'note', y.note,
         'issues', coalesce((select jsonb_agg(jsonb_build_object('issue_id', x.id, 'doc_no', x.doc_no, 'item_id', l.item_id, 'name', i.name, 'cost_kind', l.cost_kind,
             'qty', l.qty_base::text, 'base_unit', l.base_unit, 'kg', private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)::text)
-            order by x.posted_at, x.id, l.line_no)
+            order by x.posted_at, x.doc_no collate "C", l.line_no)
           from public.flock_issues x
           join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
           join public.items i on i.org_id = l.org_id and i.id = l.item_id
@@ -885,13 +936,14 @@ begin
           from public.flock_logs o where o.org_id = f.org_id and o.flock_id = f.id and o.on_date = g.d), '[]'::jsonb),
         'vaccines', coalesce((select jsonb_agg(v.j order by v.age_day, v.name_key collate "C", v.vaccine_id) from (
             select m.age_day, x.name_key, x.id as vaccine_id, jsonb_build_object('vaccine_id', x.id, 'name', x.name, 'color', x.color, 'age_day', m.age_day,
-              'state', 'done', 'vaccination_id', m.id, 'issue_id', m.issue_id) as j
+              'state', 'done', 'vaccination_id', m.id, 'issue_id', m.issue_id,
+              'doc_no', (select y.doc_no from public.flock_issues y where y.org_id = m.org_id and y.id = m.issue_id)) as j
             from public.flock_vaccinations m join public.vaccines x on x.org_id = m.org_id and x.id = m.vaccine_id
             where m.org_id = f.org_id and m.flock_id = f.id and m.status = 'done' and m.done_on = g.d
             union all
             select z.age_day, x.name_key, x.id, jsonb_build_object('vaccine_id', x.id, 'name', x.name, 'color', x.color, 'age_day', z.age_day,
               'state', case when z.due_on = v_today then 'today' when z.due_on < v_today then 'missed' else 'planned' end,
-              'vaccination_id', null, 'issue_id', null)
+              'vaccination_id', null, 'issue_id', null, 'doc_no', null)
             from private.flock_slots(f.id) as z join public.vaccines x on x.org_id = f.org_id and x.id = z.vaccine_id
             where z.due_on = g.d and not exists (select 1 from public.flock_vaccinations m where m.org_id = f.org_id and m.flock_id = f.id
               and m.vaccine_id = z.vaccine_id and m.age_day = z.age_day and m.status = 'done')) as v), '[]'::jsonb))
@@ -936,15 +988,15 @@ begin
     left join public.flock_costs c on c.org_id = x.org_id and c.doc_kind = 'flock_issue' and c.doc_id = x.id and c.doc_line_id = l.id and c.reverses_id is null
     where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed'
   ), running as (
-    select o.*, sum(coalesce(o.kg, 0)) over (order by o.issued_on, o.posted_at, o.id, o.line_no rows unbounded preceding) as cum
+    select o.*, sum(coalesce(o.kg, 0)) over (order by o.issued_on, o.posted_at, o.doc_no collate "C", o.line_no rows unbounded preceding) as cum
     from lines o
   )
   select jsonb_build_object(
     'lines', coalesce((select jsonb_agg(jsonb_build_object('on', r.issued_on, 'doc_no', r.doc_no, 'item_name', r.name, 'qty', r.qty_base::text,
         'base_unit', r.base_unit, 'kg', r.kg::text, 'cum_kg', r.cum::text, 'money', jsonb_build_object('value', r.amount::text))
-        order by r.issued_on, r.posted_at, r.id, r.line_no) from running r), '[]'::jsonb),
+        order by r.issued_on, r.posted_at, r.doc_no collate "C", r.line_no) from running r), '[]'::jsonb),
     'by_item', coalesce((select jsonb_agg(jsonb_build_object('item_id', b.item_id, 'name', b.name, 'qty', b.qty::text, 'base_unit', b.base_unit,
-        'kg', case when b.unweighed = 0 then b.kg::text end) order by b.first_on, b.name collate "C", b.item_id)
+        'kg', b.kg::text, 'unweighed', b.unweighed::int) order by b.first_on, b.name collate "C", b.item_id)
       from (select o.item_id, o.name, o.base_unit, sum(o.qty_base) as qty, sum(o.kg) as kg, count(*) filter (where o.kg is null) as unweighed, min(o.issued_on) as first_on
         from lines o group by o.item_id, o.name, o.base_unit) as b), '[]'::jsonb),
     'delivered_kg', (select coalesce(sum(o.kg), 0)::text from lines o),
@@ -1017,7 +1069,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
     select m.flock_id, m.done_on from public.flock_vaccinations m where m.status = 'done') as r
   join public.flocks f on f.id = r.flock_id
   where f.placed_on is null or r.on_date < f.placed_on or (f.closed_on is not null and r.on_date > f.closed_on)
-  -- ٤) أيّام الجدول ضمن نهاية دورته، ولقاحاتها حيّة.
+  -- ٤) صرف واحد لتأشير واحد (مراجعة 0026 DB-3).
+  union all
+  select 'issue_once', count(*) from (select m.issue_id from public.flock_vaccinations m where m.issue_id is not null group by m.org_id, m.issue_id having count(*) > 1) as d
+  -- ٥) أيّام الجدول ضمن نهاية دورته، ولقاحاتها حيّة.
   union all
   select 'program_days', count(*) from public.vaccine_program_days d
   join public.vaccine_programs p on p.org_id = d.org_id and p.kind = d.kind
