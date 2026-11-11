@@ -39,6 +39,8 @@ export const EXCLUDED_BY_NAME = [
   { name: 'StockRoutes', pattern: /^assets\/StockRoutes-[\w-]+\.(js|css)$/ },
   // 0015: المعمل بمسار واحد (الخلطات وبطاقة الخلطة ودفعة الإنتاج): الإنتاج يحتاج الخادم (سحب من دفعات ببصمة معاينة).
   { name: 'MillRoutes', pattern: /^assets\/MillRoutes-[\w-]+\.(js|css)$/ },
+  // 0026: القاعات (الإضافة لعدّة قاعات، والتأشير، والتقويم، وتقرير الدورة، وجدول اللقاحات): كلّها تحتاج الخادم.
+  { name: 'HallsRoutes', pattern: /^assets\/HallsRoutes-[\w-]+\.(js|css)$/ },
 ];
 
 /** ملفات ما تنحسب بالتثبيت المسبق: الخدمة العاملة، والمستثناة بالاسم. */
