@@ -605,6 +605,71 @@ export default async function (t) {
       t.same(unitIsolates(), [], 'R2 الكمية بوحدتها («1,000 كغم») خارج العزل اليساريّ: داخله تُقرأ «كغم 1,000»');
     });
 
+    await step('R «قرّب» بعد «أزل» وبعد إكمال سابق (مراجعة شاشات 0025 #1 و#2)', async () => {
+      const { rpcLog } = produceSetup(MANAGER);
+      await mount(produceUrl);
+      await click(withId('remove-line', 'i-salt'));
+      type(qtyInput('ذرة صفراء'), '590');
+      await settle();
+      await click(byAction('round-ton')[0]);
+      const storeGroup = byAction('pick-group').find((n) => n.getAttribute('data-group') === 'store');
+      const storeIds = descendants(storeGroup).filter((n) => n.getAttribute('data-action') === 'pick-option').map((n) => n.getAttribute('data-id'));
+      t.same([storeIds.includes('i-salt'), storeIds.includes('i-premix')], [false, true], 'R «قرّب»: مادّة الخلطة المُزالة لا تُرشَّح من المخزن (كان الإكمال يُقال ولا يُرسل)');
+      await click(withId('pick-option', 'i-premix'));
+      t.same([qtyInput('برمكس')?.value, textOf('produce-mass')], ['31.6', 'الناتج: 1,000 كغم (قبل الهدر)'], 'R «قرّب» من المخزن يضيف البرمكس بالفرق');
+      type(qtyInput('ذرة صفراء'), '580');
+      await settle();
+      await click(byAction('round-ton')[0]);
+      await click(withId('pick-option', 'i-premix'));
+      t.same([qtyInput('برمكس')?.value, textOf('produce-mass'), textOf('produce-missing')?.includes('اكتب كمية «برمكس»') ?? false], ['41.6', 'الناتج: 1,000 كغم (قبل الهدر)', false],
+        'R «قرّب» ثانٍ على البرمكس الذي أنشأه الإكمال الأوّل يبقيه بكميته الجديدة (كانت تفرغ: «اكتب كمية»)');
+      await click(byAction('choice-once')[0]);
+      await click(byAction('produce-go')[0]);
+      t.same(named(rpcLog, 'produce_batch')[0]?.p_lines.map((line) => [line.item_id, line.qty]),
+        [['i-corn', '580.000'], ['i-soy', '360.000'], ['i-oil', '20.000'], ['i-diesel', '2.000'], ['i-premix', '41.600']], 'R ويُرسل بالكميات المعروضة');
+    });
+
+    await step('R «عدّل الخلطة» وللخلطة مسوّدة (مراجعة شاشات 0025 #3)', async () => {
+      let reads = 0;
+      const { rpcLog } = produceSetup(MANAGER, {
+        form: () => {
+          reads += 1;
+          return formWith({ draft_exists: reads > 1 });
+        },
+        produce: () => {
+          throw new m.RejectedError('draft_exists', 'للخلطة تعديل مفتوح لم يُفعَّل؛ فعّله أو احذفه من صفحة الخلطة، أو أنتج لهذه المرّة فقط.');
+        },
+      });
+      await mount(produceUrl);
+      await click(withId('remove-line', 'i-diesel'));
+      await click(byAction('choice-save')[0]);
+      await click(byAction('produce-go')[0]);
+      await settle();
+      t.same([reads, byAction('choice-save')[0]?.getAttribute('aria-checked'), disabled(byAction('produce-go')[0]), named(rpcLog, 'produce_batch').length],
+        [2, 'false', true, 1], 'R بعد draft_exists: «عدّل الخلطة» لا يبقى مختاراً و«أنتج» معطّل حتّى يُختار «لهذه المرّة فقط» (كان يُرسل فيُرفض مع كلّ ضغطة)');
+    });
+
+    await step('R رفض أكيد لطلب مستعاد (مراجعة شاشات 0025 #4)', async () => {
+      const { rpcLog } = produceSetup(MANAGER, {
+        produce: (_args, n) => {
+          if (n === 1) throw new m.UnknownOutcomeError();
+          throw new m.RejectedError('production_blocked', '«ذرة صفراء» في «مخزن المواد الأوّلية» تكفي 500 كغم.');
+        },
+      });
+      await mount(produceUrl);
+      type(qtyInput('ذرة صفراء'), '590');
+      await settle();
+      await click(withId('remove-line', 'i-diesel'));
+      await click(byAction('choice-once')[0]);
+      await click(byAction('produce-go')[0]);
+      await unmount();
+      await mount(produceUrl);
+      t.same([byAction('retry-produce').length, qtyInput('ذرة صفراء')], [1, undefined], 'R بعد العودة: مجمَّدة بالطلب المستعاد');
+      await click(byAction('retry-produce')[0]);
+      t.same([byAction('retry-produce').length, qtyInput('ذرة صفراء')?.value, qtyInput('كاز المولّدة')?.value ?? null, byAction('choice-once')[0]?.getAttribute('aria-checked'), named(rpcLog, 'produce_batch').length],
+        [0, '590', null, 'true', 2], 'R الرفض الأكيد يفكّ التجميد على ما كُتب في الطلب (الكمية والمُزالة والاختيار)، لا على المقترح');
+    });
+
     await step('R المحذوفة من القوائم (مراجعة 0025 #5)', async () => {
       const archivedSalt = () => formWith({ materials: clone(FORM.materials).map((row) => (row.item_id === 'i-salt' ? { ...row, archived: true } : row)) });
       const { rpcLog } = produceSetup(MANAGER, { form: archivedSalt, produce: () => clone(F.produce_batch.saved) });
@@ -807,6 +872,10 @@ export default async function (t) {
       const today = m.localDay();
       t.same(named(rpcLog, 'recipe_history')[0], { p_recipe: 'r-1', p_from: m.addDays(today, -89), p_to: today }, 'H1 المدّة الافتراضية آخر 90 يوماً');
       t.eq(textOf('history-period'), `من ${fmtDayText(m.addDays(today, -89))} إلى ${fmtDayText(today)}`, 'H1 والمدّة مكتوبة');
+      // مدّة صريحة تحيط بأحداث العيّنة: النسخ تُعرض بمدّتها (مراجعة شاشات 0025 #10)، فلا يتبع الفحص يوم تشغيله.
+      type(byAction('history-from')[0], '01/10/2026');
+      type(byAction('history-to')[0], '10/11/2026');
+      await settle();
       t.eq(textOf('history-totals'), 'الدفعات المرحَّلة: 2 · الناتج: 2,005 كغم', 'H1 سطر المجموع: المرحَّلة وحدها');
       t.same(tableHeaders('سجلّ «علف بادئ»'), ['التاريخ', 'الحدث', 'التفاصيل', 'الناتج (كغم)'], 'H1 الأعمدة');
       const rows = tableRows('سجلّ «علف بادئ»') ?? [];
@@ -834,6 +903,12 @@ export default async function (t) {
       t.same(byAction('dot').map((n) => n.getAttribute('data-slot')), ['0', '1', '2', '3', '4'], 'H1 ونقطة لون لكلّ مادّة داخل الكتلة');
       const nameHeader = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
       t.same([/min-w-48/u.test(nameHeader?.getAttribute('class') ?? ''), all().filter((n) => n.style?.maxWidth === '10rem').length], [false, 6], 'H1 عمود المادّة بعرض محدود (لا min-w-48): الأعمدة الأربعة في الهاتف (390) بلا تمرير');
+    });
+    await step('H النسخ بمدّتها (مراجعة شاشات 0025 #10)', async () => {
+      const parsed = m.repo.parseRecipeHistory(clone(F.recipe_history.period));
+      const versionsIn = (from, to) => m.historyEvents(parsed, from, to).filter((event) => event.kind === 'version').map((event) => [event.version.versionNo, event.first]);
+      t.same([versionsIn('2026-10-01', '2026-11-10'), versionsIn('2026-11-05', '2026-11-10'), versionsIn('2026-09-01', '2026-09-30')],
+        [[[4, false], [3, false], [1, true]], [[4, false]], []], 'H السجلّ يعرض من النسخ ما فُعّل في المدّة، و«إنشاء الخلطة» أقدم نسخة من الكلّ (كانت النسخ كلّها في كلّ مدّة)');
     });
     await step('H2 المدّة', async () => {
       const { rpcLog } = recipeSetup();

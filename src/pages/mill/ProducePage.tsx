@@ -179,7 +179,8 @@ const REREAD = new Set(['recipe_changed', 'draft_exists', 'feed_store_missing'])
 interface Extra {
   itemId: string;
   name: string;
-  kind: ItemKind;
+  /** داخل كتلة الخلطة (الوقود والتعبئة خارجها)، من نوعها حين قُرئت أو من الطلب المرسَل. */
+  inBasis: boolean;
   unit: BaseUnit;
   density: bigint | null;
   text: string;
@@ -284,12 +285,29 @@ export function produceRows(materials: readonly FormMaterial[], edits: Edits): P
     seen.add(extra.itemId);
     rows.push(
       make(
-        { itemId: extra.itemId, name: extra.name, unit: extra.unit, density: extra.density, inBasis: inBasisKind(extra.kind), archived: false, fromRecipe: false, defaultQty: null, defaultSource: null },
+        { itemId: extra.itemId, name: extra.name, unit: extra.unit, density: extra.density, inBasis: extra.inBasis, archived: false, fromRecipe: false, defaultQty: null, defaultSource: null },
         extra.text,
       ),
     );
   }
   return rows;
+}
+
+/**
+ * ما كُتب في طلب أُرسل، صفوفاً تعود إلى الشاشة (مراجعة شاشات 0025 #4): كمية كلّ مادّة من الخلطة بمعرّفها، وما لم يُرسل منها مُزال، وما سواها مضاف
+ * بكميته. الطلب المستعاد بعد إعادة تحميل (S1) كان يُفكّ تجميده برفض أكيد على الكميات المقترحة، فيضيع كلّ ما كُتب.
+ */
+function editsFromRequest(request: ProduceRequest, materials: readonly FormMaterial[]): Edits {
+  const inRecipe = new Set(materials.map((material) => material.itemId));
+  const sent = new Set(request.lines.map((line) => line.itemId));
+  return {
+    texts: Object.fromEntries(request.lines.filter((line) => inRecipe.has(line.itemId)).map((line) => [line.itemId, fmtMilli(line.qty)])),
+    removed: materials.filter((material) => !sent.has(material.itemId)).map((material) => material.itemId),
+    extras: request.lines
+      .filter((line) => !inRecipe.has(line.itemId))
+      .map((line) => ({ itemId: line.itemId, name: line.name, inBasis: line.inBasis, unit: line.unit, density: line.density, text: fmtMilli(line.qty) })),
+    topUp: null,
+  };
 }
 
 /** موادّ الإنتاج تخالف موادّ الخلطة (مجموعة المعرّفات، والترتيب لا يُحسب). */
@@ -635,10 +653,15 @@ export default function ProducePage() {
   const navigate = useNavigate();
   // طلب معلَّق من شاشة سابقة (S1): تعود الشاشة مجمَّدة به، والإعادة به وحده. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (مرّة لكلّ مفتاح).
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  /** المجمَّد طلبٌ مستعاد من التخزين (لا من هذه الشاشة): الخانات بلا ما كُتب فيه. */
+  const [restored, setRestored] = useState(false);
   if (pendingId !== '' && restoredFor !== pendingId) {
     setRestoredFor(pendingId);
     const kept = readPending(pendingId);
-    if (kept?.kind === 'request' && kept.request.recipeId === recipeId) setFrozen(kept.request);
+    if (kept?.kind === 'request' && kept.request.recipeId === recipeId) {
+      setFrozen(kept.request);
+      setRestored(true);
+    }
     else if (kept?.kind === 'legacy') setLegacy(true);
   }
 
@@ -675,7 +698,8 @@ export default function ProducePage() {
   const differs = form !== null && materialsDiffer(rows, materials);
   const setKey = rows.map((row) => row.itemId).sort().join(',');
   const versionId = form?.active?.id ?? '';
-  const chosen = choice !== null && choice.set === setKey && choice.version === versionId ? choice.save : null;
+  // وللخلطة مسوّدة مفتوحة (draft_exists بعد إعادة القراءة): «عدّل الخلطة» معطّل فلا يبقى مختاراً، وإلّا أُرسل فرُفض مع كلّ ضغطة (مراجعة شاشات 0025 #3).
+  const chosen = choice !== null && choice.set === setKey && choice.version === versionId && !(choice.save && (form?.draftExists ?? false)) ? choice.save : null;
   const saveRecipe: boolean | null | undefined = !differs ? null : !form?.canEditRecipe ? false : (chosen ?? undefined);
   const recipeIds = new Set(materials.map((material) => material.itemId));
   const added = rows.filter((row) => !recipeIds.has(row.itemId));
@@ -773,7 +797,7 @@ export default function ProducePage() {
       setPickFailure(t('mill.gap.unfit', '«{name}» لا تصلح للإكمال الآن (تغيّرت أو أُرشفت): اختر غيرها.', { name: candidate.name }));
       return null;
     }
-    return { itemId: item.id, name: item.name, kind: item.kind, unit: item.baseUnit, density: item.baseUnit === 'L' ? item.density : null, text: '' };
+    return { itemId: item.id, name: item.name, inBasis: inBasisKind(item.kind), unit: item.baseUnit, density: item.baseUnit === 'L' ? item.density : null, text: '' };
   };
 
   /** «أضف مادّة»: مادّة أُزيلت تعود إلى مكانها في الخلطة، وغيرها تُقرأ ثمّ تُضاف في آخر الموادّ بلا كمية. النافذة تبقى لأكثر من مادّة. */
@@ -809,7 +833,10 @@ export default function ProducePage() {
         setPickFailure(t('mill.gap.no_density', '«{name}» سائل بلا كثافة، فلا يُحسب به الفرق.', { name: row.name }));
         return;
       }
-      setEdits((before) => withTopUp(before, { itemId: row.itemId, name: row.name, unit: row.unit, added: add, target, gap, created: false }, null));
+      // مادّة أنشأها إكمال سابق (created) تبقى منشأة: كميتها قبل الإكمال صفر، وكانت تصير «اكتب كمية» فارغة (مراجعة شاشات 0025 #2).
+      setEdits((before) =>
+        withTopUp(before, { itemId: row.itemId, name: row.name, unit: row.unit, added: add, target, gap, created: before.topUp?.itemId === row.itemId && before.topUp.created }, null),
+      );
       setPicking(null);
       return;
     }
@@ -863,9 +890,21 @@ export default function ProducePage() {
         if (racing) setFailure(failureText(problem));
         else if (retrying && surelyUnsaved(problem)) setFailure(t('mill.produce.retry_unreached', 'لم تصل الإعادة إلى الخادم: أعد المحاولة عند عودة الاتصال.'));
       } else {
-        // جواب أكيد بلا تسجيل: المكتوب باقٍ، والمحاولة التالية بمعرّف ومرجع جديدين.
+        // جواب أكيد بلا تسجيل: المكتوب باقٍ، والمحاولة التالية بمعرّف ومرجع جديدين. والطلب المستعاد بعد إعادة تحميل يعيد ما كُتب فيه إلى الخانات.
         storePending(pendingId, null);
         attempt.current = null;
+        if (restored) {
+          setRestored(false);
+          setEdits(editsFromRequest(request, materials));
+          setFromPick(request.inputWarehouseId);
+          setDayText(request.producedOn === null ? null : fmtDay(request.producedOn));
+          setNote(request.note ?? '');
+          setWeighed(request.outputKg !== null);
+          setWeightText(request.outputKg === null ? '' : fmtMilli(request.outputKg));
+          setExpiryText(request.expiry === null ? '' : fmtDay(request.expiry));
+          setReason(request.shrinkReason ?? '');
+          setChoice(request.saveRecipe === null ? null : { set: request.lines.map((line) => line.itemId).sort().join(','), version: request.expectedVersion, save: request.saveRecipe });
+        }
         setFrozen(null);
         if (problem instanceof RejectedError && REREAD.has(problem.code)) {
           // ما قرأته الشاشة تغيّر: تُقرأ من جديد وتبقى الكميات المكتوبة لموادّها.
@@ -1147,7 +1186,10 @@ export default function ProducePage() {
         {
           key: 'store',
           title: t('mill.gap.store', 'موادّ أخرى في «{store}»', { store: storeName }),
-          items: storeItems.filter((item) => !inRows.has(item.itemId) && inBasisKind(item.kind)).map((item) => ({ itemId: item.itemId, name: item.name, unit: item.baseUnit, available: item.available, from: 'store' as const })),
+          // مادّة الخلطة المُزالة لا تُرشَّح هنا (مراجعة شاشات 0025 #1): صفوف الإنتاج تتركها ما دامت مُزالة، فكان الإكمال يُقال ولا يُرسل؛ تعود من «أضف مادّة».
+          items: storeItems
+            .filter((item) => !inRows.has(item.itemId) && !recipeIds.has(item.itemId) && inBasisKind(item.kind))
+            .map((item) => ({ itemId: item.itemId, name: item.name, unit: item.baseUnit, available: item.available, from: 'store' as const })),
         },
       ];
     }

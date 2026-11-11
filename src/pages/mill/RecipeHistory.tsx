@@ -61,12 +61,15 @@ type HistoryEvent = { kind: 'production'; day: Day; production: HistoryProductio
 
 /**
  * الأحداث الأحدث أوّلاً: الإنتاج بيومه، والنسخة بيوم تفعيلها (localDay: يوم الجهاز لا يوم غرينتش)؛ وفي اليوم نفسه التعديل فوق الإنتاج. النسخ كلّها من
- * القارئ (بلا تقييد بالمدّة)، والإنتاج في المدّة.
+ * القارئ، والجدول يعرض منها ما فُعّل في المدّة (مراجعة شاشات 0025 #10: كان «إنشاء الخلطة» قبل أشهر يظهر في سجلّ شهر وطباعته، و«لا إنتاج ولا تعديل في
+ * هذه المدّة» لا تظهر أبداً)؛ و«إنشاء الخلطة» أقدم نسخة من الكلّ لا من المدّة.
  */
-export function historyEvents(history: RecipeHistory): HistoryEvent[] {
+export function historyEvents(history: RecipeHistory, from: Day | null = null, to: Day | null = null): HistoryEvent[] {
   const oldest = history.versions.reduce<number | null>((min, version) => (min === null || version.versionNo < min ? version.versionNo : min), null);
   const events: HistoryEvent[] = [
-    ...history.versions.map((version): HistoryEvent => ({ kind: 'version', day: localDay(new Date(version.activatedAt)), version, first: version.versionNo === oldest })),
+    ...history.versions
+      .map((version): HistoryEvent => ({ kind: 'version', day: localDay(new Date(version.activatedAt)), version, first: version.versionNo === oldest }))
+      .filter((event) => (from === null || event.day >= from) && (to === null || event.day <= to)),
     ...history.productions.map((production): HistoryEvent => ({ kind: 'production', day: production.producedOn, production })),
   ];
   const rank = (event: HistoryEvent): number => (event.kind === 'version' ? 0 : 1);
@@ -155,7 +158,7 @@ export function RecipeHistorySection({ recipeId, recipeName }: { recipeId: strin
   const load = useCallback(() => (ready ? loadRecipeHistory(recipeId, from, to) : Promise.resolve(null)), [ready, recipeId, from, to]);
   const state = useLoad<RecipeHistory | null>(load, `${recipeId}|${from ?? ''}|${to ?? ''}|${ready}`);
   const history = state.data;
-  const events = history ? historyEvents(history) : [];
+  const events = history ? historyEvents(history, from, to) : [];
   const period = from && to ? t('mill.history.period', 'من {from} إلى {to}', { from: fmtDay(from), to: fmtDay(to) }) : '';
   const title = t('mill.history.print_title', 'سجلّ «{name}»', { name: recipeName });
   const outputDecimals = columnDecimals(events.flatMap((event) => (event.kind === 'production' ? [event.production.outputKg] : [])), 3) as 0 | 1 | 2 | 3;
