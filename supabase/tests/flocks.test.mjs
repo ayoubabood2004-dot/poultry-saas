@@ -206,10 +206,10 @@ async function scenario(t, db) {
     [staleResult.kind, ui.parseDayRow(staleResult.server), ui.dayAnswer(d28.v)],
     [
       'stale_day',
-      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, waterL: 900000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null },
+      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null },
       { kind: 'saved', version: 1 },
     ],
-    'محلّل الشاشات (dayAnswer): stale_day لرفّ المراجعة بصفّ الخادم (العلف 450 كغم = 450,000 غرام، والماء 900 لتر)، وsaved برقم الإصدار',
+    'محلّل الشاشات (dayAnswer): stale_day لرفّ المراجعة بصفّ الخادم (العلف 450 كغم = 450,000 غرام؛ والماء خارج الشاشات منذ 0026 بكلمة المالك ولو بقي عموده)، وsaved برقم الإصدار',
   );
   t.eq((await save(U.worker, F1, '2026-10-28', { dead: 7 }, null)).v?.status, 'stale_day', 'base_version = null ويوم بيه صفّ ← stale_day');
   same((await save(U.worker, F1, '2026-10-29', { dead: 1 }, 4)).v, { status: 'stale_day', server: null }, 'base_version ويوم بلا صفّ ← stale_day بلا صفّ');
@@ -376,14 +376,14 @@ async function scenario(t, db) {
     [
       d2.days.map((d) => [d.onDate, d.liveStart, d.liveEnd, d.eggsTotal, d.eggsBroken, d.hdep]),
       [d2.flock.eggsToday, d2.flock.hdepToday, d2.flock.feedKgTotal, d2.flock.hallName, d2.canSave, d2.canManage],
-      [d1?.waterL, d1?.tempMin, d1?.tempMax, d1?.eggsTotal, d1?.hdep],
+      [d1 && 'waterL' in d1, d1?.tempMin, d1?.tempMax, d1?.eggsTotal, d1?.hdep],
     ],
     [
       [[TODAY, 4985, 4983, 4100, 30, 8225n], ['2026-10-29', 4985, 4985, 0, null, 0n], ['2026-10-28', 4990, 4985, 4200, null, 8417n], ['2026-10-27', 5000, 4990, 4000, 40, 8000n]],
       [4100, 8225n, 2150000n, 'قاعة البيّاض 1', true, false],
-      [700500n, 245n, 310n, null, null],
+      [false, 245n, 310n, null, null],
     ],
-    'محلّل الشاشات يقرأ الأيّام من القاعدة: HDEP بالمئات (8,225 = 82.25٪) والصفر 0 مو «—»، ويوم اللحم بلا بيض null («—»)، والماء 700.5 لتر والحرارة 24.5 و31 بالأعشار',
+    'محلّل الشاشات يقرأ الأيّام من القاعدة: HDEP بالمئات (8,225 = 82.25٪) والصفر 0 مو «—»، ويوم اللحم بلا بيض null («—»)، والماء لا يُقرأ (0026: خارج الشاشات) والحرارة 24.5 و31 بالأعشار',
   );
 
   // ─── النطاق والأدوار بالقارئين ────────────────────────────────────────────────────────────────────────────

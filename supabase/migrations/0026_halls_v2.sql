@@ -19,6 +19,22 @@
 --   • التأشير بتاريخ الإضافة نفسه وبقواعد تاريخ المستند (لا مستقبل ولا أقدم من 7 أيام ولا فترة مقفولة)، فالتذكير يعرض الفائت حتى 7 أيام.
 --   • حذف لقاح أُشِّر به يخفيه (أرشفة) ويبقى اسمه على تأشيراته؛ وحذف ما لم يُؤشَّر به يمحوه؛ وكلاهما يُخرجه من الجدولين.
 --   • لون اللقاح موضع 0..4 يُعطى عند إنشائه (أوّل موضع حرّ بين الحيّة)، وما بعدها 5 (رماديّ «أخرى» في الشاشات).
+-- مراجعة 0026 (قبل الإنتاج؛ أربع زوايا، كلّ ملاحظة بفحص فشل على الهجرة قبلها في halls.test «مراجعة 0026»):
+--   • DB-1 (عالية): سطر التأشير المربوط يحمل المادّة التي عرضتها الشاشة (item_id)، ولقاح رُبط بغيرها بعد القراءة vaccine_relinked بلا صرف (كان يصرف
+--     المادّة الجديدة بكمية كُتبت للقديمة)، والربط يُعاد فحصه تحت أقفال اللقاحات.
+--   • DB-2: الإعادة بمرجع إضافة أُلغي بعدها صرف منها أو تأشير أو حُذف تسجيل id_conflict «أُلغي» (كانت «حُفظ» بنتيجتها القديمة).
+--   • DB-3: معرّف صرف التأشير جديد لا صرف قبله، وفهرس فريد flock_vaccinations_issue_once وثابت issue_once: صرف واحد لتأشير واحد (كان تأشير ثانٍ
+--     يتبنّى صرفاً قائماً بلا سحب ثمّ لا يُلغى أيّهما).
+--   • DB-4: قفل الفترة قبل فحص التاريخ لكلّ إضافة (كان التسجيل والتأشير غير المربوط يدخلان فترة قُفلت أثناء النداء).
+--   • DB-5 وDB-7: اللقاحات وجداولها مقفولة أوّل النداء بترتيب delete_vaccine وsave_vaccine_program (كانت لكلّ سطر فتتقافل مع الحذف)، واللقاح المحذوف
+--     أثناء الانتظار vaccine_not_found بجملته (كان not_in_program بـ«»).
+--   • DB-6: undo_vaccination يأخذ أقفال صرفه بترتيب void_flock_issue قبل قفل التأشير (كان يتقافل مع إضافة تؤشّر الموعد نفسه).
+--   • DB-8: «للقاعتين» و«لـ3 قاعات» و«لـ11 قاعة» في جملة النقص.
+--   • F: save_vaccine_program يقول stale_program أوّلاً حين تغيّرت النسخة (ومنه حذف لقاح فيه) قبل فحص اللقاحات.
+--   • A وC وH: رقم صرف اللقاح المؤشَّر في التقويم (doc_no)، وموادّ التقرير بمجموع الموزون وعدد غير الموزون (unweighed)، وصرف اليوم الواحد بترتيب رقمه.
+--   • H26-PERM-3: سجلّ تدقيق يتيم لجداول 0026 يوقف التراجع (فرع رابع)، فلا تسقط سياسة نطاقه وصفوفه باقية.
+--   • H26-PERM-4: ربط لقاح بمادّة يقفلها للمشاركة، فحذفها في اللحظة نفسها ينتظر ثمّ item_not_found (كان مفتاحاً خاماً 23503).
+--   متروك بقرار: GR-3 («ألغِ» في سجلّ الصرف لصرف لقاح مؤشَّر تظهر، والخادم يرفضها بجملة تدلّ على «ألغِ التأشير»؛ إخفاؤها يغيّر flock_feed من 0019).
 -- تراجع: rollback_0026.sql — يُسقط المحفّز والدوالّ والجداول الخمسة وسياسة نطاق سجلّ التدقيق. **طريق رفض**: أيّ صفّ في الجداول الخمسة يوقف
 --   التراجع بصوت بلا أن يحذف شيئاً (التأشيرات تشير إلى صرف مرحَّل، والجدول والتسجيلات بيانات المالك).
 -- تنعاد بأمان: create table if not exists، وcreate or replace، وcreate index if not exists، وكتل do تفحص الكتالوج قبل السياسات.
@@ -139,7 +155,7 @@ create table if not exists public.flock_vaccinations (
 create unique index if not exists flock_vaccinations_live on public.flock_vaccinations (org_id, flock_id, vaccine_id, age_day) where status = 'done';
 create index if not exists flock_vaccinations_flock on public.flock_vaccinations (org_id, flock_id, done_on);
 create index if not exists flock_vaccinations_hall on public.flock_vaccinations (org_id, division_id, site_id, hall_id);
-create unique index if not exists flock_vaccinations_issue_once on public.flock_vaccinations (org_id, issue_id) where issue_id is not null;
+create unique index if not exists flock_vaccinations_issue_once on public.flock_vaccinations (org_id, issue_id);
 create index if not exists flock_vaccinations_vaccine on public.flock_vaccinations (org_id, vaccine_id);
 create index if not exists flock_vaccinations_item on public.flock_vaccinations (org_id, item_id);
 
