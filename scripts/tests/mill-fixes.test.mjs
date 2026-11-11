@@ -107,7 +107,6 @@ const disabled = (node) => node?.hasAttribute('disabled') ?? null;
 /** بطاقة مادّة بمعرّفها، ولمسها، وخانة كميتها باسمها (بطاقات المعمل، كلمة المالك 2026-11-07). */
 const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
 const pick = (id) => click(cardOf(id));
-const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
 /** جواب items_overview بعد محلّله: كلّ المواد الفعّالة بموجودها. */
 const overviewOf = (rows) => ({
   today: '2026-11-04', canRecord: true, canAddItem: true,

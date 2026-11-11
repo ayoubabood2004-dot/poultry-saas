@@ -555,13 +555,16 @@ export default async function (t) {
     });
 
     // ── W62 (ب٦٢): unconverted في لوحة كلفة الطنّ ──────────────────────────────────────────────────────────────────────────
-    const panel = () => byAction('expected-cost')[0]?.textContent ?? null;
-    const UNCONVERTED = '1 من المواد لا تُحسب حتّى تُصحَّح سطورها أعلاه.';
     await step('W62 المحلّل', async () => {
       t.same(
         safe(() => m.parseRecipe(OIL_DRAFT()).expected),
         { materialsPerTon: 894_600_00n, ratesPerTon: 0n, costPerTon: 894_600_00n, unpriced: 0, unconverted: 1 },
         'W62 unconverted يُقرأ عدداً منفصلاً عن unpriced',
+      );
+      t.same(
+        safe(() => { const dibs = m.parseRecipe(DIBS_DRAFT()); return [dibs.expected?.unconverted, dibs.lines.map((line) => [line.unitMismatch, line.massKg])]; }),
+        [1, [[false, 972_000n], [true, null]]],
+        'W62 مسوّدة الدبس من القاعدة: unconverted = 1 وسطرها unit_mismatch بلا كتلة',
       );
       const absent = OIL_DRAFT();
       delete absent.money.expected.unconverted;

@@ -84,7 +84,6 @@ const disabled = (node) => node?.hasAttribute('disabled') ?? null;
 /** بطاقة مادّة بمعرّفها، ولمسها، وخانة كميتها باسمها (بطاقات المعمل، كلمة المالك 2026-11-07). */
 const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
 const pick = (id) => click(cardOf(id));
-const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
 const buttonByText = (label) => all().find((n) => n.localName === 'button' && n.textContent === label) ?? null;
 /** جدول DataTable بعنوانه (caption): رؤوس الأعمدة، وخلايا كلّ صفّ، وخلايا صفّ المجموع. */
 const tableOf = (caption) => {
@@ -101,7 +100,6 @@ const tableOf = (caption) => {
   const footAt = (index) => footCells[index - (headers.length - footCells.length)] ?? null;
   return { headers, rows, footAt };
 };
-const number = (cell) => (/^-?[\d,]+(\.\d+)?$/u.test(cell ?? '') ? Number(cell.replace(/,/gu, '')) : null);
 
 const ws = (over = {}) => ({
   userId: 'u-1', orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role: 'manager', scopes: [],

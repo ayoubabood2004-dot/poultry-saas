@@ -456,7 +456,6 @@ export default async function (t) {
 
     // ── Z27 (ب٢٧): «تغيّرت وحدة» تحت المفعَّلة، ونافذة «أنتج» بتلميح item_changed كما هو ───────────────────────────────────────────
     const kaz = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-kaz', item_name: 'كاز', kind: 'fuel', base_unit: 'kg', category_name: null, qty: '20.000', unit: 'kg', mass_kg: '20.000', share_pct: '0.00', in_basis: false, unit_changed: true });
-    const changedSentence = 'تغيّرت وحدة «كاز» بعد التفعيل: لا يُنتَج بهذه النسخة حتّى تُنشأ نسخة جديدة وتُفعَّل.';
     await step('Z27 المفعَّلة', async () => {
       fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [recipeLine(), kaz] })) });
       await mount('/mill/recipe/r-1');

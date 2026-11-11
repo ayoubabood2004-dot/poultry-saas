@@ -80,7 +80,6 @@ const press = async (node) => {
 };
 const disabled = (node) => node?.hasAttribute('disabled') ?? null;
 const cardOf = (id) => byAction('material-card').find((node) => node.getAttribute('data-item') === id);
-const qtyOf = (name) => all().find((node) => node.getAttribute('aria-label') === `كمية «${name}»`);
 const valueOf = (name) => byAction(name)[0]?.value ?? null;
 const deferred = () => {
   let resolve = null;
