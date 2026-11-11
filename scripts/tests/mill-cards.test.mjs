@@ -13,6 +13,10 @@
 // ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): M1 مطابقات الخادم التي ليست بطاقة (أُنشئت بعد القراءة، أو طابقت باركودها) أزرارُ اختيار، ولا «أنشئ»
 // لرمز؛ M2 كلّ تغيير في سطور المسوّدة يكتب أساسها = مجموعها، ولوحة كلفة الطنّ لا تُعرض والأساس غير المجموع؛ M3 basis_mismatch يقرأ من جديد
 // (بطاقة الخلطة) أو يعيد قراءة المواد (البانية) بجملة لا تذكر «الأساس»؛ M4 ما يمنع «أضف المختار» مكتوب تحته.
+// «الخلطة موادّ بلا كميات» (0025، كلمة المالك 2026-11-10): البطاقة المختارة بلا خانة كمية ولا وحدة، ولا «مجموع الخلطة» ولا أساس؛ فـC1 الحفظ يرسل
+// p_basis_kg فارغاً والسطور بمعرّفات الموادّ بترتيب الاختيار، وC2 الكثافة وحدها على بطاقة السائل، وC4 «أضف مواد» بلا كمية والتفعيل بنسخة المسوّدة بلا
+// أساس يُكتب. وفحوص الأساس وكلفة الطنّ (M2) خرجت معه؛ وM3 صار رفض density_required (البانية تعيد قراءة الكثافة) وmixed_quantities (بطاقة الخلطة تُقرأ من
+// جديد)؛ وM4 سبب المنع كثافة سائل؛ وC5 «أنتج» يفتح شاشة الإنتاج على production_form ويرسل produce_batch الحقيقي.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +26,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 // createRecipe ليس هنا: الحقيقي يبني طلب create_recipe ويمرّ بـcore البديل.
-const MILL = ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'setVersionBasis', 'activateVersion', 'loadMillStores', 'createProduction', 'newRecipeVersion', 'loadProduce'];
+const MILL = ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'addRecipeLine', 'clearRecipeLineQty', 'deleteRecipeLine', 'activateVersion', 'loadMillStores', 'newRecipeVersion', 'loadProduceForm', 'loadRecipeHistory'];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory', 'loadStockOnHand'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
 const STUBS = {
@@ -252,36 +256,28 @@ export default async function (t) {
       await settle();
     };
 
-    // ── C1: أكثر من مادّة معاً، والمجموع حيّ، ولمسة ثانية تترك، والحفظ يرسل الأساس = المجموع ─────────────────────────────────────────
+    // ── C1: أكثر من مادّة معاً بلا كميات، ولمسة ثانية تترك، والحفظ يرسل الموادّ بترتيب الاختيار بلا أساس ─────────────────────────────────
     await step('C1', async () => {
       const calls = builder();
       await mount('/mill/new');
       t.same(cards(), ['i-corn', 'i-soy', 'i-oil', 'i-diesel'], 'C1 بطاقة لكلّ مادّة تصلح للخلطة (لا العلف الجاهز ولا القطعة)');
       t.ok(cardOf('i-corn')?.textContent.includes('عندك: 20,000 كغم') && cardOf('i-soy')?.textContent.includes('عندك: 1,500.5 كغم'), `C1 «عندك» على كلّ بطاقة بالكيلوغرام (${cardOf('i-corn')?.textContent})`);
       t.eq(named(calls, 'rpc:items_overview').length, 1, 'C1 البطاقات و«عندك» بقراءة items_overview واحدة');
-      t.same([byAction('recipe-basis').length, byAction('card-qty').length], [0, 0], 'C1 لا «أساس الخلطة» يُكتب، ولا خانة كمية قبل الاختيار');
+      t.same([byAction('recipe-basis').length, byAction('card-qty').length], [0, 0], 'C1 لا «أساس الخلطة» يُكتب، ولا خانة كمية');
       await click(cardOf('i-corn'));
       await click(cardOf('i-soy'));
-      t.same([pressed('i-corn'), pressed('i-soy'), pressed('i-oil'), byAction('card-qty').length], ['true', 'true', 'false', 2], 'C1 مادّتان مختارتان معاً، مضاءتان، وعلى كلّ واحدة خانة كميتها');
-      type(qtyOf('ذرة صفراء'), '600');
-      type(qtyOf('كسبة صويا'), '300');
-      await settle();
-      t.same([textOf('builder-sum'), textOf('builder-output')], ['مجموع الخلطة: 900 كغم', 'الناتج المتوقّع: 900 كغم (قبل الهدر)'], 'C1 «مجموع الخلطة» و«الناتج المتوقّع» حيّان بالكيلوغرام');
+      t.same([pressed('i-corn'), pressed('i-soy'), pressed('i-oil'), byAction('card-qty').length, byAction('builder-sum').length], ['true', 'true', 'false', 0, 0], 'C1 مادّتان مختارتان معاً، مضاءتان، بلا خانة كمية ولا مجموع');
       await click(cardOf('i-soy'));
-      t.same([pressed('i-soy'), byAction('card-qty').length, textOf('builder-sum')], ['false', 1, 'مجموع الخلطة: 600 كغم'], 'C1 لمسة ثانية تترك المادّة: لا خانة لها ويخرج وزنها من المجموع');
+      t.same([pressed('i-soy'), byAction('remove-line').length], ['false', 1], 'C1 لمسة ثانية تترك المادّة وتخرج من الجدول');
       await click(cardOf('i-soy'));
-      t.same([qtyOf('كسبة صويا')?.value ?? null, disabled(byAction('save-draft')[0])], ['', true], 'C1 المادّة المختارة من جديد بلا كمية: الحفظ معطّل');
       await nameAndOutput();
-      t.ok(textOf('save-missing')?.includes('اكتب كمية «كسبة صويا» أكبر من صفر.'), `C1 والسبب يسمّيها (${textOf('save-missing')})`);
-      type(qtyOf('كسبة صويا'), '400');
-      await settle();
-      t.same([textOf('builder-sum'), disabled(byAction('save-activate')[0]), byAction('save-missing').length], ['مجموع الخلطة: 1,000 كغم', false, 0], 'C1 كلّ مادّة بكميتها: «احفظ وفعّل» يعمل بلا أساس يُطابَق');
+      t.same([disabled(byAction('save-activate')[0]), byAction('save-missing').length], [false, 0], 'C1 الاسم والمنتج والموادّ: «احفظ الخلطة» يعمل بلا كميات');
       await click(byAction('save-activate')[0]);
       const sent = named(calls, 'rpc:create_recipe')[0]?.[0];
       t.same(
         [sent?.p_basis_kg, sent?.p_lines, sent?.p_activate],
-        ['1000.000', [{ item_id: 'i-corn', qty: '600.000', unit: 'kg' }, { item_id: 'i-soy', qty: '400.000', unit: 'kg' }], true],
-        'C1 create_recipe: p_basis_kg = مجموع الكميات، والسطور بترتيب الاختيار',
+        [null, [{ item_id: 'i-corn' }, { item_id: 'i-soy' }], true],
+        'C1 create_recipe: p_basis_kg فارغ، والسطور بمعرّفات الموادّ بترتيب الاختيار، والتفعيل فوراً',
       );
       t.ok(globalThis.__mill.location.startsWith('/mill/recipe/'), 'C1 ثمّ تُفتح بطاقة الخلطة');
     });
@@ -292,28 +288,22 @@ export default async function (t) {
       await mount('/mill/new');
       await nameAndOutput();
       await click(cardOf('i-corn'));
-      type(qtyOf('ذرة صفراء'), '1000');
       await click(cardOf('i-oil'));
-      type(qtyOf('زيت'), '10');
       await settle();
       t.same(named(calls, 'loadItem'), [['i-oil']], 'C2 كثافة السائل تُقرأ حين يُختار (الكيلوغرام لا يحتاجها)');
-      t.eq(byAction('card-unit').length, 1, 'C2 السائل يُكتب باللتر أو بالكيلوغرام');
-      t.ok(textOf('card-density')?.startsWith('«زيت» سائل بلا كثافة، فلا يُحسب وزنه: اكتب كثافته هنا.'), `C2 البطاقة تقول إنّه بلا كثافة (${textOf('card-density')})`);
-      t.same(
-        [disabled(byAction('save-activate')[0]), disabled(byAction('save-draft')[0]), textOf('builder-sum')],
-        [true, true, 'مجموع الخلطة لا يُحسب بعد: اكتب كمية كلّ مادّة مختارة، وكثافة كلّ سائل بلا كثافة.'],
-        'C2 لا حفظ ولا تفعيل ولا مجموع وفي المختار سائل بلا كثافة',
-      );
-      t.ok(textOf('save-missing')?.includes('«زيت» سائل بلا كثافة، فلا يُحسب وزنه: اكتب كثافته على بطاقته.'), `C2 والسبب تحت الزرّين (${textOf('save-missing')})`);
+      t.same([byAction('card-unit').length, byAction('card-qty').length], [0, 0], 'C2 لا وحدة ولا كمية على بطاقة السائل');
+      t.ok(textOf('card-density')?.startsWith('«زيت» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: اكتب كثافته هنا.'), `C2 البطاقة تقول إنّه بلا كثافة (${textOf('card-density')})`);
+      t.eq(disabled(byAction('save-activate')[0]), true, 'C2 لا حفظ وفي المختار سائل بلا كثافة (density_required)');
+      t.ok(textOf('save-missing')?.includes('«زيت» سائل بلا كثافة: اكتب كثافته على بطاقته.'), `C2 والسبب تحت الزرّ (${textOf('save-missing')})`);
       t.eq(all().filter((n) => n.localName === 'a' && (n.getAttribute('href') ?? '').startsWith('/inventory')).length, 0, 'C2 ولا رابط يغادر البانية فيضيع المختار');
       type(densityOf('زيت'), '0.92');
       await settle();
       await click(byAction('card-density-save')[0]);
       t.same(named(calls, 'updateItem'), [['i-oil', 3, { density_kg_per_l: '0.9200' }]], 'C2 الكثافة تُحفظ بتعديل المادّة بشرط نسختها');
-      t.same([byAction('card-density').length, textOf('card-mass'), textOf('builder-sum')], [0, 'أي 9.2 كغم', 'مجموع الخلطة: 1,009.2 كغم'], 'C2 ثمّ يُحسب وزن السائل ويدخل المجموع');
-      await click(byAction('save-draft')[0]);
+      t.same([byAction('card-density').length, disabled(byAction('save-activate')[0])], [0, false], 'C2 ثمّ يُفتح الحفظ');
+      await click(byAction('save-activate')[0]);
       const sent = named(calls, 'rpc:create_recipe')[0]?.[0];
-      t.same([sent?.p_basis_kg, sent?.p_lines?.[1], sent?.p_activate], ['1009.200', { item_id: 'i-oil', qty: '10.000', unit: 'L' }, false], 'C2 والأساس المرسَل يحسب اللتر بكثافته');
+      t.same([sent?.p_basis_kg, sent?.p_lines], [null, [{ item_id: 'i-corn' }, { item_id: 'i-oil' }]], 'C2 والسائل سطر بمعرّفه وحده (كثافته على المادّة)');
     });
 
     // ── C3: البحث يصفّي البطاقات، وبلا مطابق «لا مادّة» و«أنشئها» ───────────────────────────────────────────────────────────────
@@ -333,42 +323,39 @@ export default async function (t) {
       await wait(320);
       await settle();
       t.same([named(calls, 'findItemTwins').map(([name]) => name), named(calls, 'createItem').map(([fields]) => [fields.name, fields.kind, fields.base_unit])], [['نخالة'], [['نخالة', 'raw', 'kg']]], 'C3 «أنشئ» يسأل التوائم ثمّ يُنشئها مادّةً أوّلية بالكيلوغرام');
-      t.same([cards(), pressed('i-bran'), byAction('card-qty').length, byAction('create-material').length], [['i-bran'], 'true', 1, 0], 'C3 والمُنشأة بطاقة مختارة تحت البحث بخانة كميتها، ولا «أنشئ» ثانٍ');
+      t.same([cards(), pressed('i-bran'), byAction('card-qty').length, byAction('create-material').length], [['i-bran'], 'true', 0, 0], 'C3 والمُنشأة بطاقة مختارة تحت البحث (بلا خانة كمية)، ولا «أنشئ» ثانٍ');
     });
 
-    // ── C4: «أضف مواد» بالبطاقات في بطاقة الخلطة، والتفعيل بلا أساس يُطابَق ──────────────────────────────────────────────────────
-    /** priced: كلّ كيلو داخل الكتلة بـ420.00، وكلفة الطنّ المتوقّعة كما يحسبها الخادم: كلفة المواد × 1000 ÷ الأساس المحفوظ (private.recipe_expected). */
-    const recipeServer = ({ failOn = null, basis = '1000.000', priced = false } = {}) => {
-      const state = { version: 5, basis, status: 'draft', lines: [recipeLine()] };
-      const mass = () => state.lines.filter((line) => line.in_basis).reduce((sum, line) => sum + BigInt(line.mass_kg.replace('.', '')), 0n);
-      const kg = (milli) => `${milli / 1000n}.${String(milli % 1000n).padStart(3, '0')}`;
+    // ── C4: «أضف مواد» بالبطاقات في بطاقة الخلطة بلا كميات، والتفعيل بنسخة المسوّدة ───────────────────────────────────────────────────
+    const recipeServer = ({ failOn = null, legacy = false } = {}) => {
+      const state = { version: 5, status: 'draft', lines: [recipeLine(legacy ? {} : { qty: null, mass_kg: null })] };
       let reads = 0;
       const handlers = {
         loadItem: (id) => CATALOG.find((row) => row.id === id) ?? null,
         loadRecipe: () => {
           reads += 1;
-          const basisMilli = BigInt(state.basis.replace('.', ''));
-          const fils = priced ? (mass() * 42_000n * 1000n + basisMilli / 2n) / basisMilli : 0n;
-          const perTon = `${fils / 100n}.${String(fils % 100n).padStart(2, '0')}`;
-          return m.parseRecipe(recipeJson({ status: state.status, version: state.version, basis: state.basis, lines: state.lines, massKg: kg(mass()), perTon }));
+          return m.parseRecipe({
+            ...recipeJson({ status: state.status, version: state.version, basis: legacy ? '1000.000' : null, lines: state.lines, massKg: null }),
+            selected: { id: 'v-2', version_no: 1, status: state.status, basis_kg: legacy ? '1000.000' : null, materials_only: !legacy, note: null, activated_at: null, version: state.version },
+            versions: [{ id: 'v-2', version_no: 1, status: state.status, basis_kg: legacy ? '1000.000' : null, materials_only: !legacy, activated_at: null, version: state.version }],
+            money: { rates: [], expected: null },
+          });
         },
-        addRecipeLine: (versionId, itemId, qty, unit) => {
+        addRecipeLine: (versionId, itemId, ...rest) => {
+          if (rest.length) throw new Error(`addRecipeLine بكمية: ${rest.join(',')}`);
           if (itemId === failOn) {
             failOn = null;
             throw new m.RejectedError('item_not_found', 'هذه المادّة غير موجودة في منشأتك أو مؤرشفة. حدّث الشاشة واختر من جديد.');
           }
           const row = CATALOG.find((entry) => entry.id === itemId);
-          const inBasis = row.kind !== 'fuel';
-          const massOf = unit === 'L' ? (qty * row.density + 5_000n) / 10_000n : qty;
-          state.lines.push(recipeLine({ id: `l-${itemId}`, line_no: state.lines.length + 1, item_id: itemId, item_name: row.name, kind: row.kind, base_unit: row.baseUnit, qty: kg(qty), unit, mass_kg: kg(massOf), in_basis: inBasis }));
+          state.lines.push(recipeLine({ id: `l-${itemId}`, line_no: state.lines.length + 1, item_id: itemId, item_name: row.name, kind: row.kind, base_unit: row.baseUnit, qty: null, unit: row.baseUnit === 'L' ? 'L' : 'kg', mass_kg: null, in_basis: row.kind !== 'fuel', density_missing: row.baseUnit === 'L' && row.density === null }));
           state.version += 1;
           return `l-${itemId}`;
         },
-        setVersionBasis: (versionId, basisKg, version) => {
-          if (version !== state.version) throw new Error('zero rows');
-          state.basis = kg(basisKg);
+        clearRecipeLineQty: (lineId) => {
+          state.lines = state.lines.map((line) => (line.id === lineId ? { ...line, qty: null, mass_kg: null } : line));
           state.version += 1;
-          return versionId;
+          return lineId;
         },
         activateVersion: (versionId, version) => {
           if (version !== state.version) throw new m.RejectedError('stale_draft', 'تغيّرت الخلطة بعد فتحها.');
@@ -383,33 +370,27 @@ export default async function (t) {
       const calls = fresh(server.handlers, { items_overview: () => overviewJson() });
       await mount('/mill/recipe/r-1');
       t.same(
-        [textOf('recipe-total'), byAction('save-basis').length, all().some((n) => n.localName === 'label' && n.textContent === 'أساس الخلطة (كغم)')],
-        ['مجموع الخلطة: 600 كغمالناتج المتوقّع: 600 كغم (قبل الهدر)', 0, false],
-        'C4 المسوّدة تقول مجموعها وناتجها، ولا حقل أساس ولا «احفظ الأساس»',
+        [byAction('recipe-total').length, byAction('save-basis').length, byAction('edit-line').length, all().some((n) => n.localName === 'label' && n.textContent === 'أساس الخلطة (كغم)')],
+        [0, 0, 0, false],
+        'C4 المسوّدة بلا مجموع ولا أساس ولا تعديل كمية',
       );
       t.eq(textOf('add-line'), 'أضف مواد', 'C4 «أضف مواد» (أكثر من مادّة)');
       await click(byAction('add-line')[0]);
       t.same(cards(), ['i-soy', 'i-oil', 'i-diesel'], 'C4 النافذة ببطاقات المواد، بلا المكتوبة في الخلطة');
       await click(cardOf('i-soy'));
       await click(cardOf('i-diesel'));
-      type(qtyOf('كسبة صويا'), '300');
-      type(qtyOf('كاز المولّدة'), '20');
       await settle();
-      t.ok(textOf('add-sum')?.includes('المختار: كسبة صويا، كاز المولّدة') && textOf('add-sum')?.includes('يزيد الخلطة 300 كغم، فيصير مجموعها 900 كغم.'), `C4 ما سيُضاف وأثره على المجموع (الكاز خارج الكتلة) (${textOf('add-sum')})`);
+      t.ok(textOf('add-sum')?.includes('المختار: كسبة صويا، كاز المولّدة') && byAction('card-qty').length === 0, `C4 ما سيُضاف بأسمائه، بلا كميات (${textOf('add-sum')})`);
       await click(byAction('add-lines-save')[0]);
-      t.same(named(calls, 'addRecipeLine').map(([versionId, itemId, qty, unit]) => [versionId, itemId, qty, unit]), [['v-2', 'i-soy', 300_000n, 'kg'], ['v-2', 'i-diesel', 20_000n, 'L']], 'C4 سطر لكلّ مادّة مختارة بترتيبها وكميتها ووحدتها');
+      t.same(named(calls, 'addRecipeLine'), [['v-2', 'i-soy'], ['v-2', 'i-diesel']], 'C4 سطر لكلّ مادّة مختارة بترتيبها، بمعرّفها وحده (لا كمية ولا وحدة)');
       t.ok(text().includes('أُضيفت كسبة صويا، ثمّ توقّفت الإضافة: '), 'C4 رفض في الوسط يُقال باسم ما أُضيف قبله');
-      t.same([server.reads(), cards(), pressed('i-diesel'), qtyOf('كاز المولّدة')?.value ?? null], [3, ['i-oil', 'i-diesel'], 'true', '20'], 'C4 بعد القراءة من جديد (ومعها قراءة الأساس، M2): المُضافة خرجت من البطاقات، والباقية مختارة بكميتها');
+      t.same([cards(), pressed('i-diesel')], [['i-oil', 'i-diesel'], 'true'], 'C4 بعد القراءة من جديد: المُضافة خرجت من البطاقات، والباقية مختارة');
       await click(byAction('add-lines-save')[0]);
-      t.same([named(calls, 'addRecipeLine').length, byAction('add-lines-save').length, textOf('recipe-total')], [3, 0, 'مجموع الخلطة: 900 كغمالناتج المتوقّع: 900 كغم (قبل الهدر)'], 'C4 الإعادة تضيف الباقية وحدها، وتُغلق النافذة، والمجموع 900');
+      t.same([named(calls, 'addRecipeLine').length, byAction('add-lines-save').length], [3, 0], 'C4 الإعادة تضيف الباقية وحدها، وتُغلق النافذة');
       t.eq(disabled(byAction('activate-version')[0]), false, 'C4 «فعّل النسخة» مفتوح');
       await click(byAction('activate-version')[0]);
-      t.same(
-        [named(calls, 'setVersionBasis').map(([versionId, basisKg, version]) => [versionId, basisKg, version]), named(calls, 'activateVersion')],
-        [[['v-2', 900_000n, 6]], [['v-2', 8]]],
-        'C4 الإضافة كتبت الأساس = المجموع بنسخة المسوّدة (M2)، فالتفعيل بنسختها الآن بلا كتابة ثانية',
-      );
-      t.same([server.state.basis, server.state.status], ['900.000', 'active'], 'C4 فصار الأساس 900 وفُعّلت (لا basis_mismatch)');
+      t.same(named(calls, 'activateVersion'), [['v-2', 7]], 'C4 التفعيل بنسخة المسوّدة الآن (لا أساس يُكتب قبله)');
+      t.eq(server.state.status, 'active', 'C4 فُعّلت');
     });
 
     // ── مراجعة الشاشات ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -425,7 +406,7 @@ export default async function (t) {
       const lateButton = byAction('pick-material').find((node) => node.textContent.startsWith('نخالة القمح'));
       t.ok(lateButton !== undefined && byAction('picker-none').length === 0, 'R M1 مطابق الخادم الذي ليس بطاقة زرُّ اختيار (لا صمت ولا «لا مادّة»)');
       await click(lateButton);
-      t.same([pressed('i-late'), qtyOf('نخالة القمح') !== undefined], ['true', true], 'R M1 واختياره يضيفه بطاقةً مختارة بخانة كميتها');
+      t.same([pressed('i-late'), byAction('remove-line').length], ['true', 1], 'R M1 واختياره يضيفه بطاقةً مختارة وسطراً في الجدول');
       await search('6291000000017');
       await wait(320);
       await settle();
@@ -437,44 +418,16 @@ export default async function (t) {
       await click(byAction('pick-material')[0]);
       t.same([pressed('i-corn'), named(calls, 'createItem').length], ['true', 0], 'R M1 فتُختار بطاقتها ولا يُنشأ شيء');
     });
-    await step('R M2 الإضافة', async () => {
-      const server = recipeServer({ basis: '600.000', priced: true });
-      const calls = fresh(server.handlers, { items_overview: () => overviewJson() });
-      await mount('/mill/recipe/r-1');
-      t.ok(textOf('expected-cost')?.includes('420,000.00'), `R M2 ضابط: الأساس = المجموع، فكلفة الطنّ 420,000.00 (${textOf('expected-cost')})`);
-      await click(byAction('add-line')[0]);
-      await click(cardOf('i-soy'));
-      type(qtyOf('كسبة صويا'), '400');
-      await settle();
-      await click(byAction('add-lines-save')[0]);
-      t.same(named(calls, 'setVersionBasis').map(([versionId, basisKg, version]) => [versionId, basisKg, version]), [['v-2', 1_000_000n, 6]], 'R M2 إضافة 400 كغم تكتب الأساس = المجموع الجديد بنسخة المسوّدة بعد الإضافة');
-      t.ok(textOf('expected-cost')?.includes('420,000.00') && !text().includes('700,000.00'), `R M2 فكلفة الطنّ تبقى 420,000.00 لا 700,000.00 (${textOf('expected-cost')})`);
-    });
-    await step('R M2 الحذف واللوحة', async () => {
-      const server = recipeServer({ basis: '1000.000', priced: true });
-      server.state.lines.push(recipeLine({ id: 'l-soy', line_no: 2, item_id: 'i-soy', item_name: 'كسبة صويا', qty: '400.000', mass_kg: '400.000' }));
-      server.state.basis = '1200.000';
-      const calls = fresh({ ...server.handlers, deleteRecipeLine: (lineId) => {
-        server.state.lines = server.state.lines.filter((line) => line.id !== lineId);
-        server.state.version += 1;
-      } }, { items_overview: () => overviewJson() });
-      await mount('/mill/recipe/r-1');
-      t.same([byAction('expected-cost').length, byAction('sync-basis').length], [0, 1], 'R M2 الأساس المحفوظ (1,200) غير المجموع (1,000): لا كلفة طنّ خاطئة، بل جملة و«حدّث كلفة الطنّ»');
-      await click(byAction('sync-basis')[0]);
-      t.same([named(calls, 'setVersionBasis').at(-1)?.slice(0, 2), textOf('expected-cost')?.includes('420,000.00')], [['v-2', 1_000_000n], true], 'R M2 «حدّث كلفة الطنّ» يكتب الأساس = المجموع، فتظهر الكلفة الصحيحة');
-      await click(byAction('remove-line').at(-1));
-      await click(byAction('confirm')[0]);
-      t.same([named(calls, 'setVersionBasis').at(-1)?.slice(0, 2), textOf('expected-cost')?.includes('420,000.00')], [['v-2', 600_000n], true], 'R M2 حذف سطر يكتب الأساس = المجموع الجديد (600)، والكلفة صحيحة');
-    });
     await step('R M3 بطاقة الخلطة', async () => {
-      const server = recipeServer({ basis: '600.000' });
+      // مسوّدة جمعت موادّ بكميات وموادّ بلاها من جهاز آخر بعد القراءة: mixed_quantities يقرأ الخلطة من جديد بتلميح الخادم.
+      const server = recipeServer();
       let refuse = true;
       const handlers = {
         ...server.handlers,
         activateVersion: (versionId, version) => {
           if (refuse) {
             refuse = false;
-            throw new m.RejectedError('basis_mismatch', 'مجموع مواد الخلطة 610 كغم، والأساس 600 كغم: الفرق 10 كغم. عدّل الكميات أو الأساس حتّى يتساويا.');
+            throw new m.RejectedError('mixed_quantities', 'في هذه النسخة موادّ بكميات وموادّ بلا كميات: احذف الكميات كلّها.');
           }
           return server.handlers.activateVersion(versionId, version);
         },
@@ -482,16 +435,26 @@ export default async function (t) {
       const calls = fresh(handlers, { items_overview: () => overviewJson() });
       await mount('/mill/recipe/r-1');
       await click(byAction('activate-version')[0]);
-      t.same([server.reads(), text().includes('عدّل الكميات أو الأساس'), text().includes('تغيّر مجموع الخلطة على الخادم بعد ما قُرئ')], [2, false, true], 'R M3 basis_mismatch يقرأ الخلطة من جديد بجملة لا تطلب «الأساس» (لا حقل له)');
+      t.same([server.reads(), text().includes('في هذه النسخة موادّ بكميات وموادّ بلا كميات: احذف الكميات كلّها.'), text().includes('قُرئت الخلطة من جديد بما حُفظ الآن')], [2, true, true], 'R M3 mixed_quantities يقرأ الخلطة من جديد ويقول تلميح الخادم');
       await click(byAction('activate-version')[0]);
       t.same([named(calls, 'activateVersion').length, server.state.status], [2, 'active'], 'R M3 والتفعيل التالي بالمقروء الآن ينجح (لا حلقة)');
     });
+    await step('R M3 مسوّدة بكميات', async () => {
+      // مسوّدة كُتبت بكميات قبل 0025: لا تُفعَّل قبل محو كمياتها («امحُ الكميات» سطراً سطراً)، ثمّ تُفعَّل موادّ بلا كميات.
+      const server = recipeServer({ legacy: true });
+      const calls = fresh(server.handlers, { items_overview: () => overviewJson() });
+      await mount('/mill/recipe/r-1');
+      t.same([disabled(byAction('activate-version')[0]), byAction('erase-qty').length], [true, 1], 'R M3 مسوّدة بكميات: «فعّل النسخة» معطّل و«امحُ الكميات» ظاهر');
+      await click(byAction('erase-qty')[0]);
+      t.same([named(calls, 'clearRecipeLineQty'), byAction('erase-qty').length, disabled(byAction('activate-version')[0])], [[['l-1']], 0, false], 'R M3 «امحُ الكميات» يمحو كمية كلّ سطر بها، ثمّ تُفعَّل');
+    });
     await step('R M3 البانية', async () => {
+      // كثافة مُحيت من جهاز آخر بعد قراءة البطاقة: density_required يعيد قراءة كثافة المختار، والرفض بتلميحه.
       const calls = builder(
         { updateItem: () => null },
         {
           create_recipe: () => {
-            throw new m.RejectedError('basis_mismatch', 'مجموع مواد الخلطة 1,009.5 كغم، والأساس 1,009.2 كغم: الفرق 0.3 كغم. عدّل الكميات أو الأساس حتّى يتساويا.');
+            throw new m.RejectedError('density_required', '«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» أوّلاً.');
           },
         },
       );
@@ -500,63 +463,64 @@ export default async function (t) {
         if (name === 'loadItem' && args[0] === 'i-oil') {
           oilRead.n += 1;
           calls.push([name, args]);
-          return Promise.resolve(itemRow('i-oil', 'زيت', 'raw', 'L', oilRead.n === 1 ? 9_200n : 9_500n, 4));
+          return Promise.resolve(itemRow('i-oil', 'زيت', 'raw', 'L', oilRead.n === 1 ? 9_200n : null, 4));
         }
         return original(name, args);
       })(globalThis.__mill.call.bind(globalThis.__mill));
       await mount('/mill/new');
       await nameAndOutput();
       await click(cardOf('i-corn'));
-      type(qtyOf('ذرة صفراء'), '1000');
       await click(cardOf('i-oil'));
-      type(qtyOf('زيت'), '10');
       await settle();
-      t.eq(textOf('builder-sum'), 'مجموع الخلطة: 1,009.2 كغم', 'R M3 ضابط: الزيت بكثافته المقروءة أوّلاً');
+      t.eq(byAction('card-density').length, 0, 'R M3 ضابط: الزيت بكثافته المقروءة أوّلاً');
       await click(byAction('save-activate')[0]);
       t.same(
-        [named(calls, 'loadItem').filter(([itemId]) => itemId === 'i-oil').length, text().includes('عدّل الكميات أو الأساس'), text().includes('فقُرئت من جديد وتغيّر المجموع'), textOf('builder-sum')],
-        [2, false, true, 'مجموع الخلطة: 1,009.5 كغم'],
-        'R M3 البانية: basis_mismatch يعيد قراءة المواد المختارة ويُحسب المجموع من الكثافة الجديدة، بجملة لا تذكر «الأساس»',
+        [named(calls, 'loadItem').filter(([itemId]) => itemId === 'i-oil').length, text().includes('«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» أوّلاً.'), byAction('card-density').length],
+        [2, true, 1],
+        'R M3 البانية: density_required يعيد قراءة كثافة المختار ويقول تلميح الخادم، والبطاقة تطلب الكثافة',
       );
-      await click(byAction('save-activate')[0]);
-      t.eq(named(calls, 'rpc:create_recipe').at(-1)?.[0]?.p_basis_kg, '1009.500', 'R M3 والإرسال التالي بالمجموع الجديد');
     });
     await step('R M4', async () => {
-      const server = recipeServer({ basis: '600.000' });
+      const server = recipeServer();
       fresh(server.handlers, { items_overview: () => overviewJson() });
       await mount('/mill/recipe/r-1');
       await click(byAction('add-line')[0]);
       await click(cardOf('i-soy'));
-      await click(cardOf('i-diesel'));
-      type(qtyOf('كسبة صويا'), '300');
+      await click(cardOf('i-oil'));
       await settle();
       t.same(
         [disabled(byAction('add-lines-save')[0]), textOf('add-missing')],
-        [true, 'اكتب كمية «كاز المولّدة» أكبر من صفر.'],
-        'R M4 «أضف المختار» معطّل والسبب تحته (الكاز بلا كمية، والمجموع يبدو كاملاً لأنّه خارج الكتلة)',
+        [true, '«زيت» سائل بلا كثافة: اكتب كثافته على بطاقته.'],
+        'R M4 «أضف المختار» معطّل والسبب تحته (سائل بلا كثافة)',
       );
     });
 
-    // ── C5: «كم تنتج؟» يبدأ بمجموع الخلطة (شاشة الإنتاج الواحدة، 0023) ───────────────────────────────────────────────────────────
+    // ── C5: «أنتج» من بطاقة الخلطة يفتح شاشة الإنتاج (0025: production_form، وproduce_batch الحقيقي) ────────────────────────────────
     await step('C5', async () => {
       const active = m.parseRecipe(recipeJson({ status: 'active', basis: '1000.000', massKg: '1000.000', lines: [recipeLine({ qty: '1000.000', mass_kg: '1000.000' })] }));
       const calls = fresh(
         {
           loadRecipe: () => active,
-          // شاشة الإنتاج: يوم الخادم ومخزنا المعمل والنسخة المفعَّلة ومدخلات تخطيط سطرها (loadProduce)؛ وrecord_production الحقيقي يمرّ بـcore البديل.
-          loadProduce: () => ({
+          loadProduceForm: () => ({
             today: '2026-11-07',
-            stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }],
-            recipe: active,
-            active: { id: 'v-2', versionNo: 1, basisKg: 1_000_000n },
-            lines: [{ lineId: 'l-1', lineNo: 1, itemId: 'i-corn', itemName: 'ذرة صفراء', kind: 'raw', inBasis: true, baseUnit: 'kg', lineKg: 1_000_000n, density: null, scaleStep: 100n, blocked: null }],
+            recipe: { id: 'r-1', name: 'علف بادئ', archived: false, outputItem: { id: 'f-1', name: 'علف بادئ' } },
+            active: { id: 'v-2', versionNo: 1, materialsOnly: false },
+            materials: [{ lineNo: 1, itemId: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, inBasis: true, scaleStep: 100n, defaultQty: 1_000_000n, defaultSource: 'recipe' }],
+            last: null,
+            stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية' }],
+            outputStore: { id: 'w-feed', name: 'رصيد العلف' },
+            canEditRecipe: true,
+            draftExists: false,
+            tracksExpiry: false,
           }),
+          loadStockOnHand: () => ({ warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw', divisionId: 'd-1', divisionKind: 'feed_mill', archived: false, hasBalance: true }, asOf: '2026-11-07T08:00:00Z', rows: [], next: null, total: 0, money: null }),
         },
         {
           items_overview: () => overviewJson(),
-          record_production: (args) => ({
+          produce_batch: (args) => ({
             id: args.p_id, status: 'posted', doc_no: 'PD-2026-0001', produced_on: '2026-11-07', recipe_name: 'علف بادئ', output_item_name: 'علف بادئ',
-            input_warehouse_name: 'مخزن المواد الأوّلية', output_warehouse_name: 'مخزن العلف', output_qty_kg: '1000.000', input_mass_kg: '1000.000', shrink_kg: '0.000', note: null,
+            input_warehouse_name: 'مخزن المواد الأوّلية', output_warehouse_name: 'رصيد العلف', output_qty_kg: '1000.000', input_mass_kg: '1000.000', shrink_kg: '0.000', note: null,
+            saved_to_recipe: false, recipe_version_id: 'v-2', version_no: 1,
           }),
         },
       );
@@ -564,12 +528,15 @@ export default async function (t) {
       await click(byAction('produce')[0]);
       await settle();
       t.eq(globalThis.__mill.location, '/mill/produce/r-1', 'C5 «أنتج» يفتح شاشة الإنتاج الواحدة');
-      const field = byAction('produce-qty')[0];
-      const label = field ? all().find((n) => n.localName === 'label' && n.getAttribute('for') === field.getAttribute('id'))?.textContent : null;
-      t.same([label, field?.value ?? null, textOf('produce-total')], ['كم تنتج؟', '1,000', 'مجموع الخلطة 1,000 كغم: الناتج قبل الهدر = مجموع المواد المسحوبة.'], 'C5 «كم تنتج؟» يبدأ بمجموع الخلطة، والجملة تقول إنّ الناتج مجموع المواد');
+      t.same([qtyOf('ذرة صفراء')?.value ?? null, byAction('line-source')[0]?.textContent ?? null], ['1,000', 'من الخلطة'], 'C5 خلطة قديمة بكميات بلا إنتاج: الكمية من الخلطة بعلامتها');
       await click(byAction('produce-go')[0]);
-      const [args] = named(calls, 'rpc:record_production')[0] ?? [];
-      t.same([args?.p_recipe_version, args?.p_planned_kg], ['v-2', '1000.000'], 'C5 «أنتج» بلا كتابة يرسل مجموع الخلطة');
+      const [args] = named(calls, 'rpc:produce_batch')[0] ?? [];
+      t.same(
+        [args?.p_recipe, args?.p_expected_version, args?.p_wh_in, args?.p_lines, args?.p_save_recipe, args?.p_draft],
+        ['r-1', 'v-2', 'w-raw', [{ item_id: 'i-corn', qty: '1000.000' }], null, false],
+        'C5 «أنتج» يرسل produce_batch بالموادّ وكمياتها كما في الشاشة',
+      );
+      t.eq(textOf('produced-text'), 'دخل 1,000 كغم من «علف بادئ» إلى «رصيد العلف».', 'C5 ثمّ النتيجة');
     });
   } finally {
     delete globalThis.__mill;
