@@ -20,10 +20,12 @@ import { flockDayTransport, type FlockSummary, type FlocksOverview } from '../..
 import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
-import { farmPath, farmTitle, useOverview, useStamp } from './shared';
+import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
+import { farmPath, farmTitle, HallReminders, useOverview, useStamp } from './shared';
 
-// الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦): شاشة وحدة لكل أفواج النطاق النشطة بخانات اليوم (نافق، مستبعد، علف، ماء، وللبيّاض
-// البيض والمكسور)، وزرّ حفظ واحد يكتب عملية لكل (فوج، يوم) بالطابور (saveRound) ثم يرفعها إذا بنت (الرافع الواحد بـroundUploads).
+// الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦): شاشة وحدة لكل أفواج النطاق النشطة بخانات اليوم (نافق، مستبعد، علف، وللبيّاض البيض
+// والمكسور؛ والماء خارجها بكلمة المالك 2026-11-11: ثابت)، وزرّ حفظ واحد يكتب عملية لكل (فوج، يوم) بالطابور (saveRound) ثم يرفعها إذا بنت
+// (الرافع الواحد بـroundUploads). وفوقها تذكير لقاحات النوع (حزمة القاعات، كسولة: بلا نت لا يظهر)، ولكلّ قاعة «أضف للقاعة».
 // بلا نت تنحفظ بالجهاز وترتفع لمّا يرجع الاتصال (من أيّ شاشة: القشرة ترفعها). الخانات مجموع اليوم: الفارغة «بلا تغيير»، والصفر صفر.
 // التعديل يحفظ لقطة الصفّ ونسخته لحظة أوّل كتابة: الخانة اللي ما تغيّرت عن اللقطة «بلا تغيير»، والجولة ترتفع بنسخة اللقطة، فحفظ
 // أحدث من جهاز آخر يرجع stale_day لرفّ المراجعة بالنسختين ولا يُكتب فوقه (FOUNDATION ٢١٩). ونتيجة كل رفع (من هنا أو من الخلفية)
@@ -102,7 +104,6 @@ function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pen
           dead: countText(saved.dead),
           culled: countText(saved.culled),
           feedKg: amountText(merged.feed_kg ?? row?.feedKg),
-          waterL: amountText(merged.water_l ?? row?.waterL),
           eggsTotal: countText(saved.eggsTotal),
           eggsBroken: countText(saved.eggsBroken),
         },
@@ -232,7 +233,6 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
     { key: 'dead', label: t('round.dead', 'النافق') },
     { key: 'culled', label: t('round.culled', 'المستبعد') },
     { key: 'feed_kg', label: t('round.feed', 'العلف (كغم)'), amount: true },
-    { key: 'water_l', label: t('round.water', 'الماء (لتر)'), amount: true },
     { key: 'eggs_total', label: t('round.eggs_total', 'البيض (المجموع)') },
     { key: 'eggs_broken', label: t('round.eggs_broken', 'المكسور') },
   ];
@@ -252,7 +252,7 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
         const server = entry.server && typeof entry.server === 'object' ? (entry.server as Record<string, unknown>) : null;
         const rows = fields.filter((field) => entry.op.payload[field.key] !== null && entry.op.payload[field.key] !== undefined);
         return (
-          <div key={entry.id} className="card flex flex-col gap-3 p-4" data-review={entry.id}>
+          <div key={entry.id} className={CARD_CLASS} data-review={entry.id}>
             <p className="font-semibold">
               {names.get(entry.op.flockId) ?? t('round.review.flock', 'فوج')} — <bdi dir="ltr">{fmtDay(entry.op.day)}</bdi>
             </p>
@@ -311,7 +311,6 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
   const value = (field: keyof RoundText): string => {
     const shown = { dead: row.saved.dead, culled: row.saved.culled, eggsTotal: row.saved.eggsTotal, eggsBroken: row.saved.eggsBroken };
     if (field === 'feedKg') return today?.feedKg !== null && today?.feedKg !== undefined ? fmtMilli(today.feedKg) : '—';
-    if (field === 'waterL') return today?.waterL !== null && today?.waterL !== undefined ? fmtMilli(today.waterL) : '—';
     const count = shown[field];
     return count === null ? '—' : fmtInt(count);
   };
@@ -319,7 +318,6 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
     ['dead', t('round.dead', 'النافق'), false],
     ['culled', t('round.culled', 'المستبعد'), false],
     ['feedKg', t('round.feed', 'العلف (كغم)'), true],
-    ['waterL', t('round.water', 'الماء (لتر)'), true],
     ...(kind === 'layer'
       ? ([
           ['eggsTotal', t('round.eggs_total', 'البيض (المجموع)'), false],
@@ -328,7 +326,7 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
       : []),
   ];
   return (
-    <div className="card flex flex-col gap-3 p-4" data-flock={row.flock.id}>
+    <div className={CARD_CLASS} data-flock={row.flock.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-semibold">
           {row.hallName} <span className="text-sm font-normal text-ink-muted">— {row.siteName}</span>
@@ -342,6 +340,12 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
             </>
           ) : null}
         </p>
+        {/* علف أو دواء لهذه القاعة (ولغيرها معها) في صفحة الإضافة، والرجوع إلى الجولة. */}
+        {text ? (
+          <Link to={givePath(row.flock.id, `${farmPath(kind)}/round`)} className={LINK_CLASS} data-action="round-give">
+            {t('round.give', 'أضف للقاعة')}
+          </Link>
+        ) : null}
       </div>
       {text ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{fields.map(([field, label, decimal]) => input(field, label, decimal))}</div>
@@ -491,7 +495,8 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('round.title', 'الجولة اليومية — {farm}', { farm: farmTitle(kind) })} subtitle={t('round.subtitle', 'أرقام اليوم {day}: مجموع اليوم لكل خانة، والفارغة بلا تغيير.', { day: fmtDay(today) })} actions={<Link to={base} className="text-sm font-semibold text-brand-700 dark:text-brand-200">{t('round.back', 'إلى الحقول')}</Link>} />
+      <PageHeader title={t('round.title', 'الجولة اليومية — {farm}', { farm: farmTitle(kind) })} subtitle={t('round.subtitle', 'أرقام اليوم {day}: مجموع اليوم لكل خانة، والفارغة بلا تغيير.', { day: fmtDay(today) })} actions={<Link to={base} className={LINK_CLASS}>{t('round.back', 'إلى الحقول')}</Link>} />
+      <HallReminders kind={kind} />
       {!canSave && session.status === 'ready' ? (
         <Notice tone="info" title={t('round.read_only', 'تعرض هذه الصفحة أرقام اليوم فقط.')}>
           {t('round.read_only.detail', 'تسجيل الجولة لعامل القاعة والمدير؛ دورك يقرأ الأرقام دون تعديلها.')}

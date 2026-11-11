@@ -10,6 +10,8 @@
 // «المخزن ببساطة» (كلمة المالك 2026-11-06): صفّ «أوراق استلام تنتظر الحفظ النهائي» انشال (الشراء يُحفظ فوراً من ملفّ المادّة)، فـD1
 // أربعة صفوف، وD3 يحرس الغياب نفسه (لا صفّ ولا قراءة لمسوّدات الاستلام ولو كانت في الخادم)، وD10 أنّ repo/home لا يعدّها أصلاً؛
 // و«وصلتني بضاعة» صار «سجّل شراء» إلى بطاقات المواد (D8).
+// و«القاعات بين يديك» (0026، كلمة المالك 2026-11-11): لقاحات اليوم والغد صفّ في «شغل اليوم» من حزمة القاعات الكسولة، يفتح جولة نوعه، ولا تقول
+// البطاقة «أنجزت» ولقاح ينتظر؛ ومن ليس بنطاقه حقول لا يُقرأ له التذكير (D14).
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -57,6 +59,9 @@ async function screens() {
         setup(b) {
           b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$|\/lib\/repo\/home$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'home-stub' }));
           b.onLoad({ filter: /.*/, namespace: 'home-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+          // repo/halls الحقيقي (محلّل التذكير) على call بديل يمرّ من الخادم المزيّف نفسه.
+          b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/halls\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'home-core' } : undefined));
+          b.onLoad({ filter: /.*/, namespace: 'home-core' }, () => ({ contents: 'export const call = (fn, args) => globalThis.__home.call(fn, [args]);', resolveDir: ROOT, loader: 'js' }));
         },
       },
     ],
@@ -403,6 +408,21 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({ general: { belowMinimum: 2 } }), countDraftReceipts: () => 0 });
       await mount(m.h(m.HomePage));
       t.same(all().filter((node) => node.localName === 'a').map((node) => node.getAttribute('href')).filter((href) => href.startsWith('/inventory')), [], 'D13: عامل القاعة: ولا بطاقة ولا رابط للمخزن بالرئيسية');
+      await unmount();
+    }
+
+    // ── D14: لقاحات اليوم والغد صفّ في «شغل اليوم» يفتح جولة نوعه، ولا «أنجزت» ولقاح ينتظر ──
+    {
+      const reminder = (when, dueOn) => ({ flock_id: 'f-a', hall_id: 'h-1', hall_name: 'قاعة 1', site_name: 'حقل الشمال', kind: 'broiler', vaccine_id: 'v-ib', name: 'IB', color: 0, age_day: 7, due_on: dueOn, when, linked: false, item: null });
+      const reminders = { today: TODAY, can_mark: true, items: [reminder('today', TODAY), reminder('tomorrow', m.addDays(TODAY, 1))] };
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-vax', divisions: ['broiler'] }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({}), vaccine_reminders: () => reminders });
+      await mount(m.h(m.HomePage));
+      t.same(taskRows(), [['vaccines', '/broiler/round']], 'D14: جولة اليوم محفوظة، ولقاحات اليوم والغد صفّ يفتح جولة اللاحم');
+      t.ok(text().includes('لقاحات اليوم: 1 · غداً: 1') && !text().includes('أنجزت شغل اليوم'), 'D14: الصفّ بعدّيه، ولا «أنجزت شغل اليوم» ولقاح ينتظر');
+      await unmount();
+      const calls = fresh({ status: 'ready', workspace: ws({ userId: 'u-vax2', role: 'storekeeper', divisions: ['general'], canSeeAccounts: false }), offline: false }, { loadHomeSummary: () => ({}), vaccine_reminders: () => reminders });
+      await mount(m.h(m.HomePage));
+      t.ok(!calls.includes('vaccine_reminders') && taskRows().every(([key]) => key !== 'vaccines'), 'D14: من ليس بنطاقه حقول لا يُقرأ له التذكير');
       await unmount();
     }
 

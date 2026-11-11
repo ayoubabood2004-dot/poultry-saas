@@ -19,7 +19,7 @@ import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../..
 import { t } from '../../lib/i18n';
 import { archiveHall, createHall, openFlock, updateHall, type HallView, type SiteView } from '../../lib/repo/flocks';
 import { useSession } from '../../lib/session';
-import { issuePath } from './feed';
+import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
 import { farmPath, farmTitle, fmtPct, useOverview, useStamp } from './shared';
 
 // شاشة الحقل (FOUNDATION ٧٨٢ و٨١٦): زرّ الجولة اليومية أوّل شي، وتحته الحقول ← القاعات ← الفوج بأرقامه المهمّة. المدير يضيف قاعة
@@ -163,7 +163,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   const stamp = useStamp();
   // زرّ الجولة لمن يحفظ يوم الفوج بس (عامل القاعة والمدير والمالك)، مثل شاشة الفوج والرئيسية.
   const canRound = session.status === 'ready' && can(session.workspace.role, 'flock_day.save');
-  // «اصرف» لكلّ قاعة فيها فوج قائم لمن يصرف من المخزن (0019): يفتح نافذة الصرف لفوجها مباشرةً.
+  // «اصرف» لكلّ قاعة فيها فوج قائم لمن يصرف من المخزن (0019): يفتح صفحة الإضافة لفوجها (0026، لها ولقاعات أخرى معها).
   const canIssue = session.status === 'ready' && can(session.workspace.role, 'issue.post');
   const state = useOverview(stamp);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -224,12 +224,12 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
         cell: (hall) => (
           <div className="flex gap-2">
             {hall.flock && canIssue && hall.flock.status === 'active' ? (
-              <Link to={issuePath(hall.flock.id, base, true)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="hall-issue">
+              <Link to={givePath(hall.flock.id, base)} className={LINK_CLASS} data-action="hall-issue">
                 {t('farm.flock.issue', 'اصرف')}
               </Link>
             ) : null}
             {hall.flock ? (
-              <Link to={`${base}/flock/${hall.flock.id}`} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="flock-view">
+              <Link to={`${base}/flock/${hall.flock.id}`} className={LINK_CLASS} data-action="flock-view">
                 {t('farm.flock.view', 'تفاصيل الفوج')}
               </Link>
             ) : site.canManage ? (
@@ -263,12 +263,18 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
         title={farmTitle(kind)}
         subtitle={t('farm.subtitle', 'الحقول والقاعات والأفواج، وأرقام اليوم {day}', { day: fmtDay(today) })}
         actions={
-          canRound ? (
-            <Link to={`${base}/round`} data-action="farm-round" className="inline-flex h-11 items-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700">
-              <ClipboardList aria-hidden="true" className="size-5" />
-              {t('farm.round', 'الجولة اليومية')}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* جدول اللقاحات الواحد لنوع الحقل (0026): يُقرأ لكلّ من يرى الحقل، ويعدّله المدير والمالك. */}
+            <Link to={`/halls/vaccines?kind=${kind}`} className={LINK_CLASS} data-action="farm-vaccines">
+              {t('farm.vaccines', 'جدول اللقاحات')}
             </Link>
-          ) : undefined
+            {canRound ? (
+              <Link to={`${base}/round`} data-action="farm-round" className={BUTTON_LINK_CLASS}>
+                <ClipboardList aria-hidden="true" className="size-5" />
+                {t('farm.round', 'الجولة اليومية')}
+              </Link>
+            ) : null}
+          </div>
         }
       />
       {state.error instanceof NotConnectedError ? (

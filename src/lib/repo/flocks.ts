@@ -60,12 +60,14 @@ const kindOf = (row: Row, field = 'kind'): FlockKind => {
   return value;
 };
 
-/** خانات اليوم كما انحفظت: العلف والماء بالآلاف (غرام، مللتر)، والحرارة بالأعشار؛ null = ما انسجّلت. */
+/**
+ * خانات اليوم كما انحفظت: العلف بالآلاف (غرام)، والحرارة بالأعشار؛ null = ما انسجّلت. والماء (water_l) خارج الشاشات (كلمة المالك
+ * 2026-11-11: الماء ثابت)، فعموده باقٍ في القاعدة ولا يُقرأ هنا؛ وناقل الطابور يرسل water_l لعملية قديمة تحمله كما هي.
+ */
 export interface DayValues {
   dead: number | null;
   culled: number | null;
   feedKg: bigint | null;
-  waterL: bigint | null;
   tempMin: bigint | null;
   tempMax: bigint | null;
   eggsTotal: number | null;
@@ -87,7 +89,6 @@ export function parseDayRow(value: unknown): DayRow {
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
     feedKg: scaled(row, 'feed_kg', 3),
-    waterL: scaled(row, 'water_l', 3),
     tempMin: scaled(row, 'temp_min', 1),
     tempMax: scaled(row, 'temp_max', 1),
     eggsTotal: optInt(row, 'eggs_total'),

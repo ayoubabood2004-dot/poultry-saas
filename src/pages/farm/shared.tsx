@@ -1,8 +1,9 @@
-import { useCallback, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, type ComponentType, type ReactNode } from 'react';
 import type { FlockKind } from '../../domain/flocks';
 import { NetworkError, UnknownOutcomeError } from '../../lib/errors';
 import { keepOverview, savedOverview } from '../../lib/farmCopy';
 import { fmtScaledCell } from '../../lib/format';
+import { loadHalls } from '../../lib/hallsChunk';
 import { t } from '../../lib/i18n';
 import type { Stamp } from '../../lib/outbox';
 import { loadOverviewJson, parseOverview, type FlocksOverview } from '../../lib/repo/flocks';
@@ -71,6 +72,42 @@ export function useOverview(stamp: Stamp | null) {
   const load = useCallback(() => loadOverviewKept(userId && orgId ? { userId, orgId, displayName } : null), [userId, orgId, displayName]);
   const uploads = useStore(roundQueueStore).seq;
   return useLoad(load, String(uploads));
+}
+
+// ─── تذكير اللقاحات (0026) في الجولة والرئيسية ───────────────────────────────────────────────────────────────────────
+
+interface HallRemindersProps {
+  kind?: FlockKind;
+  compact?: boolean;
+  onCount?: (rows: number) => void;
+}
+
+const nothing: ComponentType<HallRemindersProps> = () => null;
+
+/**
+ * التذكير من حزمة القاعات (خارج التثبيت المسبق): بلا نت (أو أيّ فشل في تحميلها) لا شيء، والجولة والرئيسية تعملان كما هما؛ والفشل يُنسى فيُعاد
+ * في الفتح التالي للشاشة (رجع الاتصال) لا يبقى محفوظاً. وخطأ الرسم داخله يمسكه حدّ صامت في حزمته (Reminders)، فهنا الاستيراد وحده (حجم التثبيت
+ * المسبق).
+ */
+const remindersLazy = () =>
+  lazy<ComponentType<HallRemindersProps>>(() =>
+    loadHalls().then(
+      (halls) => ({ default: halls.Reminders }),
+      () => {
+        LazyReminders = remindersLazy();
+        return { default: nothing };
+      },
+    ),
+  );
+let LazyReminders = remindersLazy();
+
+/** تذكير اللقاحات المستحقّة: شريط الجولة (kind)، وصفّ «شغل اليوم» في الرئيسية (compact، وonCount عدد صفوفه). */
+export function HallReminders(props: HallRemindersProps) {
+  return (
+    <Suspense fallback={null}>
+      <LazyReminders {...props} />
+    </Suspense>
+  );
 }
 
 /** بطاقة مؤشّر: الرقم الصافي بـdir=ltr (الفواصل والإشارة بمكانها)، والجملة العربية ترث RTL. */

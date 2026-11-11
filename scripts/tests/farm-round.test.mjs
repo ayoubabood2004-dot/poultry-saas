@@ -10,6 +10,8 @@
 // يوم الفوج بس؛ F الكتابة اللي ما انحفظت تعلّم النافذة؛ G الرئيسية تحفظ نسخة الجهاز (والرأس «غير جاهز» لحدّها)؛ H ماكو «لا أرقام
 // بعد» فوق بطاقة حقول بأرقام؛ I شرح تثبيت الآيفون بعدّ الطابور الحقيقي؛ J نوافذ القاعة والفوج تعدّ كل خاناتها؛ S رفض بلا تلميح
 // بجملة فصيحة؛ W «نشطة» و«رُدّت إلى المدير» بدل «شغّالة» و«الطابور».
+// و«القاعات بين يديك» (كلمة المالك 2026-11-11: الماء ثابت): لا خانة ماء في الجولة ولا water_l في حمولتها (R1، وB على العلف بدل الماء)، ولا
+// عمود ماء في جدول أيام الفوج ولو حفظته القاعدة قديماً (F2)، ولا «أضف للقاعة» على بطاقات من يقرأ فقط (E).
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -256,7 +258,8 @@ export default async function (t) {
       await settle(80);
       t.eq(sent.length, 1, 'R1: عملية وحدة (الفوج الثاني ما تغيّر)');
       t.same([sent[0]?.flockId, sent[0]?.day, sent[0]?.baseVersion], ['f-a', TODAY, 4], 'R1: الفوج واليوم ونسخة صفّ اليوم');
-      t.same(sent[0]?.payload, { dead: 5, culled: null, feed_kg: '120.500', water_l: null, eggs_total: null, eggs_broken: null }, 'R1: الحمولة مجموع اليوم، والخانة اللي ما تغيّرت null');
+      t.same(sent[0]?.payload, { dead: 5, culled: null, feed_kg: '120.500', eggs_total: null, eggs_broken: null }, 'R1: الحمولة مجموع اليوم، والخانة اللي ما تغيّرت null، وبلا water_l (الماء خارج الجولة، 2026-11-11)');
+      t.same([byIdSuffix('-waterL').length, text().includes('الماء')], [0, false], 'R1: لا خانة ماء في الجولة ولا كلمة «الماء» (كلمة المالك 2026-11-11: الماء ثابت)');
       t.ok(statusOf('f-a').includes('حُفظت') && text().includes('حُفظ 1 من 1'), 'R1: «حُفظت» و«حُفظ 1 من 1»');
       t.eq((await queueOf()).pending.length, 0, 'R1: الطابور فارغ بعد الحفظ');
       t.ok(calls.filter(([name]) => name === 'loadOverviewJson').length >= 2, 'R1: الأرقام تُقرأ من جديد بعد الحفظ');
@@ -405,7 +408,8 @@ export default async function (t) {
         can_manage: false,
         can_save: canSave,
         days: [
-          { ...dayRow({ on_date: TODAY, version: 2, dead: 4, culled: 1, feed_kg: '120.500', eggs_total: kind === 'layer' ? 852 : null, eggs_broken: kind === 'layer' ? 12 : null }), live_start: 4943, live_end: 4938, hdep: kind === 'layer' ? '85.20' : null },
+          // ماء قديم محفوظ في القاعدة (العمود باقٍ): لا يُعرض بعد 2026-11-11.
+          { ...dayRow({ on_date: TODAY, version: 2, dead: 4, culled: 1, feed_kg: '120.500', water_l: '777.000', eggs_total: kind === 'layer' ? 852 : null, eggs_broken: kind === 'layer' ? 12 : null }), live_start: 4943, live_end: 4938, hdep: kind === 'layer' ? '85.20' : null },
           { ...dayRow({ on_date: m.addDays(TODAY, -1), version: 1, dead: 3, culled: 0, feed_kg: '98.250' }), live_start: 4946, live_end: 4943, hdep: null },
         ],
         weights: [{ on_date: m.addDays(TODAY, -1), sample_count: 50, avg_g: '450.0', version: 1 }],
@@ -416,6 +420,7 @@ export default async function (t) {
       t.ok(text().includes('1.25%') && text().includes('1.523') && text().includes('4,938') && text().includes('1.2345 طن'), 'F2: النفوق ومعامل التحويل والحيّ والعلف بمنسّقاتها');
       t.ok(cells().includes('120.50') && cells().includes('98.25') && cells().includes('4,943'), 'F2: عمود العلف بمراتب ثابتة والحيّ الجاري بفواصل');
       t.ok(cells().includes('450.0') && byAction('weight-save').length === 1, 'F2: الأوزان، ونموذج الوزن لمن يحفظ اليوم');
+      t.same([text().includes('الماء'), cells().some((cell) => cell.includes('777'))], [false, false], 'F2: جدول الأيام بلا عمود ماء، والماء القديم في القاعدة لا يُعرض (2026-11-11)');
       await unmount();
       fresh({ status: 'ready', workspace: ws({ role: 'viewer' }), offline: false }, { loadFlockDetail: () => m.parseDetail(detail('layer', false)) });
       await mount('/layers/flock/f-1');
@@ -484,19 +489,20 @@ export default async function (t) {
       await settle();
       fire(byAction('round-save')[0], 'click');
       await settle(80);
-      type(inCard('f-a', '-waterL'), '50');
+      // الماء خارج الجولة (2026-11-11): الخانة الثانية بعد الرفع العلفُ.
+      type(inCard('f-a', '-feedKg'), '50');
       await settle();
       server.rows['f-a'] = { version: 5, dead: 1, culled: 0 };
       m.onlineStore.set(true);
       await settle(150);
       t.eq((await queueOf('u-b')).review[0]?.reason, 'stale_day', 'B: ضابط: جولة النافق 3 رجعت stale_day لرفّ المراجعة');
       t.ok(card('f-a')?.textContent.includes('حُفظ هذا اليوم من جهاز آخر بعد أن بدأت التعديل'), 'B: الصفّ يقول إن تعديله انبنى من جديد فوق أرقام الجهاز الآخر');
-      t.same([inCard('f-a', '-dead')?.value, inCard('f-a', '-waterL')?.value], ['1', '50'], 'B: النافق من الخادم (1) والماء المكتوب (50) باقٍ');
+      t.same([inCard('f-a', '-dead')?.value, inCard('f-a', '-feedKg')?.value], ['1', '50'], 'B: النافق من الخادم (1) والعلف المكتوب (50) باقٍ');
       fire(byAction('round-save')[0], 'click');
       await settle(120);
-      t.eq(server.rows['f-a'].dead, 1, 'B: حفظ الماء ما كتب النافق المردود (3) فوق الخادم (1)');
+      t.eq(server.rows['f-a'].dead, 1, 'B: حفظ العلف ما كتب النافق المردود (3) فوق الخادم (1)');
       t.ok(!(sent.at(-1)?.payload?.dead === 3 && sent.at(-1)?.baseVersion === 5), 'B: النافق المردود ما انبعث بالنسخة الجديدة');
-      t.same([sent.at(-1)?.payload?.water_l, sent.at(-1)?.baseVersion, server.rows['f-a'].water_l], ['50.000', 5, '50.000'], 'B: الماء انحفظ بنسخة الخادم الجديدة');
+      t.same([sent.at(-1)?.payload?.feed_kg, sent.at(-1)?.baseVersion, server.rows['f-a'].feed_kg], ['50.000', 5, '50.000'], 'B: العلف انحفظ بنسخة الخادم الجديدة');
       await unmount();
     }
 
@@ -574,7 +580,8 @@ export default async function (t) {
       await mount('/broiler/round');
       t.same([byAction('round-save').length, byIdSuffix('-dead').length], [0, 0], 'E: شاشة الجولة: ماكو خانات ولا حفظ للمشاهد');
       t.ok(text().includes('تعرض هذه الصفحة أرقام اليوم فقط'), 'E: تنبيه «تعرض هذه الصفحة أرقام اليوم فقط»');
-      t.same(descendants(card('f-a') ?? body()).filter((n) => n.localName === 'dd').map((n) => n.textContent), ['2', '0', '—', '—'], 'E: أرقام اليوم معروضة بلا خانات (نافق 2، مستبعد 0، والعلف والماء «—»)');
+      t.same(descendants(card('f-a') ?? body()).filter((n) => n.localName === 'dd').map((n) => n.textContent), ['2', '0', '—'], 'E: أرقام اليوم معروضة بلا خانات (نافق 2، مستبعد 0، والعلف «—»؛ والماء خارج الجولة)');
+      t.eq(byAction('round-give').length, 0, 'E: ولا «أضف للقاعة» على بطاقات من يقرأ فقط');
       const { pending, review } = await queueOf('u-e');
       t.same([sent.length, pending.length, review.length], [0, 0, 0], 'E: ولا عملية ولا رفّ مراجعة باسم المشاهد');
       await unmount();

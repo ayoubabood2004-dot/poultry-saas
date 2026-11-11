@@ -197,8 +197,9 @@ function resolveSpecifier(file, specifier) {
  * و«المال بين يديك» (0024): خلاصة المال وحركة الأموال ويومية الصندوق وخلاصة الشهر (money) تستوردها صفحات المال وحدها (حزمة الحسابات).
  * و«المال بين يديك» (0024): قائمة الذمم (debts، debts_overview) تستوردها صفحتها وحدها، والكشف الاحترافي والسندات وصفحة البيع (statement:
  * party_statement_v2 وvoucher_detail وtransfer_detail وsale_detail) تستوردها شاشاتها (الحسابات، وصفحة البيع في حزمة المخزون).
+ * و«القاعات بين يديك» (0026): الإضافة لعدّة قاعات واللقاحات والتذكير والتقويم والتقرير (halls) تستوردها صفحات القاعات وحدها (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

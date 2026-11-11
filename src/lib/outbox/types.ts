@@ -16,6 +16,7 @@ export interface FlockDayPayload {
   dead?: number | null;
   culled?: number | null;
   feed_kg?: string | null;
+  /** الماء خارج الجولة (كلمة المالك 2026-11-11): لا تكتبه الجولة، وعملية قديمة بالطابور تحمله تُرسل كما هي. */
   water_l?: string | null;
   temp_min?: string | null;
   temp_max?: string | null;
