@@ -406,6 +406,22 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0026 (القاعات بين يديك): لقاح ND غير مربوط في جدول اللاحم بيومَي العمر 1 و2 (فوج «قاعة 1» سُكّن قبل ثلاثة أيّام بعمر صفر، فموعدا
+  // اليوم 1 واليوم 2 فاتا)، وتأشير اليوم 1 (للتراجع)، وتسجيل دواء (للحذف)، ولقاح احتياط بلا استعمال (للحذف)؛ فيبقى في التذكير موعد اليوم 2.
+  const p26 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const nd = await one("select public.save_vaccine(gen_random_uuid(), 'ND', null, null) ->> 'id'");
+      const spare = await one("select public.save_vaccine(gen_random_uuid(), 'احتياط', null, null) ->> 'id'");
+      await q("select public.save_vaccine_program('broiler', 42, jsonb_build_array(jsonb_build_object('vaccine_id', $1::uuid, 'age_day', 1), jsonb_build_object('vaccine_id', $1::uuid, 'age_day', 2)), 0)", [nd]);
+      const log = await one("select public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(jsonb_build_object('kind', 'log', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'name', 'فيتامين', 'dose', null))) -> 'logs' -> 0 ->> 'id'", [p2.flock]);
+      const mark = await one("select public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(jsonb_build_object('kind', 'vaccination', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'vaccine_id', $2::uuid, 'age_day', 1))) -> 'vaccinations' -> 0 ->> 'id'", [p2.flock, nd]);
+      return { nd, spare, log, mark };
+    },
+    { commit: true },
+  );
+
   // 0020 (عمليات المخزن البسيطة): مادّة بلا استعمال للحذف، وشراء كاز بلا سعر بالمخزن العامّ (10 لترات) يُسعَّر في خانته، وتحويل لترين منه إلى
   // «زيت المصفوفة» مثبَّت لخانة الإلغاء؛ وكلّ خانة تُرجَع.
   const p20 = await db.asUser(
@@ -628,6 +644,22 @@ export default async function (t, db) {
       expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
     },
     flock_feed: { sql: () => ["select public.flock_feed($1) ->> 'issued_feed_kg' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:10.000', 'out_of_scope') },
+    // 0026 (القاعات بين يديك، قرار المالك 2026-11-11): تسجيل الدواء والتأشير والتراجع عن غير المربوط بفعل الجولة (المالك والمدير وعامل القاعة)،
+    // وقائمة اللقاحات وجدولها لمن يدير الحقول (المالك والمدير)؛ واللوحة لكلّ دور، والتذكير والتقويم والتقرير لمن بنطاقه حقل الفوج.
+    give_to_flocks: {
+      sql: () => ["select jsonb_array_length(public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(jsonb_build_object('kind', 'log', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'name', 'دواء', 'dose', null))) -> 'logs') as v", [p2.flock]],
+      value: true,
+      expect: only(FLOCK_DAY, 'ok:1'),
+    },
+    remove_flock_log: { sql: () => ["select public.remove_flock_log($1) ->> 'removed' as v", [p26.log]], value: true, expect: only(FLOCK_DAY, 'ok:true') },
+    undo_vaccination: { sql: () => ["select public.undo_vaccination($1, null, gen_random_uuid()) ->> 'status' as v", [p26.mark]], value: true, expect: only(FLOCK_DAY, 'ok:void') },
+    save_vaccine: { sql: () => ["select public.save_vaccine(gen_random_uuid(), 'IB', null, null) ->> 'version' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
+    delete_vaccine: { sql: () => ["select public.delete_vaccine($1, (select version from public.vaccines where id = $1)) ->> 'result' as v", [p26.spare]], value: true, expect: only(FLOCK_MANAGE, 'ok:deleted') },
+    save_vaccine_program: { sql: () => ["select public.save_vaccine_program('layer', 300, '[]'::jsonb, 0) ->> 'version' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
+    vaccine_board: { sql: () => ["select public.vaccine_board() ->> 'can_edit' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:true', 'ok:false') },
+    vaccine_reminders: { sql: () => ["select jsonb_array_length(public.vaccine_reminders() -> 'items') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
+    flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
+    flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
     // 0020 (قرار المالك 2026-11-08): الحذف لمن يدير المخازن (المالك والمدير)؛ و«أكمل السعر» بفعل الشراء (purchase.record)، والأمين هنا محصور
     // بالمخزن العامّ دون وحدته فقيد المورّد في دفتر الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ وتحويل المادّة بفعل الصرف
     // (stock_use.post: المالك والمدير والأمين بنطاق المخزن)؛ وإلغاؤه بفعل void؛ والنقل بخطوة واحدة بفعل النقل (transfer.post) إلى مخزن الحقل.

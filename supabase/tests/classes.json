@@ -11,6 +11,8 @@
     "flock_day_rejects",
     "flock_issue_lines",
     "flock_issues",
+    "flock_logs",
+    "flock_vaccinations",
     "flock_weights",
     "flocks",
     "item_prices",
@@ -37,7 +39,10 @@
     "stock_day_notes",
     "stock_lots",
     "stock_moves",
-    "units"
+    "units",
+    "vaccine_program_days",
+    "vaccine_programs",
+    "vaccines"
   ],
   "directWrite": {
     "cash_accounts": {

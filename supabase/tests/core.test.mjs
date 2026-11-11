@@ -463,6 +463,22 @@ export default async function (t, db) {
     );
   }
 
+  // 0026: لكلّ منشأة لقاح في جدول اللاحم بيوم العمر 1 (فوج «قاعة 1» سُكّن قبل ثلاثة أيّام بعمر صفر، فموعده قبل يومين)، وتسجيل دواء
+  // وتأشير ذلك الموعد بنداء واحد، فالجداول الخمسة بصفوف للطرفين.
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    await db.asUser(
+      owner,
+      async (q) => {
+        const vaccine = await value(q, "select public.save_vaccine(gen_random_uuid(), 'ND', null, null) ->> 'id'");
+        await q("select public.save_vaccine_program('broiler', 42, jsonb_build_array(jsonb_build_object('vaccine_id', $1::uuid, 'age_day', 1)), 0)", [vaccine]);
+        await q(`select public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(
+          jsonb_build_object('kind', 'log', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'name', 'فيتامين', 'dose', null),
+          jsonb_build_object('kind', 'vaccination', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'vaccine_id', $2::uuid, 'age_day', 1)))`, [flocksOf[key].flock, vaccine]);
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -761,6 +777,9 @@ export default async function (t, db) {
     // 0019: «ما يُصرف» و«علف القاعة» بفوج كلّ مالك (العامل بنطاق اللحم يقرأ فوج حقل لحم منشأته).
     flock_issue_options: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     flock_feed: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    // 0026: تقويم فوج كلّ مالك لشهر يوم اختبار ثابت، وتقرير دورته.
+    flock_month: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock, '2026-01-15'],
+    flock_cycle_report: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     // 0021: المبيعات بسنة، وفاتورة كلّ منشأة، والتقرير بالجهة.
     sales_overview: () => ['2026-01-01', '2026-12-31'],
     sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
@@ -823,6 +842,11 @@ export default async function (t, db) {
     // 0019: قارئا الصرف لكلّ دور بمنشأة بنطاقه حقل الفوج (read)، وبلا منشأة forbidden.
     flock_issue_options: { [U.aSpare]: 'forbidden' },
     flock_feed: { [U.aSpare]: 'forbidden' },
+    // 0026: قرّاء القاعات لكلّ دور بمنشأة (read) بنطاقه حقل الفوج، وبلا منشأة forbidden.
+    flock_month: { [U.aSpare]: 'forbidden' },
+    flock_cycle_report: { [U.aSpare]: 'forbidden' },
+    vaccine_board: { [U.aSpare]: 'forbidden' },
+    vaccine_reminders: { [U.aSpare]: 'forbidden' },
     // 0021: قرّاء المبيعات لأدوار المبيعات (عامل القاعة forbidden)، وبلا منشأة forbidden.
     sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },

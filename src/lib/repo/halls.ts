@@ -5,6 +5,7 @@ import type { Fils, Milli } from '../../domain/money';
 import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
+import './constraints-halls';
 import type { CostKind } from './flocks';
 
 // «القاعات بين يديك» (0026، كلمة المالك 2026-11-11، docs/HALLS_PLAN.md): الإضافة لعدّة قاعات بنداء واحد (صرف من مخزن، أو دواء بلا مخزن، أو تأشير
