@@ -22,6 +22,9 @@
 --   • public.recipe_history: نسخ الخلطة بما أُضيف وما حُذف ومن أيّ إنتاج، والإنتاج في مدّة بموادّه وكمياته وما زاد وما نقص، بلا مال.
 --   • verify_mill: الفحص ٢ يتخطّى النسخة بلا أساس، والفحص ١٦ recipe_quantities_mode.
 --   • البيانات: «مخزن العلف» في وحدة المعمل يصير «رصيد العلف»، وprivate.seed_org_defaults يزرعه بالاسم الجديد.
+-- قرارات في التنفيذ: الخلطة بكميات بلا أساس تُرفض bad_basis في البانية والتفعيل (كان الأساس الفارغ 1000 بصمت، ونسخة بكميات بلا أساس تعبر مقارنة
+--   المجموع الفارغة)؛ وlast_batch في لوحة المعمل بيوم الإنتاج ثمّ وقت الترحيل، فهي دفعة القطع وشاشة الإنتاج نفسها؛ وprivate.feed_balance_wh() بلا
+--   معامل منشأة (لا دالّة تأخذ المنشأة: منشأة الداخل).
 -- تراجع: rollback_0025.sql — يرجّع الأجسام الأحد عشر كما كانت (0023 و0016 و0005) حرفاً بحرف، ويُسقط الدوالّ الأربع الجديدة وعمود
 --   saved_to_recipe، ويعيد قيدَي الكمية والأساس وعدم فراغهما، ويرجّع اسم «مخزن العلف». **طريق رفض**: دفعة حُفظت موادّها في خلطتها، أو نسخة
 --   بلا أساس، أو سطر خلطة بلا كمية، كلّ واحد يوقف التراجع بصوت بلا أن يغيّر شيئاً (قاعدة 0024 لا تعرف خلطة بلا كميات).
@@ -1536,7 +1539,8 @@ begin
         'saved_to_recipe', b.saved_to_recipe, 'note', b.note, 'by', private.member_name(coalesce(b.posted_by, b.created_by)),
         'lines', coalesce((select jsonb_agg(jsonb_build_object('item_id', p.item_id, 'name', i.name,
             'qty', coalesce(p.actual_qty_base, p.planned_qty_base)::text, 'base_unit', p.base_unit,
-            'mass_kg', private.input_mass_kg(coalesce(p.actual_qty_base, p.planned_qty_base), p.base_unit, p.density_kg_per_l)::text,
+            'mass_kg', case when p.base_unit = 'L' and p.density_kg_per_l is null then null
+              else private.input_mass_kg(coalesce(p.actual_qty_base, p.planned_qty_base), p.base_unit, p.density_kg_per_l) end::text,
             'in_basis', p.in_basis,
             'extra', not exists (select 1 from public.recipe_lines l where l.org_id = p.org_id and l.version_id = b.recipe_version_id and l.item_id = p.item_id))
             order by p.line_no)
