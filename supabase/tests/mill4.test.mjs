@@ -480,6 +480,30 @@ async function scenario(t, db) {
     t.same([posted.status, (await batchRow(id(272))).lot_wh], ['posted', W.feed], 'المسوّدة تُرحَّل من صفحة الدفعة إلى «رصيد العلف»');
   });
 
+  // «عدّل الخلطة» من جهازين في اللحظة نفسها: الخلطة مقفولة للحفظ، فالثاني ينتظر الأوّل ثمّ يرى نسخته الجديدة فيُرفض recipe_changed (لا نسختان).
+  await section('produce_batch: حفظان معاً', async () => {
+    const R2 = { id: id(275), version: id(276) };
+    await one(U.manager, CR, [R2.id, R2.version, 'علف التزامن', I.spare, null, JSON.stringify([{ item_id: I.corn }, { item_id: I.soy }]), '[]', true]);
+    const A = await db.session(U.owner);
+    const B = await db.session(U.manager);
+    const args = (batchId) => [batchId, R2.id, R2.version, W.raw, JSON.stringify([{ item_id: I.corn, qty: '10' }]), true, true, TODAY, null, null, null, null, uid()];
+    let both;
+    try {
+      const a = await A.run(PB, args(id(277)));
+      const pending = B.run(PB, args(id(278)));
+      const waited = await db.settle(pending, B.pid);
+      await A.commit();
+      const b = await pending;
+      await B.commit();
+      both = { a: a.ok ? [a.rows[0].v.status, a.rows[0].v.saved_to_recipe] : a.error, waited, b: b.ok ? b.rows[0].v.status : b.error };
+    } finally {
+      await A.rollback();
+      await B.rollback();
+    }
+    t.same([both, await countVersions(R2.id)], [{ a: ['draft', true], waited: 'blocked', b: 'recipe_changed' }, 2],
+      '«عدّل الخلطة» من جهازين معاً: الثاني ينتظر قفل الخلطة ثمّ يُرفض recipe_changed، ونسخة جديدة واحدة');
+  });
+
   // ── ٦) production_form ───────────────────────────────────────────────────────────────────────────────────────────
   await section('production_form', async () => {
     const form = (user, recipeId) => call(db, user, FORM, [recipeId]);
