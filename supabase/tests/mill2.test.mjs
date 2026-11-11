@@ -488,6 +488,22 @@ async function scenario(t, db) {
 
   // ─── ٢) معدّلات الطنّ ← سطور تكاليف الدفعة ───────────────────────────────────────────────────────────────────
   const create = (user, batch, version, kg) => call(user, 'select public.create_production($1, $2, $3, $4, $5, public.app_today())', [batch, version, kg, RAW, FEEDWH]);
+  // 0025 (كلمة المالك 2026-11-10): «نسخة جديدة» بالموادّ وحدها، والإنتاج منها بالكميات المكتوبة (produce_batch، «احفظ مسوّدة») — create_production يرفضها
+  // quantities_required. والقواعد التي تخصّ المسوّدة بكميات تُفحص على نسخة بكميات المفعَّلة ووحدتها وأساسها كما كانت «نسخة جديدة» تنسخها، بكتابة المدير المباشرة.
+  const produceDraft = (user, batchId, recipeId, versionId, lines) => call(user,
+    'select public.produce_batch($1, $2, $3, $4, $5::jsonb, null, true, public.app_today(), null, null, null, null, gen_random_uuid())',
+    [batchId, recipeId, versionId, RAW, JSON.stringify(lines)]);
+  const copyWithQuantities = async (q, recipeId, versionId) => {
+    await q(`insert into public.recipe_versions (id, recipe_id, basis_kg) select $2, $1, basis_kg from public.recipe_versions where recipe_id = $1 and status = 'active'`, [recipeId, versionId]);
+    await q(`insert into public.recipe_lines (version_id, item_id, qty, unit) select $2, l.item_id, l.qty, l.unit from public.recipe_lines l
+      join public.recipe_versions v on v.id = l.version_id where v.recipe_id = $1 and v.status = 'active' order by l.line_no`, [recipeId, versionId]);
+  };
+  /** رأس بطاقة الخلطة وسطورها من جواب القاعدة الخامّ (لنسخة بالموادّ وحدها، بلا محلّل الشاشة). */
+  const rawCard = async (recipeId, versionId) => {
+    const d = (await call(U.manager, 'select public.recipe_detail($1, $2)', [recipeId, versionId])).v;
+    return d && [d.selected.id, d.selected.status, d.selected.materials_only, d.selected.basis_kg, d.mass_kg, d.money.expected,
+      d.lines.map((l) => [l.item_name, l.qty, l.unit, l.base_unit, l.mass_kg])];
+  };
   const B1 = id(201);
   const made = await create(U.miller, B1, V1, 2000);
   t.ok(made.ok, `مشغّل المعمل يسوّد دفعة 2,000 كغم (${made.code ?? ''} ${made.hint ?? ''})`);
@@ -1293,10 +1309,10 @@ async function scenario(t, db) {
     'parseRecipes: in_basis لكلّ قطعة (الكاز 17 كغم خارج الكتلة، والذرة والصويا داخلها)، و«أخرى» صفر (ب٨)',
   );
   // اللقطة لا النوع الحيّ (ق٢٢): الكاز يصير «مادّة أوّلية» بمعاملة ترجع، فقطعة اللوحة وسطر النسخة المفعَّلة يبقيان خارج الكتلة (والنوع
-  // الحيّ raw ظاهر)، والكتلة 1,000؛ والمسوّدة المنسوخة بعده تقرأ النوع الحيّ: الكاز داخلها والكتلة 1,000 + 17 = 1,017.
+  // الحيّ raw ظاهر)، والكتلة 1,000؛ والمسوّدة بكميات المفعَّلة بعده تقرأ النوع الحيّ: الكاز داخلها والكتلة 1,000 + 17 = 1,017 (منذ 0025 تُكتب مباشرةً).
   const flipped = await db.asUser(U.manager, async (q) => {
     await q("update public.items set kind = 'raw' where id = $1", [KEROSENE]);
-    await q('select public.new_recipe_version($1, $2)', [R5, id(151)]);
+    await copyWithQuantities(q, R5, id(151));
     const read = async (sql, params) => (await q(sql, params)).rows[0].v;
     return {
       overview: await read('select public.recipes_overview() as v', []),
@@ -1341,13 +1357,13 @@ async function scenario(t, db) {
     ['item_changed', 'تغيّرت وحدة «كاز البانية» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.', 0],
     'create_production من النسخة بعد تصحيح الوحدة: item_changed بتلميح يسمّي المادّة ويقول ما العمل، ولا دفعة (ق٣١، ب٢٧)',
   );
-  const kazCopy = await call(U.manager, 'select public.new_recipe_version($1, $2)', [R6, id(163)]);
+  const kazCopy = await db.asUser(U.manager, (q) => copyWithQuantities(q, R6, id(163)), { commit: true }).then(() => ({ ok: true }), (error) => ({ ok: false, code: error.message }));
   const kazDraftRaw = (await call(U.manager, 'select public.recipe_detail($1, $2)', [R6, id(163)])).v;
   const kazDraft = parsed('parseRecipe (المسوّدة بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazDraftRaw));
   t.same(
     [code(kazCopy), kazDraft && [kazDraft.status, kazDraft.massKg, kazDraft.lines.map(unitLine)]],
     ['ok', ['draft', 983000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'L', 'kg', 17000n, 17000n, false, false]]]],
-    'parseRecipe (المسوّدة المنسوخة بعد التصحيح): الوحدة والنوع الحيّان (L وfuel خارج الكتلة، فالكتلة 983)، وunit_changed = false (لا لقطة)',
+    'parseRecipe (المسوّدة بكميات المفعَّلة بعد التصحيح): الوحدة والنوع الحيّان (L وfuel خارج الكتلة، فالكتلة 983)، وunit_changed = false (لا لقطة)',
   );
   // والجولة الرابعة (ق٤٢، ب٣١): سطر الكاز مكتوب بالكيلو، فـunit_mismatch = false في المفعَّلة (لمن يقرؤها) والمسوّدة — هذا الاتّجاه (kg ← L) يقوله
   // unit_changed وحده، وunit_mismatch لسطر مكتوب باللتر ومادّته الآن ليست باللتر (أدناه).
@@ -1422,15 +1438,16 @@ async function scenario(t, db) {
   const dibsDraft = await servedAs('parseRecipe (مسوّدة الدبس المنسوخة)', U.manager, 'select public.recipe_detail($1, $2)', [R7, id(174)], ui.parseRecipe);
   const dibsRenewed = await call(U.manager, ACTIVATE_V, [id(174)]);
   const dibsNow = await servedAs('parseRecipe (الدبس بعد تفعيل النسخة الجديدة)', U.manager, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
-  const DIBS_KG = ['دبس الدمج', 'kg', 'kg', 28000n, 28000n, 280n, true, false, false];
+  // منذ 0025 «نسخة جديدة» بالموادّ وحدها: لا كمية ولا تحويل، والدبس بوحدته الآن (كيلوغرام)، والنسخة تتفعّل بالموادّ بلا أساس ولا كلفة متوقّعة.
+  const BARE_DIBS = [['ذرة صفراء', null, 'kg', 'kg', null], ['دبس الدمج', null, 'kg', 'kg', null]];
   t.same(
     [dibsCopy.ok ? parsed('parseNewRecipeVersion (الدبس)', () => ui.parseNewRecipeVersion(dibsCopy.v)) : dibsCopy.code,
-      dibsDraft && [dibsDraft.status, dibsDraft.massKg, dibsDraft.lines.map(fullLine)], code(dibsRenewed), dibsNow && [dibsNow.versionId, dibsNow.status, dibsNow.massKg, dibsNow.lines.map(fullLine)]],
-    [{ recipeId: R7, versionId: id(174), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false, skipped: [] }, ['draft', 1000000n, [CORN_972, DIBS_KG]], 'ok',
-      [id(174), 'active', 1000000n, [CORN_972, DIBS_KG]]],
-    'new_recipe_version: سطر الدبس المكتوب باللتر يُنسخ 28 كغم بالكيلو (20 × 1.4) فلا unit_mismatch، وskipped فارغ، وتتفعّل (972 + 28 = 1,000) (ق٤١ وق٥٥، ب٣١ وب٤٨)',
+      await rawCard(R7, id(174)), code(dibsRenewed), await rawCard(R7, null)],
+    [{ recipeId: R7, versionId: id(174), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false, skipped: [] }, [id(174), 'active', true, null, null, null, BARE_DIBS], 'ok',
+      [id(174), 'active', true, null, null, null, BARE_DIBS]],
+    'new_recipe_version (0025): سطر الدبس يُنسخ بلا كمية بوحدته الآن (كيلوغرام) بلا تحويل، وskipped فارغ، وتتفعّل بالموادّ بلا أساس ولا كتلة ولا كلفة متوقّعة (ق٤١ وق٥٥، ب٣١ وب٤٨)',
   );
-  t.same([dibsDraft?.expected, dibsNow?.expected], [DIBS_EXPECTED, DIBS_EXPECTED], 'ضابط ق٥٤: المسوّدة المنسوخة (الدبس 28 كغم بالكيلو) والمفعَّلة الجديدة بكلفة الطنّ نفسها 965,400.00');
+  t.same([dibsDraft?.status, dibsNow?.versionId], ['draft', id(174)], 'ضابط: محلّل الشاشة يقرأ المسوّدة بالموادّ والنسخة المفعَّلة بعدها بلا رمية');
 
   // لا سطر لتر بلا كثافة في نسخة تُفعَّل، ولا قارئ يرمي بسطر واحد (ق٤٢): «مولاس الدمج» أوّلي باللتر بكثافة 1.4 و«كاز مسوّدة الدمج» وقود باللتر بكثافة
   // 0.85 في مسوّدة (ذرة 986 + مولاس 10 لترات + كاز 20 لتراً)، ومسوّدة ثانية (ذرة 1,000 + الكاز 20 لتراً)، ثمّ تُصحَّح المادّتان كيلوغراماً قبل أيّ حركة.
@@ -1636,14 +1653,13 @@ async function scenario(t, db) {
     [pieced.v?.status, code(piecedMade),
       piecedCopy.ok ? parsed('parseNewRecipeVersion (القطعتان)', () => ui.parseNewRecipeVersion(piecedCopy.v)) : piecedCopy.code,
       piecedAgain.ok ? parsed('parseNewRecipeVersion (إعادة القطعتين)', () => ui.parseNewRecipeVersion(piecedAgain.v)) : piecedAgain.code,
-      piecedDraft && [piecedDraft.status, piecedDraft.massKg, piecedDraft.lines.map((l) => [l.itemName, l.qty, l.unit, l.densityMissing])]],
-    ['active', 'item_changed', PIECED_COPY, PIECED_COPY, ['draft', 980000n, [['ذرة صفراء', 980000n, 'kg', false]]]],
+      piecedDraft && piecedDraft.status, await rawCard(R11, id(614))],
+    ['active', 'item_changed', PIECED_COPY, PIECED_COPY, 'draft', [id(614), 'draft', true, null, null, null, [['ذرة صفراء', null, 'kg', 'kg', null]]]],
     'parseNewRecipeVersion: مادّتان صارتا قطعة لا تُنسخان — مسوّدة بسطر الذرة وحده، وskipped بالاسمين بترتيب السطور (كانت bad_recipe_unit ولا مسوّدة)، والإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة: existing = false وskipped بالاسمين (ق٥٥ وق٦٣، ب٤٨ وب٦٣؛ كانت existing وskipped فارغ)',
   );
-  await one(U.manager, 'update public.recipe_lines set qty = 1000 where version_id = $1 and item_id = $2 returning id', [id(614), CORN]);
   const piecedRenewed = await call(U.manager, ACTIVATE_V, [id(614)]);
-  const piecedNowMade = await create(U.miller, id(615), id(614), 100);
-  t.same([code(piecedRenewed), code(piecedNowMade)], ['ok', 'ok'], 'ثمّ الذرة 1,000 في المسوّدة: تتفعّل ويُنتَج بها (لا خلطة عالقة، ق٥٥)');
+  const piecedNowMade = await produceDraft(U.miller, id(615), R11, id(614), [{ item_id: CORN, qty: '100' }]);
+  t.same([code(piecedRenewed), code(piecedNowMade)], ['ok', 'ok'], 'ثمّ تتفعّل المسوّدة بالموادّ ويُنتَج بها بالكميات المكتوبة (لا خلطة عالقة، ق٥٥؛ 0025)');
   if (piecedNowMade.ok) await call(U.miller, "select public.discard_draft('production', $1, (select version from public.production_batches where id = $1))", [id(615)]);
   t.same(await nonZero('verify_mill'), {}, 'verify_mill صفر بعد دمج الجولة الخامسة (القسم ١٠)');
 
@@ -1760,16 +1776,15 @@ async function scenario(t, db) {
   const bagDraft6 = await servedAs('parseRecipe (مسوّدة بلا الكيس والفيتامين)', U.manager, 'select public.recipe_detail($1, $2)', [R15, id(659)], ui.parseRecipe);
   const COPY6 = { recipeId: R15, versionId: id(659), versionNo: 2, status: 'draft', lines: 1, rates: 0, existing: false, skipped: ['كيس التكامل', 'فيتامين التكامل'] };
   t.same(
-    [bagBuilt6.v?.status, code(bagRefused6), copy6, again6, other6, bagDraft6 && [bagDraft6.status, bagDraft6.massKg, bagDraft6.lines.map((l) => [l.itemName, l.qty, l.unit])]],
-    ['active', 'item_changed', COPY6, COPY6, { ...COPY6, existing: true, skipped: [] }, ['draft', 980000n, [['ذرة صفراء', 980000n, 'kg']]]],
+    [bagBuilt6.v?.status, code(bagRefused6), copy6, again6, other6, bagDraft6 && bagDraft6.status, await rawCard(R15, id(659))],
+    ['active', 'item_changed', COPY6, COPY6, { ...COPY6, existing: true, skipped: [] }, 'draft', [id(659), 'draft', true, null, null, null, [['ذرة صفراء', null, 'kg', 'kg', null]]]],
     'parseNewRecipeVersion: الكيس المؤرشف الذي صار قطعة وسطر الفيتامين المكتوب باللتر لسائل صار قطعة يُتركان ويُسمّيان بترتيب السطور (كانت item_archived)، والإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة (existing = false وskipped بالاسمين)، ومعرّف آخر existing وskipped فارغ (ق٦٢ وق٦٣، ب٦٣)',
   );
-  await call(U.manager, 'update public.recipe_lines set qty = 1000 where version_id = $1 and item_id = $2 returning id', [id(659), CORN]);
   const bagRenewed6 = await call(U.manager, ACTIVATE_V, [id(659)]);
   const after6 = asVersion6('parseNewRecipeVersion (إعادة بعد التفعيل)', await nv6(id(659)));
-  const bagMade6 = await create(U.miller, id(662), id(659), 100);
+  const bagMade6 = await produceDraft(U.miller, id(662), R15, id(659), [{ item_id: CORN, qty: '100' }]);
   t.same([code(bagRenewed6), after6, code(bagMade6)], ['ok', { ...COPY6, status: 'active' }, 'ok'],
-    'ثمّ الذرة 1,000: تتفعّل، والإعادة بالمعرّف نفسه بعد التفعيل الجواب نفسه (المصدر النسخة التي قبلها) وحالة النسخة مفعَّلة، ويُنتَج بها (ق٦٢ وق٦٣)');
+    'ثمّ تتفعّل بالموادّ، والإعادة بالمعرّف نفسه بعد التفعيل الجواب نفسه (المصدر النسخة التي قبلها) وحالة النسخة مفعَّلة، ويُنتَج بها بالكميات المكتوبة (ق٦٢ وق٦٣؛ 0025)');
   if (bagMade6.ok) await call(U.miller, "select public.discard_draft('production', $1, (select version from public.production_batches where id = $1))", [id(662)]);
 
   // سطر تُقرَّب كتلته صفراً (ق٦٤): «سائل خفيف التكامل» أوّلي باللتر بكثافة 0.6، في مسوّدة: ذرة 1,000 + 0.001 لتر (round3(0.001 × 0.6) = 0.001 كغم، فيقبله حارس السطر،
@@ -1836,8 +1851,8 @@ async function scenario(t, db) {
   t.same(
     [zeroPlanted.activated, typeof plantedZero === 'string' ? plantedZero : plantedZero && [plantedZero.status, plantedZero.massKg, plantedZero.lines.map(zeroLine)],
       zeroPlanted.copy.ok ? 'ok' : [zeroPlanted.copy.code, zeroPlanted.copy.hint]],
-    ['ok', ['active', 1000000n, [['ذرة صفراء', 1000000n, 'kg', 'kg', 1000000n, 10000n, false, false], LIGHT6_LINE]], ['qty_not_positive', ZERO_HINT('سائل خفيف التكامل')]],
-    'نسخة مفعَّلة بالسطر الصفري (مزروعة بمعاملة ترجع): parseRecipe لا يرمي والحصّة 0.00؛ وبعد أن تصير المادّة بالكيلو يرفض تحويل «نسخة جديدة» qty_not_positive بتلميحه (ق٦٤)',
+    ['ok', ['active', 1000000n, [['ذرة صفراء', 1000000n, 'kg', 'kg', 1000000n, 10000n, false, false], LIGHT6_LINE]], 'ok'],
+    'نسخة مفعَّلة بالسطر الصفري (مزروعة بمعاملة ترجع): parseRecipe لا يرمي والحصّة 0.00؛ وبعد أن تصير المادّة بالكيلو تُنسخ «نسخة جديدة» بالموادّ وحدها بلا تحويل ولا رفض (ق٦٤؛ 0025)',
   );
   // ثمّ ما يقوله التلميح: 0.002 لتر (round3(0.002 × 0.4) = 0.001 كغم) والذرة 999.999، فالمجموع 1,000 وتتفعّل؛ وحصّة السائل 0.001 × 100 ÷ 1,000 ← 0.00.
   const zeroBigger = await call(U.manager, 'update public.recipe_lines set qty = 0.002 where version_id = $1 and item_id = $2 returning id', [V16, LIGHT6]);
@@ -1864,12 +1879,11 @@ async function scenario(t, db) {
     'parseNewRecipeVersion: الإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة (existing = false، ق٦٣)، ومعرّف آخر والمسوّدة قائمة: النسخة نفسها بـexisting وskipped فارغ (لم يُنسخ شيء بالنداء، ق٥٥)',
   );
   const copiedDetail = (await call(U.manager, 'select public.recipe_detail($1, $2)', [R1, id(141)])).v;
-  const copiedCard = parsed('parseRecipe (المسوّدة المنسوخة)', () => ui.parseRecipe(copiedDetail));
   t.same(
-    copiedCard && [copiedCard.versionId, copiedCard.status, copiedCard.basisKg, copiedCard.lines.map((l) => [l.itemName, l.qty, l.unit, l.inBasis]),
-      copiedCard.rates?.map((r) => [r.lineNo, r.categoryName, r.amountPerTon])],
-    [id(141), 'draft', 1000000n, [['ذرة صفراء', 600000n, 'kg', true], ['كسبة صويا', 400000n, 'kg', true]], [[1, 'أيدي عاملة', 500000n], [2, 'كهرباء', 150000n]]],
-    'parseRecipe (المسوّدة المنسوخة): الأساس والسطور والمعدّلات بترتيبها كما في المفعَّلة',
+    copiedDetail && [copiedDetail.selected.id, copiedDetail.selected.status, copiedDetail.selected.basis_kg, copiedDetail.selected.materials_only,
+      copiedDetail.lines.map((l) => [l.item_name, l.qty, l.unit, l.in_basis]), copiedDetail.money.rates.map((r) => [r.line_no, r.category_name, r.amount_per_ton])],
+    [id(141), 'draft', null, true, [['ذرة صفراء', null, 'kg', true], ['كسبة صويا', null, 'kg', true]], [[1, 'أيدي عاملة', '5000.00'], [2, 'كهرباء', '1500.00']]],
+    'recipe_detail (المسوّدة المنسوخة، 0025): الموادّ بترتيبها بلا كمية ولا أساس، والمعدّلات بترتيبها كما في المفعَّلة',
   );
   t.eq(code(await newVersion(U.miller, R1, id(142))), 'forbidden', 'new_recipe_version لفعل التفعيل: مشغّل المعمل ممنوع');
 
@@ -2252,9 +2266,11 @@ async function scenario(t, db) {
     );
     const copyCard = await repo.loadRecipe(id(131), id(241));
     t.same(
-      [copyCard.versionId, copyCard.status, copyCard.basisKg, copyCard.lines.map((l) => [l.itemName, l.qty, l.unit, l.inBasis]), copyCard.rates?.map((r) => [r.categoryName, r.amountPerTon])],
-      [id(241), 'draft', 1000000n, [['ذرة صفراء', 700000n, 'kg', true], ['كسبة صويا', 300000n, 'kg', true]], [['أيدي عاملة', 400000n]]],
-      'loadRecipe (المسوّدة المنسوخة): السطور والمعدّل كما في المفعَّلة',
+      [copyCard.versionId, copyCard.status, copyCard.lines.map((l) => [l.itemName, l.unit, l.inBasis]), copyCard.rates?.map((r) => [r.categoryName, r.amountPerTon]),
+        await rawCard(id(131), id(241))],
+      [id(241), 'draft', [['ذرة صفراء', 'kg', true], ['كسبة صويا', 'kg', true]], [['أيدي عاملة', 400000n]],
+        [id(241), 'draft', true, null, null, null, [['ذرة صفراء', null, 'kg', 'kg', null], ['كسبة صويا', null, 'kg', 'kg', null]]]],
+      'loadRecipe (المسوّدة المنسوخة): الموادّ والمعدّل كما في المفعَّلة، وبلا كمية ولا أساس منذ 0025 (من جواب القاعدة)',
     );
     t.eq((await repo.loadRecipe(id(131))).versionId, id(132), 'ضابط: بطاقة الخلطة بلا نسخة مختارة تبقى على المفعَّلة');
     actAs(U.miller);
@@ -2366,6 +2382,9 @@ async function scenario(t, db) {
     const kazCopied = await tried('newRecipeVersion (الكاز)', () => repo.newRecipeVersion(KR, id(253)));
     const kazDraftCard = await tried('loadRecipe (مسوّدة الكاز)', () => repo.loadRecipe(KR, id(253)));
     const kazLine = await rejected(repo.setRecipeLine(kazDraftCard?.lines.find((l) => l.itemId === CORN)?.id ?? '', 1000000n, 'kg'));
+    // منذ 0025 «نسخة جديدة» بالموادّ وحدها بلا أساس: الشاشة القديمة تكتب كمية الكاز والأساس كذلك فتصير المسوّدة بكميات (وإلّا mixed_quantities).
+    await one(U.manager, "update public.recipe_lines set qty = 17, unit = 'kg' where version_id = $1 and item_id = $2 returning id", [id(253), kazItem?.id ?? null]);
+    await one(U.manager, 'update public.recipe_versions set basis_kg = 1000 where id = $1 returning id', [id(253)]);
     const kazActivated = await rejected((async () => repo.activateVersion(id(253), (await repo.loadRecipe(KR, id(253))).versionVersion))());
     const kazRenewed = await tried('loadRecipe (الكاز بعد التفعيل)', () => repo.loadRecipe(KR));
     t.same(
@@ -2447,15 +2466,14 @@ async function scenario(t, db) {
     const dibsDraftCard = await tried('loadRecipe (مسوّدة الدبس)', () => repo.loadRecipe(DR, id(264)));
     const dibsRenewed = await rejected((async () => repo.activateVersion(id(264), (await repo.loadRecipe(DR, id(264))).versionVersion))());
     const dibsNow = await tried('loadRecipe (الدبس بعد التفعيل)', () => repo.loadRecipe(DR));
-    const SCREEN_DIBS_KG = ['دبس الشاشة', 'kg', 'kg', 28000n, 28000n, 280n, true, false, false];
+    // منذ 0025 «نسخة جديدة» بالموادّ وحدها: الدبس بلا كمية بوحدته الآن (كيلوغرام)، وتتفعّل من صفحة الخلطة بالموادّ بلا أساس ولا كلفة متوقّعة (جواب القاعدة).
+    const SCREEN_BARE = [['ذرة صفراء', null, 'kg', 'kg', null], ['دبس الشاشة', null, 'kg', 'kg', null]];
     t.same(
-      [dibsCopied, dibsDraftCard && [dibsDraftCard.status, dibsDraftCard.massKg, dibsDraftCard.lines.map(screenLine)], dibsRenewed,
-        dibsNow && [dibsNow.versionId, dibsNow.status, dibsNow.massKg, dibsNow.lines.map(screenLine)]],
-      [{ recipeId: DR, versionId: id(264), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false, skipped: [] }, ['draft', 1000000n, [SCREEN_CORN, SCREEN_DIBS_KG]], 'ok',
-        [id(264), 'active', 1000000n, [SCREEN_CORN, SCREEN_DIBS_KG]]],
-      'newRecipeVersion ثمّ activateVersion: سطر الدبس المكتوب باللتر يُنسخ 28 كغم بالكيلو فلا unitMismatch، وskipped فارغ، والنسخة تتفعّل بنداء صفحة الخلطة (ق٤١ وق٥٥، ب٣١ وب٤٨)',
+      [dibsCopied, dibsDraftCard && dibsDraftCard.status, dibsRenewed, dibsNow && [dibsNow.versionId, dibsNow.status], await rawCard(DR, null)],
+      [{ recipeId: DR, versionId: id(264), versionNo: 2, status: 'draft', lines: 2, rates: 0, existing: false, skipped: [] }, 'draft', 'ok', [id(264), 'active'],
+        [id(264), 'active', true, null, null, null, SCREEN_BARE]],
+      'newRecipeVersion ثمّ activateVersion (0025): سطر الدبس يُنسخ بلا كمية بوحدته الآن بلا تحويل، وskipped فارغ، والنسخة تتفعّل بنداء صفحة الخلطة بالموادّ (ق٤١ وق٥٥، ب٣١ وب٤٨)',
     );
-    t.same([dibsDraftCard?.expected, dibsNow?.expected], [SCREEN_DIBS_EXPECTED, SCREEN_DIBS_EXPECTED], 'ضابط ق٥٤ من الشاشة: مسوّدة «نسخة جديدة» والمفعَّلة الجديدة بكلفة الطنّ نفسها 965,400.00');
 
     // ق٤٢ من الشاشة: مسوّدة من البانية بلا تفعيل (createRecipe بـactivate = false): ذرة 986 + «مولاس الشاشة» سائل أوّلي 10 لترات + «كاز مسوّدة
     // الشاشة» وقود 20 لتراً، ثمّ يصحّح المدير المادّتين كيلوغراماً. loadRecipe: سطرا اللتر بكتلة وحصّة null وunitMismatch = true، ومجموع الكتلة null
@@ -2556,19 +2574,18 @@ async function scenario(t, db) {
     const SCREEN_PIECED = { recipeId: PR, versionId: id(634), versionNo: 2, status: 'draft', lines: 1, rates: 0, existing: false, skipped: ['ملح الشاشة', 'خميرة الشاشة'] };
     t.same(
       [piecesRecipe, piecesNow.map((x) => x?.baseUnit), piecesRefused, piecesCopied, piecesAgain,
-        piecesDraft && [piecesDraft.status, piecesDraft.massKg, piecesDraft.lines.map((l) => [l.itemName, l.qty, l.unit])]],
-      ['ok', ['pc', 'pc'], 'item_changed', SCREEN_PIECED, SCREEN_PIECED, ['draft', 980000n, [['ذرة صفراء', 980000n, 'kg']]]],
+        piecesDraft && piecesDraft.status, await rawCard(PR, id(634))],
+      ['ok', ['pc', 'pc'], 'item_changed', SCREEN_PIECED, SCREEN_PIECED, 'draft', [id(634), 'draft', true, null, null, null, [['ذرة صفراء', null, 'kg', 'kg', null]]]],
       'newRecipeVersion من الشاشة: مادّتان صارتا قطعة لا تُنسخان، وskipped بالاسمين بترتيب السطور، والإعادة بعد جواب ضاع ترجع ما رجع أوّل مرّة (existing = false وskipped بالاسمين، ق٦٣)، والمسوّدة بالذرة وحدها (ق٥٥، ب٤٨)',
     );
-    const piecesCornLine = piecesDraft?.lines.find((l) => l.itemId === CORN)?.id ?? '';
-    const piecesLine = await rejected(repo.setRecipeLine(piecesCornLine, 1000000n, 'kg'));
+    // منذ 0025: المسوّدة بالموادّ تتفعّل كما هي من الصفحة، والإنتاج منها بالكميات المكتوبة (produce_batch، «احفظ مسوّدة»)، وبطاقة الدفعة كما كانت.
     const piecesActivated = await rejected((async () => repo.activateVersion(id(634), (await repo.loadRecipe(PR, id(634))).versionVersion))());
+    const piecesMade = code(await produceDraft(U.miller, id(635), PR, id(634), [{ item_id: CORN, qty: '100' }]));
     actAs(U.miller);
-    const piecesMade = await rejected(repo.createProduction(id(635), id(634), 100000n, RAW, FEEDWH, TODAY));
     t.same(
-      [piecesLine, piecesActivated, piecesMade, await plannedOf(id(635))],
-      ['ok', 'ok', 'ok', [['ذرة صفراء', 'kg', 100000n]]],
-      'setRecipeLine (الذرة 1,000) ثمّ activateVersion ثمّ createProduction وloadBatch: النسخة بلا القطعتين تتفعّل ويُنتَج بها (ق٥٥)',
+      [piecesActivated, piecesMade, await plannedOf(id(635))],
+      ['ok', 'ok', [['ذرة صفراء', 'kg', 100000n]]],
+      'activateVersion ثمّ الإنتاج بالكميات المكتوبة وloadBatch: النسخة بلا القطعتين تتفعّل ويُنتَج بها (ق٥٥؛ 0025)',
     );
     const piecesBatch = await repo.loadBatch(id(635)).catch(() => null);
     if (piecesBatch) await repo.discardBatch(id(635), piecesBatch.version);
@@ -2652,19 +2669,20 @@ async function scenario(t, db) {
     const BAG_COPY = { recipeId: BR, versionId: id(685), versionNo: 2, status: 'draft', lines: 1, rates: 0, existing: false, skipped: ['كيس الشاشة', 'فيتامين الشاشة'] };
     t.same(
       [bagRecipe, bagPiece?.baseUnit, bagArchived, vitPiece && [vitPiece.baseUnit, vitPiece.density], bagRefused, bagCopy, bagAgain, bagOther,
-        bagDraft && [bagDraft.status, bagDraft.massKg, bagDraft.lines.map((l) => [l.itemName, l.qty, l.unit])]],
-      ['ok', 'pc', 'ok', ['pc', null], 'item_changed', BAG_COPY, BAG_COPY, { ...BAG_COPY, existing: true, skipped: [] }, ['draft', 980000n, [['ذرة صفراء', 980000n, 'kg']]]],
+        bagDraft && bagDraft.status, await rawCard(BR, id(685))],
+      ['ok', 'pc', 'ok', ['pc', null], 'item_changed', BAG_COPY, BAG_COPY, { ...BAG_COPY, existing: true, skipped: [] }, 'draft',
+        [id(685), 'draft', true, null, null, null, [['ذرة صفراء', null, 'kg', 'kg', null]]]],
       'newRecipeVersion من الشاشة: الكيس المؤرشف الذي صار قطعة وسطر الفيتامين باللتر لسائل صار قطعة يُتركان ويُسمّيان بترتيب السطور (كانت item_archived)، والإعادة بعد جواب ضاع ترجع ما رجع أوّل مرّة (existing = false وskipped بالاسمين)، ومعرّف آخر existing وskipped فارغ (ق٦٢ وق٦٣، ب٦٣)',
     );
-    const bagCorn = await rejected(repo.setRecipeLine(bagDraft?.lines.find((l) => l.itemId === CORN)?.id ?? '', 1000000n, 'kg'));
+    // منذ 0025: المسوّدة بالموادّ تتفعّل كما هي، والإنتاج بالكميات المكتوبة.
     const bagActivated = await rejected((async () => repo.activateVersion(id(685), (await repo.loadRecipe(BR, id(685))).versionVersion))());
     const bagAfter = await tried('newRecipeVersion (إعادة بعد التفعيل)', () => repo.newRecipeVersion(BR, id(685)));
+    const bagMade = code(await produceDraft(U.miller, id(688), BR, id(685), [{ item_id: CORN, qty: '100' }]));
     actAs(U.miller);
-    const bagMade = await rejected(repo.createProduction(id(688), id(685), 100000n, RAW, FEEDWH, TODAY));
     t.same(
-      [bagCorn, bagActivated, bagAfter, bagMade, await plannedOf(id(688))],
-      ['ok', 'ok', { ...BAG_COPY, status: 'active' }, 'ok', [['ذرة صفراء', 'kg', 100000n]]],
-      'setRecipeLine (الذرة 1,000) ثمّ activateVersion: تتفعّل، والإعادة بالمعرّف نفسه بعد التفعيل الجواب نفسه وحالة النسخة مفعَّلة، ويُنتَج بها (createProduction ثمّ loadBatch) (ق٦٢ وق٦٣)',
+      [bagActivated, bagAfter, bagMade, await plannedOf(id(688))],
+      ['ok', { ...BAG_COPY, status: 'active' }, 'ok', [['ذرة صفراء', 'kg', 100000n]]],
+      'activateVersion: تتفعّل بالموادّ، والإعادة بالمعرّف نفسه بعد التفعيل الجواب نفسه وحالة النسخة مفعَّلة، ويُنتَج بها بالكميات المكتوبة (ثمّ loadBatch) (ق٦٢ وق٦٣؛ 0025)',
     );
     const bagBatch = await repo.loadBatch(id(688)).catch(() => null);
     if (bagBatch) await repo.discardBatch(id(688), bagBatch.version);
