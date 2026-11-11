@@ -62,7 +62,7 @@ const DIVISION_KINDS = Object.keys(SITE_FOR);
 
 // E36: البذور كما تكتبها الخطّة.
 const SEED_SITES = [
-  ['feed_mill', 'المعمل', 'mill', [['مخزن المواد الأوّلية', 'raw'], ['مخزن العلف', 'feed']]],
+  ['feed_mill', 'المعمل', 'mill', [['مخزن المواد الأوّلية', 'raw'], ['رصيد العلف', 'feed']]],
   ['general', 'المخازن العامة', 'store', [['المخزن العام', 'general']]],
   ['hatchery', 'المفقس', 'hatchery', [['مخزن الأفراخ', 'chick'], ['مخزن بيض التفقيس', 'hatching_egg']]],
   ['medicine', 'مخزن الأدوية', 'store', [['مخزن الأدوية', 'medicine']]],
@@ -162,7 +162,11 @@ export default async function (t, db) {
     expenses: SEED_EXPENSES,
   };
   // ترتيب «C» نفسه للمخازن بالمتوقّع.
-  for (const row of expectedSeeds.sites) row[3].sort((a, b) => (Buffer.from(a) < Buffer.from(b) ? -1 : 1));
+  const byC = (a, b) => (Buffer.from(a) < Buffer.from(b) ? -1 : 1);
+  for (const row of expectedSeeds.sites) row[3].sort(byC);
+  // الملء بنصّ 0005 كما كُتبت يزرع مخزن العلف باسمه يومها «مخزن العلف»، و0025 تسمّيه «رصيد العلف» (جواب المالك Q2، 2026-11-10).
+  const backfilledSeeds = { ...expectedSeeds,
+    sites: expectedSeeds.sites.map(([division, name, kind, stores]) => [division, name, kind, stores.map((x) => (x === 'رصيد العلف/feed' ? 'مخزن العلف/feed' : x)).sort(byC)]) };
   t.same(await db.asOwner((q) => seeds(q, orgA)), expectedSeeds, 'create_my_org زرع المواقع والمخازن وأحجام الأكياس والفئات النظامية كما بالخطّة');
   t.same(await db.asUser(U.aViewer, (q) => seeds(q, orgA)), expectedSeeds, 'المشاهد يقرأ البذور (بلا كلفة، تنقرا لكل المنشأة)');
   const replay = await db.asUser(U.aOwner, (q) => value(q, "select public.create_my_org('مزرعة المخازن', 'المالك') ->> 'org_id'"), { commit: true });
@@ -196,8 +200,8 @@ export default async function (t, db) {
     )).rows[0];
     return { a: await seeds(q, orgA), b: await seeds(q, orgB), verify, attributed: Number(attributed), audit };
   });
-  t.same(stripped.a, expectedSeeds, 'الملء زرع منشأة بلا بذور (مثل منشأة قبل 0005)');
-  t.same(stripped.b, expectedSeeds, 'والمنشأة اللي مالكها موقوف تنزرع هي هم (ما يبقى ثابت غير صفر بعد الإصدار)');
+  t.same(stripped.a, backfilledSeeds, 'الملء زرع منشأة بلا بذور (مثل منشأة قبل 0005)');
+  t.same(stripped.b, backfilledSeeds, 'والمنشأة اللي مالكها موقوف تنزرع هي هم (ما يبقى ثابت غير صفر بعد الإصدار)');
   t.eq(stripped.verify, 0, 'verify_stores.org_default_seeds صفر بعد الملء');
   t.same([stripped.attributed, stripped.audit.named, stripped.audit.rows > 0], [0, 0, true], 'بذور الملء بلا created_by وبلا فاعل بسجلّ التدقيق (الهجرة مو المالك)، والسجلّ كتبها');
   // والملء من جلسة بيها مطالبات مستخدم (هجرة انطبقت من اتّصال بـJWT) هم بلا فاعل: المطالبات تنمسح قبل الزرع (اختبار الطفرات
@@ -210,7 +214,7 @@ export default async function (t, db) {
       attributed: Number(await value(q, `select ${SEEDED.map((table) => `(select count(*) from public.${table} where org_id = $1 and created_by is not null)`).join(' + ')} as v`, [orgB])),
     };
   }, U.bOwner);
-  t.same(claimed, { seeds: expectedSeeds, attributed: 0 }, 'الملء من جلسة بمطالبات مستخدم: البذور كاملة وبلا created_by');
+  t.same(claimed, { seeds: backfilledSeeds, attributed: 0 }, 'الملء من جلسة بمطالبات مستخدم: البذور كاملة وبلا created_by');
   // موقع البذرة المؤرشف (بعد أرشفة مخزنه) ما ينزرع من جديد: البذرة بالوجود ولو مؤرشفاً، والمؤرشف يرجع من الأرشيف.
   const archivedSeed = await db.asOwner(async (q) => {
     await q('update public.warehouses set archived_at = now() where org_id = $1 and division_id = $2', [orgA, divA.medicine]);

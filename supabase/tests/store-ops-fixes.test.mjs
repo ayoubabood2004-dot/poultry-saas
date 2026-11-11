@@ -193,7 +193,7 @@ async function scenario(t, db) {
   outcomes.conversion = { from: [fromAmbiguous.code, fromAmbiguous.hint], to: [toAmbiguous.code, toAmbiguous.hint] };
   t.same([fromAmbiguous.code, toAmbiguous.code], ['from_store_required', 'store_required'], 'التحويل: مخزن المصدر غامض from_store_required، والمستلم غامض store_required');
   t.ok(fromAmbiguous.hint.includes('«مخزن المواد الأوّلية» (900 كغم)') && fromAmbiguous.hint.includes('«مخزن مواد ثانٍ» (100 كغم)'), `from_store_required يسمّي المخزنين بكمياتهما (${fromAmbiguous.hint})`);
-  t.ok(toAmbiguous.hint.includes('«مخزن العلف»') && toAmbiguous.hint.includes('«مخزن علف ثانٍ»'), `store_required يسمّي مخزني الاستلام (${toAmbiguous.hint})`);
+  t.ok(toAmbiguous.hint.includes('«رصيد العلف»') && toAmbiguous.hint.includes('«مخزن علف ثانٍ»'), `store_required يسمّي مخزني الاستلام (${toAmbiguous.hint})`);
   t.same((await lotsOf(db, I.mash, W.feed)).length, 0, 'لا تحويل مع الرفضين');
 
   const verify = await db.asService(async (q) => (await q("select check_name, violations::int as v from public.verify_purchases() union all select check_name, violations::int from public.verify_sales() union all select check_name, violations::int from public.verify_stock()")).rows.filter((r) => r.v !== 0));

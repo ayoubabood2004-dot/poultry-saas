@@ -232,7 +232,7 @@ async function scenario(t, db) {
   t.same(await lots(I.soy, W.raw2), [['transfer', '100', '0']], 'مرآة الدفعة في المخزن الثاني (قيمة صفر قبل السعر)');
   const t2 = { ref: uid(), doc: uid(), line: uid(), item: I.bulk, qty: 300 };
   const move2 = await move(U.storekeeper, t2);
-  t.same([move2.ok, move2.value?.to_warehouse_id, move2.value?.from_warehouse_name], [true, W.farm, 'مخزن العلف'], 'نقل 300 كغم سائب من مخزن العلف إلى مخزن الحقل');
+  t.same([move2.ok, move2.value?.to_warehouse_id, move2.value?.from_warehouse_name], [true, W.farm, 'رصيد العلف'], 'نقل 300 كغم سائب من مخزن العلف إلى مخزن الحقل');
   t.same([shownOf(await move(U.storekeeper, { ...t2, ref: uid() })), (await move(U.storekeeper, { ...t2, ref: uid() })).value?.doc_no], ['ok', 'TR-2026-0002'],
     'الإعادة بالمعرّفات نفسها ومرجع جديد ترجع ما حُفظ');
   t.eq(shownOf(await move(U.storekeeper, { ...t2, ref: uid(), qty: 301 })), 'id_conflict', 'المعرّفات نفسها بكمية أخرى: id_conflict');
@@ -251,7 +251,7 @@ async function scenario(t, db) {
   for (const [key, result] of Object.entries(M)) refusal(`transfer.${key}`, result);
   t.same(Object.fromEntries(Object.entries(M).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(M).map((key) => [key, key])),
     'رفض النقل: كلّ حالة برمزها');
-  t.ok(M.store_required.hint.includes('«مخزن العلف»') && M.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما بكمياتهما (${M.store_required.hint})`);
+  t.ok(M.store_required.hint.includes('«رصيد العلف»') && M.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما بكمياتهما (${M.store_required.hint})`);
   // التحويل (مراجعة 0020، للشاشة): غموض مخزن المصدر (الصويا في مخزني المواد) from_store_required بالكميات، وغموض المستلم («مخلوط» يدخل مخزني العلف)
   // store_required.
   const fromStore = refusal('conversion.from_store_required', await convert(U.owner, { from: I.soy, fromQty: 1, to: I.soyGrits, toQty: 1 }));
@@ -355,10 +355,10 @@ async function scenario(t, db) {
   // ── ٨) ملفّ المادّة: أين هي، وأفعالها ─────────────────────────────────────────────────────────────────────────────
   const bulkFile = await file(U.storekeeper, I.bulk);
   t.same([bulkFile.can_convert, bulkFile.can_transfer, bulkFile.can_sell, bulkFile.can_delete, bulkFile.stores.map((s) => [s.name, norm(s.qty), norm(s.available)])],
-    [true, true, true, false, [['مخزن العلف', '600', '600'], ['مخزن علف ثانٍ', '100', '100']]],
+    [true, true, true, false, [['رصيد العلف', '600', '600'], ['مخزن علف ثانٍ', '100', '100']]],
   'ملفّ السائب للأمين: يحوّل وينقل ويبيع، ولا يحذف، وأين هو بنطاقه (مخزن الحقل خارج نطاقه)');
   const ownerBulk = await file(U.owner, I.bulk);
-  t.same([ownerBulk.stores.length, ownerBulk.transfer_targets.map((s) => s.name)], [3, ['مخزن العلف', 'مخزن حقل الأمل', 'مخزن علف ثانٍ']], 'المالك يرى المخازن الثلاثة، ومخازن النقل التي تقبل العلف');
+  t.same([ownerBulk.stores.length, ownerBulk.transfer_targets.map((s) => s.name)], [3, ['رصيد العلف', 'مخزن حقل الأمل', 'مخزن علف ثانٍ']], 'المالك يرى المخازن الثلاثة، ومخازن النقل التي تقبل العلف');
   const viewerBulk = await file(U.viewer, I.bulk);
   t.same([viewerBulk.can_convert, viewerBulk.can_transfer, viewerBulk.can_sell, viewerBulk.can_delete], [false, false, false, false], 'المشاهد بلا أفعال');
   const chickFile = await file(U.owner, I.chicks);

@@ -114,7 +114,7 @@ async function scenario(t, db) {
   const posted = step('٤) ترحيل الدفعة (المالك بلا ختم الكلف)', await call(db, owner, 'select public.post_production($1, $2, $3, $4) as v',
     [batch, preview.value?.version ?? null, preview.value?.plan_token ?? null, uid()]));
   const outputLot = (await db.admin("select trim_scale(qty_in)::text as qty, trim_scale(value_in)::text as value, warehouse_id from public.stock_lots where source_kind = 'production' and source_id = $1", [batch])).rows[0];
-  t.same([preview.ok, costsConfirmed, posted.ok, outputLot?.qty, storeName[outputLot?.warehouse_id]], [true, false, true, '996', 'مخزن العلف'],
+  t.same([preview.ok, costsConfirmed, posted.ok, outputLot?.qty, storeName[outputLot?.warehouse_id]], [true, false, true, '996', 'رصيد العلف'],
     'الإنتاج: المعاينة والترحيل للمالك بلا ختم الكلف، ودفعة «علف بادئ» 996 كغم في «مخزن العلف»');
 
   // ── ٥) الصرف للقاعتين (كنافذة «اصرف»: المخزن يختاره الخادم) ────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ async function scenario(t, db) {
     gasOther: await issue('٥) صرف «غاز» (أخرى) قطعة لـ«قاعة 2»', F.two, gasOther, 1),
   };
   t.same(Object.values(issued).map((r) => (r.ok ? [r.value.warehouse_name, r.value.cost_kind] : r.code)), [
-    ['مخزن العلف', 'feed'],
+    ['رصيد العلف', 'feed'],
     ['مخزن المواد الأوّلية', 'feed'],
     ['المخزن العام', 'fuel'],
     ['مخزن المواد الأوّلية', 'feed'],
@@ -189,7 +189,7 @@ async function scenario(t, db) {
   const mash = await item('مخلوط', 'feed', 'kg');
   const conversion = step('٩) تحويل ذرة 500 كغم إلى «مخلوط» 500 كغم', await call(db, owner, 'select public.record_conversion($1, $2, $3, 500, $4, 500, $5, null, null) as v', [uid(), uid(), I.corn, mash, TODAY]));
   t.same(conversion.ok ? [conversion.value.doc_no, conversion.value.from.warehouse_name, conversion.value.to.warehouse_name, norm(conversion.value.money.value)] : conversion.code,
-    ['CV-2026-0001', 'مخزن المواد الأوّلية', 'مخزن العلف', '225000'], 'التحويل: من «مخزن المواد الأوّلية» إلى «مخزن العلف» بقيمة الذرة (500 × 450)');
+    ['CV-2026-0001', 'مخزن المواد الأوّلية', 'رصيد العلف', '225000'], 'التحويل: من «مخزن المواد الأوّلية» إلى «رصيد العلف» بقيمة الذرة (500 × 450)');
 
   // ── ١٠) بيع العلف المنتَج (0021): «علف بادئ» لزبون، 100 كغم نقداً و50 كغم بالدين بـ800 للكيلو، من «مخزن العلف» (FD) ──────────────
   const customer = await one("insert into public.parties (name, is_customer) values ('زبون المزرعة', true) returning id");
@@ -199,7 +199,7 @@ async function scenario(t, db) {
   const creditSale = step('١٠) بيع «علف بادئ» 50 كغم بالدين', await call(db, owner, RS, [uid(), uid(), uid(), customer, starter, 50, 800, TODAY, 'credit', null]));
   const drawnOf = async (r) => (r.ok ? norm((await db.admin("select -sum(m.value) as v from public.stock_moves m join public.stock_lots l on l.id = m.lot_id where m.doc_kind = 'sale' and m.doc_id = $1 and l.source_kind = 'production' and l.source_id = $2", [r.value.id, batch])).rows[0].v) : null);
   const saleRow = async (r) => (r.ok ? [r.value.doc_no, r.value.warehouse_name, r.value.payment, norm(r.value.money.line_total), norm(r.value.cost.money.cost) === await drawnOf(r)] : r.code);
-  t.same([await saleRow(cashSale), await saleRow(creditSale)], [['FD-2026-0001', 'مخزن العلف', 'cash', '80000', true], ['FD-2026-0002', 'مخزن العلف', 'credit', '40000', true]],
+  t.same([await saleRow(cashSale), await saleRow(creditSale)], [['FD-2026-0001', 'رصيد العلف', 'cash', '80000', true], ['FD-2026-0002', 'رصيد العلف', 'credit', '40000', true]],
     'البيع: نقداً وبالدين من «مخزن العلف» برقمي FD، والكلفة = قيمة السحب من دفعة الإنتاج');
   const customerBalance = (await db.admin('select coalesce(sum(amount), 0)::text as b from public.party_entries where party_id = $1', [customer])).rows[0].b;
   const boxBalance = (await db.admin('select coalesce(sum(amount), 0)::text as b from public.cash_moves where account_id = $1', [cashBox])).rows[0].b;

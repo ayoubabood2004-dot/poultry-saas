@@ -22,6 +22,9 @@
 // (ROLLBACK_EXTRAS)، وبين التراجع والإعادة نقل وتصحيح ثانيان بجسمَي 0007 و0010، وبعد الإعادة نقل بخطوة وتحويل مادّة وشراء بلا سعر يُكمَّل
 // وحذف مادّة، فالتراجع يكمل. والطريق الثاني بفرعين، كلّ واحد ببذرته: تحويل مادّة، وشراء بلا سعر.
 // 0021: البذرة نفسها (بلا بيع، فالتراجع يكمل). والطريق الثاني: فاتورة بيع (صفّ في الجداول الثلاثة، وحركات وقيد تشير إليها) توقف التراجع بصوت.
+// 0025: البذرة نفسها وفوقها خلطة بكميات أُنتجت بـrecord_production (ROLLBACK_EXTRAS)، وبين التراجع والإعادة خلطة ثانية بـcreate_recipe القديم وإنتاجها
+// و«مخزن العلف» باسمه القديم، وبعد الإعادة «رصيد العلف» وproduce_batch على الخلطتين القديمة وبالموادّ، فالتراجع يكمل. والطريق الثاني بثلاثة فروع، كلّ
+// واحد ببذرته: سطر خلطة بلا كمية، ونسخة بلا أساس، ودفعة حُفظت موادّها في خلطتها.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -514,7 +517,60 @@ const dayNoteSeed = async (db) => {
   }, { commit: true });
 };
 
+/**
+ * 0025 (طريق الرفض): قاعدة 0024 لا تعرف خلطة بلا كميات، فالتراجع يرفض ما دام في القاعدة سطر خلطة بلا كمية، أو نسخة بلا أساس، أو دفعة حُفظت موادّها
+ * في خلطتها؛ كلّ فرع ببذرته وحده (المدير بدوالّ 0025 على «علف الرجوع» بكميات): مسوّدة «عدّل الخلطة» كتب المدير أساسها فبقيت سطورها بلا كمية (qty)،
+ * ومسوّدة كتب كمياتها بلا أساس (basis)، ودفعة من الخلطة بكميات وُسمت «حُفظت في الخلطة» بالإدارة (saved). الأخيرة حالة مصنوعة: produce_batch لا يحفظ
+ * موادّ الإنتاج إلّا نسخةً بلا أساس ولا كميات، فالفرعان الآخران يوقفانها في كلّ بيانات حقيقية؛ وتُصنع هنا ليثبت أنّ فرعها يوقف التراجع وحده. وبلا
+ * كتلة الرفض يكمل التراجع على كلّ بذرة (المسوّدة تُحذف سطورها بلا كمية أو تأخذ أساس 1000، والعمود يسقط).
+ */
+const mill25Seed = (variant) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف الرجوع', 'feed', 'kg') returning id");
+    await q("select public.create_recipe($1, $2, 'علف الرجوع', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg')), '[]'::jsonb, true)",
+      [REF(88), REF(89), feed, corn]);
+    if (variant === 'saved') {
+      const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+      const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+      const opening = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 1000, 450000)', [opening, corn]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [opening, REF(90)]);
+      await q("select public.record_production($1, $2, 100, $3, $4, public.app_today(), '[]'::jsonb, '[]'::jsonb, null, null, null, null, $5)", [REF(91), REF(89), raw, feedWh, REF(92)]);
+    } else {
+      await q('select public.new_recipe_version($1, $2)', [REF(88), REF(93)]);
+      if (variant === 'basis') await q('update public.recipe_lines set qty = 1000 where version_id = $1', [REF(93)]);
+      else await q('update public.recipe_versions set basis_kg = 1000 where id = $1', [REF(93)]);
+    }
+  }, { commit: true });
+  if (variant === 'saved') await db.admin('update public.production_batches set saved_to_recipe = true where id = $1', [REF(91)]);
+};
+
 export const BLOCKING_SEEDS = {
+  25: [
+    {
+      name: 'دفعة حُفظت موادّها في خلطتها',
+      code: 'rollback_blocked',
+      seed: mill25Seed('saved'),
+      data: "select (select count(*) from public.production_batches where saved_to_recipe)::text || '/' || (select count(*) from public.production_batches)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_saved > 0 then', 'if false then'),
+    },
+    {
+      name: 'نسخة خلطة بلا أساس',
+      code: 'rollback_blocked',
+      seed: mill25Seed('basis'),
+      data: "select (select count(*) from public.recipe_versions where basis_kg is null)::text || '/' || (select count(*) from public.recipe_lines)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_bases > 0 then', 'if false then'),
+    },
+    {
+      name: 'سطر خلطة بلا كمية',
+      code: 'rollback_blocked',
+      seed: mill25Seed('qty'),
+      data: "select (select count(*) from public.recipe_lines where qty is null)::text || '/' || (select count(*) from public.recipe_versions)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_lines > 0 then', 'if false then'),
+    },
+  ],
   22: [
     {
       name: 'ملاحظة يومية',
@@ -795,6 +851,7 @@ export const BLOCKING_REQUIRED = [
   [20, 2, 'تحويل مادّة، وشراء بلا سعر، كلّ واحد يوقف التراجع'],
   [21, 1, 'فاتورة بيع (صفّ في sales_invoices وsales_lines وsales_line_costs) توقف التراجع'],
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
+  [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1048,7 +1105,93 @@ const storeOpsRedone = async (db) => {
   return problems;
 };
 
+/** اسم مخزن العلف في وحدة المعمل (مخزن واحد في البذرة). */
+const feedStoreName = (db) => value(db.admin, "select w.name from public.warehouses w join public.divisions d on d.id = w.division_id where w.kind = 'feed' and d.kind = 'feed_mill'");
+
+/**
+ * 0025: حالة التراجع الكاملة على بيانات معمل بكميات تقبلها قاعدة 0024 (المدير بدوالّ 0025): رصيد افتتاحي للذرة في مخزن المواد، وخلطة «علف الرجوع»
+ * بكميات (ذرة 1,000 لأساس 1,000) وإنتاج 100 كغم منها بـrecord_production إلى «رصيد العلف». بلا خلطة بالموادّ ولا دفعة حُفظت موادّها، فالتراجع يكمل.
+ */
+const mill25Ready = async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+    const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف الرجوع', 'feed', 'kg') returning id");
+    const opening = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [raw]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 1000, 450000)', [opening, corn]);
+    await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [opening, REF(90)]);
+    await q("select public.create_recipe($1, $2, 'علف الرجوع', $3, 1000, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg')), '[]'::jsonb, true)",
+      [REF(88), REF(89), feed, corn]);
+    await q("select public.record_production($1, $2, 100, $3, $4, public.app_today(), '[]'::jsonb, '[]'::jsonb, null, null, null, null, $5)", [REF(91), REF(89), raw, feedWh, REF(92)]);
+  }, { commit: true });
+};
+
+/**
+ * بين التراجع والإعادة (كتالوج 0024): «مخزن العلف» باسمه القديم، والمدير ينشئ خلطة ثانية بـcreate_recipe القديم (الأساس الفارغ يصير 1000) ويُنتج منها
+ * 50 كغم بـrecord_production؛ فالمستعاد يعمل على البيانات، والإعادة تجري فوقها.
+ */
+const mill25On0024 = async (db) => {
+  const name = await feedStoreName(db);
+  if (name !== 'مخزن العلف') throw new Error(`اسم مخزن العلف بعد التراجع «${name}» والمتوقّع «مخزن العلف»`);
+  await db.asUser(U.manager, async (q) => {
+    const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+    const feedWh = await value(q, "select id from public.warehouses where kind = 'feed'");
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف الرجوع الثاني', 'feed', 'kg') returning id");
+    await q("select public.create_recipe($1, $2, 'علف الرجوع الثاني', $3, null, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', 1000, 'unit', 'kg')), '[]'::jsonb, true)",
+      [REF(94), REF(95), feed, corn]);
+    await q("select public.record_production($1, $2, 50, $3, $4, public.app_today(), '[]'::jsonb, '[]'::jsonb, null, null, null, null, $5)", [REF(96), REF(95), raw, feedWh, REF(97)]);
+  }, { commit: true });
+};
+
+/**
+ * بعد إعادة 0025: «رصيد العلف» باسمه، وproduce_batch على الخلطة بكميات (30 كغم بموادّها نفسها) وعلى خلطة بالموادّ جديدة (20 كغم)، والناتج كلّه في «رصيد
+ * العلف» (أربع دفعات إنتاج فيه)، وverify_mill وverify_stock صفر.
+ */
+const mill25Redone = async (db) => {
+  const problems = [];
+  const name = await feedStoreName(db);
+  if (name !== 'رصيد العلف') problems.push(`اسم مخزن العلف بعد الإعادة «${name}» والمتوقّع «رصيد العلف»`);
+  try {
+    await db.asUser(U.manager, async (q) => {
+      const raw = await value(q, "select id from public.warehouses where kind = 'raw'");
+      const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+      const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف بالموادّ', 'feed', 'kg') returning id");
+      await q("select public.produce_batch(gen_random_uuid(), $1, $2, $3, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', '30')), null, false, public.app_today(), null, null, null, null, gen_random_uuid())",
+        [REF(88), REF(89), raw, corn]);
+      await q("select public.create_recipe($1, $2, 'علف بالموادّ', $3, null, jsonb_build_array(jsonb_build_object('item_id', $4::uuid)), '[]'::jsonb, true)", [REF(98), REF(99), feed, corn]);
+      await q("select public.produce_batch(gen_random_uuid(), $1, $2, $3, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', '20')), null, false, public.app_today(), null, null, null, null, gen_random_uuid())",
+        [REF(98), REF(99), raw, corn]);
+    }, { commit: true });
+  } catch (error) {
+    problems.push(`produce_batch بعد الإعادة رفض: ${error.message}`);
+  }
+  const lots = await value(db.admin, `select count(*)::int from public.stock_lots l join public.warehouses w on w.id = l.warehouse_id join public.divisions d on d.id = w.division_id
+    where l.source_kind = 'production' and w.kind = 'feed' and d.kind = 'feed_mill'`);
+  if (lots !== 4) problems.push(`دفعات الإنتاج في «رصيد العلف» بعد الإعادة ${lots} والمتوقّع 4`);
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_mill() union all select check_name, violations::text from public.verify_stock()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الإنتاج: ${bad.join('، ')}`);
+  return problems;
+};
+
+const FEED_RENAME = /\nupdate public\.warehouses w set name = 'رصيد العلف'\n[\s\S]*?;\n/u;
+
 export const ROLLBACK_EXTRAS = {
+  25: {
+    seed: mill25Ready,
+    afterRollback: mill25On0024,
+    afterRedo: mill25Redone,
+    controls: [
+      {
+        name: 'بلا تسمية «رصيد العلف» في الهجرة',
+        expect: 'اسم مخزن العلف بعد الإعادة',
+        mutate: (sql) => sql.replace(FEED_RENAME, '\n'),
+      },
+    ],
+  },
   20: {
     seed: storeOpsReady,
     afterRollback: storeOpsOn0019,

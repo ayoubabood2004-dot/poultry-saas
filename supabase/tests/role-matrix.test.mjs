@@ -367,6 +367,7 @@ export default async function (t, db) {
         feedStore,
         output,
         bran,
+        corn,
         recipe,
         spare,
         version,
@@ -714,6 +715,26 @@ export default async function (t, db) {
     },
     mill_report: {
       sql: () => ["select public.mill_report($1, public.app_today(), public.app_today()) -> 'totals' ->> 'batches' as v", [p3.recipe]],
+      value: true,
+      expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
+    },
+    // 0025 (الخلطة موادّ والكميات عند الإنتاج، كلمة المالك 2026-11-10): الإنتاج بنداء واحد بفعل التسويد ونطاق مخزن الموادّ، بموادّ النسخة المفعَّلة
+    // نفسها (فلا اختيار): المالك والمدير يرحّلان، ومشغّل المعمل مسوّدة تنتظر ختم الكلف؛ وقارئ شاشة الإنتاج لمن يُنتج؛ والسجلّ لكلّ دور بنطاق الدفعة.
+    produce_batch: {
+      sql: () => [
+        "select public.produce_batch(gen_random_uuid(), $1, $2, $3, jsonb_build_array(jsonb_build_object('item_id', $4::uuid, 'qty', '50')), null, false, public.app_today(), null, null, null, null, gen_random_uuid()) ->> 'status' as v",
+        [p3.recipe, p3.version, p3.raw, p3.corn],
+      ],
+      value: true,
+      expect: { ...only(RECIPE, 'ok:posted'), mill_operator: 'ok:draft' },
+    },
+    production_form: {
+      sql: () => ["select public.production_form($1) -> 'active' ->> 'id' = $2::text as v", [p3.recipe, p3.version]],
+      value: true,
+      expect: only(MILL_DRAFT, 'ok:true'),
+    },
+    recipe_history: {
+      sql: () => ["select public.recipe_history($1, public.app_today() - 30, public.app_today()) -> 'totals' ->> 'batches' as v", [p3.recipe]],
       value: true,
       expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
     },
