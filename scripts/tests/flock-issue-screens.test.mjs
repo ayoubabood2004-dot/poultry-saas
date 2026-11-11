@@ -3,17 +3,14 @@
 // بوستغريس الحزمة، لكلّ دور ولكلّ رفض بتلميحه) تمرّ بالمحلّلات الحقيقية (flocks.ts وflockIssues.ts محزومين بـesbuild) — لا أجوبة بخطّ اليد؛
 // والشاشات الحقيقية (FarmRoutes وStockRoutes) بـreact-dom/client الحقيقي على DOM صغير (dom.mjs)، وrepo الحقيقي على core بديل يسجّل كلّ نداء.
 // P المحلّلات بأجوبة القاعدة: ما يُصرف (المالك والأمين وعامل القاعة)، والصرف (بالمال وبلاه)، والإلغاء، وعلف القاعة (المال يغيب للأمين)، والصرامة؛
-// D1 «اصرف علفاً أو دواءً»: بطاقات بـ«عندك» وشارة «من إنتاج المعمل»، والكمية بوحدتها واليوم، وزرّ يسمّي ما سيحدث، وrecord_flock_issue بمفاتيحه
-//    الثمانية، ثمّ تُقرأ الصفحة من جديد؛ D2 store_required ← المخازن بكمياتها، والإرسال ثانيةً بالمعرّفات نفسها ومعه المخزن؛ D3 insufficient_stock
-//    بتلميح الخادم؛ D4 نتيجة مجهولة ← «أعد المحاولة» بالنداء نفسه حرفاً؛ D5 «ألغِ» لكلّ سطر من can_void السطر نفسه (لا من رأس الجدول: مدير حقل لا يلغي
-//    صرفاً من مخزن المعمل)، بتأكيد يسمّي الأثر وسبب إلزامي؛ D6 الأمين بلا عمود القيمة ولا
-//    «ألغِ»؛ E المداخل: «اصرف» في جدول الحقل لكلّ قاعة بفوج قائم يفتح نافذة الصرف لفوجها، وشاشة الفوج بسطر العلف وزرّها (لا لعامل القاعة).
+// D5 «ألغِ» لكلّ سطر من can_void السطر نفسه (لا من رأس الجدول: مدير حقل لا يلغي صرفاً من مخزن المعمل)، بتأكيد يسمّي الأثر وسبب إلزامي؛ D6 الأمين
+//    بلا عمود القيمة ولا «ألغِ»؛ E المداخل: «اصرف» في جدول الحقل لكلّ قاعة بفوج قائم، وشاشة الفوج بسطر العلف وأفعال القاعة.
+// و«القاعات بين يديك» (0026، كلمة المالك 2026-11-11): الصرف طريق واحد، صفحة الإضافة لعدّة قاعات (/halls/give، فحوصها في halls-give.test)؛
+// فنافذة الصرف لمادّة واحدة في هذه الصفحة انشالت ومعها فحوصها (D1–D4 وK1 وK2 وF10 وF1 وF9، وما تحرسه صار على صفحة الإضافة)، وG يحرس أنّ
+// «أضف للقاعة» رابط إليها وأنّ روابط ‎?open=1 القديمة تنتقل إليها، وE أنّ الحقل والفوج يدلّان عليها.
 // كلّ حالة تفشل على الشفرة قبل 0019 في الشاشات (لا flockIssues ولا صفحة issue/:flockId ولا سطر العلف ولا رابط «اصرف»).
-// ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): F10 صرف لم يُعرف جوابه يبقى بعد إغلاق النافذة (والإغلاق يسأل) وفتحها يعيده بالنداء نفسه، فلا
-// يُصرف مرّتين بمعرّفين؛ F1 اليوم مقفول بعد النتيجة المجهولة؛ F34 قيمة الملغى «—»؛ F7 فشل «ما يُصرف» يُقال بإعادته، وفشل القراءة من جديد ولو بقي
-// المعروض القديم؛ F8 شاشة الفوج: فشل علف القاعة يُقال وزرّ الصرف باقٍ؛ F9 id_conflict ← معرّفات جديدة بتلميح الخادم.
-// ويوم المالك (2026-11-07؛ تفشلان على df1c736): K1 البطاقة تقول نوع المادّة («مادّة أوّلية»، «وقود»، «دواء»…) لا نوع كلفتها، وتحت المادّة
-// الأوّلية «تُحسب كلفةَ علف»؛ K2 الزرّ لا يجعل الكمية مفعولاً («اصرف قطعتان «كاز»» لحن): «اصرف «كاز» (قطعتان) لـ«قاعة 2»» لكلّ عدد.
+// ومراجعة الشاشات (كلّ حالة R تفشل على fab1c66): F34 قيمة الملغى «—»؛ F7 فشل «ما يُصرف» يُقال بإعادته، وفشل القراءة من جديد (بعد الإلغاء) ولو بقي
+// المعروض القديم؛ F8 شاشة الفوج: فشل علف القاعة يُقال وزرّ «أضف للقاعة» باقٍ.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -87,7 +84,6 @@ const click = async (node) => {
   if (node) fire(node, 'click');
   await settle(40);
 };
-const disabled = (node) => node?.hasAttribute('disabled') ?? null;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 /** نصّ عشريّ من الخادم ← آلاف (الكمية بثلاث مراتب)، والمال ← فلس: الأرقام المتوقّعة من الجواب نفسه لا مكتوبة باليد. */
@@ -107,20 +103,6 @@ const withRowVoid = (json) => {
 };
 
 const FLOCK = SAMPLES.flock_issue_options.owner.flock_id;
-const STARTER = SAMPLES.record_flock_issue.storekeeper.item_id; // «علف بادئ» من إنتاج المعمل
-const FEED_STORE = SAMPLES.record_flock_issue.storekeeper.warehouse_id; // «مخزن العلف»
-const FARM_STORE = SAMPLES.record_flock_issue.owner_farm_store_by_keeper_farm.warehouse_id; // «مخزن حقل الأمل»
-/** «ما يُصرف» للمالك وفيه «علف بادئ» في مخزنين (كما في تلميح store_required الحقيقي: 600 كغم و100 كغم). */
-const twoStores = () => {
-  const json = clone(SAMPLES.flock_issue_options.owner);
-  const starter = json.items.find((item) => item.item_id === STARTER);
-  starter.stores = [
-    { warehouse_id: FEED_STORE, name: 'مخزن العلف', qty: '600.000' },
-    { warehouse_id: FARM_STORE, name: 'مخزن حقل الأمل', qty: '100.000' },
-  ];
-  starter.on_hand_qty = '700.000';
-  return json;
-};
 
 export default async function (t) {
   // ── P: المحلّلات الحقيقية بأجوبة القاعدة الحقيقية ──────────────────────────────────────────────────────────────────
@@ -285,8 +267,6 @@ export default async function (t) {
     };
     m.onlineStore.set(true);
     const ISSUE_URL = `/inventory/issue/${FLOCK}?back=${encodeURIComponent(`/broiler/flock/${FLOCK}`)}&open=1`;
-    const cardOf = (itemId) => byAction('issue-card').find((node) => node.getAttribute('data-item') === itemId);
-    const labelOf = (input) => (input ? all().find((n) => n.localName === 'label' && n.getAttribute('for') === input.getAttribute('id'))?.textContent : null);
     const ownerRpc = (over = {}) => ({
       flock_issue_options: () => clone(SAMPLES.flock_issue_options.owner),
       flock_feed: () => clone(SAMPLES.flock_feed.owner),
@@ -294,183 +274,21 @@ export default async function (t) {
       ...over,
     });
 
-    // ── D1: البطاقات والكمية واليوم والزرّ الذي يسمّي الأثر، والنداء بمفاتيحه الثمانية ───────────────────────────────────────
-    await step('D1', async () => {
+    // ── G: طريق واحد للصرف (0026): «أضف للقاعة» رابط إلى صفحة الإضافة، والرجوع منها إلى هذا السجلّ؛ وروابط ‎?open=1 القديمة تنتقل إليها ──────
+    const ISSUE_PAGE = `/inventory/issue/${FLOCK}?back=${encodeURIComponent(`/broiler/flock/${FLOCK}`)}`;
+    const GIVE_HERE = `/halls/give/${FLOCK}?back=${encodeURIComponent(ISSUE_PAGE)}`;
+    await step('G', async () => {
+      fresh('owner', ownerRpc());
+      await mount(ISSUE_PAGE);
+      t.eq(textOf('feed-line'), `${FEED_LINE}${UNWEIGHED}`, 'G سطر علف القاعة ومعه ما لم يُحسب وزنه');
+      const give = byAction('issue-open')[0];
+      t.same([give?.localName, give?.textContent, give?.getAttribute('href')], ['a', 'أضف للقاعة', GIVE_HERE], 'G «أضف للقاعة» رابط إلى صفحة الإضافة لعدّة قاعات، والرجوع منها إلى هذا السجلّ ومعه رجوعه');
+      t.same([byAction('issue-card').length, byAction('issue-save').length, byAction('issue-pending').length], [0, 0, 0], 'G لا نافذة صرف لمادّة واحدة بعد اليوم');
+    });
+    await step('G ‎?open=1', async () => {
       const calls = fresh('owner', ownerRpc());
       await mount(ISSUE_URL);
-      t.eq(textOf('feed-line'), `${FEED_LINE}${UNWEIGHED}`, 'D1 سطر علف القاعة ومعه ما لم يُحسب وزنه');
-      t.eq(byAction('issue-card').length, 10, 'D1 ‎?open=1 يفتح نافذة الصرف ببطاقة لكلّ مادّة متاحة');
-      const first = byAction('issue-card')[0];
-      t.ok(first?.textContent.startsWith('علف بادئ') && first.textContent.includes('من إنتاج المعمل') && first.textContent.includes('عندك: 1,200 كغم'), `D1 علف المعمل أوّلاً بشارته و«عندك» (${first?.textContent})`);
-      t.eq(byAction('made-in-mill').length, 1, 'D1 والشارة له وحده');
-      t.same([textOf('issue-save'), disabled(byAction('issue-save')[0])], ['اختر المادّة واكتب كميتها', true], 'D1 قبل الاختيار: الزرّ يقول ما ينقص ومعطّل');
-      await click(cardOf(STARTER));
-      const qty = byAction('issue-qty')[0];
-      const day = all().find((n) => n.localName === 'input' && labelOf(n) === 'يوم الصرف');
-      t.same([cardOf(STARTER)?.getAttribute('aria-pressed'), labelOf(qty), day?.value ?? null], ['true', 'الكمية (كغم)', '07/11/2026'], 'D1 لمس البطاقة يختارها: الكمية بوحدتها، واليوم اليوم');
-      type(qty, '5000');
-      await settle();
-      t.ok(text().includes('عندك 1,200 كغم فقط.') && disabled(byAction('issue-save')[0]) === true, 'D1 كمية أكبر من الموجود تُقال قبل الإرسال');
-      type(qty, '500');
-      await settle();
-      t.same([textOf('issue-save'), disabled(byAction('issue-save')[0])], ['اصرف «علف بادئ» (500 كغم) لـ«قاعة 1»', false], 'D1 الزرّ يسمّي ما سيحدث');
-      await click(byAction('issue-save')[0]);
-      const [args] = named(calls, 'rpc:record_flock_issue');
-      t.same(Object.keys(args ?? {}).sort(), ['p_client_ref', 'p_flock', 'p_issue_id', 'p_issued_on', 'p_item', 'p_line_id', 'p_qty', 'p_warehouse'], 'D1 record_flock_issue بالمفاتيح الثمانية');
-      t.same([args?.p_flock, args?.p_item, args?.p_qty, args?.p_issued_on, args?.p_warehouse], [FLOCK, STARTER, '500.000', '2026-11-07', null], 'D1 الفوج والمادّة والكمية بوحدة أساسها واليوم، والمخزن null (الخادم يختار الوحيد)');
-      t.ok([args?.p_client_ref, args?.p_issue_id, args?.p_line_id].every((value) => UUID.test(value ?? '')) && new Set([args?.p_client_ref, args?.p_issue_id, args?.p_line_id]).size === 3, 'D1 المرجع والمعرّفان من الجهاز');
-      t.eq(globalThis.__fi.toasts.at(-1)?.title, 'صُرف 500 كغم «علف بادئ» لـ«قاعة 1» من «مخزن العلف» (FI-2026-0001).', 'D1 الرسالة تقول ما صُرف ومن أين ورقمه');
-      t.same([byAction('issue-card').length, named(calls, 'rpc:flock_feed').length, named(calls, 'rpc:flock_issue_options').length], [0, 2, 2], 'D1 ثمّ تُغلق النافذة وتُقرأ علف القاعة وما يُصرف من جديد');
-    });
-
-    // ── K1: البطاقة بنوع المادّة، و«تُحسب كلفةَ علف» تحت المادّة الأوّلية والإضافة ─────────────────────────────────────────────
-    await step('K1', async () => {
-      fresh('owner', ownerRpc());
-      await mount(ISSUE_URL);
-      const KIND = { feed: 'علف', raw: 'مادّة أوّلية', additive: 'إضافة', equipment: 'معدّات', medicine: 'دواء', vaccine: 'لقاح', fuel: 'وقود', other: 'أخرى' };
-      const items = SAMPLES.flock_issue_options.owner.items;
-      const shown = byAction('issue-card').map((card) => {
-        const inner = descendants(card);
-        const pick = (name) => inner.find((n) => n.getAttribute('data-action') === name)?.textContent ?? null;
-        return [card.getAttribute('data-item'), pick('made-in-mill') ? 'من إنتاج المعمل' : pick('issue-kind'), pick('issue-feed-cost')];
-      });
-      t.same(
-        shown,
-        items.map((item) => [item.item_id, item.made_in_mill ? 'من إنتاج المعمل' : KIND[item.kind], item.kind === 'raw' || item.kind === 'additive' ? 'تُحسب كلفةَ علف' : null]),
-        'K1 كلّ بطاقة بنوع مادّتها (وعلف المعمل بشارته)، و«تُحسب كلفةَ علف» تحت المادّة الأوّلية وحدها',
-      );
-      const named = (name) => byAction('issue-card').find((card) => card.textContent.startsWith(name))?.textContent ?? '';
-      t.ok(named('كاز').includes('وقود') && !named('كاز').includes('كلفةَ علف') && named('ذرة صفراء').includes('مادّة أوّلية') && named('ستائر').includes('معدّات'), `K1 «كاز» وقود و«ذرة صفراء» مادّة أوّلية و«ستائر» معدّات (${named('ذرة صفراء')})`);
-    });
-
-    // ── K2: الكمية بين قوسين لا مفعولاً للفعل، لكلّ عدد ───────────────────────────────────────────────────────────────────
-    await step('K2', async () => {
-      fresh('owner', ownerRpc());
-      await mount(ISSUE_URL);
-      const idOf = (name) => SAMPLES.flock_issue_options.owner.items.find((item) => item.name === name).item_id;
-      const said = [];
-      const sayFor = async (name, qtys) => {
-        await click(cardOf(idOf(name)));
-        for (const qty of qtys) {
-          type(byAction('issue-qty')[0], qty);
-          await settle();
-          said.push(textOf('issue-save'));
-        }
-        await click(cardOf(idOf(name)));
-      };
-      await sayFor('ستائر', ['1', '2', '3', '10']);
-      await sayFor('لقاح نيوكاسل', ['11', '100']);
-      await sayFor('كاز', ['20']);
-      await sayFor('علف بادئ', ['500', '1.5']);
-      t.same(
-        said,
-        [
-          'اصرف «ستائر» (قطعة واحدة) لـ«قاعة 1»',
-          'اصرف «ستائر» (قطعتان) لـ«قاعة 1»',
-          'اصرف «ستائر» (3 قطع) لـ«قاعة 1»',
-          'اصرف «ستائر» (10 قطع) لـ«قاعة 1»',
-          'اصرف «لقاح نيوكاسل» (11 قطعة) لـ«قاعة 1»',
-          'اصرف «لقاح نيوكاسل» (100 قطعة) لـ«قاعة 1»',
-          'اصرف «كاز» (20 لتراً) لـ«قاعة 1»',
-          'اصرف «علف بادئ» (500 كغم) لـ«قاعة 1»',
-          'اصرف «علف بادئ» (1.5 كغم) لـ«قاعة 1»',
-        ],
-        'K2 «اصرف «المادّة» (الكمية) لـ«القاعة»»: الكمية بين قوسين للقطعة والقطعتين والقطع والكيلو واللتر',
-      );
-    });
-
-    // ── D2: store_required ← المخازن بكمياتها والإرسال ثانيةً بالمعرّفات نفسها ───────────────────────────────────────────────
-    await step('D2', async () => {
-      let reads = 0;
-      const hint = SAMPLES.refusals.store_required.hint;
-      let first = true;
-      const calls = fresh(
-        'owner',
-        ownerRpc({
-          flock_issue_options: () => {
-            reads += 1;
-            return reads === 1 ? clone(SAMPLES.flock_issue_options.owner) : twoStores();
-          },
-          record_flock_issue: () => {
-            if (first) {
-              first = false;
-              throw new m.RejectedError('store_required', hint);
-            }
-            return clone(SAMPLES.record_flock_issue.owner_farm_store_by_keeper_farm);
-          },
-        }),
-      );
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '100');
-      await settle();
-      t.eq(byAction('issue-stores').length, 0, 'D2 مخزن واحد في «ما يُصرف»: لا اختيار');
-      await click(byAction('issue-save')[0]);
-      t.same([reads, textOf('issue-stores')?.startsWith(hint)], [2, true], 'D2 store_required: «ما يُصرف» تُقرأ من جديد، وتلميح الخادم فوق المخازن');
-      t.same(byAction('issue-store').map((node) => node.textContent), ['مخزن العلف (600 كغم)', 'مخزن حقل الأمل (100 كغم)'], 'D2 كلّ مخزن بكميته');
-      t.same([byAction('issue-qty')[0]?.value, disabled(byAction('issue-save')[0])], ['100', true], 'D2 الكمية باقية، والصرف ينتظر اختيار المخزن');
-      await click(byAction('issue-store').find((node) => node.getAttribute('data-store') === FARM_STORE));
-      await click(byAction('issue-save')[0]);
-      const [one, two] = named(calls, 'rpc:record_flock_issue');
-      t.same(
-        [two?.p_client_ref, two?.p_issue_id, two?.p_line_id, two?.p_qty, one?.p_warehouse, two?.p_warehouse],
-        [one?.p_client_ref, one?.p_issue_id, one?.p_line_id, '100.000', null, FARM_STORE],
-        'D2 الإرسال الثاني بالمعرّفات والمرجع أنفسها ومعه المخزن المختار (الرفض لم يكتب شيئاً)',
-      );
-      t.ok(globalThis.__fi.toasts.at(-1)?.title.includes('من «مخزن حقل الأمل» (FI-2026-0002)'), 'D2 وصُرف من المخزن المختار');
-    });
-
-    // ── D3: insufficient_stock بتلميح الخادم، والنافذة باقية ──────────────────────────────────────────────────────────────
-    await step('D3', async () => {
-      const hint = SAMPLES.refusals['insufficient_stock (قبل الاستلام)'].hint;
-      const calls = fresh(
-        'owner',
-        ownerRpc({
-          record_flock_issue: () => {
-            throw new m.RejectedError('insufficient_stock', hint);
-          },
-        }),
-      );
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '1000');
-      await settle();
-      await click(byAction('issue-save')[0]);
-      t.ok(text().includes(hint), `D3 تلميح الخادم كما هو («عندك …» وما استُلم بعد التاريخ)`);
-      t.same([byAction('issue-card').length, byAction('issue-qty')[0]?.value, named(calls, 'rpc:flock_issue_options').length], [10, '1000', 2], 'D3 النافذة باقية بما كُتب، و«ما يُصرف» تُقرأ من جديد');
-      const sample = SAMPLES.refusals.date_too_old.hint;
-      globalThis.__fi.rpc = (fn) => (fn === 'record_flock_issue' ? Promise.reject(new m.RejectedError('date_too_old', sample)) : new Promise(() => {}));
-      type(byAction('issue-qty')[0], '10');
-      await settle();
-      await click(byAction('issue-save')[0]);
-      const day = all().find((n) => n.localName === 'input' && labelOf(n) === 'يوم الصرف');
-      const alert = day?.parentNode?.childNodes.find((n) => n.getAttribute?.('role') === 'alert')?.textContent ?? null;
-      t.eq(alert, sample, 'D3 رفض التاريخ يُقال تحت حقل اليوم');
-    });
-
-    // ── D4: نتيجة مجهولة ← النافذة مجمَّدة و«أعد المحاولة» بالنداء نفسه حرفاً ───────────────────────────────────────────────────
-    await step('D4', async () => {
-      let attempt = 0;
-      const calls = fresh(
-        'owner',
-        ownerRpc({
-          record_flock_issue: () => {
-            attempt += 1;
-            if (attempt === 1) throw new m.UnknownOutcomeError();
-            return clone(SAMPLES.record_flock_issue.storekeeper);
-          },
-        }),
-      );
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '500');
-      await settle();
-      await click(byAction('issue-save')[0]);
-      t.same([text().includes('لا نعرف إن سُجّل الصرف: أعد المحاولة؛ لن يُسجَّل مرّتين.'), textOf('issue-save'), disabled(byAction('issue-qty')[0])], [true, 'أعد المحاولة', true], 'D4 نتيجة مجهولة: جملة وفعل واحد، والحقول مقفولة');
-      await click(byAction('issue-save')[0]);
-      const [one, two] = named(calls, 'rpc:record_flock_issue');
-      t.same(two, one, 'D4 الإعادة بالنداء نفسه حرفاً (المعرّفات والمرجع والمحتوى)');
-      t.eq(byAction('issue-card').length, 0, 'D4 والجواب النهائي يغلق النافذة');
+      t.same([globalThis.__fi.location, named(calls, 'rpc:record_flock_issue').length], [GIVE_HERE, 0], 'G رابط ‎?open=1 القديم ينتقل إلى صفحة الإضافة (والرجوع منها إلى السجلّ)');
     });
 
     // ── D5: «ألغِ» بتأكيد يسمّي الأثر وسبب إلزامي ─────────────────────────────────────────────────────────────────────────
@@ -481,7 +299,7 @@ export default async function (t) {
       blockedRow.can_void = false;
       const calls = fresh('owner', ownerRpc({ flock_feed: () => clone(feedJson), void_flock_issue: () => clone(SAMPLES.void_flock_issue.manager) }));
       await mount(`/inventory/issue/${FLOCK}`);
-      t.same([byAction('issue-card').length, byAction('issue-open').length], [0, 1], 'D5 بلا ‎?open=1 لا نافذة، والزرّ الكبير ظاهر');
+      t.same([byAction('issue-card').length, byAction('issue-open').length], [0, 1], 'D5 لا نافذة صرف، و«أضف للقاعة» ظاهر');
       const posted = feedJson.issues.filter((issue) => issue.status === 'posted' && issue.can_void);
       t.same(
         [byAction('issue-void').length, byAction('issue-void-note').length, all().some((n) => n.localName === 'th' && n.textContent === 'الحالة والإلغاء')],
@@ -513,42 +331,6 @@ export default async function (t) {
     });
 
     // ── مراجعة الشاشات ─────────────────────────────────────────────────────────────────────────────────────────────────
-    const dayInput = () => all().find((n) => n.localName === 'input' && labelOf(n) === 'يوم الصرف');
-    const unknownThenStored = () => {
-      let attempt = 0;
-      return () => {
-        attempt += 1;
-        if (attempt === 1) throw new m.UnknownOutcomeError();
-        return clone(SAMPLES.record_flock_issue.storekeeper);
-      };
-    };
-    await step('R F10', async () => {
-      const calls = fresh('owner', ownerRpc({ record_flock_issue: unknownThenStored() }));
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '500');
-      await settle();
-      await click(byAction('issue-save')[0]);
-      await click(byAction('dialog-close')[0]);
-      t.eq(byAction('dialog-discard').length, 1, 'R F10 إغلاق النافذة بعد نتيجة مجهولة يسأل أوّلاً (الصرف المرسَل «وسخ»)');
-      await click(byAction('dialog-discard')[0]);
-      t.same([byAction('issue-card').length, byAction('issue-pending').length], [0, 1], 'R F10 أُغلقت، وفي الصفحة تنبيه بالصرف الذي لم يُعرف جوابه');
-      await click(byAction('issue-open')[0]);
-      t.same([textOf('issue-save'), byAction('issue-qty')[0]?.value ?? null, disabled(byAction('issue-qty')[0])], ['أعد المحاولة', '500', true], 'R F10 فتحها ثانيةً يرجّع الصرف المرسَل بفعله الوحيد «أعد المحاولة»');
-      await click(byAction('issue-save')[0]);
-      const [one, two] = named(calls, 'rpc:record_flock_issue');
-      t.same([named(calls, 'rpc:record_flock_issue').length, two], [2, one], 'R F10 والإعادة بالنداء نفسه حرفاً: لا صرف ثانٍ بمعرّفات جديدة');
-    });
-    await step('R F1', async () => {
-      fresh('owner', ownerRpc({ record_flock_issue: () => Promise.reject(new m.UnknownOutcomeError()) }));
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '500');
-      await settle();
-      t.eq(disabled(dayInput()), false, 'R F1 ضابط: اليوم يُكتب قبل الإرسال');
-      await click(byAction('issue-save')[0]);
-      t.eq(disabled(dayInput()), true, 'R F1 بعد نتيجة مجهولة: اليوم مقفول كالكمية (ما يُكتب بعدها لا يُرسل)');
-    });
     await step('R F34', async () => {
       fresh('owner', ownerRpc());
       await mount(`/inventory/issue/${FLOCK}`);
@@ -576,54 +358,32 @@ export default async function (t) {
           },
         }),
       );
-      await mount(ISSUE_URL);
-      t.ok(text().includes('تعذّر تحميل ما يُصرف للقاعة') && byAction('issue-card').length === 0, 'R F7 فشل «ما يُصرف» يُقال (لا صمت) ولو طُلبت النافذة');
+      await mount(ISSUE_PAGE);
+      t.ok(text().includes('تعذّر تحميل ما يُصرف للقاعة'), 'R F7 فشل «ما يُصرف» يُقال (لا صمت)');
       const retry = byAction('retry').find((node) => node.parentNode?.textContent.includes('ما يُصرف للقاعة'));
       await click(retry);
-      t.eq(byAction('issue-card').length, 10, 'R F7 «أعد المحاولة» يقرؤها فتنفتح النافذة المطلوبة');
+      t.same([reads, text().includes('تعذّر تحميل ما يُصرف للقاعة')], [2, false], 'R F7 «أعد المحاولة» يقرؤها من جديد');
     });
     await step('R F7 القراءة من جديد', async () => {
       let feeds = 0;
+      const feedJson = withRowVoid(SAMPLES.flock_feed.owner);
       fresh(
         'owner',
         ownerRpc({
           flock_feed: () => {
             feeds += 1;
             if (feeds > 1) throw new m.NetworkError();
-            return clone(SAMPLES.flock_feed.owner);
+            return clone(feedJson);
           },
+          void_flock_issue: () => clone(SAMPLES.void_flock_issue.manager),
         }),
       );
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '500');
+      await mount(ISSUE_PAGE);
+      await click(byAction('issue-void')[0]);
+      type(byAction('issue-void-reason')[0], 'صُرفت لقاعة أخرى');
       await settle();
-      await click(byAction('issue-save')[0]);
-      t.same([byAction('feed-line').length, text().includes('تعذّر تحميل علف القاعة')], [1, true], 'R F7 فشل القراءة بعد الصرف يُقال، والمعروض القديم باقٍ تحته');
-    });
-    await step('R F9', async () => {
-      const hint = SAMPLES.refusals['id_conflict (أُلغي، المرجع نفسه)'].hint;
-      let attempt = 0;
-      const calls = fresh(
-        'owner',
-        ownerRpc({
-          record_flock_issue: () => {
-            attempt += 1;
-            if (attempt === 1) throw new m.RejectedError('id_conflict', hint);
-            return clone(SAMPLES.record_flock_issue.storekeeper);
-          },
-        }),
-      );
-      await mount(ISSUE_URL);
-      await click(cardOf(STARTER));
-      type(byAction('issue-qty')[0], '500');
-      await settle();
-      await click(byAction('issue-save')[0]);
-      t.same([text().includes(hint), named(calls, 'rpc:flock_feed').length], [true, 2], 'R F9 id_conflict بتلميح الخادم، والصفحة تُقرأ من جديد');
-      await click(byAction('issue-save')[0]);
-      const [one, two] = named(calls, 'rpc:record_flock_issue');
-      t.ok(two && two.p_issue_id !== one.p_issue_id && two.p_line_id !== one.p_line_id && two.p_client_ref !== one.p_client_ref, 'R F9 والإرسال التالي بمعرّفات جديدة، فلا يُرفض بالسبب نفسه أبداً');
-      t.eq(byAction('issue-card').length, 0, 'R F9 فيُصرف وتُغلق النافذة');
+      await click(byAction('issue-void-confirm')[0]);
+      t.same([feeds, byAction('feed-line').length, text().includes('تعذّر تحميل علف القاعة')], [2, 1, true], 'R F7 فشل القراءة بعد الإلغاء يُقال، والمعروض القديم باقٍ تحته');
     });
     await step('R F8', async () => {
       let feeds = 0;
@@ -643,7 +403,7 @@ export default async function (t) {
         { loadFlockDetail: () => m.parseDetail(detailOf()) },
       );
       await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-failed').length, byAction('flock-issue').length, byAction('feed-line').length], [1, 1, 0], 'R F8 فشل علف القاعة يُقال، وزرّ «اصرف علفاً أو دواءً» باقٍ (لا يحتاج سطر العلف)');
+      t.same([byAction('feed-failed').length, byAction('flock-give').length, byAction('feed-line').length], [1, 1, 0], 'R F8 فشل علف القاعة يُقال، و«أضف للقاعة» باقٍ (لا يحتاج سطر العلف)');
       await click(byAction('feed-retry')[0]);
       t.same([byAction('feed-failed').length, byAction('feed-line').length], [0, 1], 'R F8 «أعد المحاولة» يقرأ السطر');
     });
@@ -678,10 +438,11 @@ export default async function (t) {
       fresh('storekeeper', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper), flock_issue_options: () => clone(SAMPLES.flock_issue_options.storekeeper) }, { loadOverviewJson: overview });
       await mount('/broiler');
       const links = byAction('hall-issue');
-      t.same(links.map((node) => [node.textContent, node.getAttribute('href')]), [['اصرف', `/inventory/issue/${FLOCK}?back=%2Fbroiler&open=1`]], 'E «اصرف» لكلّ قاعة بفوج قائم (لا للقاعة الفارغة) إلى نافذة الصرف لفوجها');
+      t.same(links.map((node) => [node.textContent, node.getAttribute('href')]), [['اصرف', `/halls/give/${FLOCK}?back=%2Fbroiler`]], 'E «اصرف» لكلّ قاعة بفوج قائم (لا للقاعة الفارغة) إلى صفحة الإضافة لفوجها');
+      t.eq(byAction('farm-vaccines')[0]?.getAttribute('href') ?? null, '/halls/vaccines?kind=broiler', 'E ورأس الحقل يدلّ على جدول لقاحات نوعه');
       fire(links[0], 'click', { button: 0 });
       await settle(60);
-      t.same([globalThis.__fi.location.startsWith(`/inventory/issue/${FLOCK}`), byAction('issue-card').length, byAction('issue-back')[0]?.getAttribute('href') ?? null], [true, 6, '/broiler'], 'E والنقر يفتح نافذة الصرف ببطاقاتها، والرجوع إلى الحقل');
+      t.eq(globalThis.__fi.location, `/halls/give/${FLOCK}?back=%2Fbroiler`, 'E والنقر يفتح صفحة الإضافة، والرجوع منها إلى الحقل');
     });
     await step('E عامل القاعة', async () => {
       fresh('hall_worker', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadOverviewJson: overview, loadFlockDetail: () => m.parseDetail(detail()) });
@@ -694,15 +455,20 @@ export default async function (t) {
       t.ok(textOf('feed-line')?.startsWith(FEED_LINE), `E شاشة الفوج: سطر علف القاعة (${textOf('feed-line')})`);
       const back = encodeURIComponent(`/broiler/flock/${FLOCK}`);
       t.same(
-        [textOf('flock-issue'), byAction('flock-issue')[0]?.getAttribute('href'), byAction('flock-issues')[0]?.getAttribute('href')],
-        ['اصرف علفاً أو دواءً', `/inventory/issue/${FLOCK}?back=${back}&open=1`, `/inventory/issue/${FLOCK}?back=${back}`],
-        'E وزرّ «اصرف علفاً أو دواءً» إلى نافذة الصرف، ورابط سجلّ الصرف، والرجوع إلى الفوج نفسه',
+        [textOf('flock-give'), byAction('flock-give')[0]?.getAttribute('href'), byAction('flock-issues')[0]?.getAttribute('href'), byAction('flock-calendar')[0]?.getAttribute('href'), byAction('flock-report')[0]?.getAttribute('href')],
+        ['أضف للقاعة', `/halls/give/${FLOCK}?back=${back}`, `/inventory/issue/${FLOCK}?back=${back}`, `/halls/calendar/${FLOCK}`, `/halls/report/${FLOCK}`],
+        'E «أضف للقاعة» إلى صفحة الإضافة، وسجلّ الصرف، وتقويم القاعة وتقرير الدورة، والرجوع إلى الفوج نفسه',
       );
     });
     await step('E شاشة الفوج لعامل القاعة', async () => {
       fresh('hall_worker', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadFlockDetail: () => m.parseDetail(detail()) });
       await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-line').length, byAction('flock-issue').length, byAction('flock-issues').length], [1, 0, 1], 'E عامل القاعة يرى علف قاعته وسجلّها، بلا زرّ الصرف');
+      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-issues').length], [1, 1, 1], 'E عامل القاعة يرى علف قاعته وسجلّها، و«أضف للقاعة» (يسجّل الدواء الذي ليس في المخزن)');
+    });
+    await step('E شاشة الفوج للمشاهد', async () => {
+      fresh('viewer', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadFlockDetail: () => m.parseDetail(detail()) });
+      await mount(`/broiler/flock/${FLOCK}`);
+      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-calendar').length], [1, 0, 1], 'E المشاهد يقرأ علف القاعة وتقويمها، بلا «أضف للقاعة»');
     });
   } finally {
     delete globalThis.__fi;

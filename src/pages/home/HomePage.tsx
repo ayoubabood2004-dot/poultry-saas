@@ -1,5 +1,5 @@
 import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, ShoppingCart, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
-import { useCallback, useId, type ReactNode } from 'react';
+import { useCallback, useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
 import { Button } from '../../components/ui/Button';
@@ -22,7 +22,7 @@ import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { loadOverviewKept } from '../farm/shared';
+import { HallReminders, loadOverviewKept } from '../farm/shared';
 
 // الرئيسية بثلاث طبقات (كلمة المالك 2026-11-02، «الاستخدام اليومي»): «شغل اليوم» أوّل شي (مهامّ اليوم بعدّاداتها، كل صفّ لمسة
 // وحدة لفعله)، ثم «ماذا تريد أن تفعل؟» بأربعة أزرار بأولوية الدور والباقي خلف «أعمال أخرى»، ثم «أرقام اليوم» ببطاقة لكل وحدة
@@ -201,6 +201,7 @@ function TaskLink({ row }: { row: TaskRow }) {
 /**
  * «شغل اليوم» فوك كل شي: صفوف المهامّ بعدّاداتها، و«أنجزت شغل اليوم» إذا ماكو شي، وهيكل هادئ بلا أرقام أثناء القراءة.
  * ما تختفي أبداً: ظهورها كل يوم هو العادة. وفشل قراءة الحقول سطر بزرّ «أعد المحاولة» ما يكسر باقي الصفحة.
+ * وextra صفّ لقاحات اليوم والغد (0026، حزمة القاعات الكسولة) وextraRows عدد صفوفه: لا «أنجزت» ولقاح ينتظر.
  */
 export function TodayCard({
   rows,
@@ -208,15 +209,19 @@ export function TodayCard({
   failed,
   onRetry,
   notConnected = false,
+  extra,
+  extraRows = 0,
 }: {
   rows: readonly TaskRow[];
   loading: boolean;
   failed: unknown;
   onRetry: () => void;
   notConnected?: boolean;
+  extra?: ReactNode;
+  extraRows?: number;
 }) {
   const headingId = useId();
-  const empty = rows.length === 0;
+  const empty = rows.length === 0 && extraRows === 0;
   return (
     <section aria-labelledby={headingId} className="card flex flex-col gap-2 p-4 sm:p-6">
       <div className="flex items-baseline gap-2">
@@ -227,6 +232,7 @@ export function TodayCard({
           {fmtDay(localDay())}
         </span>
       </div>
+      {extra}
       {notConnected ? (
         <p className="text-sm text-ink-muted">{t('home.today.no_db', 'لا تظهر مهامّ اليوم حتى تُربط قاعدة البيانات.')}</p>
       ) : loading && empty ? (
@@ -553,6 +559,8 @@ export default function HomePage() {
   const needFarms = wantsFarms && (savesBroiler || savesLayer || manage);
   const todayLoading = (needFarms && farms.loading) || (wantsPending && pending.loading);
   const farmsFailed = needFarms && farms.error !== null && !(farms.error instanceof NotConnectedError);
+  // لقاحات اليوم والغد لمن بنطاقه حقول (0026): صفّ من حزمة القاعات، وعدد صفوفه يمنع «أنجزت شغل اليوم».
+  const [vaccineRows, setVaccineRows] = useState(0);
 
   const actions = homeActions(session.status === 'ready' ? session.workspace : null);
   const specs = cardSpecs(summary.data, farms.data?.cards ?? null).filter((spec) => {
@@ -569,7 +577,15 @@ export default function HomePage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={t('home.title', 'الرئيسية')} />
-      <TodayCard rows={rows} loading={todayLoading} failed={farmsFailed ? farms.error : null} onRetry={farms.retry} notConnected={notConnected} />
+      <TodayCard
+        rows={rows}
+        loading={todayLoading}
+        failed={farmsFailed ? farms.error : null}
+        onRetry={farms.retry}
+        notConnected={notConnected}
+        extra={wantsFarms ? <HallReminders compact onCount={setVaccineRows} /> : null}
+        extraRows={vaccineRows}
+      />
       <HomeActions actions={actions} />
       {notConnected ? (
         <Notice tone="info" title={describeError(summary.error).title}>

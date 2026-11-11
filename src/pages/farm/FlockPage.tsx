@@ -18,7 +18,7 @@ import { t } from '../../lib/i18n';
 import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type FlockDetail } from '../../lib/repo/flocks';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { FeedLine, issuePath } from './feed';
+import { BUTTON_LINK_CLASS, CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
 import { farmPath, farmTitle, fmtPct, Metric } from './shared';
 
 // شاشة الفوج (FOUNDATION ٧٨٢): الأرقام المهمّة ثابتة بالرأس (العمر، الحيّ، النفوق، العلف، ومعامل التحويل للّاحم، وبيض اليوم ونسبته
@@ -75,7 +75,7 @@ function WeightForm({ detail, onSaved }: { detail: FlockDetail; onSaved: () => v
   };
 
   return (
-    <div className="card flex flex-col gap-3 p-4">
+    <div className={CARD_CLASS}>
       <h2 className="font-semibold">{t('flock.weight.title', 'وزن العيّنة')}</h2>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field id={`${id}-day`} label={t('flock.weight.day', 'التاريخ')} error={dayError}>
@@ -101,7 +101,6 @@ function WeightForm({ detail, onSaved }: { detail: FlockDetail; onSaved: () => v
 function FlockView({ detail, kind, onChanged }: { detail: FlockDetail; kind: FlockKind; onChanged: () => void }) {
   const { flock, days, weights } = detail;
   const feedDecimals = qtyDecimals(days.map((day) => day.feedKg));
-  const waterDecimals = qtyDecimals(days.map((day) => day.waterL));
   const fcrHint =
     flock.fcr !== null
       ? null
@@ -114,7 +113,6 @@ function FlockView({ detail, kind, onChanged }: { detail: FlockDetail; kind: Flo
     { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (day) => <Num>{fmtInt(day.dead ?? 0)}</Num>, total: <Num>{fmtInt(flock.deadTotal)}</Num> },
     { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (day) => <Num>{fmtInt(day.culled ?? 0)}</Num>, total: <Num>{fmtInt(flock.culledTotal)}</Num> },
     { key: 'feed', header: t('round.feed', 'العلف (كغم)'), kind: 'number', cell: (day) => (day.feedKg === null ? '—' : <Num>{fmtQtyCell(day.feedKg, feedDecimals)}</Num>), total: <Num>{fmtQtyCell(flock.feedKgTotal, qtyDecimals([flock.feedKgTotal, ...days.map((day) => day.feedKg)]))}</Num> },
-    { key: 'water', header: t('round.water', 'الماء (لتر)'), kind: 'number', cell: (day) => (day.waterL === null ? '—' : <Num>{fmtQtyCell(day.waterL, waterDecimals)}</Num>) },
     ...(kind === 'layer'
       ? [
           { key: 'eggs', header: t('round.eggs_total', 'البيض (المجموع)'), kind: 'number' as const, cell: (day: DayLine) => (day.eggsTotal === null ? '—' : <Num>{fmtInt(day.eggsTotal)}</Num>) },
@@ -177,18 +175,20 @@ function FlockView({ detail, kind, onChanged }: { detail: FlockDetail; kind: Flo
 }
 
 /**
- * علف القاعة (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف والمستهلك والباقي بسطر، وزرّ «اصرف علفاً أو
- * دواءً» لمن يصرف والفوج قائم، ورابط سجلّ الصرف. الصرف نفسه في صفحة المخزن (يحتاج الخادم)، فهنا القراءة والرابطان وحدهما؛ وبلا اتصال لا شيء.
+ * علف القاعة (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف والمستهلك والباقي بسطر، وأفعال القاعة (0026،
+ * كلمة المالك 2026-11-11): «أضف للقاعة» لمن يصرف من المخزن أو يسجّل دواءً بلا مخزن والفوج قائم، وتقويم القاعة وتقرير الدورة وسجلّ الصرف.
+ * الإضافة والتقويم والتقرير في حزمة القاعات (تحتاج الخادم)، فهنا القراءة والروابط وحدها؛ وبلا قاعدة لا شيء.
  */
 function FeedSection({ flockId, active, back }: { flockId: string; active: boolean; back: string }) {
   const session = useSession();
-  const canIssue = active && session.status === 'ready' && can(session.workspace.role, 'issue.post');
+  const role = session.status === 'ready' ? session.workspace.role : null;
+  const canGive = active && role !== null && (can(role, 'issue.post') || can(role, 'flock_day.save'));
   const load = useCallback(() => loadFlockFeed(flockId), [flockId]);
   const { data, error, retry } = useLoad(load);
   // بلا قاعدة (NotConnected) لا قسم، فشاشة الفوج تعمل كما هي؛ وغير ذلك القسم ظاهر: زرّ الصرف لا يحتاج سطر العلف، والفشل يُقال بإعادته.
   if (error instanceof NotConnectedError) return null;
   return (
-    <section className="card flex flex-col gap-3 p-4" data-action="flock-feed">
+    <section className={CARD_CLASS} data-action="flock-feed">
       {data ? <FeedLine feed={data} /> : null}
       {error ? (
         <div className="flex flex-wrap items-center gap-2 text-sm" data-action="feed-failed">
@@ -201,12 +201,20 @@ function FeedSection({ flockId, active, back }: { flockId: string; active: boole
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-3">
-        {canIssue ? (
-          <Link to={issuePath(flockId, back, true)} data-action="flock-issue" className="inline-flex h-11 items-center gap-2 rounded-full bg-brand-600 px-5 font-semibold text-white shadow-soft hover:bg-brand-700">
-            {t('issue.open', 'اصرف علفاً أو دواءً')}
+        {canGive ? (
+          <Link to={givePath(flockId, back)} data-action="flock-give" className={BUTTON_LINK_CLASS}>
+            {t('give.open', 'أضف للقاعة')}
           </Link>
         ) : null}
-        <Link to={issuePath(flockId, back, false)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="flock-issues">
+        {[
+          ['calendar', t('flock.calendar', 'التقويم')],
+          ['report', t('flock.report', 'تقرير الدورة')],
+        ].map(([page, label]) => (
+          <Link key={page} to={`/halls/${page}/${flockId}`} className={LINK_CLASS} data-action={`flock-${page}`}>
+            {label}
+          </Link>
+        ))}
+        <Link to={issuePath(flockId, back)} className={LINK_CLASS} data-action="flock-issues">
           {t('feed.history', 'سجلّ الصرف لهذه القاعة')}
         </Link>
       </div>
@@ -228,11 +236,11 @@ export default function FlockPage({ kind }: { kind: FlockKind }) {
         actions={
           <div className="flex gap-3">
             {detail?.canSave ? (
-              <Link to={`${base}/round`} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="flock-round">
+              <Link to={`${base}/round`} className={LINK_CLASS} data-action="flock-round">
                 {t('farm.round', 'الجولة اليومية')}
               </Link>
             ) : null}
-            <Link to={base} className="text-sm font-semibold text-brand-700 dark:text-brand-200">
+            <Link to={base} className={LINK_CLASS}>
               {t('round.back', 'إلى الحقول')}
             </Link>
           </div>

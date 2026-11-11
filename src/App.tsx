@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { RouteErrorBoundary } from './components/shell/RouteErrorBoundary';
 import { Shell } from './components/shell/Shell';
+import { loadHalls } from './lib/hallsChunk';
 import { t } from './lib/i18n';
 import { page } from './lib/pwa/recovery';
 import { SessionProvider, useSession } from './lib/session';
@@ -10,7 +11,8 @@ import { SessionProvider, useSession } from './lib/session';
 const HomePage = page(() => import('./pages/home/HomePage'));
 const MillRoutes = page(() => import('./pages/mill/MillRoutes'));
 // القاعات (0026): الإضافة لعدّة قاعات والتقويم وتقرير الدورة وجدول اللقاحات، بحزمة وحدة خارج التثبيت المسبق بالاسم (تحتاج الخادم).
-const HallsRoutes = page(() => import('./pages/halls/HallsRoutes'));
+// الاستيراد نفسه يستعمله تذكير اللقاحات في الجولة والرئيسية (lib/hallsChunk).
+const HallsRoutes = page(loadHalls);
 // حقول اللحم والبيض (المرحلة 2، النسخة الأولى): القاعات والأفواج والجولة اليومية بمساراتها الداخلية (pages/farm/FarmRoutes).
 const BroilerPage = page(() => import('./pages/broiler/BroilerPage'));
 const LayersPage = page(() => import('./pages/layers/LayersPage'));

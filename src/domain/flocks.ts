@@ -2,6 +2,8 @@ import { decimalText, parseDecimal, toScale } from './decimal';
 
 // خانات الجولة اليومية (FOUNDATION ٣٨٤ و٥٧٨، والقاعدتان 28 و32) منطقاً صافياً: نصّ الخانة ← قيمة الحمولة، والفحص قبل الحفظ
 // (الجهاز يمنع نافقاً ومستبعداً أكثر من الحيّ، FOUNDATION ٢١٧). المرحلة 2، النسخة الأولى (كلمة المالك 2026-10-31).
+// والماء خارج الجولة (كلمة المالك 2026-11-11: الماء ثابت): عمود القاعدة باقٍ لبيانات قديمة، والحمولة لا ترسل water_l (عمليات قديمة
+// بالطابور تحمله تُرسل كما هي).
 
 export type FlockKind = 'broiler' | 'layer';
 
@@ -10,19 +12,17 @@ export interface RoundText {
   dead: string;
   culled: string;
   feedKg: string;
-  waterL: string;
   eggsTotal: string;
   eggsBroken: string;
 }
 
-export const EMPTY_ROUND: RoundText = { dead: '', culled: '', feedKg: '', waterL: '', eggsTotal: '', eggsBroken: '' };
+export const EMPTY_ROUND: RoundText = { dead: '', culled: '', feedKg: '', eggsTotal: '', eggsBroken: '' };
 
-/** حمولة save_flock_day (مفاتيح FlockDayPayload بالطابور): العدد رقم صحيح، والعلف والماء نصّ عشري بثلاث مراتب. */
+/** حمولة save_flock_day (مفاتيح FlockDayPayload بالطابور): العدد رقم صحيح، والعلف نصّ عشري بثلاث مراتب. */
 export interface RoundPayload {
   dead: number | null;
   culled: number | null;
   feed_kg: string | null;
-  water_l: string | null;
   eggs_total: number | null;
   eggs_broken: number | null;
 }
@@ -65,8 +65,6 @@ export function readRound(
   if (culled === 'bad') return { error: 'bad_count', field: 'culled' };
   const feed = amount(text.feedKg);
   if (feed === 'bad') return { error: 'bad_amount', field: 'feedKg' };
-  const water = amount(text.waterL);
-  if (water === 'bad') return { error: 'bad_amount', field: 'waterL' };
   const eggsTotal = count(text.eggsTotal);
   if (eggsTotal === 'bad') return { error: 'bad_count', field: 'eggsTotal' };
   const eggsBroken = count(text.eggsBroken);
@@ -78,7 +76,7 @@ export function readRound(
   if ((eggsBroken ?? saved.eggsBroken) !== null && total === null) return { error: 'eggs_need_total', field: 'eggsTotal' };
   if (total !== null && effective(eggsBroken, saved.eggsBroken) > total) return { error: 'eggs_over_total', field: 'eggsBroken' };
   if (eggsTotal !== null && eggsTotal > liveStart) return { error: 'eggs_over_live', field: 'eggsTotal' };
-  return { payload: { dead, culled, feed_kg: feed, water_l: water, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
+  return { payload: { dead, culled, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
 }
 
 /** الحمولة ما بيها تغيير (كل الخانات فارغة). */
