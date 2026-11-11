@@ -769,6 +769,9 @@ export default async function (t, db) {
     day_balance: () => [null, '2026-01-01', null],
     // 0023: تقرير المعمل كلّه بسنة.
     mill_report: () => [null, '2026-01-01', '2026-12-31'],
+    // 0025: شاشة الإنتاج وسجلّ الخلطة بخلطة كلّ منشأة، والسجلّ بسنة.
+    production_form: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].recipe],
+    recipe_history: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].recipe, '2026-01-01', '2026-12-31'],
     // 0024: «المال بين يديك»: الحركة والذمم بسنة، والكشف بجهة كلّ مالك، والسند بقبضه، والتحويل بتحويله، وخلاصة الشهر بشهر مضى.
     money_moves: () => ['2026-01-01', '2026-12-31', null, null, null, null, 50],
     debts_overview: () => ['receivable', null, null, null, 'amount', null, false, null, 50],
@@ -828,6 +831,9 @@ export default async function (t, db) {
     day_balance: { [U.aSpare]: 'forbidden' },
     // 0023: تقرير المعمل لكلّ دور بمنشأة (read) بنطاق الدفعة، وبلا منشأة forbidden.
     mill_report: { [U.aSpare]: 'forbidden' },
+    // 0025: شاشة الإنتاج لمن يُنتج (production.draft: العامل وبلا منشأة forbidden)، والسجلّ لكلّ دور بمنشأة (read).
+    production_form: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    recipe_history: { [U.aSpare]: 'forbidden' },
     // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
     money_overview: NO_ACCOUNTS,
     money_moves: NO_ACCOUNTS,
