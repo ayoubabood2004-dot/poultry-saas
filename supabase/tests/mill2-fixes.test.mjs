@@ -548,13 +548,13 @@ async function scenario(t, db) {
       const json = await must(user, 'select public.item_purchases($1, $2, null, 50)', [itemId, warehouse]);
       return 'last_production' in json ? json.last_production : 'absent';
     };
-    const expectB = canon({ batch_id: B14b, doc_no: docB, produced_on: TODAY, qty_kg: '200.000', warehouse_name: 'مخزن العلف' });
+    const expectB = canon({ batch_id: B14b, doc_no: docB, produced_on: TODAY, qty_kg: '200.000', warehouse_name: 'رصيد العلف' });
     t.same([canon(await last(U.manager, FEED14, FEEDWH)), canon(await last(U.manager, FEED14, null)), canon(await last(U.miller, FEED14, FEEDWH))], [expectB, expectB, expectB],
       'last_production: آخر دفعة مرحَّلة ناتجها هذه المادّة (بمخزنه وبلا مخزن، ولمشغّل المعمل)');
     t.same([await last(U.manager, FEED14, RAW), await last(U.manager, CORN, null), await last(U.accRaw, FEED14, null)], [null, null, null],
       'null: مخزن آخر، ومادّة لا تُصنع، ومحاسب المواد (مخزن العلف خارج نطاقه)');
     await must(U.manager, "select public.void_production($1, 'وزن خاطئ', $2)", [B14b, ref()]);
-    t.same(canon(await last(U.manager, FEED14, FEEDWH)), canon({ batch_id: B14a, doc_no: docA, produced_on: TODAY, qty_kg: '100.000', warehouse_name: 'مخزن العلف' }),
+    t.same(canon(await last(U.manager, FEED14, FEEDWH)), canon({ batch_id: B14a, doc_no: docA, produced_on: TODAY, qty_kg: '100.000', warehouse_name: 'رصيد العلف' }),
       'بعد إلغاء الأحدث: آخر دفعة مرحَّلة هي الأولى');
     const m = await mutated([['public.item_purchases(uuid, uuid, jsonb, integer)', [["b.status = 'posted'", "b.status <> 'draft'"]]]], [],
       async ({ attempt }) => (await attempt("select public.item_purchases($1, $2, null, 50) -> 'last_production' ->> 'batch_id'", [FEED14, FEEDWH])).v);

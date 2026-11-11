@@ -242,7 +242,7 @@ async function scenario(t, db) {
   samples.record_production.posted = tonResult.value;
   t.same(tonResult.ok ? [tonResult.value.status, norm(tonResult.value.output_qty_kg), norm(tonResult.value.input_mass_kg), norm(tonResult.value.shrink_kg), tonResult.value.note,
     tonResult.value.recipe_name, tonResult.value.output_warehouse_name, Boolean(tonResult.value.doc_no), Boolean(tonResult.value.money?.cost_per_kg)] : tonResult.code,
-  ['posted', '1000', '1000', '0', 'أكملنا الطنّ ببرمكس', 'علف بادئ', 'مخزن العلف', true, true],
+  ['posted', '1000', '1000', '0', 'أكملنا الطنّ ببرمكس', 'علف بادئ', 'رصيد العلف', true, true],
   'الإنتاج بنداء واحد: طنّ كامل (977.6 + 22.4 برمكس)، بلا هدر، والملاحظة محفوظة، ورقم الدفعة والكلفة للمالك');
   t.same([await stock(I.corn), await stock(I.soy), await stock(I.oil), await stock(I.premix)],
     [norm(String(Number(before.corn) - 600)), norm(String(Number(before.soy) - 350)), norm(String(Number(before.oil) - 30)), norm(String(Number(before.premix) - 22.4))],

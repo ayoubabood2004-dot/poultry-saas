@@ -175,7 +175,7 @@ async function scenario(t, db) {
   t.same(Object.fromEntries(Object.entries(R).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(R).map((key) => [key, key])),
     'رفض البيع: كلّ حالة برمزها');
   t.ok(R.insufficient_stock.hint.includes('عندك 800 كغم'), `النقص يسمّي «عندك» (${R.insufficient_stock.hint})`);
-  t.ok(R.store_required.hint.includes('«مخزن العلف»') && R.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما (${R.store_required.hint})`);
+  t.ok(R.store_required.hint.includes('«رصيد العلف»') && R.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما (${R.store_required.hint})`);
   const bookScope = refusal('out_of_scope_book', await sell(U.keeperRaw, { item: I.corn, qty: 1, price: 100, wh: W.raw }));
   t.same([bookScope.code, bookScope.hint.includes('خارج نطاقك')], ['out_of_scope', true], 'الأمين بمخزن المواد وحده: دفتر وحدته خارج نطاقه (out_of_scope)');
   t.same([shownOf(await sell(U.millOperator, { item: I.starter, qty: 1, price: 100, wh: W.feed })), shownOf(await sell(U.viewer, { item: I.corn, qty: 1, price: 100 }))],
