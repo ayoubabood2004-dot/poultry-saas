@@ -6,7 +6,7 @@ import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { addDays, diffDays, localDay, type Day } from '../../domain/dates';
+import { addDays, localDay, type Day } from '../../domain/dates';
 import type { BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
@@ -98,6 +98,7 @@ function ProductionDetails({ production }: { production: HistoryProduction }) {
         </span>
       ) : null}
       {production.note ? <span className="text-xs text-ink-muted">{t('mill.history.note', 'ملاحظة: {note}', { note: production.note })}</span> : null}
+      {production.by ? <span className="text-xs text-ink-muted">{t('mill.history.by', 'بيد {name}', { name: production.by })}</span> : null}
     </span>
   );
 }
@@ -136,7 +137,8 @@ export function RecipeHistorySection({ recipeId, recipeName }: { recipeId: strin
       ? t('mill.history.period_bad', 'اكتب أوّل المدّة وآخرها يوم/شهر/سنة، مثل 01/11/2026.')
       : from > to
         ? t('mill.history.period_order', 'أوّل المدّة بعد آخرها.')
-        : diffDays(to, from) > MAX_SPAN
+        : // آخرها بعد أوّلها بأكثر من 365 يوماً (addDays لا diffDays: الوحدة المشتركة المحفوظة بالتثبيت المسبق لا تكبر لأجل هذه الشاشة).
+          to > addDays(from, MAX_SPAN)
           ? t('mill.history.period_long', 'المدّة أطول من سنة (366 يوماً): اختر مدّة أقصر.')
           : null;
   const ready = problem === null && from !== null && to !== null;
