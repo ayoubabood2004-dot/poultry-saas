@@ -5,12 +5,11 @@ import { decimalText } from '../../domain/decimal';
 import type { Milli } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
-import { litersToKg, parseDensity, parseQty, type BaseUnit } from '../../domain/units';
+import { parseDensity, type BaseUnit } from '../../domain/units';
 import { describeError, ZeroRowsError } from '../../lib/errors';
 import { fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadItem, updateItem, type ItemRow } from '../../lib/repo/inventory';
-import type { RecipeUnit } from '../../lib/repo/mill';
 import { loadItemsOverview, type ItemsOverview } from '../../lib/repo/purchases';
 import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
@@ -23,6 +22,8 @@ import { inBasisKind, materialOf, MaterialPicker, millAdmissible, onHandMap, OnH
 // مجموع الكميات بالكيلوغرام (اللتر بالكثافة)، والسائل بلا كثافة يُقال على بطاقته وتُكتب كثافته هناك (لا رابط يغادر الشاشة فيضيع ما اختير).
 // المادّة الصالحة كما في المنتقي (millAdmissible: فعّالة، يقبلها مخزن المواد الأوّلية، بالكيلو أو اللتر) من items_overview: قراءة واحدة
 // للبطاقات و«عندك» معاً. المختار يعيش في الصفحة (useCardLines فيها، درس WP5): القراءة من جديد لا تمسحه.
+// «الخلطة موادّ بلا كميات» (0025، كلمة المالك 2026-11-10: «اني بس احدد شنو المواد الي اريدها من دون ما احدد كميات»): البطاقة المختارة بلا خانة
+// كمية ولا وحدة ولا مجموع؛ الكميات تُكتب عند كلّ إنتاج. وتبقى كثافة السائل على بطاقته: النسخة لا تُفعَّل بسائل بلا كثافة (density_required).
 
 /** مادّة في البطاقات: من items_overview (بموجودها الآن)، أو أُضيفت من المنتقي الآن (onHand = null). */
 export interface MillMaterial {
@@ -53,12 +54,6 @@ export function useMillStock(): MillStock {
   return { materials: millMaterials(data), onHand: onHandMap(data), error, retry };
 }
 
-/** كتلة السطر بالكيلو (بالآلاف): الكيلو كما هو، واللتر بكثافة المادّة (مرآة private.recipe_line_kg)، وبلا كثافة null. */
-export function lineMassKg(qty: bigint, unit: RecipeUnit, density: bigint | null): bigint | null {
-  if (unit === 'kg') return qty;
-  return density !== null && density > 0n ? litersToKg(qty, density) : null;
-}
-
 /** «1,000 كغم» بالكيلوغرام دائماً (كلمة المالك: «مجموع كيلوات»)، لا «1.000 طن». */
 export function kgText(qty: Milli): string {
   const shown = fmtQty(qty, 'kg');
@@ -68,11 +63,9 @@ export function kgText(qty: Milli): string {
 /** كثافة السائل المختار: تُقرأ مع صفّه (نسخته لكتابتها)، والكيلوغرام لا يحتاجها. */
 export type DensityState = { status: 'ready'; row: ItemRow | null } | { status: 'loading' } | { status: 'failed'; error: unknown };
 
-/** مادّة مختارة: كميتها المكتوبة ووحدتها، وكثافتها إن كانت سائلاً، وما كُتب في خانة الكثافة. */
+/** مادّة مختارة: كثافتها إن كانت سائلاً، وما كُتب في خانة الكثافة. */
 export interface CardLine {
   item: PickedMaterial;
-  qtyText: string;
-  unit: RecipeUnit;
   density: DensityState;
   densityText: string;
   densityBusy: boolean;
@@ -81,47 +74,18 @@ export interface CardLine {
 
 export interface CardLineView {
   line: CardLine;
-  qty: Milli | null;
-  qtyOk: boolean;
   /** الوقود والتعبئة خارج الكتلة (مرآة in_basis). */
   inBasis: boolean;
-  /** الكتلة بالكيلو، أو null (كمية غير صالحة، أو سائل كثافته لا تُعرف بعد). */
-  mass: Milli | null;
-  /** سائل قُرئ بلا كثافة: لا يُحسب وزنه ولا يُفعَّل (density_required)، فيمنع الحفظ حتّى تُكتب. */
+  /** سائل قُرئ بلا كثافة: لا تُفعَّل الخلطة به (density_required)، فيمنع الحفظ حتّى تُكتب. */
   densityMissing: boolean;
   /** سائل تُقرأ كثافته أو تعذّرت قراءتها. */
   densityUnread: boolean;
 }
 
 export function viewCardLine(line: CardLine): CardLineView {
-  const qty = line.qtyText.trim() === '' ? null : parseQty(line.qtyText);
-  const qtyOk = qty !== null && qty > 0n;
   const liquid = line.item.baseUnit === 'L';
   const densityUnread = liquid && line.density.status !== 'ready';
-  const densityMissing = liquid && !densityUnread && line.item.density === null;
-  return {
-    line,
-    qty,
-    qtyOk,
-    inBasis: inBasisKind(line.item.kind),
-    mass: qtyOk && !densityUnread ? lineMassKg(qty, line.unit, line.item.density) : null,
-    densityMissing,
-    densityUnread,
-  };
-}
-
-export interface CardTotals {
-  /** مجموع كتلة ما داخل الكتلة بالكيلو: حجم الخلطة وناتجها قبل الهدر (يُرسل أساساً). */
-  sum: Milli;
-  /** كلّ ما داخل الكتلة معروف الكتلة. */
-  known: boolean;
-  /** عدد المختار داخل الكتلة. */
-  inBasis: number;
-}
-
-export function cardTotals(views: readonly CardLineView[]): CardTotals {
-  const inside = views.filter((row) => row.inBasis);
-  return { sum: inside.reduce((total, row) => total + (row.mass ?? 0n), 0n), known: inside.every((row) => row.mass !== null), inBasis: inside.length };
+  return { line, inBasis: inBasisKind(line.item.kind), densityMissing: liquid && !densityUnread && line.item.density === null, densityUnread };
 }
 
 /**
@@ -156,8 +120,6 @@ export function useCardLines() {
             ...current,
             {
               item: picked,
-              qtyText: '',
-              unit: picked.baseUnit === 'L' ? 'L' : 'kg',
               density: needsRead ? { status: 'loading' } : { status: 'ready', row },
               densityText: '',
               densityBusy: false,
@@ -185,8 +147,6 @@ export function useCardLines() {
       if (line) next.splice(target, 0, line);
       return next;
     });
-  const setQty = (itemId: string, qtyText: string) => patch(itemId, (line) => ({ ...line, qtyText }));
-  const setUnit = (itemId: string, unit: RecipeUnit) => patch(itemId, (line) => ({ ...line, unit }));
   const setDensityText = (itemId: string, densityText: string) => patch(itemId, (line) => ({ ...line, densityText, densityProblem: null }));
   const retryDensity = (itemId: string) => {
     patch(itemId, (line) => ({ ...line, density: { status: 'loading' } }));
@@ -215,7 +175,7 @@ export function useCardLines() {
 
   const reset = () => setLines([]);
 
-  return { lines, made, add, remove, move, setQty, setUnit, setDensityText, retryDensity, saveDensity, reset };
+  return { lines, made, add, remove, move, setDensityText, retryDensity, saveDensity, reset };
 }
 
 export type CardLines = ReturnType<typeof useCardLines>;
@@ -338,7 +298,7 @@ export function MaterialCards({
                   </span>
                   <OnHandNote entry={stock.onHand?.get(material.id)} />
                 </button>
-                {line ? <CardQty id={id} line={line} picks={picks} disabled={disabled} canWriteDensity={canWriteDensity} /> : null}
+                {line ? <CardDensity line={line} picks={picks} disabled={disabled} canWriteDensity={canWriteDensity} /> : null}
               </li>
             );
           })}
@@ -348,55 +308,22 @@ export function MaterialCards({
   );
 }
 
-/** خانة كمية البطاقة المختارة ووحدتها، وتحتها وزنها بالكيلو للسائل، أو ما ينقص لحسابه (الكثافة). */
-function CardQty({ id, line, picks, disabled, canWriteDensity }: { id: string; line: CardLine; picks: CardLines; disabled: boolean; canWriteDensity: boolean }) {
+/**
+ * كثافة السائل المختار على بطاقته (لا كمية: الخلطة موادّ فقط، 0025): تُقرأ، أو تعذّرت قراءتها بـ«أعد القراءة»، أو لا كثافة له فتُكتب هنا لمن يعدّل
+ * المواد (النسخة لا تُفعَّل بسائل بلا كثافة: density_required). والكيلوغرام لا يحتاج شيئاً.
+ */
+function CardDensity({ line, picks, disabled, canWriteDensity }: { line: CardLine; picks: CardLines; disabled: boolean; canWriteDensity: boolean }) {
   const view = viewCardLine(line);
   const name = line.item.name;
   const liquid = line.item.baseUnit === 'L';
   const densityValue = line.densityText.trim() === '' ? null : parseDensity(line.densityText);
+  if (!liquid) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      {/* بعرض 390 البطاقة نحو 150 بكسل: الخانة تنكمش (min-w-0 وsize) والوحدة تحتها للسائل، فلا تفيض. */}
-      <span className="flex items-center gap-2">
-        <input
-          id={`${id}-qty-${line.item.id}`}
-          aria-label={t('mill.builder.qty_of', 'كمية «{name}»', { name })}
-          className="input min-w-0 text-end tabular-nums"
-          size={6}
-          inputMode="decimal"
-          dir="ltr"
-          autoComplete="off"
-          placeholder={t('mill.cards.qty_placeholder', 'الكمية')}
-          value={line.qtyText}
-          disabled={disabled}
-          aria-invalid={(line.qtyText.trim() !== '' && !view.qtyOk) || undefined}
-          onChange={(event) => picks.setQty(line.item.id, event.target.value)}
-          data-action="card-qty"
-        />
-        {liquid ? null : <span className="shrink-0 text-sm text-ink-muted">{t('unit.kg', 'كغم')}</span>}
-      </span>
-      {liquid ? (
-        <select
-          aria-label={t('mill.builder.unit_of', 'وحدة «{name}»', { name })}
-          className="input"
-          value={line.unit}
-          disabled={disabled}
-          onChange={(event) => picks.setUnit(line.item.id, event.target.value === 'L' ? 'L' : 'kg')}
-          data-action="card-unit"
-        >
-          <option value="L">{t('unit.L', 'لتر')}</option>
-          <option value="kg">{t('unit.kg', 'كغم')}</option>
-        </select>
-      ) : null}
-      {line.qtyText.trim() !== '' && !view.qtyOk ? (
-        <span role="alert" className="text-xs text-danger-700 dark:text-danger-300">
-          {t('mill.line.qty_bad', 'اكتب كمية أكبر من صفر.')}
-        </span>
-      ) : null}
-      {liquid && line.density.status === 'loading' ? <span className="text-xs text-ink-muted">{t('mill.cards.density_loading', 'تُقرأ كثافته…')}</span> : null}
-      {liquid && line.density.status === 'failed' ? (
+      {line.density.status === 'loading' ? <span className="text-xs text-ink-muted">{t('mill.cards.density_loading', 'تُقرأ كثافته…')}</span> : null}
+      {line.density.status === 'failed' ? (
         <span className="flex flex-wrap items-center gap-2 text-xs" data-action="card-density-failed">
-          <span className="text-danger-700 dark:text-danger-300">{t('mill.cards.density_failed', 'تعذّرت قراءة كثافته فلا يُحسب وزنه.')}</span>
+          <span className="text-danger-700 dark:text-danger-300">{t('mill.cards.density_read_failed', 'تعذّرت قراءة كثافته.')}</span>
           <Button size="sm" variant="ghost" disabled={disabled} onClick={() => picks.retryDensity(line.item.id)} data-action="card-density-retry">
             {t('mill.cards.density_retry', 'أعد القراءة')}
           </Button>
@@ -406,8 +333,8 @@ function CardQty({ id, line, picks, disabled, canWriteDensity }: { id: string; l
         <div className="flex flex-col gap-1.5" data-action="card-density">
           <span className="text-xs font-medium text-danger-700 dark:text-danger-300">
             {canWriteDensity
-              ? t('mill.cards.density_missing', '«{name}» سائل بلا كثافة، فلا يُحسب وزنه: اكتب كثافته هنا.', { name })
-              : t('mill.cards.density_missing_others', '«{name}» سائل بلا كثافة، فلا يُحسب وزنه: يكتبها المالك أو المدير من «المواد».', { name })}
+              ? t('mill.cards.density_needed', '«{name}» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: اكتب كثافته هنا.', { name })
+              : t('mill.cards.density_needed_others', '«{name}» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: يكتبها المالك أو المدير من «المواد».', { name })}
           </span>
           {canWriteDensity ? (
             <span className="flex flex-wrap items-center gap-2">
@@ -444,44 +371,6 @@ function CardQty({ id, line, picks, disabled, canWriteDensity }: { id: string; l
           ) : null}
         </div>
       ) : null}
-      {liquid && line.unit === 'L' && view.mass !== null ? (
-        <span className="text-xs text-ink-muted" data-action="card-mass">
-          {t('mill.cards.mass', 'أي {kg}', { kg: kgText(view.mass) })}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * سطرا المجموع تحت البطاقات: «مجموع الخلطة» و«الناتج المتوقّع» بالكيلوغرام، أو ما يمنع حسابه. الناتج قبل الهدر = مجموع ما داخل الكتلة
- * (الإنتاج يحسبه هكذا: الوزن الفارغ = كتلة المواد).
- */
-export function CardSums({ totals, lines }: { totals: CardTotals; lines: number }) {
-  if (!lines || !totals.inBasis) {
-    return (
-      <p className="text-sm font-medium" data-action="builder-sum">
-        {lines
-          ? t('mill.cards.sum_outside', 'مجموع الخلطة: 0 كغم — الوقود والتعبئة خارج الكتلة؛ اختر مادّة تدخلها.')
-          : t('mill.cards.sum_none', 'مجموع الخلطة: 0 كغم — اختر المواد من البطاقات واكتب كمياتها.')}
-      </p>
-    );
-  }
-  if (!totals.known) {
-    return (
-      <p className="text-sm font-medium" data-action="builder-sum">
-        {t('mill.cards.sum_unknown', 'مجموع الخلطة لا يُحسب بعد: اكتب كمية كلّ مادّة مختارة، وكثافة كلّ سائل بلا كثافة.')}
-      </p>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <p className="text-lg font-semibold" data-action="builder-sum">
-        {t('mill.cards.sum', 'مجموع الخلطة: {kg}', { kg: kgText(totals.sum) })}
-      </p>
-      <p className="text-sm text-ink-muted" data-action="builder-output">
-        {t('mill.cards.output', 'الناتج المتوقّع: {kg} (قبل الهدر)', { kg: kgText(totals.sum) })}
-      </p>
     </div>
   );
 }
