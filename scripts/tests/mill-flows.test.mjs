@@ -295,13 +295,16 @@ export default async function (t) {
       t.same(headers().slice(0, 5), ['#', 'المادّة', 'النوع', 'داخل الكتلة', 'إجراءات'], 'F1 جدول الموادّ: الترتيب والمادّة ونوعها وهل هي داخل الكتلة، بلا كمية ولا حصّة');
       t.same(bodyRows().map((row) => row.slice(0, 4)), [['1', 'ذرة صفراء', 'مادّة أوّلية', 'نعم'], ['2', 'صويا هندية', 'مادّة أوّلية', 'نعم']], 'F1 الموادّ بترتيب اختيارها');
       t.same(byAction('dot').map((n) => n.getAttribute('data-slot')), ['0', '1'], 'F1 كلّ مادّة بنقطة لونها بموضعها');
+      t.eq(all().filter((n) => n.style?.maxWidth === '10rem' && n.style?.minWidth === '6rem').length, 2, 'F1 اسم المادّة بعرض محدود يلتفّ فيه (لا min-w-48 نصف الهاتف)');
       t.same([byAction('builder-sum').length, byAction('builder-output').length, byAction('planned-cost').length], [0, 0, 0], 'F1 لا «مجموع الخلطة» ولا ناتج متوقّع ولا كلفة طنّ متوقّعة');
 
-      // تكاليف الطنّ كما كانت (لأدوار الكلفة).
+      // تكاليف الطنّ كما كانت (لأدوار الكلفة). وبلا تكلفة جملة لا جدول فارغ: خليّة الجدول الفارغ بعرض أعمدته تُقصّ في الهاتف (فحص Chromium).
+      t.same([byAction('rates-empty').map((n) => n.textContent), all().some((n) => n.localName === 'caption' && n.textContent === 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')], [['لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.'], false], 'F1 بلا تكلفة: جملة لا جدول فارغ');
       await click(byAction('add-rate')[0]);
       choose(byAction('rate-category')[0], 'c-labor');
       type(byAction('rate-amount')[0], '15,000');
       await settle();
+      t.eq(byAction('rates-empty').length, 0, 'F1 وبتكلفة: الجدول');
 
       await click(byAction('save-activate')[0]);
       const created = named(calls, 'createRecipe');

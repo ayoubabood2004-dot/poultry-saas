@@ -26,7 +26,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { kgText } from './cards';
 import { inBasisKind, millAdmissible, MILL_RAW_KINDS, unitWord } from './pickers';
-import { CompositionBar, dash, MaterialName, pct, recipeColor, slotsOf, useKeptLoad } from './shared';
+import { CompositionBar, dash, MaterialName, NAME_BOX, NameCell, pct, recipeColor, slotsOf, useKeptLoad } from './shared';
 
 // الإنتاج بشاشة واحدة (0023، كلمة المالك 2026-11-10: «يكدر يسوي انتاج… ورا ما يحدد كمياتها ويشوف الكمية الي راح يتم انتاجها، واذا باقي للطن شوية
 // يكدر يسوي زر تقريبي انها طن ويكتب ملاحظة اختيارية شلون وصلنا للطن»).
@@ -373,6 +373,8 @@ function PickDialog({
         busy={pending === candidate.itemId}
         disabled={pending !== null}
         onClick={() => onPick(candidate)}
+        // اسم طويل مع «عندك» يلتفّ في الهاتف: الارتفاع بما فيه لا h-9 الثابت (بـstyle فلا صنف جديد في CSS الإقلاع).
+        style={{ height: 'auto', minHeight: '2.25rem', paddingBlock: '0.375rem' }}
         data-action="pick-option"
         data-id={candidate.itemId}
       >
@@ -491,14 +493,14 @@ function ProducedView({ result, recipeId, onAgain }: { result: Produced; recipeI
         <div className="flex gap-1">
           <dt className="text-ink-muted">{t('mill.produced.mass', 'كتلة المواد')}</dt>
           <dd className="font-medium">
-            <Num>{kgText(result.inputMassKg)}</Num>
+            {kgText(result.inputMassKg)}
           </dd>
         </div>
         {result.shrinkKg !== 0n ? (
           <div className="flex gap-1">
             <dt className="text-ink-muted">{t('mill.produced.shrink', 'الهدر')}</dt>
             <dd className="font-medium">
-              <Num>{kgText(result.shrinkKg)}</Num>
+              {kgText(result.shrinkKg)}
             </dd>
           </div>
         ) : null}
@@ -531,7 +533,7 @@ function FrozenView({ request, busy, failure, onRetry }: { request: ProduceReque
   const masses = request.lines.filter((line) => line.inBasis).map((line) => massOf(line.qty, line.unit, line.density));
   const mass = masses.every((value) => value !== null) ? masses.reduce<Milli>((sum, value) => sum + (value ?? 0n), 0n) : null;
   const columns: Column<ProduceLine>[] = [
-    { key: 'item', header: t('mill.line.item', 'المادّة'), wrap: true, sticky: true, cell: (line) => line.name },
+    { key: 'item', header: t('mill.line.item', 'المادّة'), sticky: true, cell: (line) => <NameCell>{line.name}</NameCell> },
     { key: 'qty', header: t('mill.line.qty', 'الكمية'), kind: 'number', cell: (line) => <Num>{fmtQtyCell(line.qty, decimals)}</Num> },
     { key: 'unit', header: t('mill.line.unit_col', 'الوحدة'), cell: (line) => unitWord(line.unit) },
   ];
@@ -565,7 +567,7 @@ function FrozenView({ request, busy, failure, onRetry }: { request: ProduceReque
           <div className="flex gap-1">
             <dt className="text-ink-muted">{t('mill.produce.output', 'الناتج')}</dt>
             <dd className="font-medium">
-              <Num>{kgText(mass)}</Num>
+              {kgText(mass)}
             </dd>
           </div>
         ) : null}
@@ -573,7 +575,7 @@ function FrozenView({ request, busy, failure, onRetry }: { request: ProduceReque
           <div className="flex gap-1">
             <dt className="text-ink-muted">{t('mill.weigh.kg', 'الوزن بالكيلوغرام')}</dt>
             <dd className="font-medium">
-              <Num>{kgText(request.outputKg)}</Num>
+              {kgText(request.outputKg)}
             </dd>
           </div>
         ) : null}
@@ -1024,10 +1026,9 @@ export default function ProducePage() {
     {
       key: 'item',
       header: t('mill.line.item', 'المادّة'),
-      wrap: true,
       sticky: true,
       cell: (row) => (
-        <span className="flex flex-col gap-0.5">
+        <span className="flex flex-col gap-0.5" style={NAME_BOX}>
           <MaterialName name={row.name} slot={slots.get(row.itemId) ?? null} />
           {!row.inBasis ? (
             <span className="text-xs text-ink-muted" data-action="out-of-basis">

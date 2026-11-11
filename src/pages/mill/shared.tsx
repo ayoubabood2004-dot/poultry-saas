@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { fmtPercent } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useLoad, type LoadState } from '../../lib/useLoad';
@@ -112,6 +112,21 @@ export function Chip({ tone, slot, children }: { tone?: string; slot?: number; c
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ${tone ?? 'bg-surface-2 text-ink-muted'}`}>
       {slot === undefined ? null : <Dot slot={slot} />}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * خليّة اسم المادّة في جداول المعمل: بعرض ما فيها بين 6rem و10rem، والاسم الطويل يلتفّ داخلها. عمود wrap في DataTable يأخذ min-w-48
+ * (192px)، نصف عرض الهاتف (390)، فتغيب خانة الكمية في شاشة الإنتاج وعمود «داخل الكتلة» خلف التمرير (فحص Chromium لشاشات 0025)؛ والعرض بـstyle
+ * لا بصنف Tailwind جديد (ملف CSS الوحيد في حزمة الإقلاع والتثبيت المسبق)، والحدّ الأدنى يمنع انعصار الاسم كلمةً في سطر حين يفيض الجدول.
+ */
+export const NAME_BOX: CSSProperties = { whiteSpace: 'normal', minWidth: '6rem', maxWidth: '10rem' };
+
+export function NameCell({ children }: { children: ReactNode }) {
+  return (
+    <span className="block" style={NAME_BOX}>
       {children}
     </span>
   );

@@ -119,6 +119,8 @@ const tableHeaders = (caption) => {
   const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent.startsWith(caption)));
   return table ? descendants(table).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : null;
 };
+/** كمية بوحدتها («1,000 كغم») داخل bdi ltr: تُقرأ من اليمين «كغم 1,000». */
+const unitIsolates = () => all().filter((n) => n.localName === 'bdi' && /كغم|طن|لتر|غرام/u.test(n.textContent)).map((n) => n.textContent);
 /** وعد يُحلّ من خارجه: طلب ينتظر حتّى يُفحص ما تعرضه الشاشة أثناءه. */
 const deferred = () => {
   let resolve;
@@ -508,6 +510,10 @@ export default async function (t) {
       t.same([byAction('round-ton').length, byAction('recipe-diff').length, disabled(byAction('produce-go')[0]), byAction('produce-missing').length], [0, 0, false, 0], 'R1 طنّ كامل والموادّ كالخلطة: لا «قرّب» ولا اختيار، و«أنتج» مفتوح');
       t.same([byAction('quick-qty').length, byAction('produce-qty').length], [0, 0], 'R1 لا كمية كلّية ولا كميات سريعة');
       t.ok(/(^|\s)w-32(\s|$)/u.test(qtyInput('ذرة صفراء')?.getAttribute('class') ?? ''), 'R1 خانة الكمية بعرض ثابت (w-32، مراجعة 0023 S3)');
+      // الهاتف (390، فحص Chromium): عمود المادّة بين 6rem و10rem لا min-w-48 (نصف الشاشة)، فتظهر خانة الكمية ووحدتها بلا تمرير.
+      const nameHeader = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
+      const boxes = all().filter((n) => n.style?.maxWidth === '10rem' && n.style?.minWidth === '6rem' && n.style?.whiteSpace === 'normal');
+      t.same([/min-w-48/u.test(nameHeader?.getAttribute('class') ?? ''), boxes.length], [false, 5], 'R1 عمود المادّة بعرض محدود يلتفّ فيه الاسم الطويل (لا min-w-48)');
     });
     await step('R1 من الخلطة ومخزنان', async () => {
       produceSetup(MANAGER, { form: () => clone(F.production_form.legacy) });
@@ -561,6 +567,7 @@ export default async function (t) {
       );
       t.ok(UUID.test(sent?.p_id ?? '') && UUID.test(sent?.p_client_ref ?? '') && sent.p_id !== sent.p_client_ref, 'R2 معرّف الدفعة ومرجع المحاولة من الجهاز');
       t.same([textOf('produced-text'), textOf('produced-doc'), textOf('produced-cost'), byAction('produced-saved').length], ['دخل 1,000 كغم من «علف بادئ 21٪» إلى «رصيد العلف».', 'PD-2026-0010', '615.00', 0], 'R2 تمّ الإنتاج: دخل «رصيد العلف»');
+      t.same(unitIsolates(), [], 'R2 الكمية بوحدتها («1,000 كغم») خارج العزل اليساريّ: داخله تُقرأ «كغم 1,000»');
     });
 
     await step('R3 «أزل» و«أضف مادّة» و«عدّل الخلطة»', async () => {
@@ -572,6 +579,7 @@ export default async function (t) {
       t.same([byAction('choice-save')[0]?.getAttribute('aria-checked'), textOf('choice-help')], ['true', 'تصير هذه الموادّ بترتيبها هي الخلطة من الآن، ويُكتب ذلك في سجلّها.'], 'R3 «عدّل الخلطة بهذه الموادّ» ويقول أثره');
       await click(byAction('add-material')[0]);
       t.same(byAction('pick-group').map((n) => n.getAttribute('data-group')), ['last', 'removed', 'store'], 'R3 «أضف مادّة»: موادّ آخر إنتاج أوّلاً، ثمّ ما أُزيل، ثمّ بقيّة المخزن');
+      t.same([withId('pick-option', 'i-lime')?.style.height, withId('pick-option', 'i-lime')?.style.minHeight], ['auto', '2.25rem'], 'R3 خيار باسم طويل يلتفّ بارتفاعه (لا h-9 الثابت فيفيض النصّ عن الزرّ في الهاتف)');
       const storeOptions = descendants(byAction('pick-group').find((n) => n.getAttribute('data-group') === 'store')).filter((n) => n.getAttribute('data-action') === 'pick-option').map((n) => n.getAttribute('data-id'));
       t.same(storeOptions, ['i-lime'], 'R3 بقيّة المخزن ما يصلح للإنتاج وليس هنا (لا القطعة ولا المؤرشفة ولا المعروض فوق)');
       await click(withId('pick-option', 'i-premix'));
@@ -651,6 +659,7 @@ export default async function (t) {
         'R7 الشاشة المجمَّدة تعرض ما أُرسل (لا الخانات)',
       );
       t.eq(m.isWindowDirty(), true, 'R7 والنافذة «فيها ما لم يُحفظ» وهي مجمَّدة');
+      t.same([text().includes('الناتج1,000 كغم'), unitIsolates()], [true, []], 'R7 ناتج الطلب المجمَّد بوحدته خارج العزل اليساريّ');
       await unmount();
       await mount(produceUrl);
       t.same([byAction('retry-produce').length, byAction('produce-go').length], [1, 0], 'R7 الرجوع ثمّ العودة: مجمَّدة بطلبها، لا «أنتج» بمعرّف جديد');
@@ -731,6 +740,12 @@ export default async function (t) {
       t.same([text().includes('محاولة إنتاج سابقة'), disabled(byAction('produce-go')[0]), m.readPending(key)], [false, false, null], 'R10 «راجعتها» يمحوه ويفتح «أنتج»');
     });
 
+    await step('R11 صفحة الدفعة', async () => {
+      fresh(MANAGER, { rpcs: { production_detail: () => clone(F.production_detail.saved) }, tables: { expense_categories: () => [] } });
+      await mount('/mill/batch/b-11');
+      t.same([text().includes('المخطّط'), unitIsolates()], [true, []], 'R11 أرقام الدفعة بوحداتها («1.010 طن») خارج العزل اليساريّ');
+    });
+
     // ── H: «السجلّ» في صفحة الخلطة ───────────────────────────────────────────────────────────────────────────────
     const recipeSetup = (history = () => clone(F.recipe_history.period)) =>
       fresh(MANAGER, {
@@ -768,6 +783,8 @@ export default async function (t) {
       t.same(tableHeaders('موادّ الخلطة بترتيبها'), ['#', 'المادّة', 'النوع', 'داخل الكتلة'], 'H1 بطاقة الخلطة: # | المادّة | النوع | داخل الكتلة');
       t.same((tableRows('موادّ الخلطة بترتيبها') ?? []).map((row) => [row[1], row[3]]).at(-1), ['كاز المولّدة', 'خارج الكتلة'], 'H1 والكاز «خارج الكتلة»');
       t.same(byAction('dot').map((n) => n.getAttribute('data-slot')), ['0', '1', '2', '3', '4'], 'H1 ونقطة لون لكلّ مادّة داخل الكتلة');
+      const nameHeader = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
+      t.same([/min-w-48/u.test(nameHeader?.getAttribute('class') ?? ''), all().filter((n) => n.style?.maxWidth === '10rem').length], [false, 6], 'H1 عمود المادّة بعرض محدود (لا min-w-48): الأعمدة الأربعة في الهاتف (390) بلا تمرير');
     });
     await step('H2 المدّة', async () => {
       const { rpcLog } = recipeSetup();

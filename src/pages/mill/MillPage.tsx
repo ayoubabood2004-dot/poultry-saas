@@ -73,7 +73,8 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
                 <Chip key={piece.key} slot={piece.slot}>
                   <span className="truncate">{piece.label}</span>
                   {/* كتلة لا تُعرف (ق٤٢، ب٣١): «—» لا صفر، والشريط يتخطّى قطعتها. والخلطة بلا كميات قبل أوّل إنتاج: أسماء الموادّ وحدها. */}
-                  {recipe.materialsOnly && !fromLast ? null : <Num>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</Num>}
+                  {/* «600 كغم» عبارة عربية لا رقم معزول: داخل bdi ltr كانت تُقرأ «كغم 600» (فحص Chromium لشاشات 0025). */}
+                  {recipe.materialsOnly && !fromLast ? null : <span>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</span>}
                 </Chip>
               ))}
               {others > 0 ? (
@@ -87,7 +88,7 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
                 <div className="flex items-center gap-1">
                   <dt className="text-ink-muted">{t('mill.card.total', 'مجموع الخلطة')}</dt>
                   <dd className="font-medium">
-                    <Num>{fmtQty(basis, 'kg').sub ?? fmtQty(basis, 'kg').main}</Num>
+                    {fmtQty(basis, 'kg').sub ?? fmtQty(basis, 'kg').main}
                   </dd>
                 </div>
               )}

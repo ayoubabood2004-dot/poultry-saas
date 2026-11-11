@@ -23,7 +23,7 @@ import { itemKindLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 import { MaterialCards, useCardLines, useMillStock, viewCardLine } from './cards';
 import { kindFixFailure, NewCategoryField, newItemFields, NO_CATEGORY_DRAFT, sameNameTwins, type CategoryDraft, type TwinView } from './pickers';
-import { dash, MaterialName, slotsOf } from './shared';
+import { dash, MaterialName, NameCell, slotsOf } from './shared';
 
 // بانية الخلطة بشاشة واحدة (0016، كلمة المالك 2026-11-04: «لمن اسوي خلطة… المفروض تطلعلي قائمة انتاج كاملة اضيف منها المواد…
 // وايضا اضيف اشياء اختيارية وتكاليف اختيارية حتى لو ما موجودة بالمعمل»): الاسم والمنتج (يُختار أو يُنشأ هنا) وبطاقات المواد وجدول تكاليف
@@ -276,9 +276,12 @@ export default function RecipeBuilderPage() {
     {
       key: 'item',
       header: t('mill.line.item', 'المادّة'),
-      wrap: true,
       sticky: true,
-      cell: (row) => <MaterialName name={row.line.item.name} slot={slots.get(row.line.item.id) ?? null} />,
+      cell: (row) => (
+        <NameCell>
+          <MaterialName name={row.line.item.name} slot={slots.get(row.line.item.id) ?? null} />
+        </NameCell>
+      ),
     },
     { key: 'kind', header: t('mill.col.kind', 'النوع'), cell: (row) => itemKindLabel(row.line.item.kind) },
     {
@@ -514,14 +517,21 @@ export default function RecipeBuilderPage() {
           <p className="text-sm text-ink-muted">
             {t('mill.rates.hint', 'أيدي عاملة أو كهرباء أو نقل: مبلغ لكلّ طنّ يُحسب على كلّ دفعة بكميتها، ويُحمَّل عند الإنتاج من مصروف مسجّل بفئته.')}
           </p>
-          <DataTable
-            caption={t('mill.rates.caption', 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')}
-            columns={rateColumns}
-            rows={ratesView}
-            rowKey={(row) => row.rate.key}
-            empty={t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
-            totalLabel={t('mill.detail.total', 'المجموع')}
-          />
+          {ratesView.length ? (
+            <DataTable
+              caption={t('mill.rates.caption', 'تكاليف الخلطة لكلّ طنّ بفئة المصروف')}
+              columns={rateColumns}
+              rows={ratesView}
+              rowKey={(row) => row.rate.key}
+              empty={t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
+              totalLabel={t('mill.detail.total', 'المجموع')}
+            />
+          ) : (
+            // بلا تكلفة جملة لا جدول فارغ: خليّة الجدول الفارغ بعرض أعمدته الثلاثة، فتُقصّ الجملة في الهاتف (390) خلف التمرير.
+            <p className="text-sm text-ink-muted" data-action="rates-empty">
+              {t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')}
+            </p>
+          )}
           <div className="flex flex-wrap items-end gap-3">
             <Button variant="secondary" size="sm" icon={<Plus className="size-4" aria-hidden="true" />} disabled={locked || rates.length >= categories.length} onClick={addRate} data-action="add-rate">
               {t('mill.rates.add', 'أضف تكلفة')}

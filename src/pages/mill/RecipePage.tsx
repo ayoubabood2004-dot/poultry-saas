@@ -40,7 +40,7 @@ import { itemKindLabel } from '../../lib/storeLabels';
 import { MaterialCards, useCardLines, useMillStock, viewCardLine, type CardLines, type MillStock } from './cards';
 import { CellEdit, NewCategoryField, NO_CATEGORY_DRAFT, onHandText, useDrafts, type CategoryDraft } from './pickers';
 import { RecipeHistorySection } from './RecipeHistory';
-import { Chip, dash, forgetMillRef, MaterialName, millRef, moveId, reconcileOrder, sameOrder, slotsOf, useKeptLoad } from './shared';
+import { Chip, dash, forgetMillRef, MaterialName, millRef, moveId, NameCell, reconcileOrder, sameOrder, slotsOf, useKeptLoad } from './shared';
 
 // بطاقة الخلطة (0015): نسخها وموادّها بجدول كلاسيكي. النسخة المسوّدة تُعدَّل وتُفعَّل؛ والمفعَّلة مجمَّدة، فالتعديل نسخة جديدة (التاريخ لا يُعاد
 // كتابته). و«تكاليف لكلّ طنّ» بفئة مصروف (0016، تُكتب في المسوّدة لأدوار الكلفة)، وفئة المصروف تُضاف من مكانها (م٣)، و«نسخة جديدة» تنسخ المفعَّلة
@@ -457,7 +457,16 @@ export default function RecipePage() {
   const columns = ((): Column<RecipeLine>[] => {
     const base: Column<RecipeLine>[] = [
       { key: 'no', header: t('mill.col.no', '#'), kind: 'number', cell: (_line, index) => <Num>{fmtInt(index + 1)}</Num> },
-      { key: 'item', header: t('mill.line.item', 'المادّة'), wrap: true, sticky: true, cell: (line) => <MaterialName name={line.itemName} slot={slots.get(line.itemId) ?? null} /> },
+      {
+        key: 'item',
+        header: t('mill.line.item', 'المادّة'),
+        sticky: true,
+        cell: (line) => (
+          <NameCell>
+            <MaterialName name={line.itemName} slot={slots.get(line.itemId) ?? null} />
+          </NameCell>
+        ),
+      },
       { key: 'kind', header: t('mill.col.kind', 'النوع'), cell: (line) => kindText(line.kind) },
       {
         key: 'basis',

@@ -131,6 +131,8 @@ export default async function (t) {
   t.ok(textOf(miller).includes('الدفعات المنتَجة4') && textOf(miller).includes('آخر إنتاج02/11/2026 · 2,000 كغم'), `S1 عدد الدفعات وآخر إنتاج بتاريخه وكميته بالكيلوغرام (${textOf(miller)})`);
   t.ok(miller.includes('href="/mill/batch/b-9"'), 'S1 آخر إنتاج رابط لصفحة دفعته');
   t.ok(textOf(miller).includes('600') && textOf(miller).includes('ذرة صفراء') && textOf(miller).includes('ملح') && !textOf(miller).includes('أخرى'), 'S1 خمس رقاقات بكمياتها (لون لكلّ مادّة في اللوحة)، بلا «أخرى»');
+  // «600 كغم» عبارة عربية: داخل bdi ltr تُقرأ «كغم 600» من اليمين (فحص Chromium لشاشات 0025).
+  t.ok(!/<bdi dir="ltr">[^<]*(كغم|طن|لتر)/u.test(miller) && miller.includes('600 كغم'), 'S1 كمية الرقاقة بوحدتها خارج العزل اليساريّ (تُقرأ «600 كغم» لا «كغم 600»)');
   const dots = (html) => [...html.matchAll(/data-action="dot" data-slot="(\d+)"/gu)].map((match) => Number(match[1]));
   t.same(dots(miller), [0, 1, 2, 3, 4], 'S1 كلّ رقاقة بنقطة لونها بموضع مادّتها (دليل الشريط)');
   const six = draw({ recipe: recipe(false, { pieces: [...recipe(false).pieces, { key: 'i-6', label: 'برمكس', weight: 2_000n, inBasis: true }] }), canProduce: true, onProduce: () => {} });
