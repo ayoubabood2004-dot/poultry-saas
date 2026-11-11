@@ -96,7 +96,11 @@ export function sectionsOf(rows: readonly StockRow[], categories: readonly Pick<
 export function feedSections(rows: readonly StockRow[], order: readonly string[], search = ''): Section[] {
   const shown = matching(rows, search);
   if (!shown.length) return [];
-  const rank = new Map(order.map((itemId, index) => [itemId, index]));
+  // المنتج المكرّر في الترتيب (مشترك بين عليقتين) بأوّل ظهور: Map من order مباشرةً تأخذ آخر ظهور.
+  const rank = new Map<string, number>();
+  order.forEach((itemId, index) => {
+    if (!rank.has(itemId)) rank.set(itemId, index);
+  });
   const ranked = shown.filter((row) => rank.has(row.itemId)).sort((a, b) => (rank.get(a.itemId) ?? 0) - (rank.get(b.itemId) ?? 0));
   const rest = shown.filter((row) => !rank.has(row.itemId));
   return [{ id: 'feed', name: t('stores.feed.section', 'العلف بترتيب العلائق'), rows: [...ranked, ...rest] }];
