@@ -685,6 +685,48 @@ export async function loadStockOnHand(warehouseId: string, after: StockCursor | 
   return parseStockBoard(await call<unknown>('stock_on_hand', { p_warehouse: warehouseId, p_after: after, p_limit: STOCK_PAGE }));
 }
 
+/**
+ * كلّ صفوف المخزن بصفحاته (0025، «رصيد العلف»: قائمة واحدة بترتيب العلائق تحتاج كلّ الموادّ، لا الصفحة الأولى وحدها). الأولى برأسها ومجاميعها،
+ * والصفوف كلّها بعدها، ومادّة انسمّت بين صفحتين تظهر مرّة. حدّ الصفحات دفاع: المخزن بعشرات الموادّ.
+ */
+export async function loadAllStockOnHand(warehouseId: string): Promise<StockBoard> {
+  const first = await loadStockOnHand(warehouseId);
+  const rows = [...first.rows];
+  const seen = new Set(rows.map((row) => row.itemId));
+  let next = first.next;
+  for (let page = 0; next && page < 50; page += 1) {
+    const board = await loadStockOnHand(warehouseId, next);
+    for (const row of board.rows) {
+      if (seen.has(row.itemId)) continue;
+      seen.add(row.itemId);
+      rows.push(row);
+    }
+    next = board.next;
+  }
+  return { ...first, rows, next };
+}
+
+/**
+ * ترتيب «رصيد العلف» (0025، كلمة المالك 2026-11-10: «تتجمع كل الخلطات الي عندي بكمياتها بنفس الترتيب الي رتبنا بيه»): منتجات العلائق الظاهرة
+ * بترتيب العلائق في المعمل («رتّب العلائق»: recipes_overview يرسلها مرتّبة بـposition ثمّ الاسم، والمحذوفة آخراً فتُترك)، والمنتج المشترك بين عليقتين
+ * مرّة واحدة بأوّل ظهور.
+ */
+export function parseFeedOrder(value: unknown): string[] {
+  const json = obj(value, 'recipes_overview');
+  const ids: string[] = [];
+  for (const entry of arr(json.recipes, 'recipes')) {
+    const recipe = obj(entry, 'recipes');
+    if (bool(recipe, 'archived')) continue;
+    const id = str(obj(recipe.output_item, 'output_item'), 'id');
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+export async function loadFeedOrder(): Promise<string[]> {
+  return parseFeedOrder(await call<unknown>('recipes_overview'));
+}
+
 export interface StockValue {
   available: Fils;
   expired: Fils;
