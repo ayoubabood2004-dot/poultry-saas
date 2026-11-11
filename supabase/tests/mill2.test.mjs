@@ -249,6 +249,8 @@ async function screensRepo() {
           '  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch,',
           "  activateVersion, deleteRecipeLine } from './src/lib/repo/mill.ts';",
           "export { createRecipe, createProduction, setRecipeLine, addRecipeLine, setVersionBasis } from 'legacy-mill';",
+          // كتّاب شاشات 0025 الحقيقيون بأسماء أخرى (الأسماء القديمة أعلاه للشاشات المخبّأة قبل 0025).
+          "export { createRecipe as createRecipe25, addRecipeLine as addRecipeLine25, clearRecipeLineQty, produceBatch, loadProduceForm, loadRecipeHistory } from './src/lib/repo/mill.ts';",
           'export { loadItemLots, loadItemMoves, loadItemPurchases, setItemCostPrice, createExpenseCategory, rename, createItem, loadItem, updateItem, findItemTwins, setArchived }',
           "  from './src/lib/repo/inventory.ts';",
           "export { loadExpenses, voidExpense } from './src/lib/repo/cash.ts';",
@@ -3010,6 +3012,42 @@ async function scenario(t, db) {
         [renewed.versionId, renewed.status, renewed.rates?.map((r) => r.amountPerTon)]],
       [[95000n, 'price_changed', 96000n, 'ok'], [400000n, 'amount_changed', 450000n, 'ok', 'stale_draft'], ['ZeroRowsError', 'ok'], ['stale_draft', 'ok'], [id(241), 'active', [500000n]]],
       'RecipePage (ب٤٢): سعر الكلفة price_changed ومبلغ الطنّ amount_changed وحفظ الأساس ZeroRowsError والتفعيل stale_draft — كلّها ممّا تعيد له الصفحة القراءة، وبطاقة الخلطة الجديدة شرط الحفظ التالي فينجح، والنسخة تتفعّل بنسختها الجديدة',
+    );
+
+    // ── 0025: كتّاب شاشات الإنتاج الجديدة على القاعدة الحقيقية (فجوة ذكرها وكيل التكامل: طلباتها كانت تُقارن بأشكال مكتوبة باليد وحدها) ──
+    // البانية بالموادّ وحدها، ثمّ production_form وproduce_batch («لهذه المرّة» مرحَّلة، ثمّ «عدّل الخلطة» مع «احفظ مسوّدة») وrecipe_history، ثمّ
+    // «نسخة جديدة» وسطر بلا كمية (addRecipeLine بمعاملين) ومحو كمية سطر كتبته شاشة قديمة (clearRecipeLineQty) والتفعيل؛ الطلب من repo الحقيقي
+    // بأسماء معاملاته، والجواب بمحلّله.
+    actAs(U.manager);
+    const R25 = id(701);
+    const V25 = id(702);
+    const built25 = await repo.createRecipe25({ id: R25, versionId: V25, name: 'علف الموادّ', outputItemId: FEED2, lines: [{ itemId: CORN }, { itemId: SOY }], rates: [], activate: true });
+    const form25 = await repo.loadProduceForm(R25);
+    const line25 = (itemId, qty) => ({ itemId, qty, name: '', unit: 'kg', density: null, inBasis: true });
+    const request25 = (over) => ({
+      recipeId: R25, expectedVersion: form25.active?.id ?? '', inputWarehouseId: RAW, saveRecipe: null, draft: false, producedOn: TODAY, outputKg: null, expiry: null,
+      shrinkReason: null, note: null, ...over,
+    });
+    const once25 = await repo.produceBatch(request25({ id: id(703), clientRef: id(704), lines: [line25(CORN, 60000n), line25(SOY, 40000n)], note: 'من الشاشة' }));
+    const saved25 = await repo.produceBatch(request25({ id: id(705), clientRef: id(706), lines: [line25(CORN, 20000n)], saveRecipe: true, draft: true }));
+    const history25 = await repo.loadRecipeHistory(R25, '2026-10-01', TODAY);
+    const copy25 = await repo.newRecipeVersion(R25, id(707));
+    const soyLine25 = await repo.addRecipeLine25(id(707), SOY);
+    const cornLine25 = (await db.admin('select id from public.recipe_lines where version_id = $1 and item_id = $2', [id(707), CORN])).rows[0]?.id ?? '';
+    await repo.setRecipeLine(cornLine25, 5000n, 'kg');
+    const mixed25 = (await db.admin('select count(*) filter (where qty is not null)::int as n from public.recipe_lines where version_id = $1', [id(707)])).rows[0].n;
+    await repo.clearRecipeLineQty(cornLine25);
+    const activated25 = await rejected((async () => repo.activateVersion(id(707), (await repo.loadRecipe(R25, id(707))).versionVersion))());
+    t.same(
+      [built25.status, form25.materials.map((m) => [m.itemId, m.archived, m.defaultQty]), form25.tracksExpiry, form25.outputStore?.id === FEEDWH,
+        [once25.status, once25.savedToRecipe], [saved25.status, saved25.savedToRecipe, saved25.versionNo],
+        history25.versions.map((v) => [v.versionNo, v.fromBatch?.status ?? null, v.fromBatch?.docNo ?? null]), history25.productions.map((p) => [p.status, p.note, p.lines.map((l) => l.qty)]),
+        [copy25.status, typeof soyLine25, mixed25, activated25, (await repo.loadRecipe(R25)).versionId]],
+      ['active', [[CORN, false, null], [SOY, false, null]], false, true,
+        ['posted', false], ['draft', true, 2],
+        [[2, 'draft', null], [1, null, null]], [['posted', 'من الشاشة', [60000n, 40000n]]],
+        ['draft', 'string', 1, 'ok', id(707)]],
+      'كتّاب 0025 على القاعدة الحقيقية: البانية بلا كميات، وشاشة الإنتاج (archived و«يُتابَع انتهاؤه» و«رصيد العلف»)، وproduce_batch «لهذه المرّة» و«عدّل الخلطة» مسوّدة، والسجلّ بحالة مصدر النسخة، و«نسخة جديدة» بسطر بلا كمية ومحو كمية كتبتها شاشة قديمة ثمّ التفعيل',
     );
   } finally {
     delete globalThis.__millPg;
