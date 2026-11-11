@@ -218,12 +218,13 @@ begin
     -- مسوّدة)؛ وإلّا فالمحفوظ غير ما يراه المستخدم، و«نجح» كان يُضيّع تعديله بصمت والخلطة المفعَّلة بسطوره القديمة.
     if v.basis_kg is distinct from v_basis
       or v.status is distinct from (case when coalesce(p_activate, false) then 'active' else 'draft' end)
-      or (select coalesce(jsonb_agg(jsonb_build_array(l.item_id::text, trim_scale(l.qty)::text, case when l.qty is null then null else l.unit end)
-            order by l.line_no), '[]'::jsonb)
+      or (select coalesce(jsonb_agg(jsonb_build_array(l.item_id::text, trim_scale(l.qty)::text, l.unit) order by l.line_no), '[]'::jsonb)
           from public.recipe_lines l where l.org_id = v_org and l.version_id = v.id)
         is distinct from (select coalesce(jsonb_agg(jsonb_build_array(lower(x.value ->> 'item_id'),
             case when coalesce(x.value ->> 'qty', '') ~ v_number then trim_scale((x.value ->> 'qty')::numeric)::text else x.value ->> 'qty' end,
-            case when x.value ->> 'qty' is null then null else coalesce(nullif(x.value ->> 'unit', ''), 'kg') end) order by x.n), '[]'::jsonb)
+            -- 0025: سطر بلا كمية وحدته وحدة أساس المادّة (يكتبها حارس السطر)، فالمرسَل بلا كمية يُقارن بها.
+            case when x.value ->> 'qty' is null then (select i.base_unit from public.items i where i.org_id = v_org and i.id::text = lower(x.value ->> 'item_id'))
+              else coalesce(nullif(x.value ->> 'unit', ''), 'kg') end) order by x.n), '[]'::jsonb)
           from jsonb_array_elements(case when jsonb_typeof(coalesce(p_lines, '[]'::jsonb)) = 'array' then coalesce(p_lines, '[]'::jsonb)
             else '[null]'::jsonb end) with ordinality as x(value, n))
       or (select coalesce(jsonb_agg(jsonb_build_array(c.category_id::text, trim_scale(c.amount_per_ton)::text) order by c.line_no), '[]'::jsonb)
@@ -404,9 +405,10 @@ begin
 end
 $$;
 
--- التفعيل (0016) على جسمه، ويزيد طريقاً لنسخة بالموادّ وحدها (0025): كلّ سطورها بلا كمية ← الأساس فارغ، واللقطات الثلاث (والوحدة = وحدة أساس
--- المادّة الآن)، وكثافة كلّ سائل (density_required)، ومادّة واحدة داخل الكتلة على الأقلّ (no_mass_inputs). والنسخة بكميات كلّها بطريقها القديم،
--- وأساسها مطلوب (نسخة بكميات بلا أساس كانت تُفعَّل بمقارنة فارغة: bad_basis). وبعض السطور بكمية وبعضها بلا ← mixed_quantities.
+-- التفعيل (0016) على جسمه، ويزيد طريقاً لنسخة بالموادّ وحدها (0025) في الحلقة نفسها: كلّ سطورها بلا كمية ← الأساس فارغ، واللقطات الثلاث بجملتها
+-- ومعها وحدة السطر = وحدة أساس المادّة الآن، وكثافة كلّ سائل (density_required)، ومادّة واحدة داخل الكتلة على الأقلّ (no_mass_inputs)، بلا فحص كمية
+-- ولا مجموع. والنسخة بكميات كلّها بطريقها القديم، وأساسها مطلوب (نسخة بكميات بلا أساس كانت تعبر مقارنة المجموع الفارغة: bad_basis). وبعض السطور
+-- بكمية وبعضها بلا ← mixed_quantities.
 create or replace function public.activate_recipe_version(p_id uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -422,7 +424,6 @@ declare
   v_null int := 0;
   v_set int := 0;
   v_bare boolean;
-  v_inside int := 0;
 begin
   set local lock_timeout = '5s';
   perform private.require('recipe.activate');
@@ -441,7 +442,8 @@ begin
   if p_expected_version is null or v.version <> p_expected_version then
     raise exception 'stale_draft' using hint = 'تغيّرت الخلطة بعد فتحها. حدّث الشاشة وراجع سطورها قبل التفعيل.';
   end if;
-  -- 0025: كلّ السطور بلا كمية = نسخة بالموادّ وحدها (طريقها أدناه، وأساسها فارغ)؛ وكلّها بكمية = الطريق القديم؛ والخلط مرفوض.
+  -- 0025 (كلمة المالك 2026-11-10: «بس احدد شنو المواد… من دون ما احدد كميات»): كلّ السطور بلا كمية = نسخة بالموادّ وحدها (أساسها فارغ، ولا مجموع
+  -- يُقارن، والكمية تُكتب لحظة الإنتاج)؛ وكلّها بكمية = الطريق القديم كما هو؛ وبعضها بكمية وبعضها بلا مرفوض.
   select count(*) filter (where l.qty is null), count(*) filter (where l.qty is not null) into v_null, v_set
   from public.recipe_lines l where l.org_id = v_org and l.version_id = v.id;
   if v_null > 0 and v_set > 0 then
@@ -456,21 +458,10 @@ begin
     if ln.base_unit not in ('kg', 'L') then
       raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والعليقة تُحسب بالكتلة: احذف سطرها.', ln.name);
     end if;
-    -- 0025: نسخة بالموادّ وحدها: كثافة كلّ سائل (يُحسب وزنه حين يُنتج)، واللقطات الثلاث بجملة واحدة والوحدة = وحدة أساس المادّة الآن (السطر بلا
-    -- كمية فلا وحدة كتابة له)، وعدّ ما داخل الكتلة؛ بلا كمية ولا مجموع.
+    -- 0025: سطر النسخة بالموادّ وحدها بلا كمية فلا وحدة كتابة له: وحدته وحدة أساس المادّة الآن (تُكتب مع اللقطات أدناه)، فلا يُرفض بفحص سطر اللتر،
+    -- ويُطلب للسائل كثافته (يُحسب وزنه حين يُنتج)، ولا تُفحص له كمية.
     if v_bare then
-      if ln.base_unit = 'L' and ln.density_kg_per_l is null then
-        raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.', ln.name);
-      end if;
-      v_in := ln.kind not in ('fuel', 'packaging');
-      update public.recipe_lines set in_basis = v_in, base_unit = ln.base_unit, unit = ln.base_unit,
-        density_kg_per_l = case when ln.base_unit = 'L' then round(ln.density_kg_per_l, 4) else density_kg_per_l end
-      where org_id = v_org and id = ln.id;
-      if v_in then
-        v_inside := v_inside + 1;
-      end if;
-      v_count := v_count + 1;
-      continue;
+      ln.unit := ln.base_unit;
     end if;
     -- سطر مكتوب باللتر لمادّة ليست باللتر الآن (مراجعة 0016 الرابعة #1، ق٤٢؛ FOUNDATION القاعدة ٤: «سائل بلا كثافة ما ينضاف لعليقة»): صُحّحت المادّة
     -- كيلوغراماً بعد كتابة السطر، فلا كثافة تُلقط ولا تُحسب كتلته. كان يُفعَّل خارج الكتلة (الوقود والتعبئة لا يدخلان المجموع) بلقطة كيلوغرام بلا
@@ -483,7 +474,7 @@ begin
     if ln.base_unit = 'L' and ln.density_kg_per_l is null then
       raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.', ln.name);
     end if;
-    if ln.qty is null or not (abs(ln.qty) < 'Infinity') or ln.qty <= 0 then
+    if not v_bare and (ln.qty is null or not (abs(ln.qty) < 'Infinity') or ln.qty <= 0) then
       raise exception 'qty_not_positive' using hint = format('كمية «%s» في الخلطة يجب أن تكون أكبر من صفر.', ln.name);
     end if;
     -- كتلة السطر تُقرَّب صفراً (مراجعة 0016 السادسة #2، ق٦٤): سطر لتر كُتب بكثافة أكبر ثمّ صغرت كثافة مادّته، فالمجموع يساوي الأساس بلاه والنسخة كانت
@@ -499,7 +490,7 @@ begin
     -- وrecipe_detail يقرأون اللقطة).
     v_in := ln.kind not in ('fuel', 'packaging');
     update public.recipe_lines set in_basis = v_in, base_unit = ln.base_unit,
-      density_kg_per_l = case when ln.base_unit = 'L' then round(ln.density_kg_per_l, 4) else density_kg_per_l end
+      density_kg_per_l = case when ln.base_unit = 'L' then round(ln.density_kg_per_l, 4) else density_kg_per_l end, unit = ln.unit
     where org_id = v_org and id = ln.id;
     if not v_in then
       v_outside := v_outside + 1;
@@ -511,8 +502,9 @@ begin
   if v_count = 0 then
     raise exception 'doc_empty' using hint = 'الخلطة بلا مواد. أضف مادّة واحدة على الأقلّ قبل التفعيل.';
   end if;
-  -- 0025: النسخة بالموادّ وحدها بمادّة داخل الكتلة على الأقلّ؛ والنسخة بكميات بأساس (كانت المقارنة بأساس فارغ تمرّ).
-  if v_bare and v_inside = 0 then
+  -- 0025: النسخة بالموادّ وحدها بمادّة داخل الكتلة على الأقلّ (الوقود والتعبئة خارجها)؛ والنسخة بكميات تحتاج أساسها (نسخة بكميات بلا أساس كانت
+  -- تعبر مقارنة المجموع الفارغة).
+  if v_bare and v_outside = v_count then
     raise exception 'no_mass_inputs' using hint = 'أضف مادّة داخل كتلة الخلطة؛ الوقود والتعبئة خارجها.';
   end if;
   if not v_bare and v.basis_kg is null then
@@ -532,7 +524,7 @@ begin
     basis_kg = case when v_bare then null else basis_kg end
   where org_id = v_org and id = v.id;
   return jsonb_build_object('id', v.id, 'recipe_id', v.recipe_id, 'version_no', v.version_no, 'status', 'active',
-    'basis_kg', case when v_bare then null else v.basis_kg::text end, 'lines', v_count, 'retired_id', v_old);
+    'basis_kg', case when not v_bare then v.basis_kg::text end, 'lines', v_count, 'retired_id', v_old);
 end
 $$;
 
@@ -587,14 +579,15 @@ begin
 end
 $$;
 
--- بطاقة الخلطة (0016) على جسمها، ويزيد (0025): materials_only لكلّ نسخة وللمختارة (لا سطر بكمية)، وحصّة السطر فارغة لنسخة بلا أساس (كانت ترمي
--- mul_div_domain على أساس فارغ). والكمية والكتلة ومجموعها والأساس والكلفة المتوقّعة فارغة بأنفسها لنسخة بلا كميات.
+-- بطاقة الخلطة (0016) على جسمها، ويزيد (0025): materials_only لكلّ نسخة وللمختارة (لا سطر بكمية). ولنسخة بلا كميات: كمية السطر وكتلته وحصّته فارغة
+-- بأنفسها (الكتلة بالمساعد الذي لا يرمي، والحصّة لكتلة معروفة وحدها)، والأساس فارغ، ومجموع الكتلة والكلفة المتوقّعة فارغان.
 create or replace function public.recipe_detail(p_id uuid, p_version uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
   r public.recipes;
   v public.recipe_versions;
+  v_bare boolean;
 begin
   perform private.require('read');
   select * into r from public.recipes where org_id = v_org and id = p_id;
@@ -612,18 +605,18 @@ begin
       select * into v from public.recipe_versions where org_id = v_org and recipe_id = r.id order by version_no desc limit 1;
     end if;
   end if;
+  -- 0025: نسخة بالموادّ وحدها (لا سطر فيها بكمية): كميات سطورها وكتلها وحصصها فارغة بأنفسها، والأساس فارغ، ومجموع الكتلة والكلفة المتوقّعة فارغان.
+  v_bare := v.id is not null and not exists (select 1 from public.recipe_lines y where y.org_id = v_org and y.version_id = v.id and y.qty is not null);
   return private.mask(jsonb_build_object(
     'id', r.id, 'name', r.name, 'note', r.note, 'archived', r.archived_at is not null, 'version', r.version,
     'output_item', (select jsonb_build_object('id', i.id, 'name', i.name, 'base_unit', i.base_unit, 'kind', i.kind, 'tracks_expiry', i.tracks_expiry)
       from public.items i where i.org_id = v_org and i.id = r.output_item_id),
     'versions', coalesce((select jsonb_agg(jsonb_build_object('id', x.id, 'version_no', x.version_no, 'status', x.status,
         'basis_kg', x.basis_kg::text, 'activated_at', x.activated_at, 'version', x.version,
-        -- 0025: نسخة بالموادّ وحدها (لا سطر بكمية).
         'materials_only', not exists (select 1 from public.recipe_lines y where y.org_id = x.org_id and y.version_id = x.id and y.qty is not null))
       order by x.version_no desc) from public.recipe_versions x where x.org_id = v_org and x.recipe_id = r.id), '[]'::jsonb),
     'selected', case when v.id is null then null else jsonb_build_object('id', v.id, 'version_no', v.version_no, 'status', v.status,
-      'basis_kg', v.basis_kg::text, 'note', v.note, 'activated_at', v.activated_at, 'version', v.version,
-      'materials_only', not exists (select 1 from public.recipe_lines y where y.org_id = v.org_id and y.version_id = v.id and y.qty is not null)) end,
+      'basis_kg', v.basis_kg::text, 'note', v.note, 'activated_at', v.activated_at, 'version', v.version, 'materials_only', v_bare) end,
     'lines', case when v.id is null then '[]'::jsonb else coalesce((
       select jsonb_agg(jsonb_build_object('id', l.id, 'line_no', l.line_no, 'item_id', l.item_id, 'item_name', i.name,
         -- «داخل الكتلة» لقطة النسخة المجمَّدة، والنوع الحيّ للمسوّدة (مراجعة 0016 الثانية #2)، ومجموع الكتلة بالشرط نفسه.
@@ -641,7 +634,7 @@ begin
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id),
         -- كتلة السطر وحصّته بالمساعد الذي لا يرمي (الرابعة #1، ق٤٢): فارغتان لسطر باللتر بلا كثافة، وكانت البطاقة كلّها ترمي density_not_positive.
         'qty', l.qty::text, 'unit', l.unit, 'mass_kg', m.kg::text,
-        'share_pct', case when v.basis_kg is null then null when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,
+        'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,
         'money', jsonb_build_object('unit_cost', (select private.per_unit(sum(s.value_left), sum(s.qty_left))::text
           from public.stock_lots s where s.org_id = v_org and s.item_id = l.item_id and s.qty_left > 0 and public.in_scope_wh(s.warehouse_id)),
           'cost_price', (select p.cost_price::text from public.item_prices p where p.org_id = v_org and p.item_id = l.item_id),
@@ -651,7 +644,7 @@ begin
         cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m
       where l.org_id = v_org and l.version_id = v.id), '[]'::jsonb) end,
     -- مجموع الكتلة داخلها فارغ إن كانت كتلة سطر داخلها لا تُحسب (الرابعة #1، ق٤٢): لا مجموع ناقص بصمت.
-    'mass_kg', case when v.id is null then null else (select case when bool_or(m.kg is null) then null else coalesce(sum(m.kg), 0) end
+    'mass_kg', case when v.id is null or v_bare then null else (select case when bool_or(m.kg is null) then null else coalesce(sum(m.kg), 0) end
       from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
         cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m
       where l.org_id = v_org and l.version_id = v.id and coalesce(l.in_basis, i.kind not in ('fuel', 'packaging')))::text end,
@@ -668,7 +661,7 @@ begin
           'category_id', x.category_id, 'category_name', c.name, 'amount_per_ton', x.amount_per_ton::text) order by x.line_no)
         from public.recipe_cost_rates x join public.expense_categories c on c.org_id = x.org_id and c.id = x.category_id
         where x.org_id = v_org and x.version_id = v.id), '[]'::jsonb) end,
-      'expected', case when v.id is null then null else private.recipe_expected(v.id) - 'cost_per_kg' end)));
+      'expected', case when v.id is null or v_bare then null else private.recipe_expected(v.id) - 'cost_per_kg' end)));
 end
 $$;
 
@@ -690,17 +683,18 @@ begin
           'lines', (select count(*) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id),
           -- مواد النسخة بكتلتها بالكيلو من الأكبر: شريط التركيبة ورقاقاتها تُقرأ بلمحة قبل الأرقام. والكتلة بالمساعد الذي لا يرمي (مراجعة 0016
           -- الرابعة #1، ق٤٢): سطر باللتر بلا كثافة في نسخة مفعَّلة كان يرمي density_not_positive للوحة كلّها لكلّ قارئ، فكتلته فارغة وتُرتَّب أخيراً.
-          -- 0025: النسخة بالموادّ وحدها: موادّ آخر دفعة مرحَّلة للخلطة داخل الكتلة بكتلتها المسحوبة وترتيب سطورها، وبلا دفعة موادّ النسخة بترتيبها
-          -- بلا كتلة؛ والنسخة بكميات كما كانت. والاسم بالمفتاحين (item_name كما كان، وname كقطع الدفعة).
+          -- 0025: النسخة بالموادّ وحدها (لا كمية فيها): قطعها موادّ آخر دفعة مرحَّلة للخلطة (بأيّ نسخة) داخل الكتلة بكتلتها المسحوبة (الفعلية وإلّا
+          -- المخطّطة) بترتيب سطورها، وبلا دفعة موادّ النسخة بترتيبها بلا كتلة؛ والنسخة بكميات كما كانت. والاسم في كلّ قطعة بالمفتاحين.
           'pieces', case when mo.bare and lb.id is not null then coalesce((select jsonb_agg(jsonb_build_object('item_id', p.item_id, 'item_name', pi.name,
-              'name', pi.name, 'mass_kg', private.input_mass_kg(coalesce(p.actual_qty_base, p.planned_qty_base), p.base_unit, p.density_kg_per_l)::text,
+              'name', pi.name, 'mass_kg', case when p.base_unit = 'L' and p.density_kg_per_l is null then null
+                else private.input_mass_kg(coalesce(p.actual_qty_base, p.planned_qty_base), p.base_unit, p.density_kg_per_l) end::text,
               'in_basis', p.in_basis) order by p.line_no)
             from public.production_inputs p join public.items pi on pi.org_id = p.org_id and pi.id = p.item_id
             where p.org_id = v.org_id and p.batch_id = lb.id and p.in_basis), '[]'::jsonb)
-          when mo.bare then coalesce((select jsonb_agg(jsonb_build_object('item_id', l.item_id, 'item_name', i.name, 'name', i.name, 'mass_kg', null,
-              'in_basis', coalesce(l.in_basis, i.kind not in ('fuel', 'packaging'))) order by l.line_no)
-            from public.recipe_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
-            where l.org_id = v.org_id and l.version_id = v.id), '[]'::jsonb)
+          when mo.bare then coalesce((select jsonb_agg(jsonb_build_object('item_id', y.item_id, 'item_name', yi.name, 'name', yi.name,
+              'mass_kg', null::text, 'in_basis', y.in_basis) order by y.line_no)
+            from public.recipe_lines y join public.items yi on yi.org_id = y.org_id and yi.id = y.item_id
+            where y.org_id = v.org_id and y.version_id = v.id), '[]'::jsonb)
           else coalesce((select jsonb_agg(jsonb_build_object('item_id', l.item_id, 'item_name', i.name, 'name', i.name,
               'mass_kg', m.kg::text,
               -- لقطة «داخل الكتلة» (مراجعة 0016 الثانية #2، والشاشة ب-٨): شريط التركيبة يستثني الوقود والتعبئة.
@@ -711,7 +705,7 @@ begin
             where l.org_id = v.org_id and l.version_id = v.id), '[]'::jsonb) end,
           'pieces_source', case when mo.bare and lb.id is not null then 'last_batch' else 'recipe' end)
         from public.recipe_versions v
-          cross join lateral (select not exists (select 1 from public.recipe_lines y where y.org_id = v.org_id and y.version_id = v.id and y.qty is not null) as bare) as mo
+          cross join lateral (select not exists (select 1 from public.recipe_lines q where q.org_id = v.org_id and q.version_id = v.id and q.qty is not null) as bare) as mo
         where v.org_id = r.org_id and v.recipe_id = r.id and v.status = 'active'),
       'draft', (select jsonb_build_object('id', v.id, 'version_no', v.version_no, 'basis_kg', v.basis_kg::text, 'version', v.version,
           'lines', (select count(*) from public.recipe_lines l where l.org_id = v.org_id and l.version_id = v.id))
@@ -733,11 +727,9 @@ begin
         from public.recipe_versions v4 where v4.org_id = r.org_id and v4.recipe_id = r.id and v4.status = 'active'))
     ) order by r.archived_at is not null, r.position nulls last, r.name_norm collate "C", r.id)
     from public.recipes r join public.items i on i.org_id = r.org_id and i.id = r.output_item_id
-      -- آخر دفعة مرحَّلة للخلطة يقرؤها القارئ (0025): يوم الإنتاج ثمّ وقت الترحيل، كـlast_batch فوق وشاشة الإنتاج.
-      left join lateral (select b.id from public.production_batches b
-        join public.recipe_versions v5 on v5.org_id = b.org_id and v5.id = b.recipe_version_id
-        where v5.org_id = r.org_id and v5.recipe_id = r.id and b.status = 'posted'
-          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
+      -- آخر دفعة مرحَّلة للخلطة يقرؤها القارئ (0025)، كـlast_batch وشاشة الإنتاج: يوم الإنتاج ثمّ وقت الترحيل (كانت last_batch بالمعرّف عند تساوي اليوم).
+      left join lateral (select b.id from public.production_batches b join public.recipe_versions v5 on v5.org_id = b.org_id and v5.id = b.recipe_version_id
+        where v5.org_id = r.org_id and v5.recipe_id = r.id and b.status = 'posted' and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
         order by b.produced_on desc, b.posted_at desc, b.id desc limit 1) as lb on true
     where r.org_id = v_org), '[]'::jsonb),
     'stores', coalesce((select jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name, 'kind', w.kind) order by w.kind, w.name collate "C", w.id)
