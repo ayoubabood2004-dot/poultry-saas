@@ -69,7 +69,7 @@ async function bundle() {
     "export * as repo from './src/lib/repo/mill.ts';",
     "export * as inventoryRepo from './src/lib/repo/inventory.ts';",
     "export { pendingKey, storePending, readPending, produceRows, materialsDiffer } from './src/pages/mill/ProducePage.tsx';",
-    "export { historyEvents } from './src/pages/mill/RecipeHistory.tsx';",
+    "export { historyEvents, fromBatchText } from './src/pages/mill/RecipeHistory.tsx';",
     "export { PALETTE, OTHER_COLOR, pieceColor, slotsOf } from './src/pages/mill/shared.tsx';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
     "export { localDay, addDays } from './src/domain/dates.ts';",
@@ -287,6 +287,24 @@ export default async function (t) {
         'P production_form: الموادّ بترتيبها وكثافتها وداخل الكتلة والكمية المقترحة ومصدرها',
       );
       t.same(form.last, { id: 'b-9', docNo: 'PD-2026-0009', producedOn: '2026-11-08', outputKg: 1_000_000n, inputMassKg: 1_000_000n, extraItems: [{ itemId: 'i-premix', name: 'برمكس' }] }, 'P production_form: آخر إنتاج وموادّه خارج الخلطة');
+      {
+        // مراجعة 0025: archived لكلّ مادّة (#5) و«يُتابَع انتهاؤه» للمنتج في الجواب نفسه، مفتاحان إلزاميان.
+        const brokenForm = (patch) => () => {
+          const value = clone(F.production_form.last);
+          patch(value);
+          m.repo.parseProductionForm(value);
+        };
+        const flagged = clone(F.production_form.last);
+        flagged.materials[3].archived = true;
+        flagged.recipe.output_item.tracks_expiry = true;
+        const parsed = m.repo.parseProductionForm(flagged);
+        t.same(
+          [shape(brokenForm((v) => delete v.materials[0].archived)), shape(brokenForm((v) => delete v.recipe.output_item.tracks_expiry)), form.tracksExpiry, form.materials.map((row) => row.archived),
+            parsed.tracksExpiry, parsed.materials.map((row) => row.archived)],
+          ['mill_shape:archived', 'mill_shape:tracks_expiry', false, [false, false, false, false, false], true, [false, false, false, true, false]],
+          'P production_form صارم بالمفتاحين الجديدين (مراجعة 0025): archived لكلّ مادّة و«يُتابَع انتهاؤه» للمنتج',
+        );
+      }
       const first = m.repo.parseProductionForm(clone(F.production_form.first));
       t.same([first.last, first.outputStore, first.materials.map((row) => [row.defaultQty, row.defaultSource, row.scaleStep])], [null, null, [[null, null, 100n], [null, null, 0n]]], 'P أوّل إنتاج: بلا كمية مقترحة ولا مصدر، وبلا «رصيد العلف»، وخطوة غائبة صفر');
       t.same(m.repo.parseProductionForm(clone(F.production_form.legacy)).materials.map((row) => row.defaultSource), ['recipe', 'recipe', 'recipe', 'recipe'], 'P خلطة قديمة بكميات: المقترح من الخلطة');
@@ -340,7 +358,7 @@ export default async function (t) {
       t.same(
         history.versions.map((v) => [v.versionNo, v.status, v.activatedBy, v.materialsOnly, v.items.length, v.added.map((i) => i.name), v.removed.map((i) => i.name), v.fromBatch]),
         [
-          [4, 'active', 'علي', true, 5, ['برمكس'], ['كاز المولّدة'], { id: 'b-11', docNo: 'PD-2026-0011' }],
+          [4, 'active', 'علي', true, 5, ['برمكس'], ['كاز المولّدة'], { id: 'b-11', docNo: 'PD-2026-0011', status: 'posted' }],
           [3, 'retired', 'علي', true, 5, [], ['حجر الكلس'], null],
           [1, 'retired', null, false, 6, [], [], null],
         ],
@@ -373,6 +391,19 @@ export default async function (t) {
         ['mill_shape:from_batch', 'mill_shape:status', 'mill_shape:qty', 'mill_shape:omitted', 'mill_shape:output_kg', 'mill_shape:activated_by'],
         'P recipe_history صارم',
       );
+      {
+        // مراجعة 0025 #3: «عدّل الخلطة» مع «احفظ مسوّدة» يعدّل الخلطة لحظته، فمصدر النسخة مسوّدة بلا رقم بعد أو ملغاة؛ والحالة إلزامية.
+        const drafted = clone(F.recipe_history.period);
+        drafted.versions[0].from_batch = { id: 'b-12', doc_no: null, status: 'draft' };
+        const voided = clone(F.recipe_history.period);
+        voided.versions[0].from_batch.status = 'void';
+        const fromOf = (value) => m.repo.parseRecipeHistory(value).versions[0].fromBatch;
+        t.same(
+          [fromOf(drafted), shape(brokenHistory((v) => delete v.versions[0].from_batch.status)), [fromOf(drafted), fromOf(voided), fromOf(clone(F.recipe_history.period))].map((from) => m.fromBatchText(from))],
+          [{ id: 'b-12', docNo: null, status: 'draft' }, 'mill_shape:status', ['من مسوّدة إنتاج لم تُرحَّل بعد', 'من الإنتاج PD-2026-0011 (أُلغي لاحقاً)', 'من الإنتاج PD-2026-0011']],
+          'P recipe_history (مراجعة 0025 #3): مصدر النسخة بحالته، والمسوّدة بلا رقم تُقال «مسوّدة لم تُرحَّل» لا «من الإنتاج» فارغاً، والملغاة بعلامتها',
+        );
+      }
 
       const cards = m.repo.parseRecipes(clone(F.recipes_overview.materials_only));
       t.same(
@@ -458,10 +489,15 @@ export default async function (t) {
       );
     }
     {
-      const { rpcLog, reads } = fresh(MANAGER, { rpcs: { production_form: () => clone(F.production_form.last) }, tables: { items: () => [{ id: 'f-1', tracks_expiry: true }] } });
+      const tracked = () => {
+        const value = clone(F.production_form.last);
+        value.recipe.output_item.tracks_expiry = true;
+        return value;
+      };
+      const { rpcLog, reads } = fresh(MANAGER, { rpcs: { production_form: tracked } });
       const form = await m.repo.loadProduceForm('r-1');
-      t.same([named(rpcLog, 'production_form')[0], reads.map((read) => [read.table, read.ops.find(([op]) => op === 'eq')])], [{ p_recipe: 'r-1' }, [['items', ['eq', 'id', 'f-1']]]], 'Q production_form بالخلطة، و«يُتابَع انتهاؤه» لمنتجها بقراءة واحدة');
-      t.eq(form.tracksExpiry, true, 'Q tracks_expiry من صفّ المنتج');
+      t.same([named(rpcLog, 'production_form')[0], reads.length], [{ p_recipe: 'r-1' }, 0], 'Q production_form بالخلطة بنداء واحد: «يُتابَع انتهاؤه» في جوابه بلا قراءة items (مراجعة 0025)');
+      t.eq(form.tracksExpiry, true, 'Q tracks_expiry من جواب production_form');
     }
     {
       const { rpcLog } = fresh(MANAGER, { rpcs: { recipe_history: () => clone(F.recipe_history.period) } });
@@ -487,7 +523,6 @@ export default async function (t) {
       fresh(session, {
         rpcs: { production_form: form, produce_batch: produce },
         calls: { loadStockOnHand: () => rawBoard(stock), loadItem: (id) => ITEMS[id] ?? null },
-        tables: { items: () => [{ id: 'f-1', tracks_expiry: false }] },
       });
     const rowNames = () => tableRows('موادّ هذا الإنتاج')?.map((row) => row[0].split('ليست في الخلطة')[0].split('خارج الكتلة')[0].split('أي ')[0].split('+')[0]) ?? null;
 
@@ -568,6 +603,20 @@ export default async function (t) {
       t.ok(UUID.test(sent?.p_id ?? '') && UUID.test(sent?.p_client_ref ?? '') && sent.p_id !== sent.p_client_ref, 'R2 معرّف الدفعة ومرجع المحاولة من الجهاز');
       t.same([textOf('produced-text'), textOf('produced-doc'), textOf('produced-cost'), byAction('produced-saved').length], ['دخل 1,000 كغم من «علف بادئ 21٪» إلى «رصيد العلف».', 'PD-2026-0010', '615.00', 0], 'R2 تمّ الإنتاج: دخل «رصيد العلف»');
       t.same(unitIsolates(), [], 'R2 الكمية بوحدتها («1,000 كغم») خارج العزل اليساريّ: داخله تُقرأ «كغم 1,000»');
+    });
+
+    await step('R المحذوفة من القوائم (مراجعة 0025 #5)', async () => {
+      const archivedSalt = () => formWith({ materials: clone(FORM.materials).map((row) => (row.item_id === 'i-salt' ? { ...row, archived: true } : row)) });
+      const { rpcLog } = produceSetup(MANAGER, { form: archivedSalt, produce: () => clone(F.produce_batch.saved) });
+      await mount(produceUrl);
+      t.same([textOf('row-problem'), disabled(byAction('produce-go')[0]), textOf('produce-missing')?.includes('«ملح» محذوفة من القوائم، فلا تدخل الإنتاج: أزلها.')],
+        ['محذوفة من القوائم', true, true], 'R مادّة الخلطة المحذوفة من القوائم تُسمّى في صفّها، و«أنتج» معطّل حتّى تُزال (كان يُرسل فيُرفض item_archived)');
+      await click(withId('remove-line', 'i-salt'));
+      t.same([qtyInput('ملح'), textOf('recipe-diff-text'), byAction('row-problem').length], [undefined, 'أزلت: ملح', 0], 'R «أزل» يُخرجها ويقول ما تغيّر');
+      await click(byAction('choice-save')[0]);
+      await click(byAction('produce-go')[0]);
+      const sent = named(rpcLog, 'produce_batch')[0];
+      t.same([sent?.p_save_recipe, sent?.p_lines.map((line) => line.item_id)], [true, ['i-corn', 'i-soy', 'i-oil', 'i-diesel']], 'R ثمّ «عدّل الخلطة بهذه الموادّ» يحفظها بلا المحذوفة');
     });
 
     await step('R3 «أزل» و«أضف مادّة» و«عدّل الخلطة»', async () => {

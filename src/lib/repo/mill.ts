@@ -1500,8 +1500,10 @@ export interface FormMaterial {
   kind: string;
   /** وحدة أساس المادّة الآن (الكمية تُكتب بها): كغم أو لتر، و«قطعة» لمادّة صارت بالقطعة فلا تدخل الإنتاج (bad_recipe_unit). */
   baseUnit: BaseUnit;
-  /** ١/١٠٠٠٠ كغم/لتر للسائل (لقطة سطر النسخة وإلّا كثافة المادّة)، أو null. */
+  /** ١/١٠٠٠٠ كغم/لتر للسائل: كثافة المادّة الآن (هي ما يحسب به produce_batch، مراجعة 0025 #6)، أو null. */
   density: bigint | null;
+  /** محذوفة من القوائم (مؤرشفة): لا تُنتج، فيطلب صفّها إزالته (مراجعة 0025 #5). */
+  archived: boolean;
   /** داخل كتلة الخلطة: الوقود والتعبئة خارجها، فلا يدخلان الناتج. */
   inBasis: boolean;
   /** خطوة عدّاد المادّة بالآلاف من وحدة أساسها، أو 0 بلا خطوة. */
@@ -1525,6 +1527,8 @@ export interface ProductionForm {
   /** يوم الخادم (بغداد): يوم الإنتاج الافتراضي. */
   today: Day;
   recipe: { id: string; name: string; archived: boolean; outputItem: { id: string; name: string } };
+  /** منتج الخلطة «يُتابَع انتهاؤه»: تاريخ الانتهاء إلزاميّ له قبل «أنتج» (من جواب القارئ نفسه، بلا قراءة ثانية). */
+  tracksExpiry: boolean;
   /** النسخة المفعَّلة (p_expected_version)، أو null: الخلطة بلا نسخة مفعَّلة. */
   active: { id: string; versionNo: number; materialsOnly: boolean } | null;
   materials: FormMaterial[];
@@ -1539,10 +1543,8 @@ export interface ProductionForm {
   draftExists: boolean;
 }
 
-/** شاشة الإنتاج: production_form ومعه «يُتابَع انتهاؤه» لمنتج الخلطة (تاريخ الانتهاء إلزامي له قبل «أنتج»). */
-export interface ProduceForm extends ProductionForm {
-  tracksExpiry: boolean;
-}
+/** شاشة الإنتاج: جواب production_form كما هو (ومعه «يُتابَع انتهاؤه» لمنتج الخلطة). */
+export type ProduceForm = ProductionForm;
 
 const nameRef = (row: Row): { itemId: string; name: string } => ({ itemId: str(row, 'item_id'), name: str(row, 'name') });
 
@@ -1567,6 +1569,7 @@ export function parseProductionForm(value: unknown): ProductionForm {
   return {
     today: str(json, 'today'),
     recipe: { id: str(recipe, 'id'), name: str(recipe, 'name'), archived: flag(recipe, 'archived'), outputItem: { id: str(output, 'id'), name: str(output, 'name') } },
+    tracksExpiry: flag(output, 'tracks_expiry'),
     active: active ? { id: str(active, 'id'), versionNo: int(active, 'version_no'), materialsOnly: flag(active, 'materials_only') } : null,
     materials: list(json.materials, 'materials').map((row) => {
       const defaultQty = nullableScaled(row, 'default_qty', 3);
@@ -1577,6 +1580,7 @@ export function parseProductionForm(value: unknown): ProductionForm {
         kind: str(row, 'kind'),
         baseUnit: baseUnit(row, 'base_unit'),
         density: nullableScaled(row, 'density', 4),
+        archived: flag(row, 'archived'),
         inBasis: flag(row, 'in_basis'),
         scaleStep: nullableScaled(row, 'scale_step', 3) ?? 0n,
         defaultQty,
@@ -1600,14 +1604,9 @@ export function parseProductionForm(value: unknown): ProductionForm {
   };
 }
 
-/**
- * شاشة الإنتاج (/mill/produce/:recipeId): production_form، ثمّ «يُتابَع انتهاؤه» لمنتج الخلطة بقراءة مباشرة بسياسة المنشأة (البيانات الأساسية بلا
- * مال)، لأنّ القارئ لا يرسله والانتهاء إلزامي له.
- */
+/** شاشة الإنتاج (/mill/produce/:recipeId): production_form بنداء واحد («يُتابَع انتهاؤه» لمنتج الخلطة في جوابه). */
 export async function loadProduceForm(recipeId: string): Promise<ProduceForm> {
-  const form = parseProductionForm(await call<unknown>('production_form', { p_recipe: recipeId }));
-  const item = await oneRow((db) => db.from('items').select('id, tracks_expiry').eq('id', form.recipe.outputItem.id) /* unbounded: صفّ واحد بمعرّفه */);
-  return { ...form, tracksExpiry: item ? flag(item, 'tracks_expiry') : false };
+  return parseProductionForm(await call<unknown>('production_form', { p_recipe: recipeId }));
 }
 
 /** سطر في طلب الإنتاج: المادّة وكميتها بوحدة أساسها؛ والاسم والوحدة والكثافة وداخل الكتلة للعرض وحده (الشاشة المجمَّدة تعرض الطلب منها). */
@@ -1718,8 +1717,11 @@ export interface HistoryVersion {
   /** ما أُضيف وما حُذف عن النسخة غير المسوّدة التي قبلها. */
   added: HistoryItem[];
   removed: HistoryItem[];
-  /** الدفعة التي حُفظت موادّها في هذه النسخة («عدّل الخلطة بهذه الموادّ»)، أو null. */
-  fromBatch: { id: string; docNo: string } | null;
+  /**
+   * الدفعة التي حُفظت موادّها في هذه النسخة («عدّل الخلطة بهذه الموادّ»)، أو null؛ بحالتها (مراجعة 0025 #3): «عدّل الخلطة» مع «احفظ مسوّدة» يعدّل
+   * الخلطة لحظته، فالدفعة مسوّدة بلا رقم بعد (docNo null)، أو مرحَّلة برقمها، أو ملغاة.
+   */
+  fromBatch: { id: string; docNo: string | null; status: BatchStatus } | null;
 }
 
 export interface HistoryLine {
@@ -1781,7 +1783,7 @@ export function parseRecipeHistory(value: unknown): RecipeHistory {
         items: historyItems(row.items, 'items'),
         added: historyItems(row.added, 'added'),
         removed: historyItems(row.removed, 'removed'),
-        fromBatch: from ? { id: str(from, 'id'), docNo: str(from, 'doc_no') } : null,
+        fromBatch: from ? { id: str(from, 'id'), docNo: present(from, 'doc_no') === null ? null : str(from, 'doc_no'), status: batchStatus(from) } : null,
       };
     }),
     productions: list(json.productions, 'productions').map((row) => {

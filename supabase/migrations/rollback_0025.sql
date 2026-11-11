@@ -1,5 +1,5 @@
 -- rollback_0025 — تراجع 0025_mill_materials_only («الخلطة موادّ، والكميات عند الإنتاج»؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦). يُسقط
--- produce_batch وproduction_form وrecipe_history وprivate.feed_balance_wh، ويرجّع private.recipe_lines_guard وrecipes_overview (كما في 0023)
+-- produce_batch وproduction_form وrecipe_history وprivate.feed_balance_wh وprivate.last_posted_batch، ويرجّع private.recipe_lines_guard وrecipes_overview (كما في 0023)
 -- وcreate_recipe وnew_recipe_version وactivate_recipe_version وprivate.recipe_expected وrecipe_detail وcreate_production وproduction_detail
 -- وverify_mill (كما في 0016) وprivate.seed_org_defaults (كما في 0005) حرفاً بحرف (md5 نفسه بالكتالوج)، ويُسقط عمود
 -- production_batches.saved_to_recipe، ويعيد قيدَي الكمية والأساس كما في 0015 وعدم فراغهما، ويرجّع «رصيد العلف» في وحدة المعمل «مخزن العلف».
@@ -984,6 +984,7 @@ end
 $$;
 
 drop function if exists private.feed_balance_wh();
+drop function if exists private.last_posted_batch(uuid);
 
 -- ٣) القيدان وعدم الفراغ كما في 0015، وعمود الدفعة. طريق الرفض أوقف التراجع إن كان في القاعدة سطر بلا كمية أو نسخة بلا أساس، فالجملتان
 -- قبل إعادة عدم الفراغ لا تمسّان شيئاً (وبلا الكتلة: سطور مسوّدة بلا كمية تُحذف، ومسوّدة بلا أساس تأخذ افتراضه 1000 كما في 0015).

@@ -10,7 +10,8 @@
 --   يختاره المستخدم بينما المالك يريد مكاناً واحداً ثابتاً.
 -- هنا:
 --   • نسخة «بالموادّ وحدها»: recipe_lines.qty وrecipe_versions.basis_kg يقبلان الفراغ؛ النسخة المفعَّلة إمّا بلا كميات كلّها وأساسها فارغ، وإمّا
---     بكميات كلّها وأساس (النسخ القائمة كما هي، والشاشات القديمة تعمل)، والخلط mixed_quantities. private.recipe_lines_guard (سطر بلا كمية وحدته
+--     بكميات كلّها وأساس (النسخ القائمة كما هي، وتُنتج بها الشاشات القديمة كما كانت؛ أمّا تعديل خلطة من شاشة قديمة بعد الهجرة فمسوّدة بالموادّ وحدها لا تُنتج بها تلك
+--     الشاشة، فتُطبَّق الهجرة وتُنشر الشاشات معاً)، والخلط mixed_quantities. private.recipe_lines_guard (سطر بلا كمية وحدته
 --     وحدة أساس المادّة)، وcreate_recipe (بلا أساس ولا كمية = بالموادّ وحدها)، وnew_recipe_version (التعديل يُنسخ بالموادّ وحدها دائماً)،
 --     وactivate_recipe_version (طريق بالموادّ: اللقطات وكثافة السائل ومادّة داخل الكتلة)، وprivate.recipe_expected وrecipe_detail وrecipes_overview
 --     بلا رمية على نسخة بلا أساس (وmaterials_only، وقطع اللوحة من آخر دفعة)، وcreate_production يرفض نسخة بلا كميات (quantities_required).
@@ -25,7 +26,13 @@
 -- قرارات في التنفيذ: الخلطة بكميات بلا أساس تُرفض bad_basis في البانية والتفعيل (كان الأساس الفارغ 1000 بصمت، ونسخة بكميات بلا أساس تعبر مقارنة
 --   المجموع الفارغة)؛ وlast_batch في لوحة المعمل بيوم الإنتاج ثمّ وقت الترحيل، فهي دفعة القطع وشاشة الإنتاج نفسها؛ وprivate.feed_balance_wh() بلا
 --   معامل منشأة (لا دالّة تأخذ المنشأة: منشأة الداخل).
--- تراجع: rollback_0025.sql — يرجّع الأجسام الأحد عشر كما كانت (0023 و0016 و0005) حرفاً بحرف، ويُسقط الدوالّ الأربع الجديدة وعمود
+-- ومراجعة 0025 قبل التطبيق: بطاقة الخلطة لا ترمي على مسوّدة بكميات بلا أساس (حصّتها فارغة)؛ والإنتاج يقفل الخلطة قبل قراءة نسختها المفعَّلة (للمشاركة،
+--   وللتحديث مع «عدّل الخلطة»)، فلا تُسجَّل دفعة على نسخة قوعدت أثناءه؛ وكثافة السائل في الإنتاج كثافة المادّة الآن في الطريقين وتعرضها شاشته نفسها؛
+--   وقارئ الشاشة يعلّم المادّة المحذوفة من القوائم (archived: إزالتها تغيير يحتاج اختياراً) ولا يقترحها في «أضف مادّة»، ويرسل «يُتابَع انتهاؤه» للمنتج؛
+--   والسجلّ يقول حالة الدفعة التي حُفظت موادّها (مسوّدة بلا رقم بعد، أو مرحَّلة، أو ملغاة): «عدّل الخلطة» مع «احفظ مسوّدة» يعدّل الخلطة لحظته؛
+--   وprivate.last_posted_batch تعريف واحد لآخر دفعة مرحَّلة (لوحة المعمل وشاشة الإنتاج). و«مخزن العلف» واحد في كلّ منشأة بالإنتاج (مقيس 2026-11-11)،
+--   فإعادة التسمية تشمله، ومخزن علف ثانٍ يُضاف بعده لا يأخذ الناتج (الأقدم).
+-- تراجع: rollback_0025.sql — يرجّع الأجسام الأحد عشر كما كانت (0023 و0016 و0005) حرفاً بحرف، ويُسقط الدوالّ الخمس الجديدة وعمود
 --   saved_to_recipe، ويعيد قيدَي الكمية والأساس وعدم فراغهما، ويرجّع اسم «مخزن العلف». **طريق رفض**: دفعة حُفظت موادّها في خلطتها، أو نسخة
 --   بلا أساس، أو سطر خلطة بلا كمية، كلّ واحد يوقف التراجع بصوت بلا أن يغيّر شيئاً (قاعدة 0024 لا تعرف خلطة بلا كميات).
 -- تنعاد بأمان: alter column … drop not null، وقيدان بفحص الكتالوج، وadd column if not exists، وإعادة التسمية بالاسم القديم وحده، وcreate or replace.
@@ -637,7 +644,8 @@ begin
         'category_name', (select c.name from public.item_categories c where c.org_id = v_org and c.id = i.category_id),
         -- كتلة السطر وحصّته بالمساعد الذي لا يرمي (الرابعة #1، ق٤٢): فارغتان لسطر باللتر بلا كثافة، وكانت البطاقة كلّها ترمي density_not_positive.
         'qty', l.qty::text, 'unit', l.unit, 'mass_kg', m.kg::text,
-        'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,
+        -- نسخة بكميات بلا أساس (مسوّدة كتبتها شاشة قبل 0025، مراجعة 0025 #1): حصّتها فارغة، وكانت البطاقة كلّها ترمي mul_div_domain.
+        'share_pct', case when v.basis_kg is null then null when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,
         'money', jsonb_build_object('unit_cost', (select private.per_unit(sum(s.value_left), sum(s.qty_left))::text
           from public.stock_lots s where s.org_id = v_org and s.item_id = l.item_id and s.qty_left > 0 and public.in_scope_wh(s.warehouse_id)),
           'cost_price', (select p.cost_price::text from public.item_prices p where p.org_id = v_org and p.item_id = l.item_id),
@@ -666,6 +674,18 @@ begin
         where x.org_id = v_org and x.version_id = v.id), '[]'::jsonb) end,
       'expected', case when v.id is null or v_bare then null else private.recipe_expected(v.id) - 'cost_per_kg' end)));
 end
+$$;
+
+-- آخر دفعة مرحَّلة للخلطة (بأيّ نسخة) يقرؤها الداخل: أحد طرفيها بنطاقه كسياسة قراءة الدفعة، بيوم الإنتاج ثمّ وقت الترحيل ثمّ المعرّف. تعريف واحد للوحة
+-- المعمل (آخر إنتاج وقطع الشريط) وشاشة الإنتاج (الكميات المقترحة) (مراجعة 0025 #8)، فلا تختلف دفعة البطاقة عن دفعة الشاشة؛ بمنشأة الداخل.
+create or replace function private.last_posted_batch(p_recipe uuid) returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select b.id from public.production_batches b
+  join public.recipe_versions x on x.org_id = b.org_id and x.id = b.recipe_version_id
+  where b.org_id = public.auth_org() and x.recipe_id = p_recipe and b.status = 'posted'
+    and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
+  order by b.produced_on desc, b.posted_at desc, b.id desc
+  limit 1
 $$;
 
 -- لوحة المعمل (0023) على جسمها، ويزيد (0025): materials_only للنسخة المفعَّلة، وقطع النسخة بالموادّ وحدها من آخر دفعة مرحَّلة للخلطة (بأيّ نسخة):
@@ -721,19 +741,15 @@ begin
           'money', jsonb_build_object('total_value', pv.total_value::text,
             'cost_per_kg', private.per_unit(pv.total_value, b.output_qty_kg)::text))
         from public.production_batches b
-        join public.recipe_versions v3 on v3.org_id = b.org_id and v3.id = b.recipe_version_id
         left join public.production_values pv on pv.org_id = b.org_id and pv.batch_id = b.id
-        where v3.org_id = r.org_id and v3.recipe_id = r.id and b.status = 'posted'
-          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
-        order by b.produced_on desc, b.posted_at desc, b.id desc limit 1),
+        where b.org_id = r.org_id and b.id = lb.id),
       'money', jsonb_build_object('expected_cost_per_kg', (select private.recipe_expected(v4.id) ->> 'cost_per_kg'
         from public.recipe_versions v4 where v4.org_id = r.org_id and v4.recipe_id = r.id and v4.status = 'active'))
     ) order by r.archived_at is not null, r.position nulls last, r.name_norm collate "C", r.id)
     from public.recipes r join public.items i on i.org_id = r.org_id and i.id = r.output_item_id
-      -- آخر دفعة مرحَّلة للخلطة يقرؤها القارئ (0025)، كـlast_batch وشاشة الإنتاج: يوم الإنتاج ثمّ وقت الترحيل (كانت last_batch بالمعرّف عند تساوي اليوم).
-      left join lateral (select b.id from public.production_batches b join public.recipe_versions v5 on v5.org_id = b.org_id and v5.id = b.recipe_version_id
-        where v5.org_id = r.org_id and v5.recipe_id = r.id and b.status = 'posted' and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
-        order by b.produced_on desc, b.posted_at desc, b.id desc limit 1) as lb on true
+      -- آخر دفعة مرحَّلة للخلطة يقرؤها القارئ (0025): دفعة البطاقة (last_batch) وقطعها وشاشة الإنتاج بتعريف واحد (private.last_posted_batch، مراجعة 0025 #8؛
+      -- كانت last_batch بالمعرّف عند تساوي اليوم).
+      left join lateral (select private.last_posted_batch(r.id) as id) as lb on true
     where r.org_id = v_org), '[]'::jsonb),
     'stores', coalesce((select jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name, 'kind', w.kind) order by w.kind, w.name collate "C", w.id)
       from public.warehouses w
@@ -1121,8 +1137,9 @@ $$;
 -- لمن يملك recipe.activate، ولا مسوّدة قائمة للخلطة) نسخة بالموادّ وحدها بترتيب الشاشة ومعدّلات النسخة الحالية تُفعَّل في المعاملة نفسها وتُنتج بها
 -- الدفعة (saved_to_recipe)؛ أو «لهذه المرّة فقط» (false): الدفعة بالنسخة الحالية، والمادّة خارجها مدخل عاديّ، والمحذوفة غائبة. والناتج يدخل
 -- «رصيد العلف» (private.feed_balance_wh) بلا اختيار.
--- الأقفال: لا قفل للخلطة إلّا لحفظ الموادّ فيها: الخلطة أوّلاً (كالتفعيل) ثمّ يُعاد فحص النسخة المفعَّلة تحته، فإنتاجان يحفظان معاً يترتّبان والثاني
--- يرى recipe_changed؛ ثمّ أقفال الترحيل كما هي.
+-- الأقفال: الخلطة أوّلاً قبل قراءة نسختها المفعَّلة (مراجعة 0025 #4): للتحديث مع «عدّل الخلطة» (كالتفعيل)، وللمشاركة بلاه، فإنتاج بدأ قبل حفظ أو تفعيل
+-- من جهاز آخر ينتظره ثمّ يرى recipe_changed، وإنتاجان يحفظان معاً يترتّبان والثاني يرى recipe_changed، وإنتاجان بلا حفظ لا ينتظر أحدهما الآخر؛ ثمّ أقفال
+-- الترحيل كما هي.
 create or replace function public.produce_batch(p_id uuid, p_recipe uuid, p_expected_version uuid, p_wh_in uuid, p_lines jsonb,
   p_save_recipe boolean, p_draft boolean, p_produced_on date, p_output_kg numeric, p_expiry date, p_shrink_reason text, p_note text,
   p_client_ref uuid) returns jsonb
@@ -1148,7 +1165,6 @@ declare
   v_wo uuid;
   v_div uuid;
   v_same boolean;
-  v_save boolean;
   v_saved boolean := false;
   v_has_mass boolean := false;
   v_qty numeric;
@@ -1206,8 +1222,13 @@ begin
   if exists (select 1 from public.production_batches x where x.id = p_id) then
     raise exception 'id_conflict' using hint = 'هذه الدفعة سُجّلت من قبل. افتحها من المعمل لترى ما حُفظ.';
   end if;
-  -- ٢) الخلطة ونسختها المفعَّلة كما رأتها الشاشة.
-  select * into r from public.recipes where org_id = v_org and id = p_recipe;
+  -- ٢) الخلطة ونسختها المفعَّلة كما رأتها الشاشة، والخلطة مقفولة قبل قراءة نسختها (مراجعة 0025 #4): كان الإنتاج بلا حفظ يقرأ النسخة بلا قفل، فحفظٌ
+  --    أو تفعيلٌ من جهاز آخر في اللحظة نفسها يقاعدها والدفعة تُسجَّل عليها.
+  if coalesce(p_save_recipe, false) then
+    select * into r from public.recipes where org_id = v_org and id = p_recipe for update;
+  else
+    select * into r from public.recipes where org_id = v_org and id = p_recipe for share;
+  end if;
   if r.id is null then
     raise exception 'recipe_not_found' using hint = 'هذه الخلطة غير موجودة في منشأتك. حدّث الشاشة.';
   end if;
@@ -1241,11 +1262,9 @@ begin
   for v_div in select distinct x from unnest(array[wi.division_id, wo.division_id]) as x order by 1 loop
     perform private.check_post_date(v_on, v_div);
   end loop;
-  -- ٤) هل تغيّرت الموادّ عن موادّ النسخة المفعَّلة (مجموعة المعرّفات، الترتيب لا يُعدّ)، وهل تُحفظ فيها: الكثافة للسائل من لقطة النسخة التي تُنتج
-  --    بها الدفعة (الجديدة تلقط كثافة المادّة الآن)، وإلّا كثافة المادّة.
+  -- ٤) هل تغيّرت الموادّ عن موادّ النسخة المفعَّلة (مجموعة المعرّفات، الترتيب لا يُعدّ، والمادّة المحذوفة من القوائم منها: إزالتها تغيير يحتاج اختياراً).
   v_same := (select coalesce(array_agg(distinct (e.x ->> 'item_id')::uuid order by (e.x ->> 'item_id')::uuid), '{}') from jsonb_array_elements(p_lines) as e(x))
     = (select coalesce(array_agg(l.item_id order by l.item_id), '{}') from public.recipe_lines l where l.org_id = v_org and l.version_id = cur.id);
-  v_save := not v_same and coalesce(p_save_recipe, false);
   -- ٥) كلّ مادّة بترتيب الشاشة: موجودة وحيّة ومرّة واحدة، يستلمها مخزن الموادّ، بالكتلة (كيلو أو لتر) والسائل بكثافة، وكميتها أكبر من صفر.
   for a in select e.x from jsonb_array_elements(p_lines) with ordinality as e(x, n) order by e.n loop
     select * into i from public.items where org_id = v_org and id = (a ->> 'item_id')::uuid;
@@ -1264,8 +1283,9 @@ begin
     if i.base_unit not in ('kg', 'L') then
       raise exception 'bad_recipe_unit' using hint = format('«%s» وحدتها قطعة، والدفعة تُحسب بالكتلة: لا تدخل فيها بهذه النسخة.', i.name);
     end if;
-    v_density := case when i.base_unit = 'L' then round(case when v_save then i.density_kg_per_l else coalesce((select l.density_kg_per_l
-      from public.recipe_lines l where l.org_id = v_org and l.version_id = cur.id and l.item_id = i.id), i.density_kg_per_l) end, 4) end;
+    -- كثافة السائل كثافة المادّة الآن في الطريقين (مراجعة 0025 #6)، وهي ما تعرضه شاشة الإنتاج، ولقطتها على سطر الدفعة تجمّدها: كانت لقطة النسخة
+    -- لـ«لهذه المرّة فقط» وكثافة المادّة لـ«عدّل الخلطة»، فيختلف وزن الدفعة المحفوظ عمّا عُرض حين تتغيّر الكثافة بعد التفعيل.
+    v_density := case when i.base_unit = 'L' then round(i.density_kg_per_l, 4) end;
     -- الكثافة تُكتب من نافذة «عدّل» في «المواد» (مراجعة 0016 السادسة #4، ق٦٥).
     if i.base_unit = 'L' and v_density is null then
       raise exception 'density_required' using hint = format('«%s» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) أوّلاً.', i.name);
@@ -1309,7 +1329,7 @@ begin
       if not public.can('recipe.activate') then
         raise exception 'forbidden' using hint = 'تعديل الخلطة للمالك أو المدير؛ اختر «لهذه المرّة فقط».';
       end if;
-      perform 1 from public.recipes x where x.org_id = v_org and x.id = r.id for update;
+      -- الخلطة مقفولة للتحديث منذ الخطوة ٢، فالنسخة المفعَّلة المقروءة تحت القفل هي ما يُعدَّل.
       select * into cur from public.recipe_versions where org_id = v_org and recipe_id = r.id and status = 'active';
       if cur.id is distinct from p_expected_version then
         raise exception 'recipe_changed' using hint = 'تغيّرت هذه الخلطة من جهاز آخر؛ حدّث الشاشة ثمّ أنتج.';
@@ -1412,7 +1432,8 @@ $$;
 
 -- ─── و. قارئ شاشة الإنتاج ───────────────────────────────────────────────────────────────────────────────────────────
 -- لمن يُنتج (production.draft) وبنطاقه مخزن موادّ حيّ واحد على الأقلّ، وإلّا forbidden. موادّ النسخة المفعَّلة بترتيبها، بوحدة أساس كلّ مادّة الآن
--- وكثافة السائل وخطوة العدّاد و«داخل الكتلة» كما يحسبها produce_batch؛ وكمية كلّ مادّة مقترحة (جواب المالك Q1): كميتها في آخر دفعة مرحَّلة للخلطة
+-- وكثافة السائل الآن وخطوة العدّاد و«داخل الكتلة» كما يحسبها produce_batch، وarchived للمادّة المحذوفة من القوائم (لا تُنتج: الشاشة تطلب إزالتها،
+-- مراجعة 0025 #5)، و«يُتابَع انتهاؤه» للمنتج (تاريخ الانتهاء إلزامي له)؛ وكمية كلّ مادّة مقترحة (جواب المالك Q1): كميتها في آخر دفعة مرحَّلة للخلطة
 -- (يوم الإنتاج ثمّ وقت الترحيل؛ مجموع الفعلي وإلّا المخطّط، بوحدتها الآن) ← «last»، وإلّا كميتها في النسخة القديمة بكميات محوَّلة إلى وحدتها بكثافة
 -- اللقطة ← «recipe»، وإلّا فارغة. وآخر دفعة بموادّها التي ليست في النسخة (تعرضها الشاشة أوّلاً في «أضف مادّة»)، ومخازن الموادّ الحيّة بالنطاق
 -- بأسمائها، و«رصيد العلف»، وهل يعدّل الخلطة، وهل للخلطة تعديل مفتوح. بلا مال.
@@ -1436,22 +1457,17 @@ begin
   end if;
   select * into cur from public.recipe_versions where org_id = v_org and recipe_id = r.id and status = 'active';
   v_bare := cur.id is not null and not exists (select 1 from public.recipe_lines l where l.org_id = v_org and l.version_id = cur.id and l.qty is not null);
-  -- آخر دفعة مرحَّلة للخلطة بأيّ نسخة، ممّا يقرؤه المنتج (أحد طرفيها بنطاقه، كسياسة قراءة الدفعة).
-  select b.id into v_last from public.production_batches b
-  join public.recipe_versions x on x.org_id = b.org_id and x.id = b.recipe_version_id
-  where b.org_id = v_org and x.recipe_id = r.id and b.status = 'posted'
-    and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
-  order by b.produced_on desc, b.posted_at desc, b.id desc
-  limit 1;
+  -- آخر دفعة مرحَّلة للخلطة بأيّ نسخة، ممّا يقرؤه المنتج (أحد طرفيها بنطاقه، كسياسة قراءة الدفعة)، بتعريف لوحة المعمل نفسه.
+  v_last := private.last_posted_batch(r.id);
   v_wo := private.feed_balance_wh();
   return jsonb_build_object(
     'today', public.app_today(),
     'recipe', jsonb_build_object('id', r.id, 'name', r.name, 'archived', r.archived_at is not null,
-      'output_item', (select jsonb_build_object('id', i.id, 'name', i.name) from public.items i where i.org_id = v_org and i.id = r.output_item_id)),
+      'output_item', (select jsonb_build_object('id', i.id, 'name', i.name, 'tracks_expiry', i.tracks_expiry) from public.items i where i.org_id = v_org and i.id = r.output_item_id)),
     'active', case when cur.id is null then null else jsonb_build_object('id', cur.id, 'version_no', cur.version_no, 'materials_only', v_bare) end,
     'materials', case when cur.id is null then '[]'::jsonb else coalesce((select jsonb_agg(jsonb_build_object(
         'line_no', l.line_no, 'item_id', l.item_id, 'name', i.name, 'kind', i.kind, 'base_unit', i.base_unit,
-        'density', case when i.base_unit = 'L' then round(coalesce(l.density_kg_per_l, i.density_kg_per_l), 4)::text end,
+        'density', case when i.base_unit = 'L' then round(i.density_kg_per_l, 4)::text end, 'archived', i.archived_at is not null,
         'in_basis', i.kind not in ('fuel', 'packaging'), 'scale_step', i.scale_step::text,
         'default_qty', coalesce(q.last_qty, q.recipe_qty)::text,
         'default_source', case when q.last_qty is not null then 'last' when q.recipe_qty is not null then 'recipe' end)
@@ -1472,7 +1488,7 @@ begin
         'input_mass_kg', b.input_mass_kg::text,
         'extra_items', coalesce((select jsonb_agg(jsonb_build_object('item_id', p.item_id, 'name', i.name) order by p.line_no)
           from public.production_inputs p join public.items i on i.org_id = p.org_id and i.id = p.item_id
-          where p.org_id = b.org_id and p.batch_id = b.id
+          where p.org_id = b.org_id and p.batch_id = b.id and i.archived_at is null
             and not exists (select 1 from public.recipe_lines l where l.org_id = p.org_id and l.version_id = cur.id and l.item_id = p.item_id)), '[]'::jsonb))
       from public.production_batches b where b.org_id = v_org and b.id = v_last),
     'stores', coalesce((select jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name) order by w.name collate "C", w.id)
@@ -1485,7 +1501,7 @@ $$;
 
 -- ─── ز. سجلّ الخلطة (كلمة المالك: «كلنا نشوف تاريخ كل تعديل شنو سويت وشنو انتجت وشكد بهاي الفترات») ──────────────────────────────
 -- لكلّ قارئ (read، كبطاقة الخلطة)، لمدّة حتى 366 يوماً: نسخ الخلطة غير المسوّدة كلّها من الأحدث (بلا تصفية بالمدّة) بموادّها بترتيبها، وما أُضيف وما
--- حُذف عن النسخة غير المسوّدة قبلها (الأولى: موادّها كلّها مضافة)، والإنتاج الذي حُفظت موادّه فيها؛ والإنتاج في المدّة (المرحَّل والملغى بعد ترحيله،
+-- حُذف عن النسخة غير المسوّدة قبلها (الأولى: موادّها كلّها مضافة)، والإنتاج الذي حُفظت موادّه فيها بحالته (مسوّدة بلا رقم بعد، أو مرحَّل، أو ملغى)؛ والإنتاج في المدّة (المرحَّل والملغى بعد ترحيله،
 -- لا المسوّدات) من الأحدث، بموادّه وكمياته بترتيبها، والمادّة خارج نسخته (extra) وموادّ نسخته التي لم تُستعمل (omitted)؛ والمجاميع للمرحَّل. الدفعات
 -- بنطاق القارئ كسياسة قراءتها (أحد طرفيها). بلا مال.
 create or replace function public.recipe_history(p_recipe uuid, p_from date, p_to date) returns jsonb
@@ -1524,7 +1540,7 @@ begin
           from public.recipe_lines y join public.items i on i.org_id = y.org_id and i.id = y.item_id
           where y.org_id = x.org_id and y.version_id = pv.id
             and not exists (select 1 from public.recipe_lines l where l.org_id = y.org_id and l.version_id = x.id and l.item_id = y.item_id)), '[]'::jsonb),
-        'from_batch', (select jsonb_build_object('id', b.id, 'doc_no', b.doc_no) from public.production_batches b
+        'from_batch', (select jsonb_build_object('id', b.id, 'doc_no', b.doc_no, 'status', b.status) from public.production_batches b
           where b.org_id = x.org_id and b.recipe_version_id = x.id and b.saved_to_recipe
             and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))
           order by b.created_at, b.id limit 1))

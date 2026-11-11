@@ -673,6 +673,98 @@ async function scenario(t, db) {
     ], 'الهجرة تسمّي «مخزن العلف» في وحدة المعمل وحده «رصيد العلف» (لا مخزن العلف الآخر ولا مخزن حقل بالاسم نفسه)، والتراجع يعيده');
   });
 
+  // ── مراجعة 0025 قبل التطبيق: كلّ حالة تفشل على الهجرة قبل إصلاحها ──────────────────────────────────────────────────────────
+  await section('مراجعة 0025', async () => {
+    // #1 بطاقة الخلطة على مسوّدة بكميات بلا أساس (تكتبها شاشة قبل 0025 بعد «نسخة جديدة»): لا ترمي (كانت mul_div_domain للبطاقة كلّها)، والحصّة فارغة.
+    const oldRecipe = await one(U.manager, "insert into public.recipes (name, output_item_id) values ('مسوّدة شاشة قديمة', $1) returning id", [I.spare]);
+    const oldDraft = await one(U.manager, 'insert into public.recipe_versions (recipe_id, basis_kg) values ($1, null) returning id', [oldRecipe]);
+    await one(U.manager, "insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 600, 'kg') returning id", [oldDraft, I.corn]);
+    const oldCard = await call(db, U.manager, DETAIL, [oldRecipe, oldDraft]);
+    t.same(oldCard.ok ? [oldCard.value.selected.basis_kg, oldCard.value.selected.materials_only, oldCard.value.lines.map((l) => [l.qty, l.mass_kg, l.share_pct]), oldCard.value.mass_kg]
+      : refusal(oldCard), [null, false, [['600.000', '600.000', null]], '600.000'],
+    'مراجعة #1: بطاقة مسوّدة بكميات بلا أساس لا ترمي، وحصّة سطرها فارغة وكتلتها ومجموعها معروفان');
+
+    // #4 إنتاج بلا حفظ أثناء «عدّل الخلطة» من جهاز آخر لم يُثبَّت بعد: ينتظر قفل الخلطة ثمّ يرى النسخة الجديدة (recipe_changed)، ولا دفعة على النسخة
+    // المقاعدة (كان يقرأ النسخة بلا قفل فيسجّل دفعته عليها).
+    const R4 = { id: id(401), version: id(402) };
+    await one(U.manager, CR, [R4.id, R4.version, 'علف القفل', I.spare, null, JSON.stringify([{ item_id: I.corn }, { item_id: I.soy }]), '[]', true]);
+    const saver = await db.session(U.owner);
+    const producer = await db.session(U.manager);
+    let race;
+    try {
+      const a = await saver.run(PB, [id(403), R4.id, R4.version, W.raw, JSON.stringify([{ item_id: I.corn, qty: '10' }]), true, true, TODAY, null, null, null, null, uid()]);
+      const pending = producer.run(PB, [id(404), R4.id, R4.version, W.raw, JSON.stringify([{ item_id: I.corn, qty: '10' }, { item_id: I.soy, qty: '5' }]), null, true, TODAY,
+        null, null, null, null, uid()]);
+      const waited = await db.settle(pending, producer.pid);
+      await saver.commit();
+      const b = await pending;
+      await producer.commit();
+      race = { a: a.ok ? a.rows[0].v.saved_to_recipe : a.error, waited, b: b.ok ? b.rows[0].v.status : b.error };
+    } finally {
+      await saver.rollback();
+      await producer.rollback();
+    }
+    t.same([race, await batchRow(id(404))], [{ a: true, waited: 'blocked', b: 'recipe_changed' }, null],
+      'مراجعة #4: إنتاج بلا حفظ أثناء «عدّل الخلطة» من جهاز آخر ينتظر قفل الخلطة ثمّ يُرفض recipe_changed، ولا دفعة على النسخة المقاعدة');
+
+    // #6 كثافة السائل في الإنتاج كثافة المادّة الآن في الطريقين، وشاشة الإنتاج تعرضها نفسها: الزيت لقطته في النسخة 0.92 ثمّ صارت المادّة 0.9 —
+    // «لهذه المرّة» و«عدّل الخلطة» كلاهما 10 لترات = 9 كغم بـ0.9 (كان الأوّل 9.2 بلقطة النسخة والثاني 9، والشاشة تعرض 0.92).
+    const R6 = { id: id(405), version: id(406) };
+    await one(U.manager, CR, [R6.id, R6.version, 'علف الكثافة', I.spare, null, JSON.stringify([{ item_id: I.corn }, { item_id: I.oil }]), '[]', true]);
+    await one(U.owner, 'update public.items set density_kg_per_l = 0.9 where id = $1 returning id', [I.oil]);
+    const oilShown = (await one(U.owner, FORM, [R6.id])).materials.find((m) => m.item_id === I.oil)?.density ?? null;
+    const sameSet = await produce(U.owner, { id: id(407), recipe: R6.id, version: R6.version, draft: true, lines: [{ item_id: I.corn, qty: '100' }, { item_id: I.oil, qty: '10' }] }).run();
+    const savedSet = await produce(U.owner, { id: id(408), recipe: R6.id, version: R6.version, draft: true, save: true,
+      lines: [{ item_id: I.oil, qty: '10' }, { item_id: I.corn, qty: '100' }, { item_id: I.soy, qty: '5' }] }).run();
+    const oilOf = async (batchId) => (await inputs(batchId)).find((row) => row[1] === I.oil)?.slice(2) ?? null;
+    await one(U.owner, 'update public.items set density_kg_per_l = 0.92 where id = $1 returning id', [I.oil]);
+    t.same([oilShown, sameSet.ok ? sameSet.value.saved_to_recipe : refusal(sameSet), await oilOf(id(407)), savedSet.ok ? savedSet.value.saved_to_recipe : refusal(savedSet), await oilOf(id(408))],
+      ['0.9000', false, ['10', '9', null, true, 'L', '0.9000'], true, ['10', '9', null, true, 'L', '0.9000']],
+      'مراجعة #6: الكثافة المعروضة والمحفوظة كثافة المادّة الآن في «لهذه المرّة» و«عدّل الخلطة» معاً');
+
+    // #5 مادّة محذوفة من القوائم في الخلطة: قارئ الشاشة يعلّمها archived، ولا يقترح محذوفة في «أضف مادّة» (extra_items)، وإزالتها تغيير يحتاج اختياراً.
+    const inRecipe = await item('صويا ستُحذف', 'raw', 'kg');
+    const usedOnce = await item('إضافة ستُحذف', 'raw', 'kg');
+    // تُؤرشف المادّة ورصيدها صفر في كلّ المخازن (archived_in_use)، فيُشترى منهما ما يُسحب في الدفعة بالضبط.
+    await buy(inRecipe, 5, 900, day(-7), W.raw);
+    await buy(usedOnce, 3, 900, day(-7), W.raw);
+    const R5 = { id: id(409), version: id(410) };
+    await one(U.manager, CR, [R5.id, R5.version, 'علف المحذوفة', I.spare, null, JSON.stringify([{ item_id: I.corn }, { item_id: inRecipe }]), '[]', true]);
+    const first5 = await produce(U.owner, { id: id(411), recipe: R5.id, version: R5.version, save: false,
+      lines: [{ item_id: I.corn, qty: '10' }, { item_id: inRecipe, qty: '5' }, { item_id: usedOnce, qty: '3' }] }).run();
+    await one(U.owner, 'update public.items set archived_at = now() where id = any($1::uuid[]) returning id', [[inRecipe, usedOnce]]);
+    const form5 = await one(U.owner, FORM, [R5.id]);
+    const without = await produce(U.owner, { id: id(412), recipe: R5.id, version: R5.version, draft: true, lines: [{ item_id: I.corn, qty: '10' }] }).run();
+    t.same([first5.ok ? first5.value.status : refusal(first5), form5.materials.map((m) => [m.name, m.archived]), form5.last?.extra_items ?? null, code(without)],
+      ['posted', [['ذرة', false], ['صويا ستُحذف', true]], [], 'recipe_choice_required'],
+      'مراجعة #5: المحذوفة من القوائم معلَّمة archived في موادّ الخلطة، ولا تُقترح في «أضف مادّة»، وإزالتها من الإنتاج تحتاج اختياراً');
+
+    // #3 السجلّ يقول حالة الدفعة التي حُفظت موادّها: مسوّدة بلا رقم بعد (الناهي من id(221)) ومرحَّلة برقمها (البادئ من id(241)).
+    const finHistory = await one(U.owner, HISTORY, [R.finisher.id, day(-30), TODAY]);
+    const starterFrom = (await one(U.owner, HISTORY, [R.starter.id, day(-30), TODAY])).versions[0].from_batch;
+    t.same([finHistory.versions[0].from_batch, starterFrom && [starterFrom.id, starterFrom.status, Boolean(starterFrom.doc_no)]],
+      [{ id: id(221), doc_no: null, status: 'draft' }, [id(241), 'posted', true]],
+      'مراجعة #3: from_batch بحالة الدفعة — مسوّدة بلا رقم بعد، ومرحَّلة برقمها');
+
+    // «يُتابَع انتهاؤه» للمنتج في جواب شاشة الإنتاج (سؤال وكيل الشاشات): لا قراءة ثانية من الشاشة.
+    await one(U.owner, 'update public.items set tracks_expiry = true where id = $1 returning id', [I.spare]);
+    const expiryForms = [(await one(U.owner, FORM, [R.starter.id])).recipe.output_item, (await one(U.owner, FORM, [R6.id])).recipe.output_item];
+    await one(U.owner, 'update public.items set tracks_expiry = false where id = $1 returning id', [I.spare]);
+    t.same(expiryForms, [{ id: I.starter, name: 'علف بادئ', tracks_expiry: false }, { id: I.spare, name: 'علف تجربة', tracks_expiry: true }],
+      'production_form: «يُتابَع انتهاؤه» للمنتج في جوابه');
+
+    // #8 تعريف واحد لآخر دفعة مرحَّلة: عكس ترتيب private.last_posted_batch يغيّر دفعة لوحة المعمل وشاشة الإنتاج معاً (والضابط: id(272) لكليهما).
+    const lastBoth = (fns) => mutant(db, U.owner, fns, async ({ attempt }) => {
+      const board = await attempt(U.owner, async (q) => (await q(OVERVIEW)).rows[0].v);
+      const form = await attempt(U.owner, async (q) => (await q(FORM, [R.starter.id])).rows[0].v);
+      return [board.ok ? board.value.recipes.find((r) => r.id === R.starter.id)?.last_batch?.id ?? null : board.code, form.ok ? form.value.last?.id ?? null : form.code];
+    });
+    const lastControl = await lastBoth([]);
+    const lastFlipped = await lastBoth([['private.last_posted_batch(uuid)', [['order by b.produced_on desc, b.posted_at desc, b.id desc', 'order by b.produced_on, b.posted_at, b.id']]]]);
+    t.same([lastControl, lastFlipped[0] === lastFlipped[1], lastFlipped[0] !== lastControl[0]], [[id(272), id(272)], true, true],
+      'مراجعة #8: لوحة المعمل وشاشة الإنتاج تقرآن آخر دفعة من مساعد واحد (عكس ترتيبه يغيّرهما معاً)');
+  });
+
   // ── ١٠) verify_mill: الفحص ٢ يتخطّى النسخة بلا أساس، والفحص ١٦ recipe_quantities_mode بطفرة حقيقية ─────────────────────────────────
   await section('verify_mill', async () => {
     const checks = async (q) => Object.fromEntries((await q('select check_name, violations::int as v from public.verify_mill()')).rows.map((r) => [r.check_name, r.v]));

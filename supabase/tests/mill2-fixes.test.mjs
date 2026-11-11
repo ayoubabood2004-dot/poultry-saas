@@ -1257,9 +1257,11 @@ async function scenario(t, db) {
       await as(U.keepFeed);
       return code(await attempt('select public.production_detail($1)', [BR3]));
     });
+    // آخر دفعة في اللوحة من private.last_posted_batch (مراجعة 0025 #8: تعريف واحد مع شاشة الإنتاج)، فنطاقها يُكسر فيه.
     const mBoard = await mutated([['public.recipes_overview()', [
       ["b.status = 'posted'\n          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))),", "b.status = 'posted'),"],
-      ["b.status = 'posted'\n          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))\n        order by", "b.status = 'posted'\n        order by"],
+    ]], ['private.last_posted_batch(uuid)', [
+      ["b.status = 'posted'\n    and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))\n", "b.status = 'posted'\n"],
     ]]], [], async ({ as, oq }) => {
       await as(U.keepGen);
       return board(null, oq);
@@ -1848,7 +1850,7 @@ async function scenario(t, db) {
     const LINES_LATERAL = "        cross join lateral (select private.recipe_line_kg_or_null(l.qty, l.unit, coalesce(l.density_kg_per_l, i.density_kg_per_l)) as kg) as m\n      where l.org_id = v_org and l.version_id = v.id), '[]'::jsonb) end,";
     t.same([
       await detailIn([[LINES_LATERAL, LINES_LATERAL.split('recipe_line_kg_or_null(').join('recipe_line_kg(')]], DK),
-      await detailIn([["'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,", "'share_pct', private._mul_div_round(m.kg, 100, v.basis_kg, 2)::text,"]], DK),
+      await detailIn([["'share_pct', case when v.basis_kg is null then null when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,", "'share_pct', private._mul_div_round(m.kg, 100, v.basis_kg, 2)::text,"]], DK),
       (await detailIn([['case when bool_or(m.kg is null) then null else coalesce(sum(m.kg), 0) end', 'coalesce(sum(m.kg), 0)']], DM))[0],
       (await detailIn([["'unit_mismatch', l.unit = 'L' and i.base_unit <> 'L',", "'unit_mismatch', false,"]], DK))[1]?.[1]?.[3],
     ], ['density_not_positive', 'mul_div_domain', '986.000', false],
@@ -2380,7 +2382,7 @@ async function scenario(t, db) {
     const { D, built, converted } = K64;
     if (!converted) throw new Error('ق٦٤ لم يكتمل');
     // (١) الحصّة كما كانت (لكلّ كتلة معروفة) ← mul_div_domain؛ (٢) بلا فرع الصفر ← حصّة فارغة لسطر كتلته معروفة صفراً.
-    const SHARE = "'share_pct', case when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,";
+    const SHARE = "'share_pct', case when v.basis_kg is null then null when m.kg > 0 then private._mul_div_round(m.kg, 100, v.basis_kg, 2) when m.kg = 0 then 0.00 end::text,";
     const shareWith = (to) => mutated([[RECIPE_DETAIL_FN, [[SHARE, to]]]], [], async ({ attempt }) => {
       const out = await attempt('select public.recipe_detail($1, $2)', [D.id, D.version]);
       return out.ok ? out.v.lines.map((l) => l.share_pct) : out.code;

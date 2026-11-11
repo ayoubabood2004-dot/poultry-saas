@@ -216,6 +216,8 @@ export interface ProduceRow {
   unit: BaseUnit;
   density: bigint | null;
   inBasis: boolean;
+  /** محذوفة من القوائم (مؤرشفة) وهي في موادّ الخلطة: لا تُنتج (مراجعة 0025 #5). */
+  archived: boolean;
   /** من موادّ النسخة المفعَّلة (لا مضافة لهذه المرّة). */
   fromRecipe: boolean;
   defaultQty: Milli | null;
@@ -229,8 +231,8 @@ export interface ProduceRow {
   qty: Milli | null;
   mass: Milli | null;
   baseMass: Milli | null;
-  /** لا يُنتَج بها: صارت تُقاس بالقطعة (bad_recipe_unit)، أو سائل بلا كثافة (density_required). */
-  problem: 'pc' | 'density' | null;
+  /** لا يُنتَج بها: محذوفة من القوائم (item_archived)، أو صارت تُقاس بالقطعة (bad_recipe_unit)، أو سائل بلا كثافة (density_required). */
+  problem: 'archived' | 'pc' | 'density' | null;
 }
 
 /** صفوف الإنتاج: موادّ الخلطة بترتيبها (ما لم يُزل)، ثمّ ما أُضيف لهذه المرّة بترتيب إضافته. */
@@ -240,7 +242,7 @@ export function produceRows(materials: readonly FormMaterial[], edits: Edits): P
   const extraOf = new Map(edits.extras.map((extra) => [extra.itemId, extra]));
   const make = (base: Omit<ProduceRow, 'text' | 'baseQty' | 'added' | 'qty' | 'mass' | 'baseMass' | 'problem'>, baseText: string): ProduceRow => {
     const topUp = edits.topUp?.itemId === base.itemId ? edits.topUp : null;
-    const problem = base.unit === 'pc' ? 'pc' : base.unit === 'L' && (base.density === null || base.density <= 0n) ? 'density' : null;
+    const problem = base.archived ? 'archived' : base.unit === 'pc' ? 'pc' : base.unit === 'L' && (base.density === null || base.density <= 0n) ? 'density' : null;
     const baseQty = topUp?.created ? 0n : positive(baseText);
     const qty = topUp && baseQty !== null ? baseQty + topUp.added : baseQty;
     return {
@@ -268,6 +270,7 @@ export function produceRows(materials: readonly FormMaterial[], edits: Edits): P
           unit: material.baseUnit,
           density: material.density,
           inBasis: material.inBasis,
+          archived: material.archived,
           fromRecipe: true,
           defaultQty: material.defaultQty,
           defaultSource: material.defaultSource,
@@ -281,7 +284,7 @@ export function produceRows(materials: readonly FormMaterial[], edits: Edits): P
     seen.add(extra.itemId);
     rows.push(
       make(
-        { itemId: extra.itemId, name: extra.name, unit: extra.unit, density: extra.density, inBasis: inBasisKind(extra.kind), fromRecipe: false, defaultQty: null, defaultSource: null },
+        { itemId: extra.itemId, name: extra.name, unit: extra.unit, density: extra.density, inBasis: inBasisKind(extra.kind), archived: false, fromRecipe: false, defaultQty: null, defaultSource: null },
         extra.text,
       ),
     );
@@ -706,7 +709,8 @@ export default function ProducePage() {
   const draftMissing: string[] = [];
   if (!rows.length) draftMissing.push(t('mill.produce.need_lines', 'لا موادّ في هذا الإنتاج: أضف مادّة واحدة على الأقلّ.'));
   for (const row of rows) {
-    if (row.problem === 'pc') draftMissing.push(t('mill.produce.blocked_pc', 'صارت «{name}» تُقاس بالقطعة، فلا تدخل الإنتاج: أزلها.', { name: row.name }));
+    if (row.problem === 'archived') draftMissing.push(t('mill.produce.blocked_archived', '«{name}» محذوفة من القوائم، فلا تدخل الإنتاج: أزلها.', { name: row.name }));
+    else if (row.problem === 'pc') draftMissing.push(t('mill.produce.blocked_pc', 'صارت «{name}» تُقاس بالقطعة، فلا تدخل الإنتاج: أزلها.', { name: row.name }));
     else if (row.problem === 'density') draftMissing.push(t('mill.produce.blocked_density', '«{name}» سائل بلا كثافة: تُكتب كثافته من «المواد» في المخزن ثمّ تُنتج.', { name: row.name }));
     else if (row.qty === null) draftMissing.push(t('mill.builder.need_qty', 'اكتب كمية «{name}» أكبر من صفر.', { name: row.name }));
     else if (row.qty >= QTY_LIMIT) draftMissing.push(t('mill.produce.qty_big', 'كمية «{name}» أكبر من الحدّ: اكتب أقلّ من مليار.', { name: row.name }));
@@ -1052,7 +1056,11 @@ export default function ProducePage() {
           ) : null}
           {row.problem !== null ? (
             <span className="text-xs text-danger-700 dark:text-danger-300" data-action="row-problem">
-              {row.problem === 'pc' ? t('mill.produce.blocked_pc_short', 'صارت تُقاس بالقطعة') : t('mill.produce.blocked_density_short', 'سائل بلا كثافة')}
+              {row.problem === 'archived'
+                ? t('mill.produce.blocked_archived_short', 'محذوفة من القوائم')
+                : row.problem === 'pc'
+                  ? t('mill.produce.blocked_pc_short', 'صارت تُقاس بالقطعة')
+                  : t('mill.produce.blocked_density_short', 'سائل بلا كثافة')}
             </span>
           ) : null}
         </span>

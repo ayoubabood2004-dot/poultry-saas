@@ -12,7 +12,7 @@ import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadRecipeHistory, type HistoryItem, type HistoryProduction, type HistoryVersion, type RecipeHistory } from '../../lib/repo/mill';
+import { loadRecipeHistory, type BatchStatus, type HistoryItem, type HistoryProduction, type HistoryVersion, type RecipeHistory } from '../../lib/repo/mill';
 import { useLoad } from '../../lib/useLoad';
 import { kgText } from './cards';
 import { dash } from './shared';
@@ -103,6 +103,16 @@ function ProductionDetails({ production }: { production: HistoryProduction }) {
   );
 }
 
+/**
+ * مصدر النسخة (مراجعة 0025 #3): «عدّل الخلطة» مع «احفظ مسوّدة» يعدّل الخلطة لحظته، فالدفعة التي حُفظت منها قد تكون مسوّدة بلا رقم بعد، أو أُلغيت بعد
+ * ترحيلها؛ فلا يُقال «من الإنتاج» بلا رقم، ولا يُسكت عن الإلغاء.
+ */
+export function fromBatchText(from: { docNo: string | null; status: BatchStatus }): string {
+  if (from.docNo === null) return t('mill.history.from_draft', 'من مسوّدة إنتاج لم تُرحَّل بعد');
+  if (from.status === 'void') return t('mill.history.from_void', 'من الإنتاج {doc} (أُلغي لاحقاً)', { doc: from.docNo });
+  return t('mill.history.from_batch', 'من الإنتاج {doc}', { doc: from.docNo });
+}
+
 function VersionDetails({ version, first }: { version: HistoryVersion; first: boolean }) {
   const parts: ReactNode[] = [];
   if (first) parts.push(<span key="made">{t('mill.history.created', 'الموادّ: {names}', { names: names(version.items) || dash() })}</span>);
@@ -116,7 +126,7 @@ function VersionDetails({ version, first }: { version: HistoryVersion; first: bo
       {parts}
       {version.fromBatch ? (
         <span className="text-xs text-ink-muted" data-action="history-from-batch">
-          {t('mill.history.from_batch', 'من الإنتاج {doc}', { doc: version.fromBatch.docNo })}
+          {fromBatchText(version.fromBatch)}
         </span>
       ) : null}
       {version.activatedBy ? <span className="text-xs text-ink-muted">{t('mill.history.by', 'بيد {name}', { name: version.activatedBy })}</span> : null}
