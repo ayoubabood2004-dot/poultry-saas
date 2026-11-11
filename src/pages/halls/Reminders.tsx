@@ -158,7 +158,8 @@ function MarkDialog({ group, today, busy, onClose, onSend }: MarkProps) {
         id: own.id,
         vaccineId: group.vaccineId,
         ageDay: group.ageDay,
-        issue: linked && from && amount !== undefined ? { issueId: own.issueId, lineId: own.lineId, warehouseId: from.warehouseId, qty: amount } : null,
+        // المادّة التي عُرضت (مادّة اللقاح في التذكير): الخادم يرفض vaccine_relinked إن رُبط اللقاح بغيرها بعد القراءة (مراجعة 0026 DB-1).
+        issue: linked && from && amount !== undefined && group.item ? { itemId: group.item.id, issueId: own.issueId, lineId: own.lineId, warehouseId: from.warehouseId, qty: amount } : null,
       });
     }
     const names: Record<string, string> = { [group.vaccineId]: group.name };

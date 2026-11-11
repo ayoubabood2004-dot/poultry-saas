@@ -104,10 +104,13 @@ export interface IssueGive {
   qty: Milli;
 }
 
+/** صرف تأشير لقاح مربوط: المادّة التي عرضتها الشاشة (الخادم يرفض vaccine_relinked إن رُبط اللقاح بغيرها بعد القراءة، مراجعة 0026 DB-1). */
+export type VaccinationIssue = IssueGive & { itemId: string };
+
 export type GiveLine =
   | ({ kind: 'issue'; flockId: string; itemId: string } & IssueGive)
   | { kind: 'log'; flockId: string; id: string; name: string; dose: string | null }
-  | { kind: 'vaccination'; flockId: string; id: string; vaccineId: string; ageDay: number; issue: IssueGive | null };
+  | { kind: 'vaccination'; flockId: string; id: string; vaccineId: string; ageDay: number; issue: VaccinationIssue | null };
 
 /** السطر بمفاتيح الخادم بالضبط (العقد)، فإعادة النداء بالمرجع نفسه ترسل النصّ نفسه حرفاً بحرف. */
 export function giveLineJson(line: GiveLine): Record<string, unknown> {
@@ -117,7 +120,7 @@ export function giveLineJson(line: GiveLine): Record<string, unknown> {
   if (line.kind === 'log') return { kind: 'log', flock_id: line.flockId, id: line.id, name: line.name.trim(), dose: line.dose === null ? null : line.dose.trim() || null };
   const base: Record<string, unknown> = { kind: 'vaccination', flock_id: line.flockId, id: line.id, vaccine_id: line.vaccineId, age_day: line.ageDay };
   return line.issue
-    ? { ...base, issue_id: line.issue.issueId, line_id: line.issue.lineId, warehouse_id: line.issue.warehouseId, qty: decimalText(line.issue.qty, 3) }
+    ? { ...base, item_id: line.issue.itemId, issue_id: line.issue.issueId, line_id: line.issue.lineId, warehouse_id: line.issue.warehouseId, qty: decimalText(line.issue.qty, 3) }
     : base;
 }
 
@@ -378,6 +381,8 @@ export interface DayVaccine {
   state: VaccineState;
   vaccinationId: string | null;
   issueId: string | null;
+  /** رقم صرف اللقاح المربوط (FI) حين أُشِّر به، وإلّا null. */
+  docNo: string | null;
 }
 
 export interface MonthDay {
@@ -440,6 +445,7 @@ export function parseFlockMonth(value: unknown): FlockMonth {
         state: oneOf(vaccine, 'state', VACCINE_STATES),
         vaccinationId: optStr(vaccine, 'vaccination_id'),
         issueId: optStr(vaccine, 'issue_id'),
+        docNo: optStr(vaccine, 'doc_no'),
       })),
     })),
     totals: { feedKg: scaled(totals, 'feed_kg', 3), dead: int(totals, 'dead'), culled: int(totals, 'culled') },
@@ -458,7 +464,8 @@ export interface CycleReport {
   birds: { placed: number; dead: number; culled: number; live: number; mortalityPct: bigint };
   feed: {
     lines: readonly { on: Day; docNo: string; itemName: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; cumKg: Milli; value: Fils | null }[];
-    byItem: readonly { itemId: string; name: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null }[];
+    /** kg مجموع الموزون من سطور المادّة (null حين لا موزون فيها)، وunweighed عدد سطورها بلا وزن (مراجعة 0026 C). */
+    byItem: readonly { itemId: string; name: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; unweighed: number }[];
     deliveredKg: Milli;
     consumedKg: Milli;
     remainingKg: Milli;
@@ -506,6 +513,7 @@ export function parseCycleReport(value: unknown): CycleReport {
         qty: scaled(row, 'qty', 3),
         baseUnit: oneOf(row, 'base_unit', UNITS),
         kg: optScaled(row, 'kg', 3),
+        unweighed: int(row, 'unweighed'),
       })),
       deliveredKg: scaled(feed, 'delivered_kg', 3),
       consumedKg: scaled(feed, 'consumed_kg', 3),
