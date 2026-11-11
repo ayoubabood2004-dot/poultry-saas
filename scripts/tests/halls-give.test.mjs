@@ -9,6 +9,9 @@
 //   بمرجع جديد، وid_conflict بمعرّفات جديدة؛ B طريق الرجوع؛ R التذكير: المجموعات ونصوصها وألوانها، و«تمّ» للقاح مربوط بسطور vaccination ومعها
 //   الصرف ولغير المربوط بلاه ثمّ يُقرأ من جديد، والنتيجة المجهولة، ولا شيء حين يفشل النداء، والصفّ المختصر؛ W الجولة: بلا خانة ماء ولا water_l في
 //   حمولتها (والعملية القديمة بالطابور ترسل مائها كما هو)، وشريط التذكير و«أضف للقاعة» لكلّ قاعة.
+// ومراجعة 0026: R vaccine_relinked يُعيد قراءة التذكير؛ GR-1 حزمة القاعات تفشل كغلاف Vite (vite:preloadError) بواي فاي بلا نت والتعافي الحقيقي يسمع:
+//   تحميل واحد لكلّ فتح للجولة ولا تعافٍ من القشرة القديمة؛ GR-2 جواب الإضافة أو «تمّ» بعد مغادرة الصفحة في الموجّه نفسه: لا تنقّل، والرفض والنتيجة
+//   المجهولة بتنبيه.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
@@ -25,9 +28,28 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const STUBS = {
   session: 'export const useSession = () => globalThis.__hg.session; export const sessionStore = { get: () => globalThis.__hg?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__hg.toasts.push(spec); }; export function Toaster() { return null; }',
-  // حزمة القاعات كما يحمّلها المتصفّح: الحقيقية، أو فشل تحميلها بلا نت (chunkDown) كما يرفض import() لملفّ خارج التثبيت المسبق.
+  // حزمة القاعات كما يحمّلها المتصفّح: الحقيقية، أو فشل تحميلها بلا نت (chunkDown) كما يرفض import() لملفّ خارج التثبيت المسبق. وchunkDown
+  // 'vite' (بعد 10 مللي) و'vite-now' (فوراً) فشلٌ كغلاف Vite في البناء (__vitePreload): يطلق vite:preloadError قابلاً للإلغاء بالخطأ على window ثمّ
+  // يرمي ما لم يُلغَ. وكلّ تحميل يُعدّ (loads)، وكلّ حدث (preloadErrors) وكلّ إلغاء له (prevented).
   hallsChunk: `import * as halls from ${JSON.stringify(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'))};
-    export const loadHalls = () => (globalThis.__hg?.chunkDown ? Promise.reject(new TypeError('Failed to fetch dynamically imported module')) : Promise.resolve(halls));`,
+    const viteFailure = (error) => {
+      const hg = globalThis.__hg;
+      const event = { type: 'vite:preloadError', cancelable: true, defaultPrevented: false, payload: error, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+      if (hg) hg.preloadErrors = (hg.preloadErrors ?? 0) + 1;
+      window.dispatchEvent(event);
+      if (!event.defaultPrevented) throw error;
+      if (hg) hg.prevented = (hg.prevented ?? 0) + 1;
+    };
+    export const loadHalls = () => {
+      const hg = globalThis.__hg;
+      if (hg) hg.loads = (hg.loads ?? 0) + 1;
+      const down = hg?.chunkDown;
+      if (down === 'vite' || down === 'vite-now') {
+        const error = new TypeError('Failed to fetch dynamically imported module: http://localhost/assets/HallsRoutes-test.js');
+        return (down === 'vite' ? new Promise((_, reject) => setTimeout(() => reject(error), 10)) : Promise.reject(error)).catch(viteFailure);
+      }
+      return down ? Promise.reject(new TypeError('Failed to fetch dynamically imported module')) : Promise.resolve(halls);
+    };`,
 };
 // core بديل لملفّات repo: call يسجّله __hg.rpc (المحلّل الحقيقي يقرأ الجواب)، وهويّة الطابور من الجلسة.
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
@@ -60,7 +82,7 @@ async function bundle() {
     "export { createElement as h } from 'react';",
     "export { createRoot } from 'react-dom/client';",
     "export { flushSync } from 'react-dom';",
-    "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
+    "export { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';",
     "export { default as HallsRoutes, Reminders } from './src/pages/halls/HallsRoutes.tsx';",
     "export { default as FarmRoutes } from './src/pages/farm/FarmRoutes.tsx';",
     "export { giveBack, pendingKey, storePending } from './src/pages/halls/GivePage.tsx';",
@@ -68,6 +90,7 @@ async function bundle() {
     "export { sendFlockDay } from './src/lib/repo/flocks.ts';",
     "export { openOutbox, pendingOps } from './src/lib/outbox/index.ts';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
+    "export { initRecovery, recoveryStore } from './src/lib/pwa/recovery.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
     "export { localDay } from './src/domain/dates.ts';",
     "export { RejectedError, UnknownOutcomeError, NetworkError } from './src/lib/errors.ts';",
@@ -206,6 +229,8 @@ export default async function (t) {
       function Where() {
         const location = mm.useLocation();
         globalThis.__hg.location = `${location.pathname}${location.search}`;
+        // التنقّل داخل الموجّه نفسه (زرّ الرجوع في أندرويد أو المتصفّح): الصفحة السابقة تُفكّ والموجّه باقٍ.
+        globalThis.__hg.navigate = mm.useNavigate();
         return element ?? mm.h(mm.Routes, { key: location.pathname }, mm.h(mm.Route, { path: '/halls/*', element: mm.h(mm.HallsRoutes) }), mm.h(mm.Route, { path: '/broiler/*', element: mm.h(mm.FarmRoutes, { kind: 'broiler' }) }), mm.h(mm.Route, { path: '*', element: null }));
       }
       mm.flushSync(() => root.render(mm.h(mm.MemoryRouter, { initialEntries: [url] }, mm.h(Where))));
@@ -582,14 +607,42 @@ export default async function (t) {
       await click(byAction('mark-go')[0]);
       await settle(30);
       const [args] = named(rpcLog, 'give_to_flocks');
-      t.same(args?.p_lines.map((line) => Object.keys(line)), [0, 1].map(() => ['kind', 'flock_id', 'id', 'vaccine_id', 'age_day', 'issue_id', 'line_id', 'warehouse_id', 'qty']), 'R سطر vaccination ومعه جزء الصرف للقاح المربوط');
+      t.same(args?.p_lines.map((line) => Object.keys(line)), [0, 1].map(() => ['kind', 'flock_id', 'id', 'vaccine_id', 'age_day', 'item_id', 'issue_id', 'line_id', 'warehouse_id', 'qty']), 'R سطر vaccination ومعه جزء الصرف للقاح المربوط (والمادّة التي عُرضت)');
       t.same(
-        [args?.p_on, args?.p_lines.map((line) => [line.kind, line.flock_id, line.vaccine_id, line.age_day, line.warehouse_id, line.qty])],
-        ['2026-11-11', [['vaccination', IB.flock_id, IB.vaccine_id, 7, MED, '300.000'], ['vaccination', C.vaccine_reminders.items[2].flock_id, IB.vaccine_id, 7, MED, '200.000']]],
-        'R اليوم يوم الخادم، ولكلّ قاعة كميتها من المخزن المختار',
+        [args?.p_on, args?.p_lines.map((line) => [line.kind, line.flock_id, line.vaccine_id, line.age_day, line.item_id, line.warehouse_id, line.qty])],
+        ['2026-11-11', [['vaccination', IB.flock_id, IB.vaccine_id, 7, IB.item.id, MED, '300.000'], ['vaccination', C.vaccine_reminders.items[2].flock_id, IB.vaccine_id, 7, IB.item.id, MED, '200.000']]],
+        'R اليوم يوم الخادم، ولكلّ قاعة كميتها من المخزن المختار ومادّة اللقاح كما عُرضت',
       );
       t.ok(args && new Set(args.p_lines.flatMap((line) => [line.id, line.issue_id, line.line_id])).size === 6, 'R معرّفات لكلّ قاعة');
       t.same([named(rpcLog, 'vaccine_reminders').length, globalThis.__hg.toasts.at(-1)?.title], [2, 'أُشّر «IB» لـقاعة 2، قاعة 3.'], 'R ثمّ يُقرأ التذكير من جديد، والتنبيه يسمّي اللقاح وقاعاته');
+    });
+    await step('R vaccine_relinked', async () => {
+      // رُبط اللقاح بمادّة غير التي عرضها التذكير بعد قراءته: الخادم لا يصرف شيئاً، والتذكير يُقرأ من جديد بجملة الخادم كـvaccine_linked (العقد 0026).
+      const MED = '00000000-0000-4000-8000-0000000000a1';
+      const relinked = 'اللقاح «IB» صار مربوطاً بـ«لقاح IB جديد» في المخزن بعد قراءة الشاشة، فلم يُصرف شيء. حدّث الشاشة واكتب الكمية من جديد.';
+      const stock = clone(OPTIONS);
+      stock.flock_id = IB.flock_id;
+      stock.items.push({ item_id: IB.item.id, name: 'لقاح IB', kind: 'vaccine', cost_kind: 'vaccine', base_unit: 'pc', density_kg_per_l: null, on_hand_qty: '500.000', made_in_mill: false, stores: [{ warehouse_id: MED, name: 'مخزن الأدوية', qty: '500.000' }] });
+      const rpcLog = fresh(OWNER, {
+        vaccine_reminders: () => clone(C.vaccine_reminders),
+        flock_issue_options: () => clone(stock),
+        give_to_flocks: () => {
+          throw new m.RejectedError('vaccine_relinked', relinked);
+        },
+      });
+      await reminders();
+      await click(byAction('reminder-done')[1]);
+      await settle();
+      type(byAction('mark-qty')[0], '3');
+      type(byAction('mark-qty')[1], '2');
+      await settle();
+      await click(byAction('mark-go')[0]);
+      await settle(30);
+      t.same(
+        [named(rpcLog, 'give_to_flocks').length, named(rpcLog, 'vaccine_reminders').length, byAction('mark-go').length, text().includes(relinked)],
+        [1, 2, 0, true],
+        'R vaccine_relinked: النافذة تُغلق والتذكير يُقرأ من جديد، وجملة الخادم فوقه',
+      );
     });
     await step('R تمّ غير مربوط', async () => {
       const rpcLog = fresh(OWNER, { vaccine_reminders: () => clone(C.vaccine_reminders), give_to_flocks: () => clone(C.give_to_flocks) });
@@ -685,6 +738,176 @@ export default async function (t) {
       t.same(named(rpcLog, 'save_flock_day').map((args) => args.p_water_l), ['50.000', null], 'W العملية القديمة ترسل مائها كما هو، والجديدة بلا ماء');
     }
 
+    // ── GR-1 (مراجعة 0026): واي فاي بلا نت، navigator.onLine صحيح والخادم لا يصل. حزمة القاعات لا تُحمَّل، والفشل كغلاف Vite في البناء: vite:preloadError
+    // ثمّ رمي، والتعافي الحقيقي (initRecovery) يسمعه. الاستيراد مرّة لكلّ فتح للجولة (لا بكلّ رسم ولا دفعاتٍ وهي ساكنة)، وفشله لا يبدأ التعافي من
+    // القشرة القديمة: لا «حُمّلت نسخة جديدة» والعامل يكتب، ولا مسح للتثبيت المسبق ولا إلغاء للخدمة العاملة ولا إعادة تحميل حين يحفظ بعد عودة الاتصال.
+    await step('GR-1', async () => {
+      const saved = Object.fromEntries(['navigator', 'fetch', 'caches'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+      const location = globalThis.window.location;
+      const env = { reachable: false, reloads: 0, deleted: [], unregistered: 0 };
+      const define = (key, value) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+      define('navigator', { onLine: true, serviceWorker: { getRegistrations: async () => [{ unregister: async () => (env.unregistered += 1) > 0 }] } });
+      define('fetch', async () => {
+        if (!env.reachable) throw new TypeError('Failed to fetch');
+        return new Response('self.addEventListener("install",()=>{})', { headers: { 'content-type': 'application/javascript' } });
+      });
+      define('caches', { keys: async () => ['workbox-precache-v2-http://localhost/'], delete: async (name) => env.deleted.push(name) > 0 });
+      globalThis.window.location = { ...location, reload: () => (env.reloads += 1) };
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const pause = async () => {
+        await wait(40);
+        await settle();
+      };
+      try {
+        // نسخة جديدة من الحزمة: تعافيها ومخازنها لهذه الخطوة وحدها، والجولة تحفظ على الجهاز (onlineStore بلا اتصال، والتعافي يقرأ navigator).
+        current = await bundle();
+        current.initRecovery();
+        current.onlineStore.set(false);
+        const today = current.localDay();
+        fresh(WORKER, { flocks_overview: () => overview(today), vaccine_reminders: () => clone(C.vaccine_reminders) });
+        const hg = globalThis.__hg;
+        hg.chunkDown = 'vite';
+        await mount('/broiler/round');
+        await pause();
+        t.same([hg.loads, hg.preloadErrors, current.recoveryStore.get(), byAction('reminders').length, byAction('round-save').length], [1, 1, 'idle', 0, 1], 'GR-1 فتح الجولة: تحميل واحد فشل كغلاف Vite (والحدث أُطلق)، والتعافي لم يبدأ، والجولة بلا تذكير');
+        type(all().find((n) => n.id.endsWith('-dead')), '7');
+        await settle();
+        await pause();
+        t.same([hg.loads, current.isWindowDirty(), current.recoveryStore.get()], [1, true, 'idle'], 'GR-1 العامل يكتب: لا تحميل جديد بكلّ رسم، ولا «حُمّلت نسخة جديدة — احفظ عملك»');
+        env.reachable = true;
+        await click(byAction('round-save')[0]);
+        await settle(60);
+        await pause();
+        t.same([current.isWindowDirty(), env.reloads, env.deleted, env.unregistered, current.recoveryStore.get()], [false, 0, [], 0, 'idle'], 'GR-1 حفظ الجولة بعد عودة الاتصال: لا مسح للتثبيت المسبق ولا إلغاء للخدمة العاملة ولا إعادة تحميل');
+        await unmount();
+        // فشل فوريّ (ملفّ فشل جلبه من قبل) والجولة ساكنة: تحميل واحد للفتح لا دفعات.
+        hg.loads = 0;
+        hg.chunkDown = 'vite-now';
+        await mount('/broiler/round');
+        const samples = [];
+        for (let i = 0; i < 4; i += 1) {
+          await wait(25);
+          await settle();
+          samples.push(hg.loads);
+        }
+        t.same([samples, hg.prevented ?? 0, current.recoveryStore.get()], [[1, 1, 1, 1], 0, 'idle'], 'GR-1 فشل فوريّ: تحميل واحد للفتح لا دفعات، والحدث لا يُلغى (الاستيراد يرفض إلى صاحبه)');
+        await unmount();
+        hg.chunkDown = false;
+        await mount('/broiler/round');
+        t.same([hg.loads, byAction('reminders').length], [2, 1], 'GR-1 والفتح التالي مع الاتصال يحمّلها مرّة ويعرض التذكير');
+        // ضابط: الحدث نفسه من استيراد غير اختياريّ ما زال يبدأ التعافي (والخادم لا يصل، فلا يمسح شيئاً).
+        env.reachable = false;
+        globalThis.window.dispatchEvent({ type: 'vite:preloadError', cancelable: true, defaultPrevented: false, preventDefault() {}, stopPropagation() {} });
+        t.eq(current.recoveryStore.get(), 'checking', 'GR-1 ضابط: vite:preloadError من استيراد آخر يبدأ التعافي كما كان');
+        await pause();
+      } finally {
+        for (const [key, descriptor] of Object.entries(saved)) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+          else delete globalThis[key];
+        }
+        globalThis.window.location = location;
+      }
+    });
+
+    // ── GR-2 (مراجعة 0026): جواب يصل بعد مغادرة الصفحة (التأكيد يقفلها، وزرّ الرجوع في أندرويد يغادرها) في الموجّه نفسه ──
+    const roundRpcs = (over = {}) => giveRpcs({ flocks_overview: () => overview(m.localDay()), vaccine_reminders: () => clone(C.vaccine_reminders), ...over });
+    /** يكتب كمية العلف البادئ ويؤكّد الإضافة لقاعة 1 (والجواب معلَّق)، ثمّ يغادر إلى الجولة ويكتب النافق 7. */
+    const giveThenLeave = async () => {
+      await mount(`/halls/give/${FLOCK}`);
+      await click(card(STARTER));
+      type(qtyOf(STARTER), '100');
+      await settle();
+      await click(byAction('give-go')[0]);
+      await click(byAction('give-confirm')[0]);
+      globalThis.__hg.navigate('/broiler/round');
+      await settle(60);
+      type(all().find((n) => n.id.endsWith('-dead')), '7');
+      await settle();
+    };
+    const deadTyped = () => all().find((n) => n.id.endsWith('-dead'))?.value ?? null;
+    await step('GR-2 نجاح بعد المغادرة', async () => {
+      const held = deferred();
+      m.onlineStore.set(false);
+      fresh(OWNER, roundRpcs({ give_to_flocks: () => held.promise }));
+      await giveThenLeave();
+      const before = [globalThis.__hg.location, deadTyped()];
+      held.resolve(clone(C.give_to_flocks));
+      await settle(60);
+      const last = globalThis.__hg.toasts.at(-1);
+      t.same(
+        [before, [globalThis.__hg.location, deadTyped()], last?.tone, last?.title],
+        [['/broiler/round', '7'], ['/broiler/round', '7'], 'success', 'أُضيف إلى قاعة 1 يوم 11/11/2026.'],
+        'GR-2 إضافة نجحت بعد مغادرة الصفحة: تنبيه النجاح وحده، ولا تنقّل يأخذ الجولة ونافقها المكتوب إلى صفحة الفوج',
+      );
+      m.onlineStore.set(true);
+    });
+    await step('GR-2 رفض بعد المغادرة', async () => {
+      const held = deferred();
+      const shortage = 'مجموع ما طلبته من «علف بادئ» لقاعة واحدة 100 كغم، وعندك 50 كغم.';
+      m.onlineStore.set(false);
+      fresh(OWNER, roundRpcs({ give_to_flocks: () => held.promise.then(() => Promise.reject(new m.RejectedError('insufficient_stock', shortage))) }));
+      await giveThenLeave();
+      held.resolve();
+      await settle(60);
+      const last = globalThis.__hg.toasts.at(-1);
+      t.same(
+        [globalThis.__hg.location, deadTyped(), last?.tone, last?.title, last?.detail, storage.size],
+        ['/broiler/round', '7', 'danger', 'لم يُضف شيء إلى قاعة 1 يوم 07/11/2026.', shortage, 0],
+        'GR-2 رفض أكيد بعد مغادرة الصفحة: تنبيه خطر يسمّي ما لم يُضف وتلميح الخادم، ولا طلب معلَّق، والجولة كما هي',
+      );
+      m.onlineStore.set(true);
+    });
+    await step('GR-2 نتيجة مجهولة بعد المغادرة', async () => {
+      const held = deferred();
+      m.onlineStore.set(false);
+      fresh(OWNER, roundRpcs({ give_to_flocks: () => held.promise.then(() => Promise.reject(new m.UnknownOutcomeError())) }));
+      await giveThenLeave();
+      held.resolve();
+      await settle(60);
+      const last = globalThis.__hg.toasts.at(-1);
+      t.same(
+        [globalThis.__hg.location, last?.tone, last?.title, storage.size],
+        ['/broiler/round', 'warning', 'لا نعرف إن سُجّلت الإضافة إلى قاعة 1: افتح «أضف للقاعة» لـ«قاعة 1» وأعد المحاولة؛ لن تُسجَّل مرّتين.', 1],
+        'GR-2 نتيجة مجهولة بعد المغادرة: تنبيه يقول أين تُعاد، والطلب محفوظ لصفحة الإضافة',
+      );
+      globalThis.__hg.navigate(`/halls/give/${FLOCK}`);
+      await settle(60);
+      t.eq(byAction('give-retry').length, 1, 'GR-2 والعودة إلى صفحة الإضافة: مجمَّدة بطلبها');
+      m.onlineStore.set(true);
+    });
+    await step('GR-2 «تمّ» رُفض بعد المغادرة', async () => {
+      for (const [code, hint, label] of [
+        ['already_vaccinated', 'أُشّر «ND» يوم العمر 7 لـ«قاعة 1» من جهاز آخر.', 'رفض يُعيد القراءة'],
+        ['period_locked', 'الفترة مقفلة حتّى 31/10/2026.', 'رفض أكيد'],
+      ]) {
+        const held = deferred();
+        fresh(OWNER, { vaccine_reminders: () => clone(C.vaccine_reminders), give_to_flocks: () => held.promise.then(() => Promise.reject(new m.RejectedError(code, hint))) });
+        await reminders();
+        await click(byAction('reminder-done')[0]);
+        await click(byAction('mark-go')[0]);
+        // غادر الجولة والتأشير في الطريق.
+        await unmount();
+        held.resolve();
+        await settle(30);
+        const last = globalThis.__hg.toasts.at(-1);
+        t.same([last?.tone, last?.title, last?.detail, storage.size], ['danger', 'لم يُؤشَّر «ND» لـقاعة 1.', hint, 0], `GR-2 «تمّ» بعد مغادرة الجولة (${label}): تنبيه خطر يسمّي اللقاح وقاعته وتلميح الخادم`);
+      }
+    });
+    await step('GR-2 «تمّ» مجهول بعد المغادرة', async () => {
+      const held = deferred();
+      fresh(OWNER, { vaccine_reminders: () => clone(C.vaccine_reminders), give_to_flocks: () => held.promise.then(() => Promise.reject(new m.UnknownOutcomeError())) });
+      await reminders();
+      await click(byAction('reminder-done')[0]);
+      await click(byAction('mark-go')[0]);
+      await unmount();
+      held.resolve();
+      await settle(30);
+      const last = globalThis.__hg.toasts.at(-1);
+      t.same([last?.tone, last?.title], ['warning', 'لا نعرف إن سُجّل تأشير «ND» لـقاعة 1: افتح الجولة وأعد المحاولة؛ لن يُسجَّل مرّتين.'], 'GR-2 «تمّ» بنتيجة مجهولة بعد المغادرة: تنبيه يقول أين يُعاد');
+      await reminders();
+      t.eq(byAction('mark-retry').length, 1, 'GR-2 والعودة إلى الجولة: التأشير مجمَّد بطلبه');
+    });
+
     // ── X: تذكير اللقاحات بجواب القاعدة الحقيقي (fixtures/halls-0026.json من supabase/tests/halls.test بـHALLS_SAMPLES_OUT=1) ──
     const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json');
     const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
@@ -693,9 +916,17 @@ export default async function (t) {
       await step('X التذكير بجواب القاعدة', async () => {
         fresh(OWNER, { vaccine_reminders: () => clone(REAL.vaccine_reminders) });
         await reminders();
+        // المجموعات من الجواب نفسه: (اللقاح، يوم العمر، يوم الاستحقاق) بترتيب الخادم، وكلّ مجموعة بقاعاتها مفصولة بفاصلة عربية.
+        const groups = [];
+        for (const item of REAL.vaccine_reminders.items) {
+          const key = `${item.vaccine_id}|${item.age_day}|${item.due_on}`;
+          const found = groups.find((group) => group.key === key);
+          if (found) found.halls.push(item.hall_name);
+          else groups.push({ key, name: item.name, age: item.age_day, halls: [item.hall_name] });
+        }
         const texts = byAction('reminder-text').map((n) => n.textContent);
-        t.same([texts.length, texts[0]?.startsWith('ND · يوم العمر 7'), texts[0]?.includes('قاعة 2'), texts[1]?.includes('قاعة 1، قاعة 4')], [2, true, true, true],
-          'X التذكير بجواب القاعدة: ND يوم 7 لـ«قاعة 2» غداً، وND يوم 14 لـ«قاعة 1» و«قاعة 4» معاً');
+        t.same([texts.length, texts.map((text, i) => text.startsWith(`${groups[i]?.name} · يوم العمر ${groups[i]?.age}`) && text.endsWith(groups[i]?.halls.join('، ')))],
+          [groups.length, groups.map(() => true)], 'X التذكير بجواب القاعدة: كلّ مجموعة باسم لقاحها ويوم عمرها وقاعاتها');
       });
     }
   } finally {

@@ -10,10 +10,11 @@ import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
+import type { BaseUnit } from '../../domain/units';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
-import { fmtDay, fmtInt } from '../../lib/format';
+import { fmtDay, fmtInt, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadFlockMonth, removeFlockLog, undoVaccination, type DayVaccine, type FlockMonth, type HallFlock, type MonthDay } from '../../lib/repo/halls';
+import { loadFlockMonth, removeFlockLog, undoVaccination, type DayIssue, type DayVaccine, type FlockMonth, type HallFlock, type MonthDay } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BackLink, backTarget, bandStyle, daysText, flockPath, kgText, kindLabel, printAs, qtyText, roundPath, STATE_INK, stateLabel, VaccineName } from './parts';
@@ -109,15 +110,33 @@ function plainIssues(day: MonthDay) {
   return day.issues.filter((issue) => !marked.has(issue.issueId));
 }
 
-const feedKgOf = (day: MonthDay): { kg: Milli; count: number } => {
-  const feed = plainIssues(day).filter((issue) => issue.costKind === 'feed');
-  return { kg: feed.reduce((sum, issue) => sum + (issue.kg ?? 0n), 0n), count: feed.length };
-};
+/**
+ * العلف النازل: كيلو الموزون منه، وما لا وزن له (لتر بلا كثافة أو قطعة بلا وزن) بكميته لكلّ وحدة نصّاً («10 قطع»)، أو '' حين كلّه موزون. الكيلو وحده
+ * كان يبدو رقماً كاملاً واليوم فيه أكياس بلا وزن (مراجعة 0026 D).
+ */
+function feedOf(issues: readonly DayIssue[]): { kg: Milli; count: number; unweighed: string } {
+  const feed = issues.filter((issue) => issue.costKind === 'feed');
+  const rest = new Map<BaseUnit, Milli>();
+  let kg = 0n;
+  for (const issue of feed) {
+    if (issue.kg === null) rest.set(issue.baseUnit, (rest.get(issue.baseUnit) ?? 0n) + issue.qty);
+    else kg += issue.kg;
+  }
+  return { kg, count: feed.length, unweighed: [...rest].map(([unit, qty]) => fmtQty(qty, unit).main).join(t('list.separator', '، ')) };
+}
+
+/** نصّ العلف في شريط اليوم: «علف 1,000 كغم»، و«علف 1,000 كغم + 10 قطع بلا وزن»، و«علف 10 قطع بلا وزن». */
+function feedBand(feed: ReturnType<typeof feedOf>): string {
+  if (feed.unweighed === '') return t('halls.cal.feed_band', 'علف {kg}', { kg: kgText(feed.kg) });
+  return feed.kg > 0n
+    ? t('halls.cal.feed_band_partial', 'علف {kg} + {rest} بلا وزن', { kg: kgText(feed.kg), rest: feed.unweighed })
+    : t('halls.cal.feed_band_none', 'علف {rest} بلا وزن', { rest: feed.unweighed });
+}
 
 /** مربّع يوم: رقمه وعمره، وشريط العلف النازل، والأدوية، واللقاحات، والنافق والمستبعد، والملاحظة. */
 function DaySquare({ day, today, onOpen }: { day: MonthDay; today: Day; onOpen: (day: Day) => void }) {
   const life = day.age !== null;
-  const feed = feedKgOf(day);
+  const feed = feedOf(plainIssues(day));
   const medicines = plainIssues(day).filter((issue) => issue.costKind !== 'feed');
   const style = { boxShadow: day.on === today ? NOW_RING : undefined, ...(life ? null : DIM) };
   const body = (
@@ -132,7 +151,7 @@ function DaySquare({ day, today, onOpen }: { day: MonthDay; today: Day; onOpen: 
       {feed.count > 0 ? (
         // بلا قصّ: «علف 1,000 كغم» تلتفّ في المربّع الضيّق (القصّ بالعربية كان يقطع الرقم «علف 000,…»).
         <span className="rounded bg-brand-600 px-2 text-center text-xs font-semibold text-white dark:bg-brand-500" data-action="feed-band">
-          {feed.kg > 0n ? t('halls.cal.feed_band', 'علف {kg}', { kg: kgText(feed.kg) }) : t('halls.cal.feed_band_unweighed', 'علف')}
+          {feedBand(feed)}
         </span>
       ) : null}
       {medicines.map((issue) => (
@@ -200,11 +219,13 @@ function DayPanel({ data, day, reading, calendarUrl, onClose, onChanged }: { dat
     setRemoving({ ...removing, busy: true, failure: null });
     try {
       const done = await removeFlockLog(removing.log.id);
+      // «كان محذوفاً» بعد إعادة لنتيجة مجهولة أرجح ما يعني أنّ المحاولة الأولى من هذا الجهاز حذفته: يُقال «حُذف» بلا «من جهاز آخر» (مراجعة 0026 G).
       toast({
         tone: 'success',
-        title: done.removed
-          ? t('halls.cal.log_removed', 'حُذف تسجيل «{name}».', { name: removing.log.name })
-          : t('halls.cal.log_gone', 'كان تسجيل «{name}» محذوفاً من جهاز آخر.', { name: removing.log.name }),
+        title:
+          done.removed || retrying
+            ? t('halls.cal.log_removed', 'حُذف تسجيل «{name}».', { name: removing.log.name })
+            : t('halls.cal.log_gone', 'كان تسجيل «{name}» محذوفاً من جهاز آخر.', { name: removing.log.name }),
       });
       setRemoving(null);
       onChanged();
@@ -372,8 +393,11 @@ function DayPanel({ data, day, reading, calendarUrl, onClose, onChanged }: { dat
           day.vaccines.length ? (
             <ul className="flex flex-col gap-2">
               {day.vaccines.map((vaccine) => {
-                const doc = vaccine.issueId === null ? null : (day.issues.find((issue) => issue.issueId === vaccine.issueId)?.docNo ?? null);
+                // رقم صرف اللقاح المربوط من التأشير نفسه: flock_month يخرج صرف التأشير الحيّ من سطور اليوم (مراجعة 0026 A).
+                const doc = vaccine.issueId === null ? null : vaccine.docNo;
                 const undoable = vaccine.state === 'done' && vaccine.vaccinationId !== null && can.vaccinate && (vaccine.issueId === null || can.undoIssue);
+                // التأشير في الجولة من تذكيرها، والتذكير والخادم يقبلان الفائت حتى سبعة أيام بعد موعده؛ الأقدم «فات ولم يُؤشَّر» بلا رابط (مراجعة 0026 E).
+                const markable = (vaccine.state === 'today' || vaccine.state === 'missed') && can.vaccinate;
                 return (
                   <li key={`${vaccine.vaccineId}|${vaccine.ageDay}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2" style={bandStyle(vaccine.color)} data-action="vac-row" data-state={vaccine.state}>
                     <span className="flex min-w-0 flex-col">
@@ -402,10 +426,14 @@ function DayPanel({ data, day, reading, calendarUrl, onClose, onChanged }: { dat
                       </Button>
                     ) : vaccine.state === 'done' && vaccine.issueId !== null && can.vaccinate && !can.undoIssue ? (
                       <span className="text-xs text-ink-muted">{t('halls.cal.vac_undo_void', 'إلغاء هذا التأشير يعكس صرفاً من المخزن، فهو لمن يلغي الصرف.')}</span>
-                    ) : (vaccine.state === 'today' || vaccine.state === 'missed') && can.vaccinate ? (
+                    ) : markable && day.on >= addDays(today, -7) ? (
                       <Link to={roundPath(flock.kind)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="vac-round">
                         {t('halls.cal.vac_round', 'أشّره في الجولة')}
                       </Link>
+                    ) : markable ? (
+                      <span className="text-xs text-ink-muted" data-action="vac-too-old">
+                        {t('halls.cal.vac_too_old', 'فات ولم يُؤشَّر')}
+                      </span>
                     ) : null}
                   </li>
                 );
@@ -534,6 +562,8 @@ function CalendarView({ flockId }: { flockId: string }) {
   const ages = (data?.days ?? []).map((day) => day.age).filter((age): age is number => age !== null);
   const openDay = open !== null && data !== null ? (data.days.find((day) => day.on === open) ?? null) : null;
   const offset = data && data.days.length ? weekdayOf(data.days[0]?.on ?? `${month}-01`) : 0;
+  // كيلو الشهر من الخادم (totals)، وما بلا وزن من سطور أيّامه: سطر المجاميع يقوله كشريط اليوم (مراجعة 0026 D).
+  const monthFeed = data ? feedOf(data.days.flatMap(plainIssues)) : null;
 
   return (
     <div className="flex flex-col gap-5" data-action="calendar-page">
@@ -605,7 +635,14 @@ function CalendarView({ flockId }: { flockId: string }) {
           </h2>
           {data ? (
             <p className="text-sm" data-action="cal-totals">
-              {t('halls.cal.totals', 'العلف النازل في الشهر: {kg} — النافق: {dead} — المستبعد: {culled}', { kg: kgText(data.totals.feedKg), dead: data.totals.dead, culled: data.totals.culled })}
+              {monthFeed !== null && monthFeed.unweighed !== ''
+                ? t('halls.cal.totals_partial', 'العلف النازل في الشهر: {kg} + {rest} بلا وزن — النافق: {dead} — المستبعد: {culled}', {
+                    kg: kgText(data.totals.feedKg),
+                    rest: monthFeed.unweighed,
+                    dead: data.totals.dead,
+                    culled: data.totals.culled,
+                  })
+                : t('halls.cal.totals', 'العلف النازل في الشهر: {kg} — النافق: {dead} — المستبعد: {culled}', { kg: kgText(data.totals.feedKg), dead: data.totals.dead, culled: data.totals.culled })}
             </p>
           ) : null}
         </div>

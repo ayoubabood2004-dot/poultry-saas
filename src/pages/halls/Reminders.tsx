@@ -85,8 +85,11 @@ function forHalls(count: number, first: string): string {
   return t('reminders.for.hundreds', 'لـ{n} قاعة', { n });
 }
 
-/** رفوض تعني أنّ ما يعرضه التذكير تغيّر (رُبط اللقاح أو فُكّ، أو أُشّر من جهاز آخر، أو خرج من الجدول): يُقرأ من جديد. */
-const REREAD = new Set(['vaccine_linked', 'vaccine_not_linked', 'already_vaccinated', 'not_in_program', 'vaccine_not_found', 'vaccine_archived']);
+/**
+ * رفوض تعني أنّ ما يعرضه التذكير تغيّر (رُبط اللقاح أو فُكّ أو رُبط بمادّة غير التي عُرضت، أو أُشّر من جهاز آخر، أو خرج من الجدول): يُقرأ من
+ * جديد وتُقال جملة الخادم.
+ */
+const REREAD = new Set(['vaccine_linked', 'vaccine_not_linked', 'vaccine_relinked', 'already_vaccinated', 'not_in_program', 'vaccine_not_found', 'vaccine_archived']);
 
 type Outcome = { kind: 'done' } | { kind: 'unknown' } | { kind: 'reread' } | { kind: 'refused'; problem: unknown };
 
@@ -321,6 +324,14 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
   const [unreached, setUnreached] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const sending = useRef(false);
+  /** الشريط مركّب: «تمّ» يُجاب بعد مغادرة الجولة فرفضه أو نتيجته المجهولة تُقال بتنبيه، لا تضيع في شريط فُكّ (مراجعة 0026 GR-2). */
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
   useDirtyForm(busy || frozen !== null);
 
   /** نداء give_to_flocks بسطور التأشير: الأوّل من النافذة، والإعادة بعد نتيجة مجهولة بالطلب نفسه حرفاً. */
@@ -331,15 +342,15 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
     setUnreached(false);
     setNote(null);
     storePending(pendingId, request);
+    const separator = t('list.separator', '، ');
+    const halls = [...new Set(request.lines.map((line) => line.flockId))].map((flock) => request.names[flock] ?? '').join(separator);
+    const vaccine = request.lines[0]?.kind === 'vaccination' ? (request.names[request.lines[0].vaccineId] ?? '') : '';
     try {
       const done = await giveToFlocks(request.clientRef, request.on, request.lines);
       storePending(pendingId, null);
       setFrozen(null);
       setMarking(null);
-      const separator = t('list.separator', '، ');
-      const halls = [...new Set(request.lines.map((line) => line.flockId))].map((flock) => request.names[flock] ?? '').join(separator);
       const docs = done.vaccinations.flatMap((mark) => (mark.docNo ? [mark.docNo] : []));
-      const vaccine = request.lines[0]?.kind === 'vaccination' ? (request.names[request.lines[0].vaccineId] ?? '') : '';
       toast({
         tone: 'success',
         title: t('reminders.done.title', 'أُشّر «{name}» لـ{halls}.', { name: vaccine, halls }),
@@ -353,10 +364,17 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
         setFrozen(request);
         setMarking(null);
         setUnreached(retrying && surelyUnsaved(problem));
+        // غادر الجولة قبل الجواب: الطلب محفوظ (شريط الجولة يعود مجمَّداً به)، والتنبيه يقول ذلك.
+        if (!live.current) toast({ tone: 'warning', title: t('reminders.unknown_away', 'لا نعرف إن سُجّل تأشير «{name}» لـ{halls}: افتح الجولة وأعد المحاولة؛ لن يُسجَّل مرّتين.', { name: vaccine, halls }) });
         return { kind: 'unknown' };
       }
       storePending(pendingId, null);
       setFrozen(null);
+      if (!live.current) {
+        // غادر الجولة قبل الجواب: الشريط ونافذته ذهبا، فالرفض بتنبيه يسمّي ما لم يُؤشَّر وسببه.
+        toast({ tone: 'danger', title: t('reminders.refused_away', 'لم يُؤشَّر «{name}» لـ{halls}.', { name: vaccine, halls }), detail: failureText(problem) });
+        return { kind: 'reread' };
+      }
       if (retrying || (problem instanceof RejectedError && REREAD.has(problem.code))) {
         // ما يعرضه التذكير تغيّر (أو رُفضت الإعادة): يُقرأ من جديد وتُقال جملة الخادم فوقه.
         setMarking(null);

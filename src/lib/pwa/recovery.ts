@@ -108,10 +108,23 @@ export function page<P extends object>(load: () => Promise<{ default: ComponentT
   });
 }
 
+let quiet = 0;
+
+/**
+ * استيراد اختياريّ (تذكير اللقاحات في الجولة والرئيسية، وحزمته خارج التثبيت المسبق): فشله بواي فاي بلا نت ليس قشرة قديمة، فحدث vite:preloadError
+ * أثناءه لا يبدأ التعافي (كان يرفع «حُمّلت نسخة جديدة» ثمّ يمسح القشرة بعد حفظ الجولة، مراجعة 0026 GR-1). والحدث لا يُلغى: الاستيراد يرفض إلى صاحبه.
+ */
+export function quietly<T>(load: () => Promise<T>): Promise<T> {
+  quiet += 1;
+  return load().finally(() => {
+    quiet -= 1;
+  });
+}
+
 export function initRecovery(): void {
   // ما نلغي الحدث: الاستيراد يرمي، وحدّ الصفحة يعرض الحالة (نفحص، بلا نت، نحمّل) ويّا زرّ إعادة.
   window.addEventListener('vite:preloadError', () => {
-    recoverFromStaleShell();
+    if (!quiet) recoverFromStaleShell();
   });
   dirtyStore.subscribe(() => {
     if (!isWindowDirty() && recoveryStore.get() === 'pending_save') recoverFromStaleShell();

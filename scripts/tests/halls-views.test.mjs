@@ -9,6 +9,9 @@
 // V جدول اللقاحات: اختيار عدّة لقاحات والضغط على عدّة أيام، وp_days حرفاً بترتيبها (يوم العمر ثمّ ترتيب اللقاح في القائمة) بالنسخة المقروءة،
 //   وstale_program يُبقي التعديل بجدول الفروق ثمّ «اعتمد تعديلي»، والحذف «يُحذف» أو «يُخفى» بـin_use، والإضافة والتعديل، ونهاية الدورة وما يُشال،
 //   والقراءة وحدها، والنتيجة المجهولة والتحقّق بعد إعادة رُفضت بشرط النسخة، والصفحات بـ70 يوماً.
+// ومراجعة 0026: رقم صرف اللقاح المؤشَّر من مدخله (C1 وX1 بجواب القاعدة)، وحذف التسجيل بعد إعادة بلا «من جهاز آخر» (C4)، والفائت أقدم من سبعة أيام
+//   بلا رابط إلى الجولة (C8)، والعلف بلا وزن في الشريط والمجاميع (C9) وتحت كيلو المادّة في التقرير (R4)، ولقاح حُذف من جهاز آخر والجدول يُحفظ
+//   (V11–V13)، ونافذتا اللقاح وحذفه بعد stale_vaccine (V14–V15).
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -313,19 +316,16 @@ export default async function (t) {
     });
 
     await step('C1 صرف اللقاح المؤشَّر مع تأشيره لا مع الأدوية', async () => {
-      // إن رجّع الخادم صرف اللقاح المربوط في سطور اليوم أيضاً: يظهر مستنده مع التأشير، ولا يُعدّ دواءً في المربّع ولا في «ما نزل».
+      // بشكل الخادم الحقيقي (مراجعة 0026 A): flock_month يخرج صرف التأشير الحيّ من سطور اليوم، ورقمه (FI) في مدخل اللقاح نفسه (doc_no).
       const month = clone(F.flock_month);
-      month.days[6].issues = [
-        { issue_id: '00000000-0000-4000-8000-000000000402', doc_no: 'FI-2026-0101', item_id: IB_ITEM, name: 'لقاح IB', cost_kind: 'vaccine', qty: '1', base_unit: 'pc', kg: null },
-      ];
       fresh(MANAGER, { rpcs: { flock_month: () => month } });
       await mount(calendarUrl);
-      t.same(byAction('day-medicine').map(dayOf), ['2026-11-03'], 'C1 صرف اللقاح المؤشَّر لا يظهر دواءً في مربّعه');
+      t.same([byAction('day-medicine').map(dayOf), month.days[6].issues.length], [['2026-11-03'], 0], 'C1 صرف اللقاح المؤشَّر ليس في سطور يومه ولا يظهر دواءً في مربّعه');
       await click(cell('2026-11-07'));
       t.same(
-        [byAction('day-issue').length, byAction('vac-row')[0]?.textContent.includes('وصُرف من المخزن بالمستند FI-2026-0101')],
-        [0, true],
-        'C1 وفي تفاصيل اليوم: مستنده مع تأشير اللقاح، لا في «ما نزل من المخزن»',
+        [byAction('day-issue').length, byAction('vac-row').map((row) => row.textContent.includes('وصُرف من المخزن بالمستند FI-2026-0101'))],
+        [0, [true, false]],
+        'C1 وفي تفاصيل اليوم: رقم صرف اللقاح المؤشَّر من مدخله مع تأشيره، لا في «ما نزل من المخزن»',
       );
     });
 
@@ -408,11 +408,21 @@ export default async function (t) {
       t.same([named(rpcLog, 'remove_flock_log'), byAction('log-remove-retry').length], [[{ p_id: '00000000-0000-4000-8000-000000000305' }], 1], 'C4 remove_flock_log بمعرّف التسجيل، والنتيجة المجهولة تجمّد بـ«أعد المحاولة»');
       await click(byAction('log-remove-retry')[0]);
       await settle();
+      // «كان محذوفاً» بعد إعادة لنتيجة مجهولة أرجح ما يعني أنّ المحاولة الأولى حذفته (مراجعة 0026 G): «حُذف» بلا «من جهاز آخر».
       t.same(
         [named(rpcLog, 'remove_flock_log'), lastToast(), named(rpcLog, 'flock_month').length],
-        [[{ p_id: '00000000-0000-4000-8000-000000000305' }, { p_id: '00000000-0000-4000-8000-000000000305' }], 'كان تسجيل «فيتامين AD3E» محذوفاً من جهاز آخر.', 2],
-        'C4 الإعادة بالمعرّف نفسه، و«كان محذوفاً» يُقال، ويُقرأ الشهر من جديد',
+        [[{ p_id: '00000000-0000-4000-8000-000000000305' }, { p_id: '00000000-0000-4000-8000-000000000305' }], 'حُذف تسجيل «فيتامين AD3E».', 2],
+        'C4 الإعادة بالمعرّف نفسه، وجوابها «كان محذوفاً» يُقال «حُذف» بلا «من جهاز آخر»، ويُقرأ الشهر من جديد',
       );
+    });
+    await step('C4 أوّل محاولة تجده محذوفاً', async () => {
+      fresh(MANAGER, { rpcs: { flock_month: () => clone(F.flock_month), remove_flock_log: (args) => ({ id: args.p_id, removed: false }) } });
+      await mount(calendarUrl);
+      await click(cell('2026-11-05'));
+      await click(withId('log-remove', '00000000-0000-4000-8000-000000000305'));
+      await click(byAction('log-remove-go')[0]);
+      await settle();
+      t.eq(lastToast(), 'كان تسجيل «فيتامين AD3E» محذوفاً من جهاز آخر.', 'C4 ضابط: أوّل محاولة جوابها «كان محذوفاً»: حذفه جهاز آخر');
     });
 
     await step('C5 إلغاء تأشير بصرف: السبب إلزاميّ والإعادة حرفاً', async () => {
@@ -492,6 +502,56 @@ export default async function (t) {
       t.eq(globalThis.document.title, 'نظام الدواجن', 'C7 ويعود عنوان الصفحة بعد الطباعة');
       t.ok(styleText().includes('@page { size: A4 landscape; margin: 8mm; }') && styleText().includes('print-color-adjust: exact'), 'C7 A4 عرضاً، وألوان العلف واللقاحات تُطبع');
       t.ok(textOf('cal-org') === 'مشروع الدواجن' && byAction('cal-bar')[0]?.getAttribute('class')?.includes('print:hidden'), 'C7 اسم المنشأة في الورقة، والأزرار لا تُطبع');
+    });
+
+    await step('C8 الفائت أقدم من سبعة أيام', async () => {
+      // مراجعة 0026 E: التأشير في الجولة من تذكيرها، والتذكير والخادم يقبلان الفائت حتى سبعة أيام بعد موعده؛ الأقدم «فات ولم يُؤشَّر» بلا رابط.
+      const month = clone(F.flock_month);
+      month.today = '2026-11-21';
+      month.days.find((day) => day.on === '2026-11-14').vaccines[0].state = 'missed';
+      fresh(MANAGER, { rpcs: { flock_month: () => month } });
+      await mount(calendarUrl);
+      const missed = () =>
+        byAction('vac-row')
+          .filter((row) => row.getAttribute('data-state') === 'missed')
+          .map((row) => {
+            const inside = (action) => descendants(row).find((n) => n.getAttribute('data-action') === action);
+            return [inside('vac-round')?.getAttribute('href') ?? null, inside('vac-too-old')?.textContent ?? null];
+          });
+      await click(cell('2026-11-07'));
+      t.same(missed(), [[null, 'فات ولم يُؤشَّر']], 'C8 فات منذ 14 يوماً: «فات ولم يُؤشَّر» بلا رابط إلى جولة لا تذكّر به');
+      await click(byAction('day-close')[0]);
+      await click(cell('2026-11-14'));
+      t.same(missed(), [['/broiler/round', null]], 'C8 فات منذ سبعة أيام بالضبط (أوّل يوم في نافذة التذكير): «أشّره في الجولة»');
+    });
+
+    await step('C9 علف بعضه بلا وزن', async () => {
+      // مراجعة 0026 D: شريط اليوم وسطر المجاميع يقولان ما لا وزن له (قطعة بلا وزن أو لتر بلا كثافة) بكميته، فلا يبدو الكيلو رقماً كاملاً.
+      const month = clone(F.flock_month);
+      const BAGS = '00000000-0000-4000-8000-000000000036';
+      const STARTER = '00000000-0000-4000-8000-000000000031';
+      const feed = (n, doc, item, name, qty, unit, kg) => ({ issue_id: `00000000-0000-4000-8000-00000000090${n}`, doc_no: doc, item_id: item, name, cost_kind: 'feed', qty, base_unit: unit, kg });
+      month.days.find((day) => day.on === '2026-11-09').issues = [feed(1, 'FI-2026-0010', BAGS, 'علف أكياس', '3', 'pc', null)];
+      month.days.find((day) => day.on === '2026-11-10').issues = [
+        feed(2, 'FI-2026-0011', BAGS, 'علف أكياس', '10', 'pc', null),
+        feed(3, 'FI-2026-0012', STARTER, 'علف بادئ', '1000', 'kg', '1000'),
+        feed(4, 'FI-2026-0013', BAGS, 'علف أكياس', '10', 'pc', '500'),
+      ];
+      month.totals.feed_kg = '4500';
+      fresh(MANAGER, { rpcs: { flock_month: () => month } });
+      await mount(calendarUrl);
+      t.same(
+        byAction('feed-band').map((n) => [dayOf(n), n.textContent]),
+        [
+          ['2026-11-01', 'علف 1,000 كغم'],
+          ['2026-11-04', 'علف 1,000 كغم'],
+          ['2026-11-08', 'علف 1,000 كغم'],
+          ['2026-11-09', 'علف 3 قطع بلا وزن'],
+          ['2026-11-10', 'علف 1,500 كغم + 10 قطع بلا وزن'],
+        ],
+        'C9 شريط اليوم: الكيلو الموزون وما بلا وزن بكميته، ويوم كلّه بلا وزن بكميته، ويوم كلّه موزون كما هو',
+      );
+      t.eq(textOf('cal-totals'), 'العلف النازل في الشهر: 4,500 كغم + 13 قطعة بلا وزن — النافق: 12 — المستبعد: 2', 'C9 سطر المجاميع: كيلو الشهر من الخادم وما بلا وزن من سطور أيّامه');
     });
 
     // ── R: تقرير الدورة ───────────────────────────────────────────────────────────────────────────────────────────
@@ -578,6 +638,28 @@ export default async function (t) {
       t.same(printed.at(-1), 'تقرير دورة قاعة 1 — حقل الأمير 11/11/2026', 'R3 «اطبع التقرير» بعنوانه وتاريخه');
       fire(globalThis.window, 'afterprint', { bubbles: false });
       t.ok(styleText().includes('@page { size: A4 portrait; margin: 12mm; }') && textOf('rep-org') === 'مشروع الدواجن', 'R3 A4 طولاً واسم المنشأة في الورقة');
+    });
+    await step('R4 مادّة بعض سطورها بلا وزن', async () => {
+      // مراجعة 0026 C: كيلو المادّة مجموع سطورها الموزونة (فالصفوف تُجمع إلى «المصروف للقاعة»)، وما بلا وزن منها يُقال تحت رقمها فلا يبدو كاملاً.
+      const report = clone(F.flock_cycle_report);
+      const line = (on, doc, name, qty, unit, kg, cum) => ({ on, doc_no: doc, item_name: name, qty, base_unit: unit, kg, cum_kg: cum, money: { value: '100000.00' } });
+      report.feed.lines = [
+        line('2026-11-01', 'FI-2026-0001', 'علف بادئ', '1000', 'kg', '1000', '1000'),
+        line('2026-11-02', 'FI-2026-0002', 'علف أكياس', '10', 'pc', null, '1000'),
+        line('2026-11-05', 'FI-2026-0005', 'علف أكياس', '10', 'pc', '500', '1500'),
+      ];
+      report.feed.by_item = [
+        { item_id: '00000000-0000-4000-8000-000000000036', name: 'علف أكياس', qty: '20', base_unit: 'pc', kg: '500', unweighed: 1 },
+        { item_id: '00000000-0000-4000-8000-000000000031', name: 'علف بادئ', qty: '1000', base_unit: 'kg', kg: '1000', unweighed: 0 },
+      ];
+      Object.assign(report.feed, { delivered_kg: '1500', remaining_kg: '49.5', unweighed: 1 });
+      fresh(MANAGER, { rpcs: { flock_cycle_report: () => report } });
+      await mount(reportUrl);
+      t.same(
+        [tableRows('العلف حسب المادّة'), byAction('rep-item-unweighed').map((n) => n.textContent), tableFoot('العلف حسب المادّة')],
+        [[['علف أكياس', '20', 'قطعة', '500وسطر واحد بلا وزن'], ['علف بادئ', '1,000', 'كغم', '1,000']], ['وسطر واحد بلا وزن'], [['المجموع', '1,500']]],
+        'R4 كيلو المادّة الموزون وتحته ما بلا وزن منها، والصفوف (500 و1,000) تُجمع إلى المجموع 1,500',
+      );
     });
 
     // ── V: جدول اللقاحات ────────────────────────────────────────────────────────────────────────────────────────────
@@ -874,6 +956,187 @@ export default async function (t) {
       t.same([bandsOf(30), m.isWindowDirty(), byAction('program-dirty').length], [[], false, 0], 'V10 «تراجع عن التعديل» يعيد المحفوظ والنافذة نظيفة');
     });
 
+    // ── مراجعة 0026 F: لقاح حُذف من جهاز آخر والجدول يُحفظ ──
+    const GONE_HINT = 'في الجدول لقاح غير موجود في القائمة. حدّث الشاشة.';
+    await step('V11 حُذف «غمبورو» وأيّامه في الجدول (vaccine_not_found ونسخة الجدول تقدّمت)', async () => {
+      const afterDelete = boardWith([[IB, 7], [ND, 7], [ND, 14], [IB, 21]], 4);
+      afterDelete.vaccines = afterDelete.vaccines.filter((vaccine) => vaccine.id !== GUM);
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: (_args, n) => (n === 1 ? clone(F.vaccine_board) : clone(afterDelete)),
+          save_vaccine_program: (args, n) => {
+            if (n === 1) throw new m.RejectedError('vaccine_not_found', GONE_HINT);
+            return { kind: args.p_kind, version: 5, end_age: args.p_end_age, days: args.p_days.length };
+          },
+        },
+      });
+      await mount('/halls/vaccines');
+      await click(withId('vac-pick', IB));
+      await click(ageCell(10));
+      await click(byAction('save-program')[0]);
+      await settle();
+      t.same(
+        [named(rpcLog, 'vaccine_board').length, withId('vac-chip', GUM) === undefined, byAction('program-conflict').length, disabled(byAction('save-program')[0]), textOf('gone-days'), bandsOf(10), bandsOf(12)],
+        [2, true, 1, true, '«غمبورو» يوم 12', ['IB'], []],
+        'V11 الرفض يقرأ الجدول: «غمبورو» خرج من القائمة، وتعديلك ظاهر للمقارنة بلا يومه بجملة تسمّيه، والحفظ مقفول حتّى «اعتمد تعديلي»',
+      );
+      t.same(tableRows('الفرق بين تعديلك والجدول المحفوظ الآن'), [['10', 'IB', 'ليس فيه', 'فيه']], 'V11 وجدول الفروق بلا أيّام اللقاح المحذوف');
+      await click(byAction('reapply')[0]);
+      await click(byAction('save-program')[0]);
+      await settle();
+      const second = named(rpcLog, 'save_vaccine_program')[1];
+      t.same(
+        [second?.p_expected_version, second?.p_days.map((day) => [day.vaccine_id === IB ? 'IB' : day.vaccine_id === ND ? 'ND' : 'GUM', day.age_day])],
+        [4, [['IB', 7], ['ND', 7], ['IB', 10], ['ND', 14], ['IB', 21]]],
+        'V11 ثمّ يُحفظ تعديلك بالنسخة الجديدة بلا أيّام «غمبورو»',
+      );
+    });
+    await step('V12 حُذف لقاح بلا أيّام محفوظة (vaccine_not_found ونسخة الجدول كما هي)', async () => {
+      const IBD = '00000000-0000-4000-8000-000000000024';
+      const withIbd = clone(F.vaccine_board);
+      withIbd.vaccines.push({ id: IBD, name: 'IBD', color: 3, version: 1, in_use: false, item: null });
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: (_args, n) => (n === 1 ? clone(withIbd) : clone(F.vaccine_board)),
+          save_vaccine_program: (args, n) => {
+            if (n === 1) throw new m.RejectedError('vaccine_not_found', GONE_HINT);
+            return { kind: args.p_kind, version: 4, end_age: args.p_end_age, days: args.p_days.length };
+          },
+        },
+      });
+      await mount('/halls/vaccines');
+      await click(withId('vac-pick', IBD));
+      await click(ageCell(10));
+      await click(byAction('save-program')[0]);
+      await settle();
+      t.same(
+        [named(rpcLog, 'vaccine_board').length, byAction('program-conflict').length, textOf('gone-days'), bandsOf(10), disabled(byAction('save-program')[0]), text().includes(GONE_HINT)],
+        [2, 0, '«IBD» يوم 10', [], false, true],
+        'V12 الرفض يقرأ الجدول: «IBD» خرج من القائمة ونسخة الجدول كما هي، فلا فروق، وجملة تسمّي يومه وتلميح الخادم، والحفظ مفتوح',
+      );
+      await click(byAction('save-program')[0]);
+      await settle();
+      const second = named(rpcLog, 'save_vaccine_program')[1];
+      t.same([second?.p_expected_version, second?.p_days.length, second?.p_days.some((day) => day.vaccine_id === IBD)], [3, 5, false], 'V12 والحفظ التالي بلا أيّام «IBD» (لا يُرفض إلى الأبد)');
+    });
+    await step('V13 حُفظ بالأولى ثمّ حُذف لقاح منه فرُفضت الإعادة', async () => {
+      // نتيجة مجهولة حُفظت، ثمّ حذف جهاز آخر «غمبورو» (فأُزيل يومه من الجدول)، فرُفضت «أعد المحاولة»: يُقرأ الجدول ويُقارن بما أُرسل بلا أيّام اللقاح
+      // المحذوف، فهو «حُفظ». vaccine_archived كالخادم قبل نقل فحص النسخة أوّلاً، وstale_program بعده.
+      for (const code of ['vaccine_archived', 'stale_program']) {
+        const stored = boardWith([[IB, 7], [ND, 7], [IB, 10], [ND, 14], [IB, 21]], 5);
+        stored.vaccines = stored.vaccines.filter((vaccine) => vaccine.id !== GUM);
+        const { rpcLog } = fresh(MANAGER, {
+          rpcs: {
+            vaccine_board: (_args, n) => (n === 1 ? clone(F.vaccine_board) : clone(stored)),
+            save_vaccine_program: (_args, n) => {
+              if (n === 1) throw new m.UnknownOutcomeError();
+              throw new m.RejectedError(code, 'اللقاح «غمبورو» حُذف من القائمة. حدّث الشاشة.');
+            },
+          },
+        });
+        await mount('/halls/vaccines');
+        await click(withId('vac-pick', IB));
+        await click(ageCell(10));
+        await click(byAction('save-program')[0]);
+        await click(byAction('retry-program')[0]);
+        await settle();
+        await settle();
+        t.same(
+          [named(rpcLog, 'save_vaccine_program').length, lastToast(), byAction('retry-program').length, byAction('program-failure').length, byAction('program-conflict').length, byAction('program-dirty').length, m.isWindowDirty()],
+          [2, 'حُفظ جدول لقاحات اللاحم: 5 مواعيد، ونهاية الدورة 42 يوماً.', 0, 0, 0, 0, false],
+          `V13 الإعادة رُفضت بـ${code} والجدول المقروء = ما أُرسل بلا أيّام «غمبورو»: «حُفظ» بالأولى، لا رفض ولا «تغيّر من جهاز آخر»`,
+        );
+        await unmount();
+      }
+    });
+    await step('V13 لم تُحفظ الأولى ثمّ حُذف لقاحها الجديد', async () => {
+      // ضابط التحقّق: الأولى لم تُحفظ (نسخة الجدول كما هي)، وحذف جهاز آخر «IBD» الذي أُضيف يومه، فرُفضت الإعادة. ما في الجدول = ما أُرسل بلا يوم
+      // «IBD»، لكنّ النسخة لم تتقدّم: لم يُحفظ شيء، فلا «حُفظ»؛ يُقرأ الجدول ويبقى التعديل بجملة تسمّي يوم «IBD».
+      const IBD = '00000000-0000-4000-8000-000000000024';
+      const withIbd = clone(F.vaccine_board);
+      withIbd.vaccines.push({ id: IBD, name: 'IBD', color: 3, version: 1, in_use: false, item: null });
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: (_args, n) => (n === 1 ? clone(withIbd) : clone(F.vaccine_board)),
+          save_vaccine_program: (_args, n) => {
+            if (n === 1) throw new m.UnknownOutcomeError();
+            throw new m.RejectedError('vaccine_not_found', GONE_HINT);
+          },
+        },
+      });
+      await mount('/halls/vaccines');
+      await click(withId('vac-pick', IBD));
+      await click(ageCell(10));
+      await click(byAction('save-program')[0]);
+      await click(byAction('retry-program')[0]);
+      await settle();
+      await settle();
+      t.same(
+        [named(rpcLog, 'save_vaccine_program').length, lastToast(), byAction('retry-program').length, text().includes(GONE_HINT), textOf('gone-days'), byAction('program-dirty').length],
+        [2, null, 0, true, '«IBD» يوم 10', 1],
+        'V13 ضابط: الإعادة رُفضت ونسخة الجدول كما هي: لا «حُفظ»، وتلميح الخادم وجملة يوم «IBD»، والتعديل باقٍ',
+      );
+    });
+
+    // ── مراجعة 0026 I: نافذة اللقاح أو حذفه بعد stale_vaccine ──
+    const STALE_HINT = 'غُيّر هذا اللقاح من جهاز آخر. حدّث الشاشة.';
+    await step('V14 تعديل لقاح غيّره جهاز آخر', async () => {
+      const changed = clone(F.vaccine_board);
+      Object.assign(changed.vaccines.find((vaccine) => vaccine.id === ND), { version: 2, name: 'ND Lasota', item: { id: IB_ITEM, name: 'لقاح IB', base_unit: 'pc' } });
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: (_args, n) => (n === 1 ? clone(F.vaccine_board) : clone(changed)),
+          save_vaccine: (args) => {
+            if (args.p_expected_version !== 2) throw new m.RejectedError('stale_vaccine', STALE_HINT);
+            return { id: args.p_id, version: 3, color: 1 };
+          },
+        },
+      });
+      await mount('/halls/vaccines');
+      await click(withId('vac-edit', ND));
+      type(byAction('vac-name')[0], 'ND Clone');
+      await settle();
+      await click(byAction('vac-save')[0]);
+      await settle();
+      t.same(
+        [named(rpcLog, 'vaccine_board').length, byAction('vac-name')[0]?.value, textOf('vac-dialog')?.includes('غُيّر هذا اللقاح من جهاز آخر، والمحفوظ الآن «ND Lasota» بمادّة «لقاح IB». ما كتبته باقٍ: احفظ ليُكتب فوقه.')],
+        [2, 'ND Clone', true],
+        'V14 الرفض يقرأ اللوحة، والنافذة تقول ما المحفوظ الآن وما كتبته باقٍ',
+      );
+      await click(byAction('vac-save')[0]);
+      await settle();
+      t.same([named(rpcLog, 'save_vaccine').map((args) => args.p_expected_version), lastToast(), byAction('vac-dialog').length], [[1, 2], 'حُفظ اللقاح «ND Clone».', 0], 'V14 والحفظ التالي بنسخته الجديدة فيُحفظ');
+    });
+    await step('V15 حذف لقاح غيّره جهاز آخر', async () => {
+      const changed = clone(F.vaccine_board);
+      Object.assign(changed.vaccines.find((vaccine) => vaccine.id === GUM), { version: 2, in_use: true });
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: (_args, n) => (n === 1 ? clone(F.vaccine_board) : clone(changed)),
+          delete_vaccine: (args) => {
+            if (args.p_expected_version !== 2) throw new m.RejectedError('stale_vaccine', STALE_HINT);
+            return { id: args.p_id, result: 'archived' };
+          },
+        },
+      });
+      await mount('/halls/vaccines');
+      await click(withId('vac-delete', GUM));
+      await click(byAction('delete-go')[0]);
+      await settle();
+      t.same(
+        [named(rpcLog, 'vaccine_board').length, textOf('delete-go'), textOf('delete-dialog')?.includes('غُيّر هذا اللقاح من جهاز آخر فقُرئ من جديد: راجع ما يُحذف أعلاه ثمّ أكّد.')],
+        [2, 'أخفِ اللقاح', true],
+        'V15 الرفض يقرأ اللوحة، ونافذة الحذف باللقاح كما هو الآن (أُشِّر من قبل: «أخفِ») بجملة تقول ذلك',
+      );
+      await click(byAction('delete-go')[0]);
+      await settle();
+      t.same(
+        [named(rpcLog, 'delete_vaccine').map((args) => args.p_expected_version), lastToast()],
+        [[1, 2], 'أُخفي اللقاح «غمبورو» وأُزيلت أيّامه من الجدولين: أُشِّر من قبل، فبقيت تأشيراته باسمه.'],
+        'V15 والحذف التالي بنسخته الجديدة',
+      );
+    });
+
     // ── X: أجوبة القاعدة الحقيقية (fixtures/halls-0026.json من supabase/tests/halls.test بـHALLS_SAMPLES_OUT=1) بالمحلّلات والصفحات الحقيقية ──
     const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json');
     const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
@@ -890,6 +1153,15 @@ export default async function (t) {
         const feedText = String(feedKg).replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
         t.same([textOf('cal-title'), Boolean(today), [feedText, 'IB', 'ND'].filter((part) => !text.includes(part)), showsMoney()],
           [`تقويم ${month.flock.hall_name} — ${month.flock.site_name}`, true, [], false], 'X1 تقويم «قاعة 1» بجواب القاعدة: يوم الإضافة بعلفه ولقاحيه، وبلا مال');
+        // مراجعة 0026 A بجواب القاعدة: صرف التأشير ليس في سطور اليوم، ورقمه في مدخل اللقاح، فيظهر مع تأشيره في تفاصيل اليوم.
+        const marked = month.days.find((d) => d.on === month.today).vaccines.find((v) => v.issue_id !== null);
+        await click(today);
+        const row = byAction('vac-row').find((n) => n.textContent.startsWith(marked.name));
+        t.same(
+          [month.days.find((d) => d.on === month.today).issues.some((x) => x.doc_no === marked.doc_no), Boolean(row?.textContent.includes(`وصُرف من المخزن بالمستند ${marked.doc_no}`))],
+          [false, true],
+          `X1 تفاصيل اليوم بجواب القاعدة: «${marked.name}» برقم صرفه ${marked.doc_no} من مدخله`,
+        );
       });
       await step('X2 تقرير الدورة بجواب القاعدة', async () => {
         const flock = REAL.flock_cycle_report.flock.id;

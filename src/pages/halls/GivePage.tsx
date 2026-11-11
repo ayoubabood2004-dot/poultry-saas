@@ -1,5 +1,5 @@
 import { CheckCircle2, Factory, Plus, X } from 'lucide-react';
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
@@ -425,6 +425,17 @@ function GiveForm({ flockId }: { flockId: string }) {
   const [othersOpen, setOthersOpen] = useState(false);
   /** طلب في الطريق: لا يُرسل ثانٍ قبل جوابه (نقرتان سريعتان). */
   const sending = useRef(false);
+  /**
+   * الصفحة مركّبة. التأكيد يقفلها والطلب في الطريق، لكنّ زرّ الرجوع في أندرويد أو المتصفّح يغادرها: الجواب بعد المغادرة لا ينقل التطبيق (كان يأخذ
+   * الجولة وأرقامها المكتوبة إلى صفحة الفوج)، ورفضه أو نتيجته المجهولة تُقال بتنبيه لا تضيع في صفحة فُكّت (مراجعة 0026 GR-2).
+   */
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
   // طلب معلَّق من فتح سابق: تعود الصفحة مجمَّدة به (والنموذج كما أُرسل). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (مرّة لكلّ مفتاح).
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
   if (pendingId !== '' && restoredFor !== pendingId) {
@@ -552,18 +563,20 @@ function GiveForm({ flockId }: { flockId: string }) {
     setUnreached(false);
     // الطلب محفوظ خارج المكوّن قبل أن يخرج: رجوع أو إعادة تحميل قبل الجواب تعيد الصفحة مجمَّدة به.
     storePending(pendingId, pending);
+    const { request } = pending;
+    const separator = t('list.separator', '، ');
+    const halls = [...new Set(request.lines.map((line) => line.flockId))].map((flock) => request.names[flock] ?? '').join(separator);
     try {
-      const { request } = pending;
       const done = await giveToFlocks(request.clientRef, request.on, request.lines);
       storePending(pendingId, null);
-      const separator = t('list.separator', '، ');
-      const halls = [...new Set(request.lines.map((line) => line.flockId))].map((flock) => request.names[flock] ?? '').join(separator);
       const docs = [...done.issues.map((issue) => issue.docNo), ...done.vaccinations.flatMap((mark) => (mark.docNo ? [mark.docNo] : []))];
       toast({
         tone: 'success',
         title: t('give.done', 'أُضيف إلى {halls} يوم {day}.', { halls, day: fmtDay(done.on) }),
         ...(docs.length ? { detail: t('give.done.docs', 'مستندات الصرف: {docs}.', { docs: docs.join(separator) }) } : {}),
       });
+      // غادر قبل الجواب: التنبيه وحده، والصفحة التي هو فيها كما هي.
+      if (!live.current) return;
       setFrozen(null);
       setConfirm(null);
       navigate(leaveTo);
@@ -573,9 +586,18 @@ function GiveForm({ flockId }: { flockId: string }) {
         // لا نعرف إن سُجّلت: الصفحة تتجمّد بطلبها، والإعادة وحدها ممكنة (لن تُسجَّل مرّتين). وإعادة لم تصل لا تغيّر ذلك.
         setFrozen(pending);
         setUnreached(retrying && surelyUnsaved(problem));
+        // غادر قبل الجواب: الطلب محفوظ (صفحة الإضافة لقاعته تعود مجمَّدة به)، والتنبيه يقول أين يُعاد.
+        if (!live.current) {
+          toast({ tone: 'warning', title: t('give.unknown_away', 'لا نعرف إن سُجّلت الإضافة إلى {halls}: افتح «أضف للقاعة» لـ«{hall}» وأعد المحاولة؛ لن تُسجَّل مرّتين.', { halls, hall: request.names[flockId] ?? '' }) });
+        }
       } else {
         // جواب أكيد بلا تسجيل: ما كُتب باقٍ (ومن الطلب المستعاد كما أُرسل) بمعرّفاته، والإرسال التالي بمرجع جديد؛ وid_conflict بمعرّفات جديدة.
         storePending(pendingId, null);
+        if (!live.current) {
+          // غادر قبل الجواب: النموذج ذهب مع الصفحة، فالرفض بتنبيه يسمّي ما لم يُضف وسببه.
+          toast({ tone: 'danger', title: t('give.refused_away', 'لم يُضف شيء إلى {halls} يوم {day}.', { halls, day: fmtDay(request.on) }), detail: failureText(problem) });
+          return;
+        }
         const conflict = problem instanceof RejectedError && problem.code === 'id_conflict';
         setForm({ ...pending.form, ids: conflict ? {} : pending.form.ids, ref: crypto.randomUUID() });
         setFrozen(null);

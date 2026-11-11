@@ -79,6 +79,8 @@ interface Editing {
   failure: string | null;
   /** الطلب المجمَّد بعد نتيجة مجهولة. */
   frozen: { name: string; itemId: string | null } | null;
+  /** رُفض بـstale_vaccine: اللوحة التي بُنيت منها النافذة، حتّى تصل قراءة جديدة فتأخذ النافذة نسخة اللقاح منها. */
+  stale: VaccineBoard | null;
 }
 
 interface Deleting {
@@ -86,6 +88,8 @@ interface Deleting {
   busy: boolean;
   failure: string | null;
   frozen: boolean;
+  /** كما في Editing. */
+  stale: VaccineBoard | null;
 }
 
 /** نهاية الدورة من نصّ المستخدم (بفواصل الآلاف أو بدونها): 1..1000، وإلّا null. */
@@ -112,6 +116,13 @@ function sortedDays(keys: Iterable<DayKey>, vaccines: readonly Vaccine[]): Progr
     .map(splitKey)
     .sort((a, b) => a.ageDay - b.ageDay || (order.get(a.vaccineId) ?? vaccines.length) - (order.get(b.vaccineId) ?? vaccines.length) || (a.vaccineId < b.vaccineId ? -1 : 1));
 }
+
+/**
+ * رفوض حفظ الجدول التي تعني أنّه أو قائمته تغيّرا بعد القراءة: يُقرأ من جديد ويبقى التعديل ظاهراً للمقارنة بلا أيّام لقاح لم يعد في القائمة. ولقاح
+ * حُذف من جهاز آخر بلا أيّام في الجدول لا يغيّر نسخته، فيأتي vaccine_not_found أو vaccine_archived لا stale_program (مراجعة 0026 F: كان رفضاً أكيداً
+ * بلا قراءة، فالشاشة تعيد إرسال أيّامه إلى الأبد).
+ */
+const PROGRAM_CHANGED: ReadonlySet<string> = new Set(['stale_program', 'vaccine_not_found', 'vaccine_archived']);
 
 const surelyUnsaved = (problem: unknown): boolean =>
   problem instanceof RejectedError || problem instanceof NetworkError || problem instanceof RetryableError || problem instanceof NotConnectedError || problem instanceof IdentityError;
@@ -204,9 +215,14 @@ function VaccinesView() {
   const [search, setSearch] = useSearchParams();
   const load = useCallback(() => loadVaccineBoard(), []);
   const state = useLoad(load);
-  // آخر قراءة ناجحة تبقى مرسومة أثناء القراءة من جديد (والتعديل مقفول أثناءها)، وفشل القراءة يُقال ويقفل الحفظ.
+  // آخر قراءة ناجحة تبقى مرسومة أثناء القراءة من جديد (والتعديل مقفول أثناءها)، وفشل القراءة يُقال ويقفل الحفظ. وأسماء كلّ لقاح قُرئ في هذه
+  // الصفحة: لقاح حُذف من جهاز آخر وفي تعديلك أيّامه يُسمّى بعد القراءة الجديدة.
   const [kept, setKept] = useState<VaccineBoard | null>(null);
-  if (state.data !== null && state.data !== kept) setKept(state.data);
+  const [names, setNames] = useState<ReadonlyMap<string, string>>(() => new Map());
+  if (state.data !== null && state.data !== kept) {
+    setKept(state.data);
+    setNames(new Map([...names, ...state.data.vaccines.map((vaccine) => [vaccine.id, vaccine.name] as const)]));
+  }
   const board = state.data ?? kept;
 
   const [drafts, setDrafts] = useState<Partial<Record<FlockKind, Draft>>>({});
@@ -219,6 +235,32 @@ function VaccinesView() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<Deleting | null>(null);
   const sending = useRef(false);
+  // بعد stale_vaccine تصل قراءة جديدة: النافذة المفتوحة تأخذ نسخة اللقاح منها وتقول ما المحفوظ الآن، فالحفظ أو الحذف التالي بالنسخة الجديدة عن
+  // علم (مراجعة 0026 I: كانت ترسل النسخة القديمة فتُرفض كلّ مرّة). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (stale يصير null).
+  if (state.data !== null && editing?.stale && editing.stale !== state.data) {
+    const now = state.data.vaccines.find((vaccine) => vaccine.id === editing.id);
+    setEditing({
+      ...editing,
+      stale: null,
+      version: now ? now.version : editing.version,
+      failure: !now
+        ? t('halls.vac.stale_gone', 'لم يعد هذا اللقاح في القائمة: حُذف من جهاز آخر.')
+        : now.item
+          ? t('halls.vac.stale_item', 'غُيّر هذا اللقاح من جهاز آخر، والمحفوظ الآن «{name}» بمادّة «{item}». ما كتبته باقٍ: احفظ ليُكتب فوقه.', { name: now.name, item: now.item.name })
+          : t('halls.vac.stale_plain', 'غُيّر هذا اللقاح من جهاز آخر، والمحفوظ الآن «{name}» بلا مادّة. ما كتبته باقٍ: احفظ ليُكتب فوقه.', { name: now.name }),
+    });
+  }
+  if (state.data !== null && deleting?.stale && deleting.stale !== state.data) {
+    const now = state.data.vaccines.find((vaccine) => vaccine.id === deleting.vaccine.id);
+    setDeleting({
+      ...deleting,
+      stale: null,
+      vaccine: now ?? deleting.vaccine,
+      failure: now
+        ? t('halls.vac.stale_delete', 'غُيّر هذا اللقاح من جهاز آخر فقُرئ من جديد: راجع ما يُحذف أعلاه ثمّ أكّد.')
+        : t('halls.vac.stale_gone', 'لم يعد هذا اللقاح في القائمة: حُذف من جهاز آخر.'),
+    });
+  }
 
   const asked = search.get('kind');
   const shownKinds = board ? KINDS.filter((kind) => board.hasHalls[kind] || board.programs[kind].version > 0 || kind === asked) : [];
@@ -261,6 +303,8 @@ function VaccinesView() {
   const endAge = typedEnd ?? savedEnd;
   const days: ReadonlySet<DayKey> = draft?.days ?? (program ? serverDays(program) : new Set());
   const liveDays = [...days].filter((key) => known.has(splitKey(key).vaccineId));
+  // أيّام في تعديلك للقاح لم يعد في القائمة (حُذف أو أُخفي من جهاز آخر): لا تُرسم ولا تُحفظ، وجملة تسمّيها (مراجعة 0026 F).
+  const goneDays = draft ? sortedDays([...draft.days].filter((key) => !known.has(splitKey(key).vaccineId)), vaccines) : [];
   const dropped = sortedDays(
     liveDays.filter((key) => splitKey(key).ageDay > endAge),
     vaccines,
@@ -343,9 +387,9 @@ function VaccinesView() {
       setFrozen(null);
       saved(request, done.version);
     } catch (problem) {
-      if (problem instanceof RejectedError && problem.code === 'stale_program') {
+      if (problem instanceof RejectedError && PROGRAM_CHANGED.has(problem.code)) {
         if (retrying) {
-          // إعادة بعد نتيجة مجهولة رُفضت بشرط النسخة: ربّما حُفظت الأولى. يُقرأ الجدول ويُقارن بما أُرسل.
+          // إعادة بعد نتيجة مجهولة رُفضت بشرط النسخة أو بلقاح حُذف: ربّما حُفظت الأولى. يُقرأ الجدول ويُقارن بما أُرسل.
           let fresh: VaccineBoard;
           try {
             fresh = await loadVaccineBoard();
@@ -354,13 +398,18 @@ function VaccinesView() {
             setFailure(t('halls.vac.verify_failed', 'تعذّر التحقّق من حفظ الجدول ({detail}): أعد المحاولة.', { detail: describeError(readProblem, 'read').title }));
             return;
           }
-          if (sameProgram(fresh.programs[request.kind], request)) {
+          // حُفظت الأولى: نسخة الجدول تقدّمت والمحفوظ ما أُرسل، بلا أيّام لقاح حذفه جهاز آخر بعدها (الحذف يزيل أيّامه من الجدول).
+          const after = fresh.programs[request.kind];
+          const live = new Set(fresh.vaccines.map((vaccine) => vaccine.id));
+          const sentLive = { ...request, days: request.days.filter((day) => live.has(day.vaccineId)) };
+          if (after.version !== request.version && sameProgram(after, sentLive)) {
             setFrozen(null);
-            saved(request, fresh.programs[request.kind].version);
+            saved(sentLive, after.version);
             return;
           }
         }
-        // تغيّر الجدول من جهاز آخر: يُقرأ من جديد ويبقى التعديل ظاهراً بجدول الفروق حتّى «اعتمد تعديلي» أو «خذ المحفوظ».
+        // تغيّر الجدول أو قائمته من جهاز آخر: يُقرأ من جديد ويبقى التعديل ظاهراً (بلا أيّام لقاح لم يعد في القائمة، بجملة تسمّيها)، وبجدول الفروق
+        // حين تقدّمت نسخة الجدول حتّى «اعتمد تعديلي» أو «خذ المحفوظ».
         setFrozen(null);
         setFailure(failureText(problem));
         state.retry();
@@ -427,11 +476,13 @@ function VaccinesView() {
         }
       }
       const unknown = !surelyUnsaved(problem) || (retrying && !(problem instanceof RejectedError));
+      // stale_vaccine: تنتظر النافذة القراءة الجديدة (stale) فتأخذ منها نسخة اللقاح وما المحفوظ الآن.
+      const stale = !unknown && problem instanceof RejectedError && problem.code === 'stale_vaccine' ? board : null;
       setEditing((current) =>
         current
           ? unknown
             ? { ...current, busy: false, frozen: { name, itemId }, failure: retrying && surelyUnsaved(problem) ? RETRY_UNREACHED() : null }
-            : { ...current, busy: false, frozen: null, failure: failureText(problem) }
+            : { ...current, busy: false, frozen: null, failure: failureText(problem), stale }
           : current,
       );
       if (!unknown && problem instanceof RejectedError && (problem.code === 'stale_vaccine' || problem.code === 'vaccine_not_found')) state.retry();
@@ -478,11 +529,12 @@ function VaccinesView() {
         }
       }
       const unknown = !surelyUnsaved(problem) || (retrying && !(problem instanceof RejectedError));
+      const stale = !unknown && problem instanceof RejectedError && problem.code === 'stale_vaccine' ? board : null;
       setDeleting((current) =>
         current
           ? unknown
             ? { ...current, busy: false, frozen: true, failure: retrying && surelyUnsaved(problem) ? RETRY_UNREACHED() : null }
-            : { ...current, busy: false, frozen: false, failure: failureText(problem) }
+            : { ...current, busy: false, frozen: false, failure: failureText(problem), stale }
           : current,
       );
       if (!unknown) state.retry();
@@ -500,9 +552,9 @@ function VaccinesView() {
     if (uncertain) state.retry();
   };
   const openAdd = () =>
-    setEditing({ id: crypto.randomUUID(), version: null, name: '', itemId: '', initialName: '', initialItem: '', busy: false, failure: null, frozen: null });
+    setEditing({ id: crypto.randomUUID(), version: null, name: '', itemId: '', initialName: '', initialItem: '', busy: false, failure: null, frozen: null, stale: null });
   const openEdit = (vaccine: Vaccine) =>
-    setEditing({ id: vaccine.id, version: vaccine.version, name: vaccine.name, itemId: vaccine.item?.id ?? '', initialName: vaccine.name, initialItem: vaccine.item?.id ?? '', busy: false, failure: null, frozen: null });
+    setEditing({ id: vaccine.id, version: vaccine.version, name: vaccine.name, itemId: vaccine.item?.id ?? '', initialName: vaccine.name, initialItem: vaccine.item?.id ?? '', busy: false, failure: null, frozen: null, stale: null });
 
   // ─── العرض ───────────────────────────────────────────────────────────────────────────────────────────────────
   const header = (
@@ -610,7 +662,7 @@ function VaccinesView() {
                       <Button size="sm" variant="ghost" onClick={() => openEdit(vaccine)} disabled={locked} data-action="vac-edit" data-id={vaccine.id}>
                         {t('halls.vac.edit', 'عدّل')}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleting({ vaccine, busy: false, failure: null, frozen: false })} disabled={locked} data-action="vac-delete" data-id={vaccine.id}>
+                      <Button size="sm" variant="ghost" onClick={() => setDeleting({ vaccine, busy: false, failure: null, frozen: false, stale: null })} disabled={locked} data-action="vac-delete" data-id={vaccine.id}>
                         {t('halls.vac.delete', 'احذف')}
                       </Button>
                     </>
@@ -669,6 +721,11 @@ function VaccinesView() {
         {dropped.length ? (
           <Notice tone="warning" title={t('halls.vac.dropped', 'نهاية الدورة قبل أيّام في الجدول، فتُشال هذه عند الحفظ:')}>
             <span data-action="dropped">{listJoin(dropped.map((day) => t('halls.vac.dropped_item', '«{name}» يوم {age}', { name: byId.get(day.vaccineId)?.name ?? '', age: day.ageDay })))}</span>
+          </Notice>
+        ) : null}
+        {goneDays.length ? (
+          <Notice tone="warning" title={t('halls.vac.gone', 'في تعديلك أيّام للقاح لم يعد في القائمة (حُذف أو أُخفي من جهاز آخر)، فأُزيلت منه ولن تُحفظ:')}>
+            <span data-action="gone-days">{listJoin(goneDays.map((day) => t('halls.vac.dropped_item', '«{name}» يوم {age}', { name: names.get(day.vaccineId) ?? '', age: day.ageDay })))}</span>
           </Notice>
         ) : null}
         {conflict ? (

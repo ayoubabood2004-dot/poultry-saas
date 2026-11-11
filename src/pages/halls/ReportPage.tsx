@@ -110,11 +110,29 @@ function ReportBody({ report }: { report: CycleReport }) {
       : []),
   ];
 
+  // كيلو المادّة مجموع سطورها الموزونة، فالعمود يُجمع إلى «المصروف للقاعة»؛ ومادّة بعض سطورها بلا وزن تقول ذلك تحت رقمها، فلا يبدو كيلوها كاملاً
+  // (مراجعة 0026 C: كان «—» للمادّة كلّها، والمجموع أكبر من الصفوف).
   const itemColumns: Column<ByItem>[] = [
     { key: 'item', header: t('halls.rep.col.item', 'المادّة'), wrap: true, cell: (row) => row.name },
     { key: 'qty', header: t('halls.rep.col.qty', 'الكمية'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.qty, itemQty)}</Num> },
     { key: 'unit', header: t('halls.rep.col.unit', 'الوحدة'), cell: (row) => unitWord(row.baseUnit) },
-    { key: 'kg', header: t('halls.rep.col.kg', 'الكيلو (كغم)'), kind: 'number', cell: (row) => kgCell(row.kg, kgDecimals), total: <Num>{fmtQtyCell(feed.deliveredKg, kgDecimals)}</Num> },
+    {
+      key: 'kg',
+      header: t('halls.rep.col.kg', 'الكيلو (كغم)'),
+      kind: 'number',
+      cell: (row) =>
+        row.kg !== null && row.unweighed > 0 ? (
+          <>
+            <Num>{fmtQtyCell(row.kg, kgDecimals)}</Num>
+            <span className="block text-xs text-ink-muted" data-action="rep-item-unweighed">
+              {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(row.unweighed) })}
+            </span>
+          </>
+        ) : (
+          kgCell(row.kg, kgDecimals)
+        ),
+      total: <Num>{fmtQtyCell(feed.deliveredKg, kgDecimals)}</Num>,
+    },
   ];
 
   const balanceColumns: Column<Balance>[] = [
