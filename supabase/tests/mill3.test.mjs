@@ -460,37 +460,12 @@ async function scenario(t, db) {
   t.same(typeof millerView === 'string' ? millerView : millerView.batches.every((b) => b.money && b.money.totalValue > 0n), true,
     'parseMillReport: تقرير مشغّل المعمل بمال كلّ دفعة (كلمة المالك «كلشي مفتوح»)');
 
-  // تخطيط شاشة الإنتاج (plannedQty) = planned_qty_base من create_production، بخطوة عدّاد وسائل بكثافة، بكميات مختلفة (كلّه بمعاملة تُرجَع).
-  const planning = { rows: [], liquid: null };
+  // «قرّب إلى طنّ» بحساب شاشة الإنتاج (gapQty وmassOf) = كتلة الخادم (بمعاملة تُرجَع). وتخطيط الشاشة من كميات الخلطة (plannedQty) ومقارنته بـcreate_production
+  // أزالهما 0025: شاشة الإنتاج لا تخطّط من الخلطة، والكميات تُكتب عند الإنتاج (produce_batch)؛ وتقريب create_production نفسه بخطوة العدّاد والكثافة في mill2-fixes.
+  const planning = { liquid: null };
   {
     const result = planning;
     await db.asUser(U.owner, async (q) => {
-      const one1 = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
-      const salt = await one1("insert into public.items (name, kind, base_unit, scale_step) values ('ملح التخطيط', 'raw', 'kg', 0.1) returning id");
-      const fat = await one1("insert into public.items (name, kind, base_unit, density_kg_per_l, scale_step) values ('دهن التخطيط', 'raw', 'L', 0.9137, 0.5) returning id");
-      const out = await one1("insert into public.items (name, kind, base_unit) values ('علف التخطيط', 'feed', 'kg') returning id");
-      const rid = uid();
-      const vid = uid();
-      const lines = [{ item_id: I.corn, qty: '512.345', unit: 'kg' }, { item_id: salt, qty: '3.333', unit: 'kg' }, { item_id: fat, qty: '7.777', unit: 'L' }];
-      await q("select public.create_recipe($1, $2, 'خلطة التخطيط', $3, 522.784, $4::jsonb, '[]'::jsonb, true)", [rid, vid, out, JSON.stringify(lines)]);
-      const detail = ui.parseRecipe((await q('select public.recipe_detail($1, null) as v', [rid])).rows[0].v);
-      const facts = (await q(`select l.id, l.line_no, coalesce(l.density_kg_per_l, i.density_kg_per_l)::text as density, i.base_unit, i.scale_step::text as step
-        from public.recipe_lines l join public.items i on i.id = l.item_id where l.version_id = $1 order by l.line_no`, [vid])).rows;
-      for (const kg of ['522.784', '1000.000', '1234.567', '333.333', '25000.000']) {
-        const batch = uid();
-        await q('select public.create_production($1, $2, $3, $4, $5, public.app_today())', [batch, vid, kg, W.raw, W.feed]);
-        const server = (await q('select line_no, planned_qty_base::text as q from public.production_inputs where batch_id = $1 order by line_no', [batch])).rows;
-        for (const f of facts) {
-          const line = detail.lines.find((l) => l.id === f.id);
-          const screen = ui.producePage.plannedQty({
-            lineKg: line.massKg,
-            baseUnit: f.base_unit,
-            density: f.base_unit === 'L' ? scaledInt(f.density, 4) : null,
-            scaleStep: scaledInt(f.step, 3),
-          }, scaledInt(kg, 3), detail.basisKg);
-          result.rows.push([kg, f.line_no, screen === null ? null : milliText(screen), norm(server.find((r) => r.line_no === f.line_no).q)]);
-        }
-      }
       // «قرّب إلى طنّ» بالزيت (سائل): الفرق 22.4 كغم لترات بحساب الشاشة، ثمّ record_production بكميته الفعلية: الناتج طنّ بالضبط.
       const oil = (await q('select l.line_no, i.scale_step::text as step from public.recipe_lines l join public.items i on i.id = l.item_id where l.version_id = $1 and l.item_id = $2', [R.starter.version, I.oil])).rows[0];
       const gap = ui.producePage.gapQty(30000n, 22400n, 'L', 9200n, scaledInt(oil.step, 3), true);
@@ -499,8 +474,6 @@ async function scenario(t, db) {
       result.liquid = { liters: milliText(gap), step: norm(oil.step), predicted: milliText(predicted), input: norm(recorded.input_mass_kg), output: norm(recorded.output_qty_kg) };
     }, { commit: false });
   }
-  t.same(planning.rows.filter(([, , screen, server]) => screen !== server), [],
-    `تخطيط شاشة الإنتاج = create_production لكلّ سطر (${planning.rows.length} حالة: خطوة عدّاد 0.1، وسائل بكثافة 0.9137 وخطوة 0.5، بخمس كميات)`);
   t.same([planning.liquid.input, planning.liquid.output, Number(planning.liquid.predicted) >= 1000], [planning.liquid.predicted, planning.liquid.predicted, true],
     '«قرّب إلى طنّ» بالزيت (سطر خلطة، خطوة ' + planning.liquid.step + ' لتر): ' + planning.liquid.liters + ' لتر بحساب الشاشة، وكتلة الخادم = ما تعرضه الشاشة (' + planning.liquid.predicted + ' كغم) ولا تقلّ عن الطنّ');
 

@@ -5,7 +5,8 @@
 // (إضافة وتبديل بسبب)؛ وسعر الكلفة المكتوب للتخطيط فقط؛ ومصدر دفعة العلف المنتج رقم دفعة الإنتاج؛ وكلّ فحص جديد في verify_mill
 // تكسره طفرة حقيقية (الدالّة مكسورة بمعاملة ترجع، لا صفّ مكتوب باليد).
 // والدمج (القسمان ١٠ و١١): كلّ جواب جديد يمرّ بمحلّل الشاشات الحقيقي محزوماً بـesbuild، وrepo الحقيقي (postgrest-js) يصل القاعدة
-// الحقيقية بـminiPostgrest، للمدير ومشغّل المعمل والمحاسب.
+// الحقيقية بـminiPostgrest، للمدير ومشغّل المعمل والمحاسب. ومنذ 0025 الكتّاب الذين حذفتهم شاشاته (createProduction وsetRecipeLine وsetVersionBasis، وaddRecipeLine
+// بالكمية وcreateRecipe بالأساس والكميات) بطلب النسخ المخبّأة قبله (LEGACY_MILL)، والقاعدة ما زالت تخدمها.
 // ودمج الجولة الثانية (fixes2.md القسم د): expenses_visible على جذر المعاينة والبطاقة، وscope بطرفيه لأمين العلف وأمين المواد ومحاسب
 // العلف (والإلغاء من طرف المدخلات وحده كما تُظهر الشاشة زرّه)، وin_basis على قطع لوحة المعمل وسطور الخلطة (ولقطته بعد تغيير نوع المادّة،
 // ومجموع الكتلة = خلايا ما داخلها)، وcosts_unsealed_scope بـdivision_name، وno_mass_inputs، ومشكلة التاريخ بتلميح الخادم؛ وكلّ مشكلة
@@ -29,8 +30,8 @@
 // والقراءة الجديدة شرط الحفظ التالي فينجح.
 // والجولة السادسة (fixes6.md القسم أ): المواضع التي ثبّتت السلوك القديم حُدّثت — كلفة الطنّ المتوقّعة بمفتاح unconverted (ق٦١) في الجواب الخام وبمحلّل الشاشة
 // (مفتاح إلزامي)، وتلميح density_required بالمكان الذي تُكتب فيه الكثافة (ق٦٥)، والإعادة بالمعرّف نفسه existing = false وskipped الأولى (ق٦٣).
-// ودمج الجولة السادسة (fixes6.md القسم د): unconverted على جواب recipe_detail الحقيقي بمحلّله وبلوحة كلفة الطنّ الحقيقية (ExpectedPanel بـreact-dom/server: «لا تُحسب
-// حتّى تُصحَّح سطورها أعلاه» لا «بلا أيّ سعر» لسطر سعره مكتوب، ومنه القطعة في المسوّدة والمفعَّلة)، وskipped مع المادّة المؤرشفة التي صارت قطعة وسطر اللتر لسائل صار قطعة،
+// ودمج الجولة السادسة (fixes6.md القسم د): unconverted على جواب recipe_detail الحقيقي بمحلّله (ولوحة كلفة الطنّ ExpectedPanel التي كانت تُرسم عليه أزالها 0025 من
+// صفحة الخلطة؛ ومنه القطعة في المسوّدة والمفعَّلة)، وskipped مع المادّة المؤرشفة التي صارت قطعة وسطر اللتر لسائل صار قطعة،
 // والإعادة بالمعرّف نفسه بمحلّل «نسخة جديدة» (قبل التفعيل وبعده)، والكتلة الصفرية (البطاقة لا ترمي، والتفعيل وحارس السطر وتحويل «نسخة جديدة» qty_not_positive بتلميحه)؛
 // ومن الشاشة بـrepo الحقيقي: الرحلة من رابط «اكتب الكثافة» (recipeBack وloadItem وupdateItem ونسخة الرابط) حتّى التفعيل، وsetArchived ثمّ newRecipeVersion وإعادته،
 // وqty_not_positive من التفعيل ونافذتي «عدّل» و«أضف مادّة»، وتلميح density_required بالمكان الجديد من «أضف مادّة» في الخلطة والدفعة.
@@ -73,8 +74,8 @@ async function screensParser() {
 /**
  * جمل مشاكل الدفعة في الشاشة (BatchPage.problemText وproblemLine، الجولة الثانية): رمز يرسله الخادم ولا تعرفه الشاشة يُعرض بالجملة
  * العامّة «مشكلة في الدفعة: {code}»، وفرق اسم الرمز بين الطرفين لا يمسكه فحص أيّ طرف وحده. الصفحة نفسها محزومةً (الجلسة والإشعار
- * بديلان لا يُستعملان هنا)، وتصديرها كلّه كائناً فلا يكسر الحزم تصديرٌ غائب في نسخة أقدم من الشاشات. ومعها (الجولة السادسة) بطاقة الخلطة
- * (لوحة كلفة الطنّ ExpectedPanel تُرسم بـreact-dom/server على الجواب المحلَّل) و«المواد» (recipeBack: مسار الرجوع بعد كتابة الكثافة).
+ * بديلان لا يُستعملان هنا)، وتصديرها كلّه كائناً فلا يكسر الحزم تصديرٌ غائب في نسخة أقدم من الشاشات. ومعها (الجولة السادسة) «المواد»
+ * (recipeBack: مسار الرجوع بعد كتابة الكثافة). ولوحة كلفة الطنّ (ExpectedPanel في بطاقة الخلطة) أزالها 0025، فلا تُحزم صفحة الخلطة ولا react-dom/server.
  */
 async function screensText() {
   const STUBS = {
@@ -85,15 +86,12 @@ async function screensText() {
     await build({
       ...BUNDLE,
       jsx: 'automatic',
-      // React بنسخة الإنتاج (الرسم بـreact-dom/server لا يطبع تحذيرات التطوير).
+      // React بنسخة الإنتاج كما في البناء.
       define: { ...BUNDLE.define, 'process.env.NODE_ENV': '"production"' },
       stdin: {
         contents: [
           "export * as batchPage from './src/pages/mill/BatchPage.tsx';",
-          "export * as recipePage from './src/pages/mill/RecipePage.tsx';",
           "export * as itemsPage from './src/pages/inventory/ItemsPage.tsx';",
-          "export { renderToStaticMarkup } from 'react-dom/server.browser';",
-          "export { createElement } from 'react';",
         ].join('\n'),
         resolveDir: ROOT,
         loader: 'tsx',
@@ -130,17 +128,127 @@ export function addAuthListener() { return () => {}; }
 export async function dropClient() {}
 `;
 
-/** دوالّ repo الحقيقية التي تناديها شاشات المعمل والمادّة والمصاريف، بعميل الدمج: الطلب كما تبنيه الشاشة يصل القاعدة الحقيقية. */
+/**
+ * طلبات نسخ التطبيق المخبّأة قبل 0025 (فجوة النشر): شاشات 0025 لا تنادي createProduction ولا setRecipeLine ولا setVersionBasis ولا addRecipeLine
+ * بالكمية والوحدة، ولا createRecipe بالأساس والكميات، فحُذفت من src/lib/repo/mill.ts أو تغيّر طلبها؛ والقاعدة ما زالت تخدمها لتطبيق خُبّئ قبلها
+ * (create_production، والكتابة المباشرة على recipe_lines بالكمية والوحدة وعلى recipe_versions بالأساس، وcreate_recipe بكميات). منسوخة حرفاً من
+ * src/lib/repo/mill.ts قبل 0025 (git show 800e7fd) فوق core.ts الحقيقي نفسه (عميل الدمج، والتصنيف بـclassifyPostgrest وexplained، وZeroRowsError
+ * لصفر صفوف)، فالطلب كما كانت تبنيه تلك النسخ يصل القاعدة الحقيقية؛ والقرّاء (parseCreatedRecipe وloadRecipe وغيرهما) محلّلات الشاشات الحالية الحقيقية.
+ */
+const LEGACY_MILL = `
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Day } from './src/domain/dates.ts';
+import { decimalText } from './src/domain/decimal.ts';
+import type { Fils } from './src/domain/money.ts';
+import { ZeroRowsError } from './src/lib/errors.ts';
+import { call, classifyPostgrest, explained, send, updatedRows, type PostgrestFailure } from './src/lib/repo/core.ts';
+import { MillShapeError, parseCreatedRecipe, type CreatedRecipe } from './src/lib/repo/mill.ts';
+
+type Row = Record<string, unknown>;
+type RecipeUnit = 'kg' | 'L';
+
+const str = (row: Row, field: string): string => {
+  const value = row[field];
+  if (typeof value !== 'string' || value === '') throw new MillShapeError(field);
+  return value;
+};
+const moneyText = (value: Fils): string => decimalText(value, 2);
+
+type Raw = { data: unknown; error: PostgrestFailure | null; status: number };
+type Failed = PostgrestFailure & { status: number };
+
+const withStatus = (answer: Raw) => ({ data: answer.data as Row | Row[] | null, error: answer.error ? { ...answer.error, status: answer.status } : null });
+const failed = (error: unknown): error is Failed => typeof error === 'object' && error !== null && typeof (error as Failed).status === 'number';
+
+async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Row> {
+  const { result, wasOnline } = await send(
+    async (db): Promise<{ rows: Row[]; error: PostgrestFailure | null; status: number }> => {
+      try {
+        return { rows: await make(db), error: null, status: 200 };
+      } catch (error) {
+        if (!failed(error)) throw error;
+        return { rows: [], error, status: error.status };
+      }
+    },
+    (answer) => [answer],
+  );
+  if (result.error) throw await explained(classifyPostgrest(result.error, result.status, 'table', wasOnline));
+  const [row] = result.rows;
+  if (!row) throw new ZeroRowsError();
+  return row;
+}
+
+export function setVersionBasis(versionId: string, basisKg: bigint, version: number): Promise<string> {
+  return written(async (db) =>
+    updatedRows(withStatus(await db.from('recipe_versions').update({ basis_kg: decimalText(basisKg, 3) }).eq('id', versionId).eq('version', version).select('id'))),
+  ).then((row) => str(row, 'id'));
+}
+
+export function addRecipeLine(versionId: string, itemId: string, qtyValue: bigint, unit: RecipeUnit): Promise<string> {
+  return written(async (db) =>
+    updatedRows(withStatus(await db.from('recipe_lines').insert({ version_id: versionId, item_id: itemId, qty: decimalText(qtyValue, 3), unit }).select('id'))),
+  ).then((row) => str(row, 'id'));
+}
+
+export function setRecipeLine(lineId: string, qtyValue: bigint, unit: RecipeUnit): Promise<string> {
+  return written(async (db) =>
+    updatedRows(withStatus(await db.from('recipe_lines').update({ qty: decimalText(qtyValue, 3), unit }).eq('id', lineId).select('id'))),
+  ).then((row) => str(row, 'id'));
+}
+
+export function createProduction(batchId: string, versionId: string, plannedKg: bigint, inputWarehouseId: string, outputWarehouseId: string, producedOn: Day): Promise<unknown> {
+  return call<unknown>('create_production', {
+    p_id: batchId,
+    p_recipe_version: versionId,
+    p_planned_kg: decimalText(plannedKg, 3),
+    p_wh_in: inputWarehouseId,
+    p_wh_out: outputWarehouseId,
+    p_produced_on: producedOn,
+  });
+}
+
+export interface RecipeInput {
+  id: string;
+  versionId: string;
+  name: string;
+  outputItemId: string;
+  basisKg: bigint;
+  lines: readonly { itemId: string; qty: bigint; unit: RecipeUnit }[];
+  rates: readonly { categoryId: string; amountPerTon: Fils }[];
+  activate: boolean;
+}
+
+export async function createRecipe(input: RecipeInput): Promise<CreatedRecipe> {
+  return parseCreatedRecipe(
+    await call<unknown>('create_recipe', {
+      p_id: input.id,
+      p_version_id: input.versionId,
+      p_name: input.name.trim(),
+      p_output_item: input.outputItemId,
+      p_basis_kg: decimalText(input.basisKg, 3),
+      p_lines: input.lines.map((line) => ({ item_id: line.itemId, qty: decimalText(line.qty, 3), unit: line.unit })),
+      p_rates: input.rates.map((rate) => ({ category_id: rate.categoryId, amount_per_ton: moneyText(rate.amountPerTon) })),
+      p_activate: input.activate,
+    }),
+  );
+}
+`;
+
+/**
+ * دوالّ repo الحقيقية التي تناديها شاشات المعمل والمادّة والمصاريف، بعميل الدمج: الطلب كما تبنيه الشاشة يصل القاعدة الحقيقية. والكتّاب الخمسة
+ * بأسمائهم القديمة من LEGACY_MILL (طلب النسخ المخبّأة قبل 0025)، فتبقى نداءاتهم أدناه تغطّي ما تخدمه القاعدة لتلك النسخ.
+ */
 async function screensRepo() {
   return loaded(
     await build({
       ...BUNDLE,
       stdin: {
         contents: [
-          'export { createRecipe, loadRecipe, loadMill, loadBuilder, createProduction, previewProduction, loadBatch, addProductionInput,',
+          'export { loadRecipe, loadMill, loadBuilder, previewProduction, loadBatch, addProductionInput,',
           '  deleteProductionInput, addBatchCost, setBatchCost, deleteBatchCost, addRecipeRate, setRecipeRate, deleteRecipeRate, setInputActual,',
-          "  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch, setRecipeLine,",
-          "  activateVersion, addRecipeLine, deleteRecipeLine, setVersionBasis } from './src/lib/repo/mill.ts';",
+          '  confirmCosts, postProduction, newRecipeVersion, loadMillStores, loadExpenseCategories, setBatchFields, discardBatch,',
+          "  activateVersion, deleteRecipeLine } from './src/lib/repo/mill.ts';",
+          "export { createRecipe, createProduction, setRecipeLine, addRecipeLine, setVersionBasis } from 'legacy-mill';",
           'export { loadItemLots, loadItemMoves, loadItemPurchases, setItemCostPrice, createExpenseCategory, rename, createItem, loadItem, updateItem, findItemTwins, setArchived }',
           "  from './src/lib/repo/inventory.ts';",
           "export { loadExpenses, voidExpense } from './src/lib/repo/cash.ts';",
@@ -158,6 +266,13 @@ async function screensRepo() {
           setup(b) {
             b.onResolve({ filter: /^\.\/client$/ }, (args) => (args.importer.includes(`${path.sep}lib${path.sep}repo${path.sep}`) ? { path: 'client', namespace: 'mill-client' } : undefined));
             b.onLoad({ filter: /.*/, namespace: 'mill-client' }, () => ({ contents: CLIENT, resolveDir: ROOT, loader: 'js' }));
+          },
+        },
+        {
+          name: 'legacy-mill',
+          setup(b) {
+            b.onResolve({ filter: /^legacy-mill$/ }, () => ({ path: 'legacy-mill', namespace: 'legacy-mill' }));
+            b.onLoad({ filter: /.*/, namespace: 'legacy-mill' }, () => ({ contents: LEGACY_MILL, resolveDir: ROOT, loader: 'ts' }));
           },
         },
       ],
@@ -1663,24 +1778,14 @@ async function scenario(t, db) {
   if (piecedNowMade.ok) await call(U.miller, "select public.discard_draft('production', $1, (select version from public.production_batches where id = $1))", [id(615)]);
   t.same(await nonZero('verify_mill'), {}, 'verify_mill صفر بعد دمج الجولة الخامسة (القسم ١٠)');
 
-  // ─── دمج الجولة السادسة (fixes6.md القسم د؛ ق٦١–ق٦٥، ب٦٢ وب٦٣): جواب القاعدة الحقيقي بمحلّلات الشاشات ولوحة كلفة الطنّ ─────────────────────────────
+  // ─── دمج الجولة السادسة (fixes6.md القسم د؛ ق٦١–ق٦٥، ب٦٢ وب٦٣): جواب القاعدة الحقيقي بمحلّلات الشاشات ─────────────────────────────
+  // 0025 أزال لوحة كلفة الطنّ المتوقّعة (ExpectedPanel) من صفحة الخلطة، فتبقى الكلفة المتوقّعة هنا على جواب القاعدة بمحلّله (parseRecipe وexpected) وحده.
   const pages = await screensText();
-  /** لوحة كلفة الطنّ كما ترسمها بطاقة الخلطة (ExpectedPanel الحقيقية بـreact-dom/server): نصّ الفقرتين الأوليين (الثالثة ملاحظة ثابتة). */
-  const panelOf = (expected, canPrice) => {
-    if (!expected) return null;
-    try {
-      const html = pages.renderToStaticMarkup(pages.createElement(pages.recipePage.ExpectedPanel, { expected, canPrice }));
-      return (html.match(/<p[^>]*>[\s\S]*?<\/p>/gu) ?? []).map((p) => p.replace(/<[^>]+>/gu, '')).slice(0, 2);
-    } catch (error) {
-      return `رمت اللوحة: ${error.message}`;
-    }
-  };
   // السطر الذي له سعر ولا تتحوّل كميته إلى وحدة سعره (ق٦١، ب٦٢): «زيت التكامل» سائل أوّلي بكثافة 0.9 وسعر كلفته 2,000 للتر، في مسوّدة: ذرة 994 + زيت 6 كغم مكتوب
   // بالكيلو؛ و«دبس التكامل» أوّلي باللتر بكثافة 1.4، في مسوّدة: ذرة 972 + دبس 20 لتراً. قبل التصحيح: الزيت 6 كغم = round3(6 ÷ 0.9) = 6.667 لتر × 2,000 = 13,334،
   // والذرة 994 × 950 (سعر كلفتها المكتوب، القسم ٦) = 944,300، فالطنّ 957,634.00 بلا سطر متروك. ثمّ تُفرَّغ كثافة الزيت (density_missing) ويصير الدبس بالكيلو بسعر كلفة
   // 1,500 (unit_mismatch: لقطة الكثافة فارغة في المسوّدة)، قبل أيّ حركة. جواب recipe_detail بمحلّل الشاشة للمدير والمحاسب: سعر السطر مكتوب (2,000.00 و1,500.00)
-  // وunpriced = 0 وunconverted = 1 (كان unpriced = 1)، والمواد بلاه 944,300.00 و972 × 950 = 923,400.00؛ ولمشغّل المعمل بلا مال. ولوحة كلفة الطنّ نفسها على الجواب
-  // المحلَّل: «على الأقلّ» وجملة «لا تُحسب حتّى تُصحَّح سطورها أعلاه» لا «بلا أيّ سعر… اكتب سعر كلفتها» تحت سطر سعره مكتوب.
+  // وunpriced = 0 وunconverted = 1 (كان unpriced = 1)، والمواد بلاه 944,300.00 و972 × 950 = 923,400.00؛ ولمشغّل المعمل بلا مال.
   const OIL6 = await liquidItem('زيت التكامل', 'raw', 0.9);
   const DIBS6 = await liquidItem('دبس التكامل', 'raw', 1.4);
   const R13 = id(651);
@@ -1712,17 +1817,7 @@ async function scenario(t, db) {
       [DIBS6_EXPECTED, [['ذرة صفراء', 'kg', 'kg', 95000n, false, false], ['دبس التكامل', 'kg', 'L', 150000n, true, false]]], DIBS6_EXPECTED],
     'parseRecipe: سطر الزيت بلا كثافة وسطر الدبس المكتوب باللتر لمادّة صارت بالكيلو، ولكلٍّ سعر مكتوب في سطره، في unconverted = 1 لا unpriced، والمواد بلاه 944,300.00 و923,400.00، للمدير والمحاسب؛ ولمشغّل المعمل بلا مال (ق٦١، ب٦٢)',
   );
-  const PANEL_TAIL = '1 من المواد لا تُحسب حتّى تُصحَّح سطورها أعلاه.';
-  t.same(
-    [panelOf(oilBefore6?.expected, true), panelOf(oilCard6?.expected, true), panelOf(oilAccountant6?.expected, false), panelOf(dibsCard6?.expected, true), panelOf(dibsAccountant6?.expected, false)],
-    [['كلفة الطنّ المتوقّعة: 957,634.00', 'المواد 957,634.00 والتكاليف 0.00 لكلّ طنّ.'],
-      ['كلفة الطنّ المتوقّعة: 944,300.00 على الأقلّ', `المواد 944,300.00 والتكاليف 0.00 لكلّ طنّ. ${PANEL_TAIL}`],
-      ['كلفة الطنّ المتوقّعة: 944,300.00 على الأقلّ', `المواد 944,300.00 والتكاليف 0.00 لكلّ طنّ. ${PANEL_TAIL}`],
-      ['كلفة الطنّ المتوقّعة: 923,400.00 على الأقلّ', `المواد 923,400.00 والتكاليف 0.00 لكلّ طنّ. ${PANEL_TAIL}`],
-      ['كلفة الطنّ المتوقّعة: 923,400.00 على الأقلّ', `المواد 923,400.00 والتكاليف 0.00 لكلّ طنّ. ${PANEL_TAIL}`]],
-    'ExpectedPanel على الجواب المحلَّل: للسطر المسعَّر الذي لا تتحوّل كميته «على الأقلّ» و«لا تُحسب حتّى تُصحَّح سطورها أعلاه»، لا «بلا أيّ سعر… اكتب سعر كلفتها»، للمدير والمحاسب؛ والضابط قبل التصحيح بلا جملة (ب٦٢)',
-  );
-  // والقطعة (ما علّقه وكيل الشاشات): مادّة لها سعر وصارت قطعة لا تتحوّل كميتها، فتُعدّ في unconverted، وفي البطاقة جملتها فوق اللوحة — في المسوّدة جملة القطعة (وحدة
+  // والقطعة (ما علّقه وكيل الشاشات): مادّة لها سعر وصارت قطعة لا تتحوّل كميتها، فتُعدّ في unconverted، وفي البطاقة جملتها — في المسوّدة جملة القطعة (وحدة
   // الأساس الحيّة pc)، وفي المفعَّلة جملة «تغيّرت وحدة» (unit_changed). بمعاملة ترجع للمدير: سعر كلفة «ملح الدمج» (صار قطعة أعلاه) 300، فمسوّدة «مسوّدة ملح صار قطعة» (ذرة
   // 990 + ملح 10 كغم) بالمواد 990 × 950 = 940,500.00 وunconverted = 1؛ وخلطة مفعَّلة تُنشأ في المعاملة نفسها (ذرة 990 + «قطعة مسعّرة» 10 كغم بسعر 400) ثمّ تصير مادّتها
   // قطعة: unit_changed لسطرها وunconverted = 1 والمواد 940,500.00.
@@ -1742,14 +1837,13 @@ async function scenario(t, db) {
   const PIECE6_EXPECTED = { materialsPerTon: 94050000n, ratesPerTon: 0n, costPerTon: 94050000n, unpriced: 0, unconverted: 1 };
   const pieceLine6 = (l) => [l.itemName, l.baseUnit, l.costPrice, l.unitChanged];
   t.same(
-    [pieceCard?.expected, panelOf(pieceCard?.expected, true), pieceDraft6 && [pieceDraft6.status, pieceDraft6.expected, pieceDraft6.lines.map(pieceLine6)],
+    [pieceCard?.expected, pieceDraft6 && [pieceDraft6.status, pieceDraft6.expected, pieceDraft6.lines.map(pieceLine6)],
       pieceActive6 && [pieceActive6.status, pieceActive6.expected, pieceActive6.lines.map(pieceLine6)],
-      panelOf(pieceActive6?.expected, true), pieceCards6 && cardOf(pieceCards6, id(655))?.expectedCostPerKg, (await db.admin('select count(*)::int as n from public.recipes where id = $1', [id(655)])).rows[0].n],
-    [{ ...PIECE6_EXPECTED, unpriced: 1, unconverted: 0 }, ['كلفة الطنّ المتوقّعة: 940,500.00 على الأقلّ', 'المواد 940,500.00 والتكاليف 0.00 لكلّ طنّ. 1 من المواد بلا أيّ سعر فلم تُحسب: اكتب سعر كلفتها.'],
+      pieceCards6 && cardOf(pieceCards6, id(655))?.expectedCostPerKg, (await db.admin('select count(*)::int as n from public.recipes where id = $1', [id(655)])).rows[0].n],
+    [{ ...PIECE6_EXPECTED, unpriced: 1, unconverted: 0 },
       ['draft', PIECE6_EXPECTED, [['ذرة صفراء', 'kg', 95000n, false], ['ملح الدمج', 'pc', 30000n, false]]],
-      ['active', PIECE6_EXPECTED, [['ذرة صفراء', 'kg', 95000n, false], ['قطعة مسعّرة', 'kg', 40000n, true]]],
-      ['كلفة الطنّ المتوقّعة: 940,500.00 على الأقلّ', `المواد 940,500.00 والتكاليف 0.00 لكلّ طنّ. ${PANEL_TAIL}`], null, 0],
-    'parseRecipe: القطعة بلا سعر في unpriced واللوحة «بلا أيّ سعر… اكتب سعر كلفتها» (السعر أوّل ما يُكتب لها)، وبسعرها في unconverted، وفي سطرها ما تبني عليه البطاقة جملتها فوق اللوحة — وحدة الأساس pc في المسوّدة، وunit_changed في المفعَّلة — واللوحة «لا تُحسب حتّى تُصحَّح سطورها أعلاه»، وكلفة الكيلو في لوحة المعمل فارغة لا رقم بلا سطرها (ق٦١، ب٦٢؛ بمعاملة ترجع)',
+      ['active', PIECE6_EXPECTED, [['ذرة صفراء', 'kg', 95000n, false], ['قطعة مسعّرة', 'kg', 40000n, true]]], null, 0],
+    'parseRecipe: القطعة بلا سعر في unpriced (السعر أوّل ما يُكتب لها)، وبسعرها في unconverted، وفي سطرها ما تبني عليه البطاقة جملتها — وحدة الأساس pc في المسوّدة، وunit_changed في المفعَّلة —، وكلفة الكيلو في لوحة المعمل فارغة لا رقم بلا سطرها (ق٦١، ب٦٢؛ بمعاملة ترجع)',
   );
 
   // «نسخة جديدة» تترك المادّة المؤرشفة التي صارت قطعة وسطر اللتر لسائل صار قطعة (ق٦٢)، والإعادة بالمعرّف نفسه ترجع ما رجع أوّل مرّة (ق٦٣، ب٦٣): «كيس التكامل» أوّلي
