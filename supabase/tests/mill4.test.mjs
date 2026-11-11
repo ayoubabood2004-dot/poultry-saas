@@ -505,6 +505,10 @@ async function scenario(t, db) {
     const legacy = await one(U.owner, FORM, [id(283)]);
     samples.production_form.first_time = firstTime;
     samples.production_form.legacy = legacy;
+    samples.recipe_detail.legacy_active = await one(U.owner, DETAIL, [id(283), null]);
+    t.same([samples.recipe_detail.legacy_active.selected.materials_only, samples.recipe_detail.legacy_active.versions.map((v) => v.materials_only),
+      samples.recipe_detail.legacy_active.selected.basis_kg, samples.recipe_detail.legacy_active.mass_kg], [false, [false], '1000.000', '1000.000'],
+    'recipe_detail للخلطة بكميات كما كانت: materials_only = false وأساسها وكتلتها');
     t.same([fresh.ok, legacyForm.ok, firstTime.materials.map((m) => [m.name, m.default_qty, m.default_source]), firstTime.last, firstTime.active.materials_only,
       legacy.active.materials_only, legacy.materials.map((m) => [m.name, m.base_unit, m.default_qty, m.default_source])],
     [true, true, [['صويا', null, null], ['ذرة', null, null]], null, true, false,
