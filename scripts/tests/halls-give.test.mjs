@@ -11,7 +11,7 @@
 //   حمولتها (والعملية القديمة بالطابور ترسل مائها كما هو)، وشريط التذكير و«أضف للقاعة» لكلّ قاعة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -683,6 +683,20 @@ export default async function (t) {
       await m.sendFlockDay(op({ dead: 1, water_l: '50.000' }));
       await m.sendFlockDay(op({ dead: 1 }));
       t.same(named(rpcLog, 'save_flock_day').map((args) => args.p_water_l), ['50.000', null], 'W العملية القديمة ترسل مائها كما هو، والجديدة بلا ماء');
+    }
+
+    // ── X: تذكير اللقاحات بجواب القاعدة الحقيقي (fixtures/halls-0026.json من supabase/tests/halls.test بـHALLS_SAMPLES_OUT=1) ──
+    const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json');
+    const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
+    t.ok(REAL !== null, 'X عيّنات القاعدة الحقيقية موجودة (halls-0026.json)');
+    if (REAL) {
+      await step('X التذكير بجواب القاعدة', async () => {
+        fresh(OWNER, { vaccine_reminders: () => clone(REAL.vaccine_reminders) });
+        await reminders();
+        const texts = byAction('reminder-text').map((n) => n.textContent);
+        t.same([texts.length, texts[0]?.startsWith('ND · يوم العمر 7'), texts[0]?.includes('قاعة 2'), texts[1]?.includes('قاعة 1، قاعة 4')], [2, true, true, true],
+          'X التذكير بجواب القاعدة: ND يوم 7 لـ«قاعة 2» غداً، وND يوم 14 لـ«قاعة 1» و«قاعة 4» معاً');
+      });
     }
   } finally {
     if (root) current.flushSync(() => root.unmount());

@@ -10,7 +10,7 @@
 //   وstale_program يُبقي التعديل بجدول الفروق ثمّ «اعتمد تعديلي»، والحذف «يُحذف» أو «يُخفى» بـin_use، والإضافة والتعديل، ونهاية الدورة وما يُشال،
 //   والقراءة وحدها، والنتيجة المجهولة والتحقّق بعد إعادة رُفضت بشرط النسخة، والصفحات بـ70 يوماً.
 import { build } from 'esbuild';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -873,6 +873,41 @@ export default async function (t) {
       await click(byAction('discard-program')[0]);
       t.same([bandsOf(30), m.isWindowDirty(), byAction('program-dirty').length], [[], false, 0], 'V10 «تراجع عن التعديل» يعيد المحفوظ والنافذة نظيفة');
     });
+
+    // ── X: أجوبة القاعدة الحقيقية (fixtures/halls-0026.json من supabase/tests/halls.test بـHALLS_SAMPLES_OUT=1) بالمحلّلات والصفحات الحقيقية ──
+    const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json');
+    const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
+    t.ok(REAL !== null, 'X عيّنات القاعدة الحقيقية موجودة (halls-0026.json)');
+    if (REAL) {
+      await step('X1 التقويم بجواب القاعدة', async () => {
+        const month = REAL.flock_month;
+        fresh(MANAGER, { rpcs: { flock_month: () => clone(month) } });
+        await mount(`/halls/calendar/${month.flock.id}?m=${month.month.slice(0, 7)}`);
+        const today = cell(month.today);
+        const text = today ? today.textContent : '';
+        // علف اليوم مجموع صرف العلف فيه بجواب القاعدة (1,000 كغم من الإضافة و200 من فحص التزامن): الشاشة تجمعه في شريط واحد.
+        const feedKg = month.days.find((d) => d.on === month.today).issues.filter((x) => x.cost_kind === 'feed').reduce((sum, x) => sum + Number(x.kg), 0);
+        const feedText = String(feedKg).replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+        t.same([textOf('cal-title'), Boolean(today), [feedText, 'IB', 'ND'].filter((part) => !text.includes(part)), showsMoney()],
+          [`تقويم ${month.flock.hall_name} — ${month.flock.site_name}`, true, [], false], 'X1 تقويم «قاعة 1» بجواب القاعدة: يوم الإضافة بعلفه ولقاحيه، وبلا مال');
+      });
+      await step('X2 تقرير الدورة بجواب القاعدة', async () => {
+        const flock = REAL.flock_cycle_report.flock.id;
+        fresh(MANAGER, { rpcs: { flock_cycle_report: () => clone(REAL.flock_cycle_report) } });
+        await mount(`/halls/report/${flock}`);
+        const withMoney = [showsMoney(), body().textContent.includes('فيتامين سائل'), body().textContent.includes('IB')];
+        await unmount();
+        fresh(MANAGER, { rpcs: { flock_cycle_report: () => clone(REAL.flock_cycle_report_no_money) } });
+        await mount(`/halls/report/${flock}`);
+        t.same([...withMoney, showsMoney()], [true, true, true, false], 'X2 التقرير بجواب القاعدة: الدواء من المخزن واللقاحات بالمخطّط، والمال لأدوار الكلفة وحدها');
+      });
+      await step('X3 جدول اللقاحات بجواب القاعدة', async () => {
+        fresh(MANAGER, { rpcs: { vaccine_board: () => clone(REAL.vaccine_board) } });
+        await mount('/halls/vaccines?kind=broiler');
+        t.same([bandsOf(7), bandsOf(14), bandsOf(12)], [['ND'], ['ND'], []], 'X3 جدول اللاحم بجواب القاعدة بعد الحذف: ND في اليومين 7 و14 وحده');
+      });
+      t.same(m.repo.parseGiveResult(clone(REAL.give_to_flocks)).issues.map((x) => x.docNo.startsWith('FI-')), REAL.give_to_flocks.issues.map(() => true), 'X4 جواب الإضافة الحقيقي بمحلّله');
+    }
   } finally {
     if (root && m) {
       const mounted = root;
