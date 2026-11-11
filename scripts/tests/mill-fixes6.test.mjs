@@ -9,6 +9,9 @@
 // W65 الانتقال بالرابط من دفعة إلى أخرى ومن خلطة إلى أخرى لا يُبقي مسوّدات السابقة ولا جملها (ب٦٥، key={id}).
 // W66 (تكامل الجولة) سطر لتر تُقرَّب كتلته صفراً (ق٦٤: يرفض الخادم التفعيل به qty_not_positive) لا تُفعَّل النسخة به، بجملة تسمّيه.
 // W61 وW62 وW65 تفشل على شاشات bffd349؛ وW63 وW64 تثبتان سلوكاً قائماً، فتُقاس بطفرات تكسره (مصفوفة الجولة)؛ وW66 تفشل على bffd349 وعلى شاشات الجولة قبل التكامل.
+// «الخلطة موادّ بلا كميات» (0025): لوحة كلفة الطنّ المتوقّعة وخانات السعر خرجت من بطاقة الخلطة، فـW62 يبقى محلّله وحده؛ وW66 (سطر كتلته صفر) خرج مع
+// الكميات (المسوّدة بكميات قبل 0025 لا تُفعَّل قبل محوها)؛ ومسوّدة رحلة W61 موادّ بلا كميات فتصير «جاهزة» بعد الكثافة؛ وW65 بين خلطتين بما لم يُحفظ في
+// «فئة مصروف جديدة» لا في خانة سعر.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -129,11 +132,11 @@ const recipeLine = (over = {}) => ({
   money: { unit_cost: '430.50', cost_price: '450.00', last_price: '440.25' }, ...over,
 });
 const CORN_PICK = { id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' };
-const recipeJson = ({ id = 'r-1', name = 'علف بادئ', status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', pickItems = [CORN_PICK], unpriced = 0, unconverted = 0 } = {}) => ({
+const recipeJson = ({ id = 'r-1', name = 'علف بادئ', status = 'draft', versionId = 'v-1', versionNo = 1, version = 5, versions = null, lines = [recipeLine()], massKg = '1000.000', basis = '1000.000', pickItems = [CORN_PICK], unpriced = 0, unconverted = 0, materialsOnly = false } = {}) => ({
   id, name, note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: basis, materials_only: false, note: null, activated_at: null, version },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: materialsOnly ? null : basis, materials_only: materialsOnly, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: materialsOnly ? null : basis, materials_only: materialsOnly, note: null, activated_at: null, version },
   lines: lines.map((line) => ({ ...line, money: line.money ? { ...line.money } : line.money })),
   mass_kg: massKg,
   pick_items: pickItems,
@@ -192,12 +195,14 @@ const OIL = 'i-oil';
 const OIL_PICK = { id: OIL, name: 'زيت', base_unit: 'L', category_name: null };
 const VERSIONS = [
   { id: 'v-1', version_no: 1, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
-  { id: 'v-2', version_no: 2, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 2 },
+  { id: 'v-2', version_no: 2, status: 'draft', basis_kg: null, materials_only: true, activated_at: null, version: 2 },
 ];
 const DENSITY_TEXT = '«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
 const DENSITY_OTHERS = '«زيت» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
-// لا أساس يُطابَق (كلمة المالك 2026-11-07): المسوّدة تقول مجموعها.
-const READY = 'مجموع الخلطة 1,000 كغم: الخلطة جاهزة للتفعيل.';
+// الخلطة موادّ بلا كميات (0025): المسوّدة السليمة «جاهزة» بعدد موادّها.
+const READY = 'الخلطة جاهزة للتفعيل: 2 من المواد.';
+/** سطر مسوّدة موادّ بلا كميات (0025). */
+const bare = (over = {}) => recipeLine({ qty: null, mass_kg: null, share_pct: null, ...over });
 const BACK = '/mill/recipe/r-1?version=v-2';
 
 /**
@@ -211,10 +216,10 @@ const journeyServer = (m, { archived = false } = {}) => {
     tracksExpiry: false, scaleStep: 100n, minQty: null, barcode: null, altCodes: [],
   });
   const oilLine = () =>
-    recipeLine({ id: 'l-oil', line_no: 2, item_id: OIL, item_name: 'زيت', base_unit: 'L', category_name: null, qty: '6.000', mass_kg: '6.000', share_pct: '0.60', density_missing: state.density === null, money: { unit_cost: null, cost_price: '2000.00', last_price: null } });
+    bare({ id: 'l-oil', line_no: 2, item_id: OIL, item_name: 'زيت', base_unit: 'L', unit: 'L', category_name: null, density_missing: state.density === null, money: { unit_cost: null, cost_price: '2000.00', last_price: null } });
   const answer = (versionId) =>
     versionId === 'v-2'
-      ? recipeJson({ versionId: 'v-2', versionNo: 2, version: 2, versions: VERSIONS, lines: [recipeLine({ qty: '994.000', mass_kg: '994.000', share_pct: '99.40' }), oilLine()], pickItems: [CORN_PICK, OIL_PICK], unconverted: state.density === null ? 1 : 0 })
+      ? recipeJson({ versionId: 'v-2', versionNo: 2, version: 2, versions: VERSIONS, materialsOnly: true, massKg: null, lines: [bare(), oilLine()], pickItems: [CORN_PICK, OIL_PICK], unconverted: state.density === null ? 1 : 0 })
       : recipeJson({ status: 'active', versionId: 'v-1', versionNo: 1, version: 5, versions: VERSIONS });
   return {
     state,
@@ -567,51 +572,7 @@ export default async function (t) {
         t.eq(safe(() => m.parseRecipe(broken) && 'ok'), 'mill_shape:unconverted', `W62 unconverted ${label} خطأ شكل`);
       }
     });
-    await step('W62 الزيت للمدير', async () => {
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(OIL_DRAFT()) });
-      await mount('/mill/recipe/r-1');
-      t.same(byAction('cost-price').map((input) => input.value), ['900.00', '2000.00'], 'W62 ضابط: سعر كلفة الزيت مكتوب في سطره');
-      t.same(
-        [panel()?.includes('كلفة الطنّ المتوقّعة: 894,600.00 على الأقلّ') ?? null, panel()?.includes(`المواد 894,600.00 والتكاليف 0.00 لكلّ طنّ. ${UNCONVERTED}`) ?? null],
-        [true, true],
-        `W62 اللوحة: «على الأقلّ» و«لا تُحسب حتّى تُصحَّح سطورها أعلاه» (${panel()})`,
-      );
-      t.same([panel()?.includes('بلا أيّ سعر') ?? null, panel()?.includes('اكتب سعر كلفتها') ?? null], [false, false], 'W62 ولا «بلا أيّ سعر… اكتب سعر كلفتها» تحت سطر سعره مكتوب');
-    });
-    await step('W62 الزيت للمحاسب', async () => {
-      fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(OIL_DRAFT()) });
-      await mount('/mill/recipe/r-1');
-      t.same([panel()?.includes(UNCONVERTED) ?? null, panel()?.includes('بلا أيّ سعر') ?? null, panel()?.includes('يكتبه المالك أو المدير') ?? null], [true, false, false], 'W62 المحاسب كذلك: الجملة نفسها، ولا «بلا أيّ سعر»');
-    });
-    await step('W62 الدبس (unit_mismatch)', async () => {
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(DIBS_DRAFT()) });
-      await mount('/mill/recipe/r-1');
-      t.same(
-        [panel()?.includes('كلفة الطنّ المتوقّعة: 874,800.00 على الأقلّ') ?? null, panel()?.includes(UNCONVERTED) ?? null, panel()?.includes('بلا أيّ سعر') ?? null],
-        [true, true, false],
-        'W62 سطر لتر لمادّة صارت بالكيلو وسعرها مكتوب: «لا تُحسب حتّى تُصحَّح» لا «بلا أيّ سعر»',
-      );
-    });
-    await step('W62 مع مادّة بلا سعر', async () => {
-      const answer = OIL_DRAFT();
-      answer.lines[0].money.cost_price = null;
-      answer.money.expected = { unpriced: 1, unconverted: 1, cost_per_ton: '0.00', rates_per_ton: '0.00', materials_per_ton: '0.00' };
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(answer) });
-      await mount('/mill/recipe/r-1');
-      t.ok(
-        panel()?.includes(`لكلّ طنّ. 1 من المواد بلا أيّ سعر فلم تُحسب: اكتب سعر كلفتها. ${UNCONVERTED}`) ?? false,
-        `W62 مادّة بلا سعر وأخرى لا تتحوّل: الجملتان كلّ واحدة لسطورها (${panel()})`,
-      );
-    });
-    await step('W62 ضابط', async () => {
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson()) });
-      await mount('/mill/recipe/r-1');
-      t.same(
-        [panel()?.includes('كلفة الطنّ المتوقّعة: 450,000.00') ?? null, panel()?.includes('على الأقلّ') ?? null, panel()?.includes('لا تُحسب') ?? null],
-        [true, false, false],
-        'W62 ضابط: لا unpriced ولا unconverted ← الرقم كاملاً بلا جملة',
-      );
-    });
+    // W62 على الشاشة (لوحة كلفة الطنّ المتوقّعة): خرجت مع الكميات (0025)، والمحلّل فوق باقٍ لقرّاء الخلطات القديمة.
 
     // ── W63 (ب٦٣): «نسخة جديدة» بالمعرّف نفسه بعد جواب ضاع ─────────────────────────────────────────────────────────────────
     const made = (over = {}) => ({ recipe_id: 'r-1', version_id: 'v-2', version_no: 2, status: 'draft', lines: 1, rates: 0, existing: false, skipped: [], ...over });
@@ -647,7 +608,7 @@ export default async function (t) {
         },
       });
       await mount('/mill/recipe/r-1');
-      t.ok(noticeTitles().some((title) => title.startsWith('تغيّرت وحدة «خميرة» بعد التفعيل')), 'W63 ضابط: المفعَّلة تقول إنّ وحدة «خميرة» تغيّرت');
+      t.ok(text().includes('خميرة') && byAction('new-version').length === 1, 'W63 ضابط: المفعَّلة بموادّها ومنها «خميرة»، و«عدّل الخلطة» ظاهر');
       await press(byAction('new-version')[0]);
       t.same([text().includes('نتيجة العملية غير معروفة'), byAction('new-version').length], [true, 1], 'W63 ضاع الجواب: «نتيجة العملية غير معروفة» والزرّ باقٍ للإعادة');
       await press(byAction('new-version')[0]);
@@ -724,61 +685,26 @@ export default async function (t) {
       t.eq(named(calls, 'setBatchFields').length, 0, 'W65 ولا يُرسل وزن الأولى على الثانية');
     });
     await step('W65 من خلطة إلى أخرى', async () => {
-      const prices = { 'r-1': '450.00', 'r-2': '460.00' };
       const calls = fresh(MANAGER, {
-        loadRecipe: (recipeId) => m.parseRecipe(recipeJson({ id: recipeId, name: recipeId === 'r-1' ? 'علف بادئ' : 'علف نامٍ', lines: [recipeLine({ money: { unit_cost: '430.50', cost_price: prices[recipeId], last_price: '440.25' } })] })),
+        loadRecipe: (recipeId) => m.parseRecipe(recipeJson({ id: recipeId, name: recipeId === 'r-1' ? 'علف بادئ' : 'علف نامٍ', materialsOnly: true, massKg: null, lines: [bare()] })),
         activateVersion: () => {
           throw new m.RejectedError('probe_rejected', 'رفض الخادم تفعيل هذه الخلطة.');
         },
       });
       await mount('/mill/recipe/r-1', { keyed: false });
       await press(byAction('activate-version')[0]);
-      type(byAction('cost-price')[0], '700');
+      type(byAction('new-category-name')[0], 'نقل');
       await settle();
-      t.same([valueOf('cost-price'), text().includes('رفض الخادم تفعيل هذه الخلطة.')], ['700', true], 'W65 ضابط: في الخلطة الأولى سعر مكتوب لم يُحفظ ورفض معروض');
+      t.same([valueOf('new-category-name'), text().includes('رفض الخادم تفعيل هذه الخلطة.')], ['نقل', true], 'W65 ضابط: في الخلطة الأولى مكتوب لم يُحفظ ورفض معروض');
       await go('/mill/recipe/r-2');
       t.same(
-        [named(calls, 'loadRecipe').at(-1), valueOf('cost-price'), text().includes('رفض الخادم تفعيل هذه الخلطة.'), text().includes('علف نامٍ')],
-        [['r-2', null], '460.00', false, true],
-        'W65 الخلطة الثانية بسعرها المحفوظ وبلا رفض الأولى',
+        [named(calls, 'loadRecipe').at(-1), valueOf('new-category-name'), text().includes('رفض الخادم تفعيل هذه الخلطة.'), text().includes('علف نامٍ')],
+        [['r-2', null], '', false, true],
+        'W65 الخلطة الثانية بلا مكتوب الأولى وبلا رفضها',
       );
     });
 
-    // ── W66 (تكامل الجولة السادسة، ق٦٤): سطر لتر تُقرَّب كتلته صفراً لا تُفعَّل النسخة به ─────────────────────────────────────────────────────
-    // جواب recipe_detail بالشكل الذي يرسله الخادم (مثبَّت على القاعدة الحقيقية في supabase/tests/mill2.test.mjs، القسم ١٠): ذرة 1,000 كغم و«سائل خفيف» 0.001 لتر
-    // صغرت كثافة مادّته، فكتلته 0.000 وحصّته 0.00 والمجموع 1,000 = الأساس، بلا unit_mismatch ولا density_missing ووحدته لتر — فلا شيء من شروط ب٤١ الثلاثة يمسكه.
-    // الخادم يرفض التفعيل qty_not_positive، فلا «جاهزة للتفعيل» ولا «فعّل النسخة» مفعَّل، وجملة تسمّي السطر بعلاج الخادم (كمية أكبر)، ولمن لا يعدّل الخلطة من يكتبها.
-    // والضابط: 0.002 لتر (كتلته 0.001) والذرة 999.999 ← «جاهزة».
-    const lightLine = (qty, mass) =>
-      recipeLine({ id: 'l-light', line_no: 2, item_id: 'i-light', item_name: 'سائل خفيف', base_unit: 'L', category_name: null, qty, unit: 'L', mass_kg: mass, share_pct: '0.00',
-        money: { unit_cost: null, cost_price: null, last_price: null } });
-    const ZERO_LINES = [recipeLine(), lightLine('0.001', '0.000')];
-    const ZERO_TEXT = 'كمية «سائل خفيف» في الخلطة تُقرَّب صفراً بالكيلوغرام: اكتب كمية أكبر.';
-    const ZERO_OTHERS = 'كمية «سائل خفيف» في الخلطة تُقرَّب صفراً بالكيلوغرام: يكتب المالك أو المدير كمية أكبر.';
-    const BLOCKED = 'مجموع الخلطة 1,000 كغم، ولا تُفعَّل حتّى تُصحَّح السطور أعلاه.';
-    await step('W66 المدير', async () => {
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: ZERO_LINES })) });
-      await mount('/mill/recipe/r-1');
-      t.same(
-        [noticeTitles().includes(ZERO_TEXT), noticeTitles().includes(BLOCKED), noticeTitles().includes(READY), disabled(byAction('activate-version')[0])],
-        [true, true, false, true],
-        'W66 سطر كتلته صفر والمجموع مطابق: جملة تسمّيه بعلاج الخادم، و«لا تُفعَّل حتّى تُصحَّح السطور أعلاه» لا «جاهزة»، و«فعّل النسخة» معطَّل',
-      );
-    });
-    await step('W66 المحاسب', async () => {
-      fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: ZERO_LINES })) });
-      await mount('/mill/recipe/r-1');
-      t.same([noticeTitles().includes(ZERO_OTHERS), noticeTitles().includes(ZERO_TEXT)], [true, false], 'W66 المحاسب (لا يعدّل الخلطة): الجملة تقول من يكتب الكمية لا «اكتب» (درس ب٣٧)');
-    });
-    await step('W66 ضابط', async () => {
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: [recipeLine({ qty: '999.999', mass_kg: '999.999' }), lightLine('0.002', '0.001')] })) });
-      await mount('/mill/recipe/r-1');
-      t.same(
-        [noticeTitles().some((title) => title.includes('تُقرَّب صفراً')), noticeTitles().includes(READY), disabled(byAction('activate-version')[0])],
-        [false, true, false],
-        'W66 ضابط: 0.002 لتر (كتلته 0.001) والذرة 999.999 ← «جاهزة للتفعيل» بلا جملة الكتلة الصفرية',
-      );
-    });
+    // ── W66 (تكامل الجولة السادسة، ق٦٤): سطر كتلته صفر خرج مع الكميات (0025): مسوّدة بكميات قبل 0025 لا تُفعَّل قبل محوها. ───────────────
   } finally {
     delete globalThis.__mill;
     restore();
