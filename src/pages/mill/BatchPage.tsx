@@ -925,9 +925,10 @@ export default function BatchPage() {
       {blind ? null : (
         <Stats
           stats={[
-            { key: 'planned', label: t('mill.stat.planned', 'المخطّط'), value: <Num>{fmtQty(batch.plannedKg, 'kg').main}</Num> },
-            { key: 'mass', label: t('mill.stat.mass', 'كتلة المواد'), value: <Num>{fmtQty(mass, 'kg').main}</Num> },
-            { key: 'output', label: t('mill.stat.output', 'الناتج'), value: <Num>{fmtQty(output, 'kg').main}</Num> },
+            // الكمية بوحدتها عبارة عربية لا رقم معزول: داخل bdi ltr كانت تُقرأ «طن 1.000» (فحص Chromium لشاشات 0025).
+            { key: 'planned', label: t('mill.stat.planned', 'المخطّط'), value: fmtQty(batch.plannedKg, 'kg').main },
+            { key: 'mass', label: t('mill.stat.mass', 'كتلة المواد'), value: fmtQty(mass, 'kg').main },
+            { key: 'output', label: t('mill.stat.output', 'الناتج'), value: fmtQty(output, 'kg').main },
             {
               key: 'shrink',
               label: t('mill.stat.shrink', 'الهدر'),

@@ -36,6 +36,9 @@ import { BuyLink, PageFooter, qtyColumns } from './stock-shared';
 // الكلفة، ومجاميع المخزن كلّه من الخادم (مو من جمع الصفوف، §2.8). البحث بالاسم المطبَّع، والسطر رابط لبطاقة المادّة. وبالهاتف
 // بطاقة لا جدول. و«أضف مادّة» لمن يملك item.create (حكم الخادم بـcan_create_item، 0013) بنموذج بعمودين فيه الاسم والنوع
 // والتصنيف وكيف تُعدّ والتعبئة والباركود والحدّ الأدنى وسعر البيع، ويّا تنبيه التوائم بـfind_item_twins قبل الحفظ.
+// «رصيد العلف» (0025، كلمة المالك 2026-11-10: «كلهن لا اراديا يروحن للمخزن الى موقع خاص اسمه رصيد العلف، هناك تتجمع كل الخلطات الي عندي بكمياتها
+// بنفس الترتيب الي رتبنا بيه»): مخزن العلف قائمة واحدة لا أقسام — منتجات العلائق الظاهرة بترتيب العلائق في المعمل، ثمّ بقيّة العلف بالاسم، والرصيد
+// الصفري ظاهر — من كلّ صفحات stock_on_hand، والتنبيه يقول إنّ كلّ إنتاج المعمل يدخل هنا تلقائياً.
 
 /** قسم تصنيف واحد: معرّفه (فارغ = دون تصنيف) واسمه ومواده. */
 export interface Section {
@@ -48,10 +51,15 @@ export interface Section {
  * الأقسام بترتيب التصنيفات كما وصلت من الخادم (بالاسم)، و«دون تصنيف» أخيراً، والقسم الفارغ ما ينعرض. البحث بالاسم المطبَّع
  * (نفس searchable المستعمل بالخادم) على اسم المادّة أو باركودها. وتصنيف الصفّ من القراءة نفسها (0014).
  */
-export function sectionsOf(rows: readonly StockRow[], categories: readonly Pick<CategoryRow, 'id' | 'name'>[], search = ''): Section[] {
+/** صفوف البحث: الاسم المطبَّع (نفس searchable المستعمل بالخادم) أو الباركود. */
+function matching(rows: readonly StockRow[], search: string): readonly StockRow[] {
   const needle = searchable(search);
   const code = search.trim().toUpperCase();
-  const shown = needle ? rows.filter((row) => searchable(row.name).includes(needle) || (row.barcode !== null && row.barcode.toUpperCase().includes(code))) : rows;
+  return needle ? rows.filter((row) => searchable(row.name).includes(needle) || (row.barcode !== null && row.barcode.toUpperCase().includes(code))) : rows;
+}
+
+export function sectionsOf(rows: readonly StockRow[], categories: readonly Pick<CategoryRow, 'id' | 'name'>[], search = ''): Section[] {
+  const shown = matching(rows, search);
   const byCategory = new Map<string, StockRow[]>();
   for (const row of shown) {
     const key = row.categoryId ?? '';
@@ -79,6 +87,23 @@ export function sectionsOf(rows: readonly StockRow[], categories: readonly Pick<
   const none = out.findIndex((section) => section.id === '');
   if (none >= 0 && none !== out.length - 1) out.push(...out.splice(none, 1));
   return out;
+}
+
+/**
+ * «رصيد العلف» قائمةً واحدة (0025): منتجات العلائق الظاهرة بترتيب العلائق (order من recipes_overview، والمنتج المشترك مرّة)، ثمّ بقيّة الموادّ بترتيب
+ * الخادم (بالاسم المطبَّع)، والرصيد الصفري ظاهر (stock_on_hand يعرض كلّ علف فعّال ولو بلا رصيد). البحث يصفّي كما في الأقسام؛ وبلا صفّ لا قسم.
+ */
+export function feedSections(rows: readonly StockRow[], order: readonly string[], search = ''): Section[] {
+  const shown = matching(rows, search);
+  if (!shown.length) return [];
+  // المنتج المكرّر في الترتيب (مشترك بين عليقتين) بأوّل ظهور: Map من order مباشرةً تأخذ آخر ظهور.
+  const rank = new Map<string, number>();
+  order.forEach((itemId, index) => {
+    if (!rank.has(itemId)) rank.set(itemId, index);
+  });
+  const ranked = shown.filter((row) => rank.has(row.itemId)).sort((a, b) => (rank.get(a.itemId) ?? 0) - (rank.get(b.itemId) ?? 0));
+  const rest = shown.filter((row) => !rank.has(row.itemId));
+  return [{ id: 'feed', name: t('stores.feed.section', 'العلف بترتيب العلائق'), rows: [...ranked, ...rest] }];
 }
 
 /** مجموع قيمة المتاح لمواد القسم المحمّلة؛ null إذا المال ما وصل (دور بلا كلفة). */
@@ -236,6 +261,7 @@ export function WarehouseStats({ items, money }: { items: number | null; money: 
 /**
  * مخزن العلف الجاهز (كلمة المالك 2026-11-04): المالك أنشأ «ذرة» و«صويا» و«زيت» بنوع «علف» فظهرت في هذا المخزن. التنبيه يقول
  * ما مكان هذا المخزن وأين المواد الأوّلية، برابط أوّل مخزن موادّ أوّلية بنطاقه (ووحدته أوّلاً). بلا مخزن منها يقول ذلك.
+ * و«رصيد العلف» (0025): كلّ إنتاج المعمل يدخل هنا تلقائياً، بلا اختيار مخزن.
  */
 export function FeedStoreNotice({ store, stores }: { store: { kind: WarehouseKind; divisionId: string }; stores: readonly Pick<StoreCard, 'id' | 'name' | 'kind' | 'divisionId'>[] }) {
   if (store.kind !== 'feed') return null;
@@ -243,7 +269,7 @@ export function FeedStoreNotice({ store, stores }: { store: { kind: WarehouseKin
   return (
     <Notice
       tone="info"
-      title={t('stores.feed.notice', 'هذا مخزن العلف الجاهز من المعمل؛ الذرة والصويا وبقيّة المواد الأوّلية مكانها «مخزن المواد الأوّلية».')}
+      title={t('stores.feed.notice_v4', 'كلّ إنتاج المعمل يدخل هنا تلقائياً')}
       action={
         raw ? (
           <Link to={`/inventory/store/${raw.id}`} className="text-sm font-medium text-brand-700 dark:text-brand-200" data-action="open-raw-store">
@@ -252,7 +278,9 @@ export function FeedStoreNotice({ store, stores }: { store: { kind: WarehouseKin
         ) : undefined
       }
     >
-      {raw ? null : t('stores.feed.no_raw', 'لا مخزن موادّ أوّلية في نطاقك بعد؛ يضيفه المدير من «المخزن» ثم «أضف مخزناً».')}
+      {raw
+        ? t('stores.feed.raw_place', 'العلف هنا بترتيب العلائق في المعمل؛ والذرة والصويا وبقيّة المواد الأوّلية مكانها «{name}».', { name: raw.name })
+        : t('stores.feed.no_raw', 'لا مخزن موادّ أوّلية في نطاقك بعد؛ يضيفه المدير من «المخزن» ثم «أضف مخزناً».')}
     </Notice>
   );
 }
@@ -306,7 +334,14 @@ export default function WarehousePage() {
     );
   };
 
-  const sections = sectionsOf(rows, setup.data?.itemCategories ?? [], search);
+  // «رصيد العلف» (0025): كلّ الصفحات وترتيب العلائق بقراءة واحدة، والقائمة واحدة لا أقسام.
+  const feedKind = (card?.kind ?? first.data?.warehouse.kind) === 'feed';
+  const loadFeed = useCallback(
+    () => (feedKind ? Promise.all([inventory.loadAllStockOnHand(warehouseId), inventory.loadFeedOrder()]).then(([board, order]) => ({ board, order })) : Promise.resolve(null)),
+    [feedKind, warehouseId],
+  );
+  const feed = useLoad(loadFeed, `${warehouseId}#${feedKind}`);
+  const sections = feedKind ? feedSections(feed.data?.board.rows ?? [], feed.data?.order ?? [], search) : sectionsOf(rows, setup.data?.itemCategories ?? [], search);
   const title = card?.name ?? first.data?.warehouse.name ?? t('stock.store', 'المخزن');
   // نوع المخزن ووحدته من بطاقته، أو من رأس القائمة إن سبقت (الاثنان من الخادم).
   const store = card ?? first.data?.warehouse;
@@ -346,7 +381,23 @@ export default function WarehousePage() {
       {card ? <StoreBadges card={card} /> : null}
       {first.error ? (
         <LoadFailed what={t('stock.board.what', 'رصيد المخزن')} error={first.error} onRetry={first.retry} />
-      ) : !first.data ? (
+      ) : feedKind && feed.error ? (
+        <LoadFailed what={t('stores.feed.what', 'رصيد العلف')} error={feed.error} onRetry={feed.retry} />
+      ) : feedKind && feed.data ? (
+        <>
+          <WarehouseBody sections={sections} warehouseId={warehouseId} costs={costs} searching={search.trim() !== ''} buy={buy} />
+          <PageFooter
+            shown={feed.data.board.rows.length}
+            total={feed.data.board.total}
+            next={false}
+            busy={false}
+            error={null}
+            what={t('stores.feed.what', 'رصيد العلف')}
+            onMore={feed.retry}
+            action="more-stock"
+          />
+        </>
+      ) : !first.data || feedKind ? (
         <p role="status" className="text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
@@ -377,6 +428,7 @@ export default function WarehousePage() {
             setAdding(false);
             setAdded(item);
             first.retry();
+            if (feedKind) feed.retry();
           }}
         />
       ) : null}

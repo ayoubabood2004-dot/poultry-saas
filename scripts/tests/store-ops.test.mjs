@@ -136,8 +136,8 @@ const itemRow = (over = {}) => ({ id: 'i-corn', version: 7, archived: false, nam
 const recipeJson = () => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: [{ id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 5 }],
-  selected: { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', note: null, activated_at: '2026-11-01T08:00:00Z', version: 5 },
+  versions: [{ id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 }],
+  selected: { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, note: null, activated_at: '2026-11-01T08:00:00Z', version: 5 },
   lines: [
     { id: 'l-1', line_no: 1, item_id: 'i-corn', item_name: 'ذرة', kind: 'raw', base_unit: 'kg', category_id: null, category_name: null, qty: '1000.000', unit: 'kg', mass_kg: '1000.000', share_pct: '100.00', in_basis: true, unit_changed: false, unit_mismatch: false, density_missing: false },
   ],
@@ -300,7 +300,7 @@ export default async function (t) {
       t.same([where?.pathname, globalThis.__so.toasts.at(-1)?.title], ['/mill', 'حُذفت الخلطة «علف بادئ» من المعمل.'], 'K3-recipe: ثمّ يرجع إلى المعمل ويقول إنّها حُذفت');
     });
     await step('K3-recipe-draft', async () => {
-      const draft = { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 1 };
+      const draft = { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 1 };
       const withDraft = (versionId) => ({ ...recipeJson(), versions: [...recipeJson().versions, draft], selected: versionId === 'v-3' ? { ...draft, note: null } : recipeJson().selected });
       fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: (_id, versionId) => m.parseRecipe(withDraft(versionId)) }, noItems);
       await mount('/mill/recipe/r-1');
@@ -309,7 +309,7 @@ export default async function (t) {
       await settle();
       t.same(
         [where?.search, byAction('open-draft').length, byAction('editing-hint')[0]?.textContent],
-        ['?version=v-3', 0, 'تعدّل الآن مسوّدة الخلطة: غيّر الموادّ وكمياتها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.'],
+        ['?version=v-3', 0, 'تعدّل الآن مسوّدة الخلطة: أضف الموادّ أو احذفها أو رتّبها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.'],
         'K3-recipe: تفتح المسوّدة وتقول ما بعدها',
       );
     });

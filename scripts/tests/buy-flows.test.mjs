@@ -26,7 +26,7 @@ const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${n
 const INVENTORY = [
   'loadOrgSetup', 'loadStoresOverview', 'loadStockOnHand', 'loadStockValues', 'loadStockValueTotals', 'loadItemPurchases', 'loadItemLots',
   'loadItemLotValues', 'loadItemMoves', 'listItemUnits', 'listItems', 'listStockDocs', 'createItem', 'createItemUnit', 'findItemTwins',
-  'setItemSellPrice', 'setItemCostPrice', 'loadItem',
+  'setItemSellPrice', 'setItemCostPrice', 'loadItem', 'loadAllStockOnHand', 'loadFeedOrder',
 ];
 const PURCHASING = ['loadReceipt', 'loadReceiptOrigin', 'listReceipts', 'createReceiptDraft', 'addReceiptLine', 'updateReceiptLine', 'setLineTotal', 'searchSuppliers', 'supplierTwins', 'createSupplier', 'listBoxes'];
 const PURCHASES = ['loadItemsOverview', 'loadItemFile', 'recordPurchase'];
@@ -202,6 +202,8 @@ export default async function (t) {
       loadOrgSetup: () => org,
       loadStoresOverview: () => overview(),
       loadStockOnHand: () => rawBoard,
+      loadAllStockOnHand: () => rawBoard,
+      loadFeedOrder: () => [],
       loadItemPurchases: () => purchases(),
       loadItem: (id) => (id === 'i-corn' ? corn : null),
       listItemUnits: () => [],
@@ -510,9 +512,13 @@ export default async function (t) {
     });
     await step('B4-feed', async () => {
       const feedBoard = board({ id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }, [stockRow('i-feed', 'علف بياض', 'feed')]);
-      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadStockOnHand: () => feedBoard }));
+      fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadStockOnHand: () => feedBoard, loadAllStockOnHand: () => feedBoard, loadFeedOrder: () => ['i-feed'] }));
       await mount('/inventory/store/w-feed');
-      t.ok(text().includes('هذا مخزن العلف الجاهز من المعمل؛ الذرة والصويا وبقيّة المواد الأوّلية مكانها «مخزن المواد الأوّلية».'), `B4: تنبيه مخزن العلف (${text().slice(0, 300)})`);
+      // «رصيد العلف» (0025): التنبيه يقول إنّ كلّ إنتاج المعمل يدخل هنا تلقائياً، ويبقى دليل المواد الأوّلية إلى مخزنها.
+      t.ok(
+        text().includes('كلّ إنتاج المعمل يدخل هنا تلقائياً') && text().includes('والذرة والصويا وبقيّة المواد الأوّلية مكانها «مخزن المواد الأوّلية».'),
+        `B4: تنبيه مخزن العلف (${text().slice(0, 300)})`,
+      );
       t.same(hrefs('open-raw-store'), ['/inventory/store/w-raw'], 'B4: برابط مخزن المواد الأوّلية');
       await click(byAction('add-item')[0]);
       t.eq(picked(byAction('pick-kind')[0]), 'feed', 'B4: ضابط: النوع المقترح في مخزن العلف «علف»');
@@ -522,7 +528,7 @@ export default async function (t) {
       await unmount();
       fresh({ status: 'ready', workspace: ws('manager') }, handlers());
       await mount('/inventory/store/w-raw');
-      t.ok(!text().includes('هذا مخزن العلف الجاهز'), 'B4: ومخزن غير العلف بلا تنبيهه');
+      t.ok(!text().includes('كلّ إنتاج المعمل يدخل هنا'), 'B4: ومخزن غير العلف بلا تنبيهه');
       await unmount();
     });
 

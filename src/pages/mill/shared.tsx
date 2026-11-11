@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { fmtPercent } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useLoad, type LoadState } from '../../lib/useLoad';
@@ -31,12 +31,22 @@ export function recipeColor(id: string): RecipeColor {
   return { hue, solid: `hsl(${hue} 85% 45%)`, soft: `hsl(${hue} 85% 45% / 0.14)` };
 }
 
-/**
- * لون قطعة مادّة في شريط التركيبة: يبدأ من لون الخلطة ويدور بالزاوية الذهبية (137°)، فالقطع المتجاورة متباعدة اللون مهما
- * كثرت المواد، والمادّة نفسها في الخلطة نفسها بلونها في كلّ رسم.
- */
-export function pieceColor(hue: number, index: number): string {
-  return `hsl(${(hue + index * 137) % 360} 78% 50%)`;
+// ─── ألوان الموادّ (0025، كلمة المالك 2026-11-10: لا أحمر في شريط التركيبة، ونقطة لون بجانب اسم كلّ مادّة) ───────────────────────────────
+// لوحة فئوية ثابتة تُسند بالموضع (لا تُولَّد من معرّف ولا تدور): الأولى للمادّة الأولى، وما بعد اللوحة كلّه قطعة رمادية واحدة «أخرى». ألوانها
+// زاهية من الأزرق إلى الأرجواني وحدها: الأحمر والبرتقالي والكهرماني والأصفر والأخضر محجوزة للحالة (خطر، تنبيه، نجاح) فلا تلبسها مادّة.
+// اختيرت بمدقّق اللوحات (dataviz/scripts/validate_palette.js) لا بالعين: بالوضعين الفاتح والغامق على سطوح التطبيق الحقيقية (البطاقة #ffffff
+// و#101827، والسطح الثاني #eef5fc و#172133) نجحت كلّ الفحوص للأزواج المتجاورة (الشريط مكدَّس): أسوأ فرق لعمى الألوان 12.1، وللبصر العادي 19.7،
+// والتباين ≥ 3:1. والمجموعة نفسها للوضعين (L بين 0.54 و0.66 في نطاق الوضعين معاً)، فاللون في style مباشرة بلا متغيّر CSS ولا صنف Tailwind
+// جديد. والأزواج غير المتجاورة أقرب (حدّ اللوحات المعروف بعد ثلاثة ألوان)، فالترميز الثاني: الترتيب نفسه في الشريط والقائمة، واسم المادّة بجانب
+// نقطتها، وفاصل 2 بكسل بين القطع.
+// الأزرق، الأرجواني الوردي، البنفسجي، الأزرق السماوي الغامق، الفوشيا (درجات OKLCH من 240° إلى 340°).
+export const PALETTE: readonly string[] = ['#6180fe', '#c6099f', '#8832fd', '#0d76ad', '#d63ff5'];
+/** «أخرى»: رمادي محايد بتباين ≥ 3:1 على السطوح الأربعة. */
+export const OTHER_COLOR = '#7c8798';
+
+/** لون المادّة في موضعها (slot من صفر): من اللوحة، وما بعدها «أخرى». */
+export function pieceColor(slot: number): string {
+  return slot >= 0 && slot < PALETTE.length ? (PALETTE[slot] ?? OTHER_COLOR) : OTHER_COLOR;
 }
 
 export interface BarPiece {
@@ -44,41 +54,108 @@ export interface BarPiece {
   label: string;
   /** null: كتلة لا تُعرف (ق٤٢، سطر باللتر بلا كثافة)، فلا قطعة لها في الشريط. */
   weight: bigint | null;
+  /** موضع المادّة في قائمتها (لونها ونقطتها): ما بعد اللوحة يُطوى في «أخرى». */
+  slot: number;
 }
 
 /** قطعة بكتلة معروفة موجبة: وحدها تُرسم (الجولة الرابعة، ب٣١: القارئ يرسل null لكتلة لا تُعرف بدل أن يرمي). */
 const drawable = (piece: BarPiece): piece is BarPiece & { weight: bigint } => piece.weight !== null && piece.weight > 0n;
 
+/** فاصل السطح بين القطع (2 بكسل). */
+const GAP = '2px';
+
 /**
- * شريط التركيبة: قطعة لكلّ مادّة بحصّتها من الأساس، فالخلطة تُقرأ بلمحة قبل الأرقام. الحصّة في العنوان بالمئة من
- * fmtPercent (قانون الأرقام)، وعرض القطعة وزن تخطيط لا رقم معروض. اللون من درجة الخلطة (hue). القطعة بلا كتلة تُتخطّى (ب٣١).
+ * شريط التركيبة: قطعة لكلّ مادّة بحصّتها، فالخلطة تُقرأ بلمحة قبل الأرقام. الحصّة في العنوان بالمئة من fmtPercent (قانون الأرقام)، وعرض القطعة
+ * وزن تخطيط لا رقم معروض. لون القطعة من موضعها (pieceColor)، وما بعد اللوحة قطعة رمادية واحدة «أخرى» في آخره. القطعة بلا كتلة تُتخطّى (ب٣١).
  */
-export function CompositionBar({ pieces, total, hue = 210 }: { pieces: readonly BarPiece[]; total: bigint; hue?: number }) {
+export function CompositionBar({ pieces, total }: { pieces: readonly BarPiece[]; total: bigint }) {
   const shown = pieces.filter(drawable);
   if (!shown.length || total <= 0n) return null;
+  const named = shown.filter((piece) => piece.slot < PALETTE.length);
+  const rest = shown.filter((piece) => piece.slot >= PALETTE.length);
+  const restWeight = rest.reduce((sum, piece) => sum + piece.weight, 0n);
   return (
-    <div className="flex h-2 overflow-hidden rounded-full bg-surface-2" role="presentation">
-      {shown.map((piece, index) => (
+    <div className="flex h-2 overflow-hidden rounded-full" style={{ gap: GAP }} role="presentation" data-action="composition-bar">
+      {named.map((piece) => (
         <span
           key={piece.key}
           className="block"
           // number-ok: وزن تخطيط للقطعة، لا رقم معروض (الحصّة بالمئة في العنوان)
-          style={{ flexGrow: Number(piece.weight), flexBasis: 0, background: pieceColor(hue, index) }}
+          style={{ flexGrow: Number(piece.weight), flexBasis: 0, background: pieceColor(piece.slot) }}
           title={t('mill.bar.piece', '{name}: {pct}٪', { name: piece.label, pct: fmtPercent(piece.weight, total) })}
+          data-action="bar-piece"
+          data-slot={piece.slot}
         />
       ))}
+      {rest.length ? (
+        <span
+          key="other"
+          className="block"
+          // number-ok: وزن تخطيط للقطعة، لا رقم معروض
+          style={{ flexGrow: Number(restWeight), flexBasis: 0, background: OTHER_COLOR }}
+          title={t('mill.bar.other', 'أخرى ({names}): {pct}٪', { names: rest.map((piece) => piece.label).join(t('list.separator', '، ')), pct: fmtPercent(restWeight, total) })}
+          data-action="bar-piece"
+          data-slot="other"
+        />
+      ) : null}
     </div>
   );
 }
 
-/** رقاقة صغيرة: اسم ورقمه (الرقم يجيء منسَّقاً من المستدعي)، ونقطة بلون قطعتها في الشريط إن أُعطيت. */
-export function Chip({ tone, dot, children }: { tone?: string; dot?: string; children: ReactNode }) {
+/** نقطة لون المادّة بجانب اسمها (دليل الشريط): بلون موضعها، ورمادي «أخرى» لما بعد اللوحة. */
+export function Dot({ slot }: { slot: number }) {
+  return <span className="block shrink-0 rounded-full p-1" style={{ background: pieceColor(slot) }} aria-hidden="true" data-action="dot" data-slot={slot} />;
+}
+
+/** رقاقة صغيرة: اسم ورقمه (الرقم يجيء منسَّقاً من المستدعي)، ونقطة بلون موضع مادّتها في الشريط إن أُعطي. */
+export function Chip({ tone, slot, children }: { tone?: string; slot?: number; children: ReactNode }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ${tone ?? 'bg-surface-2 text-ink-muted'}`}>
-      {dot ? <span className="block shrink-0 rounded-full p-1" style={{ background: dot }} aria-hidden="true" /> : null}
+      {slot === undefined ? null : <Dot slot={slot} />}
       {children}
     </span>
   );
+}
+
+/**
+ * خليّة اسم المادّة في جداول المعمل: بعرض ما فيها بين 6rem و10rem، والاسم الطويل يلتفّ داخلها. عمود wrap في DataTable يأخذ min-w-48
+ * (192px)، نصف عرض الهاتف (390)، فتغيب خانة الكمية في شاشة الإنتاج وعمود «داخل الكتلة» خلف التمرير (فحص Chromium لشاشات 0025)؛ والعرض بـstyle
+ * لا بصنف Tailwind جديد (ملف CSS الوحيد في حزمة الإقلاع والتثبيت المسبق)، والحدّ الأدنى يمنع انعصار الاسم كلمةً في سطر حين يفيض الجدول.
+ */
+export const NAME_BOX: CSSProperties = { whiteSpace: 'normal', minWidth: '6rem', maxWidth: '10rem' };
+
+export function NameCell({ children }: { children: ReactNode }) {
+  return (
+    <span className="block" style={NAME_BOX}>
+      {children}
+    </span>
+  );
+}
+
+/** المادّة باسمها ونقطة لونها (صفّ جدول، أو سطر إنتاج): بلا نقطة لما هو خارج الكتلة (لا قطعة له في الشريط). */
+export function MaterialName({ name, slot }: { name: string; slot: number | null }) {
+  return (
+    <span className="flex items-center gap-2">
+      {slot === null ? null : <Dot slot={slot} />}
+      <span className="font-medium">{name}</span>
+    </span>
+  );
+}
+
+/**
+ * مواضع ألوان الموادّ بترتيبها: ما داخل الكتلة يأخذ موضعاً متتابعاً، وما خارجها (الوقود والتعبئة) بلا موضع (null). المفتاح معرّف المادّة.
+ */
+export function slotsOf(entries: readonly { key: string; inBasis: boolean }[]): ReadonlyMap<string, number | null> {
+  const slots = new Map<string, number | null>();
+  let next = 0;
+  for (const entry of entries) {
+    if (slots.has(entry.key)) continue;
+    if (entry.inBasis) {
+      slots.set(entry.key, next);
+      next += 1;
+    } else slots.set(entry.key, null);
+  }
+  return slots;
 }
 
 /** نسبة بالمئة بعلامتها داخل t() (i18n-guard يرفض «٪» خارج النداء). */

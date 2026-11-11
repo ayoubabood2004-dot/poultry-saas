@@ -8,14 +8,14 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
-import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadMill, setRecipeOrder, type MillHome, type RecipeCard } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { Chip, CompositionBar, dash, moveId, pieceColor, recipeColor, reconcileOrder, sameOrder } from './shared';
+import { kgText } from './cards';
+import { Chip, CompositionBar, dash, moveId, PALETTE, recipeColor, reconcileOrder, sameOrder } from './shared';
 
 // شاشة معمل العلف (0015، كلمة المالك 2026-11-03): الخلطات بطاقاتٍ ملوّنة، كلّ واحدة تُقرأ بلمحة (شريط التركيبة ورقاقات
 // موادّها)، وزرّ «أنتج» كبير عليها؛ وتحتها دفعات قيد العمل وآخر الدفعات بجدول كلاسيكي. الكلفة تظهر لأدوار الكلفة فقط
@@ -30,26 +30,18 @@ import { Chip, CompositionBar, dash, moveId, pieceColor, recipeColor, reconcileO
 // («رتّب العلائق» ثمّ «احفظ الترتيب»: set_recipe_order بشرط الترتيب الذي عرضته الشاشة، وrecipes_changed يُقال بتلميحه ويُقرأ المعمل من جديد ويبقى ترتيب
 // المستخدم ليُحفظ ثانيةً، كـ«أدرج مواد» في الرصيد اليومي)؛ و«أنتج» يفتح شاشة الإنتاج الواحدة (/mill/produce/:id) بدل النافذة.
 
-/** خيارا كمية الإنتاج: بالكيلوغرام أو بالطن (الطن ألف كيلوغرام)، والتحويل يظهر حيّاً تحت الحقل. */
-export const PRODUCE_UNITS = [
-  { id: 'kg', label: t('unit.kg', 'كغم'), perUnit: 1_000n },
-  { id: 'ton', label: t('unit.t', 'طن'), perUnit: 1_000_000n },
-];
-
-/** كميات سريعة بالكيلوغرام (بالآلاف): نصف طنّ وطنّ وطنّان وخمسة أطنان، والحقل الحرّ لغيرها. */
-export const QUICK_AMOUNTS: readonly { key: string; kg: bigint; label: () => string }[] = [
-  { key: 'half', kg: 500_000n, label: () => t('mill.quick.half', 'نصف طنّ') },
-  { key: 'one', kg: 1_000_000n, label: () => t('mill.quick.one', 'طنّ') },
-  { key: 'two', kg: 2_000_000n, label: () => t('mill.quick.two', 'طنّان') },
-  { key: 'five', kg: 5_000_000n, label: () => t('mill.quick.five', '{count} أطنان', { count: 5 }) },
-];
-
 export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: RecipeCard; canProduce: boolean; onProduce: () => void }) {
   const color = recipeColor(recipe.id);
   const basis = recipe.activeBasisKg ?? 0n;
   const last = recipe.lastBatch;
-  // ما داخل كتلة الخلطة وحده (ب٨): الوقود والتعبئة يُسحبان ولا يدخلان الأساس، فلا قطعة لهما في الشريط ولا رقاقة.
-  const pieces = recipe.pieces.filter((piece) => piece.inBasis);
+  // ما داخل كتلة الخلطة وحده (ب٨): الوقود والتعبئة يُسحبان ولا يدخلان الأساس، فلا قطعة لهما في الشريط ولا رقاقة. ولون كلّ قطعة بموضعها (0025).
+  const pieces = recipe.pieces.filter((piece) => piece.inBasis).map((piece, slot) => ({ ...piece, slot }));
+  // الخلطة بلا كميات (0025): الشريط من آخر دفعة مرحَّلة بكتلها (مجموعها مقامه)، وبلا دفعة أسماء الموادّ وحدها بلا شريط.
+  const total = recipe.materialsOnly ? pieces.reduce((sum, piece) => sum + (piece.weight ?? 0n), 0n) : basis;
+  const fromLast = recipe.materialsOnly && recipe.piecesSource === 'last_batch';
+  // اللوحة خمسة ألوان بالموضع، وما بعدها قطعة رمادية واحدة «أخرى» في الشريط ورقاقة واحدة هنا.
+  const named = pieces.slice(0, PALETTE.length);
+  const others = pieces.length - named.length;
   return (
     <article className="card animate-fade-in overflow-hidden rounded-3xl p-0">
       <div className="h-2" style={{ background: color.solid }} aria-hidden="true" />
@@ -69,24 +61,37 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
         </div>
         {recipe.activeId ? (
           <>
-            <CompositionBar pieces={pieces} total={basis} hue={color.hue} />
-            <div className="flex flex-wrap gap-1.5">
-              {pieces.slice(0, 4).map((piece, index) => (
-                <Chip key={piece.key} dot={pieceColor(color.hue, index)}>
+            <CompositionBar pieces={pieces} total={total} />
+            {fromLast ? (
+              <p className="text-xs text-ink-muted" data-action="pieces-source">
+                {t('mill.card.from_last', 'التركيبة من آخر إنتاج')}
+              </p>
+            ) : null}
+            {/* دليل الشريط: رقاقة بنقطة لونها لكلّ مادّة لها لون في اللوحة، وما بعدها رقاقة «أخرى» بنقطة رمادية كقطعتها في الشريط. */}
+            <div className="flex flex-wrap gap-1.5" data-action="recipe-chips">
+              {named.map((piece) => (
+                <Chip key={piece.key} slot={piece.slot}>
                   <span className="truncate">{piece.label}</span>
-                  {/* كتلة لا تُعرف (ق٤٢، ب٣١): «—» لا صفر، والشريط يتخطّى قطعتها. */}
-                  <Num>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</Num>
+                  {/* كتلة لا تُعرف (ق٤٢، ب٣١): «—» لا صفر، والشريط يتخطّى قطعتها. والخلطة بلا كميات قبل أوّل إنتاج: أسماء الموادّ وحدها. */}
+                  {/* «600 كغم» عبارة عربية لا رقم معزول: داخل bdi ltr كانت تُقرأ «كغم 600» (فحص Chromium لشاشات 0025). */}
+                  {recipe.materialsOnly && !fromLast ? null : <span>{piece.weight === null ? dash() : fmtQty(piece.weight, 'kg').main}</span>}
                 </Chip>
               ))}
-              {recipe.moreLines > 0 ? <Chip>{t('mill.card.more', 'و{count} أخرى', { count: fmtInt(recipe.moreLines) })}</Chip> : null}
+              {others > 0 ? (
+                <Chip slot={PALETTE.length}>
+                  <span title={pieces.slice(PALETTE.length).map((piece) => piece.label).join(t('list.separator', '، '))}>{t('mill.card.more', 'و{count} أخرى', { count: fmtInt(others) })}</span>
+                </Chip>
+              ) : null}
             </div>
             <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-action="recipe-numbers">
-              <div className="flex items-center gap-1">
-                <dt className="text-ink-muted">{t('mill.card.total', 'مجموع الخلطة')}</dt>
-                <dd className="font-medium">
-                  <Num>{fmtQty(basis, 'kg').sub ?? fmtQty(basis, 'kg').main}</Num>
-                </dd>
-              </div>
+              {recipe.materialsOnly ? null : (
+                <div className="flex items-center gap-1">
+                  <dt className="text-ink-muted">{t('mill.card.total', 'مجموع الخلطة')}</dt>
+                  <dd className="font-medium">
+                    {fmtQty(basis, 'kg').sub ?? fmtQty(basis, 'kg').main}
+                  </dd>
+                </div>
+              )}
               <div className="flex items-center gap-1">
                 <dt className="text-ink-muted">{t('mill.card.batches', 'الدفعات المنتَجة')}</dt>
                 <dd className="font-medium">
@@ -98,7 +103,7 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
                   <dt className="text-ink-muted">{t('mill.card.last', 'آخر إنتاج')}</dt>
                   <dd className="font-medium">
                     <Link to={`/mill/batch/${last.id}`} className="hover:underline" data-action="open-last-batch">
-                      {t('mill.card.last_value', '{day} · {qty}', { day: fmtDay(last.producedOn), qty: fmtQty(last.outputQtyKg, 'kg').main })}
+                      {t('mill.card.last_value', '{day} · {qty}', { day: fmtDay(last.producedOn), qty: kgText(last.outputQtyKg) })}
                     </Link>
                   </dd>
                 </div>
@@ -133,14 +138,6 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
       </div>
     </article>
   );
-}
-
-/** الكمية بالآلاف من المكتوب ووحدته: المكتوب × (الآلاف في وحدته ÷ ألف) — الطن ألف كيلوغرام، فلا قسمة ولا تقريب. */
-export function produceKg(text: string, unitId: string): bigint | null {
-  const typed = parseQty(text);
-  const unit = PRODUCE_UNITS.find((option) => option.id === unitId) ?? PRODUCE_UNITS[0];
-  if (typed === null || !unit) return null;
-  return (typed * unit.perUnit) / 1_000n;
 }
 
 /**
@@ -298,7 +295,7 @@ export default function MillPage() {
     <div className="flex flex-col gap-5">
       <PageHeader
         title={t('nav.mill', 'معمل العلف')}
-        subtitle={t('mill.subtitle', 'خلطاتك الثابتة: اضغط «أنتج» فتُسحب موادّها بالكميات التي حدّدتها ويدخل العلف مخزنه.')}
+        subtitle={t('mill.subtitle_v4', 'خلطاتك بموادّها: اضغط «أنتج» واكتب كمية كلّ مادّة، فيدخل العلف «رصيد العلف».')}
         actions={
           canRecipe ? (
             <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} onClick={newRecipe} data-action="add-recipe">
@@ -310,7 +307,7 @@ export default function MillPage() {
 
       <Link to="/inventory/mill" className="card flex items-center gap-2 p-4 font-medium text-brand-700 hover:bg-surface-2 dark:text-brand-200" data-action="open-division-stores">
         <Warehouse aria-hidden="true" className="size-5" />
-        {t('mill.stores', 'مخازن المعمل: المواد الأوّلية والعلف')}
+        {t('mill.stores_v4', 'مخازن المعمل: المواد الأوّلية و«رصيد العلف»')}
       </Link>
 
       {!data && !state.error ? <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p> : null}
@@ -357,7 +354,7 @@ export default function MillPage() {
             ) : undefined
           }
         >
-          {t('mill.empty.detail', 'الخلطة تشكيلة ثابتة: مواد بكميات محدّدة لكلّ ألف كيلوغرام، تعطي مادّة علف واحدة. أنشئ خلطة وأضف موادّها ثم فعّلها.')}
+          {t('mill.empty.detail_v4', 'الخلطة موادّ تختارها مرّة واحدة وتعطي مادّة علف واحدة، والكميات تكتبها عند كلّ إنتاج. أنشئ خلطة واختر موادّها.')}
         </Notice>
       ) : null}
 

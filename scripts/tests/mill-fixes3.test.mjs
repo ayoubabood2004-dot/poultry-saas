@@ -8,6 +8,8 @@
 // (ب٢٨)؛ Q المحلّلات الصارمة للمفتاحين. وب٢٥ في mill-fixes2 (Y12 وY14).
 // والتكامل (القسم «د»): خانة سعر الكلفة لسطر تغيّرت وحدته لا تسمّي وحدة اللقطة (base_unit لقطة يوم التفعيل، والسعر لوحدة المادّة الآن)، وجملة
 // التتبّع لطرف الناتج لا تعِد بمصدر كلّ مادّة (draws = null)؛ والشكلان كما يرسلهما الخادم في mill2.test (الجواب الحقيقي بالمحلّل).
+// «الخلطة موادّ بلا كميات» (0025): الإنتاج لا يقرأ كميات الخلطة (الكمية تُكتب بوحدة المادّة الآن)، فجملة «تغيّرت وحدة» تحت المفعَّلة وخانة سعر الكلفة خرجتا،
+// وZ27 صار في شاشة الإنتاج: مادّة صارت بالقطعة تُسمّى قبل «أنتج» ولا يُرسل شيء، ورفض bad_recipe_unit بعد ما قرأت الشاشة بتلميحه كما هو.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,8 +20,8 @@ const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${n
 const MILL = [
   'loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'previewProduction', 'loadExpenseCategories', 'createRecipe', 'createProduction', 'addProductionInput',
   'deleteProductionInput', 'setInputActual', 'addBatchCost', 'setBatchCost', 'deleteBatchCost', 'addRecipeRate', 'setRecipeRate', 'deleteRecipeRate', 'activateVersion',
-  'postProduction', 'confirmCosts', 'discardBatch', 'voidProduction', 'setBatchFields', 'addRecipeLine', 'setRecipeLine', 'deleteRecipeLine', 'createVersion', 'setVersionBasis',
-  'newRecipeVersion', 'loadMillStores', 'loadProduce', 'recordProduction',
+  'postProduction', 'confirmCosts', 'discardBatch', 'voidProduction', 'setBatchFields', 'addRecipeLine', 'clearRecipeLineQty', 'deleteRecipeLine',
+  'newRecipeVersion', 'loadMillStores', 'loadProduceForm', 'produceBatch', 'loadRecipeHistory',
 ];
 const INVENTORY = ['listItems', 'createItem', 'loadItemPurchases', 'setItemCostPrice', 'findItemTwins', 'loadItem', 'updateItem', 'createExpenseCategory', 'loadStockOnHand'];
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__mill.call('${n}', a);`).join(' ')}`;
@@ -102,6 +104,7 @@ const batchJson = ({ status = 'draft', state = serverBatch(), lines = null, cost
     output_qty_kg: posted ? '990.000' : state.weight, output_expiry_on: state.expiry, input_mass_kg: posted ? '1000.000' : null,
     shrink_kg: posted ? '10.000' : null, shrink_pct: null, shrink_reason: state.reason, note: null, void_reason: status === 'void' ? 'إلغاء دفعة إنتاج' : null,
     costs_confirmed: costsConfirmed ?? posted,
+    saved_to_recipe: false,
     recipe: { id: 'r-1', name: 'علف بادئ', version_id: 'v-1', version_no: 1, basis_kg: '1000.000' },
     output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', tracks_expiry: state.tracksExpiry },
     input_warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية' },
@@ -138,8 +141,8 @@ const recipeLine = (over = {}) => ({
 const recipeJson = ({ status = 'draft', versionId = 'v-1', versionNo = 1, versions = null, lines = [recipeLine()], massKg = '1000.000', rates = [] } = {}) => ({
   id: 'r-1', name: 'علف بادئ', note: null, archived: false, version: 2,
   output_item: { id: 'f-1', name: 'علف بادئ', base_unit: 'kg', kind: 'feed', tracks_expiry: false },
-  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
-  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', note: null, activated_at: null, version: 5 },
+  versions: versions ?? [{ id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, activated_at: status === 'active' ? '2026-11-01T08:00:00Z' : null, version: 5 }],
+  selected: { id: versionId, version_no: versionNo, status, basis_kg: '1000.000', materials_only: false, note: null, activated_at: null, version: 5 },
   lines,
   mass_kg: massKg,
   pick_items: [{ id: 'i-corn', name: 'ذرة صفراء', base_unit: 'kg', category_name: 'الغذاء' }],
@@ -371,9 +374,9 @@ export default async function (t) {
 
     // ── Z23 (ب٢٣): مسوّدة قائمة: «افتحها لإضافة تكلفة» برقمها تحت المفعَّلة والمقاعدة ─────────────────────────────────────────────
     const threeVersions = [
-      { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', activated_at: null, version: 5 },
-      { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', activated_at: '2026-11-01T08:00:00Z', version: 5 },
-      { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', activated_at: '2026-10-01T08:00:00Z', version: 5 },
+      { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
+      { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
+      { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', materials_only: false, activated_at: '2026-10-01T08:00:00Z', version: 5 },
     ];
     for (const [label, versionId, versionNo, status] of [['المفعَّلة', 'v-2', 2, 'active'], ['المقاعدة', 'v-1', 1, 'retired']]) {
       await step(`Z23 ${label}`, async () => {
@@ -453,64 +456,64 @@ export default async function (t) {
 
     // ── Z27 (ب٢٧): «تغيّرت وحدة» تحت المفعَّلة، ونافذة «أنتج» بتلميح item_changed كما هو ───────────────────────────────────────────
     const kaz = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-kaz', item_name: 'كاز', kind: 'fuel', base_unit: 'kg', category_name: null, qty: '20.000', unit: 'kg', mass_kg: '20.000', share_pct: '0.00', in_basis: false, unit_changed: true });
-    const changedSentence = 'تغيّرت وحدة «كاز» بعد التفعيل: لا يُنتَج بهذه النسخة حتّى تُنشأ نسخة جديدة وتُفعَّل.';
     await step('Z27 المفعَّلة', async () => {
       fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [recipeLine(), kaz] })) });
       await mount('/mill/recipe/r-1');
-      const block = byAction('unit-changed')[0];
-      t.eq(block?.textContent ?? null, changedSentence, 'Z27 تحت المفعَّلة جملة للسطر الذي تغيّرت وحدته وحده');
-      // التكامل (الجولة الثالثة): base_unit في سطر النسخة المجمَّدة لقطة يوم التفعيل (recipe_detail في 0016: coalesce(l.base_unit, i.base_unit)،
-      // وmill2.test يمرّر الجواب الحقيقي بالمحلّل)، والأسعار في السطر لوحدة المادّة الآن؛ فخانة سعر الكلفة لا تسمّي وحدة اللقطة لسطر تغيّرت وحدته.
-      t.same(
-        byAction('cost-price').map((input) => input.getAttribute('aria-label')),
-        ['سعر كلفة «ذرة صفراء» لكلّ كغم', 'سعر كلفة «كاز» بوحدتها الحالية'],
-        'Z27 خانة سعر الكلفة: «لكلّ كغم» لسطر بوحدته، وبلا وحدة اللقطة لسطر تغيّرت وحدته (سعره لوحدة المادّة الآن)',
-      );
+      // 0025: الإنتاج يكتب كمية كلّ مادّة بوحدتها الآن (produce_batch لا يقرأ كميات الخلطة)، فلا يمنع تغيّر الوحدة الإنتاج ولا جملة له هنا.
+      t.same([byAction('unit-changed').length, byAction('cost-price').length, text().includes('كاز')], [0, 0, true], 'Z27 المفعَّلة بموادّها بلا جملة «تغيّرت وحدة» ولا خانة سعر');
     });
     await step('Z27 المقاعدة', async () => {
       fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'retired', lines: [recipeLine(), kaz] })) });
       await mount('/mill/recipe/r-1');
       t.eq(byAction('unit-changed').length, 0, 'Z27 ضابط: لا جملة تحت نسخة غير مفعَّلة');
     });
-    // شاشة الإنتاج الواحدة (0023): سطر تغيّرت وحدته بعد التفعيل يُسمّى قبل «أنتج» ولا يُرسل؛ وتغيّرٌ بعد ما قرأت الشاشة يرفضه الخادم item_changed
-    // فتُعرض جملته كما هي ولا تُفتح دفعة.
-    const planOf = (recipe, blockedNow) => ({
+    // شاشة الإنتاج (0025): مادّة صارت تُقاس بالقطعة (production_form يرسل وحدتها الآن) تُسمّى قبل «أنتج» ولا يُرسل شيء؛ وتغيّرٌ بعد ما قرأت الشاشة يرفضه
+    // الخادم bad_recipe_unit فتُعرض جملته كما هي ولا تُفتح دفعة.
+    const formOf = (kazUnit) => ({
       today: '2026-11-04',
-      stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw' }, { id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }],
-      recipe,
-      active: { id: recipe.versionId, versionNo: recipe.versionNo, basisKg: recipe.basisKg },
-      lines: recipe.lines.map((entry) => ({
-        lineId: entry.id, lineNo: entry.lineNo, itemId: entry.itemId, itemName: entry.itemName, kind: entry.kind, inBasis: entry.inBasis, baseUnit: entry.baseUnit,
-        lineKg: entry.massKg, density: null, scaleStep: 100n, blocked: blockedNow && entry.unitChanged ? 'item_changed' : null,
-      })),
+      recipe: { id: 'r-1', name: 'علف بادئ', archived: false, outputItem: { id: 'f-1', name: 'علف بادئ' } },
+      active: { id: 'v-1', versionNo: 1, materialsOnly: true },
+      materials: [
+        { lineNo: 1, itemId: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', density: null, inBasis: true, scaleStep: 100n, defaultQty: 1_000_000n, defaultSource: 'last' },
+        { lineNo: 2, itemId: 'i-kaz', name: 'كاز', kind: 'fuel', baseUnit: kazUnit, density: null, inBasis: false, scaleStep: 100n, defaultQty: 20_000n, defaultSource: 'last' },
+      ],
+      last: null,
+      stores: [{ id: 'w-raw', name: 'مخزن المواد الأوّلية' }],
+      outputStore: { id: 'w-feed', name: 'رصيد العلف' },
+      canEditRecipe: true,
+      draftExists: false,
+      tracksExpiry: false,
     });
+    const emptyStore = () => ({ warehouse: { id: 'w-raw', name: 'مخزن المواد الأوّلية', kind: 'raw', divisionId: 'd-1', divisionKind: 'feed_mill', archived: false, hasBalance: true }, asOf: '2026-11-04T08:00:00Z', rows: [], next: null, total: 0, money: null });
     await step('Z27 شاشة «أنتج»', async () => {
-      const hint = 'تغيّرت وحدة «كاز» بعد تفعيل الخلطة، فلا يُنتَج بنسختها المفعَّلة. أنشئ نسخة جديدة من الخلطة وفعّلها.';
+      const hint = 'صارت «كاز» تُقاس بالقطعة، فلا تدخل الإنتاج.';
       const recipe = m.parseRecipe(recipeJson({ status: 'active', lines: [recipeLine(), kaz] }));
-      const calls = fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => recipe, loadProduce: () => planOf(recipe, true), recordProduction: () => ({}) });
+      const calls = fresh({ status: 'ready', workspace: ws() }, { loadRecipe: () => recipe, loadProduceForm: () => formOf('pc'), loadStockOnHand: emptyStore, produceBatch: () => ({}) });
       await mount('/mill/recipe/r-1');
       await click(byAction('produce')[0]);
       t.eq(globalThis.__mill.location, '/mill/produce/r-1', 'Z27 «أنتج» يفتح شاشة الإنتاج');
-      t.ok(disabled(byAction('produce-go')[0]) && byAction('produce-missing')[0]?.textContent.includes('تغيّرت وحدة «كاز» بعد تفعيل الخلطة'), 'Z27 السطر يُسمّى قبل «أنتج» و«أنتج» معطّل');
-      t.eq(named(calls, 'recordProduction').length, 0, 'Z27 ولا يُرسل شيء');
+      t.ok(disabled(byAction('produce-go')[0]) && byAction('produce-missing')[0]?.textContent.includes('صارت «كاز» تُقاس بالقطعة، فلا تدخل الإنتاج: أزلها.'), 'Z27 المادّة تُسمّى قبل «أنتج» و«أنتج» معطّل');
+      t.eq(named(calls, 'produceBatch').length, 0, 'Z27 ولا يُرسل شيء');
       await unmount();
       root = null;
 
       const late = fresh(
         { status: 'ready', workspace: ws() },
         {
-          loadProduce: () => planOf(recipe, false),
-          recordProduction: () => {
-            throw new m.RejectedError('item_changed', hint);
+          loadProduceForm: () => formOf('L'),
+          loadStockOnHand: emptyStore,
+          produceBatch: () => {
+            throw new m.RejectedError('bad_recipe_unit', hint);
           },
         },
       );
       await mount('/mill/produce/r-1');
-      type(byAction('produce-qty')[0], '1000');
-      await settle();
+      // السائل بلا كثافة لا يُنتَج به، فتُزال الكاز لهذه المرّة ثمّ يُرفض الطلب بوحدة تغيّرت بعد القراءة.
+      await click(byAction('remove-line').find((node) => node.getAttribute('data-id') === 'i-kaz'));
+      await click(byAction('choice-once')[0]);
       await click(byAction('produce-go')[0]);
-      t.eq(named(late, 'recordProduction').length, 1, 'Z27 أُرسل record_production (تغيّرت الوحدة بعد ما قرأت الشاشة)');
-      t.ok(noticeTitles().includes(hint), `Z27 الشاشة تعرض تلميح item_changed كما هو (${noticeTitles().join(' | ')})`);
+      t.eq(named(late, 'produceBatch').length, 1, 'Z27 أُرسل produce_batch (تغيّرت الوحدة بعد ما قرأت الشاشة)');
+      t.ok(noticeTitles().includes(hint), `Z27 الشاشة تعرض تلميح الخادم كما هو (${noticeTitles().join(' | ')})`);
       t.ok(!text().includes('الخادم رفض العملية'), 'Z27 بلا عنوان الرفض العامّ قبله');
       t.same([globalThis.__mill.location, byAction('produced-posted').length], ['/mill/produce/r-1', 0], 'Z27 ولا تُفتح دفعة');
     });

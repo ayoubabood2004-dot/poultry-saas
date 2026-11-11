@@ -25,7 +25,12 @@ import { authed, call, classifyPostgrest, explained, send, updatedRows, type Pos
 // صارت بالكيلو) عدداً إلزامياً منفصلاً عن unpriced، فلا تُقال «بلا أيّ سعر» تحت سطر سعره مكتوب.
 // «ترتيب معمل العلف» (0023، كلمة المالك 2026-11-10): ترتيب العلائق (set_recipe_order) وترتيب موادّ المسوّدة (set_recipe_line_order) مشروطين بما
 // عرضته الشاشة، والإنتاج بنداء واحد (record_production) بمعرّف الدفعة ومرجع المحاولة من الجهاز، ومدخلات تخطيط كلّ سطر كما يخطّطه الخادم
-// (loadProduce: لقطة كثافة السطر وإلّا كثافة المادّة، ووحدة أساسها الحيّة، وخطوة عدّادها) لشاشة الإنتاج الواحدة.
+// لشاشة الإنتاج الواحدة (حلّ محلّها production_form في 0025).
+// «الخلطة موادّ بلا كميات» (0025، كلمة المالك 2026-11-10: «اني بس احدد شنو المواد الي اريدها من دون ما احدد كميات… وبلحضتها احدد الكميات»):
+// النسخة موادّ فقط (qty وbasis_kg فارغان، materials_only)، والكميات تُكتب عند كلّ إنتاج بنداء produce_batch واحد يقرأ شاشته من production_form
+// (الكميات المقترحة من آخر إنتاج وإلّا من خلطة قديمة بكميات)، ويحفظ الموادّ نسخةً جديدة إن اختار المستخدم ذلك؛ والناتج يدخل «رصيد العلف» وحده.
+// recipe_history سجلّ النسخ والإنتاج بمدّة. والقرّاء القائمون يرسلون null لكميات النسخة الجديدة ومفتاحاً إلزامياً materials_only، وrecipes_overview
+// قطع الشريط من آخر دفعة مرحَّلة (pieces_source)، وproduction_detail يقول saved_to_recipe.
 
 export class MillShapeError extends Error {
   constructor(readonly field: string) {
@@ -128,7 +133,8 @@ export interface OutputItem {
 export interface RecipeVersionHead {
   id: string;
   versionNo: number;
-  basisKg: bigint;
+  /** null لنسخة موادّ بلا كميات (0025). */
+  basisKg: bigint | null;
   lines: number;
   version: number;
 }
@@ -154,6 +160,9 @@ export interface RecipePiece {
   inBasis: boolean;
 }
 
+/** من أين قطع شريط التركيبة (0025): آخر دفعة مرحَّلة بكتلها، أو موادّ النسخة (بأسمائها وحدها للنسخة بلا كميات). */
+export type PiecesSource = 'last_batch' | 'recipe';
+
 export interface RecipeCard {
   id: string;
   name: string;
@@ -163,7 +172,12 @@ export interface RecipeCard {
   outputItem: { id: string; name: string; baseUnit: BaseUnit; kind: string };
   activeId: string | null;
   activeVersionNo: number | null;
+  /** أساس النسخة المفعَّلة، أو null: بلا نسخة مفعَّلة، أو نسخة موادّ بلا كميات (0025). */
   activeBasisKg: bigint | null;
+  /** النسخة المفعَّلة موادّ بلا كميات (0025)؛ false بلا نسخة مفعَّلة. */
+  materialsOnly: boolean;
+  /** مصدر القطع (0025)، أو null بلا نسخة مفعَّلة. */
+  piecesSource: PiecesSource | null;
   activeLines: number;
   draft: RecipeVersionHead | null;
   batches: number;
@@ -174,18 +188,21 @@ export interface RecipeCard {
    * null: دور بلا كلفة، أو خلطة بلا نسخة مفعَّلة، أو بقيت مادّة بلا سعر (لا رقم ناقص بصمت).
    */
   expectedCostPerKg: Fils | null;
-  /** مواد النسخة المفعَّلة بكتلتها بالكيلو من الأكبر (ومعها ما هو خارج الكتلة بعلامته): شريط التركيبة ورقاقاته. */
+  /**
+   * قطع شريط التركيبة ورقاقاته بترتيب الخادم (ومعها ما هو خارج الكتلة بعلامته): للنسخة القديمة موادّها بكتلتها، وللنسخة بلا كميات (0025) موادّ آخر
+   * دفعة مرحَّلة بكتلها بترتيب سطورها، وإلّا موادّ النسخة بأسمائها وكتلة null.
+   */
   pieces: RecipePiece[];
-  /** مواد داخل الكتلة لا تظهر في الرقاقات الأربع الأولى. */
+  /** مواد داخل الكتلة بعد الرقاقات الخمس الأولى (0025: لوحة الشريط خمسة ألوان، وما بعدها «أخرى» رمادية). */
   moreLines: number;
 }
 
-const CHIPS = 4;
+const CHIPS = 5;
 
 const versionHead = (row: Row): RecipeVersionHead => ({
   id: str(row, 'id'),
   versionNo: int(row, 'version_no'),
-  basisKg: qty(row, 'basis_kg'),
+  basisKg: scaled(row, 'basis_kg', 3),
   lines: int(row, 'lines'),
   version: typeof row.version === 'number' ? int(row, 'version') : 0,
 });
@@ -203,6 +220,18 @@ const lastBatch = (value: unknown): LastBatch | null => {
   };
 };
 
+const piecesSource = (row: Row): PiecesSource => {
+  const value = str(row, 'pieces_source');
+  if (value !== 'last_batch' && value !== 'recipe') throw new MillShapeError('pieces_source');
+  return value;
+};
+
+/**
+ * اسم القطعة: item_name في قطع النسخة القديمة (0023 كما هي)، وname في قطع 0025 كما يكتبها العقد ({item_id, name, mass_kg, in_basis}).
+ * أحدهما إلزامي، والموجود منهما نصّ غير فارغ.
+ */
+const pieceName = (piece: Row): string => ('item_name' in piece ? str(piece, 'item_name') : str(piece, 'name'));
+
 /** بطاقات الخلطات من جواب recipes_overview (الكائن نفسه يحمل مخازن المعمل ومواد العلف: طلب واحد للشاشة). */
 export function parseRecipes(value: unknown): RecipeCard[] {
   const json = record(value, 'overview');
@@ -213,7 +242,7 @@ export function parseRecipes(value: unknown): RecipeCard[] {
     const pieces = active
       ? list(active.pieces, 'pieces').map((piece) => ({
           key: str(piece, 'item_id'),
-          label: str(piece, 'item_name'),
+          label: pieceName(piece),
           weight: nullableScaled(piece, 'mass_kg', 3),
           inBasis: flag(piece, 'in_basis'),
         }))
@@ -227,7 +256,10 @@ export function parseRecipes(value: unknown): RecipeCard[] {
       outputItem: { id: str(item, 'id'), name: str(item, 'name'), baseUnit: baseUnit(item, 'base_unit'), kind: str(item, 'kind') },
       activeId: active ? str(active, 'id') : null,
       activeVersionNo: active ? int(active, 'version_no') : null,
-      activeBasisKg: active ? qty(active, 'basis_kg') : null,
+      // مفتاح إلزامي قيمته null للنسخة بلا كميات (0025): لا أساس صفري صامت.
+      activeBasisKg: active ? nullableScaled(active, 'basis_kg', 3) : null,
+      materialsOnly: active ? flag(active, 'materials_only') : false,
+      piecesSource: active ? piecesSource(active) : null,
       activeLines: active ? int(active, 'lines') : 0,
       draft: row.draft === null || row.draft === undefined ? null : versionHead(record(row.draft, 'draft')),
       batches: int(row, 'batches'),
@@ -249,7 +281,8 @@ export interface RecipeLine {
   baseUnit: BaseUnit;
   categoryId: string | null;
   categoryName: string | null;
-  qty: bigint;
+  /** الكمية في الخلطة، أو null لسطر نسخة بلا كميات (0025: الكميات تُكتب عند الإنتاج). مفتاح إلزامي. */
+  qty: bigint | null;
   unit: RecipeUnit;
   /** كتلة السطر بالكيلو، أو null حين لا تُعرف (ق٤٢: سطر باللتر ومادّته بلا كثافة، كسطر unit_mismatch في المسوّدة). */
   massKg: bigint | null;
@@ -287,9 +320,12 @@ export interface RecipeVersionRow {
   id: string;
   versionNo: number;
   status: VersionStatus;
-  basisKg: bigint;
+  /** null لنسخة بلا كميات (0025). */
+  basisKg: bigint | null;
   activatedAt: string | null;
   version: number;
+  /** نسخة موادّ بلا كميات (0025). مفتاح إلزامي. */
+  materialsOnly: boolean;
 }
 
 export interface PickItem {
@@ -336,7 +372,10 @@ export interface RecipeDetail {
   versionId: string | null;
   versionNo: number | null;
   status: VersionStatus | null;
-  basisKg: bigint;
+  /** أساس النسخة المعروضة، أو null: بلا نسخة، أو نسخة بلا كميات (0025). */
+  basisKg: bigint | null;
+  /** النسخة المعروضة موادّ بلا كميات (0025)؛ false بلا نسخة. */
+  materialsOnly: boolean;
   versionVersion: number;
   lines: RecipeLine[];
   /** مجموع كتلة ما داخل الكتلة، أو null: خلطة بلا نسخة، أو سطر داخل الكتلة لا تُعرف كتلته (ق٤٢). */
@@ -400,14 +439,16 @@ export function parseRecipe(value: unknown): RecipeDetail {
       id: str(row, 'id'),
       versionNo: int(row, 'version_no'),
       status: versionStatus(row),
-      basisKg: qty(row, 'basis_kg'),
+      basisKg: nullableScaled(row, 'basis_kg', 3),
       activatedAt: optStr(row, 'activated_at'),
       version: int(row, 'version'),
+      materialsOnly: flag(row, 'materials_only'),
     })),
     versionId: version ? str(version, 'id') : null,
     versionNo: version ? int(version, 'version_no') : null,
     status: version ? versionStatus(version) : null,
-    basisKg: version ? qty(version, 'basis_kg') : 0n,
+    basisKg: version ? nullableScaled(version, 'basis_kg', 3) : null,
+    materialsOnly: version ? flag(version, 'materials_only') : false,
     versionVersion: version ? int(version, 'version') : 0,
     lines: list(json.lines, 'lines').map((row) => ({
       id: str(row, 'id'),
@@ -418,7 +459,7 @@ export function parseRecipe(value: unknown): RecipeDetail {
       baseUnit: baseUnit(row, 'base_unit'),
       categoryId: optStr(row, 'category_id'),
       categoryName: optStr(row, 'category_name'),
-      qty: qty(row, 'qty'),
+      qty: nullableScaled(row, 'qty', 3),
       unit: str(row, 'unit') === 'L' ? 'L' : 'kg',
       massKg: nullableScaled(row, 'mass_kg', 3),
       sharePct: nullableScaled(row, 'share_pct', 2),
@@ -730,7 +771,10 @@ export interface ProductionBatch {
   recipeId: string;
   recipeName: string;
   versionNo: number;
-  basisKg: bigint;
+  /** أساس نسخة الدفعة، أو null لنسخة بلا كميات (0025). */
+  basisKg: bigint | null;
+  /** حُفظت موادّ هذه الدفعة نسخةً جديدة من الخلطة عند إنتاجها (0025، produce_batch). مفتاح إلزامي. */
+  savedToRecipe: boolean;
   outputItem: { id: string; name: string; baseUnit: BaseUnit; tracksExpiry: boolean };
   inputWarehouse: { id: string; name: string };
   outputWarehouse: { id: string; name: string };
@@ -788,7 +832,8 @@ export function parseBatch(value: unknown): ProductionBatch {
     recipeId: str(recipe, 'id'),
     recipeName: str(recipe, 'name'),
     versionNo: int(recipe, 'version_no'),
-    basisKg: qty(recipe, 'basis_kg'),
+    basisKg: scaled(recipe, 'basis_kg', 3),
+    savedToRecipe: flag(json, 'saved_to_recipe'),
     outputItem: { id: str(item, 'id'), name: str(item, 'name'), baseUnit: baseUnit(item, 'base_unit'), tracksExpiry: flag(item, 'tracks_expiry') },
     inputWarehouse: warehouse(json.input_warehouse, 'input_warehouse'),
     outputWarehouse: warehouse(json.output_warehouse, 'output_warehouse'),
@@ -1018,22 +1063,21 @@ export function archiveRecipe(recipeId: string, version: number, archived: boole
   ).then((row) => str(row, 'id'));
 }
 
-export function setVersionBasis(versionId: string, basisKg: bigint, version: number): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('recipe_versions').update({ basis_kg: decimalText(basisKg, 3) }).eq('id', versionId).eq('version', version).select('id'))),
-  ).then((row) => str(row, 'id'));
+/**
+ * مادّة في مسوّدة الخلطة بلا كمية (0025: الخلطة موادّ فقط): الحارس يكتب وحدتها = وحدة أساس المادّة، والكميات تُكتب عند الإنتاج.
+ */
+export function addRecipeLine(versionId: string, itemId: string): Promise<string> {
+  return written(async (db) => updatedRows(withStatus(await db.from('recipe_lines').insert({ version_id: versionId, item_id: itemId }).select('id')))).then((row) =>
+    str(row, 'id'),
+  );
 }
 
-export function addRecipeLine(versionId: string, itemId: string, qtyValue: bigint, unit: RecipeUnit): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('recipe_lines').insert({ version_id: versionId, item_id: itemId, qty: decimalText(qtyValue, 3), unit }).select('id'))),
-  ).then((row) => str(row, 'id'));
-}
-
-export function setRecipeLine(lineId: string, qtyValue: bigint, unit: RecipeUnit): Promise<string> {
-  return written(async (db) =>
-    updatedRows(withStatus(await db.from('recipe_lines').update({ qty: decimalText(qtyValue, 3), unit }).eq('id', lineId).select('id'))),
-  ).then((row) => str(row, 'id'));
+/**
+ * يمحو كمية سطر في مسوّدة كُتبت بكميات قبل 0025 (الخلطة الآن موادّ فقط): مسوّدة تجمع موادّ بكميات وموادّ بلاها لا تُفعَّل (mixed_quantities)، والشاشة
+ * لا تعرض الكميات ولا تكتبها. صفر صفوف = حُذف السطر من جهاز آخر (ZeroRowsError)، فتُقرأ الخلطة من جديد.
+ */
+export function clearRecipeLineQty(lineId: string): Promise<string> {
+  return written(async (db) => updatedRows(withStatus(await db.from('recipe_lines').update({ qty: null }).eq('id', lineId).select('id')))).then((row) => str(row, 'id'));
 }
 
 export function deleteRecipeLine(lineId: string, versionVersion: number): Promise<unknown> {
@@ -1102,18 +1146,6 @@ export function isDuplicate(error: unknown): boolean {
   return error instanceof RejectedError && error.code === '23505';
 }
 
-/** معرّف الدفعة من الجهاز (درس WP4): الإعادة بعد جواب ضاع تصطدم بالمفتاح ولا تُنشئ دفعة ثانية. */
-export function createProduction(batchId: string, versionId: string, plannedKg: bigint, inputWarehouseId: string, outputWarehouseId: string, producedOn: Day): Promise<unknown> {
-  return call<unknown>('create_production', {
-    p_id: batchId,
-    p_recipe_version: versionId,
-    p_planned_kg: decimalText(plannedKg, 3),
-    p_wh_in: inputWarehouseId,
-    p_wh_out: outputWarehouseId,
-    p_produced_on: producedOn,
-  });
-}
-
 export function confirmCosts(batchId: string, version: number): Promise<unknown> {
   return call<unknown>('confirm_production_costs', { p_id: batchId, p_expected_version: version });
 }
@@ -1134,18 +1166,17 @@ export function discardBatch(batchId: string, version: number): Promise<unknown>
 
 export interface RecipeInput {
   /**
-   * معرّفا الخلطة ونسختها من الجهاز: الإعادة بالمحتوى نفسه (الاسم والمنتج والأساس والسطور والمعدّلات وطلب التفعيل) ترجّع
+   * معرّفا الخلطة ونسختها من الجهاز: الإعادة بالمحتوى نفسه (الاسم والمنتج والسطور والمعدّلات وطلب التفعيل) ترجّع
    * الموجود (جواب ضاع)، وبأيّ فرق id_conflict (ق٥): ما حُفظ غير ما تراه الشاشة، فلا تُولَّد خلطة ثانية بصمت (م١).
    */
   id: string;
   versionId: string;
   name: string;
   outputItemId: string;
-  /** الأساس بالآلاف من الكيلو (1,000 كغم ← 1000000n). */
-  basisKg: bigint;
-  lines: readonly { itemId: string; qty: bigint; unit: RecipeUnit }[];
+  /** موادّ الخلطة بترتيبها بلا كميات (0025: p_basis_kg فارغ، والكميات تُكتب عند الإنتاج). */
+  lines: readonly { itemId: string }[];
   rates: readonly { categoryId: string; amountPerTon: Fils }[];
-  /** تفعيلها بالمعاملة نفسها (المجموع بالكيلو = الأساس، وإلّا basis_mismatch ويرجع كلّ شيء). */
+  /** تفعيلها بالمعاملة نفسها (مادّة داخل الكتلة على الأقلّ، وكثافة كلّ سائل، وإلّا يرجع كلّ شيء). */
   activate: boolean;
 }
 
@@ -1178,8 +1209,8 @@ export async function createRecipe(input: RecipeInput): Promise<CreatedRecipe> {
       p_version_id: input.versionId,
       p_name: input.name.trim(),
       p_output_item: input.outputItemId,
-      p_basis_kg: decimalText(input.basisKg, 3),
-      p_lines: input.lines.map((line) => ({ item_id: line.itemId, qty: decimalText(line.qty, 3), unit: line.unit })),
+      p_basis_kg: null,
+      p_lines: input.lines.map((line) => ({ item_id: line.itemId })),
       p_rates: input.rates.map((rate) => ({ category_id: rate.categoryId, amount_per_ton: moneyText(rate.amountPerTon) })),
       p_activate: input.activate,
     }),
@@ -1228,8 +1259,8 @@ export async function newRecipeVersion(recipeId: string, versionId: string): Pro
 }
 
 /**
- * مخازن المعمل ويوم الخادم (recipes_overview يحملهما، كشاشة المعمل). كانت لنافذة «أنتج» في بطاقة الخلطة؛ وشاشة الإنتاج الواحدة (0023) تقرؤهما
- * مع الخلطة بـloadProduce.
+ * مخازن المعمل ويوم الخادم (recipes_overview يحملهما، كشاشة المعمل). كانت لنافذة «أنتج» في بطاقة الخلطة؛ وشاشة الإنتاج تقرؤهما الآن من
+ * production_form (0025).
  */
 export async function loadMillStores(): Promise<{ today: string; stores: MillStore[] }> {
   const json = record(await call<unknown>('recipes_overview'), 'overview');
@@ -1391,122 +1422,7 @@ export async function setRecipeLineOrder(versionId: string, lineIds: readonly st
   return parseLineOrder(await call<unknown>('set_recipe_line_order', { p_version: versionId, p_lines: [...lineIds], p_expected: [...expected] }));
 }
 
-/**
- * سطر الخلطة المفعَّلة بمدخلات تخطيطه كما في create_production (0016): كتلة السطر في الخلطة (recipe_detail.mass_kg)، ووحدة أساس المادّة الآن،
- * والكثافة لقطة السطر وإلّا كثافة المادّة (للسائل وحده)، وخطوة عدّاد المادّة. blocked سبب يرفض به الخادم الإنتاج قبل أيّ تخطيط.
- */
-export interface PlanLine {
-  lineId: string;
-  lineNo: number;
-  itemId: string;
-  itemName: string;
-  kind: string;
-  /** داخل الكتلة (لقطة السطر): الوقود والتعبئة خارجها، فلا يدخلان كتلة المواد ولا الناتج. */
-  inBasis: boolean;
-  /** وحدة أساس المادّة الآن (الخادم يخطّط بها ويكتبها على سطر الدفعة). */
-  baseUnit: BaseUnit;
-  /** كتلة السطر في الخلطة بالكيلو (بالآلاف)، أو null حين لا تُعرف. */
-  lineKg: bigint | null;
-  /** ١/١٠٠٠٠ كغم/لتر للسائل: لقطة السطر وإلّا كثافة المادّة؛ null للكيلوغرام أو بلا كثافة. */
-  density: bigint | null;
-  /** خطوة عدّاد المادّة بالآلاف من وحدة أساسها (scale_step). */
-  scaleStep: bigint;
-  /** item_changed (تغيّرت وحدتها بعد التفعيل أو صارت قطعة) أو density (سائل بلا كثافة أو كتلة لا تُعرف)، أو null. */
-  blocked: 'item_changed' | 'density' | null;
-}
-
-export interface ProduceData {
-  /** يوم الخادم (بغداد): يوم الإنتاج الافتراضي. */
-  today: Day;
-  stores: MillStore[];
-  recipe: RecipeDetail;
-  /** النسخة المفعَّلة التي يُنتَج بها (p_recipe_version)، أو null: الخلطة بلا نسخة مفعَّلة. */
-  active: { id: string; versionNo: number; basisKg: bigint } | null;
-  /** سطور النسخة المفعَّلة بترتيب line_no ومدخلات تخطيطها. */
-  lines: PlanLine[];
-}
-
-/**
- * لقطات الكثافة على سطور النسخة ووحدة أساس كلّ مادّة وكثافتها وخطوة عدّادها الآن: قراءتان مباشرتان بسياسة المنشأة (البيانات الأساسية بلا مال)،
- * لأنّ recipe_detail لا يرسلها والخادم يخطّط بها (create_production).
- */
-async function planLines(versionId: string, lines: readonly RecipeLine[]): Promise<PlanLine[]> {
-  if (!lines.length) return [];
-  const ids = [...new Set(lines.map((line) => line.itemId))];
-  const { result, wasOnline } = await send(
-    (db) =>
-      Promise.all([
-        db.from('recipe_lines').select('id, density_kg_per_l::text').eq('version_id', versionId) /* unbounded: سطور نسخة واحدة */,
-        db.from('items').select('id, base_unit, density_kg_per_l::text, scale_step::text').in('id', ids) /* unbounded: موادّ سطور نسخة واحدة */,
-      ]),
-    (answers) => answers,
-  );
-  for (const answer of result) if (answer.error) throw classifyPostgrest(answer.error, answer.status, 'table', wasOnline);
-  const [linesAnswer, itemsAnswer] = result;
-  const snapshots = new Map(list(linesAnswer.data ?? [], 'recipe_lines').map((row) => [str(row, 'id'), scaled(row, 'density_kg_per_l', 4)]));
-  const items = new Map(
-    list(itemsAnswer.data ?? [], 'items').map((row) => [
-      str(row, 'id'),
-      { baseUnit: baseUnit(row, 'base_unit'), density: scaled(row, 'density_kg_per_l', 4), scaleStep: scaled(row, 'scale_step', 3) },
-    ]),
-  );
-  return [...lines]
-    .sort((a, b) => a.lineNo - b.lineNo)
-    .map((line) => {
-      const item = items.get(line.itemId);
-      if (!item) throw new MillShapeError('items');
-      const density = item.baseUnit === 'L' ? (snapshots.get(line.id) ?? item.density) : null;
-      // شروط رفض create_production قبل التخطيط بترتيبها: الوحدة (unit_changed من القارئ بشرط الخادم نفسه، أو مادّة صارت قطعة)، ثمّ سائل بلا كثافة.
-      const blocked = line.unitChanged || item.baseUnit === 'pc' ? 'item_changed' : (item.baseUnit === 'L' && density === null) || line.massKg === null ? 'density' : null;
-      return {
-        lineId: line.id,
-        lineNo: line.lineNo,
-        itemId: line.itemId,
-        itemName: line.itemName,
-        kind: line.kind,
-        inBasis: line.inBasis,
-        baseUnit: item.baseUnit,
-        lineKg: line.massKg,
-        density,
-        scaleStep: item.scaleStep !== null && item.scaleStep > 0n ? item.scaleStep : 0n,
-        blocked,
-      };
-    });
-}
-
-/**
- * شاشة الإنتاج الواحدة (/mill/produce/:recipeId): يوم الخادم ومخازن المعمل (recipes_overview)، والخلطة بنسختها المفعَّلة (recipe_detail بلا نسخة
- * يختار المفعَّلة)، ومدخلات تخطيط كلّ سطر فيها.
- */
-export async function loadProduce(recipeId: string): Promise<ProduceData> {
-  const [overview, detail] = await Promise.all([call<unknown>('recipes_overview'), call<unknown>('recipe_detail', { p_id: recipeId, p_version: null })]);
-  const json = record(overview, 'overview');
-  const recipe = parseRecipe(detail);
-  const active = recipe.status === 'active' && recipe.versionId !== null && recipe.versionNo !== null ? { id: recipe.versionId, versionNo: recipe.versionNo, basisKg: recipe.basisKg } : null;
-  return { today: str(json, 'today'), stores: storesOf(json), recipe, active, lines: active ? await planLines(active.id, recipe.lines) : [] };
-}
-
-/** طلب record_production كما يُرسل، ويُعاد حرفاً بعد نتيجة مجهولة (المعرّف والمرجع نفسيهما): لا دفعة ثانية أبداً. */
-export interface ProductionRequest {
-  /** معرّف الدفعة من الجهاز. */
-  id: string;
-  versionId: string;
-  /** الكمية المختارة بالكيلو (بالآلاف). */
-  plannedKg: bigint;
-  inputWarehouseId: string;
-  outputWarehouseId: string;
-  producedOn: Day | null;
-  /** السطور التي تخالف كميتُها المخطّطَ (بوحدة أساس مادّتها، بالآلاف). */
-  actuals: readonly { lineNo: number; qty: bigint }[];
-  /** موادّ ليست في الخلطة تُضاف للدفعة (مادّة «قرّب إلى طنّ» حين لا تكون من موادّ الخلطة). */
-  extra: readonly { id: string; itemId: string; qty: bigint }[];
-  /** الناتج الموزون بالكيلو، أو null (= كتلة المواد، بلا هدر). */
-  outputKg: bigint | null;
-  expiry: Day | null;
-  shrinkReason: string | null;
-  note: string | null;
-  clientRef: string;
-}
+// ─── نتيجة الإنتاج (0023، وproduce_batch في 0025 يزيد عليها) ─────────────────────────────────────────────────────────────
 
 export interface PostedProduction {
   status: 'posted';
@@ -1543,6 +1459,7 @@ const needQty = (row: Row, field: string): bigint => {
   return value;
 };
 
+/** جواب record_production (0023)، وهو نفسه أساس جواب produce_batch (0025). */
 export function parseRecordedProduction(value: unknown): RecordedProduction {
   const json = record(value, 'record_production');
   const status = str(json, 'status');
@@ -1571,23 +1488,333 @@ export function parseRecordedProduction(value: unknown): RecordedProduction {
   };
 }
 
-/** الإنتاج بنداء واحد (معاملة واحدة): يخطّط الخادم كلّ سطر بنسبة الخلطة، ويطبّق الكميات المعدَّلة والمضافة، ثمّ يرحّل أو يحفظ مسوّدة تنتظر الكلف. */
-export async function recordProduction(request: ProductionRequest): Promise<RecordedProduction> {
-  return parseRecordedProduction(
-    await call<unknown>('record_production', {
+// ─── شاشة الإنتاج (0025، production_form وproduce_batch) ───────────────────────────────────────────────────────────────
+
+export type DefaultSource = 'last' | 'recipe';
+
+/** مادّة في النسخة المفعَّلة بترتيبها، بما يلزم لكتابة كميتها عند الإنتاج. */
+export interface FormMaterial {
+  lineNo: number;
+  itemId: string;
+  name: string;
+  kind: string;
+  /** وحدة أساس المادّة الآن (الكمية تُكتب بها): كغم أو لتر، و«قطعة» لمادّة صارت بالقطعة فلا تدخل الإنتاج (bad_recipe_unit). */
+  baseUnit: BaseUnit;
+  /** ١/١٠٠٠٠ كغم/لتر للسائل (لقطة سطر النسخة وإلّا كثافة المادّة)، أو null. */
+  density: bigint | null;
+  /** داخل كتلة الخلطة: الوقود والتعبئة خارجها، فلا يدخلان الناتج. */
+  inBasis: boolean;
+  /** خطوة عدّاد المادّة بالآلاف من وحدة أساسها، أو 0 بلا خطوة. */
+  scaleStep: bigint;
+  /** الكمية المقترحة بوحدة أساس المادّة: من آخر إنتاج (last)، وإلّا من نسخة قديمة بكميات (recipe)، وإلّا null. */
+  defaultQty: bigint | null;
+  defaultSource: DefaultSource | null;
+}
+
+export interface FormLastBatch {
+  id: string;
+  docNo: string;
+  producedOn: Day;
+  outputKg: bigint;
+  inputMassKg: bigint;
+  /** موادّ استُعملت في آخر إنتاج وليست في النسخة المفعَّلة: تُقترح أوّلاً في «أضف مادّة» بلا كمية. */
+  extraItems: { itemId: string; name: string }[];
+}
+
+export interface ProductionForm {
+  /** يوم الخادم (بغداد): يوم الإنتاج الافتراضي. */
+  today: Day;
+  recipe: { id: string; name: string; archived: boolean; outputItem: { id: string; name: string } };
+  /** النسخة المفعَّلة (p_expected_version)، أو null: الخلطة بلا نسخة مفعَّلة. */
+  active: { id: string; versionNo: number; materialsOnly: boolean } | null;
+  materials: FormMaterial[];
+  last: FormLastBatch | null;
+  /** مخازن الموادّ الأوّلية الحيّة بنطاق القارئ بالاسم. */
+  stores: { id: string; name: string }[];
+  /** «رصيد العلف» الذي يدخله كلّ إنتاج تلقائياً، أو null: لا مخزن علف للمعمل (الإنتاج يُرفض feed_store_missing). */
+  outputStore: { id: string; name: string } | null;
+  /** يعدّل الخلطة (recipe.activate): يختار «عدّل الخلطة بهذه الموادّ» حين تخالف موادُّ الإنتاج موادَّ الخلطة. */
+  canEditRecipe: boolean;
+  /** للخلطة مسوّدة لم تُفعَّل: «عدّل الخلطة بهذه الموادّ» يُرفض draft_exists. */
+  draftExists: boolean;
+}
+
+/** شاشة الإنتاج: production_form ومعه «يُتابَع انتهاؤه» لمنتج الخلطة (تاريخ الانتهاء إلزامي له قبل «أنتج»). */
+export interface ProduceForm extends ProductionForm {
+  tracksExpiry: boolean;
+}
+
+const nameRef = (row: Row): { itemId: string; name: string } => ({ itemId: str(row, 'item_id'), name: str(row, 'name') });
+
+function defaultSource(row: Row, hasQty: boolean): DefaultSource | null {
+  const value = present(row, 'default_source');
+  // الكمية والمصدر معاً: كمية بلا مصدر أو مصدر بلا كمية خطأ شكل، فلا تُعرض «من آخر إنتاج» على خانة فارغة.
+  if (!hasQty) {
+    if (value !== null) throw new MillShapeError('default_source');
+    return null;
+  }
+  if (value !== 'last' && value !== 'recipe') throw new MillShapeError('default_source');
+  return value;
+}
+
+export function parseProductionForm(value: unknown): ProductionForm {
+  const json = record(value, 'production_form');
+  const recipe = record(json.recipe, 'recipe');
+  const output = record(recipe.output_item, 'output_item');
+  const active = present(json, 'active') === null ? null : record(json.active, 'active');
+  const last = present(json, 'last') === null ? null : record(json.last, 'last');
+  const outputStore = present(json, 'output_store');
+  return {
+    today: str(json, 'today'),
+    recipe: { id: str(recipe, 'id'), name: str(recipe, 'name'), archived: flag(recipe, 'archived'), outputItem: { id: str(output, 'id'), name: str(output, 'name') } },
+    active: active ? { id: str(active, 'id'), versionNo: int(active, 'version_no'), materialsOnly: flag(active, 'materials_only') } : null,
+    materials: list(json.materials, 'materials').map((row) => {
+      const defaultQty = nullableScaled(row, 'default_qty', 3);
+      return {
+        lineNo: int(row, 'line_no'),
+        itemId: str(row, 'item_id'),
+        name: str(row, 'name'),
+        kind: str(row, 'kind'),
+        baseUnit: baseUnit(row, 'base_unit'),
+        density: nullableScaled(row, 'density', 4),
+        inBasis: flag(row, 'in_basis'),
+        scaleStep: nullableScaled(row, 'scale_step', 3) ?? 0n,
+        defaultQty,
+        defaultSource: defaultSource(row, defaultQty !== null),
+      };
+    }),
+    last: last
+      ? {
+          id: str(last, 'id'),
+          docNo: str(last, 'doc_no'),
+          producedOn: str(last, 'produced_on'),
+          outputKg: needQty(last, 'output_kg'),
+          inputMassKg: needQty(last, 'input_mass_kg'),
+          extraItems: list(last.extra_items, 'extra_items').map(nameRef),
+        }
+      : null,
+    stores: list(json.stores, 'stores').map((row) => ({ id: str(row, 'id'), name: str(row, 'name') })),
+    outputStore: outputStore === null ? null : warehouse(outputStore, 'output_store'),
+    canEditRecipe: flag(json, 'can_edit_recipe'),
+    draftExists: flag(json, 'draft_exists'),
+  };
+}
+
+/**
+ * شاشة الإنتاج (/mill/produce/:recipeId): production_form، ثمّ «يُتابَع انتهاؤه» لمنتج الخلطة بقراءة مباشرة بسياسة المنشأة (البيانات الأساسية بلا
+ * مال)، لأنّ القارئ لا يرسله والانتهاء إلزامي له.
+ */
+export async function loadProduceForm(recipeId: string): Promise<ProduceForm> {
+  const form = parseProductionForm(await call<unknown>('production_form', { p_recipe: recipeId }));
+  const item = await oneRow((db) => db.from('items').select('id, tracks_expiry').eq('id', form.recipe.outputItem.id) /* unbounded: صفّ واحد بمعرّفه */);
+  return { ...form, tracksExpiry: item ? flag(item, 'tracks_expiry') : false };
+}
+
+/** سطر في طلب الإنتاج: المادّة وكميتها بوحدة أساسها؛ والاسم والوحدة والكثافة وداخل الكتلة للعرض وحده (الشاشة المجمَّدة تعرض الطلب منها). */
+export interface ProduceLine {
+  itemId: string;
+  qty: bigint;
+  name: string;
+  unit: BaseUnit;
+  density: bigint | null;
+  inBasis: boolean;
+}
+
+/** طلب produce_batch كما يُرسل، ويُعاد حرفاً بعد نتيجة مجهولة (المعرّف والمرجع نفسيهما): لا دفعة ثانية أبداً. */
+export interface ProduceRequest {
+  /** معرّف الدفعة من الجهاز. */
+  id: string;
+  recipeId: string;
+  /** النسخة المفعَّلة التي عرضتها الشاشة (recipe_changed إن تغيّرت). */
+  expectedVersion: string;
+  inputWarehouseId: string;
+  /** الموادّ بترتيب الشاشة. */
+  lines: readonly ProduceLine[];
+  /** موادّ الإنتاج تخالف موادّ الخلطة: true «عدّل الخلطة بهذه الموادّ»، وfalse «لهذه المرّة فقط»، وnull حين لا تخالفها. */
+  saveRecipe: boolean | null;
+  /** «احفظ مسوّدة»: الدفعة ورأسها فقط، ثمّ صفحتها. */
+  draft: boolean;
+  producedOn: Day | null;
+  /** الناتج الموزون بالكيلو، أو null (= كتلة المواد، بلا هدر). */
+  outputKg: bigint | null;
+  expiry: Day | null;
+  shrinkReason: string | null;
+  note: string | null;
+  clientRef: string;
+}
+
+/** ما يزيده produce_batch على نتيجة record_production: هل حُفظت الموادّ في الخلطة، والنسخة التي أُنتج بها. */
+export interface ProducedVersion {
+  savedToRecipe: boolean;
+  recipeVersionId: string;
+  versionNo: number;
+}
+
+/** «احفظ مسوّدة» (p_draft): الدفعة مسوّدة، وتُكمل في صفحتها. */
+export interface SavedDraft extends ProducedVersion {
+  status: 'draft';
+  id: string;
+  awaiting: null;
+}
+
+export type ProducedBatch = (PostedProduction & ProducedVersion) | (AwaitingProduction & ProducedVersion) | SavedDraft;
+
+const producedVersion = (json: Row): ProducedVersion => ({
+  savedToRecipe: flag(json, 'saved_to_recipe'),
+  recipeVersionId: str(json, 'recipe_version_id'),
+  versionNo: int(json, 'version_no'),
+});
+
+/** جواب produce_batch: للمسوّدة (p_draft) معرّفها ونسختها، وغيرها جواب record_production ومعه النسخة. */
+export function parseProducedBatch(value: unknown, draft: boolean): ProducedBatch {
+  const json = record(value, 'produce_batch');
+  if (draft) {
+    if (str(json, 'status') !== 'draft') throw new MillShapeError('status');
+    return { status: 'draft', id: str(json, 'id'), awaiting: null, ...producedVersion(json) };
+  }
+  return { ...parseRecordedProduction(json), ...producedVersion(json) };
+}
+
+/** الإنتاج بنداء produce_batch واحد (معاملة واحدة): الكميات كما كُتبت، ثمّ يرحّل، أو مسوّدة تنتظر الكلف، أو مسوّدة طُلبت. */
+export async function produceBatch(request: ProduceRequest): Promise<ProducedBatch> {
+  return parseProducedBatch(
+    await call<unknown>('produce_batch', {
       p_id: request.id,
-      p_recipe_version: request.versionId,
-      p_planned_kg: decimalText(request.plannedKg, 3),
+      p_recipe: request.recipeId,
+      p_expected_version: request.expectedVersion,
       p_wh_in: request.inputWarehouseId,
-      p_wh_out: request.outputWarehouseId,
+      p_lines: request.lines.map((line) => ({ item_id: line.itemId, qty: decimalText(line.qty, 3) })),
+      p_save_recipe: request.saveRecipe,
+      p_draft: request.draft,
       p_produced_on: request.producedOn,
-      p_actuals: request.actuals.map((line) => ({ line_no: line.lineNo, qty: decimalText(line.qty, 3) })),
-      p_extra: request.extra.map((line) => ({ id: line.id, item_id: line.itemId, qty: decimalText(line.qty, 3) })),
       p_output_kg: qtyText(request.outputKg),
       p_expiry: request.expiry,
       p_shrink_reason: request.shrinkReason,
       p_note: request.note,
       p_client_ref: request.clientRef,
     }),
+    request.draft,
   );
+}
+
+// ─── سجلّ الخلطة (0025، recipe_history) ───────────────────────────────────────────────────────────────────────────
+
+export interface HistoryItem {
+  itemId: string;
+  name: string;
+}
+
+export interface HistoryVersion {
+  id: string;
+  versionNo: number;
+  status: VersionStatus;
+  /** لحظة التفعيل (ISO). */
+  activatedAt: string;
+  activatedBy: string | null;
+  retiredAt: string | null;
+  materialsOnly: boolean;
+  /** موادّ النسخة بترتيبها. */
+  items: HistoryItem[];
+  /** ما أُضيف وما حُذف عن النسخة غير المسوّدة التي قبلها. */
+  added: HistoryItem[];
+  removed: HistoryItem[];
+  /** الدفعة التي حُفظت موادّها في هذه النسخة («عدّل الخلطة بهذه الموادّ»)، أو null. */
+  fromBatch: { id: string; docNo: string } | null;
+}
+
+export interface HistoryLine {
+  itemId: string;
+  name: string;
+  qty: bigint;
+  baseUnit: BaseUnit;
+  /** الكتلة بالكيلو، أو null حين لا تُعرف. */
+  massKg: bigint | null;
+  inBasis: boolean;
+  /** مادّة ليست في نسخة الدفعة: أُضيفت لهذه المرّة. */
+  extra: boolean;
+}
+
+export interface HistoryProduction {
+  id: string;
+  docNo: string;
+  producedOn: Day;
+  status: 'posted' | 'void';
+  versionNo: number;
+  outputKg: bigint;
+  inputMassKg: bigint;
+  savedToRecipe: boolean;
+  note: string | null;
+  by: string | null;
+  lines: HistoryLine[];
+  /** موادّ في نسخة الدفعة لم تُستعمل فيها. */
+  omitted: HistoryItem[];
+}
+
+export interface RecipeHistory {
+  recipe: { id: string; name: string };
+  /** كلّ النسخ غير المسوّدة، الأحدث أوّلاً (بلا تقييد بالمدّة). */
+  versions: HistoryVersion[];
+  /** دفعات المدّة المرحَّلة والملغاة، الأحدث أوّلاً. */
+  productions: HistoryProduction[];
+  /** المرحَّلة وحدها. */
+  totals: { batches: number; outputKg: bigint };
+}
+
+const historyItems = (value: unknown, field: string): HistoryItem[] => list(value, field).map(nameRef);
+
+export function parseRecipeHistory(value: unknown): RecipeHistory {
+  const json = record(value, 'recipe_history');
+  const recipe = record(json.recipe, 'recipe');
+  const totals = record(json.totals, 'totals');
+  return {
+    recipe: { id: str(recipe, 'id'), name: str(recipe, 'name') },
+    versions: list(json.versions, 'versions').map((row) => {
+      const from = present(row, 'from_batch') === null ? null : record(row.from_batch, 'from_batch');
+      return {
+        id: str(row, 'id'),
+        versionNo: int(row, 'version_no'),
+        status: versionStatus(row),
+        activatedAt: str(row, 'activated_at'),
+        activatedBy: present(row, 'activated_by') === null ? null : str(row, 'activated_by'),
+        retiredAt: present(row, 'retired_at') === null ? null : str(row, 'retired_at'),
+        materialsOnly: flag(row, 'materials_only'),
+        items: historyItems(row.items, 'items'),
+        added: historyItems(row.added, 'added'),
+        removed: historyItems(row.removed, 'removed'),
+        fromBatch: from ? { id: str(from, 'id'), docNo: str(from, 'doc_no') } : null,
+      };
+    }),
+    productions: list(json.productions, 'productions').map((row) => {
+      const status = str(row, 'status');
+      if (status !== 'posted' && status !== 'void') throw new MillShapeError('status');
+      return {
+        id: str(row, 'id'),
+        docNo: str(row, 'doc_no'),
+        producedOn: str(row, 'produced_on'),
+        status,
+        versionNo: int(row, 'version_no'),
+        outputKg: needQty(row, 'output_kg'),
+        inputMassKg: needQty(row, 'input_mass_kg'),
+        savedToRecipe: flag(row, 'saved_to_recipe'),
+        note: present(row, 'note') === null ? null : str(row, 'note'),
+        by: present(row, 'by') === null ? null : str(row, 'by'),
+        lines: list(row.lines, 'lines').map((line) => ({
+          itemId: str(line, 'item_id'),
+          name: str(line, 'name'),
+          qty: needQty(line, 'qty'),
+          baseUnit: baseUnit(line, 'base_unit'),
+          massKg: nullableScaled(line, 'mass_kg', 3),
+          inBasis: flag(line, 'in_basis'),
+          extra: flag(line, 'extra'),
+        })),
+        omitted: historyItems(row.omitted, 'omitted'),
+      };
+    }),
+    totals: { batches: nonNegative(totals, 'batches'), outputKg: needQty(totals, 'output_kg') },
+  };
+}
+
+/** سجلّ الخلطة لمدّة (حتى 366 يوماً): النسخ كلّها والإنتاج في المدّة ومجموعه. */
+export async function loadRecipeHistory(recipeId: string, from: Day, to: Day): Promise<RecipeHistory> {
+  return parseRecipeHistory(await call<unknown>('recipe_history', { p_recipe: recipeId, p_from: from, p_to: to }));
 }
