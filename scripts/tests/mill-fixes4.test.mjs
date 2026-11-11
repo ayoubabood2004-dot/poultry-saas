@@ -6,6 +6,8 @@
 // الحفظ وEnter والمسح المشروط للفعلي والمبلغ والسطر الجديد (ب٣٢)؛ W33 البطاقة والمعاينة من نسخة واحدة (ب٣٣)؛ W34 «اختم الكلف» بوّابة
 // مبلغ لم يُحفظ (ب٣٤)؛ W35 «أرجع ما لم يُحفظ» ويوم الإنتاج الفارغ (ب٣٥)؛ W36 المكتوب غير الصالح في البوّابة ويوم «5/11/2026» (ب٣٦)؛
 // W37 جملة «لا تكاليف» بالدور (ب٣٧). كلّ حالة جديدة تفشل على نسخة 93a85f0 من الشاشات، أو على طفرتها (W36، طفرات findings4 #7).
+// «الخلطة موادّ بلا كميات» (0025): بطاقة الخلطة بلا عمود كتلة ولا حصّة ولا مجموع ولا شريط ولا رقاقات أقسام ولا خانات سعر، فـW31 فيها جملة السطر الذي
+// تغيّرت وحدته بعد إضافته («احذف سطرها وأضفها من جديد»: الإضافة الجديدة تأخذ وحدة المادّة الآن، فلا وحدة يختارها المستخدم) و«خارج الكتلة» في عمودها.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -368,59 +370,37 @@ export default async function (t) {
       const block = byAction('unit-mismatch')[0];
       t.same(
         block ? noticeTitles().filter((title) => block.textContent.includes(title)) : [],
-        ['صارت «دبس» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.', 'صارت «كاز» تُقاس بالكيلوغرام: احذف سطرها وأضفه بالكيلوغرام.'],
+        ['تغيّرت وحدة «دبس» بعد إضافتها: احذف سطرها وأضفها من جديد.', 'تغيّرت وحدة «كاز» بعد إضافتها: احذف سطرها وأضفها من جديد.'],
         'W31 لكلّ سطر unit_mismatch في المسوّدة جملة تقول ما العمل',
       );
-      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من مجموعها');
-      const mass = table?.headers.indexOf('بالكيلوغرام') ?? -1;
-      const share = table?.headers.indexOf('الحصّة') ?? -1;
-      // الحصّة من مجموع الخلطة (لا أساس يُطابَق، 2026-11-07): مجموع لا يُعرف فحصّة كلّ سطر «—» لا نسبة من أساس قديم.
-      t.same((table?.rows ?? []).map((row) => [row[0], row[mass], row[share]]), [['ذرة صفراء', '972', '—'], ['دبس', '—', '—'], ['كاز', '—', 'خارج الكتلة']], 'W31 كتلة السطر وحصّته «—» حين لا تُعرف');
-      t.eq(table?.footAt(mass) ?? null, '—', 'W31 والمجموع «—» (سطر داخل الكتلة بلا كتلة)');
-      const titles = barTitles(all().find((n) => n.getAttribute('role') === 'presentation'));
-      t.ok(titles.length === 1 && titles[0].startsWith('ذرة صفراء') && !titles.some((title) => title.includes('دبس')), `W31 شريط التركيبة يتخطّى القطعة بلا كتلة (${titles.join(' | ')})`);
-      t.ok(noticeTitles().includes('لا يُحسب المجموع: كتلة سطر أو أكثر لا تُعرف.') && !text().includes('المجموع مطابق للأساس'), 'W31 لا «مطابق» ولا مجموع صفري، وجملة تقول إنّه لا يُحسب');
+      const table = tableOf('موادّ الخلطة بترتيبها: نوع كلّ مادّة وهل هي داخل كتلة الخلطة');
+      const basis = table?.headers.indexOf('داخل الكتلة') ?? -1;
+      t.same(
+        [table?.headers.includes('بالكيلوغرام'), table?.headers.includes('الحصّة'), (table?.rows ?? []).map((row) => [row[1], row[basis]])],
+        [false, false, [['ذرة صفراء', 'نعم'], ['دبس', 'نعم'], ['كاز', 'خارج الكتلة']]],
+        'W31 بلا عمود كتلة ولا حصّة (لا كميات)، والكاز «خارج الكتلة»',
+      );
+      t.eq(all().filter((n) => n.getAttribute('role') === 'presentation').length, 0, 'W31 ولا شريط تركيبة في بطاقة الخلطة (لا كتل)');
       t.eq(disabled(byAction('activate-version')[0]), true, 'W31 «فعّل النسخة» معطَّل (الخادم يرفضها bad_recipe_unit)');
-      const chip = all().find((n) => n.localName === 'span' && (n.getAttribute('class') ?? '').includes('rounded-full') && n.textContent.startsWith('الغذاء'));
-      t.eq(chip?.textContent ?? null, 'الغذاء—', 'W31 رقاقة القسم الذي فيه كتلة لا تُعرف «—» لا مجموع ناقص');
     });
     await step('W31 بطاقة الخلطة لغير المدير', async () => {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: [cornLine, dbsLine], massKg: null })) });
       await mount('/mill/recipe/r-1');
       const block = byAction('unit-mismatch')[0];
-      t.eq(block?.textContent ?? null, 'صارت «دبس» تُقاس بالكيلوغرام: يحذف المالك أو المدير سطرها ويضيفه بالكيلوغرام.', 'W31 لمن لا يعدّل الخلطة: الجملة لا تدلّه على فعل ليس له (درس ب٣٧)');
+      t.eq(block?.textContent ?? null, 'تغيّرت وحدة «دبس» بعد إضافتها: يحذف المالك أو المدير سطرها ويضيفها من جديد.', 'W31 لمن لا يعدّل الخلطة: الجملة لا تدلّه على فعل ليس له (درس ب٣٧)');
     });
     await step('W31 بالقطعة', async () => {
       const bag = recipeLine({ id: 'l-4', line_no: 4, item_id: 'i-bag', item_name: 'كيس', kind: 'raw', base_unit: 'pc', qty: '5.000', unit: 'L', mass_kg: null, share_pct: null, unit_mismatch: true });
       fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: [cornLine, bag], massKg: null })) });
       await mount('/mill/recipe/r-1');
-      t.eq(byAction('unit-mismatch')[0]?.textContent ?? null, 'صارت «كيس» تُقاس بالقطعة، فلا تدخل الخلطة: يُحذف سطرها.', 'W31 مادّة صارت بالقطعة: لا «أضفه بالكيلوغرام»');
-      // سطر المسوّدة بلا لقطة: base_unit وحدة المادّة الآن، فخانة سعر الكلفة تسمّيها ولو لم تكن المادّة في pick_items (القطعة لا تُرشَّح لسطر).
-      t.eq(byAction('cost-price').map((input) => input.getAttribute('aria-label'))[1] ?? null, 'سعر كلفة «كيس» لكلّ قطعة', 'W31 سعر كلفة سطر المسوّدة بوحدة المادّة الآن');
+      t.eq(byAction('unit-mismatch')[0]?.textContent ?? null, 'صارت «كيس» تُقاس بالقطعة، فلا تدخل الخلطة: يُحذف سطرها.', 'W31 مادّة صارت بالقطعة: لا «أضفها من جديد»');
     });
     await step('W31 المفعَّلة', async () => {
-      // ق٤١: سطر لتر في نسخة مجمَّدة ومادّته صارت بالكيلو يُخطَّط من لقطة الكثافة، فكتلته معروفة ولا جملة «احذف سطرها».
+      // سطر لتر في نسخة مجمَّدة ومادّته صارت بالكيلو: الإنتاج يكتب الكمية بوحدة المادّة الآن (0025)، فلا جملة «احذف سطرها» في المفعَّلة.
       const frozen = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-dbs', item_name: 'دبس', qty: '20.000', unit: 'L', mass_kg: '28.000', share_pct: '2.80', unit_mismatch: true });
       fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [cornLine, frozen] })) });
       await mount('/mill/recipe/r-1');
-      const table = tableOf('مواد الخلطة وحصّة كلّ مادّة من مجموعها');
-      const mass = table?.headers.indexOf('بالكيلوغرام') ?? -1;
-      t.same([byAction('unit-mismatch').length, table?.rows[1]?.[mass] ?? null], [0, '28'], 'W31 ضابط: في المفعَّلة لا جملة، والكتلة من لقطة الكثافة');
-    });
-    await step('W31 وحدة سعر الكلفة', async () => {
-      // ق٤١: unit_changed لاتّجاه رفض الإنتاج وحده، فلقطة لتر لمادّة صارت بالكيلو لا يقولها؛ وسعر الكلفة لوحدة المادّة الآن (pick_items بوحدتها
-      // الحيّة). «دبس» مكتوب باللتر (unit_mismatch)، و«زيت» سائل كان مكتوباً بالكيلو (لا unit_mismatch)، وكلاهما صار بالكيلو؛ و«كاز» رُفض.
-      const dbs = recipeLine({ id: 'l-2', line_no: 2, item_id: 'i-dbs', item_name: 'دبس', base_unit: 'L', qty: '20.000', unit: 'L', mass_kg: '28.000', share_pct: '2.80', unit_mismatch: true });
-      const oil = recipeLine({ id: 'l-3', line_no: 3, item_id: 'i-oil', item_name: 'زيت', base_unit: 'L', qty: '92.000', unit: 'kg', mass_kg: '92.000', share_pct: '9.20' });
-      const kaz = recipeLine({ id: 'l-4', line_no: 4, item_id: 'i-kaz', item_name: 'كاز', kind: 'fuel', category_name: null, qty: '17.000', mass_kg: '17.000', share_pct: null, in_basis: false, unit_changed: true });
-      const pickItems = [CORN_PICK, { id: 'i-dbs', name: 'دبس', base_unit: 'kg', category_name: 'الغذاء' }, { id: 'i-oil', name: 'زيت', base_unit: 'kg', category_name: 'الغذاء' }];
-      fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', lines: [cornLine, dbs, oil, kaz], massKg: '1092.000', pickItems })) });
-      await mount('/mill/recipe/r-1');
-      t.same(
-        byAction('cost-price').map((input) => input.getAttribute('aria-label')),
-        ['سعر كلفة «ذرة صفراء» لكلّ كغم', 'سعر كلفة «دبس» لكلّ كغم', 'سعر كلفة «زيت» لكلّ كغم', 'سعر كلفة «كاز» بوحدتها الحالية'],
-        'W31 خانة سعر الكلفة تسمّي وحدة المادّة الآن لا لقطة اللتر، وبلا وحدة حين لا تُعرف حيّةً',
-      );
+      t.same([byAction('unit-mismatch').length, text().includes('دبس')], [0, true], 'W31 ضابط: في المفعَّلة لا جملة، والسطر ظاهر');
     });
     await step('W31 بطاقة المعمل', async () => {
       const pieces = [piece('i-corn', 'ذرة صفراء', '972.000'), piece('i-dbs', 'دبس', null), piece('i-kaz', 'كاز', '17.000', false)];
