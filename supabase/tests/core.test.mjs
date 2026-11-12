@@ -739,6 +739,7 @@ export default async function (t, db) {
   // المرحلة 1 (WP3): دوالّ الحسابات تاخذ معرّفات حقيقية حتى جسمها كلّه ينفّذ للمالكين (بمنشأة كل مالك)، والرفض المقصود لهويّة
   // بلا صلاحية مسمّى هنا بالضبط (forbidden): أي رفض ثاني، أو رفض لهويّة مو مسمّاة، يفشل الفحص مثل الكتابة.
   const own = (persona) => ledgerOf[persona === U.bOwner ? 'b' : 'a'];
+  const coreToday = (await db.admin('select public.app_today()::text as d')).rows[0].d;
   const ARGS = {
     preview_party_allocation: (persona) => [own(persona).party, own(persona).book, 'payment', '1000'],
     report_party_balances: () => ['2026-01-01', '2026-12-31', null, true, 'balance', null, null, 50],
@@ -780,6 +781,8 @@ export default async function (t, db) {
     // 0026: تقويم فوج كلّ مالك لشهر يوم اختبار ثابت، وتقرير دورته.
     flock_month: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock, '2026-01-15'],
     flock_cycle_report: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    // 0027: التقرير اليوميّ باليوم الحاليّ، ففوج كلّ منشأة (سُكّن قبل ثلاثة أيّام) يدخل جسمه كلّه (أرقام يومه وصرفه وأدويته ولقاحاته).
+    halls_day: () => [coreToday],
     // 0021: المبيعات بسنة، وفاتورة كلّ منشأة، والتقرير بالجهة.
     sales_overview: () => ['2026-01-01', '2026-12-31'],
     sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
@@ -847,6 +850,9 @@ export default async function (t, db) {
     flock_cycle_report: { [U.aSpare]: 'forbidden' },
     vaccine_board: { [U.aSpare]: 'forbidden' },
     vaccine_reminders: { [U.aSpare]: 'forbidden' },
+    // 0027: التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
+    halls_day: { [U.aSpare]: 'forbidden' },
+    flock_cycles: { [U.aSpare]: 'forbidden' },
     // 0021: قرّاء المبيعات لأدوار المبيعات (عامل القاعة forbidden)، وبلا منشأة forbidden.
     sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },

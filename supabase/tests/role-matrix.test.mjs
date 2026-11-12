@@ -660,6 +660,9 @@ export default async function (t, db) {
     vaccine_reminders: { sql: () => ["select jsonb_array_length(public.vaccine_reminders() -> 'items') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
     flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
     flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
+    // 0027 (تقارير القاعات): التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، فمن لا يرى حقل اللحم يرى صفراً بلا رفض.
+    halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
+    flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
     // 0020 (قرار المالك 2026-11-08): الحذف لمن يدير المخازن (المالك والمدير)؛ و«أكمل السعر» بفعل الشراء (purchase.record)، والأمين هنا محصور
     // بالمخزن العامّ دون وحدته فقيد المورّد في دفتر الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ وتحويل المادّة بفعل الصرف
     // (stock_use.post: المالك والمدير والأمين بنطاق المخزن)؛ وإلغاؤه بفعل void؛ والنقل بخطوة واحدة بفعل النقل (transfer.post) إلى مخزن الحقل.
