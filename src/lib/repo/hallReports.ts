@@ -146,10 +146,12 @@ export interface DayTotals {
   flocks: number;
   rounds: number;
   liveStart: number;
-  dead: number;
-  culled: number;
+  /** null حين لا جولة في أيّ قاعة (rounds = 0). */
+  dead: number | null;
+  culled: number | null;
   liveEnd: number;
-  feedEatenKg: Milli;
+  /** null حين لا علف مسجَّل في أيّ فوج (feedEatenFlocks = 0). */
+  feedEatenKg: Milli | null;
   feedEatenFlocks: number;
   feedGivenKg: Milli;
 }
@@ -189,10 +191,10 @@ const totalsOf = (value: unknown): DayTotals => {
     flocks: int(row, 'flocks'),
     rounds: int(row, 'rounds'),
     liveStart: int(row, 'live_start'),
-    dead: int(row, 'dead'),
-    culled: int(row, 'culled'),
+    dead: optInt(row, 'dead'),
+    culled: optInt(row, 'culled'),
     liveEnd: int(row, 'live_end'),
-    feedEatenKg: scaled(row, 'feed_eaten_kg', 3),
+    feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
     feedEatenFlocks: int(row, 'feed_eaten_flocks'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
   };

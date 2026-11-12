@@ -21,6 +21,7 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'reports-contract.json'), 'utf8'));
+const HALLS = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-contract.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const STUBS = {
@@ -769,9 +770,20 @@ export default async function (t) {
     // ── X: أجوبة القاعدة الحقيقية حين توجد ──────────────────────────────────────────────────────────────────────────
     const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'reports-0027.json');
     const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
+    t.ok(REAL !== null, 'X عيّنات القاعدة الحقيقية موجودة (reports-0027.json)');
     if (REAL) {
+      await step('X0 المحلّلات بكلّ عيّنة حقيقية', async () => {
+        const days = ['halls_day', 'halls_day_layer', 'halls_day_closed'].map((key) => REAL[key]);
+        const parsed = days.map((sample) => m.repo.parseHallsDay(clone(sample)));
+        const cycles = m.repo.parseFlockCycles(clone(REAL.flock_cycles));
+        t.same(
+          [days.every(Boolean), parsed.map((p) => p.sites.reduce((n, site) => n + site.halls.length, 0)), cycles.cycles.length],
+          [true, days.map((d) => d.sites.reduce((n, site) => n + site.halls.length, 0)), REAL.flock_cycles.cycles.length],
+          'X0 الأجوبة الثلاثة لليوم وقائمة الدورات تمرّ بالمحلّلات الحقيقية بلا خطأ شكل',
+        );
+      });
       await step('X1 التقرير اليوميّ بجواب القاعدة', async () => {
-        const samples = [REAL.halls_day, REAL.halls_day_layer].filter(Boolean);
+        const samples = [REAL.halls_day, REAL.halls_day_layer, REAL.halls_day_closed];
         for (const sample of samples) {
           fresh(OWNER, { halls_day: () => clone(sample) });
           await mount(`/halls/day?on=${sample.on}`);
@@ -779,6 +791,27 @@ export default async function (t) {
           t.same([textOf('day-title'), cards().length, byAction('day-table').length], [`تقرير القاعات اليومي — ${fmt(sample.on)}`, halls, sample.sites.length + (sample.sites.length > 1 ? 1 : 0)], `X1 جواب القاعدة ليوم ${sample.on}: بطاقة لكلّ قاعة وجدول لكلّ حقل`);
           await unmount();
         }
+      });
+      await step('X3 زرّ الرجوع باسم وجهته في التقرير الكامل والتقويم', async () => {
+        const sample = REAL.flock_cycle_report;
+        fresh(OWNER, { flock_cycle_report: () => clone(sample) });
+        await mount(`/halls/report/${sample.flock.id}?back=${encodeURIComponent('/halls/cycles')}`);
+        const fromCycles = [textOf('back'), href(byAction('back')[0])];
+        await unmount();
+        const month = HALLS.flock_month;
+        fresh(OWNER, { flock_month: () => clone(month) });
+        await mount(`/halls/calendar/${month.flock.id}?back=${encodeURIComponent('/halls/day?on=2026-11-03')}`);
+        const fromDay = [textOf('back'), href(byAction('back')[0])];
+        await unmount();
+        fresh(OWNER, { flock_cycle_report: () => clone(sample) });
+        await mount(`/halls/report/${sample.flock.id}`);
+        const plain = textOf('back');
+        await unmount();
+        t.same(
+          [fromCycles, fromDay, plain],
+          [['رجوع إلى تقارير الدورات', '/halls/cycles'], ['رجوع إلى تقرير القاعات اليومي', '/halls/day?on=2026-11-03'], 'رجوع إلى القاعة'],
+          'X3 التقرير الكامل من تقارير الدورات والتقويم من التقرير اليوميّ: الزرّ يسمّي وجهته؛ وبلا ?back= «رجوع إلى القاعة»',
+        );
       });
       await step('X2 تقارير الدورات بجواب القاعدة', async () => {
         fresh(OWNER, { flock_cycles: () => clone(REAL.flock_cycles) });

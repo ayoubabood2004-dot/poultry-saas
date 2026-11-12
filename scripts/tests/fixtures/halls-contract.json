@@ -1,5 +1,5 @@
 {
- "_note": "عيّنات العقد اليدوية (contract-0026)؛ تُستبدل بعيّنات القاعدة الحقيقية halls-0026.json في التكامل.",
+ "_note": "عيّنات العقد اليدوية (contract-0026، ومفاتيح التقرير الكامل days وweeks وweights وkpis من contract-0027)؛ وعيّنات القاعدة الحقيقية في halls-0026.json وreports-0027.json.",
  "give_to_flocks": {
   "on": "2026-11-11",
   "issues": [

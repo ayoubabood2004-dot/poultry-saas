@@ -114,10 +114,10 @@ function hallLine(hall: DayHall): string {
 
 function totalsLine(label: string, totals: DayTotals): string {
   const separator = t('list.separator', '، ');
-  const dead = totals.rounds === 0 ? dash() : fmtInt(totals.dead);
-  const culled = totals.rounds === 0 ? dash() : fmtInt(totals.culled);
+  const dead = totals.dead === null ? dash() : fmtInt(totals.dead);
+  const culled = totals.culled === null ? dash() : fmtInt(totals.culled);
   const missing = totals.rounds > 0 && totals.rounds < totals.flocks ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.rounds) }) : '';
-  const eaten = totals.feedEatenFlocks === 0 ? dash() : kgText(totals.feedEatenKg);
+  const eaten = totals.feedEatenKg === null ? dash() : kgText(totals.feedEatenKg);
   const eatenFrom = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.flocks ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.feedEatenFlocks) }) : '';
   const parts = [
     t('halls.day.share.live', 'الحيّ {n}', { n: totals.liveEnd }),
@@ -317,15 +317,15 @@ function TotalsCard({ title, totals, action }: { title: string; totals: DayTotal
           {t('halls.day.rounds_of', '{rounds} من {flocks}', { rounds: totals.rounds, flocks: totals.flocks })}
         </Stat>
         <Stat label={t('round.dead', 'النافق')} action="total-dead">
-          {totals.rounds === 0 ? dash() : <Num>{fmtInt(totals.dead)}</Num>}
+          {totals.dead === null ? dash() : <Num>{fmtInt(totals.dead)}</Num>}
           {missing ? from(totals.rounds) : null}
         </Stat>
         <Stat label={t('round.culled', 'المستبعد')} action="total-culled">
-          {totals.rounds === 0 ? dash() : <Num>{fmtInt(totals.culled)}</Num>}
+          {totals.culled === null ? dash() : <Num>{fmtInt(totals.culled)}</Num>}
           {missing ? from(totals.rounds) : null}
         </Stat>
         <Stat label={t('halls.day.eaten', 'العلف المأكول')} action="total-eaten">
-          {totals.feedEatenFlocks === 0 ? dash() : kgText(totals.feedEatenKg)}
+          {totals.feedEatenKg === null ? dash() : kgText(totals.feedEatenKg)}
           {eatenMissing ? from(totals.feedEatenFlocks) : null}
         </Stat>
         <Stat label={t('halls.day.given', 'العلف النازل')} action="total-given">
@@ -356,7 +356,7 @@ function totalCell(value: ReactNode | null, from: number | null) {
 function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
   const flocks = site.halls.flatMap((hall) => (hall.flock ? [hall.flock] : []));
   const { totals } = site;
-  const eatenDecimals = decimalsOf([...flocks.map((flock) => flock.feedEatenKg), totals.feedEatenFlocks > 0 ? totals.feedEatenKg : null]);
+  const eatenDecimals = decimalsOf([...flocks.map((flock) => flock.feedEatenKg), totals.feedEatenKg]);
   const givenDecimals = decimalsOf([...flocks.map((flock) => flock.feedGivenKg), totals.feedGivenKg]);
   const leftDecimals = decimalsOf(flocks.map((flock) => flock.feedLeftKg));
   const missing = totals.rounds < totals.flocks ? totals.rounds : null;
@@ -395,8 +395,8 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
       cell: of((flock) => flock.liveStart, (n) => <Num>{fmtInt(n)}</Num>),
       total: <Num>{fmtInt(totals.liveStart)}</Num>,
     },
-    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: of((flock) => flock.dead, count), total: totalCell(totals.rounds === 0 ? null : <Num>{fmtInt(totals.dead)}</Num>, missing) },
-    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: of((flock) => flock.culled, count), total: totalCell(totals.rounds === 0 ? null : <Num>{fmtInt(totals.culled)}</Num>, missing) },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: of((flock) => flock.dead, count), total: totalCell(totals.dead === null ? null : <Num>{fmtInt(totals.dead)}</Num>, missing) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: of((flock) => flock.culled, count), total: totalCell(totals.culled === null ? null : <Num>{fmtInt(totals.culled)}</Num>, missing) },
     {
       key: 'live_end',
       header: t('halls.day.col.live_end', 'الحيّ آخر اليوم'),
@@ -410,7 +410,7 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
       header: t('halls.day.col.eaten', 'المأكول (كغم)'),
       kind: 'number',
       cell: of((flock) => flock.feedEatenKg, kg(eatenDecimals)),
-      total: totalCell(totals.feedEatenFlocks === 0 ? null : <Num>{fmtQtyCell(totals.feedEatenKg, eatenDecimals)}</Num>, eatenMissing),
+      total: totalCell(totals.feedEatenKg === null ? null : <Num>{fmtQtyCell(totals.feedEatenKg, eatenDecimals)}</Num>, eatenMissing),
     },
     {
       key: 'given',
@@ -460,7 +460,7 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
 
 /** مجموع كلّ الحقول بصفّ واحد (حين أكثر من حقل). */
 function allColumns(totals: DayTotals): Column<DayTotals>[] {
-  const eatenDecimals = decimalsOf([totals.feedEatenFlocks > 0 ? totals.feedEatenKg : null]);
+  const eatenDecimals = decimalsOf([totals.feedEatenKg]);
   const givenDecimals = decimalsOf([totals.feedGivenKg]);
   const missing = totals.rounds < totals.flocks ? totals.rounds : null;
   return [
@@ -468,14 +468,14 @@ function allColumns(totals: DayTotals): Column<DayTotals>[] {
     { key: 'flocks', header: t('halls.day.col.flocks', 'الأفواج'), kind: 'number', cell: (row) => <Num>{fmtInt(row.flocks)}</Num> },
     { key: 'rounds', header: t('halls.day.rounds_short', 'الجولات المسجَّلة'), kind: 'number', cell: (row) => <Num>{fmtInt(row.rounds)}</Num> },
     { key: 'live_start', header: t('halls.day.col.live_start', 'الحيّ أوّل اليوم'), kind: 'number', cell: (row) => <Num>{fmtInt(row.liveStart)}</Num> },
-    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (row) => totalCell(row.rounds === 0 ? null : <Num>{fmtInt(row.dead)}</Num>, missing) },
-    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (row) => totalCell(row.rounds === 0 ? null : <Num>{fmtInt(row.culled)}</Num>, missing) },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (row) => totalCell(row.dead === null ? null : <Num>{fmtInt(row.dead)}</Num>, missing) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (row) => totalCell(row.culled === null ? null : <Num>{fmtInt(row.culled)}</Num>, missing) },
     { key: 'live_end', header: t('halls.day.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (row) => <Num>{fmtInt(row.liveEnd)}</Num> },
     {
       key: 'eaten',
       header: t('halls.day.col.eaten', 'المأكول (كغم)'),
       kind: 'number',
-      cell: (row) => totalCell(row.feedEatenFlocks === 0 ? null : <Num>{fmtQtyCell(row.feedEatenKg, eatenDecimals)}</Num>, row.feedEatenFlocks < row.flocks ? row.feedEatenFlocks : null),
+      cell: (row) => totalCell(row.feedEatenKg === null ? null : <Num>{fmtQtyCell(row.feedEatenKg, eatenDecimals)}</Num>, row.feedEatenFlocks < row.flocks ? row.feedEatenFlocks : null),
     },
     { key: 'given', header: t('halls.day.col.given', 'النازل (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.feedGivenKg, givenDecimals)}</Num> },
   ];

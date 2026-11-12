@@ -13,7 +13,7 @@ import { loadCycleReport, type CycleDay, type CycleDetail, type CycleKpis, type 
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { FeedChart, MortalityChart, WeightChart } from './charts';
-import { BackLink, backTarget, daysText, flockPath, kindLabel, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // تقرير الدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/report/:flockId بقراءة flock_cycle_report واحدة.
 // أقسامه جداول كلاسيكية (DataTable): الطيور (المسكَّن والنافق والمستبعد والحيّ ونسبة النفوق)، والعلف بكلّ نزول بتاريخه ومستنده وكيلوه وتراكمه (والقيمة
@@ -564,7 +564,7 @@ function ReportView({ flockId }: { flockId: string }) {
   return (
     <div className="flex flex-col gap-5" data-action="report-page">
       <style>{PRINT_STYLE}</style>
-      <BackLink to={back} label={t('halls.kit.back_hall', 'رجوع إلى القاعة')} />
+      <BackLink to={back} label={backLabel(back)} />
       <header className="flex flex-col gap-1">
         {orgName ? (
           <p className="hidden text-sm text-ink-muted print:block" data-action="rep-org">

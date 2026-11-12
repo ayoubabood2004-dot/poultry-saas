@@ -17,7 +17,7 @@ import { t } from '../../lib/i18n';
 import { loadFlockMonth, removeFlockLog, undoVaccination, type DayIssue, type DayVaccine, type FlockMonth, type HallFlock, type MonthDay } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { BackLink, backTarget, bandStyle, daysText, flockPath, kgText, kindLabel, printAs, qtyText, roundPath, STATE_INK, stateLabel, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, bandStyle, daysText, flockPath, kgText, kindLabel, printAs, qtyText, roundPath, STATE_INK, stateLabel, VaccineName } from './parts';
 
 // تقويم القاعة الشهري (0026، كلمة المالك 2026-11-11: «جدول شهر بالضبط، مربّعات كبيرة، يشوف بالضبط أيّ يوم نزل العلف لهم — الطنّ يكفي ثلاثة
 // أيام — وشنو صار كلّ يوم، ويطلع تقارير ويطبعها؛ وخانة للأدوية المعطاة كلّ يوم»): /halls/calendar/:flockId?m=YYYY-MM بقراءة flock_month واحدة
@@ -568,7 +568,7 @@ function CalendarView({ flockId }: { flockId: string }) {
   return (
     <div className="flex flex-col gap-5" data-action="calendar-page">
       <style>{PRINT_STYLE}</style>
-      <BackLink to={back} label={t('halls.kit.back_hall', 'رجوع إلى القاعة')} />
+      <BackLink to={back} label={backLabel(back)} />
       <header className="flex flex-col gap-1">
         {orgName ? (
           <p className="hidden text-sm text-ink-muted print:block" data-action="cal-org">

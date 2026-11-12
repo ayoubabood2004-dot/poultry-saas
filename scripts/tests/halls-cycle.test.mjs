@@ -717,9 +717,10 @@ export default async function (t) {
     });
 
     // ── X: عيّنات القاعدة الحقيقية (fixtures/reports-0027.json من supabase/tests/reports.test بـREPORTS_SAMPLES_OUT=1) ─────────────────
-    // ملفّ وكيل القاعدة؛ في شجرته وحدها حتى الدمج، فالقسم يعمل حين يكون الملفّ في الشجرة (التكامل).
     const REAL_PATH = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'reports-0027.json');
     const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
+    t.ok(REAL !== null, 'X عيّنات القاعدة الحقيقية موجودة (reports-0027.json)');
+    t.eq(REAL === null ? 0 : Object.keys(REAL).filter((name) => name.startsWith('flock_cycle_report')).length, 5, 'X خمس عيّنات للتقرير الكامل (العادي وبلا مال والفجوات والبيّاض والمغلق)');
     if (REAL) {
       for (const key of Object.keys(REAL).filter((name) => name.startsWith('flock_cycle_report'))) {
         await step(`X ${key}`, async () => {
