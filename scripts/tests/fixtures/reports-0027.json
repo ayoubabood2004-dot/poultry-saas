@@ -6,13 +6,13 @@
   "prev": true,
   "sites": [
    {
-    "id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "flock": {
-       "id": "37fada61-8a8e-4805-98c6-35e86e197f46",
+       "id": "a1de6868-b3cf-4f71-8e50-e1ce73bade98",
        "age": 11,
        "fcr": null,
        "age0": 0,
@@ -51,15 +51,16 @@
        "feed_eaten_cum_kg": "2700.000",
        "feed_given_cum_kg": "1500.000",
        "mortality_cum_pct": "0.16",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 1
       },
-      "hall_id": "6983c39e-1f77-485b-97c1-6008af9315b6",
+      "hall_id": "9d7ab048-c6cd-448a-b110-01c1321ab949",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "flock": {
-       "id": "4093d212-0365-4a00-a46d-8f4a73389cf8",
+       "id": "b443fcbe-8a92-45fe-8406-babff82091da",
        "age": 9,
        "fcr": "1.629",
        "age0": 1,
@@ -77,8 +78,8 @@
          "qty": "10",
          "name": "زيت",
          "doc_no": "FI-2026-0011",
-         "item_id": "9819485c-efe6-4e70-abc8-675abfc02d76",
-         "issue_id": "0a4875a9-6f34-4572-81e6-08768b7dcb2d",
+         "item_id": "76c1cc04-b95f-43ab-aaf4-d37e5e1d3d14",
+         "issue_id": "79e1a076-c27d-4c1e-92a3-87df25066dfc",
          "base_unit": "L",
          "cost_kind": "feed"
         },
@@ -87,8 +88,8 @@
          "qty": "2",
          "name": "علف بلا وزن",
          "doc_no": "FI-2026-0012",
-         "item_id": "12a6ed02-af10-4f85-8378-d7cb7d324298",
-         "issue_id": "d697b2b2-971b-4e98-acf6-088189e68079",
+         "item_id": "8b354afa-75c5-4c9d-aaf9-acbe25ddd225",
+         "issue_id": "7e3b53cc-0acf-4245-b642-a3603c1fb5b5",
          "base_unit": "pc",
          "cost_kind": "feed"
         }
@@ -122,15 +123,16 @@
        "feed_eaten_cum_kg": "1260.000",
        "feed_given_cum_kg": "1209.200",
        "mortality_cum_pct": "0.83",
-       "feed_given_unweighed": 1
+       "feed_given_unweighed": 1,
+       "feed_given_cum_unweighed": 3
       },
-      "hall_id": "e1b34914-1140-4a86-a631-100c9fcdab80",
+      "hall_id": "6b0658cc-2b0f-45aa-9f47-85c0c70d1e12",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "flock": null,
-      "hall_id": "48713e81-1f6e-4dc8-85e1-8d08181bc64f",
+      "hall_id": "1b92b094-db45-4560-b977-543593dce08c",
       "hall_name": "قاعة 3"
      }
     ],
@@ -144,17 +146,18 @@
      "live_start": 14960,
      "feed_eaten_kg": "220.000",
      "feed_given_kg": "9.200",
-     "feed_eaten_flocks": 1
+     "feed_eaten_flocks": 1,
+     "feed_given_unweighed": 1
     }
    },
    {
-    "id": "bb3aec5c-3037-43f5-bf77-161a8ac8d623",
+    "id": "f4ff659f-e51c-476e-9968-3b972b401af2",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "flock": {
-       "id": "95d03e67-d59d-40f6-b3de-1bb6156132c1",
+       "id": "d4cbd55d-f2f1-485a-8466-3d5e45138526",
        "age": 150,
        "fcr": null,
        "age0": 140,
@@ -189,9 +192,10 @@
        "feed_eaten_cum_kg": "1425.000",
        "feed_given_cum_kg": "0",
        "mortality_cum_pct": "0.10",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 0
       },
-      "hall_id": "aa1ccfb9-8a0e-461d-ad48-36f12653cf05",
+      "hall_id": "529d770f-a59c-433f-85bd-b2677ad994e4",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -205,17 +209,18 @@
      "live_start": 3996,
      "feed_eaten_kg": "475.000",
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 1
+     "feed_eaten_flocks": 1,
+     "feed_given_unweighed": 0
     }
    },
    {
-    "id": "2708499e-2499-455f-846d-d8326b064cda",
+    "id": "c18856ee-e951-40c9-8882-da477180c92d",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "flock": {
-       "id": "c1ac173f-f049-47ba-8ef0-e1649ef1ebed",
+       "id": "ae30f68b-8060-424b-b6af-707da9168d93",
        "age": 7,
        "fcr": null,
        "age0": 4,
@@ -261,9 +266,10 @@
        "feed_eaten_cum_kg": "105.000",
        "feed_given_cum_kg": "0",
        "mortality_cum_pct": "0.15",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 1
       },
-      "hall_id": "6867e819-260d-4ad1-b474-784ebf30d317",
+      "hall_id": "aeb6c084-e0a3-4a3f-8f0d-5892c97fcb61",
       "hall_name": "قاعة 5"
      }
     ],
@@ -277,7 +283,8 @@
      "live_start": 1999,
      "feed_eaten_kg": "40.000",
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 1
+     "feed_eaten_flocks": 1,
+     "feed_given_unweighed": 0
     }
    }
   ],
@@ -292,7 +299,8 @@
    "live_start": 20955,
    "feed_eaten_kg": "735.000",
    "feed_given_kg": "9.200",
-   "feed_eaten_flocks": 3
+   "feed_eaten_flocks": 3,
+   "feed_given_unweighed": 1
   }
  },
  "halls_day_layer": {
@@ -301,13 +309,13 @@
   "prev": true,
   "sites": [
    {
-    "id": "bb3aec5c-3037-43f5-bf77-161a8ac8d623",
+    "id": "f4ff659f-e51c-476e-9968-3b972b401af2",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "flock": {
-       "id": "95d03e67-d59d-40f6-b3de-1bb6156132c1",
+       "id": "d4cbd55d-f2f1-485a-8466-3d5e45138526",
        "age": 149,
        "fcr": null,
        "age0": 140,
@@ -342,9 +350,10 @@
        "feed_eaten_cum_kg": "950.000",
        "feed_given_cum_kg": "0",
        "mortality_cum_pct": "0.10",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 0
       },
-      "hall_id": "aa1ccfb9-8a0e-461d-ad48-36f12653cf05",
+      "hall_id": "529d770f-a59c-433f-85bd-b2677ad994e4",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -358,7 +367,8 @@
      "live_start": 3998,
      "feed_eaten_kg": "470.000",
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 1
+     "feed_eaten_flocks": 1,
+     "feed_given_unweighed": 0
     }
    }
   ],
@@ -373,7 +383,8 @@
    "live_start": 3998,
    "feed_eaten_kg": "470.000",
    "feed_given_kg": "0",
-   "feed_eaten_flocks": 1
+   "feed_eaten_flocks": 1,
+   "feed_given_unweighed": 0
   }
  },
  "halls_day_closed": {
@@ -382,13 +393,13 @@
   "prev": true,
   "sites": [
    {
-    "id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "flock": {
-       "id": "37fada61-8a8e-4805-98c6-35e86e197f46",
+       "id": "a1de6868-b3cf-4f71-8e50-e1ce73bade98",
        "age": 2,
        "fcr": "0.441",
        "age0": 0,
@@ -430,27 +441,28 @@
        "feed_eaten_cum_kg": "450.000",
        "feed_given_cum_kg": "1000.000",
        "mortality_cum_pct": "0.06",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 0
       },
-      "hall_id": "6983c39e-1f77-485b-97c1-6008af9315b6",
+      "hall_id": "9d7ab048-c6cd-448a-b110-01c1321ab949",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "flock": null,
-      "hall_id": "e1b34914-1140-4a86-a631-100c9fcdab80",
+      "hall_id": "6b0658cc-2b0f-45aa-9f47-85c0c70d1e12",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "flock": null,
-      "hall_id": "48713e81-1f6e-4dc8-85e1-8d08181bc64f",
+      "hall_id": "1b92b094-db45-4560-b977-543593dce08c",
       "hall_name": "قاعة 3"
      },
      {
       "kind": "broiler",
       "flock": {
-       "id": "f804efbd-5800-4e5e-a662-b27aa81f0d8d",
+       "id": "16354765-b8b1-4846-85cb-18edc8769955",
        "age": 14,
        "fcr": null,
        "age0": 0,
@@ -500,9 +512,10 @@
        "feed_eaten_cum_kg": "175.000",
        "feed_given_cum_kg": "200.000",
        "mortality_cum_pct": "0.70",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 0
       },
-      "hall_id": "2d5129d4-9b2a-4990-b476-0e60fe83cf92",
+      "hall_id": "9de4b580-7521-4c0b-9a39-594114b6dab2",
       "hall_name": "قاعة 4"
      }
     ],
@@ -516,17 +529,18 @@
      "live_start": 12987,
      "feed_eaten_kg": "200.000",
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 1
+     "feed_eaten_flocks": 1,
+     "feed_given_unweighed": 0
     }
    },
    {
-    "id": "bb3aec5c-3037-43f5-bf77-161a8ac8d623",
+    "id": "f4ff659f-e51c-476e-9968-3b972b401af2",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "flock": {
-       "id": "95d03e67-d59d-40f6-b3de-1bb6156132c1",
+       "id": "d4cbd55d-f2f1-485a-8466-3d5e45138526",
        "age": 141,
        "fcr": null,
        "age0": 140,
@@ -561,9 +575,10 @@
        "feed_eaten_cum_kg": "0.000",
        "feed_given_cum_kg": "0",
        "mortality_cum_pct": "0.00",
-       "feed_given_unweighed": 0
+       "feed_given_unweighed": 0,
+       "feed_given_cum_unweighed": 0
       },
-      "hall_id": "aa1ccfb9-8a0e-461d-ad48-36f12653cf05",
+      "hall_id": "529d770f-a59c-433f-85bd-b2677ad994e4",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -577,17 +592,18 @@
      "live_start": 4000,
      "feed_eaten_kg": null,
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 0
+     "feed_eaten_flocks": 0,
+     "feed_given_unweighed": 0
     }
    },
    {
-    "id": "2708499e-2499-455f-846d-d8326b064cda",
+    "id": "c18856ee-e951-40c9-8882-da477180c92d",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "flock": null,
-      "hall_id": "6867e819-260d-4ad1-b474-784ebf30d317",
+      "hall_id": "aeb6c084-e0a3-4a3f-8f0d-5892c97fcb61",
       "hall_name": "قاعة 5"
      }
     ],
@@ -601,7 +617,8 @@
      "live_start": 0,
      "feed_eaten_kg": null,
      "feed_given_kg": "0",
-     "feed_eaten_flocks": 0
+     "feed_eaten_flocks": 0,
+     "feed_given_unweighed": 0
     }
    }
   ],
@@ -616,7 +633,8 @@
    "live_start": 16987,
    "feed_eaten_kg": "200.000",
    "feed_given_kg": "0",
-   "feed_eaten_flocks": 1
+   "feed_eaten_flocks": 1,
+   "feed_given_unweighed": 0
   }
  },
  "flock_cycle_report": {
@@ -639,7 +657,9 @@
     "feed_given_kg": "1000.000",
     "feed_eaten_cum_kg": "60.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.17"
+    "mortality_cum_pct": "0.17",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-05",
@@ -659,7 +679,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "140.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.30"
+    "mortality_cum_pct": "0.30",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-06",
@@ -679,7 +701,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "240.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.37"
+    "mortality_cum_pct": "0.37",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-07",
@@ -702,7 +726,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "360.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.50"
+    "mortality_cum_pct": "0.50",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-08",
@@ -722,7 +748,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "500.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.60"
+    "mortality_cum_pct": "0.60",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-09",
@@ -742,7 +770,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "660.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.67"
+    "mortality_cum_pct": "0.67",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-10",
@@ -765,7 +795,9 @@
     "feed_given_kg": "200.000",
     "feed_eaten_cum_kg": "840.000",
     "feed_given_cum_kg": "1200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-11",
@@ -785,7 +817,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1040.000",
     "feed_given_cum_kg": "1200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 2,
+    "feed_given_cum_unweighed": 2
    },
    {
     "on": "2026-11-12",
@@ -808,7 +842,9 @@
     "feed_given_kg": "9.200",
     "feed_eaten_cum_kg": "1260.000",
     "feed_given_cum_kg": "1209.200",
-    "mortality_cum_pct": "0.83"
+    "mortality_cum_pct": "0.83",
+    "feed_given_unweighed": 1,
+    "feed_given_cum_unweighed": 3
    }
   ],
   "feed": {
@@ -836,6 +872,30 @@
      "doc_no": "FI-2026-0010",
      "base_unit": "pc",
      "item_name": "علف بالأكياس"
+    },
+    {
+     "kg": null,
+     "on": "2026-11-11",
+     "qty": "1",
+     "money": {
+      "value": "10000.00"
+     },
+     "cum_kg": "1200.000",
+     "doc_no": "FI-2026-0015",
+     "base_unit": "pc",
+     "item_name": "علف بلا وزن"
+    },
+    {
+     "kg": null,
+     "on": "2026-11-11",
+     "qty": "1",
+     "money": {
+      "value": "10000.00"
+     },
+     "cum_kg": "1200.000",
+     "doc_no": "FI-2026-0016",
+     "base_unit": "pc",
+     "item_name": "علف بلا وزن"
     },
     {
      "kg": "9.200",
@@ -867,7 +927,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "8687cd2e-5b14-4b00-a044-4323d13df4dd",
+     "item_id": "214acd36-81be-4d1a-9fc9-c2865417021a",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -875,28 +935,28 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "94f9250f-054c-480c-b9a0-80ed3d7cd547",
+     "item_id": "689a6ce4-860d-49dc-8b92-afa91ca4b9a1",
      "base_unit": "pc",
      "unweighed": 0
+    },
+    {
+     "kg": null,
+     "qty": "4",
+     "name": "علف بلا وزن",
+     "item_id": "8b354afa-75c5-4c9d-aaf9-acbe25ddd225",
+     "base_unit": "pc",
+     "unweighed": 3
     },
     {
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "9819485c-efe6-4e70-abc8-675abfc02d76",
+     "item_id": "76c1cc04-b95f-43ab-aaf4-d37e5e1d3d14",
      "base_unit": "L",
      "unweighed": 0
-    },
-    {
-     "kg": null,
-     "qty": "2",
-     "name": "علف بلا وزن",
-     "item_id": "12a6ed02-af10-4f85-8378-d7cb7d324298",
-     "base_unit": "pc",
-     "unweighed": 1
     }
    ],
-   "unweighed": 1,
+   "unweighed": 3,
    "consumed_kg": "1260",
    "delivered_kg": "1209.200",
    "remaining_kg": "-50.800"
@@ -932,13 +992,13 @@
    "mortality_pct": "0.83"
   },
   "flock": {
-   "id": "4093d212-0365-4a00-a46d-8f4a73389cf8",
+   "id": "b443fcbe-8a92-45fe-8406-babff82091da",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "e1b34914-1140-4a86-a631-100c9fcdab80",
+   "hall_id": "6b0658cc-2b0f-45aa-9f47-85c0c70d1e12",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
@@ -946,9 +1006,9 @@
    "placed_count": 3000
   },
   "money": {
-   "feed": "575000.00",
+   "feed": "595000.00",
    "other": "0",
-   "total": "580000.00",
+   "total": "600000.00",
    "vaccine": "5000.00",
    "medicine": "0"
   },
@@ -1074,7 +1134,9 @@
     "feed_given_kg": "1000.000",
     "feed_eaten_cum_kg": "60.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.17"
+    "mortality_cum_pct": "0.17",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-05",
@@ -1094,7 +1156,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "140.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.30"
+    "mortality_cum_pct": "0.30",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-06",
@@ -1114,7 +1178,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "240.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.37"
+    "mortality_cum_pct": "0.37",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-07",
@@ -1137,7 +1203,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "360.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.50"
+    "mortality_cum_pct": "0.50",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-08",
@@ -1157,7 +1225,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "500.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.60"
+    "mortality_cum_pct": "0.60",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-09",
@@ -1177,7 +1247,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "660.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.67"
+    "mortality_cum_pct": "0.67",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-10",
@@ -1200,7 +1272,9 @@
     "feed_given_kg": "200.000",
     "feed_eaten_cum_kg": "840.000",
     "feed_given_cum_kg": "1200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-11",
@@ -1220,7 +1294,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1040.000",
     "feed_given_cum_kg": "1200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 2,
+    "feed_given_cum_unweighed": 2
    },
    {
     "on": "2026-11-12",
@@ -1243,7 +1319,9 @@
     "feed_given_kg": "9.200",
     "feed_eaten_cum_kg": "1260.000",
     "feed_given_cum_kg": "1209.200",
-    "mortality_cum_pct": "0.83"
+    "mortality_cum_pct": "0.83",
+    "feed_given_unweighed": 1,
+    "feed_given_cum_unweighed": 3
    }
   ],
   "feed": {
@@ -1265,6 +1343,24 @@
      "doc_no": "FI-2026-0010",
      "base_unit": "pc",
      "item_name": "علف بالأكياس"
+    },
+    {
+     "kg": null,
+     "on": "2026-11-11",
+     "qty": "1",
+     "cum_kg": "1200.000",
+     "doc_no": "FI-2026-0015",
+     "base_unit": "pc",
+     "item_name": "علف بلا وزن"
+    },
+    {
+     "kg": null,
+     "on": "2026-11-11",
+     "qty": "1",
+     "cum_kg": "1200.000",
+     "doc_no": "FI-2026-0016",
+     "base_unit": "pc",
+     "item_name": "علف بلا وزن"
     },
     {
      "kg": "9.200",
@@ -1290,7 +1386,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "8687cd2e-5b14-4b00-a044-4323d13df4dd",
+     "item_id": "214acd36-81be-4d1a-9fc9-c2865417021a",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1298,28 +1394,28 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "94f9250f-054c-480c-b9a0-80ed3d7cd547",
+     "item_id": "689a6ce4-860d-49dc-8b92-afa91ca4b9a1",
      "base_unit": "pc",
      "unweighed": 0
+    },
+    {
+     "kg": null,
+     "qty": "4",
+     "name": "علف بلا وزن",
+     "item_id": "8b354afa-75c5-4c9d-aaf9-acbe25ddd225",
+     "base_unit": "pc",
+     "unweighed": 3
     },
     {
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "9819485c-efe6-4e70-abc8-675abfc02d76",
+     "item_id": "76c1cc04-b95f-43ab-aaf4-d37e5e1d3d14",
      "base_unit": "L",
      "unweighed": 0
-    },
-    {
-     "kg": null,
-     "qty": "2",
-     "name": "علف بلا وزن",
-     "item_id": "12a6ed02-af10-4f85-8378-d7cb7d324298",
-     "base_unit": "pc",
-     "unweighed": 1
     }
    ],
-   "unweighed": 1,
+   "unweighed": 3,
    "consumed_kg": "1260",
    "delivered_kg": "1209.200",
    "remaining_kg": "-50.800"
@@ -1355,13 +1451,13 @@
    "mortality_pct": "0.83"
   },
   "flock": {
-   "id": "4093d212-0365-4a00-a46d-8f4a73389cf8",
+   "id": "b443fcbe-8a92-45fe-8406-babff82091da",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "e1b34914-1140-4a86-a631-100c9fcdab80",
+   "hall_id": "6b0658cc-2b0f-45aa-9f47-85c0c70d1e12",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
@@ -1490,7 +1586,9 @@
     "feed_given_kg": "1000.000",
     "feed_eaten_cum_kg": "100.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.02"
+    "mortality_cum_pct": "0.02",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-02",
@@ -1510,7 +1608,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "250.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.05"
+    "mortality_cum_pct": "0.05",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-03",
@@ -1533,7 +1633,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "450.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.06"
+    "mortality_cum_pct": "0.06",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-04",
@@ -1553,7 +1655,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "450.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.06"
+    "mortality_cum_pct": "0.06",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-05",
@@ -1573,7 +1677,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "700.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.08"
+    "mortality_cum_pct": "0.08",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-06",
@@ -1593,7 +1699,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1000.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.08"
+    "mortality_cum_pct": "0.08",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-07",
@@ -1613,7 +1721,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1000.000",
     "feed_given_cum_kg": "1000.000",
-    "mortality_cum_pct": "0.12"
+    "mortality_cum_pct": "0.12",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-08",
@@ -1636,7 +1746,9 @@
     "feed_given_kg": "500.000",
     "feed_eaten_cum_kg": "1350.000",
     "feed_given_cum_kg": "1500.000",
-    "mortality_cum_pct": "0.13"
+    "mortality_cum_pct": "0.13",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-09",
@@ -1656,7 +1768,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1750.000",
     "feed_given_cum_kg": "1500.000",
-    "mortality_cum_pct": "0.14"
+    "mortality_cum_pct": "0.14",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-10",
@@ -1676,7 +1790,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "2200.000",
     "feed_given_cum_kg": "1500.000",
-    "mortality_cum_pct": "0.15"
+    "mortality_cum_pct": "0.15",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-11",
@@ -1699,7 +1815,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "2700.000",
     "feed_given_cum_kg": "1500.000",
-    "mortality_cum_pct": "0.16"
+    "mortality_cum_pct": "0.16",
+    "feed_given_unweighed": 1,
+    "feed_given_cum_unweighed": 1
    },
    {
     "on": "2026-11-12",
@@ -1719,7 +1837,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "2700.000",
     "feed_given_cum_kg": "1500.000",
-    "mortality_cum_pct": "0.16"
+    "mortality_cum_pct": "0.16",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 1
    }
   ],
   "feed": {
@@ -1766,7 +1886,7 @@
      "kg": "1500.000",
      "qty": "1500",
      "name": "علف بادئ",
-     "item_id": "8687cd2e-5b14-4b00-a044-4323d13df4dd",
+     "item_id": "214acd36-81be-4d1a-9fc9-c2865417021a",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1774,7 +1894,7 @@
      "kg": null,
      "qty": "2",
      "name": "علف بلا وزن",
-     "item_id": "12a6ed02-af10-4f85-8378-d7cb7d324298",
+     "item_id": "8b354afa-75c5-4c9d-aaf9-acbe25ddd225",
      "base_unit": "pc",
      "unweighed": 1
     }
@@ -1815,13 +1935,13 @@
    "mortality_pct": "0.16"
   },
   "flock": {
-   "id": "37fada61-8a8e-4805-98c6-35e86e197f46",
+   "id": "a1de6868-b3cf-4f71-8e50-e1ce73bade98",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-13",
    "status": "active",
    "end_age": 42,
-   "hall_id": "6983c39e-1f77-485b-97c1-6008af9315b6",
+   "hall_id": "9d7ab048-c6cd-448a-b110-01c1321ab949",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -1976,7 +2096,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-03",
@@ -1996,7 +2118,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-04",
@@ -2016,7 +2140,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-05",
@@ -2036,7 +2162,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-06",
@@ -2056,7 +2184,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-07",
@@ -2076,7 +2206,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-08",
@@ -2096,7 +2228,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-09",
@@ -2116,7 +2250,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "0.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.00"
+    "mortality_cum_pct": "0.00",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-10",
@@ -2136,7 +2272,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "480.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.05"
+    "mortality_cum_pct": "0.05",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-11",
@@ -2156,7 +2294,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "950.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.10"
+    "mortality_cum_pct": "0.10",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-12",
@@ -2176,7 +2316,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "1425.000",
     "feed_given_cum_kg": "0",
-    "mortality_cum_pct": "0.10"
+    "mortality_cum_pct": "0.10",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    }
   ],
   "feed": {
@@ -2214,13 +2356,13 @@
    "mortality_pct": "0.10"
   },
   "flock": {
-   "id": "95d03e67-d59d-40f6-b3de-1bb6156132c1",
+   "id": "d4cbd55d-f2f1-485a-8466-3d5e45138526",
    "age0": 140,
    "kind": "layer",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "aa1ccfb9-8a0e-461d-ad48-36f12653cf05",
+   "hall_id": "529d770f-a59c-433f-85bd-b2677ad994e4",
    "closed_on": null,
    "hall_name": "قاعة البيّاض",
    "placed_on": "2026-11-02",
@@ -2316,7 +2458,9 @@
     "feed_given_kg": "200.000",
     "feed_eaten_cum_kg": "50.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.20"
+    "mortality_cum_pct": "0.20",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-21",
@@ -2336,7 +2480,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "105.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.40"
+    "mortality_cum_pct": "0.40",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-22",
@@ -2356,7 +2502,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "105.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.40"
+    "mortality_cum_pct": "0.40",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-23",
@@ -2376,7 +2524,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "105.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.40"
+    "mortality_cum_pct": "0.40",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-24",
@@ -2396,7 +2546,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "105.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.40"
+    "mortality_cum_pct": "0.40",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-25",
@@ -2419,7 +2571,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-26",
@@ -2439,7 +2593,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-27",
@@ -2459,7 +2615,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-28",
@@ -2479,7 +2637,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-29",
@@ -2499,7 +2659,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-30",
@@ -2519,7 +2681,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-10-31",
@@ -2539,7 +2703,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-01",
@@ -2559,7 +2725,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-02",
@@ -2579,7 +2747,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-03",
@@ -2599,7 +2769,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    },
    {
     "on": "2026-11-04",
@@ -2619,7 +2791,9 @@
     "feed_given_kg": "0",
     "feed_eaten_cum_kg": "175.000",
     "feed_given_cum_kg": "200.000",
-    "mortality_cum_pct": "0.70"
+    "mortality_cum_pct": "0.70",
+    "feed_given_unweighed": 0,
+    "feed_given_cum_unweighed": 0
    }
   ],
   "feed": {
@@ -2642,7 +2816,7 @@
      "kg": "200.000",
      "qty": "200",
      "name": "علف بادئ",
-     "item_id": "8687cd2e-5b14-4b00-a044-4323d13df4dd",
+     "item_id": "214acd36-81be-4d1a-9fc9-c2865417021a",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -2683,13 +2857,13 @@
    "mortality_pct": "0.70"
   },
   "flock": {
-   "id": "f804efbd-5800-4e5e-a662-b27aa81f0d8d",
+   "id": "16354765-b8b1-4846-85cb-18edc8769955",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-01",
    "status": "closed",
    "end_age": 42,
-   "hall_id": "2d5129d4-9b2a-4990-b476-0e60fe83cf92",
+   "hall_id": "9de4b580-7521-4c0b-9a39-594114b6dab2",
    "closed_on": "2026-11-04",
    "hall_name": "قاعة 4",
    "placed_on": "2026-10-20",
@@ -2812,14 +2986,14 @@
   "today": "2026-11-12",
   "cycles": [
    {
-    "id": "c1ac173f-f049-47ba-8ef0-e1649ef1ebed",
+    "id": "ae30f68b-8060-424b-b6af-707da9168d93",
     "age": 7,
     "days": 4,
     "kind": "broiler",
     "live": 1997,
     "status": "active",
-    "hall_id": "6867e819-260d-4ad1-b474-784ebf30d317",
-    "site_id": "2708499e-2499-455f-846d-d8326b064cda",
+    "hall_id": "aeb6c084-e0a3-4a3f-8f0d-5892c97fcb61",
+    "site_id": "c18856ee-e951-40c9-8882-da477180c92d",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 5",
@@ -2829,14 +3003,14 @@
     "mortality_pct": "0.15"
    },
    {
-    "id": "4093d212-0365-4a00-a46d-8f4a73389cf8",
+    "id": "b443fcbe-8a92-45fe-8406-babff82091da",
     "age": 9,
     "days": 9,
     "kind": "broiler",
     "live": 2975,
     "status": "active",
-    "hall_id": "e1b34914-1140-4a86-a631-100c9fcdab80",
-    "site_id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "hall_id": "6b0658cc-2b0f-45aa-9f47-85c0c70d1e12",
+    "site_id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 2",
@@ -2846,14 +3020,14 @@
     "mortality_pct": "0.83"
    },
    {
-    "id": "95d03e67-d59d-40f6-b3de-1bb6156132c1",
+    "id": "d4cbd55d-f2f1-485a-8466-3d5e45138526",
     "age": 150,
     "days": 11,
     "kind": "layer",
     "live": 3996,
     "status": "active",
-    "hall_id": "aa1ccfb9-8a0e-461d-ad48-36f12653cf05",
-    "site_id": "bb3aec5c-3037-43f5-bf77-161a8ac8d623",
+    "hall_id": "529d770f-a59c-433f-85bd-b2677ad994e4",
+    "site_id": "f4ff659f-e51c-476e-9968-3b972b401af2",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة البيّاض",
@@ -2863,14 +3037,14 @@
     "mortality_pct": "0.10"
    },
    {
-    "id": "37fada61-8a8e-4805-98c6-35e86e197f46",
+    "id": "a1de6868-b3cf-4f71-8e50-e1ce73bade98",
     "age": 11,
     "days": 12,
     "kind": "broiler",
     "live": 11981,
     "status": "active",
-    "hall_id": "6983c39e-1f77-485b-97c1-6008af9315b6",
-    "site_id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "hall_id": "9d7ab048-c6cd-448a-b110-01c1321ab949",
+    "site_id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 1",
@@ -2880,14 +3054,14 @@
     "mortality_pct": "0.16"
    },
    {
-    "id": "f804efbd-5800-4e5e-a662-b27aa81f0d8d",
+    "id": "16354765-b8b1-4846-85cb-18edc8769955",
     "age": 15,
     "days": 16,
     "kind": "broiler",
     "live": 993,
     "status": "closed",
-    "hall_id": "2d5129d4-9b2a-4990-b476-0e60fe83cf92",
-    "site_id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "hall_id": "9de4b580-7521-4c0b-9a39-594114b6dab2",
+    "site_id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "through": "2026-11-04",
     "closed_on": "2026-11-04",
     "hall_name": "قاعة 4",
@@ -2897,14 +3071,14 @@
     "mortality_pct": "0.70"
    },
    {
-    "id": "3bf948d1-f8df-4a7e-a343-8a2b0fa9611a",
+    "id": "1291bc4b-4b45-47c5-b6f5-ed4d23f00bf2",
     "age": 31,
     "days": 32,
     "kind": "broiler",
     "live": 499,
     "status": "closed",
-    "hall_id": "6983c39e-1f77-485b-97c1-6008af9315b6",
-    "site_id": "6c684a5d-ad14-44af-845a-86c2efe4645f",
+    "hall_id": "9d7ab048-c6cd-448a-b110-01c1321ab949",
+    "site_id": "274065a8-a7b2-4766-9b08-cf2fb74765e2",
     "through": "2026-11-01",
     "closed_on": "2026-11-01",
     "hall_name": "قاعة 1",

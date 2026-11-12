@@ -1,6 +1,7 @@
 // «تقارير القاعات» (0027؛ كلمة المالك 2026-11-12 وأجوبته، docs/HALLS_REPORTS_PLAN.md التسليم ١): التقرير اليوميّ لكلّ القاعات (halls_day)، وتقرير
 // الدورة بالأيّام والأسابيع والأوزان والمؤشّرات (flock_cycle_report)، وقائمة الدورات (flock_cycles). البذرة بالدوالّ الحقيقية يوماً بيوم (setToday وقاعدة
-// الأيّام السبعة): جولات بفجوة وجولة بلا علف ويوم بلا جولة، وأوزان، وصرف علف بالكيلو واللتر والقطعة وبلا وزن وصرف ملغى، ودواء من المخزن وتسجيل دواء، ولقاح
+// الأيّام السبعة): جولات بفجوة وجولة بلا علف ويوم بلا جولة، وأوزان، وصرف علف بالكيلو واللتر والقطعة وبلا وزن (لقاعتين في حقل واحد يوماً واحداً، ولقاعة
+// قبل اليوم بثلاثة أيّام، وملغى) وصرف ملغى، ودواء من المخزن وتسجيل دواء، ولقاح
 // مؤشَّر بصرفه وموعد اليوم وموعد فائت، وفوج بيّاض ببيضه، وفوجان مغلقان (أحدهما في قاعة أُرشفت بعده، والآخر أُغلق يوم سُكّن التالي في قاعته)، وقاعة فارغة،
 // وقاعة مؤرشفة بلا فوج، وحقل بلا قاعات، وعاملا قاعة بنطاق حقل. ونموذج مستقلّ بالأعداد الصحيحة الكبيرة (BigInt) يحسب كلّ تعريف في العقد من الصفوف الخام
 // ويُقارن بالجواب لكلّ يوم ولكلّ هويّة، وقيم محسوبة باليد لأهمّها؛ والرفض والتنقّل والمجاميع والنطاق والحدّ 500؛ وطفرات يكتبها تطبيق ساذج فيمسكها
@@ -25,6 +26,7 @@ const bytes = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const HALLS_DAY = 'select public.halls_day($1) as v';
 const REPORT = 'select public.flock_cycle_report($1) as v';
 const CYCLES = 'select public.flock_cycles() as v';
+const FEED = 'select public.flock_feed($1) as v';
 const FN = {
   day: 'public.halls_day(date)',
   days: 'private.report_days(public.flocks, date)',
@@ -146,6 +148,7 @@ function daysOf(fx, through) {
   let feedDays = 0;
   let lastFeed = null;
   let givenCum = 0n;
+  let givenCumUnweighed = 0;
   let lastWeight = null;
   for (let on = f.placed_on; on <= through; on = addDays(on, 1)) {
     const r = rows.get(on) ?? null;
@@ -165,6 +168,7 @@ function daysOf(fx, through) {
       lastFeed = on;
     }
     givenCum += g.kg;
+    givenCumUnweighed += g.unweighed;
     if (w) lastWeight = { on, avg: units(w.avg, 1) };
     const latest = lastFeed ?? addDays(f.placed_on, -1);
     const yesterday = addDays(on, -1);
@@ -181,7 +185,8 @@ function daysOf(fx, through) {
         live_start: Number(liveStart), dead: r ? r.dead : null, culled: r ? r.culled : null, live_end: Number(liveEnd),
         dead_cum: Number(deadCum), culled_cum: Number(culledCum), mortality_cum_pct: pct(deadCum + culledCum, placed),
         feed_eaten_kg: feed === null ? null : text(feed, 3), feed_eaten_cum_kg: text(feedCum, 3), feed_days: feedDays, feed_span: span,
-        feed_given_kg: text(g.kg, 3), feed_given_unweighed: g.unweighed, feed_given_cum_kg: text(givenCum, 3), feed_left_kg: text(givenCum - feedCum, 3),
+        feed_given_kg: text(g.kg, 3), feed_given_unweighed: g.unweighed, feed_given_cum_kg: text(givenCum, 3), feed_given_cum_unweighed: givenCumUnweighed,
+        feed_left_kg: text(givenCum - feedCum, 3),
         weight: w ? { sample_count: w.sample_count, avg_g: text(units(w.avg, 1), 1) } : null,
         last_weight: lastWeight ? { on_date: lastWeight.on, age: between(lastWeight.on, f.placed_on) + f.age0, avg_g: text(lastWeight.avg, 1) } : null,
         fcr,
@@ -195,7 +200,7 @@ function daysOf(fx, through) {
 }
 
 const DAY_KEYS = ['on', 'age', 'day_no', 'round', 'live_start', 'dead', 'culled', 'live_end', 'mortality_cum_pct', 'feed_eaten_kg', 'feed_eaten_cum_kg',
-  'feed_given_kg', 'feed_given_cum_kg', 'feed_left_kg', 'weight', 'eggs_total', 'hdep', 'note'];
+  'feed_given_kg', 'feed_given_unweighed', 'feed_given_cum_kg', 'feed_given_cum_unweighed', 'feed_left_kg', 'weight', 'eggs_total', 'hdep', 'note'];
 const LISTS = ['issues', 'logs', 'vaccines'];
 
 /** فوج القاعة ليوم on بشكل halls_day (بلا قوائمه الثلاث). */
@@ -217,7 +222,7 @@ function totalsOf(halls) {
     halls: halls.length, flocks: flocks.length, rounds: rounds.length,
     live_start: sumInt(flocks, 'live_start'), dead: rounds.length ? sumInt(rounds, 'dead') : null, culled: rounds.length ? sumInt(rounds, 'culled') : null,
     live_end: sumInt(flocks, 'live_end'), feed_eaten_kg: fed.length ? sumKg(fed, 'feed_eaten_kg') : null, feed_eaten_flocks: fed.length,
-    feed_given_kg: sumKg(flocks, 'feed_given_kg'),
+    feed_given_kg: sumKg(flocks, 'feed_given_kg'), feed_given_unweighed: sumInt(flocks, 'feed_given_unweighed'),
   };
 }
 
@@ -441,6 +446,13 @@ async function scenario(t, db) {
   await issue(F.f2, -2, I.bags, W.feed, '4');
   await issue(F.f2, 0, I.oil, W.raw, '10');
   await issue(F.f2, 0, I.loose, W.feed, '2');
+  // سطور علف بلا وزن تُعدّ ولا تختفي (مراجعة 0027: R27-N1 وR27-N2 وR1 وR5؛ DECISIONS 0019)، بعد البذرة كلّها فأرقام FI قبلها كما هي: كيس بلا وزن لـF5
+  // يوم 9 تشرين الثاني، وآخر لها يوم 10 يُلغى؛ وكيسان لـF2 يوم 11، فيوم 11 في «حقل ألف» قاعتان بسطور بلا وزن (F1 بسطره وF2 بسطرين) وقاعة بلا فوج.
+  await issue(F.f5, -3, I.loose, W.feed, '1');
+  const voidedLoose = await issue(F.f5, -2, I.loose, W.feed, '1');
+  await one(U.manager, 'select public.void_flock_issue($1, $2, $3) as v', [voidedLoose, 'صُرف لقاعة أخرى', uid()]);
+  await issue(F.f2, -1, I.loose, W.feed, '1');
+  await issue(F.f2, -1, I.loose, W.feed, '1');
 
   const raw = await loadRaw(db, org);
   const ALL = () => true;
@@ -474,31 +486,35 @@ async function scenario(t, db) {
     'اليوم: الحقول بترتيب البايت (collate "C")، والقاعة المؤرشفة بلا فوج وFC المغلق قبل اليوم والحقل بلا قاعات لا تظهر، و«قاعة 3» فارغة تظهر');
   const f1Today = flockOf(today, 'قاعة 1');
   t.same(deep(pick(f1Today, ['round', 'dead', 'culled', 'feed_eaten_kg', 'note', 'weight', 'live_start', 'live_end', 'dead_cum', 'culled_cum', 'mortality_cum_pct',
-    'feed_eaten_cum_kg', 'feed_days', 'feed_span', 'feed_given_kg', 'feed_given_unweighed', 'feed_given_cum_kg', 'feed_left_kg', 'last_weight', 'fcr', 'age', 'day_no'])),
+    'feed_eaten_cum_kg', 'feed_days', 'feed_span', 'feed_given_kg', 'feed_given_unweighed', 'feed_given_cum_kg', 'feed_given_cum_unweighed', 'feed_left_kg',
+    'last_weight', 'fcr', 'age', 'day_no'])),
   deep({ round: false, dead: null, culled: null, feed_eaten_kg: null, note: null, weight: null, live_start: 11981, live_end: 11981, dead_cum: 16, culled_cum: 3,
     mortality_cum_pct: '0.16', feed_eaten_cum_kg: '2700', feed_days: 9, feed_span: 11, feed_given_kg: '0', feed_given_unweighed: 0, feed_given_cum_kg: '1500',
-    feed_left_kg: '-1200', last_weight: { on_date: day(-1), age: 10, avg_g: '300.5' }, fcr: null, age: 11, day_no: 12 }),
-  'F1 اليوم بلا جولة: النافق والمستبعد والعلف null لا صفر، والحيّ أوّل اليوم = آخره، والنازل بلا الملغى والباقي سالب، وآخر وزن أمس، ولا معامل تحويل (فجوة 4 تشرين الثاني)');
+    feed_given_cum_unweighed: 1, feed_left_kg: '-1200', last_weight: { on_date: day(-1), age: 10, avg_g: '300.5' }, fcr: null, age: 11, day_no: 12 }),
+  'F1 اليوم بلا جولة: النافق والمستبعد والعلف null لا صفر، والحيّ أوّل اليوم = آخره، والنازل بلا الملغى والباقي سالب وبجانبه سطر أمس بلا وزن (تراكمه 1 وعدد اليوم 0)، وآخر وزن أمس، ولا معامل تحويل (فجوة 4 تشرين الثاني)');
   const f2Today = flockOf(today, 'قاعة 2');
   t.same(deep(pick(f2Today, ['round', 'live_start', 'dead', 'culled', 'live_end', 'mortality_cum_pct', 'feed_eaten_kg', 'feed_eaten_cum_kg', 'feed_given_kg',
-    'feed_given_unweighed', 'feed_given_cum_kg', 'feed_left_kg', 'weight', 'last_weight', 'fcr', 'age', 'eggs_total', 'hdep'])),
+    'feed_given_unweighed', 'feed_given_cum_kg', 'feed_given_cum_unweighed', 'feed_left_kg', 'weight', 'last_weight', 'fcr', 'age', 'eggs_total', 'hdep'])),
   deep({ round: true, live_start: 2979, dead: 3, culled: 1, live_end: 2975, mortality_cum_pct: '0.83', feed_eaten_kg: '220', feed_eaten_cum_kg: '1260',
-    feed_given_kg: '9.2', feed_given_unweighed: 1, feed_given_cum_kg: '1209.2', feed_left_kg: '-50.8', weight: { sample_count: 50, avg_g: '260.0' },
-    last_weight: { on_date: TODAY, age: 9, avg_g: '260.0' }, fcr: '1.629', age: 9, eggs_total: null, hdep: null }),
-  'F2 اليوم: الحيّ أوّل اليوم 3,000 − 21، والزيت 10 لتر × 0.92 = 9.2 كغم والكيس بلا وزن يُعدّ، ومعامل التحويل 1,260,000 ÷ (2,975 × 260) = 1.629');
+    feed_given_kg: '9.2', feed_given_unweighed: 1, feed_given_cum_kg: '1209.2', feed_given_cum_unweighed: 3, feed_left_kg: '-50.8',
+    weight: { sample_count: 50, avg_g: '260.0' }, last_weight: { on_date: TODAY, age: 9, avg_g: '260.0' }, fcr: '1.629', age: 9, eggs_total: null, hdep: null }),
+  'F2 اليوم: الحيّ أوّل اليوم 3,000 − 21، والزيت 10 لتر × 0.92 = 9.2 كغم والكيس بلا وزن يُعدّ (وتراكمه 3 بكيسَي أمس)، ومعامل التحويل 1,260,000 ÷ (2,975 × 260) = 1.629');
   t.same([f2Today.issues.map((x) => [x.name, norm(x.qty), x.base_unit, norm(x.kg), x.cost_kind]), f2Today.logs, f2Today.vaccines],
     [[['زيت', '10', 'L', '9.2', 'feed'], ['علف بلا وزن', '2', 'pc', null, 'feed']], [], []], 'F2 اليوم: الصرف بترتيب ترحيله باللتر والقطعة، بلا لقاح ولا تسجيل');
   t.same(today.sites.map((s) => [s.name, deep(s.totals)]), [
-    ['حقل ألف', deep({ halls: 3, flocks: 2, rounds: 1, live_start: 14960, dead: 3, culled: 1, live_end: 14956, feed_eaten_kg: '220', feed_eaten_flocks: 1, feed_given_kg: '9.2' })],
-    ['حقل البيض', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 3996, dead: 0, culled: 0, live_end: 3996, feed_eaten_kg: '475', feed_eaten_flocks: 1, feed_given_kg: '0' })],
-    ['حقل باء', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 1999, dead: 2, culled: 0, live_end: 1997, feed_eaten_kg: '40', feed_eaten_flocks: 1, feed_given_kg: '0' })],
-  ], 'مجاميع الحقول: النافق من جولة F2 وحدها («من قاعة واحدة»)، والحيّ لكلّ فوج، والعلف ممّن سجّله');
+    ['حقل ألف', deep({ halls: 3, flocks: 2, rounds: 1, live_start: 14960, dead: 3, culled: 1, live_end: 14956, feed_eaten_kg: '220', feed_eaten_flocks: 1, feed_given_kg: '9.2',
+      feed_given_unweighed: 1 })],
+    ['حقل البيض', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 3996, dead: 0, culled: 0, live_end: 3996, feed_eaten_kg: '475', feed_eaten_flocks: 1, feed_given_kg: '0',
+      feed_given_unweighed: 0 })],
+    ['حقل باء', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 1999, dead: 2, culled: 0, live_end: 1997, feed_eaten_kg: '40', feed_eaten_flocks: 1, feed_given_kg: '0',
+      feed_given_unweighed: 0 })],
+  ], 'مجاميع الحقول: النافق من جولة F2 وحدها («من قاعة واحدة»)، والحيّ لكلّ فوج، والعلف ممّن سجّله، والنازل بكيلوه وبسطر F2 بلا وزن اليوم (لا تراكم F1 وF2)');
   t.same(deep(today.totals), deep({ halls: 5, flocks: 4, rounds: 3, live_start: 20955, dead: 5, culled: 1, live_end: 20949, feed_eaten_kg: '735', feed_eaten_flocks: 3,
-    feed_given_kg: '9.2' }), 'مجموع الكلّ = مجموع الحقول');
+    feed_given_kg: '9.2', feed_given_unweighed: 1 }), 'مجموع الكلّ = مجموع الحقول');
   const bNov11 = responses[`manager:${day(-1)}`].sites.find((s) => s.name === 'حقل باء');
   t.same([bNov11.totals.rounds, bNov11.totals.dead, bNov11.totals.culled, bNov11.totals.feed_eaten_kg, bNov11.totals.feed_eaten_flocks, bNov11.totals.live_start,
-    flockOf(responses[`manager:${day(-1)}`], 'قاعة 5').round], [0, null, null, null, 0, 1999, false],
-  'حقل لا جولة فيه ذلك اليوم: النافق والمستبعد والعلف null لا صفر، والحيّ باقٍ');
+    flockOf(responses[`manager:${day(-1)}`], 'قاعة 5').round, bNov11.totals.feed_given_unweighed], [0, null, null, null, 0, 1999, false, 0],
+  'حقل لا جولة فيه ذلك اليوم: النافق والمستبعد والعلف null لا صفر، والحيّ باقٍ، ولا سطر بلا وزن ذلك اليوم (صفر حقيقيّ)');
   const f5Today = flockOf(today, 'قاعة 5');
   t.same(f5Today.vaccines.map((x) => [x.name, x.age_day, x.state, x.vaccination_id]), [['IB', 7, 'today', null]], 'F5 (عمره 4 عند التسكين قبل ثلاثة أيّام): IB يوم العمر 7 موعده اليوم');
   const f1Nov8 = flockOf(responses[`manager:${day(-4)}`], 'قاعة 1');
@@ -511,8 +527,9 @@ async function scenario(t, db) {
   t.same([f1Nov9.weight, deep(f1Nov9.last_weight), f1Nov9.issues, norm(f1Nov9.feed_given_kg), norm(f1Nov9.feed_given_cum_kg)],
     [null, deep({ on_date: day(-4), age: 7, avg_g: '190.0' }), [], '0', '1500'], 'F1 يوم 9: الصرف الملغى لا يظهر ولا يُعدّ، وآخر وزن قبله');
   const f1Nov11 = flockOf(responses[`manager:${day(-1)}`], 'قاعة 1');
-  t.same([f1Nov11.vaccines.map((x) => [x.name, x.age_day, x.state]), f1Nov11.note, norm(f1Nov11.feed_given_kg), f1Nov11.feed_given_unweighed],
-    [[['ND', 10, 'missed']], 'حرارة مرتفعة', '0', 1], 'F1 يوم 11: ND يوم العمر 10 فائت، والملاحظة، والعلف بالقطعة بلا وزن يُعدّ ولا يُجمع');
+  t.same([f1Nov11.vaccines.map((x) => [x.name, x.age_day, x.state]), f1Nov11.note, norm(f1Nov11.feed_given_kg), f1Nov11.feed_given_unweighed,
+    f1Nov11.feed_given_cum_unweighed], [[['ND', 10, 'missed']], 'حرارة مرتفعة', '0', 1, 1],
+  'F1 يوم 11: ND يوم العمر 10 فائت، والملاحظة، والعلف بالقطعة بلا وزن يُعدّ (في يومه وتراكمه) ولا يُجمع');
   const fcrAt = (offset) => flockOf(responses[`manager:${day(offset)}`], 'قاعة 1').fcr;
   t.same([fcrAt(-10), fcrAt(-9), fcrAt(-8), fcrAt(-7), fcrAt(-6)], [null, '0.441', '0.441', null, null],
     'معامل تحويل F1 بقاعدة flock_summary واليوم = D: بلا وزن null، و450,000 ÷ (11,993 × 85) = 0.441 يوم 3 ويوم 4 بلا جولة، ثمّ null بعد فجوة يوم 4');
@@ -558,11 +575,14 @@ async function scenario(t, db) {
     }
     const sum = (k) => got.days.reduce((s, d) => s + (d[k] ?? 0), 0);
     const last = got.days.at(-1);
-    const totals = [sum('dead'), sum('culled'), last.live_end, norm(last.feed_eaten_cum_kg), norm(last.feed_given_cum_kg), norm(last.feed_left_kg), got.kpis.mortality_pct, last.on];
-    const old = [got.birds.dead, got.birds.culled, got.birds.live, norm(got.feed.consumed_kg), norm(got.feed.delivered_kg), norm(got.feed.remaining_kg), got.birds.mortality_pct, got.through];
+    const feedNow = await one(U.manager, FEED, [flockId]);
+    const totals = [sum('dead'), sum('culled'), last.live_end, norm(last.feed_eaten_cum_kg), norm(last.feed_given_cum_kg), norm(last.feed_left_kg), got.kpis.mortality_pct, last.on,
+      sum('feed_given_unweighed'), last.feed_given_cum_unweighed];
+    const old = [got.birds.dead, got.birds.culled, got.birds.live, norm(got.feed.consumed_kg), norm(got.feed.delivered_kg), norm(got.feed.remaining_kg), got.birds.mortality_pct, got.through,
+      got.feed.unweighed, feedNow.unweighed_feed_lines];
     if (canon(totals) !== canon(old)) reportMismatches.push(`${key}: مجاميع الأيّام ${canon(totals)} ≠ المفاتيح القديمة ${canon(old)}`);
   }
-  t.same(reportMismatches, [], `تقرير الدورة: الأيّام والأسابيع والأوزان والمؤشّرات = النموذج لستّة أفواج (قائمة ومغلقة، لحم وبيّاض، عمر 0 و1 و4 و140)، ومجاميع الأيّام = birds وfeed`);
+  t.same(reportMismatches, [], `تقرير الدورة: الأيّام والأسابيع والأوزان والمؤشّرات = النموذج لستّة أفواج (قائمة ومغلقة، لحم وبيّاض، عمر 0 و1 و4 و140)، ومجاميع الأيّام = birds وfeed، وسطور العلف بلا وزن (مجموع أعداد الأيّام وتراكم آخرها) = feed.unweighed = unweighed_feed_lines في flock_feed`);
   const wk = (key) => reports[key].weeks.map((w) => [w.week, w.from_age, w.to_age, w.from_on, w.to_on, w.days, w.round_days, w.dead, w.culled, w.mortality_pct,
     w.mortality_cum_pct, w.live_end, norm(w.feed_eaten_kg), w.feed_g_per_bird_day, w.weight && [w.weight.on_date, w.weight.age, w.weight.avg_g], w.fcr]);
   t.same(wk('f1'), [
@@ -590,6 +610,56 @@ async function scenario(t, db) {
   t.same([hasMoney(reports.f2), hasMoney(await one(U.hallWorker, REPORT, [F.f2])), hasMoney({ days: reports.f2.days, weeks: reports.f2.weeks, weights: reports.f2.weights, kpis: reports.f2.kpis }),
     shown(await call(db, U.hallWorker, REPORT, [F.f5])), shown(await call(db, U.layerWorker, REPORT, [F.f1]))], [true, false, false, 'out_of_scope', 'out_of_scope'],
   'المال لأدوار الكلفة وحدها كما في 0026، والمفاتيح الجديدة بلا مال، والتقرير بنطاق حقل الفوج');
+
+  // ── ٣ب) سطور العلف بلا وزن تُعدّ ولا تختفي (DECISIONS 0019؛ مراجعة 0027: R27-N1 وR27-N2 وR1 وR5): عدد يومها وعددها التراكميّ في التقرير اليوميّ
+  // وأيّام الدورة، وعدد اليوم في مجموع كلّ حقل وكلّ القاعات؛ والملغى لا يُعدّ في أيّ منها.
+  const unweighedOf = (x) => (x ? [x.feed_given_unweighed, x.feed_given_cum_unweighed] : null);
+  const reportDayOf = (report, offset) => report.days.find((d) => d.on === day(offset)) ?? null;
+  const reportDay = (key, offset) => reportDayOf(reports[key], offset);
+  const hallsSum = (halls) => halls.reduce((s, h) => s + (h.flock?.feed_given_unweighed ?? 0), 0);
+  const f5Feed = await one(U.manager, FEED, [F.f5]);
+  const AROUND = [-3, -2, -1, 0];
+  t.same([AROUND.map((o) => unweighedOf(flockOf(responses[`manager:${day(o)}`], 'قاعة 5'))), AROUND.map((o) => unweighedOf(reportDay('f5', o))),
+    reports.f5.days.at(-1).feed_given_cum_unweighed, f5Feed.unweighed_feed_lines],
+  [[[1, 1], [0, 1], [0, 1], [0, 1]], [[1, 1], [0, 1], [0, 1], [0, 1]], 1, 1],
+  'كيس بلا وزن لـF5 يوم 9 (D): عدد يومه 1، ثمّ يوم 10 و11 (D+1 وD+2) واليوم عدد اليوم 0 والتراكميّ 1 لا 0، في التقرير اليوميّ وأيّام الدورة سواءً؛ وتراكم آخر يوم في الدورة = unweighed_feed_lines في flock_feed');
+
+  const nov11 = responses[`manager:${day(-1)}`];
+  const alef11 = nov11.sites.find((s) => s.name === 'حقل ألف');
+  t.same([alef11.halls.map((h) => [h.hall_name, h.flock && h.flock.feed_given_unweighed, h.flock && norm(h.flock.feed_given_kg)]),
+    nov11.sites.map((s) => [s.name, s.totals.feed_given_unweighed, hallsSum(s.halls), norm(s.totals.feed_given_kg), s.totals.halls]),
+    [nov11.totals.feed_given_unweighed, hallsSum(nov11.sites.flatMap((s) => s.halls)), norm(nov11.totals.feed_given_kg)],
+    [responses[`hallWorker:${day(-1)}`].sites.map((s) => [s.name, s.totals.feed_given_unweighed]), responses[`hallWorker:${day(-1)}`].totals.feed_given_unweighed]],
+  [[['قاعة 1', 1, '0'], ['قاعة 2', 2, '0'], ['قاعة 3', null, null]],
+    [['حقل ألف', 3, 3, '0', 3], ['حقل البيض', 0, 0, '0', 1], ['حقل باء', 0, 0, '0', 1]],
+    [3, 3, '0'],
+    [[['حقل ألف', 3]], 3]],
+  'يوم 11: قاعتا «حقل ألف» بسطور بلا وزن (F1 سطر وF2 سطران) و«قاعة 3» بلا فوج: مجموع الحقل 3 = مجموع قاعاته والقاعة الفارغة لا تضيف شيئاً، ومجموع الكلّ 3 = مجموع القاعات كلّها، والكيلو صفر فلا يقول المجموع «النازل 0» وحده؛ وعامل القاعة بنطاق حقله يرى مجموعه');
+  const sumProblems = [];
+  let unweighedTotals = 0;
+  for (const [label, r] of Object.entries(responses)) {
+    for (const s of r.sites) if (s.totals.feed_given_unweighed !== hallsSum(s.halls)) sumProblems.push(`${label} ${s.name}: ${s.totals.feed_given_unweighed} ≠ ${hallsSum(s.halls)}`);
+    const all = hallsSum(r.sites.flatMap((s) => s.halls));
+    if (r.totals.feed_given_unweighed !== all) sumProblems.push(`${label}: ${r.totals.feed_given_unweighed} ≠ ${all}`);
+    if (all > 0) unweighedTotals += 1;
+  }
+  t.same([sumProblems.slice(0, 3), unweighedTotals], [[], 5],
+    `في كلّ جواب (${Object.keys(responses).length}): سطور الحقل بلا وزن = مجموع قاعاته، وسطور الكلّ = مجموع القاعات كلّها؛ ومجموع غير صفريّ في 5 أجوبة (يوم 9 و11 واليوم للمدير، ويوم 11 واليوم لعامل القاعة، فـF5 يوم 9 خارج نطاقه، والملغى يوم 10 صفر)`);
+
+  const nov10 = responses[`manager:${day(-2)}`];
+  const f5Nov10 = flockOf(nov10, 'قاعة 5');
+  t.same([f5Nov10.issues, unweighedOf(f5Nov10), unweighedOf(reportDay('f5', -2)), nov10.sites.find((s) => s.name === 'حقل باء').totals.feed_given_unweighed,
+    nov10.totals.feed_given_unweighed, f5Feed.issues.map((x) => [x.issued_on, x.status, x.item_name, norm(x.qty)])],
+  [[], [0, 1], [0, 1], 0, 0, [[day(-2), 'void', 'علف بلا وزن', '1'], [day(-3), 'posted', 'علف بلا وزن', '1']]],
+  'الصرف الملغى بسطر بلا وزن (F5 يوم 10) لا يظهر في صرف يومه، ولا يُعدّ في عدد يومه ولا في التراكميّ (التقرير اليوميّ وأيّام الدورة) ولا في مجموع الحقل والكلّ؛ وflock_feed يعرضه ملغى ولا يعدّه');
+  // العيّنات (REPORTS_SAMPLES_OUT أدناه) تحمل ما تحتاجه الشاشات من هذا: فوج تراكمه موجب وعدد يومه صفر، ومجموع حقل وكلّ موجب، وأيّام دورة بعدد يوم موجب ثمّ
+  // تراكم موجب بعده.
+  const laterCum = (report) => report.days.some((d, i) => d.feed_given_unweighed > 0 && report.days.slice(i + 1).some((x) => x.feed_given_cum_unweighed > 0));
+  t.same([
+    today.sites.flatMap((s) => s.halls).filter((h) => h.flock && h.flock.feed_given_unweighed === 0 && h.flock.feed_given_cum_unweighed > 0).map((h) => h.hall_name),
+    today.sites.filter((s) => s.totals.feed_given_unweighed > 0).map((s) => s.name), today.totals.feed_given_unweighed > 0, [laterCum(reports.f1), laterCum(reports.f2)],
+  ], [['قاعة 1', 'قاعة 5'], ['حقل ألف'], true, [true, true]],
+  'العيّنات للشاشات: اليوم «قاعة 1» و«قاعة 5» بتراكم موجب وعدد يوم صفر، و«حقل ألف» والكلّ بمجموع موجب، وأيّام دورتَي F1 (الفجوات) وF2 بعدد يوم موجب ثمّ تراكم بعده');
 
   // ── ٤) قائمة الدورات: الترتيب والنطاق والحيّ والنفوق بالنموذج، والحدّ 500.
   const cyclesMismatches = [];
@@ -698,6 +768,41 @@ async function scenario(t, db) {
   await caught('ضابط النموذج: الحيّ بلا النافق في قائمة الدورات يُفشل مقارنتها بالنموذج',
     [[FN.cycles, [["'live', c.placed_count - b.gone", "'live', c.placed_count"]]]],
     asManager(CYCLES, [], (v) => same(v, { today: TODAY, more: false, cycles: cyclesModel(raw, TODAY, ALL) })), (v) => v === false);
+
+  // ── طفرات سطور العلف بلا وزن (مراجعة 0027): كلّ تطبيق ساذج يُسقط السطر من الأيّام بعده أو من المجاميع يمسكه فحص في ٢ أو ٣ب.
+  const CUM = 'sum(y.given_unweighed) over c as given_cum_unweighed';
+  await caught('العدد التراكميّ = عدد اليوم (عيب R27-N1) يُسقط كيس F5 من يوم 11 فتراكمه 0',
+    [[FN.days, [[CUM, 'y.given_unweighed as given_cum_unweighed']]]], asManager(HALLS_DAY, [day(-1)], (v) => flockOf(v, 'قاعة 5').feed_given_cum_unweighed), (v) => v === 0);
+  await caught('التراكم حتى أمس (بلا يومه) يجعل تراكم F5 يوم كيسها نفسه 0 في أيّام الدورة',
+    [[FN.days, [[CUM, 'coalesce(sum(y.given_unweighed) over (order by y.d rows between unbounded preceding and 1 preceding), 0) as given_cum_unweighed']]]],
+    asManager(REPORT, [F.f5], (v) => reportDayOf(v, -3).feed_given_cum_unweighed), (v) => v === 0);
+  await caught('بلا شرط الترحيل يُعدّ كيس F5 الملغى يوم 10 في عدد يومه وتراكمه',
+    [[FN.days, [["x.status = 'posted' and l.cost_kind = 'feed'", "l.cost_kind = 'feed'"]]]], asManager(HALLS_DAY, [day(-2)], (v) => unweighedOf(flockOf(v, 'قاعة 5'))),
+    (v) => same(v, [1, 2]));
+  await caught('مجموع الحقل بعدّ الأفواج لا بجمع سطورها يقول يوم 11 إنّ في «حقل ألف» سطرين بلا وزن وفيه ثلاثة',
+    [[FN.totals, [["coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int", "count(e.h -> 'flock' ->> 'feed_given_unweighed')::int"]]]],
+    asManager(HALLS_DAY, [day(-1)], (v) => v.sites.find((s) => s.name === 'حقل ألف').totals.feed_given_unweighed), (v) => v === 2);
+  await caught('مجموع الحقل من العدد التراكميّ يقول اليوم إنّ في «حقل ألف» أربعة سطور بلا وزن وفيه سطر واحد',
+    [[FN.totals, [["sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int)", "sum((e.h -> 'flock' ->> 'feed_given_cum_unweighed')::int)"]]]],
+    asManager(HALLS_DAY, [TODAY], (v) => v.sites.find((s) => s.name === 'حقل ألف').totals.feed_given_unweighed), (v) => v === 4);
+  await caught('بلا coalesce يصير مجموع يوم بلا أفواج (28 أيلول) null لا صفراً',
+    [[FN.totals, [["coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int", "sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int)::int"]]]],
+    asManager(HALLS_DAY, [day(-45)], (v) => v.totals.feed_given_unweighed), (v) => v === null);
+  await caught('ضابط النموذج: العدد التراكميّ بلا تراكم يُفشل مقارنة halls_day بالنموذج في الأيّام التي يسبقها سطر بلا وزن (10 و11 واليوم)',
+    [[FN.days, [[CUM, 'y.given_unweighed as given_cum_unweighed']]]],
+    ({ attempt }) => attempt(U.manager, async (q) => {
+      const differ = [];
+      for (let on = day(-12); on <= TODAY; on = addDays(on, 1)) {
+        if (!same(withoutLists((await q(HALLS_DAY, [on])).rows[0].v), hallsDayModel(raw, on, TODAY, ALL))) differ.push(on);
+      }
+      return differ;
+    }), (v) => same(v, [day(-2), day(-1), TODAY]));
+  await caught('ضابط النموذج: عدد اليوم مكان التراكميّ في أيّام التقرير يُفشل مقارنتها بالنموذج',
+    [[FN.report, [["'feed_given_cum_unweighed', r.given_cum_unweighed", "'feed_given_cum_unweighed', r.given_unweighed"]]]],
+    asManager(REPORT, [F.f5], (v) => same(v.days, daysOf(raw.flocks.get(F.f5), TODAY).map((d) => pick(d.view, DAY_KEYS)))), (v) => v === false);
+  await caught('ضابط النموذج: مجموع السطور بلا وزن بعدّ الأفواج يُفشل مقارنة halls_day بالنموذج يوم 11',
+    [[FN.totals, [["coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int", "count(e.h -> 'flock' ->> 'feed_given_unweighed')::int"]]]],
+    asManager(HALLS_DAY, [day(-1)], (v) => same(withoutLists(v), hallsDayModel(raw, day(-1), TODAY, ALL))), (v) => v === false);
 
   // ── عيّنات القاعدة الحقيقية للشاشات: REPORTS_SAMPLES_OUT=1.
   if (process.env.REPORTS_SAMPLES_OUT) {

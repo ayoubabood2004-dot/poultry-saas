@@ -14,14 +14,17 @@
 --     (المجاميع من القاعات المعروضة).
 -- التعريفات (العقد 0027)، لفوج ويوم D بين التسكين و«حتى» (الإغلاق، وإلّا اليوم): العمر = D − التسكين + عمره عند التسكين، ورقم اليوم = D − التسكين + 1؛
 --   والحيّ أوّل اليوم = المسكَّن − نافق ما قبل D ومستبعده، وآخره = أوّله − نافق D ومستبعده؛ والنفوق التراكميّ ٪ من المسكَّن؛ والعلف المأكول من الجولة،
---   والنازل من سطور العلف المرحَّلة بتاريخ صرفها (الملغى لا يُعدّ، وما لا كتلة له يُعدّ ولا يُجمع)، والباقي = النازل التراكميّ − المأكول التراكميّ (قد
---   يكون سالباً)؛ ومعامل التحويل بقاعدة flock_summary (0012) واليوم = D: العلف التراكميّ × 1000 ÷ (الحيّ آخر D × آخر وزن حتى D) حين سُجّل العلف كلّ يوم من
---   التسكين حتى أمس D (وD إن سُجّل)؛ والأسبوع n = الأعمار 7(n−1)+1 إلى 7n والعمر صفر في الأوّل؛ وEPEF = الحيوية ٪ × الوزن بالغرام ÷ (10 × العمر ×
---   معامل التحويل)، أي الحيوية × الوزن بالكيلو ÷ (العمر × معامل التحويل) × 100.
+--   والنازل من سطور العلف المرحَّلة بتاريخ صرفها (الملغى لا يُعدّ، وما لا كتلة له لا يُجمع في الكيلو ويُعدّ في يومه وفي كلّ يوم بعده)، والباقي = النازل
+--   التراكميّ − المأكول التراكميّ (قد يكون سالباً)؛ ومعامل التحويل بقاعدة flock_summary (0012) واليوم = D: العلف التراكميّ × 1000 ÷ (الحيّ آخر D × آخر وزن
+--   حتى D) حين سُجّل العلف كلّ يوم من التسكين حتى أمس D (وD إن سُجّل)؛ والأسبوع n = الأعمار 7(n−1)+1 إلى 7n والعمر صفر في الأوّل؛ وEPEF = الحيوية ٪ ×
+--   الوزن بالغرام ÷ (10 × العمر × معامل التحويل)، أي الحيوية × الوزن بالكيلو ÷ (العمر × معامل التحويل) × 100.
 -- قرارات بلا سؤال (داخل الخطوط الحمر):
 --   • القيمة الغائبة null لا صفر: نافق يوم بلا جولة ومستبعده وعلفه، ونافق أسبوع بلا جولة ومستبعده ونفوقه ٪، وعلف أسبوع لم يُسجَّل فيه علف، ومجموع النافق
 --     والمستبعد لحقل لا جولة فيه ذلك اليوم، ومجموع العلف المأكول حين لم يسجّله فوج؛ والمجموع يحمل عدد ما جُمع منه (rounds وfeed_eaten_flocks) فتقول
 --     الشاشة «من N قاعة». والنازل صفر حقيقيّ حين لم يُصرف شيء ('0').
+--   • سطر العلف بلا كتلة يُعدّ ولا يختفي (DECISIONS 0019): الكيلو لا يجمعه، فبجانب النازل عدد سطوره بلا وزن في اليوم (feed_given_unweighed) وحتى اليوم
+--     (feed_given_cum_unweighed) في التقرير اليوميّ وأيّام الدورة، وعدد اليوم في مجموع كلّ حقل وكلّ القاعات؛ فلا يُقرأ النازل التراكميّ ولا الباقي في
+--     القاعة كاملين وفيها سطر لم يُوزن (مراجعة 0027: كان العدد ليوم الصرف وحده، فيختفي السطر من الأيّام بعده ومن المجاميع).
 --   • كلّ مؤشّر بقسمة يُحسب حين تكون مدخلاته كلّها أكبر من صفر، وإلّا null (القارئ لا يرمي بسطر واحد، درس 0016): معامل تحويل قُرِّب إلى صفر، وحيوية
 --     قُرِّبت إلى صفر، وحيّ صفر؛ وغرام العلف لكلّ طير في اليوم '0.0' حين سُجّل علف مجموعه صفر.
 -- تراجع: rollback_0027.sql — يُسقط halls_day وflock_cycles والمساعدات الثلاثة، ويرجّع جسم flock_cycle_report كما في 0026 حرفاً بحرف. لا طريق رفض: 0027
@@ -32,12 +35,13 @@ set lock_timeout = '5s';
 
 -- ─── أ. أرقام كلّ يوم لفوج: تعريف واحد للتقرير اليوميّ وتقرير الدورة ───────────────────────────────────────────────────────────
 -- صفّ لكلّ يوم من التسكين حتى p_through (الأقدم أوّلاً)، وكلّ تراكم بما في اليوم أو قبله. الجولة الغائبة: نافقها ومستبعدها وعلفها null ولا تُنقص الحيّ.
--- والعلف النازل من سطور العلف المرحَّلة (cost_kind = 'feed') بكتلتها (issue_mass_kg: ما لا كتلة له null، يُعدّ في given_unweighed ولا يُجمع)؛ والوزن
--- ليوم وزنه، وآخر وزن حتى اليوم؛ ومعامل التحويل بقاعدة flock_summary (0012) واليوم = D؛ ونسبة الإنتاج للبيّاض وحده من الحيّ أوّل اليوم (القاعدة ٣٢).
+-- والعلف النازل من سطور العلف المرحَّلة (cost_kind = 'feed') بكتلتها (issue_mass_kg: ما لا كتلة له null، لا يُجمع ويُعدّ في given_unweighed ليومه وفي
+-- given_cum_unweighed ليومه ولكلّ يوم بعده)؛ والوزن ليوم وزنه، وآخر وزن حتى اليوم؛ ومعامل التحويل بقاعدة flock_summary (0012) واليوم = D؛ ونسبة الإنتاج
+-- للبيّاض وحده من الحيّ أوّل اليوم (القاعدة ٣٢).
 create or replace function private.report_days(f public.flocks, p_through date)
 returns table (on_date date, age int, day_no int, has_round boolean, live_start bigint, dead int, culled int, live_end bigint,
   dead_cum bigint, culled_cum bigint, mortality_cum_pct text, feed_kg numeric, feed_cum_kg numeric, feed_days int, feed_span int,
-  given_kg numeric, given_unweighed int, given_cum_kg numeric, weight_count int, weight_avg_g numeric, last_weight_on date,
+  given_kg numeric, given_unweighed int, given_cum_kg numeric, given_cum_unweighed int, weight_count int, weight_avg_g numeric, last_weight_on date,
   last_weight_avg_g numeric, fcr numeric, eggs_total int, eggs_broken int, eggs_cracked int, hdep text, note text)
 language sql stable security definer set search_path = public, pg_temp as $$
   with g as (
@@ -65,6 +69,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       count(y.feed_kg) over c as feed_days,
       max(y.d) filter (where y.feed_kg is not null) over c as last_feed,
       sum(y.given_kg) over c as given_cum_kg,
+      sum(y.given_unweighed) over c as given_cum_unweighed,
       max(y.d) filter (where y.avg_g is not null) over c as last_weight_on
     from y
     window c as (order by y.d rows unbounded preceding)
@@ -77,7 +82,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
   )
   select v.d, (v.d - f.placed_on + f.age_days_at_placement)::int, (v.d - f.placed_on + 1)::int, v.has_round, v.live_start::bigint, v.dead, v.culled,
     v.live_end::bigint, v.dead_cum::bigint, v.culled_cum::bigint, private.flock_pct(v.dead_cum + v.culled_cum, f.placed_count), v.feed_kg, v.feed_cum_kg,
-    v.feed_days::int, v.feed_span::int, v.given_kg, v.given_unweighed::int, v.given_cum_kg, v.sample_count, v.avg_g, v.last_weight_on, v.last_weight_avg_g,
+    v.feed_days::int, v.feed_span::int, v.given_kg, v.given_unweighed::int, v.given_cum_kg, v.given_cum_unweighed::int, v.sample_count, v.avg_g,
+    v.last_weight_on, v.last_weight_avg_g,
     case when v.feed_days > 0 and v.feed_days = v.feed_span and v.feed_cum_kg > 0 and v.last_weight_avg_g is not null and v.live_end > 0
       then private._mul_div_round(v.feed_cum_kg, 1000, v.live_end * v.last_weight_avg_g, 3) end,
     v.eggs_total, v.eggs_broken, v.eggs_cracked,
@@ -88,8 +94,9 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- ─── ب. فوج القاعة ليوم (التقرير اليوميّ) ─────────────────────────────────────────────────────────────────────────────
--- رأسه، وأرقام يومه من report_days، وما نزل له ذلك اليوم (الصرف المرحَّل بلا صرف اللقاح المؤشَّر، بترتيب تقويم القاعة)، والأدوية المسجّلة بلا مخزن،
--- ولقاحات يومه كما في flock_month حرفاً (المؤشَّر يوم تأشيره، وغير المؤشَّر يوم موعده بحالته من p_today). البيض ونسبة الإنتاج للبيّاض وحده.
+-- رأسه، وأرقام يومه من report_days (ومنها عدد سطور العلف بلا وزن في يومه feed_given_unweighed وحتى يومه feed_given_cum_unweighed)، وما نزل له ذلك اليوم
+-- (الصرف المرحَّل بلا صرف اللقاح المؤشَّر، بترتيب تقويم القاعة)، والأدوية المسجّلة بلا مخزن، ولقاحات يومه كما في flock_month حرفاً (المؤشَّر يوم تأشيره،
+-- وغير المؤشَّر يوم موعده بحالته من p_today). البيض ونسبة الإنتاج للبيّاض وحده.
 create or replace function private.report_day(f public.flocks, p_on date, p_today date) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object(
@@ -99,7 +106,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
     'dead_cum', r.dead_cum, 'culled_cum', r.culled_cum, 'mortality_cum_pct', r.mortality_cum_pct,
     'feed_eaten_kg', round(r.feed_kg, 3)::text, 'feed_eaten_cum_kg', r.feed_cum_kg::text, 'feed_days', r.feed_days, 'feed_span', r.feed_span,
     'feed_given_kg', r.given_kg::text, 'feed_given_unweighed', r.given_unweighed, 'feed_given_cum_kg', r.given_cum_kg::text,
-    'feed_left_kg', (r.given_cum_kg - r.feed_cum_kg)::text,
+    'feed_given_cum_unweighed', r.given_cum_unweighed, 'feed_left_kg', (r.given_cum_kg - r.feed_cum_kg)::text,
     'weight', case when r.weight_avg_g is not null then jsonb_build_object('sample_count', r.weight_count, 'avg_g', round(r.weight_avg_g, 1)::text) end,
     'last_weight', case when r.last_weight_on is not null then jsonb_build_object('on_date', r.last_weight_on,
       'age', r.last_weight_on - f.placed_on + f.age_days_at_placement, 'avg_g', round(r.last_weight_avg_g, 1)::text) end,
@@ -137,7 +144,8 @@ $$;
 
 -- ─── ج. مجاميع القاعات المعروضة (حقل أو الكلّ) ───────────────────────────────────────────────────────────────────────
 -- من القاعات نفسها كما تُعرض، فالمجموع = مجموع قاعاته دائماً: الحيّ أوّل اليوم وآخره لكلّ فوج؛ والنافق والمستبعد لما فيه جولة (null حين لا جولة)؛ والعلف
--- المأكول لما سجّله (null حين لم يسجّله فوج)؛ والنازل للكلّ؛ وعدد القاعات والأفواج والجولات ومن سجّل العلف.
+-- المأكول لما سجّله (null حين لم يسجّله فوج)؛ والنازل للكلّ، وعدد سطوره بلا وزن في اليوم (feed_given_unweighed: صفر حين لا سطر، والقاعة بلا فوج لا تضيف
+-- شيئاً)؛ وعدد القاعات والأفواج والجولات ومن سجّل العلف.
 create or replace function private.halls_day_totals(p_halls jsonb) returns jsonb
 language sql immutable set search_path = pg_catalog, pg_temp as $$
   select jsonb_build_object(
@@ -150,7 +158,8 @@ language sql immutable set search_path = pg_catalog, pg_temp as $$
     'live_end', coalesce(sum((e.h -> 'flock' ->> 'live_end')::bigint), 0),
     'feed_eaten_kg', round(sum((e.h -> 'flock' ->> 'feed_eaten_kg')::numeric), 3)::text,
     'feed_eaten_flocks', count(e.h -> 'flock' ->> 'feed_eaten_kg')::int,
-    'feed_given_kg', coalesce(sum((e.h -> 'flock' ->> 'feed_given_kg')::numeric), 0)::text)
+    'feed_given_kg', coalesce(sum((e.h -> 'flock' ->> 'feed_given_kg')::numeric), 0)::text,
+    'feed_given_unweighed', coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int)
   from jsonb_array_elements(coalesce(p_halls, '[]'::jsonb)) as e(h)
 $$;
 
@@ -204,10 +213,11 @@ $$;
 
 -- ─── هـ. تقرير الدورة: المفاتيح القديمة كما هي، ومعها الأيّام والأسابيع والأوزان والمؤشّرات ─────────────────────────────────────────
 -- تقرير الدورة: الطيور، وكلّ علف نزل بتاريخه وتراكمه ومجموعه لكلّ مادّة والمصروف والمستهلك والباقي، والأدوية (صرفاً وتسجيلاً)، واللقاحات
--- (المخطّط والمنفَّذ)، والمال لأدوار الكلفة وحدها (private.mask)؛ و(0027) days: كلّ يوم من التسكين إلى «حتى» بتعريفات التقرير اليوميّ (report_days)،
--- وweeks: الأسبوع n للأعمار 7(n−1)+1 إلى 7n والعمر صفر في الأوّل، نفوقه ٪ من الحيّ أوّل يومه الأوّل، وتراكمه وحيّه وآخر وزن فيه ومعامل التحويل في يومه
--- الأخير، وغرام العلف لكلّ طير في اليوم = علف أيّامه المسجّلة × 1000 ÷ مجموع الحيّ أوّل تلك الأيّام؛ وweights؛ وkpis في «حتى»: الحيوية = 100 − النفوق،
--- والعلف لكلّ طير مسكَّن، ومعامل التحويل، وEPEF. مجاميع الأيّام = مفاتيح birds وfeed.
+-- (المخطّط والمنفَّذ)، والمال لأدوار الكلفة وحدها (private.mask)؛ و(0027) days: كلّ يوم من التسكين إلى «حتى» بتعريفات التقرير اليوميّ (report_days،
+-- ومنها عدد سطور العلف بلا وزن في يومه وحتى يومه)، وweeks: الأسبوع n للأعمار 7(n−1)+1 إلى 7n والعمر صفر في الأوّل، نفوقه ٪ من الحيّ أوّل يومه الأوّل،
+-- وتراكمه وحيّه وآخر وزن فيه ومعامل التحويل في يومه الأخير، وغرام العلف لكلّ طير في اليوم = علف أيّامه المسجّلة × 1000 ÷ مجموع الحيّ أوّل تلك الأيّام؛
+-- وweights؛ وkpis في «حتى»: الحيوية = 100 − النفوق، والعلف لكلّ طير مسكَّن، ومعامل التحويل، وEPEF. مجاميع الأيّام = مفاتيح birds وfeed (وعدد سطور العلف
+-- بلا وزن حتى «حتى» = feed.unweighed).
 create or replace function public.flock_cycle_report(p_flock uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -283,7 +293,8 @@ begin
     'days', coalesce((select jsonb_agg(jsonb_build_object('on', r.on_date, 'age', r.age, 'day_no', r.day_no, 'round', r.has_round,
         'live_start', r.live_start, 'dead', r.dead, 'culled', r.culled, 'live_end', r.live_end, 'mortality_cum_pct', r.mortality_cum_pct,
         'feed_eaten_kg', round(r.feed_kg, 3)::text, 'feed_eaten_cum_kg', r.feed_cum_kg::text, 'feed_given_kg', r.given_kg::text,
-        'feed_given_cum_kg', r.given_cum_kg::text, 'feed_left_kg', (r.given_cum_kg - r.feed_cum_kg)::text,
+        'feed_given_unweighed', r.given_unweighed, 'feed_given_cum_kg', r.given_cum_kg::text, 'feed_given_cum_unweighed', r.given_cum_unweighed,
+        'feed_left_kg', (r.given_cum_kg - r.feed_cum_kg)::text,
         'weight', case when r.weight_avg_g is not null then jsonb_build_object('sample_count', r.weight_count, 'avg_g', round(r.weight_avg_g, 1)::text) end,
         'eggs_total', case when f.kind = 'layer' then r.eggs_total end, 'hdep', r.hdep, 'note', r.note) order by r.on_date) from r), '[]'::jsonb),
     'weeks', coalesce((select jsonb_agg(wk.j order by wk.week) from wk), '[]'::jsonb),
