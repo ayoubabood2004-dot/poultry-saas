@@ -11,6 +11,8 @@
 //   52ca9fd بمفاتيح المحلّل وحدها.
 // RR27 المراجعة الثانية لـ0027 (على 781f78b): مجموع «النازل» في جدول الأيّام تحته سطور الدورة بلا وزن كصفوفه، وجملة فوق الجدول للتراكميّ والباقي معاً
 //   (S3b)؛ و«العلف الباقي» السالب على الموزون وحده حين نزل علف بلا وزن (F2a). كلّ فحص منها يفشل على 781f78b.
+// V2-G3 المراجعة الثالثة لـ0027 (على 8e32229): عدد السطور بلا وزن في الجملة فوق جدول الأيّام فاعلٌ مرفوع لا مفعولٌ مرفوع خطأً («لا يدخل في النازل
+//   التراكميّ ولا في الباقي في القاعة سطران بلا وزن.»)، بحالة السطرين من عيّنة قاعة 2 (S3 وRR27-S3b). يفشل على 8e32229.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -840,6 +842,26 @@ export default async function (t) {
         t.same(agree, samples.map(() => [true, true]), 'S2 عدد الجولات تحت «الحيّ» وجملة الأيّام بلا جولة فوق جدول الأيّام من العدّ نفسه في كلّ عيّنة');
       });
 
+      // V2-G3-ACCUSATIVE (مراجعة 0027 الثالثة، على 8e32229): عدد السطور في جملة فوق جدول الأيّام فاعلٌ بالرفع لا مفعول «يشملان» بالرفع خطأً: «لا يدخل في
+      // النازل التراكميّ ولا في الباقي في القاعة سطران بلا وزن.» (الفعل قبل فاعله مفرد). وحالة السطرين من عيّنة قاعة 2 بلا سطرها بلا وزن يوم 12/11.
+      const NOTE = (lines) => `لا يدخل في النازل التراكميّ ولا في الباقي في القاعة ${lines} بلا وزن.`;
+      /** عيّنة قاعة 2 (F2) بلا سطرها بلا وزن يوم 12/11 (FI-2026-0012، قطعتان)، ومبلغه من مال العلف: سطران بلا وزن في الدورة كلّها، كلاهما يوم 11/11. */
+      const twoLines = () => {
+        const report = clone(REAL.flock_cycle_report);
+        const last = report.days.at(-1);
+        const dropped = report.feed.lines.find((line) => line.kg === null && line.on === last.on);
+        if (!dropped || last.feed_given_unweighed !== 1 || report.feed.unweighed !== 3) throw new Error('twoLines: عيّنة قاعة 2 تغيّرت');
+        report.feed.lines = report.feed.lines.filter((line) => line !== dropped);
+        Object.assign(last, { feed_given_unweighed: 0, feed_given_cum_unweighed: 2 });
+        report.feed.unweighed = 2;
+        const item = report.feed.by_item.find((row) => row.kg === null && row.name === dropped.item_name);
+        Object.assign(item, { qty: String(Number(item.qty) - Number(dropped.qty)), unweighed: item.unweighed - 1 });
+        const cents = (value) => Math.round(Number(value) * 100);
+        const less = (value) => ((cents(value) - cents(dropped.money.value)) / 100).toFixed(2);
+        Object.assign(report.money, { feed: less(report.money.feed), total: less(report.money.total) });
+        return report;
+      };
+
       await step('S3 أيّام الدورة: سطور اليوم بلا وزن تحت نازله، وجملة الباقي فوق الجدول', async () => {
         const read = () => {
           const table = tableOf('أيّام الدورة');
@@ -848,14 +870,15 @@ export default async function (t) {
           return [rows.flatMap((tr) => byAction('rep-day-unweighed', tr).map((n) => [tr.children[0]?.textContent, tr.children[9]?.textContent, n.textContent])), textOf('rep-days-unweighed')];
         };
         t.same(
-          [await view(REAL.flock_cycle_report_gaps, read), await view(REAL.flock_cycle_report, read), await view(REAL.flock_cycle_report_layer, read), await view(F.flock_cycle_report, read)],
+          [await view(REAL.flock_cycle_report_gaps, read), await view(REAL.flock_cycle_report, read), await view(twoLines(), read), await view(REAL.flock_cycle_report_layer, read), await view(F.flock_cycle_report, read)],
           [
-            [[['11/11/2026', '0وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], 'النازل التراكميّ والباقي في القاعة لا يشملان سطر واحد بلا وزن.'],
-            [[['11/11/2026', '0.0وسطران بلا وزن', 'وسطران بلا وزن'], ['12/11/2026', '9.2وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], 'النازل التراكميّ والباقي في القاعة لا يشملان 3 سطور بلا وزن.'],
+            [[['11/11/2026', '0وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], NOTE('سطر واحد')],
+            [[['11/11/2026', '0.0وسطران بلا وزن', 'وسطران بلا وزن'], ['12/11/2026', '9.2وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], NOTE('3 سطور')],
+            [[['11/11/2026', '0.0وسطران بلا وزن', 'وسطران بلا وزن']], NOTE('سطران')],
             [[], null],
-            [[['08/11/2026', '0وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], 'النازل التراكميّ والباقي في القاعة لا يشملان سطر واحد بلا وزن.'],
+            [[['08/11/2026', '0وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], NOTE('سطر واحد')],
           ],
-          'S3 يوم نزلت فيه أكياس بلا وزن: الرقم كما هو وتحته سطوره، وفوق جدول الأيّام ما لا يشمله التراكميّ والباقي؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
+          'S3 يوم نزلت فيه أكياس بلا وزن: الرقم كما هو وتحته سطوره، وفوق جدول الأيّام ما لا يدخل في التراكميّ والباقي بعدده فاعلاً (سطر واحد، سطران، 3 سطور)؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
         );
       });
 
@@ -884,14 +907,15 @@ export default async function (t) {
           ];
         };
         t.same(
-          [await view(REAL.flock_cycle_report, read), await view(REAL.flock_cycle_report_gaps, read), await view(onlyUnweighed(), read), await view(REAL.flock_cycle_report_layer, read)],
+          [await view(REAL.flock_cycle_report, read), await view(twoLines(), read), await view(REAL.flock_cycle_report_gaps, read), await view(onlyUnweighed(), read), await view(REAL.flock_cycle_report_layer, read)],
           [
-            ['1,209.2و3 سطور بلا وزن', ['و3 سطور بلا وزن'], [['11/11/2026', '0.0وسطران بلا وزن'], ['12/11/2026', '9.2وسطر واحد بلا وزن']], '1,209.2', 'النازل التراكميّ والباقي في القاعة لا يشملان 3 سطور بلا وزن.'],
-            ['1,500وسطر واحد بلا وزن', ['وسطر واحد بلا وزن'], [['11/11/2026', '0وسطر واحد بلا وزن']], '1,500', 'النازل التراكميّ والباقي في القاعة لا يشملان سطر واحد بلا وزن.'],
-            ['0وسطر واحد بلا وزن', ['وسطر واحد بلا وزن'], [['11/11/2026', '0وسطر واحد بلا وزن']], '0', 'النازل التراكميّ والباقي في القاعة لا يشملان سطر واحد بلا وزن.'],
+            ['1,209.2و3 سطور بلا وزن', ['و3 سطور بلا وزن'], [['11/11/2026', '0.0وسطران بلا وزن'], ['12/11/2026', '9.2وسطر واحد بلا وزن']], '1,209.2', NOTE('3 سطور')],
+            ['1,209.2وسطران بلا وزن', ['وسطران بلا وزن'], [['11/11/2026', '0.0وسطران بلا وزن']], '1,209.2', NOTE('سطران')],
+            ['1,500وسطر واحد بلا وزن', ['وسطر واحد بلا وزن'], [['11/11/2026', '0وسطر واحد بلا وزن']], '1,500', NOTE('سطر واحد')],
+            ['0وسطر واحد بلا وزن', ['وسطر واحد بلا وزن'], [['11/11/2026', '0وسطر واحد بلا وزن']], '0', NOTE('سطر واحد')],
             ['0', [], [], '0', null],
           ],
-          'RR27-S3b مجموع «النازل» تحته سطور الدورة بلا وزن من الخادم كصفوفه (قاعة 2 والفجوات، ولا «0» وحده لدورة علفها كلّه بلا وزن)، و«النازل التراكميّ» كما هو وجملة فوق الجدول تقول إنّه والباقي لا يشملانها؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
+          'RR27-S3b مجموع «النازل» تحته سطور الدورة بلا وزن من الخادم كصفوفه (قاعة 2 وسطراها والفجوات، ولا «0» وحده لدورة علفها كلّه بلا وزن)، و«النازل التراكميّ» كما هو وجملة فوق الجدول تقول إنّها لا تدخل فيه ولا في الباقي، بعددها فاعلاً؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
         );
       });
 

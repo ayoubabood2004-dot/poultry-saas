@@ -403,7 +403,8 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
               ) : null}
               {report.feed.unweighed > 0 ? (
                 <p className="text-sm text-ink-muted" data-action="rep-days-unweighed">
-                  {t('halls.rep.days_unweighed_cum', 'النازل التراكميّ والباقي في القاعة لا يشملان {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
+                  {/* العدد فاعل لا مفعول (linesText بالرفع، مراجعة 0027 V2-G3-ACCUSATIVE): «لا يدخل … سطران بلا وزن»، والفعل قبل فاعله مفرد. */}
+                  {t('halls.rep.days_unweighed_cum', 'لا يدخل في النازل التراكميّ ولا في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
                 </p>
               ) : null}
             </>
