@@ -55,8 +55,12 @@ export function linesText(n: number): string {
 /** سطور علف بلا وزن لم تدخل الكيلو ولا الباقي (DECISIONS 0019: تُعدّ ولا تختفي): جملة تقرير الدورة نفسها في التقرير اليوميّ. */
 export const outsideKgText = (n: number): string => t('halls.rep.kpi.given_note', 'خارج الكيلو: {lines} بلا وزن.', { lines: linesText(n) });
 
-/** الباقي السالب بسببه (والرقم كما هو، DECISIONS 0019): جملة تقرير الدورة نفسها في التقرير اليوميّ. */
-export const leftNegativeText = (): string => t('halls.rep.kpi.left_negative', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.');
+/**
+ * الباقي السالب بسببه (والرقم كما هو، DECISIONS 0019): جملة تقرير الدورة نفسها في التقرير اليوميّ. وحين نزلت سطور علف بلا وزن لا تعرف الشاشة كلّ ما
+ * نزل، فالسالب على الموزون وحده لا «أكثر من النازل للقاعة» (مراجعة 0027 RR27-F2a). unweighed: سطور العلف بلا وزن حتى يوم الباقي من الخادم.
+ */
+export const leftNegativeText = (unweighed: number): string =>
+  unweighed > 0 ? t('halls.rep.kpi.left_negative_weighed', 'سالب: المأكول المسجّل أكثر من النازل الموزون.') : t('halls.rep.kpi.left_negative', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.');
 
 /** «رجوع إلى…» بشكل زرّ الرجوع، بلا استيراد BackButton (حزمته مشتركة بين المخزون والمعمل). لا يُطبع. */
 export function BackLink({ to, label, action = 'back' }: { to: string; label: string; action?: string }) {

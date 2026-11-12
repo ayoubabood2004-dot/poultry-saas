@@ -18,7 +18,7 @@ import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { deleteVaccine, loadVaccineBoard, saveVaccine, saveVaccineProgram, type ProgramDay, type Vaccine, type VaccineBoard, type VaccineProgram } from '../../lib/repo/halls';
 import { useLoad } from '../../lib/useLoad';
-import { BackLink, backTarget, bandStyle, daysText, farmPath, Swatch, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch, VaccineName } from './parts';
 
 // جدول اللقاحات (0026، كلمة المالك 2026-11-11: «قائمة لقاحات فوق الجدول يحدّدها هو؛ يضغط لقاحاً مثل IB ثمّ يضغط الأيام 1 و10 و20 فتأخذ تلك
 // الأيام لون اللقاح؛ ويختار أكثر من لقاح معاً؛ ويحفظ؛ ويعدّل أو يحذف بعد الحفظ؛ والأيام بعمر الطيور من 1 إلى نهاية يحدّدها؛ وجدول واحد لكلّ
@@ -559,7 +559,7 @@ function VaccinesView() {
   // ─── العرض ───────────────────────────────────────────────────────────────────────────────────────────────────
   const header = (
     <>
-      <BackLink to={back} label={t('halls.vac.back', 'رجوع إلى الحقول')} />
+      <BackLink to={back} label={backLabel(back)} />
       <PageHeader title={t('halls.vaccines.title', 'جدول اللقاحات')} subtitle={t('halls.vac.subtitle', 'جدول واحد لكلّ نوع يسري على كلّ قاعاته، بأيّام عمر الطيور.')} />
     </>
   );

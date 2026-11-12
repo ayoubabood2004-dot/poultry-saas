@@ -16,6 +16,9 @@
 // R مراجعة 0027 (R1–R5 وN1–N2، على 52ca9fd: feed_given_cum_unweighed وfeed_given_unweighed في المجاميع): مجاميع «النازل» بسطور اليوم بلا وزن، و«الباقي
 //   في القاعة» بسطوره بلا وزن حتى اليوم وسبب سالبه، وتقرير مفتوح بعد منتصف الليل (ساعة مزيّفة)، والتقويم يحمل رجوعه وكلّ قارئ لـ?back= يقبل الأطول
 //   ويرفض الغريب، و«التقارير» بالتقارير القائمة لمن يفتحها الشريط. كلّ فحص منها يفشل على 52ca9fd بمفاتيح المحلّل وحدها.
+// RR27 المراجعة الثانية لـ0027 (على 781f78b): ساعة الجهاز أمام الخادم بساعة لا تقلب التقرير المعروض إلى رفض اليوم القادم حين تعود الصفحة ظاهرةً، والحدّ
+//   يوم الخادم حتى يحمل جوابٌ يوماً أبعد (F4a)؛ وزرّ رجوع جدول اللقاحات يسمّي التقويم (R4b)؛ وسبب الباقي السالب على الموزون وحده حين نزل علف بلا وزن
+//   (F2a). كلّ فحص منها يفشل على 781f78b.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -384,7 +387,7 @@ export default async function (t) {
         ],
         [
           ['لم تُسجَّل الجولة'],
-          ['—', '—', '—', '500 كغموسطر واحد بلا وزن', `${LRI}-100${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل للقاعة.`, '—آخر وزن 150.0 يوم 10/11/2026'],
+          ['—', '—', '—', '500 كغموسطر واحد بلا وزن', `${LRI}-100${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.`, '—آخر وزن 150.0 يوم 10/11/2026'],
           0,
           ['NDاليوم'],
         ],
@@ -435,7 +438,7 @@ export default async function (t) {
           ['قاعة 1التقويمتقرير الدورة', '6', '11,990', '3', '0', '11,987', '0.11%', '350', '0', '799.5', '180.5', 'أموكسيسيلين 500 غرام (0.5 كغم)فيتامين AD3E (1 مل لكلّ لتر)IBتمّNDاليوم', 'تهوية جيّدة'],
           [
             'قاعة 2لم تُسجَّل الجولةالتقويمتقرير الدورة', '6', '9,990', '—', '—', '9,990', '0.10%', '—', '500وسطر واحد بلا وزن',
-            '-100.0خارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل للقاعة.', 'آخر وزن 150.0 يوم 10/11/2026', 'NDاليوم', '—',
+            '-100.0خارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.', 'آخر وزن 150.0 يوم 10/11/2026', 'NDاليوم', '—',
           ],
           ['قاعة 3فارغة', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—'],
         ],
@@ -604,7 +607,7 @@ export default async function (t) {
         '',
         'حقل الأمير',
         'قاعة 1 (لاحم، العمر 6 أيام): الحيّ 11,987، النافق 3، المستبعد 0، النفوق التراكمي 0.11%، العلف المأكول 350 كغم، النازل 0 كغم، الباقي في القاعة 799.5 كغم، الوزن 180.5 غرام، الأدوية واللقاحات وغيرها: أموكسيسيلين 500 غرام (0.5 كغم)، فيتامين AD3E (1 مل لكلّ لتر)، IB (تمّ)، ND (اليوم)، ملاحظة: تهوية جيّدة.',
-        `قاعة 2 (لاحم، العمر 6 أيام): لم تُسجَّل الجولة، الحيّ 9,990، النفوق التراكمي 0.10%، النازل 500 كغم وسطر واحد بلا وزن، الباقي في القاعة ${LRI}-100${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)، الأدوية واللقاحات وغيرها: ND (اليوم).`,
+        `قاعة 2 (لاحم، العمر 6 أيام): لم تُسجَّل الجولة، الحيّ 9,990، النفوق التراكمي 0.10%، النازل 500 كغم وسطر واحد بلا وزن، الباقي في القاعة ${LRI}-100${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)، الأدوية واللقاحات وغيرها: ND (اليوم).`,
         'قاعة 3: فارغة.',
         'المجموع: الحيّ 21,977، النافق 3 (من قاعة واحدة)، المستبعد 0 (من قاعة واحدة)، العلف المأكول 350 كغم (من قاعة واحدة)، النازل 500 كغم وسطر واحد بلا وزن.',
         '',
@@ -868,6 +871,8 @@ export default async function (t) {
       /** جزء «الباقي في القاعة» من سطر القاعة في نصّ المشاركة. */
       const leftOfHall = (lines, hallName) => lines.find((line) => line.startsWith(`${hallName} (`))?.split('، ').find((part) => part.startsWith('الباقي في القاعة'))?.replace(/\.$/u, '') ?? null;
       const NEG = 'سالب: المأكول المسجّل أكثر من النازل للقاعة.';
+      // قاعة نزل لها علف بلا وزن: السالب على الموزون وحده (مراجعة 0027 RR27-F2a).
+      const NEG_W = 'سالب: المأكول المسجّل أكثر من النازل الموزون.';
       const leftNotes = (node) => [within(node, 'remain-unweighed').map((n) => n.textContent), within(node, 'remain-negative').map((n) => n.textContent)];
 
       await step('R1 مجموع «النازل» بسطوره بلا وزن (عيّنة القاعدة)', async () => {
@@ -922,20 +927,20 @@ export default async function (t) {
         t.same(
           [A1, A2, LH, B5].map((hall) => leftNotes(card(hall.hall_id))),
           [
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
-            [['خارج الكيلو: 3 سطور بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
+            [['خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W]],
             [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
           ],
           'R5 بطاقة القاعة: سطور العلف بلا وزن حتى اليوم (قاعة 1 وقاعة 5 نزل علفهما بلا وزن أمس) بجملة تقرير الدورة، وسبب الباقي السالب (قاعة البيّاض بلا صرف)',
         );
-        t.eq(stat(A1.hall_id, 'stat-left'), `${LRI}-1,200${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.${NEG}`, 'R5 الرقم نفسه كما هو (DECISIONS 0019) وتحته الملاحظتان باهتتين');
+        t.eq(stat(A1.hall_id, 'stat-left'), `${LRI}-1,200${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.${NEG_W}`, 'R5 الرقم نفسه كما هو (DECISIONS 0019) وتحته الملاحظتان باهتتين');
         t.same(
           byAction('day-table').map(leftNotes),
           [
-            [['خارج الكيلو: سطر واحد بلا وزن.', 'خارج الكيلو: 3 سطور بلا وزن.'], [NEG, NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.', 'خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W, NEG_W]],
             [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
             [[], []],
           ],
           'R5 جدول كلّ حقل: الملاحظتان تحت الرقم في خلية الباقي (ومجموع كلّ الحقول بلا عمود باقٍ)',
@@ -944,10 +949,10 @@ export default async function (t) {
         t.same(
           [A1, A2, LH, B5].map((hall) => leftOfHall(lines, hall.hall_name)),
           [
-            `الباقي في القاعة ${LRI}-1,200${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
-            `الباقي في القاعة ${LRI}-50.8${PDI} كغم (خارج الكيلو: 3 سطور بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
+            `الباقي في القاعة ${LRI}-1,200${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
+            `الباقي في القاعة ${LRI}-50.8${PDI} كغم (خارج الكيلو: 3 سطور بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
             `الباقي في القاعة ${LRI}-1,425${PDI} كغم (المأكول المسجّل أكثر من النازل)`,
-            `الباقي في القاعة ${LRI}-105${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
+            `الباقي في القاعة ${LRI}-105${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
           ],
           'R5 نصّ المشاركة: الرقم كما هو، وبعده بين قوسين وباختصار ما لم يدخله وسبب سالبه',
         );
@@ -962,6 +967,42 @@ export default async function (t) {
           [stat(A2.hall_id, 'stat-left'), leftNotes(card(A2.hall_id)), leftOfHall(shareLines(positive), A2.hall_name)],
           ['10 كغمخارج الكيلو: 3 سطور بلا وزن.', [['خارج الكيلو: 3 سطور بلا وزن.'], []], 'الباقي في القاعة 10 كغم (خارج الكيلو: 3 سطور بلا وزن)'],
           'R5 الملاحظتان مستقلّتان: باقٍ موجب لم يدخله ثلاثة سطور بلا وزن يقول ذلك وحده',
+        );
+      });
+
+      // RR27-F2a: قاعة نزل لها علف بلا وزن لا تعرف الشاشة كلّ ما نزل لها، فسبب باقيها السالب على الموزون وحده؛ وبلا سطر بلا وزن الجملة كما كانت. لكلّ
+      // قاعة باقيها سالب في عيّنة القاعدة (وعدد سطورها بلا وزن حتى اليوم من الخادم): البطاقة وخلية الجدول وسطر المشاركة.
+      await step('RR27-F2a سبب الباقي السالب على الموزون وحده حين نزل علف بلا وزن (عيّنة القاعدة)', async () => {
+        fresh(OWNER, { halls_day: () => clone(REAL.halls_day) });
+        await mount(`/halls/day?on=${realOn}`);
+        const lines = shareLines(REAL.halls_day);
+        const seen = [];
+        for (const site of REAL.halls_day.sites) {
+          const rows = tableRows(`${site.name} — ${fmt(realOn)}`) ?? [];
+          site.halls.forEach((hall, index) => {
+            if (hall.flock === null || !hall.flock.feed_left_kg.startsWith('-')) return;
+            const cell = rows[index]?.[9] ?? '';
+            const share = leftOfHall(lines, hall.hall_name) ?? '';
+            seen.push([
+              hall.hall_name,
+              hall.flock.feed_given_cum_unweighed,
+              within(card(hall.hall_id), 'remain-negative').map((n) => n.textContent),
+              cell.includes('سالب: ') ? `سالب: ${cell.split('سالب: ').at(-1)}` : null,
+              share.split(/[(؛] ?/u).at(-1)?.replace(/\)$/u, '') ?? null,
+            ]);
+          });
+        }
+        const SHORT = 'المأكول المسجّل أكثر من النازل';
+        const SHORT_W = 'المأكول المسجّل أكثر من النازل الموزون';
+        t.same(
+          seen,
+          [
+            ['قاعة 1', 1, [NEG_W], NEG_W, SHORT_W],
+            ['قاعة 2', 3, [NEG_W], NEG_W, SHORT_W],
+            ['قاعة البيّاض', 0, [NEG], NEG, SHORT],
+            ['قاعة 5', 1, [NEG_W], NEG_W, SHORT_W],
+          ],
+          'RR27-F2a قاعة 1 و2 و5 نزل لها علف بلا وزن: «أكثر من النازل الموزون» بطاقةً وجدولاً ونصّاً؛ وقاعة البيّاض بلا سطر بلا وزن بجملتها كما كانت',
         );
       });
 
@@ -1036,6 +1077,146 @@ export default async function (t) {
         }
       });
 
+      // RR27-F4a: ساعة الجهاز أمام بغداد بساعة (يوم الخادم من ساعة الجهاز ناقص ساعة). صفحة تتبع اليوم منذ العاشرة ليلاً تعود ظاهرةً الساعة 00:30
+      // بالجهاز (23:30 يوم 12/11 عند الخادم): تبقى على تقريرها حاليّاً بلا جملة رفض، والطباعة والمشاركة له، ولا تعرض يوماً يرفضه الخادم؛ وكلّ عودة بعدها
+      // تسأل مرّة واحدة (لا حلقة ولا مؤقّت)، وبعد منتصف ليل الخادم (01:30 بالجهاز) تنتقل إلى اليوم الجديد. والفتح بلا تقرير معروض و?on= الصريح في D7.
+      const aheadClock = () => {
+        const RealDate = globalThis.Date;
+        const clock = {
+          now: new RealDate(2026, 10, 12, 22, 0, 0).getTime(),
+          at(day, hour, minute) {
+            clock.now = new RealDate(2026, 10, day, hour, minute, 0).getTime();
+          },
+          serverDay: () => m.localDay(new RealDate(clock.now - 3_600_000)),
+          restore() {
+            globalThis.Date = RealDate;
+            delete globalThis.document.visibilityState;
+          },
+        };
+        globalThis.Date = class extends RealDate {
+          constructor(...args) {
+            if (args.length === 0) super(clock.now);
+            else super(...args);
+          }
+        };
+        return clock;
+      };
+      const aheadServer = (clock) => (args) =>
+        args.p_on > clock.serverDay() ? Promise.reject(new m.RejectedError('future_day', 'لا تقرير ليوم لم يأتِ بعد.')) : dayFor(args.p_on, { today: clock.serverDay(), next: args.p_on < clock.serverDay() });
+      const showPage = async () => {
+        globalThis.document.visibilityState = 'visible';
+        fire(globalThis.document, 'visibilitychange', { bubbles: false });
+        await settle();
+      };
+      const dayView = () => ({
+        title: textOf('day-title'),
+        refused: text().includes('لا تقرير ليوم لم يأتِ بعد.'),
+        stale: byAction('day-stale').length,
+        next: disabled(byAction('day-next')[0]),
+        today: byAction('day-today').length,
+        print: disabled(byAction('print-day')[0]),
+        share: disabled(byAction('share-day')[0]),
+        url: globalThis.__hr.location,
+      });
+      const viewOf = (day, over = {}) => ({ title: `تقرير القاعات اليومي — ${day}`, refused: false, stale: 0, next: true, today: 0, print: false, share: false, url: '/halls/day', ...over });
+
+      await step('RR27-F4a ساعة الجهاز أمام الخادم: العودة بعد منتصف ليل الجهاز لا تقلب التقرير إلى رفض', async () => {
+        const clock = aheadClock();
+        const shared = [];
+        Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async (data) => shared.push(data.title) }, configurable: true, writable: true });
+        try {
+          const server = aheadServer(clock);
+          // gate: وعدٌ يؤخّر جواب النداء الذي يُطلب وهو قائم، فيُرى ما تعرضه الصفحة والسؤال في الطريق.
+          let gate = null;
+          const rpcLog = fresh(OWNER, { halls_day: (args) => (gate ? gate.then(() => server(args)) : server(args)) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          t.same(
+            [dayView(), named(rpcLog, 'halls_day')],
+            [viewOf('12/11/2026'), [{ p_on: '2026-11-12' }, { p_on: '2026-11-13' }]],
+            'RR27-F4a الساعة 00:30 بالجهاز (23:30 عند الخادم): رُفض 13/11 فبقي تقرير 12/11 حاليّاً بلا جملة رفض، والطباعة والمشاركة مفتوحتان، و«اليوم التالي» مقفول ولا «اليوم»، ونداءان فقط',
+          );
+          await click(byAction('share-day')[0]);
+          await click(byAction('day-pick')[0]);
+          type(descendants(dialog()).find((n) => n.getAttribute('data-action') === 'day-pick-input'), '13/11/2026');
+          await submitDialog();
+          const picker = [Boolean(dialog()), dialog() ? descendants(dialog()).some((n) => n.textContent === 'التاريخ بعد اليوم.') : false, globalThis.__hr.location];
+          const cancel = dialog() ? descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع') : null;
+          if (cancel) await click(cancel);
+          t.same(
+            [shared, picker, Boolean(dialog()), named(rpcLog, 'halls_day').length],
+            [['تقرير القاعات اليومي — 12/11/2026'], [true, true, '/halls/day'], false, 2],
+            'RR27-F4a «شارك» يشارك تقرير 12/11 المعروض، والمنتقي يرفض 13/11 «التاريخ بعد اليوم.» بلا نداء',
+          );
+          // كلّ عودة بعدها تسأل الخادم مرّة واحدة بهدوء (والتقرير حاليّ والسؤال في الطريق)، والخفاء لا يسأل، ولا حلقة ولا مؤقّت.
+          clock.at(13, 0, 40);
+          globalThis.document.visibilityState = 'hidden';
+          fire(globalThis.document, 'visibilitychange', { bubbles: false });
+          await settle();
+          const hidden = named(rpcLog, 'halls_day').length;
+          clock.at(13, 0, 45);
+          let open = null;
+          gate = new Promise((resolve) => {
+            open = resolve;
+          });
+          globalThis.document.visibilityState = 'visible';
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          const asking = [dayView(), named(rpcLog, 'halls_day').slice(2)];
+          gate = null;
+          open();
+          await settle();
+          const again = [dayView(), named(rpcLog, 'halls_day').slice(2)];
+          await settle();
+          await settle();
+          const idle = named(rpcLog, 'halls_day').length;
+          // بعد منتصف ليل الخادم: 01:30 بالجهاز، 00:30 يوم 13/11 عند الخادم.
+          clock.at(13, 1, 30);
+          await showPage();
+          t.same(
+            [hidden, asking, again, idle, dayView(), named(rpcLog, 'halls_day').slice(3)],
+            [2, [viewOf('12/11/2026'), [{ p_on: '2026-11-13' }]], [viewOf('12/11/2026'), [{ p_on: '2026-11-13' }]], 3, viewOf('13/11/2026'), [{ p_on: '2026-11-13' }]],
+            'RR27-F4a كلّ عودة تسأل الخادم مرّة واحدة وتبقى بهدوء ما دام يرفض، والتقرير حاليّ والسؤال في الطريق (والخفاء لا يسأل، ولا حلقة ولا مؤقّت)، وبعد منتصف ليل الخادم تنتقل إلى 13/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      await step('RR27-F4a والحدّ قائم: «اليوم التالي» بـ?on= يقف عند يوم الخادم، والعودة بعد منتصف ليله ترفعه', async () => {
+        const clock = aheadClock();
+        try {
+          const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          await click(byAction('day-prev')[0]);
+          const prev = dayView();
+          await click(byAction('day-next')[0]);
+          const atServerDay = dayView();
+          clock.at(13, 1, 30);
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          const lifted = dayView();
+          const todayButton = byAction('day-today')[0];
+          if (todayButton) await click(todayButton);
+          t.same(
+            [prev, atServerDay, lifted, dayView(), named(rpcLog, 'halls_day').map((args) => args.p_on)],
+            [
+              viewOf('11/11/2026', { next: false, today: 1, url: '/halls/day?on=2026-11-11' }),
+              viewOf('12/11/2026', { url: '/halls/day?on=2026-11-12' }),
+              viewOf('12/11/2026', { next: false, today: 1, url: '/halls/day?on=2026-11-12' }),
+              viewOf('13/11/2026'),
+              ['2026-11-12', '2026-11-13', '2026-11-11', '2026-11-12', '2026-11-12', '2026-11-13'],
+            ],
+            'RR27-F4a الحدّ يوم الخادم بـ?on= أيضاً حتى يحمل جوابٌ يوماً أبعد: «اليوم التالي» يقف عند 12/11؛ والعودة بعد منتصف ليل الخادم تسأل عن يومها فترفعه، و«اليوم» يتبع 13/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
       // R4: التقويم من التقرير اليوميّ (برجوعه هو إلى «التقارير») ثمّ تقرير الدورة ثمّ الرجوع خطوةً خطوة؛ عيّنة الشهر من القاعدة (0026).
       const R26 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json'), 'utf8'));
       const month = R26.flock_month;
@@ -1075,10 +1256,10 @@ export default async function (t) {
       await step('R4 كلّ قارئ لـ?back= يقبل القيمة الأطول ويرفض الغريب', async () => {
         const readers = [m.backTarget(calendar, 'X'), m.giveBack(calendar), m.backLabel(calendar), EVIL.map((value) => m.backTarget(value, 'X')), EVIL.map((value) => m.giveBack(value))];
         const vaccines = [];
-        for (const value of [calendar, ...EVIL]) {
+        for (const value of [calendar, ...EVIL, null]) {
           fresh(OWNER, rpcs26);
-          await mount(`/halls/vaccines?${new URLSearchParams({ kind: 'broiler', back: value }).toString()}`);
-          vaccines.push(href(byAction('back')[0]));
+          await mount(value === null ? '/halls/vaccines?kind=broiler' : `/halls/vaccines?${new URLSearchParams({ kind: 'broiler', back: value }).toString()}`);
+          vaccines.push([textOf('back'), href(byAction('back')[0])]);
           await unmount();
         }
         // تقويم برجوع غريب: رجوعه إلى صفحة الفوج، ورابطه لا يحمل الغريب؛ وكذلك غريب مرمَّز داخل تقويم يقبله القارئ الخارجيّ.
@@ -1099,11 +1280,25 @@ export default async function (t) {
           [readers, vaccines, refused, [outer, href(byAction('back')[0]), backOf(byAction('cal-report')[0])]],
           [
             [calendar, calendar, 'رجوع إلى التقويم', EVIL.map(() => 'X'), EVIL.map(() => null)],
-            [calendar, ...EVIL.map(() => '/broiler')],
+            [['رجوع إلى التقويم', calendar], ...EVIL.map(() => ['رجوع إلى الحقول', '/broiler']), ['رجوع إلى الحقول', '/broiler']],
             [[`/broiler/flock/${FID}`, plain], [`/broiler/flock/${FID}`, plain]],
             [inner, `/broiler/flock/${FID}`, plain],
           ],
-          'R4 backTarget وgiveBack وجدول اللقاحات تقبل التقويم برجوعه المتداخل وترفض الرابط الخارجيّ و//host وjavascript: وdata:؛ والتقويم لا يحمل رجوعاً رفضه',
+          'R4 backTarget وgiveBack وجدول اللقاحات تقبل التقويم برجوعه المتداخل وترفض الرابط الخارجيّ و//host وjavascript: وdata:؛ والتقويم لا يحمل رجوعاً رفضه؛ وزرّ جدول اللقاحات يسمّي وجهته: التقويم، وإلّا الحقول (RR27-R4b)',
+        );
+      });
+
+      // RR27-R4b: جدول اللقاحات من التقويم يعود إلى التقويم، فزرّه يسمّيه (backLabel كتقرير الدورة) لا «رجوع إلى الحقول» الثابت؛ عيّنتا القاعدة (0026).
+      await step('RR27-R4b جدول اللقاحات من التقويم: زرّ الرجوع يسمّي التقويم ويعود إليه', async () => {
+        fresh(OWNER, rpcs26);
+        await mount(calendar);
+        await click(byAction('cal-vaccines')[0]);
+        const vaccines = [globalThis.__hr.location.split('?')[0], textOf('back'), href(byAction('back')[0])];
+        await click(byAction('back')[0]);
+        t.same(
+          [vaccines, globalThis.__hr.location, textOf('back')],
+          [['/halls/vaccines', 'رجوع إلى التقويم', calendar], calendar, 'رجوع إلى تقرير القاعات اليومي'],
+          'RR27-R4b من التقويم إلى جدول اللقاحات: «رجوع إلى التقويم» إلى التقويم برجوعه، ومنه «رجوع إلى تقرير القاعات اليومي»',
         );
       });
 

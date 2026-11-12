@@ -95,7 +95,14 @@ function leftShare(flock: DayFlock): string {
   const kg = kgText(flock.feedLeftKg);
   const notes: string[] = [];
   if (flock.feedGivenCumUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.feedGivenCumUnweighed) }));
-  if (flock.feedLeftKg < 0n) notes.push(t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'));
+  // وسبب السالب على الموزون وحده حين نزل علف بلا وزن (كجملة البطاقة، مراجعة 0027 RR27-F2a).
+  if (flock.feedLeftKg < 0n) {
+    notes.push(
+      flock.feedGivenCumUnweighed > 0
+        ? t('halls.day.share.left_negative_weighed', 'المأكول المسجّل أكثر من النازل الموزون')
+        : t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'),
+    );
+  }
   if (!notes.length) return t('halls.day.share.left', 'الباقي في القاعة {kg}', { kg });
   return t('halls.day.share.left_noted', 'الباقي في القاعة {kg} ({notes})', { kg, notes: notes.join(t('halls.day.share.notes_sep', '؛ ')) });
 }
@@ -231,7 +238,7 @@ function LeftNotes({ flock, className }: { flock: DayFlock; className: string })
       ) : null}
       {flock.feedLeftKg < 0n ? (
         <span className={className} data-action="remain-negative">
-          {leftNegativeText()}
+          {leftNegativeText(flock.feedGivenCumUnweighed)}
         </span>
       ) : null}
     </>
@@ -660,11 +667,19 @@ export default function DailyPage() {
   // بلا ?on= يوم الجهاز؛ والخادم يرفض ما بعد يومه (future_day) فيُعرض «اليوم السابق». ويوم الجهاز يُقرأ من جديد كلّما عادت الصفحة ظاهرةً أو عاد
   // التركيز إلى النافذة (مراجعة 0027 R2): صفحة بقيت مفتوحة بعد منتصف الليل وهي تتبع اليوم (بلا ?on=) تطلب اليوم الجديد، وبـ?on= تبقى على يومها.
   const [deviceDay, setDeviceDay] = useState(localDay);
+  // التقرير المحبوس (مراجعة 0027 RR27-F4a): صفحة تتبع اليوم وتقريرها حاليّ، ثمّ سبق يومُ الجهاز يومَ الخادم (ساعة الجهاز أمام بغداد) فرفض الخادم
+  // اليوم الجديد (future_day): تبقى على تقريرها حاليّاً بلا جملة رفض، والطباعة والمشاركة له، وحدّ «اليوم التالي» و«اليوم» والمنتقي يوم الخادم فيه حتى
+  // يحمل جوابٌ يوماً أبعد. وما دام الحدّ قائماً تسأل كلّ عودةٍ ظاهرةً أو تركيزٍ الخادمَ مرّة واحدة (probe): بلا ?on= يومَ الجهاز، وبـ?on= يومَها فيقول
+  // جوابه يوم الخادم. لا حلقة ولا مؤقّت. والفتح بلا تقرير معروض، والانتقال باليد إلى يوم الجهاز، و?on= الصريح يُرفض كلّها بجملته وطريقه كما كان.
+  const [held, setHeld] = useState<HallsDay | null>(null);
+  const [probe, setProbe] = useState(0);
+  const capped = held !== null;
   useEffect(() => {
     const recheck = () => {
       if (document.visibilityState === 'hidden') return;
       const now = localDay();
       setDeviceDay((before) => (now > before ? now : before));
+      if (capped) setProbe((n) => n + 1);
     };
     document.addEventListener('visibilitychange', recheck);
     window.addEventListener('focus', recheck);
@@ -672,23 +687,32 @@ export default function DailyPage() {
       document.removeEventListener('visibilitychange', recheck);
       window.removeEventListener('focus', recheck);
     };
-  }, []);
+  }, [capped]);
   const asked = dayOf(search.get('on'));
   const requested = asked ?? deviceDay;
   const backParam = search.get('back');
   const back = reportsBack(backParam, '/reports');
   const load = useCallback(() => loadHallsDay(requested), [requested]);
-  const state = useLoad(load, requested);
-  // آخر قراءة ناجحة (لأيّ يوم): تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل.
-  const [kept, setKept] = useState<HallsDay | null>(null);
-  if (state.data !== null && kept !== state.data) setKept(state.data);
-  const shown = state.data ?? kept;
-  // حدّ «اليوم التالي» و«اليوم» والمنتقي: الأبعد من يوم الخادم في آخر جواب ويوم الجهاز، فلا يحبس جوابُ الأمس الصفحةَ فيه بعد منتصف الليل.
+  const state = useLoad(load, `${requested}|${probe}`);
+  // آخر قراءة ناجحة (لأيّ يوم) وهل قُرئت والصفحة تتبع اليوم: تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل.
+  const [last, setLast] = useState<{ data: HallsDay; following: boolean } | null>(null);
+  if (state.data !== null && last?.data !== state.data) setLast({ data: state.data, following: asked === null });
+  const kept = last?.data ?? null;
+  const futureDay = state.error instanceof RejectedError && state.error.code === 'future_day';
+  if (held === null && asked === null && futureDay && last !== null && last.following && requested > last.data.today) setHeld(last.data);
+  if (held !== null && state.data !== null && state.data.today > held.today) setHeld(null);
+  // بلا ?on= والحدّ قائم: التقرير المحبوس هو الحاليّ أثناء السؤال وحين يُرفض اليوم القادم (وغير ذلك من الفشل يُعرض كما كان).
+  const holding = held !== null && asked === null && (state.loading || futureDay);
+  const shown = holding ? held : (state.data ?? kept);
+  /** اليوم الذي تقف عليه الصفحة: المطلوب، أو يوم التقرير المحبوس. */
+  const viewDay = holding ? held.on : requested;
+  // حدّ «اليوم التالي» و«اليوم» والمنتقي: يوم الخادم في التقرير المحبوس، وإلّا الأبعد من يوم الخادم في آخر جواب ويوم الجهاز، فلا يحبس جوابُ الأمس
+  // الصفحةَ فيه بعد منتصف الليل.
   const serverToday = shown?.today ?? deviceDay;
-  const today = serverToday > deviceDay ? serverToday : deviceDay;
-  const current = shown !== null && shown.on === requested;
+  const today = held !== null ? held.today : serverToday > deviceDay ? serverToday : deviceDay;
+  const current = shown !== null && shown.on === viewDay;
   // «اليوم السابق» مقفول حين قال الخادم لهذا اليوم إنّ لا فوج قبله (prev).
-  const prevOff = shown !== null && shown.on === requested && !shown.prev;
+  const prevOff = shown !== null && shown.on === viewDay && !shown.prev;
   const [picking, setPicking] = useState(false);
 
   /** يوم الجهاز بلا ?on= (الرابط يبقى «اليوم»)، وغيره صريحاً؛ والرجوع (?back=) يبقى. */
@@ -699,10 +723,10 @@ export default function DailyPage() {
     setPicking(false);
     setSearch(params);
   };
-  const hereParams = new URLSearchParams({ on: shown?.on ?? requested });
+  const hereParams = new URLSearchParams({ on: shown?.on ?? viewDay });
   if (backParam !== null && back === backParam) hereParams.set('back', backParam);
   const here = `/halls/day?${hereParams.toString()}`;
-  const title = dayTitle(shown?.on ?? requested);
+  const title = dayTitle(shown?.on ?? viewDay);
 
   const share = async () => {
     if (!shown || !current) return;
@@ -714,7 +738,7 @@ export default function DailyPage() {
     }
   };
 
-  const failure = state.error;
+  const failure = holding ? null : state.error;
   const refusal = failure instanceof RejectedError && failure.hint ? failure : null;
   // رفض اليوم القادم: يوم أبعد من يوم الجهاز يعود إليه، ويوم الجهاز نفسه (ساعة الجهاز قبل الخادم) يعود يوماً.
   const way = refusal?.code === 'future_day' ? (requested > deviceDay ? { label: t('halls.day.today', 'اليوم'), day: deviceDay } : { label: t('halls.day.prev', 'اليوم السابق'), day: addDays(requested, -1) }) : null;
@@ -741,16 +765,16 @@ export default function DailyPage() {
 
       <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
         <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
-          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => go(addDays(requested, -1))} data-action="day-prev">
+          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => go(addDays(viewDay, -1))} data-action="day-prev">
             {t('halls.day.prev', 'اليوم السابق')}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: fmtDay(requested) })} data-action="day-pick">
-            {fmtDay(requested)}
+          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: fmtDay(viewDay) })} data-action="day-pick">
+            {fmtDay(viewDay)}
           </Button>
-          <Button size="sm" variant="secondary" disabled={requested >= today} onClick={() => go(addDays(requested, 1))} data-action="day-next">
+          <Button size="sm" variant="secondary" disabled={viewDay >= today} onClick={() => go(addDays(viewDay, 1))} data-action="day-next">
             {t('halls.day.next', 'اليوم التالي')}
           </Button>
-          {requested !== today ? (
+          {viewDay !== today ? (
             <Button size="sm" variant="ghost" onClick={() => go(today)} data-action="day-today">
               {t('halls.day.today', 'اليوم')}
             </Button>
@@ -795,7 +819,7 @@ export default function DailyPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : null}
-      {picking ? <PickDayDialog today={today} current={requested} onClose={() => setPicking(false)} onPick={go} /> : null}
+      {picking ? <PickDayDialog today={today} current={viewDay} onClose={() => setPicking(false)} onPick={go} /> : null}
     </div>
   );
 }

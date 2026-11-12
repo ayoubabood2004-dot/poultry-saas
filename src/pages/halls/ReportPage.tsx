@@ -149,7 +149,7 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
     report.feed.unweighed > 0 ? outsideKgText(report.feed.unweighed) : null,
   );
   add('eaten', t('halls.rep.kpi.eaten', 'العلف المأكول المسجّل (كغم)'), kg(k.feedEatenKg), feedDaysText(k.feedDays, k.feedSpan));
-  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.feedLeftKg), k.feedLeftKg !== null && k.feedLeftKg < 0n ? leftNegativeText() : null);
+  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.feedLeftKg), k.feedLeftKg !== null && k.feedLeftKg < 0n ? leftNegativeText(report.feed.unweighed) : null);
   add(
     'per_bird',
     t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'),
@@ -318,7 +318,18 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         ) : (
           kgCell(day.feedGivenKg, givenKg)
         ),
-      total: kgCell(kpis.feedGivenKg, givenKg),
+      // والمجموع كصفوفه: سطور الدورة بلا وزن من الخادم (feed.unweighed، لا جمع هنا) تحت كيلوه، فلا «0» وحده لدورة نزل علفها بلا وزن (مراجعة 0027 RR27-S3b).
+      total:
+        report.feed.unweighed > 0 ? (
+          <>
+            {kgCell(kpis.feedGivenKg, givenKg)}
+            <span className="block text-xs font-normal text-ink-muted" data-action="rep-total-unweighed">
+              {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(report.feed.unweighed) })}
+            </span>
+          </>
+        ) : (
+          kgCell(kpis.feedGivenKg, givenKg)
+        ),
     },
     { key: 'given_cum', header: t('halls.rep.col.given_cum', 'النازل التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenCumKg, givenCumKg) },
     { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedLeftKg, leftKg) },
@@ -392,7 +403,7 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
               ) : null}
               {report.feed.unweighed > 0 ? (
                 <p className="text-sm text-ink-muted" data-action="rep-days-unweighed">
-                  {t('halls.rep.days_unweighed', 'الباقي في القاعة لا يشمل {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
+                  {t('halls.rep.days_unweighed_cum', 'النازل التراكميّ والباقي في القاعة لا يشملان {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
                 </p>
               ) : null}
             </>
