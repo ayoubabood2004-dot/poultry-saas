@@ -1,4 +1,4 @@
-import { Syringe } from 'lucide-react';
+import { ChartNoAxesColumn, Syringe } from 'lucide-react';
 import { Component, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -28,7 +28,8 @@ import { vaccineColor } from './palette';
 // بحبر النصّ دائماً («IB · يوم العمر 7 · اليوم: قاعة 2، قاعة 3»). و«تمّ» (لمن يحفظ يوم القاعة) نافذة بقاعات المجموعة كلّها مؤشَّرة؛ واللقاح المربوط
 // بمادّة يُصرف من المخزن عند التأشير (جواب المالك): لكلّ قاعة كميتها بوحدة المادّة، ومخزن واحد (افتراضاً أكثرها). والتأشير نداء give_to_flocks واحد
 // بسطور vaccination، بقواعد النتيجة المجهولة نفسها في صفحة الإضافة (الطلب خارج المكوّن، والإعادة به حرفاً، والرفض الأكيد يبقي ما كُتب بمرجع جديد).
-// والصفّ المختصر في الرئيسية: «لقاحات اليوم: 3 · غداً: 2» لكلّ نوع فيه شيء، يفتح جولة نوعه؛ ولا شيء حين لا شيء.
+// والصفّ المختصر في الرئيسية: «لقاحات اليوم: 3 · غداً: 2» لكلّ نوع فيه شيء، يفتح جولة نوعه؛ ولا شيء حين لا شيء. ومعه بعد جواب الخادم صفّ «تقرير
+// القاعات اليومي» (0027) إلى /halls/day برجوع إلى الرئيسية، من هذه الحزمة الكسولة فلا يكلّف التثبيت المسبق شيئاً.
 
 export interface ReminderGroup {
   key: string;
@@ -390,7 +391,9 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
   };
 
   if (compact) {
-    if (!rows.length) return null;
+    // صفّ «تقرير القاعات اليومي» (0027) بعد أن يجيب الخادم (قراءة التذكير): التقرير يُقرأ منه وحده، فلا رابط إليه بلا خادم. لا يُعدّ في onCount (ليس
+    // شغلاً ينتظر، فتبقى «أنجزت شغل اليوم»)، ويُرسم آخر البطاقة (order) بعد صفوف الجولة.
+    if (!data) return null;
     return (
       <>
         {rows.map((row) => {
@@ -415,6 +418,17 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
             </Link>
           );
         })}
+        <Link
+          to="/halls/day?back=/"
+          data-action="today-report"
+          style={{ order: 1 }}
+          className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2 font-medium transition-colors active:bg-surface-3"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+            <ChartNoAxesColumn aria-hidden="true" className="size-5" />
+          </span>
+          <span className="min-w-0 flex-1">{t('reports.day', 'تقرير القاعات اليومي')}</span>
+        </Link>
       </>
     );
   }

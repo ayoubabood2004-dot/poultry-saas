@@ -41,6 +41,8 @@ export const EXCLUDED_BY_NAME = [
   { name: 'MillRoutes', pattern: /^assets\/MillRoutes-[\w-]+\.(js|css)$/ },
   // 0026: القاعات (الإضافة لعدّة قاعات، والتأشير، والتقويم، وتقرير الدورة، وجدول اللقاحات): كلّها تحتاج الخادم.
   { name: 'HallsRoutes', pattern: /^assets\/HallsRoutes-[\w-]+\.(js|css)$/ },
+  // 0027: «التقارير» صفحة مداخل (تقرير القاعات اليومي وتقارير الدورات وما خُطّط بعدُ)، وكلّ تقرير فيها يُقرأ من الخادم.
+  { name: 'ReportsPage', pattern: /^assets\/ReportsPage-[\w-]+\.(js|css)$/ },
 ];
 
 /** ملفات ما تنحسب بالتثبيت المسبق: الخدمة العاملة، والمستثناة بالاسم. */

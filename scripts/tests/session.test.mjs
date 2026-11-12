@@ -601,13 +601,19 @@ export default async function (t) {
   const ALL_DIVISIONS = { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] };
   t.same(
     nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/broiler', '/account', '/settings'],
-    'عامل القاعة: حقول اللحم (المرحلة 2) وحسابه، بلا حقول البيض خارج نطاقه ولا مخزن ولا مبيعات ولا حسابات ولا تقارير ولا موظفين',
+    ['/', '/broiler', '/reports', '/account', '/settings'],
+    'عامل القاعة: حقول اللحم (المرحلة 2) و«التقارير» (تقرير قاعاته اليومي، 0027) وحسابه، بلا حقول البيض خارج نطاقه ولا مخزن ولا مبيعات ولا حسابات ولا موظفين',
   );
-  // صفحات التخطيط (PlannedPage) مساراتها باقية بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
-  // المخازن كلها؛ وحقول اللحم والبيض شغّالة.
+  // صفحة التخطيط (المفقس، PlannedPage) مسارها باقٍ بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
+  // المخازن كلها؛ وحقول اللحم والبيض شغّالة؛ و«التقارير» صفحة مداخل (0027: تقرير القاعات اليومي وتقارير الدورات) لمن بنطاقه حقول لحم أو بيض.
   const everything = nav(ws('u-1', ALL_DIVISIONS));
-  t.same(['/hatchery', '/reports'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحات التخطيط بالشريط');
+  t.same(['/hatchery'].filter((to) => everything.includes(to)), [], 'المالك: بلا صفحة التخطيط (المفقس) بالشريط');
+  t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to === '/reports'), [['التقارير', '/reports']], 'المالك: بند «التقارير» بالشريط (0027)');
+  t.same(
+    [['manager', ['layer']], ['accountant', ['broiler', 'general']], ['storekeeper', ['general', 'medicine']], ['viewer', ['feed_mill']]].map(([role, divisions]) => nav(ws('u-1', { role, divisions })).includes('/reports')),
+    [true, true, false, false],
+    '«التقارير» لمن بنطاقه حقل لحم أو بيض وحده (حقل البيض وحده يكفي)، لا لأمين أو مشاهد بلا حقول',
+  );
   // «المبيعات» شغّالة (0021، كلمة المالك 2026-11-08) بعلامة الخادم can_see_sales (يقرأ الفواتير، ويبيع منهم من له sale.record)، ولا لغيرهم.
   t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to === '/sales'), [['المبيعات', '/sales']], 'المالك: بند «المبيعات» بالشريط');
   t.same(

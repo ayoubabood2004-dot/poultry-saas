@@ -264,6 +264,10 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
         subtitle={t('farm.subtitle', 'الحقول والقاعات والأفواج، وأرقام اليوم {day}', { day: fmtDay(today) })}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            {/* تقرير القاعات اليومي (0027): كلّ قاعات النطاق ليوم واحد، برجوع إلى هذا الحقل. */}
+            <Link to={`/halls/day?back=${base}`} className={LINK_CLASS} data-action="farm-day-report">
+              {t('farm.day_report', 'تقرير اليوم')}
+            </Link>
             {/* جدول اللقاحات الواحد لنوع الحقل (0026): يُقرأ لكلّ من يرى الحقل، ويعدّله المدير والمالك. */}
             <Link to={`/halls/vaccines?kind=${kind}`} className={LINK_CLASS} data-action="farm-vaccines">
               {t('farm.vaccines', 'جدول اللقاحات')}
