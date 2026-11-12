@@ -9,9 +9,10 @@ import type { Fils } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, countForm, fmtDay, fmtInt, fmtMoney, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadCycleReport, type CycleReport } from '../../lib/repo/halls';
+import { loadCycleReport, type CycleDay, type CycleDetail, type CycleKpis, type CycleReport, type CycleWeek } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { FeedChart, MortalityChart, WeightChart } from './charts';
 import { BackLink, backTarget, daysText, flockPath, kindLabel, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // تقرير الدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/report/:flockId بقراءة flock_cycle_report واحدة.
@@ -19,17 +20,25 @@ import { BackLink, backTarget, daysText, flockPath, kindLabel, printAs, STATE_IN
 // لأدوار الكلفة وحدها)، ومجموعه لكلّ مادّة، والمصروف للقاعة والمستهلك المسجّل والباقي (وعدد سطور العلف بلا وزن)، والأدوية من المخزن وبلا مخزن،
 // واللقاحات المخطّطة والمنفَّذة بحالتها، وخلاصة المال لأدوار الكلفة. المال يغيب مفتاحه كلّه لغيرهم (repo/halls يقرأ الغياب null)، فلا عمود ولا قسم.
 // و«اطبع التقرير» على A4 طولاً بعنوان التقرير، وبقيّة الصفحة لا تُطبع.
+// و(0027، كلمة المالك 2026-11-12 «تقرير كامل بنهاية الدورة»، docs/HALLS_REPORTS_PLAN.md التسليم ١) أوّله مؤشّرات الدورة بجدول: كلّ مؤشّر ناقص المدخلات
+// «—» وبجانبه سببه بجملة قصيرة (معامل التحويل يحتاج علف كلّ يوم ووزن عيّنة)، ثمّ ثلاثة رسوم صغيرة (charts.tsx) لا تحلّ محلّ الجداول، وجدول الأسابيع
+// بعمر الطيور، وجدول الأيّام كلّها (يوم بلا جولة مكتوب «لم تُسجَّل الجولة» ولا يُعدّ صفراً)، وجدول الأوزان؛ وجدول الأيّام يُطبع على A4 عرضاً (صفحة
+// باسمها). مجاميع الأيّام والأسابيع من مؤشّرات الخادم (kpis) لا من جمع الصفوف. وخادم قبل 0027 لا يرسل هذه المفاتيح: الأقسام القديمة وحدها بجملة.
 
 type Birds = CycleReport['birds'];
 type FeedLine = CycleReport['feed']['lines'][number];
 type ByItem = CycleReport['feed']['byItem'][number];
 type Medicine = CycleReport['medicines'][number];
 type Vaccine = CycleReport['vaccines'][number];
+type WeightRow = CycleDetail['weights'][number];
 type Balance = { delivered: bigint; consumed: bigint; remaining: bigint };
 type MoneyRow = { key: string; label: string; amount: Fils };
+/** صفّ مؤشّر: القيمة نصّ منسّق، أو null فتُعرض «—» وnote سببها. */
+type Kpi = { key: string; label: string; value: string | null; note: string | null };
 
 const PRINT_STYLE = [
   '@page { size: A4 portrait; margin: 12mm; }',
+  '@page days { size: A4 landscape; margin: 10mm; }',
   '@media print {',
   '[data-action="cycle-report"] table { font-size: 11px; }',
   '[data-action="cycle-report"] th, [data-action="cycle-report"] td { padding: 3px 5px; white-space: normal; min-width: 0; }',
@@ -38,6 +47,9 @@ const PRINT_STYLE = [
   '[data-action="cycle-report"] tr { break-inside: avoid; }',
   '[data-action="cycle-report"] h2 { break-after: avoid; }',
   '[data-action="vac-swatch"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
+  '[data-action="rep-days"] { page: days; }',
+  '[data-action="rep-days"] table { font-size: 10px; }',
+  '[data-action="rep-charts"] svg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
   '}',
 ].join(' ');
 
@@ -50,6 +62,7 @@ const pct = (hundredths: bigint): string => `${fmtScaledCell(hundredths, 2, 2)}%
  */
 const dayIndex = (day: Day): number => Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10))) / 86_400_000;
 const dash = () => t('halls.rep.dash', '—');
+const WARN_INK = 'font-semibold text-warn-800 dark:text-warn-200';
 
 /** عدد السطور بصيغة العدد: «سطر واحد»، «سطران»، «3 سطور»، «11 سطراً»، «100 سطر». */
 function linesText(n: number): string {
@@ -59,6 +72,110 @@ function linesText(n: number): string {
   if (form === 'few') return t('halls.rep.lines.few', '{n} سطور', { n });
   if (form === 'many') return t('halls.rep.lines.many', '{n} سطراً', { n });
   return t('halls.rep.lines.hundreds', '{n} سطر', { n });
+}
+
+/** عدد أيّام مجروراً بعد «من»: «يوم واحد»، «يومين»، «3 أيام»، «11 يوماً»، «100 يوم». */
+function ofDaysText(n: number): string {
+  if (n === 1) return t('halls.rep.of_days.one', 'يوم واحد');
+  if (n === 2) return t('halls.rep.of_days.two', 'يومين');
+  const form = countForm(n);
+  if (form === 'few') return t('halls.rep.of_days.few', '{n} أيام', { n });
+  if (form === 'many') return t('halls.rep.of_days.many', '{n} يوماً', { n });
+  return t('halls.rep.of_days.hundreds', '{n} يوم', { n });
+}
+
+/** «سُجّل العلف 9 من 11 يوماً.»: أيّام الجولة بعلفها من الأيّام التي يحتاجها معامل التحويل (من التسكين حتى أمس «حتى»، ومعها «حتى» إن سُجّل). */
+function feedDaysText(n: number | null, m: number | null): string | null {
+  if (n === null || m === null || m === 0) return null;
+  return t('halls.rep.kpi.feed_days', 'سُجّل العلف {n} من {days}.', { n, days: ofDaysText(m) });
+}
+
+/** لماذا لا معامل تحويل: شروط flock_summary (0012) نفسها بترتيبها، والناقص منها كلّه في جملة واحدة. */
+function fcrReason(k: CycleKpis): string {
+  if (k.days === 0 || k.feedDays === null || k.feedSpan === null) return t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
+  const needWeight = k.lastWeight === null;
+  if (k.feedSpan === 0) return needWeight ? t('halls.rep.kpi.fcr.first_both', 'يحتاج أوّل جولة بعلفها ووزن عيّنة.') : t('halls.rep.kpi.fcr.first', 'يحتاج أوّل جولة بعلفها.');
+  const recorded = { n: k.feedDays, days: ofDaysText(k.feedSpan) };
+  const needFeed = k.feedDays < k.feedSpan;
+  if (needFeed && needWeight) return t('halls.rep.kpi.fcr.need_both', 'يحتاج علف كلّ يوم ووزن عيّنة (سُجّل العلف {n} من {days}).', recorded);
+  if (needFeed) return t('halls.rep.kpi.fcr.need_feed', 'يحتاج علف كلّ يوم من التسكين (سُجّل العلف {n} من {days}).', recorded);
+  if (needWeight) return t('halls.rep.kpi.fcr.need_weight', 'يحتاج وزن عيّنة.');
+  if (k.live !== null && k.live <= 0) return t('halls.rep.kpi.no_live', 'لا طيور حيّة.');
+  if (k.feedEatenKg !== null && k.feedEatenKg <= 0n) return t('halls.rep.kpi.fcr.zero_feed', 'العلف المسجّل صفر.');
+  return t('halls.rep.kpi.incomplete', 'مدخلاته غير مكتملة.');
+}
+
+/** لماذا لا مؤشّر إنتاج: يحتاج معامل التحويل والحيوية والعمر والوزن كلّها فوق الصفر. */
+function epefReason(k: CycleKpis): string {
+  if (k.days === 0) return t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
+  if (k.fcr === null) return t('halls.rep.kpi.epef.need_fcr', 'يحتاج معامل التحويل.');
+  if (k.livabilityPct === null || k.livabilityPct <= 0n) return t('halls.rep.kpi.no_live', 'لا طيور حيّة.');
+  if (k.ageEnd === null || k.ageEnd <= 0) return t('halls.rep.kpi.epef.need_age', 'يحتاج عمراً أكبر من صفر.');
+  if (k.lastWeight === null) return t('halls.rep.kpi.fcr.need_weight', 'يحتاج وزن عيّنة.');
+  return t('halls.rep.kpi.incomplete', 'مدخلاته غير مكتملة.');
+}
+
+/** صفوف المؤشّرات بترتيبها؛ والوزن ومعامل التحويل ومؤشّر الإنتاج للّاحم (والوزن للبيّاض إن وُزن). */
+function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
+  const k = cycle.kpis;
+  const { flock } = report;
+  const noDays = t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
+  const kg = (value: bigint | null) => (value === null ? null : fmtQtyCell(value, decimalsOf([value])));
+  const rows: Kpi[] = [];
+  const add = (key: string, label: string, value: string | null, note: string | null, reason: string = noDays) => {
+    rows.push({ key, label, value, note: value === null ? reason : note });
+  };
+  add('days', t('halls.rep.kpi.days', 'أيّام الدورة'), fmtInt(k.days), k.days > 0 ? t('halls.rep.kpi.days_note', 'من {from} حتى {to}.', { from: fmtDay(flock.placedOn), to: fmtDay(report.through) }) : null);
+  add('age', t('halls.rep.kpi.age', 'العمر (يوم)'), k.ageEnd === null ? null : fmtInt(k.ageEnd), t('halls.rep.kpi.age_note', 'العمر عند التسكين: {n}.', { n: flock.age0 }));
+  add('placed', t('halls.rep.col.placed', 'المسكَّن'), fmtInt(k.placed), null);
+  add(
+    'live',
+    t('halls.rep.col.live', 'الحيّ'),
+    k.live === null ? null : fmtInt(k.live),
+    k.dead !== null && k.culled !== null ? t('halls.rep.kpi.live_note', 'النافق {dead} والمستبعد {culled}.', { dead: k.dead, culled: k.culled }) : null,
+  );
+  add('mortality', t('halls.rep.col.mortality', 'نسبة النفوق'), k.mortalityPct === null ? null : pct(k.mortalityPct), null);
+  add('livability', t('halls.rep.kpi.livability', 'نسبة الحيوية'), k.livabilityPct === null ? null : pct(k.livabilityPct), t('halls.rep.kpi.livability_note', 'نسبة ما بقي حيّاً من المسكَّن.'));
+  add(
+    'given',
+    t('halls.rep.kpi.given', 'العلف النازل للقاعة (كغم)'),
+    kg(k.feedGivenKg),
+    report.feed.unweighed > 0 ? t('halls.rep.kpi.given_note', 'خارج الكيلو: {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) }) : null,
+  );
+  add('eaten', t('halls.rep.kpi.eaten', 'العلف المأكول المسجّل (كغم)'), kg(k.feedEatenKg), feedDaysText(k.feedDays, k.feedSpan));
+  add(
+    'left',
+    t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'),
+    kg(k.feedLeftKg),
+    k.feedLeftKg !== null && k.feedLeftKg < 0n ? t('halls.rep.kpi.left_negative', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.') : null,
+  );
+  add(
+    'per_bird',
+    t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'),
+    kg(k.feedPerBirdKg),
+    null,
+    k.days === 0 ? noDays : t('halls.rep.kpi.per_bird_none', 'لم يُسجَّل علف مأكول بعد.'),
+  );
+  if (flock.kind === 'broiler' || k.lastWeight !== null) {
+    add(
+      'weight',
+      t('halls.rep.kpi.weight', 'آخر وزن عيّنة (غم)'),
+      k.lastWeight === null ? null : fmtScaledCell(k.lastWeight.avgG, 1, 1),
+      k.lastWeight === null ? null : t('halls.rep.kpi.weight_note', 'يوم {day}، والعمر {age}.', { day: fmtDay(k.lastWeight.on), age: k.lastWeight.age }),
+      t('halls.rep.kpi.weight_none', 'لم تُوزن عيّنة بعد.'),
+    );
+  }
+  if (flock.kind === 'broiler') {
+    add('fcr', t('halls.rep.kpi.fcr', 'معامل التحويل الغذائي'), k.fcr === null ? null : fmtScaledCell(k.fcr, 3, 3), t('halls.rep.kpi.fcr_note', 'كغم علف لكلّ كغم من الوزن الحيّ.'), fcrReason(k));
+    add(
+      'epef',
+      t('halls.rep.kpi.epef', 'مؤشّر الإنتاج (EPEF)'),
+      k.epef === null ? null : fmtScaledCell(k.epef, 0, 0),
+      t('halls.rep.kpi.epef_note', 'الحيوية × الوزن بالكيلو ÷ (العمر × معامل التحويل) × 100.'),
+      epefReason(k),
+    );
+  }
+  return rows;
 }
 
 /** قسم بعنوانه وجدوله: حدّ ارتفاع الجدول وتمريره للشاشة وحدها (بالطباعة كلّ الصفوف). */
@@ -72,8 +189,197 @@ function Section({ title, action, note, children }: { title: string; action: str
   );
 }
 
+/**
+ * مؤشّرات الدورة أوّل التقرير (0027): عمودان يتّسعان للهاتف، المؤشّر وتحته ملاحظته، والقيمة؛ والقيمة الناقصة «—» وتحت مؤشّرها سببها بحبر النصّ
+ * (والملاحظة العاديّة باهتة).
+ */
+function KpiSection({ report, cycle }: { report: CycleReport; cycle: CycleDetail }) {
+  const kpiColumns: Column<Kpi>[] = [
+    {
+      key: 'label',
+      header: t('halls.rep.col.kpi', 'المؤشّر'),
+      wrap: true,
+      cell: (row) => (
+        <>
+          <span className="block" data-action="kpi-label" data-key={row.key}>
+            {row.label}
+          </span>
+          {row.note === null ? null : (
+            <span className={row.value === null ? 'block text-xs' : 'block text-xs text-ink-muted'} data-action={row.value === null ? 'kpi-reason' : 'kpi-note'} data-key={row.key}>
+              {row.note}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'value',
+      header: t('halls.rep.col.value_kpi', 'القيمة'),
+      kind: 'number',
+      cell: (row) => (
+        <span className="font-semibold" data-action="kpi-value" data-key={row.key}>
+          {row.value === null ? dash() : <Num>{row.value}</Num>}
+        </span>
+      ),
+    },
+  ];
+  return (
+    <Section title={t('halls.rep.sec.kpis', 'مؤشّرات الدورة')} action="rep-kpis">
+      <DataTable caption={t('halls.rep.sec.kpis', 'مؤشّرات الدورة')} columns={kpiColumns} rows={kpiRows(report, cycle)} rowKey={(row) => row.key} empty={dash()} />
+    </Section>
+  );
+}
+
+/** الرسوم وجداول الأسابيع والأيّام والأوزان (0027)؛ مجاميعها من مؤشّرات الخادم. */
+function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDetail }) {
+  const { days, weeks, weights, kpis } = cycle;
+  const broiler = report.flock.kind === 'broiler';
+  const layer = report.flock.kind === 'layer';
+  const showWeight = broiler || weights.length > 0;
+  const intCell = (value: number | null) => (value === null ? dash() : <Num>{fmtInt(value)}</Num>);
+  const pctCell = (value: bigint | null) => (value === null ? dash() : <Num>{pct(value)}</Num>);
+  const kgCell = (value: bigint | null, decimals: 0 | 1 | 2 | 3) => (value === null ? dash() : <Num>{fmtQtyCell(value, decimals)}</Num>);
+  const grams = (tenths: bigint) => <Num>{fmtScaledCell(tenths, 1, 1)}</Num>;
+  const missing = days.filter((day) => !day.round).length;
+
+  const weekKg = decimalsOf([...weeks.map((week) => week.feedEatenKg), kpis.feedEatenKg]);
+  const weekColumns: Column<CycleWeek>[] = [
+    { key: 'week', header: t('halls.rep.col.week', 'الأسبوع'), cell: (week) => <Num>{fmtInt(week.week)}</Num> },
+    {
+      key: 'ages',
+      header: t('halls.rep.col.ages', 'العمر (يوم)'),
+      cell: (week) => <Num>{week.fromAge === week.toAge ? fmtInt(week.fromAge) : t('halls.rep.week.ages', '{from}–{to}', { from: week.fromAge, to: week.toAge })}</Num>,
+    },
+    { key: 'from', header: t('halls.rep.col.from', 'من'), cell: (week) => <Num>{fmtDay(week.fromOn)}</Num> },
+    { key: 'to', header: t('halls.rep.col.to', 'إلى'), cell: (week) => <Num>{fmtDay(week.toOn)}</Num> },
+    {
+      key: 'rounds',
+      header: t('halls.rep.col.rounds', 'الجولات'),
+      cell: (week) => (
+        <span className={week.roundDays < week.days ? WARN_INK : undefined} data-action="week-rounds">
+          {t('halls.rep.week.rounds', '{n} من {m}', { n: week.roundDays, m: week.days })}
+        </span>
+      ),
+    },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (week) => intCell(week.dead), total: intCell(kpis.dead) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (week) => intCell(week.culled), total: intCell(kpis.culled) },
+    { key: 'mortality', header: t('halls.rep.col.week_mortality', 'نفوق الأسبوع'), kind: 'number', cell: (week) => pctCell(week.mortalityPct) },
+    { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (week) => pctCell(week.mortalityCumPct) },
+    { key: 'live', header: t('halls.rep.col.live_week_end', 'الحيّ آخر الأسبوع'), kind: 'number', cell: (week) => <Num>{fmtInt(week.liveEnd)}</Num> },
+    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (week) => kgCell(week.feedEatenKg, weekKg), total: kgCell(kpis.feedEatenKg, weekKg) },
+    {
+      key: 'per_bird',
+      header: t('halls.rep.col.g_per_bird', 'غم لكلّ طير في اليوم'),
+      kind: 'number',
+      cell: (week) => (week.feedGPerBirdDay === null ? dash() : <Num>{fmtScaledCell(week.feedGPerBirdDay, 1, 1)}</Num>),
+    },
+    ...(showWeight
+      ? [{ key: 'weight', header: t('halls.rep.col.weight', 'الوزن (غم)'), kind: 'number' as const, cell: (week: CycleWeek) => (week.weight === null ? dash() : grams(week.weight.avgG)) }]
+      : []),
+    ...(broiler
+      ? [{ key: 'fcr', header: t('halls.rep.col.fcr', 'معامل التحويل'), kind: 'number' as const, cell: (week: CycleWeek) => (week.fcr === null ? dash() : <Num>{fmtScaledCell(week.fcr, 3, 3)}</Num>) }]
+      : []),
+  ];
+
+  const eatenKg = decimalsOf([...days.map((day) => day.feedEatenKg), kpis.feedEatenKg]);
+  const eatenCumKg = decimalsOf(days.map((day) => day.feedEatenCumKg));
+  const givenKg = decimalsOf([...days.map((day) => day.feedGivenKg), kpis.feedGivenKg]);
+  const givenCumKg = decimalsOf(days.map((day) => day.feedGivenCumKg));
+  const leftKg = decimalsOf(days.map((day) => day.feedLeftKg));
+  const dayColumns: Column<CycleDay>[] = [
+    { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), sticky: true, cell: (day) => <Num>{fmtDay(day.on)}</Num> },
+    { key: 'age', header: t('halls.rep.col.age_short', 'العمر'), kind: 'number', cell: (day) => <Num>{fmtInt(day.age)}</Num> },
+    { key: 'start', header: t('halls.rep.col.live_start', 'الحيّ أوّل اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveStart)}</Num> },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (day) => intCell(day.dead), total: intCell(kpis.dead) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (day) => intCell(day.culled), total: intCell(kpis.culled) },
+    { key: 'end', header: t('halls.rep.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveEnd)}</Num> },
+    { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (day) => pctCell(day.mortalityCumPct) },
+    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenKg, eatenKg), total: kgCell(kpis.feedEatenKg, eatenKg) },
+    { key: 'eaten_cum', header: t('halls.rep.col.eaten_cum', 'المأكول التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenCumKg, eatenCumKg) },
+    { key: 'given', header: t('halls.rep.col.given', 'النازل (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenKg, givenKg), total: kgCell(kpis.feedGivenKg, givenKg) },
+    { key: 'given_cum', header: t('halls.rep.col.given_cum', 'النازل التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenCumKg, givenCumKg) },
+    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedLeftKg, leftKg) },
+    ...(showWeight
+      ? [{ key: 'weight', header: t('halls.rep.col.weight', 'الوزن (غم)'), kind: 'number' as const, cell: (day: CycleDay) => (day.weight === null ? null : grams(day.weight.avgG)) }]
+      : []),
+    ...(layer
+      ? [
+          { key: 'eggs', header: t('round.eggs_total', 'البيض (المجموع)'), kind: 'number' as const, cell: (day: CycleDay) => intCell(day.eggsTotal) },
+          { key: 'hdep', header: t('flock.col.hdep', 'نسبة الإنتاج'), kind: 'number' as const, cell: (day: CycleDay) => pctCell(day.hdep) },
+        ]
+      : []),
+    {
+      key: 'note',
+      header: t('halls.rep.col.note', 'الملاحظة'),
+      wrap: true,
+      cell: (day) => (
+        <>
+          {!day.round ? (
+            <span className={`block ${WARN_INK}`} data-action="rep-no-round">
+              {t('halls.rep.no_round', 'لم تُسجَّل الجولة')}
+            </span>
+          ) : day.feedEatenKg === null ? (
+            <span className="block text-ink-muted" data-action="rep-no-feed">
+              {t('halls.rep.no_feed', 'لم يُسجَّل العلف')}
+            </span>
+          ) : null}
+          {day.note !== null ? <span className="block">{day.note}</span> : null}
+        </>
+      ),
+    },
+  ];
+
+  const weightColumns: Column<WeightRow>[] = [
+    { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.on)}</Num> },
+    { key: 'age', header: t('halls.rep.col.age_short', 'العمر'), kind: 'number', cell: (row) => <Num>{fmtInt(row.age)}</Num> },
+    { key: 'samples', header: t('flock.weight.samples', 'عدد طيور العيّنة'), kind: 'number', cell: (row) => <Num>{fmtInt(row.sampleCount)}</Num> },
+    { key: 'avg', header: t('flock.weight.avg', 'معدّل وزن الطير (غرام)'), kind: 'number', cell: (row) => grams(row.avgG) },
+  ];
+
+  return (
+    <>
+      <Section title={t('halls.rep.sec.charts', 'رسوم الدورة')} action="rep-charts">
+        <div className="flex flex-wrap gap-4">
+          <MortalityChart days={days} />
+          <FeedChart weeks={weeks} />
+          {showWeight ? <WeightChart days={days} weights={weights} /> : null}
+        </div>
+      </Section>
+      <Section
+        title={t('halls.rep.sec.weeks', 'الأسابيع')}
+        action="rep-weeks"
+        note={
+          <p className="text-sm text-ink-muted" data-action="rep-weeks-note">
+            {t('halls.rep.weeks_note', 'الأسبوع بعمر الطيور: الأوّل للأعمار حتى 7، والثاني من 8 إلى 14، وهكذا.')}
+          </p>
+        }
+      >
+        <DataTable caption={t('halls.rep.sec.weeks', 'الأسابيع')} columns={weekColumns} rows={weeks} rowKey={(week) => String(week.week)} empty={t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.')} totalLabel={t('halls.rep.total', 'المجموع')} />
+      </Section>
+      <Section
+        title={t('halls.rep.sec.days', 'أيّام الدورة')}
+        action="rep-days"
+        note={
+          missing > 0 ? (
+            <p className={`text-sm ${WARN_INK}`} data-action="rep-days-missing">
+              {t('halls.rep.days_missing', '{days} بلا جولة مسجّلة.', { days: daysText(missing) })}
+            </p>
+          ) : undefined
+        }
+      >
+        <DataTable caption={t('halls.rep.sec.days', 'أيّام الدورة')} columns={dayColumns} rows={days} rowKey={(day) => day.on} empty={t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.')} totalLabel={t('halls.rep.total', 'المجموع')} />
+      </Section>
+      {showWeight ? (
+        <Section title={t('halls.rep.sec.weights', 'أوزان العيّنات')} action="rep-weights">
+          <DataTable caption={t('halls.rep.sec.weights', 'أوزان العيّنات')} columns={weightColumns} rows={weights} rowKey={(row) => row.on} empty={t('halls.rep.kpi.weight_none', 'لم تُوزن عيّنة بعد.')} />
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
 function ReportBody({ report }: { report: CycleReport }) {
-  const { birds, feed, medicines, vaccines, money } = report;
+  const { birds, feed, medicines, vaccines, money, cycle } = report;
   const lineQty = decimalsOf(feed.lines.map((line) => line.qty));
   const kgDecimals = decimalsOf([...feed.lines.map((line) => line.kg), ...feed.lines.map((line) => line.cumKg), feed.deliveredKg, ...feed.byItem.map((row) => row.kg)]);
   const itemQty = decimalsOf(feed.byItem.map((row) => row.qty));
@@ -182,9 +488,17 @@ function ReportBody({ report }: { report: CycleReport }) {
 
   return (
     <div className="flex flex-col gap-6" data-action="cycle-report">
+      {cycle ? (
+        <KpiSection report={report} cycle={cycle} />
+      ) : (
+        <p className="text-sm text-ink-muted" data-action="rep-no-cycle">
+          {t('halls.rep.no_cycle', 'المؤشّرات وجداول الأسابيع والأيّام تظهر بعد تحديث الخادم.')}
+        </p>
+      )}
       <Section title={t('halls.rep.sec.birds', 'الطيور')} action="rep-birds">
         <DataTable caption={t('halls.rep.sec.birds', 'الطيور')} columns={birdColumns} rows={[birds]} rowKey={() => 'birds'} empty={dash()} />
       </Section>
+      {cycle ? <CycleSections report={report} cycle={cycle} /> : null}
       <Section title={t('halls.rep.sec.feed', 'العلف النازل للقاعة')} action="rep-feed">
         <DataTable caption={t('halls.rep.sec.feed', 'العلف النازل للقاعة')} columns={lineColumns} rows={feed.lines} rowKey={(row, index) => `${row.docNo}|${index}`} empty={t('halls.rep.feed_empty', 'لم ينزل علف لهذه القاعة بعد.')} totalLabel={t('halls.rep.total', 'المجموع')} />
       </Section>

@@ -457,6 +457,180 @@ export async function loadFlockMonth(flockId: string, month: Day): Promise<Flock
   return parseFlockMonth(await call<unknown>('flock_month', { p_flock: flockId, p_month: month }));
 }
 
+/** وزن عيّنة: avgG بأعشار الغرام (مرتبة واحدة، «280.0» ← 2800n). */
+export interface SampleWeight {
+  on: Day;
+  age: number;
+  avgG: bigint;
+}
+
+/**
+ * يوم من أيّام الدورة (0027، العقد §2: كلّ يوم من التسكين إلى «حتى»، الأقدم أوّلاً). الجولة الغائبة: نافقها ومستبعدها وعلفها null (لا صفر)،
+ * ولا تُنقص الحيّ. الكيلو بالآلاف (Milli)، والنسبة بمرتبتين، والوزن بأعشار الغرام؛ والباقي = النازل التراكميّ − المأكول التراكميّ (قد يكون سالباً).
+ */
+export interface CycleDay {
+  on: Day;
+  age: number;
+  dayNo: number;
+  round: boolean;
+  liveStart: number;
+  dead: number | null;
+  culled: number | null;
+  liveEnd: number;
+  mortalityCumPct: bigint | null;
+  feedEatenKg: Milli | null;
+  feedEatenCumKg: Milli;
+  feedGivenKg: Milli;
+  feedGivenCumKg: Milli;
+  feedLeftKg: Milli;
+  weight: { sampleCount: number; avgG: bigint } | null;
+  /** للبيّاض وحده (null للّاحم). */
+  eggsTotal: number | null;
+  hdep: bigint | null;
+  note: string | null;
+}
+
+/**
+ * أسبوع بعمر الطيور (الأسبوع n للأعمار 7(n−1)+1 إلى 7n، والعمر صفر في الأوّل). نافقه ومستبعده ونفوقه null حين لا جولة فيه، وعلفه null حين لم
+ * يُسجَّل فيه علف؛ وfeedGPerBirdDay بأعشار الغرام، وfcr بالأجزاء من الألف في آخر يوم منه، وweight آخر عيّنة فيه.
+ */
+export interface CycleWeek {
+  week: number;
+  fromAge: number;
+  toAge: number;
+  fromOn: Day;
+  toOn: Day;
+  days: number;
+  roundDays: number;
+  dead: number | null;
+  culled: number | null;
+  mortalityPct: bigint | null;
+  mortalityCumPct: bigint | null;
+  liveEnd: number;
+  feedEatenKg: Milli | null;
+  feedGPerBirdDay: bigint | null;
+  weight: SampleWeight | null;
+  fcr: bigint | null;
+}
+
+/**
+ * مؤشّرات الدورة في «حتى». كلّ مؤشّر ناقص المدخلات null (لا صفر)، والشاشة تقول سببه: fcr بقاعدة flock_summary (0012) واليوم = «حتى»، وepef
+ * (مؤشّر الإنتاج) عدد صحيح. وما يحسبه الخادم من يوم «حتى» نفسه (العمر والحيّ والعلف وأيّامه) قد يأتي null إن لم يكن في التقرير يوم، فيُقرأ هنا
+ * كذلك ولا يرمي.
+ */
+export interface CycleKpis {
+  days: number;
+  ageEnd: number | null;
+  placed: number;
+  dead: number | null;
+  culled: number | null;
+  live: number | null;
+  mortalityPct: bigint | null;
+  livabilityPct: bigint | null;
+  feedGivenKg: Milli | null;
+  feedEatenKg: Milli | null;
+  feedLeftKg: Milli | null;
+  feedDays: number | null;
+  feedSpan: number | null;
+  feedPerBirdKg: Milli | null;
+  lastWeight: SampleWeight | null;
+  fcr: bigint | null;
+  epef: bigint | null;
+}
+
+export interface CycleDetail {
+  days: readonly CycleDay[];
+  weeks: readonly CycleWeek[];
+  weights: readonly (SampleWeight & { sampleCount: number })[];
+  kpis: CycleKpis;
+}
+
+const CYCLE_KEYS = ['days', 'weeks', 'weights', 'kpis'] as const;
+
+const sampleWeight = (value: unknown, field: string): SampleWeight | null => {
+  const row = optRecord(value, field);
+  return row ? { on: str(row, 'on_date'), age: int(row, 'age'), avgG: scaled(row, 'avg_g', 1) } : null;
+};
+
+/**
+ * مفاتيح 0027 الأربعة معاً أو لا شيء: خادم قبل 0027 لا يرسل أيّاً منها فـnull (الشاشة تعرض أقسامها القديمة)، وبعضها دون بعض خطأ شكل.
+ */
+function parseCycleDetail(json: Row): CycleDetail | null {
+  const present = CYCLE_KEYS.filter((key) => json[key] !== undefined);
+  if (present.length === 0) return null;
+  const missing = CYCLE_KEYS.find((key) => json[key] === undefined);
+  if (missing) throw new HallsShapeError(missing);
+  const kpis = record(json.kpis, 'kpis');
+  return {
+    days: list(json.days, 'days').map((row) => {
+      const weight = optRecord(row.weight, 'weight');
+      return {
+        on: str(row, 'on'),
+        age: int(row, 'age'),
+        dayNo: int(row, 'day_no'),
+        round: flag(row, 'round'),
+        liveStart: int(row, 'live_start'),
+        dead: optInt(row, 'dead'),
+        culled: optInt(row, 'culled'),
+        liveEnd: int(row, 'live_end'),
+        mortalityCumPct: optScaled(row, 'mortality_cum_pct', 2),
+        feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
+        feedEatenCumKg: scaled(row, 'feed_eaten_cum_kg', 3),
+        feedGivenKg: scaled(row, 'feed_given_kg', 3),
+        feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
+        feedLeftKg: scaled(row, 'feed_left_kg', 3),
+        weight: weight ? { sampleCount: int(weight, 'sample_count'), avgG: scaled(weight, 'avg_g', 1) } : null,
+        eggsTotal: optInt(row, 'eggs_total'),
+        hdep: optScaled(row, 'hdep', 2),
+        note: optStr(row, 'note'),
+      };
+    }),
+    weeks: list(json.weeks, 'weeks').map((row) => ({
+      week: int(row, 'week'),
+      fromAge: int(row, 'from_age'),
+      toAge: int(row, 'to_age'),
+      fromOn: str(row, 'from_on'),
+      toOn: str(row, 'to_on'),
+      days: int(row, 'days'),
+      roundDays: int(row, 'round_days'),
+      dead: optInt(row, 'dead'),
+      culled: optInt(row, 'culled'),
+      mortalityPct: optScaled(row, 'mortality_pct', 2),
+      mortalityCumPct: optScaled(row, 'mortality_cum_pct', 2),
+      liveEnd: int(row, 'live_end'),
+      feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
+      feedGPerBirdDay: optScaled(row, 'feed_g_per_bird_day', 1),
+      weight: sampleWeight(row.weight, 'weight'),
+      fcr: optScaled(row, 'fcr', 3),
+    })),
+    weights: list(json.weights, 'weights').map((row) => ({
+      on: str(row, 'on_date'),
+      age: int(row, 'age'),
+      sampleCount: int(row, 'sample_count'),
+      avgG: scaled(row, 'avg_g', 1),
+    })),
+    kpis: {
+      days: int(kpis, 'days'),
+      ageEnd: optInt(kpis, 'age_end'),
+      placed: int(kpis, 'placed'),
+      dead: optInt(kpis, 'dead'),
+      culled: optInt(kpis, 'culled'),
+      live: optInt(kpis, 'live'),
+      mortalityPct: optScaled(kpis, 'mortality_pct', 2),
+      livabilityPct: optScaled(kpis, 'livability_pct', 2),
+      feedGivenKg: optScaled(kpis, 'feed_given_kg', 3),
+      feedEatenKg: optScaled(kpis, 'feed_eaten_kg', 3),
+      feedLeftKg: optScaled(kpis, 'feed_left_kg', 3),
+      feedDays: optInt(kpis, 'feed_days'),
+      feedSpan: optInt(kpis, 'feed_span'),
+      feedPerBirdKg: optScaled(kpis, 'feed_per_bird_kg', 3),
+      lastWeight: sampleWeight(kpis.last_weight, 'last_weight'),
+      fcr: optScaled(kpis, 'fcr', 3),
+      epef: optScaled(kpis, 'epef', 0),
+    },
+  };
+}
+
 export interface CycleReport {
   flock: HallFlock;
   today: Day;
@@ -475,6 +649,8 @@ export interface CycleReport {
   vaccines: readonly { vaccineId: string; name: string; color: number; ageDay: number; dueOn: Day; state: VaccineState; doneOn: Day | null; docNo: string | null }[];
   /** null لغير أدوار الكلفة. */
   money: { feed: Fils; medicine: Fils; vaccine: Fils; other: Fils; total: Fils } | null;
+  /** 0027: الأيّام والأسابيع والأوزان والمؤشّرات (بلا مال)؛ null من خادم قبل 0027. */
+  cycle: CycleDetail | null;
 }
 
 export function parseCycleReport(value: unknown): CycleReport {
@@ -548,6 +724,7 @@ export function parseCycleReport(value: unknown): CycleReport {
           total: scaled(money, 'total', 2),
         }
       : null,
+    cycle: parseCycleDetail(json),
   };
 }
 
