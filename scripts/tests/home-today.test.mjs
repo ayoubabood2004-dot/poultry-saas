@@ -417,12 +417,17 @@ export default async function (t) {
       const reminders = { today: TODAY, can_mark: true, items: [reminder('today', TODAY), reminder('tomorrow', m.addDays(TODAY, 1))] };
       fresh({ status: 'ready', workspace: ws({ userId: 'u-vax', divisions: ['broiler'] }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({}), vaccine_reminders: () => reminders });
       await mount(m.h(m.HomePage));
-      t.same(taskRows(), [['vaccines', '/broiler/round']], 'D14: جولة اليوم محفوظة، ولقاحات اليوم والغد صفّ يفتح جولة اللاحم');
+      t.same(taskRows(), [['vaccines', '/broiler/round'], ['report', '/halls/day?back=/']], 'D14: جولة اليوم محفوظة، ولقاحات اليوم والغد صفّ يفتح جولة اللاحم، وبعد جواب الخادم صفّ «تقرير القاعات اليومي» (0027)');
       t.ok(text().includes('لقاحات اليوم: 1 · غداً: 1') && !text().includes('أنجزت شغل اليوم'), 'D14: الصفّ بعدّيه، ولا «أنجزت شغل اليوم» ولقاح ينتظر');
       await unmount();
       const calls = fresh({ status: 'ready', workspace: ws({ userId: 'u-vax2', role: 'storekeeper', divisions: ['general'], canSeeAccounts: false }), offline: false }, { loadHomeSummary: () => ({}), vaccine_reminders: () => reminders });
       await mount(m.h(m.HomePage));
-      t.ok(!calls.includes('vaccine_reminders') && taskRows().every(([key]) => key !== 'vaccines'), 'D14: من ليس بنطاقه حقول لا يُقرأ له التذكير');
+      t.ok(!calls.includes('vaccine_reminders') && taskRows().every(([key]) => key !== 'vaccines' && key !== 'report'), 'D14: من ليس بنطاقه حقول لا يُقرأ له التذكير ولا صفّ للتقرير اليوميّ');
+      await unmount();
+      // صفّ التقرير ليس شغلاً ينتظر: بلا لقاح ولا جولة باقية تبقى «أنجزت شغل اليوم» ومعها الصفّ.
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-vax3', divisions: ['broiler'] }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({}), vaccine_reminders: () => ({ today: TODAY, can_mark: true, items: [] }) });
+      await mount(m.h(m.HomePage));
+      t.same([taskRows(), text().includes('أنجزت شغل اليوم')], [[['report', '/halls/day?back=/']], true], 'D14: بلا لقاح ولا جولة باقية: «أنجزت شغل اليوم» وصفّ التقرير اليوميّ وحده');
       await unmount();
     }
 

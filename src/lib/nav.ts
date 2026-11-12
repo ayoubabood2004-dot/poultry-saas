@@ -1,4 +1,4 @@
-import { Drumstick, Egg, Factory, House, Receipt, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
+import { ChartNoAxesColumn, Drumstick, Egg, Factory, House, Receipt, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import type { DivisionKind } from '../domain/divisions';
 import { canManageMembers, type Role } from '../domain/permissions';
 import type { Workspace } from '../domain/workspace';
@@ -39,8 +39,8 @@ export function navItems(): NavItem[] {
     // المخازن الجانبية»): بند `/inventory` وحده، وداخله بطاقة لكل مخزن بنطاق المستخدم ومعها التحكّم بها. فلا بنود للمخازن
     // بالوحدات (المعمل والمفقس والأدوية والعامّة): لوحاتها تبقى تنفتح بالرابط بس (StockRoutes). ومعمل العلف شغّال (0015،
     // كلمة المالك 2026-11-03) ببنده: خلطاته وإنتاجه، لا مخازنه. وحقول اللحم والبيض شغّالة من المرحلة 2 (النسخة الأولى بكلمة
-    // المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المفقس والتقارير صفحات تخطيط بلا شاشة شغّالة: مساراتها باقية وتنفتح
-    // بالرابط، بس ما تنعرض بالشريط ولا بالرئيسية؛ والمبيعات شغّالة (0021).
+    // المالك 2026-10-31: القاعات والأفواج والجولة اليومية). المفقس صفحة تخطيط بلا شاشة شغّالة: مسارها باقٍ وينفتح
+    // بالرابط، بس ما ينعرض بالشريط ولا بالرئيسية؛ والمبيعات شغّالة (0021)، و«التقارير» صفحة مداخل (0027).
     { to: '/broiler', label: t('nav.broiler', 'حقول اللحم'), icon: Drumstick, division: 'broiler' },
     { to: '/layers', label: t('nav.layers', 'حقول البيض'), icon: Egg, division: 'layer' },
     { to: '/mill', label: t('nav.mill', 'معمل العلف'), icon: Factory, division: 'feed_mill' },
@@ -49,6 +49,8 @@ export function navItems(): NavItem[] {
     // الفواتير والتقرير، ويبيع منهم من له sale.record)، والصفحة في حزمة المخزون خارج التثبيت المسبق.
     { to: '/sales', label: t('nav.sales', 'المبيعات'), icon: Receipt, visibleTo: (w) => w.canSeeSales },
     { to: '/accounts', label: t('nav.accounts', 'الحسابات'), icon: Wallet, visibleTo: (w) => w.canSeeAccounts },
+    // «التقارير» (0027، كلمة المالك 2026-11-12): صفحة مداخل تقرير القاعات اليومي وتقارير الدورات، فبندها لمن بنطاقه حقول لحم أو بيض.
+    { to: '/reports', label: t('nav.reports', 'التقارير'), icon: ChartNoAxesColumn, visibleTo: (w) => w.divisions.includes('broiler') || w.divisions.includes('layer') },
     { to: '/staff', label: t('nav.staff', 'الموظفون'), icon: Users, visibleTo: (w) => canManageMembers(w.role) },
     { to: '/account', label: t('nav.account', 'حسابي'), icon: UserRound },
     { to: '/settings', label: t('nav.settings', 'الإعدادات'), icon: Settings },

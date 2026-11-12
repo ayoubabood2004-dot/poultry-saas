@@ -440,6 +440,7 @@ export default async function (t) {
       const links = byAction('hall-issue');
       t.same(links.map((node) => [node.textContent, node.getAttribute('href')]), [['اصرف', `/halls/give/${FLOCK}?back=%2Fbroiler`]], 'E «اصرف» لكلّ قاعة بفوج قائم (لا للقاعة الفارغة) إلى صفحة الإضافة لفوجها');
       t.eq(byAction('farm-vaccines')[0]?.getAttribute('href') ?? null, '/halls/vaccines?kind=broiler', 'E ورأس الحقل يدلّ على جدول لقاحات نوعه');
+      t.same(byAction('farm-day-report').map((node) => [node.textContent, node.getAttribute('href')]), [['تقرير اليوم', '/halls/day?back=/broiler']], 'E ورأسه يدلّ على تقرير القاعات اليومي برجوع إلى الحقل (0027)');
       fire(links[0], 'click', { button: 0 });
       await settle(60);
       t.eq(globalThis.__fi.location, `/halls/give/${FLOCK}?back=%2Fbroiler`, 'E والنقر يفتح صفحة الإضافة، والرجوع منها إلى الحقل');

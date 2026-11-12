@@ -687,13 +687,14 @@ export default async function (t) {
       await reminders({ compact: true, onCount: (n) => counts.push(n) });
       t.same(byAction('today-vaccines').map((n) => [n.textContent, n.getAttribute('href')]), [['لقاحات اليوم: 3 · غداً: 1', '/broiler/round']], 'R المختصر: لقاحات اليوم (والفائت) والغد بسطر يفتح الجولة');
       t.eq(counts.at(-1), 1, 'R وعدد صفوفه للرئيسية (لا «أنجزت شغل اليوم» ولقاح ينتظر)');
+      t.same(byAction('today-report').map((n) => [n.textContent, n.getAttribute('href')]), [['تقرير القاعات اليومي', '/halls/day?back=/']], 'R وبعد جواب الخادم صفّ «تقرير القاعات اليومي» (0027)، لا يُعدّ في صفوف الشغل');
       await unmount();
       const soon = clone(C.vaccine_reminders);
       soon.items = soon.items.map((item) => ({ ...item, when: 'soon' }));
       const later = [];
       fresh(OWNER, { vaccine_reminders: () => soon });
       await reminders({ compact: true, onCount: (n) => later.push(n) });
-      t.same([byAction('today-vaccines').length, later.at(-1)], [0, 0], 'R ولا شيء حين لا لقاح اليوم ولا غداً');
+      t.same([byAction('today-vaccines').length, later.at(-1), byAction('today-report').length], [0, 0, 1], 'R ولا صفّ لقاحات حين لا لقاح اليوم ولا غداً (العدد صفر)، وصفّ التقرير اليوميّ وحده');
     });
 
     // ── W: الجولة ─────────────────────────────────────────────────────────────────────────────────────────────────────

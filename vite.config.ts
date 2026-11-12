@@ -18,6 +18,11 @@ export default defineConfig({
   build: {
     // pwa-guard وbundle-guard يقرون dist/.vite/manifest.json حتى يعرفون حزمة الإقلاع وتوابعها.
     manifest: true,
+    // 0027 (بند «التقارير» في الشريط بأيقونته، حزمة الإقلاع على بعد 86 بايتاً من حدّها): بلا polyfill الـmodulepreload. index.html بلا أيّ
+    // <link rel="modulepreload"> (الإقلاع ملف JS واحد)، والتحميل المسبق للحزم الكسولة باقٍ: مساعد Vite (__vitePreload) يكتشف دعم
+    // modulepreload ويرجع إلى rel=preload حيث لا يُدعم (detectScriptRel)، بدل polyfill يجلب الروابط نفسها بـfetch. المقيس: الإقلاع 283
+    // بايتاً gzip أصغر.
+    modulePreload: { polyfill: false },
     rollupOptions: {
       output: {
         // الحزمة المشتركة لشاشتي البيانات الأساسية (المرحلة 1 WP2، بيها repo/inventory.ts) والحزم المشتركة لشاشات الحسابات (WP3:
@@ -91,6 +96,8 @@ export default defineConfig({
           '**/MillRoutes-*.{js,css}',
           // 0026: القاعات (/halls/*: الإضافة والتأشير والتقويم والتقرير وجدول اللقاحات) تحتاج الخادم كلّها، بنفس القاعدة.
           '**/HallsRoutes-*.{js,css}',
+          // 0027: «التقارير» صفحة مداخل تقارير تُقرأ من الخادم كلّها (تقرير القاعات اليومي وتقارير الدورات)، بنفس القاعدة.
+          '**/ReportsPage-*.{js,css}',
         ],
         // صريحاً: vite-plugin-pwa يفعّله بس ويّا autoUpdate، وبلاه الصفحة اللي ثبّتت الخدمة العاملة ما تنمسك.
         clientsClaim: true,

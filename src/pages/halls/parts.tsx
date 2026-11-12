@@ -23,6 +23,24 @@ export function backTarget(value: string | null, fallback: string): string {
   return value !== null && /^\/(?:$|(?:broiler|layers|halls)(?:[/?][\w\-/=&%.?+]*)?$)/u.test(value) ? value : fallback;
 }
 
+/** طريق رجوع صفحتي التقارير (0027: التقرير اليوميّ وتقارير الدورات): صفحة «التقارير» أو ما يقبله backTarget، وإلّا البديل. */
+export function reportsBack(value: string | null, fallback: string): string {
+  return value === '/reports' ? value : backTarget(value, fallback);
+}
+
+/**
+ * اسم زرّ الرجوع بوجهته: الرئيسية، أو «التقارير»، أو التقرير اليوميّ، أو تقارير الدورات، أو الحقول، وإلّا القاعة. لكلّ صفحة تقرأ ?back= ممّا يرسله
+ * التقرير اليوميّ وتقارير الدورات (0027)، فلا يقول الزرّ «رجوع إلى القاعة» وهو يعود إلى التقرير.
+ */
+export function backLabel(path: string): string {
+  if (path === '/') return t('back.home', 'رجوع إلى الرئيسية');
+  if (path === '/reports') return t('halls.kit.back_reports', 'رجوع إلى التقارير');
+  if (path.startsWith('/halls/day')) return t('halls.kit.back_day', 'رجوع إلى تقرير القاعات اليومي');
+  if (path.startsWith('/halls/cycles')) return t('halls.kit.back_cycles', 'رجوع إلى تقارير الدورات');
+  if (/^\/(?:broiler|layers)(?:\?|$)/u.test(path)) return t('back.farms', 'رجوع إلى الحقول');
+  return t('halls.kit.back_hall', 'رجوع إلى القاعة');
+}
+
 /** «رجوع إلى…» بشكل زرّ الرجوع، بلا استيراد BackButton (حزمته مشتركة بين المخزون والمعمل). لا يُطبع. */
 export function BackLink({ to, label, action = 'back' }: { to: string; label: string; action?: string }) {
   return (
