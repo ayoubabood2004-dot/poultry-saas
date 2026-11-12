@@ -3,7 +3,8 @@
 // الأيّام السبعة): جولات بفجوة وجولة بلا علف ويوم بلا جولة، وأوزان، وصرف علف بالكيلو واللتر والقطعة وبلا وزن (لقاعتين في حقل واحد يوماً واحداً، ولقاعة
 // قبل اليوم بثلاثة أيّام، وملغى) وصرف ملغى، ودواء من المخزن وتسجيل دواء، ولقاح
 // مؤشَّر بصرفه وموعد اليوم وموعد فائت، وفوج بيّاض ببيضه، وفوجان مغلقان (أحدهما في قاعة أُرشفت بعده، والآخر أُغلق يوم سُكّن التالي في قاعته)، وقاعة فارغة،
-// وقاعة مؤرشفة بلا فوج، وحقل بلا قاعات، وعاملا قاعة بنطاق حقل. ونموذج مستقلّ بالأعداد الصحيحة الكبيرة (BigInt) يحسب كلّ تعريف في العقد من الصفوف الخام
+// وقاعة مؤرشفة بلا فوج، وحقل بلا قاعات، وعاملا قاعة بنطاق حقل؛ ومنشأة ثانية صُرف فيها علف موزون وبلا وزن في أيّام بلا جولة (يوم التسكين ويوم في الوسط
+// واليوم، وفوج سُكّن اليوم بكيس بلا وزن). ونموذج مستقلّ بالأعداد الصحيحة الكبيرة (BigInt) يحسب كلّ تعريف في العقد من الصفوف الخام
 // ويُقارن بالجواب لكلّ يوم ولكلّ هويّة، وقيم محسوبة باليد لأهمّها؛ والرفض والتنقّل والمجاميع والنطاق والحدّ 500؛ وطفرات يكتبها تطبيق ساذج فيمسكها
 // فحصها؛ وعيّنات القاعدة الحقيقية للشاشات (REPORTS_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/reports-0027.json).
 import { writeFileSync } from 'node:fs';
@@ -348,7 +349,7 @@ export default async function (t, db) {
 
 async function scenario(t, db) {
   const G = await makeOrg(db, { name: 'مزرعة التقارير', id, phone, roles: [['owner', 'owner'], ['manager', 'manager']] });
-  const { users: U, divisions: D, org } = G;
+  const { users: U, org } = G;
   const one = async (user, sql, params) => {
     const result = await call(db, user, sql, params);
     if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
@@ -356,10 +357,13 @@ async function scenario(t, db) {
   };
   const shown = (result) => (result.ok ? 'ok' : result.code);
   const at = (on, fn) => db.setToday(on, fn);
-  const W = Object.fromEntries((await db.admin('select kind, id from public.warehouses where org_id = $1', [org])).rows.map((r) => [r.kind, r.id]));
-  const site = (division, name) => one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, $2, 'farm') returning id", [D[division], name]);
+  const warehouses = async (orgId) => Object.fromEntries((await db.admin('select kind, id from public.warehouses where org_id = $1', [orgId])).rows.map((r) => [r.kind, r.id]));
+  const W = await warehouses(org);
+  // أدوات البذرة بمالك المنشأة ومديرها؛ آخر معامل (by) منشأة أخرى من makeOrg (منشأة الصرف بلا جولة أدناه)، وإلّا «مزرعة التقارير».
+  const site = (division, name, by = G) =>
+    one(by.users.owner, "insert into public.sites (division_id, name, kind) values ($1, $2, 'farm') returning id", [by.divisions[division], name]);
   const S = { a: await site('broiler', 'حقل ألف'), b: await site('broiler', 'حقل باء'), l: await site('layer', 'حقل البيض'), e: await site('broiler', 'حقل فارغ') };
-  const hall = (siteId, name) => one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [siteId, name]);
+  const hall = (siteId, name, by = G) => one(by.users.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [siteId, name]);
   const H = { h1: await hall(S.a, 'قاعة 1'), h2: await hall(S.a, 'قاعة 2'), h3: await hall(S.a, 'قاعة 3'), h4: await hall(S.a, 'قاعة 4'),
     h5: await hall(S.b, 'قاعة 5'), old: await hall(S.b, 'قاعة قديمة'), hl: await hall(S.l, 'قاعة البيّاض') };
   await one(U.owner, 'update public.halls set archived_at = now() where id = $1 returning id', [H.old]);
@@ -372,8 +376,8 @@ async function scenario(t, db) {
   U.hallWorker = await invite(3, 'hallWorker', [S.a]);
   U.layerWorker = await invite(4, 'layerWorker', [S.l]);
 
-  const item = (name, kind, unit, density = null, piece = null) =>
-    one(U.owner, 'insert into public.items (name, kind, base_unit, density_kg_per_l, piece_mass_kg) values ($1, $2, $3, $4, $5) returning id', [name, kind, unit, density, piece]);
+  const item = (name, kind, unit, density = null, piece = null, by = G) =>
+    one(by.users.owner, 'insert into public.items (name, kind, base_unit, density_kg_per_l, piece_mass_kg) values ($1, $2, $3, $4, $5) returning id', [name, kind, unit, density, piece]);
   const I = { starter: await item('علف بادئ', 'feed', 'kg'), bags: await item('علف بالأكياس', 'feed', 'pc', null, 50), loose: await item('علف بلا وزن', 'feed', 'pc'),
     oil: await item('زيت', 'raw', 'L', 0.92), vitamin: await item('فيتامين سائل', 'medicine', 'L'), ib: await item('لقاح IB', 'vaccine', 'pc') };
   await postedOpening(db, U.owner, W.feed, day(-45), [{ item: I.starter, qty: 5000, value: '2500000.00' }, { item: I.bags, qty: 20, value: '200000.00' },
@@ -385,9 +389,10 @@ async function scenario(t, db) {
   await one(U.manager, 'select public.save_vaccine_program($1, $2, $3::jsonb, 0) as v',
     ['broiler', 42, JSON.stringify([{ vaccine_id: V.ib, age_day: 7 }, { vaccine_id: V.nd, age_day: 10 }, { vaccine_id: V.gb, age_day: 14 }])]);
 
-  const open = async (hallId, on, count, age0) => (await one(U.manager, 'select public.open_flock($1, $2, $3, $4, null, $5) as v', [hallId, on, count, age0, uid()])).flock_id;
-  const round = async (flock, [offset, dead, culled, feed, note = null, eggs = null]) => {
-    const v = await one(U.manager, 'select public.save_flock_day($1, $2, $3, $4, $5, null, null, null, $6, $7, $8, $9, null, $10, false) as v',
+  const open = async (hallId, on, count, age0, by = G) =>
+    (await one(by.users.manager, 'select public.open_flock($1, $2, $3, $4, null, $5) as v', [hallId, on, count, age0, uid()])).flock_id;
+  const round = async (flock, [offset, dead, culled, feed, note = null, eggs = null], by = G) => {
+    const v = await one(by.users.manager, 'select public.save_flock_day($1, $2, $3, $4, $5, null, null, null, $6, $7, $8, $9, null, $10, false) as v',
       [flock, day(offset), dead, culled, feed, eggs?.[0] ?? null, eggs?.[1] ?? null, eggs?.[2] ?? null, note, uid()]);
     if (v.status !== 'saved') throw new Error(`جولة ${day(offset)} لم تُحفظ: ${JSON.stringify(v)}`);
   };
@@ -395,9 +400,9 @@ async function scenario(t, db) {
     const v = await one(U.manager, 'select public.record_flock_weight($1, $2, $3, $4, $5) as v', [flock, day(offset), count, avg, uid()]);
     if (v.status !== 'saved') throw new Error(`وزن ${day(offset)} لم يُحفظ: ${JSON.stringify(v)}`);
   };
-  const issue = async (flock, offset, itemId, wh, qty) => {
+  const issue = async (flock, offset, itemId, wh, qty, by = G) => {
     const issueId = uid();
-    await one(U.manager, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), issueId, uid(), flock, itemId, qty, day(offset), wh]);
+    await one(by.users.manager, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), issueId, uid(), flock, itemId, qty, day(offset), wh]);
     return issueId;
   };
   const close = (flock, offset) => db.admin("update public.flocks set status = 'closed', closed_on = $2 where id = $1", [flock, day(offset)]);
@@ -454,7 +459,26 @@ async function scenario(t, db) {
   await issue(F.f2, -1, I.loose, W.feed, '1');
   await issue(F.f2, -1, I.loose, W.feed, '1');
 
+  // ── منشأة الصرف بلا جولة (مراجعة 0027: R27-RR1): كلّ سطر علف في «مزرعة التقارير» نزل يوم جولة، وفي الإنتاج الجولات في 4 أيّام من 33، فأغلب الصرف
+  // في يوم بلا جولة. في «حقل جيم»: «ن1» سُكّن 6 تشرين الثاني بلا جولة يومها، وجولاته 7 و8 و10 و11 وحدها؛ صُرف له يوم تسكينه 100 كغم وسطر بلا وزن، ويوم 7
+  // (بجولته) 50 كغم، ويوم 9 (بلا جولة) كيسان (50 كغم للكيس) وسطران بلا وزن، واليوم (بلا جولة) 150 كغم وسطر بلا وزن بقطعتين؛ و«ن2» سُكّن اليوم بلا جولة
+  // وصُرف له كيس بلا وزن. منشأة مستقلّة، فعيّنات الشاشات وقيم «مزرعة التقارير» المحسوبة باليد كما هي؛ والنموذج يقارنها في ١ و٣، وقيمها باليد في ٣ج.
+  const N = await makeOrg(db, { name: 'مزرعة الصرف بلا جولة', id: (n) => id(60 + n), phone: (n) => phone(60 + n), roles: [['owner', 'owner'], ['manager', 'manager']] });
+  const NW = await warehouses(N.org);
+  const nSite = await site('broiler', 'حقل جيم', N);
+  const NH = { h6: await hall(nSite, 'قاعة 6', N), h7: await hall(nSite, 'قاعة 7', N) };
+  const NI = { starter: await item('علف بادئ', 'feed', 'kg', null, null, N), bags: await item('علف بالأكياس', 'feed', 'pc', null, 50, N),
+    loose: await item('علف بلا وزن', 'feed', 'pc', null, null, N) };
+  await postedOpening(db, N.users.owner, NW.feed, day(-7), [{ item: NI.starter, qty: 1000, value: '500000.00' }, { item: NI.bags, qty: 10, value: '100000.00' },
+    { item: NI.loose, qty: 10, value: '100000.00' }]);
+  const NF = { na: await open(NH.h6, day(-6), 5000, 0, N), nb: await open(NH.h7, TODAY, 1000, 0, N) };
+  for (const r of [[-5, 3, 0, '40'], [-4, 2, 1, '45'], [-2, 1, 0, '55'], [-1, 0, 0, '60']]) await round(NF.na, r, N);
+  for (const [offset, itemId, qty] of [[-6, NI.starter, '100'], [-6, NI.loose, '1'], [-5, NI.starter, '50'], [-3, NI.bags, '2'], [-3, NI.loose, '1'],
+    [-3, NI.loose, '1'], [0, NI.starter, '150'], [0, NI.loose, '2']]) await issue(NF.na, offset, itemId, NW.feed, qty, N);
+  await issue(NF.nb, 0, NI.loose, NW.feed, '1', N);
+
   const raw = await loadRaw(db, org);
+  const rawN = await loadRaw(db, N.org);
   const ALL = () => true;
   const SCOPES = { manager: ALL, hallWorker: (s) => s === S.a, layerWorker: (s) => s === S.l };
   const hallsDay = async (user, on) => one(user, HALLS_DAY, [on]);
@@ -476,8 +500,20 @@ async function scenario(t, db) {
       if (!same(withoutLists(got), want)) mismatches.push(`${who} ${on}: ${canon(deep(withoutLists(got))).slice(0, 400)} ≠ ${canon(deep(want)).slice(0, 400)}`);
     }
   }
-  t.same(mismatches.slice(0, 3), [], `halls_day = النموذج المستقلّ لكلّ يوم من ${day(-45)} إلى ${TODAY} ولكلّ هويّة (3 × 46 جواباً، ${flockDays} يوم فوج)`);
-  t.ok(flockDays > 100, `النموذج مرّ على أيّام أفواج حقيقية (${flockDays})، لا على صفر`);
+  // ومنشأة الصرف بلا جولة بمديرها من اليوم الذي قبل تسكين «ن1» إلى اليوم (أجوبتها خارج responses: المجاميع والعيّنات أدناه لـ«مزرعة التقارير» وحدها).
+  const responsesN = {};
+  let flockDaysN = 0;
+  for (let on = day(-7); on <= TODAY; on = addDays(on, 1)) {
+    const got = await hallsDay(N.users.manager, on);
+    responsesN[on] = got;
+    scaleIssues.push(...scaleProblems(got, `halls_day(n, ${on})`));
+    const want = hallsDayModel(rawN, on, TODAY, ALL);
+    flockDaysN += want.sites.flatMap((s) => s.halls).filter((h) => h.flock).length;
+    if (!same(withoutLists(got), want)) mismatches.push(`n ${on}: ${canon(deep(withoutLists(got))).slice(0, 400)} ≠ ${canon(deep(want)).slice(0, 400)}`);
+  }
+  t.same(mismatches.slice(0, 3), [], `halls_day = النموذج المستقلّ لكلّ يوم من ${day(-45)} إلى ${TODAY} ولكلّ هويّة (3 × 46 جواباً، ${flockDays} يوم فوج)، `
+    + `ولمنشأة الصرف بلا جولة من ${day(-7)} (8 أجوبة، ${flockDaysN} أيّام فوج، والعلف في أيّام بلا جولة)`);
+  t.ok(flockDays > 100 && flockDaysN === 8, `النموذج مرّ على أيّام أفواج حقيقية (${flockDays} و${flockDaysN})، لا على صفر`);
 
   // ── ٢) قيم محسوبة باليد لأهمّ التعريفات (تحرس النموذج نفسه).
   const today = responses[`manager:${TODAY}`];
@@ -554,15 +590,13 @@ async function scenario(t, db) {
   t.ok(!hasMoney(today), 'التقرير اليوميّ بلا مال');
 
   // ── ٣) تقرير الدورة: المفاتيح الجديدة بالنموذج لكلّ فوج، ومجاميع الأيّام = المفاتيح القديمة، والمال لأدوار الكلفة وحدها.
-  const reports = {};
-  const reportMismatches = [];
-  for (const [key, flockId] of Object.entries(F)) {
-    const fx = raw.flocks.get(flockId);
+  /** تقرير دورة فوج من rawX: أجزاؤه المخالفة للنموذج (parts)، ومجاميع أيّامه (totals) مقابل المفاتيح القديمة وflock_feed (old)؛ get يقرأ الجواب
+   *  (النداء الحقيقيّ، أو داخل طفرة). */
+  const cycleCheck = async (get, rawX, flockId) => {
+    const fx = rawX.flocks.get(flockId);
     const through = fx.f.closed_on ?? TODAY;
     const days = daysOf(fx, through);
-    const got = await one(U.manager, REPORT, [flockId]);
-    reports[key] = got;
-    scaleIssues.push(...scaleProblems(got, `flock_cycle_report(${key})`));
+    const got = await get(REPORT, [flockId]);
     const want = {
       days: days.map((d) => pick(d.view, DAY_KEYS)),
       weeks: weeksOf(days),
@@ -570,19 +604,27 @@ async function scenario(t, db) {
         sample_count: w.sample_count, avg_g: text(units(w.avg, 1), 1) })),
       kpis: kpisOf(fx.f, days),
     };
-    for (const part of Object.keys(want)) {
-      if (!same(got[part], want[part])) reportMismatches.push(`${key}.${part}: ${canon(deep(got[part])).slice(0, 300)} ≠ ${canon(deep(want[part])).slice(0, 300)}`);
-    }
     const sum = (k) => got.days.reduce((s, d) => s + (d[k] ?? 0), 0);
     const last = got.days.at(-1);
-    const feedNow = await one(U.manager, FEED, [flockId]);
+    const feedNow = await get(FEED, [flockId]);
     const totals = [sum('dead'), sum('culled'), last.live_end, norm(last.feed_eaten_cum_kg), norm(last.feed_given_cum_kg), norm(last.feed_left_kg), got.kpis.mortality_pct, last.on,
       sum('feed_given_unweighed'), last.feed_given_cum_unweighed];
     const old = [got.birds.dead, got.birds.culled, got.birds.live, norm(got.feed.consumed_kg), norm(got.feed.delivered_kg), norm(got.feed.remaining_kg), got.birds.mortality_pct, got.through,
       got.feed.unweighed, feedNow.unweighed_feed_lines];
+    return { got, want, parts: Object.keys(want).filter((part) => !same(got[part], want[part])), totals, old };
+  };
+  const reports = {};
+  const reportMismatches = [];
+  const cycleFlocks = [...Object.entries(F).map(([key, flockId]) => [key, flockId, raw, U.manager]),
+    ...Object.entries(NF).map(([key, flockId]) => [key, flockId, rawN, N.users.manager])];
+  for (const [key, flockId, rawX, user] of cycleFlocks) {
+    const { got, want, parts, totals, old } = await cycleCheck((sql, params) => one(user, sql, params), rawX, flockId);
+    reports[key] = got;
+    scaleIssues.push(...scaleProblems(got, `flock_cycle_report(${key})`));
+    for (const part of parts) reportMismatches.push(`${key}.${part}: ${canon(deep(got[part])).slice(0, 300)} ≠ ${canon(deep(want[part])).slice(0, 300)}`);
     if (canon(totals) !== canon(old)) reportMismatches.push(`${key}: مجاميع الأيّام ${canon(totals)} ≠ المفاتيح القديمة ${canon(old)}`);
   }
-  t.same(reportMismatches, [], `تقرير الدورة: الأيّام والأسابيع والأوزان والمؤشّرات = النموذج لستّة أفواج (قائمة ومغلقة، لحم وبيّاض، عمر 0 و1 و4 و140)، ومجاميع الأيّام = birds وfeed، وسطور العلف بلا وزن (مجموع أعداد الأيّام وتراكم آخرها) = feed.unweighed = unweighed_feed_lines في flock_feed`);
+  t.same(reportMismatches, [], `تقرير الدورة: الأيّام والأسابيع والأوزان والمؤشّرات = النموذج لثمانية أفواج (قائمة ومغلقة، لحم وبيّاض، عمر 0 و1 و4 و140، وفوجا منشأة الصرف بلا جولة)، ومجاميع الأيّام = birds وfeed، وسطور العلف بلا وزن (مجموع أعداد الأيّام وتراكم آخرها) = feed.unweighed = unweighed_feed_lines في flock_feed`);
   const wk = (key) => reports[key].weeks.map((w) => [w.week, w.from_age, w.to_age, w.from_on, w.to_on, w.days, w.round_days, w.dead, w.culled, w.mortality_pct,
     w.mortality_cum_pct, w.live_end, norm(w.feed_eaten_kg), w.feed_g_per_bird_day, w.weight && [w.weight.on_date, w.weight.age, w.weight.avg_g], w.fcr]);
   t.same(wk('f1'), [
@@ -660,6 +702,25 @@ async function scenario(t, db) {
     today.sites.filter((s) => s.totals.feed_given_unweighed > 0).map((s) => s.name), today.totals.feed_given_unweighed > 0, [laterCum(reports.f1), laterCum(reports.f2)],
   ], [['قاعة 1', 'قاعة 5'], ['حقل ألف'], true, [true, true]],
   'العيّنات للشاشات: اليوم «قاعة 1» و«قاعة 5» بتراكم موجب وعدد يوم صفر، و«حقل ألف» والكلّ بمجموع موجب، وأيّام دورتَي F1 (الفجوات) وF2 بعدد يوم موجب ثمّ تراكم بعده');
+
+  // ── ٣ج) علف نزل في أيّام بلا جولة (مراجعة 0027: R27-RR1): النازل بكيلوه وسطوره بلا وزن ليوم صرفه، جولةً كان أو لا (يوم التسكين ويوم في الوسط واليوم)،
+  // في التقرير اليوميّ وأيّام الدورة ومجموع الحقل والكلّ، وflock_feed يعدّها. النموذج يقارن هذه المنشأة في ١ و٣؛ وهنا قيم محسوبة باليد تحرس النموذج نفسه.
+  const givenRow = (x) => (x ? [x.round, norm(x.feed_given_kg), x.feed_given_unweighed, norm(x.feed_given_cum_kg), x.feed_given_cum_unweighed, norm(x.feed_left_kg)] : null);
+  const NA_DAYS = [-6, -5, -4, -3, -2, -1, 0];
+  const naGiven = [[false, '100', 1, '100', 1, '100'], [true, '50', 0, '150', 1, '110'], [true, '0', 0, '150', 1, '65'], [false, '100', 2, '250', 3, '165'],
+    [true, '0', 0, '250', 3, '110'], [true, '0', 0, '250', 3, '50'], [false, '150', 1, '400', 4, '200']];
+  t.same([NA_DAYS.map((o) => givenRow(flockOf(responsesN[day(o)], 'قاعة 6'))), NA_DAYS.map((o) => givenRow(reportDay('na', o)))], [naGiven, naGiven],
+    '«ن1» من 6 تشرين الثاني إلى اليوم [الجولة، النازل، سطوره بلا وزن، تراكم النازل، تراكم سطوره، الباقي]: يوم تسكينه بلا جولة 100 كغم وسطر، ويوم 7 بجولته 50 كغم، ويوم 9 بلا جولة كيسان (100 كغم) وسطران، واليوم بلا جولة 150 كغم وسطر بقطعتين (السطر يُعدّ لا القطع)؛ والباقي = تراكم النازل − المأكول (40 و45 و55 و60)، في التقرير اليوميّ وأيّام الدورة سواءً');
+  const nToday = responsesN[TODAY];
+  const naFeed = await one(N.users.manager, FEED, [NF.na]);
+  const nbFeed = await one(N.users.manager, FEED, [NF.nb]);
+  t.same([givenRow(flockOf(nToday, 'قاعة 7')), flockOf(nToday, 'قاعة 7').day_no, reports.nb.days.map(givenRow),
+    nToday.sites.map((s) => [s.name, s.totals.flocks, s.totals.rounds, s.totals.dead, s.totals.feed_eaten_kg, norm(s.totals.feed_given_kg), s.totals.feed_given_unweighed]),
+    [nToday.totals.rounds, norm(nToday.totals.feed_given_kg), nToday.totals.feed_given_unweighed],
+    [norm(naFeed.issued_feed_kg), norm(naFeed.consumed_feed_kg), naFeed.unweighed_feed_lines, reports.na.feed.unweighed, norm(nbFeed.issued_feed_kg), nbFeed.unweighed_feed_lines,
+      reports.nb.feed.unweighed]],
+  [[false, '0', 1, '0', 1, '0'], 1, [[false, '0', 1, '0', 1, '0']], [['حقل جيم', 2, 0, null, null, '150', 2]], [0, '150', 2], ['400', '200', 4, 4, '0', 1, 1]],
+  '«ن2» سُكّن اليوم بلا جولة وصُرف له كيس بلا وزن: عدد يومه 1 وتراكمه 1 في التقرير اليوميّ وأيّام الدورة؛ ومجموع «حقل جيم» والكلّ اليوم ولا جولة فيه: 150 كغم وسطران (سطر «ن1» وكيس «ن2»)؛ وflock_feed وfeed.unweighed: «ن1» 400 كغم و4 سطور، و«ن2» سطر واحد');
 
   // ── ٤) قائمة الدورات: الترتيب والنطاق والحيّ والنفوق بالنموذج، والحدّ 500.
   const cyclesMismatches = [];
@@ -803,6 +864,28 @@ async function scenario(t, db) {
   await caught('ضابط النموذج: مجموع السطور بلا وزن بعدّ الأفواج يُفشل مقارنة halls_day بالنموذج يوم 11',
     [[FN.totals, [["coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int", "count(e.h -> 'flock' ->> 'feed_given_unweighed')::int"]]]],
     asManager(HALLS_DAY, [day(-1)], (v) => same(withoutLists(v), hallsDayModel(raw, day(-1), TODAY, ALL))), (v) => v === false);
+
+  // ── ضوابط النموذج للعلف في أيّام بلا جولة (R27-RR1): تطبيق ساذج يربط النازل بصفّ الجولة يُسقط ما صُرف في يوم بلا جولة، فتفشل مقارنة منشأة الصرف بلا
+  // جولة بالنموذج (في «مزرعة التقارير» كلّ صرف نزل يوم جولة، فما كانت تقدر أن تفشل).
+  const viaQ = (q) => async (sql, params) => (await q(sql, params)).rows[0].v;
+  /** أيّام منشأة الصرف بلا جولة التي يخالف فيها halls_day النموذج (المقارنة نفسها في ١). */
+  const nDiffers = async (get) => {
+    const differ = [];
+    for (let on = day(-7); on <= TODAY; on = addDays(on, 1)) if (!same(withoutLists(await get(HALLS_DAY, [on])), hallsDayModel(rawN, on, TODAY, ALL))) differ.push(on);
+    return differ;
+  };
+  /** الأجزاء المخالفة للنموذج في تقرير الدورة، ومواضع مجاميع الأيّام المخالفة للمفاتيح القديمة وflock_feed [من الأيّام، المتوقّع] (الفحص نفسه في ٣). */
+  const cycleGaps = async (get, flockId) => {
+    const { parts, totals, old } = await cycleCheck(get, rawN, flockId);
+    return [parts, totals.map((x, i) => [x, old[i]]).filter(([x, y]) => canon(x) !== canon(y))];
+  };
+  await caught('ضابط النموذج: النازل بيوم الجولة (given على r.on_date لا g.d) يُسقط ما صُرف بلا جولة، فتفشل مقارنة halls_day بالنموذج من تسكين «ن1» إلى اليوم، وأيّام تقريرَي «ن1» و«ن2» ومؤشّرات «ن1»، ومجاميع الأيّام مقابل feed وflock_feed (الكيلو والباقي والسطور بلا وزن)',
+    [[FN.days, [['left join given i on i.d = g.d', 'left join given i on i.d = r.on_date']]]],
+    ({ attempt }) => attempt(N.users.manager, async (q) => [await nDiffers(viaQ(q)), await cycleGaps(viaQ(q), NF.na), await cycleGaps(viaQ(q), NF.nb)]),
+    (v) => same(v, [NA_DAYS.map((o) => day(o)), [['days', 'kpis'], [['50', '400'], ['-150', '200'], [0, 4], [0, 4]]], [['days'], [[0, 1], [0, 1]]]]), N.users.manager);
+  await caught('ضابط النموذج: عدد السطور بلا وزن صفراً في يوم بلا جولة (report_day) يُفشل مقارنة halls_day بالنموذج في أيّام الصرف بلا جولة: تسكين «ن1» ويوم 9 واليوم',
+    [[FN.one, [["'feed_given_unweighed', r.given_unweighed", "'feed_given_unweighed', case when r.has_round then r.given_unweighed else 0 end"]]]],
+    ({ attempt }) => attempt(N.users.manager, async (q) => nDiffers(viaQ(q))), (v) => same(v, [day(-6), day(-3), TODAY]), N.users.manager);
 
   // ── عيّنات القاعدة الحقيقية للشاشات: REPORTS_SAMPLES_OUT=1.
   if (process.env.REPORTS_SAMPLES_OUT) {
