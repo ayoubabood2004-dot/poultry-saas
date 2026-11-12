@@ -1,4 +1,4 @@
-import { useCallback, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -16,7 +16,7 @@ import { t } from '../../lib/i18n';
 import { loadHallsDay, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay } from '../../lib/repo/hallReports';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { BackLink, backLabel, daysText, kgText, kindLabel, printAs, qtyText, reportsBack, STATE_INK, stateLabel, VaccineName } from './parts';
+import { BackLink, backLabel, daysText, kgText, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, qtyText, reportsBack, STATE_INK, stateLabel, VaccineName } from './parts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
 // بقراءة halls_day واحدة لكلّ القاعات في نطاق القارئ مجمَّعة بالحقل. اليوم في الرابط (بلاه يوم الجهاز)، والأيام بسهمين («اليوم السابق» و«اليوم التالي»
@@ -84,6 +84,22 @@ const vaccineText = (flock: DayFlock): string[] => flock.vaccines.map((vaccine) 
 
 // ─── المشاركة نصّاً (واتساب) ──────────────────────────────────────────────────────────────────────────────────────
 
+/** النازل بكيلوه وسطوره بلا وزن، للقاعة وللمجموع سواءً: لا «النازل 0 كغم» وحده يوم نزلت أكياس بلا وزن (مراجعة 0027 R1). */
+const givenShare = (kg: Milli, unweighed: number): string =>
+  unweighed > 0
+    ? t('halls.day.share.given_partial', 'النازل {kg} {rest}', { kg: kgText(kg), rest: unweighedText(unweighed) })
+    : t('halls.day.share.given', 'النازل {kg}', { kg: kgText(kg) });
+
+/** الباقي في القاعة كما هو، وبعده بين قوسين وباختصار ما لم يدخله (سطور العلف بلا وزن حتى اليوم) وسبب سالبه (مراجعة 0027 R5). */
+function leftShare(flock: DayFlock): string {
+  const kg = kgText(flock.feedLeftKg);
+  const notes: string[] = [];
+  if (flock.feedGivenCumUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.feedGivenCumUnweighed) }));
+  if (flock.feedLeftKg < 0n) notes.push(t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'));
+  if (!notes.length) return t('halls.day.share.left', 'الباقي في القاعة {kg}', { kg });
+  return t('halls.day.share.left_noted', 'الباقي في القاعة {kg} ({notes})', { kg, notes: notes.join(t('halls.day.share.notes_sep', '؛ ')) });
+}
+
 function hallLine(hall: DayHall): string {
   const flock = hall.flock;
   if (!flock) return t('halls.day.share.empty', '{hall}: فارغة.', { hall: hall.hallName });
@@ -96,12 +112,7 @@ function hallLine(hall: DayHall): string {
   }
   if (flock.mortalityCumPct !== null) parts.push(t('halls.day.share.mortality', 'النفوق التراكمي {pct}', { pct: pct(flock.mortalityCumPct) }));
   if (flock.feedEatenKg !== null) parts.push(t('halls.day.share.eaten', 'العلف المأكول {kg}', { kg: kgText(flock.feedEatenKg) }));
-  parts.push(
-    flock.feedGivenUnweighed > 0
-      ? t('halls.day.share.given_partial', 'النازل {kg} {rest}', { kg: kgText(flock.feedGivenKg), rest: unweighedText(flock.feedGivenUnweighed) })
-      : t('halls.day.share.given', 'النازل {kg}', { kg: kgText(flock.feedGivenKg) }),
-  );
-  parts.push(t('halls.day.share.left', 'الباقي في القاعة {kg}', { kg: kgText(flock.feedLeftKg) }));
+  parts.push(givenShare(flock.feedGivenKg, flock.feedGivenUnweighed), leftShare(flock));
   if (flock.weight) parts.push(t('halls.day.share.weight', 'الوزن {g} غرام', { g: grams(flock.weight.avgG) }));
   if (flock.eggsTotal !== null) parts.push(t('halls.day.share.eggs', 'البيض {n}', { n: flock.eggsTotal }));
   if (flock.hdep !== null) parts.push(t('halls.day.share.hdep', 'نسبة الإنتاج {pct}', { pct: pct(flock.hdep) }));
@@ -124,7 +135,7 @@ function totalsLine(label: string, totals: DayTotals): string {
     t('halls.day.share.dead', 'النافق {n}', { n: dead }) + missing,
     t('halls.day.share.culled', 'المستبعد {n}', { n: culled }) + missing,
     t('halls.day.share.eaten', 'العلف المأكول {kg}', { kg: eaten }) + eatenFrom,
-    t('halls.day.share.given', 'النازل {kg}', { kg: kgText(totals.feedGivenKg) }),
+    givenShare(totals.feedGivenKg, totals.feedGivenUnweighed),
   ];
   return t('halls.day.share.totals', '{label}: {parts}.', { label, parts: parts.join(separator) });
 }
@@ -196,6 +207,36 @@ function Stat({ label, action, children }: { label: string; action: string; chil
 const countValue = (value: number | null): ReactNode => (value === null ? dash() : <Num>{fmtInt(value)}</Num>);
 /** كيلو بوحدته («350 كغم»): جملة بوحدة عربية ترث اتّجاه الصفحة (لا Num)، والسالب معزول من fmtQty. */
 const kgValue = (value: Milli | null): string => (value === null ? dash() : kgText(value));
+const NOTE = 'block text-xs font-normal text-ink-muted';
+
+/** سطور العلف بلا وزن في مجموع اليوم تحت كيلوه، كما في صفّ القاعة: لا «0 كغم» وحده يوم نزلت أكياس بلا وزن (مراجعة 0027 R1). */
+const totalUnweighed = (n: number): ReactNode =>
+  n > 0 ? (
+    <span className={NOTE} data-action="total-unweighed">
+      {unweighedText(n)}
+    </span>
+  ) : null;
+
+/**
+ * ما لا يحمله «الباقي في القاعة» تحت رقمه (والرقم كما هو، DECISIONS 0019): سطور العلف بلا وزن حتى اليوم خارج الكيلو، وسبب الباقي السالب، بجملتي
+ * تقرير الدورة نفسيهما (مراجعة 0027 R5 وN1: في الإنتاج يُسجَّل المأكول والعلف لم يُصرف للقاعات بعد، فالباقي سالب في أكثر القاعات).
+ */
+function LeftNotes({ flock, className }: { flock: DayFlock; className: string }) {
+  return (
+    <>
+      {flock.feedGivenCumUnweighed > 0 ? (
+        <span className={className} data-action="remain-unweighed">
+          {outsideKgText(flock.feedGivenCumUnweighed)}
+        </span>
+      ) : null}
+      {flock.feedLeftKg < 0n ? (
+        <span className={className} data-action="remain-negative">
+          {leftNegativeText()}
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 function GivenList({ flock }: { flock: DayFlock }) {
   const given = givenTexts(flock);
@@ -259,10 +300,11 @@ function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) 
             </Stat>
             <Stat label={t('halls.day.given', 'العلف النازل')} action="stat-given">
               {kgText(flock.feedGivenKg)}
-              {flock.feedGivenUnweighed > 0 ? <span className="block text-xs font-normal text-ink-muted">{unweighedText(flock.feedGivenUnweighed)}</span> : null}
+              {flock.feedGivenUnweighed > 0 ? <span className={NOTE}>{unweighedText(flock.feedGivenUnweighed)}</span> : null}
             </Stat>
             <Stat label={t('halls.day.left', 'الباقي في القاعة')} action="stat-left">
               {kgText(flock.feedLeftKg)}
+              <LeftNotes flock={flock} className={NOTE} />
             </Stat>
             <Stat label={t('halls.day.weight', 'الوزن (غرام)')} action="stat-weight">
               {flock.weight ? <Num>{grams(flock.weight.avgG)}</Num> : dash()}
@@ -330,6 +372,7 @@ function TotalsCard({ title, totals, action }: { title: string; totals: DayTotal
         </Stat>
         <Stat label={t('halls.day.given', 'العلف النازل')} action="total-given">
           {kgText(totals.feedGivenKg)}
+          {totalUnweighed(totals.feedGivenUnweighed)}
         </Stat>
       </dl>
     </section>
@@ -425,9 +468,27 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
           </>
         ),
       ),
-      total: <Num>{fmtQtyCell(totals.feedGivenKg, givenDecimals)}</Num>,
+      total: (
+        <>
+          <Num>{fmtQtyCell(totals.feedGivenKg, givenDecimals)}</Num>
+          {totalUnweighed(totals.feedGivenUnweighed)}
+        </>
+      ),
     },
-    { key: 'left', header: t('halls.day.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: of((flock) => flock.feedLeftKg, kg(leftDecimals)) },
+    {
+      key: 'left',
+      header: t('halls.day.col.left', 'الباقي في القاعة (كغم)'),
+      kind: 'number',
+      cell: of(
+        (flock) => flock,
+        (flock) => (
+          <>
+            <Num>{fmtQtyCell(flock.feedLeftKg, leftDecimals)}</Num>
+            <LeftNotes flock={flock} className="block text-xs text-ink-muted" />
+          </>
+        ),
+      ),
+    },
     {
       key: 'weight',
       header: t('halls.day.weight', 'الوزن (غرام)'),
@@ -477,7 +538,17 @@ function allColumns(totals: DayTotals): Column<DayTotals>[] {
       kind: 'number',
       cell: (row) => totalCell(row.feedEatenKg === null ? null : <Num>{fmtQtyCell(row.feedEatenKg, eatenDecimals)}</Num>, row.feedEatenFlocks < row.flocks ? row.feedEatenFlocks : null),
     },
-    { key: 'given', header: t('halls.day.col.given', 'النازل (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.feedGivenKg, givenDecimals)}</Num> },
+    {
+      key: 'given',
+      header: t('halls.day.col.given', 'النازل (كغم)'),
+      kind: 'number',
+      cell: (row) => (
+        <>
+          <Num>{fmtQtyCell(row.feedGivenKg, givenDecimals)}</Num>
+          {totalUnweighed(row.feedGivenUnweighed)}
+        </>
+      ),
+    },
   ];
 }
 
@@ -586,8 +657,22 @@ export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
-  // بلا ?on= يوم الجهاز (مرّة لكلّ فتح)؛ والخادم يرفض ما بعد يومه (future_day) فيُعرض «اليوم السابق».
-  const [deviceDay] = useState(localDay);
+  // بلا ?on= يوم الجهاز؛ والخادم يرفض ما بعد يومه (future_day) فيُعرض «اليوم السابق». ويوم الجهاز يُقرأ من جديد كلّما عادت الصفحة ظاهرةً أو عاد
+  // التركيز إلى النافذة (مراجعة 0027 R2): صفحة بقيت مفتوحة بعد منتصف الليل وهي تتبع اليوم (بلا ?on=) تطلب اليوم الجديد، وبـ?on= تبقى على يومها.
+  const [deviceDay, setDeviceDay] = useState(localDay);
+  useEffect(() => {
+    const recheck = () => {
+      if (document.visibilityState === 'hidden') return;
+      const now = localDay();
+      setDeviceDay((before) => (now > before ? now : before));
+    };
+    document.addEventListener('visibilitychange', recheck);
+    window.addEventListener('focus', recheck);
+    return () => {
+      document.removeEventListener('visibilitychange', recheck);
+      window.removeEventListener('focus', recheck);
+    };
+  }, []);
   const asked = dayOf(search.get('on'));
   const requested = asked ?? deviceDay;
   const backParam = search.get('back');
@@ -598,7 +683,9 @@ export default function DailyPage() {
   const [kept, setKept] = useState<HallsDay | null>(null);
   if (state.data !== null && kept !== state.data) setKept(state.data);
   const shown = state.data ?? kept;
-  const today = shown?.today ?? deviceDay;
+  // حدّ «اليوم التالي» و«اليوم» والمنتقي: الأبعد من يوم الخادم في آخر جواب ويوم الجهاز، فلا يحبس جوابُ الأمس الصفحةَ فيه بعد منتصف الليل.
+  const serverToday = shown?.today ?? deviceDay;
+  const today = serverToday > deviceDay ? serverToday : deviceDay;
   const current = shown !== null && shown.on === requested;
   // «اليوم السابق» مقفول حين قال الخادم لهذا اليوم إنّ لا فوج قبله (prev).
   const prevOff = shown !== null && shown.on === requested && !shown.prev;

@@ -29,17 +29,34 @@ export function reportsBack(value: string | null, fallback: string): string {
 }
 
 /**
- * اسم زرّ الرجوع بوجهته: الرئيسية، أو «التقارير»، أو التقرير اليوميّ، أو تقارير الدورات، أو الحقول، وإلّا القاعة. لكلّ صفحة تقرأ ?back= ممّا يرسله
- * التقرير اليوميّ وتقارير الدورات (0027)، فلا يقول الزرّ «رجوع إلى القاعة» وهو يعود إلى التقرير.
+ * اسم زرّ الرجوع بوجهته: الرئيسية، أو «التقارير»، أو التقرير اليوميّ، أو تقارير الدورات، أو التقويم، أو الحقول، وإلّا القاعة. لكلّ صفحة تقرأ ?back=
+ * ممّا يرسله التقرير اليوميّ وتقارير الدورات والتقويم (0027)، فلا يقول الزرّ «رجوع إلى القاعة» وهو يعود إلى التقرير أو التقويم (كلمة صفحة الإضافة).
  */
 export function backLabel(path: string): string {
   if (path === '/') return t('back.home', 'رجوع إلى الرئيسية');
   if (path === '/reports') return t('halls.kit.back_reports', 'رجوع إلى التقارير');
   if (path.startsWith('/halls/day')) return t('halls.kit.back_day', 'رجوع إلى تقرير القاعات اليومي');
   if (path.startsWith('/halls/cycles')) return t('halls.kit.back_cycles', 'رجوع إلى تقارير الدورات');
+  if (path.startsWith('/halls/calendar/')) return t('back.calendar', 'رجوع إلى التقويم');
   if (/^\/(?:broiler|layers)(?:\?|$)/u.test(path)) return t('back.farms', 'رجوع إلى الحقول');
   return t('halls.kit.back_hall', 'رجوع إلى القاعة');
 }
+
+/** عدد السطور بصيغة العدد: «سطر واحد»، «سطران»، «3 سطور»، «11 سطراً»، «100 سطر» (تقرير الدورة والتقرير اليوميّ). */
+export function linesText(n: number): string {
+  if (n === 1) return t('halls.rep.lines.one', 'سطر واحد');
+  if (n === 2) return t('halls.rep.lines.two', 'سطران');
+  const form = countForm(n);
+  if (form === 'few') return t('halls.rep.lines.few', '{n} سطور', { n });
+  if (form === 'many') return t('halls.rep.lines.many', '{n} سطراً', { n });
+  return t('halls.rep.lines.hundreds', '{n} سطر', { n });
+}
+
+/** سطور علف بلا وزن لم تدخل الكيلو ولا الباقي (DECISIONS 0019: تُعدّ ولا تختفي): جملة تقرير الدورة نفسها في التقرير اليوميّ. */
+export const outsideKgText = (n: number): string => t('halls.rep.kpi.given_note', 'خارج الكيلو: {lines} بلا وزن.', { lines: linesText(n) });
+
+/** الباقي السالب بسببه (والرقم كما هو، DECISIONS 0019): جملة تقرير الدورة نفسها في التقرير اليوميّ. */
+export const leftNegativeText = (): string => t('halls.rep.kpi.left_negative', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.');
 
 /** «رجوع إلى…» بشكل زرّ الرجوع، بلا استيراد BackButton (حزمته مشتركة بين المخزون والمعمل). لا يُطبع. */
 export function BackLink({ to, label, action = 'back' }: { to: string; label: string; action?: string }) {

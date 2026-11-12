@@ -556,8 +556,13 @@ function CalendarView({ flockId }: { flockId: string }) {
     setOpen(null);
     setSearch(params);
   };
-  const calendarUrl = `/halls/calendar/${flockId}?m=${month}`;
-  const back = backTarget(search.get('back'), flock ? flockPath(flock.kind, flock.id) : '/');
+  const backParam = search.get('back');
+  const back = backTarget(backParam, flock ? flockPath(flock.kind, flock.id) : '/');
+  // رابط هذا التقويم لمن يرجع إليه (تقرير الدورة والإضافة وجدول اللقاحات) يحمل رجوعه هو إن قبله backTarget: من جاء من التقرير اليوميّ ثمّ فتح تقرير
+  // الدورة يعود إلى التقويم ثمّ إلى التقرير اليوميّ (مراجعة 0027 R4). والرجوع المرفوض لا يُحمل.
+  const calendarParams = new URLSearchParams({ m: month });
+  if (backParam !== null && back === backParam) calendarParams.set('back', backParam);
+  const calendarUrl = `/halls/calendar/${flockId}?${calendarParams.toString()}`;
   const title = flock ? t('halls.cal.heading', 'تقويم {hall} — {site}', { hall: flock.hallName, site: flock.siteName }) : t('halls.calendar.title', 'تقويم القاعة');
   const ages = (data?.days ?? []).map((day) => day.age).filter((age): age is number => age !== null);
   const openDay = open !== null && data !== null ? (data.days.find((day) => day.on === open) ?? null) : null;

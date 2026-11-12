@@ -39,6 +39,7 @@
               "feed_given_kg": "0",
               "feed_given_unweighed": 0,
               "feed_given_cum_kg": "2000.000",
+              "feed_given_cum_unweighed": 0,
               "feed_left_kg": "799.500",
               "weight": { "sample_count": 50, "avg_g": "180.5" },
               "last_weight": { "on_date": "2026-11-12", "age": 6, "avg_g": "180.5" },
@@ -116,6 +117,7 @@
               "feed_given_kg": "500.000",
               "feed_given_unweighed": 1,
               "feed_given_cum_kg": "800.000",
+              "feed_given_cum_unweighed": 1,
               "feed_left_kg": "-100.000",
               "weight": null,
               "last_weight": { "on_date": "2026-11-10", "age": 4, "avg_g": "150.0" },
@@ -179,7 +181,8 @@
           "live_end": 21977,
           "feed_eaten_kg": "350.000",
           "feed_eaten_flocks": 1,
-          "feed_given_kg": "500.000"
+          "feed_given_kg": "500.000",
+          "feed_given_unweighed": 1
         }
       },
       {
@@ -215,6 +218,7 @@
               "feed_given_kg": "0",
               "feed_given_unweighed": 0,
               "feed_given_cum_kg": "52500.000",
+              "feed_given_cum_unweighed": 0,
               "feed_left_kg": "500.000",
               "weight": null,
               "last_weight": null,
@@ -258,6 +262,7 @@
               "feed_given_kg": "0",
               "feed_given_unweighed": 0,
               "feed_given_cum_kg": "30000.000",
+              "feed_given_cum_unweighed": 0,
               "feed_left_kg": "0.000",
               "weight": null,
               "last_weight": null,
@@ -283,7 +288,8 @@
           "live_end": 7597,
           "feed_eaten_kg": "550.000",
           "feed_eaten_flocks": 1,
-          "feed_given_kg": "0"
+          "feed_given_kg": "0",
+          "feed_given_unweighed": 0
         }
       }
     ],
@@ -297,7 +303,8 @@
       "live_end": 29574,
       "feed_eaten_kg": "900.000",
       "feed_eaten_flocks": 2,
-      "feed_given_kg": "500.000"
+      "feed_given_kg": "500.000",
+      "feed_given_unweighed": 1
     }
   },
   "flock_cycles": {

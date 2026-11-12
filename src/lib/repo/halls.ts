@@ -482,6 +482,9 @@ export interface CycleDay {
   feedEatenCumKg: Milli;
   feedGivenKg: Milli;
   feedGivenCumKg: Milli;
+  /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو والباقي)، وفي «حتى» = feed.unweighed. */
+  feedGivenUnweighed: number;
+  feedGivenCumUnweighed: number;
   feedLeftKg: Milli;
   weight: { sampleCount: number; avgG: bigint } | null;
   /** للبيّاض وحده (null للّاحم). */
@@ -578,6 +581,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         feedEatenCumKg: scaled(row, 'feed_eaten_cum_kg', 3),
         feedGivenKg: scaled(row, 'feed_given_kg', 3),
         feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
+        feedGivenUnweighed: int(row, 'feed_given_unweighed'),
+        feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
         feedLeftKg: scaled(row, 'feed_left_kg', 3),
         weight: weight ? { sampleCount: int(weight, 'sample_count'), avgG: scaled(weight, 'avg_g', 1) } : null,
         eggsTotal: optInt(row, 'eggs_total'),

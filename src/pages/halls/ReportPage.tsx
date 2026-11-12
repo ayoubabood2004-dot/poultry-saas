@@ -13,7 +13,7 @@ import { loadCycleReport, type CycleDay, type CycleDetail, type CycleKpis, type 
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { FeedChart, MortalityChart, WeightChart } from './charts';
-import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // تقرير الدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/report/:flockId بقراءة flock_cycle_report واحدة.
 // أقسامه جداول كلاسيكية (DataTable): الطيور (المسكَّن والنافق والمستبعد والحيّ ونسبة النفوق)، والعلف بكلّ نزول بتاريخه ومستنده وكيلوه وتراكمه (والقيمة
@@ -64,16 +64,6 @@ const dayIndex = (day: Day): number => Date.UTC(Number(day.slice(0, 4)), Number(
 const dash = () => t('halls.rep.dash', '—');
 const WARN_INK = 'font-semibold text-warn-800 dark:text-warn-200';
 
-/** عدد السطور بصيغة العدد: «سطر واحد»، «سطران»، «3 سطور»، «11 سطراً»، «100 سطر». */
-function linesText(n: number): string {
-  if (n === 1) return t('halls.rep.lines.one', 'سطر واحد');
-  if (n === 2) return t('halls.rep.lines.two', 'سطران');
-  const form = countForm(n);
-  if (form === 'few') return t('halls.rep.lines.few', '{n} سطور', { n });
-  if (form === 'many') return t('halls.rep.lines.many', '{n} سطراً', { n });
-  return t('halls.rep.lines.hundreds', '{n} سطر', { n });
-}
-
 /** عدد أيّام مجروراً بعد «من»: «يوم واحد»، «يومين»، «3 أيام»، «11 يوماً»، «100 يوم». */
 function ofDaysText(n: number): string {
   if (n === 1) return t('halls.rep.of_days.one', 'يوم واحد');
@@ -105,15 +95,27 @@ function fcrReason(k: CycleKpis): string {
   return t('halls.rep.kpi.incomplete', 'مدخلاته غير مكتملة.');
 }
 
-/** لماذا لا مؤشّر إنتاج: يحتاج معامل التحويل والحيوية والعمر والوزن كلّها فوق الصفر. */
+/**
+ * لماذا لا مؤشّر إنتاج: يحتاج معامل التحويل والحيوية والعمر والوزن كلّها فوق الصفر. و«لا طيور حيّة.» حين لا حيّ وحده (كسبب معامل التحويل): حيّ
+ * فوق الصفر بحيوية قُرّبت إلى 0.00% (نفوق 99.995% فأكثر) سببه التقريب (مراجعة 0027 S4).
+ */
 function epefReason(k: CycleKpis): string {
   if (k.days === 0) return t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
   if (k.fcr === null) return t('halls.rep.kpi.epef.need_fcr', 'يحتاج معامل التحويل.');
-  if (k.livabilityPct === null || k.livabilityPct <= 0n) return t('halls.rep.kpi.no_live', 'لا طيور حيّة.');
+  if (k.livabilityPct === null || k.livabilityPct <= 0n) {
+    if (k.live === null || k.live <= 0) return t('halls.rep.kpi.no_live', 'لا طيور حيّة.');
+    if (k.livabilityPct !== null) return t('halls.rep.kpi.epef.livability_zero', 'نسبة الحيوية قُرّبت إلى صفر.');
+  }
   if (k.ageEnd === null || k.ageEnd <= 0) return t('halls.rep.kpi.epef.need_age', 'يحتاج عمراً أكبر من صفر.');
   if (k.lastWeight === null) return t('halls.rep.kpi.fcr.need_weight', 'يحتاج وزن عيّنة.');
   return t('halls.rep.kpi.incomplete', 'مدخلاته غير مكتملة.');
 }
+
+/**
+ * أيّام الدورة بجولة مسجّلة من كلّ أيّامها: عدّ واحد لجملة قسم الأيّام («{days} بلا جولة مسجّلة.») ولملاحظة «الحيّ» في المؤشّرات (مراجعة 0027 S2)،
+ * فلا تختلفان أبداً.
+ */
+const roundsOf = (days: readonly CycleDay[]) => ({ recorded: days.filter((day) => day.round).length, all: days.length });
 
 /** صفوف المؤشّرات بترتيبها؛ والوزن ومعامل التحويل ومؤشّر الإنتاج للّاحم (والوزن للبيّاض إن وُزن). */
 function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
@@ -125,30 +127,29 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
   const add = (key: string, label: string, value: string | null, note: string | null, reason: string = noDays) => {
     rows.push({ key, label, value, note: value === null ? reason : note });
   };
+  // اكتمال الجولات تحت «الحيّ»: الحيّ والنفوق والحيوية من الجولات المسجّلة وحدها، فيقال كم يوماً منها سُجّل؛ وبلا جولة أصلاً لا نافق ولا مستبعد يُذكر.
+  const rounds = roundsOf(cycle.days);
+  const counted = k.dead !== null && k.culled !== null ? t('halls.rep.kpi.live_note', 'النافق {dead} والمستبعد {culled}.', { dead: k.dead, culled: k.culled }) : null;
+  const liveNote =
+    rounds.recorded === 0
+      ? t('halls.rep.kpi.no_rounds', 'لم تُسجَّل جولة بعد.')
+      : rounds.recorded < rounds.all
+        ? [counted, t('halls.rep.kpi.rounds', 'سُجّلت الجولة في {n} من {days}.', { n: rounds.recorded, days: ofDaysText(rounds.all) })].filter((text) => text !== null).join(' ')
+        : counted;
   add('days', t('halls.rep.kpi.days', 'أيّام الدورة'), fmtInt(k.days), k.days > 0 ? t('halls.rep.kpi.days_note', 'من {from} حتى {to}.', { from: fmtDay(flock.placedOn), to: fmtDay(report.through) }) : null);
   add('age', t('halls.rep.kpi.age', 'العمر (يوم)'), k.ageEnd === null ? null : fmtInt(k.ageEnd), t('halls.rep.kpi.age_note', 'العمر عند التسكين: {n}.', { n: flock.age0 }));
   add('placed', t('halls.rep.col.placed', 'المسكَّن'), fmtInt(k.placed), null);
-  add(
-    'live',
-    t('halls.rep.col.live', 'الحيّ'),
-    k.live === null ? null : fmtInt(k.live),
-    k.dead !== null && k.culled !== null ? t('halls.rep.kpi.live_note', 'النافق {dead} والمستبعد {culled}.', { dead: k.dead, culled: k.culled }) : null,
-  );
+  add('live', t('halls.rep.col.live', 'الحيّ'), k.live === null ? null : fmtInt(k.live), liveNote);
   add('mortality', t('halls.rep.col.mortality', 'نسبة النفوق'), k.mortalityPct === null ? null : pct(k.mortalityPct), null);
   add('livability', t('halls.rep.kpi.livability', 'نسبة الحيوية'), k.livabilityPct === null ? null : pct(k.livabilityPct), t('halls.rep.kpi.livability_note', 'نسبة ما بقي حيّاً من المسكَّن.'));
   add(
     'given',
     t('halls.rep.kpi.given', 'العلف النازل للقاعة (كغم)'),
     kg(k.feedGivenKg),
-    report.feed.unweighed > 0 ? t('halls.rep.kpi.given_note', 'خارج الكيلو: {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) }) : null,
+    report.feed.unweighed > 0 ? outsideKgText(report.feed.unweighed) : null,
   );
   add('eaten', t('halls.rep.kpi.eaten', 'العلف المأكول المسجّل (كغم)'), kg(k.feedEatenKg), feedDaysText(k.feedDays, k.feedSpan));
-  add(
-    'left',
-    t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'),
-    kg(k.feedLeftKg),
-    k.feedLeftKg !== null && k.feedLeftKg < 0n ? t('halls.rep.kpi.left_negative', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.') : null,
-  );
+  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.feedLeftKg), k.feedLeftKg !== null && k.feedLeftKg < 0n ? leftNegativeText() : null);
   add(
     'per_bird',
     t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'),
@@ -240,7 +241,12 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   const pctCell = (value: bigint | null) => (value === null ? dash() : <Num>{pct(value)}</Num>);
   const kgCell = (value: bigint | null, decimals: 0 | 1 | 2 | 3) => (value === null ? dash() : <Num>{fmtQtyCell(value, decimals)}</Num>);
   const grams = (tenths: bigint) => <Num>{fmtScaledCell(tenths, 1, 1)}</Num>;
-  const missing = days.filter((day) => !day.round).length;
+  const rounds = roundsOf(days);
+  const missing = rounds.all - rounds.recorded;
+  // المجموع من المؤشّرات (kpis) كما هو، إلّا حين لا يُجمع شيء: دورة بلا جولة مسجّلة نافقها ومستبعدها «—» لا صفر، وبلا علف مأكول مسجّل مأكولها «—»
+  // (كصفوفها وكالأسبوع بلا جولة؛ مراجعة 0027 S1).
+  const deadTotal = (value: number | null) => (rounds.recorded > 0 ? intCell(value) : dash());
+  const eatenAny = days.some((day) => day.feedEatenKg !== null);
 
   const weekKg = decimalsOf([...weeks.map((week) => week.feedEatenKg), kpis.feedEatenKg]);
   const weekColumns: Column<CycleWeek>[] = [
@@ -261,12 +267,12 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         </span>
       ),
     },
-    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (week) => intCell(week.dead), total: intCell(kpis.dead) },
-    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (week) => intCell(week.culled), total: intCell(kpis.culled) },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (week) => intCell(week.dead), total: deadTotal(kpis.dead) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (week) => intCell(week.culled), total: deadTotal(kpis.culled) },
     { key: 'mortality', header: t('halls.rep.col.week_mortality', 'نفوق الأسبوع'), kind: 'number', cell: (week) => pctCell(week.mortalityPct) },
     { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (week) => pctCell(week.mortalityCumPct) },
     { key: 'live', header: t('halls.rep.col.live_week_end', 'الحيّ آخر الأسبوع'), kind: 'number', cell: (week) => <Num>{fmtInt(week.liveEnd)}</Num> },
-    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (week) => kgCell(week.feedEatenKg, weekKg), total: kgCell(kpis.feedEatenKg, weekKg) },
+    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (week) => kgCell(week.feedEatenKg, weekKg), total: eatenAny ? kgCell(kpis.feedEatenKg, weekKg) : dash() },
     {
       key: 'per_bird',
       header: t('halls.rep.col.g_per_bird', 'غم لكلّ طير في اليوم'),
@@ -290,13 +296,30 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
     { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), sticky: true, cell: (day) => <Num>{fmtDay(day.on)}</Num> },
     { key: 'age', header: t('halls.rep.col.age_short', 'العمر'), kind: 'number', cell: (day) => <Num>{fmtInt(day.age)}</Num> },
     { key: 'start', header: t('halls.rep.col.live_start', 'الحيّ أوّل اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveStart)}</Num> },
-    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (day) => intCell(day.dead), total: intCell(kpis.dead) },
-    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (day) => intCell(day.culled), total: intCell(kpis.culled) },
+    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (day) => intCell(day.dead), total: deadTotal(kpis.dead) },
+    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (day) => intCell(day.culled), total: deadTotal(kpis.culled) },
     { key: 'end', header: t('halls.rep.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveEnd)}</Num> },
     { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (day) => pctCell(day.mortalityCumPct) },
-    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenKg, eatenKg), total: kgCell(kpis.feedEatenKg, eatenKg) },
+    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenKg, eatenKg), total: eatenAny ? kgCell(kpis.feedEatenKg, eatenKg) : dash() },
     { key: 'eaten_cum', header: t('halls.rep.col.eaten_cum', 'المأكول التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenCumKg, eatenCumKg) },
-    { key: 'given', header: t('halls.rep.col.given', 'النازل (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenKg, givenKg), total: kgCell(kpis.feedGivenKg, givenKg) },
+    {
+      key: 'given',
+      header: t('halls.rep.col.given', 'النازل (كغم)'),
+      kind: 'number',
+      // سطور اليوم بلا وزن تحت كيلوه (كجدول المادّة)، فلا يبدو يوم نزلت فيه أكياس بلا وزن «0» لم ينزل فيه شيء (مراجعة 0027 S3).
+      cell: (day) =>
+        day.feedGivenUnweighed > 0 ? (
+          <>
+            {kgCell(day.feedGivenKg, givenKg)}
+            <span className="block text-xs text-ink-muted" data-action="rep-day-unweighed">
+              {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(day.feedGivenUnweighed) })}
+            </span>
+          </>
+        ) : (
+          kgCell(day.feedGivenKg, givenKg)
+        ),
+      total: kgCell(kpis.feedGivenKg, givenKg),
+    },
     { key: 'given_cum', header: t('halls.rep.col.given_cum', 'النازل التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenCumKg, givenCumKg) },
     { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedLeftKg, leftKg) },
     ...(showWeight
@@ -360,10 +383,19 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         title={t('halls.rep.sec.days', 'أيّام الدورة')}
         action="rep-days"
         note={
-          missing > 0 ? (
-            <p className={`text-sm ${WARN_INK}`} data-action="rep-days-missing">
-              {t('halls.rep.days_missing', '{days} بلا جولة مسجّلة.', { days: daysText(missing) })}
-            </p>
+          missing > 0 || report.feed.unweighed > 0 ? (
+            <>
+              {missing > 0 ? (
+                <p className={`text-sm ${WARN_INK}`} data-action="rep-days-missing">
+                  {t('halls.rep.days_missing', '{days} بلا جولة مسجّلة.', { days: daysText(missing) })}
+                </p>
+              ) : null}
+              {report.feed.unweighed > 0 ? (
+                <p className="text-sm text-ink-muted" data-action="rep-days-unweighed">
+                  {t('halls.rep.days_unweighed', 'الباقي في القاعة لا يشمل {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
+                </p>
+              ) : null}
+            </>
           ) : undefined
         }
       >

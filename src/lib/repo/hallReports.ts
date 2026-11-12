@@ -114,6 +114,8 @@ export interface DayFlock {
   feedGivenKg: Milli;
   feedGivenUnweighed: number;
   feedGivenCumKg: Milli;
+  /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ والباقي. */
+  feedGivenCumUnweighed: number;
   /** النازل التراكمي − المأكول التراكمي، وقد يكون سالباً. */
   feedLeftKg: Milli;
   /** وزن هذا اليوم، وآخر وزن حتى اليوم. */
@@ -154,6 +156,8 @@ export interface DayTotals {
   feedEatenKg: Milli | null;
   feedEatenFlocks: number;
   feedGivenKg: Milli;
+  /** سطور العلف بلا وزن في ذلك اليوم من قاعاته (خارج feedGivenKg). */
+  feedGivenUnweighed: number;
 }
 
 export interface DaySite {
@@ -197,6 +201,7 @@ const totalsOf = (value: unknown): DayTotals => {
     feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
     feedEatenFlocks: int(row, 'feed_eaten_flocks'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
+    feedGivenUnweighed: int(row, 'feed_given_unweighed'),
   };
 };
 
@@ -228,6 +233,7 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
     feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
+    feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
     feedLeftKg: scaled(row, 'feed_left_kg', 3),
     weight: weightOf(row.weight),
     lastWeight: lastWeightOf(row.last_weight),

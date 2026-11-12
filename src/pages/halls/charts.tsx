@@ -22,6 +22,9 @@ const Y_BASE = H - BOTTOM;
 const PLOT_H = Y_BASE - TOP;
 const BAR_MAX = 24;
 const TICK_GAP = 24;
+/** أدنى مسافة بين مركزي رقمي أسبوعين (رقمان بخطّ 11 قرابة 13 بكسلاً) وبين تسميتي قيمتين («119.9» قرابة 33 بكسلاً). */
+const WEEK_GAP = 16;
+const VALUE_GAP = 34;
 
 const DATA = 'rgb(var(--ring))';
 const GRID = 'rgb(var(--line))';
@@ -233,9 +236,27 @@ export function FeedChart({ weeks }: { weeks: readonly CycleWeek[] }) {
   const band = (X1 - X0) / n;
   const width = Math.min(BAR_MAX, band * 0.6);
   const labelAll = weeks.length <= 8;
-  const peak = values.reduce((top, value) => (value > top ? value : top), -1n);
-  const lastFed = [...weeks].reverse().find((week) => week.feedGPerBirdDay !== null);
+  // القمّة (أوّل أعلى أسبوع) وآخر أسبوع بعلف تُسمّيان حين لا تُسمّى الأعمدة كلّها، إلّا أن تتقاربا أقلّ من عرض تسمية: آخر أسبوع وحده (مراجعة 0027 S6).
+  let peakIndex = -1;
+  let lastFedIndex = -1;
+  for (const [index, week] of weeks.entries()) {
+    const value = week.feedGPerBirdDay;
+    if (value === null) continue;
+    const best = weeks[peakIndex]?.feedGPerBirdDay ?? null;
+    if (best === null || value > best) peakIndex = index;
+    lastFedIndex = index;
+  }
+  const peakLabelled = peakIndex >= 0 && (lastFedIndex - peakIndex) * band >= VALUE_GAP;
+  // أرقام الأسابيع بخطوة every، وآخر أسبوع دائماً: يحلّ محلّ آخر رقم قبله إن قاربه أقلّ من WEEK_GAP (كعلامات الأعمار)، فلا يتراكب رقمان.
   const every = Math.max(1, Math.ceil(weeks.length / 10));
+  const weekTicks = new Set<number>();
+  for (let index = 0; index < weeks.length; index += every) weekTicks.add(index);
+  const final = weeks.length - 1;
+  if (final > 0 && !weekTicks.has(final)) {
+    const before = final - (final % every);
+    if (before > 0 && (final - before) * band < WEEK_GAP) weekTicks.delete(before);
+    weekTicks.add(final);
+  }
   const title = t('halls.rep.chart.feed', 'العلف لكلّ طير في اليوم (غم) بالأسبوع');
   const desc = t('halls.rep.chart.feed_desc', 'غرام العلف المأكول لكلّ طير في اليوم: {weeks}.', {
     weeks: weeks
@@ -254,8 +275,7 @@ export function FeedChart({ weeks }: { weeks: readonly CycleWeek[] }) {
       {weeks.map((week, index) => {
         const cx = X0 + band * (index + 0.5);
         const value = week.feedGPerBirdDay;
-        const showWeek = index % every === 0 || index === weeks.length - 1;
-        const weekLabel = showWeek ? (
+        const weekLabel = weekTicks.has(index) ? (
           <text x={coord(cx) ?? X0} y={Y_BASE + 14} textAnchor="middle" fontSize={11} style={TEXT_STYLE} data-part="x-tick">
             {fmtInt(week.week)}
           </text>
@@ -278,7 +298,7 @@ export function FeedChart({ weeks }: { weeks: readonly CycleWeek[] }) {
           height > 0 && left !== null && right !== null && top !== null && topR !== null && leftR !== null && rightR !== null
             ? `M${left} ${Y_BASE} V${topR} Q${left} ${top} ${leftR} ${top} H${rightR} Q${right} ${top} ${right} ${topR} V${Y_BASE} Z`
             : null;
-        const labelled = labelAll || value === peak || week === lastFed;
+        const labelled = labelAll || index === lastFedIndex || (peakLabelled && index === peakIndex);
         const text = fmtScaledCell(value, 1, decimals);
         return (
           <g key={week.week} data-part="bar-group">
