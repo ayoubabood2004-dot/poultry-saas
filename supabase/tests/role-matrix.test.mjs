@@ -487,11 +487,19 @@ export default async function (t, db) {
       const carryHall = await one("insert into public.halls (site_id, name) values ($1, 'قاعة النقل') returning id", [farm.site]);
       const carryFlock = await one("select public.open_flock($1, public.app_today() - 3, 1000, 30, null, gen_random_uuid()) ->> 'flock_id'", [carryHall]);
       await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 5, public.app_today(), null)', [carryFlock, p19.feedItem]);
+      // مراجعة 0028 C1/M1: والإغلاق يرجع «علف الإرجاع» (5 كغم) إلى «رصيد العلف» الذي جاء منه بمستند FR، فخانة إعادة الفتح تعكس إرجاعاً في مخزن
+      // يُفحص نطاقه (stock_wh) لكلّ دور يملك الفعلين.
+      const backItem = await one("insert into public.items (name, kind, base_unit) values ('علف الإرجاع', 'feed', 'kg') returning id");
+      const backOpening = await one('insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [p3.feedStore]);
+      await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 20, 12000)', [backOpening, backItem]);
+      await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid())', [backOpening]);
+      await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 5, public.app_today(), $3)', [carryFlock, backItem, p3.feedStore]);
       const closed = (await q(
-        "select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '5')), 'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '5', 'action', 'carry')), null) as v",
-        [carryFlock, p19.feedItem],
+        "select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, (select jsonb_agg(jsonb_build_object('item_id', i ->> 'item_id', 'qty', i ->> 'pool_qty')) from jsonb_array_elements(public.flock_close_form($1) -> 'items') as i), 'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '5', 'action', 'carry'), jsonb_build_object('item_id', $3::uuid, 'qty', '5', 'action', 'return', 'warehouse_id', $4::uuid)), null, public.flock_close_form($1) ->> 'plan') as v",
+        [carryFlock, p19.feedItem, backItem, p3.feedStore],
       )).rows[0].v;
-      return { trader, saleHall, saleFlock, invoiced, sale, done, draft, closeFlock, closeId: closed.id, carryLine: closed.lines[0].line_id };
+      const closePlan = await one("select public.flock_close_form($1) ->> 'plan'", [closeFlock]);
+      return { trader, saleHall, saleFlock, invoiced, sale, done, draft, closeFlock, closePlan, closeId: closed.id, carryLine: closed.lines.find((l) => l.action === 'carry').line_id };
     },
     { commit: true },
   );
@@ -731,7 +739,7 @@ export default async function (t, db) {
       expect: only(FLOCK_MANAGE, 'ok:1005'),
     },
     close_flock: {
-      sql: () => ["select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, '[]'::jsonb, 'بيعت خارج النظام', '[]'::jsonb, null) ->> 'status' as v", [p28.closeFlock]],
+      sql: () => ["select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, '[]'::jsonb, 'بيعت خارج النظام', '[]'::jsonb, null, $2) ->> 'status' as v", [p28.closeFlock, p28.closePlan]],
       value: true,
       expect: only(FLOCK_MANAGE, 'ok:closed'),
     },

@@ -209,7 +209,8 @@ export async function loadBirdSaleDetail(saleId: string): Promise<BirdSaleDetail
 // ─── نموذج الفاتورة (bird_sale_form، العقد §5.4) ─────────────────────────────────────────────────────────────────────
 
 /** لماذا لا تصدر فاتورة للتذكرة: مسوّدة، أو ملغاة، أو صدرت فاتورتها، أو فوج من أفواجها مغلق، أو لا دفتر لوحدة الحقل. */
-export const FORM_WHY = ['draft', 'void', 'invoiced', 'flock_closed', 'no_book'] as const;
+// مراجعة 0028 O4: والدفتر خارج نطاق القارئ، والفترة المقفلة، والتذكرة أقدم من سبعة أيّام (الفاتورة بيوم تذكرتها): لا يُعرض ترحيل يرفضه الخادم.
+export const FORM_WHY = ['draft', 'void', 'invoiced', 'flock_closed', 'no_book', 'out_of_scope', 'period_locked', 'too_old'] as const;
 export type FormWhy = (typeof FORM_WHY)[number];
 
 /** قاعة من التذكرة بحيّها الآن: over_live = طيور التذكرة أكثر من الحيّ (الخادم يرفض الفاتورة birds_over_live). */

@@ -417,8 +417,9 @@ async function scenario(t, db) {
   // 0028: المغلق يُغلق بدالّة الإغلاق (ثوابت 0028: لكلّ فوج مغلق إغلاقه بيومه، وحيّه صفر)، بعد أن يعود قائماً؛ والكميات والحيّ ممّا تعرضه شاشة الإغلاق.
   await db.admin("update public.flocks set status = 'active' where id = $1", [F3]);
   const closeForm = (await call(U.manager, 'select public.flock_close_form($1) as v', [F3])).v;
-  t.eq(code(await call(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null) as v",
-    [ref(), ref(), F3, closeForm.default_on, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))])), 'ok', 'الفوج يُغلق بدالّة الإغلاق');
+  t.eq(code(await call(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null, $7) as v",
+    [ref(), ref(), F3, closeForm.default_on, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), closeForm.plan])), 'ok',
+  'الفوج يُغلق بدالّة الإغلاق');
   t.eq(code(await save(U.worker, F3, TODAY, { dead: 1 })), 'flock_closed', 'فوج مغلق بنداء مباشر: flock_closed');
   const parkRef = ref();
   const parked = await save(U.worker, F3, TODAY, { dead: 4, feed: '90' }, null, parkRef, true);

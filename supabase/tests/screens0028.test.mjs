@@ -205,6 +205,7 @@ async function scenario(t, db) {
         clientRef: uid(), closeId: id(151), flockId: F1, on: TODAY, expectedLive: form.flock.live, expectedSold: form.sales.birds,
         expectedPools: form.items.map((row) => ({ itemId: row.itemId, qty: row.poolQty })), countReason: ' طيور لم تُعدّ ',
         lines: [{ itemId: IA, qty: 100_000n, action: 'return', warehouseId: a.defaultStore }, { itemId: IB, qty: 50_000n, action: 'carry', warehouseId: null }], note: ' نهاية الدورة ',
+        expectedPlan: form.plan,
       };
       const closed = await by(U.manager, () => m.close.closeFlock(request));
       if (closed.refused) throw new Error(`close_flock: ${closed.refused} ${closed.hint}`);
@@ -217,13 +218,16 @@ async function scenario(t, db) {
         'الشاشة: الإغلاق بما عرضه نموذجه شرطاً: فرق العدّ −590 بسببه، و100 كغم ترجع بمستند FR، و50 كغم تُنقل معلَّقة، والإعادة بالمرجع نفسه نتيجتها',
       );
       const returned = await by(U.manager, () => m.close.returnHallCarry(uid(), id(161), carry.lineId, W.feed));
-      const reopenUsed = await by(U.manager, () => m.close.reopenFlock(id(151), 'إغلاق خاطئ', uid()));
-      t.same([/^FR-\d{4}-\d{4,}$/u.test(returned.docNo ?? ''), returned.lineId, reopenUsed.refused], [true, carry.lineId, 'carry_used'],
-        'الشاشة: المنقول يرجع إلى مخزنه بمستند FR، وبعده لا يُعاد فتح الدورة (carry_used)');
+      // مراجعة 0028 O1 (O5): المنقول الذي أُرجع قبل التسكين ولم يُسحب منه لا يمنع إعادة الفتح: إرجاعه يُلغى مع إرجاع الإغلاق ويعود العلف للقاعة.
+      const reopenReturned = await by(U.manager, () => m.close.reopenFlock(id(151), 'إغلاق خاطئ', uid()));
+      const back = await by(U.manager, () => m.close.loadCloseForm(F1));
+      t.same([/^FR-\d{4}-\d{4,}$/u.test(returned.docNo ?? ''), returned.lineId, reopenReturned.closeId, back.flock.status, back.items.map((row) => row.poolQty)],
+        [true, carry.lineId, id(151), 'active', [500_000n, 300_000n]],
+        'الشاشة: المنقول يرجع إلى مخزنه بمستند FR، ثمّ تُعاد الدورة فيعود ما نزل كلّه (الراجع والمنقول المُرجَع)');
       // الفوج الثاني: إغلاق بلا باقٍ ثمّ إعادة فتحه بطلب الشاشة.
       const second = await by(U.manager, () => m.close.loadCloseForm(F2));
       const shut = await by(U.manager, () => m.close.closeFlock({ clientRef: uid(), closeId: id(171), flockId: F2, on: TODAY, expectedLive: second.flock.live, expectedSold: 0,
-        expectedPools: [], countReason: 'نهاية الدورة', lines: [], note: null }));
+        expectedPools: [], countReason: 'نهاية الدورة', lines: [], note: null, expectedPlan: second.plan }));
       const reopened = await by(U.manager, () => m.close.reopenFlock(id(171), ' إغلاق خاطئ ', uid()));
       const card = await by(U.manager, () => m.close.loadFlockSales(F2));
       t.same([shut.status, shut.countDiff, reopened.closeId, reopened.flockId, card.status, card.live, card.close?.status], ['closed', -200, id(171), F2, 'active', 200, 'reopened'],

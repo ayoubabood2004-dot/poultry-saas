@@ -298,8 +298,8 @@ async function scenario(t, db) {
   const toB = await rf(U.owner, { flock: F.b, item: I.finisher, qty: 50 });
   t.ok(toB.ok, `صرف لقاعة 2 (${toB.code ?? ''})`);
   const closeForm = await one(U.manager, 'select public.flock_close_form($1) as v', [F.b]);
-  await one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null) as v",
-    [uid(), uid(), F.b, TODAY, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))]);
+  await one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null, $7) as v",
+    [uid(), uid(), F.b, TODAY, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), closeForm.plan]);
   t.same([refusal('flock_closed', await rf(U.owner, { flock: F.b, item: I.finisher, qty: 1 })).code, refusal('void: flock_closed', await vf(U.manager, toB.value.id)).code], ['flock_closed', 'flock_closed'],
     'الفوج المغلق: لا صرف له ولا إلغاء');
 
