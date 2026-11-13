@@ -663,14 +663,21 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 /**
  * مرحلة العودة إلى الصفحة: 'away' بعد إخفائها، وإلّا نوع الحدث الذي بدأ العودة الأخيرة ('both' حين وصل قرينه). والحدث من النوع الآخر قرينُ العودة الجارية ما
- * اجتمعت ثلاثة شروط: لم يفصلهما إخفاء، ويومُ الجهاز يومُ بدئها، ووصل خلال PARTNER_MS من بدئها بـperformance.now (رتيبة لا تتبع ساعة الجهاز)؛ وإلّا بدأ عودةً
- * جديدة، وكذا تكرارُ النوع نفسه (ظهورٌ بلا تركيز مساءً ثمّ نقرةٌ في النافذة صباحاً عودتان، مراجعة 0027 V4-N2). فحدثا العودة الواحدة (الظهور والتركيز، بأيّ
- * ترتيب، رُسمت الصفحة بينهما أو لا، والقراءة في الطريق أو انتهت) قراءةٌ واحدة. لا مؤقّت ولا حلقة. وترك التركيز لا يُسمع: اسم حدثه نصّاً يقرؤه Tailwind
- * صنفَ مرشّح فيولّد له CSS في حزمة الإقلاع (درس WP3 في CLAUDE.md)، والقراءة في الطريق تجمع حدثي العودة على كلّ حال.
+ * اجتمعت أربعة شروط: لم يفصلهما إخفاء، ويومُ الجهاز يومُ بدئها، ووصل خلال PARTNER_MS من بدئها بـperformance.now (رتيبة لا تتبع ساعة الجهاز)، وخلالها كذلك
+ * بساعة الجهاز التي يقرأ منها localDay: فـperformance.now قد تقف ما دام الجهاز معلَّقاً والصفحة ظاهرة، فلا يصير حدثٌ بعد دقائق قريناً (مراجعة 0027 T6)؛
+ * وإلّا بدأ عودةً جديدة، وكذا تكرارُ النوع نفسه (ظهورٌ بلا تركيز مساءً ثمّ نقرةٌ في النافذة صباحاً عودتان، مراجعة 0027 V4-N2). فحدثا العودة الواحدة (الظهور
+ * والتركيز، بأيّ ترتيب، رُسمت الصفحة بينهما أو لا، والقراءة في الطريق أو انتهت) قراءةٌ واحدة. لا مؤقّت ولا حلقة. وترك التركيز لا يُسمع: اسم حدثه نصّاً
+ * يقرؤه Tailwind صنفَ مرشّح فيولّد له CSS في حزمة الإقلاع (درس WP3 في CLAUDE.md)، والقراءة في الطريق تجمع حدثي العودة على كلّ حال.
  */
 type ReturnPhase = 'away' | 'visible' | 'focus' | 'both';
-/** أقصى ما بين بدء العودة وقرينها، بالملّي ثانية. */
+/** أقصى ما بين بدء العودة وقرينها، بالملّي ثانية وبكلتا الساعتين. */
 const PARTNER_MS = 2000;
+
+/** لحظة حدثٍ من أحداث العودة: يومُ الجهاز ووقتُه من قراءة واحدة لساعته (مصدر localDay نفسه)، وperformance.now. */
+function returnMoment() {
+  const now = new Date();
+  return { day: localDay(now), wall: now.getTime(), at: performance.now() };
+}
 
 export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
@@ -683,7 +690,18 @@ export default function DailyPage() {
   const following = asked === null;
   const backParam = search.get('back');
   const back = reportsBack(backParam, '/reports');
-  const load = useCallback(() => loadHallsDay(asked), [asked]);
+  // قراءات الصفحة نفسها (مراجعة 0027 V5-N4): useLoad يحفظ نتيجةً واحدة برمزها (اليوم ورقم المحاولة)، فالعودة إلى يومٍ قبل أن يأتي جوابُ يومٍ طُلب بعده
+  // (أ ← ب ← أ، بالأزرار أو بسجلّ المتصفّح) تعيد نتيجة «أ» القديمة حاليّةً وloading=false و«أ» تُقرأ من جديد؛ فلو كانت رفضاً أو فشلاً لقرأت العودةُ فوق
+  // القراءة الجارية. فلا يكفي loading دليلاً على أنّه لا قراءة في الطريق: لكلّ نداءٍ من load رقمٌ يزيد، والقراءة في الطريق حتى يستقرّ آخرُ نداءٍ صدر، ولا
+  // يُنهيها استقرارُ نداءٍ أقدم أُلغي. ولا يُغيَّر useLoad نفسه، فهو مستعمل في 111 موضعاً. والمرجع لا يُمسّ إلّا هنا وفي معالج العودة، لا أثناء الرسم.
+  const reads = useRef({ last: 0, inFlight: false });
+  const load = useCallback(() => {
+    const id = reads.current.last + 1;
+    reads.current = { last: id, inFlight: true };
+    return loadHallsDay(asked).finally(() => {
+      if (reads.current.last === id) reads.current = { last: id, inFlight: false };
+    });
+  }, [asked]);
   const state = useLoad(load, asked ?? 'today');
   // آخر قراءة ناجحة (لأيّ يوم): تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل.
   const [kept, setKept] = useState<HallsDay | null>(null);
@@ -699,28 +717,32 @@ export default function DailyPage() {
 
   // العودة إلى الصفحة (لا قرينها) تقرأ مطلوبها من جديد مرّةً واحدة حين لا تعرض تقريراً حاليّاً: لا معروض، أو رفضٌ أو فشلٌ (صريحةً كانت أو تتبع اليوم،
   // مراجعة 0027 V4-N3)، أو تتبع اليوم ويومُ الجهاز غير يوم المعروض (منتصف ليل الجهاز أو الخادم بينهما)، أو صريحةً ويومُ الجهاز بعد يوم الخادم في المعروض
-  // (فيحمل جوابٌ بعد منتصف ليل الخادم «اليوم» الجديد إلى «اليوم التالي» والمنتقي). ولا قراءة فوق قراءة في الطريق، ولا شيء بعد مغادرة الصفحة (المستمعون
-  // يُزالون). وما تقرؤه العودة خارج الرسم:
+  // (فيحمل جوابٌ بعد منتصف ليل الخادم «اليوم» الجديد إلى «اليوم التالي» والمنتقي). ولا قراءة فوق قراءة في الطريق (loading، أو قراءات الصفحة نفسها في
+  // reads أعلاه)، ولا شيء بعد مغادرة الصفحة (المستمعون يُزالون). وما تقرؤه العودة خارج الرسم:
   const latest = useRef({ following, shown, current, loading: state.loading, retry: state.retry });
   useEffect(() => {
     latest.current = { following, shown, current, loading: state.loading, retry: state.retry };
   });
   useEffect(() => {
     let phase: ReturnPhase = document.visibilityState === 'hidden' ? 'away' : 'both';
-    // يومُ الجهاز ولحظةُ بدء العودة الجارية.
-    let began = { day: localDay(), at: performance.now() };
+    // لحظةُ بدء العودة الجارية.
+    let began = returnMoment();
     const arrive = (kind: 'visible' | 'focus') => {
-      const day = localDay();
-      const at = performance.now();
-      if (phase === (kind === 'visible' ? 'focus' : 'visible') && day === began.day && at - began.at <= PARTNER_MS) {
+      const moment = returnMoment();
+      const partner =
+        phase === (kind === 'visible' ? 'focus' : 'visible') &&
+        moment.day === began.day &&
+        moment.at - began.at <= PARTNER_MS &&
+        Math.abs(moment.wall - began.wall) <= PARTNER_MS;
+      if (partner) {
         phase = 'both';
         return;
       }
       phase = kind;
-      began = { day, at };
+      began = moment;
       const page = latest.current;
-      if (page.loading) return;
-      if (page.shown === null || !page.current || (page.following ? day !== page.shown.on : day > page.shown.today)) page.retry();
+      if (page.loading || reads.current.inFlight) return;
+      if (page.shown === null || !page.current || (page.following ? moment.day !== page.shown.on : moment.day > page.shown.today)) page.retry();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') phase = 'away';
