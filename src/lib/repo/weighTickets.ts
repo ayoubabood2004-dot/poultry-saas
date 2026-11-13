@@ -67,6 +67,9 @@ const METHODS: readonly WeighMethod[] = ['scale', 'crates'];
 export const TICKET_STATUSES = ['draft', 'done', 'void'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 const FLOCK_STATUSES = ['preparing', 'active', 'closed'] as const;
+/** حالة آخر فاتورة للتذكرة كما يرسلها الخادم (العقد §5.1): بعد إلغائها تعود التذكرة «بانتظار الفاتورة» وتبقى الملغاة بحالتها. */
+const SALE_STATUSES = ['posted', 'void'] as const;
+export type TicketSaleStatus = (typeof SALE_STATUSES)[number];
 /** مرشّح القائمة: «بانتظار الفاتورة» = مكتملة بلا فاتورة مرحّلة. */
 export const TICKET_FILTERS = ['all', 'draft', 'done', 'awaiting', 'void'] as const;
 export type TicketFilter = (typeof TICKET_FILTERS)[number];
@@ -133,8 +136,8 @@ export interface WeighTicket {
   avgKg: Milli | null;
   stops: readonly TicketStop[];
   invoiced: boolean;
-  /** فاتورتها المرحّلة (لأدوار المبيعات وحدها؛ null لغيرهم أو بلا فاتورة). */
-  sale: { id: string; docNo: string; status: string } | null;
+  /** آخر فاتورة لها بحالتها (لأدوار المبيعات وحدها؛ null لغيرهم أو بلا فاتورة): الملغاة لا تجعلها مفوترة (invoiced). */
+  sale: { id: string; docNo: string; status: TicketSaleStatus } | null;
   createdByName: string | null;
   finishedAt: string | null;
   voidedAt: string | null;
@@ -192,7 +195,7 @@ export function parseWeighTicket(value: unknown): WeighTicket {
       })),
     })),
     invoiced: flag(json, 'invoiced'),
-    sale: sale ? { id: str(sale, 'id'), docNo: str(sale, 'doc_no'), status: str(sale, 'status') } : null,
+    sale: sale ? { id: str(sale, 'id'), docNo: str(sale, 'doc_no'), status: oneOf(sale, 'status', SALE_STATUSES) } : null,
     createdByName: optStr(json, 'created_by_name'),
     finishedAt: optStr(json, 'finished_at'),
     voidedAt: optStr(json, 'voided_at'),
@@ -276,8 +279,8 @@ export interface TicketRow {
   netKg: Milli | null;
   halls: readonly string[];
   invoiced: boolean;
-  /** لأدوار المبيعات وحدها. */
-  sale: { id: string; docNo: string } | null;
+  /** آخر فاتورة بحالتها، لأدوار المبيعات وحدها (الملغاة تُعرض بعلامتها، لا فاتورةً للتذكرة). */
+  sale: { id: string; docNo: string; status: TicketSaleStatus } | null;
 }
 
 export interface TicketList {
@@ -308,7 +311,7 @@ export function parseTicketList(value: unknown): TicketList {
         netKg: optKg(row, 'net_kg'),
         halls: halls as string[],
         invoiced: flag(row, 'invoiced'),
-        sale: sale ? { id: str(sale, 'id'), docNo: str(sale, 'doc_no') } : null,
+        sale: sale ? { id: str(sale, 'id'), docNo: str(sale, 'doc_no'), status: oneOf(sale, 'status', SALE_STATUSES) } : null,
       };
     }),
     more: flag(json, 'more'),

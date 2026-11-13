@@ -123,6 +123,7 @@ function TicketsTable({ list, here }: { list: TicketList; here: string }) {
         row.sale ? (
           <Link to={salePath(row.sale.id)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="tickets-sale">
             <bdi dir="ltr">{row.sale.docNo}</bdi>
+            {row.sale.status === 'void' ? t('halls.tickets.sale_void', ' (ملغاة)') : null}
           </Link>
         ) : (
           dash()

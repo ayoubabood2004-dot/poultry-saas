@@ -1014,7 +1014,7 @@ function TicketDone({ ticket, back, onVoided }: { ticket: WeighTicket; back: str
         </h1>
         <p className="text-sm text-ink-muted" data-action="ticket-status">
           {statusLabel(ticket.status, ticket.invoiced)}
-          {ticket.sale ? t('halls.ticket.sale_doc', ' ({doc})', { doc: ticket.sale.docNo }) : ''}
+          {ticket.sale?.status === 'posted' ? t('halls.ticket.sale_doc', ' ({doc})', { doc: ticket.sale.docNo }) : ''}
         </p>
       </header>
       {ticket.warnings.length ? (
@@ -1037,7 +1037,7 @@ function TicketDone({ ticket, back, onVoided }: { ticket: WeighTicket; back: str
         ) : null}
         {ticket.sale ? (
           <Link to={salePath(ticket.sale.id)} className="text-sm font-semibold text-brand-700 dark:text-brand-200" data-action="ticket-sale">
-            {t('halls.ticket.open_sale', 'الفاتورة {doc}', { doc: ticket.sale.docNo })}
+            {ticket.sale.status === 'void' ? t('halls.ticket.open_sale_void', 'الفاتورة الملغاة {doc}', { doc: ticket.sale.docNo }) : t('halls.ticket.open_sale', 'الفاتورة {doc}', { doc: ticket.sale.docNo })}
           </Link>
         ) : null}
         {ticket.can.void && ticket.status === 'done' ? (

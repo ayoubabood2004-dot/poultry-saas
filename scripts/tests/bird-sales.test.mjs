@@ -705,6 +705,38 @@ export default async function (t) {
       t.ok(list.totals.count === list.rows.filter((row) => row.status === 'posted').length || list.more, 'X قائمة الطيور الحقيقية: العدد = المرحَّل');
       for (const group of ['party', 'day', 'item']) t.ok(m.birds.parseBirdSalesGroups(clone(R[`sales_report_${group}`].birds)) !== null, `X تقرير الطيور الحقيقي بالتجميع ${group}`);
       t.ok(m.birds.parseBirdSaleForm(clone(R.bird_sale_form_invoiced)).why === 'invoiced', 'X النموذج الحقيقي بعد الفاتورة');
+
+      // صفحات المبيعات بأجوبة القاعدة الحقيقية (درس 2026-11-02: الجواب الحقيقي بالصفحة الحقيقية، لا بالمحلّل وحده).
+      const grouped = (text) => String(text).replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+      await step('X الفاتورة الحقيقية', async () => {
+        const real = R.bird_sale_detail;
+        fresh(MANAGER, { bird_sale_detail: () => clone(real) });
+        await mount(`/sales/birds/${real.id}`);
+        t.same(
+          [textOf('bird-paper-no'), rowsOf('القاعات')?.map((row) => row[0]), textOf('bird-paper-total'), textOf('bird-paper-words'), byAction('bird-sale-void').length],
+          [`رقم: ${real.doc_no}`, real.sources.map((source) => source.hall_name), `المبلغ:${grouped(real.money.total)} دينار`, m.amountInWords(BigInt(real.money.total) * 100n), real.can_void ? 1 : 0],
+          'X ورقة الفاتورة بجواب القاعدة: رقمها وقاعاتها ومبلغها رقماً وكتابةً، و«ألغِ الفاتورة» بما يجيزه الخادم',
+        );
+      });
+      await step('X قائمة المبيعات الحقيقية', async () => {
+        fresh(ACCOUNTANT, { sales_overview: () => clone(R.sales_overview), sales_report: (args) => clone(R[`sales_report_${args.p_group}`]) });
+        await mount('/sales');
+        const birds = R.sales_overview.birds;
+        t.same(
+          [rowsOf(LIST)?.map((row) => row[1]), rowsOf(AWAIT)?.map((row) => row[1]), byAction('invoice-ticket').length],
+          [birds.rows.map((row) => row.doc_no), birds.awaiting.map((row) => row.ticket_no), birds.can_record ? birds.awaiting.length : 0],
+          'X قائمة المبيعات بجواب القاعدة: فواتير الطيور بأرقامها، والتذاكر بانتظار الفاتورة بأرقامها و«أصدر الفاتورة» لكلّ واحدة',
+        );
+      });
+      await step('X نموذج الفاتورة الحقيقيّ', async () => {
+        fresh(ACCOUNTANT, formRpc(R.bird_sale_form_open), pickers);
+        await mount(`/sales/birds/new?ticket=${R.bird_sale_form_open.ticket.id}`);
+        t.same(
+          [byAction('bird-sale-form').length, byAction('bird-over-live').length, textOf('bird-price-suggested') !== null || R.bird_sale_form_open.suggested_price === null],
+          [1, R.bird_sale_form_open.flocks.some((flock) => flock.over_live) ? 1 : 0, true],
+          'X نموذج «أصدر الفاتورة» بجواب القاعدة: يُرسم بقاعاته، والسعر المقترح حين يرسله الخادم',
+        );
+      });
     }
   } finally {
     if (root) {

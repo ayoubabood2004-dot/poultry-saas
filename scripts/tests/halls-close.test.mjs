@@ -475,9 +475,10 @@ export default async function (t) {
     const samplesPath = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json');
     if (existsSync(samplesPath)) {
       const X = JSON.parse(readFileSync(samplesPath, 'utf8'));
-      const parsers = { flock_close_form: m.close.parseCloseForm, close_result: m.close.parseCloseResult, flock_cycle_report: m.halls.parseCycleReport, halls_day: m.days.parseHallsDay, flock_cycles: m.days.parseFlockCycles };
+      // نتائج الإغلاق في العيّنات باسم الدالّة (close_flock، close_flock_return، close_flock_count_diff)، لا باسم مفتاح العقد المكتوب باليد.
+      const parsers = { flock_close_form: m.close.parseCloseForm, close_flock: m.close.parseCloseResult, flock_cycle_report: m.halls.parseCycleReport, halls_day: m.days.parseHallsDay, flock_cycles: m.days.parseFlockCycles };
       for (const [key, value] of Object.entries(X)) {
-        const parse = Object.entries(parsers).find(([prefix]) => key === prefix || key.startsWith(`${prefix}_`))?.[1];
+        const parse = Object.entries(parsers).sort(([a], [b]) => b.length - a.length).find(([prefix]) => key === prefix || key.startsWith(`${prefix}_`))?.[1];
         if (!parse) continue;
         let error = null;
         try {

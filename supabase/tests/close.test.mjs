@@ -534,6 +534,7 @@ async function scenario(t, db) {
       'إعادة الإغلاق بالمعرّف: بالسبب نفسه نتيجته، وبسبب آخر لفرق العدّ id_conflict');
     samples.close_flock_count_diff = result.value;
     const r = await report(F.g7);
+    samples.flock_cycle_report_count_diff = r;
     // النفوق 270 ÷ 10,000 = 2.70 (لا 3.00 بفرق العدّ)، والحيوية 97.30، ومؤشّر الإنتاج 97.30 × 2,400 ÷ 577.5 = 404.36 ← 404.
     same([result.ok, result.value?.live_before, result.value?.count_diff, result.value?.count_reason, pick(r.kpis, ['count_diff', 'mortality_pct', 'livability_pct', 'fcr_final', 'epef_final']),
       r.birds.count_reason, r.birds.live],
@@ -588,6 +589,7 @@ async function scenario(t, db) {
     const r = await report(F.fd2);
     const f = await form(F.fd2);
     const v = await hallsDay(day(-1));
+    Object.assign(samples, { halls_day_carry_in: v, flock_close_form_carry_in: f });
     const rows = await admin("select trim_scale(amount)::text as amount, on_date::text as on from public.flock_costs where flock_id = $1 and doc_kind = 'flock_carry' order by amount desc", [F.fd2]);
     same([rows, pick(r.days[0], ['on', 'feed_given_kg', 'feed_carry_in_kg', 'feed_given_unweighed', 'feed_given_cum_kg', 'feed_given_cum_unweighed']), r.kpis.feed_carry_in_kg,
       r.money.carried_in, r.carry_in.map((c) => [c.qty, c.applied_on, c.from_flock_id, c.money?.value]), f.items.map((i) => [i.name, i.pool_qty, i.pool_kg, i.carry_in_qty,

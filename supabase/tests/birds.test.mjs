@@ -268,6 +268,7 @@ async function scenario(t, db) {
     const T = id(801);
     await save(U.worker, T, null, scale(siteA, YESTERDAY, '7000', false, '6', [[id(802), h3, 105, 10, '7312']]));
     const done = await finish(U.worker, T, 1);
+    samples.finish_weigh_ticket_warned = done.value;
     t.same([done.ok, done.value?.net_kg, done.value?.warnings?.map((w) => [w.hall_name, w.birds, w.live])], [true, '252.000', [['قاعة 3', 105, 100]]],
       'G8: التذكرة مكتملة بـ105 طيور (252 كغم)، وتحذيرها: في «قاعة 3» 100 حيّاً (الإكمال لا ينقص الحيّ، والفاتورة تفحصه)');
     const args = () => sellArgs({ sale: uid(), ticket: T, version: 2, price: '2750.00' });
@@ -467,6 +468,26 @@ async function scenario(t, db) {
   };
   await section('R1 الجولة أوّلاً', () => r1('الجولة أوّلاً', F4, h4, true));
   await section('R1 الفاتورة أوّلاً', () => r1('الفاتورة أوّلاً', F5, h5, false));
+
+  // ── ميزان الأقفاص (العقد §3، ticket_nets): خابط القاعة مجموع وزناتها، وأقفاصها مجموع أقفاص الوزنات، وصافيها = الخابط − الأقفاص × وزن القفص ──────
+  // «قاعة 2» 120 طيراً بوزنتين: 5 أقفاص 160.500 و5 أقفاص 158.250، والقفص 6: الخابط 318.750 والأقفاص 10 (60 كغم) والصافي 258.750، والمعدّل
+  // 258.750 ÷ 120 = 2.15625 ← 2.156؛ بلا فارغ ولا خابط قبلها. وعيّنتها للشاشات (وزنات ميزان الأقفاص من القاعدة الحقيقية).
+  await section('ميزان الأقفاص', async () => {
+    const T = id(1301);
+    const data = { site_id: siteA, on_date: TODAY, method: 'crates', empty_kg: null, empty_with_crates: null, crate_kg: '6', vehicle: null, driver: null, note: null,
+      stops: [{ id: id(1302), hall_id: h2, birds: 120, crates: null, gross_kg: null, weighings: [{ id: id(1303), crates: 5, gross_kg: '160.500' }, { id: id(1304), crates: 5, gross_kg: '158.250' }] }] };
+    const saved = await save(U.worker, T, null, data);
+    const done = await finish(U.worker, T, 1);
+    const v = done.value;
+    const stop = v?.stops?.[0];
+    t.same(
+      [saved.ok, done.ok, v?.method, v?.empty_kg, v?.empty_with_crates, v?.crate_kg, stop?.weighings?.map((w) => [w.weighing_no, w.crates, w.gross_kg]), stop?.gross_kg,
+        stop?.prev_gross_kg, stop?.crates, stop?.crates_kg, stop?.net_kg, stop?.avg_kg, v?.birds, v?.crates, v?.net_kg, v?.avg_kg],
+      [true, true, 'crates', null, null, '6.000', [[1, 5, '160.500'], [2, 5, '158.250']], '318.750', null, 10, '60.000', '258.750', '2.156', 120, 10, '258.750', '2.156'],
+      'ميزان الأقفاص: الخابط 318.750 من الوزنتين والأقفاص 10 (60 كغم)، والصافي 258.750 والمعدّل 2.156، بلا فارغ ولا خابط قبلها',
+    );
+    samples.weigh_ticket_crates = await one(U.manager, 'select public.weigh_ticket($1)', [T]);
+  });
 
   // ── العيّنات: القرّاء على حالة الملف الأخيرة (تذكرة مكتملة أُلغيت فاتورتها فعادت للفوترة، ومفوترة، وملغاة، ومسوّدة؛ وفاتورة مرحَّلة وملغاة بمقبوضها؛
   //    والمبيعات والكشف وخلاصة المال وبطاقة البيع والفوج)، لكلّ دور بما يراه.

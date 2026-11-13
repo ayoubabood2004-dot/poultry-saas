@@ -604,7 +604,8 @@
         "invoiced": true,
         "sale": {
           "id": "00000000-0000-4000-8000-000000002861",
-          "doc_no": "BR-2026-0003"
+          "doc_no": "BR-2026-0003",
+          "status": "posted"
         }
       },
       {
@@ -1333,8 +1334,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-02",
@@ -1358,8 +1359,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-03",
@@ -1383,8 +1384,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-04",
@@ -1411,8 +1412,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-05",
@@ -1436,8 +1437,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-06",
@@ -1461,8 +1462,8 @@
         "hdep": null,
         "note": "تهوية",
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-07",
@@ -1489,8 +1490,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-08",
@@ -1514,8 +1515,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-09",
@@ -1539,8 +1540,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-10",
@@ -1567,8 +1568,8 @@
         "hdep": null,
         "note": "حرارة مرتفعة",
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-11",
@@ -1592,8 +1593,8 @@
         "hdep": null,
         "note": null,
         "sold": 980,
-        "sold_kg": "2450.000",
-        "adjust": -7
+        "sold_net_kg": "2450.000",
+        "count_diff": -7
       }
     ],
     "weeks": [
@@ -1975,8 +1976,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-02",
@@ -2000,8 +2001,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-03",
@@ -2025,8 +2026,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-04",
@@ -2053,8 +2054,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-05",
@@ -2078,8 +2079,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-06",
@@ -2103,8 +2104,8 @@
         "hdep": null,
         "note": "تهوية",
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-07",
@@ -2131,8 +2132,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-08",
@@ -2156,8 +2157,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-09",
@@ -2181,8 +2182,8 @@
         "hdep": null,
         "note": null,
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-10",
@@ -2209,8 +2210,8 @@
         "hdep": null,
         "note": "حرارة مرتفعة",
         "sold": 0,
-        "sold_kg": "0",
-        "adjust": 0
+        "sold_net_kg": "0.000",
+        "count_diff": 0
       },
       {
         "on": "2026-11-11",
@@ -2234,8 +2235,8 @@
         "hdep": null,
         "note": null,
         "sold": 980,
-        "sold_kg": "2450.000",
-        "adjust": -7
+        "sold_net_kg": "2450.000",
+        "count_diff": -7
       }
     ],
     "weeks": [

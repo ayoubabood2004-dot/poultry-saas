@@ -22,6 +22,9 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-contract.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
+/** عزل اتّجاه العدد بإشارته (signedCount في ticketParts). */
+const LRI = '\u{2066}';
+const PDI = '\u{2069}';
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const STUBS = {
   session: 'export const useSession = () => globalThis.__hc.session; export const sessionStore = { get: () => globalThis.__hc?.session ?? { status: "loading" } };',
@@ -784,11 +787,20 @@ export default async function (t) {
         Object.assign(report.feed, { consumed_kg: '0.000', remaining_kg: '0.000' });
         return report;
       };
-      const feet = () => {
-        const days = tableFoot('أيّام الدورة')?.[0] ?? [];
-        const weeks = tableFoot('الأسابيع')?.[0] ?? [];
-        return { days: [days[1], days[2], days[5]], weeks: [weeks[1], weeks[2], weeks[6]] };
+      /**
+       * خلايا صفّ «المجموع» بعناوين أعمدتها (لا بمواضع ثابتة): عمود «المباع» و«فرق العدّ» يظهران في أيّام دورة فيها بيع أو فرق عدّ (0028، عيّنة المغلقة
+       * الحقيقية بفرق عدّ −993)، فتنزاح المواضع. خلية العنوان في أوّل الصفّ تمتدّ على الأعمدة الأولى بلا مجموع.
+       */
+      const footBy = (caption, names) => {
+        const heads = tableHeaders(caption) ?? [];
+        const foot = tableFoot(caption)?.[0] ?? [];
+        const shift = heads.length - foot.length;
+        return names.map((name) => foot[heads.indexOf(name) - shift]);
       };
+      const feet = () => ({
+        days: footBy('أيّام الدورة', ['النافق', 'المستبعد', 'المأكول (كغم)']),
+        weeks: footBy('الأسابيع', ['النافق', 'المستبعد', 'المأكول (كغم)']),
+      });
       const view = async (sample, read) => {
         fresh(sessionOf(sample), sample);
         await mount(sample.flock.id);
@@ -826,7 +838,8 @@ export default async function (t) {
           [
             [['11,981', 'note', 'النافق 16 والمستبعد 3. سُجّلت الجولة في 10 من 12 يوماً.'], 'يومان بلا جولة مسجّلة.', ['0.16%', 'none', ''], ['99.84%', 'note', LIVABLE]],
             [['3,996', 'note', 'النافق 3 والمستبعد 1. سُجّلت الجولة في 3 من 11 يوماً.'], '8 أيام بلا جولة مسجّلة.', ['0.10%', 'none', ''], ['99.90%', 'note', LIVABLE]],
-            [['993', 'note', 'النافق 6 والمستبعد 1. سُجّلت الجولة في 3 من 16 يوماً.'], '13 يوماً بلا جولة مسجّلة.', ['0.70%', 'none', ''], ['99.30%', 'note', LIVABLE]],
+            // المغلقة أُغلقت بـclose_flock (0028): الحيّ بعد الإغلاق صفر، وفرق العدّ (−993) صفّه وحده لا مع النافق (S2b).
+            [['0', 'note', 'النافق 6 والمستبعد 1. سُجّلت الجولة في 3 من 16 يوماً.'], '13 يوماً بلا جولة مسجّلة.', ['0.70%', 'none', ''], ['99.30%', 'note', LIVABLE]],
             [['2,975', 'note', 'النافق 21 والمستبعد 4.'], null, ['0.83%', 'none', ''], ['99.17%', 'note', LIVABLE]],
             [['4,000', 'note', 'لم تُسجَّل جولة بعد.'], '8 أيام بلا جولة مسجّلة.', ['0.00%', 'none', ''], ['100.00%', 'note', LIVABLE]],
           ],
@@ -842,6 +855,16 @@ export default async function (t) {
           return [kpiSays, (seen[i][1] !== null) === recorded < all];
         });
         t.same(agree, samples.map(() => [true, true]), 'S2 عدد الجولات تحت «الحيّ» وجملة الأيّام بلا جولة فوق جدول الأيّام من العدّ نفسه في كلّ عيّنة');
+      });
+
+      await step('S2b المغلقة بفرق عدّ: صفّه وحده بسببه من القاعدة، والحيّ صفر', async () => {
+        const sample = REAL.flock_cycle_report_closed;
+        const seen = await view(sample, () => [kpiOf('live')?.[0], kpiOf('count_diff')]);
+        t.same(
+          [sample.kpis.count_diff, sample.birds.count_reason, seen],
+          [-993, 'نهاية الدورة', ['0', [`${LRI}-993${PDI}`, 'note', 'السبب: نهاية الدورة. يظهر وحده لا مع النافق.']]],
+          'S2b عيّنة المغلقة الحقيقية: الحيّ صفر، و«فرق العدّ» −993 صفّاً وحده بسبب الإغلاق',
+        );
       });
 
       // V2-G3-ACCUSATIVE (مراجعة 0027 الثالثة، على 8e32229): عدد السطور في جملة فوق جدول الأيّام فاعلٌ بالرفع لا مفعول «يشملان» بالرفع خطأً: «لا يدخل في

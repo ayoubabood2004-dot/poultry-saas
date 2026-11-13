@@ -492,7 +492,10 @@ export interface CycleDay {
   eggsTotal: number | null;
   hdep: bigint | null;
   note: string | null;
-  /** 0028: الطيور المباعة يومها (من الفواتير المرحّلة) وصافيها، وفرق العدّ يومها؛ null من خادم قبل 0028. */
+  /**
+   * 0028: الطيور المباعة يومها (من الفواتير المرحّلة) وصافيها، وفرق العدّ يومها؛ null من خادم قبل 0028. بمفاتيح الخادم sold وsold_net_kg وcount_diff
+   * (كمفاتيح الفوج في halls_day)، لا بأسماء أعمدة report_days الداخلية (sold_kg وadjust): كانت تُقرأ null دائماً فيختفي عمود «فرق العدّ».
+   */
   sold: number | null;
   soldKg: Milli | null;
   adjust: number | null;
@@ -609,8 +612,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         hdep: optScaled(row, 'hdep', 2),
         note: optStr(row, 'note'),
         sold: optInt(row, 'sold'),
-        soldKg: optScaled(row, 'sold_kg', 3),
-        adjust: optInt(row, 'adjust'),
+        soldKg: optScaled(row, 'sold_net_kg', 3),
+        adjust: optInt(row, 'count_diff'),
       };
     }),
     weeks: list(json.weeks, 'weeks').map((row) => ({

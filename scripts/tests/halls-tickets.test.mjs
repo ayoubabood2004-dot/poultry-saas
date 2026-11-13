@@ -481,7 +481,8 @@ export default async function (t) {
       const X = JSON.parse(readFileSync(samplesPath, 'utf8'));
       const parsers = { weigh_ticket: m.tickets.parseWeighTicket, weigh_ticket_options: m.tickets.parseTicketOptions, weigh_tickets: m.tickets.parseTicketList, flock_sales: m.close.parseFlockSales };
       for (const [key, value] of Object.entries(X)) {
-        const parse = Object.entries(parsers).find(([prefix]) => key === prefix || key.startsWith(`${prefix}_`))?.[1];
+        // أطول بادئة أوّلاً: weigh_ticket_options_site بمحلّل الخيارات لا بمحلّل التذكرة (weigh_ticket بادئة أقصر منها).
+        const parse = Object.entries(parsers).sort(([a], [b]) => b.length - a.length).find(([prefix]) => key === prefix || key.startsWith(`${prefix}_`))?.[1];
         if (!parse) continue;
         let error = null;
         try {
