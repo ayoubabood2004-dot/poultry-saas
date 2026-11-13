@@ -584,9 +584,12 @@ async function scenario(t, db) {
     responses[`manager:${day(-10)}`].prev, responses[`hallWorker:${TODAY}`].sites.map((s) => s.name), responses[`layerWorker:${TODAY}`].sites.map((s) => s.name)],
   [false, true, false, false, true, ['حقل ألف'], ['حقل البيض']],
   'التنقّل: لا رجوع قبل أوّل تسكين في النطاق (البيّاض وحده سُكّن 2 تشرين الثاني)، والتالي ما دام قبل اليوم؛ وعامل القاعة بنطاق حقله لا يرى غيره');
-  t.same([shown(await call(db, U.manager, HALLS_DAY, [day(1)])), (await call(db, U.manager, HALLS_DAY, [day(1)])).hint, shown(await call(db, U.manager, HALLS_DAY, [null])),
-    (await call(db, U.manager, HALLS_DAY, [null])).hint], ['future_day', 'لا تقرير ليوم لم يأتِ بعد.', 'day_required', 'اختر اليوم.'],
-  'اليوم القادم مرفوض بجملته، واليوم الفارغ مطلوب');
+  const [nullCall, todayCall] = [await call(db, U.hallWorker, HALLS_DAY, [null]), await call(db, U.hallWorker, HALLS_DAY, [TODAY])];
+  const nullDay = nullCall.ok ? nullCall.value : {};
+  t.same([shown(await call(db, U.manager, HALLS_DAY, [day(1)])), (await call(db, U.manager, HALLS_DAY, [day(1)])).hint, shown(nullCall), nullDay.on, nullDay.today,
+    canon(nullDay) === canon(todayCall.value), (nullDay.sites ?? []).map((s) => s.name)],
+  ['future_day', 'لا تقرير ليوم لم يأتِ بعد.', 'ok', TODAY, TODAY, true, ['حقل ألف']],
+  'اليوم القادم مرفوض بجملته، وبلا يوم (null) يومُ الخادم الحاليّ: جواب اليوم نفسه حرفاً وبنطاق القارئ (الشاشة التي تتبع «اليوم» لا تقرأ ساعة الجهاز)');
   t.ok(!hasMoney(today), 'التقرير اليوميّ بلا مال');
 
   // ── ٣) تقرير الدورة: المفاتيح الجديدة بالنموذج لكلّ فوج، ومجاميع الأيّام = المفاتيح القديمة، والمال لأدوار الكلفة وحدها.
@@ -774,7 +777,7 @@ async function scenario(t, db) {
   await caught('الأقدم تسكيناً أوّلاً يعرض في «قاعة 1» يوم 1 تشرين الثاني الفوج المغلق ذلك اليوم بدل المسكَّن فيه',
     [[FN.day, [['order by x.placed_on desc, x.id', 'order by x.placed_on, x.id']]]], asManager(HALLS_DAY, [day(-11)], (v) => flockOf(v, 'قاعة 1').id), (v) => v === F.f0);
   await caught('«يوم الإغلاق خارج الدورة» يُسقط «قاعة 4» يوم إغلاق FC',
-    [[FN.day, [['and (x.closed_on is null or p_on <= x.closed_on)', 'and (x.closed_on is null or p_on < x.closed_on)']]]],
+    [[FN.day, [['and (x.closed_on is null or v_on <= x.closed_on)', 'and (x.closed_on is null or v_on < x.closed_on)']]]],
     asManager(HALLS_DAY, [day(-8)], hallNames), (v) => !v.includes('قاعة 4'));
   await caught('القاعات غير المؤرشفة وحدها تُسقط «قاعة 4» وفيها FC يوم 3 تشرين الثاني',
     [[FN.day, [['and (h.archived_at is null or q.id is not null)', 'and h.archived_at is null']]]], asManager(HALLS_DAY, [day(-9)], hallNames), (v) => !v.includes('قاعة 4'));
@@ -782,7 +785,7 @@ async function scenario(t, db) {
     [[FN.day, [['where h.org_id = v_org and public.in_scope_site(h.site_id) and', 'where h.org_id = v_org and']]]],
     ({ attempt }) => attempt(U.hallWorker, async (q) => (await q(HALLS_DAY, [TODAY])).rows[0].v.sites.map((s) => s.name)), (v) => v.includes('حقل باء'));
   await caught('«قبل اليوم أو فيه» يجعل يوم أوّل تسكين قابلاً للرجوع',
-    [[FN.day, [['x.placed_on < p_on', 'x.placed_on <= p_on']]]], asManager(HALLS_DAY, [day(-42)], (v) => v.prev), (v) => v === true);
+    [[FN.day, [['x.placed_on < v_on', 'x.placed_on <= v_on']]]], asManager(HALLS_DAY, [day(-42)], (v) => v.prev), (v) => v === true);
   await caught('الحيّ أوّل اليوم بنافق اليوم نفسه يُنقص F2 اليوم إلى 2,975',
     [[FN.days, [['over (order by y.d rows between unbounded preceding and 1 preceding)', 'over (order by y.d rows between unbounded preceding and current row)']]]],
     asManager(HALLS_DAY, [TODAY], (v) => flockOf(v, 'قاعة 2').live_start), (v) => v === 2975);

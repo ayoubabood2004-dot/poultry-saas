@@ -6,7 +6,8 @@
 -- هنا قرّاء فقط، بلا جدول ولا كتابة ولا مال في المفاتيح الجديدة:
 --   • public.halls_day(p_on): كلّ قاعة في نطاق القارئ مجمَّعة بحقلها (غير المؤرشفة، والمؤرشفة التي كان فيها فوج ذلك اليوم)، وفوجها ذلك اليوم (المسكَّن
 --     فيه أو قبله ولم يُغلق قبله، الأحدث تسكيناً) بجولته وتراكماتها والعلف المأكول والنازل والباقي والوزن ومعامل التحويل والبيض والأدوية واللقاحات،
---     ومجاميع كلّ حقل وكلّ القاعات من القاعات المعروضة نفسها؛ واليوم القادم مرفوض بجملته (future_day).
+--     ومجاميع كلّ حقل وكلّ القاعات من القاعات المعروضة نفسها؛ وبلا يوم (null) يومُ الخادم الحاليّ، فلا تختار الشاشة «اليوم» بساعة الجهاز؛ واليوم
+--     القادم مرفوض بجملته (future_day).
 --   • public.flock_cycle_report: التوقيع نفسه والمفاتيح القديمة كما هي (الشاشة المنشورة تقرؤها بين التطبيق والدمج)، وأربعة مفاتيح جديدة: days (كلّ يوم من
 --     التسكين إلى «حتى»)، وweeks (بعمر الطيور)، وweights، وkpis (ومنها معامل التحويل ومؤشّر الإنتاج EPEF).
 --   • public.flock_cycles(): كلّ دورات النطاق، القائمة أوّلاً ثمّ المغلقة الأحدث إغلاقاً، بحدّ 500 وعلم more، لتصل تقارير الدورات المغلقة.
@@ -166,19 +167,18 @@ $$;
 -- ─── د. التقرير اليوميّ لكلّ القاعات ──────────────────────────────────────────────────────────────────────────────────
 -- كلّ قاعة في حقل بنطاق القارئ: غير المؤرشفة، والمؤرشفة التي كان فيها فوج يوم p_on. فوج القاعة ذلك اليوم: المسكَّن فيه أو قبله ولم يُغلق قبله، والأحدث
 -- تسكيناً حين يلتقي فوج أُغلق ذلك اليوم بفوج سُكّن فيه. الحقول بالاسم (collate "C") ثمّ المعرّف، والقاعات كذلك، والحقل بلا قاعة معروضة لا يظهر.
--- prev: في النطاق فوج سُكّن قبل اليوم (الرجوع يفيد)؛ next: اليوم قبل اليوم الحاليّ. بلا مال.
+-- p_on الفارغ = اليوم الحاليّ (يوم الخادم: الشاشة التي تتبع «اليوم» ترسله فارغاً). prev: في النطاق فوج سُكّن قبل اليوم (الرجوع يفيد)؛ next: اليوم قبل
+-- اليوم الحاليّ. بلا مال.
 create or replace function public.halls_day(p_on date) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
   v_today date := public.app_today();
+  v_on date := coalesce(p_on, v_today);
   v_sites jsonb;
 begin
   perform private.require('read');
-  if p_on is null then
-    raise exception 'day_required' using hint = 'اختر اليوم.';
-  end if;
-  if p_on > v_today then
+  if v_on > v_today then
     raise exception 'future_day' using hint = 'لا تقرير ليوم لم يأتِ بعد.';
   end if;
   select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'halls', s.halls, 'totals', private.halls_day_totals(s.halls))
@@ -186,24 +186,24 @@ begin
   into v_sites
   from (
     select t.id, t.name, jsonb_agg(jsonb_build_object('hall_id', h.id, 'hall_name', h.name, 'kind', d.kind,
-        'flock', case when q.id is not null then private.report_day(q.f, p_on, v_today) end) order by h.name collate "C", h.id) as halls
+        'flock', case when q.id is not null then private.report_day(q.f, v_on, v_today) end) order by h.name collate "C", h.id) as halls
     from public.halls h
     join public.sites t on t.org_id = h.org_id and t.id = h.site_id
     join public.divisions d on d.org_id = h.org_id and d.id = h.division_id
     left join lateral (
       select x.id, x as f from public.flocks x
-      where x.org_id = h.org_id and x.hall_id = h.id and x.placed_on is not null and x.placed_on <= p_on
-        and (x.closed_on is null or p_on <= x.closed_on)
+      where x.org_id = h.org_id and x.hall_id = h.id and x.placed_on is not null and x.placed_on <= v_on
+        and (x.closed_on is null or v_on <= x.closed_on)
       order by x.placed_on desc, x.id
       limit 1) as q on true
     where h.org_id = v_org and public.in_scope_site(h.site_id) and (h.archived_at is null or q.id is not null)
     group by t.id, t.name
   ) as s;
   return jsonb_build_object(
-    'on', p_on,
+    'on', v_on,
     'today', v_today,
-    'prev', exists (select 1 from public.flocks x where x.org_id = v_org and x.placed_on < p_on and public.in_scope_site(x.site_id)),
-    'next', p_on < v_today,
+    'prev', exists (select 1 from public.flocks x where x.org_id = v_org and x.placed_on < v_on and public.in_scope_site(x.site_id)),
+    'next', v_on < v_today,
     'sites', v_sites,
     'totals', private.halls_day_totals(coalesce((select jsonb_agg(e.h order by s.n, e.n)
       from jsonb_array_elements(v_sites) with ordinality as s(site, n)
