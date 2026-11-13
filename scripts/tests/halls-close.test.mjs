@@ -10,7 +10,7 @@
 // X أجوبة القاعدة الحقيقية (fixtures/birds-0028.json) بالمحلّلات الحقيقية، حين توجد.
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { installDom, settle } from './dom.mjs';
+import { descendants, installDom, settle } from './dom.mjs';
 import { all, body, bundle, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, PDI, ROOT, select, selected, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, withAttr, within } from './halls-0028-kit.mjs';
 
 const FORM = F.flock_close_form;
@@ -366,6 +366,110 @@ export default async function (t) {
         'R القائمة: النهائيّان «—» بسببهما، والمنقول إليها من الدورة السابقة، ولا إغلاق',
       );
     });
+
+    // ── D: التقرير اليوميّ بمفاتيح 0028 (العقد §6): المباع وطيور التذاكر وفرق العدّ لكلّ قاعة، والعلف المنقول على القاعة الفارغة، و«تذكرة وزن» ──
+    {
+      const DAY = F.halls_day;
+      const S1 = DAY.sites[0].id;
+      const [H1, H2, H3] = DAY.sites[0].halls.map((hall) => hall.hall_id);
+      const CARRY = DAY.sites[0].halls[2].carry[0];
+      const BACK = `/halls/day?on=${DAY.on}`;
+      const parsed = m.days.parseHallsDay(clone(DAY));
+      const [h1, h2, h3] = parsed.sites[0].halls;
+      t.same(
+        [h1.flock.sold, h1.flock.soldNetKg, h1.flock.countDiff, h1.flock.ticketed, h1.flock.feedCarryInKg, h1.flock.feedOutKg, h1.flock.feedOutUnweighed, h1.flock.feedOutCumUnweighed, h1.carry, h2.flock.sold, h3.flock, h3.carry, parsed.sites[0].totals.sold, parsed.sites[0].totals.countDiff, parsed.sites[0].totals.ticketed, parsed.sites[1].totals.sold, parsed.totals.sold],
+        [4000, 9_100_000n, -10, 1800, 0n, 0n, 0, 0, [], 0, null, [{ lineId: CARRY.line_id, itemId: CARRY.item_id, name: 'علف نامي', qty: 200_000n, baseUnit: 'kg', kg: 200_000n, closedOn: '2026-11-10', fromFlockId: CARRY.from_flock_id }], 4000, -10, 1800, 0, 4000],
+        'D halls_day بمفاتيح 0028: المباع وصافيه وفرق العدّ وطيور التذاكر لكلّ فوج، والمنقول على القاعة الفارغة بوحدته وكيلوه، والمجاميع كما هي',
+      );
+      const old = clone(DAY);
+      for (const site of old.sites) {
+        for (const key of ['sold', 'count_diff', 'ticketed']) delete site.totals[key];
+        for (const hall of site.halls) {
+          delete hall.carry;
+          if (hall.flock) for (const key of ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed']) delete hall.flock[key];
+        }
+      }
+      for (const key of ['sold', 'count_diff', 'ticketed']) delete old.totals[key];
+      const before = m.days.parseHallsDay(old);
+      t.same(
+        [before.sites[0].halls[0].flock.sold, before.sites[0].halls[0].flock.soldNetKg, before.sites[0].halls[0].flock.countDiff, before.sites[0].halls[0].flock.ticketed, before.sites[0].halls[0].flock.feedOutKg, before.sites[0].halls[2].carry, before.sites[0].totals.sold, before.totals.ticketed],
+        [null, null, null, null, null, [], null, null],
+        'D خادم قبل 0028: المفاتيح الجديدة null لا صفر، والمنقول فارغ',
+      );
+      const badCarry = clone(DAY);
+      badCarry.sites[0].halls[2].carry[0].base_unit = 'box';
+      t.throws(() => m.days.parseHallsDay(badCarry), 'D سطر منقول بوحدة غريبة يُرفض بخطأ شكل');
+
+      const carryText = `${m.qtyText(200_000n, 'kg')} «علف نامي» من دورة أُغلقت يوم ${m.fmtDay('2026-11-10')}`;
+      const soldText = `المباع 4,000، على تذاكر بلا فاتورة 1,800، فرق العدّ ${m.signedCount(-10)}`;
+      const shared = m.dayShareText(parsed).text.split('\n');
+      t.same(
+        [shared.find((line) => line.startsWith('قاعة 1 ('))?.includes(soldText) ?? null, shared.find((line) => line.startsWith('قاعة 2 ('))?.includes('المباع') ?? null, shared.find((line) => line.startsWith('قاعة 3:')) ?? null],
+        [true, false, `قاعة 3: فارغة، وفيها علف منقول للدورة التالية: ${carryText}.`],
+        'D نصّ المشاركة: المباع والتذاكر وفرق العدّ في سطر القاعة، ولا شيء حين لا بيع، والقاعة الفارغة بعلفها المنقول',
+      );
+
+      const ddOf = (node) => (node ? descendants(node).find((n) => n.localName === 'dd')?.textContent ?? null : null);
+      const headOf = (caption) => {
+        const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
+        return table ? descendants(table).filter((n) => n.localName === 'th' && descendants(table).find((c) => c.localName === 'thead')?.contains?.(n) !== false).map((n) => n.textContent) : null;
+      };
+      const caption1 = `${DAY.sites[0].name} — ${m.fmtDay(DAY.on)}`;
+      await step('D اليوميّ للمالك', async () => {
+        fresh(OWNER, { halls_day: () => clone(DAY) });
+        await mount('/halls/day');
+        const card1 = withAttr('day-hall', 'data-hall', H1);
+        const card2 = withAttr('day-hall', 'data-hall', H2);
+        const card3 = withAttr('day-hall', 'data-hall', H3);
+        t.same(
+          [within(card1, 'day-sales')[0]?.textContent ?? null, within(card2, 'day-sales').length, within(card3, 'day-carry')[0]?.textContent ?? null, within(card1, 'day-carry').length],
+          [soldText, 0, `علف منقول للدورة التالية: ${carryText}.`, 0],
+          'D بطاقة القاعة: المباع وطيور التذاكر بلا فاتورة وفرق العدّ بإشارته، ولا سطر حين لا بيع، والقاعة الفارغة تسمّي علفها المنقول ويوم إغلاق دورته',
+        );
+        const link = within(card1, 'day-ticket-link')[0] ?? null;
+        const params = new URLSearchParams((href(link) ?? '').split('?')[1] ?? '');
+        t.same(
+          [link?.textContent ?? null, (href(link) ?? '').split('?')[0], params.get('site'), params.get('hall'), params.get('back'), m.ticketBack(params.get('back'), '/halls/tickets'), within(card2, 'day-ticket-link').length, within(card3, 'day-ticket-link').length, byAction('day-ticket-link').length],
+          ['تذكرة وزن', '/halls/ticket/new', S1, H1, BACK, BACK, 1, 0, 2],
+          'D «تذكرة وزن» على قاعات اللحم القائمة وحدها بحقلها وقاعتها، ورجوعها إلى اليوم نفسه يقبله قارئ التذكرة؛ لا على الفارغة ولا البيّاض',
+        );
+        const siteTotal = byAction('day-site-total')[0] ?? null;
+        const layersTotal = byAction('day-site-total')[1] ?? null;
+        const allTotal = byAction('day-all-total')[0] ?? null;
+        t.same(
+          [ddOf(within(siteTotal, 'total-sold')[0]), within(layersTotal, 'total-sold').length, ddOf(within(allTotal, 'total-sold')[0])],
+          [`4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`, 0, `4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`],
+          'D بطاقات المجاميع: المباع من مجموع الخادم وتحته التذاكر وفرق العدّ، ولا خانة لحقل بلا بيع',
+        );
+        const rows = tableRows(caption1) ?? [];
+        const head = headOf(caption1) ?? [];
+        const soldAt = head.indexOf('المباع');
+        const foot = (tableFoot(caption1) ?? [])[0] ?? [];
+        t.same(
+          [soldAt > 0, rows.map((row) => row[soldAt]), foot[soldAt - (head.length - foot.length)] ?? null, rows[2]?.[0] ?? null, (headOf(`${DAY.sites[1].name} — ${m.fmtDay(DAY.on)}`) ?? []).includes('المباع'), (headOf('مجموع كلّ الحقول') ?? []).includes('المباع')],
+          [true, [`4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`, '—', '—'], '4,000', `قاعة 3فارغة، وفيها علف منقول للدورة التالية: ${carryText}`, false, true],
+          'D الجدول: عمود «المباع» حين بيع في الحقل ومجموعه من الخادم، والقاعة الفارغة بعلفها المنقول، ولا عمود لحقل البيّاض بلا بيع',
+        );
+      });
+      await step('D اليوميّ لعامل القاعة وللمحاسب', async () => {
+        fresh(WORKER, { halls_day: () => clone(DAY) });
+        await mount('/halls/day');
+        const worker = byAction('day-ticket-link').length;
+        await unmount();
+        fresh(sessionOf('accountant'), { halls_day: () => clone(DAY) });
+        await mount('/halls/day');
+        t.same([worker, byAction('day-ticket-link').length, byAction('day-sales').length], [2, 0, 1], 'D «تذكرة وزن» لمن يكتب التذاكر (عامل القاعة) لا للمحاسب، والمباع يُعرض للجميع');
+      });
+      await step('D اليوميّ من خادم قبل 0028', async () => {
+        fresh(OWNER, { halls_day: () => clone(old) });
+        await mount('/halls/day');
+        t.same(
+          [byAction('day-sales').length, byAction('day-carry').length, byAction('total-sold').length, (headOf(caption1) ?? []).includes('المباع'), byAction('day-ticket-link').length],
+          [0, 0, 0, false, 2],
+          'D بلا مفاتيح 0028: لا مباع ولا منقول ولا عمود، و«تذكرة وزن» باقٍ',
+        );
+      });
+    }
 
     // ── X: أجوبة القاعدة الحقيقية (حين توجد) ────────────────────────────────────────────────────────────────────────────
     const samplesPath = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json');

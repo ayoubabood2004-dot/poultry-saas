@@ -1,4 +1,4 @@
-import { ChartNoAxesColumn, ClipboardList, Syringe } from 'lucide-react';
+import { ChartNoAxesColumn, ReceiptText, Syringe } from 'lucide-react';
 import { Component, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -410,7 +410,8 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
             className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2 font-medium transition-colors active:bg-surface-3"
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
-              <ClipboardList aria-hidden="true" className="size-5" />
+              {/* أيقونة لا تُستعمل خارج القاعات فتبقى في حزمتها (ClipboardList حزمة مشتركة يزيد استيرادها قائمة تحميل القاعات في حزمة الإقلاع). */}
+              <ReceiptText aria-hidden="true" className="size-5" />
             </span>
             <span className="min-w-0 flex-1">{t('reminders.compact.tickets', 'تذاكر وزن بانتظار الفاتورة: {n}', { n: awaiting })}</span>
           </Link>
