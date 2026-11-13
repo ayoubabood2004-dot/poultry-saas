@@ -294,10 +294,12 @@ async function scenario(t, db) {
   const layerVoid = refusal('void: out_of_scope (الفوج)', await vf(U.managerLayer, first.value.id));
   t.ok(layerVoid.code === 'out_of_scope' && layerVoid.hint.includes('قاعة هذا الصرف'), `مدير بنطاق البيض لا يلغي صرفاً لقاعة لحم (${layerVoid.code} ${layerVoid.hint})`);
 
-  // فوج مغلق: صرف لقاعة 2 ثمّ يُغلق (لا دالّة إغلاق بعد: مفتاح الإدارة)، فلا صرف له ولا إلغاء.
+  // فوج مغلق: صرف لقاعة 2 ثمّ تُغلق دورتها بدالّة الإغلاق (0028؛ كان مفتاح الإدارة قبلها، فصار يخرق ثوابت الإغلاق)، فلا صرف له ولا إلغاء.
   const toB = await rf(U.owner, { flock: F.b, item: I.finisher, qty: 50 });
   t.ok(toB.ok, `صرف لقاعة 2 (${toB.code ?? ''})`);
-  await db.admin("update public.flocks set status = 'closed', closed_on = $2 where id = $1", [F.b, TODAY]);
+  const closeForm = await one(U.manager, 'select public.flock_close_form($1) as v', [F.b]);
+  await one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null) as v",
+    [uid(), uid(), F.b, TODAY, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))]);
   t.same([refusal('flock_closed', await rf(U.owner, { flock: F.b, item: I.finisher, qty: 1 })).code, refusal('void: flock_closed', await vf(U.manager, toB.value.id)).code], ['flock_closed', 'flock_closed'],
     'الفوج المغلق: لا صرف له ولا إلغاء');
 
@@ -544,7 +546,7 @@ async function scenario(t, db) {
     },
     {
       name: 'verify_stock: الصرف للفوج خارج بقيمته',
-      fns: [[FN.verifyStock, [["      + coalesce((select sum(c.amount) from public.flock_costs c where c.org_id = o.id and c.doc_kind = 'flock_issue'), 0)\n", '']]]],
+      fns: [[FN.verifyStock, [["      + coalesce((select sum(c.amount) from public.flock_costs c where c.org_id = o.id and c.doc_kind in ('flock_issue', 'flock_return')), 0)\n", '']]]],
       run: async ({ attempt }) => attempt(U.owner, async (q) => (await q("select violations::int as v from public.verify_stock() where check_name = 'value_conservation'")).rows[0].v, 'postgres'),
       expect: okWith((v) => v, 0),
     },

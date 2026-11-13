@@ -310,4 +310,51 @@ async function scenario(t, db) {
     [0, true, 'forbidden', undefined, '2000', undefined, true, true, true, undefined, true],
     'سعر البيع: الأمين لا يرى صفّاً ولا يكتب، ولا money بقائمته ولا بدفتره؛ والمدير يرى السعر وقيمة البيع وقيمة الحركة؛ والبيان نفسه للطرفين',
   );
+
+  // ── 0028: لقطة الإغلاق بالمال لأدوار الكلفة وحدها، والفاتورة لأدوار المبيعات، والتذكرة والعدد لكلّ من بنطاقه الحقل ──────────────
+  // فوج في «حقل الأمل» (1,000 طير قبل ثلاثة أيّام) صُرف له 10 كغم «علف بادئ» من «مخزن حقل 1»، وتذكرة بمئة طير فوترت بالدين لـ«تاجر الإخفاء»، ثمّ
+  // أُغلقت الدورة اليوم بفرق العدّ وإرجاع 4 كغم إلى المخزن. عامل القاعة (بنطاق اللحم) يقرأ التذكرة والعدد والإغلاق بلا لقطة المال ولا الفاتورة، والأمين
+  // والمشاهد (بنطاق العامّ) والمحاسب (بنطاق الأدوية منذ فحص المصاريف أعلاه) لا يقرؤون شيئاً من حقل الأمل، والمالك والمدير يقرآن الفاتورة ولقطة الإغلاق.
+  const farmSite = (await db.admin("select id from public.sites where org_id = $1 and name = 'حقل الأمل'", [S.org])).rows[0].id;
+  await postedOpening(db, U.manager, W.farm1, GO_LIVE, [{ item: I.feed, qty: 100, value: '60000.00' }]);
+  const leakHall = await S.one(U.owner, "insert into public.halls (site_id, name) values ($1, 'قاعة الإخفاء') returning id", [farmSite]);
+  const leakFlock = await S.one(U.manager, "select public.open_flock($1, '2026-10-27', 1000, 0, null, gen_random_uuid()) ->> 'flock_id'", [leakHall]);
+  await S.one(U.manager, 'select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 10, $3, $4)', [leakFlock, I.feed, TODAY, W.farm1]);
+  const leakTicket = id(900);
+  await S.one(U.manager, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [leakTicket, JSON.stringify({ site_id: farmSite, on_date: TODAY, method: 'scale',
+    empty_kg: '7000', empty_with_crates: false, crate_kg: '6', stops: [{ id: id(901), hall_id: leakHall, birds: 100, crates: 10, gross_kg: '7300', weighings: [] }] })]);
+  await S.one(U.manager, 'select public.finish_weigh_ticket(gen_random_uuid(), $1, 1)', [leakTicket]);
+  const leakTrader = await S.one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الإخفاء', true) returning id");
+  const leakSale = await S.one(U.manager, "select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 0, null, null) ->> 'id'", [leakTicket, leakTrader]);
+  await S.one(U.manager, `select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, $2, 900, 100, jsonb_build_array(jsonb_build_object('item_id', $3::uuid, 'qty', '10')),
+    'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $3::uuid, 'qty', '4', 'action', 'return', 'warehouse_id', $4::uuid)), null)::text`, [leakFlock, TODAY, I.feed, W.farm1]);
+  const BIRD_ROLES = { hallWorker: U.hallWorker, storekeeper: U.storekeeper, viewer: U.viewer, accountant: U.accountant, owner: U.owner, manager: U.manager };
+  const birdRows = {};
+  for (const [role, user] of Object.entries(BIRD_ROLES)) {
+    birdRows[role] = await db.asUser(user, async (q) => {
+      const n = async (table) => (await q(`select count(*)::int as n from public.${table}`)).rows[0].n;
+      return { values: await n('flock_close_values'), sales: await n('bird_sales'), sources: await n('bird_sale_sources'), tickets: await n('weigh_tickets'),
+        stops: await n('weigh_ticket_stops'), counts: await n('flock_counts'), closes: await n('flock_closes') };
+    });
+  }
+  const outside = { values: 0, sales: 0, sources: 0, tickets: 0, stops: 0, counts: 0, closes: 0 };
+  const inside = { values: 1, sales: 1, sources: 1, tickets: 1, stops: 1, counts: 2, closes: 1 };
+  t.same(birdRows, { hallWorker: { ...inside, values: 0, sales: 0, sources: 0 }, storekeeper: outside, viewer: outside, accountant: outside, owner: inside, manager: inside },
+    'لقطة الإغلاق لأدوار الكلفة وحدها، والفاتورة وإيرادها لأدوار المبيعات (لا عامل القاعة)، والتذكرة والعدد والإغلاق لكلّ من بنطاقه الحقل');
+  const workerForm = await call(db, U.hallWorker, 'select public.flock_close_form($1)', [leakFlock]);
+  const workerReport = await call(db, U.hallWorker, 'select public.flock_cycle_report($1)', [leakFlock]);
+  const workerTicket = await call(db, U.hallWorker, 'select public.weigh_ticket($1)', [leakTicket]);
+  const workerTickets = await call(db, U.hallWorker, "select public.weigh_tickets('2026-10-01', '2026-10-31', 'all')");
+  const workerSale = await call(db, U.hallWorker, 'select public.bird_sale_detail($1)', [leakSale]);
+  const workerSales = await call(db, U.hallWorker, 'select public.flock_sales($1)', [leakFlock]);
+  const managerForm = (await call(db, U.manager, 'select public.flock_close_form($1)', [leakFlock])).value;
+  const managerReport = (await call(db, U.manager, 'select public.flock_cycle_report($1)', [leakFlock])).value;
+  const managerTickets = (await call(db, U.manager, "select public.weigh_tickets('2026-10-01', '2026-10-31', 'all')")).value;
+  t.same(
+    [moneyKeys(workerForm.value), moneyKeys(workerReport.value), moneyKeys(workerTicket.value), workerTickets.value.rows[0].sale, workerSale.code, moneyKeys(workerSales.value),
+      workerReport.value.close?.status, workerTickets.value.rows[0].ticket_no === managerTickets.rows[0].ticket_no,
+      moneyKeys(managerForm).length > 0, moneyKeys(managerReport).length > 0, managerTickets.rows[0].sale?.id === leakSale],
+    [[], [], [], null, 'forbidden', [], 'closed', true, true, true, true],
+    'عامل القاعة: شاشة الإغلاق وتقرير الدورة المغلقة والتذكرة وقائمتها وبطاقة البيع بلا مال ولا فاتورة، وتفصيل الفاتورة forbidden؛ وضابط: المدير يرى المال والفاتورة',
+  );
 }

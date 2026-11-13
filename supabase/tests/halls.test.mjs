@@ -223,7 +223,8 @@ async function scenario(t, db) {
   // ── تقرير الدورة: الطيور، والعلف بتراكمه، والأدوية (بلا صرف اللقاح المؤشَّر)، واللقاحات المخطّطة والمنفَّذة، والمال لأدوار الكلفة وحدها.
   const report = await one(U.manager, REPORT, [F.a]);
   t.same(canon([{ ...report.birds, mortality_pct: norm(report.birds.mortality_pct) }, report.feed.lines.map((x) => [x.on, x.item_name, norm(x.cum_kg)]), [report.feed.delivered_kg, report.feed.consumed_kg, report.feed.remaining_kg].map(norm)]),
-    canon([{ placed: 5000, dead: 12, culled: 3, live: 4985, mortality_pct: '0.3' }, [[TODAY, 'علف بادئ', '1000']], ['1000', '450', '550']]),
+    // 0028: الطيور تزيد المباع وصافيه وفرق العدّ وسببه (صفر بلا فاتورة ولا إغلاق)، والقديمة بمعناها.
+    canon([{ placed: 5000, dead: 12, culled: 3, live: 4985, mortality_pct: '0.3', sold: 0, sold_net_kg: '0.000', count_diff: 0, count_reason: null }, [[TODAY, 'علف بادئ', '1000']], ['1000', '450', '550']]),
     'التقرير: الطيور والنفوق٪، وكلّ نزول علف بتراكمه، والمصروف والمستهلك والباقي');
   t.same([report.medicines.map((x) => [x.source, x.name]), report.vaccines.map((x) => [x.name, x.age_day, x.state])],
     [[['store', 'فيتامين سائل']], [['IB', 7, 'done'], ['ND', 7, 'done'], ['غمبورو', 12, 'planned'], ['ND', 14, 'planned'], ['IB', 21, 'planned']]],

@@ -7,6 +7,9 @@
 // واليوم، وفوج سُكّن اليوم بكيس بلا وزن). ونموذج مستقلّ بالأعداد الصحيحة الكبيرة (BigInt) يحسب كلّ تعريف في العقد من الصفوف الخام
 // ويُقارن بالجواب لكلّ يوم ولكلّ هويّة، وقيم محسوبة باليد لأهمّها؛ والرفض والتنقّل والمجاميع والنطاق والحدّ 500؛ وطفرات يكتبها تطبيق ساذج فيمسكها
 // فحصها؛ وعيّنات القاعدة الحقيقية للشاشات (REPORTS_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/reports-0027.json).
+// و0028 (بيع الطيور وإغلاق الدورة): الدورتان المغلقتان تُغلقان بدالّة الإغلاق (فرق العدّ = −الحيّ بيوم الإغلاق)، وF0 يُغلق يوم 31 تشرين الأوّل ويُسكَّن
+// F1 في قاعته اليوم التالي (لا تسكين يوم إغلاق آخر دورة: before_last_close)؛ والنموذج يحسب الحيّ بالعدد (المباع وفرق العدّ بتاريخهما) ومعامل التحويل
+// بقاعدة 0028؛ ومفاتيح 0028 تُستثنى من المقارنة بالنموذج وتُفحص قيمها على يومي الإغلاق؛ ومنشأة الدورات الكثيرة بإغلاقات متّسقة مع ثوابت الإغلاق.
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,7 +119,7 @@ async function loadRaw(db, org) {
   const flockList = (await db.admin(`select f.id, f.hall_id, h.name as hall_name, f.site_id, s.name as site_name, f.kind, f.status, f.placed_on::text as placed_on,
       f.placed_count, f.age_days_at_placement as age0, f.closed_on::text as closed_on
     from public.flocks f join public.halls h on h.id = f.hall_id join public.sites s on s.id = f.site_id where f.org_id = $1 and f.placed_on is not null`, [org])).rows;
-  const flocks = new Map(flockList.map((f) => [f.id, { f, rows: new Map(), weights: new Map(), given: new Map() }]));
+  const flocks = new Map(flockList.map((f) => [f.id, { f, rows: new Map(), weights: new Map(), given: new Map(), counts: new Map() }]));
   for (const r of (await db.admin(`select flock_id, on_date::text as d, dead, culled, feed_kg::text as feed, eggs_total, eggs_broken, eggs_cracked, note
       from public.flock_daily where org_id = $1`, [org])).rows) flocks.get(r.flock_id)?.rows.set(r.d, r);
   for (const w of (await db.admin('select flock_id, on_date::text as d, sample_count, avg_g::text as avg from public.flock_weights where org_id = $1', [org])).rows) {
@@ -133,12 +136,23 @@ async function loadRaw(db, org) {
     else g.kg += mass;
     fx.given.set(l.d, g);
   }
+  // 0028: العدد (المباع وفرق العدّ) بأصوله الحيّة بتاريخها: صفّ ليس عكساً ولا عكس له.
+  for (const c of (await db.admin(`select k.flock_id, k.on_date::text as d, k.kind, k.birds, k.net_kg::text as kg from public.flock_counts k
+      where k.org_id = $1 and k.reverses_id is null and not exists (select 1 from public.flock_counts r where r.org_id = k.org_id and r.reverses_id = k.id)`, [org])).rows) {
+    const fx = flocks.get(c.flock_id);
+    const n = fx.counts.get(c.d) ?? { sold: 0n, soldMilli: 0n, adjust: 0n };
+    if (c.kind === 'sold') {
+      n.sold -= BigInt(c.birds);
+      n.soldMilli += units(c.kg, 3);
+    } else n.adjust += BigInt(c.birds);
+    fx.counts.set(c.d, n);
+  }
   return { halls, flockList, flocks };
 }
 
 /** أيّام الفوج من تسكينه حتى through: لكلّ يوم أرقامه بتعريفات العقد (view بشكل الجواب) وقيمه الخام للأسابيع. */
 function daysOf(fx, through) {
-  const { f, rows, weights, given } = fx;
+  const { f, rows, weights, given, counts } = fx;
   const placed = BigInt(f.placed_count);
   const layer = f.kind === 'layer';
   const out = [];
@@ -151,6 +165,7 @@ function daysOf(fx, through) {
   let givenCum = 0n;
   let givenCumUnweighed = 0;
   let lastWeight = null;
+  let soldCumMilli = 0n;
   for (let on = f.placed_on; on <= through; on = addDays(on, 1)) {
     const r = rows.get(on) ?? null;
     const w = weights.get(on) ?? null;
@@ -158,8 +173,11 @@ function daysOf(fx, through) {
     const liveStart = placed - gone;
     const dead = r ? BigInt(r.dead) : 0n;
     const culled = r ? BigInt(r.culled) : 0n;
-    const liveEnd = liveStart - dead - culled;
-    gone += dead + culled;
+    // 0028: الحيّ بالمباع وفرق العدّ في يومهما.
+    const n = counts.get(on) ?? { sold: 0n, soldMilli: 0n, adjust: 0n };
+    const liveEnd = liveStart - dead - culled - n.sold + n.adjust;
+    gone += dead + culled + n.sold - n.adjust;
+    soldCumMilli += n.soldMilli;
     deadCum += dead;
     culledCum += culled;
     const feed = r && r.feed !== null ? units(r.feed, 3) : null;
@@ -174,7 +192,9 @@ function daysOf(fx, through) {
     const latest = lastFeed ?? addDays(f.placed_on, -1);
     const yesterday = addDays(on, -1);
     const span = between(latest > yesterday ? latest : yesterday, f.placed_on) + 1;
-    const fcr = feedDays > 0 && feedDays === span && feedCum > 0n && lastWeight && liveEnd > 0n ? ratio(feedCum * 10n, liveEnd * lastWeight.avg, 3) : null;
+    // 0028: المقام بعُشر الغرام = الحيّ × آخر وزن (إن بقي حيّ ووُزن) + صافي المباع التراكميّ؛ والحيّ الباقي بلا وزن لا معامل.
+    const den = (liveEnd > 0n && lastWeight ? liveEnd * lastWeight.avg : 0n) + soldCumMilli * 10n;
+    const fcr = feedDays > 0 && feedDays === span && feedCum > 0n && den > 0n && (liveEnd <= 0n || lastWeight) ? ratio(feedCum * 10n, den, 3) : null;
     out.push({
       liveStart,
       dead: r ? dead : null,
@@ -252,10 +272,21 @@ function hallsDayModel(raw, on, today, inScope) {
     totals: totalsOf(ordered.flatMap((s) => s.halls)),
   };
 }
+// 0028: مفاتيح البيع والعدّ والعلف المنقول والخارج تُستثنى من المقارنة بالنموذج (قيمها مفحوصة على يومي الإغلاق في ٢ب)، والعلف المنقول المعلَّق على القاعة.
+const NEW_FLOCK_KEYS = ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed'];
+const NEW_TOTAL_KEYS = ['sold', 'count_diff', 'ticketed'];
+const NEW_KPI_KEYS = ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final'];
+const NEW_CYCLE_KEYS = ['sold_birds', 'count_diff'];
+const without = (row, keys) => row && Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 const withoutLists = (response) => ({
   ...response,
-  sites: response.sites.map((s) => ({ ...s, halls: s.halls.map((h) => ({ ...h, flock: h.flock && Object.fromEntries(Object.entries(h.flock).filter(([k]) => !LISTS.includes(k))) })) })),
+  totals: without(response.totals, NEW_TOTAL_KEYS),
+  sites: response.sites.map((s) => ({ ...s, totals: without(s.totals, NEW_TOTAL_KEYS), halls: s.halls.map((h) => ({ ...without(h, ['carry']),
+    flock: h.flock && Object.fromEntries(Object.entries(h.flock).filter(([k]) => !LISTS.includes(k) && !NEW_FLOCK_KEYS.includes(k))) })) })),
 });
+/** أيّام تقرير الدورة ومؤشّراته وقائمة الدورات بلا مفاتيح 0028. */
+const oldDays = (days) => days.map((d) => pick(d, DAY_KEYS));
+const oldCycles = (response) => ({ ...response, cycles: response.cycles.map((c) => without(c, NEW_CYCLE_KEYS)) });
 
 /** الأسابيع بعمر الطيور: الأسبوع n للأعمار 7(n−1)+1 إلى 7n، والعمر صفر في الأوّل. */
 function weeksOf(days) {
@@ -314,10 +345,11 @@ function cyclesModel(raw, today, inScope) {
     .map((x) => {
       const through = x.closed_on ?? today;
       const gone = [...raw.flocks.get(x.id).rows.values()].filter((r) => r.d <= through).reduce((s, r) => s + BigInt(r.dead + r.culled), 0n);
+      const counted = [...raw.flocks.get(x.id).counts.entries()].filter(([d]) => d <= through).reduce((s, [, n]) => s + n.adjust - n.sold, 0n);
       return {
         id: x.id, hall_id: x.hall_id, hall_name: x.hall_name, site_id: x.site_id, site_name: x.site_name, kind: x.kind, status: x.status,
         placed_on: x.placed_on, closed_on: x.closed_on, through, placed_count: x.placed_count, age: between(through, x.placed_on) + x.age0,
-        days: between(through, x.placed_on) + 1, live: x.placed_count - Number(gone), mortality_pct: pct(gone, BigInt(x.placed_count)),
+        days: between(through, x.placed_on) + 1, live: x.placed_count - Number(gone) + Number(counted), mortality_pct: pct(gone, BigInt(x.placed_count)),
       };
     })
     .sort((a, b) => {
@@ -405,12 +437,18 @@ async function scenario(t, db) {
     await one(by.users.manager, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), issueId, uid(), flock, itemId, qty, day(offset), wh]);
     return issueId;
   };
-  const close = (flock, offset) => db.admin("update public.flocks set status = 'closed', closed_on = $2 where id = $1", [flock, day(offset)]);
+  // 0028: الإغلاق بدالّته بيومه، بما نزل للقاعة كما تعرضه شاشة الإغلاق ولا مصير لباقٍ (يبقى مستهلَكاً)، وفرق العدّ = −الحيّ بسببه.
+  const close = async (flock, offset) => {
+    const form = await one(U.manager, 'select public.flock_close_form($1) as v', [flock]);
+    return one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'نهاية الدورة', '[]'::jsonb, null) as v",
+      [uid(), uid(), flock, day(offset), form.flock.live, JSON.stringify(form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))]);
+  };
   const give = (on, lines) => one(U.manager, 'select public.give_to_flocks($1, $2, $3::jsonb) as v', [uid(), on, JSON.stringify(lines)]);
 
-  // ── البذرة يوماً بيوم: F0 في «قاعة 1» من 1 تشرين الأوّل ويُغلق يوم 1 تشرين الثاني فيُسكَّن F1 فيها اليوم نفسه؛ FC في «قاعة 4» من 20 تشرين الأوّل
+  // ── البذرة يوماً بيوم: F0 في «قاعة 1» من 1 تشرين الأوّل ويُغلق يوم 31 تشرين الأوّل فيُسكَّن F1 فيها اليوم التالي (0028: لا تسكين يوم الإغلاق)؛ FC في «قاعة 4» من 20 تشرين الأوّل
   // ويُغلق 4 تشرين الثاني ثمّ تُؤرشف القاعة؛ F1 (عمر صفر) وF2 (عمر 1) وF5 (عمر 4) لحم، وFL بيّاض بعمر 140.
   const F = {};
+  let sameDayOpen = null;
   await at(day(-41), async () => {
     F.f0 = await open(H.h1, day(-42), 500, 0);
     for (const r of ROUNDS.f0) await round(F.f0, r);
@@ -422,7 +460,8 @@ async function scenario(t, db) {
     await issue(F.fc, -23, I.starter, W.feed, '200');
   });
   await at(day(-8), async () => {
-    await close(F.f0, -11);
+    await close(F.f0, -12);
+    sameDayOpen = await call(db, U.manager, 'select public.open_flock($1, $2, 1000, 0, null, $3) as v', [H.h1, day(-12), uid()]);
     F.f1 = await open(H.h1, day(-11), 12000, 0);
     await close(F.fc, -8);
     await one(U.owner, 'update public.halls set archived_at = now() where id = $1 returning id', [H.h4]);
@@ -537,7 +576,7 @@ async function scenario(t, db) {
   'F2 اليوم: الحيّ أوّل اليوم 3,000 − 21، والزيت 10 لتر × 0.92 = 9.2 كغم والكيس بلا وزن يُعدّ (وتراكمه 3 بكيسَي أمس)، ومعامل التحويل 1,260,000 ÷ (2,975 × 260) = 1.629');
   t.same([f2Today.issues.map((x) => [x.name, norm(x.qty), x.base_unit, norm(x.kg), x.cost_kind]), f2Today.logs, f2Today.vaccines],
     [[['زيت', '10', 'L', '9.2', 'feed'], ['علف بلا وزن', '2', 'pc', null, 'feed']], [], []], 'F2 اليوم: الصرف بترتيب ترحيله باللتر والقطعة، بلا لقاح ولا تسجيل');
-  t.same(today.sites.map((s) => [s.name, deep(s.totals)]), [
+  t.same(today.sites.map((s) => [s.name, deep(without(s.totals, NEW_TOTAL_KEYS))]), [
     ['حقل ألف', deep({ halls: 3, flocks: 2, rounds: 1, live_start: 14960, dead: 3, culled: 1, live_end: 14956, feed_eaten_kg: '220', feed_eaten_flocks: 1, feed_given_kg: '9.2',
       feed_given_unweighed: 1 })],
     ['حقل البيض', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 3996, dead: 0, culled: 0, live_end: 3996, feed_eaten_kg: '475', feed_eaten_flocks: 1, feed_given_kg: '0',
@@ -545,7 +584,7 @@ async function scenario(t, db) {
     ['حقل باء', deep({ halls: 1, flocks: 1, rounds: 1, live_start: 1999, dead: 2, culled: 0, live_end: 1997, feed_eaten_kg: '40', feed_eaten_flocks: 1, feed_given_kg: '0',
       feed_given_unweighed: 0 })],
   ], 'مجاميع الحقول: النافق من جولة F2 وحدها («من قاعة واحدة»)، والحيّ لكلّ فوج، والعلف ممّن سجّله، والنازل بكيلوه وبسطر F2 بلا وزن اليوم (لا تراكم F1 وF2)');
-  t.same(deep(today.totals), deep({ halls: 5, flocks: 4, rounds: 3, live_start: 20955, dead: 5, culled: 1, live_end: 20949, feed_eaten_kg: '735', feed_eaten_flocks: 3,
+  t.same(deep(without(today.totals, NEW_TOTAL_KEYS)), deep({ halls: 5, flocks: 4, rounds: 3, live_start: 20955, dead: 5, culled: 1, live_end: 20949, feed_eaten_kg: '735', feed_eaten_flocks: 3,
     feed_given_kg: '9.2', feed_given_unweighed: 1 }), 'مجموع الكلّ = مجموع الحقول');
   const bNov11 = responses[`manager:${day(-1)}`].sites.find((s) => s.name === 'حقل باء');
   t.same([bNov11.totals.rounds, bNov11.totals.dead, bNov11.totals.culled, bNov11.totals.feed_eaten_kg, bNov11.totals.feed_eaten_flocks, bNov11.totals.live_start,
@@ -579,7 +618,21 @@ async function scenario(t, db) {
   t.same([hallNames(responses[`manager:${day(-8)}`]).includes('قاعة 4'), hallNames(responses[`manager:${day(-7)}`]).includes('قاعة 4')], [true, false],
     'القاعة المؤرشفة يوم إغلاق فوجها نفسه تظهر، وبعده لا');
   t.same([flockOf(responses[`manager:${day(-11)}`], 'قاعة 1').id, flockOf(responses[`manager:${day(-12)}`], 'قاعة 1').id, flockOf(responses[`manager:${day(-12)}`], 'قاعة 1').status],
-    [F.f1, F.f0, 'closed'], 'يوم يلتقي فيه فوج أُغلق وفوج سُكّن في القاعة نفسها: الأحدث تسكيناً؛ وقبله المغلق بحالته');
+    [F.f1, F.f0, 'closed'], 'الفوج المغلق يظهر يوم إغلاقه بحالته، والتالي في قاعته من اليوم التالي (0028: لا تسكين يوم إغلاق آخر دورة)');
+  t.same([sameDayOpen?.code, sameDayOpen?.hint], ['before_last_close', 'آخر دورة في «قاعة 1» أُغلقت يوم 31/10/2026، فلا يُسكَّن فوج في يومها أو قبله.'],
+    '0028: التسكين يوم إغلاق آخر دورة في القاعة مرفوض، فلا يلتقي فوجان في قاعة واحدة يوماً');
+  // ── ٢ب) 0028: يوما الإغلاق بفرق العدّ (−الحيّ) والحيّ آخرهما صفر، بلا مباع ولا تذاكر ولا علف منقول ولا خارج، وقائمة الدورات ومؤشّراتها بفرق العدّ.
+  const CLOSE_KEYS = ['live_start', 'live_end', 'count_diff', 'sold', 'sold_net_kg', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed'];
+  const allCarry = Object.values(responses).flatMap((r) => r.sites.flatMap((s) => s.halls.map((h) => h.carry)));
+  t.same(
+    [pick(flockOf(responses[`manager:${day(-12)}`], 'قاعة 1'), CLOSE_KEYS), pick(flockOf(responses[`manager:${day(-8)}`], 'قاعة 4'), CLOSE_KEYS),
+      pick(responses[`manager:${day(-12)}`].totals, NEW_TOTAL_KEYS), pick(flockOf(responses[`manager:${day(-13)}`], 'قاعة 1'), ['live_end', 'count_diff']),
+      allCarry.every((c) => Array.isArray(c) && c.length === 0)],
+    [{ live_start: 499, live_end: 0, count_diff: -499, sold: 0, sold_net_kg: '0.000', ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_out_unweighed: 0, feed_out_cum_unweighed: 0 },
+      { live_start: 993, live_end: 0, count_diff: -993, sold: 0, sold_net_kg: '0.000', ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_out_unweighed: 0, feed_out_cum_unweighed: 0 },
+      { sold: 0, count_diff: -499, ticketed: 0 }, { live_end: 499, count_diff: 0 }, true],
+    'يوما الإغلاق: F0 (500 − 1 نافق) وFC (1,000 − 6 نافق − 1 مستبعد) بفرق العدّ −الحيّ فالحيّ آخر يومهما صفر، ومجموع يوم F0 بفرقه؛ وقبله بلا فرق؛ ولا علف منقول معلَّق على أيّ قاعة',
+  );
   t.same([responses[`manager:${day(-42)}`].prev, responses[`manager:${day(-42)}`].next, responses[`manager:${day(-43)}`].prev, responses[`layerWorker:${day(-10)}`].prev,
     responses[`manager:${day(-10)}`].prev, responses[`hallWorker:${TODAY}`].sites.map((s) => s.name), responses[`layerWorker:${TODAY}`].sites.map((s) => s.name)],
   [false, true, false, false, true, ['حقل ألف'], ['حقل البيض']],
@@ -614,7 +667,8 @@ async function scenario(t, db) {
       sum('feed_given_unweighed'), last.feed_given_cum_unweighed];
     const old = [got.birds.dead, got.birds.culled, got.birds.live, norm(got.feed.consumed_kg), norm(got.feed.delivered_kg), norm(got.feed.remaining_kg), got.birds.mortality_pct, got.through,
       got.feed.unweighed, feedNow.unweighed_feed_lines];
-    return { got, want, parts: Object.keys(want).filter((part) => !same(got[part], want[part])), totals, old };
+    const cmp = { ...got, days: oldDays(got.days), kpis: without(got.kpis, NEW_KPI_KEYS) };
+    return { got, want, parts: Object.keys(want).filter((part) => !same(cmp[part], want[part])), totals, old };
   };
   const reports = {};
   const reportMismatches = [];
@@ -643,14 +697,14 @@ async function scenario(t, db) {
     [21, 141, 147, day(-9), day(-3), 7, 0, null, null, null, '0.00', 4000, null, null],
     [22, 148, 150, day(-2), TODAY, 3, 3, 3, 1, '0.10', '0.10', 3996, '1425', '118.8'],
   ], 'أسابيع البيّاض (عمر 140): أسبوع بلا جولة نافقه وعلفه ونفوقه null لا صفر، والتراكم والحيّ في آخر يومه، وغرام العلف 1,425,000 ÷ 11,994 = 118.8');
-  t.same(deep(reports.f2.kpis), deep({ days: 9, age_end: 9, placed: 3000, dead: 21, culled: 4, live: 2975, mortality_pct: '0.83', livability_pct: '99.17',
+  t.same(deep(without(reports.f2.kpis, NEW_KPI_KEYS)), deep({ days: 9, age_end: 9, placed: 3000, dead: 21, culled: 4, live: 2975, mortality_pct: '0.83', livability_pct: '99.17',
     feed_given_kg: '1209.2', feed_eaten_kg: '1260', feed_left_kg: '-50.8', feed_days: 9, feed_span: 9, feed_per_bird_kg: '0.42',
     last_weight: { on_date: TODAY, age: 9, avg_g: '260.0' }, fcr: '1.629', epef: '176' }),
   'مؤشّرات F2: الحيوية 100 − 0.83، والعلف لكلّ طير 1,260 ÷ 3,000، وEPEF = 99.17 × 260 ÷ (10 × 9 × 1.629) = 176');
   t.same([reports.f1.kpis.fcr, reports.f1.kpis.epef, reports.f1.kpis.livability_pct, reports.f1.kpis.feed_per_bird_kg, reports.f1.kpis.feed_days, reports.f1.kpis.feed_span],
     [null, null, '99.84', '0.225', 9, 11], 'مؤشّرات F1: سُجّل العلف 9 من 11 يوماً، فلا معامل تحويل ولا EPEF، والباقي محسوب');
   t.same([reports.fc.through, reports.fc.days.length, reports.fc.days.at(-1).on, reports.fc.kpis.days, reports.fc.kpis.age_end, reports.fc.weeks.map((w) => w.days),
-    reports.f0.days.length, reports.f0.through], [day(-8), 16, day(-8), 16, 15, [8, 7, 1], 32, day(-11)],
+    reports.f0.days.length, reports.f0.through], [day(-8), 16, day(-8), 16, 15, [8, 7, 1], 31, day(-12)],
   'الفوج المغلق: أيّامه حتى يوم إغلاقه لا حتى اليوم، وأسابيعه كذلك');
   t.same([hasMoney(reports.f2), hasMoney(await one(U.hallWorker, REPORT, [F.f2])), hasMoney({ days: reports.f2.days, weeks: reports.f2.weeks, weights: reports.f2.weights, kpis: reports.f2.kpis }),
     shown(await call(db, U.hallWorker, REPORT, [F.f5])), shown(await call(db, U.layerWorker, REPORT, [F.f1]))], [true, false, false, 'out_of_scope', 'out_of_scope'],
@@ -731,14 +785,17 @@ async function scenario(t, db) {
     const got = await one(U[who], CYCLES, []);
     scaleIssues.push(...scaleProblems(got, `flock_cycles(${who})`));
     const want = { today: TODAY, more: false, cycles: cyclesModel(raw, TODAY, inScope) };
-    if (!same(got, want)) cyclesMismatches.push(`${who}: ${canon(deep(got)).slice(0, 300)} ≠ ${canon(deep(want)).slice(0, 300)}`);
+    if (!same(oldCycles(got), want)) cyclesMismatches.push(`${who}: ${canon(deep(got)).slice(0, 300)} ≠ ${canon(deep(want)).slice(0, 300)}`);
   }
   t.same(cyclesMismatches, [], 'flock_cycles = النموذج لكلّ هويّة (القائمة ثمّ المغلقة الأحدث إغلاقاً، والحيّ والنفوق حتى «حتى»)');
   const cycles = await one(U.manager, CYCLES, []);
   t.same(cycles.cycles.map((c) => [c.id, c.status, c.through, c.age, c.days, c.live, c.mortality_pct]), [
     [F.f5, 'active', TODAY, 7, 4, 1997, '0.15'], [F.f2, 'active', TODAY, 9, 9, 2975, '0.83'], [F.fl, 'active', TODAY, 150, 11, 3996, '0.10'],
-    [F.f1, 'active', TODAY, 11, 12, 11981, '0.16'], [F.fc, 'closed', day(-8), 15, 16, 993, '0.70'], [F.f0, 'closed', day(-11), 31, 32, 499, '0.20'],
-  ], 'الدورات: القائمة بالأحدث تسكيناً، ثمّ المغلقة بالأحدث إغلاقاً (FC في قاعة مؤرشفة ما زال يُوصل إليه)');
+    [F.f1, 'active', TODAY, 11, 12, 11981, '0.16'], [F.fc, 'closed', day(-8), 15, 16, 0, '0.70'], [F.f0, 'closed', day(-12), 30, 31, 0, '0.20'],
+  ], 'الدورات: القائمة بالأحدث تسكيناً، ثمّ المغلقة بالأحدث إغلاقاً (FC في قاعة مؤرشفة ما زال يُوصل إليه)، وحيّ المغلقة صفر بفرق العدّ (0028)');
+  t.same([cycles.cycles.filter((c) => c.status === 'closed').map((c) => [c.count_diff, c.sold_birds]), [reports.f0.kpis.count_diff, reports.f0.kpis.sold_birds, reports.f0.kpis.fcr_final,
+    reports.f0.kpis.epef_final, reports.fc.kpis.count_diff]], [[[-993, 0], [-499, 0]], [-499, 0, null, null, -993]],
+    '0028: الدورتان المغلقتان بفرق عدّهما ولا مباع، فلا معامل تحويل نهائيّ ولا مؤشّر إنتاج نهائيّ');
   t.same((await one(U.hallWorker, CYCLES, [])).cycles.map((c) => c.id), [F.f2, F.f1, F.fc, F.f0], 'عامل القاعة يرى دورات حقله وحده');
 
   const M = await makeOrg(db, { name: 'مزرعة الدورات الكثيرة', id: (n) => id(50 + n), phone: (n) => phone(50 + n), roles: [['owner', 'owner']] });
@@ -750,6 +807,14 @@ async function scenario(t, db) {
       select h.org_id, h.id, h.site_id, h.division_id, 'broiler', date '2026-09-01', date '2026-09-01', 100, 0, 'closed',
         date '2026-09-01' + (row_number() over (order by h.id))::int % 40
       from public.halls h where h.org_id = $1 and not exists (select 1 from public.flocks f where f.hall_id = h.id)`, [M.org]);
+    // 0028: المغلق له إغلاقه بيومه وفرق عدّه (−الحيّ)، كما تكتبهما دالّة الإغلاق، فثوابت الإغلاق صفر.
+    await db.admin(`insert into public.flock_closes (org_id, flock_id, hall_id, site_id, division_id, closed_on, live_before, count_diff, count_reason, sold_birds,
+        sold_net_kg, client_ref)
+      select f.org_id, f.id, f.hall_id, f.site_id, f.division_id, f.closed_on, 100, -100, 'دورة الحدّ', 0, 0, gen_random_uuid()
+      from public.flocks f where f.org_id = $1 and not exists (select 1 from public.flock_closes c where c.flock_id = f.id)`, [M.org]);
+    await db.admin(`insert into public.flock_counts (org_id, flock_id, hall_id, site_id, division_id, on_date, kind, birds, doc_kind, doc_id, reason)
+      select c.org_id, c.flock_id, c.hall_id, c.site_id, c.division_id, c.closed_on, 'count_adjust', -100, 'flock_close', c.id, 'دورة الحدّ'
+      from public.flock_closes c where c.org_id = $1 and not exists (select 1 from public.flock_counts k where k.doc_id = c.id)`, [M.org]);
   };
   await addCycles(1, 500);
   const at500 = await one(M.users.owner, CYCLES, []);
@@ -774,8 +839,6 @@ async function scenario(t, db) {
     });
     t.ok(r?.ok && check(r.value), `طفرة: ${label} (${JSON.stringify(r?.value ?? r?.code ?? null)})`);
   };
-  await caught('الأقدم تسكيناً أوّلاً يعرض في «قاعة 1» يوم 1 تشرين الثاني الفوج المغلق ذلك اليوم بدل المسكَّن فيه',
-    [[FN.day, [['order by x.placed_on desc, x.id', 'order by x.placed_on, x.id']]]], asManager(HALLS_DAY, [day(-11)], (v) => flockOf(v, 'قاعة 1').id), (v) => v === F.f0);
   await caught('«يوم الإغلاق خارج الدورة» يُسقط «قاعة 4» يوم إغلاق FC',
     [[FN.day, [['and (x.closed_on is null or v_on <= x.closed_on)', 'and (x.closed_on is null or v_on < x.closed_on)']]]],
     asManager(HALLS_DAY, [day(-8)], hallNames), (v) => !v.includes('قاعة 4'));
@@ -793,9 +856,9 @@ async function scenario(t, db) {
     [[FN.days, [["x.status = 'posted' and l.cost_kind = 'feed'", "l.cost_kind = 'feed'"]]]], asManager(HALLS_DAY, [day(-3)], (v) => norm(flockOf(v, 'قاعة 1').feed_given_kg)),
     (v) => v === '300');
   await caught('بلا شرط «العلف كلّ يوم» يُحسب لـF1 معامل تحويل رغم الفجوة',
-    [[FN.days, [['v.feed_days > 0 and v.feed_days = v.feed_span and', 'v.feed_days > 0 and']]]], asManager(REPORT, [F.f1], (v) => v.kpis.fcr), (v) => v !== null);
+    [[FN.days, [['u.feed_days > 0 and u.feed_days = u.feed_span and', 'u.feed_days > 0 and']]]], asManager(REPORT, [F.f1], (v) => v.kpis.fcr), (v) => v !== null);
   await caught('نسبة الإنتاج من الحيّ آخر اليوم تجعل يوم 11 للبيّاض 77.58',
-    [[FN.days, [['then private.flock_pct(v.eggs_total, v.live_start) end', 'then private.flock_pct(v.eggs_total, v.live_end) end']]]],
+    [[FN.days, [['then private.flock_pct(u.eggs_total, u.live_start) end', 'then private.flock_pct(u.eggs_total, u.live_end) end']]]],
     asManager(HALLS_DAY, [day(-1)], (v) => flockOf(v, 'قاعة البيّاض').hdep), (v) => v === '77.58');
   await caught('صرف اللقاح المؤشَّر يظهر في صرف يوم 8 بلا استبعاده',
     [[FN.one, [["and not exists (select 1 from public.flock_vaccinations m where m.org_id = x.org_id and m.issue_id = x.id and m.status = 'done')", '']]]],
@@ -811,7 +874,7 @@ async function scenario(t, db) {
   await caught('الأسبوع بالقسمة الساذجة يقصّ أسبوع F2 (عمر 1) إلى 6 أيّام',
     [[FN.report, [['greatest(1, div(r.age + 6, 7))::int', '(div(r.age, 7) + 1)::int']]]], asManager(REPORT, [F.f2], (v) => v.weeks[0].days), (v) => v === 6);
   await caught('EPEF بلا ×10 (الوزن بالغرام كأنّه بالكيلو مضروباً في 100) يصير 1,759',
-    [[FN.report, [['10 * k.age * k.fcr', 'k.age * k.fcr']]]], asManager(REPORT, [F.f2], (v) => v.kpis.epef), (v) => v === '1759');
+    [[FN.report, [['10 * fc.age * fc.fcr', 'fc.age * fc.fcr']]]], asManager(REPORT, [F.f2], (v) => v.kpis.epef), (v) => v === '1759');
   await caught('المغلقة بالأقدم إغلاقاً تقدّم F0 على FC',
     [[FN.cycles, [['x.closed_on desc, x.placed_on desc', 'x.closed_on, x.placed_on desc']]]], asManager(CYCLES, [], (v) => v.cycles.map((c) => c.id).slice(-2)),
     (v) => v[0] === F.f0 && v[1] === F.fc);
@@ -827,11 +890,11 @@ async function scenario(t, db) {
       return differ;
     }), (v) => v === 4);
   await caught('ضابط النموذج: الباقي بإشارة معكوسة (المأكول − النازل) في أيّام التقرير يُفشل مقارنته بالنموذج',
-    [[FN.report, [["'feed_left_kg', (r.given_cum_kg - r.feed_cum_kg)::text", "'feed_left_kg', (r.feed_cum_kg - r.given_cum_kg)::text"]]]],
-    asManager(REPORT, [F.f2], (v) => same(v.days, daysOf(raw.flocks.get(F.f2), TODAY).map((d) => pick(d.view, DAY_KEYS)))), (v) => v === false);
+    [[FN.report, [["'feed_left_kg', (r.given_cum_kg - r.out_cum_kg - r.feed_cum_kg)::text", "'feed_left_kg', (r.feed_cum_kg + r.out_cum_kg - r.given_cum_kg)::text"]]]],
+    asManager(REPORT, [F.f2], (v) => same(oldDays(v.days), daysOf(raw.flocks.get(F.f2), TODAY).map((d) => pick(d.view, DAY_KEYS)))), (v) => v === false);
   await caught('ضابط النموذج: الحيّ بلا النافق في قائمة الدورات يُفشل مقارنتها بالنموذج',
     [[FN.cycles, [["'live', c.placed_count - b.gone", "'live', c.placed_count"]]]],
-    asManager(CYCLES, [], (v) => same(v, { today: TODAY, more: false, cycles: cyclesModel(raw, TODAY, ALL) })), (v) => v === false);
+    asManager(CYCLES, [], (v) => same(oldCycles(v), { today: TODAY, more: false, cycles: cyclesModel(raw, TODAY, ALL) })), (v) => v === false);
 
   // ── طفرات سطور العلف بلا وزن (مراجعة 0027): كلّ تطبيق ساذج يُسقط السطر من الأيّام بعده أو من المجاميع يمسكه فحص في ٢ أو ٣ب.
   const CUM = 'sum(y.given_unweighed) over c as given_cum_unweighed';
@@ -863,7 +926,7 @@ async function scenario(t, db) {
     }), (v) => same(v, [day(-2), day(-1), TODAY]));
   await caught('ضابط النموذج: عدد اليوم مكان التراكميّ في أيّام التقرير يُفشل مقارنتها بالنموذج',
     [[FN.report, [["'feed_given_cum_unweighed', r.given_cum_unweighed", "'feed_given_cum_unweighed', r.given_unweighed"]]]],
-    asManager(REPORT, [F.f5], (v) => same(v.days, daysOf(raw.flocks.get(F.f5), TODAY).map((d) => pick(d.view, DAY_KEYS)))), (v) => v === false);
+    asManager(REPORT, [F.f5], (v) => same(oldDays(v.days), daysOf(raw.flocks.get(F.f5), TODAY).map((d) => pick(d.view, DAY_KEYS)))), (v) => v === false);
   await caught('ضابط النموذج: مجموع السطور بلا وزن بعدّ الأفواج يُفشل مقارنة halls_day بالنموذج يوم 11',
     [[FN.totals, [["coalesce(sum((e.h -> 'flock' ->> 'feed_given_unweighed')::int), 0)::int", "count(e.h -> 'flock' ->> 'feed_given_unweighed')::int"]]]],
     asManager(HALLS_DAY, [day(-1)], (v) => same(withoutLists(v), hallsDayModel(raw, day(-1), TODAY, ALL))), (v) => v === false);

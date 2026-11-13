@@ -457,6 +457,46 @@ export default async function (t, db) {
     { commit: true },
   );
 
+  // 0028 (بيع الطيور وإغلاق الدورة): ثلاث قاعات جديدة في حقل الرحمة بأفواج عمرها 30 يوماً عند التسكين (فلا موعد لقاح في التذكير، و«قاعة 1» كما هي):
+  // «قاعة البيع» عليها ثلاث تذاكر بمئة طير لكلّ واحدة: مكتملة فوترت لـ«تاجر المصفوفة» مقبوضةً كلّها في «صندوق الطيور» (فلا يتغيّر ما لنا عند الناس؛
+  // لخانتي الإلغاء والتفصيل)، ومكتملة بلا فاتورة (لخانتي الفاتورة وشاشتها)، ومسوّدة كاملة (للإكمال والإلغاء)؛ و«قاعة الإغلاق» قائمة بلا صرف (للإغلاق
+  // وفرق العدّ وشاشة الإغلاق)؛ و«قاعة النقل» أُغلقت اليوم بعد صرف 5 كغم «علف الصرف» نُقلت كلّها للدورة التالية (لإعادة الفتح ولإرجاع المنقول)؛ وكلّ خانة تُرجَع.
+  const p28 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const today = await one('select public.app_today()::text');
+      const saleHall = await one("insert into public.halls (site_id, name) values ($1, 'قاعة البيع') returning id", [farm.site]);
+      const saleFlock = await one("select public.open_flock($1, public.app_today() - 3, 1000, 30, null, gen_random_uuid()) ->> 'flock_id'", [saleHall]);
+      const ticket = async (finish) => {
+        const id = await one('select gen_random_uuid()');
+        const data = { site_id: farm.site, on_date: today, method: 'scale', empty_kg: '7000', empty_with_crates: false, crate_kg: '6',
+          stops: [{ id: await one('select gen_random_uuid()'), hall_id: saleHall, birds: 100, crates: 10, gross_kg: '7300', weighings: [] }] };
+        await q('select public.save_weigh_ticket($1, null, $2::jsonb)', [id, JSON.stringify(data)]);
+        if (finish) await q('select public.finish_weigh_ticket(gen_random_uuid(), $1, 1)', [id]);
+        return id;
+      };
+      const trader = await one("insert into public.parties (name, is_customer) values ('تاجر المصفوفة', true) returning id");
+      const birdsBox = await one("insert into public.cash_accounts (name, kind) values ('صندوق الطيور', 'cash') returning id");
+      const invoiced = await ticket(true);
+      const sale = await one("select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 660000, $3, null) ->> 'id'", [invoiced, trader, birdsBox]);
+      const done = await ticket(true);
+      const draft = await ticket(false);
+      const closeHall = await one("insert into public.halls (site_id, name) values ($1, 'قاعة الإغلاق') returning id", [farm.site]);
+      const closeFlock = await one("select public.open_flock($1, public.app_today() - 3, 1000, 30, null, gen_random_uuid()) ->> 'flock_id'", [closeHall]);
+      const carryHall = await one("insert into public.halls (site_id, name) values ($1, 'قاعة النقل') returning id", [farm.site]);
+      const carryFlock = await one("select public.open_flock($1, public.app_today() - 3, 1000, 30, null, gen_random_uuid()) ->> 'flock_id'", [carryHall]);
+      await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 5, public.app_today(), null)', [carryFlock, p19.feedItem]);
+      const closed = (await q(
+        "select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '5')), 'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '5', 'action', 'carry')), null) as v",
+        [carryFlock, p19.feedItem],
+      )).rows[0].v;
+      return { trader, saleHall, saleFlock, invoiced, sale, done, draft, closeFlock, closeId: closed.id, carryLine: closed.lines[0].line_id };
+    },
+    { commit: true },
+  );
+  const SALES = ['owner', 'manager', 'accountant'];
+
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
     add_member: { sql: () => ["select public.add_member($1, 'viewer', 'ضيف')", [local(phone(20))]], expect: only(['owner']) },
@@ -504,7 +544,8 @@ export default async function (t, db) {
     report_accounts_summary: { sql: () => ["select public.report_accounts_summary(public.app_today() - 30, public.app_today()) -> 'project' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
     report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: only(ACCOUNTS, 'ok:2') },
     report_party_statement: { sql: () => ["select jsonb_array_length(public.report_party_statement($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
-    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:349000') },
+    // النقد: 349,000 في «الصندوق» و660,000 مقبوضة عند بيع الطيور في «صندوق الطيور» (0028).
+    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:1009000') },
     report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
     home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000', 'ok:null') },
     find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
@@ -661,8 +702,72 @@ export default async function (t, db) {
     flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
     flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
     // 0027 (تقارير القاعات): التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، فمن لا يرى حقل اللحم يرى صفراً بلا رفض.
-    halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
-    flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
+    halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
+    // 0028: أربعة أفواج («قاعة 1» وقاعات البيع والإغلاق والنقل، والأخيرة أُغلقت اليوم فتظهر يومها).
+    flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
+    // 0028 (بيع الطيور وإغلاق الدورة): التذكرة بفعل weigh_ticket.draft (المالك والمدير وعامل القاعة في حقله)، وإلغاء المسوّدة بالفعل نفسه (ولا يصل
+    // إليها من لا يملك التسويد ولا الإلغاء)؛ والفاتورة بفعل sale.post (المالك والمدير والمحاسب) وإلغاؤها بفعل void؛ وفرق العدّ والإغلاق وإرجاع
+    // المنقول بفعل flock.manage، وإعادة الفتح بـflock.manage وvoid معاً (المالك والمدير). والقرّاء: التذكرة وخياراتها وقائمتها والإغلاق وبطاقة البيع لمن
+    // بنطاقه حقل الفوج، وشاشة الفاتورة وتفصيلها لأدوار المبيعات (عامل القاعة ومشغّلا المفقس والمعمل forbidden، والأمين والمشاهد بلا الحقل out_of_scope).
+    save_weigh_ticket: {
+      sql: () => [
+        "select public.save_weigh_ticket(gen_random_uuid(), null, jsonb_build_object('site_id', $1::uuid, 'on_date', public.app_today(), 'method', 'scale', 'empty_kg', '7000', 'empty_with_crates', false, 'crate_kg', '6', 'stops', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'hall_id', $2::uuid, 'birds', 50, 'crates', 5, 'gross_kg', '7150', 'weighings', '[]'::jsonb)))) ->> 'status' as v",
+        [farm.site, p28.saleHall],
+      ],
+      value: true,
+      expect: only(FLOCK_DAY, 'ok:saved'),
+    },
+    finish_weigh_ticket: { sql: () => ["select public.finish_weigh_ticket(gen_random_uuid(), $1, 1) ->> 'status' as v", [p28.draft]], value: true, expect: only(FLOCK_DAY, 'ok:done') },
+    void_weigh_ticket: { sql: () => ["select public.void_weigh_ticket($1, null, gen_random_uuid()) ->> 'status' as v", [p28.draft]], value: true, expect: only(FLOCK_DAY, 'ok:void') },
+    record_bird_sale: {
+      sql: () => ["select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 0, null, null) ->> 'status' as v", [p28.done, p28.trader]],
+      value: true,
+      expect: only(SALES, 'ok:posted'),
+    },
+    void_bird_sale: { sql: () => ["select public.void_bird_sale($1, 'وزن خاطئ', gen_random_uuid()) ->> 'status' as v", [p28.sale]], value: true, expect: only(FLOCK_MANAGE, 'ok:void') },
+    record_flock_count_adjust: {
+      sql: () => ["select public.record_flock_count_adjust(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 5, 'العدد الفعليّ أكثر', 1000) ->> 'live_after' as v", [p28.closeFlock]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:1005'),
+    },
+    close_flock: {
+      sql: () => ["select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, '[]'::jsonb, 'بيعت خارج النظام', '[]'::jsonb, null) ->> 'status' as v", [p28.closeFlock]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:closed'),
+    },
+    reopen_flock: { sql: () => ["select public.reopen_flock($1, 'أُغلقت خطأً', gen_random_uuid()) ->> 'status' as v", [p28.closeId]], value: true, expect: only(FLOCK_MANAGE, 'ok:reopened') },
+    return_hall_carry: {
+      sql: () => ["select public.return_hall_carry(gen_random_uuid(), gen_random_uuid(), $1, $2) ->> 'line_id' = $1::text as v", [p28.carryLine, p3.feedStore]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:true'),
+    },
+    weigh_ticket: { sql: () => ["select public.weigh_ticket($1) ->> 'status' as v", [p28.done]], value: true, expect: only(FLOCK_SCOPE, 'ok:done', 'out_of_scope') },
+    weigh_ticket_options: {
+      sql: () => ["select public.weigh_ticket_options($1) ->> 'can_create' as v", [farm.site]],
+      value: true,
+      expect: { ...only(FLOCK_SCOPE, 'ok:true', 'out_of_scope'), accountant: 'ok:false' },
+    },
+    weigh_tickets: {
+      sql: () => ["select public.weigh_tickets(public.app_today() - 1, public.app_today(), 'all') -> 'totals' ->> 'count' as v", []],
+      value: true,
+      expect: only(FLOCK_SCOPE, 'ok:3', 'ok:0'),
+    },
+    bird_sale_form: {
+      sql: () => ["select public.bird_sale_form($1) ->> 'invoiceable' as v", [p28.done]],
+      value: true,
+      expect: { ...only(SALES, 'ok:true', 'forbidden'), storekeeper: 'out_of_scope', viewer: 'out_of_scope' },
+    },
+    bird_sale_detail: {
+      sql: () => ["select public.bird_sale_detail($1) ->> 'status' as v", [p28.sale]],
+      value: true,
+      expect: { ...only(SALES, 'ok:posted', 'forbidden'), storekeeper: 'out_of_scope', viewer: 'out_of_scope' },
+    },
+    flock_close_form: {
+      sql: () => ["select public.flock_close_form($1) ->> 'can_close' as v", [p28.closeFlock]],
+      value: true,
+      expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
+    },
+    flock_sales: { sql: () => ["select public.flock_sales($1) ->> 'sold_birds' as v", [p28.saleFlock]], value: true, expect: only(FLOCK_SCOPE, 'ok:100', 'out_of_scope') },
     // 0020 (قرار المالك 2026-11-08): الحذف لمن يدير المخازن (المالك والمدير)؛ و«أكمل السعر» بفعل الشراء (purchase.record)، والأمين هنا محصور
     // بالمخزن العامّ دون وحدته فقيد المورّد في دفتر الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ وتحويل المادّة بفعل الصرف
     // (stock_use.post: المالك والمدير والأمين بنطاق المخزن)؛ وإلغاؤه بفعل void؛ والنقل بخطوة واحدة بفعل النقل (transfer.post) إلى مخزن الحقل.
