@@ -503,7 +503,8 @@ export default async function (t, db) {
         await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 4, public.app_today(), null)', [closing, feed]);
         const store = await value(q, 'select warehouse_id from public.flock_issues where flock_id = $1', [closing]);
         await q(`select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 500, 0, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '4')),
-          'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '2', 'action', 'return', 'warehouse_id', $3::uuid)), null)`, [closing, feed, store]);
+          'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '2', 'action', 'return', 'warehouse_id', $3::uuid)), null,
+          public.flock_close_form($1) ->> 'plan')`, [closing, feed, store]);
         return { ticket, sale, site, closing };
       },
       { commit: true },

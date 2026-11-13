@@ -17,7 +17,7 @@
     "public.can_see_accounts()",
     "public.can_see_cost()",
     "public.can_see_sales()",
-    "public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text)",
+    "public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text, text)",
     "public.confirm_production_costs(uuid, integer)",
     "public.copy_doc_to_draft(text, uuid, uuid, uuid)",
     "public.create_my_org(text, text)",

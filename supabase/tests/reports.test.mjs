@@ -166,6 +166,7 @@ function daysOf(fx, through) {
   let givenCumUnweighed = 0;
   let lastWeight = null;
   let soldCumMilli = 0n;
+  let aliveCum = 0;
   for (let on = f.placed_on; on <= through; on = addDays(on, 1)) {
     const r = rows.get(on) ?? null;
     const w = weights.get(on) ?? null;
@@ -189,9 +190,9 @@ function daysOf(fx, through) {
     givenCum += g.kg;
     givenCumUnweighed += g.unweighed;
     if (w) lastWeight = { on, avg: units(w.avg, 1) };
-    const latest = lastFeed ?? addDays(f.placed_on, -1);
-    const yesterday = addDays(on, -1);
-    const span = between(latest > yesterday ? latest : yesterday, f.placed_on) + 1;
+    // أيّام العلف اللازمة: من التسكين حتى أمس (أو اليوم إن سُجّل علفه)، بلا الأيّام التي بدأت بلا طير حيّ (مراجعة 0028 O7: بعد بيع الكلّ لا جولة تنتظر).
+    if (liveStart > 0n) aliveCum += 1;
+    const span = lastFeed === on ? aliveCum : aliveCum - (liveStart > 0n ? 1 : 0);
     // 0028: المقام بعُشر الغرام = الحيّ × آخر وزن (إن بقي حيّ ووُزن) + صافي المباع التراكميّ؛ والحيّ الباقي بلا وزن لا معامل.
     const den = (liveEnd > 0n && lastWeight ? liveEnd * lastWeight.avg : 0n) + soldCumMilli * 10n;
     const fcr = feedDays > 0 && feedDays === span && feedCum > 0n && den > 0n && (liveEnd <= 0n || lastWeight) ? ratio(feedCum * 10n, den, 3) : null;
@@ -273,9 +274,13 @@ function hallsDayModel(raw, on, today, inScope) {
   };
 }
 // 0028: مفاتيح البيع والعدّ والعلف المنقول والخارج تُستثنى من المقارنة بالنموذج (قيمها مفحوصة على يومي الإغلاق في ٢ب)، والعلف المنقول المعلَّق على القاعة.
-const NEW_FLOCK_KEYS = ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed'];
-const NEW_TOTAL_KEYS = ['sold', 'count_diff', 'ticketed'];
-const NEW_KPI_KEYS = ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final'];
+// ومفاتيح مراجعة 0028 (ما في القاعة بتعريفه الواحد، ويوم ينتظر جولة، وفروق العدّ) مفحوصة في close.test وbirds28-fixes.test؛ والأفواج التي تنتظر جولة هنا = الأفواج
+// كلّها (لا فوج بيع كلّه)، فحصها في ٢ب.
+const NEW_FLOCK_KEYS = ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed',
+  'left_in_hall_kg', 'left_in_hall_unweighed', 'expects_round', 'count_diffs'];
+const NEW_TOTAL_KEYS = ['sold', 'count_diff', 'ticketed', 'rounds_expected'];
+const NEW_KPI_KEYS = ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final',
+  'left_in_hall_kg', 'left_in_hall_unweighed'];
 const NEW_CYCLE_KEYS = ['sold_birds', 'count_diff'];
 const without = (row, keys) => row && Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 const withoutLists = (response) => ({
@@ -308,6 +313,7 @@ function weeksOf(days) {
     const weighed = ds.filter((d) => d.weight !== null).at(-1);
     return {
       week, from_age: first.view.age, to_age: last.view.age, from_on: first.view.on, to_on: last.view.on, days: ds.length, round_days: rounds.length,
+      expected_days: ds.filter((d) => d.liveStart > 0n).length,
       dead: dead === null ? null : Number(dead), culled: culled === null ? null : Number(culled),
       mortality_pct: dead === null ? null : pct(dead + culled, first.liveStart),
       mortality_cum_pct: last.view.mortality_cum_pct, live_end: last.view.live_end,
@@ -440,8 +446,8 @@ async function scenario(t, db) {
   // 0028: الإغلاق بدالّته بيومه، بما نزل للقاعة كما تعرضه شاشة الإغلاق ولا مصير لباقٍ (يبقى مستهلَكاً)، وفرق العدّ = −الحيّ بسببه.
   const close = async (flock, offset) => {
     const form = await one(U.manager, 'select public.flock_close_form($1) as v', [flock]);
-    return one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'نهاية الدورة', '[]'::jsonb, null) as v",
-      [uid(), uid(), flock, day(offset), form.flock.live, JSON.stringify(form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))]);
+    return one(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'نهاية الدورة', '[]'::jsonb, null, $7) as v",
+      [uid(), uid(), flock, day(offset), form.flock.live, JSON.stringify(form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), form.plan]);
   };
   const give = (on, lines) => one(U.manager, 'select public.give_to_flocks($1, $2, $3::jsonb) as v', [uid(), on, JSON.stringify(lines)]);
 
@@ -626,13 +632,16 @@ async function scenario(t, db) {
   const allCarry = Object.values(responses).flatMap((r) => r.sites.flatMap((s) => s.halls.map((h) => h.carry)));
   t.same(
     [pick(flockOf(responses[`manager:${day(-12)}`], 'قاعة 1'), CLOSE_KEYS), pick(flockOf(responses[`manager:${day(-8)}`], 'قاعة 4'), CLOSE_KEYS),
-      pick(responses[`manager:${day(-12)}`].totals, NEW_TOTAL_KEYS), pick(flockOf(responses[`manager:${day(-13)}`], 'قاعة 1'), ['live_end', 'count_diff']),
+      pick(responses[`manager:${day(-12)}`].totals, ['sold', 'count_diff', 'ticketed']), pick(flockOf(responses[`manager:${day(-13)}`], 'قاعة 1'), ['live_end', 'count_diff']),
       allCarry.every((c) => Array.isArray(c) && c.length === 0)],
     [{ live_start: 499, live_end: 0, count_diff: -499, sold: 0, sold_net_kg: '0.000', ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_out_unweighed: 0, feed_out_cum_unweighed: 0 },
       { live_start: 993, live_end: 0, count_diff: -993, sold: 0, sold_net_kg: '0.000', ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_out_unweighed: 0, feed_out_cum_unweighed: 0 },
       { sold: 0, count_diff: -499, ticketed: 0 }, { live_end: 499, count_diff: 0 }, true],
     'يوما الإغلاق: F0 (500 − 1 نافق) وFC (1,000 − 6 نافق − 1 مستبعد) بفرق العدّ −الحيّ فالحيّ آخر يومهما صفر، ومجموع يوم F0 بفرقه؛ وقبله بلا فرق؛ ولا علف منقول معلَّق على أيّ قاعة',
   );
+  // مراجعة 0028 O7: الأفواج التي تنتظر جولة يومها = ما بدأ يومه بطيور حيّة؛ ولا فوج بيع كلّه هنا، فهي الأفواج كلّها في كلّ جواب وكلّ حقل.
+  t.same(Object.entries(responses).filter(([, r]) => [r.totals, ...r.sites.map((x) => x.totals)].some((x) => x.rounds_expected !== x.flocks)).map(([k]) => k), [],
+    '0028: الأفواج التي تنتظر جولة (rounds_expected) = الأفواج في كلّ جواب وكلّ حقل، فلا فوج بدأ يومه بلا طير حيّ');
   t.same([responses[`manager:${day(-42)}`].prev, responses[`manager:${day(-42)}`].next, responses[`manager:${day(-43)}`].prev, responses[`layerWorker:${day(-10)}`].prev,
     responses[`manager:${day(-10)}`].prev, responses[`hallWorker:${TODAY}`].sites.map((s) => s.name), responses[`layerWorker:${TODAY}`].sites.map((s) => s.name)],
   [false, true, false, false, true, ['حقل ألف'], ['حقل البيض']],
@@ -815,6 +824,10 @@ async function scenario(t, db) {
     await db.admin(`insert into public.flock_counts (org_id, flock_id, hall_id, site_id, division_id, on_date, kind, birds, doc_kind, doc_id, reason)
       select c.org_id, c.flock_id, c.hall_id, c.site_id, c.division_id, c.closed_on, 'count_adjust', -100, 'flock_close', c.id, 'دورة الحدّ'
       from public.flock_closes c where c.org_id = $1 and not exists (select 1 from public.flock_counts k where k.doc_id = c.id)`, [M.org]);
+    // ولقطة مال الإغلاق كما يكتبها (مراجعة 0028 M7: لكلّ إغلاق لقطته، والفحص close_values): بلا كلفة ولا راجع ولا منقول ولا إيراد.
+    await db.admin(`insert into public.flock_close_values (org_id, close_id, flock_id, site_id, cost_total, returned_value, carried_value, revenue)
+      select c.org_id, c.id, c.flock_id, c.site_id, 0, 0, 0, 0
+      from public.flock_closes c where c.org_id = $1 and not exists (select 1 from public.flock_close_values v where v.close_id = c.id)`, [M.org]);
   };
   await addCycles(1, 500);
   const at500 = await one(M.users.owner, CYCLES, []);

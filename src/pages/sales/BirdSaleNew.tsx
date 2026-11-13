@@ -149,6 +149,12 @@ function whyText(why: FormWhy, form: BirdSaleForm): string {
       return t('birds.why.closed', 'فوج قاعة من قاعات هذه التذكرة مغلق، فلا تُصدر فاتورتها. أعد فتح الدورة أوّلاً إن كان الإغلاق خطأ.');
     case 'no_book':
       return t('birds.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فيه فاتورة طيور.');
+    case 'out_of_scope':
+      return t('birds.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور.');
+    case 'period_locked':
+      return t('birds.why.period_locked', 'يوم التذكرة في فترة مقفلة، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها.');
+    case 'too_old':
+      return t('birds.why.too_old', 'التذكرة أقدم من سبعة أيّام، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها الآن.');
   }
 }
 

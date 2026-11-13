@@ -220,6 +220,8 @@ export interface CloseForm {
   today: Day;
   earliestOn: Day;
   defaultOn: Day;
+  /** بصمة ما في القاعة كميةً وقيمةً (مراجعة 0028 M4)؛ تُرسل مع الإغلاق (p_expected_plan)، وخادم قبلها null. */
+  plan: string | null;
   sales: { birds: number; netKg: Milli; avgKg: Milli | null; invoices: readonly { soldOn: Day; birds: number; netKg: Milli; ticketNo: string | null; docNo: string | null }[] };
   pendingTickets: readonly { ticketId: string; ticketNo: string | null; status: (typeof TICKET_STATUSES)[number]; onDate: Day; birds: number | null }[];
   feed: { givenKg: Milli; eatenKg: Milli; estimateLeftKg: Milli; feedDays: number; feedSpan: number; unweighed: number };
@@ -255,6 +257,7 @@ export function parseCloseForm(value: unknown): CloseForm {
     today: str(json, 'today'),
     earliestOn: str(json, 'earliest_on'),
     defaultOn: str(json, 'default_on'),
+    plan: optStr(json, 'plan'),
     sales: {
       birds: int(sales, 'birds'),
       netKg: scaled(sales, 'net_kg', 3),
@@ -419,6 +422,8 @@ export interface CloseRequest {
   countReason: string | null;
   lines: readonly CloseLineInput[];
   note: string | null;
+  /** بصمة ما نزل كما رآها النموذج (CloseForm.plan): الخادم يرفض pool_changed بلاها أو بغيرها (مراجعة 0028 M4). */
+  expectedPlan?: string | null;
 }
 
 /** وسائط close_flock بمفاتيح العقد بالضبط، فالإعادة بالمرجع نفسه ترسل النصّ نفسه. */
@@ -436,6 +441,7 @@ export function closeArgs(request: CloseRequest): Record<string, unknown> {
       line.action === 'return' ? { item_id: line.itemId, qty: decimalText(line.qty, 3), action: line.action, warehouse_id: line.warehouseId } : { item_id: line.itemId, qty: decimalText(line.qty, 3), action: line.action },
     ),
     p_note: request.note === null ? null : request.note.trim() || null,
+    ...(request.expectedPlan === undefined ? {} : { p_expected_plan: request.expectedPlan }),
   };
 }
 

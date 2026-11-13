@@ -30,7 +30,7 @@ const id = (n) => `c2810000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const phone = (n) => `96477028100${String(n).padStart(2, '0')}`;
 
 const SIG = {
-  close: 'public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text)',
+  close: 'public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text, text)',
   reopen: 'public.reopen_flock(uuid, text, uuid)',
   open: 'public.open_flock(uuid, date, integer, integer, text, uuid)',
   voidSale: 'public.void_bird_sale(uuid, text, uuid)',
@@ -40,7 +40,7 @@ const SIG = {
   days: 'private.report_days(public.flocks, date)',
   reportDay: 'private.report_day(public.flocks, date, date)',
 };
-const CLOSE = 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)';
+const CLOSE = 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11)';
 const REOPEN = 'select public.reopen_flock($1, $2, $3)';
 const RETURN_CARRY = 'select public.return_hall_carry($1, $2, $3, $4)';
 const OPEN = 'select public.open_flock($1, $2, $3, 0, null, $4)';
@@ -52,13 +52,17 @@ const SAVE_TICKET = 'select public.save_weigh_ticket($1, $2, $3::jsonb)';
 // مفاتيح 0028 الجديدة في قرّاء 0027 (العقد §6): تُنزع من جواب 0028 فيبقى جواب 0027 حرفاً بحرف لفوج بلا بيع ولا إغلاق.
 const NEW_KEYS = {
   hall: ['carry'],
-  dayFlock: ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed'],
-  totals: ['sold', 'count_diff', 'ticketed'],
-  report: ['sales', 'close', 'carry_in'],
+  dayFlock: ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed', 'left_in_hall_kg',
+    'left_in_hall_unweighed', 'expects_round', 'count_diffs'],
+  totals: ['sold', 'count_diff', 'ticketed', 'rounds_expected'],
+  report: ['sales', 'close', 'carry_in', 'count_diffs'],
+  feed: ['left_in_hall_kg', 'left_in_hall_unweighed'],
+  week: ['expected_days'],
   birds: ['sold', 'sold_net_kg', 'count_diff', 'count_reason'],
   reportDay: ['sold', 'sold_net_kg', 'sold_cum', 'sold_cum_net_kg', 'count_diff', 'count_diff_cum', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed',
-    'feed_out_cum_kg', 'feed_out_cum_unweighed'],
-  kpis: ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final'],
+    'feed_out_cum_kg', 'feed_out_cum_unweighed', 'left_in_hall_kg', 'left_in_hall_unweighed', 'expects_round'],
+  kpis: ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final',
+    'left_in_hall_kg', 'left_in_hall_unweighed'],
   money: ['returned', 'carried_in', 'carried_out', 'revenue'],
   cycle: ['sold_birds', 'count_diff'],
 };
@@ -78,7 +82,9 @@ const dayAs0027 = (v) => ({
 const reportAs0027 = (v) => {
   const out = without(v, NEW_KEYS.report);
   out.birds = without(v.birds, NEW_KEYS.birds);
+  out.feed = without(v.feed, NEW_KEYS.feed);
   out.days = v.days.map((d) => without(d, NEW_KEYS.reportDay));
+  out.weeks = v.weeks.map((w) => without(w, NEW_KEYS.week));
   out.kpis = without(v.kpis, NEW_KEYS.kpis);
   if (v.money) out.money = without(v.money, NEW_KEYS.money);
   return out;
@@ -216,9 +222,10 @@ async function scenario(t, db) {
   const sellArgs = ({ ref = uid(), sale = uid(), ticket: tk, price = '2750.00' }) => [ref, sale, tk.id, tk.version, trader, price, '0', '0', null, null];
   const sell = (tk, extra = {}) => one(U.accountant, SELL, sellArgs({ ticket: tk, ...extra }));
   const form = (flock, user = U.manager) => one(user, 'select public.flock_close_form($1)', [flock]);
-  /** معاملات الإغلاق كما ترسلها شاشته: الحيّ والمباع وما نزل لكلّ مادّة من نموذجها (ما رأته)، ومصير كلّ مادّة. */
-  const closeArgs = (f, flock, on, { ref = uid(), closeId = uid(), reason = null, lines = [], note = null, live, sold, pools } = {}) => [ref, closeId, flock, on,
-    live ?? f.flock.live, sold ?? f.sales.birds, JSON.stringify(pools ?? f.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), reason, JSON.stringify(lines), note];
+  /** معاملات الإغلاق كما ترسلها شاشته: الحيّ والمباع وما نزل لكلّ مادّة من نموذجها (ما رأته) وبصمته (plan)، ومصير كلّ مادّة. */
+  const closeArgs = (f, flock, on, { ref = uid(), closeId = uid(), reason = null, lines = [], note = null, live, sold, pools, plan } = {}) => [ref, closeId, flock, on,
+    live ?? f.flock.live, sold ?? f.sales.birds, JSON.stringify(pools ?? f.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), reason, JSON.stringify(lines), note,
+    plan ?? f.plan];
   const closeCall = async (flock, on, options = {}, user = U.manager) => call(db, user, CLOSE, closeArgs(await form(flock), flock, on, options));
   const closeOk = async (flock, on, options = {}) => {
     const result = await closeCall(flock, on, options);
@@ -646,17 +653,33 @@ async function scenario(t, db) {
     const yesterdayView = hallOf(await hallsDay(day(-1)), H.fe);
     same([again.code, again.hint, todayView.carry, yesterdayView.carry.map((c) => c.qty)], ['carry_not_pending', 'العلف المنقول «علف التسمين» أُرجع إلى مخزن من قبل.', [], ['300']],
       'G9: الإرجاع الثاني carry_not_pending، والقاعة تعرض المنقول حتى يوم إرجاعه');
-    const used = await call(db, U.manager, REOPEN, [feClose.id, 'إغلاق خاطئ', uid()]);
+    // مراجعة 0028 O1 (O5): ولا فوج بعدها ولم يُسحب من الراجع، فتُعاد الدورة: إرجاع المنقول يُلغى (حركته معكوسة ودفعته فارغة) والسطر ملغى، ويعود ما نزل
+    // كلّه (1,000 كغم) بقيمته وكلفة الفوج كما قبل الإغلاق. داخل معاملة ترجع، فتبقى FE مغلقة لما بعدها (M20).
     const doc = (await admin('select doc_no from public.flock_returns where id = $1', [id(901)]))[0].doc_no;
-    same([used.code, used.hint], ['carry_used', `العلف المنقول «علف التسمين» أُرجع إلى «${await whName(W.feed)}» بالمستند ${doc}، فلا يُعاد فتح الدورة.`],
-      'G9: لا إعادة فتح بعد إرجاع المنقول (carry_used يسمّي المخزن والمستند)');
-    Object.assign(samples, { refusal_carry_used: { code: used.code, hint: used.hint } });
+    const reopened = await broken([], async ({ attempt, oq }) => {
+      const v = await inside(attempt, U.manager, REOPEN, [feClose.id, 'إغلاق خاطئ', uid()]);
+      const f = await inside(attempt, U.manager, 'select public.flock_close_form($1)', [F.fe]);
+      const fr = (await oq("select r.status, trim_scale(s.qty_left)::text as left from public.flock_returns r join public.flock_return_lines l on l.return_id = r.id join public.stock_lots s on s.id = l.lot_id where r.id = $1", [id(901)])).rows[0];
+      const line = (await oq('select carry_status from public.flock_close_lines where id = $1', [feClose.lines[0].line_id])).rows[0].carry_status;
+      const cost = (await oq('select coalesce(sum(amount), 0)::text as v from public.flock_costs where flock_id = $1', [F.fe])).rows[0].v;
+      const bad = Object.fromEntries((await oq('select check_name, violations::int as n from public.verify_flock_close() where violations <> 0')).rows.map((r) => [r.check_name, r.n]));
+      return { status: v?.status, back: v?.reversed_returns, money: v?.money, pool: f?.items?.map((i) => [i.pool_qty, i.money?.pool_value]), fr, line, cost, bad };
+    });
+    same(reopened, { status: 'reopened', back: 1, money: { returned_value: '210000.00', carried_value: '0' }, pool: [['1000', '700000.00']],
+      fr: { status: 'void', left: '0' }, line: 'void', cost: '700000.00', bad: {} },
+    `G9: إعادة فتح دورة أُرجع منقولها (${doc}) قبل التسكين: الإرجاع ملغى والدفعة فارغة والسطر ملغى، وما نزل 1,000 كغم بـ700,000.00 = كلفة الفوج، والثوابت صفر`);
   });
-  await section('طفرة إعادة الفتح بعد استعمال المنقول (M15)', async () => {
-    // بديل ساذج: إعادة الفتح لا تنظر في حالة النقل، فتعيد دورة FE قائمة وعلفها المنقول في المخزن، فيُحسب ما نزل لها مرّتين.
-    const v = await broken([[SIG.reopen, [['  if l.id is not null then\n    raise exception \'carry_used\'', '  if false then\n    raise exception \'carry_used\'']]]],
-      ({ attempt }) => inside(attempt, U.manager, REOPEN, [feClose.id, 'إغلاق خاطئ', uid()]));
-    same([v?.code, v?.status], [undefined, 'reopened'], 'طفرة M15 (إعادة الفتح بعد استعمال المنقول): تُعاد الدورة، فيمسكها فحص carry_used');
+  await section('طفرة إعادة الفتح تُبقي إرجاع المنقول (M15)', async () => {
+    // بديل ساذج (مراجعة 0028 O1): إعادة الفتح تُلغي سطر المنقول المُرجَع ولا تُلغي مستند إرجاعه، فيبقى العلف في المخزن وفي ما نزل للقاعة معاً؛ يمسكه
+    // فحص carry_costs (إرجاع منقول مرحَّل لسطر غير «أُرجع»).
+    const v = await broken([[SIG.reopen, [["  for r in select y.* from public.flock_returns y where y.org_id = v_org and y.close_id = x.id and y.status = 'posted' order by",
+      "  for r in select y.* from public.flock_returns y where y.org_id = v_org and y.close_id = x.id and y.status = 'posted' and y.source = 'close' order by"]]]],
+    async ({ attempt, oq }) => {
+      const done = await inside(attempt, U.manager, REOPEN, [feClose.id, 'إغلاق خاطئ', uid()]);
+      const bad = Object.fromEntries((await oq('select check_name, violations::int as n from public.verify_flock_close() where violations <> 0')).rows.map((r) => [r.check_name, r.n]));
+      return [done?.status, bad.carry_costs > 0];
+    });
+    same(v, ['reopened', true], 'طفرة M15 (إعادة الفتح تُبقي إرجاع المنقول): تُعاد الدورة والعلف في المخزن، فيمسكها فحص carry_costs');
   });
   await section('ما نزل لـFE بعد إرجاع منقوله (M20)', async () => {
     // FE: نزل 1,000 كغم، ونُقل 300 (أُرجع بعدُ إلى المخزن): ما في القاعة له 700؛ والطرح الثاني للمنقول المُرجَع (مستند FR بمصدر النقل) يجعله 400.
@@ -872,8 +895,10 @@ async function scenario(t, db) {
       compare(`halls_day للمدير ${on}`, dayAs0027({ sites: [managerSite], totals: {} }).sites[0], old.managerDay[on]);
       const p1 = hallOf(now, H.p1);
       if (p1.flock) {
+        // بلا إغلاق: ما في القاعة = الباقي القديم (feed_left_kg) وسطوره بلا كتلة = النازلة بلا كتلة، وكلّ يوم ينتظر جولة، ولا فرق عدّ.
         compare(`مفاتيح 0028 ${on}`, pick(p1.flock, NEW_KEYS.dayFlock), { sold: 0, sold_net_kg: '0.000', count_diff: 0, ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0',
-          feed_out_unweighed: 0, feed_out_cum_unweighed: 0 });
+          feed_out_unweighed: 0, feed_out_cum_unweighed: 0, left_in_hall_kg: p1.flock.feed_left_kg, left_in_hall_unweighed: p1.flock.feed_given_cum_unweighed,
+          expects_round: true, count_diffs: [] });
       }
       compare(`carry ${on}`, now.sites[0].halls.map((h) => h.carry), [[], []]);
     }
@@ -881,9 +906,13 @@ async function scenario(t, db) {
     compare('flock_cycle_report', reportAs0027(r), old.report);
     compare('flock_cycle_report لعامل القاعة', reportAs0027(await report(F.p, U.plain)), old.reportPlain);
     compare('flock_cycles', cyclesAs0027(await one(U.plain, 'select public.flock_cycles()')), old.cycles);
-    compare('مفاتيح 0028 في تقرير الدورة', [pick(r.kpis, NEW_KEYS.kpis), pick(r.money, NEW_KEYS.money), r.close, r.carry_in, pick(r.birds, NEW_KEYS.birds)],
+    const lastDay = r.days.at(-1);
+    compare('مفاتيح 0028 في تقرير الدورة', [pick(r.kpis, NEW_KEYS.kpis), pick(r.money, NEW_KEYS.money), r.close, r.carry_in, pick(r.birds, NEW_KEYS.birds),
+      pick(r.feed, NEW_KEYS.feed), r.count_diffs, r.days.map((d) => d.expects_round), r.weeks.map((w) => w.expected_days)],
       [{ sold_birds: 0, sold_net_kg: '0.000', sold_avg_kg: null, sale_age: null, count_diff: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_net_kg: null, fcr_final: null,
-        epef_final: null }, { returned: '0', carried_in: '0', carried_out: '0', revenue: '0' }, null, [], { sold: 0, sold_net_kg: '0.000', count_diff: 0, count_reason: null }]);
+        epef_final: null, left_in_hall_kg: r.kpis.feed_left_kg, left_in_hall_unweighed: lastDay.feed_given_cum_unweighed },
+      { returned: '0', carried_in: '0', carried_out: '0', revenue: '0' }, null, [], { sold: 0, sold_net_kg: '0.000', count_diff: 0, count_reason: null },
+      { left_in_hall_kg: r.kpis.feed_left_kg, left_in_hall_unweighed: lastDay.feed_given_cum_unweighed }, [], r.days.map(() => true), r.weeks.map((w) => w.days)]);
     same(problems, [], 'قرّاء 0027 (halls_day لعشرة أيّام بنطاقين، وflock_cycle_report بالمال وبلاه، وflock_cycles) لفوج بلا بيع ولا إغلاق: جواب 0027 نفسه حرفاً بحرف بعد نزع مفاتيح 0028، ومفاتيحها بقيم الصفر');
     // ضابط المقارنة: جسم 0028 يغيّر مفتاحاً قديماً (الباقي في القاعة ينقص كيلوغراماً) فتبين المقارنة على أيّام الفوج كلّها.
     const drift = await broken([[SIG.reportDay, [["'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg)::text", "'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg - 1)::text"]]]],

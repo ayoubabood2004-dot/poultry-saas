@@ -327,7 +327,8 @@ async function scenario(t, db) {
   const leakTrader = await S.one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الإخفاء', true) returning id");
   const leakSale = await S.one(U.manager, "select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 0, null, null) ->> 'id'", [leakTicket, leakTrader]);
   await S.one(U.manager, `select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, $2, 900, 100, jsonb_build_array(jsonb_build_object('item_id', $3::uuid, 'qty', '10')),
-    'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $3::uuid, 'qty', '4', 'action', 'return', 'warehouse_id', $4::uuid)), null)::text`, [leakFlock, TODAY, I.feed, W.farm1]);
+    'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $3::uuid, 'qty', '4', 'action', 'return', 'warehouse_id', $4::uuid)), null,
+    public.flock_close_form($1) ->> 'plan')::text`, [leakFlock, TODAY, I.feed, W.farm1]);
   const BIRD_ROLES = { hallWorker: U.hallWorker, storekeeper: U.storekeeper, viewer: U.viewer, accountant: U.accountant, owner: U.owner, manager: U.manager };
   const birdRows = {};
   for (const [role, user] of Object.entries(BIRD_ROLES)) {

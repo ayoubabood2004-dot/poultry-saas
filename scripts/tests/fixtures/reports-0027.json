@@ -6,14 +6,14 @@
   "prev": true,
   "sites": [
    {
-    "id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "3dbc28f7-5117-4f70-8974-e0486407ae3c",
+       "id": "e0d24362-8468-48ce-9d37-8c30e3d4409b",
        "age": 11,
        "fcr": null,
        "age0": 0,
@@ -41,6 +41,7 @@
        "culled_cum": 3,
        "eggs_total": null,
        "live_start": 11981,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": {
@@ -52,8 +53,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "-1200.000",
        "placed_count": 12000,
+       "expects_round": true,
        "feed_eaten_kg": null,
        "feed_given_kg": "0",
+       "left_in_hall_kg": "-1200.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "2700.000",
        "feed_given_cum_kg": "1500.000",
@@ -61,16 +64,17 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 1,
        "feed_given_cum_unweighed": 1
       },
-      "hall_id": "8fa04e5f-3db4-46c4-9677-661049420ff1",
+      "hall_id": "cbbf1dfa-df9c-49bd-ad75-b406f7a32b72",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "4587c44f-5084-4879-8995-0b7844c117ed",
+       "id": "82ce3be1-b2fb-4d84-858a-157a1a355392",
        "age": 9,
        "fcr": "1.629",
        "age0": 1,
@@ -89,8 +93,8 @@
          "qty": "10",
          "name": "زيت",
          "doc_no": "FI-2026-0011",
-         "item_id": "50dce5b2-c693-4b0d-a49c-eee46a8002b5",
-         "issue_id": "dd91e4a2-9e3d-4dd6-a71e-56b0196429d6",
+         "item_id": "f1ec86ae-df00-4310-9745-fa9b0e3b78ff",
+         "issue_id": "6ebf0edb-03de-4fc5-aea2-778c07deecbe",
          "base_unit": "L",
          "cost_kind": "feed"
         },
@@ -99,8 +103,8 @@
          "qty": "2",
          "name": "علف بلا وزن",
          "doc_no": "FI-2026-0012",
-         "item_id": "f328e2da-4d68-4da6-bc22-8ae3f160f0cc",
-         "issue_id": "01608591-d315-4bf4-83f9-6f009dfaa5b7",
+         "item_id": "2aecc621-d66b-4072-bd46-2416796f25a1",
+         "issue_id": "8904cfe2-ccef-4f96-9723-4ab89184e23c",
          "base_unit": "pc",
          "cost_kind": "feed"
         }
@@ -122,6 +126,7 @@
        "culled_cum": 4,
        "eggs_total": null,
        "live_start": 2979,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": {
@@ -133,8 +138,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "-50.800",
        "placed_count": 3000,
+       "expects_round": true,
        "feed_eaten_kg": "220.000",
        "feed_given_kg": "9.200",
+       "left_in_hall_kg": "-50.800",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "1260.000",
        "feed_given_cum_kg": "1209.200",
@@ -142,16 +149,17 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 1,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 3,
        "feed_given_cum_unweighed": 3
       },
-      "hall_id": "a62ccadd-2ce1-4b4f-b566-7cbaea5d4b77",
+      "hall_id": "3a4b3926-99a3-433b-9401-f616e63d0615",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "8673851e-fcc3-4ee3-b912-d4e2b43530b7",
+      "hall_id": "3376a1cf-4ae6-42ba-94b1-a1db1903dd6a",
       "hall_name": "قاعة 3"
      }
     ],
@@ -168,19 +176,20 @@
      "live_start": 14960,
      "feed_eaten_kg": "220.000",
      "feed_given_kg": "9.200",
+     "rounds_expected": 2,
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 1
     }
    },
    {
-    "id": "72030f6a-add9-4276-a2e1-3e5398f60659",
+    "id": "b51e1c6b-8d46-4f79-8a92-b2e971a3dbce",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "611e5d56-bfdd-4447-86e3-70dc1b20cc5b",
+       "id": "b6b5dc4f-e4ae-4cd1-93aa-6221324b581f",
        "age": 150,
        "fcr": null,
        "age0": 140,
@@ -208,6 +217,7 @@
        "culled_cum": 1,
        "eggs_total": 3050,
        "live_start": 3996,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": null,
@@ -215,8 +225,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "-1425.000",
        "placed_count": 4000,
+       "expects_round": true,
        "feed_eaten_kg": "475.000",
        "feed_given_kg": "0",
+       "left_in_hall_kg": "-1425.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "1425.000",
        "feed_given_cum_kg": "0",
@@ -224,9 +236,10 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "305f59f0-d99f-4043-9e0d-9760782d274e",
+      "hall_id": "f26e049f-7ec5-42ec-adce-6155b276b7d9",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -243,19 +256,20 @@
      "live_start": 3996,
      "feed_eaten_kg": "475.000",
      "feed_given_kg": "0",
+     "rounds_expected": 1,
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 0
     }
    },
    {
-    "id": "4cb7cfba-1a2a-46a9-9cfc-256bc9490718",
+    "id": "93318453-1bd0-4a51-a9dd-53ff0acd4b31",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "527c1754-fe58-4c67-9c1f-53bdf7cc2308",
+       "id": "a9994d2e-640a-48b2-b141-ecf6b4627405",
        "age": 7,
        "fcr": null,
        "age0": 4,
@@ -294,6 +308,7 @@
        "culled_cum": 0,
        "eggs_total": null,
        "live_start": 1999,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": null,
@@ -301,8 +316,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "-105.000",
        "placed_count": 2000,
+       "expects_round": true,
        "feed_eaten_kg": "40.000",
        "feed_given_kg": "0",
+       "left_in_hall_kg": "-105.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "105.000",
        "feed_given_cum_kg": "0",
@@ -310,9 +327,10 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 1,
        "feed_given_cum_unweighed": 1
       },
-      "hall_id": "f3a4fdf8-1b7d-4c5c-a182-eab6dc355e56",
+      "hall_id": "37b82d39-b6a0-41db-ba76-0bed3d33dc6d",
       "hall_name": "قاعة 5"
      }
     ],
@@ -329,6 +347,7 @@
      "live_start": 1999,
      "feed_eaten_kg": "40.000",
      "feed_given_kg": "0",
+     "rounds_expected": 1,
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 0
     }
@@ -348,6 +367,7 @@
    "live_start": 20955,
    "feed_eaten_kg": "735.000",
    "feed_given_kg": "9.200",
+   "rounds_expected": 4,
    "feed_eaten_flocks": 3,
    "feed_given_unweighed": 1
   }
@@ -358,14 +378,14 @@
   "prev": true,
   "sites": [
    {
-    "id": "72030f6a-add9-4276-a2e1-3e5398f60659",
+    "id": "b51e1c6b-8d46-4f79-8a92-b2e971a3dbce",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "611e5d56-bfdd-4447-86e3-70dc1b20cc5b",
+       "id": "b6b5dc4f-e4ae-4cd1-93aa-6221324b581f",
        "age": 149,
        "fcr": null,
        "age0": 140,
@@ -393,6 +413,7 @@
        "culled_cum": 1,
        "eggs_total": 3100,
        "live_start": 3998,
+       "count_diffs": [],
        "eggs_broken": 5,
        "feed_out_kg": "0",
        "last_weight": null,
@@ -400,8 +421,10 @@
        "eggs_cracked": 15,
        "feed_left_kg": "-950.000",
        "placed_count": 4000,
+       "expects_round": true,
        "feed_eaten_kg": "470.000",
        "feed_given_kg": "0",
+       "left_in_hall_kg": "-950.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "950.000",
        "feed_given_cum_kg": "0",
@@ -409,9 +432,10 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "305f59f0-d99f-4043-9e0d-9760782d274e",
+      "hall_id": "f26e049f-7ec5-42ec-adce-6155b276b7d9",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -428,6 +452,7 @@
      "live_start": 3998,
      "feed_eaten_kg": "470.000",
      "feed_given_kg": "0",
+     "rounds_expected": 1,
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 0
     }
@@ -447,6 +472,7 @@
    "live_start": 3998,
    "feed_eaten_kg": "470.000",
    "feed_given_kg": "0",
+   "rounds_expected": 1,
    "feed_eaten_flocks": 1,
    "feed_given_unweighed": 0
   }
@@ -457,14 +483,14 @@
   "prev": true,
   "sites": [
    {
-    "id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "3dbc28f7-5117-4f70-8974-e0486407ae3c",
+       "id": "e0d24362-8468-48ce-9d37-8c30e3d4409b",
        "age": 2,
        "fcr": "0.441",
        "age0": 0,
@@ -495,6 +521,7 @@
        "culled_cum": 1,
        "eggs_total": null,
        "live_start": 11994,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": {
@@ -506,8 +533,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "550.000",
        "placed_count": 12000,
+       "expects_round": true,
        "feed_eaten_kg": "200.000",
        "feed_given_kg": "0",
+       "left_in_hall_kg": "550.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "450.000",
        "feed_given_cum_kg": "1000.000",
@@ -515,30 +544,31 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "8fa04e5f-3db4-46c4-9677-661049420ff1",
+      "hall_id": "cbbf1dfa-df9c-49bd-ad75-b406f7a32b72",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "a62ccadd-2ce1-4b4f-b566-7cbaea5d4b77",
+      "hall_id": "3a4b3926-99a3-433b-9401-f616e63d0615",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "8673851e-fcc3-4ee3-b912-d4e2b43530b7",
+      "hall_id": "3376a1cf-4ae6-42ba-94b1-a1db1903dd6a",
       "hall_name": "قاعة 3"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "005c02b6-ca92-42ca-8fc6-0557fa615d43",
+       "id": "5ff72d67-50d0-4cea-8cc0-b04e5892eb20",
        "age": 14,
        "fcr": null,
        "age0": 0,
@@ -577,6 +607,7 @@
        "culled_cum": 1,
        "eggs_total": null,
        "live_start": 993,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": {
@@ -588,8 +619,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "25.000",
        "placed_count": 1000,
+       "expects_round": true,
        "feed_eaten_kg": null,
        "feed_given_kg": "0",
+       "left_in_hall_kg": "25.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "175.000",
        "feed_given_cum_kg": "200.000",
@@ -597,9 +630,10 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "6578610b-c8a5-4e83-af1b-f1aba53b2ad9",
+      "hall_id": "cc8de354-bb20-4b35-99fc-f90d3e16755a",
       "hall_name": "قاعة 4"
      }
     ],
@@ -616,19 +650,20 @@
      "live_start": 12987,
      "feed_eaten_kg": "200.000",
      "feed_given_kg": "0",
+     "rounds_expected": 2,
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 0
     }
    },
    {
-    "id": "72030f6a-add9-4276-a2e1-3e5398f60659",
+    "id": "b51e1c6b-8d46-4f79-8a92-b2e971a3dbce",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "611e5d56-bfdd-4447-86e3-70dc1b20cc5b",
+       "id": "b6b5dc4f-e4ae-4cd1-93aa-6221324b581f",
        "age": 141,
        "fcr": null,
        "age0": 140,
@@ -656,6 +691,7 @@
        "culled_cum": 0,
        "eggs_total": null,
        "live_start": 4000,
+       "count_diffs": [],
        "eggs_broken": null,
        "feed_out_kg": "0",
        "last_weight": null,
@@ -663,8 +699,10 @@
        "eggs_cracked": null,
        "feed_left_kg": "0.000",
        "placed_count": 4000,
+       "expects_round": true,
        "feed_eaten_kg": null,
        "feed_given_kg": "0",
+       "left_in_hall_kg": "0.000",
        "feed_carry_in_kg": "0",
        "feed_eaten_cum_kg": "0.000",
        "feed_given_cum_kg": "0",
@@ -672,9 +710,10 @@
        "feed_out_unweighed": 0,
        "feed_given_unweighed": 0,
        "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "305f59f0-d99f-4043-9e0d-9760782d274e",
+      "hall_id": "f26e049f-7ec5-42ec-adce-6155b276b7d9",
       "hall_name": "قاعة البيّاض"
      }
     ],
@@ -691,19 +730,20 @@
      "live_start": 4000,
      "feed_eaten_kg": null,
      "feed_given_kg": "0",
+     "rounds_expected": 1,
      "feed_eaten_flocks": 0,
      "feed_given_unweighed": 0
     }
    },
    {
-    "id": "4cb7cfba-1a2a-46a9-9cfc-256bc9490718",
+    "id": "93318453-1bd0-4a51-a9dd-53ff0acd4b31",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "f3a4fdf8-1b7d-4c5c-a182-eab6dc355e56",
+      "hall_id": "37b82d39-b6a0-41db-ba76-0bed3d33dc6d",
       "hall_name": "قاعة 5"
      }
     ],
@@ -720,6 +760,7 @@
      "live_start": 0,
      "feed_eaten_kg": null,
      "feed_given_kg": "0",
+     "rounds_expected": 0,
      "feed_eaten_flocks": 0,
      "feed_given_unweighed": 0
     }
@@ -739,6 +780,7 @@
    "live_start": 16987,
    "feed_eaten_kg": "200.000",
    "feed_given_kg": "0",
+   "rounds_expected": 3,
    "feed_eaten_flocks": 1,
    "feed_given_unweighed": 0
   }
@@ -764,10 +806,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "940.000",
+    "expects_round": true,
     "feed_eaten_kg": "60.000",
     "feed_given_kg": "1000.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "940.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "60.000",
@@ -776,6 +820,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -797,10 +842,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "860.000",
+    "expects_round": true,
     "feed_eaten_kg": "80.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "860.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "140.000",
@@ -809,6 +856,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -830,10 +878,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "760.000",
+    "expects_round": true,
     "feed_eaten_kg": "100.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "760.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "240.000",
@@ -842,6 +892,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -866,10 +917,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "640.000",
+    "expects_round": true,
     "feed_eaten_kg": "120.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "640.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "360.000",
@@ -878,6 +931,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -899,10 +953,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "500.000",
+    "expects_round": true,
     "feed_eaten_kg": "140.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "500.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "500.000",
@@ -911,6 +967,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -932,10 +989,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "340.000",
+    "expects_round": true,
     "feed_eaten_kg": "160.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "340.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "660.000",
@@ -944,6 +1003,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -968,10 +1028,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "360.000",
+    "expects_round": true,
     "feed_eaten_kg": "180.000",
     "feed_given_kg": "200.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "360.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "840.000",
@@ -980,6 +1042,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1001,10 +1064,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "160.000",
+    "expects_round": true,
     "feed_eaten_kg": "200.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "160.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1040.000",
@@ -1013,6 +1078,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 2,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 2,
     "feed_given_cum_unweighed": 2
    },
    {
@@ -1037,10 +1103,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-50.800",
+    "expects_round": true,
     "feed_eaten_kg": "220.000",
     "feed_given_kg": "9.200",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-50.800",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1260.000",
@@ -1049,6 +1117,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 1,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 3,
     "feed_given_cum_unweighed": 3
    }
   ],
@@ -1132,7 +1201,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "02412bf5-d0b8-42ea-b660-4df54a237597",
+     "item_id": "4afc03f9-6fda-480e-b3a2-8277986bca54",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1140,7 +1209,7 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "7f868601-7767-490d-bf78-4d4c996d6501",
+     "item_id": "c8167c56-943d-49de-8694-8f9cbbe82be9",
      "base_unit": "pc",
      "unweighed": 0
     },
@@ -1148,7 +1217,7 @@
      "kg": null,
      "qty": "4",
      "name": "علف بلا وزن",
-     "item_id": "f328e2da-4d68-4da6-bc22-8ae3f160f0cc",
+     "item_id": "2aecc621-d66b-4072-bd46-2416796f25a1",
      "base_unit": "pc",
      "unweighed": 3
     },
@@ -1156,7 +1225,7 @@
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "50dce5b2-c693-4b0d-a49c-eee46a8002b5",
+     "item_id": "f1ec86ae-df00-4310-9745-fa9b0e3b78ff",
      "base_unit": "L",
      "unweighed": 0
     }
@@ -1164,7 +1233,9 @@
    "unweighed": 3,
    "consumed_kg": "1260",
    "delivered_kg": "1209.200",
-   "remaining_kg": "-50.800"
+   "remaining_kg": "-50.800",
+   "left_in_hall_kg": "-50.800",
+   "left_in_hall_unweighed": 3
   },
   "kpis": {
    "fcr": "1.629",
@@ -1196,8 +1267,10 @@
    "feed_given_kg": "1209.200",
    "mortality_pct": "0.83",
    "livability_pct": "99.17",
+   "left_in_hall_kg": "-50.800",
    "feed_carry_in_kg": "0",
-   "feed_per_bird_kg": "0.420"
+   "feed_per_bird_kg": "0.420",
+   "left_in_hall_unweighed": 3
   },
   "birds": {
    "dead": 21,
@@ -1212,13 +1285,13 @@
   },
   "close": null,
   "flock": {
-   "id": "4587c44f-5084-4879-8995-0b7844c117ed",
+   "id": "82ce3be1-b2fb-4d84-858a-157a1a355392",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "a62ccadd-2ce1-4b4f-b566-7cbaea5d4b77",
+   "hall_id": "3a4b3926-99a3-433b-9401-f616e63d0615",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
@@ -1262,6 +1335,7 @@
     "from_age": 1,
     "live_end": 2979,
     "round_days": 7,
+    "expected_days": 7,
     "feed_eaten_kg": "840.000",
     "mortality_pct": "0.70",
     "mortality_cum_pct": "0.70",
@@ -1284,6 +1358,7 @@
     "from_age": 8,
     "live_end": 2975,
     "round_days": 2,
+    "expected_days": 2,
     "feed_eaten_kg": "420.000",
     "mortality_pct": "0.13",
     "mortality_cum_pct": "0.83",
@@ -1344,7 +1419,8 @@
     "vaccine_id": "d2727000-0000-4000-8000-000000000103"
    }
   ],
-  "medicines": []
+  "medicines": [],
+  "count_diffs": []
  },
  "flock_cycle_report_no_money": {
   "days": [
@@ -1367,10 +1443,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "940.000",
+    "expects_round": true,
     "feed_eaten_kg": "60.000",
     "feed_given_kg": "1000.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "940.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "60.000",
@@ -1379,6 +1457,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1400,10 +1479,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "860.000",
+    "expects_round": true,
     "feed_eaten_kg": "80.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "860.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "140.000",
@@ -1412,6 +1493,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1433,10 +1515,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "760.000",
+    "expects_round": true,
     "feed_eaten_kg": "100.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "760.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "240.000",
@@ -1445,6 +1529,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1469,10 +1554,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "640.000",
+    "expects_round": true,
     "feed_eaten_kg": "120.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "640.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "360.000",
@@ -1481,6 +1568,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1502,10 +1590,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "500.000",
+    "expects_round": true,
     "feed_eaten_kg": "140.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "500.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "500.000",
@@ -1514,6 +1604,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1535,10 +1626,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "340.000",
+    "expects_round": true,
     "feed_eaten_kg": "160.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "340.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "660.000",
@@ -1547,6 +1640,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1571,10 +1665,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "360.000",
+    "expects_round": true,
     "feed_eaten_kg": "180.000",
     "feed_given_kg": "200.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "360.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "840.000",
@@ -1583,6 +1679,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1604,10 +1701,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "160.000",
+    "expects_round": true,
     "feed_eaten_kg": "200.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "160.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1040.000",
@@ -1616,6 +1715,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 2,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 2,
     "feed_given_cum_unweighed": 2
    },
    {
@@ -1640,10 +1740,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-50.800",
+    "expects_round": true,
     "feed_eaten_kg": "220.000",
     "feed_given_kg": "9.200",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-50.800",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1260.000",
@@ -1652,6 +1754,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 1,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 3,
     "feed_given_cum_unweighed": 3
    }
   ],
@@ -1717,7 +1820,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "02412bf5-d0b8-42ea-b660-4df54a237597",
+     "item_id": "4afc03f9-6fda-480e-b3a2-8277986bca54",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1725,7 +1828,7 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "7f868601-7767-490d-bf78-4d4c996d6501",
+     "item_id": "c8167c56-943d-49de-8694-8f9cbbe82be9",
      "base_unit": "pc",
      "unweighed": 0
     },
@@ -1733,7 +1836,7 @@
      "kg": null,
      "qty": "4",
      "name": "علف بلا وزن",
-     "item_id": "f328e2da-4d68-4da6-bc22-8ae3f160f0cc",
+     "item_id": "2aecc621-d66b-4072-bd46-2416796f25a1",
      "base_unit": "pc",
      "unweighed": 3
     },
@@ -1741,7 +1844,7 @@
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "50dce5b2-c693-4b0d-a49c-eee46a8002b5",
+     "item_id": "f1ec86ae-df00-4310-9745-fa9b0e3b78ff",
      "base_unit": "L",
      "unweighed": 0
     }
@@ -1749,7 +1852,9 @@
    "unweighed": 3,
    "consumed_kg": "1260",
    "delivered_kg": "1209.200",
-   "remaining_kg": "-50.800"
+   "remaining_kg": "-50.800",
+   "left_in_hall_kg": "-50.800",
+   "left_in_hall_unweighed": 3
   },
   "kpis": {
    "fcr": "1.629",
@@ -1781,8 +1886,10 @@
    "feed_given_kg": "1209.200",
    "mortality_pct": "0.83",
    "livability_pct": "99.17",
+   "left_in_hall_kg": "-50.800",
    "feed_carry_in_kg": "0",
-   "feed_per_bird_kg": "0.420"
+   "feed_per_bird_kg": "0.420",
+   "left_in_hall_unweighed": 3
   },
   "birds": {
    "dead": 21,
@@ -1797,13 +1904,13 @@
   },
   "close": null,
   "flock": {
-   "id": "4587c44f-5084-4879-8995-0b7844c117ed",
+   "id": "82ce3be1-b2fb-4d84-858a-157a1a355392",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "a62ccadd-2ce1-4b4f-b566-7cbaea5d4b77",
+   "hall_id": "3a4b3926-99a3-433b-9401-f616e63d0615",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
@@ -1836,6 +1943,7 @@
     "from_age": 1,
     "live_end": 2979,
     "round_days": 7,
+    "expected_days": 7,
     "feed_eaten_kg": "840.000",
     "mortality_pct": "0.70",
     "mortality_cum_pct": "0.70",
@@ -1858,6 +1966,7 @@
     "from_age": 8,
     "live_end": 2975,
     "round_days": 2,
+    "expected_days": 2,
     "feed_eaten_kg": "420.000",
     "mortality_pct": "0.13",
     "mortality_cum_pct": "0.83",
@@ -1918,7 +2027,8 @@
     "vaccine_id": "d2727000-0000-4000-8000-000000000103"
    }
   ],
-  "medicines": []
+  "medicines": [],
+  "count_diffs": []
  },
  "flock_cycle_report_gaps": {
   "days": [
@@ -1941,10 +2051,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "900.000",
+    "expects_round": true,
     "feed_eaten_kg": "100.000",
     "feed_given_kg": "1000.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "900.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "100.000",
@@ -1953,6 +2065,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -1974,10 +2087,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "750.000",
+    "expects_round": true,
     "feed_eaten_kg": "150.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "750.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "250.000",
@@ -1986,6 +2101,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2010,10 +2126,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "550.000",
+    "expects_round": true,
     "feed_eaten_kg": "200.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "550.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "450.000",
@@ -2022,6 +2140,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2043,10 +2162,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "550.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "550.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "450.000",
@@ -2055,6 +2176,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2076,10 +2198,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "300.000",
+    "expects_round": true,
     "feed_eaten_kg": "250.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "300.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "700.000",
@@ -2088,6 +2212,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2109,10 +2234,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": "300.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1000.000",
@@ -2121,6 +2248,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2142,10 +2270,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1000.000",
@@ -2154,6 +2284,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2178,10 +2309,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "150.000",
+    "expects_round": true,
     "feed_eaten_kg": "350.000",
     "feed_given_kg": "500.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "150.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1350.000",
@@ -2190,6 +2323,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2211,10 +2345,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-250.000",
+    "expects_round": true,
     "feed_eaten_kg": "400.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-250.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1750.000",
@@ -2223,6 +2359,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2244,10 +2381,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-700.000",
+    "expects_round": true,
     "feed_eaten_kg": "450.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-700.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "2200.000",
@@ -2256,6 +2395,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2280,10 +2420,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-1200.000",
+    "expects_round": true,
     "feed_eaten_kg": "500.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-1200.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "2700.000",
@@ -2292,6 +2434,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 1,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 1,
     "feed_given_cum_unweighed": 1
    },
    {
@@ -2313,10 +2456,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-1200.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-1200.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "2700.000",
@@ -2325,6 +2470,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 1,
     "feed_given_cum_unweighed": 1
    }
   ],
@@ -2372,7 +2518,7 @@
      "kg": "1500.000",
      "qty": "1500",
      "name": "علف بادئ",
-     "item_id": "02412bf5-d0b8-42ea-b660-4df54a237597",
+     "item_id": "4afc03f9-6fda-480e-b3a2-8277986bca54",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -2380,7 +2526,7 @@
      "kg": null,
      "qty": "2",
      "name": "علف بلا وزن",
-     "item_id": "f328e2da-4d68-4da6-bc22-8ae3f160f0cc",
+     "item_id": "2aecc621-d66b-4072-bd46-2416796f25a1",
      "base_unit": "pc",
      "unweighed": 1
     }
@@ -2388,7 +2534,9 @@
    "unweighed": 1,
    "consumed_kg": "2700",
    "delivered_kg": "1500.000",
-   "remaining_kg": "-1200.000"
+   "remaining_kg": "-1200.000",
+   "left_in_hall_kg": "-1200.000",
+   "left_in_hall_unweighed": 1
   },
   "kpis": {
    "fcr": null,
@@ -2420,8 +2568,10 @@
    "feed_given_kg": "1500.000",
    "mortality_pct": "0.16",
    "livability_pct": "99.84",
+   "left_in_hall_kg": "-1200.000",
    "feed_carry_in_kg": "0",
-   "feed_per_bird_kg": "0.225"
+   "feed_per_bird_kg": "0.225",
+   "left_in_hall_unweighed": 1
   },
   "birds": {
    "dead": 16,
@@ -2436,13 +2586,13 @@
   },
   "close": null,
   "flock": {
-   "id": "3dbc28f7-5117-4f70-8974-e0486407ae3c",
+   "id": "e0d24362-8468-48ce-9d37-8c30e3d4409b",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-13",
    "status": "active",
    "end_age": 42,
-   "hall_id": "8fa04e5f-3db4-46c4-9677-661049420ff1",
+   "hall_id": "cbbf1dfa-df9c-49bd-ad75-b406f7a32b72",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -2486,6 +2636,7 @@
     "from_age": 0,
     "live_end": 11985,
     "round_days": 7,
+    "expected_days": 8,
     "feed_eaten_kg": "1350.000",
     "mortality_pct": "0.13",
     "mortality_cum_pct": "0.13",
@@ -2508,6 +2659,7 @@
     "from_age": 8,
     "live_end": 11981,
     "round_days": 3,
+    "expected_days": 4,
     "feed_eaten_kg": "1350.000",
     "mortality_pct": "0.03",
     "mortality_cum_pct": "0.16",
@@ -2587,7 +2739,8 @@
     "source": "log",
     "base_unit": null
    }
-  ]
+  ],
+  "count_diffs": []
  },
  "flock_cycle_report_layer": {
   "days": [
@@ -2610,10 +2763,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2622,6 +2777,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2643,10 +2799,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2655,6 +2813,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2676,10 +2835,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2688,6 +2849,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2709,10 +2871,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2721,6 +2885,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2742,10 +2907,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2754,6 +2921,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2775,10 +2943,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2787,6 +2957,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2808,10 +2979,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2820,6 +2993,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2841,10 +3015,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "0.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "0.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "0.000",
@@ -2853,6 +3029,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2874,10 +3051,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-480.000",
+    "expects_round": true,
     "feed_eaten_kg": "480.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-480.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "480.000",
@@ -2886,6 +3065,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2907,10 +3087,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-950.000",
+    "expects_round": true,
     "feed_eaten_kg": "470.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-950.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "950.000",
@@ -2919,6 +3101,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -2940,10 +3123,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "-1425.000",
+    "expects_round": true,
     "feed_eaten_kg": "475.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "-1425.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "1425.000",
@@ -2952,6 +3137,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    }
   ],
@@ -2961,7 +3147,9 @@
    "unweighed": 0,
    "consumed_kg": "1425",
    "delivered_kg": "0",
-   "remaining_kg": "-1425"
+   "remaining_kg": "-1425",
+   "left_in_hall_kg": "-1425.000",
+   "left_in_hall_unweighed": 0
   },
   "kpis": {
    "fcr": null,
@@ -2989,8 +3177,10 @@
    "feed_given_kg": "0",
    "mortality_pct": "0.10",
    "livability_pct": "99.90",
+   "left_in_hall_kg": "-1425.000",
    "feed_carry_in_kg": "0",
-   "feed_per_bird_kg": "0.356"
+   "feed_per_bird_kg": "0.356",
+   "left_in_hall_unweighed": 0
   },
   "birds": {
    "dead": 3,
@@ -3005,13 +3195,13 @@
   },
   "close": null,
   "flock": {
-   "id": "611e5d56-bfdd-4447-86e3-70dc1b20cc5b",
+   "id": "b6b5dc4f-e4ae-4cd1-93aa-6221324b581f",
    "age0": 140,
    "kind": "layer",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "305f59f0-d99f-4043-9e0d-9760782d274e",
+   "hall_id": "f26e049f-7ec5-42ec-adce-6155b276b7d9",
    "closed_on": null,
    "hall_name": "قاعة البيّاض",
    "placed_on": "2026-11-02",
@@ -3051,6 +3241,7 @@
     "from_age": 140,
     "live_end": 4000,
     "round_days": 0,
+    "expected_days": 1,
     "feed_eaten_kg": null,
     "mortality_pct": null,
     "mortality_cum_pct": "0.00",
@@ -3069,6 +3260,7 @@
     "from_age": 141,
     "live_end": 4000,
     "round_days": 0,
+    "expected_days": 7,
     "feed_eaten_kg": null,
     "mortality_pct": null,
     "mortality_cum_pct": "0.00",
@@ -3087,6 +3279,7 @@
     "from_age": 148,
     "live_end": 3996,
     "round_days": 3,
+    "expected_days": 3,
     "feed_eaten_kg": "1425.000",
     "mortality_pct": "0.10",
     "mortality_cum_pct": "0.10",
@@ -3097,7 +3290,8 @@
   "weights": [],
   "carry_in": [],
   "vaccines": [],
-  "medicines": []
+  "medicines": [],
+  "count_diffs": []
  },
  "flock_cycle_report_closed": {
   "days": [
@@ -3120,10 +3314,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "150.000",
+    "expects_round": true,
     "feed_eaten_kg": "50.000",
     "feed_given_kg": "200.000",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "150.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "50.000",
@@ -3132,6 +3328,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3153,10 +3350,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "95.000",
+    "expects_round": true,
     "feed_eaten_kg": "55.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "95.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "105.000",
@@ -3165,6 +3364,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3186,10 +3386,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "95.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "95.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "105.000",
@@ -3198,6 +3400,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3219,10 +3422,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "95.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "95.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "105.000",
@@ -3231,6 +3436,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3252,10 +3458,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "95.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "95.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "105.000",
@@ -3264,6 +3472,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3288,10 +3497,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": "70.000",
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3300,6 +3511,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3321,10 +3533,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3333,6 +3547,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3354,10 +3569,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3366,6 +3583,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3387,10 +3605,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3399,6 +3619,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3420,10 +3641,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3432,6 +3655,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3453,10 +3677,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3465,6 +3691,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3486,10 +3713,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3498,6 +3727,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3519,10 +3749,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3531,6 +3763,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3552,10 +3785,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3564,6 +3799,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3585,10 +3821,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": 0,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3597,6 +3835,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    },
    {
@@ -3618,10 +3857,12 @@
     "feed_out_kg": "0",
     "sold_net_kg": "0.000",
     "feed_left_kg": "25.000",
+    "expects_round": true,
     "feed_eaten_kg": null,
     "feed_given_kg": "0",
     "count_diff_cum": -993,
     "feed_out_cum_kg": "0",
+    "left_in_hall_kg": "25.000",
     "sold_cum_net_kg": "0.000",
     "feed_carry_in_kg": "0",
     "feed_eaten_cum_kg": "175.000",
@@ -3630,6 +3871,7 @@
     "feed_out_unweighed": 0,
     "feed_given_unweighed": 0,
     "feed_out_cum_unweighed": 0,
+    "left_in_hall_unweighed": 0,
     "feed_given_cum_unweighed": 0
    }
   ],
@@ -3653,7 +3895,7 @@
      "kg": "200.000",
      "qty": "200",
      "name": "علف بادئ",
-     "item_id": "02412bf5-d0b8-42ea-b660-4df54a237597",
+     "item_id": "4afc03f9-6fda-480e-b3a2-8277986bca54",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -3661,7 +3903,9 @@
    "unweighed": 0,
    "consumed_kg": "175",
    "delivered_kg": "200.000",
-   "remaining_kg": "25.000"
+   "remaining_kg": "25.000",
+   "left_in_hall_kg": "25.000",
+   "left_in_hall_unweighed": 0
   },
   "kpis": {
    "fcr": null,
@@ -3693,8 +3937,10 @@
    "feed_given_kg": "200.000",
    "mortality_pct": "0.70",
    "livability_pct": "99.30",
+   "left_in_hall_kg": "25.000",
    "feed_carry_in_kg": "0",
-   "feed_per_bird_kg": "0.175"
+   "feed_per_bird_kg": "0.175",
+   "left_in_hall_unweighed": 0
   },
   "birds": {
    "dead": 6,
@@ -3708,12 +3954,12 @@
    "mortality_pct": "0.70"
   },
   "close": {
-   "id": "721e549f-ecca-4388-99cc-881cf2469aeb",
+   "id": "5ba2ebcf-d5c6-4276-8a71-23bc1d94bdd0",
    "note": null,
    "lines": [],
    "status": "closed",
-   "hall_id": "6578610b-c8a5-4e83-af1b-f1aba53b2ad9",
-   "flock_id": "005c02b6-ca92-42ca-8fc6-0557fa615d43",
+   "hall_id": "cc8de354-bb20-4b35-99fc-f90d3e16755a",
+   "flock_id": "5ff72d67-50d0-4cea-8cc0-b04e5892eb20",
    "closed_on": "2026-11-04",
    "hall_name": "قاعة 4",
    "count_diff": -993,
@@ -3723,13 +3969,13 @@
    "count_reason": "نهاية الدورة"
   },
   "flock": {
-   "id": "005c02b6-ca92-42ca-8fc6-0557fa615d43",
+   "id": "5ff72d67-50d0-4cea-8cc0-b04e5892eb20",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-01",
    "status": "closed",
    "end_age": 42,
-   "hall_id": "6578610b-c8a5-4e83-af1b-f1aba53b2ad9",
+   "hall_id": "cc8de354-bb20-4b35-99fc-f90d3e16755a",
    "closed_on": "2026-11-04",
    "hall_name": "قاعة 4",
    "placed_on": "2026-10-20",
@@ -3773,6 +4019,7 @@
     "from_age": 0,
     "live_end": 993,
     "round_days": 3,
+    "expected_days": 8,
     "feed_eaten_kg": "175.000",
     "mortality_pct": "0.70",
     "mortality_cum_pct": "0.70",
@@ -3791,6 +4038,7 @@
     "from_age": 8,
     "live_end": 993,
     "round_days": 0,
+    "expected_days": 7,
     "feed_eaten_kg": null,
     "mortality_pct": null,
     "mortality_cum_pct": "0.70",
@@ -3809,6 +4057,7 @@
     "from_age": 15,
     "live_end": 0,
     "round_days": 0,
+    "expected_days": 1,
     "feed_eaten_kg": null,
     "mortality_pct": null,
     "mortality_cum_pct": "0.70",
@@ -3857,21 +4106,29 @@
     "vaccine_id": "d2727000-0000-4000-8000-000000000103"
    }
   ],
-  "medicines": []
+  "medicines": [],
+  "count_diffs": [
+   {
+    "on": "2026-11-04",
+    "birds": -993,
+    "reason": "نهاية الدورة",
+    "source": "close"
+   }
+  ]
  },
  "flock_cycles": {
   "more": false,
   "today": "2026-11-12",
   "cycles": [
    {
-    "id": "527c1754-fe58-4c67-9c1f-53bdf7cc2308",
+    "id": "a9994d2e-640a-48b2-b141-ecf6b4627405",
     "age": 7,
     "days": 4,
     "kind": "broiler",
     "live": 1997,
     "status": "active",
-    "hall_id": "f3a4fdf8-1b7d-4c5c-a182-eab6dc355e56",
-    "site_id": "4cb7cfba-1a2a-46a9-9cfc-256bc9490718",
+    "hall_id": "37b82d39-b6a0-41db-ba76-0bed3d33dc6d",
+    "site_id": "93318453-1bd0-4a51-a9dd-53ff0acd4b31",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 5",
@@ -3883,14 +4140,14 @@
     "mortality_pct": "0.15"
    },
    {
-    "id": "4587c44f-5084-4879-8995-0b7844c117ed",
+    "id": "82ce3be1-b2fb-4d84-858a-157a1a355392",
     "age": 9,
     "days": 9,
     "kind": "broiler",
     "live": 2975,
     "status": "active",
-    "hall_id": "a62ccadd-2ce1-4b4f-b566-7cbaea5d4b77",
-    "site_id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "hall_id": "3a4b3926-99a3-433b-9401-f616e63d0615",
+    "site_id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 2",
@@ -3902,14 +4159,14 @@
     "mortality_pct": "0.83"
    },
    {
-    "id": "611e5d56-bfdd-4447-86e3-70dc1b20cc5b",
+    "id": "b6b5dc4f-e4ae-4cd1-93aa-6221324b581f",
     "age": 150,
     "days": 11,
     "kind": "layer",
     "live": 3996,
     "status": "active",
-    "hall_id": "305f59f0-d99f-4043-9e0d-9760782d274e",
-    "site_id": "72030f6a-add9-4276-a2e1-3e5398f60659",
+    "hall_id": "f26e049f-7ec5-42ec-adce-6155b276b7d9",
+    "site_id": "b51e1c6b-8d46-4f79-8a92-b2e971a3dbce",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة البيّاض",
@@ -3921,14 +4178,14 @@
     "mortality_pct": "0.10"
    },
    {
-    "id": "3dbc28f7-5117-4f70-8974-e0486407ae3c",
+    "id": "e0d24362-8468-48ce-9d37-8c30e3d4409b",
     "age": 11,
     "days": 12,
     "kind": "broiler",
     "live": 11981,
     "status": "active",
-    "hall_id": "8fa04e5f-3db4-46c4-9677-661049420ff1",
-    "site_id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "hall_id": "cbbf1dfa-df9c-49bd-ad75-b406f7a32b72",
+    "site_id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 1",
@@ -3940,14 +4197,14 @@
     "mortality_pct": "0.16"
    },
    {
-    "id": "005c02b6-ca92-42ca-8fc6-0557fa615d43",
+    "id": "5ff72d67-50d0-4cea-8cc0-b04e5892eb20",
     "age": 15,
     "days": 16,
     "kind": "broiler",
     "live": 0,
     "status": "closed",
-    "hall_id": "6578610b-c8a5-4e83-af1b-f1aba53b2ad9",
-    "site_id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "hall_id": "cc8de354-bb20-4b35-99fc-f90d3e16755a",
+    "site_id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "through": "2026-11-04",
     "closed_on": "2026-11-04",
     "hall_name": "قاعة 4",
@@ -3959,14 +4216,14 @@
     "mortality_pct": "0.70"
    },
    {
-    "id": "54260c8e-af00-408b-aa50-34a150d1bba2",
+    "id": "8597ad72-d66c-479e-babf-a558acadb0ac",
     "age": 30,
     "days": 31,
     "kind": "broiler",
     "live": 0,
     "status": "closed",
-    "hall_id": "8fa04e5f-3db4-46c4-9677-661049420ff1",
-    "site_id": "5a6211b8-bd75-4759-bbf1-34fc7e4d7f1c",
+    "hall_id": "cbbf1dfa-df9c-49bd-ad75-b406f7a32b72",
+    "site_id": "6958d935-7ea7-4e57-8a96-aa23aec9149f",
     "through": "2026-10-31",
     "closed_on": "2026-10-31",
     "hall_name": "قاعة 1",

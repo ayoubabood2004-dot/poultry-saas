@@ -613,7 +613,7 @@ const birds28Seed = (variant) => async (db) => {
       const store = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
       await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today() - 2, null)', [H28(8), H28(9), H28(10), flock, feed]);
       const line = variant === 'close' ? { item_id: feed, qty: '2', action: 'return', warehouse_id: store } : { item_id: feed, qty: '2', action: 'carry' };
-      await q("select public.close_flock($1, $2, $3, public.app_today() - 1, 1000, 0, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null)",
+      await q("select public.close_flock($1, $2, $3, public.app_today() - 1, 1000, 0, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null, public.flock_close_form($3) ->> 'plan')",
         [H28(11), H28(12), flock, JSON.stringify([{ item_id: feed, qty: '5' }]), JSON.stringify([line])]);
       if (variant === 'carry') await q('select public.open_flock($1, public.app_today(), 500, 0, null, $2)', [hall, H28(13)]);
     }
@@ -1372,7 +1372,7 @@ const birds28Redone = async (db) => {
       await q('select public.save_weigh_ticket($1, null, $2::jsonb)', [H28(25), JSON.stringify(data)]);
       await q('select public.finish_weigh_ticket($1, $2, 1)', [H28(27), H28(25)]);
       await q('select public.record_bird_sale($1, $2, $3, 2, $4, 2750, 0, 0, null, null)', [H28(28), H28(29), H28(25), party]);
-      await q("select public.close_flock($1, $2, $3, public.app_today(), 885, 100, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null)",
+      await q("select public.close_flock($1, $2, $3, public.app_today(), 885, 100, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null, public.flock_close_form($3) ->> 'plan')",
         [H28(30), H28(31), flock, JSON.stringify([{ item_id: feed, qty: '5' }]), JSON.stringify([{ item_id: feed, qty: '2', action: 'return', warehouse_id: store }])]);
     }, { commit: true });
   } catch (error) {

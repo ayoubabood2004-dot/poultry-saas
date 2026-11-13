@@ -2108,7 +2108,7 @@ drop function if exists public.void_weigh_ticket(uuid, text, uuid);
 drop function if exists public.record_bird_sale(uuid, uuid, uuid, int, uuid, numeric, numeric, numeric, uuid, text);
 drop function if exists public.void_bird_sale(uuid, text, uuid);
 drop function if exists public.record_flock_count_adjust(uuid, uuid, uuid, date, int, text, int);
-drop function if exists public.close_flock(uuid, uuid, uuid, date, int, int, jsonb, text, jsonb, text);
+drop function if exists public.close_flock(uuid, uuid, uuid, date, int, int, jsonb, text, jsonb, text, text);
 drop function if exists public.reopen_flock(uuid, text, uuid);
 drop function if exists public.return_hall_carry(uuid, uuid, uuid, uuid);
 drop function if exists public.weigh_ticket(uuid);
@@ -2141,6 +2141,13 @@ drop function if exists private.return_lot(uuid, uuid, date, bigint, date, numer
 drop function if exists private.ticket_nets(uuid);
 drop function if exists private.weigh_ticket_content(uuid);
 drop function if exists private.weigh_ticket_json(uuid);
+drop function if exists private.ticket_date_block(date);
+drop function if exists private.ticket_invoice_block(public.weigh_tickets);
+drop function if exists private.bird_sale_refunded(uuid);
+drop function if exists private.flock_pool_plan(uuid);
+drop function if exists private.flock_alive_days(public.flocks, date);
+drop function if exists private.flock_left_in_hall(public.flocks, date);
+drop function if exists private.reopen_block(public.flock_closes);
 
 -- ٣) سياسة نطاق سجلّ التدقيق، ثمّ الجداول بترتيب مفاتيحها (سياساتها ومحفّزاتها وفهارسها تسقط معها):
 drop policy if exists audit_log_birds_scope on public.audit_log;
