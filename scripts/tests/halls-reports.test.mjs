@@ -23,6 +23,10 @@
 //   والتركيز) تقرأ مرّةً واحدة: null حين لا معروض أو يوم الجهاز غير يوم المعروض، و?on= يومَه حين يوم الجهاز بعد يوم الخادم في المعروض؛ و«اليوم» ظاهر ما
 //   دامت لا تتبع اليوم ويعود إليها، و«اليوم التالي» والمنتقي حدّهما يوم الخادم؛ ورفض D7 لـ?on= بعد يوم الخادم كما كان. كلّ فحص H4 يفشل على DailyPage
 //   في 9ac82f7.
+// H5 المراجعة الخامسة لـ0027 (على 4b3629d): «اليوم» وطريقه في رفض D7 وحدهما يدخلان تتبّع اليوم، والسهمان والمنتقي يطلبون يومهم صريحاً ولو كان يوم
+//   الخادم في آخر جواب (V4-N1، R-e)؛ وقرين العودة بلا إخفاء بينهما وبيوم الجهاز نفسه وخلال ثانيتين بـperformance.now (V4-N2، R-f)؛ والعودة تقرأ ما لم
+//   تعرض الصفحة تقريراً حاليّاً، صريحةً كانت أو تتبع اليوم (V4-N3، R-g). وبدّلت توقّعات D5 وR2 وفحوص H4 (الجهاز خلف بساعة، وقبل أيّ جواب، وZ1b
+//   ومنتقيه، وZ2) التي كانت تتبع اليوم عند يوم الخادم. كلّ فحص H5 يفشل على DailyPage في 4b3629d.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -523,10 +527,13 @@ export default async function (t) {
         'D5 «اليوم السابق»: اليوم في الرابط والنداء والعنوان، و«اليوم التالي» مفتوح و«اليوم» ظاهر',
       );
       await click(byAction('day-next')[0]);
-      t.same([globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), bar().next], ['/halls/day', { p_on: null }, true], 'D5 «اليوم التالي» إلى يوم الخادم يتبع اليوم: الرابط بلا ?on= والنداء null (H4 R-c)');
-      await click(byAction('day-prev')[0]);
-      await click(byAction('day-today')[0]);
-      t.same([globalThis.__hr.location, bar().today], ['/halls/day', 0], 'D5 «اليوم» يعود إلى اليوم');
+      t.same(
+        [globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), textOf('day-title'), bar()],
+        [`/halls/day?on=${TODAY}`, { p_on: TODAY }, `تقرير القاعات اليومي — ${fmt(TODAY)}`, { prev: false, next: true, today: 1, pick: fmt(TODAY) }],
+        'D5 «اليوم التالي» إلى يوم الخادم يطلبه صريحاً: الرابط والنداء بـ?on= (H5 R-e؛ كان يتبع اليوم بـnull)، و«اليوم التالي» مقفول عنده و«اليوم» ظاهر',
+      );
+      if (byAction('day-today')[0]) await click(byAction('day-today')[0]);
+      t.same([globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), bar().today], ['/halls/day', { p_on: null }, 0], 'D5 «اليوم» يعود إلى تتبّع اليوم: الرابط بلا ?on= والنداء null');
       await click(byAction('day-pick')[0]);
       const input = () => descendants(dialog()).find((n) => n.getAttribute('data-action') === 'day-pick-input');
       t.same([Boolean(dialog()), input()?.value], [true, fmt(TODAY)], 'D5 المنتقي باليوم المطلوب يوم/شهر/سنة');
@@ -1057,9 +1064,10 @@ export default async function (t) {
       // ?on= صريحاً تحت يوم الخادم بعد منتصف ليله، وV3-H1-STEP-AFTER-UNMOUNT: الخطوة الهادئة تقرأ بعد مغادرة الصفحة). فحُذف الاختيار كلّه:
       // R-a بلا ?on= (أو بيوم غير موجود) halls_day(null)، فلا يصل الصفحةَ التي تتبع اليوم رفضُ يومٍ لم يأتِ.
       // R-b العودة (الظهور والتركيز) تقرأ مرّةً: وهي تتبع اليوم null حين لا معروض أو يوم الجهاز غير يوم المعروض، وبـ?on= يومَه حين يوم الجهاز بعد يوم الخادم
-      //     في المعروض؛ وحدثا العودة الواحدة قراءة واحدة، ولا مؤقّت ولا حلقة، ولا نداء بعد مغادرة الصفحة.
-      // R-c «اليوم» ظاهر ما دامت لا تتبع اليوم ويعود إليها؛ و«اليوم التالي» ما دام المطلوب قبل يوم الخادم، وإلى يوم الخادم نفسه تتبع اليوم؛ والمنتقي حدّه
-      //     يوم الخادم (ويوم الجهاز قبل أيّ جواب وحده).
+      //     في المعروض؛ وحدثا العودة الواحدة قراءة واحدة، ولا مؤقّت ولا حلقة، ولا نداء بعد مغادرة الصفحة. (ووسّعتها H5: R-g تقرأ أيضاً حين لا تقرير حاليّ،
+      //     وR-f تحدّ القرين بيوم الجهاز وثانيتين.)
+      // R-c «اليوم» ظاهر ما دامت لا تتبع اليوم ويعود إليها؛ و«اليوم التالي» ما دام المطلوب قبل يوم الخادم؛ والمنتقي حدّه يوم الخادم (ويوم الجهاز قبل أيّ
+      //     جواب وحده). (وكان «اليوم التالي» والمنتقي إلى يوم الخادم نفسه يتبعان اليوم؛ ومنذ H5 R-e يطلبان يومهما صريحاً.)
       // R-d ?on= صريح بعد يوم الخادم برفض D7 وطريقه كما كان، وفشل الشبكة «تعذّر» والمعروض آخر ما قُرئ بتاريخه.
       // والعودة هنا كما في الهاتف: مغادرة (الإخفاء وترك التركيز) ثمّ الظهور فالتركيز (comeBack)؛ وفحص الحدثين يجرّب الترتيبين وبلا مغادرة أيضاً.
       const FUTURE = 'لا تقرير ليوم لم يأتِ بعد.';
@@ -1250,11 +1258,11 @@ export default async function (t) {
             [
               ['تقرير القاعات اليومي — 12/11/2026', true, 1],
               [[{ p_on: '2026-11-12' }, { p_on: '2026-11-12' }], ['تقرير القاعات اليومي — 12/11/2026', false, 1], '/halls/day?on=2026-11-12'],
-              [false, '/halls/day'],
-              { p_on: null },
+              [false, '/halls/day?on=2026-11-13'],
+              { p_on: '2026-11-13' },
               'تقرير القاعات اليومي — 13/11/2026',
             ],
-            'R2 بـ?on=2026-11-12: «اليوم» ظاهر، والعودة صباحاً تقرأ يومها من جديد ولا تغيّره، وجوابها بيوم الخادم 13/11 يفتح «اليوم التالي»، والمنتقي يقبل 13/11 فيتبع اليوم بـnull',
+            'R2 بـ?on=2026-11-12: «اليوم» ظاهر، والعودة صباحاً تقرأ يومها من جديد ولا تغيّره، وجوابها بيوم الخادم 13/11 يفتح «اليوم التالي»، والمنتقي يقبل 13/11 فيطلبه صريحاً بـ?on= (H5 R-e؛ كان يتبع اليوم بـnull)',
           );
         } finally {
           clock.restore();
@@ -1286,17 +1294,23 @@ export default async function (t) {
       });
 
       await step('H4 والجهاز خلف الخادم بساعة: الفتح يعرض يوم الخادم (بعد يوم الجهاز) بـnull والمنتقي يقبله، والعودة تقرأ ما دام يوم الجهاز غير يوم المعروض', async () => {
-        const out = await walk(-1, [[12, 23, 30], [12, 23, 45], [13, 0, 10], [13, 23, 30], [14, 0, 10]], async (rpcLog) => [await pickRefuses('2026-11-14'), await pickDay('2026-11-13'), calls(rpcLog)]);
+        // المنتقي بيوم الخادم يطلبه صريحاً (H5 R-e)، ثمّ «اليوم» يعيد الصفحة تتبع اليوم قبل العودات.
+        const out = await walk(-1, [[12, 23, 30], [12, 23, 45], [13, 0, 10], [13, 23, 30], [14, 0, 10]], async (rpcLog) => {
+          const refused = await pickRefuses('2026-11-14');
+          const picked = [await pickDay('2026-11-13'), dayView()];
+          if (byAction('day-today')[0]) await click(byAction('day-today')[0]);
+          return [refused, picked, calls(rpcLog), dayView()];
+        });
         t.same(
           out,
           [
-            [...moment('2026-11-13', [null]), [[true, '/halls/day'], [false, '/halls/day'], [null]]],
+            [...moment('2026-11-13', [null]), [[true, '/halls/day'], [[false, '/halls/day?on=2026-11-13'], onView('2026-11-13', false)], [null, '2026-11-13', null], followView('2026-11-13')]],
             moment('2026-11-13', [null]),
             moment('2026-11-13', []),
             moment('2026-11-14', [], '2026-11-13'),
             moment('2026-11-14', [null]),
           ],
-          'H4 الجهاز 23:30 يوم 12/11 والخادم 00:30 يوم 13/11: null فيُعرض 13/11 حاليّاً (كان يوم الجهاز 12/11)، والمنتقي يقبل 13/11 بلا نداء ويرفض 14/11؛ والعودة تقرأ مرّة ما دام يوم الجهاز غير يوم المعروض (R-b)، فبعد منتصف ليل الخادم تنتقل من أوّل عودة بعد منتصف ليل الجهاز',
+          'H4 الجهاز 23:30 يوم 12/11 والخادم 00:30 يوم 13/11: null فيُعرض 13/11 حاليّاً (كان يوم الجهاز 12/11)، والمنتقي يرفض 14/11 ويقبل 13/11 فيطلبه صريحاً (H5 R-e؛ كان يتبع اليوم بلا نداء) و«اليوم» يعيده إلى تتبّع اليوم؛ والعودة تقرأ مرّة ما دام يوم الجهاز غير يوم المعروض (R-b)، فبعد منتصف ليل الخادم تنتقل من أوّل عودة بعد منتصف ليل الجهاز',
         );
       });
 
@@ -1323,7 +1337,7 @@ export default async function (t) {
         }
       });
 
-      await step('H4 قبل أيّ جواب: بلا ?on= لا تاريخ ولا «اليوم السابق»، وبـ?on= حدّ المنتقي يوم الجهاز وحده ويومُ الجهاز فيه يتبع اليوم بـnull', async () => {
+      await step('H4 قبل أيّ جواب: بلا ?on= لا تاريخ ولا «اليوم السابق»، وبـ?on= حدّ المنتقي يوم الجهاز وحده ويومُ الجهاز فيه يُطلب صريحاً', async () => {
         const clock = aheadClock({ day: 13, hour: 0, minute: 30 });
         try {
           let gate = gated(aheadServer(clock));
@@ -1345,17 +1359,20 @@ export default async function (t) {
           gate.release();
           await settle();
           await settle();
+          const landed = [dayView(), textOf('day-refusal-way')];
+          if (byAction('day-refusal-way')[0]) await click(byAction('day-refusal-way')[0]);
           t.same(
-            [waiting, answered, before, refused, picked, dayView()],
+            [waiting, answered, before, refused, picked, landed, [calls(rpcLog).slice(2), dayView()]],
             [
               ['تقرير القاعات اليومي', 'اليوم', true, true, 0, 'جارٍ الفتح…', [null]],
               followView('2026-11-12'),
               ['تقرير القاعات اليومي — 10/11/2026', '10/11/2026', true, 1],
               [true, '/halls/day?on=2026-11-10'],
-              [false, '/halls/day', ['2026-11-10', null]],
-              followView('2026-11-12'),
+              [false, '/halls/day?on=2026-11-13', ['2026-11-10', '2026-11-13']],
+              [onView('2026-11-13', false, { refused: true, print: true, share: true }), 'اليوم السابق'],
+              [['2026-11-12'], onView('2026-11-12', false)],
             ],
-            'H4 قبل الجواب بلا ?on=: العنوان بلا تاريخ و«اليوم» مكان التاريخ (لا يوم الجهاز)، و«اليوم السابق» و«اليوم التالي» مقفولان؛ وبـ?on= قبل الجواب يرفض المنتقي ما بعد يوم الجهاز ويوم الجهاز فيه يتبع اليوم بـnull فيُعرض يوم الخادم بلا رفض',
+            'H4 قبل الجواب بلا ?on=: العنوان بلا تاريخ و«اليوم» مكان التاريخ (لا يوم الجهاز)، و«اليوم السابق» و«اليوم التالي» مقفولان؛ وبـ?on= قبل الجواب يرفض المنتقي ما بعد يوم الجهاز، ويومُ الجهاز فيه يُطلب صريحاً (H5 R-e؛ كان يتبع اليوم بـnull) فيرفضه الخادم الذي لم يبلغه برفض D7 وطريقه «اليوم السابق» إلى يوم الخادم',
           );
         } finally {
           clock.restore();
@@ -1394,16 +1411,16 @@ export default async function (t) {
               ['2026-11-13', [], onView('2026-11-12', true)],
               ['2026-11-14', ['2026-11-12'], onView('2026-11-12', true)],
               [['2026-11-13'], onView('2026-11-13', true)],
-              [[null], followView('2026-11-14')],
+              [['2026-11-14'], onView('2026-11-14', false)],
             ],
-            'H4 Z1b ?on=12/11 الساعة 00:30 يوم 13/11: «اليوم التالي» مقفول عند يوم الخادم والمنتقي يرفض 13/11؛ وكلّ عودة ويوم الجهاز بعد يوم الخادم في المعروض تقرأ 12/11 من جديد، فبعد منتصف ليل الخادم ينفتح «اليوم التالي» (ولا قراءة ما دام يوم الجهاز يوم الخادم)؛ وصباح 14/11 يصل إلى 13/11 ثمّ يتبع اليوم بـnull، و«اليوم» ظاهر طوال ?on=',
+            'H4 Z1b ?on=12/11 الساعة 00:30 يوم 13/11: «اليوم التالي» مقفول عند يوم الخادم والمنتقي يرفض 13/11؛ وكلّ عودة ويوم الجهاز بعد يوم الخادم في المعروض تقرأ 12/11 من جديد، فبعد منتصف ليل الخادم ينفتح «اليوم التالي» (ولا قراءة ما دام يوم الجهاز يوم الخادم)؛ وصباح 14/11 يصل إلى 13/11 ثمّ إلى 14/11 صريحاً (H5 R-e؛ كان يتبع اليوم بـnull) فيُقفل عنده، و«اليوم» ظاهر طوال ?on=',
           );
         } finally {
           clock.restore();
         }
       });
 
-      await step('H4 V3-H1-ON-CAP Z1b والمنتقي: بعد منتصف ليل الخادم يقبل يوم الخادم فتتبع الصفحة اليوم', async () => {
+      await step('H4 V3-H1-ON-CAP Z1b والمنتقي: بعد منتصف ليل الخادم يقبل يوم الخادم ويطلبه صريحاً', async () => {
         const clock = aheadClock({ day: 13, hour: 0, minute: 30 });
         try {
           const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
@@ -1413,8 +1430,8 @@ export default async function (t) {
           const returned = [calls(rpcLog), dayView()];
           t.same(
             [returned, await pickDay('2026-11-13'), calls(rpcLog).slice(2), dayView()],
-            [[['2026-11-12', '2026-11-12'], onView('2026-11-12', true)], [false, '/halls/day'], [null], followView('2026-11-13')],
-            'H4 Z1b العودة صباح 13/11 تقرأ 12/11 فيحمل جوابه يوم الخادم 13/11، والمنتقي يقبل 13/11 فتتبع الصفحة اليوم بـnull',
+            [[['2026-11-12', '2026-11-12'], onView('2026-11-12', true)], [false, '/halls/day?on=2026-11-13'], ['2026-11-13'], onView('2026-11-13', false)],
+            'H4 Z1b العودة صباح 13/11 تقرأ 12/11 فيحمل جوابه يوم الخادم 13/11، والمنتقي يقبل 13/11 فيطلبه صريحاً بـ?on= (H5 R-e؛ كان يتبع اليوم بـnull)',
           );
         } finally {
           clock.restore();
@@ -1439,9 +1456,9 @@ export default async function (t) {
               [['2026-11-13'], onView('2026-11-13', false, { refused: true, print: true, share: true }), 'اليوم السابق'],
               [['2026-11-12'], onView('2026-11-12', false)],
               [['2026-11-12'], onView('2026-11-12', true)],
-              [[null], followView('2026-11-13')],
+              [['2026-11-13'], onView('2026-11-13', false)],
             ],
-            'H4 Z2 ?on=13/11 والخادم على 12/11: رفض D7 بطريقه «اليوم السابق» إلى 12/11 و«اليوم التالي» مقفول عنده؛ والعودة بعد منتصف ليل الخادم تقرأ 12/11 فينفتح «اليوم التالي» إلى 13/11 ويتبع اليوم بـnull',
+            'H4 Z2 ?on=13/11 والخادم على 12/11: رفض D7 بطريقه «اليوم السابق» إلى 12/11 و«اليوم التالي» مقفول عنده؛ والعودة بعد منتصف ليل الخادم تقرأ 12/11 فينفتح «اليوم التالي» إلى 13/11 صريحاً (H5 R-e؛ كان يتبع اليوم بـnull)',
           );
         } finally {
           clock.restore();
@@ -1702,6 +1719,248 @@ export default async function (t) {
             [[followView('2026-11-12'), [null, null]], onView('2026-11-11', true), [null, null, '2026-11-11']],
             'H4 والقراءة في الطريق يبقى المعروض 12/11 حاليّاً بهدوء؛ و«اليوم السابق» منه إلى 11/11 صريحاً يغلب جوابَ null المتأخّر، بلا نداء بعده',
           );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      // ── H5 (المراجعة الخامسة لـ0027، على 4b3629d: ثلاثة عيوب أثبتها مراجع الجولة الرابعة) ─────────────────────────────────────────────────────
+      // R-e «اليوم» وطريقه في رفض D7 وحدهما يدخلان تتبّع اليوم (go(null))؛ و«اليوم السابق» و«اليوم التالي» والمنتقي تطلب يومها صريحاً بـ?on= ولو كان يومَ
+      //     الخادم في آخر جواب أو يومَ الجهاز، فلا تعرض الصفحة غير اليوم المطلوب (V4-N1: كان «اليوم التالي» إلى يوم الخادم يتبع اليوم، فبعد منتصف ليل الخادم
+      //     يُعرض اليوم الجديد ويُتخطّى المطلوب). ولا رجوع إلى التتبّع حين يأتي جوابٌ صريح يومُه يومُ الخادم: القاعدة تبقى بسيطة.
+      // R-f الحدث من النوع الآخر قرينُ العودة الجارية ما لم يفصلهما إخفاء، وبيوم الجهاز نفسه، وخلال PARTNER_MS (ثانيتان) من بدئها بـperformance.now؛ وإلّا
+      //     عودةٌ جديدة (V4-N2: ظهورٌ بلا تركيز مساءً ابتلع تركيز الصباح فبقي الأمس حاليّاً).
+      // R-g العودة (لا قرينها، ولا قراءة في الطريق) تقرأ ما لم تعرض الصفحة تقريراً حاليّاً: لا معروض، أو رفضٌ أو فشلٌ صريحةً كانت أو تتبع اليوم، أو يومٌ
+      //     تغيّر كما في R-b (V4-N3: يومٌ صريح رُفض أو فشلت قراءته لم يُقرأ ثانيةً).
+      // كلّ فحص H5 يفشل على DailyPage في 4b3629d.
+      await step('H5 V4-N1 «اليوم التالي» والمنتقي إلى يوم الخادم في آخر جواب بعد منتصف ليله: يُعرض اليوم المطلوب صريحاً لا يوم الخادم الجديد', async () => {
+        const out = [];
+        // الساعتان متّفقتان: ?on=12/11 يُفتح الساعة 23:50 يوم 13/11 (جوابه بيوم الخادم 13/11)، ثمّ بعد منتصف الليل بلا عودة «اليوم التالي» أو المنتقي بـ13/11.
+        for (const [label, act] of [
+          ['«اليوم التالي»', () => click(byAction('day-next')[0])],
+          ['المنتقي بـ13/11', () => pickDay('2026-11-13')],
+        ]) {
+          const clock = aheadClock({ day: 13, hour: 23, minute: 50, lag: 0 });
+          try {
+            const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+            await mount('/halls/day?on=2026-11-12');
+            const opened = dayView();
+            clock.at(14, 0, 10);
+            await act();
+            await settle();
+            out.push([label, opened, calls(rpcLog), dayView()]);
+          } finally {
+            await unmount();
+            clock.restore();
+          }
+        }
+        // والجهاز خلف الخادم بساعة: العودة الساعة 23:30 بالجهاز (00:30 يوم 14/11 عند الخادم) لا تقرأ، فيومُ الجهاز يومُ الخادم في المعروض؛ ثمّ «اليوم التالي».
+        const clock = aheadClock({ day: 13, hour: 20, minute: 0, lag: -1 });
+        try {
+          const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day?on=2026-11-12');
+          const opened = dayView();
+          clock.at(13, 23, 30);
+          await comeBack();
+          const returned = calls(rpcLog);
+          await click(byAction('day-next')[0]);
+          out.push(['الجهاز خلف بساعة بعد عودة', opened, [returned, calls(rpcLog)], dayView()]);
+        } finally {
+          clock.restore();
+        }
+        t.same(
+          out,
+          [
+            ['«اليوم التالي»', onView('2026-11-12', true), ['2026-11-12', '2026-11-13'], onView('2026-11-13', true)],
+            ['المنتقي بـ13/11', onView('2026-11-12', true), ['2026-11-12', '2026-11-13'], onView('2026-11-13', true)],
+            ['الجهاز خلف بساعة بعد عودة', onView('2026-11-12', true), [['2026-11-12'], ['2026-11-12', '2026-11-13']], onView('2026-11-13', true)],
+          ],
+          'H5 V4-N1 ?on=12/11 وجواب آخر قراءة بيوم الخادم 13/11 ثمّ جاوز الخادم منتصف ليله: «اليوم التالي» والمنتقي بـ13/11 يطلبان 13/11 صريحاً فيُعرض 13/11 وجوابه يفتح «اليوم التالي» إلى 14/11 (كان null فيُعرض 14/11 ويُتخطّى 13/11)؛ والساعتان متّفقتان، أو الجهاز خلف بساعة بعد عودة لا تقرأ',
+        );
+      });
+
+      await step('H5 R-e من تتبّع اليوم: المنتقي بيوم الخادم يطلبه صريحاً، و«اليوم» وحده يعيد التتبّع', async () => {
+        const out = [];
+        for (const [label, start, server] of [
+          ['متّفقتان', { day: 13, hour: 10, minute: 0, lag: 0 }, '2026-11-13'],
+          ['الجهاز أمام بساعة', { day: 13, hour: 0, minute: 30, lag: 1 }, '2026-11-12'],
+          ['الجهاز خلف بساعة', { day: 12, hour: 23, minute: 30, lag: -1 }, '2026-11-13'],
+        ]) {
+          const clock = aheadClock(start);
+          try {
+            const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+            await mount('/halls/day');
+            const picked = [await pickDay(server), dayView()];
+            if (byAction('day-today')[0]) await click(byAction('day-today')[0]);
+            out.push([label, picked, calls(rpcLog), dayView()]);
+          } finally {
+            await unmount();
+            clock.restore();
+          }
+        }
+        t.same(
+          out,
+          [
+            ['متّفقتان', [[false, '/halls/day?on=2026-11-13'], onView('2026-11-13', false)], [null, '2026-11-13', null], followView('2026-11-13')],
+            ['الجهاز أمام بساعة', [[false, '/halls/day?on=2026-11-12'], onView('2026-11-12', false)], [null, '2026-11-12', null], followView('2026-11-12')],
+            ['الجهاز خلف بساعة', [[false, '/halls/day?on=2026-11-13'], onView('2026-11-13', false)], [null, '2026-11-13', null], followView('2026-11-13')],
+          ],
+          'H5 R-e والصفحة تتبع اليوم: المنتقي بيوم الخادم يطلبه صريحاً بـ?on= فيُعرض و«اليوم التالي» مقفول عنده و«اليوم» ظاهر (كان يتبع اليوم بلا نداء)، و«اليوم» يعيدها تتبع اليوم بـnull؛ والساعتان متّفقتان والجهاز أمام بساعة وخلف بساعة',
+        );
+      });
+
+      await step('H5 V4-N2 ظهورٌ بلا تركيز مساءً ثمّ تركيزٌ صباحاً بلا إخفاء بينهما عودتان: التركيز صباحاً يقرأ', async () => {
+        const out = [];
+        for (const url of ['/halls/day', '/halls/day?on=2026-11-11']) {
+          const clock = aheadClock({ day: 12, hour: 22, minute: 0, lag: 0 });
+          try {
+            const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+            await mount(url);
+            // النافذة تُغطّى ثمّ تنكشف الساعة 22:30 بلا تفعيل (ظهور بلا تركيز)، ثمّ نقرة فيها الساعة الثامنة صباح 13/11 (تركيز بلا إخفاء بينهما).
+            await leave();
+            clock.at(12, 22, 30);
+            showPage();
+            await settle();
+            const evening = calls(rpcLog);
+            clock.at(13, 8, 0);
+            focusWindow();
+            await settle();
+            const morning = [calls(rpcLog), dayView()];
+            out.push([url, evening, morning, url === '/halls/day' ? null : await pickDay('2026-11-13')]);
+          } finally {
+            await unmount();
+            clock.restore();
+          }
+        }
+        t.same(
+          out,
+          [
+            ['/halls/day', [null], [[null, null], followView('2026-11-13')], null],
+            ['/halls/day?on=2026-11-11', ['2026-11-11'], [['2026-11-11', '2026-11-11'], onView('2026-11-11', true)], [false, '/halls/day?on=2026-11-13']],
+          ],
+          'H5 V4-N2 الصفحة تُخفى ثمّ تظهر الساعة 22:30 بلا تركيز (لا قراءة)، ثمّ تركيزٌ صباح 13/11 بلا إخفاء بينهما: يومُ الجهاز غير يوم بدء العودة فهو عودةٌ جديدة تقرأ؛ فتتبّع اليوم يعرض 13/11، و?on=11/11 يقرأ يومه فيحمل جوابه 13/11 إلى المنتقي (كان التركيز قرينَ ظهور المساء فلا قراءة)',
+        );
+      });
+
+      await step('H5 R-f قرينٌ يصل بعد أكثر من ثانيتين من بدء العودة باليوم نفسه عودةٌ جديدة، وخلالهما قرين', async () => {
+        // performance.now مزيّفة تُقدَّم باليد (لا تتبع Date المزيّفة)، وتُعاد في finally.
+        const perf = globalThis.performance;
+        const own = Object.getOwnPropertyDescriptor(perf, 'now');
+        const real = perf.now.bind(perf);
+        let shift = 0;
+        const out = [];
+        try {
+          Object.defineProperty(perf, 'now', { value: () => real() + shift, configurable: true, writable: true });
+          for (const [label, later] of [
+            ['بعد أكثر من ثانيتين', 2_001],
+            ['خلال ثانيتين', 1_500],
+          ]) {
+            // تتبع اليوم والجهاز أمام بساعة: العودة بالظهور وحده تقرأ null فتفشل بلا شبكة، ثمّ تركيزٌ بلا إخفاء وقد عادت الشبكة.
+            const clock = aheadClock({ day: 13, hour: 0, minute: 30, lag: 1 });
+            let offline = false;
+            try {
+              const server = aheadServer(clock);
+              const rpcLog = fresh(OWNER, { halls_day: (args) => (offline ? Promise.reject(new m.NetworkError()) : server(args)) });
+              await mount('/halls/day');
+              offline = true;
+              await leave();
+              showPage();
+              await settle();
+              const failed = [calls(rpcLog), dayView()];
+              offline = false;
+              shift += later;
+              focusWindow();
+              for (let i = 0; i < 3; i += 1) await settle();
+              out.push([label, failed, calls(rpcLog), dayView()]);
+            } finally {
+              await unmount();
+              clock.restore();
+            }
+          }
+        } finally {
+          if (own) Object.defineProperty(perf, 'now', own);
+          else delete perf.now;
+        }
+        const stale = followView('2026-11-12', { stale: 'المعروض تقرير يوم 12/11/2026، آخر ما قُرئ بنجاح.', failed: 1, print: true, share: true });
+        t.same(
+          out,
+          [
+            ['بعد أكثر من ثانيتين', [[null, null], stale], [null, null, null], followView('2026-11-12')],
+            ['خلال ثانيتين', [[null, null], stale], [null, null], stale],
+          ],
+          'H5 R-f الصفحة تتبع اليوم وقراءة عودتها (الظهور وحده) فشلت بلا شبكة: تركيزٌ بلا إخفاء باليوم نفسه بعد أكثر من ثانيتين عودةٌ جديدة تقرأ null مرّةً فيعود 12/11 حاليّاً (كان قرينَها فبقيت «تعذّر»)، وخلال ثانيتين قرينٌ لا يقرأ (حدثا العودة الواحدة قراءة واحدة)',
+        );
+      });
+
+      await step('H5 V4-N3 العودة تقرأ ما لم تعرض الصفحة تقريراً حاليّاً: يومٌ صريح رُفض أو فشلت قراءته، وفشلٌ والمعروض قبله باقٍ بـ?on= أو والصفحة تتبع اليوم', async () => {
+        const out = [];
+        const kept = (day) => `المعروض تقرير يوم ${fmt(day)}، آخر ما قُرئ بنجاح.`;
+        const refused = (day) => onView(day, false, { refused: true, print: true, share: true });
+        for (const [label, start, url, offline, later] of [
+          ['رفض يوم الجهاز والجهاز أمام بساعة', { day: 13, hour: 0, minute: 30, lag: 1 }, '/halls/day?on=2026-11-13', null, [13, 8, 0]],
+          ['رفضٌ والعودة قبل منتصف ليل الخادم', { day: 13, hour: 0, minute: 30, lag: 1 }, '/halls/day?on=2026-11-13', null, [13, 0, 45]],
+          ['رفض الغد والساعتان متّفقتان', { day: 12, hour: 23, minute: 50, lag: 0 }, '/halls/day?on=2026-11-13', null, [13, 8, 0]],
+          ['فشل القراءة الأولى بلا شبكة', { day: 13, hour: 10, minute: 0, lag: 0 }, '/halls/day?on=2026-11-11', 'open', [13, 11, 0]],
+          ['فشل «اليوم السابق» والمعروض قبله باقٍ', { day: 13, hour: 10, minute: 0, lag: 0 }, '/halls/day?on=2026-11-11', 'day-prev', [13, 11, 0]],
+          ['فشل «اليوم» والمعروض قبله باقٍ', { day: 13, hour: 10, minute: 0, lag: 0 }, '/halls/day?on=2026-11-13', 'day-today', [13, 11, 0]],
+        ]) {
+          const clock = aheadClock(start);
+          try {
+            let down = offline === 'open';
+            const server = aheadServer(clock);
+            const rpcLog = fresh(OWNER, { halls_day: (args) => (down ? Promise.reject(new m.NetworkError()) : server(args)) });
+            await mount(url);
+            if (offline !== null && offline !== 'open') {
+              down = true;
+              await click(byAction(offline)[0]);
+            }
+            const opened = dayView();
+            down = false;
+            clock.at(...later);
+            await comeBack();
+            for (let i = 0; i < 3; i += 1) await settle();
+            out.push([label, opened, calls(rpcLog), dayView()]);
+          } finally {
+            await unmount();
+            clock.restore();
+          }
+        }
+        t.same(
+          out,
+          [
+            ['رفض يوم الجهاز والجهاز أمام بساعة', refused('2026-11-13'), ['2026-11-13', '2026-11-13'], onView('2026-11-13', false)],
+            ['رفضٌ والعودة قبل منتصف ليل الخادم', refused('2026-11-13'), ['2026-11-13', '2026-11-13'], refused('2026-11-13')],
+            ['رفض الغد والساعتان متّفقتان', refused('2026-11-13'), ['2026-11-13', '2026-11-13'], onView('2026-11-13', false)],
+            ['فشل القراءة الأولى بلا شبكة', onView('2026-11-11', false, { failed: 1, print: true, share: true }), ['2026-11-11', '2026-11-11'], onView('2026-11-11', true)],
+            [
+              'فشل «اليوم السابق» والمعروض قبله باقٍ',
+              onView('2026-11-10', true, { title: 'تقرير القاعات اليومي — 11/11/2026', stale: kept('2026-11-11'), failed: 1, print: true, share: true }),
+              ['2026-11-11', '2026-11-10', '2026-11-10'],
+              onView('2026-11-10', true),
+            ],
+            ['فشل «اليوم» والمعروض قبله باقٍ', followView('2026-11-13', { stale: kept('2026-11-13'), failed: 1, print: true, share: true }), ['2026-11-13', null, null], followView('2026-11-13')],
+          ],
+          'H5 V4-N3 العودة (الإخفاء ثمّ الظهور والتركيز) تقرأ مطلوبها مرّةً حين لا تعرض الصفحة تقريراً حاليّاً: ?on= مرفوض يُقرأ فيُعرض بعد أن يبلغه الخادم (الجهاز أمام بساعة، والساعتان متّفقتان) ويبقى مرفوضاً قبله بلا حلقة، و?on= فشلت قراءته الأولى بلا شبكة، وفشلُ «اليوم السابق» أو «اليوم» والمعروض قبله باقٍ بتاريخه ولو كان يوم الجهاز يوم الخادم فيه (كانت لا تقرأ في الستّ)',
+        );
+        // وقراءة العودة لليوم المرفوض في الطريق حين تُغادَر الصفحة: لا نداء بعدها ولو ظهرت الصفحة أو عاد التركيز، ولا مستمع باقٍ.
+        const base = listeners();
+        const clock = aheadClock({ day: 13, hour: 0, minute: 30, lag: 1 });
+        try {
+          const gate = gated(aheadServer(clock));
+          const rpcLog = fresh(OWNER, { halls_day: gate.handler });
+          await mount('/halls/day?on=2026-11-13');
+          clock.at(13, 8, 0);
+          gate.close();
+          await comeBack();
+          const inFlight = calls(rpcLog);
+          await unmount();
+          const atUnmount = calls(rpcLog).length;
+          gate.release();
+          await settle();
+          showPage();
+          focusWindow();
+          await settle();
+          t.same([inFlight, calls(rpcLog).slice(atUnmount), listeners()], [['2026-11-13', '2026-11-13'], [], base], 'H5 V4-N3 قراءة العودة لليوم المرفوض في الطريق ثمّ مغادرة الصفحة: لا نداء بعدها ولو ظهرت الصفحة أو عاد التركيز، ولا مستمع باقٍ');
         } finally {
           clock.restore();
         }
