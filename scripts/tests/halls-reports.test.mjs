@@ -16,6 +16,13 @@
 // R مراجعة 0027 (R1–R5 وN1–N2، على 52ca9fd: feed_given_cum_unweighed وfeed_given_unweighed في المجاميع): مجاميع «النازل» بسطور اليوم بلا وزن، و«الباقي
 //   في القاعة» بسطوره بلا وزن حتى اليوم وسبب سالبه، وتقرير مفتوح بعد منتصف الليل (ساعة مزيّفة)، والتقويم يحمل رجوعه وكلّ قارئ لـ?back= يقبل الأطول
 //   ويرفض الغريب، و«التقارير» بالتقارير القائمة لمن يفتحها الشريط. كلّ فحص منها يفشل على 52ca9fd بمفاتيح المحلّل وحدها.
+// RR27 المراجعة الثانية لـ0027 (على 781f78b): ساعة الجهاز أمام الخادم بساعة لا تقلب التقرير المعروض إلى رفض اليوم القادم حين تعود الصفحة ظاهرةً، والحدّ
+//   يوم الخادم حتى يحمل جوابٌ يوماً أبعد (F4a)؛ وزرّ رجوع جدول اللقاحات يسمّي التقويم (R4b)؛ وسبب الباقي السالب على الموزون وحده حين نزل علف بلا وزن
+//   (F2a). كلّ فحص منها يفشل على 781f78b.
+// H1 المراجعة الثالثة لـ0027 (على 8e32229، V2-G1-STALE-CAP، بدل التقرير المحبوس): والصفحة تتبع اليوم تسأل عن يوم الجهاز، ورفضُه خطوةٌ هادئة واحدة إلى
+//   اليوم قبله يُعرض حاليّاً (والفتح كذلك)، ورفضُ الخطوة نفسها رفضُ D7 بطريقه؛ والحدّ يوم الخادم في آخر جواب ما دام قبل يوم الجهاز المرفوض؛ وكلّ عودة ويومُ
+//   الجهاز بعد يوم الخادم في المعروض تسأل مرّة، وحدثا العودة الواحدة سؤال واحد. فحوص V1 وV2 واليومين والفتح ومنتصف الليل بين النداءين تفشل على 8e32229،
+//   وفحص فشل الشبكة يحرس ما كان.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -384,7 +391,7 @@ export default async function (t) {
         ],
         [
           ['لم تُسجَّل الجولة'],
-          ['—', '—', '—', '500 كغموسطر واحد بلا وزن', `${LRI}-100${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل للقاعة.`, '—آخر وزن 150.0 يوم 10/11/2026'],
+          ['—', '—', '—', '500 كغموسطر واحد بلا وزن', `${LRI}-100${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.`, '—آخر وزن 150.0 يوم 10/11/2026'],
           0,
           ['NDاليوم'],
         ],
@@ -435,7 +442,7 @@ export default async function (t) {
           ['قاعة 1التقويمتقرير الدورة', '6', '11,990', '3', '0', '11,987', '0.11%', '350', '0', '799.5', '180.5', 'أموكسيسيلين 500 غرام (0.5 كغم)فيتامين AD3E (1 مل لكلّ لتر)IBتمّNDاليوم', 'تهوية جيّدة'],
           [
             'قاعة 2لم تُسجَّل الجولةالتقويمتقرير الدورة', '6', '9,990', '—', '—', '9,990', '0.10%', '—', '500وسطر واحد بلا وزن',
-            '-100.0خارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل للقاعة.', 'آخر وزن 150.0 يوم 10/11/2026', 'NDاليوم', '—',
+            '-100.0خارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.', 'آخر وزن 150.0 يوم 10/11/2026', 'NDاليوم', '—',
           ],
           ['قاعة 3فارغة', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—'],
         ],
@@ -578,17 +585,43 @@ export default async function (t) {
       await click(way);
       t.same([globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), cards().length], ['/halls/day', { p_on: TODAY }, 5], 'D7 و«اليوم» يعرض اليوم');
       await unmount();
-      // ساعة الجهاز قبل الخادم بيوم: يوم الجهاز نفسه «قادم» عند الخادم، فالطريق «اليوم السابق». وحدّ «اليوم التالي» الأبعد من يوم الخادم ويوم الجهاز
-      // (مراجعة 0027 R2)، فيبقى مفتوحاً إلى يوم الجهاز: يعيد الرفض نفسه بطريقه، ولا يحبس الصفحة.
-      rpcLog = fresh(OWNER, { halls_day: (args) => (args.p_on >= TODAY ? refuse() : dayFor(args.p_on, { today: YESTERDAY, next: false })) });
+      // ساعة الجهاز قبل الخادم بيوم: يوم الجهاز نفسه «قادم» عند الخادم. H1 (مراجعة 0027 V2-G1-STALE-CAP، على 8e32229): الفتح بلا ?on= يتبع اليوم، فيسأل
+      // عن يوم الجهاز ثمّ بهدوء عن اليوم قبله (يوم الخادم) ويعرضه حاليّاً بلا جملة رفض، و«اليوم التالي» مقفول ولا «اليوم» (الحدّ يوم الخادم ما دام قبل يوم
+      // الجهاز المرفوض). كان: رفضاً بطريقه «اليوم السابق» ونداءً واحداً.
+      const behind = (args) => (args.p_on >= TODAY ? refuse() : dayFor(args.p_on, { today: YESTERDAY, next: false }));
+      rpcLog = fresh(OWNER, { halls_day: behind });
       await mount('/halls/day');
+      t.same(
+        [
+          named(rpcLog, 'halls_day'),
+          textOf('day-title'),
+          text().includes('لا تقرير ليوم لم يأتِ بعد.'),
+          byAction('day-stale').length,
+          cards().length,
+          [disabled(byAction('day-next')[0]), byAction('day-today').length, disabled(byAction('print-day')[0]), disabled(byAction('share-day')[0])],
+          globalThis.__hr.location,
+        ],
+        [[{ p_on: TODAY }, { p_on: YESTERDAY }], `تقرير القاعات اليومي — ${fmt(YESTERDAY)}`, false, 0, 5, [true, 0, false, false], '/halls/day'],
+        'D7 الفتح ويوم الجهاز مرفوض: خطوة هادئة إلى يوم الخادم يُعرض حاليّاً (بلا رفض، والطباعة والمشاركة له)، و«اليوم التالي» مقفول ولا «اليوم»',
+      );
+      await unmount();
+      // و?on= صريح بيوم الجهاز كما كان: رفضٌ بطريقه «اليوم السابق» بلا خطوة من نفسه، والطريق يعرض يوم الخادم و«اليوم التالي» إلى يوم الجهاز.
+      rpcLog = fresh(OWNER, { halls_day: behind });
+      await mount(`/halls/day?on=${TODAY}`);
+      const explicit = [named(rpcLog, 'halls_day'), text().includes('لا تقرير ليوم لم يأتِ بعد.'), textOf('day-refusal-way'), cards().length];
       await click(byAction('day-refusal-way')[0]);
-      t.same([globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), cards().length, disabled(byAction('day-next')[0])], [`/halls/day?on=${YESTERDAY}`, { p_on: YESTERDAY }, 5, false], 'D7 يوم الجهاز مرفوض: «اليوم السابق» يعرض يوم الخادم، و«اليوم التالي» إلى يوم الجهاز');
+      t.same(
+        [explicit, globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), cards().length, disabled(byAction('day-next')[0])],
+        [[[{ p_on: TODAY }], true, 'اليوم السابق', 0], `/halls/day?on=${YESTERDAY}`, { p_on: YESTERDAY }, 5, false],
+        'D7 ?on= بيوم الجهاز المرفوض: تلميح الخادم وطريقه «اليوم السابق» بلا نداء ثانٍ، والطريق يعرض يوم الخادم و«اليوم التالي» مفتوح إلى يوم الجهاز',
+      );
+      // والانتقال باليد إلى يوم الجهاز (بلا ?on=) يتبع اليوم: رفضُه خطوة هادئة إلى يوم الخادم المعروض نفسه بلا نداء له، و«اليوم التالي» مقفول بعدها. كان:
+      // رفضاً بطريقه «اليوم السابق». لا حلقة بلا مخرج في الحالين.
       await click(byAction('day-next')[0]);
       t.same(
-        [globalThis.__hr.location, named(rpcLog, 'halls_day').at(-1), text().includes('لا تقرير ليوم لم يأتِ بعد.'), textOf('day-refusal-way')],
-        ['/halls/day', { p_on: TODAY }, true, 'اليوم السابق'],
-        'D7 و«اليوم التالي» إلى يوم الجهاز يعيد رفض الخادم بطريقه «اليوم السابق» (لا حلقة بلا مخرج)',
+        [globalThis.__hr.location, named(rpcLog, 'halls_day').slice(2), textOf('day-title'), text().includes('لا تقرير ليوم لم يأتِ بعد.'), byAction('day-stale').length, disabled(byAction('day-next')[0]), byAction('day-today').length],
+        ['/halls/day', [{ p_on: TODAY }], `تقرير القاعات اليومي — ${fmt(YESTERDAY)}`, false, 0, true, 0],
+        'D7 و«اليوم التالي» إلى يوم الجهاز يتبع اليوم: رفضه خطوة هادئة إلى يوم الخادم المعروض (بلا نداء له)، و«اليوم التالي» مقفول بعدها',
       );
     });
 
@@ -604,7 +637,7 @@ export default async function (t) {
         '',
         'حقل الأمير',
         'قاعة 1 (لاحم، العمر 6 أيام): الحيّ 11,987، النافق 3، المستبعد 0، النفوق التراكمي 0.11%، العلف المأكول 350 كغم، النازل 0 كغم، الباقي في القاعة 799.5 كغم، الوزن 180.5 غرام، الأدوية واللقاحات وغيرها: أموكسيسيلين 500 غرام (0.5 كغم)، فيتامين AD3E (1 مل لكلّ لتر)، IB (تمّ)، ND (اليوم)، ملاحظة: تهوية جيّدة.',
-        `قاعة 2 (لاحم، العمر 6 أيام): لم تُسجَّل الجولة، الحيّ 9,990، النفوق التراكمي 0.10%، النازل 500 كغم وسطر واحد بلا وزن، الباقي في القاعة ${LRI}-100${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)، الأدوية واللقاحات وغيرها: ND (اليوم).`,
+        `قاعة 2 (لاحم، العمر 6 أيام): لم تُسجَّل الجولة، الحيّ 9,990، النفوق التراكمي 0.10%، النازل 500 كغم وسطر واحد بلا وزن، الباقي في القاعة ${LRI}-100${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)، الأدوية واللقاحات وغيرها: ND (اليوم).`,
         'قاعة 3: فارغة.',
         'المجموع: الحيّ 21,977، النافق 3 (من قاعة واحدة)، المستبعد 0 (من قاعة واحدة)، العلف المأكول 350 كغم (من قاعة واحدة)، النازل 500 كغم وسطر واحد بلا وزن.',
         '',
@@ -868,6 +901,8 @@ export default async function (t) {
       /** جزء «الباقي في القاعة» من سطر القاعة في نصّ المشاركة. */
       const leftOfHall = (lines, hallName) => lines.find((line) => line.startsWith(`${hallName} (`))?.split('، ').find((part) => part.startsWith('الباقي في القاعة'))?.replace(/\.$/u, '') ?? null;
       const NEG = 'سالب: المأكول المسجّل أكثر من النازل للقاعة.';
+      // قاعة نزل لها علف بلا وزن: السالب على الموزون وحده (مراجعة 0027 RR27-F2a).
+      const NEG_W = 'سالب: المأكول المسجّل أكثر من النازل الموزون.';
       const leftNotes = (node) => [within(node, 'remain-unweighed').map((n) => n.textContent), within(node, 'remain-negative').map((n) => n.textContent)];
 
       await step('R1 مجموع «النازل» بسطوره بلا وزن (عيّنة القاعدة)', async () => {
@@ -922,20 +957,20 @@ export default async function (t) {
         t.same(
           [A1, A2, LH, B5].map((hall) => leftNotes(card(hall.hall_id))),
           [
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
-            [['خارج الكيلو: 3 سطور بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
+            [['خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W]],
             [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
           ],
           'R5 بطاقة القاعة: سطور العلف بلا وزن حتى اليوم (قاعة 1 وقاعة 5 نزل علفهما بلا وزن أمس) بجملة تقرير الدورة، وسبب الباقي السالب (قاعة البيّاض بلا صرف)',
         );
-        t.eq(stat(A1.hall_id, 'stat-left'), `${LRI}-1,200${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.${NEG}`, 'R5 الرقم نفسه كما هو (DECISIONS 0019) وتحته الملاحظتان باهتتين');
+        t.eq(stat(A1.hall_id, 'stat-left'), `${LRI}-1,200${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.${NEG_W}`, 'R5 الرقم نفسه كما هو (DECISIONS 0019) وتحته الملاحظتان باهتتين');
         t.same(
           byAction('day-table').map(leftNotes),
           [
-            [['خارج الكيلو: سطر واحد بلا وزن.', 'خارج الكيلو: 3 سطور بلا وزن.'], [NEG, NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.', 'خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W, NEG_W]],
             [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG]],
+            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
             [[], []],
           ],
           'R5 جدول كلّ حقل: الملاحظتان تحت الرقم في خلية الباقي (ومجموع كلّ الحقول بلا عمود باقٍ)',
@@ -944,10 +979,10 @@ export default async function (t) {
         t.same(
           [A1, A2, LH, B5].map((hall) => leftOfHall(lines, hall.hall_name)),
           [
-            `الباقي في القاعة ${LRI}-1,200${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
-            `الباقي في القاعة ${LRI}-50.8${PDI} كغم (خارج الكيلو: 3 سطور بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
+            `الباقي في القاعة ${LRI}-1,200${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
+            `الباقي في القاعة ${LRI}-50.8${PDI} كغم (خارج الكيلو: 3 سطور بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
             `الباقي في القاعة ${LRI}-1,425${PDI} كغم (المأكول المسجّل أكثر من النازل)`,
-            `الباقي في القاعة ${LRI}-105${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل)`,
+            `الباقي في القاعة ${LRI}-105${PDI} كغم (خارج الكيلو: سطر واحد بلا وزن؛ المأكول المسجّل أكثر من النازل الموزون)`,
           ],
           'R5 نصّ المشاركة: الرقم كما هو، وبعده بين قوسين وباختصار ما لم يدخله وسبب سالبه',
         );
@@ -962,6 +997,42 @@ export default async function (t) {
           [stat(A2.hall_id, 'stat-left'), leftNotes(card(A2.hall_id)), leftOfHall(shareLines(positive), A2.hall_name)],
           ['10 كغمخارج الكيلو: 3 سطور بلا وزن.', [['خارج الكيلو: 3 سطور بلا وزن.'], []], 'الباقي في القاعة 10 كغم (خارج الكيلو: 3 سطور بلا وزن)'],
           'R5 الملاحظتان مستقلّتان: باقٍ موجب لم يدخله ثلاثة سطور بلا وزن يقول ذلك وحده',
+        );
+      });
+
+      // RR27-F2a: قاعة نزل لها علف بلا وزن لا تعرف الشاشة كلّ ما نزل لها، فسبب باقيها السالب على الموزون وحده؛ وبلا سطر بلا وزن الجملة كما كانت. لكلّ
+      // قاعة باقيها سالب في عيّنة القاعدة (وعدد سطورها بلا وزن حتى اليوم من الخادم): البطاقة وخلية الجدول وسطر المشاركة.
+      await step('RR27-F2a سبب الباقي السالب على الموزون وحده حين نزل علف بلا وزن (عيّنة القاعدة)', async () => {
+        fresh(OWNER, { halls_day: () => clone(REAL.halls_day) });
+        await mount(`/halls/day?on=${realOn}`);
+        const lines = shareLines(REAL.halls_day);
+        const seen = [];
+        for (const site of REAL.halls_day.sites) {
+          const rows = tableRows(`${site.name} — ${fmt(realOn)}`) ?? [];
+          site.halls.forEach((hall, index) => {
+            if (hall.flock === null || !hall.flock.feed_left_kg.startsWith('-')) return;
+            const cell = rows[index]?.[9] ?? '';
+            const share = leftOfHall(lines, hall.hall_name) ?? '';
+            seen.push([
+              hall.hall_name,
+              hall.flock.feed_given_cum_unweighed,
+              within(card(hall.hall_id), 'remain-negative').map((n) => n.textContent),
+              cell.includes('سالب: ') ? `سالب: ${cell.split('سالب: ').at(-1)}` : null,
+              share.split(/[(؛] ?/u).at(-1)?.replace(/\)$/u, '') ?? null,
+            ]);
+          });
+        }
+        const SHORT = 'المأكول المسجّل أكثر من النازل';
+        const SHORT_W = 'المأكول المسجّل أكثر من النازل الموزون';
+        t.same(
+          seen,
+          [
+            ['قاعة 1', 1, [NEG_W], NEG_W, SHORT_W],
+            ['قاعة 2', 3, [NEG_W], NEG_W, SHORT_W],
+            ['قاعة البيّاض', 0, [NEG], NEG, SHORT],
+            ['قاعة 5', 1, [NEG_W], NEG_W, SHORT_W],
+          ],
+          'RR27-F2a قاعة 1 و2 و5 نزل لها علف بلا وزن: «أكثر من النازل الموزون» بطاقةً وجدولاً ونصّاً؛ وقاعة البيّاض بلا سطر بلا وزن بجملتها كما كانت',
         );
       });
 
@@ -1036,6 +1107,371 @@ export default async function (t) {
         }
       });
 
+      // RR27-F4a: ساعة الجهاز أمام بغداد بساعة (يوم الخادم من ساعة الجهاز ناقص ساعة). صفحة تتبع اليوم منذ العاشرة ليلاً تعود ظاهرةً الساعة 00:30
+      // بالجهاز (23:30 يوم 12/11 عند الخادم): يرفض الخادم 13/11 فخطوة هادئة إلى 12/11، وهو المعروض فيبقى حاليّاً بلا نداء ولا جملة رفض، والطباعة والمشاركة
+      // له، ولا تعرض يوماً يرفضه الخادم؛ وكلّ عودة بعدها تسأل مرّة واحدة (لا حلقة ولا مؤقّت)، وبعد منتصف ليل الخادم (01:30 بالجهاز) تنتقل إلى اليوم الجديد.
+      // والفتح و?on= الصريح والانتقال باليد في D7. (H1: الفحص الأوّل كما كان حرفاً، فالخطوة الهادئة تُبقي المعروض بلا نداء كما أبقاه الحبس.)
+      /** ساعة الجهاز يوم day من تشرين الثاني 2026 الساعة hour:minute، والخادم خلفها بـlag ساعة (تتغيّر أثناء الفحص). */
+      const aheadClock = ({ day = 12, hour = 22, minute = 0, lag = 1 } = {}) => {
+        const RealDate = globalThis.Date;
+        const clock = {
+          now: new RealDate(2026, 10, day, hour, minute, 0).getTime(),
+          lag,
+          at(on, h, mi) {
+            clock.now = new RealDate(2026, 10, on, h, mi, 0).getTime();
+          },
+          serverDay: () => m.localDay(new RealDate(clock.now - clock.lag * 3_600_000)),
+          restore() {
+            globalThis.Date = RealDate;
+            delete globalThis.document.visibilityState;
+          },
+        };
+        globalThis.Date = class extends RealDate {
+          constructor(...args) {
+            if (args.length === 0) super(clock.now);
+            else super(...args);
+          }
+        };
+        return clock;
+      };
+      const aheadServer = (clock) => (args) =>
+        args.p_on > clock.serverDay() ? Promise.reject(new m.RejectedError('future_day', 'لا تقرير ليوم لم يأتِ بعد.')) : dayFor(args.p_on, { today: clock.serverDay(), next: args.p_on < clock.serverDay() });
+      const showPage = async () => {
+        globalThis.document.visibilityState = 'visible';
+        fire(globalThis.document, 'visibilitychange', { bubbles: false });
+        await settle();
+      };
+      const dayView = () => ({
+        title: textOf('day-title'),
+        refused: text().includes('لا تقرير ليوم لم يأتِ بعد.'),
+        stale: byAction('day-stale').length,
+        next: disabled(byAction('day-next')[0]),
+        today: byAction('day-today').length,
+        print: disabled(byAction('print-day')[0]),
+        share: disabled(byAction('share-day')[0]),
+        url: globalThis.__hr.location,
+      });
+      const viewOf = (day, over = {}) => ({ title: `تقرير القاعات اليومي — ${day}`, refused: false, stale: 0, next: true, today: 0, print: false, share: false, url: '/halls/day', ...over });
+
+      await step('RR27-F4a ساعة الجهاز أمام الخادم: العودة بعد منتصف ليل الجهاز لا تقلب التقرير إلى رفض', async () => {
+        const clock = aheadClock();
+        const shared = [];
+        Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async (data) => shared.push(data.title) }, configurable: true, writable: true });
+        try {
+          const server = aheadServer(clock);
+          // gate: وعدٌ يؤخّر جواب النداء الذي يُطلب وهو قائم، فيُرى ما تعرضه الصفحة والسؤال في الطريق.
+          let gate = null;
+          const rpcLog = fresh(OWNER, { halls_day: (args) => (gate ? gate.then(() => server(args)) : server(args)) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          t.same(
+            [dayView(), named(rpcLog, 'halls_day')],
+            [viewOf('12/11/2026'), [{ p_on: '2026-11-12' }, { p_on: '2026-11-13' }]],
+            'RR27-F4a الساعة 00:30 بالجهاز (23:30 عند الخادم): رُفض 13/11 فبقي تقرير 12/11 حاليّاً بلا جملة رفض، والطباعة والمشاركة مفتوحتان، و«اليوم التالي» مقفول ولا «اليوم»، ونداءان فقط',
+          );
+          await click(byAction('share-day')[0]);
+          await click(byAction('day-pick')[0]);
+          type(descendants(dialog()).find((n) => n.getAttribute('data-action') === 'day-pick-input'), '13/11/2026');
+          await submitDialog();
+          const picker = [Boolean(dialog()), dialog() ? descendants(dialog()).some((n) => n.textContent === 'التاريخ بعد اليوم.') : false, globalThis.__hr.location];
+          const cancel = dialog() ? descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع') : null;
+          if (cancel) await click(cancel);
+          t.same(
+            [shared, picker, Boolean(dialog()), named(rpcLog, 'halls_day').length],
+            [['تقرير القاعات اليومي — 12/11/2026'], [true, true, '/halls/day'], false, 2],
+            'RR27-F4a «شارك» يشارك تقرير 12/11 المعروض، والمنتقي يرفض 13/11 «التاريخ بعد اليوم.» بلا نداء',
+          );
+          // كلّ عودة بعدها تسأل الخادم مرّة واحدة بهدوء (والتقرير حاليّ والسؤال في الطريق)، والخفاء لا يسأل، ولا حلقة ولا مؤقّت.
+          clock.at(13, 0, 40);
+          globalThis.document.visibilityState = 'hidden';
+          fire(globalThis.document, 'visibilitychange', { bubbles: false });
+          await settle();
+          const hidden = named(rpcLog, 'halls_day').length;
+          clock.at(13, 0, 45);
+          let open = null;
+          gate = new Promise((resolve) => {
+            open = resolve;
+          });
+          globalThis.document.visibilityState = 'visible';
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          const asking = [dayView(), named(rpcLog, 'halls_day').slice(2)];
+          gate = null;
+          open();
+          await settle();
+          const again = [dayView(), named(rpcLog, 'halls_day').slice(2)];
+          await settle();
+          await settle();
+          const idle = named(rpcLog, 'halls_day').length;
+          // بعد منتصف ليل الخادم: 01:30 بالجهاز، 00:30 يوم 13/11 عند الخادم.
+          clock.at(13, 1, 30);
+          await showPage();
+          t.same(
+            [hidden, asking, again, idle, dayView(), named(rpcLog, 'halls_day').slice(3)],
+            [2, [viewOf('12/11/2026'), [{ p_on: '2026-11-13' }]], [viewOf('12/11/2026'), [{ p_on: '2026-11-13' }]], 3, viewOf('13/11/2026'), [{ p_on: '2026-11-13' }]],
+            'RR27-F4a كلّ عودة تسأل الخادم مرّة واحدة وتبقى بهدوء ما دام يرفض، والتقرير حاليّ والسؤال في الطريق (والخفاء لا يسأل، ولا حلقة ولا مؤقّت)، وبعد منتصف ليل الخادم تنتقل إلى 13/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      // H1: الحدّ بـ?on= كما كان (يوم الخادم في آخر جواب ما دام قبل يوم الجهاز المرفوض)، لكنّ العودة بـ?on= لا تسأل الخادم (لا خطوة من نفسها بـ?on=، والسؤال
+      // للصفحة التي تتبع اليوم وحدها)، فيبقى الحدّ حتى يحمل جوابٌ يوم الخادم الجديد. كان (8e32229): العودة بعد منتصف ليل الخادم تقرأ يومها من جديد فترفعه.
+      await step('RR27-F4a والحدّ قائم: «اليوم التالي» بـ?on= يقف عند يوم الخادم، والعودة بـ?on= لا تسأل، وأوّل جواب بيوم الخادم الجديد يرفعه', async () => {
+        const clock = aheadClock();
+        try {
+          const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          await click(byAction('day-prev')[0]);
+          const prev = dayView();
+          await click(byAction('day-next')[0]);
+          const atServerDay = dayView();
+          clock.at(13, 1, 30);
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          const returned = [dayView(), named(rpcLog, 'halls_day').length];
+          // «اليوم السابق» إلى 11/11: جوابه يقول إنّ اليوم عند الخادم 13/11 فيرتفع الحدّ، و«اليوم» يتبع 13/11.
+          await click(byAction('day-prev')[0]);
+          const lifted = dayView();
+          const todayButton = byAction('day-today')[0];
+          if (todayButton) await click(todayButton);
+          t.same(
+            [prev, atServerDay, returned, lifted, dayView(), named(rpcLog, 'halls_day').map((args) => args.p_on)],
+            [
+              viewOf('11/11/2026', { next: false, today: 1, url: '/halls/day?on=2026-11-11' }),
+              viewOf('12/11/2026', { url: '/halls/day?on=2026-11-12' }),
+              [viewOf('12/11/2026', { url: '/halls/day?on=2026-11-12' }), 4],
+              viewOf('11/11/2026', { next: false, today: 1, url: '/halls/day?on=2026-11-11' }),
+              viewOf('13/11/2026'),
+              ['2026-11-12', '2026-11-13', '2026-11-11', '2026-11-12', '2026-11-11', '2026-11-13'],
+            ],
+            'RR27-F4a الحدّ يوم الخادم بـ?on= أيضاً: «اليوم التالي» يقف عند 12/11؛ والعودة بـ?on= بعد منتصف ليل الخادم بلا نداء والحدّ باقٍ؛ وجواب 11/11 بيوم الخادم 13/11 يرفعه، و«اليوم» يتبع 13/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      // ── H1 (مراجعة 0027 V2-G1-STALE-CAP، على 8e32229، بدل التقرير المحبوس) ─────────────────────────────────────────────────────────────────────
+      // والصفحة تتبع اليوم: كلّ عودة ويومُ الجهاز بعد يوم الخادم في المعروض تسأل عن يوم الجهاز، ورفضُه خطوةٌ هادئة واحدة إلى اليوم قبله يُعرض حاليّاً، فلا
+      // يُعرض يوم قديم على أنّه الأحدث ولا يقف الحدّ تحت يوم الخادم؛ ورفضُ الخطوة نفسها (الجهاز أمام بيومين) رفضُ D7 بطريقه، بلا حلقة.
+      const calls = (rpcLog) => named(rpcLog, 'halls_day').map((args) => args.p_on);
+      /** المنتقي بيوم: هل رفضه «التاريخ بعد اليوم.»، ثمّ «لا، تراجع»؛ والرابط بعدها. */
+      const pickRefuses = async (day) => {
+        await click(byAction('day-pick')[0]);
+        type(descendants(dialog()).find((n) => n.getAttribute('data-action') === 'day-pick-input'), fmt(day));
+        await submitDialog();
+        const refused = Boolean(dialog()) && descendants(dialog()).some((n) => n.textContent === 'التاريخ بعد اليوم.');
+        const cancel = dialog() ? descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع') : null;
+        if (cancel) await click(cancel);
+        return [refused, globalThis.__hr.location];
+      };
+
+      await step('H1 V1 لا حدث يوماً كاملاً والجهاز ما زال أمام الخادم: العودة تعرض يوم الخادم الجديد حاليّاً لا يوم أمس', async () => {
+        const clock = aheadClock();
+        try {
+          const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          const night1 = [dayView(), calls(rpcLog)];
+          // لا حدث طوال 13/11، ثمّ العودة الساعة 00:30 يوم 14/11 بالجهاز (23:30 يوم 13/11 عند الخادم).
+          clock.at(14, 0, 30);
+          await showPage();
+          const night2 = [dayView(), calls(rpcLog)];
+          t.same(
+            [night1, night2, await pickRefuses('2026-11-14'), calls(rpcLog).length],
+            [
+              [viewOf('12/11/2026'), ['2026-11-12', '2026-11-13']],
+              [viewOf('13/11/2026'), ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-13']],
+              [true, '/halls/day'],
+              4,
+            ],
+            'H1 V1 ليلة 13/11 يبقى 12/11 بهدوء بلا نداء له؛ والعودة ليلة 14/11 (الخادم على 13/11) تسأل عن 14/11 ثمّ بهدوء عن 13/11 فيُعرض حاليّاً (لا قديم، والطباعة والمشاركة له، و«اليوم التالي» مقفول ولا «اليوم»)، والمنتقي يرفض 14/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      await step('H1 V2 آخر قراءة أقدم من يوم الخادم: العودة تعرض يوم الخادم حاليّاً', async () => {
+        const clock = aheadClock({ day: 11 });
+        try {
+          const rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day');
+          const first = dayView();
+          // لا حدث حتى الساعة 00:30 يوم 13/11 بالجهاز (23:30 يوم 12/11 عند الخادم).
+          clock.at(13, 0, 30);
+          await showPage();
+          t.same(
+            [first, dayView(), calls(rpcLog), await pickRefuses('2026-11-13')],
+            [viewOf('11/11/2026'), viewOf('12/11/2026'), ['2026-11-11', '2026-11-13', '2026-11-12'], [true, '/halls/day']],
+            'H1 V2 قُرئ 11/11 والصفحة تتبع اليوم، والعودة الساعة 00:30 يوم 13/11 بالجهاز (الخادم على 12/11): 13/11 مرفوض فخطوة هادئة إلى 12/11 يُعرض حاليّاً، والمنتقي يرفض 13/11',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      await step('H1 الجهاز أمام الخادم بيومين: خطوة هادئة واحدة ثمّ رفض D7 بطريقه، ونداءان على الأكثر لكلّ عودة، ولا حلقة', async () => {
+        // الجهاز 00:30 يوم 14/11 والخادم 23:30 يوم 12/11.
+        const clock = aheadClock({ day: 14, hour: 0, minute: 30, lag: 25 });
+        try {
+          const server = aheadServer(clock);
+          // gate: وعدٌ يؤخّر جواب النداء الذي يُطلب وهو قائم.
+          let gate = null;
+          let rpcLog = fresh(OWNER, { halls_day: (args) => (gate ? gate.then(() => server(args)) : server(args)) });
+          await mount('/halls/day');
+          const opened = [dayView(), textOf('day-refusal-way'), calls(rpcLog)];
+          // عودة واحدة بحدثيها (الظهور ثمّ التركيز) ورُسمت الصفحة بينهما والسؤال في الطريق: يشتركان فيه، فنداءان فقط.
+          let open = null;
+          gate = new Promise((resolve) => {
+            open = resolve;
+          });
+          globalThis.document.visibilityState = 'visible';
+          fire(globalThis.document, 'visibilitychange', { bubbles: false });
+          await settle();
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          const asking = calls(rpcLog).slice(2);
+          gate = null;
+          open();
+          await settle();
+          const returned = [dayView(), calls(rpcLog).slice(2)];
+          // وحدثا عودة أخرى بلا رسم بينهما كذلك.
+          fire(globalThis.document, 'visibilitychange', { bubbles: false });
+          fire(globalThis.window, 'focus', { bubbles: false });
+          await settle();
+          await settle();
+          await settle();
+          const idle = calls(rpcLog).length;
+          await click(byAction('day-refusal-way')[0]);
+          t.same(
+            [opened, asking, returned, idle, dayView(), calls(rpcLog).slice(6), await pickRefuses('2026-11-13')],
+            [
+              [viewOf('13/11/2026', { refused: true, print: true, share: true }), 'اليوم السابق', ['2026-11-14', '2026-11-13']],
+              ['2026-11-14'],
+              [viewOf('13/11/2026', { refused: true, print: true, share: true }), ['2026-11-14', '2026-11-13']],
+              6,
+              viewOf('12/11/2026', { url: '/halls/day?on=2026-11-12' }),
+              ['2026-11-12'],
+              [true, '/halls/day?on=2026-11-12'],
+            ],
+            'H1 الفتح والجهاز أمام بيومين: 14/11 مرفوض فخطوة هادئة إلى 13/11 مرفوضة أيضاً فرفض D7 بطريقه «اليوم السابق» («اليوم التالي» مقفول ولا «اليوم»)؛ وكلّ عودة بحدثيها (رُسمت بينهما أو لا) نداءان فقط، ولا حلقة؛ والطريق يعرض 12/11 والحدّ عنده',
+          );
+          await unmount();
+          // ومن تقرير معروض: فُتحت 22:00 يوم 12/11 والخادم خلفها بساعة، ثمّ عادت الساعة 00:30 يوم 14/11 بالجهاز والخادم ما زال على 12/11 (23:30).
+          clock.at(12, 22, 0);
+          clock.lag = 1;
+          rpcLog = fresh(OWNER, { halls_day: aheadServer(clock) });
+          await mount('/halls/day');
+          clock.at(14, 0, 30);
+          clock.lag = 25;
+          await showPage();
+          t.same(
+            [dayView(), textOf('day-refusal-way'), textOf('day-stale'), calls(rpcLog)],
+            [viewOf('12/11/2026', { refused: true, stale: 1, today: 1, print: true, share: true }), 'اليوم السابق', 'المعروض تقرير يوم 12/11/2026، آخر ما قُرئ بنجاح.', ['2026-11-12', '2026-11-14', '2026-11-13']],
+            'H1 ومن تقرير 12/11 معروض: العودة والجهاز أمام بيومين نداءان (14/11 ثمّ 13/11) فرفض D7 بطريقه، والمعروض آخر ما قُرئ بتاريخه، و«اليوم» إلى يوم الخادم',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      await step('H1 منتصف ليل الخادم بين نداءي الخطوة: الخطوة حاليّة، و«اليوم التالي» يسأل عن يوم الجهاز من جديد لا رابطاً لا يتغيّر', async () => {
+        // يُرفض يوم الجهاز، وجواب اليوم قبله يقول إنّ الخادم بلغ يوم الجهاز (انتقل يومه بين النداءين).
+        let first = true;
+        const rpcLog = fresh(OWNER, {
+          halls_day: (args) => {
+            if (first) {
+              first = false;
+              return Promise.reject(new m.RejectedError('future_day', 'لا تقرير ليوم لم يأتِ بعد.'));
+            }
+            return dayFor(args.p_on);
+          },
+        });
+        await mount('/halls/day');
+        const raced = [dayView(), calls(rpcLog)];
+        await click(byAction('day-next')[0]);
+        t.same(
+          [raced, dayView(), calls(rpcLog)],
+          [
+            [viewOf(fmt(YESTERDAY), { next: false, today: 1 }), [TODAY, YESTERDAY]],
+            viewOf(fmt(TODAY)),
+            [TODAY, YESTERDAY, TODAY],
+          ],
+          'H1 جواب الخطوة بيوم خادم بلغ يوم الجهاز: الخطوة تُعرض حاليّاً بلا حدّ، و«اليوم التالي» يسأل عن يوم الجهاز فيعرضه (لا زرّ ميّت)',
+        );
+      });
+
+      await step('H1 قراءة سبقتها أحدث تقف قبل خطوتها: «اليوم السابق» باليد والسؤال في الطريق لا يترك نداء خطوة خلفه', async () => {
+        const clock = aheadClock();
+        try {
+          const server = aheadServer(clock);
+          let gate = null;
+          const rpcLog = fresh(OWNER, { halls_day: (args) => (gate ? gate.then(() => server(args)) : server(args)) });
+          await mount('/halls/day');
+          // العودة الساعة 00:30 يوم 14/11 بالجهاز (23:30 يوم 13/11 عند الخادم) والسؤال عن 14/11 في الطريق، ثمّ «اليوم السابق» باليد إلى 13/11 صريحاً.
+          clock.at(14, 0, 30);
+          let open = null;
+          gate = new Promise((resolve) => {
+            open = resolve;
+          });
+          await showPage();
+          const asking = [dayView(), calls(rpcLog)];
+          await click(byAction('day-prev')[0]);
+          gate = null;
+          open();
+          await settle();
+          await settle();
+          t.same(
+            [asking, dayView(), calls(rpcLog)],
+            [
+              [viewOf('12/11/2026', { stale: 1, print: true, share: true }), ['2026-11-12', '2026-11-14']],
+              viewOf('13/11/2026', { next: false, today: 1, url: '/halls/day?on=2026-11-13' }),
+              ['2026-11-12', '2026-11-14', '2026-11-13'],
+            ],
+            'H1 رُفض 14/11 بعد أن انتقلت الصفحة إلى 13/11 باليد: لا خطوة هادئة إلى 13/11 من القراءة القديمة (ثلاثة نداءات لا أربعة)، و13/11 الصريح حاليّاً',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
+      await step('H1 والصفحة على الخطوة الهادئة: فشل الشبكة في السؤال من جديد «تعذّر» كما كان، و«أعد المحاولة» تعيدها بهدوء', async () => {
+        const clock = aheadClock();
+        let offline = false;
+        try {
+          const server = aheadServer(clock);
+          const rpcLog = fresh(OWNER, { halls_day: (args) => (offline ? Promise.reject(new m.NetworkError()) : server(args)) });
+          await mount('/halls/day');
+          clock.at(13, 0, 30);
+          await showPage();
+          offline = true;
+          clock.at(13, 0, 40);
+          await showPage();
+          const failed = [dayView(), text().includes('تعذّر تحميل تقرير يوم 13/11/2026'), byAction('retry').length, textOf('day-stale')];
+          offline = false;
+          await click(byAction('retry')[0]);
+          t.same(
+            [failed, dayView(), byAction('retry').length, calls(rpcLog)],
+            [
+              [viewOf('12/11/2026', { stale: 1, today: 1, print: true, share: true }), true, 1, 'المعروض تقرير يوم 12/11/2026، آخر ما قُرئ بنجاح.'],
+              viewOf('12/11/2026'),
+              0,
+              ['2026-11-12', '2026-11-13', '2026-11-13', '2026-11-13'],
+            ],
+            'H1 فشل الشبكة في السؤال عن 13/11: «تعذّر تحميل تقرير يوم 13/11/2026» بـ«أعد المحاولة» والمعروض آخر ما قُرئ بتاريخه كما كان؛ والمحاولة تعيد 12/11 حاليّاً بهدوء',
+          );
+        } finally {
+          clock.restore();
+        }
+      });
+
       // R4: التقويم من التقرير اليوميّ (برجوعه هو إلى «التقارير») ثمّ تقرير الدورة ثمّ الرجوع خطوةً خطوة؛ عيّنة الشهر من القاعدة (0026).
       const R26 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-0026.json'), 'utf8'));
       const month = R26.flock_month;
@@ -1075,10 +1511,10 @@ export default async function (t) {
       await step('R4 كلّ قارئ لـ?back= يقبل القيمة الأطول ويرفض الغريب', async () => {
         const readers = [m.backTarget(calendar, 'X'), m.giveBack(calendar), m.backLabel(calendar), EVIL.map((value) => m.backTarget(value, 'X')), EVIL.map((value) => m.giveBack(value))];
         const vaccines = [];
-        for (const value of [calendar, ...EVIL]) {
+        for (const value of [calendar, ...EVIL, null]) {
           fresh(OWNER, rpcs26);
-          await mount(`/halls/vaccines?${new URLSearchParams({ kind: 'broiler', back: value }).toString()}`);
-          vaccines.push(href(byAction('back')[0]));
+          await mount(value === null ? '/halls/vaccines?kind=broiler' : `/halls/vaccines?${new URLSearchParams({ kind: 'broiler', back: value }).toString()}`);
+          vaccines.push([textOf('back'), href(byAction('back')[0])]);
           await unmount();
         }
         // تقويم برجوع غريب: رجوعه إلى صفحة الفوج، ورابطه لا يحمل الغريب؛ وكذلك غريب مرمَّز داخل تقويم يقبله القارئ الخارجيّ.
@@ -1099,11 +1535,25 @@ export default async function (t) {
           [readers, vaccines, refused, [outer, href(byAction('back')[0]), backOf(byAction('cal-report')[0])]],
           [
             [calendar, calendar, 'رجوع إلى التقويم', EVIL.map(() => 'X'), EVIL.map(() => null)],
-            [calendar, ...EVIL.map(() => '/broiler')],
+            [['رجوع إلى التقويم', calendar], ...EVIL.map(() => ['رجوع إلى الحقول', '/broiler']), ['رجوع إلى الحقول', '/broiler']],
             [[`/broiler/flock/${FID}`, plain], [`/broiler/flock/${FID}`, plain]],
             [inner, `/broiler/flock/${FID}`, plain],
           ],
-          'R4 backTarget وgiveBack وجدول اللقاحات تقبل التقويم برجوعه المتداخل وترفض الرابط الخارجيّ و//host وjavascript: وdata:؛ والتقويم لا يحمل رجوعاً رفضه',
+          'R4 backTarget وgiveBack وجدول اللقاحات تقبل التقويم برجوعه المتداخل وترفض الرابط الخارجيّ و//host وjavascript: وdata:؛ والتقويم لا يحمل رجوعاً رفضه؛ وزرّ جدول اللقاحات يسمّي وجهته: التقويم، وإلّا الحقول (RR27-R4b)',
+        );
+      });
+
+      // RR27-R4b: جدول اللقاحات من التقويم يعود إلى التقويم، فزرّه يسمّيه (backLabel كتقرير الدورة) لا «رجوع إلى الحقول» الثابت؛ عيّنتا القاعدة (0026).
+      await step('RR27-R4b جدول اللقاحات من التقويم: زرّ الرجوع يسمّي التقويم ويعود إليه', async () => {
+        fresh(OWNER, rpcs26);
+        await mount(calendar);
+        await click(byAction('cal-vaccines')[0]);
+        const vaccines = [globalThis.__hr.location.split('?')[0], textOf('back'), href(byAction('back')[0])];
+        await click(byAction('back')[0]);
+        t.same(
+          [vaccines, globalThis.__hr.location, textOf('back')],
+          [['/halls/vaccines', 'رجوع إلى التقويم', calendar], calendar, 'رجوع إلى تقرير القاعات اليومي'],
+          'RR27-R4b من التقويم إلى جدول اللقاحات: «رجوع إلى التقويم» إلى التقويم برجوعه، ومنه «رجوع إلى تقرير القاعات اليومي»',
         );
       });
 

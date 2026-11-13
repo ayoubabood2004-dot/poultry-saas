@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -19,8 +19,9 @@ import { useLoad } from '../../lib/useLoad';
 import { BackLink, backLabel, daysText, kgText, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, qtyText, reportsBack, STATE_INK, stateLabel, VaccineName } from './parts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
-// بقراءة halls_day واحدة لكلّ القاعات في نطاق القارئ مجمَّعة بالحقل. اليوم في الرابط (بلاه يوم الجهاز)، والأيام بسهمين («اليوم السابق» و«اليوم التالي»
-// المقفول عند اليوم) ومنتقٍ و«اليوم» بنمط الرصيد اليومي، والأزرار نصّاً كأزرار التقويم: أيقونة من خارج حزمة القاعات تفصل حزمة محفوظة جديدة.
+// بقراءة halls_day واحدة لكلّ القاعات في نطاق القارئ مجمَّعة بالحقل. اليوم في الرابط (بلاه يوم الجهاز، أو اليوم قبله بهدوء حين يرفضه الخادم يوماً لم
+// يأتِ بعد)، والأيام بسهمين («اليوم السابق» و«اليوم التالي» المقفول عند اليوم) ومنتقٍ و«اليوم» بنمط الرصيد اليومي، والأزرار نصّاً كأزرار التقويم: أيقونة
+// من خارج حزمة القاعات تفصل حزمة محفوظة جديدة.
 // بالهاتف بطاقة لكلّ قاعة بأرقامها المهمّة و«لم تُسجَّل الجولة» أو «فارغة»؛ وبالشاشة العريضة وفي الطباعة (A4 بالعرض) جدول لكلّ حقل بصفّ مجاميع
 // الخادم («من N قاعة» حين تنقص الجولات)، والتبديل بـ<style> الصفحة بلا أصناف جديدة. والقيمة الغائبة «—» لا صفر. والقراءة الأخيرة الناجحة تبقى
 // معروضة بتاريخها حين تُقرأ التالية أو تفشل (و«أعد المحاولة»)، والطباعة والمشاركة لليوم المطلوب وحده. ومن كلّ قاعة رابطا تقويمها (شهر اليوم)
@@ -95,7 +96,14 @@ function leftShare(flock: DayFlock): string {
   const kg = kgText(flock.feedLeftKg);
   const notes: string[] = [];
   if (flock.feedGivenCumUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.feedGivenCumUnweighed) }));
-  if (flock.feedLeftKg < 0n) notes.push(t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'));
+  // وسبب السالب على الموزون وحده حين نزل علف بلا وزن (كجملة البطاقة، مراجعة 0027 RR27-F2a).
+  if (flock.feedLeftKg < 0n) {
+    notes.push(
+      flock.feedGivenCumUnweighed > 0
+        ? t('halls.day.share.left_negative_weighed', 'المأكول المسجّل أكثر من النازل الموزون')
+        : t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'),
+    );
+  }
   if (!notes.length) return t('halls.day.share.left', 'الباقي في القاعة {kg}', { kg });
   return t('halls.day.share.left_noted', 'الباقي في القاعة {kg} ({notes})', { kg, notes: notes.join(t('halls.day.share.notes_sep', '؛ ')) });
 }
@@ -231,7 +239,7 @@ function LeftNotes({ flock, className }: { flock: DayFlock; className: string })
       ) : null}
       {flock.feedLeftKg < 0n ? (
         <span className={className} data-action="remain-negative">
-          {leftNegativeText()}
+          {leftNegativeText(flock.feedGivenCumUnweighed)}
         </span>
       ) : null}
     </>
@@ -653,18 +661,59 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 // ─── الصفحة ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** ما قرأته الصفحة: التقرير، ويوم الجهاز الذي رفضه الخادم حين يكون التقرير الخطوة الهادئة إلى اليوم قبله (وإلّا null). */
+interface DayRead {
+  report: HallsDay;
+  refused: Day | null;
+}
+
+const isFutureDay = (error: unknown): boolean => error instanceof RejectedError && error.code === 'future_day';
+
+/** يوم صريح (?on=) كما هو: رفضه يُعرض بجملته وطريقه (D7). */
+const readDay = async (day: Day): Promise<DayRead> => ({ report: await loadHallsDay(day), refused: null });
+
+/**
+ * الصفحة تتبع اليوم (بلا ?on=): يوم الجهاز؛ وحين يرفضه الخادم يوماً لم يأتِ بعد (ساعة الجهاز أمام بغداد، مراجعة 0027 RR27-F4a وV2-G1-STALE-CAP) خطوة
+ * واحدة بهدوء إلى اليوم قبله، وهو التقرير المعروض بلا نداء إن كان ذلك اليوم. ورفض الخطوة نفسها (الجهاز أمام بيوم أو أكثر) يُرمى كما هو فيُعرض بطريقه:
+ * لا خطوة بعدها. والقراءة التي سبقتها قراءة أحدث تقف قبل خطوتها.
+ */
+async function followDay(day: Day, onScreen: () => HallsDay | null, superseded: () => boolean): Promise<DayRead> {
+  try {
+    return await readDay(day);
+  } catch (error) {
+    if (!isFutureDay(error) || superseded()) throw error;
+  }
+  const before = addDays(day, -1);
+  const shown = onScreen();
+  return { report: shown !== null && shown.on === before ? shown : await loadHallsDay(before), refused: day };
+}
+
 export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
-  // بلا ?on= يوم الجهاز؛ والخادم يرفض ما بعد يومه (future_day) فيُعرض «اليوم السابق». ويوم الجهاز يُقرأ من جديد كلّما عادت الصفحة ظاهرةً أو عاد
-  // التركيز إلى النافذة (مراجعة 0027 R2): صفحة بقيت مفتوحة بعد منتصف الليل وهي تتبع اليوم (بلا ?on=) تطلب اليوم الجديد، وبـ?on= تبقى على يومها.
+  // بلا ?on= تتبع الصفحة اليوم: يوم الجهاز، وهو يُقرأ من جديد كلّما عادت ظاهرةً أو عاد التركيز إلى النافذة (مراجعة 0027 R2)، فصفحة بقيت مفتوحة بعد منتصف
+  // الليل تطلب اليوم الجديد؛ وبـ?on= تبقى على يومها، ورفضه بجملته وطريقه (D7).
   const [deviceDay, setDeviceDay] = useState(localDay);
+  const asked = dayOf(search.get('on'));
+  const following = asked === null;
+  // يوم الجهاز الذي رفضه الخادم والصفحة تتبع اليوم (فعرضت اليوم قبله): ما دام بعد يوم الخادم في آخر جواب فحدّ «اليوم التالي» و«اليوم» والمنتقي يومُ
+  // الخادم ذاك، ويُنسى حين يحمل جوابٌ يوماً للخادم يبلغه.
+  const [refusedDay, setRefusedDay] = useState<Day | null>(null);
+  // سؤال الخادم من جديد عن يوم الجهاز والصفحة تتبع اليوم: n في مفتاح القراءة، وopen ما دامت لا قراءة في الطريق، فحدثا العودة الواحدة (الظهور
+  // والتركيز) يشتركان في سؤال واحد أيّاً كان ما رُسم بينهما، ولا سؤال فوق قراءة جارية. لا حلقة ولا مؤقّت.
+  const [asks, setAsks] = useState({ n: 0, open: false });
+  // خارج الرسم: التقرير على الشاشة (للخطوة الهادئة بلا نداء، ولشرط السؤال عند العودة)، وعدد القراءات (القراءة التي سبقتها أحدث تقف قبل خطوتها).
+  const onScreen = useRef<HallsDay | null>(null);
+  const reads = useRef(0);
   useEffect(() => {
     const recheck = () => {
       if (document.visibilityState === 'hidden') return;
       const now = localDay();
       setDeviceDay((before) => (now > before ? now : before));
+      // تتبع اليوم ويوم الجهاز بعد يوم الخادم في التقرير المعروض (أو لا تقرير بعد): تسأل عن يوم الجهاز مرّة، بخطوتها الهادئة.
+      const report = onScreen.current;
+      if (following && (report === null || now > report.today)) setAsks((ask) => (ask.open ? { n: ask.n + 1, open: false } : ask));
     };
     document.addEventListener('visibilitychange', recheck);
     window.addEventListener('focus', recheck);
@@ -672,37 +721,66 @@ export default function DailyPage() {
       document.removeEventListener('visibilitychange', recheck);
       window.removeEventListener('focus', recheck);
     };
-  }, []);
-  const asked = dayOf(search.get('on'));
-  const requested = asked ?? deviceDay;
+  }, [following]);
+  /** ما تسأل عنه الصفحة: اليوم الصريح، أو يوم الجهاز وهي تتبع اليوم. */
+  const target = asked ?? deviceDay;
   const backParam = search.get('back');
   const back = reportsBack(backParam, '/reports');
-  const load = useCallback(() => loadHallsDay(requested), [requested]);
-  const state = useLoad(load, requested);
+  const load = useCallback(() => {
+    reads.current += 1;
+    const mine = reads.current;
+    return following ? followDay(target, () => onScreen.current, () => reads.current !== mine) : readDay(target);
+  }, [following, target]);
+  const state = useLoad(load, following ? `${target}|${asks.n}` : target);
+  if (asks.open === state.loading) setAsks({ n: asks.n, open: !state.loading });
+  const read = state.data;
   // آخر قراءة ناجحة (لأيّ يوم): تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل.
   const [kept, setKept] = useState<HallsDay | null>(null);
-  if (state.data !== null && kept !== state.data) setKept(state.data);
-  const shown = state.data ?? kept;
-  // حدّ «اليوم التالي» و«اليوم» والمنتقي: الأبعد من يوم الخادم في آخر جواب ويوم الجهاز، فلا يحبس جوابُ الأمس الصفحةَ فيه بعد منتصف الليل.
-  const serverToday = shown?.today ?? deviceDay;
-  const today = serverToday > deviceDay ? serverToday : deviceDay;
-  const current = shown !== null && shown.on === requested;
+  if (read !== null && kept !== read.report) setKept(read.report);
+  useEffect(() => {
+    onScreen.current = kept;
+  }, [kept]);
+  // والصفحة تتبع اليوم لا يصلها رفضُ يوم الجهاز (تأخذه خطوته الهادئة)، فرفضُها (future_day) رفضُ الخطوة نفسها: يُعرض بطريقه كما في D7، ويُحفظ يوم الجهاز.
+  const stepRefused = following && isFutureDay(state.error);
+  let refused = refusedDay;
+  if (read !== null && read.refused !== null) refused = read.refused;
+  else if (stepRefused) refused = deviceDay;
+  if (refused !== null && read !== null && read.report.today >= refused) refused = null;
+  if (refused !== refusedDay) setRefusedDay(refused);
+  const step = addDays(deviceDay, -1);
+  // اليوم الذي تقف عليه الصفحة: اليوم الصريح؛ وهي تتبع اليوم يومُ قراءتها (يوم الجهاز أو الخطوة قبله)، والخطوةُ حين رُفضت هي أيضاً وأثناء السؤال من جديد
+  // عن يوم جهاز رفضه الخادم، ويومُ الجهاز غير ذلك (أثناء قراءته، وحين تفشل لغير future_day: «تعذّر» والمعروض آخر ما قُرئ كما كان).
+  const viewDay = asked ?? (read !== null ? read.report.on : stepRefused || (state.loading && refused === deviceDay) ? step : deviceDay);
+  const shown = read?.report ?? kept;
+  const current = shown !== null && shown.on === viewDay;
+  // حدّ «اليوم التالي» و«اليوم» والمنتقي: يوم الخادم في آخر جواب ما دام قبل يوم الجهاز الذي رفضه (وبلا جواب بعدُ اليومُ قبل المرفوض)، وإلّا الأبعد من يوم
+  // الخادم في آخر جواب ويوم الجهاز، فلا يحبس جوابُ الأمس الصفحةَ فيه بعد منتصف الليل (مراجعة 0027 R2).
+  const serverToday = shown?.today ?? null;
+  const known = serverToday ?? deviceDay;
+  const today = refused !== null && (serverToday === null || refused > serverToday) ? (serverToday ?? addDays(refused, -1)) : known > deviceDay ? known : deviceDay;
   // «اليوم السابق» مقفول حين قال الخادم لهذا اليوم إنّ لا فوج قبله (prev).
-  const prevOff = shown !== null && shown.on === requested && !shown.prev;
+  const prevOff = shown !== null && shown.on === viewDay && !shown.prev;
   const [picking, setPicking] = useState(false);
 
-  /** يوم الجهاز بلا ?on= (الرابط يبقى «اليوم»)، وغيره صريحاً؛ والرجوع (?back=) يبقى. */
+  /**
+   * يوم الجهاز بلا ?on= (الرابط يبقى «اليوم»)، وغيره صريحاً؛ والرجوع (?back=) يبقى. ويوم الجهاز والصفحة تتبع اليوم سؤالٌ للخادم من جديد، لا رابط لا
+   * يتغيّر: بعد خطوة هادئة تجاوزها الخادم بين نداءيها يصل «اليوم التالي» و«اليوم» إلى يومه.
+   */
   const go = (day: Day) => {
+    setPicking(false);
+    if (following && day === deviceDay) {
+      setAsks((ask) => ({ n: ask.n + 1, open: false }));
+      return;
+    }
     const params = new URLSearchParams(search);
     if (day === deviceDay) params.delete('on');
     else params.set('on', day);
-    setPicking(false);
     setSearch(params);
   };
-  const hereParams = new URLSearchParams({ on: shown?.on ?? requested });
+  const hereParams = new URLSearchParams({ on: shown?.on ?? viewDay });
   if (backParam !== null && back === backParam) hereParams.set('back', backParam);
   const here = `/halls/day?${hereParams.toString()}`;
-  const title = dayTitle(shown?.on ?? requested);
+  const title = dayTitle(shown?.on ?? viewDay);
 
   const share = async () => {
     if (!shown || !current) return;
@@ -716,8 +794,8 @@ export default function DailyPage() {
 
   const failure = state.error;
   const refusal = failure instanceof RejectedError && failure.hint ? failure : null;
-  // رفض اليوم القادم: يوم أبعد من يوم الجهاز يعود إليه، ويوم الجهاز نفسه (ساعة الجهاز قبل الخادم) يعود يوماً.
-  const way = refusal?.code === 'future_day' ? (requested > deviceDay ? { label: t('halls.day.today', 'اليوم'), day: deviceDay } : { label: t('halls.day.prev', 'اليوم السابق'), day: addDays(requested, -1) }) : null;
+  // رفض اليوم القادم: يوم أبعد من يوم الجهاز يعود إليه، وغيره (يوم الجهاز بـ?on= صريح، أو الخطوة الهادئة نفسها والجهاز أمام بيوم أو أكثر) يعود يوماً.
+  const way = refusal?.code === 'future_day' ? (viewDay > deviceDay ? { label: t('halls.day.today', 'اليوم'), day: deviceDay } : { label: t('halls.day.prev', 'اليوم السابق'), day: addDays(viewDay, -1) }) : null;
 
   return (
     <div className="flex flex-col gap-5" data-action="daily-page">
@@ -741,16 +819,16 @@ export default function DailyPage() {
 
       <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
         <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
-          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => go(addDays(requested, -1))} data-action="day-prev">
+          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => go(addDays(viewDay, -1))} data-action="day-prev">
             {t('halls.day.prev', 'اليوم السابق')}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: fmtDay(requested) })} data-action="day-pick">
-            {fmtDay(requested)}
+          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: fmtDay(viewDay) })} data-action="day-pick">
+            {fmtDay(viewDay)}
           </Button>
-          <Button size="sm" variant="secondary" disabled={requested >= today} onClick={() => go(addDays(requested, 1))} data-action="day-next">
+          <Button size="sm" variant="secondary" disabled={viewDay >= today} onClick={() => go(addDays(viewDay, 1))} data-action="day-next">
             {t('halls.day.next', 'اليوم التالي')}
           </Button>
-          {requested !== today ? (
+          {viewDay !== today ? (
             <Button size="sm" variant="ghost" onClick={() => go(today)} data-action="day-today">
               {t('halls.day.today', 'اليوم')}
             </Button>
@@ -779,12 +857,12 @@ export default function DailyPage() {
           }
         />
       ) : failure ? (
-        <LoadFailed what={t('halls.day.what', 'تقرير يوم {day}', { day: fmtDay(requested) })} error={failure} onRetry={state.retry} />
+        <LoadFailed what={t('halls.day.what', 'تقرير يوم {day}', { day: fmtDay(target) })} error={failure} onRetry={state.retry} />
       ) : null}
       {shown && !current ? (
         <p role="status" className="text-sm text-ink-muted print:hidden" data-action="day-stale">
           {state.loading
-            ? t('halls.day.reading', 'جارٍ قراءة تقرير يوم {day}… المعروض تقرير يوم {shown}.', { day: fmtDay(requested), shown: fmtDay(shown.on) })
+            ? t('halls.day.reading', 'جارٍ قراءة تقرير يوم {day}… المعروض تقرير يوم {shown}.', { day: fmtDay(viewDay), shown: fmtDay(shown.on) })
             : t('halls.day.kept', 'المعروض تقرير يوم {shown}، آخر ما قُرئ بنجاح.', { shown: fmtDay(shown.on) })}
         </p>
       ) : null}
@@ -795,7 +873,7 @@ export default function DailyPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : null}
-      {picking ? <PickDayDialog today={today} current={requested} onClose={() => setPicking(false)} onPick={go} /> : null}
+      {picking ? <PickDayDialog today={today} current={viewDay} onClose={() => setPicking(false)} onPick={go} /> : null}
     </div>
   );
 }
