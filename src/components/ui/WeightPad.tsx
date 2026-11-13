@@ -1,6 +1,6 @@
 import { Delete } from 'lucide-react';
-import { fmtTypedNumber } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { group } from '../../lib/numerals';
 import { sound } from '../../lib/sound';
 
 // لوحة الوزن للواقف بالمخزن بإيد وحدة: مفاتيح ≥ 56px بلا <input> (ما تطلع لوحة مفاتيح النظام)،
@@ -11,6 +11,17 @@ const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', 'back'] as 
 type Key = (typeof KEYS)[number];
 
 const MAX_WHOLE_DIGITS = 7;
+
+/**
+ * الوزن وهو يُكتب: فواصل الآلاف على الجزء الصحيح والكسر كما كُتب («12.» تبقى «12.»)، كـfmtTypedNumber في format.ts حرفاً بأساس التجميع نفسه (numerals).
+ * هنا لا استيراداً منه: اللوحة في حزم كسولة خارج التثبيت المسبق (تذكرة الوزن، 0028)، واستيراده يُدخل دالّةً محذوفة من حزمة المنسّقات المحفوظة فيكبّرها
+ * (108 بايتات من هامش التثبيت المسبق). وweight-pad.test يقارن العرض بقيم fmtTypedNumber نفسها.
+ */
+function typedText(value: string): string {
+  if (value === '') return '0';
+  const [whole = '', fraction] = value.split('.');
+  return fraction === undefined ? group(whole) : `${group(whole)}.${fraction}`;
+}
 
 /** يطبّق ضغطة على نصّ الوزن. دالّة صافية حتى تنفحص بلا متصفّح. */
 export function applyWeightKey(current: string, key: Key | 'clear', maxDecimals = 3): string {
@@ -46,7 +57,7 @@ export function WeightPad({ value, onChange, unitLabel, maxDecimals = 3 }: Weigh
         className="flex min-h-[4rem] items-baseline justify-center gap-2 rounded-3xl border border-line bg-surface-2 px-4 py-3"
       >
         <span dir="ltr" className="text-4xl font-semibold tabular-nums">
-          {fmtTypedNumber(value)}
+          {typedText(value)}
         </span>
         <span className="text-lg text-ink-muted">{unitLabel ?? t('unit.kg', 'كغم')}</span>
       </output>

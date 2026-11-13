@@ -19,7 +19,7 @@ import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type F
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BUTTON_LINK_CLASS, CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
-import { farmPath, farmTitle, fmtPct, Metric } from './shared';
+import { farmPath, farmTitle, fmtPct, HallFlockCard, Metric } from './shared';
 
 // شاشة الفوج (FOUNDATION ٧٨٢): الأرقام المهمّة ثابتة بالرأس (العمر، الحيّ، النفوق، العلف، ومعامل التحويل للّاحم، وبيض اليوم ونسبته
 // للبيّاض)، وجدول الأيام بالحيّ الجاري ونسبة إنتاج كل يوم («—» ليوم ما انسجّل بيضه)، ووزن العيّنات للّاحم (بنت بس).
@@ -252,6 +252,7 @@ export default function FlockPage({ kind }: { kind: FlockKind }) {
         <LoadFailed what={t('flock.what', 'الفوج')} error={state.error} onRetry={state.retry} />
       ) : null}
       {detail ? <FeedSection flockId={detail.flock.id} active={detail.flock.status === 'active'} back={`${base}/flock/${detail.flock.id}`} /> : null}
+      {detail ? <HallFlockCard flock={detail.flock} onChanged={state.retry} /> : null}
       {detail ? <FlockView detail={detail} kind={kind} onChanged={state.retry} /> : null}
     </div>
   );

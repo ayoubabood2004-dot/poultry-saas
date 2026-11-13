@@ -246,6 +246,8 @@ export default async function (t) {
           days: 11, ageEnd: 11, placed: 1000, dead: 11, culled: 2, live: 987, mortalityPct: 130n, livabilityPct: 9870n,
           feedGivenKg: 2_000_000n, feedEatenKg: 1_450_500n, feedLeftKg: 549_500n, feedDays: 10, feedSpan: 10, feedPerBirdKg: 1451n,
           lastWeight: { on: '2026-11-10', age: 10, avgG: 2800n }, fcr: 5249n, epef: 48n,
+          // مفاتيح 0028 (المباع وفرق العدّ والعلف المنقول والخارج والنهائيّان): عقد 0027 بلاها، فـnull لا صفر.
+          soldBirds: null, soldNetKg: null, soldAvgKg: null, saleAge: null, countDiff: null, feedCarryInKg: null, feedOutKg: null, feedNetKg: null, fcrFinal: null, epefFinal: null,
         },
         'P1 المؤشّرات كلّها بأنواعها',
       );

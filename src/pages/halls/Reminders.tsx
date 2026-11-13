@@ -1,4 +1,4 @@
-import { ChartNoAxesColumn, Syringe } from 'lucide-react';
+import { ChartNoAxesColumn, ClipboardList, Syringe } from 'lucide-react';
 import { Component, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -10,12 +10,14 @@ import { toast } from '../../components/ui/Toast';
 import type { Day } from '../../domain/dates';
 import type { FlockKind } from '../../domain/flocks';
 import type { Milli } from '../../domain/money';
+import { can } from '../../domain/permissions';
 import { parseQty } from '../../domain/units';
 import { countForm, fmtCounted, fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { loadIssueOptions, type IssueItem } from '../../lib/repo/flockIssues';
 import { giveToFlocks, loadReminders, type GiveLine, type LinkedItem, type Reminder, type ReminderWhen } from '../../lib/repo/halls';
+import { loadWeighTickets } from '../../lib/repo/weighTickets';
 import { RejectedError } from '../../lib/errors';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
@@ -308,9 +310,14 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
   const data = state.data;
   const items = (data?.items ?? []).filter((item) => kind === undefined || item.kind === kind);
   const rows = compact ? compactRows(items) : [];
+  // تذاكر وزن بانتظار الفاتورة (0028) لمن يصدر فاتورة الطيور، في «شغل اليوم» وحده: شغل ينتظر، فيُعدّ في onCount (لا «أنجزت» وتذكرة تنتظر فاتورتها).
+  const invoices = compact && workspace !== null && can(workspace.role, 'sale.post');
+  const loadAwaiting = useCallback(() => (invoices ? loadWeighTickets(null, null, 'awaiting') : Promise.resolve(null)), [invoices]);
+  const awaitingState = useLoad(loadAwaiting);
+  const awaiting = awaitingState.data?.totals.count ?? 0;
   useEffect(() => {
-    onCount?.(rows.length);
-  }, [onCount, rows.length]);
+    onCount?.(rows.length + (awaiting > 0 ? 1 : 0));
+  }, [onCount, rows.length, awaiting]);
 
   // تأشير لم تُعرف نتيجته: خارج المكوّن بمفتاح المستخدم والمنشأة ونوع الجولة، فالعودة إليها تعيده بـ«أعد المحاولة» وحدها.
   const pendingId = workspace && !compact ? pendingKey(`${workspace.userId}:${workspace.orgId}`, `mark:${kind ?? 'all'}`) : '';
@@ -393,9 +400,21 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
   if (compact) {
     // صفّ «تقرير القاعات اليومي» (0027) بعد أن يجيب الخادم (قراءة التذكير): التقرير يُقرأ منه وحده، فلا رابط إليه بلا خادم. لا يُعدّ في onCount (ليس
     // شغلاً ينتظر، فتبقى «أنجزت شغل اليوم»)، ويُرسم آخر البطاقة (order) بعد صفوف الجولة.
-    if (!data) return null;
+    if (!data && awaiting === 0) return null;
     return (
       <>
+        {awaiting > 0 ? (
+          <Link
+            to="/halls/tickets?status=awaiting&back=/"
+            data-action="today-tickets"
+            className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2 font-medium transition-colors active:bg-surface-3"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200">
+              <ClipboardList aria-hidden="true" className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">{t('reminders.compact.tickets', 'تذاكر وزن بانتظار الفاتورة: {n}', { n: awaiting })}</span>
+          </Link>
+        ) : null}
         {rows.map((row) => {
           const parts: string[] = [];
           if (row.now) parts.push(t('reminders.compact.today', 'لقاحات اليوم: {n}', { n: fmtInt(row.now) }));
@@ -418,6 +437,7 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
             </Link>
           );
         })}
+        {data ? (
         <Link
           to="/halls/day?back=/"
           data-action="today-report"
@@ -429,6 +449,7 @@ function RemindersView({ kind, compact = false, onCount }: RemindersProps) {
           </span>
           <span className="min-w-0 flex-1">{t('reports.day', 'تقرير القاعات اليومي')}</span>
         </Link>
+        ) : null}
       </>
     );
   }

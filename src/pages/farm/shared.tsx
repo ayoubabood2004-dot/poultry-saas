@@ -7,7 +7,7 @@ import { loadHalls } from '../../lib/hallsChunk';
 import { t } from '../../lib/i18n';
 import type { Stamp } from '../../lib/outbox';
 import { quietly } from '../../lib/pwa/recovery';
-import { loadOverviewJson, parseOverview, type FlocksOverview } from '../../lib/repo/flocks';
+import { loadOverviewJson, parseOverview, type FlockDetail, type FlocksOverview } from '../../lib/repo/flocks';
 import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -83,28 +83,39 @@ interface HallRemindersProps {
   onCount?: (rows: number) => void;
 }
 
-const nothing: ComponentType<HallRemindersProps> = () => null;
+type Halls = Awaited<ReturnType<typeof loadHalls>>;
+
+const nothing = () => null;
 
 /**
- * التذكير من حزمة القاعات (خارج التثبيت المسبق): بلا نت (أو أيّ فشل في تحميلها) لا شيء، والجولة والرئيسية تعملان كما هما. استيراد واحد لكلّ فتح
- * للشاشة: فشله يبقى لعمرها ويُعاد في الفتح التالي (رجع الاتصال)؛ كان يُعاد بكلّ رسم للجولة (كلّ حرف) ودفعاتٍ بلا توقّف (مراجعة 0026 GR-1). وهو
- * اختياريّ (quietly): فشله لا يبدأ التعافي من القشرة القديمة. وخطأ الرسم داخله يمسكه حدّ صامت في حزمته (Reminders)، فهنا الاستيراد وحده (حجم
- * التثبيت المسبق).
+ * مكوّن من حزمة القاعات (خارج التثبيت المسبق): بلا نت (أو أيّ فشل في تحميلها) لا شيء، والجولة والرئيسية وصفحة الفوج تعمل كما هي. استيراد واحد لكلّ
+ * فتح للشاشة: فشله يبقى لعمرها ويُعاد في الفتح التالي (رجع الاتصال)؛ كان يُعاد بكلّ رسم للجولة (كلّ حرف) ودفعاتٍ بلا توقّف (مراجعة 0026 GR-1). وهو
+ * اختياريّ (quietly): فشله لا يبدأ التعافي من القشرة القديمة. وخطأ الرسم داخله يمسكه حدّ صامت في حزمته (Reminders وFlockCard)، فهنا الاستيراد وحده
+ * (حجم التثبيت المسبق).
  */
-const remindersLazy = () =>
-  lazy<ComponentType<HallRemindersProps>>(() =>
-    quietly(loadHalls).then(
-      (halls) => ({ default: halls.Reminders }),
-      () => ({ default: nothing }),
-    ),
-  );
+const hallsLazy =
+  <P,>(pick: (halls: Halls) => ComponentType<P>) =>
+  () =>
+    lazy<ComponentType<P>>(() => quietly(loadHalls).then((halls) => ({ default: pick(halls) }), () => ({ default: nothing })));
+const remindersLazy = hallsLazy((halls) => halls.Reminders);
+const cardLazy = hallsLazy((halls) => halls.FlockCard);
 
 /** تذكير اللقاحات المستحقّة: شريط الجولة (kind)، وصفّ «شغل اليوم» في الرئيسية (compact، وonCount عدد صفوفه). */
 export function HallReminders(props: HallRemindersProps) {
-  const [LazyReminders] = useState(remindersLazy);
+  const [Lazy] = useState(remindersLazy);
   return (
     <Suspense fallback={null}>
-      <LazyReminders {...props} />
+      <Lazy {...props} />
+    </Suspense>
+  );
+}
+
+/** البيع وإغلاق الدورة في صفحة الفوج (0028، بطاقة FlockCard من حزمة القاعات). */
+export function HallFlockCard(props: { flock: FlockDetail['flock']; onChanged: () => void }) {
+  const [Lazy] = useState(cardLazy);
+  return (
+    <Suspense fallback={null}>
+      <Lazy {...props} />
     </Suspense>
   );
 }
