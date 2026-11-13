@@ -7,11 +7,13 @@
 //   تمنع؛ والرفض الأكيد يعيد القراءة ويُبقي ما كُتب بمرجع جديد؛ والنتيجة المجهولة تجمّد الصفحة خارج المكوّن (بعد إعادة التحميل أيضاً).
 // R تقرير الدورة: المؤشّرات النهائيّة وأسبابها، والبيع، والإغلاق بمصير كلّ باقٍ ومستنده، و«أعد فتح الدورة» (المدير، وتأكيده يسمّي مستندات الإرجاع)،
 //   و«أرجعه إلى مخزن» للعلف المنقول المعلَّق، والمال (الإيراد والراجع والمنقول) لأدوار الكلفة وحدها، والمنقول من الدورة السابقة.
+// Q مراجعة 0028 للشاشات بأجوبة القاعدة الحقيقية: «أغلق الدورة» مقفول والنموذج يُقرأ من جديد وتأكيده من الطلب (S5)، وصيغة المعدود (S6)، وتأكيد «أعد
+//   فتح الدورة» من الإغلاق نفسه (S7)، و?act=reopen مرّةً واحدة (S8).
 // X أجوبة القاعدة الحقيقية (fixtures/birds-0028.json) بالمحلّلات الحقيقية، حين توجد.
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { descendants, installDom, settle } from './dom.mjs';
-import { all, body, bundle, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, PDI, ROOT, select, selected, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, withAttr, within } from './halls-0028-kit.mjs';
+import { all, body, bundle, buttonText, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, PDI, ROOT, select, selected, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, withAttr, within } from './halls-0028-kit.mjs';
 
 const FORM = F.flock_close_form;
 const F1 = FORM.flock.id;
@@ -148,7 +150,7 @@ export default async function (t) {
         [
           'أغلق دورة «قاعة 1»',
           true,
-          `في القاعة بحسب النظام 30 طيراً لم تُبَع ولم تُسجَّل نافقة: يُكتب مع الإغلاق «فرق العدّ» ${LRI}-30${PDI} بسبب، ويظهر وحده لا مع النافق.`,
+          `الحيّ في القاعة بحسب النظام 30 طيراً، بلا بيع ولا نفوق مسجَّل: يُكتب مع الإغلاق «فرق العدّ» ${LRI}-30${PDI} بسبب، ويظهر وحده لا مع النافق.`,
           '12/11/2026',
           'النازل للقاعة 40,000 كغم، والمأكول المسجّل 38,412 كغم، فالمتوقّع في القاعة 1,588 كغم.',
         ],
@@ -332,7 +334,11 @@ export default async function (t) {
       t.same([returned.length, UUID.test(returned[0]?.p_client_ref ?? ''), UUID.test(returned[0]?.p_return_id ?? ''), returned[0]?.p_line, returned[0]?.p_warehouse, lastToast(), named(log, 'flock_cycle_report').length], [1, true, true, RESULT.lines[1].line_id, WH_FEED, 'أُرجع «علف نامي» إلى المخزن بالمستند FR-2026-0002.', 2], 'R الإرجاع نداء واحد بمرجعه ومعرّف الإرجاع، ثمّ يُقرأ التقرير');
       // «أعد فتح الدورة».
       await click(byAction('reopen-open')[0]);
-      t.same([textOf('reopen-text'), disabled(byAction('reopen-go')[0])], ['تُلغى مستندات الإرجاع FR-2026-0001 ويعود العلف من المخزن إلى حساب القاعة، ويُلغى فرق العدّ، ويعود الفوج قائماً. والفواتير تبقى مرحّلة.', true], 'R «أعد فتح الدورة»: التأكيد يسمّي مستند الإرجاع وما يحدث، وبلا سبب مقفول');
+      t.same(
+        [textOf('reopen-text'), disabled(byAction('reopen-go')[0])],
+        [`تُلغى مستندات الإرجاع FR-2026-0001 ويعود العلف من المخزن إلى حساب القاعة، ويُلغى فرق العدّ ${LRI}-7${PDI}، ويُلغى نقل 200 كغم «علف نامي» للدورة التالية فيعود إلى حساب هذه الدورة، ويعود الفوج قائماً. والفواتير تبقى مرحّلة.`, true],
+        'R «أعد فتح الدورة»: التأكيد من الإغلاق نفسه يسمّي مستند الإرجاع وفرق العدّ بقيمته والعلف الذي يُلغى نقله (مراجعة 0028 S7)، وبلا سبب مقفول',
+      );
       type(byAction('reopen-reason')[0], 'نسي الحقل قاعة');
       await settle();
       await click(byAction('reopen-go')[0]);
@@ -470,6 +476,115 @@ export default async function (t) {
         );
       });
     }
+
+    // ── Q: مراجعة 0028 للشاشات (كلّ فحص يفشل على ba04e1d)، بأجوبة القاعدة الحقيقية (fixtures/birds-0028.json) ─────────────────────────────────────
+    const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+    await step('Q S5 «أغلق الدورة» مقفول والنموذج يُقرأ من جديد، والتأكيد يسمّي ما يُرسل', async () => {
+      const first = clone(B.flock_close_form_carry_in);
+      const second = clone(B.flock_close_form_carry_in);
+      second.flock.live = 480;
+      let release = null;
+      const reread = new Promise((resolve) => {
+        release = resolve;
+      });
+      const log = fresh(MANAGER, {
+        flock_close_form: (_args, n) => (n === 1 ? clone(first) : reread.then(() => clone(second))),
+        close_flock: (_args, n) => (n === 1 ? Promise.reject(new m.RejectedError('live_changed', 'تغيّر عدد الطيور الحيّة منذ فتحت الشاشة: كان 500 وصار 480. راجع الأرقام وأعد المحاولة.')) : clone(B.close_flock)),
+      });
+      await mount(`/halls/close/${first.flock.id}`);
+      type(byAction('close-reason')[0], 'عُدّت القاعة');
+      await settle();
+      await click(byAction('close-go')[0]);
+      await click(byAction('close-confirm')[0]);
+      await settle(20);
+      // الرفض الأكيد يعيد القراءة، وهي في الطريق: المعروض قراءةٌ قديمة (الحيّ 500)، فلا تأكيد يُبنى منه.
+      const whileReading = [disabled(byAction('close-go')[0]), textOf('close-reading'), named(log, 'flock_close_form').length];
+      await click(byAction('close-go')[0]);
+      const dialogWhileReading = dialog() !== null;
+      release();
+      await settle(30);
+      const afterRead = [disabled(byAction('close-go')[0]), byAction('close-reading').length];
+      await click(byAction('close-go')[0]);
+      const shown = textOf('close-confirm-text');
+      await click(byAction('close-confirm')[0]);
+      await settle(30);
+      const sent = named(log, 'close_flock');
+      t.same(
+        [whileReading, dialogWhileReading, afterRead, sent.map((args) => args.p_expected_live), shown],
+        [[true, 'يُقرأ النموذج من جديد…', 2], false, [false, 0], [500, 480], `تُغلق دورة «${first.flock.hall_name}» يوم ${m.fmtDay(first.default_on)}، ويُكتب فرق العدّ ${m.signedCount(-480)}. لا يُسجَّل على الفوج شيء بعد الإغلاق.`],
+        'Q S5 بعد رفض live_changed «أغلق الدورة» مقفول بجملة ما دام النموذج يُقرأ من جديد (كان متاحاً فيفتح تأكيداً من القراءة القديمة)، وبعدها التأكيد يسمّي فرق العدّ من الطلب نفسه (−480) وهو ما يُرسل',
+      );
+    });
+    await step('Q S6 صيغة المعدود في «أغلق الدورة» وتقرير الدورة', async () => {
+      const pending = B.flock_close_form_pending;
+      fresh(MANAGER, { flock_close_form: () => clone(pending) });
+      await mount(`/halls/close/${pending.flock.id}`);
+      const count = textOf('close-count-diff');
+      const days10 = textOf('close-estimate');
+      await unmount();
+      fresh(MANAGER, { flock_close_form: () => clone(B.flock_close_form_carry_in) });
+      await mount(`/halls/close/${B.flock_close_form_carry_in.flock.id}`);
+      const days1 = textOf('close-estimate');
+      await unmount();
+      fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report_closed) });
+      await mount(`/halls/report/${B.flock_cycle_report_closed.flock.id}`);
+      const closeLine = textOf('rep-close-line');
+      await unmount();
+      fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report) });
+      await mount(`/halls/report/${B.flock_cycle_report.flock.id}`);
+      const salesNote = textOf('rep-sales-note');
+      t.same(
+        [count, days10, days1, closeLine, salesNote],
+        [
+          `الحيّ في القاعة بحسب النظام 100 طير، بلا بيع ولا نفوق مسجَّل: يُكتب مع الإغلاق «فرق العدّ» ${LRI}-100${PDI} بسبب، ويظهر وحده لا مع النافق.`,
+          'النازل للقاعة 0 كغم، والمأكول المسجّل 0 كغم، فالمتوقّع في القاعة 0 كغم. سُجّل العلف 0 من 10 أيام، فالتقدير ناقص.',
+          'النازل للقاعة 200 كغم، والمأكول المسجّل 0 كغم، فالمتوقّع في القاعة 200 كغم. سُجّل العلف 0 من يوم واحد، فالتقدير ناقص. وسطور بلا وزن خارج الكيلو: 1.',
+          'أُغلقت يوم 12/11/2026. المباع من الفواتير 9,700 طير صافيها 23,280 كغم.',
+          'المجموع من الفواتير المرحّلة وحدها؛ والطيور تخرج من القاعة عند الفاتورة. وعلى تذاكر بلا فاتورة 4,000 طير.',
+        ],
+        'Q S6 الطيور والأيّام بصيغة المعدود: «100 طير» و«9,700 طير» و«4,000 طير»، و«من 10 أيام» و«من يوم واحد» (كانت «طيراً» و«يوماً» لكلّ عدد)',
+      );
+      t.same(
+        [1, 2, 5, 11, 60, 100, 101, 103, 4000].map((n) => m.ticketParts.birdsText(n)),
+        ['طير واحد', 'طيران', '5 طيور', '11 طيراً', '60 طيراً', '100 طير', '101 طير', '103 طيور', '4,000 طير'],
+        'Q S6 صيغ الطيور في القاعات كفاتورة الطيور (birdsText)',
+      );
+    });
+    await step('Q S7 تأكيد «أعد فتح الدورة» من الإغلاق نفسه', async () => {
+      const sample = B.flock_cycle_report_closed;
+      fresh(MANAGER, { flock_cycle_report: () => clone(sample) });
+      await mount(`/halls/report/${sample.flock.id}`);
+      await click(byAction('reopen-open')[0]);
+      t.same(
+        [sample.close.count_diff, sample.close.lines.map((line) => [line.action, line.carry_status]), textOf('reopen-text')],
+        [
+          0,
+          [['return', null], ['carry', 'pending'], ['consumed', null]],
+          'تُلغى مستندات الإرجاع FR-2026-0004 ويعود العلف من المخزن إلى حساب القاعة، ويُلغى نقل 500 كغم «علف مكعّب» للدورة التالية فيعود إلى حساب هذه الدورة، ويعود الفوج قائماً. والفواتير تبقى مرحّلة.',
+        ],
+        'Q S7 الإغلاق بلا فرق عدّ وبعلف منقول معلَّق: التأكيد لا يذكر فرق عدّ، ويسمّي العلف الذي يُلغى نقله (كان يذكر «يُلغى فرق العدّ» ولا يذكر المنقول)',
+      );
+    });
+    await step('Q S8 ?act=reopen يفتح «أعد فتح الدورة» مرّةً واحدة', async () => {
+      const closed = clone(B.flock_cycle_report_closed);
+      const after = clone(B.flock_cycle_report_closed);
+      const carry = after.close.lines.find((line) => line.action === 'carry');
+      carry.carry_status = 'returned';
+      carry.return_doc_no = B.return_hall_carry.doc_no;
+      const log = fresh(MANAGER, { flock_cycle_report: (_args, n) => clone(n === 1 ? closed : after), return_hall_carry: () => clone(B.return_hall_carry) });
+      await mount(`/halls/report/${closed.flock.id}?act=reopen`);
+      const openedFirst = byAction('reopen-text').length;
+      await click(buttonText('لا، تراجع'));
+      const closedAfterCancel = byAction('reopen-text').length;
+      await click(byAction('carry-return')[0]);
+      await click(within(dialog(), 'carry-return-go')[0]);
+      await settle(40);
+      t.same(
+        [openedFirst, closedAfterCancel, named(log, 'return_hall_carry').length, named(log, 'flock_cycle_report').length, byAction('rep-close').length, byAction('reopen-text').length],
+        [1, 0, 1, 2, 1, 0],
+        'Q S8 ?act=reopen يفتح النافذة أوّل الفتح، و«تراجع» ثمّ «أرجعه إلى مخزن» (يقرأ التقرير من جديد) لا يفتحها وحدها من جديد (كانت تُفتح بعد كلّ قراءة)',
+      );
+    });
 
     // ── X: أجوبة القاعدة الحقيقية (حين توجد) ────────────────────────────────────────────────────────────────────────────
     const samplesPath = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json');

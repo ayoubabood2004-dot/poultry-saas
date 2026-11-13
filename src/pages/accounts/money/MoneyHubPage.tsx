@@ -232,7 +232,7 @@ export function MonthCard({ month, monthFrom }: { month: MoneyOverview['month'];
       </dl>
       {birds ? (
         <p className="text-xs text-ink-muted" data-action="hub-birds-profit">
-          {t('hub.birds_profit', 'ربح الطيور في تقرير الفوج.')}
+          {t('hub.birds_profit', 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ.')}
         </p>
       ) : null}
       <dl className="flex flex-col gap-1 border-t border-line pt-2.5" data-action="hub-purchases">

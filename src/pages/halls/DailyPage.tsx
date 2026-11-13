@@ -750,6 +750,14 @@ function returnMoment() {
   return { day: localDay(now), wall: now.getTime(), at: performance.now() };
 }
 
+/**
+ * قاعدة العودة: تقرأ حين لا تعرض الصفحة تقريراً حاليّاً، أو تتبع اليوم ويومُ الجهاز غير يوم المعروض، أو صريحةً ويومُ الجهاز بعد يوم الخادم في المعروض.
+ * day يومُ الجهاز لحظةَ العودة.
+ */
+function returnReads(page: { following: boolean; shown: HallsDay | null; current: boolean }, day: Day): boolean {
+  return page.shown === null || !page.current || (page.following ? day !== page.shown.on : day > page.shown.today);
+}
+
 export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
   const session = useSession();
@@ -765,12 +773,14 @@ export default function DailyPage() {
   // (أ ← ب ← أ، بالأزرار أو بسجلّ المتصفّح) تعيد نتيجة «أ» القديمة حاليّةً وloading=false و«أ» تُقرأ من جديد؛ فلو كانت رفضاً أو فشلاً لقرأت العودةُ فوق
   // القراءة الجارية. فلا يكفي loading دليلاً على أنّه لا قراءة في الطريق: لكلّ نداءٍ من load رقمٌ يزيد، والقراءة في الطريق حتى يستقرّ آخرُ نداءٍ صدر، ولا
   // يُنهيها استقرارُ نداءٍ أقدم أُلغي. ولا يُغيَّر useLoad نفسه، فهو مستعمل في 111 موضعاً. والمرجع لا يُمسّ إلّا هنا وفي معالج العودة، لا أثناء الرسم.
-  const reads = useRef({ last: 0, inFlight: false });
+  // ويومُ الجهاز الذي صدرت به آخر قراءة (day): عودةٌ والقراءة في الطريق بيومٍ غيره (منتصف ليلٍ بينهما) قد يجيبها الخادم قبل منتصف ليله، فتُؤجَّل لا تُترك
+  // (deferred أدناه، مراجعة 0027 V6-G2).
+  const reads = useRef<{ last: number; inFlight: boolean; day: Day | null }>({ last: 0, inFlight: false, day: null });
   const load = useCallback(() => {
     const id = reads.current.last + 1;
-    reads.current = { last: id, inFlight: true };
+    reads.current = { last: id, inFlight: true, day: localDay() };
     return loadHallsDay(asked).finally(() => {
-      if (reads.current.last === id) reads.current = { last: id, inFlight: false };
+      if (reads.current.last === id) reads.current = { ...reads.current, inFlight: false };
     });
   }, [asked]);
   const state = useLoad(load, asked ?? 'today');
@@ -794,6 +804,15 @@ export default function DailyPage() {
   useEffect(() => {
     latest.current = { following, shown, current, loading: state.loading, retry: state.retry };
   });
+  // عودةٌ تُركت لأنّ قراءةً في الطريق صدرت بيومٍ غير يومها (V6-G2): حين لا قراءة في الطريق تُطبَّق قاعدتها مرّةً بلحظتها هي ثمّ تُنسى (لا مؤقّت، وقراءة
+  // واحدة على الأكثر لكلّ عودة). فقراءةٌ أجابها الخادم قبل منتصف ليله ووصلت بعد عودةٍ بعده لا تبقى حاليّةً.
+  const deferred = useRef<ReturnType<typeof returnMoment> | null>(null);
+  useEffect(() => {
+    const moment = deferred.current;
+    if (moment === null || state.loading || reads.current.inFlight) return;
+    deferred.current = null;
+    if (returnReads(latest.current, moment.day)) latest.current.retry();
+  });
   useEffect(() => {
     let phase: ReturnPhase = document.visibilityState === 'hidden' ? 'away' : 'both';
     // لحظةُ بدء العودة الجارية.
@@ -812,8 +831,12 @@ export default function DailyPage() {
       phase = kind;
       began = moment;
       const page = latest.current;
-      if (page.loading || reads.current.inFlight) return;
-      if (page.shown === null || !page.current || (page.following ? moment.day !== page.shown.on : moment.day > page.shown.today)) page.retry();
+      if (page.loading || reads.current.inFlight) {
+        if (moment.day !== reads.current.day) deferred.current = moment;
+        return;
+      }
+      deferred.current = null;
+      if (returnReads(page, moment.day)) page.retry();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') phase = 'away';

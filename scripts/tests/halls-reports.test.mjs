@@ -30,6 +30,8 @@
 // H6 المراجعة السادسة لـ0027 (على c10c967): العودة لا تقرأ فوق قراءة في الطريق ولو أعاد useLoad نتيجةً محفوظة حاليّةً (أ ← ب ← أ بالأزرار وبسجلّ
 //   المتصفّح، V5-N4، R-h)، والقرين خلال ثانيتين بساعة الجهاز أيضاً لا بـperformance.now وحدها (تعليق الجهاز قد يوقفها، T6، R-i). كلّ فحص H6 يفشل على
 //   DailyPage في c10c967.
+// H7 (مراجعة 0027 V6-G2، على ba04e1d): عودةٌ تُركت لقراءةٍ في الطريق صدرت بيومٍ غير يومها تُطبَّق مرّةً حين تستقرّ القراءة (R-j)، فقراءةٌ أجابها الخادم
+//   قبل منتصف ليله لا تبقى حاليّةً بعد عودةٍ بعده. كلّ فحص H7 يفشل على DailyPage في ba04e1d.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -2177,6 +2179,113 @@ export default async function (t) {
             ['ساعة الجهاز قبل 2001 ملّي ثانية', '/halls/day', [null, null], [null, null, null], followView('2026-11-12')],
           ],
           'H6 R-i ظهورٌ بلا تركيز الساعة 00:45 يقرأ، ثمّ تركيزٌ بعده بـ500 ملّي ثانية بـperformance.now: بعد 45 دقيقة بساعة الجهاز باليوم نفسه (تعليق) عودةٌ جديدة تقرأ فيُعرض 13/11 بعد منتصف ليل الخادم، صريحاً مرفوضاً قبله أو تتبع اليوم (كان قريناً فبقي الرفض والأمس)؛ وبعد 500 أو 2000 ملّي ثانية بساعة الجهاز قرينٌ لا يقرأ، وبعد 2001 أو قبل 2001 عودةٌ جديدة',
+        );
+      });
+
+      // ── H7 (مراجعة 0027 V6-G2، على ba04e1d: عودةٌ تُركت لقراءةٍ في الطريق صدرت بيومٍ غير يومها) ──────────────────────────────────────────────────
+      // R-j عودةٌ والقراءة في الطريق تُترك (R-h)، فإن صدرت القراءة قبل منتصف الليل وأجابها الخادم قبل منتصف ليله ثمّ وصلت بعد عودةٍ بعده، بقيت الصفحة على
+      //     الأمس حاليّةً (أو اليوم الصريح مرفوضاً). فالصفحة تحفظ يومَ الجهاز الذي صدرت به آخر قراءة، والعودة المتروكة بيومٍ غيره تُطبَّق قاعدتها مرّةً حين
+      //     تستقرّ القراءة، بلحظتها هي (لا مؤقّت، وقراءة واحدة على الأكثر لكلّ عودة). كلّ فحص H7 يفشل على DailyPage في ba04e1d.
+      await step('H7 V6-G2 عودةٌ بعد منتصف ليل الخادم والقراءة في الطريق أُجيبت قبله: تقرأ مرّةً حين تستقرّ القراءة فتنتهي على اليوم الجديد', async () => {
+        /** خادمٌ يحسم جوابه لحظةَ وصول النداء (وصله الطلب حينها) ويسلّمه حين يُطلق؛ وما دام hold فالنداء محبوس. */
+        const snapBox = (server) => {
+          const box = { hold: false, q: [] };
+          box.handler = (args) => {
+            let answer;
+            try {
+              answer = Promise.resolve(server(args));
+            } catch (error) {
+              answer = Promise.reject(error);
+            }
+            answer.catch(() => {});
+            const entry = { done: false };
+            box.q.push(entry);
+            const promise = new Promise((resolve) => {
+              entry.ok = () => {
+                if (entry.done) return;
+                entry.done = true;
+                resolve(answer);
+              };
+            });
+            if (!box.hold) entry.ok();
+            return promise;
+          };
+          return box;
+        };
+        // performance.now مزيّفة تُقدَّم باليد (حدثا العودة الواحدة قرينان)، وتُعاد في finally.
+        const perf = globalThis.performance;
+        const own = Object.getOwnPropertyDescriptor(perf, 'now');
+        const base = perf.now();
+        let elapsed = 0;
+        const out = [];
+        try {
+          Object.defineProperty(perf, 'now', { value: () => base + elapsed, configurable: true, writable: true });
+          for (const [label, url, path] of [
+            ['تتبع اليوم، و«اليوم السابق» ثمّ «اليوم»', '/halls/day', 'aba-today'],
+            ['تتبع اليوم، و«اليوم السابق» ثمّ الرجوع بالسجلّ', '/halls/day', 'aba-back'],
+            ['تتبع اليوم، و«أعد المحاولة» بعد قراءة فشلت', '/halls/day', 'retry'],
+            ['?on=13/11 مرفوض، و«اليوم السابق» ثمّ الرجوع بالسجلّ', '/halls/day?on=2026-11-13', 'aba-back'],
+            ['?on=13/11 مرفوض، وقراءة عودةٍ في الطريق', '/halls/day?on=2026-11-13', 'return'],
+          ]) {
+            // الساعتان متّفقتان: 23:59 يوم 12/11، والقراءة المحبوسة تصدر الساعة 23:59:50 فيجيبها الخادم بيومه 12/11.
+            const clock = aheadClock({ day: 12, hour: 23, minute: 59, lag: 0 });
+            try {
+              const net = { down: path === 'retry' };
+              const box = snapBox(aheadServer(clock));
+              const rpcLog = fresh(OWNER, { halls_day: (args) => (net.down ? Promise.reject(new m.NetworkError()) : box.handler(args)) });
+              await mount(url);
+              net.down = false;
+              clock.now += 50_000;
+              box.hold = true;
+              if (path === 'aba-today') {
+                await toPrev();
+                await click(byAction('day-today')[0]);
+              } else if (path === 'aba-back') {
+                await toPrev();
+                await historyBack();
+              } else if (path === 'retry') {
+                await click(byAction('retry')[0]);
+              } else {
+                await leave();
+                elapsed += 60_000;
+                showPage();
+                await settle();
+                focusWindow();
+                await settle();
+              }
+              const held = calls(rpcLog).length;
+              // يجاوز الخادمُ والجهازُ منتصف الليل والقراءة في الطريق، ثمّ عودةٌ الساعة 00:01.
+              clock.at(13, 0, 1);
+              await leave();
+              elapsed += 60_000;
+              showPage();
+              await settle();
+              focusWindow();
+              await settle();
+              const during = calls(rpcLog).slice(held);
+              box.hold = false;
+              for (const entry of box.q) entry.ok();
+              for (let i = 0; i < 3; i += 1) await settle();
+              out.push([label, during, calls(rpcLog).slice(held), dayView()]);
+            } finally {
+              await unmount();
+              clock.restore();
+            }
+          }
+        } finally {
+          if (own) Object.defineProperty(perf, 'now', own);
+          else delete perf.now;
+        }
+        t.same(
+          out,
+          [
+            ['تتبع اليوم، و«اليوم السابق» ثمّ «اليوم»', [], [null], followView('2026-11-13')],
+            ['تتبع اليوم، و«اليوم السابق» ثمّ الرجوع بالسجلّ', [], [null], followView('2026-11-13')],
+            ['تتبع اليوم، و«أعد المحاولة» بعد قراءة فشلت', [], [null], followView('2026-11-13')],
+            ['?on=13/11 مرفوض، و«اليوم السابق» ثمّ الرجوع بالسجلّ', [], ['2026-11-13'], onView('2026-11-13', false)],
+            ['?on=13/11 مرفوض، وقراءة عودةٍ في الطريق', [], ['2026-11-13'], onView('2026-11-13', false)],
+          ],
+          'H7 R-j عودةٌ الساعة 00:01 والقراءة في الطريق صدرت 23:59:50 (فأجابها الخادم بيوم 12/11): لا تقرأ فوقها، وحين تستقرّ تقرأ مرّةً فتنتهي الصفحة على 13/11 حاليّاً، تتبع اليوم أو ?on=13/11 بعد رفضه (كانت تبقى على 12/11 حاليّاً أو على رفض 13/11)',
         );
       });
 

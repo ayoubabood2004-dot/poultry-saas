@@ -53,6 +53,7 @@ export async function bundle(name) {
     "export * as days from './src/lib/repo/hallReports.ts';",
     "export { CLOSE_CONSTRAINT_HINTS } from './src/lib/repo/constraints-close.ts';",
     "export { ticketBack, ticketBackLabel, signedCount, ticketsCount, newTicketPath } from './src/pages/halls/ticketParts.tsx';",
+    "export * as ticketParts from './src/pages/halls/ticketParts.tsx';",
     "export { pendingKey, storePending } from './src/pages/halls/GivePage.tsx';",
     "export { dayShareText } from './src/pages/halls/DailyPage.tsx';",
     "export { qtyText } from './src/pages/halls/parts.tsx';",

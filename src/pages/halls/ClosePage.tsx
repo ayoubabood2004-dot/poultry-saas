@@ -18,8 +18,8 @@ import { closeFlock, loadCloseForm, type CloseAction, type CloseForm, type Close
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { amountText, failureText, pendingKey, readPending, storePending, surelyUnsaved } from './GivePage';
-import { BackLink, flockPath, kgText } from './parts';
-import { kgDecimals, signedCount, ticketBack, ticketBackLabel, ticketName, ticketPath } from './ticketParts';
+import { BackLink, flockPath, kgText, ofDaysText } from './parts';
+import { birdsText, kgDecimals, signedCount, ticketBack, ticketBackLabel, ticketName, ticketPath } from './ticketParts';
 
 // «أغلق الدورة» (0028، كلمة المالك 2026-11-12 وأجوبته O2–O5، العقد §4.7 و§5.6 و§10): /halls/close/:flockId بقراءة flock_close_form. خلاصة الطيور (الحيّ
 // والنافق والمستبعد والمباع من الفواتير المرحّلة، لا يُكتب مرّتين)، وتذاكر بلا فاتورة تمنع الإغلاق بروابطها، و«فرق العدّ» = −الحيّ بسبب إلزاميّ يُكتب
@@ -95,12 +95,15 @@ function SentLines({ pending, caption }: { pending: ClosePending; caption: strin
   return <DataTable caption={caption} columns={columns} rows={pending.request.lines} rowKey={(line) => line.itemId} empty={t('halls.close.no_lines', 'لا باقٍ: كلّ ما نزل للقاعة يُحسب مستهلَكاً.')} />;
 }
 
-/** جملة التأكيد: الإغلاق بيومه، وفرق العدّ، ومصير كلّ باقٍ، ثمّ أنّ لا شيء يُسجَّل بعده. */
-function confirmText(pending: ClosePending, live: number): string {
+/**
+ * جملة التأكيد من الطلب نفسه (مراجعة 0028 S5: كانت تأخذ الحيّ من آخر قراءة، فتسمّي فرقاً غير الذي يُرسل): الإغلاق بيومه، وفرق العدّ = −الحيّ الذي
+ * يُرسل شرطاً، ومصير كلّ باقٍ، ثمّ أنّ لا شيء يُسجَّل بعده.
+ */
+function confirmText(pending: ClosePending): string {
   const { request, names, units, hall } = pending;
   const separator = t('list.separator', '، ');
   const parts = [t('halls.close.confirm.head', 'تُغلق دورة «{hall}» يوم {day}', { hall, day: fmtDay(request.on) })];
-  if (live > 0) parts.push(t('halls.close.confirm.count', 'ويُكتب فرق العدّ {n}', { n: signedCount(-live) }));
+  if (request.expectedLive > 0) parts.push(t('halls.close.confirm.count', 'ويُكتب فرق العدّ {n}', { n: signedCount(-request.expectedLive) }));
   for (const line of request.lines) {
     const qty = amountText(line.qty, units[line.itemId] ?? 'kg');
     const item = names[line.itemId] ?? '';
@@ -279,7 +282,9 @@ function CloseView({ flockId }: { flockId: string }) {
   const lineErrors = lines.flatMap((line) => (line.error ? [line.error] : []));
   const pendingTickets = form.pendingTickets.length > 0;
   const problems = [dayError, reasonError, noteError, ...lineErrors].filter((problem): problem is string => problem !== null);
-  const ready = form.canClose && !pendingTickets && problems.length === 0 && day !== null && !busy;
+  // والنموذج يُقرأ من جديد (بعد رفضٍ أكيد) أو فشلت قراءته: المعروض قراءةٌ قديمة والطلب يُبنى ممّا يُعرض، فلا إغلاق حتى تصل القراءة (مراجعة 0028 S5،
+  // درس 2026-11-09).
+  const ready = form.canClose && !pendingTickets && problems.length === 0 && day !== null && !busy && state.data !== null;
 
   const openConfirm = () => {
     if (!ready || day === null) return;
@@ -478,7 +483,7 @@ function CloseView({ flockId }: { flockId: string }) {
         {needReason ? (
           <>
             <p data-action="close-count-diff">
-              {t('halls.close.count_text', 'في القاعة بحسب النظام {live} طيراً لم تُبَع ولم تُسجَّل نافقة: يُكتب مع الإغلاق «فرق العدّ» {n} بسبب، ويظهر وحده لا مع النافق.', { live: flock.live, n: signedCount(-flock.live) })}
+              {t('halls.close.count_text', 'الحيّ في القاعة بحسب النظام {live}، بلا بيع ولا نفوق مسجَّل: يُكتب مع الإغلاق «فرق العدّ» {n} بسبب، ويظهر وحده لا مع النافق.', { live: birdsText(flock.live), n: signedCount(-flock.live) })}
             </p>
             <Field id={`${id}-reason`} label={t('halls.close.reason', 'سبب «فرق العدّ»')} error={reason !== '' || failure ? reasonError : null}>
               <input id={`${id}-reason`} className="input" autoComplete="off" value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} data-action="close-reason" />
@@ -501,7 +506,7 @@ function CloseView({ flockId }: { flockId: string }) {
         <h2 className="font-semibold">{t('halls.close.feed', 'الباقي في القاعة')}</h2>
         <p className="text-sm" data-action="close-estimate">
           {t('halls.close.estimate', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، فالمتوقّع في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.estimateLeftKg) })}
-          {feed.feedDays < feed.feedSpan ? t('halls.close.estimate_days', ' سُجّل العلف {n} من {m} يوماً، فالتقدير ناقص.', { n: feed.feedDays, m: feed.feedSpan }) : ''}
+          {feed.feedDays < feed.feedSpan ? t('halls.close.estimate_days', ' سُجّل العلف {n} من {days}، فالتقدير ناقص.', { n: feed.feedDays, days: ofDaysText(feed.feedSpan) }) : ''}
           {feed.unweighed > 0 ? t('halls.close.estimate_unweighed', ' وسطور بلا وزن خارج الكيلو: {n}.', { n: feed.unweighed }) : ''}
         </p>
         <p className="text-sm text-ink-muted">{t('halls.close.items_hint', 'اكتب الباقي الفعليّ لكلّ مادّة بوحدتها، واختر مصيره. المادّة بلا باقٍ تُحسب مستهلَكة كلّها.')}</p>
@@ -522,6 +527,11 @@ function CloseView({ flockId }: { flockId: string }) {
             {t('halls.close.missing', 'لتُغلق الدورة: {what}', { what: pendingTickets ? t('halls.close.missing_tickets', 'تُصدر فواتير التذاكر أو تُلغى أوّلاً.') : (problems[0] ?? '') })}
           </p>
         ) : null}
+        {state.loading ? (
+          <p role="status" className="text-sm text-ink-muted" data-action="close-reading">
+            {t('halls.close.reading', 'يُقرأ النموذج من جديد…')}
+          </p>
+        ) : null}
         <div>
           <Button size="lg" disabled={!ready} busy={busy} onClick={openConfirm} data-action="close-go">
             {t('halls.close.go', 'أغلق الدورة')}
@@ -536,7 +546,7 @@ function CloseView({ flockId }: { flockId: string }) {
           title={t('halls.close.confirm.title', 'أغلق دورة «{hall}» يوم {day}؟', { hall: confirm.hall, day: fmtDay(confirm.request.on) })}
           consequence={
             <div className="flex flex-col gap-3">
-              <p data-action="close-confirm-text">{confirmText(confirm, flock.live)}</p>
+              <p data-action="close-confirm-text">{confirmText(confirm)}</p>
               <SentLines pending={confirm} caption={t('halls.close.confirm.table', 'مصير الباقي')} />
             </div>
           }

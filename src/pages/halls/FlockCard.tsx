@@ -18,7 +18,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { failureText, pendingKey, readPending, storePending, surelyUnsaved } from './GivePage';
 import { flockPath, kgText } from './parts';
-import { newTicketPath, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
+import { birdsText, newTicketPath, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
 
 // بطاقة الفوج للبيع والإغلاق (0028، العقد §5.7 و§10): في صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared، بلا نت لا شيء). المباع من
 // الفواتير وصافيه، والطيور على تذاكر بلا فاتورة، و«فرق العدّ»، والحيّ، وأحدث التذاكر؛ والأفعال بما يجيزه الخادم (can): «تذكرة وزن» لعامل القاعة
@@ -207,8 +207,8 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
       {sales ? (
         <>
           <p data-action="card-sold">
-            {sales.soldBirds > 0 ? t('halls.card.sold', 'المباع من الفواتير: {birds} طيراً، صافيها {kg}.', { birds: sales.soldBirds, kg: kgText(sales.soldNetKg) }) : t('halls.card.no_sold', 'لا مبيع بفاتورة بعد.')}
-            {sales.ticketed > 0 ? t('halls.card.ticketed', ' وعلى تذاكر بلا فاتورة {n} طيراً.', { n: sales.ticketed }) : ''}
+            {sales.soldBirds > 0 ? t('halls.card.sold', 'المباع من الفواتير: {birds}، صافيها {kg}.', { birds: birdsText(sales.soldBirds), kg: kgText(sales.soldNetKg) }) : t('halls.card.no_sold', 'لا مبيع بفاتورة بعد.')}
+            {sales.ticketed > 0 ? t('halls.card.ticketed', ' وعلى تذاكر بلا فاتورة {birds}.', { birds: birdsText(sales.ticketed) }) : ''}
           </p>
           <p className="text-sm text-ink-muted" data-action="card-live">
             {t('halls.card.live', 'الحيّ بحسب النظام {live}.', { live: sales.live })}

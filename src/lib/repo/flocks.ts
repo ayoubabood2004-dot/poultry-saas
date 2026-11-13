@@ -221,6 +221,9 @@ export interface DayLine extends DayRow {
   liveStart: number;
   liveEnd: number;
   hdep: bigint | null;
+  /** 0028: المباع بفاتورة يومه وفرق العدّ يومه (سبب نزول الحيّ غير النافق والمستبعد)؛ وخادم قبل 0028 بلا مفتاحيهما صفر. */
+  sold: number;
+  countDiff: number;
 }
 
 export interface FlockDetail {
@@ -247,7 +250,14 @@ export function parseDetail(value: unknown): FlockDetail {
     },
     canManage: flag(json, 'can_manage'),
     canSave: flag(json, 'can_save'),
-    days: list(json.days, 'days').map((row) => ({ ...parseDayRow(row), liveStart: int(row, 'live_start'), liveEnd: int(row, 'live_end'), hdep: scaled(row, 'hdep', 2) })),
+    days: list(json.days, 'days').map((row) => ({
+      ...parseDayRow(row),
+      liveStart: int(row, 'live_start'),
+      liveEnd: int(row, 'live_end'),
+      hdep: scaled(row, 'hdep', 2),
+      sold: optInt(row, 'sold') ?? 0,
+      countDiff: optInt(row, 'count_diff') ?? 0,
+    })),
     weights: list(json.weights, 'weights').map((row) => ({ onDate: str(row, 'on_date'), sampleCount: int(row, 'sample_count'), avgG: scaled(row, 'avg_g', 1) ?? 0n, version: int(row, 'version') })),
   };
 }
