@@ -3,7 +3,7 @@
 // (pg_blocking_pids، لا أيّ انتظار؛ درس 2026-11-05)، والطفرات داخل معاملة صاحب الجداول ترجع (purchase-kit mutant): كلّ طفرة تكسر القاعدة فعلاً
 // (التطبيق البديل المعقول) ويمسكها فحصها الذهبيّ. منشأة هذا الملف وحدها: المعرّفات b2800000 والهواتف 96477028000. كلّ قسم بـsection: رمية فيه
 // فحص فاشل باسمه ولا توقف الملف. الحساب باليد بالتعليق جنب كلّ رقم.
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
@@ -475,7 +475,7 @@ async function scenario(t, db) {
     const g4 = (await admin("select id from public.bird_sales where doc_no = 'BR-2026-0002'"))[0].id;
     const range = ['2026-11-01', TODAY];
     Object.assign(samples, {
-      _note: 'عيّنات القاعدة الحقيقية (supabase/tests/birds.test.mjs بـBIRDS_SAMPLES_OUT=1، اليوم المثبَّت ' + TODAY + ')؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.',
+      _note: 'عيّنات القاعدة الحقيقية (supabase/tests/birds.test.mjs وclose.test.mjs بـBIRDS_SAMPLES_OUT=1، اليوم المثبَّت ' + TODAY + '، وكلّ ملفّ يدمج مفاتيحه)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.',
       weigh_ticket_done: await read(U.manager, 'select public.weigh_ticket($1)', [T1]),
       weigh_ticket_invoiced: await read(U.manager, 'select public.weigh_ticket($1)', [T4]),
       weigh_ticket_void: await read(U.manager, 'select public.weigh_ticket($1)', [id(201)]),
@@ -504,6 +504,9 @@ async function scenario(t, db) {
       flock_cycle_report: await read(U.manager, 'select public.flock_cycle_report($1)', [F1]),
       flock_cycle_report_no_money: await read(U.worker, 'select public.flock_cycle_report($1)', [F1]),
     });
-    writeFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), JSON.stringify(samples, null, 1) + '\n');
+    // close.test يكتب عيّناته في الملفّ نفسه: كلّ ملفّ يدمج مفاتيحه فيه ولا يمسح مفاتيح الآخر (تشغيل أحدهما وحده لا يُسقط عيّنات الثاني).
+    const file = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json');
+    const existing = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+    writeFileSync(file, JSON.stringify({ ...existing, ...samples }, null, 1) + '\n');
   }
 }

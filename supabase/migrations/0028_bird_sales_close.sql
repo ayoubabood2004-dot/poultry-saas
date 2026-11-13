@@ -1869,12 +1869,13 @@ begin
     raise exception 'id_required' using hint = 'تعذّر الإرسال دون معرّفي الإغلاق والفوج. حدّث الشاشة وأعد المحاولة.';
   end if;
 
-  -- الإعادة بالمعرّف (جواب ضاع): الإغلاق القائم نفسه للفوج نفسه ويومه وسطوره ومن الكاتب نفسه = نتيجته؛ وغيره تعارض.
+  -- الإعادة بالمعرّف (جواب ضاع): الإغلاق القائم نفسه للفوج نفسه ويومه وسبب فرق عدّه (إن كُتب فرق) وملاحظته وسطوره ومن الكاتب نفسه = نتيجته؛
+  -- وغيره تعارض (سبب آخر لا يُقال عنه «حُفظ» والمحفوظ غيره).
   perform pg_advisory_xact_lock(hashtextextended('flock_close:' || p_close_id::text, 0));
   select * into x from public.flock_closes y where y.id = p_close_id;
   if x.id is not null then
     if x.org_id = v_org and x.status = 'closed' and x.flock_id = p_flock and x.closed_on = p_on and x.closed_by is not distinct from auth.uid()
-        and x.note is not distinct from v_note
+        and x.note is not distinct from v_note and x.count_reason is not distinct from (case when x.count_diff <> 0 then v_reason end)
         and (select coalesce(jsonb_agg(jsonb_build_object('item_id', l.item_id, 'qty', l.qty_base, 'action', l.action, 'warehouse_id', l.warehouse_id)
               order by l.line_no), '[]'::jsonb) from public.flock_close_lines l where l.org_id = x.org_id and l.close_id = x.id)
           = (select coalesce(jsonb_agg(jsonb_build_object('item_id', (e.x ->> 'item_id')::uuid, 'qty', round((e.x ->> 'qty')::numeric, 3),
