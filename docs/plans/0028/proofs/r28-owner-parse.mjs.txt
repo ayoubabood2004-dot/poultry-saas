@@ -1,0 +1,78 @@
+// zz-r28 (مؤقّت، يُحذف): أجوبة القاعدة الحقيقية من zz-r28-walk تمرّ بمحلّلات الشاشات الحقيقية (esbuild)، ونطبع ما تعرضه الشاشات.
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const walk = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const R = walk.R;
+const result = await build({
+  stdin: {
+    contents: [
+      "export { parseDetail, parseFlockFeed } from './src/lib/repo/flocks.ts';",
+      "export { parseCycleReport } from './src/lib/repo/halls.ts';",
+      "export { parseHallsDay } from './src/lib/repo/hallReports.ts';",
+      "export { parseFlockSales } from './src/lib/repo/flockClose.ts';",
+    ].join('\n'),
+    resolveDir: ROOT,
+    loader: 'ts',
+  },
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'node',
+  target: 'node20',
+  logLevel: 'silent',
+  define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"' },
+});
+const P = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+const kg = (m) => (m === null || m === undefined ? null : (Number(m) / 1000).toString());
+const failures = [];
+const check = (ok, label, detail) => {
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${ok ? '' : `\n     ${detail}`}`);
+  if (!ok) failures.push(label);
+};
+
+// 1) صفحة الفوج (محفوظة للفتح بلا نت): جدول الأيّام = التاريخ | الحيّ بداية اليوم | النافق | المستبعد | العلف | الحيّ آخر اليوم.
+const detail = P.parseDetail(R.detail_f1_closed);
+for (const day of detail.days.filter((d) => ['2026-11-09', '2026-11-11'].includes(d.onDate))) {
+  const shown = { onDate: day.onDate, liveStart: day.liveStart, dead: day.dead, culled: day.culled, liveEnd: day.liveEnd };
+  check(day.liveStart - (day.dead ?? 0) - (day.culled ?? 0) === day.liveEnd, `FlockPage day ${day.onDate}: الحيّ بداية − النافق − المستبعد = الحيّ آخر اليوم`,
+    `${JSON.stringify(shown)}; DayLine keys: ${Object.keys(day).join(',')}`);
+}
+
+// 2) «الباقي بالقاعة»: سطر العلف في صفحة الفوج (flock_feed) وجدول «المصروف والمستهلك والباقي» في تقرير الدورة، مقابل KPI التقرير والتقرير اليوميّ.
+const hallOf = (day, hall) => day.sites.flatMap((s) => s.halls).find((h) => h.hallId === hall);
+const H1 = walk.ids.H1;
+const closedFeed = P.parseFlockFeed(R.feed_f1_closed);
+const closedRep = P.parseCycleReport(R.report_f1_closed);
+const dayC1 = P.parseHallsDay(R.halls_day_C1);
+console.log('closed F1 (hall emptied: 100 returned, 250 carried, 150 consumed):',
+  JSON.stringify({ feedLine_left: kg(closedFeed.remainingFeedKg), report_balance_remaining: kg(closedRep.feed.remainingKg), report_kpi_left: kg(closedRep.cycle?.kpis?.feedLeftKg),
+    daily_left_close_day: kg(hallOf(dayC1, H1).flock.feedLeftKg) }));
+check(closedFeed.remainingFeedKg === closedRep.cycle.kpis.feedLeftKg, 'closed F1: FeedLine «الباقي بالقاعة» = KPI «العلف الباقي في القاعة»',
+  `${kg(closedFeed.remainingFeedKg)} vs ${kg(closedRep.cycle.kpis.feedLeftKg)}`);
+check(closedRep.feed.remainingKg === closedRep.cycle.kpis.feedLeftKg, 'closed F1 report: جدول «الباقي بالقاعة» = KPI «العلف الباقي في القاعة» (التقرير نفسه)',
+  `${kg(closedRep.feed.remainingKg)} vs ${kg(closedRep.cycle.kpis.feedLeftKg)}`);
+const nextFeed = P.parseFlockFeed(R.feed_f1b_13);
+const nextRep = P.parseCycleReport(R.report_f1b_13);
+const day13 = P.parseHallsDay(R.halls_day_13);
+console.log("next flock F1' (250 kg carried in, 100 eaten):",
+  JSON.stringify({ feedLine: { issued: kg(nextFeed.issuedFeedKg), consumed: kg(nextFeed.consumedFeedKg), left: kg(nextFeed.remainingFeedKg) },
+    report_balance: { delivered: kg(nextRep.feed.deliveredKg), remaining: kg(nextRep.feed.remainingKg), lines: nextRep.feed.lines.length },
+    report_kpi: { given: kg(nextRep.cycle.kpis.feedGivenKg), left: kg(nextRep.cycle.kpis.feedLeftKg) }, daily_left: kg(hallOf(day13, H1).flock.feedLeftKg) }));
+check(nextFeed.remainingFeedKg === hallOf(day13, H1).flock.feedLeftKg, "F1': FeedLine «الباقي بالقاعة» = التقرير اليوميّ «الباقي في القاعة»",
+  `${kg(nextFeed.remainingFeedKg)} vs ${kg(hallOf(day13, H1).flock.feedLeftKg)}`);
+check(nextRep.feed.deliveredKg === nextRep.cycle.kpis.feedGivenKg, "F1' report: «المصروف للقاعة» (الجدول) = «العلف النازل للقاعة» (KPI)",
+  `${kg(nextRep.feed.deliveredKg)} vs ${kg(nextRep.cycle.kpis.feedGivenKg)}`);
+
+// 3) سبب فرق العدّ اليدويّ (−10 «طيور مسروقة») في تقرير F2 المغلقة: المعروض −265 بسبب الإغلاق وحده.
+const f2 = P.parseCycleReport(R.report_f2_closed);
+check(!(f2.birds.countDiff === -265 && f2.birds.countReason === 'فرق نهاية الدورة'), 'F2 report: فرق العدّ لا يُنسب كلّه لسبب الإغلاق',
+  `birds.countDiff=${f2.birds.countDiff}, countReason=«${f2.birds.countReason}» (منها −10 «طيور مسروقة» يوم 10/11)`);
+
+// 4) بطاقة الفوج تعرض «أعد فتح الدورة» بعد تسكين القاعة.
+const card = P.parseFlockSales(R.sales_f1_after_reuse);
+check(!card.can.reopen, 'FlockCard: لا «أعد فتح الدورة» بعد تسكين فوج جديد في القاعة', `can.reopen=${card.can.reopen}; reopen_flock → ${R.reopen1_after_reuse.code}`);
+console.log(`\n${failures.length} FAIL`);

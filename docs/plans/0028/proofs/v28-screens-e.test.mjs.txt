@@ -1,0 +1,266 @@
+// مراجعة إصلاحات شاشات 0028 (مؤقّت، يُحذف): هجوم على V6-G2 (العودة المؤجَّلة في التقرير اليوميّ).
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { descendants, fire, installDom, settle } from './dom.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'reports-contract.json'), 'utf8'));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
+const STUBS = {
+  session: 'export const useSession = () => globalThis.__hr.session; export const sessionStore = { get: () => globalThis.__hr?.session ?? { status: "loading" } };',
+  Toast: 'export const toast = (spec) => { globalThis.__hr.toasts.push(spec); }; export function Toaster() { return null; }',
+};
+const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
+export const call = (fn, args) => globalThis.__hr.rpc(fn, args);
+export const send = async () => { throw new Error('no direct table access'); };
+export const classifyPostgrest = (error) => new RejectedError(error.code ?? 'x', error.hint ?? null);
+export const explained = async (error) => error;
+export const updatedRows = () => { throw new ZeroRowsError(); };
+export const authed = async () => ({ userId: globalThis.__hr?.session?.workspace?.userId ?? null, db: null });
+export const unknownConstraint = () => '';`;
+
+async function bundle() {
+  const entry = [
+    "export { createElement as h } from 'react';",
+    "export { createRoot } from 'react-dom/client';",
+    "export { flushSync } from 'react-dom';",
+    "export { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';",
+    "export { default as HallsRoutes } from './src/pages/halls/HallsRoutes.tsx';",
+    "export { localDay } from './src/domain/dates.ts';",
+    "export { RejectedError, NetworkError } from './src/lib/errors.ts';",
+  ].join('\n');
+  const result = await build({
+    stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    jsx: 'automatic',
+    logLevel: 'silent',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    plugins: [
+      {
+        name: 'zz-e',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'zz-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'zz-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+          b.onResolve({ filter: /^\.\/core$/ }, (args) => (args.importer.replace(/\\/g, '/').includes('src/lib/repo/') ? { path: 'core', namespace: 'zz-core' } : undefined));
+          b.onLoad({ filter: /.*/, namespace: 'zz-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+}
+
+const ws = { userId: 'u-owner', orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role: 'owner', scopes: [], divisions: ['broiler', 'layer'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1 };
+const OWNER = { status: 'ready', workspace: ws, offline: false };
+
+export default async function (t) {
+  const restore = installDom();
+  const RealDate = globalThis.Date;
+  const perf = globalThis.performance;
+  const ownNow = Object.getOwnPropertyDescriptor(perf, 'now');
+  const base = perf.now();
+  let elapsed = 0;
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle();
+    Object.defineProperty(perf, 'now', { value: () => base + elapsed, configurable: true, writable: true });
+    const all = () => descendants(globalThis.document.body);
+    const byAction = (name) => all().filter((n) => n.getAttribute('data-action') === name);
+    const textOf = (name) => byAction(name)[0]?.textContent ?? null;
+    const click = async (node) => {
+      if (!node) throw new Error('no node');
+      fire(node, 'click', { button: 0 });
+      await settle();
+    };
+    /** ساعة الجهاز والخادم متّفقتان (بغداد). */
+    const clock = {
+      now: new RealDate(2026, 10, 12, 23, 59, 0).getTime(),
+      at(day, h, mi) {
+        clock.now = new RealDate(2026, 10, day, h, mi, 0).getTime();
+      },
+      serverDay: () => m.localDay(new RealDate(clock.now)),
+    };
+    globalThis.Date = class extends RealDate {
+      constructor(...args) {
+        if (args.length === 0) super(clock.now);
+        else super(...args);
+      }
+    };
+    const dayFor = (on, today) => ({ ...clone(F.halls_day), on, today, next: on < today });
+    /** خادمٌ يحسم جوابه لحظةَ وصول النداء ويسلّمه حين يُطلق (hold)، أو يرفضه بشبكة إن fail. */
+    const box = { hold: false, q: [], fail: false };
+    const handler = (args) => {
+      const today = clock.serverDay();
+      const on = args.p_on ?? today;
+      const failing = box.fail;
+      const answer = failing ? Promise.reject(new m.NetworkError()) : on > today ? Promise.reject(new m.RejectedError('future_day', 'لا تقرير ليوم لم يأتِ بعد.')) : Promise.resolve(dayFor(on, today));
+      answer.catch(() => {});
+      const entry = { done: false };
+      box.q.push(entry);
+      const promise = new Promise((resolve) => {
+        entry.ok = () => {
+          if (entry.done) return;
+          entry.done = true;
+          resolve(answer);
+        };
+      });
+      if (!box.hold) entry.ok();
+      return promise;
+    };
+    const rpcLog = [];
+    const fresh = () => {
+      rpcLog.length = 0;
+      globalThis.__hr = {
+        session: OWNER,
+        toasts: [],
+        rpc(fn, args) {
+          rpcLog.push([fn, args]);
+          if (fn !== 'halls_day') return new Promise(() => {});
+          return Promise.resolve().then(() => handler(args));
+        },
+      };
+    };
+    const calls = () => rpcLog.filter(([fn]) => fn === 'halls_day').map(([, args]) => args.p_on);
+    const mount = async (url) => {
+      const container = globalThis.document.createElement('div');
+      globalThis.document.body.appendChild(container);
+      root = m.createRoot(container);
+      function Shell() {
+        globalThis.__hr.navigate = m.useNavigate();
+        return m.h(m.Routes, null, m.h(m.Route, { path: '/halls/*', element: m.h(m.HallsRoutes) }), m.h(m.Route, { path: '*', element: null }));
+      }
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(Shell))));
+      await settle();
+      await settle();
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      m.flushSync(() => mounted.unmount());
+      globalThis.document.body.textContent = '';
+      await settle();
+    };
+    const leave = async () => {
+      globalThis.document.visibilityState = 'hidden';
+      fire(globalThis.document, 'visibilitychange', { bubbles: false });
+      fire(globalThis.window, 'blur', { bubbles: false });
+      await settle();
+    };
+    const comeBack = async () => {
+      await leave();
+      elapsed += 60_000;
+      globalThis.document.visibilityState = 'visible';
+      fire(globalThis.document, 'visibilitychange', { bubbles: false });
+      await settle();
+      fire(globalThis.window, 'focus', { bubbles: false });
+      await settle();
+    };
+    const release = async () => {
+      box.hold = false;
+      for (const entry of box.q) entry.ok();
+      for (let i = 0; i < 4; i += 1) await settle();
+    };
+    const scenario = async (label, body) => {
+      clock.at(12, 23, 59);
+      box.hold = false;
+      box.fail = false;
+      box.q = [];
+      fresh();
+      try {
+        await body();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+      delete globalThis.document.visibilityState;
+    };
+
+    // E1 عودةٌ مؤجَّلة ثمّ مغادرة الصفحة قبل أن تستقرّ القراءة: لا نداء بعد المغادرة.
+    await scenario('E1', async () => {
+      await mount('/halls/day');
+      clock.now += 50_000;
+      box.hold = true;
+      await click(byAction('day-prev')[0]);
+      await click(byAction('day-today')[0]);
+      const held = calls().length;
+      clock.at(13, 0, 1);
+      await comeBack();
+      const during = calls().length - held;
+      await unmount();
+      await release();
+      t.same([during, calls().length - held], [0, 0], 'E1 عودةٌ مؤجَّلة ثمّ مغادرة: لا قراءة أثناء القراءة ولا بعد المغادرة');
+    });
+
+    // E2 عودةٌ مؤجَّلة والقراءة في الطريق تفشل بالشبكة: قراءة واحدة بعدها، لا حلقة.
+    await scenario('E2', async () => {
+      await mount('/halls/day');
+      clock.now += 50_000;
+      box.hold = true;
+      box.fail = true;
+      await click(byAction('day-prev')[0]);
+      await click(byAction('day-today')[0]);
+      const held = calls().length;
+      clock.at(13, 0, 1);
+      await comeBack();
+      box.fail = false;
+      await release();
+      for (let i = 0; i < 4; i += 1) await settle();
+      t.same([calls().slice(held), textOf('day-title')], [[null], 'تقرير القاعات اليومي — 13/11/2026'], 'E2 القراءة في الطريق فشلت: العودة المؤجَّلة تقرأ مرّةً واحدة فتنتهي على 13/11');
+    });
+
+    // E3 عودتان والقراءة في الطريق (00:01 ثمّ 00:03): قراءة واحدة حين تستقرّ.
+    await scenario('E3', async () => {
+      await mount('/halls/day');
+      clock.now += 50_000;
+      box.hold = true;
+      await click(byAction('day-prev')[0]);
+      await click(byAction('day-today')[0]);
+      const held = calls().length;
+      clock.at(13, 0, 1);
+      await comeBack();
+      clock.at(13, 0, 3);
+      await comeBack();
+      await release();
+      t.same([calls().slice(held), textOf('day-title')], [[null], 'تقرير القاعات اليومي — 13/11/2026'], 'E3 عودتان أثناء قراءة واحدة: قراءة واحدة بعدها');
+    });
+
+    // E4 عودةٌ مؤجَّلة ثمّ «اليوم السابق» قبل أن تستقرّ القراءة: يومٌ صريح لا يتحوّل ولا يُقرأ مرّتين.
+    await scenario('E4', async () => {
+      await mount('/halls/day');
+      clock.now += 50_000;
+      box.hold = true;
+      await click(byAction('day-prev')[0]);
+      await click(byAction('day-today')[0]);
+      const held = calls().length;
+      clock.at(13, 0, 1);
+      await comeBack();
+      await click(byAction('day-prev')[0]);
+      await release();
+      const after = calls().slice(held);
+      t.same([after.length <= 2, textOf('day-title')], [true, 'تقرير القاعات اليومي — 11/11/2026'], `E4 عودةٌ مؤجَّلة ثمّ «اليوم السابق»: يبقى على 11/11 ولا أكثر من قراءة للعودة (${JSON.stringify(after)})`);
+    });
+    t.ok(true, 'zz-v28-e ran');
+  } finally {
+    globalThis.Date = RealDate;
+    if (ownNow) Object.defineProperty(perf, 'now', ownNow);
+    else delete perf.now;
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    delete globalThis.__hr;
+    restore();
+  }
+}

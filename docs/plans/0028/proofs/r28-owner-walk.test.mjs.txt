@@ -1,0 +1,312 @@
+// zz-r28 (مراجعة عدائية مؤقّتة، تُحذف): يوم المالك الحقيقيّ من التسكين إلى الإغلاق وإعادة الفتح، ومقارنة كلّ قارئ بالحساب باليد.
+import { writeFileSync } from 'node:fs';
+import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { postedOpening } from './stock-kit.mjs';
+
+const OUT = '/tmp/claude-0/-home-user-poultry-saas/09bca5a2-c7a2-5cbe-bfbf-dcf45f85b145/scratchpad/zz-r28-walk.json';
+const id = (n) => `e2890000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone = (n) => `96477028900${String(n).padStart(2, '0')}`;
+const D = (s) => s;
+const addDay = (on, n) => new Date(Date.parse(`${on}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const P = '2026-10-08'; // التسكين
+const S = '2026-11-09'; // يوم البيع (العمر 32)
+const C1 = '2026-11-11'; // إغلاق F1 (العمر 34)
+const TODAY = '2026-11-12';
+
+export default async function (t, db) {
+  const R = {};
+  const sec = async (name, fn) => {
+    try {
+      await fn();
+    } catch (error) {
+      t.ok(false, `${name}: رمى ${error.stack ?? error.message}`);
+    }
+  };
+  const G = await makeOrg(db, {
+    name: 'مزرعة يوم المالك',
+    id,
+    phone,
+    roles: [
+      ['owner', 'owner'],
+      ['manager', 'manager'],
+      ['accountant', 'accountant'],
+      ['worker', 'hall_worker', ['broiler']],
+      ['storekeeper', 'storekeeper'],
+    ],
+  });
+  const { users: U, divisions: DV, org } = G;
+  const one = async (user, sql, params) => {
+    const result = await call(db, user, sql, params);
+    if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
+    return result.value;
+  };
+  const admin = async (sql, params) => (await db.admin(sql, params)).rows;
+  const at = (on, fn) => db.setToday(on, fn);
+  const W = Object.fromEntries((await admin('select kind, id from public.warehouses where org_id = $1', [org])).map((r) => [r.kind, r.id]));
+
+  const site = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل اللحم', 'farm') returning id", [DV.broiler]);
+  const hall = (name) => one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [site, name]);
+  const H1 = await hall('قاعة 1');
+  const H2 = await hall('قاعة 2');
+  const H3 = await hall('قاعة 3');
+  const H4 = await hall('قاعة 4');
+  const item = (name) => one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'feed', 'kg') returning id", [name]);
+  const X = await item('علف بادئ');
+  const Y = await item('علف نامي');
+  const Z = await item('علف ناهي');
+  // X 700 للكيلو، Y 750، Z 800.
+  await at(addDay(P, -5), () => postedOpening(db, U.owner, W.feed, addDay(P, -5), [{ item: X, qty: 10000, value: '7000000.00' }, { item: Y, qty: 5000, value: '3750000.00' },
+    { item: Z, qty: 5000, value: '4000000.00' }]));
+  const trader = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الطيور', true) returning id");
+  const box = await one(U.owner, "insert into public.cash_accounts (name, kind) values ('صندوق البيع', 'cash') returning id");
+
+  const open = (hallId, on, count) => one(U.manager, 'select public.open_flock($1, $2, $3, 0, null, $4)', [hallId, on, count, uid()]);
+  const issue = (flock, itemId, qty, on) => one(U.manager, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8)', [uid(), uid(), uid(), flock, itemId, qty, on, W.feed]);
+  const round = async (flock, on, dead, feed) => {
+    const v = await one(U.manager, 'select public.save_flock_day($1, $2, $3, 0, $4, null, null, null, null, null, null, null, null, $5, false)', [flock, on, dead, feed, uid()]);
+    if (v.status !== 'saved') throw new Error(`جولة ${on}: ${JSON.stringify(v)}`);
+  };
+  const weigh = (flock, on, count, avg) => one(U.manager, 'select public.record_flock_weight($1, $2, $3, $4, $5)', [flock, on, count, avg, uid()]);
+
+  // ── التسكين والصرف ─────────────────────────────────────────────────────────────────────────────
+  const F = {};
+  await at(P, async () => {
+    F.f1 = (await open(H1, P, 1000)).flock_id;
+    F.f2 = (await open(H2, P, 1000)).flock_id;
+    F.f3 = (await open(H3, P, 500)).flock_id;
+    F.f4 = (await open(H4, P, 300)).flock_id;
+    await issue(F.f4, X, '1000', P);
+    await issue(F.f1, X, '1500', P);
+    await issue(F.f2, X, '1200', P);
+    await issue(F.f3, X, '600', P);
+  });
+  await at('2026-10-25', () => issue(F.f1, Y, '1500', '2026-10-25'));
+  await at('2026-10-28', () => issue(F.f2, Y, '1000', '2026-10-28'));
+  await at('2026-11-05', () => issue(F.f1, Z, '1000', '2026-11-05'));
+
+  // ── الجولات يوماً بيوم حتى أمس البيع (اليوم = آخر يوم في الكتلة): F1 نافق 2 وعلف 100، وF2 نافق 1 وعلف 60 (إلّا يوم البيع بلا جولة) ─────────
+  const roundsOn = async (d) => {
+    if (d <= C1) await round(F.f1, d, 2, '100');
+    if (d !== S) await round(F.f2, d, 1, '60');
+    if (d <= '2026-11-10') await round(F.f4, d, 0, '30');
+    if (d === '2026-11-08') await weigh(F.f4, d, 50, '2300.0');
+    if (d === '2026-10-29') await weigh(F.f1, d, 50, '900.0');
+    if (d === '2026-11-08') {
+      await weigh(F.f1, d, 50, '2150.0');
+      await weigh(F.f2, d, 50, '2200.0');
+    }
+  };
+  const days = [];
+  for (let d = P; d <= '2026-11-09'; d = addDay(d, 1)) days.push(d);
+  for (let i = 0; i < days.length; i += 6) {
+    const block = days.slice(i, i + 6);
+    await at(block[block.length - 1], async () => {
+      for (const d of block) await roundsOn(d);
+    });
+  }
+  // تذكرة قديمة T3 لقاعة 3 يوم 02/11 (تُكمَل يومها، ولا تُفوتر في الأيّام السبعة).
+  const T3 = uid();
+  await at('2026-11-02', async () => {
+    await one(U.worker, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [T3, JSON.stringify({ site_id: site, on_date: '2026-11-02', method: 'scale', empty_kg: '5000',
+      empty_with_crates: true, crate_kg: null, stops: [{ id: uid(), hall_id: H3, birds: 100, crates: 10, gross_kg: '5230', weighings: [] }] })]);
+    R.fin3 = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T3, 1]);
+  });
+  await at('2026-11-10', () => roundsOn('2026-11-10'));
+
+  // ── تذكرتان يوم البيع: T1 القبّان والفارغ مع الأقفاص، وT2 بلا أقفاص وزن القفص 6 ───────────────────────────────────────────
+  const T1 = uid();
+  const T2 = uid();
+  const scale = (on, empty, withCrates, crate, stops) => ({ site_id: site, on_date: on, method: 'scale', empty_kg: empty, empty_with_crates: withCrates, crate_kg: crate,
+    stops: stops.map(([hallId, birds, crates, gross]) => ({ id: uid(), hall_id: hallId, birds, crates, gross_kg: gross, weighings: [] })) });
+  await at('2026-11-10', async () => {
+    await sec('tickets', async () => {
+      const s1 = await one(U.worker, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [T1, JSON.stringify(scale(S, '8000', true, null, [[H1, 500, 50, '9150'], [H2, 400, 40, '10070']]))]);
+      const s2 = await one(U.worker, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [T2, JSON.stringify(scale(S, '7000', false, '6', [[H1, 400, 40, '8160'], [H2, 300, 30, '9030']]))]);
+      R.save1 = s1;
+      R.save2 = s2;
+      t.same([s1.ticket.stops.map((s) => s.net_kg), s1.ticket.net_kg, s2.ticket.stops.map((s) => s.net_kg), s2.ticket.net_kg],
+        [['1150.000', '920.000'], '2070.000', ['920.000', '690.000'], '1610.000'], 'الصافي: مع الأقفاص 1,150/920، وبلا أقفاص 920/690 (1,610 = 9,030 − 7,000 − 420)');
+      R.fin1 = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T1, 1]);
+      R.fin2 = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T2, 1]);
+      // قبل الفاتورة: الحيّ لا يتغيّر، والتذاكر «على الطريق».
+      R.sales_f1_before = await one(U.manager, 'select public.flock_sales($1)', [F.f1]);
+      R.halls_day_S_before = await one(U.manager, 'select public.halls_day($1)', [S]);
+      R.form_T1 = await one(U.accountant, 'select public.bird_sale_form($1)', [T1]);
+    });
+  });
+
+  // ── BR1 (T1) بتنزيل 1.50٪ وسعر 2,500 ومقبوض 2,000,000؛ ثمّ إلغاؤها وإعادتها بسعر 2,600 بالدين؛ وBR2 (T2) بمقبوض 1,000,000 ─────────────────
+  const SELL = 'select public.record_bird_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)';
+  const BR1 = uid();
+  const BR1b = uid();
+  const BR2 = uid();
+  // F4: كلّ طيورها (300) تُباع يوم 10/11 بتذكرة وفاتورة، ثمّ لا جولة (لا طيور)، والإغلاق يوم 12/11.
+  await at('2026-11-10', () =>
+    sec('F4 sold out', async () => {
+      const T5 = uid();
+      await one(U.worker, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [T5, JSON.stringify({ site_id: site, on_date: '2026-11-10', method: 'scale', empty_kg: '6000',
+        empty_with_crates: true, crate_kg: null, stops: [{ id: uid(), hall_id: H4, birds: 300, crates: 30, gross_kg: '6690', weighings: [] }] })]);
+      const fin = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T5, 1]);
+      R.br5 = await one(U.accountant, 'select public.record_bird_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)', [uid(), uid(), T5, fin.version, trader, '2600.00', '0', '0', null, null]);
+    }),
+  );
+  await at('2026-11-10', () =>
+    sec('BR1', async () => {
+      R.br1 = await one(U.accountant, SELL, [uid(), BR1, T1, R.fin1.version, trader, '2500.00', '1.50', '2000000', box, null]);
+      t.same([R.br1.billed_kg, R.br1.money.total, R.br1.sources.map((s) => s.money.revenue)], ['2038.950', '5097375', ['2831875', '2265500']], 'BR1: 2,038.950 × 2,500 = 5,097,375');
+      R.halls_day_S_br1 = await one(U.manager, 'select public.halls_day($1)', [S]);
+    }),
+  );
+  await at('2026-11-11', () =>
+    sec('void+repost', async () => {
+      await roundsOn('2026-11-11');
+      R.void1 =await one(U.manager, 'select public.void_bird_sale($1, $2, $3)', [BR1, 'سعر خاطئ', uid()]);
+      R.form_T1_after_void = await one(U.accountant, 'select public.bird_sale_form($1)', [T1]);
+      R.br1b = await one(U.accountant, SELL, [uid(), BR1b, T1, R.fin1.version, trader, '2600.00', '1.50', '0', null, null]);
+      R.br2 = await one(U.accountant, SELL, [uid(), BR2, T2, R.fin2.version, trader, '2600.00', '0', '1000000', box, null]);
+      t.same([R.br1b.money.total, R.br1b.sources.map((s) => s.money.revenue), R.br2.money.total, R.br2.sources.map((s) => s.money.revenue)],
+        ['5301270', ['2945150', '2356120'], '4186000', ['2392000', '1794000']], 'BR1b 5,301,270 (2,945,150 / 2,356,120)، وBR2 4,186,000 (2,392,000 / 1,794,000)');
+    }),
+  );
+  // فرق عدّ يدويّ على F2: −10 يوم 10/11.
+  await at('2026-11-11', () =>
+    sec('adjust', async () => {
+      const live = (await one(U.manager, 'select public.flock_sales($1)', [F.f2])).live;
+      R.adjust = await one(U.manager, 'select public.record_flock_count_adjust($1, $2, $3, $4, $5, $6, $7)', [uid(), uid(), F.f2, '2026-11-10', -10, 'طيور مسروقة', live]);
+    }),
+  );
+
+  // ── إغلاق F1 يوم 11/11: X يرجع 100 كغم، Y مستهلَك 150، Z ينتقل 250 ──────────────────────────────────────────────────
+  const CL1 = uid();
+  await at('2026-11-11', () =>
+    sec('close F1', async () => {
+      const form = await one(U.manager, 'select public.flock_close_form($1)', [F.f1]);
+      R.close_form_f1 = form;
+      R.report_f1_before_close = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f1]);
+      const pools = form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }));
+      R.close1 = await one(U.manager, 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)', [uid(), CL1, F.f1, C1, form.flock.live, form.sales.birds,
+        JSON.stringify(pools), 'طيور مفقودة', JSON.stringify([{ item_id: X, qty: '100', action: 'return', warehouse_id: W.feed }, { item_id: Y, qty: '150', action: 'consumed' },
+          { item_id: Z, qty: '250', action: 'carry' }]), null]);
+    }),
+  );
+  // قراءات بعد الإغلاق وقبل التسكين التالي.
+  await at(C1, async () => {
+    await sec('reads after close', async () => {
+      R.report_f1_closed = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f1]);
+      R.report_f1_closed_worker = await one(U.worker, 'select public.flock_cycle_report($1)', [F.f1]);
+      R.detail_f1_closed = await one(U.manager, 'select public.flock_detail($1)', [F.f1]);
+      R.sales_f1_closed = await one(U.manager, 'select public.flock_sales($1)', [F.f1]);
+      R.feed_f1_closed = await one(U.manager, 'select public.flock_feed($1)', [F.f1]);
+      R.cycles_closed = await one(U.manager, 'select public.flock_cycles()');
+      R.halls_day_C1 = await one(U.manager, 'select public.halls_day($1)', [C1]);
+      R.halls_day_S = await one(U.manager, 'select public.halls_day($1)', [S]);
+      R.month_f1 = await one(U.manager, 'select public.flock_month($1, $2)', [F.f1, '2026-11-01']);
+      R.close_form_f1_closed = await one(U.manager, 'select public.flock_close_form($1)', [F.f1]);
+    });
+  });
+
+  // ── اليوم 12/11: تسكين F1' في قاعة 1 (المنقول يُطبَّق)، وإغلاق F2 ثمّ إعادة فتحها، وF3 بنقل يُرجَع ثمّ إعادة فتح ─────────────────
+  await at(TODAY, async () => {
+    await sec('round today', () => roundsOn(TODAY));
+    await sec('open next', async () => {
+      R.open_next = await open(H1, TODAY, 800);
+      F.f1b = R.open_next.flock_id;
+      // F1 مغلقة وقاعتها سُكّنت: هل يَعِد القارئ بإعادة الفتح؟
+      R.sales_f1_after_reuse = await one(U.manager, 'select public.flock_sales($1)', [F.f1]);
+      R.reopen1_after_reuse = await call(db, U.manager, 'select public.reopen_flock($1, $2, $3)', [CL1, 'تجربة', uid()]);
+      R.report_f1b = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f1b]);
+      R.halls_day_today_after_open = await one(U.manager, 'select public.halls_day($1)', [TODAY]);
+      R.feed_f1b = await one(U.manager, 'select public.flock_feed($1)', [F.f1b]);
+      R.close_form_f1b = await one(U.manager, 'select public.flock_close_form($1)', [F.f1b]);
+    });
+    await sec('close+reopen F2', async () => {
+      const form = await one(U.manager, 'select public.flock_close_form($1)', [F.f2]);
+      R.close_form_f2 = form;
+      const pools = form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }));
+      R.close2 = await one(U.manager, 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)', [uid(), uid(), F.f2, TODAY, form.flock.live, form.sales.birds,
+        JSON.stringify(pools), 'فرق نهاية الدورة', JSON.stringify([{ item_id: X, qty: '50', action: 'return', warehouse_id: W.feed }]), null]);
+      R.report_f2_closed = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f2]);
+      R.reopen2 = await one(U.manager, 'select public.reopen_flock($1, $2, $3)', [R.close2.id, 'أُغلقت قبل وقتها', uid()]);
+      R.report_f2_reopened = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f2]);
+      R.detail_f2_reopened = await one(U.manager, 'select public.flock_detail($1)', [F.f2]);
+      R.sales_f2_reopened = await one(U.manager, 'select public.flock_sales($1)', [F.f2]);
+      R.cycles_today = await one(U.manager, 'select public.flock_cycles()');
+      R.halls_day_today = await one(U.manager, 'select public.halls_day($1)', [TODAY]);
+    });
+    await sec('F4 close', async () => {
+      const form = await one(U.manager, 'select public.flock_close_form($1)', [F.f4]);
+      R.close_form_f4 = { live: form.flock.live, default_on: form.default_on, earliest_on: form.earliest_on };
+      const pools = form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }));
+      R.close4 = await one(U.manager, 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)', [uid(), uid(), F.f4, TODAY, form.flock.live, form.sales.birds,
+        JSON.stringify(pools), null, '[]', null]);
+      R.halls_day_11_f4 = await one(U.manager, 'select public.halls_day($1)', ['2026-11-11']);
+      R.report_f4 = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f4]);
+    });
+    await sec('old ticket T3', async () => {
+      R.form_T3 = await one(U.accountant, 'select public.bird_sale_form($1)', [T3]);
+      R.ticket_T3 = await one(U.accountant, 'select public.weigh_ticket($1)', [T3]);
+      R.awaiting = await one(U.accountant, 'select public.weigh_tickets(null, null, $1)', ['awaiting']);
+      R.sell_T3 = await call(db, U.accountant, SELL, [uid(), uid(), T3, R.fin3.version, trader, '2600.00', '0', '0', null, null]);
+      const form = await one(U.manager, 'select public.flock_close_form($1)', [F.f3]);
+      R.close_form_f3_pending = { can: form.can_close, why: form.why_not, pending: form.pending_tickets };
+      R.void_T3 = await call(db, U.manager, 'select public.void_weigh_ticket($1, $2, $3)', [T3, 'لم تُفوتر في وقتها', uid()]);
+    });
+    await sec('F3 carry returned then reopen', async () => {
+      const form = await one(U.manager, 'select public.flock_close_form($1)', [F.f3]);
+      R.close_form_f3 = { today: form.today, earliest_on: form.earliest_on, default_on: form.default_on };
+      const pools = form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }));
+      R.close3 = await one(U.manager, 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)', [uid(), uid(), F.f3, TODAY, form.flock.live, form.sales.birds,
+        JSON.stringify(pools), 'لا بيع بعد', JSON.stringify([{ item_id: X, qty: '100', action: 'carry' }]), null]);
+      const line = R.close3.lines[0].line_id;
+      R.return3 = await one(U.manager, 'select public.return_hall_carry($1, $2, $3, $4)', [uid(), uid(), line, W.feed]);
+      R.lot3 = await admin(`select trim_scale(l.qty_in)::text as qty_in, trim_scale(l.qty_left)::text as qty_left from public.flock_return_lines r
+        join public.stock_lots l on l.id = r.lot_id where r.return_id = $1`, [R.return3.return_id]);
+      const reopen = await call(db, U.manager, 'select public.reopen_flock($1, $2, $3)', [R.close3.id, 'أُغلقت خطأً', uid()]);
+      R.reopen3 = reopen;
+      R.flock3_others = await admin("select count(*)::int as n from public.flocks where hall_id = $1 and id <> $2", [H3, F.f3]);
+    });
+    await sec('money readers', async () => {
+      R.statement = await one(U.accountant, 'select public.party_statement_v2($1, null, $2, $3)', [trader, '2026-11-01', TODAY]);
+      R.sales_overview = await one(U.accountant, 'select public.sales_overview($1, $2)', ['2026-11-01', TODAY]);
+      R.sales_report_party = await one(U.accountant, 'select public.sales_report($1, $2, $3)', ['2026-11-01', TODAY, 'party']);
+      R.sales_report_day = await one(U.accountant, 'select public.sales_report($1, $2, $3)', ['2026-11-01', TODAY, 'day']);
+      R.money_overview = await one(U.accountant, 'select public.money_overview()');
+      R.weigh_tickets = await one(U.accountant, 'select public.weigh_tickets($1, $2, $3)', ['2026-11-01', TODAY, 'all']);
+      R.party_rows = await admin('select kind, amount::text, doc_kind, on_date::text from public.party_entries where party_id = $1 order by created_at', [trader]);
+      R.cash_rows = await admin('select kind, amount::text, doc_kind, on_date::text from public.cash_moves where account_id = $1 order by created_at', [box]);
+    });
+    await sec('verify', async () => {
+      R.verify = {};
+      for (const fn of ['verify_bird_sales', 'verify_flock_close', 'verify_flocks', 'verify_stock', 'verify_money']) {
+        R.verify[fn] = (await db.asService((q) => q(`select check_name, violations::int as v from public.${fn}() where violations <> 0`))).rows;
+      }
+    });
+  });
+  // اليوم التالي: الفوج الجديد يأكل 100 كغم من العلف المنقول (250).
+  await at('2026-11-13', () =>
+    sec('day 13', async () => {
+      await round(F.f1b, '2026-11-13', 1, '100');
+      R.feed_f1b_13 = await one(U.manager, 'select public.flock_feed($1)', [F.f1b]);
+      R.halls_day_13 = await one(U.manager, 'select public.halls_day($1)', ['2026-11-13']);
+      R.report_f1b_13 = await one(U.manager, 'select public.flock_cycle_report($1)', [F.f1b]);
+      R.detail_f1b_13 = await one(U.manager, 'select public.flock_detail($1)', [F.f1b]);
+      // ميزان الأقفاص (O8: الميزانان): وزنتان 10 أقفاص 300 و290، قفص 6 ← الصافي 590 − 120 = 470 لـ200 طير (2.350).
+      const T4 = uid();
+      const saved = await one(U.worker, 'select public.save_weigh_ticket($1, null, $2::jsonb)', [T4, JSON.stringify({ site_id: site, on_date: '2026-11-13', method: 'crates',
+        empty_kg: null, empty_with_crates: null, crate_kg: '6', stops: [{ id: uid(), hall_id: H2, birds: 200, crates: null, gross_kg: null,
+          weighings: [{ id: uid(), crates: 10, gross_kg: '300' }, { id: uid(), crates: 10, gross_kg: '290' }] }] })]);
+      R.crates_ticket = { net: saved.ticket.net_kg, stop: saved.ticket.stops[0].net_kg, avg: saved.ticket.avg_kg, crates: saved.ticket.crates };
+    }),
+  );
+
+  // ── الملاحظات: كلّ فحص هنا يقول ما يجب أن يكون (الحساب باليد أو قرار المالك)؛ الفاشل ملاحظة ───────────────────────────────────────
+  t.same(R.crates_ticket, { net: '470.000', stop: '470.000', avg: '2.350', crates: 20 }, 'ميزان الأقفاص: 590 − 20 × 6 = 470.000 (2.350)');
+  t.same([R.lot3?.[0]?.qty_left === R.lot3?.[0]?.qty_in, R.flock3_others?.[0]?.n, R.reopen3?.ok], [true, 0, true],
+    `O-reopen: دورة نُقل علفها ثمّ أُرجع إلى مخزن (دفعته كاملة ${JSON.stringify(R.lot3)}) ولا فوج بعدها في القاعة تُعاد فتحها (P0 5 وO5) — النتيجة ${JSON.stringify(R.reopen3)}`);
+  t.same([R.form_T3?.invoiceable, R.form_T3?.can_post, R.ticket_T3?.can?.invoice, R.sell_T3?.ok], [false, false, false, false],
+    `O-old-ticket: تذكرة 02/11 لا تُفوتر يوم 12/11، فالقرّاء لا يَعِدون بها — invoiceable=${R.form_T3?.invoiceable} can_post=${R.form_T3?.can_post} can.invoice=${R.ticket_T3?.can?.invoice}، والترحيل ${R.sell_T3?.code}: ${R.sell_T3?.hint}`);
+  t.ok(R.awaiting?.rows?.every((r) => r.on_date >= '2026-11-05'), `O-old-ticket: «بانتظار الفاتورة» بلا تذكرة لا تُفوتر — ${JSON.stringify(R.awaiting?.rows?.map((r) => [r.ticket_no, r.on_date]))}`);
+  t.ok(R.close_form_f3 && R.close_form_f3.default_on >= R.close_form_f3.earliest_on, `O-default-day: اليوم المقترح للإغلاق داخل المسموح — ${JSON.stringify(R.close_form_f3)}`);
+  writeFileSync(OUT, JSON.stringify({ F, ids: { H1, H2, H3, X, Y, Z, T1, T2, BR1, BR1b, BR2, CL1, trader, box, feed: W.feed }, R }, null, 1));
+  t.ok(true, 'walk written');
+}

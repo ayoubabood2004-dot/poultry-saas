@@ -1,0 +1,426 @@
+// zz-r28-review: TEMPORARY adversarial checks for 0028 (concurrency, scope, permissions, idempotency, dates). Delete before finishing.
+// Own org: ids e2890000…, phones 96477028900…
+import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { postedOpening } from './stock-kit.mjs';
+
+const TODAY = '2026-11-12';
+const DAY_MS = 86400000;
+const day = (n) => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+const id = (n) => `e2890000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone = (n) => `96477028900${String(n).padStart(2, '0')}`;
+
+const CLOSE = 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)';
+const REOPEN = 'select public.reopen_flock($1, $2, $3)';
+const RETURN_CARRY = 'select public.return_hall_carry($1, $2, $3, $4)';
+const SELL = 'select public.record_bird_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)';
+const ADJUST = 'select public.record_flock_count_adjust($1, $2, $3, $4, $5, $6, $7)';
+const ROUND = 'select public.save_flock_day($1, $2, $3, 0, null, null, null, null, null, null, null, null, null, $4, false)';
+const VOID_TICKET = 'select public.void_weigh_ticket($1, $2, $3)';
+
+export default async function (t, db) {
+  await db.setToday(TODAY, () => scenario(t, db));
+}
+
+async function scenario(t, db) {
+  const section = async (name, fn) => {
+    try {
+      await fn();
+    } catch (error) {
+      t.ok(false, `${name}: threw ${error.stack ?? error.message}`);
+    }
+  };
+  const G = await makeOrg(db, {
+    name: 'مزرعة المراجعة',
+    id,
+    phone,
+    roles: [
+      ['owner', 'owner'],
+      ['manager', 'manager'],
+      ['accountant', 'accountant'],
+      ['worker', 'hall_worker', ['broiler']],
+      ['storekeeper', 'storekeeper'],
+    ],
+  });
+  const { users: U, divisions: D, org } = G;
+  const one = async (user, sql, params) => {
+    const result = await call(db, user, sql, params);
+    if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
+    return result.value;
+  };
+  const admin = async (sql, params) => (await db.admin(sql, params)).rows;
+  const W = Object.fromEntries((await admin('select kind, id from public.warehouses where org_id = $1', [org])).map((r) => [r.kind, r.id]));
+  const siteA = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل أ', 'farm') returning id", [D.broiler]);
+  const siteB = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل ب', 'farm') returning id", [D.broiler]);
+  const addScoped = async (n, role, name, sites) => {
+    await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [id(n), phone(n)]);
+    const member = await one(U.owner, 'select public.add_member_v2($1, $2, $3, $4::uuid[], $5::uuid[], $6::uuid[])', [`0${phone(n).slice(3)}`, role, name, [], sites, []]);
+    await db.acceptInvite(U.owner, id(n), member);
+    return id(n);
+  };
+  U.scopedMgr = await addScoped(20, 'manager', 'مدير الحقل أ', [siteA]);
+  U.scopedAcc = await addScoped(21, 'accountant', 'محاسب الحقل أ', [siteA]);
+  U.siteWorker = await addScoped(22, 'hall_worker', 'عامل الحقل أ', [siteA]);
+
+  const feed = await one(U.owner, "insert into public.items (name, kind, base_unit) values ('علف المراجعة', 'feed', 'kg') returning id");
+  await postedOpening(db, U.owner, W.feed, day(-40), [{ item: feed, qty: 20000, value: '14000000.00' }]);
+  const trader = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر المراجعة', true) returning id");
+
+  const hall = (site, name) => one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [site, name]);
+  const place = async (hallId, count, daysAgo) =>
+    (await one(U.manager, 'select public.open_flock($1, $2::date, $3, 0, null, gen_random_uuid())', [hallId, day(-daysAgo), count])).flock_id;
+  const issue = (user, flock, item, qty, on, wh) => one(user, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8)', [uid(), uid(), uid(), flock, item, qty, on, wh]);
+  const form = (flock, user = U.manager) => one(user, 'select public.flock_close_form($1)', [flock]);
+  const closeArgs = (f, flock, on, { ref = uid(), closeId = uid(), reason = null, lines = [] } = {}) => [ref, closeId, flock, on, f.flock.live, f.sales.birds,
+    JSON.stringify(f.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), reason, JSON.stringify(lines), null];
+  const scale = (site, on, stops) => ({ site_id: site, on_date: on, method: 'scale', empty_kg: '7000', empty_with_crates: true, crate_kg: null,
+    stops: stops.map(([stopId, hallId, birds, gross]) => ({ id: stopId, hall_id: hallId, birds, crates: 10, gross_kg: gross, weighings: [] })) });
+  const save = (user, ticket, version, data) => call(db, user, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [ticket, version, JSON.stringify(data)]);
+  const finish = (user, ticket, version) => call(db, user, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), ticket, version]);
+  /** A done ticket (manager) for one hall: birds, net = birds × 2 kg. */
+  const doneTicket = async (site, on, hallId, birds, user = U.manager) => {
+    const T = uid();
+    const s = await save(user, T, null, scale(site, on, [[uid(), hallId, birds, String(7000 + 2 * birds)]]));
+    if (!s.ok) throw new Error(`save: ${s.code} ${s.hint}`);
+    const f = await finish(user, T, 1);
+    if (!f.ok) throw new Error(`finish: ${f.code} ${f.hint}`);
+    return { id: T, version: f.value.version, no: f.value.ticket_no };
+  };
+  const trader2 = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر المراجعة الثاني', true) returning id");
+  const sellArgs = (tk, price = '2750.00', sale = uid(), party = trader) => [uid(), sale, tk.id, tk.version, party, price, '0', '0', null, null];
+  const live = async (flock) => (await one(U.manager, 'select public.flock_sales($1)', [flock])).live;
+  const settleOn = async (promise, pid, blocker, timeoutMs = 10000) => {
+    let done = false;
+    promise.then(() => {
+      done = true;
+    });
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      if (done) return 'finished';
+      if ((await db.admin('select $2::int = any (pg_blocking_pids($1::int)) as held', [pid, blocker])).rows[0].held) return 'blocked';
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`session ${pid} neither finished nor blocked on ${blocker} within ${timeoutMs}ms`);
+  };
+  /** Two sessions: A runs and holds; B is sent, must block on A; A commits; B finishes. Returns [state, aResult, bResult]. */
+  const race = async ([userA, sqlA, paramsA], [userB, sqlB, paramsB]) => {
+    const a = await db.session(userA);
+    const b = await db.session(userB);
+    try {
+      const first = await a.run(`${sqlA} as v`, paramsA);
+      const pending = b.run(`${sqlB} as v`, paramsB);
+      const state = await settleOn(pending, b.pid, a.pid);
+      if (first.ok) await a.commit();
+      else await a.rollback();
+      const second = await pending;
+      if (second.ok) await b.commit();
+      else await b.rollback();
+      return [state, first, second];
+    } finally {
+      await a.rollback();
+      await b.rollback();
+    }
+  };
+  const short = (r) => (r.ok ? 'ok' : r.error);
+
+  // ── C1: reopen_flock by a manager scoped to the farm site reverses an FR in a store OUTSIDE his scope ─────────────────────────────
+  await section('C1 reopen scope', async () => {
+    const h = await hall(siteA, 'قاعة النطاق');
+    const F = await place(h, 100, 10);
+    const fi = await issue(U.owner, F, feed, '300', day(-5), W.feed);
+    const f = await form(F, U.owner);
+    const closed = await call(db, U.owner, CLOSE, closeArgs(f, F, TODAY, { reason: 'فرق عند الإغلاق', lines: [{ item_id: feed, qty: '100', action: 'return', warehouse_id: W.feed }] }));
+    if (!closed.ok) throw new Error(`close: ${closed.code} ${closed.hint}`);
+    const scopeSite = await one(U.scopedMgr, 'select public.in_scope_site($1)', [siteA]);
+    const scopeWh = await one(U.scopedMgr, 'select public.in_scope_wh($1)', [W.feed]);
+    const voidFi = await call(db, U.scopedMgr, 'select public.void_flock_issue($1, $2, $3)', [fi.id, 'خطأ', uid()]);
+    const qty = async () => (await admin('select trim_scale(qty)::text as q from public.stock_balances where item_id = $1 and warehouse_id = $2', [feed, W.feed]))[0].q;
+    const before = await qty();
+    const reopen = await call(db, U.scopedMgr, REOPEN, [closed.value.id, 'أُغلقت خطأ', uid()]);
+    const after = await qty();
+    const fr = (await admin("select status from public.flock_returns where close_id = $1", [closed.value.id]))[0].status;
+    t.same([scopeSite, scopeWh, voidFi.ok, voidFi.code], [true, false, false, 'out_of_scope'],
+      'C1 precondition: site A in scope, the feed store not; the same manager cannot void the FI from that store (stock_wh scoped)');
+    t.same([reopen.ok, reopen.ok ? null : reopen.code, before, after, fr], [false, 'out_of_scope', before, before, 'posted'],
+      'C1: reopen_flock by a site-scoped manager must refuse out_of_scope (it voids FR stock in an out-of-scope store)');
+    // The posting side of the same documents requires the store's scope: close with a return, and returning a carry.
+    const h2 = await hall(siteA, 'قاعة النطاق 2');
+    const F2 = await place(h2, 100, 10);
+    await issue(U.owner, F2, feed, '300', day(-5), W.feed);
+    const f2 = await form(F2, U.scopedMgr);
+    const closeByScoped = await call(db, U.scopedMgr, CLOSE, closeArgs(f2, F2, TODAY, { reason: 'فرق', lines: [{ item_id: feed, qty: '100', action: 'return', warehouse_id: W.feed }] }));
+    const carried = await one(U.owner, CLOSE, closeArgs(await form(F2, U.owner), F2, TODAY, { reason: 'فرق', lines: [{ item_id: feed, qty: '100', action: 'carry' }] }));
+    const returnByScoped = await call(db, U.scopedMgr, RETURN_CARRY, [uid(), uid(), carried.lines[0].line_id, W.feed]);
+    t.same([closeByScoped.code, returnByScoped.code], ['out_of_scope', 'out_of_scope'],
+      'C1 contrast: the same manager cannot post an FR into that store (close return / return_hall_carry are out_of_scope)');
+  });
+
+  // ── C2: save_weigh_ticket by a site-A hall worker on a ticket of site B names it (and locks it) instead of out_of_scope ─────────────
+  const hB = await hall(siteB, 'قاعة ب1');
+  const FB = await place(hB, 1000, 20);
+  let TB = null;
+  await section('C2 ticket scope', async () => {
+    TB = await doneTicket(siteB, TODAY, hB, 100);
+    const draftB = uid();
+    const s = await save(U.manager, draftB, null, scale(siteB, TODAY, [[uid(), hB, 50, '7100']]));
+    if (!s.ok) throw new Error(`save draft B: ${s.code}`);
+    const hA = await hall(siteA, 'قاعة أ-تذكرة');
+    await place(hA, 100, 10);
+    const payload = scale(siteA, TODAY, [[uid(), hA, 10, '7020']]);
+    const onDone = await save(U.siteWorker, TB.id, TB.version, payload);
+    const onDraft = await save(U.siteWorker, draftB, 1, payload);
+    const fin = await finish(U.siteWorker, draftB, 1);
+    const voided = await call(db, U.siteWorker, VOID_TICKET, [TB.id, 'x', uid()]);
+    t.same([fin.code, voided.code], ['out_of_scope', 'out_of_scope'], 'C2 ruled-out: finish/void on a site-B ticket are out_of_scope for a site-A worker');
+    t.same([onDone.ok ? 'ok' : onDone.code, (onDone.hint ?? '').includes(TB.no)], ['out_of_scope', false],
+      `C2: save_weigh_ticket on a DONE site-B ticket by a site-A worker must be out_of_scope without naming ${TB.no} (hint: ${onDone.hint})`);
+    t.same(onDraft.ok ? 'ok' : onDraft.code, 'out_of_scope', `C2b: save_weigh_ticket on a DRAFT site-B ticket by a site-A worker must be out_of_scope (hint: ${onDraft.hint})`);
+    await call(db, U.manager, VOID_TICKET, [draftB, null, uid()]);
+  });
+
+  // ── C3: bird_sale_form.suggested_price ignores scope ────────────────────────────────────────────────────────────────────
+  await section('C3 suggested price scope', async () => {
+    const sale = await call(db, U.manager, SELL, sellArgs(TB, '9876.54'));
+    if (!sale.ok) throw new Error(`sell B: ${sale.code} ${sale.hint}`);
+    const hA = await hall(siteA, 'قاعة أ-سعر');
+    await place(hA, 100, 10);
+    const TA = await doneTicket(siteA, TODAY, hA, 10);
+    const inScopeBr = (await admin("select count(*)::int as n from public.bird_sales where site_id = $1 and status = 'posted'", [siteA]))[0].n;
+    const formA = await one(U.scopedAcc, 'select public.bird_sale_form($1)', [TA.id]);
+    const outB = await call(db, U.scopedAcc, 'select public.bird_sale_detail($1)', [sale.value.id]);
+    t.same([inScopeBr, outB.code], [0, 'out_of_scope'], 'C3 precondition: no posted BR in site A; the site-B invoice is out of the scoped accountant\'s scope');
+    t.same(formA.suggested_price, null, 'C3: bird_sale_form.suggested_price for a site-A-scoped accountant must not come from a site-B invoice (out of scope)');
+    // D2 sibling: the same form says can_post for this accountant, but the post is refused on the book's scope.
+    const postA = await call(db, U.scopedAcc, SELL, sellArgs(TA));
+    t.same([formA.invoiceable, formA.can_post, postA.ok ? 'ok' : postA.code], [true, false, 'out_of_scope'],
+      `D2b: bird_sale_form.can_post must reflect the book scope record_bird_sale checks (post hint: ${postA.hint})`);
+    // void the ticket TA so it does not stay pending
+    if (!postA.ok) await one(U.manager, VOID_TICKET, [TA.id, 'تذكرة فحص', uid()]);
+  });
+
+  // ── C4: voided draft → save/finish hint has an empty WT slot (double space) ───────────────────────────────────────────────
+  await section('C4 voided draft hint', async () => {
+    const hA = await hall(siteA, 'قاعة أ-مسوّدة');
+    await place(hA, 100, 10);
+    const T = uid();
+    const data = scale(siteA, TODAY, [[uid(), hA, 10, '7020']]);
+    await one(U.siteWorker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [T, null, JSON.stringify(data)]);
+    await one(U.siteWorker, VOID_TICKET, [T, null, uid()]);
+    const s = await save(U.siteWorker, T, 2, data);
+    const fin = await finish(U.siteWorker, T, 2);
+    t.same([s.code, /\s{2}/u.test(s.hint), fin.code, /\s{2}/u.test(fin.hint)], ['ticket_not_draft', false, 'ticket_not_draft', false],
+      `C4: refusal on a voided draft must not print an empty ticket number (save: «${s.hint}», finish: «${fin.hint}»)`);
+    const unknownHall = await save(U.siteWorker, uid(), null, scale(siteA, TODAY, [[uid(), uid(), 10, '7020']]));
+    t.same([unknownHall.code, unknownHall.hint.includes('«»')], ['hall_other_site', false], `C4b: an unknown hall must not print an empty name (hint: ${unknownHall.hint})`);
+  });
+
+  // ── D1: flock_close_form.default_on can fall before earliest_on (last activity > 7 days ago) ──────────────────────────────────
+  await section('D1 default_on window', async () => {
+    const h = await hall(siteA, 'قاعة يوم الإغلاق');
+    const F = await place(h, 100, 20);
+    await db.setToday(day(-10), async () => {
+      const v = await one(U.manager, ROUND, [F, day(-10), 0, uid()]);
+      if (v.status !== 'saved') throw new Error(`round: ${JSON.stringify(v)}`);
+    });
+    const f = await form(F);
+    const atDefault = await call(db, U.manager, CLOSE, closeArgs(f, F, f.default_on, { reason: 'فرق' }));
+    t.same([f.earliest_on, f.default_on >= f.earliest_on, atDefault.ok ? 'ok' : atDefault.code], [day(-7), true, 'ok'],
+      `D1: default_on (${f.default_on}) must lie in earliest_on..today; closing on it is refused (${atDefault.hint})`);
+  });
+
+  // ── D2: bird_sale_form says invoiceable / can_post for a done ticket that record_bird_sale must refuse (date_too_old) ──────────
+  await section('D2 stale ticket invoiceable', async () => {
+    const h = await hall(siteA, 'قاعة تذكرة قديمة');
+    await place(h, 100, 20);
+    let tk = null;
+    await db.setToday(day(-8), async () => {
+      tk = await doneTicket(siteA, day(-8), h, 10);
+    });
+    const fm = await one(U.accountant, 'select public.bird_sale_form($1)', [tk.id]);
+    const post = await call(db, U.accountant, SELL, sellArgs(tk));
+    t.same([fm.invoiceable, fm.can_post, post.ok ? 'ok' : post.code], [false, false, 'date_too_old'],
+      `D2: a ticket the server can never invoice (dated ${day(-8)}) must not be offered as invoiceable (post hint: ${post.hint})`);
+    await one(U.manager, VOID_TICKET, [tk.id, 'تذكرة فحص', uid()]);
+  });
+
+  // ── C5: a device-born stop id reused by two NEW tickets at once: the second save overwrites the first ticket's stop (no id_conflict) ──
+  await section('C5 stop id race', async () => {
+    const hX = await hall(siteA, 'قاعة معرّف 1');
+    const FX = await place(hX, 100, 10);
+    const hY = await hall(siteA, 'قاعة معرّف 2');
+    await place(hY, 100, 10);
+    const stopId = uid();
+    const TA = uid();
+    const TBx = uid();
+    const c = await db.session(U.manager);
+    const b = await db.session(U.siteWorker);
+    try {
+      // C holds FX FOR UPDATE (an adjust, uncommitted); B saves a new ticket with stop S at hX and waits on FX FOR SHARE after its id pre-check.
+      const held = await c.run(`${ADJUST} as v`, [uid(), uid(), FX, TODAY, 5, 'زيادة', 100]);
+      const pendingB = b.run('select public.save_weigh_ticket($1, null, $2::jsonb) as v', [TBx, JSON.stringify(scale(siteA, TODAY, [[stopId, hX, 30, '7060']]))]);
+      const state = await settleOn(pendingB, b.pid, c.pid);
+      // A (another device) saves a different new ticket with the same stop id at hY and commits.
+      const a = await save(U.siteWorker, TA, null, scale(siteA, TODAY, [[stopId, hY, 10, '7020']]));
+      await c.commit();
+      const second = await pendingB;
+      if (second.ok) await b.commit();
+      else await b.rollback();
+      const rows = await admin('select ticket_id, hall_id, birds from public.weigh_ticket_stops where id = $1', [stopId]);
+      t.same([held.ok, state, a.ok, second.ok ? 'ok' : second.error, rows.length, rows[0]?.ticket_id, rows[0]?.hall_id, rows[0]?.birds],
+        [true, 'blocked', true, 'id_conflict', 1, TA, hY, 10],
+        'C5: the second save of an already-used stop id must be id_conflict and must not rewrite the other ticket\'s stop');
+      // Consequence: ticket TA (version 1 as A saw it) now finishes with header totals that no longer match its stop.
+      const fin = await finish(U.siteWorker, TA, 1);
+      const head = (await admin('select birds, net_kg::text as net from public.weigh_tickets where id = $1', [TA]))[0];
+      const stops = (await admin('select sum(birds)::int as birds, sum(net_kg)::text as net from public.weigh_ticket_stops where ticket_id = $1', [TA]))[0];
+      const bShape = (await admin("select violations::int as v from public.verify_bird_sales() where check_name = 'ticket_shape'"))[0].v;
+      t.same([fin.ok ? 'ok' : fin.code, head, bShape], ['ok', stops, 0], 'C5 consequence: the other ticket finishes with header totals ≠ its stop (verify_bird_sales.ticket_shape)');
+      if (fin.ok) await call(db, U.manager, VOID_TICKET, [TA, 'فحص', uid()]);
+    } finally {
+      await c.rollback();
+      await b.rollback();
+    }
+  });
+
+  // ── C6: a bad crates value in save_weigh_ticket is reported with the birds hint ──────────────────────────────────────────
+  await section('C6 crates hint', async () => {
+    const h = await hall(siteA, 'قاعة أقفاص');
+    await place(h, 100, 10);
+    const data = scale(siteA, TODAY, [[uid(), h, 10, '7020']]);
+    data.stops[0].crates = -3;
+    const r = await save(U.siteWorker, uid(), null, data);
+    t.same([r.code, r.hint.includes('الأقفاص')], ['bad_count', true], `C6: a negative crates count must be named as crates (hint: ${r.hint})`);
+  });
+
+  // ── R-a: two invoices on different tickets of one flock: totals fit, a day goes negative → the second must be live_negative ──────────
+  await section('R-a two invoices one flock', async () => {
+    const h = await hall(siteA, 'قاعة سباق أ');
+    const F = await place(h, 100, 10);
+    await one(U.manager, ADJUST, [uid(), uid(), F, day(-1), 100, 'العدد الفعليّ أكثر', 100]);
+    const T1 = await doneTicket(siteA, day(-3), h, 80);
+    const T2 = await doneTicket(siteA, day(-2), h, 80);
+    const [state, first, second] = await race([U.accountant, SELL, sellArgs(T1)], [U.manager, SELL, sellArgs(T2, '2750.00', uid(), trader2)]);
+    t.same([state, short(first), short(second), await live(F)], ['blocked', 'ok', 'live_negative', 120],
+      'R-a: second invoice waits on the flock and is refused live_negative (day −2 would be −60); live 120');
+  });
+
+  // ── R-b: a round racing a close, both orders ────────────────────────────────────────────────────────────────────────────
+  await section('R-b round vs close', async () => {
+    const h1 = await hall(siteA, 'قاعة جولة 1');
+    const F1 = await place(h1, 100, 10);
+    const f1 = await form(F1);
+    const [s1, a1, b1] = await race([U.siteWorker, ROUND, [F1, TODAY, 5, uid()]], [U.manager, CLOSE, closeArgs(f1, F1, TODAY, { reason: 'فرق' })]);
+    t.same([s1, short(a1), short(b1)], ['blocked', 'ok', 'live_changed'], 'R-b round first: close waits then live_changed');
+    const h2 = await hall(siteA, 'قاعة جولة 2');
+    const F2 = await place(h2, 100, 10);
+    const f2 = await form(F2);
+    const [s2, a2, b2] = await race([U.manager, CLOSE, closeArgs(f2, F2, TODAY, { reason: 'فرق' })], [U.siteWorker, ROUND, [F2, TODAY, 5, uid()]]);
+    t.same([s2, short(a2), short(b2)], ['blocked', 'ok', 'flock_closed'], 'R-b close first: round waits then flock_closed');
+  });
+
+  // ── R-c: return_hall_carry vs reopen_flock on one pending carry, both orders ──────────────────────────────────────────────
+  const carryClose = async (name) => {
+    const h = await hall(siteA, name);
+    const F = await place(h, 100, 10);
+    await issue(U.owner, F, feed, '300', day(-5), W.feed);
+    const f = await form(F, U.owner);
+    const closed = await one(U.manager, CLOSE, closeArgs(f, F, TODAY, { reason: 'فرق', lines: [{ item_id: feed, qty: '100', action: 'carry' }] }));
+    return { F, close: closed, line: closed.lines[0].line_id };
+  };
+  await section('R-c carry return vs reopen', async () => {
+    const x = await carryClose('قاعة نقل 1');
+    const [s1, a1, b1] = await race([U.manager, REOPEN, [x.close.id, 'خطأ', uid()]], [U.manager, RETURN_CARRY, [uid(), uid(), x.line, W.feed]]);
+    t.same([s1, short(a1), short(b1)], ['blocked', 'ok', 'carry_not_pending'], 'R-c reopen first: return waits then carry_not_pending');
+    const y = await carryClose('قاعة نقل 2');
+    const [s2, a2, b2] = await race([U.manager, RETURN_CARRY, [uid(), uid(), y.line, W.feed]], [U.manager, REOPEN, [y.close.id, 'خطأ', uid()]]);
+    t.same([s2, short(a2), short(b2)], ['blocked', 'ok', 'carry_used'], 'R-c return first: reopen waits then carry_used');
+  });
+
+  // ── R-e: finish vs save of one draft; two invoices whose two-hall tickets list the flocks in opposite stop orders (no 40P01) ───────
+  await section('R-e finish/save, crossed invoices', async () => {
+    const h = await hall(siteA, 'قاعة إكمال');
+    await place(h, 100, 10);
+    const T = uid();
+    const data = scale(siteA, TODAY, [[uid(), h, 10, '7020']]);
+    await one(U.siteWorker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [T, null, JSON.stringify(data)]);
+    const changed = { ...data, stops: [{ ...data.stops[0], gross_kg: '7021' }] };
+    const [s1, a1, b1] = await race([U.siteWorker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [T, 1, JSON.stringify(changed)]],
+      [U.manager, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T, 1]]);
+    t.same([s1, short(a1), short(b1)], ['blocked', 'ok', 'stale_ticket'], 'R-e save first: finish waits then stale_ticket');
+    const h1 = await hall(siteA, 'قاعة تقاطع 1');
+    const h2 = await hall(siteA, 'قاعة تقاطع 2');
+    await place(h1, 100, 10);
+    await place(h2, 100, 10);
+    const two = async (first, second) => {
+      const id1 = uid();
+      const s = await save(U.manager, id1, null, scale(siteA, TODAY, [[uid(), first, 10, '7020'], [uid(), second, 10, '7040']]));
+      if (!s.ok) throw new Error(`save two: ${s.code} ${s.hint}`);
+      const f = await finish(U.manager, id1, 1);
+      if (!f.ok) throw new Error(`finish two: ${f.code} ${f.hint}`);
+      return { id: id1, version: f.value.version };
+    };
+    const X = await two(h1, h2);
+    const Y = await two(h2, h1);
+    const [s2, a2, b2] = await race([U.accountant, SELL, sellArgs(X)], [U.manager, SELL, sellArgs(Y, '2750.00', uid(), trader2)]);
+    t.same([s2, short(a2), short(b2)], ['blocked', 'ok', 'ok'], 'R-e crossed stop orders: the second invoice waits then posts (flocks locked by id, no deadlock)');
+  });
+
+  // ── RLS: direct table reads by scope and role (ruled-out checks) ────────────────────────────────────────────────────────
+  await section('RLS', async () => {
+    const count = async (user, table, where = 'true') => (await one(user, `select count(*)::int from public.${table} where ${where}`));
+    const total = async (table, where = 'true') => (await admin(`select count(*)::int as n from public.${table} where org_id = $1 and ${where}`, [org]))[0].n;
+    const siteB_tickets = await total('weigh_tickets', `site_id = '${siteB}'`);
+    const got = [
+      await count(U.siteWorker, 'weigh_tickets', `site_id = '${siteB}'`),
+      await count(U.siteWorker, 'weigh_ticket_stops', `site_id = '${siteB}'`),
+      await count(U.siteWorker, 'flock_counts', `site_id = '${siteB}'`),
+      await count(U.siteWorker, 'bird_sales'),
+      await count(U.siteWorker, 'bird_sale_sources'),
+      await count(U.storekeeper, 'flock_close_values'),
+      await count(U.scopedAcc, 'bird_sales', `site_id = '${siteB}'`),
+      await count(U.siteWorker, 'audit_log', "table_name in ('bird_sales', 'flock_close_values')"),
+    ];
+    t.same([siteB_tickets > 0, ...got], [true, 0, 0, 0, 0, 0, 0, 0, 0], 'RLS: site-A worker sees no site-B tickets/stops/counts and no sales; storekeeper no close values; scoped accountant no site-B sales; worker no audit');
+  });
+
+  // ── P: replays after a void / with a new ref (ruled-out checks) ──────────────────────────────────────────────────────────
+  await section('P replays', async () => {
+    const h = await hall(siteA, 'قاعة إعادة');
+    const F = await place(h, 100, 10);
+    const T = await doneTicket(siteA, TODAY, h, 20);
+    const ref = uid();
+    const sale = uid();
+    const args = [ref, sale, T.id, T.version, trader, '2750.00', '0', '0', null, null];
+    const first = await call(db, U.accountant, SELL, args);
+    await one(U.manager, 'select public.void_bird_sale($1, $2, $3)', [sale, 'خطأ', uid()]);
+    const sameRef = await call(db, U.accountant, SELL, args);
+    const newRef = await call(db, U.accountant, SELL, [uid(), ...args.slice(1)]);
+    const T2 = uid();
+    await one(U.siteWorker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [T2, null, JSON.stringify(scale(siteA, TODAY, [[uid(), h, 10, '7020']]))]);
+    const finRef = uid();
+    const fin = await call(db, U.siteWorker, 'select public.finish_weigh_ticket($1, $2, $3)', [finRef, T2, 1]);
+    await one(U.manager, VOID_TICKET, [T2, 'خطأ', uid()]);
+    const finAgain = await call(db, U.siteWorker, 'select public.finish_weigh_ticket($1, $2, $3)', [finRef, T2, 1]);
+    const adjId = uid();
+    const liveNow = await live(F);
+    const adj = await call(db, U.manager, ADJUST, [uid(), adjId, F, TODAY, 3, ' زيادة ', liveNow]);
+    const adjAgain = await call(db, U.manager, ADJUST, [uid(), adjId, F, TODAY, 3, 'زيادة', liveNow]);
+    const adjOther = await call(db, U.manager, ADJUST, [uid(), adjId, F, TODAY, 4, 'زيادة', liveNow]);
+    t.same([first.ok, sameRef.code, newRef.code, fin.ok, finAgain.code, adj.ok, adjAgain.ok, adjAgain.value?.id, adjOther.code],
+      [true, 'id_conflict', 'id_conflict', true, 'id_conflict', true, true, adjId, 'id_conflict'],
+      'P: invoice replay after void (same/new ref) id_conflict; finish replay after void id_conflict; adjust re-send by id = its result, other content id_conflict');
+  });
+
+  // ── R-d: count adjust vs invoice; void ticket vs invoice ────────────────────────────────────────────────────────────────
+  await section('R-d adjust/void-ticket vs invoice', async () => {
+    const h = await hall(siteA, 'قاعة عدّ');
+    const F = await place(h, 100, 10);
+    const T = await doneTicket(siteA, TODAY, h, 60);
+    const [s1, a1, b1] = await race([U.accountant, SELL, sellArgs(T)], [U.manager, ADJUST, [uid(), uid(), F, TODAY, -50, 'نقص', 100]]);
+    t.same([s1, short(a1), short(b1), await live(F)], ['blocked', 'ok', 'live_changed', 40], 'R-d invoice first: adjust waits then live_changed');
+    const h2 = await hall(siteA, 'قاعة إلغاء تذكرة');
+    await place(h2, 100, 10);
+    const T2 = await doneTicket(siteA, TODAY, h2, 60);
+    const [s2, a2, b2] = await race([U.accountant, SELL, sellArgs(T2)], [U.manager, VOID_TICKET, [T2.id, 'خطأ', uid()]]);
+    t.same([s2, short(a2), short(b2)], ['blocked', 'ok', 'ticket_invoiced'], 'R-d invoice first: void ticket waits then ticket_invoiced');
+  });
+}

@@ -1,0 +1,409 @@
+// مراجعة إصلاحات شاشات 0028 (مؤقّت، يُحذف): هجوم على S2 وS4 وS1 والإغلاق بطلب مستعاد. كلّ فحص يقول ما يجب أن يحدث.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { installDom, settle } from './dom.mjs';
+import { all, body, bundle, byAction, clone, click, dialog, disabled, memoryStorage, padType, ROOT, sessionOf, text, textOf, type, withAttr, within } from './halls-0028-kit.mjs';
+
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+
+export default async function (t) {
+  const restore = installDom();
+  const saved = { session: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), local: Object.getOwnPropertyDescriptor(globalThis, 'localStorage') };
+  const session = memoryStorage();
+  const local = memoryStorage();
+  Object.defineProperty(globalThis, 'sessionStorage', { value: session.api, configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'localStorage', { value: local.api, configurable: true, writable: true });
+  const RealDate = globalThis.Date;
+  const realTz = process.env.TZ;
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle('zz-v28-d');
+    const fresh = (who, rpcs = {}) => {
+      const log = [];
+      globalThis.__h8 = {
+        session: who,
+        toasts: [],
+        location: null,
+        rpc(fn, args) {
+          log.push([fn, args]);
+          const handler = rpcs[fn];
+          if (!handler) return new Promise(() => {});
+          const count = log.filter(([name]) => name === fn).length;
+          return Promise.resolve().then(() => handler(args, count));
+        },
+      };
+      return log;
+    };
+    const named = (log, fn) => log.filter(([name]) => name === fn).map(([, args]) => args);
+    const mount = async (url, element = null) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      function Where() {
+        const location = m.useLocation();
+        globalThis.__h8.location = `${location.pathname}${location.search}`;
+        return element ?? m.h(m.Routes, null, m.h(m.Route, { path: '/halls/*', element: m.h(m.HallsRoutes) }), m.h(m.Route, { path: '*', element: null }));
+      }
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(Where))));
+      await settle(40);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      m.flushSync(() => mounted.unmount());
+      body().textContent = '';
+      await settle();
+    };
+    const step = async (label, fn) => {
+      session.map.clear();
+      local.map.clear();
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      globalThis.Date = RealDate;
+      if (realTz === undefined) delete process.env.TZ;
+      else process.env.TZ = realTz;
+      await unmount();
+    };
+    /** ساعة الجهاز تُقدَّم باليد (clock.now)، بمنطقة tz. */
+    const deviceClock = (at, tz) => {
+      process.env.TZ = tz;
+      const clock = { now: at };
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          if (args.length === 0) super(clock.now);
+          else super(...args);
+        }
+        static now() {
+          return clock.now;
+        }
+      };
+      return clock;
+    };
+
+    // ── D1 S2 والسباق: أوّل حفظ وصل الخادم وضاع جوابه، ثمّ أكمل المدير التذكرة من جهازه، ثمّ «احذف المسوّدة» هنا ─────────────────────────
+    for (const [role, refusal] of [
+      ['manager', ['reason_required', 'اكتب السبب (حتى 500 حرف).']],
+      ['hall_worker', ['forbidden', 'لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه.']],
+    ]) {
+      await step(`D1 ${role}`, async () => {
+        const options = B.weigh_ticket_options_site;
+        const SITE = options.site.site_id;
+        const H1 = options.halls[0].hall_id;
+        const server = { ticket: null };
+        const log = fresh(sessionOf(role, role === 'hall_worker' ? { divisions: ['broiler'] } : {}), {
+          weigh_ticket_options: () => clone(options),
+          save_weigh_ticket: (args) => {
+            // وصل الخادم وحُفظت المسوّدة، وضاع الجواب.
+            server.ticket = { id: args.p_ticket, status: 'draft', version: 1, ticket_no: null };
+            throw new m.UnknownOutcomeError('fetch_failed');
+          },
+          // void_weigh_ticket بقاعدة الخادم: مسوّدة تُلغى بلا سبب؛ ومكتملة تحتاج فعل الإلغاء وسبباً.
+          void_weigh_ticket: (args) => {
+            const ticket = server.ticket;
+            if (!ticket) throw new m.RejectedError('ticket_not_found', 'هذه التذكرة غير موجودة في منشأتك. حدّث الشاشة.');
+            if (ticket.status === 'void') throw new m.RejectedError('already_void', 'التذكرة ملغاة من قبل.');
+            if (ticket.status === 'draft') {
+              ticket.status = 'void';
+              return { id: ticket.id, ticket_no: null, status: 'void' };
+            }
+            throw new m.RejectedError(refusal[0], refusal[1]);
+          },
+          weigh_ticket: () => ({ ...clone(B.finish_weigh_ticket), id: server.ticket.id, site_id: SITE, version: 2, ticket_no: server.ticket.ticket_no }),
+        });
+        await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}&back=${encodeURIComponent('/broiler')}`);
+        const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+        type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '800');
+        await settle();
+        await click(byAction('ticket-weigh-empty')[0]);
+        await padType('7000');
+        // المدير يكمل التذكرة من جهازه (رقمها WT-2026-0099).
+        server.ticket.status = 'done';
+        server.ticket.version = 2;
+        server.ticket.ticket_no = 'WT-2026-0099';
+        await click(byAction('ticket-delete')[0]);
+        await click(byAction('ticket-delete-confirm')[0]);
+        await settle(20);
+        const shown = text();
+        t.same(
+          [server.ticket.status, named(log, 'void_weigh_ticket').length, named(log, 'weigh_ticket').length > 0, byAction('ticket-editor').length, byAction('ticket-done').length, shown.includes(refusal[1])],
+          ['done', 1, true, 0, 1, false],
+          `D1 ${role}: «احذف المسوّدة» بعد حفظٍ مجهول وأكملها جهاز آخر: لا تُلغى المكتملة (صحيح)، والصفحة تقرأ التذكرة فتعرضها مكتملةً بدل رفضٍ لا يخصّها («${refusal[1]}») والمحرّر باقٍ | المحرّر ${byAction('ticket-editor').length} المكتملة ${byAction('ticket-done').length} قراءات ${named(log, 'weigh_ticket').length} المكان ${globalThis.__h8.location}`,
+        );
+      });
+    }
+
+    // ── D2 S4: الصفحة فُتحت 23:30 (خياراتها بيوم 12/11)، وأوّل وزنة بعد منتصف ليل الخادم (يومه 13/11) ─────────────────────────────────────
+    await step('D2', async () => {
+      const options = B.weigh_ticket_options_site;
+      const SITE = options.site.site_id;
+      const H1 = options.halls[0].hall_id;
+      const serverDay = { now: '2026-11-12' };
+      const log = fresh(sessionOf('manager'), {
+        weigh_ticket_options: () => ({ ...clone(options), today: serverDay.now }),
+        save_weigh_ticket: (args) => {
+          if (args.p_data.on_date > serverDay.now) throw new m.RejectedError('date_in_future', 'بعد اليوم');
+          return { status: 'saved', ticket: { ...clone(B.save_weigh_ticket.ticket), id: args.p_ticket, on_date: args.p_data.on_date } };
+        },
+      });
+      await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '800');
+      await settle();
+      serverDay.now = '2026-11-13';
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      const sent = named(log, 'save_weigh_ticket');
+      t.same(
+        [sent.length, sent[0]?.p_data?.on_date ?? null],
+        [1, '2026-11-13'],
+        `D2 أوّل وزنة بعد منتصف ليل الخادم تثبّت يوم الخادم ساعتها (13/11)، لا يوم فتح الصفحة من خيارات قديمة (أُرسل ${sent[0]?.p_data?.on_date})`,
+      );
+    });
+
+    // ── D3 S1: بطاقة الفوج قُرئت 23:50 يوم 12/11 (flock_sales.today = 12/11) وبقيت مفتوحة؛ «سجّل فرق العدّ» صباح 13/11 ───────────────────
+    await step('D3', async () => {
+      const sample = B.flock_sales;
+      const serverDay = { now: '2026-11-12' };
+      const log = fresh(sessionOf('manager'), {
+        flock_sales: () => ({ ...clone(sample), today: serverDay.now }),
+        record_flock_count_adjust: (args) => {
+          if (args.p_on > serverDay.now) throw new m.RejectedError('date_in_future', 'بعد اليوم');
+          return { id: args.p_id, flock_id: args.p_flock, on_date: args.p_on, birds: args.p_birds, live_after: sample.live + args.p_birds };
+        },
+      });
+      const clock = deviceClock(RealDate.UTC(2026, 10, 12, 20, 50), 'Asia/Baghdad');
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: { id: sample.flock_id, kind: sample.kind, siteId: 's', hallId: 'h', hallName: 'قاعة 1', siteName: 'حقل', status: sample.status } }));
+      // الليل يمضي: الخادم والجهاز (بغداد) على 13/11 الساعة 08:00؛ الصفحة لم تُقرأ من جديد.
+      serverDay.now = '2026-11-13';
+      clock.now = RealDate.UTC(2026, 10, 13, 5, 0);
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة صباحاً');
+      await settle();
+      const proposed = within(dialog(), 'count-day')[0]?.value ?? null;
+      const reads = named(log, 'flock_sales').length;
+      // اليوم الحقيقيّ مكتوباً باليد:
+      type(within(dialog(), 'count-day')[0], '13/11/2026');
+      await settle();
+      const todayRefused = (dialog()?.textContent ?? '').includes('التاريخ بعد اليوم.') && disabled(within(dialog(), 'count-go')[0]);
+      t.same(
+        [proposed, todayRefused],
+        ['13/11/2026', false],
+        `D3 البطاقة مفتوحة منذ الليلة: النافذة تقترح يوم الخادم الآن (13/11) وتقبله، لا يوم آخر قراءة (اقترحت ${proposed}، ورفضت 13/11: ${todayRefused}، قراءات flock_sales ${reads})`,
+      );
+      // وما يُرسل بالمقترح: يُسجَّل فرق العدّ بيوم أمس.
+      type(within(dialog(), 'count-day')[0], proposed ?? '');
+      await settle();
+      await click(within(dialog(), 'count-go')[0]);
+      await settle(20);
+      const sent = named(log, 'record_flock_count_adjust');
+      t.same(sent[0]?.p_on ?? null, '2026-11-13', `D3b بالمقترح يُسجَّل فرق العدّ بيوم ${sent[0]?.p_on} والخادم على 13/11`);
+    });
+
+    // ── D4 الإغلاق: طلب مستعاد من sessionStorage كُتب قبل 02c3520 (بلا expectedPlan)، ثمّ «أعد المحاولة» ────────────────────────────────
+    await step('D4', async () => {
+      const form = clone(B.flock_close_form_carry_in);
+      const FID = form.flock.id;
+      const ws = sessionOf('manager');
+      const key = m.pendingKey(`${ws.workspace.userId}:${ws.workspace.orgId}`, `close:${FID}`);
+      const old = {
+        request: {
+          clientRef: '11111111-1111-4111-8111-111111111111',
+          closeId: '22222222-2222-4222-8222-222222222222',
+          flockId: FID,
+          on: form.default_on,
+          expectedLive: form.flock.live,
+          expectedSold: form.sales.birds,
+          expectedPools: form.items.map((item) => ({ itemId: item.item_id, qty: BigInt(Math.round(Number(item.pool_qty) * 1000)) })),
+          countReason: 'عُدّت القاعة يوم الإغلاق',
+          lines: [],
+          note: 'ملاحظة كتبها المدير',
+        },
+        hall: form.flock.hall_name,
+        names: {},
+        units: {},
+      };
+      m.storePending(key, old);
+      const log = fresh(ws, {
+        flock_close_form: () => clone(form),
+        close_flock: (args) => {
+          if (args.p_expected_plan === null || args.p_expected_plan !== form.plan) throw new m.RejectedError('pool_changed', 'تغيّر ما نزل للقاعة أو قيمته منذ فتحت الشاشة (صرف أو إلغاء أو إرجاع). حدّث الشاشة وراجع الباقي.');
+          return clone(B.close_flock);
+        },
+      });
+      await mount(`/halls/close/${FID}`);
+      const frozen = byAction('close-frozen').length;
+      await click(byAction('close-retry')[0]);
+      await settle(30);
+      const first = named(log, 'close_flock')[0] ?? null;
+      const afterRetry = { frozen: byAction('close-frozen').length, form: byAction('close-go').length, failure: text().includes('تغيّر ما نزل للقاعة'), reason: byAction('close-reason')[0]?.value ?? null, note: byAction('close-note')[0]?.value ?? null };
+      // طريق إلى الأمام: يُكتب السبب ويُغلق بالبصمة الجديدة.
+      type(byAction('close-reason')[0], 'عُدّت القاعة');
+      await settle();
+      await click(byAction('close-go')[0]);
+      await click(byAction('close-confirm')[0]);
+      await settle(30);
+      const second = named(log, 'close_flock')[1] ?? null;
+      t.same(
+        [frozen, 'p_expected_plan' in (first ?? {}), first?.p_expected_plan ?? null, afterRetry.frozen, afterRetry.form, afterRetry.failure, second?.p_expected_plan === form.plan, globalThis.__h8.location?.startsWith(`/halls/report/${FID}`)],
+        [1, true, null, 0, 1, true, true, true],
+        `D4 طلبٌ مستعاد بلا بصمة: الإعادة ترسل p_expected_plan = null فيرفضها الخادم pool_changed، والصفحة تخرج من التجميد إلى النموذج المقروء من جديد، والإغلاق بعده بالبصمة الجديدة (لا طريق مسدود)`,
+      );
+      // درس 2026-11-11: الطلب المستعاد يحمل ما كُتب، فالرفض الأكيد يعيده إلى الخانات.
+      t.same(
+        [afterRetry.reason, afterRetry.note],
+        ['عُدّت القاعة يوم الإغلاق', 'ملاحظة كتبها المدير'],
+        `D4b بعد رفضٍ أكيد لطلبٍ مستعاد بعد إعادة التحميل يعود ما كُتب إلى الخانات (السبب «${afterRetry.reason}»، الملاحظة «${afterRetry.note}»)`,
+      );
+    });
+
+    // ── D5 الإغلاق مجمَّد بنتيجة مجهولة، ثمّ تغيّر ما في القاعة من جهاز آخر، ثمّ «أعد المحاولة» ──────────────────────────────────────────
+    await step('D5', async () => {
+      const form = clone(B.flock_close_form_carry_in);
+      const FID = form.flock.id;
+      const later = { ...clone(form), plan: `${form.plan}-changed` };
+      const state = { plan: form.plan, calls: 0 };
+      const log = fresh(sessionOf('manager'), {
+        flock_close_form: (_args, count) => (count === 1 ? clone(form) : clone(later)),
+        close_flock: (args) => {
+          state.calls += 1;
+          if (state.calls === 1) {
+            state.plan = later.plan;
+            throw new m.UnknownOutcomeError('fetch_failed');
+          }
+          if (args.p_expected_plan !== state.plan) throw new m.RejectedError('pool_changed', 'تغيّر ما نزل للقاعة أو قيمته منذ فتحت الشاشة (صرف أو إلغاء أو إرجاع). حدّث الشاشة وراجع الباقي.');
+          return clone(B.close_flock);
+        },
+      });
+      await mount(`/halls/close/${FID}`);
+      type(byAction('close-reason')[0], 'عُدّت القاعة');
+      await settle();
+      await click(byAction('close-go')[0]);
+      await click(byAction('close-confirm')[0]);
+      await settle(20);
+      const frozen = byAction('close-frozen').length;
+      await click(byAction('close-retry')[0]);
+      await settle(30);
+      const reason = byAction('close-reason')[0]?.value ?? null;
+      await click(byAction('close-go')[0]);
+      const confirmShown = byAction('close-confirm-text').length;
+      await click(byAction('close-confirm')[0]);
+      await settle(30);
+      const sent = named(log, 'close_flock');
+      t.same(
+        [frozen, sent.length, sent[1]?.p_client_ref === sent[0]?.p_client_ref, reason, confirmShown, sent[2]?.p_expected_plan ?? null, sent[2]?.p_client_ref !== sent[0]?.p_client_ref],
+        [1, 3, true, 'عُدّت القاعة', 1, later.plan, true],
+        'D5 مجمَّد ثمّ pool_changed: الإعادة بالطلب نفسه، ثمّ النموذج من جديد بما كُتب، والإغلاق التالي بمرجع جديد وبالبصمة الجديدة',
+      );
+    });
+    // ── D6 S2 جانبيّ: أوّل حفظ ضاع جوابه (وصل الخادم)، ثمّ وزنة أخرى: الخادم يجيب stale ─────────────────────────────────────────────
+    await step('D6', async () => {
+      const options = B.weigh_ticket_options_site;
+      const SITE = options.site.site_id;
+      const H1 = options.halls[0].hall_id;
+      const server = { ticket: null };
+      fresh(sessionOf('manager'), {
+        weigh_ticket_options: () => clone(options),
+        save_weigh_ticket: (args, count) => {
+          if (count === 1) {
+            server.ticket = { ...clone(B.save_weigh_ticket.ticket), id: args.p_ticket, on_date: args.p_data.on_date, version: 1 };
+            throw new m.UnknownOutcomeError('fetch_failed');
+          }
+          // المحتوى تغيّر والنسخة المرسلة null: stale بنسخة الخادم (وهي حفظ هذا الجهاز نفسه).
+          return { status: 'stale', server: clone(server.ticket) };
+        },
+      });
+      await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '800');
+      await settle();
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      await click(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-weigh-gross')[0]);
+      await padType('9000');
+      const stale = textOf('ticket-stale');
+      t.same(stale?.includes('من جهاز آخر') ?? null, false, `D6 «تغيّرت» بعد حفظٍ ضاع جوابه من هذا الجهاز نفسه لا تقول «حُفظت من جهاز آخر» (${stale?.slice(0, 100)})`);
+    });
+    // ── D7 S7: «أعد فتح الدورة» لدورة نُقل علفها ثمّ أُرجع إلى مخزن (return_hall_carry → FR بمصدر النقل): reopen_flock يلغي ذلك المستند أيضاً ─────
+    await step('D7', async () => {
+      const report = clone(B.flock_cycle_report_closed);
+      const carry = report.close.lines.find((line) => line.action === 'carry');
+      carry.carry_status = 'returned';
+      carry.return_doc_no = B.return_hall_carry.doc_no;
+      const closeDoc = report.close.lines.find((line) => line.action === 'return')?.return_doc_no ?? null;
+      fresh(sessionOf('manager'), { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_closed) });
+      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      const shown = textOf('reopen-text') ?? '';
+      t.same(
+        [closeDoc !== null && closeDoc !== carry.return_doc_no, shown.includes(closeDoc ?? '?'), shown.includes(carry.return_doc_no)],
+        [true, true, true],
+        `D7 تأكيد إعادة الفتح يسمّي مستند إرجاع المنقول (${carry.return_doc_no}) الذي تلغيه reopen_flock فيخرج علفه من المخزن، كما يسمّي إرجاع الإغلاق (${closeDoc}): «${shown}»`,
+      );
+    });
+    // ── D8 S3: نسخة الجهاز بمفتاح المستخدم والمنشأة والتذكرة: مستخدم آخر أو منشأة أخرى أو تذكرة أخرى لا يراها ─────────────────────────
+    {
+      session.map.clear();
+      local.map.clear();
+      const draft = B.weigh_ticket_draft;
+      const done = { ...clone(B.finish_weigh_ticket), id: draft.id, site_id: draft.site_id, version: draft.version + 1 };
+      const other = { ...clone(B.finish_weigh_ticket), id: '99999999-9999-4999-8999-999999999999', site_id: draft.site_id, version: 3 };
+      const seen = [];
+      try {
+        fresh(sessionOf('manager'), { weigh_ticket: () => clone(draft), weigh_ticket_options: () => clone(B.weigh_ticket_options_site), save_weigh_ticket: () => Promise.reject(new m.NetworkError()) });
+        await mount(`/halls/ticket/${draft.id}`);
+        type(within(withAttr('ticket-stop', 'data-stop', draft.stops[0].id), 'ticket-birds')[0], '120');
+        await settle();
+        await unmount();
+        for (const [label, who, ticket] of [
+          ['manager org-1', sessionOf('manager'), done],
+          ['accountant org-1', sessionOf('accountant'), done],
+          ['manager org-2', sessionOf('manager', { orgId: 'org-2' }), done],
+          ['manager other ticket', sessionOf('manager'), other],
+        ]) {
+          fresh(who, { weigh_ticket: () => clone(ticket) });
+          await mount(`/halls/ticket/${ticket.id}`);
+          seen.push([label, byAction('ticket-done').length, byAction('ticket-unsaved').length]);
+          await unmount();
+        }
+      } catch (error) {
+        t.ok(false, `D8: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+      t.same(
+        seen,
+        [
+          ['manager org-1', 1, 1],
+          ['accountant org-1', 1, 0],
+          ['manager org-2', 1, 0],
+          ['manager other ticket', 1, 0],
+        ],
+        'D8 ما كُتب ولم يُحفظ يظهر لكاتبه في منشأته وعلى تذكرته وحدها',
+      );
+    }
+    t.ok(true, 'zz-v28-d ran');
+  } finally {
+    globalThis.Date = RealDate;
+    if (realTz === undefined) delete process.env.TZ;
+    else process.env.TZ = realTz;
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    for (const [name, descriptor] of [['sessionStorage', saved.session], ['localStorage', saved.local]]) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    delete globalThis.__h8;
+    restore();
+    void all;
+    void textOf;
+  }
+}

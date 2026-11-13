@@ -1,0 +1,294 @@
+// zz-r28 probe (temporary, review of 0028 money/stock). Own org: ids e2880000, phones 96477028800.
+import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { mutant } from './purchase-kit.mjs';
+import { postedOpening } from './stock-kit.mjs';
+
+const TODAY = '2026-11-12';
+const DAY_MS = 86400000;
+const day = (n) => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+const id = (n) => `e2880000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone = (n) => `96477028800${String(n).padStart(2, '0')}`;
+
+export default async function (t, db) {
+  await db.setToday(TODAY, () => scenario(t, db));
+}
+
+async function scenario(t, db) {
+  const log = (label, v) => console.log(`PROBE ${label}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+  const section = async (name, fn) => {
+    try {
+      await fn();
+    } catch (error) {
+      t.ok(false, `${name}: threw ${error.stack ?? error.message}`);
+    }
+  };
+  const G = await makeOrg(db, {
+    name: 'probe org r28',
+    id,
+    phone,
+    roles: [
+      ['owner', 'owner'],
+      ['manager', 'manager'],
+      ['accountant', 'accountant'],
+      ['worker', 'hall_worker', ['broiler']],
+      ['storekeeper', 'storekeeper'],
+      ['siteManager', 'manager', ['broiler']],
+    ],
+  });
+  const { users: U, divisions: D, org } = G;
+  const one = async (user, sql, params) => {
+    const result = await call(db, user, sql, params);
+    if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
+    return result.value;
+  };
+  const admin = async (sql, params) => (await db.admin(sql, params)).rows;
+  const W = Object.fromEntries((await admin('select kind, id from public.warehouses where org_id = $1', [org])).map((r) => [r.kind, r.id]));
+  const S = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل الفحص', 'farm') returning id", [D.broiler]);
+  W.farm = await one(U.owner, "insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'مخزن حقل الفحص', 'farm') returning id", [D.broiler, S]);
+  const H = {};
+  for (let i = 1; i <= 9; i += 1) H[i] = await one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [S, `قاعة ${i}`]);
+  const item = (name) => one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'feed', 'kg') returning id", [name]);
+  const X = await item('علف فحص');
+  const Y = await item('علف فحص ثان');
+  await postedOpening(db, U.owner, W.feed, day(-30), [{ item: X, qty: 5000, value: '3000000.00' }, { item: Y, qty: 5000, value: '3000000.00' }]);
+  await postedOpening(db, U.owner, W.farm, day(-30), [{ item: X, qty: 5000, value: '4500000.00' }, { item: Y, qty: 5000, value: '4500000.00' }]);
+  const trader = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الفحص', true) returning id");
+  const place = async (hallId, on, count) => (await one(U.manager, 'select public.open_flock($1, $2, $3, 0, null, $4)', [hallId, on, count, uid()])).flock_id;
+  const issue = (user, flock, itemId, qty, on, wh) => call(db, user, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8)', [uid(), uid(), uid(), flock, itemId, qty, on, wh]);
+  const issueOk = async (flock, itemId, qty, on, wh) => {
+    const r = await issue(U.manager, flock, itemId, qty, on, wh);
+    if (!r.ok) throw new Error(`issue ${r.code} ${r.hint}`);
+    return r.value;
+  };
+  const ticket = async (on, stops) => {
+    const ticketId = uid();
+    let gross = 7000;
+    const data = { site_id: S, on_date: on, method: 'scale', empty_kg: '7000', empty_with_crates: true, crate_kg: null,
+      stops: stops.map(([hallId, birds, net]) => {
+        gross += Number(net);
+        return { id: uid(), hall_id: hallId, birds, crates: null, gross_kg: String(gross), weighings: [] };
+      }) };
+    const saved = await one(U.worker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [ticketId, null, JSON.stringify(data)]);
+    if (saved.status !== 'saved') throw new Error(`ticket: ${JSON.stringify(saved)}`);
+    const finished = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), ticketId, 1]);
+    return { id: ticketId, version: finished.version };
+  };
+  const SELL = 'select public.record_bird_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)';
+  const sell = (tk, price = '2000.00') => one(U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, price, '0', '0', null, null]);
+  const form = (flock, user = U.manager) => one(user, 'select public.flock_close_form($1)', [flock]);
+  const CLOSE = 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10)';
+  const closeArgs = (f, flock, on, { reason = null, lines = [], closeId = uid() } = {}) => [uid(), closeId, flock, on, f.flock.live, f.sales.birds,
+    JSON.stringify(f.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), reason, JSON.stringify(lines), null];
+  const verifyAll = async (q) => {
+    const names = (await q("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'verify\\_%' order by 1")).rows.map((r) => r.proname);
+    const bad = {};
+    for (const name of names) {
+      for (const r of (await q(`select check_name, violations::int as n from public.${name}() where violations <> 0`)).rows) bad[`${name}.${r.check_name}`] = r.n;
+    }
+    return bad;
+  };
+  const inside = async (attempt, user, sql, params) => {
+    const result = await attempt(user, async (q) => (await q(`${sql} as v`, params)).rows[0].v);
+    return result.ok ? result.value : { code: result.code, hint: result.hint };
+  };
+
+  // ── P1: reopen by a manager whose scope excludes the store the feed was returned to ─────────────────────────
+  await section('P1', async () => {
+    const F1 = await place(H[1], day(-10), 1000);
+    const fi = await issueOk(F1, X, '1000', day(-6), W.feed);
+    // control: the broiler-scoped manager cannot void that FI (store out of scope)
+    const ctl = await call(db, U.siteManager, 'select public.void_flock_issue($1, $2, $3)', [fi.id, 'خطأ', uid()]);
+    log('P1 control void_flock_issue by siteManager', { ok: ctl.ok, code: ctl.code });
+    const ctlReturn = await call(db, U.siteManager, CLOSE, closeArgs(await form(F1, U.siteManager), F1, TODAY, { reason: 'فرق', lines: [{ item_id: X, qty: '400', action: 'return', warehouse_id: W.feed }] }));
+    log('P1 control close with return to feed store by siteManager', { ok: ctlReturn.ok, code: ctlReturn.code });
+    const f = await form(F1);
+    const closed = await one(U.manager, CLOSE, closeArgs(f, F1, TODAY, { reason: 'فرق', lines: [{ item_id: X, qty: '400', action: 'return', warehouse_id: W.feed }] }));
+    const before = await admin('select trim_scale(qty)::text as qty, trim_scale(value)::text as value from public.stock_balances where item_id = $1 and warehouse_id = $2', [X, W.feed]);
+    log('P1 feed store balance after close (manager)', before);
+    const scoped = await call(db, U.siteManager, 'select public.in_scope_wh($1)', [W.feed]);
+    log('P1 siteManager in_scope_wh(feed store)', scoped);
+    const re = await call(db, U.siteManager, 'select public.reopen_flock($1, $2, $3)', [closed.id, 'خطأ في الإغلاق', uid()]);
+    const after = await admin('select trim_scale(qty)::text as qty, trim_scale(value)::text as value from public.stock_balances where item_id = $1 and warehouse_id = $2', [X, W.feed]);
+    log('P1 reopen by siteManager', { ok: re.ok, code: re.code, value: re.value });
+    log('P1 feed store balance after reopen (siteManager)', after);
+    t.ok(!re.ok, `P1: reopen_flock by a manager without scope on the return store should be refused like void_flock_issue (got ${re.ok ? 'ok' : re.code})`);
+  });
+
+  // ── P2: flock_close_values.revenue is never verified: a mutant that snapshots the whole invoice per flock passes every invariant ──
+  await section('P2', async () => {
+    const F2 = await place(H[2], day(-10), 1000);
+    const F3 = await place(H[3], day(-10), 1000);
+    const tk = await ticket(day(-1), [[H[2], 1000, '2000'], [H[3], 1000, '3000']]);
+    const sale = await sell(tk);
+    log('P2 sale sources', sale.sources.map((s) => [s.hall_name, s.money.revenue]));
+    const f = await form(F2);
+    const res = await mutant(db, U.manager, [['public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text)', [[
+      '(select coalesce(sum(s.revenue), 0) from public.bird_sale_sources s join public.bird_sales b',
+      '(select coalesce(sum(b.total), 0) from public.bird_sale_sources s join public.bird_sales b']]]], async ({ oq, attempt }) => {
+      const v = await inside(attempt, U.manager, CLOSE, closeArgs(f, F2, TODAY));
+      const report = await inside(attempt, U.manager, 'select public.flock_cycle_report($1)', [F2]);
+      return { close: v.code ? v : v.money, reportRevenue: report.money?.revenue, verify: await verifyAll(oq) };
+    });
+    log('P2 mutant close', res);
+    t.ok(Object.keys(res.verify).length > 0, `P2: a close snapshot with revenue ${res.close?.revenue} (report says ${res.reportRevenue}) passes every verify_* (${JSON.stringify(res.verify)})`);
+  });
+
+  // ── P3: return to a store the item never came from: a mutant without not_from_store passes every invariant ──
+  await section('P3', async () => {
+    const F4 = await place(H[4], day(-10), 1000);
+    await issueOk(F4, X, '1000', day(-6), W.farm);
+    const f = await form(F4);
+    const res = await mutant(db, U.manager, [['public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text)', [[
+      "if a ->> 'action' = 'return' and not exists (select 1 from private.flock_item_lots(f.id, i.id) as z where z.warehouse_id = (a ->> 'warehouse_id')::uuid) then",
+      "if false then"]]]], async ({ oq, attempt }) => {
+      const v = await inside(attempt, U.manager, CLOSE, closeArgs(f, F4, TODAY, { reason: 'فرق', lines: [{ item_id: X, qty: '500', action: 'return', warehouse_id: W.feed }] }));
+      const fr = (await oq('select r.doc_no, w.name as store from public.flock_returns r join public.warehouses w on w.id = r.warehouse_id where r.flock_id = $1', [F4])).rows;
+      return { ok: !v.code, code: v.code, fr, verify: await verifyAll(oq) };
+    });
+    log('P3 mutant close', res);
+    t.ok(Object.keys(res.verify).length > 0, `P3: FR into a store the feed never came from passes every verify_* (${JSON.stringify(res)})`);
+  });
+
+  // ── P4: the pool value the form showed changes with the same qty; close posts at the new value without pool_changed ──
+  await section('P4', async () => {
+    const F5 = await place(H[5], day(-10), 1000);
+    const a = await issueOk(F5, Y, '500', day(-6), W.feed);
+    await issueOk(F5, Y, '500', day(-6), W.farm);
+    const f = await form(F5);
+    log('P4 form pools', f.items.map((i) => [i.name, i.pool_qty, i.money?.pool_value]));
+    // another manager voids the W.feed issue and re-issues the same qty from the farm store (different cost)
+    await one(U.owner, 'select public.void_flock_issue($1, $2, $3)', [a.id, 'من المخزن الخطأ', uid()]);
+    await issueOk(F5, Y, '500', day(-1), W.farm);
+    const r = await call(db, U.manager, CLOSE, closeArgs(f, F5, TODAY, { reason: 'فرق', lines: [{ item_id: Y, qty: '500', action: 'return', warehouse_id: W.farm }] }));
+    log('P4 close with the stale form', { ok: r.ok, code: r.code, money: r.value?.money, line: r.value?.lines?.[0]?.money });
+    const shownHalf = Number(f.items[0].money.pool_value) / 2;
+    t.ok(!r.ok, `P4: close accepted the stale form: pool value shown ${f.items[0].money.pool_value} (half = ${shownHalf}), FR posted at ${r.value?.lines?.[0]?.money?.value}`);
+  });
+
+  // ── P6: reopen a closed flock after its hall was archived (no carry, no flock) ──
+  await section('P6', async () => {
+    const F8 = await place(H[8], day(-10), 100);
+    const closed = await one(U.manager, CLOSE, closeArgs(await form(F8), F8, TODAY, { reason: 'فرق' }));
+    const arch = await call(db, U.owner, 'update public.halls set archived_at = now() where id = $1 returning id', [H[8]]);
+    log('P6 archive hall after close', { ok: arch.ok, code: arch.code });
+    const re = await call(db, U.manager, 'select public.reopen_flock($1, $2, $3)', [closed.id, 'خطأ', uid()]);
+    log('P6 reopen in archived hall', { ok: re.ok, code: re.code });
+    const bad = await db.asService(async (q) => (await q("select check_name, violations::int as n from public.verify_flocks() where violations <> 0")).rows);
+    log('P6 verify_flocks after reopen', bad);
+    const adj = await call(db, U.manager, 'select public.record_flock_count_adjust($1, $2, $3, $4, $5, $6, $7)', [uid(), uid(), F8, TODAY, 5, 'وُجدت', 100]);
+    log('P6 count adjust on the reopened flock in the archived hall', { ok: adj.ok, code: adj.code });
+    t.ok(!re.ok, `P6: reopen_flock on an archived hall should be refused (got ${re.ok ? 'ok' : re.code}); verify_flocks: ${JSON.stringify(bad)}`);
+    // repair for the end-of-file invariants
+    if (re.ok) {
+      const closeAgain = await call(db, U.manager, CLOSE, closeArgs(await form(F8), F8, TODAY, { reason: 'فرق' }));
+      log('P6 re-close to repair', { ok: closeAgain.ok, code: closeAgain.code });
+    }
+  });
+
+  // ── P7: the BR's cash receipt refunded with «ألغِ القبض» (void_party_payment) while the BR stays posted ──
+  await section('P7', async () => {
+    const box = await one(U.owner, "insert into public.cash_accounts (name, kind) values ('صندوق الفحص', 'cash') returning id");
+    const F9 = await place(H[9], day(-10), 1000);
+    const tk = await ticket(day(-1), [[H[9], 500, '1000']]);
+    const sale = await one(U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '2000000', box, null]);
+    const pay = (await admin('select payment_entry_id from public.bird_sales where id = $1', [sale.id]))[0].payment_entry_id;
+    const refund = await call(db, U.manager, 'select public.void_party_payment($1, $2, $3)', [pay, 'ردّ المبلغ للتاجر', uid()]);
+    log('P7 void_party_payment on the BR payment while BR posted', { ok: refund.ok, code: refund.code });
+    const ov = await one(U.accountant, 'select public.sales_overview($1, $2)', [day(-7), TODAY]);
+    const row = ov.birds.rows.find((r) => r.id === sale.id);
+    log('P7 sales_overview birds row', { paid: row.paid, money: row.money });
+    log('P7 sales_overview birds totals', ov.birds.totals);
+    const det = await one(U.accountant, 'select public.bird_sale_detail($1)', [sale.id]);
+    log('P7 bird_sale_detail', { paid_now: det.money.paid_now, total: det.money.total, remaining: det.remaining, account: det.account_name, payment_kept: det.payment_kept });
+    const bal = (await admin("select coalesce(sum(amount), 0)::text as v from public.party_entries where party_id = $1 and doc_kind = 'bird_sale'", [trader]))[0].v;
+    log('P7 trader BR ledger sum', bal);
+    const bad = await db.asService(async (q) => (await q("select 'vb' as f, check_name, violations::int as n from public.verify_bird_sales() where violations <> 0 union all select 'vm', check_name, violations::int from public.verify_money() where violations <> 0 union all select 'vl', check_name, violations::int from public.verify_ledger() where violations <> 0")).rows);
+    log('P7 verify after refund', bad);
+    t.ok(row.paid !== 'cash' && det.money.paid_now === '0', `P7: after «ألغِ القبض» on the BR receipt, sales_overview.birds says paid=${row.paid} paid_now=${row.money.paid_now} (totals paid_now=${ov.birds.totals.money.paid_now}, credit=${ov.birds.totals.money.credit}) and bird_sale_detail says paid_now=${det.money.paid_now} with remaining=${det.remaining} of total ${det.money.total}`);
+  });
+
+  // ── P8: two-level carry A → B, B returns all to a store only A drew from; reopen B; re-close B to the other store ──
+  await section('P8', async () => {
+    const hA = await one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [S, 'قاعة السلسلة']);
+    const A = await place(hA, day(-7), 500);
+    await issueOk(A, X, '600', day(-6), W.feed);
+    const fA = await form(A);
+    const cA = await one(U.manager, CLOSE, closeArgs(fA, A, day(-5), { reason: 'فرق', lines: [{ item_id: X, qty: '300', action: 'carry' }] }));
+    log('P8 A close', { lines: cA.lines.map((l) => [l.action, l.qty, l.money?.value]), money: cA.money });
+    const B = await place(hA, day(-4), 500);
+    await issueOk(B, X, '200', day(-3), W.farm);
+    const fB = await form(B);
+    log('P8 B pool', fB.items.map((i) => [i.pool_qty, i.money?.pool_value, i.stores.map((s) => s.name)]));
+    const cB = await one(U.manager, CLOSE, closeArgs(fB, B, day(-2), { reason: 'فرق', lines: [{ item_id: X, qty: fB.items[0].pool_qty, action: 'return', warehouse_id: W.feed }] }));
+    log('P8 B close', { lines: cB.lines.map((l) => [l.action, l.qty, l.money?.value, l.warehouse_name]), money: cB.money });
+    const v1 = await db.asService(async (q) => (await q('select check_name, violations::int as n from public.verify_flock_close() where violations <> 0 union all select check_name, violations::int from public.verify_stock() where violations <> 0')).rows);
+    log('P8 verify after B close', v1);
+    const re = await call(db, U.manager, 'select public.reopen_flock($1, $2, $3)', [cB.id, 'خطأ', uid()]);
+    log('P8 reopen B', { ok: re.ok, code: re.code, money: re.value?.money });
+    const fB2 = await form(B);
+    log('P8 B pool after reopen', fB2.items.map((i) => [i.pool_qty, i.money?.pool_value]));
+    const cB2 = await call(db, U.manager, CLOSE, closeArgs(fB2, B, TODAY, { reason: 'فرق', lines: [{ item_id: X, qty: '250', action: 'return', warehouse_id: W.farm }] }));
+    log('P8 B re-close', { ok: cB2.ok, code: cB2.code, lines: cB2.value?.lines?.map((l) => [l.action, l.qty, l.money?.value]), money: cB2.value?.money });
+    const v2 = await db.asService(async (q) => (await q('select check_name, violations::int as n from public.verify_flock_close() where violations <> 0 union all select check_name, violations::int from public.verify_stock() where violations <> 0')).rows);
+    log('P8 verify after re-close', v2);
+    const rep = await one(U.manager, 'select public.flock_cycle_report($1)', [B]);
+    log('P8 B report money', rep.money);
+    log('P8 B report kpis', { given: rep.kpis.feed_given_kg, out: rep.kpis.feed_out_kg, net: rep.kpis.feed_net_kg, left: rep.kpis.feed_left_kg, carry_in: rep.kpis.feed_carry_in_kg });
+    const repA = await one(U.manager, 'select public.flock_cycle_report($1)', [A]);
+    log('P8 A report money', repA.money);
+  });
+
+  // ── P9: «الباقي بالقاعة» (flock_feed.remaining_feed_kg, FeedLine on the flock and issue pages) and the cycle report's 0027 feed keys after a carry ──
+  await section('P9', async () => {
+    const hC = await one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [S, 'قاعة النقل']);
+    const A = await place(hC, day(-7), 500);
+    await issueOk(A, X, '600', day(-6), W.feed);
+    await one(U.manager, CLOSE, closeArgs(await form(A), A, day(-5), { reason: 'فرق', lines: [{ item_id: X, qty: '300', action: 'carry' }] }));
+    const B = await place(hC, day(-4), 500);
+    await issueOk(B, X, '200', day(-3), W.farm);
+    const ff = await one(U.manager, 'select public.flock_feed($1)', [B]);
+    log('P9 flock_feed(B)', { issued: ff.issued_feed_kg, consumed: ff.consumed_feed_kg, remaining: ff.remaining_feed_kg, carry_in: ff.carry_in_feed_kg, net: ff.net_feed_kg });
+    const rep = await one(U.manager, 'select public.flock_cycle_report($1)', [B]);
+    log('P9 report(B) feed (0027 keys shown in «المصروف والمستهلك والباقي»)', { delivered: rep.feed.delivered_kg, consumed: rep.feed.consumed_kg, remaining: rep.feed.remaining_kg });
+    log('P9 report(B) kpis', { given: rep.kpis.feed_given_kg, left: rep.kpis.feed_left_kg });
+    const fd = await one(U.manager, 'select public.flock_feed($1)', [A]);
+    const repA = await one(U.manager, 'select public.flock_cycle_report($1)', [A]);
+    log('P9 closed A flock_feed / report', { remaining: fd.remaining_feed_kg, out: fd.out_feed_kg, net: fd.net_feed_kg, rep_remaining: repA.feed.remaining_kg, kpi_left: repA.kpis.feed_left_kg });
+    t.ok(ff.remaining_feed_kg === ff.net_feed_kg, `P9: «الباقي بالقاعة» for B = ${ff.remaining_feed_kg} kg while the hall holds ${ff.net_feed_kg} kg (carry-in ${ff.carry_in_feed_kg} omitted)`);
+  });
+
+  // ── P10: a done ticket older than the 7-day rule: the form says invoiceable/can_post, the post is refused, the flock cannot close ──
+  await section('P10', async () => {
+    const hD = await one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [S, 'قاعة متأخّرة']);
+    const F = await place(hD, day(-9), 1000);
+    const tk = await ticket(day(-7), [[hD, 500, '1000']]);
+    await db.setToday(day(1), async () => {
+      const fm = await one(U.accountant, 'select public.bird_sale_form($1)', [tk.id]);
+      log('P10 bird_sale_form 8 days later', { invoiceable: fm.invoiceable, why: fm.why, can_post: fm.can_post, on_date: fm.ticket.on_date, today: fm.today });
+      const r = await call(db, U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '0', null, null]);
+      log('P10 record_bird_sale', { ok: r.ok, code: r.code, hint: r.hint });
+      const awaiting = await one(U.accountant, "select public.weigh_tickets(null, null, 'awaiting')");
+      log('P10 weigh_tickets awaiting has it', awaiting.rows.some((x) => x.id === tk.id));
+      t.ok(!(fm.can_post && !r.ok), `P10: bird_sale_form says can_post=${fm.can_post} but record_bird_sale refuses ${r.code}`);
+    });
+    // repair: void the ticket so the file's invariants and later sections are unaffected
+    await one(U.manager, 'select public.void_weigh_ticket($1, $2, $3)', [tk.id, 'تنظيف', uid()]);
+  });
+
+  // ── P5: a void_bird_sale mutant that returns the birds to the wrong flock passes every invariant ──
+  await section('P5', async () => {
+    const F6 = await place(H[6], day(-10), 1000);
+    const F7 = await place(H[7], day(-10), 1000);
+    const tk = await ticket(day(-1), [[H[6], 100, '200'], [H[7], 200, '400']]);
+    const sale = await sell(tk);
+    const res = await mutant(db, U.manager, [['public.void_bird_sale(uuid, text, uuid)', [[
+      'values (c.org_id, c.flock_id, c.hall_id, c.site_id, c.division_id, v_today, c.kind, -c.birds, -c.net_kg',
+      "values (c.org_id, (select zz.flock_id from public.bird_sale_sources zz where zz.sale_id = c.doc_id order by zz.flock_id limit 1), (select yy.hall_id from public.flocks yy where yy.id = (select zz.flock_id from public.bird_sale_sources zz where zz.sale_id = c.doc_id order by zz.flock_id limit 1)), c.site_id, c.division_id, v_today, c.kind, -c.birds, -c.net_kg"]]]], async ({ oq, attempt }) => {
+      const v = await inside(attempt, U.manager, 'select public.void_bird_sale($1, $2, $3)', [sale.id, 'خطأ', uid()]);
+      const lives = (await oq('select f.id, private.flock_live(f) as live from public.flocks f where f.id in ($1, $2) order by f.id', [F6, F7])).rows;
+      return { ok: !v.code, code: v.code, lives, verify: await verifyAll(oq) };
+    });
+    log('P5 mutant void', res);
+    t.ok(Object.keys(res.verify).length > 0, `P5: birds of a voided invoice returned to the wrong flock pass every verify_* (${JSON.stringify(res)})`);
+  });
+}

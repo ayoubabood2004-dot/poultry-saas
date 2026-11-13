@@ -1,0 +1,270 @@
+// مراجعة 0028 (الشاشات): فحوص مؤقّتة تفشل على الشفرة الحالية. تُحذف قبل التسليم.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { installDom, settle } from './dom.mjs';
+import { body, bundle, byAction, clone, click, dialog, disabled, memoryStorage, padType, ROOT, sessionOf, text, textOf, type, withAttr, within } from './halls-0028-kit.mjs';
+
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+const MANAGER = sessionOf('manager');
+
+export default async function (t) {
+  const restore = installDom();
+  const saved = { session: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), local: Object.getOwnPropertyDescriptor(globalThis, 'localStorage') };
+  const session = memoryStorage();
+  const local = memoryStorage();
+  Object.defineProperty(globalThis, 'sessionStorage', { value: session.api, configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'localStorage', { value: local.api, configurable: true, writable: true });
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle('zz-r28-b');
+    const fresh = (who, rpcs = {}) => {
+      const log = [];
+      globalThis.__h8 = {
+        session: who,
+        toasts: [],
+        location: null,
+        rpc(fn, args) {
+          log.push([fn, args]);
+          const handler = rpcs[fn];
+          if (!handler) return new Promise(() => {});
+          const count = log.filter(([name]) => name === fn).length;
+          return Promise.resolve().then(() => handler(args, count));
+        },
+      };
+      return log;
+    };
+    const named = (log, fn) => log.filter(([name]) => name === fn).map(([, args]) => args);
+    const mount = async (url, element = null) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      function Where() {
+        const location = m.useLocation();
+        globalThis.__h8.location = `${location.pathname}${location.search}`;
+        return element ?? m.h(m.Routes, null, m.h(m.Route, { path: '/halls/*', element: m.h(m.HallsRoutes) }), m.h(m.Route, { path: '*', element: null }));
+      }
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(Where))));
+      await settle(40);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      m.flushSync(() => mounted.unmount());
+      body().textContent = '';
+      await settle();
+    };
+    const step = async (label, fn, keep = false) => {
+      if (!keep) {
+        session.map.clear();
+        local.map.clear();
+      }
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+    };
+    /** نداء يبقى في الطريق حتى يُفتح. */
+    const gate = () => {
+      let open;
+      const promise = new Promise((resolve) => {
+        open = resolve;
+      });
+      return { promise, open: (value) => open(value) };
+    };
+
+    // ── B1 تذكرة جديدة: أوّل حفظ وصل الخادم وضاع جوابه، ثمّ «احذف المسوّدة» ──────────────────────────────────────────────────────────
+    await step('B1', async () => {
+      const options = B.weigh_ticket_options_site;
+      const SITE = options.site.site_id;
+      const H1 = options.halls[0].hall_id;
+      const server = { tickets: new Map() };
+      const log = fresh(MANAGER, {
+        weigh_ticket_options: () => clone(options),
+        save_weigh_ticket: (args) => {
+          // وصل الخادم وحُفظت المسوّدة، والجواب ضاع (انقطع الاتصال بعد الإرسال).
+          server.tickets.set(args.p_ticket, { status: 'draft', data: args.p_data });
+          throw new m.UnknownOutcomeError('fetch_failed');
+        },
+        void_weigh_ticket: (args) => {
+          server.tickets.get(args.p_ticket).status = 'void';
+          return clone(B.weigh_ticket_void);
+        },
+      });
+      await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}&back=${encodeURIComponent('/broiler')}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '800');
+      await settle();
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      const savedId = named(log, 'save_weigh_ticket')[0]?.p_ticket ?? null;
+      await click(byAction('ticket-delete')[0]);
+      const consequence = dialog()?.textContent ?? '';
+      await click(byAction('ticket-delete-confirm')[0]);
+      await settle(20);
+      const draftsLeft = [...server.tickets.values()].filter((ticket) => ticket.status === 'draft').length;
+      t.same(
+        [savedId !== null, consequence.includes('ولم يُحفظ منها شيء في الخادم'), named(log, 'void_weigh_ticket').length, draftsLeft],
+        [true, false, 1, 0],
+        `B1 بعد حفظ نتيجته مجهولة: «احذف المسوّدة» لا يقول «لم يُحفظ شيء» ويُلغي مسوّدة الخادم (${consequence.slice(0, 120)} | المكان بعده ${globalThis.__h8.location})`,
+      );
+    });
+
+    // ── B2 ما كُتب في الجهاز ولم يُحفظ، والتذكرة اكتملت من جهاز آخر ──────────────────────────────────────────────────────────────
+    await step('B2', async () => {
+      const draft = B.weigh_ticket_draft;
+      fresh(MANAGER, { weigh_ticket: () => clone(draft), weigh_ticket_options: () => clone(B.weigh_ticket_options_site), save_weigh_ticket: () => Promise.reject(new m.NetworkError()) });
+      await mount(`/halls/ticket/${draft.id}`);
+      const stopId = draft.stops[0].id;
+      type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '120');
+      await settle();
+      const kept = [...local.map.keys()].filter((key) => key.includes(draft.id));
+      const state = textOf('ticket-state');
+      await unmount();
+      // «إعادة التحميل»: الخادم يقول إنّ التذكرة اكتملت (أكملها المدير من جهازه بنسختها المحفوظة).
+      const done = { ...clone(B.finish_weigh_ticket), id: draft.id, site_id: draft.site_id };
+      fresh(MANAGER, { weigh_ticket: () => clone(done) });
+      await mount(`/halls/ticket/${draft.id}`);
+      const shown = text();
+      const stillKept = [...local.map.keys()].filter((key) => key.includes(draft.id)).length;
+      t.same(
+        [kept.length, state, byAction('ticket-done').length, /لم يُحفظ|هذا الجهاز|ما كتبته/u.test(shown), stillKept],
+        [1, 'فيها ما لم يُحفظ بعد (محفوظ في هذا الجهاز).', 1, true, 0],
+        'B2 التذكرة اكتملت في جهاز آخر وفي هذا الجهاز ما كُتب ولم يُحفظ: الصفحة تقوله (لا يضيع صامتاً) والنسخة لا تبقى إلى الأبد',
+      );
+    });
+
+    // ── B3 «أغلق الدورة» بعد رفض live_changed: الزرّ أثناء القراءة، والتأكيد يسمّي غير ما يُرسل ─────────────────────────────────────
+    await step('B3', async () => {
+      const first = clone(B.flock_close_form_carry_in);
+      const second = clone(B.flock_close_form_carry_in);
+      second.flock.live = 480;
+      const reread = gate();
+      const log = fresh(MANAGER, {
+        flock_close_form: (_args, count) => (count === 1 ? clone(first) : reread.promise),
+        close_flock: () => Promise.reject(new m.RejectedError('live_changed', 'تغيّر عدد الطيور الحيّة منذ فتحت الشاشة: كان 500 وصار 480. راجع الأرقام وأعد المحاولة.')),
+      });
+      await mount(`/halls/close/${first.flock.id}`);
+      type(byAction('close-reason')[0], 'عُدّت القاعة');
+      await settle();
+      await click(byAction('close-go')[0]);
+      await click(byAction('close-confirm')[0]);
+      await settle(20);
+      // الرفض يعيد القراءة؛ وهي في الطريق: المعروض آخر ما قُرئ (الحيّ 500).
+      const goWhileReading = disabled(byAction('close-go')[0]);
+      await click(byAction('close-go')[0]);
+      const before = textOf('close-confirm-text');
+      reread.open(clone(second));
+      await settle(30);
+      const after = textOf('close-confirm-text');
+      await click(byAction('close-confirm')[0]);
+      await settle(20);
+      const sent = named(log, 'close_flock');
+      t.same(
+        [goWhileReading, sent.length, sent[1]?.p_expected_live ?? null, after?.includes(`فرق العدّ ${m.signedCount(-(sent[1]?.p_expected_live ?? 0))}`) ?? null],
+        [true, 1, null, null],
+        `B3 «أغلق الدورة» معطّل أثناء القراءة؛ وإلّا فالتأكيد يسمّي ما يُرسل (قبل: ${before} | بعد: ${after} | المرسَل الحيّ ${sent[1]?.p_expected_live})`,
+      );
+    });
+
+    // ── B5 التقرير من «أعد فتح الدورة» في البطاقة (?act=reopen): تراجع المدير ثمّ «أرجعه إلى مخزن» — هل تعود النافذة وحدها؟ ─────────────
+    await step('B5', async () => {
+      const closed = clone(B.flock_cycle_report_closed);
+      const after = clone(B.flock_cycle_report_closed);
+      const carry = after.close.lines.find((line) => line.action === 'carry');
+      carry.carry_status = 'returned';
+      carry.return_doc_no = B.return_hall_carry.doc_no;
+      fresh(MANAGER, { flock_cycle_report: (_args, count) => (count === 1 ? closed : after), return_hall_carry: () => clone(B.return_hall_carry) });
+      await mount(`/halls/report/${closed.flock.id}?act=reopen`);
+      const openedFirst = byAction('reopen-text').length;
+      const cancel = within(dialog(), 'reopen-go').length ? [...(dialog()?.children ?? [])] : [];
+      void cancel;
+      const no = (() => {
+        const box = dialog();
+        const stack = box ? [box] : [];
+        while (stack.length) {
+          const node = stack.pop();
+          if (node.localName === 'button' && node.textContent === 'لا، تراجع') return node;
+          stack.push(...(node.children ?? []));
+        }
+        return null;
+      })();
+      await click(no);
+      const closedAfterCancel = byAction('reopen-text').length;
+      await click(byAction('carry-return')[0]);
+      await click(within(dialog(), 'carry-return-go')[0]);
+      await settle(40);
+      t.same(
+        [openedFirst, closedAfterCancel, byAction('rep-close').length, byAction('reopen-text').length],
+        [1, 0, 1, 0],
+        'B5 بعد «تراجع» ثمّ «أرجعه إلى مخزن» لا تُفتح «أعد فتح الدورة» من جديد وحدها (وإعادة الفتح صارت مرفوضة carry_used)',
+      );
+    });
+
+    // ── B6 تذكرة جديدة وُزنت ليلة 12/11 بلا اتصال (الحفظ لم يصل)، وفُتحت صباح 13/11: بأيّ يوم تُحفظ؟ ─────────────────────────────────────
+    await step('B6', async () => {
+      const options = B.weigh_ticket_options_site;
+      const SITE = options.site.site_id;
+      const H1 = options.halls[0].hall_id;
+      fresh(MANAGER, { weigh_ticket_options: () => ({ ...clone(options), today: '2026-11-12' }), save_weigh_ticket: () => Promise.reject(new m.NetworkError()) });
+      await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-birds')[0], '800');
+      await settle();
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      await click(within(withAttr('ticket-stop', 'data-stop', stopId), 'ticket-weigh-gross')[0]);
+      await padType('9000');
+      await unmount();
+      // صباح اليوم التالي: يوم الخادم 13/11، والنسخة تعود من الجهاز.
+      const log = fresh(MANAGER, { weigh_ticket_options: () => ({ ...clone(options), today: '2026-11-13' }), save_weigh_ticket: (args) => ({ status: 'saved', ticket: { ...clone(B.save_weigh_ticket.ticket), id: args.p_ticket, on_date: args.p_data.on_date } }) });
+      await mount(`/halls/ticket/new?site=${SITE}&hall=${H1}`);
+      const restoredBirds = within(byAction('ticket-stop')[0], 'ticket-birds')[0]?.value ?? null;
+      await click(byAction('ticket-save')[0]);
+      await settle(20);
+      const sent = named(log, 'save_weigh_ticket');
+      t.same(
+        [restoredBirds, sent.length, sent[0]?.p_data?.on_date ?? null],
+        ['800', 1, '2026-11-12'],
+        'B6 ما وُزن يوم 12/11 ولم يُحفظ يُحفظ بيوم وزنه، لا بيوم فتح الصفحة التالي (13/11)',
+      );
+    });
+    // ── B7 التذكرة أُكملت من جهاز آخر وهذا الجهاز يحفظ وزنة: رفض ticket_not_draft ولا قراءة؛ المحرّر باقٍ بما كُتب ───────────────────────────
+    await step('B7', async () => {
+      const draft = B.weigh_ticket_draft;
+      const done = { ...clone(B.finish_weigh_ticket), id: draft.id, site_id: draft.site_id };
+      const log = fresh(MANAGER, {
+        weigh_ticket: (_args, count) => (count === 1 ? clone(draft) : clone(done)),
+        weigh_ticket_options: () => clone(B.weigh_ticket_options_site),
+        save_weigh_ticket: () => Promise.reject(new m.RejectedError('ticket_not_draft', 'التذكرة WT-2026-0001 اكتملت أو أُلغيت، فلا تُعدَّل. ألغِها وأنشئ غيرها إن كانت خاطئة.')),
+      });
+      await mount(`/halls/ticket/${draft.id}`);
+      await click(within(byAction('ticket-stop')[0], 'ticket-weigh-gross')[0]);
+      await padType('7400');
+      await settle(20);
+      t.same(
+        [named(log, 'save_weigh_ticket').length, named(log, 'weigh_ticket').length, byAction('ticket-editor').length, byAction('ticket-done').length],
+        [1, 2, 0, 1],
+        `B7 بعد رفض ticket_not_draft تُقرأ التذكرة فتظهر مكتملةً (لا محرّر بنسخة لا تُحفظ أبداً): ${textOf('ticket-state')}`,
+      );
+    });
+    t.ok(true, 'zz-r28-b ran');
+  } finally {
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    for (const [name, descriptor] of [['sessionStorage', saved.session], ['localStorage', saved.local]]) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    delete globalThis.__h8;
+    restore();
+  }
+}

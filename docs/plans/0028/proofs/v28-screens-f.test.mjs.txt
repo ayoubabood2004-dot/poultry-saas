@@ -1,0 +1,311 @@
+// مراجعة إصلاحات شاشات 0028 (مؤقّت، يُحذف): reopen_why كلّها، و«الباقي في القاعة» للفوج المغلق.
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { descendants, fire, installDom, settle } from './dom.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
+const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
+const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__w8.call('${n}', a);`).join(' ')}`;
+const STUBS = {
+  session: 'export const useSession = () => globalThis.__w8.session; export const sessionStore = { get: () => globalThis.__w8?.session ?? { status: "loading" } };',
+  Toast: 'export const toast = (spec) => { globalThis.__w8.toasts.push(spec); }; export function Toaster() { return null; }',
+  purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createSupplier', 'createCustomer', 'listBoxes']),
+};
+// core بديل لوحدات القاعات والمبيعات: call يسجّله __w8.rpc والمحلّل الحقيقي يقرأ الجواب (غيرها بـcore الحقيقي، لا تنادي في هذه الفحوص).
+const CORE_FOR = /src\/lib\/repo\/(?:birdSales|purchases|weighTickets|statement|flockClose|halls|hallReports|flocks|flockIssues|money)\.ts$/u;
+const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
+export const call = (fn, args) => globalThis.__w8.rpc(fn, args);
+export const send = async () => { throw new Error('wire-0028: no direct table access'); };
+export const classifyPostgrest = (error) => new RejectedError(error.code ?? 'x', error.hint ?? null);
+export const explained = async (error) => error;
+export const updatedRows = () => { throw new ZeroRowsError(); };
+export const authed = async () => ({ userId: globalThis.__w8?.session?.workspace?.userId ?? null, db: null });
+export const unknownConstraint = () => '';`;
+
+async function bundle() {
+  const entry = [
+    "export { createElement as h } from 'react';",
+    "export { createRoot } from 'react-dom/client';",
+    "export { flushSync } from 'react-dom';",
+    "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
+    "export { default as HallsRoutes, FlockCard } from './src/pages/halls/HallsRoutes.tsx';",
+    "export { SalesRoutes } from './src/pages/inventory/StockRoutes.tsx';",
+    "export { FeedLine } from './src/pages/farm/feed.tsx';",
+    "export * as birds from './src/lib/repo/birdSales.ts';",
+    "export * as flocks from './src/lib/repo/flocks.ts';",
+    "export * as halls from './src/lib/repo/halls.ts';",
+    "export * as tickets from './src/lib/repo/weighTickets.ts';",
+    "export { dayShareText } from './src/pages/halls/DailyPage.tsx';",
+    "export * as days from './src/lib/repo/hallReports.ts';",
+    "export { onlineStore } from './src/lib/online.ts';",
+    "export { signedCount } from './src/pages/halls/ticketParts.tsx';",
+    "export { fmtDay, fmtInt } from './src/lib/format.ts';",
+    "export { RejectedError } from './src/lib/errors.ts';",
+  ].join('\n');
+  const result = await build({
+    stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    jsx: 'automatic',
+    logLevel: 'silent',
+    loader: { '.css': 'empty' },
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    plugins: [
+      {
+        name: 'wire-0028-stubs',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/Toast$|\/lib\/repo\/purchasing$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'w8-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'w8-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+          b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'w8-core' } : undefined));
+          b.onLoad({ filter: /.*/, namespace: 'w8-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(`${result.outputFiles[0].text}\n// wire-0028 bundle\n`).toString('base64')}`);
+}
+
+function memoryStorage() {
+  const map = new Map();
+  return { map, api: { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key), clear: () => map.clear() } };
+}
+
+const ws = (role) => ({
+  userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
+  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: !['hall_worker', 'mill_operator', 'hatchery_operator'].includes(role), invites: [], subscription: 'active', confirmedAt: 1,
+});
+const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
+const MANAGER = sessionOf('manager');
+const ACCOUNTANT = sessionOf('accountant');
+const LRI = '\u{2066}';
+const PDI = '\u{2069}';
+const signed = (n) => (n === 0 ? '0' : `${LRI}${n > 0 ? '+' : '-'}${Math.abs(n).toLocaleString('en-US')}${PDI}`);
+
+const body = () => globalThis.document.body;
+const all = () => descendants(body());
+const byAction = (name) => all().filter((n) => n.getAttribute('data-action') === name);
+const within = (node, name) => (node ? descendants(node).filter((n) => n.getAttribute('data-action') === name) : []);
+const withAttr = (action, attr, value) => byAction(action).find((n) => n.getAttribute(attr) === value) ?? null;
+const textOf = (action) => byAction(action)[0]?.textContent ?? null;
+const text = () => body().textContent;
+const disabled = (node) => (node ? node.hasAttribute('disabled') : null);
+const href = (node) => node?.getAttribute('href') ?? null;
+const dialog = () => all().filter((n) => n.getAttribute('role') === 'dialog').at(-1) ?? null;
+const inputBy = (suffix) => all().find((n) => (n.localName === 'input' || n.localName === 'select') && (n.getAttribute('id') ?? '').endsWith(suffix)) ?? null;
+const type = (input, value) => {
+  if (!input) throw new Error('no input');
+  input.value = value;
+  fire(input, 'input');
+};
+const click = async (node) => {
+  if (!node) throw new Error('no node');
+  fire(node, 'click', { button: 0 });
+  await settle();
+};
+const tableOf = (match) => all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && (typeof match === 'string' ? c.textContent === match : match.test(c.textContent)))) ?? null;
+const part = (table, tag) => (table ? descendants(table).find((n) => n.localName === tag) : null);
+const rowsOf = (match) => {
+  const tbody = part(tableOf(match), 'tbody');
+  return tbody ? tbody.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : null;
+};
+const footOf = (match) => {
+  const tfoot = part(tableOf(match), 'tfoot');
+  return tfoot ? tfoot.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : null;
+};
+const headersOf = (match) => (tableOf(match) ? descendants(tableOf(match)).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : null);
+/** صفّ مؤشّر في تقرير الدورة: [القيمة، الملاحظة]. */
+const kpi = (key) => {
+  const value = all().find((n) => n.getAttribute('data-action') === 'kpi-value' && n.getAttribute('data-key') === key);
+  const note = all().find((n) => (n.getAttribute('data-action') === 'kpi-note' || n.getAttribute('data-action') === 'kpi-reason') && n.getAttribute('data-key') === key);
+  return value ? [value.textContent, note?.textContent ?? null] : null;
+};
+
+/** ساعة الجهاز: new Date() بلا معامل وحده يتبدّل (localDay منه)، والوقت الصريح كما هو. */
+function deviceClock(at) {
+  const RealDate = globalThis.Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) super(at);
+      else super(...args);
+    }
+  };
+  return () => {
+    globalThis.Date = RealDate;
+  };
+}
+
+
+export default async function (t) {
+  const restore = installDom();
+  const saved = { session: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), local: Object.getOwnPropertyDescriptor(globalThis, 'localStorage') };
+  const session = memoryStorage();
+  const local = memoryStorage();
+  Object.defineProperty(globalThis, 'sessionStorage', { value: session.api, configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'localStorage', { value: local.api, configurable: true, writable: true });
+  globalThis.window.print = () => {};
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle();
+    m.onlineStore.set(true);
+    let log = [];
+    const fresh = (who, rpcs = {}) => {
+      log = [];
+      globalThis.__w8 = {
+        session: who,
+        toasts: [],
+        location: null,
+        rpc(fn, args) {
+          log.push([fn, args]);
+          const handler = rpcs[fn];
+          if (!handler) return new Promise(() => {});
+          const count = log.filter(([name]) => name === fn).length;
+          return Promise.resolve().then(() => handler(args, count));
+        },
+        call() {
+          return new Promise(() => {});
+        },
+      };
+      return log;
+    };
+    const named = (fn) => log.filter(([name]) => name === fn).map(([, args]) => args);
+    const mount = async (url, element = null) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      function Where() {
+        const location = m.useLocation();
+        globalThis.__w8.location = `${location.pathname}${location.search}`;
+        return element ?? m.h(m.Routes, null, m.h(m.Route, { path: '/halls/*', element: m.h(m.HallsRoutes) }), m.h(m.Route, { path: '/sales/*', element: m.h(m.SalesRoutes) }), m.h(m.Route, { path: '*', element: null }));
+      }
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(Where))));
+      await settle(40);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      m.flushSync(() => mounted.unmount());
+      body().textContent = '';
+      await settle();
+    };
+    const step = async (label, fn) => {
+      session.map.clear();
+      local.map.clear();
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+    };
+    const flockOf = (sales) => ({ id: sales.flock_id, kind: sales.kind, siteId: 's-1', hallId: 'h-1', hallName: 'قاعة', siteName: 'حقل', status: sales.status });
+
+    // ── F1 «أعد فتح الدورة» بكلّ reopen_why: التقرير (و?act=reopen) والبطاقة يقولان الجملة نفسها ولا زرّ ولا نافذة ───────────────────────
+    const WHYS = ['out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'carry_used', 'lot_consumed'];
+    const seen = [];
+    for (const why of WHYS) {
+      await step(`F1 ${why}`, async () => {
+        const sales = { ...clone(B.flock_sales_closed), can: { ...B.flock_sales_closed.can, reopen: false }, reopen_why: why };
+        const report = B.flock_cycle_report_closed;
+        fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(sales) });
+        await mount(`/halls/report/${report.flock.id}?act=reopen`);
+        const rep = [byAction('reopen-open').length, dialog() !== null, textOf('reopen-why')];
+        await unmount();
+        fresh(MANAGER, { flock_sales: () => clone(sales) });
+        await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(sales) }));
+        const card = [byAction('card-reopen').length, textOf('card-reopen-why')];
+        seen.push([why, rep, card]);
+      });
+    }
+    t.same(
+      [seen.every(([, rep, card]) => rep[0] === 0 && rep[1] === false && rep[2] !== null && card[0] === 0 && card[1] === rep[2]), new Set(seen.map(([, rep]) => rep[2])).size, seen.some(([, rep]) => rep[2] === 'لا يُعاد فتح هذه الدورة الآن.')],
+      [true, WHYS.length, false],
+      `F1 كلّ reopen_why بجملته في التقرير (بلا زرّ ولا نافذة مع ?act=reopen) والبطاقة بالجملة نفسها: ${JSON.stringify(seen.map(([why, rep]) => [why, rep[2]]))}`,
+    );
+
+    // ── F1b قراءة ما يجوز فشلت: الزرّ مقفول بجملته و«أعد المحاولة»، و?act=reopen لا يفتح ─────────────────────────────────────────
+    await step('F1b', async () => {
+      const report = B.flock_cycle_report_closed;
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: (_args, count) => (count === 1 ? Promise.reject(new Error('network')) : clone(B.flock_sales_closed)) });
+      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      const failed = [byAction('reopen-failed').length, disabled(byAction('reopen-open')[0]), dialog() !== null];
+      await click(byAction('reopen-retry')[0]);
+      await settle(20);
+      t.same(
+        [failed, byAction('reopen-failed').length, byAction('reopen-text').length],
+        [[1, true, false], 0, 1],
+        'F1b فشل قراءة ما يجوز: «أعد فتح الدورة» مقفول بجملة و«أعد المحاولة»، وبعد نجاحها ?act=reopen يفتح النافذة مرّةً',
+      );
+    });
+
+    // ── F2 «الباقي في القاعة» للفوج المغلق 79f48c27 بالعيّنات الحقيقية: علف القاعة والتقرير والنموذج والتقرير اليوميّ ───────────────────
+    await step('F2', async () => {
+      const feed = B.flock_feed_closed;
+      const report = B.flock_cycle_report_closed;
+      const form = B.flock_close_form_closed;
+      const day = B.halls_day_close;
+      const hall = day.sites.flatMap((site) => site.halls).find((h) => h.flock?.id === feed.flock_id);
+      fresh(MANAGER, {});
+      await mount('/broiler/flock/x', m.h(m.FeedLine, { feed: m.flocks.parseFlockFeed(clone(feed)) }));
+      const line = (textOf('feed-line') ?? '').match(/الباقي في القاعة: ([^\s]+) كغم/u)?.[1] ?? null;
+      await unmount();
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_closed) });
+      await mount(`/halls/report/${report.flock.id}`);
+      const kpiLeft = kpi('left')?.[0] ?? null;
+      const balance = (rowsOf('المصروف والمستهلك والباقي') ?? [])[0]?.at(-1) ?? null;
+      const heads = headersOf('أيّام الدورة') ?? [];
+      const last = ((rowsOf('أيّام الدورة') ?? []).at(-1) ?? [])[heads.indexOf('الباقي في القاعة (كغم)')] ?? null;
+      const feedNet = kpi('feed_net')?.[0] ?? null;
+      await unmount();
+      fresh(MANAGER, { flock_close_form: () => clone(form) });
+      await mount(`/halls/close/${form.flock.id}`);
+      const estimate = (textOf('close-estimate') ?? '').match(/والباقي في القاعة ([^\s]+) كغم/u)?.[1] ?? null;
+      await unmount();
+      fresh(MANAGER, { halls_day: () => clone(day) });
+      await mount(`/halls/day?on=${day.on}`);
+      const card = withAttr('day-hall', 'data-hall', hall.hall_id);
+      const stat = within(card, 'stat-left')[0];
+      const daily = stat ? (descendants(stat).find((n) => n.localName === 'dd')?.textContent ?? '').replace(/ كغم.*$/u, '') : null;
+      console.log('F2 closed flock (status', feed.flock_status, ') left in hall on FeedLine/KPI/balance/last day/close form/daily:', JSON.stringify([line, kpiLeft, balance, last, estimate, daily]), 'feed_net', feedNet);
+      t.same(new Set([line, kpiLeft, balance, last, estimate, daily]).size, 1, `F2 الفوج المغلق: «الباقي في القاعة» واحد في علف القاعة والمؤشّر وجدول الباقي وآخر يوم ونموذج الإغلاق والتقرير اليوميّ (${JSON.stringify([line, kpiLeft, balance, last, estimate, daily])})`);
+      t.same(line, '0', `F2b بعد الإغلاق القاعة فارغة (الباقي ${line} كغم والصافي المستهلك ${feedNet}): «الباقي في القاعة» لدورة مغلقة لا يُعرض كعلف في القاعة`);
+    });
+
+    // ── G نصوص للقراءة: مشاركة التقرير اليوميّ بفروق العدّ ويوم بلا طير حيّ، وتأكيد إعادة الفتح، والقوائم ───────────────────────────────
+    for (const key of ['halls_day_count_diffs', 'halls_day_zero_live', 'halls_day_close']) {
+      const shared = m.dayShareText(m.days.parseHallsDay(clone(B[key])));
+      console.log(`G ${key} share:\n${shared.text}\n`);
+    }
+    await step('G reopen text', async () => {
+      const report = B.flock_cycle_report_count_diff ?? B.flock_cycle_report_closed;
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => ({ ...clone(B.flock_sales_closed), flock_id: report.flock.id }) });
+      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      console.log('G reopen text:', textOf('reopen-text'), '| close line:', textOf('rep-close-line'), '| count:', textOf('rep-close-count'));
+    });
+    t.ok(true, 'zz-v28-f ran');
+  } finally {
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    for (const [name, descriptor] of [['sessionStorage', saved.session], ['localStorage', saved.local]]) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    delete globalThis.__w8;
+    restore();
+  }
+}
