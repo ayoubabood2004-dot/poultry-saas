@@ -2143,6 +2143,8 @@ drop function if exists private.weigh_ticket_content(uuid);
 drop function if exists private.weigh_ticket_json(uuid);
 drop function if exists private.ticket_date_block(date);
 drop function if exists private.ticket_invoice_block(public.weigh_tickets);
+drop function if exists private.ticket_invoice_late(public.weigh_tickets);
+drop function if exists private.ticket_invoice_on(date);
 drop function if exists private.bird_sale_refunded(uuid);
 drop function if exists private.flock_pool_plan(uuid);
 drop function if exists private.flock_alive_days(public.flocks, date);

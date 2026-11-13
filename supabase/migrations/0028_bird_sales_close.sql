@@ -25,7 +25,9 @@
 --     وverify_money (تفصيل فاتورة الطيور = قيدها).
 -- انحرافات مكتوبة بلا سؤال (DECISIONS «بيع الطيور وإغلاق الدورة»، العقد contract-0028 §0):
 --   • D1 اللاحم وحده: التذكرة والفاتورة والإغلاق ترفض البيّاض (site_not_broiler وclose_layer_later)؛ بيع الدجاج المستبعد وإغلاق البيّاض لاحقاً.
---   • D2 نسبة التنزيل شرط تسعير في الفاتورة، والتذكرة أوزان فقط. D3 تاريخ الفاتورة = يوم التذكرة بقاعدة التاريخ العادية.
+--   • D2 نسبة التنزيل شرط تسعير في الفاتورة، والتذكرة أوزان فقط. D3 (جواب المالك 2026-11-13، بدل «يوم التذكرة بقاعدة التاريخ العادية»): الطيور
+--     تخرج من القاعة بيوم التذكرة دائماً؛ والفاتورة (قيدها ورقمها) بيوم تذكرتها ما دام في الأيّام السبعة، وإلّا «بتاريخ اليوم» يوم إصدارها؛ و«المقبوض
+--     الآن» يدخل الصندوق بيوم إصدارها في الحالين؛ ويوم تذكرة في فترة مقفلة يرفض الفاتورة كما ترفض الجولة وفرق العدّ صفوف القاعة فيها (period_locked).
 --   • D4 جدول واحد يُضاف ولا يُعدَّل للعدد؛ العكس بيوم الإلغاء، وقرّاء الأيّام يعدّون الأصول الحيّة وحدها بتاريخها، فالفاتورة الملغاة تختفي من
 --     التاريخ كالصرف الملغى في 0027. D5 «فرق العدّ» وحده للمدير حين يزيد العدد الفعليّ، والفاتورة ترفض birds_over_live وتدلّه عليه.
 --   • D6 الحيّ لا يصير سالباً في أيّ يوم. D7 سطر باقٍ واحد لكلّ مادّة، وكلّ إرجاع مستند مخزون مرقَّم FR. D8 الإغلاق يحمل ما رأته الشاشة (الحيّ
@@ -38,7 +40,8 @@
 --   (left_in_hall_kg، O2/M5)؛ فروق العدّ بأسبابها (count_diffs، O3)؛ البطاقة لا تعد بإعادة فتح مرفوضة (reopen_why، O6)؛ يوم بدأ بلا طير حيّ لا ينتظر جولة
 --   ولا علفاً (O7)؛ اليوم المقترح داخل المسموح (O8)؛ معرّفات الوقفات والوزنات بأقفالها وتحديثها مقصور على تذكرتها (C2)؛ نطاق التذكرة القائمة قبل قفلها (C4)؛
 --   السعر المقترح بالنطاق (C5)؛ التلميحات (C7)؛ الثوابت close_values وreturn_store وcount_reversals (M7–M9)؛ ويوم الخادم في البطاقة والإلغاء (S1، S9)؛
---   ولا تُعرض فاتورة يرفضها الكاتب (ticket_invoice_block: too_old وperiod_locked وout_of_scope، O4؛ وتأريخ الفاتورة المتأخّرة ينتظر جواب المالك).
+--   ولا تُعرض فاتورة يرفضها الكاتب (ticket_invoice_block: period_locked وout_of_scope وno_book، O4)؛ والتذكرة الأقدم من سبعة أيّام تُفوتر بيوم إصدارها
+--   (جواب المالك، D3: invoice_on وlate في نموذج الفاتورة، وinvoice_late في التذكرة وقائمتها، وlate في «بانتظار الفاتورة»، وticket_on وpaid_on في الفاتورة).
 -- تراجع: rollback_0028.sql — يرفض بصوت ولا يغيّر شيئاً إن وُجدت تذكرة أو فاتورة طيور أو عدد أو إغلاق أو إرجاع أو نقل (أو أثرها في الكلفة والمخزون
 --   والعدّادات وسجلّ التدقيق)؛ وإلّا يُسقط الجديد ويرجّع القيود الخمسة والأجسام القديمة كما كانت حرفاً بحرف (0012 و0019 و0021 و0024 و0026 و0027).
 -- تنعاد بأمان: create table if not exists، وcreate or replace، وcreate index if not exists، وكتل do تفحص الكتالوج قبل القيود والسياسات.
@@ -915,18 +918,32 @@ language sql stable security definer set search_path = public, pg_temp as $$
     and not exists (select 1 from public.bird_sales b where b.org_id = t.org_id and b.ticket_id = t.id and b.status = 'posted')
 $$;
 
--- قاعدة تاريخ الفاتورة في مكان واحد (D3: الفاتورة بيوم تذكرتها، بقاعدة المستند: لا أقدم من 7 أيام ولا في فترة مقفلة). مراجعة 0028 O4: المالك يُسأل
--- كيف تُؤرَّخ فاتورة متأخّرة؛ جوابه يغيّر هذه الدالّة (وتأريخ record_bird_sale) وحدهما. 'too_old' أو 'period_locked' أو null.
+-- يوم الفاتورة في مكان واحد (جواب المالك 2026-11-13، D3): الطيور تخرج من القاعة بيوم التذكرة دائماً، والفاتورة بيوم تذكرتها ما دام في الأيّام السبعة
+-- وإلّا «بتاريخ اليوم» (يوم إصدارها)؛ و«المقبوض الآن» بيوم إصدارها في الحالين (record_bird_sale). يوم فاتورة التذكرة إن صدرت الآن:
+create or replace function private.ticket_invoice_on(p_on date) returns date
+language sql stable security definer set search_path = public, pg_temp as $$
+  select case when p_on < public.app_today() - 7 then public.app_today() else p_on end
+$$;
+
+-- يوم التذكرة في فترة مقفلة يرفض فاتورتها ('period_locked') كما ترفض الجولة (save_flock_day) وفرق العدّ (record_flock_count_adjust) صفوف القاعة فيها،
+-- لأنّ صفوف «مباع» بيوم التذكرة؛ وnull = يومها مفتوح. حدّ الأيّام السبعة لا يرفضها: يغيّر يوم الفاتورة وحده (ticket_invoice_on).
 create or replace function private.ticket_date_block(p_on date) returns text
 language sql stable security definer set search_path = public, pg_temp as $$
   select case
-    when p_on < public.app_today() - 7 then 'too_old'
     when p_on <= (select l.locked_through from public.period_locks l where l.org_id = public.auth_org()) then 'period_locked'
   end
 $$;
 
+-- فاتورة التذكرة المكتملة بغير يومها (D3): المرحَّلة بيومها الحقيقيّ، والتي بلا فاتورة بيوم فاتورتها إن صدرت الآن؛ والمسوّدة والملغاة لا.
+create or replace function private.ticket_invoice_late(t public.weigh_tickets) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select t.status = 'done' and coalesce((select b.sold_on from public.bird_sales b where b.org_id = t.org_id and b.ticket_id = t.id and b.status = 'posted'),
+    private.ticket_invoice_on(t.on_date)) <> t.on_date
+$$;
+
 -- لماذا لا تُصدر لتذكرة مكتملة فاتورة الآن (القرّاء يعدونها بما يقبله الكاتب، مراجعة 0028 O4 وC3 وM6): بلا دفتر رئيسيّ لوحدتها 'no_book'، ودفترها خارج
--- نطاق القارئ 'out_of_scope' (book_for_post في الكاتب)، ثمّ قاعدة التاريخ؛ وnull = تُصدر.
+-- نطاق القارئ 'out_of_scope' (book_for_post في الكاتب)، ثمّ يوم التذكرة في فترة مقفلة 'period_locked' (ticket_date_block)؛ وnull = تُصدر (والأقدم من سبعة
+-- أيّام تُصدر بيوم إصدارها، D3).
 create or replace function private.ticket_invoice_block(t public.weigh_tickets) returns text
 language sql stable security definer set search_path = public, pg_temp as $$
   select case
@@ -956,7 +973,7 @@ begin
     return null;
   end if;
   v_invoiced := exists (select 1 from public.bird_sales b where b.org_id = t.org_id and b.ticket_id = t.id and b.status = 'posted');
-  -- مراجعة 0028 O4: المكتملة بلا فاتورة لا تُعرض «أصدر الفاتورة» لها إن رفضها الكاتب (التاريخ أو الدفتر)، وinvoice_why يقول لماذا.
+  -- مراجعة 0028 O4: المكتملة بلا فاتورة لا تُعرض «أصدر الفاتورة» لها إن رفضها الكاتب (يوم في فترة مقفلة أو الدفتر)، وinvoice_why يقول لماذا.
   if t.status = 'done' and not v_invoiced then
     v_block := private.ticket_invoice_block(t);
   end if;
@@ -1003,6 +1020,8 @@ begin
       'void', (t.status = 'draft' and public.can('weigh_ticket.draft')) or (t.status = 'done' and not v_invoiced and public.can('void')),
       'invoice', t.status = 'done' and not v_invoiced and v_sales and public.can('sale.post') and v_block is null),
     'invoice_why', v_block,
+    -- جواب المالك 2026-11-13 (D3): فاتورة المكتملة بغير يومها (المرحَّلة بيومها، والأقدم من سبعة أيّام بلا فاتورة تُصدر بتاريخ اليوم).
+    'invoice_late', private.ticket_invoice_late(t),
     'warnings', v_warnings);
 end
 $$;
@@ -1015,10 +1034,12 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- الفاتورة من صفوفها (أوّل نداء والإعادة والقارئ، العقد §5.5): المبلغ والسعر والمقبوض وحصّة كلّ فوج داخل money. مراجعة 0028 M3 (قاعدة 0021
--- لـsale_result): المقبوض الذي رُدّ («ألغِ القبض»: قيد القبض معكوس) صفرٌ، وpayment_refunded يقول ذلك.
+-- لـsale_result): المقبوض الذي رُدّ («ألغِ القبض»: قيد القبض معكوس) صفرٌ، وpayment_refunded يقول ذلك. وجواب المالك 2026-11-13 (D3): sold_on يوم الفاتورة
+-- (يوم قيدها)، وticket_on يوم التذكرة (تخرج فيه الطيور)، وpaid_on يوم حركة الصندوق للمقبوض (null بلا مقبوض أو إن رُدّ).
 create or replace function private.bird_sale_result(p_sale uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object('id', b.id, 'doc_no', b.doc_no, 'status', b.status, 'sold_on', b.sold_on, 'ticket_id', b.ticket_id, 'ticket_no', t.ticket_no,
+    'ticket_on', t.on_date, 'paid_on', case when not k.refunded then m.on_date end,
     'payment_refunded', k.refunded,
     'site_id', b.site_id, 'site_name', s.name, 'party_id', b.party_id, 'party_name', p.name, 'book_id', b.book_id, 'birds', b.birds,
     'net_kg', b.net_kg::text, 'billed_kg', b.billed_kg::text, 'deduction_pct', b.deduction_pct::text,
@@ -1037,6 +1058,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
   join public.weigh_tickets t on t.org_id = b.org_id and t.id = b.ticket_id
   join public.sites s on s.org_id = b.org_id and s.id = b.site_id
   join public.parties p on p.org_id = b.org_id and p.id = b.party_id
+  left join public.cash_moves m on m.org_id = b.org_id and m.id = b.cash_move_id
   cross join lateral (select private.bird_sale_refunded(b.payment_entry_id) as refunded) as k
   where b.org_id = public.auth_org() and b.id = p_sale
 $$;
@@ -1579,6 +1601,8 @@ $$;
 -- الآن (0..المبلغ) إلى صندوق. الأقفال: المرجع ← معرّف الفاتورة ← الجهة ← قفل الفترة وصفّ الوحدة ← التذكرة ← أفواج وقفاتها بترتيب المعرّف ← الصندوق ←
 -- العدّاد آخر شيء؛ وكلّ فحص بعد قفله. القيود: الفاتورة +المبلغ، والمقبوض قيد قبض −المقبوض يتوزّع على الفاتورة أوّلاً وحركة صندوق +المقبوض؛ ثمّ صفّ
 -- إيراد لكلّ وقفة بأكبر الباقي على صافي القاعات، وصفّ «مباع» لفوجها بيوم التذكرة؛ والحيّ لا يصير سالباً في أيّ يوم (flock_live_check).
+-- جواب المالك 2026-11-13 (D3): الفاتورة (قيدها ورقمها) بيوم تذكرتها ما دام في الأيّام السبعة وإلّا بيوم إصدارها (ticket_invoice_on)، والمقبوض قيده وحركة
+-- صندوقه بيوم إصدارها دائماً، وصفوف «مباع» بيوم التذكرة دائماً؛ ويوم تذكرة في فترة مقفلة يرفضها (ticket_date_block) كما ترفض الجولة وفرق العدّ.
 create or replace function public.record_bird_sale(p_client_ref uuid, p_sale_id uuid, p_ticket uuid, p_ticket_version int, p_party uuid,
   p_unit_price numeric, p_deduction_pct numeric, p_paid_now numeric, p_cash_account uuid, p_note text) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -1590,6 +1614,8 @@ declare
   v_pct numeric := coalesce(p_deduction_pct, 0);
   v_paid numeric := coalesce(p_paid_now, 0);
   v_note text := nullif(btrim(coalesce(p_note, '')), '');
+  v_today date := public.app_today();
+  v_on date;
   v_same boolean;
   x public.bird_sales;
   t public.weigh_tickets;
@@ -1686,18 +1712,18 @@ begin
 
   -- الأقفال بترتيبها، وكلّ فحص بعد قفله.
   perform private.lock_parties(array[p.id]);
-  -- مراجعة 0028 O4: الفاتورة بيوم تذكرتها (D3)، فرفض التاريخ يسمّي التذكرة ويومها (قاعدة القرّاء نفسها، ticket_date_block)، لا «راجع التاريخ».
+  -- جواب المالك 2026-11-13 (D3): صفوف «مباع» بيوم التذكرة دائماً، فيومها في فترة مقفلة يرفض الفاتورة كما ترفض الجولة وفرق العدّ صفوف القاعة فيها، بجملة
+  -- تسمّي التذكرة ويومها والمخرج (قاعدة القرّاء نفسها، ticket_date_block)؛ والفاتورة بيوم تذكرتها ما دام في الأيّام السبعة وإلّا بيوم إصدارها
+  -- (ticket_invoice_on)، وقاعدة المستند (check_post_date) على يومها هي.
   perform private.period_guard();
   v_block := private.ticket_date_block(t.on_date);
-  if v_block = 'too_old' then
-    raise exception 'date_too_old' using hint = format('التذكرة %s بيوم %s، والفاتورة تُكتب بيوم تذكرتها، ولا يُقبل يوم أقدم من 7 أيام (أقدمه %s)، فلا تُصدر فاتورتها الآن.',
-      t.ticket_no, to_char(t.on_date, 'DD/MM/YYYY'), to_char(public.app_today() - 7, 'DD/MM/YYYY'));
-  elsif v_block = 'period_locked' then
-    raise exception 'period_locked' using hint = format('التذكرة %s بيوم %s، والفاتورة تُكتب بيوم تذكرتها، والحسابات مقفلة حتى %s، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+  if v_block = 'period_locked' then
+    raise exception 'period_locked' using hint = format('التذكرة %s بيوم %s، وطيورها تخرج من القاعة بيومها، والحسابات مقفلة حتى %s (هذا اليوم وما قبله)، فلا تُصدر فاتورتها. إن كان يوم التذكرة صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
       t.ticket_no, to_char(t.on_date, 'DD/MM/YYYY'),
       to_char((select l.locked_through from public.period_locks l where l.org_id = v_org), 'DD/MM/YYYY'));
   end if;
-  perform private.check_post_date(t.on_date, t.division_id);
+  v_on := private.ticket_invoice_on(t.on_date);
+  perform private.check_post_date(v_on, t.division_id);
   select * into t from public.weigh_tickets y where y.org_id = v_org and y.id = p_ticket for update;
   if t.status <> 'done' then
     raise exception 'ticket_not_done' using hint = case when t.status = 'draft' then 'التذكرة لم تكتمل بعد: أكملها ثمّ أصدر فاتورتها.'
@@ -1728,26 +1754,31 @@ begin
         to_char(f.placed_on, 'DD/MM/YYYY'));
     end if;
     if private.flock_live(f) < r.birds then
-      raise exception 'birds_over_live' using hint = format('في «%s» بحسب النظام %s طيراً حيّاً، وفي التذكرة %s. إن كان العدد الفعليّ أكبر فليسجّل المدير «فرق العدّ» بتاريخ %s أو قبله، ثمّ أصدر الفاتورة.',
-        r.hall_name, to_char(private.flock_live(f), 'FM999,999,999,990'), to_char(r.birds, 'FM999,999,999,990'), to_char(t.on_date, 'DD/MM/YYYY'));
+      -- D3: تذكرة أقدم من سبعة أيّام لا يُسجَّل «فرق العدّ» بيومها ولا قبله (قاعدة المستند في record_flock_count_adjust)، فالجملة لا تدلّ عليه.
+      raise exception 'birds_over_live' using hint = case when v_on = t.on_date
+        then format('في «%s» بحسب النظام %s طيراً حيّاً، وفي التذكرة %s. إن كان العدد الفعليّ أكبر فليسجّل المدير «فرق العدّ» بتاريخ %s أو قبله، ثمّ أصدر الفاتورة.',
+          r.hall_name, to_char(private.flock_live(f), 'FM999,999,999,990'), to_char(r.birds, 'FM999,999,999,990'), to_char(t.on_date, 'DD/MM/YYYY'))
+        else format('في «%s» بحسب النظام %s طيراً حيّاً، وفي التذكرة %s. ويوم التذكرة %s أقدم من 7 أيام، فلا يُسجَّل «فرق العدّ» بيومها ولا قبله؛ راجع المدير: إن كان العدد في التذكرة خطأً فليُلغِها وتُكتب تذكرة صحيحة.',
+          r.hall_name, to_char(private.flock_live(f), 'FM999,999,999,990'), to_char(r.birds, 'FM999,999,999,990'), to_char(t.on_date, 'DD/MM/YYYY')) end;
     end if;
   end loop;
   if v_paid > 0 then
     perform private.lock_cash_account(p_cash_account, true);
   end if;
-  v_no := private.next_doc_no('BR', t.on_date);
+  v_no := private.next_doc_no('BR', v_on);
 
-  -- القيود (FOUNDATION ٤٩٥): الفاتورة +المبلغ، والمقبوض يروح لفاتورته هي أوّلاً، وبعده متبقّي الفاتورة يتوزّع من الأقدم.
-  e := private.write_entry(gen_random_uuid(), p.id, b.id, 'invoice', v_total, 'bird_sale', p_sale_id, v_no, t.on_date, null);
+  -- القيود (FOUNDATION ٤٩٥): الفاتورة +المبلغ بيومها، والمقبوض (قيده وحركة صندوقه) بيوم إصدارها (D3: لا يتغيّر رصيد الصندوق ليوم مضى) يروح لفاتورته هي
+  -- أوّلاً، وبعده متبقّي الفاتورة يتوزّع من الأقدم.
+  e := private.write_entry(gen_random_uuid(), p.id, b.id, 'invoice', v_total, 'bird_sale', p_sale_id, v_no, v_on, null);
   if v_paid > 0 then
-    pay := private.write_entry(gen_random_uuid(), p.id, b.id, 'payment', -v_paid, 'bird_sale', p_sale_id, v_no, t.on_date, null);
+    pay := private.write_entry(gen_random_uuid(), p.id, b.id, 'payment', -v_paid, 'bird_sale', p_sale_id, v_no, v_today, null);
     perform private.allocate_entry(pay.id, e.id);
-    m := private.write_cash_move(p_cash_account, v_paid, 'party_payment', 'bird_sale', p_sale_id, pay.id, t.on_date, null, null);
+    m := private.write_cash_move(p_cash_account, v_paid, 'party_payment', 'bird_sale', p_sale_id, pay.id, v_today, null, null);
   end if;
   perform private.allocate_entry(e.id, null);
   insert into public.bird_sales (id, org_id, doc_no, ticket_id, site_id, division_id, party_id, book_id, sold_on, birds, net_kg, unit_price, deduction_pct,
     billed_kg, total, paid_now, cash_account_id, invoice_entry_id, payment_entry_id, cash_move_id, note, status, client_ref, posted_at, posted_by)
-  values (p_sale_id, v_org, v_no, t.id, t.site_id, t.division_id, p.id, b.id, t.on_date, t.birds, t.net_kg, p_unit_price, v_pct, v_billed, v_total, v_paid,
+  values (p_sale_id, v_org, v_no, t.id, t.site_id, t.division_id, p.id, b.id, v_on, t.birds, t.net_kg, p_unit_price, v_pct, v_billed, v_total, v_paid,
     case when v_paid > 0 then p_cash_account end, e.id, pay.id, m.id, v_note, 'posted', p_client_ref, now(), auth.uid());
 
   -- الإيراد لكلّ فوج بصافي قاعته (أكبر الباقي بالدينار)، وصفّ «مباع» بيوم التذكرة.
@@ -2921,9 +2952,11 @@ begin
     raise exception 'period_required' using hint = 'حدّد المدّة: من تاريخ إلى تاريخ لا يسبقه.';
   end if;
   with listed as (
-    -- مراجعة 0028 O4: المكتملة بلا فاتورة تقول هل تُصدر لها فاتورة الآن (invoiceable) ولماذا لا (invoice_why، قاعدة الكاتب ticket_invoice_block).
+    -- مراجعة 0028 O4: المكتملة بلا فاتورة تقول هل تُصدر لها فاتورة الآن (invoiceable) ولماذا لا (invoice_why، قاعدة الكاتب ticket_invoice_block)؛ وجواب
+    -- المالك 2026-11-13 (D3): وهل فاتورتها بغير يومها (invoice_late: المرحَّلة بيومها، والأقدم من سبعة أيّام بلا فاتورة بتاريخ اليوم).
     select t.*, s.name as site_name, b.id as sale_id, b.doc_no as sale_no, b.status as sale_status, k.invoiced,
-      case when t.status = 'done' and not k.invoiced then private.ticket_invoice_block(t) end as invoice_why
+      case when t.status = 'done' and not k.invoiced then private.ticket_invoice_block(t) end as invoice_why,
+      private.ticket_invoice_late(t) as invoice_late
     from public.weigh_tickets t
     join public.sites s on s.org_id = t.org_id and s.id = t.site_id
     left join lateral (select z.id, z.doc_no, z.status from public.bird_sales z where z.org_id = t.org_id and z.ticket_id = t.id
@@ -2942,6 +2975,7 @@ begin
           join public.halls h on h.org_id = st.org_id and h.id = st.hall_id where st.org_id = c.org_id and st.ticket_id = c.id),
         'invoiced', c.invoiced,
         'invoiceable', c.status = 'done' and not c.invoiced and c.invoice_why is null, 'invoice_why', c.invoice_why,
+        'invoice_late', c.invoice_late,
         'sale', case when v_sales and c.sale_id is not null then jsonb_build_object('id', c.sale_id, 'doc_no', c.sale_no, 'status', c.sale_status) end)
       order by c.n) filter (where c.n <= 500), '[]'::jsonb),
     'more', count(*) > 500,
@@ -2965,6 +2999,7 @@ declare
   v_sale uuid;
   v_closed boolean;
   v_why text;
+  v_invoice_on date;
 begin
   perform private.require('read');
   if not public.can_see_sales() then
@@ -2982,13 +3017,19 @@ begin
   select b.id into v_sale from public.bird_sales b where b.org_id = v_org and b.ticket_id = t.id and b.status = 'posted';
   v_closed := exists (select 1 from public.weigh_ticket_stops s join public.flocks f on f.org_id = s.org_id and f.id = s.flock_id
     where s.org_id = v_org and s.ticket_id = t.id and f.status = 'closed');
-  -- مراجعة 0028 O4 وC3 وM6: لا تُعرض فاتورة يرفضها الكاتب: بلا دفتر، والدفتر خارج النطاق، وقاعدة التاريخ (ticket_invoice_block، مكانها الواحد).
+  -- مراجعة 0028 O4 وC3 وM6: لا تُعرض فاتورة يرفضها الكاتب: بلا دفتر، والدفتر خارج النطاق، ويوم التذكرة في فترة مقفلة (ticket_invoice_block، مكانها الواحد).
   v_why := case when t.status = 'void' then 'void' when t.status = 'draft' then 'draft' when v_sale is not null then 'invoiced'
     when v_closed then 'flock_closed' else private.ticket_invoice_block(t) end;
+  -- جواب المالك 2026-11-13 (D3): يوم الفاتورة (المرحَّلة بيومها، وإلّا يوم التذكرة ما دام في الأيّام السبعة وإلّا اليوم)، وهل هو غير يوم التذكرة، ويوم المقبوض
+  -- الآن (يوم الإصدار دائماً).
+  v_invoice_on := coalesce((select b.sold_on from public.bird_sales b where b.org_id = v_org and b.id = v_sale), private.ticket_invoice_on(t.on_date));
   return jsonb_build_object(
     'ticket', private.weigh_ticket_json(t.id) - 'can',
     'invoiceable', v_why is null,
     'why', v_why,
+    'invoice_on', v_invoice_on,
+    'late', v_invoice_on <> t.on_date,
+    'paid_on', public.app_today(),
     'book', v_book,
     'flocks', coalesce((select jsonb_agg(jsonb_build_object('stop_id', s.id, 'hall_name', h.name, 'flock_id', f.id, 'live', private.flock_live(f),
         'birds', s.birds, 'over_live', s.birds > private.flock_live(f)) order by s.stop_no)
@@ -3088,8 +3129,9 @@ begin
     'plan', private.flock_pool_plan(f.id),
     'sales', (select jsonb_build_object('birds', coalesce(sum(d.sold), 0), 'net_kg', round(coalesce(sum(d.sold_kg), 0), 3)::text,
         'avg_kg', case when sum(d.sold) > 0 then private._mul_div_round(sum(d.sold_kg), 1, sum(d.sold), 3)::text end,
-        'invoices', coalesce((select jsonb_agg(jsonb_build_object('sold_on', b.sold_on, 'birds', s.birds, 'net_kg', s.net_kg::text, 'ticket_no', t.ticket_no,
-            'doc_no', case when public.can_see_sales() then b.doc_no end) order by b.sold_on, b.doc_no collate "C")
+        -- جواب المالك 2026-11-13 (D3): sold_on يوم الفاتورة، وticket_on يوم التذكرة (تخرج فيه الطيور؛ يختلفان في فاتورة صدرت بعد سبعة أيّام).
+        'invoices', coalesce((select jsonb_agg(jsonb_build_object('sold_on', b.sold_on, 'ticket_on', t.on_date, 'birds', s.birds, 'net_kg', s.net_kg::text,
+            'ticket_no', t.ticket_no, 'doc_no', case when public.can_see_sales() then b.doc_no end) order by b.sold_on, b.doc_no collate "C")
           from public.bird_sale_sources s
           join public.bird_sales b on b.org_id = s.org_id and b.id = s.sale_id and b.status = 'posted'
           join public.weigh_tickets t on t.org_id = b.org_id and t.id = b.ticket_id
@@ -3191,7 +3233,8 @@ $$;
 
 -- فواتير الطيور في قائمة المبيعات (مفتاح birds، العقد §6): الصفوف بالفترة الأحدث أوّلاً (1,000 حدّاً) بطريقة الدفع (بالدين أو جزئيّاً أو نقداً)،
 -- والمجاميع للمرحَّلة، والتذاكر المكتملة بانتظار فاتورتها (حتى 100، بلا فترة)، بنطاق الحقل. مراجعة 0028 M3: المقبوض الذي رُدّ صفر (قاعدة 0021)،
--- وpayment_refunded لكلّ صفّ؛ وO4: لكلّ تذكرة بانتظار الفاتورة invoiceable وwhy بقاعدة الكاتب (ticket_invoice_block).
+-- وpayment_refunded لكلّ صفّ؛ وO4: لكلّ تذكرة بانتظار الفاتورة invoiceable وwhy بقاعدة الكاتب (ticket_invoice_block)؛ وجواب المالك 2026-11-13 (D3): late
+-- = تُصدر فاتورتها بتاريخ اليوم لا بيومها (أقدم من سبعة أيّام).
 create or replace function private.bird_sales_overview(p_from date, p_to date) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   with listed as (
@@ -3220,7 +3263,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
         'credit', coalesce(sum(o.total - o.paid_eff) filter (where o.status = 'posted'), 0)::text)),
     'awaiting', coalesce((select jsonb_agg(a.j order by a.on_date desc, a.at desc, a.id desc) from (
         select t.id, t.on_date, t.finished_at as at, jsonb_build_object('ticket_id', t.id, 'ticket_no', t.ticket_no, 'on_date', t.on_date, 'site_name', s.name,
-          'birds', t.birds, 'net_kg', t.net_kg::text, 'invoiceable', w.why is null, 'why', w.why) as j
+          'birds', t.birds, 'net_kg', t.net_kg::text, 'invoiceable', w.why is null, 'why', w.why, 'late', private.ticket_invoice_late(t)) as j
         from public.weigh_tickets t join public.sites s on s.org_id = t.org_id and s.id = t.site_id
         cross join lateral (select private.ticket_invoice_block(t) as why) as w
         where t.org_id = public.auth_org() and t.status = 'done' and public.in_scope_site(t.site_id)
@@ -5271,11 +5314,13 @@ language sql stable security definer set search_path = public, pg_temp as $$
     where g.org_id is null or c.org_id is null or g.items <> g.distinct_no or g.min_no <> 1 or g.max_no <> c.last_no
   )
   union all
-  -- ٣) الفاتورة (القاعدة ٢٦): الطيور والصافي = التذكرة، ويومها يوم التذكرة، والمحسوب = round3(الصافي × (100 − التنزيل) ÷ 100)، والمبلغ = round0(المحسوب
-  --    × سعر الكيلو)، والدفتر الرئيسيّ لوحدة الحقل، والمرحَّلة لتذكرة مكتملة، وفاتورة مرحَّلة واحدة لكلّ تذكرة.
+  -- ٣) الفاتورة (القاعدة ٢٦): الطيور والصافي = التذكرة، ويومها يوم التذكرة أو (جواب المالك 2026-11-13، D3: صدرت بعد الأيّام السبعة) يومٌ بعده بأكثر من
+  --    سبعة أيّام، والمحسوب = round3(الصافي × (100 − التنزيل) ÷ 100)، والمبلغ = round0(المحسوب × سعر الكيلو)، والدفتر الرئيسيّ لوحدة الحقل، والمرحَّلة
+  --    لتذكرة مكتملة، وفاتورة مرحَّلة واحدة لكلّ تذكرة.
   select 'sale_shape', count(*) from public.bird_sales b
   join public.weigh_tickets t on t.org_id = b.org_id and t.id = b.ticket_id
-  where b.birds <> t.birds or b.net_kg <> t.net_kg or b.sold_on <> t.on_date or b.site_id <> t.site_id or b.division_id <> t.division_id
+  where b.birds <> t.birds or b.net_kg <> t.net_kg or not (b.sold_on = t.on_date or b.sold_on > t.on_date + 7) or b.site_id <> t.site_id
+    or b.division_id <> t.division_id
     or b.billed_kg <> private._mul_div_round(b.net_kg, 100 - b.deduction_pct, 100, 3)
     or b.total <> private._mul_div_round(b.billed_kg, b.unit_price, 1, 0)
     or not exists (select 1 from public.ledger_books k where k.org_id = b.org_id and k.id = b.book_id and k.division_id = t.division_id and k.code = 'main')
@@ -5295,13 +5340,15 @@ language sql stable security definer set search_path = public, pg_temp as $$
       is distinct from array(select x.revenue from public.bird_sale_sources x join public.weigh_ticket_stops s on s.org_id = x.org_id and s.id = x.stop_id
         where x.org_id = b.org_id and x.sale_id = b.id order by s.stop_no)
   union all
-  -- ٥) صفّ «مباع» واحد أصليّ لكلّ مصدر (−الطيور، +الصافي، فوجه، يوم الفاتورة)، والمرحَّلة بلا عكس، والملغاة معكوسة مرّة؛ ولا صفّ bird_sale يتيم.
+  -- ٥) صفّ «مباع» واحد أصليّ لكلّ مصدر (−الطيور، +الصافي، فوجه، يوم التذكرة: تخرج فيه الطيور ولو صدرت الفاتورة بعده، D3)، والمرحَّلة بلا عكس، والملغاة
+  --    معكوسة مرّة؛ ولا صفّ bird_sale يتيم.
   select 'sale_counts', count(*) from (
     select x.id from public.bird_sale_sources x
     join public.bird_sales b on b.org_id = x.org_id and b.id = x.sale_id
+    join public.weigh_tickets t on t.org_id = b.org_id and t.id = b.ticket_id
     cross join lateral (
       select count(*) as n,
-        count(*) filter (where c.birds = -x.birds and c.net_kg = x.net_kg and c.flock_id = x.flock_id and c.on_date = b.sold_on and c.kind = 'sold') as good,
+        count(*) filter (where c.birds = -x.birds and c.net_kg = x.net_kg and c.flock_id = x.flock_id and c.on_date = t.on_date and c.kind = 'sold') as good,
         count(*) filter (where exists (select 1 from public.flock_counts r where r.org_id = c.org_id and r.reverses_id = c.id)) as reversed
       from public.flock_counts c
       where c.org_id = x.org_id and c.doc_kind = 'bird_sale' and c.doc_id = b.id and c.doc_line_id = x.id and c.reverses_id is null
@@ -5314,8 +5361,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
   ) as v
   union all
   -- ٦) القيود والصندوق (كفحص البيع ٣): الفاتورة قيد invoice للتاجر بدفترها بمستند الفاتورة ويومها = المبلغ، والمقبوض قيد payment = −المقبوض بحركة
-  --    party_payment بالصندوق = +المقبوض؛ والمرحَّلة قيد فاتورتها بلا عكس، والملغاة معكوس.
+  --    party_payment بالصندوق = +المقبوض؛ والمرحَّلة قيد فاتورتها بلا عكس، والملغاة معكوس. والمقبوض (D3) بيوم الإصدار: قيده وحركته بيوم واحد، لا يسبق
+  --    يوم الفاتورة، وهو يومها في المتأخّرة، ولا يتجاوز الأيّام السبعة بعد التذكرة في غيرها.
   select 'sale_entries', count(*) from public.bird_sales b
+  join public.weigh_tickets t on t.org_id = b.org_id and t.id = b.ticket_id
   left join public.party_entries e on e.org_id = b.org_id and e.id = b.invoice_entry_id
   left join public.party_entries pe on pe.org_id = b.org_id and pe.id = b.payment_entry_id
   left join public.cash_moves m on m.org_id = b.org_id and m.id = b.cash_move_id
@@ -5323,8 +5372,9 @@ language sql stable security definer set search_path = public, pg_temp as $$
     or e.doc_kind is distinct from 'bird_sale' or e.doc_id is distinct from b.id or e.doc_no is distinct from b.doc_no or e.on_date <> b.sold_on
     or e.reverses_entry_id is not null
     or (b.paid_now > 0 and (pe.id is null or pe.kind <> 'payment' or pe.amount <> -b.paid_now or pe.party_id <> b.party_id or pe.book_id <> b.book_id
-      or pe.doc_kind is distinct from 'bird_sale' or pe.doc_id is distinct from b.id or pe.on_date <> b.sold_on or pe.reverses_entry_id is not null
-      or m.id is null or m.kind <> 'party_payment' or m.amount <> b.paid_now or m.account_id is distinct from b.cash_account_id
+      or pe.doc_kind is distinct from 'bird_sale' or pe.doc_id is distinct from b.id or pe.reverses_entry_id is not null
+      or pe.on_date not between b.sold_on and case when b.sold_on = t.on_date then t.on_date + 7 else b.sold_on end
+      or m.id is null or m.kind <> 'party_payment' or m.amount <> b.paid_now or m.account_id is distinct from b.cash_account_id or m.on_date <> pe.on_date
       or m.party_entry_id is distinct from pe.id or m.doc_kind is distinct from 'bird_sale' or m.doc_id is distinct from b.id or m.reverses_move_id is not null))
     or (b.paid_now = 0 and (pe.id is not null or m.id is not null))
     or (b.status = 'posted' and exists (select 1 from public.party_entries r where r.org_id = b.org_id and r.reverses_entry_id = e.id))
@@ -5511,6 +5561,7 @@ revoke all on function private.flock_counts_total(uuid), private.flock_live(publ
   private.flock_item_stores(uuid, uuid), private.hall_carry(uuid, date), private.report_days_extra(public.flocks, date),
   private.bird_sales_overview(date, date), private.bird_sales_groups(date, date, text),
   private.ticket_date_block(date), private.ticket_invoice_block(public.weigh_tickets), private.bird_sale_refunded(uuid), private.flock_pool_plan(uuid),
+  private.ticket_invoice_on(date), private.ticket_invoice_late(public.weigh_tickets),
   private.flock_alive_days(public.flocks, date), private.flock_left_in_hall(public.flocks, date), private.reopen_block(public.flock_closes)
   from public, anon, authenticated;
 revoke all on function public.save_weigh_ticket(uuid, int, jsonb), public.finish_weigh_ticket(uuid, uuid, int), public.void_weigh_ticket(uuid, text, uuid),
