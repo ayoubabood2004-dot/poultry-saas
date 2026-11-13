@@ -1,7 +1,7 @@
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import type { Milli } from '../../domain/money';
 import type { WeighMethod } from '../../domain/weighTicket';
-import { columnDecimals, countForm, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
+import { columnDecimals, countForm, fmtCounted, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { TicketStatus, WeighTicket } from '../../lib/repo/weighTickets';
 import { backLabel, backTarget } from './parts';
@@ -54,6 +54,14 @@ const PDI = '\u{2069}';
 
 /** عدد بإشارته معزولاً LTR («+12» و«-30»): بسطر عربي تنقلب الإشارة إلى يمين الرقم بلا عزل. */
 export const signedCount = (n: number): string => (n === 0 ? fmtInt(0) : `${LRI}${n > 0 ? '+' : ''}${fmtInt(n)}${PDI}`);
+
+/**
+ * عدد الطيور بصيغة المعدود كفاتورة الطيور (sales/birdParts، بمفاتيحها ونصوصها): «طير واحد»، «طيران»، «5 طيور»، «60 طيراً»، «4,000 طير» (مراجعة
+ * 0028 S6: كان «{n} طيراً» لكلّ عدد). لا تُستورد birdParts من هنا: حزمتها حزمة المخزون، واستيرادها يفصلها حزمةً مشتركة محفوظة.
+ */
+export function birdsText(n: number): string {
+  return fmtCounted(BigInt(n) * 1000n, t('birds.unit', 'طير'), { one: t('birds.one', 'طير واحد'), two: t('birds.two', 'طيران'), few: t('birds.few', 'طيور'), many: t('birds.many', 'طيراً') });
+}
 
 /** عدد التذاكر بصيغة العدد: «تذكرة واحدة»، «تذكرتان»، «3 تذاكر»، «11 تذكرةً»، «100 تذكرة». */
 export function ticketsCount(n: number): string {

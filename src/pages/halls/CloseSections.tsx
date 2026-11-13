@@ -13,7 +13,7 @@ import { reopenFlock, returnHallCarry, type CloseLine, type CloseResult } from '
 import type { CarryIn, CycleSales } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
 import { amountText, failureText, surelyUnsaved } from './GivePage';
-import { kgDecimals, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
+import { birdsText, kgDecimals, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
 
 // أقسام البيع والإغلاق في تقرير الدورة (0028، العقد §6 و§10): تذاكر الدورة وفواتيرها (المباع من الفواتير المرحّلة)، والإغلاق بفرق العدّ ومصير كلّ باقٍ
 // ومستنداته (FR)، والعلف المنقول من الدورة السابقة؛ و«أعد فتح الدورة» للمدير (flock.manage والإلغاء) بسبب، وتأكيده يسمّي مستندات الإرجاع وما يحدث لها،
@@ -54,7 +54,7 @@ export function SalesSection({ sales, back }: { sales: CycleSales; back: string 
       <h2 className="text-lg font-semibold">{t('halls.rep.sec.sales', 'البيع')}</h2>
       <p className="text-sm text-ink-muted" data-action="rep-sales-note">
         {t('halls.rep.sales_note', 'المجموع من الفواتير المرحّلة وحدها؛ والطيور تخرج من القاعة عند الفاتورة.')}
-        {sales.pendingBirds > 0 ? t('halls.rep.sales_pending', ' وعلى تذاكر بلا فاتورة {n} طيراً.', { n: sales.pendingBirds }) : ''}
+        {sales.pendingBirds > 0 ? t('halls.rep.sales_pending', ' وعلى تذاكر بلا فاتورة {birds}.', { birds: birdsText(sales.pendingBirds) }) : ''}
       </p>
       <div className="print:[&>div]:max-h-none print:[&>div]:overflow-visible">
         <DataTable
@@ -144,7 +144,28 @@ function ReturnCarryDialog({ line, onClose, onDone }: { line: CloseLine; onClose
   );
 }
 
-/** «أعد فتح الدورة»: سببها، وتأكيد يسمّي مستندات الإرجاع وما يحدث للعلف وفرق العدّ والفوج. */
+/**
+ * ما تفعله إعادة الفتح، من الإغلاق نفسه (مراجعة 0028 S7: كانت جملة ثابتة تذكر فرق عدّ ولو كان صفراً، ولا تذكر العلف المنقول الذي يُلغى): مستندات
+ * إرجاعه تُلغى ويعود علفها إلى حساب القاعة، وفرق العدّ بقيمته إن كان، ونقل كلّ علف معلَّق للدورة التالية يُلغى فيعود إلى حساب هذه الدورة (reopen_flock:
+ * carry_status = void وقيود flock_carry معكوسة)، ثمّ الفوج قائماً والفواتير مرحّلة.
+ */
+function reopenText(close: CloseResult): string {
+  const separator = t('list.separator', '، ');
+  const docs = close.lines.flatMap((line) => (line.action === 'return' && line.returnDocNo ? [line.returnDocNo] : []));
+  const parts: string[] = [];
+  if (docs.length) parts.push(t('halls.reopen.docs', 'تُلغى مستندات الإرجاع {docs} ويعود العلف من المخزن إلى حساب القاعة', { docs: docs.join(separator) }));
+  if (close.countDiff !== 0) parts.push(t('halls.reopen.count', 'يُلغى فرق العدّ {n}', { n: signedCount(close.countDiff) }));
+  for (const line of close.lines) {
+    if (line.action === 'carry' && line.carryStatus === 'pending') {
+      parts.push(t('halls.reopen.carry', 'يُلغى نقل {qty} «{item}» للدورة التالية فيعود إلى حساب هذه الدورة', { qty: amountText(line.qty, line.baseUnit), item: line.itemName }));
+    }
+  }
+  parts.push(t('halls.reopen.active', 'يعود الفوج قائماً'));
+  const joined = parts.map((part, index) => (index === 0 ? part : t('halls.reopen.and', 'و{part}', { part }))).join(separator);
+  return t('halls.reopen.body', '{parts}. والفواتير تبقى مرحّلة.', { parts: joined });
+}
+
+/** «أعد فتح الدورة»: سببها، وتأكيد يسمّي ما يُلغى (من الإغلاق نفسه، reopenText). */
 function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose: () => void; onDone: () => void }) {
   const id = useId();
   const [reason, setReason] = useState('');
@@ -152,8 +173,6 @@ function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose:
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const [unknown, setUnknown] = useState(false);
-  const docs = close.lines.flatMap((line) => (line.returnDocNo ? [line.returnDocNo] : []));
-  const separator = t('list.separator', '، ');
   const send = async () => {
     if (busy || reason.trim() === '' || reason.trim().length > 500) return;
     setBusy(true);
@@ -192,12 +211,7 @@ function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose:
       }
     >
       <div className="flex flex-col gap-3">
-        <p data-action="reopen-text">
-          {docs.length
-            ? t('halls.reopen.body_docs', 'تُلغى مستندات الإرجاع {docs} ويعود العلف من المخزن إلى حساب القاعة، ويُلغى فرق العدّ، ويعود الفوج قائماً.', { docs: docs.join(separator) })
-            : t('halls.reopen.body', 'يُلغى فرق العدّ وما نُقل للدورة التالية، ويعود الفوج قائماً.')}
-          {t('halls.reopen.invoices', ' والفواتير تبقى مرحّلة.')}
-        </p>
+        <p data-action="reopen-text">{reopenText(close)}</p>
         <Field id={`${id}-reason`} label={t('halls.reopen.reason', 'سبب إعادة الفتح')} error={reason.trim().length > 500 ? t('halls.close.reason_long', 'السبب حتى 500 حرف.') : null}>
           <input id={`${id}-reason`} className="input" autoComplete="off" value={reason} disabled={busy || unknown} onChange={(event) => setReason(event.target.value)} data-action="reopen-reason" />
         </Field>
@@ -245,7 +259,7 @@ export function CloseSection({ close, reopenFirst, onChanged }: { close: CloseRe
       <h2 className="text-lg font-semibold">{t('halls.rep.sec.close', 'إغلاق الدورة')}</h2>
       <p data-action="rep-close-line">
         {close.status === 'closed' ? t('halls.rep.closed_on', 'أُغلقت يوم {day}.', { day: fmtDay(close.closedOn) }) : t('halls.rep.reopened', 'أُغلقت يوم {day} ثمّ أُعيد فتحها.', { day: fmtDay(close.closedOn) })}{' '}
-        {t('halls.rep.close_sold', 'المباع من الفواتير {birds} طيراً صافيها {kg} كغم.', { birds: close.soldBirds, kg: fmtQtyCell(close.soldNetKg, kgDecimals([close.soldNetKg])) })}
+        {t('halls.rep.close_sold', 'المباع من الفواتير {birds} صافيها {kg} كغم.', { birds: birdsText(close.soldBirds), kg: fmtQtyCell(close.soldNetKg, kgDecimals([close.soldNetKg])) })}
       </p>
       {close.countDiff !== 0 ? (
         <p className="text-sm" data-action="rep-close-count">

@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -7,7 +7,7 @@ import { Notice } from '../../components/ui/Notice';
 import type { Day } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
-import { columnDecimals, countForm, fmtDay, fmtInt, fmtMoney, fmtQtyCell, fmtScaledCell } from '../../lib/format';
+import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadCycleReport, type CycleDay, type CycleDetail, type CycleKpis, type CycleReport, type CycleWeek } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
@@ -15,7 +15,7 @@ import { useLoad } from '../../lib/useLoad';
 import { FeedChart, MortalityChart, WeightChart } from './charts';
 import { CarryInNote, CloseSection, SalesSection } from './CloseSections';
 import { signedCount } from './ticketParts';
-import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, leftNegativeText, linesText, ofDaysText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // تقرير الدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/report/:flockId بقراءة flock_cycle_report واحدة.
 // أقسامه جداول كلاسيكية (DataTable): الطيور (المسكَّن والنافق والمستبعد والحيّ ونسبة النفوق)، والعلف بكلّ نزول بتاريخه ومستنده وكيلوه وتراكمه (والقيمة
@@ -65,16 +65,6 @@ const pct = (hundredths: bigint): string => `${fmtScaledCell(hundredths, 2, 2)}%
 const dayIndex = (day: Day): number => Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10))) / 86_400_000;
 const dash = () => t('halls.rep.dash', '—');
 const WARN_INK = 'font-semibold text-warn-800 dark:text-warn-200';
-
-/** عدد أيّام مجروراً بعد «من»: «يوم واحد»، «يومين»، «3 أيام»، «11 يوماً»، «100 يوم». */
-function ofDaysText(n: number): string {
-  if (n === 1) return t('halls.rep.of_days.one', 'يوم واحد');
-  if (n === 2) return t('halls.rep.of_days.two', 'يومين');
-  const form = countForm(n);
-  if (form === 'few') return t('halls.rep.of_days.few', '{n} أيام', { n });
-  if (form === 'many') return t('halls.rep.of_days.many', '{n} يوماً', { n });
-  return t('halls.rep.of_days.hundreds', '{n} يوم', { n });
-}
 
 /** «سُجّل العلف 9 من 11 يوماً.»: أيّام الجولة بعلفها من الأيّام التي يحتاجها معامل التحويل (من التسكين حتى أمس «حتى»، ومعها «حتى» إن سُجّل). */
 function feedDaysText(n: number | null, m: number | null): string | null {
@@ -666,10 +656,15 @@ function ReportView({ flockId }: { flockId: string }) {
   const back = backTarget(search.get('back'), flock ? flockPath(flock.kind, flock.id) : '/');
   const title = flock ? t('halls.rep.heading', 'تقرير دورة {hall} — {site}', { hall: flock.hallName, site: flock.siteName }) : t('halls.report.title', 'تقرير الدورة');
   const age = report && report.through >= report.flock.placedOn ? report.flock.age0 + dayIndex(report.through) - dayIndex(report.flock.placedOn) : null;
-  // رجوع التذاكر من هذا التقرير إليه برجوعه هو؛ و?act=reopen من بطاقة الفوج يفتح «أعد فتح الدورة» أوّل الفتح (لمن يجوز له).
+  // رجوع التذاكر من هذا التقرير إليه برجوعه هو؛ و?act=reopen من بطاقة الفوج يفتح «أعد فتح الدورة» أوّل الفتح (لمن يجوز له) مرّةً واحدة: كلّ فعل في قسم
+  // الإغلاق يقرأ التقرير من جديد فيُرسم القسم من جديد، فلا يعود يفتحها وحده بعد «تراجع» ثمّ «أرجعه إلى مخزن» (مراجعة 0028 S8).
   const backParam = search.get('back');
   const here = `/halls/report/${flockId}${backParam !== null && back === backParam ? `?${new URLSearchParams({ back: backParam }).toString()}` : ''}`;
-  const reopenFirst = search.get('act') === 'reopen';
+  const [reopenFirst, setReopenFirst] = useState(() => search.get('act') === 'reopen');
+  const changed = () => {
+    setReopenFirst(false);
+    state.retry();
+  };
 
   return (
     <div className="flex flex-col gap-5" data-action="report-page">
@@ -713,7 +708,7 @@ function ReportView({ flockId }: { flockId: string }) {
           <LoadFailed what={t('halls.rep.what', 'تقرير الدورة')} error={state.error} onRetry={state.retry} />
         )
       ) : report ? (
-        <ReportBody report={report} here={here} reopenFirst={reopenFirst} onChanged={state.retry} />
+        <ReportBody report={report} here={here} reopenFirst={reopenFirst} onChanged={changed} />
       ) : (
         <p role="status" className="text-sm text-ink-muted" data-action="rep-loading">
           {t('page.loading', 'جارٍ الفتح…')}

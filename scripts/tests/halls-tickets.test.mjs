@@ -13,6 +13,8 @@
 // L القائمة: الصفوف والمجاميع بصيغة العدد، والمرشّح في الرابط، والمدّة.
 // C بطاقة الفوج: المباع والحيّ والأفعال بما يجيزه الخادم، و«فرق العدّ» بنافذته ونتيجته المجهولة (خارج المكوّن)، والمغلقة.
 // R التذكير المختصر: «تذاكر وزن بانتظار الفاتورة» لمن يصدر الفاتورة وحده ويُعدّ شغلاً. H صفحة «التقارير»: مدخل «تذاكر الوزن».
+// Q مراجعة 0028 للشاشات بأجوبة القاعدة الحقيقية: «احذف المسوّدة» بعد أوّل حفظ نتيجته مجهولة يلغي مسوّدة الخادم (S2)، وticket_not_draft يعيد القراءة
+//   وما في الجهاز لتذكرة لم تعد مسوّدة يُعرض ويُمحى بتأكيد (S3)، ويوم التذكرة يُثبَّت عند أوّل وزنة و«تغيّرت» بيومَي النسختين (S4)، وصيغة المعدود (S6).
 // X أجوبة القاعدة الحقيقية (fixtures/birds-0028.json من supabase/tests/birds.test بـBIRDS_SAMPLES_OUT=1) بالمحلّلات الحقيقية، حين توجد.
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -249,7 +251,7 @@ export default async function (t) {
         'E بعد الحفظ: المجاميع (13,500 − 7,000 − 2,400 = 4,100، والمعدّل 2.278)، ولا ناقص، و«أكمل» متاح',
       );
       await click(byAction('ticket-finish')[0]);
-      t.same([dialog()?.textContent.includes('أكمل التذكرة: 1,800 طيراً، و4,100 كغم صافياً؟'), dialog()?.textContent.includes('تأخذ التذكرة رقماً ولا تُعدَّل بعده. لا تنقص الطيور من القاعة حتى تُصدر الفاتورة.')], [true, true], 'E التأكيد بالطيور والصافي وجملة العقد');
+      t.same([dialog()?.textContent.includes('أكمل التذكرة: 1,800 طير، و4,100 كغم صافياً؟'), dialog()?.textContent.includes('تأخذ التذكرة رقماً ولا تُعدَّل بعده. لا تنقص الطيور من القاعة حتى تُصدر الفاتورة.')], [true, true], 'E التأكيد بالطيور والصافي وجملة العقد');
       await click(byAction('ticket-finish-confirm')[0]);
       await settle(30);
       const finished = named(log, 'finish_weigh_ticket');
@@ -410,7 +412,7 @@ export default async function (t) {
       await mount('/broiler/flock/x', cardAt(m, () => (changed += 1)));
       t.same(
         [textOf('card-sold'), textOf('card-live'), href(byAction('card-new-ticket')[0]), href(byAction('card-close')[0]), byAction('card-reopen').length, tableRows('تذاكر الوزن')],
-        ['المباع من الفواتير: 9,700 طيراً، صافيها 23,280 كغم.', 'الحيّ بحسب النظام 30.', `/halls/ticket/new?site=${SITE}&hall=${H1}&back=%2Fbroiler%2Fflock%2F${F1}`, `/halls/close/${F1}?back=%2Fbroiler%2Fflock%2F${F1}`, 0, [['WT-2026-0007', '12/11/2026', '1,800', 'صدرت فاتورتها']]],
+        ['المباع من الفواتير: 9,700 طير، صافيها 23,280 كغم.', 'الحيّ بحسب النظام 30.', `/halls/ticket/new?site=${SITE}&hall=${H1}&back=%2Fbroiler%2Fflock%2F${F1}`, `/halls/close/${F1}?back=%2Fbroiler%2Fflock%2F${F1}`, 0, [['WT-2026-0007', '12/11/2026', '1,800', 'صدرت فاتورتها']]],
         'C المباع والحيّ، و«تذكرة وزن» لحقل القاعة وقاعتها، و«أغلق الدورة»، وأحدث التذاكر',
       );
       await click(byAction('card-count')[0]);
@@ -473,6 +475,174 @@ export default async function (t) {
       fresh(OWNER);
       await mount('/reports');
       t.same([href(byAction('reports-tickets')[0]), textOf('reports-tickets')?.startsWith('تذاكر الوزن')], ['/halls/tickets?back=/reports', true], 'H «تذاكر الوزن» في صفحة «التقارير» برجوع إليها');
+    });
+
+    // ── Q: مراجعة 0028 للشاشات (كلّ فحص يفشل على ba04e1d)، بأجوبة القاعدة الحقيقية (fixtures/birds-0028.json) ─────────────────────────────────────
+    const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+    const BOPT = B.weigh_ticket_options_site;
+    const BSITE = BOPT.site.site_id;
+    const BH1 = BOPT.halls[0].hall_id;
+    const BDRAFT = B.weigh_ticket_draft;
+    /** المسوّدة نفسها مكتملةً في الخادم (رقمها، ونسختها بعد «أكمل» +1 كما يكتبها الخادم). */
+    const doneOf = (draft) => ({ ...clone(draft), status: 'done', ticket_no: 'WT-2026-0099', version: draft.version + 1, can: { edit: false, finish: false, void: false, invoice: false } });
+    /** مفاتيح الجهاز لتذكرة: نسختها، ومؤشّر «تذكرة جديدة» لحقلها. */
+    const deviceKeys = (id, site) => [...local.map.keys()].filter((key) => key.endsWith(`:${id}`) || key.endsWith(`:new:${site}`));
+    /** خادم الحذف: المسوّدة هناك إن وصل حفظها (arrived)، وvoid_weigh_ticket كقاعدته (ticket_not_found لما لم يصل). والأخطاء من حزمة الصفحة الجارية (current). */
+    const deleteServer = (arrived) => {
+      const tickets = new Map();
+      return {
+        tickets,
+        rpcs: {
+          weigh_ticket_options: () => clone(BOPT),
+          save_weigh_ticket: (args) => {
+            if (arrived) tickets.set(args.p_ticket, 'draft');
+            return Promise.reject(new current.UnknownOutcomeError('fetch_failed'));
+          },
+          void_weigh_ticket: (args) => {
+            if (!tickets.has(args.p_ticket)) return Promise.reject(new current.RejectedError('ticket_not_found', 'هذه التذكرة غير موجودة في منشأتك. حدّث الشاشة.'));
+            tickets.set(args.p_ticket, 'void');
+            return { id: args.p_ticket, ticket_no: null, status: 'void' };
+          },
+        },
+      };
+    };
+    for (const arrived of [true, false]) {
+      await step(`Q S2 أوّل حفظ بنتيجة مجهولة (${arrived ? 'وصل' : 'لم يصل'}) ثمّ إعادة التحميل و«احذف المسوّدة»`, async () => {
+        const server = deleteServer(arrived);
+        const log = fresh(WORKER, server.rpcs);
+        await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}&back=${encodeURIComponent('/broiler')}`);
+        type(inStop(byAction('ticket-stop')[0]?.getAttribute('data-stop'), 'ticket-birds'), '800');
+        await settle();
+        await click(byAction('ticket-weigh-empty')[0]);
+        await padType('7000');
+        const id = named(log, 'save_weigh_ticket')[0]?.p_ticket ?? null;
+        const copy = JSON.parse(local.map.get(deviceKeys(id, BSITE).find((key) => key.endsWith(`:${id}`))) ?? 'null');
+        // إعادة التحميل: «أُرسل ولم تُعرف نتيجته» من نسخة الجهاز، لا من ذاكرة المكوّن.
+        await unmount();
+        current = await bundle('halls-tickets');
+        const log2 = fresh(WORKER, server.rpcs);
+        await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}&back=${encodeURIComponent('/broiler')}`);
+        await click(byAction('ticket-delete')[0]);
+        const consequence = dialog()?.textContent ?? '';
+        await click(byAction('ticket-delete-confirm')[0]);
+        await settle(20);
+        t.same(
+          [
+            UUID.test(id ?? ''),
+            copy?.sent ?? null,
+            consequence.includes('أُرسل حفظ هذه التذكرة ولا نعرف إن وصل إلى الخادم: تُلغى مسوّدتها فيه إن كانت وصلت، وتُمحى الأوزان المكتوبة في هذا الجهاز. الطيور في القاعات كما هي.'),
+            consequence.includes('ولم يُحفظ منها شيء في الخادم'),
+            named(log2, 'void_weigh_ticket').map((args) => [args.p_ticket, args.p_reason, UUID.test(args.p_client_ref ?? '')]),
+            [...server.tickets.values()],
+            globalThis.__h8.location,
+            lastToast(),
+            deviceKeys(id, BSITE),
+          ],
+          [true, true, true, false, [[id, null, true]], arrived ? ['void'] : [], '/broiler', 'حُذفت مسوّدة التذكرة.', []],
+          `Q S2 أوّل حفظ لتذكرة جديدة نتيجته مجهولة (${arrived ? 'ووصل الخادم' : 'ولم يصله'}): نسخة الجهاز تحفظ العلامة، و«احذف المسوّدة» بعد إعادة التحميل يقول ما يحدث ويلغي مسوّدة الخادم (ticket_not_found = لم يصل شيء)، ثمّ تُمحى نسخة الجهاز ويُرجع (كان يمحو الجهاز وحده ويقول «لم يُحفظ منها شيء في الخادم»)`,
+        );
+      });
+    }
+    await step('Q S3 رفض ticket_not_draft: تُقرأ التذكرة فتُعرض مكتملةً، وما كُتب ولم يُحفظ معروض بأرقامه ويُمحى بتأكيد', async () => {
+      const log = fresh(WORKER, {
+        weigh_ticket: (_args, n) => (n === 1 ? clone(BDRAFT) : doneOf(BDRAFT)),
+        weigh_ticket_options: () => clone(BOPT),
+        save_weigh_ticket: () => Promise.reject(new m.RejectedError('ticket_not_draft', 'التذكرة WT-2026-0099 اكتملت أو أُلغيت، فلا تُعدَّل. ألغِها وأنشئ غيرها إن كانت خاطئة.')),
+      });
+      await mount(`/halls/ticket/${BDRAFT.id}`);
+      await click(within(byAction('ticket-stop')[0], 'ticket-weigh-gross')[0]);
+      await padType('7400');
+      await settle(20);
+      const shown = [named(log, 'save_weigh_ticket').length, named(log, 'weigh_ticket').length, byAction('ticket-editor').length, byAction('ticket-done').length, tableRows('ما كُتب في هذا الجهاز'), textOf('ticket-unsaved-head')];
+      await click(byAction('ticket-wipe')[0]);
+      const confirm = dialog()?.textContent ?? '';
+      await click(byAction('ticket-wipe-confirm')[0]);
+      t.same(
+        [shown, confirm.includes('امحُ ما كُتب في هذا الجهاز للتذكرة WT-2026-0099؟') && confirm.includes('تُمحى الأوزان المكتوبة في هذا الجهاز ولا تُستعاد. التذكرة في الخادم كما هي.'), byAction('ticket-unsaved').length, deviceKeys(BDRAFT.id, BDRAFT.site_id)],
+        [[1, 2, 0, 1, [['قاعة 6', '100', '10', '7,400']], 'ما كتبته في هذا الجهاز — يوم 12/11/2026، ووزن الفارغ 7,000'], true, 0, []],
+        'Q S3 أُكملت من جهاز آخر وهذا الجهاز يحفظ وزنة: الرفض يعيد القراءة فتُعرض مكتملةً (كان المحرّر باقياً بنسخة لا تُحفظ أبداً)، وما كُتب معروض بأرقامه، و«امحُ ما في هذا الجهاز» بتأكيد يمحوه',
+      );
+    });
+    await step('Q S3 بعد إعادة التحميل والتذكرة أُكملت من جهاز آخر: ما في الجهاز لا يضيع صامتاً', async () => {
+      fresh(WORKER, { weigh_ticket: () => clone(BDRAFT), weigh_ticket_options: () => clone(BOPT), save_weigh_ticket: () => Promise.reject(new m.NetworkError()) });
+      await mount(`/halls/ticket/${BDRAFT.id}`);
+      type(inStop(BDRAFT.stops[0].id, 'ticket-birds'), '120');
+      await settle();
+      const state = textOf('ticket-state');
+      await unmount();
+      current = await bundle('halls-tickets');
+      fresh(WORKER, { weigh_ticket: () => doneOf(BDRAFT) });
+      await mount(`/halls/ticket/${BDRAFT.id}`);
+      const shown = [byAction('ticket-done').length, textOf('ticket-paper-title'), byAction('ticket-unsaved').length, tableRows('ما كُتب في هذا الجهاز'), deviceKeys(BDRAFT.id, BDRAFT.site_id).length];
+      await click(byAction('ticket-wipe')[0]);
+      await click(byAction('ticket-wipe-confirm')[0]);
+      t.same(
+        [state, shown, byAction('ticket-unsaved').length, deviceKeys(BDRAFT.id, BDRAFT.site_id)],
+        ['فيها ما لم يُحفظ بعد (محفوظ في هذا الجهاز).', [1, 'تذكرة وزن WT-2026-0099', 1, [['قاعة 6', '120', '10', '7,310']], 1], 0, []],
+        'Q S3 مسوّدة بما لم يُحفظ في الجهاز ثمّ أُكملت في الخادم: الورقة المكتملة ومعها ما في الجهاز بأرقامه (كان يبقى في الجهاز بلا ذكر)، ويُمحى بـ«امحُ ما في هذا الجهاز»',
+      );
+    });
+    await step('Q S4 ما وُزن يوم 12/11 ولم يُحفظ يُحفظ بيوم وزنه لا بيوم الفتح التالي', async () => {
+      fresh(WORKER, { weigh_ticket_options: () => ({ ...clone(BOPT), today: '2026-11-12' }), save_weigh_ticket: () => Promise.reject(new m.NetworkError()) });
+      await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(inStop(stopId, 'ticket-birds'), '800');
+      await settle();
+      const before = byAction('ticket-day')[0]?.value ?? null;
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      const fixed = byAction('ticket-day')[0]?.value ?? null;
+      await click(inStop(stopId, 'ticket-weigh-gross'));
+      await padType('9000');
+      await unmount();
+      // صباح اليوم التالي: يوم الخادم 13/11، والنسخة تعود من الجهاز.
+      current = await bundle('halls-tickets');
+      const log = fresh(WORKER, { weigh_ticket_options: () => ({ ...clone(BOPT), today: '2026-11-13' }), save_weigh_ticket: (args) => ({ status: 'saved', ticket: { ...clone(B.save_weigh_ticket.ticket), id: args.p_ticket, on_date: args.p_data.on_date } }) });
+      await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}`);
+      const restored = [inStop(byAction('ticket-stop')[0]?.getAttribute('data-stop'), 'ticket-birds')?.value ?? null, byAction('ticket-day')[0]?.value ?? null];
+      await click(byAction('ticket-save')[0]);
+      await settle(20);
+      t.same(
+        [before, fixed, restored, named(log, 'save_weigh_ticket').map((args) => args.p_data.on_date)],
+        ['', '12/11/2026', ['800', '12/11/2026'], ['2026-11-12']],
+        'Q S4 اليوم يُثبَّت عند أوّل وزنة تُعتمد بيوم الخادم (12/11) ويبقى في نسخة الجهاز، فما لم يُحفظ ليلاً يُحفظ صباح 13/11 بيوم وزنه (كان بيوم الفتح 13/11)',
+      );
+    });
+    await step('Q S4 «تغيّرت» تعرض يومَي النسختين', async () => {
+      const stale = B.save_weigh_ticket_stale;
+      fresh(WORKER, { weigh_ticket: () => clone(BDRAFT), weigh_ticket_options: () => clone(BOPT), save_weigh_ticket: () => clone(stale) });
+      await mount(`/halls/ticket/${BDRAFT.id}`);
+      await click(within(byAction('ticket-stop')[0], 'ticket-weigh-gross')[0]);
+      await padType('7400');
+      t.same(
+        [byAction('ticket-stale').length, textOf('ticket-stale-server'), textOf('ticket-stale-mine')],
+        [1, `في الخادم — يوم ${m.fmtDay(stale.server.on_date)}، ووزن الفارغ 7,000`, 'ما كتبته — يوم 12/11/2026، ووزن الفارغ 7,000'],
+        'Q S4 نسخة الخادم ونسختك كلٌّ بيومها (11/11 و12/11) فوق جدوليهما',
+      );
+    });
+    await step('Q S6 صيغة المعدود في بطاقة الفوج والتذكرة', async () => {
+      const sales = B.flock_sales;
+      fresh(OWNER, { flock_sales: () => clone(sales) });
+      await mount('/broiler/flock/x', current.h(current.FlockCard, { flock: { id: sales.flock_id, kind: sales.kind, siteId: 's', hallId: 'h', hallName: 'قاعة 1', siteName: 'حقل', status: sales.status } }));
+      const sold = textOf('card-sold');
+      await unmount();
+      fresh(OWNER, { weigh_ticket: () => clone(BDRAFT), weigh_ticket_options: () => clone(BOPT) });
+      await mount(`/halls/ticket/${BDRAFT.id}`);
+      await click(byAction('ticket-finish')[0]);
+      const title = all().find((n) => n.localName === 'h2' && dialog()?.contains(n))?.textContent ?? null;
+      await click(buttonText('لا، تراجع'));
+      type(inStop(BDRAFT.stops[0].id, 'ticket-birds'), '800');
+      await settle();
+      const over = textOf('ticket-over-live');
+      t.same(
+        [sold, title, over],
+        [
+          'المباع من الفواتير: 800 طير، صافيها 1,800 كغم. وعلى تذاكر بلا فاتورة 4,000 طير.',
+          'أكمل التذكرة: 100 طير، و250 كغم صافياً؟',
+          'الحيّ في «قاعة 6» بحسب النظام 700 طير، وعلى تذاكر أخرى بلا فاتورة 150 طيراً. لا تصدر الفاتورة بأكثر من الحيّ حتى يُصحَّح العدد أو يُسجَّل «فرق العدّ».',
+        ],
+        'Q S6 الطيور بصيغة المعدود في المباع والتذاكر بلا فاتورة، وتأكيد «أكمل التذكرة»، وتنبيه الحيّ (كانت «طيراً» لكلّ عدد)',
+      );
     });
 
     // ── X: أجوبة القاعدة الحقيقية (حين توجد) ────────────────────────────────────────────────────────────────────────────

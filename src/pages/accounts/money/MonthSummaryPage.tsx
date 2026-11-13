@@ -24,7 +24,7 @@ import { A4_PORTRAIT, LINK, moneyDecimals, monthLabel, monthParam, PILL, printAs
 // (قائمة الدخل في المرحلة 3)، وسهمان للشهر السابق والتالي (لا شهر بعد الحالي)، وتُطبع A4 بعنوانها. القسم بلا حركة سطر واحد بدل جدول أصفار.
 // والقسم باسمه الكامل كما في الكشف والسندات («معمل العلف»، «حقول اللحم»)، وكلّ كتلة وبطاقة النقد لا تنقسم بين صفحتين بالطباعة (data-keep،
 // مراجعة 0024 L1 وL8). والمبيعات = الموادّ + الطيور (0028): بفواتير طيور يظهر سطرا «منها موادّ» و«منها طيور»، والكلفة والربح الإجمالي للموادّ وحدها،
-// وسطر «ربح الطيور في تقرير الفوج» (لا كلفة بند للطيور).
+// وسطر «إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ» (لا كلفة بند للطيور، ولا ربح قبل كلفة الفراخ: مراجعة 0028 O10).
 
 interface Line {
   key: string;
@@ -52,7 +52,7 @@ export function blockLines(block: MonthBlock): Line[] {
   if (sales.gross !== null) {
     lines.push({ key: 'gross', label: birds ? t('monthsum.items_gross', 'الربح الإجمالي للموادّ') : t('hub.sales.gross', 'الربح الإجمالي'), count: null, amount: sales.gross, sub: true, strong: true });
   }
-  if (birds) lines.push({ key: 'birds-profit', label: t('monthsum.birds_profit', 'ربح الطيور في تقرير الفوج'), count: null, amount: null, sub: true });
+  if (birds) lines.push({ key: 'birds-profit', label: t('monthsum.birds_profit', 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ'), count: null, amount: null, sub: true });
   lines.push(
     { key: 'purchases', label: t('monthsum.purchases', 'المشتريات'), count: purchases.count, amount: purchases.total, strong: true },
     { key: 'purchases-cash', label: t('monthsum.purchases.cash', 'منها نقداً'), count: null, amount: purchases.cash, sub: true },

@@ -10,7 +10,8 @@
 // الفارغ)؛ S خلاصة الشهر (الجملة، والكتل بالمشروع والأقسام، والإنتاج والصرف، والكلفة المحجوبة، والسهمان)؛ C الصناديق («يومية اليوم») وكشف الصندوق (رابط
 // كلّ رقم)؛ R نقل المسارات (/accounts الخلاصة، و/accounts/parties صفحة الجهات)؛ X بطاقة الرئيسية.
 // وفواتير الطيور (0028، العقد §6 و§10 الوكيل ب، مفتاح birds الجديد في كتلة المبيعات): B المبيعات = الموادّ + الطيور في الخلاصة وخلاصة الشهر، والكلفة والربح
-// الإجمالي للموادّ وحدها بجملة «ربح الطيور في تقرير الفوج»، وخادم قبل 0028 (بلا birds) كما كان؛ والمقبوض عند فاتورة الطيور في حركة الأموال «بيع طيور نقداً»
+// الإجمالي للموادّ وحدها بجملة «إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ» (مراجعة 0028 O10)، وخادم قبل 0028 (بلا birds) كما كان؛
+// والمقبوض عند فاتورة الطيور في حركة الأموال «بيع طيور نقداً»
 // برابط /sales/birds/:id.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -799,7 +800,8 @@ export default async function (t) {
       }
       if (sales.cost !== null) add(birds ? 'كلفة الموادّ المبيعة' : 'كلفة المبيعات', null, sales.cost);
       if (sales.gross !== null) add(birds ? 'الربح الإجمالي للموادّ' : 'الربح الإجمالي', null, sales.gross);
-      if (birds) lines.push(['ربح الطيور في تقرير الفوج', '', '']);
+      // مراجعة 0028 O10: لا «ربح الطيور» قبل كلفة الفراخ؛ الإيراد وكلفة الفوج في تقرير الفوج.
+      if (birds) lines.push(['إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ', '', '']);
       add('المشتريات', purchases.count, purchases.total);
       add('منها نقداً', null, purchases.cash);
       add('منها بالدين', null, purchases.credit);
@@ -888,7 +890,7 @@ export default async function (t) {
         'B5 سطرا الموادّ والطيور',
       );
       t.ok(salesText.includes(`كلفة الموادّ${fmt(fils(sales.cost))}`) && text(first('hub-gross')).startsWith('ربح الموادّ الإجمالي'), 'B6 الكلفة والربح الإجمالي للموادّ وحدها باسمهما');
-      t.eq(text(first('hub-birds-profit')), 'ربح الطيور في تقرير الفوج.', 'B7 جملة ربح الطيور');
+      t.eq(text(first('hub-birds-profit')), 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ.', 'B7 جملة الطيور: الإيراد وكلفة الفوج في تقرير الفوج، والربح بعد كلفة الفراخ (مراجعة 0028 O10؛ كانت «ربح الطيور في تقرير الفوج»)');
       await unmount();
       const zero = clone(O);
       zero.month.sales.birds = { count: 0, revenue: '0' };
@@ -907,7 +909,7 @@ export default async function (t) {
       await mount(`/accounts/month?m=${month}`);
       const project = tableOf(first('monthsum-project')).body.map(cells);
       t.same(project, blockExpect(summary.project), 'B9 خلاصة الشهر: المبيعات = الموادّ + الطيور بسطريهما، والكلفة والربح للموادّ، وجملة ربح الطيور');
-      t.ok(project.some(([label]) => label === 'منها طيور') && project.some(([label, count, amount]) => label === 'ربح الطيور في تقرير الفوج' && count === '' && amount === ''), 'B10 سطر الطيور وجملة ربحها بلا مبلغ');
+      t.ok(project.some(([label]) => label === 'منها طيور') && project.some(([label, count, amount]) => label === 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ' && count === '' && amount === ''), 'B10 سطر الطيور وجملتها بلا مبلغ ولا «ربح» قبل كلفة الفراخ');
       const sections = byAction('monthsum-division');
       const at = summary.divisions.indexOf(target);
       t.same(tableOf(sections[at]).body.map(cells), blockExpect(target), `B11 قسم ${target.kind} بفواتير طيور: جدوله لا «بلا حركة»`);

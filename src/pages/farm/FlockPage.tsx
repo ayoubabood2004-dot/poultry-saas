@@ -26,6 +26,17 @@ import { farmPath, farmTitle, fmtPct, HallFlockCard, Metric } from './shared';
 
 const qtyDecimals = (values: readonly (bigint | null)[]) => columnDecimals(values.filter((value): value is bigint => value !== null), 3) as 0 | 1 | 2 | 3;
 
+/**
+ * سبب نزول الحيّ غير النافق والمستبعد يوم البيع أو الإغلاق (0028، مراجعة O5): المباع بفاتورة يومه وفرق العدّ يومه من flock_detail، بجانب «الحيّ آخر
+ * اليوم» («34 (بيع 900)»، «0 (فرق العدّ −30)»)؛ والفرق بإشارته معزولاً LTR. الصفحة محفوظة: أقلّ ما يكفي.
+ */
+function liveEndNote(day: DayLine): string | null {
+  const parts: string[] = [];
+  if (day.sold) parts.push(t('flock.end.sold', 'بيع {n}', { n: day.sold }));
+  if (day.countDiff) parts.push(t('flock.end.diff', 'فرق العدّ {n}', { n: `\u{2066}${day.countDiff > 0 ? '+' : ''}${fmtInt(day.countDiff)}\u{2069}` }));
+  return parts.length ? parts.join(t('list.separator', '، ')) : null;
+}
+
 function WeightForm({ detail, onSaved }: { detail: FlockDetail; onSaved: () => void }) {
   const id = useId();
   const today = localDay();
@@ -120,7 +131,20 @@ function FlockView({ detail, kind, onChanged }: { detail: FlockDetail; kind: Flo
           { key: 'hdep', header: t('flock.col.hdep', 'نسبة الإنتاج'), kind: 'number' as const, cell: (day: DayLine) => (day.hdep === null ? '—' : <Num>{fmtPct(day.hdep)}</Num>) },
         ]
       : []),
-    { key: 'end', header: t('flock.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveEnd)}</Num> },
+    {
+      key: 'end',
+      header: t('flock.col.live_end', 'الحيّ آخر اليوم'),
+      kind: 'number',
+      cell: (day) => {
+        const note = liveEndNote(day);
+        return (
+          <>
+            <Num>{fmtInt(day.liveEnd)}</Num>
+            {note ? <span className="text-xs text-ink-muted"> ({note})</span> : null}
+          </>
+        );
+      },
+    },
   ];
 
   return (
