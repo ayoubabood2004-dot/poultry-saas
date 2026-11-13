@@ -3,8 +3,9 @@
 // أبداً؛ M3 المقبوض الذي رُدّ ما زال «نقداً» في الفاتورة؛ M4 الإغلاق يقبل نموذجاً تغيّرت قيمة ما نزل فيه والكمية كما هي (البصمة)؛ O2/M5 «الباقي في القاعة»
 // بتعريف واحد؛ O3 فروق العدّ بأسبابها؛ O6 البطاقة لا تعد بإعادة فتح مرفوضة؛ O7 يوم بدأ بلا طير حيّ لا ينتظر جولة ولا علفاً؛ O8 اليوم المقترح للإغلاق
 // داخل المسموح؛ C2 معرّف وقفة من الجهاز يُكتب فوق وقفة تذكرة أخرى؛ C4 تذكرة حقل آخر تُقفل وتُسمّى؛ C5 السعر المقترح من حقل خارج النطاق؛ C7 التلميحات؛
-// M7/M8/M9 ثوابت جديدة بطفرة دالّة تكسرها داخل معاملة ترجع (purchase-kit mutant)؛ S1 يوم الخادم وأقدم يوم لفرق العدّ؛ S9 يوم الإلغاء؛ O4 لا تُعرض
-// فاتورة يرفضها الكاتب (too_old وperiod_locked وout_of_scope). منشأة هذا الملف وحدها: المعرّفات f2830000 والهواتف 96477028300. كلّ قسم بـsection: رمية
+// M7/M8/M9 ثوابت جديدة بطفرة دالّة تكسرها داخل معاملة ترجع (purchase-kit mutant)؛ S1 يوم الخادم وأقدم يوم لفرق العدّ؛ S9 يوم الإلغاء؛ O4 القرّاء يعدون
+// الفاتورة بما يقبله الكاتب (period_locked وout_of_scope؛ والأقدم من سبعة أيّام تُفوتر بتاريخ اليوم بجواب المالك 2026-11-13، birds28-late.test).
+// منشأة هذا الملف وحدها: المعرّفات f2830000 والهواتف 96477028300. كلّ قسم بـsection: رمية
 // فيه فحص فاشل باسمه ولا توقف الملف. والفترة المقفلة آخر قسم (تمسّ كلّ تاريخ بعدها). اسم الملف بعد birds.test بالترتيب (birds28 > birds.): ذاك
 // يبحث عن أرقام BR وWT في المنشآت كلّها ويفترض أنّه أوّل من يكتبها.
 import { createHash } from 'node:crypto';
@@ -592,7 +593,8 @@ async function scenario(t, db) {
       'S1: البطاقة بيوم الخادم وأقدم يوم لفرق العدّ (التسكين قبل ستّة أيّام، وإلّا سبعة)؛ S9: تفصيل الفاتورة الملغاة بيوم إلغائها في الخادم');
   });
 
-  // ── O4 (الأيّام السبعة): تذكرة مكتملة قبل ثمانية أيّام لا تُفوتر بيومها، فلا يعدها نموذج الفاتورة ولا التذكرة ولا قائمتا «بانتظار الفاتورة» ─────────────
+  // ── O4 (الأيّام السبعة، وجواب المالك 2026-11-13: D3): تذكرة مكتملة قبل ثمانية أيّام تُفوتر بتاريخ اليوم، فيعدها نموذج الفاتورة والتذكرة وقائمتا
+  //    «بانتظار الفاتورة» بما يقبله الكاتب (وأيّامها في birds28-late.test) ─────────────────────────────────────────────────────────────
   const ho = await hall(siteA, 'قاعة التذكرة القديمة');
   await place(ho, day(-20), 1000);
   await section('O4: تذكرة أقدم من سبعة أيّام', async () => {
@@ -604,14 +606,10 @@ async function scenario(t, db) {
     const row = list.rows.find((r) => r.id === old.id);
     const waiting = ov.birds.awaiting.find((r) => r.ticket_id === old.id);
     const post = await call(db, U.accountant, SELL, sellArgs(old));
-    Object.assign(samples, { bird_sale_form_too_old: f, weigh_ticket_too_old: wt, weigh_tickets_awaiting_too_old: list,
-      refusal_date_too_old_ticket: { code: post.code, hint: post.hint } });
     same([[f.invoiceable, f.why, f.can_post], [wt.can.invoice, wt.invoice_why], [row?.invoiceable, row?.invoice_why], list.totals.invoiceable === list.rows.filter((r) => r.invoiceable).length,
-      [waiting?.invoiceable, waiting?.why], post.code, post.hint],
-    [[false, 'too_old', false], [false, 'too_old'], [false, 'too_old'], true, [false, 'too_old'], 'date_too_old',
-      `التذكرة ${old.no} بيوم ${dmy(day(-8))}، والفاتورة تُكتب بيوم تذكرتها، ولا يُقبل يوم أقدم من 7 أيام (أقدمه ${dmy(day(-7))})، فلا تُصدر فاتورتها الآن.`],
-    'O4: تذكرة قبل ثمانية أيّام: النموذج والتذكرة وقائمتا الانتظار لا تعرض فاتورتها (too_old)، والترحيل يرفضها بجملة تسمّي التذكرة ويومها');
-    await one(U.manager, VOID_TICKET, [old.id, 'لم تُفوتر في وقتها', uid()]);
+      [waiting?.invoiceable, waiting?.why], post.ok, post.value?.sold_on],
+    [[true, null, true], [true, null], [true, null], true, [true, null], true, TODAY],
+    'O4: تذكرة قبل ثمانية أيّام: النموذج والتذكرة وقائمتا الانتظار تعرض فاتورتها، والكاتب يقبلها بتاريخ اليوم (D3)');
   });
 
   // ── O4 (الفترة المقفلة، آخر الملف): تذكرة قبل ثلاثة أيّام ثمّ تُقفل الحسابات حتى أوّل أمس ─────────────────────────────────────────────
@@ -625,7 +623,7 @@ async function scenario(t, db) {
       const post = await call(db, U.accountant, SELL, sellArgs(locked));
       samples.refusal_period_locked_ticket = { code: post.code, hint: post.hint };
       same([[f.invoiceable, f.why, f.can_post], post.code, post.hint], [[false, 'period_locked', false], 'period_locked',
-        `التذكرة ${locked.no} بيوم ${dmy(day(-3))}، والفاتورة تُكتب بيوم تذكرتها، والحسابات مقفلة حتى ${dmy(day(-2))}، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`],
+        `التذكرة ${locked.no} بيوم ${dmy(day(-3))}، وطيورها تخرج من القاعة بيومها، والحسابات مقفلة حتى ${dmy(day(-2))} (هذا اليوم وما قبله)، فلا تُصدر فاتورتها. إن كان يوم التذكرة صحيحاً فاطلب من مالك المنشأة فتح الفترة.`],
       'O4: تذكرة في فترة مقفلة لا يعدها النموذج (period_locked) والترحيل يرفضها بجملة تسمّي التذكرة ويومها');
     } finally {
       await one(U.owner, 'select public.set_period_lock($1)', ['2026-01-01']);
