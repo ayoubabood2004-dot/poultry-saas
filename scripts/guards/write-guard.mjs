@@ -202,7 +202,7 @@ function resolveSpecifier(file, specifier) {
  * وبيع الطيور وإغلاق الدورة (0028): تذاكر الوزن (weighTickets) وبطاقة الفوج والإغلاق وفرق العدّ وإعادة الفتح (flockClose) تستوردها صفحات القاعات وحدها
  * (حزمة القاعات)، وبطاقة الفوج تصل صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared)، لا استيراداً ثابتاً.
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

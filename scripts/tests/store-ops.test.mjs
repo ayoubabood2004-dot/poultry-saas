@@ -49,7 +49,8 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__so.session; export const sessionStore = { get: () => globalThis.__so?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__so.toasts.push(spec); }; export function Toaster() { return null; }',
 };
-const CORE_FOR = /src\/lib\/repo\/(?:purchases|sales|storeOps)\.ts$/u;
+// birdSales (0028): صفحة المبيعات تقرأ قائمتها وتقريرها بنداء واحد منه (sales_overview وsales_report ومعهما مفتاح birds).
+const CORE_FOR = /src\/lib\/repo\/(?:purchases|sales|storeOps|birdSales)\.ts$/u;
 const stubs = {
   name: 'so-stubs',
   setup(b) {

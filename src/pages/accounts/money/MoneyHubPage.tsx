@@ -11,7 +11,7 @@ import { describeError, NotConnectedError } from '../../../lib/errors';
 import { fmtDay, fmtInt, fmtMoney, fmtPhone } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import * as money from '../../../lib/repo/money';
-import type { ClassTotals, MoneyClass, MoneyOverview, TopParty } from '../../../lib/repo/money';
+import { hasBirdSales, salesTotal, type ClassTotals, type MoneyClass, type MoneyOverview, type TopParty } from '../../../lib/repo/money';
 import { useSession } from '../../../lib/session';
 import { useLoad } from '../../../lib/useLoad';
 import { boxName } from '../CashPage';
@@ -185,18 +185,37 @@ function ShareBar({ part, whole }: { part: Fils; whole: Fils }) {
 
 export function MonthCard({ month, monthFrom }: { month: MoneyOverview['month']; monthFrom: string }) {
   const { sales, purchases, expenses, cash } = month;
+  // المبيعات = الموادّ + الطيور (0028)، والكلفة والربح الإجمالي للموادّ وحدها: لا كلفة بند للطيور (ربحها للفوج في تقرير الدورة).
+  const all = salesTotal(sales);
+  const birds = hasBirdSales(sales) ? sales.birds : null;
   return (
     <Card title={t('hub.month', 'هذا الشهر')} icon={<Landmark aria-hidden="true" className={ICON} />} action="hub-month">
       <dl className="flex flex-col gap-1" data-action="hub-sales">
         <div className={ROW}>
-          <dt>{t('hub.sales', 'المبيعات ({count})', { count: fmtInt(sales.count) })}</dt>
+          <dt>{t('hub.sales', 'المبيعات ({count})', { count: fmtInt(all.count) })}</dt>
           <dd className="font-semibold">
-            <Num>{fmtDinar(sales.revenue)}</Num>
+            <Num>{fmtDinar(all.revenue)}</Num>
           </dd>
         </div>
+        {birds ? (
+          <>
+            <div className={ROW} data-action="hub-sales-items">
+              <dt className="text-ink-muted">{t('hub.sales.items', 'منها موادّ ({count})', { count: fmtInt(sales.count) })}</dt>
+              <dd>
+                <Num>{fmtDinar(sales.revenue)}</Num>
+              </dd>
+            </div>
+            <div className={ROW} data-action="hub-sales-birds">
+              <dt className="text-ink-muted">{t('hub.sales.birds', 'ومنها طيور ({count})', { count: fmtInt(birds.count) })}</dt>
+              <dd>
+                <Num>{fmtDinar(birds.revenue)}</Num>
+              </dd>
+            </div>
+          </>
+        ) : null}
         {sales.cost !== null ? (
           <div className={ROW}>
-            <dt className="text-ink-muted">{t('hub.sales.cost', 'كلفتها')}</dt>
+            <dt className="text-ink-muted">{birds ? t('hub.sales.items_cost', 'كلفة الموادّ') : t('hub.sales.cost', 'كلفتها')}</dt>
             <dd>
               <Num>{fmtDinar(sales.cost)}</Num>
             </dd>
@@ -204,13 +223,18 @@ export function MonthCard({ month, monthFrom }: { month: MoneyOverview['month'];
         ) : null}
         {sales.gross !== null ? (
           <div className={ROW} data-action="hub-gross">
-            <dt className="text-ink-muted">{t('hub.sales.gross', 'الربح الإجمالي')}</dt>
+            <dt className="text-ink-muted">{birds ? t('hub.sales.items_gross', 'ربح الموادّ الإجمالي') : t('hub.sales.gross', 'الربح الإجمالي')}</dt>
             <dd className={`font-semibold ${sales.gross < 0n ? NEGATIVE : ''}`}>
               <Num>{fmtDinar(sales.gross)}</Num>
             </dd>
           </div>
         ) : null}
       </dl>
+      {birds ? (
+        <p className="text-xs text-ink-muted" data-action="hub-birds-profit">
+          {t('hub.birds_profit', 'ربح الطيور في تقرير الفوج.')}
+        </p>
+      ) : null}
       <dl className="flex flex-col gap-1 border-t border-line pt-2.5" data-action="hub-purchases">
         <div className={ROW}>
           <dt>{t('hub.purchases', 'المشتريات ({count})', { count: fmtInt(purchases.count) })}</dt>
