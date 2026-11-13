@@ -1,6 +1,6 @@
 // توصيل شاشات 0028 بمفاتيح مراجعة القاعدة (2d2005e) وأجوبة المالك 2026-11-13، بأجوبة القاعدة الحقيقية (fixtures/birds-0028.json) تمرّ بالمحلّلات والصفحات
-// الحقيقية محزومةً بـesbuild (درس 2026-11-02)، ومفاتيح O4 المنتظرة مضافةً إلى عيّنة حقيقية بشكل العقد حتى تعيد القاعدة العيّنات بها. كلّ فحص هنا يفشل
-// على d13246a:
+// الحقيقية محزومةً بـesbuild (درس 2026-11-02)، ومنها عيّنات الفاتورة المتأخّرة التي أعادتها القاعدة بأجوبة المالك (3eb8bc2: _late). وكلّ فحص هنا عن
+// الشاشات يفشل على شاشات d13246a (والفحوص التي تثبت ما في العيّنات وحدها تمرّ عليها):
 // W1 (M4) «أغلق الدورة» يرسل بصمة ما في القاعة من النموذج (p_expected_plan، الوسيط الحادي عشر)، وبلاها يرفض الخادم كلّ إغلاق.
 // W2 (S1) نافذة «فرق العدّ» بيوم الخادم وأقدم يوم يقبله (flock_sales: today وearliest_on) لا بساعة الجهاز، و«سجّل» مقفول ما دامت البطاقة تُقرأ من جديد
 //    بعد رفض، والطلب التالي بحيّ القراءة الجديدة التي يعرضها النصّ.
@@ -11,8 +11,8 @@
 // W6 (O7) يومٌ بدأ بلا طير حيّ لا ينتظر جولة: لا «لم تُسجَّل الجولة» له، و«الجولات المسجَّلة n من m» من المنتظرة، والأسبوع من أيّامه المنتظرة.
 // W7 (O6) «أعد فتح الدورة» حين يجيزها الخادم (can.reopen) وإلّا لماذا لا (reopen_why)، في البطاقة والتقرير، والزرّ مقفول ما دامت القراءة في الطريق.
 // W8 (M3) المقبوض الذي رُدّ للتاجر: على ورقة الفاتورة وصفحتها وفي قائمة المبيعات.
-// W9 (O4، أجوبة المالك) التذكرة الأقدم من سبعة أيّام: فاتورتها بتاريخ اليوم والطيور بيوم التذكرة والمقبوض يوم الإصدار، في النموذج وتأكيده والتذكرة
-//    والقوائم والورقة؛ والممنوع بطريقه؛ والمحلّلات تقرأ غياب المفاتيح سلوكَ اليوم.
+// W9 (O4، أجوبة المالك) التذكرة الأقدم من سبعة أيّام: فاتورتها بتاريخ اليوم (sold_on) والطيور بيوم التذكرة (ticket_on) والمقبوض يوم الإصدار (paid_on)،
+//    في النموذج وتأكيده والتذكرة والقوائم والورقة و«أغلق الدورة»؛ والممنوع بطريقه؛ والمحلّلات تقرأ غياب المفاتيح سلوكَ اليوم، ولا too_old.
 // W10 (O10) جملة الطيور في المبيعات: الإيراد وكلفة الفوج في تقرير الفوج، والربح بعد كلفة الفراخ.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -473,22 +473,36 @@ export default async function (t) {
     });
 
     // ── W7 (O6): «أعد فتح الدورة» حين يجيزها الخادم ──────────────────────────────────────────────────────────────────────
-    const LOT = 'لا يُعاد فتح هذه الدورة: العلف الذي رجع منها إلى المخزن صُرف منه أو صُحّح سعره. ألغِ ذلك المستند أوّلاً إن كان خطأً.';
+    const REUSED = 'لا يُعاد فتح هذه الدورة: سُكّن في القاعة فوجٌ بعدها.';
     await step('W7 البطاقة', async () => {
-      const sales = B.flock_sales_closed;
-      fresh(MANAGER, { flock_sales: () => clone(sales) });
-      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(sales) }));
+      const blocked = B.flock_sales_reopen_blocked;
+      fresh(MANAGER, { flock_sales: () => clone(blocked) });
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(blocked) }));
+      const blockedSeen = [blocked.can.reopen, blocked.reopen_why, byAction('card-reopen').length, textOf('card-reopen-why')];
+      await unmount();
+      const open = B.flock_sales_closed;
+      fresh(MANAGER, { flock_sales: () => clone(open) });
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(open) }));
       t.same(
-        [sales.can.reopen, sales.reopen_why, byAction('card-reopen').length, textOf('card-reopen-why')],
-        [false, 'lot_consumed', 0, LOT],
-        'W7 بطاقة الفوج المغلق: لا «أعد فتح الدورة» والخادم لا يجيزها، وجملة لماذا لا (reopen_why) للمدير',
+        [blockedSeen, [open.can.reopen, open.reopen_why, byAction('card-reopen').length, byAction('card-reopen-why').length]],
+        [[false, 'hall_reused', 0, REUSED], [true, null, 1, 0]],
+        'W7 بطاقة الفوج المغلق: بلا «أعد فتح الدورة» والخادم لا يجيزها وجملة لماذا لا (reopen_why = hall_reused) للمدير؛ وبه حين يجيزها',
       );
     });
     await step('W7 التقرير', async () => {
-      const report = B.flock_cycle_report_closed;
-      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_closed) });
-      await mount(`/halls/report/${report.flock.id}`);
-      t.same([byAction('reopen-open').length, textOf('reopen-why')], [0, LOT], 'W7 تقرير الدورة المغلقة: لا «أعد فتح الدورة» حين لا يجيزها الخادم (كان للمدير بدوره وحده)، وجملة لماذا لا');
+      const blocked = B.flock_cycle_report_left_in_hall;
+      fresh(MANAGER, { flock_cycle_report: () => clone(blocked), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
+      await mount(`/halls/report/${blocked.flock.id}`);
+      const blockedSeen = [B.flock_sales_reopen_blocked.flock_id === blocked.flock.id, byAction('reopen-open').length, textOf('reopen-why')];
+      await unmount();
+      const open = B.flock_cycle_report_closed;
+      fresh(MANAGER, { flock_cycle_report: () => clone(open), flock_sales: () => clone(B.flock_sales_closed) });
+      await mount(`/halls/report/${open.flock.id}`);
+      t.same(
+        [blockedSeen, [B.flock_sales_closed.flock_id === open.flock.id, disabled(byAction('reopen-open')[0]), byAction('reopen-why').length]],
+        [[true, 0, REUSED], [true, false, 0]],
+        'W7 تقرير الدورة المغلقة: لا «أعد فتح الدورة» حين لا يجيزها الخادم (كان للمدير بدوره وحده) وجملة لماذا لا؛ والزرّ متاح حين يجيزها',
+      );
     });
     await step('W7 ?act=reopen والقاعة أُعيد استعمالها', async () => {
       const report = B.flock_cycle_report_left_in_hall;
@@ -496,22 +510,21 @@ export default async function (t) {
       await mount(`/halls/report/${report.flock.id}?act=reopen`);
       t.same(
         [B.flock_sales_reopen_blocked.reopen_why, dialog() !== null, byAction('reopen-open').length, textOf('reopen-why')],
-        ['hall_reused', false, 0, 'لا يُعاد فتح هذه الدورة: سُكّن في القاعة فوجٌ بعدها.'],
+        ['hall_reused', false, 0, REUSED],
         'W7 ?act=reopen لا يفتح النافذة لدورة يرفض الخادم إعادة فتحها (hall_reused)، والجملة تقول لماذا',
       );
     });
     await step('W7 مقفول أثناء القراءة', async () => {
       const report = B.flock_cycle_report_closed;
       const reading = gate();
-      const reopenable = { ...clone(B.flock_sales_closed), can: { ...clone(B.flock_sales_closed.can), reopen: true }, reopen_why: null };
-      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => reading.promise.then(() => reopenable) });
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => reading.promise.then(() => clone(B.flock_sales_closed)) });
       await mount(`/halls/report/${report.flock.id}?act=reopen`);
       const before = [disabled(byAction('reopen-open')[0]), dialog() !== null];
       reading.open();
       await settle(30);
       t.same(
-        [before, disabled(byAction('reopen-open')[0]), byAction('reopen-text').length],
-        [[true, false], false, 1],
+        [B.flock_sales_closed.can.reopen, before, disabled(byAction('reopen-open')[0]), byAction('reopen-text').length],
+        [true, [true, false], false, 1],
         'W7 «أعد فتح الدورة» مقفول ولا نافذة ما دامت قراءة ما يجوز في الطريق، ثمّ ?act=reopen يفتحها حين يجيزها الخادم',
       );
     });
@@ -540,47 +553,46 @@ export default async function (t) {
       );
     });
 
-    // ── W9 (O4، أجوبة المالك 2026-11-13): الفاتورة المتأخّرة ──────────────────────────────────────────────────────────────
-    /** نموذج التذكرة الأقدم من سبعة أيّام بمفاتيح العقد الجديد: تُصدر (لا too_old)، وفاتورتها والمقبوض بتاريخ اليوم، والطيور بيوم التذكرة. */
-    const lateForm = () => {
-      const form = clone(B.bird_sale_form_too_old);
-      Object.assign(form, { why: null, invoiceable: true, can_post: true, late: true, invoice_on: form.today, paid_on: form.today });
-      Object.assign(form.ticket, { invoice_why: null, invoice_late: true });
-      return form;
-    };
+    // ── W9 (O4، أجوبة المالك 2026-11-13): الفاتورة المتأخّرة، بعيّنات القاعدة الحقيقية (3eb8bc2: _late) ────────────────────────────
     const PARTY = { id: B.bird_sale_detail.party_id, name: B.bird_sale_detail.party_name };
     const BOX = { id: B.record_bird_sale_paid.cash_account_id, name: B.record_bird_sale_paid.account_name };
-    await step('W9 النموذج وتأكيده', async () => {
-      const form = lateForm();
-      const ticketDay = m.fmtDay(form.ticket.on_date);
-      const today = m.fmtDay(form.today);
-      fresh(ACCOUNTANT, { bird_sale_form: () => clone(form) }, { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => [BOX] });
-      await mount(`/sales/birds/new?ticket=${form.ticket.id}`);
-      const late = textOf('bird-late');
-      const facts = text().includes(`يوم الفاتورة: ${today} (اليوم)، ويوم التذكرة ${ticketDay}`);
+    const pickers = { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => [BOX] };
+    /** يملأ النموذج: التاجر من البحث، وسعر الكيلو إن لم يُقترح، و«المقبوض الآن» (الصندوق الوحيد يُختار وحده)، ثمّ «أصدر الفاتورة». */
+    const fillAndSubmit = async (price) => {
       type(all().find((n) => n.localName === 'input' && n.getAttribute('type') === 'search'), 'تاجر');
       await settle(20);
       await click(byAction('pick-party')[0]);
+      if (price !== null) type(inputBy('-price'), price);
       type(inputBy('-paid'), '1000');
       await settle(20);
       const paidDay = textOf('bird-paid-day');
       fire(byAction('bird-sale-form')[0], 'submit');
       await settle();
-      const confirm = within(dialog(), 'bird-confirm-text')[0]?.textContent ?? '';
+      return { paidDay, confirm: within(dialog(), 'bird-confirm-text')[0]?.textContent ?? '' };
+    };
+    await step('W9 النموذج وتأكيده', async () => {
+      const form = B.bird_sale_form_late;
+      const ticketDay = m.fmtDay(form.ticket.on_date);
+      const today = m.fmtDay(form.today);
+      fresh(ACCOUNTANT, { bird_sale_form: () => clone(form) }, pickers);
+      await mount(`/sales/birds/new?ticket=${form.ticket.id}`);
+      const late = textOf('bird-late');
+      const facts = text().includes(`يوم الفاتورة: ${today} (اليوم)، ويوم التذكرة ${ticketDay}`);
+      const { paidDay, confirm } = await fillAndSubmit(form.suggested_price === null ? '2000' : null);
       t.same(
-        [form.ticket.on_date < form.today, late, facts, paidDay],
+        [[form.late, form.invoice_on, form.paid_on, form.ticket.on_date < form.today, form.ticket.invoice_late], late, facts, paidDay],
         [
-          true,
+          [true, form.today, form.today, true, true],
           `التذكرة ${form.ticket.ticket_no} بيوم ${ticketDay}، أقدم من سبعة أيّام: تُسجَّل الفاتورة بتاريخ اليوم ${today}، وتخرج الطيور من القاعات بتاريخ التذكرة ${ticketDay}.والمقبوض الآن يدخل الصندوق بتاريخ اليوم ${today}.`,
           true,
           null,
         ],
-        'W9 نموذج فاتورة التذكرة الأقدم من سبعة أيّام: الفاتورة بتاريخ اليوم والطيور تخرج بيوم التذكرة والمقبوض يدخل الصندوق اليوم، صراحةً (أجوبة المالك 2026-11-13)',
+        'W9 نموذج فاتورة التذكرة الأقدم من سبعة أيّام (bird_sale_form_late): الفاتورة بتاريخ اليوم والطيور تخرج بيوم التذكرة والمقبوض يدخل الصندوق اليوم، صراحةً (أجوبة المالك 2026-11-13)',
       );
       t.same(
         [
           confirm.startsWith(`تُسجَّل فاتورة BR بتاريخ اليوم ${today} لأنّ التذكرة أقدم من سبعة أيّام، بمبلغ `),
-          confirm.includes(`وتخرج 100 طير من «${form.flocks[0].hall_name}» بتاريخ التذكرة ${ticketDay}.`),
+          confirm.includes(`وتخرج ${form.flocks[0].birds} طير من «${form.flocks[0].hall_name}» بتاريخ التذكرة ${ticketDay}.`),
           confirm.includes(`ويُقبض الآن 1,000 دينار في «${BOX.name}» بتاريخ اليوم ${today}`),
         ],
         [true, true, true],
@@ -588,127 +600,175 @@ export default async function (t) {
       );
     });
     await step('W9 المقبوض يوم الإصدار وتذكرة يومٍ مضى', async () => {
-      // تذكرة في حدّ الأيّام السبعة: الفاتورة بيومها، والمقبوض يدخل الصندوق يوم إصدارها (paid_on، أجوبة المالك 2026-11-13).
-      const form = { ...clone(B.bird_sale_form_open), late: false, invoice_on: B.bird_sale_form_open.ticket.on_date, paid_on: B.bird_sale_form_open.today };
-      fresh(ACCOUNTANT, { bird_sale_form: () => clone(form) }, { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => [BOX] });
+      // bird_sale_form_open: تذكرة في حدّ الأيّام السبعة، فالفاتورة بيومها (invoice_on) والمقبوض يدخل الصندوق يوم إصدارها (paid_on = اليوم).
+      const form = B.bird_sale_form_open;
+      fresh(ACCOUNTANT, { bird_sale_form: () => clone(form) }, pickers);
       await mount(`/sales/birds/new?ticket=${form.ticket.id}`);
-      type(all().find((n) => n.localName === 'input' && n.getAttribute('type') === 'search'), 'تاجر');
-      await settle(20);
-      await click(byAction('pick-party')[0]);
-      type(inputBy('-paid'), '1000');
-      await settle(20);
-      const paidDay = textOf('bird-paid-day');
-      fire(byAction('bird-sale-form')[0], 'submit');
-      await settle();
-      const confirm = within(dialog(), 'bird-confirm-text')[0]?.textContent ?? '';
+      const { paidDay, confirm } = await fillAndSubmit(form.suggested_price === null ? '2000' : null);
       const ticketDay = m.fmtDay(form.ticket.on_date);
       const today = m.fmtDay(form.today);
       t.same(
-        [form.invoice_on !== form.paid_on, byAction('bird-late').length, text().includes(`يوم الفاتورة: ${ticketDay} (يوم التذكرة)`), paidDay, confirm.startsWith('تُسجَّل فاتورة BR بمبلغ '), confirm.includes(`ويُقبض الآن 1,000 دينار في «${BOX.name}» بتاريخ اليوم ${today}`)],
-        [true, 0, true, `يدخل المقبوض الصندوق بتاريخ اليوم ${today}، والفاتورة بتاريخ ${ticketDay}.`, true, true],
+        [
+          [form.late, form.invoice_on, form.paid_on],
+          byAction('bird-late').length,
+          text().includes(`يوم الفاتورة: ${ticketDay} (يوم التذكرة)`),
+          paidDay,
+          confirm.startsWith('تُسجَّل فاتورة BR بمبلغ '),
+          confirm.includes(`ويُقبض الآن 1,000 دينار في «${BOX.name}» بتاريخ اليوم ${today}`),
+        ],
+        [[false, form.ticket.on_date, form.today], 0, true, `يدخل المقبوض الصندوق بتاريخ اليوم ${today}، والفاتورة بتاريخ ${ticketDay}.`, true, true],
         'W9 تذكرة يومٍ مضى في الحدّ: الفاتورة بيوم التذكرة، والمقبوض يدخل الصندوق بتاريخ اليوم (paid_on) يقوله النموذج والتأكيد',
       );
     });
     await step('W9 الممنوع بطريقه', async () => {
-      const locked = { ...clone(B.bird_sale_form_too_old), why: 'period_locked' };
+      const locked = B.bird_sale_form_period_locked_late;
       fresh(ACCOUNTANT, { bird_sale_form: () => clone(locked) });
       await mount(`/sales/birds/new?ticket=${locked.ticket.id}`);
       const lockedText = text();
+      const lockedForm = byAction('bird-sale-form').length;
       await unmount();
       const scope = B.bird_sale_form_out_of_scope;
       fresh(ACCOUNTANT, { bird_sale_form: () => clone(scope) });
       await mount(`/sales/birds/new?ticket=${scope.ticket.id}`);
       t.same(
         [
+          [locked.why, locked.late, locked.invoiceable],
           lockedText.includes(`يوم التذكرة ${m.fmtDay(locked.ticket.on_date)} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`),
+          lockedText.includes('أقدم من سبعة أيّام: تُسجَّل الفاتورة'),
+          lockedForm,
           text().includes('دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.'),
           byAction('bird-sale-form').length,
         ],
-        [true, true, 0],
-        'W9 الممنوع الباقي (الفترة المقفلة ونطاق الدفتر) بجملة تقول من يفعل ماذا، ولا نموذج',
+        [['period_locked', true, false], true, false, 0, true, 0],
+        'W9 الممنوع الباقي بجملة تقول من يفعل ماذا ولا نموذج: يوم التذكرة في فترة مقفلة (bird_sale_form_period_locked_late، ولو كانت متأخّرة لا تُعرض جملة التأريخ) ونطاق الدفتر',
       );
     });
     await step('W9 التذكرة', async () => {
-      const late = { ...clone(B.weigh_ticket_too_old), invoice_why: null, invoice_late: true };
-      late.can = { ...late.can, invoice: true };
+      const late = B.weigh_ticket_late;
       fresh(ACCOUNTANT, { weigh_ticket: () => clone(late) });
       await mount(`/halls/ticket/${late.id}`);
-      const lateSeen = [byAction('ticket-invoice').length, textOf('ticket-invoice-late')];
+      const lateSeen = [late.invoice_late, late.can.invoice, byAction('ticket-invoice').length, textOf('ticket-invoice-late')];
       await unmount();
-      const locked = { ...clone(B.weigh_ticket_too_old), invoice_why: 'period_locked' };
+      // التذكرة نفسها كما في نموذج الفاتورة الممنوعة (weigh_ticket_json بلا can)، بأفعالها كما يرسلها الخادم لها (لا «أصدر الفاتورة» مع invoice_why).
+      const locked = { ...clone(B.bird_sale_form_period_locked_late.ticket), can: { edit: false, finish: false, void: false, invoice: false } };
       fresh(ACCOUNTANT, { weigh_ticket: () => clone(locked) });
       await mount(`/halls/ticket/${locked.id}`);
       t.same(
-        [lateSeen, byAction('ticket-invoice').length, textOf('ticket-invoice-why')],
+        [lateSeen, locked.invoice_why, byAction('ticket-invoice').length, textOf('ticket-invoice-why')],
         [
-          [1, `التذكرة أقدم من سبعة أيّام: تُسجَّل فاتورتها بتاريخ اليوم، وتخرج الطيور من القاعات بتاريخ التذكرة ${m.fmtDay(late.on_date)}.`],
+          [true, true, 1, `التذكرة أقدم من سبعة أيّام: تُسجَّل فاتورتها بتاريخ اليوم، وتخرج الطيور من القاعات بتاريخ التذكرة ${m.fmtDay(late.on_date)}.`],
+          'period_locked',
           0,
           `يوم التذكرة ${m.fmtDay(locked.on_date)} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`,
         ],
-        'W9 التذكرة المكتملة الأقدم من سبعة أيّام: «أصدر الفاتورة» وجملة أنّها تُؤرَّخ اليوم والطيور بيومها (invoice_late)؛ والممنوعة بسببها وطريقه (invoice_why)',
+        'W9 التذكرة المكتملة الأقدم من سبعة أيّام (weigh_ticket_late): «أصدر الفاتورة» وجملة أنّها تُؤرَّخ اليوم والطيور بيومها (invoice_late)؛ والممنوعة بسببها وطريقه (invoice_why)',
       );
     });
     await step('W9 القوائم', async () => {
-      const list = clone(B.weigh_tickets_awaiting_too_old);
-      const old = list.rows.find((row) => row.invoice_why === 'too_old');
-      Object.assign(old, { invoice_why: null, invoiceable: true, invoice_late: true });
-      const blocked = list.rows.find((row) => row !== old);
-      Object.assign(blocked, { invoice_why: 'period_locked', invoiceable: false, invoice_late: false });
+      // القائمتان من القاعدة بتذكرة متأخّرة، ومعها صفّ ممنوع بشكل الصفّ نفسه (invoice_why = period_locked، كتذكرة النموذج الممنوع).
+      const list = clone(B.weigh_tickets_awaiting_late);
+      const lateRow = list.rows[0];
+      list.rows.push({ ...clone(lateRow), id: B.bird_sale_form_period_locked_late.ticket.id, ticket_no: B.bird_sale_form_period_locked_late.ticket.ticket_no, invoice_why: 'period_locked', invoiceable: false });
       fresh(ACCOUNTANT, { weigh_tickets: () => clone(list) });
       await mount('/halls/tickets');
       const tickets = [byAction('tickets-late').map((n) => n.textContent), byAction('tickets-why').map((n) => n.textContent)];
       await unmount();
-      const overview = clone(B.sales_overview);
-      const [first, second] = overview.birds.awaiting;
-      Object.assign(first, { late: true });
-      Object.assign(second, { invoiceable: false, why: 'period_locked' });
+      const overview = clone(B.sales_overview_late);
+      const lateAwaiting = overview.birds.awaiting[0];
+      const blocked = { ...clone(lateAwaiting), ticket_id: B.bird_sale_form_period_locked_late.ticket.id, ticket_no: B.bird_sale_form_period_locked_late.ticket.ticket_no, invoiceable: false, why: 'period_locked' };
+      overview.birds.awaiting.push(blocked);
       fresh(ACCOUNTANT, { sales_overview: () => clone(overview) });
       await mount('/sales');
       const links = byAction('invoice-ticket').map((n) => href(n));
       t.same(
-        [tickets, byAction('awaiting-late').map((n) => n.textContent), byAction('awaiting-why').map((n) => n.textContent), links.length, links.some((link) => link.includes(second.ticket_id))],
-        [[['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة']], ['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة: يفتحها مالك المنشأة'], overview.birds.awaiting.length - 1, false],
-        'W9 تذاكر الوزن والمبيعات: الأقدم من سبعة أيّام «تُؤرَّخ فاتورتها اليوم» و«أصدر الفاتورة» لها، والممنوعة بسببها بلا «أصدر الفاتورة» (late وinvoiceable)',
+        [
+          [lateRow.invoice_late, lateRow.invoiceable, lateAwaiting.late, lateAwaiting.invoiceable],
+          tickets,
+          byAction('awaiting-late').map((n) => n.textContent),
+          byAction('awaiting-why').map((n) => n.textContent),
+          links.map((link) => link.includes(lateAwaiting.ticket_id)),
+        ],
+        [[true, true, true, true], [['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة']], ['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة: يفتحها مالك المنشأة'], [true]],
+        'W9 تذاكر الوزن والمبيعات (weigh_tickets_awaiting_late وsales_overview_late): المتأخّرة «تُؤرَّخ فاتورتها اليوم» و«أصدر الفاتورة» لها، والممنوعة بسببها بلا «أصدر الفاتورة»',
       );
     });
     await step('W9 الورقة', async () => {
-      const sale = { ...clone(B.bird_sale_detail), sold_on: '2026-11-12', on: '2026-11-12', ticket_on: '2026-11-04', paid_on: '2026-11-12' };
-      fresh(ACCOUNTANT, { bird_sale_detail: () => clone(sale) });
-      await mount(`/sales/birds/${sale.id}`);
+      const late = B.bird_sale_detail_late;
+      fresh(ACCOUNTANT, { bird_sale_detail: () => clone(late) });
+      await mount(`/sales/birds/${late.id}`);
+      const lateSeen = [textOf('bird-paper-date'), textOf('bird-paper-ticket-date'), textOf('bird-paper-paid')];
+      await unmount();
+      // المقبوض يوم الإصدار بعد يوم الفاتورة (paid_on بعد sold_on، الفاتورة الملغاة تحمل مقبوضها): يومه على الورقة.
+      const paidLater = B.bird_sale_detail_void;
+      fresh(ACCOUNTANT, { bird_sale_detail: () => clone(paidLater) });
+      await mount(`/sales/birds/${paidLater.id}`);
       t.same(
-        [textOf('bird-paper-date'), textOf('bird-paper-ticket-date')],
-        ['التاريخ: 12/11/2026', 'يوم التذكرة وخروج الطيور: 04/11/2026'],
-        'W9 ورقة الفاتورة المتأخّرة: يومها ويوم التذكرة (خروج الطيور) حين يختلفان',
+        [lateSeen, [paidLater.sold_on, paidLater.paid_on], textOf('bird-paper-paid'), byAction('bird-paper-ticket-date').length],
+        [
+          [`التاريخ: ${m.fmtDay(late.sold_on)}`, `يوم التذكرة وخروج الطيور: ${m.fmtDay(late.ticket_on)}`, `المقبوض الآن:${m.fmtInt(Number(late.money.paid_now))} دينار في «${late.account_name}»`],
+          ['2026-11-11', '2026-11-12'],
+          `المقبوض الآن:${m.fmtInt(Number(paidLater.money.paid_now))} دينار في «${paidLater.account_name}» بتاريخ ${m.fmtDay(paidLater.paid_on)}`,
+          0,
+        ],
+        'W9 ورقة الفاتورة: المتأخّرة بيومها (sold_on) ويوم التذكرة وخروج الطيور (ticket_on)، والمقبوض بيومه (paid_on) حين يخالف يوم الفاتورة',
       );
     });
     {
-      // المحلّلات: غياب مفاتيح O4 (العيّنات الحاليّة) سلوكُ اليوم، وحضورها بقيمته.
-      const form = m.birds.parseBirdSaleForm(clone(B.bird_sale_form_open));
-      const sale = m.birds.parseBirdSale(clone(B.record_bird_sale_paid));
-      const ticket = m.tickets.parseWeighTicket(clone(B.weigh_ticket_done));
-      const section = m.birds.parseBirdSalesSection(clone(B.sales_overview.birds));
-      const lateParsed = m.birds.parseBirdSaleForm(lateForm());
-      const dated = m.birds.parseBirdSale({ ...clone(B.record_bird_sale_paid), on: '2026-11-13', ticket_on: '2026-11-04', paid_on: '2026-11-13' });
+      // المحلّلات: مفاتيح أجوبة المالك كما أرسلها الخادم، وغيابها (خادم قبلها) سلوك اليوم: الفاتورة والتذكرة والمقبوض بيوم الفاتورة.
+      const strip = (value, keys) => {
+        const out = clone(value);
+        for (const key of keys) delete out[key];
+        return out;
+      };
+      const form = m.birds.parseBirdSaleForm(clone(B.bird_sale_form_late));
+      const oldForm = m.birds.parseBirdSaleForm({ ...strip(B.bird_sale_form_late, ['invoice_on', 'late', 'paid_on']), ticket: strip(B.bird_sale_form_late.ticket, ['invoice_late']) });
+      const sale = m.birds.parseBirdSale(clone(B.record_bird_sale_late));
+      const refunded = m.birds.parseBirdSale(clone(B.bird_sale_detail_refunded));
+      const oldSale = m.birds.parseBirdSale(strip(B.record_bird_sale_late, ['ticket_on', 'paid_on']));
+      const ticket = m.tickets.parseWeighTicket(clone(B.weigh_ticket_late));
+      const oldTicket = m.tickets.parseWeighTicket(strip(B.weigh_ticket_late, ['invoice_late']));
+      const section = m.birds.parseBirdSalesSection(clone(B.sales_overview_late.birds));
+      const oldSection = m.birds.parseBirdSalesSection({ ...clone(B.sales_overview_late.birds), awaiting: B.sales_overview_late.birds.awaiting.map((row) => strip(row, ['late'])) });
       t.same(
         [
-          [form.late, form.invoiceOn, form.paidOn],
-          [sale.on, sale.ticketOn, sale.paidOn],
-          [ticket.invoiceLate, ticket.invoiceWhy],
-          section.awaiting.map((row) => [row.late, row.invoiceable, row.why]),
-          [lateParsed.late, lateParsed.invoiceOn, lateParsed.paidOn, lateParsed.ticket.invoiceLate],
-          [dated.on, dated.ticketOn, dated.paidOn, dated.soldOn],
+          [form.late, form.invoiceOn, form.paidOn, form.ticket.invoiceLate],
+          [oldForm.late, oldForm.invoiceOn, oldForm.paidOn, oldForm.ticket.invoiceLate],
+          [sale.soldOn, sale.ticketOn, sale.paidOn, refunded.paidOn],
+          [oldSale.soldOn, oldSale.ticketOn, oldSale.paidOn],
+          [ticket.invoiceLate, oldTicket.invoiceLate],
+          [section.awaiting.map((row) => row.late), oldSection.awaiting.map((row) => row.late)],
+          'on' in sale,
         ],
         [
-          [false, B.bird_sale_form_open.ticket.on_date, B.bird_sale_form_open.ticket.on_date],
-          [B.record_bird_sale_paid.sold_on, B.record_bird_sale_paid.sold_on, B.record_bird_sale_paid.sold_on],
-          [false, null],
-          B.sales_overview.birds.awaiting.map((row) => [false, row.invoiceable, row.why]),
           [true, '2026-11-12', '2026-11-12', true],
-          ['2026-11-13', '2026-11-04', '2026-11-13', B.record_bird_sale_paid.sold_on],
+          [false, B.bird_sale_form_late.ticket.on_date, B.bird_sale_form_late.ticket.on_date, false],
+          ['2026-11-12', '2026-11-04', '2026-11-12', null],
+          ['2026-11-12', '2026-11-12', '2026-11-12'],
+          [true, false],
+          [[true], [false]],
+          false,
         ],
-        'W9 المحلّلات: بلا مفاتيح أجوبة المالك الفاتورة والمقبوض بيوم التذكرة (سلوك اليوم)، وبها يوم الفاتورة ويوم التذكرة ويوم المقبوض كما أرسلها الخادم',
+        'W9 المحلّلات: يوم الفاتورة sold_on ويوم التذكرة ticket_on ويوم المقبوض paid_on (null حين رُدّ) كما أرسلها الخادم، وبلا مفاتيح أجوبة المالك (خادم قبلها) الثلاثة يوم الفاتورة وlate = false',
+      );
+      t.same(
+        [m.birds.FORM_WHY.includes('too_old'), Array.isArray(m.tickets.INVOICE_WHY) && !m.tickets.INVOICE_WHY.includes('too_old')],
+        [false, true],
+        'W9 too_old لم يعد يُرسل: لا يقبله المحلّلان (FORM_WHY وINVOICE_WHY)',
       );
     }
+    await step('W9 نموذج الإغلاق: يوم خروج الطيور', async () => {
+      // فاتورة متأخّرة على الفوج: يومها (sold_on) بعد يوم تذكرتها (ticket_on) بأكثر من سبعة أيّام؛ وعمود «اليوم» يوم خروج الطيور وتحته يوم الفاتورة.
+      const form = clone(B.flock_close_form);
+      Object.assign(form.sales.invoices[0], { ticket_on: '2026-11-02', sold_on: '2026-11-10' });
+      fresh(MANAGER, { flock_close_form: () => clone(form) });
+      await mount(`/halls/close/${form.flock.id}`);
+      const rows = rowsOf('فواتير الطيور المرحّلة') ?? [];
+      t.same(
+        [B.flock_close_form.sales.invoices.map((row) => row.ticket_on === row.sold_on), rows.map((row) => row[0]), textOf('close-invoice-day')],
+        [[true], ['02/11/2026الفاتورة بتاريخ 10/11/2026'], 'الفاتورة بتاريخ 10/11/2026'],
+        'W9 «أغلق الدورة»: فاتورة الطيور تحت «اليوم» بيوم خروج الطيور (ticket_on) وتحته يوم الفاتورة حين يختلف (كانت يوم الفاتورة sold_on وحده)',
+      );
+    });
 
     // ── W10 (O10): جملة الطيور في المبيعات ──────────────────────────────────────────────────────────────────────────────
     await step('W10', async () => {

@@ -74,10 +74,10 @@ export type TicketSaleStatus = (typeof SALE_STATUSES)[number];
 export const TICKET_FILTERS = ['all', 'draft', 'done', 'awaiting', 'void'] as const;
 export type TicketFilter = (typeof TICKET_FILTERS)[number];
 /**
- * لماذا لا تُصدر لتذكرة مكتملة فاتورة الآن (ticket_invoice_block، مراجعة 0028 O4): بلا دفتر لوحدتها، ودفترها خارج النطاق، والفترة مقفلة؛ وtoo_old من
- * خادم قبل أجوبة المالك 2026-11-13 (بعدها الأقدم من سبعة أيّام تُفوتَر بتاريخ اليوم: invoice_late).
+ * لماذا لا تُصدر لتذكرة مكتملة فاتورة الآن (ticket_invoice_block، مراجعة 0028 O4): بلا دفتر لوحدتها، ودفترها خارج النطاق، والفترة مقفلة؛ والأقدم من سبعة
+ * أيّام لا تُمنع (أجوبة المالك 2026-11-13): تُفوتَر بتاريخ اليوم (invoice_late).
  */
-export const INVOICE_WHY = ['no_book', 'out_of_scope', 'period_locked', 'too_old'] as const;
+export const INVOICE_WHY = ['no_book', 'out_of_scope', 'period_locked'] as const;
 export type InvoiceWhy = (typeof INVOICE_WHY)[number];
 const invoiceWhy = (row: Row): InvoiceWhy | null => (row.invoice_why === null || row.invoice_why === undefined ? null : oneOf(row, 'invoice_why', INVOICE_WHY));
 /** المنطقيّ الغائب (خادم قبل المفتاح) false. */

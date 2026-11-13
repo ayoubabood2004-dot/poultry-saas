@@ -49,8 +49,8 @@ export function statusLabel(status: TicketStatus, invoiced: boolean): string {
 }
 
 /**
- * لماذا لا تُصدر فاتورة تذكرة مكتملة الآن (مراجعة 0028 O4: invoice_why بقاعدة الكاتب)، بجملة تقول من يفعل ماذا؛ والأقدم من سبعة أيّام لم تعد سبباً بعد
- * أجوبة المالك 2026-11-13 (تُفوتَر بتاريخ اليوم)، وtoo_old من خادم قبلها.
+ * لماذا لا تُصدر فاتورة تذكرة مكتملة الآن (مراجعة 0028 O4: invoice_why بقاعدة الكاتب)، بجملة تقول من يفعل ماذا؛ والأقدم من سبعة أيّام ليست سبباً بعد
+ * أجوبة المالك 2026-11-13 (تُفوتَر بتاريخ اليوم).
  */
 export function invoiceWhyText(why: InvoiceWhy, day: Day): string {
   switch (why) {
@@ -60,8 +60,6 @@ export function invoiceWhyText(why: InvoiceWhy, day: Day): string {
       return t('halls.ticket.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فاتورتها من حسابك. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.');
     case 'no_book':
       return t('halls.ticket.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فاتورتها. اطلب من مالك المنشأة مراجعة دفاتر الوحدات.');
-    case 'too_old':
-      return t('halls.ticket.why.too_old', 'التذكرة أقدم من سبعة أيّام، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها الآن.');
   }
 }
 

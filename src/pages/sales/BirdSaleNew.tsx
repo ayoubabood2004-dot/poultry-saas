@@ -180,8 +180,6 @@ function whyText(why: FormWhy, form: BirdSaleForm): string {
       return t('birds.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.', {
         day: fmtDay(form.ticket.onDate),
       });
-    case 'too_old':
-      return t('birds.why.too_old', 'التذكرة أقدم من سبعة أيّام، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها الآن.');
   }
 }
 

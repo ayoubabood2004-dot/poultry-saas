@@ -187,9 +187,9 @@ export function BirdSalePaper({ sale, orgName }: { sale: BirdSaleDetail; orgName
             {t('voucher.no', 'رقم:')} <Num>{sale.docNo}</Num>
           </p>
           <p className="text-sm" data-action="bird-paper-date">
-            {t('voucher.date', 'التاريخ:')} <Num>{fmtDay(sale.on)}</Num>
+            {t('voucher.date', 'التاريخ:')} <Num>{fmtDay(sale.soldOn)}</Num>
           </p>
-          {sale.ticketOn !== sale.on ? (
+          {sale.ticketOn !== sale.soldOn ? (
             <p className="text-sm" data-action="bird-paper-ticket-date">
               {t('birds.paper.ticket_day', 'يوم التذكرة وخروج الطيور:')} <Num>{fmtDay(sale.ticketOn)}</Num>
             </p>
@@ -261,7 +261,7 @@ export function BirdSalePaper({ sale, orgName }: { sale: BirdSaleDetail; orgName
                   ? t('birds.paper.paid_box', '{amount} في «{box}»', { amount: dinarsText(money.paidNow), box: sale.accountName })
                   : dinarsText(money.paidNow)
                 : t('birds.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)')}
-            {!sale.paymentRefunded && money.paidNow > 0n && sale.paidOn !== sale.on ? t('birds.paper.paid_day', ' بتاريخ {day}', { day: fmtDay(sale.paidOn) }) : ''}
+            {!sale.paymentRefunded && money.paidNow > 0n && sale.paidOn !== null && sale.paidOn !== sale.soldOn ? t('birds.paper.paid_day', ' بتاريخ {day}', { day: fmtDay(sale.paidOn) }) : ''}
           </PaperLine>
           <PaperLine label={t('birds.paper.credit', 'الباقي على الحساب:')} action="bird-paper-credit">
             {dinarsText(money.total - money.paidNow)}

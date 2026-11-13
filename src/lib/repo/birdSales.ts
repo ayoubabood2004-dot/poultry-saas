@@ -106,15 +106,14 @@ export interface BirdSale {
   id: string;
   docNo: string;
   status: BirdSaleStatus;
-  /** يوم الفاتورة كما يرسله الخادم في sold_on (D3: يوم التذكرة؛ والمتأخّرة بقاعدة on أدناه). */
+  /** يوم الفاتورة (D3: يوم التذكرة؛ والتذكرة الأقدم من سبعة أيّام يوم إصدارها، أجوبة المالك 2026-11-13). */
   soldOn: Day;
   /**
-   * أجوبة المالك 2026-11-13 (مراجعة 0028 O4): on يوم الفاتورة (اليوم للتذكرة الأقدم من سبعة أيّام)، وticketOn يوم التذكرة (تخرج الطيور من القاعات به)، وpaidOn
-   * يوم دخول المقبوض الصندوق (يوم إصدار الفاتورة). وخادم قبلها بلا المفاتيح: الثلاثة يوم الفاتورة sold_on (كما كان).
+   * أجوبة المالك 2026-11-13 (مراجعة 0028 O4): ticketOn يوم التذكرة (تخرج الطيور من القاعات به)، وpaidOn يوم دخول المقبوض الصندوق (يوم إصدار الفاتورة)، وnull
+   * حين لا مقبوض أو رُدّ. وخادم قبلها بلا المفتاحين: يوم الفاتورة sold_on للاثنين (كما كان).
    */
-  on: Day;
   ticketOn: Day;
-  paidOn: Day;
+  paidOn: Day | null;
   /** المقبوض عند البيع رُدّ للتاجر («ألغِ القبض»، مراجعة 0028 M3): الخادم يقرؤه بالدين (المقبوض صفر)؛ وخادم قبلها false. */
   paymentRefunded: boolean;
   ticketId: string;
@@ -149,15 +148,13 @@ const saleMoney = (row: Row): BirdSaleMoney | null => {
 export function parseBirdSale(value: unknown): BirdSale {
   const json = record(value, 'bird_sale');
   const soldOn = str(json, 'sold_on');
-  const on = optStr(json, 'on') ?? soldOn;
   return {
     id: str(json, 'id'),
     docNo: str(json, 'doc_no'),
     status: oneOf(json, 'status', BIRD_SALE_STATUSES),
     soldOn,
-    on,
-    ticketOn: optStr(json, 'ticket_on') ?? on,
-    paidOn: optStr(json, 'paid_on') ?? on,
+    ticketOn: optStr(json, 'ticket_on') ?? soldOn,
+    paidOn: json.paid_on === undefined ? soldOn : optStr(json, 'paid_on'),
     paymentRefunded: optFlag(json, 'payment_refunded', false),
     ticketId: str(json, 'ticket_id'),
     ticketNo: str(json, 'ticket_no'),
@@ -229,9 +226,9 @@ export async function loadBirdSaleDetail(saleId: string): Promise<BirdSaleDetail
 // ─── نموذج الفاتورة (bird_sale_form، العقد §5.4) ─────────────────────────────────────────────────────────────────────
 
 /** لماذا لا تصدر فاتورة للتذكرة: مسوّدة، أو ملغاة، أو صدرت فاتورتها، أو فوج من أفواجها مغلق، أو لا دفتر لوحدة الحقل. */
-// مراجعة 0028 O4: والدفتر خارج نطاق القارئ، والفترة المقفلة: لا يُعرض ترحيل يرفضه الخادم. وtoo_old (الفاتورة بيوم تذكرتها ولا أقدم من سبعة أيّام) من
-// خادم قبل أجوبة المالك 2026-11-13؛ بعدها التذكرة الأقدم تُفوتَر بتاريخ اليوم (late) ولا ترفض.
-export const FORM_WHY = ['draft', 'void', 'invoiced', 'flock_closed', 'no_book', 'out_of_scope', 'period_locked', 'too_old'] as const;
+// مراجعة 0028 O4: والدفتر خارج نطاق القارئ، والفترة المقفلة: لا يُعرض ترحيل يرفضه الخادم. والتذكرة الأقدم من سبعة أيّام لا تُمنع بعد أجوبة المالك
+// 2026-11-13: تُفوتَر بتاريخ اليوم (late).
+export const FORM_WHY = ['draft', 'void', 'invoiced', 'flock_closed', 'no_book', 'out_of_scope', 'period_locked'] as const;
 export type FormWhy = (typeof FORM_WHY)[number];
 
 /** قاعة من التذكرة بحيّها الآن: over_live = طيور التذكرة أكثر من الحيّ (الخادم يرفض الفاتورة birds_over_live). */

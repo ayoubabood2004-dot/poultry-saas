@@ -173,8 +173,6 @@ function awaitingWhy(why: AwaitingTicket['why']): string {
       return t('birds.awaiting.why.out_of_scope', 'دفتر وحدتها خارج نطاقك: يصدرها مالك المنشأة');
     case 'no_book':
       return t('birds.awaiting.why.no_book', 'لا دفتر لوحدتها: راجع مالك المنشأة');
-    case 'too_old':
-      return t('birds.awaiting.why.too_old', 'أقدم من سبعة أيّام');
     default:
       return t('birds.awaiting.why.other', 'لا تُصدر فاتورتها الآن');
   }

@@ -236,7 +236,11 @@ export interface CloseForm {
   defaultOn: Day;
   /** بصمة ما في القاعة كميةً وقيمةً (مراجعة 0028 M4)؛ تُرسل مع الإغلاق (p_expected_plan)، وخادم قبلها null. */
   plan: string | null;
-  sales: { birds: number; netKg: Milli; avgKg: Milli | null; invoices: readonly { soldOn: Day; birds: number; netKg: Milli; ticketNo: string | null; docNo: string | null }[] };
+  /**
+   * المباع من الفواتير المرحّلة؛ ولكلّ فاتورة يوم خروج الطيور من القاعة (ticketOn: يوم التذكرة) ويوم الفاتورة (soldOn)، يختلفان للتذكرة الأقدم من سبعة
+   * أيّام (أجوبة المالك 2026-11-13)؛ وخادم قبلها: يوم الفاتورة للاثنين.
+   */
+  sales: { birds: number; netKg: Milli; avgKg: Milli | null; invoices: readonly { soldOn: Day; ticketOn: Day; birds: number; netKg: Milli; ticketNo: string | null; docNo: string | null }[] };
   pendingTickets: readonly { ticketId: string; ticketNo: string | null; status: (typeof TICKET_STATUSES)[number]; onDate: Day; birds: number | null }[];
   /**
    * leftInHallKg ما في القاعة بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg)، وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو)؛ وخادم
@@ -282,6 +286,7 @@ export function parseCloseForm(value: unknown): CloseForm {
       avgKg: optScaled(sales, 'avg_kg', 3),
       invoices: list(sales.invoices, 'invoices').map((row) => ({
         soldOn: str(row, 'sold_on'),
+        ticketOn: optStr(row, 'ticket_on') ?? str(row, 'sold_on'),
         birds: int(row, 'birds'),
         netKg: scaled(row, 'net_kg', 3),
         ticketNo: optStr(row, 'ticket_no'),

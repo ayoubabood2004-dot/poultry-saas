@@ -446,7 +446,22 @@ function CloseView({ flockId }: { flockId: string }) {
           <DataTable
             caption={t('halls.close.invoices', 'فواتير الطيور المرحّلة')}
             columns={[
-              { key: 'day', header: t('halls.tickets.col.day', 'اليوم'), cell: (row) => <Num>{fmtDay(row.soldOn)}</Num> },
+              // يوم خروج الطيور من القاعة (يوم التذكرة)، وتحته يوم الفاتورة حين يختلف (التذكرة الأقدم من سبعة أيّام تُفوتَر بتاريخ يوم إصدارها).
+              {
+                key: 'day',
+                header: t('halls.tickets.col.day', 'اليوم'),
+                cell: (row) =>
+                  row.ticketOn === row.soldOn ? (
+                    <Num>{fmtDay(row.ticketOn)}</Num>
+                  ) : (
+                    <>
+                      <Num>{fmtDay(row.ticketOn)}</Num>
+                      <span className="block text-xs text-ink-muted" data-action="close-invoice-day">
+                        {t('halls.close.invoice_day', 'الفاتورة بتاريخ {day}', { day: fmtDay(row.soldOn) })}
+                      </span>
+                    </>
+                  ),
+              },
               { key: 'ticket', header: t('halls.tickets.col.ticket', 'التذكرة'), cell: (row) => <bdi dir="ltr">{ticketName(row.ticketNo)}</bdi> },
               { key: 'doc', header: t('halls.tickets.col.sale', 'الفاتورة'), cell: (row) => (row.docNo === null ? dash() : <bdi dir="ltr">{row.docNo}</bdi>) },
               { key: 'birds', header: t('halls.ticket.col.birds', 'الطيور'), kind: 'number', cell: (row) => <Num>{fmtInt(row.birds)}</Num>, total: <Num>{fmtInt(sales.birds)}</Num> },
