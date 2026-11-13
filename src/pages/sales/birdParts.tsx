@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { amountInWords } from '../../domain/amountWords';
-import { localDay, type Day } from '../../domain/dates';
 import { FILS_PER_DINAR, type Fils, type Milli } from '../../domain/money';
 import { columnDecimals, fmtCounted, fmtDay, fmtInt, fmtMilli, fmtMoney, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -27,8 +26,12 @@ export const dinarsText = (amount: Fils): string => t('birds.dinar', '{amount} �
 /** نسبة التنزيل (بالمئات من الواحد بالمئة) بمرتبتين: «0.50٪». */
 export const pctText = (deduction: bigint): string => t('birds.pct', '{value}٪', { value: fmtScaledCell(deduction, 2, 2) });
 
-/** الدفع بكلماته: بالدين كلّه، أو جزء مقبوض والباقي بالدين، أو مقبوض كلّه. */
-export function paidLabel(paid: BirdPaid): string {
+/**
+ * الدفع بكلماته: بالدين كلّه، أو جزء مقبوض والباقي بالدين، أو مقبوض كلّه؛ والمقبوض الذي رُدّ للتاجر («ألغِ القبض»، مراجعة 0028 M3) بالدين بعد ردّه (الخادم
+ * صحّح الدفع والمقبوض، وهذا يقول ما حدث).
+ */
+export function paidLabel(paid: BirdPaid, refunded = false): string {
+  if (refunded) return t('birds.paid.refunded', 'بالدين بعد ردّ المقبوض');
   if (paid === 'cash') return t('birds.paid.cash', 'نقداً');
   if (paid === 'partial') return t('birds.paid.partial', 'جزء نقداً');
   return t('birds.paid.credit', 'بالدين');
@@ -160,12 +163,11 @@ function PaperLine({ label, action, children }: { label: string; action: string;
 /** عنوان الورقة واسم ملفّ الطباعة. */
 export const paperTitle = (docNo: string): string => t('birds.paper.title_no', 'فاتورة بيع دجاج لحم حيّ {no}', { no: docNo });
 
-/** يوم الإلغاء بيوم الجهاز من وقته (ISO)، كيوم التسجيل في السندات. */
-const dayOf = (at: string): Day => localDay(new Date(at));
-
 /**
- * ورقة فاتورة الطيور A5: رأس المنشأة واسم الفاتورة ورقمها ويومها، والتاجر وهاتفه والحقل والتذكرة والسيارة والسائق، وجدول القاعات بمجموعه، والتنزيل
- * والوزن المحسوب وسعر الكيلو والمبلغ بالأرقام والكلمات، والمقبوض الآن وصندوقه، والباقي على الحساب، والتواقيع، وختم «ملغى» بيومه وسببه.
+ * ورقة فاتورة الطيور A5: رأس المنشأة واسم الفاتورة ورقمها ويومها (ويوم التذكرة حين يختلف: الفاتورة المتأخّرة بتاريخ يوم إصدارها وخروج الطيور بيوم
+ * التذكرة، أجوبة المالك 2026-11-13)، والتاجر وهاتفه والحقل والتذكرة والسيارة والسائق، وجدول القاعات بمجموعه، والتنزيل والوزن المحسوب وسعر الكيلو والمبلغ
+ * بالأرقام والكلمات، والمقبوض الآن وصندوقه ويومه حين يختلف (أو أنّه رُدّ للتاجر، مراجعة 0028 M3)، والباقي على الحساب، والتواقيع، وختم «ملغى» بيوم الإلغاء
+ * من الخادم (voided_on، مراجعة 0028 S9: كان من ساعة الجهاز) وسببه.
  */
 export function BirdSalePaper({ sale, orgName }: { sale: BirdSaleDetail; orgName: string }) {
   const money = sale.money;
@@ -185,16 +187,21 @@ export function BirdSalePaper({ sale, orgName }: { sale: BirdSaleDetail; orgName
             {t('voucher.no', 'رقم:')} <Num>{sale.docNo}</Num>
           </p>
           <p className="text-sm" data-action="bird-paper-date">
-            {t('voucher.date', 'التاريخ:')} <Num>{fmtDay(sale.soldOn)}</Num>
+            {t('voucher.date', 'التاريخ:')} <Num>{fmtDay(sale.on)}</Num>
           </p>
+          {sale.ticketOn !== sale.on ? (
+            <p className="text-sm" data-action="bird-paper-ticket-date">
+              {t('birds.paper.ticket_day', 'يوم التذكرة وخروج الطيور:')} <Num>{fmtDay(sale.ticketOn)}</Num>
+            </p>
+          ) : null}
         </div>
       </header>
       {sale.status === 'void' ? (
         <div className="flex flex-col items-center gap-1 text-center" style={STAMP_STYLE} role="status" data-action="void-stamp">
           <strong className="text-2xl">{t('paper.void', 'ملغى')}</strong>
           <span className="text-sm">
-            {sale.voidedAt
-              ? t('paper.void.detail', 'أُلغي بتاريخ {day}. السبب: {reason}', { day: fmtDay(dayOf(sale.voidedAt)), reason: sale.voidReason ?? dash() })
+            {sale.voidedOn
+              ? t('paper.void.detail', 'أُلغي بتاريخ {day}. السبب: {reason}', { day: fmtDay(sale.voidedOn), reason: sale.voidReason ?? dash() })
               : t('birds.void.reason_only', 'السبب: {reason}', { reason: sale.voidReason ?? dash() })}
           </span>
         </div>
@@ -245,11 +252,16 @@ export function BirdSalePaper({ sale, orgName }: { sale: BirdSaleDetail; orgName
             {amountInWords(money.total)}
           </p>
           <PaperLine label={t('birds.paper.paid', 'المقبوض الآن:')} action="bird-paper-paid">
-            {money.paidNow > 0n
+            {sale.paymentRefunded
               ? sale.accountName
-                ? t('birds.paper.paid_box', '{amount} في «{box}»', { amount: dinarsText(money.paidNow), box: sale.accountName })
-                : dinarsText(money.paidNow)
-              : t('birds.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)')}
+                ? t('birds.paper.paid_refunded_box', 'قُبض في «{box}» ثمّ رُدّ للتاجر، فالمبلغ كلّه بالدين', { box: sale.accountName })
+                : t('birds.paper.paid_refunded', 'قُبض ثمّ رُدّ للتاجر، فالمبلغ كلّه بالدين')
+              : money.paidNow > 0n
+                ? sale.accountName
+                  ? t('birds.paper.paid_box', '{amount} في «{box}»', { amount: dinarsText(money.paidNow), box: sale.accountName })
+                  : dinarsText(money.paidNow)
+                : t('birds.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)')}
+            {!sale.paymentRefunded && money.paidNow > 0n && sale.paidOn !== sale.on ? t('birds.paper.paid_day', ' بتاريخ {day}', { day: fmtDay(sale.paidOn) }) : ''}
           </PaperLine>
           <PaperLine label={t('birds.paper.credit', 'الباقي على الحساب:')} action="bird-paper-credit">
             {dinarsText(money.total - money.paidNow)}

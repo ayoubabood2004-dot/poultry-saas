@@ -116,8 +116,21 @@ export function recorder(value) {
   return { proxy: wrap(value, ''), missing };
 }
 
-/** الغائب المقبول: القناع (money)، ومخازن الإرجاع لسطر منقول معلَّق وحده (stores)، وأفعال التذكرة في نموذج الفاتورة (العقد §5.4)، وsite في الخيارات بلا حقل. */
-const OPTIONAL = [/(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u];
+/**
+ * الغائب المقبول: القناع (money)، ومخازن الإرجاع لسطر منقول معلَّق وحده (stores)، وأفعال التذكرة في نموذج الفاتورة (العقد §5.4)، وsite في الخيارات بلا حقل.
+ * ومفاتيح أجوبة المالك 2026-11-13 (مراجعة 0028 O4: الفاتورة المتأخّرة بتاريخ اليوم، والطيور بيوم التذكرة، والمقبوض يوم الإصدار) قبل أن تعيد القاعدة
+ * العيّنات بها: invoice_on وlate وpaid_on في النموذج والقائمة، وinvoice_late في التذكرة وقائمتها، وon وticket_on وpaid_on في الفاتورة؛ غيابها = سلوك اليوم
+ * (الفاتورة والمقبوض بيوم التذكرة)، ويُقرأ بقيمته حين يرسله الخادم (فحص A بالاسم نفسه).
+ */
+const OPTIONAL = [
+  /(^|\.)money$/u,
+  /(^|\.)stores$/u,
+  /^\.then$/u,
+  /^\.ticket\.can$/u,
+  /^\.site$/u,
+  /(^|\.)(invoice_on|late|paid_on|ticket_on|invoice_late)$/u,
+  /^(\.sale)?\.on$/u,
+];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());
 const NUMERIC = /^-?\d+(\.\d+)?$/u;

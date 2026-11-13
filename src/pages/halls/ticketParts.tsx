@@ -3,7 +3,8 @@ import type { Milli } from '../../domain/money';
 import type { WeighMethod } from '../../domain/weighTicket';
 import { columnDecimals, countForm, fmtCounted, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import type { TicketStatus, WeighTicket } from '../../lib/repo/weighTickets';
+import type { Day } from '../../domain/dates';
+import type { InvoiceWhy, TicketStatus, WeighTicket } from '../../lib/repo/weighTickets';
 import { backLabel, backTarget } from './parts';
 
 // قطع تذاكر الوزن (0028، العقد §10): أسماء الحالة والطريقة، والطرق إلى التذكرة وقائمتها وفاتورتها، وورقة التذكرة المطبوعة A5 (بلا سعر ولا تاجر،
@@ -46,6 +47,27 @@ export function statusLabel(status: TicketStatus, invoiced: boolean): string {
   if (status === 'void') return t('halls.ticket.status.void', 'ملغاة');
   return invoiced ? t('halls.ticket.status.invoiced', 'صدرت فاتورتها') : t('halls.ticket.status.awaiting', 'بانتظار الفاتورة');
 }
+
+/**
+ * لماذا لا تُصدر فاتورة تذكرة مكتملة الآن (مراجعة 0028 O4: invoice_why بقاعدة الكاتب)، بجملة تقول من يفعل ماذا؛ والأقدم من سبعة أيّام لم تعد سبباً بعد
+ * أجوبة المالك 2026-11-13 (تُفوتَر بتاريخ اليوم)، وtoo_old من خادم قبلها.
+ */
+export function invoiceWhyText(why: InvoiceWhy, day: Day): string {
+  switch (why) {
+    case 'period_locked':
+      return t('halls.ticket.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.', { day: fmtDay(day) });
+    case 'out_of_scope':
+      return t('halls.ticket.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فاتورتها من حسابك. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.');
+    case 'no_book':
+      return t('halls.ticket.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فاتورتها. اطلب من مالك المنشأة مراجعة دفاتر الوحدات.');
+    case 'too_old':
+      return t('halls.ticket.why.too_old', 'التذكرة أقدم من سبعة أيّام، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها الآن.');
+  }
+}
+
+/** التذكرة الأقدم من سبعة أيّام تُفوتَر بتاريخ اليوم وتخرج طيورها بيومها (أجوبة المالك 2026-11-13، invoice_late). */
+export const invoiceLateText = (day: Day): string =>
+  t('halls.ticket.invoice_late', 'التذكرة أقدم من سبعة أيّام: تُسجَّل فاتورتها بتاريخ اليوم، وتخرج الطيور من القاعات بتاريخ التذكرة {day}.', { day: fmtDay(day) });
 
 export const methodLabel = (method: WeighMethod): string => (method === 'scale' ? t('halls.ticket.method.scale', 'القبّان') : t('halls.ticket.method.crates', 'ميزان الأقفاص'));
 

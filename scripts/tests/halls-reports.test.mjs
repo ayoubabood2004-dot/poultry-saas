@@ -291,12 +291,12 @@ export default async function (t) {
         'P halls_day: اليوم واليوم الحاليّ والتنقّل، والحقول بقاعاتها، والقاعة الفارغة flock null',
       );
       t.same(
-        [h1.flock.round, h1.flock.dead, h1.flock.liveEnd, h1.flock.mortalityCumPct, h1.flock.feedEatenKg, h1.flock.feedEatenCumKg, h1.flock.feedLeftKg, h1.flock.weight, h1.flock.lastWeight, h1.flock.fcr],
+        [h1.flock.round, h1.flock.dead, h1.flock.liveEnd, h1.flock.mortalityCumPct, h1.flock.feedEatenKg, h1.flock.feedEatenCumKg, h1.flock.leftInHallKg, h1.flock.weight, h1.flock.lastWeight, h1.flock.fcr],
         [true, 3, 11987, 11n, 350000n, 1200500n, 799500n, { sampleCount: 50, avgG: 1805n }, { onDate: '2026-11-12', age: 6, avgG: 1805n }, null],
         'P قاعة بجولة: النافق والحيّ والنفوق بالمئات والكيلو بالآلاف والوزن بأعشار الغرام، وFCR الغائب null',
       );
       t.same(
-        [h2.flock.round, h2.flock.dead, h2.flock.culled, h2.flock.feedEatenKg, h2.flock.feedGivenKg, h2.flock.feedGivenUnweighed, h2.flock.feedLeftKg, h2.flock.weight, h2.flock.issues.map((x) => [x.costKind, x.kg])],
+        [h2.flock.round, h2.flock.dead, h2.flock.culled, h2.flock.feedEatenKg, h2.flock.feedGivenKg, h2.flock.feedGivenUnweighed, h2.flock.leftInHallKg, h2.flock.weight, h2.flock.issues.map((x) => [x.costKind, x.kg])],
         [false, null, null, null, 500000n, 1, -100000n, null, [['feed', 500000n], ['feed', null]]],
         'P قاعة بلا جولة: النافق والمستبعد والمأكول null لا صفر، والباقي سالب، وسطر القطعة بلا وزن null',
       );
@@ -307,8 +307,8 @@ export default async function (t) {
       );
       t.same(
         [day.sites[0].totals, day.totals.feedEatenKg, day.totals.feedEatenFlocks],
-        // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر.
-        [{ halls: 3, flocks: 2, rounds: 1, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null }, 900000n, 2],
+        // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر؛ والجولات المنتظرة (O7) كلّ الأفواج من خادم قبلها.
+        [{ halls: 3, flocks: 2, rounds: 1, roundsExpected: 2, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null }, 900000n, 2],
         'P مجاميع الخادم كما هي (لا جمع في المحلّل)',
       );
       // 52ca9fd: سطور العلف بلا وزن حتى اليوم لكلّ فوج (feed_given_cum_unweighed)، وفي مجاميع اليوم (feed_given_unweighed)، عدداً صحيحاً إلزامياً.
@@ -956,7 +956,7 @@ export default async function (t) {
         const only = clone(REAL.halls_day);
         const flock = only.sites[0].halls[1].flock;
         flock.issues = flock.issues.filter((issue) => !(issue.cost_kind === 'feed' && issue.kg !== null));
-        Object.assign(flock, { feed_given_kg: '0', feed_given_cum_kg: '1200.000', feed_left_kg: '-60.000' });
+        Object.assign(flock, { feed_given_kg: '0', feed_given_cum_kg: '1200.000', feed_left_kg: '-60.000', left_in_hall_kg: '-60.000' });
         only.sites[0].totals.feed_given_kg = '0';
         only.totals.feed_given_kg = '0';
         fresh(OWNER, { halls_day: () => clone(only) });
@@ -1021,7 +1021,8 @@ export default async function (t) {
 
       await step('R5 باقٍ موجب بسطور بلا وزن: الملاحظة الأولى وحدها', async () => {
         const positive = clone(REAL.halls_day);
-        positive.sites[0].halls[1].flock.feed_left_kg = '10.000';
+        // «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5): left_in_hall_kg.
+        Object.assign(positive.sites[0].halls[1].flock, { feed_left_kg: '10.000', left_in_hall_kg: '10.000' });
         fresh(OWNER, { halls_day: () => clone(positive) });
         await mount(`/halls/day?on=${realOn}`);
         t.same(

@@ -841,6 +841,8 @@
     "status": "active",
     "kind": "broiler",
     "live": 30,
+    "today": "2026-11-12",
+    "earliest_on": "2026-11-05",
     "sold_birds": 9700,
     "sold_net_kg": "23280.000",
     "count_diff": 0,
@@ -861,13 +863,16 @@
       "adjust": true,
       "close": true,
       "reopen": false
-    }
+    },
+    "reopen_why": null
   },
   "flock_sales_closed": {
     "flock_id": "00000000-0000-4000-8000-000000002821",
     "status": "closed",
     "kind": "broiler",
     "live": 0,
+    "today": "2026-11-12",
+    "earliest_on": "2026-11-05",
     "sold_birds": 9700,
     "sold_net_kg": "23280.000",
     "count_diff": -30,
@@ -892,7 +897,8 @@
       "adjust": false,
       "close": false,
       "reopen": true
-    }
+    },
+    "reopen_why": null
   },
   "count_adjust_result": {
     "id": "00000000-0000-4000-8000-0000000028b1",
@@ -924,6 +930,7 @@
     "today": "2026-11-13",
     "earliest_on": "2026-11-12",
     "default_on": "2026-11-12",
+    "plan": "5f2d0c3a9b7e41c88a6d2e1f0b3c4d5e",
     "sales": {
       "birds": 9700,
       "net_kg": "23280.000",

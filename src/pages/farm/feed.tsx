@@ -4,8 +4,9 @@ import { t } from '../../lib/i18n';
 import type { FlockFeed } from '../../lib/repo/flocks';
 
 // علف القاعة بسطر واحد (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف للقاعة من المخزن، والمستهلك
-// المسجّل في الجولات، والباقي بينهما كما هو (قد يكون سالباً حين سُجّل استهلاك أكثر ممّا صُرف). في شاشة الفوج (محفوظة للفتح بلا نت) وصفحة
-// الصرف معاً، فهي صغيرة بلا أفعال. ومعه روابط القاعة المشتركة بين حزم الحقول والمخزن.
+// المسجّل في الجولات، و«الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg، يعدّ المنقول إليها ويُنقص ما خرج
+// عند الإغلاق؛ وقد يكون سالباً حين سُجّل استهلاك أكثر ممّا نزل)، وسطوره بلا وزن. في شاشة الفوج (محفوظة للفتح بلا نت) وصفحة الصرف معاً، فهي صغيرة
+// بلا أفعال. ومعه روابط القاعة المشتركة بين حزم الحقول والمخزن.
 
 /** بالكيلوغرام دائماً («مجموع كيلوات»)، لا «1.2 طن». */
 const kg = (qty: Milli): string => {
@@ -17,15 +18,15 @@ export function FeedLine({ feed }: { feed: FlockFeed }) {
   return (
     <div className="flex flex-col gap-1" data-action="feed-line">
       <p className="font-semibold">
-        {t('feed.line', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed} — الباقي بالقاعة: {left}', {
+        {t('feed.line', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed} — الباقي في القاعة: {left}', {
           issued: kg(feed.issuedFeedKg),
           consumed: kg(feed.consumedFeedKg),
-          left: kg(feed.remainingFeedKg),
+          left: kg(feed.leftInHallKg),
         })}
       </p>
-      {feed.unweighedFeedLines > 0 ? (
+      {feed.leftInHallUnweighed > 0 ? (
         <p className="text-sm text-ink-muted" data-action="feed-unweighed">
-          {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب في المصروف: {n}.', { n: fmtInt(feed.unweighedFeedLines) })}
+          {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: {n}.', { n: fmtInt(feed.leftInHallUnweighed) })}
         </p>
       ) : null}
     </div>

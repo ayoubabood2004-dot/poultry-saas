@@ -425,8 +425,8 @@ export default async function (t) {
       const sent = named(log, 'record_flock_count_adjust');
       t.same(
         [sent.length, { ...sent[0], p_client_ref: UUID.test(sent[0]?.p_client_ref ?? ''), p_id: UUID.test(sent[0]?.p_id ?? '') }, named(log, 'flock_sales').length, changed, dialog()],
-        [1, { p_client_ref: true, p_id: true, p_flock: F1, p_on: m.localDay(), p_birds: -30, p_reason: 'عُدّت القاعة', p_expected_live: 30 }, 2, 1, null],
-        'C «فرق العدّ» نداء واحد بإشارته والحيّ المعروض شرطاً، ثمّ تُقرأ البطاقة وصفحة الفوج',
+        [1, { p_client_ref: true, p_id: true, p_flock: F1, p_on: F.flock_sales_active.today, p_birds: -30, p_reason: 'عُدّت القاعة', p_expected_live: 30 }, 2, 1, null],
+        'C «فرق العدّ» نداء واحد بإشارته والحيّ المعروض شرطاً، ويومه المقترح يوم الخادم (flock_sales.today، مراجعة 0028 S1)، ثمّ تُقرأ البطاقة وصفحة الفوج',
       );
     });
     await step('C فرق العدّ بنتيجة مجهولة', async () => {

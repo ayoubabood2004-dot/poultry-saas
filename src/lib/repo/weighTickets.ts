@@ -73,6 +73,15 @@ export type TicketSaleStatus = (typeof SALE_STATUSES)[number];
 /** مرشّح القائمة: «بانتظار الفاتورة» = مكتملة بلا فاتورة مرحّلة. */
 export const TICKET_FILTERS = ['all', 'draft', 'done', 'awaiting', 'void'] as const;
 export type TicketFilter = (typeof TICKET_FILTERS)[number];
+/**
+ * لماذا لا تُصدر لتذكرة مكتملة فاتورة الآن (ticket_invoice_block، مراجعة 0028 O4): بلا دفتر لوحدتها، ودفترها خارج النطاق، والفترة مقفلة؛ وtoo_old من
+ * خادم قبل أجوبة المالك 2026-11-13 (بعدها الأقدم من سبعة أيّام تُفوتَر بتاريخ اليوم: invoice_late).
+ */
+export const INVOICE_WHY = ['no_book', 'out_of_scope', 'period_locked', 'too_old'] as const;
+export type InvoiceWhy = (typeof INVOICE_WHY)[number];
+const invoiceWhy = (row: Row): InvoiceWhy | null => (row.invoice_why === null || row.invoice_why === undefined ? null : oneOf(row, 'invoice_why', INVOICE_WHY));
+/** المنطقيّ الغائب (خادم قبل المفتاح) false. */
+const late = (row: Row): boolean => (row.invoice_late === null || row.invoice_late === undefined ? false : flag(row, 'invoice_late'));
 
 // ─── التذكرة (weigh_ticket) ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -143,6 +152,10 @@ export interface WeighTicket {
   voidedAt: string | null;
   voidReason: string | null;
   can: { edit: boolean; finish: boolean; void: boolean; invoice: boolean };
+  /** لماذا لا تُصدر فاتورتها الآن (المكتملة بلا فاتورة وحدها)، أو null. */
+  invoiceWhy: InvoiceWhy | null;
+  /** مكتملة بلا فاتورة أقدم من سبعة أيّام: تُكتب فاتورتها بتاريخ اليوم وتخرج الطيور بيومها (أجوبة المالك 2026-11-13)؛ وخادم قبلها false. */
+  invoiceLate: boolean;
   warnings: readonly TicketWarning[];
 }
 
@@ -201,6 +214,8 @@ export function parseWeighTicket(value: unknown): WeighTicket {
     voidedAt: optStr(json, 'voided_at'),
     voidReason: optStr(json, 'void_reason'),
     can: { edit: flag(can, 'edit'), finish: flag(can, 'finish'), void: flag(can, 'void'), invoice: flag(can, 'invoice') },
+    invoiceWhy: invoiceWhy(json),
+    invoiceLate: late(json),
     warnings: list(json.warnings ?? [], 'warnings').map((row) => ({
       stopId: str(row, 'stop_id'),
       hallName: str(row, 'hall_name'),
@@ -281,6 +296,9 @@ export interface TicketRow {
   invoiced: boolean;
   /** آخر فاتورة بحالتها، لأدوار المبيعات وحدها (الملغاة تُعرض بعلامتها، لا فاتورةً للتذكرة). */
   sale: { id: string; docNo: string; status: TicketSaleStatus } | null;
+  /** لماذا لا تُصدر فاتورتها الآن، وهل تُؤرَّخ فاتورتها اليوم (مراجعة 0028 O4). */
+  invoiceWhy: InvoiceWhy | null;
+  invoiceLate: boolean;
 }
 
 export interface TicketList {
@@ -312,6 +330,8 @@ export function parseTicketList(value: unknown): TicketList {
         halls: halls as string[],
         invoiced: flag(row, 'invoiced'),
         sale: sale ? { id: str(sale, 'id'), docNo: str(sale, 'doc_no'), status: oneOf(sale, 'status', SALE_STATUSES) } : null,
+        invoiceWhy: invoiceWhy(row),
+        invoiceLate: late(row),
       };
     }),
     more: flag(json, 'more'),

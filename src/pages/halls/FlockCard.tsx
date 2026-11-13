@@ -7,7 +7,8 @@ import { Field } from '../../components/ui/Field';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
-import { addDays, localDay, type Day } from '../../domain/dates';
+import type { Day } from '../../domain/dates';
+import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { NotConnectedError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
@@ -16,6 +17,7 @@ import { loadFlockSales, recordCountAdjust, type FlockSales } from '../../lib/re
 import type { FlockDetail } from '../../lib/repo/flocks';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { reopenWhyText } from './CloseSections';
 import { failureText, pendingKey, readPending, storePending, surelyUnsaved } from './GivePage';
 import { flockPath, kgText } from './parts';
 import { birdsText, newTicketPath, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
@@ -23,7 +25,9 @@ import { birdsText, newTicketPath, signedCount, statusLabel, ticketName, ticketP
 // بطاقة الفوج للبيع والإغلاق (0028، العقد §5.7 و§10): في صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared، بلا نت لا شيء). المباع من
 // الفواتير وصافيه، والطيور على تذاكر بلا فاتورة، و«فرق العدّ»، والحيّ، وأحدث التذاكر؛ والأفعال بما يجيزه الخادم (can): «تذكرة وزن» لعامل القاعة
 // والمدير، و«سجّل فرق العدّ» و«أغلق الدورة» و«أعد فتح الدورة» للمدير. «فرق العدّ» نافذة: زيادة أو نقص، ويومه، وسببه، والحيّ قبله وبعده، بنداء
-// واحد بمرجعه والحيّ الذي عرضته الشاشة شرطاً؛ والطلب الذي لا تُعرف نتيجته خارج المكوّن (sessionStorage بمفتاح المستخدم والمنشأة والفوج).
+// واحد بمرجعه والحيّ الذي عرضته الشاشة شرطاً؛ والطلب الذي لا تُعرف نتيجته خارج المكوّن (sessionStorage بمفتاح المستخدم والمنشأة والفوج). ويوم «فرق العدّ»
+// المقترح وحدّاه من الخادم (flock_sales: today وearliest_on، مراجعة 0028 S1) لا من ساعة الجهاز، و«سجّل» مقفول ما دامت البطاقة تُقرأ من جديد؛ و«أعد فتح
+// الدورة» حين يجيزها الخادم (can.reopen) وإلّا لماذا لا (reopen_why، O6) لمن يعيد الفتح بدوره.
 
 type Flock = FlockDetail['flock'];
 
@@ -41,10 +45,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const asCount = (value: unknown): CountRequest | null =>
   isRecord(value) && typeof value.clientRef === 'string' && typeof value.id === 'string' && typeof value.on === 'string' && typeof value.birds === 'number' && typeof value.expectedLive === 'number' ? (value as unknown as CountRequest) : null;
 
-/** نافذة «فرق العدّ»: زيادة أو نقص بعدده، ويومه (حتى 7 أيام مضت)، وسببه؛ والحيّ قبله وبعده. */
-function CountDialog({ sales, busy, failure, onClose, onSend }: { sales: FlockSales; busy: boolean; failure: unknown; onClose: () => void; onSend: (birds: number, on: Day, reason: string) => void }) {
+/**
+ * نافذة «فرق العدّ»: زيادة أو نقص بعدده، ويومه بين أقدم يوم يقبله الخادم ويوم الخادم (flock_sales، مراجعة 0028 S1: كانت من ساعة الجهاز، فجهازٌ أمام
+ * الخادم يقترح يوماً يرفضه)، وسببه؛ والحيّ قبله وبعده. والنصّ والشرط (الحيّ) من البطاقة الواحدة المعروضة، و«سجّل» مقفول ما دامت تُقرأ من جديد (reading).
+ */
+function CountDialog({ sales, busy, reading, failure, onClose, onSend }: { sales: FlockSales; busy: boolean; reading: boolean; failure: unknown; onClose: () => void; onSend: (birds: number, on: Day, reason: string) => void }) {
   const id = useId();
-  const today = localDay();
+  const { today, earliestOn } = sales;
   const [direction, setDirection] = useState<'up' | 'down'>('down');
   const [count, setCount] = useState('');
   const [day, setDay] = useState(fmtDay(today));
@@ -60,12 +67,12 @@ function CountDialog({ sales, busy, failure, onClose, onSend }: { sales: FlockSa
       ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.')
       : onDate > today
         ? t('day.future', 'التاريخ بعد اليوم.')
-        : onDate < addDays(today, -7)
-          ? t('day.too_old', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ {day}.', { day: fmtDay(addDays(today, -7)) })
+        : onDate < earliestOn
+          ? t('halls.card.count_day_old', 'أقدم يوم يُقبل لفرق العدّ {day} (حدّ الأيّام السبعة، ولا قبل التسكين ولا في فترة مقفلة).', { day: fmtDay(earliestOn) })
           : null;
   const afterError = after !== null && after < 0 ? t('halls.card.count_negative', 'بهذا يصير الحيّ سالباً: النقص أكثر من الحيّ ({live}).', { live: sales.live }) : null;
   const reasonError = reason.trim().length > 500 ? t('halls.card.reason_long', 'السبب حتى 500 حرف.') : null;
-  const ready = birds !== null && !countError && !dayError && !afterError && reason.trim() !== '' && !reasonError && onDate !== null && !busy;
+  const ready = birds !== null && !countError && !dayError && !afterError && reason.trim() !== '' && !reasonError && onDate !== null && !busy && !reading;
   return (
     <Dialog
       open
@@ -94,7 +101,7 @@ function CountDialog({ sales, busy, failure, onClose, onSend }: { sales: FlockSa
           <Field id={`${id}-count`} label={t('halls.card.count_n', 'العدد')} error={countError ?? afterError}>
             <input id={`${id}-count`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={count} disabled={busy} onChange={(event) => setCount(event.target.value)} data-action="count-n" />
           </Field>
-          <Field id={`${id}-day`} label={t('halls.card.count_day', 'اليوم')} error={dayError}>
+          <Field id={`${id}-day`} label={t('halls.card.count_day', 'اليوم')} error={dayError} hint={t('halls.close.day_hint', 'من {from} إلى {to}.', { from: fmtDay(earliestOn), to: fmtDay(today) })}>
             <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={day} disabled={busy} onChange={(event) => setDay(event.target.value)} data-action="count-day" />
           </Field>
         </div>
@@ -104,6 +111,11 @@ function CountDialog({ sales, busy, failure, onClose, onSend }: { sales: FlockSa
         <p className="text-sm" data-action="count-live">
           {after === null || after < 0 ? t('halls.card.count_live', 'الحيّ الآن {live}.', { live: sales.live }) : t('halls.card.count_live_after', 'الحيّ الآن {live}، وبعد فرق العدّ {after}.', { live: sales.live, after })}
         </p>
+        {reading ? (
+          <p role="status" className="text-sm text-ink-muted" data-action="count-reading">
+            {t('halls.card.reading', 'تُقرأ البطاقة من جديد…')}
+          </p>
+        ) : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
       </div>
     </Dialog>
@@ -113,6 +125,8 @@ function CountDialog({ sales, busy, failure, onClose, onSend }: { sales: FlockSa
 function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }) {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
+  // يعيد فتح الدورة بدوره (المدير بالإلغاء): له وحده جملة لماذا لا يُعاد فتحها الآن.
+  const mayReopen = workspace !== null && can(workspace.role, 'flock.manage') && can(workspace.role, 'void');
   const pendingId = workspace ? pendingKey(`${workspace.userId}:${workspace.orgId}`, `count:${flock.id}`) : '';
   const load = useCallback(() => loadFlockSales(flock.id), [flock.id]);
   const state = useLoad(load);
@@ -244,7 +258,7 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={frozen !== null || busy}
+                disabled={frozen !== null || busy || state.loading}
                 onClick={() => {
                   setFailure(null);
                   setCounting(true);
@@ -265,6 +279,11 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
               </Link>
             ) : null}
           </div>
+          {!sales.can.reopen && mayReopen && sales.close?.status === 'closed' && sales.reopenWhy !== null ? (
+            <p className="text-sm text-ink-muted" data-action="card-reopen-why">
+              {reopenWhyText(sales.reopenWhy)}
+            </p>
+          ) : null}
         </>
       ) : !state.error ? (
         <p role="status" className="text-sm text-ink-muted">
@@ -275,6 +294,7 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
         <CountDialog
           sales={sales}
           busy={busy}
+          reading={state.loading}
           failure={failure}
           onClose={() => setCounting(false)}
           onSend={(birds, on, reason) => void send({ clientRef: ids.ref, id: ids.id, flockId: flock.id, on, birds, reason, expectedLive: sales.live }, false)}

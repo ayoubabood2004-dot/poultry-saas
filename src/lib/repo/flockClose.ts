@@ -74,6 +74,12 @@ export const CLOSE_ACTIONS = ['return', 'consumed', 'carry'] as const;
 export type CloseAction = (typeof CLOSE_ACTIONS)[number];
 export const CARRY_STATUSES = ['pending', 'applied', 'returned', 'void'] as const;
 export type CarryStatus = (typeof CARRY_STATUSES)[number];
+/**
+ * لماذا لا يُعاد فتح الإغلاق القائم الآن (مراجعة 0028 O6، private.reopen_block بترتيب فحوص reopen_flock): مستند إرجاع في مخزن خارج النطاق، والفترة مقفلة
+ * حتى اليوم، والقاعة أو حقلها مؤرشف، وفوج بعدها في القاعة، ونقل مطبَّق، ودفعة إرجاع سُحب منها أو صُحّح سعرها.
+ */
+export const REOPEN_WHY = ['not_closed', 'out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'carry_used', 'lot_consumed'] as const;
+export type ReopenWhy = (typeof REOPEN_WHY)[number];
 
 // ─── بطاقة الفوج (flock_sales) ───────────────────────────────────────────────────────────────────────────────────
 
@@ -82,6 +88,9 @@ export interface FlockSales {
   status: (typeof FLOCK_STATUSES)[number];
   kind: FlockKind;
   live: number;
+  /** يوم الخادم وأقدم يوم يقبله «فرق العدّ» (مراجعة 0028 S1: كانت النافذة تحزرهما من ساعة الجهاز). */
+  today: Day;
+  earliestOn: Day;
   soldBirds: number;
   soldNetKg: Milli;
   /** مجموع فرق العدّ (سالب للنقص). */
@@ -92,6 +101,8 @@ export interface FlockSales {
   tickets: readonly { id: string; ticketNo: string | null; status: (typeof TICKET_STATUSES)[number]; onDate: Day; birds: number | null; invoiced: boolean }[];
   close: { id: string; closedOn: Day; status: 'closed' | 'reopened' } | null;
   can: { ticket: boolean; adjust: boolean; close: boolean; reopen: boolean };
+  /** لماذا لا يُعاد فتح الإغلاق القائم (O6)؛ null حين يُعاد أو لا إغلاق قائم. */
+  reopenWhy: ReopenWhy | null;
 }
 
 export function parseFlockSales(value: unknown): FlockSales {
@@ -103,6 +114,8 @@ export function parseFlockSales(value: unknown): FlockSales {
     status: oneOf(json, 'status', FLOCK_STATUSES),
     kind: oneOf(json, 'kind', KINDS),
     live: int(json, 'live'),
+    today: str(json, 'today'),
+    earliestOn: str(json, 'earliest_on'),
     soldBirds: int(json, 'sold_birds'),
     soldNetKg: scaled(json, 'sold_net_kg', 3),
     countDiff: int(json, 'count_diff'),
@@ -117,6 +130,7 @@ export function parseFlockSales(value: unknown): FlockSales {
     })),
     close: close ? { id: str(close, 'id'), closedOn: str(close, 'closed_on'), status: oneOf(close, 'status', ['closed', 'reopened'] as const) } : null,
     can: { ticket: flag(can, 'ticket'), adjust: flag(can, 'adjust'), close: flag(can, 'close'), reopen: flag(can, 'reopen') },
+    reopenWhy: json.reopen_why === null || json.reopen_why === undefined ? null : oneOf(json, 'reopen_why', REOPEN_WHY),
   };
 }
 
@@ -224,7 +238,11 @@ export interface CloseForm {
   plan: string | null;
   sales: { birds: number; netKg: Milli; avgKg: Milli | null; invoices: readonly { soldOn: Day; birds: number; netKg: Milli; ticketNo: string | null; docNo: string | null }[] };
   pendingTickets: readonly { ticketId: string; ticketNo: string | null; status: (typeof TICKET_STATUSES)[number]; onDate: Day; birds: number | null }[];
-  feed: { givenKg: Milli; eatenKg: Milli; estimateLeftKg: Milli; feedDays: number; feedSpan: number; unweighed: number };
+  /**
+   * leftInHallKg ما في القاعة بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg)، وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو)؛ وخادم
+   * قبله بالتقدير القديم (estimate_left_kg = النازل − المأكول، وunweighed).
+   */
+  feed: { givenKg: Milli; eatenKg: Milli; leftInHallKg: Milli; feedDays: number; feedSpan: number; leftInHallUnweighed: number };
   items: readonly CloseItem[];
   carryIn: readonly CarryLine[];
   canClose: boolean;
@@ -280,10 +298,10 @@ export function parseCloseForm(value: unknown): CloseForm {
     feed: {
       givenKg: scaled(feed, 'given_kg', 3),
       eatenKg: scaled(feed, 'eaten_kg', 3),
-      estimateLeftKg: scaled(feed, 'estimate_left_kg', 3),
+      leftInHallKg: scaled(feed, feed.left_in_hall_kg === undefined ? 'estimate_left_kg' : 'left_in_hall_kg', 3),
       feedDays: int(feed, 'feed_days'),
       feedSpan: int(feed, 'feed_span'),
-      unweighed: int(feed, 'unweighed'),
+      leftInHallUnweighed: int(feed, feed.left_in_hall_unweighed === undefined ? 'unweighed' : 'left_in_hall_unweighed'),
     },
     items: list(json.items, 'items').map((row) => {
       const money = optRecord(row.money, 'money');
@@ -422,8 +440,11 @@ export interface CloseRequest {
   countReason: string | null;
   lines: readonly CloseLineInput[];
   note: string | null;
-  /** بصمة ما نزل كما رآها النموذج (CloseForm.plan): الخادم يرفض pool_changed بلاها أو بغيرها (مراجعة 0028 M4). */
-  expectedPlan?: string | null;
+  /**
+   * بصمة ما نزل كما رآها النموذج (CloseForm.plan): الخادم يرفض pool_changed بلاها أو بغيرها (مراجعة 0028 M4)، فتُرسل دائماً (الوسيط الحادي عشر)،
+   * وطلبٌ محفوظ قبلها يُرسل null فيُرفض رفضاً أكيداً لا يتجمّد.
+   */
+  expectedPlan: string | null;
 }
 
 /** وسائط close_flock بمفاتيح العقد بالضبط، فالإعادة بالمرجع نفسه ترسل النصّ نفسه. */
@@ -441,7 +462,7 @@ export function closeArgs(request: CloseRequest): Record<string, unknown> {
       line.action === 'return' ? { item_id: line.itemId, qty: decimalText(line.qty, 3), action: line.action, warehouse_id: line.warehouseId } : { item_id: line.itemId, qty: decimalText(line.qty, 3), action: line.action },
     ),
     p_note: request.note === null ? null : request.note.trim() || null,
-    ...(request.expectedPlan === undefined ? {} : { p_expected_plan: request.expectedPlan }),
+    p_expected_plan: request.expectedPlan ?? null,
   };
 }
 

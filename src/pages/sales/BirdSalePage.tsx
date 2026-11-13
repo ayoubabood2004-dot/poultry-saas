@@ -20,6 +20,8 @@ import { birdBack, birdBackLabel, BirdSalePaper, dinarsText, hallsBirdsText, pap
 // يُخصم من فاتورة لاحقة أو يُردّ من كشفه، FOUNDATION ٥٨٣)؛ ويُرفض على فوج مغلق (O1): الخادم لا يجيزه (can_void)، فالصفحة تقول لماذا، وتلميح الخادم يظهر
 // إن أُغلق الفوج بعد القراءة. والنتيجة المجهولة للإلغاء: السبب والمرجع يتجمّدان والإعادة بهما (إلغاء ثانٍ مرفوض already_void، فلا ضرر من الإعادة).
 // يفتحها نموذج الفاتورة وقائمة المبيعات وكشف التاجر وحركة الأموال وتذكرتها؛ والرجوع إلى ?back= (المبيعات أو الحسابات أو التذاكر) وإلّا المبيعات.
+// ومراجعة 0028: المقبوض الذي رُدّ للتاجر يُقال على الصفحة والورقة (M3، والمبالغ مصحَّحة من الخادم)، وختم الإلغاء بيوم الخادم (S9)، ويوما الفاتورة والتذكرة
+// على الورقة حين يختلفان (O4، أجوبة المالك 2026-11-13).
 
 function VoidDialog({ sale, onCancel, onDone }: { sale: BirdSaleDetail; onCancel: () => void; onDone: () => void }) {
   const id = useId();
@@ -162,6 +164,11 @@ function BirdSaleView({ id, back }: { id: string; back: string }) {
       {posted && mayVoid && !sale.canVoid ? (
         <div className="print:hidden" data-action="bird-void-closed">
           <Notice tone="info" title={t('birds.void.closed', 'لا تُلغى هذه الفاتورة الآن: دورة قاعة من قاعاتها مغلقة. أعد فتح الدورة أوّلاً إن كان الإغلاق خطأ.')} />
+        </div>
+      ) : null}
+      {posted && sale.paymentRefunded ? (
+        <div className="print:hidden" data-action="bird-payment-refunded">
+          <Notice tone="info" title={t('birds.doc.refunded', 'رُدّ المقبوض عند البيع للتاجر «{party}»، فمبلغ الفاتورة كلّه بالدين على حسابه.', { party: sale.partyName })} />
         </div>
       ) : null}
       {!posted && sale.paymentKept !== null && sale.paymentKept > 0n ? (

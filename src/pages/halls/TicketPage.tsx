@@ -14,6 +14,7 @@ import { WeightPad } from '../../components/ui/WeightPad';
 import type { Day } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { Milli } from '../../domain/money';
+import { can } from '../../domain/permissions';
 import { averageInRange, ticketNets, type StopNet, type TicketNets, type WeighMethod } from '../../domain/weighTicket';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
@@ -25,7 +26,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { failureText, surelyUnsaved } from './GivePage';
 import { BackLink, printAs } from './parts';
-import { birdsText, invoicePath, kgDecimals, newTicketPath, salePath, statusLabel, ticketBack, ticketBackLabel, ticketName, TicketPaper, ticketPath } from './ticketParts';
+import { birdsText, invoiceLateText, invoicePath, invoiceWhyText, kgDecimals, newTicketPath, salePath, statusLabel, ticketBack, ticketBackLabel, ticketName, TicketPaper, ticketPath } from './ticketParts';
 
 // تذكرة الوزن (0028، كلمة المالك 2026-11-12، العقد §10): /halls/ticket/new?site=&hall= و/halls/ticket/:id. «وزن الفارغ» أوّلاً (لوحة الوزن) و«وُزن مع
 // الأقفاص» (مفتوح افتراضاً؛ وبلاه «وزن القفص» مقترحاً من آخر تذكرة)، ثمّ «أضف قاعة» ولكلّ قاعة عدد طيورها وأقفاصها و«وزن الخابط بعد هذه القاعة»، أو
@@ -1099,6 +1100,9 @@ function TicketDone({ ticket, back, onVoided }: { ticket: WeighTicket; back: str
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
   const scope = session.status === 'ready' ? `${session.workspace.userId}:${session.workspace.orgId}` : '';
+  // لمن يصدر فاتورة الطيور: لماذا لا تُصدر فاتورة هذه التذكرة الآن (مراجعة 0028 O4)، وأنّ المتأخّرة تُؤرَّخ اليوم.
+  const mayInvoice = session.status === 'ready' && can(session.workspace.role, 'sale.post');
+  const awaiting = ticket.status === 'done' && !ticket.invoiced;
   // نسخة الجهاز لهذه التذكرة (ما كُتب ولم يُحفظ قبل أن تكتمل أو تُلغى في الخادم)، حتى تُمحى.
   const [wiped, setWiped] = useState(false);
   const copy = scope !== '' && !wiped ? asCopy(kept(copyKey(scope, ticket.id)), ticket.id) : null;
@@ -1183,6 +1187,16 @@ function TicketDone({ ticket, back, onVoided }: { ticket: WeighTicket; back: str
           </Button>
         ) : null}
       </div>
+      {awaiting && ticket.can.invoice && ticket.invoiceLate ? (
+        <p className="text-sm print:hidden" data-action="ticket-invoice-late">
+          {invoiceLateText(ticket.onDate)}
+        </p>
+      ) : null}
+      {awaiting && mayInvoice && ticket.invoiceWhy !== null ? (
+        <div className="print:hidden" data-action="ticket-invoice-why">
+          <Notice tone="info" title={invoiceWhyText(ticket.invoiceWhy, ticket.onDate)} />
+        </div>
+      ) : null}
       {unknown ? (
         <Notice
           tone="warning"

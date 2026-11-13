@@ -68,6 +68,8 @@ const scaled = (row: Row, field: string, scale: number): bigint => {
 /** مبلغ (نصّ عشري بالدينار) بالفلس. */
 const fils = (row: Row, field: string): Fils => scaled(row, field, 2);
 const optFils = (row: Row, field: string): Fils | null => optScaled(row, field, 2);
+/** منطقيّ اختياريّ: غيابه (خادم قبل المفتاح) = fallback. */
+const optFlag = (row: Row, field: string, fallback: boolean): boolean => (row[field] === null || row[field] === undefined ? fallback : flag(row, field));
 /** كيلوغرام (نصّ عشري بثلاث مراتب) بالآلاف. */
 const kg = (row: Row, field: string): Milli => scaled(row, field, 3);
 const optKg = (row: Row, field: string): Milli | null => optScaled(row, field, 3);
@@ -104,8 +106,17 @@ export interface BirdSale {
   id: string;
   docNo: string;
   status: BirdSaleStatus;
-  /** يوم الفاتورة = يوم التذكرة (D3). */
+  /** يوم الفاتورة كما يرسله الخادم في sold_on (D3: يوم التذكرة؛ والمتأخّرة بقاعدة on أدناه). */
   soldOn: Day;
+  /**
+   * أجوبة المالك 2026-11-13 (مراجعة 0028 O4): on يوم الفاتورة (اليوم للتذكرة الأقدم من سبعة أيّام)، وticketOn يوم التذكرة (تخرج الطيور من القاعات به)، وpaidOn
+   * يوم دخول المقبوض الصندوق (يوم إصدار الفاتورة). وخادم قبلها بلا المفاتيح: الثلاثة يوم الفاتورة sold_on (كما كان).
+   */
+  on: Day;
+  ticketOn: Day;
+  paidOn: Day;
+  /** المقبوض عند البيع رُدّ للتاجر («ألغِ القبض»، مراجعة 0028 M3): الخادم يقرؤه بالدين (المقبوض صفر)؛ وخادم قبلها false. */
+  paymentRefunded: boolean;
   ticketId: string;
   ticketNo: string;
   siteId: string;
@@ -137,11 +148,17 @@ const saleMoney = (row: Row): BirdSaleMoney | null => {
 
 export function parseBirdSale(value: unknown): BirdSale {
   const json = record(value, 'bird_sale');
+  const soldOn = str(json, 'sold_on');
+  const on = optStr(json, 'on') ?? soldOn;
   return {
     id: str(json, 'id'),
     docNo: str(json, 'doc_no'),
     status: oneOf(json, 'status', BIRD_SALE_STATUSES),
-    soldOn: str(json, 'sold_on'),
+    soldOn,
+    on,
+    ticketOn: optStr(json, 'ticket_on') ?? on,
+    paidOn: optStr(json, 'paid_on') ?? on,
+    paymentRefunded: optFlag(json, 'payment_refunded', false),
     ticketId: str(json, 'ticket_id'),
     ticketNo: str(json, 'ticket_no'),
     siteId: str(json, 'site_id'),
@@ -185,6 +202,8 @@ export interface BirdSaleDetail extends BirdSale {
   remaining: Fils | null;
   /** المقبوض الباقي رصيداً للتاجر بعد الإلغاء (FOUNDATION ٥٨٣)، أو null. */
   paymentKept: Fils | null;
+  /** يوم الإلغاء بيوم الخادم (يوم قيد الإلغاء العكسيّ، مراجعة 0028 S9)، أو null (غير ملغاة، أو خادم قبله). */
+  voidedOn: Day | null;
   /** تُلغى: فعل الإلغاء، ومرحَّلة، ولا فوج من أفواجها مغلق. */
   canVoid: boolean;
 }
@@ -198,6 +217,7 @@ export function parseBirdSaleDetail(value: unknown): BirdSaleDetail {
     partyPhone: optStr(json, 'party_phone'),
     remaining: optFils(json, 'remaining'),
     paymentKept: optFils(json, 'payment_kept'),
+    voidedOn: optStr(json, 'voided_on'),
     canVoid: flag(json, 'can_void'),
   };
 }
@@ -209,7 +229,8 @@ export async function loadBirdSaleDetail(saleId: string): Promise<BirdSaleDetail
 // ─── نموذج الفاتورة (bird_sale_form، العقد §5.4) ─────────────────────────────────────────────────────────────────────
 
 /** لماذا لا تصدر فاتورة للتذكرة: مسوّدة، أو ملغاة، أو صدرت فاتورتها، أو فوج من أفواجها مغلق، أو لا دفتر لوحدة الحقل. */
-// مراجعة 0028 O4: والدفتر خارج نطاق القارئ، والفترة المقفلة، والتذكرة أقدم من سبعة أيّام (الفاتورة بيوم تذكرتها): لا يُعرض ترحيل يرفضه الخادم.
+// مراجعة 0028 O4: والدفتر خارج نطاق القارئ، والفترة المقفلة: لا يُعرض ترحيل يرفضه الخادم. وtoo_old (الفاتورة بيوم تذكرتها ولا أقدم من سبعة أيّام) من
+// خادم قبل أجوبة المالك 2026-11-13؛ بعدها التذكرة الأقدم تُفوتَر بتاريخ اليوم (late) ولا ترفض.
 export const FORM_WHY = ['draft', 'void', 'invoiced', 'flock_closed', 'no_book', 'out_of_scope', 'period_locked', 'too_old'] as const;
 export type FormWhy = (typeof FORM_WHY)[number];
 
@@ -237,6 +258,13 @@ export interface BirdSaleForm {
   sale: BirdSale | null;
   today: Day;
   canPost: boolean;
+  /**
+   * أجوبة المالك 2026-11-13 (O4): التذكرة أقدم من سبعة أيّام (late) فتُكتب فاتورتها بتاريخ اليوم (invoiceOn) وتخرج الطيور من القاعات بيوم التذكرة،
+   * والمقبوض الآن يدخل الصندوق يوم إصدار الفاتورة (paidOn). وخادم قبلها: الفاتورة والمقبوض بيوم التذكرة، وlate = false.
+   */
+  invoiceOn: Day;
+  late: boolean;
+  paidOn: Day;
 }
 
 /** نموذج الفاتورة يحمل التذكرة بلا أفعالها (العقد §5.4: «5.1 without can»): محلّل التذكرة نفسه بأفعال لا تُعرض هنا. */
@@ -246,8 +274,10 @@ export function parseBirdSaleForm(value: unknown): BirdSaleForm {
   const json = record(value, 'bird_sale_form');
   const ticket = record(json.ticket, 'ticket');
   const book = optRecord(json.book, 'book');
+  const parsed = parseWeighTicket(ticket.can === undefined ? { ...ticket, can: NO_TICKET_ACTIONS } : ticket);
+  const invoiceOn = optStr(json, 'invoice_on') ?? parsed.onDate;
   return {
-    ticket: parseWeighTicket(ticket.can === undefined ? { ...ticket, can: NO_TICKET_ACTIONS } : ticket),
+    ticket: parsed,
     invoiceable: flag(json, 'invoiceable'),
     why: json.why === null || json.why === undefined ? null : oneOf(json, 'why', FORM_WHY),
     book: book ? { id: str(book, 'id'), name: str(book, 'name') } : null,
@@ -263,6 +293,9 @@ export function parseBirdSaleForm(value: unknown): BirdSaleForm {
     sale: json.sale === null || json.sale === undefined ? null : parseBirdSale(json.sale),
     today: str(json, 'today'),
     canPost: flag(json, 'can_post'),
+    invoiceOn,
+    late: optFlag(json, 'late', false),
+    paidOn: optStr(json, 'paid_on') ?? invoiceOn,
   };
 }
 
@@ -368,6 +401,8 @@ export interface BirdSaleRow {
   billedKg: Milli;
   deduction: bigint;
   paid: BirdPaid;
+  /** المقبوض عند البيع رُدّ للتاجر (مراجعة 0028 M3): paid وmoney مصحَّحان من الخادم (بالدين)؛ وخادم قبلها false. */
+  paymentRefunded: boolean;
   money: BirdSaleMoney | null;
 }
 
@@ -379,6 +414,13 @@ export interface AwaitingTicket {
   siteName: string;
   birds: number;
   netKg: Milli;
+  /**
+   * تُصدر فاتورتها الآن (invoiceable)، ولماذا لا (why: الدفتر أو نطاقه أو الفترة المقفلة، مراجعة 0028 O4)، وهل هي أقدم من سبعة أيّام فتُؤرَّخ فاتورتها
+   * اليوم (late، أجوبة المالك 2026-11-13). وخادم قبلها: تُصدر، بلا سبب، وlate = false.
+   */
+  invoiceable: boolean;
+  why: FormWhy | null;
+  late: boolean;
 }
 
 export interface BirdSalesSection {
@@ -415,6 +457,7 @@ export function parseBirdSalesSection(value: unknown): BirdSalesSection | null {
       billedKg: kg(row, 'billed_kg'),
       deduction: scaled(row, 'deduction_pct', 2),
       paid: oneOf(row, 'paid', BIRD_PAID),
+      paymentRefunded: optFlag(row, 'payment_refunded', false),
       money: saleMoney(row),
     })),
     more: flag(json, 'more'),
@@ -432,6 +475,9 @@ export function parseBirdSalesSection(value: unknown): BirdSalesSection | null {
       siteName: str(row, 'site_name'),
       birds: int(row, 'birds'),
       netKg: kg(row, 'net_kg'),
+      invoiceable: optFlag(row, 'invoiceable', true),
+      why: row.why === null || row.why === undefined ? null : oneOf(row, 'why', FORM_WHY),
+      late: optFlag(row, 'late', false),
     })),
     canRecord: flag(json, 'can_record'),
   };
@@ -501,6 +547,19 @@ export interface PendingBirdSale {
   total: Fils;
   /** الطيور التي تخرج من كلّ قاعة. */
   halls: readonly { name: string; birds: number }[];
+  /**
+   * الأيّام كما قالها نموذج الفاتورة في التأكيد (أجوبة المالك 2026-11-13): يوم الفاتورة ويوم التذكرة (تخرج الطيور به) ويوم دخول المقبوض الصندوق، ويوم الخادم،
+   * وهل التذكرة أقدم من سبعة أيّام. غيابه (طلب محفوظ قبلها) = الفاتورة بيوم التذكرة.
+   */
+  dates?: PendingDates;
+}
+
+export interface PendingDates {
+  late: boolean;
+  invoiceOn: Day;
+  ticketOn: Day;
+  paidOn: Day;
+  today: Day;
 }
 
 const pendingMemory = new Map<string, string>();
@@ -534,7 +593,11 @@ function asPending(value: unknown): PendingBirdSale | null {
   const amounts = ['unitPrice', 'deduction', 'paidNow'].every((field) => typeof request[field] === 'bigint');
   const rest = typeof request.ticketVersion === 'number' && (request.cashAccountId === null || typeof request.cashAccountId === 'string') && (request.note === null || typeof request.note === 'string');
   const halls = value.halls.every((hall: unknown) => isRecord(hall) && typeof hall.name === 'string' && typeof hall.birds === 'number');
-  return texts && amounts && rest && halls && (value.boxName === null || typeof value.boxName === 'string') ? (value as unknown as PendingBirdSale) : null;
+  const dates = value.dates;
+  const datesOk =
+    dates === undefined ||
+    (isRecord(dates) && typeof dates.late === 'boolean' && ['invoiceOn', 'ticketOn', 'paidOn', 'today'].every((field) => typeof dates[field] === 'string' && dates[field] !== ''));
+  return texts && amounts && rest && halls && datesOk && (value.boxName === null || typeof value.boxName === 'string') ? (value as unknown as PendingBirdSale) : null;
 }
 
 export function readBirdSalePending(key: string): PendingBirdSale | null {

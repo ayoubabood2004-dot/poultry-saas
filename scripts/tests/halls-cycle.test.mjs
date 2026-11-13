@@ -219,7 +219,7 @@ export default async function (t) {
       const first = cycle.days[0];
       const last = cycle.days.at(-1);
       t.same(
-        [cycle.days.length, first.on, first.age, first.dayNo, first.round, first.liveStart, first.dead, first.culled, first.liveEnd, first.mortalityCumPct, first.feedEatenKg, first.feedEatenCumKg, first.feedGivenKg, first.feedGivenCumKg, first.feedLeftKg, first.weight, first.eggsTotal, first.hdep, first.note],
+        [cycle.days.length, first.on, first.age, first.dayNo, first.round, first.liveStart, first.dead, first.culled, first.liveEnd, first.mortalityCumPct, first.feedEatenKg, first.feedEatenCumKg, first.feedGivenKg, first.feedGivenCumKg, first.leftInHallKg, first.weight, first.eggsTotal, first.hdep, first.note],
         [11, '2026-11-01', 1, 1, true, 1000, 2, 0, 998, 20n, 100_000n, 100_000n, 1_000_000n, 1_000_000n, 900_000n, null, null, null, null],
         'P1 أوّل يوم بأنواعه: الكيلو بالآلاف والنسبة بمرتبتين والعدد رقماً',
       );
@@ -247,7 +247,8 @@ export default async function (t) {
         cycle.kpis,
         {
           days: 11, ageEnd: 11, placed: 1000, dead: 11, culled: 2, live: 987, mortalityPct: 130n, livabilityPct: 9870n,
-          feedGivenKg: 2_000_000n, feedEatenKg: 1_450_500n, feedLeftKg: 549_500n, feedDays: 10, feedSpan: 10, feedPerBirdKg: 1451n,
+          // «الباقي في القاعة» (مراجعة 0028 O2/M5): عقد 0027 بلا left_in_hall_kg فمن feed_left_kg، وسطوره بلا كتلة null (الشاشة تأخذ feed.unweighed).
+          feedGivenKg: 2_000_000n, feedEatenKg: 1_450_500n, leftInHallKg: 549_500n, leftInHallUnweighed: null, feedDays: 10, feedSpan: 10, feedPerBirdKg: 1451n,
           lastWeight: { on: '2026-11-10', age: 10, avgG: 2800n }, fcr: 5249n, epef: 48n,
           // مفاتيح 0028 (المباع وفرق العدّ والعلف المنقول والخارج والنهائيّان): عقد 0027 بلاها، فـnull لا صفر.
           soldBirds: null, soldNetKg: null, soldAvgKg: null, saleAge: null, countDiff: null, feedCarryInKg: null, feedOutKg: null, feedNetKg: null, fcrFinal: null, epefFinal: null,
@@ -256,7 +257,7 @@ export default async function (t) {
       );
       const layer = parse(clone(F.flock_cycle_report_layer)).cycle;
       t.same(
-        [layer.days[0].eggsTotal, layer.days[0].hdep, layer.days[4].eggsTotal, layer.days[4].hdep, layer.kpis.lastWeight, layer.kpis.fcr, layer.kpis.epef, layer.kpis.feedLeftKg, layer.weeks.map((w) => w.week)],
+        [layer.days[0].eggsTotal, layer.days[0].hdep, layer.days[4].eggsTotal, layer.days[4].hdep, layer.kpis.lastWeight, layer.kpis.fcr, layer.kpis.epef, layer.kpis.leftInHallKg, layer.weeks.map((w) => w.week)],
         [3000, 7500n, null, null, null, null, null, -2_255_000n, [20, 21, 22]],
         'P2 البيّاض: البيض ونسبة الإنتاج، وnull ليوم بلا جولة، والمؤشّرات الناقصة null، والباقي سالب، وأسابيعه 20 و21 و22',
       );
@@ -877,8 +878,11 @@ export default async function (t) {
         const dropped = report.feed.lines.find((line) => line.kg === null && line.on === last.on);
         if (!dropped || last.feed_given_unweighed !== 1 || report.feed.unweighed !== 3) throw new Error('twoLines: عيّنة قاعة 2 تغيّرت');
         report.feed.lines = report.feed.lines.filter((line) => line !== dropped);
-        Object.assign(last, { feed_given_unweighed: 0, feed_given_cum_unweighed: 2 });
+        // وسطور «الباقي في القاعة» بلا كتلة (مراجعة 0028 O2/M5) تنقص السطرَ نفسه: لا نقل ولا إغلاق في هذه الدورة، فهي سطور النازل.
+        Object.assign(last, { feed_given_unweighed: 0, feed_given_cum_unweighed: 2, left_in_hall_unweighed: 2 });
         report.feed.unweighed = 2;
+        report.feed.left_in_hall_unweighed = 2;
+        report.kpis.left_in_hall_unweighed = 2;
         const item = report.feed.by_item.find((row) => row.kg === null && row.name === dropped.item_name);
         Object.assign(item, { qty: String(Number(item.qty) - Number(dropped.qty)), unweighed: item.unweighed - 1 });
         const cents = (value) => Math.round(Number(value) * 100);
@@ -911,11 +915,15 @@ export default async function (t) {
       /** عيّنة الفجوات بلا السطرين الموزونين: علف الدورة كلّه قطعتان بلا وزن يوم 11/11، فالنازل وتراكمه صفر والباقي سالب المأكول. */
       const onlyUnweighed = () => {
         const report = clone(REAL.flock_cycle_report_gaps);
-        for (const day of report.days) Object.assign(day, { feed_given_kg: '0', feed_given_cum_kg: '0.000', feed_left_kg: day.feed_eaten_cum_kg === '0.000' ? '0.000' : `-${day.feed_eaten_cum_kg}` });
-        Object.assign(report.kpis, { feed_given_kg: '0.000', feed_left_kg: `-${report.kpis.feed_eaten_kg}` });
+        // و«الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5، left_in_hall_kg) كالباقي القديم: لا نقل ولا إغلاق في هذه الدورة.
+        for (const day of report.days) {
+          const left = day.feed_eaten_cum_kg === '0.000' ? '0.000' : `-${day.feed_eaten_cum_kg}`;
+          Object.assign(day, { feed_given_kg: '0', feed_given_cum_kg: '0.000', feed_left_kg: left, left_in_hall_kg: left });
+        }
+        Object.assign(report.kpis, { feed_given_kg: '0.000', feed_left_kg: `-${report.kpis.feed_eaten_kg}`, left_in_hall_kg: `-${report.kpis.feed_eaten_kg}` });
         report.feed.lines = report.feed.lines.filter((line) => line.kg === null).map((line) => ({ ...line, cum_kg: '0.000' }));
         report.feed.by_item = report.feed.by_item.filter((row) => row.kg === null);
-        Object.assign(report.feed, { delivered_kg: '0.000', remaining_kg: `-${report.kpis.feed_eaten_kg}` });
+        Object.assign(report.feed, { delivered_kg: '0.000', remaining_kg: `-${report.kpis.feed_eaten_kg}`, left_in_hall_kg: `-${report.kpis.feed_eaten_kg}` });
         return report;
       };
 

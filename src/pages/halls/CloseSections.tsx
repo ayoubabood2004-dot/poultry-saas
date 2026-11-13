@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -9,9 +9,10 @@ import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
 import { fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { reopenFlock, returnHallCarry, type CloseLine, type CloseResult } from '../../lib/repo/flockClose';
+import { loadFlockSales, reopenFlock, returnHallCarry, type CloseLine, type CloseResult, type ReopenWhy } from '../../lib/repo/flockClose';
 import type { CarryIn, CycleSales } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
+import { useLoad } from '../../lib/useLoad';
 import { amountText, failureText, surelyUnsaved } from './GivePage';
 import { birdsText, kgDecimals, signedCount, statusLabel, ticketName, ticketPath } from './ticketParts';
 
@@ -165,6 +166,29 @@ function reopenText(close: CloseResult): string {
   return t('halls.reopen.body', '{parts}. والفواتير تبقى مرحّلة.', { parts: joined });
 }
 
+/**
+ * لماذا لا يُعاد فتح الدورة (مراجعة 0028 O6: flock_sales.reopen_why بترتيب فحوص reopen_flock)، بجملة تقول من يفعل ماذا إن كان لها طريق؛ والبطاقة
+ * والتقرير لا يعرضان «أعد فتح الدورة» حين يرفضها الخادم حتماً.
+ */
+export function reopenWhyText(why: ReopenWhy | null): string {
+  switch (why) {
+    case 'out_of_scope':
+      return t('halls.reopen.why.out_of_scope', 'لا يُعاد فتح هذه الدورة من نطاقك: رجع علفٌ عند إغلاقها إلى مخزن خارج نطاقك. يعيد فتحها مالك المنشأة أو من في نطاقه ذلك المخزن.');
+    case 'period_locked':
+      return t('halls.reopen.why.period_locked', 'لا يُعاد فتح هذه الدورة الآن: الحسابات مقفلة حتى اليوم. اطلب من مالك المنشأة فتح الفترة أوّلاً.');
+    case 'hall_archived':
+      return t('halls.reopen.why.hall_archived', 'لا يُعاد فتح هذه الدورة: القاعة أو حقلها مؤرشف. أعِد المؤرشف منهما من الأرشيف أوّلاً.');
+    case 'hall_reused':
+      return t('halls.reopen.why.hall_reused', 'لا يُعاد فتح هذه الدورة: سُكّن في القاعة فوجٌ بعدها.');
+    case 'carry_used':
+      return t('halls.reopen.why.carry_used', 'لا يُعاد فتح هذه الدورة: العلف المنقول منها نُقل إلى الفوج التالي في القاعة.');
+    case 'lot_consumed':
+      return t('halls.reopen.why.lot_consumed', 'لا يُعاد فتح هذه الدورة: العلف الذي رجع منها إلى المخزن صُرف منه أو صُحّح سعره. ألغِ ذلك المستند أوّلاً إن كان خطأً.');
+    default:
+      return t('halls.reopen.why.other', 'لا يُعاد فتح هذه الدورة الآن.');
+  }
+}
+
 /** «أعد فتح الدورة»: سببها، وتأكيد يسمّي ما يُلغى (من الإغلاق نفسه، reopenText). */
 function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose: () => void; onDone: () => void }) {
   const id = useId();
@@ -222,13 +246,26 @@ function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose:
   );
 }
 
-/** الإغلاق في التقرير: يومه وفرق العدّ وسببه، ومصير كلّ باقٍ ومستنده؛ و«أعد فتح الدورة» و«أرجعه إلى مخزن» للمدير. */
+/**
+ * الإغلاق في التقرير: يومه وفرق العدّ وسببه، ومصير كلّ باقٍ ومستنده؛ و«أعد فتح الدورة» و«أرجعه إلى مخزن» للمدير. و«أعد فتح الدورة» حين يجيزها الخادم
+ * (مراجعة 0028 O6: flock_sales.can.reopen، والزرّ مقفول ما دامت قراءتها في الطريق)، وإلّا جملة لماذا لا (reopen_why)؛ و?act=reopen يفتح النافذة مرّةً
+ * حين يجيزها.
+ */
 export function CloseSection({ close, reopenFirst, onChanged }: { close: CloseResult; reopenFirst: boolean; onChanged: () => void }) {
   const session = useSession();
   const role = session.status === 'ready' ? session.workspace.role : null;
   const manager = role !== null && can(role, 'flock.manage');
   const mayReopen = manager && role !== null && can(role, 'void') && close.status === 'closed';
-  const [reopening, setReopening] = useState(reopenFirst && mayReopen);
+  const loadSales = useCallback(() => (mayReopen ? loadFlockSales(close.flockId) : Promise.resolve(null)), [mayReopen, close.flockId]);
+  const sales = useLoad(loadSales, `${close.id}:${mayReopen}`);
+  const canReopen = mayReopen && !sales.loading && sales.data !== null && sales.data.can.reopen;
+  const [reopening, setReopening] = useState(false);
+  // ?act=reopen: مرّةً واحدة حين يجيزها الخادم، لا بعد كلّ قراءة (مراجعة 0028 S8).
+  const [autoOpened, setAutoOpened] = useState(false);
+  if (reopenFirst && canReopen && !autoOpened) {
+    setAutoOpened(true);
+    setReopening(true);
+  }
   const [returning, setReturning] = useState<CloseLine | null>(null);
   const kg = kgDecimals(close.lines.map((line) => line.kg));
   const columns: Column<CloseLine>[] = [
@@ -275,13 +312,31 @@ export function CloseSection({ close, reopenFirst, onChanged }: { close: CloseRe
         <p className="text-sm text-ink-muted">{t('halls.rep.close_no_lines', 'لا باقٍ مكتوب: كلّ ما نزل للقاعة حُسب مستهلَكاً.')}</p>
       )}
       {mayReopen ? (
-        <div className="print:hidden">
-          <Button variant="secondary" onClick={() => setReopening(true)} data-action="reopen-open">
-            {t('halls.reopen.go', 'أعد فتح الدورة')}
-          </Button>
+        <div className="flex flex-col gap-2 print:hidden" data-action="reopen-box">
+          {sales.data && !sales.data.can.reopen && !sales.loading ? (
+            <p className="text-sm" data-action="reopen-why">
+              {reopenWhyText(sales.data.reopenWhy)}
+            </p>
+          ) : (
+            <div>
+              <Button variant="secondary" disabled={!canReopen} onClick={() => setReopening(true)} data-action="reopen-open">
+                {t('halls.reopen.go', 'أعد فتح الدورة')}
+              </Button>
+            </div>
+          )}
+          {sales.error ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm" data-action="reopen-failed">
+              <span role="alert" className="text-danger-700 dark:text-danger-300">
+                {t('halls.reopen.failed', 'تعذّرت قراءة ما يجوز لهذه الدورة، فـ«أعد فتح الدورة» مقفول.')}
+              </span>
+              <Button size="sm" variant="ghost" onClick={sales.retry} data-action="reopen-retry">
+                {t('common.retry', 'أعد المحاولة')}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
-      {reopening && mayReopen ? (
+      {reopening && canReopen ? (
         <ReopenDialog
           close={close}
           onClose={() => setReopening(false)}
@@ -297,6 +352,7 @@ export function CloseSection({ close, reopenFirst, onChanged }: { close: CloseRe
           onClose={() => setReturning(null)}
           onDone={() => {
             setReturning(null);
+            sales.retry();
             onChanged();
           }}
         />

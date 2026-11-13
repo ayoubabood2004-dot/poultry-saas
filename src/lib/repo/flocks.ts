@@ -313,10 +313,13 @@ export interface FlockFeed {
   issuedFeedKg: bigint;
   /** مجموع العلف المسجّل في الجولات اليومية. */
   consumedFeedKg: bigint;
-  /** المصروف − المستهلك، وقد يكون سالباً (يُعرض كما هو). */
-  remainingFeedKg: bigint;
-  /** سطور علف لا يُعرف وزنها (سائل بلا كثافة، أو قطعة بلا وزن قطعة) فلم تُحسب في المصروف. */
-  unweighedFeedLines: number;
+  /**
+   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب مستهلَكاً
+   * عند الإغلاق − المأكول، فالقاعة المغلقة صفر والفوج التالي يعدّ منقوله؛ وقد يكون سالباً (يُعرض كما هو). وخادم قبل 0028: remaining_feed_kg.
+   */
+  leftInHallKg: bigint;
+  /** سطور علفه بلا كتلة (سائل بلا كثافة، أو قطعة بلا وزن قطعة) خارج الكيلو؛ وخادم قبل 0028: unweighed_feed_lines. */
+  leftInHallUnweighed: number;
   /** الأحدث أوّلاً. */
   issues: FeedIssue[];
   more: boolean;
@@ -329,7 +332,8 @@ export interface FlockFeed {
 export function parseFlockFeed(value: unknown): FlockFeed {
   const json = record(value, 'flock_feed');
   const box = moneyOf(json);
-  const unweighed = int(json, 'unweighed_feed_lines');
+  const old = json.left_in_hall_kg === undefined;
+  const unweighed = int(json, old ? 'unweighed_feed_lines' : 'left_in_hall_unweighed');
   if (unweighed < 0) throw new FlockShapeError('unweighed_feed_lines');
   return {
     flockId: str(json, 'flock_id'),
@@ -338,8 +342,8 @@ export function parseFlockFeed(value: unknown): FlockFeed {
     today: str(json, 'today'),
     issuedFeedKg: qty3(json, 'issued_feed_kg'),
     consumedFeedKg: qty3(json, 'consumed_feed_kg'),
-    remainingFeedKg: qty3(json, 'remaining_feed_kg'),
-    unweighedFeedLines: unweighed,
+    leftInHallKg: qty3(json, old ? 'remaining_feed_kg' : 'left_in_hall_kg'),
+    leftInHallUnweighed: unweighed,
     issues: list(json.issues, 'issues').map((row) => {
       const money = moneyOf(row);
       return {

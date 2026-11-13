@@ -106,12 +106,14 @@ export default async function (t) {
         [-30, 'طيور هربت عند التحميل', [['return', 500_000n, 'رصيد العلف', 'FR-2026-0001', null, 34_728_978n], ['carry', 200_000n, null, null, 'pending', 13_891_591n], ['consumed', 2000n, null, null, null, null]], { costTotal: 2_390_129_344n, returnedValue: 34_728_978n, carriedValue: 13_891_591n, revenue: 5_587_200_000n }],
         'P نتيجة الإغلاق: فرق العدّ وسببه، ومصير كلّ سطر وقيمته (G5: 500 كغم من 3,000 بـ2,083,738.69 ← 347,289.78)',
       );
-      const args = m.close.closeArgs({ clientRef: 'r', closeId: 'c', flockId: F1, on: '2026-11-12', expectedLive: 30, expectedSold: 9700, expectedPools: [{ itemId: I1, qty: 3_000_000n }], countReason: '  هروب ', lines: [{ itemId: I1, qty: 500_000n, action: 'return', warehouseId: WH_FEED }, { itemId: I2, qty: 200_000n, action: 'carry', warehouseId: WH_FEED }], note: '   ' });
+      const args = m.close.closeArgs({ clientRef: 'r', closeId: 'c', flockId: F1, on: '2026-11-12', expectedLive: 30, expectedSold: 9700, expectedPools: [{ itemId: I1, qty: 3_000_000n }], countReason: '  هروب ', lines: [{ itemId: I1, qty: 500_000n, action: 'return', warehouseId: WH_FEED }, { itemId: I2, qty: 200_000n, action: 'carry', warehouseId: WH_FEED }], note: '   ', expectedPlan: FORM.plan });
       t.same(
         args,
-        { p_client_ref: 'r', p_close_id: 'c', p_flock: F1, p_on: '2026-11-12', p_expected_live: 30, p_expected_sold: 9700, p_expected_pools: [{ item_id: I1, qty: '3000.000' }], p_count_reason: 'هروب', p_lines: [{ item_id: I1, qty: '500.000', action: 'return', warehouse_id: WH_FEED }, { item_id: I2, qty: '200.000', action: 'carry' }], p_note: null },
-        'P وسائط close_flock بمفاتيح العقد: الكمية نصّاً، والمخزن للإرجاع وحده، والنصّ مقصوصاً أو null',
+        { p_client_ref: 'r', p_close_id: 'c', p_flock: F1, p_on: '2026-11-12', p_expected_live: 30, p_expected_sold: 9700, p_expected_pools: [{ item_id: I1, qty: '3000.000' }], p_count_reason: 'هروب', p_lines: [{ item_id: I1, qty: '500.000', action: 'return', warehouse_id: WH_FEED }, { item_id: I2, qty: '200.000', action: 'carry' }], p_note: null, p_expected_plan: FORM.plan },
+        'P وسائط close_flock بمفاتيح العقد: الكمية نصّاً، والمخزن للإرجاع وحده، والنصّ مقصوصاً أو null، وبصمة ما في القاعة (الوسيط الحادي عشر، مراجعة 0028 M4)',
       );
+      const legacy = m.close.closeArgs({ clientRef: 'r', closeId: 'c', flockId: F1, on: '2026-11-12', expectedLive: 0, expectedSold: 0, expectedPools: [], countReason: null, lines: [], note: null });
+      t.same(['p_expected_plan' in legacy, legacy.p_expected_plan], [true, null], 'P طلبٌ محفوظ قبل البصمة يُرسل p_expected_plan = null (رفض أكيد pool_changed، لا نداءٌ بلا الوسيط)');
       const report = m.halls.parseCycleReport(clone(REPORT));
       t.same(
         [report.birds.sold, report.birds.countDiff, report.birds.countReason, report.cycle.kpis.soldBirds, report.cycle.kpis.saleAge, report.cycle.kpis.fcrFinal, report.cycle.kpis.epefFinal, report.cycle.days.at(-1).sold, report.cycle.days.at(-1).adjust, report.sales.pendingBirds, report.close.lines.map((l) => l.stores.length), report.close.money, report.money.revenue, report.money.carriedOut],
@@ -126,7 +128,8 @@ export default async function (t) {
       t.same([old.carryIn.map((c) => c.qty), parsedBefore.sales, parsedBefore.close, parsedBefore.carryIn, parsedBefore.birds.sold], [[200_000n], null, null, [], null], 'P خادم قبل 0028: لا بيع ولا إغلاق ولا منقول (null وفارغ لا صفر)، والمنقول إلى دورة قائمة يُقرأ');
     }
 
-    const formRpcs = (over = {}) => ({ flock_close_form: () => clone(FORM), close_flock: () => clone(RESULT), flock_cycle_report: () => clone(REPORT), ...over });
+    // flock_sales للتقرير: «أعد فتح الدورة» حين يجيزها الخادم (مراجعة 0028 O6)؛ وعيّنة العقد المغلقة تجيزها.
+    const formRpcs = (over = {}) => ({ flock_close_form: () => clone(FORM), close_flock: () => clone(RESULT), flock_cycle_report: () => clone(REPORT), flock_sales: () => clone(F.flock_sales_closed), ...over });
     const qty = (item) => withAttr('close-qty', 'data-item', item);
     const action = (item, value) => within(withAttr('close-actions', 'data-item', item), 'close-action').find((n) => n.getAttribute('data-value') === value) ?? null;
     const store = (item) => withAttr('close-store', 'data-item', item);
@@ -185,9 +188,10 @@ export default async function (t) {
             p_count_reason: 'طيور هربت عند التحميل',
             p_lines: [{ item_id: I1, qty: '500.000', action: 'return', warehouse_id: WH_FEED }, { item_id: I2, qty: '200.000', action: 'carry' }, { item_id: I3, qty: '2.000', action: 'consumed' }],
             p_note: null,
+            p_expected_plan: FORM.plan,
           },
         ],
-        'C close_flock نداء واحد بمرجعه ومعرّفه، وما عرضته الشاشة شرطاً: الحيّ 30 والمباع 9,700 وما نزل لكلّ مادّة (D8)',
+        'C close_flock نداء واحد بمرجعه ومعرّفه، وما عرضته الشاشة شرطاً: الحيّ 30 والمباع 9,700 وما نزل لكلّ مادّة (D8)، وبصمة ما في القاعة من النموذج (M4)',
       );
       t.same([lastToast(), globalThis.__h8.location], ['أُغلقت دورة «قاعة 1» يوم 12/11/2026.', `/halls/report/${F1}?back=%2Fbroiler%2Fflock%2F${F1}`], 'C بعد الإغلاق: تقرير الدورة برجوع الصفحة');
     });
@@ -479,6 +483,8 @@ export default async function (t) {
 
     // ── Q: مراجعة 0028 للشاشات (كلّ فحص يفشل على ba04e1d)، بأجوبة القاعدة الحقيقية (fixtures/birds-0028.json) ─────────────────────────────────────
     const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+    // الإغلاق في عيّنة القاعدة لا يُعاد فتحه (lot_consumed)؛ فحوص نافذة إعادة الفتح (S7 وS8) تحتاج خادماً يجيزها.
+    const reopenable = () => ({ ...clone(B.flock_sales_closed), can: { ...clone(B.flock_sales_closed.can), reopen: true }, reopen_why: null });
     await step('Q S5 «أغلق الدورة» مقفول والنموذج يُقرأ من جديد، والتأكيد يسمّي ما يُرسل', async () => {
       const first = clone(B.flock_close_form_carry_in);
       const second = clone(B.flock_close_form_carry_in);
@@ -552,7 +558,7 @@ export default async function (t) {
     });
     await step('Q S7 تأكيد «أعد فتح الدورة» من الإغلاق نفسه', async () => {
       const sample = B.flock_cycle_report_closed;
-      fresh(MANAGER, { flock_cycle_report: () => clone(sample) });
+      fresh(MANAGER, { flock_cycle_report: () => clone(sample), flock_sales: reopenable });
       await mount(`/halls/report/${sample.flock.id}`);
       await click(byAction('reopen-open')[0]);
       t.same(
@@ -571,7 +577,7 @@ export default async function (t) {
       const carry = after.close.lines.find((line) => line.action === 'carry');
       carry.carry_status = 'returned';
       carry.return_doc_no = B.return_hall_carry.doc_no;
-      const log = fresh(MANAGER, { flock_cycle_report: (_args, n) => clone(n === 1 ? closed : after), return_hall_carry: () => clone(B.return_hall_carry) });
+      const log = fresh(MANAGER, { flock_cycle_report: (_args, n) => clone(n === 1 ? closed : after), return_hall_carry: () => clone(B.return_hall_carry), flock_sales: reopenable });
       await mount(`/halls/report/${closed.flock.id}?act=reopen`);
       const openedFirst = byAction('reopen-text').length;
       await click(buttonText('لا، تراجع'));

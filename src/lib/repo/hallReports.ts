@@ -5,7 +5,7 @@ import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import type { CostKind } from './flocks';
-import { HallsShapeError, VACCINE_COLORS, VACCINE_STATES, type DayIssue, type DayVaccine } from './halls';
+import { COUNT_SOURCES, HallsShapeError, VACCINE_COLORS, VACCINE_STATES, type CountSource, type DayIssue, type DayVaccine } from './halls';
 
 // تقارير القاعات (0027، كلمة المالك 2026-11-12، docs/HALLS_REPORTS_PLAN.md التسليم ١): تقرير القاعات اليومي (halls_day: كلّ قاعة في نطاق القارئ
 // ليوم يختاره، مجمَّعة بالحقل بمجاميعها) وقائمة الدورات (flock_cycles: كلّ دورات النطاق، القائمة والمغلقة). قراءة فقط وبلا مال. الأرقام بالسلك نصوص
@@ -96,6 +96,11 @@ export interface DayFlock {
   dayNo: number;
   /** صفّ الجولة لهذا اليوم موجود. */
   round: boolean;
+  /**
+   * يومٌ بدأ بطيور حيّة ينتظر جولة (مراجعة 0028 O7: expects_round): فوجٌ بيع كلّه قبله لا «لم تُسجَّل الجولة» له. وخادم قبله: كلّ يوم ينتظر جولة (كما
+   * كان).
+   */
+  expectsRound: boolean;
   liveStart: number;
   /** null حين لا جولة (لا صفر). */
   dead: number | null;
@@ -114,10 +119,15 @@ export interface DayFlock {
   feedGivenKg: Milli;
   feedGivenUnweighed: number;
   feedGivenCumKg: Milli;
-  /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ والباقي. */
+  /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ. */
   feedGivenCumUnweighed: number;
-  /** النازل التراكمي − المأكول التراكمي، وقد يكون سالباً. */
-  feedLeftKg: Milli;
+  /**
+   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب
+   * مستهلَكاً عند الإغلاق − المأكول، وقد يكون سالباً؛ وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو). وخادم قبل 0028: feed_left_kg
+   * وfeed_given_cum_unweighed (النازل − المأكول).
+   */
+  leftInHallKg: Milli;
+  leftInHallUnweighed: number;
   /** وزن هذا اليوم، وآخر وزن حتى اليوم. */
   weight: DayWeight | null;
   lastWeight: LastWeight | null;
@@ -144,6 +154,15 @@ export interface DayFlock {
   feedOutKg: Milli | null;
   feedOutUnweighed: number | null;
   feedOutCumUnweighed: number | null;
+  /** فروق العدّ الحيّة يومها بعددها وسببها ومصدرها (يدويّاً أو عند الإغلاق، مراجعة 0028 O3)؛ فارغ من خادم قبلها. */
+  countDiffs: readonly DayCountDiff[];
+}
+
+/** فرق عدّ يومٍ بسببه ومصدره (COUNT_SOURCES في repo/halls). */
+export interface DayCountDiff {
+  birds: number;
+  reason: string;
+  source: CountSource;
 }
 
 /** 0028: علف منقول للدورة التالية معلَّق على قاعة فارغة (من دورة أُغلقت، حتى يُسكَّن فوجها التالي أو يُرجع إلى مخزن). */
@@ -174,6 +193,8 @@ export interface DayTotals {
   halls: number;
   flocks: number;
   rounds: number;
+  /** الأفواج التي تنتظر جولة يومها (بدأ يومها بطيور حيّة، مراجعة 0028 O7)؛ وخادم قبله: كلّ الأفواج. */
+  roundsExpected: number;
   liveStart: number;
   /** null حين لا جولة في أيّ قاعة (rounds = 0). */
   dead: number | null;
@@ -225,6 +246,7 @@ const totalsOf = (value: unknown): DayTotals => {
     halls: int(row, 'halls'),
     flocks: int(row, 'flocks'),
     rounds: int(row, 'rounds'),
+    roundsExpected: int(row, row.rounds_expected === undefined ? 'flocks' : 'rounds_expected'),
     liveStart: int(row, 'live_start'),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
@@ -253,6 +275,7 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     age: int(row, 'age'),
     dayNo: int(row, 'day_no'),
     round: flag(row, 'round'),
+    expectsRound: row.expects_round === undefined ? true : flag(row, 'expects_round'),
     liveStart: int(row, 'live_start'),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
@@ -268,7 +291,8 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
     feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
     feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-    feedLeftKg: scaled(row, 'feed_left_kg', 3),
+    leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+    leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
     weight: weightOf(row.weight),
     lastWeight: lastWeightOf(row.last_weight),
     fcr: optScaled(row, 'fcr', 3),
@@ -306,6 +330,7 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     feedOutKg: optScaled(row, 'feed_out_kg', 3),
     feedOutUnweighed: optInt(row, 'feed_out_unweighed'),
     feedOutCumUnweighed: optInt(row, 'feed_out_cum_unweighed'),
+    countDiffs: list(row.count_diffs ?? [], 'count_diffs').map((diff) => ({ birds: int(diff, 'birds'), reason: str(diff, 'reason'), source: oneOf(diff, 'source', COUNT_SOURCES) })),
   };
 };
 

@@ -474,6 +474,8 @@ export interface CycleDay {
   age: number;
   dayNo: number;
   round: boolean;
+  /** يومٌ بدأ بطيور حيّة ينتظر جولة (مراجعة 0028 O7: expects_round)؛ وخادم قبله: كلّ يوم (كما كان). */
+  expectsRound: boolean;
   liveStart: number;
   dead: number | null;
   culled: number | null;
@@ -483,10 +485,15 @@ export interface CycleDay {
   feedEatenCumKg: Milli;
   feedGivenKg: Milli;
   feedGivenCumKg: Milli;
-  /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو والباقي)، وفي «حتى» = feed.unweighed. */
+  /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو)، وفي «حتى» = feed.unweighed. */
   feedGivenUnweighed: number;
   feedGivenCumUnweighed: number;
-  feedLeftKg: Milli;
+  /**
+   * «الباقي في القاعة» آخر اليوم بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg)، وسطوره بلا كتلة؛ وخادم قبل 0028: feed_left_kg (النازل − المأكول)
+   * وfeed_given_cum_unweighed.
+   */
+  leftInHallKg: Milli;
+  leftInHallUnweighed: number;
   weight: { sampleCount: number; avgG: bigint } | null;
   /** للبيّاض وحده (null للّاحم). */
   eggsTotal: number | null;
@@ -513,6 +520,8 @@ export interface CycleWeek {
   toOn: Day;
   days: number;
   roundDays: number;
+  /** أيّامه التي تنتظر جولة (بدأت بطيور حيّة، مراجعة 0028 O7)؛ وخادم قبله: أيّامه كلّها. */
+  expectedDays: number;
   dead: number | null;
   culled: number | null;
   mortalityPct: bigint | null;
@@ -540,7 +549,9 @@ export interface CycleKpis {
   livabilityPct: bigint | null;
   feedGivenKg: Milli | null;
   feedEatenKg: Milli | null;
-  feedLeftKg: Milli | null;
+  /** «الباقي في القاعة» في «حتى» بتعريفه الواحد (left_in_hall_kg، وخادم قبل 0028 feed_left_kg)، وسطوره بلا كتلة (null قبل 0028: feed.unweighed). */
+  leftInHallKg: Milli | null;
+  leftInHallUnweighed: number | null;
   feedDays: number | null;
   feedSpan: number | null;
   feedPerBirdKg: Milli | null;
@@ -595,6 +606,7 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         age: int(row, 'age'),
         dayNo: int(row, 'day_no'),
         round: flag(row, 'round'),
+        expectsRound: row.expects_round === undefined ? true : flag(row, 'expects_round'),
         liveStart: int(row, 'live_start'),
         dead: optInt(row, 'dead'),
         culled: optInt(row, 'culled'),
@@ -606,7 +618,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
         feedGivenUnweighed: int(row, 'feed_given_unweighed'),
         feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-        feedLeftKg: scaled(row, 'feed_left_kg', 3),
+        leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+        leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
         weight: weight ? { sampleCount: int(weight, 'sample_count'), avgG: scaled(weight, 'avg_g', 1) } : null,
         eggsTotal: optInt(row, 'eggs_total'),
         hdep: optScaled(row, 'hdep', 2),
@@ -624,6 +637,7 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       toOn: str(row, 'to_on'),
       days: int(row, 'days'),
       roundDays: int(row, 'round_days'),
+      expectedDays: int(row, row.expected_days === undefined ? 'days' : 'expected_days'),
       dead: optInt(row, 'dead'),
       culled: optInt(row, 'culled'),
       mortalityPct: optScaled(row, 'mortality_pct', 2),
@@ -651,7 +665,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       livabilityPct: optScaled(kpis, 'livability_pct', 2),
       feedGivenKg: optScaled(kpis, 'feed_given_kg', 3),
       feedEatenKg: optScaled(kpis, 'feed_eaten_kg', 3),
-      feedLeftKg: optScaled(kpis, 'feed_left_kg', 3),
+      leftInHallKg: optScaled(kpis, kpis.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+      leftInHallUnweighed: optInt(kpis, 'left_in_hall_unweighed'),
       feedDays: optInt(kpis, 'feed_days'),
       feedSpan: optInt(kpis, 'feed_span'),
       feedPerBirdKg: optScaled(kpis, 'feed_per_bird_kg', 3),
@@ -703,6 +718,10 @@ const cycleSales = (value: unknown): CycleSales | null => {
   };
 };
 
+/** مصدر فرق العدّ (مراجعة 0028 O3): «manual» من «سجّل فرق العدّ»، و«close» كُتب مع الإغلاق (= −الحيّ). */
+export const COUNT_SOURCES = ['manual', 'close'] as const;
+export type CountSource = (typeof COUNT_SOURCES)[number];
+
 /** 0028: علف منقول إلى هذه الدورة من الدورة السابقة في القاعة. */
 export interface CarryIn {
   lineId: string;
@@ -724,7 +743,12 @@ export interface CycleReport {
     byItem: readonly { itemId: string; name: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; unweighed: number }[];
     deliveredKg: Milli;
     consumedKg: Milli;
-    remainingKg: Milli;
+    /**
+     * «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg = المؤشّرات وآخر يوم)، وسطوره بلا كتلة؛ وخادم قبل 0028: remaining_kg (المصروف −
+     * المستهلك) وunweighed.
+     */
+    leftInHallKg: Milli;
+    leftInHallUnweighed: number;
     unweighed: number;
   };
   medicines: readonly { on: Day; source: 'store' | 'log'; name: string; qty: Milli | null; baseUnit: BaseUnit | null; dose: string | null; docNo: string | null }[];
@@ -741,6 +765,11 @@ export interface CycleReport {
   /** 0028: الإغلاق (بلا مال)، وسطور العلف المنقول المعلَّق بمخازن إرجاعها؛ null للقائمة. */
   close: CloseResult | null;
   carryIn: readonly CarryIn[];
+  /**
+   * فروق العدّ الحيّة بيومها وعددها وسببها ومصدرها (يدويّاً أو عند الإغلاق، مراجعة 0028 O3)، وحدها لا مع النافق؛ null من خادم قبلها (السبب في
+   * birds.countReason للإغلاق وحده).
+   */
+  countDiffs: readonly { on: Day; birds: number; reason: string; source: CountSource }[] | null;
 }
 
 export function parseCycleReport(value: unknown): CycleReport {
@@ -787,7 +816,9 @@ export function parseCycleReport(value: unknown): CycleReport {
       })),
       deliveredKg: scaled(feed, 'delivered_kg', 3),
       consumedKg: scaled(feed, 'consumed_kg', 3),
-      remainingKg: scaled(feed, 'remaining_kg', 3),
+      // من المؤشّرات في «حتى»: null حين لا يوم في التقرير (كالمؤشّرات)، فالقديمان (المصروف − المستهلك وسطوره بلا وزن) بدلهما كخادم قبل 0028.
+      leftInHallKg: scaled(feed, feed.left_in_hall_kg === undefined || feed.left_in_hall_kg === null ? 'remaining_kg' : 'left_in_hall_kg', 3),
+      leftInHallUnweighed: int(feed, feed.left_in_hall_unweighed === undefined || feed.left_in_hall_unweighed === null ? 'unweighed' : 'left_in_hall_unweighed'),
       unweighed: int(feed, 'unweighed'),
     },
     medicines: list(json.medicines, 'medicines').map((row) => ({
@@ -826,6 +857,10 @@ export function parseCycleReport(value: unknown): CycleReport {
     sales: cycleSales(json.sales),
     close: json.close === null || json.close === undefined ? null : parseCloseResult(json.close, 'close'),
     carryIn: list(json.carry_in ?? [], 'carry_in').map((row) => ({ lineId: str(row, 'line_id'), itemId: str(row, 'item_id'), name: str(row, 'name'), qty: scaled(row, 'qty', 3), baseUnit: oneOf(row, 'base_unit', UNITS) })),
+    countDiffs:
+      json.count_diffs === undefined || json.count_diffs === null
+        ? null
+        : list(json.count_diffs, 'count_diffs').map((row) => ({ on: str(row, 'on'), birds: int(row, 'birds'), reason: str(row, 'reason'), source: oneOf(row, 'source', COUNT_SOURCES) })),
   };
 }
 

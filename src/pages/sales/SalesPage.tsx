@@ -164,11 +164,45 @@ function ReportTable({ data, costs }: { data: SalesReport; costs: boolean }) {
 
 // ─── فواتير الطيور (مفتاح birds) ─────────────────────────────────────────────────────────────────────────────────
 
-/** التذاكر المكتملة بلا فاتورة مرحّلة (أحدث 100، بلا مدّة)، و«أصدر الفاتورة» لكلّ واحدة لمن يصدرها. */
+/** لماذا لا تُصدر فاتورة تذكرة بانتظارها الآن (مراجعة 0028 O4)، بجملة قصيرة تقول من يفعل ماذا. */
+function awaitingWhy(why: AwaitingTicket['why']): string {
+  switch (why) {
+    case 'period_locked':
+      return t('birds.awaiting.why.period_locked', 'يومها في فترة مقفلة: يفتحها مالك المنشأة');
+    case 'out_of_scope':
+      return t('birds.awaiting.why.out_of_scope', 'دفتر وحدتها خارج نطاقك: يصدرها مالك المنشأة');
+    case 'no_book':
+      return t('birds.awaiting.why.no_book', 'لا دفتر لوحدتها: راجع مالك المنشأة');
+    case 'too_old':
+      return t('birds.awaiting.why.too_old', 'أقدم من سبعة أيّام');
+    default:
+      return t('birds.awaiting.why.other', 'لا تُصدر فاتورتها الآن');
+  }
+}
+
+/**
+ * التذاكر المكتملة بلا فاتورة مرحّلة (أحدث 100، بلا مدّة)، و«أصدر الفاتورة» لكلّ واحدة تُصدر فاتورتها الآن لمن يصدرها (invoiceable)، وإلّا لماذا لا؛
+ * والأقدم من سبعة أيّام تُؤرَّخ فاتورتها اليوم (late، أجوبة المالك 2026-11-13) فيُقال ذلك تحت يومها.
+ */
 function AwaitingTable({ rows, canRecord }: { rows: readonly AwaitingTicket[]; canRecord: boolean }) {
   const kg = kgDecimals(rows.map((row) => row.netKg));
   const columns: Column<AwaitingTicket>[] = [
-    { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.onDate) },
+    {
+      key: 'day',
+      header: t('ledger.date', 'التاريخ'),
+      sticky: true,
+      cell: (row) =>
+        row.late && row.invoiceable ? (
+          <>
+            {fmtDay(row.onDate)}
+            <span className="block text-xs text-ink-muted" data-action="awaiting-late">
+              {t('birds.awaiting.late', 'تُؤرَّخ فاتورتها اليوم')}
+            </span>
+          </>
+        ) : (
+          fmtDay(row.onDate)
+        ),
+    },
     {
       key: 'ticket',
       header: t('birds.col.ticket', 'التذكرة'),
@@ -186,11 +220,16 @@ function AwaitingTable({ rows, canRecord }: { rows: readonly AwaitingTicket[]; c
     columns.push({
       key: 'invoice',
       header: t('birds.col.invoice', 'الفاتورة'),
-      cell: (row) => (
-        <Link to={newBirdSalePath(row.ticketId, '/sales')} className="font-semibold text-brand-700 hover:underline dark:text-brand-200" data-action="invoice-ticket">
-          {t('birds.submit', 'أصدر الفاتورة')}
-        </Link>
-      ),
+      cell: (row) =>
+        row.invoiceable ? (
+          <Link to={newBirdSalePath(row.ticketId, '/sales')} className="font-semibold text-brand-700 hover:underline dark:text-brand-200" data-action="invoice-ticket">
+            {t('birds.submit', 'أصدر الفاتورة')}
+          </Link>
+        ) : (
+          <span className="text-sm text-ink-muted" data-action="awaiting-why">
+            {awaitingWhy(row.why)}
+          </span>
+        ),
     });
   }
   return <DataTable caption={t('birds.awaiting.caption', 'تذاكر وزن بانتظار الفاتورة')} columns={columns} rows={rows} rowKey={(row) => row.ticketId} empty={t('birds.awaiting.empty', 'لا تذاكر بانتظار الفاتورة.')} />;
@@ -241,7 +280,8 @@ function BirdsList({ data, from, to }: { data: BirdSalesSection; from: string; t
     );
   }
   columns.push(
-    { key: 'paid', header: t('sales.col.payment', 'الدفع'), cell: (row) => paidLabel(row.paid) },
+    // المقبوض الذي رُدّ للتاجر (مراجعة 0028 M3): الخادم يقرؤه بالدين، والخانة تقول ما حدث.
+    { key: 'paid', header: t('sales.col.payment', 'الدفع'), cell: (row) => paidLabel(row.paid, row.paymentRefunded) },
     {
       key: 'status',
       header: t('sales.col.status', 'الحالة'),
@@ -278,7 +318,8 @@ function BirdsSection({ data, from, to }: { data: BirdSalesSection; from: string
       <BirdsList data={data} from={from} to={to} />
       {data.more ? <p className="text-sm text-ink-muted">{t('birds.more', 'تُعرض آخر 1,000 فاتورة طيور؛ والمجاميع للمدّة كلّها.')}</p> : null}
       <p className="text-sm text-ink-muted" data-action="bird-profit-note">
-        {t('birds.profit_note', 'ربح الطيور في تقرير الفوج: إيراد كلّ فاتورة مقسوم على الأفواج بصافي قاعاتها.')}
+        {/* مراجعة 0028 O10 (كخلاصة المال وخلاصة الشهر): لا «ربح الطيور» قبل كلفة الفراخ. */}
+        {t('birds.profit_note', 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ.')}
       </p>
     </section>
   );

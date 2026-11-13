@@ -27,6 +27,7 @@ import {
   type BirdSaleForm,
   type FormWhy,
   type PendingBirdSale,
+  type PendingDates,
 } from '../../lib/repo/birdSales';
 import * as purchasing from '../../lib/repo/purchasing';
 import type { PartyPick } from '../../lib/repo/purchasing';
@@ -46,6 +47,9 @@ import { birdBack, birdBackLabel, birdSalePath, birdsText, dinarsText, hallsBird
 // ودرس 2026-11-10: الطلب يُحفظ خارج المكوّن قبل أن يخرج (sessionStorage بمفتاح المستخدم والمنشأة والتذكرة، والذاكرة إن تعذّر)، فالنتيجة المجهولة (أو
 // الرجوع والعودة وإعادة التحميل والطلب في الطريق) تعيد الصفحة مجمَّدة به و«أعد المحاولة» ترسله حرفاً (لا فاتورة ثانية ولا طيور تخرج مرّتين)؛ والرفض
 // الأكيد يقول تلميح الخادم ويعيد الطلب إلى الخانات، والإرسال التالي بمرجع جديد (ومعرّف فاتورة جديد بعد id_conflict). والنتيجة → صفحة الفاتورة.
+// وأجوبة المالك 2026-11-13 (مراجعة 0028 O4): التذكرة الأقدم من سبعة أيّام تُكتب فاتورتها بتاريخ اليوم وتخرج الطيور من القاعات بتاريخ التذكرة، و«المقبوض
+// الآن» يدخل الصندوق يوم إصدار الفاتورة؛ النموذج والتأكيد يقولان ذلك صراحةً بأيّام الخادم (invoice_on وlate وpaid_on)، والممنوع (الفترة المقفلة والدفتر
+// ونطاقه) بجملة تقول من يفعل ماذا.
 
 /** سعر الكيلو الأعلى (bad_price): مليار دينار. */
 const MAX_PRICE: Fils = 1_000_000_000n * FILS_PER_DINAR;
@@ -121,22 +125,43 @@ function failureText(problem: unknown): string {
 /** رفوض تعني أنّ ما قرأته الشاشة تغيّر (التذكرة أو فاتورتها أو حيّ القاعات أو أفواجها أو الدفتر): يُقرأ النموذج من جديد ويبقى ما كُتب. */
 const REREAD = new Set(['stale_ticket', 'ticket_invoiced', 'ticket_not_done', 'ticket_not_found', 'birds_over_live', 'flock_closed', 'no_active_flock', 'before_placement', 'no_sales_book']);
 
-/** جملة التأكيد (ونصّ «المرسَل» للطلب المجمَّد): المبلغ والتاجر والطيور الخارجة من كلّ قاعة، والمقبوض الآن أو الدين كلّه. */
-export function consequenceText(pending: Pick<PendingBirdSale, 'request' | 'partyName' | 'boxName' | 'total' | 'halls'>): string {
-  const head = t('birds.confirm.head', 'تُسجَّل فاتورة BR بمبلغ {total} على حساب «{party}»، وتخرج {halls}.', {
-    total: dinarsText(pending.total),
-    party: pending.partyName,
-    halls: hallsBirdsText(pending.halls),
-  });
+/** «بتاريخ اليوم 13/11/2026» ليوم الخادم، وإلّا «بتاريخ 10/11/2026». */
+const dayPhrase = (day: string, today: string): string => (day === today ? t('birds.on_today', 'بتاريخ اليوم {day}', { day: fmtDay(day) }) : t('birds.on_day', 'بتاريخ {day}', { day: fmtDay(day) }));
+
+/** يدخل المقبوض الصندوق بغير يوم الفاتورة، أو والفاتورة متأخّرة (بتاريخ اليوم): يقول التأكيد يومه. */
+const paidDayShown = (dates: PendingDates | undefined): boolean => dates !== undefined && (dates.late || dates.paidOn !== dates.invoiceOn);
+
+/**
+ * جملة التأكيد (ونصّ «المرسَل» للطلب المجمَّد): المبلغ والتاجر والطيور الخارجة من كلّ قاعة، والمقبوض الآن أو الدين كلّه؛ وللتذكرة الأقدم من سبعة أيّام
+ * يوم الفاتورة (اليوم) ويوم خروج الطيور (يوم التذكرة)، ويوم دخول المقبوض الصندوق حين يخالف يوم الفاتورة (أجوبة المالك 2026-11-13).
+ */
+export function consequenceText(pending: Pick<PendingBirdSale, 'request' | 'partyName' | 'boxName' | 'total' | 'halls' | 'dates'>): string {
+  const dates = pending.dates;
+  const head = dates?.late
+    ? t('birds.confirm.head_late', 'تُسجَّل فاتورة BR {on} لأنّ التذكرة أقدم من سبعة أيّام، بمبلغ {total} على حساب «{party}»، وتخرج {halls} بتاريخ التذكرة {ticket}.', {
+        on: dayPhrase(dates.invoiceOn, dates.today),
+        total: dinarsText(pending.total),
+        party: pending.partyName,
+        halls: hallsBirdsText(pending.halls),
+        ticket: fmtDay(dates.ticketOn),
+      })
+    : t('birds.confirm.head', 'تُسجَّل فاتورة BR بمبلغ {total} على حساب «{party}»، وتخرج {halls}.', {
+        total: dinarsText(pending.total),
+        party: pending.partyName,
+        halls: hallsBirdsText(pending.halls),
+      });
   const paid = pending.request.paidNow;
+  const box = pending.boxName ?? '';
   const tail =
     paid > 0n
-      ? t('birds.confirm.paid', ' ويُقبض الآن {paid} في «{box}»، ويبقى {rest} على حسابه.', { paid: dinarsText(paid), box: pending.boxName ?? '', rest: dinarsText(pending.total - paid) })
+      ? dates && paidDayShown(dates)
+        ? t('birds.confirm.paid_day', ' ويُقبض الآن {paid} في «{box}» {day}، ويبقى {rest} على حسابه.', { paid: dinarsText(paid), box, day: dayPhrase(dates.paidOn, dates.today), rest: dinarsText(pending.total - paid) })
+        : t('birds.confirm.paid', ' ويُقبض الآن {paid} في «{box}»، ويبقى {rest} على حسابه.', { paid: dinarsText(paid), box, rest: dinarsText(pending.total - paid) })
       : t('birds.confirm.credit', ' والمبلغ كلّه بالدين على حسابه.');
   return `${head}${tail}`;
 }
 
-/** لماذا لا تصدر فاتورة للتذكرة، بجملة. */
+/** لماذا لا تصدر فاتورة للتذكرة، بجملة تقول من يفعل ماذا إن كان لها طريق. */
 function whyText(why: FormWhy, form: BirdSaleForm): string {
   switch (why) {
     case 'draft':
@@ -148,11 +173,13 @@ function whyText(why: FormWhy, form: BirdSaleForm): string {
     case 'flock_closed':
       return t('birds.why.closed', 'فوج قاعة من قاعات هذه التذكرة مغلق، فلا تُصدر فاتورتها. أعد فتح الدورة أوّلاً إن كان الإغلاق خطأ.');
     case 'no_book':
-      return t('birds.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فيه فاتورة طيور.');
+      return t('birds.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فيه فاتورة طيور. اطلب من مالك المنشأة مراجعة دفاتر الوحدات.');
     case 'out_of_scope':
-      return t('birds.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور.');
+      return t('birds.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.');
     case 'period_locked':
-      return t('birds.why.period_locked', 'يوم التذكرة في فترة مقفلة، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها.');
+      return t('birds.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.', {
+        day: fmtDay(form.ticket.onDate),
+      });
     case 'too_old':
       return t('birds.why.too_old', 'التذكرة أقدم من سبعة أيّام، والفاتورة تُكتب بيوم تذكرتها، فلا تُصدر فاتورتها الآن.');
   }
@@ -330,6 +357,8 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
     share: preview?.shares?.[index] ?? null,
   }));
   const halls = shownTicket.stops.map((stop) => ({ name: stop.hallName, birds: stop.birds ?? 0 }));
+  // أيّام الفاتورة من الخادم (أجوبة المالك 2026-11-13): يوم الفاتورة، ويوم التذكرة (تخرج به الطيور)، ويوم دخول المقبوض الصندوق، ويوم الخادم.
+  const dates: PendingDates = { late: form.late, invoiceOn: form.invoiceOn, ticketOn: shownTicket.onDate, paidOn: form.paidOn, today: form.today };
 
   const askConfirm = () => {
     setTried(true);
@@ -353,12 +382,18 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
       boxName: paid > 0n ? boxName : null,
       total: preview.total,
       halls,
+      // الأيّام كما قالها النموذج المعروض نفسه (لقطة واحدة مع الطلب)، فالتأكيد والطلب المجمَّد يقولان ما رآه المحاسب.
+      dates,
     });
   };
 
   const facts = [
     t('birds.fact.site', 'الحقل: {site}', { site: shownTicket.siteName }),
-    t('birds.fact.day', 'يوم الفاتورة: {day} (يوم التذكرة)', { day: fmtDay(shownTicket.onDate) }),
+    form.late
+      ? t('birds.fact.day_late', 'يوم الفاتورة: {day} (اليوم)، ويوم التذكرة {ticket}', { day: fmtDay(form.invoiceOn), ticket: fmtDay(shownTicket.onDate) })
+      : form.invoiceOn === shownTicket.onDate
+        ? t('birds.fact.day', 'يوم الفاتورة: {day} (يوم التذكرة)', { day: fmtDay(shownTicket.onDate) })
+        : t('birds.fact.day_other', 'يوم الفاتورة: {day}، ويوم التذكرة {ticket}', { day: fmtDay(form.invoiceOn), ticket: fmtDay(shownTicket.onDate) }),
     ...(form.book ? [t('birds.fact.book', 'الحساب: {book}', { book: form.book.name })] : []),
   ].join(t('list.separator', '، '));
 
@@ -389,6 +424,20 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
         />
       ) : !form.canPost ? (
         <Notice tone="info" title={t('birds.role', 'إصدار فاتورة الطيور للمحاسب والمدير.')} />
+      ) : null}
+      {form.late && form.invoiceable ? (
+        <div data-action="bird-late">
+          <Notice
+            tone="info"
+            title={t('birds.late', 'التذكرة {no} بيوم {ticket}، أقدم من سبعة أيّام: تُسجَّل الفاتورة {on}، وتخرج الطيور من القاعات بتاريخ التذكرة {ticket}.', {
+              no: ticketNo,
+              ticket: fmtDay(shownTicket.onDate),
+              on: dayPhrase(form.invoiceOn, form.today),
+            })}
+          >
+            {t('birds.late.paid', 'والمقبوض الآن يدخل الصندوق {day}.', { day: dayPhrase(form.paidOn, form.today) })}
+          </Notice>
+        </div>
       ) : null}
       <HallsTable
         caption={t('birds.form.halls', 'قاعات التذكرة {no}', { no: ticketNo })}
@@ -480,6 +529,11 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
               {shown.box ? (
                 <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
                   {shown.box}
+                </p>
+              ) : null}
+              {form.paidOn !== form.invoiceOn ? (
+                <p className="text-sm text-ink-muted" data-action="bird-paid-day">
+                  {t('birds.paid_day', 'يدخل المقبوض الصندوق {day}، والفاتورة {on}.', { day: dayPhrase(form.paidOn, form.today), on: dayPhrase(form.invoiceOn, form.today) })}
                 </p>
               ) : null}
             </div>

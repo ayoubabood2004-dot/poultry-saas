@@ -115,7 +115,32 @@ function TicketsTable({ list, here }: { list: TicketList; here: string }) {
     { key: 'halls', header: t('halls.tickets.col.halls', 'القاعات'), wrap: true, cell: (row) => row.halls.join(t('list.separator', '، ')) },
     { key: 'birds', header: t('halls.ticket.col.birds', 'الطيور'), kind: 'number', cell: (row) => (row.birds === null ? dash() : <Num>{fmtInt(row.birds)}</Num>), total: <Num>{fmtInt(list.totals.birds)}</Num> },
     { key: 'net', header: t('halls.ticket.net', 'الصافي (كغم)'), kind: 'number', cell: (row) => (row.netKg === null ? dash() : <Num>{fmtQtyCell(row.netKg, kg)}</Num>), total: <Num>{fmtQtyCell(list.totals.netKg, kg)}</Num> },
-    { key: 'status', header: t('halls.tickets.col.status', 'الحالة'), cell: (row) => <span data-action="tickets-status">{statusLabel(row.status, row.invoiced)}</span> },
+    {
+      key: 'status',
+      header: t('halls.tickets.col.status', 'الحالة'),
+      // بانتظار الفاتورة: الأقدم من سبعة أيّام تُؤرَّخ فاتورتها اليوم (أجوبة المالك 2026-11-13)، والممنوعة الآن بسببها (مراجعة 0028 O4).
+      cell: (row) => (
+        <>
+          <span data-action="tickets-status">{statusLabel(row.status, row.invoiced)}</span>
+          {row.status === 'done' && !row.invoiced && row.invoiceWhy === null && row.invoiceLate ? (
+            <span className="block text-xs text-ink-muted" data-action="tickets-late">
+              {t('halls.tickets.late', 'تُؤرَّخ فاتورتها اليوم')}
+            </span>
+          ) : null}
+          {row.status === 'done' && !row.invoiced && row.invoiceWhy !== null ? (
+            <span className="block text-xs text-ink-muted" data-action="tickets-why">
+              {row.invoiceWhy === 'period_locked'
+                ? t('halls.tickets.why.period_locked', 'يومها في فترة مقفلة')
+                : row.invoiceWhy === 'too_old'
+                  ? t('halls.tickets.why.too_old', 'أقدم من سبعة أيّام')
+                  : row.invoiceWhy === 'out_of_scope'
+                    ? t('halls.tickets.why.out_of_scope', 'دفتر وحدتها خارج نطاقك')
+                    : t('halls.tickets.why.no_book', 'لا دفتر لوحدتها')}
+            </span>
+          ) : null}
+        </>
+      ),
+    },
     {
       key: 'sale',
       header: t('halls.tickets.col.sale', 'الفاتورة'),

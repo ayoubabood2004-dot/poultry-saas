@@ -310,6 +310,8 @@ function CloseView({ flockId }: { flockId: string }) {
         return [{ itemId: line.item.itemId, qty: line.qty, action: draft.action, warehouseId: draft.action === 'return' ? draft.warehouseId : null }];
       }),
       note: note.trim() === '' ? null : note,
+      // بصمة ما في القاعة كما قرأها النموذج نفسه الذي بُني منه الطلب (مراجعة 0028 M4): الخادم يرفض الإغلاق بلاها.
+      expectedPlan: form.plan,
     };
     setConfirm({ request, hall: flock.hallName, names, units });
   };
@@ -505,9 +507,12 @@ function CloseView({ flockId }: { flockId: string }) {
       <section className="card flex flex-col gap-3 p-4" data-action="close-feed">
         <h2 className="font-semibold">{t('halls.close.feed', 'الباقي في القاعة')}</h2>
         <p className="text-sm" data-action="close-estimate">
-          {t('halls.close.estimate', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، فالمتوقّع في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.estimateLeftKg) })}
+          {/* «الباقي في القاعة» بتعريفه الواحد (left_in_hall_kg، مراجعة 0028 O2/M5): للفوج القائم = النازل − المأكول، وبعد الإغلاق ينقص ما خرج عنده فلا يُقال «فالمتوقّع». */}
+          {flock.status === 'active'
+            ? t('halls.close.estimate', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، فالمتوقّع في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.leftInHallKg) })
+            : t('halls.close.estimate_closed', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، والباقي في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.leftInHallKg) })}
           {feed.feedDays < feed.feedSpan ? t('halls.close.estimate_days', ' سُجّل العلف {n} من {days}، فالتقدير ناقص.', { n: feed.feedDays, days: ofDaysText(feed.feedSpan) }) : ''}
-          {feed.unweighed > 0 ? t('halls.close.estimate_unweighed', ' وسطور بلا وزن خارج الكيلو: {n}.', { n: feed.unweighed }) : ''}
+          {feed.leftInHallUnweighed > 0 ? t('halls.close.estimate_unweighed', ' وسطور بلا وزن خارج الكيلو: {n}.', { n: feed.leftInHallUnweighed }) : ''}
         </p>
         <p className="text-sm text-ink-muted">{t('halls.close.items_hint', 'اكتب الباقي الفعليّ لكلّ مادّة بوحدتها، واختر مصيره. المادّة بلا باقٍ تُحسب مستهلَكة كلّها.')}</p>
         <DataTable caption={t('halls.close.items', 'ما نزل للقاعة وباقيه')} columns={itemColumns} rows={form.items} rowKey={(item) => item.itemId} empty={t('halls.close.no_items', 'لم ينزل للقاعة شيء من المخازن في هذه الدورة.')} />

@@ -33,7 +33,8 @@ type ByItem = CycleReport['feed']['byItem'][number];
 type Medicine = CycleReport['medicines'][number];
 type Vaccine = CycleReport['vaccines'][number];
 type WeightRow = CycleDetail['weights'][number];
-type Balance = { delivered: bigint; consumed: bigint; remaining: bigint };
+type Balance = { delivered: bigint; consumed: bigint; left: bigint };
+type CountDiff = NonNullable<CycleReport['countDiffs']>[number];
 type MoneyRow = { key: string; label: string; amount: Fils };
 /** صفّ مؤشّر: القيمة نصّ منسّق، أو null فتُعرض «—» وnote سببها. */
 type Kpi = { key: string; label: string; value: string | null; note: string | null };
@@ -104,10 +105,13 @@ function epefReason(k: CycleKpis): string {
 }
 
 /**
- * أيّام الدورة بجولة مسجّلة من كلّ أيّامها: عدّ واحد لجملة قسم الأيّام («{days} بلا جولة مسجّلة.») ولملاحظة «الحيّ» في المؤشّرات (مراجعة 0027 S2)،
- * فلا تختلفان أبداً.
+ * أيّام الدورة التي تنتظر جولة (بدأت بطيور حيّة، مراجعة 0028 O7: expects_round) وكم منها بجولة مسجّلة: عدّ واحد لجملة قسم الأيّام («{days} بلا جولة
+ * مسجّلة.») ولملاحظة «الحيّ» في المؤشّرات (مراجعة 0027 S2)، فلا تختلفان أبداً. ويومٌ بلا طير حيّ لا يُعدّ جولةً ناقصة.
  */
-const roundsOf = (days: readonly CycleDay[]) => ({ recorded: days.filter((day) => day.round).length, all: days.length });
+const roundsOf = (days: readonly CycleDay[]) => {
+  const expected = days.filter((day) => day.expectsRound);
+  return { recorded: expected.filter((day) => day.round).length, all: expected.length };
+};
 
 /** صفوف المؤشّرات بترتيبها؛ والوزن ومعامل التحويل ومؤشّر الإنتاج للّاحم (والوزن للبيّاض إن وُزن). */
 function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
@@ -141,7 +145,8 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
     report.feed.unweighed > 0 ? outsideKgText(report.feed.unweighed) : null,
   );
   add('eaten', t('halls.rep.kpi.eaten', 'العلف المأكول المسجّل (كغم)'), kg(k.feedEatenKg), feedDaysText(k.feedDays, k.feedSpan));
-  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.feedLeftKg), k.feedLeftKg !== null && k.feedLeftKg < 0n ? leftNegativeText(report.feed.unweighed) : null);
+  // «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5): القيمة نفسها في قسم العلف وآخر يوم من جدول الأيّام والتقرير اليوميّ وعلف القاعة.
+  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.leftInHallKg), k.leftInHallKg !== null && k.leftInHallKg < 0n ? leftNegativeText(k.leftInHallUnweighed ?? report.feed.unweighed) : null);
   add(
     'per_bird',
     t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'),
@@ -177,7 +182,20 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
     add('sold_avg', t('halls.rep.kpi.sold_avg', 'معدّل وزن البيع (كغم)'), k.soldAvgKg === null ? null : fmtScaledCell(k.soldAvgKg, 3, 3), t('halls.rep.kpi.sold_avg_note', 'صافي المباع ÷ عدد طيوره.'), t('halls.rep.kpi.no_sales', 'لا مبيع بفاتورة بعد.'));
     add('sale_age', t('halls.rep.kpi.sale_age', 'عمر البيع (يوم)'), k.saleAge === null ? null : fmtScaledCell(k.saleAge, 1, 1), t('halls.rep.kpi.sale_age_note', 'مرجَّحاً بعدد الطيور في كلّ يوم بيع.'), t('halls.rep.kpi.no_sales', 'لا مبيع بفاتورة بعد.'));
     if (k.countDiff !== null && k.countDiff !== 0) {
-      add('count_diff', t('halls.rep.kpi.count_diff', 'فرق العدّ'), signedCount(k.countDiff), report.birds.countReason ? t('halls.rep.kpi.count_reason', 'السبب: {reason}. يظهر وحده لا مع النافق.', { reason: report.birds.countReason }) : t('halls.rep.kpi.count_note', 'يظهر وحده لا مع النافق.'));
+      // بأكثر من فرق: أسبابه في جدول «فروق العدّ» (مراجعة 0028 O3)، وبفرقٍ واحد سببه هنا؛ وخادم قبلها بسبب الإغلاق وحده.
+      const diffs = report.countDiffs;
+      const single = diffs !== null && diffs.length === 1 ? diffs[0] : undefined;
+      const reason = diffs === null ? report.birds.countReason : (single?.reason ?? null);
+      add(
+        'count_diff',
+        t('halls.rep.kpi.count_diff', 'فرق العدّ'),
+        signedCount(k.countDiff),
+        diffs !== null && diffs.length > 1
+          ? t('halls.rep.kpi.count_diffs', 'أسبابه في جدول «فروق العدّ». يظهر وحده لا مع النافق.')
+          : reason
+            ? t('halls.rep.kpi.count_reason', 'السبب: {reason}. يظهر وحده لا مع النافق.', { reason })
+            : t('halls.rep.kpi.count_note', 'يظهر وحده لا مع النافق.'),
+      );
     }
     if (k.feedCarryInKg !== null && k.feedCarryInKg > 0n) add('carry_in', t('halls.rep.kpi.carry_in', 'العلف من الدورة السابقة (كغم)'), kg(k.feedCarryInKg), t('halls.rep.kpi.carry_in_note', 'منقول إلى هذه القاعة عند تسكينها، ومحسوب في النازل.'));
     if (closed) {
@@ -266,9 +284,11 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   const grams = (tenths: bigint) => <Num>{fmtScaledCell(tenths, 1, 1)}</Num>;
   const rounds = roundsOf(days);
   const missing = rounds.all - rounds.recorded;
+  const leftUnweighed = kpis.leftInHallUnweighed ?? report.feed.unweighed;
   // المجموع من المؤشّرات (kpis) كما هو، إلّا حين لا يُجمع شيء: دورة بلا جولة مسجّلة نافقها ومستبعدها «—» لا صفر، وبلا علف مأكول مسجّل مأكولها «—»
   // (كصفوفها وكالأسبوع بلا جولة؛ مراجعة 0027 S1).
-  const deadTotal = (value: number | null) => (rounds.recorded > 0 ? intCell(value) : dash());
+  const anyRound = days.some((day) => day.round);
+  const deadTotal = (value: number | null) => (anyRound ? intCell(value) : dash());
   const eatenAny = days.some((day) => day.feedEatenKg !== null);
 
   const weekKg = decimalsOf([...weeks.map((week) => week.feedEatenKg), kpis.feedEatenKg]);
@@ -284,9 +304,10 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
     {
       key: 'rounds',
       header: t('halls.rep.col.rounds', 'الجولات'),
+      // من أيّام الأسبوع التي تنتظر جولة (بدأت بطيور حيّة، مراجعة 0028 O7).
       cell: (week) => (
-        <span className={week.roundDays < week.days ? WARN_INK : undefined} data-action="week-rounds">
-          {t('halls.rep.week.rounds', '{n} من {m}', { n: week.roundDays, m: week.days })}
+        <span className={week.roundDays < week.expectedDays ? WARN_INK : undefined} data-action="week-rounds">
+          {t('halls.rep.week.rounds', '{n} من {m}', { n: week.roundDays, m: week.expectedDays })}
         </span>
       ),
     },
@@ -314,7 +335,7 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   const eatenCumKg = decimalsOf(days.map((day) => day.feedEatenCumKg));
   const givenKg = decimalsOf([...days.map((day) => day.feedGivenKg), kpis.feedGivenKg]);
   const givenCumKg = decimalsOf(days.map((day) => day.feedGivenCumKg));
-  const leftKg = decimalsOf(days.map((day) => day.feedLeftKg));
+  const leftKg = decimalsOf(days.map((day) => day.leftInHallKg));
   const dayColumns: Column<CycleDay>[] = [
     { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), sticky: true, cell: (day) => <Num>{fmtDay(day.on)}</Num> },
     { key: 'age', header: t('halls.rep.col.age_short', 'العمر'), kind: 'number', cell: (day) => <Num>{fmtInt(day.age)}</Num> },
@@ -362,7 +383,7 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         ),
     },
     { key: 'given_cum', header: t('halls.rep.col.given_cum', 'النازل التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenCumKg, givenCumKg) },
-    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedLeftKg, leftKg) },
+    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.leftInHallKg, leftKg) },
     ...(showWeight
       ? [{ key: 'weight', header: t('halls.rep.col.weight', 'الوزن (غم)'), kind: 'number' as const, cell: (day: CycleDay) => (day.weight === null ? null : grams(day.weight.avgG)) }]
       : []),
@@ -378,9 +399,13 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
       wrap: true,
       cell: (day) => (
         <>
-          {!day.round ? (
+          {!day.round && day.expectsRound ? (
             <span className={`block ${WARN_INK}`} data-action="rep-no-round">
               {t('halls.rep.no_round', 'لم تُسجَّل الجولة')}
+            </span>
+          ) : !day.round ? (
+            <span className="block text-ink-muted" data-action="rep-no-live">
+              {t('halls.rep.no_live', 'لا طيور حيّة أوّل اليوم')}
             </span>
           ) : day.feedEatenKg === null ? (
             <span className="block text-ink-muted" data-action="rep-no-feed">
@@ -424,17 +449,22 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         title={t('halls.rep.sec.days', 'أيّام الدورة')}
         action="rep-days"
         note={
-          missing > 0 || report.feed.unweighed > 0 ? (
+          missing > 0 || report.feed.unweighed > 0 || leftUnweighed > 0 ? (
             <>
               {missing > 0 ? (
                 <p className={`text-sm ${WARN_INK}`} data-action="rep-days-missing">
                   {t('halls.rep.days_missing', '{days} بلا جولة مسجّلة.', { days: daysText(missing) })}
                 </p>
               ) : null}
-              {report.feed.unweighed > 0 ? (
+              {report.feed.unweighed > 0 || leftUnweighed > 0 ? (
                 <p className="text-sm text-ink-muted" data-action="rep-days-unweighed">
-                  {/* العدد فاعل لا مفعول (linesText بالرفع، مراجعة 0027 V2-G3-ACCUSATIVE): «لا يدخل … سطران بلا وزن»، والفعل قبل فاعله مفرد. */}
-                  {t('halls.rep.days_unweighed_cum', 'لا يدخل في النازل التراكميّ ولا في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
+                  {/* العدد فاعل لا مفعول (linesText بالرفع، مراجعة 0027 V2-G3-ACCUSATIVE): «لا يدخل … سطران بلا وزن»، والفعل قبل فاعله مفرد. وسطور الباقي في
+                      القاعة بلا كتلة قد تزيد على سطور النازل (المنقول والخارج عند الإغلاق، مراجعة 0028 O2/M5) فتُعدّ وحدها حينئذٍ. */}
+                  {leftUnweighed === report.feed.unweighed
+                    ? t('halls.rep.days_unweighed_cum', 'لا يدخل في النازل التراكميّ ولا في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })
+                    : report.feed.unweighed === 0
+                      ? t('halls.rep.days_unweighed_left', 'لا يدخل في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(leftUnweighed) })
+                      : t('halls.rep.days_unweighed_split', 'لا يدخل في النازل التراكميّ {given} بلا وزن، ولا في الباقي في القاعة {left} بلا وزن.', { given: linesText(report.feed.unweighed), left: linesText(leftUnweighed) })}
                 </p>
               ) : null}
             </>
@@ -452,14 +482,42 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   );
 }
 
+/**
+ * فروق العدّ بأسبابها (مراجعة 0028 O3: count_diffs)، وحدها لا مع النافق: كلّ فرق بيومه وعدده بإشارته ومصدره (سُجّل يدويّاً أو كُتب مع الإغلاق) وسببه،
+ * والمجموع فرق العدّ من الخادم.
+ */
+function CountDiffsSection({ diffs, total }: { diffs: readonly CountDiff[]; total: number | null }) {
+  const columns: Column<CountDiff>[] = [
+    { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.on)}</Num> },
+    { key: 'birds', header: t('halls.rep.col.adjust', 'فرق العدّ'), kind: 'number', cell: (row) => <Num>{signedCount(row.birds)}</Num>, ...(total === null ? {} : { total: <Num>{signedCount(total)}</Num> }) },
+    { key: 'source', header: t('halls.rep.col.source', 'المصدر'), cell: (row) => (row.source === 'close' ? t('halls.rep.count.close', 'عند الإغلاق') : t('halls.rep.count.manual', 'سُجّل يدويّاً')) },
+    { key: 'reason', header: t('halls.rep.col.reason', 'السبب'), wrap: true, cell: (row) => row.reason },
+  ];
+  return (
+    <Section
+      title={t('halls.rep.sec.count_diffs', 'فروق العدّ')}
+      action="rep-count-diffs"
+      note={
+        <p className="text-sm text-ink-muted" data-action="rep-count-diffs-note">
+          {t('halls.rep.count_diffs_note', 'الفرق بين العدّ الفعليّ والحيّ بحسب النظام، بسببه؛ ويظهر وحده لا مع النافق.')}
+        </p>
+      }
+    >
+      <DataTable caption={t('halls.rep.sec.count_diffs', 'فروق العدّ')} columns={columns} rows={diffs} rowKey={(row, index) => `${row.on}|${index}`} empty={dash()} totalLabel={t('halls.rep.total', 'المجموع')} />
+    </Section>
+  );
+}
+
 function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleReport; here: string; reopenFirst: boolean; onChanged: () => void }) {
   const { birds, feed, medicines, vaccines, money, cycle } = report;
   const lineQty = decimalsOf(feed.lines.map((line) => line.qty));
   const kgDecimals = decimalsOf([...feed.lines.map((line) => line.kg), ...feed.lines.map((line) => line.cumKg), feed.deliveredKg, ...feed.byItem.map((row) => row.kg)]);
   const itemQty = decimalsOf(feed.byItem.map((row) => row.qty));
-  const balanceDecimals = decimalsOf([feed.deliveredKg, feed.consumedKg, feed.remainingKg]);
+  const balanceDecimals = decimalsOf([feed.deliveredKg, feed.consumedKg, feed.leftInHallKg]);
   const medQty = decimalsOf(medicines.map((row) => row.qty));
   const kgCell = (kg: bigint | null, decimals: 0 | 1 | 2 | 3) => (kg === null ? dash() : <Num>{fmtQtyCell(kg, decimals)}</Num>);
+  // المصروف − المستهلك لا يساوي الباقي في القاعة حين نُقل إليها علف أو أُغلقت الدورة (مراجعة 0028 O2/M5): جملة تقول لماذا.
+  const moved = report.carryIn.length > 0 || report.close?.status === 'closed';
 
   const birdColumns: Column<Birds>[] = [
     { key: 'placed', header: t('halls.rep.col.placed', 'المسكَّن'), kind: 'number', cell: (row) => <Num>{fmtInt(row.placed)}</Num> },
@@ -521,7 +579,7 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
   const balanceColumns: Column<Balance>[] = [
     { key: 'delivered', header: t('halls.rep.col.delivered', 'المصروف للقاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.delivered, balanceDecimals)}</Num> },
     { key: 'consumed', header: t('halls.rep.col.consumed', 'المستهلك المسجّل (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.consumed, balanceDecimals)}</Num> },
-    { key: 'remaining', header: t('halls.rep.col.remaining', 'الباقي بالقاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.remaining, balanceDecimals)}</Num> },
+    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.left, balanceDecimals)}</Num> },
   ];
 
   const medicineColumns: Column<Medicine>[] = [
@@ -590,6 +648,7 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
       <Section title={t('halls.rep.sec.birds', 'الطيور')} action="rep-birds">
         <DataTable caption={t('halls.rep.sec.birds', 'الطيور')} columns={birdColumns} rows={[birds]} rowKey={() => 'birds'} empty={dash()} />
       </Section>
+      {report.countDiffs && report.countDiffs.length ? <CountDiffsSection diffs={report.countDiffs} total={birds.countDiff} /> : null}
       {report.sales ? <SalesSection sales={report.sales} back={here} /> : null}
       <CarryInNote lines={report.carryIn} />
       {cycle ? <CycleSections report={report} cycle={cycle} /> : null}
@@ -603,18 +662,27 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
         title={t('halls.rep.sec.balance', 'المصروف والمستهلك والباقي')}
         action="rep-balance"
         note={
-          feed.unweighed > 0 ? (
-            <p className="text-sm text-ink-muted" data-action="rep-unweighed">
-              {/* الفعل قبل فاعله العدد فهو مفرد مذكّر لكلّ عدد: «لم يُحسب … سطر واحد» و«… سطران» و«… 3 سطور» (مراجعة 0027 V3-H2-BALANCE-VERB). */}
-              {t('halls.rep.unweighed', 'لم يُحسب في الكيلو {lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', { lines: linesText(feed.unweighed) })}
-            </p>
+          feed.leftInHallUnweighed > 0 || moved ? (
+            <>
+              {feed.leftInHallUnweighed > 0 ? (
+                <p className="text-sm text-ink-muted" data-action="rep-unweighed">
+                  {/* الفعل قبل فاعله العدد فهو مفرد مذكّر لكلّ عدد: «لم يُحسب … سطر واحد» و«… سطران» و«… 3 سطور» (مراجعة 0027 V3-H2-BALANCE-VERB). */}
+                  {t('halls.rep.unweighed', 'لم يُحسب في الكيلو {lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', { lines: linesText(feed.leftInHallUnweighed) })}
+                </p>
+              ) : null}
+              {moved ? (
+                <p className="text-sm text-ink-muted" data-action="rep-left-note">
+                  {t('halls.rep.left_note', 'الباقي في القاعة يعدّ العلف المنقول إليها من الدورة السابقة، ويُنقص ما رجع منها أو نُقل أو حُسب مستهلَكاً عند الإغلاق.')}
+                </p>
+              ) : null}
+            </>
           ) : undefined
         }
       >
         <DataTable
           caption={t('halls.rep.sec.balance', 'المصروف والمستهلك والباقي')}
           columns={balanceColumns}
-          rows={[{ delivered: feed.deliveredKg, consumed: feed.consumedKg, remaining: feed.remainingKg }]}
+          rows={[{ delivered: feed.deliveredKg, consumed: feed.consumedKg, left: feed.leftInHallKg }]}
           rowKey={() => 'balance'}
           empty={dash()}
         />
