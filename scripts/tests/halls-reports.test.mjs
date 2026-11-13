@@ -296,7 +296,8 @@ export default async function (t) {
       );
       t.same(
         [day.sites[0].totals, day.totals.feedEatenKg, day.totals.feedEatenFlocks],
-        [{ halls: 3, flocks: 2, rounds: 1, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1 }, 900000n, 2],
+        // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر.
+        [{ halls: 3, flocks: 2, rounds: 1, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null }, 900000n, 2],
         'P مجاميع الخادم كما هي (لا جمع في المحلّل)',
       );
       // 52ca9fd: سطور العلف بلا وزن حتى اليوم لكلّ فوج (feed_given_cum_unweighed)، وفي مجاميع اليوم (feed_given_unweighed)، عدداً صحيحاً إلزامياً.

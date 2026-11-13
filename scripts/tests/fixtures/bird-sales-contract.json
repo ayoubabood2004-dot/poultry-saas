@@ -1,0 +1,1200 @@
+{
+  "_note": "عيّنات العقد اليدوية لشاشات فاتورة الطيور BR (contract-0028 §4.4–§4.5 و§5.4–§5.5 و§6، الوكيل ب للمبيعات والمال): نموذج الفاتورة لتذكرة G3/G4 (قاعتان، صافي 4,100، التنزيل 0.50٪ والسعر 2,749 = 11,214,546، والحصّتان 4,923,459 و6,291,087)، وبحيّ أقلّ من طيور قاعة، وبعد فاتورتها، وبفوج مغلق؛ والفاتورة ونتيجة الإلغاء (G1: 24,899,875 مقبوضة كلّها)؛ ومفتاح birds في قائمة المبيعات وتقريرها؛ وكشف التاجر بفاتورتين ومقبوضهما. وعيّنات القاعدة الحقيقية في birds-0028.json حين توجد.",
+  "bird_sale_form": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "status": "done",
+      "version": 5,
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "division_id": "00000000-0000-4000-8000-000000002802",
+      "on_date": "2026-11-12",
+      "method": "scale",
+      "empty_kg": "7000.000",
+      "empty_with_crates": false,
+      "crate_kg": "6.000",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "note": null,
+      "birds": 1800,
+      "crates": 400,
+      "gross_kg": "13500.000",
+      "net_kg": "4100.000",
+      "avg_kg": "2.278",
+      "stops": [
+        {
+          "id": "00000000-0000-4000-8000-000000002841",
+          "stop_no": 1,
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "flock_status": "active",
+          "birds": 800,
+          "crates": 200,
+          "gross_kg": "10000.000",
+          "prev_gross_kg": "7000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "live": 9730,
+          "other_ticketed": 0,
+          "weighings": []
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002842",
+          "stop_no": 2,
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "flock_status": "active",
+          "birds": 1000,
+          "crates": 200,
+          "gross_kg": "13500.000",
+          "prev_gross_kg": "10000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "live": 5000,
+          "other_ticketed": 500,
+          "weighings": []
+        }
+      ],
+      "invoiced": false,
+      "sale": null,
+      "created_by_name": "علي",
+      "finished_at": "2026-11-12T08:30:00+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "warnings": []
+    },
+    "invoiceable": true,
+    "why": null,
+    "book": {
+      "id": "00000000-0000-4000-8000-000000002902",
+      "name": "دفتر حقول اللحم"
+    },
+    "flocks": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "hall_name": "قاعة 1",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "live": 9730,
+        "birds": 800,
+        "over_live": false
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "hall_name": "قاعة 2",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "live": 5000,
+        "birds": 1000,
+        "over_live": false
+      }
+    ],
+    "suggested_price": "2749.00",
+    "sale": null,
+    "today": "2026-11-12",
+    "can_post": true
+  },
+  "bird_sale_form_no_suggestion": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "status": "done",
+      "version": 5,
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "division_id": "00000000-0000-4000-8000-000000002802",
+      "on_date": "2026-11-12",
+      "method": "scale",
+      "empty_kg": "7000.000",
+      "empty_with_crates": false,
+      "crate_kg": "6.000",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "note": null,
+      "birds": 1800,
+      "crates": 400,
+      "gross_kg": "13500.000",
+      "net_kg": "4100.000",
+      "avg_kg": "2.278",
+      "stops": [
+        {
+          "id": "00000000-0000-4000-8000-000000002841",
+          "stop_no": 1,
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "flock_status": "active",
+          "birds": 800,
+          "crates": 200,
+          "gross_kg": "10000.000",
+          "prev_gross_kg": "7000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "live": 9730,
+          "other_ticketed": 0,
+          "weighings": []
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002842",
+          "stop_no": 2,
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "flock_status": "active",
+          "birds": 1000,
+          "crates": 200,
+          "gross_kg": "13500.000",
+          "prev_gross_kg": "10000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "live": 5000,
+          "other_ticketed": 500,
+          "weighings": []
+        }
+      ],
+      "invoiced": false,
+      "sale": null,
+      "created_by_name": "علي",
+      "finished_at": "2026-11-12T08:30:00+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "warnings": []
+    },
+    "invoiceable": true,
+    "why": null,
+    "book": {
+      "id": "00000000-0000-4000-8000-000000002902",
+      "name": "دفتر حقول اللحم"
+    },
+    "flocks": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "hall_name": "قاعة 1",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "live": 9730,
+        "birds": 800,
+        "over_live": false
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "hall_name": "قاعة 2",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "live": 5000,
+        "birds": 1000,
+        "over_live": false
+      }
+    ],
+    "suggested_price": null,
+    "sale": null,
+    "today": "2026-11-12",
+    "can_post": true
+  },
+  "bird_sale_form_over_live": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "status": "done",
+      "version": 5,
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "division_id": "00000000-0000-4000-8000-000000002802",
+      "on_date": "2026-11-12",
+      "method": "scale",
+      "empty_kg": "7000.000",
+      "empty_with_crates": false,
+      "crate_kg": "6.000",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "note": null,
+      "birds": 1800,
+      "crates": 400,
+      "gross_kg": "13500.000",
+      "net_kg": "4100.000",
+      "avg_kg": "2.278",
+      "stops": [
+        {
+          "id": "00000000-0000-4000-8000-000000002841",
+          "stop_no": 1,
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "flock_status": "active",
+          "birds": 800,
+          "crates": 200,
+          "gross_kg": "10000.000",
+          "prev_gross_kg": "7000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "live": 9730,
+          "other_ticketed": 0,
+          "weighings": []
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002842",
+          "stop_no": 2,
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "flock_status": "active",
+          "birds": 1000,
+          "crates": 200,
+          "gross_kg": "13500.000",
+          "prev_gross_kg": "10000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "live": 5000,
+          "other_ticketed": 500,
+          "weighings": []
+        }
+      ],
+      "invoiced": false,
+      "sale": null,
+      "created_by_name": "علي",
+      "finished_at": "2026-11-12T08:30:00+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "warnings": []
+    },
+    "invoiceable": true,
+    "why": null,
+    "book": {
+      "id": "00000000-0000-4000-8000-000000002902",
+      "name": "دفتر حقول اللحم"
+    },
+    "flocks": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "hall_name": "قاعة 1",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "live": 9730,
+        "birds": 800,
+        "over_live": false
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "hall_name": "قاعة 2",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "live": 950,
+        "birds": 1000,
+        "over_live": true
+      }
+    ],
+    "suggested_price": "2749.00",
+    "sale": null,
+    "today": "2026-11-12",
+    "can_post": true
+  },
+  "bird_sale_form_invoiced": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "status": "done",
+      "version": 5,
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "division_id": "00000000-0000-4000-8000-000000002802",
+      "on_date": "2026-11-12",
+      "method": "scale",
+      "empty_kg": "7000.000",
+      "empty_with_crates": false,
+      "crate_kg": "6.000",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "note": null,
+      "birds": 1800,
+      "crates": 400,
+      "gross_kg": "13500.000",
+      "net_kg": "4100.000",
+      "avg_kg": "2.278",
+      "stops": [
+        {
+          "id": "00000000-0000-4000-8000-000000002841",
+          "stop_no": 1,
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "flock_status": "active",
+          "birds": 800,
+          "crates": 200,
+          "gross_kg": "10000.000",
+          "prev_gross_kg": "7000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "live": 9730,
+          "other_ticketed": 0,
+          "weighings": []
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002842",
+          "stop_no": 2,
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "flock_status": "active",
+          "birds": 1000,
+          "crates": 200,
+          "gross_kg": "13500.000",
+          "prev_gross_kg": "10000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "live": 5000,
+          "other_ticketed": 500,
+          "weighings": []
+        }
+      ],
+      "invoiced": true,
+      "sale": {
+        "id": "00000000-0000-4000-8000-000000002910",
+        "doc_no": "BR-2026-0004",
+        "status": "posted"
+      },
+      "created_by_name": "علي",
+      "finished_at": "2026-11-12T08:30:00+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "warnings": []
+    },
+    "invoiceable": false,
+    "why": "invoiced",
+    "book": {
+      "id": "00000000-0000-4000-8000-000000002902",
+      "name": "دفتر حقول اللحم"
+    },
+    "flocks": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "hall_name": "قاعة 1",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "live": 9730,
+        "birds": 800,
+        "over_live": false
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "hall_name": "قاعة 2",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "live": 5000,
+        "birds": 1000,
+        "over_live": false
+      }
+    ],
+    "suggested_price": "2749.00",
+    "sale": {
+      "id": "00000000-0000-4000-8000-000000002910",
+      "doc_no": "BR-2026-0004",
+      "status": "posted",
+      "sold_on": "2026-11-12",
+      "ticket_id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "party_id": "00000000-0000-4000-8000-000000002901",
+      "party_name": "أبو حيدر للدواجن",
+      "book_id": "00000000-0000-4000-8000-000000002902",
+      "birds": 1800,
+      "net_kg": "4100.000",
+      "billed_kg": "4079.500",
+      "deduction_pct": "0.50",
+      "avg_kg": "2.278",
+      "cash_account_id": "00000000-0000-4000-8000-000000002903",
+      "account_name": "صندوق البيع",
+      "note": null,
+      "voided_at": null,
+      "void_reason": null,
+      "sources": [
+        {
+          "stop_id": "00000000-0000-4000-8000-000000002841",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "birds": 800,
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "money": {
+            "revenue": "4923459"
+          }
+        },
+        {
+          "stop_id": "00000000-0000-4000-8000-000000002842",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "birds": 1000,
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "money": {
+            "revenue": "6291087"
+          }
+        }
+      ],
+      "money": {
+        "unit_price": "2749.00",
+        "total": "11214546",
+        "paid_now": "5000000"
+      }
+    },
+    "today": "2026-11-12",
+    "can_post": false
+  },
+  "bird_sale_form_closed": {
+    "ticket": {
+      "id": "00000000-0000-4000-8000-000000002832",
+      "ticket_no": "WT-2026-0007",
+      "status": "done",
+      "version": 5,
+      "site_id": "00000000-0000-4000-8000-000000002801",
+      "site_name": "حقل الأمير",
+      "division_id": "00000000-0000-4000-8000-000000002802",
+      "on_date": "2026-11-12",
+      "method": "scale",
+      "empty_kg": "7000.000",
+      "empty_with_crates": false,
+      "crate_kg": "6.000",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "note": null,
+      "birds": 1800,
+      "crates": 400,
+      "gross_kg": "13500.000",
+      "net_kg": "4100.000",
+      "avg_kg": "2.278",
+      "stops": [
+        {
+          "id": "00000000-0000-4000-8000-000000002841",
+          "stop_no": 1,
+          "hall_id": "00000000-0000-4000-8000-000000002811",
+          "hall_name": "قاعة 1",
+          "flock_id": "00000000-0000-4000-8000-000000002821",
+          "flock_status": "active",
+          "birds": 800,
+          "crates": 200,
+          "gross_kg": "10000.000",
+          "prev_gross_kg": "7000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "1800.000",
+          "avg_kg": "2.250",
+          "live": 9730,
+          "other_ticketed": 0,
+          "weighings": []
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002842",
+          "stop_no": 2,
+          "hall_id": "00000000-0000-4000-8000-000000002812",
+          "hall_name": "قاعة 2",
+          "flock_id": "00000000-0000-4000-8000-000000002822",
+          "flock_status": "active",
+          "birds": 1000,
+          "crates": 200,
+          "gross_kg": "13500.000",
+          "prev_gross_kg": "10000.000",
+          "crates_kg": "1200.000",
+          "net_kg": "2300.000",
+          "avg_kg": "2.300",
+          "live": 5000,
+          "other_ticketed": 500,
+          "weighings": []
+        }
+      ],
+      "invoiced": false,
+      "sale": null,
+      "created_by_name": "علي",
+      "finished_at": "2026-11-12T08:30:00+00:00",
+      "voided_at": null,
+      "void_reason": null,
+      "warnings": []
+    },
+    "invoiceable": false,
+    "why": "flock_closed",
+    "book": {
+      "id": "00000000-0000-4000-8000-000000002902",
+      "name": "دفتر حقول اللحم"
+    },
+    "flocks": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "hall_name": "قاعة 1",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "live": 9730,
+        "birds": 800,
+        "over_live": false
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "hall_name": "قاعة 2",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "live": 5000,
+        "birds": 1000,
+        "over_live": false
+      }
+    ],
+    "suggested_price": "2749.00",
+    "sale": null,
+    "today": "2026-11-12",
+    "can_post": false
+  },
+  "record_bird_sale": {
+    "id": "00000000-0000-4000-8000-000000002910",
+    "doc_no": "BR-2026-0004",
+    "status": "posted",
+    "sold_on": "2026-11-12",
+    "ticket_id": "00000000-0000-4000-8000-000000002832",
+    "ticket_no": "WT-2026-0007",
+    "site_id": "00000000-0000-4000-8000-000000002801",
+    "site_name": "حقل الأمير",
+    "party_id": "00000000-0000-4000-8000-000000002901",
+    "party_name": "أبو حيدر للدواجن",
+    "book_id": "00000000-0000-4000-8000-000000002902",
+    "birds": 1800,
+    "net_kg": "4100.000",
+    "billed_kg": "4079.500",
+    "deduction_pct": "0.50",
+    "avg_kg": "2.278",
+    "cash_account_id": "00000000-0000-4000-8000-000000002903",
+    "account_name": "صندوق البيع",
+    "note": null,
+    "voided_at": null,
+    "void_reason": null,
+    "sources": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "hall_id": "00000000-0000-4000-8000-000000002811",
+        "hall_name": "قاعة 1",
+        "birds": 800,
+        "net_kg": "1800.000",
+        "avg_kg": "2.250",
+        "money": {
+          "revenue": "4923459"
+        }
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "hall_id": "00000000-0000-4000-8000-000000002812",
+        "hall_name": "قاعة 2",
+        "birds": 1000,
+        "net_kg": "2300.000",
+        "avg_kg": "2.300",
+        "money": {
+          "revenue": "6291087"
+        }
+      }
+    ],
+    "money": {
+      "unit_price": "2749.00",
+      "total": "11214546",
+      "paid_now": "5000000"
+    }
+  },
+  "bird_sale_detail": {
+    "id": "00000000-0000-4000-8000-000000002910",
+    "doc_no": "BR-2026-0004",
+    "status": "posted",
+    "sold_on": "2026-11-12",
+    "ticket_id": "00000000-0000-4000-8000-000000002832",
+    "ticket_no": "WT-2026-0007",
+    "site_id": "00000000-0000-4000-8000-000000002801",
+    "site_name": "حقل الأمير",
+    "party_id": "00000000-0000-4000-8000-000000002901",
+    "party_name": "أبو حيدر للدواجن",
+    "book_id": "00000000-0000-4000-8000-000000002902",
+    "birds": 1800,
+    "net_kg": "4100.000",
+    "billed_kg": "4079.500",
+    "deduction_pct": "0.50",
+    "avg_kg": "2.278",
+    "cash_account_id": "00000000-0000-4000-8000-000000002903",
+    "account_name": "صندوق البيع",
+    "note": null,
+    "voided_at": null,
+    "void_reason": null,
+    "sources": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002841",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "hall_id": "00000000-0000-4000-8000-000000002811",
+        "hall_name": "قاعة 1",
+        "birds": 800,
+        "net_kg": "1800.000",
+        "avg_kg": "2.250",
+        "money": {
+          "revenue": "4923459"
+        }
+      },
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002842",
+        "flock_id": "00000000-0000-4000-8000-000000002822",
+        "hall_id": "00000000-0000-4000-8000-000000002812",
+        "hall_name": "قاعة 2",
+        "birds": 1000,
+        "net_kg": "2300.000",
+        "avg_kg": "2.300",
+        "money": {
+          "revenue": "6291087"
+        }
+      }
+    ],
+    "money": {
+      "unit_price": "2749.00",
+      "total": "11214546",
+      "paid_now": "5000000"
+    },
+    "ticket": {
+      "ticket_no": "WT-2026-0007",
+      "vehicle": "12345 بغداد",
+      "driver": "حسين علي",
+      "method": "scale"
+    },
+    "party_phone": "0770 123 4567",
+    "remaining": "0",
+    "payment_kept": null,
+    "can_void": true
+  },
+  "bird_sale_detail_void": {
+    "id": "00000000-0000-4000-8000-000000002911",
+    "doc_no": "BR-2026-0003",
+    "status": "void",
+    "sold_on": "2026-11-11",
+    "ticket_id": "00000000-0000-4000-8000-000000002912",
+    "ticket_no": "WT-2026-0005",
+    "site_id": "00000000-0000-4000-8000-000000002801",
+    "site_name": "حقل الأمير",
+    "party_id": "00000000-0000-4000-8000-000000002901",
+    "party_name": "أبو حيدر للدواجن",
+    "book_id": "00000000-0000-4000-8000-000000002902",
+    "birds": 4000,
+    "net_kg": "9100.000",
+    "billed_kg": "9054.500",
+    "deduction_pct": "0.50",
+    "avg_kg": "2.275",
+    "cash_account_id": "00000000-0000-4000-8000-000000002903",
+    "account_name": "صندوق البيع",
+    "note": "السيارة الأولى",
+    "voided_at": "2026-11-12T07:15:00+00:00",
+    "void_reason": "وزن خاطئ",
+    "sources": [
+      {
+        "stop_id": "00000000-0000-4000-8000-000000002930",
+        "flock_id": "00000000-0000-4000-8000-000000002821",
+        "hall_id": "00000000-0000-4000-8000-000000002811",
+        "hall_name": "قاعة 1",
+        "birds": 4000,
+        "net_kg": "9100.000",
+        "avg_kg": "2.275",
+        "money": {
+          "revenue": "24899875"
+        }
+      }
+    ],
+    "money": {
+      "unit_price": "2750.00",
+      "total": "24899875",
+      "paid_now": "24899875"
+    },
+    "ticket": {
+      "ticket_no": "WT-2026-0005",
+      "vehicle": null,
+      "driver": null,
+      "method": "scale"
+    },
+    "party_phone": null,
+    "remaining": "0",
+    "payment_kept": "24899875",
+    "can_void": false
+  },
+  "void_bird_sale": {
+    "id": "00000000-0000-4000-8000-000000002911",
+    "doc_no": "BR-2026-0003",
+    "status": "void",
+    "voided_on": "2026-11-12",
+    "party_id": "00000000-0000-4000-8000-000000002901",
+    "payment_entry_id": "00000000-0000-4000-8000-000000002923",
+    "money": {
+      "total": "24899875",
+      "payment_kept": "24899875"
+    }
+  },
+  "sales_overview": {
+    "from": "2026-11-01",
+    "to": "2026-11-12",
+    "today": "2026-11-12",
+    "can_record": true,
+    "can_void": true,
+    "rows": [],
+    "more": false,
+    "totals": {
+      "count": 0,
+      "voided": 0,
+      "money": {
+        "revenue": "0",
+        "cash": "0",
+        "credit": "0"
+      },
+      "cost": {
+        "money": {
+          "cost": "0",
+          "profit": "0"
+        }
+      }
+    },
+    "birds": {
+      "rows": [
+        {
+          "id": "00000000-0000-4000-8000-000000002910",
+          "doc_no": "BR-2026-0004",
+          "sold_on": "2026-11-12",
+          "status": "posted",
+          "party_id": "00000000-0000-4000-8000-000000002901",
+          "party_name": "أبو حيدر للدواجن",
+          "site_id": "00000000-0000-4000-8000-000000002801",
+          "site_name": "حقل الأمير",
+          "ticket_id": "00000000-0000-4000-8000-000000002832",
+          "ticket_no": "WT-2026-0007",
+          "birds": 1800,
+          "net_kg": "4100.000",
+          "billed_kg": "4079.500",
+          "deduction_pct": "0.50",
+          "paid": "partial",
+          "money": {
+            "unit_price": "2749.00",
+            "total": "11214546",
+            "paid_now": "5000000"
+          }
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000002911",
+          "doc_no": "BR-2026-0003",
+          "sold_on": "2026-11-11",
+          "status": "void",
+          "party_id": "00000000-0000-4000-8000-000000002901",
+          "party_name": "أبو حيدر للدواجن",
+          "site_id": "00000000-0000-4000-8000-000000002801",
+          "site_name": "حقل الأمير",
+          "ticket_id": "00000000-0000-4000-8000-000000002912",
+          "ticket_no": "WT-2026-0005",
+          "birds": 4000,
+          "net_kg": "9100.000",
+          "billed_kg": "9054.500",
+          "deduction_pct": "0.50",
+          "paid": "cash",
+          "money": {
+            "unit_price": "2750.00",
+            "total": "24899875",
+            "paid_now": "24899875"
+          }
+        }
+      ],
+      "more": false,
+      "totals": {
+        "count": 1,
+        "voided": 1,
+        "birds": 1800,
+        "net_kg": "4100.000",
+        "money": {
+          "revenue": "11214546",
+          "paid_now": "5000000",
+          "credit": "6214546"
+        }
+      },
+      "awaiting": [
+        {
+          "ticket_id": "00000000-0000-4000-8000-000000002940",
+          "ticket_no": "WT-2026-0009",
+          "on_date": "2026-11-12",
+          "site_name": "حقل الأمير",
+          "birds": 60,
+          "net_kg": "144.000"
+        },
+        {
+          "ticket_id": "00000000-0000-4000-8000-000000002912",
+          "ticket_no": "WT-2026-0005",
+          "on_date": "2026-11-11",
+          "site_name": "حقل الأمير",
+          "birds": 4000,
+          "net_kg": "9100.000"
+        }
+      ],
+      "can_record": true
+    }
+  },
+  "sales_report": {
+    "party": {
+      "from": "2026-11-01",
+      "to": "2026-11-12",
+      "group": "party",
+      "rows": [],
+      "totals": {
+        "count": 0,
+        "money": {
+          "revenue": "0"
+        },
+        "cost": {
+          "money": {
+            "cost": "0",
+            "profit": "0"
+          }
+        }
+      },
+      "birds": {
+        "rows": [
+          {
+            "key": "00000000-0000-4000-8000-000000002901",
+            "label": "أبو حيدر للدواجن",
+            "count": 1,
+            "birds": 1800,
+            "net_kg": "4100.000",
+            "money": {
+              "revenue": "11214546"
+            }
+          }
+        ],
+        "totals": {
+          "count": 1,
+          "birds": 1800,
+          "net_kg": "4100.000",
+          "money": {
+            "revenue": "11214546"
+          }
+        }
+      }
+    },
+    "item": {
+      "from": "2026-11-01",
+      "to": "2026-11-12",
+      "group": "item",
+      "rows": [],
+      "totals": {
+        "count": 0,
+        "money": {
+          "revenue": "0"
+        },
+        "cost": {
+          "money": {
+            "cost": "0",
+            "profit": "0"
+          }
+        }
+      },
+      "birds": {
+        "rows": [
+          {
+            "key": "birds",
+            "label": "دجاج لحم حيّ",
+            "count": 1,
+            "birds": 1800,
+            "net_kg": "4100.000",
+            "money": {
+              "revenue": "11214546"
+            }
+          }
+        ],
+        "totals": {
+          "count": 1,
+          "birds": 1800,
+          "net_kg": "4100.000",
+          "money": {
+            "revenue": "11214546"
+          }
+        }
+      }
+    },
+    "day": {
+      "from": "2026-11-01",
+      "to": "2026-11-12",
+      "group": "day",
+      "rows": [],
+      "totals": {
+        "count": 0,
+        "money": {
+          "revenue": "0"
+        },
+        "cost": {
+          "money": {
+            "cost": "0",
+            "profit": "0"
+          }
+        }
+      },
+      "birds": {
+        "rows": [
+          {
+            "key": "2026-11-12",
+            "label": "12/11/2026",
+            "count": 1,
+            "birds": 1800,
+            "net_kg": "4100.000",
+            "money": {
+              "revenue": "11214546"
+            }
+          }
+        ],
+        "totals": {
+          "count": 1,
+          "birds": 1800,
+          "net_kg": "4100.000",
+          "money": {
+            "revenue": "11214546"
+          }
+        }
+      }
+    }
+  },
+  "statement_book": {
+    "book_id": "00000000-0000-4000-8000-000000002902",
+    "code": "main",
+    "name": "دفتر حقول اللحم",
+    "division_id": "00000000-0000-4000-8000-000000002802",
+    "division_kind": "broiler",
+    "brought_forward": "0",
+    "total_debit": "36114421",
+    "total_credit": "54799750",
+    "closing": "-18685329",
+    "lines": [
+      {
+        "seq": "1",
+        "reason": null,
+        "account": null,
+        "reverses": null,
+        "reversed": true,
+        "voucher_id": null,
+        "allocations": [],
+        "unallocated": "0",
+        "entry_id": "00000000-0000-4000-8000-000000002922",
+        "on_date": "2026-11-11",
+        "kind": "invoice",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002911",
+        "doc_no": "BR-2026-0003",
+        "debit": "24899875",
+        "credit": "0",
+        "balance": "24899875",
+        "detail": {
+          "type": "bird_sale",
+          "doc_id": "00000000-0000-4000-8000-000000002911",
+          "doc_no": "BR-2026-0003",
+          "status": "void",
+          "sold_on": "2026-11-11",
+          "site": {
+            "id": "00000000-0000-4000-8000-000000002801",
+            "name": "حقل الأمير"
+          },
+          "ticket_no": "WT-2026-0005",
+          "birds": 4000,
+          "net_kg": "9100.000",
+          "deduction_pct": "0.50",
+          "billed_kg": "9054.500",
+          "unit_price": "2750.00",
+          "total": "24899875",
+          "paid_now": "24899875",
+          "account": {
+            "id": "00000000-0000-4000-8000-000000002903",
+            "name": "صندوق البيع"
+          }
+        }
+      },
+      {
+        "seq": "2",
+        "reason": null,
+        "account": {
+          "id": "00000000-0000-4000-8000-000000002903",
+          "name": "صندوق البيع"
+        },
+        "reverses": null,
+        "reversed": false,
+        "voucher_id": null,
+        "allocations": [
+          {
+            "entry_id": "00000000-0000-4000-8000-000000002920",
+            "kind": "invoice",
+            "doc_no": "BR-2026-0004",
+            "doc_kind": "bird_sale",
+            "doc_id": "00000000-0000-4000-8000-000000002910",
+            "on_date": "2026-11-12",
+            "amount": "6214546"
+          }
+        ],
+        "unallocated": "18685329",
+        "entry_id": "00000000-0000-4000-8000-000000002923",
+        "on_date": "2026-11-11",
+        "kind": "payment",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002911",
+        "doc_no": "BR-2026-0003",
+        "debit": "0",
+        "credit": "24899875",
+        "balance": "0",
+        "detail": {
+          "type": "bird_sale_payment",
+          "doc_id": "00000000-0000-4000-8000-000000002911",
+          "doc_no": "BR-2026-0003",
+          "account": {
+            "id": "00000000-0000-4000-8000-000000002903",
+            "name": "صندوق البيع"
+          }
+        }
+      },
+      {
+        "seq": "3",
+        "reason": "وزن خاطئ",
+        "account": null,
+        "reverses": "00000000-0000-4000-8000-000000002922",
+        "reversed": false,
+        "voucher_id": null,
+        "allocations": [],
+        "unallocated": "0",
+        "entry_id": "00000000-0000-4000-8000-000000002924",
+        "on_date": "2026-11-12",
+        "kind": "invoice",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002911",
+        "doc_no": "BR-2026-0003",
+        "debit": "0",
+        "credit": "24899875",
+        "balance": "-24899875",
+        "detail": null
+      },
+      {
+        "seq": "4",
+        "reason": null,
+        "account": null,
+        "reverses": null,
+        "reversed": false,
+        "voucher_id": null,
+        "allocations": [
+          {
+            "entry_id": "00000000-0000-4000-8000-000000002921",
+            "kind": "payment",
+            "doc_no": "BR-2026-0004",
+            "doc_kind": "bird_sale",
+            "doc_id": "00000000-0000-4000-8000-000000002910",
+            "on_date": "2026-11-12",
+            "amount": "5000000"
+          },
+          {
+            "entry_id": "00000000-0000-4000-8000-000000002923",
+            "kind": "payment",
+            "doc_no": "BR-2026-0003",
+            "doc_kind": "bird_sale",
+            "doc_id": "00000000-0000-4000-8000-000000002911",
+            "on_date": "2026-11-11",
+            "amount": "6214546"
+          }
+        ],
+        "unallocated": "0",
+        "entry_id": "00000000-0000-4000-8000-000000002920",
+        "on_date": "2026-11-12",
+        "kind": "invoice",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002910",
+        "doc_no": "BR-2026-0004",
+        "debit": "11214546",
+        "credit": "0",
+        "balance": "-13685329",
+        "detail": {
+          "type": "bird_sale",
+          "doc_id": "00000000-0000-4000-8000-000000002910",
+          "doc_no": "BR-2026-0004",
+          "status": "posted",
+          "sold_on": "2026-11-12",
+          "site": {
+            "id": "00000000-0000-4000-8000-000000002801",
+            "name": "حقل الأمير"
+          },
+          "ticket_no": "WT-2026-0007",
+          "birds": 1800,
+          "net_kg": "4100.000",
+          "deduction_pct": "0.50",
+          "billed_kg": "4079.500",
+          "unit_price": "2749.00",
+          "total": "11214546",
+          "paid_now": "5000000",
+          "account": {
+            "id": "00000000-0000-4000-8000-000000002903",
+            "name": "صندوق البيع"
+          }
+        }
+      },
+      {
+        "seq": "5",
+        "reason": null,
+        "account": {
+          "id": "00000000-0000-4000-8000-000000002903",
+          "name": "صندوق البيع"
+        },
+        "reverses": null,
+        "reversed": false,
+        "voucher_id": null,
+        "allocations": [
+          {
+            "entry_id": "00000000-0000-4000-8000-000000002920",
+            "kind": "invoice",
+            "doc_no": "BR-2026-0004",
+            "doc_kind": "bird_sale",
+            "doc_id": "00000000-0000-4000-8000-000000002910",
+            "on_date": "2026-11-12",
+            "amount": "5000000"
+          }
+        ],
+        "unallocated": "0",
+        "entry_id": "00000000-0000-4000-8000-000000002921",
+        "on_date": "2026-11-12",
+        "kind": "payment",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002910",
+        "doc_no": "BR-2026-0004",
+        "debit": "0",
+        "credit": "5000000",
+        "balance": "-18685329",
+        "detail": {
+          "type": "bird_sale_payment",
+          "doc_id": "00000000-0000-4000-8000-000000002910",
+          "doc_no": "BR-2026-0004",
+          "account": {
+            "id": "00000000-0000-4000-8000-000000002903",
+            "name": "صندوق البيع"
+          }
+        }
+      }
+    ],
+    "open_items": [
+      {
+        "entry_id": "00000000-0000-4000-8000-000000002923",
+        "on_date": "2026-11-11",
+        "kind": "payment",
+        "doc_kind": "bird_sale",
+        "doc_id": "00000000-0000-4000-8000-000000002911",
+        "doc_no": "BR-2026-0003",
+        "amount": "24899875",
+        "settled": "6214546",
+        "remaining": "18685329",
+        "age_days": 1,
+        "side": "credit"
+      }
+    ],
+    "aging": {
+      "side": "credit",
+      "d0_30": "18685329",
+      "d31_60": "0",
+      "d61_90": "0",
+      "d91_plus": "0"
+    }
+  },
+  "refusal_birds_over_live": {
+    "code": "birds_over_live",
+    "hint": "في «قاعة 2» بحسب النظام 950 طيراً حيّاً، وفي التذكرة 1,000. إن كان العدد الفعليّ أكبر فليسجّل المدير «فرق العدّ» بتاريخ 12/11/2026 أو قبله، ثمّ أصدر الفاتورة."
+  },
+  "refusal_flock_closed": {
+    "code": "flock_closed",
+    "hint": "فوج «قاعة 1» مغلق، فلا تُلغى فاتورة بيع طيوره. أعد فتح الدورة أوّلاً."
+  }
+}

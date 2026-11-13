@@ -12,7 +12,8 @@ import type { BookCode, EntryKind } from './parties';
 // المال نصوص عشرية بالدينار (E3) وبالواجهة فلس bigint، والكمية نصّ بثلاث مراتب ← Milli؛ وكلّ خانة يقول العقد إنّها قد تكون null
 // تُقرأ nullable، وما سواها إجباريّ يرمي إذا غاب (جواب بشكل غير المتوقّع لا يُقبل بصمت). مفاتيح jsonb ترجع بترتيب بوستغريس، فالقراءة
 // بالمفتاح دائماً (§7). ملف كسول: تستورده شاشات الحسابات وصفحة البيع مباشرةً، وindex لا يصدّره (write-guard)؛ ولا يستورد parties
-// (إلّا أنواعه): صفحة البيع في حزمة المخزون، فاستيراده كان يجرّ دفاتر الجهات كلّها إليها.
+// (إلّا أنواعه): صفحة البيع في حزمة المخزون، فاستيراده كان يجرّ دفاتر الجهات كلّها إليها. وفاتورة الطيور BR ومقبوضها (0028، العقد §6):
+// تفصيلان جديدان bird_sale وbird_sale_payment بشكل entry_detail.
 
 export type Row = Record<string, unknown>;
 
@@ -222,6 +223,35 @@ export interface ReturnLine {
   amount: Fils;
 }
 
+/** فاتورة الطيور BR (0028، العقد §6): الحقل والتذكرة والطيور والصافي والتنزيل والمحسوب وسعر الكيلو والمبلغ والمقبوض وصندوقه. */
+export interface BirdSaleEntryDetail {
+  type: 'bird_sale';
+  docId: string;
+  docNo: string;
+  status: DocStatus;
+  soldOn: Day;
+  site: Named;
+  ticketNo: string;
+  birds: number;
+  netKg: Milli;
+  /** نسبة التنزيل بالمئات من الواحد بالمئة (0.50٪ = 50). */
+  deduction: bigint;
+  billedKg: Milli;
+  /** سعر الكيلو. */
+  unitPrice: Fils;
+  total: Fils;
+  paidNow: Fils;
+  account: Named | null;
+}
+
+/** المقبوض عند فاتورة الطيور (قيد قبض بمستندها) بصندوقه. */
+export interface BirdSalePaymentEntryDetail {
+  type: 'bird_sale_payment';
+  docId: string;
+  docNo: string;
+  account: Named | null;
+}
+
 export interface SupplierReturnDetail {
   type: 'supplier_return';
   docId: string;
@@ -265,11 +295,13 @@ export type EntryDetail =
   | PurchaseChargeDetail
   | SaleDetail
   | SalePaymentDetail
+  | BirdSaleEntryDetail
+  | BirdSalePaymentEntryDetail
   | SupplierReturnDetail
   | ExpenseDetail
   | RevaluationDetail;
 
-const DETAIL_TYPES = ['purchase', 'purchase_payment', 'purchase_charge', 'sale', 'sale_payment', 'supplier_return', 'expense', 'revaluation'] as const;
+const DETAIL_TYPES = ['purchase', 'purchase_payment', 'purchase_charge', 'sale', 'sale_payment', 'bird_sale', 'bird_sale_payment', 'supplier_return', 'expense', 'revaluation'] as const;
 
 function parsePurchaseLine(value: unknown): PurchaseLine {
   const row = object(value, 'lines');
@@ -310,6 +342,7 @@ export function parseDetail(value: unknown): EntryDetail | null {
       };
     case 'purchase_payment':
     case 'sale_payment':
+    case 'bird_sale_payment':
       return { type, docId: str(row, 'doc_id'), docNo: str(row, 'doc_no'), account: optNamed(row.account, 'account') };
     case 'purchase_charge':
       return { type, docId: str(row, 'doc_id'), docNo: str(row, 'doc_no'), label: str(row, 'label'), amount: fils(row, 'amount'), warehouse: named(row.warehouse, 'warehouse') };
@@ -328,6 +361,24 @@ export function parseDetail(value: unknown): EntryDetail | null {
           return { lineNo: whole(line, 'line_no'), itemId: str(line, 'item_id'), itemName: str(line, 'item_name'), qty: qty(line, 'qty'), baseUnit: oneOf(line, 'base_unit', BASE_UNITS), unitPrice: fils(line, 'unit_price'), amount: fils(line, 'amount') };
         }),
         total: fils(row, 'total'),
+      };
+    case 'bird_sale':
+      return {
+        type,
+        docId: str(row, 'doc_id'),
+        docNo: str(row, 'doc_no'),
+        status: oneOf(row, 'status', STATUSES),
+        soldOn: str(row, 'sold_on'),
+        site: named(row.site, 'site'),
+        ticketNo: str(row, 'ticket_no'),
+        birds: whole(row, 'birds'),
+        netKg: qty(row, 'net_kg'),
+        deduction: scaled(row, 'deduction_pct', 2),
+        billedKg: qty(row, 'billed_kg'),
+        unitPrice: fils(row, 'unit_price'),
+        total: fils(row, 'total'),
+        paidNow: fils(row, 'paid_now'),
+        account: optNamed(row.account, 'account'),
       };
     case 'supplier_return':
       return {

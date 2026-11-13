@@ -8,6 +8,11 @@
 // والسطور والبيان وما سدّده والروابط والمجموع = مجموع الأعمدة والختام بالكلمات والأعمار والمفتوح والمطابقة والتوقيع وقياس A4 وترقيم الصفحات)؛
 // D التفصيلي (موادّ كلّ مستند تحت سطره ومجموعها = مبلغ القيد)؛ O المفتوح فقط؛ X الإكسل؛ H المشاركة والإرسال؛ W الطباعة بعنوانها؛ B الرجوع
 // والحساب والصيغة بالرابط؛ L قائمة الإلغاء للمدير؛ V السندات؛ R سند التحويل؛ Q صفحة البيع.
+// وفاتورة الطيور BR ومقبوضها (0028، العقد §6 و§10 الوكيل ب): كشف تاجر بحساب حقول اللحم من عيّنات العقد اليدوية (fixtures/bird-sales-contract.json) —
+// فاتورة G1 قُبضت كلّها ثمّ أُلغيت (مقبوضها باقٍ رصيداً)، وفاتورة G4 بجزء مقبوض سدّد باقيَها الرصيدُ — يمرّ بأقسام P وS مع العيّنتين (نوع المستند «فاتورة
+// بيع طيور» وبيانها ورابطها /sales/birds/:id و«قُبض عند البيع»)، وتفصيليّه بقسم BR (دجاج لحم حيّ بالوزن المحسوب وسعر الكيلو والتنزيل والمقبوض).
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   BUCKETS,
   bucketOf,
@@ -29,6 +34,7 @@ import {
   milli,
   money,
   qtyText,
+  ROOT,
   SESSION,
   settle,
   setupTables,
@@ -39,8 +45,29 @@ import {
 } from './money-b-dom.mjs';
 
 const ST = FIXTURE.party_statement_v2;
+const BIRDS = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'bird-sales-contract.json'), 'utf8'));
+ST.trader = {
+  org: clone(ST.customer.org),
+  party: { id: BIRDS.record_bird_sale.party_id, name: BIRDS.record_bird_sale.party_name, phone: null, archived: false, version: 1, is_customer: true, is_supplier: false },
+  from: '2026-11-01',
+  to: '2026-11-12',
+  today: '2026-11-12',
+  books: [clone(BIRDS.statement_book)],
+};
 const KIND = { invoice: 'فاتورة بيع', purchase: 'استلام', bill: 'مصروف بالدين', payment: 'قبض', payout: 'دفع', return: 'مرتجع بيع', supplier_return: 'مرتجع إلى المورّد', forgiveness: 'إعفاء', opening: 'الرصيد عند البداية', adjustment: 'تسوية', offset: 'مقاصّة' };
-const TYPE = { purchase: 'فاتورة شراء', purchase_payment: 'دفع عند الشراء', purchase_charge: 'أجور شراء', sale: 'فاتورة بيع', sale_payment: 'قبض عند البيع', supplier_return: 'مرتجع إلى المورّد', expense: 'مصروف بالدين' };
+const TYPE = { purchase: 'فاتورة شراء', purchase_payment: 'دفع عند الشراء', purchase_charge: 'أجور شراء', sale: 'فاتورة بيع', sale_payment: 'قبض عند البيع', bird_sale: 'فاتورة بيع طيور', bird_sale_payment: 'قبض عند البيع', supplier_return: 'مرتجع إلى المورّد', expense: 'مصروف بالدين' };
+/** الطيور بصيغة المعدود: «طير واحد»، «طيران»، «5 طيور»، «60 طيراً»، «4,000 طير». */
+const birdsWord = (n) => {
+  const shown = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (n === 1) return 'طير واحد';
+  if (n === 2) return 'طيران';
+  return n % 100 >= 3 && n % 100 <= 10 ? `${shown} طيور` : n % 100 >= 11 ? `${shown} طيراً` : `${shown} طير`;
+};
+/** نسبة التنزيل بمرتبتين («0.50٪»). */
+const pctWord = (value) => {
+  const units = fils(value);
+  return `${units / 100n}.${(units % 100n).toString().padStart(2, '0')}٪`;
+};
 // أسماء الأشهر كما تُكتب في العراق (منسّق خلاصة الشهر): بيان المصروف بالدين يقول الشهر باسمه لا «11/2026» (مراجعة 0024 L8).
 const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
 const UNIT = { kg: 'كغم', L: 'لتر', pc: 'قطعة', t: 'طن', g: 'غرام', mL: 'ملل' };
@@ -69,6 +96,8 @@ function kindType(kind, docKind) {
   if (docKind === 'receipt' && kind === 'payout') return 'دفع عند الشراء';
   if (docKind === 'sale' && kind === 'invoice') return 'فاتورة بيع';
   if (docKind === 'sale' && kind === 'payment') return 'قبض عند البيع';
+  if (docKind === 'bird_sale' && kind === 'invoice') return 'فاتورة بيع طيور';
+  if (docKind === 'bird_sale' && kind === 'payment') return 'قبض عند البيع';
   if (docKind === 'supplier_return') return 'مرتجع إلى المورّد';
   if (docKind === 'expense' && kind === 'bill') return 'مصروف بالدين';
   if (docKind === 'receipt_revalue') return kind === 'purchase' ? 'تسعير شراء' : kind === 'adjustment' ? 'تصحيح سعر' : 'تسعير أو تصحيح سعر';
@@ -115,8 +144,19 @@ function memoOf(line) {
         break;
       }
       case 'sale_payment':
+      case 'bird_sale_payment':
         base = `قُبض ثمن البيع في «${(d.account ?? line.account).name}»`;
         break;
+      case 'bird_sale': {
+        // الوزن في البيان هو المحسوب (بعد التنزيل): الوزن × السعر = مبلغ الحركة.
+        const head =
+          fils(d.deduction_pct) > 0n
+            ? `بيع ${birdsWord(d.birds)} (${qtyText(d.billed_kg)} كغم بعد تنزيل ${pctWord(d.deduction_pct)}) بسعر ${money(fils(d.unit_price))} — ${d.site.name}`
+            : `بيع ${birdsWord(d.birds)} (${qtyText(d.net_kg)} كغم) بسعر ${money(fils(d.unit_price))} — ${d.site.name}`;
+        const paid = fils(d.paid_now);
+        base = paid <= 0n ? head : paid >= fils(d.total) ? `${head}، نقداً` : `${head}، وقُبض منه ${money(paid)}`;
+        break;
+      }
       case 'supplier_return':
         base = one
           ? `إرجاع ${qtyText(one.qty)} ${unitOf(one.base_unit)} ${one.item_name} إلى المورّد من ${d.receipt_doc_no} — ${d.warehouse.name}`
@@ -150,7 +190,7 @@ const allocDoc = (a) => a.doc_no ?? `${KIND[a.kind]} ${fmtDay(a.on_date)}`;
 const settledDocOf = (a, own) =>
   a.doc_no !== null && a.doc_no === own && a.kind === 'payout' && a.doc_kind === 'receipt'
     ? 'دُفع عند الشراء'
-    : a.doc_no !== null && a.doc_no === own && a.kind === 'payment' && a.doc_kind === 'sale'
+    : a.doc_no !== null && a.doc_no === own && a.kind === 'payment' && (a.doc_kind === 'sale' || a.doc_kind === 'bird_sale')
       ? 'قُبض عند البيع'
       : allocDoc(a);
 /** ما سدّده السطر. periodEnd (فترة انتهت قبل اليوم، مراجعة 0024 H1): التسديدات حتى آخر الفترة وحدها، بلا الباقي. */
@@ -178,6 +218,7 @@ function linkOf(line, here) {
     if (d.type === 'supplier_return') return backed(`/inventory/supplier-returns/${d.doc_id}`, here);
     if (d.type === 'revaluation') return backed(`/inventory/receipts/${d.receipt_id}`, here);
     if (d.type === 'sale' || d.type === 'sale_payment') return backed(`/sales/${d.doc_id}`, here);
+    if (d.type === 'bird_sale' || d.type === 'bird_sale_payment') return backed(`/sales/birds/${d.doc_id}`, here);
     if (d.type === 'expense') return null;
   }
   return kindLink(line.doc_kind, line.doc_id, here);
@@ -187,6 +228,7 @@ function kindLink(docKind, docId, here) {
   if (docKind === 'receipt') return backed(`/inventory/receipts/${docId}`, here);
   if (docKind === 'supplier_return') return backed(`/inventory/supplier-returns/${docId}`, here);
   if (docKind === 'sale') return backed(`/sales/${docId}`, here);
+  if (docKind === 'bird_sale') return backed(`/sales/birds/${docId}`, here);
   return null;
 }
 function allocLink(a, here) {
@@ -277,7 +319,7 @@ export default async function (t) {
     proto.click = function () {
       clicked.push({ href: this.href, download: this.download });
     };
-    const allBooks = [...ST.supplier.books, ...ST.customer.books].map((book) => ({ book_id: book.book_id, division_id: book.division_id, division_kind: book.division_kind, code: book.code, name: book.name }));
+    const allBooks = [...ST.supplier.books, ...ST.customer.books, ...ST.trader.books].map((book) => ({ book_id: book.book_id, division_id: book.division_id, division_kind: book.division_kind, code: book.code, name: book.name }));
     const tables = setupTables([...new Map([...FIXTURE.debts_overview.receivable.books, ...allBooks].map((book) => [book.book_id, book])).values()]);
     const statementRoute = [['/accounts/parties/:id', m.PartyStatementPage]];
     const words = (amount) => (amount === 0n ? m.amountInWords(0n) : `${m.amountInWords(amount)} — ${side(amount)}`);
@@ -310,6 +352,7 @@ export default async function (t) {
           }
           if (d?.type === 'sale' || d?.type === 'supplier_return') t.same([d.lines.reduce((s, l) => s + fils(l.amount), 0n), fils(d.total)], [fils(d.total), fils(line.debit) + fils(line.credit)], `ثابت ${d.doc_no}: مجموع الموادّ = مبلغ القيد`);
           if (d?.type === 'revaluation') t.eq(fils(d.new_total) - fils(d.old_total), fils(d.diff), `ثابت ${d.receipt_doc_no}: الجديد − القديم = الفرق`);
+          if (d?.type === 'bird_sale') t.eq(fils(d.total), fils(line.debit) + fils(line.credit), `ثابت ${d.doc_no}: مبلغ فاتورة الطيور = مبلغ القيد`);
           if (!line.reverses && !line.reversed) t.eq(line.allocations.reduce((s, a) => s + fils(a.amount), 0n) + fils(line.unallocated), amount, `ثابت ${line.doc_no ?? line.kind}: ما سدّده (أو سُدّد منه) + الباقي = مبلغه`);
         }
       });
@@ -449,6 +492,42 @@ export default async function (t) {
         }
       });
     }
+
+    // ── BR: فاتورة الطيور في التفصيلي — دجاج لحم حيّ بالوزن المحسوب وسعر الكيلو تحت سطرها ─────────────────────────────────
+    t.ok(
+      ['bird_sale', 'bird_sale_payment'].every((type) => ST.trader.books[0].lines.some((line) => line.detail?.type === type)) && ST.trader.books[0].lines.some((line) => line.reverses && line.doc_kind === 'bird_sale'),
+      'شرط عيّنة التاجر: فاتورة طيور ومقبوضها وإلغاء فاتورة طيور بسطر عكسه',
+    );
+    await step('BR detailed', async () => {
+      const sample = ST.trader;
+      env.fresh({ session: SESSION('accountant'), rpc: { party_statement_v2: async () => clone(sample) }, tables });
+      await env.mount(`/accounts/parties/${sample.party.id}?mode=detailed`, statementRoute);
+      const [book] = sample.books;
+      const section = descendantsOf('section').find((n) => n.getAttribute('data-book') === book.book_id);
+      const subRows = tableOf(tablesIn(section)[0]).rows.filter((tr) => tr.getAttribute('data-sub-row') !== null);
+      const withItems = book.lines.filter((line) => !line.reverses && line.detail?.type === 'bird_sale');
+      t.same([subRows.length, withItems.length], [2, 2], 'BR جدول تحت كلّ فاتورة طيور (والملغاة لاحقاً)، لا تحت المقبوض ولا سطر الإلغاء');
+      for (const line of withItems) {
+        const block = byAction('doc-items', section).find((n) => n.getAttribute('data-entry') === line.entry_id);
+        const items = tableOf(tablesIn(block)[0]);
+        const d = line.detail;
+        t.same(items.headers, ['المادّة', 'الكمية', 'الوحدة', 'السعر', 'المبلغ'], `BR ${d.doc_no}: أعمدة الموادّ`);
+        t.same(items.body, [[`دجاج لحم حيّ (${birdsWord(d.birds)}، الصافي ${qtyText(d.net_kg)} كغم)`, qtyCells([d.billed_kg])[0], 'كغم', money(fils(d.unit_price)), money(fils(d.total))]], `BR ${d.doc_no}: الطيور بصافيها، والكمية الوزن المحسوب بسعر الكيلو ومبلغه`);
+        t.same(
+          items.foot,
+          [...(fils(d.deduction_pct) > 0n ? [[`الكمية هي الوزن المحسوب بعد تنزيل ${pctWord(d.deduction_pct)} من الصافي`, '']] : []), ['مجموع الفاتورة (مبلغ الحركة)', money(fils(line.debit) + fils(line.credit))]],
+          `BR ${d.doc_no}: التنزيل بلا مبلغ في عموده، ثمّ مجموع الفاتورة = مبلغ الحركة`,
+        );
+        const paid = fils(d.paid_now);
+        t.eq(text(first('doc-note', block)), paid > 0n ? `قُبض منه عند البيع ${money(paid)} في «${d.account.name}».` : '', `BR ${d.doc_no}: المقبوض عند البيع وصندوقه`);
+      }
+      const csv = parseCsv(m.statementCsv(m.parsePartyStatement(clone(sample)), 'detailed').slice(1)).filter((row) => row[2] === 'مادّة');
+      t.same(
+        csv.map((row) => [row[1], row[3], row[8], row[9], row[10], row[11]]),
+        withItems.map((line) => [line.doc_no, `دجاج لحم حيّ (${birdsWord(line.detail.birds)}، الصافي ${qtyText(line.detail.net_kg)} كغم)`, qtyText(line.detail.billed_kg).replace(/,/g, ''), 'كغم', plain(fils(line.detail.unit_price)), plain(fils(line.detail.total))]),
+        'BR إكسل التفصيلي: صفّ الطيور بأرقامه بلا فواصل',
+      );
+    });
 
     // ── O: المفتوح فقط، ومفتوح بأعمار كثيرة (فرع تخلو منه العيّنة) ────────────────────────────────────────────────
     const aged = clone(ST.supplier);

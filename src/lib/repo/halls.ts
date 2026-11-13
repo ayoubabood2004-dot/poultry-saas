@@ -6,6 +6,7 @@ import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import './constraints-halls';
+import { parseCloseResult, type CloseResult } from './flockClose';
 import type { CostKind } from './flocks';
 
 // «القاعات بين يديك» (0026، كلمة المالك 2026-11-11، docs/HALLS_PLAN.md): الإضافة لعدّة قاعات بنداء واحد (صرف من مخزن، أو دواء بلا مخزن، أو تأشير
@@ -491,6 +492,10 @@ export interface CycleDay {
   eggsTotal: number | null;
   hdep: bigint | null;
   note: string | null;
+  /** 0028: الطيور المباعة يومها (من الفواتير المرحّلة) وصافيها، وفرق العدّ يومها؛ null من خادم قبل 0028. */
+  sold: number | null;
+  soldKg: Milli | null;
+  adjust: number | null;
 }
 
 /**
@@ -539,6 +544,21 @@ export interface CycleKpis {
   lastWeight: SampleWeight | null;
   fcr: bigint | null;
   epef: bigint | null;
+  /**
+   * 0028 (العقد §6): المباع من الفواتير وصافيه ومعدّل وزن البيع (كغم بثلاث مراتب) وعمر البيع (بمرتبة، مرجَّحاً بالطيور)، وفرق العدّ (يظهر وحده لا مع
+   * النافق)، والعلف المنقول إليها من الدورة السابقة والخارج عند الإغلاق (راجعاً أو منقولاً) والصافي (null إن كان فيه سطر بلا وزن)، ومعامل التحويل
+   * النهائيّ ومؤشّر الإنتاج النهائيّ للمغلقة وحدها. كلّها null من خادم قبل 0028 أو حين تنقص مدخلاتها.
+   */
+  soldBirds: number | null;
+  soldNetKg: Milli | null;
+  soldAvgKg: Milli | null;
+  saleAge: bigint | null;
+  countDiff: number | null;
+  feedCarryInKg: Milli | null;
+  feedOutKg: Milli | null;
+  feedNetKg: Milli | null;
+  fcrFinal: bigint | null;
+  epefFinal: bigint | null;
 }
 
 export interface CycleDetail {
@@ -588,6 +608,9 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         eggsTotal: optInt(row, 'eggs_total'),
         hdep: optScaled(row, 'hdep', 2),
         note: optStr(row, 'note'),
+        sold: optInt(row, 'sold'),
+        soldKg: optScaled(row, 'sold_kg', 3),
+        adjust: optInt(row, 'adjust'),
       };
     }),
     weeks: list(json.weeks, 'weeks').map((row) => ({
@@ -632,15 +655,66 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       lastWeight: sampleWeight(kpis.last_weight, 'last_weight'),
       fcr: optScaled(kpis, 'fcr', 3),
       epef: optScaled(kpis, 'epef', 0),
+      soldBirds: optInt(kpis, 'sold_birds'),
+      soldNetKg: optScaled(kpis, 'sold_net_kg', 3),
+      soldAvgKg: optScaled(kpis, 'sold_avg_kg', 3),
+      saleAge: optScaled(kpis, 'sale_age', 1),
+      countDiff: optInt(kpis, 'count_diff'),
+      feedCarryInKg: optScaled(kpis, 'feed_carry_in_kg', 3),
+      feedOutKg: optScaled(kpis, 'feed_out_kg', 3),
+      feedNetKg: optScaled(kpis, 'feed_net_kg', 3),
+      fcrFinal: optScaled(kpis, 'fcr_final', 3),
+      epefFinal: optScaled(kpis, 'epef_final', 0),
     },
   };
+}
+
+/** 0028: تذاكر الدورة (غير الملغاة) وفواتيرها: المباع من الفواتير المرحّلة، وpendingBirds طيور تذاكر بلا فاتورة. */
+export interface CycleSales {
+  tickets: readonly { ticketId: string; ticketNo: string | null; status: 'draft' | 'done' | 'void'; onDate: Day; birds: number | null; netKg: Milli | null; avgKg: Milli | null; invoiced: boolean; docNo: string | null }[];
+  birds: number;
+  netKg: Milli;
+  avgKg: Milli | null;
+  pendingBirds: number;
+}
+
+const cycleSales = (value: unknown): CycleSales | null => {
+  const json = optRecord(value, 'sales');
+  if (!json) return null;
+  return {
+    tickets: list(json.tickets, 'tickets').map((row) => ({
+      ticketId: str(row, 'ticket_id'),
+      ticketNo: optStr(row, 'ticket_no'),
+      status: oneOf(row, 'status', ['draft', 'done', 'void'] as const),
+      onDate: str(row, 'on_date'),
+      birds: optInt(row, 'birds'),
+      netKg: optScaled(row, 'net_kg', 3),
+      avgKg: optScaled(row, 'avg_kg', 3),
+      invoiced: flag(row, 'invoiced'),
+      docNo: optStr(row, 'doc_no'),
+    })),
+    birds: int(json, 'birds'),
+    netKg: scaled(json, 'net_kg', 3),
+    avgKg: optScaled(json, 'avg_kg', 3),
+    pendingBirds: int(json, 'pending_birds'),
+  };
+};
+
+/** 0028: علف منقول إلى هذه الدورة من الدورة السابقة في القاعة. */
+export interface CarryIn {
+  lineId: string;
+  itemId: string;
+  name: string;
+  qty: Milli;
+  baseUnit: BaseUnit;
 }
 
 export interface CycleReport {
   flock: HallFlock;
   today: Day;
   through: Day;
-  birds: { placed: number; dead: number; culled: number; live: number; mortalityPct: bigint };
+  /** sold وsoldNetKg وcountDiff وcountReason من 0028 (null من خادم قبله): المباع من الفواتير، وفرق العدّ بسببه وحده لا مع النافق. */
+  birds: { placed: number; dead: number; culled: number; live: number; mortalityPct: bigint; sold: number | null; soldNetKg: Milli | null; countDiff: number | null; countReason: string | null };
   feed: {
     lines: readonly { on: Day; docNo: string; itemName: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; cumKg: Milli; value: Fils | null }[];
     /** kg مجموع الموزون من سطور المادّة (null حين لا موزون فيها)، وunweighed عدد سطورها بلا وزن (مراجعة 0026 C). */
@@ -652,10 +726,18 @@ export interface CycleReport {
   };
   medicines: readonly { on: Day; source: 'store' | 'log'; name: string; qty: Milli | null; baseUnit: BaseUnit | null; dose: string | null; docNo: string | null }[];
   vaccines: readonly { vaccineId: string; name: string; color: number; ageDay: number; dueOn: Day; state: VaccineState; doneOn: Day | null; docNo: string | null }[];
-  /** null لغير أدوار الكلفة. */
-  money: { feed: Fils; medicine: Fils; vaccine: Fils; other: Fils; total: Fils } | null;
+  /**
+   * null لغير أدوار الكلفة. ومن 0028 (null من خادم قبله): إيراد الفواتير المرحّلة، وقيمة ما رجع إلى المخازن، وما نُقل إليها من الدورة السابقة وما
+   * نُقل منها للتالية؛ والبنود صافية بعد الراجع والمنقول (كلفة الفوج نفسها).
+   */
+  money: { feed: Fils; medicine: Fils; vaccine: Fils; other: Fils; total: Fils; revenue: Fils | null; returned: Fils | null; carriedIn: Fils | null; carriedOut: Fils | null } | null;
   /** 0027: الأيّام والأسابيع والأوزان والمؤشّرات (بلا مال)؛ null من خادم قبل 0027. */
   cycle: CycleDetail | null;
+  /** 0028: التذاكر والفواتير؛ null من خادم قبل 0028. */
+  sales: CycleSales | null;
+  /** 0028: الإغلاق (بلا مال)، وسطور العلف المنقول المعلَّق بمخازن إرجاعها؛ null للقائمة. */
+  close: CloseResult | null;
+  carryIn: readonly CarryIn[];
 }
 
 export function parseCycleReport(value: unknown): CycleReport {
@@ -673,6 +755,10 @@ export function parseCycleReport(value: unknown): CycleReport {
       culled: int(birds, 'culled'),
       live: int(birds, 'live'),
       mortalityPct: scaled(birds, 'mortality_pct', 2),
+      sold: optInt(birds, 'sold'),
+      soldNetKg: optScaled(birds, 'sold_net_kg', 3),
+      countDiff: optInt(birds, 'count_diff'),
+      countReason: optStr(birds, 'count_reason'),
     },
     feed: {
       lines: list(feed.lines, 'lines').map((row) => {
@@ -727,9 +813,16 @@ export function parseCycleReport(value: unknown): CycleReport {
           vaccine: scaled(money, 'vaccine', 2),
           other: scaled(money, 'other', 2),
           total: scaled(money, 'total', 2),
+          revenue: optScaled(money, 'revenue', 2),
+          returned: optScaled(money, 'returned', 2),
+          carriedIn: optScaled(money, 'carried_in', 2),
+          carriedOut: optScaled(money, 'carried_out', 2),
         }
       : null,
     cycle: parseCycleDetail(json),
+    sales: cycleSales(json.sales),
+    close: json.close === null || json.close === undefined ? null : parseCloseResult(json.close, 'close'),
+    carryIn: list(json.carry_in ?? [], 'carry_in').map((row) => ({ lineId: str(row, 'line_id'), itemId: str(row, 'item_id'), name: str(row, 'name'), qty: scaled(row, 'qty', 3), baseUnit: oneOf(row, 'base_unit', UNITS) })),
   };
 }
 

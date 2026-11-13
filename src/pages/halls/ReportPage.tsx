@@ -13,6 +13,8 @@ import { loadCycleReport, type CycleDay, type CycleDetail, type CycleKpis, type 
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { FeedChart, MortalityChart, WeightChart } from './charts';
+import { CarryInNote, CloseSection, SalesSection } from './CloseSections';
+import { signedCount } from './ticketParts';
 import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // تقرير الدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/report/:flockId بقراءة flock_cycle_report واحدة.
@@ -176,6 +178,37 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
       epefReason(k),
     );
   }
+  // 0028 (العقد §6): المباع من الفواتير ومعدّل وزنه وعمره، وفرق العدّ وحده لا مع النافق، والعلف المنقول والخارج والصافي، ومعامل التحويل ومؤشّر الإنتاج
+  // النهائيّان للمغلقة. خادم قبل 0028 لا يرسلها (soldBirds null) فلا صفوف.
+  if (flock.kind === 'broiler' && k.soldBirds !== null) {
+    const closed = flock.status === 'closed';
+    add('sold', t('halls.rep.kpi.sold', 'المباع (طير)'), fmtInt(k.soldBirds), t('halls.rep.kpi.sold_note', 'من الفواتير المرحّلة؛ والطيور تخرج من القاعة عند الفاتورة.'));
+    add('sold_kg', t('halls.rep.kpi.sold_kg', 'صافي وزن المباع (كغم)'), kg(k.soldNetKg), null, t('halls.rep.kpi.no_sales', 'لا مبيع بفاتورة بعد.'));
+    add('sold_avg', t('halls.rep.kpi.sold_avg', 'معدّل وزن البيع (كغم)'), k.soldAvgKg === null ? null : fmtScaledCell(k.soldAvgKg, 3, 3), t('halls.rep.kpi.sold_avg_note', 'صافي المباع ÷ عدد طيوره.'), t('halls.rep.kpi.no_sales', 'لا مبيع بفاتورة بعد.'));
+    add('sale_age', t('halls.rep.kpi.sale_age', 'عمر البيع (يوم)'), k.saleAge === null ? null : fmtScaledCell(k.saleAge, 1, 1), t('halls.rep.kpi.sale_age_note', 'مرجَّحاً بعدد الطيور في كلّ يوم بيع.'), t('halls.rep.kpi.no_sales', 'لا مبيع بفاتورة بعد.'));
+    if (k.countDiff !== null && k.countDiff !== 0) {
+      add('count_diff', t('halls.rep.kpi.count_diff', 'فرق العدّ'), signedCount(k.countDiff), report.birds.countReason ? t('halls.rep.kpi.count_reason', 'السبب: {reason}. يظهر وحده لا مع النافق.', { reason: report.birds.countReason }) : t('halls.rep.kpi.count_note', 'يظهر وحده لا مع النافق.'));
+    }
+    if (k.feedCarryInKg !== null && k.feedCarryInKg > 0n) add('carry_in', t('halls.rep.kpi.carry_in', 'العلف من الدورة السابقة (كغم)'), kg(k.feedCarryInKg), t('halls.rep.kpi.carry_in_note', 'منقول إلى هذه القاعة عند تسكينها، ومحسوب في النازل.'));
+    if (closed) {
+      add('feed_out', t('halls.rep.kpi.feed_out', 'العلف الخارج عند الإغلاق (كغم)'), kg(k.feedOutKg), t('halls.rep.kpi.feed_out_note', 'ما رجع إلى المخازن وما نُقل للدورة التالية.'), t('halls.rep.kpi.feed_out_none', 'فيه سطر بلا وزن.'));
+      add('feed_net', t('halls.rep.kpi.feed_net', 'صافي العلف (كغم)'), kg(k.feedNetKg), t('halls.rep.kpi.feed_net_note', 'النازل للقاعة ناقص الخارج عند الإغلاق.'), t('halls.rep.kpi.feed_net_none', 'فيه سطر علف بلا وزن، فلا يُعرف الصافي بالكيلو.'));
+    }
+    add(
+      'fcr_final',
+      t('halls.rep.kpi.fcr_final', 'معامل التحويل النهائيّ'),
+      k.fcrFinal === null ? null : fmtScaledCell(k.fcrFinal, 3, 3),
+      t('halls.rep.kpi.fcr_final_note', 'صافي العلف ÷ صافي وزن المباع.'),
+      closed ? t('halls.rep.kpi.fcr_final_none', 'يحتاج صافي العلف وصافي المباع.') : t('halls.rep.kpi.at_close', 'يُحسب عند إغلاق الدورة.'),
+    );
+    add(
+      'epef_final',
+      t('halls.rep.kpi.epef_final', 'مؤشّر الإنتاج النهائيّ (EPEF)'),
+      k.epefFinal === null ? null : fmtScaledCell(k.epefFinal, 0, 0),
+      t('halls.rep.kpi.epef_final_note', 'الحيوية × معدّل وزن البيع ÷ (عمر البيع × معامل التحويل النهائيّ) × 100.'),
+      closed ? t('halls.rep.kpi.epef_final_none', 'يحتاج معامل التحويل النهائيّ وعمر البيع ووزنه.') : t('halls.rep.kpi.at_close', 'يُحسب عند إغلاق الدورة.'),
+    );
+  }
   return rows;
 }
 
@@ -298,6 +331,13 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
     { key: 'start', header: t('halls.rep.col.live_start', 'الحيّ أوّل اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveStart)}</Num> },
     { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (day) => intCell(day.dead), total: deadTotal(kpis.dead) },
     { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (day) => intCell(day.culled), total: deadTotal(kpis.culled) },
+    // المباع وفرق العدّ يومهما (0028)، حين في الدورة شيء منهما.
+    ...(days.some((day) => (day.sold ?? 0) > 0)
+      ? [{ key: 'sold', header: t('halls.rep.col.sold', 'المباع'), kind: 'number' as const, cell: (day: CycleDay) => (day.sold ? <Num>{fmtInt(day.sold)}</Num> : null), total: kpis.soldBirds === null ? undefined : <Num>{fmtInt(kpis.soldBirds)}</Num> }]
+      : []),
+    ...(days.some((day) => (day.adjust ?? 0) !== 0)
+      ? [{ key: 'adjust', header: t('halls.rep.col.adjust', 'فرق العدّ'), kind: 'number' as const, cell: (day: CycleDay) => (day.adjust ? <Num>{signedCount(day.adjust)}</Num> : null), total: kpis.countDiff === null ? undefined : <Num>{signedCount(kpis.countDiff)}</Num> }]
+      : []),
     { key: 'end', header: t('halls.rep.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveEnd)}</Num> },
     { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (day) => pctCell(day.mortalityCumPct) },
     { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenKg, eatenKg), total: eatenAny ? kgCell(kpis.feedEatenKg, eatenKg) : dash() },
@@ -422,7 +462,7 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   );
 }
 
-function ReportBody({ report }: { report: CycleReport }) {
+function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleReport; here: string; reopenFirst: boolean; onChanged: () => void }) {
   const { birds, feed, medicines, vaccines, money, cycle } = report;
   const lineQty = decimalsOf(feed.lines.map((line) => line.qty));
   const kgDecimals = decimalsOf([...feed.lines.map((line) => line.kg), ...feed.lines.map((line) => line.cumKg), feed.deliveredKg, ...feed.byItem.map((row) => row.kg)]);
@@ -435,6 +475,9 @@ function ReportBody({ report }: { report: CycleReport }) {
     { key: 'placed', header: t('halls.rep.col.placed', 'المسكَّن'), kind: 'number', cell: (row) => <Num>{fmtInt(row.placed)}</Num> },
     { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (row) => <Num>{fmtInt(row.dead)}</Num> },
     { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (row) => <Num>{fmtInt(row.culled)}</Num> },
+    // المباع وفرق العدّ (0028) حين يرسلهما الخادم: الحيّ = المسكَّن − النافق − المستبعد − المباع ± فرق العدّ.
+    ...(birds.sold !== null ? [{ key: 'sold', header: t('halls.rep.col.sold', 'المباع'), kind: 'number' as const, cell: (row: Birds) => <Num>{fmtInt(row.sold ?? 0)}</Num> }] : []),
+    ...(birds.countDiff !== null && birds.countDiff !== 0 ? [{ key: 'count_diff', header: t('halls.rep.col.adjust', 'فرق العدّ'), kind: 'number' as const, cell: (row: Birds) => <Num>{signedCount(row.countDiff ?? 0)}</Num> }] : []),
     { key: 'live', header: t('halls.rep.col.live', 'الحيّ'), kind: 'number', cell: (row) => <Num>{fmtInt(row.live)}</Num> },
     { key: 'mortality', header: t('halls.rep.col.mortality', 'نسبة النفوق'), kind: 'number', cell: (row) => <Num>{pct(row.mortalityPct)}</Num> },
   ];
@@ -526,6 +569,20 @@ function ReportBody({ report }: { report: CycleReport }) {
     { key: 'label', header: t('halls.rep.col.cost', 'البند'), cell: (row) => row.label },
     { key: 'amount', header: t('halls.rep.col.amount', 'المبلغ'), kind: 'number', cell: (row) => <Num>{fmtMoney(row.amount)}</Num>, total: money ? <Num>{fmtMoney(money.total)}</Num> : undefined },
   ];
+  // 0028 (أدوار الكلفة وحدها): إيراد الفواتير، وما رجع إلى المخازن وما نُقل من الدورة السابقة وإلى التالية. البنود فوقها صافية بعدها؛ والربح لاحقاً
+  // (كلمة المالك: بعد كلفة الفراخ).
+  const flowRows: readonly MoneyRow[] = money
+    ? [
+        ...(money.revenue !== null ? [{ key: 'revenue', label: t('halls.rep.money.revenue', 'إيراد فواتير الطيور'), amount: money.revenue }] : []),
+        ...(money.returned !== null && money.returned !== 0n ? [{ key: 'returned', label: t('halls.rep.money.returned', 'العلف الراجع إلى المخازن'), amount: money.returned }] : []),
+        ...(money.carriedIn !== null && money.carriedIn !== 0n ? [{ key: 'carried_in', label: t('halls.rep.money.carried_in', 'العلف من الدورة السابقة'), amount: money.carriedIn }] : []),
+        ...(money.carriedOut !== null && money.carriedOut !== 0n ? [{ key: 'carried_out', label: t('halls.rep.money.carried_out', 'العلف المنقول للدورة التالية'), amount: money.carriedOut }] : []),
+      ]
+    : [];
+  const flowColumns: Column<MoneyRow>[] = [
+    { key: 'label', header: t('halls.rep.col.flow', 'البيان'), cell: (row) => row.label },
+    { key: 'amount', header: t('halls.rep.col.amount', 'المبلغ'), kind: 'number', cell: (row) => <Num>{fmtMoney(row.amount)}</Num> },
+  ];
 
   const done = vaccines.filter((row) => row.state === 'done').length;
   const missed = vaccines.filter((row) => row.state === 'missed').length;
@@ -539,9 +596,12 @@ function ReportBody({ report }: { report: CycleReport }) {
           {t('halls.rep.no_cycle', 'المؤشّرات وجداول الأسابيع والأيّام تظهر بعد تحديث الخادم.')}
         </p>
       )}
+      {report.close ? <CloseSection close={report.close} reopenFirst={reopenFirst} onChanged={onChanged} /> : null}
       <Section title={t('halls.rep.sec.birds', 'الطيور')} action="rep-birds">
         <DataTable caption={t('halls.rep.sec.birds', 'الطيور')} columns={birdColumns} rows={[birds]} rowKey={() => 'birds'} empty={dash()} />
       </Section>
+      {report.sales ? <SalesSection sales={report.sales} back={here} /> : null}
+      <CarryInNote lines={report.carryIn} />
       {cycle ? <CycleSections report={report} cycle={cycle} /> : null}
       <Section title={t('halls.rep.sec.feed', 'العلف النازل للقاعة')} action="rep-feed">
         <DataTable caption={t('halls.rep.sec.feed', 'العلف النازل للقاعة')} columns={lineColumns} rows={feed.lines} rowKey={(row, index) => `${row.docNo}|${index}`} empty={t('halls.rep.feed_empty', 'لم ينزل علف لهذه القاعة بعد.')} totalLabel={t('halls.rep.total', 'المجموع')} />
@@ -588,6 +648,7 @@ function ReportBody({ report }: { report: CycleReport }) {
       {money ? (
         <Section title={t('halls.rep.sec.money', 'كلفة الدورة')} action="rep-money">
           <DataTable caption={t('halls.rep.sec.money', 'كلفة الدورة')} columns={moneyColumns} rows={moneyRows} rowKey={(row) => row.key} empty={dash()} totalLabel={t('halls.rep.total', 'المجموع')} />
+          {flowRows.length ? <DataTable caption={t('halls.rep.sec.money_flow', 'الإيراد والعلف الراجع والمنقول')} columns={flowColumns} rows={flowRows} rowKey={(row) => row.key} empty={dash()} /> : null}
         </Section>
       ) : null}
     </div>
@@ -605,6 +666,10 @@ function ReportView({ flockId }: { flockId: string }) {
   const back = backTarget(search.get('back'), flock ? flockPath(flock.kind, flock.id) : '/');
   const title = flock ? t('halls.rep.heading', 'تقرير دورة {hall} — {site}', { hall: flock.hallName, site: flock.siteName }) : t('halls.report.title', 'تقرير الدورة');
   const age = report && report.through >= report.flock.placedOn ? report.flock.age0 + dayIndex(report.through) - dayIndex(report.flock.placedOn) : null;
+  // رجوع التذاكر من هذا التقرير إليه برجوعه هو؛ و?act=reopen من بطاقة الفوج يفتح «أعد فتح الدورة» أوّل الفتح (لمن يجوز له).
+  const backParam = search.get('back');
+  const here = `/halls/report/${flockId}${backParam !== null && back === backParam ? `?${new URLSearchParams({ back: backParam }).toString()}` : ''}`;
+  const reopenFirst = search.get('act') === 'reopen';
 
   return (
     <div className="flex flex-col gap-5" data-action="report-page">
@@ -648,7 +713,7 @@ function ReportView({ flockId }: { flockId: string }) {
           <LoadFailed what={t('halls.rep.what', 'تقرير الدورة')} error={state.error} onRetry={state.retry} />
         )
       ) : report ? (
-        <ReportBody report={report} />
+        <ReportBody report={report} here={here} reopenFirst={reopenFirst} onChanged={state.retry} />
       ) : (
         <p role="status" className="text-sm text-ink-muted" data-action="rep-loading">
           {t('page.loading', 'جارٍ الفتح…')}
