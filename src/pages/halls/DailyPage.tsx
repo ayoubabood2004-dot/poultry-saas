@@ -22,8 +22,8 @@ import { newTicketPath, signedCount } from './ticketParts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
 // بقراءة halls_day واحدة لكلّ القاعات في نطاق القارئ مجمَّعة بالحقل. اليوم في الرابط، وبلاه تتبع الصفحة «اليوم» بيوم الخادم (halls_day(null)، لا ساعة
-// الجهاز)، والأيام بسهمين («اليوم السابق» و«اليوم التالي» المقفول عند يوم الخادم) ومنتقٍ و«اليوم» بنمط الرصيد اليومي، والأزرار نصّاً كأزرار التقويم:
-// أيقونة من خارج حزمة القاعات تفصل حزمة محفوظة جديدة.
+// الجهاز)؛ والسهمان («اليوم السابق» و«اليوم التالي» المقفول عند يوم الخادم) والمنتقي يطلب كلٌّ منها يومه صريحاً، و«اليوم» وحده يعيدها تتبع اليوم، بنمط
+// الرصيد اليومي، والأزرار نصّاً كأزرار التقويم: أيقونة من خارج حزمة القاعات تفصل حزمة محفوظة جديدة.
 // بالهاتف بطاقة لكلّ قاعة بأرقامها المهمّة و«لم تُسجَّل الجولة» أو «فارغة»؛ وبالشاشة العريضة وفي الطباعة (A4 بالعرض) جدول لكلّ حقل بصفّ مجاميع
 // الخادم («من N قاعة» حين تنقص الجولات)، والتبديل بـ<style> الصفحة بلا أصناف جديدة. والقيمة الغائبة «—» لا صفر. والقراءة الأخيرة الناجحة تبقى
 // معروضة بتاريخها حين تُقرأ التالية أو تفشل (و«أعد المحاولة»)، والطباعة والمشاركة لليوم المطلوب وحده. ومن كلّ قاعة رابطا تقويمها (شهر اليوم)
@@ -676,7 +676,7 @@ function DayReport({ data, here }: { data: HallsDay; here: string }) {
 
 // ─── اختيار اليوم ───────────────────────────────────────────────────────────────────────────────────────────────
 
-/** النقر على التاريخ: يوم بالكتابة (يوم/شهر/سنة)، لا بعد اليوم (نمط الرصيد اليومي). */
+/** النقر على التاريخ: يوم بالكتابة (يوم/شهر/سنة) لا بعد حدّه today، ويُطلب صريحاً بـ?on= ولو كان حدَّه نفسه (نمط الرصيد اليومي). */
 function PickDayDialog({ today, current, onClose, onPick }: { today: Day; current: Day; onClose: () => void; onPick: (day: Day) => void }) {
   const id = useId();
   const [text, setText] = useState(fmtDay(current));
@@ -733,19 +733,23 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 // ─── الصفحة ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * مرحلة العودة إلى الصفحة: 'away' بعد إخفائها، وإلّا نوع الحدث الذي بدأ العودة الأخيرة ('both' حين وصل قرينه). الحدث قرينُ حدثٍ من النوع الآخر بدأ العودة
- * نفسها ما لم يفصلهما إخفاء، وغيرُ ذلك عودةٌ جديدة (لا تظهر صفحة إلّا بعد إخفائها، ولا يعود التركيز إلّا بعد تركه)؛ فحدثا العودة الواحدة (الظهور والتركيز،
- * بأيّ ترتيب، رُسمت الصفحة بينهما أو لا، والقراءة في الطريق أو انتهت) قراءةٌ واحدة. لا مؤقّت ولا حلقة. وترك التركيز لا يُسمع: اسم حدثه نصّاً يقرؤه Tailwind
+ * مرحلة العودة إلى الصفحة: 'away' بعد إخفائها، وإلّا نوع الحدث الذي بدأ العودة الأخيرة ('both' حين وصل قرينه). والحدث من النوع الآخر قرينُ العودة الجارية ما
+ * اجتمعت ثلاثة شروط: لم يفصلهما إخفاء، ويومُ الجهاز يومُ بدئها، ووصل خلال PARTNER_MS من بدئها بـperformance.now (رتيبة لا تتبع ساعة الجهاز)؛ وإلّا بدأ عودةً
+ * جديدة، وكذا تكرارُ النوع نفسه (ظهورٌ بلا تركيز مساءً ثمّ نقرةٌ في النافذة صباحاً عودتان، مراجعة 0027 V4-N2). فحدثا العودة الواحدة (الظهور والتركيز، بأيّ
+ * ترتيب، رُسمت الصفحة بينهما أو لا، والقراءة في الطريق أو انتهت) قراءةٌ واحدة. لا مؤقّت ولا حلقة. وترك التركيز لا يُسمع: اسم حدثه نصّاً يقرؤه Tailwind
  * صنفَ مرشّح فيولّد له CSS في حزمة الإقلاع (درس WP3 في CLAUDE.md)، والقراءة في الطريق تجمع حدثي العودة على كلّ حال.
  */
 type ReturnPhase = 'away' | 'visible' | 'focus' | 'both';
+/** أقصى ما بين بدء العودة وقرينها، بالملّي ثانية. */
+const PARTNER_MS = 2000;
 
 export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
   // ?on= صريح يبقى على يومه، ورفضُ يومٍ لم يأتِ بعدُ بجملته وطريقه (D7). وبلاه (أو بيوم غير موجود) تتبع الصفحة «اليوم»: halls_day(null) فيجيب الخادم
-  // بيومه الحاليّ (0027)، فلا تختار ساعة الجهاز اليوم ولا يصل الصفحةَ التي تتبع اليوم رفضُ يومٍ لم يأتِ (مراجعة 0027 H4، ساعة الجهاز أمام بغداد).
+  // بيومه الحاليّ (0027)، فلا تختار ساعة الجهاز اليوم ولا يصل الصفحةَ التي تتبع اليوم رفضُ يومٍ لم يأتِ (مراجعة 0027 H4، ساعة الجهاز أمام بغداد). ولا يدخل
+  // تتبّعَ اليوم إلّا «اليوم» وطريقه في رفض D7 (go(null)).
   const asked = dayOf(search.get('on'));
   const following = asked === null;
   const backParam = search.get('back');
@@ -759,30 +763,35 @@ export default function DailyPage() {
   // يوم الخادم في آخر جواب (null قبل أيّ جواب)، واليوم الذي تقف عليه الصفحة: الصريح، أو يوم الخادم وهي تتبع اليوم.
   const today = shown?.today ?? null;
   const viewDay = asked ?? today;
-  // حدّ المنتقي واليوم الذي يُتبع بلا ?on=: يوم الخادم، ويوم الجهاز قبل أيّ جواب وحده.
+  // حدّ المنتقي: يوم الخادم في آخر جواب، ويوم الجهاز قبل أيّ جواب وحده.
   const bound = today ?? localDay();
   // المعروض جوابُ المطلوب: اليوم الصريح، أو تقريرُ يوم الخادم كما قاله والصفحة تتبع اليوم؛ وفشلُ القراءة الأخيرة يُبقيه معروضاً بتاريخه لا حاليّاً (D6).
   const current = shown !== null && !state.error && (following ? shown.on === shown.today : shown.on === asked);
 
-  // العودة إلى الصفحة تقرأ من جديد مرّةً واحدة: وهي تتبع اليوم حين لا تقرير معروض أو يومُ الجهاز غير يوم المعروض (منتصف ليل الجهاز أو الخادم بينهما)،
-  // وبـ?on= يومَها حين يومُ الجهاز بعد يوم الخادم في المعروض، فيحمل جوابٌ بعد منتصف ليل الخادم «اليوم» الجديد إلى «اليوم التالي» والمنتقي. ولا قراءة فوق
-  // قراءة في الطريق، ولا شيء بعد مغادرة الصفحة (المستمعون يُزالون). وما تقرؤه العودة خارج الرسم:
-  const latest = useRef({ following, shown, loading: state.loading, retry: state.retry });
+  // العودة إلى الصفحة (لا قرينها) تقرأ مطلوبها من جديد مرّةً واحدة حين لا تعرض تقريراً حاليّاً: لا معروض، أو رفضٌ أو فشلٌ (صريحةً كانت أو تتبع اليوم،
+  // مراجعة 0027 V4-N3)، أو تتبع اليوم ويومُ الجهاز غير يوم المعروض (منتصف ليل الجهاز أو الخادم بينهما)، أو صريحةً ويومُ الجهاز بعد يوم الخادم في المعروض
+  // (فيحمل جوابٌ بعد منتصف ليل الخادم «اليوم» الجديد إلى «اليوم التالي» والمنتقي). ولا قراءة فوق قراءة في الطريق، ولا شيء بعد مغادرة الصفحة (المستمعون
+  // يُزالون). وما تقرؤه العودة خارج الرسم:
+  const latest = useRef({ following, shown, current, loading: state.loading, retry: state.retry });
   useEffect(() => {
-    latest.current = { following, shown, loading: state.loading, retry: state.retry };
+    latest.current = { following, shown, current, loading: state.loading, retry: state.retry };
   });
   useEffect(() => {
     let phase: ReturnPhase = document.visibilityState === 'hidden' ? 'away' : 'both';
+    // يومُ الجهاز ولحظةُ بدء العودة الجارية.
+    let began = { day: localDay(), at: performance.now() };
     const arrive = (kind: 'visible' | 'focus') => {
-      if (phase === (kind === 'visible' ? 'focus' : 'visible')) {
+      const day = localDay();
+      const at = performance.now();
+      if (phase === (kind === 'visible' ? 'focus' : 'visible') && day === began.day && at - began.at <= PARTNER_MS) {
         phase = 'both';
         return;
       }
       phase = kind;
+      began = { day, at };
       const page = latest.current;
       if (page.loading) return;
-      const now = localDay();
-      if (page.following ? page.shown === null || now !== page.shown.on : page.shown !== null && now > page.shown.today) page.retry();
+      if (page.shown === null || !page.current || (page.following ? day !== page.shown.on : day > page.shown.today)) page.retry();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') phase = 'away';
@@ -799,18 +808,21 @@ export default function DailyPage() {
 
   // «اليوم السابق» مقفول حين قال الخادم لهذا اليوم إنّ لا فوج قبله (prev)، وقبل أيّ جواب والصفحة تتبع اليوم (لا يوم يُرجع منه بعد).
   const prevOff = viewDay === null || (shown !== null && shown.on === viewDay && !shown.prev);
-  // «اليوم التالي» ما دام المطلوب قبل يوم الخادم، وإلى يوم الخادم نفسه تتبع الصفحة اليوم (go).
+  // «اليوم التالي» ما دام المطلوب قبل يوم الخادم في آخر جواب، ويطلب يومه صريحاً ولو كان ذلك اليوم: قد يكون الخادم جاوز منتصف ليله بعد الجواب، فلو
+  // تبعت الصفحة اليوم عنده لقفزت يوماً (مراجعة 0027 V4-N1).
   const nextOff = viewDay === null || today === null || viewDay >= today;
   const [picking, setPicking] = useState(false);
 
-  /** يومٌ صريح بـ?on=؛ ويوم الخادم (الحدّ) أو null بلا ?on= فتتبع الصفحة اليوم. والرجوع (?back=) يبقى. */
+  /**
+   * يومٌ صريح بـ?on= (السهمان والمنتقي وطريق «اليوم السابق»)، فلا تعرض الصفحة غير اليوم المطلوب؛ وnull وحده بلا ?on= فتتبع الصفحة اليوم («اليوم» وطريقه).
+   * والرجوع (?back=) يبقى.
+   */
   const go = (day: Day | null) => {
     setPicking(false);
-    const on = day === null || day === bound ? null : day;
-    if (on === null && following) return;
+    if (day === null && following) return;
     const params = new URLSearchParams(search);
-    if (on === null) params.delete('on');
-    else params.set('on', on);
+    if (day === null) params.delete('on');
+    else params.set('on', day);
     setSearch(params);
   };
   /** «اليوم السابق» و«اليوم التالي»: يوماً من اليوم الذي تقف عليه الصفحة. */
@@ -837,7 +849,7 @@ export default function DailyPage() {
   const failure = state.error;
   const refusal = failure instanceof RejectedError && failure.hint ? failure : null;
   // رفض اليوم القادم بـ?on= صريح (D7): يوم بعد يوم الجهاز طريقه «اليوم» (تتبع الصفحة يوم الخادم)، ويوم الجهاز أو ما قبله (ساعة الجهاز أمام الخادم) يعود
-  // يوماً. والصفحة التي تتبع اليوم لا يصلها هذا الرفض.
+  // يوماً صريحاً. والصفحة التي تتبع اليوم لا يصلها هذا الرفض.
   const way = refusal?.code === 'future_day' && asked !== null ? (asked > localDay() ? { label: t('halls.day.today', 'اليوم'), day: null } : { label: t('halls.day.prev', 'اليوم السابق'), day: addDays(asked, -1) }) : null;
 
   return (
