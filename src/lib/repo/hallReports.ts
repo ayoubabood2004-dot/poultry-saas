@@ -132,6 +132,31 @@ export interface DayFlock {
   issues: readonly DayIssue[];
   logs: readonly { id: string; name: string; dose: string | null }[];
   vaccines: readonly DayVaccine[];
+  /**
+   * 0028 (العقد §6): المباع يومها من الفواتير المرحّلة وصافيه، وفرق العدّ يومها، وطيور تذاكر الوزن غير الملغاة بلا فاتورة يومها، والعلف المنقول إليها
+   * يومها والخارج منها عند الإغلاق (وسطوره بلا وزن يومها وحتى يومها). كلّها null من خادم قبل 0028 (لا صفر).
+   */
+  sold: number | null;
+  soldNetKg: Milli | null;
+  countDiff: number | null;
+  ticketed: number | null;
+  feedCarryInKg: Milli | null;
+  feedOutKg: Milli | null;
+  feedOutUnweighed: number | null;
+  feedOutCumUnweighed: number | null;
+}
+
+/** 0028: علف منقول للدورة التالية معلَّق على قاعة فارغة (من دورة أُغلقت، حتى يُسكَّن فوجها التالي أو يُرجع إلى مخزن). */
+export interface DayCarry {
+  lineId: string;
+  itemId: string;
+  name: string;
+  qty: Milli;
+  baseUnit: BaseUnit;
+  /** null: لتر بلا كثافة أو قطعة بلا وزن. */
+  kg: Milli | null;
+  closedOn: Day;
+  fromFlockId: string;
 }
 
 export interface DayHall {
@@ -140,6 +165,8 @@ export interface DayHall {
   kind: FlockKind;
   /** null: القاعة فارغة في ذلك اليوم. */
   flock: DayFlock | null;
+  /** 0028: العلف المنقول المعلَّق عليها وهي فارغة (فارغ من خادم قبل 0028). */
+  carry: readonly DayCarry[];
 }
 
 /** مجاميع الخادم: النافق والمستبعد من القاعات بجولة وحدها (rounds منها)، والمأكول من الأفواج بعلف مسجَّل وحدها (feedEatenFlocks). */
@@ -158,6 +185,10 @@ export interface DayTotals {
   feedGivenKg: Milli;
   /** سطور العلف بلا وزن في ذلك اليوم من قاعاته (خارج feedGivenKg). */
   feedGivenUnweighed: number;
+  /** 0028: المباع وفرق العدّ وطيور التذاكر بلا فاتورة يومها؛ null من خادم قبل 0028. */
+  sold: number | null;
+  countDiff: number | null;
+  ticketed: number | null;
 }
 
 export interface DaySite {
@@ -202,6 +233,9 @@ const totalsOf = (value: unknown): DayTotals => {
     feedEatenFlocks: int(row, 'feed_eaten_flocks'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
+    sold: optInt(row, 'sold'),
+    countDiff: optInt(row, 'count_diff'),
+    ticketed: optInt(row, 'ticketed'),
   };
 };
 
@@ -264,8 +298,28 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
       issueId: optStr(vaccine, 'issue_id'),
       docNo: optStr(vaccine, 'doc_no'),
     })),
+    sold: optInt(row, 'sold'),
+    soldNetKg: optScaled(row, 'sold_net_kg', 3),
+    countDiff: optInt(row, 'count_diff'),
+    ticketed: optInt(row, 'ticketed'),
+    feedCarryInKg: optScaled(row, 'feed_carry_in_kg', 3),
+    feedOutKg: optScaled(row, 'feed_out_kg', 3),
+    feedOutUnweighed: optInt(row, 'feed_out_unweighed'),
+    feedOutCumUnweighed: optInt(row, 'feed_out_cum_unweighed'),
   };
 };
+
+const carryOf = (value: unknown): DayCarry[] =>
+  list(value ?? [], 'carry').map((row) => ({
+    lineId: str(row, 'line_id'),
+    itemId: str(row, 'item_id'),
+    name: str(row, 'name'),
+    qty: scaled(row, 'qty', 3),
+    baseUnit: oneOf(row, 'base_unit', UNITS),
+    kg: optScaled(row, 'kg', 3),
+    closedOn: str(row, 'closed_on'),
+    fromFlockId: str(row, 'from_flock_id'),
+  }));
 
 export function parseHallsDay(value: unknown): HallsDay {
   const json = record(value, 'halls_day');
@@ -282,6 +336,7 @@ export function parseHallsDay(value: unknown): HallsDay {
         hallName: str(hall, 'hall_name'),
         kind: oneOf(hall, 'kind', KINDS),
         flock: dayFlockOf(hall.flock),
+        carry: carryOf(hall.carry),
       })),
       totals: totalsOf(site.totals),
     })),

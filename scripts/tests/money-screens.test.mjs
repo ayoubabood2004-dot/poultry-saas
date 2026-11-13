@@ -9,6 +9,9 @@
 // بلا تكرار، وروابط كلّ صفّ §5، والعكس بعلامته)؛ D يومية الصندوق (أوّل اليوم + الوارد − الصادر = آخره، والسهمان، والطباعة بعنوانها، والتوقيع، واليوم
 // الفارغ)؛ S خلاصة الشهر (الجملة، والكتل بالمشروع والأقسام، والإنتاج والصرف، والكلفة المحجوبة، والسهمان)؛ C الصناديق («يومية اليوم») وكشف الصندوق (رابط
 // كلّ رقم)؛ R نقل المسارات (/accounts الخلاصة، و/accounts/parties صفحة الجهات)؛ X بطاقة الرئيسية.
+// وفواتير الطيور (0028، العقد §6 و§10 الوكيل ب، مفتاح birds الجديد في كتلة المبيعات): B المبيعات = الموادّ + الطيور في الخلاصة وخلاصة الشهر، والكلفة والربح
+// الإجمالي للموادّ وحدها بجملة «ربح الطيور في تقرير الفوج»، وخادم قبل 0028 (بلا birds) كما كان؛ والمقبوض عند فاتورة الطيور في حركة الأموال «بيع طيور نقداً»
+// برابط /sales/birds/:id.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -132,6 +135,7 @@ const expectedHref = (row) => {
   if (row.voucher === 'transfer') return `/accounts/transfer/${row.voucher_id}`;
   if (row.doc_kind === 'receipt') return `/inventory/receipts/${row.doc_id}`;
   if (row.doc_kind === 'sale') return `/sales/${row.doc_id}`;
+  if (row.doc_kind === 'bird_sale') return `/sales/birds/${row.doc_id}`;
   if (row.doc_kind === 'supplier_return') return `/inventory/supplier-returns/${row.doc_id}`;
   if (row.doc_kind === 'cash_transfer') return `/accounts/transfer/${row.doc_id}`;
   return null;
@@ -146,7 +150,7 @@ const expectedMemo = (row, withClass = false) => {
   const bare = {
     customer_receipt: 'سند قبض',
     supplier_payment: 'سند صرف',
-    cash_sale: 'بيع نقداً',
+    cash_sale: row.doc_kind === 'bird_sale' ? 'بيع طيور نقداً' : 'بيع نقداً',
     cash_purchase: 'دفع عند الشراء',
     purchase_charge: row.note ?? 'أجور الشراء',
     expense: row.category ?? 'مصروف',
@@ -785,9 +789,17 @@ export default async function (t) {
         if (amount !== null) amounts.push(fils(amount));
       };
       const { sales, purchases, expenses, production, feed_issue: feed } = block;
-      add('المبيعات (الإيراد)', sales.count, sales.revenue);
-      if (sales.cost !== null) add('كلفة المبيعات', null, sales.cost);
-      if (sales.gross !== null) add('الربح الإجمالي', null, sales.gross);
+      // 0028: المبيعات = الموادّ + الطيور حين في الكتلة فواتير طيور، والكلفة والربح للموادّ وحدها.
+      const birds = sales.birds && (sales.birds.count > 0 || fils(sales.birds.revenue) !== 0n) ? sales.birds : null;
+      const total = fils(sales.revenue) + (birds ? fils(birds.revenue) : 0n);
+      add('المبيعات (الإيراد)', sales.count + (birds?.count ?? 0), `${total / 100n}.${(total % 100n).toString().padStart(2, '0')}`);
+      if (birds) {
+        add('منها موادّ', sales.count, sales.revenue);
+        add('منها طيور', birds.count, birds.revenue);
+      }
+      if (sales.cost !== null) add(birds ? 'كلفة الموادّ المبيعة' : 'كلفة المبيعات', null, sales.cost);
+      if (sales.gross !== null) add(birds ? 'الربح الإجمالي للموادّ' : 'الربح الإجمالي', null, sales.gross);
+      if (birds) lines.push(['ربح الطيور في تقرير الفوج', '', '']);
       add('المشتريات', purchases.count, purchases.total);
       add('منها نقداً', null, purchases.cash);
       add('منها بالدين', null, purchases.credit);
@@ -796,10 +808,10 @@ export default async function (t) {
       if (production) add(`إنتاج المعمل: ${m.fmtQty(milli(production.output_kg), 'kg').main}`, production.batches, production.cost);
       if (feed) add('صرف العلف للأفواج', feed.issues, feed.cost);
       const decimals = decimalsOf(amounts);
-      return lines.map(([label, count, amount]) => [label, count, amount === null ? '—' : fmt(fils(amount), decimals)]);
+      return lines.map(([label, count, amount]) => [label, count, amount === '' ? '' : amount === null ? '—' : fmt(fils(amount), decimals)]);
     };
     const emptyDivision = (d) =>
-      d.sales.count === 0 && fils(d.sales.revenue) === 0n && d.purchases.count === 0 && fils(d.purchases.total) === 0n && fils(d.expenses.total) === 0n && d.expenses.categories.length === 0 && !d.production && !d.feed_issue;
+      d.sales.count + (d.sales.birds?.count ?? 0) === 0 && fils(d.sales.revenue) + (d.sales.birds ? fils(d.sales.birds.revenue) : 0n) === 0n && d.purchases.count === 0 && fils(d.purchases.total) === 0n && fils(d.expenses.total) === 0n && d.expenses.categories.length === 0 && !d.production && !d.feed_issue;
 
     await step('S', async () => {
       const month = MS.month.slice(0, 7);
@@ -854,6 +866,61 @@ export default async function (t) {
       const blindRows = tableOf(first('monthsum-project')).body.map(cells);
       t.same(blindRows, blockExpect(blind.project), 'S15 الكلفة محجوبة: السطور بلا الكلفة والربح، والإنتاج والصرف «—»');
       t.ok(!blindRows.some(([label]) => label === 'كلفة المبيعات' || label === 'الربح الإجمالي') && blindRows.some((row) => row[0].startsWith('إنتاج المعمل') && row[2] === '—'), 'S16 لا كلفة ولا ربح ولا مبلغ إنتاج لمن لا يرى الكلفة');
+    });
+
+    // ── B فواتير الطيور (0028): المبيعات = الموادّ + الطيور، والكلفة والربح للموادّ وحدها ─────────────────────────────────────
+    await step('B', async () => {
+      const BIRDS = { count: 2, revenue: '35000000' };
+      t.same([m.parseMoneyOverview(clone(O)).month.sales.birds, m.parseMonthSummary(clone(MS)).project.sales.birds], [null, null], 'B1 خادم قبل 0028 (بلا birds): null لا صفر');
+      const withBirds = clone(O);
+      withBirds.month.sales.birds = clone(BIRDS);
+      t.same(m.parseMoneyOverview(clone(withBirds)).month.sales.birds, { count: 2, revenue: 3500000000n }, 'B2 birds بعدده وإيراده بالفلس');
+      t.throws(() => m.parseMoneyOverview({ ...clone(withBirds), month: { ...clone(withBirds.month), sales: { ...clone(withBirds.month.sales), birds: { count: 2, revenue: 35000000 } } } }), 'B3 إيراد الطيور رقماً لا نصّاً يرمي');
+      fresh({ money_overview: () => clone(withBirds) });
+      await mount('/accounts');
+      const { sales } = withBirds.month;
+      const all = fils(sales.revenue) + fils(BIRDS.revenue);
+      const salesText = text(first('hub-sales'));
+      t.ok(salesText.startsWith(`المبيعات (${m.fmtInt(sales.count + BIRDS.count)})${fmt(all)}`), `B4 المبيعات = الموادّ + الطيور بعددهما ومبلغهما: «${salesText.slice(0, 60)}»`);
+      t.same(
+        [text(first('hub-sales-items')), text(first('hub-sales-birds'))],
+        [`منها موادّ (${m.fmtInt(sales.count)})${fmt(fils(sales.revenue))}`, `ومنها طيور (${m.fmtInt(BIRDS.count)})${fmt(fils(BIRDS.revenue))}`],
+        'B5 سطرا الموادّ والطيور',
+      );
+      t.ok(salesText.includes(`كلفة الموادّ${fmt(fils(sales.cost))}`) && text(first('hub-gross')).startsWith('ربح الموادّ الإجمالي'), 'B6 الكلفة والربح الإجمالي للموادّ وحدها باسمهما');
+      t.eq(text(first('hub-birds-profit')), 'ربح الطيور في تقرير الفوج.', 'B7 جملة ربح الطيور');
+      await unmount();
+      const zero = clone(O);
+      zero.month.sales.birds = { count: 0, revenue: '0' };
+      fresh({ money_overview: () => clone(zero) });
+      await mount('/accounts');
+      t.same([first('hub-sales-items'), first('hub-birds-profit'), text(first('hub-sales')).includes('كلفتها')], [null, null, true], 'B8 بلا فواتير طيور في الشهر: الخلاصة كما كانت');
+      await unmount();
+      // خلاصة الشهر: المشروع بطيور، وقسم اللاحم بطيور وحدها (لا «بلا حركة»).
+      const month = MS.month.slice(0, 7);
+      const summary = clone(MS);
+      summary.project.sales.birds = clone(BIRDS);
+      const target = summary.divisions.find((d) => emptyDivision(d)) ?? summary.divisions[0];
+      target.sales.birds = clone(BIRDS);
+      for (const d of summary.divisions) if (d !== target) d.sales.birds = { count: 0, revenue: '0' };
+      fresh({ month_summary: () => clone(summary) });
+      await mount(`/accounts/month?m=${month}`);
+      const project = tableOf(first('monthsum-project')).body.map(cells);
+      t.same(project, blockExpect(summary.project), 'B9 خلاصة الشهر: المبيعات = الموادّ + الطيور بسطريهما، والكلفة والربح للموادّ، وجملة ربح الطيور');
+      t.ok(project.some(([label]) => label === 'منها طيور') && project.some(([label, count, amount]) => label === 'ربح الطيور في تقرير الفوج' && count === '' && amount === ''), 'B10 سطر الطيور وجملة ربحها بلا مبلغ');
+      const sections = byAction('monthsum-division');
+      const at = summary.divisions.indexOf(target);
+      t.same(tableOf(sections[at]).body.map(cells), blockExpect(target), `B11 قسم ${target.kind} بفواتير طيور: جدوله لا «بلا حركة»`);
+      await unmount();
+      // حركة الأموال: المقبوض عند فاتورة الطيور صنفه «بيع نقدي» وبيانه «بيع طيور نقداً» ورقمه يفتح الفاتورة.
+      const moves = clone(MM.all);
+      const sale = moves.rows.find((row) => row.class === 'cash_sale');
+      t.ok(Boolean(sale), 'شرط money_moves: صفّ بيع نقدي');
+      Object.assign(sale, { doc_kind: 'bird_sale', doc_no: 'BR-2026-0004', doc_id: '00000000-0000-4000-8000-000000002910' });
+      fresh({ money_moves: () => clone(moves) });
+      await mount('/accounts/moves');
+      checkMoves('B12 moves', true, moves.rows, moves.days, '/accounts/moves');
+      t.ok(byAction('move-doc').some((n) => hrefOf(n) === `/sales/birds/00000000-0000-4000-8000-000000002910?back=${encodeURIComponent('/accounts/moves')}` && text(n) === 'BR-2026-0004'), 'B13 رقم الفاتورة يفتح /sales/birds/:id بطريق الرجوع');
     });
 
     // ── C الصناديق وكشف الصندوق ────────────────────────────────────────────────────────────────────────────────

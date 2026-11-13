@@ -25,6 +25,9 @@
 // 0025: البذرة نفسها وفوقها خلطة بكميات أُنتجت بـrecord_production (ROLLBACK_EXTRAS)، وبين التراجع والإعادة خلطة ثانية بـcreate_recipe القديم وإنتاجها
 // و«مخزن العلف» باسمه القديم، وبعد الإعادة «رصيد العلف» وproduce_batch على الخلطتين القديمة وبالموادّ، فالتراجع يكمل. والطريق الثاني بثلاثة فروع، كلّ
 // واحد ببذرته: سطر خلطة بلا كمية، ونسخة بلا أساس، ودفعة حُفظت موادّها في خلطتها.
+// 0028: البذرة نفسها وفوقها قاعة بفوج مفتوح وصرف منه وجولة (ROLLBACK_EXTRAS)، وبين التراجع والإعادة جولة ثانية بجسم 0012، وبعد الإعادة تذكرة وفاتورة
+// وإغلاق بإرجاع على تلك البيانات، فالتراجع يكمل. والطريق الثاني بستّة فروع، كلّ واحد ببذرته: مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ،
+// ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -579,7 +582,95 @@ const mill25Seed = (variant) => async (db) => {
   if (variant === 'saved') await db.admin('update public.production_batches set saved_to_recipe = true where id = $1', [REF(91)]);
 };
 
+/**
+ * 0028 (طريق الرفض): قاعدة 0027 لا تعرف التذكرة ولا فاتورة الطيور ولا العدد ولا الإغلاق، فالتراجع يرفض ما دامت حقيقة واحدة منها؛ كلّ فرع ببذرته
+ * وحده بدوالّ 0028 (المدير) على فوج «قاعة البذرة» (1,000 طير قبل ثلاثة أيّام): مسوّدة تذكرة بقاعة (ticket)، وتذكرة أُكملت وفوترت بالدين لـ«أبو علي»
+ * (sale)، وفرق عدّ +5 وحده (adjust)، ودورة أُغلقت أمس ورجع فيها كيلوغرامان من «علف البذرة» إلى مخزن الحقل (close)، ودورة أُغلقت أمس ونُقل علفها ثمّ
+ * سُكّن في القاعة فوج اليوم فطُبّق النقل (carry)، وتذكرة مسوّدة حُذفت يدويّاً فبقيت في سجلّ التدقيق وحده (audit؛ حالة مصنوعة: لا دالّة تحذف تذكرة،
+ * وتُصنع هنا ليثبت أنّ فرع الأثر يوقف التراجع وحده).
+ */
+const H28 = (n) => `60000000-0000-4000-8000-0000000028${String(n).padStart(2, '0')}`;
+const birds28Seed = (variant) => async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const hall = await value(q, "select id from public.halls where name = 'قاعة البذرة'");
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    if (variant === 'ticket' || variant === 'sale' || variant === 'audit') {
+      const today = await value(q, 'select public.app_today()::text');
+      const data = { site_id: site, on_date: today, method: 'scale', empty_kg: '7000', empty_with_crates: false, crate_kg: '6',
+        stops: [{ id: H28(2), hall_id: hall, birds: 100, crates: 10, gross_kg: '7300', weighings: [] }] };
+      await q('select public.save_weigh_ticket($1, null, $2::jsonb)', [H28(1), JSON.stringify(data)]);
+      if (variant === 'sale') {
+        await q('select public.finish_weigh_ticket($1, $2, 1)', [H28(3), H28(1)]);
+        const party = await value(q, "select id from public.parties where name = 'أبو علي'");
+        await q('select public.record_bird_sale($1, $2, $3, 2, $4, 2750, 0, 0, null, null)', [H28(4), H28(5), H28(1), party]);
+      }
+    } else if (variant === 'adjust') {
+      await q("select public.record_flock_count_adjust($1, $2, $3, public.app_today(), 5, 'العدد الفعليّ أكثر', 1000)", [H28(6), H28(7), flock]);
+    } else {
+      const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+      const store = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
+      await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today() - 2, null)', [H28(8), H28(9), H28(10), flock, feed]);
+      const line = variant === 'close' ? { item_id: feed, qty: '2', action: 'return', warehouse_id: store } : { item_id: feed, qty: '2', action: 'carry' };
+      await q("select public.close_flock($1, $2, $3, public.app_today() - 1, 1000, 0, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null)",
+        [H28(11), H28(12), flock, JSON.stringify([{ item_id: feed, qty: '5' }]), JSON.stringify([line])]);
+      if (variant === 'carry') await q('select public.open_flock($1, public.app_today(), 500, 0, null, $2)', [hall, H28(13)]);
+    }
+  }, { commit: true });
+  if (variant === 'audit') {
+    await db.admin('delete from public.weigh_ticket_stops where ticket_id = $1', [H28(1)]);
+    await db.admin('delete from public.weigh_tickets where id = $1', [H28(1)]);
+  }
+};
+
+const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
+
 export const BLOCKING_SEEDS = {
+  28: [
+    {
+      name: 'مسوّدة تذكرة وزن',
+      code: 'rollback_blocked',
+      seed: birds28Seed('ticket'),
+      data: "select (select count(*) from public.weigh_tickets where status = 'draft')::text || '/' || (select count(*) from public.weigh_ticket_stops)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_tickets > 0 then', 'if false then'),
+    },
+    {
+      name: 'فاتورة طيور مرحّلة',
+      code: 'rollback_blocked',
+      seed: birds28Seed('sale'),
+      data: "select (select count(*) from public.bird_sales where status = 'posted')::text || '/' || (select count(*) from public.party_entries where doc_kind = 'bird_sale')::text || '/' || (select count(*) from public.flock_counts where kind = 'sold')::text || '/' || (select count(*) from public.doc_counters where kind in ('WT', 'BR'))::text as v",
+      mutate: (sql) => sql.replace('if v_sales > 0 then', 'if false then'),
+    },
+    {
+      name: 'فرق عدّ',
+      code: 'rollback_blocked',
+      seed: birds28Seed('adjust'),
+      data: "select (select count(*) from public.flock_counts where doc_kind = 'count_adjust')::text || '/' || (select count(*) from public.flocks)::text as v",
+      mutate: (sql) => sql.replace('if v_adjusts > 0 then', 'if false then'),
+    },
+    {
+      name: 'دورة مغلقة بإرجاع',
+      code: 'rollback_blocked',
+      seed: birds28Seed('close'),
+      data: "select (select count(*) from public.flock_closes where status = 'closed')::text || '/' || (select count(*) from public.flock_returns)::text || '/' || (select count(*) from public.stock_moves where doc_kind = 'flock_return')::text || '/' || (select count(*) from public.flocks where status = 'closed')::text as v",
+      mutate: (sql) => sql.replace('if v_closes > 0 then', 'if false then'),
+    },
+    {
+      name: 'نقل مطبَّق',
+      code: 'rollback_blocked',
+      seed: birds28Seed('carry'),
+      data: "select (select count(*) from public.flock_close_lines where carry_status = 'applied')::text || '/' || (select count(*) from public.flock_costs where doc_kind = 'flock_carry')::text || '/' || (select count(*) from public.flocks)::text as v",
+      mutate: (sql) => sql.replace('if v_applied > 0 then', 'if false then'),
+    },
+    {
+      name: 'تذكرة حُذفت يدويّاً (سجلّ تدقيق وحده)',
+      code: 'rollback_blocked',
+      seed: birds28Seed('audit'),
+      data: `select (select count(*) from public.audit_log where table_name in ${BIRD_TABLES})::text || '/' || (select count(*) from public.flocks)::text as v`,
+      mutate: (sql) => sql.replace('= 0 and v_traces > 0 then', '= 0 and false then'),
+    },
+  ],
   26: [
     {
       name: 'لقاح في القائمة',
@@ -915,6 +1006,7 @@ export const BLOCKING_REQUIRED = [
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
   [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
   [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
+  [28, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1242,7 +1334,65 @@ const mill25Redone = async (db) => {
 
 const FEED_RENAME = /\nupdate public\.warehouses w set name = 'رصيد العلف'\n[\s\S]*?;\n/u;
 
+/**
+ * 0028: حالة التراجع الكاملة على بيانات قاعات يمرّ عليها التراجع (المدير): فوج «قاعة البذرة» (1,000 طير قبل ثلاثة أيّام)، وصرف 5 كغم «علف البذرة» له قبل
+ * يومين، وجولة أمس بنافق 10؛ بلا تذكرة ولا فاتورة ولا عدد ولا إغلاق، فالتراجع يكمل. وبين التراجع والإعادة جولة اليوم بجسم 0012 المسترجَع (نافق 5)؛
+ * وبعد الإعادة تذكرة بمئة طير تُكمل وتُفوتر بالدين لـ«أبو علي» على تلك البيانات، ثمّ إغلاق الدورة اليوم بفرق العدّ وإرجاع كيلوغرامين إلى مخزن الحقل.
+ */
+const birds28Ready = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+    await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today() - 2, null)', [H28(20), H28(21), H28(22), flock, feed]);
+    await q('select public.save_flock_day($1, public.app_today() - 1, 10, 0, 100, null, null, null, null, null, null, null, null, $2, false)', [flock, H28(23)]);
+  }, { commit: true });
+};
+
+const birds28On0027 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    await q('select public.save_flock_day($1, public.app_today(), 5, 0, 120, null, null, null, null, null, null, null, null, $2, false)', [flock, H28(24)]);
+  }, { commit: true });
+};
+
+const birds28Redone = async (db) => {
+  const problems = [];
+  try {
+    await db.asUser(U.manager, async (q) => {
+      const flock = await value(q, SEED_FLOCK);
+      const hall = await value(q, "select id from public.halls where name = 'قاعة البذرة'");
+      const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+      const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+      const store = await value(q, "select id from public.warehouses where name = 'مخزن حقل الأمل'");
+      const party = await value(q, "select id from public.parties where name = 'أبو علي'");
+      const today = await value(q, 'select public.app_today()::text');
+      const data = { site_id: site, on_date: today, method: 'scale', empty_kg: '7000', empty_with_crates: false, crate_kg: '6',
+        stops: [{ id: H28(26), hall_id: hall, birds: 100, crates: 10, gross_kg: '7300', weighings: [] }] };
+      await q('select public.save_weigh_ticket($1, null, $2::jsonb)', [H28(25), JSON.stringify(data)]);
+      await q('select public.finish_weigh_ticket($1, $2, 1)', [H28(27), H28(25)]);
+      await q('select public.record_bird_sale($1, $2, $3, 2, $4, 2750, 0, 0, null, null)', [H28(28), H28(29), H28(25), party]);
+      await q("select public.close_flock($1, $2, $3, public.app_today(), 885, 100, $4::jsonb, 'بيعت خارج النظام', $5::jsonb, null)",
+        [H28(30), H28(31), flock, JSON.stringify([{ item_id: feed, qty: '5' }]), JSON.stringify([{ item_id: feed, qty: '2', action: 'return', warehouse_id: store }])]);
+    }, { commit: true });
+  } catch (error) {
+    problems.push(`التذكرة والفاتورة والإغلاق بعد الإعادة رُفضت: ${error.message}`);
+  }
+  const closed = (await db.admin(`select f.status, (select sum(c.birds)::int from public.flock_counts c where c.flock_id = f.id) as counts,
+      (select count(*)::int from public.flock_returns r where r.flock_id = f.id and r.status = 'posted') as returns
+    from public.flocks f where f.id = (${SEED_FLOCK})`)).rows[0];
+  if (JSON.stringify(closed) !== JSON.stringify({ status: 'closed', counts: -985, returns: 1 })) {
+    problems.push(`الفوج بعد الإغلاق ${JSON.stringify(closed)} والمتوقّع مغلق بعدد −985 (مباع 100 وفرق عدّ −885) وإرجاع واحد`);
+  }
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  28: {
+    seed: birds28Ready,
+    afterRollback: birds28On0027,
+    afterRedo: birds28Redone,
+  },
   25: {
     seed: mill25Ready,
     afterRollback: mill25On0024,

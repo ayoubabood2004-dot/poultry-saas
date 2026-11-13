@@ -12,7 +12,7 @@ import { describeError, NotConnectedError } from '../../../lib/errors';
 import { fmtDay, fmtInt, fmtMoney, fmtQty } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import * as money from '../../../lib/repo/money';
-import type { CashFlow, MonthBlock } from '../../../lib/repo/money';
+import { hasBirdSales, salesTotal, type CashFlow, type MonthBlock } from '../../../lib/repo/money';
 import { divisionLabel } from '../../../lib/roles';
 import { useSession } from '../../../lib/session';
 import { useLoad } from '../../../lib/useLoad';
@@ -23,7 +23,8 @@ import { A4_PORTRAIT, LINK, moneyDecimals, monthLabel, monthParam, PILL, printAs
 // بفئاتها، وإنتاج المعمل وكلفته، وصرف العلف للأفواج — ثمّ صافي التدفّق النقدي للمنشأة. رأسها يقول صراحةً إنّها خلاصة تشغيلية لا قائمة دخل محاسبية
 // (قائمة الدخل في المرحلة 3)، وسهمان للشهر السابق والتالي (لا شهر بعد الحالي)، وتُطبع A4 بعنوانها. القسم بلا حركة سطر واحد بدل جدول أصفار.
 // والقسم باسمه الكامل كما في الكشف والسندات («معمل العلف»، «حقول اللحم»)، وكلّ كتلة وبطاقة النقد لا تنقسم بين صفحتين بالطباعة (data-keep،
-// مراجعة 0024 L1 وL8).
+// مراجعة 0024 L1 وL8). والمبيعات = الموادّ + الطيور (0028): بفواتير طيور يظهر سطرا «منها موادّ» و«منها طيور»، والكلفة والربح الإجمالي للموادّ وحدها،
+// وسطر «ربح الطيور في تقرير الفوج» (لا كلفة بند للطيور).
 
 interface Line {
   key: string;
@@ -38,9 +39,20 @@ interface Line {
 /** سطور كتلة: البنود بترتيبها، والكلفة والربح حين تُرى وحدها، والإنتاج والصرف حين يوجدان. */
 export function blockLines(block: MonthBlock): Line[] {
   const { sales, purchases, expenses, production, feedIssue } = block;
-  const lines: Line[] = [{ key: 'sales', label: t('monthsum.sales', 'المبيعات (الإيراد)'), count: sales.count, amount: sales.revenue, strong: true }];
-  if (sales.cost !== null) lines.push({ key: 'cost', label: t('monthsum.cost', 'كلفة المبيعات'), count: null, amount: sales.cost, sub: true });
-  if (sales.gross !== null) lines.push({ key: 'gross', label: t('hub.sales.gross', 'الربح الإجمالي'), count: null, amount: sales.gross, sub: true, strong: true });
+  const all = salesTotal(sales);
+  const birds = hasBirdSales(sales) ? sales.birds : null;
+  const lines: Line[] = [{ key: 'sales', label: t('monthsum.sales', 'المبيعات (الإيراد)'), count: all.count, amount: all.revenue, strong: true }];
+  if (birds) {
+    lines.push(
+      { key: 'sales-items', label: t('monthsum.sales.items', 'منها موادّ'), count: sales.count, amount: sales.revenue, sub: true },
+      { key: 'sales-birds', label: t('monthsum.sales.birds', 'منها طيور'), count: birds.count, amount: birds.revenue, sub: true },
+    );
+  }
+  if (sales.cost !== null) lines.push({ key: 'cost', label: birds ? t('monthsum.items_cost', 'كلفة الموادّ المبيعة') : t('monthsum.cost', 'كلفة المبيعات'), count: null, amount: sales.cost, sub: true });
+  if (sales.gross !== null) {
+    lines.push({ key: 'gross', label: birds ? t('monthsum.items_gross', 'الربح الإجمالي للموادّ') : t('hub.sales.gross', 'الربح الإجمالي'), count: null, amount: sales.gross, sub: true, strong: true });
+  }
+  if (birds) lines.push({ key: 'birds-profit', label: t('monthsum.birds_profit', 'ربح الطيور في تقرير الفوج'), count: null, amount: null, sub: true });
   lines.push(
     { key: 'purchases', label: t('monthsum.purchases', 'المشتريات'), count: purchases.count, amount: purchases.total, strong: true },
     { key: 'purchases-cash', label: t('monthsum.purchases.cash', 'منها نقداً'), count: null, amount: purchases.cash, sub: true },
@@ -58,7 +70,8 @@ export function blockLines(block: MonthBlock): Line[] {
 /** قسم بلا أيّ حركة في الشهر: لا بيع ولا شراء ولا مصروف ولا إنتاج ولا صرف. */
 export function emptyBlock(block: MonthBlock): boolean {
   const { sales, purchases, expenses, production, feedIssue } = block;
-  return sales.count === 0 && sales.revenue === 0n && purchases.count === 0 && purchases.total === 0n && expenses.total === 0n && expenses.categories.length === 0 && production === null && feedIssue === null;
+  const all = salesTotal(sales);
+  return all.count === 0 && all.revenue === 0n && purchases.count === 0 && purchases.total === 0n && expenses.total === 0n && expenses.categories.length === 0 && production === null && feedIssue === null;
 }
 
 export function BlockTable({ caption, block }: { caption: string; block: MonthBlock }) {

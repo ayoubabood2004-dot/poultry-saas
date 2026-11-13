@@ -2,16 +2,24 @@
   "comment": "تصنيف الجداول (خطّة المرحلة 1 §2.10، E1): مصدر واحد للقاعدة والحرّاس. catalog.test يقارن الكتالوج بيه بالضبط، وwrite-guard يشتقّ منه «ما يكتبه إلا دالّة»، وreports-guard يشتقّ «جداول المال». كل جدول public بصنف كتابة واحد: functionOnly (الكتابة من الدوالّ بس) أو directWrite (بسياسة كتابة وامتيازاتها وفعلها: { privileges, action }، واختياري draft: true لرأس مسوّدة فسياسته تشرط status = 'draft'، وscope: «in_scope_wh(warehouse_id)» لدالّة النطاق على عمود الصفّ (أو { insert, update } لكل أمر دالّته: المواقع والمخازن من 0005، FOUNDATION ٥٤٤)، وcolumns: { insert: [...], update: [...] } إذا المنح على أعمدة (من 0005 كل جداول البيانات الأساسية: المنشأة والنسخة والمحسوب يكتبها الخادم)؛ وcatalog.test يشرط بكل سياسة كتابة org_id = (select auth_org()) وcan(action) بلا OR). والوسوم: appendOnly (مشغّلات reject_change)، وcostRestricted وaccountsRestricted وsalesRestricted (السياسة المقيِّدة)، وglobal (بلا org_id)، وmoney (جداول مال موجودة بلا سياسة الكلفة أو الحسابات، مثل فواتير البيع بمبلغها لأدوار المبيعات من 0021: reports-guard يحرسها كجداول المال). action نصّ لفعل الأمرين، أو { insert, update } لكل أمر فعله (الجهات من 0006: الإضافة party.create والتعديل parties.manage، Q1؛ والمواد ووحداتها من 0013: الإضافة item.create والتعديل stores.manage). reserved: جداول المراحل الجاية اللي الحرّاس يحرسونها من هسه؛ الحزمة اللي تنشئ جدولاً تنقله من reserved لصنفه، وcatalog.test يرفض جدولاً موجوداً وباقي بـreserved.",
   "functionOnly": [
     "audit_log",
+    "bird_sale_sources",
+    "bird_sales",
     "cash_moves",
     "divisions",
     "doc_counters",
     "expenses",
+    "flock_close_lines",
+    "flock_close_values",
+    "flock_closes",
     "flock_costs",
+    "flock_counts",
     "flock_daily",
     "flock_day_rejects",
     "flock_issue_lines",
     "flock_issues",
     "flock_logs",
+    "flock_return_lines",
+    "flock_returns",
     "flock_vaccinations",
     "flock_weights",
     "flocks",
@@ -42,7 +50,10 @@
     "units",
     "vaccine_program_days",
     "vaccine_programs",
-    "vaccines"
+    "vaccines",
+    "weigh_ticket_stops",
+    "weigh_ticket_weighings",
+    "weigh_tickets"
   ],
   "directWrite": {
     "cash_accounts": {
@@ -807,6 +818,7 @@
     "cash_moves",
     "expenses",
     "flock_costs",
+    "flock_counts",
     "party_allocations",
     "party_entries",
     "stock_moves",
@@ -815,6 +827,7 @@
   "costRestricted": [
     "audit_log",
     "expenses",
+    "flock_close_values",
     "flock_costs",
     "item_prices",
     "opening_lines",
@@ -843,6 +856,8 @@
     "party_entries"
   ],
   "salesRestricted": [
+    "bird_sale_sources",
+    "bird_sales",
     "parties",
     "sales_invoices",
     "sales_lines"
@@ -851,14 +866,14 @@
     "units"
   ],
   "money": [
+    "bird_sale_sources",
+    "bird_sales",
     "sales_invoices",
     "sales_lines"
   ],
   "reserved": {
     "functionOnly": [
       "client_versions",
-      "flock_close_values",
-      "flock_counts",
       "hatch_batch_values",
       "hatch_candlings",
       "hatch_costs",
@@ -867,7 +882,6 @@
       "sales_return_line_sources"
     ],
     "money": [
-      "flock_close_values",
       "hatch_batch_values",
       "hatch_costs",
       "party_offsets",

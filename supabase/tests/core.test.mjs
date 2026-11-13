@@ -479,6 +479,37 @@ export default async function (t, db) {
     );
   }
 
+  // 0028: لكلّ منشأة تذكرة بميزان الأقفاص بوزنة واحدة (100 طير في 10 أقفاص بخابط 300 كغم) على فوج «قاعة 1» أُكملت وفوترت بالدين لـ«زبون العزل»؛
+  // و«قاعة 2» بفوج صُرف له 4 كغم «علف الخلطة» ثمّ أُغلقت دورته اليوم بفرق العدّ وإرجاع كيلوغرامين إلى المخزن الذي جاء منه؛ فالجداول الأحد عشر بصفوف
+  // للطرفين، والقرّاء الجديدة بتذكرة كلّ منشأة وفاتورتها وفوجها المغلق.
+  const birdsOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    birdsOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const flock = flocksOf[key].flock;
+        const { hall_id: hall, site_id: site } = await one(q, 'select hall_id, site_id from public.flocks where id = $1', [flock]);
+        const today = await value(q, 'select public.app_today()::text');
+        const ticket = await value(q, 'select gen_random_uuid()');
+        const data = { site_id: site, on_date: today, method: 'crates', crate_kg: '6',
+          stops: [{ id: await value(q, 'select gen_random_uuid()'), hall_id: hall, birds: 100, weighings: [{ id: await value(q, 'select gen_random_uuid()'), crates: 10, gross_kg: '300' }] }] };
+        await q('select public.save_weigh_ticket($1, null, $2::jsonb)', [ticket, JSON.stringify(data)]);
+        await q('select public.finish_weigh_ticket(gen_random_uuid(), $1, 1)', [ticket]);
+        const buyer = await value(q, "select id from public.parties where name = 'زبون العزل'");
+        const sale = await value(q, "select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 0, null, null) ->> 'id'", [ticket, buyer]);
+        const hall2 = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة 2') returning id", [site]);
+        const closing = await value(q, "select public.open_flock($1, public.app_today() - 3, 500, 0, null, gen_random_uuid()) ->> 'flock_id'", [hall2]);
+        const feed = await value(q, "select id from public.items where name = 'علف الخلطة'");
+        await q('select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 4, public.app_today(), null)', [closing, feed]);
+        const store = await value(q, 'select warehouse_id from public.flock_issues where flock_id = $1', [closing]);
+        await q(`select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 500, 0, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '4')),
+          'بيعت خارج النظام', jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', '2', 'action', 'return', 'warehouse_id', $3::uuid)), null)`, [closing, feed, store]);
+        return { ticket, sale, site, closing };
+      },
+      { commit: true },
+    );
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -783,6 +814,14 @@ export default async function (t, db) {
     flock_cycle_report: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     // 0027: التقرير اليوميّ باليوم الحاليّ، ففوج كلّ منشأة (سُكّن قبل ثلاثة أيّام) يدخل جسمه كلّه (أرقام يومه وصرفه وأدويته ولقاحاته).
     halls_day: () => [coreToday],
+    // 0028: تذكرة كلّ منشأة وحقلها وفاتورتها، وقائمة التذاكر بسنة، وشاشة الإغلاق بفوجها المغلق، وبطاقة البيع بفوج «قاعة 1».
+    weigh_ticket: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].ticket],
+    weigh_ticket_options: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].site],
+    weigh_tickets: () => ['2026-01-01', '2026-12-31', 'all'],
+    bird_sale_form: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].ticket],
+    bird_sale_detail: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].sale],
+    flock_close_form: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].closing],
+    flock_sales: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     // 0021: المبيعات بسنة، وفاتورة كلّ منشأة، والتقرير بالجهة.
     sales_overview: () => ['2026-01-01', '2026-12-31'],
     sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
@@ -853,6 +892,15 @@ export default async function (t, db) {
     // 0027: التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
     halls_day: { [U.aSpare]: 'forbidden' },
     flock_cycles: { [U.aSpare]: 'forbidden' },
+    // 0028: التذاكر والإغلاق وبطاقة البيع لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden؛ وشاشة الفاتورة وتفصيلها لأدوار المبيعات
+    // (عامل القاعة forbidden).
+    weigh_ticket: { [U.aSpare]: 'forbidden' },
+    weigh_ticket_options: { [U.aSpare]: 'forbidden' },
+    weigh_tickets: { [U.aSpare]: 'forbidden' },
+    bird_sale_form: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    bird_sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    flock_close_form: { [U.aSpare]: 'forbidden' },
+    flock_sales: { [U.aSpare]: 'forbidden' },
     // 0021: قرّاء المبيعات لأدوار المبيعات (عامل القاعة forbidden)، وبلا منشأة forbidden.
     sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },

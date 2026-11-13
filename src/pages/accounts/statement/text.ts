@@ -2,7 +2,7 @@ import type { Day } from '../../../domain/dates';
 import { decimalText } from '../../../domain/decimal';
 import type { Fils, Milli } from '../../../domain/money';
 import { amountInWords } from '../../../domain/amountWords';
-import { countForm, fmtDay, fmtMilli } from '../../../lib/format';
+import { countForm, fmtCounted, fmtDay, fmtMilli, fmtScaledCell } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import type { EntryKind } from '../../../lib/repo/parties';
 import type { Allocation, EntryDetail, OpenItem, PartyStatement, StatementBook, StatementLine } from '../../../lib/repo/statement';
@@ -14,7 +14,8 @@ import { bookLabel, entryKindLabel } from '../shared';
 // 450 — مخزن المواد»)، وما سدّده كلّ تسديد من التوزيع القائم، ورابط المستند أو السند (وكلّ رابط يحمل ?back= إلى الكشف بفترته)، وموادّ
 // المستند للتفصيلي، وملف إكسل (CSV بترميز UTF-8 وعلامة البداية، والأرقام بلا فواصل حتى يقرأها إكسل أرقاماً، والنصّ الذي يبدأ بما يجعله
 // إكسل صيغة يُسبق بفاصلة عليا)، ونصّ المشاركة. كلّ عربية من t() وكلّ رقم معروض من format.ts، وبقاموس المالك (DECISIONS 2026-10-31 §1:
-// «حركة» لا «قيد»، و«الرصيد عند البداية»).
+// «حركة» لا «قيد»، و«الرصيد عند البداية»). وفاتورة الطيور BR ومقبوضها (0028، العقد §6 و§10): «فاتورة بيع طيور» ببيانها («بيع 4,000 طير (9,054.5 كغم بعد
+// تنزيل 0.50٪) بسعر 2,750 — حقل الطيور»)، و«قبض عند البيع»، ورابطها /sales/birds/:id، وتحتها في التفصيلي «دجاج لحم حيّ» بالوزن المحسوب وسعر الكيلو.
 
 export type StatementMode = 'summary' | 'detailed' | 'open';
 export const STATEMENT_MODES: readonly StatementMode[] = ['summary', 'detailed', 'open'];
@@ -44,6 +45,13 @@ function itemsCount(n: number): string {
 
 const qtyUnit = (qty: Milli, unit: string): string => t('stmt.qty_unit', '{qty} {unit}', { qty: fmtMilli(qty), unit });
 
+/** عدد الطيور بصيغة المعدود: «طير واحد»، «طيران»، «5 طيور»، «60 طيراً»، «4,000 طير». */
+const birdsCount = (n: number): string =>
+  fmtCounted(BigInt(n) * 1000n, t('birds.unit', 'طير'), { one: t('birds.one', 'طير واحد'), two: t('birds.two', 'طيران'), few: t('birds.few', 'طيور'), many: t('birds.many', 'طيراً') });
+
+/** نسبة التنزيل (بالمئات من الواحد بالمئة) بمرتبتين: «0.50٪». */
+const pctText = (deduction: bigint): string => t('birds.pct', '{value}٪', { value: fmtScaledCell(deduction, 2, 2) });
+
 type TypedLine = Pick<StatementLine, 'entryId' | 'kind' | 'docKind' | 'detail' | 'reverses'>;
 
 /**
@@ -67,7 +75,10 @@ function baseDocType({ kind, docKind, detail }: Pick<StatementLine, 'kind' | 'do
     case 'sale':
       return t('stmt.type.sale', 'فاتورة بيع');
     case 'sale_payment':
+    case 'bird_sale_payment':
       return t('stmt.type.sale_payment', 'قبض عند البيع');
+    case 'bird_sale':
+      return t('stmt.type.bird_sale', 'فاتورة بيع طيور');
     case 'supplier_return':
       return t('stmt.type.supplier_return', 'مرتجع إلى المورّد');
     case 'expense':
@@ -92,6 +103,10 @@ export function kindDocType(kind: EntryKind, docKind: string | null): string {
       break;
     case 'sale':
       if (kind === 'invoice') return t('stmt.type.sale', 'فاتورة بيع');
+      if (kind === 'payment') return t('stmt.type.sale_payment', 'قبض عند البيع');
+      break;
+    case 'bird_sale':
+      if (kind === 'invoice') return t('stmt.type.bird_sale', 'فاتورة بيع طيور');
       if (kind === 'payment') return t('stmt.type.sale_payment', 'قبض عند البيع');
       break;
     case 'supplier_return':
@@ -140,9 +155,22 @@ function detailMemo(detail: EntryDetail, line: Pick<StatementLine, 'kind' | 'acc
           : t('stmt.memo.sale_many', 'بيع {items} — {store}', { items: itemsCount(detail.lines.length), store });
       return detail.payment === 'cash' ? t('stmt.memo.cash', '{memo}، نقداً', { memo: head }) : head;
     }
-    case 'sale_payment': {
+    case 'sale_payment':
+    case 'bird_sale_payment': {
       const box = detail.account?.name ?? line.account?.name;
       return box ? t('stmt.memo.sale_payment', 'قُبض ثمن البيع في «{box}»', { box }) : t('stmt.type.sale_payment', 'قبض عند البيع');
+    }
+    case 'bird_sale': {
+      // الوزن في البيان هو المحسوب (بعد التنزيل إن وُجد): الوزن × السعر = مبلغ الحركة.
+      const vars = { birds: birdsCount(detail.birds), price: moneyText(detail.unitPrice), site: detail.site.name };
+      const head =
+        detail.deduction > 0n
+          ? t('stmt.memo.bird_sale_deducted', 'بيع {birds} ({kg} كغم بعد تنزيل {pct}) بسعر {price} — {site}', { ...vars, kg: fmtMilli(detail.billedKg), pct: pctText(detail.deduction) })
+          : t('stmt.memo.bird_sale', 'بيع {birds} ({kg} كغم) بسعر {price} — {site}', { ...vars, kg: fmtMilli(detail.netKg) });
+      if (detail.paidNow <= 0n) return head;
+      return detail.paidNow >= detail.total
+        ? t('stmt.memo.cash', '{memo}، نقداً', { memo: head })
+        : t('stmt.memo.bird_sale_part', '{memo}، وقُبض منه {paid}', { memo: head, paid: moneyText(detail.paidNow) });
     }
     case 'supplier_return': {
       const [only] = detail.lines;
@@ -207,7 +235,7 @@ export function allocationDoc(allocation: Pick<Allocation, 'docNo' | 'kind' | 'o
 function settledDoc(allocation: Pick<Allocation, 'docNo' | 'docKind' | 'kind' | 'onDate'>, ownDocNo: string | null): string {
   if (allocation.docNo !== null && allocation.docNo === ownDocNo) {
     if (allocation.kind === 'payout' && allocation.docKind === 'receipt') return t('stmt.alloc.paid_at_purchase', 'دُفع عند الشراء');
-    if (allocation.kind === 'payment' && allocation.docKind === 'sale') return t('stmt.alloc.received_at_sale', 'قُبض عند البيع');
+    if (allocation.kind === 'payment' && (allocation.docKind === 'sale' || allocation.docKind === 'bird_sale')) return t('stmt.alloc.received_at_sale', 'قُبض عند البيع');
   }
   return allocationDoc(allocation);
 }
@@ -256,6 +284,9 @@ export function docLink(line: Pick<StatementLine, 'voucherId' | 'detail' | 'docK
     case 'sale':
     case 'sale_payment':
       return withBack(`/sales/${detail.docId}`, back);
+    case 'bird_sale':
+    case 'bird_sale_payment':
+      return withBack(`/sales/birds/${detail.docId}`, back);
     case 'expense':
       return null;
     case undefined:
@@ -270,6 +301,7 @@ export function docKindLink(docKind: string | null, docId: string | null, back: 
   if (docKind === 'receipt') return withBack(`/inventory/receipts/${docId}`, back);
   if (docKind === 'supplier_return') return withBack(`/inventory/supplier-returns/${docId}`, back);
   if (docKind === 'sale') return withBack(`/sales/${docId}`, back);
+  if (docKind === 'bird_sale') return withBack(`/sales/birds/${docId}`, back);
   return null;
 }
 
@@ -397,6 +429,30 @@ export function docItemsOf(line: Pick<StatementLine, 'detail' | 'reverses'>): Do
         items: detail.lines.map((entry) => ({ key: `${entry.lineNo}`, name: entry.itemName, qty: entry.qty, unit: unitText(entry.baseUnit), price: entry.unitPrice, amount: entry.amount })),
         footers: [{ key: 'net', label: t('stmt.items.total', 'مجموع الفاتورة (مبلغ الحركة)'), amount: detail.total }],
         note: null,
+      };
+    case 'bird_sale':
+      return {
+        priced: true,
+        items: [
+          {
+            key: 'birds',
+            name: t('stmt.items.birds', 'دجاج لحم حيّ ({birds}، الصافي {net} كغم)', { birds: birdsCount(detail.birds), net: fmtMilli(detail.netKg) }),
+            qty: detail.billedKg,
+            unit: t('unit.kg', 'كغم'),
+            price: detail.unitPrice,
+            amount: detail.total,
+          },
+        ],
+        footers: [
+          ...(detail.deduction > 0n ? [{ key: 'deduction', label: t('stmt.items.deduction', 'الكمية هي الوزن المحسوب بعد تنزيل {pct} من الصافي', { pct: pctText(detail.deduction) }), amount: null }] : []),
+          { key: 'net', label: t('stmt.items.total', 'مجموع الفاتورة (مبلغ الحركة)'), amount: detail.total },
+        ],
+        note:
+          detail.paidNow > 0n
+            ? detail.account
+              ? t('stmt.received_now.box', 'قُبض منه عند البيع {amount} في «{box}».', { amount: moneyText(detail.paidNow), box: detail.account.name })
+              : t('stmt.received_now', 'قُبض منه عند البيع {amount}.', { amount: moneyText(detail.paidNow) })
+            : null,
       };
     case 'supplier_return':
       return {

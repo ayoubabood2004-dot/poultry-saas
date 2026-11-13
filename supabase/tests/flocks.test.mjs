@@ -414,7 +414,11 @@ async function scenario(t, db) {
   // ─── من الطابور: العملية اللي صارت غير صالحة تنركن parked ولا ترمي ──────────────────────────────────────────────
   await db.admin("update public.flocks set status = 'preparing' where id = $1", [F3]);
   t.eq(code(await save(U.worker, F3, TODAY, { dead: 1 })), 'flock_not_placed', 'فوج غير مسكَّن: flock_not_placed');
-  await db.admin("update public.flocks set status = 'closed', closed_on = '2026-10-29' where id = $1", [F3]);
+  // 0028: المغلق يُغلق بدالّة الإغلاق (ثوابت 0028: لكلّ فوج مغلق إغلاقه بيومه، وحيّه صفر)، بعد أن يعود قائماً؛ والكميات والحيّ ممّا تعرضه شاشة الإغلاق.
+  await db.admin("update public.flocks set status = 'active' where id = $1", [F3]);
+  const closeForm = (await call(U.manager, 'select public.flock_close_form($1) as v', [F3])).v;
+  t.eq(code(await call(U.manager, "select public.close_flock($1, $2, $3, $4, $5, 0, $6::jsonb, 'إغلاق للفحص', '[]'::jsonb, null) as v",
+    [ref(), ref(), F3, closeForm.default_on, closeForm.flock.live, JSON.stringify(closeForm.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty })))])), 'ok', 'الفوج يُغلق بدالّة الإغلاق');
   t.eq(code(await save(U.worker, F3, TODAY, { dead: 1 })), 'flock_closed', 'فوج مغلق بنداء مباشر: flock_closed');
   const parkRef = ref();
   const parked = await save(U.worker, F3, TODAY, { dead: 4, feed: '90' }, null, parkRef, true);
@@ -507,7 +511,7 @@ async function scenario(t, db) {
       await oq(sql);
       return Object.fromEntries((await oq('select check_name, violations::int as n from public.verify_flocks() where violations <> 0')).rows.map((r) => [r.check_name, r.n]));
     });
-  same(await probe(`update public.flock_daily set dead = 99999 where flock_id = '${F1}' and on_date = '2026-10-26'`), { live_negative: 1 }, 'ضابط: نافق أكثر من المسكّن ← live_negative');
+  same(await probe(`update public.flock_daily set dead = 99999 where flock_id = '${F1}' and on_date = '2026-10-26'`), { live_negative: 1, live_negative_day: 1 }, 'ضابط: نافق أكثر من المسكّن ← live_negative (وفي يومه live_negative_day، 0028)');
   same(await probe(`update public.flock_daily set eggs_total = 7 where flock_id = '${F1}' and on_date = '2026-10-26'`), { eggs_on_broiler: 1 }, 'ضابط: بيض بفوج لحم ← eggs_on_broiler');
   same(await probe(`update public.flock_daily set on_date = '2026-10-24' where flock_id = '${F1}' and on_date = '2026-10-25'`), { day_before_placement: 1 }, 'ضابط: يوم قبل التسكين ← day_before_placement');
   same(await probe(`update public.flock_daily set hall_id = '${B3}' where flock_id = '${F1}' and on_date = '2026-10-26'`), { day_hall_mismatch: 1 }, 'ضابط: يوم بقاعة غير قاعة فوجه ← day_hall_mismatch');

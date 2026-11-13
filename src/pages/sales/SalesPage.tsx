@@ -19,6 +19,8 @@ import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import * as birdSales from '../../lib/repo/birdSales';
+import type { AwaitingTicket, BirdGroupRow, BirdSaleRow, BirdSalesGroups, BirdSalesSection, SalesReportWithBirds, SalesWithBirds } from '../../lib/repo/birdSales';
 import * as purchases from '../../lib/repo/purchases';
 import type { SaleCost, SaleRow, SalesGroup, SalesOverview, SalesReport, SalesReportRow } from '../../lib/repo/purchases';
 import { useSession } from '../../lib/session';
@@ -27,12 +29,16 @@ import { useLoad, type LoadState } from '../../lib/useLoad';
 import { PendingBanner } from '../inventory/ItemOps';
 import { saleDoneText } from '../inventory/SaleDialog';
 import { baseQty } from '../inventory/simple-shared';
+import { birdSalePath, dinarsText, kgDecimals, kgText, newBirdSalePath, paidLabel, ticketPagePath } from './birdParts';
 import { NewSale, newSaleFlow, type SaleFlow } from './NewSale';
 
 // صفحة المبيعات (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع… واكدر اسجل مبيعاتي لمنو وتطلعلي هاي السوالف بالتقارير»):
 // «بيع جديد» (المادّة ثمّ نافذة «بِع» نفسها)، وفواتير المدّة بجدول ومجاميعها من الخادم، والتقرير حسب الجهة أو المادّة أو اليوم (الكلفة والربح لأدوار
 // الكلفة وحدها: cost.money يغيب لغيرها). و«ألغِ» لكلّ فاتورة لمن يلغي بسبب، والمقبوض نقداً يبقى رصيداً للجهة (FOUNDATION ٥٨٣).
 // في حزمة المخزون (StockRoutes) خارج التثبيت المسبق: البيع يسحب من الوجبات ويُحفظ بالخادم فوراً.
+// وفواتير الطيور BR (0028، العقد §6 و§10 الوكيل ب): مفتاح birds من النداءين نفسيهما (sales_overview وsales_report، repo/birdSales) — «تذاكر وزن بانتظار
+// الفاتورة» بـ«أصدر الفاتورة» لمن يصدرها، وجدول فواتير الطيور بمجاميع المرحَّل من الخادم، وفي التقرير مجموعات الطيور بالتجميع نفسه (بالمادّة: «دجاج لحم
+// حيّ»). بلا كلفة ولا ربح للطيور (الربح للفوج في تقرير الدورة)، وخادم قبل 0028 بلا المفتاح فلا قسم.
 
 type View = 'list' | SalesGroup;
 
@@ -156,6 +162,155 @@ function ReportTable({ data, costs }: { data: SalesReport; costs: boolean }) {
   );
 }
 
+// ─── فواتير الطيور (مفتاح birds) ─────────────────────────────────────────────────────────────────────────────────
+
+/** التذاكر المكتملة بلا فاتورة مرحّلة (أحدث 100، بلا مدّة)، و«أصدر الفاتورة» لكلّ واحدة لمن يصدرها. */
+function AwaitingTable({ rows, canRecord }: { rows: readonly AwaitingTicket[]; canRecord: boolean }) {
+  const kg = kgDecimals(rows.map((row) => row.netKg));
+  const columns: Column<AwaitingTicket>[] = [
+    { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.onDate) },
+    {
+      key: 'ticket',
+      header: t('birds.col.ticket', 'التذكرة'),
+      cell: (row) => (
+        <Link to={ticketPagePath(row.ticketId, '/sales')} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-ticket">
+          <bdi dir="ltr">{row.ticketNo}</bdi>
+        </Link>
+      ),
+    },
+    { key: 'site', header: t('birds.col.site', 'الحقل'), wrap: true, cell: (row) => row.siteName },
+    { key: 'birds', header: t('birds.col.birds', 'الطيور'), kind: 'number', cell: (row) => <Num>{fmtInt(row.birds)}</Num> },
+    { key: 'net', header: t('birds.col.net', 'الصافي (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.netKg, kg)}</Num> },
+  ];
+  if (canRecord) {
+    columns.push({
+      key: 'invoice',
+      header: t('birds.col.invoice', 'الفاتورة'),
+      cell: (row) => (
+        <Link to={newBirdSalePath(row.ticketId, '/sales')} className="font-semibold text-brand-700 hover:underline dark:text-brand-200" data-action="invoice-ticket">
+          {t('birds.submit', 'أصدر الفاتورة')}
+        </Link>
+      ),
+    });
+  }
+  return <DataTable caption={t('birds.awaiting.caption', 'تذاكر وزن بانتظار الفاتورة')} columns={columns} rows={rows} rowKey={(row) => row.ticketId} empty={t('birds.awaiting.empty', 'لا تذاكر بانتظار الفاتورة.')} />;
+}
+
+function birdStats(data: BirdSalesSection): Stat[] {
+  const stats: Stat[] = [
+    { key: 'count', label: t('birds.stat.count', 'فواتير طيور مرحَّلة'), value: fmtInt(data.totals.count) },
+    { key: 'birds', label: t('birds.stat.birds', 'الطيور المباعة'), value: fmtInt(data.totals.birds) },
+    { key: 'net', label: t('birds.stat.net', 'صافيها'), value: kgText(data.totals.netKg) },
+  ];
+  const money = data.totals.money;
+  if (money) {
+    stats.push(
+      { key: 'revenue', label: t('birds.stat.revenue', 'مجموعها'), value: dinarsText(money.revenue) },
+      { key: 'paid', label: t('birds.stat.paid', 'منه مقبوض عند البيع'), value: dinarsText(money.paidNow) },
+      { key: 'credit', label: t('birds.stat.credit', 'منه بالدين'), value: dinarsText(money.credit) },
+    );
+  }
+  return stats;
+}
+
+/** فواتير الطيور في المدّة (الملغاة بعلامتها وبلا مبلغ، والمجموع للمرحَّل من الخادم)، والرقم يفتح الفاتورة. */
+function BirdsList({ data, from, to }: { data: BirdSalesSection; from: string; to: string }) {
+  const totalMoney = data.rows.every((row) => row.money !== null) ? data.totals.money : null;
+  const shown = (row: BirdSaleRow) => (row.status === 'void' ? null : row.money);
+  const kg = kgDecimals([...data.rows.map((row) => row.netKg), data.totals.netKg]);
+  const columns: Column<BirdSaleRow>[] = [
+    { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.soldOn) },
+    {
+      key: 'no',
+      header: t('sales.col.no', 'الرقم'),
+      cell: (row) => (
+        <Link to={birdSalePath(row.id, '/sales')} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-bird-sale">
+          <bdi dir="ltr">{row.docNo}</bdi>
+        </Link>
+      ),
+    },
+    { key: 'party', header: t('sales.col.party', 'الجهة'), wrap: true, cell: (row) => row.partyName },
+    { key: 'ticket', header: t('birds.col.ticket', 'التذكرة'), cell: (row) => <bdi dir="ltr">{row.ticketNo}</bdi> },
+    { key: 'birds', header: t('birds.col.birds', 'الطيور'), kind: 'number', cell: (row) => <Num>{fmtInt(row.birds)}</Num>, total: <Num>{fmtInt(data.totals.birds)}</Num> },
+    { key: 'net', header: t('birds.col.net', 'الصافي (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.netKg, kg)}</Num>, total: <Num>{fmtQtyCell(data.totals.netKg, kg)}</Num> },
+  ];
+  if (totalMoney) {
+    columns.push(
+      { key: 'price', header: t('birds.col.price', 'سعر الكيلو'), kind: 'number', cell: (row) => { const m = shown(row); return <Num>{m ? fmtMoney(m.unitPrice) : t('file.none', '—')}</Num>; } },
+      { key: 'amount', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (row) => { const m = shown(row); return m ? money0(m.total) : <Num>{t('file.none', '—')}</Num>; }, total: money0(totalMoney.revenue) },
+    );
+  }
+  columns.push(
+    { key: 'paid', header: t('sales.col.payment', 'الدفع'), cell: (row) => paidLabel(row.paid) },
+    {
+      key: 'status',
+      header: t('sales.col.status', 'الحالة'),
+      cell: (row) =>
+        row.status === 'void' ? (
+          <span className="text-ink-muted" data-action="bird-sale-voided">
+            {t('birds.voided', 'ملغاة')}
+          </span>
+        ) : (
+          t('birds.posted', 'مرحَّلة')
+        ),
+    },
+  );
+  return (
+    <DataTable
+      caption={t('birds.list.caption', 'فواتير الطيور من {from} إلى {to}، الأحدث أوّلاً', { from: fmtDay(from), to: fmtDay(to) })}
+      columns={columns}
+      rows={data.rows}
+      rowKey={(row) => row.id}
+      empty={t('birds.list.empty', 'لا فاتورة طيور في هذه المدّة.')}
+      {...(data.rows.length ? { totalLabel: t('birds.list.total', 'مجموع المرحَّل') } : {})}
+    />
+  );
+}
+
+/** قسم الطيور في قائمة المبيعات: التذاكر بانتظار الفاتورة أوّلاً (عمل المحاسب)، ثمّ أرقام المدّة وفواتيرها. لا قسم بلا فاتورة ولا تذكرة. */
+function BirdsSection({ data, from, to }: { data: BirdSalesSection; from: string; to: string }) {
+  if (!data.rows.length && !data.awaiting.length) return null;
+  return (
+    <section className="flex flex-col gap-3" data-action="bird-sales">
+      <h2 className="text-lg font-semibold">{t('birds.section', 'بيع الطيور')}</h2>
+      {data.awaiting.length ? <AwaitingTable rows={data.awaiting} canRecord={data.canRecord} /> : null}
+      <StatStrip stats={birdStats(data)} />
+      <BirdsList data={data} from={from} to={to} />
+      {data.more ? <p className="text-sm text-ink-muted">{t('birds.more', 'تُعرض آخر 1,000 فاتورة طيور؛ والمجاميع للمدّة كلّها.')}</p> : null}
+      <p className="text-sm text-ink-muted" data-action="bird-profit-note">
+        {t('birds.profit_note', 'ربح الطيور في تقرير الفوج: إيراد كلّ فاتورة مقسوم على الأفواج بصافي قاعاتها.')}
+      </p>
+    </section>
+  );
+}
+
+/** فواتير الطيور المرحَّلة مجمَّعة بالتجميع نفسه (بالمادّة: صفّ واحد «دجاج لحم حيّ»). */
+function BirdGroupsTable({ data, group }: { data: BirdSalesGroups; group: SalesGroup }) {
+  if (!data.rows.length) return null;
+  const label = group === 'party' ? t('sales.col.party', 'الجهة') : group === 'item' ? t('sales.col.item', 'المادّة') : t('ledger.date', 'التاريخ');
+  const kg = kgDecimals([...data.rows.map((row) => row.netKg), data.totals.netKg]);
+  const columns: Column<BirdGroupRow>[] = [
+    { key: 'label', header: label, sticky: true, wrap: true, cell: (row) => row.label },
+    { key: 'count', header: t('sales.col.count', 'عدد الفواتير'), kind: 'number', cell: (row) => <Num>{fmtInt(row.count)}</Num>, total: <Num>{fmtInt(data.totals.count)}</Num> },
+    { key: 'birds', header: t('birds.col.birds', 'الطيور'), kind: 'number', cell: (row) => <Num>{fmtInt(row.birds)}</Num>, total: <Num>{fmtInt(data.totals.birds)}</Num> },
+    { key: 'net', header: t('birds.col.net', 'الصافي (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.netKg, kg)}</Num>, total: <Num>{fmtQtyCell(data.totals.netKg, kg)}</Num> },
+  ];
+  const revenue = data.totals.revenue;
+  if (revenue !== null) {
+    columns.push({ key: 'revenue', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (row) => (row.revenue !== null ? money0(row.revenue) : null), total: money0(revenue) });
+  }
+  return (
+    <DataTable
+      caption={t('birds.report.caption', 'فواتير الطيور حسب {group}', { group: label })}
+      columns={columns}
+      rows={data.rows}
+      rowKey={(row) => row.key}
+      empty=""
+      totalLabel={t('sales.report.total', 'المجموع')}
+    />
+  );
+}
+
 function overviewStats(data: SalesOverview): Stat[] {
   const stats: Stat[] = [{ key: 'count', label: t('sales.stat.count', 'فواتير محفوظة'), value: fmtInt(data.totals.count) }];
   if (data.totals.money) {
@@ -272,9 +427,9 @@ export default function SalesPage() {
   const to = parseDayText(toText);
   const periodError = !from || !to ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : from > to ? t('sales.period.order', '«إلى» قبل «من»؛ صحّح المدّة.') : null;
   const ready = !periodError && from !== null && to !== null;
-  const loadList = useCallback(() => (ready && view === 'list' ? purchases.loadSalesOverview(from, to) : Promise.resolve(null)), [ready, view, from, to]);
+  const loadList = useCallback((): Promise<SalesWithBirds | null> => (ready && view === 'list' ? birdSales.loadSales(from, to) : Promise.resolve(null)), [ready, view, from, to]);
   const list = useLoad(loadList, `${from}|${to}|${view}|${round}`);
-  const loadReport = useCallback(() => (ready && view !== 'list' ? purchases.loadSalesReport(from, to, view) : Promise.resolve(null)), [ready, view, from, to]);
+  const loadReport = useCallback((): Promise<SalesReportWithBirds | null> => (ready && view !== 'list' ? birdSales.loadSalesReport(from, to, view) : Promise.resolve(null)), [ready, view, from, to]);
   const report = useLoad(loadReport, `${from}|${to}|${view}|${round}`);
   const shownList = useKept(list);
   if (shownList && shownList.today !== serverToday) setServerToday(shownList.today);
@@ -331,6 +486,7 @@ export default function SalesPage() {
             <StatStrip stats={overviewStats(shownList)} />
             <SalesList data={shownList} onVoid={setVoiding} />
             {shownList.more ? <p className="text-sm text-ink-muted">{t('sales.more', 'تُعرض آخر 1,000 فاتورة؛ والمجاميع للمدّة كلّها.')}</p> : null}
+            {shownList.birds ? <BirdsSection data={shownList.birds} from={shownList.from} to={shownList.to} /> : null}
           </>
         ) : failure ? null : (
           <p role="status" className="text-sm text-ink-muted">
@@ -338,7 +494,10 @@ export default function SalesPage() {
           </p>
         )
       ) : shownReport && shownReport.group === view ? (
-        <ReportTable data={shownReport} costs={costs} />
+        <>
+          <ReportTable data={shownReport} costs={costs} />
+          {shownReport.birds ? <BirdGroupsTable data={shownReport.birds} group={view} /> : null}
+        </>
       ) : failure ? null : (
         <p role="status" className="text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
