@@ -555,7 +555,8 @@ function ReportBody({ report }: { report: CycleReport }) {
         note={
           feed.unweighed > 0 ? (
             <p className="text-sm text-ink-muted" data-action="rep-unweighed">
-              {t('halls.rep.unweighed', '{lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن)، فلم تُحسب في الكيلو.', { lines: linesText(feed.unweighed) })}
+              {/* الفعل قبل فاعله العدد فهو مفرد مذكّر لكلّ عدد: «لم يُحسب … سطر واحد» و«… سطران» و«… 3 سطور» (مراجعة 0027 V3-H2-BALANCE-VERB). */}
+              {t('halls.rep.unweighed', 'لم يُحسب في الكيلو {lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', { lines: linesText(feed.unweighed) })}
             </p>
           ) : undefined
         }

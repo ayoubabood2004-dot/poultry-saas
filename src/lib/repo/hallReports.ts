@@ -289,8 +289,11 @@ export function parseHallsDay(value: unknown): HallsDay {
   };
 }
 
-/** اليوم إلزاميّ (day_required)، ولا يوم بعد اليوم الحاليّ (future_day): الرفض بتلميح الخادم. */
-export async function loadHallsDay(on: Day): Promise<HallsDay> {
+/**
+ * on: يومٌ بعينه، أو null لليوم الحاليّ: يوم الخادم (app_today()، 0027)، فالشاشة التي تتبع «اليوم» لا تختاره بساعة الجهاز وجوابها جوابُ ذلك اليوم حرفاً.
+ * ولا يوم بعد اليوم الحاليّ (future_day): الرفض بتلميح الخادم.
+ */
+export async function loadHallsDay(on: Day | null): Promise<HallsDay> {
   return parseHallsDay(await call<unknown>('halls_day', { p_on: on }));
 }
 
