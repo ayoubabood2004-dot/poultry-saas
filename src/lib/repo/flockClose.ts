@@ -76,9 +76,10 @@ export const CARRY_STATUSES = ['pending', 'applied', 'returned', 'void'] as cons
 export type CarryStatus = (typeof CARRY_STATUSES)[number];
 /**
  * لماذا لا يُعاد فتح الإغلاق القائم الآن (مراجعة 0028 O6، private.reopen_block بترتيب فحوص reopen_flock): مستند إرجاع في مخزن خارج النطاق، والفترة مقفلة
- * حتى اليوم، والقاعة أو حقلها مؤرشف، وفوج بعدها في القاعة، ونقل مطبَّق، ودفعة إرجاع سُحب منها أو صُحّح سعرها.
+ * حتى اليوم، والقاعة أو حقلها مؤرشف، وفوج بعدها في القاعة، ونقل مطبَّق، ودفعة إرجاع سُحب منها أو صُحّح سعرها، وحركة إرجاع أقرّها جرد معتمد (إعادة
+ * مراجعة 0028 DN4).
  */
-export const REOPEN_WHY = ['not_closed', 'out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'carry_used', 'lot_consumed'] as const;
+export const REOPEN_WHY = ['not_closed', 'out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'carry_used', 'lot_consumed', 'count_superseded'] as const;
 export type ReopenWhy = (typeof REOPEN_WHY)[number];
 
 // ─── بطاقة الفوج (flock_sales) ───────────────────────────────────────────────────────────────────────────────────

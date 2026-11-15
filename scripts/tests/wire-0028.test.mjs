@@ -396,8 +396,8 @@ export default async function (t) {
       await mount(`/halls/close/${form.flock.id}`);
       t.same(
         [form.flock.status, form.feed.estimate_left_kg, form.feed.left_in_hall_kg, textOf('close-estimate')?.split('.')[0] ?? null],
-        ['closed', '37500.000', '35412.000', 'النازل للقاعة 40,500 كغم، والمأكول المسجّل 3,000 كغم، والباقي في القاعة 35,412 كغم'],
-        'W4 نموذج الإغلاق: «الباقي في القاعة» من left_in_hall_kg (35,412) لا من التقدير القديم (37,500)، وبعد الإغلاق بلا «فالمتوقّع» (ما خرج عنده لا يُطرح في الجملة)',
+        ['closed', '37500.000', '0.000', 'النازل للقاعة 40,500 كغم، والمأكول المسجّل 3,000 كغم، والباقي في القاعة 0 كغم'],
+        'W4 نموذج الإغلاق: «الباقي في القاعة» من left_in_hall_kg لا من التقدير القديم (37,500)، وبعد الإغلاق صفر (كلّ باقٍ أخذ مصيره، إعادة المراجعة F2b؛ كان 35,412 = المأكول غير المسجّل) وبلا «فالمتوقّع» (ما خرج عنده لا يُطرح في الجملة)',
       );
     });
 
@@ -489,6 +489,14 @@ export default async function (t) {
         [[false, 'hall_reused', 0, REUSED], [true, null, 1, 0]],
         'W7 بطاقة الفوج المغلق: بلا «أعد فتح الدورة» والخادم لا يجيزها وجملة لماذا لا (reopen_why = hall_reused) للمدير؛ وبه حين يجيزها',
       );
+    });
+    await step('W7 البطاقة: جرد بعد الإرجاع', async () => {
+      // إعادة مراجعة 0028 DN4: reopen_block يقول count_superseded (جرد معتمد أقرّ حركة FR)؛ كان المحلّل يرمي بالرمز الجديد فتسقط البطاقة.
+      const counted = { ...clone(B.flock_sales_reopen_blocked), reopen_why: 'count_superseded' };
+      fresh(MANAGER, { flock_sales: () => clone(counted) });
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(counted) }));
+      t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').startsWith('لا يُعاد فتح هذه الدورة')], [0, true],
+        'W7 بطاقة الفوج المغلق وreopen_why = count_superseded: بلا «أعد فتح الدورة» وبجملة لماذا لا (المحلّل يقبل الرمز)');
     });
     await step('W7 التقرير', async () => {
       const blocked = B.flock_cycle_report_left_in_hall;
