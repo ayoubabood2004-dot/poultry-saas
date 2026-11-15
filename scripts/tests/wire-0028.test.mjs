@@ -489,6 +489,14 @@ export default async function (t) {
         'W7 بطاقة الفوج المغلق: بلا «أعد فتح الدورة» والخادم لا يجيزها وجملة لماذا لا (reopen_why = hall_reused) للمدير؛ وبه حين يجيزها',
       );
     });
+    await step('W7 البطاقة: جرد بعد الإرجاع', async () => {
+      // إعادة مراجعة 0028 DN4: reopen_block يقول count_superseded (جرد معتمد أقرّ حركة FR)؛ كان المحلّل يرمي بالرمز الجديد فتسقط البطاقة.
+      const counted = { ...clone(B.flock_sales_reopen_blocked), reopen_why: 'count_superseded' };
+      fresh(MANAGER, { flock_sales: () => clone(counted) });
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(counted) }));
+      t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').startsWith('لا يُعاد فتح هذه الدورة')], [0, true],
+        'W7 بطاقة الفوج المغلق وreopen_why = count_superseded: بلا «أعد فتح الدورة» وبجملة لماذا لا (المحلّل يقبل الرمز)');
+    });
     await step('W7 التقرير', async () => {
       const blocked = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(blocked), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
