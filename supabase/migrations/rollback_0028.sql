@@ -2149,6 +2149,7 @@ drop function if exists private.bird_sale_refunded(uuid);
 drop function if exists private.flock_pool_plan(uuid);
 drop function if exists private.flock_alive_days(public.flocks, date);
 drop function if exists private.flock_left_in_hall(public.flocks, date);
+drop function if exists private.hall_left(public.flocks, date, numeric, numeric, numeric, numeric, int, int, int);
 drop function if exists private.reopen_block(public.flock_closes);
 
 -- ٣) سياسة نطاق سجلّ التدقيق، ثمّ الجداول بترتيب مفاتيحها (سياساتها ومحفّزاتها وفهارسها تسقط معها):

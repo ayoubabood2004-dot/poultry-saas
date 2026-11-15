@@ -42,6 +42,8 @@
 --   السعر المقترح بالنطاق (C5)؛ التلميحات (C7)؛ الثوابت close_values وreturn_store وcount_reversals (M7–M9)؛ ويوم الخادم في البطاقة والإلغاء (S1، S9)؛
 --   ولا تُعرض فاتورة يرفضها الكاتب (ticket_invoice_block: period_locked وout_of_scope وno_book، O4)؛ والتذكرة الأقدم من سبعة أيّام تُفوتر بيوم إصدارها
 --   (جواب المالك، D3: invoice_on وlate في نموذج الفاتورة، وinvoice_late في التذكرة وقائمتها، وlate في «بانتظار الفاتورة»، وticket_on وpaid_on في الفاتورة).
+-- وإعادة مراجعة الشاشات (F2b، supabase/tests/birds28-left.test.mjs): «الباقي في القاعة» يوم إغلاق الدورة وبعده صفر بلا سطور في كلّ قارئ (private.hall_left)،
+--   لا المأكول غير المسجّل في الجولات (وهو في العلف الصافي feed_net_kg)، والأيّام قبله بقيمها، والمُعاد فتحه كالقائم.
 -- تراجع: rollback_0028.sql — يرفض بصوت ولا يغيّر شيئاً إن وُجدت تذكرة أو فاتورة طيور أو عدد أو إغلاق أو إرجاع أو نقل (أو أثرها في الكلفة والمخزون
 --   والعدّادات وسجلّ التدقيق)؛ وإلّا يُسقط الجديد ويرجّع القيود الخمسة والأجسام القديمة كما كانت حرفاً بحرف (0012 و0019 و0021 و0024 و0026 و0027).
 -- تنعاد بأمان: create table if not exists، وcreate or replace، وcreate index if not exists، وكتل do تفحص الكتالوج قبل القيود والسياسات.
@@ -4115,19 +4117,35 @@ language sql stable security definer set search_path = public, pg_temp as $$
   order by u.d
 $$;
 
--- ما في القاعة فعلاً حتى يوم (مراجعة 0028 O2/M5، التعريف الواحد لكلّ قارئ: left_in_hall_kg في flock_feed وflock_close_form وتقرير الدورة والتقرير
--- اليوميّ): النازل (الصرف المرحَّل والمنقول إليها مطبَّقاً) − الراجع والمنقول منها والمحسوب مستهلَكاً عند إغلاقها القائم − المأكول في الجولات، بالكيلو من
--- سطور العلف الموزونة؛ وعدد سطورها بلا كتلة (تُعدّ ولا تختفي، 0027 N1). فالقاعة المغلقة صفر حين كان لكلّ باقٍ مصير، والفوج التالي يعدّ منقوله.
+-- ما في القاعة فعلاً في يوم من أرقامه التراكمية (مراجعة 0028 O2/M5، التعريف الواحد لكلّ قارئ: left_in_hall_kg في flock_feed وflock_close_form عبر
+-- flock_left_in_hall، وتقرير الدورة (العلف والمؤشّرات والأيّام) والتقرير اليوميّ (report_day)): النازل (الصرف المرحَّل والمنقول إليها مطبَّقاً) − الراجع
+-- والمنقول منها والمحسوب مستهلَكاً عند إغلاقها القائم − المأكول في الجولات، بالكيلو من سطور العلف الموزونة؛ وعدد سطورها بلا كتلة (تُعدّ ولا تختفي، 0027
+-- N1). ويوم إغلاق الدورة وبعده صفر بلا سطور (إعادة مراجعة 0028، F2b: كان الفرق = المأكول غير المسجّل، 35,412 كغم لدورة مغلقة): كلّ باقٍ أخذ مصيره
+-- (رجع إلى مخزن أو انتقل للدورة التالية أو حُسب مستهلَكاً)، وما أُكل ولم يُسجَّل في الجولات من استهلاك الدورة (feed_net_kg في المؤشّرات = النازل −
+-- الخارج)، والمنقول المعلَّق يظهر على القاعة الفارغة (hall_carry) لا باقياً في الفوج المغلق. والأيّام قبل يوم الإغلاق بقيمها، والفوج المُعاد فتحه قائم
+-- بلا يوم إغلاق فيعود كالقائم (وخارجه ومستهلَكه من الإغلاق القائم وحده، report_days_extra). والمغلق ⇔ إغلاق قائم بيومه (verify_flock_close.close_shape).
+create or replace function private.hall_left(f public.flocks, p_on date, p_given_kg numeric, p_out_kg numeric, p_used_kg numeric, p_eaten_kg numeric,
+  p_given_unweighed int, p_out_unweighed int, p_used_unweighed int, out kg numeric, out unweighed int)
+language sql immutable set search_path = pg_catalog, pg_temp as $$
+  select case when x.emptied then 0.000 else p_given_kg - p_out_kg - p_used_kg - p_eaten_kg end,
+    case when x.emptied then 0 else p_given_unweighed + p_out_unweighed + p_used_unweighed end
+  from (select coalesce(f.status = 'closed' and p_on >= f.closed_on, false) as emptied) as x
+$$;
+
+-- ما في القاعة فعلاً حتى يوم (لنموذج الإغلاق وعلف القاعة): private.hall_left على أرقام ذلك اليوم.
 create or replace function private.flock_left_in_hall(f public.flocks, p_through date, out kg numeric, out unweighed int)
 language sql stable security definer set search_path = public, pg_temp as $$
-  select r.given_cum_kg - e.out_cum_kg - e.used_cum_kg - r.feed_cum_kg, r.given_cum_unweighed + e.out_cum_unweighed + e.used_cum_unweighed
+  select lh.kg, lh.unweighed
   from private.report_days(f, p_through) as r
   join private.report_days_extra(f, p_through) as e on e.on_date = r.on_date
+  cross join lateral private.hall_left(f, r.on_date, r.given_cum_kg, e.out_cum_kg, e.used_cum_kg, r.feed_cum_kg, r.given_cum_unweighed, e.out_cum_unweighed,
+    e.used_cum_unweighed) as lh
   where r.on_date = p_through
 $$;
 
 -- فوج القاعة ليوم (0027 كما هو، و0028): المباع وصافيه وفرق العدّ في يومه، والطيور على تذاكر يومه بلا فاتورة (ticketed)، والعلف المنقول إليه يومه
--- والخارج منه يوم إغلاقه وعدّ سطوره بلا كتلة؛ والباقي = النازل التراكميّ − الخارج التراكميّ − المأكول التراكميّ.
+-- والخارج منه يوم إغلاقه وعدّ سطوره بلا كتلة؛ والباقي القديم (feed_left_kg) = النازل التراكميّ − الخارج التراكميّ − المأكول التراكميّ، وما في القاعة
+-- (left_in_hall_kg) من private.hall_left.
 create or replace function private.report_day(f public.flocks, p_on date, p_today date) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object(
@@ -4153,10 +4171,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
         and not exists (select 1 from public.bird_sales b where b.org_id = t.org_id and b.ticket_id = t.id and b.status = 'posted')),
     'feed_carry_in_kg', e.carry_in_kg::text, 'feed_out_kg', e.out_kg::text, 'feed_out_unweighed', e.out_unweighed,
     'feed_out_cum_unweighed', e.out_cum_unweighed,
-    -- مراجعة 0028 O2/M5: ما في القاعة فعلاً بتعريفه الواحد (النازل والمنقول إليها − الراجع والمنقول منها والمحسوب مستهلَكاً عند الإغلاق − المأكول)،
-    -- وعدّ سطوره بلا كتلة؛ وO7: يوم بدأ بلا طير حيّ لا جولة تنتظره؛ وO3: فروق العدّ في اليوم بسببها ومصدرها.
-    'left_in_hall_kg', (r.given_cum_kg - e.out_cum_kg - e.used_cum_kg - r.feed_cum_kg)::text,
-    'left_in_hall_unweighed', r.given_cum_unweighed + e.out_cum_unweighed + e.used_cum_unweighed,
+    -- مراجعة 0028 O2/M5: ما في القاعة فعلاً بتعريفه الواحد (private.hall_left: النازل والمنقول إليها − الراجع والمنقول منها والمحسوب مستهلَكاً عند
+    -- الإغلاق − المأكول، وصفر يوم الإغلاق)، وعدّ سطوره بلا كتلة؛ وO7: يوم بدأ بلا طير حيّ لا جولة تنتظره؛ وO3: فروق العدّ في اليوم بسببها ومصدرها.
+    'left_in_hall_kg', lh.kg::text,
+    'left_in_hall_unweighed', lh.unweighed,
     'expects_round', r.live_start > 0,
     'count_diffs', coalesce((select jsonb_agg(jsonb_build_object('birds', c.birds, 'reason', c.reason,
         'source', case when c.doc_kind = 'flock_close' then 'close' else 'manual' end) order by c.created_at, c.id)
@@ -4188,6 +4206,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
           and m.vaccine_id = z.vaccine_id and m.age_day = z.age_day and m.status = 'done')) as v), '[]'::jsonb))
   from private.report_days(f, p_on) as r
   join private.report_days_extra(f, p_on) as e on e.on_date = r.on_date
+  cross join lateral private.hall_left(f, r.on_date, r.given_cum_kg, e.out_cum_kg, e.used_cum_kg, r.feed_cum_kg, r.given_cum_unweighed, e.out_cum_unweighed,
+    e.used_cum_unweighed) as lh
   where r.on_date = p_on
 $$;
 
@@ -4332,9 +4352,11 @@ begin
   with r as materialized (
     select d.*, e.sold, e.sold_kg, e.sold_cum, e.sold_cum_kg, e.adjust, e.adjust_cum, e.carry_in_kg, e.carry_in_cum_kg, e.out_kg, e.out_unweighed,
       e.out_cum_kg, e.out_cum_unweighed,
-      -- مراجعة 0028 O2/M5: ما في القاعة بتعريفه الواحد (private.flock_left_in_hall).
-      d.given_cum_kg - e.out_cum_kg - e.used_cum_kg - d.feed_cum_kg as left_kg, d.given_cum_unweighed + e.out_cum_unweighed + e.used_cum_unweighed as left_unweighed
+      -- مراجعة 0028 O2/M5: ما في القاعة بتعريفه الواحد (private.hall_left: وصفر يوم الإغلاق).
+      lh.kg as left_kg, lh.unweighed as left_unweighed
     from private.report_days(f, v_through) as d join private.report_days_extra(f, v_through) as e on e.on_date = d.on_date
+    cross join lateral private.hall_left(f, d.on_date, d.given_cum_kg, e.out_cum_kg, e.used_cum_kg, d.feed_cum_kg, d.given_cum_unweighed, e.out_cum_unweighed,
+      e.used_cum_unweighed) as lh
   ), k as (
     select * from r where r.on_date = v_through
   ), w as (
@@ -5562,7 +5584,8 @@ revoke all on function private.flock_counts_total(uuid), private.flock_live(publ
   private.bird_sales_overview(date, date), private.bird_sales_groups(date, date, text),
   private.ticket_date_block(date), private.ticket_invoice_block(public.weigh_tickets), private.bird_sale_refunded(uuid), private.flock_pool_plan(uuid),
   private.ticket_invoice_on(date), private.ticket_invoice_late(public.weigh_tickets),
-  private.flock_alive_days(public.flocks, date), private.flock_left_in_hall(public.flocks, date), private.reopen_block(public.flock_closes)
+  private.flock_alive_days(public.flocks, date), private.flock_left_in_hall(public.flocks, date), private.reopen_block(public.flock_closes),
+  private.hall_left(public.flocks, date, numeric, numeric, numeric, numeric, int, int, int)
   from public, anon, authenticated;
 revoke all on function public.save_weigh_ticket(uuid, int, jsonb), public.finish_weigh_ticket(uuid, uuid, int), public.void_weigh_ticket(uuid, text, uuid),
   public.record_bird_sale(uuid, uuid, uuid, int, uuid, numeric, numeric, numeric, uuid, text), public.void_bird_sale(uuid, text, uuid),
