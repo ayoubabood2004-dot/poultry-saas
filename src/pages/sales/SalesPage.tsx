@@ -317,7 +317,7 @@ function BirdsSection({ data, from, to }: { data: BirdSalesSection; from: string
       {data.more ? <p className="text-sm text-ink-muted">{t('birds.more', 'تُعرض آخر 1,000 فاتورة طيور؛ والمجاميع للمدّة كلّها.')}</p> : null}
       <p className="text-sm text-ink-muted" data-action="bird-profit-note">
         {/* مراجعة 0028 O10 (كخلاصة المال وخلاصة الشهر): لا «ربح الطيور» قبل كلفة الفراخ. */}
-        {t('birds.profit_note', 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ.')}
+        {t('birds.profit_note', 'إيراد الطيور وكلفة الفوج في تقرير الدورة؛ الربح بعد كلفة الفراخ.')}
       </p>
     </section>
   );

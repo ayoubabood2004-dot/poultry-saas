@@ -148,11 +148,12 @@ function ReturnCarryDialog({ line, onClose, onDone }: { line: CloseLine; onClose
 /**
  * ما تفعله إعادة الفتح، من الإغلاق نفسه (مراجعة 0028 S7: كانت جملة ثابتة تذكر فرق عدّ ولو كان صفراً، ولا تذكر العلف المنقول الذي يُلغى): مستندات
  * إرجاعه تُلغى ويعود علفها إلى حساب القاعة، وفرق العدّ بقيمته إن كان، ونقل كلّ علف معلَّق للدورة التالية يُلغى فيعود إلى حساب هذه الدورة (reopen_flock:
- * carry_status = void وقيود flock_carry معكوسة)، ثمّ الفوج قائماً والفواتير مرحّلة.
+ * carry_status = void وقيود flock_carry معكوسة)، ثمّ الفوج قائماً والفواتير مرحّلة. ومستندات الإرجاع كلّ FR مرحَّل للإغلاق: إرجاعه، والعلف المنقول الذي
+ * أُرجع بعده إلى مخزن (carry_status = returned؛ مراجعة 0028 N1: كان يسمّي إرجاع الإغلاق وحده، وreopen_flock يلغيهما معاً فيخرج علف المنقول من المخزن).
  */
 function reopenText(close: CloseResult): string {
   const separator = t('list.separator', '، ');
-  const docs = close.lines.flatMap((line) => (line.action === 'return' && line.returnDocNo ? [line.returnDocNo] : []));
+  const docs = close.lines.flatMap((line) => ((line.action === 'return' || line.carryStatus === 'returned') && line.returnDocNo ? [line.returnDocNo] : []));
   const parts: string[] = [];
   if (docs.length) parts.push(t('halls.reopen.docs', 'تُلغى مستندات الإرجاع {docs} ويعود العلف من المخزن إلى حساب القاعة', { docs: docs.join(separator) }));
   if (close.countDiff !== 0) parts.push(t('halls.reopen.count', 'يُلغى فرق العدّ {n}', { n: signedCount(close.countDiff) }));

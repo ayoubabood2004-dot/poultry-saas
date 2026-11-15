@@ -592,6 +592,88 @@ export default async function (t) {
       );
     });
 
+    // ── Q: إعادة مراجعة إصلاحات الشاشات (N1 وN5، كلّ فحص يفشل على 1b443ea) ─────────────────────────────────────────────────────────────────
+    await step('Q N1 تأكيد «أعد فتح الدورة» يسمّي مستند إرجاع العلف المنقول الذي أُرجع إلى مخزن', async () => {
+      const report = clone(B.flock_cycle_report_closed);
+      const carry = report.close.lines.find((line) => line.action === 'carry');
+      carry.carry_status = 'returned';
+      carry.return_doc_no = B.return_hall_carry.doc_no;
+      const closeDoc = report.close.lines.find((line) => line.action === 'return')?.return_doc_no ?? null;
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: reopenable });
+      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      t.same(
+        [closeDoc, carry.return_doc_no, textOf('reopen-text')],
+        ['FR-2026-0004', 'FR-2026-0007', 'تُلغى مستندات الإرجاع FR-2026-0004، FR-2026-0007 ويعود العلف من المخزن إلى حساب القاعة، ويعود الفوج قائماً. والفواتير تبقى مرحّلة.'],
+        'Q N1 reopen_flock يلغي كلّ FR مرحَّل للإغلاق، فالتأكيد يسمّي إرجاع الإغلاق وإرجاع العلف المنقول الذي أُرجع بعده إلى مخزن (كان يسمّي الأوّل وحده، والثاني يخرج علفه من المخزن بلا ذكر)',
+      );
+    });
+    await step('Q جدول «المصروف والمستهلك والباقي» لدورة نُقل إليها علف: النازل كالمؤشّر', async () => {
+      const report = B.flock_cycle_report_carry_in;
+      fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales) });
+      await mount(`/halls/report/${report.flock.id}`);
+      const caption = 'المصروف والمستهلك والباقي';
+      const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
+      const headers = table ? descendants(table).filter((n) => n.localName === 'th' && descendants(table).find((h) => h.localName === 'thead')?.contains(n)).map((n) => n.textContent) : null;
+      const rows = tableRows(caption);
+      const given = kpi('given');
+      t.same(
+        [report.feed.delivered_kg, report.kpis.feed_carry_in_kg, headers, rows, given?.[1], rows?.[0]?.[2] === given?.[1]],
+        ['0', '200.000', ['من الدورة السابقة (كغم)', 'المصروف للقاعة (كغم)', 'النازل للقاعة (كغم)', 'المستهلك المسجّل (كغم)', 'الباقي في القاعة (كغم)'], [['200', '0', '200', '0', '200']], '200', true],
+        'Q دورة نُقل إليها 200 كغم من الدورة السابقة ولم يُصرف لها شيء: الجدول يعرض المنقول بجانب المصروف، والنازل للقاعة = مؤشّر «العلف النازل للقاعة» (كان «المصروف للقاعة» 0 والمؤشّر 200 في الصفحة نفسها)',
+      );
+    });
+    await step('Q N5 طلب إغلاق مستعاد بعد إعادة التحميل ثمّ رفض أكيد: ما كُتب فيه يعود إلى الخانات', async () => {
+      const form = clone(B.flock_close_form_carry_in);
+      const FID = form.flock.id;
+      const [J1, J2] = form.items.map((item) => item.item_id);
+      const STORE = form.items[0].stores[0].warehouse_id;
+      m.storePending(m.pendingKey(`${MANAGER.workspace.userId}:${MANAGER.workspace.orgId}`, `close:${FID}`), {
+        request: {
+          clientRef: '11111111-1111-4111-8111-111111111111',
+          closeId: '22222222-2222-4222-8222-222222222222',
+          flockId: FID,
+          on: form.earliest_on,
+          expectedLive: form.flock.live,
+          expectedSold: form.sales.birds,
+          expectedPools: [],
+          countReason: 'عُدّت القاعة يوم الإغلاق',
+          lines: [
+            { itemId: J1, qty: 150_000n, action: 'return', warehouseId: STORE },
+            { itemId: J2, qty: 1000n, action: 'consumed', warehouseId: null },
+          ],
+          note: 'ملاحظة كتبها المدير',
+          expectedPlan: 'بصمة قديمة',
+        },
+        hall: form.flock.hall_name,
+        names: {},
+        units: {},
+        dayTyped: true,
+      });
+      const log = fresh(MANAGER, {
+        flock_close_form: () => clone(form),
+        close_flock: (args) => (args.p_expected_plan !== form.plan ? Promise.reject(new m.RejectedError('pool_changed', 'تغيّر ما نزل للقاعة أو قيمته منذ فتحت الشاشة (صرف أو إلغاء أو إرجاع). حدّث الشاشة وراجع الباقي.')) : clone(B.close_flock)),
+      });
+      await mount(`/halls/close/${FID}`);
+      const frozen = byAction('close-frozen').length;
+      await click(byAction('close-retry')[0]);
+      await settle(30);
+      const pressed = (item) => within(withAttr('close-actions', 'data-item', item), 'close-action').find((n) => n.getAttribute('aria-pressed') === 'true')?.getAttribute('data-value') ?? null;
+      t.same(
+        [frozen, named(log, 'close_flock').length, byAction('close-frozen').length, byAction('close-reason')[0]?.value, byAction('close-note')[0]?.value, byAction('close-day-input')[0]?.value, qty(J1)?.value, pressed(J1), selected(store(J1)), qty(J2)?.value, pressed(J2)],
+        [1, 1, 0, 'عُدّت القاعة يوم الإغلاق', 'ملاحظة كتبها المدير', '11/11/2026', '150', 'return', STORE, '1', 'consumed'],
+        'Q N5 الإعادة رُفضت pool_changed: يعود النموذج وفيه ما كُتب في الطلب المستعاد — السبب والملاحظة واليوم المكتوب، ولكلّ مادّة باقيها ومصيرها ومخزنها (كان النموذج فارغاً منها)',
+      );
+      await click(byAction('close-go')[0]);
+      await click(byAction('close-confirm')[0]);
+      await settle(30);
+      const again = named(log, 'close_flock')[1] ?? null;
+      t.same(
+        [again?.p_expected_plan, again?.p_count_reason, again?.p_on, again?.p_lines, again?.p_note, again?.p_client_ref !== named(log, 'close_flock')[0]?.p_client_ref],
+        [form.plan, 'عُدّت القاعة يوم الإغلاق', form.earliest_on, [{ item_id: J1, qty: '150.000', action: 'return', warehouse_id: STORE }, { item_id: J2, qty: '1.000', action: 'consumed' }], 'ملاحظة كتبها المدير', true],
+        'Q N5 والإغلاق بعده بما عاد إلى الخانات، وبالبصمة الجديدة ومرجع جديد',
+      );
+    });
+
     // ── X: أجوبة القاعدة الحقيقية (حين توجد) ────────────────────────────────────────────────────────────────────────────
     const samplesPath = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json');
     if (existsSync(samplesPath)) {

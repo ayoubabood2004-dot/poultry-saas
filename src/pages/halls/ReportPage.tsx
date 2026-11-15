@@ -33,7 +33,7 @@ type ByItem = CycleReport['feed']['byItem'][number];
 type Medicine = CycleReport['medicines'][number];
 type Vaccine = CycleReport['vaccines'][number];
 type WeightRow = CycleDetail['weights'][number];
-type Balance = { delivered: bigint; consumed: bigint; left: bigint };
+type Balance = { carryIn: bigint | null; delivered: bigint; given: bigint | null; consumed: bigint; left: bigint };
 type CountDiff = NonNullable<CycleReport['countDiffs']>[number];
 type MoneyRow = { key: string; label: string; amount: Fils };
 /** صفّ مؤشّر: القيمة نصّ منسّق، أو null فتُعرض «—» وnote سببها. */
@@ -513,7 +513,12 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
   const lineQty = decimalsOf(feed.lines.map((line) => line.qty));
   const kgDecimals = decimalsOf([...feed.lines.map((line) => line.kg), ...feed.lines.map((line) => line.cumKg), feed.deliveredKg, ...feed.byItem.map((row) => row.kg)]);
   const itemQty = decimalsOf(feed.byItem.map((row) => row.qty));
-  const balanceDecimals = decimalsOf([feed.deliveredKg, feed.consumedKg, feed.leftInHallKg]);
+  // العلف المنقول إليها من الدورة السابقة محسوب في «العلف النازل للقاعة» (المؤشّر)، فالجدول يعرضه عموداً بجانب المصروف، ثمّ النازل كلّه من المؤشّر نفسه
+  // (مراجعة 0028: كان «المصروف للقاعة» 0 والمؤشّر 250 في صفحة واحدة).
+  const carryInKg = cycle && cycle.kpis.feedCarryInKg !== null && cycle.kpis.feedCarryInKg > 0n ? cycle.kpis.feedCarryInKg : null;
+  const givenKg = carryInKg !== null ? cycle?.kpis.feedGivenKg ?? null : null;
+  const balance: Balance = { carryIn: carryInKg, delivered: feed.deliveredKg, given: givenKg, consumed: feed.consumedKg, left: feed.leftInHallKg };
+  const balanceDecimals = decimalsOf([feed.deliveredKg, feed.consumedKg, feed.leftInHallKg, carryInKg, givenKg]);
   const medQty = decimalsOf(medicines.map((row) => row.qty));
   const kgCell = (kg: bigint | null, decimals: 0 | 1 | 2 | 3) => (kg === null ? dash() : <Num>{fmtQtyCell(kg, decimals)}</Num>);
   // المصروف − المستهلك لا يساوي الباقي في القاعة حين نُقل إليها علف أو أُغلقت الدورة (مراجعة 0028 O2/M5): جملة تقول لماذا.
@@ -577,7 +582,11 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
   ];
 
   const balanceColumns: Column<Balance>[] = [
+    ...(carryInKg !== null
+      ? [{ key: 'carry_in', header: t('halls.rep.col.carry_in', 'من الدورة السابقة (كغم)'), kind: 'number' as const, cell: (row: Balance) => kgCell(row.carryIn, balanceDecimals) }]
+      : []),
     { key: 'delivered', header: t('halls.rep.col.delivered', 'المصروف للقاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.delivered, balanceDecimals)}</Num> },
+    ...(carryInKg !== null ? [{ key: 'given', header: t('halls.rep.col.given_hall', 'النازل للقاعة (كغم)'), kind: 'number' as const, cell: (row: Balance) => kgCell(row.given, balanceDecimals) }] : []),
     { key: 'consumed', header: t('halls.rep.col.consumed', 'المستهلك المسجّل (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.consumed, balanceDecimals)}</Num> },
     { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.left, balanceDecimals)}</Num> },
   ];
@@ -682,7 +691,7 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
         <DataTable
           caption={t('halls.rep.sec.balance', 'المصروف والمستهلك والباقي')}
           columns={balanceColumns}
-          rows={[{ delivered: feed.deliveredKg, consumed: feed.consumedKg, left: feed.leftInHallKg }]}
+          rows={[balance]}
           rowKey={() => 'balance'}
           empty={dash()}
         />

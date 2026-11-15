@@ -13,7 +13,7 @@
 // W8 (M3) المقبوض الذي رُدّ للتاجر: على ورقة الفاتورة وصفحتها وفي قائمة المبيعات.
 // W9 (O4، أجوبة المالك) التذكرة الأقدم من سبعة أيّام: فاتورتها بتاريخ اليوم (sold_on) والطيور بيوم التذكرة (ticket_on) والمقبوض يوم الإصدار (paid_on)،
 //    في النموذج وتأكيده والتذكرة والقوائم والورقة و«أغلق الدورة»؛ والممنوع بطريقه؛ والمحلّلات تقرأ غياب المفاتيح سلوكَ اليوم، ولا too_old.
-// W10 (O10) جملة الطيور في المبيعات: الإيراد وكلفة الفوج في تقرير الفوج، والربح بعد كلفة الفراخ.
+// W10 (O10) جملة الطيور في المبيعات: الإيراد وكلفة الفوج في تقرير الدورة، والربح بعد كلفة الفراخ.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -272,7 +272,8 @@ export default async function (t) {
       undoClock = deviceClock('2026-11-20T09:00:00');
       const reread = gate();
       fresh(MANAGER, {
-        flock_sales: (_args, n) => (n === 1 ? clone(sales) : reread.promise.then(() => ({ ...clone(sales), live: sales.live - 10 }))),
+        // الأولى للبطاقة والثانية عند فتح النافذة (N2)، والثالثة بعد رفض live_changed تنتظر.
+        flock_sales: (_args, n) => (n <= 2 ? clone(sales) : reread.promise.then(() => ({ ...clone(sales), live: sales.live - 10 }))),
         record_flock_count_adjust: (_args, n) =>
           n === 1
             ? Promise.reject(new m.RejectedError('live_changed', `تغيّر عدد الطيور الحيّة منذ فتحت الشاشة: كان ${sales.live} وصار ${sales.live - 10}. راجع الأرقام وأعد المحاولة.`))
@@ -306,7 +307,7 @@ export default async function (t) {
           m.fmtDay(sales.today),
           true,
           true,
-          [true, 1, 2],
+          [true, 1, 3],
           [false, 0, `الحيّ الآن ${m.fmtInt(sales.live - 10)}، وبعد فرق العدّ ${m.fmtInt(sales.live - 20)}.`],
           [[sales.today, -10, sales.live], [sales.today, -10, sales.live - 10]],
         ],
@@ -774,7 +775,7 @@ export default async function (t) {
     await step('W10', async () => {
       fresh(ACCOUNTANT, { sales_overview: () => clone(B.sales_overview) });
       await mount('/sales');
-      t.eq(textOf('bird-profit-note'), 'إيراد الطيور وكلفة الفوج في تقرير الفوج؛ الربح بعد كلفة الفراخ.', 'W10 المبيعات: إيراد الطيور وكلفة الفوج في تقرير الفوج، والربح بعد كلفة الفراخ (كخلاصة المال؛ كانت «ربح الطيور في تقرير الفوج»)');
+      t.eq(textOf('bird-profit-note'), 'إيراد الطيور وكلفة الفوج في تقرير الدورة؛ الربح بعد كلفة الفراخ.', 'W10 المبيعات: إيراد الطيور وكلفة الفوج في تقرير الدورة، والربح بعد كلفة الفراخ (كخلاصة المال؛ كانت «ربح الطيور في تقرير الفوج»)');
     });
   } finally {
     if (root) {

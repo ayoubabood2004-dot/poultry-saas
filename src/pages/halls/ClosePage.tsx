@@ -7,6 +7,7 @@ import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
+import { decimalText } from '../../domain/decimal';
 import type { Milli } from '../../domain/money';
 import { parseQty, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
@@ -72,6 +73,8 @@ interface ClosePending {
   hall: string;
   names: Record<string, string>;
   units: Record<string, BaseUnit>;
+  /** كُتب يوم الإغلاق في خانته (لا المقترح من الخادم): يعود إليها بعد رفضٍ أكيد لطلب مستعاد. */
+  dayTyped?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -158,6 +161,25 @@ function CloseView({ flockId }: { flockId: string }) {
   const dirty = Object.values(items).some((item) => item.qty.trim() !== '' || item.action !== null) || reason.trim() !== '' || note.trim() !== '' || dayText !== null;
   useDirtyForm(dirty || busy || frozen !== null);
 
+  /**
+   * طلبٌ أُعيد بعد نتيجة مجهولة ثمّ رُفض أكيداً: ما كُتب فيه يعود إلى الخانات الفارغة (درس 2026-11-11؛ مراجعة 0028 N5: الطلب المستعاد بعد إعادة التحميل
+   * كان يعيد النموذج فارغاً): سبب فرق العدّ والملاحظة، ولكلّ مادّة باقيها ومصيرها ومخزنها، واليوم إن كُتب.
+   */
+  const refill = ({ request, dayTyped }: ClosePending) => {
+    setReason((current) => (current.trim() === '' ? (request.countReason ?? '') : current));
+    setNote((current) => (current.trim() === '' ? (request.note ?? '') : current));
+    setItems((current) => {
+      const next = { ...current };
+      for (const line of request.lines) {
+        if (next[line.itemId]) continue;
+        const store = line.warehouseId ?? form?.items.find((item) => item.itemId === line.itemId)?.defaultStore ?? null;
+        next[line.itemId] = { qty: decimalText(line.qty, 3).replace(/\.?0+$/u, ''), action: line.action, warehouseId: store };
+      }
+      return next;
+    });
+    if (dayTyped) setDayText((current) => current ?? fmtDay(request.on));
+  };
+
   /** نداء close_flock بطلب محفوظ: الأوّل من التأكيد، والإعادة بعد نتيجة مجهولة بالطلب نفسه حرفاً. */
   const submit = async (pending: ClosePending, retrying: boolean) => {
     if (sending.current) return;
@@ -193,6 +215,7 @@ function CloseView({ flockId }: { flockId: string }) {
       }
       setIds((current) => ({ ref: crypto.randomUUID(), closeId: problem instanceof RejectedError && problem.code === 'id_conflict' ? crypto.randomUUID() : current.closeId }));
       setFailure(problem);
+      if (retrying) refill(pending);
       if (problem instanceof RejectedError && REREAD.has(problem.code)) state.retry();
     } finally {
       sending.current = false;
@@ -313,7 +336,7 @@ function CloseView({ flockId }: { flockId: string }) {
       // بصمة ما في القاعة كما قرأها النموذج نفسه الذي بُني منه الطلب (مراجعة 0028 M4): الخادم يرفض الإغلاق بلاها.
       expectedPlan: form.plan,
     };
-    setConfirm({ request, hall: flock.hallName, names, units });
+    setConfirm({ request, hall: flock.hallName, names, units, ...(dayText !== null ? { dayTyped: true } : {}) });
   };
 
   const itemColumns: Column<CloseItem>[] = [

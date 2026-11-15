@@ -308,6 +308,8 @@ function PadDialog({ title, initial, weighing, onClose, onCommit }: { title: str
 
 // ─── المحرّر (المسوّدة) ───────────────────────────────────────────────────────────────────────────────────────────
 
+type SiteOptions = Extract<TicketOptions, { kind: 'site' }>;
+
 interface EditorProps {
   ticketId: string;
   siteId: string;
@@ -331,7 +333,10 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
   const optionsState = useLoad(loadOptions);
   const [keptOptions, setKeptOptions] = useState<TicketOptions | null>(null);
   if (optionsState.data !== null && optionsState.data !== keptOptions) setKeptOptions(optionsState.data);
-  const options = keptOptions?.kind === 'site' ? keptOptions : null;
+  // والمقروءة عند تثبيت يوم التذكرة (serverDay) حين يكون يومها بعد يوم القراءة الأولى.
+  const [dayOptions, setDayOptions] = useState<SiteOptions | null>(null);
+  const loaded = keptOptions?.kind === 'site' ? keptOptions : null;
+  const options = dayOptions !== null && (loaded === null || dayOptions.today > loaded.today) ? dayOptions : loaded;
 
   /**
    * نسخة الجهاز عند الفتح: تُستعاد ما دامت فوق نسخة الخادم نفسها؛ وفوق غيرها «تغيّرت» بالنسختين. وsaved ما في الخادم (أو النموذج الفارغ لتذكرة
@@ -347,7 +352,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
   const [savedForm, setSavedForm] = useState<TicketForm>(start.saved);
   const [base, setBase] = useState<WeighTicket | null>(initial);
   const [stale, setStale] = useState<WeighTicket | null>(start.stale);
-  /** أُرسل أوّل حفظ لهذه التذكرة الجديدة ولم تُعرف نتيجته (DeviceCopy.sent). */
+  /** أُرسل حفظ ولم تُعرف نتيجته منذ آخر حفظ مؤكَّد؛ وأوّل حفظ لتذكرة جديدة كذلك يبقى في نسخة الجهاز (DeviceCopy.sent). */
   const [sent, setSent] = useState(start.sent);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -402,36 +407,61 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
   const canFinish = base !== null && base.can.finish && !dirty && stale === null && finishBlock === null && !busy && unknown === null;
 
   /**
-   * يوم التذكرة يُثبَّت عند أوّل وزنة تُعتمد أو أوّل حفظ، بيوم الخادم من خياراتها، ويبقى معها في نسخة الجهاز: ما وُزن ليلةً ولم يُحفظ لا يُحفظ صباحاً
-   * بيوم الفتح (مراجعة 0028 S4؛ كان اليوم الفارغ يومَ الخادم ساعةَ الحفظ).
+   * يوم الخادم ساعةَ يُثبَّت يوم التذكرة (أوّل وزنة تُعتمد أو أوّل حفظ): تُقرأ خياراتها من جديد، وبلا شبكة آخر يوم عرفه الخادم. واليوم المثبَّت يبقى
+   * معها في نسخة الجهاز: ما وُزن ليلةً ولم يُحفظ لا يُحفظ صباحاً بيوم الفتح (مراجعة 0028 S4)، ولا تأخذ صفحةٌ فُتحت قبل منتصف ليل الخادم وأوّلُ وزنها
+   * بعده أمسِ من خيارات قديمة (N4).
    */
-  const withDay = (next: TicketForm): TicketForm => (next.day.trim() === '' && today !== null ? { ...next, day: fmtDay(today) } : next);
+  const serverDay = async (): Promise<Day | null> => {
+    try {
+      const fresh = await loadTicketOptions(siteId);
+      if (fresh.kind === 'site') {
+        setDayOptions(fresh);
+        return fresh.today;
+      }
+    } catch {
+      // بلا شبكة أو فشلت القراءة: آخر يوم عرفه الخادم.
+    }
+    return today;
+  };
 
-  /** رفض ticket_not_draft (أُكملت أو أُلغيت من جهاز آخر): تُقرأ فتُعرض بحالتها، وما كُتب ولم يُحفظ يبقى في الجهاز تعرضه (مراجعة 0028 S3). */
-  const showServer = async () => {
+  /**
+   * رفضٌ لا يخصّ مسوّدة (ticket_not_draft في الحفظ، أو إلغاء رُفض لتذكرة أُكملت من جهاز آخر): تُقرأ فتُعرض بحالتها، وما كُتب ولم يُحفظ يبقى في الجهاز
+   * تعرضه (مراجعة 0028 S3 وN3). true حين عُرضت بحالتها.
+   */
+  const showServer = async (): Promise<boolean> => {
     try {
       const server = await loadWeighTicket(ticketId);
-      if (server.status === 'draft') return;
+      if (server.status === 'draft') return false;
       if (scope && initial === null) keep(newKey(scope, siteId), null);
       onFinished(server);
+      return true;
     } catch {
       // القراءة فشلت: الرفض معروض بجملته.
+      return false;
     }
   };
 
   /** حفظ بشرط النسخة (الحفظ بعد كلّ وزنة تُعتمد، و«احفظ التذكرة»، و«احفظ ما كتبته فوقها» بنسخة الخادم الجديدة). */
   const save = async (raw: TicketForm, expected: number | null = base?.version ?? null) => {
-    const next = withDay(raw);
-    if (next !== raw) setForm(next);
-    const check = parseForm(next, siteId, today);
-    const draft = check.draft;
-    // رقمان لا يستقيمان (خابط لا يزيد، أو صافٍ ليس أكبر من صفر) أو يوم قادم: يرفضه الخادم، فلا يُرسل؛ وما كُتب باقٍ في الجهاز بجملة مشكلته.
-    const blocked = check.nets.stops.some((net) => net.problem === 'not_rising' || net.problem === 'not_positive') || (check.day !== null && today !== null && check.day > today);
-    if (!draft || blocked || sending.current || !allowed) return;
+    if (sending.current || !allowed) return;
     sending.current = true;
     setBusy(true);
     setFailure(null);
     try {
+      let next = raw;
+      let day = today;
+      if (raw.day.trim() === '') {
+        day = await serverDay();
+        if (day !== null) {
+          next = { ...raw, day: fmtDay(day) };
+          setForm(next);
+        }
+      }
+      const check = parseForm(next, siteId, day);
+      const draft = check.draft;
+      // رقمان لا يستقيمان (خابط لا يزيد، أو صافٍ ليس أكبر من صفر) أو يوم قادم: يرفضه الخادم، فلا يُرسل؛ وما كُتب باقٍ في الجهاز بجملة مشكلته.
+      const blocked = check.nets.stops.some((net) => net.problem === 'not_rising' || net.problem === 'not_positive') || (check.day !== null && day !== null && check.day > day);
+      if (!draft || blocked) return;
       const result = await saveWeighTicket(ticketId, expected, draft);
       if (result.status === 'stale') {
         setStale(result.server);
@@ -441,6 +471,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
       setBase(ticket);
       setSavedForm(next);
       setStale(null);
+      setSent(false);
       if (base === null) {
         if (scope) {
           keep(copyKey(scope, ticketId), null);
@@ -450,8 +481,8 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
       }
     } catch (problem) {
       setFailure(problem);
-      // أوّل حفظ لتذكرة جديدة بنتيجة مجهولة: قد تكون مسوّدتها في الخادم.
-      if (base === null && !surelyUnsaved(problem)) setSent(true);
+      // حفظ بنتيجة مجهولة: قد يكون في الخادم (أوّل حفظ: مسوّدتها هناك؛ وبعده: «تغيّرت» قد تكون بحفظ هذا الجهاز نفسه).
+      if (!surelyUnsaved(problem)) setSent(true);
       if (problem instanceof RejectedError && problem.code === 'ticket_not_draft') await showServer();
     } finally {
       sending.current = false;
@@ -465,15 +496,14 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
   };
   const changeStop = (stopId: string, patch: Partial<StopForm>) => change({ stops: form.stops.map((stop) => (stop.id === stopId ? { ...stop, ...patch } : stop)) });
 
-  /** وزنة تُعتمد من اللوحة: تُكتب ثمّ تُحفظ التذكرة (الحفظ بعد كلّ وزنة). */
+  /** وزنة تُعتمد من اللوحة: تُكتب ثمّ تُحفظ التذكرة (الحفظ بعد كلّ وزنة، ويثبّت يومها أوّل مرّة بيوم الخادم). */
   const commit = (target: PadTarget, weight: string, crates: string) => {
-    const next: TicketForm = withDay(
+    const next: TicketForm =
       target.kind === 'empty'
         ? { ...form, empty: weight }
         : target.kind === 'gross'
           ? { ...form, stops: form.stops.map((stop) => (stop.id === target.stopId ? { ...stop, gross: weight } : stop)) }
-          : { ...form, stops: form.stops.map((stop) => (stop.id === target.stopId ? { ...stop, weighings: [...stop.weighings, { id: crypto.randomUUID(), crates, gross: weight }] } : stop)) },
-    );
+          : { ...form, stops: form.stops.map((stop) => (stop.id === target.stopId ? { ...stop, weighings: [...stop.weighings, { id: crypto.randomUUID(), crates, gross: weight }] } : stop)) };
     setPad(null);
     setForm(next);
     setFailure(null);
@@ -507,6 +537,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
     setForm(server);
     setSavedForm(server);
     setStale(null);
+    setSent(false);
   };
 
   const finish = async () => {
@@ -552,6 +583,8 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
   /**
    * «احذف المسوّدة»: المحفوظة تُلغى في الخادم (بلا سبب)، والجديدة تُمحى من الجهاز؛ وتُلغى في الخادم أيضاً إن أُرسل حفظها ولم تُعرف نتيجته (sent) أو عُرف
    * أنّها هناك («تغيّرت»): ticket_not_found لم يصل منها شيء، وalready_void أُلغيت من قبل (مراجعة 0028 S2؛ كانت تُمحى من الجهاز وحده وتبقى مسوّدتها).
+   * وكلّ رفض غيرهما تُقرأ بعده التذكرة: أُكملت أو أُلغيت من جهاز آخر فتُعرض بحالتها وما في الجهاز معها (مراجعة 0028 N3: كان يُعرض رفض الإلغاء بلا سبب
+   * أو بلا صلاحية، وهو لا يخصّ المسوّدة، ويبقى المحرّر).
    */
   const remove = async () => {
     if (sending.current) return;
@@ -588,7 +621,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
       else {
         setDeleteRef(null);
         setUnknown(null);
-        setFailure(problem);
+        if (!(problem instanceof RejectedError && (await showServer()))) setFailure(problem);
       }
     } finally {
       sending.current = false;
@@ -642,7 +675,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
           }
         />
       ) : null}
-      {stale ? <StalePanel server={stale} mine={form} mineDay={parsed.day} hallName={hallName} busy={busy} onKeepMine={keepMine} onTakeServer={takeServer} /> : null}
+      {stale ? <StalePanel server={stale} mine={form} mineDay={parsed.day} lost={sent} hallName={hallName} busy={busy} onKeepMine={keepMine} onTakeServer={takeServer} /> : null}
 
       <section className="card flex flex-col gap-3 p-4" data-action="ticket-head">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1011,8 +1044,29 @@ function typedRows(form: TicketForm, hallName: (hallId: string) => string): Stop
   });
 }
 
-/** «تغيّرت» (stale): نسخة الخادم ونسختك جنباً إلى جنب بيومَيهما، ولا كتابة حتى تختار. */
-function StalePanel({ server, mine, mineDay, hallName, busy, onKeepMine, onTakeServer }: { server: WeighTicket; mine: TicketForm; mineDay: Day | null; hallName: (hallId: string) => string; busy: boolean; onKeepMine: () => void; onTakeServer: () => void }) {
+/**
+ * «تغيّرت» (stale): نسخة الخادم ونسختك جنباً إلى جنب بيومَيهما، ولا كتابة حتى تختار. وبعد حفظٍ من هذا الجهاز ضاع جوابه (lost) لا تقول «من جهاز آخر»:
+ * قد تكون النسخة الأحدث حفظَه هو (مراجعة 0028 N6).
+ */
+function StalePanel({
+  server,
+  mine,
+  mineDay,
+  lost,
+  hallName,
+  busy,
+  onKeepMine,
+  onTakeServer,
+}: {
+  server: WeighTicket;
+  mine: TicketForm;
+  mineDay: Day | null;
+  lost: boolean;
+  hallName: (hallId: string) => string;
+  busy: boolean;
+  onKeepMine: () => void;
+  onTakeServer: () => void;
+}) {
   const scale = server.method === 'scale';
   const serverRows: StopRow[] = server.stops.map((stop) => {
     const sum = weighingsSum(stop.weighings);
@@ -1021,7 +1075,14 @@ function StalePanel({ server, mine, mineDay, hallName, busy, onKeepMine, onTakeS
   const columns = stopColumns();
   return (
     <section className="card flex flex-col gap-3 p-4" data-action="ticket-stale">
-      <Notice tone="warning" title={t('halls.ticket.stale', 'حُفظت هذه التذكرة من جهاز آخر بعد أن فتحتها (النسخة {v}). قارن واختر: ما كتبته باقٍ في هذا الجهاز.', { v: server.version })} />
+      <Notice
+        tone="warning"
+        title={
+          lost
+            ? t('halls.ticket.stale_lost', 'في الخادم نسخة من هذه التذكرة أحدث ممّا عندك (النسخة {v})، وقد يكون هذا الجهاز نفسه حفظها قبل أن يضيع جوابه. قارن واختر: ما كتبته باقٍ في هذا الجهاز.', { v: server.version })
+            : t('halls.ticket.stale', 'حُفظت هذه التذكرة من جهاز آخر بعد أن فتحتها (النسخة {v}). قارن واختر: ما كتبته باقٍ في هذا الجهاز.', { v: server.version })
+        }
+      />
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <h2 className="font-semibold" data-action="ticket-stale-server">

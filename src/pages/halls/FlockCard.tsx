@@ -47,14 +47,35 @@ const asCount = (value: unknown): CountRequest | null =>
 
 /**
  * نافذة «فرق العدّ»: زيادة أو نقص بعدده، ويومه بين أقدم يوم يقبله الخادم ويوم الخادم (flock_sales، مراجعة 0028 S1: كانت من ساعة الجهاز، فجهازٌ أمام
- * الخادم يقترح يوماً يرفضه)، وسببه؛ والحيّ قبله وبعده. والنصّ والشرط (الحيّ) من البطاقة الواحدة المعروضة، و«سجّل» مقفول ما دامت تُقرأ من جديد (reading).
+ * الخادم يقترح يوماً يرفضه)، وسببه؛ والحيّ قبله وبعده. والنصّ والشرط (الحيّ) من البطاقة الواحدة المعروضة، و«سجّل» مقفول ما دامت تُقرأ من جديد (reading)
+ * أو فشلت قراءتها (readFailed، و«أعد القراءة»). والبطاقة تُقرأ من جديد عند فتح النافذة، واليوم ما لم يُكتب يتبع يوم الخادم في آخر قراءة لا يومَ فتح
+ * البطاقة (مراجعة 0028 N2: بطاقة مفتوحة من الليلة كانت تقترح أمس بعد منتصف ليل الخادم).
  */
-function CountDialog({ sales, busy, reading, failure, onClose, onSend }: { sales: FlockSales; busy: boolean; reading: boolean; failure: unknown; onClose: () => void; onSend: (birds: number, on: Day, reason: string) => void }) {
+function CountDialog({
+  sales,
+  busy,
+  reading,
+  readFailed,
+  onReread,
+  failure,
+  onClose,
+  onSend,
+}: {
+  sales: FlockSales;
+  busy: boolean;
+  reading: boolean;
+  readFailed: boolean;
+  onReread: () => void;
+  failure: unknown;
+  onClose: () => void;
+  onSend: (birds: number, on: Day, reason: string) => void;
+}) {
   const id = useId();
   const { today, earliestOn } = sales;
   const [direction, setDirection] = useState<'up' | 'down'>('down');
   const [count, setCount] = useState('');
-  const [day, setDay] = useState(fmtDay(today));
+  const [typedDay, setDay] = useState<string | null>(null);
+  const day = typedDay ?? fmtDay(today);
   const [reason, setReason] = useState('');
   const trimmed = count.trim();
   const n = /^[0-9]{1,8}$/u.test(trimmed) ? Number(trimmed) : null;
@@ -72,13 +93,13 @@ function CountDialog({ sales, busy, reading, failure, onClose, onSend }: { sales
           : null;
   const afterError = after !== null && after < 0 ? t('halls.card.count_negative', 'بهذا يصير الحيّ سالباً: النقص أكثر من الحيّ ({live}).', { live: sales.live }) : null;
   const reasonError = reason.trim().length > 500 ? t('halls.card.reason_long', 'السبب حتى 500 حرف.') : null;
-  const ready = birds !== null && !countError && !dayError && !afterError && reason.trim() !== '' && !reasonError && onDate !== null && !busy && !reading;
+  const ready = birds !== null && !countError && !dayError && !afterError && reason.trim() !== '' && !reasonError && onDate !== null && !busy && !reading && !readFailed;
   return (
     <Dialog
       open
       onClose={onClose}
       locked={busy}
-      dirty={count !== '' || reason !== ''}
+      dirty={count !== '' || reason !== '' || typedDay !== null}
       title={t('halls.card.count_title', 'سجّل «فرق العدّ»')}
       footer={
         <Button size="lg" disabled={!ready} busy={busy} onClick={() => (ready && birds !== null && onDate !== null ? onSend(birds, onDate, reason) : undefined)} data-action="count-go">
@@ -115,6 +136,16 @@ function CountDialog({ sales, busy, reading, failure, onClose, onSend }: { sales
           <p role="status" className="text-sm text-ink-muted" data-action="count-reading">
             {t('halls.card.reading', 'تُقرأ البطاقة من جديد…')}
           </p>
+        ) : readFailed ? (
+          <Notice
+            tone="danger"
+            title={t('halls.card.reread_failed', 'تعذّرت قراءة البطاقة من جديد، فلا يُسجَّل فرق العدّ حتى تُقرأ.')}
+            action={
+              <Button size="sm" variant="secondary" onClick={onReread} data-action="count-reread">
+                {t('halls.card.reread', 'أعد القراءة')}
+              </Button>
+            }
+          />
         ) : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
       </div>
@@ -260,8 +291,10 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
                 variant="secondary"
                 disabled={frozen !== null || busy || state.loading}
                 onClick={() => {
+                  // يوم الخادم وحدّاه والحيّ من قراءة بعد فتح النافذة (مراجعة 0028 N2)، و«سجّل» مقفول حتى تصل.
                   setFailure(null);
                   setCounting(true);
+                  state.retry();
                 }}
                 data-action="card-count"
               >
@@ -295,6 +328,8 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
           sales={sales}
           busy={busy}
           reading={state.loading}
+          readFailed={state.error !== null}
+          onReread={state.retry}
           failure={failure}
           onClose={() => setCounting(false)}
           onSend={(birds, on, reason) => void send({ clientRef: ids.ref, id: ids.id, flockId: flock.id, on, birds, reason, expectedLive: sales.live }, false)}

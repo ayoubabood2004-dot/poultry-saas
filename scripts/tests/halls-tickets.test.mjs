@@ -425,8 +425,8 @@ export default async function (t) {
       const sent = named(log, 'record_flock_count_adjust');
       t.same(
         [sent.length, { ...sent[0], p_client_ref: UUID.test(sent[0]?.p_client_ref ?? ''), p_id: UUID.test(sent[0]?.p_id ?? '') }, named(log, 'flock_sales').length, changed, dialog()],
-        [1, { p_client_ref: true, p_id: true, p_flock: F1, p_on: F.flock_sales_active.today, p_birds: -30, p_reason: 'عُدّت القاعة', p_expected_live: 30 }, 2, 1, null],
-        'C «فرق العدّ» نداء واحد بإشارته والحيّ المعروض شرطاً، ويومه المقترح يوم الخادم (flock_sales.today، مراجعة 0028 S1)، ثمّ تُقرأ البطاقة وصفحة الفوج',
+        [1, { p_client_ref: true, p_id: true, p_flock: F1, p_on: F.flock_sales_active.today, p_birds: -30, p_reason: 'عُدّت القاعة', p_expected_live: 30 }, 3, 1, null],
+        'C «فرق العدّ» نداء واحد بإشارته والحيّ المعروض شرطاً، ويومه المقترح يوم الخادم (flock_sales.today، مراجعة 0028 S1) من قراءة عند فتح النافذة (N2)، ثمّ تُقرأ البطاقة وصفحة الفوج',
       );
     });
     await step('C فرق العدّ بنتيجة مجهولة', async () => {
@@ -642,6 +642,163 @@ export default async function (t) {
           'الحيّ في «قاعة 6» بحسب النظام 700 طير، وعلى تذاكر أخرى بلا فاتورة 150 طيراً. لا تصدر الفاتورة بأكثر من الحيّ حتى يُصحَّح العدد أو يُسجَّل «فرق العدّ».',
         ],
         'Q S6 الطيور بصيغة المعدود في المباع والتذاكر بلا فاتورة، وتأكيد «أكمل التذكرة»، وتنبيه الحيّ (كانت «طيراً» لكلّ عدد)',
+      );
+    });
+
+    // ── Q: إعادة مراجعة إصلاحات الشاشات (N2–N4 وN6، كلّ فحص يفشل على 1b443ea)، بأجوبة القاعدة الحقيقية ─────────────────────────────────────────
+    const MANAGER = sessionOf('manager');
+    const cardOf = (sales) => current.h(current.FlockCard, { flock: { id: sales.flock_id, kind: sales.kind, siteId: 's', hallId: 'h', hallName: 'قاعة 1', siteName: 'حقل', status: sales.status } });
+    await step('Q N2 «سجّل فرق العدّ» في بطاقة قُرئت قبل منتصف ليل الخادم: النافذة تقرأها من جديد فتقترح يوم الخادم الآن وحدّيه، و«سجّل» مقفول أثناء القراءة', async () => {
+      const sample = B.flock_sales;
+      const server = { today: '2026-11-12', earliest: sample.earliest_on };
+      let release = null;
+      const log = fresh(OWNER, {
+        flock_sales: (_args, n) => {
+          const answer = { ...clone(sample), today: server.today, earliest_on: server.earliest };
+          return n === 2 ? new Promise((resolve) => (release = () => resolve(answer))) : answer;
+        },
+        record_flock_count_adjust: (args) =>
+          args.p_on > server.today ? Promise.reject(new current.RejectedError('date_in_future', 'بعد اليوم')) : { id: args.p_id, flock_id: args.p_flock, on_date: args.p_on, birds: args.p_birds, live_after: sample.live + args.p_birds },
+      });
+      await mount('/broiler/flock/x', cardOf(sample));
+      // مضى منتصف ليل الخادم والبطاقة لم تُقرأ من جديد.
+      server.today = '2026-11-13';
+      server.earliest = '2026-11-06';
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة صباحاً');
+      await settle();
+      const reading = [named(log, 'flock_sales').length, textOf('count-reading'), disabled(within(dialog(), 'count-go')[0])];
+      release?.();
+      await settle(20);
+      const read = [within(dialog(), 'count-day')[0]?.value ?? null, (dialog()?.textContent ?? '').includes('من 06/11/2026 إلى 13/11/2026.'), disabled(within(dialog(), 'count-go')[0])];
+      await click(within(dialog(), 'count-go')[0]);
+      await settle(20);
+      t.same(
+        [reading, read, named(log, 'record_flock_count_adjust').map((args) => args.p_on)],
+        [[2, 'تُقرأ البطاقة من جديد…', true], ['13/11/2026', true, false], ['2026-11-13']],
+        'Q N2 فتح النافذة يقرأ البطاقة من جديد و«سجّل» مقفول حتى تصل، ثمّ اليوم المقترح وحدّاه من القراءة الجديدة (13/11، من 06/11) فيُسجَّل فرق العدّ بيوم الخادم (كانت تقترح 12/11 من قراءة الليلة فيُسجَّل أمس)',
+      );
+    });
+    await step('Q N2 فشل القراءة عند فتح النافذة: «سجّل» مقفول بجملة و«أعد القراءة»', async () => {
+      const sample = B.flock_sales;
+      const log = fresh(OWNER, { flock_sales: (_args, n) => (n === 2 ? Promise.reject(new current.NetworkError()) : clone(sample)) });
+      await mount('/broiler/flock/x', cardOf(sample));
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة');
+      await settle(20);
+      const failed = [byAction('count-reread').length, (dialog()?.textContent ?? '').includes('تعذّرت قراءة البطاقة من جديد، فلا يُسجَّل فرق العدّ حتى تُقرأ.'), disabled(within(dialog(), 'count-go')[0])];
+      await click(byAction('count-reread')[0]);
+      await settle(20);
+      t.same(
+        [failed, named(log, 'flock_sales').length, byAction('count-reread').length, disabled(within(dialog(), 'count-go')[0])],
+        [[1, true, true], 3, 0, false],
+        'Q N2 القراءة عند فتح النافذة فشلت: لا تسجيل على البطاقة القديمة، و«أعد القراءة» تقرأ فيُتاح',
+      );
+    });
+    for (const [who, refusal] of [
+      [MANAGER, ['reason_required', 'اكتب السبب (حتى 500 حرف).']],
+      [WORKER, ['forbidden', 'لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه.']],
+    ]) {
+      await step(`Q N3 «احذف المسوّدة» بعد حفظ ضاع جوابه وأكمل جهاز آخر التذكرة (${who.workspace.role})`, async () => {
+        const server = { ticket: null };
+        const log = fresh(who, {
+          weigh_ticket_options: () => clone(BOPT),
+          save_weigh_ticket: (args) => {
+            // وصل الخادم وحُفظت المسوّدة، وضاع الجواب.
+            server.ticket = { id: args.p_ticket, status: 'draft' };
+            return Promise.reject(new current.UnknownOutcomeError('fetch_failed'));
+          },
+          // void_weigh_ticket كقاعدته: المسوّدة تُلغى بلا سبب، والمكتملة تحتاج سبباً وفعل الإلغاء.
+          void_weigh_ticket: (args) => {
+            if (!server.ticket) return Promise.reject(new current.RejectedError('ticket_not_found', 'هذه التذكرة غير موجودة في منشأتك. حدّث الشاشة.'));
+            if (server.ticket.status === 'draft') {
+              server.ticket.status = 'void';
+              return { id: args.p_ticket, ticket_no: null, status: 'void' };
+            }
+            return Promise.reject(new current.RejectedError(refusal[0], refusal[1]));
+          },
+          weigh_ticket: () => ({ ...clone(B.finish_weigh_ticket), id: server.ticket.id, site_id: BSITE, version: 2, ticket_no: 'WT-2026-0099' }),
+        });
+        await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}&back=${encodeURIComponent('/broiler')}`);
+        type(inStop(byAction('ticket-stop')[0]?.getAttribute('data-stop'), 'ticket-birds'), '800');
+        await settle();
+        await click(byAction('ticket-weigh-empty')[0]);
+        await padType('7000');
+        // المدير أكمل التذكرة من جهازه.
+        server.ticket.status = 'done';
+        await click(byAction('ticket-delete')[0]);
+        await click(byAction('ticket-delete-confirm')[0]);
+        await settle(30);
+        const id = server.ticket.id;
+        t.same(
+          [server.ticket.status, named(log, 'void_weigh_ticket').length, named(log, 'weigh_ticket').length > 0, dialog(), byAction('ticket-editor').length, byAction('ticket-done').length, textOf('ticket-paper-title'), byAction('ticket-unsaved').length, text().includes(refusal[1]), globalThis.__h8.location],
+          ['done', 1, true, null, 0, 1, 'تذكرة وزن WT-2026-0099', 1, false, `/halls/ticket/${id}?back=%2Fbroiler`],
+          `Q N3 الإلغاء رُفض (${refusal[0]}) لأنّ التذكرة اكتملت: تُقرأ فتُعرض مكتملةً برقمها ومعها ما في هذا الجهاز، والنافذة مغلقة، بلا جملة رفضٍ لا تخصّ المسوّدة (كان المحرّر باقياً وتحته «${refusal[1]}»)`,
+        );
+      });
+    }
+    await step('Q N4 صفحة فُتحت قبل منتصف ليل الخادم وأوّل وزنة بعده: اليوم يُثبَّت بيوم الخادم ساعتها', async () => {
+      const server = { today: '2026-11-12' };
+      const log = fresh(MANAGER, {
+        weigh_ticket_options: () => ({ ...clone(BOPT), today: server.today }),
+        // بلا شبكة بعد القراءة (المحرّر باقٍ تُقرأ خانة يومه)، والقادم رفضٌ كالخادم.
+        save_weigh_ticket: (args) => Promise.reject(args.p_data.on_date > server.today ? new current.RejectedError('date_in_future', 'بعد اليوم') : new current.NetworkError()),
+      });
+      await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}`);
+      type(inStop(byAction('ticket-stop')[0]?.getAttribute('data-stop'), 'ticket-birds'), '800');
+      await settle();
+      server.today = '2026-11-13';
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      t.same(
+        [named(log, 'weigh_ticket_options').length, named(log, 'save_weigh_ticket').map((args) => args.p_data.on_date), byAction('ticket-day')[0]?.value ?? null, text().includes('التاريخ بعد اليوم.')],
+        [2, ['2026-11-13'], '13/11/2026', false],
+        'Q N4 عند أوّل وزنة تُقرأ خيارات الحقل من جديد فيُثبَّت اليوم ويُحفظ بيوم الخادم ساعتها (13/11)، والخانة بلا «بعد اليوم» (كان يوم فتح الصفحة 12/11 من خيارات قديمة)',
+      );
+    });
+    await step('Q N4 بلا شبكة عند أوّل وزنة: آخر يوم عرفه الخادم', async () => {
+      const log = fresh(MANAGER, {
+        weigh_ticket_options: (_args, n) => (n === 1 ? { ...clone(BOPT), today: '2026-11-12' } : Promise.reject(new current.NetworkError())),
+        save_weigh_ticket: () => Promise.reject(new current.NetworkError()),
+      });
+      await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}`);
+      type(inStop(byAction('ticket-stop')[0]?.getAttribute('data-stop'), 'ticket-birds'), '800');
+      await settle();
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      t.same(
+        [named(log, 'weigh_ticket_options').length, byAction('ticket-day')[0]?.value ?? null, named(log, 'save_weigh_ticket').map((args) => args.p_data.on_date)],
+        [2, '12/11/2026', ['2026-11-12']],
+        'Q N4 فشلت قراءة الخيارات عند أوّل وزنة: يُثبَّت آخر يوم عرفه الخادم ويبقى في نسخة الجهاز',
+      );
+    });
+    await step('Q N6 «تغيّرت» بعد حفظ من هذا الجهاز ضاع جوابه لا تقول «من جهاز آخر»', async () => {
+      const server = { ticket: null };
+      fresh(MANAGER, {
+        weigh_ticket_options: () => clone(BOPT),
+        save_weigh_ticket: (args, n) => {
+          if (n === 1) {
+            server.ticket = { ...clone(B.save_weigh_ticket.ticket), id: args.p_ticket, on_date: args.p_data.on_date, version: 1 };
+            return Promise.reject(new current.UnknownOutcomeError('fetch_failed'));
+          }
+          // المحتوى تغيّر والنسخة المرسلة null: stale بنسخة الخادم، وهي حفظ هذا الجهاز نفسه.
+          return { status: 'stale', server: clone(server.ticket) };
+        },
+      });
+      await mount(`/halls/ticket/new?site=${BSITE}&hall=${BH1}`);
+      const stopId = byAction('ticket-stop')[0]?.getAttribute('data-stop');
+      type(inStop(stopId, 'ticket-birds'), '800');
+      await settle();
+      await click(byAction('ticket-weigh-empty')[0]);
+      await padType('7000');
+      await click(inStop(stopId, 'ticket-weigh-gross'));
+      await padType('9000');
+      t.same(
+        [within(byAction('ticket-stale')[0], 'ticket-stale-server').length, within(byAction('ticket-stale')[0], 'ticket-stale-mine').length, textOf('ticket-stale')?.startsWith('في الخادم نسخة من هذه التذكرة أحدث ممّا عندك (النسخة 1)، وقد يكون هذا الجهاز نفسه حفظها قبل أن يضيع جوابه. قارن واختر: ما كتبته باقٍ في هذا الجهاز.'), textOf('ticket-stale')?.includes('من جهاز آخر')],
+        [1, 1, true, false],
+        'Q N6 النسختان معروضتان، والجملة تقول إنّ الأحدث قد يكون حفظ هذا الجهاز الذي ضاع جوابه (كانت «حُفظت هذه التذكرة من جهاز آخر»)',
       );
     });
 
