@@ -185,6 +185,8 @@ export function reopenWhyText(why: ReopenWhy | null): string {
       return t('halls.reopen.why.carry_used', 'لا يُعاد فتح هذه الدورة: العلف المنقول منها نُقل إلى الفوج التالي في القاعة.');
     case 'lot_consumed':
       return t('halls.reopen.why.lot_consumed', 'لا يُعاد فتح هذه الدورة: العلف الذي رجع منها إلى المخزن صُرف منه أو صُحّح سعره. ألغِ ذلك المستند أوّلاً إن كان خطأً.');
+    case 'count_superseded':
+      return t('halls.reopen.why.count_superseded', 'لا يُعاد فتح هذه الدورة: جردٌ معتمد للمخزن بعد إرجاع العلف إليه أقرّ رصيده. ألغِ ذلك الجرد أوّلاً إن كان خطأً.');
     default:
       return t('halls.reopen.why.other', 'لا يُعاد فتح هذه الدورة الآن.');
   }

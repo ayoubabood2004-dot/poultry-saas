@@ -1,0 +1,95 @@
+// zz-v28 (TEMPORARY; delete before finishing): only the 0028 rollback cases of run.mjs (full case with ROLLBACK_EXTRAS[28], each BLOCKING_SEEDS[28]
+// case with its two controls, and the blocked-path probe controls), on a private embedded Postgres.
+import EmbeddedPostgres from 'embedded-postgres';
+import { execFileSync } from 'node:child_process';
+import { chownSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import net from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { makeDb } from './db.mjs';
+import { applySql, rollbackBlockedCase, rollbackCase } from './rollback.mjs';
+import { BLOCKING_SEEDS, ROLLBACK_EXTRAS, seedThroughRpcs } from './seed.mjs';
+
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const MIGRATIONS = path.join(DIR, '..', 'migrations');
+const BOOTSTRAP = readFileSync(path.join(DIR, 'bootstrap.sql'), 'utf8');
+const PER_DATABASE = BOOTSTRAP.slice(BOOTSTRAP.indexOf('-- ─── لكل قاعدة ───'));
+
+const port = await new Promise((resolve, reject) => {
+  const server = net.createServer();
+  server.unref();
+  server.on('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    const { port: p } = server.address();
+    server.close(() => resolve(p));
+  });
+});
+const dataDir = mkdtempSync(path.join(tmpdir(), 'poultry-pg-zz-'));
+if (process.getuid?.() === 0) {
+  const idOf = (flag) => Number(execFileSync('id', [flag, 'postgres'], { encoding: 'utf8' }).trim());
+  chownSync(dataDir, idOf('-u'), idOf('-g'));
+}
+const server = new EmbeddedPostgres({ databaseDir: dataDir, port, user: 'supabase_admin', password: 'harness-only', persistent: false,
+  initdbFlags: ['--encoding=UTF8', '--locale=C'], postgresFlags: ['-c', 'TimeZone=UTC'], onLog: () => {}, onError: () => {} });
+const problems = [];
+let ran = 0;
+try {
+  await server.initialise();
+  await server.start();
+  const connect = (database = 'postgres') => server.getPgClient(database, '127.0.0.1');
+  const client = connect();
+  await client.connect();
+  await client.query(BOOTSTRAP);
+  const migrations = readdirSync(MIGRATIONS).filter((n) => /^\d{4}_.+\.sql$/.test(n)).sort().map((name) => ({ name, text: readFileSync(path.join(MIGRATIONS, name), 'utf8') }));
+  const index = migrations.findIndex((m) => m.name.startsWith('0028_'));
+  const migration = migrations[index];
+  const rollbackSql = readFileSync(path.join(MIGRATIONS, 'rollback_0028.sql'), 'utf8');
+  let scratch = 0;
+  const fresh = async () => {
+    scratch += 1;
+    const name = `zz_rb_${scratch}`;
+    await client.query(`drop database if exists ${name} with (force)`);
+    await client.query(`create database ${name} owner postgres`);
+    const other = connect(name);
+    await other.connect();
+    await other.query(PER_DATABASE);
+    return {
+      client: other,
+      db: makeDb(other, () => connect(name)),
+      close: async () => {
+        await other.end().catch(() => {});
+        await client.query(`drop database if exists ${name} with (force)`);
+      },
+    };
+  };
+  const extra = ROLLBACK_EXTRAS[28] ?? {};
+  const full = await rollbackCase({ fresh, migrations: [...migrations.slice(0, index), migration], rollbackSql, seed: extra.seed ?? seedThroughRpcs,
+    afterRollback: extra.afterRollback ?? null, afterRedo: extra.afterRedo ?? null });
+  ran += 1;
+  console.log(`full case: ${full.length ? full.join(' | ') : 'ok'}`);
+  problems.push(...full);
+  for (const blocking of [].concat(BLOCKING_SEEDS[28] ?? [])) {
+    const blockedCase = (sql) => rollbackBlockedCase({ fresh, migrations: migrations.slice(0, index + 1), rollbackSql: sql, ...blocking });
+    const real = await blockedCase(rollbackSql);
+    const unguarded = rollbackSql.replace(/\ndo \$\$[\s\S]*?\n\$\$;\n/u, '\n');
+    const control = unguarded === rollbackSql ? ['no refusal block found'] : await blockedCase(unguarded);
+    const mutated = blocking.mutate ? blocking.mutate(rollbackSql) : rollbackSql;
+    const branch = mutated === rollbackSql ? ['branch anchor not found'] : await blockedCase(mutated);
+    ran += 3;
+    const controlOk = control.some((p) => p.includes('كمل'));
+    const branchOk = branch.some((p) => p.includes('كمل'));
+    console.log(`blocked «${blocking.name}»: real=${real.length ? real.join(' | ') : 'refused ok'}; unguarded control fails=${controlOk}; branch control fails=${branchOk}`);
+    problems.push(...real);
+    if (!controlOk) problems.push(`${blocking.name}: control did not fail (${control.join(' | ')})`);
+    if (!branchOk) problems.push(`${blocking.name}: branch control did not fail (${branch.join(' | ')})`);
+  }
+  await client.end();
+} catch (error) {
+  problems.push(`crashed: ${error.stack ?? error.message}`);
+} finally {
+  await server.stop().catch(() => {});
+}
+console.log(`\n${ran} cases, ${problems.length} problems`);
+for (const p of problems) console.log(`  - ${p}`);
+process.exit(problems.length ? 1 : 0);

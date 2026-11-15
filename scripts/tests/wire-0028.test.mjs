@@ -495,8 +495,8 @@ export default async function (t) {
       const counted = { ...clone(B.flock_sales_reopen_blocked), reopen_why: 'count_superseded' };
       fresh(MANAGER, { flock_sales: () => clone(counted) });
       await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(counted) }));
-      t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').startsWith('لا يُعاد فتح هذه الدورة')], [0, true],
-        'W7 بطاقة الفوج المغلق وreopen_why = count_superseded: بلا «أعد فتح الدورة» وبجملة لماذا لا (المحلّل يقبل الرمز)');
+      t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').includes('جردٌ معتمد للمخزن')], [0, true],
+        'W7 بطاقة الفوج المغلق وreopen_why = count_superseded: بلا «أعد فتح الدورة» وبجملته هو (الجرد المعتمد)، لا الجملة العامّة');
     });
     await step('W7 التقرير', async () => {
       const blocked = B.flock_cycle_report_left_in_hall;
