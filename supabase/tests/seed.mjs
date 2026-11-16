@@ -608,7 +608,8 @@ export const BLOCKING_SEEDS = {
       name: 'جدول قاعة حُذف (يبقى صفّه بنسخته)',
       code: 'rollback_blocked',
       seed: halls28Seed('dropped'),
-      data: "select (select count(*) from public.hall_vaccine_programs where dropped_at is not null)::text || '/' || (select count(*) from public.hall_vaccine_program_days)::text || '/' || (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
+      // الجدول المحذوف بلا أيّام أبداً، فعدّها لا يدخل (جزء صفر = «ما زرعت شي» في مشغّل التراجع).
+      data: "select (select count(*) from public.hall_vaccine_programs where dropped_at is not null)::text || '/' || (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace('if v_programs > 0 then', 'if false then'),
     },
   ],
