@@ -1,8 +1,8 @@
--- rollback_0029 — تراجع «بيع الطيور وإغلاق الدورة» (0029_bird_sales_close): يرجّع خمسة وعشرين جسماً قديماً كما كانت حرفاً بحرف (md5 نفسه
+-- rollback_0029 — تراجع «بيع الطيور وإغلاق الدورة» (0029_bird_sales_close): يرجّع سبعة وعشرين جسماً قديماً كما كانت حرفاً بحرف (md5 نفسه
 --   بالكتالوج): من 0012 flock_summary وopen_flock وsave_flock_day وflock_detail وverify_flocks وhalls_check، ومن 0019 flock_feed، ومن 0021
 --   stock_doc_memo وstock_doc_label وverify_stock وsales_overview وsales_report، ومن 0024 cash_class وentry_detail وmoney_sales وverify_money، ومن
 --   0026 flock_month وremove_flock_log وundo_vaccination، ومن 0027 report_days (بتوقيعه ونوع رجوعه نفسيهما، فلا إسقاط) وreport_day وhalls_day_totals
---   وhalls_day وflock_cycle_report وflock_cycles؛ ثمّ يُسقط الدوالّ الجديدة كلّها (الكتّاب والقرّاء والمساعدات وverify_bird_sales وverify_flock_close)،
+--   وhalls_day وflock_cycle_report وflock_cycles، ومن 0028_customer_edits edit_flock وdelete_flock؛ ثمّ يُسقط الدوالّ الجديدة كلّها (الكتّاب والقرّاء والمساعدات وverify_bird_sales وverify_flock_close)،
 --   وسياسة نطاق سجلّ التدقيق audit_log_birds_scope، والجداول الأحد عشر بسياساتها ومحفّزاتها وفهارسها؛ ويرجّع القيود الخمسة كما كانت:
 --   stock_moves_doc_kind_check وdoc_counters_kind_check كما في 0021، وstock_lots_source_kind_check كما في 0020، وقيدَي flock_costs كما في 0019.
 -- **طريق رفض (الكتلة الأولى أدناه):** التذاكر والفواتير والعدد والإغلاق والإرجاع والنقل بيانات المالك، وقيود التجّار وحركات الصناديق وحركات المخزون
@@ -1764,6 +1764,179 @@ begin
     perform public.void_flock_issue(m.issue_id, v_reason, private.derived_ref(p_client_ref, 1));
   end if;
   v_result := jsonb_build_object('id', m.id, 'status', 'void', 'issue_voided', m.issue_id is not null);
+  return private.ref_store(v_fn, p_client_ref, v_result);
+end
+$$;
+
+-- public.edit_flock كما في 0028_customer_edits.sql.
+create or replace function public.edit_flock(p_flock uuid, p_expected_version int, p_placed_on date, p_placed_count integer, p_age_days integer,
+  p_breed text, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'edit_flock';
+  v_cached jsonb;
+  v_org uuid := public.auth_org();
+  v_today date := public.app_today();
+  v_lock date;
+  v_breed text := nullif(btrim(p_breed), '');
+  f public.flocks;
+  v_hall text;
+  v_first date;
+  v_closed date;
+  v_losses bigint;
+  v_core boolean;
+  v_changed boolean;
+  v_result jsonb;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'version', p_expected_version, 'placed_on', p_placed_on,
+    'count', p_placed_count, 'age', p_age_days, 'breed', p_breed));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock.manage');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = v_org and x.id = p_flock for update;
+  if f.id is null then
+    raise exception 'flock_not_found' using hint = 'هذا الفوج غير موجود في منشأتك (ربّما حُذف من جهاز آخر). حدّث الشاشة.';
+  end if;
+  if not public.in_scope_site(f.site_id) then
+    raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+  if f.status = 'closed' then
+    raise exception 'flock_closed' using hint = format('فوج «%s» مغلق، فلا يُعدَّل تسكينه.', v_hall);
+  end if;
+  if f.status <> 'active' then
+    raise exception 'flock_not_placed' using hint = format('فوج «%s» لم يُسكَّن بعد، فلا يُعدَّل تسكينه.', v_hall);
+  end if;
+  if p_expected_version is null or f.version <> p_expected_version then
+    raise exception 'stale_flock' using hint = format('تغيّر فوج «%s» من جهاز آخر بعد فتح الشاشة. حدّث الشاشة ثمّ عدّله.', v_hall);
+  end if;
+  if p_placed_count is null or p_placed_count < 1 or p_placed_count > 10000000 then
+    raise exception 'bad_count' using hint = 'اكتب عدد الطيور المسكَّنة: عدد صحيح أكبر من صفر، لا يزيد على 10,000,000.';
+  end if;
+  if coalesce(p_age_days, 0) not between 0 and 1000 then
+    raise exception 'bad_age' using hint = 'عمر الطيور عند التسكين بالأيام، من 0 إلى 1,000.';
+  end if;
+  if v_breed is not null and length(v_breed) > 80 then
+    raise exception 'bad_breed' using hint = 'اسم السلالة لا يزيد على 80 حرفاً.';
+  end if;
+  if p_placed_on is null then
+    raise exception 'date_required' using hint = 'اكتب تاريخ التسكين.';
+  end if;
+  if p_placed_on > v_today then
+    raise exception 'date_in_future' using hint = format('تاريخ التسكين %s بعد تاريخ اليوم %s.', to_char(p_placed_on, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
+  end if;
+  -- التاريخ والعدد والعمر تغيّر أيّام الفوج ومؤشّراته؛ والسلالة اسم وحدها.
+  v_core := p_placed_on is distinct from f.placed_on or p_placed_count is distinct from f.placed_count or coalesce(p_age_days, 0) is distinct from f.age_days_at_placement;
+  v_changed := v_core or v_breed is distinct from f.breed;
+  if v_core then
+    select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+    if v_lock is not null and least(p_placed_on, f.placed_on) <= v_lock then
+      raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُعدَّل. إن كان التعديل صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+        to_char(v_lock, 'DD/MM/YYYY'), to_char(least(p_placed_on, f.placed_on), 'DD/MM/YYYY'));
+    end if;
+  end if;
+  select max(x.closed_on) into v_closed from public.flocks x
+  where x.org_id = f.org_id and x.hall_id = f.hall_id and x.id <> f.id and x.closed_on is not null;
+  if v_closed is not null and p_placed_on <= v_closed then
+    raise exception 'overlaps_previous' using hint = format('في «%s» دورة سابقة أُغلقت في %s، فالتسكين بعدها.', v_hall, to_char(v_closed, 'DD/MM/YYYY'));
+  end if;
+  select least(
+      (select min(x.on_date) from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id),
+      (select min(x.on_date) from public.flock_weights x where x.org_id = f.org_id and x.flock_id = f.id),
+      (select min(x.issued_on) from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id),
+      (select min(x.on_date) from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id),
+      (select min(x.on_date) from public.flock_logs x where x.org_id = f.org_id and x.flock_id = f.id),
+      (select min(x.done_on) from public.flock_vaccinations x where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'done'))
+    into v_first;
+  if v_first is not null and p_placed_on > v_first then
+    raise exception 'records_before_placement' using hint = format('للفوج سجلّ يوم %s (جولة أو صرف أو وزن أو دواء أو لقاح)، فلا يصير التسكين بعده. اختر تاريخاً في %s أو قبله.',
+      to_char(v_first, 'DD/MM/YYYY'), to_char(v_first, 'DD/MM/YYYY'));
+  end if;
+  select coalesce(sum(x.dead + x.culled), 0) into v_losses from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id;
+  if p_placed_count < v_losses then
+    raise exception 'count_below_losses' using hint = format('سُجّل في الفوج %s من النافق والمستبعد، فلا يقلّ عدد الطيور المسكَّنة عنه.',
+      to_char(v_losses, 'FM999,999,999,990'));
+  end if;
+  if v_changed then
+    update public.flocks x set placed_on = p_placed_on, opened_on = p_placed_on, placed_count = p_placed_count,
+      age_days_at_placement = coalesce(p_age_days, 0), breed = v_breed, version = x.version + 1
+    where x.org_id = f.org_id and x.id = f.id
+    returning * into f;
+  end if;
+  v_result := jsonb_build_object('flock_id', f.id, 'version', f.version, 'placed_on', f.placed_on, 'placed_count', f.placed_count,
+    'age_days_at_placement', f.age_days_at_placement, 'breed', f.breed, 'changed', v_changed);
+  return private.ref_store(v_fn, p_client_ref, v_result);
+end
+$$;
+
+-- public.delete_flock كما في 0028_customer_edits.sql.
+create or replace function public.delete_flock(p_flock uuid, p_expected_version int, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'delete_flock';
+  v_cached jsonb;
+  v_org uuid := public.auth_org();
+  v_lock date;
+  f public.flocks;
+  v_hall text;
+  v_has text[] := '{}';
+  v_result jsonb;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'version', p_expected_version));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock.manage');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = v_org and x.id = p_flock for update;
+  if f.id is null then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('flock_id', p_flock, 'deleted', false));
+  end if;
+  if not public.in_scope_site(f.site_id) then
+    raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+  if f.status = 'closed' then
+    raise exception 'flock_closed' using hint = format('فوج «%s» مغلق، فلا يُحذف.', v_hall);
+  end if;
+  if p_expected_version is null or f.version <> p_expected_version then
+    raise exception 'stale_flock' using hint = format('تغيّر فوج «%s» من جهاز آخر بعد فتح الشاشة. حدّث الشاشة ثمّ احذفه.', v_hall);
+  end if;
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  if v_lock is not null and f.placed_on <= v_lock then
+    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُحذف.', to_char(v_lock, 'DD/MM/YYYY'), to_char(f.placed_on, 'DD/MM/YYYY'));
+  end if;
+  if exists (select 1 from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_day_rejects x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'جولات يومية'::text;
+  end if;
+  if exists (select 1 from public.flock_weights x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أوزان'::text;
+  end if;
+  if exists (select 1 from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'صرف من المخزن'::text;
+  end if;
+  if exists (select 1 from public.flock_logs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أدوية'::text;
+  end if;
+  if exists (select 1 from public.flock_vaccinations x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'تأشيرات لقاح'::text;
+  end if;
+  if cardinality(v_has) > 0 then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ (%s)، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.',
+      v_hall, array_to_string(v_has, '، '));
+  end if;
+  begin
+    delete from public.flocks x where x.org_id = f.org_id and x.id = f.id;
+  exception when foreign_key_violation then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ مرتبط به، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.', v_hall);
+  end;
+  v_result := jsonb_build_object('flock_id', f.id, 'deleted', true);
   return private.ref_store(v_fn, p_client_ref, v_result);
 end
 $$;

@@ -1,7 +1,7 @@
 // بيع الطيور (0028، العقد contract-0028 §9، الجزء db-a): تذكرة القبّان وميزان الأقفاص، وفاتورة الطيور BR، وعدد الطيور (المباع وفرق العدّ)، وقرّاء المال.
 // الأرقام الذهبية بالضبط بلا سماح (G1–G4، وG4b للتقريب، وG8)، والسباقات بجلستين حقيقيتين تُنتظر فيها الجلسة المسمّاة على قفل الجلسة الأخرى بعينها
 // (pg_blocking_pids، لا أيّ انتظار؛ درس 2026-11-05)، والطفرات داخل معاملة صاحب الجداول ترجع (purchase-kit mutant): كلّ طفرة تكسر القاعدة فعلاً
-// (التطبيق البديل المعقول) ويمسكها فحصها الذهبيّ. منشأة هذا الملف وحدها: المعرّفات b2800000 والهواتف 96477028000. كلّ قسم بـsection: رمية فيه
+// (التطبيق البديل المعقول) ويمسكها فحصها الذهبيّ. منشأة هذا الملف وحدها: المعرّفات b2800000 والهواتف 96477029000. كلّ قسم بـsection: رمية فيه
 // فحص فاشل باسمه ولا توقف الملف. الحساب باليد بالتعليق جنب كلّ رقم.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const TODAY = '2026-11-12';
 const YESTERDAY = '2026-11-11';
 const id = (n) => `b2800000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const phone = (n) => `96477028000${String(n).padStart(2, '0')}`;
+const phone = (n) => `96477029000${String(n).padStart(2, '0')}`;
 
 const SALE_SIG = 'public.record_bird_sale(uuid, uuid, uuid, integer, uuid, numeric, numeric, numeric, uuid, text)';
 const VOID_SIG = 'public.void_bird_sale(uuid, text, uuid)';

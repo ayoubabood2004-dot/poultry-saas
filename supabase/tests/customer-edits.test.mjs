@@ -366,10 +366,15 @@ async function scenario(t, db) {
     const v = (await oq('select * from public.verify_flocks()')).rows.find((x) => x.check_name === 'day_before_placement');
     t.ok(r.ok && Number(v.violations) === 1, 'طفرة: بلا فحص أوّل سجلّ يصير التسكين بعد جولة فيمسكه day_before_placement');
   });
-  await mutant(db, U.manager, [[FN.edit, [['  if p_placed_count < v_losses then', '  if false then']]]], async ({ attempt, oq }) => {
+  // 0029 أضاف بعد الكتابة flock_live_check (الحيّ بالمباع وفرق العدّ لا يصير سالباً في أيّ يوم)، فالطفرة تكسر الحاجزين معاً ليصل الثابت.
+  await mutant(db, U.manager, [[FN.edit, [['  if p_placed_count < v_losses then', '  if false then'], ['    perform private.flock_live_check(f);\n', '']]]], async ({ attempt, oq }) => {
     const r = await attempt(U.manager, async (q) => (await q(EDIT, [f5, await version(f5), day(-2), 1, 0, null, uid()])).rows[0].v);
     const v = (await oq('select * from public.verify_flocks()')).rows.find((x) => x.check_name === 'live_negative');
     t.ok(r.ok && Number(v.violations) === 1, 'طفرة: بلا فحص النافق يصير الحيّ سالباً فيمسكه live_negative');
+  });
+  await mutant(db, U.manager, [[FN.edit, [['  if p_placed_count < v_losses then', '  if false then']]]], async ({ attempt }) => {
+    const r = await attempt(U.manager, async (q) => (await q(EDIT, [f5, await version(f5), day(-2), 1, 0, null, uid()])).rows[0].v);
+    t.same([r.ok, r.code], [false, 'live_negative'], 'طفرة 0029: بلا فحص النافق وحده يرفض flock_live_check التعديل بالحيّ السالب');
   });
   await mutant(db, U.manager, [[FN.edit, [['  if p_expected_version is null or f.version <> p_expected_version then', '  if false then']]]], async ({ attempt }) => {
     const r = await attempt(U.manager, async (q) => (await q(EDIT, [f5, 1, day(-2), 22500, 0, null, uid()])).rows[0].v);
