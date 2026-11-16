@@ -1,4 +1,4 @@
-import type { Day } from '../../domain/dates';
+import { isDay, type Day } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
 import type { Fils, Milli } from '../../domain/money';
@@ -195,6 +195,7 @@ export interface ProgramDay {
 export interface VaccineProgram {
   /** 0 = لا جدول بعد. */
   version: number;
+  /** نهاية الدورة بيوم العمر؛ null بلا جدول بعد (version 0)، أو بنهاية مفتوحة (0029، version 1 فما فوق). */
   endAge: number | null;
   days: readonly ProgramDay[];
 }
@@ -203,8 +204,17 @@ export interface VaccineProgram {
 export interface HallProgram {
   /** 1 فما فوق: القاعة بلا جدول خاصّ يأتي program فيها null، و0 في الحفظ يعني «أنشئه». */
   version: number;
-  endAge: number;
+  /** null: نهاية مفتوحة (0029). */
+  endAge: number | null;
   days: readonly ProgramDay[];
+}
+
+/** فوج القاعة القائم المسكَّن (0029): منه يُرسم جدولها بالأشهر الحقيقية، وفي كلّ يوم عمر الطيور. */
+export interface VaccineHallFlock {
+  id: string;
+  placedOn: Day;
+  /** العمر يوم التسكين. */
+  age0: number;
 }
 
 /** قاعة حيّة في نطاق القارئ، بجدولها الخاصّ أو null (تتبع الجدول العامّ لنوعها). */
@@ -214,6 +224,8 @@ export interface VaccineHall {
   siteName: string;
   kind: FlockKind;
   program: HallProgram | null;
+  /** null: بلا فوج قائم مسكَّن، أو خادم قبل 0029. */
+  flock: VaccineHallFlock | null;
 }
 
 export interface VaccineBoard {
@@ -245,14 +257,28 @@ const hallProgram = (row: Row): HallProgram | null => {
   if (!box) return null;
   const version = int(box, 'version');
   if (version < 1) throw new HallsShapeError('version');
-  return { version, endAge: int(box, 'end_age'), days: programDays(box.days) };
+  // نهاية مفتوحة null (0029)، والمفتاح حاضر دائماً.
+  if (box.end_age === undefined) throw new HallsShapeError('end_age');
+  return { version, endAge: optInt(box, 'end_age'), days: programDays(box.days) };
+};
+
+/** مفتاح 0029: خادم قبله لا يرسله فـnull، وnull قاعة بلا فوج قائم؛ وما يُرسل يُقرأ بشكله كلّه أو يُرفض. */
+const boardFlock = (row: Row): VaccineHallFlock | null => {
+  if (row.flock === undefined) return null;
+  const box = optRecord(row.flock, 'flock');
+  if (!box) return null;
+  const age0 = int(box, 'age0');
+  if (age0 < 0) throw new HallsShapeError('age0');
+  const placedOn = str(box, 'placed_on');
+  if (!isDay(placedOn)) throw new HallsShapeError('placed_on');
+  return { id: str(box, 'id'), placedOn, age0 };
 };
 
 /** مفتاح 0028: خادم قبله لا يرسله فـnull (مثل مفاتيح 0027 في تقرير الدورة)، وما يُرسل يُقرأ بشكله كلّه أو يُرفض. */
 const vaccineHalls = (value: unknown): VaccineHall[] | null =>
   value === undefined
     ? null
-    : list(value, 'halls').map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), siteName: str(row, 'site_name'), kind: oneOf(row, 'kind', KINDS), program: hallProgram(row) }));
+    : list(value, 'halls').map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), siteName: str(row, 'site_name'), kind: oneOf(row, 'kind', KINDS), program: hallProgram(row), flock: boardFlock(row) }));
 
 export function parseVaccineBoard(value: unknown): VaccineBoard {
   const json = record(value, 'vaccine_board');
@@ -299,8 +325,8 @@ export async function deleteVaccine(id: string, expectedVersion: number): Promis
   return { id: str(json, 'id'), result: oneOf(json, 'result', ['deleted', 'archived'] as const) };
 }
 
-/** الجدول كلّه بنهايته وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول). */
-export async function saveVaccineProgram(kind: FlockKind, endAge: number, days: readonly ProgramDay[], expectedVersion: number): Promise<{ kind: FlockKind; version: number; endAge: number; days: number }> {
+/** الجدول كلّه بنهايته (null: مفتوحة، 0029) وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول). */
+export async function saveVaccineProgram(kind: FlockKind, endAge: number | null, days: readonly ProgramDay[], expectedVersion: number): Promise<{ kind: FlockKind; version: number; endAge: number | null; days: number }> {
   const json = record(
     await call<unknown>('save_vaccine_program', {
       p_kind: kind,
@@ -310,16 +336,16 @@ export async function saveVaccineProgram(kind: FlockKind, endAge: number, days: 
     }),
     'save_vaccine_program',
   );
-  return { kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: int(json, 'end_age'), days: int(json, 'days') };
+  return { kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: optInt(json, 'end_age'), days: int(json, 'days') };
 }
 
 /** جدول القاعة الخاصّ كلّه بنهايته وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول لها: يُنشأ). */
 export async function saveHallVaccineProgram(
   hallId: string,
-  endAge: number,
+  endAge: number | null,
   days: readonly ProgramDay[],
   expectedVersion: number,
-): Promise<{ hallId: string; kind: FlockKind; version: number; endAge: number; days: number }> {
+): Promise<{ hallId: string; kind: FlockKind; version: number; endAge: number | null; days: number }> {
   const json = record(
     await call<unknown>('save_hall_vaccine_program', {
       p_hall: hallId,
@@ -329,7 +355,7 @@ export async function saveHallVaccineProgram(
     }),
     'save_hall_vaccine_program',
   );
-  return { hallId: str(json, 'hall_id'), kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: int(json, 'end_age'), days: int(json, 'days') };
+  return { hallId: str(json, 'hall_id'), kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: optInt(json, 'end_age'), days: int(json, 'days') };
 }
 
 /** تعود القاعة إلى الجدول العامّ بشرط نسخة جدولها: dropped false حين لم يكن لها جدول خاصّ. */

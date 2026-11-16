@@ -85,13 +85,6 @@ const type = (input, value) => {
   input.value = value;
   fire(input, 'input');
 };
-const choose = async (select, value) => {
-  if (!select) throw new Error('no select');
-  select.value = value;
-  fire(select, 'change');
-  await settle();
-  await settle();
-};
 const click = async (node) => {
   if (!node) throw new Error('no node');
   fire(node, 'click');
@@ -124,9 +117,16 @@ function exclusiveOptions() {
     else delete OptionElement.prototype.selected;
   };
 }
-const scopeSelect = () => byAction('program-scope')[0];
-const scopeOptions = () => scopeSelect()?.options.map((option) => [option.value, option.textContent]) ?? null;
-const scopeValue = () => scopeSelect()?.options.find((option) => option.selected)?.value ?? null;
+// «لمن هذا الجدول؟» بطاقات (0029، كلمة الزبون 2026-11-16: «خلي اختيار القاعات يصير اسهل واحلى»): الخيارات اسم كلّ بطاقة (aria-label كما كان نصّ
+// الخيار) بمعرّفها، والمختار البطاقة المضغوطة، والاختيار ضغطها.
+const scopeCards = () => byAction('scope-card');
+const scopeOptions = () => (scopeCards().length ? scopeCards().map((n) => [n.getAttribute('data-id'), n.getAttribute('aria-label')]) : null);
+const scopeValue = () => scopeCards().find((n) => n.getAttribute('aria-pressed') === 'true')?.getAttribute('data-id') ?? null;
+const pickScope = async (value) => {
+  fire(scopeCards().find((n) => n.getAttribute('data-id') === value) ?? null, 'click');
+  await settle();
+  await settle();
+};
 const dialogTitle = (start) => all().find((n) => n.localName === 'h2' && n.textContent.startsWith(start))?.textContent ?? null;
 const tableOf = (caption) => all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
 const tableRows = (caption) => {
@@ -152,7 +152,7 @@ const ws = (role) => ({
 });
 const MANAGER = { status: 'ready', workspace: ws('manager') };
 
-const hallRow = (id, name, program = null, { site = 'حقل الأمير', kind = 'broiler' } = {}) => ({ id, name, site_name: site, kind, program });
+const hallRow = (id, name, program = null, { site = 'حقل الأمير', kind = 'broiler', flock = null } = {}) => ({ id, name, site_name: site, kind, program, flock });
 const prog = (version, end, days) => ({ version, end_age: end, days: days.map(([vaccine, age]) => ({ vaccine_id: vaccine, age_day: age })) });
 /** جدول «قاعة 5» الخاصّ: IB يوم 5 و18، وND يوم 10، ونهاية الدورة 35. */
 const H5_DAYS = [[IB, 5], [ND, 10], [IB, 18]];
@@ -283,9 +283,9 @@ export default async function (t) {
     await step('S3 القاعة في الرابط', async () => {
       fresh(MANAGER, { rpcs: { vaccine_board: () => boardWith() } });
       await mount('/halls/vaccines?kind=broiler');
-      await choose(scopeSelect(), H1);
+      await pickScope(H1);
       t.same([globalThis.__hv.location, scopeValue(), textOf('program-title'), byAction('program-card')[0]?.getAttribute('data-hall')], [hallUrl(H1), H1, 'جدول لقاحات «قاعة 1»', H1], 'S3 اختيار قاعة: ?kind=broiler&hall= وعنوان الجدول باسمها');
-      await choose(scopeSelect(), '');
+      await pickScope('');
       t.same([globalThis.__hv.location, scopeValue(), textOf('program-title')], ['/halls/vaccines?kind=broiler', '', 'جدول لقاحات اللاحم'], 'S3 «كلّ القاعات»: بلا hall في الرابط، والجدول العامّ');
       await unmount();
       fresh(MANAGER, { rpcs: { vaccine_board: () => boardWith() } });
@@ -301,13 +301,13 @@ export default async function (t) {
       // الرابط بلا ?kind=: الاختيار يكتب النوع مع القاعة، و«كلّ القاعات» من قاعة بيّاض يبقى على البيّاض (لا أوّل الأنواع).
       fresh(MANAGER, { rpcs: { vaccine_board: () => boardWith() } });
       await mount('/halls/vaccines');
-      await choose(scopeSelect(), H1);
+      await pickScope(H1);
       const plain = globalThis.__hv.location;
       await unmount();
       fresh(MANAGER, { rpcs: { vaccine_board: () => boardWith() } });
       await mount(`/halls/vaccines?hall=${HL}`);
       const layerHall = textOf('program-title');
-      await choose(scopeSelect(), '');
+      await pickScope('');
       t.same(
         [plain, layerHall, globalThis.__hv.location, textOf('program-title')],
         [hallUrl(H1), 'جدول لقاحات «قاعة البيّاض»', '/halls/vaccines?kind=layer', 'جدول لقاحات البيّاض'],
@@ -537,8 +537,8 @@ export default async function (t) {
         [1, true, ['ND'], [], 9, 0],
         'E5 الرفض يقرأ اللوحة: لا جدول خاصّ لـ«قاعة 5» الآن، فتعديلك ظاهر بالفروق مع العامّ الذي تتبعه (تسعة أيّام)، والحفظ مقفول',
       );
-      await choose(scopeSelect(), '');
-      await choose(scopeSelect(), H5);
+      await pickScope('');
+      await pickScope(H5);
       t.same(
         [textOf('program-conflict')?.startsWith('حُذف جدول «قاعة 5» الخاصّ من جهاز آخر بعد أن بدأت التعديل، فهي تتبع الجدول العامّ الآن.'), bandsOf(20)],
         [true, ['ND']],
@@ -705,10 +705,10 @@ export default async function (t) {
       await mount('/halls/vaccines?kind=broiler');
       await click(withId('vac-pick', GUM));
       await click(ageCell(30));
-      await choose(scopeSelect(), H5);
+      await pickScope(H5);
       t.same([bandsOf(30), bandsOf(5), byAction('program-dirty').length, m.isWindowDirty()], [[], ['IB'], 0, true], 'G1 تعديل العامّ لا يظهر في جدول «قاعة 5»، والنافذة ما زالت «فيها ما لم يُحفظ»');
       await click(ageCell(33));
-      await choose(scopeSelect(), '');
+      await pickScope('');
       t.same([bandsOf(30), bandsOf(33), textOf('program-dirty')], [['غمبورو'], [], 'في الجدول تعديل لم يُحفظ.'], 'G1 والعودة إلى العامّ: تعديله باقٍ، وتعديل القاعة ليس فيه');
       await click(byAction('save-program')[0]);
       await settle();
@@ -719,7 +719,7 @@ export default async function (t) {
       );
       await settle();
       t.same([lastToast(), byAction('program-dirty').length, m.isWindowDirty()], ['حُفظ جدول لقاحات اللاحم: 6 مواعيد، ونهاية الدورة 42 يوماً.', 0, true], 'G1 «حُفظ» العامّ، والنافذة ما زالت «فيها ما لم يُحفظ» بتعديل «قاعة 5»');
-      await choose(scopeSelect(), H5);
+      await pickScope(H5);
       t.same([bandsOf(33), textOf('program-dirty'), m.isWindowDirty()], [['غمبورو'], 'في الجدول تعديل لم يُحفظ.', true], 'G1 وتعديل «قاعة 5» باقٍ لها بعد حفظ العامّ');
     });
 
@@ -737,7 +737,7 @@ export default async function (t) {
       await click(withId('vac-pick', IB));
       await click(ageCell(10));
       await click(byAction('save-program')[0]);
-      await choose(scopeSelect(), H5);
+      await pickScope(H5);
       t.same(
         [textOf('program-card')?.includes('لا نعرف إن حُفظ جدول اللاحم العامّ: أعد المحاولة؛ لن يُحفظ مرّتين.'), byAction('retry-program').length, disabled(ageCell(5)), byAction('hall-program-drop').length],
         [true, 1, true, 0],
@@ -775,8 +775,96 @@ export default async function (t) {
         [H5, 'div', ['IB'], 0, 0, 0],
         'G4 can_edit = false: جدول «قاعة 5» الخاصّ للعرض بلا حذف ولا حفظ',
       );
-      await choose(scopeSelect(), H1);
+      await pickScope(H1);
       t.same([textOf('hall-follows')?.startsWith('«قاعة 1» تتبع الجدول العامّ.'), byAction('hall-program-start').length], [true, 0], 'G4 والقاعة التي تتبع العامّ بلا «اعمل لها جدولاً خاصّاً»');
+    });
+
+    // ── O: الدورة المفتوحة والبطاقات والتقويم بالأشهر (0029، كلمة الزبون 2026-11-16) ─────────────────────────────────
+    /** «قاعة 1» بفوج سُكّن 28/10 بعمر يوم الفقس (عمره اليوم 11/11 أربعة عشر يوماً)، و«قاعة 5» بجدولها الخاصّ وفوج سُكّن 01/11 بعمر 3. */
+    const withFlocks = (over = {}) => {
+      const board = boardWith(over);
+      for (const row of board.halls) {
+        if (row.id === H1) row.flock = { id: 'f-1', placed_on: '2026-10-28', age0: 0 };
+        if (row.id === H5) row.flock = { id: 'f-5', placed_on: '2026-11-01', age0: 3 };
+      }
+      return board;
+    };
+    const cardOf = (id) => scopeCards().find((n) => n.getAttribute('data-id') === id);
+    const cardText = (id, action) => descendants(cardOf(id)).find((n) => n.getAttribute('data-action') === action)?.textContent ?? null;
+    const monthBlank = () => byAction('month-blank').length;
+    await step('O1 «لمن هذا الجدول؟» بطاقات', async () => {
+      fresh(MANAGER, { rpcs: { vaccine_board: () => withFlocks() } });
+      await mount('/halls/vaccines?kind=broiler');
+      t.same(
+        [scopeCards().map((n) => n.getAttribute('data-id')), scopeValue(), cardText(H1, 'scope-card-flock'), cardText(H5, 'scope-card-program'), cardText(H10, 'scope-card-flock'), cardText(H10, 'scope-card-program')],
+        [['', H1, H5, H10, H44], '', 'فوج عمره 14 يوماً', 'جدول خاصّ', 'بلا فوج الآن', 'تتبع الجدول العامّ'],
+        'O1 البطاقات: العامّ أوّلاً ثمّ القاعات بأرقامها، وفي كلّ بطاقة جدولها وعمر فوجها اليوم (كلمة الزبون: «خلي اختيار القاعات يصير اسهل واحلى»)',
+      );
+      await pickScope(H1);
+      t.same([globalThis.__hv.location, scopeValue(), cardOf(H1)?.getAttribute('aria-pressed')], [hallUrl(H1), H1, 'true'], 'O1 ضغط بطاقة يختار القاعة');
+    });
+    await step('O2 التقويم بالأشهر الحقيقية من يوم التسكين', async () => {
+      fresh(MANAGER, { rpcs: { vaccine_board: () => withFlocks() } });
+      await mount(hallUrl(H1));
+      const cellAge = (age) => descendants(ageCell(age)).find((n) => n.getAttribute('data-action') === 'cell-age')?.textContent ?? null;
+      t.same(
+        [byAction('month-page').map((n) => n.textContent), textOf('month-title'), ageCell(7)?.getAttribute('data-day'), cellAge(7), bandsOf(7), ageCell(4)?.getAttribute('data-day'), textOf('calendar-from')],
+        [['تشرين الأول 2026', 'تشرين الثاني 2026', 'كانون الأول 2026'], 'تشرين الثاني 2026', '2026-11-04', 'عمر 7', ['IB', 'ND'], '2026-11-01', 'بالتاريخ من تسكين الفوج في 28/10/2026، وفي كلّ يوم عمر الطيور فيه.'],
+        'O2 «قاعة 1» (الجدول العامّ، النهاية 42): أشهر الدورة الثلاثة، والمعروض شهر اليوم، و4/11 عمره 7 وفيه IB وND (كلمة الزبون: «رزنامة اشهر حقيقية… وبداخلها ترقيمات الايام حسب العمر»)',
+      );
+      await click(byAction('month-page')[0]);
+      t.same([textOf('month-title'), byAction('age-day').length, monthBlank(), ageCell(1)?.getAttribute('data-day')], ['تشرين الأول 2026', 3, 28, '2026-10-29'],
+        'O2 تشرين الأول: 29 و30 و31 بأعمار 1 إلى 3، وما قبلها (ويوم التسكين بعمر صفر) باهت');
+      await click(byAction('month-page')[2]);
+      t.same([byAction('age-day').length, ageCell(42)?.getAttribute('data-day'), ageCell(43)], [9, '2026-12-09', undefined], 'O2 كانون الأول: حتى 9/12 بعمر 42 (نهاية الدورة)، وما بعدها باهت');
+    });
+    await step('O3 تعديل جدول القاعة الخاصّ من التقويم', async () => {
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: () => withFlocks(),
+          save_hall_vaccine_program: (args) => ({ hall_id: args.p_hall, kind: 'broiler', version: 3, end_age: args.p_end_age, days: args.p_days.length }),
+        },
+      });
+      await mount(hallUrl(H5));
+      t.same([ageCell(3)?.getAttribute('data-day'), ageCell(2), ageCell(5)?.getAttribute('data-day'), bandsOf(5)], ['2026-11-01', undefined, '2026-11-03', ['IB']],
+        'O3 «قاعة 5» سُكّنت بعمر 3: يومها الأوّل في التقويم 1/11 بعمر 3، وما قبله ليس فيه');
+      await click(withId('vac-pick', GUM));
+      await click(ageCell(6));
+      await click(byAction('save-program')[0]);
+      t.same(named(rpcLog, 'save_hall_vaccine_program').map((args) => [args.p_end_age, short(args.p_days), args.p_expected_version]),
+        [[35, [['IB', 5], ['GUM', 6], ['ND', 10], ['IB', 18]], 2]], 'O3 الضغط على 4/11 يضيف المختار إلى يوم العمر 6، والحفظ بأيّام العمر كما كان');
+    });
+    await step('O4 نهاية الدورة مفتوحة', async () => {
+      let general = null;
+      const { rpcLog } = fresh(MANAGER, {
+        rpcs: {
+          vaccine_board: () => {
+            const board = withFlocks();
+            if (general) board.programs.broiler = general;
+            return board;
+          },
+          save_vaccine_program: (args) => {
+            general = { version: 4, end_age: args.p_end_age, days: args.p_days };
+            return { kind: args.p_kind, version: 4, end_age: args.p_end_age, days: args.p_days.length };
+          },
+        },
+      });
+      await mount('/halls/vaccines?kind=broiler');
+      const radio = (label) => descendants(byAction('cycle-end-mode')[0]).find((n) => n.getAttribute('role') === 'radio' && n.textContent === label);
+      t.same([radio('محدّدة')?.getAttribute('aria-checked'), byAction('cycle-end').length, byAction('age-day').length], ['true', 1, 42], 'O4 الجدول المحفوظ بنهاية 42: «محدّدة» وخانتها، و42 يوماً');
+      await click(radio('مفتوحة'));
+      t.same([byAction('cycle-end').length, textOf('cycle-end-text'), byAction('age-day').length, textOf('program-dirty')],
+        [0, 'نهاية الدورة: مفتوحة، بلا يوم محدّد؛ تنتهي الدورة حين تُغلق.', 56, 'في الجدول تعديل لم يُحفظ.'],
+        'O4 «مفتوحة» (كلمة الزبون: «خليها اختيارية»): بلا خانة، والأيّام إلى 42 وأسبوعين بعدها (56)، وتعديل لم يُحفظ');
+      await click(withId('vac-pick', IB));
+      await click(ageCell(50));
+      t.eq(byAction('age-day').length, 70, 'O4 يوم 50 في المفتوح: تمتدّ الأيّام إلى ما بعده بأسبوعين (64 ← 70 بأسابيع كاملة)');
+      await click(byAction('save-program')[0]);
+      t.same([named(rpcLog, 'save_vaccine_program').map((args) => [args.p_end_age, short(args.p_days).at(-1)]), lastToast()],
+        [[[null, ['IB', 50]]], 'حُفظ جدول لقاحات اللاحم: 6 مواعيد، ونهاية الدورة مفتوحة.'], 'O4 يُرسل p_end_age = null ويوم 50، والتنبيه يقول «مفتوحة»');
+      t.same([radio('مفتوحة')?.getAttribute('aria-checked'), byAction('program-dirty').length], ['true', 0], 'O4 وبعد القراءة الجديدة: مفتوحة محفوظة بلا تعديل');
+      await click(radio('محدّدة'));
+      t.same([byAction('cycle-end')[0]?.value, byAction('age-day').length, textOf('dropped')], ['42', 42, '«IB» يوم 50'], 'O4 والرجوع إلى «محدّدة» يقترح 42 وينبّه إلى يوم 50 الذي يُشال');
     });
 
     // ── P: المحلّل والكاتبان ──────────────────────────────────────────────────────────────────────────────────────────
@@ -808,11 +896,25 @@ export default async function (t) {
         ['program', (b) => (b.halls[0].program = 'x')],
         ['version', (b) => (b.halls[3].program.version = 0)],
         ['version', (b) => (b.halls[3].program.version = 1.5)],
-        ['end_age', (b) => (b.halls[3].program.end_age = null)],
+        ['end_age', (b) => delete b.halls[3].program.end_age],
         ['days', (b) => delete b.halls[3].program.days],
         ['vaccine_id', (b) => delete b.halls[3].program.days[0].vaccine_id],
         ['age_day', (b) => (b.halls[3].program.days[0].age_day = '5')],
+        ['flock', (b) => (b.halls[0].flock = 'x')],
+        ['placed_on', (b) => (b.halls[0].flock = { id: 'f', placed_on: '2026-13-01', age0: 0 })],
+        ['age0', (b) => (b.halls[0].flock = { id: 'f', placed_on: '2026-11-01', age0: -1 })],
+        ['id', (b) => (b.halls[0].flock = { placed_on: '2026-11-01', age0: 0 })],
       ];
+      {
+        const open = boardWith();
+        open.halls[3].program.end_age = null;
+        open.halls[0].flock = { id: 'f', placed_on: '2026-11-01', age0: 2 };
+        const parsed = m.repo.parseVaccineBoard(open);
+        const noFlock = boardWith();
+        for (const row of noFlock.halls) delete row.flock;
+        t.same([parsed.halls[3].program.endAge, parsed.halls[0].flock, parsed.halls[1].flock, m.repo.parseVaccineBoard(noFlock).halls[0].flock],
+          [null, { id: 'f', placedOn: '2026-11-01', age0: 2 }, null, null], 'P 0029: نهاية مفتوحة null مقبولة، والفوج بشكله، وبلاه (أو خادم قبل 0029) null');
+      }
       t.same(
         bad.map(([, spoil]) => {
           const board = boardWith();

@@ -349,6 +349,15 @@ export function scaleTo(rows: readonly ProduceRow[], target: Milli): { quantitie
 /** الكميات السريعة لـ«كم تريد أن تنتج؟» بالأطنان (كلمة الزبون: «مثل 25 طن… عشرين طن»). */
 export const QUICK_TONS: readonly bigint[] = [1n, 5n, 10n, 20n, 25n];
 
+/**
+ * «لكلّ طنّ» (كلمة الزبون 2026-11-16: «لمن اختار كم طن بالضبط ميطلعلي شكد رقم المادة الي راح تنصرف، لازم اني اروح اول شيء اكتب اي رقم»): كمية
+ * المادّة لناتج مطلوب = ما في الطنّ الواحد × الناتج ÷ طنّ، بالتقريب الوحيد بثلاث مراتب بوحدتها (اللتر للسائل كما كُتب لكلّ طنّ).
+ */
+export const qtyForGoal = (perTon: Milli, goal: Milli): Milli => roundHalfAway(perTon * goal, TON);
+
+/** ما في الطنّ الواحد من كمية لناتج مطلوب (العكس، للعرض حين تُكتب الكمية نفسها أو تُوزَّع بنسبها). */
+export const perTonOf = (qty: Milli, goal: Milli): Milli => roundHalfAway(qty * TON, goal);
+
 /** جملة ما منع «وزّع على الموادّ». */
 function scaleProblemText(problem: ScaleProblem): string {
   if (problem === 'missing') return t('mill.target.missing', 'اكتب كمية كلّ مادّة أوّلاً (ولو لطنّ واحد)، ثمّ اكتب هنا كم تريد أن تنتج فتُضرب الكميات بنسبها.');
@@ -691,6 +700,10 @@ export default function ProducePage() {
    * (1,234 كغم ثمّ 25 طنّاً كانت تعطي الملح 539.992 بدل 540)، وأيّ تعديل يدويّ بينهما يجعل الكميات الآن هي النسب.
    */
   const [scaleBasis, setScaleBasis] = useState<{ rows: readonly ProduceRow[]; texts: ReadonlyMap<string, string> } | null>(null);
+  /** الناتج المطلوب الذي طُبّق آخر مرّة (بالكيلو بالآلاف): منه عمود «لكلّ طنّ»، وبلاه لا عمود. */
+  const [goal, setGoal] = useState<Milli | null>(null);
+  /** ما كُتب في «لكلّ طنّ» بمعرّف المادّة: يبقى معروضاً ما دامت الكمية هي ما أنتجه للناتج المطلوب. */
+  const [perTon, setPerTon] = useState<Readonly<Record<string, string>>>({});
   const [busy, setBusy] = useState(false);
   /** الطلب الذي في الطريق: «أنتج» أو «احفظ مسوّدة» (مؤشّر الانتظار على زرّه). */
   const [busyDraft, setBusyDraft] = useState(false);
@@ -849,32 +862,107 @@ export default function ProducePage() {
     const kg = unit === 't' ? value * 1_000n : value;
     return kg < QTY_LIMIT ? kg : null;
   };
-  /** «وزّع على الموادّ»: كلّ كمية بنسبتها حتى يبلغ الناتج المطلوب (scaleTo)، والإكمال السابق يذوب في الكميات الجديدة. */
+  /** ما كُتب لكلّ طنّ لصفّ ما دامت كميته ما أنتجه للناتج المطلوب الحاليّ، وإلّا null (عُدّلت الكمية نفسها بعده). */
+  const drivenPerTon = (row: ProduceRow): Milli | null => {
+    const typed = perTon[row.itemId];
+    if (goal === null || typed === undefined) return null;
+    const value = positive(typed);
+    return value !== null && row.text === fmtMilli(qtyForGoal(value, goal)) ? value : null;
+  };
+  /** الكميات في الخانات: موادّ الخلطة بنصوصها والمضافة بنصّها، والإكمال السابق يذوب. */
+  const writeQuantities = (quantities: ReadonlyMap<string, Milli>) => {
+    const recipeRows = rows.filter((row) => row.fromRecipe && quantities.has(row.itemId));
+    setEdits((before) => ({
+      ...before,
+      texts: { ...before.texts, ...Object.fromEntries(recipeRows.map((row) => [row.itemId, fmtMilli(quantities.get(row.itemId) ?? 0n)])) },
+      extras: before.extras.map((extra) => {
+        const qty = quantities.get(extra.itemId);
+        return qty === undefined ? extra : { ...extra, text: fmtMilli(qty) };
+      }),
+      topUp: null,
+    }));
+  };
+  /**
+   * «احسب كمية كلّ مادّة»: إن كانت كلّ الكميات ممّا كُتب «لكلّ طنّ» تُحسب منه للناتج الجديد كما كُتب بالضبط؛ وإلّا تُضرب الكميات الآن بنسبها حتى
+   * يبلغ الناتج المطلوب (scaleTo). وبلا كميات تُعرف نسبها (أوّل إنتاج) يظهر عمود «لكلّ طنّ» ليُكتب فيه، وما كُتب فيه قبل يُحسب للناتج الجديد.
+   */
   const applyTarget = (target: Milli | null) => {
     if (locked) return;
     if (target === null) {
       setTargetNote({ ok: false, text: t('mill.target.bad', 'اكتب الناتج المطلوب رقماً أكبر من صفر.') });
       return;
     }
+    const driven = new Map(rows.flatMap((row) => {
+      const value = drivenPerTon(row);
+      return value === null ? [] : [[row.itemId, value] as const];
+    }));
+    const fromPerTon = (only: readonly ProduceRow[]): Map<string, Milli> | ScaleProblem => {
+      const quantities = new Map<string, Milli>();
+      for (const row of only) {
+        const qty = qtyForGoal(driven.get(row.itemId) ?? 0n, target);
+        if (qty <= 0n) return 'too_small';
+        if (qty >= QTY_LIMIT) return 'too_large';
+        quantities.set(row.itemId, qty);
+      }
+      return quantities;
+    };
+    if (rows.length > 0 && driven.size === rows.length && !rows.some((row) => row.problem !== null)) {
+      const quantities = fromPerTon(rows);
+      if (typeof quantities === 'string') {
+        setTargetNote({ ok: false, text: scaleProblemText(quantities) });
+        return;
+      }
+      setGoal(target);
+      setScaleBasis(null);
+      writeQuantities(quantities);
+      setTargetNote({ ok: true, text: t('mill.target.done_per_ton', 'الكميات لـ{tons} ممّا كتبته لكلّ طنّ.', { tons: tonsText(target) }) });
+      return;
+    }
     const untouched = scaleBasis !== null && rows.length === scaleBasis.texts.size && rows.every((row) => scaleBasis.texts.get(row.itemId) === row.text);
     const from = untouched ? scaleBasis.rows : rows;
     const scaled = scaleTo(from, target);
     if ('problem' in scaled) {
-      setTargetNote({ ok: false, text: scaleProblemText(scaled.problem) });
+      if (scaled.problem !== 'missing') {
+        setTargetNote({ ok: false, text: scaleProblemText(scaled.problem) });
+        return;
+      }
+      // أوّل إنتاج (أو مادّة بلا كمية): لا نسب تُضرب، فيظهر «لكلّ طنّ» للناتج المطلوب، وما كُتب فيه قبل يصير كمية الناتج الجديد.
+      const quantities = fromPerTon(rows.filter((row) => driven.has(row.itemId)));
+      if (typeof quantities === 'string') {
+        setTargetNote({ ok: false, text: scaleProblemText(quantities) });
+        return;
+      }
+      setGoal(target);
+      setScaleBasis(null);
+      if (quantities.size) writeQuantities(quantities);
+      setTargetNote({
+        ok: true,
+        text: t('mill.target.per_ton_first', 'اكتب في عمود «لكلّ طنّ» كم من كلّ مادّة في الطنّ الواحد، فتظهر كميتها لـ{tons} فوراً.', { tons: tonsText(target) }),
+      });
       return;
     }
+    setGoal(target);
+    setPerTon({});
     setScaleBasis({ rows: from, texts: new Map(rows.map((row) => [row.itemId, fmtMilli(scaled.quantities.get(row.itemId) ?? 0n)])) });
-    const recipeRows = rows.filter((row) => row.fromRecipe);
-    setEdits((before) => ({
-      ...before,
-      texts: { ...before.texts, ...Object.fromEntries(recipeRows.map((row) => [row.itemId, fmtMilli(scaled.quantities.get(row.itemId) ?? 0n)])) },
-      extras: before.extras.map((extra) => {
-        const qty = scaled.quantities.get(extra.itemId);
-        return qty === undefined ? extra : { ...extra, text: fmtMilli(qty) };
-      }),
-      topUp: null,
-    }));
+    writeQuantities(scaled.quantities);
     setTargetNote({ ok: true, text: t('mill.target.done', 'وُزّعت الكميات على الموادّ بنسبها: الناتج {kg}.', { kg: kgText(scaled.mass) }) });
+  };
+  /** «لكلّ طنّ» لصفّ: يُحفظ ما كُتب، وكمية الصفّ = ما كُتب × الناتج المطلوب (وبلا رقم صالح تُفرغ). */
+  const editPerTon = (row: ProduceRow, text: string) => {
+    if (goal === null) return;
+    setPerTon((before) => ({ ...before, [row.itemId]: text }));
+    const value = positive(text);
+    editRow(row, value === null ? '' : fmtMilli(qtyForGoal(value, goal)));
+  };
+  /** المعروض في «لكلّ طنّ»: ما كُتب ما دامت الكمية منه، وإلّا الكمية الآن ÷ الناتج المطلوب. */
+  const perTonText = (row: ProduceRow): string => {
+    if (goal === null) return '';
+    const typed = perTon[row.itemId];
+    if (typed !== undefined) {
+      const value = positive(typed);
+      if (value === null ? row.text.trim() === '' : row.text === fmtMilli(qtyForGoal(value, goal))) return typed;
+    }
+    return row.qty === null ? '' : fmtMilli(perTonOf(row.qty, goal));
   };
 
   const openPick = (kind: 'add' | 'gap') => {
@@ -1053,6 +1141,8 @@ export default function ProducePage() {
     setTargetText('');
     setTargetNote(null);
     setScaleBasis(null);
+    setGoal(null);
+    setPerTon({});
     formState.retry();
   };
 
@@ -1201,9 +1291,37 @@ export default function ProducePage() {
         </span>
       ),
     },
+    ...(goal === null
+      ? []
+      : [
+          {
+            key: 'per-ton',
+            header: t('mill.per_ton.col', 'لكلّ طنّ'),
+            kind: 'number' as const,
+            cell: (row: ProduceRow) => {
+              if (row.problem !== null) return dash();
+              return (
+                <input
+                  aria-label={t('mill.per_ton.of', 'كمية «{name}» في الطنّ الواحد', { name: row.name })}
+                  className="input w-28 text-end tabular-nums"
+                  size={8}
+                  inputMode="decimal"
+                  dir="ltr"
+                  autoComplete="off"
+                  placeholder={row.unit === 'L' ? t('mill.per_ton.placeholder_l', 'لتر') : t('mill.per_ton.placeholder_kg', 'كغم')}
+                  value={perTonText(row)}
+                  disabled={locked}
+                  onChange={(event) => editPerTon(row, event.target.value)}
+                  data-action="line-per-ton"
+                  data-id={row.itemId}
+                />
+              );
+            },
+          },
+        ]),
     {
       key: 'qty',
-      header: t('mill.line.qty', 'الكمية'),
+      header: goal === null ? t('mill.line.qty', 'الكمية') : t('mill.per_ton.qty_col', 'الكمية لـ{tons}', { tons: tonsText(goal) }),
       kind: 'number',
       cell: (row) => {
         if (row.problem !== null) return dash();
@@ -1335,7 +1453,7 @@ export default function ProducePage() {
       <section className="card flex flex-col gap-3 p-4" data-action="target-card">
         <h2 className="text-lg font-semibold">{t('mill.target.title', 'كم تريد أن تنتج؟')}</h2>
         <p className="text-sm text-ink-muted">
-          {t('mill.target.hint', 'اكتب الناتج الذي تريده ثمّ اضغط «وزّع على الموادّ»: تُضرب كمية كلّ مادّة بنسبتها الآن حتّى يبلغ الناتج ما كتبته، ثمّ عدّل ما شئت.')}
+          {t('mill.target.hint_v2', 'اختر كم تريد أن تنتج: تظهر كمية كلّ مادّة لهذا الناتج، من آخر إنتاج بنسبها أو ممّا تكتبه «لكلّ طنّ»، ثمّ عدّل ما شئت.')}
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="w-40">
@@ -1374,7 +1492,7 @@ export default function ProducePage() {
             />
           </div>
           <Button variant="secondary" disabled={locked || targetText.trim() === ''} onClick={() => applyTarget(targetOf(targetText, targetUnit))} data-action="target-apply">
-            {t('mill.target.apply', 'وزّع على الموادّ')}
+            {t('mill.target.apply_v2', 'احسب الكميات')}
           </Button>
         </div>
         <div className="flex flex-wrap gap-2" role="group" aria-label={t('mill.target.quick', 'كميات سريعة')}>
@@ -1448,6 +1566,15 @@ export default function ProducePage() {
                 : t('mill.produce.output_unknown', 'لا يُحسب الناتج بعد: اكتب كمية كلّ مادّة.')}
             </p>
             {massKnown ? <CompositionBar pieces={barPieces} total={mass} /> : null}
+            {goal !== null && massKnown && mass !== goal ? (
+              <p className="text-sm text-warn-800 dark:text-warn-200" data-action="per-ton-sum">
+                {t('mill.per_ton.sum', 'المطلوب {goal} والناتج {kg}: مجموع ما في الطنّ {ton}، لا طنّ كامل. صحّح «لكلّ طنّ» أو اضغط «احسب الكميات».', {
+                  goal: tonsText(goal),
+                  kg: kgText(mass),
+                  ton: kgText(perTonOf(mass, goal)),
+                })}
+              </p>
+            ) : null}
             {outside ? <p className="text-sm text-ink-muted">{t('mill.builder.outside_note_v4', 'الوقود والتعبئة خارج كتلة الخلطة: يُسحبان وتُحسب كلفتهما، ولا يدخلان ناتجها.')}</p> : null}
             {topUp ? (
               <div className="flex flex-wrap items-center gap-2" data-action="round-note">
