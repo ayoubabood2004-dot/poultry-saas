@@ -63,7 +63,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
     setArchiving(true);
     try {
       await archiveHall(hall.id, hall.version);
-      toast({ tone: 'success', title: t('farm.hall.archived', 'أُرشفت القاعة «{name}».', { name: hall.name }) });
+      toast({ tone: 'success', title: t('farm.hall.archived', 'أُرشفت القاعة «{name}».', { name: hallLabel(hall.name) }) });
       done();
     } catch (failure) {
       const { title, detail } = describeError(failure);
@@ -200,10 +200,10 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
       {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} /> : null}
       {editing?.kind === 'open' ? <OpenFlockDialog hall={editing.hall} onClose={() => setEditing(null)} onOpened={done} /> : null}
       {/* القراءة من جديد بعد stale_flock لا تطوي النافذة: هي من حالة الصفحة لا من الجدول، فيبقى التلميح حتى تُغلق وتُفتح بالقيم الحالية. */}
-      {editing?.kind === 'flock' ? <FlockEditDialog hallName={editing.hall.name} flock={editing.flock} onClose={() => setEditing(null)} onSaved={done} onDeleted={done} onStale={state.retry} /> : null}
+      {editing?.kind === 'flock' ? <FlockEditDialog hallName={hallLabel(editing.hall.name)} flock={editing.flock} onClose={() => setEditing(null)} onSaved={done} onDeleted={done} onStale={state.retry} /> : null}
       <ConfirmDialog
         open={editing?.kind === 'archive'}
-        title={t('farm.hall.archive.title', 'أرشفة القاعة «{name}»', { name: editing?.kind === 'archive' ? editing.hall.name : '' })}
+        title={t('farm.hall.archive.title', 'أرشفة القاعة «{name}»', { name: editing?.kind === 'archive' ? hallLabel(editing.hall.name) : '' })}
         consequence={t('farm.hall.archive.consequence', 'تختفي القاعة من الحقل والجولة اليومية، وتبقى أفواجها السابقة وأيامها محفوظة. لا تُحذف أبداً.')}
         confirmLabel={t('farm.hall.archive.confirm', 'أرشف القاعة')}
         busy={archiving}

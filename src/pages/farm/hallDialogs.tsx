@@ -10,6 +10,7 @@ import { describeError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { createHall, openFlock, updateHall, type HallView, type SiteView } from '../../lib/repo/flocks';
+import { hallLabel } from './shared';
 
 // نافذتا القاعة («أضف قاعة» و«عدّل القاعة») و«افتح فوجاً»: في جدول الحقل وفي صفحة القاعة الفارغة (كلمة المالك 2026-11-16)، من مكان واحد.
 
@@ -54,7 +55,7 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
       onClose={onClose}
       locked={busy}
       dirty={name !== (hall?.name ?? '') || capacity !== initialCapacity}
-      title={hall ? t('farm.hall.edit.title', 'تعديل القاعة «{name}»', { name: hall.name }) : t('farm.hall.add.title', 'قاعة جديدة في «{site}»', { site: site.name })}
+      title={hall ? t('farm.hall.edit.title', 'تعديل القاعة «{name}»', { name: hallLabel(hall.name) }) : t('farm.hall.add.title', 'قاعة جديدة في «{site}»', { site: site.name })}
       footer={
         <Button onClick={() => void save()} busy={busy} disabled={name.trim() === '' || Boolean(capacityError)} data-action="hall-save">
           {t('farm.hall.save', 'احفظ القاعة')}
@@ -101,7 +102,7 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
     setError(null);
     try {
       await openFlock({ hallId: hall.id, placedOn, placedCount: countValue, ageDays: ageValue, breed }, ref.current);
-      toast({ tone: 'success', title: t('farm.open.done', 'فُتح فوج في «{hall}»؛ عدد الطيور المسكّنة {count}.', { hall: hall.name, count: fmtInt(countValue) }) });
+      toast({ tone: 'success', title: t('farm.open.done', 'فُتح فوج في «{hall}»؛ عدد الطيور المسكّنة {count}.', { hall: hallLabel(hall.name), count: fmtInt(countValue) }) });
       onOpened();
     } catch (failure) {
       const { title, detail } = describeError(failure);
@@ -117,7 +118,7 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
       locked={busy}
       // أيّ خانة تغيّرت عن أوّلها كتابة لم تُحفظ (التاريخ والعدد والعمر والسلالة)، مو العدد بس.
       dirty={day !== initialDay || count !== '' || age !== '0' || breed !== ''}
-      title={t('farm.open.title', 'فوج جديد في «{hall}»', { hall: hall.name })}
+      title={t('farm.open.title', 'فوج جديد في «{hall}»', { hall: hallLabel(hall.name) })}
       footer={
         <Button onClick={() => void save()} busy={busy} disabled={!ready} data-action="flock-open-save">
           {t('farm.open.save', 'افتح الفوج')}

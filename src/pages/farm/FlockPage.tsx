@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
@@ -19,9 +19,9 @@ import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQty, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, saveRound, type SendResult } from '../../lib/outbox';
+import { openOutbox, pendingOps, saveRound, type SendResult } from '../../lib/outbox';
 import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type FlockDetail, type HallView, type SiteView } from '../../lib/repo/flocks';
-import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds } from '../../lib/roundUploads';
+import { refreshRoundQueue, roundQueueStore, uploadRounds } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
@@ -30,7 +30,7 @@ import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
 import { daysText } from '../halls/parts';
 import { amountText, countText, errorText, loadTransport } from './roundText';
-import { farmPath, farmTitle, fmtPct, HallFlockCard, hallLabel, hallPath, Metric, useOverview, useStamp } from './shared';
+import { farmPath, farmTitle, fmtPct, HallFlockCard, hallLabel, hallPath, loadOverviewKept, Metric, useStamp } from './shared';
 
 // صفحة القاعة (FOUNDATION ٧٨٢؛ كلمة المالك 2026-11-16 مع صورة صفحة «فوج 1»: «طريقة الدخول الها واضحة ومو مبهمة… وتراجع تصميم هاي
 // الواجهة»، والمرحلة ١ بجوابه). المكان ثابت والفوج يتغيّر كلّ دورة: الرابط بالقاعة (/hall/:id) ويفتح فوجها القائم أو يقول إنّها فارغة،
@@ -94,13 +94,56 @@ function writable(detail: FlockDetail, day: Day): boolean {
   return detail.canSave && inWindow(detail, day);
 }
 
-/** الحيّ بداية يوم بلا سطر: آخر يوم مسجّل قبله (حيّه آخر اليوم)، وإلّا المسكّن. الخادم يعيد الحساب ويرفض بصوت؛ هذا للتنبيه قبل الإرسال. */
-function liveStartOf(detail: FlockDetail, day: Day): number {
+/**
+ * حدّ النافق والمستبعد قبل الإرسال (مراجعة صفحة القاعة R4): لليوم «الحيّ بداية اليوم» من الخادم (live_start_today، كالجولة اليومية)؛ ولما
+ * فات حدّ save_flock_day نفسه: الحيّ الآن مع ما سُجّل لذلك اليوم (البيع وفرق العدّ في يوم بلا جولة لا تراهما أيام الفوج، فلا يُحسب «حيّ
+ * بداية ذلك اليوم» بالشاشة).
+ */
+function liveBound(detail: FlockDetail, day: Day): { live: number; past: boolean } {
+  if (day === serverToday(detail.flock)) return { live: detail.flock.liveStartToday, past: false };
   const own = detail.days.find((line) => line.onDate === day);
-  if (own) return own.liveStart;
-  const before = detail.days.find((line) => line.onDate < day);
-  return before ? before.liveEnd : (detail.flock.placedCount ?? detail.flock.live);
+  return { live: detail.flock.live + (own?.dead ?? 0) + (own?.culled ?? 0), past: true };
 }
+
+/**
+ * آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (useLoad يرجّع null أثناءها): الصفحة ونوافذها المفتوحة لا تُطوى ولا تقفز إلى أعلاها،
+ * وفشل القراءة من جديد يُقال ولا يمحو ما عُرض (مراجعة صفحة القاعة R1 وR2).
+ */
+function useKept<T>(data: T | null): T | null {
+  const [kept, setKept] = useState<T | null>(data);
+  if (data !== null && data !== kept) setKept(data);
+  return data ?? kept;
+}
+
+/** أيام هذا الفوج المحفوظة على الجهاز ولم تُرسل بعد (بلا نت): تُقال في جدول الأيام كي لا تبدو ناقصة (R2). */
+function useDeviceDays(flockId: string | null, refresh: number): ReadonlySet<Day> {
+  const stamp = useStamp();
+  const uploads = useStore(roundQueueStore).seq;
+  const [days, setDays] = useState<{ key: string; days: ReadonlySet<Day> } | null>(null);
+  const userId = stamp?.userId ?? null;
+  const orgId = stamp?.orgId ?? null;
+  const displayName = stamp?.displayName ?? '';
+  const key = `${userId}:${orgId}:${flockId}`;
+  useEffect(() => {
+    if (!userId || !orgId || !flockId) return;
+    let cancelled = false;
+    openOutbox()
+      .then((db) => pendingOps(db, { userId, orgId, displayName }))
+      .then(
+        (ops) => {
+          if (!cancelled) setDays({ key: `${userId}:${orgId}:${flockId}`, days: new Set(ops.filter((op) => op.flockId === flockId).map((op) => op.day)) });
+        },
+        () => {
+          /* swallow-ok: الطابور ما انقرا (IndexedDB ممنوع)؛ الجدول يعرض أيام الخادم وحدها */
+        },
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, orgId, displayName, flockId, uploads, refresh]);
+  return days?.key === key ? days.days : NO_DAYS;
+}
+const NO_DAYS: ReadonlySet<Day> = new Set();
 
 const FIELDS = Object.keys(EMPTY_ROUND) as (keyof RoundText)[];
 
@@ -129,7 +172,7 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
     return {
       text,
       base: line?.version ?? null,
-      liveStart: liveStartOf(detail, day),
+      bound: liveBound(detail, day),
       saved: { dead: line?.dead ?? null, culled: line?.culled ?? null, eggsTotal: line?.eggsTotal ?? null, eggsBroken: line?.eggsBroken ?? null },
     };
   });
@@ -142,9 +185,15 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
     if (!stamp) return;
     const changed: RoundText = { ...EMPTY_ROUND };
     for (const field of FIELDS) if (text[field] !== snapshot.text[field]) changed[field] = text[field];
-    const read = readRound(changed, { kind, liveStart: snapshot.liveStart, saved: snapshot.saved });
+    const read = readRound(changed, { kind, liveStart: snapshot.bound.live, saved: snapshot.saved });
     if ('error' in read) {
-      setError({ field: read.field, message: errorText(read.error, snapshot.liveStart) });
+      setError({
+        field: read.field,
+        message:
+          read.error === 'live_negative' && snapshot.bound.past
+            ? t('hall.day.live_negative_past', 'بهذه الأرقام يصير الحيّ سالباً؛ الحيّ الآن {live}.', { live: fmtInt(detail.flock.live) })
+            : errorText(read.error, snapshot.bound.live),
+      });
       return;
     }
     if (emptyPayload(read.payload)) {
@@ -162,9 +211,9 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
           /* swallow-ok: عدّ الطابور تعذّر؛ الرأس يتحدّث بالرفع الجاي */
         });
       }
-      // نتيجة هذا الحفظ تُقال هنا، فتنبيه «رُدّت» في القشرة لا يكرّرها.
-      ackRuns(stampKey(stamp), roundQueueStore.get().seq);
-      const result = results.find((entry) => entry.flockId === detail.flock.id && entry.day === day)?.result ?? null;
+      // نتيجة هذا اليوم وحده تُقال هنا، وآخرها (رفع منضمّ قد يحمل عملية أقدم لليوم نفسه، R6)؛ ونتائج القاعات الأخرى في الرفع نفسه تبقى
+      // لتنبيه «رُدّت» في القشرة والجولة (لا ackRuns هنا، R3).
+      const result = [...results].reverse().find((entry) => entry.flockId === detail.flock.id && entry.day === day)?.result ?? null;
       const shown = resultText(online ? result : null);
       toast({ tone: shown.tone, title: shown.title });
       onDone();
@@ -201,7 +250,9 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-ink-muted">
-          {t('hall.day.hint', 'مجموع اليوم لكلّ خانة، والفارغة بلا تغيير. الحيّ بداية اليوم {live}.', { live: fmtInt(snapshot.liveStart) })}
+          {snapshot.bound.past
+            ? t('hall.day.hint_past', 'مجموع ذلك اليوم لكلّ خانة، والفارغة بلا تغيير.')
+            : t('hall.day.hint', 'مجموع اليوم لكلّ خانة، والفارغة بلا تغيير. الحيّ بداية اليوم {live}.', { live: fmtInt(snapshot.bound.live) })}
         </p>
         <div className="grid grid-cols-2 gap-3">
           {fields.map(([field, label, decimal]) => (
@@ -299,20 +350,24 @@ function WeightDialog({ detail, onClose, onSaved }: { detail: FlockDetail; onClo
 }
 
 /** «اليوم» أوّل الصفحة: جولة اليوم سُجّلت أم لا (من قراءة الخادم)، وزرّ يكتبها لهذه القاعة، والناقص من الأيام التي ما زالت تُقبل. */
-function TodayCard({ detail, missing, onRecord }: { detail: FlockDetail; missing: number; onRecord: (day: Day) => void }) {
+function TodayCard({ detail, missing, roundPath, onDevice, onRecord }: { detail: FlockDetail; missing: number; roundPath: string; onDevice: boolean; onRecord: (day: Day) => void }) {
   const today = serverToday(detail.flock);
   if (today === null) return null;
   const line = detail.flock.today;
-  const done = line !== null;
-  const tone = done ? '' : 'border-warn-200 bg-warn-50 dark:bg-warn-500/15';
+  const done = line !== null || onDevice;
+  const tone = done ? '' : 'border-warn-200 bg-warn-50 dark:border-warn-500/30 dark:bg-warn-500/15';
   return (
     <section className={`card flex flex-col gap-3 border p-4 ${tone}`} data-action="hall-today-card" data-state={done ? 'done' : 'missing'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">
-          {done ? t('hall.today.done', 'سُجّلت جولة اليوم {day}', { day: fmtDay(today) }) : t('hall.today.missing', 'جولة اليوم {day} لم تُسجَّل', { day: fmtDay(today) })}
+          {line !== null
+            ? t('hall.today.done', 'سُجّلت جولة اليوم {day}', { day: fmtDay(today) })
+            : onDevice
+              ? t('hall.today.device', 'جولة اليوم {day} محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال', { day: fmtDay(today) })
+              : t('hall.today.missing', 'جولة اليوم {day} لم تُسجَّل', { day: fmtDay(today) })}
         </h2>
       </div>
-      {done ? (
+      {line !== null ? (
         <p className="text-ink-muted" data-action="hall-today-values">
           {t('hall.today.values', 'النافق {dead} · المستبعد {culled} · العلف {feed}', {
             dead: fmtInt(line.dead ?? 0),
@@ -323,7 +378,7 @@ function TodayCard({ detail, missing, onRecord }: { detail: FlockDetail; missing
       ) : null}
       {detail.canSave ? (
         <div className="flex flex-wrap items-center gap-3">
-          <Button size={done ? 'sm' : 'md'} variant={done ? 'secondary' : 'primary'} onClick={() => onRecord(today)} data-action="hall-today-record">
+          <Button variant={done ? 'secondary' : 'primary'} onClick={() => onRecord(today)} data-action="hall-today-record">
             {done ? t('hall.today.edit', 'عدّل جولة اليوم') : t('hall.today.record', 'سجّل جولة اليوم')}
           </Button>
         </div>
@@ -332,9 +387,13 @@ function TodayCard({ detail, missing, onRecord }: { detail: FlockDetail; missing
       )}
       {missing > 0 ? (
         <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="hall-missing">
-          {t('hall.today.missing_days', 'وناقص {n} من الأيام السبعة الماضية بلا جولة: سجّلها من «أيام الدورة» قبل أن تفوت.', { n: fmtInt(missing) })}
+          {t('hall.today.missing_days', 'ولم تُسجَّل جولة {n} من الأيام السبعة الماضية: سجّلها من «أيام الدورة» قبل أن تفوت.', { n: fmtInt(missing) })}
         </p>
       ) : null}
+      {/* الجولة لكلّ القاعات معاً، وفيها «جولات تحتاج مراجعة» لما رُدّ (التنبيه يدلّ عليها). */}
+      <Link to={roundPath} className={LINK_CLASS} data-action="hall-round-all">
+        {t('hall.round_all', 'الجولة اليومية لكلّ القاعات')}
+      </Link>
     </section>
   );
 }
@@ -384,13 +443,13 @@ function HallActions({ detail, back, onWeight, onEdit }: { detail: FlockDetail; 
 /**
  * علف القاعة (0019): المصروف والمستهلك والباقي بسطر، والباقي السالب جملة تقول معناها (FeedLine). بلا قاعدة لا شيء، والفشل يُقال بإعادته.
  */
-function FeedSection({ flockId, back, active }: { flockId: string; back: string; active: boolean }) {
+function FeedSection({ flockId, back, canGive }: { flockId: string; back: string; canGive: boolean }) {
   const load = useCallback(() => loadFlockFeed(flockId), [flockId]);
   const { data, error, retry } = useLoad(load);
   if (error instanceof NotConnectedError) return null;
   return (
     <section className={CARD_CLASS} data-action="flock-feed">
-      {data ? <FeedLine feed={data} giveTo={active ? givePath(flockId, back) : undefined} /> : null}
+      {data ? <FeedLine feed={data} giveTo={canGive ? givePath(flockId, back) : undefined} /> : null}
       {error ? (
         <div className="flex flex-wrap items-center gap-2 text-sm" data-action="feed-failed">
           <span role="alert" className="text-danger-700 dark:text-danger-300">
@@ -405,7 +464,7 @@ function FeedSection({ flockId, back, active }: { flockId: string; back: string;
   );
 }
 
-function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: FlockKind; onRecord: (day: Day) => void }) {
+function FlockView({ detail, kind, device, onRecord }: { detail: FlockDetail; kind: FlockKind; device: ReadonlySet<Day>; onRecord: (day: Day) => void }) {
   const { flock, weights } = detail;
   const { rows, olderMissing } = dayViews(detail);
   const lines = rows.flatMap((row) => (row.line ? [row.line] : []));
@@ -427,10 +486,21 @@ function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: Floc
       cell: (row) => (
         <span className="inline-flex items-center gap-2">
           <Num>{fmtDay(row.onDate)}</Num>
-          {row.line ? null : inWindow(detail, row.onDate) ? (
+          {row.line ? null : device.has(row.onDate) ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="rounded-full bg-surface-2 px-2 text-xs font-semibold text-ink-muted" data-action="day-device">
+                {t('hall.day.device', 'على الجهاز')}
+              </span>
+              {writable(detail, row.onDate) ? (
+                <Button size="sm" variant="ghost" onClick={() => onRecord(row.onDate)} data-action="day-record">
+                  {t('hall.day.edit', 'عدّل')}
+                </Button>
+              ) : null}
+            </span>
+          ) : inWindow(detail, row.onDate) ? (
             <span data-action="day-missing">
               {writable(detail, row.onDate) ? (
-                <Button size="sm" variant="secondary" onClick={() => onRecord(row.onDate)} data-action="day-record">
+                <Button variant="secondary" onClick={() => onRecord(row.onDate)} data-action="day-record">
                   {t('hall.day.record', 'سجّل')}
                 </Button>
               ) : (
@@ -525,7 +595,7 @@ function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: Floc
           columns={columns}
           rows={rows}
           rowKey={(row) => row.onDate}
-          rowTone={(row) => (row.line === null && inWindow(detail, row.onDate) ? 'warn' : null)}
+          rowTone={(row) => (row.line === null && !device.has(row.onDate) && inWindow(detail, row.onDate) ? 'warn' : null)}
           empty={t('flock.days.empty', 'لم تُسجَّل أيّ جولة بعد.')}
           totalLabel={t('flock.total', 'المجموع')}
         />
@@ -580,11 +650,17 @@ function HallAlerts({ detail, onWeight }: { detail: FlockDetail; onWeight: () =>
 type Nav = { prev: HallView | null; next: HallView | null };
 
 /** شاشة الفوج داخل صفحة قاعته (أو وحدها لدورة مغلقة): الرأس باسم القاعة، ثمّ اليوم والتنبيهات والأفعال والأرقام والأيام. */
-function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string; nav?: Nav }) {
+function FlockScreen({ kind, flockId, nav, onGone }: { kind: FlockKind; flockId: string; nav?: Nav; onGone?: () => void }) {
   const navigate = useNavigate();
+  const session = useSession();
+  const online = useStore(onlineStore);
   const load = useCallback(() => loadFlockDetail(flockId), [flockId]);
   const state = useLoad(load);
-  const detail = state.data;
+  const detail = useKept(state.data);
+  const [deviceTick, setDeviceTick] = useState(0);
+  const device = useDeviceDays(detail?.flock.id ?? null, deviceTick);
+  const role = session.status === 'ready' ? session.workspace.role : null;
+  const canGive = detail?.flock.status === 'active' && role !== null && (can(role, 'issue.post') || can(role, 'flock_day.save'));
   const base = farmPath(kind);
   // النوافذ من حالة الصفحة لا من القراءة: القراءة من جديد (data = null أثناءها) لا تطويها.
   const [editing, setEditing] = useState<FlockDetail['flock'] | null>(null);
@@ -592,7 +668,7 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
   const [recording, setRecording] = useState<{ detail: FlockDetail; day: Day } | null>(null);
   const here = detail ? hallPath(kind, detail.flock.hallId) : base;
   const today = detail ? serverToday(detail.flock) : null;
-  const missing = detail && today !== null ? dayViews(detail).rows.filter((row) => row.line === null && row.onDate !== today && inWindow(detail, row.onDate)).length : 0;
+  const missing = detail && today !== null ? dayViews(detail).rows.filter((row) => row.line === null && row.onDate !== today && !device.has(row.onDate) && inWindow(detail, row.onDate)).length : 0;
   const subtitle = detail
     ? [
         detail.flock.siteName,
@@ -613,14 +689,22 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
       <PageHeader title={detail ? hallLabel(detail.flock.hallName) : farmTitle(kind)} subtitle={subtitle} />
       {state.error instanceof NotConnectedError ? (
         <Notice tone="info" title={describeError(state.error).title} />
-      ) : state.error ? (
+      ) : state.error && !detail ? (
         <LoadFailed what={t('flock.what', 'الفوج')} error={state.error} onRetry={state.retry} />
+      ) : state.error ? (
+        <Notice tone="warning" title={t('hall.reread_failed', 'تعذّرت قراءة القاعة من جديد؛ المعروض آخر ما قُرئ.')}>
+          <Button size="sm" variant="secondary" onClick={state.retry} data-action="hall-reread">
+            {t('common.retry', 'أعد المحاولة')}
+          </Button>
+        </Notice>
       ) : null}
-      {detail && detail.flock.status === 'active' ? <TodayCard detail={detail} missing={missing} onRecord={(day) => setRecording({ detail, day })} /> : null}
+      {detail && detail.flock.status === 'active' ? (
+        <TodayCard detail={detail} missing={missing} roundPath={`${base}/round`} onDevice={today !== null && device.has(today)} onRecord={(day) => setRecording({ detail, day })} />
+      ) : null}
       {detail ? <HallAlerts detail={detail} onWeight={() => setWeighing(detail)} /> : null}
       {detail ? <HallActions detail={detail} back={here} onWeight={() => setWeighing(detail)} onEdit={() => setEditing(detail.flock)} /> : null}
-      {detail ? <FeedSection flockId={detail.flock.id} back={here} active={detail.flock.status === 'active'} /> : null}
-      {detail ? <FlockView detail={detail} kind={kind} onRecord={(day) => setRecording({ detail, day })} /> : null}
+      {detail ? <FeedSection flockId={detail.flock.id} back={here} canGive={canGive} /> : null}
+      {detail ? <FlockView detail={detail} kind={kind} device={device} onRecord={(day) => setRecording({ detail, day })} /> : null}
       {detail ? <HallFlockCard flock={detail.flock} onChanged={state.retry} /> : null}
       {recording ? (
         <DayDialog
@@ -630,7 +714,9 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
           onClose={() => setRecording(null)}
           onDone={() => {
             setRecording(null);
-            state.retry();
+            setDeviceTick((n) => n + 1);
+            // بلا نت لا قراءة من جديد (تفشل وتمحو الصفحة، R2): اليوم يظهر «على الجهاز» من الطابور.
+            if (online) state.retry();
           }}
         />
       ) : null}
@@ -646,15 +732,19 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
       ) : null}
       {editing ? (
         <FlockEditDialog
-          hallName={editing.hallName}
+          hallName={hallLabel(editing.hallName)}
           flock={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
             state.retry();
           }}
-          // الفوج لم يعد موجوداً: صفحة القاعة نفسها (فارغة الآن) بدل صفحته، وبلا رجوع إليها.
-          onDeleted={() => navigate(nav ? here : base, { replace: true })}
+          // الفوج لم يعد موجوداً (R5): النافذة تُغلق، وصفحة القاعة تقرأ الحقل من جديد فتظهر فارغة؛ وشاشة الفوج بعينه ترجع إلى الحقل.
+          onDeleted={() => {
+            setEditing(null);
+            if (onGone) onGone();
+            else navigate(base, { replace: true });
+          }}
           onStale={state.retry}
         />
       ) : null}
@@ -666,20 +756,20 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
 function HallTop({ kind, nav }: { kind: FlockKind; nav?: Nav }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <Link to={farmPath(kind)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-back">
+      <Link to={farmPath(kind)} className={`${LINK_CLASS} inline-flex h-11 items-center gap-1`} data-action="hall-back">
         <ChevronRight aria-hidden="true" className="size-4" />
         {farmTitle(kind)}
       </Link>
       {nav ? (
         <div className="flex items-center gap-3">
           {nav.prev ? (
-            <Link to={hallPath(kind, nav.prev.id)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-prev">
+            <Link to={hallPath(kind, nav.prev.id)} className={`${LINK_CLASS} inline-flex h-11 items-center gap-1`} data-action="hall-prev">
               <ChevronRight aria-hidden="true" className="size-4" />
               {hallLabel(nav.prev.name)}
             </Link>
           ) : null}
           {nav.next ? (
-            <Link to={hallPath(kind, nav.next.id)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-next">
+            <Link to={hallPath(kind, nav.next.id)} className={`${LINK_CLASS} inline-flex h-11 items-center gap-1`} data-action="hall-next">
               {hallLabel(nav.next.name)}
               <ChevronLeft aria-hidden="true" className="size-4" />
             </Link>
@@ -748,16 +838,23 @@ function EmptyHall({ kind, site, hall, nav, onChanged }: { kind: FlockKind; site
 export function HallPage({ kind }: { kind: FlockKind }) {
   const { id = '' } = useParams();
   const stamp = useStamp();
-  const state = useOverview(stamp);
-  const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind);
+  const userId = stamp?.userId ?? null;
+  const orgId = stamp?.orgId ?? null;
+  const displayName = stamp?.displayName ?? '';
+  // قراءة الحقول لهذه الصفحة وحدها، لا مع كلّ رفع جولات (useOverview): رفع قاعة أخرى في الخلفية كان يطوي الصفحة ونوافذها (R1)؛
+  // وآخر قراءة تبقى أثناء القراءة من جديد.
+  const load = useCallback(() => loadOverviewKept(userId && orgId ? { userId, orgId, displayName } : null), [userId, orgId, displayName]);
+  const state = useLoad(load);
+  const kept = useKept(state.data);
+  const sites = (kept?.overview.sites ?? []).filter((site) => site.kind === kind);
   // بترتيب الحقل نفسه: بالاسم كما يُقرأ («5» يُقرأ «قاعة 5» فيأتي بعد «قاعة 3»).
   const ordered = sites.flatMap((site) => [...site.halls].sort((a, b) => naturalCompare(hallLabel(a.name), hallLabel(b.name))).map((hall) => ({ site, hall })));
   const index = ordered.findIndex((entry) => entry.hall.id === id);
   const found = index >= 0 ? ordered[index] : undefined;
-  if (state.error && !state.data) {
+  if (state.error && !kept) {
     return state.error instanceof NotConnectedError ? <Notice tone="info" title={describeError(state.error).title} /> : <LoadFailed what={t('hall.what', 'القاعة')} error={state.error} onRetry={state.retry} />;
   }
-  if (!state.data) return null;
+  if (!kept) return null;
   if (!found) {
     return (
       <div className="flex flex-col gap-4">
@@ -767,9 +864,12 @@ export function HallPage({ kind }: { kind: FlockKind }) {
     );
   }
   const { site, hall } = found;
-  const nav: Nav = { prev: ordered[index - 1]?.hall ?? null, next: ordered[index + 1]?.hall ?? null };
+  // السابقة والتالية في الحقل نفسه (R7): آخر قاعة في حقل لا تقفز إلى «قاعة 1» في حقل آخر.
+  const inSite = ordered.filter((entry) => entry.site.id === site.id);
+  const at = inSite.findIndex((entry) => entry.hall.id === hall.id);
+  const nav: Nav = { prev: inSite[at - 1]?.hall ?? null, next: inSite[at + 1]?.hall ?? null };
   // المفتاح بالقاعة والفوج: الانتقال لقاعة أخرى يبدأ صفحتها من أوّلها (نوافذها وقراءتها).
-  return hall.flock ? <FlockScreen key={`${hall.id}:${hall.flock.id}`} kind={kind} flockId={hall.flock.id} nav={nav} /> : <EmptyHall key={hall.id} kind={kind} site={site} hall={hall} nav={nav} onChanged={state.retry} />;
+  return hall.flock ? <FlockScreen key={`${hall.id}:${hall.flock.id}`} kind={kind} flockId={hall.flock.id} nav={nav} onGone={state.retry} /> : <EmptyHall key={hall.id} kind={kind} site={site} hall={hall} nav={nav} onChanged={state.retry} />;
 }
 
 /** /flock/:id: الدورة بعينها (المغلقة من تقريرها والروابط القديمة)، بنفس الشاشة بلا السابقة والتالية. */

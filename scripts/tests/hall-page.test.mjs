@@ -342,7 +342,7 @@ export default async function (t) {
       [5, { dead: 2, version: 2 }],
       [8, { dead: 1, version: 1 }],
     ];
-    const MISSING_SENTENCE = (n) => `وناقص ${n} من الأيام السبعة الماضية بلا جولة: سجّلها من «أيام الدورة» قبل أن تفوت.`;
+    const MISSING_SENTENCE = (n) => `ولم تُسجَّل جولة ${n} من الأيام السبعة الماضية: سجّلها من «أيام الدورة» قبل أن تفوت.`;
     const card = () => byAction('hall-today-card')[0] ?? null;
     const cardHeading = () => (card() ? descendants(card()).find((n) => n.localName === 'h2')?.textContent ?? null : null);
     await step('H3 لم تُسجَّل', async () => {
