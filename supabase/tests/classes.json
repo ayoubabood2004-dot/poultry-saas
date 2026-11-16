@@ -23,6 +23,8 @@
     "flock_vaccinations",
     "flock_weights",
     "flocks",
+    "hall_vaccine_program_days",
+    "hall_vaccine_programs",
     "item_prices",
     "ledger_books",
     "member_scopes",

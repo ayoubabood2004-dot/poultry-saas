@@ -493,8 +493,10 @@ export default async function (t) {
       );
       await mount('/mill/recipe/r-1');
       t.ok(text().includes('لا تكاليف على هذه النسخة: لإضافة تكلفة أنشئ نسخة جديدة') && byAction('rates-new-version').length === 1, 'X7 نسخة مفعَّلة بلا تكاليف: النصّ يدلّ على «نسخة جديدة» وزرّها معه');
-      await click(byAction('new-version')[0]);
-      await click(byAction('new-version')[0]);
+      // كلمة الزبون 2026-11-15 (0028): «عدّل الخلطة» في صفّ الأفعال صار يفتح شاشة التعديل الواحدة (edit_recipe)، ومسوّدة new_recipe_version باقية في
+      // «نسخة جديدة» بقسم التكاليف، فالإعادة بالمعرّف نفسه تُفحص من زرّها.
+      await click(byAction('rates-new-version')[0]);
+      await click(byAction('rates-new-version')[0]);
       const [first, second] = named(calls, 'newRecipeVersion');
       t.ok(first?.[0] === 'r-1' && /^[0-9a-f-]{36}$/u.test(first?.[1] ?? ''), 'X7 «نسخة جديدة» تنادي new_recipe_version بالخلطة ومعرّف من الجهاز');
       t.eq(second?.[1], first?.[1], 'X7 والإعادة بعد نتيجة مجهولة بالمعرّف نفسه (لا نسخة ثانية)');

@@ -474,6 +474,9 @@ export default async function (t, db) {
         await q(`select public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(
           jsonb_build_object('kind', 'log', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'name', 'فيتامين', 'dose', null),
           jsonb_build_object('kind', 'vaccination', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'vaccine_id', $2::uuid, 'age_day', 1)))`, [flocksOf[key].flock, vaccine]);
+        // 0028: جدول لقاحات خاصّ لـ«قاعة 1» بعد التأشير (اللقاح نفسه بيوم العمر 7)، فجدولا القاعة بصفوف للطرفين.
+        const hall = await value(q, 'select hall_id from public.flocks where id = $1', [flocksOf[key].flock]);
+        await q("select public.save_hall_vaccine_program($1, 42, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0)", [hall, vaccine]);
       },
       { commit: true },
     );

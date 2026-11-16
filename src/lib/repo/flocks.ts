@@ -106,6 +106,8 @@ export interface FlockSummary {
   version: number;
   placedOn: Day | null;
   placedCount: number | null;
+  /** العمر عند التسكين بالأيام كما حُفظ (يرسله الخادم منذ 0012)؛ null لجواب بلا المفتاح. نافذة تعديل الفوج تبدأ منه. */
+  ageDaysAtPlacement: number | null;
   ageDays: number | null;
   daysSincePlacement: number | null;
   deadTotal: number;
@@ -144,6 +146,7 @@ export function parseFlock(value: unknown): FlockSummary {
     version: int(row, 'version'),
     placedOn: optStr(row, 'placed_on'),
     placedCount: optInt(row, 'placed_count'),
+    ageDaysAtPlacement: optInt(row, 'age_days_at_placement'),
     ageDays: optInt(row, 'age_days'),
     daysSincePlacement: optInt(row, 'days_since_placement'),
     deadTotal: int(row, 'dead_total'),

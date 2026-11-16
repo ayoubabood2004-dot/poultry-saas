@@ -10,7 +10,7 @@ import { parseCloseResult, type CloseResult } from './flockClose';
 import type { CostKind } from './flocks';
 
 // «القاعات بين يديك» (0026، كلمة المالك 2026-11-11، docs/HALLS_PLAN.md): الإضافة لعدّة قاعات بنداء واحد (صرف من مخزن، أو دواء بلا مخزن، أو تأشير
-// لقاح)، وجدول اللقاحات الواحد لكلّ نوع وقائمة لقاحاته، والتذكير، وتقويم القاعة الشهري، وتقرير الدورة. الأرقام نصوص عشرية بالسلك: الكمية والكيلو
+// لقاح)، وجدول اللقاحات العامّ لكلّ نوع وجدول القاعة الخاصّ (0028) وقائمة لقاحاتها، والتذكير، وتقويم القاعة الشهري، وتقرير الدورة. الأرقام نصوص عشرية بالسلك: الكمية والكيلو
 // بالآلاف (Milli)، والمال بالفلس، والنسبة بمرتبتين؛ والمال يغيب مفتاحه كلّه لغير أدوار الكلفة، فالمحلّل يقرأ الغياب null.
 
 export class HallsShapeError extends Error {
@@ -176,7 +176,7 @@ export async function undoVaccination(id: string, reason: string | null, clientR
   return { id: str(json, 'id'), issueVoided: flag(json, 'issue_voided') };
 }
 
-// ─── قائمة اللقاحات وجدولها (vaccine_board وكاتباه) ─────────────────────────────────────────────────────────────────
+// ─── قائمة اللقاحات وجداولها (vaccine_board وكتّابها) ───────────────────────────────────────────────────────────────
 
 export interface Vaccine {
   id: string;
@@ -200,6 +200,23 @@ export interface VaccineProgram {
   days: readonly ProgramDay[];
 }
 
+/** جدول قاعة خاصّ (0028، كلمة الزبون 2026-11-15: «كلّ قاعة لازم يكون إلها جدول»): يحلّ محلّ الجدول العامّ لنوعها. */
+export interface HallProgram {
+  /** 1 فما فوق: القاعة بلا جدول خاصّ يأتي program فيها null، و0 في الحفظ يعني «أنشئه». */
+  version: number;
+  endAge: number;
+  days: readonly ProgramDay[];
+}
+
+/** قاعة حيّة في نطاق القارئ، بجدولها الخاصّ أو null (تتبع الجدول العامّ لنوعها). */
+export interface VaccineHall {
+  id: string;
+  name: string;
+  siteName: string;
+  kind: FlockKind;
+  program: HallProgram | null;
+}
+
 export interface VaccineBoard {
   today: Day;
   canEdit: boolean;
@@ -207,16 +224,36 @@ export interface VaccineBoard {
   vaccines: readonly Vaccine[];
   programs: Readonly<Record<FlockKind, VaccineProgram>>;
   items: readonly { id: string; name: string; kind: ItemKind; baseUnit: BaseUnit }[];
+  /** 0028: القاعات بجداولها الخاصّة؛ null من خادم قبل 0028 (لا جداول قاعات فيه، فالصفحة كما كانت). */
+  halls: readonly VaccineHall[] | null;
 }
+
+const programDays = (value: unknown): ProgramDay[] => list(value, 'days').map((day) => ({ vaccineId: str(day, 'vaccine_id'), ageDay: int(day, 'age_day') }));
 
 const program = (value: unknown, field: string): VaccineProgram => {
   const row = record(value, field);
   return {
     version: int(row, 'version'),
     endAge: optInt(row, 'end_age'),
-    days: list(row.days, 'days').map((day) => ({ vaccineId: str(day, 'vaccine_id'), ageDay: int(day, 'age_day') })),
+    days: programDays(row.days),
   };
 };
+
+/** مفتاح program حاضر دائماً (null أو الجدول)، والجدول بنسخة 1 فما فوق ونهاية وأيّام. */
+const hallProgram = (row: Row): HallProgram | null => {
+  if (row.program === undefined) throw new HallsShapeError('program');
+  const box = optRecord(row.program, 'program');
+  if (!box) return null;
+  const version = int(box, 'version');
+  if (version < 1) throw new HallsShapeError('version');
+  return { version, endAge: int(box, 'end_age'), days: programDays(box.days) };
+};
+
+/** مفتاح 0028: خادم قبله لا يرسله فـnull (مثل مفاتيح 0027 في تقرير الدورة)، وما يُرسل يُقرأ بشكله كلّه أو يُرفض. */
+const vaccineHalls = (value: unknown): VaccineHall[] | null =>
+  value === undefined
+    ? null
+    : list(value, 'halls').map((row) => ({ id: str(row, 'id'), name: str(row, 'name'), siteName: str(row, 'site_name'), kind: oneOf(row, 'kind', KINDS), program: hallProgram(row) }));
 
 export function parseVaccineBoard(value: unknown): VaccineBoard {
   const json = record(value, 'vaccine_board');
@@ -241,6 +278,7 @@ export function parseVaccineBoard(value: unknown): VaccineBoard {
       kind: oneOf(row, 'kind', ITEM_KINDS),
       baseUnit: oneOf(row, 'base_unit', UNITS),
     })),
+    halls: vaccineHalls(json.halls),
   };
 }
 
@@ -274,6 +312,31 @@ export async function saveVaccineProgram(kind: FlockKind, endAge: number, days: 
     'save_vaccine_program',
   );
   return { kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: int(json, 'end_age'), days: int(json, 'days') };
+}
+
+/** جدول القاعة الخاصّ كلّه بنهايته وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول لها: يُنشأ). */
+export async function saveHallVaccineProgram(
+  hallId: string,
+  endAge: number,
+  days: readonly ProgramDay[],
+  expectedVersion: number,
+): Promise<{ hallId: string; kind: FlockKind; version: number; endAge: number; days: number }> {
+  const json = record(
+    await call<unknown>('save_hall_vaccine_program', {
+      p_hall: hallId,
+      p_end_age: endAge,
+      p_days: days.map((day) => ({ vaccine_id: day.vaccineId, age_day: day.ageDay })),
+      p_expected_version: expectedVersion,
+    }),
+    'save_hall_vaccine_program',
+  );
+  return { hallId: str(json, 'hall_id'), kind: oneOf(json, 'kind', KINDS), version: int(json, 'version'), endAge: int(json, 'end_age'), days: int(json, 'days') };
+}
+
+/** تعود القاعة إلى الجدول العامّ بشرط نسخة جدولها: dropped false حين لم يكن لها جدول خاصّ. */
+export async function dropHallVaccineProgram(hallId: string, expectedVersion: number): Promise<{ hallId: string; dropped: boolean }> {
+  const json = record(await call<unknown>('drop_hall_vaccine_program', { p_hall: hallId, p_expected_version: expectedVersion }), 'drop_hall_vaccine_program');
+  return { hallId: str(json, 'hall_id'), dropped: flag(json, 'dropped') };
 }
 
 // ─── التذكير (vaccine_reminders) ──────────────────────────────────────────────────────────────────────────────────

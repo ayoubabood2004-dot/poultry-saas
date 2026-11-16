@@ -1258,6 +1258,64 @@ export async function newRecipeVersion(recipeId: string, versionId: string): Pro
   return parseNewRecipeVersion(await call<unknown>('new_recipe_version', { p_recipe: recipeId, p_id: versionId }));
 }
 
+// ─── «عدّل الخلطة» بنداء واحد (0028، كلمة الزبون 2026-11-15: التعديل لا يُحفظ إلّا بتفعيل نسخة جديدة، والقديمة لا تُحذف) ───────────────
+// edit_recipe: الاسم والموادّ بترتيبها (بلا كميات) والتفعيل بمعاملة واحدة، والمفعَّلة السابقة تُقاعد ويحفظها السجلّ؛ ومسوّدة قديمة («عدّل الخلطة»
+// القديمة) يحلّ التعديل محلّها. مشروط بالمفعَّلة كما قرأتها الشاشة (recipe_changed غيرها)، والمرجع من الجهاز يبقى للإعادة بعد جواب ضاع.
+
+export interface RecipeEditInput {
+  recipeId: string;
+  /** معرّف النسخة المفعَّلة كما قرأتها الشاشة، أو null لخلطة بلا مفعَّلة. */
+  expectedActive: string | null;
+  name: string;
+  /** موادّ الخلطة بترتيبها بلا كميات (1..200، بلا تكرار). */
+  lines: readonly { itemId: string }[];
+  clientRef: string;
+}
+
+export interface EditedRecipe {
+  recipeId: string;
+  /** النسخة المفعَّلة بعد الحفظ: جديدة، أو القائمة نفسها حين لم يتغيّر شيء أو تغيّر الاسم وحده. */
+  versionId: string;
+  versionNo: number;
+  /** الاسم كما حُفظ. */
+  name: string;
+  lines: number;
+  /** false: الاسم والموادّ بترتيبها كالمفعَّلة ولا مسوّدة، فلم يُكتب شيء. مفتاح إلزامي. */
+  changed: boolean;
+}
+
+/** عدد صحيح موجب (رقم النسخة وعدد الموادّ: الخلطة لا تُحفظ بلا مادّة). */
+const positive = (row: Row, field: string): number => {
+  const value = int(row, field);
+  if (value < 1) throw new MillShapeError(field);
+  return value;
+};
+
+export function parseEditedRecipe(value: unknown): EditedRecipe {
+  const json = record(value, 'edit_recipe');
+  return {
+    recipeId: str(json, 'recipe_id'),
+    versionId: str(json, 'version_id'),
+    versionNo: positive(json, 'version_no'),
+    name: str(json, 'name'),
+    lines: positive(json, 'lines'),
+    changed: flag(json, 'changed'),
+  };
+}
+
+/** «احفظ التعديل»: الاسم والموادّ والتفعيل بنداء edit_recipe واحد؛ الإعادة بالمرجع نفسه والحمولة نفسها ترجّع جواب الأولى. */
+export async function editRecipe(input: RecipeEditInput): Promise<EditedRecipe> {
+  return parseEditedRecipe(
+    await call<unknown>('edit_recipe', {
+      p_recipe: input.recipeId,
+      p_expected_active: input.expectedActive,
+      p_name: input.name.trim(),
+      p_lines: input.lines.map((line) => ({ item_id: line.itemId })),
+      p_client_ref: input.clientRef,
+    }),
+  );
+}
+
 /**
  * مخازن المعمل ويوم الخادم (recipes_overview يحملهما، كشاشة المعمل). كانت لنافذة «أنتج» في بطاقة الخلطة؛ وشاشة الإنتاج تقرؤهما الآن من
  * production_form (0025).

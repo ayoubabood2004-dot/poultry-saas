@@ -421,6 +421,12 @@ export default async function (t, db) {
     },
     { commit: true },
   );
+  // 0028: جدول لقاحات خاصّ لـ«قاعة 2» الفارغة (ND يوم 3) لخانة حذفه؛ والقاعة بلا فوج، فلا تذكير يتغيّر.
+  await db.asUser(
+    USERS.owner,
+    (q) => q("select public.save_hall_vaccine_program($1, 30, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 3)), 0)", [p2.empty, p26.nd]),
+    { commit: true },
+  );
 
   // 0020 (عمليات المخزن البسيطة): مادّة بلا استعمال للحذف، وشراء كاز بلا سعر بالمخزن العامّ (10 لترات) يُسعَّر في خانته، وتحويل لترين منه إلى
   // «زيت المصفوفة» مثبَّت لخانة الإلغاء؛ وكلّ خانة تُرجَع.
@@ -709,6 +715,31 @@ export default async function (t, db) {
     vaccine_reminders: { sql: () => ["select jsonb_array_length(public.vaccine_reminders() -> 'items') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
     flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
     flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
+    // 0028 (ملاحظات الزبون 2026-11-15): تعديل الفوج وحذفه وجدول القاعة الخاصّ لمن يدير الحقول (flock.manage: المالك والمدير)، و«احفظ التعديل» للخلطة
+    // لمن يفعّلها (recipe.activate). تعديل السلالة وحدها على فوج «قاعة 1» (له صرف وتأشير، والسلالة لا تغيّر التاريخ)؛ والحذف لفوج يُفتح في الخانة
+    // نفسها في «قاعة 2» الفارغة فيُحذف (لا سجلّ له)، وفحص كلّ دور بالحذف وحده في customer-edits.test؛ وجدول خاصّ جديد لـ«قاعة 1»، وحذف جدول «قاعة 2»
+    // المحفوظ في البذرة؛ وتعديل خلطة المصفوفة بمسوّدتها القائمة (تُستعمل وتُفعَّل).
+    edit_flock: {
+      sql: () => ["select public.edit_flock($1, (select version from public.flocks where id = $1), (select placed_on from public.flocks where id = $1), 1000, 0, 'روس', gen_random_uuid()) ->> 'changed' as v", [p2.flock]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:true'),
+    },
+    delete_flock: {
+      sql: () => ["select public.delete_flock(o.id, 1, gen_random_uuid()) ->> 'deleted' as v from (select (public.open_flock($1, public.app_today(), 10, 0, null, gen_random_uuid()) ->> 'flock_id')::uuid as id) as o", [p2.empty]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:true'),
+    },
+    save_hall_vaccine_program: {
+      sql: () => ["select public.save_hall_vaccine_program($1, 42, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0) ->> 'version' as v", [p2.hall, p26.nd]],
+      value: true,
+      expect: only(FLOCK_MANAGE, 'ok:1'),
+    },
+    drop_hall_vaccine_program: { sql: () => ["select public.drop_hall_vaccine_program($1, 1) ->> 'dropped' as v", [p2.empty]], value: true, expect: only(FLOCK_MANAGE, 'ok:true') },
+    edit_recipe: {
+      sql: () => ["select public.edit_recipe($1, $2, 'خلطة المصفوفة', jsonb_build_array(jsonb_build_object('item_id', $3::uuid)), gen_random_uuid()) ->> 'changed' as v", [p3.recipe, p3.version, p3.corn]],
+      value: true,
+      expect: only(RECIPE, 'ok:true'),
+    },
     // 0027 (تقارير القاعات): التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، فمن لا يرى حقل اللحم يرى صفراً بلا رفض.
     halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
     // 0028: أربعة أفواج («قاعة 1» وقاعات البيع والإغلاق والنقل، والأخيرة أُغلقت اليوم فتظهر يومها).

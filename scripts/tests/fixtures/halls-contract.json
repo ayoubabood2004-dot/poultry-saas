@@ -1,5 +1,5 @@
 {
- "_note": "عيّنات العقد اليدوية (contract-0026، ومفاتيح التقرير الكامل days وweeks وweights وkpis من contract-0027)؛ وعيّنات القاعدة الحقيقية في halls-0026.json وreports-0027.json.",
+ "_note": "عيّنات العقد اليدوية (contract-0026، ومفاتيح التقرير الكامل days وweeks وweights وkpis من contract-0027، ومفتاح halls في vaccine_board من contract-0028)؛ وعيّنات القاعدة الحقيقية في halls-0026.json وreports-0027.json.",
  "give_to_flocks": {
   "on": "2026-11-11",
   "issues": [
@@ -121,6 +121,29 @@
     "name": "لقاح IB",
     "kind": "vaccine",
     "base_unit": "pc"
+   }
+  ],
+  "halls": [
+   {
+    "id": "00000000-0000-4000-8000-000000000011",
+    "name": "قاعة 1",
+    "site_name": "حقل الأمير",
+    "kind": "broiler",
+    "program": null
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000012",
+    "name": "قاعة 2",
+    "site_name": "حقل الأمير",
+    "kind": "broiler",
+    "program": null
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000013",
+    "name": "قاعة 3",
+    "site_name": "حقل الأمير",
+    "kind": "broiler",
+    "program": null
    }
   ]
  },

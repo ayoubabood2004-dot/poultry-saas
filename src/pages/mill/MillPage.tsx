@@ -1,8 +1,9 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ChefHat, Factory, Plus, Warehouse } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChefHat, Factory, Pencil, Plus, Trash2, Warehouse } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button, IconButton } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
@@ -11,7 +12,7 @@ import { can } from '../../domain/permissions';
 import { describeError, RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadMill, setRecipeOrder, type MillHome, type RecipeCard } from '../../lib/repo/mill';
+import { archiveRecipe, loadMill, loadRecipe, setRecipeOrder, type MillHome, type RecipeCard } from '../../lib/repo/mill';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { kgText } from './cards';
@@ -29,8 +30,26 @@ import { Chip, CompositionBar, dash, moveId, PALETTE, recipeColor, reconcileOrde
 // «ترتيب معمل العلف» (0023، كلمة المالك 2026-11-10: «ينشئ كل انواع العلايق الي يريدها ويرتبها مثل ما هو يريد»): المالك والمدير يرتّبان العلائق
 // («رتّب العلائق» ثمّ «احفظ الترتيب»: set_recipe_order بشرط الترتيب الذي عرضته الشاشة، وrecipes_changed يُقال بتلميحه ويُقرأ المعمل من جديد ويبقى ترتيب
 // المستخدم ليُحفظ ثانيةً، كـ«أدرج مواد» في الرصيد اليومي)؛ و«أنتج» يفتح شاشة الإنتاج الواحدة (/mill/produce/:id) بدل النافذة.
+// «عدّل» و«احذف» على كلّ بطاقة (0028، كلمة الزبون 2026-11-15: لا خيار تعديل في المعمل غير «خلطة جديدة»، والتعديل والحذف أهمّ ما في الخلطات): للمالك
+// والمدير (recipe.activate). «عدّل» يفتح شاشة تعديل الخلطة (/mill/recipe/:id/edit?back=mill)، و«احذف» بتأكيد يسمّي الخلطة وأثر حذفها كصفحتها: تُقرأ
+// نسخة صفّ الخلطة الآن ثمّ الأرشفة القائمة بها، والفشل داخل التأكيد.
 
-export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: RecipeCard; canProduce: boolean; onProduce: () => void }) {
+export function RecipeCardView({
+  recipe,
+  canProduce,
+  onProduce,
+  canEdit = false,
+  onEdit,
+  onDelete,
+}: {
+  recipe: RecipeCard;
+  canProduce: boolean;
+  onProduce: () => void;
+  /** «عدّل» و«احذف» على البطاقة (recipe.activate: المالك والمدير). */
+  canEdit?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
   const color = recipeColor(recipe.id);
   const basis = recipe.activeBasisKg ?? 0n;
   const last = recipe.lastBatch;
@@ -42,6 +61,29 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
   // اللوحة خمسة ألوان بالموضع، وما بعدها قطعة رمادية واحدة «أخرى» في الشريط ورقاقة واحدة هنا.
   const named = pieces.slice(0, PALETTE.length);
   const others = pieces.length - named.length;
+  // «عدّل» و«احذف» بجانب «أنتج»، وللخلطة بلا مفعَّلة أيضاً (حفظ التعديل يفعّلها).
+  const manage = canEdit ? (
+    <>
+      <Button
+        variant="secondary"
+        icon={<Pencil className="size-5" aria-hidden="true" />}
+        aria-label={t('mill.card.edit_named', 'عدّل «{name}»', { name: recipe.name })}
+        onClick={onEdit}
+        data-action="edit-recipe"
+      >
+        {t('mill.card.edit', 'عدّل')}
+      </Button>
+      <Button
+        variant="ghost"
+        icon={<Trash2 className="size-5" aria-hidden="true" />}
+        aria-label={t('mill.card.delete_named', 'احذف «{name}»', { name: recipe.name })}
+        onClick={onDelete}
+        data-action="delete-recipe-card"
+      >
+        {t('common.delete', 'احذف')}
+      </Button>
+    </>
+  ) : null;
   return (
     <article className="card animate-fade-in overflow-hidden rounded-3xl p-0">
       <div className="h-2" style={{ background: color.solid }} aria-hidden="true" />
@@ -126,14 +168,30 @@ export function RecipeCardView({ recipe, canProduce, onProduce }: { recipe: Reci
               ) : null}
             </dl>
             {!last ? <p className="text-sm text-ink-muted">{t('mill.card.never', 'لم تُنتَج بعد.')}</p> : null}
-            {canProduce ? (
-              <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} onClick={onProduce} data-action="produce">
-                {t('mill.card.produce', 'أنتج')}
-              </Button>
+            {canProduce || manage ? (
+              <div className="flex flex-wrap items-center gap-2" data-action="card-actions">
+                {canProduce ? (
+                  <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} onClick={onProduce} data-action="produce">
+                    {t('mill.card.produce', 'أنتج')}
+                  </Button>
+                ) : null}
+                {manage}
+              </div>
             ) : null}
           </>
         ) : (
-          <Notice tone="info" title={t('mill.card.no_active', 'هذه الخلطة بلا نسخة مفعَّلة.')}>{t('mill.card.no_active_detail', 'افتحها وأكمل موادّها ثم فعّلها لتُنتج بها.')}</Notice>
+          <>
+            <Notice tone="info" title={t('mill.card.no_active', 'هذه الخلطة بلا نسخة مفعَّلة.')}>
+              {manage
+                ? t('mill.card.no_active_edit', 'اضغط «عدّل» واختر موادّها ثمّ «احفظ التعديل» لتُنتج بها.')
+                : t('mill.card.no_active_detail', 'افتحها وأكمل موادّها ثم فعّلها لتُنتج بها.')}
+            </Notice>
+            {manage ? (
+              <div className="flex flex-wrap items-center gap-2" data-action="card-actions">
+                {manage}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </article>
@@ -215,6 +273,10 @@ export default function MillPage() {
   const [arranging, setArranging] = useState<Arrangement | null>(null);
   const [arrangeBusy, setArrangeBusy] = useState(false);
   const [arrangeFailure, setArrangeFailure] = useState<string | null>(null);
+  /** «احذف» من بطاقة (0028): الخلطة في التأكيد، وفشلها داخله. */
+  const [deleting, setDeleting] = useState<RecipeCard | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteFailure, setDeleteFailure] = useState<string | null>(null);
 
   // الخلطة المحذوفة (المؤرشفة، كلمة المالك 2026-11-09) لا تظهر في المعمل؛ صفحتها باقية برابطها لتُعاد منها. والترتيب ترتيب الخادم (position ثمّ الاسم).
   const recipes = useMemo(() => data?.recipes.filter((recipe) => !recipe.archived) ?? [], [data]);
@@ -288,6 +350,28 @@ export default function MillPage() {
       }
     } finally {
       setArrangeBusy(false);
+    }
+  };
+
+  /**
+   * «احذفها» في تأكيد البطاقة: نسخة صفّ الخلطة تُقرأ الآن (recipe_detail؛ المعمل قُرئ قبل)، ثمّ الأرشفة القائمة بها كـ«احذف الخلطة» في صفحتها
+   * (تختفي من المعمل ولا يُنتَج بها، ودفعاتها في سجلّ الإنتاج). محذوفة أصلاً (من نافذة أخرى) لا تُكتب ثانيةً. الفشل يُقال داخل التأكيد.
+   */
+  const deleteRecipe = async () => {
+    if (!deleting || deleteBusy) return;
+    const target = deleting;
+    setDeleteBusy(true);
+    setDeleteFailure(null);
+    try {
+      const now = await loadRecipe(target.id);
+      if (!now.archived) await archiveRecipe(target.id, now.version, true);
+      setDeleting(null);
+      toast({ tone: 'success', title: t('mill.recipe.deleted_toast', 'حُذفت الخلطة «{name}» من المعمل.', { name: target.name }) });
+      state.retry();
+    } catch (problem) {
+      setDeleteFailure(failureText(problem));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -419,11 +503,47 @@ export default function MillPage() {
           <ul className="grid gap-3 sm:grid-cols-2">
             {recipes.map((recipe) => (
               <li key={recipe.id}>
-                <RecipeCardView recipe={recipe} canProduce={canDraft && recipe.activeId !== null} onProduce={() => navigate(`/mill/produce/${recipe.id}`)} />
+                <RecipeCardView
+                  recipe={recipe}
+                  canProduce={canDraft && recipe.activeId !== null}
+                  onProduce={() => navigate(`/mill/produce/${recipe.id}`)}
+                  canEdit={canRecipe}
+                  onEdit={() => navigate(`/mill/recipe/${recipe.id}/edit?back=mill`)}
+                  onDelete={() => {
+                    setDeleteFailure(null);
+                    setDeleting(recipe);
+                  }}
+                />
               </li>
             ))}
           </ul>
         </section>
+      ) : null}
+
+      {deleting ? (
+        <ConfirmDialog
+          open
+          tone="danger"
+          title={t('mill.recipe.delete_title', 'حذف الخلطة «{name}»؟', { name: deleting.name })}
+          consequence={
+            <span className="flex flex-col gap-2">
+              {t('mill.recipe.delete_consequence', 'تختفي «{name}» من المعمل ولا يُنتَج بها بعد الآن، وتبقى دفعاتها السابقة في سجلّ الإنتاج. وتعيدها من صفحتها متى شئت.', { name: deleting.name })}
+              {deleteFailure ? (
+                <span role="alert" className="text-danger-700 dark:text-danger-300" data-action="delete-recipe-failed">
+                  {deleteFailure}
+                </span>
+              ) : null}
+            </span>
+          }
+          confirmLabel={t('mill.recipe.delete_confirm', 'احذفها')}
+          busy={deleteBusy}
+          action="confirm-delete-recipe"
+          onCancel={() => {
+            setDeleting(null);
+            setDeleteFailure(null);
+          }}
+          onConfirm={() => void deleteRecipe()}
+        />
       ) : null}
 
       {rows.length ? (

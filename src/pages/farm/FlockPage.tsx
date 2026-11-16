@@ -1,5 +1,5 @@
 import { useCallback, useId, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -19,6 +19,7 @@ import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type F
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BUTTON_LINK_CLASS, CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
+import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { farmPath, farmTitle, fmtPct, HallFlockCard, Metric } from './shared';
 
 // شاشة الفوج (FOUNDATION ٧٨٢): الأرقام المهمّة ثابتة بالرأس (العمر، الحيّ، النفوق، العلف، ومعامل التحويل للّاحم، وبيض اليوم ونسبته
@@ -248,10 +249,13 @@ function FeedSection({ flockId, active, back }: { flockId: string; active: boole
 
 export default function FlockPage({ kind }: { kind: FlockKind }) {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const load = useCallback(() => loadFlockDetail(id), [id]);
   const state = useLoad(load);
   const detail = state.data;
   const base = farmPath(kind);
+  // نافذة «عدّل الفوج» (كلمة الزبون 2026-11-15) من حالة الصفحة لا من القراءة: القراءة من جديد (data = null أثناءها) لا تطويها.
+  const [editing, setEditing] = useState<FlockDetail['flock'] | null>(null);
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -259,6 +263,11 @@ export default function FlockPage({ kind }: { kind: FlockKind }) {
         subtitle={detail?.flock.placedOn ? t('flock.subtitle', 'سُكّن يوم {day}{breed}', { day: fmtDay(detail.flock.placedOn), breed: detail.flock.breed ? t('flock.breed', '، سلالة {breed}', { breed: detail.flock.breed }) : '' }) : undefined}
         actions={
           <div className="flex gap-3">
+            {detail?.canManage && detail.flock.status === 'active' ? (
+              <Button size="sm" variant="secondary" onClick={() => setEditing(detail.flock)} data-action="flock-edit">
+                {t('farm.flock.edit', 'عدّل الفوج')}
+              </Button>
+            ) : null}
             {detail?.canSave ? (
               <Link to={`${base}/round`} className={LINK_CLASS} data-action="flock-round">
                 {t('farm.round', 'الجولة اليومية')}
@@ -278,6 +287,20 @@ export default function FlockPage({ kind }: { kind: FlockKind }) {
       {detail ? <FeedSection flockId={detail.flock.id} active={detail.flock.status === 'active'} back={`${base}/flock/${detail.flock.id}`} /> : null}
       {detail ? <HallFlockCard flock={detail.flock} onChanged={state.retry} /> : null}
       {detail ? <FlockView detail={detail} kind={kind} onChanged={state.retry} /> : null}
+      {editing ? (
+        <FlockEditDialog
+          hallName={editing.hallName}
+          flock={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            state.retry();
+          }}
+          // الفوج لم يعد موجوداً: الرجوع إلى الحقل بدل صفحته (وبلا رجوع إليها).
+          onDeleted={() => navigate(base, { replace: true })}
+          onStale={state.retry}
+        />
+      ) : null}
     </div>
   );
 }

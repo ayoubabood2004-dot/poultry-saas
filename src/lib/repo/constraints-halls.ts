@@ -20,6 +20,11 @@ export const HALLS_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_vaccinations_void_check: () => t('constraint.flock_vaccinations_void_check', 'التأشير الملغى له وقت إلغاء، والسبب للملغى وحده.'),
   flock_vaccinations_void_reason_check: () => t('constraint.flock_vaccinations_void_reason_check', 'سبب إلغاء التأشير لا يزيد على 500 حرف، بلا فراغ في طرفيه.'),
   flock_vaccinations_issue_check: () => t('constraint.flock_vaccinations_issue_check', 'التأشير المصروف من المخزن له صرفه ومادّته معاً.'),
+  // 0028 (ملاحظات الزبون 2026-11-15): جدول لقاحات خاصّ لكلّ قاعة.
+  hall_vaccine_programs_kind_check: () => t('constraint.hall_vaccine_programs_kind_check', 'جدول القاعة إمّا للّاحم أو للبيّاض، كنوع حقلها.'),
+  hall_vaccine_programs_end_age_check: () => t('constraint.hall_vaccine_programs_end_age_check', 'نهاية الدورة في جدول القاعة عدد أيّام من 1 إلى 1,000.'),
+  hall_vaccine_programs_version_check: () => t('constraint.hall_vaccine_programs_version_check', 'نسخة جدول القاعة تبدأ من 1.'),
+  hall_vaccine_program_days_age_check: () => t('constraint.hall_vaccine_program_days_age_check', 'يوم العمر في جدول القاعة من 1 إلى 1,000.'),
 };
 
 registerConstraintHints(HALLS_CONSTRAINT_HINTS);

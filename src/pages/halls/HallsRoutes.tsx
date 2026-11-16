@@ -18,6 +18,8 @@ import VaccinesPage from './VaccinesPage';
 // و«أغلق الدورة» (close/:flockId) في الحزمة نفسها تحتاج الخادم لتُفتح (D9)؛ وبطاقة الفوج (FlockCard) تستوردها صفحة الفوج المحفوظة كسولةً كالتذكير.
 export { default as Reminders } from './Reminders';
 export { default as FlockCard } from './FlockCard';
+// نافذة «عدّل الفوج» (0028) هنا لتُحمَّل من حزمة القاعات خارج التثبيت المسبق (pages/farm/flockEditLazy): التعديل يحتاج الخادم كلّه.
+export { FlockEditDialog } from '../farm/FlockEditDialog';
 
 export default function HallsRoutes() {
   return (

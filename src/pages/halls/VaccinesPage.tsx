@@ -12,11 +12,24 @@ import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import type { FlockKind } from '../../domain/flocks';
+import { naturalCompare } from '../../domain/naturalOrder';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
 import { countForm, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
-import { deleteVaccine, loadVaccineBoard, saveVaccine, saveVaccineProgram, type ProgramDay, type Vaccine, type VaccineBoard, type VaccineProgram } from '../../lib/repo/halls';
+import {
+  deleteVaccine,
+  dropHallVaccineProgram,
+  loadVaccineBoard,
+  saveHallVaccineProgram,
+  saveVaccine,
+  saveVaccineProgram,
+  type ProgramDay,
+  type Vaccine,
+  type VaccineBoard,
+  type VaccineHall,
+  type VaccineProgram,
+} from '../../lib/repo/halls';
 import { useLoad } from '../../lib/useLoad';
 import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch, VaccineName } from './parts';
 
@@ -30,6 +43,15 @@ import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch,
 // والنتيجة المجهولة تجمّد الشاشة بـ«أعد المحاولة» بالنداء نفسه حرفاً؛ وإعادةٌ يرفضها شرط النسخة أو المعرّف قد تعني أنّ الأولى حُفظت، فيُقرأ الجدول
 // ويُقارن بما أُرسل (درس الكتابة المشروطة: كلّ إعادة تعرف نتيجتها هي). ولا شيء من هذه يتضاعف بإعادة التحميل (الجدول يُستبدل كلّه بشرط نسخته،
 // واللقاح بمعرّفه واسمه الفريد)، فالطلب المعلَّق في المكوّن، والنافذة «فيها ما لم يُحفظ» ما دام تعديل أو طلب. ومن لا يعدّل (can_edit) يرى الجدول وحده.
+//
+// وجدول القاعة الخاصّ (0028، كلمة الزبون 2026-11-15: «مو المفروض جدول لكلّ قاعة؟ … كلّ قاعة لازم يكون إلها جدول»): تحت تبويب النوع «لمن هذا
+// الجدول؟» (?hall=، وبلاه الجدول العامّ): العامّ أوّلاً ثمّ قاعات النوع الحيّة بترتيب أسمائها بأرقامها (naturalCompare، وبحقلها حين تتوزّع على أكثر
+// من حقل)، وما لها جدول خاصّ مُعلَّمة. القاعة بلا جدول خاصّ تُعرض بالجدول العامّ للعرض («تتبع الجدول العامّ»)، و«اعمل لها جدولاً خاصّاً» يبدأ تعديلاً
+// منسوخاً منه يحفظه save_hall_vaccine_program بالنسخة 0؛ وما لها جدول يُعدَّل كالعامّ حرفاً (شرط النسخة، وجدول الفروق بعد stale_program، والإعادة
+// المجمَّدة بالنداء نفسه)، و«احذف جدولها الخاصّ» يعيدها إلى العامّ بشرط نسخته (drop_hall_vaccine_program). التعديلات والصفحات لكلّ نطاق (النوع، أو
+// «hall:» ومعرّف القاعة)، وتعديل قاعة بلا جدول خاصّ «لم يُحفظ» ولو طابق العامّ (الحفظ ينشئه). ونسخة جدول القاعة ترجع 0 بحذفه، فالتعارض نسخة
+// تقدّمت على ما بُني عليه التعديل، أو نقصت عنه بقراءة جديدة (حُذف من جهاز آخر فصارت تتبع العامّ: الفروق مع العامّ، و«اعتمد تعديلي» ينشئه من جديد).
+// وقائمة اللقاحات واحدة للمنشأة تشترك فيها الجداول كلّها، فحذف لقاح يسمّي أيّامه في كلّ جدول.
 
 const KINDS: readonly FlockKind[] = ['broiler', 'layer'];
 const DEFAULT_END: Readonly<Record<FlockKind, number>> = { broiler: 42, layer: 500 };
@@ -52,19 +74,37 @@ const splitKey = (key: DayKey): ProgramDay => {
   return { ageDay: Number(key.slice(0, at)), vaccineId: key.slice(at + 1) };
 };
 
-/** تعديل جدول نوع لم يُحفظ: النسخة التي بُني عليها، ونصّ نهاية الدورة كما كُتب، والأيام. */
+/** نطاق الجدول المعروض: العامّ لنوع (مفتاحه النوع)، أو جدول قاعة (مفتاحه «hall:» ومعرّفها). */
+type ScopeKey = string;
+const hallKey = (id: string): ScopeKey => `hall:${id}`;
+
+/** تعديل جدول لم يُحفظ: النسخة التي بُني عليها (0 لقاعة بلا جدول خاصّ: الحفظ ينشئه)، ونصّ نهاية الدورة كما كُتب، والأيام. */
 interface Draft {
   against: number;
   endText: string;
   days: ReadonlySet<DayKey>;
 }
 
-/** نداء save_vaccine_program كما أُرسل (يُعاد حرفاً بعد نتيجة مجهولة). */
+/** نداء save_vaccine_program (hall null) أو save_hall_vaccine_program كما أُرسل (يُعاد حرفاً بعد نتيجة مجهولة). */
 interface ProgramRequest {
   kind: FlockKind;
+  /** القاعة واسمها كما عُرض. */
+  hall: { id: string; name: string } | null;
   endAge: number;
   days: readonly ProgramDay[];
   version: number;
+}
+const requestKey = (request: ProgramRequest): ScopeKey => (request.hall ? hallKey(request.hall.id) : request.kind);
+
+/** «احذف جدولها الخاصّ»: النسخة التي يُحذف بشرطها (0 إن لم يعد لها جدول)، والنتيجة المجهولة تجمّده كحذف اللقاح. */
+interface Dropping {
+  hall: { id: string; name: string };
+  version: number;
+  busy: boolean;
+  failure: string | null;
+  frozen: boolean;
+  /** رُفض بـstale_program: اللوحة التي بُنيت منها النافذة، حتّى تصل قراءة جديدة فتأخذ النافذة نسخة الجدول منها. */
+  stale: VaccineBoard | null;
 }
 
 interface Editing {
@@ -103,7 +143,19 @@ function parseEnd(text: string): number | null {
 const serverEnd = (kind: FlockKind, saved: VaccineProgram): number => saved.endAge ?? DEFAULT_END[kind];
 const serverDays = (saved: VaccineProgram): ReadonlySet<DayKey> => new Set(saved.days.map((day) => dayKey(day.ageDay, day.vaccineId)));
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a.size === b.size && [...a].every((key) => b.has(key));
-const baseDraft = (kind: FlockKind, saved: VaccineProgram): Draft => ({ against: saved.version, endText: fmtInt(serverEnd(kind, saved)), days: serverDays(saved) });
+const baseDraft = (kind: FlockKind, saved: VaccineProgram, against: number): Draft => ({ against, endText: fmtInt(serverEnd(kind, saved)), days: serverDays(saved) });
+
+/** قاعات النوع بحقلها ثمّ اسمها، بأرقامهما («قاعة 5» قبل «قاعة 44»). */
+const hallOrder = (a: VaccineHall, b: VaccineHall): number => naturalCompare(a.siteName, b.siteName) || naturalCompare(a.name, b.name);
+
+/** اسم كلّ قاعة كما يُعرض: ومعه حقلها حين تتوزّع قاعات نوعها على أكثر من حقل. */
+function hallNames(halls: readonly VaccineHall[]): ReadonlyMap<string, string> {
+  const sites = new Map<FlockKind, Set<string>>();
+  for (const hall of halls) sites.set(hall.kind, (sites.get(hall.kind) ?? new Set<string>()).add(hall.siteName));
+  return new Map(
+    halls.map((hall) => [hall.id, (sites.get(hall.kind)?.size ?? 0) > 1 ? t('halls.vac.hall_site', '{hall} — {site}', { hall: hall.name, site: hall.siteName }) : hall.name] as const),
+  );
+}
 
 /** الجدول المحفوظ هو ما أُرسل بالضبط (النهاية والأيام). */
 const sameProgram = (program: VaccineProgram, request: ProgramRequest): boolean =>
@@ -123,6 +175,8 @@ function sortedDays(keys: Iterable<DayKey>, vaccines: readonly Vaccine[]): Progr
  * بلا قراءة، فالشاشة تعيد إرسال أيّامه إلى الأبد).
  */
 const PROGRAM_CHANGED: ReadonlySet<string> = new Set(['stale_program', 'vaccine_not_found', 'vaccine_archived']);
+/** رفوض حفظ جدول قاعة تعني أنّها لم تعد في القائمة (أُرشفت أو خرجت من النطاق): رفض أكيد، ويُقرأ الجدول فتخرج من «لمن هذا الجدول؟». */
+const HALL_GONE: ReadonlySet<string> = new Set(['hall_not_found', 'hall_archived', 'out_of_scope']);
 
 const surelyUnsaved = (problem: unknown): boolean =>
   problem instanceof RejectedError || problem instanceof NetworkError || problem instanceof RetryableError || problem instanceof NotConnectedError || problem instanceof IdentityError;
@@ -225,15 +279,17 @@ function VaccinesView() {
   }
   const board = state.data ?? kept;
 
-  const [drafts, setDrafts] = useState<Partial<Record<FlockKind, Draft>>>({});
+  // التعديلات والصفحات لكلّ نطاق (ScopeKey).
+  const [drafts, setDrafts] = useState<Partial<Record<ScopeKey, Draft>>>({});
   const [selected, setSelected] = useState<readonly string[]>([]);
-  const [pageOf, setPageOf] = useState<Partial<Record<FlockKind, number>>>({});
+  const [pageOf, setPageOf] = useState<Partial<Record<ScopeKey, number>>>({});
   const [hint, setHint] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [frozen, setFrozen] = useState<ProgramRequest | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [deleting, setDeleting] = useState<Deleting | null>(null);
+  const [dropping, setDropping] = useState<Dropping | null>(null);
   const sending = useRef(false);
   // بعد stale_vaccine تصل قراءة جديدة: النافذة المفتوحة تأخذ نسخة اللقاح منها وتقول ما المحفوظ الآن، فالحفظ أو الحذف التالي بالنسخة الجديدة عن
   // علم (مراجعة 0026 I: كانت ترسل النسخة القديمة فتُرفض كلّ مرّة). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (stale يصير null).
@@ -261,41 +317,81 @@ function VaccinesView() {
         : t('halls.vac.stale_gone', 'لم يعد هذا اللقاح في القائمة: حُذف من جهاز آخر.'),
     });
   }
+  // وكذلك نافذة حذف جدول القاعة بعد stale_program: تأخذ نسخته من القراءة الجديدة (0 إن لم يعد لها جدول خاصّ) وتقول ما جرى.
+  if (state.data !== null && dropping?.stale && dropping.stale !== state.data) {
+    const now = state.data.halls?.find((entry) => entry.id === dropping.hall.id)?.program ?? null;
+    setDropping({
+      ...dropping,
+      stale: null,
+      version: now ? now.version : 0,
+      failure: now
+        ? t('halls.vac.stale_drop', 'غُيّر جدول «{hall}» الخاصّ من جهاز آخر فقُرئ من جديد: راجع ما يُحذف أعلاه ثمّ أكّد.', { hall: dropping.hall.name })
+        : t('halls.vac.stale_drop_gone', 'لم يعد لـ«{hall}» جدول خاصّ: حُذف من جهاز آخر، فهي تتبع الجدول العامّ.', { hall: dropping.hall.name }),
+    });
+  }
 
+  // القاعة من ?hall= إن كانت بين القاعات المقروءة، ونوعها نوع الصفحة؛ وإلّا الجدول العامّ لـ?kind= (بجملة إن طُلبت قاعة غائبة).
+  const halls = board?.halls ?? [];
+  const labels = hallNames(halls);
+  const labelOf = (entry: VaccineHall): string => labels.get(entry.id) ?? entry.name;
+  const askedHall = search.get('hall');
+  const hall = askedHall === null ? null : (halls.find((entry) => entry.id === askedHall) ?? null);
   const asked = search.get('kind');
-  const shownKinds = board ? KINDS.filter((kind) => board.hasHalls[kind] || board.programs[kind].version > 0 || kind === asked) : [];
+  const shownKinds = board ? KINDS.filter((of) => board.hasHalls[of] || board.programs[of].version > 0 || of === asked || of === hall?.kind) : [];
   const kinds = shownKinds.length ? shownKinds : (['broiler'] as const);
-  const kind: FlockKind = asked === 'broiler' || asked === 'layer' ? asked : (kinds[0] ?? 'broiler');
+  const kind: FlockKind = hall ? hall.kind : asked === 'broiler' || asked === 'layer' ? asked : (kinds[0] ?? 'broiler');
   const back = backTarget(search.get('back'), farmPath(kind));
+  const scope: ScopeKey = hall ? hallKey(hall.id) : kind;
+  const hallName = hall ? labelOf(hall) : '';
+  const kindHalls = [...halls].sort(hallOrder).filter((entry) => entry.kind === kind);
 
-  const program = board ? board.programs[kind] : null;
   const vaccines = board?.vaccines ?? [];
   const known = new Set(vaccines.map((vaccine) => vaccine.id));
   const byId = new Map(vaccines.map((vaccine) => [vaccine.id, vaccine]));
-  const dirtyOf = (of: FlockKind): boolean => {
-    const draft = drafts[of];
-    if (!draft || !board) return false;
-    const saved = board.programs[of];
-    return parseEnd(draft.endText) !== serverEnd(of, saved) || !sameSet(draft.days, serverDays(saved));
+  /**
+   * ما يتبعه النطاق الآن: saved جدول القاعة الخاصّ أو العامّ لنوعها إن لم يكن لها (أو العامّ للنوع)، وversion نسخة ما يُحفظ فوقه (0 لقاعة بلا
+   * جدول خاصّ). وقاعة لم تعد في القراءة لا نطاق لها (null).
+   */
+  const targetOf = (key: ScopeKey): { kind: FlockKind; hall: VaccineHall | null; saved: VaccineProgram; version: number } | null => {
+    if (!board) return null;
+    if (key === 'broiler' || key === 'layer') return { kind: key, hall: null, saved: board.programs[key], version: board.programs[key].version };
+    const entry = halls.find((candidate) => hallKey(candidate.id) === key);
+    return entry ? { kind: entry.kind, hall: entry, saved: entry.program ?? board.programs[entry.kind], version: entry.program?.version ?? 0 } : null;
   };
-  // تعديل صار كالمحفوظ (حُفظ، أو أُرجع باليد) يُترك: النسخة التي بُني عليها تتبع المحفوظ من الآن.
-  const clean = board ? KINDS.filter((of) => drafts[of] !== undefined && !dirtyOf(of)) : [];
+  const dirtyOf = (key: ScopeKey): boolean => {
+    const draft = drafts[key];
+    const target = targetOf(key);
+    if (!draft || !target) return false;
+    // قاعة بلا جدول خاصّ وفيها تعديل: الحفظ ينشئ جدولها (ولو طابق العامّ)، فهو لم يُحفظ بعد.
+    if (target.hall && !target.hall.program) return true;
+    return parseEnd(draft.endText) !== serverEnd(target.kind, target.saved) || !sameSet(draft.days, serverDays(target.saved));
+  };
+  // تعديل صار كالمحفوظ (حُفظ، أو أُرجع باليد) يُترك: النسخة التي بُني عليها تتبع المحفوظ من الآن. وتعديل قاعة لم تعد في القراءة يُترك كذلك.
+  const clean = board ? Object.keys(drafts).filter((key) => !dirtyOf(key)) : [];
   if (clean.length && !saving && frozen === null) {
     setDrafts((current) => {
       const next = { ...current };
-      for (const of of clean) delete next[of];
+      for (const key of clean) delete next[key];
       return next;
     });
   }
-  const anyDirty = KINDS.some(dirtyOf);
+  const anyDirty = Object.keys(drafts).some((key) => dirtyOf(key));
   useDirtyForm(anyDirty || saving || frozen !== null);
 
-  const draft = drafts[kind] ?? null;
-  const dirty = dirtyOf(kind);
-  const conflict = dirty && program !== null && draft !== null && program.version > draft.against;
+  const target = targetOf(scope);
+  const program = target ? target.saved : null;
+  const savedVersion = target ? target.version : 0;
+  const draft = drafts[scope] ?? null;
+  const dirty = dirtyOf(scope);
+  // التعارض: نسخة المحفوظ تقدّمت على ما بُني عليه التعديل، أو نقصت عنه بقراءة جديدة (لا بالمحفوظة أثناء القراءة بعد الحفظ): حُذف جدول القاعة
+  // الخاصّ من جهاز آخر فصارت تتبع العامّ.
+  const conflict = dirty && draft !== null && (savedVersion > draft.against || (state.data !== null && savedVersion < draft.against));
   const canEdit = board?.canEdit === true;
   const readFailed = state.error !== null;
   const locked = !canEdit || readFailed || state.loading || saving || frozen !== null;
+  /** قاعة بلا جدول خاصّ ولا تعديل: تُعرض بالعامّ للعرض، و«اعمل لها جدولاً خاصّاً» يبدأ نسخةً منه. */
+  const follows = hall !== null && hall.program === null && draft === null;
+  const editable = canEdit && !follows;
   /** نهاية الدورة المحفوظة (أو الافتراض بلا جدول). */
   const savedEnd = program ? serverEnd(kind, program) : DEFAULT_END[kind];
   const endText = draft?.endText ?? fmtInt(savedEnd);
@@ -311,20 +407,20 @@ function VaccinesView() {
   );
   const picked = selected.filter((id) => known.has(id));
   const pages = Math.max(1, Math.ceil(endAge / PAGE_DAYS));
-  const page = Math.min(pageOf[kind] ?? 0, pages - 1);
+  const page = Math.min(pageOf[scope] ?? 0, pages - 1);
   const ages = Array.from({ length: Math.min(PAGE_DAYS, endAge - page * PAGE_DAYS) }, (_, index) => page * PAGE_DAYS + index + 1);
   const onDay = (age: number): Vaccine[] => vaccines.filter((vaccine) => days.has(dayKey(age, vaccine.id)));
 
   const changeDraft = (patch: (current: Draft) => Partial<Draft>) => {
-    if (!program) return;
+    if (!program || !editable) return;
     setDrafts((current) => {
-      const base = current[kind] ?? baseDraft(kind, program);
-      return { ...current, [kind]: { ...base, ...patch(base) } };
+      const base = current[scope] ?? baseDraft(kind, program, savedVersion);
+      return { ...current, [scope]: { ...base, ...patch(base) } };
     });
   };
 
   const toggleAge = (age: number) => {
-    if (locked) return;
+    if (locked || !editable) return;
     if (!picked.length) {
       setHint(t('halls.vac.pick_first', 'اختر لقاحاً أو أكثر من القائمة أوّلاً، ثمّ اضغط الأيام.'));
       return;
@@ -349,31 +445,53 @@ function VaccinesView() {
   const goKind = (next: FlockKind) => {
     const params = new URLSearchParams(search);
     params.set('kind', next);
+    params.delete('hall');
+    setFailure(null);
+    setSearch(params);
+  };
+  /** «لمن هذا الجدول؟»: '' الجدول العامّ، وإلّا معرّف القاعة. */
+  const goScope = (value: string) => {
+    const params = new URLSearchParams(search);
+    params.set('kind', kind);
+    if (value === '') params.delete('hall');
+    else params.set('hall', value);
     setFailure(null);
     setSearch(params);
   };
 
-  const discard = () => {
-    setFailure(null);
+  const dropDraft = (key: ScopeKey) =>
     setDrafts((current) => {
       const next = { ...current };
-      delete next[kind];
+      delete next[key];
       return next;
     });
+  const discard = () => {
+    setFailure(null);
+    dropDraft(scope);
   };
   const reapply = () => {
     if (!program) return;
     setFailure(null);
-    changeDraft(() => ({ against: program.version }));
+    changeDraft(() => ({ against: savedVersion }));
+  };
+  /** «اعمل لها جدولاً خاصّاً»: تعديل منسوخ من الجدول العامّ بنهايته وأيّامه، يُحفظ بالنسخة 0 فيُنشأ. */
+  const startHall = () => {
+    if (!hall || hall.program !== null || !program || locked) return;
+    setFailure(null);
+    setDrafts((current) => ({ ...current, [scope]: baseDraft(kind, program, 0) }));
   };
 
   const saved = (request: ProgramRequest, version: number) => {
+    const slots = slotsText(request.days.length);
+    const end = daysText(request.endAge);
     toast({
       tone: 'success',
-      title: t('halls.vac.saved', 'حُفظ جدول لقاحات {kind}: {slots}، ونهاية الدورة {end}.', { kind: kindTitle(request.kind), slots: slotsText(request.days.length), end: daysText(request.endAge) }),
+      title: request.hall
+        ? t('halls.vac.saved_hall', 'حُفظ جدول لقاحات «{hall}»: {slots}، ونهاية الدورة {end}.', { hall: request.hall.name, slots, end })
+        : t('halls.vac.saved', 'حُفظ جدول لقاحات {kind}: {slots}، ونهاية الدورة {end}.', { kind: kindTitle(request.kind), slots, end }),
     });
     // ما حُفظ يبقى ظاهراً حتّى تصل القراءة الجديدة، ثمّ يُترك (صار كالمحفوظ).
-    setDrafts((current) => ({ ...current, [request.kind]: { against: version, endText: fmtInt(request.endAge), days: new Set(request.days.map((day) => dayKey(day.ageDay, day.vaccineId))) } }));
+    setDrafts((current) => ({ ...current, [requestKey(request)]: { against: version, endText: fmtInt(request.endAge), days: new Set(request.days.map((day) => dayKey(day.ageDay, day.vaccineId))) } }));
     state.retry();
   };
 
@@ -382,8 +500,12 @@ function VaccinesView() {
     sending.current = true;
     setSaving(true);
     setFailure(null);
+    const hallId = request.hall ? request.hall.id : null;
     try {
-      const done = await saveVaccineProgram(request.kind, request.endAge, request.days, request.version);
+      const done =
+        hallId === null
+          ? await saveVaccineProgram(request.kind, request.endAge, request.days, request.version)
+          : await saveHallVaccineProgram(hallId, request.endAge, request.days, request.version);
       setFrozen(null);
       saved(request, done.version);
     } catch (problem) {
@@ -398,18 +520,19 @@ function VaccinesView() {
             setFailure(t('halls.vac.verify_failed', 'تعذّر التحقّق من حفظ الجدول ({detail}): أعد المحاولة.', { detail: describeError(readProblem, 'read').title }));
             return;
           }
-          // حُفظت الأولى: نسخة الجدول تقدّمت والمحفوظ ما أُرسل، بلا أيّام لقاح حذفه جهاز آخر بعدها (الحذف يزيل أيّامه من الجدول).
-          const after = fresh.programs[request.kind];
+          // حُفظت الأولى: نسخة الجدول تقدّمت والمحفوظ ما أُرسل، بلا أيّام لقاح حذفه جهاز آخر بعدها (الحذف يزيل أيّامه من الجدول). وجدول القاعة
+          // جدولها الخاصّ وحده (قاعة صارت بلا جدول خاصّ لم يُحفظ لها شيء).
+          const after = hallId === null ? fresh.programs[request.kind] : (fresh.halls?.find((entry) => entry.id === hallId)?.program ?? null);
           const live = new Set(fresh.vaccines.map((vaccine) => vaccine.id));
           const sentLive = { ...request, days: request.days.filter((day) => live.has(day.vaccineId)) };
-          if (after.version !== request.version && sameProgram(after, sentLive)) {
+          if (after && after.version !== request.version && sameProgram(after, sentLive)) {
             setFrozen(null);
             saved(sentLive, after.version);
             return;
           }
         }
         // تغيّر الجدول أو قائمته من جهاز آخر: يُقرأ من جديد ويبقى التعديل ظاهراً (بلا أيّام لقاح لم يعد في القائمة، بجملة تسمّيها)، وبجدول الفروق
-        // حين تقدّمت نسخة الجدول حتّى «اعتمد تعديلي» أو «خذ المحفوظ».
+        // حين تغيّرت نسخة الجدول حتّى «اعتمد تعديلي» أو «خذ المحفوظ».
         setFrozen(null);
         setFailure(failureText(problem));
         state.retry();
@@ -418,9 +541,10 @@ function VaccinesView() {
         setFrozen(request);
         if (retrying && surelyUnsaved(problem)) setFailure(RETRY_UNREACHED());
       } else {
-        // رفض أكيد: لم يُحفظ شيء، والتعديل باقٍ كما هو.
+        // رفض أكيد: لم يُحفظ شيء، والتعديل باقٍ كما هو. والقاعة التي لم تعد في القائمة تخرج منها بقراءة جديدة.
         setFrozen(null);
         setFailure(failureText(problem));
+        if (hallId !== null && problem instanceof RejectedError && HALL_GONE.has(problem.code)) state.retry();
       }
     } finally {
       sending.current = false;
@@ -429,12 +553,68 @@ function VaccinesView() {
   };
 
   const save = () => {
-    if (!program || !draft || !dirty || conflict || typedEnd === null || locked) return;
+    if (!program || !draft || !dirty || conflict || typedEnd === null || locked || !editable) return;
     const sent = sortedDays(
       liveDays.filter((key) => splitKey(key).ageDay <= typedEnd),
       vaccines,
     );
-    void submit({ kind, endAge: typedEnd, days: sent, version: draft.against }, false);
+    void submit({ kind, hall: hall ? { id: hall.id, name: hallName } : null, endAge: typedEnd, days: sent, version: draft.against }, false);
+  };
+
+  // ─── جدول القاعة الخاصّ: «احذف جدولها الخاصّ» ──────────────────────────────────────────────────────────────────────
+  const hallDropped = (request: Dropping) => {
+    toast({ tone: 'success', title: t('halls.vac.hall_dropped', 'عادت «{hall}» إلى الجدول العامّ.', { hall: request.hall.name }) });
+    dropDraft(hallKey(request.hall.id));
+    setDropping(null);
+    state.retry();
+  };
+
+  const dropOne = async () => {
+    if (!dropping || dropping.busy) return;
+    const retrying = dropping.frozen;
+    const request = dropping;
+    setDropping({ ...dropping, busy: true, failure: null });
+    try {
+      // dropped false: لم يكن لها جدول خاصّ (حذفه جهاز آخر، أو الأولى بعد نتيجة مجهولة): هي على الجدول العامّ كما طُلب.
+      await dropHallVaccineProgram(request.hall.id, request.version);
+      hallDropped(request);
+    } catch (problem) {
+      // إعادة رُفضت بشرط النسخة: ربّما حُذف بالأولى؛ يُقرأ ويُنظر هل بقي لها جدول خاصّ.
+      if (retrying && problem instanceof RejectedError && problem.code === 'stale_program') {
+        try {
+          const fresh = await loadVaccineBoard();
+          const now = fresh.halls?.find((entry) => entry.id === request.hall.id);
+          if (now && now.program === null) {
+            hallDropped(request);
+            return;
+          }
+        } catch {
+          // التحقّق فشل: يبقى الطلب مجمَّداً (الإعادة بعده)، ولا يُقال «عادت» ولا «رُفض».
+          setDropping((current) => (current ? { ...current, busy: false, failure: RETRY_UNREACHED() } : current));
+          return;
+        }
+      }
+      const unknown = !surelyUnsaved(problem) || (retrying && !(problem instanceof RejectedError));
+      // stale_program: تنتظر النافذة القراءة الجديدة فتأخذ منها نسخة الجدول وما فيه الآن.
+      const stale = !unknown && problem instanceof RejectedError && problem.code === 'stale_program' ? board : null;
+      setDropping((current) =>
+        current
+          ? unknown
+            ? { ...current, busy: false, frozen: true, failure: retrying && surelyUnsaved(problem) ? RETRY_UNREACHED() : null }
+            : { ...current, busy: false, frozen: false, failure: failureText(problem), stale }
+          : current,
+      );
+      if (!unknown) state.retry();
+    }
+  };
+  const openDrop = () => {
+    if (!hall?.program || locked) return;
+    setDropping({ hall: { id: hall.id, name: hallName }, version: hall.program.version, busy: false, failure: null, frozen: false, stale: null });
+  };
+  const closeDropping = () => {
+    const uncertain = dropping?.frozen ?? false;
+    setDropping(null);
+    if (uncertain) state.retry();
   };
 
   // ─── اللقاح: إضافة وتعديل وحذف ───────────────────────────────────────────────────────────────────────────────────
@@ -494,8 +674,8 @@ function VaccinesView() {
       tone: 'success',
       title:
         result === 'deleted'
-          ? t('halls.vac.deleted', 'حُذف اللقاح «{name}» وأُزيلت أيّامه من الجدولين.', { name: vaccine.name })
-          : t('halls.vac.archived', 'أُخفي اللقاح «{name}» وأُزيلت أيّامه من الجدولين: أُشِّر من قبل، فبقيت تأشيراته باسمه.', { name: vaccine.name }),
+          ? t('halls.vac.deleted', 'حُذف اللقاح «{name}» وأُزيلت أيّامه من كلّ الجداول.', { name: vaccine.name })
+          : t('halls.vac.archived', 'أُخفي اللقاح «{name}» وأُزيلت أيّامه من كلّ الجداول: أُشِّر من قبل، فبقيت تأشيراته باسمه.', { name: vaccine.name }),
     });
     setSelected((current) => current.filter((id) => id !== vaccine.id));
     setDeleting(null);
@@ -560,7 +740,7 @@ function VaccinesView() {
   const header = (
     <>
       <BackLink to={back} label={backLabel(back)} />
-      <PageHeader title={t('halls.vaccines.title', 'جدول اللقاحات')} subtitle={t('halls.vac.subtitle', 'جدول واحد لكلّ نوع يسري على كلّ قاعاته، بأيّام عمر الطيور.')} />
+      <PageHeader title={t('halls.vaccines.title', 'جدول اللقاحات')} subtitle={t('halls.vac.subtitle', 'جدول عامّ لكلّ نوع يسري على قاعاته، ولأيّ قاعة جدول خاصّ يحلّ محلّه.')} />
     </>
   );
   if (!board) {
@@ -605,6 +785,19 @@ function VaccinesView() {
     { key: 'ages', header: t('halls.vac.col.ages', 'أيّام العمر'), wrap: true, cell: (row) => listJoin(row.ages.map((age) => fmtInt(age))) },
     { key: 'count', header: t('halls.vac.col.count', 'المواعيد'), kind: 'number', cell: (row) => <Num>{fmtInt(row.ages.length)}</Num> },
   ];
+  /** قاعات النوع التي لها جدول خاصّ، فلا تتبع العامّ. */
+  const ownHalls = kindHalls.filter((entry) => entry.program !== null).map(labelOf);
+  /** النتيجة المجهولة تسمّي جدولها حين يُعرض نطاق غيره (التنقّل لا يقفله، والإعادة به وحده). */
+  const frozenTitle = !frozen
+    ? ''
+    : frozen.hall
+      ? t('halls.vac.program_frozen_hall', 'لا نعرف إن حُفظ جدول «{hall}»: أعد المحاولة؛ لن يُحفظ مرّتين.', { hall: frozen.hall.name })
+      : requestKey(frozen) === scope
+        ? t('halls.vac.program_frozen', 'لا نعرف إن حُفظ الجدول: أعد المحاولة؛ لن يُحفظ مرّتين.')
+        : t('halls.vac.program_frozen_kind', 'لا نعرف إن حُفظ جدول {kind} العامّ: أعد المحاولة؛ لن يُحفظ مرّتين.', { kind: kindTitle(frozen.kind) });
+  /** جدول القاعة الذي يُحذف كما هو في آخر قراءة، وتعديلها الذي لم يُحفظ (يُترك بالحذف). */
+  const droppingNow = dropping ? (halls.find((entry) => entry.id === dropping.hall.id)?.program ?? null) : null;
+  const droppingDirty = dropping ? dirtyOf(hallKey(dropping.hall.id)) : false;
 
   return (
     <div className="flex flex-col gap-5" data-action="vaccines-page">
@@ -620,6 +813,25 @@ function VaccinesView() {
       {kinds.length > 1 ? (
         <div className="max-w-md" data-action="kind-tabs">
           <Segmented label={t('halls.vac.kinds', 'نوع القاعات')} options={kinds.map((value) => ({ value, label: kindTitle(value) }))} value={kind} onChange={goKind} />
+        </div>
+      ) : null}
+      {kindHalls.length ? (
+        <div className="max-w-md">
+          <Field id="halls-vac-scope" label={t('halls.vac.scope', 'لمن هذا الجدول؟')}>
+            <select id="halls-vac-scope" className="input" value={hall ? hall.id : ''} onChange={(event) => goScope(event.target.value)} data-action="program-scope">
+              <option value="">{t('halls.vac.scope_general', 'كلّ القاعات (الجدول العامّ)')}</option>
+              {kindHalls.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.program ? t('halls.vac.scope_own', '{hall} (جدول خاصّ)', { hall: labelOf(entry) }) : labelOf(entry)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      ) : null}
+      {askedHall !== null && hall === null ? (
+        <div data-action="hall-missing">
+          <Notice tone="warning" title={t('halls.vac.hall_missing', 'القاعة المطلوبة ليست بين قاعاتك (أُرشفت أو خرجت من نطاقك)، فيُعرض الجدول العامّ.')} />
         </div>
       ) : null}
 
@@ -676,7 +888,7 @@ function VaccinesView() {
             {canEdit ? t('halls.vac.empty_edit', 'لا لقاحات بعد: أضف لقاحاتك (IB، ND، …) ثمّ اختر أيّامها في الجدول.') : t('halls.vac.empty', 'لا لقاحات بعد.')}
           </p>
         )}
-        {canEdit && vaccines.length ? (
+        {editable && vaccines.length ? (
           <p className="text-sm text-ink-muted" data-action="pick-help">
             {picked.length
               ? t('halls.vac.picked', 'المختار: {names}. اضغط يوماً في الجدول ليُضاف إليه المختار، أو يُشال منه إن كان فيه كلّه.', { names: listJoin(picked.map((id) => byId.get(id)?.name ?? '')) })
@@ -690,12 +902,12 @@ function VaccinesView() {
         ) : null}
       </section>
 
-      <section className="card flex flex-col gap-3 p-4" data-action="program-card" data-kind={kind}>
+      <section className="card flex flex-col gap-3 p-4" data-action="program-card" data-kind={kind} data-hall={hall?.id}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold" data-action="program-title">
-            {t('halls.vac.program', 'جدول لقاحات {kind}', { kind: kindTitle(kind) })}
+            {hall ? t('halls.vac.program_hall', 'جدول لقاحات «{hall}»', { hall: hallName }) : t('halls.vac.program', 'جدول لقاحات {kind}', { kind: kindTitle(kind) })}
           </h2>
-          {canEdit ? (
+          {editable ? (
             <div className="w-32">
               <Field id="halls-end-age" label={t('halls.vac.end_label', 'نهاية الدورة')} error={typedEnd === null ? t('halls.vac.end_bad', 'من 1 إلى 1,000.') : null}>
                 <input
@@ -714,6 +926,38 @@ function VaccinesView() {
             </div>
           ) : null}
         </div>
+        {follows ? (
+          <div data-action="hall-follows">
+            <Notice
+              tone="info"
+              title={t('halls.vac.follows', '«{hall}» تتبع الجدول العامّ.', { hall: hallName })}
+              action={
+                canEdit ? (
+                  <Button size="sm" variant="secondary" onClick={startHall} disabled={locked} data-action="hall-program-start">
+                    {t('halls.vac.start_hall', 'اعمل لها جدولاً خاصّاً')}
+                  </Button>
+                ) : null
+              }
+            >
+              {t('halls.vac.follows_detail', 'يُعرض هنا جدول {kind} العامّ كما تتبعه.', { kind: kindTitle(kind) })}
+            </Notice>
+          </div>
+        ) : null}
+        {hall && hall.program === null && draft !== null && draft.against === 0 ? (
+          <p className="text-sm" data-action="hall-program-new">
+            {t('halls.vac.hall_new', 'لـ«{hall}» جدول خاصّ لم يُحفظ بعد: احفظه لتتبعه بدل الجدول العامّ.', { hall: hallName })}
+          </p>
+        ) : null}
+        {hall?.program ? (
+          <p className="text-sm text-ink-muted" data-action="hall-program-own">
+            {t('halls.vac.hall_own', 'لـ«{hall}» جدول خاصّ يحلّ محلّ الجدول العامّ.', { hall: hallName })}
+          </p>
+        ) : null}
+        {!hall && ownHalls.length ? (
+          <p className="text-sm text-ink-muted" data-action="own-halls">
+            {t('halls.vac.own_halls', 'لا يسري هذا الجدول على القاعات ذات الجدول الخاصّ: {halls}.', { halls: listJoin(ownHalls) })}
+          </p>
+        ) : null}
         <p className="text-sm" data-action="cycle-end-text">
           {t('halls.vac.end_text', 'نهاية الدورة: {days}', { days: daysText(endAge) })}
           {program && program.version === 0 ? t('halls.vac.end_default', ' (لا جدول محفوظ بعد).') : ''}
@@ -730,7 +974,15 @@ function VaccinesView() {
         ) : null}
         {conflict ? (
           <div className="flex flex-col gap-3" data-action="program-conflict">
-            <Notice tone="warning" title={failure ?? t('halls.vac.conflict', 'تغيّر الجدول من جهاز آخر بعد أن بدأت التعديل.')}>
+            <Notice
+              tone="warning"
+              title={
+                failure ??
+                (hall && hall.program === null
+                  ? t('halls.vac.conflict_dropped', 'حُذف جدول «{hall}» الخاصّ من جهاز آخر بعد أن بدأت التعديل، فهي تتبع الجدول العامّ الآن.', { hall: hallName })
+                  : t('halls.vac.conflict', 'تغيّر الجدول من جهاز آخر بعد أن بدأت التعديل.'))
+              }
+            >
               {t('halls.vac.conflict_detail', 'تعديلك ظاهر في المربّعات ولم يُحفظ؛ قارنه بالمحفوظ الآن، ثمّ اعتمده أو خذ المحفوظ.')}
               {program && parseEnd(endText) !== savedEnd
                 ? t('halls.vac.conflict_end', ' نهاية الدورة المحفوظة الآن: {saved}، وفي تعديلك: {mine}.', { saved: daysText(savedEnd), mine: daysText(endAge) })
@@ -755,7 +1007,7 @@ function VaccinesView() {
                 size="sm"
                 variant={index === page ? 'primary' : 'secondary'}
                 aria-pressed={index === page}
-                onClick={() => setPageOf((current) => ({ ...current, [kind]: index }))}
+                onClick={() => setPageOf((current) => ({ ...current, [scope]: index }))}
                 data-action="age-page"
                 data-page={index}
               >
@@ -782,7 +1034,7 @@ function VaccinesView() {
               );
               const label = t('halls.vac.age_aria', 'يوم العمر {age}: {names}', { age, names: here.length ? listJoin(here.map((vaccine) => vaccine.name)) : t('halls.vac.age_none', 'بلا لقاح') });
               const look = 'flex min-h-20 min-w-0 flex-col items-stretch gap-0.5 rounded-xl border border-line bg-surface-1 p-1';
-              return canEdit ? (
+              return editable ? (
                 <button key={age} type="button" className={`${look} transition-shadow hover:shadow-soft disabled:cursor-not-allowed`} aria-label={label} disabled={locked} onClick={() => toggleAge(age)} data-action="age-day" data-age={age}>
                   {content}
                 </button>
@@ -802,7 +1054,7 @@ function VaccinesView() {
         {frozen ? (
           <Notice
             tone="warning"
-            title={t('halls.vac.program_frozen', 'لا نعرف إن حُفظ الجدول: أعد المحاولة؛ لن يُحفظ مرّتين.')}
+            title={frozenTitle}
             action={
               <Button size="sm" busy={saving} onClick={() => void submit(frozen, true)} data-action="retry-program">
                 {t('halls.kit.retry', 'أعد المحاولة')}
@@ -816,7 +1068,7 @@ function VaccinesView() {
             <span data-action="program-failure" />
           </Notice>
         ) : null}
-        {canEdit && !frozen ? (
+        {editable && !frozen ? (
           <div className="flex flex-wrap items-center gap-2" data-action="program-bar">
             <Button onClick={save} busy={saving} disabled={!dirty || conflict || typedEnd === null || locked} data-action="save-program">
               {t('halls.vac.save', 'احفظ الجدول')}
@@ -830,6 +1082,11 @@ function VaccinesView() {
                   {t('halls.vac.unsaved', 'في الجدول تعديل لم يُحفظ.')}
                 </span>
               </>
+            ) : null}
+            {hall?.program ? (
+              <Button variant="ghost" onClick={openDrop} disabled={locked} data-action="hall-program-drop">
+                {t('halls.vac.drop_hall', 'احذف جدولها الخاصّ')}
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -852,14 +1109,22 @@ function VaccinesView() {
             <div className="flex flex-col gap-3" data-action="delete-dialog">
               <p data-action="delete-effect">
                 {deleting.vaccine.inUse
-                  ? t('halls.vac.hide_detail', 'أُشِّر هذا اللقاح من قبل، فلا يُمحى: يُخفى من القائمة ومن جدولي اللاحم والبيّاض، وتبقى تأشيراته السابقة باسمه.')
-                  : t('halls.vac.delete_detail', 'لم يُؤشَّر هذا اللقاح قطّ، فيُحذف نهائياً ويُشال من جدولي اللاحم والبيّاض.')}
+                  ? t('halls.vac.hide_detail', 'أُشِّر هذا اللقاح من قبل، فلا يُمحى: يُخفى من القائمة ومن كلّ جداول اللقاحات، وتبقى تأشيراته السابقة باسمه.')
+                  : t('halls.vac.delete_detail', 'لم يُؤشَّر هذا اللقاح قطّ، فيُحذف نهائياً ويُشال من كلّ جداول اللقاحات.')}
               </p>
               {KINDS.map((of) => {
                 const its = board.programs[of].days.filter((day) => day.vaccineId === deleting.vaccine.id).map((day) => fmtInt(day.ageDay));
                 return its.length ? (
                   <p key={of} className="text-sm" data-action="delete-days">
                     {t('halls.vac.delete_days', 'أيّامه في جدول {kind}: {ages}.', { kind: kindTitle(of), ages: listJoin(its) })}
+                  </p>
+                ) : null;
+              })}
+              {[...halls].sort(hallOrder).map((entry) => {
+                const its = (entry.program?.days ?? []).filter((day) => day.vaccineId === deleting.vaccine.id).map((day) => fmtInt(day.ageDay));
+                return its.length ? (
+                  <p key={entry.id} className="text-sm" data-action="delete-days">
+                    {t('halls.vac.delete_hall_days', 'أيّامه في جدول «{hall}»: {ages}.', { hall: labelOf(entry), ages: listJoin(its) })}
                   </p>
                 ) : null;
               })}
@@ -872,6 +1137,34 @@ function VaccinesView() {
           action={deleting.frozen ? 'delete-retry' : 'delete-go'}
           onConfirm={() => void deleteOne()}
           onCancel={closeDeleting}
+        />
+      ) : null}
+      {dropping ? (
+        <ConfirmDialog
+          open
+          title={t('halls.vac.drop_title', 'احذف جدول «{hall}» الخاصّ', { hall: dropping.hall.name })}
+          consequence={
+            <div className="flex flex-col gap-3" data-action="hall-drop-dialog">
+              <p data-action="hall-drop-effect">{t('halls.vac.drop_detail', 'تعود «{hall}» إلى الجدول العامّ، ويُحذف جدولها الخاصّ وأيّامه.', { hall: dropping.hall.name })}</p>
+              {droppingNow ? (
+                <p className="text-sm" data-action="hall-drop-now">
+                  {t('halls.vac.drop_now', 'جدولها الآن: {slots}، ونهاية الدورة {end}.', { slots: slotsText(droppingNow.days.length), end: daysText(droppingNow.endAge) })}
+                </p>
+              ) : null}
+              {droppingDirty ? (
+                <p className="text-sm" data-action="hall-drop-unsaved">
+                  {t('halls.vac.drop_unsaved', 'في جدولها تعديل لم يُحفظ، ويُترك بالحذف.')}
+                </p>
+              ) : null}
+              {dropping.frozen ? <Notice tone="warning" title={t('halls.vac.drop_frozen', 'لا نعرف إن حُذف جدولها الخاصّ: أعد المحاولة؛ لن يُحذف مرّتين.')} /> : null}
+              {dropping.failure ? <Notice tone="danger" title={dropping.failure} /> : null}
+            </div>
+          }
+          confirmLabel={dropping.frozen ? t('halls.kit.retry', 'أعد المحاولة') : t('halls.vac.drop_hall', 'احذف جدولها الخاصّ')}
+          busy={dropping.busy}
+          action={dropping.frozen ? 'hall-drop-retry' : 'hall-drop-go'}
+          onConfirm={() => void dropOne()}
+          onCancel={closeDropping}
         />
       ) : null}
     </div>
