@@ -10,7 +10,8 @@ import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { deleteFlock, editFlock, type FlockSummary } from '../../lib/repo/flocks';
+import { deleteFlock, editFlock } from '../../lib/repo/flockEdits';
+import type { FlockSummary } from '../../lib/repo/flocks';
 
 // تعديل الفوج وحذفه (0028، كلمة الزبون 2026-11-15: «قاعة 5: أدخلت الفوج وغلطت بتاريخ التسكين ولا أستطيع تعديله… كلّ خطوة تحتاج
 // تعديلاً»): نافذة واحدة لجدول الحقل وشاشة الفوج، للمدير والمالك (flock.manage، والمنع الحقيقي بالخادم). التاريخ والعدد والعمر عند التسكين
@@ -18,8 +19,8 @@ import { deleteFlock, editFlock, type FlockSummary } from '../../lib/repo/flocks
 // غلطاً بلا أيّ سجلّ، بتأكيد يسمّيه وأثره ومرجعه الواحد.
 
 const MAX_COUNT = 10_000_000;
-/** عدد صحيح من نصّ أرقام بس، أو null (نوافذ الحقل كلّها: القاعة والفتح والتعديل). */
-export function wholeNumber(text: string, max = MAX_COUNT): number | null {
+/** عدد صحيح من نصّ أرقام بس، أو null (كنوافذ الحقل: القاعة والفتح). */
+function wholeNumber(text: string, max = MAX_COUNT): number | null {
   const value = text.trim();
   if (!/^[0-9]+$/.test(value)) return null;
   const n = Number(value); // number-ok: عدد طيور أو أيام صحيح من نصّ أرقام بس، مو فلوس

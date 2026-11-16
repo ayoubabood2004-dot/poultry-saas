@@ -21,6 +21,7 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
+const REAL_HALLS = JSON.stringify(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'));
 // قراءتا الحقل والفوج بديلان، والباقي من flocks.ts حقيقيّ على core البديل (النداء كما يبنيه editFlock وdeleteFlock نفساهما).
 const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail'];
 const STUBS = {
@@ -28,6 +29,8 @@ const STUBS = {
     export const loadOverview = async () => __parseOverview(await globalThis.__fe.call('loadOverviewJson', []));`,
   session: 'export const useSession = () => globalThis.__fe.session; export const sessionStore = { get: () => globalThis.__fe?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__fe.toasts.push(spec); }; export function Toaster() { return null; }',
+  // حزمة القاعات (نافذة «عدّل الفوج» منها): حقيقية، أو فشل تحميلها كما بلا نت (hallsFail).
+  hallsChunk: `export const loadHalls = () => (globalThis.__fe?.hallsFail ? Promise.reject(new Error('offline')) : import(${REAL_HALLS}));`,
 };
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
 export const call = (fn, args) => globalThis.__fe.rpc(fn, args);
@@ -46,9 +49,10 @@ const plugins = [
   {
     name: 'fe-stubs',
     setup(b) {
-      b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'fe-stub' }));
+      b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'fe-stub' }));
       b.onLoad({ filter: /.*/, namespace: 'fe-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
-      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/flocks\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fe-core' } : undefined));
+      // flockEdits.ts (editFlock وdeleteFlock، في حزمة القاعات مع نافذتها) على core البديل نفسه.
+      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fe-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'fe-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
     },
   },
@@ -115,7 +119,7 @@ const dialogText = () => editDialog()?.textContent ?? '';
 
 export default async function (t) {
   // ── P: المحلّلات الحقيقية ─────────────────────────────────────────────────────────────────────────────────────────
-  const p = await load("export { parseEditedFlock, parseDeletedFlock, parseFlock, FlockShapeError } from './src/lib/repo/flocks.ts';", false);
+  const p = await load("export { parseEditedFlock, parseDeletedFlock } from './src/lib/repo/flockEdits.ts'; export { parseFlock, FlockShapeError } from './src/lib/repo/flocks.ts';", false);
   const shape = (fn) => {
     try {
       fn();
@@ -571,6 +575,16 @@ export default async function (t) {
       await mount(`/broiler/flock/${F5}`);
       t.ok(text().includes('فوج قاعة 5'), 'F ضابط: الفوج المغلق يُعرض');
       t.eq(byAction('flock-edit').length, 0, 'F فوج مغلق بلا «عدّل الفوج» (الخادم يرفضه flock_closed)');
+    });
+
+    // ── O: النافذة من حزمة القاعات خارج التثبيت المسبق؛ بلا نت (فشل تحميلها) تقول إنّ التعديل يحتاج اتصالاً بدل أن تختفي ─────────────
+    await step('O بلا حزمة القاعات', async () => {
+      fresh('manager', { loadOverviewJson: () => overview() });
+      globalThis.__fe.hallsFail = true;
+      await mount('/broiler');
+      await click(inRow('قاعة 5', 'flock-edit')[0]);
+      t.same([byAction('flock-edit-offline').length, Boolean(editDialog()), byAction('flock-edit-save').length, byAction('flock-delete').length], [1, true, 0, 0],
+        'O بلا حزمة القاعات: نافذة «تعديل فوج» تقول إنّ التعديل يحتاج اتصالاً، بلا حفظ ولا حذف');
     });
   } finally {
     delete globalThis.__fe;

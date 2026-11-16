@@ -13,6 +13,8 @@ import VaccinesPage from './VaccinesPage';
 // والرئيسية استيراداً كسولاً: بلا نت لا يظهر شيء، والجولة تبقى تعمل. وتقارير القاعات (0027): التقرير اليوميّ (day?on=) وتقارير الدورات (cycles)
 // في الحزمة نفسها، تقرأ من الخادم وحده.
 export { default as Reminders } from './Reminders';
+// نافذة «عدّل الفوج» (0028) هنا لتُحمَّل من حزمة القاعات خارج التثبيت المسبق (pages/farm/flockEditLazy): التعديل يحتاج الخادم كلّه.
+export { FlockEditDialog } from '../farm/FlockEditDialog';
 
 export default function HallsRoutes() {
   return (

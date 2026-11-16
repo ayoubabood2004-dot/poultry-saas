@@ -200,7 +200,7 @@ function resolveSpecifier(file, specifier) {
  * و«القاعات بين يديك» (0026): الإضافة لعدّة قاعات واللقاحات والتذكير والتقويم والتقرير (halls) تستوردها صفحات القاعات وحدها (حزمة القاعات).
  * وتقارير القاعات (0027): تقرير القاعات اليومي وقائمة الدورات (hallReports: halls_day وflock_cycles) تستوردهما صفحتاهما وحدهما (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'flockEdits']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

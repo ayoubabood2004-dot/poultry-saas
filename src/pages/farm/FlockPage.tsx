@@ -19,7 +19,7 @@ import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type F
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BUTTON_LINK_CLASS, CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
-import { FlockEditDialog } from './FlockEditDialog';
+import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { farmPath, farmTitle, fmtPct, Metric } from './shared';
 
 // شاشة الفوج (FOUNDATION ٧٨٢): الأرقام المهمّة ثابتة بالرأس (العمر، الحيّ، النفوق، العلف، ومعامل التحويل للّاحم، وبيض اليوم ونسبته

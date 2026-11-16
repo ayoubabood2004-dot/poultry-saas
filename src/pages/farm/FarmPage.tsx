@@ -21,13 +21,22 @@ import { t } from '../../lib/i18n';
 import { archiveHall, createHall, openFlock, updateHall, type FlockSummary, type HallView, type SiteView } from '../../lib/repo/flocks';
 import { useSession } from '../../lib/session';
 import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
-import { FlockEditDialog, wholeNumber } from './FlockEditDialog';
+import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { farmPath, farmTitle, fmtPct, useOverview, useStamp } from './shared';
 
 // شاشة الحقل (FOUNDATION ٧٨٢ و٨١٦): زرّ الجولة اليومية أوّل شي، وتحته الحقول ← القاعات ← الفوج بأرقامه المهمّة. المدير يضيف قاعة
 // ويفتح فوجاً (open_flock: فتح وتسكين بالعدد بخطوة وحدة، بلا كلفة أفراخ بالنسخة الأولى)، والكل يشوف ضمن نطاقه.
 // وكلمة الزبون 2026-11-15 («قاعة 5: غلطت بتاريخ التسكين ولا أستطيع تعديله»): «عدّل القاعة» للاسم والسعة، و«عدّل الفوج» لفوجها القائم
 // (التاريخ والعدد والعمر والسلالة، أو حذفه إن فُتح غلطاً)؛ والقاعات بترتيب أرقامها («قاعة 5» قبل «قاعة 44»).
+
+const MAX_COUNT = 10_000_000;
+/** عدد صحيح من نصّ أرقام بس، أو null. */
+function wholeNumber(text: string, max = MAX_COUNT): number | null {
+  const value = text.trim();
+  if (!/^[0-9]+$/.test(value)) return null;
+  const n = Number(value); // number-ok: عدد طيور أو أيام صحيح من نصّ أرقام بس، مو فلوس
+  return n <= max ? n : null;
+}
 
 function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; hall: HallView | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
