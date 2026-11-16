@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { Milli } from '../../domain/money';
 import { fmtInt, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -14,16 +15,34 @@ const kg = (qty: Milli): string => {
   return shown.sub ?? shown.main;
 };
 
-export function FeedLine({ feed }: { feed: FlockFeed }) {
+export function FeedLine({ feed, giveTo }: { feed: FlockFeed; giveTo?: string }) {
+  // الباقي السالب (أُكل أكثر ممّا نزل) كان يُكتب «100- كغم» بإشارة تنقلب في السطر العربي، ومعناه لا يُفهم (كلمة المالك 2026-11-16):
+  // يقال بجملة وطريق إصلاحه، والسطر الأوّل بلا «الباقي».
+  const short = feed.leftInHallKg < 0n;
   return (
     <div className="flex flex-col gap-1" data-action="feed-line">
       <p className="font-semibold">
-        {t('feed.line', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed} — الباقي في القاعة: {left}', {
-          issued: kg(feed.issuedFeedKg),
-          consumed: kg(feed.consumedFeedKg),
-          left: kg(feed.leftInHallKg),
-        })}
+        {short
+          ? t('feed.line.short', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed}', { issued: kg(feed.issuedFeedKg), consumed: kg(feed.consumedFeedKg) })
+          : t('feed.line', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed} — الباقي في القاعة: {left}', {
+              issued: kg(feed.issuedFeedKg),
+              consumed: kg(feed.consumedFeedKg),
+              left: kg(feed.leftInHallKg),
+            })}
       </p>
+      {short ? (
+        <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="feed-negative">
+          {t('feed.negative', 'سُجّل أكل {n} أكثر ممّا صُرف لهذه القاعة: سجّل الصرف من «أضف للقاعة»، أو صحّح علف الجولات.', { n: kg(-feed.leftInHallKg) })}
+          {giveTo ? (
+            <>
+              {' '}
+              <Link to={giveTo} className={LINK_CLASS} data-action="feed-negative-give">
+                {t('give.open', 'أضف للقاعة')}
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {feed.leftInHallUnweighed > 0 ? (
         <p className="text-sm text-ink-muted" data-action="feed-unweighed">
           {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: {n}.', { n: fmtInt(feed.leftInHallUnweighed) })}

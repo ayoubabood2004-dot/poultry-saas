@@ -454,11 +454,12 @@ export default async function (t) {
       fresh('owner', { flock_feed: () => clone(SAMPLES.flock_feed.owner) }, { loadFlockDetail: () => m.parseDetail(detail()) });
       await mount(`/broiler/flock/${FLOCK}`);
       t.ok(textOf('feed-line')?.startsWith(FEED_LINE), `E شاشة الفوج: سطر علف القاعة (${textOf('feed-line')})`);
-      const back = encodeURIComponent(`/broiler/flock/${FLOCK}`);
+      // الرجوع إلى صفحة القاعة (كلمة المالك 2026-11-16: الرابط بالقاعة، والفوج فيها).
+      const back = encodeURIComponent('/broiler/hall/h-1');
       t.same(
         [textOf('flock-give'), byAction('flock-give')[0]?.getAttribute('href'), byAction('flock-issues')[0]?.getAttribute('href'), byAction('flock-calendar')[0]?.getAttribute('href'), byAction('flock-report')[0]?.getAttribute('href')],
         ['أضف للقاعة', `/halls/give/${FLOCK}?back=${back}`, `/inventory/issue/${FLOCK}?back=${back}`, `/halls/calendar/${FLOCK}`, `/halls/report/${FLOCK}`],
-        'E «أضف للقاعة» إلى صفحة الإضافة، وسجلّ الصرف، وتقويم القاعة وتقرير الدورة، والرجوع إلى الفوج نفسه',
+        'E «أضف للقاعة» إلى صفحة الإضافة، وسجلّ الصرف، وتقويم القاعة وتقرير الدورة، والرجوع إلى صفحة القاعة',
       );
     });
     await step('E شاشة الفوج لعامل القاعة', async () => {

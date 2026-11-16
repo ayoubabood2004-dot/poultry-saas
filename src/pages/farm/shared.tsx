@@ -7,7 +7,7 @@ import { loadHalls } from '../../lib/hallsChunk';
 import { t } from '../../lib/i18n';
 import type { Stamp } from '../../lib/outbox';
 import { quietly } from '../../lib/pwa/recovery';
-import { loadOverviewJson, parseOverview, type FlockDetail, type FlocksOverview } from '../../lib/repo/flocks';
+import { loadOverviewJson, parseOverview, type FlockDetail, type FlockSummary, type FlocksOverview } from '../../lib/repo/flocks';
 import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
@@ -18,6 +18,39 @@ import { useLoad } from '../../lib/useLoad';
 
 export const farmPath = (kind: FlockKind): string => (kind === 'broiler' ? '/broiler' : '/layers');
 export const farmTitle = (kind: FlockKind): string => (kind === 'broiler' ? t('nav.broiler', 'حقول اللحم') : t('nav.layers', 'حقول البيض'));
+
+/**
+ * صفحة القاعة (كلمة المالك 2026-11-16: «طريقة الدخول الها واضحة ومو مبهمة»): المكان ثابت والفوج يتغيّر كلّ دورة، فالرابط بالقاعة
+ * ويفتح فوجها القائم أو يقول إنّها فارغة.
+ */
+export const hallPath = (kind: FlockKind, hallId: string): string => `${farmPath(kind)}/hall/${hallId}`;
+
+const CHIP = 'inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-sm font-semibold';
+const CHIP_TONES = {
+  ok: 'bg-success-100 text-success-800 dark:bg-success-950 dark:text-success-200',
+  warn: 'bg-warn-100 text-warn-800 dark:bg-warn-950 dark:text-warn-200',
+  idle: 'bg-surface-2 text-ink-muted',
+} as const;
+
+/** حالة جولة اليوم لقاعة بكلمة مكتوبة (لا لون وحده): من قراءة الخادم (flock.today ليوم الخادم). */
+export function TodayChip({ flock }: { flock: FlockSummary | null }) {
+  const [tone, text] =
+    flock === null
+      ? (['idle', t('hall.state.empty', 'فارغة')] as const)
+      : flock.status !== 'active'
+        ? (['idle', t('hall.state.preparing', 'قيد التجهيز')] as const)
+        : flock.today !== null
+          ? (['ok', t('hall.state.done', 'سُجّلت')] as const)
+          : (['warn', t('hall.state.missing', 'لم تُسجَّل')] as const);
+  return (
+    <span className={`${CHIP} ${CHIP_TONES[tone]}`} data-action="hall-today" data-state={tone}>
+      {text}
+    </span>
+  );
+}
+
+/** اسم القاعة كما يُقرأ: «1» وحده رقم لا اسم، فيصير «قاعة 1»؛ و«قاعة 5» أو «الشرقية» كما هما. */
+export const hallLabel = (name: string): string => (/^[0-9]+$/.test(name.trim()) ? t('hall.numbered', 'قاعة {n}', { n: name.trim() }) : name);
 
 /** الهويّة المؤكّدة للطابور: المستخدم والمنشأة اللي أكّدها الخادم (أو المحفوظة للفتح بلا نت)، وإلا null. */
 export function useStamp(): Stamp | null {

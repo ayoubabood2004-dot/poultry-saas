@@ -315,6 +315,16 @@ function GivenList({ flock }: { flock: DayFlock }) {
   );
 }
 
+/** اسم القاعة طريق إلى صفحتها حين فيها فوج يُعرف نوعه (كلمة المالك 2026-11-16: «طريقة الدخول الها واضحة»). */
+function HallName({ hall }: { hall: DayHall }) {
+  if (!hall.flock) return <>{hall.hallName}</>;
+  return (
+    <Link to={`${hall.flock.kind === 'broiler' ? '/broiler' : '/layers'}/hall/${hall.hallId}`} className="text-brand-700 underline decoration-brand-300 underline-offset-4 dark:text-brand-200 dark:decoration-brand-700" data-action="day-hall-link">
+      {hall.hallName}
+    </Link>
+  );
+}
+
 function HallCard({ hall, siteId, on, here }: { hall: DayHall; siteId: string; on: Day; here: string }) {
   const flock = hall.flock;
   const session = useSession();
@@ -324,7 +334,9 @@ function HallCard({ hall, siteId, on, here }: { hall: DayHall; siteId: string; o
   return (
     <article className="card flex flex-col gap-3 p-4" data-action="day-hall" data-hall={hall.hallId}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-semibold">{hall.hallName}</h3>
+        <h3 className="font-semibold">
+          <HallName hall={hall} />
+        </h3>
         {flock ? (
           <span className="text-sm text-ink-muted" data-action="day-age">
             {t('halls.day.kind_age', '{kind}، العمر {age}', { kind: kindLabel(flock.kind), age: daysText(flock.age) })}
@@ -505,7 +517,9 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
       sticky: true,
       cell: (hall) => (
         <span className="flex flex-col gap-0.5">
-          <span className="font-semibold">{hall.hallName}</span>
+          <span className="font-semibold">
+            <HallName hall={hall} />
+          </span>
           {hall.flock === null ? (
             <span className="text-xs text-ink-muted" data-action="day-empty">
               {hall.carry.length ? t('halls.day.empty_carry', 'فارغة، وفيها علف منقول للدورة التالية: {list}', { list: carryTexts(hall).join(t('list.separator', '، ')) }) : t('halls.day.empty', 'فارغة')}

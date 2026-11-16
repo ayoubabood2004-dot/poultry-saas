@@ -567,13 +567,13 @@ export default async function (t) {
     await step('F الأدوار', async () => {
       fresh('hall_worker', { loadFlockDetail: () => m.parseDetail(detailJson({ canManage: false })) });
       await mount(`/broiler/flock/${F5}`);
-      t.ok(text().includes('فوج قاعة 5'), 'F ضابط: عامل القاعة يرى الفوج');
+      t.ok(text().includes('قاعة 5') && byAction('hall-back').length === 1, 'F ضابط: عامل القاعة يرى صفحة القاعة بفوجها');
       t.eq(byAction('flock-edit').length, 0, 'F عامل القاعة بلا «عدّل الفوج»');
     });
     await step('F المغلق', async () => {
       fresh('manager', { loadFlockDetail: () => m.parseDetail(detailJson({ over: { status: 'closed' } })) });
       await mount(`/broiler/flock/${F5}`);
-      t.ok(text().includes('فوج قاعة 5'), 'F ضابط: الفوج المغلق يُعرض');
+      t.ok(text().includes('قاعة 5') && byAction('hall-back').length === 1, 'F ضابط: الفوج المغلق يُعرض');
       t.eq(byAction('flock-edit').length, 0, 'F فوج مغلق بلا «عدّل الفوج» (الخادم يرفضه flock_closed)');
     });
 

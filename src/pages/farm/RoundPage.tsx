@@ -21,7 +21,7 @@ import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, ty
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
-import { farmPath, farmTitle, HallReminders, useOverview, useStamp } from './shared';
+import { farmPath, farmTitle, HallReminders, hallLabel, hallPath, useOverview, useStamp } from './shared';
 
 // الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦): شاشة وحدة لكل أفواج النطاق النشطة بخانات اليوم (نافق، مستبعد، علف، وللبيّاض البيض
 // والمكسور؛ والماء خارجها بكلمة المالك 2026-11-11: ثابت)، وزرّ حفظ واحد يكتب عملية لكل (فوج، يوم) بالطابور (saveRound) ثم يرفعها إذا بنت
@@ -35,6 +35,7 @@ type RowStatus = 'saved' | 'device' | 'parked' | 'review' | 'held';
 
 interface RoundRow {
   flock: FlockSummary;
+  hallId: string;
   hallName: string;
   siteName: string;
   /** الحيّ بداية اليوم. */
@@ -56,14 +57,14 @@ interface RowEdit {
 }
 
 const FIELDS = Object.keys(EMPTY_ROUND) as (keyof RoundText)[];
-const loadTransport = async () => flockDayTransport;
+export const loadTransport = async () => flockDayTransport;
 
-const amountText = (value: bigint | string | null | undefined): string => {
+export const amountText = (value: bigint | string | null | undefined): string => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'bigint') return decimalText(value, 3).replace(/\.?0+$/, '');
   return value.replace(/\.?0+$/, '');
 };
-const countText = (value: number | null | undefined): string => (value === null || value === undefined ? '' : String(value));
+export const countText = (value: number | null | undefined): string => (value === null || value === undefined ? '' : String(value));
 
 /** صفوف الجولة: كل فوج نشط بالنوع مسكّن باليوم أو قبله، بقيم اليوم المحفوظة وفوكها المنتظرة بالجهاز. */
 function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pending: readonly OutboxOp[]): RoundRow[] {
@@ -95,6 +96,7 @@ function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pen
       };
       rows.push({
         flock,
+        hallId: hall.id,
         hallName: hall.name,
         siteName: site.name,
         liveStart,
@@ -146,7 +148,7 @@ function liveEdit(edit: RowEdit, row: RoundRow, returned: 'stale_day' | 'parked'
   return { text, from: row.text, base: row.baseVersion, seq: edit.seq };
 }
 
-function errorText(error: RoundError, liveStart: number): string {
+export function errorText(error: RoundError, liveStart: number): string {
   switch (error) {
     case 'bad_count':
       return t('round.error.bad_count', 'اكتب عدداً صحيحاً: صفر أو أكثر.');
@@ -329,7 +331,11 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
     <div className={CARD_CLASS} data-flock={row.flock.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-semibold">
-          {row.hallName} <span className="text-sm font-normal text-ink-muted">— {row.siteName}</span>
+          {/* اسم القاعة طريق إلى صفحتها (كلمة المالك 2026-11-16). */}
+          <Link to={hallPath(kind, row.hallId)} className="text-brand-700 underline decoration-brand-300 underline-offset-4 dark:text-brand-200 dark:decoration-brand-700" data-action="round-hall">
+            {hallLabel(row.hallName)}
+          </Link>{" "}
+          <span className="text-sm font-normal text-ink-muted">— {row.siteName}</span>
         </p>
         <p className="text-sm text-ink-muted">
           {t('round.live_start', 'الحيّ بداية اليوم')}: <bdi dir="ltr">{fmtInt(row.liveStart)}</bdi>

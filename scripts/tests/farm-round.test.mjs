@@ -421,14 +421,14 @@ export default async function (t) {
       const cells = () => all().filter((n) => n.localName === 'td').map((n) => n.textContent);
       t.ok(text().includes('1.25%') && text().includes('1.523') && text().includes('4,938') && text().includes('1.2345 طن'), 'F2: النفوق ومعامل التحويل والحيّ والعلف بمنسّقاتها');
       t.ok(cells().includes('120.50') && cells().includes('98.25') && cells().includes('4,943'), 'F2: عمود العلف بمراتب ثابتة والحيّ الجاري بفواصل');
-      t.ok(cells().includes('450.0') && byAction('weight-save').length === 1, 'F2: الأوزان، ونموذج الوزن لمن يحفظ اليوم');
+      t.ok(cells().includes('450.0') && byAction('weight-open').length === 1, 'F2: الأوزان، و«وزن عيّنة» لمن يحفظ اليوم (نافذة، كلمة المالك 2026-11-16)');
       t.same([text().includes('الماء'), cells().some((cell) => cell.includes('777'))], [false, false], 'F2: جدول الأيام بلا عمود ماء، والماء القديم في القاعدة لا يُعرض (2026-11-11)');
       await unmount();
       fresh({ status: 'ready', workspace: ws({ role: 'viewer' }), offline: false }, { loadFlockDetail: () => m.parseDetail(detail('layer', false)) });
       await mount('/layers/flock/f-1');
       const hdep = cells();
       t.ok(hdep.includes('85.20%') && hdep.includes('—'), 'F2: نسبة الإنتاج لليوم و«—» ليوم بلا بيض');
-      t.ok(text().includes('852') && byAction('weight-save').length === 0, 'F2: بيض اليوم، والمشاهد بلا نموذج وزن');
+      t.ok(text().includes('852') && byAction('weight-open').length === 0, 'F2: بيض اليوم، والمشاهد بلا «وزن عيّنة»');
       await unmount();
     }
 
@@ -778,6 +778,8 @@ export default async function (t) {
       await mount('/broiler/flock/f-1');
       t.ok(text().includes('حتى أمس') && text().includes('مسجّل 4 من 5'), 'F3: تلميح FCR: علف كل يوم من التسكين حتى أمس، مسجّل 4 من 5');
       t.ok(text().includes('جولات أُرسلت من الأجهزة ورُدّت إلى المدير: 2') && !text().includes('الطابور'), 'F3: المركونة «رُدّت إلى المدير» بلا كلمة «الطابور»');
+      fire(byAction('weight-open')[0], 'click');
+      await settle();
       type(byIdSuffix('-samples')[0], '50');
       type(byIdSuffix('-avg')[0], '1.8');
       await settle();

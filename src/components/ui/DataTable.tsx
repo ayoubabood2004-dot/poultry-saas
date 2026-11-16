@@ -61,6 +61,31 @@ function cellClass(column: Pick<Column<unknown>, 'kind' | 'wrap'>): string {
 /** خلية تذييل ترسم شي (مثل hasTotal). */
 const filled = (value: ReactNode | undefined): boolean => value !== undefined && value !== null && value !== false && value !== '';
 
+/**
+ * حجم الجدول: md للكشوف والتقارير الكثيفة، وlg لجدول يُفتح منه شيء (القاعات في الحقل، كلمة المالك 2026-11-16: «نسوي الجدول اكبر واوضح…
+ * بخط اكبر شوية بحيث يكون متناسق ما بين شكل البطاقة وبين شكل الجدول»): خطّ أكبر وصفوف أعلى بارتفاع زرّ الإصبع.
+ */
+export type TableSize = 'md' | 'lg';
+const SIZES: Record<TableSize, { table: string; head: string; cell: string; foot: string }> = {
+  md: { table: 'text-sm', head: 'px-3 py-2', cell: 'px-3 py-1.5', foot: 'px-3 py-2' },
+  lg: { table: 'text-base', head: 'px-4 py-2.5 text-sm', cell: 'px-4 py-3', foot: 'px-4 py-3' },
+};
+
+/** نقرة على عنصر تفاعلي داخل الصفّ (رابط أو زرّ أو خانة) له فعله، فلا تفتح الصفّ معه. */
+const INTERACTIVE = new Set(['a', 'button', 'input', 'select', 'textarea', 'summary', 'label']);
+interface Hit {
+  tagName?: string;
+  parentNode?: Hit | null;
+  getAttribute?: (name: string) => string | null;
+}
+/** يصعد من العنصر المنقور إلى الصفّ: أوّل عنصر تفاعلي في الطريق يأخذ النقرة (بلا closest: يعمل في كلّ DOM). */
+function hitsControl(target: unknown, row: unknown): boolean {
+  for (let node = target as Hit | null; node && node !== row; node = node.parentNode ?? null) {
+    if (INTERACTIVE.has((node.tagName ?? '').toLowerCase()) || node.getAttribute?.('role') === 'button') return true;
+  }
+  return false;
+}
+
 export function DataTable<Row>({
   caption,
   columns,
@@ -70,6 +95,9 @@ export function DataTable<Row>({
   totalLabel,
   footers = [],
   subRow,
+  size = 'md',
+  onRowClick,
+  rowTone,
 }: {
   /** وصف الجدول لقارئ الشاشة. */
   caption: string;
@@ -87,7 +115,16 @@ export function DataTable<Row>({
    * ينعصر بعرض البيان ويُقصّ بالطباعة، وبعرض الجدول يأخذ الورقة كلّها.
    */
   subRow?: (row: Row, index: number) => ReactNode;
+  size?: TableSize;
+  /**
+   * الصفّ كلّه يُضغط (يد الإصبع لا تصيب رابطاً صغيراً): النقر على عنصر تفاعلي داخله يبقى له. ولوحة المفاتيح تصل بالرابط الذي في الصفّ
+   * نفسه (اسم القاعة)، فالصفّ لا يأخذ تركيزاً ثانياً.
+   */
+  onRowClick?: (row: Row) => void;
+  /** صفّ يحتاج انتباهاً (جولة اليوم ناقصة): خلفية تحذير خفيفة مع الكلمة المكتوبة في خليته. */
+  rowTone?: (row: Row) => 'warn' | null;
 }) {
+  const sized = SIZES[size];
   const firstTotal = columns.findIndex(hasTotal);
   // «المجموع» ياخذ مكان الأعمدة النصّية قبل أوّل مجموع؛ مجموع بأوّل عمود كان يختفي بصمت.
   if (totalLabel !== undefined && firstTotal === 0) throw new Error('datatable_total_label_needs_leading_text_column');
@@ -105,7 +142,7 @@ export function DataTable<Row>({
   return (
     // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
-      <table className={`w-full border-separate border-spacing-0 text-sm ${edges}`}>
+      <table className={`w-full border-separate border-spacing-0 ${sized.table} ${edges}`}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -113,7 +150,7 @@ export function DataTable<Row>({
               <th
                 key={column.key}
                 scope="col"
-                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 px-3 py-2 font-semibold ${cellClass(column)}`}
+                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${cellClass(column)}`}
               >
                 {column.header}
               </th>
@@ -132,9 +169,19 @@ export function DataTable<Row>({
               const detail = subRow?.(row, index);
               return (
                 <Fragment key={rowKey(row, index)}>
-                  <tr className="hover:bg-surface-2">
+                  <tr
+                    className={`${rowTone?.(row) === 'warn' ? 'bg-warn-50 dark:bg-warn-950/40' : ''} hover:bg-surface-2 ${onRowClick ? 'cursor-pointer' : ''}`}
+                    onClick={
+                      onRowClick
+                        ? (event) => {
+                            if (event.defaultPrevented || hitsControl(event.target, event.currentTarget)) return;
+                            onRowClick(row);
+                          }
+                        : undefined
+                    }
+                  >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} px-3 py-1.5 ${stickyOf(column)} ${cellClass(column)}`}>
+                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column)} ${cellClass(column)}`}>
                         {column.cell(row, index)}
                       </td>
                     ))}
@@ -155,11 +202,11 @@ export function DataTable<Row>({
           <tfoot>
             {showTotals ? (
               <tr className="bg-surface-2 font-semibold">
-                <th scope="row" colSpan={labelSpan} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 text-start`}>
+                <th scope="row" colSpan={labelSpan} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} text-start`}>
                   {totalLabel}
                 </th>
                 {columns.slice(labelSpan).map((column) => (
-                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} px-3 py-2 ${cellClass(column)}`}>
+                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} ${cellClass(column)}`}>
                     {column.total}
                   </td>
                 ))}
@@ -169,11 +216,11 @@ export function DataTable<Row>({
               const top = !showTotals && index === 0 ? TOTAL_TOP : '';
               return (
                 <tr key={footer.key} className="bg-surface-2 font-semibold">
-                  <th scope="row" colSpan={footerSpan} className={`${BORDER} ${top} px-3 py-2 text-start`}>
+                  <th scope="row" colSpan={footerSpan} className={`${BORDER} ${top} ${sized.foot} text-start`}>
                     {footer.label}
                   </th>
                   {columns.slice(footerSpan).map((column) => (
-                    <td key={column.key} className={`${BORDER} ${top} px-3 py-2 ${cellClass(column)}`}>
+                    <td key={column.key} className={`${BORDER} ${top} ${sized.foot} ${cellClass(column)}`}>
                       {footer.cells[column.key]}
                     </td>
                   ))}
