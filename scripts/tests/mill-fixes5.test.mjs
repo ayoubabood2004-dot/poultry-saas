@@ -1033,7 +1033,8 @@ export default async function (t) {
           newRecipeVersion: () => m.parseNewRecipeVersion(made({ skipped })),
         });
         await mount('/mill/recipe/r-1');
-        await click(byAction('new-version')[0]);
+        // كلمة الزبون 2026-11-15 (0028): «عدّل الخلطة» صار يفتح شاشة التعديل الواحدة؛ new_recipe_version باقٍ في «نسخة جديدة» بقسم التكاليف.
+        await click(byAction('rates-new-version')[0]);
         const notice = noticeTitles().find((title) => title.startsWith('نُسخت النسخة بلا')) ?? null;
         t.eq(notice, expected, `${label}: الجملة فوق النسخة الجديدة`);
         if (expected !== null) {

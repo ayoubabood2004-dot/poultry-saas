@@ -1,5 +1,5 @@
 import { CheckCircle2, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { decimalText } from '../../domain/decimal';
 import type { Milli } from '../../domain/money';
@@ -88,45 +88,54 @@ export function viewCardLine(line: CardLine): CardLineView {
   return { line, inBasis: inBasisKind(line.item.kind), densityMissing: liquid && !densityUnread && line.item.density === null, densityUnread };
 }
 
+/** سطر مختار جديد: كثافة السائل تُقرأ بعده (إلّا إن جاء صفّه كاملاً من المنتقي)، والكيلوغرام لا يحتاجها. */
+const freshLine = (item: PickedMaterial, row: ItemRow | null): CardLine => ({
+  item: row ? materialOf(row) : item,
+  density: item.baseUnit === 'L' && row === null ? { status: 'loading' } : { status: 'ready', row },
+  densityText: '',
+  densityBusy: false,
+  densityProblem: null,
+});
+
 /**
  * المواد المختارة في الصفحة (درس WP5: القراءة من جديد لا تمسحها) مع قراءة كثافة السائل وكتابتها، وما أُضيف من المنتقي (أُنشئ الآن أو
- * صُحّح نوعه) ليبقى بطاقةً قبل أن تُقرأ القائمة من جديد.
+ * صُحّح نوعه) ليبقى بطاقةً قبل أن تُقرأ القائمة من جديد. initial: مختار من أوّل رسم بترتيبه (0028، «تعديل الخلطة» يبدأ بموادّ النسخة المفعَّلة)،
+ * وكثافة سوائله تُقرأ بعد التركيب كما يقرؤها add.
  */
-export function useCardLines() {
-  const [lines, setLines] = useState<readonly CardLine[]>([]);
+export function useCardLines(initial: readonly PickedMaterial[] = []) {
+  const [lines, setLines] = useState<readonly CardLine[]>(() => initial.map((item) => freshLine(item, null)));
   const [made, setMade] = useState<readonly MillMaterial[]>([]);
+  // السوائل من أوّل رسم وحده (قائمة ثابتة): لا تُقرأ ثانيةً بعد كلّ رسم.
+  const [seededLiquids] = useState(() => initial.filter((item) => item.baseUnit === 'L').map((item) => item.id));
 
-  const patch = (itemId: string, change: (line: CardLine) => CardLine) => setLines((current) => current.map((line) => (line.item.id === itemId ? change(line) : line)));
+  const patch = useCallback(
+    (itemId: string, change: (line: CardLine) => CardLine) => setLines((current) => current.map((line) => (line.item.id === itemId ? change(line) : line))),
+    [],
+  );
 
-  const readDensity = (itemId: string) => {
-    loadItem(itemId).then(
-      (row) =>
-        patch(itemId, (line) =>
-          row && !row.archived ? { ...line, item: materialOf(row), density: { status: 'ready', row } } : { ...line, density: { status: 'failed', error: null } },
-        ),
-      (error: unknown) => patch(itemId, (line) => ({ ...line, density: { status: 'failed', error } })),
-    );
-  };
+  const readDensity = useCallback(
+    (itemId: string) => {
+      loadItem(itemId).then(
+        (row) =>
+          patch(itemId, (line) =>
+            row && !row.archived ? { ...line, item: materialOf(row), density: { status: 'ready', row } } : { ...line, density: { status: 'failed', error: null } },
+          ),
+        (error: unknown) => patch(itemId, (line) => ({ ...line, density: { status: 'failed', error } })),
+      );
+    },
+    [patch],
+  );
+
+  // قراءة كثافة السوائل المختارة من أوّل رسم: طلب يبدأ بعد التركيب، وجوابه يكتب السطر حين يصل (لا كتابة متزامنة هنا).
+  useEffect(() => {
+    for (const itemId of seededLiquids) readDensity(itemId);
+  }, [seededLiquids, readDensity]);
 
   /** يختار مادّة (ولا شيء إن كانت مختارة). row: صفّها كاملاً إن جاء من المنتقي، فلا تُقرأ كثافتها ثانية. */
   const add = (item: PickedMaterial, row: ItemRow | null = null): boolean => {
     if (lines.some((line) => line.item.id === item.id)) return false;
     const needsRead = item.baseUnit === 'L' && row === null;
-    const picked = row ? materialOf(row) : item;
-    setLines((current) =>
-      current.some((line) => line.item.id === item.id)
-        ? current
-        : [
-            ...current,
-            {
-              item: picked,
-              density: needsRead ? { status: 'loading' } : { status: 'ready', row },
-              densityText: '',
-              densityBusy: false,
-              densityProblem: null,
-            },
-          ],
-    );
+    setLines((current) => (current.some((line) => line.item.id === item.id) ? current : [...current, freshLine(item, row)]));
     if (row) setMade((current) => [...current.filter((entry) => entry.id !== row.id), { id: row.id, name: row.name, kind: row.kind, baseUnit: row.baseUnit }]);
     if (needsRead) readDensity(item.id);
     return true;

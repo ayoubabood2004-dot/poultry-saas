@@ -5,11 +5,13 @@ import BatchPage from './BatchPage';
 import MillPage from './MillPage';
 import ProducePage from './ProducePage';
 import RecipeBuilderPage from './RecipeBuilderPage';
+import RecipeEditPage from './RecipeEditPage';
 import RecipePage from './RecipePage';
 import ReportPage from './ReportPage';
 
 // معمل العلف (0015) تحت /mill: الخلطات بطاقاتٍ، وبطاقة الخلطة، وبطاقة دفعة الإنتاج، وبانية الخلطة الجديدة بشاشة واحدة (0016)، والإنتاج بشاشة
-// واحدة (0023، /mill/produce/:recipeId)، وتقرير العليقة بتقويمها وتقاريرها المطبوعة (0023، /mill/recipe/:id/report).
+// واحدة (0023، /mill/produce/:recipeId)، وتقرير العليقة بتقويمها وتقاريرها المطبوعة (0023، /mill/recipe/:id/report)، وتعديل الخلطة بشاشة واحدة
+// (0028، /mill/recipe/:id/edit، و?back=mill من بطاقة المعمل).
 // حزمة كسولة واحدة (تُفتح معاً دائماً: من البطاقة إلى الدفعة)، ولا تدخل التثبيت المسبق (الإنتاج يحتاج النت: سحب من دفعات
 // حقيقية).
 
@@ -25,6 +27,12 @@ function BatchById() {
 function RecipeById() {
   const { id = '' } = useParams();
   return <RecipePage key={id} />;
+}
+
+/** تعديل الخلطة (0028) بمفتاحها: الانتقال إلى خلطة أخرى يبدأ نموذجها من موادّها هي، لا بما اختير للسابقة ولا بمرجع محاولتها. */
+function RecipeEditById() {
+  const { id = '' } = useParams();
+  return <RecipeEditPage key={id} />;
 }
 
 /** تقرير العليقة (0023) بمفتاحها: الانتقال إلى عليقة أخرى يبدأ تقويمها وذاكرة أجوبتها من جديد. */
@@ -46,6 +54,7 @@ export default function MillRoutes() {
       <Route path="new" element={<RecipeBuilderPage />} />
       <Route path="recipe/:id" element={<RecipeById />} />
       <Route path="recipe/:id/report" element={<ReportById />} />
+      <Route path="recipe/:id/edit" element={<RecipeEditById />} />
       <Route path="produce/:recipeId" element={<ProduceByRecipe />} />
       <Route path="batch/:id" element={<BatchById />} />
       <Route path="*" element={<Notice tone="info" title={t('mill.not_found', 'هذه الصفحة غير موجودة في المعمل.')} />} />

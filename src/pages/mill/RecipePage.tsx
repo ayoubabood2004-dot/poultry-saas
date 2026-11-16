@@ -53,6 +53,8 @@ import { Chip, dash, forgetMillRef, MaterialName, millRef, moveId, NameCell, rec
 // الخلطة لو لا… كلنا نشوف تاريخ كل تعديل»): الجدول # | المادّة (بنقطة لونها) | النوع | داخل الكتلة، بلا كمية ولا حصّة ولا أساس ولا مجموع ولا كلفة طنّ
 // متوقّعة. «عدّل الخلطة» مسوّدة بلا كميات (new_recipe_version) تُضاف إليها الموادّ وتُحذف وتُرتَّب ثمّ «فعّل»؛ ومسوّدة قديمة كُتبت بكميات قبل 0025 تُمحى
 // كمياتها بزرّ (مسوّدة تجمع الحالين لا تُفعَّل: mixed_quantities). وتحت ذلك «السجلّ» (recipe_history): كلّ تعديل وكلّ إنتاج في المدّة، ويُطبع وحده.
+// «تعديل الخلطة» بشاشة واحدة (0028، كلمة الزبون 2026-11-15: التعديل لا يُحفظ إلّا بتفعيل نسخة جديدة): «عدّل الخلطة» في صفّ الأفعال يفتح
+// /mill/recipe/:id/edit (edit_recipe يحفظ ويفعّل بنداء واحد) ولو كانت للخلطة مسوّدة؛ و«نسخة جديدة» في قسم التكاليف تبقى مسوّدة كما كانت.
 
 /** اسم نوع المادّة بالعربية من رمز القارئ، و«—» لرمز لا يُعرف (لا يُعرض رمز خام). */
 const kindText = (kind: string): string => ((ITEM_KINDS as readonly string[]).includes(kind) ? itemKindLabel(kind as ItemKind) : dash());
@@ -287,8 +289,8 @@ export default function RecipePage() {
   };
 
   /**
-   * «عدّل الخلطة» (م٧): new_recipe_version تنسخ موادّ المفعَّلة بلا كميات (0025) ومعدّلاتها إلى مسوّدة بمعرّف من الجهاز يبقى للإعادة (جواب ضاع ←
-   * النسخة نفسها)، والمسوّدة القائمة ترجع كما هي؛ ثم تُفتح المسوّدة.
+   * «نسخة جديدة» في قسم التكاليف (م٧؛ وكانت «عدّل الخلطة» قبل 0028): new_recipe_version تنسخ موادّ المفعَّلة بلا كميات (0025) ومعدّلاتها إلى مسوّدة
+   * بمعرّف من الجهاز يبقى للإعادة (جواب ضاع ← النسخة نفسها)، والمسوّدة القائمة ترجع كما هي؛ ثم تُفتح المسوّدة.
    */
   const startVersion = async () => {
     if (busy || !data) return;
@@ -642,19 +644,23 @@ export default function RecipePage() {
         ) : null}
         {canEdit && !data.archived ? (
           <div className="flex flex-wrap items-center gap-2" data-action="recipe-actions">
-            {!draftVersion ? (
-              <Button size="lg" variant="secondary" icon={<Pencil className="size-5" aria-hidden="true" />} busy={busy} onClick={() => void startVersion()} data-action="new-version">
-                {t('mill.recipe.edit', 'عدّل الخلطة')}
-              </Button>
-            ) : data.versionId !== draftVersion.id ? (
-              <Button size="lg" variant="secondary" icon={<Pencil className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setVersionId(draftVersion.id)} data-action="open-draft">
-                {t('mill.recipe.continue_edit', 'أكمل تعديل الخلطة')}
-              </Button>
-            ) : (
+            {/* «عدّل الخلطة» (0028، كلمة الزبون 2026-11-15): شاشة التعديل الواحدة تحفظ الاسم والموادّ وتفعّلها بنداء واحد، بدل مسوّدة تُنشأ أو تُفتح
+                هنا ثمّ تُفعَّل بزرّ ثانٍ؛ ومسوّدة قديمة يحلّ التعديل محلّها (تقول ذلك شاشته). */}
+            <Button
+              size="lg"
+              variant="secondary"
+              icon={<Pencil className="size-5" aria-hidden="true" />}
+              disabled={busy}
+              onClick={() => navigate(`/mill/recipe/${id}/edit`)}
+              data-action="edit-recipe"
+            >
+              {t('mill.recipe.edit', 'عدّل الخلطة')}
+            </Button>
+            {draftVersion && data.versionId === draftVersion.id ? (
               <span className="text-sm text-ink-muted" data-action="editing-hint">
                 {t('mill.recipe.editing_v4', 'تعدّل الآن مسوّدة الخلطة: أضف الموادّ أو احذفها أو رتّبها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.')}
               </span>
-            )}
+            ) : null}
             <Button variant="ghost" icon={<Trash2 className="size-5" aria-hidden="true" />} disabled={busy} onClick={() => setRecipeOp('delete')} data-action="delete-recipe">
               {t('mill.recipe.delete', 'احذف الخلطة')}
             </Button>

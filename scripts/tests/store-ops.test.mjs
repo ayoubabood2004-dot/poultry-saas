@@ -45,7 +45,8 @@ const STUBS = {
   inventory: routed('inventory', ['loadOrgSetup', 'createItem', 'findItemTwins', 'listItems', 'loadItem', 'setArchived', 'listItemUnits', 'loadItemPurchases', 'loadStoresOverview', 'loadStockOnHand', 'loadStockValues', 'loadItemLots', 'loadItemMoves', 'updateItem']),
   purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createSupplier', 'createCustomer', 'listBoxes']),
   counts: `export * from ${real('counts')}; export const loadApprovals = () => Promise.resolve({ counts: 0, uses: 0 });`,
-  mill: routed('mill', ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'loadExpenseCategories', 'loadMillStores', 'archiveRecipe', 'newRecipeVersion']),
+  // loadRecipes وeditRecipe لشاشة تعديل الخلطة (0028) التي يفتحها «عدّل الخلطة»: بدائل كبقيّة نداءات المعمل، لا core الحقيقي.
+  mill: routed('mill', ['loadMill', 'loadBuilder', 'loadRecipe', 'loadRecipes', 'loadBatch', 'loadExpenseCategories', 'loadMillStores', 'archiveRecipe', 'newRecipeVersion', 'editRecipe']),
   session: 'export const useSession = () => globalThis.__so.session; export const sessionStore = { get: () => globalThis.__so?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__so.toasts.push(spec); }; export function Toaster() { return null; }',
 };
@@ -278,6 +279,8 @@ export default async function (t) {
 
     // ── K3-recipe: تعديل الخلطة وحذفها (كلمة المالك 2026-11-09: «ما اكدر اعدل عليها ولا احذفها») ─────────────────────────────
     const noItems = { items_overview: async () => ({ today: TODAY, can_record: true, can_add_item: true, items: [] }) };
+    // كلمة الزبون 2026-11-15 (0028): «عدّل الخلطة» يفتح شاشة التعديل الواحدة (/mill/recipe/:id/edit: edit_recipe يحفظ الموادّ ويفعّلها بنداء واحد) بدل
+    // مسوّدة تُنشأ هنا (new_recipe_version) أو تُفتح بـ«أكمل تعديل الخلطة» ثمّ تُفعَّل بزرّ ثانٍ؛ ولو كانت للخلطة مسوّدة.
     await step('K3-recipe-edit-delete', async () => {
       const { calls } = fresh(
         { status: 'ready', workspace: MANAGER },
@@ -286,11 +289,12 @@ export default async function (t) {
       );
       await mount('/mill/recipe/r-1');
       const row = byAction('recipe-actions')[0];
-      t.same([byAction('new-version')[0]?.textContent, byAction('delete-recipe')[0]?.textContent, Boolean(row?.contains(byAction('new-version')[0]))], ['عدّل الخلطة', 'احذف الخلطة', true], 'K3-recipe: «عدّل الخلطة» و«احذف الخلطة» في صفّ واحد');
+      t.same(
+        [byAction('edit-recipe')[0]?.textContent, byAction('delete-recipe')[0]?.textContent, Boolean(row?.contains(byAction('edit-recipe')[0])), byAction('new-version').length],
+        ['عدّل الخلطة', 'احذف الخلطة', true, 0],
+        'K3-recipe: «عدّل الخلطة» و«احذف الخلطة» في صفّ واحد',
+      );
       t.ok(before(h1(), row) && before(row, byAction('pick-version')[0]), 'K3-recipe: تحت العنوان وقبل أزرار النسخ');
-      await click(byAction('new-version')[0]);
-      await settle();
-      t.same([named(calls, 'newRecipeVersion').map((args) => args[0]), where?.search], [['r-1'], '?version=v-3'], 'K3-recipe: «عدّل الخلطة» تنشئ مسوّدة من المفعَّلة وتفتحها');
       await click(byAction('delete-recipe')[0]);
       t.ok(text().includes('حذف الخلطة «علف بادئ»؟') && text().includes('تختفي «علف بادئ» من المعمل ولا يُنتَج بها بعد الآن، وتبقى دفعاتها السابقة في سجلّ الإنتاج'), 'K3-recipe: التأكيد يسمّي الخلطة وأثر حذفها');
       t.eq(named(calls, 'archiveRecipe').length, 0, 'K3-recipe: ولا شيء قبل التأكيد');
@@ -299,18 +303,41 @@ export default async function (t) {
       t.same(named(calls, 'archiveRecipe'), [['r-1', 2, true]], 'K3-recipe: الأرشفة القائمة بنسخة الخلطة كما قُرئت');
       t.same([where?.pathname, globalThis.__so.toasts.at(-1)?.title], ['/mill', 'حُذفت الخلطة «علف بادئ» من المعمل.'], 'K3-recipe: ثمّ يرجع إلى المعمل ويقول إنّها حُذفت');
     });
+    await step('K3-recipe-edit', async () => {
+      const { calls } = fresh(
+        { status: 'ready', workspace: MANAGER },
+        { loadRecipe: () => m.parseRecipe(recipeJson()), newRecipeVersion: () => ({ versionId: 'v-3', existing: false, skipped: [] }) },
+        noItems,
+      );
+      await mount('/mill/recipe/r-1');
+      await click(byAction('edit-recipe')[0]);
+      await settle();
+      t.same(
+        [where?.pathname, where?.search, named(calls, 'newRecipeVersion').length],
+        ['/mill/recipe/r-1/edit', '', 0],
+        'K3-recipe: «عدّل الخلطة» يفتح شاشة التعديل ولا ينشئ مسوّدة (كان new_recipe_version ثمّ ?version= للمسوّدة)',
+      );
+    });
     await step('K3-recipe-draft', async () => {
       const draft = { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 1 };
       const withDraft = (versionId) => ({ ...recipeJson(), versions: [...recipeJson().versions, draft], selected: versionId === 'v-3' ? { ...draft, note: null } : recipeJson().selected });
-      fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: (_id, versionId) => m.parseRecipe(withDraft(versionId)) }, noItems);
+      const { calls } = fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: (_id, versionId) => m.parseRecipe(withDraft(versionId)) }, noItems);
       await mount('/mill/recipe/r-1');
-      t.same([byAction('new-version').length, byAction('open-draft')[0]?.textContent], [0, 'أكمل تعديل الخلطة'], 'K3-recipe: لها مسوّدة: «أكمل تعديل الخلطة» بدل نسخة ثانية');
-      await click(byAction('open-draft')[0]);
-      await settle();
       t.same(
-        [where?.search, byAction('open-draft').length, byAction('editing-hint')[0]?.textContent],
-        ['?version=v-3', 0, 'تعدّل الآن مسوّدة الخلطة: أضف الموادّ أو احذفها أو رتّبها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.'],
-        'K3-recipe: تفتح المسوّدة وتقول ما بعدها',
+        [byAction('open-draft').length, byAction('edit-recipe')[0]?.textContent],
+        [0, 'عدّل الخلطة'],
+        'K3-recipe: لها مسوّدة: «عدّل الخلطة» نفسه لا «أكمل تعديل الخلطة» (شاشة التعديل تبدأ بالمفعَّلة وتقول إنّ الحفظ يحلّ محلّ المسوّدة)',
+      );
+      await click(byAction('edit-recipe')[0]);
+      await settle();
+      t.same([where?.pathname, named(calls, 'newRecipeVersion').length], ['/mill/recipe/r-1/edit', 0], 'K3-recipe: ويفتح شاشة التعديل');
+      await unmount();
+      fresh({ status: 'ready', workspace: MANAGER }, { loadRecipe: (_id, versionId) => m.parseRecipe(withDraft(versionId)) }, noItems);
+      await mount('/mill/recipe/r-1?version=v-3');
+      t.same(
+        [byAction('edit-recipe').length, byAction('editing-hint')[0]?.textContent],
+        [1, 'تعدّل الآن مسوّدة الخلطة: أضف الموادّ أو احذفها أو رتّبها، ثمّ اضغط «فعّل النسخة» لتصير هي المعتمدة في الإنتاج.'],
+        'K3-recipe: المسوّدة المفتوحة تقول ما بعدها، و«عدّل الخلطة» معها',
       );
     });
     await step('K3-recipe-restore', async () => {
@@ -346,7 +373,7 @@ export default async function (t) {
     await step('K3-recipe-viewer', async () => {
       fresh({ status: 'ready', workspace: ws('viewer') }, { loadRecipe: () => m.parseRecipe(recipeJson()) }, noItems);
       await mount('/mill/recipe/r-1');
-      t.same([byAction('recipe-actions').length, byAction('delete-recipe').length, byAction('new-version').length], [0, 0, 0], 'K3-recipe: من لا يفعّل الخلطات: بلا «عدّل» ولا «احذف»');
+      t.same([byAction('recipe-actions').length, byAction('delete-recipe').length, byAction('edit-recipe').length], [0, 0, 0], 'K3-recipe: من لا يفعّل الخلطات: بلا «عدّل» ولا «احذف»');
     });
 
     // ── K4: صفّ الأفعال و«احذف» للمستعملة──────────────────────────────────────────────────────────────────────────────────────

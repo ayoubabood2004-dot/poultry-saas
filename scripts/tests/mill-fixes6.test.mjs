@@ -611,10 +611,12 @@ export default async function (t) {
         },
       });
       await mount('/mill/recipe/r-1');
-      t.ok(text().includes('خميرة') && byAction('new-version').length === 1, 'W63 ضابط: المفعَّلة بموادّها ومنها «خميرة»، و«عدّل الخلطة» ظاهر');
-      await press(byAction('new-version')[0]);
-      t.same([text().includes('نتيجة العملية غير معروفة'), byAction('new-version').length], [true, 1], 'W63 ضاع الجواب: «نتيجة العملية غير معروفة» والزرّ باقٍ للإعادة');
-      await press(byAction('new-version')[0]);
+      // كلمة الزبون 2026-11-15 (0028): «عدّل الخلطة» صار يفتح شاشة التعديل الواحدة (edit_recipe)؛ مسوّدة new_recipe_version باقية في «نسخة جديدة»
+      // بقسم التكاليف، فالإعادة بالمعرّف نفسه تُفحص من زرّها.
+      t.ok(text().includes('خميرة') && byAction('rates-new-version').length === 1, 'W63 ضابط: المفعَّلة بموادّها ومنها «خميرة»، و«نسخة جديدة» ظاهر');
+      await press(byAction('rates-new-version')[0]);
+      t.same([text().includes('نتيجة العملية غير معروفة'), byAction('rates-new-version').length], [true, 1], 'W63 ضاع الجواب: «نتيجة العملية غير معروفة» والزرّ باقٍ للإعادة');
+      await press(byAction('rates-new-version')[0]);
       t.same([state.attempts.length, state.attempts[0] === state.attempts[1]], [2, true], 'W63 الإعادة بالمعرّف نفسه');
       t.same(
         [noticeTitles().includes(SKIPPED), globalThis.__mill.toasts.map((toast) => toast.title).filter((title) => title === OPENED || title === COPIED)],
@@ -628,7 +630,7 @@ export default async function (t) {
         newRecipeVersion: () => m.parseNewRecipeVersion(made({ version_id: 'v-other', existing: true })),
       });
       await mount('/mill/recipe/r-1');
-      await press(byAction('new-version')[0]);
+      await press(byAction('rates-new-version')[0]);
       t.same(
         [noticeTitles().some((title) => title.startsWith('نُسخت النسخة بلا')), globalThis.__mill.toasts.map((toast) => toast.title)],
         [false, [OPENED]],
