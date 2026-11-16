@@ -32,7 +32,7 @@ export function FeedLine({ feed, giveTo }: { feed: FlockFeed; giveTo?: string })
       </p>
       {short ? (
         <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="feed-negative">
-          {t('feed.negative', 'سُجّل أكل {n} أكثر ممّا صُرف لهذه القاعة: سجّل الصرف من «أضف للقاعة»، أو صحّح علف الجولات.', { n: kg(-feed.leftInHallKg) })}
+          {t('feed.negative', 'سُجّل أكل {n} أكثر ممّا صُرف لهذه القاعة: سجّل الصرف، أو صحّح علف الجولات.', { n: kg(-feed.leftInHallKg) })}
           {giveTo ? (
             <>
               {' '}

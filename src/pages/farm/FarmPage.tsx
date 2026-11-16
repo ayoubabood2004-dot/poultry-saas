@@ -1,4 +1,4 @@
-import { ChevronLeft, ClipboardList, Plus } from 'lucide-react';
+import { ClipboardList, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -49,7 +49,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   const [archiving, setArchiving] = useState(false);
   const base = farmPath(kind);
   // القاعدة ترتّب القاعات حرفاً حرفاً («قاعة 44» قبل «قاعة 5» في شاشة الزبون 2026-11-15)، فالترتيب هنا بأرقام الأسماء.
-  const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind).map((site) => ({ ...site, halls: [...site.halls].sort((a, b) => naturalCompare(a.name, b.name)) }));
+  const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind).map((site) => ({ ...site, halls: [...site.halls].sort((a, b) => naturalCompare(hallLabel(a.name), hallLabel(b.name))) }));
   const today = state.data?.overview.today ?? localDay();
   const done = () => {
     setEditing(null);
@@ -81,9 +81,8 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
         header: t('farm.col.hall', 'القاعة'),
         sticky: true,
         cell: (hall) => (
-          <Link to={hallPath(kind, hall.id)} className="inline-flex items-center gap-1 text-lg font-semibold text-brand-700 underline decoration-brand-300 underline-offset-4 dark:text-brand-200 dark:decoration-brand-700" data-action="hall-open">
+          <Link to={hallPath(kind, hall.id)} className="text-lg font-semibold text-brand-700 underline-offset-4 hover:underline dark:text-brand-200" data-action="hall-open">
             {hallLabel(hall.name)}
-            <ChevronLeft aria-hidden="true" className="size-5 shrink-0" />
           </Link>
         ),
       },

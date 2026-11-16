@@ -39,6 +39,8 @@ export interface FooterRow {
 
 const NUMBER_CELL = 'text-right tabular-nums whitespace-nowrap'; // ui-ok: الآحاد طرف الرقم الأيمن بكل اتجاه
 const STICKY = 'sticky start-0 z-[1] bg-surface-1';
+/** الخلية الثابتة في صفّ تحذير: معتمة (تغطّي ما يمرّ تحتها بالتمرير) بلون الصفّ نفسه (warn-500/15 فوق surface-1 بالوضع الداكن). */
+const STICKY_WARN = 'sticky start-0 z-[1] bg-warn-50 dark:bg-[rgb(50,44,35)]';
 const BORDER = 'border-b border-e border-line last:border-e-0';
 const TOTAL_TOP = 'border-t-[3px] border-double border-t-line-strong';
 
@@ -138,7 +140,7 @@ export function DataTable<Row>({
   const showFoot = showTotals || footers.length > 0;
   // آخر صفّ قبل المجاميع بلا خطّ أسفل (فوكه الخطّ المزدوج)، وآخر صفّ بالجدول بلا خطّ (الإطار من الغلاف).
   const edges = showFoot ? '[&>tbody>tr:last-child>*]:border-b-0 [&>tfoot>tr:last-child>*]:border-b-0' : '[&>tbody>tr:last-child>*]:border-b-0';
-  const stickyOf = (column: Column<Row>) => (column.sticky ? STICKY : '');
+  const stickyOf = (column: Column<Row>, warn = false) => (column.sticky ? (warn ? STICKY_WARN : STICKY) : '');
   return (
     // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
@@ -167,10 +169,11 @@ export function DataTable<Row>({
           ) : (
             rows.map((row, index) => {
               const detail = subRow?.(row, index);
+              const warn = rowTone?.(row) === 'warn';
               return (
                 <Fragment key={rowKey(row, index)}>
                   <tr
-                    className={`${rowTone?.(row) === 'warn' ? 'bg-warn-50 dark:bg-warn-950/40' : ''} hover:bg-surface-2 ${onRowClick ? 'cursor-pointer' : ''}`}
+                    className={`${warn ? 'bg-warn-50 dark:bg-warn-500/15' : ''} hover:bg-surface-2`}
                     onClick={
                       onRowClick
                         ? (event) => {
@@ -181,7 +184,7 @@ export function DataTable<Row>({
                     }
                   >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column)} ${cellClass(column)}`}>
+                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, warn)} ${cellClass(column)}`}>
                         {column.cell(row, index)}
                       </td>
                     ))}

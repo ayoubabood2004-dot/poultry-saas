@@ -28,8 +28,9 @@ import { useLoad } from '../../lib/useLoad';
 import { CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
 import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
-import { amountText, countText, errorText, loadTransport } from './RoundPage';
-import { farmPath, farmTitle, fmtPct, HallFlockCard, hallLabel, hallPath, Metric, TodayChip, useOverview, useStamp } from './shared';
+import { daysText } from '../halls/parts';
+import { amountText, countText, errorText, loadTransport } from './roundText';
+import { farmPath, farmTitle, fmtPct, HallFlockCard, hallLabel, hallPath, Metric, useOverview, useStamp } from './shared';
 
 // صفحة القاعة (FOUNDATION ٧٨٢؛ كلمة المالك 2026-11-16 مع صورة صفحة «فوج 1»: «طريقة الدخول الها واضحة ومو مبهمة… وتراجع تصميم هاي
 // الواجهة»، والمرحلة ١ بجوابه). المكان ثابت والفوج يتغيّر كلّ دورة: الرابط بالقاعة (/hall/:id) ويفتح فوجها القائم أو يقول إنّها فارغة،
@@ -82,10 +83,15 @@ export function dayViews(detail: FlockDetail): { rows: DayView[]; olderMissing: 
   return { rows, olderMissing: Math.max(0, diffDays(from, placed) - older.length) };
 }
 
-/** هل يُكتب هذا اليوم من هنا: الدورة قائمة، ولمن يحفظ يوم الفوج، واليوم ما بين التسكين ويوم الخادم وضمن الأيام السبعة. */
-function writable(detail: FlockDetail, day: Day): boolean {
+/** يوم ما زالت الجولة تقبله: الدورة قائمة، واليوم ما بين التسكين ويوم الخادم وضمن الأيام السبعة (لمن يكتب أو لا: الناقص فيه «لم تُسجَّل» لا «فاتت»). */
+function inWindow(detail: FlockDetail, day: Day): boolean {
   const today = serverToday(detail.flock);
-  return detail.canSave && detail.flock.status === 'active' && today !== null && detail.flock.placedOn !== null && day <= today && day >= detail.flock.placedOn && day >= addDays(today, -ROUND_WINDOW);
+  return detail.flock.status === 'active' && today !== null && detail.flock.placedOn !== null && day <= today && day >= detail.flock.placedOn && day >= addDays(today, -ROUND_WINDOW);
+}
+
+/** هل يُكتب هذا اليوم من هنا: ضمن الأيام التي تقبلها الجولة، ولمن يحفظ يوم الفوج. */
+function writable(detail: FlockDetail, day: Day): boolean {
+  return detail.canSave && inWindow(detail, day);
 }
 
 /** الحيّ بداية يوم بلا سطر: آخر يوم مسجّل قبله (حيّه آخر اليوم)، وإلّا المسكّن. الخادم يعيد الحساب ويرفض بصوت؛ هذا للتنبيه قبل الإرسال. */
@@ -298,14 +304,13 @@ function TodayCard({ detail, missing, onRecord }: { detail: FlockDetail; missing
   if (today === null) return null;
   const line = detail.flock.today;
   const done = line !== null;
-  const tone = done ? 'border-success-300 dark:border-success-800' : 'border-warn-300 bg-warn-50 dark:border-warn-800 dark:bg-warn-950/40';
+  const tone = done ? '' : 'border-warn-200 bg-warn-50 dark:bg-warn-500/15';
   return (
     <section className={`card flex flex-col gap-3 border p-4 ${tone}`} data-action="hall-today-card" data-state={done ? 'done' : 'missing'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">
           {done ? t('hall.today.done', 'سُجّلت جولة اليوم {day}', { day: fmtDay(today) }) : t('hall.today.missing', 'جولة اليوم {day} لم تُسجَّل', { day: fmtDay(today) })}
         </h2>
-        <TodayChip flock={detail.flock} />
       </div>
       {done ? (
         <p className="text-ink-muted" data-action="hall-today-values">
@@ -334,7 +339,7 @@ function TodayCard({ detail, missing, onRecord }: { detail: FlockDetail; missing
   );
 }
 
-const ACTION_CLASS = 'flex min-h-14 items-center justify-center rounded-xl border border-line bg-surface-1 px-3 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-surface-2 dark:text-brand-200';
+const ACTION_CLASS = 'flex h-14 items-center justify-center rounded-xl border border-line bg-surface-1 px-3 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-surface-2 dark:text-brand-200';
 
 /**
  * أفعال القاعة كبيرة بترتيب الاستعمال (لا روابط صغيرة بالزوايا): الإضافة للقاعة، ووزن العيّنة، والتقويم واللقاحات، وتقرير الدورة، وسجلّ
@@ -417,12 +422,20 @@ function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: Floc
     {
       key: 'day',
       header: t('flock.col.day', 'التاريخ'),
+      // ثابت بالتمرير، و«سجّل» لليوم الناقص فيه نفسه: آخر عمود لا يُرى بالهاتف بلا سحب (صور الهاتف 2026-11-16).
+      sticky: true,
       cell: (row) => (
         <span className="inline-flex items-center gap-2">
           <Num>{fmtDay(row.onDate)}</Num>
-          {row.line ? null : writable(detail, row.onDate) ? (
-            <span className="rounded-full bg-warn-100 px-2 text-xs font-semibold text-warn-800 dark:bg-warn-950 dark:text-warn-200" data-action="day-missing">
-              {t('hall.day.missing', 'لم تُسجَّل')}
+          {row.line ? null : inWindow(detail, row.onDate) ? (
+            <span data-action="day-missing">
+              {writable(detail, row.onDate) ? (
+                <Button size="sm" variant="secondary" onClick={() => onRecord(row.onDate)} data-action="day-record">
+                  {t('hall.day.record', 'سجّل')}
+                </Button>
+              ) : (
+                <span className="rounded-full bg-warn-50 px-2 text-xs font-semibold text-warn-800 dark:bg-warn-500/15 dark:text-warn-200">{t('hall.day.missing', 'لم تُسجَّل')}</span>
+              )}
             </span>
           ) : (
             <span className="rounded-full bg-surface-2 px-2 text-xs font-semibold text-ink-muted" data-action="day-lost">
@@ -470,9 +483,9 @@ function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: Floc
             key: 'write',
             header: t('hall.col.round', 'الجولة'),
             cell: (row: DayView) =>
-              writable(detail, row.onDate) ? (
-                <Button size="sm" variant={row.line ? 'ghost' : 'secondary'} onClick={() => onRecord(row.onDate)} data-action={row.line ? 'day-edit' : 'day-record'}>
-                  {row.line ? t('hall.day.edit', 'عدّل') : t('hall.day.record', 'سجّل')}
+              row.line && writable(detail, row.onDate) ? (
+                <Button size="sm" variant="ghost" onClick={() => onRecord(row.onDate)} data-action="day-edit">
+                  {t('hall.day.edit', 'عدّل')}
                 </Button>
               ) : null,
           },
@@ -512,13 +525,13 @@ function FlockView({ detail, kind, onRecord }: { detail: FlockDetail; kind: Floc
           columns={columns}
           rows={rows}
           rowKey={(row) => row.onDate}
-          rowTone={(row) => (row.line === null && writable(detail, row.onDate) ? 'warn' : null)}
+          rowTone={(row) => (row.line === null && inWindow(detail, row.onDate) ? 'warn' : null)}
           empty={t('flock.days.empty', 'لم تُسجَّل أيّ جولة بعد.')}
           totalLabel={t('flock.total', 'المجموع')}
         />
         {olderMissing > 0 ? (
           <p className="text-sm text-ink-muted" data-action="days-older-missing">
-            {t('hall.days.older_missing', 'وقبل هذه الأيام {n} يوماً بلا جولة.', { n: fmtInt(olderMissing) })}
+            {t('hall.days.older_missing', 'وقبل هذه الأيام {n} بلا جولة.', { n: daysText(olderMissing) })}
           </p>
         ) : null}
       </section>
@@ -579,14 +592,14 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
   const [recording, setRecording] = useState<{ detail: FlockDetail; day: Day } | null>(null);
   const here = detail ? hallPath(kind, detail.flock.hallId) : base;
   const today = detail ? serverToday(detail.flock) : null;
-  const missing = detail && today !== null ? dayViews(detail).rows.filter((row) => row.line === null && row.onDate !== today && writable(detail, row.onDate)).length : 0;
+  const missing = detail && today !== null ? dayViews(detail).rows.filter((row) => row.line === null && row.onDate !== today && inWindow(detail, row.onDate)).length : 0;
   const subtitle = detail
     ? [
         detail.flock.siteName,
         detail.flock.status === 'closed' && detail.flock.closedOn
           ? t('hall.closed_on', 'دورة أُغلقت يوم {day}', { day: fmtDay(detail.flock.closedOn) })
           : detail.flock.ageDays !== null
-            ? t('hall.current', 'الدورة الحالية: العمر {age} يوماً', { age: fmtInt(detail.flock.ageDays) })
+            ? t('hall.current', 'الدورة الحالية: العمر {age}', { age: daysText(detail.flock.ageDays) })
             : null,
         detail.flock.placedOn ? t('hall.placed', 'سُكّن يوم {day}', { day: fmtDay(detail.flock.placedOn) }) : null,
         detail.flock.breed ? t('hall.breed', 'سلالة {breed}', { breed: detail.flock.breed }) : null,
@@ -653,20 +666,20 @@ function FlockScreen({ kind, flockId, nav }: { kind: FlockKind; flockId: string;
 function HallTop({ kind, nav }: { kind: FlockKind; nav?: Nav }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <Link to={farmPath(kind)} className={`${LINK_CLASS} inline-flex min-h-10 items-center gap-1`} data-action="hall-back">
+      <Link to={farmPath(kind)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-back">
         <ChevronRight aria-hidden="true" className="size-4" />
         {farmTitle(kind)}
       </Link>
       {nav ? (
         <div className="flex items-center gap-3">
           {nav.prev ? (
-            <Link to={hallPath(kind, nav.prev.id)} className={`${LINK_CLASS} inline-flex min-h-10 items-center gap-1`} data-action="hall-prev">
+            <Link to={hallPath(kind, nav.prev.id)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-prev">
               <ChevronRight aria-hidden="true" className="size-4" />
               {hallLabel(nav.prev.name)}
             </Link>
           ) : null}
           {nav.next ? (
-            <Link to={hallPath(kind, nav.next.id)} className={`${LINK_CLASS} inline-flex min-h-10 items-center gap-1`} data-action="hall-next">
+            <Link to={hallPath(kind, nav.next.id)} className={`${LINK_CLASS} inline-flex h-10 items-center gap-1`} data-action="hall-next">
               {hallLabel(nav.next.name)}
               <ChevronLeft aria-hidden="true" className="size-4" />
             </Link>
@@ -737,7 +750,8 @@ export function HallPage({ kind }: { kind: FlockKind }) {
   const stamp = useStamp();
   const state = useOverview(stamp);
   const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind);
-  const ordered = sites.flatMap((site) => [...site.halls].sort((a, b) => naturalCompare(a.name, b.name)).map((hall) => ({ site, hall })));
+  // بترتيب الحقل نفسه: بالاسم كما يُقرأ («5» يُقرأ «قاعة 5» فيأتي بعد «قاعة 3»).
+  const ordered = sites.flatMap((site) => [...site.halls].sort((a, b) => naturalCompare(hallLabel(a.name), hallLabel(b.name))).map((hall) => ({ site, hall })));
   const index = ordered.findIndex((entry) => entry.hall.id === id);
   const found = index >= 0 ? ordered[index] : undefined;
   if (state.error && !state.data) {

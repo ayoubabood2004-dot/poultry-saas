@@ -20,6 +20,9 @@ export { default as Reminders } from './Reminders';
 export { default as FlockCard } from './FlockCard';
 // نافذة «عدّل الفوج» (0028) هنا لتُحمَّل من حزمة القاعات خارج التثبيت المسبق (pages/farm/flockEditLazy): التعديل يحتاج الخادم كلّه.
 export { FlockEditDialog } from '../farm/FlockEditDialog';
+// صفحة القاعة (كلمة المالك 2026-11-16) هنا أيضاً: كلّها من الخادم (الفوج وأيامه والجولة لأيّ يوم والوزن)، فلا تُثقل التثبيت المسبق؛ ومسارها
+// /broiler/hall/:id في حزمة الحقول يحمّلها كسولةً (pages/farm/FarmRoutes).
+export { default as FlockPage, HallPage } from '../farm/FlockPage';
 
 export default function HallsRoutes() {
   return (

@@ -7,8 +7,8 @@ import { DataTable, Num } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { localDay } from '../../domain/dates';
-import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
-import { EMPTY_ROUND, emptyPayload, readRound, type FlockKind, type RoundError, type RoundText } from '../../domain/flocks';
+import { parseDecimal, toScale } from '../../domain/decimal';
+import { EMPTY_ROUND, emptyPayload, readRound, type FlockKind, type RoundText } from '../../domain/flocks';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt, fmtMilli } from '../../lib/format';
@@ -16,11 +16,12 @@ import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import { openOutbox, pendingOps, reviewEntries, saveRound, type FlockDayPayload, type OutboxOp, type ReviewEntry, type SendResult, type Stamp } from '../../lib/outbox';
 import { useDirtyForm } from '../../lib/pwa/dirty';
-import { flockDayTransport, type FlockSummary, type FlocksOverview } from '../../lib/repo/flocks';
+import type { FlockSummary, FlocksOverview } from '../../lib/repo/flocks';
 import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
+import { amountText, countText, errorText, loadTransport } from './roundText';
 import { farmPath, farmTitle, HallReminders, hallLabel, hallPath, useOverview, useStamp } from './shared';
 
 // الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦): شاشة وحدة لكل أفواج النطاق النشطة بخانات اليوم (نافق، مستبعد، علف، وللبيّاض البيض
@@ -57,14 +58,7 @@ interface RowEdit {
 }
 
 const FIELDS = Object.keys(EMPTY_ROUND) as (keyof RoundText)[];
-export const loadTransport = async () => flockDayTransport;
 
-export const amountText = (value: bigint | string | null | undefined): string => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'bigint') return decimalText(value, 3).replace(/\.?0+$/, '');
-  return value.replace(/\.?0+$/, '');
-};
-export const countText = (value: number | null | undefined): string => (value === null || value === undefined ? '' : String(value));
 
 /** صفوف الجولة: كل فوج نشط بالنوع مسكّن باليوم أو قبله، بقيم اليوم المحفوظة وفوكها المنتظرة بالجهاز. */
 function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pending: readonly OutboxOp[]): RoundRow[] {
@@ -148,24 +142,6 @@ function liveEdit(edit: RowEdit, row: RoundRow, returned: 'stale_day' | 'parked'
   return { text, from: row.text, base: row.baseVersion, seq: edit.seq };
 }
 
-export function errorText(error: RoundError, liveStart: number): string {
-  switch (error) {
-    case 'bad_count':
-      return t('round.error.bad_count', 'اكتب عدداً صحيحاً: صفر أو أكثر.');
-    case 'bad_amount':
-      return t('round.error.bad_amount', 'اكتب كمية صحيحة بثلاث مراتب عشرية على الأكثر، مثل 1250.5.');
-    case 'live_negative':
-      return t('round.error.live_negative', 'النافق والمستبعد أكثر من الطيور الحيّة بداية اليوم ({live}).', { live: fmtInt(liveStart) });
-    case 'eggs_need_total':
-      return t('round.error.eggs_need_total', 'اكتب مجموع البيض قبل المكسور.');
-    case 'eggs_over_total':
-      return t('round.error.eggs_over_total', 'المكسور أكثر من مجموع البيض.');
-    case 'eggs_over_live':
-      return t('round.error.eggs_over_live', 'البيض أكثر من الدجاج الحيّ بداية اليوم ({live})، والنسبة فوق 100% غلط إدخال.', { live: fmtInt(liveStart) });
-    case 'eggs_on_broiler':
-      return t('round.error.eggs_on_broiler', 'لا بيض لفوج لحم.');
-  }
-}
 
 function statusText(status: RowStatus): string {
   switch (status) {
@@ -332,7 +308,7 @@ function RoundCard({ row, kind, text, onChange, error, status, returned }: CardP
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-semibold">
           {/* اسم القاعة طريق إلى صفحتها (كلمة المالك 2026-11-16). */}
-          <Link to={hallPath(kind, row.hallId)} className="text-brand-700 underline decoration-brand-300 underline-offset-4 dark:text-brand-200 dark:decoration-brand-700" data-action="round-hall">
+          <Link to={hallPath(kind, row.hallId)} className="text-brand-700 underline-offset-4 hover:underline dark:text-brand-200" data-action="round-hall">
             {hallLabel(row.hallName)}
           </Link>{" "}
           <span className="text-sm font-normal text-ink-muted">— {row.siteName}</span>

@@ -118,10 +118,13 @@ export default async function (t) {
       t.same([storesAdmin.includes('weighTicket|allocation'), storesAdmin.includes('weighTickets'), accounts.includes('domain\\/amountWords\\.ts')], [true, true, true], 'S الحزم المشتركة بين المستثناة بأسماء مستثناة: المرآة وتوزيعها stores-admin، والمبلغ كتابةً accounts-office');
       const shared = readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'shared.tsx'), 'utf8');
       const flockPage = readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'FlockPage.tsx'), 'utf8');
+      const farmRoutes = readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'FarmRoutes.tsx'), 'utf8');
+      const hallsRoutes = readFileSync(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'), 'utf8');
+      // صفحة القاعة (كلمة المالك 2026-11-16) صارت من حزمة القاعات خارج التثبيت المسبق: الحقول تحمّلها كسولةً (quietly) ولا تستوردها ثابتاً.
       t.same(
-        [shared.includes('hallsLazy((halls) => halls.FlockCard)'), shared.includes('quietly(loadHalls)'), flockPage.includes('<HallFlockCard flock={detail.flock} onChanged={state.retry} />'), /import[^;]*halls\//u.test(flockPage)],
-        [true, true, true, false],
-        'S صفحة الفوج (محفوظة) تحمّل البطاقة كسولةً من حزمة القاعات (quietly) ولا تستورد منها شيئاً ثابتاً',
+        [shared.includes('hallsLazy((halls) => halls.FlockCard)'), shared.includes('quietly(loadHalls)'), flockPage.includes('<HallFlockCard flock={detail.flock} onChanged={state.retry} />'), /import[^;]*\.\/FlockPage/u.test(farmRoutes), farmRoutes.includes('quietly(loadHalls)'), hallsRoutes.includes("export { default as FlockPage, HallPage } from '../farm/FlockPage';")],
+        [true, true, true, false, true, true],
+        'S بطاقة البيع كسولةٌ من حزمة القاعات، وصفحة القاعة من الحزمة نفسها: الحقول لا تستوردها ثابتاً وتحمّلها quietly',
       );
       const names = [
         'flock_counts_kind_check', 'flock_counts_birds_check', 'flock_counts_sign_check', 'flock_counts_net_check', 'flock_counts_doc_check', 'flock_counts_reason_check',

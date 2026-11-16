@@ -319,7 +319,7 @@ function GivenList({ flock }: { flock: DayFlock }) {
 function HallName({ hall }: { hall: DayHall }) {
   if (!hall.flock) return <>{hall.hallName}</>;
   return (
-    <Link to={`${hall.flock.kind === 'broiler' ? '/broiler' : '/layers'}/hall/${hall.hallId}`} className="text-brand-700 underline decoration-brand-300 underline-offset-4 dark:text-brand-200 dark:decoration-brand-700" data-action="day-hall-link">
+    <Link to={`${hall.flock.kind === 'broiler' ? '/broiler' : '/layers'}/hall/${hall.hallId}`} className="text-brand-700 underline-offset-4 hover:underline dark:text-brand-200" data-action="day-hall-link">
       {hall.hallName}
     </Link>
   );

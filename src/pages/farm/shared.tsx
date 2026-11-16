@@ -25,10 +25,10 @@ export const farmTitle = (kind: FlockKind): string => (kind === 'broiler' ? t('n
  */
 export const hallPath = (kind: FlockKind, hallId: string): string => `${farmPath(kind)}/hall/${hallId}`;
 
-const CHIP = 'inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-sm font-semibold';
+const CHIP = 'inline-flex items-center whitespace-nowrap rounded-full px-2 py-1 text-sm font-semibold';
 const CHIP_TONES = {
-  ok: 'bg-success-100 text-success-800 dark:bg-success-950 dark:text-success-200',
-  warn: 'bg-warn-100 text-warn-800 dark:bg-warn-950 dark:text-warn-200',
+  ok: 'bg-success-50 text-success-800 dark:bg-success-500/15 dark:text-success-100',
+  warn: 'bg-warn-50 text-warn-800 dark:bg-warn-500/15 dark:text-warn-200',
   idle: 'bg-surface-2 text-ink-muted',
 } as const;
 
