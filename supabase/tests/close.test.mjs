@@ -8,7 +8,7 @@
 // وM13 الدفعة الراجعة بترتيب جديد، وM14 التسكين يطبّق نقل قاعة أخرى، وM15 إعادة الفتح بعد استعمال المنقول، وM16 إلغاء فاتورة على دورة مغلقة، وM17 معامل
 // التحويل النهائيّ من الجولات، وM18 مؤشّر الإنتاج بعمر الإغلاق، وM19 الحيّ في أيّام التقرير بلا العدد، وM20 المنقول المُرجَع يُطرح مرّتين ممّا نزل، وM21 إعادة
 // الفتح تعدّ القائم وحده فوجاً جديداً. وضابط لكلّ فحص من فحوص verify_flock_close العشرة (خرق مثبَّت يبين في فحصه وحده)، وطفرة الفحص 8 في verify_stock.
-// وقرّاء 0027 (halls_day وflock_cycle_report وflock_cycles) يُقارنون بأجسام 0027 نفسها (من rollback_0028.sql حرفاً بحرف) على فوج بلا بيع ولا إغلاق:
+// وقرّاء 0027 (halls_day وflock_cycle_report وflock_cycles) يُقارنون بأجسام 0027 نفسها (من rollback_0029.sql حرفاً بحرف) على فوج بلا بيع ولا إغلاق:
 // المفاتيح القديمة بقيمها نفسها، والجديدة وحدها زائدة (وضابط يثبت أنّ المقارنة تمسك مفتاحاً قديماً تغيّر). وإصلاح في الهجرة بفحص فشل قبله: إعادة الإغلاق
 // بالمعرّف تقارن سبب فرق العدّ أيضاً (كانت ترجع «حُفظ» بسبب غير المحفوظ). منشأة هذا الملف وحدها: المعرّفات c2810000 والهواتف 96477028100. كلّ قسم
 // بـsection: رمية فيه فحص فاشل باسمه ولا توقف الملف. الحساب باليد بالتعليق جنب كلّ رقم.
@@ -91,13 +91,13 @@ const reportAs0027 = (v) => {
 };
 const cyclesAs0027 = (v) => ({ ...v, cycles: v.cycles.map((c) => without(c, NEW_KEYS.cycle)) });
 
-/** أجسام 0027 كما يرجّعها التراجع حرفاً بحرف (rollback_0028.sql): من «create or replace function الاسم(» حتى أوّل «$$;» بعدها. */
+/** أجسام 0027 كما يرجّعها التراجع حرفاً بحرف (rollback_0029.sql): من «create or replace function الاسم(» حتى أوّل «$$;» بعدها. */
 function bodies0027() {
-  const text = readFileSync(path.join(DIR, '..', 'migrations', 'rollback_0028.sql'), 'utf8');
+  const text = readFileSync(path.join(DIR, '..', 'migrations', 'rollback_0029.sql'), 'utf8');
   return ['private.report_days', 'private.report_day', 'private.halls_day_totals', 'public.halls_day', 'public.flock_cycle_report', 'public.flock_cycles'].map((name) => {
     const start = text.indexOf(`create or replace function ${name}(`);
     const end = text.indexOf('\n$$;', start);
-    if (start < 0 || end < 0 || text.indexOf(`create or replace function ${name}(`, start + 1) >= 0) throw new Error(`جسم ${name} في rollback_0028.sql ليس مرّة واحدة`);
+    if (start < 0 || end < 0 || text.indexOf(`create or replace function ${name}(`, start + 1) >= 0) throw new Error(`جسم ${name} في rollback_0029.sql ليس مرّة واحدة`);
     return text.slice(start, end + 4);
   });
 }
@@ -868,7 +868,7 @@ async function scenario(t, db) {
     Object.assign(samples, { refusal_before_last_close: { code: sameDay.code, hint: sameDay.hint } });
   });
 
-  // ── قرّاء 0027 لفوج بلا بيع ولا إغلاق: أجسام 0027 نفسها (rollback_0028.sql) على البيانات نفسها، والمفاتيح الجديدة وحدها زائدة ───────────────
+  // ── قرّاء 0027 لفوج بلا بيع ولا إغلاق: أجسام 0027 نفسها (rollback_0029.sql) على البيانات نفسها، والمفاتيح الجديدة وحدها زائدة ───────────────
   await section('قرّاء 0027 كما هي لفوج بلا بيع ولا إغلاق', async () => {
     const days = Array.from({ length: 10 }, (_, k) => day(k - 9));
     const old = await mutant(db, U.manager, [], async ({ oq, attempt }) => {

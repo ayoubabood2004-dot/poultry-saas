@@ -1,4 +1,4 @@
--- rollback_0028 — تراجع «بيع الطيور وإغلاق الدورة» (0028_bird_sales_close): يرجّع خمسة وعشرين جسماً قديماً كما كانت حرفاً بحرف (md5 نفسه
+-- rollback_0029 — تراجع «بيع الطيور وإغلاق الدورة» (0029_bird_sales_close): يرجّع خمسة وعشرين جسماً قديماً كما كانت حرفاً بحرف (md5 نفسه
 --   بالكتالوج): من 0012 flock_summary وopen_flock وsave_flock_day وflock_detail وverify_flocks وhalls_check، ومن 0019 flock_feed، ومن 0021
 --   stock_doc_memo وstock_doc_label وverify_stock وsales_overview وsales_report، ومن 0024 cash_class وentry_detail وmoney_sales وverify_money، ومن
 --   0026 flock_month وremove_flock_log وundo_vaccination، ومن 0027 report_days (بتوقيعه ونوع رجوعه نفسيهما، فلا إسقاط) وreport_day وhalls_day_totals
@@ -60,28 +60,28 @@ begin
           'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values'))
     into v_traces;
   if v_tickets > 0 then
-    raise exception 'rollback_blocked' using hint = format('توجد %s تذكرة وزن بلا فاتورة فيها %s قاعة، والتراجع يمسحها. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('توجد %s تذكرة وزن بلا فاتورة فيها %s قاعة، والتراجع يمسحها. لا تراجع لـ0029 بعد استعمالها.',
       v_tickets, v_stops);
   end if;
   if v_sales > 0 then
-    raise exception 'rollback_blocked' using hint = format('توجد %s فاتورة طيور، وتشير إليها %s قيداً على حسابات التجّار و%s حركة عدد، والتراجع يمسحها. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('توجد %s فاتورة طيور، وتشير إليها %s قيداً على حسابات التجّار و%s حركة عدد، والتراجع يمسحها. لا تراجع لـ0029 بعد استعمالها.',
       v_sales, v_entries, v_sold);
   end if;
   if v_adjusts > 0 then
-    raise exception 'rollback_blocked' using hint = format('يوجد %s فرق عدّ مسجَّل للأفواج، والتراجع يمسحه فيتغيّر عدد الطيور الحيّة. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('يوجد %s فرق عدّ مسجَّل للأفواج، والتراجع يمسحه فيتغيّر عدد الطيور الحيّة. لا تراجع لـ0029 بعد استعمالها.',
       v_adjusts);
   end if;
   if v_closes > 0 then
-    raise exception 'rollback_blocked' using hint = format('توجد %s دورة مغلقة و%s مستند إرجاع من القاعات، وتشير إليها حركات المخزون وكلفة الأفواج، والتراجع يمسحها. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('توجد %s دورة مغلقة و%s مستند إرجاع من القاعات، وتشير إليها حركات المخزون وكلفة الأفواج، والتراجع يمسحها. لا تراجع لـ0029 بعد استعمالها.',
       v_closes, v_returns);
   end if;
   if v_applied > 0 then
-    raise exception 'rollback_blocked' using hint = format('يوجد %s علف منقول طُبِّق على دورة تالية، وتشير إليه كلفة الفوجين، والتراجع يمسحه. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('يوجد %s علف منقول طُبِّق على دورة تالية، وتشير إليه كلفة الفوجين، والتراجع يمسحه. لا تراجع لـ0029 بعد استعمالها.',
       v_applied);
   end if;
   -- أثر بلا صفّ من الحقائق أعلاه (صفّ حُذف يدويّاً فبقي في سجلّ التدقيق، أو عدّاد، أو صفّ يتيم): سياسة نطاق السجلّ تسقط بالتراجع فيظهر ما فيه.
   if v_tickets + v_sales + v_adjusts + v_closes + v_applied = 0 and v_traces > 0 then
-    raise exception 'rollback_blocked' using hint = format('في القاعدة %s أثراً من جداول 0028 (سجلّ التدقيق أو العدّادات أو صفوف بلا مستندها)، والتراجع يُسقط ما يقرؤها بنطاقه. لا تراجع لـ0028 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('في القاعدة %s أثراً من جداول 0029 (سجلّ التدقيق أو العدّادات أو صفوف بلا مستندها)، والتراجع يُسقط ما يقرؤها بنطاقه. لا تراجع لـ0029 بعد استعمالها.',
       v_traces);
   end if;
 end

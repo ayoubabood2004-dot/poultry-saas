@@ -627,7 +627,7 @@ const birds28Seed = (variant) => async (db) => {
 const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
 
 export const BLOCKING_SEEDS = {
-  28: [
+  29: [
     {
       name: 'مسوّدة تذكرة وزن',
       code: 'rollback_blocked',
@@ -1006,7 +1006,7 @@ export const BLOCKING_REQUIRED = [
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
   [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
   [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
-  [28, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
+  [29, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1388,7 +1388,7 @@ const birds28Redone = async (db) => {
 };
 
 export const ROLLBACK_EXTRAS = {
-  28: {
+  29: {
     seed: birds28Ready,
     afterRollback: birds28On0027,
     afterRedo: birds28Redone,
