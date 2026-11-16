@@ -1,6 +1,7 @@
 -- rollback_0029 — تراجع «الدورة المفتوحة» (0029_open_cycle): يرجّع save_vaccine_program كما في 0026، وsave_hall_vaccine_program وprivate.hall_flock_json
 --   وvaccine_board كما في 0028 حرفاً بحرف (المنح باقٍ: create or replace لا يغيّره)، ثمّ يعيد not null على نهاية الدورة في الجدولين.
--- **طريق رفض**: جدول نوع أو جدول قاعة بنهاية مفتوحة (null)، وقاعدة 0028 تشترط نهاية، يوقف التراجع بصوت بلا أن يغيّر شيئاً (لا تُخترع نهاية للمربّي).
+-- **طريق رفض**: جدول نوع أو جدول قاعة بنهاية مفتوحة (null)، وقاعدة 0028 تشترط نهاية، يوقف التراجع بصوت بلا أن يغيّر شيئاً (لا تُخترع نهاية للمربّي؛
+--   وبلا الكتلة يكمل بنهاية 1,000، وهو ما تمنعه).
 -- تنعاد بأمان: create or replace، وset not null.
 
 set lock_timeout = '5s';
@@ -257,6 +258,9 @@ begin
 end
 $$;
 
--- ٢) نهاية الدورة إلزامية كما كانت.
+-- ٢) نهاية الدورة إلزامية كما كانت. ما بعد كتلة الرفض يكمل على كلّ بيانات (لا تصله نهاية مفتوحة ما دامت الكتلة): بلاها تأخذ المفتوحة
+--    1,000 (أبعد يوم يقبله الجدول)، فضابط المشغّل يرى التراجع يكمل ويغيّر البيانات، لا يقف على خطأ not null الخام.
+update public.vaccine_programs set end_age = 1000 where end_age is null;
+update public.hall_vaccine_programs set end_age = 1000 where end_age is null;
 alter table public.vaccine_programs alter column end_age set not null;
 alter table public.hall_vaccine_programs alter column end_age set not null;
