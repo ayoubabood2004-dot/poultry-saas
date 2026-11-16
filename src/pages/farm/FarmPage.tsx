@@ -12,27 +12,22 @@ import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { localDay } from '../../domain/dates';
 import type { FlockKind } from '../../domain/flocks';
+import { naturalCompare } from '../../domain/naturalOrder';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { archiveHall, createHall, openFlock, updateHall, type HallView, type SiteView } from '../../lib/repo/flocks';
+import { archiveHall, createHall, openFlock, updateHall, type FlockSummary, type HallView, type SiteView } from '../../lib/repo/flocks';
 import { useSession } from '../../lib/session';
 import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
+import { FlockEditDialog, wholeNumber } from './FlockEditDialog';
 import { farmPath, farmTitle, fmtPct, useOverview, useStamp } from './shared';
 
 // شاشة الحقل (FOUNDATION ٧٨٢ و٨١٦): زرّ الجولة اليومية أوّل شي، وتحته الحقول ← القاعات ← الفوج بأرقامه المهمّة. المدير يضيف قاعة
 // ويفتح فوجاً (open_flock: فتح وتسكين بالعدد بخطوة وحدة، بلا كلفة أفراخ بالنسخة الأولى)، والكل يشوف ضمن نطاقه.
-
-const MAX_COUNT = 10_000_000;
-/** عدد صحيح من نصّ أرقام بس، أو null. */
-function wholeNumber(text: string, max = MAX_COUNT): number | null {
-  const value = text.trim();
-  if (!/^[0-9]+$/.test(value)) return null;
-  const n = Number(value); // number-ok: عدد طيور أو أيام صحيح من نصّ أرقام بس، مو فلوس
-  return n <= max ? n : null;
-}
+// وكلمة الزبون 2026-11-15 («قاعة 5: غلطت بتاريخ التسكين ولا أستطيع تعديله»): «عدّل القاعة» للاسم والسعة، و«عدّل الفوج» لفوجها القائم
+// (التاريخ والعدد والعمر والسلالة، أو حذفه إن فُتح غلطاً)؛ والقاعات بترتيب أرقامها («قاعة 5» قبل «قاعة 44»).
 
 function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; hall: HallView | null; onClose: () => void; onSaved: () => void }) {
   const id = useId();
@@ -156,7 +151,12 @@ function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; onClose:
   );
 }
 
-type Editing = { kind: 'add'; site: SiteView } | { kind: 'edit'; site: SiteView; hall: HallView } | { kind: 'open'; hall: HallView } | { kind: 'archive'; hall: HallView };
+type Editing =
+  | { kind: 'add'; site: SiteView }
+  | { kind: 'edit'; site: SiteView; hall: HallView }
+  | { kind: 'open'; hall: HallView }
+  | { kind: 'archive'; hall: HallView }
+  | { kind: 'flock'; hall: HallView; flock: FlockSummary };
 
 export default function FarmPage({ kind }: { kind: FlockKind }) {
   const session = useSession();
@@ -169,11 +169,15 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [archiving, setArchiving] = useState(false);
   const base = farmPath(kind);
-  const sites = state.data?.overview.sites.filter((site) => site.kind === kind) ?? [];
+  // القاعدة ترتّب القاعات حرفاً حرفاً («قاعة 44» قبل «قاعة 5» في شاشة الزبون 2026-11-15)، فالترتيب هنا بأرقام الأسماء.
+  const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind).map((site) => ({ ...site, halls: [...site.halls].sort((a, b) => naturalCompare(a.name, b.name)) }));
   const today = state.data?.overview.today ?? localDay();
   const done = () => {
     setEditing(null);
     state.retry();
+  };
+  const editFlockOf = (hall: HallView) => {
+    if (hall.flock) setEditing({ kind: 'flock', hall, flock: hall.flock });
   };
 
   const archive = async (hall: HallView) => {
@@ -239,10 +243,16 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
             ) : (
               <span className="text-sm text-ink-muted">{t('farm.flock.none', 'بلا فوج')}</span>
             )}
+            {site.canManage && hall.flock?.status === 'active' ? (
+              <Button size="sm" variant="secondary" onClick={() => editFlockOf(hall)} data-action="flock-edit">
+                {t('farm.flock.edit', 'عدّل الفوج')}
+              </Button>
+            ) : null}
             {site.canManage ? (
               <>
+                {/* «عدّل» وحده كان يُفهم تعديلاً للفوج وهو للقاعة (كلمة الزبون 2026-11-15). */}
                 <Button size="sm" variant="secondary" onClick={() => setEditing({ kind: 'edit', site, hall })} data-action="hall-edit">
-                  {t('farm.hall.edit', 'عدّل')}
+                  {t('farm.hall.edit', 'عدّل القاعة')}
                 </Button>
                 {hall.flock ? null : (
                   <Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'archive', hall })} data-action="hall-archive">
@@ -307,6 +317,8 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
       ))}
       {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} /> : null}
       {editing?.kind === 'open' ? <OpenFlockDialog hall={editing.hall} onClose={() => setEditing(null)} onOpened={done} /> : null}
+      {/* القراءة من جديد بعد stale_flock لا تطوي النافذة: هي من حالة الصفحة لا من الجدول، فيبقى التلميح حتى تُغلق وتُفتح بالقيم الحالية. */}
+      {editing?.kind === 'flock' ? <FlockEditDialog hallName={editing.hall.name} flock={editing.flock} onClose={() => setEditing(null)} onSaved={done} onDeleted={done} onStale={state.retry} /> : null}
       <ConfirmDialog
         open={editing?.kind === 'archive'}
         title={t('farm.hall.archive.title', 'أرشفة القاعة «{name}»', { name: editing?.kind === 'archive' ? editing.hall.name : '' })}
