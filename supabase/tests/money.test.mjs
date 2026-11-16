@@ -97,7 +97,9 @@ const FN = {
   transfer: 'public.transfer_detail(uuid)',
 };
 const MONEY_ZERO = {
-  open_both_sides: 0, purchase_detail_total: 0, sale_detail_total: 0, return_detail_total: 0, charge_entry_total: 0, voucher_numbers: 0, money_formulas: 0,
+  // 0028: bird_sale_detail_total (فاتورة الطيور = قيدها) بترتيب الثابت؛ ضابطه في birds.test، فهذا الملف بلا فاتورة طيور.
+  open_both_sides: 0, purchase_detail_total: 0, sale_detail_total: 0, bird_sale_detail_total: 0, return_detail_total: 0, charge_entry_total: 0, voucher_numbers: 0,
+  money_formulas: 0,
 };
 
 export default async function (t, db) {

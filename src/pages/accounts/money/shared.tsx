@@ -39,7 +39,7 @@ export function classLabel(cls: MoneyClass): string {
 
 // ─── الروابط (العقد §5) ─────────────────────────────────────────────────────────────────────────────────────────
 
-/** صفحة المستند من نوعه ومعرّفه: الشراء ودفعه وأجوره، والبيع ودفعه، ومرتجع المورّد، والتحويل. المصروف بلا صفحة. */
+/** صفحة المستند من نوعه ومعرّفه: الشراء ودفعه وأجوره، والبيع ودفعه، وفاتورة الطيور ومقبوضها (0028)، ومرتجع المورّد، والتحويل. المصروف بلا صفحة. */
 export function docHref(docKind: string | null, docId: string | null): string | null {
   if (!docKind || !docId) return null;
   switch (docKind) {
@@ -47,6 +47,8 @@ export function docHref(docKind: string | null, docId: string | null): string | 
       return `/inventory/receipts/${docId}`;
     case 'sale':
       return `/sales/${docId}`;
+    case 'bird_sale':
+      return `/sales/birds/${docId}`;
     case 'supplier_return':
       return `/inventory/supplier-returns/${docId}`;
     case 'cash_transfer':
@@ -105,7 +107,8 @@ function memoWhat(row: MoneyMove): string {
     case 'supplier_payment':
       return t('moves.memo.py', 'سند صرف');
     case 'cash_sale':
-      return t('moves.memo.sale', 'بيع نقداً');
+      // المقبوض عند فاتورة الطيور (0028) صنفه «بيع نقدي» أيضاً، وبيانه يسمّيه.
+      return row.docKind === 'bird_sale' ? t('moves.memo.bird_sale', 'بيع طيور نقداً') : t('moves.memo.sale', 'بيع نقداً');
     case 'cash_purchase':
       return t('moves.memo.purchase', 'دفع عند الشراء');
     case 'purchase_charge':

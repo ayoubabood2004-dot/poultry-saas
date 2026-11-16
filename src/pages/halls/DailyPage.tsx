@@ -9,14 +9,16 @@ import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
+import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, countForm, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadHallsDay, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay } from '../../lib/repo/hallReports';
+import { loadHallsDay, type DayCountDiff, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay } from '../../lib/repo/hallReports';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BackLink, backLabel, daysText, kgText, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, qtyText, reportsBack, STATE_INK, stateLabel, VaccineName } from './parts';
+import { newTicketPath, signedCount } from './ticketParts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
 // بقراءة halls_day واحدة لكلّ القاعات في نطاق القارئ مجمَّعة بالحقل. اليوم في الرابط، وبلاه تتبع الصفحة «اليوم» بيوم الخادم (halls_day(null)، لا ساعة
@@ -91,15 +93,18 @@ const givenShare = (kg: Milli, unweighed: number): string =>
     ? t('halls.day.share.given_partial', 'النازل {kg} {rest}', { kg: kgText(kg), rest: unweighedText(unweighed) })
     : t('halls.day.share.given', 'النازل {kg}', { kg: kgText(kg) });
 
-/** الباقي في القاعة كما هو، وبعده بين قوسين وباختصار ما لم يدخله (سطور العلف بلا وزن حتى اليوم) وسبب سالبه (مراجعة 0027 R5). */
+/**
+ * الباقي في القاعة كما هو بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg)، وبعده بين قوسين وباختصار ما لم يدخله (سطوره بلا كتلة حتى اليوم) وسبب
+ * سالبه (مراجعة 0027 R5).
+ */
 function leftShare(flock: DayFlock): string {
-  const kg = kgText(flock.feedLeftKg);
+  const kg = kgText(flock.leftInHallKg);
   const notes: string[] = [];
-  if (flock.feedGivenCumUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.feedGivenCumUnweighed) }));
+  if (flock.leftInHallUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.leftInHallUnweighed) }));
   // وسبب السالب على الموزون وحده حين نزل علف بلا وزن (كجملة البطاقة، مراجعة 0027 RR27-F2a).
-  if (flock.feedLeftKg < 0n) {
+  if (flock.leftInHallKg < 0n) {
     notes.push(
-      flock.feedGivenCumUnweighed > 0
+      flock.leftInHallUnweighed > 0
         ? t('halls.day.share.left_negative_weighed', 'المأكول المسجّل أكثر من النازل الموزون')
         : t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'),
     );
@@ -108,11 +113,51 @@ function leftShare(flock: DayFlock): string {
   return t('halls.day.share.left_noted', 'الباقي في القاعة {kg} ({notes})', { kg, notes: notes.join(t('halls.day.share.notes_sep', '؛ ')) });
 }
 
+/** سبب فرق عدّ: كما كُتب، و«عند الإغلاق: …» لما كُتب مع الإغلاق (= −الحيّ). */
+const diffReason = (diff: DayCountDiff): string => (diff.source === 'close' ? t('halls.day.count_at_close', 'عند الإغلاق: {reason}', { reason: diff.reason }) : diff.reason);
+
+/**
+ * فرق العدّ يومها بأسبابه (مراجعة 0028 O3: count_diffs، وحده لا مع النافق): «فرق العدّ −10 (طيور مسروقة)»، وبأكثر من فرقٍ كلٌّ بعدده وسببه؛ وخادم قبله
+ * بالمجموع وحده. null حين لا فرق.
+ */
+function countText(flock: DayFlock): string | null {
+  const diffs = flock.countDiffs;
+  if (!flock.countDiff && !diffs.length) return null;
+  const n = signedCount(flock.countDiff ?? 0);
+  if (!diffs.length) return t('halls.day.count_diff', 'فرق العدّ {n}', { n });
+  const reasons =
+    diffs.length === 1 && diffs[0]
+      ? diffReason(diffs[0])
+      : diffs.map((diff) => t('halls.day.count_each', '{n} {reason}', { n: signedCount(diff.birds), reason: diffReason(diff) })).join(t('halls.day.share.notes_sep', '؛ '));
+  return t('halls.day.count_diff_why', 'فرق العدّ {n} ({reasons})', { n, reasons });
+}
+
+/** البيع يومها (0028): المباع من الفواتير، وطيور تذاكر بلا فاتورة، وفرق العدّ بأسبابه؛ لا شيء حين لا شيء أو من خادم قبل 0028. */
+function saleTexts(flock: DayFlock): string[] {
+  const out: string[] = [];
+  if (flock.sold) out.push(t('halls.day.sold', 'المباع {n}', { n: flock.sold }));
+  if (flock.ticketed) out.push(t('halls.day.ticketed', 'على تذاكر بلا فاتورة {n}', { n: flock.ticketed }));
+  const count = countText(flock);
+  if (count !== null) out.push(count);
+  return out;
+}
+
+/** يومٌ بدأ بطيور حيّة ولا جولة له (مراجعة 0028 O7: الفوج الذي بيع كلّه قبله لا ينتظر جولة). */
+const roundMissing = (flock: DayFlock): boolean => !flock.round && flock.expectsRound;
+
+/** العلف المنقول المعلَّق على قاعة فارغة (0028): «200 كغم «علف نامي» من دورة أُغلقت يوم …». */
+const carryTexts = (hall: DayHall): string[] => hall.carry.map((line) => t('halls.day.carry_line', '{qty} «{item}» من دورة أُغلقت يوم {day}', { qty: qtyText(line.qty, line.baseUnit), item: line.name, day: fmtDay(line.closedOn) }));
+
 function hallLine(hall: DayHall): string {
   const flock = hall.flock;
-  if (!flock) return t('halls.day.share.empty', '{hall}: فارغة.', { hall: hall.hallName });
+  if (!flock) {
+    const carry = carryTexts(hall);
+    return carry.length
+      ? t('halls.day.share.empty_carry', '{hall}: فارغة، وفيها علف منقول للدورة التالية: {list}.', { hall: hall.hallName, list: carry.join(t('list.separator', '، ')) })
+      : t('halls.day.share.empty', '{hall}: فارغة.', { hall: hall.hallName });
+  }
   const parts: string[] = [];
-  if (!flock.round) parts.push(t('halls.day.no_round', 'لم تُسجَّل الجولة'));
+  if (roundMissing(flock)) parts.push(t('halls.day.no_round', 'لم تُسجَّل الجولة'));
   parts.push(t('halls.day.share.live', 'الحيّ {n}', { n: flock.liveEnd }));
   if (flock.round) {
     parts.push(t('halls.day.share.dead', 'النافق {n}', { n: flock.dead === null ? dash() : fmtInt(flock.dead) }));
@@ -124,6 +169,7 @@ function hallLine(hall: DayHall): string {
   if (flock.weight) parts.push(t('halls.day.share.weight', 'الوزن {g} غرام', { g: grams(flock.weight.avgG) }));
   if (flock.eggsTotal !== null) parts.push(t('halls.day.share.eggs', 'البيض {n}', { n: flock.eggsTotal }));
   if (flock.hdep !== null) parts.push(t('halls.day.share.hdep', 'نسبة الإنتاج {pct}', { pct: pct(flock.hdep) }));
+  parts.push(...saleTexts(flock));
   const given = [...givenTexts(flock), ...vaccineText(flock)];
   const separator = t('list.separator', '، ');
   if (given.length) parts.push(t('halls.day.share.given_list', 'الأدوية واللقاحات وغيرها: {list}', { list: given.join(separator) }));
@@ -135,9 +181,10 @@ function totalsLine(label: string, totals: DayTotals): string {
   const separator = t('list.separator', '، ');
   const dead = totals.dead === null ? dash() : fmtInt(totals.dead);
   const culled = totals.culled === null ? dash() : fmtInt(totals.culled);
-  const missing = totals.rounds > 0 && totals.rounds < totals.flocks ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.rounds) }) : '';
+  // الناقص من الأفواج التي تنتظر جولةً وعلفاً يومها (بدأ يومها بطيور حيّة، مراجعة 0028 O7)، لا من كلّ الأفواج.
+  const missing = totals.rounds > 0 && totals.rounds < totals.roundsExpected ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.rounds) }) : '';
   const eaten = totals.feedEatenKg === null ? dash() : kgText(totals.feedEatenKg);
-  const eatenFrom = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.flocks ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.feedEatenFlocks) }) : '';
+  const eatenFrom = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.roundsExpected ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.feedEatenFlocks) }) : '';
   const parts = [
     t('halls.day.share.live', 'الحيّ {n}', { n: totals.liveEnd }),
     t('halls.day.share.dead', 'النافق {n}', { n: dead }) + missing,
@@ -151,7 +198,7 @@ function totalsLine(label: string, totals: DayTotals): string {
 /** نصّ المشاركة: العنوان والجولات، ثمّ لكلّ حقل اسمه وسطر لكلّ قاعة ومجموعه، ثمّ مجموع الحقول إن كانت أكثر من حقل. */
 export function dayShareText(data: HallsDay): { title: string; text: string } {
   const title = dayTitle(data.on);
-  const lines = [title, t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: data.totals.rounds, flocks: data.totals.flocks })];
+  const lines = [title, t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: data.totals.rounds, flocks: data.totals.roundsExpected })];
   for (const site of data.sites) {
     lines.push('', site.name, ...site.halls.map(hallLine), totalsLine(t('halls.day.total', 'المجموع'), site.totals));
   }
@@ -226,20 +273,21 @@ const totalUnweighed = (n: number): ReactNode =>
   ) : null;
 
 /**
- * ما لا يحمله «الباقي في القاعة» تحت رقمه (والرقم كما هو، DECISIONS 0019): سطور العلف بلا وزن حتى اليوم خارج الكيلو، وسبب الباقي السالب، بجملتي
- * تقرير الدورة نفسيهما (مراجعة 0027 R5 وN1: في الإنتاج يُسجَّل المأكول والعلف لم يُصرف للقاعات بعد، فالباقي سالب في أكثر القاعات).
+ * ما لا يحمله «الباقي في القاعة» تحت رقمه (والرقم كما هو، DECISIONS 0019؛ وبتعريفه الواحد، مراجعة 0028 O2/M5): سطوره بلا كتلة حتى اليوم خارج الكيلو،
+ * وسبب الباقي السالب، بجملتي تقرير الدورة نفسيهما (مراجعة 0027 R5 وN1: في الإنتاج يُسجَّل المأكول والعلف لم يُصرف للقاعات بعد، فالباقي سالب في
+ * أكثر القاعات).
  */
 function LeftNotes({ flock, className }: { flock: DayFlock; className: string }) {
   return (
     <>
-      {flock.feedGivenCumUnweighed > 0 ? (
+      {flock.leftInHallUnweighed > 0 ? (
         <span className={className} data-action="remain-unweighed">
-          {outsideKgText(flock.feedGivenCumUnweighed)}
+          {outsideKgText(flock.leftInHallUnweighed)}
         </span>
       ) : null}
-      {flock.feedLeftKg < 0n ? (
+      {flock.leftInHallKg < 0n ? (
         <span className={className} data-action="remain-negative">
-          {leftNegativeText(flock.feedGivenCumUnweighed)}
+          {leftNegativeText(flock.leftInHallUnweighed)}
         </span>
       ) : null}
     </>
@@ -267,8 +315,12 @@ function GivenList({ flock }: { flock: DayFlock }) {
   );
 }
 
-function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) {
+function HallCard({ hall, siteId, on, here }: { hall: DayHall; siteId: string; on: Day; here: string }) {
   const flock = hall.flock;
+  const session = useSession();
+  // «تذكرة وزن» (0028) من قاعة لاحم فوجها قائم، لمن يكتب التذاكر (عامل القاعة والمدير).
+  const tickets = session.status === 'ready' && can(session.workspace.role, 'weigh_ticket.draft') && flock !== null && flock.kind === 'broiler' && flock.status === 'active';
+  const sales = flock ? saleTexts(flock) : [];
   return (
     <article className="card flex flex-col gap-3 p-4" data-action="day-hall" data-hall={hall.hallId}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -280,16 +332,27 @@ function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) 
         ) : null}
       </div>
       {flock === null ? (
-        <p className="text-sm text-ink-muted" data-action="day-empty">
-          {t('halls.day.empty', 'فارغة')}
-        </p>
+        <>
+          <p className="text-sm text-ink-muted" data-action="day-empty">
+            {t('halls.day.empty', 'فارغة')}
+          </p>
+          {hall.carry.length ? (
+            <p className="text-sm" data-action="day-carry">
+              {t('halls.day.carry', 'علف منقول للدورة التالية: {list}.', { list: carryTexts(hall).join(t('list.separator', '، ')) })}
+            </p>
+          ) : null}
+        </>
       ) : (
         <>
-          {flock.round ? null : (
+          {roundMissing(flock) ? (
             <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="day-no-round">
               {t('halls.day.no_round', 'لم تُسجَّل الجولة')}
             </p>
-          )}
+          ) : !flock.round ? (
+            <p className="text-sm text-ink-muted" data-action="day-no-live">
+              {t('halls.day.no_live', 'لا طيور حيّة أوّل اليوم، فلا جولة تُنتظر.')}
+            </p>
+          ) : null}
           <dl className="grid grid-cols-2 gap-3">
             <Stat label={t('halls.day.live_end', 'الحيّ آخر اليوم')} action="stat-live">
               <Num>{fmtInt(flock.liveEnd)}</Num>
@@ -311,7 +374,7 @@ function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) 
               {flock.feedGivenUnweighed > 0 ? <span className={NOTE}>{unweighedText(flock.feedGivenUnweighed)}</span> : null}
             </Stat>
             <Stat label={t('halls.day.left', 'الباقي في القاعة')} action="stat-left">
-              {kgText(flock.feedLeftKg)}
+              {kgText(flock.leftInHallKg)}
               <LeftNotes flock={flock} className={NOTE} />
             </Stat>
             <Stat label={t('halls.day.weight', 'الوزن (غرام)')} action="stat-weight">
@@ -340,12 +403,22 @@ function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) 
               {t('halls.day.note', 'ملاحظة: {note}', { note: flock.note })}
             </p>
           ) : null}
+          {sales.length ? (
+            <p className="text-sm" data-action="day-sales">
+              {sales.join(t('list.separator', '، '))}
+            </p>
+          ) : null}
           {flock.closedOn !== null ? (
             <p className="text-sm text-ink-muted" data-action="day-closed">
               {t('halls.day.closed', 'أُغلقت الدورة يوم {day}.', { day: fmtDay(flock.closedOn) })}
             </p>
           ) : null}
           <LinksRow links={hallLinks(flock, on, here)} />
+          {tickets ? (
+            <Link to={newTicketPath(siteId, hall.hallId, here)} className={`${LINK} print:hidden`} data-action="day-ticket-link">
+              {t('halls.day.ticket', 'تذكرة وزن')}
+            </Link>
+          ) : null}
         </>
       )}
     </article>
@@ -353,8 +426,9 @@ function HallCard({ hall, on, here }: { hall: DayHall; on: Day; here: string }) 
 }
 
 function TotalsCard({ title, totals, action }: { title: string; totals: DayTotals; action: string }) {
-  const missing = totals.rounds > 0 && totals.rounds < totals.flocks;
-  const eatenMissing = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.flocks;
+  // من الأفواج التي تنتظر جولةً يومها (مراجعة 0028 O7)، لا من كلّ الأفواج.
+  const missing = totals.rounds > 0 && totals.rounds < totals.roundsExpected;
+  const eatenMissing = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.roundsExpected;
   const from = (n: number) => <span className="block text-xs font-normal text-ink-muted">{fromHalls(n)}</span>;
   return (
     <section className="card flex flex-col gap-3 p-4" aria-label={title} data-action={action}>
@@ -364,7 +438,7 @@ function TotalsCard({ title, totals, action }: { title: string; totals: DayTotal
           <Num>{fmtInt(totals.liveEnd)}</Num>
         </Stat>
         <Stat label={t('halls.day.rounds_short', 'الجولات المسجَّلة')} action="total-rounds">
-          {t('halls.day.rounds_of', '{rounds} من {flocks}', { rounds: totals.rounds, flocks: totals.flocks })}
+          {t('halls.day.rounds_of', '{rounds} من {flocks}', { rounds: totals.rounds, flocks: totals.roundsExpected })}
         </Stat>
         <Stat label={t('round.dead', 'النافق')} action="total-dead">
           {totals.dead === null ? dash() : <Num>{fmtInt(totals.dead)}</Num>}
@@ -382,6 +456,13 @@ function TotalsCard({ title, totals, action }: { title: string; totals: DayTotal
           {kgText(totals.feedGivenKg)}
           {totalUnweighed(totals.feedGivenUnweighed)}
         </Stat>
+        {totals.sold || totals.ticketed || totals.countDiff ? (
+          <Stat label={t('halls.day.col.sold', 'المباع')} action="total-sold">
+            {totals.sold ? <Num>{fmtInt(totals.sold)}</Num> : dash()}
+            {totals.ticketed ? <span className="block text-xs font-normal text-ink-muted">{t('halls.day.ticketed', 'على تذاكر بلا فاتورة {n}', { n: totals.ticketed })}</span> : null}
+            {totals.countDiff ? <span className="block text-xs font-normal text-ink-muted">{t('halls.day.count_diff', 'فرق العدّ {n}', { n: signedCount(totals.countDiff) })}</span> : null}
+          </Stat>
+        ) : null}
       </dl>
     </section>
   );
@@ -409,9 +490,9 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
   const { totals } = site;
   const eatenDecimals = decimalsOf([...flocks.map((flock) => flock.feedEatenKg), totals.feedEatenKg]);
   const givenDecimals = decimalsOf([...flocks.map((flock) => flock.feedGivenKg), totals.feedGivenKg]);
-  const leftDecimals = decimalsOf(flocks.map((flock) => flock.feedLeftKg));
-  const missing = totals.rounds < totals.flocks ? totals.rounds : null;
-  const eatenMissing = totals.feedEatenFlocks < totals.flocks ? totals.feedEatenFlocks : null;
+  const leftDecimals = decimalsOf(flocks.map((flock) => flock.leftInHallKg));
+  const missing = totals.rounds < totals.roundsExpected ? totals.rounds : null;
+  const eatenMissing = totals.feedEatenFlocks < totals.roundsExpected ? totals.feedEatenFlocks : null;
   const layers = flocks.some((flock) => flock.kind === 'layer');
   const of = <T,>(read: (flock: DayFlock) => T, show: (value: T) => ReactNode) => (hall: DayHall) => (hall.flock ? show(read(hall.flock)) : dash());
   const count = (value: number | null) => (value === null ? dash() : <Num>{fmtInt(value)}</Num>);
@@ -427,13 +508,13 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
           <span className="font-semibold">{hall.hallName}</span>
           {hall.flock === null ? (
             <span className="text-xs text-ink-muted" data-action="day-empty">
-              {t('halls.day.empty', 'فارغة')}
+              {hall.carry.length ? t('halls.day.empty_carry', 'فارغة، وفيها علف منقول للدورة التالية: {list}', { list: carryTexts(hall).join(t('list.separator', '، ')) }) : t('halls.day.empty', 'فارغة')}
             </span>
-          ) : hall.flock.round ? null : (
+          ) : roundMissing(hall.flock) ? (
             <span className="text-xs font-semibold text-warn-800 dark:text-warn-200" data-action="day-no-round">
               {t('halls.day.no_round', 'لم تُسجَّل الجولة')}
             </span>
-          )}
+          ) : null}
           {hall.flock ? <LinksRow links={hallLinks(hall.flock, on, here)} /> : null}
         </span>
       ),
@@ -491,7 +572,7 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
         (flock) => flock,
         (flock) => (
           <>
-            <Num>{fmtQtyCell(flock.feedLeftKg, leftDecimals)}</Num>
+            <Num>{fmtQtyCell(flock.leftInHallKg, leftDecimals)}</Num>
             <LeftNotes flock={flock} className="block text-xs text-ink-muted" />
           </>
         ),
@@ -514,6 +595,29 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
       ),
     },
   ];
+  // البيع يومها (0028) حين في الحقل شيء منه: المباع من الفواتير، وتحته طيور التذاكر بلا فاتورة وفرق العدّ.
+  if (flocks.some((flock) => saleTexts(flock).length > 0)) {
+    columns.push({
+      key: 'sold',
+      header: t('halls.day.col.sold', 'المباع'),
+      kind: 'number',
+      cell: of(
+        (flock) => flock,
+        (flock) => (
+          <>
+            {flock.sold ? <Num>{fmtInt(flock.sold)}</Num> : dash()}
+            {flock.ticketed ? <span className="block text-xs text-ink-muted">{t('halls.day.ticketed', 'على تذاكر بلا فاتورة {n}', { n: flock.ticketed })}</span> : null}
+            {countText(flock) !== null ? (
+              <span className="block text-xs text-ink-muted" data-action="day-count-diff">
+                {countText(flock)}
+              </span>
+            ) : null}
+          </>
+        ),
+      ),
+      total: totals.sold === null ? undefined : <Num>{fmtInt(totals.sold)}</Num>,
+    });
+  }
   if (layers) {
     columns.push(
       { key: 'eggs', header: t('halls.day.eggs', 'البيض'), kind: 'number', cell: of((flock) => flock.eggsTotal, count) },
@@ -531,7 +635,7 @@ function siteColumns(site: DaySite, on: Day, here: string): Column<DayHall>[] {
 function allColumns(totals: DayTotals): Column<DayTotals>[] {
   const eatenDecimals = decimalsOf([totals.feedEatenKg]);
   const givenDecimals = decimalsOf([totals.feedGivenKg]);
-  const missing = totals.rounds < totals.flocks ? totals.rounds : null;
+  const missing = totals.rounds < totals.roundsExpected ? totals.rounds : null;
   return [
     { key: 'halls', header: t('halls.day.col.halls', 'القاعات'), kind: 'number', cell: (row) => <Num>{fmtInt(row.halls)}</Num> },
     { key: 'flocks', header: t('halls.day.col.flocks', 'الأفواج'), kind: 'number', cell: (row) => <Num>{fmtInt(row.flocks)}</Num> },
@@ -544,7 +648,7 @@ function allColumns(totals: DayTotals): Column<DayTotals>[] {
       key: 'eaten',
       header: t('halls.day.col.eaten', 'المأكول (كغم)'),
       kind: 'number',
-      cell: (row) => totalCell(row.feedEatenKg === null ? null : <Num>{fmtQtyCell(row.feedEatenKg, eatenDecimals)}</Num>, row.feedEatenFlocks < row.flocks ? row.feedEatenFlocks : null),
+      cell: (row) => totalCell(row.feedEatenKg === null ? null : <Num>{fmtQtyCell(row.feedEatenKg, eatenDecimals)}</Num>, row.feedEatenFlocks < row.roundsExpected ? row.feedEatenFlocks : null),
     },
     {
       key: 'given',
@@ -557,6 +661,10 @@ function allColumns(totals: DayTotals): Column<DayTotals>[] {
         </>
       ),
     },
+    // 0028: المباع حين بيع يومها في أحد الحقول.
+    ...(totals.sold
+      ? [{ key: 'sold', header: t('halls.day.col.sold', 'المباع'), kind: 'number' as const, cell: (row: DayTotals) => (row.sold ? <Num>{fmtInt(row.sold)}</Num> : dash()) }]
+      : []),
   ];
 }
 
@@ -572,7 +680,7 @@ function DayReport({ data, here }: { data: HallsDay; here: string }) {
           <h2 className="text-lg font-semibold">{site.name}</h2>
           <div className="flex flex-col gap-3" data-action="day-cards">
             {site.halls.map((hall) => (
-              <HallCard key={hall.hallId} hall={hall} on={data.on} here={here} />
+              <HallCard key={hall.hallId} hall={hall} siteId={site.id} on={data.on} here={here} />
             ))}
             <TotalsCard title={t('halls.day.site_total', 'مجموع {site}', { site: site.name })} totals={site.totals} action="day-site-total" />
           </div>
@@ -679,6 +787,14 @@ function returnMoment() {
   return { day: localDay(now), wall: now.getTime(), at: performance.now() };
 }
 
+/**
+ * قاعدة العودة: تقرأ حين لا تعرض الصفحة تقريراً حاليّاً، أو تتبع اليوم ويومُ الجهاز غير يوم المعروض، أو صريحةً ويومُ الجهاز بعد يوم الخادم في المعروض.
+ * day يومُ الجهاز لحظةَ العودة.
+ */
+function returnReads(page: { following: boolean; shown: HallsDay | null; current: boolean }, day: Day): boolean {
+  return page.shown === null || !page.current || (page.following ? day !== page.shown.on : day > page.shown.today);
+}
+
 export default function DailyPage() {
   const [search, setSearch] = useSearchParams();
   const session = useSession();
@@ -694,12 +810,14 @@ export default function DailyPage() {
   // (أ ← ب ← أ، بالأزرار أو بسجلّ المتصفّح) تعيد نتيجة «أ» القديمة حاليّةً وloading=false و«أ» تُقرأ من جديد؛ فلو كانت رفضاً أو فشلاً لقرأت العودةُ فوق
   // القراءة الجارية. فلا يكفي loading دليلاً على أنّه لا قراءة في الطريق: لكلّ نداءٍ من load رقمٌ يزيد، والقراءة في الطريق حتى يستقرّ آخرُ نداءٍ صدر، ولا
   // يُنهيها استقرارُ نداءٍ أقدم أُلغي. ولا يُغيَّر useLoad نفسه، فهو مستعمل في 111 موضعاً. والمرجع لا يُمسّ إلّا هنا وفي معالج العودة، لا أثناء الرسم.
-  const reads = useRef({ last: 0, inFlight: false });
+  // ويومُ الجهاز الذي صدرت به آخر قراءة (day): عودةٌ والقراءة في الطريق بيومٍ غيره (منتصف ليلٍ بينهما) قد يجيبها الخادم قبل منتصف ليله، فتُؤجَّل لا تُترك
+  // (deferred أدناه، مراجعة 0027 V6-G2).
+  const reads = useRef<{ last: number; inFlight: boolean; day: Day | null }>({ last: 0, inFlight: false, day: null });
   const load = useCallback(() => {
     const id = reads.current.last + 1;
-    reads.current = { last: id, inFlight: true };
+    reads.current = { last: id, inFlight: true, day: localDay() };
     return loadHallsDay(asked).finally(() => {
-      if (reads.current.last === id) reads.current = { last: id, inFlight: false };
+      if (reads.current.last === id) reads.current = { ...reads.current, inFlight: false };
     });
   }, [asked]);
   const state = useLoad(load, asked ?? 'today');
@@ -723,6 +841,15 @@ export default function DailyPage() {
   useEffect(() => {
     latest.current = { following, shown, current, loading: state.loading, retry: state.retry };
   });
+  // عودةٌ تُركت لأنّ قراءةً في الطريق صدرت بيومٍ غير يومها (V6-G2): حين لا قراءة في الطريق تُطبَّق قاعدتها مرّةً بلحظتها هي ثمّ تُنسى (لا مؤقّت، وقراءة
+  // واحدة على الأكثر لكلّ عودة). فقراءةٌ أجابها الخادم قبل منتصف ليله ووصلت بعد عودةٍ بعده لا تبقى حاليّةً.
+  const deferred = useRef<ReturnType<typeof returnMoment> | null>(null);
+  useEffect(() => {
+    const moment = deferred.current;
+    if (moment === null || state.loading || reads.current.inFlight) return;
+    deferred.current = null;
+    if (returnReads(latest.current, moment.day)) latest.current.retry();
+  });
   useEffect(() => {
     let phase: ReturnPhase = document.visibilityState === 'hidden' ? 'away' : 'both';
     // لحظةُ بدء العودة الجارية.
@@ -741,8 +868,12 @@ export default function DailyPage() {
       phase = kind;
       began = moment;
       const page = latest.current;
-      if (page.loading || reads.current.inFlight) return;
-      if (page.shown === null || !page.current || (page.following ? moment.day !== page.shown.on : moment.day > page.shown.today)) page.retry();
+      if (page.loading || reads.current.inFlight) {
+        if (moment.day !== reads.current.day) deferred.current = moment;
+        return;
+      }
+      deferred.current = null;
+      if (returnReads(page, moment.day)) page.retry();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') phase = 'away';
@@ -818,7 +949,7 @@ export default function DailyPage() {
         </h1>
         {shown ? (
           <p className="text-ink-muted" data-action="day-rounds">
-            {t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: shown.totals.rounds, flocks: shown.totals.flocks })}
+            {t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: shown.totals.rounds, flocks: shown.totals.roundsExpected })}
           </p>
         ) : null}
       </header>

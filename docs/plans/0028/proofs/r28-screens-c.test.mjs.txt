@@ -1,0 +1,91 @@
+// مراجعة 0028 (شاشات المبيعات): فحوص مؤقّتة تفشل على الشفرة الحالية. تُحذف قبل التسليم.
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { descendants, installDom, settle } from './dom.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
+const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__bs.call('${n}', a);`).join(' ')}`;
+const STUBS = {
+  session: 'export const useSession = () => globalThis.__bs.session; export const sessionStore = { get: () => globalThis.__bs?.session ?? { status: "loading" } };',
+  Toast: 'export const toast = (spec) => { globalThis.__bs.toasts.push(spec); }; export function Toaster() { return null; }',
+  purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createSupplier', 'createCustomer', 'listBoxes']),
+};
+const CORE_FOR = /src\/lib\/repo\/(?:birdSales|purchases|weighTickets|statement)\.ts$/u;
+const CORE = 'export const call = (fn, args) => globalThis.__bs.rpc(fn, args);';
+
+async function bundle() {
+  const entry = [
+    "export { createElement as h } from 'react';",
+    "export { createRoot } from 'react-dom/client';",
+    "export { flushSync } from 'react-dom';",
+    "export { MemoryRouter, Routes, Route } from 'react-router-dom';",
+    "export { SalesRoutes } from './src/pages/inventory/StockRoutes.tsx';",
+    "export { fmtDay } from './src/lib/format.ts';",
+  ].join('\n');
+  const result = await build({
+    stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    jsx: 'automatic',
+    logLevel: 'silent',
+    loader: { '.css': 'empty' },
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    plugins: [
+      {
+        name: 'zz-c-stubs',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/Toast$|\/lib\/repo\/purchasing$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'zz-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'zz-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+          b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'zz-core' } : undefined));
+          b.onLoad({ filter: /.*/, namespace: 'zz-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(`${result.outputFiles[0].text}\n// zz-r28-c\n`).toString('base64')}`);
+}
+
+export default async function (t) {
+  const restore = installDom();
+  const realTz = process.env.TZ;
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle();
+    const ws = { userId: 'u-manager', orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role: 'manager', scopes: [], divisions: ['broiler'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1 };
+    // C1 الفاتورة الملغاة أُلغيت الساعة 01:30 بتوقيت بغداد يوم 13/11 (22:30 غرينتش يوم 12/11)؛ والخادم يؤرّخ الإلغاء بيومه app_today() = 13/11.
+    // الجهاز بمنطقة UTC (الافتراضيّ في كثير من الحواسيب والهواتف بعد ضبط المصنع).
+    process.env.TZ = 'UTC';
+    const sample = clone(B.bird_sale_detail_void);
+    sample.voided_at = '2026-11-12T22:30:00+00:00';
+    globalThis.__bs = { session: { status: 'ready', workspace: ws, offline: false }, toasts: [], call: async () => null, rpc: async (fn) => (fn === 'bird_sale_detail' ? clone(sample) : new Promise(() => {})) };
+    const container = globalThis.document.createElement('div');
+    globalThis.document.body.appendChild(container);
+    root = m.createRoot(container);
+    m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [`/sales/birds/${sample.id}`] }, m.h(m.Routes, null, m.h(m.Route, { path: '/sales/*', element: m.h(m.SalesRoutes) })))));
+    await settle(40);
+    const stamp = descendants(globalThis.document.body).find((n) => n.getAttribute('data-action') === 'void-stamp')?.textContent ?? null;
+    t.same(stamp?.includes(m.fmtDay('2026-11-13')) ?? null, true, `C1 ختم «ملغى» بيوم الإلغاء في الخادم (13/11/2026)، لا بيوم منطقة الجهاز: ${stamp}`);
+    t.ok(true, 'zz-r28-c ran');
+  } finally {
+    if (realTz === undefined) delete process.env.TZ;
+    else process.env.TZ = realTz;
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    delete globalThis.__bs;
+    restore();
+  }
+}

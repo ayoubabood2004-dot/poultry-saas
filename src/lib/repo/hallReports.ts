@@ -5,7 +5,7 @@ import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import type { CostKind } from './flocks';
-import { HallsShapeError, VACCINE_COLORS, VACCINE_STATES, type DayIssue, type DayVaccine } from './halls';
+import { COUNT_SOURCES, HallsShapeError, VACCINE_COLORS, VACCINE_STATES, type CountSource, type DayIssue, type DayVaccine } from './halls';
 
 // تقارير القاعات (0027، كلمة المالك 2026-11-12، docs/HALLS_REPORTS_PLAN.md التسليم ١): تقرير القاعات اليومي (halls_day: كلّ قاعة في نطاق القارئ
 // ليوم يختاره، مجمَّعة بالحقل بمجاميعها) وقائمة الدورات (flock_cycles: كلّ دورات النطاق، القائمة والمغلقة). قراءة فقط وبلا مال. الأرقام بالسلك نصوص
@@ -96,6 +96,11 @@ export interface DayFlock {
   dayNo: number;
   /** صفّ الجولة لهذا اليوم موجود. */
   round: boolean;
+  /**
+   * يومٌ بدأ بطيور حيّة ينتظر جولة (مراجعة 0028 O7: expects_round): فوجٌ بيع كلّه قبله لا «لم تُسجَّل الجولة» له. وخادم قبله: كلّ يوم ينتظر جولة (كما
+   * كان).
+   */
+  expectsRound: boolean;
   liveStart: number;
   /** null حين لا جولة (لا صفر). */
   dead: number | null;
@@ -114,10 +119,15 @@ export interface DayFlock {
   feedGivenKg: Milli;
   feedGivenUnweighed: number;
   feedGivenCumKg: Milli;
-  /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ والباقي. */
+  /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ. */
   feedGivenCumUnweighed: number;
-  /** النازل التراكمي − المأكول التراكمي، وقد يكون سالباً. */
-  feedLeftKg: Milli;
+  /**
+   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب
+   * مستهلَكاً عند الإغلاق − المأكول، وقد يكون سالباً؛ وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو). وخادم قبل 0028: feed_left_kg
+   * وfeed_given_cum_unweighed (النازل − المأكول).
+   */
+  leftInHallKg: Milli;
+  leftInHallUnweighed: number;
   /** وزن هذا اليوم، وآخر وزن حتى اليوم. */
   weight: DayWeight | null;
   lastWeight: LastWeight | null;
@@ -132,6 +142,40 @@ export interface DayFlock {
   issues: readonly DayIssue[];
   logs: readonly { id: string; name: string; dose: string | null }[];
   vaccines: readonly DayVaccine[];
+  /**
+   * 0028 (العقد §6): المباع يومها من الفواتير المرحّلة وصافيه، وفرق العدّ يومها، وطيور تذاكر الوزن غير الملغاة بلا فاتورة يومها، والعلف المنقول إليها
+   * يومها والخارج منها عند الإغلاق (وسطوره بلا وزن يومها وحتى يومها). كلّها null من خادم قبل 0028 (لا صفر).
+   */
+  sold: number | null;
+  soldNetKg: Milli | null;
+  countDiff: number | null;
+  ticketed: number | null;
+  feedCarryInKg: Milli | null;
+  feedOutKg: Milli | null;
+  feedOutUnweighed: number | null;
+  feedOutCumUnweighed: number | null;
+  /** فروق العدّ الحيّة يومها بعددها وسببها ومصدرها (يدويّاً أو عند الإغلاق، مراجعة 0028 O3)؛ فارغ من خادم قبلها. */
+  countDiffs: readonly DayCountDiff[];
+}
+
+/** فرق عدّ يومٍ بسببه ومصدره (COUNT_SOURCES في repo/halls). */
+export interface DayCountDiff {
+  birds: number;
+  reason: string;
+  source: CountSource;
+}
+
+/** 0028: علف منقول للدورة التالية معلَّق على قاعة فارغة (من دورة أُغلقت، حتى يُسكَّن فوجها التالي أو يُرجع إلى مخزن). */
+export interface DayCarry {
+  lineId: string;
+  itemId: string;
+  name: string;
+  qty: Milli;
+  baseUnit: BaseUnit;
+  /** null: لتر بلا كثافة أو قطعة بلا وزن. */
+  kg: Milli | null;
+  closedOn: Day;
+  fromFlockId: string;
 }
 
 export interface DayHall {
@@ -140,6 +184,8 @@ export interface DayHall {
   kind: FlockKind;
   /** null: القاعة فارغة في ذلك اليوم. */
   flock: DayFlock | null;
+  /** 0028: العلف المنقول المعلَّق عليها وهي فارغة (فارغ من خادم قبل 0028). */
+  carry: readonly DayCarry[];
 }
 
 /** مجاميع الخادم: النافق والمستبعد من القاعات بجولة وحدها (rounds منها)، والمأكول من الأفواج بعلف مسجَّل وحدها (feedEatenFlocks). */
@@ -147,6 +193,8 @@ export interface DayTotals {
   halls: number;
   flocks: number;
   rounds: number;
+  /** الأفواج التي تنتظر جولة يومها (بدأ يومها بطيور حيّة، مراجعة 0028 O7)؛ وخادم قبله: كلّ الأفواج. */
+  roundsExpected: number;
   liveStart: number;
   /** null حين لا جولة في أيّ قاعة (rounds = 0). */
   dead: number | null;
@@ -158,6 +206,10 @@ export interface DayTotals {
   feedGivenKg: Milli;
   /** سطور العلف بلا وزن في ذلك اليوم من قاعاته (خارج feedGivenKg). */
   feedGivenUnweighed: number;
+  /** 0028: المباع وفرق العدّ وطيور التذاكر بلا فاتورة يومها؛ null من خادم قبل 0028. */
+  sold: number | null;
+  countDiff: number | null;
+  ticketed: number | null;
 }
 
 export interface DaySite {
@@ -194,6 +246,7 @@ const totalsOf = (value: unknown): DayTotals => {
     halls: int(row, 'halls'),
     flocks: int(row, 'flocks'),
     rounds: int(row, 'rounds'),
+    roundsExpected: int(row, row.rounds_expected === undefined ? 'flocks' : 'rounds_expected'),
     liveStart: int(row, 'live_start'),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
@@ -202,6 +255,9 @@ const totalsOf = (value: unknown): DayTotals => {
     feedEatenFlocks: int(row, 'feed_eaten_flocks'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
+    sold: optInt(row, 'sold'),
+    countDiff: optInt(row, 'count_diff'),
+    ticketed: optInt(row, 'ticketed'),
   };
 };
 
@@ -219,6 +275,7 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     age: int(row, 'age'),
     dayNo: int(row, 'day_no'),
     round: flag(row, 'round'),
+    expectsRound: row.expects_round === undefined ? true : flag(row, 'expects_round'),
     liveStart: int(row, 'live_start'),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
@@ -234,7 +291,8 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
     feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
     feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-    feedLeftKg: scaled(row, 'feed_left_kg', 3),
+    leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+    leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
     weight: weightOf(row.weight),
     lastWeight: lastWeightOf(row.last_weight),
     fcr: optScaled(row, 'fcr', 3),
@@ -264,8 +322,29 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
       issueId: optStr(vaccine, 'issue_id'),
       docNo: optStr(vaccine, 'doc_no'),
     })),
+    sold: optInt(row, 'sold'),
+    soldNetKg: optScaled(row, 'sold_net_kg', 3),
+    countDiff: optInt(row, 'count_diff'),
+    ticketed: optInt(row, 'ticketed'),
+    feedCarryInKg: optScaled(row, 'feed_carry_in_kg', 3),
+    feedOutKg: optScaled(row, 'feed_out_kg', 3),
+    feedOutUnweighed: optInt(row, 'feed_out_unweighed'),
+    feedOutCumUnweighed: optInt(row, 'feed_out_cum_unweighed'),
+    countDiffs: list(row.count_diffs ?? [], 'count_diffs').map((diff) => ({ birds: int(diff, 'birds'), reason: str(diff, 'reason'), source: oneOf(diff, 'source', COUNT_SOURCES) })),
   };
 };
+
+const carryOf = (value: unknown): DayCarry[] =>
+  list(value ?? [], 'carry').map((row) => ({
+    lineId: str(row, 'line_id'),
+    itemId: str(row, 'item_id'),
+    name: str(row, 'name'),
+    qty: scaled(row, 'qty', 3),
+    baseUnit: oneOf(row, 'base_unit', UNITS),
+    kg: optScaled(row, 'kg', 3),
+    closedOn: str(row, 'closed_on'),
+    fromFlockId: str(row, 'from_flock_id'),
+  }));
 
 export function parseHallsDay(value: unknown): HallsDay {
   const json = record(value, 'halls_day');
@@ -282,6 +361,7 @@ export function parseHallsDay(value: unknown): HallsDay {
         hallName: str(hall, 'hall_name'),
         kind: oneOf(hall, 'kind', KINDS),
         flock: dayFlockOf(hall.flock),
+        carry: carryOf(hall.carry),
       })),
       totals: totalsOf(site.totals),
     })),

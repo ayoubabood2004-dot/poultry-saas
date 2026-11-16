@@ -108,10 +108,10 @@ export function StatementHead({ statement, bookId, mode }: { statement: PartySta
   );
 }
 
-/** للسطر موادّ تُعرض تحته في التفصيلي: الشراء والبيع والمرتجع والتسعير، لا سطر الإلغاء. */
+/** للسطر موادّ تُعرض تحته في التفصيلي: الشراء والبيع وفاتورة الطيور والمرتجع والتسعير، لا سطر الإلغاء. */
 export function hasDocItems(line: Pick<StatementLine, 'detail' | 'reverses'>): boolean {
   const type = line.detail?.type;
-  return !line.reverses && (type === 'purchase' || type === 'sale' || type === 'supplier_return' || type === 'revaluation');
+  return !line.reverses && (type === 'purchase' || type === 'sale' || type === 'bird_sale' || type === 'supplier_return' || type === 'revaluation');
 }
 
 /**

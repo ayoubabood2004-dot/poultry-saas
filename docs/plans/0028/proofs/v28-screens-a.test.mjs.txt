@@ -1,0 +1,241 @@
+// مراجعة 0028 (الشاشات): فحوص مؤقّتة تفشل على الشفرة الحالية. تُحذف قبل التسليم.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { installDom, settle } from './dom.mjs';
+import { all, body, bundle, byAction, clone, click, dialog, disabled, memoryStorage, ROOT, sessionOf, textOf, type, within } from './halls-0028-kit.mjs';
+
+const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+const MANAGER = sessionOf('manager');
+
+export default async function (t) {
+  const restore = installDom();
+  const saved = { session: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), local: Object.getOwnPropertyDescriptor(globalThis, 'localStorage') };
+  const session = memoryStorage();
+  const local = memoryStorage();
+  Object.defineProperty(globalThis, 'sessionStorage', { value: session.api, configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'localStorage', { value: local.api, configurable: true, writable: true });
+  const RealDate = globalThis.Date;
+  const realTz = process.env.TZ;
+  let root = null;
+  let m = null;
+  try {
+    m = await bundle('zz-r28-a');
+    const fresh = (who, rpcs = {}) => {
+      const log = [];
+      globalThis.__h8 = {
+        session: who,
+        toasts: [],
+        location: null,
+        rpc(fn, args) {
+          log.push([fn, args]);
+          const handler = rpcs[fn];
+          if (!handler) return new Promise(() => {});
+          return Promise.resolve().then(() => handler(args));
+        },
+      };
+      return log;
+    };
+    const named = (log, fn) => log.filter(([name]) => name === fn).map(([, args]) => args);
+    const mount = async (url, element = null) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      const tree = element ?? m.h(m.Routes, null, m.h(m.Route, { path: '/halls/*', element: m.h(m.HallsRoutes) }), m.h(m.Route, { path: '*', element: null }));
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, tree)));
+      await settle(40);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      m.flushSync(() => mounted.unmount());
+      body().textContent = '';
+      await settle();
+    };
+    const step = async (label, fn) => {
+      session.map.clear();
+      local.map.clear();
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      globalThis.Date = RealDate;
+      if (realTz === undefined) delete process.env.TZ;
+      else process.env.TZ = realTz;
+      await unmount();
+    };
+    /** ساعة الجهاز: الآن = at (مللي ثانية UTC)، والمنطقة tz. */
+    const deviceClock = (at, tz) => {
+      process.env.TZ = tz;
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          if (args.length === 0) super(at);
+          else super(...args);
+        }
+        static now() {
+          return at;
+        }
+      };
+    };
+    const card = (sample) => m.h(m.FlockCard, { flock: { id: sample.flock_id, kind: sample.kind, siteId: 's', hallId: 'h', hallName: 'قاعة 1', siteName: 'حقل', status: sample.status } });
+    /** خادم فرق العدّ بقاعدة check_doc_date (0001): يوم الخادم app_today() من ساعته هو. */
+    const countServer = (sample, serverDay) => ({
+      // ADAPTED (agreed design S1/W2): the dialog takes today from flock_sales, so the stub server answers its own day there.
+      flock_sales: () => ({ ...clone(sample), today: serverDay }),
+      record_flock_count_adjust: (args) => {
+        if (args.p_on > serverDay) throw new m.RejectedError('date_in_future', `التاريخ ${m.fmtDay(args.p_on)} بعد تاريخ اليوم ${m.fmtDay(serverDay)}. سجّل المستند بتاريخ اليوم أو بتاريخ سابق.`);
+        return { id: args.p_id, flock_id: args.p_flock, on_date: args.p_on, birds: args.p_birds, live_after: sample.live + args.p_birds };
+      },
+    });
+
+    // ── A1 ساعة الجهاز خلف بغداد: هاتف بمنطقة UTC وساعته صحيحة، الساعة 00:30 بتوقيت بغداد يوم 13/11 (21:30 غرينتش يوم 12/11) ─────────────
+    await step('A1', async () => {
+      const sample = B.flock_sales;
+      const SERVER_DAY = '2026-11-13';
+      const log = fresh(MANAGER, countServer(sample, SERVER_DAY));
+      deviceClock(RealDate.UTC(2026, 10, 12, 21, 30), 'UTC');
+      await mount('/broiler/flock/x', card(sample));
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة');
+      await settle();
+      const shownDay = within(dialog(), 'count-day')[0]?.value ?? null;
+      await click(within(dialog(), 'count-go')[0]);
+      await settle(20);
+      const sent = named(log, 'record_flock_count_adjust');
+      t.same(
+        [shownDay, sent[0]?.p_on ?? null],
+        [m.fmtDay(SERVER_DAY), SERVER_DAY],
+        'A1 «سجّل فرق العدّ» بيوم الخادم (بغداد 00:30 يوم 13/11): اليوم المقترح والمرسَل',
+      );
+      // ويوم الخادم نفسه مكتوباً باليد ممنوع في النافذة.
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة');
+      type(within(dialog(), 'count-day')[0], m.fmtDay(SERVER_DAY));
+      await settle();
+      const box = dialog();
+      t.same(
+        [disabled(within(box, 'count-go')[0]), (box?.textContent ?? '').includes('التاريخ بعد اليوم.')],
+        [false, false],
+        'A1 يوم الخادم (13/11/2026) مقبول في النافذة',
+      );
+    });
+
+    // ── A2 ساعة الجهاز أمام بغداد بساعة: الساعة 23:30 بتوقيت بغداد يوم 12/11، والهاتف يقرأ 00:30 يوم 13/11 ───────────────────────────
+    await step('A2', async () => {
+      const sample = B.flock_sales;
+      const SERVER_DAY = '2026-11-12';
+      const log = fresh(MANAGER, countServer(sample, SERVER_DAY));
+      deviceClock(RealDate.UTC(2026, 10, 12, 21, 30), 'Asia/Baghdad');
+      await mount('/broiler/flock/x', card(sample));
+      await click(byAction('card-count')[0]);
+      type(within(dialog(), 'count-n')[0], '5');
+      type(within(dialog(), 'count-reason')[0], 'عُدّت القاعة');
+      await settle();
+      const shownDay = within(dialog(), 'count-day')[0]?.value ?? null;
+      await click(within(dialog(), 'count-go')[0]);
+      await settle(20);
+      const sent = named(log, 'record_flock_count_adjust');
+      t.same(
+        [shownDay, sent[0]?.p_on ?? null, (dialog()?.textContent ?? '').includes('بعد تاريخ اليوم')],
+        [m.fmtDay(SERVER_DAY), SERVER_DAY, false],
+        'A2 «سجّل فرق العدّ» بيوم الخادم (بغداد 23:30 يوم 12/11) والمقترح لا يرفضه الخادم',
+      );
+    });
+
+    // ── A3 صيغة المعدود في بطاقة الفوج (عيّنة القاعدة flock_sales: مباع 800 وعلى تذاكر 4,000) ───────────────────────────────────────
+    await step('A3', async () => {
+      const sample = B.flock_sales;
+      fresh(MANAGER, { flock_sales: () => clone(sample) });
+      await mount('/broiler/flock/x', card(sample));
+      const sold = textOf('card-sold');
+      t.same([sold, /(?:^|[^\d,])(?:800|4,000) طيراً/u.test(sold ?? '')], [sold, false], `A3 «800 طير» و«4,000 طير» لا «طيراً»: ${sold}`);
+    });
+
+    // ── A4 صيغة المعدود في «أغلق الدورة» (flock_close_form_pending: الحيّ 100) ─────────────────────────────────────────────────────────
+    await step('A4', async () => {
+      const sample = B.flock_close_form_pending;
+      fresh(MANAGER, { flock_close_form: () => clone(sample) });
+      await mount(`/halls/close/${sample.flock.id}`);
+      const shown = textOf('close-count-diff');
+      t.same(/(?:^|[^\d,])100 طيراً/u.test(shown ?? ''), false, `A4 «100 طير» لا «100 طيراً»: ${shown}`);
+      // تقدير العلف: سُجّل 0 من 10 أيّام (العيّنة نفسها) ومن يوم واحد (flock_close_form_carry_in).
+      const days10 = textOf('close-estimate');
+      await unmount();
+      fresh(MANAGER, { flock_close_form: () => clone(B.flock_close_form_carry_in) });
+      await mount(`/halls/close/${B.flock_close_form_carry_in.flock.id}`);
+      const days1 = textOf('close-estimate');
+      t.same([/من 10 يوماً/u.test(days10 ?? ''), /من 1 يوماً/u.test(days1 ?? '')], [false, false], `A4b «10 أيّام» و«يوم واحد» لا «يوماً»: ${days10} | ${days1}`);
+    });
+
+    // ── A5 صيغة المعدود في تأكيد «أكمل التذكرة» (weigh_ticket_draft: 100 طير) ──────────────────────────────────────────────────────────
+    await step('A5', async () => {
+      const draft = B.weigh_ticket_draft;
+      fresh(MANAGER, { weigh_ticket: () => clone(draft), weigh_ticket_options: () => clone(B.weigh_ticket_options_site) });
+      await mount(`/halls/ticket/${draft.id}`);
+      await click(byAction('ticket-finish')[0]);
+      const title = dialog()?.textContent ?? '';
+      t.same(/(?:^|[^\d,])100 طيراً/u.test(title), false, `A5 تأكيد الإكمال «100 طير»: ${title.slice(0, 60)}`);
+      // تنبيه «أكثر من الحيّ» في المحرّر: القاعة حيّها 700 (العيّنة)، وكُتب 800.
+      const cancel = all().find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع');
+      await click(cancel);
+      type(within(byAction('ticket-stop')[0], 'ticket-birds')[0], '800');
+      await settle();
+      const over = textOf('ticket-over-live');
+      t.same(/(?:^|[^\d,])700 طيراً/u.test(over ?? ''), false, `A5b تنبيه الحيّ «700 طير»: ${over}`);
+    });
+
+    // ── A6 صيغة المعدود في تقرير الدورة: الإغلاق (9,700) والتذاكر بلا فاتورة (4,000) ───────────────────────────────────────────────
+    await step('A6', async () => {
+      fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report_closed) });
+      await mount(`/halls/report/${B.flock_cycle_report_closed.flock.id}`);
+      const closeLine = textOf('rep-close-line');
+      await unmount();
+      fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report) });
+      await mount(`/halls/report/${B.flock_cycle_report.flock.id}`);
+      const pending = textOf('rep-sales-note');
+      t.same(
+        [/9,700 طيراً/u.test(closeLine ?? ''), /4,000 طيراً/u.test(pending ?? '')],
+        [false, false],
+        `A6 «9,700 طير» و«4,000 طير»: ${closeLine} | ${pending}`,
+      );
+    });
+
+    // ── A7 «أعد فتح الدورة» على عيّنة القاعدة المغلقة (فرق العدّ صفر، وسطر منقول معلَّق للدورة التالية) ───────────────────────────────
+    await step('A7', async () => {
+      const sample = B.flock_cycle_report_closed;
+      // ADAPTED (agreed design O6/W7): «أعد فتح الدورة» waits for flock_sales.can.reopen.
+      fresh(MANAGER, { flock_cycle_report: () => clone(sample), flock_sales: () => clone(B.flock_sales_closed) });
+      await mount(`/halls/report/${sample.flock.id}`);
+      await click(byAction('reopen-open')[0]);
+      const shown = textOf('reopen-text') ?? '';
+      const facts = [sample.close.count_diff, sample.close.lines.filter((line) => line.action === 'carry' && line.carry_status === 'pending').length];
+      t.same(
+        [facts, shown.includes('فرق العدّ'), /المنقول|للدورة التالية|نُقل/u.test(shown)],
+        [[0, 1], false, true],
+        `A7 التأكيد لا يذكر فرق عدّ لا وجود له، ويذكر العلف المنقول الذي يُلغى: ${shown}`,
+      );
+    });
+    t.ok(true, 'zz-r28-a ran');
+  } finally {
+    globalThis.Date = RealDate;
+    if (realTz === undefined) delete process.env.TZ;
+    else process.env.TZ = realTz;
+    if (root) {
+      try {
+        m?.flushSync(() => root.unmount());
+      } catch {
+        // swallow-ok
+      }
+    }
+    for (const [name, descriptor] of [['sessionStorage', saved.session], ['localStorage', saved.local]]) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    delete globalThis.__h8;
+    restore();
+    void all;
+  }
+}

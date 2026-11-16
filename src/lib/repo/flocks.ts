@@ -224,6 +224,9 @@ export interface DayLine extends DayRow {
   liveStart: number;
   liveEnd: number;
   hdep: bigint | null;
+  /** 0028: المباع بفاتورة يومه وفرق العدّ يومه (سبب نزول الحيّ غير النافق والمستبعد)؛ وخادم قبل 0028 بلا مفتاحيهما صفر. */
+  sold: number;
+  countDiff: number;
 }
 
 export interface FlockDetail {
@@ -250,7 +253,14 @@ export function parseDetail(value: unknown): FlockDetail {
     },
     canManage: flag(json, 'can_manage'),
     canSave: flag(json, 'can_save'),
-    days: list(json.days, 'days').map((row) => ({ ...parseDayRow(row), liveStart: int(row, 'live_start'), liveEnd: int(row, 'live_end'), hdep: scaled(row, 'hdep', 2) })),
+    days: list(json.days, 'days').map((row) => ({
+      ...parseDayRow(row),
+      liveStart: int(row, 'live_start'),
+      liveEnd: int(row, 'live_end'),
+      hdep: scaled(row, 'hdep', 2),
+      sold: optInt(row, 'sold') ?? 0,
+      countDiff: optInt(row, 'count_diff') ?? 0,
+    })),
     weights: list(json.weights, 'weights').map((row) => ({ onDate: str(row, 'on_date'), sampleCount: int(row, 'sample_count'), avgG: scaled(row, 'avg_g', 1) ?? 0n, version: int(row, 'version') })),
   };
 }
@@ -306,10 +316,13 @@ export interface FlockFeed {
   issuedFeedKg: bigint;
   /** مجموع العلف المسجّل في الجولات اليومية. */
   consumedFeedKg: bigint;
-  /** المصروف − المستهلك، وقد يكون سالباً (يُعرض كما هو). */
-  remainingFeedKg: bigint;
-  /** سطور علف لا يُعرف وزنها (سائل بلا كثافة، أو قطعة بلا وزن قطعة) فلم تُحسب في المصروف. */
-  unweighedFeedLines: number;
+  /**
+   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب مستهلَكاً
+   * عند الإغلاق − المأكول، فالقاعة المغلقة صفر والفوج التالي يعدّ منقوله؛ وقد يكون سالباً (يُعرض كما هو). وخادم قبل 0028: remaining_feed_kg.
+   */
+  leftInHallKg: bigint;
+  /** سطور علفه بلا كتلة (سائل بلا كثافة، أو قطعة بلا وزن قطعة) خارج الكيلو؛ وخادم قبل 0028: unweighed_feed_lines. */
+  leftInHallUnweighed: number;
   /** الأحدث أوّلاً. */
   issues: FeedIssue[];
   more: boolean;
@@ -322,7 +335,8 @@ export interface FlockFeed {
 export function parseFlockFeed(value: unknown): FlockFeed {
   const json = record(value, 'flock_feed');
   const box = moneyOf(json);
-  const unweighed = int(json, 'unweighed_feed_lines');
+  const old = json.left_in_hall_kg === undefined;
+  const unweighed = int(json, old ? 'unweighed_feed_lines' : 'left_in_hall_unweighed');
   if (unweighed < 0) throw new FlockShapeError('unweighed_feed_lines');
   return {
     flockId: str(json, 'flock_id'),
@@ -331,8 +345,8 @@ export function parseFlockFeed(value: unknown): FlockFeed {
     today: str(json, 'today'),
     issuedFeedKg: qty3(json, 'issued_feed_kg'),
     consumedFeedKg: qty3(json, 'consumed_feed_kg'),
-    remainingFeedKg: qty3(json, 'remaining_feed_kg'),
-    unweighedFeedLines: unweighed,
+    leftInHallKg: qty3(json, old ? 'remaining_feed_kg' : 'left_in_hall_kg'),
+    leftInHallUnweighed: unweighed,
     issues: list(json.issues, 'issues').map((row) => {
       const money = moneyOf(row);
       return {

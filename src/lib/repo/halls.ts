@@ -6,6 +6,7 @@ import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import './constraints-halls';
+import { parseCloseResult, type CloseResult } from './flockClose';
 import type { CostKind } from './flocks';
 
 // «القاعات بين يديك» (0026، كلمة المالك 2026-11-11، docs/HALLS_PLAN.md): الإضافة لعدّة قاعات بنداء واحد (صرف من مخزن، أو دواء بلا مخزن، أو تأشير
@@ -562,6 +563,8 @@ export interface CycleDay {
   age: number;
   dayNo: number;
   round: boolean;
+  /** يومٌ بدأ بطيور حيّة ينتظر جولة (مراجعة 0028 O7: expects_round)؛ وخادم قبله: كلّ يوم (كما كان). */
+  expectsRound: boolean;
   liveStart: number;
   dead: number | null;
   culled: number | null;
@@ -571,15 +574,27 @@ export interface CycleDay {
   feedEatenCumKg: Milli;
   feedGivenKg: Milli;
   feedGivenCumKg: Milli;
-  /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو والباقي)، وفي «حتى» = feed.unweighed. */
+  /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو)، وفي «حتى» = feed.unweighed. */
   feedGivenUnweighed: number;
   feedGivenCumUnweighed: number;
-  feedLeftKg: Milli;
+  /**
+   * «الباقي في القاعة» آخر اليوم بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg)، وسطوره بلا كتلة؛ وخادم قبل 0028: feed_left_kg (النازل − المأكول)
+   * وfeed_given_cum_unweighed.
+   */
+  leftInHallKg: Milli;
+  leftInHallUnweighed: number;
   weight: { sampleCount: number; avgG: bigint } | null;
   /** للبيّاض وحده (null للّاحم). */
   eggsTotal: number | null;
   hdep: bigint | null;
   note: string | null;
+  /**
+   * 0028: الطيور المباعة يومها (من الفواتير المرحّلة) وصافيها، وفرق العدّ يومها؛ null من خادم قبل 0028. بمفاتيح الخادم sold وsold_net_kg وcount_diff
+   * (كمفاتيح الفوج في halls_day)، لا بأسماء أعمدة report_days الداخلية (sold_kg وadjust): كانت تُقرأ null دائماً فيختفي عمود «فرق العدّ».
+   */
+  sold: number | null;
+  soldKg: Milli | null;
+  adjust: number | null;
 }
 
 /**
@@ -594,6 +609,8 @@ export interface CycleWeek {
   toOn: Day;
   days: number;
   roundDays: number;
+  /** أيّامه التي تنتظر جولة (بدأت بطيور حيّة، مراجعة 0028 O7)؛ وخادم قبله: أيّامه كلّها. */
+  expectedDays: number;
   dead: number | null;
   culled: number | null;
   mortalityPct: bigint | null;
@@ -621,13 +638,30 @@ export interface CycleKpis {
   livabilityPct: bigint | null;
   feedGivenKg: Milli | null;
   feedEatenKg: Milli | null;
-  feedLeftKg: Milli | null;
+  /** «الباقي في القاعة» في «حتى» بتعريفه الواحد (left_in_hall_kg، وخادم قبل 0028 feed_left_kg)، وسطوره بلا كتلة (null قبل 0028: feed.unweighed). */
+  leftInHallKg: Milli | null;
+  leftInHallUnweighed: number | null;
   feedDays: number | null;
   feedSpan: number | null;
   feedPerBirdKg: Milli | null;
   lastWeight: SampleWeight | null;
   fcr: bigint | null;
   epef: bigint | null;
+  /**
+   * 0028 (العقد §6): المباع من الفواتير وصافيه ومعدّل وزن البيع (كغم بثلاث مراتب) وعمر البيع (بمرتبة، مرجَّحاً بالطيور)، وفرق العدّ (يظهر وحده لا مع
+   * النافق)، والعلف المنقول إليها من الدورة السابقة والخارج عند الإغلاق (راجعاً أو منقولاً) والصافي (null إن كان فيه سطر بلا وزن)، ومعامل التحويل
+   * النهائيّ ومؤشّر الإنتاج النهائيّ للمغلقة وحدها. كلّها null من خادم قبل 0028 أو حين تنقص مدخلاتها.
+   */
+  soldBirds: number | null;
+  soldNetKg: Milli | null;
+  soldAvgKg: Milli | null;
+  saleAge: bigint | null;
+  countDiff: number | null;
+  feedCarryInKg: Milli | null;
+  feedOutKg: Milli | null;
+  feedNetKg: Milli | null;
+  fcrFinal: bigint | null;
+  epefFinal: bigint | null;
 }
 
 export interface CycleDetail {
@@ -661,6 +695,7 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         age: int(row, 'age'),
         dayNo: int(row, 'day_no'),
         round: flag(row, 'round'),
+        expectsRound: row.expects_round === undefined ? true : flag(row, 'expects_round'),
         liveStart: int(row, 'live_start'),
         dead: optInt(row, 'dead'),
         culled: optInt(row, 'culled'),
@@ -672,11 +707,15 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
         feedGivenUnweighed: int(row, 'feed_given_unweighed'),
         feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-        feedLeftKg: scaled(row, 'feed_left_kg', 3),
+        leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+        leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
         weight: weight ? { sampleCount: int(weight, 'sample_count'), avgG: scaled(weight, 'avg_g', 1) } : null,
         eggsTotal: optInt(row, 'eggs_total'),
         hdep: optScaled(row, 'hdep', 2),
         note: optStr(row, 'note'),
+        sold: optInt(row, 'sold'),
+        soldKg: optScaled(row, 'sold_net_kg', 3),
+        adjust: optInt(row, 'count_diff'),
       };
     }),
     weeks: list(json.weeks, 'weeks').map((row) => ({
@@ -687,6 +726,7 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       toOn: str(row, 'to_on'),
       days: int(row, 'days'),
       roundDays: int(row, 'round_days'),
+      expectedDays: int(row, row.expected_days === undefined ? 'days' : 'expected_days'),
       dead: optInt(row, 'dead'),
       culled: optInt(row, 'culled'),
       mortalityPct: optScaled(row, 'mortality_pct', 2),
@@ -714,37 +754,111 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       livabilityPct: optScaled(kpis, 'livability_pct', 2),
       feedGivenKg: optScaled(kpis, 'feed_given_kg', 3),
       feedEatenKg: optScaled(kpis, 'feed_eaten_kg', 3),
-      feedLeftKg: optScaled(kpis, 'feed_left_kg', 3),
+      leftInHallKg: optScaled(kpis, kpis.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
+      leftInHallUnweighed: optInt(kpis, 'left_in_hall_unweighed'),
       feedDays: optInt(kpis, 'feed_days'),
       feedSpan: optInt(kpis, 'feed_span'),
       feedPerBirdKg: optScaled(kpis, 'feed_per_bird_kg', 3),
       lastWeight: sampleWeight(kpis.last_weight, 'last_weight'),
       fcr: optScaled(kpis, 'fcr', 3),
       epef: optScaled(kpis, 'epef', 0),
+      soldBirds: optInt(kpis, 'sold_birds'),
+      soldNetKg: optScaled(kpis, 'sold_net_kg', 3),
+      soldAvgKg: optScaled(kpis, 'sold_avg_kg', 3),
+      saleAge: optScaled(kpis, 'sale_age', 1),
+      countDiff: optInt(kpis, 'count_diff'),
+      feedCarryInKg: optScaled(kpis, 'feed_carry_in_kg', 3),
+      feedOutKg: optScaled(kpis, 'feed_out_kg', 3),
+      feedNetKg: optScaled(kpis, 'feed_net_kg', 3),
+      fcrFinal: optScaled(kpis, 'fcr_final', 3),
+      epefFinal: optScaled(kpis, 'epef_final', 0),
     },
   };
+}
+
+/** 0028: تذاكر الدورة (غير الملغاة) وفواتيرها: المباع من الفواتير المرحّلة، وpendingBirds طيور تذاكر بلا فاتورة. */
+export interface CycleSales {
+  tickets: readonly { ticketId: string; ticketNo: string | null; status: 'draft' | 'done' | 'void'; onDate: Day; birds: number | null; netKg: Milli | null; avgKg: Milli | null; invoiced: boolean; docNo: string | null }[];
+  birds: number;
+  netKg: Milli;
+  avgKg: Milli | null;
+  pendingBirds: number;
+}
+
+const cycleSales = (value: unknown): CycleSales | null => {
+  const json = optRecord(value, 'sales');
+  if (!json) return null;
+  return {
+    tickets: list(json.tickets, 'tickets').map((row) => ({
+      ticketId: str(row, 'ticket_id'),
+      ticketNo: optStr(row, 'ticket_no'),
+      status: oneOf(row, 'status', ['draft', 'done', 'void'] as const),
+      onDate: str(row, 'on_date'),
+      birds: optInt(row, 'birds'),
+      netKg: optScaled(row, 'net_kg', 3),
+      avgKg: optScaled(row, 'avg_kg', 3),
+      invoiced: flag(row, 'invoiced'),
+      docNo: optStr(row, 'doc_no'),
+    })),
+    birds: int(json, 'birds'),
+    netKg: scaled(json, 'net_kg', 3),
+    avgKg: optScaled(json, 'avg_kg', 3),
+    pendingBirds: int(json, 'pending_birds'),
+  };
+};
+
+/** مصدر فرق العدّ (مراجعة 0028 O3): «manual» من «سجّل فرق العدّ»، و«close» كُتب مع الإغلاق (= −الحيّ). */
+export const COUNT_SOURCES = ['manual', 'close'] as const;
+export type CountSource = (typeof COUNT_SOURCES)[number];
+
+/** 0028: علف منقول إلى هذه الدورة من الدورة السابقة في القاعة. */
+export interface CarryIn {
+  lineId: string;
+  itemId: string;
+  name: string;
+  qty: Milli;
+  baseUnit: BaseUnit;
 }
 
 export interface CycleReport {
   flock: HallFlock;
   today: Day;
   through: Day;
-  birds: { placed: number; dead: number; culled: number; live: number; mortalityPct: bigint };
+  /** sold وsoldNetKg وcountDiff وcountReason من 0028 (null من خادم قبله): المباع من الفواتير، وفرق العدّ بسببه وحده لا مع النافق. */
+  birds: { placed: number; dead: number; culled: number; live: number; mortalityPct: bigint; sold: number | null; soldNetKg: Milli | null; countDiff: number | null; countReason: string | null };
   feed: {
     lines: readonly { on: Day; docNo: string; itemName: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; cumKg: Milli; value: Fils | null }[];
     /** kg مجموع الموزون من سطور المادّة (null حين لا موزون فيها)، وunweighed عدد سطورها بلا وزن (مراجعة 0026 C). */
     byItem: readonly { itemId: string; name: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; unweighed: number }[];
     deliveredKg: Milli;
     consumedKg: Milli;
-    remainingKg: Milli;
+    /**
+     * «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg = المؤشّرات وآخر يوم)، وسطوره بلا كتلة؛ وخادم قبل 0028: remaining_kg (المصروف −
+     * المستهلك) وunweighed.
+     */
+    leftInHallKg: Milli;
+    leftInHallUnweighed: number;
     unweighed: number;
   };
   medicines: readonly { on: Day; source: 'store' | 'log'; name: string; qty: Milli | null; baseUnit: BaseUnit | null; dose: string | null; docNo: string | null }[];
   vaccines: readonly { vaccineId: string; name: string; color: number; ageDay: number; dueOn: Day; state: VaccineState; doneOn: Day | null; docNo: string | null }[];
-  /** null لغير أدوار الكلفة. */
-  money: { feed: Fils; medicine: Fils; vaccine: Fils; other: Fils; total: Fils } | null;
+  /**
+   * null لغير أدوار الكلفة. ومن 0028 (null من خادم قبله): إيراد الفواتير المرحّلة، وقيمة ما رجع إلى المخازن، وما نُقل إليها من الدورة السابقة وما
+   * نُقل منها للتالية؛ والبنود صافية بعد الراجع والمنقول (كلفة الفوج نفسها).
+   */
+  money: { feed: Fils; medicine: Fils; vaccine: Fils; other: Fils; total: Fils; revenue: Fils | null; returned: Fils | null; carriedIn: Fils | null; carriedOut: Fils | null } | null;
   /** 0027: الأيّام والأسابيع والأوزان والمؤشّرات (بلا مال)؛ null من خادم قبل 0027. */
   cycle: CycleDetail | null;
+  /** 0028: التذاكر والفواتير؛ null من خادم قبل 0028. */
+  sales: CycleSales | null;
+  /** 0028: الإغلاق (بلا مال)، وسطور العلف المنقول المعلَّق بمخازن إرجاعها؛ null للقائمة. */
+  close: CloseResult | null;
+  carryIn: readonly CarryIn[];
+  /**
+   * فروق العدّ الحيّة بيومها وعددها وسببها ومصدرها (يدويّاً أو عند الإغلاق، مراجعة 0028 O3)، وحدها لا مع النافق؛ null من خادم قبلها (السبب في
+   * birds.countReason للإغلاق وحده).
+   */
+  countDiffs: readonly { on: Day; birds: number; reason: string; source: CountSource }[] | null;
 }
 
 export function parseCycleReport(value: unknown): CycleReport {
@@ -762,6 +876,10 @@ export function parseCycleReport(value: unknown): CycleReport {
       culled: int(birds, 'culled'),
       live: int(birds, 'live'),
       mortalityPct: scaled(birds, 'mortality_pct', 2),
+      sold: optInt(birds, 'sold'),
+      soldNetKg: optScaled(birds, 'sold_net_kg', 3),
+      countDiff: optInt(birds, 'count_diff'),
+      countReason: optStr(birds, 'count_reason'),
     },
     feed: {
       lines: list(feed.lines, 'lines').map((row) => {
@@ -787,7 +905,9 @@ export function parseCycleReport(value: unknown): CycleReport {
       })),
       deliveredKg: scaled(feed, 'delivered_kg', 3),
       consumedKg: scaled(feed, 'consumed_kg', 3),
-      remainingKg: scaled(feed, 'remaining_kg', 3),
+      // من المؤشّرات في «حتى»: null حين لا يوم في التقرير (كالمؤشّرات)، فالقديمان (المصروف − المستهلك وسطوره بلا وزن) بدلهما كخادم قبل 0028.
+      leftInHallKg: scaled(feed, feed.left_in_hall_kg === undefined || feed.left_in_hall_kg === null ? 'remaining_kg' : 'left_in_hall_kg', 3),
+      leftInHallUnweighed: int(feed, feed.left_in_hall_unweighed === undefined || feed.left_in_hall_unweighed === null ? 'unweighed' : 'left_in_hall_unweighed'),
       unweighed: int(feed, 'unweighed'),
     },
     medicines: list(json.medicines, 'medicines').map((row) => ({
@@ -816,9 +936,20 @@ export function parseCycleReport(value: unknown): CycleReport {
           vaccine: scaled(money, 'vaccine', 2),
           other: scaled(money, 'other', 2),
           total: scaled(money, 'total', 2),
+          revenue: optScaled(money, 'revenue', 2),
+          returned: optScaled(money, 'returned', 2),
+          carriedIn: optScaled(money, 'carried_in', 2),
+          carriedOut: optScaled(money, 'carried_out', 2),
         }
       : null,
     cycle: parseCycleDetail(json),
+    sales: cycleSales(json.sales),
+    close: json.close === null || json.close === undefined ? null : parseCloseResult(json.close, 'close'),
+    carryIn: list(json.carry_in ?? [], 'carry_in').map((row) => ({ lineId: str(row, 'line_id'), itemId: str(row, 'item_id'), name: str(row, 'name'), qty: scaled(row, 'qty', 3), baseUnit: oneOf(row, 'base_unit', UNITS) })),
+    countDiffs:
+      json.count_diffs === undefined || json.count_diffs === null
+        ? null
+        : list(json.count_diffs, 'count_diffs').map((row) => ({ on: str(row, 'on'), birds: int(row, 'birds'), reason: str(row, 'reason'), source: oneOf(row, 'source', COUNT_SOURCES) })),
   };
 }
 

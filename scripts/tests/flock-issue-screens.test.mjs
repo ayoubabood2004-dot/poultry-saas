@@ -143,9 +143,9 @@ export default async function (t) {
     const feedKeeper = p.parseFlockFeed(SAMPLES.flock_feed.storekeeper);
     const feedAccountant = p.parseFlockFeed(SAMPLES.flock_feed.accountant);
     t.same(
-      [feedOwner.issuedFeedKg, feedOwner.consumedFeedKg, feedOwner.remainingFeedKg, feedOwner.unweighedFeedLines, feedOwner.issues.length, feedOwner.issues.at(-1).status, feedOwner.canVoid, feedOwner.money],
+      [feedOwner.issuedFeedKg, feedOwner.consumedFeedKg, feedOwner.leftInHallKg, feedOwner.leftInHallUnweighed, feedOwner.issues.length, feedOwner.issues.at(-1).status, feedOwner.canVoid, feedOwner.money],
       [scaledOf(raw.issued_feed_kg, 3), scaledOf(raw.consumed_feed_kg, 3), scaledOf(raw.remaining_feed_kg, 3), raw.unweighed_feed_lines, raw.issues.length, 'void', true, { issuedValue: scaledOf(raw.money.issued_value, 2) }],
-      'P علف القاعة للمالك: المصروف والمستهلك والباقي، والسطور الأحدث أوّلاً والملغى بحاله، و«ألغِ» والمال',
+      'P علف القاعة للمالك: المصروف والمستهلك والباقي (عيّنة 0019 بلا left_in_hall_kg: الباقي وسطوره بلا وزن من مفتاحَي 0019)، والسطور الأحدث أوّلاً والملغى بحاله، و«ألغِ» والمال',
     );
     t.same([feedKeeper.money, feedKeeper.issues.every((issue) => issue.money === null), feedKeeper.canVoid, feedAccountant.money !== null, feedAccountant.canVoid], [null, true, false, true, false], 'P الأمين بلا مال (المفتاح غائب) ولا إلغاء، والمحاسب يرى المال ولا يلغي');
     // can_void على السطر: غيابه (العقد الأوّل) = لا إلغاء، وحضوره كما هو.
@@ -169,7 +169,7 @@ export default async function (t) {
     const badKind = clone(SAMPLES.flock_issue_options.owner);
     badKind.items[0].cost_kind = 'chicks';
     t.same(
-      [shape(() => p.parseFlockFeed(noKey)), p.parseFlockFeed(negative).remainingFeedKg, p.parseFlockFeed(nullValue).issues[0].money, shape(() => p.parseIssueOptions(badKind))],
+      [shape(() => p.parseFlockFeed(noKey)), p.parseFlockFeed(negative).leftInHallKg, p.parseFlockFeed(nullValue).issues[0].money, shape(() => p.parseIssueOptions(badKind))],
       ['flock_shape:remaining_feed_kg', -12_500n, { value: null }, 'flock_issue_shape:cost_kind'],
       'P الصرامة: مفتاح غائب خطأ شكل، والباقي السالب يُقرأ كما هو، وقيمة null تُقبل، ونوع كلفة مجهول يُرفض',
     );
@@ -199,8 +199,8 @@ export default async function (t) {
       return shown.sub ?? shown.main;
     };
     const OWNER_FEED = SAMPLES.flock_feed.owner;
-    const FEED_LINE = `المصروف للقاعة: ${kgOf(OWNER_FEED.issued_feed_kg)} — المستهلك المسجّل: ${kgOf(OWNER_FEED.consumed_feed_kg)} — الباقي بالقاعة: ${kgOf(OWNER_FEED.remaining_feed_kg)}`;
-    const UNWEIGHED = OWNER_FEED.unweighed_feed_lines > 0 ? `سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب في المصروف: ${m.fmtInt(OWNER_FEED.unweighed_feed_lines)}.` : '';
+    const FEED_LINE = `المصروف للقاعة: ${kgOf(OWNER_FEED.issued_feed_kg)} — المستهلك المسجّل: ${kgOf(OWNER_FEED.consumed_feed_kg)} — الباقي في القاعة: ${kgOf(OWNER_FEED.remaining_feed_kg)}`;
+    const UNWEIGHED = OWNER_FEED.unweighed_feed_lines > 0 ? `سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: ${m.fmtInt(OWNER_FEED.unweighed_feed_lines)}.` : '';
     const ws = (role, over = {}) => ({
       userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'feed_mill', 'general'],
       canSeeCost: role !== 'storekeeper' && role !== 'hall_worker', canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,

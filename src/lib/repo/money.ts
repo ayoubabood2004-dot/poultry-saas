@@ -91,11 +91,14 @@ const moneyClass = (row: Row, field: string): MoneyClass => {
 // ─── الكتل المشتركة: المبيعات والمشتريات والمصاريف والتدفّق ─────────────────────────────────────────────────────
 
 export interface SalesBlock {
+  /** فواتير الموادّ وحدها (المعنى القديم، D11). */
   count: number;
   revenue: Fils;
-  /** null لمن لا يرى الكلفة (can_see_cost). */
+  /** null لمن لا يرى الكلفة (can_see_cost). كلفة الموادّ وربحها وحدها: لا كلفة بند للطيور (الربح للفوج). */
   cost: Fils | null;
   gross: Fils | null;
+  /** فواتير الطيور المرحَّلة بإيرادها (0028، مفتاح جديد)؛ null من خادم قبله. */
+  birds: { count: number; revenue: Fils } | null;
 }
 
 export interface PurchasesBlock {
@@ -127,8 +130,24 @@ export interface CashFlow {
 
 const salesBlock = (value: unknown, field: string): SalesBlock => {
   const row = object(value, field);
-  return { count: whole(row, 'count'), revenue: filsOf(row, 'revenue'), cost: optFils(row, 'cost'), gross: optFils(row, 'gross') };
+  // birds مفتاح 0028: غيابه (خادم قبله) null، وحضوره بشكله وإلّا خطأ شكل.
+  const birds = row.birds === undefined || row.birds === null ? null : object(row.birds, 'birds');
+  return {
+    count: whole(row, 'count'),
+    revenue: filsOf(row, 'revenue'),
+    cost: optFils(row, 'cost'),
+    gross: optFils(row, 'gross'),
+    birds: birds ? { count: whole(birds, 'count'), revenue: filsOf(birds, 'revenue') } : null,
+  };
 };
+
+/** المبيعات كلّها في الكتلة: الموادّ والطيور (عدد الفواتير والإيراد). */
+export function salesTotal(sales: SalesBlock): { count: number; revenue: Fils } {
+  return { count: sales.count + (sales.birds?.count ?? 0), revenue: sales.revenue + (sales.birds?.revenue ?? 0n) };
+}
+
+/** في الكتلة فواتير طيور: تظهر المبيعات موادّ وطيوراً، والكلفة والربح للموادّ وحدها. */
+export const hasBirdSales = (sales: SalesBlock): boolean => sales.birds !== null && (sales.birds.count > 0 || sales.birds.revenue !== 0n);
 const purchasesBlock = (value: unknown, field: string): PurchasesBlock => {
   const row = object(value, field);
   return { count: whole(row, 'count'), total: filsOf(row, 'total'), cash: filsOf(row, 'cash'), credit: filsOf(row, 'credit') };

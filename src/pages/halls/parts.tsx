@@ -95,6 +95,16 @@ export function daysText(n: number): string {
   return t('halls.kit.days.hundreds', '{n} يوم', { n });
 }
 
+/** عدد أيّام مجروراً بعد «من»: «يوم واحد»، «يومين»، «3 أيام»، «11 يوماً»، «100 يوم» (تقرير الدورة، وتقدير العلف في «أغلق الدورة»). */
+export function ofDaysText(n: number): string {
+  if (n === 1) return t('halls.rep.of_days.one', 'يوم واحد');
+  if (n === 2) return t('halls.rep.of_days.two', 'يومين');
+  const form = countForm(n);
+  if (form === 'few') return t('halls.rep.of_days.few', '{n} أيام', { n });
+  if (form === 'many') return t('halls.rep.of_days.many', '{n} يوماً', { n });
+  return t('halls.rep.of_days.hundreds', '{n} يوم', { n });
+}
+
 export const kindLabel = (kind: FlockKind): string => (kind === 'broiler' ? t('halls.kit.kind.broiler', 'لاحم') : t('halls.kit.kind.layer', 'بيّاض'));
 
 /** حالة موعد اللقاح كلمةً: اللون مساعد لا بديل. */

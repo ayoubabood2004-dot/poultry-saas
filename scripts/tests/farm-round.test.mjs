@@ -14,6 +14,7 @@
 // عمود ماء في جدول أيام الفوج ولو حفظته القاعدة قديماً (F2)، ولا «أضف للقاعة» على بطاقات من يقرأ فقط (E).
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -42,6 +43,7 @@ async function screens() {
     "export { localDay, addDays } from './src/domain/dates.ts';",
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { parseDetail } from './src/lib/repo/flocks.ts';",
+    "export { fmtDay, fmtInt } from './src/lib/format.ts';",
     "export { default as HomePage } from './src/pages/home/HomePage.tsx';",
     "export { StatusChips } from './src/components/shell/StatusChips.tsx';",
     "export { InstallCard } from './src/components/shell/InstallCard.tsx';",
@@ -427,6 +429,34 @@ export default async function (t) {
       const hdep = cells();
       t.ok(hdep.includes('85.20%') && hdep.includes('—'), 'F2: نسبة الإنتاج لليوم و«—» ليوم بلا بيض');
       t.ok(text().includes('852') && byAction('weight-save').length === 0, 'F2: بيض اليوم، والمشاهد بلا نموذج وزن');
+      await unmount();
+    }
+
+    // ── F3 (مراجعة 0028 O5): يوم البيع ويوم الإغلاق بسببهما بجانب «الحيّ آخر اليوم»، بمفتاحي الخادم sold وcount_diff في أيّام flock_detail ──
+    // عيّنة القاعدة flock_detail_closed (fixtures/birds-0028.json)، وفيها يومان بمباع وفرق عدّ كما يحسبهما الخادم: الحيّ آخر اليوم = أوّله − النافق −
+    // المستبعد − المباع + فرق العدّ، وأوّل اليوم التالي آخرُ هذا.
+    {
+      const B = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'birds-0028.json'), 'utf8'));
+      const sample = JSON.parse(JSON.stringify(B.flock_detail_closed));
+      const [last, sale, first] = sample.days;
+      Object.assign(sale, { sold: 900, live_end: sale.live_start - sale.dead - sale.culled - 900 });
+      Object.assign(last, { live_start: sale.live_end, count_diff: -30 });
+      last.live_end = last.live_start - last.dead - last.culled - 30;
+      const parsed = m.parseDetail(sample);
+      t.same(
+        [parsed.days.map((day) => [day.sold, day.countDiff]), m.parseDetail(JSON.parse(JSON.stringify(B.flock_detail_closed))).days.map((day) => [day.sold, day.countDiff])],
+        [[[0, -30], [900, 0], [0, 0]], B.flock_detail_closed.days.map((day) => [day.sold, day.count_diff])],
+        'F3: أيّام flock_detail بالمباع وفرق العدّ من مفتاحي الخادم (sold وcount_diff)',
+      );
+      fresh({ status: 'ready', workspace: ws(), offline: false }, { loadFlockDetail: () => m.parseDetail(sample) });
+      await mount(`/broiler/flock/${sample.flock.id}`);
+      const rows = all().filter((n) => n.localName === 'tr' && n.children.some((c) => c.localName === 'td')).map((tr) => tr.children.map((td) => td.textContent));
+      const endOf = (on) => rows.find((row) => row[0] === m.fmtDay(on))?.at(-1) ?? null;
+      t.same(
+        [endOf(last.on_date), endOf(sale.on_date), endOf(first.on_date)],
+        [`${m.fmtInt(last.live_end)} (فرق العدّ \u{2066}-30\u{2069})`, `${m.fmtInt(sale.live_end)} (بيع 900)`, m.fmtInt(first.live_end)],
+        'F3: «الحيّ آخر اليوم» بسبب نزوله يوم البيع («8,900 (بيع 900)») ويوم فرق العدّ بإشارته معزولة، ويومٌ بلا سبب رقمه وحده (كان الرقم وحده فينزل الحيّ بلا سبب)',
+      );
       await unmount();
     }
 

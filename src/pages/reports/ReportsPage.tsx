@@ -7,6 +7,7 @@ import { useSession } from '../../lib/session';
 // «التقارير» صفحة مداخل (تقارير القاعات، 0027، كلمة المالك 2026-11-12، docs/HALLS_REPORTS_PLAN.md): تقرير القاعات اليومي وتقارير الدورات
 // لمن في نطاقه حقول لحم أو بيض، وتحتها ما خُطّط بعدُ. كلّها تحتاج الخادم، فالصفحة خارج التثبيت المسبق بالاسم (vite.config.ts وpwa-guard،
 // وسطرها في DECISIONS «السقوف المقيسة»)، وبلا PlannedPage: حزمتها المشتركة مع المفقس كانت تُكتب اسماً في خريطة حزمة الإقلاع.
+// و«تذاكر الوزن» (0028، /halls/tickets) مع تقارير القاعات: قائمة التذاكر بحالاتها لمن في نطاقه حقول.
 // والتقارير القائمة خارج القاعات (مراجعة 0027 R3): الذمم بأعمارها (0024، /accounts/debts) وتقرير المبيعات (0021، /sales) ببطاقتين لمن يفتحهما
 // الشريط نفسه («الحسابات» و«المبيعات» في visibleNav، بلا شرط صلاحية جديد)، فلا تُعلن «تُبنى لاحقاً» وهي قائمة؛ وما خُطّط بعدُ ما لم يُبنَ وحده.
 
@@ -34,6 +35,10 @@ export default function ReportsPage() {
             <Link to="/halls/cycles" className={CARD} data-action="reports-cycles">
               <span className="font-semibold">{t('reports.cycles', 'تقارير الدورات')}</span>
               <span className="text-sm text-ink-muted">{t('reports.cycles.hint', 'كلّ دورات القاعات، القائمة والمغلقة، ومن كلّ دورة تقريرها الكامل.')}</span>
+            </Link>
+            <Link to="/halls/tickets?back=/reports" className={CARD} data-action="reports-tickets">
+              <span className="font-semibold">{t('reports.tickets', 'تذاكر الوزن')}</span>
+              <span className="text-sm text-ink-muted">{t('reports.tickets.hint', 'كلّ تذاكر القبّان: المسوّدات والمكتملة وبانتظار الفاتورة والملغاة، بقاعاتها وطيورها وصافيها.')}</span>
             </Link>
           </div>
         </section>

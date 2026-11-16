@@ -1,0 +1,533 @@
+// zz-v28 attack (TEMPORARY, re-review of the 0028 database fixes 2d2005e / 3eb8bc2; delete before finishing).
+// Own orgs: ids e2850000 / e2830000, phones 96477028500 / 96477028510.
+import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { mutant } from './purchase-kit.mjs';
+import { postedOpening } from './stock-kit.mjs';
+
+const TODAY = '2026-11-12';
+const DAY_MS = 86400000;
+const day = (n) => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+const dmy = (on) => `${on.slice(8, 10)}/${on.slice(5, 7)}/${on.slice(0, 4)}`;
+const id = (n) => `e2850000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone = (n) => `96477028500${String(n).padStart(2, '0')}`;
+const id2 = (n) => `e2830000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone2 = (n) => `96477028510${String(n).padStart(2, '0')}`;
+
+const CLOSE = 'select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11)';
+const REOPEN = 'select public.reopen_flock($1, $2, $3)';
+const RETURN_CARRY = 'select public.return_hall_carry($1, $2, $3, $4)';
+const SELL = 'select public.record_bird_sale($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)';
+const ADJUST = 'select public.record_flock_count_adjust($1, $2, $3, $4, $5, $6, $7)';
+const OPEN = 'select public.open_flock($1, $2, $3, 0, null, $4)';
+const SAVE = 'select public.save_weigh_ticket($1, $2, $3::jsonb)';
+const ROUND = 'select public.save_flock_day($1, $2, $3, 0, $4, null, null, null, null, null, null, null, null, $5, false)';
+const SIG_REOPEN = 'public.reopen_flock(uuid, text, uuid)';
+
+export default async function (t, db) {
+  await db.setToday(TODAY, () => scenario(t, db));
+}
+
+async function scenario(t, db) {
+  const log = (label, v) => console.log(`V28 ${label}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+  const section = async (name, fn) => {
+    try {
+      await fn();
+    } catch (error) {
+      t.ok(false, `${name}: threw ${error.stack ?? error.message}`);
+    }
+  };
+  const G = await makeOrg(db, {
+    name: 'zz v28 org',
+    id,
+    phone,
+    roles: [
+      ['owner', 'owner'],
+      ['manager', 'manager'],
+      ['accountant', 'accountant'],
+      ['worker', 'hall_worker', ['broiler']],
+      ['storekeeper', 'storekeeper'],
+      ['siteManager', 'manager', ['broiler']],
+      ['manager2', 'manager'],
+    ],
+  });
+  const { users: U, divisions: D, org } = G;
+  const one = async (user, sql, params) => {
+    const result = await call(db, user, sql, params);
+    if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
+    return result.value;
+  };
+  const admin = async (sql, params) => (await db.admin(sql, params)).rows;
+  const at = (on, fn) => db.setToday(on, fn);
+  const W = Object.fromEntries((await admin('select kind, id from public.warehouses where org_id = $1', [org])).map((r) => [r.kind, r.id]));
+  const S = await one(U.owner, "insert into public.sites (division_id, name, kind) values ($1, 'zz site', 'farm') returning id", [D.broiler]);
+  W.farm = await one(U.owner, "insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'zz farm store', 'farm') returning id", [D.broiler, S]);
+  let hallNo = 0;
+  const hall = async (name, site = S, user = U.owner) => {
+    hallNo += 1;
+    return one(user, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [site, `${name} ${hallNo}`]);
+  };
+  const item = (name) => one(U.owner, "insert into public.items (name, kind, base_unit) values ($1, 'feed', 'kg') returning id", [name]);
+  const X = await item('zz feed X');
+  const Z = await item('zz feed Z');
+  const Q = await item('zz feed Q');
+  await at(day(-40), () => postedOpening(db, U.owner, W.feed, day(-40), [{ item: X, qty: 20000, value: '14000000.00' }]));
+  await at(day(-40), () => postedOpening(db, U.owner, W.farm, day(-40), [{ item: X, qty: 20000, value: '16000000.00' }, { item: Z, qty: 1000, value: '800000.00' },
+    { item: Q, qty: 1000, value: '900000.00' }]));
+  const trader = await one(U.owner, "insert into public.parties (name, is_customer) values ('zz trader', true) returning id");
+  const box = await one(U.owner, "insert into public.cash_accounts (name, kind) values ('zz box', 'cash') returning id");
+  const place = async (hallId, on, count) => (await one(U.manager, OPEN, [hallId, on, count, uid()])).flock_id;
+  const issueOk = async (flock, itemId, qty, on, wh, user = U.manager) => one(user, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8)', [uid(), uid(), uid(), flock, itemId, qty, on, wh]);
+  const form = (flock, user = U.manager) => one(user, 'select public.flock_close_form($1)', [flock]);
+  const closeArgs = (f, flock, on, { reason = null, lines = [], closeId = uid(), ref = uid(), plan } = {}) => [ref, closeId, flock, on, f.flock.live, f.sales.birds,
+    JSON.stringify(f.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))), reason, JSON.stringify(lines), null, plan === undefined ? f.plan : plan];
+  const closeOk = async (flock, on, opts = {}, user = U.manager) => one(user, CLOSE, closeArgs(await form(flock, user), flock, on, opts));
+  const carry = (itemId, qty) => ({ item_id: itemId, qty, action: 'carry' });
+  const back = (itemId, qty, wh) => ({ item_id: itemId, qty, action: 'return', warehouse_id: wh });
+  const round = async (flock, on, dead, feed) => {
+    const v = await one(U.manager, ROUND, [flock, on, dead, feed, uid()]);
+    if (v.status !== 'saved') throw new Error(`round ${on}: ${JSON.stringify(v)}`);
+  };
+  const bal = async (itemId, wh) => (await admin('select trim_scale(qty)::text as q, trim_scale(value)::text as v from public.stock_balances where item_id = $1 and warehouse_id = $2', [itemId, wh]))[0];
+  const verifyAll = async (q) => {
+    const names = (await q("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'verify\\_%' order by 1")).rows.map((r) => r.proname);
+    const bad = {};
+    for (const name of names) {
+      for (const r of (await q(`select check_name, violations::int as n from public.${name}() where violations <> 0`)).rows) bad[`${name}.${r.check_name}`] = r.n;
+    }
+    return bad;
+  };
+  const verifyNow = () => db.asService((q) => verifyAll(q));
+  const inside = async (attempt, user, sql, params) => {
+    const result = await attempt(user, async (q) => (await q(`${sql} as v`, params)).rows[0].v);
+    return result.ok ? result.value : { code: result.code, hint: result.hint };
+  };
+  const settleOn = async (promise, pid, blocker, timeoutMs = 10000) => {
+    let done = false;
+    promise.then(() => {
+      done = true;
+    });
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      if (done) return 'finished';
+      if ((await db.admin('select $2::int = any (pg_blocking_pids($1::int)) as held', [pid, blocker])).rows[0].held) return 'blocked';
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`session ${pid} neither finished nor blocked on ${blocker} within ${timeoutMs}ms`);
+  };
+  const race = async ([userA, sqlA, paramsA], [userB, sqlB, paramsB]) => {
+    const a = await db.session(userA);
+    const b = await db.session(userB);
+    try {
+      const first = await a.run(`${sqlA} as v`, paramsA);
+      const pending = b.run(`${sqlB} as v`, paramsB);
+      const state = await settleOn(pending, b.pid, a.pid);
+      if (first.ok) await a.commit();
+      else await a.rollback();
+      const second = await pending;
+      if (second.ok) await b.commit();
+      else await b.rollback();
+      return [state, first, second];
+    } finally {
+      await a.rollback();
+      await b.rollback();
+    }
+  };
+  const short = (r) => (r.ok ? 'ok' : r.error);
+  const card = (flock, user = U.manager) => one(user, 'select public.flock_sales($1)', [flock]);
+  const frOf = async (closeId) => (await admin('select source, status from public.flock_returns where close_id = $1 order by doc_no', [closeId])).map((r) => `${r.source}:${r.status}`);
+  const flockStatus = async (flock) => (await admin('select status from public.flocks where id = $1', [flock]))[0].status;
+  const costTotal = async (flock) => (await admin('select coalesce(sum(amount), 0)::text as v from public.flock_costs where flock_id = $1', [flock]))[0].v;
+  const postedCount = async (wh, on, lines) => {
+    const doc = await db.asUser(U.manager, async (q) => {
+      const docId = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [wh, on])).rows[0].id;
+      for (const line of lines) await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [docId, line.item, line.counted]);
+      return docId;
+    }, { commit: true });
+    const version = async () => (await admin('select version from public.stock_counts where id = $1', [doc]))[0].version;
+    const sent = await call(db, U.manager, 'select public.submit_count($1, $2, $3)', [doc, await version(), uid()]);
+    if (!sent.ok) throw new Error(`count submit: ${sent.code} ${sent.hint}`);
+    await call(db, U.manager, "update public.stock_count_lines set reason = 'zz', reason_diff = diff, reason_expired_diff = expired_diff where doc_id = $1 and (diff <> 0 or coalesce(expired_diff, 0) <> 0)", [doc]);
+    const posted = await call(db, U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [doc, await version(), uid()]);
+    if (!posted.ok) throw new Error(`count post: ${posted.code} ${posted.hint}`);
+    return { id: doc, no: posted.value.doc_no };
+  };
+  /** closed flock whose single carry (100 of item) was returned to store `wh` today. */
+  const returnedCarry = async (name, itemId, wh, issueWh = wh) => {
+    const h = await hall(name);
+    const F = await place(h, day(-10), 100);
+    await issueOk(F, itemId, '300', day(-6), issueWh);
+    const c = await closeOk(F, day(-1), { reason: 'gone', lines: [carry(itemId, '100')] });
+    const ret = await one(U.manager, RETURN_CARRY, [uid(), uid(), c.lines[0].line_id, wh]);
+    return { h, F, c, ret };
+  };
+  const scaleTicket = (site, on, stops) => ({ site_id: site, on_date: on, method: 'scale', empty_kg: '7000', empty_with_crates: true, crate_kg: null,
+    stops: stops.map(([stopId, hallId, birds, gross]) => ({ id: stopId, hall_id: hallId, birds, crates: 10, gross_kg: gross, weighings: [] })) });
+  const doneTicket = async (on, hallId, birds, net) => {
+    const T = uid();
+    let v;
+    await at(on, async () => {
+      await one(U.worker, SAVE, [T, null, JSON.stringify(scaleTicket(S, on, [[uid(), hallId, birds, String(7000 + Number(net))]]))]);
+      v = await one(U.worker, 'select public.finish_weigh_ticket($1, $2, $3)', [uid(), T, 1]);
+    });
+    return { id: T, version: v.version, no: v.ticket_no };
+  };
+
+  // ═══ A. reopen reversing a returned carry ═════════════════════════════════════════════════════════════════════════
+
+  // A1: the scoped reopener vs the store of the returned carry (C1/M1 extended to O1).
+  await section('A1 scope', async () => {
+    const { F, c } = await returnedCarry('A1', X, W.feed);
+    const before = await bal(X, W.feed);
+    const k = await card(F, U.siteManager);
+    const re = await call(db, U.siteManager, REOPEN, [c.id, 'mistake', uid()]);
+    const after = await bal(X, W.feed);
+    log('A1', { card: [k.can.reopen, k.reopen_why], re: re.ok ? 'ok' : [re.code, re.hint], fr: await frOf(c.id) });
+    t.same([k.can.reopen, k.reopen_why, re.ok ? 'ok' : re.code, after.q === before.q, (await frOf(c.id)).join(), await flockStatus(F)],
+      [false, 'out_of_scope', 'out_of_scope', true, 'carry:posted', 'closed'], 'A1: returned carry in an out-of-scope store: reopen out_of_scope, card honest');
+  });
+
+  // A2: the FR lot of the returned carry drawn by a later issue (FIFO) → reopen must refuse lot_consumed, card honest.
+  await section('A2 lot drawn', async () => {
+    const { F, c } = await returnedCarry('A2', Z, W.farm);
+    const h2 = await hall('A2b');
+    const F2 = await place(h2, day(-10), 100);
+    await issueOk(F2, Z, '750', TODAY, W.farm); // 700 left in the opening lot + 100 FR lot (same fifo_seq): must draw 50 from one of them
+    const frLot = (await admin('select trim_scale(l.qty_in)::text as qin, trim_scale(l.qty_left)::text as qleft from public.flock_return_lines r join public.stock_lots l on l.id = r.lot_id join public.flock_returns y on y.id = r.return_id where y.close_id = $1', [c.id]))[0];
+    const k = await card(F);
+    const re = await call(db, U.manager, REOPEN, [c.id, 'mistake', uid()]);
+    log('A2', { frLot, card: [k.can.reopen, k.reopen_why], re: re.ok ? 'ok' : [re.code, re.hint] });
+    if (frLot.qin !== frLot.qleft) {
+      t.same([k.can.reopen, k.reopen_why, re.ok ? 'ok' : re.code], [false, 'lot_consumed', 'lot_consumed'], 'A2: FR lot of a returned carry drawn: reopen lot_consumed, card honest');
+    } else {
+      t.same([k.can.reopen, re.ok ? 'ok' : re.code], [true, 'ok'], 'A2 (FR lot not drawn): reopen ok');
+    }
+  });
+
+  // A3: races with open_flock on a hall whose carry was returned (both orders).
+  await section('A3 open vs reopen', async () => {
+    const x = await returnedCarry('A3a', X, W.feed);
+    const [s1, a1, b1] = await race([U.manager, OPEN, [x.h, TODAY, 50, uid()]], [U.manager2, REOPEN, [x.c.id, 'mistake', uid()]]);
+    const y = await returnedCarry('A3b', X, W.feed);
+    const [s2, a2, b2] = await race([U.manager, REOPEN, [y.c.id, 'mistake', uid()]], [U.manager2, OPEN, [y.h, TODAY, 50, uid()]]);
+    const v = await verifyNow();
+    log('A3', { openFirst: [s1, short(a1), short(b1)], reopenFirst: [s2, short(a2), short(b2)], fr: [await frOf(x.c.id), await frOf(y.c.id)], v });
+    t.same([s1, short(a1), short(b1), (await frOf(x.c.id)).join(), s2, short(a2), short(b2), (await frOf(y.c.id)).join(), v],
+      ['blocked', 'ok', 'hall_reused', 'carry:posted', 'blocked', 'ok', 'hall_busy', 'carry:void', {}], 'A3: open/reopen serialise on the hall; FR state follows the winner; invariants zero');
+  });
+
+  // A4: two reopens of one close with a returned carry; and return of a SECOND carry line racing the reopen.
+  await section('A4 reopen vs reopen', async () => {
+    const x = await returnedCarry('A4', X, W.feed);
+    const b0 = await bal(X, W.feed);
+    const [s1, a1, b1] = await race([U.manager, REOPEN, [x.c.id, 'mistake', uid()]], [U.manager2, REOPEN, [x.c.id, 'mistake 2', uid()]]);
+    const b1x = await bal(X, W.feed);
+    // two carry lines: X returned, Z pending; return Z vs reopen
+    const h = await hall('A4b');
+    const F = await place(h, day(-10), 100);
+    await issueOk(F, X, '300', day(-6), W.feed);
+    await issueOk(F, Z, '50', day(-6), W.farm);
+    const c = await closeOk(F, day(-1), { reason: 'gone', lines: [carry(X, '100'), carry(Z, '20')] });
+    await one(U.manager, RETURN_CARRY, [uid(), uid(), c.lines[0].line_id, W.feed]);
+    const [s2, a2, b2] = await race([U.manager, RETURN_CARRY, [uid(), uid(), c.lines[1].line_id, W.farm]], [U.manager2, REOPEN, [c.id, 'mistake', uid()]]);
+    const pool = (await form(F)).items.map((i) => [i.name, i.pool_qty]);
+    const v = await verifyNow();
+    log('A4', { reopens: [s1, short(a1), short(b1)], b0, b1x, retVsReopen: [s2, short(a2), short(b2)], fr: await frOf(c.id), pool, v });
+    t.same([s1, short(a1), short(b1), Number(b1x.q), s2, short(a2), short(b2), (await frOf(c.id)).join(), pool, v],
+      ['blocked', 'ok', 'already_reopened', Number(b0.q) - 100, 'blocked', 'ok', 'ok', 'carry:void,carry:void', [['zz feed X', '300'], ['zz feed Z', '50']], {}],
+      'A4: second reopen already_reopened (stock reversed once); a carry returned while the reopen waited is reversed too; pool restored; invariants zero');
+  });
+
+  // A5: an approved stocktake of the item in the FR store after the return: reopen refuses (count_superseded); card must not promise it (O6).
+  await section('A5 count after return', async () => {
+    const { F, c } = await returnedCarry('A5', Q, W.farm);
+    const b = await bal(Q, W.farm);
+    const ct = await postedCount(W.farm, TODAY, [{ item: Q, counted: b.q }]);
+    const k = await card(F);
+    const re = await call(db, U.manager, REOPEN, [c.id, 'mistake', uid()]);
+    log('A5', { count: ct.no, card: [k.can.reopen, k.reopen_why], re: re.ok ? 'ok' : [re.code, re.hint] });
+    t.same([re.ok ? 'ok' : re.code, k.can.reopen], ['count_superseded', false], 'A5: card says can.reopen while reopen_flock certainly refuses count_superseded (O6 honesty)');
+  });
+
+  // A6: values after reopening a returned carry, then re-closing to the other store.
+  await section('A6 values', async () => {
+    const h = await hall('A6');
+    const F = await place(h, day(-10), 100);
+    await issueOk(F, X, '300', day(-7), W.feed);
+    await issueOk(F, X, '200', day(-6), W.farm);
+    const f0 = await form(F);
+    const cost0 = await costTotal(F);
+    const feed0 = await bal(X, W.feed);
+    const c = await one(U.manager, CLOSE, closeArgs(f0, F, day(-1), { reason: 'gone', lines: [carry(X, '120')] }));
+    const ret = await one(U.manager, RETURN_CARRY, [uid(), uid(), c.lines[0].line_id, W.feed]);
+    const mid = { cost: await costTotal(F), feed: await bal(X, W.feed), value: ret.money.value };
+    const re = await one(U.manager, REOPEN, [c.id, 'mistake', uid()]);
+    const f1 = await form(F);
+    const after = { cost: await costTotal(F), feed: await bal(X, W.feed), pool: f1.items.map((i) => [i.pool_qty, i.money.pool_value]) };
+    const v1 = await verifyNow();
+    const c2 = await one(U.manager, CLOSE, closeArgs(f1, F, TODAY, { reason: 'gone', lines: [back(X, '250', W.farm)] }));
+    const v2 = await verifyNow();
+    log('A6', { pool0: f0.items.map((i) => [i.pool_qty, i.money.pool_value]), cost0, feed0, mid, re, after, v1, c2: c2.lines.map((l) => [l.qty, l.money.value]), v2 });
+    const half = (Number(f0.items[0].money.pool_value) / 2).toFixed(2);
+    t.same([after.cost, after.feed, after.pool, v1, c2.lines[0].money.value, v2],
+      [cost0, feed0, f0.items.map((i) => [i.pool_qty, i.money.pool_value]), {}, half, {}],
+      'A6: reopen of a returned carry restores cost, store balance and pool exactly; re-close returns at rule 16; invariants zero');
+  });
+
+  // A7: a replay of return_hall_carry after the cycle was reopened (its FR now void) must not answer «returned».
+  await section('A7 replay after reopen', async () => {
+    const h = await hall('A7');
+    const F = await place(h, day(-10), 100);
+    await issueOk(F, X, '300', day(-6), W.feed);
+    const c = await closeOk(F, day(-1), { reason: 'gone', lines: [carry(X, '100')] });
+    const ref = uid();
+    const retId = uid();
+    const args = [ref, retId, c.lines[0].line_id, W.feed];
+    const first = await one(U.manager, RETURN_CARRY, args);
+    await one(U.manager, REOPEN, [c.id, 'mistake', uid()]);
+    const fr = (await admin('select doc_no, status from public.flock_returns where id = $1', [retId]))[0];
+    const sameRef = await call(db, U.manager, RETURN_CARRY, args);
+    const newRef = await call(db, U.manager, RETURN_CARRY, [uid(), retId, c.lines[0].line_id, W.feed]);
+    log('A7', { first: first.doc_no, fr, sameRef: sameRef.ok ? sameRef.value : [sameRef.code, sameRef.hint], newRef: newRef.ok ? newRef.value : [newRef.code, newRef.hint] });
+    t.same([fr.status, sameRef.ok ? 'ok' : sameRef.code, newRef.ok ? 'ok' : newRef.code], ['void', 'id_conflict', 'id_conflict'],
+      'A7: return_hall_carry replay (same ref / same id) after reopen voided its FR answers «returned FR-…» instead of a refusal');
+  });
+
+  // A8: mutation controls on the reopen path for a returned carry (each must be caught by some invariant).
+  await section('A8 reopen mutations', async () => {
+    const runMut = async (name, pairs) => {
+      const x = await returnedCarry(`A8-${name}`, X, W.feed);
+      return mutant(db, U.manager, [[SIG_REOPEN, pairs]], async ({ oq, attempt }) => {
+        const v = await inside(attempt, U.manager, REOPEN, [x.c.id, 'mistake', uid()]);
+        return { ok: !v.code, code: v.code, bad: await verifyAll(oq) };
+      });
+    };
+    const noCost = await runMut('nocost', [["for c in select z.* from public.flock_costs z where z.org_id = v_org and z.doc_kind = 'flock_return' and z.doc_id = r.id",
+      "for c in select z.* from public.flock_costs z where false and z.org_id = v_org and z.doc_kind = 'flock_return' and z.doc_id = r.id"]]);
+    const noMove = await runMut('nomove', [["perform private.apply_move(m.lot_id, 'flock_return', r.id, m.doc_line_id, -m.qty, -m.value, v_today, m.id);", 'perform 1;']]);
+    const countDay = await runMut('countday', [['values (k.org_id, k.flock_id, k.hall_id, k.site_id, k.division_id, v_today, k.kind, -k.birds,',
+      'values (k.org_id, k.flock_id, k.hall_id, k.site_id, k.division_id, k.on_date - 1, k.kind, -k.birds,']]);
+    log('A8', { noCost, noMove, countDay });
+    t.same([noCost.ok && Object.keys(noCost.bad).length > 0, noMove.ok && Object.keys(noMove.bad).length > 0, countDay.ok && Object.keys(countDay.bad).length > 0],
+      [true, true, true], `A8: each reopen mutant is caught (${JSON.stringify({ noCost: noCost.bad, noMove: noMove.bad, countDay: countDay.bad })})`);
+  });
+
+  // ═══ B. plan fingerprint ═══════════════════════════════════════════════════════════════════════════════════════
+  await section('B plan', async () => {
+    const h = await hall('B');
+    const F = await place(h, day(-10), 100);
+    await issueOk(F, X, '300', day(-6), W.feed);
+    const f = await form(F);
+    const ref = uid();
+    const closeId = uid();
+    const args = closeArgs(f, F, TODAY, { reason: 'gone', ref, closeId });
+    await one(U.manager, CLOSE, args);
+    const replay1 = await call(db, U.manager, CLOSE, args); // same ref, still closed
+    await one(U.manager, REOPEN, [closeId, 'mistake', uid()]);
+    await issueOk(F, X, '10', TODAY, W.feed);
+    const replay2 = await call(db, U.manager, CLOSE, args); // same ref, reopened, pool changed
+    const replay3 = await call(db, U.manager, CLOSE, [uid(), ...args.slice(1)]); // same close id, new ref
+    const stale = await call(db, U.manager, CLOSE, closeArgs(f, F, TODAY, { reason: 'gone' }));
+    const f2 = await form(F);
+    const fresh = await call(db, U.manager, CLOSE, closeArgs(f2, F, TODAY, { reason: 'gone' }));
+    const workerForm = await one(U.worker, 'select public.flock_close_form($1)', [F]);
+    log('B', { replay1: replay1.ok, replay2: [replay2.code], replay3: [replay3.code], stale: stale.code, fresh: fresh.ok, workerPlan: typeof workerForm.plan, workerMoney: workerForm.items?.[0]?.money });
+    t.same([replay1.ok, replay2.code, replay3.code, stale.code, fresh.ok], [true, 'id_conflict', 'id_conflict', 'pool_changed', true], 'B: plan fingerprint replays and staleness');
+  });
+
+  // ═══ C. late invoices ══════════════════════════════════════════════════════════════════════════════════════════
+  // C1: a late ticket's sold rows sit on the ticket day; a round recorded after it with more dead than left must make the invoice refuse live_negative.
+  await section('C1 live per day', async () => {
+    const h = await hall('C1');
+    const F = await place(h, day(-20), 100);
+    const tk = await doneTicket(day(-9), h, 80, '160');
+    await at(day(-7), () => round(F, day(-7), 30, '10'));
+    await one(U.manager, ADJUST, [uid(), uid(), F, day(-2), 20, 'found more', 70]);
+    const r = await call(db, U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '0', null, null]);
+    log('C1', { r: r.ok ? 'ok' : [r.code, r.hint] });
+    t.same([r.ok ? 'ok' : r.code, (r.hint ?? '').includes(dmy(day(-7)))], ['live_negative', true], 'C1: late invoice refused live_negative naming the round day');
+    await one(U.manager, 'select public.void_weigh_ticket($1, $2, $3)', [tk.id, 'cleanup', uid()]);
+  });
+
+  // C2: cash box, statement and reports by day for a late invoice paid in part.
+  let late = null;
+  await section('C2 late money by day', async () => {
+    const h = await hall('C2');
+    await place(h, day(-20), 100);
+    const tk = await doneTicket(day(-9), h, 50, '100');
+    const boxDay = async (on) => one(U.accountant, 'select public.report_cash_statement($1, $2, $3)', [box, on, on]);
+    const beforeD = await boxDay(day(-9));
+    const ref = uid();
+    const saleId = uid();
+    const args = [ref, saleId, tk.id, tk.version, trader, '2000.00', '0', '50000', box, null];
+    const sale = await one(U.accountant, SELL, args);
+    late = { tk, sale, args, h };
+    const rows = await admin("select kind, amount::text, on_date::text from public.party_entries where doc_kind = 'bird_sale' and doc_id = $1 order by kind", [saleId]);
+    const cash = await admin("select amount::text, on_date::text from public.cash_moves where doc_kind = 'bird_sale' and doc_id = $1", [saleId]);
+    const counts = await admin("select birds, on_date::text from public.flock_counts where doc_kind = 'bird_sale' and doc_id = $1", [saleId]);
+    const afterD = await boxDay(day(-9));
+    const today = await boxDay(TODAY);
+    const st = await one(U.accountant, 'select public.party_statement_v2($1, null, $2, $3)', [trader, day(-12), TODAY]);
+    const repDay = await one(U.accountant, 'select public.sales_report($1, $2, $3)', [day(-12), TODAY, 'day']);
+    const repMonth = await one(U.accountant, 'select public.month_summary($1)', ['2026-11-01']);
+    const mo = await one(U.accountant, 'select public.money_overview()');
+    log('C2 month/overview', { month: repMonth.sales ?? repMonth, overviewSales: mo.sales ?? Object.keys(mo) });
+    const ov = await one(U.accountant, 'select public.sales_overview($1, $2)', [TODAY, TODAY]);
+    const ovD = await one(U.accountant, 'select public.sales_overview($1, $2)', [day(-9), day(-9)]);
+    const hd = await one(U.manager, 'select public.halls_day($1)', [day(-9)]);
+    const hdHall = hd.sites.flatMap((s) => s.halls).find((x) => x.hall_id === h);
+    const det = await one(U.accountant, 'select public.bird_sale_detail($1)', [saleId]);
+    const v = await verifyNow();
+    log('C2 rows', { sale: [sale.doc_no, sale.sold_on, sale.ticket_on, sale.paid_on], rows, cash, counts });
+    log('C2 box', { beforeD, afterD, today });
+    log('C2 statement', st.rows ?? st);
+    log('C2 reports', { day: repDay.birds, ovToday: ov.birds?.rows?.map((r) => [r.doc_no, r.sold_on]), ovD: ovD.birds?.rows?.length, hdHall: hdHall?.flock && { sold: hdHall.flock.sold } });
+    log('C2 detail', { sold_on: det.sold_on, ticket_on: det.ticket_on, paid_on: det.paid_on });
+    t.same([rows.map((r) => [r.kind, r.on_date]), cash.map((r) => r.on_date), counts.map((r) => r.on_date), JSON.stringify(beforeD) === JSON.stringify(afterD), v],
+      [[['invoice', TODAY], ['payment', TODAY]], [TODAY], [day(-9)], true, {}], 'C2: late invoice and its cash on the issue day, sold rows on the ticket day, the ticket day box unchanged, invariants zero');
+  });
+
+  // C3: void and re-post a late invoice on a later day, and replays.
+  await section('C3 void/repost/replay', async () => {
+    const { tk, args } = late;
+    await one(U.manager, 'select public.void_bird_sale($1, $2, $3)', [args[1], 'wrong price', uid()]);
+    const replaySame = await call(db, U.accountant, SELL, args);
+    const replayNew = await call(db, U.accountant, SELL, [uid(), ...args.slice(1)]);
+    let second = null;
+    await at(day(1), async () => {
+      second = await one(U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2100.00', '0', '0', null, null]);
+    });
+    const counts = await admin("select c.birds, c.on_date::text, c.reverses_id is not null as rev from public.flock_counts c join public.bird_sales b on b.id = c.doc_id where b.ticket_id = $1 order by c.created_at", [tk.id]);
+    const v = await verifyNow();
+    log('C3', { replaySame: replaySame.code, replayNew: replayNew.code, second: [second.doc_no, second.sold_on], counts, v });
+    t.same([replaySame.code, replayNew.code, second.sold_on, counts.map((c) => [c.birds, c.on_date, c.rev]), v],
+      ['id_conflict', 'id_conflict', day(1), [[-50, day(-9), false], [50, TODAY, true], [-50, day(-9), false]], {}], 'C3: void/re-post a late invoice');
+  });
+
+  // C4 (O7 regression probe): rounds the system expected between the ticket day and the invoice erase the FCR once the invoice posts.
+  await section('C4 rounds before invoice vs FCR', async () => {
+    const h = await hall('C4');
+    const F = await place(h, day(-6), 100);
+    await issueOk(F, X, '300', day(-6), W.feed);
+    for (const d of [-6, -5, -4]) await at(day(d), () => round(F, day(d), 0, '20'));
+    await at(day(-4), () => one(U.manager, 'select public.record_flock_weight($1, $2, $3, $4, $5)', [F, day(-4), 50, '1000.0', uid()]));
+    const tk = await doneTicket(day(-4), h, 100, '100');
+    const expected = [];
+    for (const d of [-3, -2, -1]) {
+      await at(day(d), async () => {
+        const hd = await one(U.manager, 'select public.halls_day($1)', [day(d)]);
+        expected.push(hd.sites.flatMap((s) => s.halls).find((x) => x.hall_id === h).flock.expects_round);
+        await round(F, day(d), 0, '0');
+      });
+    }
+    const repBefore = await one(U.manager, 'select public.flock_cycle_report($1)', [F]);
+    const detBefore = await one(U.manager, 'select public.flock_detail($1)', [F]);
+    await one(U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '0', null, null]);
+    const repAfter = await one(U.manager, 'select public.flock_cycle_report($1)', [F]);
+    const detAfter = await one(U.manager, 'select public.flock_detail($1)', [F]);
+    const kp = (r) => ({ fcr: r.kpis?.fcr, feed_days: r.kpis?.feed_days, feed_span: r.kpis?.feed_span });
+    const ds = (d) => ({ fcr: d.flock?.fcr, feed_days: d.flock?.feed_days, feed_span: d.flock?.feed_span });
+    log('C4', { expectedBefore: expected, before: { rep: kp(repBefore), det: ds(detBefore) }, after: { rep: kp(repAfter), det: ds(detAfter) } });
+    t.same([expected, kp(repAfter).fcr !== null && kp(repAfter).fcr !== undefined, ds(detAfter).fcr !== null && ds(detAfter).fcr !== undefined], [[true, true, true], true, true],
+      `C4: the rounds the system asked for (expects_round true) before the invoice must not erase the FCR when it posts (before ${JSON.stringify(kp(repBefore))}, after ${JSON.stringify(kp(repAfter))})`);
+  });
+
+  // ═══ D. advisory locks on stop ids ═════════════════════════════════════════════════════════════════════════════
+  // D1: two NEW tickets sharing two stop ids in opposite order, both held behind a flock lock: no deadlock, one wins, the other id_conflict.
+  await section('D1 opposite order', async () => {
+    const h1 = await hall('D1a');
+    const h2 = await hall('D1b');
+    const F1 = await place(h1, day(-10), 100);
+    const F2 = await place(h2, day(-10), 100);
+    const s1 = uid();
+    const s2 = uid();
+    const c = await db.session(U.manager);
+    const a = await db.session(U.worker);
+    const b = await db.session(U.manager2);
+    try {
+      const lo = [F1, F2].sort()[0];
+      const held = await c.run(`${ADJUST} as v`, [uid(), uid(), lo, TODAY, 1, 'hold', 100]);
+      const TA = uid();
+      const TB = uid();
+      const pa = a.run(`${SAVE} as v`, [TA, null, JSON.stringify(scaleTicket(S, TODAY, [[s1, h1, 10, '7020'], [s2, h2, 10, '7040']]))]);
+      const sa = await settleOn(pa, a.pid, c.pid);
+      const pb = b.run(`${SAVE} as v`, [TB, null, JSON.stringify(scaleTicket(S, TODAY, [[s2, h2, 10, '7020'], [s1, h1, 10, '7040']]))]);
+      const sb = await settleOn(pb, b.pid, a.pid);
+      await c.commit();
+      const ra = await pa;
+      if (ra.ok) await a.commit();
+      else await a.rollback();
+      const rb = await pb;
+      if (rb.ok) await b.commit();
+      else await b.rollback();
+      const rows = await admin('select ticket_id from public.weigh_ticket_stops where id = any ($1::uuid[])', [[s1, s2]]);
+      log('D1', { held: held.ok, sa, sb, ra: short(ra), rb: short(rb), owners: rows.map((r) => r.ticket_id === TA) });
+      t.same([held.ok, sa, sb, short(ra), short(rb), rows.map((r) => r.ticket_id === TA)], [true, 'blocked', 'blocked', 'ok', 'id_conflict', [true, true]],
+        'D1: opposite stop order: no deadlock, second id_conflict');
+      if (ra.ok) await one(U.manager, 'select public.void_weigh_ticket($1, $2, $3)', [TA, null, uid()]);
+    } finally {
+      await c.rollback();
+      await a.rollback();
+      await b.rollback();
+    }
+  });
+
+  // D2: weighing-id buckets are global: a crate-scale save in ANOTHER org waits on this org's save that waits on flock locks, and fails with a raw lock timeout.
+  await section('D2 cross-org buckets', async () => {
+    const G2 = await makeOrg(db, { name: 'zz v28 org two', id: id2, phone: phone2, roles: [['owner', 'owner'], ['manager', 'manager']] });
+    const S2 = (await call(db, G2.users.owner, "insert into public.sites (division_id, name, kind) values ($1, 'zz site two', 'farm') returning id", [G2.divisions.broiler])).value;
+    const hO = (await call(db, G2.users.owner, "insert into public.halls (site_id, name) values ($1, 'zz other hall') returning id", [S2])).value;
+    await call(db, G2.users.manager, OPEN, [hO, day(-10), 1000, uid()]);
+    const ha = await hall('D2a');
+    const hb = await hall('D2b');
+    const Fa = await place(ha, day(-10), 1000);
+    const Fb = await place(hb, day(-10), 1000);
+    const [lo, hi] = [Fa, Fb].sort();
+    const weighings = (n) => Array.from({ length: n }, () => ({ id: uid(), crates: 10, gross_kg: '300' }));
+    const crate = (site, stops) => ({ site_id: site, on_date: TODAY, method: 'crates', empty_kg: null, empty_with_crates: null, crate_kg: '6',
+      stops: stops.map(([hallId, n]) => ({ id: uid(), hall_id: hallId, birds: 100, crates: null, gross_kg: null, weighings: weighings(n) })) });
+    const c1 = await db.session(U.manager);
+    const c2 = await db.session(U.manager2);
+    const a = await db.session(U.worker);
+    const x = await db.session(G2.users.manager);
+    try {
+      await c1.run(`${ADJUST} as v`, [uid(), uid(), lo, TODAY, 1, 'hold', 1000]);
+      await c2.run(`${ADJUST} as v`, [uid(), uid(), hi, TODAY, 1, 'hold', 1000]);
+      const pa = a.run(`${SAVE} as v`, [uid(), null, JSON.stringify(crate(S, [[ha, 150], [hb, 150]]))]);
+      const sa = await settleOn(pa, a.pid, c1.pid);
+      const t0 = Date.now();
+      const px = x.run(`${SAVE} as v`, [uid(), null, JSON.stringify(crate(S2, [[hO, 150]]))]);
+      const sx = await settleOn(px, x.pid, a.pid);
+      setTimeout(() => c1.commit().catch(() => {}), 3500);
+      setTimeout(() => c2.commit().catch(() => {}), 7500);
+      const rx = await px;
+      const waited = Date.now() - t0;
+      if (rx.ok) await x.commit();
+      else await x.rollback();
+      const ra = await pa;
+      if (ra.ok) await a.commit();
+      else await a.rollback();
+      log('D2', { sa, sx, rx: short(rx), waitedMs: waited, ra: short(ra) });
+      t.same([sa, sx, short(rx)], ['blocked', 'finished', 'ok'],
+        `D2: a crate-scale save in another org must not wait on (or time out behind) this org's save (got ${sx}, ${short(rx)} after ${waited} ms)`);
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 8000));
+      for (const s of [c1, c2, a, x]) await s.rollback().catch(() => {});
+    }
+  });
+
+  // C5 (last: the period lock touches every date): a late ticket's day inside a locked period refuses period_locked; lock below it posts.
+  await section('C5 period lock', async () => {
+    const h = await hall('C5');
+    await place(h, day(-20), 100);
+    const tk = await doneTicket(day(-10), h, 20, '40');
+    await one(U.owner, 'select public.set_period_lock($1)', [day(-10)]);
+    const fm = await one(U.accountant, 'select public.bird_sale_form($1)', [tk.id]);
+    const r1 = await call(db, U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '0', null, null]);
+    await one(U.owner, 'select public.set_period_lock($1)', [day(-11)]);
+    const fm2 = await one(U.accountant, 'select public.bird_sale_form($1)', [tk.id]);
+    const r2 = await call(db, U.accountant, SELL, [uid(), uid(), tk.id, tk.version, trader, '2000.00', '0', '0', null, null]);
+    log('C5', { fm: [fm.invoiceable, fm.why, fm.can_post], r1: [r1.code, r1.hint], fm2: [fm2.invoiceable, fm2.why, fm2.can_post, fm2.invoice_on], r2: r2.ok ? r2.value.sold_on : r2.code });
+    t.same([fm.invoiceable, fm.why, r1.code, fm2.can_post, r2.ok ? r2.value.sold_on : r2.code], [false, 'period_locked', 'period_locked', true, TODAY], 'C5: locked ticket day refuses; lock below it posts today');
+    await one(U.owner, 'select public.set_period_lock($1)', ['2026-01-01']);
+  });
+}
