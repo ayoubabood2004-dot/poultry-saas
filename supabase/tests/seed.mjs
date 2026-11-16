@@ -550,6 +550,26 @@ const halls26Seed = (variant) => async (db) => {
 };
 
 /**
+ * 0028 (طريق الرفض): جدول لقاحات خاصّ لقاعة بيانات المالك، والتراجع يُسقط جدوليه؛ فرعان كلّ واحد ببذرته (المدير بدوالّ 0028 على قاعة بحقل الأمل):
+ * جدول قاعة باقٍ بموعد واحد (program)، وجدول حُفظ ثمّ حُذف فلا يبقى إلّا سجلّ التدقيق منه (audit).
+ */
+const H28 = (n) => `60000000-0000-4000-8000-0000000028${String(n).padStart(2, '0')}`;
+const halls28Seed = (variant) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة الجدول الخاصّ') returning id", [site]);
+    await q("select public.save_vaccine($1, 'ND', null, null)", [H28(1)]);
+    await q("select public.save_hall_vaccine_program($1, 35, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0)", [hall, H28(1)]);
+    if (variant === 'audit') {
+      await q('select public.drop_hall_vaccine_program($1, 1)', [hall]);
+      // اللقاح لم يُؤشَّر به فيُمحى: يبقى سجلّ التدقيق وحده (وفرع اللقاحات في تراجع 0026 لا يعنيه، فهذا تراجع 0028 وحده).
+      await q("select public.delete_vaccine($1, (select version from public.vaccines where id = $1))", [H28(1)]);
+    }
+  }, { commit: true });
+};
+
+/**
  * 0025 (طريق الرفض): قاعدة 0024 لا تعرف خلطة بلا كميات، فالتراجع يرفض ما دام في القاعدة سطر خلطة بلا كمية، أو نسخة بلا أساس، أو دفعة حُفظت موادّها
  * في خلطتها؛ كلّ فرع ببذرته وحده (المدير بدوالّ 0025 على «علف الرجوع» بكميات): مسوّدة «عدّل الخلطة» كتب المدير أساسها فبقيت سطورها بلا كمية (qty)،
  * ومسوّدة كتب كمياتها بلا أساس (basis)، ودفعة من الخلطة بكميات وُسمت «حُفظت في الخلطة» بالإدارة (saved). الأخيرة حالة مصنوعة: produce_batch لا يحفظ
@@ -580,6 +600,22 @@ const mill25Seed = (variant) => async (db) => {
 };
 
 export const BLOCKING_SEEDS = {
+  28: [
+    {
+      name: 'جدول لقاحات خاصّ لقاعة',
+      code: 'rollback_blocked',
+      seed: halls28Seed('program'),
+      data: "select (select count(*) from public.hall_vaccine_programs)::text || '/' || (select count(*) from public.hall_vaccine_program_days)::text || '/' || (select count(*) from public.halls)::text as v",
+      mutate: (sql) => sql.replace('if v_programs > 0 then', 'if false then'),
+    },
+    {
+      name: 'جدول قاعة حُذف (سجلّ تدقيق وحده)',
+      code: 'rollback_blocked',
+      seed: halls28Seed('audit'),
+      data: "select (select count(*) from public.audit_log where table_name in ('hall_vaccine_programs', 'hall_vaccine_program_days'))::text || '/' || (select count(*) from public.halls)::text as v",
+      mutate: (sql) => sql.replace('if v_audit > 0 and v_programs + v_days = 0 then', 'if false then'),
+    },
+  ],
   26: [
     {
       name: 'لقاح في القائمة',
@@ -915,6 +951,7 @@ export const BLOCKING_REQUIRED = [
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
   [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
   [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
+  [28, 2, 'جدول لقاحات خاصّ لقاعة، وسجلّ تدقيق لجدول قاعة حُذف، كلّ واحد يوقف التراجع'],
 ];
 
 /**

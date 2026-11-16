@@ -246,7 +246,7 @@ async function scenario(t, db) {
   // ── الثوابت.
   const verify = async (fn) => Object.fromEntries((await db.asService((q) => q(`select * from public.${fn}()`))).rows.map((r) => [r.check_name, Number(r.violations)]));
   t.same([await verify('verify_halls'), Object.values(await verify('verify_flock_issues')).every((n) => n === 0), Object.values(await verify('verify_stock')).every((n) => n === 0)],
-    [{ record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0 }, true, true], 'الثوابت صفر: verify_halls وصرف الأفواج والمخزون');
+    [{ record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0, hall_program_days: 0, hall_program_kind: 0 }, true, true], 'الثوابت صفر: verify_halls وصرف الأفواج والمخزون');
 
   // ── التزامن: إضافتان لعلف بادئ (الباقي 490) لقاعتين بلحظة واحدة: الثانية تنتظر أقفال الأولى ثمّ ترى النقص.
   const A1 = await db.session(U.manager);
@@ -432,7 +432,7 @@ async function scenario(t, db) {
     t.same([shown(del), (await db.admin('select item_id from public.vaccines where id = $1', [id(115)])).rows[0].item_id], ['item_in_use', linkedItem],
       'مراجعة PERM-4: مادّة مربوطة بلقاح مستعملة (item_uses يقرأ كلّ مفتاح إليها)، فحذفها يُرفض بجملته لا بمفتاح خام، والربط باقٍ');
   }
-  t.same(await verify('verify_halls'), { record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0 }, 'مراجعة: الثوابت صفر بعد كلّ ما سبق');
+  t.same(await verify('verify_halls'), { record_place: 0, vaccination_issue: 0, record_dates: 0, issue_once: 0, program_days: 0, hall_program_days: 0, hall_program_kind: 0 }, 'مراجعة: الثوابت صفر بعد كلّ ما سبق');
 
   // ── الطفرات: كلّ قاعدة تُكسر فيفشل فحصها.
   await mutant(db, U.manager, [[FN.give, [['group by 1, 2 having count(*) > 1', 'group by 1, 2 having false']]]], async ({ attempt }) => {
@@ -443,7 +443,8 @@ async function scenario(t, db) {
     const r = await attempt(U.manager, async (q) => (await q(REMIND)).rows[0].v.items.filter((x) => x.hall_name === 'قاعة 1' && x.age_day === 7).length);
     t.eq(r.value, 1, 'طفرة: بلا استبعاد المؤشَّر يعود ND يوم 7 («IB» مخفيّ الآن) إلى التذكير');
   });
-  await mutant(db, U.manager, [[FN.slots, [['and d.age_day >= f.age_days_at_placement', '']]]], async ({ attempt }) => {
+  // شرط التسكين في فرع جدول النوع (0028: flock_slots فرعان، والثاني لجدول القاعة الخاصّ).
+  await mutant(db, U.manager, [[FN.slots, [['f.hall_id)\n    and d.age_day >= f.age_days_at_placement', 'f.hall_id)']]]], async ({ attempt }) => {
     const r = await attempt(U.manager, async (q) => (await q(REMIND)).rows[0].v.items.filter((x) => x.hall_name === 'قاعة 4' && x.age_day === 7).length);
     t.ok(r.value > 0, 'طفرة: بلا شرط التسكين يظهر لـ«قاعة 4» موعد سبق تسكينها');
   });
