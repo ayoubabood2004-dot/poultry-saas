@@ -11,10 +11,11 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
+import { addDays, diffDays, type Day } from '../../domain/dates';
 import type { FlockKind } from '../../domain/flocks';
 import { naturalCompare } from '../../domain/naturalOrder';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
-import { countForm, fmtInt } from '../../lib/format';
+import { countForm, fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import {
@@ -31,6 +32,7 @@ import {
   type VaccineProgram,
 } from '../../lib/repo/halls';
 import { useLoad } from '../../lib/useLoad';
+import { dayNumber, monthDays, monthLabel, monthOf, monthsBetween, weekdayOf, WEEKDAYS, type Month } from './months';
 import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch, VaccineName } from './parts';
 
 // جدول اللقاحات (0026، كلمة المالك 2026-11-11: «قائمة لقاحات فوق الجدول يحدّدها هو؛ يضغط لقاحاً مثل IB ثمّ يضغط الأيام 1 و10 و20 فتأخذ تلك
@@ -52,6 +54,12 @@ import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch,
 // «hall:» ومعرّف القاعة)، وتعديل قاعة بلا جدول خاصّ «لم يُحفظ» ولو طابق العامّ (الحفظ ينشئه). ونسخة جدول القاعة ترجع 0 بحذفه، فالتعارض نسخة
 // تقدّمت على ما بُني عليه التعديل، أو نقصت عنه بقراءة جديدة (حُذف من جهاز آخر فصارت تتبع العامّ: الفروق مع العامّ، و«اعتمد تعديلي» ينشئه من جديد).
 // وقائمة اللقاحات واحدة للمنشأة تشترك فيها الجداول كلّها، فحذف لقاح يسمّي أيّامه في كلّ جدول.
+//
+// و«الدورة المفتوحة» (0030، كلمة الزبون 2026-11-16: «خلي الوقت مفتوح… من يخلصون همة يكولون انتهت الدورة»، ثمّ «لا لاتشيل نهاية الدورة بس خليها
+// اختيارية»): نهاية الدورة «محدّدة» بيوم أو «مفتوحة» (تُرسل null)، والمفتوح يُرسم إلى نهاية النوع المقترحة أو آخر يوم فيه وأسبوعين بعده. و«لمن هذا
+// الجدول؟» بطاقات (كلمة الزبون: «خلي اختيار القاعات يصير اسهل واحلى»): العامّ ثمّ القاعات بأرقامها، وفي كلّ بطاقة جدولها وعمر فوجها. وجدول قاعة
+// بفوج قائم مسكَّن يُرسم تقويماً بالأشهر الحقيقية من يوم تسكينه («جدول رزنامة اشهر حقيقية… وبداخل المربعات ترقيمات الايام… حسب العمر»): في كلّ يوم
+// تاريخه وعمر الطيور فيه، والضغط عليه يضيف المختار إلى يوم العمر ذاك كما في شبكة الأعمار (الجدول بأيّام العمر يبقى، والتاريخ عرضٌ له).
 
 const KINDS: readonly FlockKind[] = ['broiler', 'layer'];
 const DEFAULT_END: Readonly<Record<FlockKind, number>> = { broiler: 42, layer: 500 };
@@ -82,6 +90,8 @@ const hallKey = (id: string): ScopeKey => `hall:${id}`;
 interface Draft {
   against: number;
   endText: string;
+  /** نهاية مفتوحة (0030): بلا يوم محدّد، والدورة تنتهي حين تُغلق. */
+  open: boolean;
   days: ReadonlySet<DayKey>;
 }
 
@@ -90,7 +100,8 @@ interface ProgramRequest {
   kind: FlockKind;
   /** القاعة واسمها كما عُرض. */
   hall: { id: string; name: string } | null;
-  endAge: number;
+  /** null: نهاية مفتوحة. */
+  endAge: number | null;
   days: readonly ProgramDay[];
   version: number;
 }
@@ -143,7 +154,16 @@ function parseEnd(text: string): number | null {
 const serverEnd = (kind: FlockKind, saved: VaccineProgram): number => saved.endAge ?? DEFAULT_END[kind];
 const serverDays = (saved: VaccineProgram): ReadonlySet<DayKey> => new Set(saved.days.map((day) => dayKey(day.ageDay, day.vaccineId)));
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a.size === b.size && [...a].every((key) => b.has(key));
-const baseDraft = (kind: FlockKind, saved: VaccineProgram, against: number): Draft => ({ against, endText: fmtInt(serverEnd(kind, saved)), days: serverDays(saved) });
+/** جدول محفوظ (نسخة 1 فما فوق) بلا نهاية: مفتوح (0030). وبلا جدول بعد يُقترح بنهاية النوع. */
+const serverOpen = (saved: VaccineProgram): boolean => saved.version > 0 && saved.endAge === null;
+const baseDraft = (kind: FlockKind, saved: VaccineProgram, against: number): Draft => ({ against, endText: fmtInt(serverEnd(kind, saved)), open: serverOpen(saved), days: serverDays(saved) });
+/** أيّام الجدول المفتوح المعروضة: نهاية النوع المقترحة أو آخر يوم فيه، وأسبوعان بعده ليُضاف ما بعده، بأسابيع كاملة وحتى 1,000. */
+const openSpan = (kind: FlockKind, lastDay: number): number => Math.min(MAX_END, Math.ceil((Math.max(DEFAULT_END[kind], lastDay) + 14) / 7) * 7);
+/** نهاية الدورة كلمةً: «مفتوحة» أو عدد الأيام. */
+const endWord = (end: number | null): string => (end === null ? t('halls.vac.end_open_word', 'مفتوحة') : daysText(end));
+/** إطار «اليوم» بلون العلامة كما في التقويم الشهريّ، وما خارج أيّام الجدول باهت. */
+const NOW_RING = { boxShadow: 'inset 0 0 0 2px rgb(var(--ring))' } as const;
+const DIM = { opacity: 0.45 } as const;
 
 /** قاعات النوع بحقلها ثمّ اسمها، بأرقامهما («قاعة 5» قبل «قاعة 44»). */
 const hallOrder = (a: VaccineHall, b: VaccineHall): number => naturalCompare(a.siteName, b.siteName) || naturalCompare(a.name, b.name);
@@ -364,7 +384,8 @@ function VaccinesView() {
     if (!draft || !target) return false;
     // قاعة بلا جدول خاصّ وفيها تعديل: الحفظ ينشئ جدولها (ولو طابق العامّ)، فهو لم يُحفظ بعد.
     if (target.hall && !target.hall.program) return true;
-    return parseEnd(draft.endText) !== serverEnd(target.kind, target.saved) || !sameSet(draft.days, serverDays(target.saved));
+    const savedOpen = serverOpen(target.saved);
+    return draft.open !== savedOpen || (!draft.open && parseEnd(draft.endText) !== serverEnd(target.kind, target.saved)) || !sameSet(draft.days, serverDays(target.saved));
   };
   // تعديل صار كالمحفوظ (حُفظ، أو أُرجع باليد) يُترك: النسخة التي بُني عليها تتبع المحفوظ من الآن. وتعديل قاعة لم تعد في القراءة يُترك كذلك.
   const clean = board ? Object.keys(drafts).filter((key) => !dirtyOf(key)) : [];
@@ -392,24 +413,43 @@ function VaccinesView() {
   /** قاعة بلا جدول خاصّ ولا تعديل: تُعرض بالعامّ للعرض، و«اعمل لها جدولاً خاصّاً» يبدأ نسخةً منه. */
   const follows = hall !== null && hall.program === null && draft === null;
   const editable = canEdit && !follows;
-  /** نهاية الدورة المحفوظة (أو الافتراض بلا جدول). */
+  /** نهاية الدورة المحفوظة (أو الافتراض بلا جدول)، ومفتوحة أم لا (0030). */
   const savedEnd = program ? serverEnd(kind, program) : DEFAULT_END[kind];
+  const savedOpen = program ? serverOpen(program) : false;
+  const open = draft?.open ?? savedOpen;
   const endText = draft?.endText ?? fmtInt(savedEnd);
   const typedEnd = parseEnd(endText);
-  const endAge = typedEnd ?? savedEnd;
   const days: ReadonlySet<DayKey> = draft?.days ?? (program ? serverDays(program) : new Set());
   const liveDays = [...days].filter((key) => known.has(splitKey(key).vaccineId));
+  const lastDay = liveDays.reduce((most, key) => Math.max(most, splitKey(key).ageDay), 0);
+  /** آخر يوم عمر يُرسم: النهاية المحدّدة، أو للمفتوحة نهاية النوع المقترحة أو آخر يوم فيها وأسبوعان بعده. */
+  const endAge = open ? openSpan(kind, lastDay) : (typedEnd ?? savedEnd);
   // أيّام في تعديلك للقاح لم يعد في القائمة (حُذف أو أُخفي من جهاز آخر): لا تُرسم ولا تُحفظ، وجملة تسمّيها (مراجعة 0026 F).
   const goneDays = draft ? sortedDays([...draft.days].filter((key) => !known.has(splitKey(key).vaccineId)), vaccines) : [];
-  const dropped = sortedDays(
-    liveDays.filter((key) => splitKey(key).ageDay > endAge),
-    vaccines,
-  );
+  const dropped = open
+    ? []
+    : sortedDays(
+        liveDays.filter((key) => splitKey(key).ageDay > endAge),
+        vaccines,
+      );
   const picked = selected.filter((id) => known.has(id));
   const pages = Math.max(1, Math.ceil(endAge / PAGE_DAYS));
   const page = Math.min(pageOf[scope] ?? 0, pages - 1);
   const ages = Array.from({ length: Math.min(PAGE_DAYS, endAge - page * PAGE_DAYS) }, (_, index) => page * PAGE_DAYS + index + 1);
   const onDay = (age: number): Vaccine[] => vaccines.filter((vaccine) => days.has(dayKey(age, vaccine.id)));
+
+  // التقويم بالأشهر الحقيقية لقاعة بفوج قائم مسكَّن (0030): من أوّل يوم عمر في الجدول (1، أو عمر التسكين إن كان أكبر) إلى آخر يوم يُرسم، بتواريخها؛
+  // والشهر المعروض شهر اليوم إن كان فيها، وإلّا أوّلها.
+  const flock = hall?.flock ?? null;
+  const firstAge = flock ? Math.max(1, flock.age0) : 1;
+  const calendarFrom: Day | null = flock && endAge >= firstAge ? addDays(flock.placedOn, firstAge - flock.age0) : null;
+  const calendarTo: Day | null = flock && calendarFrom !== null ? addDays(flock.placedOn, endAge - flock.age0) : null;
+  const months: Month[] = calendarFrom !== null && calendarTo !== null ? monthsBetween(calendarFrom, calendarTo) : [];
+  const today = board?.today ?? null;
+  const todayMonth = today !== null ? months.indexOf(monthOf(today)) : -1;
+  const monthPage = months.length ? Math.min(pageOf[scope] ?? Math.max(0, todayMonth), months.length - 1) : 0;
+  const shownMonth: Month | null = months[monthPage] ?? null;
+  const ageOn = (day: Day): number => (flock ? flock.age0 + diffDays(day, flock.placedOn) : 0);
 
   const changeDraft = (patch: (current: Draft) => Partial<Draft>) => {
     if (!program || !editable) return;
@@ -483,7 +523,7 @@ function VaccinesView() {
 
   const saved = (request: ProgramRequest, version: number) => {
     const slots = slotsText(request.days.length);
-    const end = daysText(request.endAge);
+    const end = endWord(request.endAge);
     toast({
       tone: 'success',
       title: request.hall
@@ -491,7 +531,15 @@ function VaccinesView() {
         : t('halls.vac.saved', 'حُفظ جدول لقاحات {kind}: {slots}، ونهاية الدورة {end}.', { kind: kindTitle(request.kind), slots, end }),
     });
     // ما حُفظ يبقى ظاهراً حتّى تصل القراءة الجديدة، ثمّ يُترك (صار كالمحفوظ).
-    setDrafts((current) => ({ ...current, [requestKey(request)]: { against: version, endText: fmtInt(request.endAge), days: new Set(request.days.map((day) => dayKey(day.ageDay, day.vaccineId))) } }));
+    setDrafts((current) => ({
+      ...current,
+      [requestKey(request)]: {
+        against: version,
+        endText: fmtInt(request.endAge ?? DEFAULT_END[request.kind]),
+        open: request.endAge === null,
+        days: new Set(request.days.map((day) => dayKey(day.ageDay, day.vaccineId))),
+      },
+    }));
     state.retry();
   };
 
@@ -553,12 +601,13 @@ function VaccinesView() {
   };
 
   const save = () => {
-    if (!program || !draft || !dirty || conflict || typedEnd === null || locked || !editable) return;
+    const end = open ? null : typedEnd;
+    if (!program || !draft || !dirty || conflict || (!open && end === null) || locked || !editable) return;
     const sent = sortedDays(
-      liveDays.filter((key) => splitKey(key).ageDay <= typedEnd),
+      liveDays.filter((key) => end === null || splitKey(key).ageDay <= end),
       vaccines,
     );
-    void submit({ kind, hall: hall ? { id: hall.id, name: hallName } : null, endAge: typedEnd, days: sent, version: draft.against }, false);
+    void submit({ kind, hall: hall ? { id: hall.id, name: hallName } : null, endAge: end, days: sent, version: draft.against }, false);
   };
 
   // ─── جدول القاعة الخاصّ: «احذف جدولها الخاصّ» ──────────────────────────────────────────────────────────────────────
@@ -762,6 +811,45 @@ function VaccinesView() {
     );
   }
 
+  /** مربّع يوم عمر: في شبكة الأعمار رقمه، وفي التقويم (on) رقم يوم الشهر وعمر الطيور فيه؛ والضغط يضيف المختار إلى يوم العمر أو يشيله. */
+  const ageCell = (age: number, on: Day | null) => {
+    const here = onDay(age);
+    const content = (
+      <>
+        {on === null ? (
+          <span className="text-center text-2xl font-semibold tabular-nums" aria-hidden="true">
+            {fmtInt(age)}
+          </span>
+        ) : (
+          <span className="flex items-baseline justify-between gap-1 px-1" aria-hidden="true">
+            <span className="text-lg font-semibold tabular-nums">{fmtInt(dayNumber(on))}</span>
+            <span className="text-2xs font-semibold text-brand-700 dark:text-brand-200" data-action="cell-age">
+              {t('halls.vac.cell_age', 'عمر {age}', { age: fmtInt(age) })}
+            </span>
+          </span>
+        )}
+        {here.map((vaccine) => (
+          <span key={vaccine.id} className="truncate rounded bg-surface-2 px-2 text-2xs" style={bandStyle(vaccine.color)} data-action="age-band" data-id={vaccine.id}>
+            {vaccine.name}
+          </span>
+        ))}
+      </>
+    );
+    const names = here.length ? listJoin(here.map((vaccine) => vaccine.name)) : t('halls.vac.age_none', 'بلا لقاح');
+    const label = on === null ? t('halls.vac.age_aria', 'يوم العمر {age}: {names}', { age, names }) : t('halls.vac.day_aria', '{day}، يوم العمر {age}: {names}', { day: fmtDay(on), age, names });
+    const look = 'flex min-h-20 min-w-0 flex-col items-stretch gap-0.5 rounded-xl border border-line bg-surface-1 p-1';
+    const ring = on !== null && on === today ? NOW_RING : undefined;
+    return editable ? (
+      <button key={on ?? age} type="button" className={`${look} transition-shadow hover:shadow-soft disabled:cursor-not-allowed`} style={ring} aria-label={label} disabled={locked} onClick={() => toggleAge(age)} data-action="age-day" data-age={age} data-day={on ?? undefined}>
+        {content}
+      </button>
+    ) : (
+      <div key={on ?? age} className={look} style={ring} aria-label={label} role="group" data-action="age-day" data-age={age} data-day={on ?? undefined}>
+        {content}
+      </div>
+    );
+  };
+
   const diffRows: DiffRow[] = conflict && program
     ? sortedDays(new Set([...serverDays(program), ...liveDays].filter((key) => serverDays(program).has(key) !== days.has(key))), vaccines).map((day) => ({
         key: dayKey(day.ageDay, day.vaccineId),
@@ -816,18 +904,61 @@ function VaccinesView() {
         </div>
       ) : null}
       {kindHalls.length ? (
-        <div className="max-w-md">
-          <Field id="halls-vac-scope" label={t('halls.vac.scope', 'لمن هذا الجدول؟')}>
-            <select id="halls-vac-scope" className="input" value={hall ? hall.id : ''} onChange={(event) => goScope(event.target.value)} data-action="program-scope">
-              <option value="">{t('halls.vac.scope_general', 'كلّ القاعات (الجدول العامّ)')}</option>
-              {kindHalls.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.program ? t('halls.vac.scope_own', '{hall} (جدول خاصّ)', { hall: labelOf(entry) }) : labelOf(entry)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
+        <section className="flex flex-col gap-2" role="group" aria-labelledby="halls-vac-scope" data-action="program-scope">
+          <h2 id="halls-vac-scope" className="text-base font-semibold">
+            {t('halls.vac.scope', 'لمن هذا الجدول؟')}
+          </h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {[null, ...kindHalls].map((entry) => {
+              const value = entry ? entry.id : '';
+              const pressed = (hall ? hall.id : '') === value;
+              const age = entry?.flock && board ? entry.flock.age0 + diffDays(board.today, entry.flock.placedOn) : null;
+              const note = `halls-vac-scope-${value || 'general'}`;
+              return (
+                <button
+                  key={value || 'general'}
+                  type="button"
+                  aria-pressed={pressed}
+                  aria-label={
+                    entry
+                      ? entry.program
+                        ? t('halls.vac.scope_own', '{hall} (جدول خاصّ)', { hall: labelOf(entry) })
+                        : labelOf(entry)
+                      : t('halls.vac.scope_general', 'كلّ القاعات (الجدول العامّ)')
+                  }
+                  aria-describedby={note}
+                  onClick={() => goScope(value)}
+                  className={`flex min-h-20 min-w-0 flex-col items-start gap-1 rounded-2xl border p-3 text-start transition-colors ${pressed ? PICKED : UNPICKED}`}
+                  data-action="scope-card"
+                  data-id={value}
+                >
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate text-lg font-semibold">{entry ? labelOf(entry) : t('halls.vac.card_general', 'كلّ القاعات')}</span>
+                    {pressed ? <CircleCheck aria-hidden="true" className="size-4 shrink-0" /> : null}
+                  </span>
+                  <span id={note} className="flex flex-col gap-0.5 text-xs">
+                    {entry ? (
+                      <>
+                        <span className={entry.program ? 'font-semibold text-brand-700 dark:text-brand-200' : 'text-ink-muted'} data-action="scope-card-program">
+                          {entry.program ? t('halls.vac.card_own', 'جدول خاصّ') : t('halls.vac.card_follows', 'تتبع الجدول العامّ')}
+                        </span>
+                        <span className="text-ink-muted" data-action="scope-card-flock">
+                          {age === null
+                            ? t('halls.vac.card_empty', 'بلا فوج الآن')
+                            : age <= 0
+                              ? t('halls.vac.card_age0', 'فوج سُكّن بعمر يوم الفقس')
+                              : t('halls.vac.card_age', 'فوج عمره {age}', { age: daysText(age) })}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-ink-muted">{t('halls.vac.card_general_note', 'لكلّ قاعة ليس لها جدول خاصّ')}</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
       ) : null}
       {askedHall !== null && hall === null ? (
         <div data-action="hall-missing">
@@ -908,6 +1039,21 @@ function VaccinesView() {
             {hall ? t('halls.vac.program_hall', 'جدول لقاحات «{hall}»', { hall: hallName }) : t('halls.vac.program', 'جدول لقاحات {kind}', { kind: kindTitle(kind) })}
           </h2>
           {editable ? (
+            <div className="flex flex-wrap items-end gap-2" data-action="cycle-end-box">
+              <div className="w-48" data-action="cycle-end-mode">
+                <Segmented
+                  label={t('halls.vac.end_mode', 'نهاية الدورة محدّدة أم مفتوحة')}
+                  options={[
+                    { value: 'fixed', label: t('halls.vac.end_fixed', 'محدّدة') },
+                    { value: 'open', label: t('halls.vac.end_open', 'مفتوحة') },
+                  ]}
+                  value={open ? 'open' : 'fixed'}
+                  onChange={(next) => {
+                    if (!locked) changeDraft(() => ({ open: next === 'open' }));
+                  }}
+                />
+              </div>
+              {!open ? (
             <div className="w-32">
               <Field id="halls-end-age" label={t('halls.vac.end_label', 'نهاية الدورة')} error={typedEnd === null ? t('halls.vac.end_bad', 'من 1 إلى 1,000.') : null}>
                 <input
@@ -923,6 +1069,8 @@ function VaccinesView() {
                   data-action="cycle-end"
                 />
               </Field>
+            </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -959,7 +1107,7 @@ function VaccinesView() {
           </p>
         ) : null}
         <p className="text-sm" data-action="cycle-end-text">
-          {t('halls.vac.end_text', 'نهاية الدورة: {days}', { days: daysText(endAge) })}
+          {open ? t('halls.vac.end_open_text', 'نهاية الدورة: مفتوحة، بلا يوم محدّد؛ تنتهي الدورة حين تُغلق.') : t('halls.vac.end_text', 'نهاية الدورة: {days}', { days: daysText(endAge) })}
           {program && program.version === 0 ? t('halls.vac.end_default', ' (لا جدول محفوظ بعد).') : ''}
         </p>
         {dropped.length ? (
@@ -984,8 +1132,8 @@ function VaccinesView() {
               }
             >
               {t('halls.vac.conflict_detail', 'تعديلك ظاهر في المربّعات ولم يُحفظ؛ قارنه بالمحفوظ الآن، ثمّ اعتمده أو خذ المحفوظ.')}
-              {program && parseEnd(endText) !== savedEnd
-                ? t('halls.vac.conflict_end', ' نهاية الدورة المحفوظة الآن: {saved}، وفي تعديلك: {mine}.', { saved: daysText(savedEnd), mine: daysText(endAge) })
+              {program && (open !== savedOpen || (!open && parseEnd(endText) !== savedEnd))
+                ? t('halls.vac.conflict_end', ' نهاية الدورة المحفوظة الآن: {saved}، وفي تعديلك: {mine}.', { saved: endWord(savedOpen ? null : savedEnd), mine: endWord(open ? null : endAge) })
                 : ''}
             </Notice>
             <DataTable caption={t('halls.vac.diff', 'الفرق بين تعديلك والجدول المحفوظ الآن')} columns={diffColumns} rows={diffRows} rowKey={(row) => row.key} empty={t('halls.vac.diff_none', 'الأيام نفسها، والفرق في نهاية الدورة وحدها.')} />
@@ -999,53 +1147,79 @@ function VaccinesView() {
             </div>
           </div>
         ) : null}
-        {pages > 1 ? (
-          <div role="group" aria-label={t('halls.vac.pages', 'صفحات الأيام')} className="flex flex-wrap gap-2" data-action="age-pages">
-            {Array.from({ length: pages }, (_, index) => (
-              <Button
-                key={index}
-                size="sm"
-                variant={index === page ? 'primary' : 'secondary'}
-                aria-pressed={index === page}
-                onClick={() => setPageOf((current) => ({ ...current, [scope]: index }))}
-                data-action="age-page"
-                data-page={index}
-              >
-                {t('halls.vac.page', 'من {from} إلى {to}', { from: index * PAGE_DAYS + 1, to: Math.min((index + 1) * PAGE_DAYS, endAge) })}
-              </Button>
-            ))}
+        {shownMonth !== null && flock !== null ? (
+          <div className="flex flex-col gap-3" data-action="program-months">
+            <p className="text-sm text-ink-muted" data-action="calendar-from">
+              {t('halls.vac.months_from', 'بالتاريخ من تسكين الفوج في {day}، وفي كلّ يوم عمر الطيور فيه.', { day: fmtDay(flock.placedOn) })}
+            </p>
+            {months.length > 1 ? (
+              <div role="group" aria-label={t('halls.vac.months', 'أشهر الدورة')} className="flex flex-wrap gap-2" data-action="month-pages">
+                {months.map((month, index) => (
+                  <Button
+                    key={month}
+                    size="sm"
+                    variant={index === monthPage ? 'primary' : 'secondary'}
+                    aria-pressed={index === monthPage}
+                    onClick={() => setPageOf((current) => ({ ...current, [scope]: index }))}
+                    data-action="month-page"
+                    data-month={month}
+                  >
+                    {monthLabel(month)}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            <h3 className="text-base font-semibold" data-action="month-title">
+              {monthLabel(shownMonth)}
+            </h3>
+            <div className="relative overflow-auto" data-action="age-scroll">
+              <div className="grid gap-1" style={GRID} data-action="month-grid">
+                {WEEKDAYS().map((name) => (
+                  <div key={name} className="truncate text-center text-xs font-semibold text-ink-muted" aria-hidden="true">
+                    {name}
+                  </div>
+                ))}
+                {Array.from({ length: weekdayOf(`${shownMonth}-01`) }, (_, index) => (
+                  <div key={`pad-${index}`} aria-hidden="true" />
+                ))}
+                {monthDays(shownMonth).map((day) =>
+                  calendarFrom !== null && calendarTo !== null && day >= calendarFrom && day <= calendarTo ? (
+                    ageCell(ageOn(day), day)
+                  ) : (
+                    <div key={day} className="flex min-h-20 min-w-0 flex-col rounded-xl border border-line p-1 text-ink-muted" style={DIM} aria-hidden="true" data-action="month-blank" data-day={day}>
+                      <span className="px-1 text-lg font-semibold tabular-nums">{fmtInt(dayNumber(day))}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
           </div>
-        ) : null}
-        <div className="relative overflow-auto" data-action="age-scroll">
-          <div className="grid gap-1" style={GRID} data-action="age-grid">
-            {ages.map((age) => {
-              const here = onDay(age);
-              const content = (
-                <>
-                  <span className="text-center text-2xl font-semibold tabular-nums" aria-hidden="true">
-                    {fmtInt(age)}
-                  </span>
-                  {here.map((vaccine) => (
-                    <span key={vaccine.id} className="truncate rounded bg-surface-2 px-2 text-2xs" style={bandStyle(vaccine.color)} data-action="age-band" data-id={vaccine.id}>
-                      {vaccine.name}
-                    </span>
-                  ))}
-                </>
-              );
-              const label = t('halls.vac.age_aria', 'يوم العمر {age}: {names}', { age, names: here.length ? listJoin(here.map((vaccine) => vaccine.name)) : t('halls.vac.age_none', 'بلا لقاح') });
-              const look = 'flex min-h-20 min-w-0 flex-col items-stretch gap-0.5 rounded-xl border border-line bg-surface-1 p-1';
-              return editable ? (
-                <button key={age} type="button" className={`${look} transition-shadow hover:shadow-soft disabled:cursor-not-allowed`} aria-label={label} disabled={locked} onClick={() => toggleAge(age)} data-action="age-day" data-age={age}>
-                  {content}
-                </button>
-              ) : (
-                <div key={age} className={look} aria-label={label} role="group" data-action="age-day" data-age={age}>
-                  {content}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        ) : (
+          <>
+          {pages > 1 ? (
+            <div role="group" aria-label={t('halls.vac.pages', 'صفحات الأيام')} className="flex flex-wrap gap-2" data-action="age-pages">
+              {Array.from({ length: pages }, (_, index) => (
+                <Button
+                  key={index}
+                  size="sm"
+                  variant={index === page ? 'primary' : 'secondary'}
+                  aria-pressed={index === page}
+                  onClick={() => setPageOf((current) => ({ ...current, [scope]: index }))}
+                  data-action="age-page"
+                  data-page={index}
+                >
+                  {t('halls.vac.page', 'من {from} إلى {to}', { from: index * PAGE_DAYS + 1, to: Math.min((index + 1) * PAGE_DAYS, endAge) })}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+            <div className="relative overflow-auto" data-action="age-scroll">
+              <div className="grid gap-1" style={GRID} data-action="age-grid">
+                {ages.map((age) => ageCell(age, null))}
+              </div>
+            </div>
+          </>
+        )}
         {summary.length ? (
           <div data-action="program-summary">
             <DataTable caption={t('halls.vac.summary', 'مواعيد كلّ لقاح')} columns={summaryColumns} rows={summary} rowKey={(row) => row.vaccine.id} empty="—" />
@@ -1070,7 +1244,7 @@ function VaccinesView() {
         ) : null}
         {editable && !frozen ? (
           <div className="flex flex-wrap items-center gap-2" data-action="program-bar">
-            <Button onClick={save} busy={saving} disabled={!dirty || conflict || typedEnd === null || locked} data-action="save-program">
+            <Button onClick={save} busy={saving} disabled={!dirty || conflict || (!open && typedEnd === null) || locked} data-action="save-program">
               {t('halls.vac.save', 'احفظ الجدول')}
             </Button>
             {dirty ? (
@@ -1148,7 +1322,7 @@ function VaccinesView() {
               <p data-action="hall-drop-effect">{t('halls.vac.drop_detail', 'تعود «{hall}» إلى الجدول العامّ، ويُحذف جدولها الخاصّ وأيّامه.', { hall: dropping.hall.name })}</p>
               {droppingNow ? (
                 <p className="text-sm" data-action="hall-drop-now">
-                  {t('halls.vac.drop_now', 'جدولها الآن: {slots}، ونهاية الدورة {end}.', { slots: slotsText(droppingNow.days.length), end: daysText(droppingNow.endAge) })}
+                  {t('halls.vac.drop_now', 'جدولها الآن: {slots}، ونهاية الدورة {end}.', { slots: slotsText(droppingNow.days.length), end: endWord(droppingNow.endAge) })}
                 </p>
               ) : null}
               {droppingDirty ? (

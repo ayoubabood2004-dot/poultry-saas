@@ -17,6 +17,7 @@ import { t } from '../../lib/i18n';
 import { loadFlockMonth, removeFlockLog, undoVaccination, type DayIssue, type DayVaccine, type FlockMonth, type HallFlock, type MonthDay } from '../../lib/repo/halls';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { dayNumber, monthLabel, monthOf, shiftMonth, weekdayOf, WEEKDAYS, type Month } from './months';
 import { BackLink, backLabel, backTarget, bandStyle, daysText, flockPath, kgText, kindLabel, printAs, qtyText, roundPath, STATE_INK, stateLabel, VaccineName } from './parts';
 
 // تقويم القاعة الشهري (0026، كلمة المالك 2026-11-11: «جدول شهر بالضبط، مربّعات كبيرة، يشوف بالضبط أيّ يوم نزل العلف لهم — الطنّ يكفي ثلاثة
@@ -28,47 +29,9 @@ import { BackLink, backLabel, backTarget, bandStyle, daysText, flockPath, kgText
 // و«اطبع الشهر» على A4 عرضاً بالشبكة كلّها وسطر المجاميع. والنتيجة المجهولة لحذف التسجيل أو إلغاء التأشير تجمّد نافذتها بـ«أعد المحاولة» بالنداء
 // نفسه حرفاً (المعرّف والسبب والمرجع)؛ وكلاهما يُعاد بلا ضرر (الحذف بالمعرّف، والإلغاء يرجّع جوابه نفسه لتأشير ملغى)، فلا شيء يُحفظ خارج المكوّن.
 
-type Month = string;
-
 const MONTH_SHAPE = /^20\d\d-(?:0[1-9]|1[0-2])$/u;
 const monthParam = (value: string | null): Month | null => (value !== null && MONTH_SHAPE.test(value) ? value : null);
-const monthOf = (day: Day): Month => day.slice(0, 7);
-const pad2 = (n: number): string => `${n < 10 ? '0' : ''}${n}`;
-const monthIndex = (month: Month): number => Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1;
-/** الشهر بعد by شهراً (سالب للخلف). */
-const shiftMonth = (month: Month, by: number): Month => {
-  const index = monthIndex(month) + by;
-  return `${Math.floor(index / 12)}-${pad2((index % 12) + 1)}`;
-};
-/** ترتيب اليوم في الأسبوع والسبت أوّله (0) والجمعة آخره (6). */
-const weekdayOf = (day: Day): number => (new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)))).getUTCDay() + 1) % 7;
-const dayNumber = (day: Day): number => Number(day.slice(8, 10));
 
-const MONTH_NAMES = (): readonly string[] => [
-  t('millrep.month.01', 'كانون الثاني'),
-  t('millrep.month.02', 'شباط'),
-  t('millrep.month.03', 'آذار'),
-  t('millrep.month.04', 'نيسان'),
-  t('millrep.month.05', 'أيار'),
-  t('millrep.month.06', 'حزيران'),
-  t('millrep.month.07', 'تموز'),
-  t('millrep.month.08', 'آب'),
-  t('millrep.month.09', 'أيلول'),
-  t('millrep.month.10', 'تشرين الأول'),
-  t('millrep.month.11', 'تشرين الثاني'),
-  t('millrep.month.12', 'كانون الأول'),
-];
-/** الشهر وسنته («تشرين الثاني 2026»): السنة نصّ لا رقم بفواصل. */
-const monthLabel = (month: Month): string => t('millrep.month.label', '{name} {year}', { name: MONTH_NAMES()[Number(month.slice(5, 7)) - 1] ?? month, year: month.slice(0, 4) });
-const WEEKDAYS = (): readonly string[] => [
-  t('millrep.wd.sat', 'السبت'),
-  t('millrep.wd.sun', 'الأحد'),
-  t('millrep.wd.mon', 'الاثنين'),
-  t('millrep.wd.tue', 'الثلاثاء'),
-  t('millrep.wd.wed', 'الأربعاء'),
-  t('millrep.wd.thu', 'الخميس'),
-  t('millrep.wd.fri', 'الجمعة'),
-];
 /** اليوم باسمه وتاريخه («الأربعاء 11/11/2026»). */
 const dayLabel = (day: Day): string => t('millrep.day.label', '{weekday} {date}', { weekday: WEEKDAYS()[weekdayOf(day)] ?? '', date: fmtDay(day) });
 

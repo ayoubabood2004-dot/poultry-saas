@@ -569,6 +569,25 @@ const halls28Seed = (variant) => async (db) => {
 };
 
 /**
+ * 0030 (طريق الرفض): نهاية دورة مفتوحة (null) لا تقبلها قاعدة 0029؛ حالتان كلّ واحدة ببذرتها (المدير بدوالّ 0030): جدول اللاحم بلا نهاية (type)، وجدول
+ * قاعة بلا نهاية (hall).
+ */
+const H30 = (n) => `60000000-0000-4000-8000-0000000030${String(n).padStart(2, '0')}`;
+const open30Seed = (variant) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    await q("select public.save_vaccine($1, 'ND', null, null)", [H30(1)]);
+    if (variant === 'type') {
+      await q("select public.save_vaccine_program('broiler', null, jsonb_build_array(jsonb_build_object('vaccine_id', $1::uuid, 'age_day', 60)), 0)", [H30(1)]);
+    } else {
+      const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+      const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة الدورة المفتوحة') returning id", [site]);
+      await q("select public.save_hall_vaccine_program($1, null, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0)", [hall, H30(1)]);
+    }
+  }, { commit: true });
+};
+
+/**
  * 0025 (طريق الرفض): قاعدة 0024 لا تعرف خلطة بلا كميات، فالتراجع يرفض ما دام في القاعدة سطر خلطة بلا كمية، أو نسخة بلا أساس، أو دفعة حُفظت موادّها
  * في خلطتها؛ كلّ فرع ببذرته وحده (المدير بدوالّ 0025 على «علف الرجوع» بكميات): مسوّدة «عدّل الخلطة» كتب المدير أساسها فبقيت سطورها بلا كمية (qty)،
  * ومسوّدة كتب كمياتها بلا أساس (basis)، ودفعة من الخلطة بكميات وُسمت «حُفظت في الخلطة» بالإدارة (saved). الأخيرة حالة مصنوعة: produce_batch لا يحفظ
@@ -643,6 +662,22 @@ const birds28Seed = (variant) => async (db) => {
 const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
 
 export const BLOCKING_SEEDS = {
+  30: [
+    {
+      name: 'جدول نوع بنهاية مفتوحة',
+      code: 'rollback_blocked',
+      seed: open30Seed('type'),
+      data: "select (select count(*) from public.vaccine_programs where end_age is null)::text || '/' || (select count(*) from public.vaccine_program_days)::text || '/' || (select count(*) from public.vaccines)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_types + v_halls > 0 then', 'if false then'),
+    },
+    {
+      name: 'جدول قاعة بنهاية مفتوحة',
+      code: 'rollback_blocked',
+      seed: open30Seed('hall'),
+      data: "select (select count(*) from public.hall_vaccine_programs where end_age is null)::text || '/' || (select count(*) from public.hall_vaccine_program_days)::text || '/' || (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_types + v_halls > 0 then', 'if false then'),
+    },
+  ],
   28: [
     {
       name: 'جدول لقاحات خاصّ لقاعة',
@@ -1041,6 +1076,7 @@ export const BLOCKING_REQUIRED = [
   [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
   [28, 2, 'جدول لقاحات خاصّ لقاعة، وجدول قاعة حُذف فبقي صفّه بنسخته، كلّ واحد يوقف التراجع'],
   [29, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
+  [30, 2, 'جدول نوع بنهاية مفتوحة، وجدول قاعة بنهاية مفتوحة، كلّ واحد يوقف التراجع'],
 ];
 
 /**

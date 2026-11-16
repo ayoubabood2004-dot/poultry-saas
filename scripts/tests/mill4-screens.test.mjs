@@ -68,7 +68,7 @@ async function bundle() {
     "export { default as WarehousePage, feedSections } from './src/pages/inventory/WarehousePage.tsx';",
     "export * as repo from './src/lib/repo/mill.ts';",
     "export * as inventoryRepo from './src/lib/repo/inventory.ts';",
-    "export { pendingKey, storePending, readPending, produceRows, materialsDiffer, scaleTo, QUICK_TONS } from './src/pages/mill/ProducePage.tsx';",
+    "export { pendingKey, storePending, readPending, produceRows, materialsDiffer, scaleTo, QUICK_TONS, qtyForGoal, perTonOf } from './src/pages/mill/ProducePage.tsx';",
     "export { historyEvents, fromBatchText } from './src/pages/mill/RecipeHistory.tsx';",
     "export { PALETTE, OTHER_COLOR, pieceColor, slotsOf } from './src/pages/mill/shared.tsx';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
@@ -643,6 +643,10 @@ export default async function (t) {
       t.same(m.scaleTo([row('a', 600_000n), row('b', 1_000n, { problem: 'density' })], 20_000_000n), { problem: 'blocked' }, 'T مادّة لا يُنتَج بها: لا يُضرب شيء');
       t.same(m.scaleTo([row('a', 600_000n), row('b', 1n)], 1n), { problem: 'too_small' }, 'T كمية تصير صفراً تُرفض');
       t.same(m.QUICK_TONS, [1n, 5n, 10n, 20n, 25n], 'T الكميات السريعة بالأطنان');
+      // «لكلّ طنّ» (كلمة الزبون 2026-11-16): الكمية = ما في الطنّ × الناتج ÷ طنّ، والعكس للعرض.
+      t.same([m.qtyForGoal(600_000n, 10_000_000n), m.qtyForGoal(20_000n, 25_000_000n), m.qtyForGoal(333_333n, 1_500_000n)], [6_000_000n, 500_000n, 500_000n],
+        'P «لكلّ طنّ»: 600 كغم لـ10 أطنان 6,000، و20 لتراً لـ25 طنّاً 500، والتقريب الوحيد (333.333 × 1.5 = 499.9995 ← 500)');
+      t.same([m.perTonOf(6_000_000n, 10_000_000n), m.perTonOf(740_400n, 1_234_000n)], [600_000n, 600_000n], 'P والعكس: ما في الطنّ من كمية وناتج');
     }
     await step('T «كم تريد أن تنتج؟» على الشاشة', async () => {
       const { rpcLog } = produceSetup(MANAGER);
@@ -686,11 +690,35 @@ export default async function (t) {
       t.same([['ذرة صفراء', 'كسبة صويا', 'زيت', 'ملح', 'كاز المولّدة'].map((name) => qtyInput(name)?.value), textOf('produce-mass')],
         [['8,000', '4,500', '250', '270', '25'], 'الناتج: 13,000 كغم (قبل الهدر)'], 'T الذرة عُدّلت بيده إلى 16,000 (المجموع 26,000): «13» طنّاً نصف الكميات الآن، لا نسب آخر إنتاج');
     });
-    await step('T أوّل إنتاج بلا كميات', async () => {
-      produceSetup(MANAGER, { form: () => ({ ...clone(F.production_form.first), output_store: { id: 'w-feed', name: 'رصيد العلف' } }) });
+    await step('T أوّل إنتاج: «لكلّ طنّ» (كلمة الزبون 2026-11-16)', async () => {
+      const { rpcLog } = produceSetup(MANAGER, { form: () => ({ ...clone(F.production_form.first), output_store: { id: 'w-feed', name: 'رصيد العلف' } }) });
       await mount(produceUrl);
-      await click(byAction('target-quick')[0]);
-      t.eq(textOf('target-note'), 'اكتب كمية كلّ مادّة أوّلاً (ولو لطنّ واحد)، ثمّ اكتب هنا كم تريد أن تنتج فتُضرب الكميات بنسبها.', 'T أوّل إنتاج: لا نسبة بعد، والجملة تقول ما يُكتب');
+      const perTonInput = (name) => all().find((n) => n.getAttribute('aria-label') === `كمية «${name}» في الطنّ الواحد`);
+      const quick = (tons) => byAction('target-quick').find((n) => n.getAttribute('data-tons') === tons);
+      t.eq(byAction('line-per-ton').length, 0, 'T قبل اختيار الناتج: لا عمود «لكلّ طنّ»');
+      await click(quick('10'));
+      t.same([textOf('target-note'), byAction('line-per-ton').length, qtyInput('ذرة صفراء')?.value],
+        ['اكتب في عمود «لكلّ طنّ» كم من كلّ مادّة في الطنّ الواحد، فتظهر كميتها لـ10 أطنان فوراً.', 2, ''],
+        'T أوّل إنتاج و«10 أطنان»: يظهر «لكلّ طنّ» لكلّ مادّة والجملة تقول ما يُكتب (كانت: «اكتب كمية كلّ مادّة أوّلاً… ولو لطنّ واحد»)');
+      type(perTonInput('ذرة صفراء'), '600');
+      await settle();
+      t.same([qtyInput('ذرة صفراء')?.value, perTonInput('ذرة صفراء')?.value], ['6,000', '600'], 'T «600» لكلّ طنّ: كمية الذرة لـ10 أطنان 6,000 فوراً');
+      type(perTonInput('كسبة صويا'), '400');
+      await settle();
+      t.same([qtyInput('كسبة صويا')?.value, textOf('produce-mass'), byAction('per-ton-sum').length], ['4,000', 'الناتج: 10,000 كغم (قبل الهدر)', 0],
+        'T والصويا 400: الناتج 10 أطنان بالضبط، بلا تنبيه مجموع');
+      await click(quick('25'));
+      t.same([qtyInput('ذرة صفراء')?.value, qtyInput('كسبة صويا')?.value, perTonInput('ذرة صفراء')?.value, textOf('target-note')],
+        ['15,000', '10,000', '600', 'الكميات لـ25 طنّاً ممّا كتبته لكلّ طنّ.'], 'T ثمّ «25 طنّاً»: من «لكلّ طنّ» كما كُتب بالضبط');
+      type(perTonInput('كسبة صويا'), '350');
+      await settle();
+      t.eq(textOf('per-ton-sum'), 'المطلوب 25 طنّاً والناتج 23,750 كغم: مجموع ما في الطنّ 950 كغم، لا طنّ كامل. صحّح «لكلّ طنّ» أو اضغط «احسب الكميات».',
+        'T مجموع ما في الطنّ 950 كغم: يُقال ولا يُصحَّح بصمت');
+      type(qtyInput('كسبة صويا'), '10,000');
+      await settle();
+      t.same([perTonInput('كسبة صويا')?.value, byAction('per-ton-sum').length], ['400', 0], 'T الكمية نفسها تُكتب: «لكلّ طنّ» يُحسب منها (10,000 ÷ 25 = 400)');
+      await click(byAction('produce-go')[0]);
+      t.same(named(rpcLog, 'produce_batch')[0]?.p_lines.map((line) => [line.item_id, line.qty]), [['i-corn', '15000.000'], ['i-soy', '10000.000']], 'T ويُرسل بالكميات المعروضة');
     });
     await step('T «قرّب» للقليل الباقي وحده', async () => {
       produceSetup(MANAGER);
