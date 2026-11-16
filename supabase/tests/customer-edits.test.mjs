@@ -5,9 +5,56 @@
 //     اللقاح يُخرجه منه، والإضافة للقاعات تقفل جدول القاعة (جلستان حقيقيّتان)، وverify_halls يمسك الخرق؛
 // (٣) edit_recipe: «احفظ التعديل» بنداء واحد (الاسم والموادّ والتفعيل)، بشرط النسخة المفعَّلة، والمسوّدة القائمة تُستعمل، والمعدّلات تُنسخ، وبلا تغيير
 //     لا نسخة؛ والصلاحيات والنطاق لكلّ واحدة؛ وطفرات تكسر كلّ قاعدة فيفشل فحصها.
+import { build } from 'esbuild';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedOpening } from './stock-kit.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * repo الشاشات الحقيقيّ (المحلّلات وبناء النداءات) محزوماً بـesbuild على core بديل يرجّع جواب القاعدة الحقيقيّ المحفوظ في globalThis.__ce (درس 2026-11-02:
+ * جواب القاعدة الحقيقيّ يمرّ بمحلّل الشاشات الحقيقيّ، لا بجواب مكتوب باليد).
+ */
+async function loadScreensRepo() {
+  const core = `export const call = (fn, args) => globalThis.__ce(fn, args);
+export const send = () => { throw new Error('send'); };
+export const authed = async () => ({ db: null });
+export const updatedRows = () => [];
+export const classifyPostgrest = (error) => error;
+export const explained = async (error) => error;
+export const unknownConstraint = () => '';`;
+  const result = await build({
+    stdin: {
+      contents: [
+        "export { editFlock, deleteFlock } from './src/lib/repo/flockEdits.ts';",
+        "export { editRecipe } from './src/lib/repo/mill.ts';",
+        "export { parseVaccineBoard, saveHallVaccineProgram, dropHallVaccineProgram } from './src/lib/repo/halls.ts';",
+      ].join('\n'),
+      resolveDir: ROOT,
+      loader: 'ts',
+    },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    logLevel: 'silent',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"' },
+    plugins: [
+      {
+        name: 'ce-core',
+        setup(b) {
+          b.onResolve({ filter: /^\.\/core$/ }, (args) => (args.importer.replace(/\\/g, '/').includes('/src/lib/repo/') ? { path: 'core', namespace: 'ce-core' } : undefined));
+          b.onLoad({ filter: /.*/, namespace: 'ce-core' }, () => ({ contents: core, resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+}
 
 const TODAY = '2026-11-15';
 const id = (n) => `d2800000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -202,6 +249,14 @@ async function scenario(t, db) {
   t.same(canon((await call(db, U.manager, DROP_H, [HA, 4])).value), canon({ hall_id: HA, dropped: true }), 'حذف جدول القاعة الخاصّ');
   t.same(canon((await call(db, U.manager, DROP_H, [HA, 4])).value), canon({ hall_id: HA, dropped: false }), 'وحذفه ثانيةً: لا جدول، dropped = false بلا خطأ');
   t.same(await dueIn(HA), [`ND:7:${day(2)}`], 'وتعود «قاعة 10» إلى الجدول العامّ');
+  // الحذف يُبقي الصفّ بنسخة أكبر (مراجعة شاشات 0028، ABA): إعادة الإنشاء تكمل النسخة، فتعديل بُني على جدول قديم بالنسخة نفسها لا يكتب فوق الجديد.
+  t.same((await db.admin('select version, dropped_at is not null as dropped from public.hall_vaccine_programs where hall_id = $1', [HA])).rows[0], { version: 5, dropped: true },
+    'الحذف يُبقي صفّ الجدول بنسخة أكبر بلا أيّام');
+  const reborn = await call(db, U.manager, SAVE_H, [HA, 30, JSON.stringify([{ vaccine_id: nd, age_day: 8 }]), 0]);
+  t.same([reborn.value?.version, await dueIn(HA)], [6, [`ND:8:${day(3)}`]], 'جدول خاصّ جديد بعد الحذف: النسخة تكمل (6)، ويحلّ محلّ العامّ من جديد');
+  t.eq(shown(await call(db, U.manager, SAVE_H, [HA, 30, '[]', 1])), 'stale_program', 'وتعديل بُني على نسخة 1 القديمة لا يكتب فوق الجدول الجديد');
+  t.eq(shown(await call(db, U.manager, SAVE_H, [HA, 30, '[]', 0])), 'stale_program', 'وإنشاء ثانٍ (0) والجدول قائم stale_program');
+  t.same(canon((await call(db, U.manager, DROP_H, [HA, 6])).value), canon({ hall_id: HA, dropped: true }), 'ويُحذف بنسخته الجديدة');
   await db.asOwner(async (oq) => {
     await oq("insert into public.hall_vaccine_programs (org_id, hall_id, kind, end_age) values ($1, $2, 'layer', 20)", [org, HB]);
     await oq('insert into public.hall_vaccine_program_days (org_id, hall_id, vaccine_id, age_day) values ($1, $2, $3, 30)', [org, HB, nd]);
@@ -271,6 +326,40 @@ async function scenario(t, db) {
   await one(U.manager, 'update public.recipes set archived_at = now() where id = $1 returning id', [withRate.recipe]);
   t.eq(await fail([withRate.recipe, rated.version_id, 'خلطة بتكلفة', lines(I.corn), uid()]), 'recipe_archived', 'خلطة محذوفة من المعمل recipe_archived');
 
+  // ── التكامل: أجوبة القاعدة الحقيقية لكلّ دالّة جديدة تمرّ بمحلّلات الشاشات الحقيقية ونداءاتها ──────────────────────────────────────────
+  {
+    const repo = await loadScreensRepo();
+    const seen = [];
+    const answer = (value) => {
+      globalThis.__ce = (fn, args) => {
+        seen.push([fn, Object.keys(args ?? {}).sort().join(',')]);
+        return Promise.resolve(value);
+      };
+    };
+    try {
+      answer(fixed.value);
+      const e = await repo.editFlock({ flockId: f5, expectedVersion: 1, placedOn: day(-2), placedCount: 22500, ageDays: 0, breed: '' }, uid());
+      answer(gone.value);
+      const d = await repo.deleteFlock(f8, 1, uid());
+      answer(saved.value);
+      const s = await repo.saveHallVaccineProgram(HA, 35, [{ vaccineId: ib, ageDay: 6 }], 0);
+      answer({ hall_id: HA, dropped: true });
+      const b = repo.parseVaccineBoard(board);
+      answer(edited.value);
+      const r = await repo.editRecipe({ recipeId: R.recipe, expectedActive: R.version, name: 'تسوية', lines: [{ itemId: I.soy }, { itemId: I.corn }, { itemId: I.oil }], clientRef: uid() });
+      t.same([e.version, e.placedOn, e.changed, d.deleted, s.version, s.kind, b.halls?.find((h) => h.id === HA)?.program?.endAge, r.changed, r.lines],
+        [2, day(-2), true, true, 1, 'broiler', 35, true, 3], 'التكامل: أجوبة edit_flock وdelete_flock وsave_hall_vaccine_program وvaccine_board وedit_recipe الحقيقية تُقرأ بمحلّلات الشاشات');
+      t.same(seen.map(([fn, keys]) => `${fn}(${keys})`), [
+        'edit_flock(p_age_days,p_breed,p_client_ref,p_expected_version,p_flock,p_placed_count,p_placed_on)',
+        'delete_flock(p_client_ref,p_expected_version,p_flock)',
+        'save_hall_vaccine_program(p_days,p_end_age,p_expected_version,p_hall)',
+        'edit_recipe(p_client_ref,p_expected_active,p_lines,p_name,p_recipe)',
+      ], 'والشاشات تنادي الدوالّ الجديدة بأسماء معاملاتها في الهجرة');
+    } finally {
+      delete globalThis.__ce;
+    }
+  }
+
   // ── ٥) الطفرات: كلّ قاعدة مكسورة يفشل فحصها ────────────────────────────────────────────────────────────────────────────
   await mutant(db, U.manager, [[FN.edit, [['  if v_first is not null and p_placed_on > v_first then', '  if false then']]]], async ({ attempt, oq }) => {
     const r = await attempt(U.manager, async (q) => (await q(EDIT, [f5, await version(f5), TODAY, 22500, 0, null, uid()])).rows[0].v);
@@ -294,7 +383,7 @@ async function scenario(t, db) {
     const r = await attempt(U.manager, async (q) => (await q(EDIT_R, [R.recipe, R.version, 'تسوية أولى', lines(I.corn), uid()])).rows[0].v);
     t.ok(r.ok, 'طفرة: بلا شرط النسخة المفعَّلة يُكتب تعديل شاشة قديمة فوق تعديل أحدث');
   });
-  await mutant(db, U.manager, [[FN.slots, [['    and not exists (select 1 from public.hall_vaccine_programs hp where hp.org_id = f.org_id and hp.hall_id = f.hall_id)\n', '']]]], async ({ attempt, oq }) => {
+  await mutant(db, U.manager, [[FN.slots, [['    and not exists (select 1 from public.hall_vaccine_programs hp where hp.org_id = f.org_id and hp.hall_id = f.hall_id and hp.dropped_at is null)\n', '']]]], async ({ attempt, oq }) => {
     await oq('select public.save_hall_vaccine_program($1, 35, $2::jsonb, 0)', [HB, JSON.stringify([{ vaccine_id: nd, age_day: 8 }])]);
     const r = await attempt(U.manager, async (q) => (await q('select public.vaccine_reminders() as v')).rows[0].v.items.filter((x) => x.hall_id === HB).map((x) => x.age_day));
     t.same(r.value, [7, 8], 'طفرة: بلا استبعاد جدول النوع يختلط العامّ بجدول القاعة الخاصّ');

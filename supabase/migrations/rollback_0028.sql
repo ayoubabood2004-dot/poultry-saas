@@ -1,29 +1,24 @@
 -- rollback_0028 — تراجع «كلّ خطوة فيها تعديل» (0028_customer_edits): يُسقط الدوالّ الخمس الجديدة (edit_flock وdelete_flock وsave_hall_vaccine_program
 --   وdrop_hall_vaccine_program وedit_recipe)، ويرجّع أجسام private.flock_slots وprivate.hall_flock_json وvaccine_board وdelete_vaccine وgive_to_flocks
 --   وverify_halls كما في 0026 حرفاً بحرف (المنح باقٍ: create or replace لا يغيّره)، ثمّ يُسقط جدولي لقاحات القاعات.
--- **طريق رفض**: جدول لقاحات خاصّ لقاعة (بيانات المالك، والتراجع يمسحه)، أو سجلّ تدقيق منه بلا جدول باقٍ (استُعمل ثمّ حُذف)، يوقف التراجع بصوت بلا أن
---   يغيّر شيئاً. والأفواج المعدَّلة أو المحذوفة والخلطات المعدَّلة تبقى كما هي: صالحة بقواعد 0027.
+-- **طريق رفض**: صفّ جدول لقاحات خاصّ لقاعة، ولو حُذف جدوله (بيانات المالك ونسخته، والتراجع يمسحها؛ والدوالّ لا تمحو الصفّ أبداً)، يوقف التراجع
+--   بصوت بلا أن يغيّر شيئاً. والأفواج المعدَّلة أو المحذوفة والخلطات المعدَّلة تبقى كما هي: صالحة بقواعد 0027.
 -- تنعاد بأمان: drop if exists، وcreate or replace.
 
 set lock_timeout = '5s';
 
 lock table public.hall_vaccine_program_days, public.hall_vaccine_programs in access exclusive mode;
 
--- ٠) طريق الرفض، بفرع لكلّ حقيقة مستقلّة: جدول قاعة باقٍ (بأيّامه أو بلاها)، وسجلّ تدقيق من الجدولين بلا جدول باقٍ.
+-- ٠) طريق الرفض: صفّ جدول قاعة (بأيّامه أو بلاها، أو حُذف جدوله فبقي صفّه بنسخته).
 do $$
 declare
   v_programs bigint;
   v_days bigint;
-  v_audit bigint;
 begin
   select count(*) into v_programs from public.hall_vaccine_programs;
   select count(*) into v_days from public.hall_vaccine_program_days;
-  select count(*) into v_audit from public.audit_log where table_name in ('hall_vaccine_programs', 'hall_vaccine_program_days');
   if v_programs > 0 then
-    raise exception 'rollback_blocked' using hint = format('يوجد %s جدول لقاحات خاصّ لقاعة و%s يوماً فيها، والتراجع يمسحها. لا تراجع لـ0028 بعد استعمالها.', v_programs, v_days);
-  end if;
-  if v_audit > 0 and v_programs + v_days = 0 then
-    raise exception 'rollback_blocked' using hint = format('في سجلّ التدقيق %s صفّاً من جداول لقاحات القاعات (جدول خاصّ حُفظ ثمّ حُذف). لا تراجع لـ0028 بعد استعمالها.', v_audit);
+    raise exception 'rollback_blocked' using hint = format('يوجد %s جدول لقاحات خاصّ لقاعة (ولو حُذف) و%s يوماً فيها، والتراجع يمسحها. لا تراجع لـ0028 بعد استعمالها.', v_programs, v_days);
   end if;
 end
 $$;

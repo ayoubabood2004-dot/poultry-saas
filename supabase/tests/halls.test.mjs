@@ -444,7 +444,7 @@ async function scenario(t, db) {
     t.eq(r.value, 1, 'طفرة: بلا استبعاد المؤشَّر يعود ND يوم 7 («IB» مخفيّ الآن) إلى التذكير');
   });
   // شرط التسكين في فرع جدول النوع (0028: flock_slots فرعان، والثاني لجدول القاعة الخاصّ).
-  await mutant(db, U.manager, [[FN.slots, [['f.hall_id)\n    and d.age_day >= f.age_days_at_placement', 'f.hall_id)']]]], async ({ attempt }) => {
+  await mutant(db, U.manager, [[FN.slots, [['hp.dropped_at is null)\n    and d.age_day >= f.age_days_at_placement', 'hp.dropped_at is null)']]]], async ({ attempt }) => {
     const r = await attempt(U.manager, async (q) => (await q(REMIND)).rows[0].v.items.filter((x) => x.hall_name === 'قاعة 4' && x.age_day === 7).length);
     t.ok(r.value > 0, 'طفرة: بلا شرط التسكين يظهر لـ«قاعة 4» موعد سبق تسكينها');
   });

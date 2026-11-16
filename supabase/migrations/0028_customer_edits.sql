@@ -16,15 +16,16 @@
 -- انحرافات مكتوبة بلا سؤال (DECISIONS): الجدول الخاصّ للقاعة لا للفوج (كلمة الزبون «كل قاعة»)، ويبقى لدوراتها التالية حتى يُحذف؛ وتعديل التسكين
 --   لا يغيّر يوم التأشيرات السابقة ولا يوم عمرها (التأشير يحفظ موعده)؛ وحذف الفوج للخالي من كلّ سجلّ وحده.
 -- تراجع: rollback_0028.sql — يُسقط الدوالّ الخمس الجديدة والجدولين، ويرجّع أجسام الستّ (private.flock_slots وprivate.hall_flock_json وvaccine_board
---   وdelete_vaccine وgive_to_flocks وverify_halls) كما في 0026 حرفاً بحرف. **طريق رفض**: جدول لقاحات لقاعة، أو سجلّ تدقيق منه بلا جدول باقٍ،
---   يوقف التراجع بصوت بلا أن يغيّر شيئاً. والأفواج المعدَّلة أو المحذوفة والخلطات المعدَّلة تبقى كما هي (صالحة بقواعد 0027).
+--   وdelete_vaccine وgive_to_flocks وverify_halls) كما في 0026 حرفاً بحرف. **طريق رفض**: صفّ جدول لقاحات لقاعة (ولو حُذف جدوله: الصفّ يبقى
+--   بنسخته) يوقف التراجع بصوت بلا أن يغيّر شيئاً. والأفواج المعدَّلة أو المحذوفة والخلطات المعدَّلة تبقى كما هي (صالحة بقواعد 0027).
 -- تنعاد بأمان: create table if not exists، وcreate index if not exists، وكتل do تفحص الكتالوج قبل السياسات، وcreate or replace.
 
 set lock_timeout = '5s';
 
 -- ─── أ. جدول لقاحات القاعة ─────────────────────────────────────────────────────────────────────────────────────────
--- جدول واحد لكلّ قاعة على الأكثر، ونوعه نوع وحدة حقلها (يكتبه الكاتب، وverify_halls يفحصه)؛ وأيّامه من قائمة اللقاحات الواحدة للمنشأة. يُقرأ
--- للمنشأة كلّها كجدول النوع (إعداد لا سجلّ عمل)، والكتابة دالّة وحدها.
+-- صفّ واحد لكلّ قاعة على الأكثر، ونوعه نوع وحدة حقلها (يكتبه الكاتب، وverify_halls يفحصه)؛ وأيّامه من قائمة اللقاحات الواحدة للمنشأة. يُقرأ
+-- للمنشأة كلّها كجدول النوع (إعداد لا سجلّ عمل)، والكتابة دالّة وحدها. وحذف الجدول الخاصّ يُبقي الصفّ (dropped_at) ويزيد نسخته ويمحو أيّامه، فالنسخة
+-- لا تنزل أبداً: إعادة إنشائه تكمل منها، فشاشة بنت تعديلها على جدول حُذف ثمّ أُنشئ غيره لا تطابق نسخته (مراجعة شاشات 0028، ABA).
 create table if not exists public.hall_vaccine_programs (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null default public.auth_org() references public.orgs (id),
@@ -36,6 +37,8 @@ create table if not exists public.hall_vaccine_programs (
   created_by uuid default auth.uid(),
   updated_at timestamptz not null default now(),
   updated_by uuid default auth.uid(),
+  dropped_at timestamptz,
+  dropped_by uuid,
   constraint hall_vaccine_programs_kind_check check (kind in ('broiler', 'layer')),
   constraint hall_vaccine_programs_end_age_check check (end_age between 1 and 1000),
   constraint hall_vaccine_programs_version_check check (version >= 1),
@@ -89,7 +92,7 @@ grant select on table public.hall_vaccine_programs, public.hall_vaccine_program_
 revoke truncate on table public.hall_vaccine_programs, public.hall_vaccine_program_days from service_role;
 
 -- ─── ب. مواعيد الفوج ونهاية دورته: جدول قاعته إن كان لها، وإلّا جدول نوعها ─────────────────────────────────────────────────
--- private.flock_slots (0026) على جسمها، والأيّام من جدول القاعة الخاصّ كلّه إن وُجد (ولو بلا أيّام: جدولها فارغ)، وإلّا من جدول النوع كما كانت.
+-- private.flock_slots (0026) على جسمها، والأيّام من جدول القاعة الخاصّ كلّه إن وُجد ولم يُحذف (ولو بلا أيّام: جدولها فارغ)، وإلّا من جدول النوع كما كانت.
 -- كلّ قارئ وكاتب يمرّ بها (التذكير والتقويم وتقرير الدورة وتقارير 0027 وفحص not_in_program في give_to_flocks)، فلا تعريف ثانٍ للموعد.
 create or replace function private.flock_slots(p_flock uuid) returns table (vaccine_id uuid, age_day int, due_on date)
 language sql stable security definer set search_path = public, pg_temp as $$
@@ -97,19 +100,20 @@ language sql stable security definer set search_path = public, pg_temp as $$
   from public.flocks f
   join public.vaccine_program_days d on d.org_id = f.org_id and d.kind = f.kind
   where f.org_id = public.auth_org() and f.id = p_flock and f.placed_on is not null
-    and not exists (select 1 from public.hall_vaccine_programs hp where hp.org_id = f.org_id and hp.hall_id = f.hall_id)
+    and not exists (select 1 from public.hall_vaccine_programs hp where hp.org_id = f.org_id and hp.hall_id = f.hall_id and hp.dropped_at is null)
     and d.age_day >= f.age_days_at_placement
     and (f.closed_on is null or f.placed_on + (d.age_day - f.age_days_at_placement) <= f.closed_on)
   union all
   select d.vaccine_id, d.age_day, f.placed_on + (d.age_day - f.age_days_at_placement)
   from public.flocks f
   join public.hall_vaccine_program_days d on d.org_id = f.org_id and d.hall_id = f.hall_id
+  join public.hall_vaccine_programs hp on hp.org_id = d.org_id and hp.hall_id = d.hall_id and hp.dropped_at is null
   where f.org_id = public.auth_org() and f.id = p_flock and f.placed_on is not null
     and d.age_day >= f.age_days_at_placement
     and (f.closed_on is null or f.placed_on + (d.age_day - f.age_days_at_placement) <= f.closed_on)
 $$;
 
--- رأس الفوج للقارئين (0026) على جسمه، ونهاية الدورة من جدول القاعة الخاصّ إن وُجد، وإلّا من جدول نوعها كما كانت.
+-- رأس الفوج للقارئين (0026) على جسمه، ونهاية الدورة من جدول القاعة الخاصّ إن وُجد ولم يُحذف، وإلّا من جدول نوعها كما كانت.
 create or replace function private.hall_flock_json(f public.flocks) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object('id', f.id, 'hall_id', f.hall_id, 'hall_name', h.name, 'site_name', s.name, 'kind', f.kind, 'status', f.status,
@@ -118,7 +122,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
     'end_on', case when coalesce(hp.end_age, p.end_age) is not null then f.placed_on + (coalesce(hp.end_age, p.end_age) - f.age_days_at_placement) end)
   from public.halls h
   join public.sites s on s.org_id = h.org_id and s.id = h.site_id
-  left join public.hall_vaccine_programs hp on hp.org_id = f.org_id and hp.hall_id = f.hall_id
+  left join public.hall_vaccine_programs hp on hp.org_id = f.org_id and hp.hall_id = f.hall_id and hp.dropped_at is null
   left join public.vaccine_programs p on p.org_id = f.org_id and p.kind = f.kind
   where h.org_id = f.org_id and h.id = f.hall_id
 $$;
@@ -126,7 +130,7 @@ $$;
 
 -- ─── ج. لوحة اللقاحات وحذف اللقاح ────────────────────────────────────────────────────────────────────────────────────
 -- vaccine_board (0026) على جسمه، ويزيد halls: كلّ قاعة حيّة في حقل لحم أو بيض بنطاق القارئ (الحقل ثمّ اسم القاعة)، وجدولها الخاصّ بنسخته ونهايته
--- وأيّامه (بيوم العمر ثمّ اسم اللقاح كجدول النوع)، أو null حين تتبع جدول نوعها.
+-- وأيّامه (بيوم العمر ثمّ اسم اللقاح كجدول النوع)، أو null حين تتبع جدول نوعها (لا جدول خاصّ، أو حُذف).
 create or replace function public.vaccine_board() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -161,7 +165,7 @@ begin
       from public.halls h
       join public.sites s on s.org_id = h.org_id and s.id = h.site_id
       join public.divisions dv on dv.org_id = h.org_id and dv.id = h.division_id
-      left join public.hall_vaccine_programs hp on hp.org_id = h.org_id and hp.hall_id = h.id
+      left join public.hall_vaccine_programs hp on hp.org_id = h.org_id and hp.hall_id = h.id and hp.dropped_at is null
       where h.org_id = v_org and h.archived_at is null and dv.kind in ('broiler', 'layer') and public.in_scope_site(h.site_id)), '[]'::jsonb),
     'items', coalesce((select jsonb_agg(jsonb_build_object('id', i.id, 'name', i.name, 'kind', i.kind, 'base_unit', i.base_unit) order by i.name_norm collate "C", i.id)
       from public.items i where i.org_id = v_org and i.archived_at is null and i.kind in ('vaccine', 'medicine')), '[]'::jsonb));
@@ -496,7 +500,8 @@ $$;
 
 
 -- ─── هـ. جدول القاعة الخاصّ: حفظه وحذفه ────────────────────────────────────────────────────────────────────────────────
--- الجدول كلّه لقاعة بنهايته وأيّامه، بشرط النسخة التي قرأتها الشاشة (0 = لا جدول خاصّ بعد: يُنشأ)، بقواعد save_vaccine_program نفسها: النسخة أوّلاً
+-- الجدول كلّه لقاعة بنهايته وأيّامه، بشرط النسخة التي قرأتها الشاشة (0 = لا جدول خاصّ: لا صفّ أو حُذف جدوله، فيُنشأ والنسخة تكمل من صفّه)، بقواعد
+-- save_vaccine_program نفسها: النسخة أوّلاً
 -- بلا قفل (stale_program قبل فحص اللقاحات، مراجعة 0026 F)، ثمّ اللقاحات للمشاركة بترتيب معرّفاتها، ثمّ الجدول للتحديث. القاعة حيّة بنطاق الكاتب،
 -- ونوع الجدول نوع وحدة حقلها.
 create or replace function public.save_hall_vaccine_program(p_hall uuid, p_end_age int, p_days jsonb, p_expected_version int) returns jsonb
@@ -537,7 +542,8 @@ begin
       raise exception 'bad_day' using hint = 'يوم في الجدول بشكل غير صالح. حدّث الشاشة وأعد المحاولة.';
     end if;
   end loop;
-  if coalesce((select x.version from public.hall_vaccine_programs x where x.org_id = v_org and x.hall_id = h.id), 0) is distinct from p_expected_version then
+  if coalesce((select case when x.dropped_at is null then x.version else 0 end from public.hall_vaccine_programs x where x.org_id = v_org and x.hall_id = h.id), 0)
+      is distinct from p_expected_version then
     raise exception 'stale_program' using hint = format('تغيّر جدول لقاحات «%s» من جهاز آخر. حدّث الشاشة وقارن، فإن كان التعديل منك فقد حُفظ.', h.name);
   end if;
   for vc in
@@ -566,15 +572,20 @@ begin
     raise exception 'duplicate_day' using hint = format('«%s» مكتوب في يوم العمر %s مرّتين.', v_bad.name, v_bad.age_day);
   end if;
   select * into p from public.hall_vaccine_programs x where x.org_id = v_org and x.hall_id = h.id for update;
-  if p.id is null then
+  if p.id is null or p.dropped_at is not null then
     if p_expected_version is distinct from 0 then
       raise exception 'stale_program' using hint = format('حُذف جدول «%s» الخاصّ من جهاز آخر. حدّث الشاشة وقارن.', h.name);
     end if;
-    begin
-      insert into public.hall_vaccine_programs (org_id, hall_id, kind, end_age) values (v_org, h.id, v_kind, p_end_age) returning * into p;
-    exception when unique_violation then
-      raise exception 'stale_program' using hint = format('حُفظ جدول خاصّ لـ«%s» من جهاز آخر الآن. حدّث الشاشة وقارن.', h.name);
-    end;
+    if p.id is null then
+      begin
+        insert into public.hall_vaccine_programs (org_id, hall_id, kind, end_age) values (v_org, h.id, v_kind, p_end_age) returning * into p;
+      exception when unique_violation then
+        raise exception 'stale_program' using hint = format('حُفظ جدول خاصّ لـ«%s» من جهاز آخر الآن. حدّث الشاشة وقارن.', h.name);
+      end;
+    else
+      update public.hall_vaccine_programs x set end_age = p_end_age, dropped_at = null, dropped_by = null, version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+      where x.org_id = v_org and x.id = p.id returning * into p;
+    end if;
   else
     if p.version is distinct from p_expected_version then
       raise exception 'stale_program' using hint = format('تغيّر جدول لقاحات «%s» من جهاز آخر. حدّث الشاشة وقارن، فإن كان التعديل منك فقد حُفظ.', h.name);
@@ -590,7 +601,8 @@ begin
 end
 $$;
 
--- حذف جدول القاعة الخاصّ بشرط نسخته: القاعة تعود إلى جدول نوعها. ولا جدول خاصّ (حُذف من جهاز آخر، أو إعادة بعد جواب ضاع) dropped = false بلا خطأ.
+-- حذف جدول القاعة الخاصّ بشرط نسخته: القاعة تعود إلى جدول نوعها، وتُمحى أيّامه ويبقى صفّه بنسخة أكبر (dropped_at). ولا جدول خاصّ (لا صفّ، أو حُذف
+-- من جهاز آخر، أو إعادة بعد جواب ضاع) dropped = false بلا خطأ.
 create or replace function public.drop_hall_vaccine_program(p_hall uuid, p_expected_version int) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -608,14 +620,15 @@ begin
     raise exception 'out_of_scope' using hint = 'هذه القاعة خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
   end if;
   select * into p from public.hall_vaccine_programs x where x.org_id = v_org and x.hall_id = h.id for update;
-  if p.id is null then
+  if p.id is null or p.dropped_at is not null then
     return jsonb_build_object('hall_id', h.id, 'dropped', false);
   end if;
   if p.version is distinct from p_expected_version then
     raise exception 'stale_program' using hint = format('تغيّر جدول لقاحات «%s» من جهاز آخر. حدّث الشاشة وقارن قبل حذفه.', h.name);
   end if;
   delete from public.hall_vaccine_program_days d where d.org_id = v_org and d.hall_id = h.id;
-  delete from public.hall_vaccine_programs x where x.org_id = v_org and x.id = p.id;
+  update public.hall_vaccine_programs x set dropped_at = now(), dropped_by = auth.uid(), version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+  where x.org_id = v_org and x.id = p.id;
   return jsonb_build_object('hall_id', h.id, 'dropped', true);
 end
 $$;
@@ -948,12 +961,12 @@ language sql stable security definer set search_path = public, pg_temp as $$
   join public.vaccine_programs p on p.org_id = d.org_id and p.kind = d.kind
   join public.vaccines x on x.org_id = d.org_id and x.id = d.vaccine_id
   where d.age_day > p.end_age or x.archived_at is not null
-  -- ٦) أيّام جداول القاعات ضمن نهاية دورتها، ولقاحاتها حيّة (0028).
+  -- ٦) أيّام جداول القاعات ضمن نهاية دورتها، ولقاحاتها حيّة، ولا أيّام لجدول حُذف (0028).
   union all
   select 'hall_program_days', count(*) from public.hall_vaccine_program_days d
   join public.hall_vaccine_programs p on p.org_id = d.org_id and p.hall_id = d.hall_id
   join public.vaccines x on x.org_id = d.org_id and x.id = d.vaccine_id
-  where d.age_day > p.end_age or x.archived_at is not null
+  where d.age_day > p.end_age or x.archived_at is not null or p.dropped_at is not null
   -- ٧) نوع جدول القاعة نوع وحدة حقلها (0028).
   union all
   select 'hall_program_kind', count(*) from public.hall_vaccine_programs p

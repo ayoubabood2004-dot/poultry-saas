@@ -550,8 +550,8 @@ const halls26Seed = (variant) => async (db) => {
 };
 
 /**
- * 0028 (طريق الرفض): جدول لقاحات خاصّ لقاعة بيانات المالك، والتراجع يُسقط جدوليه؛ فرعان كلّ واحد ببذرته (المدير بدوالّ 0028 على قاعة بحقل الأمل):
- * جدول قاعة باقٍ بموعد واحد (program)، وجدول حُفظ ثمّ حُذف فلا يبقى إلّا سجلّ التدقيق منه (audit).
+ * 0028 (طريق الرفض): جدول لقاحات خاصّ لقاعة بيانات المالك، والتراجع يُسقط جدوليه؛ حالتان كلّ واحدة ببذرتها (المدير بدوالّ 0028 على قاعة بحقل الأمل):
+ * جدول قاعة باقٍ بموعد واحد (program)، وجدول حُفظ ثمّ حُذف فبقي صفّه بنسخته بلا أيّام (dropped: الدوالّ لا تمحو الصفّ، فالنسخة لا تنزل).
  */
 const H28 = (n) => `60000000-0000-4000-8000-0000000028${String(n).padStart(2, '0')}`;
 const halls28Seed = (variant) => async (db) => {
@@ -561,11 +561,7 @@ const halls28Seed = (variant) => async (db) => {
     const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة الجدول الخاصّ') returning id", [site]);
     await q("select public.save_vaccine($1, 'ND', null, null)", [H28(1)]);
     await q("select public.save_hall_vaccine_program($1, 35, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0)", [hall, H28(1)]);
-    if (variant === 'audit') {
-      await q('select public.drop_hall_vaccine_program($1, 1)', [hall]);
-      // اللقاح لم يُؤشَّر به فيُمحى: يبقى سجلّ التدقيق وحده (وفرع اللقاحات في تراجع 0026 لا يعنيه، فهذا تراجع 0028 وحده).
-      await q("select public.delete_vaccine($1, (select version from public.vaccines where id = $1))", [H28(1)]);
-    }
+    if (variant === 'dropped') await q('select public.drop_hall_vaccine_program($1, 1)', [hall]);
   }, { commit: true });
 };
 
@@ -609,11 +605,11 @@ export const BLOCKING_SEEDS = {
       mutate: (sql) => sql.replace('if v_programs > 0 then', 'if false then'),
     },
     {
-      name: 'جدول قاعة حُذف (سجلّ تدقيق وحده)',
+      name: 'جدول قاعة حُذف (يبقى صفّه بنسخته)',
       code: 'rollback_blocked',
-      seed: halls28Seed('audit'),
-      data: "select (select count(*) from public.audit_log where table_name in ('hall_vaccine_programs', 'hall_vaccine_program_days'))::text || '/' || (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
-      mutate: (sql) => sql.replace('if v_audit > 0 and v_programs + v_days = 0 then', 'if false then'),
+      seed: halls28Seed('dropped'),
+      data: "select (select count(*) from public.hall_vaccine_programs where dropped_at is not null)::text || '/' || (select count(*) from public.hall_vaccine_program_days)::text || '/' || (select count(*) from public.halls)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_programs > 0 then', 'if false then'),
     },
   ],
   26: [
@@ -951,7 +947,7 @@ export const BLOCKING_REQUIRED = [
   [22, 1, 'ملاحظة يومية (صفّ في stock_day_notes) توقف التراجع'],
   [25, 3, 'دفعة حُفظت موادّها في خلطتها، ونسخة خلطة بلا أساس، وسطر خلطة بلا كمية، كلّ واحد يوقف التراجع'],
   [26, 4, 'لقاح في القائمة، وجدول لقاحات، وتسجيل دواء، وسجلّ تدقيق لتسجيل حُذف، كلّ واحد يوقف التراجع'],
-  [28, 2, 'جدول لقاحات خاصّ لقاعة، وسجلّ تدقيق لجدول قاعة حُذف، كلّ واحد يوقف التراجع'],
+  [28, 2, 'جدول لقاحات خاصّ لقاعة، وجدول قاعة حُذف فبقي صفّه بنسخته، كلّ واحد يوقف التراجع'],
 ];
 
 /**
