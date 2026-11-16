@@ -1,0 +1,41 @@
+// 0028 body (from the first non-comment line to the end) split at blank lines into parts of about TARGET characters; each part becomes an insert
+// into private._m0028 with $c28$ quoting, and every run of 4+ box-drawing characters becomes repeat() so it is never counted by hand.
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const dir = __dirname;
+const TARGET = Number(process.argv[2] || 11000);
+const m = fs.readFileSync(process.argv[3] || '/home/user/poultry-saas/supabase/migrations/0028_bird_sales_close.sql', 'utf8');
+const lines = m.split('\n');
+let i = 0;
+while (i < lines.length && (lines[i].startsWith('--') || lines[i].trim() === '')) i++;
+const body = m.slice(lines.slice(0, i).join('\n').length + 1);
+if (!body.startsWith("set lock_timeout = '5s';")) throw new Error('body start');
+fs.writeFileSync(path.join(dir, 'body.sql'), body);
+const md5 = (s) => crypto.createHash('md5').update(s, 'utf8').digest('hex');
+const cp = (s) => [...s].length;
+const blines = body.split('\n');
+const parts = [];
+let cur = '';
+for (let k = 0; k < blines.length; k++) {
+  const ln = blines[k] + (k < blines.length - 1 ? '\n' : '');
+  cur += ln;
+  if (cp(cur) >= TARGET) { parts.push(cur); cur = ''; }
+}
+if (cur) parts.push(cur);
+if (parts.join('') !== body) throw new Error('parts do not rebuild the body');
+const box = String.fromCodePoint(0x2500);
+const re = new RegExp(`${box}{4,}`, 'gu');
+const tag = '$c28$';
+const manifest = [];
+for (const f of fs.readdirSync(path.join(dir, 'q'))) fs.unlinkSync(path.join(dir, 'q', f));
+parts.forEach((p, idx) => {
+  const n = idx + 1;
+  if (p.includes(tag)) throw new Error('tag inside part');
+  const quoted = p.replace(re, (r) => `${tag} || repeat('${box}', ${r.length}) || ${tag}`);
+  const q = `insert into private._m0028 (n, part) values (${n}, ${tag}${quoted}${tag}) returning n, md5(part), length(part);`;
+  fs.writeFileSync(path.join(dir, 'q', `q${String(n).padStart(2, '0')}.sql`), q);
+  manifest.push({ n, md5: md5(p), chars: cp(p), qchars: cp(q) });
+});
+fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ body_md5: md5(body), body_chars: cp(body), parts: manifest }, null, 1));
+console.log('body md5', md5(body), 'chars', cp(body), 'parts', parts.length, 'max part chars', Math.max(...manifest.map((x) => x.chars)), 'max query chars', Math.max(...manifest.map((x) => x.qchars)));

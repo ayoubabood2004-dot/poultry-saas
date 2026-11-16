@@ -1,0 +1,28 @@
+with snap as (
+with ns as (select oid, nspname from pg_namespace where nspname in ('public', 'private'))
+select jsonb_build_object(
+  'relations', (select jsonb_agg(jsonb_build_array(ns.nspname, c.relname, c.relkind, c.relrowsecurity, c.relforcerowsecurity, pg_get_userbyid(c.relowner), case when c.relacl is null then null else coalesce((select array_agg(item::text order by item::text collate "C") from unnest(c.relacl) as item), '{}'::text[])::text end, c.reloptions::text))
+    from pg_class c join ns on ns.oid = c.relnamespace where c.relname !~ '^_m00[0-9]+(_pkey)?$'),
+  'columns', (select jsonb_agg(jsonb_build_array(c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid), a.attgenerated::text, case when a.attacl is null then null else coalesce((select array_agg(item::text order by item::text collate "C") from unnest(a.attacl) as item), '{}'::text[])::text end))
+    from pg_attribute a join pg_class c on c.oid = a.attrelid join ns on ns.oid = c.relnamespace
+    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+    where a.attnum > 0 and not a.attisdropped and c.relname !~ '^_m00[0-9]+(_pkey)?$'),
+  'constraints', (select jsonb_agg(jsonb_build_array(c.conrelid::regclass::text, c.conname, pg_get_constraintdef(c.oid)))
+    from pg_constraint c join ns on ns.oid = c.connamespace where c.conrelid::regclass::text !~ '^private[.]_m00[0-9]+$'),
+  'indexes', (select jsonb_agg(pg_get_indexdef(i.indexrelid))
+    from pg_index i join pg_class c on c.oid = i.indrelid join ns on ns.oid = c.relnamespace where c.relname !~ '^_m00[0-9]+(_pkey)?$'),
+  'policies', (select jsonb_agg(jsonb_build_array(tablename, policyname, permissive, roles::text, cmd, qual, with_check))
+    from pg_policies where schemaname in ('public', 'private')),
+  'triggers', (select jsonb_agg(jsonb_build_array(pg_get_triggerdef(g.oid), g.tgenabled::text))
+    from pg_trigger g join pg_class c on c.oid = g.tgrelid join ns on ns.oid = c.relnamespace where not g.tgisinternal),
+  'functions', (select jsonb_agg(jsonb_build_array(ns.nspname, p.proname, pg_get_function_arguments(p.oid), pg_get_function_result(p.oid), md5(p.prosrc), p.prosecdef, p.provolatile, p.proisstrict, p.proparallel, p.proleakproof, l.lanname, pg_get_userbyid(p.proowner), p.proconfig::text, case when p.proacl is null then null else coalesce((select array_agg(item::text order by item::text collate "C") from unnest(p.proacl) as item), '{}'::text[])::text end))
+    from pg_proc p join ns on ns.oid = p.pronamespace join pg_language l on l.oid = p.prolang),
+  'schemas', (select jsonb_agg(jsonb_build_array(nspname, pg_get_userbyid(nspowner), case when nspacl is null then null else coalesce((select array_agg(item::text order by item::text collate "C") from unnest(nspacl) as item), '{}'::text[])::text end)) from pg_namespace where nspname in ('public', 'private')),
+  'default_acl', (select jsonb_agg(jsonb_build_array(pg_get_userbyid(defaclrole), coalesce(n.nspname, ''), defaclobjtype::text, case when defaclacl is null then null else coalesce((select array_agg(item::text order by item::text collate "C") from unnest(defaclacl) as item), '{}'::text[])::text end))
+    from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
+    where n.nspname is null or n.nspname in ('public', 'private'))
+) as snapshot)
+select s.section, count(x.h)::int as items, md5(coalesce(string_agg(x.h, ',' order by x.h collate "C"), '')) as digest
+from snap cross join jsonb_each(snap.snapshot) as s(section, arr)
+left join lateral (select md5(e::text) as h from jsonb_array_elements(coalesce(s.arr, '[]'::jsonb)) as e) as x on true
+group by s.section order by s.section
