@@ -1,6 +1,6 @@
--- rollback_0029 — تراجع «الدورة المفتوحة» (0029_open_cycle): يرجّع save_vaccine_program كما في 0026، وsave_hall_vaccine_program وprivate.hall_flock_json
+-- rollback_0030 — تراجع «الدورة المفتوحة» (0030_open_cycle): يرجّع save_vaccine_program كما في 0026، وsave_hall_vaccine_program وprivate.hall_flock_json
 --   وvaccine_board كما في 0028 حرفاً بحرف (المنح باقٍ: create or replace لا يغيّره)، ثمّ يعيد not null على نهاية الدورة في الجدولين.
--- **طريق رفض**: جدول نوع أو جدول قاعة بنهاية مفتوحة (null)، وقاعدة 0028 تشترط نهاية، يوقف التراجع بصوت بلا أن يغيّر شيئاً (لا تُخترع نهاية للمربّي؛
+-- **طريق رفض**: جدول نوع أو جدول قاعة بنهاية مفتوحة (null)، وقاعدة 0029 تشترط نهاية، يوقف التراجع بصوت بلا أن يغيّر شيئاً (لا تُخترع نهاية للمربّي؛
 --   وبلا الكتلة يكمل بنهاية 1,000، وهو ما تمنعه).
 -- تنعاد بأمان: create or replace، وset not null.
 
@@ -17,7 +17,7 @@ begin
   select count(*) into v_types from public.vaccine_programs where end_age is null;
   select count(*) into v_halls from public.hall_vaccine_programs where end_age is null;
   if v_types + v_halls > 0 then
-    raise exception 'rollback_blocked' using hint = format('يوجد %s جدول نوع و%s جدول قاعة بنهاية دورة مفتوحة، وقاعدة 0028 تشترط نهاية. لا تراجع لـ0029 بعد استعمالها.', v_types, v_halls);
+    raise exception 'rollback_blocked' using hint = format('يوجد %s جدول نوع و%s جدول قاعة بنهاية دورة مفتوحة، وقاعدة 0029 تشترط نهاية. لا تراجع لـ0030 بعد استعمالها.', v_types, v_halls);
   end if;
 end
 $$;

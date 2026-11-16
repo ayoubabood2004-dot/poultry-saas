@@ -55,7 +55,7 @@ import { BackLink, backLabel, backTarget, bandStyle, daysText, farmPath, Swatch,
 // تقدّمت على ما بُني عليه التعديل، أو نقصت عنه بقراءة جديدة (حُذف من جهاز آخر فصارت تتبع العامّ: الفروق مع العامّ، و«اعتمد تعديلي» ينشئه من جديد).
 // وقائمة اللقاحات واحدة للمنشأة تشترك فيها الجداول كلّها، فحذف لقاح يسمّي أيّامه في كلّ جدول.
 //
-// و«الدورة المفتوحة» (0029، كلمة الزبون 2026-11-16: «خلي الوقت مفتوح… من يخلصون همة يكولون انتهت الدورة»، ثمّ «لا لاتشيل نهاية الدورة بس خليها
+// و«الدورة المفتوحة» (0030، كلمة الزبون 2026-11-16: «خلي الوقت مفتوح… من يخلصون همة يكولون انتهت الدورة»، ثمّ «لا لاتشيل نهاية الدورة بس خليها
 // اختيارية»): نهاية الدورة «محدّدة» بيوم أو «مفتوحة» (تُرسل null)، والمفتوح يُرسم إلى نهاية النوع المقترحة أو آخر يوم فيه وأسبوعين بعده. و«لمن هذا
 // الجدول؟» بطاقات (كلمة الزبون: «خلي اختيار القاعات يصير اسهل واحلى»): العامّ ثمّ القاعات بأرقامها، وفي كلّ بطاقة جدولها وعمر فوجها. وجدول قاعة
 // بفوج قائم مسكَّن يُرسم تقويماً بالأشهر الحقيقية من يوم تسكينه («جدول رزنامة اشهر حقيقية… وبداخل المربعات ترقيمات الايام… حسب العمر»): في كلّ يوم
@@ -90,7 +90,7 @@ const hallKey = (id: string): ScopeKey => `hall:${id}`;
 interface Draft {
   against: number;
   endText: string;
-  /** نهاية مفتوحة (0029): بلا يوم محدّد، والدورة تنتهي حين تُغلق. */
+  /** نهاية مفتوحة (0030): بلا يوم محدّد، والدورة تنتهي حين تُغلق. */
   open: boolean;
   days: ReadonlySet<DayKey>;
 }
@@ -154,7 +154,7 @@ function parseEnd(text: string): number | null {
 const serverEnd = (kind: FlockKind, saved: VaccineProgram): number => saved.endAge ?? DEFAULT_END[kind];
 const serverDays = (saved: VaccineProgram): ReadonlySet<DayKey> => new Set(saved.days.map((day) => dayKey(day.ageDay, day.vaccineId)));
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a.size === b.size && [...a].every((key) => b.has(key));
-/** جدول محفوظ (نسخة 1 فما فوق) بلا نهاية: مفتوح (0029). وبلا جدول بعد يُقترح بنهاية النوع. */
+/** جدول محفوظ (نسخة 1 فما فوق) بلا نهاية: مفتوح (0030). وبلا جدول بعد يُقترح بنهاية النوع. */
 const serverOpen = (saved: VaccineProgram): boolean => saved.version > 0 && saved.endAge === null;
 const baseDraft = (kind: FlockKind, saved: VaccineProgram, against: number): Draft => ({ against, endText: fmtInt(serverEnd(kind, saved)), open: serverOpen(saved), days: serverDays(saved) });
 /** أيّام الجدول المفتوح المعروضة: نهاية النوع المقترحة أو آخر يوم فيه، وأسبوعان بعده ليُضاف ما بعده، بأسابيع كاملة وحتى 1,000. */
@@ -413,7 +413,7 @@ function VaccinesView() {
   /** قاعة بلا جدول خاصّ ولا تعديل: تُعرض بالعامّ للعرض، و«اعمل لها جدولاً خاصّاً» يبدأ نسخةً منه. */
   const follows = hall !== null && hall.program === null && draft === null;
   const editable = canEdit && !follows;
-  /** نهاية الدورة المحفوظة (أو الافتراض بلا جدول)، ومفتوحة أم لا (0029). */
+  /** نهاية الدورة المحفوظة (أو الافتراض بلا جدول)، ومفتوحة أم لا (0030). */
   const savedEnd = program ? serverEnd(kind, program) : DEFAULT_END[kind];
   const savedOpen = program ? serverOpen(program) : false;
   const open = draft?.open ?? savedOpen;
@@ -438,7 +438,7 @@ function VaccinesView() {
   const ages = Array.from({ length: Math.min(PAGE_DAYS, endAge - page * PAGE_DAYS) }, (_, index) => page * PAGE_DAYS + index + 1);
   const onDay = (age: number): Vaccine[] => vaccines.filter((vaccine) => days.has(dayKey(age, vaccine.id)));
 
-  // التقويم بالأشهر الحقيقية لقاعة بفوج قائم مسكَّن (0029): من أوّل يوم عمر في الجدول (1، أو عمر التسكين إن كان أكبر) إلى آخر يوم يُرسم، بتواريخها؛
+  // التقويم بالأشهر الحقيقية لقاعة بفوج قائم مسكَّن (0030): من أوّل يوم عمر في الجدول (1، أو عمر التسكين إن كان أكبر) إلى آخر يوم يُرسم، بتواريخها؛
   // والشهر المعروض شهر اليوم إن كان فيها، وإلّا أوّلها.
   const flock = hall?.flock ?? null;
   const firstAge = flock ? Math.max(1, flock.age0) : 1;

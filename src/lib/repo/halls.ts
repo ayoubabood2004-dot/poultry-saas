@@ -195,7 +195,7 @@ export interface ProgramDay {
 export interface VaccineProgram {
   /** 0 = لا جدول بعد. */
   version: number;
-  /** نهاية الدورة بيوم العمر؛ null بلا جدول بعد (version 0)، أو بنهاية مفتوحة (0029، version 1 فما فوق). */
+  /** نهاية الدورة بيوم العمر؛ null بلا جدول بعد (version 0)، أو بنهاية مفتوحة (0030، version 1 فما فوق). */
   endAge: number | null;
   days: readonly ProgramDay[];
 }
@@ -204,12 +204,12 @@ export interface VaccineProgram {
 export interface HallProgram {
   /** 1 فما فوق: القاعة بلا جدول خاصّ يأتي program فيها null، و0 في الحفظ يعني «أنشئه». */
   version: number;
-  /** null: نهاية مفتوحة (0029). */
+  /** null: نهاية مفتوحة (0030). */
   endAge: number | null;
   days: readonly ProgramDay[];
 }
 
-/** فوج القاعة القائم المسكَّن (0029): منه يُرسم جدولها بالأشهر الحقيقية، وفي كلّ يوم عمر الطيور. */
+/** فوج القاعة القائم المسكَّن (0030): منه يُرسم جدولها بالأشهر الحقيقية، وفي كلّ يوم عمر الطيور. */
 export interface VaccineHallFlock {
   id: string;
   placedOn: Day;
@@ -224,7 +224,7 @@ export interface VaccineHall {
   siteName: string;
   kind: FlockKind;
   program: HallProgram | null;
-  /** null: بلا فوج قائم مسكَّن، أو خادم قبل 0029. */
+  /** null: بلا فوج قائم مسكَّن، أو خادم قبل 0030. */
   flock: VaccineHallFlock | null;
 }
 
@@ -257,12 +257,12 @@ const hallProgram = (row: Row): HallProgram | null => {
   if (!box) return null;
   const version = int(box, 'version');
   if (version < 1) throw new HallsShapeError('version');
-  // نهاية مفتوحة null (0029)، والمفتاح حاضر دائماً.
+  // نهاية مفتوحة null (0030)، والمفتاح حاضر دائماً.
   if (box.end_age === undefined) throw new HallsShapeError('end_age');
   return { version, endAge: optInt(box, 'end_age'), days: programDays(box.days) };
 };
 
-/** مفتاح 0029: خادم قبله لا يرسله فـnull، وnull قاعة بلا فوج قائم؛ وما يُرسل يُقرأ بشكله كلّه أو يُرفض. */
+/** مفتاح 0030: خادم قبله لا يرسله فـnull، وnull قاعة بلا فوج قائم؛ وما يُرسل يُقرأ بشكله كلّه أو يُرفض. */
 const boardFlock = (row: Row): VaccineHallFlock | null => {
   if (row.flock === undefined) return null;
   const box = optRecord(row.flock, 'flock');
@@ -325,7 +325,7 @@ export async function deleteVaccine(id: string, expectedVersion: number): Promis
   return { id: str(json, 'id'), result: oneOf(json, 'result', ['deleted', 'archived'] as const) };
 }
 
-/** الجدول كلّه بنهايته (null: مفتوحة، 0029) وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول). */
+/** الجدول كلّه بنهايته (null: مفتوحة، 0030) وأيّامه، بشرط النسخة التي قُرئت (0 حين لا جدول). */
 export async function saveVaccineProgram(kind: FlockKind, endAge: number | null, days: readonly ProgramDay[], expectedVersion: number): Promise<{ kind: FlockKind; version: number; endAge: number | null; days: number }> {
   const json = record(
     await call<unknown>('save_vaccine_program', {

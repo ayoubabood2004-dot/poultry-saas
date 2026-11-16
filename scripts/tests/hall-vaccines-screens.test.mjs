@@ -117,7 +117,7 @@ function exclusiveOptions() {
     else delete OptionElement.prototype.selected;
   };
 }
-// «لمن هذا الجدول؟» بطاقات (0029، كلمة الزبون 2026-11-16: «خلي اختيار القاعات يصير اسهل واحلى»): الخيارات اسم كلّ بطاقة (aria-label كما كان نصّ
+// «لمن هذا الجدول؟» بطاقات (0030، كلمة الزبون 2026-11-16: «خلي اختيار القاعات يصير اسهل واحلى»): الخيارات اسم كلّ بطاقة (aria-label كما كان نصّ
 // الخيار) بمعرّفها، والمختار البطاقة المضغوطة، والاختيار ضغطها.
 const scopeCards = () => byAction('scope-card');
 const scopeOptions = () => (scopeCards().length ? scopeCards().map((n) => [n.getAttribute('data-id'), n.getAttribute('aria-label')]) : null);
@@ -779,7 +779,7 @@ export default async function (t) {
       t.same([textOf('hall-follows')?.startsWith('«قاعة 1» تتبع الجدول العامّ.'), byAction('hall-program-start').length], [true, 0], 'G4 والقاعة التي تتبع العامّ بلا «اعمل لها جدولاً خاصّاً»');
     });
 
-    // ── O: الدورة المفتوحة والبطاقات والتقويم بالأشهر (0029، كلمة الزبون 2026-11-16) ─────────────────────────────────
+    // ── O: الدورة المفتوحة والبطاقات والتقويم بالأشهر (0030، كلمة الزبون 2026-11-16) ─────────────────────────────────
     /** «قاعة 1» بفوج سُكّن 28/10 بعمر يوم الفقس (عمره اليوم 11/11 أربعة عشر يوماً)، و«قاعة 5» بجدولها الخاصّ وفوج سُكّن 01/11 بعمر 3. */
     const withFlocks = (over = {}) => {
       const board = boardWith(over);
@@ -913,7 +913,7 @@ export default async function (t) {
         const noFlock = boardWith();
         for (const row of noFlock.halls) delete row.flock;
         t.same([parsed.halls[3].program.endAge, parsed.halls[0].flock, parsed.halls[1].flock, m.repo.parseVaccineBoard(noFlock).halls[0].flock],
-          [null, { id: 'f', placedOn: '2026-11-01', age0: 2 }, null, null], 'P 0029: نهاية مفتوحة null مقبولة، والفوج بشكله، وبلاه (أو خادم قبل 0029) null');
+          [null, { id: 'f', placedOn: '2026-11-01', age0: 2 }, null, null], 'P 0030: نهاية مفتوحة null مقبولة، والفوج بشكله، وبلاه (أو خادم قبل 0029) null');
       }
       t.same(
         bad.map(([, spoil]) => {
