@@ -1,11 +1,11 @@
-// 0028 body (from the first non-comment line to the end) split at blank lines into parts of about TARGET characters; each part becomes an insert
-// into private._m0028 with $c28$ quoting, and every run of 4+ box-drawing characters becomes repeat() so it is never counted by hand.
+// 0029 body (from the first non-comment line to the end) split at blank lines into parts of about TARGET characters; each part becomes an insert
+// into private._m0029 with $c29$ quoting, and every run of 4+ box-drawing characters becomes repeat() so it is never counted by hand.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const dir = __dirname;
 const TARGET = Number(process.argv[2] || 11000);
-const m = fs.readFileSync(process.argv[3] || '/home/user/poultry-saas/supabase/migrations/0028_bird_sales_close.sql', 'utf8');
+const m = fs.readFileSync('/home/user/poultry-saas/supabase/migrations/0029_bird_sales_close.sql', 'utf8');
 const lines = m.split('\n');
 let i = 0;
 while (i < lines.length && (lines[i].startsWith('--') || lines[i].trim() === '')) i++;
@@ -26,14 +26,14 @@ if (cur) parts.push(cur);
 if (parts.join('') !== body) throw new Error('parts do not rebuild the body');
 const box = String.fromCodePoint(0x2500);
 const re = new RegExp(`${box}{4,}`, 'gu');
-const tag = '$c28$';
+const tag = '$c29$';
 const manifest = [];
 for (const f of fs.readdirSync(path.join(dir, 'q'))) fs.unlinkSync(path.join(dir, 'q', f));
 parts.forEach((p, idx) => {
   const n = idx + 1;
   if (p.includes(tag)) throw new Error('tag inside part');
   const quoted = p.replace(re, (r) => `${tag} || repeat('${box}', ${r.length}) || ${tag}`);
-  const q = `insert into private._m0028 (n, part) values (${n}, ${tag}${quoted}${tag}) returning n, md5(part), length(part);`;
+  const q = `insert into private._m0029 (n, part) values (${n}, ${tag}${quoted}${tag}) returning n, md5(part), length(part);`;
   fs.writeFileSync(path.join(dir, 'q', `q${String(n).padStart(2, '0')}.sql`), q);
   manifest.push({ n, md5: md5(p), chars: cp(p), qchars: cp(q) });
 });
