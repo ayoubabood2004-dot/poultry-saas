@@ -794,6 +794,8 @@ export default async function (t) {
       t.same([byAction('program-conflict').length, bandsOf(10), bandsOf(35), m.isWindowDirty()], [0, [], ['غمبورو'], false], 'V3 «خذ الجدول المحفوظ» يترك تعديلك ويعرض المحفوظ');
     });
 
+    // كلمة الزبون 2026-11-15 (0028): لكلّ قاعة أن يكون لها جدول خاصّ، فحذف لقاح يُشيله «من كلّ جداول اللقاحات» لا «من جدولي اللاحم والبيّاض»
+    // (وأيّامه في جداول القاعات تُسمّى في hall-vaccines-screens).
     await step('V4 الحذف: يُحذف أو يُخفى', async () => {
       const { rpcLog } = fresh(MANAGER, {
         rpcs: {
@@ -805,21 +807,21 @@ export default async function (t) {
       await click(withId('vac-delete', ND));
       t.same(
         [all().find((n) => n.localName === 'h2' && n.textContent.startsWith('احذف لقاح'))?.textContent, textOf('delete-effect'), byAction('delete-days').map((n) => n.textContent), textOf('delete-go')],
-        ['احذف لقاح «ND»', 'لم يُؤشَّر هذا اللقاح قطّ، فيُحذف نهائياً ويُشال من جدولي اللاحم والبيّاض.', ['أيّامه في جدول اللاحم: 7، 14.'], 'احذف اللقاح'],
+        ['احذف لقاح «ND»', 'لم يُؤشَّر هذا اللقاح قطّ، فيُحذف نهائياً ويُشال من كلّ جداول اللقاحات.', ['أيّامه في جدول اللاحم: 7، 14.'], 'احذف اللقاح'],
         'V4 لقاح لم يُؤشَّر: «يُحذف نهائياً» بأيّامه في الجدول',
       );
       await click(byAction('delete-go')[0]);
       await settle();
-      t.same([named(rpcLog, 'delete_vaccine'), lastToast()], [[{ p_id: ND, p_expected_version: 1 }], 'حُذف اللقاح «ND» وأُزيلت أيّامه من الجدولين.'], 'V4 delete_vaccine بنسخته، و«حُذف»');
+      t.same([named(rpcLog, 'delete_vaccine'), lastToast()], [[{ p_id: ND, p_expected_version: 1 }], 'حُذف اللقاح «ND» وأُزيلت أيّامه من كلّ الجداول.'], 'V4 delete_vaccine بنسخته، و«حُذف»');
       await click(withId('vac-delete', IB));
       t.same(
         [all().find((n) => n.localName === 'h2' && n.textContent.startsWith('أخفِ لقاح'))?.textContent, textOf('delete-effect'), textOf('delete-go')],
-        ['أخفِ لقاح «IB»', 'أُشِّر هذا اللقاح من قبل، فلا يُمحى: يُخفى من القائمة ومن جدولي اللاحم والبيّاض، وتبقى تأشيراته السابقة باسمه.', 'أخفِ اللقاح'],
+        ['أخفِ لقاح «IB»', 'أُشِّر هذا اللقاح من قبل، فلا يُمحى: يُخفى من القائمة ومن كلّ جداول اللقاحات، وتبقى تأشيراته السابقة باسمه.', 'أخفِ اللقاح'],
         'V4 لقاح أُشِّر من قبل (in_use): «يُخفى» لا «يُحذف»',
       );
       await click(byAction('delete-go')[0]);
       await settle();
-      t.same([named(rpcLog, 'delete_vaccine')[1], lastToast()], [{ p_id: IB, p_expected_version: 2 }, 'أُخفي اللقاح «IB» وأُزيلت أيّامه من الجدولين: أُشِّر من قبل، فبقيت تأشيراته باسمه.'], 'V4 وجواب archived يُقال «أُخفي»');
+      t.same([named(rpcLog, 'delete_vaccine')[1], lastToast()], [{ p_id: IB, p_expected_version: 2 }, 'أُخفي اللقاح «IB» وأُزيلت أيّامه من كلّ الجداول: أُشِّر من قبل، فبقيت تأشيراته باسمه.'], 'V4 وجواب archived يُقال «أُخفي»');
     });
     await step('V4 الحذف وفي الجدول تعديل', async () => {
       const { rpcLog } = fresh(MANAGER, { rpcs: { vaccine_board: () => clone(F.vaccine_board), delete_vaccine: (args) => ({ id: args.p_id, result: 'deleted' }) } });
@@ -848,7 +850,7 @@ export default async function (t) {
       t.same([byAction('delete-retry').length, textOf('delete-dialog')?.includes('لا نعرف إن حُذف اللقاح: أعد المحاولة؛ لن يُحذف مرّتين.')], [1, true], 'V4 النتيجة المجهولة تجمّد بـ«أعد المحاولة»');
       await click(byAction('delete-retry')[0]);
       await settle();
-      t.same([named(rpcLog, 'delete_vaccine'), lastToast(), byAction('delete-dialog').length], [[{ p_id: ND, p_expected_version: 1 }, { p_id: ND, p_expected_version: 1 }], 'حُذف اللقاح «ND» وأُزيلت أيّامه من الجدولين.', 0], 'V4 الإعادة حرفاً؛ ورفضها بـvaccine_not_found يُقرأ فيه اللقاح غائباً: حُذف بالأولى');
+      t.same([named(rpcLog, 'delete_vaccine'), lastToast(), byAction('delete-dialog').length], [[{ p_id: ND, p_expected_version: 1 }, { p_id: ND, p_expected_version: 1 }], 'حُذف اللقاح «ND» وأُزيلت أيّامه من كلّ الجداول.', 0], 'V4 الإعادة حرفاً؛ ورفضها بـvaccine_not_found يُقرأ فيه اللقاح غائباً: حُذف بالأولى');
     });
 
     await step('V5 إضافة لقاح وتعديله', async () => {
@@ -1149,9 +1151,10 @@ export default async function (t) {
       );
       await click(byAction('delete-go')[0]);
       await settle();
+      // «من كلّ الجداول» لا «من الجدولين»: جداول القاعات الخاصّة (كلمة الزبون 2026-11-15، 0028).
       t.same(
         [named(rpcLog, 'delete_vaccine').map((args) => args.p_expected_version), lastToast()],
-        [[1, 2], 'أُخفي اللقاح «غمبورو» وأُزيلت أيّامه من الجدولين: أُشِّر من قبل، فبقيت تأشيراته باسمه.'],
+        [[1, 2], 'أُخفي اللقاح «غمبورو» وأُزيلت أيّامه من كلّ الجداول: أُشِّر من قبل، فبقيت تأشيراته باسمه.'],
         'V15 والحذف التالي بنسخته الجديدة',
       );
     });
