@@ -9,8 +9,9 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
-import type { Milli } from '../../domain/money';
+import { roundHalfAway, type Milli } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import type { ItemKind } from '../../domain/stores';
@@ -308,6 +309,52 @@ function editsFromRequest(request: ProduceRequest, materials: readonly FormMater
       .map((line) => ({ itemId: line.itemId, name: line.name, inBasis: line.inBasis, unit: line.unit, density: line.density, text: fmtMilli(line.qty) })),
     topUp: null,
   };
+}
+
+/** ما يمنع «وزّع على الموادّ»: مادّة بلا كمية، أو مادّة لا يُنتج بها الآن، أو كمية تصير صفراً أو تتجاوز حدّ الخادم. */
+export type ScaleProblem = 'missing' | 'blocked' | 'too_small' | 'too_large';
+
+/**
+ * «كم تريد أن تنتج؟» (كلمة الزبون 2026-11-15: «ماكو خانة اكتب بها مثل 25 طن… شو ادوس انتاج يطلع لي تم الانتاج طن واحد بس»): كمية كلّ مادّة
+ * مضروبة بنسبة الناتج المطلوب إلى ناتج الكميات الآن، فتبقى نسب الموادّ كما هي (من آخر إنتاج أو ممّا كُتب)، والوقود والتعبئة خارج الكتلة بالنسبة
+ * نفسها. كلّ كمية بالتقريب الوحيد بثلاث مراتب بوحدتها، وما يبقى من التقريب (غرامات) على أكبر مادّة بالكيلو داخل الكتلة، فيبلغ الناتج المطلوب بالضبط
+ * (وبلا مادّة بالكيلو يبقى الفرق ظاهراً في «الناتج»). وبلا نسبة تُعرف (مادّة بلا كمية، أو بمشكلة، أو كتلة صفر) لا شيء يُضرب.
+ */
+export function scaleTo(rows: readonly ProduceRow[], target: Milli): { quantities: ReadonlyMap<string, Milli>; mass: Milli } | { problem: ScaleProblem } {
+  if (rows.some((row) => row.problem !== null)) return { problem: 'blocked' };
+  const inside = rows.filter((row) => row.inBasis);
+  if (!inside.length || rows.some((row) => row.qty === null) || inside.some((row) => row.mass === null)) return { problem: 'missing' };
+  const current = inside.reduce((sum, row) => sum + (row.mass ?? 0n), 0n);
+  if (current <= 0n || target <= 0n) return { problem: 'missing' };
+  const quantities = new Map<string, Milli>();
+  for (const row of rows) {
+    const qty = roundHalfAway((row.qty ?? 0n) * target, current);
+    if (qty <= 0n) return { problem: 'too_small' };
+    if (qty >= QTY_LIMIT) return { problem: 'too_large' };
+    quantities.set(row.itemId, qty);
+  }
+  const massNow = (): Milli => inside.reduce((sum, row) => sum + (massOf(quantities.get(row.itemId) ?? 0n, row.unit, row.density) ?? 0n), 0n);
+  const rest = target - massNow();
+  if (rest !== 0n) {
+    let largest: ProduceRow | null = null;
+    for (const row of inside) {
+      if (row.unit === 'kg' && (largest === null || (quantities.get(row.itemId) ?? 0n) > (quantities.get(largest.itemId) ?? 0n))) largest = row;
+    }
+    const adjusted = largest === null ? null : (quantities.get(largest.itemId) ?? 0n) + rest;
+    if (largest !== null && adjusted !== null && adjusted > 0n && adjusted < QTY_LIMIT) quantities.set(largest.itemId, adjusted);
+  }
+  return { quantities, mass: massNow() };
+}
+
+/** الكميات السريعة لـ«كم تريد أن تنتج؟» بالأطنان (كلمة الزبون: «مثل 25 طن… عشرين طن»). */
+export const QUICK_TONS: readonly bigint[] = [1n, 5n, 10n, 20n, 25n];
+
+/** جملة ما منع «وزّع على الموادّ». */
+function scaleProblemText(problem: ScaleProblem): string {
+  if (problem === 'missing') return t('mill.target.missing', 'اكتب كمية كلّ مادّة أوّلاً (ولو لطنّ واحد)، ثمّ اكتب هنا كم تريد أن تنتج فتُضرب الكميات بنسبها.');
+  if (problem === 'blocked') return t('mill.target.blocked', 'في الموادّ مادّة لا يُنتَج بها الآن (سببها مكتوب تحتها): أزلها أوّلاً.');
+  if (problem === 'too_small') return t('mill.target.too_small', 'الناتج المطلوب صغير جدّاً: تصير كمية مادّة صفراً. اكتب كمية أكبر.');
+  return t('mill.target.too_large', 'الناتج المطلوب أكبر ممّا يُسجَّل في دفعة واحدة. اكتب كمية أصغر.');
 }
 
 /** موادّ الإنتاج تخالف موادّ الخلطة (مجموعة المعرّفات، والترتيب لا يُحسب). */
@@ -635,6 +682,15 @@ export default function ProducePage() {
   const [pickPending, setPickPending] = useState<string | null>(null);
   const [pickFailure, setPickFailure] = useState<string | null>(null);
   const [pickNote, setPickNote] = useState<string | null>(null);
+  /** «كم تريد أن تنتج؟»: النصّ ووحدته (الطنّ افتراضاً)، وجملة آخر توزيع أو ما منعه. */
+  const [targetText, setTargetText] = useState('');
+  const [targetUnit, setTargetUnit] = useState<'t' | 'kg'>('t');
+  const [targetNote, setTargetNote] = useState<{ ok: boolean; text: string } | null>(null);
+  /**
+   * نسب آخر توزيع: الصفوف التي حُسب منها، وما كُتب في الخانات بعده. توزيع ثانٍ والخانات كما تركها الأوّل يُحسب من الصفوف نفسها لا من كميات مقرّبة
+   * (1,234 كغم ثمّ 25 طنّاً كانت تعطي الملح 539.992 بدل 540)، وأيّ تعديل يدويّ بينهما يجعل الكميات الآن هي النسب.
+   */
+  const [scaleBasis, setScaleBasis] = useState<{ rows: readonly ProduceRow[]; texts: ReadonlyMap<string, string> } | null>(null);
   const [busy, setBusy] = useState(false);
   /** الطلب الذي في الطريق: «أنتج» أو «احفظ مسوّدة» (مؤشّر الانتظار على زرّه). */
   const [busyDraft, setBusyDraft] = useState(false);
@@ -686,7 +742,9 @@ export default function ProducePage() {
   const target = baseKnown && baseMass > 0n ? nextTon(baseMass) : 0n;
   const gap = target - baseMass;
   const problemRows = rows.filter((row) => row.problem !== null);
-  const roundable = massKnown && baseKnown && gap > 0n && !problemRows.length && (topUp === null || topUp.gap !== gap);
+  // «قرّب» حين يبقى للطنّ القليل وحده (كلمة المالك 2026-11-10: «اذا باقي للطن شوية»): الفرق عُشر الطنّ المقصود أو أقلّ. شاشة الزبون (2026-11-15) عرضت
+  // «قرّب إلى طنّين (+990 كغم)» لناتج 1,010 كغم؛ والكمية الكبيرة تُكتب في «كم تريد أن تنتج؟».
+  const roundable = massKnown && baseKnown && gap > 0n && gap * 10n <= target && !problemRows.length && (topUp === null || topUp.gap !== gap);
   const shortOf = (row: ProduceRow): Milli | null => {
     const have = available(row.itemId);
     return have !== null && row.qty !== null && row.qty > have ? row.qty - have : null;
@@ -783,6 +841,41 @@ export default function ProducePage() {
       if (!old) return before;
       return { ...before, topUp: null, extras: old.created ? before.extras.filter((entry) => entry.itemId !== old.itemId) : before.extras };
     });
+
+  /** الناتج المطلوب بالكيلو (بالآلاف) من النصّ ووحدته، أو null. */
+  const targetOf = (text: string, unit: 't' | 'kg'): Milli | null => {
+    const value = positive(text);
+    if (value === null) return null;
+    const kg = unit === 't' ? value * 1_000n : value;
+    return kg < QTY_LIMIT ? kg : null;
+  };
+  /** «وزّع على الموادّ»: كلّ كمية بنسبتها حتى يبلغ الناتج المطلوب (scaleTo)، والإكمال السابق يذوب في الكميات الجديدة. */
+  const applyTarget = (target: Milli | null) => {
+    if (locked) return;
+    if (target === null) {
+      setTargetNote({ ok: false, text: t('mill.target.bad', 'اكتب الناتج المطلوب رقماً أكبر من صفر.') });
+      return;
+    }
+    const untouched = scaleBasis !== null && rows.length === scaleBasis.texts.size && rows.every((row) => scaleBasis.texts.get(row.itemId) === row.text);
+    const from = untouched ? scaleBasis.rows : rows;
+    const scaled = scaleTo(from, target);
+    if ('problem' in scaled) {
+      setTargetNote({ ok: false, text: scaleProblemText(scaled.problem) });
+      return;
+    }
+    setScaleBasis({ rows: from, texts: new Map(rows.map((row) => [row.itemId, fmtMilli(scaled.quantities.get(row.itemId) ?? 0n)])) });
+    const recipeRows = rows.filter((row) => row.fromRecipe);
+    setEdits((before) => ({
+      ...before,
+      texts: { ...before.texts, ...Object.fromEntries(recipeRows.map((row) => [row.itemId, fmtMilli(scaled.quantities.get(row.itemId) ?? 0n)])) },
+      extras: before.extras.map((extra) => {
+        const qty = scaled.quantities.get(extra.itemId);
+        return qty === undefined ? extra : { ...extra, text: fmtMilli(qty) };
+      }),
+      topUp: null,
+    }));
+    setTargetNote({ ok: true, text: t('mill.target.done', 'وُزّعت الكميات على الموادّ بنسبها: الناتج {kg}.', { kg: kgText(scaled.mass) }) });
+  };
 
   const openPick = (kind: 'add' | 'gap') => {
     setPickFailure(null);
@@ -957,6 +1050,9 @@ export default function ProducePage() {
     setExpiryText('');
     setFailure(null);
     setChanged(null);
+    setTargetText('');
+    setTargetNote(null);
+    setScaleBasis(null);
     formState.retry();
   };
 
@@ -1234,6 +1330,78 @@ export default function ProducePage() {
           </span>
         </Notice>
       ) : null}
+
+      {/* «كم تريد أن تنتج؟» (كلمة الزبون 2026-11-15): الناتج المطلوب بالطنّ أو الكيلو يضرب كميات الموادّ بنسبها (scaleTo)، والكميات السريعة تطبّق فوراً. */}
+      <section className="card flex flex-col gap-3 p-4" data-action="target-card">
+        <h2 className="text-lg font-semibold">{t('mill.target.title', 'كم تريد أن تنتج؟')}</h2>
+        <p className="text-sm text-ink-muted">
+          {t('mill.target.hint', 'اكتب الناتج الذي تريده ثمّ اضغط «وزّع على الموادّ»: تُضرب كمية كلّ مادّة بنسبتها الآن حتّى يبلغ الناتج ما كتبته، ثمّ عدّل ما شئت.')}
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-40">
+            <Field id={`${fieldId}-target`} label={t('mill.target.label', 'الناتج المطلوب')}>
+              <input
+                id={`${fieldId}-target`}
+                className="input text-end tabular-nums"
+                inputMode="decimal"
+                dir="ltr"
+                autoComplete="off"
+                value={targetText}
+                disabled={locked}
+                onChange={(event) => {
+                  setTargetText(event.target.value);
+                  setTargetNote(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') applyTarget(targetOf(targetText, targetUnit));
+                }}
+                data-action="target-qty"
+              />
+            </Field>
+          </div>
+          <div className="w-40" data-action="target-unit">
+            <Segmented
+              label={t('mill.target.unit', 'وحدة الناتج المطلوب')}
+              options={[
+                { value: 't', label: t('mill.ton', 'طنّ') },
+                { value: 'kg', label: unitWord('kg') },
+              ]}
+              value={targetUnit}
+              onChange={(next) => {
+                setTargetUnit(next);
+                setTargetNote(null);
+              }}
+            />
+          </div>
+          <Button variant="secondary" disabled={locked || targetText.trim() === ''} onClick={() => applyTarget(targetOf(targetText, targetUnit))} data-action="target-apply">
+            {t('mill.target.apply', 'وزّع على الموادّ')}
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t('mill.target.quick', 'كميات سريعة')}>
+          {QUICK_TONS.map((tons) => (
+            <Button
+              key={fmtMilli(tons)}
+              size="sm"
+              variant="secondary"
+              disabled={locked}
+              onClick={() => {
+                setTargetText(fmtMilli(tons * 1_000n));
+                setTargetUnit('t');
+                applyTarget(tons * TON);
+              }}
+              data-action="target-quick"
+              data-tons={fmtMilli(tons * 1_000n)}
+            >
+              {tonsText(tons * TON)}
+            </Button>
+          ))}
+        </div>
+        {targetNote ? (
+          <p role="status" className={targetNote.ok ? 'text-sm font-medium text-brand-700 dark:text-brand-200' : 'text-sm text-warn-800 dark:text-warn-200'} data-action="target-note">
+            {targetNote.text}
+          </p>
+        ) : null}
+      </section>
 
       <section className="card flex flex-col gap-3 overflow-hidden p-0">
         <div className="h-2" style={{ background: color.solid }} aria-hidden="true" />

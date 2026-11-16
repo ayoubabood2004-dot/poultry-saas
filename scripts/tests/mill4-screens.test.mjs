@@ -68,7 +68,7 @@ async function bundle() {
     "export { default as WarehousePage, feedSections } from './src/pages/inventory/WarehousePage.tsx';",
     "export * as repo from './src/lib/repo/mill.ts';",
     "export * as inventoryRepo from './src/lib/repo/inventory.ts';",
-    "export { pendingKey, storePending, readPending, produceRows, materialsDiffer } from './src/pages/mill/ProducePage.tsx';",
+    "export { pendingKey, storePending, readPending, produceRows, materialsDiffer, scaleTo, QUICK_TONS } from './src/pages/mill/ProducePage.tsx';",
     "export { historyEvents, fromBatchText } from './src/pages/mill/RecipeHistory.tsx';",
     "export { PALETTE, OTHER_COLOR, pieceColor, slotsOf } from './src/pages/mill/shared.tsx';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
@@ -543,7 +543,9 @@ export default async function (t) {
       t.same(pieces.map((n) => n.getAttribute('data-slot')), ['0', '1', '2', '3'], 'R1 شريط التركيبة الحيّ: قطعة لكلّ نقطة');
       t.same([textOf('input-store'), textOf('output-store'), byAction('store-to').length], ['تُسحب الموادّ من: «مخزن المواد الأوّلية»', 'يدخل الناتج: «رصيد العلف»', 0], 'R1 الناتج يدخل «رصيد العلف» بلا اختيار مخزن');
       t.same([byAction('round-ton').length, byAction('recipe-diff').length, disabled(byAction('produce-go')[0]), byAction('produce-missing').length], [0, 0, false, 0], 'R1 طنّ كامل والموادّ كالخلطة: لا «قرّب» ولا اختيار، و«أنتج» مفتوح');
-      t.same([byAction('quick-qty').length, byAction('produce-qty').length], [0, 0], 'R1 لا كمية كلّية ولا كميات سريعة');
+      // كان «لا كمية كلّية ولا كميات سريعة» (0025)؛ وكلمة الزبون 2026-11-15 («ماكو خانة اكتب بها مثل 25 طن»): خانة الناتج المطلوب وكميات سريعة بالأطنان.
+      t.same([byAction('target-qty').length, byAction('target-quick').map((n) => n.textContent), textOf('target-qty') === null ? null : byAction('target-qty')[0].value],
+        [1, ['طنّ واحد', '5 أطنان', '10 أطنان', '20 طنّاً', '25 طنّاً'], ''], 'R1 «كم تريد أن تنتج؟»: خانة فارغة وكميات سريعة بالأطنان');
       t.ok(/(^|\s)w-32(\s|$)/u.test(qtyInput('ذرة صفراء')?.getAttribute('class') ?? ''), 'R1 خانة الكمية بعرض ثابت (w-32، مراجعة 0023 S3)');
       // الهاتف (390، فحص Chromium): عمود المادّة بين 6rem و10rem لا min-w-48 (نصف الشاشة)، فتظهر خانة الكمية ووحدتها بلا تمرير.
       const nameHeader = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
@@ -627,6 +629,78 @@ export default async function (t) {
       await click(byAction('produce-go')[0]);
       t.same(named(rpcLog, 'produce_batch')[0]?.p_lines.map((line) => [line.item_id, line.qty]),
         [['i-corn', '580.000'], ['i-soy', '360.000'], ['i-oil', '20.000'], ['i-diesel', '2.000'], ['i-premix', '41.600']], 'R ويُرسل بالكميات المعروضة');
+    });
+
+    // ── T: «كم تريد أن تنتج؟» (كلمة الزبون 2026-11-15: «ماكو خانة اكتب بها مثل 25 طن… شو ادوس انتاج يطلع لي تم الانتاج طن واحد بس») ──────────
+    {
+      const row = (itemId, qty, { unit = 'kg', density = null, inBasis = true, problem = null } = {}) => {
+        const mass = qty === null ? null : unit === 'kg' ? qty : null;
+        return { itemId, name: itemId, unit, density, inBasis, archived: false, fromRecipe: true, defaultQty: null, defaultSource: null, text: '', baseQty: qty, added: null, qty, mass, baseMass: mass, problem };
+      };
+      const thirds = m.scaleTo([row('a', 1_000n), row('b', 1_000n), row('c', 1_000n)], 1_000n);
+      t.same([...thirds.quantities.values(), thirds.mass], [334n, 333n, 333n, 1_000n], 'T التقريب لكلّ مادّة بثلاث مراتب، وما بقي منه (غرام) على أكبر مادّة بالكيلو: الناتج المطلوب بالضبط');
+      t.same(m.scaleTo([row('a', 600_000n), row('b', null)], 20_000_000n), { problem: 'missing' }, 'T مادّة بلا كمية: لا نسبة تُعرف');
+      t.same(m.scaleTo([row('a', 600_000n), row('b', 1_000n, { problem: 'density' })], 20_000_000n), { problem: 'blocked' }, 'T مادّة لا يُنتَج بها: لا يُضرب شيء');
+      t.same(m.scaleTo([row('a', 600_000n), row('b', 1n)], 1n), { problem: 'too_small' }, 'T كمية تصير صفراً تُرفض');
+      t.same(m.QUICK_TONS, [1n, 5n, 10n, 20n, 25n], 'T الكميات السريعة بالأطنان');
+    }
+    await step('T «كم تريد أن تنتج؟» على الشاشة', async () => {
+      const { rpcLog } = produceSetup(MANAGER);
+      await mount(produceUrl);
+      const quick = (tons) => byAction('target-quick').find((n) => n.getAttribute('data-tons') === tons);
+      await click(quick('20'));
+      t.same(
+        [['ذرة صفراء', 'كسبة صويا', 'زيت', 'ملح', 'كاز المولّدة'].map((name) => qtyInput(name)?.value), textOf('produce-mass'), textOf('target-note'), byAction('target-qty')[0]?.value, byAction('round-ton').length],
+        [['12,000', '7,200', '400', '432', '40'], 'الناتج: 20,000 كغم (قبل الهدر)', 'وُزّعت الكميات على الموادّ بنسبها: الناتج 20,000 كغم.', '20', 0],
+        'T «20 طنّاً»: كلّ مادّة بنسبتها من آخر إنتاج (الزيت باللتر، والكاز خارج الكتلة بالنسبة نفسها)، والناتج 20 طنّاً بالضبط',
+      );
+      type(byAction('target-qty')[0], '2.5');
+      await settle();
+      await click(byAction('target-apply')[0]);
+      t.same([qtyInput('ذرة صفراء')?.value, qtyInput('زيت')?.value, textOf('produce-mass')], ['1,500', '50', 'الناتج: 2,500 كغم (قبل الهدر)'], 'T «2.5» طنّ مكتوبة: من الكميات الآن بنسبها');
+      const kgOption = descendants(byAction('target-unit')[0]).find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'كغم');
+      await click(kgOption);
+      type(byAction('target-qty')[0], '1,234');
+      await settle();
+      await click(byAction('target-apply')[0]);
+      t.same([qtyInput('ذرة صفراء')?.value, textOf('produce-mass')], ['740.4', 'الناتج: 1,234 كغم (قبل الهدر)'], 'T بالكيلوغرام: 1,234 كغم بالضبط');
+      type(byAction('target-qty')[0], 'صفر');
+      await settle();
+      await click(byAction('target-apply')[0]);
+      t.eq(textOf('target-note'), 'اكتب الناتج المطلوب رقماً أكبر من صفر.', 'T نصّ لا يُقرأ رقماً: جملة ولا يتغيّر شيء');
+      t.eq(qtyInput('ذرة صفراء')?.value, '740.4', 'T والكميات كما كانت');
+      await click(quick('25'));
+      await click(byAction('produce-go')[0]);
+      t.same(named(rpcLog, 'produce_batch')[0]?.p_lines.map((line) => [line.item_id, line.qty]),
+        [['i-corn', '15000.000'], ['i-soy', '9000.000'], ['i-oil', '500.000'], ['i-salt', '540.000'], ['i-diesel', '50.000']], 'T «25 طنّاً» ثمّ «أنتج»: يُرسل بالكميات الموزّعة');
+    });
+    await step('T تعديل يدويّ بعد التوزيع يصير هو النسب', async () => {
+      produceSetup(MANAGER);
+      await mount(produceUrl);
+      await click(byAction('target-quick').find((n) => n.getAttribute('data-tons') === '25'));
+      type(qtyInput('ذرة صفراء'), '16,000');
+      await settle();
+      type(byAction('target-qty')[0], '13');
+      await settle();
+      await click(byAction('target-apply')[0]);
+      t.same([['ذرة صفراء', 'كسبة صويا', 'زيت', 'ملح', 'كاز المولّدة'].map((name) => qtyInput(name)?.value), textOf('produce-mass')],
+        [['8,000', '4,500', '250', '270', '25'], 'الناتج: 13,000 كغم (قبل الهدر)'], 'T الذرة عُدّلت بيده إلى 16,000 (المجموع 26,000): «13» طنّاً نصف الكميات الآن، لا نسب آخر إنتاج');
+    });
+    await step('T أوّل إنتاج بلا كميات', async () => {
+      produceSetup(MANAGER, { form: () => ({ ...clone(F.production_form.first), output_store: { id: 'w-feed', name: 'رصيد العلف' } }) });
+      await mount(produceUrl);
+      await click(byAction('target-quick')[0]);
+      t.eq(textOf('target-note'), 'اكتب كمية كلّ مادّة أوّلاً (ولو لطنّ واحد)، ثمّ اكتب هنا كم تريد أن تنتج فتُضرب الكميات بنسبها.', 'T أوّل إنتاج: لا نسبة بعد، والجملة تقول ما يُكتب');
+    });
+    await step('T «قرّب» للقليل الباقي وحده', async () => {
+      produceSetup(MANAGER);
+      await mount(produceUrl);
+      type(qtyInput('ذرة صفراء'), '610');
+      await settle();
+      t.same([textOf('produce-mass'), byAction('round-ton').length], ['الناتج: 1,010 كغم (قبل الهدر)', 0], 'T ناتج 1,010 كغم: لا «قرّب إلى طنّين (+990 كغم)» (الفرق أكثر من عُشر الطنّ المقصود؛ شاشة الزبون)');
+      type(qtyInput('ذرة صفراء'), '1,560');
+      await settle();
+      t.same([textOf('produce-mass'), textOf('round-ton')], ['الناتج: 1,960 كغم (قبل الهدر)', 'قرّب إلى طنّين (+40 كغم)'], 'T والقليل الباقي للطنّ يُقرَّب كما كان');
     });
 
     await step('R «عدّل الخلطة» وللخلطة مسوّدة (مراجعة شاشات 0025 #3)', async () => {
