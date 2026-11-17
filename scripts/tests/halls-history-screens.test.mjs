@@ -995,6 +995,32 @@ export default async function (t) {
       const parsed = samples.map((sample) => shapeError(() => m.repo.parseHallsHistory(sample)));
       t.ok(samples.length > 0, 'X عيّنات halls_history الحقيقية موجودة');
       t.same(parsed, samples.map(() => 'لم يرمِ'), 'X كلّ عيّنة حقيقية يقرؤها المحلّل بلا خطأ شكل');
+
+      // التكامل: جواب القاعدة الحقيقي يمرّ بالصفحة الحقيقية (درس 2026-11-02)، لا بالمحلّل وحده: جداول كلّ نوع بعدد أيّامه وأشهره، والمجاميع من
+      // سطور الخادم، وأحداث الشهر، وملاحظة اليوم المختار.
+      await step('X2 الصفحة على العيّنة الحقيقية', async () => {
+        const real = JSON.parse(readFileSync(REAL, 'utf8')).halls_history;
+        fresh(as('owner'), { halls_day: (args) => dayFor(args.p_on), halls_history: () => JSON.parse(JSON.stringify(real)) });
+        await mount('/halls/day?on=2026-11-14');
+        const kinds = byAction('hist-kind');
+        const [br, ly] = real.kinds;
+        const cellsOf = (rows) => (rows ?? []).flat();
+        t.same(
+          [
+            kinds.map((n) => n.getAttribute('data-kind')),
+            tableRows(daysCaption(BR, NOV_NAME))?.length,
+            tableRows(daysCaption(LY, NOV_NAME))?.length,
+            tableRows(monthsCaption(BR))?.length,
+            ['27', '3'].every((cell) => cellsOf(tableFoot(daysCaption(BR, NOV_NAME))).includes(cell)),
+            ['52', '400'].every((cell) => cellsOf(tableFoot(monthsCaption(BR))).includes(cell)),
+            within(kinds[0], 'hist-event').length,
+            within(kinds[1], 'hist-no-events').length,
+            textOf('hist-note-text')?.includes('ملاحظة جديدة بعد المسح') ?? false,
+          ],
+          [['broiler', 'layer'], br.days.length, ly.days.length, br.months.length, true, true, br.events.length, 1, true],
+          'X2 العيّنة الحقيقية في الصفحة: أيّام كلّ نوع وأشهره، ومجموع الشهر و«منذ البداية» من سطور الخادم (27 نافقاً و3 مستبعدين، و52 و400 مبيعاً)، وأحداث اللاحم الخمسة وبلا أحداث للبيّاض، وملاحظة يوم 14',
+        );
+      });
     }
   } finally {
     await unmount();

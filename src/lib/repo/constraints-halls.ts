@@ -25,6 +25,10 @@ export const HALLS_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   hall_vaccine_programs_end_age_check: () => t('constraint.hall_vaccine_programs_end_age_check', 'نهاية الدورة في جدول القاعة عدد أيّام من 1 إلى 1,000.'),
   hall_vaccine_programs_version_check: () => t('constraint.hall_vaccine_programs_version_check', 'نسخة جدول القاعة تبدأ من 1.'),
   hall_vaccine_program_days_age_check: () => t('constraint.hall_vaccine_program_days_age_check', 'يوم العمر في جدول القاعة من 1 إلى 1,000.'),
+  // 0031: ملاحظة يوم تحت تقرير القاعات اليومي (عقد 0031، كلمة المالك 2026-11-17).
+  halls_day_notes_note_check: () => t('constraint.halls_day_notes_note_check', 'الملاحظة لا تزيد على 500 حرف، بلا فراغ في طرفيها.'),
+  halls_day_notes_version_check: () => t('constraint.halls_day_notes_version_check', 'نسخة الملاحظة يكتبها الخادم.'),
+  halls_day_notes_on_date_check: () => t('constraint.halls_day_notes_on_date_check', 'يوم الملاحظة يوم من التقويم.'),
 };
 
 registerConstraintHints(HALLS_CONSTRAINT_HINTS);
