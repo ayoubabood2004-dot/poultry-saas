@@ -832,6 +832,30 @@ export default async function (t) {
       for (const sample of each(R.record_sale_v2)) t.ok(m.sales.parseRecordedInvoice(clone(sample)).docNo.length > 0, 'X record_sale_v2 الحقيقيّ بالمحلّل');
       for (const sample of each(R.sale_detail)) t.ok(m.sales.parseSaleInvoice(clone(sample)).lines.length > 0, 'X sale_detail الحقيقيّ بالمحلّل');
       for (const sample of each(R.sales_overview)) t.ok(m.parseSalesOverview(clone(sample)).rows.length >= 0, 'X sales_overview الحقيقيّ بالمحلّل');
+      // X2 القيم لا الشكل وحده: كلّ خانة محلَّلة = خانتها في جواب القاعدة (مرّ محلّل القائمة بصفّ بعدّة سطور كأنّه سطر واحد لأنّ المفتاح lines_count).
+      const dec = (text, scale) => { const [whole, part = ''] = String(text).split('.'); return BigInt(whole + (part + '000').slice(0, scale)); };
+      const seen = { multi: 0, partial: 0, walkIn: 0 };
+      for (const sample of each(R.sales_overview)) {
+        const parsed = m.parseSalesOverview(clone(sample));
+        sample.rows.forEach((raw, i) => {
+          const row = parsed.rows[i];
+          const got = [row.lineCount, row.walkIn, row.money?.lineTotal, row.money?.paid, row.money?.debt, row.money?.discountTotal];
+          const want = [raw.lines_count, raw.walk_in, dec(raw.total, 2), dec(raw.paid, 2), dec(raw.debt, 2), dec(raw.discount_total, 2)];
+          t.same(got, want, `X2 صفّ ${raw.doc_no} في القائمة بقيم القاعدة`);
+          if (raw.lines_count > 1) seen.multi++;
+          if (raw.status === 'posted' && dec(raw.paid, 2) > 0n && dec(raw.debt, 2) > 0n) seen.partial++;
+          if (raw.walk_in) seen.walkIn++;
+        });
+      }
+      t.ok(seen.multi > 0 && seen.partial > 0 && seen.walkIn > 0, `X2 العيّنة تمرّ بعدّة سطور وجزء مدفوع وزبون نقديّ (${JSON.stringify(seen)})`);
+      for (const [name, raw] of Object.entries(R.sale_detail)) {
+        const inv = m.sales.parseSaleInvoice(clone(raw));
+        t.same([inv.total, inv.paid, inv.debt, inv.discountTotal, inv.walkIn, inv.lines.length], [dec(raw.total, 2), dec(raw.paid, 2), dec(raw.debt, 2), dec(raw.discount_total ?? '0', 2), raw.walk_in ?? false, raw.lines?.length ?? 1], `X2 فاتورة ${name} بقيم القاعدة`);
+        (raw.lines ?? []).forEach((line, i) => {
+          const got = inv.lines[i];
+          t.same([got.qty, got.unitQty, got.unitPrice, got.net, got.unitLabel], [dec(line.qty_base, 3), dec(line.unit_qty, 3), dec(line.unit_price, 2), dec(line.line_total, 2), line.unit_label ?? null], `X2 سطر ${i + 1} من ${name} بقيم القاعدة`);
+        });
+      }
     }
   } catch (error) {
     t.ok(false, `رمى خارج الخطوات: ${error?.stack ?? error}`);

@@ -681,7 +681,7 @@ export interface SaleRow {
 const rowMoney = (row: Row, money: Row | null): Row => ({ ...(money ?? {}), ...row });
 
 /**
- * صفّ قائمة المبيعات: بشكل 0021 (سطر واحد في الجذر: المادّة والكمية والسعر والمبلغ في money، والدفع نقد كلّه أو دين كلّه) أو بشكل 0033 (line_count
+ * صفّ قائمة المبيعات: بشكل 0021 (سطر واحد في الجذر: المادّة والكمية والسعر والمبلغ في money، والدفع نقد كلّه أو دين كلّه) أو بشكل 0033 (lines_count
  * وwalk_in، والصافي والمدفوع والدين والخصم؛ والكمية والوحدة والسعر لسطر واحد وحده).
  */
 function saleRow(row: Row): SaleRow {
@@ -698,7 +698,8 @@ function saleRow(row: Row): SaleRow {
     paymentRefunded: flagOr(row, 'payment_refunded', false),
     cost: costOf(row),
   };
-  if (row.line_count === undefined) {
+  // عدد السطور lines_count كما ترسله القاعدة (عيّنات sales-0033.json)؛ غيابه = صفّ 0021 بسطر واحد.
+  if (row.lines_count === undefined) {
     const total = money ? filsOf(money, 'line_total') : null;
     const paid = total !== null && head.payment === 'cash' ? total : 0n;
     return {
@@ -710,7 +711,7 @@ function saleRow(row: Row): SaleRow {
       money: money && total !== null ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: total, paid, debt: total - paid, discountTotal: 0n } : null,
     };
   }
-  const lineCount = nat(row, 'line_count');
+  const lineCount = nat(row, 'lines_count');
   const single = lineCount === 1 && row.qty !== undefined && row.qty !== null;
   const all = rowMoney(row, money);
   return {

@@ -318,10 +318,11 @@ function invoiceLine(entry: Row): InvoiceLine {
     itemId: str(line, 'item_id'),
     itemName: str(line, 'item_name'),
     baseUnit: oneOf(line, 'base_unit', BASE_UNITS),
-    qty: milli(line, 'qty'),
+    // أسماء القاعدة الحقيقية (عيّنات sales-0033.json): الكمية بالأساس qty_base، والسعر لوحدة السطر unit_price (وللأساس base_unit_price للعرض القديم).
+    qty: milli(line, 'qty_base'),
     unitLabel: optStr(line, 'unit_label'),
     unitQty: milli(line, 'unit_qty'),
-    unitPrice: fils(line, 'unit_price_unit'),
+    unitPrice: fils(line, 'unit_price'),
     gross: fils(line, 'gross_total'),
     lineDiscount: fils(line, 'line_discount'),
     invoiceShare: fils(line, 'invoice_discount_share'),

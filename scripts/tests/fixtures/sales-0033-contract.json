@@ -5,9 +5,48 @@
     "can_manage": false,
     "can_create_item": true,
     "rows": [
-      { "id": "w-gen", "name": "المخزن العام", "kind": "general", "site_id": "s-1", "site_name": "المخازن", "site_kind": "store", "division_id": "d-gen", "division_kind": "general", "items_count": 2, "below_minimum": 0, "near_expiry": 0, "expired": 0 },
-      { "id": "w-feed", "name": "رصيد العلف", "kind": "feed", "site_id": "s-2", "site_name": "المعمل", "site_kind": "mill", "division_id": "d-mill", "division_kind": "feed_mill", "items_count": 1, "below_minimum": 0, "near_expiry": 0, "expired": 0 },
-      { "id": "w-farm", "name": "مخزن القاعة", "kind": "farm", "site_id": "s-3", "site_name": "الحقل", "site_kind": "farm", "division_id": "d-br", "division_kind": "broiler", "items_count": 1, "below_minimum": 0, "near_expiry": 0, "expired": 0 }
+      {
+        "id": "w-gen",
+        "name": "المخزن العام",
+        "kind": "general",
+        "site_id": "s-1",
+        "site_name": "المخازن",
+        "site_kind": "store",
+        "division_id": "d-gen",
+        "division_kind": "general",
+        "items_count": 2,
+        "below_minimum": 0,
+        "near_expiry": 0,
+        "expired": 0
+      },
+      {
+        "id": "w-feed",
+        "name": "رصيد العلف",
+        "kind": "feed",
+        "site_id": "s-2",
+        "site_name": "المعمل",
+        "site_kind": "mill",
+        "division_id": "d-mill",
+        "division_kind": "feed_mill",
+        "items_count": 1,
+        "below_minimum": 0,
+        "near_expiry": 0,
+        "expired": 0
+      },
+      {
+        "id": "w-farm",
+        "name": "مخزن القاعة",
+        "kind": "farm",
+        "site_id": "s-3",
+        "site_name": "الحقل",
+        "site_kind": "farm",
+        "division_id": "d-br",
+        "division_kind": "broiler",
+        "items_count": 1,
+        "below_minimum": 0,
+        "near_expiry": 0,
+        "expired": 0
+      }
     ],
     "sites": []
   },
@@ -22,8 +61,16 @@
       "available": "1500.000",
       "sell_price": "700.00",
       "units": [
-        { "unit_id": "u-bag", "label": "كيس", "factor": "50.000000" },
-        { "unit_id": "u-ton", "label": "طن", "factor": "1000.000000" }
+        {
+          "unit_id": "u-bag",
+          "label": "كيس",
+          "factor": "50.000000"
+        },
+        {
+          "unit_id": "u-ton",
+          "label": "طن",
+          "factor": "1000.000000"
+        }
       ]
     },
     {
@@ -35,7 +82,13 @@
       "base_unit": "pc",
       "available": "40.000",
       "sell_price": "2500.00",
-      "units": [{ "unit_id": "u-box", "label": "علبة", "factor": "10.000000" }]
+      "units": [
+        {
+          "unit_id": "u-box",
+          "label": "علبة",
+          "factor": "10.000000"
+        }
+      ]
     },
     {
       "item_id": "i-corn",
@@ -59,8 +112,18 @@
     "debt": "50000",
     "walk_in": false,
     "lines": [
-      { "line_id": "l-1", "item_id": "i-feed", "qty_base": "100.000", "line_total": "66604" },
-      { "line_id": "l-2", "item_id": "i-vit", "qty_base": "30.000", "line_total": "72396" }
+      {
+        "line_id": "l-1",
+        "item_id": "i-feed",
+        "qty_base": "100.000",
+        "line_total": "66604"
+      },
+      {
+        "line_id": "l-2",
+        "item_id": "i-vit",
+        "qty_base": "30.000",
+        "line_total": "72396"
+      }
     ]
   },
   "record_sale_v2_walk_in": {
@@ -72,7 +135,14 @@
     "paid": "70000",
     "debt": "0",
     "walk_in": true,
-    "lines": [{ "line_id": "l-3", "item_id": "i-feed", "qty_base": "100.000", "line_total": "70000" }]
+    "lines": [
+      {
+        "line_id": "l-3",
+        "item_id": "i-feed",
+        "qty_base": "100.000",
+        "line_total": "70000"
+      }
+    ]
   },
   "sale_detail": {
     "id": "s-7",
@@ -104,16 +174,22 @@
         "item_id": "i-feed",
         "item_name": "علف بادئ",
         "base_unit": "kg",
-        "qty": "100.000",
         "unit_label": "كيس",
         "unit_factor": "50.000000",
         "unit_qty": "2.000",
-        "unit_price_unit": "35000.00",
         "gross_total": "70000",
         "line_discount": "1000",
         "invoice_discount_share": "2396",
         "line_total": "66604",
-        "cost": { "money": { "cost": "50000.00", "profit": "16604.00" } }
+        "cost": {
+          "money": {
+            "cost": "50000.00",
+            "profit": "16604.00"
+          }
+        },
+        "base_unit_price": null,
+        "unit_price": "35000.00",
+        "qty_base": "100.000"
       },
       {
         "line_id": "l-2",
@@ -121,23 +197,44 @@
         "item_id": "i-vit",
         "item_name": "فيتامين أ د",
         "base_unit": "pc",
-        "qty": "30.000",
         "unit_label": "علبة",
         "unit_factor": "10.000000",
         "unit_qty": "3.000",
-        "unit_price_unit": "25000.00",
         "gross_total": "75000",
         "line_discount": "0",
         "invoice_discount_share": "2604",
         "line_total": "72396",
-        "cost": { "money": { "cost": "60000.00", "profit": "12396.00" } }
+        "cost": {
+          "money": {
+            "cost": "60000.00",
+            "profit": "12396.00"
+          }
+        },
+        "base_unit_price": null,
+        "unit_price": "25000.00",
+        "qty_base": "30.000"
       }
     ],
     "payments": [
-      { "leg_no": 1, "cash_account_id": "c-1", "cash_account_name": "الصندوق الرئيسي", "amount": "50000" },
-      { "leg_no": 2, "cash_account_id": "c-2", "cash_account_name": "حوالة زين كاش", "amount": "39000" }
+      {
+        "leg_no": 1,
+        "cash_account_id": "c-1",
+        "cash_account_name": "الصندوق الرئيسي",
+        "amount": "50000"
+      },
+      {
+        "leg_no": 2,
+        "cash_account_id": "c-2",
+        "cash_account_name": "حوالة زين كاش",
+        "amount": "39000"
+      }
     ],
-    "cost": { "money": { "cost": "110000.00", "profit": "29000.00" } }
+    "cost": {
+      "money": {
+        "cost": "110000.00",
+        "profit": "29000.00"
+      }
+    }
   },
   "sale_detail_walk_in": {
     "id": "s-8",
@@ -169,19 +266,27 @@
         "item_id": "i-feed",
         "item_name": "علف بادئ",
         "base_unit": "kg",
-        "qty": "100.000",
         "unit_label": null,
         "unit_factor": "1.000000",
         "unit_qty": "100.000",
-        "unit_price_unit": "700.00",
         "gross_total": "70000",
         "line_discount": "0",
         "invoice_discount_share": "0",
         "line_total": "70000",
-        "cost": {}
+        "cost": {},
+        "base_unit_price": null,
+        "unit_price": "700.00",
+        "qty_base": "100.000"
       }
     ],
-    "payments": [{ "leg_no": 1, "cash_account_id": "c-1", "cash_account_name": "الصندوق الرئيسي", "amount": "70000" }],
+    "payments": [
+      {
+        "leg_no": 1,
+        "cash_account_id": "c-1",
+        "cash_account_name": "الصندوق الرئيسي",
+        "amount": "70000"
+      }
+    ],
     "cost": {}
   },
   "sales_overview": {
@@ -204,13 +309,24 @@
         "warehouse_name": "المخزن العام",
         "item_id": "i-feed",
         "item_name": "علف بادئ",
-        "line_count": 1,
+        "lines_count": 1,
         "walk_in": true,
         "qty": "100.000",
         "base_unit": "kg",
         "free": false,
-        "money": { "unit_price": "700.00", "total": "70000", "paid": "70000", "debt": "0", "discount_total": "0" },
-        "cost": { "money": { "cost": "50000.00", "profit": "20000.00" } }
+        "money": {
+          "unit_price": "700.00",
+          "total": "70000",
+          "paid": "70000",
+          "debt": "0",
+          "discount_total": "0"
+        },
+        "cost": {
+          "money": {
+            "cost": "50000.00",
+            "profit": "20000.00"
+          }
+        }
       },
       {
         "id": "s-7",
@@ -225,19 +341,38 @@
         "warehouse_name": "المخزن العام",
         "item_id": "i-feed",
         "item_name": "علف بادئ",
-        "line_count": 2,
+        "lines_count": 2,
         "walk_in": false,
         "free": false,
-        "money": { "total": "139000", "paid": "89000", "debt": "50000", "discount_total": "6000" },
-        "cost": { "money": { "cost": "110000.00", "profit": "29000.00" } }
+        "money": {
+          "total": "139000",
+          "paid": "89000",
+          "debt": "50000",
+          "discount_total": "6000"
+        },
+        "cost": {
+          "money": {
+            "cost": "110000.00",
+            "profit": "29000.00"
+          }
+        }
       }
     ],
     "more": false,
     "totals": {
       "count": 2,
       "voided": 0,
-      "money": { "revenue": "209000", "cash": "159000", "credit": "50000" },
-      "cost": { "money": { "cost": "160000.00", "profit": "49000.00" } }
+      "money": {
+        "revenue": "209000",
+        "cash": "159000",
+        "credit": "50000"
+      },
+      "cost": {
+        "money": {
+          "cost": "160000.00",
+          "profit": "49000.00"
+        }
+      }
     }
   }
 }
