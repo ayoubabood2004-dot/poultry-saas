@@ -7,7 +7,7 @@
 // وnext وfuture_month والشهر قبل البداية والمنشأة الفارغة (kinds = [])؛ (٤) الأحداث بترتيبها؛ (٥) النطاق؛ (٦) الملاحظة (الصلاحية والشرط والإعادة بلا نسخة
 // والحدّ والمسح بلا حذف واليوم القادم)؛ (٧) طفرات داخل معاملة صاحب الجداول ترجع: كلّ قاعدة مكسورة يمسكها فحصها، والثابت يمسك سطر شهر وسطر بداية مكسورين؛
 // (٨) التراجع داخل معاملة ترجع: يرفض بصوت والملاحظات قائمة، ويكمل بلاها فيرجّع private.actions كما في 0022 حرفاً. منشأة هذا الملفّ وحدها: المعرّفات
-// d3131000 والهواتف 96477031310. وعيّنات القاعدة الحقيقية للشاشات: HISTORY_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/halls-history-0031.json.
+// d3131000 والهواتف 96477031310 (ومنشأة النقل بين الدورات منها: المعرّفات 201 وما بعدها والهواتف 71 وما بعدها). وعيّنات القاعدة الحقيقية للشاشات: HISTORY_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/halls-history-0031.json.
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +48,8 @@ const milli = (v) => {
   return sign * (BigInt(whole.replace('-', '')) * 1000n + BigInt((frac + '000').slice(0, 3)));
 };
 const sumMilli = (rows, key) => rows.reduce((acc, r) => acc + (milli(r[key]) ?? 0n), 0n);
+/** الآلاف ← نصّ بثلاث مراتب ("-1.500"). */
+const kgText = (m) => `${m < 0n ? '-' : ''}${(m < 0n ? -m : m) / 1000n}.${String((m < 0n ? -m : m) % 1000n).padStart(3, '0')}`;
 const sumInt = (rows, key) => rows.reduce((acc, r) => acc + BigInt(r[key] ?? 0), 0n);
 const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v ?? null);
 const keysOf = (o) => Object.keys(o ?? {}).sort();
@@ -230,7 +232,9 @@ async function scenario(t, db) {
         on, flocks: tot.flocks, rounds: tot.rounds, rounds_expected: tot.rounds_expected,
         placed: flocks.filter((f) => f.placed_on === on).reduce((a, f) => a + Number(f.placed_count), 0),
         live_start: tot.live_start, dead: tot.dead, culled: tot.culled, sold: tot.sold, count_diff: tot.count_diff, live_end: tot.live_end,
-        feed_kg: tot.feed_eaten_kg, given_kg: tot.feed_given_kg, given_unweighed: tot.feed_given_unweighed,
+        // النازل من المخزن: نازل halls_day ناقص العلف المنقول من الدورة السابقة (يُعدّ يوم صُرف أوّل مرّة؛ مراجعة 0031 M1).
+        feed_kg: tot.feed_eaten_kg, given_kg: kgText(milli(tot.feed_given_kg) - flocks.reduce((a, f) => a + (milli(f.feed_carry_in_kg) ?? 0n), 0n)),
+        given_unweighed: tot.feed_given_unweighed,
         eggs_total: kind === 'layer' ? eggs : null, eggs_broken: kind === 'layer' ? broken : null, hdep: kind === 'layer' ? hdep : null,
       };
     }
@@ -419,6 +423,55 @@ async function scenario(t, db) {
     same(worker.kinds.map((k) => [k.kind, k.total.halls]), [['broiler', 4]], 'عامل الحقول بوحدة اللحم: اللاحم وحده بقاعاته الأربع (والمؤرشفة التي لها فوج)');
   });
 
+  // ── ٥ب) النقل بين الدورات (مراجعة 0031 M1) ─────────────────────────────────────────────────────────────────────────
+  // منشأة ثانية (فلا تتغيّر عيّنات الشاشات): فوج A في «قاعة 5» (23 ت1، 1,000 طير) يُصرف له 500 كغم وسطر بلا وزن، ويُغلق 2 ت2 بنقل 200 كغم والسطر بلا
+  // وزن إلى الدورة التالية، ثمّ فوج B في القاعة نفسها (7 ت2، 800 طير) يأخذ المنقول يوم تسكينه. ما نزل من المخزن 500 كغم وسطر واحد بلا وزن؛ وhalls_day يعدّ
+  // المنقول نازلاً لـB يوم تسكينه، فجمعه في الشهر و«منذ البداية» كان يعدّه مرّتين (700 كغم وسطران).
+  let C = null;
+  await section('النقل بين الدورات', async () => {
+    C = await makeOrg(db, { name: 'مزرعة النقل', id: (n) => id(200 + n), phone: (n) => phone(70 + n), roles: [['owner', 'owner'], ['manager', 'manager']] });
+    const CU = C.users;
+    const one2 = (user, sql, params) => one(user, sql, params);
+    const store = (await db.admin("select id from public.warehouses where org_id = $1 and kind = 'feed'", [C.org])).rows[0].id;
+    const siteC = await one2(CU.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل النقل', 'farm') returning id", [C.divisions.broiler]);
+    const hallC = await one2(CU.owner, "insert into public.halls (site_id, name) values ($1, 'قاعة 5') returning id", [siteC]);
+    const feedC = await one2(CU.owner, "insert into public.items (name, kind, base_unit) values ('علف النقل', 'feed', 'kg') returning id");
+    const looseC = await one2(CU.owner, "insert into public.items (name, kind, base_unit) values ('علف النقل بلا وزن', 'feed', 'pc') returning id");
+    await postedOpening(db, CU.owner, store, day(-50), [{ item: feedC, qty: 2000, value: '1000000.00' }, { item: looseC, qty: 10, value: '100000.00' }]);
+    const issueC = (flock, itemId, qty, on) => one2(CU.manager, 'select public.record_flock_issue($1, $2, $3, $4, $5, $6, $7, $8) as v', [uid(), uid(), uid(), flock, itemId, qty, on, store]);
+    let fa = null;
+    await at(day(-23), async () => {
+      fa = (await one2(CU.manager, 'select public.open_flock($1, $2, 1000, 0, null, $3) as v', [hallC, day(-25), uid()])).flock_id;
+      await issueC(fa, feedC, '500', day(-25));
+      await issueC(fa, looseC, '1', day(-25));
+    });
+    await at(day(-15), async () => {
+      const form = await one2(CU.manager, 'select public.flock_close_form($1) as v', [fa]);
+      const lines = [{ item_id: feedC, qty: '200', action: 'carry' }, { item_id: looseC, qty: '1', action: 'carry' }];
+      await one2(CU.manager, "select public.close_flock($1, $2, $3, $4, $5, $6, $7::jsonb, 'نهاية الدورة', $8::jsonb, null, $9) as v",
+        [uid(), uid(), fa, day(-15), form.flock.live, form.sales.birds, JSON.stringify(form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))),
+          JSON.stringify(lines), form.plan]);
+    });
+    await at(day(-10), async () => {
+      await one2(CU.manager, 'select public.open_flock($1, $2, 800, 0, null, $3) as v', [hallC, day(-10), uid()]);
+    });
+    const hd = await one2(CU.owner, 'select public.halls_day($1) as v', [day(-10)]);
+    const fb = hd.sites.flatMap((x) => x.halls).find((h) => h.hall_name === 'قاعة 5').flock;
+    same([fb.feed_carry_in_kg, fb.feed_given_kg, fb.feed_given_unweighed], ['200.000', '200.000', 1],
+      'البذرة: halls_day يوم تسكين B يعدّ المنقول (200 كغم وسطراً بلا وزن) نازلاً له');
+    const now = await one2(CU.owner, HISTORY, [null]);
+    const oct = await one2(CU.owner, HISTORY, ['2026-10-01']);
+    const k = kindOf(now, 'broiler');
+    same([k.total.given_kg, k.total.given_unweighed], ['500.000', 1], '«منذ البداية»: النازل من المخزن 500 كغم وسطر واحد بلا وزن (لا 700 وسطرين)');
+    same(k.months.map((m) => [m.month, m.given_kg, m.given_unweighed]), [['2026-10-01', '500.000', 1], ['2026-11-01', '0.000', 0]],
+      'الأشهر: ت1 ما صُرف، وت2 بلا نازل (المنقول نُزّل في ت1)');
+    same(k.days.find((d) => d.on === day(-10)), { ...k.days.find((d) => d.on === day(-10)), given_kg: '0.000', given_unweighed: 0, placed: 800 },
+      'يوم تسكين B في السجلّ: لا نازل من المخزن (والمنقول في halls_day نفسه)');
+    same(kindOf(oct, 'broiler').days.find((d) => d.on === day(-25)).given_kg, '500.000', 'يوم الصرف الأوّل: 500 كغم');
+    const v = Object.fromEntries((await db.asService((q) => q('select check_name, violations::int as v from public.verify_halls_history()'))).rows.map((r) => [r.check_name, r.v]));
+    same(v, { halls_note_versions: 0, history_days_month: 0, history_months_total: 0 }, 'verify_halls_history بالصفر مع النقل');
+  });
+
   // ── ٦) الملاحظة ──────────────────────────────────────────────────────────────────────────────────────────────────
   const notes = {};
   await section('الملاحظة', async () => {
@@ -428,6 +481,9 @@ async function scenario(t, db) {
       const r = await write(U[who], day(-3), 'من غير المالك', null);
       t.eq(r.ok ? 'ok' : r.code, 'forbidden', `${who}: لا يكتب ملاحظة (halls_note.write للمالك والمدير)`);
     }
+    const scopedWrite = await write(U.siteManager, day(-3), 'من مدير حقل باء', null);
+    same([scopedWrite.ok, scopedWrite.code, /للمنشأة كلّها/u.test(scopedWrite.hint ?? '')], [false, 'note_scope', true],
+      'المدير المحصور بحقل باء: لا يكتب ملاحظة المنشأة كلّها (note_scope بتلميح فصيح؛ مراجعة 0031 L4)');
     const first = await write(U.owner, day(-3), '  وصل العلف وبدأنا القاعة الثانية  ', null);
     t.ok(first.ok && first.value.note.text === 'وصل العلف وبدأنا القاعة الثانية' && first.value.on === day(-3) && first.value.note.version >= 1,
       `المالك يكتب ملاحظة اليوم (الفراغ في الطرفين يُقصّ): ${JSON.stringify(first.value ?? first)}`);
@@ -521,6 +577,24 @@ async function scenario(t, db) {
           return (await q(HISTORY, [null])).rows[0].v.notes.length;
         }),
         correct: (r) => r.ok && r.value === 1,
+      },
+      {
+        name: 'النازل من المخزن بلا المنقول',
+        fns: [[FN.history, [['sum(z.given_kg - z.carry_in_kg)', 'sum(z.given_kg)']]]],
+        run: ({ attempt }) => attempt(C.users.owner, async (q) => (await q(HISTORY, [null])).rows[0].v.kinds[0].total.given_kg),
+        correct: (r) => r.ok && r.value === '500.000',
+      },
+      {
+        name: 'سطور المنقول بلا وزن',
+        fns: [[FN.history, [['sum(z.given_unweighed - z.carry_in_unweighed)', 'sum(z.given_unweighed)']]]],
+        run: ({ attempt }) => attempt(C.users.owner, async (q) => (await q(HISTORY, [null])).rows[0].v.kinds[0].total.given_unweighed),
+        correct: (r) => r.ok && r.value === 1,
+      },
+      {
+        name: 'ملاحظة المنشأة لمن نطاقه المنشأة كلّها',
+        fns: [[FN.note, [['not public.in_scope_site(s.id)', 'false']]]],
+        run: ({ attempt }) => attempt(U.siteManager, async (q) => (await q(NOTE, [day(-6), 'من مدير حقل باء', null])).rows[0].v.note.text),
+        correct: (r) => !r.ok && r.code === 'note_scope',
       },
       {
         name: 'الثابت يمسك سطر شهر لا يساوي أيّامه',

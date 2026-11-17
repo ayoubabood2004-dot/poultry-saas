@@ -866,7 +866,14 @@ export default function DailyPage() {
   const historyFailed = !history.loading && history.error !== null;
   const historyRefusal = history.error instanceof RejectedError && history.error.hint ? history.error : null;
   const role = session.status === 'ready' ? session.workspace.role : null;
-  const canNote = role !== null && can(role, 'halls_note.write');
+  // الملاحظة للمنشأة كلّها: لمن له halls_note.write ونطاقه المنشأة كلّها (المالك، أو مدير بلا صفوف نطاق)؛ والخادم يرفض غيره note_scope (مراجعة 0031 L4).
+  const canNote =
+    role !== null && can(role, 'halls_note.write') && session.status === 'ready' && (role === 'owner' || session.workspace.scopes.length === 0);
+  // ما حفظته هذه الصفحة للتوّ (جواب set_halls_note): يُعرض بدل ملاحظة اليوم في آخر قراءة حتى تصل قراءة بعده (عدّاد القراءات الناجحة)، فالصورة والطباعة
+  // ونافذة التعديل بعد الحفظ بالنصّ والنسخة المحفوظين لا بما قبلهما، ولو فشلت القراءة التي بعده (مراجعة 0031 M2).
+  const [saved, setSaved] = useState<{ on: Day; note: HallsNote | null; reads: number } | null>(null);
+  const noteFor = (data: HallsHistory | null, on: Day): HallsNote | null =>
+    saved !== null && saved.on === on && saved.reads === historyReads ? saved.note : noteOf(data, on);
   // نافذة الملاحظة بلقطة ما عُرض حين فُتحت؛ وتُغلق إن صار المعروض يوماً غيره (رجوع المتصفّح).
   const [noting, setNoting] = useState<{ day: Day; shown: HallsNote | null } | null>(null);
   if (noting !== null && shown !== null && shown.on !== noting.day) setNoting(null);
@@ -1043,7 +1050,7 @@ export default function DailyPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!current || !historyReady} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
+          <Button size="sm" disabled={!current || !historyReady || history.loading} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
             {imaging ? t('halls.day.image.making', 'جارٍ تجهيز الصورة…') : t('halls.day.image', 'أرسل صورة')}
           </Button>
           <Button size="sm" variant="secondary" disabled={!current} onClick={() => printAs(title)} data-action="print-day">
@@ -1125,10 +1132,10 @@ export default function DailyPage() {
           <HistorySections history={historyShown} on={shown.on} />
           <NoteBlock
             on={shown.on}
-            note={noteOf(historyShown, shown.on)}
+            note={noteFor(historyShown, shown.on)}
             canWrite={canNote}
             disabled={history.loading}
-            onWrite={() => setNoting({ day: shown.on, shown: noteOf(historyShown, shown.on) })}
+            onWrite={() => setNoting({ day: shown.on, shown: noteFor(historyShown, shown.on) })}
           />
         </>
       ) : shown && !history.error ? (
@@ -1141,7 +1148,7 @@ export default function DailyPage() {
         <HallsNoteDialog
           day={noting.day}
           shown={noting.shown}
-          latest={keptHistory !== null && keptHistory.data.month === monthStartOf(noting.day) ? noteOf(keptHistory.data, noting.day) : null}
+          latest={keptHistory !== null && keptHistory.data.month === monthStartOf(noting.day) ? noteFor(keptHistory.data, noting.day) : null}
           reads={historyReads}
           failed={historyFailed}
           onClose={(uncertain) => {
@@ -1151,6 +1158,7 @@ export default function DailyPage() {
           onReread={history.retry}
           onSaved={(result) => {
             setNoting(null);
+            setSaved({ on: result.on, note: result.note, reads: historyReads });
             toast({
               tone: 'success',
               title: result.note

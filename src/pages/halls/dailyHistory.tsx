@@ -9,6 +9,7 @@ import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/err
 import { countForm, fmtCounted, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { setHallsNote, type HallsHistory, type HallsNote, type HallsNoteResult, type HistoryDay, type HistoryEvent, type HistoryKind, type HistoryMonth } from '../../lib/repo/hallReports';
+import { naturalCompare } from '../../domain/naturalOrder';
 import { monthLabel, monthOf } from './months';
 import { dash, daysText, decimalsOf, grams, kgText, pct, unweighedText } from './parts';
 import { birdsText, signedCount } from './ticketParts';
@@ -135,13 +136,22 @@ export function eventText(event: HistoryEvent): string {
   }
 }
 
-/** أحداث الشهر مجمَّعة باليوم بترتيب الخادم (اليوم ثمّ النوع ثمّ القاعة). */
+/** ترتيب أنواع الأحداث في اليوم كما يرسلها الخادم (تسكين، بيع، فرق عدّ، لقاح، وزن، إغلاق). */
+const EVENT_ORDER: Record<HistoryEvent['type'], number> = { placed: 1, sold: 2, count_diff: 3, vaccine: 4, weight: 5, closed: 6 };
+
+/**
+ * أحداث الشهر مجمَّعة باليوم بترتيب الخادم للأيّام، وداخل اليوم بالنوع ثمّ الحقل ثمّ القاعة بأرقامها («قاعة 5» قبل «قاعة 44» كجدول الحقل؛ الخادم يرتّب
+ * الأسماء حرفاً حرفاً، مراجعة 0031 L1).
+ */
 export function eventsByDay(events: readonly HistoryEvent[]): { on: Day; events: HistoryEvent[] }[] {
   const out: { on: Day; events: HistoryEvent[] }[] = [];
   for (const event of events) {
     const last = out.at(-1);
     if (last && last.on === event.on) last.events.push(event);
     else out.push({ on: event.on, events: [event] });
+  }
+  for (const group of out) {
+    group.events.sort((a, b) => EVENT_ORDER[a.type] - EVENT_ORDER[b.type] || naturalCompare(a.site, b.site) || naturalCompare(a.hall, b.hall));
   }
   return out;
 }
@@ -162,6 +172,11 @@ const givenCell = (kg: Milli, unweighed: number, decimals: 0 | 1 | 2 | 3): React
   </>
 );
 const hdepCell = (value: bigint | null): ReactNode => (value === null ? dash() : <Num>{pct(value)}</Num>);
+/**
+ * عمود النازل في السجلّ: ما نزل من المخزن وحده، والعلف المنقول من دورة سابقة في القاعة نفسها لا يُعدّ مرّة ثانية يوم تسكين الفوج الجديد (halls_history،
+ * مراجعة 0031 M1)؛ فيختلف عن «النازل» في جدول اليوم يوم النقل وحده، واسمه يقول ذلك.
+ */
+const GIVEN_HEADER = (): string => t('halls.hist.col.given', 'النازل من المخزن (كغم)');
 
 /** أعمدة أيّام الشهر، وخلايا مجموعها من سطر الشهر (monthRow) لا من جمع الصفوف؛ وبلا سطر شهر بلا مجموع. */
 function dayColumns(entry: HistoryKind, monthRow: HistoryMonth | null, on: Day): Column<HistoryDay>[] {
@@ -219,7 +234,7 @@ function dayColumns(entry: HistoryKind, monthRow: HistoryMonth | null, on: Day):
     },
     {
       key: 'given',
-      header: t('halls.day.col.given', 'النازل (كغم)'),
+      header: GIVEN_HEADER(),
       kind: 'number',
       cell: (row) => givenCell(row.givenKg, row.givenUnweighed, givenDecimals),
       total: total((m) => givenCell(m.givenKg, m.givenUnweighed, givenDecimals)),
@@ -248,10 +263,18 @@ function monthColumns(entry: HistoryKind): Column<HistoryMonth>[] {
     { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (row) => count(row.dead), total: count(total.dead) },
     { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (row) => count(row.culled), total: count(total.culled) },
     { key: 'sold', header: t('halls.hist.col.sold', 'المبيع'), kind: 'number', cell: (row) => count(row.sold), total: count(total.sold) },
+    // فرق العدّ (ومنه شطب الباقي عند الإغلاق) يُكمل حساب الحيّ في سطر الشهر كما في جدول الأيّام (مراجعة 0031 L2).
+    {
+      key: 'count_diff',
+      header: t('halls.hist.col.count_diff', 'فرق العدّ'),
+      kind: 'number',
+      cell: (row) => <Num>{signedCount(row.countDiff)}</Num>,
+      total: <Num>{signedCount(total.countDiff)}</Num>,
+    },
     { key: 'feed', header: t('halls.day.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (row) => kgCell(feedDecimals)(row.feedKg), total: kgCell(feedDecimals)(total.feedKg) },
     {
       key: 'given',
-      header: t('halls.day.col.given', 'النازل (كغم)'),
+      header: GIVEN_HEADER(),
       kind: 'number',
       cell: (row) => givenCell(row.givenKg, row.givenUnweighed, givenDecimals),
       total: givenCell(total.givenKg, total.givenUnweighed, givenDecimals),

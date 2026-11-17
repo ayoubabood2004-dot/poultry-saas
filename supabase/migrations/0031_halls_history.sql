@@ -10,11 +10,12 @@
 --     كما يختاره halls_day نفسه (المسكَّن فيه أو قبله ولم يُغلق قبله، الأحدث تسكيناً)، فيومُ الشهر = مجاميع halls_day(اليوم) لقاعات النوع حرفاً. والنطاق
 --     كـhalls_day (قاعات in_scope_site، والمؤرشفة التي لها فوج). بلا مال في أيّ مفتاح (التقرير يُرسل لغير أدوار الكلفة).
 --   • فعل halls_note.write (ملاحظة يوم في تقرير القاعات): للمالك والمدير وحدهما — المدير يملك كلّ الأفعال في private.role_can (0022)، فلا يتغيّر جسمه؛
---     ومرآته src/domain/permissions.ts.
+--     ومرآته src/domain/permissions.ts. والملاحظة للمنشأة كلّها، فيكتبها من نطاقه المنشأة كلّها (note_scope للمدير المحصور بحقل أو وحدة).
 --   • public.halls_day_notes: ملاحظة واحدة لكلّ (منشأة، يوم)، تكتبها public.set_halls_note وحدها ويقرؤها كلّ من يقرأ المنشأة؛ بشرط النسخة التي رآها
 --     الكاتب، والنسخة من عدّاد private.halls_note_versions لا يتكرّر ولا ينزل، والصفّ لا يُحذف أبداً: المسح نصّ فارغ بنسخة جديدة (درس ABA 2026-11-16).
 --   • public.verify_halls_history: أيّام كلّ شهر = سطره، والأشهر = «منذ البداية»، لكلّ منشأة بهويّة مالكها؛ ونسخ الملاحظات موجبة وفريدة.
 -- قرارات بلا سؤال (داخل الخطوط الحمر، والعقد):
+--   • النازل في السجلّ = ما نزل من المخزن: نازل halls_day ناقص العلف المنقول من دورة سابقة في القاعة نفسها (يُعدّ يوم صُرف أوّل مرّة لا يوم نُقل).
 --   • يوم بلا فوج قائم داخل المدّة صفّ بصفر أفواج (النافق والمستبعد والمأكول null كما في halls_day)؛ والشهر وسطر البداية يعدّان null صفراً، فالمأكول
 --     والنازل نصّ بثلاث مراتب دائماً، والبيض صفر للبيّاض بلا بيض وnull للّاحم؛ ونسبة الإنتاج للشهر وللبداية = مجموع البيض ÷ مجموع الحيّ أوّل اليوم
 --     للأفواج التي سجّلت بيضاً، وnull بلا بيض.
@@ -125,7 +126,7 @@ begin
     from fl
     cross join lateral (
       select r.on_date, r.has_round, r.live_start, r.dead, r.culled, r.live_end, r.feed_kg, r.given_kg, r.given_unweighed, r.weight_avg_g,
-        r.eggs_total, r.eggs_broken, e.sold, e.sold_kg, e.adjust
+        r.eggs_total, r.eggs_broken, e.sold, e.sold_kg, e.adjust, e.carry_in_kg, e.carry_in_unweighed
       from private.report_days(fl.f, fl.through) as r
       join private.report_days_extra(fl.f, fl.through) as e on e.on_date = r.on_date
     ) as q
@@ -133,8 +134,10 @@ begin
   ), ks as materialized (
     select fl.kind, min(fl.placed_on) as start, count(distinct fl.hall_id)::int as halls from fl group by fl.kind
   ), dd as materialized (
-    -- يوم النوع = مجاميع halls_day لقاعاته (private.halls_day_totals): الحيّ والمباع وفرق العدّ والنازل لكلّ فوج، والنافق والمستبعد لما فيه جولة (null
-    -- بلا جولة)، والمأكول لما سجّله (null بلا تسجيل)؛ والبيض للبيّاض بحيّ أوّل اليوم للأفواج التي سجّلته.
+    -- يوم النوع = مجاميع halls_day لقاعاته (private.halls_day_totals): الحيّ والمباع وفرق العدّ لكلّ فوج، والنافق والمستبعد لما فيه جولة (null
+    -- بلا جولة)، والمأكول لما سجّله (null بلا تسجيل)؛ والبيض للبيّاض بحيّ أوّل اليوم للأفواج التي سجّلته. والنازل من المخزن وحده: halls_day يعدّ العلف
+    -- المنقول من الدورة السابقة نازلاً للفوج الجديد يوم تسكينه (0029)، وهو في السجلّ نقلٌ داخل القاعة نُزّل يوم صُرف للدورة السابقة، فجمعه في الشهر وفي
+    -- «منذ البداية» يعدّه مرّتين (مراجعة 0031 M1). فالنازل هنا = نازل halls_day − المنقول إليها (carry_in_kg)، وسطوره بلا وزن كذلك.
     select ks.kind, c.d, c.d - extract(day from c.d)::int + 1 as m,
       count(z.id)::int as flocks,
       (count(*) filter (where z.has_round))::int as rounds,
@@ -147,8 +150,8 @@ begin
       coalesce(sum(z.adjust), 0)::bigint as count_diff,
       coalesce(sum(z.live_end), 0)::bigint as live_end,
       round(sum(round(z.feed_kg, 3)), 3) as feed_kg,
-      round(coalesce(sum(z.given_kg), 0), 3) as given_kg,
-      coalesce(sum(z.given_unweighed), 0)::bigint as given_unweighed,
+      round(coalesce(sum(z.given_kg - z.carry_in_kg), 0), 3) as given_kg,
+      coalesce(sum(z.given_unweighed - z.carry_in_unweighed), 0)::bigint as given_unweighed,
       case when ks.kind = 'layer' then sum(z.eggs_total) end::bigint as eggs_total,
       case when ks.kind = 'layer' then sum(z.eggs_broken) end::bigint as eggs_broken,
       case when ks.kind = 'layer' then sum(z.live_start) filter (where z.eggs_total is not null) end::bigint as egg_live
@@ -250,6 +253,11 @@ declare
 begin
   set local lock_timeout = '5s';
   perform private.require('halls_note.write');
+  -- الملاحظة للمنشأة كلّها (تحت التقرير الذي يرى كلّ حقوله): يكتبها من نطاقه المنشأة كلّها، المالك أو مدير بلا نطاق محدود؛ والمدير المحصور بحقل لا
+  -- يكتب فوق ملاحظة عن حقل لا يراه (مراجعة 0031 L4).
+  if exists (select 1 from public.sites s where s.org_id = v_org and s.archived_at is null and not public.in_scope_site(s.id)) then
+    raise exception 'note_scope' using hint = 'ملاحظة اليوم للمنشأة كلّها: يكتبها المالك أو مدير نطاقه المنشأة كلّها.';
+  end if;
   if p_on is null or not isfinite(p_on) then
     raise exception 'date_required' using hint = 'اختر يوم الملاحظة من التقويم.';
   end if;

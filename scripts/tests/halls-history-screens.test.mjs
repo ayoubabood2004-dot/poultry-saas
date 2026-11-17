@@ -490,8 +490,8 @@ export default async function (t) {
       const brDays = daysCaption(BR, NOV_NAME);
       t.same(
         tableHeaders(brDays),
-        ['التاريخ', 'الأفواج', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'المأكول (كغم)', 'النازل (كغم)', 'الحيّ آخر اليوم'],
-        'T2 أيّام الشهر للّاحم بأعمدة العقد (بلا أعمدة البيض)',
+        ['التاريخ', 'الأفواج', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'المأكول (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر اليوم'],
+        'T2 أيّام الشهر للّاحم بأعمدة العقد (بلا أعمدة البيض)، والنازل «من المخزن» (المنقول من دورة سابقة لا يُعدّ ثانيةً؛ مراجعة 0031 M1)',
       );
       const rows = tableRows(brDays);
       t.same(
@@ -528,14 +528,14 @@ export default async function (t) {
       t.same(
         [tableHeaders(brMonths), tableRows(brMonths), tableFoot(brMonths)],
         [
-          ['الشهر', 'الأيّام', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'المأكول (كغم)', 'النازل (كغم)', 'الحيّ آخر الشهر'],
+          ['الشهر', 'الأيّام', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'المأكول (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر الشهر'],
           [
-            [OCT_NAME, '12', '12,000', '30', '5', '0', '3,000.0', '3,500', '11,965'],
-            [NOV_NAME, '17', '1,000', '777', '11', '900', '9,999.5', '4,500وسطران بلا وزن', '12,949'],
+            [OCT_NAME, '12', '12,000', '30', '5', '0', '0', '3,000.0', '3,500', '11,965'],
+            [NOV_NAME, '17', '1,000', '777', '11', '900', signed(-30), '9,999.5', '4,500وسطران بلا وزن', '12,949'],
           ],
-          [['منذ البداية', '29', '13,000', '807', '16', '900', '12,999.5', '8,000وسطران بلا وزن', '12,949']],
+          [['منذ البداية', '29', '13,000', '807', '16', '900', signed(-30), '12,999.5', '8,000وسطران بلا وزن', '12,949']],
         ],
-        'T3 الأشهر من البداية بأعمدة العقد، وصفّ «منذ البداية» من total (والحيّ فيه حيّ اليوم)',
+        'T3 الأشهر من البداية بأعمدة العقد وفرق العدّ (يُكمل حساب الحيّ في سطر الشهر؛ مراجعة 0031 L2)، وصفّ «منذ البداية» من total (والحيّ فيه حيّ اليوم)',
       );
       t.same(
         rowsOf(brMonths).map((tr) => tr.getAttribute('data-tone')),
@@ -932,6 +932,86 @@ export default async function (t) {
     }
 
     // ── F: فشل القراءة ───────────────────────────────────────────────────────────────────────────────────────────────
+    // ── R: مراجعة 0031 ───────────────────────────────────────────────────────────────────────────────────────────────
+    await step('R1 أحداث اليوم بأرقام القاعات', async () => {
+      // ترتيب الخادم (النوع ثمّ اسم القاعة حرفاً حرفاً): «قاعة 1» ثمّ «قاعة 44» ثمّ «قاعة 5».
+      const day = [
+        ev(nov(3), 'placed', 'قاعة 1', { birds: 100 }),
+        ev(nov(3), 'placed', 'قاعة 44', { birds: 100 }),
+        ev(nov(3), 'placed', 'قاعة 5', { birds: 100 }),
+        ev(nov(3), 'vaccine', 'قاعة 2', { name: 'نيوكاسل' }),
+      ];
+      const groups = m.hist.eventsByDay(m.repo.parseHallsHistory({ ...historyFor('2026-11-01'), kinds: [{ ...historyFor('2026-11-01').kinds[0], events: day }] }).kinds[0].events);
+      t.same(
+        groups.map((g) => [g.on, g.events.map((e) => `${e.type} ${e.hall}`)]),
+        [[nov(3), ['placed قاعة 1', 'placed قاعة 5', 'placed قاعة 44', 'vaccine قاعة 2']]],
+        'R1 أحداث اليوم بنوعها ثمّ بأرقام القاعات («قاعة 5» قبل «قاعة 44» كجدول الحقل؛ مراجعة 0031 L1)',
+      );
+    });
+
+    await step('R2 ملاحظة المنشأة لمن نطاقه المنشأة كلّها', async () => {
+      const seen = [];
+      for (const [label, scopes] of [['manager بلا نطاق', []], ['manager محصور بحقل', [{ siteId: 's-b', divisionId: null, warehouseId: null, hallId: null }]]]) {
+        fresh({ status: 'ready', workspace: { ...ws('manager'), scopes }, offline: false }, OK);
+        await mount(urlOf(TODAY));
+        seen.push([label, textOf('hist-note-text'), byAction('hist-note-write').length]);
+        await unmount();
+      }
+      t.same(seen, [['manager بلا نطاق', 'سطر أوّل\nسطر ثانٍ', 1], ['manager محصور بحقل', 'سطر أوّل\nسطر ثانٍ', 0]],
+        'R2 المدير المحصور بحقل يقرأ الملاحظة ولا يرى زرّ كتابتها (الخادم يرفضه note_scope؛ مراجعة 0031 L4)');
+    });
+
+    await step('R3 الصورة بعد حفظ الملاحظة', async () => {
+      // القراءة الأولى تصل، والتي بعد الحفظ معلّقة: الملاحظة المعروضة ما حُفظ للتوّ، و«أرسل صورة» ينتظر القراءة (مراجعة 0031 M2).
+      const { rpcLog, captures } = fresh(as('owner'), {
+        halls_day: (args) => dayFor(args.p_on),
+        halls_history: (args, n) => (n === 1 ? historyFor(args.p_month) : new Promise(() => {})),
+        set_halls_note: (args) => ({ on: args.p_on, note: { text: args.p_note, version: 11 } }),
+      });
+      await mount(urlOf(TODAY));
+      const before = disabled(byAction('send-image')[0]);
+      await click(byAction('hist-note-write')[0]);
+      type(byAction('halls-note-input')[0], 'بعد الحفظ مباشرةً');
+      await settle();
+      await submitDialog();
+      await settle();
+      t.same(
+        [before, named(rpcLog, 'halls_history').length, textOf('hist-note-text'), disabled(byAction('send-image')[0]), captures.length],
+        [false, 2, 'بعد الحفظ مباشرةً', true, 0],
+        'R3 بعد الحفظ والقراءة التالية في الطريق: الملاحظة المعروضة المحفوظة للتوّ، و«أرسل صورة» معطّل حتى تصل القراءة',
+      );
+    });
+
+    await step('R4 فشل القراءة بعد الحفظ', async () => {
+      // القراءة بعد الحفظ تفشل: الملاحظة المعروضة والصورة والتعديل بالمحفوظ (نصّه ونسخته 11)، لا بما قبل الحفظ (7).
+      const { rpcLog, captures } = fresh(as('owner'), {
+        halls_day: (args) => dayFor(args.p_on),
+        halls_history: (args, n) => (n === 1 ? historyFor(args.p_month) : Promise.reject(new m.RejectedError('timeout', ''))),
+        set_halls_note: (args, n) => ({ on: args.p_on, note: { text: args.p_note, version: n === 1 ? 11 : 12 } }),
+      });
+      await mount(urlOf(TODAY));
+      await click(byAction('hist-note-write')[0]);
+      type(byAction('halls-note-input')[0], 'المحفوظة');
+      await settle();
+      await submitDialog();
+      await settle();
+      const afterFail = [byAction('hist-failed').length, textOf('hist-note-text'), disabled(byAction('send-image')[0])];
+      await click(byAction('send-image')[0]);
+      await settle();
+      const imaged = captures.at(-1)?.html ?? '';
+      await click(byAction('hist-note-write')[0]);
+      const reopened = byAction('halls-note-input')[0]?.value;
+      type(byAction('halls-note-input')[0], 'تعديل بعدها');
+      await settle();
+      await submitDialog();
+      await settle();
+      t.same(
+        [afterFail, imaged.includes('المحفوظة') && !imaged.includes('سطر ثانٍ'), reopened, named(rpcLog, 'set_halls_note').map((a) => a.p_expected_version)],
+        [[1, 'المحفوظة', false], true, 'المحفوظة', [7, 11]],
+        'R4 فشل القراءة بعد الحفظ: المعروض والصورة بالمحفوظ، والتعديل التالي بنصّه وبشرط نسخته (11) لا بما قبل الحفظ',
+      );
+    });
+
     await step('F فشل «منذ أن بدأنا» ورفضه', async () => {
       const { rpcLog } = fresh(as('owner'), { halls_day: (args) => dayFor(args.p_on), halls_history: (args, n) => (n === 1 ? Promise.reject(new m.NetworkError()) : historyFor(args.p_month)) });
       await mount(urlOf(TODAY));
