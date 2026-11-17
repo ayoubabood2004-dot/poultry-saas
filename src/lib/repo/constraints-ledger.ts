@@ -10,6 +10,8 @@ export const LEDGER_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   parties_name_check: () => t('constraint.parties_name_check', 'اسم الجهة مطلوب، ولا يزيد على 120 حرفاً.'),
   parties_name_norm_check: () => t('constraint.parties_name_norm_check', 'اكتب اسم الجهة بحروف؛ التطويل والتشكيل وحدهما لا يكفيان للبحث.'),
   parties_phone_check: () => t('constraint.parties_phone_check', 'رقم هاتف الجهة لا يزيد على 40 حرفاً.'),
+  // 0033: حساب «زبون نقديّ» النظاميّ (زبون لا مورّد).
+  parties_system_kind_check: () => t('constraint.parties_system_kind_check', 'الحساب النظاميّ الوحيد «زبون نقديّ»، وهو زبون لا مورّد.'),
   cash_accounts_name_check: () => t('constraint.cash_accounts_name_check', 'اسم الصندوق مطلوب، ولا يزيد على 80 حرفاً.'),
   cash_accounts_kind_check: () => t('constraint.cash_accounts_kind_check', 'نوع الصندوق نقد أو مصرف أو محفظة.'),
   doc_counters_kind_check: () => t('constraint.doc_counters_kind_check', 'نوع المستند المرقّم غير معروف.'),

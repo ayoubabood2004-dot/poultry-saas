@@ -426,6 +426,25 @@ export default async function (t, db) {
     );
   }
 
+  // 0033: فاتورة بسطر من «جريش الخلطة» لـ«زبون العزل» مدفوعة كلّها من صندوق كلّ منشأة، فبجدول السيقان صفوف للطرفين؛ ومخزنها لقارئ موادّ البيع.
+  const saleStoreOf = {};
+  for (const [key, owner] of [['a', U.aOwner], ['b', U.bOwner]]) {
+    saleStoreOf[key] = await db.asUser(
+      owner,
+      async (q) => {
+        const grits = await value(q, "select id from public.items where name = 'جريش الخلطة'");
+        const buyer = await value(q, "select id from public.parties where name = 'زبون العزل'");
+        const box = await value(q, 'select id from public.cash_accounts order by created_at, id limit 1');
+        const store = await value(q, "select id from public.warehouses where kind = 'raw'");
+        await q(`select public.record_sale_v2(gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(),
+          jsonb_build_array(jsonb_build_object('line_id', gen_random_uuid(), 'item_id', $3::uuid, 'qty', '1', 'unit_price', '1000')), 0,
+          jsonb_build_array(jsonb_build_object('leg_id', gen_random_uuid(), 'cash_account_id', $4::uuid, 'amount', '1000')), 'سيقان العزل')`, [store, buyer, grits, box]);
+        return store;
+      },
+      { commit: true },
+    );
+  }
+
   // 0022: ملاحظة اليوم على «ذرة الخلطة» لكلّ منشأة، فبجدول الملاحظات صفوف للطرفين.
   for (const owner of [U.aOwner, U.bOwner]) {
     await db.asUser(
@@ -839,6 +858,8 @@ export default async function (t, db) {
     sales_overview: () => ['2026-01-01', '2026-12-31'],
     sale_detail: (persona) => [salesOf[persona === U.bOwner ? 'b' : 'a']],
     sales_report: () => ['2026-01-01', '2026-12-31', 'party'],
+    // 0033: موادّ البيع من مخزن الموادّ لكلّ منشأة (فيه «جريش الخلطة»).
+    sale_catalog: (persona) => [saleStoreOf[persona === U.bOwner ? 'b' : 'a']],
     // 0022: الرصيد اليومي لكلّ الموادّ (بلا تصنيف) بيوم مضى وبكلّ مخازن النطاق.
     day_balance: () => [null, '2026-01-01', null],
     // 0023: تقرير المعمل كلّه بسنة.
@@ -922,6 +943,8 @@ export default async function (t, db) {
     sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     sales_report: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    // 0033: موادّ البيع لمن يبيع (sale.record): العامل وبلا منشأة forbidden.
+    sale_catalog: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     // 0022: الرصيد اليومي لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
     day_balance: { [U.aSpare]: 'forbidden' },
     // 0023: تقرير المعمل لكلّ دور بمنشأة (read) بنطاق الدفعة، وبلا منشأة forbidden.

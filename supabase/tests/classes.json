@@ -46,6 +46,7 @@
     "sales_invoices",
     "sales_line_costs",
     "sales_lines",
+    "sales_payments",
     "stock_balances",
     "stock_conversions",
     "stock_day_notes",
@@ -864,7 +865,8 @@
     "bird_sales",
     "parties",
     "sales_invoices",
-    "sales_lines"
+    "sales_lines",
+    "sales_payments"
   ],
   "global": [
     "units"
@@ -873,7 +875,8 @@
     "bird_sale_sources",
     "bird_sales",
     "sales_invoices",
-    "sales_lines"
+    "sales_lines",
+    "sales_payments"
   ],
   "reserved": {
     "functionOnly": [

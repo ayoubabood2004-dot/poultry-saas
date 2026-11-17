@@ -61,7 +61,7 @@ export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = 
   purchase_prices_sell_price_check: () => t('constraint.purchase_prices_sell_price_check', 'سعر البيع لكلّ وحدة فارغ أو أكبر من صفر، بمرتبتين عشريتين كحدّ أقصى.'),
   // 0021: فواتير البيع وسطورها وكلفتها (البيع بنداء واحد من نافذة «بِع»، بجوار الشراء).
   sales_invoices_doc_no_check: () => t('constraint.sales_invoices_doc_no_check', 'رقم فاتورة البيع بصيغة FD أو MD أو MS-السنة-الرقم.'),
-  sales_invoices_payment_check: () => t('constraint.sales_invoices_payment_check', 'البيع نقداً بصندوق وقيد قبض، وبالدين بلا صندوق ولا قبض.'),
+  sales_invoices_payment_check: () => t('constraint.sales_invoices_payment_check', 'البيع نقداً حين يُدفع كلّه الآن، وبالدين حين يبقى منه شيء؛ والصندوق في الرأس للفاتورة القديمة وحدها.'),
   sales_invoices_status_check: () => t('constraint.sales_invoices_status_check', 'حالة فاتورة البيع غير معروفة.'),
   sales_invoices_void_check: () => t('constraint.sales_invoices_void_check', 'حالة فاتورة البيع لا تناسب ختم إلغائها وسببه.'),
   sales_invoices_void_reason_check: () => t('constraint.sales_invoices_void_reason_check', 'سبب الإلغاء بين حرف و500 حرف.'),
@@ -72,6 +72,20 @@ export const RECEIPT_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = 
   sales_lines_line_total_check: () => t('constraint.sales_lines_line_total_check', 'مبلغ سطر البيع صفر أو أكثر، بالدينار الصحيح.'),
   sales_lines_line_no_check: () => t('constraint.sales_lines_line_no_check', 'رقم السطر يبدأ من 1.'),
   sales_line_costs_cost_check: () => t('constraint.sales_line_costs_cost_check', 'كلفة سطر البيع صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  // 0033: الفاتورة الاحترافيّة (عدّة سطور بوحدات البيع، والخصمان، وسيقان الدفع، والزبون النقديّ).
+  sales_invoices_total_check: () => t('constraint.sales_invoices_total_check', 'صافي فاتورة البيع صفر أو أكثر، بالدينار الصحيح.'),
+  sales_invoices_paid_check: () => t('constraint.sales_invoices_paid_check', 'المدفوع عند البيع بالدينار الصحيح، من صفر حتى صافي الفاتورة.'),
+  sales_invoices_discount_check: () => t('constraint.sales_invoices_discount_check', 'خصم الفاتورة وخصومها كلّها بالدينار الصحيح، صفر أو أكثر، وخصم الفاتورة جزء من مجموع الخصم.'),
+  sales_invoices_note_check: () => t('constraint.sales_invoices_note_check', 'ملاحظة الفاتورة لا تزيد على 500 حرف، بلا فراغ في طرفيها.'),
+  sales_invoices_walk_in_check: () => t('constraint.sales_invoices_walk_in_check', 'الزبون النقديّ يدفع الفاتورة كلّها الآن من سيقان الدفع.'),
+  sales_lines_unit_factor_check: () => t('constraint.sales_lines_unit_factor_check', 'معامل وحدة البيع أكبر من صفر بست مراتب عشرية كحدّ أقصى، ووحدة الأساس معاملها واحد.'),
+  sales_lines_unit_label_check: () => t('constraint.sales_lines_unit_label_check', 'اسم وحدة البيع بين حرف و40 حرفاً.'),
+  sales_lines_unit_qty_check: () => t('constraint.sales_lines_unit_qty_check', 'الكمية بوحدة البيع أكبر من صفر بثلاث مراتب عشرية كحدّ أقصى، وكميتها بالأساس = الكمية × المعامل.'),
+  sales_lines_unit_price_unit_check: () => t('constraint.sales_lines_unit_price_unit_check', 'سعر وحدة البيع صفر أو أكثر، بمرتبتين عشريتين كحدّ أقصى.'),
+  sales_lines_gross_total_check: () => t('constraint.sales_lines_gross_total_check', 'إجماليّ سطر البيع صفر أو أكثر، بالدينار الصحيح.'),
+  sales_lines_discount_check: () => t('constraint.sales_lines_discount_check', 'خصم السطر ونصيبه من خصم الفاتورة بالدينار الصحيح، صفر أو أكثر.'),
+  sales_payments_leg_no_check: () => t('constraint.sales_payments_leg_no_check', 'الدفع الآن من خمسة صناديق على الأكثر.'),
+  sales_payments_amount_check: () => t('constraint.sales_payments_amount_check', 'مبلغ كلّ دفعة أكبر من صفر، بالدينار الصحيح.'),
 };
 
 registerConstraintHints(RECEIPT_CONSTRAINT_HINTS);

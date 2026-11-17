@@ -33,6 +33,10 @@
 // 0032: البذرة نفسها وفوقها صرف لفوجها وجولة مركونة بعملية save_flock_day (ROLLBACK_EXTRAS، بلا زيارة بعد الهجرة فالتراجع يكمل)، وبين التراجع والإعادة
 // جولتا أمس واليوم بجسم 0029، وبعد الإعادة كلّ صفّ يوم زيارة legacy بقيمه ونسخته وزيارة جديدة تنضاف إليه. والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته:
 // زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة.
+// 0033: البذرة نفسها وفوقها فاتورة record_sale_v2 بسطر وبوحدة الأساس مدفوعة كلّها من صندوق، وفاتورة بالدين كلّها، وبيع قديم نقداً (ROLLBACK_EXTRAS)، فالتراجع
+// يكمل وينقل الفاتورة الجديدة للشكل القديم؛ وبين التراجع والإعادة بيع نقديّ بجسم 0021، وبعد الإعادة كلّ بيع نقديّ ساق واحدة مرآة رأسه، وفاتورة بعدّة سطور
+// وخصم وسيقان وأخرى لزبون نقديّ تُكتب وتُقرأ. والطريق الثاني بسبعة فروع، كلّ واحد ببذرته: أكثر من سطر، وخصم، وأكثر من ساق، ودفع جزئيّ، ووحدة بيع،
+// وملاحظة، وزبون نقديّ.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -700,7 +704,67 @@ const visitSeed = (variant) => async (db) => {
 
 const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
 
+const H33 = (n) => `60000000-0000-4000-8000-0000000033${String(n).padStart(2, '0')}`;
+
+/** 0033: المدير يشتري 200 كغم «ذرة صفراء» بمخزن الموادّ، ويضيف صندوقاً ثانياً؛ يرجّع ما تحتاجه الفواتير. */
+const salesV2Ready = async (db) => {
+  await seedThroughRpcs(db);
+  return db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const supplier = await value(q, "select id from public.parties where name = 'مورّد الحبوب'");
+    await q("select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 200, 450, null, 'credit', null, null)", [corn, supplier]);
+    const bank = await value(q, "insert into public.cash_accounts (name, kind) values ('المصرف', 'bank') returning id");
+    return {
+      corn,
+      customer: await value(q, "select id from public.parties where name = 'أبو علي'"),
+      box: await value(q, "select id from public.cash_accounts where name = 'الصندوق'"),
+      bank,
+      raw: await value(q, "select id from public.warehouses where kind = 'raw'"),
+      bag: await value(q, "select id from public.item_units where label = 'كيس 50 كغم'"),
+    };
+  }, { commit: true });
+};
+
+/** 0033: فاتورة record_sale_v2 بالمدير (سطور وخصم وسيقان وملاحظة وجهة اختيارية)، تثبت. */
+const saleV2 = async (db, s, o) => db.asUser(U.manager, async (q) => {
+  const lines = o.lines.map((l, i) => ({ line_id: l.id ?? H33(40 + i + (o.seq ?? 0) * 5), item_id: s.corn, unit_id: l.unit ?? null, qty: l.qty, unit_price: l.price, discount: l.discount ?? '0' }));
+  const payments = (o.payments ?? []).map((g, i) => ({ leg_id: H33(70 + i + (o.seq ?? 0) * 5), cash_account_id: g.box, amount: g.amount }));
+  return value(q, 'select public.record_sale_v2($1, $2, $3, $4, public.app_today(), $5::jsonb, $6, $7::jsonb, $8)', [o.ref, o.sale, s.raw, o.party === undefined ? s.customer : o.party,
+    JSON.stringify(lines), o.discount ?? 0, JSON.stringify(payments), o.note ?? null]);
+}, { commit: true });
+
+/**
+ * 0033 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها: فاتورة بسطرين، وفاتورة بخصم سطر، وفاتورة مدفوعة من صندوقين، وفاتورة دُفع بعضها،
+ * وسطر بالكيس، وفاتورة بملاحظة، وفاتورة لزبون نقديّ. التراجع يُسقط ما يحملها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
+ */
+const invoiceSeed = (variant) => async (db) => {
+  const s = await salesV2Ready(db);
+  const one = { qty: '10', price: '600' };
+  const base = { ref: H33(1), sale: H33(2) };
+  const o = {
+    multi: { lines: [one, { qty: '5', price: '600' }] },
+    discount: { lines: [{ ...one, discount: '100' }] },
+    legs: { lines: [one], payments: [{ box: s.box, amount: '4000' }, { box: s.bank, amount: '2000' }] },
+    partial: { lines: [one], payments: [{ box: s.box, amount: '1000' }] },
+    unit: { lines: [{ qty: '1', price: '20000', unit: s.bag }] },
+    note: { lines: [one], note: 'تسليم في المخزن' },
+    walk_in: { party: null, lines: [one], payments: [{ box: s.box, amount: '6000' }] },
+  }[variant];
+  await saleV2(db, s, { ...base, ...o });
+};
+
+const INVOICE_DATA = "select (select count(*) from public.sales_invoices)::text || '/' || (select count(*) from public.sales_lines)::text || '/' || (select count(*) from public.party_entries where doc_kind = 'sale')::text || '/' || (select count(*) from public.items)::text as v";
+
 export const BLOCKING_SEEDS = {
+  33: [
+    { name: 'فاتورة بأكثر من سطر', code: 'rollback_blocked', seed: invoiceSeed('multi'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_multi > 0 then', 'if false then') },
+    { name: 'فاتورة بخصم', code: 'rollback_blocked', seed: invoiceSeed('discount'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_discount > 0 then', 'if false then') },
+    { name: 'فاتورة من صندوقين', code: 'rollback_blocked', seed: invoiceSeed('legs'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_legs > 0 then', 'if false then') },
+    { name: 'فاتورة بدفع جزئيّ', code: 'rollback_blocked', seed: invoiceSeed('partial'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_partial > 0 then', 'if false then') },
+    { name: 'سطر بوحدة بيع', code: 'rollback_blocked', seed: invoiceSeed('unit'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_units > 0 then', 'if false then') },
+    { name: 'فاتورة بملاحظة', code: 'rollback_blocked', seed: invoiceSeed('note'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_notes > 0 then', 'if false then') },
+    { name: 'فاتورة لزبون نقديّ', code: 'rollback_blocked', seed: invoiceSeed('walk_in'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_walk_in > 0 then', 'if false then') },
+  ],
   32: [
     {
       name: 'زيارة جديدة حيّة',
@@ -1157,6 +1221,7 @@ export const BLOCKING_REQUIRED = [
   [30, 2, 'جدول نوع بنهاية مفتوحة، وجدول قاعة بنهاية مفتوحة، كلّ واحد يوقف التراجع'],
   [31, 2, 'ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت فبقي صفّها بنسخته، كلّ واحدة توقف التراجع'],
   [32, 3, 'زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة، كلّ واحدة توقف التراجع'],
+  [33, 7, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، كلّ واحدة توقف التراجع'],
 ];
 
 /**
@@ -1615,7 +1680,68 @@ const visitsRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0033: حالة التراجع الكاملة: فاتورة record_sale_v2 بسطر وبوحدة الأساس مدفوعة كلّها من الصندوق (يُنقلها التراجع للشكل القديم)، وفاتورة بالدين كلّها،
+ * وبيع قديم نقداً بـrecord_sale (بساقه). بلا ما لا يحمله النموذج القديم، فالتراجع يكمل.
+ */
+const salesFullReady = async (db) => {
+  const s = await salesV2Ready(db);
+  await saleV2(db, s, { ref: H33(10), sale: H33(11), lines: [{ qty: '10', price: '600' }], payments: [{ box: s.box, amount: '6000' }] });
+  await saleV2(db, s, { ref: H33(12), sale: H33(13), seq: 1, lines: [{ qty: '5', price: '700' }] });
+  await db.asUser(U.manager, (q) => q("select public.record_sale($1, $2, $3, $4, $5, 2, 650, public.app_today(), 'cash', $6, null)", [H33(14), H33(15), H33(16), s.customer, s.corn, s.box]), { commit: true });
+};
+
+/** 0033: بين التراجع والإعادة (جسم 0021): بيع نقديّ ثانٍ 3 كغم بـ600. */
+const salesOn0032 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+    const customer = await value(q, "select id from public.parties where name = 'أبو علي'");
+    const box = await value(q, "select id from public.cash_accounts where name = 'الصندوق'");
+    await q("select public.record_sale($1, $2, $3, $4, $5, 3, 600, public.app_today(), 'cash', $6, null)", [H33(17), H33(18), H33(19), customer, corn, box]);
+  }, { commit: true });
+};
+
+/**
+ * 0033: بعد الإعادة: كلّ بيع نقديّ (المنقولة والقديمان) ساق واحدة بمعرّف مشتقّ مرآة رأسه، والصافي والمدفوع كما كانا؛ وفاتورة بسطرين وخصم وسيقان، وأخرى
+ * لزبون نقديّ، تُكتبان وتُقرآن؛ والثوابت صفر.
+ */
+const salesRedone = async (db) => {
+  const problems = [];
+  const legs = (await db.admin(`select s.id::text as sale, s.total::text as total, s.paid::text as paid, g.id = md5(s.id::text || ':1')::uuid as derived,
+      g.cash_account_id = s.cash_account_id and g.payment_entry_id = s.payment_entry_id and g.cash_move_id = s.cash_move_id as mirror
+    from public.sales_invoices s left join public.sales_payments g on g.sale_id = s.id where s.payment = 'cash' order by s.doc_no`)).rows;
+  const expected = [[H33(11), '6000', '6000'], [H33(15), '1300', '1300'], [H33(18), '1800', '1800']].sort((a, b) => a[0].localeCompare(b[0]));
+  const seen = legs.map((r) => [r.sale, r.total, r.paid]).sort((a, b) => a[0].localeCompare(b[0]));
+  if (JSON.stringify(seen) !== JSON.stringify(expected) || legs.some((r) => !r.derived || !r.mirror)) problems.push(`سيقان البيع النقديّ بعد الإعادة: ${JSON.stringify(legs)}`);
+  try {
+    const s = await db.asUser(U.manager, async (q) => ({
+      corn: await value(q, "select id from public.items where name = 'ذرة صفراء'"),
+      customer: await value(q, "select id from public.parties where name = 'أبو علي'"),
+      box: await value(q, "select id from public.cash_accounts where name = 'الصندوق'"),
+      bank: await value(q, "select id from public.cash_accounts where name = 'المصرف'"),
+      raw: await value(q, "select id from public.warehouses where kind = 'raw'"),
+    }));
+    const multi = await saleV2(db, s, { ref: H33(20), sale: H33(21), seq: 2, lines: [{ qty: '4', price: '600', discount: '100' }, { qty: '2', price: '650' }], discount: 50,
+      payments: [{ box: s.box, amount: '1000' }, { box: s.bank, amount: '500' }], note: 'بعد الإعادة' });
+    const walk = await saleV2(db, s, { ref: H33(22), sale: H33(23), seq: 3, party: null, lines: [{ qty: '1', price: '600' }], payments: [{ box: s.box, amount: '600' }] });
+    const detail = await db.asUser(U.manager, async (q) => value(q, 'select public.sale_detail($1)', [H33(21)]));
+    const got = [multi?.total, multi?.paid, multi?.debt, walk?.walk_in, detail?.lines?.length, detail?.payments?.length, detail?.note];
+    if (JSON.stringify(got) !== JSON.stringify(['3550', '1500', '2050', true, 2, 2, 'بعد الإعادة'])) problems.push(`الفاتورة بعد الإعادة: ${JSON.stringify(got)}`);
+  } catch (error) {
+    problems.push(`الفاتورة بعد الإعادة رُفضت: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_sales()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الفاتورة: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  33: {
+    seed: salesFullReady,
+    afterRollback: salesOn0032,
+    afterRedo: salesRedone,
+  },
   32: {
     seed: visitsReady,
     afterRollback: visitsOn0031,

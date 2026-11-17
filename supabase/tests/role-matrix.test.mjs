@@ -852,6 +852,21 @@ export default async function (t, db) {
       expect: { ...only(['owner', 'manager', 'accountant'], 'ok:posted'), storekeeper: 'out_of_scope' },
     },
     void_sale: { sql: () => ["select public.void_sale($1, 'بيع خاطئ', gen_random_uuid()) ->> 'status' as v", [p21.sale]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    // 0033 (الفاتورة الاحترافيّة): الفاتورة بالفعل نفسه sale.record (المالك والمدير والمحاسب؛ والأمين بالمخزن العامّ دون دفتر وحدته out_of_scope)، لتر
+    // كاز بسطر ودفعة 400 من الصندوق والباقي دين؛ وموادّ المخزن للبيع ببوّابات الكاتب نفسها.
+    record_sale_v2: {
+      sql: () => [
+        "select public.record_sale_v2(gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), jsonb_build_array(jsonb_build_object('line_id', gen_random_uuid(), 'item_id', $3::uuid, 'unit_id', null, 'qty', '1', 'unit_price', '1000', 'discount', '0')), 0, jsonb_build_array(jsonb_build_object('leg_id', gen_random_uuid(), 'cash_account_id', $4::uuid, 'amount', '400')), null) ->> 'debt' as v",
+        [generalStore, ledger.fresh, p20.fuel, ledger.box],
+      ],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:600'), storekeeper: 'out_of_scope' },
+    },
+    sale_catalog: {
+      sql: () => ["select public.sale_catalog($1) -> 'items' @> jsonb_build_array(jsonb_build_object('item_id', $2::uuid)) and public.sale_catalog($1) -> 'cash_accounts' @> jsonb_build_array(jsonb_build_object('id', $3::uuid)) as v", [generalStore, p20.fuel, ledger.box]],
+      value: true,
+      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:true'), storekeeper: 'out_of_scope' },
+    },
     sales_overview: {
       sql: () => ["select public.sales_overview(public.app_today() - 1, public.app_today()) -> 'totals' ->> 'count' as v", []],
       value: true,
