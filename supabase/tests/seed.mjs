@@ -28,6 +28,8 @@
 // 0028: البذرة نفسها وفوقها قاعة بفوج مفتوح وصرف منه وجولة (ROLLBACK_EXTRAS)، وبين التراجع والإعادة جولة ثانية بجسم 0012، وبعد الإعادة تذكرة وفاتورة
 // وإغلاق بإرجاع على تلك البيانات، فالتراجع يكمل. والطريق الثاني بستّة فروع، كلّ واحد ببذرته: مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ،
 // ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده.
+// 0031: البذرة نفسها وفوقها قاعة بفوج مفتوح وصرف منه وجولة (ROLLBACK_EXTRAS)، وبعد الإعادة ملاحظة يوم وhalls_history على تلك البيانات، فالتراجع يكمل.
+// والطريق الثاني بفرعين، كلّ واحد ببذرته: ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت (الصفّ يبقى بنسخته).
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -659,9 +661,37 @@ const birds28Seed = (variant) => async (db) => {
   }
 };
 
+/**
+ * 0031 (طريق الرفض): ملاحظة المالك على يوم في تقرير القاعات (المدير بـset_halls_note)، ولو مُسح نصّها (الصفّ يبقى بنصّ فارغ ونسخة رآها كاتب، فإسقاطه ثمّ
+ * إعادة الهجرة يبدأ العدّاد من 1). التراجع يُسقط الجدول، فطريق الرفض يوقفه؛ والطفرة تشيل شرط «في الجدول صفّ» فيكمل.
+ */
+const hallsNoteSeed = (variant) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    const version = await value(q, "select (public.set_halls_note(public.app_today(), 'وصل العلف للقاعات', null) -> 'note' ->> 'version')::bigint");
+    if (variant === 'cleared') await q("select public.set_halls_note(public.app_today(), '', $1)", [version]);
+  }, { commit: true });
+};
+
 const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
 
 export const BLOCKING_SEEDS = {
+  31: [
+    {
+      name: 'ملاحظة يوم في تقرير القاعات',
+      code: 'rollback_blocked',
+      seed: hallsNoteSeed('note'),
+      data: "select (select count(*) from public.halls_day_notes where note <> '')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_notes > 0 then', 'if false then'),
+    },
+    {
+      name: 'ملاحظة مُسحت (يبقى صفّها بنسخته)',
+      code: 'rollback_blocked',
+      seed: hallsNoteSeed('cleared'),
+      data: "select (select count(*) from public.halls_day_notes where note = '')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_notes > 0 then', 'if false then'),
+    },
+  ],
   30: [
     {
       name: 'جدول نوع بنهاية مفتوحة',
@@ -1077,6 +1107,7 @@ export const BLOCKING_REQUIRED = [
   [28, 2, 'جدول لقاحات خاصّ لقاعة، وجدول قاعة حُذف فبقي صفّه بنسخته، كلّ واحد يوقف التراجع'],
   [29, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
   [30, 2, 'جدول نوع بنهاية مفتوحة، وجدول قاعة بنهاية مفتوحة، كلّ واحد يوقف التراجع'],
+  [31, 2, 'ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت فبقي صفّها بنسخته، كلّ واحدة توقف التراجع'],
 ];
 
 /**
@@ -1457,7 +1488,34 @@ const birds28Redone = async (db) => {
   return problems;
 };
 
+/**
+ * 0031: بعد الإعادة على فوج البذرة (صرف وجولة، birds28Ready): المدير يكتب ملاحظة اليوم، وhalls_history يرى الفوج (1,000 طير منذ البداية) والملاحظة،
+ * وverify_halls_history صفر.
+ */
+const hallsHistoryRedone = async (db) => {
+  const problems = [];
+  try {
+    const answer = await db.asUser(U.manager, (q) => value(q, "select public.set_halls_note(public.app_today(), 'بعد الإعادة', null)"), { commit: true });
+    if (answer?.note?.text !== 'بعد الإعادة') problems.push(`set_halls_note بعد الإعادة: ${JSON.stringify(answer)}`);
+    const history = await db.asUser(U.manager, (q) => value(q, 'select public.halls_history(null)'));
+    const broiler = history.kinds.find((k) => k.kind === 'broiler');
+    if (broiler?.total?.placed !== 1000 || history.notes.map((n) => n.text).join() !== 'بعد الإعادة') {
+      problems.push(`halls_history بعد الإعادة: ${JSON.stringify({ placed: broiler?.total?.placed, notes: history.notes })}`);
+    }
+  } catch (error) {
+    problems.push(`ملاحظة اليوم أو التقرير بعد الإعادة رُفض: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_halls_history()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الملاحظة: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  31: {
+    seed: birds28Ready,
+    afterRedo: hallsHistoryRedone,
+  },
   29: {
     seed: birds28Ready,
     afterRollback: birds28On0027,
