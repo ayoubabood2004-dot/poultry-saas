@@ -452,7 +452,80 @@ export async function recordFlockWeight(flockId: string, day: Day, sampleCount: 
   await call<unknown>('record_flock_weight', { p_flock: flockId, p_date: day, p_sample_count: sampleCount, p_avg_g: avgG, p_client_ref: clientRef });
 }
 
-// ─── ناقل الطابور: save_flock_day بمرجع العملية ────────────────────────────────────────────────────────────────────────
+// ─── الزيارات (0032): زيارة في اليوم بمعرّفها ونسختها، ومجموع اليوم صفّ flock_daily كما هو ───────────────────────────────────
+// visit_json في كلّ جواب وقارئ (عقد 0032): العلف نصّ بثلاث مراتب، والنافق والمستبعد أعداد (0 لا null)، والمصدر visit أو day_total
+// (من save_flock_day) أو legacy (التحويل)، وby اسم الكاتب أو null. يقرؤه ناقل الطابور (جواب save_flock_visit) وقارئ round_visits.
+
+export type VisitSource = 'visit' | 'day_total' | 'legacy';
+const VISIT_SOURCES: readonly VisitSource[] = ['visit', 'day_total', 'legacy'];
+
+export interface FlockVisit {
+  id: string;
+  flockId: string;
+  onDate: Day;
+  /** وقت التسجيل على الجهاز (ISO كما أرسله الخادم). */
+  recordedAt: string;
+  dead: number;
+  culled: number;
+  /** بالآلاف (غرام)؛ null = بلا علف. */
+  feedKg: bigint | null;
+  eggsTotal: number | null;
+  eggsCracked: number | null;
+  eggsBroken: number | null;
+  note: string | null;
+  source: VisitSource;
+  version: number;
+  voided: boolean;
+  by: string | null;
+}
+
+export function parseVisit(value: unknown): FlockVisit {
+  const row = record(value, 'visit');
+  const recordedAt = str(row, 'recorded_at');
+  if (!Number.isFinite(Date.parse(recordedAt))) throw new FlockShapeError('recorded_at');
+  const on = str(row, 'on');
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(on)) throw new FlockShapeError('on');
+  return {
+    id: str(row, 'id'),
+    flockId: str(row, 'flock_id'),
+    onDate: on,
+    recordedAt,
+    dead: int(row, 'dead'),
+    culled: int(row, 'culled'),
+    feedKg: scaled(row, 'feed_kg', 3),
+    eggsTotal: optInt(row, 'eggs_total'),
+    eggsCracked: optInt(row, 'eggs_cracked'),
+    eggsBroken: optInt(row, 'eggs_broken'),
+    note: optStr(row, 'note'),
+    source: pick(row, 'source', VISIT_SOURCES),
+    version: int(row, 'version'),
+    voided: flag(row, 'voided'),
+    by: optStr(row, 'by'),
+  };
+}
+
+/**
+ * جواب save_flock_visit ← نتيجة الطابور: saved بزيارته (نسختها تُرفع لعمليات الزيارة نفسها اللاحقة) وصفّ يومها بعدها أو null، وparked،
+ * وstale_visit بالمحفوظة (أو null: لا زيارة حيّة بهذا المعرّف لذلك اليوم). شكل غريب يرمي فتبقى العملية بالطابور.
+ */
+export function visitAnswer(value: unknown): SendResult {
+  const answer = record(value, 'save_flock_visit');
+  if (answer.status === 'saved') {
+    const visit = parseVisit(answer.visit);
+    if (!('day' in answer)) throw new FlockShapeError('day');
+    if (answer.day !== null) parseDayRow(answer.day);
+    return { kind: 'saved', version: visit.version, visit: answer.visit, day: answer.day };
+  }
+  if (answer.status === 'parked') return { kind: 'parked' };
+  if (answer.status === 'stale_visit') {
+    if (!('server' in answer)) throw new FlockShapeError('server');
+    if (answer.server !== null) parseVisit(answer.server);
+    return { kind: 'stale_visit', server: answer.server };
+  }
+  throw new FlockShapeError('status');
+}
+
+// ─── ناقل الطابور: save_flock_day وsave_flock_visit بمرجع العملية ──────────────────────────────────────────────────────────
 
 /** جواب save_flock_day ← نتيجة الطابور (saved وstale_day وparked)؛ شكل غريب يرمي فتبقى العملية بالطابور. */
 export function dayAnswer(value: unknown): SendResult {
@@ -469,32 +542,54 @@ export function dayAnswer(value: unknown): SendResult {
  * الشبكة والمهلة والتزاحم يرمي: النتيجة مجهولة والطابور يحسمها بنفس المرجع.
  */
 export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
-  const p = op.payload;
   let answer: unknown;
   try {
-    answer = await call<unknown>('save_flock_day', {
-      p_flock: op.flockId,
-      p_date: op.day,
-      p_dead: p.dead ?? null,
-      p_culled: p.culled ?? null,
-      p_feed_kg: p.feed_kg ?? null,
-      p_water_l: p.water_l ?? null,
-      p_temp_min: p.temp_min ?? null,
-      p_temp_max: p.temp_max ?? null,
-      p_eggs_total: p.eggs_total ?? null,
-      p_eggs_cracked: p.eggs_cracked ?? null,
-      p_eggs_broken: p.eggs_broken ?? null,
-      p_note: p.note ?? null,
-      p_base_version: op.baseVersion,
-      p_client_ref: op.id,
-      p_queued: true,
-    });
+    if (op.fn === 'save_flock_visit') {
+      // الزيارة بمحتواها كاملاً: الإضافة (نسخة null)، والتعديل بنسختها، والإلغاء (p_void) بنسختها.
+      const v = op.payload;
+      answer = await call<unknown>('save_flock_visit', {
+        p_visit: v.visitId,
+        p_flock: op.flockId,
+        p_date: op.day,
+        p_recorded_at: v.recordedAt,
+        p_dead: v.dead,
+        p_culled: v.culled,
+        p_feed_kg: v.feed_kg,
+        p_eggs_total: v.eggs_total,
+        p_eggs_cracked: v.eggs_cracked,
+        p_eggs_broken: v.eggs_broken,
+        p_note: v.note,
+        p_base_version: op.baseVersion,
+        p_void: v.void,
+        p_client_ref: op.id,
+        p_queued: true,
+      });
+    } else {
+      const p = op.payload;
+      answer = await call<unknown>('save_flock_day', {
+        p_flock: op.flockId,
+        p_date: op.day,
+        p_dead: p.dead ?? null,
+        p_culled: p.culled ?? null,
+        p_feed_kg: p.feed_kg ?? null,
+        p_water_l: p.water_l ?? null,
+        p_temp_min: p.temp_min ?? null,
+        p_temp_max: p.temp_max ?? null,
+        p_eggs_total: p.eggs_total ?? null,
+        p_eggs_cracked: p.eggs_cracked ?? null,
+        p_eggs_broken: p.eggs_broken ?? null,
+        p_note: p.note ?? null,
+        p_base_version: op.baseVersion,
+        p_client_ref: op.id,
+        p_queued: true,
+      });
+    }
   } catch (error) {
     if (error instanceof IdentityError) return { kind: 'identity_rejected' };
     if (error instanceof RejectedError) return error.code === 'subscription_expired' ? { kind: 'subscription_expired' } : { kind: 'rejected', code: error.code, hint: error.hint };
     throw error;
   }
-  return dayAnswer(answer);
+  return op.fn === 'save_flock_visit' ? visitAnswer(answer) : dayAnswer(answer);
 }
 
 export const flockDayTransport: Transport = {

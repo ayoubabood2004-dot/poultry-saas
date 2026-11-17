@@ -4,7 +4,8 @@
 // وuploadRounds) على fake-indexeddb، وقراءات repo الحقول بدائل تمرّ بمحلّلاتها الحقيقية (parseOverview وparseDetail وparseFlockFeed)؛ وعلف القاعة
 // من عيّنة القاعدة الحقيقية (fixtures/flock-issue-0019.json). يوم الخادم ثابت في الجواب (days_since_placement)، لا ساعة الجهاز.
 // H1 جدول الحقل؛ H2 صفحة القاعة وتنقّلها والقاعة الفارغة والمجهولة؛ H3 بطاقة اليوم؛ H4 جدول أيام الدورة؛ H5 جولة يوم من الصفحة (الطابور)؛
-// H6 العلف السالب جملة؛ H7 الوزن نافذة؛ H8 رابط القاعة من الجولة.
+// H6 العلف السالب جملة؛ H7 الوزن نافذة؛ H8 رابط القاعة من الجولة. ومنذ 0032 (الجولة زيارات في اليوم): H3 «سجّل زيارة»، وH5 نافذة اليوم «زيارة»
+// جديدة بخانات فارغة و«اليوم حتى الآن» (المحفوظ وعمليات الجهاز) وتحتها «زيارات هذا اليوم»، والفحص على المجموع بعد الزيارة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -350,8 +351,8 @@ export default async function (t) {
       await mount('/broiler/hall/h-1');
       t.same(
         [card()?.getAttribute('data-state') ?? null, cardHeading(), textOf('hall-today-record')],
-        ['missing', `جولة اليوم ${m.fmtDay(SERVER_DAY)} لم تُسجَّل`, 'سجّل جولة اليوم'],
-        'H3 جولة اليوم ناقصة: البطاقة missing بيوم الخادم، و«سجّل جولة اليوم» لمن يحفظ',
+        ['missing', `جولة اليوم ${m.fmtDay(SERVER_DAY)} لم تُسجَّل`, 'سجّل زيارة'],
+        'H3 جولة اليوم ناقصة: البطاقة missing بيوم الخادم، و«سجّل زيارة» لمن يحفظ',
       );
       t.eq(textOf('hall-missing'), MISSING_SENTENCE(5), 'H3 الناقص من الأيام السبعة الماضية بلا اليوم: 5 بالضبط');
       const subtitle = all().find((n) => n.localName === 'h1')?.parentNode?.children.find((n) => n.localName === 'p')?.textContent ?? '';
@@ -362,8 +363,8 @@ export default async function (t) {
       await mount('/broiler/hall/h-1');
       t.same(
         [card()?.getAttribute('data-state') ?? null, cardHeading(), textOf('hall-today-record'), textOf('hall-today-values')],
-        ['done', `سُجّلت جولة اليوم ${m.fmtDay(SERVER_DAY)}`, 'عدّل جولة اليوم', 'النافق 3 · المستبعد 0 · العلف —'],
-        'H3 جولة اليوم مسجّلة: البطاقة done بأرقامها، و«عدّل جولة اليوم»',
+        ['done', `سُجّلت جولة اليوم ${m.fmtDay(SERVER_DAY)}`, 'سجّل زيارة', 'النافق 3 · المستبعد 0 · العلف —'],
+        'H3 جولة اليوم مسجّلة: البطاقة done بأرقامها، و«سجّل زيارة» (زيارة أخرى تُضاف)',
       );
       t.eq(textOf('hall-missing'), MISSING_SENTENCE(5), 'H3 والناقص 5 كما هو (اليوم لا يُعدّ)');
     });
@@ -467,49 +468,63 @@ export default async function (t) {
 
     // ── H5: جولة يوم من صفحة القاعة بالطابور الحقيقي ─────────────────────────────────────────────────────────────────
     const stampOf = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });
-    const dayDialog = () => dialogTitled('جولة ');
+    const dayDialog = () => dialogTitled('زيارة ');
     const dayField = (name) => (dayDialog() ? byAction(`day-${name}`, dayDialog())[0] ?? null : null);
+    /** «اليوم حتى الآن» تحت خانة النافذة (تلميح الحقل). */
+    const soFarIn = (name) => dayField(name)?.parentNode?.children.find((n) => n.localName === 'p')?.textContent ?? null;
+    /** محتوى الزيارة بلا معرّفها ووقتها (يولدان بالجهاز). */
+    const contentOf = (op) => Object.fromEntries(Object.entries(op?.payload ?? {}).filter(([key]) => key !== 'visitId' && key !== 'recordedAt'));
+    const NEW_VISIT = { dead: 0, culled: 0, feed_kg: null, eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false };
     const H5_CYCLE = () => cycle('f-1', 9, [[0, { dead: 3, version: 4 }], ...PAST]);
     await step('H5 يوم ناقص', async () => {
       const { calls, sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5a' });
       await mount('/broiler/hall/h-1');
       await click(dayRowOf(3) ? byAction('day-record', dayRowOf(3))[0] : null);
-      t.eq(dayDialog()?.textContent.startsWith(`جولة قاعة 1 ليوم ${m.fmtDay(ago(3))}`) ?? false, true, 'H5 «سجّل» يفتح جولة القاعة لذلك اليوم بعينه');
-      t.same([dayField('dead')?.value, dayField('culled')?.value, dayField('feedKg')?.value], ['', '', ''], 'H5 يوم بلا سطر: الخانات فارغة');
+      t.eq(dayDialog()?.textContent.startsWith(`زيارة قاعة 1 ليوم ${m.fmtDay(ago(3))}`) ?? false, true, 'H5 «سجّل» يفتح زيارة القاعة لذلك اليوم بعينه');
+      t.same([dayField('dead')?.value, dayField('culled')?.value, dayField('feedKg')?.value, soFarIn('dead')], ['', '', '', 'اليوم حتى الآن: 0'], 'H5 يوم بلا سطر: الخانات فارغة و«اليوم حتى الآن: 0»');
+      t.ok(byAction('day-visits', dayDialog() ?? body()).length === 1 && byAction('hall-visits', dayDialog() ?? body()).length === 1, 'H5 وتحتها «زيارات هذا اليوم» بالمكوّن نفسه');
       type(dayField('dead'), '3');
       await settle();
       await click(dayField('dead') ? byAction('day-save', dayDialog())[0] : null, 120);
       t.same(
-        sent.map((op) => [op.fn, op.flockId, op.day, op.baseVersion, op.payload]),
-        [['save_flock_day', 'f-1', ago(3), null, { dead: 3, culled: null, feed_kg: null, eggs_total: null, eggs_broken: null }]],
-        'H5 save_flock_day لذلك اليوم بالضبط، بنسخة null (لا صفّ له)، والخانة المكتوبة وحدها',
+        sent.map((op) => [op.fn, op.flockId, op.day, op.baseVersion, contentOf(op)]),
+        [['save_flock_visit', 'f-1', ago(3), null, { ...NEW_VISIT, dead: 3 }]],
+        'H5 زيارة جديدة لذلك اليوم بالضبط، بلا نسخة، بمحتواها كاملاً',
       );
-      t.same([globalThis.__hp.toasts.at(-1)?.title ?? null, Boolean(dayDialog()), named(calls, 'loadFlockDetail').length >= 2], ['حُفظت الجولة.', false, true], 'H5 «حُفظت الجولة.» والنافذة تُغلق والفوج يُقرأ من جديد');
+      t.same([globalThis.__hp.toasts.at(-1)?.title ?? null, Boolean(dayDialog()), named(calls, 'loadFlockDetail').length >= 2], ['حُفظت الزيارة.', false, true], 'H5 «حُفظت الزيارة.» والنافذة تُغلق والفوج يُقرأ من جديد');
       t.eq((await m.pendingOps(await m.openOutbox(), stampOf('u-h5a'))).length, 0, 'H5 الطابور فارغ بعد الرفع');
     });
     await step('H5 يوم مسجّل', async () => {
       const { sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5b' });
       await mount('/broiler/hall/h-1');
+      t.eq(dayRowOf(2) ? byAction('day-edit', dayRowOf(2))[0]?.textContent : null, 'الزيارات', 'H5 اليوم المسجّل: «الزيارات»');
       await click(dayRowOf(2) ? byAction('day-edit', dayRowOf(2))[0] : null);
-      t.same([dayField('dead')?.value, dayField('culled')?.value, dayField('feedKg')?.value], ['4', '1', '98.25'], 'H5 «عدّل» يفتح الجولة بقيم ذلك اليوم');
+      t.same(
+        [dayField('dead')?.value, dayField('feedKg')?.value, soFarIn('dead'), soFarIn('culled'), soFarIn('feedKg')],
+        ['', '', 'اليوم حتى الآن: 4', 'اليوم حتى الآن: 1', 'اليوم حتى الآن: 98.25'],
+        'H5 يوم مسجّل: زيارة جديدة بخانات فارغة، و«اليوم حتى الآن» بمجموع ذلك اليوم',
+      );
+      // الفحص على المجموع بعد الزيارة: الحيّ الآن 4,989 (5,000 − 11)؛ زيارة بنافق 4,990 لذلك اليوم تجعله سالباً (و4,989 تُقبل).
+      type(dayField('dead'), '4990');
+      await settle();
+      await click(byAction('day-save', dayDialog() ?? body())[0] ?? null, 60);
+      t.same([sent.length, Boolean(dayDialog()), dayDialog() ? descendants(dayDialog()).some((n) => n.getAttribute('role') === 'alert' && n.textContent.includes('الحيّ الآن 4,989')) : false], [0, true, true], 'H5 زيارة تجعل الحيّ سالباً تُمنع قبل الإرسال بجملتها');
+      type(dayField('dead'), '');
       type(dayField('feedKg'), '100');
       await settle();
       await click(dayField('feedKg') ? byAction('day-save', dayDialog())[0] : null, 120);
-      t.same(
-        sent.map((op) => [op.day, op.baseVersion, op.payload]),
-        [[ago(2), 7, { dead: null, culled: null, feed_kg: '100.000', eggs_total: null, eggs_broken: null }]],
-        'H5 تعديل يوم مسجّل: بنسخة صفّه (7)، والخانات التي لم تتغيّر null',
-      );
+      t.same(sent.map((op) => [op.day, op.baseVersion, contentOf(op)]), [[ago(2), null, { ...NEW_VISIT, feed_kg: '100.000' }]], 'H5 زيارة ليوم مسجّل تُضاف إليه: بلا نسخة، والعلف وحده');
     });
     await step('H5 جولة اليوم من البطاقة', async () => {
       const { sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5c' });
       await mount('/broiler/hall/h-1');
       await click(byAction('hall-today-record')[0] ?? null);
-      t.eq(dayDialog()?.textContent.startsWith(`جولة قاعة 1 ليوم ${m.fmtDay(SERVER_DAY)}`) ?? false, true, 'H5 «عدّل جولة اليوم» يفتح جولة يوم الخادم (لا يوم الجهاز)');
+      t.eq(dayDialog()?.textContent.startsWith(`زيارة قاعة 1 ليوم ${m.fmtDay(SERVER_DAY)}`) ?? false, true, 'H5 «سجّل زيارة» يفتح زيارة يوم الخادم (لا يوم الجهاز)');
+      t.eq(soFarIn('dead'), 'اليوم حتى الآن: 3', 'H5 «اليوم حتى الآن» بنافق اليوم المحفوظ');
       type(dayField('culled'), '2');
       await settle();
       await click(dayField('culled') ? byAction('day-save', dayDialog())[0] : null, 120);
-      t.same(sent.map((op) => [op.day, op.baseVersion, op.payload.dead, op.payload.culled]), [[SERVER_DAY, 4, null, 2]], 'H5 جولة اليوم بيوم الخادم ونسخة صفّ اليوم (4)');
+      t.same(sent.map((op) => [op.day, op.baseVersion, op.payload.dead, op.payload.culled]), [[SERVER_DAY, null, 0, 2]], 'H5 زيارة اليوم بيوم الخادم، بلا نسخة');
     });
     await step('H5 بلا اتصال', async () => {
       const { sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5d' });
@@ -522,11 +537,14 @@ export default async function (t) {
       await click(dayField('culled') ? byAction('day-save', dayDialog())[0] : null, 120);
       const pending = await m.pendingOps(await m.openOutbox(), stampOf('u-h5d'));
       t.same(
-        [sent.length, pending.map((op) => [op.flockId, op.day, op.baseVersion, op.payload.culled])],
-        [0, [['f-1', ago(4), null, 2]]],
-        'H5 بلا اتصال: لا إرسال، والجولة في طابور الجهاز بيومها ونسخة null',
+        [sent.length, pending.map((op) => [op.fn, op.flockId, op.day, op.baseVersion, op.payload.culled])],
+        [0, [['save_flock_visit', 'f-1', ago(4), null, 2]]],
+        'H5 بلا اتصال: لا إرسال، والزيارة في طابور الجهاز بيومها',
       );
       t.eq(globalThis.__hp.toasts.at(-1)?.title ?? null, 'محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال', 'H5 الرسالة «محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال»');
+      // اليوم على الجهاز: «الزيارات» تفتح زيارة أخرى، و«اليوم حتى الآن» يجمع ما على الجهاز؛ وزيارات اليوم تحتاج اتصالاً.
+      await click(dayRowOf(4) ? byAction('day-record', dayRowOf(4))[0] : null);
+      t.same([soFarIn('culled'), byAction('visits-offline', dayDialog() ?? body()).length], ['اليوم حتى الآن: 2', 1], 'H5 «اليوم حتى الآن» يجمع زيارة الجهاز المنتظرة، و«زيارات اليوم تحتاج اتصالاً»');
     });
 
     // ── H6: علف القاعة: الباقي السالب جملة ─────────────────────────────────────────────────────────────────────────

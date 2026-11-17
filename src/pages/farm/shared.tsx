@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState, type ComponentType, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 import type { FlockKind } from '../../domain/flocks';
 import { NetworkError, UnknownOutcomeError } from '../../lib/errors';
 import { keepOverview, savedOverview } from '../../lib/farmCopy';
@@ -127,11 +127,21 @@ const nothing = () => null;
  * (حجم التثبيت المسبق).
  */
 const hallsLazy =
-  <P,>(pick: (halls: Halls) => ComponentType<P>) =>
+  <P,>(pick: (halls: Halls) => ComponentType<P>, fallback: ComponentType<P> = nothing) =>
   () =>
-    lazy<ComponentType<P>>(() => quietly(loadHalls).then((halls) => ({ default: pick(halls) }), () => ({ default: nothing })));
+    lazy<ComponentType<P>>(() => quietly(loadHalls).then((halls) => ({ default: pick(halls) }), () => ({ default: fallback })));
 const remindersLazy = hallsLazy((halls) => halls.Reminders);
 const cardLazy = hallsLazy((halls) => halls.FlockCard);
+
+/** ما يحتاج الخادم في الجولة بلا اتصال (أو فشل تحميل حزمة القاعات): جملة تقول ذلك. */
+export function NeedsConnection() {
+  return (
+    <p className="text-sm text-ink-muted" data-action="visits-offline">
+      {t('visits.offline', 'زيارات اليوم تحتاج اتصالاً بالإنترنت.')}
+    </p>
+  );
+}
+const visitsLazy = hallsLazy((halls) => halls.HallVisits, NeedsConnection);
 
 /** تذكير اللقاحات المستحقّة: شريط الجولة (kind)، وصفّ «شغل اليوم» في الرئيسية (compact، وonCount عدد صفوفه). */
 export function HallReminders(props: HallRemindersProps) {
@@ -146,6 +156,16 @@ export function HallReminders(props: HallRemindersProps) {
 /** البيع وإغلاق الدورة في صفحة الفوج (0028، بطاقة FlockCard من حزمة القاعات). */
 export function HallFlockCard(props: { flock: FlockDetail['flock']; onChanged: () => void }) {
   const [Lazy] = useState(cardLazy);
+  return (
+    <Suspense fallback={null}>
+      <Lazy {...props} />
+    </Suspense>
+  );
+}
+
+/** «زيارات اليوم» لقاعة في الجولة (0032، من حزمة القاعات): بلا نت أو فشل تحميلها «تحتاج اتصالاً». */
+export function HallVisitsLazy(props: ComponentProps<Halls['HallVisits']>) {
+  const [Lazy] = useState(visitsLazy);
   return (
     <Suspense fallback={null}>
       <Lazy {...props} />

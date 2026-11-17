@@ -1,13 +1,14 @@
 import { decimalText, parseDecimal, toScale } from './decimal';
 
-// خانات الجولة اليومية (FOUNDATION ٣٨٤ و٥٧٨، والقاعدتان 28 و32) منطقاً صافياً: نصّ الخانة ← قيمة الحمولة، والفحص قبل الحفظ
-// (الجهاز يمنع نافقاً ومستبعداً أكثر من الحيّ، FOUNDATION ٢١٧). المرحلة 2، النسخة الأولى (كلمة المالك 2026-10-31).
-// والماء خارج الجولة (كلمة المالك 2026-11-11: الماء ثابت): عمود القاعدة باقٍ لبيانات قديمة، والحمولة لا ترسل water_l (عمليات قديمة
+// خانات الجولة اليومية (FOUNDATION ٣٨٤ و٥٧٨، والقاعدتان 28 و32) منطقاً صافياً: نصّ الخانة ← قيمة الزيارة، والفحص قبل الحفظ
+// (الجهاز يمنع نافقاً ومستبعداً أكثر من الحيّ، FOUNDATION ٢١٧). المرحلة 2، النسخة الأولى (كلمة المالك 2026-10-31)؛ ومنذ 0032 (كلمة
+// المالك 2026-11-17) الجولة زيارات تُضاف إلى مجموع اليوم: الفحص على المجموع بعد الزيارة.
+// والماء خارج الجولة (كلمة المالك 2026-11-11: الماء ثابت): عمود القاعدة باقٍ لبيانات قديمة، والزيارة لا ترسل ماءً (عمليات قديمة
 // بالطابور تحمله تُرسل كما هي).
 
 export type FlockKind = 'broiler' | 'layer';
 
-/** خانات الجولة نصّاً كما انكتبت: '' = «بلا تغيير» (null بالحمولة)، و0 = صفر. */
+/** خانات الزيارة نصّاً كما انكتبت: '' = فارغة (لا شيء يُضاف)، و0 = صفر. */
 export interface RoundText {
   dead: string;
   culled: string;
@@ -17,15 +18,6 @@ export interface RoundText {
 }
 
 export const EMPTY_ROUND: RoundText = { dead: '', culled: '', feedKg: '', eggsTotal: '', eggsBroken: '' };
-
-/** حمولة save_flock_day (مفاتيح FlockDayPayload بالطابور): العدد رقم صحيح، والعلف نصّ عشري بثلاث مراتب. */
-export interface RoundPayload {
-  dead: number | null;
-  culled: number | null;
-  feed_kg: string | null;
-  eggs_total: number | null;
-  eggs_broken: number | null;
-}
 
 export type RoundError = 'bad_count' | 'bad_amount' | 'live_negative' | 'eggs_need_total' | 'eggs_over_total' | 'eggs_over_live' | 'eggs_on_broiler';
 
@@ -47,18 +39,28 @@ function amount(text: string): string | null | 'bad' {
   return decimalText(toScale(parsed, 3), 3);
 }
 
-/** القيمة النافذة لخانة: المكتوبة، وإلا المحفوظة. */
-const effective = (typed: number | null, saved: number | null) => typed ?? saved ?? 0;
+/** محتوى زيارة من خاناتها: النافق والمستبعد 0 حين فارغان (عمودان لا يقبلان null)، والعلف والبيض null حين فارغة. العلف نصّ بثلاث مراتب. */
+export interface VisitValues {
+  dead: number;
+  culled: number;
+  feed_kg: string | null;
+  eggs_total: number | null;
+  eggs_broken: number | null;
+}
+
+/** مجموع اليوم قبل الزيارة (المحفوظ وما على الجهاز، أو المجموع بلا الزيارة المعدَّلة): أساس فحص الحيّ والبيض بعدها. */
+export interface DayTotals {
+  dead: number;
+  culled: number;
+  eggsTotal: number | null;
+}
 
 /**
- * نصّ الجولة ← الحمولة، أو أوّل خطأ. saved = خانات اليوم المحفوظة (أو المنتظرة بالجهاز)، وliveStart = الحيّ بداية اليوم: النافق
- * والمستبعد مجموع اليوم، فالحيّ بعدهما ما ينزل تحت الصفر؛ والبيض للبيّاض بس، والمكسور ما يتجاوز المجموع، والمجموع ما يتجاوز الحيّ
- * بداية اليوم (فوك ١٠٠٪ غلط إدخال، القاعدة 32).
+ * نصّ زيارة ← محتواها، أو أوّل خطأ. الفحوص على مجموع اليوم بعد الزيارة كما يفحصه الخادم (save_flock_visit): النافق والمستبعد معاً لا
+ * يتجاوزان الحيّ بداية اليوم، والبيض للبيّاض بس ولا يتجاوز مجموعه الحيّ (فوق ١٠٠٪ غلط إدخال، القاعدة 32)؛ والمكسور يحتاج مجموع البيض ولا
+ * يزيد عليه في الزيارة نفسها.
  */
-export function readRound(
-  text: RoundText,
-  context: { kind: FlockKind; liveStart: number; saved: { dead: number | null; culled: number | null; eggsTotal: number | null; eggsBroken: number | null } },
-): { payload: RoundPayload } | { error: RoundError; field: keyof RoundText } {
+export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart: number; totals: DayTotals }): { values: VisitValues } | { error: RoundError; field: keyof RoundText } {
   const dead = count(text.dead);
   if (dead === 'bad') return { error: 'bad_count', field: 'dead' };
   const culled = count(text.culled);
@@ -69,15 +71,17 @@ export function readRound(
   if (eggsTotal === 'bad') return { error: 'bad_count', field: 'eggsTotal' };
   const eggsBroken = count(text.eggsBroken);
   if (eggsBroken === 'bad') return { error: 'bad_count', field: 'eggsBroken' };
-  const { kind, liveStart, saved } = context;
-  if (effective(dead, saved.dead) + effective(culled, saved.culled) > liveStart) return { error: 'live_negative', field: dead !== null ? 'dead' : 'culled' };
+  const { kind, liveStart, totals } = context;
+  if (totals.dead + totals.culled + (dead ?? 0) + (culled ?? 0) > liveStart) return { error: 'live_negative', field: dead ? 'dead' : 'culled' };
   if (kind === 'broiler' && (eggsTotal !== null || eggsBroken !== null)) return { error: 'eggs_on_broiler', field: 'eggsTotal' };
-  const total = eggsTotal ?? saved.eggsTotal;
-  if ((eggsBroken ?? saved.eggsBroken) !== null && total === null) return { error: 'eggs_need_total', field: 'eggsTotal' };
-  if (total !== null && effective(eggsBroken, saved.eggsBroken) > total) return { error: 'eggs_over_total', field: 'eggsBroken' };
-  if (eggsTotal !== null && eggsTotal > liveStart) return { error: 'eggs_over_live', field: 'eggsTotal' };
-  return { payload: { dead, culled, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
+  if (eggsBroken !== null && eggsTotal === null) return { error: 'eggs_need_total', field: 'eggsTotal' };
+  if (eggsTotal !== null && (eggsBroken ?? 0) > eggsTotal) return { error: 'eggs_over_total', field: 'eggsBroken' };
+  if (eggsTotal !== null && (totals.eggsTotal ?? 0) + eggsTotal > liveStart) return { error: 'eggs_over_live', field: 'eggsTotal' };
+  return { values: { dead: dead ?? 0, culled: culled ?? 0, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
 }
 
-/** الحمولة ما بيها تغيير (كل الخانات فارغة). */
-export const emptyPayload = (payload: RoundPayload): boolean => Object.values(payload).every((value) => value === null);
+/** زيارة لا شيء فيها يُضاف (الخادم يرفضها empty_visit): لا نافق ولا مستبعد ولا علف ولا بيض. */
+export const emptyVisit = (values: VisitValues): boolean => values.dead === 0 && values.culled === 0 && values.feed_kg === null && values.eggs_total === null && values.eggs_broken === null;
+
+/** في الخانات شيء مكتوب. */
+export const typedRound = (text: RoundText): boolean => Object.values(text).some((value) => value.trim() !== '');

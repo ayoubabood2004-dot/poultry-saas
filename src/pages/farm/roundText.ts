@@ -1,13 +1,64 @@
-import { decimalText } from '../../domain/decimal';
-import type { RoundError } from '../../domain/flocks';
-import { fmtInt } from '../../lib/format';
+import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
+import type { RoundError, RoundText } from '../../domain/flocks';
+import { fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { flockDayTransport } from '../../lib/repo/flocks';
+import type { OutboxOp } from '../../lib/outbox';
+import { flockDayTransport, type DayValues } from '../../lib/repo/flocks';
 
-// نصوص الجولة المشتركة بين الجولة اليومية (محفوظة للفتح بلا نت) وجولة يوم من صفحة القاعة (حزمة القاعات، كلمة المالك 2026-11-16):
+// نصوص الجولة المشتركة بين الجولة اليومية (محفوظة للفتح بلا نت) وزيارة يوم من صفحة القاعة (حزمة القاعات، كلمة المالك 2026-11-16):
 // ملف صغير بينهما، حتى لا تجرّ صفحة القاعة الجولة كلّها إلى حزمتها.
 
 export const loadTransport = async () => flockDayTransport;
+
+/** مجموع اليوم حتى الآن بخانات الجولة: النافق والمستبعد أعداد، والعلف بالآلاف، والبيض null ما لم يُسجَّل. */
+export interface SoFar {
+  dead: number;
+  culled: number;
+  feedKg: bigint | null;
+  eggsTotal: number | null;
+  eggsBroken: number | null;
+}
+
+const milli = (text: string | null | undefined): bigint | null => {
+  const value = text ? parseDecimal(text, 3) : null;
+  return value ? toScale(value, 3) : null;
+};
+const add = (sum: number | null, more: number | null): number | null => (more === null ? sum : (sum ?? 0) + more);
+const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (more === null ? sum : (sum ?? 0n) + more);
+
+/**
+ * مجموع اليوم حتى الآن (0032): المحفوظ (صفّ اليوم) ثمّ عمليات هذا الجهاز لذلك اليوم بترتيبها — الزيارة الجديدة تُضاف، ومجموع اليوم القديم
+ * (save_flock_day مخزّنة قبل 0032) يحلّ محلّ خاناته المكتوبة، وتعديل زيارة محفوظة أو إلغاؤها لا يُعرف فرقه هنا فيبقى للخادم.
+ */
+export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> | null, ops: readonly OutboxOp[]): SoFar {
+  const total: SoFar = { dead: saved?.dead ?? 0, culled: saved?.culled ?? 0, feedKg: saved?.feedKg ?? null, eggsTotal: saved?.eggsTotal ?? null, eggsBroken: saved?.eggsBroken ?? null };
+  for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
+    if (op.fn === 'save_flock_visit') {
+      const visit = op.payload;
+      if (op.baseVersion !== null || visit.void) continue;
+      total.dead += visit.dead;
+      total.culled += visit.culled;
+      total.feedKg = addMilli(total.feedKg, milli(visit.feed_kg));
+      total.eggsTotal = add(total.eggsTotal, visit.eggs_total);
+      total.eggsBroken = add(total.eggsBroken, visit.eggs_broken);
+      continue;
+    }
+    const day = op.payload;
+    total.dead = day.dead ?? total.dead;
+    total.culled = day.culled ?? total.culled;
+    total.feedKg = milli(day.feed_kg) ?? total.feedKg;
+    total.eggsTotal = day.eggs_total ?? total.eggsTotal;
+    total.eggsBroken = day.eggs_broken ?? total.eggsBroken;
+  }
+  return total;
+}
+
+/** «اليوم حتى الآن» لخانة: العدد بفواصله، والعلف بالكيلو، و«—» لما لم يُسجَّل. */
+export function soFarText(total: SoFar, field: keyof RoundText): string {
+  if (field === 'feedKg') return total.feedKg === null ? '—' : fmtMilli(total.feedKg);
+  const value = field === 'dead' ? total.dead : field === 'culled' ? total.culled : field === 'eggsTotal' ? total.eggsTotal : total.eggsBroken;
+  return value === null ? '—' : fmtInt(value);
+}
 
 export const amountText = (value: bigint | string | null | undefined): string => {
   if (value === null || value === undefined) return '';

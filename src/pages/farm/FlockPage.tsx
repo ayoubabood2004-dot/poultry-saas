@@ -11,7 +11,7 @@ import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { addDays, diffDays, localDay, type Day } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
-import { EMPTY_ROUND, emptyPayload, readRound, type FlockKind, type RoundText } from '../../domain/flocks';
+import { EMPTY_ROUND, emptyVisit, readVisit, typedRound, type FlockKind, type RoundText } from '../../domain/flocks';
 import { naturalCompare } from '../../domain/naturalOrder';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
@@ -19,7 +19,7 @@ import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQty, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, pendingOps, saveRound, type SendResult } from '../../lib/outbox';
+import { openOutbox, pendingOps, saveRound, type OutboxOp } from '../../lib/outbox';
 import { loadFlockDetail, loadFlockFeed, recordFlockWeight, type DayLine, type FlockDetail, type HallView, type SiteView } from '../../lib/repo/flocks';
 import { refreshRoundQueue, roundQueueStore, uploadRounds } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
@@ -28,8 +28,9 @@ import { useLoad } from '../../lib/useLoad';
 import { CARD_CLASS, FeedLine, givePath, issuePath, LINK_CLASS } from './feed';
 import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
+import HallVisits, { visitResultText } from '../halls/HallVisits';
 import { daysText } from '../halls/parts';
-import { amountText, countText, errorText, loadTransport } from './roundText';
+import { errorText, loadTransport, soFar, soFarText } from './roundText';
 import { farmPath, farmTitle, fmtPct, HallFlockCard, hallLabel, hallPath, loadOverviewKept, Metric, useStamp } from './shared';
 
 // صفحة القاعة (FOUNDATION ٧٨٢؛ كلمة المالك 2026-11-16 مع صورة صفحة «فوج 1»: «طريقة الدخول الها واضحة ومو مبهمة… وتراجع تصميم هاي
@@ -145,77 +146,94 @@ function useDeviceDays(flockId: string | null, refresh: number): ReadonlySet<Day
 }
 const NO_DAYS: ReadonlySet<Day> = new Set();
 
-const FIELDS = Object.keys(EMPTY_ROUND) as (keyof RoundText)[];
-
-function resultText(result: SendResult | null): { tone: 'success' | 'warning' | 'danger'; title: string } {
-  if (result === null) return { tone: 'success', title: t('round.status.device', 'محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال') };
-  if (result.kind === 'saved') return { tone: 'success', title: t('hall.day.saved', 'حُفظت الجولة.') };
-  if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت إلى المدير: أُغلق الفوج، أو خرج من نطاقك، أو صار التاريخ قديماً أو داخل فترة مقفلة') };
-  if (result.kind === 'stale_day' || result.kind === 'rejected') return { tone: 'danger', title: t('hall.day.review', 'لم تُحفظ: راجعها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.') };
-  return { tone: 'warning', title: t('round.status.held', 'تنتظر: ادخل من جديد لتُرسل') };
+/**
+ * عمليات هذا الجهاز لفوج ويوم لم تُرفع بعد (الطابور نفسه): «اليوم حتى الآن» في نافذة الزيارة يجمعها فوق المحفوظ. تُقرأ عند الفتح وبعد كلّ رفع.
+ */
+function useDayOps(flockId: string, day: Day): readonly OutboxOp[] {
+  const stamp = useStamp();
+  const uploads = useStore(roundQueueStore).seq;
+  const [ops, setOps] = useState<{ key: string; ops: OutboxOp[] } | null>(null);
+  const userId = stamp?.userId ?? null;
+  const orgId = stamp?.orgId ?? null;
+  const displayName = stamp?.displayName ?? '';
+  const key = `${userId}:${orgId}:${flockId}:${day}`;
+  useEffect(() => {
+    if (!userId || !orgId) return;
+    let cancelled = false;
+    openOutbox()
+      .then((db) => pendingOps(db, { userId, orgId, displayName }))
+      .then(
+        (all) => {
+          if (!cancelled) setOps({ key: `${userId}:${orgId}:${flockId}:${day}`, ops: all.filter((op) => op.flockId === flockId && op.day === day) });
+        },
+        () => {
+          /* swallow-ok: الطابور ما انقرا (IndexedDB ممنوع)؛ «اليوم حتى الآن» من المحفوظ وحده */
+        },
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, orgId, displayName, flockId, day, uploads]);
+  return ops?.key === key ? ops.ops : NO_OPS;
 }
+const NO_OPS: readonly OutboxOp[] = [];
 
 /**
- * جولة يوم واحد لهذه القاعة (اليوم أو يوم فات ضمن السبعة): نفس الجولة اليومية بنفس الطابور. اللقطة لحظة الفتح: الخانة التي لم تتغيّر عنها
- * «بلا تغيير» (null)، والعملية بنسخة صفّ اليوم الذي رآه المستخدم، فحفظ أحدث من جهاز آخر يرجع stale_day لرفّ المراجعة ولا يُكتب فوقه.
+ * «سجّل زيارة» لهذه القاعة ليوم (اليوم أو يوم فات ضمن السبعة، 0032): زيارة جديدة بخانات فارغة تُضاف إلى مجموع ذلك اليوم، وتحت كلّ خانة «اليوم حتى
+ * الآن» (المحفوظ وعمليات هذا الجهاز)، وتحتها «زيارات هذا اليوم» بالتعديل والإلغاء. بالطابور نفسه (save_flock_visit)، فبلا نت تُحفظ على الجهاز؛ والفحص
+ * قبل الحفظ على المجموع بعد الزيارة. الصفحة تمرّر آخر قراءة للفوج (لا لقطة الفتح)، فتعديل زيارة من القائمة يظهر في «اليوم حتى الآن».
  */
-function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail; kind: FlockKind; day: Day; onClose: () => void; onDone: () => void }) {
+function VisitDialog({ detail, kind, day, onClose, onDone, onChanged }: { detail: FlockDetail; kind: FlockKind; day: Day; onClose: () => void; onDone: () => void; onChanged: () => void }) {
   const id = useId();
   const stamp = useStamp();
   const online = useStore(onlineStore);
-  // اللقطة مرّة واحدة لحظة الفتح (قراءة من جديد أثناء الكتابة لا تغيّرها).
-  const [snapshot] = useState(() => {
-    const line = detail.days.find((entry) => entry.onDate === day) ?? null;
-    const text: RoundText = line
-      ? { dead: countText(line.dead), culled: countText(line.culled), feedKg: amountText(line.feedKg), eggsTotal: countText(line.eggsTotal), eggsBroken: countText(line.eggsBroken) }
-      : EMPTY_ROUND;
-    return {
-      text,
-      base: line?.version ?? null,
-      bound: liveBound(detail, day),
-      saved: { dead: line?.dead ?? null, culled: line?.culled ?? null, eggsTotal: line?.eggsTotal ?? null, eggsBroken: line?.eggsBroken ?? null },
-    };
-  });
-  const [text, setText] = useState(snapshot.text);
+  const ops = useDayOps(detail.flock.id, day);
+  const line = detail.days.find((entry) => entry.onDate === day) ?? null;
+  const total = soFar(line, ops);
+  const bound = liveBound(detail, day);
+  const [text, setText] = useState<RoundText>(EMPTY_ROUND);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ field: keyof RoundText | null; message: string } | null>(null);
-  const dirty = FIELDS.some((field) => text[field] !== snapshot.text[field]);
+  const dirty = typedRound(text);
 
   const save = async () => {
     if (!stamp) return;
-    const changed: RoundText = { ...EMPTY_ROUND };
-    for (const field of FIELDS) if (text[field] !== snapshot.text[field]) changed[field] = text[field];
-    const read = readRound(changed, { kind, liveStart: snapshot.bound.live, saved: snapshot.saved });
+    const read = readVisit(text, { kind, liveStart: bound.live, totals: total });
     if ('error' in read) {
       setError({
         field: read.field,
         message:
-          read.error === 'live_negative' && snapshot.bound.past
+          read.error === 'live_negative' && bound.past
             ? t('hall.day.live_negative_past', 'بهذه الأرقام يصير الحيّ سالباً؛ الحيّ الآن {live}.', { live: fmtInt(detail.flock.live) })
-            : errorText(read.error, snapshot.bound.live),
+            : errorText(read.error, bound.live),
       });
       return;
     }
-    if (emptyPayload(read.payload)) {
-      onClose();
+    if (emptyVisit(read.values)) {
+      if (dirty) setError({ field: null, message: t('hall.visit.empty', 'لا شيء يُضاف بهذه الأرقام: اكتب نافقاً أو مستبعداً أكبر من صفر، أو علفاً.') });
+      else onClose();
       return;
     }
     setBusy(true);
     setError(null);
     try {
       const db = await openOutbox();
-      await saveRound(db, stamp, { fn: 'save_flock_day', flockId: detail.flock.id, day, payload: read.payload, baseVersion: snapshot.base });
+      const op = await saveRound(db, stamp, {
+        fn: 'save_flock_visit',
+        flockId: detail.flock.id,
+        day,
+        payload: { visitId: crypto.randomUUID(), recordedAt: new Date().toISOString(), ...read.values, eggs_cracked: null, note: null, void: false },
+        baseVersion: null,
+      });
       const results = online ? await uploadRounds(stamp, loadTransport).catch(() => []) : []; /* swallow-ok: الرفع فشل (IndexedDB)؛ العملية باقية بالجهاز وترتفع بالمحاولة الجاية */
       if (!online) {
         void refreshRoundQueue(stamp).catch(() => {
           /* swallow-ok: عدّ الطابور تعذّر؛ الرأس يتحدّث بالرفع الجاي */
         });
       }
-      // نتيجة هذا اليوم وحده تُقال هنا، وآخرها (رفع منضمّ قد يحمل عملية أقدم لليوم نفسه، R6)؛ ونتائج القاعات الأخرى في الرفع نفسه تبقى
-      // لتنبيه «رُدّت» في القشرة والجولة (لا ackRuns هنا، R3).
-      const result = [...results].reverse().find((entry) => entry.flockId === detail.flock.id && entry.day === day)?.result ?? null;
-      const shown = resultText(online ? result : null);
-      toast({ tone: shown.tone, title: shown.title });
+      // نتيجة هذه الزيارة بعينها (بمعرّف عمليتها)؛ ونتائج القاعات الأخرى في الرفع نفسه تبقى لتنبيه «رُدّت» في القشرة والجولة (لا ackRuns هنا، R3).
+      const result = op ? (results.find((entry) => entry.opId === op.id)?.result ?? null) : null;
+      toast(visitResultText(online ? result : null, 'new'));
       onDone();
     } catch (failure) {
       const { title, detail: more } = describeError(failure);
@@ -241,22 +259,23 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
       onClose={onClose}
       locked={busy}
       dirty={dirty}
-      title={t('hall.day.title', 'جولة {hall} ليوم {day}', { hall: hallLabel(detail.flock.hallName), day: fmtDay(day) })}
+      size="wide"
+      title={t('hall.visit.title', 'زيارة {hall} ليوم {day}', { hall: hallLabel(detail.flock.hallName), day: fmtDay(day) })}
       footer={
         <Button onClick={() => void save()} busy={busy} data-action="day-save">
-          {t('hall.day.save', 'احفظ الجولة')}
+          {t('hall.visit.save', 'احفظ الزيارة')}
         </Button>
       }
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-ink-muted">
-          {snapshot.bound.past
-            ? t('hall.day.hint_past', 'مجموع ذلك اليوم لكلّ خانة، والفارغة بلا تغيير.')
-            : t('hall.day.hint', 'مجموع اليوم لكلّ خانة، والفارغة بلا تغيير. الحيّ بداية اليوم {live}.', { live: fmtInt(snapshot.bound.live) })}
+          {bound.past
+            ? t('hall.visit.hint_past', 'ما تكتبه يُضاف إلى مجموع ذلك اليوم، والفارغة لا شيء.')
+            : t('hall.visit.hint', 'ما تكتبه يُضاف إلى مجموع اليوم، والفارغة لا شيء. الحيّ بداية اليوم {live}.', { live: fmtInt(bound.live) })}
         </p>
         <div className="grid grid-cols-2 gap-3">
           {fields.map(([field, label, decimal]) => (
-            <Field key={field} id={`${id}-${field}`} label={label} error={error?.field === field ? error.message : null}>
+            <Field key={field} id={`${id}-${field}`} label={label} error={error?.field === field ? error.message : null} hint={t('round.so_far', 'اليوم حتى الآن: {n}', { n: soFarText(total, field) })}>
               <input
                 id={`${id}-${field}`}
                 className="input tabular-nums"
@@ -271,6 +290,10 @@ function DayDialog({ detail, kind, day, onClose, onDone }: { detail: FlockDetail
           ))}
         </div>
         {error && error.field === null ? <Notice tone="danger" title={error.message} /> : null}
+        <section className="flex flex-col gap-2" data-action="day-visits">
+          <h3 className="font-semibold">{t('hall.visit.list', 'زيارات هذا اليوم')}</h3>
+          <HallVisits kind={kind} flockId={detail.flock.id} day={day} canSave={writable(detail, day)} liveStart={bound.live} onChanged={onChanged} />
+        </section>
       </div>
     </Dialog>
   );
@@ -379,7 +402,7 @@ function TodayCard({ detail, missing, roundPath, onDevice, onRecord }: { detail:
       {detail.canSave ? (
         <div className="flex flex-wrap items-center gap-3">
           <Button variant={done ? 'secondary' : 'primary'} onClick={() => onRecord(today)} data-action="hall-today-record">
-            {done ? t('hall.today.edit', 'عدّل جولة اليوم') : t('hall.today.record', 'سجّل جولة اليوم')}
+            {t('hall.today.record', 'سجّل زيارة')}
           </Button>
         </div>
       ) : done ? null : (
@@ -493,7 +516,7 @@ function FlockView({ detail, kind, device, onRecord }: { detail: FlockDetail; ki
               </span>
               {writable(detail, row.onDate) ? (
                 <Button size="sm" variant="ghost" onClick={() => onRecord(row.onDate)} data-action="day-record">
-                  {t('hall.day.edit', 'عدّل')}
+                  {t('hall.day.visits', 'الزيارات')}
                 </Button>
               ) : null}
             </span>
@@ -555,7 +578,7 @@ function FlockView({ detail, kind, device, onRecord }: { detail: FlockDetail; ki
             cell: (row: DayView) =>
               row.line && writable(detail, row.onDate) ? (
                 <Button size="sm" variant="ghost" onClick={() => onRecord(row.onDate)} data-action="day-edit">
-                  {t('hall.day.edit', 'عدّل')}
+                  {t('hall.day.visits', 'الزيارات')}
                 </Button>
               ) : null,
           },
@@ -665,7 +688,7 @@ function FlockScreen({ kind, flockId, nav, onGone }: { kind: FlockKind; flockId:
   // النوافذ من حالة الصفحة لا من القراءة: القراءة من جديد (data = null أثناءها) لا تطويها.
   const [editing, setEditing] = useState<FlockDetail['flock'] | null>(null);
   const [weighing, setWeighing] = useState<FlockDetail | null>(null);
-  const [recording, setRecording] = useState<{ detail: FlockDetail; day: Day } | null>(null);
+  const [recording, setRecording] = useState<Day | null>(null);
   const here = detail ? hallPath(kind, detail.flock.hallId) : base;
   const today = detail ? serverToday(detail.flock) : null;
   const missing = detail && today !== null ? dayViews(detail).rows.filter((row) => row.line === null && row.onDate !== today && !device.has(row.onDate) && inWindow(detail, row.onDate)).length : 0;
@@ -699,23 +722,28 @@ function FlockScreen({ kind, flockId, nav, onGone }: { kind: FlockKind; flockId:
         </Notice>
       ) : null}
       {detail && detail.flock.status === 'active' ? (
-        <TodayCard detail={detail} missing={missing} roundPath={`${base}/round`} onDevice={today !== null && device.has(today)} onRecord={(day) => setRecording({ detail, day })} />
+        <TodayCard detail={detail} missing={missing} roundPath={`${base}/round`} onDevice={today !== null && device.has(today)} onRecord={setRecording} />
       ) : null}
       {detail ? <HallAlerts detail={detail} onWeight={() => setWeighing(detail)} /> : null}
       {detail ? <HallActions detail={detail} back={here} onWeight={() => setWeighing(detail)} onEdit={() => setEditing(detail.flock)} /> : null}
       {detail ? <FeedSection flockId={detail.flock.id} back={here} canGive={canGive} /> : null}
-      {detail ? <FlockView detail={detail} kind={kind} device={device} onRecord={(day) => setRecording({ detail, day })} /> : null}
+      {detail ? <FlockView detail={detail} kind={kind} device={device} onRecord={setRecording} /> : null}
       {detail ? <HallFlockCard flock={detail.flock} onChanged={state.retry} /> : null}
-      {recording ? (
-        <DayDialog
-          detail={recording.detail}
+      {recording && detail ? (
+        <VisitDialog
+          detail={detail}
           kind={kind}
-          day={recording.day}
+          day={recording}
           onClose={() => setRecording(null)}
           onDone={() => {
             setRecording(null);
             setDeviceTick((n) => n + 1);
             // بلا نت لا قراءة من جديد (تفشل وتمحو الصفحة، R2): اليوم يظهر «على الجهاز» من الطابور.
+            if (online) state.retry();
+          }}
+          // تعديل زيارة أو إلغاؤها من القائمة: النافذة تبقى، والفوج يُقرأ من جديد (آخر قراءة تبقى معروضة أثناءها).
+          onChanged={() => {
+            setDeviceTick((n) => n + 1);
             if (online) state.retry();
           }}
         />

@@ -713,8 +713,12 @@ export default async function (t) {
       await settle(60);
       const db = await m.openOutbox();
       const ops = await m.pendingOps(db, { userId: WORKER.workspace.userId, orgId: 'org-1', displayName: 'علي' });
-      t.same(ops.map((op) => [op.flockId, Object.keys(op.payload)]), [[FLOCK, ['dead', 'culled', 'feed_kg', 'eggs_total', 'eggs_broken']]], 'W حمولة الجولة بلا water_l');
-      t.eq(named(rpcLog, 'save_flock_day').length, 0, 'W ضابط: بلا نت تبقى بالجهاز');
+      t.same(
+        ops.map((op) => [op.fn, op.flockId, Object.keys(op.payload).sort()]),
+        [['save_flock_visit', FLOCK, ['culled', 'dead', 'eggs_broken', 'eggs_cracked', 'eggs_total', 'feed_kg', 'note', 'recordedAt', 'visitId', 'void']]],
+        'W حمولة الجولة زيارة (0032) بمحتواها كاملاً، بلا water_l',
+      );
+      t.eq(named(rpcLog, 'save_flock_visit').length + named(rpcLog, 'save_flock_day').length, 0, 'W ضابط: بلا نت تبقى بالجهاز');
       m.onlineStore.set(true);
     });
     await step('W بلا نت', async () => {
