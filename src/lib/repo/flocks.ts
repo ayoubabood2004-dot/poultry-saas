@@ -506,7 +506,8 @@ export function parseVisit(value: unknown): FlockVisit {
 
 /**
  * جواب save_flock_visit ← نتيجة الطابور: saved بزيارته (نسختها تُرفع لعمليات الزيارة نفسها اللاحقة) وصفّ يومها بعدها أو null، وparked،
- * وstale_visit بالمحفوظة (أو null: لا زيارة حيّة بهذا المعرّف لذلك اليوم). شكل غريب يرمي فتبقى العملية بالطابور.
+ * وstale_visit بالزيارة كما هي في الخادم (ملغاة voided: true إن أُلغيت من جهاز آخر)، أو null: لا زيارة بهذا المعرّف فيه (لم تصل). شكل غريب يرمي
+ * فتبقى العملية بالطابور.
  */
 export function visitAnswer(value: unknown): SendResult {
   const answer = record(value, 'save_flock_visit');

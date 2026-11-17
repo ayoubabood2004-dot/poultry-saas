@@ -210,7 +210,7 @@ function VisitDialog({ detail, kind, day, onClose, onDone, onChanged }: { detail
       return;
     }
     if (emptyVisit(read.values)) {
-      if (dirty) setError({ field: null, message: t('hall.visit.empty', 'لا شيء يُضاف بهذه الأرقام: اكتب نافقاً أو مستبعداً أكبر من صفر، أو علفاً.') });
+      if (dirty) setError({ field: null, message: t('hall.visit.empty', 'اكتب رقماً واحداً على الأقلّ (الصفر رقم).') });
       else onClose();
       return;
     }

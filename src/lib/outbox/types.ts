@@ -108,7 +108,10 @@ export type SendResult =
   | { kind: 'parked' }
   /** base_version أقدم من المحفوظ: رفّ المراجعة بالنسختين. */
   | { kind: 'stale_day'; server: unknown }
-  /** الزيارة تغيّرت (أو أُلغيت أو نُقلت) بعد ما شافها المستخدم: رفّ المراجعة بـ«زيارتك والمحفوظة» (server = visit_json أو null). */
+  /**
+   * الزيارة تغيّرت أو أُلغيت بعد ما شافها المستخدم، أو لم تصل الخادم: رفّ المراجعة بـ«زيارتك والمحفوظة» (server = visit_json كما هي، والملغاة
+   * voided: true؛ أو null حين لا زيارة بمعرّفها في الخادم).
+   */
   | { kind: 'stale_visit'; server: unknown }
   | { kind: 'rejected'; code: string; hint: string | null }
   /** 401، أو 42501 على الدالّة، أو PGRST301. */

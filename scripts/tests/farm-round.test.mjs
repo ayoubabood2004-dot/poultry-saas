@@ -15,6 +15,7 @@
 // بجملة فصيحة؛ W «نشطة» و«رُدّت إلى المدير» بدل «شغّالة» و«الطابور».
 // و«القاعات بين يديك» (كلمة المالك 2026-11-11: الماء ثابت): لا خانة ماء في الجولة ولا water_l في حمولتها (R1، وB على العلف بدل الماء)، ولا
 // عمود ماء في جدول أيام الفوج ولو حفظته القاعدة قديماً (F2)، ولا «أضف للقاعة» على بطاقات من يقرأ فقط (E).
+// ومراجعة 0032: L5 ما يُكتب أثناء رفع الحفظ يبقى؛ L6 «اليوم حتى الآن» لا يعدّ زيارة مجهولة النتيجة فوق محفوظ قد يحملها.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -670,6 +671,73 @@ export default async function (t) {
       await settle();
       t.eq(byAction('round-save')[0]?.textContent, 'احفظ الزيارة لـ3 قاعات', 'V6: «احفظ الزيارة لـ3 قاعات»');
       await unmount();
+    }
+
+    // ── L5 (مراجعة 0032): ما يُكتب أثناء رفع الحفظ يبقى — في قاعة أخرى مختارة، وفي خانة أخرى للقاعة نفسها؛ وما حُفظ يُفرغ (كان كلّ قاعة مختارة يُفرغ) ──
+    {
+      m.onlineStore.set(true);
+      let release = () => {};
+      const gate = new Promise((resolve) => {
+        release = resolve;
+      });
+      const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-l5' }), offline: false }, { loadOverviewJson: () => server.overview() }, async () => {
+        await gate;
+        return { kind: 'saved', version: 1 };
+      });
+      await mount('/broiler/round');
+      type(inCard('f-a', '-dead'), '3');
+      await settle();
+      fire(byAction('round-save')[0], 'click');
+      await settle(40);
+      t.same(sent.map((op) => [op.flockId, op.payload.dead]), [['f-a', 3]], 'L5 ضابط: الزيارة في الطريق (الرفع ينتظر)');
+      type(inCard('f-b', '-dead'), '7');
+      type(inCard('f-a', '-culled'), '1');
+      await settle();
+      release();
+      await settle(120);
+      t.same(
+        [inCard('f-a', '-dead')?.value, inCard('f-a', '-culled')?.value, inCard('f-b', '-dead')?.value, text().includes('حُفظ 1 من 1')],
+        ['', '1', '7', true],
+        'L5 بعد الرفع («حُفظ 1 من 1»): نافق قاعة 1 المحفوظ فرغ، والمكتوب أثناء الرفع (مستبعد قاعة 1 ونافق قاعة 2) باقٍ',
+      );
+      await unmount();
+    }
+
+    // ── L6 (مراجعة 0032): «اليوم حتى الآن» لا يعدّ زيارة نتيجتها مجهولة (unknown) فوق محفوظ قد يحملها؛ والفحص قبل الحفظ يقبل ما يقبله الخادم ──
+    {
+      m.onlineStore.set(true);
+      const owner = { userId: 'u-l6', orgId: 'org-1', displayName: 'علي' };
+      const db = await m.openOutbox();
+      const unknown = await m.saveRound(db, owner, { fn: 'save_flock_visit', flockId: 'f-a', day: TODAY, payload: { visitId: 'v-l6', recordedAt: new Date().toISOString(), dead: 5, culled: null, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false }, baseVersion: null });
+      await new Promise((resolve) => {
+        const tx = db.transaction('ops', 'readwrite');
+        tx.objectStore('ops').put({ ...unknown, state: 'unknown', lastError: 'network' });
+        tx.oncomplete = resolve;
+      });
+      // الخادم حفظها (المحفوظ 5) وجوابها ضاع: الحيّ بداية اليوم 15.
+      const small = () => ({ today: TODAY, sites: [site('s-1', 'broiler', [hall('h-1', 'قاعة 1', flock('f-a', 'broiler', { live: 10, live_start_today: 15, today: dayRow({ version: 2, dead: 5 }) }))])] });
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-l6' }), offline: false }, { loadOverviewJson: small });
+      globalThis.__farm.userId = 'someone-else'; // جلسة غيره: لا رفع، فتبقى المجهولة مجهولة
+      await mount('/broiler/round');
+      t.eq(soFarOf('f-a', 'dead'), 'اليوم حتى الآن: 5', 'L6 المحفوظ 5 وزيارة مجهولة 5: «اليوم حتى الآن» 5 لا 10');
+      type(inCard('f-a', '-dead'), '6');
+      await settle();
+      fire(byAction('round-save')[0], 'click');
+      await settle(80);
+      const pending = await m.pendingOps(db, owner);
+      t.same(
+        [card('f-a')?.textContent.includes('النافق والمستبعد أكثر من الطيور الحيّة'), pending.map((op) => op.payload.dead).sort(), sent.length],
+        [false, [5, 6], 0],
+        'L6 5 + 6 = 11 من 15 يُقبل: الزيارة بالطابور بجنب المجهولة (لا «أكثر من الحيّ» بعدّها مرّتين)',
+      );
+      await unmount();
+      // عمليات هذا الفحص تُشال، فلا يعدّها رأس فحص بعده «جولات لغيرك».
+      await new Promise((resolve) => {
+        const tx = db.transaction('ops', 'readwrite');
+        for (const op of pending) tx.objectStore('ops').delete(op.id);
+        tx.oncomplete = resolve;
+      });
     }
 
     // ── C: جولة انرفعت بالخلفية لمّا رجع الاتصال وردّها الخادم للمدير: الشاشة تقولها، ما تختفي بصمت ──

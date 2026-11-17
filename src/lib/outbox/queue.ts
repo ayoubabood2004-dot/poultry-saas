@@ -19,12 +19,13 @@ import {
 // - الدمج بالجهاز مفتاحه (المستخدم، المنشأة، الفوج، اليوم): دمج بـ(فوج + يوم) بس يطوي جولة عامل بجولة غيره.
 // - عملية نتيجتها مجهولة تنحسم بمرجعها أوّلاً، والتالية لنفس المفتاح تاخذ base_version اللي رجعت.
 // - الزيارات (0032) تُجمع بالخادم: لا تندمج زيارة بزيارة أخرى ولا بمجموع اليوم، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها، ونسختها
-//   ترتفع للعمليات اللاحقة لنفس الزيارة وحدها. وقاعدة IndexedDB بلا ترقية (الحقول داخل payload).
+//   ترتفع للعمليات اللاحقة لنفس الزيارة وحدها. والقاعدة بنسخة 2 (الحقول داخل payload، فلا مخزن جديد): نافذة بحزمة قبل 0032 تعدّ
+//   save_flock_visit مجموع يوم (ترفعها بـsave_flock_day وتدمجها وترفع نسختها)، فالترقية تسكّر اتصالها وفتحها بالنسخة 1 يفشل بصوت.
 // - رفض الهويّة والاشتراك يخلّيها تنتظر: ما ينحسب محاولة وما يروح لرفّ المراجعة.
 // - المرفوض يروح لرفّ مراجعة بالنسختين وما ينحذف أبداً (الحذف بعد عشر محاولات كان سطر كونسول).
 
 const DB_NAME = 'poultry-outbox';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const OPS = 'ops';
 const REVIEW = 'review';
 const OPS_BY_OWNER = 'by_owner_created';
@@ -43,7 +44,7 @@ export class OutboxError extends Error {
 
 /**
  * ترقية القاعدة خطوة لكل نسخة: كل فرع يبني اللي زادته نسخته بس، لأن قاعدة نسخة أقدم بيها مخازنها.
- * النسخة الجاية تضيف `if (oldVersion < 2)` تحت هذا. مصدّرة حتى الفحص يشغّلها كترقية نسخة أعلى.
+ * النسخة الجاية تضيف `if (oldVersion < 3)` تحت آخرها. مصدّرة حتى الفحص يشغّلها كترقية نسخة أعلى.
  */
 export function upgradeOutbox(db: IDBDatabase, oldVersion: number) {
   if (oldVersion < 1) {
@@ -52,6 +53,11 @@ export function upgradeOutbox(db: IDBDatabase, oldVersion: number) {
     ops.createIndex(OPS_BY_KEY, ['userId', 'orgId', 'flockId', 'day']);
     const review = db.createObjectStore(REVIEW, { keyPath: 'id' });
     review.createIndex(REVIEW_BY_OWNER, ['userId', 'orgId']);
+  }
+  if (oldVersion < 2) {
+    // 0032 (الزيارات): لا مخزن ولا فهرس جديد، والعمليات القديمة كما هي. رفع النسخة وحده يفصل نافذة الحزمة القديمة عن الطابور: يصلها
+    // versionchange فتسكّر اتصالها (idb.ts)، وفتحها التالي بالنسخة 1 يرفض (VersionError) بدل أن ترفع زيارة بـsave_flock_day أو تدمجها بمجموع اليوم
+    // أو تلغيها بصمت.
   }
 }
 
@@ -79,7 +85,18 @@ function sameKey(store: IDBObjectStore, op: Pick<OutboxOp, 'userId' | 'orgId' | 
 
 export type EnqueueInput =
   | { fn: 'save_flock_day'; flockId: string; day: string; payload: FlockDayPayload; baseVersion: number | null }
-  | { fn: 'save_flock_visit'; flockId: string; day: string; payload: FlockVisitPayload; baseVersion: number | null };
+  | {
+      fn: 'save_flock_visit';
+      flockId: string;
+      day: string;
+      payload: FlockVisitPayload;
+      baseVersion: number | null;
+      /**
+       * تعديل زيارة قائمة أو إلغاؤها («عدّل» و«ألغِ»)، لا زيارة جديدة. بنسخة null هي زيارة أضافها هذا الجهاز: إن خرجت عمليتها من الطابور (رُفعت
+       * والنافذة مفتوحة) فنسختها 1. والإلغاء تعديلٌ دائماً.
+       */
+      amend?: boolean;
+    };
 
 /** معرّف الزيارة لعملية زيارة، وإلا null. */
 export const visitIdOf = (op: OutboxOp): string | null => (op.fn === 'save_flock_visit' ? op.payload.visitId : null);
@@ -89,7 +106,7 @@ const newestOf = (ops: readonly OutboxOp[]) => ops.reduce<OutboxOp | null>((late
 /**
  * يحفظ جولة بالطابور مختومة بالهويّة المؤكّدة، ويدمجها ويّا عملية اللي ما انبعثت بعد: مجموع اليوم (save_flock_day) بأحدث عملية للمفتاح إذا
  * هي منتظرة ومن نوعها، والزيارة (save_flock_visit) بأحدث عملية منتظرة لنفس الزيارة وحدها (زيارتان مختلفتان تُجمعان بالخادم فلا تندمجان، ولا
- * تندمج زيارة بمجموع اليوم). إلغاء زيارة جديدة ما انرفعت يحذف عمليتها ويرجّع null (لا شيء يُرسل).
+ * تندمج زيارة بمجموع اليوم). إلغاء زيارة جديدة ما انرفعت يحذف عمليتها ويرجّع null (لا شيء يُرسل)، وهذا وحده null.
  * الشاشات ما تناديه: تنادي saveRound (round.ts) اللي يسأل persisted() وراه.
  */
 export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput, now = Date.now()): Promise<OutboxOp | null> {
@@ -101,6 +118,7 @@ export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput
     const store = tx.objectStore(OPS);
     const key = { userId: stamp.userId, orgId: stamp.orgId, flockId: input.flockId, day: input.day };
     const existing = await sameKey(store, key);
+    let baseVersion = input.baseVersion;
     if (input.fn === 'save_flock_visit') {
       const visitId = input.payload.visitId;
       const own = existing.filter((op) => visitIdOf(op) === visitId);
@@ -116,8 +134,10 @@ export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput
         await requestResult(store.put(merged));
         return merged;
       }
-      // إلغاء زيارة لا هي بالخادم (بلا نسخة) ولا بالجهاز: لا شيء يُلغى.
-      if (input.payload.void && input.baseVersion === null && own.length === 0) return null;
+      // تعديل زيارة أضافها هذا الجهاز أو إلغاؤها (بلا نسخة) وعمليتها لم تعد بالطابور: رُفعت بعد ما فُتحت النافذة (أو رُدّت)، فنسختها 1 ما لم
+      // تُعدَّل من جهاز آخر (والخادم يجيب حينها stale_visit). كان الإلغاء يرجّع null فيُقال «أُلغيت قبل أن تُرسل» وهي بالخادم، والتعديل يصير إضافة
+      // لمعرّف موجود (stale_visit). وعمليتها في الطريق (ممسوكة أو مجهولة): نسخة null، وحفظها يرفعها (removeSaved).
+      if ((input.amend || input.payload.void) && input.baseVersion === null && own.length === 0) baseVersion = 1;
     } else {
       // الدمج بأحدث عملية للمفتاح بس، وبس إذا بعدها منتظرة ومن نوعها: عمليتان منتظرتان لنفس اليوم ممكنة (عملية رجعت للانتظار بلا ما
       // تنبعث)، والدمج بالأقدم كان يرفع القيمة الجديدة أوّل وتدوسها القديمة؛ وزيارة بعدها تقطع الدمج فيبقى الترتيب كما كُتب.
@@ -136,7 +156,7 @@ export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput
       ...key,
       displayName: stamp.displayName,
       payload: { ...input.payload },
-      baseVersion: input.baseVersion,
+      baseVersion,
       state: 'pending',
       attempts: 0,
       claimToken: null,

@@ -28,14 +28,16 @@ const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (mo
 
 /**
  * مجموع اليوم حتى الآن (0032): المحفوظ (صفّ اليوم) ثمّ عمليات هذا الجهاز لذلك اليوم بترتيبها — الزيارة الجديدة تُضاف، ومجموع اليوم القديم
- * (save_flock_day مخزّنة قبل 0032) يحلّ محلّ خاناته المكتوبة، وتعديل زيارة محفوظة أو إلغاؤها لا يُعرف فرقه هنا فيبقى للخادم.
+ * (save_flock_day مخزّنة قبل 0032) يحلّ محلّ خاناته المكتوبة، وتعديل زيارة محفوظة أو إلغاؤها لا يُعرف فرقه هنا فيبقى للخادم. والزيارة الجديدة
+ * في الطريق (sending) أو المجهولة (unknown) ربّما صارت في المحفوظ بقراءة بعدها، فلا تُضاف: عدّها مرّتين يرفض بالفحص قبل الحفظ رقماً صحيحاً؛
+ * والمنتظرة والمعلّقة بالهويّة أو الاشتراك لم تصل الخادم يقيناً.
  */
 export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> | null, ops: readonly OutboxOp[]): SoFar {
   const total: SoFar = { dead: saved?.dead ?? 0, culled: saved?.culled ?? 0, feedKg: saved?.feedKg ?? null, eggsTotal: saved?.eggsTotal ?? null, eggsBroken: saved?.eggsBroken ?? null };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
     if (op.fn === 'save_flock_visit') {
       const visit = op.payload;
-      if (op.baseVersion !== null || visit.void) continue;
+      if (op.baseVersion !== null || visit.void || op.state === 'sending' || op.state === 'unknown') continue;
       total.dead += visit.dead ?? 0;
       total.culled += visit.culled ?? 0;
       total.feedKg = addMilli(total.feedKg, milli(visit.feed_kg));
@@ -51,6 +53,16 @@ export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'egg
     total.eggsBroken = day.eggs_broken ?? total.eggsBroken;
   }
   return total;
+}
+
+/**
+ * stale_visit بجملة (رفّ المراجعة وتنبيه الحفظ). الخادم يرجع الزيارة كما هي عنده (ملغاة: voided، إن أُلغيت من جهاز آخر)، أو null حين لا زيارة
+ * بهذا المعرّف عنده (لم تصل: رُدّت إضافتها أو لم تُحفظ).
+ */
+export function staleVisitText(server: unknown): string {
+  if (server === null || typeof server !== 'object') return t('visits.stale.missing', 'لم تصل هذه الزيارة إلى الخادم (رُدّت إضافتها أو لم تُحفظ)، فلا شيء فيه يُعدَّل أو يُلغى.');
+  if ((server as { voided?: unknown }).voided === true) return t('round.review.gone_visit', 'أُلغيت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب شيء.');
+  return t('round.review.stale_visit', 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.');
 }
 
 /** «اليوم حتى الآن» لخانة: العدد بفواصله، والعلف بالكيلو، و«—» لما لم يُسجَّل. */
@@ -79,6 +91,10 @@ export function errorText(error: RoundError, liveStart: number): string {
       return t('round.error.eggs_need_total', 'اكتب مجموع البيض قبل المكسور.');
     case 'eggs_over_total':
       return t('round.error.eggs_over_total', 'المكسور أكثر من مجموع البيض.');
+    case 'cracked_need_total':
+      return t('round.error.cracked_need_total', 'في هذه الزيارة بيض مشعور يبقى كما هو، فاكتب مجموع البيض.');
+    case 'cracked_over_total':
+      return t('round.error.cracked_over_total', 'المكسور والمشعور معاً أكثر من مجموع البيض (المشعور في هذه الزيارة يبقى كما هو).');
     case 'eggs_over_live':
       return t('round.error.eggs_over_live', 'البيض أكثر من الدجاج الحيّ بداية اليوم ({live})، والنسبة فوق 100% غلط إدخال.', { live: fmtInt(liveStart) });
     case 'eggs_on_broiler':

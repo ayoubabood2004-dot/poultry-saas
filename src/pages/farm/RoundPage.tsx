@@ -21,7 +21,7 @@ import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, ty
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
-import { errorText, loadTransport, soFar, soFarText, type SoFar } from './roundText';
+import { errorText, loadTransport, soFar, soFarText, staleVisitText, type SoFar } from './roundText';
 import { farmPath, farmTitle, HallReminders, HallVisitsLazy, hallLabel, hallPath, NeedsConnection, useOverview, useStamp } from './shared';
 
 // الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦) بزيارات في اليوم (0032، كلمة المالك 2026-11-17: «نروح للحقل أكثر من مرّة باليوم»): شاشة وحدة لكل
@@ -174,9 +174,7 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
           entry.reason === 'stale_day'
             ? t('round.review.stale', 'حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك، فلم تُكتب فوقه.')
             : entry.reason === 'stale_visit'
-              ? server
-                ? t('round.review.stale_visit', 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.')
-                : t('round.review.gone_visit', 'أُلغيت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب شيء.')
+              ? staleVisitText(entry.server)
               : describeError(new RejectedError(entry.reason, entry.hint)).detail;
         return (
           <div key={entry.id} className={CARD_CLASS} data-review={entry.id}>
@@ -236,7 +234,9 @@ interface CardProps {
 
 function RoundCard({ row, kind, today, text, onChange, picked, onPick, error, status, canSave, online, saves }: CardProps) {
   const id = useId();
-  const [visits, setVisits] = useState<{ open: boolean; count: number | null }>({ open: false, count: null });
+  const [visits, setVisits] = useState<{ open: boolean; count: number | null; saves: number }>(() => ({ open: false, count: null, saves }));
+  // بعد كلّ حفظ العدد مجهول حتى تقرأ «زيارات اليوم» من جديد: المطويّة لا تقرأ، فكان يبقى عددها القديم («(1)» وفيها زيارتان)؛ والمفتوحة تعيده بعد قراءتها.
+  if (visits.saves !== saves) setVisits({ ...visits, saves, count: null });
   const onCount = useCallback((count: number) => setVisits((current) => (current.count === count ? current : { ...current, count })), []);
   const fields = fieldsOf(kind);
   const label = hallLabel(row.hallName);
@@ -331,6 +331,18 @@ function RoundCard({ row, kind, today, text, onChange, picked, onPick, error, st
   );
 }
 
+const FIELDS: (keyof RoundText)[] = ['dead', 'culled', 'feedKg', 'eggsTotal', 'eggsBroken'];
+/**
+ * خانات قاعة حُفظت زيارتها: ما بقي كما حُفظ يُفرغ (حُفظ، وحفظه ثانيةً يضيفه مرّتين)، وما كُتب فيها أثناء الرفع (والخانات مفتوحة) يبقى؛ وnull حين
+ * لا يبقى شيء.
+ */
+function afterSave(now: RoundText | undefined, saved: RoundText | undefined): RoundText | null {
+  if (!now) return null;
+  const left = { ...now };
+  for (const field of FIELDS) if (now[field] === (saved?.[field] ?? '')) left[field] = '';
+  return typedRound(left) ? left : null;
+}
+
 /** الزرّ يسمّي النتيجة: «احفظ الزيارة لـ«قاعة 1»»، «لقاعتين»، «لـ3 قاعات»، «لـ11 قاعةً»، «لـ100 قاعة». */
 function saveLabel(count: number, first: string): string {
   if (count === 0) return t('round.save', 'احفظ الزيارة');
@@ -420,6 +432,8 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
     setBusy(true);
     setFailure(null);
     const nextErrors: typeof errors = {};
+    // الخانات كما حُفظت: بعد الرفع تُفرغ خانات القاعة المحفوظة التي بقيت كما كانت، وما كُتب أثناء الرفع (والخانات مفتوحة) يبقى.
+    const typed = texts;
     const sent: { row: RoundRow; opId: string }[] = [];
     const done: string[] = [];
     const empty: string[] = [];
@@ -461,7 +475,11 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       setErrors(nextErrors);
       setTexts((current) => {
         const next = { ...current };
-        for (const flockId of done) delete next[flockId];
+        for (const flockId of done) {
+          const left = afterSave(current[flockId], typed[flockId]);
+          if (left) next[flockId] = left;
+          else delete next[flockId];
+        }
         // خانات فوج ما عاد بالجولة (أُغلق أو خرج من النطاق) ما تبقى تعلّم النافذة.
         for (const flockId of Object.keys(next)) if (!rows.some((row) => row.flock.id === flockId)) delete next[flockId];
         return next;

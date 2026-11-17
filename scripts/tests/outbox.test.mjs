@@ -2,7 +2,8 @@
 // ولا وحدة تنمسح ولا تنرفع باسم الثاني، ورفض الهويّة والاشتراك ما ينحسب محاولة ولا يروح لرفّ المراجعة،
 // والسباقات بين التبويبات ما تضاعف شي، وجواب ضايع ثم تعديل لنفس (فوج + يوم) يعطي حفظتين بلا رفّ مراجعة.
 // وفوكها: الهويّة تنفحص لصق الإرسال، ومسك مختوم بالمستقبل ميّت، والقاعدة ما تسدّ ترقية نسخة أحدث،
-// وكل حفظ جولة يسأل persisted().
+// وكل حفظ جولة يسأل persisted(). ومراجعة 0032: M1 الطابور بنسخة 2 فنافذة الحزمة القديمة لا تشاركه، وM2 تعديل زيارة أضافها الجهاز
+// وقد رُفعت إضافتها بنسخة 1.
 import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -306,13 +307,13 @@ export default async function (t) {
     t.same(server.calls, [op.id, edit.id], 'المسك الميّت انحسم بمرجعه بلا إعادة إرسال');
   }
 
-  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 2 والطابور مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
+  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 3 والطابور (نسخة 2) مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
   {
     const name = nextName();
     const db = await q.openOutbox(name);
     const newer = await within(
       new Promise((resolve) => {
-        const request = globalThis.indexedDB.open(name, 2);
+        const request = globalThis.indexedDB.open(name, 3);
         request.onsuccess = () => {
           request.result.close();
           resolve('opened');
@@ -351,13 +352,13 @@ export default async function (t) {
     t.eq(outcome, 'opened', 'الفتح المسدود انتظر وانفتح بعد ما تسكّر التبويب القديم');
   }
 
-  // ١٣) ترقية النسخة الجاية على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
+  // ١٣) ترقية النسخة الجاية (3) على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
   {
     const name = nextName();
-    const v1 = await q.openOutbox(name);
-    await q.saveRound(v1, ALI, day('f8', '2026-10-15', { dead: 1 }));
-    v1.close();
-    const upgraded = await idb.openDatabase(name, 2, queue.upgradeOutbox).then(
+    const v2 = await q.openOutbox(name);
+    await q.saveRound(v2, ALI, day('f8', '2026-10-15', { dead: 1 }));
+    v2.close();
+    const upgraded = await idb.openDatabase(name, 3, queue.upgradeOutbox).then(
       async (db) => {
         const stores = Array.from(db.objectStoreNames).sort();
         const mine = (await q.summarize(db, ALI)).mine;
@@ -366,7 +367,33 @@ export default async function (t) {
       },
       (error) => `rejected:${error?.name ?? error?.message}`,
     );
-    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 2 نجحت والجولة باقية');
+    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 3 نجحت والجولة باقية');
+  }
+
+  // ١٣ب) M1 (مراجعة 0032): الطابور بنسخة 2، فنافذة بحزمة قبل 0032 (تفتحه بنسخة 1 وتعدّ كلّ عملية مجموع يوم: ترفع الزيارة بـsave_flock_day، وتدمج
+  // مجموع يومها بزيارة منتظرة، وترفع نسخة إضافة جديدة) لا تشاركه: اتصالها المفتوح يصله versionchange فيتسكّر، وفتحها بعده بنسخة 1 يرفض بصوت؛ والقاعدة
+  // القديمة تترقّى بعملياتها ورفّها كما هي.
+  {
+    const name = nextName();
+    const old = await idb.openDatabase(name, 1, queue.upgradeOutbox); // الحزمة القديمة: نسخة 1، وversionchange يسكّرها (idb.ts كما كان)
+    const kept = await q.saveRound(old, ALI, day('f30', '2026-11-16', { dead: 2 }));
+    await putOp(old, { ...kept, id: 'old-visit-op', fn: 'save_flock_visit', payload: { visitId: 'v-old', recordedAt: '2026-11-16T09:40:00.000Z', dead: 1, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false }, createdAt: kept.createdAt + 1 });
+    const current = await within(q.openOutbox(name), 1000, 'blocked');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 2, 'M1 الطابور ينفتح بنسخة 2 والنافذة القديمة مفتوحة (لا انسداد)');
+    let oldClosed = false;
+    try {
+      old.transaction('ops', 'readonly');
+    } catch (error) {
+      oldClosed = error?.name === 'InvalidStateError';
+    }
+    t.ok(oldClosed, 'M1 اتصال النسخة 1 المفتوح يصله versionchange فيتسكّر');
+    const reopen = await within(idb.openDatabase(name, 1, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
+    t.eq(reopen, 'rejected:VersionError', 'M1 فتح الحزمة القديمة بنسخة 1 بعد الترقية يرفض بصوت (لا ترفع ولا تدمج الزيارات)');
+    if (current !== 'blocked') {
+      const ops = await readOps(current);
+      t.same([Array.from(current.objectStoreNames).sort(), ops.map((op) => [op.fn, op.payload.visitId ?? op.payload.dead]).sort()], [['ops', 'review'], [['save_flock_day', 2], ['save_flock_visit', 'v-old']]], 'M1 الترقية من 1 إلى 2 تُبقي المخزنين وكلّ العمليات كما هي');
+      current.close();
+    }
   }
 
   // ١٤) كل حفظ جولة يسأل persisted()، وإذا false يطلب persist().
@@ -434,7 +461,7 @@ export default async function (t) {
   // ١٦) زيارتان لنفس (الفوج، اليوم) عمليتان منفصلتان (تُجمعان بالخادم)، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً، وإلغاؤها يحذف عمليتها.
   {
     const db = await open();
-    t.eq(db.version, 1, 'V16 قاعدة الطابور بنسختها نفسها (1): لا ترقية، والحقول داخل payload');
+    t.eq(db.version, 2, 'V16 قاعدة الطابور بنسخة 2 (M1)، والحقول داخل payload بلا مخزن جديد');
     const a = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('va', { dead: 3, feed_kg: '50.000' })));
     const b = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2 })));
     t.same([a.fn, b.fn, a.id !== b.id, (await readOps(db)).length], ['save_flock_visit', 'save_flock_visit', true, 2], 'V16 زيارتان مختلفتان لليوم نفسه: عمليتان (لا دمج بين زيارتين)');
@@ -443,12 +470,37 @@ export default async function (t) {
     t.same([edit.id, ops.length, ops.find((op) => op.id === a.id)?.payload.dead, ops.find((op) => op.id === a.id)?.payload.feed_kg, ops.find((op) => op.id === a.id)?.baseVersion], [a.id, 2, 4, null, null], 'V16 تعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً (العلف الفارغ فارغ، لا دمج بـ«بلا تغيير»)، ويبقى إضافةً');
     const dropped = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2, void: true })));
     t.same([dropped, (await readOps(db)).map((op) => op.payload.visitId)], [null, ['va']], 'V16 إلغاء زيارة جديدة لم تُرفع يحذف عمليتها (لا شيء يُرسل)');
-    const nothing = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vz', { void: true })));
-    t.same([nothing, (await readOps(db)).length], [null, 1], 'V16 إلغاء زيارة لا هي بالخادم ولا بالجهاز: لا عملية');
     await t.rejects(q.saveRound(db, ALI, visit('f20', '2026-11-17', { ...visitContent(''), visitId: '' })), 'V16 زيارة بلا معرّف لا تدخل الطابور', /not_queueable/);
     const server = makeServer();
     const report = await q.flush(db, ALI, transport(server, ALI.userId));
     t.same([report.saved, server.visits.get('va')?.payload.dead, server.visits.has('vb')], [1, 4, false], 'V16 الرفع: الزيارة بمحتواها الأخير، والملغاة قبل رفعها لم تصل');
+  }
+
+  // ١٦ب) M2 (مراجعة 0032): «عدّل» أو «ألغِ» لزيارة على هذا الجهاز وقد رُفعت إضافتها والنافذة مفتوحة (عمليتها خرجت من الطابور): عملية بنسخة 1، لا
+  // «أُلغيت قبل أن تُرسل» (null) والزيارة بالخادم، ولا إضافة ثانية لمعرّف موجود (stale_visit). null وحده لحذف عملية منتظرة.
+  {
+    const db = await open();
+    const server = makeServer();
+    await q.saveRound(db, ALI, visit('f24', '2026-11-17', visitContent('vg', { dead: 3 })));
+    await q.saveRound(db, ALI, visit('f24', '2026-11-17', visitContent('vh', { dead: 1 })));
+    t.eq((await q.flush(db, ALI, transport(server, ALI.userId))).saved, 2, 'V16ب ضابط: الإضافتان رُفعتا (نسخة 1)');
+    const voided = await q.saveRound(db, ALI, { ...visit('f24', '2026-11-17', visitContent('vg', { dead: 3, void: true })), amend: true });
+    const edited = await q.saveRound(db, ALI, { ...visit('f24', '2026-11-17', visitContent('vh', { dead: 2 })), amend: true });
+    t.same([voided?.payload.void, voided?.baseVersion, edited?.payload.dead, edited?.baseVersion], [true, 1, 2, 1], 'V16ب الإلغاء والتعديل عمليتان بنسخة 1 (لا null ولا إضافة)');
+    const report = await q.flush(db, ALI, transport(server, ALI.userId));
+    t.same([report.saved, report.review, server.visits.get('vg')?.voided, server.visits.get('vh')?.payload.dead, server.visits.get('vh')?.version], [2, 0, true, 2, 2], 'V16ب الخادم: أُلغيت الأولى وعُدّلت الثانية بلا رفّ مراجعة');
+    // الإلغاء تعديل دائماً (ولو بلا amend)، وزيارة لم تصل الخادم: stale_visit بـnull إلى الرفّ.
+    const gone = await q.saveRound(db, ALI, visit('f24', '2026-11-17', visitContent('vz', { void: true })));
+    t.same([gone?.baseVersion, gone?.payload.void], [1, true], 'V16ب إلغاء بلا عملية بالجهاز: عملية بنسخة 1');
+    const missing = await q.flush(db, ALI, transport(server, ALI.userId));
+    const shelf = await q.reviewEntries(db, ALI);
+    t.same([missing.review, shelf[0]?.reason, shelf[0]?.server], [1, 'stale_visit', null], 'V16ب وزيارة لم تصل الخادم: stale_visit بـnull في الرفّ');
+    // ضابط: تعديل والإضافة في الطريق (ممسوكة) بنسخة null، وحفظها يرفعها؛ وزيارة جديدة (بلا amend) نسختها null.
+    const add = await q.saveRound(db, ALI, visit('f25', '2026-11-17', visitContent('vi', { dead: 1 })));
+    await putOp(db, { ...add, state: 'sending', claimToken: 'tab-a', claimedAt: Date.now() });
+    const behind = await q.saveRound(db, ALI, { ...visit('f25', '2026-11-17', visitContent('vi', { dead: 4 })), amend: true });
+    const fresh = await q.saveRound(db, ALI, visit('f25', '2026-11-17', visitContent('vj', { dead: 1 })));
+    t.same([behind?.id !== add.id, behind?.baseVersion, fresh?.baseVersion], [true, null, null], 'V16ب ضابط: التعديل خلف إضافة في الطريق بنسخة null، والزيارة الجديدة null');
   }
 
   // ١٧) لا دمج بين زيارة ومجموع اليوم: الزيارة لا تندمج بعملية save_flock_day المنتظرة، ومجموع اليوم بعد زيارة عملية جديدة (لا يندمج بالأقدم فيسبق

@@ -20,7 +20,7 @@ import { loadRoundVisits, type RoundVisits } from '../../lib/repo/halls';
 import { refreshRoundQueue, roundQueueStore, uploadRounds } from '../../lib/roundUploads';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
-import { amountText, countText, errorText, loadTransport } from '../farm/roundText';
+import { amountText, countText, errorText, loadTransport, staleVisitText } from '../farm/roundText';
 import { useStamp } from '../farm/shared';
 
 // «زيارات اليوم» (0032، كلمة المالك 2026-11-17: «نسوي زيارات باليوم وكلّ زيارة تنضاف»): زيارات قاعة ليوم من الخادم (round_visits) بوقتها
@@ -123,9 +123,20 @@ function valuesText(values: Values): string {
   if (values.culled) parts.push(t('visits.part.culled', 'المستبعد {n}', { n: fmtInt(values.culled) }));
   if (values.feedKg !== null) parts.push(t('visits.part.feed', 'العلف {kg}', { kg: kg(values.feedKg) }));
   if (values.eggsTotal !== null) parts.push(t('visits.part.eggs', 'البيض {n}', { n: fmtInt(values.eggsTotal) }));
+  if (values.eggsCracked !== null) parts.push(t('visits.part.cracked', 'المشعور {n}', { n: fmtInt(values.eggsCracked) }));
   if (values.eggsBroken !== null) parts.push(t('visits.part.broken', 'المكسور {n}', { n: fmtInt(values.eggsBroken) }));
   // «النافق 3، والعلف 50 كغم»: الواو قبل كلّ ما بعد الأوّل.
   return parts.length ? parts.map((part, index) => (index ? t('visits.part.and', 'و{part}', { part }) : part)).join(t('list.separator', '، ')) : t('visits.part.none', 'لا نافق ولا مستبعد');
+}
+
+/**
+ * تأكيد «ألغِ»: ما يُطرح من مجموع اليوم، وما يذهب مع الزيارة ولا يُعرض في القائمة — الزيارة «القديمة» و«مجموع اليوم» تحمل ماء اليوم وحرارته
+ * وملاحظته إن سُجّلت (الخادم لا يرجعها في round_visits)، والملاحظة لغيرها.
+ */
+function voidText(row: VisitRow): string {
+  const base = t('visits.void.body', 'تُلغى زيارة {time}، ويُطرح من مجموع اليوم: {what}.', { time: visitClock(row.recordedAt), what: valuesText(row.values) });
+  if (row.source === 'legacy' || row.source === 'day_total') return `${base} ${t('visits.void.kept_day', 'ويُلغى معها ما سُجّل فيها من ماء وحرارة وملاحظة، إن وُجد.')}`;
+  return row.values.note === null ? base : `${base} ${t('visits.void.note', 'وتُلغى معها ملاحظتها.')}`;
 }
 
 /**
@@ -139,7 +150,7 @@ export function visitResultText(result: SendResult | null, action: 'new' | 'edit
   }
   if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت إلى المدير: أُغلق الفوج، أو خرج من نطاقك، أو صار التاريخ قديماً أو داخل فترة مقفلة') };
   if (result.kind === 'stale_visit') {
-    return { tone: 'danger', title: t('visits.stale', 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.'), detail: t('visits.to_shelf', 'تجدها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.') };
+    return { tone: 'danger', title: staleVisitText(result.server), detail: t('visits.to_shelf', 'تجدها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.') };
   }
   if (result.kind === 'stale_day' || result.kind === 'rejected') {
     return { tone: 'danger', title: t('hall.day.review', 'لم تُحفظ: راجعها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.'), ...(result.kind === 'rejected' ? { detail: describeError(new RejectedError(result.code, result.hint)).detail } : {}) };
@@ -177,7 +188,8 @@ function EditVisit({ row, kind, liveStart, others, busy, onClose, onSave }: { ro
   const live = liveStart ?? Number.MAX_SAFE_INTEGER;
   const dirty = FIELDS.some((field) => text[field] !== start[field]);
   const save = () => {
-    const read = readVisit(text, { kind, liveStart: live, totals: others });
+    // المشعور لا خانة له هنا ويُرسل كما في اللقطة، فيدخل الفحص: يحتاج مجموع البيض، والمكسور والمشعور معاً لا يزيدان عليه.
+    const read = readVisit(text, { kind, liveStart: live, totals: others, cracked: row.values.eggsCracked });
     if ('error' in read) {
       setError({ field: read.field, message: errorText(read.error, live) });
       return;
@@ -218,7 +230,11 @@ function EditVisit({ row, kind, liveStart, others, busy, onClose, onSave }: { ro
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-ink-muted">{t('visits.edit.hint', 'ما تكتبه هنا يحلّ محلّ هذه الزيارة كلّها، والفارغ لا شيء.')}</p>
+        <p className="text-sm text-ink-muted">
+          {kind === 'layer'
+            ? t('visits.edit.hint_layer', 'ما تكتبه هنا يحلّ محلّ أرقام هذه الزيارة، والفارغ لا شيء؛ والماء والحرارة والمشعور والملاحظة تبقى كما هي.')
+            : t('visits.edit.hint', 'ما تكتبه هنا يحلّ محلّ أرقام هذه الزيارة، والفارغ لا شيء؛ والماء والحرارة والملاحظة تبقى كما هي.')}
+        </p>
         <div className="grid grid-cols-2 gap-3">
           {fields.map(([field, label, decimal]) => (
             <Field key={field} id={`${id}-${field}`} label={label} error={error?.field === field ? error.message : null}>
@@ -289,9 +305,10 @@ function HallVisitsView({ kind, flockId, day, canSave, liveStart, refresh = 0, o
   const rows = visitRows(server ?? [], ops, stamp?.displayName ?? null);
   const counted = rows.filter((row) => row.device?.kind !== 'void');
   const count = server === null ? null : counted.length;
+  // بعد كلّ قراءة لا حين يتغيّر العدد وحده: الأب يمحو عدده بعد كلّ حفظ (لا يعرف أيّ قاعة تغيّرت)، والقراءة الجديدة تعيده ولو لم يتغيّر.
   useEffect(() => {
     if (count !== null) onCount?.(count);
-  }, [count, onCount]);
+  }, [count, onCount, data]);
 
   const [editing, setEditing] = useState<VisitRow | null>(null);
   const [voiding, setVoiding] = useState<VisitRow | null>(null);
@@ -320,6 +337,8 @@ function HallVisitsView({ kind, flockId, day, canSave, liveStart, refresh = 0, o
         day,
         payload: { visitId: row.id, recordedAt: row.recordedAt, ...content, eggs_cracked: row.values.eggsCracked, note: row.values.note, void: values === null },
         baseVersion: row.version,
+        // زيارة قائمة (لا جديدة): زيارة على هذا الجهاز رُفعت إضافتها والنافذة مفتوحة تُعدَّل بنسختها 1، لا «أُلغيت قبل أن تُرسل» ولا إضافة ثانية.
+        amend: true,
       });
       setEditing(null);
       setVoiding(null);
@@ -443,7 +462,7 @@ function HallVisitsView({ kind, flockId, day, canSave, liveStart, refresh = 0, o
         <ConfirmDialog
           open
           title={t('visits.void.title', 'ألغِ زيارة {time}؟', { time: visitClock(voiding.recordedAt) })}
-          consequence={t('visits.void.body', 'تُلغى زيارة {time}، ويُطرح من مجموع اليوم: {what}.', { time: visitClock(voiding.recordedAt), what: valuesText(voiding.values) })}
+          consequence={voidText(voiding)}
           confirmLabel={t('visits.void.go', 'ألغِ الزيارة')}
           busy={busy}
           action="visit-void-confirm"

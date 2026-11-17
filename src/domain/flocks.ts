@@ -19,7 +19,7 @@ export interface RoundText {
 
 export const EMPTY_ROUND: RoundText = { dead: '', culled: '', feedKg: '', eggsTotal: '', eggsBroken: '' };
 
-export type RoundError = 'bad_count' | 'bad_amount' | 'live_negative' | 'eggs_need_total' | 'eggs_over_total' | 'eggs_over_live' | 'eggs_on_broiler';
+export type RoundError = 'bad_count' | 'bad_amount' | 'live_negative' | 'eggs_need_total' | 'eggs_over_total' | 'cracked_need_total' | 'cracked_over_total' | 'eggs_over_live' | 'eggs_on_broiler';
 
 const MAX_COUNT = 10_000_000;
 
@@ -61,9 +61,10 @@ export interface DayTotals {
 /**
  * نصّ زيارة ← محتواها، أو أوّل خطأ. الفحوص على مجموع اليوم بعد الزيارة كما يفحصه الخادم (save_flock_visit): النافق والمستبعد معاً لا
  * يتجاوزان الحيّ بداية اليوم، والبيض للبيّاض بس ولا يتجاوز مجموعه الحيّ (فوق ١٠٠٪ غلط إدخال، القاعدة 32)؛ والمكسور يحتاج مجموع البيض ولا
- * يزيد عليه في الزيارة نفسها.
+ * يزيد عليه في الزيارة نفسها. وcracked مشعور الزيارة المعدَّلة الباقي كما هو (لا خانة له في «عدّل»): يحتاج مجموع البيض، والمكسور والمشعور معاً
+ * لا يزيدان عليه (eggs_need_total وeggs_over_total بالخادم).
  */
-export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart: number; totals: DayTotals }): { values: VisitValues } | { error: RoundError; field: keyof RoundText } {
+export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart: number; totals: DayTotals; cracked?: number | null }): { values: VisitValues } | { error: RoundError; field: keyof RoundText } {
   const dead = count(text.dead);
   if (dead === 'bad') return { error: 'bad_count', field: 'dead' };
   const culled = count(text.culled);
@@ -79,6 +80,9 @@ export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart
   if (kind === 'broiler' && (eggsTotal !== null || eggsBroken !== null)) return { error: 'eggs_on_broiler', field: 'eggsTotal' };
   if (eggsBroken !== null && eggsTotal === null) return { error: 'eggs_need_total', field: 'eggsTotal' };
   if (eggsTotal !== null && (eggsBroken ?? 0) > eggsTotal) return { error: 'eggs_over_total', field: 'eggsBroken' };
+  const cracked = context.cracked ?? null;
+  if (cracked !== null && eggsTotal === null) return { error: 'cracked_need_total', field: 'eggsTotal' };
+  if (cracked !== null && eggsTotal !== null && cracked + (eggsBroken ?? 0) > eggsTotal) return { error: 'cracked_over_total', field: 'eggsTotal' };
   if (eggsTotal !== null && (totals.eggsTotal ?? 0) + eggsTotal > liveStart) return { error: 'eggs_over_live', field: 'eggsTotal' };
   return { values: { dead, culled, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
 }
