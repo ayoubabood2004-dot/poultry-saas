@@ -1,6 +1,6 @@
 // مراجعة عدائية لصفحة القاعة (المرحلة ١، 2026-11-16): كلّ حالة أثبتت عيباً (فشلت 12 من 13 على b2414d0) وتحرس إصلاحه: R1 الصفحة ونوافذها
 // لا تُطوى برفع جولات قاعة أخرى، R2 الحفظ بلا نت لا يمحو الصفحة، R3 نتائج القاعات الأخرى لا تُخفى، R4 حدّ الحيّ من الخادم، R5 الحذف يغلق النافذة
-// ويُظهر القاعة فارغة، R6 نتيجة هذا اليوم آخرها، R7 السابقة والتالية في الحقل نفسه، R8 رابط الإضافة لمن يضيف.
+// ويُظهر القاعة فارغة، R6 نتيجة هذا اليوم آخرها، R7 السابقة والتالية في الحقل نفسه، R8 رابط الإضافة لمن يضيف. ومنذ 0032 نافذة اليوم «زيارة» جديدة، ونتيجتها «حُفظت الزيارة.».
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -190,7 +190,7 @@ export default async function (t) {
       m.onlineStore.set(true);
     };
     const stampOf = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });
-    const dayDialog = () => dialogTitled('جولة ');
+    const dayDialog = () => dialogTitled('زيارة ');
     const dayField = (name) => (dayDialog() ? byAction(`day-${name}`, dayDialog())[0] ?? null : null);
     const daysTable = () => tableBy('أيام الدورة');
     const dayRowOf = (n) => bodyRows(daysTable()).find((tr) => descendants(tr).find((c) => c.localName === 'bdi')?.textContent === m.fmtDay(ago(n))) ?? null;
@@ -387,7 +387,7 @@ export default async function (t) {
       await settle();
       await click(byAction('day-save', dayDialog() ?? body())[0] ?? null, 120);
       const err = dayDialog() ? descendants(dayDialog()).filter((n) => n.getAttribute('role') === 'alert' || /error/u.test(n.id ?? '')).map((n) => n.textContent).join(' | ') : '';
-      t.same([Boolean(dayDialog()), globalThis.__hp.toasts.map((x) => x.title)], [false, ['حُفظت الجولة.']], `R4b dead 20 of 510 alive (server accepts) is not blocked by the dialog: «${err || text().slice(-200)}»`);
+      t.same([Boolean(dayDialog()), globalThis.__hp.toasts.map((x) => x.title)], [false, ['حُفظت الزيارة.']], `R4b dead 20 of 510 alive (server accepts) is not blocked by the dialog: «${err || text().slice(-200)}»`);
     });
 
     // ── R5: deleting the flock from the hall page leaves a locked dialog over a deleted flock ──
@@ -457,7 +457,7 @@ export default async function (t) {
       const review = await m.reviewEntries(await m.openOutbox(), stampOf('u-r6'));
       t.same(
         [review.map((entry) => entry.op.payload.culled ?? null), globalThis.__hp.toasts.at(-1)?.title ?? null],
-        [[null], 'حُفظت الجولة.'],
+        [[null], 'حُفظت الزيارة.'],
         'R6 this dialog\'s op (culled 4) was saved; only the older op went to review — the toast must say saved',
       );
     });

@@ -7,7 +7,7 @@ import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import './constraints-halls';
 import { parseCloseResult, type CloseResult } from './flockClose';
-import type { CostKind } from './flocks';
+import { parseVisit, type CostKind, type FlockVisit } from './flocks';
 
 // «القاعات بين يديك» (0026، كلمة المالك 2026-11-11، docs/HALLS_PLAN.md): الإضافة لعدّة قاعات بنداء واحد (صرف من مخزن، أو دواء بلا مخزن، أو تأشير
 // لقاح)، وجدول اللقاحات العامّ لكلّ نوع وجدول القاعة الخاصّ (0028) وقائمة لقاحاتها، والتذكير، وتقويم القاعة الشهري، وتقرير الدورة. الأرقام نصوص عشرية بالسلك: الكمية والكيلو
@@ -955,4 +955,29 @@ export function parseCycleReport(value: unknown): CycleReport {
 
 export async function loadCycleReport(flockId: string): Promise<CycleReport> {
   return parseCycleReport(await call<unknown>('flock_cycle_report', { p_flock: flockId }));
+}
+
+// ─── زيارات اليوم (0032) ───────────────────────────────────────────────────────────────────────────────────────────────
+// round_visits: الأفواج التي لها زيارة حيّة في يوم (أو الفوج المطلوب وحده) بزياراتها الحيّة بترتيب وقتها، بالنطاق. اليوم null = يوم الخادم.
+
+export interface RoundVisits {
+  on: Day;
+  today: Day;
+  flocks: { flockId: string; hallId: string; visits: FlockVisit[] }[];
+}
+
+export function parseRoundVisits(value: unknown): RoundVisits {
+  const json = record(value, 'round_visits');
+  return {
+    on: str(json, 'on'),
+    today: str(json, 'today'),
+    flocks: list(json.flocks, 'flocks').map((row) => {
+      if (!Array.isArray(row.visits)) throw new HallsShapeError('visits');
+      return { flockId: str(row, 'flock_id'), hallId: str(row, 'hall_id'), visits: row.visits.map(parseVisit) };
+    }),
+  };
+}
+
+export async function loadRoundVisits(on: Day | null, kind: FlockKind, flockId: string | null = null): Promise<RoundVisits> {
+  return parseRoundVisits(await call<unknown>('round_visits', { p_on: on, p_kind: kind, p_flock: flockId }));
 }

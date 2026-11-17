@@ -9,6 +9,8 @@ import { createStore } from './store';
 export interface RoundResult {
   flockId: string;
   day: string;
+  /** معرّف العملية (client_ref): لليوم الواحد أكثر من زيارة، فالشاشة تعرف نتيجة عمليتها بعينها. */
+  opId: string;
   result: SendResult;
 }
 

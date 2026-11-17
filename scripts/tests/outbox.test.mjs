@@ -18,19 +18,41 @@ const HASAN = { userId: 'user-hasan', orgId: ORG, displayName: 'حسن' };
 let dbCounter = 0;
 const nextName = () => `outbox-test-${(dbCounter += 1)}`;
 
-/** خادم مصنوع يطبّق save_flock_day: مفتاح طبيعي (فوج + يوم)، base_version، وrpc_refs بالمرجع. */
+/**
+ * خادم مصنوع يطبّق save_flock_day: مفتاح طبيعي (فوج + يوم)، base_version، وrpc_refs بالمرجع. وsave_flock_visit (0032) بعقده: زيارة بمعرّفها
+ * ونسختها؛ الإضافة (نسخة null) لمعرّف موجود بمحتوى آخر stale_visit، والتعديل والإلغاء بشرط النسخة، والإلغاء علامة.
+ */
 function makeServer() {
   const rows = new Map();
+  const visits = new Map();
   const refs = new Map();
   const calls = [];
+  const same = (a, b) => JSON.stringify({ ...a, recordedAt: null, void: null }) === JSON.stringify({ ...b, recordedAt: null, void: null });
   return {
     rows,
+    visits,
     refs,
     calls,
     apply(op) {
       calls.push(op.id);
       const known = refs.get(op.id);
       if (known) return known;
+      if (op.fn === 'save_flock_visit') {
+        const visit = visits.get(op.payload.visitId) ?? null;
+        let result;
+        if (op.baseVersion === null) {
+          if (!visit) {
+            visits.set(op.payload.visitId, { version: 1, voided: false, by: op.userId, payload: { ...op.payload } });
+            result = { kind: 'saved', version: 1 };
+          } else result = same(visit.payload, op.payload) && !visit.voided ? { kind: 'saved', version: visit.version } : { kind: 'stale_visit', server: visit };
+        } else if (!visit || visit.voided || visit.version !== op.baseVersion) result = { kind: 'stale_visit', server: visit };
+        else {
+          visits.set(op.payload.visitId, { version: visit.version + 1, voided: op.payload.void, by: visit.by, payload: { ...op.payload } });
+          result = { kind: 'saved', version: visit.version + 1 };
+        }
+        refs.set(op.id, result);
+        return result;
+      }
       const key = `${op.flockId}|${op.day}`;
       const row = rows.get(key) ?? null;
       const current = row ? row.version : null;
@@ -403,5 +425,75 @@ export default async function (t) {
     t.eq(latest.id, second.id, 'التعديل الأخير اندمج بأحدث عملية');
     const report = await q.flush(db, ALI, transport(server, ALI.userId));
     t.same([report.saved, server.rows.get('f9|2026-10-15')?.payload.dead], [2, 3], 'آخر قيمة كتبها العامل هي اللي بالخادم');
+  }
+
+  // ─── 0032: الزيارات (save_flock_visit) ──────────────────────────────────────────────────────────────────────────────────
+  const visitContent = (visitId, over = {}) => ({ visitId, recordedAt: '2026-11-17T09:40:00.000Z', dead: 0, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false, ...over });
+  const visit = (flockId, onDate, payload, baseVersion = null) => ({ fn: 'save_flock_visit', flockId, day: onDate, payload, baseVersion });
+
+  // ١٦) زيارتان لنفس (الفوج، اليوم) عمليتان منفصلتان (تُجمعان بالخادم)، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً، وإلغاؤها يحذف عمليتها.
+  {
+    const db = await open();
+    t.eq(db.version, 1, 'V16 قاعدة الطابور بنسختها نفسها (1): لا ترقية، والحقول داخل payload');
+    const a = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('va', { dead: 3, feed_kg: '50.000' })));
+    const b = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2 })));
+    t.same([a.fn, b.fn, a.id !== b.id, (await readOps(db)).length], ['save_flock_visit', 'save_flock_visit', true, 2], 'V16 زيارتان مختلفتان لليوم نفسه: عمليتان (لا دمج بين زيارتين)');
+    const edit = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('va', { dead: 4 })));
+    const ops = await readOps(db);
+    t.same([edit.id, ops.length, ops.find((op) => op.id === a.id)?.payload.dead, ops.find((op) => op.id === a.id)?.payload.feed_kg, ops.find((op) => op.id === a.id)?.baseVersion], [a.id, 2, 4, null, null], 'V16 تعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً (العلف الفارغ فارغ، لا دمج بـ«بلا تغيير»)، ويبقى إضافةً');
+    const dropped = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2, void: true })));
+    t.same([dropped, (await readOps(db)).map((op) => op.payload.visitId)], [null, ['va']], 'V16 إلغاء زيارة جديدة لم تُرفع يحذف عمليتها (لا شيء يُرسل)');
+    const nothing = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vz', { void: true })));
+    t.same([nothing, (await readOps(db)).length], [null, 1], 'V16 إلغاء زيارة لا هي بالخادم ولا بالجهاز: لا عملية');
+    await t.rejects(q.saveRound(db, ALI, visit('f20', '2026-11-17', { ...visitContent(''), visitId: '' })), 'V16 زيارة بلا معرّف لا تدخل الطابور', /not_queueable/);
+    const server = makeServer();
+    const report = await q.flush(db, ALI, transport(server, ALI.userId));
+    t.same([report.saved, server.visits.get('va')?.payload.dead, server.visits.has('vb')], [1, 4, false], 'V16 الرفع: الزيارة بمحتواها الأخير، والملغاة قبل رفعها لم تصل');
+  }
+
+  // ١٧) لا دمج بين زيارة ومجموع اليوم: الزيارة لا تندمج بعملية save_flock_day المنتظرة، ومجموع اليوم بعد زيارة عملية جديدة (لا يندمج بالأقدم فيسبق
+  // الزيارة)؛ ومجموع اليوم بعد مجموع اليوم يندمج كما كان.
+  {
+    const db = await open();
+    const d1 = await q.saveRound(db, ALI, day('f21', '2026-11-17', { dead: 5 }));
+    const v = await q.saveRound(db, ALI, visit('f21', '2026-11-17', visitContent('vc', { dead: 1 })));
+    t.ok(v.id !== d1.id && v.fn === 'save_flock_visit', 'V17 الزيارة لا تندمج بمجموع اليوم المنتظر');
+    const d2 = await q.saveRound(db, ALI, day('f21', '2026-11-17', { culled: 2 }));
+    t.ok(d2.id !== d1.id && d2.id !== v.id, 'V17 مجموع اليوم بعد زيارة عملية جديدة (الترتيب كما كُتب)');
+    const d3 = await q.saveRound(db, ALI, day('f21', '2026-11-17', { dead: 7 }));
+    t.same([d3.id, d3.payload], [d2.id, { culled: 2, dead: 7 }], 'V17 ومجموع اليوم بعد مجموع اليوم يندمج بقاعدته القديمة');
+    t.same((await readOps(db)).sort((x, y) => x.createdAt - y.createdAt).map((op) => op.fn), ['save_flock_day', 'save_flock_visit', 'save_flock_day'], 'V17 ثلاث عمليات بترتيبها');
+  }
+
+  // ١٨) حفظ زيارة يرفع النسخة للعمليات اللاحقة لنفس الزيارة وحدها: تعديل كُتب والإضافة في الطريق يأخذ نسختها، ولا تمسّ زيارة أخرى ولا مجموع اليوم.
+  {
+    const db = await open();
+    const server = makeServer();
+    const add = await q.saveRound(db, ALI, visit('f22', '2026-11-17', visitContent('vd', { dead: 3 })));
+    await putOp(db, { ...add, state: 'sending', claimToken: 'tab-a', claimedAt: Date.now() - q.STALE_CLAIM_MS - 1 });
+    const edit = await q.saveRound(db, ALI, visit('f22', '2026-11-17', visitContent('vd', { dead: 1 })));
+    const other = await q.saveRound(db, ALI, visit('f22', '2026-11-17', visitContent('ve', { culled: 1 })));
+    const total = await q.saveRound(db, ALI, day('f22', '2026-11-17', { feed_kg: '10.000' }));
+    t.same([edit.id !== add.id, edit.baseVersion, other.baseVersion, total.baseVersion], [true, null, null, null], 'V18 ضابط: تعديل الإضافة الممسوكة عملية جديدة بنسخة null');
+    const sent = [];
+    const report = await q.flush(db, ALI, transport(server, ALI.userId, {
+      send: async (op, srv) => {
+        sent.push([op.payload.visitId ?? 'day', op.baseVersion]);
+        return srv.apply(op);
+      },
+    }));
+    t.same(sent, [['vd', null], ['vd', 1], ['ve', null], ['day', null]], 'V18 الإضافة ثمّ التعديل بنسختها (1)، والزيارة الأخرى ومجموع اليوم بنسختهما (null)');
+    t.same([report.saved, report.review, server.visits.get('vd')?.payload.dead, server.visits.get('vd')?.version], [4, 0, 1, 2], 'V18 كلّها حُفظت بلا رفّ مراجعة، والزيارة بتعديلها ونسختها 2');
+  }
+
+  // ١٩) stale_visit لرفّ المراجعة بالنسختين، وما ينحذف.
+  {
+    const db = await open();
+    const server = makeServer();
+    server.visits.set('vf', { version: 3, voided: false, by: HASAN.userId, payload: visitContent('vf', { dead: 9 }) });
+    await q.saveRound(db, ALI, visit('f23', '2026-11-17', visitContent('vf', { dead: 2 }), 2));
+    const report = await q.flush(db, ALI, transport(server, ALI.userId));
+    const shelf = await q.reviewEntries(db, ALI);
+    t.same([report.review, shelf[0]?.reason, shelf[0]?.op.payload.dead, shelf[0]?.server?.payload?.dead, (await q.summarize(db, ALI)).mine], [1, 'stale_visit', 2, 9, 0], 'V19 تعديل بنسخة قديمة: رفّ المراجعة بـ«زيارتك» و«المحفوظة»');
   }
 }

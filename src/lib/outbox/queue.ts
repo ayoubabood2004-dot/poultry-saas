@@ -1,7 +1,9 @@
 import { openDatabase, requestResult, transact } from '../idb';
 import {
   QUEUEABLE_FUNCTIONS,
+  type DayOp,
   type FlockDayPayload,
+  type FlockVisitPayload,
   type OpState,
   type OutboxOp,
   type QueueableFunction,
@@ -16,6 +18,8 @@ import {
 //   رفع عمليات عيادة باسم غيرها.
 // - الدمج بالجهاز مفتاحه (المستخدم، المنشأة، الفوج، اليوم): دمج بـ(فوج + يوم) بس يطوي جولة عامل بجولة غيره.
 // - عملية نتيجتها مجهولة تنحسم بمرجعها أوّلاً، والتالية لنفس المفتاح تاخذ base_version اللي رجعت.
+// - الزيارات (0032) تُجمع بالخادم: لا تندمج زيارة بزيارة أخرى ولا بمجموع اليوم، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها، ونسختها
+//   ترتفع للعمليات اللاحقة لنفس الزيارة وحدها. وقاعدة IndexedDB بلا ترقية (الحقول داخل payload).
 // - رفض الهويّة والاشتراك يخلّيها تنتظر: ما ينحسب محاولة وما يروح لرفّ المراجعة.
 // - المرفوض يروح لرفّ مراجعة بالنسختين وما ينحذف أبداً (الحذف بعد عشر محاولات كان سطر كونسول).
 
@@ -73,40 +77,62 @@ function sameKey(store: IDBObjectStore, op: Pick<OutboxOp, 'userId' | 'orgId' | 
   );
 }
 
-export interface EnqueueInput {
-  fn: string;
-  flockId: string;
-  day: string;
-  payload: FlockDayPayload;
-  baseVersion: number | null;
-}
+export type EnqueueInput =
+  | { fn: 'save_flock_day'; flockId: string; day: string; payload: FlockDayPayload; baseVersion: number | null }
+  | { fn: 'save_flock_visit'; flockId: string; day: string; payload: FlockVisitPayload; baseVersion: number | null };
+
+/** معرّف الزيارة لعملية زيارة، وإلا null. */
+export const visitIdOf = (op: OutboxOp): string | null => (op.fn === 'save_flock_visit' ? op.payload.visitId : null);
+
+const newestOf = (ops: readonly OutboxOp[]) => ops.reduce<OutboxOp | null>((latest, op) => (!latest || op.createdAt > latest.createdAt ? op : latest), null);
 
 /**
- * يحفظ جولة بالطابور مختومة بالهويّة المؤكّدة، ويدمجها ويّا عملية نفس المفتاح اللي ما انبعثت بعد.
+ * يحفظ جولة بالطابور مختومة بالهويّة المؤكّدة، ويدمجها ويّا عملية اللي ما انبعثت بعد: مجموع اليوم (save_flock_day) بأحدث عملية للمفتاح إذا
+ * هي منتظرة ومن نوعها، والزيارة (save_flock_visit) بأحدث عملية منتظرة لنفس الزيارة وحدها (زيارتان مختلفتان تُجمعان بالخادم فلا تندمجان، ولا
+ * تندمج زيارة بمجموع اليوم). إلغاء زيارة جديدة ما انرفعت يحذف عمليتها ويرجّع null (لا شيء يُرسل).
  * الشاشات ما تناديه: تنادي saveRound (round.ts) اللي يسأل persisted() وراه.
  */
-export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput, now = Date.now()): Promise<OutboxOp> {
-  const fn = input.fn;
+export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput, now = Date.now()): Promise<OutboxOp | null> {
+  const fn: string = input.fn;
   if (!isQueueable(fn)) throw new OutboxError('not_queueable');
+  if (input.fn === 'save_flock_visit' && (typeof input.payload?.visitId !== 'string' || input.payload.visitId === '')) throw new OutboxError('not_queueable');
   if (!stamp.userId || !stamp.orgId) throw new OutboxError('no_identity');
   return transact(db, OPS, 'readwrite', async (tx) => {
     const store = tx.objectStore(OPS);
     const key = { userId: stamp.userId, orgId: stamp.orgId, flockId: input.flockId, day: input.day };
     const existing = await sameKey(store, key);
-    // الدمج بأحدث عملية للمفتاح بس، وبس إذا بعدها منتظرة: عمليتان منتظرتان لنفس اليوم ممكنة
-    // (عملية رجعت للانتظار بلا ما تنبعث)، والدمج بالأقدم كان يرفع القيمة الجديدة أوّل وتدوسها القديمة.
-    const newest = existing.reduce<OutboxOp | null>((latest, op) => (!latest || op.createdAt > latest.createdAt ? op : latest), null);
-    const open = newest?.state === 'pending' ? newest : null;
-    if (open) {
-      const merged: OutboxOp = { ...open, payload: mergePayload(open.payload, input.payload), updatedAt: now };
-      await requestResult(store.put(merged));
-      return merged;
+    if (input.fn === 'save_flock_visit') {
+      const visitId = input.payload.visitId;
+      const own = existing.filter((op) => visitIdOf(op) === visitId);
+      // الدمج بأحدث عملية للزيارة بس، وبس إذا بعدها منتظرة (عملية ممسوكة أو مجهولة تنحسم أوّلاً، والتالية بعدها بنسختها).
+      const open = newestOf(own);
+      if (open?.fn === 'save_flock_visit' && open.state === 'pending') {
+        if (input.payload.void && open.baseVersion === null) {
+          await requestResult(store.delete(open.id));
+          return null;
+        }
+        // المحتوى كاملاً يحلّ محلّ محتواها، ونسختها كما هي (النسخة التي يفحصها الخادم).
+        const merged: OutboxOp = { ...open, payload: { ...input.payload }, updatedAt: now };
+        await requestResult(store.put(merged));
+        return merged;
+      }
+      // إلغاء زيارة لا هي بالخادم (بلا نسخة) ولا بالجهاز: لا شيء يُلغى.
+      if (input.payload.void && input.baseVersion === null && own.length === 0) return null;
+    } else {
+      // الدمج بأحدث عملية للمفتاح بس، وبس إذا بعدها منتظرة ومن نوعها: عمليتان منتظرتان لنفس اليوم ممكنة (عملية رجعت للانتظار بلا ما
+      // تنبعث)، والدمج بالأقدم كان يرفع القيمة الجديدة أوّل وتدوسها القديمة؛ وزيارة بعدها تقطع الدمج فيبقى الترتيب كما كُتب.
+      const open = newestOf(existing);
+      if (open?.fn === 'save_flock_day' && open.state === 'pending') {
+        const merged: DayOp = { ...open, payload: mergePayload(open.payload, input.payload), updatedAt: now };
+        await requestResult(store.put(merged));
+        return merged;
+      }
     }
     // ترتيب صارم لنفس المفتاح حتى لو انحفظت عمليتان بنفس الملّي ثانية.
     const createdAt = existing.reduce((latest, op) => Math.max(latest, op.createdAt + 1), now);
-    const op: OutboxOp = {
+    const op = {
       id: crypto.randomUUID(),
-      fn,
+      fn: input.fn,
       ...key,
       displayName: stamp.displayName,
       payload: { ...input.payload },
@@ -118,7 +144,7 @@ export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput
       createdAt,
       updatedAt: now,
       lastError: null,
-    };
+    } as OutboxOp;
     await requestResult(store.add(op));
     return op;
   });
@@ -192,8 +218,11 @@ function removeSaved(db: IDBDatabase, op: OutboxOp, version: number, now: number
   return transact(db, OPS, 'readwrite', async (tx) => {
     const store = tx.objectStore(OPS);
     await requestResult(store.delete(op.id));
+    const visitId = visitIdOf(op);
     for (const next of await sameKey(store, op)) {
       if (next.id === op.id) continue;
+      // النسخة لما بعدها من النوع نفسه وحده: نسخة صفّ اليوم لعمليات مجموع اليوم، ونسخة الزيارة لعمليات الزيارة نفسها (لا لزيارة أخرى ولا لمجموع اليوم).
+      if (visitId === null ? next.fn !== 'save_flock_day' : visitIdOf(next) !== visitId) continue;
       const base = next.baseVersion === null ? version : Math.max(next.baseVersion, version);
       if (base !== next.baseVersion) await requestResult(store.put({ ...next, baseVersion: base, updatedAt: now }));
     }
@@ -208,16 +237,16 @@ function removeOp(db: IDBDatabase, op: OutboxOp) {
   });
 }
 
-function moveToReview(db: IDBDatabase, op: OutboxOp, result: Extract<SendResult, { kind: 'stale_day' | 'rejected' }>, now: number) {
+function moveToReview(db: IDBDatabase, op: OutboxOp, result: Extract<SendResult, { kind: 'stale_day' | 'stale_visit' | 'rejected' }>, now: number) {
   const entry: ReviewEntry = {
     id: op.id,
     userId: op.userId,
     orgId: op.orgId,
     displayName: op.displayName,
     op: { ...op, state: 'pending', claimToken: null, claimedAt: null },
-    reason: result.kind === 'stale_day' ? 'stale_day' : result.code,
+    reason: result.kind === 'rejected' ? result.code : result.kind,
     hint: result.kind === 'rejected' ? result.hint : null,
-    server: result.kind === 'stale_day' ? result.server : null,
+    server: result.kind === 'rejected' ? null : result.server,
     at: now,
   };
   return transact(db, [OPS, REVIEW], 'readwrite', async (tx) => {
@@ -293,6 +322,7 @@ export async function flush(
         report.parked += 1;
         break;
       case 'stale_day':
+      case 'stale_visit':
       case 'rejected':
         await moveToReview(db, op, result, clock());
         report.review += 1;

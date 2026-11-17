@@ -5,6 +5,9 @@
 // الاتصال؛ R3 stale_day لرفّ المراجعة بالنسختين؛ R4 parked تنشال من الطابور ويُقال إنها رُدّت للمدير؛ R5 نافق أكثر من الحيّ يُمنع قبل
 // الحفظ؛ R6 البيّاض: بيض فوك الحيّ يُمنع، والبيض والمكسور بالحمولة؛ F1 المدير يضيف قاعة ويفتح فوجاً وعامل القاعة ما يشوفهما؛ F2
 // مؤشّرات الفوج بمنسّقاتها و«—» ليوم بلا بيض؛ T1 ناقل الطابور يحوّل كل جواب.
+// والجولة بزيارات في اليوم (0032، كلمة المالك 2026-11-17): R1–R3 زيارة جديدة لكلّ قاعة فيها رقم (بلا نسخة، والمحتوى كاملاً)، و«اليوم حتى الآن»؛ V1
+// المختارة افتراضاً و«كلّ القاعات»؛ V2 الاستثناء؛ V3 «نفس الرقم لكلّ القاعات»؛ V4 «اليوم حتى الآن» بزيارات الجهاز المنتظرة؛ V5 فحص الحيّ على المجموع
+// بعد الزيارة؛ V6 الزرّ يسمّي عدد القاعات؛ R3b عملية مجموع يوم قديمة بالطابور ترجع stale_day لرفّها كما كانت؛ وT1 ناقل save_flock_visit.
 // ومراجعة 2026-10-31 (كل حالة تفشل على الشفرة قبل إصلاحها): A وB لقطة التعديل ونسخته (خانة ما انلمست ما تدوس حفظ جهاز آخر،
 // وstale_day ما ينكتب فوقه بالحفظ الجاي)؛ C نتيجة رفع الخلفية تظهر؛ D الرافع على مستوى التطبيق وعدّادا الرأس؛ E الجولة لمن يحفظ
 // يوم الفوج بس؛ F الكتابة اللي ما انحفظت تعلّم النافذة؛ G الرئيسية تحفظ نسخة الجهاز (والرأس «غير جاهز» لحدّها)؛ H ماكو «لا أرقام
@@ -165,6 +168,40 @@ export default async function (t) {
       t.same(await outcome({ status: 403, json: { code: '42501', message: 'permission denied for function save_flock_day', hint: null, details: null } }), { kind: 'identity_rejected' }, 'T1: 42501 على الدالّة = رفض الهويّة');
       t.eq(await outcome('network'), 'throw:UnknownOutcomeError', 'T1: انقطاع بعد الإرسال يرمي (النتيجة مجهولة، والطابور يحسمها بنفس المرجع)');
       t.eq(await tr.flockDayTransport.lookup(op), null, 'T1: الحسم بالمرجع = الإرسال نفسه بعد فحص الهويّة');
+
+      // 0032: عملية زيارة تنادي save_flock_visit بمحتواها كاملاً، والجواب بعقده (visit_json وصفّ اليوم).
+      const visitOp = { ...op, id: 'op-2', fn: 'save_flock_visit', payload: { visitId: 'v-1', recordedAt: '2026-10-31T06:40:00.000Z', dead: 3, culled: 0, feed_kg: '50.000', eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false }, baseVersion: null };
+      const visitJson = { id: 'v-1', flock_id: 'f-1', on: '2026-10-31', recorded_at: '2026-10-31T06:40:00+00:00', dead: 3, culled: 0, feed_kg: '50.000', eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, source: 'visit', version: 1, voided: false, by: 'علي' };
+      const dayJson = { on_date: '2026-10-31', version: 6, dead: 5, culled: 0, feed_kg: '170.500', water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null };
+      const visitOutcome = async (answer, theOp = visitOp) => {
+        server.answer = answer;
+        return tr.sendFlockDay(theOp).then((value) => value, (error) => `throw:${error.name}`);
+      };
+      t.same(await visitOutcome({ json: { status: 'saved', visit: visitJson, day: dayJson } }), { kind: 'saved', version: 1, visit: visitJson, day: dayJson }, 'T1 زيارة: saved بنسخة الزيارة (لا نسخة اليوم) ومعها الزيارة وصفّ اليوم');
+      const visitSent = server.bodies.at(-1);
+      t.ok(visitSent.url.endsWith('/rpc/save_flock_visit'), 'T1 زيارة: تنادي save_flock_visit');
+      t.same(
+        visitSent.body,
+        { p_visit: 'v-1', p_flock: 'f-1', p_date: '2026-10-31', p_recorded_at: '2026-10-31T06:40:00.000Z', p_dead: 3, p_culled: 0, p_feed_kg: '50.000', p_eggs_total: null, p_eggs_cracked: null, p_eggs_broken: null, p_note: null, p_base_version: null, p_void: false, p_client_ref: 'op-2', p_queued: true },
+        'T1 زيارة: معاملات العقد كلّها (المعرّف والوقت والمحتوى كاملاً والنسخة والإلغاء والمرجع والطابور)',
+      );
+      await visitOutcome({ json: { status: 'saved', visit: { ...visitJson, version: 3, voided: true }, day: null } }, { ...visitOp, id: 'op-3', baseVersion: 2, payload: { ...visitOp.payload, void: true } });
+      t.same([server.bodies.at(-1).body.p_void, server.bodies.at(-1).body.p_base_version], [true, 2], 'T1 زيارة: الإلغاء p_void بنسختها');
+      t.same(await visitOutcome({ json: { status: 'saved', visit: visitJson, day: null } }), { kind: 'saved', version: 1, visit: visitJson, day: null }, 'T1 زيارة: صفّ اليوم null (لا زيارة حيّة بعدها)');
+      t.same(await visitOutcome({ json: { status: 'parked', reason: 'date_too_old' } }), { kind: 'parked' }, 'T1 زيارة: parked');
+      t.same(await visitOutcome({ json: { status: 'stale_visit', server: { ...visitJson, dead: 9, version: 2 } } }), { kind: 'stale_visit', server: { ...visitJson, dead: 9, version: 2 } }, 'T1 زيارة: stale_visit بالمحفوظة');
+      t.same(await visitOutcome({ json: { status: 'stale_visit', server: null } }), { kind: 'stale_visit', server: null }, 'T1 زيارة: stale_visit بلا زيارة حيّة');
+      t.same(
+        [
+          await visitOutcome({ json: { status: 'saved', visit: visitJson } }),
+          await visitOutcome({ json: { status: 'saved', visit: { ...visitJson, feed_kg: 50 }, day: null } }),
+          await visitOutcome({ json: { status: 'saved', visit: { ...visitJson, source: 'other' }, day: null } }),
+          await visitOutcome({ json: { status: 'stale_visit' } }),
+          await visitOutcome({ json: { status: 'stale_day', server: null } }),
+        ],
+        ['throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError'],
+        'T1 زيارة: شكل غريب يرمي (يبقى بالطابور): بلا day، علف رقماً، مصدر مجهول، stale_visit بلا server، وstale_day لزيارة',
+      );
       t.eq(await tr.flockDayTransport.currentUserId(), 'u-1', 'T1: مستخدم الجلسة');
     } finally {
       delete globalThis.__farmServer;
@@ -245,30 +282,38 @@ export default async function (t) {
       sites: [site('s-1', 'broiler', [hall('h-1', 'قاعة 1', flock('f-a', 'broiler', { today: dayRow({ version: 4, dead: 2 }) })), hall('h-2', 'قاعة 2', flock('f-b', 'broiler')), hall('h-3', 'قاعة 3', null)])],
     });
 
-    // ── R1: الجولة بنت ← عملية لكل فوج تغيّر، بنسخة يومه، والخانة اللي ما تغيّرت null؛ والنتيجة «حُفظ 1 من 1» ──
+    // ── R1: الجولة بنت ← زيارة جديدة لكلّ قاعة مختارة فيها رقم (بلا نسخة، والمحتوى كاملاً)؛ الخانات فارغة و«اليوم حتى الآن» من المحفوظ ──
+    const soFarOf = (flockId, field) => descendants(all().find((n) => n.getAttribute('data-flock') === flockId) ?? body()).find((n) => n.getAttribute('data-action') === 'round-so-far' && n.getAttribute('data-field') === field)?.textContent ?? null;
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+    /** محتوى الزيارة بلا معرّفها ووقتها (يولدان بالجهاز). */
+    const contentOf = (op) => Object.fromEntries(Object.entries(op?.payload ?? {}).filter(([key]) => key !== 'visitId' && key !== 'recordedAt'));
     {
       m.onlineStore.set(true);
-      const { calls, sent } = fresh({ status: 'ready', workspace: ws(), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'saved', version: 5 }));
+      const { calls, sent } = fresh({ status: 'ready', workspace: ws(), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'saved', version: 1 }));
       await mount('/broiler/round');
       t.ok(text().includes('قاعة 1') && text().includes('قاعة 2') && !text().includes('قاعة 3'), 'R1: الجولة بكل فوج شغّال (القاعة بلا فوج ما تظهر)');
       const dead = byIdSuffix('-dead');
-      t.eq(dead[0]?.value, '2', 'R1: نافق اليوم المحفوظ معروض');
+      t.same([dead[0]?.value, soFarOf('f-a', 'dead'), soFarOf('f-b', 'dead'), soFarOf('f-a', 'feedKg')], ['', 'اليوم حتى الآن: 2', 'اليوم حتى الآن: 0', 'اليوم حتى الآن: —'], 'R1: خانة الزيارة فارغة، وتحتها «اليوم حتى الآن» من المحفوظ (نافق 2، والعلف «—»)');
       type(dead[0], '5');
       type(byIdSuffix('-feedKg')[0], '120.5');
       await settle();
+      const before = Date.now();
       fire(byAction('round-save')[0], 'click');
       await settle(80);
-      t.eq(sent.length, 1, 'R1: عملية وحدة (الفوج الثاني ما تغيّر)');
-      t.same([sent[0]?.flockId, sent[0]?.day, sent[0]?.baseVersion], ['f-a', TODAY, 4], 'R1: الفوج واليوم ونسخة صفّ اليوم');
-      t.same(sent[0]?.payload, { dead: 5, culled: null, feed_kg: '120.500', eggs_total: null, eggs_broken: null }, 'R1: الحمولة مجموع اليوم، والخانة اللي ما تغيّرت null، وبلا water_l (الماء خارج الجولة، 2026-11-11)');
+      t.eq(sent.length, 1, 'R1: عملية وحدة (القاعة الثانية بلا أرقام)');
+      t.same([sent[0]?.fn, sent[0]?.flockId, sent[0]?.day, sent[0]?.baseVersion], ['save_flock_visit', 'f-a', TODAY, null], 'R1: زيارة جديدة للفوج واليوم بلا نسخة (تُجمع، لا تعارض)');
+      t.same(contentOf(sent[0]), { dead: 5, culled: 0, feed_kg: '120.500', eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false }, 'R1: المحتوى كاملاً: المستبعد الفارغ 0، والعلف بثلاث مراتب، وبلا water_l (الماء خارج الجولة، 2026-11-11)');
+      const at = Date.parse(sent[0]?.payload.recordedAt ?? '');
+      t.ok(UUID.test(sent[0]?.payload.visitId ?? '') && at >= before - 1000 && at <= Date.now() + 1000, 'R1: معرّف الزيارة ووقتها من الجهاز');
       t.same([byIdSuffix('-waterL').length, text().includes('الماء')], [0, false], 'R1: لا خانة ماء في الجولة ولا كلمة «الماء» (كلمة المالك 2026-11-11: الماء ثابت)');
-      t.ok(statusOf('f-a').includes('حُفظت') && text().includes('حُفظ 1 من 1'), 'R1: «حُفظت» و«حُفظ 1 من 1»');
+      t.ok(statusOf('f-a').includes('حُفظت') && text().includes('حُفظ 1 من 1') && text().includes('بلا أرقام: قاعة 2'), 'R1: «حُفظت» و«حُفظ 1 من 1»، والقاعة المختارة بلا أرقام مذكورة');
+      t.same([byIdSuffix('-dead')[0]?.value, byIdSuffix('-feedKg')[0]?.value], ['', ''], 'R1: الخانات تفرغ بعد الحفظ');
       t.eq((await queueOf()).pending.length, 0, 'R1: الطابور فارغ بعد الحفظ');
       t.ok(calls.filter(([name]) => name === 'loadOverviewJson').length >= 2, 'R1: الأرقام تُقرأ من جديد بعد الحفظ');
       await unmount();
     }
 
-    // ── R2: بلا نت ← تنحفظ بالجهاز («تنتظر الإرسال») بلا إرسال، ولمّا يرجع الاتصال ترتفع لحالها بنسخة null ──
+    // ── R2: بلا نت ← تنحفظ بالجهاز («تنتظر الإرسال») بلا إرسال، و«اليوم حتى الآن» يجمعها؛ ولمّا يرجع الاتصال ترتفع لحالها ──
     {
       m.onlineStore.set(true);
       const { sent } = fresh({ status: 'ready', workspace: ws(), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'saved', version: 1 }));
@@ -282,9 +327,9 @@ export default async function (t) {
       await settle(80);
       t.eq(sent.length, 0, 'R2: بلا نت ما ينبعث شي');
       const queued = (await queueOf()).pending;
-      t.same(queued.map((op) => [op.flockId, op.payload.dead, op.baseVersion]), [['f-b', 3, null]], 'R2: العملية بالطابور مختومة، ونسختها null (ماكو صفّ لليوم)');
+      t.same(queued.map((op) => [op.fn, op.flockId, op.payload.dead, op.baseVersion]), [['save_flock_visit', 'f-b', 3, null]], 'R2: الزيارة بالطابور مختومة بلا نسخة');
       t.ok(statusOf('f-b').includes('محفوظة على هذا الجهاز') && text().includes('جولة واحدة على هذا الجهاز تنتظر الإرسال'), 'R2: «محفوظة على هذا الجهاز» وعدّاد الانتظار');
-      t.eq(byIdSuffix('-dead')[1]?.value, '3', 'R2: القيمة المنتظرة معروضة فوق المحفوظ');
+      t.same([byIdSuffix('-dead')[1]?.value, soFarOf('f-b', 'dead')], ['', 'اليوم حتى الآن: 3'], 'R2: الخانة فرغت، و«اليوم حتى الآن» يجمع الزيارة المنتظرة');
       m.onlineStore.set(true);
       await settle(120);
       t.same(sent.map((op) => [op.flockId, op.payload.dead]), [['f-b', 3]], 'R2: رجع الاتصال ← ارتفعت لحالها');
@@ -293,21 +338,38 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── R3: stale_day ← رفّ المراجعة بالنسختين (جولتك 7، المحفوظ 3)، ولا تنحذف ──
+    // ── R3: stale_visit ← رفّ المراجعة بـ«زيارتك» و«المحفوظة» (7 و3)، ولا تنحذف ──
     {
       m.onlineStore.set(true);
-      fresh({ status: 'ready', workspace: ws({ userId: 'u-3' }), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'stale_day', server: dayRow({ version: 6, dead: 3 }) }));
+      const stored = { id: 'v-9', flock_id: 'f-a', on: TODAY, recorded_at: `${TODAY}T05:00:00+00:00`, dead: 3, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, source: 'visit', version: 2, voided: false, by: 'حسن' };
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-3' }), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'stale_visit', server: stored }));
       await mount('/broiler/round');
       type(byIdSuffix('-dead')[0], '7');
       await settle();
       fire(byAction('round-save')[0], 'click');
       await settle(80);
       const { pending, review } = await queueOf('u-3');
-      t.same([pending.length, review.length, review[0]?.reason], [0, 1, 'stale_day'], 'R3: العملية انتقلت لرفّ المراجعة');
+      t.same([pending.length, review.length, review[0]?.reason, review[0]?.op.fn], [0, 1, 'stale_visit', 'save_flock_visit'], 'R3: الزيارة انتقلت لرفّ المراجعة');
       t.ok(statusOf('f-a').includes('راجعها في «جولات تحتاج مراجعة»'), 'R3: الصفّ يقول راجعها');
-      t.ok(text().includes('جولات تحتاج مراجعة') && text().includes('حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك'), 'R3: الرفّ بسببه');
+      t.ok(text().includes('جولات تحتاج مراجعة') && text().includes('تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك') && text().includes('زيارة جديدة'), 'R3: الرفّ بسببه ونوعها');
       const shelf = all().filter((n) => n.localName === 'td').map((n) => n.textContent);
-      t.ok(shelf.includes('النافق') && shelf.includes('7') && shelf.includes('3'), 'R3: النسختان جنب بعض: جولتك 7 والمحفوظ 3');
+      const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
+      t.ok(shelf.includes('النافق') && shelf.includes('7') && shelf.includes('3') && heads.includes('زيارتك') && heads.includes('المحفوظة'), 'R3: «زيارتك» 7 و«المحفوظة» 3 جنب بعض');
+      await unmount();
+    }
+
+    // ── R3b: عملية مجموع يوم قديمة (save_flock_day قبل 0032) بالطابور ترتفع كما كانت، وstale_day لرفّها بـ«جولتك» و«المحفوظ في الخادم» ──
+    {
+      m.onlineStore.set(false);
+      await m.saveRound(await m.openOutbox(), { userId: 'u-3b', orgId: 'org-1', displayName: 'علي' }, { fn: 'save_flock_day', flockId: 'f-a', day: TODAY, payload: { dead: 7 }, baseVersion: 4 });
+      m.onlineStore.set(true);
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-3b' }), offline: false }, { loadOverviewJson: () => broilerOverview() }, async () => ({ kind: 'stale_day', server: dayRow({ version: 6, dead: 3 }) }));
+      await mount('/broiler/round');
+      await settle(80);
+      const { review } = await queueOf('u-3b');
+      t.same([sent.map((op) => [op.fn, op.baseVersion, op.payload.dead]), review[0]?.reason], [[['save_flock_day', 4, 7]], 'stale_day'], 'R3b: العملية القديمة ارتفعت بنسختها وحمولتها، وstale_day لرفّها');
+      const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
+      t.ok(text().includes('حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك') && heads.includes('جولتك') && heads.includes('المحفوظ في الخادم'), 'R3b: الرفّ بنصّ مجموع اليوم القديم');
       await unmount();
     }
 
@@ -462,6 +524,7 @@ export default async function (t) {
 
     // ─── مراجعة 2026-10-31: خادم صغير بقاعدة save_flock_day نفسها (base_version ← stale_day، والخانة null بلا تغيير) ──────────────
     const card = (flockId) => all().find((n) => n.getAttribute('data-flock') === flockId);
+    const textOf = (action) => byAction(action)[0]?.textContent ?? null;
     const inCard = (flockId, suffix) => descendants(card(flockId) ?? body()).find((n) => n.id.endsWith(suffix));
     const makeServer = (initial) => {
       const rows = { ...initial };
@@ -483,56 +546,122 @@ export default async function (t) {
       };
     };
 
-    // ── A: خانة ما انلمست من قراءة أقدم ما تدوس حفظاً أحدث من جهاز آخر: الحمولة null ونسخة اللقطة (4) فالخادم يرجّع stale_day ──
+    // ── V1: كلّ قاعة مختارة افتراضاً، و«كلّ القاعات» يعلّمها أو يزيلها، وعدد المختار ──
+    const pickOf = (flockId) => descendants(card(flockId) ?? body()).find((n) => n.getAttribute('data-action') === 'round-pick') ?? null;
+    const check = (input, on) => {
+      if (!input) return;
+      input.checked = on;
+      fire(input, 'click');
+    };
     {
       m.onlineStore.set(true);
       const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
-      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-a' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-v1' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
       await mount('/broiler/round');
-      type(inCard('f-a', '-feedKg'), 'abc');
-      type(inCard('f-b', '-dead'), '1');
+      t.same([pickOf('f-a')?.checked, pickOf('f-b')?.checked, byAction('round-pick-all')[0]?.checked, textOf('round-picked')], [true, true, true, 'المختارة: 2 من 2'], 'V1: القاعات مختارة افتراضاً و«كلّ القاعات» معلَّم');
+      check(byAction('round-pick-all')[0], false);
       await settle();
-      server.rows['f-a'] = { version: 5, dead: 9, culled: 0 };
-      fire(byAction('round-save')[0], 'click');
-      await settle(120);
-      t.eq(inCard('f-a', '-dead')?.value, '2', 'A: ضابط: القاعة 1 باقية بخطئها وتعرض لقطة أوّل كتابة (نافق 2) والخادم صار 9');
-      type(inCard('f-a', '-feedKg'), '120');
+      t.same([pickOf('f-a')?.checked, pickOf('f-b')?.checked, textOf('round-picked')], [false, false, 'المختارة: 0 من 2'], 'V1: «كلّ القاعات» يزيل الكلّ');
+      check(byAction('round-pick-all')[0], true);
       await settle();
-      fire(byAction('round-save')[0], 'click');
-      await settle(120);
-      const last = sent.at(-1);
-      t.same([last?.flockId, last?.payload?.dead, last?.baseVersion], ['f-a', null, 4], 'A: النافق اللي ما انلمس null، والعملية بنسخة اللقطة 4 (مو 5)');
-      t.eq(server.rows['f-a'].dead, 9, 'A: نافق الجهاز الآخر (9) يبقى بعد حفظ صحّح العلف بس');
-      t.ok((await queueOf('u-a')).review.some((entry) => entry.reason === 'stale_day'), 'A: جولة القاعة 1 لرفّ المراجعة بالنسختين');
+      t.same([pickOf('f-a')?.checked, pickOf('f-b')?.checked, textOf('round-picked')], [true, true, 'المختارة: 2 من 2'], 'V1: ويعلّم الكلّ');
       await unmount();
     }
 
-    // ── B: بعد stale_day الحفظ الجاي بنفس الصفّ ما يكتب القيمة المردودة فوق الخادم: التعديل ينبني من جديد فوق آخر أرقامه ونسخته ──
+    // ── V2: قاعة مستثناة لا تُسجَّل لها زيارة، وخاناتها تبقى ──
     {
       m.onlineStore.set(true);
       const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
-      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-b' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-v2' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
+      await mount('/broiler/round');
+      type(inCard('f-a', '-dead'), '1');
+      type(inCard('f-b', '-dead'), '4');
+      await settle();
+      check(pickOf('f-b'), false);
+      await settle();
+      t.same([textOf('round-picked'), byAction('round-save')[0]?.textContent], ['المختارة: 1 من 2', 'احفظ الزيارة لـ«قاعة 1»'], 'V2: المختارة 1 من 2، والزرّ يسمّي القاعة الواحدة');
+      fire(byAction('round-save')[0], 'click');
+      await settle(120);
+      t.same(sent.map((op) => [op.flockId, op.payload.dead]), [['f-a', 1]], 'V2: زيارة للمختارة وحدها');
+      t.same([inCard('f-a', '-dead')?.value, inCard('f-b', '-dead')?.value, pickOf('f-b')?.checked], ['', '4', false], 'V2: خانة المستثناة باقية بما كُتب فيها');
+      await unmount();
+    }
+
+    // ── V3: «نفس الرقم لكلّ القاعات»: الرقم في خانة كلّ قاعة مختارة، وتعديل قاعة وحدها بعده ──
+    {
+      m.onlineStore.set(true);
+      const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-v3' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
+      await mount('/broiler/round');
+      const sameFeed = all().find((n) => n.getAttribute('data-action') === 'round-same-value' && n.getAttribute('data-field') === 'feedKg');
+      const apply = () => all().find((n) => n.getAttribute('data-action') === 'round-same-apply' && n.getAttribute('data-field') === 'feedKg');
+      t.ok(Boolean(sameFeed) && apply()?.hasAttribute('disabled'), 'V3: صفّ «نفس الرقم» لكلّ خانة، و«طبّق» معطّل قبل الرقم');
+      type(sameFeed, '50');
+      await settle();
+      fire(apply(), 'click');
+      await settle();
+      t.same([inCard('f-a', '-feedKg')?.value, inCard('f-b', '-feedKg')?.value], ['50', '50'], 'V3: «طبّق على المختارة» كتب 50 في علف كلّ قاعة مختارة');
+      type(inCard('f-b', '-feedKg'), '60');
+      await settle();
+      t.eq(byAction('round-save')[0]?.textContent, 'احفظ الزيارة لقاعتين', 'V3: الزرّ يسمّي القاعتين');
+      fire(byAction('round-save')[0], 'click');
+      await settle(120);
+      t.same(sent.map((op) => [op.flockId, op.payload.feed_kg]).sort(), [['f-a', '50.000'], ['f-b', '60.000']], 'V3: زيارة لكلّ قاعة بعلفها (المطبَّق والمعدَّل وحده)');
+      await unmount();
+    }
+
+    // ── V4: «اليوم حتى الآن» = المحفوظ + زيارات هذا الجهاز المنتظرة (بلا نت) ──
+    {
+      m.onlineStore.set(true);
+      const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-v4' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
       await mount('/broiler/round');
       m.onlineStore.set(false);
       await settle();
       type(inCard('f-a', '-dead'), '3');
+      type(inCard('f-a', '-feedKg'), '40');
       await settle();
       fire(byAction('round-save')[0], 'click');
       await settle(80);
-      // الماء خارج الجولة (2026-11-11): الخانة الثانية بعد الرفع العلفُ.
-      type(inCard('f-a', '-feedKg'), '50');
+      type(inCard('f-a', '-dead'), '1');
       await settle();
-      server.rows['f-a'] = { version: 5, dead: 1, culled: 0 };
+      fire(byAction('round-save')[0], 'click');
+      await settle(80);
+      t.same([(await queueOf('u-v4')).pending.length, soFarOf('f-a', 'dead'), soFarOf('f-a', 'feedKg')], [2, 'اليوم حتى الآن: 6', 'اليوم حتى الآن: 40'], 'V4: زيارتان على الجهاز (عمليتان) و«اليوم حتى الآن» 2 محفوظ + 3 + 1 = 6، والعلف 40');
       m.onlineStore.set(true);
-      await settle(150);
-      t.eq((await queueOf('u-b')).review[0]?.reason, 'stale_day', 'B: ضابط: جولة النافق 3 رجعت stale_day لرفّ المراجعة');
-      t.ok(card('f-a')?.textContent.includes('حُفظ هذا اليوم من جهاز آخر بعد أن بدأت التعديل'), 'B: الصفّ يقول إن تعديله انبنى من جديد فوق أرقام الجهاز الآخر');
-      t.same([inCard('f-a', '-dead')?.value, inCard('f-a', '-feedKg')?.value], ['1', '50'], 'B: النافق من الخادم (1) والعلف المكتوب (50) باقٍ');
+      await settle(120);
+      await unmount();
+    }
+
+    // ── V5: فحص الحيّ قبل الحفظ على المجموع بعد الزيارة: المحفوظ 2 والحيّ بداية اليوم 4,938 ← زيارة بنافق 4,937 تُمنع، و4,936 تُقبل ──
+    {
+      m.onlineStore.set(true);
+      const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-v5' }), offline: false }, { loadOverviewJson: () => server.overview() }, (op) => server.save(op));
+      await mount('/broiler/round');
+      type(inCard('f-a', '-dead'), '4937');
+      await settle();
+      fire(byAction('round-save')[0], 'click');
+      await settle(80);
+      t.same([sent.length, card('f-a')?.textContent.includes('النافق والمستبعد أكثر من الطيور الحيّة بداية اليوم (4,938)'), inCard('f-a', '-dead')?.value], [0, true, '4937'], 'V5: 2 + 4,937 > 4,938: يُمنع قبل الإرسال، والمكتوب باقٍ');
+      type(inCard('f-a', '-dead'), '4936');
+      await settle();
       fire(byAction('round-save')[0], 'click');
       await settle(120);
-      t.eq(server.rows['f-a'].dead, 1, 'B: حفظ العلف ما كتب النافق المردود (3) فوق الخادم (1)');
-      t.ok(!(sent.at(-1)?.payload?.dead === 3 && sent.at(-1)?.baseVersion === 5), 'B: النافق المردود ما انبعث بالنسخة الجديدة');
-      t.same([sent.at(-1)?.payload?.feed_kg, sent.at(-1)?.baseVersion, server.rows['f-a'].feed_kg], ['50.000', 5, '50.000'], 'B: العلف انحفظ بنسخة الخادم الجديدة');
+      t.same(sent.map((op) => op.payload.dead), [4936], 'V5: ضابط: 2 + 4,936 = 4,938 يُقبل');
+      await unmount();
+    }
+
+    // ── V6: الزرّ معطّل بلا أرقام ويسمّي عدد القاعات («لـ3 قاعات») ──
+    {
+      m.onlineStore.set(true);
+      const three = () => ({ today: TODAY, sites: [site('s-1', 'broiler', [hall('h-1', 'قاعة 1', flock('f-a', 'broiler')), hall('h-2', 'قاعة 2', flock('f-b', 'broiler')), hall('h-4', 'قاعة 4', flock('f-c', 'broiler'))])] });
+      fresh({ status: 'ready', workspace: ws({ userId: 'u-v6' }), offline: false }, { loadOverviewJson: three });
+      await mount('/broiler/round');
+      t.same([byAction('round-save')[0]?.textContent, byAction('round-save')[0]?.hasAttribute('disabled')], ['احفظ الزيارة', true], 'V6: بلا أرقام: «احفظ الزيارة» معطّل');
+      for (const flockId of ['f-a', 'f-b', 'f-c']) type(inCard(flockId, '-culled'), '1');
+      await settle();
+      t.eq(byAction('round-save')[0]?.textContent, 'احفظ الزيارة لـ3 قاعات', 'V6: «احفظ الزيارة لـ3 قاعات»');
       await unmount();
     }
 
