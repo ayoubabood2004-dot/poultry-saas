@@ -1,0 +1,243 @@
+{
+  "_note": "أجوبة مكتوبة باليد من عقد 0033 «أ» (docs/plans/0033/contract-0033.md) قبل الهجرة، لفحص شاشات الفاتورة الاحترافيّة. الدمج يمرّر عيّنات القاعدة الحقيقية (sales-0033.json) بالمحلّلات نفسها.",
+  "stores_overview": {
+    "today": "2026-11-17",
+    "can_manage": false,
+    "can_create_item": true,
+    "rows": [
+      { "id": "w-gen", "name": "المخزن العام", "kind": "general", "site_id": "s-1", "site_name": "المخازن", "site_kind": "store", "division_id": "d-gen", "division_kind": "general", "items_count": 2, "below_minimum": 0, "near_expiry": 0, "expired": 0 },
+      { "id": "w-feed", "name": "رصيد العلف", "kind": "feed", "site_id": "s-2", "site_name": "المعمل", "site_kind": "mill", "division_id": "d-mill", "division_kind": "feed_mill", "items_count": 1, "below_minimum": 0, "near_expiry": 0, "expired": 0 },
+      { "id": "w-farm", "name": "مخزن القاعة", "kind": "farm", "site_id": "s-3", "site_name": "الحقل", "site_kind": "farm", "division_id": "d-br", "division_kind": "broiler", "items_count": 1, "below_minimum": 0, "near_expiry": 0, "expired": 0 }
+    ],
+    "sites": []
+  },
+  "sale_catalog": [
+    {
+      "item_id": "i-feed",
+      "name": "علف بادئ",
+      "barcode": "6260000000017",
+      "kind": "feed",
+      "category": "علف",
+      "base_unit": "kg",
+      "available": "1500.000",
+      "sell_price": "700.00",
+      "units": [
+        { "unit_id": "u-bag", "label": "كيس", "factor": "50.000000" },
+        { "unit_id": "u-ton", "label": "طن", "factor": "1000.000000" }
+      ]
+    },
+    {
+      "item_id": "i-vit",
+      "name": "فيتامين أ د",
+      "barcode": "6260000000024",
+      "kind": "medicine",
+      "category": null,
+      "base_unit": "pc",
+      "available": "40.000",
+      "sell_price": "2500.00",
+      "units": [{ "unit_id": "u-box", "label": "علبة", "factor": "10.000000" }]
+    },
+    {
+      "item_id": "i-corn",
+      "name": "ذرة صفراء",
+      "barcode": null,
+      "kind": "raw",
+      "category": null,
+      "base_unit": "kg",
+      "available": "0.000",
+      "sell_price": null,
+      "units": []
+    }
+  ],
+  "record_sale_v2": {
+    "sale_id": "s-7",
+    "doc_no": "MS-2026-0007",
+    "sold_on": "2026-11-17",
+    "total": "139000",
+    "discount_total": "6000",
+    "paid": "89000",
+    "debt": "50000",
+    "walk_in": false,
+    "lines": [
+      { "line_id": "l-1", "item_id": "i-feed", "qty_base": "100.000", "line_total": "66604" },
+      { "line_id": "l-2", "item_id": "i-vit", "qty_base": "30.000", "line_total": "72396" }
+    ]
+  },
+  "record_sale_v2_walk_in": {
+    "sale_id": "s-8",
+    "doc_no": "MS-2026-0008",
+    "sold_on": "2026-11-17",
+    "total": "70000",
+    "discount_total": "0",
+    "paid": "70000",
+    "debt": "0",
+    "walk_in": true,
+    "lines": [{ "line_id": "l-3", "item_id": "i-feed", "qty_base": "100.000", "line_total": "70000" }]
+  },
+  "sale_detail": {
+    "id": "s-7",
+    "doc_no": "MS-2026-0007",
+    "status": "posted",
+    "sold_on": "2026-11-17",
+    "payment": "mixed",
+    "payment_refunded": false,
+    "party_id": "p-1",
+    "party_name": "أبو علي",
+    "walk_in": false,
+    "warehouse_id": "w-gen",
+    "warehouse_name": "المخزن العام",
+    "book_id": "b-gen",
+    "note": "تسليم بالسيارة",
+    "posted_by_name": "علي",
+    "voided_at": null,
+    "void_reason": null,
+    "can_void": true,
+    "total": "139000",
+    "paid": "89000",
+    "debt": "50000",
+    "discount_total": "6000",
+    "invoice_discount": "5000",
+    "lines": [
+      {
+        "line_id": "l-1",
+        "line_no": 1,
+        "item_id": "i-feed",
+        "item_name": "علف بادئ",
+        "base_unit": "kg",
+        "qty": "100.000",
+        "unit_label": "كيس",
+        "unit_factor": "50.000000",
+        "unit_qty": "2.000",
+        "unit_price_unit": "35000.00",
+        "gross_total": "70000",
+        "line_discount": "1000",
+        "invoice_discount_share": "2396",
+        "line_total": "66604",
+        "cost": { "money": { "cost": "50000.00", "profit": "16604.00" } }
+      },
+      {
+        "line_id": "l-2",
+        "line_no": 2,
+        "item_id": "i-vit",
+        "item_name": "فيتامين أ د",
+        "base_unit": "pc",
+        "qty": "30.000",
+        "unit_label": "علبة",
+        "unit_factor": "10.000000",
+        "unit_qty": "3.000",
+        "unit_price_unit": "25000.00",
+        "gross_total": "75000",
+        "line_discount": "0",
+        "invoice_discount_share": "2604",
+        "line_total": "72396",
+        "cost": { "money": { "cost": "60000.00", "profit": "12396.00" } }
+      }
+    ],
+    "payments": [
+      { "leg_no": 1, "cash_account_id": "c-1", "cash_account_name": "الصندوق الرئيسي", "amount": "50000" },
+      { "leg_no": 2, "cash_account_id": "c-2", "cash_account_name": "حوالة زين كاش", "amount": "39000" }
+    ],
+    "cost": { "money": { "cost": "110000.00", "profit": "29000.00" } }
+  },
+  "sale_detail_walk_in": {
+    "id": "s-8",
+    "doc_no": "MS-2026-0008",
+    "status": "posted",
+    "sold_on": "2026-11-17",
+    "payment": "cash",
+    "payment_refunded": false,
+    "party_id": "p-walk",
+    "party_name": "زبون نقديّ",
+    "walk_in": true,
+    "warehouse_id": "w-gen",
+    "warehouse_name": "المخزن العام",
+    "book_id": "b-gen",
+    "note": null,
+    "posted_by_name": "علي",
+    "voided_at": null,
+    "void_reason": null,
+    "can_void": true,
+    "total": "70000",
+    "paid": "70000",
+    "debt": "0",
+    "discount_total": "0",
+    "invoice_discount": "0",
+    "lines": [
+      {
+        "line_id": "l-3",
+        "line_no": 1,
+        "item_id": "i-feed",
+        "item_name": "علف بادئ",
+        "base_unit": "kg",
+        "qty": "100.000",
+        "unit_label": null,
+        "unit_factor": "1.000000",
+        "unit_qty": "100.000",
+        "unit_price_unit": "700.00",
+        "gross_total": "70000",
+        "line_discount": "0",
+        "invoice_discount_share": "0",
+        "line_total": "70000",
+        "cost": {}
+      }
+    ],
+    "payments": [{ "leg_no": 1, "cash_account_id": "c-1", "cash_account_name": "الصندوق الرئيسي", "amount": "70000" }],
+    "cost": {}
+  },
+  "sales_overview": {
+    "from": "2026-11-01",
+    "to": "2026-11-17",
+    "today": "2026-11-17",
+    "can_record": true,
+    "can_void": true,
+    "rows": [
+      {
+        "id": "s-8",
+        "doc_no": "MS-2026-0008",
+        "sold_on": "2026-11-17",
+        "status": "posted",
+        "payment": "cash",
+        "payment_refunded": false,
+        "party_id": "p-walk",
+        "party_name": "زبون نقديّ",
+        "warehouse_id": "w-gen",
+        "warehouse_name": "المخزن العام",
+        "item_id": "i-feed",
+        "item_name": "علف بادئ",
+        "line_count": 1,
+        "walk_in": true,
+        "qty": "100.000",
+        "base_unit": "kg",
+        "free": false,
+        "money": { "unit_price": "700.00", "total": "70000", "paid": "70000", "debt": "0", "discount_total": "0" },
+        "cost": { "money": { "cost": "50000.00", "profit": "20000.00" } }
+      },
+      {
+        "id": "s-7",
+        "doc_no": "MS-2026-0007",
+        "sold_on": "2026-11-17",
+        "status": "posted",
+        "payment": "mixed",
+        "payment_refunded": false,
+        "party_id": "p-1",
+        "party_name": "أبو علي",
+        "warehouse_id": "w-gen",
+        "warehouse_name": "المخزن العام",
+        "item_id": "i-feed",
+        "item_name": "علف بادئ",
+        "line_count": 2,
+        "walk_in": false,
+        "free": false,
+        "money": { "total": "139000", "paid": "89000", "debt": "50000", "discount_total": "6000" },
+        "cost": { "money": { "cost": "110000.00", "profit": "29000.00" } }
+      }
+    ],
+    "more": false,
+    "totals": {
+      "count": 2,
+      "voided": 0,
+      "money": { "revenue": "209000", "cash": "159000", "credit": "50000" },
+      "cost": { "money": { "cost": "160000.00", "profit": "49000.00" } }
+    }
+  }
+}

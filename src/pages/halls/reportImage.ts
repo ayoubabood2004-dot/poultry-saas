@@ -29,9 +29,10 @@ export function surfaceColor(): string {
 }
 
 /**
- * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض IMAGE_WIDTH، تُرسم ثمّ تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
+ * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
+ * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
  */
-export async function reportImage(page: HTMLElement, name: string): Promise<File> {
+export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH): Promise<File> {
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.position = 'fixed';
@@ -40,13 +41,13 @@ export async function reportImage(page: HTMLElement, name: string): Promise<File
   host.style.pointerEvents = 'none';
   const copy = page.cloneNode(true) as HTMLElement;
   copy.setAttribute('data-capture', '');
-  copy.style.width = `${IMAGE_WIDTH}px`;
+  copy.style.width = `${width}px`;
   host.appendChild(copy);
   document.body.appendChild(host);
   try {
     const height = copy.clientHeight || copy.scrollHeight || 0;
-    const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (IMAGE_WIDTH * height))) : PIXEL_RATIO;
-    const blob = await toBlob(copy, { width: IMAGE_WIDTH, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } });
+    const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height))) : PIXEL_RATIO;
+    const blob = await toBlob(copy, { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } });
     if (!blob) throw new Error('report_image_empty');
     return new File([blob], name, { type: 'image/png' });
   } finally {
