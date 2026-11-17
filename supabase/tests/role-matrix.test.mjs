@@ -744,6 +744,14 @@ export default async function (t, db) {
     halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
     // 0028: أربعة أفواج («قاعة 1» وقاعات البيع والإغلاق والنقل، والأخيرة أُغلقت اليوم فتظهر يومها).
     flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
+    // 0031 («من أوّل ما بدينا»): التقرير لكلّ دور بمنشأة (read) بنطاق حقل القاعة كـhalls_day، فمن لا يرى حقل اللحم يرى بلا نوع بلا رفض؛ وملاحظة اليوم بفعل
+    // halls_note.write (المالك والمدير وحدهما).
+    halls_history: { sql: () => ["select jsonb_array_length(public.halls_history(null) -> 'kinds') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
+    set_halls_note: {
+      sql: () => ["select public.set_halls_note(public.app_today(), 'ملاحظة المصفوفة', null) -> 'note' ->> 'text' as v", []],
+      value: true,
+      expect: only(['owner', 'manager'], 'ok:ملاحظة المصفوفة'),
+    },
     // 0028 (بيع الطيور وإغلاق الدورة): التذكرة بفعل weigh_ticket.draft (المالك والمدير وعامل القاعة في حقله)، وإلغاء المسوّدة بالفعل نفسه (ولا يصل
     // إليها من لا يملك التسويد ولا الإلغاء)؛ والفاتورة بفعل sale.post (المالك والمدير والمحاسب) وإلغاؤها بفعل void؛ وفرق العدّ والإغلاق وإرجاع
     // المنقول بفعل flock.manage، وإعادة الفتح بـflock.manage وvoid معاً (المالك والمدير). والقرّاء: التذكرة وخياراتها وقائمتها والإغلاق وبطاقة البيع لمن

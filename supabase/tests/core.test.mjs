@@ -514,6 +514,11 @@ export default async function (t, db) {
     );
   }
 
+  // 0031: ملاحظة يوم في تقرير القاعات لكلّ منشأة (المالك، halls_note.write)، فجدول الملاحظات بصفوف للطرفين.
+  for (const owner of [U.aOwner, U.bOwner]) {
+    await db.asUser(owner, (q) => q("select public.set_halls_note(public.app_today(), 'ملاحظة العزل', null)"), { commit: true });
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -818,6 +823,8 @@ export default async function (t, db) {
     flock_cycle_report: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     // 0027: التقرير اليوميّ باليوم الحاليّ، ففوج كلّ منشأة (سُكّن قبل ثلاثة أيّام) يدخل جسمه كلّه (أرقام يومه وصرفه وأدويته ولقاحاته).
     halls_day: () => [coreToday],
+    // 0031: «من أوّل ما بدينا» بشهر اليوم الحاليّ، ففوج كلّ منشأة وملاحظتها يدخلان جسمه كلّه.
+    halls_history: () => [coreToday],
     // 0028: تذكرة كلّ منشأة وحقلها وفاتورتها، وقائمة التذاكر بسنة، وشاشة الإغلاق بفوجها المغلق، وبطاقة البيع بفوج «قاعة 1».
     weigh_ticket: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].ticket],
     weigh_ticket_options: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].site],
@@ -896,6 +903,8 @@ export default async function (t, db) {
     // 0027: التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
     halls_day: { [U.aSpare]: 'forbidden' },
     flock_cycles: { [U.aSpare]: 'forbidden' },
+    // 0031: «من أوّل ما بدينا» لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
+    halls_history: { [U.aSpare]: 'forbidden' },
     // 0028: التذاكر والإغلاق وبطاقة البيع لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden؛ وشاشة الفاتورة وتفصيلها لأدوار المبيعات
     // (عامل القاعة forbidden).
     weigh_ticket: { [U.aSpare]: 'forbidden' },
