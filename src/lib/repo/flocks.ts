@@ -512,13 +512,12 @@ export function visitAnswer(value: unknown): SendResult {
   const answer = record(value, 'save_flock_visit');
   if (answer.status === 'saved') {
     const visit = parseVisit(answer.visit);
-    if (!('day' in answer)) throw new FlockShapeError('day');
+    // صفّ اليوم بعدها أو null (لا زيارة حيّة)؛ غيابه شكل غريب (parseDayRow يرمي).
     if (answer.day !== null) parseDayRow(answer.day);
     return { kind: 'saved', version: visit.version, visit: answer.visit, day: answer.day };
   }
   if (answer.status === 'parked') return { kind: 'parked' };
   if (answer.status === 'stale_visit') {
-    if (!('server' in answer)) throw new FlockShapeError('server');
     if (answer.server !== null) parseVisit(answer.server);
     return { kind: 'stale_visit', server: answer.server };
   }
