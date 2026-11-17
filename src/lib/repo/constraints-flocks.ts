@@ -44,6 +44,19 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_issue_lines_piece_mass_check: () => t('constraint.flock_issue_lines_piece_mass_check', 'وزن القطعة في سطر الصرف للمادّة بالقطعة فقط، رقم أكبر من صفر بثلاث مراتب عشرية على الأكثر.'),
   flock_issue_lines_cost_kind_check: () => t('constraint.flock_issue_lines_cost_kind_check', 'نوع كلفة سطر الصرف غير معروف.'),
   flock_issue_lines_line_no_check: () => t('constraint.flock_issue_lines_line_no_check', 'رقم سطر الصرف يبدأ من 1.'),
+  // 0032: زيارات الجولة (تكتبها save_flock_visit وsave_flock_day وحدهما).
+  flock_visits_birds_check: () => t('constraint.flock_visits_birds_check', 'النافق والمستبعد في الزيارة أعداد صحيحة من صفر إلى 10,000,000.'),
+  flock_visits_feed_check: () => t('constraint.flock_visits_feed_check', 'علف الزيارة بالكيلوغرام من صفر فأكثر، بثلاث مراتب عشرية على الأكثر.'),
+  flock_visits_water_check: () => t('constraint.flock_visits_water_check', 'ماء الزيارة باللتر من صفر فأكثر، بثلاث مراتب عشرية على الأكثر.'),
+  flock_visits_temp_min_check: () => t('constraint.flock_visits_temp_min_check', 'الحرارة الصغرى في الزيارة من −50 إلى 70، بمرتبة عشرية واحدة على الأكثر.'),
+  flock_visits_temp_max_check: () => t('constraint.flock_visits_temp_max_check', 'الحرارة العظمى في الزيارة من −50 إلى 70، بمرتبة عشرية واحدة على الأكثر.'),
+  flock_visits_temp_order_check: () => t('constraint.flock_visits_temp_order_check', 'الحرارة الصغرى في الزيارة لا تزيد على العظمى.'),
+  flock_visits_eggs_check: () => t('constraint.flock_visits_eggs_check', 'أعداد بيض الزيارة من صفر إلى 10,000,000، والمكسور والمشعور لا يزيدان على بيض الزيارة كلّه، ولا يُكتبان قبله.'),
+  flock_visits_note_check: () => t('constraint.flock_visits_note_check', 'ملاحظة الزيارة لا تزيد على 500 حرف، بلا فراغ في طرفيها.'),
+  flock_visits_source_check: () => t('constraint.flock_visits_source_check', 'مصدر الزيارة غير معروف.'),
+  flock_visits_version_check: () => t('constraint.flock_visits_version_check', 'نسخة الزيارة يكتبها الخادم.'),
+  flock_visits_void_check: () => t('constraint.flock_visits_void_check', 'من ألغى الزيارة يُكتب مع وقت إلغائها.'),
+  flock_visits_time_check: () => t('constraint.flock_visits_time_check', 'وقت الزيارة ويومها من التقويم.'),
 };
 
 registerConstraintHints(FLOCK_CONSTRAINT_HINTS);

@@ -1,0 +1,266 @@
+{
+ "_note": "عيّنات القاعدة الحقيقية (supabase/tests/round-visits.test.mjs بـROUND_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-17؛ أوقات التسجيل من ساعة الخادم وقت التشغيل)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.",
+ "round_visits_broiler": {
+  "on": "2026-11-17",
+  "today": "2026-11-17",
+  "flocks": [
+   {
+    "visits": [
+     {
+      "by": "worker",
+      "id": "d3232000-0000-4000-8000-000000000103",
+      "on": "2026-11-17",
+      "dead": 1,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": null,
+      "version": 1,
+      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "eggs_total": null,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T11:56:12.126+00:00",
+      "eggs_cracked": null
+     }
+    ],
+    "hall_id": "16ad8254-4fbf-40e1-8615-f029acae75a3",
+    "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7"
+   },
+   {
+    "visits": [
+     {
+      "by": "worker",
+      "id": "d3232000-0000-4000-8000-000000000104",
+      "on": "2026-11-17",
+      "dead": 60,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": null,
+      "version": 1,
+      "flock_id": "b9099814-65c6-4cef-b08f-575852f4ea7e",
+      "eggs_total": null,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T12:36:12.155+00:00",
+      "eggs_cracked": null
+     }
+    ],
+    "hall_id": "e9e106a7-d118-4b24-a371-78a79f7e338c",
+    "flock_id": "b9099814-65c6-4cef-b08f-575852f4ea7e"
+   },
+   {
+    "visits": [
+     {
+      "by": "manager",
+      "id": "d3232000-0000-4000-8000-000000000112",
+      "on": "2026-11-17",
+      "dead": 1,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": null,
+      "version": 1,
+      "flock_id": "6f2e19b7-1fd8-4a03-ad57-1b1fa38c8091",
+      "eggs_total": null,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T12:36:12.578+00:00",
+      "eggs_cracked": null
+     }
+    ],
+    "hall_id": "571795a5-7fe3-4cf9-aa7f-932002b53582",
+    "flock_id": "6f2e19b7-1fd8-4a03-ad57-1b1fa38c8091"
+   }
+  ]
+ },
+ "round_visits_layer": {
+  "on": "2026-11-17",
+  "today": "2026-11-17",
+  "flocks": [
+   {
+    "visits": [
+     {
+      "by": "layerWorker",
+      "id": "d3232000-0000-4000-8000-000000000105",
+      "on": "2026-11-17",
+      "dead": 0,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": "100.000",
+      "version": 1,
+      "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5",
+      "eggs_total": 1200,
+      "eggs_broken": 5,
+      "recorded_at": "2026-11-17T09:36:12.364+00:00",
+      "eggs_cracked": 10
+     },
+     {
+      "by": "layerWorker",
+      "id": "d3232000-0000-4000-8000-000000000106",
+      "on": "2026-11-17",
+      "dead": 0,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": null,
+      "version": 1,
+      "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5",
+      "eggs_total": 700,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T11:36:12.38+00:00",
+      "eggs_cracked": null
+     }
+    ],
+    "hall_id": "83e1fd15-66f9-4696-9942-386532e4aff9",
+    "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5"
+   }
+  ]
+ },
+ "round_visits_flock": {
+  "on": "2026-11-16",
+  "today": "2026-11-17",
+  "flocks": [
+   {
+    "visits": [
+     {
+      "by": "manager",
+      "id": "340538b5-1cc0-471d-a985-d03b18823502",
+      "on": "2026-11-16",
+      "dead": 7,
+      "note": "ب",
+      "culled": 0,
+      "source": "day_total",
+      "voided": false,
+      "feed_kg": "10.000",
+      "version": 1,
+      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "eggs_total": null,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T13:36:12.530755+00:00",
+      "eggs_cracked": null
+     },
+     {
+      "by": "worker",
+      "id": "d3232000-0000-4000-8000-000000000111",
+      "on": "2026-11-16",
+      "dead": 1,
+      "note": null,
+      "culled": 0,
+      "source": "visit",
+      "voided": false,
+      "feed_kg": null,
+      "version": 1,
+      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "eggs_total": null,
+      "eggs_broken": null,
+      "recorded_at": "2026-11-17T13:36:12.567+00:00",
+      "eggs_cracked": null
+     }
+    ],
+    "hall_id": "16ad8254-4fbf-40e1-8615-f029acae75a3",
+    "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7"
+   }
+  ]
+ },
+ "save_flock_visit_saved": {
+  "day": {
+   "dead": 5,
+   "note": "الصباح · العصر",
+   "culled": 1,
+   "feed_kg": "80.5",
+   "on_date": "2026-11-17",
+   "version": 2,
+   "water_l": null,
+   "temp_max": null,
+   "temp_min": null,
+   "eggs_total": null,
+   "eggs_broken": null,
+   "eggs_cracked": null
+  },
+  "visit": {
+   "by": "manager",
+   "id": "d3232000-0000-4000-8000-000000000102",
+   "on": "2026-11-17",
+   "dead": 2,
+   "note": "العصر",
+   "culled": 1,
+   "source": "visit",
+   "voided": false,
+   "feed_kg": "30.500",
+   "version": 1,
+   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "eggs_total": null,
+   "eggs_broken": null,
+   "recorded_at": "2026-11-17T10:16:12.02+00:00",
+   "eggs_cracked": null
+  },
+  "status": "saved"
+ },
+ "save_flock_visit_parked": {
+  "reason": "date_too_old",
+  "status": "parked"
+ },
+ "save_flock_visit_stale": {
+  "server": {
+   "by": "worker",
+   "id": "d3232000-0000-4000-8000-000000000101",
+   "on": "2026-11-17",
+   "dead": 4,
+   "note": null,
+   "culled": 0,
+   "source": "visit",
+   "voided": false,
+   "feed_kg": null,
+   "version": 2,
+   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "eggs_total": null,
+   "eggs_broken": null,
+   "recorded_at": "2026-11-17T08:36:12.006+00:00",
+   "eggs_cracked": null
+  },
+  "status": "stale_visit"
+ },
+ "save_flock_visit_void": {
+  "day": {
+   "dead": 4,
+   "note": null,
+   "culled": 0,
+   "feed_kg": null,
+   "on_date": "2026-11-17",
+   "version": 4,
+   "water_l": null,
+   "temp_max": null,
+   "temp_min": null,
+   "eggs_total": null,
+   "eggs_broken": null,
+   "eggs_cracked": null
+  },
+  "visit": {
+   "by": "manager",
+   "id": "d3232000-0000-4000-8000-000000000102",
+   "on": "2026-11-17",
+   "dead": 2,
+   "note": "العصر",
+   "culled": 1,
+   "source": "visit",
+   "voided": true,
+   "feed_kg": "30.500",
+   "version": 2,
+   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "eggs_total": null,
+   "eggs_broken": null,
+   "recorded_at": "2026-11-17T10:16:12.02+00:00",
+   "eggs_cracked": null
+  },
+  "status": "saved"
+ },
+ "save_flock_day_after": {
+  "status": "saved",
+  "version": 3
+ }
+}

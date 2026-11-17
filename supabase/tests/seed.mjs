@@ -30,6 +30,9 @@
 // ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده.
 // 0031: البذرة نفسها وفوقها قاعة بفوج مفتوح وصرف منه وجولة (ROLLBACK_EXTRAS)، وبعد الإعادة ملاحظة يوم وhalls_history على تلك البيانات، فالتراجع يكمل.
 // والطريق الثاني بفرعين، كلّ واحد ببذرته: ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت (الصفّ يبقى بنسخته).
+// 0032: البذرة نفسها وفوقها صرف لفوجها وجولة مركونة بعملية save_flock_day (ROLLBACK_EXTRAS، بلا زيارة بعد الهجرة فالتراجع يكمل)، وبين التراجع والإعادة
+// جولتا أمس واليوم بجسم 0029، وبعد الإعادة كلّ صفّ يوم زيارة legacy بقيمه ونسخته وزيارة جديدة تنضاف إليه. والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته:
+// زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -673,9 +676,54 @@ const hallsNoteSeed = (variant) => async (db) => {
   }, { commit: true });
 };
 
+const H32 = (n) => `60000000-0000-4000-8000-0000000032${String(n).padStart(2, '0')}`;
+
+/**
+ * 0032 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها على فوج البذرة (المدير بـsave_flock_visit): زيارة جديدة حيّة بوقتها وكاتبها، وزيارة
+ * أُضيفت ثمّ أُلغيت (لا يبقى منها إلّا العلامة، وصفّ يومها حُذف)، وزيارة مركونة من الطابور بيوم أقدم من سبعة أيّام (صفّ في flock_day_rejects بمعرّفها
+ * ولا زيارة). التراجع يُسقطها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
+ */
+const visitSeed = (variant) => async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    if (variant === 'parked') {
+      await q('select public.save_flock_visit($1, $2, public.app_today() - 9, now(), 3, 0, null, null, null, null, null, null, false, $3, true)', [H32(1), flock, H32(2)]);
+      return;
+    }
+    await q("select public.save_flock_visit($1, $2, public.app_today(), now(), 3, 0, 40, null, null, null, 'زيارة الصباح', null, false, $3, false)", [H32(1), flock, H32(2)]);
+    if (variant === 'voided') {
+      await q("select public.save_flock_visit($1, $2, public.app_today(), now(), 3, 0, 40, null, null, null, 'زيارة الصباح', 1, true, $3, false)", [H32(1), flock, H32(3)]);
+    }
+  }, { commit: true });
+};
+
 const BIRD_TABLES = "('flock_counts', 'weigh_tickets', 'weigh_ticket_stops', 'weigh_ticket_weighings', 'bird_sales', 'bird_sale_sources', 'flock_closes', 'flock_close_lines', 'flock_returns', 'flock_return_lines', 'flock_close_values')";
 
 export const BLOCKING_SEEDS = {
+  32: [
+    {
+      name: 'زيارة جديدة حيّة',
+      code: 'rollback_blocked',
+      seed: visitSeed('live'),
+      data: "select (select count(*) from public.flock_visits where voided_at is null and source <> 'legacy')::text || '/' || (select count(*) from public.flock_daily)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_new > 0 then', 'if false then'),
+    },
+    {
+      name: 'زيارة أُلغيت (لا يبقى منها إلّا العلامة)',
+      code: 'rollback_blocked',
+      seed: visitSeed('voided'),
+      data: "select (select count(*) from public.flock_visits where voided_at is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_voided > 0 then', 'if false then'),
+    },
+    {
+      name: 'زيارة مركونة من الطابور',
+      code: 'rollback_blocked',
+      seed: visitSeed('parked'),
+      data: "select (select count(*) from public.flock_day_rejects where visit_id is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_parked > 0 then', 'if false then'),
+    },
+  ],
   31: [
     {
       name: 'ملاحظة يوم في تقرير القاعات',
@@ -1108,6 +1156,7 @@ export const BLOCKING_REQUIRED = [
   [29, 6, 'مسوّدة تذكرة وزن، وفاتورة طيور مرحّلة، وفرق عدّ، ودورة مغلقة بإرجاع، ونقل مطبَّق، وأثر في سجلّ التدقيق وحده، كلّ واحد يوقف التراجع'],
   [30, 2, 'جدول نوع بنهاية مفتوحة، وجدول قاعة بنهاية مفتوحة، كلّ واحد يوقف التراجع'],
   [31, 2, 'ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت فبقي صفّها بنسخته، كلّ واحدة توقف التراجع'],
+  [32, 3, 'زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة، كلّ واحدة توقف التراجع'],
 ];
 
 /**
@@ -1511,7 +1560,67 @@ const hallsHistoryRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0032: حالة التراجع الكاملة على فوج البذرة: صرف 5 كغم «علف البذرة» قبل يومين، وجولة من الطابور بعملية save_flock_day بيوم أقدم من سبعة أيّام (تُركن بلا
+ * زيارة، فيرجع القيد الفريد القديم وهي في الجدول)؛ بلا زيارة بعد الهجرة، فالتراجع يكمل.
+ */
+const visitsReady = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+    await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today() - 2, null)', [H32(20), H32(21), H32(22), flock, feed]);
+    const parked = await value(q, 'select public.save_flock_day($1, public.app_today() - 9, 1, 0, null, null, null, null, null, null, null, null, null, $2, true)', [flock, H32(23)]);
+    if (parked?.status !== 'parked') throw new Error(`جولة البذرة القديمة لم تُركن: ${JSON.stringify(parked)}`);
+  }, { commit: true });
+};
+
+/** 0032: بين التراجع والإعادة (جسم 0029): جولة أمس، وجولة اليوم بملاحظة ثمّ تعديلها بالمستبعد (النسخة 2). */
+const visitsOn0031 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    await q('select public.save_flock_day($1, public.app_today() - 1, 10, 0, 100, null, null, null, null, null, null, null, null, $2, false)', [flock, H32(24)]);
+    await q("select public.save_flock_day($1, public.app_today(), 5, 0, 120, null, null, null, null, null, null, 'جولة الصباح', null, $2, false)", [flock, H32(25)]);
+    await q('select public.save_flock_day($1, public.app_today(), null, 2, null, null, null, null, null, null, null, null, 1, $2, false)', [flock, H32(26)]);
+  }, { commit: true });
+};
+
+/**
+ * 0032: بعد الإعادة: صفّا أمس واليوم (بجسم 0029) صار كلّ واحد زيارة legacy واحدة بقيمه ونسخته وكاتبه، وround_visits يرى زيارة اليوم، وزيارة جديدة اليوم
+ * (نافق 1 وعلف 30) تنضاف إلى المجموع (6 نافق، و2 مستبعد، و150 كغم، والنسخة 3)، والثابت صفر.
+ */
+const visitsRedone = async (db) => {
+  const problems = [];
+  const legacy = (await db.admin(`select count(*)::int as n, count(*) filter (where v.source = 'legacy' and v.voided_at is null and v.version = d.version
+      and (v.dead, v.culled, v.feed_kg, v.note, v.recorded_at) is not distinct from (d.dead, d.culled, d.feed_kg, d.note, d.updated_at))::int as same
+    from public.flock_daily d join public.flock_visits v on v.org_id = d.org_id and v.flock_id = d.flock_id and v.on_date = d.on_date
+    where d.flock_id = (${SEED_FLOCK})`)).rows[0];
+  if (legacy.n !== 2 || legacy.same !== 2) problems.push(`زيارات legacy بعد الإعادة ${JSON.stringify(legacy)} والمتوقّع زيارتان بقيم صفّيهما`);
+  try {
+    const seen = await db.asUser(U.manager, async (q) => value(q, "select public.round_visits(null, 'broiler', null)"));
+    const visits = seen.flocks.flatMap((f) => f.visits).map((v) => [v.source, v.dead, v.culled, v.feed_kg, v.note, v.version, v.by]);
+    if (JSON.stringify(visits) !== JSON.stringify([['legacy', 5, 2, '120.000', 'جولة الصباح', 2, 'manager']])) problems.push(`round_visits بعد الإعادة: ${JSON.stringify(visits)}`);
+    const saved = await db.asUser(U.manager, async (q) => {
+      const flock = await value(q, SEED_FLOCK);
+      return value(q, 'select public.save_flock_visit($1, $2, public.app_today(), now(), 1, null, 30, null, null, null, null, null, false, $3, false)', [H32(27), flock, H32(28)]);
+    }, { commit: true });
+    const day = [saved?.status, saved?.day?.dead, saved?.day?.culled, saved?.day?.feed_kg, saved?.day?.version, saved?.day?.note];
+    if (JSON.stringify(day) !== JSON.stringify(['saved', 6, 2, '150', 3, 'جولة الصباح'])) problems.push(`زيارة بعد الإعادة: ${JSON.stringify(day)}`);
+  } catch (error) {
+    problems.push(`الزيارات بعد الإعادة رُفضت: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_round_visits()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الزيارة: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  32: {
+    seed: visitsReady,
+    afterRollback: visitsOn0031,
+    afterRedo: visitsRedone,
+  },
   31: {
     seed: birds28Ready,
     afterRedo: hallsHistoryRedone,

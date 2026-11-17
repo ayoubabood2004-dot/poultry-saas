@@ -630,6 +630,14 @@ export default async function (t, db) {
     // لكل دور بنطاقه: من بلا نطاق (غير المالك والمدير والمحاسب) ما يشوف الحقل، والفوج خارج نطاقه out_of_scope.
     open_flock: { sql: () => ["select public.open_flock($1, public.app_today(), 500, 0, null, gen_random_uuid()) ->> 'version' as v", [p2.empty]], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
     save_flock_day: { sql: () => ["select public.save_flock_day($1, public.app_today(), 2, 1, 40.5, null, null, null, null, null, null, null, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
+    // 0032 (الجولة بزيارات): الزيارة بفعل الجولة نفسه (flock_day.save: المالك والمدير وعامل القاعة بنطاقه)، وزيارات اليوم لكلّ دور بنطاقه حقل
+    // الفوج (الفوج المطلوب وحده ولو بلا زيارة)، وخارج النطاق out_of_scope.
+    save_flock_visit: {
+      sql: () => ["select public.save_flock_visit(gen_random_uuid(), $1, public.app_today(), now(), 2, 1, 40.5, null, null, null, 'زيارة المصفوفة', null, false, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]],
+      value: true,
+      expect: only(FLOCK_DAY, 'ok:saved'),
+    },
+    round_visits: { sql: () => ["select jsonb_array_length(public.round_visits(public.app_today(), 'broiler', $1) -> 'flocks') as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'out_of_scope') },
     record_flock_weight: { sql: () => ["select public.record_flock_weight($1, public.app_today(), 50, 650.5, gen_random_uuid()) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
     flocks_overview: { sql: () => ["select public.flocks_overview() -> 'sites' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [farm.site]], value: true, expect: only(FLOCK_SCOPE, 'ok:true', 'ok:false') },
     flock_detail: { sql: () => ["select public.flock_detail($1) -> 'flock' ->> 'live' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },

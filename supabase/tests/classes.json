@@ -21,6 +21,7 @@
     "flock_return_lines",
     "flock_returns",
     "flock_vaccinations",
+    "flock_visits",
     "flock_weights",
     "flocks",
     "hall_vaccine_program_days",

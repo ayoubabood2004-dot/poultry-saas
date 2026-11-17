@@ -825,6 +825,8 @@ export default async function (t, db) {
     halls_day: () => [coreToday],
     // 0031: «من أوّل ما بدينا» بشهر اليوم الحاليّ، ففوج كلّ منشأة وملاحظتها يدخلان جسمه كلّه.
     halls_history: () => [coreToday],
+    // 0032: زيارات اليوم الحاليّ لأفواج اللحم (فوج «قاعة 1» لكلّ منشأة له جولة اليوم = زيارة day_total)، فجسمه كلّه ينفّذ.
+    round_visits: () => [coreToday, 'broiler', null],
     // 0028: تذكرة كلّ منشأة وحقلها وفاتورتها، وقائمة التذاكر بسنة، وشاشة الإغلاق بفوجها المغلق، وبطاقة البيع بفوج «قاعة 1».
     weigh_ticket: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].ticket],
     weigh_ticket_options: (persona) => [birdsOf[persona === U.bOwner ? 'b' : 'a'].site],
@@ -905,6 +907,8 @@ export default async function (t, db) {
     flock_cycles: { [U.aSpare]: 'forbidden' },
     // 0031: «من أوّل ما بدينا» لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
     halls_history: { [U.aSpare]: 'forbidden' },
+    // 0032: زيارات اليوم لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden.
+    round_visits: { [U.aSpare]: 'forbidden' },
     // 0028: التذاكر والإغلاق وبطاقة البيع لكلّ دور بمنشأة (read) بنطاق حقل القاعة، وبلا منشأة forbidden؛ وشاشة الفاتورة وتفصيلها لأدوار المبيعات
     // (عامل القاعة forbidden).
     weigh_ticket: { [U.aSpare]: 'forbidden' },
