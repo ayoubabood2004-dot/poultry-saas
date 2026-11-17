@@ -48,7 +48,7 @@ async function bundle() {
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { roundQueueStore } from './src/lib/roundUploads.ts';",
     "export { parseRoundVisits } from './src/lib/repo/halls.ts';",
-    "export { parseVisit, visitAnswer } from './src/lib/repo/flocks.ts';",
+    "export { dayAnswer, parseVisit, visitAnswer } from './src/lib/repo/flocks.ts';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
     "export { localDay } from './src/domain/dates.ts';",
@@ -254,7 +254,7 @@ export default async function (t) {
       await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
       const dialog = () => dialogTitled('عدّل زيارة');
       const field = (name) => (dialog() ? byAction(`visit-${name}`, dialog())[0] ?? null : null);
-      t.same([field('dead')?.value, field('culled')?.value, field('feedKg')?.value], ['2', '', '50'], 'E النافذة بمحتوى الزيارة كاملاً (المستبعد صفر فارغ)');
+      t.same([field('dead')?.value, field('culled')?.value, field('feedKg')?.value], ['2', '0', '50'], 'E النافذة بمحتوى الزيارة كاملاً (المستبعد صفراً: الصفر يُعرض صفراً فلا تصير زيارة «لا نافق» فارغة بالتعديل)');
       // زيارة تغيّرت من جهاز آخر بعد الفتح، والقائمة تُقرأ من جديد: اللقطة والنسخة كما فُتحت.
       version = 3;
       m.roundQueueStore.set((state) => ({ ...state, seq: state.seq + 1 }));
@@ -470,6 +470,39 @@ export default async function (t) {
         ],
         ['voided', 'recorded_at', 'on', 'visits'],
         'P شكل غريب يرمي باسم خانته',
+      );
+    }
+
+    // ── X: أجوبة القاعدة الحقيقية (fixtures/round-visits-0032.json من supabase/tests/round-visits.test.mjs) بالمحلّلات الحقيقية ──────────────
+    {
+      const R = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-visits-0032.json'), 'utf8'));
+      const tryParse = (label, fn) => {
+        try {
+          return fn();
+        } catch (error) {
+          t.ok(false, `X ${label}: رمى ${error?.field ?? ''} ${error?.message ?? error}`);
+          return null;
+        }
+      };
+      const lists = ['round_visits_broiler', 'round_visits_layer', 'round_visits_flock'].map((key) => [key, tryParse(key, () => m.parseRoundVisits(R[key]))]);
+      t.same(
+        lists.map(([key, parsed]) => [key, parsed === null ? null : parsed.flocks.reduce((n, flock) => n + flock.visits.length, 0) === R[key].flocks.reduce((n, flock) => n + flock.visits.length, 0)]),
+        lists.map(([key]) => [key, true]),
+        'X round_visits الحقيقية (لحم وبيّاض وفوج ليوم سابق فيه زيارة «مجموع اليوم») تُقرأ كلّها بزياراتها',
+      );
+      const sources = new Set(lists.flatMap(([, parsed]) => parsed?.flocks.flatMap((flock) => flock.visits.map((visit) => visit.source)) ?? []));
+      t.ok(['visit', 'day_total'].every((source) => sources.has(source)), `X في العيّنات زيارة جديدة وزيارة «مجموع اليوم» (${[...sources].join('، ')})`);
+      const answers = {
+        saved: tryParse('saved', () => m.visitAnswer(R.save_flock_visit_saved)),
+        parked: tryParse('parked', () => m.visitAnswer(R.save_flock_visit_parked)),
+        stale: tryParse('stale', () => m.visitAnswer(R.save_flock_visit_stale)),
+        void: tryParse('void', () => m.visitAnswer(R.save_flock_visit_void)),
+        day: tryParse('day', () => m.dayAnswer(R.save_flock_day_after)),
+      };
+      t.same(
+        [answers.saved?.kind, answers.parked?.kind, answers.stale?.kind, answers.void?.kind, answers.day?.kind, answers.day?.version],
+        ['saved', 'parked', 'stale_visit', 'saved', 'saved', 3],
+        'X أجوبة save_flock_visit الحقيقية (حُفظت، ورُكنت، وتغيّرت، وأُلغيت) وجواب save_flock_day بعد الهجرة بالمحلّل الحقيقيّ',
       );
     }
   } finally {

@@ -302,7 +302,7 @@ export default async function (t) {
       await settle(80);
       t.eq(sent.length, 1, 'R1: عملية وحدة (القاعة الثانية بلا أرقام)');
       t.same([sent[0]?.fn, sent[0]?.flockId, sent[0]?.day, sent[0]?.baseVersion], ['save_flock_visit', 'f-a', TODAY, null], 'R1: زيارة جديدة للفوج واليوم بلا نسخة (تُجمع، لا تعارض)');
-      t.same(contentOf(sent[0]), { dead: 5, culled: 0, feed_kg: '120.500', eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false }, 'R1: المحتوى كاملاً: المستبعد الفارغ 0، والعلف بثلاث مراتب، وبلا water_l (الماء خارج الجولة، 2026-11-11)');
+      t.same(contentOf(sent[0]), { dead: 5, culled: null, feed_kg: '120.500', eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false }, 'R1: المحتوى كاملاً: المستبعد الفارغ null (لم يُكتب، والخادم يعدّه صفراً)، والعلف بثلاث مراتب، وبلا water_l (الماء خارج الجولة، 2026-11-11)');
       const at = Date.parse(sent[0]?.payload.recordedAt ?? '');
       t.ok(UUID.test(sent[0]?.payload.visitId ?? '') && at >= before - 1000 && at <= Date.now() + 1000, 'R1: معرّف الزيارة ووقتها من الجهاز');
       t.same([byIdSuffix('-waterL').length, text().includes('الماء')], [0, false], 'R1: لا خانة ماء في الجولة ولا كلمة «الماء» (كلمة المالك 2026-11-11: الماء ثابت)');
@@ -310,6 +310,13 @@ export default async function (t) {
       t.same([byIdSuffix('-dead')[0]?.value, byIdSuffix('-feedKg')[0]?.value], ['', ''], 'R1: الخانات تفرغ بعد الحفظ');
       t.eq((await queueOf()).pending.length, 0, 'R1: الطابور فارغ بعد الحفظ');
       t.ok(calls.filter(([name]) => name === 'loadOverviewJson').length >= 2, 'R1: الأرقام تُقرأ من جديد بعد الحفظ');
+      // R1z: «زرت القاعة ولا نافق» — الصفر المكتوب رقمٌ يُسجَّل زيارةً فتصير جولة اليوم «سُجّلت» (كما كان المجموع)، والخانة الفارغة لا (null).
+      type(byIdSuffix('-dead')[1], '0');
+      await settle();
+      fire(byAction('round-save')[0], 'click');
+      await settle(80);
+      t.same([sent.length, sent[1]?.flockId, contentOf(sent[1])?.dead, contentOf(sent[1])?.culled, text().includes('بلا أرقام: قاعة 2')],
+        [2, 'f-b', 0, null, false], 'R1z: صفرٌ مكتوب في نافق قاعة 2 زيارةٌ تُرسل (النافق 0، والمستبعد الفارغ null)، ولا تُعدّ «بلا أرقام»');
       await unmount();
     }
 

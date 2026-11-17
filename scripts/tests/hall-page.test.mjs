@@ -474,7 +474,7 @@ export default async function (t) {
     const soFarIn = (name) => dayField(name)?.parentNode?.children.find((n) => n.localName === 'p')?.textContent ?? null;
     /** محتوى الزيارة بلا معرّفها ووقتها (يولدان بالجهاز). */
     const contentOf = (op) => Object.fromEntries(Object.entries(op?.payload ?? {}).filter(([key]) => key !== 'visitId' && key !== 'recordedAt'));
-    const NEW_VISIT = { dead: 0, culled: 0, feed_kg: null, eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false };
+    const NEW_VISIT = { dead: null, culled: null, feed_kg: null, eggs_total: null, eggs_broken: null, eggs_cracked: null, note: null, void: false };
     const H5_CYCLE = () => cycle('f-1', 9, [[0, { dead: 3, version: 4 }], ...PAST]);
     await step('H5 يوم ناقص', async () => {
       const { calls, sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5a' });
@@ -524,7 +524,7 @@ export default async function (t) {
       type(dayField('culled'), '2');
       await settle();
       await click(dayField('culled') ? byAction('day-save', dayDialog())[0] : null, 120);
-      t.same(sent.map((op) => [op.day, op.baseVersion, op.payload.dead, op.payload.culled]), [[SERVER_DAY, null, 0, 2]], 'H5 زيارة اليوم بيوم الخادم، بلا نسخة');
+      t.same(sent.map((op) => [op.day, op.baseVersion, op.payload.dead, op.payload.culled]), [[SERVER_DAY, null, null, 2]], 'H5 زيارة اليوم بيوم الخادم، بلا نسخة (النافق الفارغ null)');
     });
     await step('H5 بلا اتصال', async () => {
       const { sent } = fresh('hall_worker', hallSetup(H5_CYCLE()), { userId: 'u-h5d' });

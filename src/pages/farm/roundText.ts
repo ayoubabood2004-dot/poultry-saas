@@ -36,8 +36,8 @@ export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'egg
     if (op.fn === 'save_flock_visit') {
       const visit = op.payload;
       if (op.baseVersion !== null || visit.void) continue;
-      total.dead += visit.dead;
-      total.culled += visit.culled;
+      total.dead += visit.dead ?? 0;
+      total.culled += visit.culled ?? 0;
       total.feedKg = addMilli(total.feedKg, milli(visit.feed_kg));
       total.eggsTotal = add(total.eggsTotal, visit.eggs_total);
       total.eggsBroken = add(total.eggsBroken, visit.eggs_broken);

@@ -34,8 +34,9 @@ export interface FlockDayPayload {
 export interface FlockVisitPayload {
   visitId: string;
   recordedAt: string;
-  dead: number;
-  culled: number;
+  /** null: لم يُكتب في الزيارة (الخادم يعدّه صفراً في العمود)؛ والصفر المكتوب صفر. */
+  dead: number | null;
+  culled: number | null;
   feed_kg: string | null;
   eggs_total: number | null;
   eggs_cracked: number | null;

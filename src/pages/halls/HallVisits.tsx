@@ -66,7 +66,7 @@ const fromVisit = (visit: FlockVisit): Values => ({
 const fromOp = (op: VisitOp): Values => {
   const payload = op.payload;
   const feed = payload.feed_kg === null ? null : parseDecimal(payload.feed_kg, 3);
-  return { dead: payload.dead, culled: payload.culled, feedKg: feed ? toScale(feed, 3) : null, eggsTotal: payload.eggs_total, eggsCracked: payload.eggs_cracked, eggsBroken: payload.eggs_broken, note: payload.note };
+  return { dead: payload.dead ?? 0, culled: payload.culled ?? 0, feedKg: feed ? toScale(feed, 3) : null, eggsTotal: payload.eggs_total, eggsCracked: payload.eggs_cracked, eggsBroken: payload.eggs_broken, note: payload.note };
 };
 
 /** محتوى الزيارة كما يرسله الطابور (العلف نصّ بثلاث مراتب). */
@@ -125,7 +125,7 @@ function valuesText(values: Values): string {
   if (values.eggsTotal !== null) parts.push(t('visits.part.eggs', 'البيض {n}', { n: fmtInt(values.eggsTotal) }));
   if (values.eggsBroken !== null) parts.push(t('visits.part.broken', 'المكسور {n}', { n: fmtInt(values.eggsBroken) }));
   // «النافق 3، والعلف 50 كغم»: الواو قبل كلّ ما بعد الأوّل.
-  return parts.length ? parts.map((part, index) => (index ? t('visits.part.and', 'و{part}', { part }) : part)).join(t('list.separator', '، ')) : t('visits.part.none', 'لا شيء');
+  return parts.length ? parts.map((part, index) => (index ? t('visits.part.and', 'و{part}', { part }) : part)).join(t('list.separator', '، ')) : t('visits.part.none', 'لا نافق ولا مستبعد');
 }
 
 /**
@@ -164,7 +164,8 @@ export interface HallVisitsProps {
 const FIELDS: (keyof RoundText)[] = ['dead', 'culled', 'feedKg', 'eggsTotal', 'eggsBroken'];
 
 function textOf(values: Values): RoundText {
-  return { dead: values.dead ? countText(values.dead) : '', culled: values.culled ? countText(values.culled) : '', feedKg: amountText(values.feedKg), eggsTotal: countText(values.eggsTotal), eggsBroken: countText(values.eggsBroken) };
+  // الصفر يُعرض صفراً: زيارة «لا نافق» وحدها تبقى زيارة بعد التعديل (خانات فارغة كلّها empty_visit).
+  return { dead: countText(values.dead), culled: countText(values.culled), feedKg: amountText(values.feedKg), eggsTotal: countText(values.eggsTotal), eggsBroken: countText(values.eggsBroken) };
 }
 
 /** نافذة «عدّل الزيارة»: الخانات من لقطة الزيارة لحظة الفتح، والفحص على مجموع اليوم بلا هذه الزيارة. */

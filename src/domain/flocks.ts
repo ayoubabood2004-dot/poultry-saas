@@ -39,10 +39,13 @@ function amount(text: string): string | null | 'bad' {
   return decimalText(toScale(parsed, 3), 3);
 }
 
-/** محتوى زيارة من خاناتها: النافق والمستبعد 0 حين فارغان (عمودان لا يقبلان null)، والعلف والبيض null حين فارغة. العلف نصّ بثلاث مراتب. */
+/**
+ * محتوى زيارة من خاناتها: كلّ خانة فارغة null («لم يُسجَّل في هذه الزيارة»)، والصفر المكتوب صفر — «زرت القاعة ولا نافق» زيارةٌ تُسجَّل فتصير جولة
+ * اليوم «سُجّلت» كما كانت بالمجموع (الخادم يعدّ null صفراً في العمود ويرفض الزيارة بلا أيّ خانة empty_visit). العلف نصّ بثلاث مراتب.
+ */
 export interface VisitValues {
-  dead: number;
-  culled: number;
+  dead: number | null;
+  culled: number | null;
   feed_kg: string | null;
   eggs_total: number | null;
   eggs_broken: number | null;
@@ -77,11 +80,11 @@ export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart
   if (eggsBroken !== null && eggsTotal === null) return { error: 'eggs_need_total', field: 'eggsTotal' };
   if (eggsTotal !== null && (eggsBroken ?? 0) > eggsTotal) return { error: 'eggs_over_total', field: 'eggsBroken' };
   if (eggsTotal !== null && (totals.eggsTotal ?? 0) + eggsTotal > liveStart) return { error: 'eggs_over_live', field: 'eggsTotal' };
-  return { values: { dead: dead ?? 0, culled: culled ?? 0, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
+  return { values: { dead, culled, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
 }
 
-/** زيارة لا شيء فيها يُضاف (الخادم يرفضها empty_visit): لا نافق ولا مستبعد ولا علف ولا بيض. */
-export const emptyVisit = (values: VisitValues): boolean => values.dead === 0 && values.culled === 0 && values.feed_kg === null && values.eggs_total === null && values.eggs_broken === null;
+/** زيارة بلا أيّ خانة مكتوبة (الخادم يرفضها empty_visit). الصفر المكتوب خانة: «لا نافق» يُسجَّل. */
+export const emptyVisit = (values: VisitValues): boolean => values.dead === null && values.culled === null && values.feed_kg === null && values.eggs_total === null && values.eggs_broken === null;
 
 /** في الخانات شيء مكتوب. */
 export const typedRound = (text: RoundText): boolean => Object.values(text).some((value) => value.trim() !== '');
