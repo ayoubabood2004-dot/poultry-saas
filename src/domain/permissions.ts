@@ -78,6 +78,8 @@ export const ACTIONS = [
   'sale.record',
   // «ملاحظة الرصيد اليومي» (قرار المالك 2026-11-09، 0022): لمن يعمل في المخازن (الأمين ومشغّلا المعمل والمفقس، والمدير والمالك).
   'stock_note.write',
+  // «ملاحظة يوم» تحت تقرير القاعات اليومي (قرار المالك 2026-11-17، عقد 0031): للمالك والمدير وحدهما.
+  'halls_note.write',
   // الكل
   'read',
 ] as const;
@@ -118,6 +120,7 @@ const MANAGER_ONLY: readonly Action[] = [
   'opening.post',
   'period.lock',
   'stores.manage',
+  'halls_note.write',
 ];
 
 // المدير يقدر كل أفعال الأدوار التشغيلية بكل النطاق، والمحاسب ما يقدرها. party.offset وmembers.manage وperiod.unlock برّا كل منحة: المالك بس.

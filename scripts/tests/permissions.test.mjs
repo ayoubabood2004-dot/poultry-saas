@@ -34,6 +34,8 @@ const TABLE = [
   { actions: ['sale.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
   // قرار المالك 2026-11-09 («الرصيد اليومي»، عقد 0022): ملاحظة اليوم لمن يعمل في المخازن.
   { actions: ['stock_note.write'], roles: ['storekeeper', 'mill_operator', 'hatchery_operator', 'manager', 'owner'] },
+  // قرار المالك 2026-11-17 (عقد 0031): ملاحظة يوم تحت تقرير القاعات اليومي للمالك والمدير وحدهما.
+  { actions: ['halls_note.write'], roles: ['manager', 'owner'] },
   { actions: ['read'], roles: ALL },
 ];
 

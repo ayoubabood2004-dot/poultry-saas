@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { FlockKind } from '../../domain/flocks';
 import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
-import { countForm, fmtQty } from '../../lib/format';
+import { columnDecimals, countForm, fmtQty, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { VaccineState } from '../../lib/repo/halls';
 import { vaccineColor } from './palette';
@@ -69,6 +69,25 @@ export function BackLink({ to, label, action = 'back' }: { to: string; label: st
       {label}
     </Link>
   );
+}
+
+/** القيمة الغائبة في التقارير «—» لا صفر. */
+export const dash = (): string => t('halls.day.dash', '—');
+/** نسبة بالمئات بمرتبتين («83.67%»). */
+export const pct = (hundredths: bigint): string => `${fmtScaledCell(hundredths, 2, 2)}%`;
+/** الوزن بالغرام بمرتبة («180.5»). */
+export const grams = (tenths: bigint): string => fmtScaledCell(tenths, 1, 1);
+/** مراتب عمود كميات بالآلاف: أقلّ ما يبيّن كلّ قيمه (الغائب لا يُحسب). */
+export const decimalsOf = (values: readonly (Milli | null)[]): 0 | 1 | 2 | 3 => columnDecimals(values.filter((value): value is Milli => value !== null), 3) as 0 | 1 | 2 | 3;
+
+/** سطور العلف بلا وزن: «وسطر واحد بلا وزن»، «وسطران بلا وزن»، «و3 سطور بلا وزن»… (التقرير اليوميّ وأقسام «منذ أن بدأنا»). */
+export function unweighedText(n: number): string {
+  if (n === 1) return t('halls.day.unweighed.one', 'وسطر واحد بلا وزن');
+  if (n === 2) return t('halls.day.unweighed.two', 'وسطران بلا وزن');
+  const form = countForm(n);
+  if (form === 'few') return t('halls.day.unweighed.few', 'و{n} سطور بلا وزن', { n });
+  if (form === 'many') return t('halls.day.unweighed.many', 'و{n} سطراً بلا وزن', { n });
+  return t('halls.day.unweighed.hundreds', 'و{n} سطر بلا وزن', { n });
 }
 
 /** بالكيلوغرام دائماً («1,000 كغم» لا «1.000 طن»)، كسطر علف القاعة. */

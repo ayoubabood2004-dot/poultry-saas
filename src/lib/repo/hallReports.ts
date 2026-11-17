@@ -433,3 +433,292 @@ export function parseFlockCycles(value: unknown): FlockCycles {
 export async function loadFlockCycles(): Promise<FlockCycles> {
   return parseFlockCycles(await call<unknown>('flock_cycles'));
 }
+
+// ─── «منذ أن بدأنا» (halls_history، 0031) ───────────────────────────────────────────────────────────────────────────
+
+// عقد 0031 (docs/plans/0031/contract-0031.md، كلمة المالك 2026-11-17): لكلّ نوع في النطاق (اللاحم ثمّ البيّاض) أيّام الشهر المطلوب يوماً بيوم (مجموع كلّ
+// القاعات، بتعريف halls_day نفسه حرفاً)، وكلّ الأشهر من أوّل تسكين إلى شهر يوم الخادم، وسطر «منذ البداية» (مجموع الأشهر بالضبط)، وأحداث الشهر؛ وملاحظات
+// المالك لأيّام الشهر (للمنشأة كلّها). بلا مال. والمحلّل صارم: أيّ شكل غريب HallsShapeError باسم خانته، والغائب null حيث يسمح العقد وحده (يومٌ بلا جولة
+// نافقه null، ولا بيض للّاحم)، ومجاميع الأشهر و«منذ البداية» أرقام دائماً (null فيها تُعدّ صفراً بالخادم).
+
+/** يوم بشكل YYYY-MM-DD (شهر 01–12 ويوم 01–31): بالشكل وحده كما في repo/dayBalance (لا isDay: جسمه في وحدة التواريخ المحفوظة). */
+const DAY_SHAPE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/u;
+const day = (row: Row, field: string): Day => {
+  const value = str(row, field);
+  if (!DAY_SHAPE.test(value)) throw new HallsShapeError(field);
+  return value;
+};
+/** أوّل يوم في شهر (YYYY-MM-01). */
+const monthStart = (row: Row, field: string): Day => {
+  const value = day(row, field);
+  if (!value.endsWith('-01')) throw new HallsShapeError(field);
+  return value;
+};
+/** عدد صحيح غير سالب. */
+const nat = (row: Row, field: string): number => {
+  const value = int(row, field);
+  if (value < 0) throw new HallsShapeError(field);
+  return value;
+};
+const optNat = (row: Row, field: string): number | null => (row[field] === null || row[field] === undefined ? null : nat(row, field));
+
+/** يومٌ من أيّام الشهر: مجموع الأفواج القائمة ذلك اليوم من النوع. */
+export interface HistoryDay {
+  on: Day;
+  /** أفواج قائمة ذلك اليوم، ومنها بجولة مسجّلة، ومنها بدأ يومها بطيور حيّة (كـhalls_day). */
+  flocks: number;
+  rounds: number;
+  roundsExpected: number;
+  /** طيور سُكّنت ذلك اليوم. */
+  placed: number;
+  liveStart: number;
+  /** null حين لا جولة في أيّ فوج ذلك اليوم (لا صفر). */
+  dead: number | null;
+  culled: number | null;
+  /** المباع بفاتورة يومه، وفرق العدّ يومه بإشارته. */
+  sold: number;
+  countDiff: number;
+  liveEnd: number;
+  /** المأكول المسجّل في الجولات؛ null حين لا علف مسجّل في أيّ فوج. */
+  feedKg: Milli | null;
+  /** النازل الموزون، وسطوره بلا وزن (خارج الكيلو). */
+  givenKg: Milli;
+  givenUnweighed: number;
+  /** البيّاض وحده: null للّاحم وحين لا بيض مسجّل؛ ونسبة الإنتاج بالمئات بمرتبتين. */
+  eggsTotal: number | null;
+  eggsBroken: number | null;
+  hdep: bigint | null;
+}
+
+/** سطر شهر: مجموع أيّامه داخل المدّة [start, today]. */
+export interface HistoryMonth {
+  /** أوّل يوم في الشهر. */
+  month: Day;
+  days: number;
+  placed: number;
+  dead: number;
+  culled: number;
+  sold: number;
+  countDiff: number;
+  feedKg: Milli;
+  givenKg: Milli;
+  givenUnweighed: number;
+  eggsTotal: number | null;
+  eggsBroken: number | null;
+  hdep: bigint | null;
+  /** الحيّ آخر آخر يوم من الشهر داخل المدّة. */
+  liveEnd: number;
+  /** أفواج سُكّنت في الشهر، وأُغلقت فيه. */
+  opened: number;
+  closed: number;
+}
+
+/** «منذ البداية» حتى يوم الخادم: مجموع الأشهر بالضبط. */
+export interface HistoryTotal {
+  days: number;
+  placed: number;
+  dead: number;
+  culled: number;
+  sold: number;
+  countDiff: number;
+  feedKg: Milli;
+  givenKg: Milli;
+  givenUnweighed: number;
+  eggsTotal: number | null;
+  eggsBroken: number | null;
+  hdep: bigint | null;
+  /** الحيّ آخر يوم الخادم. */
+  liveNow: number;
+  opened: number;
+  closed: number;
+  /** قاعات استُعملت منذ البداية (لها فوج). */
+  halls: number;
+}
+
+interface EventBase {
+  on: Day;
+  hall: string;
+  site: string;
+}
+
+/** ما جرى في الشهر المطلوب: تسكين، وبيع (فواتير الطيور يومها للقاعة مجموعة)، وفرق عدّ، وتأشير لقاح، ووزن عيّنة (avgG بأعشار الغرام)، وإغلاق دورة. */
+export type HistoryEvent =
+  | (EventBase & { type: 'placed'; birds: number })
+  | (EventBase & { type: 'sold'; birds: number; kg: Milli })
+  | (EventBase & { type: 'count_diff'; birds: number })
+  | (EventBase & { type: 'vaccine'; name: string })
+  | (EventBase & { type: 'weight'; avgG: bigint })
+  | (EventBase & { type: 'closed' });
+
+export type HistoryEventType = HistoryEvent['type'];
+export const HISTORY_EVENT_TYPES: readonly HistoryEventType[] = ['placed', 'sold', 'count_diff', 'vaccine', 'weight', 'closed'];
+
+export interface HistoryKind {
+  kind: FlockKind;
+  /** أوّل تسكين لهذا النوع في النطاق. */
+  start: Day;
+  /** أيّام الشهر المطلوب داخل [start, today] تصاعدياً؛ فارغة إن لم يقع الشهر في المدّة. */
+  days: readonly HistoryDay[];
+  /** كلّ شهر من شهر start إلى شهر today تصاعدياً (لا يتأثّر بالشهر المطلوب). */
+  months: readonly HistoryMonth[];
+  total: HistoryTotal;
+  events: readonly HistoryEvent[];
+}
+
+/** ملاحظة المالك ليوم: النصّ ونسخته (من عدّاد لا يتكرّر، ≥ 1)، والكتابة بشرط النسخة التي رآها الكاتب. */
+export interface HallsNote {
+  text: string;
+  version: number;
+}
+
+export interface HallsDayNote extends HallsNote {
+  on: Day;
+}
+
+export interface HallsHistory {
+  /** يوم الخادم. */
+  today: Day;
+  /** أوّل يوم في الشهر المطلوب. */
+  month: Day;
+  /** شهر قبله فيه يوم من بداية أيّ نوع، والشهر قبل شهر يوم الخادم. */
+  prev: boolean;
+  next: boolean;
+  /** النوع الذي له فوج في النطاق، اللاحم أوّلاً ثمّ البيّاض؛ فارغة بلا أيّ فوج. */
+  kinds: readonly HistoryKind[];
+  /** ملاحظات المالك لأيّام الشهر المطلوب تصاعدياً. */
+  notes: readonly HallsDayNote[];
+}
+
+const historyDayOf = (row: Row): HistoryDay => ({
+  on: day(row, 'on'),
+  flocks: nat(row, 'flocks'),
+  rounds: nat(row, 'rounds'),
+  roundsExpected: nat(row, 'rounds_expected'),
+  placed: nat(row, 'placed'),
+  liveStart: nat(row, 'live_start'),
+  dead: optNat(row, 'dead'),
+  culled: optNat(row, 'culled'),
+  sold: nat(row, 'sold'),
+  countDiff: int(row, 'count_diff'),
+  liveEnd: nat(row, 'live_end'),
+  feedKg: optScaled(row, 'feed_kg', 3),
+  givenKg: scaled(row, 'given_kg', 3),
+  givenUnweighed: nat(row, 'given_unweighed'),
+  eggsTotal: optNat(row, 'eggs_total'),
+  eggsBroken: optNat(row, 'eggs_broken'),
+  hdep: optScaled(row, 'hdep', 2),
+});
+
+/** ما يشترك فيه سطر الشهر و«منذ البداية». */
+const sumsOf = (row: Row) => ({
+  days: nat(row, 'days'),
+  placed: nat(row, 'placed'),
+  dead: nat(row, 'dead'),
+  culled: nat(row, 'culled'),
+  sold: nat(row, 'sold'),
+  countDiff: int(row, 'count_diff'),
+  feedKg: scaled(row, 'feed_kg', 3),
+  givenKg: scaled(row, 'given_kg', 3),
+  givenUnweighed: nat(row, 'given_unweighed'),
+  eggsTotal: optNat(row, 'eggs_total'),
+  eggsBroken: optNat(row, 'eggs_broken'),
+  hdep: optScaled(row, 'hdep', 2),
+  opened: nat(row, 'opened'),
+  closed: nat(row, 'closed'),
+});
+
+const historyMonthOf = (row: Row): HistoryMonth => ({ month: monthStart(row, 'month'), ...sumsOf(row), liveEnd: nat(row, 'live_end') });
+
+const historyTotalOf = (value: unknown): HistoryTotal => {
+  const row = record(value, 'total');
+  return { ...sumsOf(row), liveNow: nat(row, 'live_now'), halls: nat(row, 'halls') };
+};
+
+function historyEventOf(row: Row): HistoryEvent {
+  const base: EventBase = { on: day(row, 'on'), hall: str(row, 'hall'), site: str(row, 'site') };
+  const type = oneOf(row, 'type', HISTORY_EVENT_TYPES);
+  switch (type) {
+    case 'placed':
+      return { ...base, type, birds: nat(row, 'birds') };
+    case 'sold':
+      return { ...base, type, birds: nat(row, 'birds'), kg: scaled(row, 'kg', 3) };
+    case 'count_diff':
+      return { ...base, type, birds: int(row, 'birds') };
+    case 'vaccine':
+      return { ...base, type, name: str(row, 'name') };
+    case 'weight':
+      return { ...base, type, avgG: scaled(row, 'avg_g', 1) };
+    case 'closed':
+      return { ...base, type };
+  }
+}
+
+const notePart = (row: Row): HallsNote => {
+  const version = int(row, 'version');
+  if (version < 1) throw new HallsShapeError('version');
+  return { text: str(row, 'text'), version };
+};
+
+/**
+ * صفوف بترتيب تصاعديّ صارم بمفتاحها (الأيّام والأشهر والملاحظات): مفتاحٌ مكرّر صفّان لليوم نفسه في الجدول أو ملاحظتان ليوم واحد، فهو شكل غريب لا يُعرض.
+ */
+function ascending<T>(rows: T[], key: (row: T) => string, field: string): T[] {
+  if (rows.some((row, index) => index > 0 && key(row) <= key(rows[index - 1] as T))) throw new HallsShapeError(field);
+  return rows;
+}
+
+export function parseHallsHistory(value: unknown): HallsHistory {
+  const json = record(value, 'halls_history');
+  const kinds = list(json.kinds, 'kinds').map(
+    (row): HistoryKind => ({
+      kind: oneOf(row, 'kind', KINDS),
+      start: day(row, 'start'),
+      days: ascending(list(row.days, 'days').map(historyDayOf), (entry) => entry.on, 'days'),
+      months: ascending(list(row.months, 'months').map(historyMonthOf), (entry) => entry.month, 'months'),
+      total: historyTotalOf(row.total),
+      events: list(row.events, 'events').map(historyEventOf),
+    }),
+  );
+  // كلّ نوع مرّةً واحدة وبترتيبه (اللاحم ثمّ البيّاض): العرض قسمٌ لكلّ نوع، فنوعٌ مكرّر قسمان بمجموعين.
+  ascending(kinds, (entry) => String(KINDS.indexOf(entry.kind)), 'kinds');
+  return {
+    today: day(json, 'today'),
+    month: monthStart(json, 'month'),
+    prev: flag(json, 'prev'),
+    next: flag(json, 'next'),
+    kinds,
+    notes: ascending(
+      list(json.notes, 'notes').map((row) => ({ on: day(row, 'on'), ...notePart(row) })),
+      (entry) => entry.on,
+      'notes',
+    ),
+  };
+}
+
+/**
+ * month: أيّ يوم في الشهر المطلوب، أو null لشهر يوم الخادم؛ وشهرٌ بعد شهر يوم الخادم يُرفض future_month بتلميح الخادم. والتقرير اليوميّ يرسل أوّل شهر
+ * يوم التقرير المعروض (يومٌ قاله الخادم)، فلا تختار ساعة الجهاز الشهر.
+ */
+export async function loadHallsHistory(month: Day | null): Promise<HallsHistory> {
+  return parseHallsHistory(await call<unknown>('halls_history', { p_month: month }));
+}
+
+export interface HallsNoteResult {
+  on: Day;
+  /** null: لا ملاحظة لذلك اليوم بعد الحفظ (مُسحت أو لم تكن). */
+  note: HallsNote | null;
+}
+
+export function parseHallsNote(value: unknown): HallsNoteResult {
+  const json = record(value, 'set_halls_note');
+  const note = optRecord(json.note, 'note');
+  return { on: day(json, 'on'), note: note ? notePart(note) : null };
+}
+
+/**
+ * ملاحظة المالك ليوم (halls_note.write: المالك والمدير): النصّ الفارغ يمسحها، وexpectedVersion ما رآه الكاتب (null = «لم أرَ ملاحظة»). الخادم يرجّع
+ * الحال نفسها إن كانت تساوي الطلب (إعادة آمنة)، وإلّا note_changed إن تغيّرت عمّا رآه؛ ويرفض date_required وday_in_future وbad_note بتلميحه.
+ */
+export async function setHallsNote(on: Day, text: string, expectedVersion: number | null): Promise<HallsNoteResult> {
+  return parseHallsNote(await call<unknown>('set_halls_note', { p_on: on, p_note: text, p_expected_version: expectedVersion }));
+}

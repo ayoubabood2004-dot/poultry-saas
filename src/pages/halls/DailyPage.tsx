@@ -12,12 +12,14 @@ import type { Milli } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
-import { columnDecimals, countForm, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
+import { countForm, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { loadHallsDay, type DayCountDiff, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay } from '../../lib/repo/hallReports';
+import { loadHallsDay, loadHallsHistory, type DayCountDiff, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay, type HallsHistory, type HallsNote } from '../../lib/repo/hallReports';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { BackLink, backLabel, daysText, kgText, kindLabel, leftNegativeText, linesText, outsideKgText, printAs, qtyText, reportsBack, STATE_INK, stateLabel, VaccineName } from './parts';
+import { BackLink, backLabel, dash, daysText, decimalsOf, grams, kgText, kindLabel, leftNegativeText, linesText, outsideKgText, pct, printAs, qtyText, reportsBack, STATE_INK, stateLabel, unweighedText, VaccineName } from './parts';
+import { HallsNoteDialog, HistorySections, monthStartOf, NoteBlock } from './dailyHistory';
+import { downloadFile, imageName, reportImage, sendFile } from './reportImage';
 import { newTicketPath, signedCount } from './ticketParts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
@@ -28,6 +30,9 @@ import { newTicketPath, signedCount } from './ticketParts';
 // الخادم («من N قاعة» حين تنقص الجولات)، والتبديل بـ<style> الصفحة بلا أصناف جديدة. والقيمة الغائبة «—» لا صفر. والقراءة الأخيرة الناجحة تبقى
 // معروضة بتاريخها حين تُقرأ التالية أو تفشل (و«أعد المحاولة»)، والطباعة والمشاركة لليوم المطلوب وحده. ومن كلّ قاعة رابطا تقويمها (شهر اليوم)
 // وتقرير دورتها، برجوع إلى هذا اليوم. بلا مال.
+// و«منذ أن بدأنا» (عقد 0031، كلمة المالك 2026-11-17): بعد أقسام اليوم قسمٌ لكلّ نوع من halls_history بشهر يوم التقرير المعروض (يومٌ قاله الخادم، لا ساعة
+// الجهاز)، يُقرأ بعد كلّ تقرير يومٍ يصل فيطابق اليومَ المعروض؛ ثمّ «ملاحظة يوم …» للمالك والمدير. و«أرسل صورة» يصوّر الصفحة بتخطيط الطباعة بعرض ثابت
+// (reportImage)، و«اطبع» كما كان، و«شارك نصّاً» ثانويّ.
 
 const PAGE_STYLE = [
   '@page { size: A4 landscape; margin: 10mm; }',
@@ -43,14 +48,21 @@ const PAGE_STYLE = [
   '[data-action="daily-page"] tr { break-inside: avoid; }',
   '[data-action="day-site"] h2 { break-after: avoid; }',
   '[data-action="vac-swatch"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
+  '[data-action="hist-kind"] h2, [data-action="hist-kind"] h3, [data-action="hist-note"] h2 { break-after: avoid; }',
+  '[data-action="hist-event-day"] { break-inside: avoid; }',
   '}',
+  // الصورة (reportImage): نسخة الصفحة بـdata-capture خارج الشاشة بتخطيط الطباعة، بخطّ جداول أكبر قليلاً (تُقرأ على الهاتف بتكبيرها).
+  '[data-capture] { padding: 16px; }',
+  '[data-capture] [class~="print:hidden"] { display: none !important; }',
+  '[data-capture] [data-action="day-org"] { display: block !important; }',
+  '[data-capture] [data-action="day-cards"] { display: none !important; }',
+  '[data-capture] [data-action="day-table"] { display: block !important; }',
+  '[data-capture] [data-action="day-table"] > div, [data-capture] [data-action="hist-table"] > div { max-height: none; overflow: visible; }',
+  '[data-capture] table { font-size: 11px; }',
+  '[data-capture] th, [data-capture] td { padding: 2px 4px; white-space: normal; min-width: 0; position: static; }',
+  '[data-capture] td bdi { white-space: nowrap; }',
 ].join(' ');
 
-const dash = () => t('halls.day.dash', '—');
-const pct = (hundredths: bigint): string => `${fmtScaledCell(hundredths, 2, 2)}%`;
-const grams = (tenths: bigint): string => fmtScaledCell(tenths, 1, 1);
-/** مراتب عمود كميات بالآلاف: أقلّ ما يبيّن كلّ قيمه (الغائب لا يُحسب). */
-const decimalsOf = (values: readonly (Milli | null)[]): 0 | 1 | 2 | 3 => columnDecimals(values.filter((value): value is Milli => value !== null), 3) as 0 | 1 | 2 | 3;
 /** يوم بالتقويم في الرابط (YYYY-MM-DD) بقراءة parseDayText القائمة (نمط الرصيد اليومي)، وإلّا null. */
 const dayOf = (value: string | null): Day | null => (value !== null && parseDayText(value.split('-').reverse().join('/')) === value ? value : null);
 
@@ -62,16 +74,6 @@ export function fromHalls(n: number): string {
   if (form === 'few') return t('halls.day.from.few', 'من {n} قاعات', { n });
   if (form === 'many') return t('halls.day.from.many', 'من {n} قاعةً', { n });
   return t('halls.day.from.hundreds', 'من {n} قاعة', { n });
-}
-
-/** سطور العلف بلا وزن: «وسطر واحد بلا وزن»، «وسطران بلا وزن»، «و3 سطور بلا وزن»… */
-function unweighedText(n: number): string {
-  if (n === 1) return t('halls.day.unweighed.one', 'وسطر واحد بلا وزن');
-  if (n === 2) return t('halls.day.unweighed.two', 'وسطران بلا وزن');
-  const form = countForm(n);
-  if (form === 'few') return t('halls.day.unweighed.few', 'و{n} سطور بلا وزن', { n });
-  if (form === 'many') return t('halls.day.unweighed.many', 'و{n} سطراً بلا وزن', { n });
-  return t('halls.day.unweighed.hundreds', 'و{n} سطر بلا وزن', { n });
 }
 
 export const dayTitle = (on: Day): string => t('halls.day.title', 'تقرير القاعات اليومي — {day}', { day: fmtDay(on) });
@@ -783,6 +785,9 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 // ─── الصفحة ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** ملاحظة المالك ليوم من «منذ أن بدأنا» (ملاحظات شهره)، أو null. */
+const noteOf = (data: HallsHistory | null, on: Day): HallsNote | null => data?.notes.find((note) => note.on === on) ?? null;
+
 /**
  * مرحلة العودة إلى الصفحة: 'away' بعد إخفائها، وإلّا نوع الحدث الذي بدأ العودة الأخيرة ('both' حين وصل قرينه). والحدث من النوع الآخر قرينُ العودة الجارية ما
  * اجتمعت أربعة شروط: لم يفصلهما إخفاء، ويومُ الجهاز يومُ بدئها، ووصل خلال PARTNER_MS من بدئها بـperformance.now (رتيبة لا تتبع ساعة الجهاز)، وخلالها كذلك
@@ -835,10 +840,11 @@ export default function DailyPage() {
     });
   }, [asked]);
   const state = useLoad(load, asked ?? 'today');
-  // آخر قراءة ناجحة (لأيّ يوم): تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل.
-  const [kept, setKept] = useState<HallsDay | null>(null);
-  if (state.data !== null && kept !== state.data) setKept(state.data);
-  const shown = state.data ?? kept;
+  // آخر قراءة ناجحة (لأيّ يوم): تبقى معروضة بتاريخها أثناء قراءة يوم آخر وحين تفشل؛ وreads عدد الأجوبة الناجحة، فكلّ جواب يومٍ يصل يقرأ «منذ أن بدأنا»
+  // من جديد (أدناه) فلا يتأخّر عن اليوم المعروض.
+  const [kept, setKept] = useState<{ data: HallsDay; reads: number } | null>(null);
+  if (state.data !== null && kept?.data !== state.data) setKept({ data: state.data, reads: (kept?.reads ?? 0) + 1 });
+  const shown = state.data ?? kept?.data ?? null;
   // يوم الخادم في آخر جواب (null قبل أيّ جواب)، واليوم الذي تقف عليه الصفحة: الصريح، أو يوم الخادم وهي تتبع اليوم.
   const today = shown?.today ?? null;
   const viewDay = asked ?? today;
@@ -846,6 +852,29 @@ export default function DailyPage() {
   const bound = today ?? localDay();
   // المعروض جوابُ المطلوب: اليوم الصريح، أو تقريرُ يوم الخادم كما قاله والصفحة تتبع اليوم؛ وفشلُ القراءة الأخيرة يُبقيه معروضاً بتاريخه لا حاليّاً (D6).
   const current = shown !== null && !state.error && (following ? shown.on === shown.today : shown.on === asked);
+
+  // «منذ أن بدأنا» (0031): شهر يوم التقرير المعروض (null قبل أيّ تقرير، فلا قراءة)، ويُقرأ من جديد مع كلّ تقرير يومٍ يصل (رقمه في المفتاح).
+  const historyMonth = shown ? monthStartOf(shown.on) : null;
+  const loadHistory = useCallback(() => (historyMonth === null ? Promise.resolve(null) : loadHallsHistory(historyMonth)), [historyMonth]);
+  const history = useLoad<HallsHistory | null>(loadHistory, `${historyMonth ?? ''}|${kept?.reads ?? 0}`);
+  // آخر قراءة ناجحة وعدد القراءات الناجحة (نافذة الملاحظة تعرف به أنّ ما تعرضه قُرئ بعد رفضٍ طلب القراءة)؛ وتُعرض أثناء قراءة الشهر نفسه من جديد أو
+  // فشلها، لا لشهر غيره.
+  const [keptHistory, setKeptHistory] = useState<{ data: HallsHistory; reads: number } | null>(null);
+  if (history.data !== null && keptHistory?.data !== history.data) setKeptHistory({ data: history.data, reads: (keptHistory?.reads ?? 0) + 1 });
+  const historyShown = history.data ?? (keptHistory !== null && keptHistory.data.month === historyMonth ? keptHistory.data : null);
+  const historyReads = keptHistory?.reads ?? 0;
+  const historyFailed = !history.loading && history.error !== null;
+  const historyRefusal = history.error instanceof RejectedError && history.error.hint ? history.error : null;
+  const role = session.status === 'ready' ? session.workspace.role : null;
+  const canNote = role !== null && can(role, 'halls_note.write');
+  // نافذة الملاحظة بلقطة ما عُرض حين فُتحت؛ وتُغلق إن صار المعروض يوماً غيره (رجوع المتصفّح).
+  const [noting, setNoting] = useState<{ day: Day; shown: HallsNote | null } | null>(null);
+  if (noting !== null && shown !== null && shown.on !== noting.day) setNoting(null);
+
+  // «أرسل صورة»: الصفحة كلّها نسخةً بتخطيط الطباعة (reportImage)، والصورة الجاهزة تبقى بزرّ إن رفض المتصفّح فتح المشاركة بعد تجهيزها.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [imaging, setImaging] = useState(false);
+  const [ready, setReady] = useState<{ on: Day; file: File; title: string } | null>(null);
 
   // العودة إلى الصفحة (لا قرينها) تقرأ مطلوبها من جديد مرّةً واحدة حين لا تعرض تقريراً حاليّاً: لا معروض، أو رفضٌ أو فشلٌ (صريحةً كانت أو تتبع اليوم،
   // مراجعة 0027 V4-N3)، أو تتبع اليوم ويومُ الجهاز غير يوم المعروض (منتصف ليل الجهاز أو الخادم بينهما)، أو صريحةً ويومُ الجهاز بعد يوم الخادم في المعروض
@@ -942,6 +971,34 @@ export default function DailyPage() {
     }
   };
 
+  const deliver = async (file: File, on: Day, imageTitle: string) => {
+    const outcome = await sendFile(file, imageTitle);
+    setReady(outcome === 'blocked' ? { on, file, title: imageTitle } : null);
+    if (outcome === 'downloaded') {
+      toast({ tone: 'success', title: t('halls.day.image.downloaded', 'حُفظت الصورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى من تريد.', { name: file.name }) });
+    }
+  };
+  const sendImage = async () => {
+    const page = pageRef.current;
+    if (!shown || !current || !page || imaging) return;
+    const on = shown.on;
+    setImaging(true);
+    setReady(null);
+    let file: File;
+    try {
+      file = await reportImage(page, imageName(on));
+    } catch {
+      setImaging(false);
+      toast({ tone: 'danger', title: t('halls.day.image.failed', 'تعذّر تجهيز الصورة على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });
+      return;
+    }
+    setImaging(false);
+    await deliver(file, on, dayTitle(on));
+  };
+  // الصورة الجاهزة ليوم المعروض وحده، والصورة لا تُطلب قبل أن يصل «منذ أن بدأنا» لشهره (الصورة التقرير كلّه).
+  const readyNow = ready !== null && shown !== null && ready.on === shown.on ? ready : null;
+  const historyReady = historyShown !== null && historyShown.month === historyMonth;
+
   const failure = state.error;
   const refusal = failure instanceof RejectedError && failure.hint ? failure : null;
   // رفض اليوم القادم بـ?on= صريح (D7): يوم بعد يوم الجهاز طريقه «اليوم» (تتبع الصفحة يوم الخادم)، ويوم الجهاز أو ما قبله (ساعة الجهاز أمام الخادم) يعود
@@ -949,7 +1006,7 @@ export default function DailyPage() {
   const way = refusal?.code === 'future_day' && asked !== null ? (asked > localDay() ? { label: t('halls.day.today', 'اليوم'), day: null } : { label: t('halls.day.prev', 'اليوم السابق'), day: addDays(asked, -1) }) : null;
 
   return (
-    <div className="flex flex-col gap-5" data-action="daily-page">
+    <div ref={pageRef} className="flex flex-col gap-5" data-action="daily-page">
       <style>{PAGE_STYLE}</style>
       <BackLink to={back} label={backLabel(back)} />
       <header className="flex flex-col gap-1">
@@ -986,13 +1043,41 @@ export default function DailyPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!current || !historyReady} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
+            {imaging ? t('halls.day.image.making', 'جارٍ تجهيز الصورة…') : t('halls.day.image', 'أرسل صورة')}
+          </Button>
           <Button size="sm" variant="secondary" disabled={!current} onClick={() => printAs(title)} data-action="print-day">
             {t('halls.day.print', 'اطبع أو احفظ PDF')}
           </Button>
-          <Button size="sm" variant="secondary" disabled={!current} onClick={() => void share()} data-action="share-day">
-            {t('halls.day.share', 'شارك')}
+          <Button size="sm" variant="ghost" disabled={!current} onClick={() => void share()} data-action="share-day">
+            {t('halls.day.share_text', 'شارك نصّاً')}
           </Button>
         </div>
+        {readyNow ? (
+          <Notice
+            tone="info"
+            title={t('halls.day.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق ومن ترسلها إليه.')}
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => void deliver(readyNow.file, readyNow.on, readyNow.title)} data-action="send-ready">
+                  {t('halls.day.image.send', 'أرسلها')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    downloadFile(readyNow.file);
+                    setReady(null);
+                    toast({ tone: 'success', title: t('halls.day.image.downloaded', 'حُفظت الصورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى من تريد.', { name: readyNow.file.name }) });
+                  }}
+                  data-action="download-ready"
+                >
+                  {t('halls.day.image.download', 'نزّلها')}
+                </Button>
+              </div>
+            }
+          />
+        ) : null}
       </div>
 
       {refusal ? (
@@ -1026,7 +1111,56 @@ export default function DailyPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : null}
+      {shown && history.error ? (
+        <div className="print:hidden" data-action="hist-failed">
+          {historyRefusal ? (
+            <Notice tone="warning" title={historyRefusal.hint ?? ''} />
+          ) : (
+            <LoadFailed what={t('halls.hist.what_load', 'ما جرى منذ أن بدأنا لشهر يوم {day}', { day: fmtDay(shown.on) })} error={history.error} onRetry={history.retry} />
+          )}
+        </div>
+      ) : null}
+      {shown && historyShown ? (
+        <>
+          <HistorySections history={historyShown} on={shown.on} />
+          <NoteBlock
+            on={shown.on}
+            note={noteOf(historyShown, shown.on)}
+            canWrite={canNote}
+            disabled={history.loading}
+            onWrite={() => setNoting({ day: shown.on, shown: noteOf(historyShown, shown.on) })}
+          />
+        </>
+      ) : shown && !history.error ? (
+        <p role="status" className="text-sm text-ink-muted print:hidden" data-action="hist-loading">
+          {t('halls.hist.loading', 'جارٍ قراءة ما جرى منذ أن بدأنا…')}
+        </p>
+      ) : null}
       {picking ? <PickDayDialog today={bound} current={viewDay ?? bound} onClose={() => setPicking(false)} onPick={go} /> : null}
+      {noting ? (
+        <HallsNoteDialog
+          day={noting.day}
+          shown={noting.shown}
+          latest={keptHistory !== null && keptHistory.data.month === monthStartOf(noting.day) ? noteOf(keptHistory.data, noting.day) : null}
+          reads={historyReads}
+          failed={historyFailed}
+          onClose={(uncertain) => {
+            setNoting(null);
+            if (uncertain) history.retry();
+          }}
+          onReread={history.retry}
+          onSaved={(result) => {
+            setNoting(null);
+            toast({
+              tone: 'success',
+              title: result.note
+                ? t('halls.note.saved', 'حُفظت ملاحظة يوم {day}.', { day: fmtDay(result.on) })
+                : t('halls.note.erased', 'مُسحت ملاحظة يوم {day}.', { day: fmtDay(result.on) }),
+            });
+            history.retry();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

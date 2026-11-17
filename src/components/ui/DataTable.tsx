@@ -41,6 +41,9 @@ const NUMBER_CELL = 'text-right tabular-nums whitespace-nowrap'; // ui-ok: ال�
 const STICKY = 'sticky start-0 z-[1] bg-surface-1';
 /** الخلية الثابتة في صفّ تحذير: معتمة (تغطّي ما يمرّ تحتها بالتمرير) بلون الصفّ نفسه (warn-500/15 فوق surface-1 بالوضع الداكن). */
 const STICKY_WARN = 'sticky start-0 z-[1] bg-warn-50 dark:bg-[rgb(50,44,35)]';
+/** الصفّ المختار (يوم التقرير في جدول الأيّام، 0031): خلفية سطح أعمق معتمة بالسمتين، فتغطّي الخلية الثابتة ما يمرّ تحتها كغيرها. */
+const MARK = 'bg-surface-3';
+const STICKY_MARK = 'sticky start-0 z-[1] bg-surface-3';
 const BORDER = 'border-b border-e border-line last:border-e-0';
 const TOTAL_TOP = 'border-t-[3px] border-double border-t-line-strong';
 
@@ -123,8 +126,11 @@ export function DataTable<Row>({
    * نفسه (اسم القاعة)، فالصفّ لا يأخذ تركيزاً ثانياً.
    */
   onRowClick?: (row: Row) => void;
-  /** صفّ يحتاج انتباهاً (جولة اليوم ناقصة): خلفية تحذير خفيفة مع الكلمة المكتوبة في خليته. */
-  rowTone?: (row: Row) => 'warn' | null;
+  /**
+   * صفّ يحتاج انتباهاً (جولة اليوم ناقصة): خلفية تحذير خفيفة مع الكلمة المكتوبة في خليته؛ أو الصفّ المختار (mark: يوم التقرير بين أيّام الشهر) بخلفية
+   * أعمق ومع كلمة في خليته أيضاً (الخلفية لا تُطبع).
+   */
+  rowTone?: (row: Row) => 'warn' | 'mark' | null;
 }) {
   const sized = SIZES[size];
   const firstTotal = columns.findIndex(hasTotal);
@@ -140,7 +146,7 @@ export function DataTable<Row>({
   const showFoot = showTotals || footers.length > 0;
   // آخر صفّ قبل المجاميع بلا خطّ أسفل (فوكه الخطّ المزدوج)، وآخر صفّ بالجدول بلا خطّ (الإطار من الغلاف).
   const edges = showFoot ? '[&>tbody>tr:last-child>*]:border-b-0 [&>tfoot>tr:last-child>*]:border-b-0' : '[&>tbody>tr:last-child>*]:border-b-0';
-  const stickyOf = (column: Column<Row>, warn = false) => (column.sticky ? (warn ? STICKY_WARN : STICKY) : '');
+  const stickyOf = (column: Column<Row>, tone: 'warn' | 'mark' | null) => (column.sticky ? (tone === 'warn' ? STICKY_WARN : tone === 'mark' ? STICKY_MARK : STICKY) : '');
   return (
     // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
@@ -169,11 +175,12 @@ export function DataTable<Row>({
           ) : (
             rows.map((row, index) => {
               const detail = subRow?.(row, index);
-              const warn = rowTone?.(row) === 'warn';
+              const tone = rowTone?.(row) ?? null;
               return (
                 <Fragment key={rowKey(row, index)}>
                   <tr
-                    className={`${warn ? 'bg-warn-50 dark:bg-warn-500/15' : ''} hover:bg-surface-2`}
+                    className={`${tone === 'warn' ? 'bg-warn-50 dark:bg-warn-500/15' : tone === 'mark' ? MARK : ''} hover:bg-surface-2`}
+                    data-tone={tone ?? undefined}
                     onClick={
                       onRowClick
                         ? (event) => {
@@ -184,7 +191,7 @@ export function DataTable<Row>({
                     }
                   >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, warn)} ${cellClass(column)}`}>
+                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column)}`}>
                         {column.cell(row, index)}
                       </td>
                     ))}
