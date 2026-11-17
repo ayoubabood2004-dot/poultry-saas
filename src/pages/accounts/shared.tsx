@@ -367,14 +367,31 @@ export function negativeAfter(kind: PaymentKind, account: CashBalance | undefine
   return after < 0n ? after : null;
 }
 
-export function PaymentDialog({ kind, party: initialParty, onClose, onPosted }: { kind: PaymentKind; party: PartyRow | null; onClose: () => void; onPosted: () => void }) {
+/**
+ * «قبضنا» و«دفعنا»؛ وbookId وamount يملآن الحساب والمبلغ مسبقاً (عقد 0033: «استلم من الزبون» من صفحة الفاتورة بدفترها ودينها) ويبقيان قابلين للتعديل.
+ */
+export function PaymentDialog({
+  kind,
+  party: initialParty,
+  bookId: initialBook = '',
+  amount: initialAmount = '',
+  onClose,
+  onPosted,
+}: {
+  kind: PaymentKind;
+  party: PartyRow | null;
+  bookId?: string;
+  amount?: string;
+  onClose: () => void;
+  onPosted: () => void;
+}) {
   const id = useId();
   const books = useLoad(parties.listBooks, 'books');
   // أرصدة الصناديق لحد يوم الخادم (to = null): نافذة مفتوحة من أمس ما تبين رصيد أمس.
   const from = useMemo(() => defaultPeriod().from, []);
   const loadBoxes = useCallback(() => cash.loadCashBalances(from, null), [from]);
   const boxes = useLoad(loadBoxes, 'boxes');
-  const [form, setForm] = useState<PaymentForm>({ party: initialParty, bookId: '', amount: '', accountId: '', day: fmtDay(localDay()) });
+  const [form, setForm] = useState<PaymentForm>({ party: initialParty, bookId: initialBook, amount: initialAmount, accountId: '', day: fmtDay(localDay()) });
   const [errors, setErrors] = useState<ReturnType<typeof paymentProblems>['errors']>({});
   // المعرّف والمرجع مولودان مرّة، ويبقون لحد ما تنعرف النتيجة (FOUNDATION ٥١٩): «ما نعرف» تجمّد المعطيات المرسلة نفسها.
   const { attempt, run } = useAttempt<parties.PaymentInput>(`pay:${kind}`);

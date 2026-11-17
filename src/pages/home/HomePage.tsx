@@ -403,7 +403,7 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     // المقسومة بين الأمين والمحاسب. لمن يسجّل الشراء (purchase.record: المالك والمدير والمحاسب والأمين).
     [{ key: 'purchase', to: '/inventory', label: t('home.do.purchase', 'سجّل شراء'), icon: PackagePlus }, allowed('purchase.record')],
     // «بِع» (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع»): يفتح «بيع جديد» في صفحة المبيعات، لأدوار الشراء نفسها.
-    [{ key: 'sale', to: '/sales?new=1', label: t('home.do.sale', 'بِع'), icon: ShoppingCart }, allowed('sale.record')],
+    [{ key: 'sale', to: '/sales/new', label: t('home.do.sale', 'بِع'), icon: ShoppingCart }, allowed('sale.record')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
     // نافذتا الدفع والقبض في صفحة الجهات (/accounts/parties منذ 0024: /accounts صارت «خلاصة المال»).

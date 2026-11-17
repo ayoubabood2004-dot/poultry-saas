@@ -3,6 +3,7 @@ import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
 import BirdSaleNewPage from '../sales/BirdSaleNew';
 import BirdSalePage from '../sales/BirdSalePage';
+import SaleCheckoutPage from '../sales/SaleCheckout';
 import SaleDocPage from '../sales/SaleDocPage';
 import SalesPage from '../sales/SalesPage';
 import { CountDocPage, CountsList } from './CountsPage';
@@ -41,11 +42,13 @@ function FlockIssueById() {
  * (القشرة تستوردها من هنا)، فتبقى خارج التثبيت المسبق مع المخزون: البيع يسحب من الوجبات ويُحفظ بالخادم فوراً. وفاتورة البيع للقراءة
  * (/sales/:id، عقد 0024 F8) يفتحها كشف الجهة وحركة الأموال. وفاتورة الطيور BR (0028، العقد §10 الوكيل ب): «أصدر الفاتورة» لتذكرة وزن مكتملة
  * (/sales/birds/new?ticket=) والفاتورة للقراءة والطباعة (/sales/birds/:id)؛ وفي birds/ المقطع الثابت new يغلب :id، فلا تُقرأ «new» معرّف فاتورة.
+ * والفاتورة الاحترافيّة (عقد 0033): «فاتورة بيع جديدة» (/sales/new) بالمقطع الثابت نفسه قبل :id.
  */
 export function SalesRoutes() {
   return (
     <Routes>
       <Route index element={<SalesPage />} />
+      <Route path="new" element={<SaleCheckoutPage />} />
       <Route path="birds/new" element={<BirdSaleNewPage />} />
       <Route path="birds/:id" element={<BirdSalePage />} />
       <Route path=":id" element={<SaleDocPage />} />

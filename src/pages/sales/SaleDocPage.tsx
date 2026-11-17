@@ -1,86 +1,57 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { BackButton } from '../../components/ui/BackButton';
-import { DataTable, Num, type Column } from '../../components/ui/DataTable';
+import { Button } from '../../components/ui/Button';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { StatStrip, type Stat } from '../../components/ui/StatStrip';
+import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import type { SaleDoc } from '../../lib/repo/statement';
-import * as statements from '../../lib/repo/statement';
+import type { PartyRow } from '../../lib/repo/parties';
+import { loadSaleInvoice, type SaleInvoice } from '../../lib/repo/sales';
 import { useSession } from '../../lib/session';
-import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
+import { PaymentDialog } from '../accounts/shared';
+import { downloadFile, reportImage, sendFile } from '../halls/reportImage';
+import { printAs } from './birdParts';
+import { dinars, INVOICE_IMAGE_WIDTH, inputMoney, invoiceImageName, invoiceTitle, InvoicePaper, PAPER_STYLE } from './saleParts';
 
-// صفحة البيع للقراءة (عقد 0024 F8، /sales/:id): رأس الفاتورة (رقمها وتاريخها وحالتها والجهة والمخزن والدفع)، وسطورها بجدول، ومجاميعها
-// (المبلغ والمقبوض نقداً والباقي بالدين، والكلفة والربح لأدوار الكلفة وحدها: cost.money يغيب لغيرها)، والملغاة بتاريخ إلغائها وسببه.
-// يفتحها كشف الجهة وحركة الأموال (§5)، وفي حزمة المخزون مع صفحة المبيعات؛ والرجوع إلى ?back= (الحسابات أو المبيعات) وإلّا المبيعات.
-// والملغاة (مراجعة 0024 L6): «ملغاة» في عنوانها، وبلا مبالغ ولا كلفة ولا ربح (كما تخفيها قائمة المبيعات لصفّ الملغى)، فلا تُقرأ ديناً قائماً.
+// صفحة الفاتورة (/sales/:id، عقد 0024 F8 ثمّ عقد 0033 «ب»): ورقة الفاتورة كاملةً (السطور بوحداتها وخصوماتها، والسيقان، والدين، والبائع، والملاحظة) تُعرض
+// وتُطبع A5 («اطبع أو احفظ PDF»)، و«أرسل صورة» يصوّر الورقة نفسها بعرض ثابت (reportImage) فتُفتح نافذة المشاركة (واتساب) أو تُنزَّل؛ وإن رفض المتصفّح
+// فتح المشاركة بعد تجهيز الصورة (الضغطة «قديمة»، المهارة 15) تبقى الصورة جاهزةً بزرّ «أرسلها». و«استلم من الزبون» لدين الفاتورة لمن يسجّل القبض: نافذة
+// «قبضنا» القائمة (record_party_payment) بدفتر الفاتورة ومبلغ دينها، والقبض يُوزَّع على أقدم ديون الزبون أوّلاً كما الآن ومعاينته تسمّي ما يُسدَّد. والكلفة
+// والربح لأدوار الكلفة وحدها (cost.money يغيب لغيرها)، والملغاة بختمها وسببها بلا مبالغ. يفتحها كشف الجهة وحركة الأموال وقائمة المبيعات والفاتورة الجديدة
+// بعد حفظها؛ والرجوع إلى ?back= (الحسابات أو المبيعات) وإلّا المبيعات.
 
 /** طريق الرجوع من الرابط: مسار في الحسابات أو المبيعات وحده (بترميز URLSearchParams: المسافة «+»)، وإلّا صفحة المبيعات. */
 export function saleBack(value: string | null): string {
   return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?+*]*)?$/u.test(value) ? value : '/sales';
 }
 
-/** الدفع بكلماته: بلا مقابل، أو نقداً ثمّ رُدّ المبلغ، أو نقداً، أو بالدين. */
-export function salePaymentText(sale: Pick<SaleDoc, 'free' | 'paymentRefunded' | 'payment'>): string {
-  if (sale.free) return t('sales.free', 'بلا مقابل');
+/** الدفع بكلماته: بلا مقابل، أو نقداً ثمّ رُدّ المبلغ، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع والباقي دين. */
+export function salePaymentText(sale: Pick<SaleInvoice, 'total' | 'paid' | 'debt' | 'walkIn' | 'paymentRefunded'>): string {
+  if (sale.total === 0n) return t('sales.free', 'بلا مقابل');
   if (sale.paymentRefunded) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
-  return sale.payment === 'cash' ? t('file.payment.cash', 'نقداً') : t('file.payment.credit', 'بالدين');
+  if (sale.walkIn) return t('invoice.pay.walk_in', 'زبون نقديّ، مدفوعة كلّها');
+  if (sale.debt === 0n) return t('invoice.pay.paid', 'مدفوعة كلّها');
+  if (sale.paid === 0n) return t('file.payment.credit', 'بالدين');
+  return t('invoice.pay.partial', 'جزء مدفوع، والباقي دين');
 }
 
-/** مبلغ بالدينار الصحيح، أو بمرتبتين إذا فيه فلوس (الكلفة من قيم الوجبات قد تحمل فلوساً). */
-const dinars = (amount: bigint): string => t('sales.dinar', '{amount} دينار', { amount: fmtMoney(amount, amount % 100n === 0n ? 0 : 2) });
-
-/** مال الفاتورة كما يُعرض: لا شيء للملغاة (لا مبلغ قائماً ولا دين ولا ربح)، وإلّا ما أرسله الخادم. */
-const shownMoney = (sale: SaleDoc): SaleDoc['money'] => (sale.status === 'void' ? null : sale.money);
-
-function saleStats(sale: SaleDoc): Stat[] {
-  const money = shownMoney(sale);
-  if (!money) return [];
-  const stats: Stat[] = [
-    { key: 'total', label: t('sale.doc.total', 'مبلغ الفاتورة'), value: dinars(money.lineTotal) },
-    { key: 'paid', label: t('sale.doc.paid', 'المقبوض نقداً'), value: dinars(money.paidNow) },
-    { key: 'credit', label: t('sale.doc.credit', 'بالدين'), value: dinars(money.lineTotal - money.paidNow) },
+/** الكلفة والربح لأدوار الكلفة (والملغاة بلا مبالغ). */
+function costStats(sale: SaleInvoice): Stat[] {
+  if (sale.status === 'void' || !sale.cost) return [];
+  return [
+    { key: 'cost', label: t('sales.stat.cost', 'كلفة المبيع'), value: dinars(sale.cost.cost) },
+    { key: 'profit', label: t('sales.stat.profit', 'الربح'), value: dinars(sale.cost.profit) },
   ];
-  if (sale.cost) {
-    stats.push(
-      { key: 'cost', label: t('sales.stat.cost', 'كلفة المبيع'), value: dinars(sale.cost.cost) },
-      { key: 'profit', label: t('sales.stat.profit', 'الربح'), value: dinars(sale.cost.profit) },
-    );
-  }
-  return stats;
 }
 
-function SaleLines({ sale }: { sale: SaleDoc }) {
-  const decimals = columnDecimals([sale.qty], 3) as 0 | 1 | 2 | 3;
-  const columns: Column<SaleDoc>[] = [
-    { key: 'item', header: t('sales.col.item', 'المادّة'), wrap: true, cell: (row) => row.itemName },
-    { key: 'qty', header: t('sales.col.qty', 'الكمية'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.qty, decimals)}</Num> },
-    { key: 'unit', header: t('sales.col.unit', 'الوحدة'), cell: (row) => baseUnitLabel(row.baseUnit) },
-  ];
-  const money = shownMoney(sale);
-  if (money) {
-    columns.push(
-      { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: () => <Num>{fmtMoney(money.unitPrice)}</Num> },
-      { key: 'amount', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: () => <Num>{fmtMoney(money.lineTotal, 0)}</Num>, total: <Num>{fmtMoney(money.lineTotal, 0)}</Num> },
-    );
-  }
-  return (
-    <DataTable
-      caption={t('sale.doc.lines', 'سطور الفاتورة {doc}', { doc: sale.docNo })}
-      columns={columns}
-      rows={[sale]}
-      rowKey={(row) => row.lineId}
-      empty=""
-      {...(money ? { totalLabel: t('sales.report.total', 'المجموع') } : {})}
-    />
-  );
-}
+/** طرف الفاتورة لنافذة «قبضنا» (تقرأ المعرّف والاسم وحدهما). */
+const partyOf = (sale: SaleInvoice): PartyRow => ({ id: sale.partyId, name: sale.partyName, version: 0, archived: false, phone: null, isCustomer: true, isSupplier: false });
 
 export default function SaleDocPage() {
   const { id = '' } = useParams();
@@ -88,91 +59,190 @@ export default function SaleDocPage() {
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
   const accounts = workspace ? can(workspace.role, 'accounts.view') : false;
-  const load = useCallback(() => statements.loadSaleDoc(id), [id]);
-  const sale = useLoad(load, id);
-  const data = sale.data;
+  const mayCollect = workspace ? can(workspace.role, 'payment.post') : false;
+  const orgName = workspace?.orgName ?? '';
+  const load = useCallback(() => loadSaleInvoice(id), [id]);
+  const state = useLoad(load, id);
+  // آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (بعد «استلم»).
+  const [kept, setKept] = useState<SaleInvoice | null>(null);
+  if (state.data !== null && state.data !== kept) setKept(state.data);
+  const data = state.data ?? (kept && kept.id === id ? kept : null);
   const back = saleBack(new URLSearchParams(location.search).get('back'));
-  const backLabel = t('sale.doc.back', 'رجوع');
-  if (sale.error instanceof NotConnectedError) {
-    const { title, detail } = describeError(sale.error);
+  const backButton = <BackButton to={back} label={t('sale.doc.back', 'رجوع')} />;
+  const paperRef = useRef<HTMLElement>(null);
+  const [imaging, setImaging] = useState(false);
+  const [ready, setReady] = useState<{ docNo: string; file: File; title: string } | null>(null);
+  const [collecting, setCollecting] = useState(false);
+
+  if (state.error instanceof NotConnectedError && !data) {
+    const { title, detail } = describeError(state.error);
     return (
       <div className="flex flex-col gap-4">
-        <BackButton to={back} label={backLabel} />
+        {backButton}
         <Notice tone="info" title={title}>
           {detail}
         </Notice>
       </div>
     );
   }
+  if (!data) {
+    return (
+      <div className="flex flex-col gap-4">
+        {backButton}
+        {state.error ? (
+          <LoadFailed what={t('sale.doc.what', 'فاتورة البيع')} error={state.error} onRetry={state.retry} />
+        ) : (
+          <p role="status" className="py-6 text-center text-sm text-ink-muted">
+            {t('page.loading', 'جارٍ الفتح…')}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const voided = data.status === 'void';
+  const title = invoiceTitle(data.docNo);
+  const canCollect = mayCollect && !voided && !data.walkIn && data.debt > 0n;
+
+  const deliver = async (file: File, imageTitle: string, docNo: string) => {
+    const outcome = await sendFile(file, imageTitle);
+    setReady(outcome === 'blocked' ? { docNo, file, title: imageTitle } : null);
+    if (outcome === 'downloaded') {
+      toast({ tone: 'success', title: t('invoice.image.downloaded', 'حُفظت صورة الفاتورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى الزبون.', { name: file.name }) });
+    }
+  };
+  const sendImage = async () => {
+    const paper = paperRef.current;
+    if (!paper || imaging) return;
+    const docNo = data.docNo;
+    setImaging(true);
+    setReady(null);
+    let file: File;
+    try {
+      file = await reportImage(paper, invoiceImageName(docNo), INVOICE_IMAGE_WIDTH);
+    } catch {
+      setImaging(false);
+      toast({ tone: 'danger', title: t('invoice.image.failed', 'تعذّر تجهيز صورة الفاتورة على هذا الجهاز. اطبعها أو احفظها PDF بدلاً من ذلك.') });
+      return;
+    }
+    setImaging(false);
+    await deliver(file, title, docNo);
+  };
+  const readyNow = ready !== null && ready.docNo === data.docNo ? ready : null;
+
   return (
-    <div className="flex flex-col gap-4">
-      <BackButton to={back} label={backLabel} />
-      {sale.error ? (
-        <LoadFailed what={t('sale.doc.what', 'فاتورة البيع')} error={sale.error} onRetry={sale.retry} />
-      ) : !data ? (
-        <p role="status" className="py-6 text-center text-sm text-ink-muted">
-          {t('page.loading', 'جارٍ الفتح…')}
-        </p>
-      ) : (
-        <>
-          <PageHeader
-            title={data.status === 'void' ? t('sale.doc.title.void', 'فاتورة بيع {doc} — ملغاة', { doc: data.docNo }) : t('sale.doc.title', 'فاتورة بيع {doc}', { doc: data.docNo })}
-            subtitle={data.status === 'void' ? t('sale.doc.void', 'فاتورة ملغاة') : t('sale.doc.posted', 'فاتورة محفوظة')}
+    <div className="flex flex-col gap-4" data-action="sale-page">
+      <style>{PAPER_STYLE}</style>
+      <div className="print:hidden">{backButton}</div>
+      <div className="print:hidden">
+        <PageHeader
+          title={voided ? t('sale.doc.title.void', 'فاتورة بيع {doc} — ملغاة', { doc: data.docNo }) : t('sale.doc.title', 'فاتورة بيع {doc}', { doc: data.docNo })}
+          subtitle={voided ? t('sale.doc.void', 'فاتورة ملغاة') : t('sale.doc.posted', 'فاتورة محفوظة')}
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 print:hidden" data-action="sale-actions">
+        <Button size="sm" busy={imaging} onClick={() => void sendImage()} data-action="send-image">
+          {imaging ? t('invoice.image.making', 'جارٍ تجهيز الصورة…') : t('invoice.image', 'أرسل صورة')}
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => printAs(title)} data-action="print-sale">
+          {t('invoice.print', 'اطبع أو احفظ PDF')}
+        </Button>
+        {canCollect ? (
+          <Button size="sm" variant="secondary" onClick={() => setCollecting(true)} data-action="collect-sale">
+            {t('invoice.collect', 'استلم من الزبون')}
+          </Button>
+        ) : null}
+      </div>
+      {readyNow ? (
+        <div className="print:hidden" data-action="image-ready">
+          <Notice
+            tone="info"
+            title={t('invoice.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق والزبون.')}
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => void deliver(readyNow.file, readyNow.title, readyNow.docNo)} data-action="send-ready">
+                  {t('halls.day.image.send', 'أرسلها')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    downloadFile(readyNow.file);
+                    setReady(null);
+                    toast({ tone: 'success', title: t('invoice.image.downloaded', 'حُفظت صورة الفاتورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى الزبون.', { name: readyNow.file.name }) });
+                  }}
+                  data-action="download-ready"
+                >
+                  {t('invoice.image.download', 'نزّلها')}
+                </Button>
+              </div>
+            }
           />
-          {data.status === 'void' ? (
-            <Notice tone="warning" title={t('sale.doc.void.title', 'أُلغيت هذه الفاتورة')}>
-              <span className="flex flex-col gap-1" data-action="sale-void">
-                {data.voidReason ? <span>{t('sale.doc.void.reason', 'السبب: {reason}', { reason: data.voidReason })}</span> : null}
-                <span>{t('sale.doc.void.money', 'لا يُحتسب مبلغها ولا ربحها، ولا دين بها على الجهة.')}</span>
-              </span>
-            </Notice>
-          ) : null}
-          <dl className="card grid gap-3 p-4 sm:grid-cols-2" data-action="sale-head">
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('sale.doc.no', 'رقم الفاتورة')}</dt>
-              <dd className="font-semibold">
-                <bdi dir="ltr">{data.docNo}</bdi>
-              </dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('ledger.date', 'التاريخ')}</dt>
-              <dd className="font-semibold">
-                <Num>{fmtDay(data.soldOn)}</Num>
-              </dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('sales.col.party', 'الجهة')}</dt>
-              <dd className="font-semibold" data-action="sale-party">
-                {accounts ? (
-                  <Link to={`/accounts/parties/${data.partyId}`} className="text-brand-700 hover:underline dark:text-brand-200">
-                    {data.partyName}
-                  </Link>
-                ) : (
-                  data.partyName
-                )}
-              </dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('sale.doc.store', 'المخزن')}</dt>
-              <dd className="font-semibold">{data.warehouseName}</dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('sales.col.payment', 'الدفع')}</dt>
-              <dd className="font-semibold" data-action="sale-payment">
-                {salePaymentText(data)}
-              </dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-ink-muted">{t('sales.col.status', 'الحالة')}</dt>
-              <dd className="font-semibold" data-action="sale-status">
-                {data.status === 'void' ? t('sales.voided', 'ملغى') : t('sales.posted', 'محفوظ')}
-              </dd>
-            </div>
-          </dl>
-          <SaleLines sale={data} />
-          <StatStrip stats={saleStats(data)} />
-        </>
-      )}
+        </div>
+      ) : null}
+      {voided ? (
+        <div className="print:hidden">
+          <Notice tone="warning" title={t('sale.doc.void.title', 'أُلغيت هذه الفاتورة')}>
+            <span className="flex flex-col gap-1" data-action="sale-void">
+              {data.voidReason ? <span>{t('sale.doc.void.reason', 'السبب: {reason}', { reason: data.voidReason })}</span> : null}
+              <span>{t('sale.doc.void.money', 'لا يُحتسب مبلغها ولا ربحها، ولا دين بها على الجهة.')}</span>
+            </span>
+          </Notice>
+        </div>
+      ) : null}
+      <dl className="card grid gap-3 p-4 sm:grid-cols-3 print:hidden" data-action="sale-head">
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-xs text-ink-muted">{t('sales.col.party', 'الجهة')}</dt>
+          <dd className="font-semibold" data-action="sale-party">
+            {data.walkIn ? (
+              t('invoice.walk_in', 'زبون نقديّ')
+            ) : accounts ? (
+              <Link to={`/accounts/parties/${data.partyId}`} className="text-brand-700 hover:underline dark:text-brand-200">
+                {data.partyName}
+              </Link>
+            ) : (
+              data.partyName
+            )}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-xs text-ink-muted">{t('sales.col.payment', 'الدفع')}</dt>
+          <dd className="font-semibold" data-action="sale-payment">
+            {salePaymentText(data)}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-xs text-ink-muted">{t('sales.col.status', 'الحالة')}</dt>
+          <dd className="font-semibold" data-action="sale-status">
+            {voided ? t('sales.voided', 'ملغى') : t('sales.posted', 'محفوظ')}
+          </dd>
+        </div>
+      </dl>
+      <InvoicePaper invoice={data} orgName={orgName} paperRef={paperRef} />
+      <div className="print:hidden">
+        <StatStrip stats={costStats(data)} />
+      </div>
+      {canCollect ? (
+        <p className="text-sm text-ink-muted print:hidden" data-action="collect-note">
+          {t('invoice.collect.note', 'دين هذه الفاتورة عند البيع {debt}. «استلم من الزبون» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', {
+            debt: dinars(data.debt),
+            party: data.partyName,
+          })}
+        </p>
+      ) : null}
+      {collecting ? (
+        <PaymentDialog
+          kind="payment"
+          party={partyOf(data)}
+          bookId={data.bookId}
+          amount={inputMoney(data.debt)}
+          onClose={() => setCollecting(false)}
+          onPosted={() => {
+            setCollecting(false);
+            state.retry();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

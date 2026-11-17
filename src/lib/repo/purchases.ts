@@ -559,34 +559,7 @@ export async function recordTransfer(ids: OpIds, input: TransferInput): Promise<
 
 // ─── البيع (0021) ──────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface SaleInput {
-  partyId: string;
-  itemId: string;
-  qty: Milli;
-  /** سعر البيع لوحدة الأساس؛ صفر «تسليم بلا مقابل» بعد تأكيد. */
-  unitPrice: Fils;
-  soldOn: string;
-  payment: Payment;
-  cashAccountId: string | null;
-  warehouseId: string | null;
-}
-
-/** فاتورة بيع بنداء واحد تُحفظ فوراً: السحب من الوجبات بالترتيب، وقيد الجهة (والصندوق للنقد). */
-export async function recordSale(ids: OpIds, input: SaleInput): Promise<RecordedSale> {
-  return parseRecordedSale(await call<unknown>('record_sale', {
-    p_client_ref: ids.clientRef,
-    p_sale_id: ids.docId,
-    p_line_id: ids.lineId,
-    p_party: input.partyId,
-    p_item: input.itemId,
-    p_qty: decimalText(input.qty, 3),
-    p_unit_price: decimalText(input.unitPrice, 2),
-    p_sold_on: input.soldOn,
-    p_payment: input.payment,
-    p_cash_account: input.payment === 'cash' ? input.cashAccountId : null,
-    p_warehouse: input.warehouseId,
-  }));
-}
+// «بِع» صار الفاتورة الاحترافيّة (عقد 0033، repo/sales: record_sale_v2)؛ record_sale باقية في الخادم للواجهة المنشورة قبل الدمج، ومحلّلات جوابها وقرّاؤها هنا.
 
 export interface SaleMoney {
   unitPrice: Fils;
@@ -667,21 +640,89 @@ export async function voidSale(clientRef: string, saleId: string, reason: string
   return parseVoidedSale(await call<unknown>('void_sale', { p_sale_id: saleId, p_reason: reason, p_client_ref: clientRef }));
 }
 
+/** دفع الفاتورة كما يقوله الخادم: نقد كلّه أو دين كلّه، ومنذ 0033 جزء نقداً (partial) أو من أكثر من صندوق (mixed). */
+export type SalePayment = 'cash' | 'credit' | 'partial' | 'mixed';
+const SALE_PAYMENTS: readonly SalePayment[] = ['cash', 'credit', 'partial', 'mixed'];
+
+/** مال صفّ الفاتورة: الصافي والمدفوع الآن والدين والخصم (0033)، والسعر لسطر واحد بوحدة الأساس (0021) أو null لفاتورة بعدّة سطور. */
+export interface SaleRowMoney {
+  unitPrice: Fils | null;
+  /** الصافي (مبلغ الفاتورة). */
+  lineTotal: Fils;
+  paid: Fils;
+  debt: Fils;
+  discountTotal: Fils;
+}
+
 export interface SaleRow {
   id: string;
   docNo: string;
   soldOn: string;
   status: SaleStatus;
-  payment: Payment;
+  payment: SalePayment;
   partyName: string;
+  /** اسم المادّة الأولى. */
   itemName: string;
-  qty: Milli;
-  baseUnit: BaseUnit;
+  /** عدد سطور الفاتورة (1 لفاتورة 0021). */
+  lineCount: number;
+  /** زبون نقديّ بلا اسم (0033). */
+  walkIn: boolean;
+  /** الكمية بوحدة الأساس لفاتورة بسطر واحد، أو null لعدّة سطور (وحدات مختلفة). */
+  qty: Milli | null;
+  baseUnit: BaseUnit | null;
   free: boolean;
   /** نقداً ثمّ رُدّ المبلغ (الدفع يُقرأ بالدين). */
   paymentRefunded: boolean;
-  money: SaleMoney | null;
+  money: SaleRowMoney | null;
   cost: SaleCost | null;
+}
+
+/** المال في الصفّ نفسه أو في money منه (مكانه يقرّره دمج 0033 بالعيّنات؛ القيمة تُقرأ بصرامة). */
+const rowMoney = (row: Row, money: Row | null): Row => ({ ...(money ?? {}), ...row });
+
+/**
+ * صفّ قائمة المبيعات: بشكل 0021 (سطر واحد في الجذر: المادّة والكمية والسعر والمبلغ في money، والدفع نقد كلّه أو دين كلّه) أو بشكل 0033 (line_count
+ * وwalk_in، والصافي والمدفوع والدين والخصم؛ والكمية والوحدة والسعر لسطر واحد وحده).
+ */
+function saleRow(row: Row): SaleRow {
+  const money = moneyOf(row);
+  const head = {
+    id: str(row, 'id'),
+    docNo: str(row, 'doc_no'),
+    soldOn: str(row, 'sold_on'),
+    status: oneOf(row, 'status', SALE_STATUSES),
+    payment: oneOf(row, 'payment', SALE_PAYMENTS),
+    partyName: str(row, 'party_name'),
+    itemName: str(row, 'item_name'),
+    free: bool(row, 'free'),
+    paymentRefunded: flagOr(row, 'payment_refunded', false),
+    cost: costOf(row),
+  };
+  if (row.line_count === undefined) {
+    const total = money ? filsOf(money, 'line_total') : null;
+    const paid = total !== null && head.payment === 'cash' ? total : 0n;
+    return {
+      ...head,
+      lineCount: 1,
+      walkIn: false,
+      qty: qtyOf(row, 'qty'),
+      baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
+      money: money && total !== null ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: total, paid, debt: total - paid, discountTotal: 0n } : null,
+    };
+  }
+  const lineCount = nat(row, 'line_count');
+  const single = lineCount === 1 && row.qty !== undefined && row.qty !== null;
+  const all = rowMoney(row, money);
+  return {
+    ...head,
+    lineCount,
+    walkIn: bool(row, 'walk_in'),
+    qty: single ? qtyOf(row, 'qty') : null,
+    baseUnit: single ? oneOf(row, 'base_unit', BASE_UNITS) : null,
+    money: money
+      ? { unitPrice: single ? scaled(all, 'unit_price', 2) : null, lineTotal: filsOf(all, 'total'), paid: filsOf(all, 'paid'), debt: filsOf(all, 'debt'), discountTotal: filsOf(all, 'discount_total') }
+      : null,
+  };
 }
 
 export interface SalesOverview {
@@ -706,25 +747,7 @@ export function parseSalesOverview(value: unknown): SalesOverview {
     today: str(json, 'today'),
     canRecord: bool(json, 'can_record'),
     canVoid: bool(json, 'can_void'),
-    rows: arr(json.rows, 'rows').map((entry) => {
-      const row = obj(entry, 'rows');
-      const money = moneyOf(row);
-      return {
-        id: str(row, 'id'),
-        docNo: str(row, 'doc_no'),
-        soldOn: str(row, 'sold_on'),
-        status: oneOf(row, 'status', SALE_STATUSES),
-        payment: oneOf(row, 'payment', PAYMENTS),
-        partyName: str(row, 'party_name'),
-        itemName: str(row, 'item_name'),
-        qty: qtyOf(row, 'qty'),
-        baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
-        free: bool(row, 'free'),
-        paymentRefunded: flagOr(row, 'payment_refunded', false),
-        money: money ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: filsOf(money, 'line_total') } : null,
-        cost: costOf(row),
-      };
-    }),
+    rows: arr(json.rows, 'rows').map((entry) => saleRow(obj(entry, 'rows'))),
     more: bool(json, 'more'),
     totals: {
       count: nat(totals, 'count'),

@@ -37,10 +37,14 @@ export default defineConfig({
         // وتصحيح السعر في المخزون) تستوردها حزمة القاعات (التذكرة) وحزمة المخزون (فاتورة الطيور)، وrepo/weighTickets إن قرأت الفاتورة تذكرتها به؛ فالحزمة
         // المشتركة بين المستثناتين باسم stores-admin. وdomain/amountWords (المبلغ كتابةً) تشترك فيه فاتورة الطيور والسندات (المخزون والحسابات)، فاسمه
         // accounts-office كقطع الحسابات.
+        // و«أرسل صورة» (عقد 0031 للقاعات ثمّ عقد 0033 لفاتورة البيع): html-to-image ومساعدها (pages/halls/reportImage) تستوردهما حزمتا القاعات والمخزون معاً،
+        // فالحزمة المشتركة بينهما باسم stores-admin بالاسم الصريح (لا بمصادفة أنّ Rollup يضمّهما إلى حزمة مشتركة فيها domain/stores): المكتبة الثقيلة لا
+        // تدخل التثبيت المسبق.
         chunkFileNames: (chunk) => {
           const ids = chunk.moduleIds.map((id) => id.replace(/\\/g, '/'));
           if (chunk.isDynamicEntry) return 'assets/[name]-[hash].js';
           if (ids.some((id) => /\/src\/(lib\/repo\/(inventory|purchases|flockIssues|weighTickets)|domain\/(stores|weighTicket|allocation)|lib\/storeLabels)\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
+          if (ids.some((id) => /\/node_modules\/html-to-image\/|\/src\/pages\/halls\/reportImage\.ts$/.test(id))) return 'assets/stores-admin-[hash].js';
           if (ids.some((id) => /\/src\/(lib\/repo\/(parties|cash)\.ts|domain\/amountWords\.ts|pages\/accounts\/[^/]+\.tsx|components\/ui\/(LedgerTable|MoneyInput|SideToggle|DayField)\.tsx)$/.test(id))) return 'assets/accounts-office-[hash].js';
           return 'assets/[name]-[hash].js';
         },
