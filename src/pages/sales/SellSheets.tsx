@@ -111,6 +111,8 @@ export interface CartSheetProps {
   rows: readonly ParsedLine[];
   /** أخطاء كلّ سطر كما تُرى الآن (ما كُتب خطأً فوراً، والفارغ بعد «احفظ»). */
   errors: readonly ParsedLine['errors'][];
+  /** «عندك … فقط» لسطر بلغ المتاح («+» لا يزيده، المراجعة الثانية R7)، أو null. */
+  limits: readonly (string | null)[];
   math: InvoiceMath;
   storeName: string;
   draft: Draft;
@@ -129,7 +131,7 @@ export interface CartSheetProps {
 /** الأيّام التي يُقبل فيها البيع: اليوم وسبعة قبله (القرار 9). */
 const postingDays = (today: Day): Day[] => [0, 1, 2, 3, 4, 5, 6, 7].map((n) => addDays(today, -n));
 
-export function CartSheet({ level, rows, errors: rowErrors, math, storeName, draft, today, shown, moreOpen, previewRows, onClose, onOpenLine, onStep, onRemove, onSet, onNext }: CartSheetProps) {
+export function CartSheet({ level, rows, errors: rowErrors, limits, math, storeName, draft, today, shown, moreOpen, previewRows, onClose, onOpenLine, onStep, onRemove, onSet, onNext }: CartSheetProps) {
   const id = useId();
   const items = itemCount(draft.lines);
   const discount = draft.invoiceDiscount.trim() ? parseMoneyText(draft.invoiceDiscount, true) : null;
@@ -196,6 +198,10 @@ export function CartSheet({ level, rows, errors: rowErrors, math, storeName, dra
                   <p role="alert" className="sl-line-error" data-action="cart-line-error">
                     {problem}
                   </p>
+                ) : limits[index] ? (
+                  <p className="sl-line-note" data-action="cart-line-limit">
+                    {limits[index]}
+                  </p>
                 ) : null}
               </li>
             );
@@ -261,7 +267,7 @@ export function CartSheet({ level, rows, errors: rowErrors, math, storeName, dra
           </div>
           <div className="sl-field">
             <label htmlFor={`${id}-note`} className="sl-label">
-              {t('invoice.note', 'ملاحظة (اختياريّة)')}
+              {t('sell.note.printed', 'ملاحظة تظهر على الفاتورة (اختياريّة)')}
             </label>
             <input id={`${id}-note`} className="sl-input" maxLength={NOTE_MAX} value={draft.note} onChange={(event) => onSet({ note: event.target.value })} data-action="sale-note" />
             {shown.note ? (
@@ -306,11 +312,13 @@ export interface LineSheetProps {
   onUsual: () => void;
   onRemove: () => void;
   onAddAnother: () => void;
+  /** رمز كتبه ماسح والورقة مفتوحة: يُمسح لا يُكتب في الخانة (R2). */
+  onScan: (code: string) => void;
 }
 
 const PAD_DECIMALS: Readonly<Record<LineTab, number>> = { qty: 3, price: 2, discount: 0 };
 
-export function LineSheet({ level, row, gross, units, stock, usual, errors, tab: initialTab, focusError, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother }: LineSheetProps) {
+export function LineSheet({ level, row, gross, units, stock, usual, errors, tab: initialTab, focusError, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother, onScan }: LineSheetProps) {
   const [tab, setTab] = useState<LineTab>(initialTab);
   const [fresh, setFresh] = useState(true);
   const displayRef = useRef<HTMLDivElement>(null);
@@ -326,8 +334,9 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
     reveal(errorRef.current);
     displayRef.current?.focus({ preventScroll: true });
   }, [focusError]);
-  const press = (key: PadKey) => {
-    onField(tab, applyPadKey(value, key, PAD_DECIMALS[tab], fresh, tab === 'qty' ? 7 : 9));
+  const press = (keys: readonly PadKey[]) => {
+    const text = keys.reduce((typed, key, index) => applyPadKey(typed, key, PAD_DECIMALS[tab], fresh && index === 0, tab === 'qty' ? 7 : 9), value);
+    onField(tab, text);
     setFresh(false);
   };
   const tabs: { key: LineTab; label: string; wrong: boolean }[] = [
@@ -377,7 +386,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
       action="sale-line"
       footer={
         <>
-          <Keypad decimals={PAD_DECIMALS[tab]} money={tab === 'discount'} onKey={press} onEnter={onClose} label={tabs.find((entry) => entry.key === tab)?.label ?? ''} />
+          <Keypad decimals={PAD_DECIMALS[tab]} money={tab === 'discount'} onKeys={press} onEnter={onClose} onScan={onScan} label={tabs.find((entry) => entry.key === tab)?.label ?? ''} />
           <div className="sl-foot-row">
             {canAddAnother ? (
               <button type="button" className="sl-secondary" onClick={onAddAnother} data-action="line-add-another">
@@ -526,6 +535,8 @@ export interface PaySheetProps {
   onPad: (target: PadTarget | null, fresh: boolean) => void;
   onFix: () => void;
   onSave: () => void;
+  /** رمز كتبه ماسح ولوحة الدفع مفتوحة (R2). */
+  onScan: (code: string) => void;
 }
 
 /** مبالغ سريعة لساق «جزء الآن» باسمها (D13): الباقي كلّه (أو المطلوب كلّه في أوّل صندوق)، ونصفه، ومبلغ مدوّر تحته. */
@@ -558,9 +569,11 @@ function CustomerSection({
   searchRef,
   search,
   setSearch,
+  busy,
   onSet,
   onTyping,
 }: {
+  busy: boolean;
   draft: Draft;
   walkIn: boolean;
   recent: readonly PartyPick[];
@@ -582,6 +595,7 @@ function CustomerSection({
   const [creating, setCreating] = useState(false);
   const party = draft.party;
   const pick = (chosen: PartyPick) => {
+    if (busy) return;
     sound.click();
     onTyping();
     onSet({ mode: 'party', party: chosen });
@@ -590,7 +604,7 @@ function CustomerSection({
   };
   const create = () => {
     const name = search.trim();
-    if (!name) return;
+    if (!name || busy) return;
     setCreating(true);
     setFailure(null);
     (twins === null ? purchasing.supplierTwins(name) : Promise.resolve([]))
@@ -617,6 +631,7 @@ function CustomerSection({
           role="radio"
           aria-checked={walkIn}
           className="sl-chip"
+          disabled={busy}
           onClick={() => {
             sound.click();
             onTyping();
@@ -629,7 +644,7 @@ function CustomerSection({
           {t('invoice.walk_in', 'زبون نقديّ')}
         </button>
         {chips.map((entry) => (
-          <button key={entry.id} type="button" role="radio" aria-checked={!walkIn && party?.id === entry.id} className="sl-chip" onClick={() => pick(entry)} data-action="party-recent" data-party={entry.id}>
+          <button key={entry.id} type="button" role="radio" aria-checked={!walkIn && party?.id === entry.id} className="sl-chip" disabled={busy} onClick={() => pick(entry)} data-action="party-recent" data-party={entry.id}>
             <UserRound aria-hidden="true" className="sl-icon-sm" />
             {entry.name}
           </button>
@@ -646,8 +661,10 @@ function CustomerSection({
           placeholder={t('sell.who.search', 'ابحث عن زبون بالاسم')}
           aria-label={t('sell.who.search', 'ابحث عن زبون بالاسم')}
           value={search}
+          readOnly={busy}
           onFocus={onTyping}
           onChange={(event) => {
+            if (busy) return;
             setSearch(event.target.value);
             setTwins(null);
           }}
@@ -662,7 +679,7 @@ function CustomerSection({
             <ul className="sl-result-list">
               {(found.data?.parties ?? []).map((entry) => (
                 <li key={entry.id}>
-                  <button type="button" className="sl-option" onClick={() => pick(entry)} data-action="pick-party">
+                  <button type="button" className="sl-option" disabled={busy} onClick={() => pick(entry)} data-action="pick-party">
                     <UserRound aria-hidden="true" className="sl-icon-sm" />
                     {entry.name}
                   </button>
@@ -682,7 +699,7 @@ function CustomerSection({
             </p>
           ) : null}
           {canCreateParty ? (
-            <button type="button" className="sl-secondary sl-wide" disabled={creating} aria-busy={creating || undefined} onClick={create} data-action="create-party">
+            <button type="button" className="sl-secondary sl-wide" disabled={creating || busy} aria-busy={creating || undefined} onClick={create} data-action="create-party">
               {t('sell.party.create', 'زبون جديد: أضف «{name}»', { name: search.trim() })}
             </button>
           ) : (
@@ -700,6 +717,7 @@ function CustomerSection({
             <button
               type="button"
               className="sl-text-btn"
+              disabled={busy}
               onClick={() => {
                 sound.click();
                 searchRef.current?.focus();
@@ -759,7 +777,7 @@ function BoxChoice({ boxes, value, open, onToggle, onPick, action }: { boxes: re
 
 export function PaySheet(props: PaySheetProps) {
   const { level, math, draft, walkIn, payKind, legErrors, boxes, boxesFailed, onBoxesRetry, cashBox, paid, debt, shown, recent, canCreateParty, partyText, onPartyText, padTarget, padFresh, focusRequest } = props;
-  const { busy, online, saveText, blockedText, fixLabel, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave } = props;
+  const { busy, online, saveText, blockedText, fixLabel, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave, onScan } = props;
   const searchRef = useRef<HTMLInputElement>(null);
   const legsRef = useRef<HTMLDivElement>(null);
   const dueRef = useRef<HTMLDivElement>(null);
@@ -804,8 +822,9 @@ export function PaySheet(props: PaySheetProps) {
     else if (target.kind === 'received') setReceived(text);
     else onSet({ legs: draft.legs.map((leg) => (leg.legId === target.legId ? { ...leg, amount: text } : leg)) });
   };
-  const press = (key: PadKey) => {
-    write(applyPadKey(targetText(), key, 0, padFresh, 9));
+  const press = (keys: readonly PadKey[]) => {
+    if (busy) return;
+    write(keys.reduce((typed, key, index) => applyPadKey(typed, key, 0, padFresh && index === 0, 9), targetText()));
     if (target) onPad(target, false);
   };
   const quick = (amount: Fils) => {
@@ -907,7 +926,7 @@ export function PaySheet(props: PaySheetProps) {
                   ))}
                 </div>
               ) : null}
-              <Keypad decimals={0} money onKey={press} onEnter={() => onPad(null, true)} label={padTitle} />
+              <Keypad decimals={0} money onKeys={press} onEnter={() => onPad(null, true)} onScan={onScan} label={padTitle} />
             </div>
           ) : null}
           {failure ? (
@@ -979,6 +998,7 @@ export function PaySheet(props: PaySheetProps) {
         searchRef={searchRef}
         search={partyText}
         setSearch={onPartyText}
+        busy={busy}
         onSet={onSet}
         onTyping={() => (padTarget ? onPad(null, true) : undefined)}
       />

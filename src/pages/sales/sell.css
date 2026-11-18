@@ -1482,8 +1482,15 @@
   flex-shrink: 0;
 }
 
-.sl-line-error {
+.sl-line-error,
+.sl-line-note {
   grid-area: error;
+}
+
+.sl-line-note {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgb(var(--sl-warn-ink));
 }
 
 .sl-more {
@@ -1810,6 +1817,26 @@
 
 .sl-pad-done {
   min-width: 56px;
+}
+
+/* تحت 380 (360 بـ125٪): اسم المخزن وعنوان اللوحة سطران لا «…» يخفي ما يفرّق مخزناً عن مخزن وصندوقاً عن صندوق (المراجعة الثانية R12). */
+@media (max-width: 379px) {
+  .sl-store {
+    height: auto;
+    padding-block: 4px;
+    white-space: normal;
+  }
+
+  .sl-store .sl-ellipsis,
+  .sl-pad-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: normal;
+    text-overflow: clip;
+    line-height: 1.25;
+  }
 }
 
 .sl-pad-debt {
