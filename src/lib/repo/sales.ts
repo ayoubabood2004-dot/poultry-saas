@@ -492,7 +492,7 @@ export function salePendingKey(userId: string, orgId: string): string {
 /** يحفظ الطلب المعلَّق (أو يمحوه بـnull) في sessionStorage، وفي الذاكرة دائماً (تصفّح خاصّ أو تخزين ممنوع). */
 export function storeSalePending(key: string, pending: PendingSale | null): void {
   if (key === '') return;
-  const text = pending === null ? null : JSON.stringify(pending, (_field, entry: unknown) => (typeof entry === 'bigint' ? { big: String(entry) } : entry));
+  const text = pending === null ? null : encodePending(pending);
   if (text === null) pendingMemory.delete(key);
   else pendingMemory.set(key, text);
   try {
@@ -544,10 +544,19 @@ export function readSalePending(key: string): PendingSale | null {
     }
   };
   const text = fromSession() ?? pendingMemory.get(key) ?? null;
-  if (text === null) return null;
+  return text === null ? null : decodePending(text);
+}
+
+/** الطلب المعلَّق نصّاً (bigint بشكل {big}): ما تحفظه sessionStorage، والفاتورة المفتوحة في localStorage معه (فإغلاق التبويب لا يضيّعه). */
+export function encodePending(pending: PendingSale): string {
+  return JSON.stringify(pending, (_field, entry: unknown) => (typeof entry === 'bigint' ? { big: String(entry) } : entry));
+}
+
+/** النصّ الذي كتبه encodePending طلباً، وإلّا null (تخزين تالف أو من نسخة أخرى). */
+export function decodePending(text: string): PendingSale | null {
   try {
     return asPending(JSON.parse(text, (_field, entry: unknown) => (isRecord(entry) && Object.keys(entry).length === 1 && typeof entry.big === 'string' ? BigInt(entry.big) : entry)));
-  } catch { // swallow-ok: نصّ لم يكتبه storeSalePending (تخزين تالف)؛ لا طلب معلَّق يُستعاد منه
+  } catch { // swallow-ok: نصّ لم يكتبه encodePending (تخزين تالف)؛ لا طلب معلَّق يُستعاد منه
     return null;
   }
 }

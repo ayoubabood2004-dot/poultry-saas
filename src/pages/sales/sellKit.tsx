@@ -2,6 +2,7 @@ import { Bean, Box, EggFried, Feather, FlaskConical, Fuel, Package, Pill, Shapes
 import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { ItemKind } from '../../domain/stores';
+import { toWesternDigits } from '../../domain/normalize';
 import { isTopModal, trapFocus } from '../../lib/focus';
 import { t } from '../../lib/i18n';
 import { group } from '../../lib/numerals';
@@ -60,13 +61,70 @@ function BackspaceIcon() {
   );
 }
 
+/**
+ * عربة التسوّق (مسار lucide «shopping-cart» مضمَّناً، أيقونة «بِع» في الرئيسية، D21): استيرادها من lucide يجعلها مشتركة مع حزمة الرئيسية فتنتقل إلى
+ * حزمة مشتركة في التثبيت المسبق.
+ */
+export function CartIcon({ className }: { className: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m2.05 2.05 1.099-.028a1 1 0 0 1 1.008.815l2.69 14.347A1 1 0 0 0 7.83 18H18" />
+      <path d="M4.563 5h16.435a1 1 0 0 1 .981 1.204l-1.026 6.226A2 2 0 0 1 18.962 14H6.25" />
+      <circle cx="18" cy="20" r="2" />
+      <circle cx="8" cy="20" r="2" />
+    </svg>
+  );
+}
+
 const DIGITS: readonly PadKey[] = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
 
-/** لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. */
-export function Keypad({ decimals, money = false, onKey, label }: { decimals: number; money?: boolean; onKey: (key: PadKey) => void; label: string }) {
+/**
+ * مفتاح لوحة المفاتيح الحقيقية (حاسوب أو لوحة بلوتوث) بمفتاح اللوحة: الأرقام (والهندية منها)، والفاصلة، والحذف، وDelete للمسح؛ وEnter «تم». وغيرها
+ * null. مراجعة البيع S7: كانت Escape وحدها تعمل، فلا تُكتب كمية ولا سعر من لوحة مفاتيح.
+ */
+export function padKeyOf(key: string, decimals: number): PadKey | 'enter' | null {
+  if (key === 'Enter') return 'enter';
+  if (key === 'Backspace') return 'back';
+  if (key === 'Delete') return 'clear';
+  if ((key === '.' || key === ',' || key === '\u{066B}') && decimals > 0) return '.'; // i18n-ok: الفاصلة العشرية العربية
+  const digit = toWesternDigits(key);
+  return /^[0-9]$/u.test(digit) ? (digit as PadKey) : null;
+}
+
+/** لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. ولوحة المفاتيح الحقيقية تكتب فيها ما دامت ورقتها في الأعلى. */
+export function Keypad({ decimals, money = false, onKey, onEnter, label }: { decimals: number; money?: boolean; onKey: (key: PadKey) => void; onEnter?: () => void; label: string }) {
   const keys: PadKey[] = [...DIGITS, money ? '000' : '.', '0', 'back'];
+  const ref = useRef<HTMLDivElement>(null);
+  const handlers = useRef({ onKey, onEnter, decimals });
+  useEffect(() => {
+    handlers.current = { onKey, onEnter, decimals };
+  });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      let dialog: HTMLElement | null = ref.current;
+      while (dialog !== null && dialog.getAttribute?.('role') !== 'dialog') dialog = dialog.parentNode as HTMLElement | null;
+      if (!dialog || !isTopModal(dialog) || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      // خانة كتابة (بحث الزبون، الملاحظة) تأخذ مفاتيحها كما هي.
+      const target = event.target as { localName?: string; isContentEditable?: boolean } | null;
+      if (target && (target.localName === 'input' || target.localName === 'textarea' || target.localName === 'select' || target.isContentEditable)) return;
+      const { onKey: press, onEnter: enter, decimals: places } = handlers.current;
+      const key = padKeyOf(event.key, places);
+      if (key === null) return;
+      if (key === 'enter') {
+        // Enter على زرّ مركَّز يضغطه كعادته؛ «تم» حين لا زرّ تحت التركيز.
+        if (!enter || (target && (target.localName === 'button' || target.localName === 'a'))) return;
+        event.preventDefault();
+        enter();
+        return;
+      }
+      event.preventDefault();
+      press(key);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   return (
-    <div className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
+    <div ref={ref} className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
       {keys.map((key) => (
         <button
           key={key}
@@ -235,9 +293,10 @@ export interface Snack {
 /** ستّ ثوانٍ فوق الشريط الثابت: ما حُذف وزرّ «تراجع» (لا تأكيد قبل الحذف). */
 export const SNACK_MS = 6000;
 
-export function Snackbar({ snack, onUndo }: { snack: Snack; onUndo: () => void }) {
+/** over: ورقة مفتوحة، فالشريط أعلى الشاشة فوق خلفيتها لا فوق لوحة أرقامها وزرّها (مراجعة التصميم D6). */
+export function Snackbar({ snack, onUndo, over = false }: { snack: Snack; onUndo: () => void; over?: boolean }) {
   return createPortal(
-    <div className="sl-snack" role="status" data-action="sell-snack">
+    <div className="sl-snack" role="status" data-place={over ? 'top' : undefined} data-action="sell-snack">
       <span className="sl-snack-text">{snack.text}</span>
       <button
         type="button"
@@ -312,8 +371,4 @@ export function kindChipLabel(kind: ItemKind): string {
   }
 }
 
-/** اسم الوحدة القصير في العدّاد و«عندك»: «كيس 50 كغم» ← «كيس» (ما قبل أوّل رقم)، وغيره كما هو. */
-export function shortUnit(label: string): string {
-  const head = label.split(/[0-9]/u)[0]?.trim() ?? '';
-  return head === '' ? label : head;
-}
+export { shortUnit } from './sellModel';

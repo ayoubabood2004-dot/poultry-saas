@@ -514,7 +514,8 @@ export default async function (t) {
       await fillContract();
       await d.save();
       await settle(30);
-      const over = 'المتاح في «المخزن العام» 50 كغم فقط؛ لا يُحفظ أكثر منه.';
+      // المتاح بوحدة السطر (مراجعة التصميم D3): 50 كغم كيس واحد.
+      const over = 'المتاح في «المخزن العام» كيس واحد فقط؛ لا يُحفظ أكثر منه.';
       t.same([named('record_sale_v2').length, textOf('sale-blocked')], [0, `لم تُحفظ الفاتورة: ${over}`], 'C4 المتاح قلّ عند القراءة قبل الحفظ: يُقال بجانب الزرّ الثابت');
       t.same(
         [scrolled.at(-1)?.textContent ?? null, globalThis.document.activeElement === first('line-display', d.lineSheet())],
@@ -532,12 +533,14 @@ export default async function (t) {
       await d.next();
       await d.payKind('debt');
       t.same([buttonOf('زبون نقديّ')?.getAttribute('aria-checked'), textOf('sale-party-needed')], ['false', 'الدين يحتاج اسم الزبون: اختره أو ابحث عنه أو أضفه.'], 'C4 «دين كلّه» لزبون نقديّ يفتح «لمن؟»: الدين يحتاج اسم الزبون');
+      // الزرّ نفسه يقول ما يلزم (مراجعة التصميم D17)، والسبب تحت «لمن؟» مرّة واحدة لا مكرّراً بجانب الزرّ.
+      t.eq(textOf('save-invoice'), 'اختر الزبون أوّلاً', 'C4 «دين كلّه» بلا زبون: الزرّ «اختر الزبون أوّلاً»');
       await d.save();
       await settle(20);
       t.same(
-        [named('sale_catalog').length, textOf('sale-blocked'), globalThis.document.activeElement === first('sale-party-search')],
-        [1, 'لم تُحفظ الفاتورة: اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.', true],
-        'C4 بلا زبون: لا قراءة ولا إرسال، والسبب بجانب الزرّ، والبحث عن الزبون مركَّز',
+        [named('sale_catalog').length, textOf('sale-party-error'), textOf('sale-blocked'), globalThis.document.activeElement === first('sale-party-search')],
+        [1, 'اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.', null, true],
+        'C4 بلا زبون: لا قراءة ولا إرسال، والسبب تحت «لمن؟» مرّة واحدة، والبحث عن الزبون مركَّز',
       );
     });
 
@@ -608,7 +611,7 @@ export default async function (t) {
       await click(first('pay-remove'));
       await click(first('pay-discount'));
       await d.keys('90000');
-      t.same([textOf('sale-total-net'), textOf('sale-debt-live'), textOf('save-invoice')], ['—', 'الباقي يُحسب بعد تصحيح الخصم.', 'احفظ — مادّة واحدة'], 'C8 خصم أكبر من المجموع: المطلوب «—» لا رقماً سالباً');
+      t.same([textOf('sale-total-net'), textOf('sale-debt-live'), textOf('save-invoice')], ['—', 'الدين يُحسب بعد تصحيح الخصم.', 'احفظ — مادّة واحدة'], 'C8 خصم أكبر من المجموع: المطلوب «—» لا رقماً سالباً');
     });
 
     await step('C9 total_zero mirror', async () => {

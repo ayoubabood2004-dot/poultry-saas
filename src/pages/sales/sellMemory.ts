@@ -63,9 +63,45 @@ export function readSaleDraftRaw(userId: string, orgId: string): unknown {
   return readJson(saleDraftKey(userId, orgId));
 }
 
-/** يحفظ الفاتورة المفتوحة بملخّصها؛ false حين تعذّر التخزين. */
-export function writeSaleDraft(userId: string, orgId: string, summary: SaleDraftSummary, body: unknown): boolean {
-  return writeJson(saleDraftKey(userId, orgId), { v: 1, summary: { lines: summary.lines, total: String(summary.total), store: summary.storeId }, body });
+/**
+ * يحفظ الفاتورة المفتوحة بملخّصها؛ false حين تعذّر التخزين. pending: الطلب المرسَل نصّاً (encodePending) ما دام جوابه لم يُعرف: يُحفظ مع الفاتورة لا في
+ * sessionStorage وحدها، فإغلاق التبويب أو التطبيق أثناء الطلب يعيد الشاشة مجمَّدةً به بعده، ولا تعود سلّةً تُعدَّل وتُرسل بالمرجع نفسه (مراجعة البيع S1).
+ */
+export function writeSaleDraft(userId: string, orgId: string, summary: SaleDraftSummary, body: unknown, pending: string | null = null): boolean {
+  return writeJson(saleDraftKey(userId, orgId), {
+    v: 1,
+    summary: { lines: summary.lines, total: String(summary.total), store: summary.storeId },
+    body,
+    ...(pending === null ? {} : { pending }),
+  });
+}
+
+// ─── الفواتير المحفوظة على هذا الجهاز ─────────────────────────────────────────────────────────────────────────────
+
+const POSTED_MAX = 30;
+
+export const postedKey = (userId: string, orgId: string): string => `sales.sell.posted:${userId}:${orgId}`;
+
+/**
+ * مراجع آخر الفواتير التي حُفظت من هذا الجهاز (الأحدث أوّلاً): فاتورة مفتوحة مرجعها منها حُفظت من نافذة أخرى، فلا تُكتب على الجهاز ثانيةً ولا تُستعاد
+ * (مراجعة البيع S2: تبويب بقي مفتوحاً كان يعيد فاتورة بيعت إلى «فاتورة مفتوحة» بمرجعها المستعمل).
+ */
+export function readPosted(key: string): string[] {
+  const value = readJson(key);
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry !== '').slice(0, POSTED_MAX) : [];
+}
+
+/** نصّ القائمة كما هي في التخزين (لقطة useSyncExternalStore: تتغيّر حين تتغيّر وحدها). */
+export function postedSnapshot(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch { // swallow-ok: بلا تخزين لا قائمة
+    return '';
+  }
+}
+
+export function rememberPosted(key: string, ref: string): void {
+  writeJson(key, [ref, ...readPosted(key).filter((entry) => entry !== ref)].slice(0, POSTED_MAX));
 }
 
 /** يعمل التخزين في هذا المتصفّح؟ (نافذة خاصّة أو تخزين ممنوع: الفاتورة المفتوحة في الذاكرة وحدها، فالشاشة تحرس الخروج.) */

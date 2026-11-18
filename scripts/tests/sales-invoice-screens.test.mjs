@@ -254,7 +254,8 @@ export default async function (t) {
     /** فاتورة العقد (العلف كيسين بخصم 1,000 والفيتامين ثلاث علب بالباركود، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000) بالشاشة الجديدة. */
     const fillContract = (options) => d.fillContract(options);
     /** سطور الفاتورة كما تعرضها السلّة: [العدّاد، الوحدة، السعر لوحدته]. */
-    const cartRows = () => d.lines().map((line) => [first('cart-qty', line)?.textContent, first('cart-unit', line)?.textContent, first('cart-line-open', line)?.children?.[1]?.textContent ?? null]);
+    // [العدّاد، سطر الوحدة تحت الاسم بالوحدة كاملةً] (شريحة الوحدة أُزيلت، مراجعة التصميم D11).
+    const cartRows = () => d.lines().map((line) => [first('cart-qty', line)?.textContent, first('cart-unit', line)?.textContent ?? null]);
 
     // ── S: التوصيل ──────────────────────────────────────────────────────────────────────────────────────────────────
     {
@@ -491,11 +492,11 @@ export default async function (t) {
       await d.tap('i-feed');
       await d.unit('u-bag');
       await d.keys('40');
-      t.eq(textOf('line-error'), 'المتاح في «المخزن العام» 1,500 كغم فقط؛ لا يُحفظ أكثر منه.', 'C3 تحذير بالمتاح حيّاً تحت الكمية (40 كيساً = 2,000 كغم)');
+      t.eq(textOf('line-error'), 'المتاح في «المخزن العام» 30 كيساً فقط؛ لا يُحفظ أكثر منه.', 'C3 تحذير بالمتاح حيّاً تحت الكمية بوحدة السطر (40 كيساً والمتاح 30 كيساً)');
       await d.done();
       await d.next();
       await d.save();
-      t.same([named('sale_catalog').length, named('record_sale_v2').length, textOf('line-error')], [1, 0, 'المتاح في «المخزن العام» 1,500 كغم فقط؛ لا يُحفظ أكثر منه.'], 'C3 أكثر من المتاح لا يُرسل، ويُفتح السطر على خطئه');
+      t.same([named('sale_catalog').length, named('record_sale_v2').length, textOf('line-error')], [1, 0, 'المتاح في «المخزن العام» 30 كيساً فقط؛ لا يُحفظ أكثر منه.'], 'C3 أكثر من المتاح لا يُرسل، ويُفتح السطر على خطئه');
       t.eq(named('listBoxes').length, 0, 'C3 الصناديق من الخادم مع الموادّ (الأمين لا يقرأ جدولها)');
       await d.clearValue();
       await d.keys('1.5');
@@ -597,6 +598,10 @@ export default async function (t) {
             if (calls === 2) throw new current.RejectedError(code, code === 'id_conflict' ? 'معرّف الفاتورة مستعمل بمحتوى آخر.' : 'المتاح من «علف بادئ» 50 كغم فقط.');
             return clone(F.record_sale_v2);
           },
+          // id_conflict «ربّما حُفظت»: تُقرأ الفاتورة بمعرّفها أوّلاً (مراجعة البيع S1)؛ غيابها يجعل الرفض أكيداً.
+          sale_detail: () => {
+            throw new current.RejectedError('doc_not_found', 'هذا البيع غير موجود في منشأتك. حدّث الشاشة.');
+          },
         }, pickers);
         await mount('/sales/new');
         await fillContract();
@@ -615,7 +620,7 @@ export default async function (t) {
         await d.next();
         t.same(
           [...restored, byAction('pay-amount').map((n) => n.textContent)],
-          [0, [['2 كيس', 'كيس', '35,000 لكل كيس'], ['3 علبة', 'علبة', '25,000 لكل علبة']], '5000', false, ['50,000 دينار', '39,000 دينار']],
+          [0, [['2 كيس', '35,000 لكل كيس'], ['3 علبة', '25,000 لكل علبة']], '5000', false, ['50,000 دينار', '39,000 دينار']],
           `C7 ${label}: الرفض الأكيد يعيد ما أُرسل إلى الفاتورة (بعد إعادة التحميل)، والطلب ممحوّ`,
         );
         await d.save();
@@ -663,8 +668,8 @@ export default async function (t) {
       await mount('/sales/new?item=i-vit&store=w-gen&back=%2Finventory%2Fitems%2Fi-vit');
       await d.openCart();
       t.same(
-        [d.lines().map((n) => n.getAttribute('data-item')), cartRows()[0]?.[2], first('back')?.getAttribute('href'), first('back')?.textContent],
-        [['i-vit'], '2,500 لكل قطعة', '/inventory/items/i-vit', 'رجوع إلى المخزن'],
+        [d.lines().map((n) => n.getAttribute('data-item')), cartRows()[0]?.[1], first('back')?.getAttribute('href'), first('back')?.textContent],
+        [['i-vit'], '2,500 لكل قطعة', '/inventory/items/i-vit', 'رجوع'],
         'C9 «بِع» من ملفّ المادّة: المادّة في الفاتورة بمخزنها وسعرها، والرجوع إلى الملفّ',
       );
     });
@@ -694,10 +699,18 @@ export default async function (t) {
       await mount('/sales/new');
       await fillContract();
       await d.save();
-      await d.plus('i-vit');
+      // أثناء القراءة والإرسال الشاشة مقفلة (مراجعة البيع S8): العدّاد لا يغيّر الفاتورة تحت الطلب، فالمرسَل هو المعروض.
+      const plus = first('card-plus', d.cell('i-vit'));
+      fire(plus, 'click', { button: 0 });
+      await settle();
+      const shownQty = d.cardQty('i-vit');
       release();
       await settle(20);
-      t.same([named('record_sale_v2').length, textOf('sale-notice')], [0, 'تغيّرت الفاتورة أثناء التحقّق من الأسعار؛ راجعها ثمّ احفظ.'], 'C12 تعديل الفاتورة أثناء قراءة الأسعار يوقف الإرسال (لا يُرسل غير المعروض)');
+      t.same(
+        [plus?.hasAttribute('disabled'), shownQty, named('record_sale_v2').length, named('record_sale_v2')[0]?.p_lines.map((l) => l.qty)],
+        [true, '3 علبة', 1, ['2.000', '3.000']],
+        'C12 أثناء قراءة الأسعار لا تتغيّر الفاتورة (العدّاد مقفل)، فالمرسَل هو المعروض',
+      );
     });
 
     await step('C10 roles', async () => {

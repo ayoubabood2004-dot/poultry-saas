@@ -7,7 +7,10 @@
 // صندوق، والزبون باسمه بالدين كلّه، واختيار البائع يبقى) · U8 «دين كلّه» لزبون نقديّ يفتح «لمن؟» · U9 الفاتورة المفتوحة تُحفظ وتعود بمعرّفيها
 // و«ابدأ من جديد» بـ«تراجع» وتُمحى بعد الحفظ · U10 بعد الحفظ الفاتورة مكان الشاشة (?done=1) والأوراق خارج التاريخ · U11 شريحة «فاتورة مفتوحة» في
 // الرئيسية · U12 الشريط فارغاً بلا أصفار · U13 المخزن الأخير يُتذكَّر، والذاكرة بعد الحفظ · U14 زرّ الكاميرا حيث يدعمها المتصفّح وحده · U15 الرمز
-// الكامل يضيف بلا Enter وبدايته تصفّي، وEnter على اسم واحد يضيفه.
+// الكامل يضيف بلا Enter (بعد وقفة في الكتابة) وبدايته تصفّي، وEnter على اسم واحد يضيفه.
+// ومراجعة البيع العدائية (S1–S13: الطلب مع الفاتورة المحفوظة والرفض «ربّما حُفظت»، والتبويب الباقي، والمخزن المفقود، والإغلاق الواحد، والماسح،
+// والمبلغ السالب، ولوحة المفاتيح، والقفل أثناء الحفظ، و«إلى الأمام»، والوحدة الغائبة، والصندوق الغائب، وحجم الوحدة، و«صحّح») والإتاحة، ومراجعة
+// التصميم (D1–D23). SELL_ONLY=S1,D3 يشغّل خطوات بعينها.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -18,6 +21,8 @@ import { sellDriver } from './sell-ui.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033-contract.json'), 'utf8'));
 const R = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033.json'), 'utf8'));
+// أنماط الشاشة كما تُنشر (sell.css?raw): قواعد التخطيط التي تُفحص بنصّها (عرض 380، وأسطر الاسم، وأهداف اللمس، والزوايا).
+const CSS = readFileSync(path.join(ROOT, 'src', 'pages', 'sales', 'sell.css'), 'utf8');
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__ux.call('${n}', a);`).join(' ')}`;
@@ -67,6 +72,7 @@ async function bundle() {
     "export { readSaleDraftSummary, saleDraftKey } from './src/pages/sales/saleDraft.ts';",
     "export { sellMemoryKey } from './src/pages/sales/sellMemory.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
+    "export { RejectedError } from './src/lib/errors.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -114,6 +120,41 @@ const ws = (role) => ({
 const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 const MANAGER = sessionOf('manager');
 const PARTY = { id: 'p-1', name: 'أبو علي' };
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * مرآة قواعد الإعادة في record_sale_v2 (0006 ref_claim و0033 فحص محتوى معرّف الفاتورة): المرجع نفسه بالمعاملات نفسها يعيد جوابه، وبغيرها ref_reused؛
+ * ومعرّف فاتورة محفوظة بمحتواها يعيدها وبغيره id_conflict؛ والرفع = تراجع (لا يُحفظ المرجع). lose: الفاتورة حُفظت والجواب ضاع.
+ */
+function serverModel(modOf) {
+  const refs = new Map();
+  const sales = new Map();
+  const content = (a) => JSON.stringify({ w: a.p_warehouse, p: a.p_party, on: a.p_sold_on, d: a.p_invoice_discount, n: a.p_note, l: a.p_lines.map((x) => [x.line_id, x.item_id, x.unit_id, x.qty, x.unit_price, x.discount]), g: a.p_payments.map((x) => [x.leg_id, x.cash_account_id, x.amount]) });
+  const argsOf = (a) => JSON.stringify({ ...a, p_client_ref: undefined });
+  const result = (a) => ({ ...clone(F.record_sale_v2), sale_id: a.p_sale_id, sold_on: a.p_sold_on });
+  let posts = 0;
+  return {
+    posted: () => [...sales.values()],
+    posts: () => posts,
+    handle(a, opts = {}) {
+      const ref = refs.get(a.p_client_ref);
+      if (ref) {
+        if (ref.args !== argsOf(a)) throw new (modOf().RejectedError)('ref_reused', 'مرجع هذه العملية استُعمل لعملية أخرى. حدّث الشاشة وأعد العملية من جديد.');
+        return ref.result;
+      }
+      const prior = sales.get(a.p_sale_id);
+      if (prior) {
+        if (content(prior) === content(a)) return result(prior);
+        throw new (modOf().RejectedError)('id_conflict', 'سُجّلت بهذا المعرّف فاتورة غير التي أرسلتها الآن. حدّث الشاشة لترى ما سُجّل، ثمّ سجّل من جديد.');
+      }
+      sales.set(a.p_sale_id, a);
+      refs.set(a.p_client_ref, { args: argsOf(a), result: result(a) });
+      posts += 1;
+      if (opts.lose) throw new Error('connection reset after commit');
+      return result(a);
+    },
+  };
+}
 
 export default async function (t) {
   const restoreDom = installDom();
@@ -168,6 +209,7 @@ export default async function (t) {
         navType = mm.useNavigationType();
         globalThis.__ux.nav = mm.useNavigate();
         globalThis.__ux.location = `${location.pathname}${location.search}`;
+        globalThis.__ux.state = location.state;
         return mm.h(mm.Routes, null, mm.h(mm.Route, { path: '/', element: mm.h(mm.HomePage) }), mm.h(mm.Route, { path: '/sales/*', element: mm.h(mm.SalesRoutes) }), mm.h(mm.Route, { path: '*', element: null }));
       }
       const list = Array.isArray(entries) ? entries : [entries];
@@ -182,7 +224,10 @@ export default async function (t) {
       body().textContent = '';
       await settle();
     };
+    // SELL_ONLY=S1,D3: الخطوات بأوّل كلمة من اسمها وحدها (لإثبات فشل خطوة بعينها على شفرة أقدم بلا أثر خطوة قبلها).
+    const only = (process.env.SELL_ONLY ?? '').split(',').filter(Boolean);
     const step = async (label, fn) => {
+      if (only.length > 0 && !only.includes(label.split(' ')[0])) return;
       session.map.clear();
       local.map.clear();
       try {
@@ -207,7 +252,7 @@ export default async function (t) {
       await mount('/sales/new?store=w-gen');
       t.same(cards(), [ID.starter, ID.grower, ID.sync, ID.conc], 'U1 الأكثر بيعاً هنا أوّلاً (sold_30d الحقيقيّ: 2 ثمّ 0)، وبالاسم عند التساوي');
       const starter = d.card(ID.starter).textContent;
-      t.ok(starter.includes('35,000 / كيس 50 كغم') && starter.includes('عندك 8 كيس + 24.5 كغم'), 'U1 البطاقة بسعر وحدتها الافتراضية (700 × 50) و«عندك» بها');
+      t.ok(starter.includes('35,000 / كيس 50 كغم') && starter.includes('عندك 8 أكياس + 24.5 كغم'), 'U1 البطاقة بسعر وحدتها الافتراضية (700 × 50) و«عندك» بها');
       t.ok(d.card(ID.grower).textContent.includes('بلا سعر بيع') && d.card(ID.conc).textContent.includes('نفد من هذا المخزن') && d.card(ID.conc).hasAttribute('disabled'), 'U1 «بلا سعر بيع» و«نفد» نصّاً، والنافدة لا تُلمس');
       t.ok((descendants(body()).find((n) => n.localName === 'style')?.textContent ?? '').includes('.sl-card'), 'U1 أنماط sell.css في الصفحة (?raw، لا صنف Tailwind جديد)');
     });
@@ -227,7 +272,7 @@ export default async function (t) {
       t.same([d.cardQty(ID.starter), textOf('sell-snack')?.startsWith('حُذفت «علف بادئ» من الفاتورة'), byAction('confirm').length], [null, true, 0], 'U2 النقص إلى صفر يحذف السطر بلا تأكيد، و«تراجع» ظاهر');
       await click(first('sell-undo'));
       t.same([d.cardQty(ID.starter), byAction('sell-snack').length], ['1 كيس', 0], 'U2 «تراجع» يعيد السطر كما كان');
-      t.eq(textOf('sale-bar-total'), '35,000 دينار', 'U2 الشريط بالصافي');
+      t.same([textOf('sale-bar-total'), textOf('sale-totals-bar')?.includes('بالدينار')], ['35,000', true], 'U2 الشريط بالصافي (المبلغ وحده كبيراً، و«بالدينار» في السطر الصغير)');
     });
 
     await step('U3 default unit', async () => {
@@ -270,17 +315,17 @@ export default async function (t) {
       await d.tap(ID.starter);
       await d.openLineOf(ID.starter);
       await d.keys('3');
-      t.same([textOf('line-read-back'), d.lineSheet().textContent.includes('عندك 8 كيس + 24.5 كغم'), textOf('line-total')], ['= 150 كغم', true, 'المبلغ 105,000 دينار'], 'U5 القراءة الراجعة بالأساس و«عندك» بالوحدة والمبلغ');
+      t.same([textOf('line-read-back'), d.lineSheet().textContent.includes('عندك 8 أكياس + 24.5 كغم'), textOf('line-total')], ['= 150 كغم', true, 'المبلغ 105,000 دينار'], 'U5 القراءة الراجعة بالأساس و«عندك» بالوحدة والمبلغ');
       await d.tab('price');
       await d.keys('34000');
-      t.eq(textOf('line-usual'), 'السعر المعتاد 35,000 — أعِده', 'U5 السعر يُغيَّر: «السعر المعتاد» ظاهر');
+      t.eq(textOf('line-usual'), 'المعتاد 35,000 — أعِده', 'U5 السعر يُغيَّر: «المعتاد … — أعِده» ظاهر');
       await click(first('line-usual'));
       t.same([d.display(), byAction('line-usual').length], ['35,000', 0], 'U5 «أعِده» يعيد سعر البيع');
       await d.keys('40');
       t.eq(byAction('line-error').length, 0, 'U5 لا خطأ قبل أوّل حفظ إلا الحيّ');
       await d.tab('qty');
       await d.keys('9');
-      t.eq(textOf('line-error'), 'المتاح في «المخزن العام» 424.5 كغم فقط؛ لا يُحفظ أكثر منه.', 'U5 أكثر من المتاح يُقال حيّاً تحت الكمية نفسها');
+      t.eq(textOf('line-error'), 'المتاح في «المخزن العام» 8 أكياس + 24.5 كغم فقط؛ لا يُحفظ أكثر منه.', 'U5 أكثر من المتاح يُقال حيّاً تحت الكمية نفسها، بوحدة السطر');
     });
 
     await step('U6 cart undo', async () => {
@@ -443,7 +488,10 @@ export default async function (t) {
       await settle();
       t.same([d.cardQty(ID.starter), first('sale-search')?.value], ['1 كيس', ''], 'U15 ثمّ Enter يضيفه');
       await d.search('6260001999');
-      t.same([d.cardQty(ID.starter), first('sale-search')?.value], ['2 كيس', ''], 'U15 الرمز الكامل الوحيد يضيف بلا Enter (ماسح أو كتابة)');
+      t.same([d.cardQty(ID.starter), first('sale-search')?.value], ['1 كيس', '6260001999'], 'U15 الرمز الكامل لا يُضاف والكتابة جارية (الماسح يكتب حرفاً حرفاً، S5)');
+      await wait(200);
+      await settle();
+      t.same([d.cardQty(ID.starter), first('sale-search')?.value], ['2 كيس', ''], 'U15 الرمز الكامل الوحيد يضيف بلا Enter بعد وقفة قصيرة في الكتابة');
       await d.search('55501');
       t.same([d.cardQty(ID.starter)], ['2 كيس'], 'U15 رمز أقصر من ستّة لا يُضاف وحده');
       fire(first('sale-search'), 'keydown', { key: 'Enter' });
@@ -453,6 +501,552 @@ export default async function (t) {
       fire(first('sale-search'), 'keydown', { key: 'Enter' });
       await settle();
       t.same([d.cardQty(ID.sync), d.lineSheet() !== null], ['1 كغم', true], 'U15 Enter على اسم لا يطابق غير مادّة يضيفها');
+    });
+
+    // ═══ مراجعة البيع العدائية (S1–S13) والإتاحة ومراجعة التصميم (D1–D23): كلّ حكم هنا السلوك الصحيح، وفشل على 02d5907 قبل الإصلاح. ═══
+
+    /** نسخة جديدة من الحزمة (= تبويب جديد أو إعادة تحميل: ذاكرة جديدة، والتخزين كما هو). */
+    const reload = async () => {
+      const mm = await bundle();
+      mm.onlineStore.set(true);
+      current = mm;
+      return mm;
+    };
+    const failureShown = () => (textOf('sale-failure') ?? '').trim();
+    const sellState = () => globalThis.__ux.state?.sell ?? null;
+
+    await step('S1 lost answer then tab closed: the next day restores the frozen request and posts once', async () => {
+      remember('manager', { store: 'w-gen' });
+      const server = serverModel(() => current);
+      let first1 = true;
+      fresh(MANAGER, { ...OK, record_sale_v2: (a) => { const lose = first1; first1 = false; return server.handle(a, { lose }); }, sale_detail: () => clone(F.sale_detail) }, pickers);
+      // تبويب يُغلق بعده: نسخة من الحزمة له وحده (ذاكرة الطلب المعلَّق فيه تذهب معه).
+      await mount('/sales/new', await reload());
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(30);
+      const kept = JSON.parse(local.api.getItem(draftKey('manager')) ?? 'null');
+      t.same([byAction('sale-frozen').length, server.posts(), typeof kept?.pending], [1, 1, 'string'], 'S1 جواب ضاع بعد الحفظ: الشاشة مجمَّدة، والطلب نفسه محفوظ مع الفاتورة في localStorage');
+      // أُغلق التبويب (ضاعت sessionStorage) وفُتح صباح الغد: يوم الخادم +1.
+      await unmount();
+      session.map.clear();
+      const m2 = await reload();
+      const nextDay = clone(F.stores_overview);
+      nextDay.today = '2026-11-18';
+      fresh(MANAGER, { stores_overview: () => nextDay, sale_catalog: () => clone(CAT), record_sale_v2: (a) => server.handle(a), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount('/sales/new', m2);
+      t.same([byAction('sale-frozen').length, byAction('save-invoice').length, byAction('sale-item-card').length], [1, 0, 0], 'S1 تعود مجمَّدة بطلبها (لا سلّة تُعدَّل وتُرسل بمرجعها)');
+      await click(first('sale-retry'));
+      await settle(30);
+      const retry = named('record_sale_v2')[0];
+      t.same(
+        [server.posts(), retry?.p_sold_on, retry?.p_client_ref === server.posted()[0]?.p_client_ref, where(), local.api.getItem(draftKey('manager'))],
+        [1, server.posted()[0]?.p_sold_on, true, `/sales/${server.posted()[0]?.p_sale_id}?done=1`, null],
+        'S1 «أعد المحاولة» يرسل الطلب نفسه بيومه الأوّل فيُعاد جوابه: فاتورة واحدة، والفاتورة مكان الشاشة، والمحفوظ ممحوّ',
+      );
+    });
+
+    await step('S1b a restored cart whose ref was already used: maybe saved, read by id, posted once', async () => {
+      remember('manager', { store: 'w-gen' });
+      const server = serverModel(() => current);
+      let first1 = true;
+      fresh(MANAGER, { ...OK, record_sale_v2: (a) => { const lose = first1; first1 = false; return server.handle(a, { lose }); } }, pickers);
+      await mount('/sales/new', await reload());
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(30);
+      // فاتورة محفوظة بلا طلبها (نسخة أقدم من الشاشة، أو طلب ضاع): تعود سلّةً بالمرجع المستعمل.
+      const stored = JSON.parse(local.api.getItem(draftKey('manager')));
+      delete stored.pending;
+      local.api.setItem(draftKey('manager'), JSON.stringify(stored));
+      await unmount();
+      session.map.clear();
+      const m2 = await reload();
+      const detail = clone(F.sale_detail);
+      detail.id = server.posted()[0].p_sale_id;
+      fresh(MANAGER, { ...OK, record_sale_v2: (a) => server.handle(a), sale_detail: (a) => { if (a.p_sale !== detail.id) throw new current.RejectedError('doc_not_found', 'هذا البيع غير موجود في منشأتك. حدّث الشاشة.'); return clone(detail); } }, pickers);
+      await mount('/sales/new', m2);
+      await d.plus(ID.starter);
+      await d.next();
+      for (let press = 0; press < 3 && d.paySheet(); press += 1) {
+        await d.save();
+        await settle(30);
+      }
+      t.same(
+        [server.posts(), named('sale_detail')[0]?.p_sale, where(), navType, local.api.getItem(draftKey('manager')), globalThis.__ux.toasts.map((x) => x.tone)],
+        [1, detail.id, `/sales/${detail.id}?done=1`, 'REPLACE', null, ['warning']],
+        'S1b ref_reused: تُقرأ الفاتورة بمعرّفها فتوجد، فهي محفوظة: لا فاتورة ثانية، والفاتورة مكان الشاشة، وتنبيه أنّ ما تغيّر بعدها لم يُحفظ',
+      );
+    });
+
+    await step('S1c ref used but no invoice by that id: a sure refusal with new ids', async () => {
+      remember('manager', { store: 'w-gen' });
+      let calls = 0;
+      fresh(MANAGER, {
+        ...OK,
+        record_sale_v2: () => {
+          calls += 1;
+          if (calls === 1) throw new current.RejectedError('ref_reused', 'مرجع هذه العملية استُعمل لعملية أخرى. حدّث الشاشة وأعد العملية من جديد.');
+          return clone(F.record_sale_v2);
+        },
+        sale_detail: () => {
+          throw new current.RejectedError('doc_not_found', 'هذا البيع غير موجود في منشأتك. حدّث الشاشة.');
+        },
+      }, pickers);
+      await mount('/sales/new');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(30);
+      t.same([byAction('sale-frozen').length, named('sale_detail').length, failureShown().startsWith('مرجع هذه العملية')], [0, 1, true], 'S1c الفاتورة غير موجودة بمعرّفها: الرفض أكيد، والسلّة كما هي بسببه');
+      await d.save();
+      await settle(30);
+      const [a, b] = named('record_sale_v2');
+      t.same([b?.p_client_ref !== a?.p_client_ref, where()], [true, '/sales/s-7?done=1'], 'S1c والإرسال التالي بمرجع جديد');
+    });
+
+    await step('S2 a tab left open does not bring back an invoice sold in another tab', async () => {
+      remember('manager', { store: 'w-gen' });
+      fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      const mA = await reload();
+      await mount('/sales/new', mA);
+      await d.tap(ID.starter);
+      // التبويب ب فُتح من شريحة «فاتورة مفتوحة»: الفاتورة نفسها بمرجعها.
+      const mB = await reload();
+      const boxB = globalThis.document.createElement('div');
+      body().appendChild(boxB);
+      const rootB = mB.createRoot(boxB);
+      function WhereB() {
+        return mB.h(mB.Routes, null, mB.h(mB.Route, { path: '/sales/*', element: mB.h(mB.SalesRoutes) }));
+      }
+      mB.flushSync(() => rootB.render(mB.h(mB.MemoryRouter, { initialEntries: ['/sales/new'] }, mB.h(WhereB))));
+      await settle(40);
+      const dB = sellDriver({ body: () => boxB, descendants, fire, settle });
+      const refB = JSON.parse(local.api.getItem(draftKey('manager'))).body.ids.ref;
+      current = mA;
+      await d.next();
+      await d.save();
+      await settle(40);
+      t.same([named('record_sale_v2')[0]?.p_client_ref, local.api.getItem(draftKey('manager')), JSON.parse(local.api.getItem('sales.sell.posted:u-manager:org-1') ?? '[]')], [refB, null, [refB]], 'S2 التبويب أ حفظ: الفاتورة ممحوّة ومرجعها في قائمة المحفوظ على الجهاز');
+      current = mB;
+      await dB.plus(ID.starter);
+      const stored = JSON.parse(local.api.getItem(draftKey('manager')) ?? 'null');
+      t.same(
+        [mB.readSaleDraftSummary('u-manager', 'org-1'), stored?.body?.ids?.ref === refB, dB.cardQty(ID.starter), (dB.first('sale-notice')?.textContent ?? '').includes('من نافذة أخرى')],
+        [null, false, null, true],
+        'S2 لمسة في التبويب ب لا تعيد الفاتورة المبيعة «فاتورة مفتوحة» بمرجعها: تبدأ فاتورة جديدة ويُقال لماذا',
+      );
+      mB.flushSync(() => rootB.unmount());
+      current = mA;
+    });
+
+    await step('S2b a stored invoice whose ref was posted is not restored', async () => {
+      const draft = { warehouseId: 'w-gen', lines: [{ lineId: 'l-a', itemId: ID.starter, name: 'علف بادئ', unitId: BAG, qty: '1', price: '35000', suggestedFrom: '700', discount: '' }], invoiceDiscount: '', mode: 'walk_in', party: null, pay: 'auto', cashLegId: 'leg-a', cashBox: '', legs: [], note: '', day: null };
+      local.api.setItem(draftKey('manager'), JSON.stringify({ v: 1, summary: { lines: 1, total: '3500000', store: 'w-gen' }, body: { draft, ids: { ref: 'r-sold', saleId: 's-sold' } } }));
+      local.api.setItem('sales.sell.posted:u-manager:org-1', JSON.stringify(['r-sold']));
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      t.same([d.cardQty(ID.starter), byAction('sale-restored').length, local.api.getItem(draftKey('manager'))], [null, 0, null], 'S2 فاتورة محفوظة مرجعها حُفظ من قبل لا تُستعاد وتُمحى');
+    });
+
+    await step('S3 a draft for a store the user lost can pick a store again', async () => {
+      const onlyFeed = clone(F.stores_overview);
+      const feed = onlyFeed.rows.find((row) => row.id === 'w-feed');
+      onlyFeed.rows = [...onlyFeed.rows.filter((row) => row.id !== 'w-gen'), { ...feed, id: 'w-med', name: 'مخزن الأدوية', kind: 'medicine' }];
+      const draft = { warehouseId: 'w-gen', lines: [{ lineId: 'l-a', itemId: ID.starter, name: 'علف بادئ', unitId: BAG, qty: '1', price: '35000', suggestedFrom: '700', discount: '' }], invoiceDiscount: '', mode: 'walk_in', party: null, pay: 'auto', cashLegId: 'leg-a', cashBox: '', legs: [], note: '', day: null };
+      local.api.setItem(draftKey('manager'), JSON.stringify({ v: 1, summary: { lines: 1, total: '3500000', store: 'w-gen' }, body: { draft, ids: { ref: 'r-1', saleId: 's-1' } } }));
+      fresh(MANAGER, { stores_overview: () => onlyFeed, sale_catalog: (a) => { if (a.p_warehouse === 'w-gen') throw new current.RejectedError('out_of_scope', 'ليس في نطاقك.'); return clone(CAT); } }, pickers);
+      await mount('/sales/new');
+      t.same(
+        [byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, (textOf('sale-notice') ?? '').includes('لم يعد في نطاقك')],
+        [true, true],
+        'S3 مخزن الفاتورة خارج النطاق: لا تبقى عالقة عليه، بل يُختار مخزن ويُقال لماذا',
+      );
+      await click(first('sale-start-over'));
+      t.ok(byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, 'S3 و«ابدأ من جديد» لا يُبقي المخزن المفقود');
+    });
+
+    await step('S3b «احفظ» before the store items are read says the real reason', async () => {
+      const draft = { warehouseId: 'w-gen', lines: [{ lineId: 'l-a', itemId: ID.starter, name: 'علف بادئ', unitId: BAG, qty: '1', price: '35000', suggestedFrom: '700', discount: '' }], invoiceDiscount: '', mode: 'walk_in', party: null, pay: 'auto', cashLegId: 'leg-a', cashBox: '', legs: [], note: '', day: null };
+      local.api.setItem(draftKey('manager'), JSON.stringify({ v: 1, summary: { lines: 1, total: '3500000', store: 'w-gen' }, body: { draft, ids: { ref: 'r-1', saleId: 's-1' } } }));
+      fresh(MANAGER, { stores_overview: () => clone(F.stores_overview), sale_catalog: () => new Promise(() => {}) }, pickers);
+      await mount('/sales/new');
+      await d.next();
+      await d.save();
+      await settle(20);
+      t.same([named('record_sale_v2').length, (textOf('sale-blocked') ?? '').includes('لم تُقرأ')], [0, true], 'S3 موادّ المخزن وصناديقه لم تُقرأ: «احفظ» يقول ذلك لا «اختر الصندوق»');
+    });
+
+    await step('S4 one close closes the pay sheet after «صحّح» opened the cart', async () => {
+      remember('manager', { store: 'w-gen' });
+      let reads = 0;
+      fresh(MANAGER, { ...OK, sale_catalog: () => { reads += 1; const c = clone(CAT); if (reads >= 2) c.items = c.items.filter((i) => i.item_id !== ID.starter); return c; } }, pickers);
+      await mount('/sales/new');
+      await d.tap(ID.starter);
+      await d.tap(ID.sync);
+      await d.tab('price');
+      await d.keys('1000');
+      await d.done();
+      await d.next();
+      await d.save();
+      await settle(20);
+      t.same(sellState()?.stack, ['pay', 'cart'], 'S4 مادّة غابت عند القراءة: السلّة فوق الدفع على خطئها');
+      await click(first('cart-remove', d.lines()[0]));
+      await d.next();
+      t.same(sellState()?.stack, ['pay'], 'S4 «التالي: الدفع» من السلّة يرجع إلى ورقة الدفع لا ورقة ثانية');
+      await click(first('sheet-close', d.paySheet()));
+      await settle(10);
+      t.eq(d.paySheet() === null, true, 'S4 إغلاق واحد يغلق ورقة الدفع');
+    });
+
+    await step('S5 a wedge scanner typing a longer code does not add a shorter code on the way', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      const input = first('sale-search');
+      for (const ch of '62600017001') {
+        input.value = `${input.value ?? ''}${ch}`;
+        fire(input, 'input');
+        await settle(2);
+      }
+      fire(input, 'keydown', { key: 'Enter' });
+      await settle(10);
+      await wait(200);
+      t.same([d.cardQty(ID.starter), (textOf('sale-scan-note') ?? '').includes('62600017001')], [null, true], 'S5 «62600017001» لا يضيف «علف بادئ» (6260001)، ويُقال لا مادّة به');
+    });
+
+    await step('S6 D4 a discount bigger than the line: no negative amount, the error at once', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.openLineOf(ID.starter);
+      await d.tab('discount');
+      await d.keys('40000');
+      t.same(
+        [textOf('line-total'), textOf('line-error')],
+        ['الإجمالي 35,000 دينار − الخصم 40,000 دينار = —', 'الخصم أكبر من إجماليّ السطر (35,000 دينار).'],
+        'S6 ورقة السطر: لا مبلغ سالب، والخطأ تحت الخانة قبل «احفظ»',
+      );
+      await d.done();
+      await d.openCart();
+      t.same([textOf('cart-line-total'), textOf('cart-line-error')], ['—', 'الخصم أكبر من إجماليّ السطر (35,000 دينار).'], 'S6 والسلّة: «—» لا «-5,000»، والخطأ تحته');
+      await d.openLine(0);
+      await d.tab('price');
+      await d.clearValue();
+      t.eq(textOf('line-error'), 'اكتب السعر لكل كيس 50 كغم بالدينار (صفر للتسليم بلا مقابل).', 'D4 السعر الممسوح: خطؤه تحته فوراً لا بعد «احفظ»');
+    });
+
+    await step('S7 a hardware keyboard types into the pad', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.openLineOf(ID.starter);
+      const key = (name) => fire(globalThis.document.activeElement ?? body(), 'keydown', { key: name });
+      key('4');
+      await settle();
+      const typed = d.display();
+      key('Backspace');
+      await settle();
+      key('\u{0663}');
+      await settle();
+      const arabic = d.display();
+      key('Enter');
+      await settle(10);
+      t.same([typed, arabic, d.lineSheet() === null, d.cardQty(ID.starter)], ['4', '3', true, '3 كيس'], 'S7 «4» من لوحة المفاتيح تكتب الكمية، والحذف والأرقام الهندية، وEnter «تم»');
+    });
+
+    await step('S8 the screen is locked while saving, the back gesture keeps the pay sheet', async () => {
+      remember('manager', { store: 'w-gen' });
+      let resolve;
+      fresh(MANAGER, { ...OK, record_sale_v2: () => new Promise((r) => { resolve = r; }), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount(['/sales', '/sales/new']);
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(10);
+      globalThis.__ux.nav(-1);
+      await settle(10);
+      t.same([d.paySheet() !== null, d.card(ID.sync)?.hasAttribute('disabled'), first('open-cart')?.hasAttribute('disabled'), textOf('save-invoice')], [true, true, true, 'يُحفظ…'], 'S8 D23 أثناء الحفظ: ورقة الدفع تعود بعد الرجوع، والبطاقات والشريط مقفلة، والزرّ «يُحفظ…»');
+      await d.tap(ID.sync);
+      resolve(clone(F.record_sale_v2));
+      await settle(40);
+      t.same([named('record_sale_v2')[0]?.p_lines.map((l) => l.item_id), where()], [[ID.starter], '/sales/s-7?done=1'], 'S8 لا يُضاف شيء تحت الطلب فيضيع: المرسَل هو المعروض');
+    });
+
+    await step('S9 browser forward after a sale does not reopen an empty pay sheet', async () => {
+      remember('manager', { store: 'w-gen' });
+      fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount(['/sales', '/sales/new']);
+      await d.tap(ID.starter);
+      await d.openCart();
+      await d.next();
+      await d.save();
+      await settle(40);
+      globalThis.__ux.nav(1);
+      await settle(20);
+      t.same([where(), d.paySheet() === null, d.cartSheet() === null], ['/sales/new', true, true], 'S9 «إلى الأمام» بعد الحفظ: الشاشة فارغة بلا ورقة دفع');
+    });
+
+    await step('S10 a line whose unit was removed is not counted in bags on the card', async () => {
+      const TON = unitNamed('علف بادئ', 'طنّ');
+      const noTon = clone(CAT);
+      const starter = noTon.items.find((i) => i.item_id === ID.starter);
+      starter.units = starter.units.filter((u) => u.unit_id !== TON);
+      const draft = { warehouseId: 'w-gen', lines: [{ lineId: 'l-a', itemId: ID.starter, name: 'علف بادئ', unitId: TON, qty: '2', price: '700000', suggestedFrom: '700', discount: '' }], invoiceDiscount: '', mode: 'walk_in', party: null, pay: 'auto', cashLegId: 'leg-a', cashBox: '', legs: [], note: '', day: null };
+      local.api.setItem(draftKey('manager'), JSON.stringify({ v: 1, summary: { lines: 1, total: '140000000', store: 'w-gen' }, body: { draft, ids: { ref: 'r-1', saleId: 's-1' } } }));
+      fresh(MANAGER, { ...OK, sale_catalog: () => clone(noTon) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      t.same([d.cardQty(ID.starter)?.includes('كيس'), d.cardQty(ID.starter)?.includes('اختر الوحدة')], [false, true], 'S10 سطر بوحدة غابت: لا «2 كيس» على البطاقة بل «اختر الوحدة»');
+    });
+
+    await step('S11 a payment leg whose box is gone is flagged, not sent', async () => {
+      const draft = { warehouseId: 'w-gen', lines: [{ lineId: 'l-a', itemId: ID.starter, name: 'علف بادئ', unitId: BAG, qty: '1', price: '35000', suggestedFrom: '700', discount: '' }], invoiceDiscount: '', mode: 'party', party: PARTY, pay: 'part', cashLegId: 'leg-a', cashBox: '', legs: [{ legId: 'leg-b', boxId: 'box-archived', amount: '10000' }], note: '', day: null };
+      local.api.setItem(draftKey('manager'), JSON.stringify({ v: 1, summary: { lines: 1, total: '3500000', store: 'w-gen' }, body: { draft, ids: { ref: 'r-1', saleId: 's-1' } } }));
+      fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError('cash_account_archived', 'الصندوق مؤرشف.'); } }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.next();
+      await d.save();
+      await settle(20);
+      t.same([named('record_sale_v2').length, (textOf('sale-blocked') ?? '').includes('لم يعد فعّالاً')], [0, true], 'S11 صندوق ليس في القائمة: يُقال على الشاشة ولا يُرسل');
+    });
+
+    await step('S12 a resized bag is acknowledged before it is sold at the old bag price', async () => {
+      let reads = 0;
+      const resized = () => {
+        const c = clone(CAT);
+        c.items.find((i) => i.item_id === ID.starter).units.find((u) => u.unit_id === BAG).factor = '25';
+        return c;
+      };
+      fresh(MANAGER, {
+        ...OK,
+        sale_catalog: () => {
+          reads += 1;
+          return reads === 1 ? clone(CAT) : resized();
+        },
+        record_sale_v2: (a) => {
+          if (a.p_lines[0].factor !== '25.000000') throw new current.RejectedError('unit_changed', 'تغيّر حجم «كيس 50 كغم».');
+          return clone(F.record_sale_v2);
+        },
+        sale_detail: () => clone(F.sale_detail),
+      }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(30);
+      t.same(
+        [named('record_sale_v2').length, first('prices-changes')?.textContent],
+        [0, '«علف بادئ»: صار «كيس 50 كغم» 25 كغم بعد أن كان 50 كغم. سعره في الفاتورة 35,000 دينار، و«اعتمد الأسعار الجديدة» تجعله 17,500 دينار.'],
+        'S12 حجم الكيس تغيّر: يُسأل قبل الإرسال ولا يُرسل الكيس الأصغر بسعر الأكبر',
+      );
+      await click(first('prices-update'));
+      await settle(10);
+      await d.save();
+      await settle(30);
+      t.same(named('record_sale_v2').map((a) => [a.p_lines[0].factor, a.p_lines[0].unit_price]), [['25.000000', '17500.00']], 'S12 «اعتمد الأسعار الجديدة»: بالحجم الجديد وسعره');
+    });
+
+    await step('S13 «صحّح» shows only when there is something to fix', async () => {
+      let reads = 0;
+      fresh(MANAGER, { ...OK, sale_catalog: () => { reads += 1; const c = clone(CAT); if (reads >= 2) c.items.find((i) => i.item_id === ID.starter).sell_price = '800'; return c; } }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(20);
+      await click(first('prices-update'));
+      await settle(10);
+      t.same([textOf('sale-blocked'), byAction('sale-fix').length], ['حُدّثت الأسعار في الفاتورة؛ راجع المجموع ثمّ احفظ.', 0], 'S13 ملاحظة لا منع: بلا «صحّح» لا يفعل شيئاً');
+    });
+
+    await step('A11y focus, live region and the tab error mark', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.plus(ID.starter);
+      t.eq(textOf('sale-live'), '«علف بادئ»: 2 كيس في الفاتورة', 'A11y ± يُعلَن بكميته الجديدة (منطقة حيّة مهذّبة)');
+      await d.minus(ID.starter);
+      const minus = first('card-minus', d.cell(ID.starter));
+      minus.focus?.();
+      await d.minus(ID.starter);
+      t.eq(globalThis.document.activeElement === d.card(ID.starter), true, 'A11y النقص إلى صفر: التركيز إلى البطاقة لا إلى الصفحة');
+      await d.tap(ID.starter);
+      await d.openLineOf(ID.starter);
+      await d.clearValue();
+      await d.tab('price');
+      const dot = descendants(d.pick('line-tab', 'data-tab', 'qty', d.lineSheet())).find((n) => n.getAttribute('class') === 'sl-dot');
+      t.same([dot?.getAttribute('role'), dot?.getAttribute('aria-label')], ['img', 'فيه خطأ'], 'A11y علامة الخطأ على التبويب صورة باسمها');
+    });
+
+    await step('D1 D17 a typed customer name blocks the save until picked, added or cleared', async () => {
+      fresh(MANAGER, OK, { searchSuppliers: () => ({ parties: [], total: 0 }) });
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      d.typeIn(first('sale-party-search'), 'حاج كريم');
+      await settle(20);
+      t.same([textOf('save-invoice'), d.paySheet().textContent.includes('لا زبون بهذا الاسم.')], ['اختر الزبون أوّلاً', true], 'D1 اسم كُتب ولم يُختر: الزرّ «اختر الزبون أوّلاً» (D8: «لا زبون بهذا الاسم»)');
+      await d.save();
+      await settle(20);
+      t.same([named('record_sale_v2').length, textOf('sale-party-error'), globalThis.document.activeElement === first('sale-party-search')], [0, 'لم تختر «حاج كريم»: اختره من القائمة، أو أضفه زبوناً جديداً، أو امسح الاسم.', true], 'D1 لا يُحفظ لزبون نقديّ والاسم يضيع، والسبب تحت البحث المركَّز');
+      await click(first('party-walk-in'));
+      t.same([first('sale-party-search')?.value, textOf('save-invoice')], ['', 'احفظ — 35,000 دينار مدفوعة كلّها'], 'D1 «زبون نقديّ» يمسح الاسم ويعود الحفظ');
+      await d.payKind('debt');
+      t.same([textOf('save-invoice'), byAction('party-new').length], ['اختر الزبون أوّلاً', 1], 'D17 «دين كلّه» بلا زبون: «اختر الزبون أوّلاً» و«+ زبون جديد» ظاهر');
+      await click(first('party-new'));
+      t.eq(globalThis.document.activeElement === first('sale-party-search'), true, 'D17 «+ زبون جديد» يركّز البحث ليُكتب الاسم');
+    });
+
+    await step('D2 D21 the bar: the amount alone on the big line, «التالي:» folds below 380px, a cart icon', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      t.same([textOf('sale-bar-total'), first('sale-next')?.getAttribute('aria-label'), byAction('sale-next')[0] && descendants(first('sale-next')).some((n) => n.getAttribute('class') === 'sl-next-pre')], ['35,000', 'التالي: الدفع', true], 'D2 المبلغ وحده في الشريط و«التالي:» جزء يُطوى');
+      t.ok(/@media \(max-width: 379px\) \{\s*\.sl-next-pre \{\s*display: none;/u.test(CSS), 'D2 تحت 380 بكسل يُطوى «التالي:» فلا يُقصّ المبلغ');
+      t.eq(first('back')?.textContent, 'رجوع', 'D21 الرجوع «رجوع» بيضاويّ كصفحة الفاتورة');
+    });
+
+    await step('D3 the card keeps a stock line and stops «+» at what is available', async () => {
+      const two = clone(CAT);
+      two.items.find((i) => i.item_id === ID.starter).available = '100.000';
+      fresh(MANAGER, { ...OK, sale_catalog: () => clone(two) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      const stockOf = () => first('card-stock', d.cell(ID.starter))?.textContent;
+      t.eq(stockOf(), 'يبقى كيس واحد', 'D3 والمادّة في الفاتورة: «يبقى …» بوحدة السطر');
+      await d.plus(ID.starter);
+      t.same([d.cardQty(ID.starter), stockOf()], ['2 كيس', 'عندك كيسان فقط'], 'D3 عند المتاح: «عندك كيسان فقط»');
+      await d.plus(ID.starter);
+      t.same([d.cardQty(ID.starter), textOf('sale-live')], ['2 كيس', '«علف بادئ»: عندك كيسان فقط.'], 'D3 «+» يتوقّف عند المتاح ويقول لماذا');
+    });
+
+    await step('D5 D11 the price tab: short unit, «أعِده» above the value; the cart: the full unit, no chip', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.openLineOf(ID.starter);
+      await d.tab('price');
+      await d.keys('34000');
+      const sheet = descendants(d.lineSheet());
+      const at = (name) => sheet.findIndex((n) => n.getAttribute('data-action') === name);
+      t.same([d.lineSheet().textContent.includes('/ كيس'), at('line-usual') >= 0 && at('line-usual') < at('line-display')], [true, true], 'D5 «/ كيس» تحت القيمة، و«المعتاد … — أعِده» فوقها لا تحت اللوحة');
+      await d.done();
+      await d.openCart();
+      t.same([descendants(d.cartSheet()).filter((n) => n.localName === 'button' && n.getAttribute('data-action') === 'cart-unit').length, textOf('cart-unit')], [0, '34,000 لكل كيس 50 كغم'], 'D11 لا شريحة وحدة مقصوصة؛ الوحدة كاملةً تحت الاسم');
+    });
+
+    await step('D6 the undo bar never covers a sheet keypad', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.tap(ID.grower);
+      await d.done();
+      await d.minus(ID.grower);
+      t.eq(byAction('sell-snack').length, 1, 'D6 «تراجع» بعد الحذف');
+      await d.openLineOf(ID.starter);
+      t.eq(byAction('sell-snack').length, 0, 'D6 فتح ورقة يطوي «تراجع» فلا يغطّي لوحتها');
+      await d.done();
+      await d.openCart();
+      await click(first('cart-remove', d.lines()[0]));
+      t.eq(first('sell-snack')?.getAttribute('data-place'), 'top', 'D6 والحذف داخل ورقة: «تراجع» أعلى الشاشة');
+    });
+
+    await step('D8 D9 D13 D15 D22 words and the part-payment pad', async () => {
+      current.onlineStore.set(false);
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      t.eq(textOf('sale-offline'), 'بلا اتصال: جهّز الفاتورة واحفظها حين يعود الاتصال.', 'D9 بلا اتصال: لا وعد بحفظ تلقائيّ');
+      current.onlineStore.set(true);
+      await settle();
+      await d.tap(ID.starter);
+      await d.plus(ID.starter);
+      await d.openCart();
+      t.eq(first('cart-total')?.parentNode?.textContent?.startsWith('المطلوب'), true, 'D8 السلّة تقول «المطلوب» كورقة الدفع');
+      await d.next();
+      t.same([textOf('pay-change'), d.pick('pay-kind', 'data-kind', 'part')?.textContent?.includes('جزء الآن…')], ['احسب ما تُرجعه للزبون (لا يُسجَّل)', false], 'D8 D15 «احسب ما تُرجعه للزبون» و«جزء الآن» بلا نقاط');
+      await click(first('party-recent') ?? first('party-walk-in'));
+      await d.party('أبو');
+      await d.payKind('part');
+      t.same(
+        [textOf('pad-debt'), byAction('pay-quick').map((n) => n.textContent)],
+        ['يبقى دين 70,000 دينار', ['المطلوب كلّه 70,000', 'النصف 35,000', '50,000']],
+        'D13 لوحة «جزء الآن»: ما يبقى ديناً فوقها، والمبالغ السريعة بأسمائها',
+      );
+      await d.keys('20000');
+      t.eq(textOf('pad-debt'), 'يبقى دين 50,000 دينار', 'D13 ويتبع ما يُكتب');
+    });
+
+    await step('D12 only the search sticks after scrolling down', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      const tools = () => descendants(body()).find((n) => n.getAttribute('class') === 'sl-tools');
+      globalThis.window.scrollY = 600;
+      fire(globalThis.window, 'scroll');
+      await settle();
+      const down = tools()?.getAttribute('data-compact');
+      globalThis.window.scrollY = 0;
+      fire(globalThis.window, 'scroll');
+      await settle();
+      t.same([down, tools()?.getAttribute('data-compact') ?? null], ['yes', null], 'D12 بعد التمرير تُطوى شرائح النوع ويبقى البحث سطراً واحداً، وتعود في الأعلى');
+      delete globalThis.window.scrollY;
+    });
+
+    await step('D16 a stock refusal is said in the line unit with «صحّح الكمية»', async () => {
+      let reads = 0;
+      fresh(MANAGER, {
+        ...OK,
+        sale_catalog: () => {
+          reads += 1;
+          const c = clone(CAT);
+          if (reads >= 3) c.items.find((i) => i.item_id === ID.starter).available = '50.000';
+          return c;
+        },
+        record_sale_v2: () => {
+          throw new current.RejectedError('insufficient_stock', 'المتاح من «علف بادئ» 50 كغم فقط.');
+        },
+      }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.plus(ID.starter);
+      await d.next();
+      await d.save();
+      await settle(40);
+      t.same(
+        [textOf('sale-blocked'), textOf('sale-fix'), byAction('sale-failure').length],
+        ['لم تُحفظ الفاتورة: المتاح في «المخزن العام» كيس واحد فقط؛ لا يُحفظ أكثر منه.', 'صحّح الكمية', 0],
+        'D16 بعد قراءة الموادّ: السطر بوحدته و«صحّح الكمية»، لا نصّ الخادم بالكيلو',
+      );
+      await click(first('sale-fix'));
+      t.same([d.lineSheet() !== null, sellState()?.tab], [true, 'qty'], 'D16 «صحّح الكمية» يفتح السطر على كميته');
+    });
+
+    await step('D20 D22 cards reserve the stepper slot; words', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new');
+      t.eq(textOf('sale-store-section')?.includes('كلّ مخزن بفاتورته؛ لبيع من مخزن آخر افتح فاتورة جديدة.'), true, 'D22 «كلّ مخزن بفاتورته»');
+      await d.store('w-gen');
+      t.ok(d.card(ID.starter)?.textContent.includes('+ أضف'), 'D20 كلّ بطاقة تحجز مكان العدّاد («+ أضف»)، فأوّل لمسة لا تطيلها');
+    });
+
+    await step('CSS D10 D15 D19 D21 rules', async () => {
+      const rule = (selector) => {
+        const at = CSS.indexOf(`${selector} {`);
+        return at < 0 ? '' : CSS.slice(at, CSS.indexOf('}', at));
+      };
+      t.same(
+        [
+          rule('.sl-card-name').includes('-webkit-line-clamp: 3'),
+          rule('.sl-line-name').includes('-webkit-line-clamp: 2'),
+          /@media \(max-width: 379px\) \{\s*\.sl-pay-kinds \{\s*grid-template-columns: minmax\(0, 1fr\);/u.test(CSS),
+          rule(".sl-stepper[data-size='sm']").includes('min-height: 48px'),
+          rule('.sl-text-btn,\n.sl-link').includes('min-width: 48px'),
+          rule('.sl-primary').includes('border-radius: 999px'),
+          [...new Set(CSS.match(/border-radius: [^;]+;/gu))].length <= 5,
+        ],
+        [true, true, true, true, true, true, true],
+        'CSS الاسم ثلاثة أسطر والسلّة سطرين (D10)، وبطاقات الدفع عموداً تحت 380 (D15)، وأهداف 48 (D19)، والزرّ بيضاويّ والزوايا من الرموز (D21)',
+      );
     });
   } catch (error) {
     t.ok(false, `رمى خارج الخطوات: ${error?.stack ?? error}`);

@@ -4,6 +4,7 @@ import { MILLI_PER_UNIT, type Fils, type Milli } from '../../domain/money';
 import { normalizeCode } from '../../domain/normalize';
 import { BASE_FACTOR, baseQtyOf, unitPriceOf } from '../../domain/saleInvoice';
 import { parseQty } from '../../domain/units';
+import { fmtQty, type CountedForms } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { PartyPick } from '../../lib/repo/purchasing';
 import type { CatalogItem, CatalogUnit, PendingSale, SaleCatalog } from '../../lib/repo/sales';
@@ -31,6 +32,11 @@ export interface CartLine {
   /** سعر البيع لوحدة الأساس الذي اقتُرح منه السعر، أو null حين كتبه البائع (أو لا سعر): ما يُقارن قبل الحفظ. */
   suggestedFrom: Fils | null;
   discount: string;
+  /**
+   * حجم الوحدة (معاملها بوحدة الأساس، كما يرسله الخادم) الذي كُتب السعر له، أو null (فاتورة محفوظة من نسخة أقدم): كيس صار 25 كغم بعد أن كان 50 يُسأل
+   * عنه قبل الحفظ كتغيّر السعر، فلا يُباع الكيس الأصغر بسعر الأكبر بلا علم البائع (مراجعة البيع S12).
+   */
+  factor: string | null;
 }
 
 export interface Leg {
@@ -103,7 +109,49 @@ function suggested(item: Pick<CatalogItem, 'sellPrice'>, unit: Pick<CatalogUnit,
 
 /** سطر جديد لمادّة بوحدة، والسعر من سعر البيع إن وُجد. */
 export function newLine(item: CatalogItem, unit: CatalogUnit, qty = '1'): CartLine {
-  return { lineId: crypto.randomUUID(), itemId: item.id, name: item.name, unitId: unit.unitId, qty, price: suggested(item, unit), suggestedFrom: item.sellPrice, discount: '' };
+  return { lineId: crypto.randomUUID(), itemId: item.id, name: item.name, unitId: unit.unitId, qty, price: suggested(item, unit), suggestedFrom: item.sellPrice, discount: '', factor: String(unit.factor) };
+}
+
+// ─── الكميات بوحدة السطر ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** اسم الوحدة القصير في العدّاد و«عندك»: «كيس 50 كغم» ← «كيس» (ما قبل أوّل رقم)، وغيره كما هو. */
+export function shortUnit(label: string): string {
+  const head = label.split(/[0-9]/u)[0]?.trim() ?? '';
+  return head === '' ? label : head;
+}
+
+/** صيغ العدد لأسماء وحدات التعبئة الشائعة («30 كيساً»، «كيسان»)؛ وغيرها يبقى اسمه بعد الرقم كما كتبه المالك. */
+function nounForms(label: string): CountedForms | undefined {
+  const table: [string, CountedForms][] = [
+    [t('sell.noun.bag', 'كيس'), { one: t('unit.bag.one', 'كيس واحد'), two: t('unit.bag.two', 'كيسان'), few: t('unit.bag.few', 'أكياس'), many: t('unit.bag.many', 'كيساً') }],
+    [t('sell.noun.box', 'علبة'), { one: t('sell.noun.box.one', 'علبة واحدة'), two: t('sell.noun.box.two', 'علبتان'), few: t('sell.noun.box.few', 'علب'), many: t('sell.noun.box.many', 'علبة') }],
+    [t('sell.noun.can', 'جركن'), { one: t('sell.noun.can.one', 'جركن واحد'), two: t('sell.noun.can.two', 'جركنان'), few: t('sell.noun.can.few', 'جراكن'), many: t('sell.noun.can.many', 'جركناً') }],
+    [t('sell.noun.bottle', 'قنينة'), { one: t('sell.noun.bottle.one', 'قنينة واحدة'), two: t('sell.noun.bottle.two', 'قنينتان'), few: t('sell.noun.bottle.few', 'قناني'), many: t('sell.noun.bottle.many', 'قنينة') }],
+    [t('sell.noun.carton', 'كرتونة'), { one: t('sell.noun.carton.one', 'كرتونة واحدة'), two: t('sell.noun.carton.two', 'كرتونتان'), few: t('sell.noun.carton.few', 'كراتين'), many: t('sell.noun.carton.many', 'كرتونة') }],
+    [t('sell.noun.crate', 'صندوق'), { one: t('sell.noun.crate.one', 'صندوق واحد'), two: t('sell.noun.crate.two', 'صندوقان'), few: t('sell.noun.crate.few', 'صناديق'), many: t('sell.noun.crate.many', 'صندوقاً') }],
+    [t('sell.noun.tray', 'طبقة'), { one: t('sell.noun.tray.one', 'طبقة واحدة'), two: t('sell.noun.tray.two', 'طبقتان'), few: t('sell.noun.tray.few', 'طبقات'), many: t('sell.noun.tray.many', 'طبقة') }],
+  ];
+  return table.find(([noun]) => noun === label)?.[1];
+}
+
+/**
+ * كمية بوحدة الأساس مكتوبةً بوحدة السطر: «8 أكياس + 24.5 كغم» للوحدة المعبّأة بحجم صحيح، وبالأساس لغيرها («50 لتراً»). ما يقوله «عندك» و«يبقى»
+ * ورسالة المتاح، فلا يُقال للبائع «40 قطعة» وهو يبيع بالعلبة (مراجعة التصميم D3).
+ */
+export function qtyInUnit(qty: Milli, item: Pick<CatalogItem, 'baseUnit'>, unit: Pick<CatalogUnit, 'unitId' | 'label' | 'factor'> | null): string {
+  if (!unit || unit.unitId === null || unit.factor % 1000n !== 0n) return baseQty(qty, item.baseUnit);
+  const label = shortUnit(unit.label);
+  return fmtQty(qty, item.baseUnit, { pack: { label, factor: unit.factor / 1000n, ...nounForms(label) } }).main;
+}
+
+/** نصّ «عندك» بوحدة: «30 كيساً» أو «8 أكياس + 24.5 كغم» للوحدة المعبّأة، وبالأساس لغيرها. */
+export function stockText(item: Pick<CatalogItem, 'available' | 'baseUnit'>, unit: Pick<CatalogUnit, 'unitId' | 'label' | 'factor'>): string {
+  return qtyInUnit(item.available, item, unit);
+}
+
+/** ما أخذته سطور المادّة من المتاح بوحدة الأساس (السطور المقروءة وحدها). */
+export function usedBase(rows: readonly Pick<ParsedLine, 'line' | 'base'>[], itemId: string): Milli {
+  return rows.reduce((sum, row) => (row.line.itemId === itemId && row.base !== null ? sum + row.base : sum), 0n);
 }
 
 /** نصّ الكمية بلا أصفار زائدة («2.500» ← «2.5»). */
@@ -175,7 +223,7 @@ export function parseLines(lines: readonly CartLine[], catalog: SaleCatalog | nu
   for (const row of parsed) {
     if (!row.item || row.base === null || row.errors.qty) continue;
     if ((used.get(row.item.id) ?? 0n) > row.item.available) {
-      row.errors.qty = t('invoice.line.over', 'المتاح في «{store}» {qty} فقط؛ لا يُحفظ أكثر منه.', { store: storeName, qty: baseQty(row.item.available, row.item.baseUnit) });
+      row.errors.qty = t('invoice.line.over', 'المتاح في «{store}» {qty} فقط؛ لا يُحفظ أكثر منه.', { store: storeName, qty: qtyInUnit(row.item.available, row.item, row.unit) });
     }
   }
   return parsed;
@@ -198,6 +246,7 @@ export function draftOf(pending: PendingSale, day: string): Draft {
       price: inputMoney(line.unitPrice),
       suggestedFrom: null,
       discount: line.discount > 0n ? inputMoney(line.discount) : '',
+      factor: line.factor === undefined ? null : String(line.factor),
     })),
     invoiceDiscount: request.invoiceDiscount > 0n ? inputMoney(request.invoiceDiscount) : '',
     mode: walkIn ? 'walk_in' : 'party',
@@ -237,7 +286,8 @@ export function restoreBody(body: unknown): { draft: Draft; ids: Ids } | null {
     rec(line) &&
     ['lineId', 'itemId', 'name', 'qty', 'price', 'discount'].every((field) => str(line[field])) &&
     (line.unitId === null || str(line.unitId)) &&
-    (line.suggestedFrom === null || (str(line.suggestedFrom) && /^-?\d{1,18}$/u.test(line.suggestedFrom)));
+    (line.suggestedFrom === null || (str(line.suggestedFrom) && /^-?\d{1,18}$/u.test(line.suggestedFrom))) &&
+    (line.factor === undefined || line.factor === null || (str(line.factor) && /^\d{1,24}$/u.test(line.factor)));
   const okLeg = (leg: unknown): leg is Record<string, unknown> => rec(leg) && str(leg.legId) && str(leg.boxId) && str(leg.amount);
   const party = d.party === null ? null : rec(d.party) && str(d.party.id) && str(d.party.name) ? { id: d.party.id, name: d.party.name } : undefined;
   if (
@@ -268,6 +318,7 @@ export function restoreBody(body: unknown): { draft: Draft; ids: Ids } | null {
         price: line.price as string,
         suggestedFrom: line.suggestedFrom === null ? null : BigInt(line.suggestedFrom as string),
         discount: line.discount as string,
+        factor: str(line.factor) ? line.factor : null,
       })),
       invoiceDiscount: d.invoiceDiscount,
       mode: d.mode,

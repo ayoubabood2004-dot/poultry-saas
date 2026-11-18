@@ -109,11 +109,12 @@ function Stepper({ name, qty, onStep, onOpen, small = false }: { name: string; q
 export interface CartSheetProps {
   level: number;
   rows: readonly ParsedLine[];
+  /** أخطاء كلّ سطر كما تُرى الآن (ما كُتب خطأً فوراً، والفارغ بعد «احفظ»). */
+  errors: readonly ParsedLine['errors'][];
   math: InvoiceMath;
   storeName: string;
   draft: Draft;
   today: Day;
-  tried: boolean;
   shown: Shown;
   moreOpen: boolean;
   previewRows: readonly PreviewRow[];
@@ -128,7 +129,7 @@ export interface CartSheetProps {
 /** الأيّام التي يُقبل فيها البيع: اليوم وسبعة قبله (القرار 9). */
 const postingDays = (today: Day): Day[] => [0, 1, 2, 3, 4, 5, 6, 7].map((n) => addDays(today, -n));
 
-export function CartSheet({ level, rows, math, storeName, draft, today, tried, shown, moreOpen, previewRows, onClose, onOpenLine, onStep, onRemove, onSet, onNext }: CartSheetProps) {
+export function CartSheet({ level, rows, errors: rowErrors, math, storeName, draft, today, shown, moreOpen, previewRows, onClose, onOpenLine, onStep, onRemove, onSet, onNext }: CartSheetProps) {
   const id = useId();
   const items = itemCount(draft.lines);
   const discount = draft.invoiceDiscount.trim() ? parseMoneyText(draft.invoiceDiscount, true) : null;
@@ -144,7 +145,7 @@ export function CartSheet({ level, rows, math, storeName, draft, today, tried, s
       footer={
         <div className="sl-foot-row">
           <div className="sl-foot-total">
-            <span className="sl-muted">{t('invoice.col.net', 'الصافي')}</span>
+            <span className="sl-muted">{t('sell.due', 'المطلوب')}</span>
             <strong className="sl-num" data-action="cart-total">
               {math.nets === null ? t('file.none', '—') : dinars(math.total)}
             </strong>
@@ -165,26 +166,28 @@ export function CartSheet({ level, rows, math, storeName, draft, today, tried, s
             const { line, item, unit } = row;
             const name = item?.name ?? line.name;
             const gross = math.gross[index] ?? 0n;
-            // قبل أوّل حفظ: ما يُقال حيّاً وحده (مادّة غابت، وكمية أكثر من المتاح أو قطع بكسر)؛ وبعده كلّ أخطاء السطر.
-            const errors = tried ? row.errors : { item: row.errors.item, qty: row.base !== null ? row.errors.qty : undefined };
+            const errors = rowErrors[index] ?? {};
             const problem = errors.item ?? errors.unit ?? errors.qty ?? errors.price ?? errors.discount;
-            const label = unit?.label ?? t('invoice.line.unit_pick', 'اختر الوحدة');
+            const net = gross - (row.discount ?? 0n);
             return (
               <li key={line.lineId} className="sl-line" data-action="cart-line" data-item={line.itemId} data-wrong={problem ? 'yes' : undefined}>
                 <button type="button" className="sl-line-main" onClick={() => onOpenLine(line.lineId)} data-action="cart-line-open">
                   <span className="sl-line-name">{name}</span>
-                  {row.price !== null && unit ? (
-                    <span className="sl-line-sub sl-num">{t('sell.line.each', '{price} لكل {unit}', { price: moneyText(row.price), unit: shortUnit(unit.label) })}</span>
-                  ) : null}
+                  {/* الوحدة كاملةً هنا (لا شريحة مقصوصة بجانب العدّاد، D11). */}
+                  <span className="sl-line-sub sl-num" data-action="cart-unit">
+                    {!unit
+                      ? t('invoice.line.unit_pick', 'اختر الوحدة')
+                      : row.price !== null
+                        ? t('sell.line.each', '{price} لكل {unit}', { price: moneyText(row.price), unit: unit.label })
+                        : t('sell.line.unit_only', 'بالـ{unit}، بلا سعر بعد', { unit: unit.label })}
+                  </span>
                 </button>
+                {/* مبلغ السطر لا يكون سالباً: خصم أكبر من السطر «—» وخطؤه تحته (S6). */}
                 <span className="sl-line-amount sl-num" data-action="cart-line-total">
-                  {row.qty !== null && row.price !== null ? moneyText(gross - (row.discount ?? 0n)) : t('file.none', '—')}
+                  {row.qty !== null && row.price !== null && net >= 0n ? moneyText(net) : t('file.none', '—')}
                 </span>
                 <div className="sl-line-actions">
-                  {item ? <Stepper small name={name} qty={row.qty !== null ? unitQtyText(row.qty, shortUnit(label)) : line.qty} onStep={(delta) => onStep(line.lineId, delta)} onOpen={() => onOpenLine(line.lineId)} /> : null}
-                  <button type="button" className="sl-unit-chip" onClick={() => onOpenLine(line.lineId)} data-action="cart-unit">
-                    {label}
-                  </button>
+                  {item ? <Stepper small name={name} qty={row.qty !== null ? unitQtyText(row.qty, shortUnit(unit?.label ?? '')) : line.qty} onStep={(delta) => onStep(line.lineId, delta)} onOpen={() => onOpenLine(line.lineId)} /> : null}
                   <button type="button" className="sl-text-btn sl-push" data-tone="danger" onClick={() => onRemove(line.lineId)} data-action="cart-remove">
                     {t('sell.remove', 'احذف')}
                   </button>
@@ -224,7 +227,7 @@ export function CartSheet({ level, rows, math, storeName, draft, today, tried, s
             ) : discount !== null && discount > 0n ? (
               <p className="sl-hint">{t('money.input.read_back', '= {amount} دينار', { amount: fmtMoney(discount, 0) })}</p>
             ) : (
-              <p className="sl-hint">{t('invoice.discount.hint', 'يُوزَّع على السطور بنسبة مبالغها، ويظهر في التقارير باسمك.')}</p>
+              <p className="sl-hint">{t('sell.discount.hint', 'خصم يُطرح من مجموع الفاتورة كلّها.')}</p>
             )}
           </div>
           <div className="sl-field">
@@ -286,14 +289,14 @@ export function CartSheet({ level, rows, math, storeName, draft, today, tried, s
 export interface LineSheetProps {
   level: number;
   row: ParsedLine;
-  index: number;
   gross: Fils;
   units: readonly CatalogUnit[];
   /** «عندك» بوحدة السطر. */
   stock: string | null;
   /** سعر البيع لوحدة السطر من الخادم، أو null. */
   usual: Fils | null;
-  tried: boolean;
+  /** أخطاء السطر كما تُرى الآن (ما كُتب خطأً يُقال فوراً تحت خانته، D4). */
+  errors: ParsedLine['errors'];
   tab: LineTab;
   focusError: boolean;
   canAddAnother: boolean;
@@ -307,14 +310,13 @@ export interface LineSheetProps {
 
 const PAD_DECIMALS: Readonly<Record<LineTab, number>> = { qty: 3, price: 2, discount: 0 };
 
-export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: initialTab, focusError, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother }: LineSheetProps) {
+export function LineSheet({ level, row, gross, units, stock, usual, errors, tab: initialTab, focusError, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother }: LineSheetProps) {
   const [tab, setTab] = useState<LineTab>(initialTab);
   const [fresh, setFresh] = useState(true);
   const displayRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const { line, item, unit } = row;
   const name = item?.name ?? line.name;
-  const errors = tried ? row.errors : { item: row.errors.item, qty: row.base !== null ? row.errors.qty : undefined };
   const unitLabel = unit?.label ?? '';
   const value = tab === 'qty' ? line.qty : tab === 'price' ? line.price : line.discount;
   const error = tab === 'qty' ? errors.qty : tab === 'price' ? errors.price : errors.discount;
@@ -334,7 +336,8 @@ export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: 
     { key: 'discount', label: t('sell.tab.discount', 'الخصم'), wrong: Boolean(errors.discount) },
   ];
   const unitGone = item !== null && unit === null;
-  const shownUnit = tab === 'qty' ? shortUnit(unitLabel) : tab === 'price' ? t('sell.price.per', 'دينار لكل {unit}', { unit: shortUnit(unitLabel) }) : t('sales.dinar_word', 'دينار');
+  // تحت القيمة اسم قصير لا يلتفّ ثلاثة أسطر في 125٪ (D5): «/ كيس» للسعر، والقراءة الراجعة تقول الباقي.
+  const shownUnit = tab === 'qty' ? shortUnit(unitLabel) : tab === 'price' ? t('sell.price.per_short', '/ {unit}', { unit: shortUnit(unitLabel) }) : t('sales.dinar_word', 'دينار');
   const readBack =
     tab === 'qty'
       ? row.base !== null && unit && unit.unitId !== null && item
@@ -346,10 +349,11 @@ export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: 
           : null
         : t('sell.discount.of', 'من إجماليّ السطر {gross}', { gross: dinars(gross) });
   const net = gross - (row.discount ?? 0n);
+  // لا مبلغ سالب (S6): خصم أكبر من السطر يُقال تحت خانته، والمبلغ «—».
   const amount =
     row.qty !== null && row.price !== null
       ? (row.discount ?? 0n) > 0n
-        ? t('invoice.line.total_discount', 'الإجمالي {gross} − الخصم {discount} = {net}', { gross: dinars(gross), discount: dinars(row.discount ?? 0n), net: dinars(net) })
+        ? t('invoice.line.total_discount', 'الإجمالي {gross} − الخصم {discount} = {net}', { gross: dinars(gross), discount: dinars(row.discount ?? 0n), net: net >= 0n ? dinars(net) : t('file.none', '—') })
         : t('sell.line.amount', 'المبلغ {gross}', { gross: dinars(gross) })
       : t('invoice.line.total_empty', 'الإجمالي: اكتب الكمية والسعر');
   return (
@@ -373,7 +377,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: 
       action="sale-line"
       footer={
         <>
-          <Keypad decimals={PAD_DECIMALS[tab]} money={tab === 'discount'} onKey={press} label={tabs.find((entry) => entry.key === tab)?.label ?? ''} />
+          <Keypad decimals={PAD_DECIMALS[tab]} money={tab === 'discount'} onKey={press} onEnter={onClose} label={tabs.find((entry) => entry.key === tab)?.label ?? ''} />
           <div className="sl-foot-row">
             {canAddAnother ? (
               <button type="button" className="sl-secondary" onClick={onAddAnother} data-action="line-add-another">
@@ -436,10 +440,16 @@ export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: 
             data-tab={entry.key}
           >
             {entry.label}
-            {entry.wrong && tab !== entry.key ? <span className="sl-dot" aria-label={t('sell.tab.wrong', 'فيه خطأ')} /> : null}
+            {entry.wrong && tab !== entry.key ? <span className="sl-dot" role="img" aria-label={t('sell.tab.wrong', 'فيه خطأ')} /> : null}
           </button>
         ))}
       </div>
+      {/* «أعِده» فوق القيمة لا تحت القراءة الراجعة: هناك تغطّيه لوحة الأرقام في 125٪ (D5). */}
+      {tab === 'price' && usual !== null && row.price !== usual ? (
+        <button type="button" className="sl-text-btn sl-usual" onClick={onUsual} data-action="line-usual">
+          {t('sell.price.usual_short', 'المعتاد {price} — أعِده', { price: moneyText(usual) })}
+        </button>
+      ) : null}
       <div ref={displayRef} tabIndex={-1} className="sl-display" data-fresh={fresh ? 'yes' : undefined} data-wrong={error ? 'yes' : undefined} aria-live="polite" data-action="line-display">
         <span className="sl-display-value" dir="ltr" data-action="line-value">
           {value === '' ? t('file.none', '—') : typedText(value)}
@@ -470,11 +480,6 @@ export function LineSheet({ level, row, gross, units, stock, usual, tried, tab: 
           {readBack}
         </p>
       ) : null}
-      {tab === 'price' && usual !== null && row.price !== usual ? (
-        <button type="button" className="sl-text-btn" onClick={onUsual} data-action="line-usual">
-          {t('sell.price.usual', 'السعر المعتاد {price} — أعِده', { price: moneyText(usual) })}
-        </button>
-      ) : null}
     </Sheet>
   );
 }
@@ -499,6 +504,9 @@ export interface PaySheetProps {
   tried: boolean;
   recent: readonly PartyPick[];
   canCreateParty: boolean;
+  /** ما كُتب في بحث «لمن؟» (في الشاشة: اسم كُتب ولم يُختر يمنع الحفظ، D1). */
+  partyText: string;
+  onPartyText: (text: string) => void;
   padTarget: PadTarget | null;
   padFresh: boolean;
   focusRequest: { round: number; where: Where } | null;
@@ -506,6 +514,8 @@ export interface PaySheetProps {
   online: boolean;
   saveText: string;
   blockedText: string | null;
+  /** اسم «صحّح» بما سيفتحه، أو null حين لا شيء يُصحَّح (ملاحظة لا منع، S13). */
+  fixLabel: string | null;
   failure: string | null;
   lines: number;
   onClose: () => void;
@@ -518,22 +528,25 @@ export interface PaySheetProps {
   onSave: () => void;
 }
 
-/** مبالغ سريعة لساق «جزء الآن»: الباقي كلّه، ونصفه، ومبالغ مدوّرة تحته. */
-function partQuick(rest: Fils): Fils[] {
+/** مبالغ سريعة لساق «جزء الآن» باسمها (D13): الباقي كلّه (أو المطلوب كلّه في أوّل صندوق)، ونصفه، ومبلغ مدوّر تحته. */
+function partQuick(rest: Fils, total: Fils): { amount: Fils; label: string }[] {
   if (rest <= 0n) return [];
   const dinar = FILS_PER_DINAR;
-  const rounds = [1_000_000n, 500_000n, 250_000n, 100_000n, 50_000n, 25_000n, 10_000n, 5_000n].map((n) => n * dinar).filter((n) => n < rest);
   const half = ((rest / 2n) / (1000n * dinar)) * 1000n * dinar;
-  const picks = [rest, ...(half > 0n ? [half] : []), ...rounds];
-  return [...new Set(picks)].slice(0, 4);
+  const round = [1_000_000n, 500_000n, 250_000n, 100_000n, 50_000n, 25_000n, 10_000n, 5_000n].map((n) => n * dinar).find((n) => n < rest && n !== half);
+  return [
+    { amount: rest, label: rest === total ? t('sell.quick.all', 'المطلوب كلّه {amount}', { amount: moneyText(rest) }) : t('sell.quick.rest', 'الباقي كلّه {amount}', { amount: moneyText(rest) }) },
+    ...(half > 0n && half !== rest ? [{ amount: half, label: t('sell.quick.half', 'النصف {amount}', { amount: moneyText(half) }) }] : []),
+    ...(round !== undefined ? [{ amount: round, label: moneyText(round) }] : []),
+  ];
 }
 
-/** أوراق نقد سريعة لحاسبة الباقي: الصافي نفسه، ثمّ تقريبه لأعلى بمبالغ مدوّرة. */
-function cashQuick(total: Fils): Fils[] {
+/** أوراق نقد سريعة لحاسبة ما يُرجَع: المطلوب نفسه، ثمّ تقريبه لأعلى بمبالغ مدوّرة. */
+function cashQuick(total: Fils): { amount: Fils; label: string }[] {
   if (total <= 0n) return [];
   const steps = [5_000n, 10_000n, 25_000n, 50_000n].map((n) => n * FILS_PER_DINAR);
   const ups = steps.map((step) => ((total + step - 1n) / step) * step).filter((amount) => amount > total);
-  return [...new Set([total, ...ups])].slice(0, 4);
+  return [...new Set([total, ...ups])].slice(0, 4).map((amount) => ({ amount, label: moneyText(amount) }));
 }
 
 function CustomerSection({
@@ -543,6 +556,8 @@ function CustomerSection({
   canCreateParty,
   shown,
   searchRef,
+  search,
+  setSearch,
   onSet,
   onTyping,
 }: {
@@ -552,12 +567,13 @@ function CustomerSection({
   canCreateParty: boolean;
   shown: Shown;
   searchRef: RefObject<HTMLInputElement>;
+  search: string;
+  setSearch: (text: string) => void;
   onSet: (patch: Partial<Draft>) => void;
   /** الكتابة بلوحة النظام هنا أو اختيار زبون: لوحة التطبيق تُطوى فلا تقوم لوحتان ولا تبقى فوق ما لا تكتبه. */
   onTyping: () => void;
 }) {
   const id = useId();
-  const [search, setSearch] = useState('');
   const deferred = useDeferredValue(search.trim());
   const load = useCallback(() => (deferred ? purchasing.searchSuppliers(deferred) : Promise.resolve(null)), [deferred]);
   const found = useLoad(load, deferred);
@@ -604,6 +620,8 @@ function CustomerSection({
           onClick={() => {
             sound.click();
             onTyping();
+            // «زبون نقديّ» بلا اسم: ما كُتب في البحث يُمحى معه.
+            setSearch('');
             onSet({ mode: 'walk_in', party: null, pay: draft.pay === 'debt' ? 'auto' : draft.pay });
           }}
           data-action="party-walk-in"
@@ -639,7 +657,7 @@ function CustomerSection({
       {search.trim() ? (
         <div className="sl-results">
           {found.error ? (
-            <LoadFailed what={t('party.list', 'قائمة الجهات')} error={found.error} onRetry={found.retry} />
+            <LoadFailed what={t('sell.party.list', 'قائمة الزبائن')} error={found.error} onRetry={found.retry} />
           ) : (
             <ul className="sl-result-list">
               {(found.data?.parties ?? []).map((entry) => (
@@ -650,7 +668,7 @@ function CustomerSection({
                   </button>
                 </li>
               ))}
-              {found.data && found.data.parties.length === 0 ? <li className="sl-muted sl-pad-x">{t('party.pick.empty', 'لا جهة بهذا الاسم.')}</li> : null}
+              {found.data && found.data.parties.length === 0 ? <li className="sl-muted sl-pad-x">{t('sell.party.none', 'لا زبون بهذا الاسم.')}</li> : null}
             </ul>
           )}
           {twins && twins.length > 0 ? (
@@ -669,15 +687,29 @@ function CustomerSection({
             </button>
           ) : (
             <p className="sl-muted" data-action="party-create-hint">
-              {t('sale.party.create_hint', 'الجهة الجديدة يضيفها أمين المخزن أو المحاسب أو المدير؛ اختر جهة من القائمة.')}
+              {t('sell.party.create_hint', 'الزبون الجديد يضيفه أمين المخزن أو المحاسب أو المدير؛ اختر زبوناً من القائمة.')}
             </p>
           )}
         </div>
       ) : null}
-      {!walkIn && !party && !shown.party ? (
-        <p className="sl-note" data-action="sale-party-needed">
-          {t('sell.party.needed', 'الدين يحتاج اسم الزبون: اختره أو ابحث عنه أو أضفه.')}
-        </p>
+      {!walkIn && !party && !search.trim() ? (
+        <div className={shown.party ? 'sl-note-row' : 'sl-note sl-note-row'}>
+          {shown.party ? null : <span data-action="sale-party-needed">{t('sell.party.needed', 'الدين يحتاج اسم الزبون: اختره أو ابحث عنه أو أضفه.')}</span>}
+          {/* «زبون جديد» ظاهر لا بعد الكتابة وحدها (D17): يركّز البحث ليُكتب الاسم ثمّ يُضاف. */}
+          {canCreateParty ? (
+            <button
+              type="button"
+              className="sl-text-btn"
+              onClick={() => {
+                sound.click();
+                searchRef.current?.focus();
+              }}
+              data-action="party-new"
+            >
+              {t('sell.party.new', '+ زبون جديد')}
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {shown.party ? (
         <p role="alert" className="sl-field-error" data-action="sale-party-error">
@@ -726,8 +758,8 @@ function BoxChoice({ boxes, value, open, onToggle, onPick, action }: { boxes: re
 }
 
 export function PaySheet(props: PaySheetProps) {
-  const { level, math, draft, walkIn, payKind, legErrors, boxes, boxesFailed, onBoxesRetry, cashBox, paid, debt, shown, recent, canCreateParty, padTarget, padFresh, focusRequest } = props;
-  const { busy, online, saveText, blockedText, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave } = props;
+  const { level, math, draft, walkIn, payKind, legErrors, boxes, boxesFailed, onBoxesRetry, cashBox, paid, debt, shown, recent, canCreateParty, partyText, onPartyText, padTarget, padFresh, focusRequest } = props;
+  const { busy, online, saveText, blockedText, fixLabel, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave } = props;
   const searchRef = useRef<HTMLInputElement>(null);
   const legsRef = useRef<HTMLDivElement>(null);
   const dueRef = useRef<HTMLDivElement>(null);
@@ -777,6 +809,7 @@ export function PaySheet(props: PaySheetProps) {
     if (target) onPad(target, false);
   };
   const quick = (amount: Fils) => {
+    if (busy) return;
     sound.click();
     write(inputMoney(amount));
     if (target) onPad(target, true);
@@ -784,7 +817,7 @@ export function PaySheet(props: PaySheetProps) {
   const typedLegs = draft.legs.reduce((sum, leg) => sum + amountOf(leg.amount), 0n);
   const targetLeg = target?.kind === 'leg' ? draft.legs.find((leg) => leg.legId === target.legId) : undefined;
   const restForTarget = targetLeg ? total - (typedLegs - amountOf(targetLeg.amount)) : 0n;
-  const quickAmounts = target?.kind === 'leg' ? partQuick(restForTarget) : target?.kind === 'received' ? cashQuick(total) : [];
+  const quickAmounts = target?.kind === 'leg' ? partQuick(restForTarget, total) : target?.kind === 'received' ? cashQuick(total) : [];
   const padTitle =
     target?.kind === 'discount'
       ? t('sell.pad.discount', 'خصم على الفاتورة')
@@ -797,9 +830,9 @@ export function PaySheet(props: PaySheetProps) {
   const canAddLeg = target?.kind === 'leg' && draft.legs.length < MAX_LEGS && draft.legs.length < boxList.length;
   const cashBoxName = boxList.find((box) => box.id === cashBox)?.name ?? '';
 
-  // جملة النتيجة بكلمات.
+  // جملة النتيجة بكلمات. «الباقي» للدين المفتوح وحده (D8).
   const result = !settled
-    ? t('invoice.debt.pending', 'الباقي يُحسب بعد تصحيح الخصم.')
+    ? t('sell.result.pending', 'الدين يُحسب بعد تصحيح الخصم.')
     : debt < 0n
       ? t('invoice.debt.over', 'المدفوع أكثر من الصافي بـ{over}؛ أنقص المبلغ.', { over: dinars(-debt) })
       : total === 0n
@@ -809,7 +842,7 @@ export function PaySheet(props: PaySheetProps) {
             ? t('sell.result.cash', 'مدفوعة كلّها: {total} في «{box}».', { total: dinars(total), box: cashBoxName })
             : t('sell.result.paid', 'مدفوعة كلّها: {total}.', { total: dinars(total) })
           : walkIn
-            ? t('sell.result.walk_in', 'الزبون النقديّ يدفع المبلغ كلّه؛ الباقي {debt} لا يُكتب ديناً بلا اسم.', { debt: dinars(debt) })
+            ? t('sell.result.walk_in_unpaid', 'الزبون النقديّ يدفع المبلغ كلّه؛ {debt} غير مدفوعة لا تُكتب ديناً بلا اسم.', { debt: dinars(debt) })
             : paid === 0n
               ? partyName
                 ? t('sell.result.credit', 'يبقى ديناً على «{party}»: {debt}.', { party: partyName, debt: dinars(debt) })
@@ -826,7 +859,7 @@ export function PaySheet(props: PaySheetProps) {
       sub: walkIn ? t('sell.pay.debt_needs', 'يحتاج اسم الزبون') : partyName ? t('sell.pay.debt_on', 'على «{party}»', { party: partyName }) : t('sell.pay.debt_sub', 'على الزبون'),
       icon: <NotebookPen aria-hidden="true" className="sl-icon" />,
     },
-    { kind: 'part', title: t('sell.pay.part', 'جزء الآن…'), sub: t('sell.pay.part_sub', 'والباقي دين'), icon: <Coins aria-hidden="true" className="sl-icon" /> },
+    { kind: 'part', title: t('sell.pay.part_now', 'جزء الآن'), sub: t('sell.pay.part_sub', 'والباقي دين'), icon: <Coins aria-hidden="true" className="sl-icon" /> },
   ];
 
   return (
@@ -845,26 +878,36 @@ export function PaySheet(props: PaySheetProps) {
                 <span className="sl-pad-value sl-num" dir="ltr">
                   {typedText(targetText())}
                 </span>
-                <button type="button" className="sl-text-btn" onClick={() => onPad(null, true)} data-action="pad-done">
+                <button type="button" className="sl-text-btn sl-pad-done" onClick={() => onPad(null, true)} data-action="pad-done">
                   {t('sell.done', 'تم')}
                 </button>
               </div>
+              {/* ما يبقى ديناً يُرى واللوحة تغطّي الورقة (D13). */}
+              {target?.kind === 'leg' && settled ? (
+                <p className="sl-pad-debt sl-num" data-state={debt > 0n ? 'debt' : undefined} data-action="pad-debt">
+                  {debt > 0n
+                    ? t('sell.pad.debt', 'يبقى دين {debt}', { debt: dinars(debt) })
+                    : debt === 0n
+                      ? t('sell.pad.paid', 'مدفوعة كلّها')
+                      : t('sell.pad.over', 'أكثر من المطلوب بـ{over}', { over: dinars(-debt) })}
+                </p>
+              ) : null}
               {quickAmounts.length > 0 || canAddLeg ? (
-                <div className="sl-chips">
+                <div className="sl-chips sl-wrap">
                   {canAddLeg ? (
                     // «+ صندوق آخر» عند اللوحة وأوّلاً: بعد مبلغ الصندوق الأوّل تكون الخطوة التالية تحت الإبهام لا خلف اللوحة.
                     <button type="button" className="sl-chip sl-chip-strong" onClick={onAddLeg} data-action="pay-add-pad">
                       {t('sell.leg.add', '+ صندوق آخر')}
                     </button>
                   ) : null}
-                  {quickAmounts.map((amount) => (
-                    <button key={String(amount)} type="button" className="sl-chip sl-num" onClick={() => quick(amount)} data-action="pay-quick">
-                      {moneyText(amount)}
+                  {quickAmounts.map((entry) => (
+                    <button key={String(entry.amount)} type="button" className="sl-chip sl-num" onClick={() => quick(entry.amount)} data-action="pay-quick" data-amount={String(entry.amount)}>
+                      {entry.label}
                     </button>
                   ))}
                 </div>
               ) : null}
-              <Keypad decimals={0} money onKey={press} label={padTitle} />
+              <Keypad decimals={0} money onKey={press} onEnter={() => onPad(null, true)} label={padTitle} />
             </div>
           ) : null}
           {failure ? (
@@ -877,16 +920,17 @@ export function PaySheet(props: PaySheetProps) {
               <p role="alert" data-action="sale-blocked">
                 {blockedText}
               </p>
-              {blockedText.length > 0 ? (
+              {fixLabel !== null ? (
                 <button type="button" className="sl-text-btn" onClick={onFix} data-action="sale-fix">
-                  {t('sell.fix', 'صحّح')}
+                  {fixLabel}
                 </button>
               ) : null}
             </div>
           ) : null}
-          {!online ? <p className="sl-note">{t('invoice.offline', 'الفاتورة تُحفظ في الخادم فوراً برقمها؛ أعد المحاولة حين يعود الاتصال.')}</p> : null}
+          {!online ? <p className="sl-note">{t('sell.offline.now', 'بلا اتصال: جهّز الفاتورة واحفظها حين يعود الاتصال.')}</p> : null}
+          {/* أثناء الحفظ «يُحفظ…» بتباين كامل لا الاسم نفسه باهتاً (D23). */}
           <button type="button" className="sl-primary sl-save" disabled={busy || !online || lines === 0} aria-busy={busy || undefined} onClick={onSave} data-action="save-invoice">
-            {saveText}
+            {busy ? t('sell.saving', 'يُحفظ…') : saveText}
           </button>
         </div>
       }
@@ -926,7 +970,18 @@ export function PaySheet(props: PaySheetProps) {
         ) : null}
       </div>
 
-      <CustomerSection draft={draft} walkIn={walkIn} recent={recent} canCreateParty={canCreateParty} shown={shown} searchRef={searchRef} onSet={onSet} onTyping={() => (padTarget ? onPad(null, true) : undefined)} />
+      <CustomerSection
+        draft={draft}
+        walkIn={walkIn}
+        recent={recent}
+        canCreateParty={canCreateParty}
+        shown={shown}
+        searchRef={searchRef}
+        search={partyText}
+        setSearch={onPartyText}
+        onSet={onSet}
+        onTyping={() => (padTarget ? onPad(null, true) : undefined)}
+      />
 
       <section className="sl-section" data-action="sale-payments" data-field="legs">
         <h3 className="sl-h3">{t('sell.how', 'كيف يدفع؟')}</h3>
@@ -1023,7 +1078,7 @@ export function PaySheet(props: PaySheetProps) {
             </button>
             <span className="sl-change-out sl-num" data-action="pay-change">
               {!received.trim()
-                ? t('sell.change.note', 'احسب الباقي للزبون (لا يُسجَّل)')
+                ? t('sell.change.calc', 'احسب ما تُرجعه للزبون (لا يُسجَّل)')
                 : receivedAmount >= total
                   ? t('sell.change.back', 'أرجِع للزبون {amount}', { amount: dinars(receivedAmount - total) })
                   : t('sell.change.short', 'ناقص {amount}', { amount: dinars(total - receivedAmount) })}
@@ -1039,7 +1094,7 @@ export function PaySheet(props: PaySheetProps) {
 
 export function StoreSheet({ level, rows, current, onPick, onClose }: { level: number; rows: readonly { id: string; name: string }[]; current: string; onPick: (id: string) => void; onClose: () => void }) {
   return (
-    <Sheet title={t('invoice.store', 'من أيّ مخزن تبيع؟')} subtitle={t('invoice.store.hint', 'فاتورة واحدة لكلّ مخزن؛ ما في مخزن آخر يُباع بفاتورة ثانية.')} level={level} onClose={onClose} action="sale-stores">
+    <Sheet title={t('invoice.store', 'من أيّ مخزن تبيع؟')} subtitle={t('sell.store.hint', 'كلّ مخزن بفاتورته؛ لبيع من مخزن آخر افتح فاتورة جديدة.')} level={level} onClose={onClose} action="sale-stores">
       <div className="sl-store-list" role="radiogroup" aria-label={t('invoice.store', 'من أيّ مخزن تبيع؟')}>
         {rows.map((row) => (
           <button
