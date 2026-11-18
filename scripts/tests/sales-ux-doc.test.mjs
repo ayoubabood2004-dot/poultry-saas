@@ -47,7 +47,8 @@ const plugins = [
       b.onLoad({ filter: /.*/, namespace: 'ux-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'ux-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'ux-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
-      b.onResolve({ filter: /\.css$/ }, () => ({ path: 'css', namespace: 'ux-css' }));
+      // doc.css وsell.css?raw (شاشة البيع في الحزمة نفسها): نصّ فارغ هنا، وdoc.css يُقرأ من ملفّه أعلاه.
+      b.onResolve({ filter: /\.css(\?raw)?$/ }, () => ({ path: 'css', namespace: 'ux-css' }));
       b.onLoad({ filter: /.*/, namespace: 'ux-css' }, () => ({ contents: '', loader: 'js' }));
     },
   },
