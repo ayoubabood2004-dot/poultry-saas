@@ -79,49 +79,128 @@ export function CartIcon({ className }: { className: string }) {
 const DIGITS: readonly PadKey[] = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
 
 /**
- * مفتاح لوحة المفاتيح الحقيقية (حاسوب أو لوحة بلوتوث) بمفتاح اللوحة: الأرقام (والهندية منها)، والفاصلة، والحذف، وDelete للمسح؛ وEnter «تم». وغيرها
- * null. مراجعة البيع S7: كانت Escape وحدها تعمل، فلا تُكتب كمية ولا سعر من لوحة مفاتيح.
+ * مفتاح لوحة المفاتيح الحقيقية (حاسوب أو لوحة بلوتوث) بمفتاح اللوحة: الأرقام (والهندية منها)، والنقطة العشرية «.» و«٫»، والحذف، وDelete للمسح؛ وEnter
+ * «تم». وغيرها null، والفاصلة «,» و«٬» منها: الفاصلة تفصل الآلاف وحدها في هذا المشروع (قانون الأرقام)، فـ«35,000» خمسة وثلاثون ألفاً لا 35.00 (المراجعة
+ * الثانية R1). مراجعة البيع S7: كانت Escape وحدها تعمل، فلا تُكتب كمية ولا سعر من لوحة مفاتيح.
  */
 export function padKeyOf(key: string, decimals: number): PadKey | 'enter' | null {
   if (key === 'Enter') return 'enter';
   if (key === 'Backspace') return 'back';
   if (key === 'Delete') return 'clear';
-  if ((key === '.' || key === ',' || key === '\u{066B}') && decimals > 0) return '.'; // i18n-ok: الفاصلة العشرية العربية
+  if ((key === '.' || key === '\u{066B}') && decimals > 0) return '.'; // i18n-ok: النقطة العشرية العربية
   const digit = toWesternDigits(key);
   return /^[0-9]$/u.test(digit) ? (digit as PadKey) : null;
 }
 
-/** لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. ولوحة المفاتيح الحقيقية تكتب فيها ما دامت ورقتها في الأعلى. */
-export function Keypad({ decimals, money = false, onKey, onEnter, label }: { decimals: number; money?: boolean; onKey: (key: PadKey) => void; onEnter?: () => void; label: string }) {
+/** ماسح الرموز (لوحة مفاتيح وهمية) يكتب الرمز دفعةً: حروف متتالية أقلّ من هذا بين كلّ حرفين، وهذا عددها على الأقلّ؛ ولا يكتبها إنسان بهذه السرعة. */
+export const SCAN_GAP_MS = 35;
+export const SCAN_MIN_CHARS = 4;
+/** مهلة السكون بعد آخر حرف: بعدها يُعرف أنّ ما كُتب إنسان (يُكتب في اللوحة) أو ماسح بلا Enter (يُمسح). */
+const SCAN_HOLD_MS = 70;
+
+interface Burst {
+  chars: string;
+  keys: (PadKey | null)[];
+  last: number;
+}
+
+/**
+ * لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. ولوحة المفاتيح الحقيقية تكتب فيها ما دامت ورقتها في الأعلى، وما
+ * يكتبه الماسح دفعةً لا يُكتب فيها أبداً بل يذهب إلى onScan (المراجعة الثانية R2: مسح المادّة التالية والسطر مفتوح كان يصير سعره). مفاتيح اللوحة لا تأخذ
+ * التركيز، فـEnter بعد لمسها «تم» لا ضغطة ثانية عليها (R11).
+ */
+export function Keypad({
+  decimals,
+  money = false,
+  onKeys,
+  onEnter,
+  onScan,
+  label,
+}: {
+  decimals: number;
+  money?: boolean;
+  /** مفتاح أو أكثر بالترتيب (حرفان متتاليان من لوحة المفاتيح يُطبَّقان معاً). */
+  onKeys: (keys: PadKey[]) => void;
+  onEnter?: () => void;
+  onScan?: (code: string) => void;
+  label: string;
+}) {
   const keys: PadKey[] = [...DIGITS, money ? '000' : '.', '0', 'back'];
   const ref = useRef<HTMLDivElement>(null);
-  const handlers = useRef({ onKey, onEnter, decimals });
+  const handlers = useRef({ onKeys, onEnter, onScan, decimals });
   useEffect(() => {
-    handlers.current = { onKey, onEnter, decimals };
+    handlers.current = { onKeys, onEnter, onScan, decimals };
   });
   useEffect(() => {
+    let burst: Burst | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stopTimer = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    /** ما تجمّع: دفعة ماسح ← onScan، وإلّا مفاتيحه في اللوحة. */
+    const settle = (): boolean => {
+      stopTimer();
+      const held = burst;
+      burst = null;
+      if (!held) return false;
+      if (held.chars.length >= SCAN_MIN_CHARS) {
+        handlers.current.onScan?.(held.chars);
+        return true;
+      }
+      const typed = held.keys.filter((key): key is PadKey => key !== null);
+      if (typed.length > 0) handlers.current.onKeys(typed);
+      return false;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       let dialog: HTMLElement | null = ref.current;
       while (dialog !== null && dialog.getAttribute?.('role') !== 'dialog') dialog = dialog.parentNode as HTMLElement | null;
       if (!dialog || !isTopModal(dialog) || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
       // خانة كتابة (بحث الزبون، الملاحظة) تأخذ مفاتيحها كما هي.
-      const target = event.target as { localName?: string; isContentEditable?: boolean } | null;
+      const target = event.target as { localName?: string; isContentEditable?: boolean; getAttribute?: (name: string) => string | null } | null;
       if (target && (target.localName === 'input' || target.localName === 'textarea' || target.localName === 'select' || target.isContentEditable)) return;
-      const { onKey: press, onEnter: enter, decimals: places } = handlers.current;
-      const key = padKeyOf(event.key, places);
-      if (key === null) return;
-      if (key === 'enter') {
-        // Enter على زرّ مركَّز يضغطه كعادته؛ «تم» حين لا زرّ تحت التركيز.
-        if (!enter || (target && (target.localName === 'button' || target.localName === 'a'))) return;
+      const { onKeys: press, onEnter: enter, decimals: places } = handlers.current;
+      if (event.key === 'Enter') {
+        if (burst !== null) {
+          event.preventDefault();
+          // رمز ماسح انتهى بـEnter: يُمسح ولا «تم»؛ وما كتبه إنسان يُكتب ثمّ «تم».
+          if (settle()) return;
+          enter?.();
+          return;
+        }
+        // Enter على مفتاح اللوحة أو تبويب أو بطاقة دفع (ما يبقى مركَّزاً بعد لمسه) «تم»؛ وعلى غيرها من الأزرار يضغطه كعادته.
+        const action = target?.getAttribute?.('data-action') ?? null;
+        const nearPad = action === 'key' || action === 'line-tab' || action === 'pay-kind' || action === 'line-unit';
+        if (!enter || (target && (target.localName === 'button' || target.localName === 'a') && !nearPad)) return;
         event.preventDefault();
         enter();
         return;
       }
+      if (event.key.length === 1 && event.key !== ' ') {
+        // حرف: يُمسك لحظةً، فإن تبعته حروف بسرعة الماسح فهو رمز يُمسح لا يُكتب.
+        event.preventDefault();
+        const now = event.timeStamp;
+        if (burst !== null && now - burst.last >= SCAN_GAP_MS) settle();
+        burst ??= { chars: '', keys: [], last: now };
+        burst.chars += event.key;
+        const key = padKeyOf(event.key, places);
+        burst.keys.push(key === 'enter' ? null : key);
+        burst.last = now;
+        stopTimer();
+        timer = setTimeout(settle, SCAN_HOLD_MS);
+        return;
+      }
+      const key = padKeyOf(event.key, places);
+      if (key === null || key === 'enter') return;
+      settle();
       event.preventDefault();
-      press(key);
+      press([key]);
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      stopTimer();
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, []);
   return (
     <div ref={ref} className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
@@ -134,9 +213,12 @@ export function Keypad({ decimals, money = false, onKey, onEnter, label }: { dec
           data-key={key}
           disabled={key === '.' && decimals === 0}
           aria-label={key === 'back' ? t('weight_pad.back', 'احذف رقماً') : key === '.' ? t('weight_pad.point', 'فاصلة عشرية') : key === '000' ? t('sell.pad.thousands', 'ثلاثة أصفار') : key}
+          // لا يأخذ التركيز (فـEnter بعده لا يضغطه مرّة ثانية، R11).
+          onPointerDown={(event) => event.preventDefault()}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             sound.click();
-            onKey(key);
+            onKeys([key]);
           }}
         >
           {key === 'back' ? <BackspaceIcon /> : key}
@@ -287,7 +369,8 @@ export function Sheet({ title, onClose, level, locked = false, size = 'fit', act
 export interface Snack {
   id: number;
   text: string;
-  undo: () => void;
+  /** بلا «تراجع»: تنبيه قصير لا يُتراجع عنه (مادّة لا يكفي متاحها لوحدة كاملة). */
+  undo?: () => void;
 }
 
 /** ستّ ثوانٍ فوق الشريط الثابت: ما حُذف وزرّ «تراجع» (لا تأكيد قبل الحذف). */
@@ -298,17 +381,19 @@ export function Snackbar({ snack, onUndo, over = false }: { snack: Snack; onUndo
   return createPortal(
     <div className="sl-snack" role="status" data-place={over ? 'top' : undefined} data-action="sell-snack">
       <span className="sl-snack-text">{snack.text}</span>
-      <button
-        type="button"
-        className="sl-snack-undo"
-        onClick={() => {
-          sound.click();
-          onUndo();
-        }}
-        data-action="sell-undo"
-      >
-        {t('sell.undo', 'تراجع')}
-      </button>
+      {snack.undo ? (
+        <button
+          type="button"
+          className="sl-snack-undo"
+          onClick={() => {
+            sound.click();
+            onUndo();
+          }}
+          data-action="sell-undo"
+        >
+          {t('sell.undo', 'تراجع')}
+        </button>
+      ) : null}
     </div>,
     document.body,
   );

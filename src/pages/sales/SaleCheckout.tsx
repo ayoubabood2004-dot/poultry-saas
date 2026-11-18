@@ -48,7 +48,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { clearSaleDraft, saleDraftKey } from './saleDraft';
 import { checkoutBack, checkoutBackLabel, dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
 import sellStyle from './sell.css?raw';
-import { CartIcon, KindMark, kindChipLabel, SNACK_MS, Snackbar, type Snack } from './sellKit';
+import { CartIcon, KindMark, kindChipLabel, SCAN_GAP_MS, SNACK_MS, Snackbar, type Snack } from './sellKit';
 import { canStore, postedKey, postedSnapshot, readPosted, readSaleDraftRaw, readSellMemory, rememberPosted, rememberSell, sellMemoryKey, writeSaleDraft } from './sellMemory';
 import {
   blankDraft,
@@ -201,7 +201,7 @@ function defaultStore(rows: readonly StoreCard[], fromLink: string | null, remem
  */
 type PriceChange =
   | { kind: 'price'; lineId: string; name: string; unit: string; factor: bigint; before: Fils; after: Fils | null }
-  | { kind: 'size'; lineId: string; name: string; unit: string; baseUnit: CatalogItem['baseUnit']; from: bigint; to: bigint; price: Fils; next: Fils };
+  | { kind: 'size'; lineId: string; name: string; unit: string; baseUnit: CatalogItem['baseUnit']; from: bigint; to: bigint; price: Fils; next: Fils; sellPrice: Fils | null };
 
 // ─── الأوراق في التاريخ: الرجوع يغلق الورقة العليا ───────────────────────────────────────────────────────────────────
 
@@ -412,6 +412,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   const rawNav = navOf(location.state);
   const nav: SellNav = staleKey !== null && location.key === staleKey ? { ...rawNav, stack: [] } : rawNav;
   const [frozen, setFrozen] = useState<PendingSale | null>(null);
+  // مجمَّدة على طلب أرسلته نافذة أخرى (لا هذه): تتبع ما يصير إليه هناك (R5).
+  const [frozenOther, setFrozenOther] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
@@ -487,26 +489,14 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     setTried(false);
     setNotice(t('sell.sold_elsewhere', 'حُفظت الفاتورة التي كانت مفتوحة هنا من نافذة أخرى؛ هذه فاتورة جديدة.'));
   }
-  // نافذة أخرى أرسلت هذه الفاتورة نفسها ولم يُعرف جوابها بعد: تتجمّد هنا بطلبها (إعادته آمنة)، فلا تُعدَّل وتُرسل بمرجعها.
+  // نافذة أخرى أرسلت هذه الفاتورة نفسها ولم يُعرف جوابها بعد: تتجمّد هنا بطلبها (إعادته آمنة)، فلا تُعدَّل وتُرسل بمرجعها. ثمّ تتبع ما يصير إليه هناك
+  // (R5): حُفظ (مرجعه في قائمة المحفوظ) ← الفاتورة مكان الشاشة؛ ورُفض أو بُدئ غيره (الفاتورة المحفوظة بلا طلب أو بمرجع آخر) ← تعود إلى الخانات بما حُفظ.
+  const otherTab = useRef<(event: StorageEvent) => void>(() => undefined);
   useEffect(() => {
-    const key = saleDraftKey(userId, orgId);
-    const onChange = (event: StorageEvent) => {
-      if (event.key !== key || event.newValue === null || sending.current) return;
-      let pending: PendingSale | null;
-      try {
-        const raw = JSON.parse(event.newValue) as { pending?: unknown };
-        pending = typeof raw.pending === 'string' ? decodePending(raw.pending) : null;
-      } catch { // swallow-ok: ما كتبته نافذة أخرى تالف؛ لا شيء يُجمَّد عليه
-        pending = null;
-      }
-      if (pending !== null && pending.request.clientRef === idsNow.current.ref) {
-        const sent = pending;
-        setFrozen((current) => current ?? sent);
-      }
-    };
-    window.addEventListener('storage', onChange);
-    return () => window.removeEventListener('storage', onChange);
-  }, [userId, orgId]);
+    const listen = (event: StorageEvent) => otherTab.current(event);
+    window.addEventListener('storage', listen);
+    return () => window.removeEventListener('storage', listen);
+  }, []);
 
   // المخازن التي يُباع منها في النطاق، والمختار.
   const storeRows = sellingStores(stores.data);
@@ -600,6 +590,11 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       discount: on('discount') || math.overLines.includes(index) ? row.errors.discount : undefined,
     };
   });
+  // سطر بلغ المتاح: «+» لا يزيده، والسلّة تقول ذلك على السطر نفسه (R7).
+  const limits = parsed.map((row) => {
+    if (!row.item || !row.unit || row.base === null) return null;
+    return usedBase(parsed, row.item.id) + baseQtyOf(MILLI_PER_UNIT, row.unit.factor) > row.item.available ? t('sell.card.only', 'عندك {qty} فقط', { qty: stockText(row.item, row.unit) }) : null;
+  });
   const walkIn = draft.mode === 'walk_in';
   const payKind: PayKind = payKindOf(draft);
   const boxList = boxes ?? [];
@@ -623,7 +618,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   if (invoiceDiscount === null || invoiceDiscount < 0n) errors.discount = t('invoice.discount.invalid', 'خصم الفاتورة بالدينار الصحيح من صفر فأكثر.');
   else if (math.invoiceOver) errors.discount = t('invoice.discount.over', 'خصم الفاتورة أكبر من مجموع السطور بعد خصومها ({base}).', { base: dinars(math.grossTotal - math.lineDiscounts) });
   // اسم كُتب في «لمن؟» ولم يُختر ولم يُضف (D1): كانت الفاتورة تُحفظ لزبون نقديّ والاسم يضيع بصمت.
-  if (partyText.trim() !== '' && !draft.party) {
+  // ولو اختير زبون ثمّ كُتب غيره ولم يُختر (R3): كان الدين يُكتب على الأوّل والاسم الثاني يضيع.
+  if (partyText.trim() !== '' && partyText.trim() !== (draft.party?.name ?? '')) {
     errors.party = t('sell.party.typed', 'لم تختر «{name}»: اختره من القائمة، أو أضفه زبوناً جديداً، أو امسح الاسم.', { name: partyText.trim() });
   } else if (!walkIn && !draft.party) errors.party = t('invoice.party.required', 'اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.');
   const legErrors = legs.map(({ leg, amount }, index) => {
@@ -738,6 +734,59 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   }, [payGone, navigate, location.pathname, location.search, location.key]);
 
   const openLine = (lineId: string, tab: LineTab = 'qty', focus = false) => openSheet('line', { line: lineId, tab, focus });
+  /** رمز كتبه الماسح ولوحة أرقام مفتوحة (R2): يُمسح لا يُكتب في الخانة، وتُطوى الأوراق فيرى البائع ما أُضيف أو لماذا لم يُضف. */
+  const scanFromPad = (code: string) => {
+    if (busy) return;
+    scanLater.current(code);
+    closeAll();
+  };
+  /** كلّ الأوراق تُطوى (مسح الماسح والورقة مفتوحة: المادّة تُضاف والبائع على البطاقات). */
+  const closeAll = () => {
+    if (nav.stack.length === 0) return;
+    if (location.key === 'default' || location.key === staleKey) navigate(here, { replace: true, state: { sell: { ...nav, focus: false, stack: [] } } });
+    else navigate(-nav.stack.length);
+  };
+  /** الطلب المحفوظ مع الفاتورة المفتوحة على الجهاز (أرسلته هذه النافذة أو غيرها)، أو null. */
+  const storedPending = (): PendingSale | null => {
+    const raw = readSaleDraftRaw(userId, orgId) as { v?: unknown; pending?: unknown } | null;
+    return raw && raw.v === 1 && typeof raw.pending === 'string' ? decodePending(raw.pending) : null;
+  };
+  useEffect(() => {
+    otherTab.current = (event: StorageEvent) => {
+      if ((event.key !== saleDraftKey(userId, orgId) && event.key !== postedName) || sending.current) return;
+      if (frozen !== null && frozenOther) {
+        const { request } = frozen;
+        if (readPosted(postedName).includes(request.clientRef)) {
+          // حُفظت هناك: لا «لا نعرف» هنا.
+          setFrozen(null);
+          setFrozenOther(false);
+          setDraft(blankDraft(request.warehouseId));
+          setIds(newIds());
+          const query = new URLSearchParams({ done: '1' });
+          if (back !== '/sales') query.set('back', back);
+          leaveTo(`/sales/${request.saleId}?${query.toString()}`);
+          return;
+        }
+        const still = storedPending();
+        if (still !== null && still.request.clientRef === request.clientRef) return;
+        // انتهى هناك بلا حفظ (رُفض فعادت خاناته بمرجع جديد، أو بُدئت فاتورة أخرى): هنا ما حُفظ على الجهاز كما هو.
+        const raw = readSaleDraftRaw(userId, orgId) as { v?: unknown; body?: unknown } | null;
+        const body = raw && raw.v === 1 ? restoreBody(raw.body) : null;
+        setFrozen(null);
+        setFrozenOther(false);
+        setDraft(body?.draft ?? blankDraft(''));
+        setIds(body?.ids ?? newIds());
+        setNotice(t('sell.other_tab_unsaved', 'لم تُحفظ الفاتورة التي أُرسلت من نافذة أخرى؛ هي هنا كما تُركت لتراجعها.'));
+        return;
+      }
+      if (frozen !== null || event.key !== saleDraftKey(userId, orgId)) return;
+      const pending = storedPending();
+      if (pending !== null && pending.request.clientRef === ids.ref) {
+        setFrozen(pending);
+        setFrozenOther(true);
+      }
+    };
+  });
 
   // ─── الإرسال ─────────────────────────────────────────────────────────────────────────────────────────────────
   /**
@@ -796,6 +845,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (sending.current) return;
     sending.current = true;
     setBusy(true);
+    setFrozenOther(false);
+    setSnack(null);
     setFailure(null);
     setUnreached(false);
     // الطلب محفوظ خارج المكوّن قبل أن يخرج: رجوع أو إعادة تحميل أو إغلاق قبل الجواب تعيد الشاشة مجمَّدة به.
@@ -807,12 +858,19 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     } catch (thrown) {
       let problem: unknown = thrown;
       let unknown = !surelyUnsaved(thrown) || (retrying && !(thrown instanceof RejectedError));
+      let voided = false;
       // المرجع أو المعرّف مستعمل: ربّما هي هذه الفاتورة نفسها بإرسال ضاع جوابه (S1). تُقرأ بمعرّفها، ووجودها حفظ لا رفض.
       if (thrown instanceof RejectedError && MAYBE_SAVED.has(thrown.code)) {
         const found = await findSaved(pending.request.saleId);
-        if (found.kind === 'saved') {
-          finish(pending, pending.request.saleId, t('sell.found_saved_short', 'حُفظت الفاتورة.'), found.posted, true);
+        if (found.kind === 'saved' && found.posted) {
+          finish(pending, pending.request.saleId, t('sell.found_saved_short', 'حُفظت الفاتورة.'), true, true);
           return;
+        }
+        // وُجدت ملغاة (R9): ليست «حُفظت»؛ رسالة الخادم كما هي («…ثمّ أُلغيت. سجّل فاتورة جديدة») والسلّة باقية بمعرّفات جديدة.
+        if (found.kind === 'saved') {
+          voided = true;
+          // ref_reused لا يحمل سبب الإلغاء: يُقال بكلمات الخادم نفسها.
+          if (thrown.code !== 'id_conflict') problem = new RejectedError('id_conflict', t('sell.found_void', 'سُجّلت هذه الفاتورة من قبل ثمّ أُلغيت. سجّل فاتورة جديدة.'));
         }
         if (found.kind === 'unknown') {
           unknown = true;
@@ -828,7 +886,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       }
       // جواب أكيد بلا فاتورة: ما أُرسل يعود إلى الخانات، والإرسال التالي بمرجع جديد (ومعرّفات جديدة بعد id_conflict).
       storeSalePending(pendingKey, null);
-      const conflict = problem instanceof RejectedError && problem.code === 'id_conflict';
+      const conflict = voided || (problem instanceof RejectedError && problem.code === 'id_conflict');
       const rotate = (base: Draft): Draft =>
         conflict ? { ...base, cashLegId: crypto.randomUUID(), lines: base.lines.map((line) => ({ ...line, lineId: crypto.randomUUID() })), legs: base.legs.map((leg) => ({ ...leg, legId: crypto.randomUUID() })) } : base;
       const nextIds: Ids = { ref: crypto.randomUUID(), saleId: conflict ? crypto.randomUUID() : pending.request.saleId };
@@ -917,6 +975,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     setTried(true);
     setNotice(null);
     setStop(null);
+    // «تراجع» لا يبقى ليعيد سطراً تحت طلب خارج (R4).
+    setSnack(null);
     setPadTarget(null);
     if (frozen || busy || !online) return;
     if (blocked || !warehouseId) {
@@ -974,7 +1034,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       const name = row.item?.name ?? row.line.name;
       if (freshItem && freshUnit && wroteFor !== null && freshUnit.factor !== wroteFor && row.price !== null) {
         const next = row.line.suggestedFrom !== null && freshItem.sellPrice !== null ? unitPriceOf(freshItem.sellPrice, freshUnit.factor) : convertUnitPrice(row.price, wroteFor, freshUnit.factor);
-        return [{ kind: 'size', lineId: row.line.lineId, name, unit: freshUnit.label, baseUnit: freshItem.baseUnit, from: wroteFor, to: freshUnit.factor, price: row.price, next }];
+        return [{ kind: 'size', lineId: row.line.lineId, name, unit: freshUnit.label, baseUnit: freshItem.baseUnit, from: wroteFor, to: freshUnit.factor, price: row.price, next, sellPrice: freshItem.sellPrice }];
       }
       const before = row.line.suggestedFrom;
       if (before === null) return [];
@@ -1037,6 +1097,15 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     }
     if (draft.lines.length >= MAX_LINES) return;
     const unit = unitOf(item);
+    // لا تُضاف وحدة كاملة أكثر من المتاح (R7: كيس 50 كغم والمتاح 24.5 كغم)؛ والموزون يُضاف وتُكتب كميته في ورقته.
+    if (!isWeighed(item, unit) && baseQtyOf(MILLI_PER_UNIT, unit.factor) > item.available) {
+      sound.warn();
+      const text = t('sell.card.only_named', '«{name}»: عندك {qty} فقط.', { name: item.name, qty: stockText(item, unit) });
+      setSaid(text);
+      if (via === 'scan') setScanNote(text);
+      else setSnack((current) => ({ id: (current?.id ?? 0) + 1, text }));
+      return;
+    }
     const line = newLine(item, unit, '1');
     // المخزن يُثبَّت في الفاتورة مع أوّل سطر: لو تغيّر «آخر مخزن» من نافذة أخرى تبقى الفاتورة المفتوحة على مخزنها.
     setDraft((current) => ({ ...current, warehouseId: current.warehouseId || warehouseId, lines: [...current.lines, line] }));
@@ -1084,16 +1153,24 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   useEffect(() => {
     scanLater.current = scanCode;
   });
+  // كم حرفاً من آخر ما في البحث وصل دفعةً (الماسح يكتب الحرف بعد الحرف بأجزاء من الثانية، واللصق دفعة واحدة).
+  const typing = useRef({ text: '', at: 0, burst: 0 });
   /**
-   * الكتابة في البحث. الرمز الكامل يُضاف بلا Enter بعد وقفة قصيرة في الكتابة (أو فوراً حين يُلصق): الماسح يكتب الرمز حرفاً حرفاً، فرمز أطول لمادّة لا
-   * تُباع هنا يمرّ في طريقه برمز مادّة أخرى (S5: «62600017001» يمرّ بـ«6260001» فيضيف «علف بادئ»).
+   * الكتابة في البحث. الرمز الكامل يُضاف بلا Enter حين وصل كلّه دفعةً (ماسح أو لصق)، بعد وقفة قصيرة (أو فوراً حين يُلصق): الماسح يكتب الرمز حرفاً
+   * حرفاً، فرمز أطول لمادّة لا تُباع هنا يمرّ في طريقه برمز مادّة أخرى (S5: «62600017001» يمرّ بـ«6260001» فيضيف «علف بادئ»). ومن يكتبه بيده يضغط
+   * Enter: الوقفة بين حرفين لإنسان ليست نهاية رمز (R6).
    */
-  const typeSearch = (text: string, pasted: boolean) => {
+  const typeSearch = (text: string, pasted: boolean, at: number) => {
     if (codeTimer.current !== null) {
       clearTimeout(codeTimer.current);
       codeTimer.current = null;
     }
-    const exact = catalog ? exactCodeItem(catalog.items, text) : null;
+    const before = typing.current;
+    const added = text.startsWith(before.text) ? text.length - before.text.length : -1;
+    const burst = added <= 0 ? 0 : at - before.at < SCAN_GAP_MS || added > 1 ? before.burst + added : added;
+    typing.current = { text, at, burst };
+    const whole = pasted || (burst >= text.length && text.length > 0);
+    const exact = catalog && whole ? exactCodeItem(catalog.items, text) : null;
     if (exact && exact.available > 0n && pasted) {
       setSearch('');
       scanCode(text);
@@ -1332,7 +1409,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
               placeholder={t('sell.search', 'ابحث بالاسم أو امسح الرمز')}
               aria-label={t('sell.search', 'ابحث بالاسم أو امسح الرمز')}
               value={search}
-              onChange={(event) => typeSearch(toWesternDigits(event.target.value), pastedInto(event))}
+              onChange={(event) => typeSearch(toWesternDigits(event.target.value), pastedInto(event), event.timeStamp)}
               onKeyDown={enterSearch}
               data-action="sale-search"
             />
@@ -1514,6 +1591,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           level={nav.stack.lastIndexOf('cart')}
           rows={parsed}
           errors={shownErrors}
+          limits={limits}
           math={math}
           storeName={storeName}
           draft={draft}
@@ -1572,6 +1650,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           }}
           onFix={() => goFix(problems[0])}
           onSave={() => void save()}
+          onScan={scanFromPad}
         />
       ) : null}
       {nav.stack.includes('line') && lineRow ? (
@@ -1605,6 +1684,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
             removeLine(lineRow.line.lineId);
           }}
           onAddAnother={() => addAnother(lineRow.line.lineId)}
+          onScan={scanFromPad}
         />
       ) : null}
 
@@ -1613,7 +1693,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           snack={snack}
           over={nav.stack.length > 0}
           onUndo={() => {
-            snack.undo();
+            if (busy) return;
+            snack.undo?.();
             setSnack(null);
           }}
         />
@@ -1638,7 +1719,9 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
                     lines: current.lines.map((line) => {
                       const change = changes.find((c) => c.lineId === line.lineId);
                       if (!change) return line;
-                      return change.kind === 'size' ? { ...line, factor: String(change.to) } : { ...line, suggestedFrom: change.after };
+                      return change.kind === 'size'
+                        ? { ...line, factor: String(change.to), suggestedFrom: line.suggestedFrom !== null ? change.sellPrice : null }
+                        : { ...line, suggestedFrom: change.after };
                     }),
                   }));
                   const pending = requestNow();
@@ -1657,7 +1740,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
                     lines: current.lines.map((line) => {
                       const change = changes.find((c) => c.lineId === line.lineId);
                       if (!change) return line;
-                      if (change.kind === 'size') return { ...line, price: inputMoney(change.next), factor: String(change.to) };
+                      if (change.kind === 'size') return { ...line, price: inputMoney(change.next), factor: String(change.to), suggestedFrom: line.suggestedFrom !== null ? change.sellPrice : null };
                       return change.after === null ? { ...line, suggestedFrom: null } : { ...line, price: inputMoney(unitPriceOf(change.after, change.factor)), suggestedFrom: change.after };
                     }),
                   }));
