@@ -48,7 +48,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { clearSaleDraft, saleDraftKey } from './saleDraft';
 import { checkoutBack, checkoutBackLabel, dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
 import sellStyle from './sell.css?raw';
-import { CartIcon, KindMark, kindChipLabel, SCAN_GAP_MS, SNACK_MS, Snackbar, type Snack } from './sellKit';
+import { CartIcon, fromKeyboard, KindMark, kindChipLabel, SNACK_MS, Snackbar, type Snack } from './sellKit';
 import { canStore, postedKey, postedSnapshot, readPosted, readSaleDraftRaw, readSellMemory, rememberPosted, rememberSell, sellMemoryKey, writeSaleDraft } from './sellMemory';
 import {
   blankDraft,
@@ -67,6 +67,7 @@ import {
   parseLines,
   payKindOf,
   qtyInUnit,
+  qtyText,
   restoreBody,
   shortUnit,
   steppedQty,
@@ -119,6 +120,25 @@ const MAYBE_SAVED = new Set(['ref_reused', 'id_conflict']);
 
 /** مهلة الكتابة قبل أن يُعدّ رمز كامل مسحاً (مراجعة البيع S5): الماسح يكتب حرفاً كلّ بضع أجزاء من الثانية، فرمز طويل يمرّ برمز أقصر قبل أن يكتمل. */
 const CODE_PAUSE_MS = 150;
+/** في البحث: حروف بينها أقلّ من هذا وصلت دفعةً (ماسح)، وأبطأ منها كتابة إنسان. */
+const BURST_GAP_MS = 35;
+/** موجّه الشاشة: سكون بعد آخر حرف بلا Enter، فما تجمّع رمزٌ من موادّ المخزن (ماسح بلا Enter) أو كتابة إنسان تذهب إلى البحث. */
+const ROUTER_SILENCE_MS = 300;
+
+/** خانة تكتب بنفسها (حقل، أو قيمة لوحة الأرقام المركَّزة): موجّه الشاشة لا يأخذ مفاتيحها. */
+function typesItself(target: EventTarget | null): boolean {
+  const node = target as { localName?: string; isContentEditable?: boolean; getAttribute?: (name: string) => string | null } | null;
+  if (!node) return false;
+  return node.localName === 'input' || node.localName === 'textarea' || node.localName === 'select' || node.isContentEditable === true || node.getAttribute?.('data-pad-display') === 'yes';
+}
+
+/** داخل نافذة ليست ورقة من أوراق البيع (إقرار الأسعار، تأكيد): مفاتيحها لها. */
+function inOtherDialog(target: EventTarget | null): boolean {
+  for (let node = target as { getAttribute?: (name: string) => string | null; parentNode?: unknown } | null; node; node = node.parentNode as typeof node) {
+    if (node.getAttribute?.('role') === 'dialog') return !(node.getAttribute('class') ?? '').split(' ').includes('sl-sheet');
+  }
+  return false;
+}
 
 /** اشتراك في تغيّر التخزين من نافذة أخرى (useSyncExternalStore). */
 function onStorage(callback: () => void): () => void {
@@ -215,6 +235,8 @@ interface SellNav {
   focus: boolean;
   /** «المزيد» مفتوح في السلّة. */
   more: boolean;
+  /** فُتحت الورقة العليا من لوحة المفاتيح (Enter أو Space): قيمة لوحة أرقامها مركَّزة فيُكتب فيها فوراً. */
+  kbd: boolean;
 }
 
 const SHEETS: readonly SheetName[] = ['cart', 'pay', 'line', 'store', 'scan'];
@@ -229,6 +251,7 @@ function navOf(state: unknown): SellNav {
     tab: TABS.includes(sell?.tab as LineTab) ? (sell?.tab as LineTab) : 'qty',
     focus: sell?.focus === true,
     more: sell?.more === true,
+    kbd: sell?.kbd === true,
   };
 }
 
@@ -251,7 +274,8 @@ interface CardProps {
   locked: boolean;
   onAdd: () => void;
   onStep: (delta: 1 | -1) => void;
-  onOpen: () => void;
+  /** byKeyboard: Enter أو Space على العدّاد. */
+  onOpen: (byKeyboard: boolean) => void;
 }
 
 /**
@@ -326,7 +350,7 @@ function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAd
             >
               <span aria-hidden="true">−</span>
             </button>
-            <button type="button" className="sl-step-qty" disabled={locked} onClick={onOpen} data-action="card-qty" aria-label={t('sell.step.open', '{qty} — غيّر الكمية أو السعر', { qty: qtyShown })}>
+            <button type="button" className="sl-step-qty" disabled={locked} onClick={(event) => onOpen(fromKeyboard(event))} data-action="card-qty" aria-label={t('sell.step.open', '{qty} — غيّر الكمية أو السعر', { qty: qtyShown })}>
               {qtyShown}
               {others > 0 ? <span className="sl-step-more">{t('sell.card.more_lines', '+ سطر آخر')}</span> : null}
             </button>
@@ -443,6 +467,12 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   const live = useRef(true);
   const leaving = useRef<string | null>(null);
   const codeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
+  // كيف فُتحت أوّل ورقة في الكومة (يقرّر أين يعود التركيز حين تُطوى كلّها).
+  const openedBy = useRef<'keyboard' | 'touch' | 'scan'>('touch');
+  // كتابة حُوّلت إلى البحث والأوراق تُطوى: يُركَّز البحث حين تُطوى.
+  const searchNext = useRef(false);
   // آخر نسخة من الفاتورة المعروضة، لمن ينتظر جواباً (الحفظ بعد قراءة الأسعار).
   const latest = useRef<Draft>(draft);
   const idsNow = useRef<Ids>(ids);
@@ -695,7 +725,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     // «تراجع» لا يبقى فوق لوحة أرقام ورقة جديدة (D6).
     setSnack(null);
     const stack = replaceTop ? [...nav.stack.slice(0, -1), sheet] : [...nav.stack, sheet];
-    navigate(here, { replace: replaceTop, state: { sell: { ...nav, focus: false, ...extra, stack } } });
+    if (stack.length === 1) openedBy.current = extra.kbd === true ? 'keyboard' : 'touch';
+    navigate(here, { replace: replaceTop, state: { sell: { ...nav, focus: false, kbd: false, ...extra, stack } } });
   };
   const closeSheet = () => {
     if (nav.stack.length === 0) return;
@@ -733,15 +764,29 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     navigate({ pathname: location.pathname, search: location.search }, { state: { sell: { ...current, focus: false, stack: [...current.stack, 'pay'] } } });
   }, [payGone, navigate, location.pathname, location.search, location.key]);
 
-  const openLine = (lineId: string, tab: LineTab = 'qty', focus = false) => openSheet('line', { line: lineId, tab, focus });
-  /** رمز كتبه الماسح ولوحة أرقام مفتوحة (R2): يُمسح لا يُكتب في الخانة، وتُطوى الأوراق فيرى البائع ما أُضيف أو لماذا لم يُضف. */
-  const scanFromPad = (code: string) => {
-    if (busy) return;
-    scanLater.current(code);
-    closeAll();
+  const openLine = (lineId: string, tab: LineTab = 'qty', focus = false, kbd = false) => openSheet('line', { line: lineId, tab, focus, kbd });
+  /**
+   * بعد أن تُطوى الأوراق كلّها: التركيز إلى البحث (أو إلى الشاشة في الأجهزة اللمسية، فلا تقوم لوحة النظام) حين فُتحت باللمس أو طواها مسح؛ وإلى ما
+   * فتحها حين فُتحت من لوحة المفاتيح (الورقة تعيده). فلا يبقى زرّ العدّاد مركَّزاً يفتح Enter المسحِ التالي سطرَه (T5).
+   */
+  const focusHome = () => {
+    const fine = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: fine)').matches;
+    (fine ? searchRef.current : screenRef.current)?.focus({ preventScroll: true });
   };
+  const depth = nav.stack.length;
+  const depthBefore = useRef(depth);
+  useEffect(() => {
+    const was = depthBefore.current;
+    depthBefore.current = depth;
+    if (was === 0 || depth > 0) return;
+    if (searchNext.current) {
+      searchNext.current = false;
+      searchRef.current?.focus({ preventScroll: true });
+    } else if (openedBy.current !== 'keyboard') focusHome();
+  });
   /** كلّ الأوراق تُطوى (مسح الماسح والورقة مفتوحة: المادّة تُضاف والبائع على البطاقات). */
   const closeAll = () => {
+    openedBy.current = 'scan';
     if (nav.stack.length === 0) return;
     if (location.key === 'default' || location.key === staleKey) navigate(here, { replace: true, state: { sell: { ...nav, focus: false, stack: [] } } });
     else navigate(-nav.stack.length);
@@ -1097,16 +1142,19 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     }
     if (draft.lines.length >= MAX_LINES) return;
     const unit = unitOf(item);
-    // لا تُضاف وحدة كاملة أكثر من المتاح (R7: كيس 50 كغم والمتاح 24.5 كغم)؛ والموزون يُضاف وتُكتب كميته في ورقته.
-    if (!isWeighed(item, unit) && baseQtyOf(MILLI_PER_UNIT, unit.factor) > item.available) {
+    // لا تُضاف وحدة كاملة أكثر من المتاح (R7: كيس 50 كغم والمتاح 24.5 كغم)، ولا كيلو والمتاح أقلّ منه (T7): المسح يقول «عندك … فقط»؛ ولمس الموزون
+    // يضيفه بالمتاح كلّه ويفتح ورقته لكتابة الكمية.
+    const short = baseQtyOf(MILLI_PER_UNIT, unit.factor) > item.available;
+    const text = t('sell.card.only_named', '«{name}»: عندك {qty} فقط.', { name: item.name, qty: stockText(item, unit) });
+    if (short && (via === 'scan' || !isWeighed(item, unit))) {
       sound.warn();
-      const text = t('sell.card.only_named', '«{name}»: عندك {qty} فقط.', { name: item.name, qty: stockText(item, unit) });
       setSaid(text);
       if (via === 'scan') setScanNote(text);
       else setSnack((current) => ({ id: (current?.id ?? 0) + 1, text }));
       return;
     }
-    const line = newLine(item, unit, '1');
+    const line = newLine(item, unit, short ? qtyText(item.available) : '1');
+    if (short) setSnack((current) => ({ id: (current?.id ?? 0) + 1, text }));
     // المخزن يُثبَّت في الفاتورة مع أوّل سطر: لو تغيّر «آخر مخزن» من نافذة أخرى تبقى الفاتورة المفتوحة على مخزنها.
     setDraft((current) => ({ ...current, warehouseId: current.warehouseId || warehouseId, lines: [...current.lines, line] }));
     setSaid(t('sell.live.qty', '«{name}»: {qty} في الفاتورة', { name: item.name, qty: unitQtyText(MILLI_PER_UNIT, shortUnit(unit.label)) }));
@@ -1118,6 +1166,15 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (busy || !line || !item || draft.lines.length >= MAX_LINES) return;
     const base = unitsOf(item)[0] as CatalogUnit;
     const unit = line.unitId === null ? unitOf(item) : base;
+    // سطر آخر لا يعبر المتاح (T7: كيس واحد متاح وفي الفاتورة، فسطر بكيلو آخر يجعل السطرين أحمرين).
+    if (usedBase(parsed, item.id) + baseQtyOf(MILLI_PER_UNIT, unit.factor) > item.available) {
+      sound.warn();
+      const lineUnit = unitsOf(item).find((option) => option.unitId === line.unitId) ?? unit;
+      const text = t('sell.card.only_named', '«{name}»: عندك {qty} فقط.', { name: item.name, qty: stockText(item, lineUnit) });
+      setSaid(text);
+      setSnack((current) => ({ id: (current?.id ?? 0) + 1, text }));
+      return;
+    }
     const added = newLine(item, unit, '1');
     setDraft((current) => {
       const at = current.lines.findIndex((other) => other.lineId === lineId);
@@ -1155,6 +1212,80 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   });
   // كم حرفاً من آخر ما في البحث وصل دفعةً (الماسح يكتب الحرف بعد الحرف بأجزاء من الثانية، واللصق دفعة واحدة).
   const typing = useRef({ text: '', at: 0, burst: 0 });
+  /** ما يكتبه التطبيق في البحث بنفسه (يمحوه بعد مسح، أو يضع فيه كتابة الموجّه) يبدأ دفعة جديدة، فالمسح التالي يُحسب من أوّله (T2). */
+  const setBox = (text: string) => {
+    typing.current = { text, at: 0, burst: 0 };
+    setSearch(text);
+  };
+  /**
+   * موجّه الشاشة (أساس المراجعة الثالثة): التركيز في غير حقل ولا قيمة لوحة أرقام، فما يُكتب يُجمع؛ Enter بعده مسحٌ (تُطوى الأوراق ثمّ scanCode)، وبلا
+   * Enter بعد سكون: رمز من موادّ هذا المخزن بأربعة أحرف فأكثر مسحٌ، وغيره كتابة إنسان تذهب إلى البحث المركَّز. لا يُكتب في لوحة أبداً (T1)، ولا يُعدّ
+   * التكرار (مسك المفتاح، T6)، ويعمل أينما كان التركيز (T5).
+   */
+  const routed = (text: string, entered: boolean) => {
+    if (busy || frozen || !catalog) return;
+    const code = normalizeCode(toWesternDigits(text));
+    if (!code) return;
+    if (entered || (code.length >= 4 && catalog.items.some((item) => codesOf(item).includes(code)))) {
+      closeAll();
+      scanCode(text);
+      return;
+    }
+    // كتابة إنسان: إلى البحث مركَّزاً ليكمل (بعد أن تُطوى الأوراق إن كانت مفتوحة).
+    closeAll();
+    setBox(toWesternDigits(text));
+    if (nav.stack.length === 0) searchRef.current?.focus({ preventScroll: true });
+    else searchNext.current = true;
+  };
+  const router = useRef({ routed, active: false });
+  useEffect(() => {
+    router.current = { routed, active: !busy && !frozen && catalog !== null && priceCheck === null && askFree === null && switchTo === null };
+  });
+  useEffect(() => {
+    let run = '';
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    const flush = (entered: boolean) => {
+      stop();
+      const text = run;
+      run = '';
+      if (text) router.current.routed(text, entered);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typesItself(event.target) || inOtherDialog(event.target)) return;
+      if (!router.current.active) {
+        run = '';
+        stop();
+        return;
+      }
+      if (event.key === 'Enter') {
+        if (run === '') return;
+        event.preventDefault();
+        event.stopPropagation();
+        flush(true);
+        return;
+      }
+      if (event.key === 'Escape') {
+        run = '';
+        stop();
+        return;
+      }
+      if (event.key.length !== 1 || (event.key === ' ' && run === '')) return;
+      event.preventDefault();
+      if (event.repeat) return;
+      run += event.key;
+      stop();
+      timer = setTimeout(() => flush(false), ROUTER_SILENCE_MS);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      stop();
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
   /**
    * الكتابة في البحث. الرمز الكامل يُضاف بلا Enter حين وصل كلّه دفعةً (ماسح أو لصق)، بعد وقفة قصيرة (أو فوراً حين يُلصق): الماسح يكتب الرمز حرفاً
    * حرفاً، فرمز أطول لمادّة لا تُباع هنا يمرّ في طريقه برمز مادّة أخرى (S5: «62600017001» يمرّ بـ«6260001» فيضيف «علف بادئ»). ومن يكتبه بيده يضغط
@@ -1165,14 +1296,15 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       clearTimeout(codeTimer.current);
       codeTimer.current = null;
     }
-    const before = typing.current;
-    const added = text.startsWith(before.text) ? text.length - before.text.length : -1;
-    const burst = added <= 0 ? 0 : at - before.at < SCAN_GAP_MS || added > 1 ? before.burst + added : added;
+    // نصّ لا يمدّ ما قبله (مُسح أو عُدّل) بدايةُ دفعة جديدة.
+    const before = text.startsWith(typing.current.text) ? typing.current : { text: '', at: typing.current.at, burst: 0 };
+    const added = text.length - before.text.length;
+    const burst = added <= 0 ? 0 : at - before.at < BURST_GAP_MS || added > 1 ? before.burst + added : added;
     typing.current = { text, at, burst };
     const whole = pasted || (burst >= text.length && text.length > 0);
     const exact = catalog && whole ? exactCodeItem(catalog.items, text) : null;
     if (exact && exact.available > 0n && pasted) {
-      setSearch('');
+      setBox('');
       scanCode(text);
       return;
     }
@@ -1180,7 +1312,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (!exact || exact.available <= 0n) return;
     codeTimer.current = setTimeout(() => {
       codeTimer.current = null;
-      setSearch((current) => (current === text ? '' : current));
+      setBox('');
       scanLater.current(text);
     }, CODE_PAUSE_MS);
   };
@@ -1195,13 +1327,13 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (!text.trim() || !catalog) return;
     const code = normalizeCode(text);
     if (catalog.items.some((item) => codesOf(item).includes(code)) || /^\d+$/u.test(code)) {
-      setSearch('');
+      setBox('');
       scanCode(text);
       return;
     }
     const [only, ...more] = visible;
     if (only && more.length === 0 && only.available > 0n) {
-      setSearch('');
+      setBox('');
       addItem(only, 'tap');
     }
   };
@@ -1375,7 +1507,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   const supportsCamera = typeof window !== 'undefined' && 'BarcodeDetector' in window;
 
   return (
-    <div className="sl-screen" data-action="sale-checkout">
+    <div ref={screenRef} tabIndex={-1} className="sl-screen" data-action="sale-checkout">
       <style>{SELL_STYLE}</style>
       <header className="sl-head">
         <div className="sl-head-row">
@@ -1401,6 +1533,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           <div className="sl-search">
             <Search aria-hidden="true" className="sl-icon sl-search-icon" />
             <input
+              ref={searchRef}
               type="search"
               className="sl-search-input"
               enterKeyHint="search"
@@ -1525,9 +1658,9 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
                   sound.click();
                   if (line) stepLine(line.lineId, delta, 'card');
                 }}
-                onOpen={() => {
+                onOpen={(byKeyboard) => {
                   sound.click();
-                  if (line) openLine(line.lineId);
+                  if (line) openLine(line.lineId, 'qty', false, byKeyboard);
                 }}
               />
             );
@@ -1600,7 +1733,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           moreOpen={nav.more}
           previewRows={previewRows}
           onClose={closeSheet}
-          onOpenLine={(lineId) => openLine(lineId)}
+          onOpenLine={(lineId, byKeyboard) => openLine(lineId, 'qty', false, byKeyboard)}
           onStep={(lineId, delta) => stepLine(lineId, delta, 'cart')}
           onRemove={removeLine}
           onSet={set}
@@ -1650,7 +1783,6 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           }}
           onFix={() => goFix(problems[0])}
           onSave={() => void save()}
-          onScan={scanFromPad}
         />
       ) : null}
       {nav.stack.includes('line') && lineRow ? (
@@ -1665,6 +1797,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           usual={usualPrice(lineRow.line)}
           tab={nav.tab}
           focusError={nav.focus}
+          focusPad={nav.kbd}
           canAddAnother={draft.lines.length < MAX_LINES && lineRow.item !== null}
           onClose={closeSheet}
           onUnit={(unitId) => changeUnit(lineRow.line, unitId)}
@@ -1684,7 +1817,6 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
             removeLine(lineRow.line.lineId);
           }}
           onAddAnother={() => addAnother(lineRow.line.lineId)}
-          onScan={scanFromPad}
         />
       ) : null}
 
