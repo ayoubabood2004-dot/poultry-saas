@@ -14,7 +14,8 @@
 // غيره، والرمز بيد إنسان، والمتاح في أوّل لمسة والسلّة، والحجم والسعر معاً، والملغاة، و«لمن؟» أثناء الحفظ، وEnter بعد مفتاح اللوحة، والسطران).
 // والمراجعة الثالثة على أساس جديد للوحة المفاتيح والماسح (T1–T9): اللوحة تأخذ مفاتيح الجهاز وقيمتها مركَّزة وحدها، وموجّه الشاشة يجمع ما يُكتب في
 // غيرها فيصير مسحاً أو بحثاً؛ والمراجعة الرابعة (V1–V6): ما كُتب في القيمة المركَّزة ثمّ تبيّن أنّه رمز يُعاد ويُمسح؛ والمراجعة الخامسة (P1–P13 وW4–W7):
-// قاعدة الدفعة الواحدة (حروف بينها أقلّ من 60 مللي ثانية، لمن بدأت عنده) بدل مطابقة ذيل ما كُتب. SELL_ONLY=S1,D3 يشغّل خطوات بعينها.
+// قاعدة الدفعة الواحدة (حروف بينها أقلّ من 60 مللي ثانية، لمن بدأت عنده) بدل مطابقة ذيل ما كُتب؛ والمراجعة السادسة (X1–X5): سلسلة الدفعات،
+// والرمز القصير بإيقاع USB، وEnter الثاني من الماسح، وفجوة البحث، والحرف الشارد. SELL_ONLY=S1,D3 يشغّل خطوات بعينها.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -1980,6 +1981,210 @@ export default async function (t) {
       hwKey('Escape', keyNext(250));
       await settle(10);
       t.same([inValue, once, d.paySheet() === null, legsNow()[0]?.amount], [true, [true, null, '20000', true], true, '20000'], 'W7 Esc في المبلغ المركَّز يطوي اللوحة وحدها (المبلغ 20000 باقٍ، والتركيز على المبلغ)، وEsc ثانٍ يُغلق الدفع');
+    });
+
+    // ═══ المراجعة السادسة (X1–X5): سلسلة الدفعات (فجوة واحدة متأخّرة لا تشقّ المسح)، والرمز القصير بإيقاع USB، وEnter الثاني من الماسح، وفجوة البحث،
+    // والحرف الشارد. كلّ حكم X فشل على 5adcf46؛ والحرّاس (إنسان بـ90 مللي ثانية، و«777» بـ40) تنجح قبلها وبعدها. ═══
+    const LONG_CODE = '6260000000099';
+    const UNKNOWN_CODE = '6269999999999';
+    const SCAN_NOTE = (code) => `لا مادّة بالباركود «${code}» تُباع من «المخزن العام».`;
+    /** ماسح بفجوات صريحة: gaps[i] بعد الحرف i (وغيرها gap)، ثمّ end (Enter أو Tab أو null) بعد الفجوة الأخيرة. */
+    const scanGaps = async (code, gaps = {}, gap = 50, end = 'Enter') => {
+      const chars = [...code];
+      chars.forEach((ch, index) => hwKey(ch, index === 0 ? keyStart() : keyNext(gaps[index - 1] ?? gap)));
+      if (end) hwKey(end, keyNext(gaps[chars.length - 1] ?? gap));
+      await settle(10);
+    };
+    /** يفتح سطر «علف بادئ» من لوحة المفاتيح على تبويبه، ويكتب فيه إنسان. */
+    const typedLine = async (tab, text) => {
+      await openByKeyboard(ID.starter);
+      if (tab !== 'qty') {
+        const button = d.pick('line-tab', 'data-tab', tab, d.lineSheet());
+        button.focus?.();
+        fire(button, 'click', { detail: 0 });
+        await settle();
+      }
+      await human(text, 250, false);
+    };
+    const growerQty = () => JSON.parse(local.api.getItem(draftKey('manager')))?.body?.draft?.lines?.find((l) => l.itemId === ID.grower)?.qty ?? null;
+
+    await step('X1 one late gap in a Bluetooth scan (first key, middle, last key) does not split it', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode(LONG_CODE) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      const seen = [];
+      for (const [label, gaps] of [['after 1st', { 0: 70 }], ['after 3rd', { 2: 70 }], ['after 12th', { 11: 70 }], ['after 1st, 110 ms', { 0: 110 }]]) {
+        await typedLine('qty', '2');
+        await scanGaps(LONG_CODE, gaps);
+        seen.push([label, storedLine(0)?.qty, growerQty(), d.lineSheet() === null, textOf('sale-scan-note')]);
+      }
+      t.same(
+        seen,
+        [
+          ['after 1st', '2', '1', true, null],
+          ['after 3rd', '2', '2', true, null],
+          ['after 12th', '2', '3', true, null],
+          ['after 1st, 110 ms', '2', '4', true, null],
+        ],
+        'X1 ماسح بلوتوث (50 مللي ثانية) بفجوة واحدة 70 (أو 110) بعد الحرف الأوّل أو الثالث أو الثاني عشر: الكمية 2 كما كُتبت والمادّة الممسوحة زادت، لا 26 ولا «لا مادّة»',
+      );
+    });
+
+    await step('X1e a late Enter (70, 150, 250 ms) after a known code still scans it', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode(LONG_CODE) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      const seen = [];
+      for (const late of [70, 150, 250]) {
+        await typedLine('qty', '2');
+        await scanGaps(LONG_CODE, { 12: late });
+        seen.push([late, storedLine(0)?.qty, growerQty(), d.lineSheet() === null]);
+      }
+      t.same(seen, [[70, '2', '1', true], [150, '2', '2', true], [250, '2', '3', true]], 'X1 Enter متأخّر بعد رمز في المخزن (70 و150 و250 مللي ثانية): مسحٌ، والكمية 2 لا 26260000000099 بـ«تم»');
+    });
+
+    await step('X1p a split scan into the price and into a part payment keeps the typed money', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode(LONG_CODE) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await typedLine('price', '30000');
+      await scanGaps(LONG_CODE, { 10: 70 });
+      const price = [storedLine(0)?.price, growerQty(), d.lineSheet() === null];
+      await typedLine('qty', '2');
+      await scanGaps(UNKNOWN_CODE, { 0: 70 });
+      const unknown = [storedLine(0)?.qty, textOf('sale-scan-note'), d.lineSheet() === null];
+      await d.next();
+      await d.party('أبو');
+      await d.payKind('part');
+      const amount = first('pay-amount', d.paySheet());
+      amount.focus?.();
+      fire(amount, 'click', { detail: 0 });
+      await settle();
+      await human('20000', 250, false);
+      await scanGaps(UNKNOWN_CODE, { 0: 70 });
+      const leg = [legsNow()[0]?.amount, textOf('sale-scan-note'), d.paySheet() === null];
+      t.same(
+        [price, unknown, leg],
+        [['30000', '1', true], ['2', SCAN_NOTE(UNKNOWN_CODE), true], ['20000', SCAN_NOTE(UNKNOWN_CODE), true]],
+        'X1 السعر 30000 ثمّ رمز بفجوة متأخّرة: السعر كما هو والمادّة مضافة؛ ورمز لا يعرفه المخزن بفجوة بعد أوّل حرف: الكمية 2 و«لا مادّة» بالرمز كلّه؛ و«جزء الآن» 20000 كذلك',
+      );
+    });
+
+    await step('X1h a person at 90 ms forms no chain: a store code or a long amount + Enter is typing', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('1000', 90);
+      const qty = [storedLine(0)?.qty, storedLine(1)?.itemId ?? null, d.lineSheet() === null];
+      await typedLine('price', '');
+      await human('1500000', 90);
+      t.same([qty, storedLine(0)?.price, storedLine(1)?.itemId ?? null, textOf('sale-scan-note')], [['1000', null, true], '1500000', null, null], 'X1 حارس: إنسان بمفتاح كلّ 90 مللي ثانية يكتب «1000» (رمز في المخزن) ثمّ Enter، و1,500,000 سعراً ثمّ Enter: كتابة و«تم»');
+    });
+
+    await step('X2 a short code this store does not have, at USB pace with Enter or Tab, is restored and said', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await typedLine('qty', '2');
+      await scanGaps('777', {}, 5);
+      const qty = [storedLine(0)?.qty, textOf('sale-scan-note'), d.lineSheet() === null];
+      await typedLine('price', '30000');
+      await scanGaps('12345', {}, 5);
+      const price = [storedLine(0)?.price, textOf('sale-scan-note'), d.lineSheet() === null];
+      t.same(
+        [qty, price],
+        [['2', SCAN_NOTE('777'), true], ['30000', SCAN_NOTE('12345'), true]],
+        'X2 «777» بـ5 مللي ثانية وEnter في الكمية 2، و«12345» في السعر 30000: القيمة كما كُتبت و«لا مادّة»، لا 2777 ولا 30000777',
+      );
+      // Tab لاحقةً: مسحٌ كـEnter (Tab غير مأخوذ يصل إلى حبس التركيز، وDOM الفحص بلا Node فيرمي: يُسجَّل ولا يُوقف الخطوة).
+      await typedLine('qty', '3');
+      let threw = null;
+      try {
+        await scanGaps('12345', {}, 5, 'Tab');
+      } catch (error) {
+        threw = String(error).slice(0, 40);
+      }
+      await settle(10);
+      t.same([storedLine(0)?.qty, d.lineSheet() === null, threw], ['3', true, null], 'X2 و«12345» بـ5 مللي ثانية وTab في الكمية 3: الكمية 3 والمسح، لا 312345');
+    });
+
+    await step('X2s a short unknown code slower than USB pace stays typing (documented limit)', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await typedLine('qty', '2');
+      await scanGaps('777', {}, 40);
+      t.same([storedLine(0)?.qty, d.lineSheet() === null], ['2777', true], 'X2 حدّ موثّق: رمز قصير لا يعرفه المخزن أبطأ من USB (40 مللي ثانية) كتابة و«تم»');
+    });
+
+    await step('X3 a scanner\'s second Enter (CR LF) does not press the card it left focused; a lone Enter still does', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('55501') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      const card = first('sale-item-card', d.cell(ID.starter));
+      /** Enter على المركَّز كما يفعل المتصفّح: يضغط الزرّ إن لم يُمنع. */
+      const enter = (at) => {
+        const node = globalThis.document.activeElement;
+        const event = fire(node, 'keydown', { key: 'Enter', timeStamp: at });
+        if (!event.defaultPrevented && node?.localName === 'button') fire(node, 'click', { detail: 0 });
+        return event;
+      };
+      card.focus?.();
+      for (const ch of '55501') hwKey(ch, keyNext(5));
+      const cr = enter(keyNext(5));
+      const lf = enter(keyNext(5));
+      await settle(10);
+      const crlf = [cr.defaultPrevented, lf.defaultPrevented, storedLine(0)?.qty, growerQty()];
+      card.focus?.();
+      const lone = enter(keyNext(1000));
+      await settle(10);
+      const touch = fire(card, 'pointerdown', { pointerType: 'touch' }).defaultPrevented;
+      const mouse = fire(card, 'pointerdown', { pointerType: 'mouse', button: 0 }).defaultPrevented;
+      t.same(
+        [crlf, [lone.defaultPrevented, storedLine(0)?.qty], [touch, mouse]],
+        [[true, true, '1', '1'], [false, '2'], [true, false]],
+        'X3 مسح ثمّ CR LF والبطاقة مركَّزة: Enter الثاني يُبتلع (علف بادئ 1 لا 2)؛ وEnter وحده بعد مدّة يضغطها (2)؛ ولمس البطاقة لا يركّزها، والفأرة كما هي',
+      );
+    });
+
+    await step('X4 a 50 ms scanner with no Enter into the focused search adds the item', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      const input = first('sale-search');
+      input.focus?.();
+      const typeIn = async (code, gap) => {
+        for (const [index, ch] of [...code].entries()) {
+          input.value = `${input.value ?? ''}${ch}`;
+          fire(input, 'input', { timeStamp: index === 0 ? keyStart() : keyNext(gap) });
+          await settle(2);
+        }
+        await wait(250);
+        await settle(10);
+      };
+      await typeIn('6260001', 50);
+      const scanned = [d.cardQty(ID.starter), first('sale-search')?.value];
+      await typeIn('6260001', 90);
+      t.same([scanned, [d.cardQty(ID.starter), first('sale-search')?.value]], [['1 كيس', ''], ['1 كيس', '6260001']], 'X4 ماسح بـ50 مللي ثانية بلا Enter في البحث: المادّة مضافة والبحث فارغ؛ وإنسان بـ90 يبقى في البحث حتى Enter (R6)');
+    });
+
+    await step('X5 a stray key before a click that opens a sheet does not close it or go to search', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      screen().focus?.();
+      hwKey('5', keyStart());
+      await mouseClick(first('card-qty', d.cell(ID.starter)));
+      await human('12', 150, false);
+      await wait(350);
+      await settle();
+      const stray = [d.lineSheet() !== null, storedLine(0)?.qty, first('sale-search')?.value];
+      if (d.lineSheet()) await d.done();
+      screen().focus?.();
+      hwKey('7', keyStart());
+      await wait(350);
+      await settle();
+      t.same([stray, first('sale-search')?.value], [[true, '12', ''], '7'], 'X5 حرف شارد ثمّ نقرة فتحت السطر و«12»: الورقة مفتوحة والكمية 12 والبحث فارغ؛ وحرف بلا نقرة يذهب إلى البحث كما كان');
     });
   } catch (error) {
     t.ok(false, `رمى خارج الخطوات: ${error?.stack ?? error}`);

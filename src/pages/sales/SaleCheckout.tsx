@@ -48,7 +48,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { clearSaleDraft, saleDraftKey } from './saleDraft';
 import { checkoutBack, checkoutBackLabel, dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
 import sellStyle from './sell.css?raw';
-import { CartIcon, composing, focusesValue, KindMark, kindChipLabel, RUN_GAP_MS, SNACK_MS, Snackbar, type Snack } from './sellKit';
+import { CartIcon, composing, focusesValue, keepFocus, KindMark, kindChipLabel, markScanEnter, RUN_GAP_MS, secondEnter, SNACK_MS, Snackbar, type Snack } from './sellKit';
 import { canStore, postedKey, postedSnapshot, readPosted, readSaleDraftRaw, readSellMemory, rememberPosted, rememberSell, sellMemoryKey, writeSaleDraft } from './sellMemory';
 import {
   blankDraft,
@@ -120,8 +120,6 @@ const MAYBE_SAVED = new Set(['ref_reused', 'id_conflict']);
 
 /** مهلة الكتابة قبل أن يُعدّ رمز كامل مسحاً (مراجعة البيع S5): الماسح يكتب حرفاً كلّ بضع أجزاء من الثانية، فرمز طويل يمرّ برمز أقصر قبل أن يكتمل. */
 const CODE_PAUSE_MS = 150;
-/** في البحث: حروف بينها أقلّ من هذا وصلت دفعةً (ماسح)، وأبطأ منها كتابة إنسان. */
-const BURST_GAP_MS = 35;
 /** موجّه الشاشة: سكون بعد آخر حرف بلا Enter، فما تجمّع رمزٌ من موادّ المخزن (ماسح بلا Enter) أو كتابة إنسان تذهب إلى البحث. */
 const ROUTER_SILENCE_MS = 300;
 
@@ -296,6 +294,11 @@ function cardStock(item: CatalogItem, line: CartLine | null, unit: CatalogUnit, 
   return { text: t('sell.card.left', 'يبقى {qty}', { qty: qtyInUnit(left, item, shown) }) };
 }
 
+/** لمسة إصبع لا تنقل التركيز إلى الزرّ (الفأرة ولوحة المفاتيح كما هما). */
+const touchKeepsFocus = (event: { pointerType: string; preventDefault: () => void }) => {
+  if (event.pointerType === 'touch') keepFocus(event);
+};
+
 function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAdd, onStep, onOpen }: CardProps) {
   const mainRef = useRef<HTMLButtonElement>(null);
   const out = item.available <= 0n;
@@ -308,7 +311,17 @@ function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAd
   return (
     <li className="sl-cell">
       <div className="sl-card" data-kind={item.kind} data-in={line ? 'yes' : undefined} data-out={out ? 'yes' : undefined}>
-        <button ref={mainRef} type="button" className="sl-card-main" disabled={locked || (out && !line) || (full && !line)} onClick={onAdd} data-action="sale-item-card" data-item={item.id}>
+        {/* اللمس لا يترك البطاقة مركَّزة: Enter ثانٍ من ماسح (CR LF) لا يضغطها فيزيد واحداً (X3). */}
+        <button
+          ref={mainRef}
+          type="button"
+          className="sl-card-main"
+          disabled={locked || (out && !line) || (full && !line)}
+          onPointerDown={touchKeepsFocus}
+          onClick={onAdd}
+          data-action="sale-item-card"
+          data-item={item.id}
+        >
           <span className="sl-card-top">
             <span className="sl-mark">
               <KindMark kind={item.kind} />
@@ -341,6 +354,7 @@ function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAd
               className="sl-step"
               disabled={locked}
               aria-label={t('sell.step.minus', 'أنقص واحداً من «{name}»', { name: item.name })}
+              onPointerDown={touchKeepsFocus}
               onClick={() => {
                 // النقص إلى صفر يحذف السطر فيزول الزرّ المركَّز: التركيز إلى البطاقة نفسها لا إلى الصفحة (إتاحة).
                 if (steppedQty(qty, -1) === null) mainRef.current?.focus();
@@ -354,7 +368,15 @@ function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAd
               {qtyShown}
               {others > 0 ? <span className="sl-step-more">{t('sell.card.more_lines', '+ سطر آخر')}</span> : null}
             </button>
-            <button type="button" className="sl-step" disabled={locked} aria-label={t('sell.step.plus', 'زِد واحداً من «{name}»', { name: item.name })} onClick={() => onStep(1)} data-action="card-plus">
+            <button
+              type="button"
+              className="sl-step"
+              disabled={locked}
+              aria-label={t('sell.step.plus', 'زِد واحداً من «{name}»', { name: item.name })}
+              onPointerDown={touchKeepsFocus}
+              onClick={() => onStep(1)}
+              data-action="card-plus"
+            >
               <span aria-hidden="true">+</span>
             </button>
           </div>
@@ -1222,7 +1244,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   /**
    * موجّه الشاشة (أساس المراجعة الثالثة): التركيز في غير حقل ولا قيمة لوحة أرقام، فما يُكتب يُجمع؛ Enter بعده مسحٌ (تُطوى الأوراق ثمّ scanCode)، وبلا
    * Enter بعد سكون: رمز من موادّ هذا المخزن بأربعة أحرف فأكثر مسحٌ، وغيره كتابة إنسان تذهب إلى البحث المركَّز. لا يُكتب في لوحة أبداً (T1)، ولا يُعدّ
-   * التكرار (مسك المفتاح، T6)، ويعمل أينما كان التركيز (T5).
+   * التكرار (مسك المفتاح، T6)، ويعمل أينما كان التركيز (T5). الفجوة بين الحروف لا تعنيه (ماسح بطيء وإنسان سواء). لمسة المؤشّر لا تنهي دفعته (نقرة فتحت
+   * ورقة في وسط مسح لا تشقّه، W6)؛ لكن حرفاً أو حرفين شاردين قبل نقرة نقلت التركيز لا يُرسلان إلى البحث (X5).
    */
   const routed = (text: string, entered: boolean) => {
     if (busy || frozen || !catalog) return;
@@ -1268,6 +1291,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     let run = '';
     // وقت آخر حرف أخذه الموجّه: دفعة بدأت عنده (حروفها بينها أقلّ من RUN_GAP_MS) له كلّها، ولو انتقل التركيز في وسطها إلى قيمة لوحة (W6).
     let last = Number.NEGATIVE_INFINITY;
+    // ما كان مركَّزاً عند أوّل حرف من الدفعة: نقرة بعده نقلت التركيز (فتحت ورقة)، فحرف شارد قبلها لا يطوي ما فُتح (X5).
+    let startedAt: Element | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const stop = () => {
       if (timer !== null) clearTimeout(timer);
@@ -1277,11 +1302,22 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       stop();
       run = '';
       last = Number.NEGATIVE_INFINITY;
+      startedAt = null;
     };
-    const flush = (entered: boolean) => {
+    /** Enter أنهى الدفعة (at وقته) أو السكون (null). */
+    const flush = (at: number | null) => {
       const text = run;
+      const moved = startedAt !== document.activeElement;
       clear();
-      if (text) router.current.routed(text, entered);
+      if (!text) return;
+      if (at !== null) {
+        markScanEnter(at);
+        router.current.routed(text, true);
+        return;
+      }
+      // التركيز انتقل منذ أوّل حرف (نقرة فتحت ورقة): حرف أو حرفان شاردان لا يُرسلان إلى البحث ولا يطويان الورقة (X5).
+      if (moved && [...text].length < 3) return;
+      router.current.routed(text, false);
     };
     /** حرف يأخذه الموجّه؛ والتكرار (مسك المفتاح) لا يُجمع ويقطع الدفعة (T6). */
     const take = (event: globalThis.KeyboardEvent) => {
@@ -1290,10 +1326,11 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
         last = Number.NEGATIVE_INFINITY;
         return;
       }
+      if (run === '') startedAt = document.activeElement;
       run += event.key;
       last = event.timeStamp;
       stop();
-      timer = setTimeout(() => flush(false), ROUTER_SILENCE_MS);
+      timer = setTimeout(() => flush(null), ROUTER_SILENCE_MS);
     };
     const live = (event: globalThis.KeyboardEvent): boolean => {
       const gap = event.timeStamp - last;
@@ -1304,11 +1341,17 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
      * وEnter بعدها للموجّه لا للقيمة: لا رأس في البحث وذيل في الكمية (W6).
      */
     const onClaim = (event: globalThis.KeyboardEvent) => {
+      // Enter ثانٍ من لاحقة الماسح (CR LF) بعد مسح: يُبتلع قبل أن يضغط زرّاً مركَّزاً أو يغلق ورقة (X3).
+      if (event.key === 'Enter' && run === '' && secondEnter(event.timeStamp)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!typesItself(event.target) || event.ctrlKey || event.metaKey || event.altKey || composing(event) || inOtherDialog(event.target) || !router.current.active || !live(event)) return;
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
-        flush(true);
+        flush(event.timeStamp);
         return;
       }
       if (event.key.length !== 1 || event.key === ' ') return;
@@ -1325,7 +1368,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
         if (run === '') return;
         event.preventDefault();
         event.stopPropagation();
-        flush(true);
+        flush(event.timeStamp);
         return;
       }
       if (event.key === 'Escape') {
@@ -1356,7 +1399,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     // نصّ لا يمدّ ما قبله (مُسح أو عُدّل) بدايةُ دفعة جديدة.
     const before = text.startsWith(typing.current.text) ? typing.current : { text: '', at: typing.current.at, burst: 0 };
     const added = text.length - before.text.length;
-    const burst = added <= 0 ? 0 : at - before.at < BURST_GAP_MS || added > 1 ? before.burst + added : added;
+    // حروف بينها أقلّ من فجوة الدفعة وصلت دفعةً (ماسح، والبلوتوث منه 45–50 مللي ثانية، X4)، وأبطأ منها كتابة إنسان.
+    const burst = added <= 0 ? 0 : at - before.at < RUN_GAP_MS || added > 1 ? before.burst + added : added;
     typing.current = { text, at, burst };
     const whole = pasted || (burst >= text.length && text.length > 0);
     const exact = catalog && whole ? exactCodeItem(catalog.items, text) : null;
