@@ -48,7 +48,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { clearSaleDraft, saleDraftKey } from './saleDraft';
 import { checkoutBack, checkoutBackLabel, dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
 import sellStyle from './sell.css?raw';
-import { CartIcon, composing, focusesValue, KindMark, kindChipLabel, SNACK_MS, Snackbar, type Snack } from './sellKit';
+import { CartIcon, composing, focusesValue, KindMark, kindChipLabel, RUN_GAP_MS, SNACK_MS, Snackbar, type Snack } from './sellKit';
 import { canStore, postedKey, postedSnapshot, readPosted, readSaleDraftRaw, readSellMemory, rememberPosted, rememberSell, sellMemoryKey, writeSaleDraft } from './sellMemory';
 import {
   blankDraft,
@@ -1161,7 +1161,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     setSaid(t('sell.live.qty', '«{name}»: {qty} في الفاتورة', { name: item.name, qty: unitQtyText(MILLI_PER_UNIT, shortUnit(unit.label)) }));
     if (via === 'tap' && isWeighed(item, unit)) openLine(line.lineId, 'qty');
   };
-  const addAnother = (lineId: string) => {
+  const addAnother = (lineId: string, kbd: boolean) => {
     const line = draft.lines.find((other) => other.lineId === lineId);
     const item = line ? byItem.get(line.itemId) : undefined;
     if (busy || !line || !item || draft.lines.length >= MAX_LINES) return;
@@ -1181,7 +1181,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       const at = current.lines.findIndex((other) => other.lineId === lineId);
       return { ...current, lines: [...current.lines.slice(0, at + 1), added, ...current.lines.slice(at + 1)] };
     });
-    openSheet('line', { line: added.lineId, tab: 'qty', focus: false }, true);
+    // من لوحة المفاتيح أو بالفأرة تُركَّز قيمة السطر الجديد، فالرقم التالي يُكتب فيها لا يطوي الأوراق إلى البحث (W4).
+    openSheet('line', { line: added.lineId, tab: 'qty', focus: false, kbd }, true);
   };
   /** رمز كامل (ماسح أو كتابة أو كاميرا): المادّة تُضاف أو تزيد واحداً، وإلّا يُقال لماذا. */
   const scanCode = (raw: string): boolean => {
@@ -1238,10 +1239,10 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (nav.stack.length === 0) searchRef.current?.focus({ preventScroll: true });
     else searchNext.current = true;
   };
-  /** رمز لمادّة في هذا المخزن (باركود أو رمز آخر، مطبَّعاً كما يقرؤه الماسح)، بأربعة أحرف فأكثر. */
+  /** رمز لمادّة في هذا المخزن (باركود أو رمز آخر، مطبَّعاً كما يقرؤه الماسح) بأيّ طول: القيمة المركَّزة تطابق الدفعة كلّها، ثلاثة أحرف فأكثر (W3). */
   const isStoreCode = (text: string): boolean => {
     const code = normalizeCode(toWesternDigits(text));
-    return code.length >= 4 && catalog !== null && catalog.items.some((item) => codesOf(item).includes(code));
+    return code !== '' && catalog !== null && catalog.items.some((item) => codesOf(item).includes(code));
   };
   /**
    * رمز كُتب في قيمة لوحة مركَّزة: القيمة أُعيدت إلى ما قبله، والمسح بعد أن تُرسم (المادّة الممسوحة قد تكون سطر القيمة نفسه، فزيادتها على المُعادة لا
@@ -1265,22 +1266,59 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   }, [scanRound]);
   useEffect(() => {
     let run = '';
+    // وقت آخر حرف أخذه الموجّه: دفعة بدأت عنده (حروفها بينها أقلّ من RUN_GAP_MS) له كلّها، ولو انتقل التركيز في وسطها إلى قيمة لوحة (W6).
+    let last = Number.NEGATIVE_INFINITY;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const stop = () => {
       if (timer !== null) clearTimeout(timer);
       timer = null;
     };
-    const flush = (entered: boolean) => {
+    const clear = () => {
       stop();
-      const text = run;
       run = '';
+      last = Number.NEGATIVE_INFINITY;
+    };
+    const flush = (entered: boolean) => {
+      const text = run;
+      clear();
       if (text) router.current.routed(text, entered);
+    };
+    /** حرف يأخذه الموجّه؛ والتكرار (مسك المفتاح) لا يُجمع ويقطع الدفعة (T6). */
+    const take = (event: globalThis.KeyboardEvent) => {
+      event.preventDefault();
+      if (event.repeat) {
+        last = Number.NEGATIVE_INFINITY;
+        return;
+      }
+      run += event.key;
+      last = event.timeStamp;
+      stop();
+      timer = setTimeout(() => flush(false), ROUTER_SILENCE_MS);
+    };
+    const live = (event: globalThis.KeyboardEvent): boolean => {
+      const gap = event.timeStamp - last;
+      return run !== '' && !event.repeat && gap >= 0 && gap < RUN_GAP_MS;
+    };
+    /**
+     * قبل أن يصل المفتاح إلى خانته: دفعة بدأت عند الموجّه (بعد نقرة فتحت ورقة، أو «احفظ» فتح سطراً) ثمّ ركّزت الشاشةُ قيمةَ لوحة في وسطها، فبقيّتها
+     * وEnter بعدها للموجّه لا للقيمة: لا رأس في البحث وذيل في الكمية (W6).
+     */
+    const onClaim = (event: globalThis.KeyboardEvent) => {
+      if (!typesItself(event.target) || event.ctrlKey || event.metaKey || event.altKey || composing(event) || inOtherDialog(event.target) || !router.current.active || !live(event)) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        flush(true);
+        return;
+      }
+      if (event.key.length !== 1 || event.key === ' ') return;
+      event.stopPropagation();
+      take(event);
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || composing(event) || typesItself(event.target) || inOtherDialog(event.target)) return;
       if (!router.current.active) {
-        run = '';
-        stop();
+        clear();
         return;
       }
       if (event.key === 'Enter') {
@@ -1291,20 +1329,17 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
         return;
       }
       if (event.key === 'Escape') {
-        run = '';
-        stop();
+        clear();
         return;
       }
       if (event.key.length !== 1 || (event.key === ' ' && run === '')) return;
-      event.preventDefault();
-      if (event.repeat) return;
-      run += event.key;
-      stop();
-      timer = setTimeout(() => flush(false), ROUTER_SILENCE_MS);
+      take(event);
     };
+    window.addEventListener('keydown', onClaim, true);
     window.addEventListener('keydown', onKeyDown);
     return () => {
       stop();
+      window.removeEventListener('keydown', onClaim, true);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, []);
@@ -1840,7 +1875,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
             closeSheet();
             removeLine(lineRow.line.lineId);
           }}
-          onAddAnother={() => addAnother(lineRow.line.lineId)}
+          onAddAnother={(focusValue) => addAnother(lineRow.line.lineId, focusValue)}
           isCode={isStoreCode}
           onScan={scanFromValue}
         />

@@ -13,7 +13,8 @@
 // التصميم (D1–D23)، والمراجعة الثانية (R1–R12: الفاصلة، والماسح ولوحة مفتوحة، واسم غير المختار، و«تراجع» أثناء الحفظ، والتبويب المجمَّد على
 // غيره، والرمز بيد إنسان، والمتاح في أوّل لمسة والسلّة، والحجم والسعر معاً، والملغاة، و«لمن؟» أثناء الحفظ، وEnter بعد مفتاح اللوحة، والسطران).
 // والمراجعة الثالثة على أساس جديد للوحة المفاتيح والماسح (T1–T9): اللوحة تأخذ مفاتيح الجهاز وقيمتها مركَّزة وحدها، وموجّه الشاشة يجمع ما يُكتب في
-// غيرها فيصير مسحاً أو بحثاً؛ والمراجعة الرابعة (V1–V6): ما كُتب في القيمة المركَّزة ثمّ تبيّن أنّه رمز يُعاد ويُمسح. SELL_ONLY=S1,D3 يشغّل خطوات بعينها.
+// غيرها فيصير مسحاً أو بحثاً؛ والمراجعة الرابعة (V1–V6): ما كُتب في القيمة المركَّزة ثمّ تبيّن أنّه رمز يُعاد ويُمسح؛ والمراجعة الخامسة (P1–P13 وW4–W7):
+// قاعدة الدفعة الواحدة (حروف بينها أقلّ من 60 مللي ثانية، لمن بدأت عنده) بدل مطابقة ذيل ما كُتب. SELL_ONLY=S1,D3 يشغّل خطوات بعينها.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -1303,20 +1304,28 @@ export default async function (t) {
       fire(qty, 'click', { detail: 0 });
       await settle();
     };
-    /** مفاتيح الجهاز على المركَّز الآن، بلا انتظار (لا إمساك في الأساس الجديد). */
-    const typeKeys = async (text) => {
-      for (const ch of [...text]) {
-        hwKey(ch, Date.now());
+    /**
+     * ساعة المفاتيح (وقت الحدث، المراجعة الخامسة): الدفعة تُعرف بالفجوة بين حرفين (أقلّ من 60 مللي ثانية)، فكلّ مساعد يحدّد فجواته بنفسه ولا يتقلّب
+     * الحكم مع حمل الجهاز. كلّ مساعد يبدأ بعد ثانية من آخر مفتاح (أو من الآن)، فلا تتّصل دفعتا مساعدين؛ ومفتاح بوقت Date.now() بعد مساعد يقع قبله
+     * (فجوة سالبة: لا دفعة).
+     */
+    let keyAt = 0;
+    const keyStart = () => (keyAt = Math.max(keyAt, Date.now()) + 1000);
+    const keyNext = (gap) => (keyAt += gap);
+    /** مفاتيح الجهاز على المركَّز الآن بسرعة إنسان (مفتاح كلّ gap مللي ثانية، وقت الحدث)، بلا انتظار. */
+    const typeKeys = async (text, gap = 150) => {
+      for (const [index, ch] of [...text].entries()) {
+        hwKey(ch, index === 0 ? keyStart() : keyNext(gap));
         await settle(2);
       }
     };
-    /** ماسح بطيء (بلوتوث): حرف كلّ gap ms فعلاً، ثمّ Enter إن طُلب. */
+    /** ماسح: حرف كلّ gap مللي ثانية (وقت الحدث، وينتظرها فعلاً)، ثمّ Enter بعد آخر حرف بالفجوة نفسها إن طُلب. */
     const scanSlow = async (code, gap, enter = true) => {
-      for (const ch of [...code]) {
-        hwKey(ch, Date.now());
+      for (const [index, ch] of [...code].entries()) {
+        hwKey(ch, index === 0 ? keyStart() : keyNext(gap));
         await wait(gap);
       }
-      if (enter) hwKey('Enter', Date.now());
+      if (enter) hwKey('Enter', keyNext(gap));
       await settle(10);
     };
     const screen = () => first('sale-checkout');
@@ -1540,14 +1549,10 @@ export default async function (t) {
       c.items.find((i) => i.item_id === ID.grower).alt_codes = ['55501'];
       return c;
     };
-    /** دفعة بأوقات صريحة (gap مللي ثانية بين الحروف) على المركَّز الآن، وEnter إن طُلب. */
+    /** دفعة بأوقات صريحة (gap مللي ثانية بين الحروف) على المركَّز الآن بلا انتظار، وEnter إن طُلب. */
     const burstAt = async (code, gap, enter) => {
-      let at = Date.now() + 20_000;
-      for (const ch of [...code]) {
-        hwKey(ch, at);
-        at += gap;
-      }
-      if (enter) hwKey('Enter', at);
+      for (const [index, ch] of [...code].entries()) hwKey(ch, index === 0 ? keyStart() : keyNext(gap));
+      if (enter) hwKey('Enter', keyNext(gap));
       await settle(10);
     };
     /** نقرة الفأرة (PointerEvent بنوع مؤشّره). */
@@ -1570,17 +1575,13 @@ export default async function (t) {
       await scanSlow('55501', 45);
       t.same([storedLine(0)?.qty, storedLine(1)?.qty], ['3', '2'], 'V1 وبحرف كلّ 45 مللي ثانية: الكمية 3، والممسوحة زادت (الرمز معروف للمخزن فلا يُحسب بسرعته)');
       await openByKeyboard(ID.starter);
-      let at = Date.now();
-      for (const ch of ['4', '.', '5']) {
-        at += 200;
-        hwKey(ch, at);
-      }
-      hwKey('Enter', at + 200);
+      await typeKeys('4.5', 200);
+      hwKey('Enter', keyNext(200));
       await settle(10);
       t.same([d.lineSheet() === null, storedLine(0)?.qty, textOf('sale-scan-note')], [true, '4.5', null], 'V1 وإنسان يكتب «4.5» ثمّ Enter: «تم»، والكمية 4.5');
     });
 
-    await step('V1m a mouse-focused value: a known code is restored and added, an unknown fast code is restored and said', async () => {
+    await step('V1m a mouse-focused value: a known code is restored and added, an unknown fast code with Enter is restored and said, without Enter it is typing', async () => {
       fresh(MANAGER, { ...OK, sale_catalog: () => withAlt() }, pickers);
       await mount('/sales/new?store=w-gen');
       await d.tap(ID.starter);
@@ -1598,7 +1599,9 @@ export default async function (t) {
       await burstAt('8888888', 5, false);
       await wait(350);
       await settle();
-      const silent = [storedLine(0)?.qty, textOf('sale-scan-note')];
+      // رمز لا يعرفه المخزن بلا Enter: كتابة كأيّ كتابة (القاعدة الواحدة، المراجعة الخامسة)؛ حدّ موثّق في DECISIONS.
+      const silent = [storedLine(0)?.qty, (textOf('sale-scan-note') ?? '').includes('8888888'), d.lineSheet() !== null];
+      if (d.lineSheet()) await click(first('sheet-close', d.lineSheet()));
       // ماسح بلوتوث بلا Enter (50 مللي ثانية) والقيمة مركَّزة بالفأرة: الرمز معروف للمخزن، فيُعرف بالسكون ويُعاد ويُضاف.
       await mouseClick(first('card-qty', d.cell(ID.starter)));
       await typeKeys('4');
@@ -1607,8 +1610,8 @@ export default async function (t) {
       await settle();
       t.same(
         [focused, known, unknown, silent, [storedLine(0)?.qty, storedLine(1)?.qty, d.lineSheet() === null]],
-        [true, ['2', ID.grower], ['7', 'لا مادّة بالباركود «9999999» تُباع من «المخزن العام».', true], ['6', 'لا مادّة بالباركود «8888888» تُباع من «المخزن العام».'], ['4', '2', true]],
-        'V1 الفأرة تركّز القيمة (V2)؛ ورمز معروف يُعاد ويُضاف (بـEnter، وبلاه بحرف كلّ 50 مللي ثانية)، ورمز سريع لا يعرفه المخزن يُعاد ويُقال (بـEnter وبالسكون)',
+        [true, ['2', ID.grower], ['7', 'لا مادّة بالباركود «9999999» تُباع من «المخزن العام».', true], ['6888888', false, true], ['4', '2', true]],
+        'V1 الفأرة تركّز القيمة (V2)؛ ورمز معروف يُعاد ويُضاف (بـEnter، وبلاه بحرف كلّ 50 مللي ثانية)، ورمز سريع لا يعرفه المخزن بـEnter يُعاد ويُقال، وبلا Enter كتابة',
       );
     });
 
@@ -1719,6 +1722,264 @@ export default async function (t) {
       hwKey('Escape', Date.now());
       await settle(10);
       t.same([focused, d.lineSheet() === null, d.cartSheet() !== null], [true, true, true], 'W2 Esc في القيمة المركَّزة يغلق ورقة السطر وحدها فوق السلّة');
+    });
+
+    // ═══ المراجعة الخامسة: قاعدة الدفعة الواحدة (حروف بينها أقلّ من 60 مللي ثانية) بدل مطابقة ذيل ما كُتب (W1–W7، وخطوات المراجع P1–P13). ═══
+    // فشلت على 2531cb8: P1–P5 وP10–P13 وW4–W7؛ وP6–P9 ضوابط تنجح قبلها وبعدها، وV1 وV1m أعلاه حارسا الرجوع.
+    const withCode = (code, id = ID.grower) => () => {
+      const c = clone(CAT);
+      c.items.find((i) => i.item_id === id).alt_codes = [code];
+      return c;
+    };
+    /** إنسان: مفتاح كلّ gap مللي ثانية (وقت الحدث)، ثمّ Enter بعد آخر مفتاح بالفجوة نفسها إن طُلب. */
+    const human = async (text, gap = 250, enter = true) => {
+      await typeKeys(text, gap);
+      if (enter) hwKey('Enter', keyNext(gap));
+      await settle(10);
+    };
+    const legsNow = () => JSON.parse(local.api.getItem(draftKey('manager')))?.body?.draft?.legs ?? [];
+
+    await step('P1 a person types quantity 1000 + Enter where 1000 is a store code', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('1000');
+      t.same([storedLine(0)?.qty, storedLine(1)?.itemId ?? null, textOf('sale-scan-note'), d.lineSheet() === null], ['1000', null, null, true], 'P1 W1 إنسان يكتب الكمية 1000 ثمّ Enter و«1000» رمز في المخزن: الكمية 1000 و«تم»، لا مسح');
+    });
+
+    await step('P2 a person types price 21000 + Enter where 1000 is a store code', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      const tab = d.pick('line-tab', 'data-tab', 'price', d.lineSheet());
+      tab.focus?.();
+      fire(tab, 'click', { detail: 0 });
+      await settle();
+      const inValue = globalThis.document.activeElement === first('line-display', d.lineSheet());
+      await human('21000');
+      t.same([inValue, storedLine(0)?.price, storedLine(1)?.itemId ?? null], [true, '21000', null], 'P2 W1 إنسان يكتب السعر 21000 ثمّ Enter: السعر 21000، لا «2» ومادّة «1000»');
+    });
+
+    await step('P3 a person types a part-payment 51000 + Enter where 1000 is a store code', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.party('أبو');
+      await d.payKind('part');
+      const amount = first('pay-amount', d.paySheet());
+      amount.focus?.();
+      fire(amount, 'click', { detail: 0 });
+      await settle();
+      await human('51000');
+      t.same([legsNow()[0]?.amount, storedLine(1)?.itemId ?? null, d.paySheet() !== null], ['51000', null, true], 'P3 W1 إنسان يكتب «جزء الآن» 51000 ثمّ Enter: المبلغ 51000 والدفع مفتوح، لا «5» ومادّة');
+    });
+
+    await step('P4 Arabic-Indic digits typed by a person (qty ١٥٠٠ + Enter) where 1500 is a code', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1500') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('\u{661}\u{665}\u{660}\u{660}');
+      t.same([storedLine(0)?.qty, storedLine(1)?.itemId ?? null], ['1500', null], 'P4 W1 أرقام هندية بيد إنسان ثمّ Enter: الكمية 1500 لا مسح');
+    });
+
+    await step('P5 a fast person (90 ms) types 1000 and stops (no Enter) where 1000 is a code', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('1000', 90, false);
+      await wait(350);
+      await settle();
+      t.same([storedLine(0)?.qty, storedLine(1)?.itemId ?? null, d.lineSheet() !== null], ['1000', null, true], 'P5 W1 إنسان سريع (90 مللي ثانية) يكتب 1000 ويسكت: القيمة تبقى والورقة مفتوحة، لا مسح بالسكون');
+    });
+
+    await step('P6 scan of the same line into its own focused value', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('2', 250, false);
+      await scanSlow('6260001', 5);
+      t.same([storedLine(0)?.qty, storedLine(1), textOf('sale-scan-note')], ['3', null, null], 'P6 ضابط: «2» في كمية السطر ثمّ مسح رمزه: 3');
+    });
+
+    await step('P7 scan into a part-payment amount: leg restored, item added', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('55501') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.party('أبو');
+      await d.payKind('part');
+      const amount = first('pay-amount', d.paySheet());
+      amount.focus?.();
+      fire(amount, 'click', { detail: 0 });
+      await settle();
+      await human('20000', 250, false);
+      await scanSlow('55501', 5);
+      t.same([legsNow()[0]?.amount, storedLine(1)?.itemId, d.paySheet() === null], ['20000', ID.grower, true], 'P7 ضابط: «20000» في المبلغ ثمّ مسح: المبلغ كما كُتب والمادّة مضافة');
+    });
+
+    await step('P8 save from a mouse focuses the value on its error line', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.openLineOf(ID.starter);
+      await click(d.pick('key', 'data-key', 'back', d.lineSheet()));
+      await d.done();
+      await d.next();
+      fire(first('save-invoice', d.paySheet()), 'click', { button: 0, detail: 1, pointerType: 'mouse' });
+      await settle(20);
+      t.same([d.lineSheet() !== null, globalThis.document.activeElement === first('line-display', d.lineSheet())], [true, true], 'P8 ضابط: «احفظ» بالفأرة يفتح السطر على خطئه وقيمته مركَّزة');
+    });
+
+    await step('P9 a backspace then a scan restores the value after the backspace', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('55501') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('95', 250, false);
+      hwKey('Backspace', keyNext(250));
+      await settle(5);
+      await scanSlow('55501', 5);
+      t.same([storedLine(0)?.qty, storedLine(1)?.itemId], ['9', ID.grower], 'P9 ضابط: «95» ثمّ حذف ثمّ مسح: الكمية 9 والمادّة مضافة');
+    });
+
+    await step('P10 mouse-focused qty: a Bluetooth scanner (45 ms) reads a code this store does not have, with Enter', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await mouseClick(first('card-qty', d.cell(ID.starter)));
+      await typeKeys('2');
+      await scanSlow('6269999999999', 45, true);
+      t.same([storedLine(0)?.qty, d.lineSheet() === null, textOf('sale-scan-note')], ['2', true, 'لا مادّة بالباركود «6269999999999» تُباع من «المخزن العام».'], 'P10 W2 ماسح بلوتوث (45 مللي ثانية) يقرأ رمزاً لا يعرفه المخزن في كمية مركَّزة بالفأرة: الكمية 2 كما كُتبت، و«لا مادّة» تُقال');
+    });
+
+    await step('P11 mouse-focused price: a Bluetooth scanner (45 ms) reads an unknown code, with Enter', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await mouseClick(first('card-qty', d.cell(ID.starter)));
+      await mouseClick(d.pick('line-tab', 'data-tab', 'price', d.lineSheet()));
+      const inValue = globalThis.document.activeElement === first('line-display', d.lineSheet());
+      await scanSlow('6269999999999', 45, true);
+      t.same([inValue, storedLine(0)?.price, d.lineSheet() === null, textOf('sale-scan-note')], [true, '35000', true, 'لا مادّة بالباركود «6269999999999» تُباع من «المخزن العام».'], 'P11 W2 والسعر مركَّز بالفأرة: السعر 35000 كما هو لا «626999999»، و«لا مادّة»');
+    });
+
+    await step('P12 a 3-character store code scanned at 5 ms into the focused qty', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('777') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('2', 250, false);
+      await scanSlow('777', 5, true);
+      t.same([storedLine(0)?.qty, storedLine(1)?.itemId ?? null], ['2', ID.grower], 'P12 W3 رمز بثلاثة أحرف «777» يُمسح في الكمية المركَّزة: الكمية 2 لا 2777، والمادّة مضافة');
+    });
+
+    await step('P13 W1 end to end: a person types price 21000 + Enter, «1000» is the line item\'s own alt code; then save', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('1000', ID.starter), record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      const tab = d.pick('line-tab', 'data-tab', 'price', d.lineSheet());
+      tab.focus?.();
+      fire(tab, 'click', { detail: 0 });
+      await settle();
+      await human('21000');
+      await d.next();
+      await d.save();
+      await settle(30);
+      t.same(named('record_sale_v2')[0]?.p_lines?.map((l) => [l.qty, l.unit_price]), [['1.000', '21000.00']], 'P13 W1 المحفوظ ما كتبه الإنسان: كيس واحد بـ21000، لا كيسان بدينارين');
+    });
+
+    /** «أضف سطراً آخر» من لوحة المفاتيح أو بالفأرة، ثمّ «3» بيد إنسان: [التركيز في القيمة، الورقة مفتوحة، مادّة السطر الثاني، كميته، البحث]. */
+    const addAnotherThenType = async (how) => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      if (how === 'keyboard') await openByKeyboard(ID.starter);
+      else await mouseClick(first('card-qty', d.cell(ID.starter)));
+      const add = first('line-add-another', d.lineSheet());
+      if (how === 'keyboard') {
+        add.focus?.();
+        fire(add, 'click', { detail: 0 });
+        await settle();
+      } else await mouseClick(add);
+      const focused = globalThis.document.activeElement === first('line-display', d.lineSheet());
+      await human('3', 250, false);
+      await wait(350);
+      await settle();
+      return [focused, d.lineSheet() !== null, storedLine(1)?.itemId, storedLine(1)?.qty, first('sale-search')?.value];
+    };
+
+    await step('W4 «أضف سطراً آخر» from the keyboard focuses the new line\'s value', async () => {
+      t.same(await addAnotherThenType('keyboard'), [true, true, ID.starter, '3', ''], 'W4 «أضف سطراً آخر» بـEnter: قيمة السطر الجديد مركَّزة، و«3» كميته والورقة مفتوحة، لا بحث');
+    });
+
+    await step('W4m «أضف سطراً آخر» by mouse focuses the new line\'s value', async () => {
+      t.same(await addAnotherThenType('mouse'), [true, true, ID.starter, '3', ''], 'W4 «أضف سطراً آخر» بالفأرة: قيمة السطر الجديد مركَّزة، و«3» كميته والورقة مفتوحة، لا بحث');
+    });
+
+    await step('W5 «مسح» from the keyboard returns focus to the value', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await openByKeyboard(ID.starter);
+      await human('3', 250, false);
+      const clear = first('pad-clear', d.lineSheet());
+      clear.focus?.();
+      fire(clear, 'click', { detail: 0 });
+      await settle();
+      const focused = globalThis.document.activeElement === first('line-display', d.lineSheet());
+      await human('7', 250, false);
+      await wait(350);
+      await settle();
+      t.same([focused, d.lineSheet() !== null, storedLine(0)?.qty, first('sale-search')?.value], [true, true, '7', ''], 'W5 Tab إلى «مسح» ثمّ Enter: القيمة فارغة ومركَّزة، و«7» بعده كميتها لا يطوي الورقة');
+    });
+
+    await step('W6 a run that starts at the screen router stays with it when a value takes focus in its middle', async () => {
+      fresh(MANAGER, { ...OK, sale_catalog: withCode('55501') }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      screen().focus?.();
+      hwKey('5', keyStart());
+      hwKey('5', keyNext(5));
+      // نقرة الفأرة فتحت الورقة والدفعة بدأت؛ القيمة تُركَّز بعد حرفين منها.
+      await mouseClick(first('card-qty', d.cell(ID.starter)));
+      const inValue = globalThis.document.activeElement === first('line-display', d.lineSheet());
+      for (const ch of '501') hwKey(ch, keyNext(5));
+      hwKey('Enter', keyNext(5));
+      await settle(10);
+      t.same(
+        [inValue, storedLine(0)?.qty, storedLine(1)?.itemId, d.lineSheet() === null, first('sale-search')?.value, textOf('sale-scan-note')],
+        [true, '1', ID.grower, true, '', null],
+        'W6 «55» عند الموجّه ثمّ «501» وEnter والقيمة مركَّزة: الدفعة كلّها مسح (المادّة مضافة)، لا رقم في الكمية ولا رأس في البحث',
+      );
+    });
+
+    await step('W7 Escape in the focused pay-pad value closes only the pad, a second Escape closes the sheet', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await d.tap(ID.starter);
+      await d.next();
+      await d.party('أبو');
+      await d.payKind('part');
+      const amount = first('pay-amount', d.paySheet());
+      amount.focus?.();
+      fire(amount, 'click', { detail: 0 });
+      await settle();
+      const inValue = globalThis.document.activeElement === first('pad-display', d.paySheet());
+      await human('20000', 250, false);
+      hwKey('Escape', keyNext(250));
+      await settle(10);
+      const pay = d.paySheet();
+      const once = [pay !== null, pay && first('pay-pad', pay), legsNow()[0]?.amount, pay !== null && globalThis.document.activeElement === first('pay-amount', pay)];
+      hwKey('Escape', keyNext(250));
+      await settle(10);
+      t.same([inValue, once, d.paySheet() === null, legsNow()[0]?.amount], [true, [true, null, '20000', true], true, '20000'], 'W7 Esc في المبلغ المركَّز يطوي اللوحة وحدها (المبلغ 20000 باقٍ، والتركيز على المبلغ)، وEsc ثانٍ يُغلق الدفع');
     });
   } catch (error) {
     t.ok(false, `رمى خارج الخطوات: ${error?.stack ?? error}`);

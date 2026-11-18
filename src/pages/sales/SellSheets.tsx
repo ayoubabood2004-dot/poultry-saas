@@ -318,7 +318,8 @@ export interface LineSheetProps {
   onField: (field: LineTab, text: string) => void;
   onUsual: () => void;
   onRemove: () => void;
-  onAddAnother: () => void;
+  /** focusValue: من لوحة المفاتيح أو بالفأرة، فقيمة السطر الجديد تُركَّز (W4). */
+  onAddAnother: (focusValue: boolean) => void;
 }
 
 const PAD_DECIMALS: Readonly<Record<LineTab, number>> = { qty: 3, price: 2, discount: 0 };
@@ -360,6 +361,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
   };
   const hardware = usePadKeys({
     decimals: PAD_DECIMALS[tab],
+    target: `${tab}:${line.unitId ?? ''}`,
     current: () => (typed.current !== null && typed.current.tab === tab ? typed.current.text : value),
     press: (keys) => press(keys),
     restore: (text) => {
@@ -430,7 +432,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
           />
           <div className="sl-foot-row">
             {canAddAnother ? (
-              <button type="button" className="sl-secondary" onClick={onAddAnother} data-action="line-add-another">
+              <button type="button" className="sl-secondary" onClick={(event) => onAddAnother(focusesValue(event))} data-action="line-add-another">
                 {t('sell.line.another', 'أضف سطراً آخر لها')}
               </button>
             ) : null}
@@ -520,6 +522,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
           data-pad-display="yes"
           onKeyDown={hardware.onKeyDown}
           onFocus={hardware.reset}
+          onBlur={hardware.reset}
           onPointerDown={(event) => {
             if (event.pointerType === 'touch') keepFocus(event);
           }}
@@ -536,11 +539,13 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
             className="sl-clear"
             aria-label={t('sell.pad.clear', 'امسح القيمة')}
             onPointerDown={keepFocus}
-            onClick={() => {
+            onClick={(event) => {
               sound.click();
               hardware.reset();
               onField(tab, '');
               setFresh(false);
+              // الزرّ يختفي مع القيمة الفارغة: من لوحة المفاتيح أو بالفأرة يعود التركيز إلى القيمة فلا يسقط إلى الصفحة ويُغلق الرقمُ التالي الورقة (W5).
+              focusAfter(event);
             }}
             data-action="pad-clear"
           >
@@ -932,6 +937,7 @@ export function PaySheet(props: PaySheetProps) {
   };
   const hardware = usePadKeys({
     decimals: 0,
+    target: targetKey ?? '',
     current: () => (typedPad.current !== null && target !== null && typedPad.current.key === (target.kind === 'leg' ? target.legId : target.kind) ? typedPad.current.text : targetText()),
     press: (keys) => press(keys),
     restore: (text) => {
@@ -939,6 +945,8 @@ export function PaySheet(props: PaySheetProps) {
       write(text);
     },
     done: padDone,
+    // Escape في المبلغ المركَّز يطوي اللوحة وحدها (المبلغ يبقى) والتركيز إلى ما فتحها؛ وEscape ثانٍ يُغلق الورقة (W7).
+    escape: padDone,
     isCode,
     onScan,
   });
@@ -1019,6 +1027,7 @@ export function PaySheet(props: PaySheetProps) {
                   data-pad-display="yes"
                   onKeyDown={hardware.onKeyDown}
                   onFocus={hardware.reset}
+                  onBlur={hardware.reset}
                   onPointerDown={(event) => {
                     if (event.pointerType === 'touch') keepFocus(event);
                   }}

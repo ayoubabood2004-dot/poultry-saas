@@ -94,29 +94,40 @@ export function padKeyOf(key: string, decimals: number): PadKey | null {
 export const composing = (event: { key: string; isComposing?: boolean; keyCode?: number; nativeEvent?: { isComposing?: boolean; keyCode?: number } }): boolean =>
   event.key === 'Unidentified' || event.key === 'Process' || event.isComposing === true || event.keyCode === 229 || event.nativeEvent?.isComposing === true || event.nativeEvent?.keyCode === 229;
 
-/** الماسح الذي لا تُعرف رموزه هنا (backstop): ستّة أحرف فأكثر بين كلّ حرفين أقلّ من هذا، تنتهي بـEnter أو بسكون. */
-const BURST_GAP_MS = 35;
-const BURST_MIN = 6;
+/**
+ * «دفعة» المفاتيح (المراجعة الخامسة، قاعدة واحدة للموجّه وللقيمة المركَّزة): حروف متتالية بين كلّ حرفين أقلّ من هذا. الماسح (USB 5 مللي ثانية والبلوتوث
+ * 45–50) يكتب أسرع منه، والإنسان أبطأ (مفتاح كلّ 90 مللي ثانية فأكثر حتى للسريع). التكرار (مسك المفتاح) يقطع الدفعة ولا يدخلها، وEnter أو Tab بعد
+ * آخر حرف بأقلّ منه ينهيها، وفجوة أطول تنهيها.
+ */
+export const RUN_GAP_MS = 60;
+/** سكون بعد آخر حرف بلا Enter (ماسح لا يرسله): دفعة كاملة هي رمز في هذا المخزن مسحٌ. */
 const SILENCE_MS = 300;
-/** رمز معروف للمخزن بلا Enter (ماسح لا يرسله): يُعرف بالسكون إن وصلت حروفه أسرع من هذا بينها (البلوتوث 45–50، والإنسان أبطأ بكثير). */
-const KNOWN_GAP_MS = 100;
+/** أقصر دفعة تُعرف مسحاً في القيمة المركَّزة (رمز بحرف أو حرفين فيها حدّ موثّق: الموجّه يعرفه خارجها). */
+const RUN_MIN = 3;
+/** دفعة بهذا الطول تنتهي بـEnter ولا يعرفها المخزن: ماسح قرأ رمزاً لا يُباع هنا (تُعاد القيمة ويُقال ذلك). */
+const RUN_UNKNOWN = 6;
 
-interface Typed {
-  char: string;
-  at: number;
-  repeat: boolean;
-  /** القيمة قبل هذا الحرف (لإرجاعها حين يتبيّن أنّ ما بعدها مسح). */
+interface Run {
+  /** الخانة التي بدأت فيها (السطر وتبويبه، أو مبلغ الصندوق): دفعة لا تعبر من خانة إلى أخرى. */
+  target: string;
+  chars: string[];
+  /** القيمة قبل أوّل حرف منها: إليها تعود حين تكون الدفعة مسحاً. */
   before: string;
+  last: number;
 }
 
 export interface PadKeysOptions {
   decimals: number;
+  /** الخانة التي تكتبها اللوحة الآن (تبديلها يبدأ دفعة جديدة). */
+  target: string;
   /** نصّ القيمة الآن (ومعه ما كُتب ولم يُرسم بعد). */
   current: () => string;
   press: (keys: PadKey[]) => void;
-  /** يعيد القيمة إلى نصّ (ما قبل رمز مُسح فيها). */
+  /** يعيد القيمة إلى نصّ (ما قبل دفعة كانت مسحاً). */
   restore: (text: string) => void;
   done: () => void;
+  /** Escape في القيمة: لوحة الدفع تُطوى وحدها (W7)؛ وبلا هذا تُغلق الورقة. */
+  escape?: () => void;
   /** رمز (باركود أو رمز آخر) لمادّة في هذا المخزن؟ */
   isCode: (text: string) => boolean;
   /** المسح نفسه: تُطوى الأوراق وscanCode (يضيف، أو يقول لماذا لا). */
@@ -124,87 +135,90 @@ export interface PadKeysOptions {
 }
 
 /**
- * مفاتيح الجهاز في القيمة المركَّزة (المراجعة الرابعة V1): كلّ مفتاح يُطبَّق فوراً كما في الأساس الثالث، ويُحفظ ما كُتب منذ ركّزت القيمة (أو «تم» أو
- * المسح أو تبديل التبويب) حرفاً حرفاً مع القيمة قبله. عند Enter: إن كان آخر ما كُتب (أربعة أحرف فأكثر) رمزاً لمادّة في هذا المخزن فهو مسحٌ لا كتابة،
- * بلا حساب للسرعة: تعود القيمة إلى ما كانت قبله ويُمسح الرمز (2.5 ثمّ مسح يبقى 2.5 والمادّة تُضاف)؛ وماسح بلا Enter يُعرف بالسكون إن وصل الرمز المعروف
- * أسرع من 100 مللي ثانية بين حروفه. ورمز لا يعرفه المخزن يُعرف بسرعته وحدها احتياطاً: ستّة أحرف فأكثر بأقلّ من 35 مللي ثانية بينها، تنتهي بـEnter أو
- * بسكون. وإلّا فـEnter «تم». مفاتيح داخل القيمة (زرّ فيها) تُترك لها (V3).
+ * مفاتيح الجهاز في القيمة المركَّزة (المراجعة الخامسة): كلّ مفتاح يُطبَّق فوراً، وتُحفظ القيمة عند أوّل حرف من كلّ دفعة (RUN_GAP_MS). دفعة من ثلاثة
+ * أحرف فأكثر تنتهي بـEnter (أو Tab) بعد آخر حرف بأقلّ من RUN_GAP_MS: إن كانت كلّها رمزاً في هذا المخزن، أو ستّة أحرف فأكثر، تعود القيمة إلى ما قبلها
+ * ويُمسح ما فيها؛ ودفعة كاملة هي رمز في المخزن تنتهي بسكون بلا Enter مسحٌ كذلك. وغير ذلك كتابة: Enter «تم». كتابة إنسان (بين حرفين RUN_GAP_MS
+ * فأكثر) لا تُعاد أبداً، ولا يُطابَق ذيل ما كُتب (W1). وتبدأ الدفعة من جديد مع كلّ خانة وتبويب ووحدة، و«تم» و«مسح»، والتركيز داخلاً وخارجاً، وكلّ
+ * لمسة مؤشّر. مفاتيح داخل القيمة (زرّ فيها) تُترك لها.
  */
 export function usePadKeys(options: PadKeysOptions) {
   const latest = useRef(options);
   useEffect(() => {
     latest.current = options;
   });
-  const typed = useRef<Typed[]>([]);
+  const run = useRef<Run | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stop = () => {
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
   };
-  useEffect(() => stop, []);
   const reset = () => {
     stop();
-    typed.current = [];
+    run.current = null;
   };
-  /** يمسح من الحرف start: القيمة إلى ما قبله، ثمّ المسح. */
-  const scanFrom = (start: number, code: string) => {
-    const before = typed.current[start]?.before ?? latest.current.current();
+  // كلّ لمسة مؤشّر (مفتاح في اللوحة، مبلغ صندوق آخر، «+ صندوق آخر») تنهي الدفعة: الماسح لا يلمس، فدفعة لا تعبر خانتين.
+  useEffect(() => {
+    const onPointer = () => {
+      stop();
+      run.current = null;
+    };
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointer, true);
+      stop();
+    };
+  }, []);
+  /** الدفعة الجارية على هذه الخانة بنصّها، إن كانت مسحاً (قد تحتاج رمزاً في المخزن)؛ وإلّا null. */
+  const scanOf = (entry: Run | null, needCode: boolean): string | null => {
+    if (!entry || entry.target !== latest.current.target || entry.chars.length < RUN_MIN) return null;
+    const text = entry.chars.join('');
+    if (latest.current.isCode(text)) return text;
+    return !needCode && entry.chars.length >= RUN_UNKNOWN ? text : null;
+  };
+  const scan = (entry: Run, text: string) => {
     reset();
-    latest.current.restore(before);
-    latest.current.onScan(code);
+    latest.current.restore(entry.before);
+    latest.current.onScan(text);
   };
-  /** دفعة الماسح في آخر ما كُتب: من أين تبدأ (أو -1). */
-  const burstStart = (): number => {
-    const keys = typed.current;
-    const last = keys.length - 1;
-    if (last < 0 || keys[last]?.repeat) return -1;
-    let start = last;
-    while (start > 0) {
-      const here = keys[start];
-      const prev = keys[start - 1];
-      if (!here || !prev || prev.repeat || here.at - prev.at >= BURST_GAP_MS) break;
-      start -= 1;
-    }
-    return keys.length - start >= BURST_MIN ? start : -1;
-  };
-  /** أطول ذيل لما كُتب (أربعة أحرف فأكثر) هو رمز لمادّة في المخزن، أو -1؛ وبلا Enter بشرط أن تكون حروفه وصلت أسرع من KNOWN_GAP_MS. */
-  const knownStart = (entered: boolean): number => {
-    const keys = typed.current;
-    const chars = keys.map((key) => key.char);
-    for (let start = 0; start <= chars.length - 4; start += 1) {
-      if (!latest.current.isCode(chars.slice(start).join(''))) continue;
-      if (entered) return start;
-      const quick = keys.slice(start + 1).every((key, index) => !key.repeat && key.at - (keys[start + index]?.at ?? 0) < KNOWN_GAP_MS);
-      if (quick) return start;
-    }
-    return -1;
-  };
-  const onEnter = () => {
-    stop();
-    const chars = typed.current.map((key) => key.char);
-    const known = knownStart(true);
-    if (known >= 0) {
-      scanFrom(known, chars.slice(known).join(''));
-      return;
-    }
-    const start = burstStart();
-    if (start >= 0) {
-      scanFrom(start, chars.slice(start).join(''));
-      return;
+  /** Enter أو Tab: ينهي الدفعة إن وصل بعد آخر حرف منها بأقلّ من RUN_GAP_MS؛ يرجع true إن كانت مسحاً. */
+  const ended = (at: number, repeat: boolean): boolean => {
+    const entry = run.current;
+    const gap = entry ? at - entry.last : -1;
+    const text = entry && !repeat && gap >= 0 && gap < RUN_GAP_MS ? scanOf(entry, false) : null;
+    if (entry && text !== null) {
+      scan(entry, text);
+      return true;
     }
     reset();
-    latest.current.done();
+    return false;
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    // زرّ داخل القيمة («مسح») يأخذ Enter لنفسه (V3)؛ ومحرّر اللغات لا يُقرأ.
+    // زرّ داخل القيمة يأخذ مفاتيحه لنفسه (V3)؛ ومحرّر اللغات لا يُقرأ.
     if (event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey || composing(event)) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
-      onEnter();
+      if (!ended(event.timeStamp, event.repeat)) latest.current.done();
       return;
     }
-    const { decimals, press, current } = latest.current;
+    if (event.key === 'Tab') {
+      // ماسح ينهي الرمز بـTab: مسحٌ كـEnter، والتركيز يبقى؛ وغيره Tab عاديّ.
+      if (ended(event.timeStamp, event.repeat)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      const escape = latest.current.escape;
+      reset();
+      if (!escape) return;
+      event.preventDefault();
+      event.stopPropagation();
+      escape();
+      return;
+    }
+    const { decimals, press, current, target } = latest.current;
     const key = padKeyOf(event.key, decimals);
     if (key === 'back' || key === 'clear') {
       event.preventDefault();
@@ -214,17 +228,28 @@ export function usePadKeys(options: PadKeysOptions) {
       return;
     }
     if (event.key.length !== 1 || event.key === ' ') return;
-    // حرف: يُطبَّق فوراً إن كان رقماً، ويُحفظ (ولو حرفاً لا يُكتب في رقم: الرموز قد تحمل حروفاً).
+    // حرف: يُطبَّق فوراً إن كان رقماً، ويدخل الدفعة (ولو حرفاً لا يُكتب في رقم: الرموز قد تحمل حروفاً).
     event.preventDefault();
     event.stopPropagation();
-    typed.current.push({ char: event.key, at: event.timeStamp, repeat: event.repeat, before: current() });
-    if (key !== null) press([key]);
     stop();
+    if (event.repeat) {
+      run.current = null;
+      if (key !== null) press([key]);
+      return;
+    }
+    const entry = run.current;
+    const gap = entry ? event.timeStamp - entry.last : -1;
+    if (entry && entry.target === target && gap >= 0 && gap < RUN_GAP_MS) {
+      entry.chars.push(event.key);
+      entry.last = event.timeStamp;
+    } else run.current = { target, chars: [event.key], before: current(), last: event.timeStamp };
+    if (key !== null) press([key]);
     timer.current = setTimeout(() => {
       timer.current = null;
-      const known = knownStart(false);
-      const start = known >= 0 ? known : burstStart();
-      if (start >= 0) scanFrom(start, typed.current.slice(start).map((entry) => entry.char).join(''));
+      const finished = run.current;
+      const text = scanOf(finished, true);
+      if (finished && text !== null) scan(finished, text);
+      else run.current = null;
     }, SILENCE_MS);
   };
   return { onKeyDown, reset };
@@ -330,7 +355,7 @@ export function Sheet({ title, onClose, level, locked = false, size = 'fit', act
     const unlock = lockScroll();
     const release = trapFocus(panel);
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !isTopModal(panel) || lockedRef.current) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || !isTopModal(panel) || lockedRef.current) return;
       event.preventDefault();
       closeRef.current();
     };
