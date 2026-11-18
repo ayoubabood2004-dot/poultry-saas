@@ -138,7 +138,8 @@ export async function sendFile(file: File, title: string): Promise<SendOutcome> 
       return 'shared';
     } catch (error) {
       const name = (error as { name?: unknown } | null)?.name;
-      if (name === 'AbortError') return 'cancelled';
+      // InvalidStateError: مشاركة سابقة ما زالت مفتوحة (لمسة ثانية سريعة، مراجعة المبيعات A8): كالإلغاء، لا تنزيلاً.
+      if (name === 'AbortError' || name === 'InvalidStateError') return 'cancelled';
       if (name === 'NotAllowedError') return 'blocked';
     }
   }

@@ -797,6 +797,8 @@ export interface SalesReportRow {
 
 export interface SalesReport {
   group: SalesGroup;
+  /** يوم الخادم (0033 بعد مراجعة A7)، أو null من جواب قبله: المدّة الافتراضية للتقرير منه لا من ساعة الجهاز. */
+  today: string | null;
   rows: readonly SalesReportRow[];
   totals: { count: number; revenue: Fils | null; cost: SaleCost | null };
 }
@@ -807,6 +809,7 @@ export function parseSalesReport(value: unknown): SalesReport {
   const totalMoney = moneyOf(totals);
   return {
     group: oneOf(json, 'group', SALES_GROUPS),
+    today: optStr(json, 'today'),
     rows: arr(json.rows, 'rows').map((entry) => {
       const row = obj(entry, 'rows');
       const money = moneyOf(row);

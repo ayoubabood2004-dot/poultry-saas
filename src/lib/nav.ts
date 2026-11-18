@@ -1,4 +1,4 @@
-import { ChartNoAxesColumn, Drumstick, Egg, Factory, House, Receipt, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
+import { ChartNoAxesColumn, createLucideIcon, Drumstick, Egg, Factory, House, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import type { DivisionKind } from '../domain/divisions';
 import { canManageMembers, type Role } from '../domain/permissions';
 import type { Workspace } from '../domain/workspace';
@@ -32,6 +32,22 @@ export const STORE_ROLES: ReadonlySet<Role> = new Set<Role>([
   'hatchery_operator',
 ]);
 
+/**
+ * أيقونة البيع: عربة (مراجعة D21: لا إيصال بعلامة الدولار في تطبيق بالدينار)، واحدة للشريط وزرّ «بِع» وشريحة «فاتورة مفتوحة». رسم lucide
+ * «shopping-cart» نفسه (رخصة ISC، كبقيّة أيقونات lucide-react) معرَّفاً هنا لا بوحدته: وحدته بترخيصها أثقل في حزمة الإقلاع، وإخراج Receipt منها
+ * (كان أيقونة المبيعات) يفصل حزمة مشتركة له في التثبيت المسبق (الرئيسية والمعمل والحسابات)، فيبقى المجموع دون ما كان.
+ */
+export const SaleIcon: LucideIcon = createLucideIcon({
+  name: 'shopping-cart',
+  size: 24,
+  node: [
+    ['path', { d: 'm2.05 2.05 1.099-.028a1 1 0 0 1 1.008.815l2.69 14.347A1 1 0 0 0 7.83 18H18', key: 'a' }],
+    ['path', { d: 'M4.563 5h16.435a1 1 0 0 1 .981 1.204l-1.026 6.226A2 2 0 0 1 18.962 14H6.25', key: 'b' }],
+    ['circle', { cx: '18', cy: '20', r: '2', key: 'c' }],
+    ['circle', { cx: '8', cy: '20', r: '2', key: 'd' }],
+  ],
+});
+
 export function navItems(): NavItem[] {
   return [
     { to: '/', label: t('nav.home', 'الرئيسية'), icon: House },
@@ -47,7 +63,7 @@ export function navItems(): NavItem[] {
     { to: '/inventory', label: t('nav.store', 'المخزن'), icon: Warehouse, visibleTo: (w) => STORE_ROLES.has(w.role) },
     // «المبيعات» (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات»): لأدوار المبيعات كما أكّدها الخادم (can_see_sales: يقرأ
     // الفواتير والتقرير، ويبيع منهم من له sale.record)، والصفحة في حزمة المخزون خارج التثبيت المسبق.
-    { to: '/sales', label: t('nav.sales', 'المبيعات'), icon: Receipt, visibleTo: (w) => w.canSeeSales },
+    { to: '/sales', label: t('nav.sales', 'المبيعات'), icon: SaleIcon, visibleTo: (w) => w.canSeeSales },
     { to: '/accounts', label: t('nav.accounts', 'الحسابات'), icon: Wallet, visibleTo: (w) => w.canSeeAccounts },
     // «التقارير» (0027، كلمة المالك 2026-11-12): صفحة مداخل تقرير القاعات اليومي وتقارير الدورات، فبندها لمن بنطاقه حقول لحم أو بيض.
     { to: '/reports', label: t('nav.reports', 'التقارير'), icon: ChartNoAxesColumn, visibleTo: (w) => w.divisions.includes('broiler') || w.divisions.includes('layer') },

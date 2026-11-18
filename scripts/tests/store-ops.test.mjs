@@ -760,10 +760,12 @@ export default async function (t) {
       await mount('/sales');
       t.same(named(rpcCalls, 'sales_overview'), [{ p_from: monthFrom(), p_to: m.localDay() }], 'S11 المدّة الافتراضية من أوّل الشهر إلى اليوم');
       // شريط المدّة (تصميم المبيعات ٧) من مجاميع الخادم: البيع والمدفوع عند البيع والباقي الآن، والكلفة والربح للمالك.
+      // سطر واحد (البيع والباقي الآن)، و«التفاصيل» تفتح المدفوع عند البيع والكلفة والربح (مراجعة D14)؛ والعدد للفواتير كلّها والملغاة منها (A10).
+      await click(byAction('strip-more')[0]);
       const stats = all().filter((n) => n.localName === 'dt').map((n) => `${n.textContent}=${n.nextSibling?.textContent}`);
       t.same(
-        [byActionText('strip-sold'), byActionText('strip-paid'), byActionText('strip-open'), stats.includes('كلفة المبيع=68,000'), stats.includes('الربح=7,000'), text().includes('فاتورتان')],
-        ['75,000', '0', '75,000', true, true, true],
+        [byActionText('strip-sold'), byActionText('strip-paid'), byActionText('strip-open'), stats.includes('كلفة المبيع=68,000'), stats.includes('الربح=7,000'), byActionText('strip-count')],
+        ['75,000', '0', '75,000', true, true, '4 فواتير، الملغاة منها: 2'],
         'S11 المجاميع من الخادم، والكلفة والربح للمالك',
       );
       const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
@@ -816,7 +818,10 @@ export default async function (t) {
       });
       await mount(`/sales/${cashSale.id}`);
       await openVoid();
-      t.ok(text().includes('إلغاء البيع MS-2026-0001؟') && byAction('void-cash-kept')[0]?.textContent.includes('والمبلغ المقبوض (120,000 دينار) يبقى رصيداً لـ«شركة الدواجن»'), 'S12 التأكيد يسمّي الأثر ويقول إنّ المقبوض يبقى رصيداً');
+      t.ok(
+        text().includes('إلغاء البيع MS-2026-0001؟') && byAction('void-cash-kept')[0]?.textContent === 'وما دُفع لها عند البيع (120,000 دينار) يُحسب لـ«شركة الدواجن»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة أوّلاً، وما يبقى منه رصيد له.',
+        'S12 التأكيد يسمّي المبلغ ويقول ما يفعله الخادم به: يُسدَّد به أقدم ما على الزبون، وما يبقى رصيد له (A3)',
+      );
       t.ok(text().includes('ترجع 100 كغم من «علف بادئ» إلى مخزنها، ويُعكس قيد الفاتورة على «شركة الدواجن».'), 'S12 والبضاعة التي ترجع بكميتها');
       await click(byAction('confirm-void-sale')[0]);
       t.ok(text().includes('اكتب سبب الإلغاء.') && named(rpcCalls, 'void_sale').length === 0, 'S12 السبب إلزاميّ');
@@ -826,7 +831,7 @@ export default async function (t) {
       await settle();
       const [args] = named(rpcCalls, 'void_sale');
       t.same([args?.p_sale_id, args?.p_reason, UUID.test(args?.p_client_ref ?? '')], [cashSale.id, 'خطأ في الجهة', true], 'S12 void_sale بالفاتورة والسبب والمرجع');
-      t.ok(text().includes('أُلغي البيع MS-2026-0001. والمقبوض 120,000 دينار باقٍ رصيداً لـ«شركة الدواجن».') && named(rpcCalls, 'sale_detail').length === 2, 'S12 الجملة من جواب الخادم، والفاتورة تُقرأ من جديد');
+      t.ok(text().includes('أُلغي البيع MS-2026-0001. وما دُفع لها (120,000 دينار) حُسب لـ«شركة الدواجن»: يُسدَّد به أقدم فواتيره المفتوحة، وما يبقى رصيد له.') && named(rpcCalls, 'sale_detail').length === 2, 'S12 الجملة من جواب الخادم، والفاتورة تُقرأ من جديد');
       t.same([byActionText('sale-status'), byAction('sale-more').length], ['ملغاة', 0], 'S12 ثمّ الفاتورة ملغاة بلا «⋯»');
     });
 
@@ -967,7 +972,8 @@ export default async function (t) {
       const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, {}, { sales_overview: async () => later });
       await mount('/sales');
       await settle();
-      t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-01', p_to: '2026-12-03' }, 'المدّة الافتراضية من يوم الخادم (أوّل شهره إلى يومه)');
+      // الأمين يبدأ باليوم (مراجعة D14)، ويومه يوم الخادم لا الجهاز.
+      t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-03', p_to: '2026-12-03' }, 'المدّة الافتراضية للأمين «اليوم» من يوم الخادم');
       await click(byAction('sales-period-range')[0]);
       await settle();
       t.eq(all().find((n) => n.id.endsWith('-to'))?.value, '03/12/2026', 'و«مدّة…» تبدأ بالمدّة المعروضة: حقل «إلى» يقول يوم الخادم');

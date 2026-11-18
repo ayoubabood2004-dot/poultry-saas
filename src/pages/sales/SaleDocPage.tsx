@@ -19,21 +19,19 @@ import { useLoad } from '../../lib/useLoad';
 import { PaymentDialog } from '../accounts/shared';
 import { downloadFile, reportImage, sendFile } from '../halls/reportImage';
 import { printAs } from './birdParts';
-import { saleTone, StatusChip, useWide } from './docKit';
+import { readFlag, saleTone, StatusChip, useWide, writeFlag } from './docKit';
 import { checkoutBack, dinars, INVOICE_IMAGE_OPTIONS, INVOICE_IMAGE_WIDTH, inputMoney, invoiceImageName, invoiceTitle, InvoicePaper, lineQtyText, lineUnitLabel, newSalePath, PAPER_STYLE, priceText } from './saleParts';
-import { SaleVoidDialog, voidTargetOf } from './SaleVoidDialog';
+import { readVoidPending, SaleVoidDialog, storeVoidPending, voidPendingKey, voidTargetOf } from './SaleVoidDialog';
 
 // صفحة الفاتورة (/sales/:id، عقد 0024 F8 ثمّ عقد 0033 «ب»، ثمّ تصميم المبيعات ٥ و٦ — كلمة المالك 2026-11-18: «شكل متطور سهل الاستخدام يسهل حياة المستخدم»):
-// بطاقة إيصال أوّلاً (الحالة شريحةً بنصّ، والصافي كبيراً، وشريط المدفوع والباقي الآن، والزبون واليوم والمخزن)، ثمّ أفعال بارتفاع الإصبع: «أرسل على واتساب»
-// الأساسيّ، و«PDF»، و«استلم» (بعلم can_collect)، و«⋯» فيها «ألغِ الفاتورة» (انتقل من صفّ القائمة: فعل نادر خطِر). والسطور في DataTable بأعمدة الهاتف
-// («المادّة والكمية» في خلية و«المبلغ»، والتفصيل في الشاشة العريضة) بإجماليّها ثمّ الخصم مرّة واحدة، وسيقان الدفع جدولاً. وورقة الفاتورة (تُطبع وتُصوَّر)
-// مطويّة تحت «الورقة كما تصل الزبون»، فاتحةً دائماً كما تصله.
-// وبعد الحفظ (?done=1، الشاشة تحلّ محلّ «بيع جديد» في التاريخ) حالة نجاح: ✓ و«حُفظت <الرقم>» والصافي والمدفوع والباقي، وأزرار كبيرة: «أرسل على واتساب»
-// و«PDF» و«بيع جديد» بالمخزن نفسه و«استلم» حين يبقى شيء.
-// والصورة تُجهَّز فور تحميل الفاتورة (في وقت فراغ المتصفّح)، فاللمسة الأولى على «أرسل على واتساب» تنادي navigator.share بملفّ جاهز داخل النقرة نفسها (لا
-// تُعدّ «قديمة» فلا يرفضها المتصفّح)؛ وإن لم تجهز بعدُ فالطريق القديم احتياطاً: تُجهَّز ثمّ تُشارك، وإن رُفضت المشاركة فالصورة جاهزة بـ«أرسلها».
-// والكلفة والربح لأدوار الكلفة وحدها (cost.money يغيب لغيرها)، والملغاة بختمها وسببها بلا مبالغ. والرجوع إلى ?back= (الحسابات أو المبيعات أو المخزن أو
-// الرئيسية) وإلّا المبيعات.
+// بطاقة إيصال أوّلاً (الحالة شريحةً بنصّ، والصافي كبيراً، وشريط المدفوع والباقي الآن، والزبون واليوم والمخزن، والربح مطويّاً: الهاتف كثيراً ما يواجه الزبون)،
+// ثمّ أفعال بارتفاع الإصبع: «أرسل على واتساب» الأساسيّ، و«ملفّ PDF»، و«استلم دفعة» (بعلم can_collect)، و«⋯» فيها «ألغِ الفاتورة». والسطور في DataTable
+// بأعمدة الهاتف بإجماليّها ثمّ الخصم مرّة واحدة، وسيقان الدفع جدولاً. وورقة الفاتورة (تُطبع وتُصوَّر) مطويّة تحت «الورقة كما تصل الزبون»، فاتحةً دائماً.
+// وبعد الحفظ (?done=1) حالة نجاح تُعلَن لقارئ الشاشة (التركيز على «حُفظت» ومنطقة حيّة)، والرابط يُنظَّف منها بعد أوّل رسم فلا تعود بإعادة التحميل ولا
+// بالرجوع ولا برابط منسوخ (مراجعة A9).
+// والصورة تُجهَّز فور التحميل في وقت الفراغ، فاللمسة الأولى تنادي navigator.share داخل النقرة بملفّ جاهز؛ ولمسة ثانية والمشاركة مفتوحة لا تفعل شيئاً (A8).
+// والصورة الجاهزة و«أرسلها» مربوطتان بالقراءة التي صُنعتا منها: بعد إلغاء أو قبض لا تُرسل صورة قديمة، والأفعال معطّلة حتى تصل قراءة جديدة، وفشلها يُقال
+// بـ«أعد القراءة» (مراجعة A2).
 
 /**
  * طريق الرجوع من الرابط: الرئيسية، أو مسار في الحسابات أو المبيعات أو المخزن (الفاتورة بعد حفظها من «بِع» في ملفّ المادّة، مراجعة 0033 D9) وحده (بترميز
@@ -45,12 +43,11 @@ export function saleBack(value: string | null): string {
 
 /**
  * الدفع بكلماته: بلا مقابل، أو رُدّ المقبوض كلّه، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع والباقي دين؛ وللملغاة ما حدث لمقبوضها (مراجعة
- * 0033 D7). paymentRefunded = رُدّت ساق واحدة على الأقلّ، فـ«رُدّ» حين لا يبقى شيء مدفوعاً وحده (D3)، والمدفوع paid من السيقان التي لم تُردّ.
+ * 0033 D7 وA3: ما دُفع لملغاة يُحسب للزبون فيُسدَّد به أقدم ما عليه). paymentRefunded = رُدّت ساق واحدة على الأقلّ، فـ«رُدّ» حين لا يبقى شيء مدفوعاً وحده.
  */
 export function salePaymentText(sale: Pick<SaleInvoice, 'status' | 'total' | 'paid' | 'debt' | 'walkIn' | 'paymentRefunded'>): string {
   if (sale.status === 'void') {
-    // سيقان الزبون باسمه تبقى رصيداً له، وسيقان الزبون النقديّ تُردّ مع الإلغاء (رأس 0033).
-    if (sale.paid > 0n) return t('invoice.pay.void_kept', 'ملغاة، والمقبوض باقٍ رصيداً للجهة');
+    if (sale.paid > 0n) return t('saledoc.pay.void_credited', 'ملغاة، وما دُفع لها حُسب للزبون');
     if (sale.paymentRefunded) return t('invoice.pay.void_refunded', 'ملغاة، ورُدّ المقبوض');
     return t('invoice.pay.void', 'ملغاة');
   }
@@ -75,6 +72,13 @@ function paymentNote(sale: SaleInvoice): string | null {
   return null;
 }
 
+/** لماذا لا تُلغى (void_block) لمن يُلغي عادةً ولا يرى «⋯» (مراجعة A11)؛ الدور والملغاة بلا جملة. */
+function voidBlockText(block: string | null): string | null {
+  if (block === 'out_of_scope') return t('saledoc.void_block.scope', 'لا تُلغى هذه الفاتورة من حسابك: مخزنها أو دفترها خارج نطاقك.');
+  if (block === 'period_locked') return t('saledoc.void_block.locked', 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، ويفتحها مالك المنشأة.');
+  return null;
+}
+
 /** طرف الفاتورة لنافذة «قبضنا» (تقرأ المعرّف والاسم وحدهما). */
 const partyOf = (sale: SaleInvoice): PartyRow => ({ id: sale.partyId, name: sale.partyName, version: 0, archived: false, phone: null, isCustomer: true, isSupplier: false });
 
@@ -85,6 +89,10 @@ const paidSoFar = (sale: SaleInvoice): Fils => (sale.total > sale.open ? sale.to
 const paidShare = (sale: SaleInvoice): number => (sale.total > 0n ? Number((paidSoFar(sale) * 1000n) / sale.total) / 10 : 0);
 
 const money0 = (amount: Fils) => <Num>{fmtMoney(amount, 0)}</Num>;
+
+/** مفاتيح ما يتذكّره الجهاز لكلّ مستخدم: «الربح» مفتوحاً، وشرح «استلم دفعة» قُرئ مرّة. */
+const profitKey = (userId: string): string => `sales.profit.open:${userId}`;
+const collectNoteKey = (userId: string): string => `sales.collect.note.seen:${userId}`;
 
 /** ما يُعرض تحت اسم المادّة في خلية الهاتف: «2 كيس 50 كغم × 35,000» (والملغاة بكميتها وحدها). */
 function lineSub(line: InvoiceLine, money: boolean) {
@@ -109,8 +117,8 @@ function lineSub(line: InvoiceLine, money: boolean) {
  * موادّ الفاتورة في الصفحة: بالهاتف «المادّة والكمية» (الاسم وتحته الكمية × السعر) و«المبلغ»، وفي الشاشة العريضة المادّة والكمية والوحدة والسعر والمبلغ.
  * المبلغ إجماليّ السطر، فالمجموع ثمّ «الخصم» و«الصافي» في التذييل حين يوجد خصم (كالورقة). والملغاة بلا مبالغ.
  */
-function PageLines({ invoice, wide }: { invoice: SaleInvoice; wide: boolean }) {
-  const money = invoice.status !== 'void';
+function PageLines({ invoice, wide, voided }: { invoice: SaleInvoice; wide: boolean; voided: boolean }) {
+  const money = !voided;
   const caption = t('saledoc.lines.caption', 'موادّ الفاتورة {doc}', { doc: invoice.docNo });
   const columns: Column<InvoiceLine>[] = wide
     ? [
@@ -168,9 +176,9 @@ function PageLines({ invoice, wide }: { invoice: SaleInvoice; wide: boolean }) {
   );
 }
 
-/** سيقان الدفع عند البيع: الصندوق والمبلغ، والمردودة بعلامتها (ليست من المدفوع الآن). */
+/** سيقان الدفع عند البيع في التطبيق (بأسماء الصناديق؛ والورقة للزبون بالمبلغ وحده، مراجعة D24): الصندوق والمبلغ، والمردودة بعلامتها. */
 function PageLegs({ invoice }: { invoice: SaleInvoice }) {
-  if (invoice.payments.length === 0 || invoice.status === 'void') return null;
+  if (invoice.payments.length === 0) return null;
   const columns: Column<InvoicePayment>[] = [
     {
       key: 'box',
@@ -195,9 +203,10 @@ function PageLegs({ invoice }: { invoice: SaleInvoice }) {
   );
 }
 
-/** الصافي والمدفوع حتى الآن والباقي الآن، والشريط بينهما (لغير الملغاة والتي بلا مقابل). */
+/** الصافي والمدفوع حتى الآن والباقي الآن، والشريط بينهما؛ و«مدفوعة كلّها» مكان «الباقي 0» («الباقي» للدين القائم وحده، D8). */
 function PaidBar({ invoice }: { invoice: SaleInvoice }) {
-  if (invoice.status === 'void' || invoice.total === 0n) return null;
+  if (invoice.total === 0n) return null;
+  const settled = invoice.open === 0n;
   return (
     <div className="sale-paybox" data-action="sale-paybox">
       <div className="sale-bar" role="presentation">
@@ -210,22 +219,30 @@ function PaidBar({ invoice }: { invoice: SaleInvoice }) {
             <Num>{fmtMoney(paidSoFar(invoice), 0)}</Num>
           </dd>
         </div>
-        <div data-part="open" data-zero={invoice.open === 0n ? '' : undefined}>
-          <dt>{t('saledoc.open', 'الباقي')}</dt>
-          <dd data-action="sale-open">
-            <Num>{fmtMoney(invoice.open, 0)}</Num>
-          </dd>
-        </div>
+        {settled ? (
+          <div data-part="settled">
+            <dt>{t('saledoc.state', 'الحالة')}</dt>
+            <dd data-action="sale-paid-all">{t('invoice.pay.paid', 'مدفوعة كلّها')}</dd>
+          </div>
+        ) : (
+          <div data-part="open">
+            <dt>{t('saledoc.open', 'الباقي')}</dt>
+            <dd data-action="sale-open">
+              <Num>{fmtMoney(invoice.open, 0)}</Num>
+            </dd>
+          </div>
+        )}
       </dl>
     </div>
   );
 }
 
-/** «⋯»: قائمة صغيرة فيها «ألغِ الفاتورة» (تُغلق بالنقر خارجها وEsc). */
+/** «⋯»: قائمة صغيرة فيها «ألغِ الفاتورة» (تُغلق بالنقر خارجها وEsc، وEsc يعيد التركيز إلى «⋯»). */
 function MoreMenu({ onVoid }: { onVoid: () => void }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const item = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -235,7 +252,9 @@ function MoreMenu({ onVoid }: { onVoid: () => void }) {
       if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      trigger.current?.focus?.();
     };
     document.addEventListener('pointerdown', away);
     document.addEventListener('keydown', escape);
@@ -247,6 +266,7 @@ function MoreMenu({ onVoid }: { onVoid: () => void }) {
   return (
     <div className="sale-more" ref={box}>
       <Button
+        ref={trigger}
         variant="secondary"
         className="sale-btn sale-btn-icon"
         aria-label={t('saledoc.more', 'أفعال أخرى')}
@@ -281,6 +301,12 @@ function MoreMenu({ onVoid }: { onVoid: () => void }) {
   );
 }
 
+/** الكتابة التي لم تصل بعدها قراءة جديدة: الفاتورة كما كانت قبلها، ونوعها. */
+interface Written {
+  of: SaleInvoice;
+  kind: 'void' | 'collect';
+}
+
 export default function SaleDocPage() {
   const { id = '' } = useParams();
   const location = useLocation();
@@ -288,10 +314,13 @@ export default function SaleDocPage() {
   const workspace = session.status === 'ready' ? session.workspace : null;
   const accounts = workspace ? can(workspace.role, 'accounts.view') : false;
   const mayCollect = workspace ? can(workspace.role, 'payment.post') : false;
+  const maySell = workspace ? can(workspace.role, 'sale.record') : false;
+  const mayVoid = workspace ? can(workspace.role, 'void') : false;
+  const userId = workspace?.userId ?? '';
   const orgName = workspace?.orgName ?? '';
   const load = useCallback(() => loadSaleInvoice(id), [id]);
   const state = useLoad(load, id);
-  // آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (بعد «استلم» أو الإلغاء).
+  // آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (بعد «استلم دفعة» أو الإلغاء).
   const [kept, setKept] = useState<SaleInvoice | null>(null);
   if (state.data !== null && state.data !== kept) setKept(state.data);
   const data = state.data ?? (kept && kept.id === id ? kept : null);
@@ -301,16 +330,32 @@ export default function SaleDocPage() {
   const backButton = <BackButton to={back} label={t('sale.doc.back', 'رجوع')} />;
   const wide = useWide();
   const paperRef = useRef<HTMLElement>(null);
+  const doneTitle = useRef<HTMLHeadingElement>(null);
   const [imaging, setImaging] = useState(false);
-  // الصورة المجهَّزة مسبقاً لهذه القراءة نفسها (قراءة جديدة بعد «استلم» تغيّر الورقة فتُجهَّز من جديد).
+  // مشاركة مفتوحة الآن: لمسة ثانية لا تفتح أخرى ولا تنزّل الصورة (InvalidStateError، مراجعة A8). المرجع للّمستين في الحدث نفسه، والحالة للزرّ.
+  const sharingNow = useRef(false);
+  const [sharing, setSharing] = useState(false);
+  // الصورة المجهَّزة مسبقاً و«أرسلها» لهذه القراءة نفسها (of): قراءة جديدة بعد «استلم دفعة» أو الإلغاء تغيّر الورقة فلا تُرسل القديمة.
   const [prepared, setPrepared] = useState<{ of: SaleInvoice; file: File } | null>(null);
-  // لأيّ قراءة جُهّزت الصورة (أو تُجهَّز الآن بلمسة): لا يُعاد تجهيزها في وقت الفراغ.
   const preparedFor = useRef<SaleInvoice | null>(null);
-  const [ready, setReady] = useState<{ docNo: string; file: File; title: string } | null>(null);
+  const [ready, setReady] = useState<{ of: SaleInvoice; file: File; title: string } | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [voided, setVoided] = useState<string | null>(null);
+  const [written, setWritten] = useState<Written | null>(null);
   const [paperOpen, setPaperOpen] = useState(false);
+  const [profitOpen, setProfitOpen] = useState(() => userId !== '' && readFlag(profitKey(userId)));
+  // شرح «استلم دفعة» يُعرض أوّل مرّة وحده (مراجعة D22).
+  const [noteSeen] = useState(() => userId !== '' && readFlag(collectNoteKey(userId)));
+  const pendingKey = workspace ? voidPendingKey(workspace.userId, workspace.orgId, id) : '';
+  const pendingVoid = readVoidPending(pendingKey);
+
+  // لم تصل قراءة بعد الكتابة: الفاتورة المعروضة قديمة.
+  const stale = data !== null && written !== null && written.of === data;
+  const isVoid = data !== null && (data.status === 'void' || (stale && written?.kind === 'void'));
+  const done = data !== null && search.get('done') === '1' && !isVoid;
+  const canCollect = data !== null && mayCollect && data.canCollect && !isVoid && !data.walkIn && !stale;
+  const showCollectNote = canCollect && !done && !noteSeen;
 
   // تجهيز الصورة فور التحميل في وقت فراغ المتصفّح (لا يثقل أوّل رسم): الخطوط أوّلاً، ثمّ نسخة الورقة بعرض ثابت وبالسمة الفاتحة.
   useEffect(() => {
@@ -344,6 +389,31 @@ export default function SaleDocPage() {
     };
   }, [data]);
 
+  // حالة النجاح لهذه الزيارة وحدها: «حُفظت» تُعلَن (التركيز عليها، A6)، و?done=1 يُمحى من سجلّ المتصفّح نفسه بلا انتقال (الموجّه يبقى بحالته فتبقى
+  // البطاقة على الشاشة)، فلا تعود بإعادة التحميل ولا بالرجوع والتقدّم ولا برابط منسوخ (A9).
+  useEffect(() => {
+    if (!done) return;
+    doneTitle.current?.focus?.({ preventScroll: true });
+    const history = typeof window !== 'undefined' ? window.history : undefined;
+    const here = typeof window !== 'undefined' ? window.location : undefined;
+    if (!history || typeof history.replaceState !== 'function' || !here || typeof here.search !== 'string') return;
+    const params = new URLSearchParams(here.search);
+    if (params.get('done') !== '1') return;
+    params.delete('done');
+    const query = params.toString();
+    history.replaceState(history.state, '', `${here.pathname}${query ? `?${query}` : ''}${here.hash ?? ''}`);
+  }, [done]);
+
+  // شرح «استلم دفعة» عُرض: لا يُعرض ثانيةً على هذا الجهاز.
+  useEffect(() => {
+    if (showCollectNote && userId !== '') writeFlag(collectNoteKey(userId), true);
+  }, [showCollectNote, userId]);
+
+  // إلغاء معلَّق والفاتورة صارت ملغاة: أُلغيت فعلاً، فلا شيء يُعاد.
+  useEffect(() => {
+    if (data?.status === 'void' && pendingVoid) storeVoidPending(pendingKey, null);
+  }, [data, pendingVoid, pendingKey]);
+
   if (state.error instanceof NotConnectedError && !data) {
     const { title, detail } = describeError(state.error);
     return (
@@ -370,36 +440,41 @@ export default function SaleDocPage() {
     );
   }
 
-  const isVoid = data.status === 'void';
-  const done = search.get('done') === '1' && !isVoid;
   const title = invoiceTitle(data.docNo);
-  const tone = saleTone(data);
-  // «استلم» بقول الخادم (can_collect: محفوظة، باسم، متبقٍّ من قيدها، ودور يقبض في نطاق دفترها) والمبلغ المتبقّي الآن (open) لا دين البيع: القبض
-  // اللاحق لا يغيّر دين البيع (مراجعة 0033 D1).
-  const canCollect = mayCollect && data.canCollect && !isVoid && !data.walkIn;
-  const canVoid = data.canVoid && !isVoid;
-  const note = paymentNote(data);
-  // «بيع جديد» بالمخزن نفسه، ورجوعه حيث بدأ البيع إن كان طريقاً تقبله الفاتورة الجديدة.
-  const nextSale = newSalePath({ store: data.warehouseId, ...(backParam !== null && checkoutBack(backParam) === backParam ? { back: backParam } : {}) });
+  const tone = saleTone({ status: isVoid ? 'void' : data.status, total: data.total, open: data.open });
+  const canVoid = data.canVoid && !isVoid && !stale;
+  const blockText = !data.canVoid && !isVoid && mayVoid ? voidBlockText(data.voidBlock) : null;
+  const note = isVoid && data.status !== 'void' ? null : paymentNote(data);
+  // «بيع جديد» بالمخزن نفسه لمن يبيع، ورجوعه حيث بدأ البيع إن كان طريقاً تقبله الفاتورة الجديدة.
+  const nextSale = maySell ? newSalePath({ store: data.warehouseId, ...(backParam !== null && checkoutBack(backParam) === backParam ? { back: backParam } : {}) }) : null;
+  // الزبون النقديّ بلا جهة اتصال يُرسل إليها: الخطوة التالية «بيع جديد» (D7).
+  const nextFirst = done && data.walkIn && nextSale !== null;
 
-  const deliver = async (file: File, imageTitle: string, docNo: string) => {
-    const outcome = await sendFile(file, imageTitle);
-    setReady(outcome === 'blocked' ? { docNo, file, title: imageTitle } : null);
-    if (outcome === 'downloaded') {
-      toast({ tone: 'success', title: t('invoice.image.downloaded', 'حُفظت صورة الفاتورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى الزبون.', { name: file.name }) });
+  const deliver = async (file: File, imageTitle: string, of: SaleInvoice) => {
+    sharingNow.current = true;
+    setSharing(true);
+    try {
+      const outcome = await sendFile(file, imageTitle);
+      setReady(outcome === 'blocked' ? { of, file, title: imageTitle } : null);
+      if (outcome === 'downloaded') {
+        toast({ tone: 'success', title: t('invoice.image.downloaded', 'حُفظت صورة الفاتورة «{name}» في التنزيلات على هذا الجهاز: أرسلها من هناك إلى الزبون.', { name: file.name }) });
+      }
+    } finally {
+      sharingNow.current = false;
+      setSharing(false);
     }
   };
   const renderAndSend = async () => {
     const paper = paperRef.current;
     if (!paper || imaging) return;
-    const docNo = data.docNo;
-    preparedFor.current = data;
+    const of = data;
+    preparedFor.current = of;
     setImaging(true);
     setReady(null);
     let file: File;
     try {
       // فاتحةً ولو كان الجهاز بالسمة الداكنة: الصورة للزبون (مراجعة 0033 D2).
-      file = await reportImage(paper, invoiceImageName(docNo), INVOICE_IMAGE_WIDTH, INVOICE_IMAGE_OPTIONS);
+      file = await reportImage(paper, invoiceImageName(of.docNo), INVOICE_IMAGE_WIDTH, INVOICE_IMAGE_OPTIONS);
     } catch {
       preparedFor.current = null;
       setImaging(false);
@@ -407,36 +482,60 @@ export default function SaleDocPage() {
       return;
     }
     setImaging(false);
-    setPrepared({ of: data, file });
-    await deliver(file, title, docNo);
+    setPrepared({ of, file });
+    await deliver(file, title, of);
   };
-  // الصورة الجاهزة تُشارك داخل النقرة نفسها (sendFile ينادي share قبل أيّ انتظار)؛ وإلّا تُجهَّز الآن.
+  // الصورة الجاهزة تُشارك داخل النقرة نفسها (sendFile ينادي share قبل أيّ انتظار)؛ وإلّا تُجهَّز الآن. ومشاركة مفتوحة أو فاتورة قديمة: لا شيء.
   const send = () => {
+    if (sharingNow.current || stale) return;
     if (prepared && prepared.of === data) {
       setReady(null);
-      void deliver(prepared.file, title, data.docNo);
+      void deliver(prepared.file, title, data);
       return;
     }
     void renderAndSend();
   };
-  const readyNow = ready !== null && ready.docNo === data.docNo ? ready : null;
+  const readyNow = ready !== null && ready.of === data && !stale ? ready : null;
+  // بعد كتابة (إلغاء أو قبض): الصورة القديمة لا تُرسل، والقراءة الجديدة تُنتظر (A2).
+  const afterWrite = (kind: Written['kind']) => {
+    setWritten({ of: data, kind });
+    setReady(null);
+    setPrepared(null);
+    preparedFor.current = null;
+    state.retry();
+  };
 
   const sendButton = (
-    <Button variant={isVoid ? 'secondary' : 'primary'} className={`sale-btn sale-send ${done ? 'sale-btn-xl' : ''}`} size="lg" busy={imaging} onClick={send} icon={<Send aria-hidden="true" className="size-5" />} data-action="send-image">
+    <Button
+      variant={isVoid || nextFirst ? 'secondary' : 'primary'}
+      className={`sale-btn sale-send ${done && !nextFirst ? 'sale-btn-xl' : ''}`}
+      size="lg"
+      busy={imaging || sharing}
+      disabled={stale}
+      onClick={send}
+      icon={<Send aria-hidden="true" className="size-5" />}
+      data-action="send-image"
+    >
       {imaging ? t('invoice.image.making', 'جارٍ تجهيز الصورة…') : t('saledoc.send', 'أرسل على واتساب')}
     </Button>
   );
   const printButton = (
-    <Button variant="secondary" className="sale-btn" onClick={() => printAs(title)} icon={<FileDown aria-hidden="true" className="size-5" />} data-action="print-sale" title={t('invoice.print', 'اطبع أو احفظ PDF')}>
-      {t('saledoc.pdf', 'PDF')}
+    <Button variant="secondary" className="sale-btn" disabled={stale} onClick={() => printAs(title)} icon={<FileDown aria-hidden="true" className="size-5" />} data-action="print-sale" title={t('invoice.print', 'اطبع أو احفظ PDF')}>
+      {t('saledoc.pdf', 'ملفّ PDF')}
     </Button>
   );
   const collectButton = canCollect ? (
     <Button variant="secondary" className="sale-btn" onClick={() => setCollecting(true)} icon={<HandCoins aria-hidden="true" className="size-5" />} data-action="collect-sale">
-      {t('saledoc.collect', 'استلم')}
+      {t('saledoc.collect', 'استلم دفعة')}
     </Button>
   ) : null;
-  const moreMenu = canVoid ? <MoreMenu onVoid={() => setVoiding(true)} /> : null;
+  const moreMenu = canVoid || (pendingVoid && !isVoid) ? <MoreMenu onVoid={() => setVoiding(true)} /> : null;
+  const nextLink = nextSale ? (
+    <Link to={nextSale} className="sale-linkbtn" data-primary={nextFirst ? '' : undefined} data-action="sale-next">
+      <Plus aria-hidden="true" className="size-5" />
+      {t('sales.new', 'بيع جديد')}
+    </Link>
+  ) : null;
 
   return (
     <div className="sale-ui flex flex-col gap-4" data-action="sale-page">
@@ -447,52 +546,95 @@ export default function SaleDocPage() {
           <Notice tone="info" title={voided} />
         </div>
       ) : null}
+      {stale ? (
+        <div className="print:hidden" data-action="sale-stale">
+          {state.error ? (
+            <Notice
+              tone="warning"
+              title={t('saledoc.stale.failed', 'قد لا تكون الفاتورة محدّثة — أعد القراءة.')}
+              action={
+                <Button size="sm" variant="secondary" onClick={state.retry} data-action="sale-reread">
+                  {t('saledoc.stale.retry', 'أعد القراءة')}
+                </Button>
+              }
+            >
+              {t('saledoc.stale.why', 'حُفظ التعديل، ولم تُقرأ الفاتورة بعده؛ الإرسال والطباعة بعد أن تُقرأ.')}
+            </Notice>
+          ) : (
+            <p role="status" className="sale-hint">
+              {t('saledoc.stale.loading', 'جارٍ قراءة الفاتورة بعد التعديل…')}
+            </p>
+          )}
+        </div>
+      ) : null}
+      {pendingVoid && !isVoid && !voiding ? (
+        <div className="print:hidden" data-action="void-pending-banner">
+          <Notice
+            tone="warning"
+            title={t('saledoc.void_pending', 'لم يُعرف إن أُلغيت هذه الفاتورة — أعد المحاولة؛ لن تُلغى مرّتين.')}
+            action={
+              <Button size="sm" variant="secondary" onClick={() => setVoiding(true)} data-action="void-pending-retry">
+                {t('purchase.retry', 'أعد المحاولة')}
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
       {done ? (
         <section className="card sale-done print:hidden" aria-labelledby={`${data.id}-done`} data-action="sale-done">
           {moreMenu}
-          <span className="sale-done-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12.5l4.5 4.5L19 7.5" />
-            </svg>
-          </span>
-          <h1 id={`${data.id}-done`} className="sale-done-title" data-action="sale-done-title">
-            {t('saledoc.done.saved', 'حُفظت')} <bdi dir="ltr">{data.docNo}</bdi>
-          </h1>
+          <div className="sale-done-head" role="status">
+            <span className="sale-done-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+            </span>
+            <h1 ref={doneTitle} tabIndex={-1} id={`${data.id}-done`} className="sale-done-title" data-action="sale-done-title">
+              {t('saledoc.done.saved', 'حُفظت')} <bdi dir="ltr">{data.docNo}</bdi>
+            </h1>
+          </div>
           <p className="sale-done-who">
             {data.walkIn ? t('invoice.walk_in', 'زبون نقديّ') : data.partyName}
             {' · '}
             <Num>{fmtDay(data.soldOn)}</Num>
           </p>
-          <dl className="sale-done-sums">
+          <dl className="sale-done-sums" data-cells={data.open === 0n ? '2' : '3'}>
             <div>
               <dt>{t('saledoc.net', 'الصافي')}</dt>
               <dd data-action="done-net">
                 <Num>{fmtMoney(data.total, 0)}</Num>
               </dd>
             </div>
-            <div>
-              <dt>{t('saledoc.paid', 'المدفوع')}</dt>
-              <dd data-action="done-paid">
-                <Num>{fmtMoney(paidSoFar(data), 0)}</Num>
-              </dd>
-            </div>
-            <div data-part="open" data-zero={data.open === 0n ? '' : undefined}>
-              <dt>{t('saledoc.open', 'الباقي')}</dt>
-              <dd data-action="done-open">
-                <Num>{fmtMoney(data.open, 0)}</Num>
-              </dd>
-            </div>
+            {data.open === 0n ? (
+              <div data-part="settled">
+                <dt>{t('saledoc.state', 'الحالة')}</dt>
+                <dd data-action="done-paid-all">{t('invoice.pay.paid', 'مدفوعة كلّها')}</dd>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <dt>{t('saledoc.paid', 'المدفوع')}</dt>
+                  <dd data-action="done-paid">
+                    <Num>{fmtMoney(paidSoFar(data), 0)}</Num>
+                  </dd>
+                </div>
+                <div data-part="open">
+                  <dt>{t('saledoc.open', 'الباقي')}</dt>
+                  <dd data-action="done-open">
+                    <Num>{fmtMoney(data.open, 0)}</Num>
+                  </dd>
+                </div>
+              </>
+            )}
           </dl>
           <div className="sale-done-actions">
-            {sendButton}
+            {nextFirst ? nextLink : sendButton}
             <div className="sale-done-row">
+              {nextFirst ? sendButton : null}
               {printButton}
               {collectButton}
             </div>
-            <Link to={nextSale} className="sale-linkbtn" data-action="sale-next">
-              <Plus aria-hidden="true" className="size-5" />
-              {t('sales.new', 'بيع جديد')}
-            </Link>
+            {nextFirst ? null : nextLink}
           </div>
         </section>
       ) : (
@@ -500,7 +642,7 @@ export default function SaleDocPage() {
           <h1 className="sale-doc-title print:hidden" data-action="sale-title">
             {t('invoice.paper.title', 'فاتورة بيع')} <bdi dir="ltr">{data.docNo}</bdi>
           </h1>
-          <section className="card sale-receipt print:hidden" data-action="sale-head">
+          <section className="card sale-receipt print:hidden" data-action="sale-head" data-stale={stale ? '' : undefined}>
             <div className="sale-receipt-top">
               <div className="min-w-0">
                 <p className="sale-who" data-action="sale-party">
@@ -526,23 +668,40 @@ export default function SaleDocPage() {
               <Num>{fmtMoney(data.total, 0)}</Num>
               <span className="sale-net-unit">{t('saledoc.dinar', 'دينار')}</span>
             </p>
-            <PaidBar invoice={data} />
+            {isVoid ? null : <PaidBar invoice={data} />}
             {note ? (
               <p className="sale-note" data-action="sale-payment">
                 {note}
               </p>
             ) : null}
             {data.cost && !isVoid ? (
-              <dl className="sale-cost" data-action="sale-cost">
-                <div>
-                  <dt>{t('sales.stat.cost', 'كلفة المبيع')}</dt>
-                  <dd>{dinars(data.cost.cost)}</dd>
-                </div>
-                <div>
-                  <dt>{t('sales.stat.profit', 'الربح')}</dt>
-                  <dd>{dinars(data.cost.profit)}</dd>
-                </div>
-              </dl>
+              <div className="sale-profit">
+                <button
+                  type="button"
+                  className="sale-profit-toggle"
+                  aria-expanded={profitOpen}
+                  onClick={() => {
+                    setProfitOpen(!profitOpen);
+                    if (userId !== '') writeFlag(profitKey(userId), !profitOpen);
+                  }}
+                  data-action="profit-toggle"
+                >
+                  {t('sales.stat.profit', 'الربح')}
+                  <ChevronDown aria-hidden="true" className="size-4 sale-disclosure-icon" />
+                </button>
+                {profitOpen ? (
+                  <dl className="sale-cost" data-action="sale-cost">
+                    <div>
+                      <dt>{t('sales.stat.cost', 'كلفة المبيع')}</dt>
+                      <dd>{dinars(data.cost.cost)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('sales.stat.profit', 'الربح')}</dt>
+                      <dd>{dinars(data.cost.profit)}</dd>
+                    </div>
+                  </dl>
+                ) : null}
+              </div>
             ) : null}
           </section>
           {isVoid ? (
@@ -550,7 +709,7 @@ export default function SaleDocPage() {
               <Notice tone="warning" title={t('sale.doc.void.title', 'أُلغيت هذه الفاتورة')}>
                 <span className="flex flex-col gap-1" data-action="sale-void">
                   {data.voidReason ? <span>{t('sale.doc.void.reason', 'السبب: {reason}', { reason: data.voidReason })}</span> : null}
-                  <span>{t('sale.doc.void.money', 'لا يُحتسب مبلغها ولا ربحها، ولا دين بها على الجهة.')}</span>
+                  <span>{t('saledoc.void.money', 'لا يُحتسب مبلغها ولا ربحها، ولا دين بها على الزبون.')}</span>
                 </span>
               </Notice>
             </div>
@@ -561,6 +720,11 @@ export default function SaleDocPage() {
             {collectButton}
             {moreMenu}
           </div>
+          {blockText ? (
+            <p className="sale-hint print:hidden" data-action="void-block">
+              {blockText}
+            </p>
+          ) : null}
         </>
       )}
       {readyNow ? (
@@ -570,7 +734,7 @@ export default function SaleDocPage() {
             title={t('invoice.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق والزبون.')}
             action={
               <div className="flex flex-wrap gap-2">
-                <Button className="sale-btn" onClick={() => void deliver(readyNow.file, readyNow.title, readyNow.docNo)} data-action="send-ready">
+                <Button className="sale-btn" busy={sharing} onClick={() => (sharingNow.current ? undefined : void deliver(readyNow.file, readyNow.title, readyNow.of))} data-action="send-ready">
                   {t('halls.day.image.send', 'أرسلها')}
                 </Button>
                 <Button
@@ -590,19 +754,20 @@ export default function SaleDocPage() {
           />
         </div>
       ) : null}
-      {canCollect && !done ? (
+      {showCollectNote ? (
         <p className="sale-hint print:hidden" data-action="collect-note">
-          {/* المبلغ في البطاقة فوقها («الباقي»)، وهنا ما يفعله «استلم» وحده. */}
-          {t('saledoc.collect.note', '«استلم» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', { party: data.partyName })}
+          {t('saledoc.collect.note', '«استلم دفعة» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', { party: data.partyName })}
         </p>
       ) : null}
       <section className="sale-section print:hidden" data-action="sale-lines">
         <h2 className="sale-section-title">{t('saledoc.lines.title', 'الموادّ')}</h2>
-        <PageLines invoice={data} wide={wide} />
+        <PageLines invoice={data} wide={wide} voided={isVoid} />
       </section>
-      <div className="print:hidden">
-        <PageLegs invoice={data} />
-      </div>
+      {isVoid ? null : (
+        <div className="print:hidden">
+          <PageLegs invoice={data} />
+        </div>
+      )}
       {data.note !== null || data.postedByName !== null ? (
         <p className="sale-hint print:hidden" data-action="sale-by">
           {[data.note !== null ? t('invoice.paper.note', 'ملاحظة: {note}', { note: data.note }) : null, data.postedByName !== null ? t('invoice.paper.seller', 'البائع: {name}', { name: data.postedByName }) : null]
@@ -626,18 +791,23 @@ export default function SaleDocPage() {
           onClose={() => setCollecting(false)}
           onPosted={() => {
             setCollecting(false);
-            state.retry();
+            afterWrite('collect');
           }}
         />
       ) : null}
       {voiding ? (
         <SaleVoidDialog
           target={voidTargetOf(data)}
-          onCancel={() => setVoiding(false)}
+          pendingKey={pendingKey}
+          onCancel={() => {
+            setVoiding(false);
+            // طلب لم يُعرف جوابه: قراءة جديدة تقول إن أُلغيت (A11).
+            if (readVoidPending(pendingKey)) state.retry();
+          }}
           onDone={(text) => {
             setVoiding(false);
             setVoided(text);
-            state.retry();
+            afterWrite('void');
           }}
         />
       ) : null}

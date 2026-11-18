@@ -720,9 +720,9 @@ export default async function (t) {
         ['sale-paper-customer', 'sale-paper-store', 'sale-paper-total', 'sale-paper-paid', 'sale-paper-open', 'sale-paper-note', 'sale-paper-seller', 'sale-paper-thanks'].map(textOf),
         [
           'الزبون:أبو علي', 'من مخزن:المخزن العام', 'الصافي:139,000 دينار',
-          'المدفوع عند البيع:50,000 دينار في «الصندوق الرئيسي»، 39,000 دينار في «حوالة زين كاش»', 'الباقي:50,000 دينار', 'ملاحظة: تسليم بالسيارة', 'البائع: علي', 'شكراً لتعاملكم',
+          'المدفوع عند البيع:89,000 دينار', 'الباقي:50,000 دينار', 'ملاحظة: تسليم بالسيارة', 'البائع: علي', 'شكراً لتعاملكم',
         ],
-        'D1 الورقة: الزبون والمخزن والصافي والسيقان والباقي والملاحظة والبائع',
+        'D1 الورقة: الزبون والمخزن والصافي والمدفوع (بلا أسماء صناديق المنشأة، مراجعة D24) والباقي والملاحظة والبائع',
       );
       t.eq(byAction('sale-paper-debt').length, 0, 'D1 «دين عند البيع» لا يُكرَّر حين يساوي الباقي');
       t.ok(textOf('sale-paper-words')?.length > 10 && textOf('org-name') === 'مشروع الدواجن' && textOf('sale-paper-no') === 'رقم: MS-2026-0007' && (first('sale-paper-logo')?.getAttribute('src') ?? '').startsWith('data:image/svg+xml,'), 'D1 الشعار (مضمَّناً، مراجعة D5) واسم المنشأة والرقم والمبلغ كتابةً');
@@ -731,9 +731,12 @@ export default async function (t) {
       t.same(headersOf(lines), ['المادّة والكمية', 'المبلغ'], 'D1 موادّ الصفحة بأعمدة الهاتف');
       t.same(rowsOf(lines), [['علف بادئ2 كيس × 35,000خصم السطر 1,000', '70,000'], ['فيتامين أ د3 علبة × 25,000', '75,000']], 'D1 المادّة وتحتها الكمية × السعر (وخصم السطر)، والمبلغ إجماليّه');
       t.same(footOf(lines), [['المجموع قبل الخصم', '145,000'], ['الخصم', '-6,000'], ['الصافي', '139,000']], 'D1 والتذييل: المجموع ثمّ الخصم ثمّ الصافي');
+      // الكلفة والربح مطويّان خلف «الربح» (مراجعة D18: الهاتف يواجه الزبون عند الكاونتر).
+      t.same([byAction('sale-cost').length, first('profit-toggle')?.getAttribute('aria-expanded')], [0, 'false'], 'D1 الربح مطويّ افتراضياً');
+      await click(first('profit-toggle'));
       const stats = all().filter((n) => n.localName === 'dt').map((n) => `${n.textContent}=${n.nextSibling?.textContent}`);
       t.ok(stats.includes('كلفة المبيع=110,000 دينار') && stats.includes('الربح=29,000 دينار'), 'D1 الكلفة والربح لأدوار الكلفة');
-      t.ok(byAction('collect-sale').length === 1 && textOf('collect-note') === '«استلم» يسجّل قبضاً على حساب «أبو علي» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', 'D1 «استلم» لمن يقبض، ويقول إنّ القبض يُسدّد الأقدم أوّلاً');
+      t.ok(textOf('collect-sale') === 'استلم دفعة' && textOf('collect-note') === '«استلم دفعة» يسجّل قبضاً على حساب «أبو علي» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', 'D1 «استلم دفعة» لمن يقبض، ويقول إنّ القبض يُسدّد الأقدم أوّلاً');
       await click(first('print-sale'));
       t.same(printed, ['فاتورة بيع MS-2026-0007'], 'D1 «PDF» بعنوان الفاتورة (اسم ملفّ PDF)');
       t.ok(all().some((n) => n.localName === 'style' && n.textContent.includes('size: A5 portrait')), 'D1 الطباعة A5');
@@ -819,7 +822,8 @@ export default async function (t) {
         'L1 الصفوف: «زبون نقديّ» والرقم والصافي والباقي الآن والحالة',
       );
       t.same(footOf(caption)[0]?.slice(0, 3), ['مجموع المحفوظ', '209,000', '50,000'], 'L1 المجاميع من الخادم');
-      t.same([textOf('strip-sold'), textOf('strip-paid'), textOf('strip-open')], ['209,000', '159,000', '50,000'], 'L1 شريط المدّة من مجاميع الخادم: البيع والمدفوع عند البيع والباقي الآن');
+      await click(first('strip-more'));
+      t.same([textOf('strip-sold'), textOf('strip-paid'), textOf('strip-open')], ['209,000', '159,000', '50,000'], 'L1 شريط المدّة من مجاميع الخادم: البيع والباقي الآن، و«التفاصيل» المدفوع عند البيع');
       await click(first('new-sale'));
       t.eq(where(), '/sales/new', 'L1 «بيع جديد» يفتح الفاتورة الجديدة');
       t.same([3, 4, 12].map((n) => m.itemsText({ itemName: 'علف', lineCount: n, itemCount: n, qty: null, baseUnit: null })), ['علف ومادّتان أخريان', 'علف و3 موادّ أخرى', 'علف و11 مادّةً أخرى'], 'L1 الموادّ بالفصحى');
