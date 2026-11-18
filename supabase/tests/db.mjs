@@ -127,7 +127,7 @@ export function makeDb(client, connect) {
     };
     return {
       pid,
-      /** الاستعلام بالجلسة؛ الوعد يرجع { ok, rows } أو { ok: false, error } بدل ما يرمي. */
+      /** الاستعلام بالجلسة؛ الوعد يرجع { ok, rows } أو { ok: false, error, hint } بدل ما يرمي. */
       run: (text, params) =>
         other.query(text, params).then(
           (result) => {
@@ -136,7 +136,7 @@ export function makeDb(client, connect) {
           },
           (error) => {
             if (caller && reachedFunction(error)) record(text, caller);
-            return { ok: false, error: error.message };
+            return { ok: false, error: error.message, hint: error.hint ?? '' };
           },
         ),
       commit: () => end('commit'),

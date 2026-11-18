@@ -36,6 +36,9 @@ const FN = {
   report: 'public.sales_report(date, date, text)',
   verify: 'public.verify_sales()',
   guard: 'private.party_entries_walk_in()',
+  partyForPost: 'private.party_for_post(uuid)',
+  partyNotSystem: 'private.party_not_system()',
+  partiesGuard: 'private.parties_system_guard()',
   paid: 'private.sale_paid(uuid)',
 };
 const LEGACY_KEYS = ['base_unit', 'book_id', 'cash_account_id', 'cost', 'doc_no', 'free', 'id', 'item_id', 'item_name', 'line_id', 'money', 'party_id', 'party_name',
@@ -112,6 +115,8 @@ async function scenario(t, db) {
     bottle: await unit(I.antibiotic, 'قنينة نصف لتر', 0.5),
   };
   await one(U.owner, 'update public.item_units set archived_at = now() where id = $1 returning id', [UN.oldBag]);
+  // حجم كلّ وحدة كما تراه الشاشة: إلزاميّ لكلّ سطر بوحدة بيع (مراجعة 0033 A2، factor_required)، فيُرسل مع كلّ سطر بوحدة ما لم يُكتب غيره.
+  const FACTOR = { [UN.bag]: 50, [UN.ton]: 1000, [UN.noSale]: 200, [UN.oldBag]: 40, [UN.growerBag]: 50, [UN.box10]: 10, [UN.bottle]: 0.5 };
   await postedOpening(db, U.owner, W.feed, day(-5), [
     { item: I.starter, qty: 1000, value: '600000.00' },
     { item: I.grower, qty: 1000, value: '550000.00' },
@@ -139,7 +144,7 @@ async function scenario(t, db) {
     return result;
   };
   const line = (itemId, qty, price, o = {}) => ({ line_id: o.id ?? uid(), item_id: itemId, unit_id: o.unit ?? null, qty: String(qty), unit_price: String(price),
-    discount: String(o.discount ?? 0), ...(o.factor !== undefined ? { factor: String(o.factor) } : {}) });
+    discount: String(o.discount ?? 0), ...(o.factor !== undefined ? { factor: String(o.factor) } : o.unit ? { factor: String(FACTOR[o.unit]) } : {}) });
   const leg = (boxId, amount, legId = uid()) => ({ leg_id: legId, cash_account_id: boxId, amount: String(amount) });
   const args = (o) => [o.ref ?? uid(), o.sale === undefined ? uid() : o.sale, o.wh === undefined ? W.feed : o.wh, o.party === undefined ? P.ahmad : o.party, o.on ?? TODAY,
     o.rawLines ?? JSON.stringify(o.lines), o.discount ?? 0, o.rawPayments ?? JSON.stringify(o.payments ?? []), o.note ?? null];
@@ -233,6 +238,7 @@ async function scenario(t, db) {
   t.same([await hidden(U.owner), await hidden(U.storekeeper), await db.asService(async (q) => (await q("select count(*)::int as n from public.parties where org_id = $1 and system_kind = 'walk_in'", [org])).rows[0].n)],
     [0, 0, 1], 'الحساب مخفيّ عن القراءة المباشرة لكلّ دور (قوائم الجهات)، وموجود لمفتاح الخادم');
   const legOfWalkB = (await db.admin('select payment_entry_id from public.sales_payments where sale_id = $1 and leg_no = 1', [walkB.sale])).rows[0].payment_entry_id;
+  const legOfWalkA = (await db.admin('select payment_entry_id from public.sales_payments where sale_id = $1 and leg_no = 1', [walkA.sale])).rows[0].payment_entry_id;
   const guard = {
     collect: refusal('walk_in_collect', await call(db, U.manager, 'select public.record_party_payment($1, $2, $3, 1000, $4, $5, $6) as v', [uid(), walkParty, B.medicine, BX.cash, TODAY, uid()])),
     unpay: refusal('walk_in_unpay', await call(db, U.manager, 'select public.void_party_payment($1, $2, $3) as v', [legOfWalkB, 'ردّ', uid()])),
@@ -318,6 +324,7 @@ async function scenario(t, db) {
     unit_mismatch_not_sale: await sell(U.owner, { lines: [line(I.starter, 1, '30000', { unit: UN.noSale })] }),
     unit_mismatch_archived: await sell(U.owner, { lines: [line(I.starter, 1, '30000', { unit: UN.oldBag })] }),
     unit_changed: await sell(U.owner, { lines: [line(I.starter, 1, '35000', { unit: UN.bag, factor: 45 })] }),
+    factor_required: await sell(U.owner, { lines: [{ ...line(I.starter, 1, '35000', { unit: UN.bag }), factor: undefined }] }),
     pieces_not_whole: await sell(U.owner, { wh: W.medicine, lines: [line(I.vaccine, '0.25', '6000', { unit: UN.box10 })] }),
     insufficient_stock: short,
   };
@@ -432,7 +439,8 @@ async function scenario(t, db) {
   const unpayE = await call(db, U.manager, 'select public.void_party_payment($1, $2, $3) as v', [legE, 'حوالة لم تصل', uid()]);
   const detailE = await read(U.owner, DT, [E.sale]);
   t.same([unpayE.ok, norm(detailE.paid), norm(detailE.debt), detailE.payment_refunded, detailE.payments.map((g) => g.refunded), norm(detailE.paid_at_sale)],
-    [true, '1000', '2000', true, [false, true], '3000'], '«ألغِ القبض» لساق: المدفوع الآن 1,000 والدين 2,000، والمدفوع عند البيع كما كُتب');
+    [true, '1000', '2000', false, [false, true], '3000'],
+    '«ألغِ القبض» لساق: المدفوع الآن 1,000 والدين 2,000، والمدفوع عند البيع كما كُتب؛ وpayment_refunded لا يكون إلّا حين تُردّ كلّ السيقان (مراجعة 0033 A3)');
 
   // ── ١٠) التزامن: فاتورتان لآخر رصيد — الثانية تنتظر الأولى ثمّ ترى النقص ──────────────────────────────────────────────────────
   const stockRace = async () => {
@@ -518,9 +526,29 @@ async function scenario(t, db) {
       expect: okWith((v) => v, '200'),
     },
     {
+      // party_for_post يرفض الحساب قبل أيّ قيد (مراجعة 0033 B4)، فالمحفّز يُمتحن بما يكتب عليه دون party_for_post: «ألغِ القبض» لساق فاتورة نقديّة قائمة.
       name: 'حساب الزبون النقديّ لا يُكتب عليه إلّا من فاتورته',
       fns: [[FN.guard, [["current_setting('app.walk_in_sale', true) is distinct from 'on'", 'false']]]],
-      run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.record_party_payment($1, $2, $3, 1000, $4, $5, $6) as v', [uid(), walkParty, B.medicine, BX.cash, TODAY, uid()])).rows[0].v),
+      run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.void_party_payment($1, $2, $3) as v', [legOfWalkA, 'ضابط', uid()])).rows[0].v),
+      expect: code('walk_in_party'),
+    },
+    {
+      name: 'party_for_post يرفض حساب الزبون النقديّ (مراجعة 0033 B4)',
+      fns: [[FN.partyForPost, [['  if p.system_kind is not null then\n', '  if false then\n']]]],
+      run: async ({ attempt }) => attempt(U.manager, async (q) => (await q("select public.preview_party_allocation($1, $2, 'payment', 1000) as v", [walkParty, B.medicine])).rows[0].v),
+      expect: code('walk_in_party', 'اختر جهة باسمها'),
+    },
+    {
+      name: 'مسوّدة الاستلام لا تأخذ حساب الزبون النقديّ مورّداً (مراجعة 0033 B4)',
+      fns: [[FN.partyNotSystem, [['  if v_party is not null and', '  if false and']]]],
+      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => (await q("insert into public.receipts (warehouse_id, received_on, party_id, status) values ($1, $2, $3, 'draft') returning id",
+        [W.feed, TODAY, walkParty])).rows[0].id),
+      expect: code('walk_in_party'),
+    },
+    {
+      name: 'صفّ حساب الزبون النقديّ لا يُعدَّل (مراجعة 0033 B4)',
+      fns: [[FN.partiesGuard, [['  if old.system_kind is not null then\n', '  if false then\n']]]],
+      run: async ({ attempt }) => attempt(U.owner, async (q) => (await q('update public.parties set phone = null')).rowCount),
       expect: code('walk_in_party'),
     },
     {
@@ -640,6 +668,18 @@ async function scenario(t, db) {
   t.same(mutationOutcomes.filter((o) => !o.real).map((o) => `${o.name}: ${show(o.realOutcome)}`), [], `الطفرات (${CASES.length}): كلّ حالة على الشفرة الحقيقية بنتيجتها`);
   t.same(mutationOutcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${show(o.broken)}`), [], `الطفرات: ${mutationOutcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت`);
 
+  // ── ١٣) تحصيل لاحق لدين فاتورة (مراجعة 0033 A1): دينها بالسيقان كما هو، والمتبقّي من قيدها (open) ينقص؛ والملغاة بلا دين ولا متبقٍّ ───────
+  const bookC = (await db.admin('select book_id from public.sales_invoices where id = $1', [C.sale])).rows[0].book_id;
+  const collected = await call(db, U.manager, 'select public.record_party_payment($1, $2, $3, 4000, $4, $5, $6) as v', [uid(), P.farm, bookC, BX.cash, TODAY, uid()]);
+  const detailC = await read(U.owner, DT, [C.sale]);
+  const lateOverview = await read(U.owner, OV, [day(-7), TODAY]);
+  const lateRow = (sale) => lateOverview.rows.find((r) => r.id === sale);
+  t.same([collected.ok, norm(detailC.debt), norm(detailC.open), norm(lateRow(C.sale).debt), norm(lateRow(C.sale).open), [lateRow(A.sale).status, norm(lateRow(A.sale).debt),
+    norm(lateRow(A.sale).open), lateRow(A.sale).can_void], [lateRow(walkB.sale).status, norm(lateRow(walkB.sale).debt)],
+  norm(lateOverview.totals.open) === String(lateOverview.rows.filter((r) => r.status === 'posted').reduce((sum, r) => sum + Number(r.open), 0))],
+  [true, '10000', '6000', '10000', '6000', ['void', '0', '0', false], ['void', '0'], true],
+  'تحصيل 4,000 لاحق لفاتورة بالدين: الدين (الصافي − السيقان) 10,000 كما هو والمتبقّي 6,000 في التفصيل وصفّ القائمة؛ والملغاة بلا دين ولا متبقٍّ ولا «ألغِ»؛ وtotals.open مجموع المرحَّلة');
+
   // ── عيّنات حقيقية للشاشات ─────────────────────────────────────────────────────────────────────────────────────
   if (process.env.SALES_SAMPLES_OUT) {
     const sample = {
@@ -650,8 +690,8 @@ async function scenario(t, db) {
       record_sale_legacy: soldL.value,
       void_sale: { manager_multi_kept: voidedA.value, owner_walk_in_refunded: voidedWalk.value },
       sale_detail: { storekeeper_multi: keeperA, owner_multi: ownerA, owner_walk_in: ownerWalk, owner_legacy: ownerLegacy, owner_refunded_leg: detailE,
-        owner_multi_after_void: await read(U.owner, DT, [A.sale]) },
-      sales_overview: { owner: ownerOverview, storekeeper: await read(U.storekeeper, OV, [day(-7), TODAY]) },
+        owner_multi_after_void: await read(U.owner, DT, [A.sale]), owner_walk_in_after_void: await read(U.owner, DT, [walkB.sale]), owner_collected_later: detailC },
+      sales_overview: { owner: ownerOverview, storekeeper: await read(U.storekeeper, OV, [day(-7), TODAY]), owner_after_collect_and_void: lateOverview },
       sales_report: { owner_party: byParty, owner_item: byItem },
       entry_detail: { invoice: invoiceEntry, leg: legEntry },
       refusals: samples.refusals,
