@@ -371,6 +371,11 @@ button.sale-btn-icon {
   border-style: dashed;
   border-color: rgb(var(--sd-due-ink));
 }
+/* غلاف جدول القائمة بلا إطار، فالإطار المتقطّع لا يُرسم عليه: خطّ خارجيّ متقطّع على الجدول نفسه يبقى ظاهراً حين يمرّر الشريط بشارته (مراجعة الجولة ٣ T8). */
+.sale-list[data-stale] {
+  outline: 2px dashed rgb(var(--sd-due-ink));
+  outline-offset: 4px;
+}
 .sale-stale-badge {
   display: inline-flex;
   align-self: flex-start;

@@ -1205,6 +1205,9 @@ export default async function (t) {
         [undefined, 'rgb(var(--sd-due-ink))', 'rgb(var(--sd-due-soft))'],
         'R8 القراءة القديمة بشارة كاملة التباين لا بالخفوت (Q8: الخفوت أنزل «ملغاة» إلى 2.15 والصافي إلى 3.88)',
       );
+      // T8 (الجولة ٣): غلاف جدول القائمة بلا إطار، فقاعدة [data-stale] وحدها لا تُظهر شيئاً عليه بعد أن يمرّر الشريط بشارته.
+      const listStale = rule(DOC_CSS, '.sale-list[data-stale]');
+      t.same([listStale?.outline, listStale?.['outline-offset']], ['2px dashed rgb(var(--sd-due-ink))', '4px'], 'T8 جدول القائمة القديم بخطّ متقطّع ظاهر عليه نفسه');
       t.same(outside.match(/rgb\(\d[^)]*\)|#[0-9a-f]{3,6}\b/giu) ?? [], [], 'C1 لا لون مكتوب خارج كتل الرموز (D21)');
       const weak = pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([name, ratio]) => `${name} ${ratio.toFixed(2)}`);
       t.same(weak, [], `C1 كلّ نصّ في شاشات ما بعد البيع ≥ 4.5:1 بالسمتين و«وضوح» (${pairs.length} زوجاً)`);
