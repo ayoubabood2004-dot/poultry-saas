@@ -5,9 +5,10 @@
 // S التوصيل: المسار new قبل :id، ووحدة الصفحات، وhtml-to-image باسم stores-admin (خارج التثبيت المسبق)، وبلا <Navigate> (حزمة الإقلاع)، ورابط الرئيسية.
 // P المحلّلات: الموادّ (مصفوفة العقد، و{ items, cash_accounts })، والنتيجة، والفاتورة الجديدة والقديمة (0021)، وصفّ القائمة الجديد والقديم؛ والشكل الغريب خطأ يسمّي خانته.
 // M المرآة: الإجماليّ بالدينار الصحيح، وخصم الفاتورة بأكبر الباقي (والتعادل للسطر الأوّل)، والخصم الأكبر من السطر أو المجموع، والكمية بالأساس والسعر المقترح.
-// C الفاتورة الجديدة: المخزن، والبطاقات بالمتاح، والوحدات والسعر لوحدته، والباركود (Enter يضيف ومسحة ثانية تزيد)، والخصمان، والسيقان والدين الحيّ، والزرّ يسمّي
-//   النتيجة، والنداء بمفاتيح العقد، والزبون النقديّ يدفع كلّه، والمتاح يمنع، والأسعار المتغيّرة تُقرّ، والطلب المعلَّق بعد إعادة التحميل يُعاد حرفاً، والرفض الأكيد
-//   يعيد ما أُرسل بمرجع جديد (ومعرّفات جديدة بعد id_conflict)، والتسليم بلا مقابل يُسأل عنه، والمادّة من الرابط، والصلاحيات.
+// C الفاتورة الجديدة (شاشة البيع من جديد 2026-11-18، تُساق بـsell-ui.mjs): المخزن، والبطاقات بالمتاح، والوحدات والسعر لوحدته، والباركود (الرمز الكامل يضيف
+//   ومسحة ثانية تزيد)، والخصمان، والسيقان والدين الحيّ، والزرّ يسمّي النتيجة، والنداء بمفاتيح العقد، والزبون النقديّ يدفع كلّه، والمتاح يمنع، والأسعار
+//   المتغيّرة تُقرّ، والطلب المعلَّق بعد إعادة التحميل يُعاد حرفاً، والرفض الأكيد يعيد ما أُرسل بمرجع جديد (ومعرّفات جديدة بعد id_conflict)، والتسليم بلا
+//   مقابل يُسأل عنه، والمادّة من الرابط، والصلاحيات؛ وبعد الحفظ الفاتورة مكان الشاشة بـ?done=1.
 // D الفاتورة: الورقة (السطور بوحداتها وخصوماتها، والسيقان، والدين، والبائع، والملاحظة)، و«أرسل صورة» بعرض ثابت والمشاركة أو التنزيل أو «أرسلها»، و«اطبع أو
 //   احفظ PDF»، و«استلم من الزبون» بدفتر الفاتورة ودينها لمن يقبض، والزبون النقديّ، والقديمة، والملغاة بلا مبالغ.
 // L القائمة: الصافي والمدفوع والدين و«زبون نقديّ» والموادّ، و«بيع جديد» ورابط ?new=1 إلى /sales/new.
@@ -17,6 +18,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { descendants, Element, fire, installDom, settle, Text } from './dom.mjs';
+import { sellDriver } from './sell-ui.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033-contract.json'), 'utf8'));
@@ -52,8 +54,9 @@ const plugins = [
       b.onLoad({ filter: /.*/, namespace: 'si-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'si-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'si-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
-      b.onResolve({ filter: /\.css$/ }, () => ({ path: 'css', namespace: 'si-css' }));
-      b.onLoad({ filter: /.*/, namespace: 'si-css' }, () => ({ contents: '', loader: 'js' }));
+      // أنماط الشاشات (sell.css?raw في شاشة البيع، 2026-11-18): نصّ فارغ هنا.
+      b.onResolve({ filter: /\.css(\?raw)?$/ }, () => ({ path: 'css', namespace: 'si-css' }));
+      b.onLoad({ filter: /.*/, namespace: 'si-css' }, () => ({ contents: "export default '';", loader: 'js' }));
     },
   },
 ];
@@ -108,11 +111,6 @@ const type = (input, value) => {
   input.value = value;
   fire(input, 'input');
 };
-const choose = (select, value) => {
-  if (!select) throw new Error('no select');
-  select.value = value;
-  fire(select, 'change');
-};
 const click = async (node) => {
   if (!node) throw new Error('no node');
   fire(node, 'click', { button: 0 });
@@ -129,10 +127,6 @@ const sectionOf = (table, tag) => (table ? table.children.find((n) => n.localNam
 const rowsOf = (caption) => (sectionOf(tableOf(caption), 'tbody')?.children ?? []).filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent));
 const footOf = (caption) => (sectionOf(tableOf(caption), 'tfoot')?.children ?? []).filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent));
 const headersOf = (caption) => (tableOf(caption) ? descendants(tableOf(caption)).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : null);
-const lines = () => byAction('cart-line');
-/** الخيار المختار في قائمة (React يضبط selected على الخيارات لا value على القائمة). */
-const picked = (select) => (select ? (select.options.find((o) => o.selected)?.getAttribute('value') ?? null) : null);
-const inLine = (index, action) => first(action, lines()[index]);
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
@@ -145,7 +139,7 @@ const KEEPER = sessionOf('storekeeper');
 const PARTY = { id: 'p-1', name: 'أبو علي' };
 const BOXES = [{ id: 'c-1', name: 'الصندوق الرئيسي' }, { id: 'c-2', name: 'حوالة زين كاش' }];
 const pendingKey = (role) => `sales.invoice.pending:u-${role}:org-1`;
-const SAVE_TEXT = 'احفظ الفاتورة — 139,000 دينار، منها 50,000 دين';
+const SAVE_TEXT = 'احفظ — 139,000 دينار، منها 50,000 دين';
 
 export default async function (t) {
   const restoreDom = installDom();
@@ -256,38 +250,11 @@ export default async function (t) {
     const OK = { stores_overview: () => clone(F.stores_overview), sale_catalog: () => clone(F.sale_catalog) };
     const pickers = { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => clone(BOXES) };
 
-    /** يبني فاتورة العقد (العلف كيسين بخصم 1,000 والفيتامين ثلاث علب بالباركود، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000). */
-    const fillContract = async ({ legs = true } = {}) => {
-      choose(first('sale-store'), 'w-gen');
-      await settle(20);
-      await click(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed'));
-      choose(inLine(0, 'cart-unit'), 'u-bag');
-      await settle();
-      type(inLine(0, 'cart-qty'), '2');
-      type(inLine(0, 'cart-discount'), '1000');
-      await settle();
-      type(first('sale-barcode'), '6260000000024');
-      await enter(first('sale-barcode'));
-      choose(inLine(1, 'cart-unit'), 'u-box');
-      await settle();
-      type(inLine(1, 'cart-qty'), '3');
-      type(first('sale-invoice-discount'), '5000');
-      await settle();
-      type(all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-party')), 'أبو');
-      await settle(20);
-      await click(first('pick-party'));
-      if (legs) {
-        await click(first('pay-add'));
-        choose(byAction('pick-box')[0], 'c-1');
-        type(byAction('pay-amount')[0], '50000');
-        await settle();
-        await click(first('pay-add'));
-        type(byAction('pay-amount')[1], '39000');
-        await settle();
-      }
-      type(first('sale-note'), 'تسليم بالسيارة');
-      await settle();
-    };
+    const d = sellDriver({ body, descendants, fire, settle });
+    /** فاتورة العقد (العلف كيسين بخصم 1,000 والفيتامين ثلاث علب بالباركود، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000) بالشاشة الجديدة. */
+    const fillContract = (options) => d.fillContract(options);
+    /** سطور الفاتورة كما تعرضها السلّة: [العدّاد، الوحدة، السعر لوحدته]. */
+    const cartRows = () => d.lines().map((line) => [first('cart-qty', line)?.textContent, first('cart-unit', line)?.textContent, first('cart-line-open', line)?.children?.[1]?.textContent ?? null]);
 
     // ── S: التوصيل ──────────────────────────────────────────────────────────────────────────────────────────────────
     {
@@ -406,24 +373,44 @@ export default async function (t) {
     await step('C1 contract invoice', async () => {
       fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
       await mount('/sales/new');
-      const options = (first('sale-store')?.options ?? []).map((o) => o.textContent);
-      t.same(options, ['اختر المخزن', 'المخزن العام', 'رصيد العلف'], 'C1 مخازن البيع وحدها (لا مخزن القاعة)');
+      t.same(byAction('sale-store-option').map((o) => o.textContent), ['المخزن العام', 'رصيد العلف'], 'C1 مخازن البيع وحدها (لا مخزن القاعة)');
       t.eq(named('sale_catalog').length, 0, 'C1 بلا مخزن مختار لا موادّ');
-      choose(first('sale-store'), 'w-gen');
-      await settle(20);
+      await d.store('w-gen');
       t.same(named('sale_catalog'), [{ p_warehouse: 'w-gen' }], 'C1 موادّ المخزن المختار');
       const cards = byAction('sale-item-card');
       t.same(
         cards.map((n) => [n.getAttribute('data-item'), n.hasAttribute('disabled')]),
-        [['i-feed', false], ['i-vit', false], ['i-corn', true]],
-        'C1 بطاقات الموادّ، والنافدة معطّلة',
+        [['i-corn', true], ['i-feed', false], ['i-vit', false]],
+        'C1 بطاقات الموادّ (بلا مبيع في 30 يوماً: بالاسم)، والنافدة معطّلة',
       );
-      t.ok(cards[0].textContent.includes('المتاح: 1,500 كغم') && cards[0].textContent.includes('700 دينار لكل كغم') && cards[2].textContent.includes('نفد من هذا المخزن'), 'C1 البطاقة بالمتاح وسعر البيع');
-      await fillContract();
-      t.same([inLine(0, 'cart-price').value, inLine(1, 'cart-price').value, inLine(1, 'cart-qty').value], ['35000', '25000', '3'], 'C1 السعر لوحدة السطر من سعر البيع × المعامل (الكيس 35,000 والعلبة 25,000)');
-      t.same((inLine(0, 'cart-unit')?.options ?? []).map((o) => o.textContent), ['كغم', 'كيس', 'طن'], 'C1 الوحدات: الأساس ثمّ وحدات البيع');
-      t.ok(lines()[0].textContent.includes('= 100 كغم'), 'C1 الكمية بالأساس تحت خانة الكيس');
-      t.eq(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed')?.textContent.includes('في الفاتورة'), true, 'C1 المادّة في الفاتورة تقول ذلك على بطاقتها');
+      t.ok(d.card('i-feed').textContent.includes('عندك 1,500 كغم') && d.card('i-feed').textContent.includes('700 / كغم') && d.card('i-corn').textContent.includes('نفد من هذا المخزن'), 'C1 البطاقة بالمتاح وسعر البيع لوحدتها');
+      await d.tap('i-feed');
+      const units = d.units().map(([, label]) => label);
+      await d.unit('u-bag');
+      await d.keys('2');
+      const readBack = textOf('line-read-back');
+      const price = [];
+      await d.tab('price');
+      price.push(d.display());
+      await d.tab('discount');
+      await d.keys('1000');
+      await d.done();
+      await d.scan('6260000000024');
+      await d.openLineOf('i-vit');
+      await d.unit('u-box');
+      await d.tab('price');
+      price.push(d.display());
+      await d.tab('qty');
+      await d.keys('3');
+      await d.done();
+      t.same(price, ['35,000', '25,000'], 'C1 السعر لوحدة السطر من سعر البيع × المعامل (الكيس 35,000 والعلبة 25,000)');
+      t.same(units, ['كيس', 'طن', 'كغم'], 'C1 الوحدات شرائح: وحدات البيع ثمّ الأساس');
+      t.eq(readBack, '= 100 كغم', 'C1 الكمية بالأساس تحت قيمة الكيس');
+      t.eq(d.cardQty('i-feed'), '2 كيس', 'C1 المادّة في الفاتورة صارت عدّاداً على بطاقتها');
+      await d.openCart();
+      d.discountText('5000');
+      d.note('تسليم بالسيارة');
+      await settle();
       const caption = 'ملخّص الفاتورة قبل الحفظ';
       t.same(
         rowsOf(caption),
@@ -431,15 +418,22 @@ export default async function (t) {
         'C1 الملخّص: خصم الفاتورة موزَّع بأكبر الباقي',
       );
       t.same(footOf(caption), [['المجموع', '145,000', '1,000', '5,000', '139,000']], 'C1 ومجاميعه');
+      await d.next();
+      await d.party('أبو');
+      await d.payKind('part');
+      await d.keys('50000');
+      await d.addLeg();
+      await d.keys('39000');
+      await d.padDone();
       t.same(
-        ['gross', 'discount', 'net', 'paid', 'debt'].map((key) => textOf(`sale-total-${key}`)),
-        ['الإجمالي145,000', 'الخصم6,000', 'الصافي139,000', 'المدفوع89,000', 'الدين50,000'],
-        'C1 المجموع الثابت: الإجماليّ والخصم والصافي والمدفوع والدين',
+        ['sale-total-gross', 'sale-total-discount', 'sale-total-net'].map(textOf),
+        ['الإجمالي 145,000', 'الخصم 6,000', '139,000 دينار'],
+        'C1 المطلوب بالإجماليّ والخصم والصافي',
       );
-      t.eq(textOf('sale-debt-live'), 'الباقي دين على الزبون: 50,000 دينار', 'C1 الدين حيّاً');
-      t.eq(picked(byAction('pick-box')[1]), 'c-2', 'C1 الساق الثانية بالصندوق الباقي وحده');
+      t.eq(textOf('sale-debt-live'), 'المدفوع الآن 89,000 دينار، ويبقى ديناً على «أبو علي»: 50,000 دينار.', 'C1 الدين حيّاً بجملة');
+      t.same(byAction('leg-box').map((n) => n.textContent), ['في «الصندوق الرئيسي»', 'في «حوالة زين كاش»'], 'C1 الساق الأولى بأوّل صندوق، و«+ صندوق آخر» بالصندوق الباقي');
       t.eq(textOf('save-invoice'), SAVE_TEXT, 'C1 الزرّ الواحد يسمّي النتيجة');
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
       t.eq(named('sale_catalog').length, 2, 'C1 قبل الحفظ تُقرأ الأسعار والمتاح من جديد');
       const [args] = named('record_sale_v2');
@@ -458,67 +452,82 @@ export default async function (t) {
       );
       t.same(Object.keys(args ?? {}).sort(), ['p_client_ref', 'p_invoice_discount', 'p_lines', 'p_note', 'p_party', 'p_payments', 'p_sale_id', 'p_sold_on', 'p_warehouse'], 'C1 بمعاملات العقد التسعة وحدها');
       t.same(
-        [lastToast(), where(), storage.map.has(pendingKey('manager')), named('sale_detail')],
-        ['حُفظت الفاتورة MS-2026-0007: 139,000 دينار، المدفوع 89,000 دينار، والباقي دين 50,000 دينار.', '/sales/s-7', false, [{ p_sale: 's-7' }]],
-        'C1 ثمّ التنبيه من جواب الخادم والفاتورة، والطلب المعلَّق ممحوّ',
+        [where(), storage.map.has(pendingKey('manager')), named('sale_detail'), lastToast()],
+        ['/sales/s-7?done=1', false, [{ p_sale: 's-7' }], null],
+        'C1 ثمّ الفاتورة مكان الشاشة بحالة النجاح (?done=1)، والطلب المعلَّق ممحوّ، وبلا تنبيه فوقها',
       );
+      t.eq(m.doneText(m.sales.parseRecordedInvoice(clone(F.record_sale_v2))), 'حُفظت الفاتورة MS-2026-0007: 139,000 دينار، المدفوع 89,000 دينار، والباقي دين 50,000 دينار.', 'C1 جملة «حُفظت» من جواب الخادم (تنبيه حين حُفظت بعد مغادرة الشاشة)');
     });
 
     await step('C2 walk-in', async () => {
       fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2_walk_in) }, { ...pickers, listBoxes: () => [BOXES[0]] });
       await mount('/sales/new?store=w-gen');
-      await click(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed'));
-      type(inLine(0, 'cart-qty'), '100');
-      await settle();
-      await click(buttonOf('زبون نقديّ (بلا اسم)'));
-      t.ok(byAction('sale-walk-in').length === 1 && all().filter((n) => (n.getAttribute('id') ?? '').endsWith('-party')).length === 0, 'C2 الزبون النقديّ بلا بحث عن اسم');
-      await click(first('save-invoice'));
-      t.ok(textOf('sale-pay-error')?.includes('الزبون النقديّ يدفع المبلغ كلّه الآن (70,000 دينار)') && named('record_sale_v2').length === 0 && named('sale_catalog').length === 1, 'C2 بلا دفع كامل يُقال قبل الإرسال ولا يُقرأ شيء');
-      await click(first('pay-all'));
-      t.same([picked(byAction('pick-box')[0]), byAction('pay-amount')[0]?.value, textOf('save-invoice')], ['c-1', '70000', 'احفظ الفاتورة — 70,000 دينار مدفوعة كلّها'], 'C2 «ادفع الكلّ» بالصندوق الوحيد والصافي كلّه');
-      await click(first('save-invoice'));
+      await d.tap('i-feed');
+      t.ok(d.lineSheet() !== null, 'C2 مادّة تُوزن بالكيلو: لمسها يفتح ورقتها لكتابة الكمية');
+      await d.keys('100');
+      await d.done();
+      await d.next();
+      t.same(
+        [buttonOf('زبون نقديّ')?.getAttribute('aria-checked'), d.pick('pay-kind', 'data-kind', 'cash')?.getAttribute('aria-checked'), byAction('sale-party-needed').length],
+        ['true', 'true', 0],
+        'C2 الافتراض بقول المالك: زبون نقديّ ونقداً كلّه، بلا اسم يُطلب',
+      );
+      await d.payKind('part');
+      await d.keys('50000');
+      await d.save();
+      t.ok(textOf('sale-pay-error')?.includes('الزبون النقديّ يدفع المبلغ كلّه الآن (70,000 دينار)') && named('record_sale_v2').length === 0 && named('sale_catalog').length === 1, 'C2 نقديّ دفع جزءاً: يُقال قبل الإرسال ولا يُقرأ شيء');
+      await d.payKind('cash');
+      t.same([first('cash-box') === null && d.paySheet().textContent.includes('في «الصندوق الرئيسي»'), textOf('save-invoice')], [true, 'احفظ — 70,000 دينار مدفوعة كلّها'], 'C2 «نقداً كلّه» بالصندوق الوحيد والصافي كلّه');
+      await d.save();
       await settle(30);
       const [args] = named('record_sale_v2');
       t.same([args?.p_party, args?.p_payments.map((p) => [p.cash_account_id, p.amount]), args?.p_lines[0].unit_id, args?.p_lines[0].unit_price], [null, [['c-1', '70000']], null, '700.00'], 'C2 p_party null للزبون النقديّ، ووحدة الأساس unit_id null');
-      t.eq(lastToast(), 'حُفظت الفاتورة MS-2026-0008: 70,000 دينار مدفوعة كلّها.', 'C2 جملة الحفظ');
+      t.eq(where(), '/sales/s-8?done=1', 'C2 ثمّ الفاتورة بحالة النجاح');
     });
 
     await step('C3 over available', async () => {
       fresh(KEEPER, { ...OK, sale_catalog: () => ({ items: clone(F.sale_catalog), cash_accounts: [BOXES[0]] }) }, pickers);
       await mount('/sales/new?store=w-gen');
-      await click(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed'));
-      choose(inLine(0, 'cart-unit'), 'u-bag');
-      await settle();
-      type(inLine(0, 'cart-qty'), '40');
-      await settle();
-      t.ok(lines()[0].textContent.includes('المتاح في «المخزن العام» 1,500 كغم فقط؛ لا يُحفظ أكثر منه.'), 'C3 تحذير بالمتاح حيّاً (40 كيساً = 2,000 كغم)');
-      await click(first('save-invoice'));
-      t.same([named('sale_catalog').length, named('record_sale_v2').length], [1, 0], 'C3 أكثر من المتاح لا يُرسل');
+      await d.tap('i-feed');
+      await d.unit('u-bag');
+      await d.keys('40');
+      t.eq(textOf('line-error'), 'المتاح في «المخزن العام» 1,500 كغم فقط؛ لا يُحفظ أكثر منه.', 'C3 تحذير بالمتاح حيّاً تحت الكمية (40 كيساً = 2,000 كغم)');
+      await d.done();
+      await d.next();
+      await d.save();
+      t.same([named('sale_catalog').length, named('record_sale_v2').length, textOf('line-error')], [1, 0, 'المتاح في «المخزن العام» 1,500 كغم فقط؛ لا يُحفظ أكثر منه.'], 'C3 أكثر من المتاح لا يُرسل، ويُفتح السطر على خطئه');
       t.eq(named('listBoxes').length, 0, 'C3 الصناديق من الخادم مع الموادّ (الأمين لا يقرأ جدولها)');
-      type(inLine(0, 'cart-qty'), '1.5');
-      await settle();
-      type(first('sale-barcode'), '6260000000024');
-      await enter(first('sale-barcode'));
-      choose(inLine(1, 'cart-unit'), 'u-box');
-      await settle();
-      type(inLine(1, 'cart-qty'), '0.25');
-      await settle();
-      await click(first('save-invoice'));
-      t.ok(lines()[1].textContent.includes('القطع تُعدّ عدداً صحيحاً.'), 'C3 القطع بالأساس عدد صحيح (ربع علبة = 2.5 قطعة)');
-      type(first('sale-barcode'), '999');
-      await enter(first('sale-barcode'));
-      t.eq(textOf('sale-scan-note'), 'لا مادّة بالباركود «999» تُباع من «المخزن العام».', 'C3 الباركود المجهول يُقال برمزه');
+      await d.clearValue();
+      await d.keys('1.5');
+      await d.done();
+      await click(first('sheet-close', d.paySheet()));
+      await d.scan('6260000000024');
+      await d.openLineOf('i-vit');
+      await d.unit('u-box');
+      await d.keys('0.25');
+      await d.done();
+      await d.next();
+      await d.save();
+      t.eq(textOf('line-error'), 'القطع تُعدّ عدداً صحيحاً.', 'C3 القطع بالأساس عدد صحيح (ربع علبة = 2.5 قطعة)');
+      await d.done();
+      await click(first('sheet-close', d.paySheet()));
+      await d.scan('999');
+      t.eq(textOf('sale-scan-note'), 'لا مادّة بالباركود «999» تُباع من «المخزن العام».', 'C3 الرمز المجهول يُقال برمزه');
     });
 
     await step('C4 barcode', async () => {
       fresh(MANAGER, OK, pickers);
       await mount('/sales/new?store=w-gen');
-      type(first('sale-barcode'), '٦٢٦٠٠٠٠٠٠٠٠٢٤');
-      await enter(first('sale-barcode'));
-      t.same([lines().length, inLine(0, 'cart-qty')?.value, first('sale-barcode')?.value], [1, '1', ''], 'C4 الماسح (أرقام شرقية تُقلب) وEnter يضيف بكمية 1 ويفرّغ الخانة');
-      type(first('sale-barcode'), '6260000000024');
-      await enter(first('sale-barcode'));
-      t.same([lines().length, inLine(0, 'cart-qty')?.value], [1, '2'], 'C4 مسحة ثانية للمادّة نفسها تزيد الكمية');
+      await d.scan('٦٢٦٠٠٠٠٠٠٠٠٢٤');
+      t.same([d.cardQty('i-vit'), first('sale-search')?.value], ['1 قطعة', ''], 'C4 الرمز الكامل (أرقام شرقية تُقلب) يضيف واحداً ويفرّغ البحث');
+      await d.scan('6260000000024');
+      await d.openCart();
+      t.same([d.lines().length, d.cardQty('i-vit')], [1, '2 قطعة'], 'C4 مسحة ثانية للمادّة نفسها تزيد السطر نفسه');
+      await click(first('sheet-close', d.cartSheet()));
+      type(first('sale-search'), 'فيتا');
+      await settle(20);
+      await enter(first('sale-search'));
+      t.same([d.cardQty('i-vit'), first('sale-search')?.value], ['3 قطعة', ''], 'C4 Enter على اسم لا يطابق غير مادّة واحدة يضيفها (ويزيد سطرها)');
     });
 
     for (const [label, action, price] of [['update', 'prices-update', '37500.00'], ['keep', 'prices-keep', '35000.00']]) {
@@ -528,7 +537,7 @@ export default async function (t) {
         fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(changed)), record_sale_v2: () => clone(F.record_sale_v2) }, pickers);
         await mount('/sales/new');
         await fillContract();
-        await click(first('save-invoice'));
+        await d.save();
         await settle(20);
         t.same(
           [textOf('prices-changes'), named('record_sale_v2').length],
@@ -538,8 +547,8 @@ export default async function (t) {
         await click(first(action));
         await settle(20);
         if (label === 'update') {
-          t.same([inLine(0, 'cart-price')?.value, named('record_sale_v2').length, textOf('sale-notice')], ['37500', 0, 'حُدّثت الأسعار في الفاتورة؛ راجع المجموع ثمّ احفظ.'], 'C5 «اعتمد الأسعار الجديدة» يعيد التسعير ويعود للمراجعة');
-          await click(first('save-invoice'));
+          t.same([named('record_sale_v2').length, textOf('sale-notice'), textOf('sale-blocked')], [0, 'حُدّثت الأسعار في الفاتورة؛ راجع المجموع ثمّ احفظ.', 'حُدّثت الأسعار في الفاتورة؛ راجع المجموع ثمّ احفظ.'], 'C5 «اعتمد الأسعار الجديدة» يعيد التسعير ويعود للمراجعة');
+          await d.save();
           await settle(20);
         }
         t.same(named('record_sale_v2').map((a) => a.p_lines[0].unit_price), [price], `C5 ${label}: يُحفظ بما أقرّه البائع`);
@@ -558,7 +567,7 @@ export default async function (t) {
       }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
       const sent = 'المرسَل: فاتورة من «المخزن العام» لـ«أبو علي»: علف بادئ 2 كيس، فيتامين أ د 3 علبة — الصافي 139,000 دينار، المدفوع الآن 89,000 دينار، والباقي دين 50,000 دينار.';
       t.same([byAction('sale-frozen').length, textOf('sale-sent'), storage.map.has(pendingKey('manager'))], [1, sent, true], 'C6 نتيجة مجهولة: الشاشة مجمَّدة بالطلب، والطلب في sessionStorage');
@@ -573,7 +582,7 @@ export default async function (t) {
       await settle(30);
       const [a, b] = named('record_sale_v2');
       t.same(b, a, 'C6 «أعد المحاولة» ترسل الطلب نفسه حرفاً (المرجع ومعرّف الفاتورة والسطور والسيقان)');
-      t.same([where(), storage.map.has(pendingKey('manager'))], ['/sales/s-7', false], 'C6 ثمّ الفاتورة، والطلب ممحوّ');
+      t.same([where(), storage.map.has(pendingKey('manager'))], ['/sales/s-7?done=1', false], 'C6 ثمّ الفاتورة، والطلب ممحوّ');
     });
 
     for (const [label, code, newSale] of [['refused', 'insufficient_stock', false], ['id_conflict', 'id_conflict', true]]) {
@@ -591,7 +600,7 @@ export default async function (t) {
         }, pickers);
         await mount('/sales/new');
         await fillContract();
-        await click(first('save-invoice'));
+        await d.save();
         await settle(30);
         await unmount();
         const m2 = await bundle();
@@ -600,13 +609,16 @@ export default async function (t) {
         await mount('/sales/new', m2);
         await click(first('sale-retry'));
         await settle(30);
-        t.same(
-          [byAction('sale-frozen').length, lines().map((line) => [first('cart-qty', line)?.value, first('cart-price', line)?.value, picked(first('cart-unit', line))]), first('sale-invoice-discount')?.value, byAction('pay-amount').map((n) => n.value), storage.map.has(pendingKey('manager'))],
-          [0, [['2', '35000', 'u-bag'], ['3', '25000', 'u-box']], '5000', ['50000', '39000'], false],
-          `C7 ${label}: الرفض الأكيد يعيد ما أُرسل إلى الخانات (بعد إعادة التحميل)، والطلب ممحوّ`,
-        );
         t.ok(textOf('sale-failure')?.includes(code === 'id_conflict' ? 'معرّف الفاتورة مستعمل' : 'المتاح من «علف بادئ»'), `C7 ${label}: تلميح الخادم كما هو`);
-        await click(first('save-invoice'));
+        await d.openCart();
+        const restored = [byAction('sale-frozen').length, cartRows(), first('sale-invoice-discount')?.value, storage.map.has(pendingKey('manager'))];
+        await d.next();
+        t.same(
+          [...restored, byAction('pay-amount').map((n) => n.textContent)],
+          [0, [['2 كيس', 'كيس', '35,000 لكل كيس'], ['3 علبة', 'علبة', '25,000 لكل علبة']], '5000', false, ['50,000 دينار', '39,000 دينار']],
+          `C7 ${label}: الرفض الأكيد يعيد ما أُرسل إلى الفاتورة (بعد إعادة التحميل)، والطلب ممحوّ`,
+        );
+        await d.save();
         await settle(30);
         const [first1, , third] = named('record_sale_v2');
         t.same(
@@ -625,18 +637,20 @@ export default async function (t) {
         createCustomer: (name) => ({ id: 'p-new', name }),
       });
       await mount('/sales/new?store=w-gen');
-      await click(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed'));
-      type(inLine(0, 'cart-qty'), '10');
-      type(inLine(0, 'cart-price'), '0');
-      await settle();
-      type(all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-party')), 'مزرعة الجار');
+      await d.tap('i-feed');
+      await d.keys('10');
+      await d.tab('price');
+      await d.keys('0');
+      await d.done();
+      await d.next();
+      type(first('sale-party-search'), 'مزرعة الجار');
       await settle(20);
-      t.eq(textOf('create-party'), 'جهة جديدة: أضف «مزرعة الجار»', 'C8 «جهة جديدة» بالاسم المكتوب (زبون)');
+      t.eq(textOf('create-party'), 'زبون جديد: أضف «مزرعة الجار»', 'C8 «زبون جديد» بالاسم المكتوب');
       await click(first('create-party'));
       await settle(20);
       t.same(named('createCustomer'), [['مزرعة الجار']], 'C8 بعد فحص التوائم يُضاف زبوناً');
-      t.eq(textOf('save-invoice'), 'احفظ الفاتورة — مادّة واحدة بلا مقابل', 'C8 الزرّ يقول «بلا مقابل»');
-      await click(first('save-invoice'));
+      t.eq(textOf('save-invoice'), 'احفظ — مادّة واحدة بلا مقابل', 'C8 الزرّ يقول «بلا مقابل»');
+      await d.save();
       await settle(20);
       t.same([byAction('confirm-free-invoice').length, named('record_sale_v2').length], [1, 0], 'C8 تأكيد صريح قبل الإرسال');
       await click(first('confirm-free-invoice'));
@@ -647,26 +661,27 @@ export default async function (t) {
     await step('C9 item from link', async () => {
       fresh(KEEPER, { ...OK, sale_catalog: () => ({ items: clone(F.sale_catalog), cash_accounts: [BOXES[0]] }) }, pickers);
       await mount('/sales/new?item=i-vit&store=w-gen&back=%2Finventory%2Fitems%2Fi-vit');
+      await d.openCart();
       t.same(
-        [lines().map((n) => n.getAttribute('data-item')), inLine(0, 'cart-price')?.value, first('back')?.getAttribute('href'), first('back')?.textContent],
-        [['i-vit'], '2500', '/inventory/items/i-vit', 'رجوع إلى المخزن'],
-        'C9 «بِع» من ملفّ المادّة: المادّة في الفاتورة بمخزنها، والرجوع إلى الملفّ',
+        [d.lines().map((n) => n.getAttribute('data-item')), cartRows()[0]?.[2], first('back')?.getAttribute('href'), first('back')?.textContent],
+        [['i-vit'], '2,500 لكل قطعة', '/inventory/items/i-vit', 'رجوع إلى المخزن'],
+        'C9 «بِع» من ملفّ المادّة: المادّة في الفاتورة بمخزنها وسعرها، والرجوع إلى الملفّ',
       );
     });
 
     await step('C11 typed price follows the unit', async () => {
       fresh(MANAGER, OK, pickers);
       await mount('/sales/new?store=w-gen');
-      await click(byAction('sale-item-card').find((n) => n.getAttribute('data-item') === 'i-feed'));
-      type(inLine(0, 'cart-price'), '800');
-      await settle();
+      await d.tap('i-feed');
+      await d.tab('price');
+      await d.keys('800');
       const prices = [];
       for (const unit of ['u-bag', 'u-ton', '']) {
-        choose(inLine(0, 'cart-unit'), unit);
-        await settle();
-        prices.push(inLine(0, 'cart-price')?.value);
+        await d.unit(unit);
+        await d.tab('price');
+        prices.push(d.display());
       }
-      t.same(prices, ['40000', '800000', '800'], 'C11 السعر الذي كتبه البائع (800 للكيلو) يتحوّل مع الوحدة بالسعر نفسه للأساس، لا يبقى رقم الكيلو على الكيس');
+      t.same(prices, ['40,000', '800,000', '800'], 'C11 السعر الذي كتبه البائع (800 للكيلو) يتحوّل مع الوحدة بالسعر نفسه للأساس، لا يبقى رقم الكيلو على الكيس');
     });
 
     await step('C12 cart changed during the price check', async () => {
@@ -678,9 +693,8 @@ export default async function (t) {
       }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await click(first('save-invoice'));
-      type(inLine(1, 'cart-qty'), '4');
-      await settle();
+      await d.save();
+      await d.plus('i-vit');
       release();
       await settle(20);
       t.same([named('record_sale_v2').length, textOf('sale-notice')], [0, 'تغيّرت الفاتورة أثناء التحقّق من الأسعار؛ راجعها ثمّ احفظ.'], 'C12 تعديل الفاتورة أثناء قراءة الأسعار يوقف الإرسال (لا يُرسل غير المعروض)');
