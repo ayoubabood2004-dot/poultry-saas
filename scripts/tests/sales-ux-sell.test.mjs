@@ -1324,7 +1324,8 @@ export default async function (t) {
           if (calls === 2) throw new current.RejectedError('id_conflict', 'سُجّلت هذه الفاتورة من قبل ثمّ أُلغيت. سجّل فاتورة جديدة.');
           return clone(F.record_sale_v2);
         },
-        sale_detail: () => clone(voided),
+        // الملغاة هي الأولى وحدها؛ الفاتورة الجديدة (النداء الثالث) مرحَّلة، وإلّا أسقطت صفحتها «?done=1» لأنّها ملغاة (مراجعة الجولة ٢ Q4).
+        sale_detail: () => clone(calls >= 3 ? F.sale_detail : voided),
       }, pickers);
       await mount('/sales/new');
       await d.tap(ID.starter);
