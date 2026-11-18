@@ -1,5 +1,5 @@
 import { Bean, Box, EggFried, Feather, FlaskConical, Fuel, Package, Pill, Shapes, TestTubeDiagonal, Wrench, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { ItemKind } from '../../domain/stores';
 import { toWesternDigits } from '../../domain/normalize';
@@ -79,12 +79,10 @@ export function CartIcon({ className }: { className: string }) {
 const DIGITS: readonly PadKey[] = ['7', '8', '9', '4', '5', '6', '1', '2', '3'];
 
 /**
- * مفتاح لوحة المفاتيح الحقيقية (حاسوب أو لوحة بلوتوث) بمفتاح اللوحة: الأرقام (والهندية منها)، والنقطة العشرية «.» و«٫»، والحذف، وDelete للمسح؛ وEnter
- * «تم». وغيرها null، والفاصلة «,» و«٬» منها: الفاصلة تفصل الآلاف وحدها في هذا المشروع (قانون الأرقام)، فـ«35,000» خمسة وثلاثون ألفاً لا 35.00 (المراجعة
- * الثانية R1). مراجعة البيع S7: كانت Escape وحدها تعمل، فلا تُكتب كمية ولا سعر من لوحة مفاتيح.
+ * مفتاح لوحة المفاتيح الحقيقية بمفتاح اللوحة، والقيمة مركَّزة (padKeyDown): الأرقام (والهندية منها)، والنقطة العشرية «.» و«٫»، والحذف، وDelete للمسح.
+ * وغيرها null، والفاصلة «,» و«٬» منها: الفاصلة تفصل الآلاف وحدها في هذا المشروع (قانون الأرقام، R1).
  */
-export function padKeyOf(key: string, decimals: number): PadKey | 'enter' | null {
-  if (key === 'Enter') return 'enter';
+export function padKeyOf(key: string, decimals: number): PadKey | null {
   if (key === 'Backspace') return 'back';
   if (key === 'Delete') return 'clear';
   if ((key === '.' || key === '\u{066B}') && decimals > 0) return '.'; // i18n-ok: النقطة العشرية العربية
@@ -92,118 +90,46 @@ export function padKeyOf(key: string, decimals: number): PadKey | 'enter' | null
   return /^[0-9]$/u.test(digit) ? (digit as PadKey) : null;
 }
 
-/** ماسح الرموز (لوحة مفاتيح وهمية) يكتب الرمز دفعةً: حروف متتالية أقلّ من هذا بين كلّ حرفين، وهذا عددها على الأقلّ؛ ولا يكتبها إنسان بهذه السرعة. */
-export const SCAN_GAP_MS = 35;
-export const SCAN_MIN_CHARS = 4;
-/** مهلة السكون بعد آخر حرف: بعدها يُعرف أنّ ما كُتب إنسان (يُكتب في اللوحة) أو ماسح بلا Enter (يُمسح). */
-const SCAN_HOLD_MS = 70;
-
-interface Burst {
-  chars: string;
-  keys: (PadKey | null)[];
-  last: number;
+/**
+ * لوحة المفاتيح الحقيقية في القيمة المركَّزة (أساس المراجعة الثالثة): اللوحة تأخذ مفاتيح الجهاز ما دامت قيمتها مركَّزة وحدها، وكلّ مفتاح يُطبَّق فوراً
+ * (لا إمساك ولا حساب لسرعة الكتابة: مسك الصفر يكتب أصفاراً، وEsc بعد رقم لا يُسقطه)، وEnter «تم» هنا وحده. وما سوى ذلك (التركيز في غيرها) يذهب إلى موجّه
+ * الشاشة في SaleCheckout: الماسح لا يكتب في لوحة أبداً.
+ */
+export function padKeyDown(event: ReactKeyboardEvent<HTMLElement>, decimals: number, press: (keys: PadKey[]) => void, done: () => void): void {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.stopPropagation();
+    done();
+    return;
+  }
+  const key = padKeyOf(event.key, decimals);
+  if (key === null) {
+    // حرف لا يُكتب في رقم (حرف أو فاصلة): يُبلع هنا فلا يصير مسحاً ولا بحثاً.
+    if (event.key.length === 1 && event.key !== ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  press([key]);
 }
 
-/**
- * لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. ولوحة المفاتيح الحقيقية تكتب فيها ما دامت ورقتها في الأعلى، وما
- * يكتبه الماسح دفعةً لا يُكتب فيها أبداً بل يذهب إلى onScan (المراجعة الثانية R2: مسح المادّة التالية والسطر مفتوح كان يصير سعره). مفاتيح اللوحة لا تأخذ
- * التركيز، فـEnter بعد لمسها «تم» لا ضغطة ثانية عليها (R11).
- */
-export function Keypad({
-  decimals,
-  money = false,
-  onKeys,
-  onEnter,
-  onScan,
-  label,
-}: {
-  decimals: number;
-  money?: boolean;
-  /** مفتاح أو أكثر بالترتيب (حرفان متتاليان من لوحة المفاتيح يُطبَّقان معاً). */
-  onKeys: (keys: PadKey[]) => void;
-  onEnter?: () => void;
-  onScan?: (code: string) => void;
-  label: string;
-}) {
+/** لمسة لا تنقل التركيز (اللمس على الشاشة لا يترك زرّاً مركَّزاً يعيد Enter ضغطه، ولا قيمة مركَّزة يكتب فيها الماسح، T1/T3). */
+export const keepFocus = (event: { preventDefault: () => void; pointerType?: string }): void => {
+  event.preventDefault();
+};
+
+/** النقرة من لوحة المفاتيح (Enter أو Space على زرّ): detail = 0؛ ومن اللمس أو الفأرة: عدد النقرات. */
+export const fromKeyboard = (event: { detail?: number }): boolean => event.detail === 0;
+
+/** لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. مفاتيحها لا تأخذ التركيز. */
+export function Keypad({ decimals, money = false, onKeys, label }: { decimals: number; money?: boolean; onKeys: (keys: PadKey[]) => void; label: string }) {
   const keys: PadKey[] = [...DIGITS, money ? '000' : '.', '0', 'back'];
-  const ref = useRef<HTMLDivElement>(null);
-  const handlers = useRef({ onKeys, onEnter, onScan, decimals });
-  useEffect(() => {
-    handlers.current = { onKeys, onEnter, onScan, decimals };
-  });
-  useEffect(() => {
-    let burst: Burst | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const stopTimer = () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-    };
-    /** ما تجمّع: دفعة ماسح ← onScan، وإلّا مفاتيحه في اللوحة. */
-    const settle = (): boolean => {
-      stopTimer();
-      const held = burst;
-      burst = null;
-      if (!held) return false;
-      if (held.chars.length >= SCAN_MIN_CHARS) {
-        handlers.current.onScan?.(held.chars);
-        return true;
-      }
-      const typed = held.keys.filter((key): key is PadKey => key !== null);
-      if (typed.length > 0) handlers.current.onKeys(typed);
-      return false;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      let dialog: HTMLElement | null = ref.current;
-      while (dialog !== null && dialog.getAttribute?.('role') !== 'dialog') dialog = dialog.parentNode as HTMLElement | null;
-      if (!dialog || !isTopModal(dialog) || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
-      // خانة كتابة (بحث الزبون، الملاحظة) تأخذ مفاتيحها كما هي.
-      const target = event.target as { localName?: string; isContentEditable?: boolean; getAttribute?: (name: string) => string | null } | null;
-      if (target && (target.localName === 'input' || target.localName === 'textarea' || target.localName === 'select' || target.isContentEditable)) return;
-      const { onKeys: press, onEnter: enter, decimals: places } = handlers.current;
-      if (event.key === 'Enter') {
-        if (burst !== null) {
-          event.preventDefault();
-          // رمز ماسح انتهى بـEnter: يُمسح ولا «تم»؛ وما كتبه إنسان يُكتب ثمّ «تم».
-          if (settle()) return;
-          enter?.();
-          return;
-        }
-        // Enter على مفتاح اللوحة أو تبويب أو بطاقة دفع (ما يبقى مركَّزاً بعد لمسه) «تم»؛ وعلى غيرها من الأزرار يضغطه كعادته.
-        const action = target?.getAttribute?.('data-action') ?? null;
-        const nearPad = action === 'key' || action === 'line-tab' || action === 'pay-kind' || action === 'line-unit';
-        if (!enter || (target && (target.localName === 'button' || target.localName === 'a') && !nearPad)) return;
-        event.preventDefault();
-        enter();
-        return;
-      }
-      if (event.key.length === 1 && event.key !== ' ') {
-        // حرف: يُمسك لحظةً، فإن تبعته حروف بسرعة الماسح فهو رمز يُمسح لا يُكتب.
-        event.preventDefault();
-        const now = event.timeStamp;
-        if (burst !== null && now - burst.last >= SCAN_GAP_MS) settle();
-        burst ??= { chars: '', keys: [], last: now };
-        burst.chars += event.key;
-        const key = padKeyOf(event.key, places);
-        burst.keys.push(key === 'enter' ? null : key);
-        burst.last = now;
-        stopTimer();
-        timer = setTimeout(settle, SCAN_HOLD_MS);
-        return;
-      }
-      const key = padKeyOf(event.key, places);
-      if (key === null || key === 'enter') return;
-      settle();
-      event.preventDefault();
-      press([key]);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      stopTimer();
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, []);
   return (
-    <div ref={ref} className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
+    <div className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
       {keys.map((key) => (
         <button
           key={key}
@@ -213,9 +139,8 @@ export function Keypad({
           data-key={key}
           disabled={key === '.' && decimals === 0}
           aria-label={key === 'back' ? t('weight_pad.back', 'احذف رقماً') : key === '.' ? t('weight_pad.point', 'فاصلة عشرية') : key === '000' ? t('sell.pad.thousands', 'ثلاثة أصفار') : key}
-          // لا يأخذ التركيز (فـEnter بعده لا يضغطه مرّة ثانية، R11).
-          onPointerDown={(event) => event.preventDefault()}
-          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={keepFocus}
+          onMouseDown={keepFocus}
           onClick={() => {
             sound.click();
             onKeys([key]);

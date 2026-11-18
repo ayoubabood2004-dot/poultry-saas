@@ -1311,9 +1311,24 @@
   outline: none;
 }
 
-.sl-display:focus-visible,
+/* القيمة المركَّزة تأخذ مفاتيح الجهاز: إطار العلامة لا لون الخطأ. */
+.sl-display:focus-visible {
+  border-color: rgb(var(--sl-brand));
+  box-shadow: 0 0 0 4px rgb(var(--sl-brand) / 0.18);
+}
+
 .sl-display[data-wrong='yes'] {
   border-color: rgb(var(--sl-danger));
+}
+
+.sl-pad-value {
+  border-radius: var(--sl-r);
+  padding: 0 6px;
+  outline: none;
+}
+
+.sl-pad-value:focus-visible {
+  box-shadow: 0 0 0 3px rgb(var(--sl-brand) / 0.45);
 }
 
 .sl-display-value {
