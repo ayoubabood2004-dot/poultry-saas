@@ -12,6 +12,7 @@ async function bundle(contents, plugins = []) {
   const result = await build({
     stdin: { contents: `${contents} export { renderToStaticMarkup } from 'react-dom/server.browser'; export { createElement as h } from 'react';`, resolveDir: ROOT, loader: 'tsx' },
     bundle: true,
+    loader: { '.css': 'empty' }, // أنماط المبيعات الكسولة (sales/doc.css) بلا مخرَج هنا
     write: false,
     format: 'esm',
     platform: 'node',

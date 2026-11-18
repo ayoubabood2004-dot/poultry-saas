@@ -92,6 +92,8 @@ async function bundle() {
     jsx: 'automatic',
     logLevel: 'silent',
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    // أنماط المبيعات الكسولة (sales/doc.css في حزمة المخزون) بلا مخرَج هنا.
+    loader: { '.css': 'empty' },
     plugins: [stubs],
   });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);

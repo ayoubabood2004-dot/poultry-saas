@@ -98,6 +98,8 @@ export interface CatalogUnit {
   label: string;
   /** إلى وحدة الأساس بستّ مراتب. */
   factor: bigint;
+  /** الوحدة الافتراضية للمادّة (item_units.is_default، 0033): لمس البطاقة يضيف واحداً بها. غائبة = لا. */
+  isDefault?: boolean;
 }
 
 export interface CatalogItem {
@@ -117,6 +119,8 @@ export interface CatalogItem {
   sellPrice: Fils | null;
   /** وحدات البيع من الخادم (for_sale، غير مؤرشفة)؛ وحدة الأساس تضيفها الشاشة أوّلاً. */
   units: readonly CatalogUnit[];
+  /** عدد فواتير البيع المحفوظة لها من هذا المخزن في 30 يوماً (sold_30d، 0033): الأكثر بيعاً أوّلاً في الشبكة. غائب = صفر. */
+  sold30d: number;
 }
 
 export interface CatalogBox {
@@ -145,7 +149,8 @@ function catalogItem(row: Row): CatalogItem {
     available: milli(row, 'available'),
     expired: milli(row, 'expired'),
     sellPrice: optScaled(row, 'sell_price', 2),
-    units: list(row.units, 'units').map((unit) => ({ unitId: str(unit, 'unit_id'), label: str(unit, 'label'), factor: scaled(unit, 'factor', 6) })),
+    units: list(row.units, 'units').map((unit) => ({ unitId: str(unit, 'unit_id'), label: str(unit, 'label'), factor: scaled(unit, 'factor', 6), isDefault: unit.is_default === undefined ? false : flag(unit, 'is_default') })),
+    sold30d: row.sold_30d === undefined ? 0 : int(row, 'sold_30d'),
   };
 }
 

@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, Element, fire, installDom, settle, Text } from './dom.mjs';
+import { sellDriver } from './sell-ui.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033-contract.json'), 'utf8'));
@@ -42,8 +43,9 @@ const plugins = [
       b.onLoad({ filter: /.*/, namespace: 'sr-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'sr-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'sr-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
-      b.onResolve({ filter: /\.css$/ }, () => ({ path: 'css', namespace: 'sr-css' }));
-      b.onLoad({ filter: /.*/, namespace: 'sr-css' }, () => ({ contents: '', loader: 'js' }));
+      // أنماط الشاشات (sell.css?raw في شاشة البيع، 2026-11-18): نصّ فارغ هنا.
+      b.onResolve({ filter: /\.css(\?raw)?$/ }, () => ({ path: 'css', namespace: 'sr-css' }));
+      b.onLoad({ filter: /.*/, namespace: 'sr-css' }, () => ({ contents: "export default '';", loader: 'js' }));
     },
   },
 ];
@@ -97,11 +99,6 @@ const type = (input, value) => {
   input.value = value;
   fire(input, 'input');
 };
-const choose = (select, value) => {
-  if (!select) throw new Error('no select');
-  select.value = value;
-  fire(select, 'change');
-};
 const click = async (node) => {
   if (!node) throw new Error('no node');
   fire(node, 'click', { button: 0 });
@@ -116,9 +113,6 @@ const buttonOf = (label) => all().find((n) => n.localName === 'button' && n.text
 const tableOf = (caption) => all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
 const sectionOf = (table, tag) => (table ? table.children.find((n) => n.localName === tag) : null);
 const rowsOf = (caption) => (sectionOf(tableOf(caption), 'tbody')?.children ?? []).filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent));
-const lines = () => byAction('cart-line');
-const picked = (select) => (select ? (select.options.find((o) => o.selected)?.getAttribute('value') ?? null) : null);
-const inLine = (index, action) => first(action, lines()[index]);
 const card = (item) => byAction('sale-item-card').find((n) => n.getAttribute('data-item') === item) ?? null;
 const listCaption = () => all().find((n) => n.localName === 'caption' && n.textContent.startsWith('فواتير البيع'))?.textContent ?? '';
 
@@ -249,37 +243,11 @@ export default async function (t) {
     };
     const OK = { stores_overview: () => clone(F.stores_overview), sale_catalog: () => clone(F.sale_catalog) };
     const pickers = { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => clone(BOXES) };
-    const pickParty = async () => {
-      type(all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-party')), 'أبو');
-      await settle(20);
-      await click(first('pick-party'));
-    };
-    /** فاتورة العقد (علف بادئ كيسين بخصم 1,000 وفيتامين ثلاث علب، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000). */
-    const fillContract = async () => {
-      choose(first('sale-store'), 'w-gen');
-      await settle(20);
-      await click(card('i-feed'));
-      choose(inLine(0, 'cart-unit'), 'u-bag');
-      await settle();
-      type(inLine(0, 'cart-qty'), '2');
-      type(inLine(0, 'cart-discount'), '1000');
-      await settle();
-      type(first('sale-barcode'), '6260000000024');
-      await enter(first('sale-barcode'));
-      choose(inLine(1, 'cart-unit'), 'u-box');
-      await settle();
-      type(inLine(1, 'cart-qty'), '3');
-      type(first('sale-invoice-discount'), '5000');
-      await settle();
-      await pickParty();
-      await click(first('pay-add'));
-      choose(byAction('pick-box')[0], 'c-1');
-      type(byAction('pay-amount')[0], '50000');
-      await settle();
-      await click(first('pay-add'));
-      type(byAction('pay-amount')[1], '39000');
-      await settle();
-    };
+    const d = sellDriver({ body, descendants, fire, settle });
+    /** الزبون «أبو علي» من بحث «لمن؟» في ورقة الدفع. */
+    const pickParty = () => d.party('أبو');
+    /** فاتورة العقد (علف بادئ كيسين بخصم 1,000 وفيتامين ثلاث علب، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000) بالشاشة الجديدة. */
+    const fillContract = () => d.fillContract({ note: false });
     const dec = (text, scale) => { const [whole, part = ''] = String(text).split('.'); return BigInt(whole + (part + '000000').slice(0, scale)); };
 
     // ── المحلّلات بأجوبة القاعدة الحقيقية ──────────────────────────────────────────────────────────────────────────
@@ -463,10 +431,14 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
       await mount('/sales/new');
       await fillContract();
-      const style = all().find((n) => n.localName === 'style' && n.textContent.includes('sale-totals-bar'))?.textContent ?? '';
-      t.ok(/\[data-action="save-invoice"\] \{[^}]*height: auto;[^}]*white-space: normal;/u.test(style), 'C2 زرّ الحفظ يطول بسطوره (height: auto وwhite-space: normal) فلا يُقصّ أوّل سطره');
-      t.eq(textOf('save-invoice'), 'احفظ الفاتورة — 139,000 دينار، منها 50,000 دين', 'C2 الزرّ بالصافي والدين بلا عدد الموادّ (سطران في كلّ قياس بدل ثلاثة)');
-      await click(first('save-invoice'));
+      const css = readFileSync(path.join(ROOT, 'src', 'pages', 'sales', 'sell.css'), 'utf8');
+      const rule = (selector) => {
+        const at = css.indexOf(`\n${selector} {`);
+        return at < 0 ? '' : css.slice(at, css.indexOf('}', at));
+      };
+      t.ok(/height: auto;/u.test(rule('.sl-save')) && /white-space: normal;/u.test(rule('.sl-save')) && /min-height: 56px;/u.test(rule('.sl-primary')), 'C2 زرّ الحفظ يطول بسطوره (height: auto وwhite-space: normal، و56 بكسل أدنى) فلا يُقصّ أوّل سطره');
+      t.eq(textOf('save-invoice'), 'احفظ — 139,000 دينار، منها 50,000 دين', 'C2 الزرّ بالصافي والدين بلا عدد الموادّ، و«احفظ» وحدها (سطر واحد في 390)');
+      await d.save();
       await settle(30);
       t.same(named('record_sale_v2')[0]?.p_lines.map((line) => line.factor), ['50.000000', '10.000000'], 'C11 كلّ سطر بمعامل وحدته كما رأته الشاشة (unit_changed بالخادم)');
     });
@@ -474,18 +446,22 @@ export default async function (t) {
     await step('C3 same item twice', async () => {
       fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
       await mount('/sales/new?store=w-gen');
-      await click(card('i-feed'));
-      t.eq(card('i-feed')?.hasAttribute('disabled'), false, 'C3 بطاقة مادّة في الفاتورة تبقى تضيف');
-      await click(card('i-feed'));
-      t.same(lines().map((n) => n.getAttribute('data-item')), ['i-feed', 'i-feed'], 'C3 المادّة نفسها بسطرين (أكياس وفرط)');
-      choose(inLine(0, 'cart-unit'), 'u-bag');
-      await settle();
-      type(inLine(0, 'cart-qty'), '3');
-      type(inLine(1, 'cart-qty'), '25.5');
-      type(inLine(1, 'cart-price'), '720');
-      await settle();
+      await d.tap('i-feed');
+      await d.unit('u-bag');
+      await d.keys('3');
+      await d.done();
+      t.eq(card('i-feed')?.hasAttribute('disabled'), false, 'C3 بطاقة مادّة في الفاتورة تبقى تُلمس (تزيد سطرها)');
+      await d.openLineOf('i-feed');
+      await click(first('line-add-another'));
+      await d.keys('25.5');
+      await d.tab('price');
+      await d.keys('720');
+      await d.done();
+      await d.openCart();
+      t.same(d.lines().map((n) => n.getAttribute('data-item')), ['i-feed', 'i-feed'], 'C3 المادّة نفسها بسطرين (أكياس وفرط) من «أضف سطراً آخر لها»');
+      await d.next();
       await pickParty();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
       t.same(
         named('record_sale_v2')[0]?.p_lines.map((line) => [line.item_id, line.unit_id, line.qty, line.unit_price]),
@@ -500,41 +476,45 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(less)) }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
       const over = 'المتاح في «المخزن العام» 50 كغم فقط؛ لا يُحفظ أكثر منه.';
       t.same([named('record_sale_v2').length, textOf('sale-blocked')], [0, `لم تُحفظ الفاتورة: ${over}`], 'C4 المتاح قلّ عند القراءة قبل الحفظ: يُقال بجانب الزرّ الثابت');
       t.same(
-        [scrolled[0]?.textContent ?? null, globalThis.document.activeElement === inLine(0, 'cart-qty')],
+        [scrolled.at(-1)?.textContent ?? null, globalThis.document.activeElement === first('line-display', d.lineSheet())],
         [over, true],
-        'C4 ويُمرَّر إلى أوّل خطأ وتُركَّز خانته (كمية السطر)',
+        'C4 ويُفتح السطر ويُمرَّر إلى خطئه وتُركَّز خانته (الكمية)',
       );
     });
 
     await step('C4 blocked before reading', async () => {
       fresh(MANAGER, OK, pickers);
       await mount('/sales/new?store=w-gen');
-      await click(card('i-feed'));
-      type(inLine(0, 'cart-qty'), '10');
-      await settle();
-      await click(first('save-invoice'));
+      await d.tap('i-feed');
+      await d.keys('10');
+      await d.done();
+      await d.next();
+      await d.payKind('debt');
+      t.same([buttonOf('زبون نقديّ')?.getAttribute('aria-checked'), textOf('sale-party-needed')], ['false', 'الدين يحتاج اسم الزبون: اختره أو ابحث عنه أو أضفه.'], 'C4 «دين كلّه» لزبون نقديّ يفتح «لمن؟»: الدين يحتاج اسم الزبون');
+      await d.save();
       await settle(20);
       t.same(
-        [named('sale_catalog').length, textOf('sale-blocked')],
-        [1, 'لم تُحفظ الفاتورة: اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.'],
-        'C4 بلا زبون: لا قراءة ولا إرسال، والسبب بجانب الزرّ',
+        [named('sale_catalog').length, textOf('sale-blocked'), globalThis.document.activeElement === first('sale-party-search')],
+        [1, 'لم تُحفظ الفاتورة: اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.', true],
+        'C4 بلا زبون: لا قراءة ولا إرسال، والسبب بجانب الزرّ، والبحث عن الزبون مركَّز',
       );
     });
 
     await step('C5 search by code, store in the empty result', async () => {
       fresh(MANAGER, OK, pickers);
       await mount('/sales/new?store=w-gen');
-      type(first('sale-search'), '6260000000024');
+      type(first('sale-search'), '626000000002');
       await settle(20);
-      t.same(byAction('sale-item-card').map((n) => n.getAttribute('data-item')), ['i-vit'], 'C5 الباركود في خانة البحث يجد مادّته');
-      type(first('sale-search'), 'زيت');
-      await settle(20);
+      t.same(byAction('sale-item-card').map((n) => n.getAttribute('data-item')), ['i-vit'], 'C5 بداية الرمز في البحث تجد مادّته');
+      await d.search('زيت');
       t.eq(textOf('sale-items-none'), 'لا مادّة باسم «زيت» تُباع من «المخزن العام».', 'C5 البحث بلا نتيجة يسمّي المخزن (قد تُباع من غيره)');
+      await enter(first('sale-search'));
+      t.same([byAction('sale-scan-note').length, first('sale-search')?.value], [0, 'زيت'], 'C5 Enter على اسم بلا مادّة لا يضيف شيئاً ولا يُقرأ رمزاً');
     });
 
     await step('C6/C10 alt codes and expired', async () => {
@@ -544,9 +524,8 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, sale_catalog: () => clone(catalog) }, pickers);
       await mount('/sales/new?store=w-gen');
       t.ok(card('i-corn')?.textContent.includes('منتهية الصلاحية: 12 كغم') && !card('i-corn')?.textContent.includes('نفد'), 'C10 كلّها منتهية الصلاحية: يُقال ذلك بكميته لا «نفد»');
-      type(first('sale-barcode'), '8800001112223');
-      await enter(first('sale-barcode'));
-      t.same([lines().map((n) => n.getAttribute('data-item')), textOf('sale-scan-note')], [['i-vit'], null], 'C6 الماسح يقرأ الرموز الأخرى (alt_codes)');
+      await d.scan('8800001112223');
+      t.same([d.cardQty('i-vit'), textOf('sale-scan-note')], ['1 قطعة', null], 'C6 الماسح يقرأ الرموز الأخرى (alt_codes)');
     });
 
     await step('C7 restored request and ?item=', async () => {
@@ -561,53 +540,57 @@ export default async function (t) {
       t.eq(byAction('sale-frozen').length, 1, 'C7 الطلب المستعاد يجمّد الشاشة');
       await click(first('sale-retry'));
       await settle(40);
-      t.same(lines().map((n) => n.getAttribute('data-item')), ['i-vit'], 'C7 بعد الرفض الأكيد يعود السطر المرسَل وحده، بلا سطر فارغ مكرّر من ?item=');
+      await d.openCart();
+      t.same([d.lines().map((n) => n.getAttribute('data-item')), d.cardQty('i-vit')], [['i-vit'], '2 قطعة'], 'C7 بعد الرفض الأكيد يعود السطر المرسَل وحده، بلا سطر مكرّر من ?item=');
     });
 
     await step('C8 walk-in unpaid', async () => {
       fresh(MANAGER, OK, { ...pickers, listBoxes: () => [BOXES[0]] });
       await mount('/sales/new?store=w-gen');
-      await click(card('i-feed'));
-      type(inLine(0, 'cart-qty'), '100');
-      await settle();
-      await click(buttonOf('زبون نقديّ (بلا اسم)'));
+      await d.tap('i-feed');
+      await d.keys('100');
+      await d.done();
+      await d.next();
+      await d.payKind('part');
       t.eq(textOf('save-invoice')?.includes('مدفوعة'), false, 'C8 زبون نقديّ لم يدفع: الزرّ لا يقول «مدفوعة كلّها»');
     });
 
     await step('C8 overpaid and discount over', async () => {
       fresh(MANAGER, OK, { ...pickers, listBoxes: () => [BOXES[0]] });
       await mount('/sales/new?store=w-gen');
-      await click(card('i-feed'));
-      type(inLine(0, 'cart-qty'), '100');
-      await settle();
-      await click(first('pay-add'));
-      type(byAction('pay-amount')[0], '80000');
-      await settle();
+      await d.tap('i-feed');
+      await d.keys('100');
+      await d.done();
+      await d.next();
+      await d.payKind('part');
+      await d.keys('80000');
       t.same(
-        [textOf('sale-debt-live'), textOf('save-invoice'), textOf('sale-total-debt')],
-        ['المدفوع أكثر من الصافي بـ10,000 دينار؛ أنقص المبلغ.', 'احفظ الفاتورة — 70,000 دينار', 'الدين—'],
-        'C8 مدفوع أكثر من الصافي: جملة بلا دين سالب، والزرّ بلا «مدفوعة»، والدين «—»',
+        [textOf('sale-debt-live'), textOf('save-invoice')],
+        ['المدفوع أكثر من الصافي بـ10,000 دينار؛ أنقص المبلغ.', 'احفظ — 70,000 دينار'],
+        'C8 مدفوع أكثر من الصافي: جملة بلا دين سالب، والزرّ بلا «مدفوعة» ولا دين',
       );
-      type(byAction('pay-amount')[0], '');
-      type(first('sale-invoice-discount'), '90000');
-      await settle();
-      t.same([textOf('sale-total-net'), textOf('sale-debt-live')], ['الصافي—', 'الباقي يُحسب بعد تصحيح الخصم.'], 'C8 خصم أكبر من المجموع: الصافي «—» لا رقماً سالباً');
+      await click(first('pay-remove'));
+      await click(first('pay-discount'));
+      await d.keys('90000');
+      t.same([textOf('sale-total-net'), textOf('sale-debt-live'), textOf('save-invoice')], ['—', 'الباقي يُحسب بعد تصحيح الخصم.', 'احفظ — مادّة واحدة'], 'C8 خصم أكبر من المجموع: المطلوب «—» لا رقماً سالباً');
     });
 
     await step('C9 total_zero mirror', async () => {
       fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError(R.refusals['v2.total_zero'].code, R.refusals['v2.total_zero'].hint); } }, pickers);
       await mount('/sales/new?store=w-gen');
-      await click(card('i-feed'));
-      type(inLine(0, 'cart-qty'), '0.001');
-      type(inLine(0, 'cart-price'), '100');
-      await settle();
+      await d.tap('i-feed');
+      await d.keys('0.001');
+      await d.tab('price');
+      await d.keys('100');
+      await d.done();
+      await d.next();
       await pickParty();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
       t.same(
-        [byAction('confirm-free-invoice').length, named('record_sale_v2').length, lines()[0]?.textContent.includes('يُقرَّب إلى صفر دينار')],
-        [0, 0, true],
-        'C9 سعر فوق الصفر يُقرَّب مبلغه إلى صفر: خطأ على السطر كالخادم، لا «تسليم بلا مقابل؟» ثمّ رفض',
+        [byAction('confirm-free-invoice').length, named('record_sale_v2').length, textOf('line-error')],
+        [0, 0, 'مبلغ هذا السطر يُقرَّب إلى صفر دينار: راجع الكمية والسعر، أو اكتب السعر صفراً للتسليم بلا مقابل.'],
+        'C9 سعر فوق الصفر يُقرَّب مبلغه إلى صفر: خطأ على السطر كالخادم (يُفتح على السعر)، لا «تسليم بلا مقابل؟» ثمّ رفض',
       );
     });
 
@@ -615,7 +598,7 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError(R.refusals['v2.unit_mismatch'].code, R.refusals['v2.unit_mismatch'].hint); } }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(40);
       t.same([named('record_sale_v2').length, named('sale_catalog').length], [1, 3], 'C11 رفض unit_mismatch (رمز القاعدة الحقيقيّ) يقرأ الموادّ ووحداتها من جديد');
     });
@@ -626,13 +609,15 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(noBag)) }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(30);
-      const select = inLine(0, 'cart-unit');
+      const checked = d.units().filter(([, , on]) => on === 'true');
+      const unitError = textOf('line-unit-error');
+      await d.tab('price');
       t.same(
-        [picked(select), select?.options.find((o) => o.selected)?.textContent ?? null, inLine(0, 'cart-price')?.value, named('record_sale_v2').length],
-        ['-', 'اختر الوحدة', '', 0],
-        'C11 غابت وحدة السطر: القائمة تقول «اختر الوحدة» وسعرها القديم يُمحى',
+        [checked, unitError, d.display(), named('record_sale_v2').length],
+        [[], 'اختر الوحدة.', '—', 0],
+        'C11 غابت وحدة السطر: لا شريحة مختارة و«اختر الوحدة» تحتها، وسعرها القديم يُمحى',
       );
     });
 
@@ -641,7 +626,7 @@ export default async function (t) {
       await mount('/sales/new');
       await fillContract();
       const before = named('listBoxes').length;
-      await click(first('save-invoice'));
+      await d.save();
       await settle(40);
       t.eq(named('listBoxes').length, before + 1, 'صندوق أُرشف (cash_account_archived): تُقرأ الصناديق من جديد');
     });
@@ -649,15 +634,15 @@ export default async function (t) {
     await step('D9 back after saving', async () => {
       fresh(KEEPER, { ...OK, sale_catalog: () => ({ items: clone(F.sale_catalog), cash_accounts: [BOXES[0]] }), record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
       await mount('/sales/new?item=i-vit&store=w-gen&back=%2Finventory%2Fitems%2Fi-vit');
-      type(inLine(0, 'cart-qty'), '2');
-      await settle();
+      await d.plus('i-vit');
+      await d.next();
       await pickParty();
-      await click(first('save-invoice'));
+      await d.save();
       await settle(40);
       t.same(
         [where(), navType, first('back')?.getAttribute('href') ?? null],
-        ['/sales/s-7?back=%2Finventory%2Fitems%2Fi-vit', 'REPLACE', '/inventory/items/i-vit'],
-        'D9 بعد الحفظ: الفاتورة مكان الشاشة، ورجوعها إلى ملفّ المادّة الذي بدأ منه البيع',
+        ['/sales/s-7?done=1&back=%2Finventory%2Fitems%2Fi-vit', 'REPLACE', '/inventory/items/i-vit'],
+        'D9 بعد الحفظ: الفاتورة مكان الشاشة (?done=1، والأوراق مطويّة من التاريخ)، ورجوعها إلى ملفّ المادّة الذي بدأ منه البيع',
       );
     });
   } catch (error) {

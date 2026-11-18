@@ -23,6 +23,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import { HallReminders, loadOverviewKept } from '../farm/shared';
+import { readSaleDraftSummary, type SaleDraftSummary } from '../sales/saleDraft';
 
 // الرئيسية بثلاث طبقات (كلمة المالك 2026-11-02، «الاستخدام اليومي»): «شغل اليوم» أوّل شي (مهامّ اليوم بعدّاداتها، كل صفّ لمسة
 // وحدة لفعله)، ثم «ماذا تريد أن تفعل؟» بأربعة أزرار بأولوية الدور والباقي خلف «أعمال أخرى»، ثم «أرقام اليوم» ببطاقة لكل وحدة
@@ -509,6 +510,32 @@ export function DivisionCard({ spec }: { spec: CardSpec }) {
   );
 }
 
+/** «فاتورة مفتوحة: 3 موادّ · 218,750»: سلّة بيع محفوظة على الجهاز تعود بلمسة (تصميم المبيعات §٨، saleDraft). */
+export function OpenSaleChip({ sale }: { sale: SaleDraftSummary }) {
+  const n = sale.lines;
+  const form = countForm(n);
+  const items =
+    n === 1
+      ? t('invoice.lines.one', 'مادّة واحدة')
+      : n === 2
+        ? t('invoice.lines.two', 'مادّتان')
+        : form === 'few'
+          ? t('invoice.lines.few', '{n} موادّ', { n })
+          : form === 'many'
+            ? t('invoice.lines.many', '{n} مادّةً', { n })
+            : t('invoice.lines.hundreds', '{n} مادّة', { n });
+  return (
+    <Link
+      to="/sales/new"
+      data-action="home-open-sale"
+      className="inline-flex min-h-11 items-center gap-2 self-start rounded-full border border-brand-200 bg-brand-50 px-4 text-sm font-semibold text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/15 dark:text-brand-100"
+    >
+      <ShoppingCart aria-hidden="true" className="size-5 shrink-0" />
+      {sale.total > 0n ? t('home.open_sale', 'فاتورة مفتوحة: {items} · {total}', { items, total: fmtMoney(sale.total, 0) }) : t('home.open_sale.no_total', 'فاتورة مفتوحة: {items}', { items })}
+    </Link>
+  );
+}
+
 export default function HomePage() {
   const session = useSession();
   const summary = useLoad(home.loadHomeSummary);
@@ -535,6 +562,8 @@ export default function HomePage() {
   const savesBroiler = saves('broiler');
   const savesLayer = saves('layer');
   const manage = allows('flock.manage');
+  // فاتورة بيع مفتوحة على الجهاز (تصميم المبيعات §٨): شريحة تعود إليها بلمسة.
+  const openSale = userId && orgId && allows('sale.record') ? readSaleDraftSummary(userId, orgId) : null;
   // جولات الجهاز اللي ما انرفعت (الطابور نفسه، ويشتغل بلا نت)، وتُقرأ من جديد بعد كل رفع من أيّ شاشة أو من القشرة.
   const queue = useStore(roundQueueStore);
   const wantsPending = (savesBroiler || savesLayer) && userId !== null && orgId !== null;
@@ -577,6 +606,7 @@ export default function HomePage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={t('home.title', 'الرئيسية')} />
+      {openSale ? <OpenSaleChip sale={openSale} /> : null}
       <TodayCard
         rows={rows}
         loading={todayLoading}

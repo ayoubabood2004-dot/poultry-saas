@@ -74,6 +74,7 @@ async function bundleOf(entry, plugins) {
   const result = await build({
     stdin: { contents: entry.join('\n'), resolveDir: ROOT, loader: 'tsx' },
     bundle: true,
+    loader: { '.css': 'empty' }, // أنماط المبيعات الكسولة (sales/doc.css) بلا مخرَج هنا
     write: false,
     format: 'esm',
     platform: 'node',

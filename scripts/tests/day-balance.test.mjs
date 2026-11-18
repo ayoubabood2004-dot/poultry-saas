@@ -78,6 +78,7 @@ async function bundle() {
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
     bundle: true,
+    loader: { '.css': 'empty' }, // أنماط المبيعات الكسولة (sales/doc.css) بلا مخرَج هنا
     write: false,
     format: 'esm',
     platform: 'node',
@@ -1168,7 +1169,7 @@ export default async function (t) {
     await step('R-M3', async () => {
       const built = await build({
         stdin: { contents: "export { createElement as h } from 'react'; export { createRoot } from 'react-dom/client'; export { flushSync } from 'react-dom'; export { Toaster, toast } from './src/components/ui/Toast.tsx';", resolveDir: ROOT, loader: 'tsx' },
-        bundle: true, write: false, format: 'esm', platform: 'node', target: 'node20', jsx: 'automatic', logLevel: 'silent',
+        bundle: true, loader: { '.css': 'empty' }, write: false, format: 'esm', platform: 'node', target: 'node20', jsx: 'automatic', logLevel: 'silent',
         define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
       });
       const tm = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
