@@ -117,7 +117,8 @@ export function recorder(value) {
 }
 
 /** الغائب المقبول: القناع (money)، ومخازن الإرجاع لسطر منقول معلَّق وحده (stores)، وأفعال التذكرة في نموذج الفاتورة (العقد §5.4)، وsite في الخيارات بلا حقل. */
-const OPTIONAL = [/(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u];
+// totals.open منذ 0033 (الباقي الآن على فواتير الفترة): يغيب في أجوبة 0029 المحفوظة هنا، والشكل الجديد يحمله دائماً (فحص X2 في sales-invoice-screens بعيّنات 0033).
+const OPTIONAL = [/(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());
 const NUMERIC = /^-?\d+(\.\d+)?$/u;

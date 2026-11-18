@@ -839,13 +839,14 @@ export default async function (t) {
         const parsed = m.parseSalesOverview(clone(sample));
         sample.rows.forEach((raw, i) => {
           const row = parsed.rows[i];
-          const got = [row.lineCount, row.walkIn, row.money?.lineTotal, row.money?.paid, row.money?.debt, row.money?.discountTotal];
-          const want = [raw.lines_count, raw.walk_in, dec(raw.total, 2), dec(raw.paid, 2), dec(raw.debt, 2), dec(raw.discount_total, 2)];
+          const got = [row.lineCount, row.walkIn, row.money?.lineTotal, row.money?.paid, row.money?.debt, row.money?.open, row.money?.discountTotal, row.canVoid];
+          const want = [raw.lines_count, raw.walk_in, dec(raw.total, 2), dec(raw.paid, 2), dec(raw.debt, 2), dec(raw.open, 2), dec(raw.discount_total, 2), raw.can_void];
           t.same(got, want, `X2 صفّ ${raw.doc_no} في القائمة بقيم القاعدة`);
           if (raw.lines_count > 1) seen.multi++;
           if (raw.status === 'posted' && dec(raw.paid, 2) > 0n && dec(raw.debt, 2) > 0n) seen.partial++;
           if (raw.walk_in) seen.walkIn++;
         });
+        t.same(parsed.totals.money?.open ?? null, dec(sample.totals.open, 2), `X2 مجموع الباقي الآن (totals.open) بقيمة القاعدة`);
       }
       t.ok(seen.multi > 0 && seen.partial > 0 && seen.walkIn > 0, `X2 العيّنة تمرّ بعدّة سطور وجزء مدفوع وزبون نقديّ (${JSON.stringify(seen)})`);
       for (const [name, raw] of Object.entries(R.sale_detail)) {
