@@ -485,7 +485,7 @@ export default async function (t) {
       await click(byAction('report-open').find((n) => n.textContent === 'مزرعة النور'));
       await settle(20);
       t.same(
-        [where().startsWith('/sales?party=a9a5f7fd'), listRows().map(([no]) => no), textOf('party-off')],
+        [where().startsWith('/sales?party=' + R.sales_overview.owner.rows.find((r) => r.party_name === 'مزرعة النور').party_id), listRows().map(([no]) => no), textOf('party-off')],
         [true, ['FD-2026-0005', 'FD-2026-0004', 'MS-2026-0003', 'MS-2026-0002', 'FD-2026-0002'], 'فواتير «مزرعة النور»اعرض كلّ الزبائن'],
         'L4 صفّ الزبون يفتح فواتيره في المدّة نفسها',
       );

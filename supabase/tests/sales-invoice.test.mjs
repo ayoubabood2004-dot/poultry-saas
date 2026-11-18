@@ -406,6 +406,8 @@ async function scenario(t, db) {
   t.same([byParty.rows.find((r) => r.key === P.ahmad)?.count, norm(byParty.rows.find((r) => r.key === P.ahmad)?.money.revenue), byItem.rows.find((r) => r.key === I.starter)?.count,
     norm(byItem.rows.find((r) => r.key === I.starter)?.qty), norm(byItem.rows.find((r) => r.key === I.starter)?.money.revenue), byParty.totals.count, byItem.totals.count],
   [2, '185860', 2, '1075.5', '751014', 7, 7], 'التقرير بالصافي، والعدد فواتير لا سطور (فاتورتان لأبي أحمد، والبادئ في فاتورتين بسطوره الأربعة)');
+  // مراجعة الشاشات A7: التقرير يحمل يوم الخادم كقائمة الفواتير، فمدّة «اليوم/الأسبوع/الشهر» في «حسب الزبون/المادّة/اليوم» تُصحَّح بيومه لا بساعة الهاتف.
+  t.same([byParty.today, byItem.today, byParty.from, byParty.to], [ownerOverview.today, ownerOverview.today, day(-7), TODAY], 'sales_report: يوم الخادم (today) كـsales_overview');
   const entryOf = (sql, params) => db.asOwner(async (q) => (await q(sql, params)).rows[0].v, U.owner);
   const invoiceEntry = await entryOf("select private.entry_detail(invoice_entry_id) as v from public.sales_invoices where id = $1", [A.sale]);
   const legEntry = await entryOf('select private.entry_detail(payment_entry_id) as v from public.sales_payments where sale_id = $1 and leg_no = 2', [A.sale]);

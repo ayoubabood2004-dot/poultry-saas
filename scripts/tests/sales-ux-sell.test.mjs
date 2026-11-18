@@ -100,9 +100,12 @@ const click = async (node) => {
 };
 
 const CAT = R.sale_catalog.storekeeper_feed;
-const ID = { starter: '4a94896e-20a1-45c9-b2ce-5e09ac2bc6d8', grower: 'db0c001b-72b5-42df-87b9-7a4e92b0209f', sync: 'a549b9ab-694f-4425-94aa-84a87ece16ce', conc: '1103b0e3-4e4f-4573-9c0f-ba1bb291ed90' };
-const BAG = '0974fb59-658e-47e1-ae25-2b96a88c4ce0';
-const GROWER_BAG = 'f3213f17-17e7-4b45-97d4-9378abaa233e';
+// المعرّفات من العيّنة الحقيقية بالاسم (تتغيّر بكلّ توليد للعيّنات: SALES_SAMPLES_OUT=1).
+const itemNamed = (name) => { const item = CAT.items.find((i) => i.name === name); if (!item) throw new Error('no sample item ' + name); return item; };
+const ID = { starter: itemNamed('علف بادئ').item_id, grower: itemNamed('علف نامي').item_id, sync: itemNamed('علف التزامن').item_id, conc: itemNamed('علف مركّز').item_id };
+const unitNamed = (name, label) => itemNamed(name).units.find((u) => u.label === label).unit_id;
+const BAG = unitNamed('علف بادئ', 'كيس 50 كغم');
+const GROWER_BAG = unitNamed('علف نامي', 'كيس 50 كغم');
 const BOX2 = CAT.cash_accounts[1];
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['general', 'feed_mill'],

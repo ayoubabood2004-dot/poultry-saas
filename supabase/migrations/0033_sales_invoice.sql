@@ -1381,7 +1381,7 @@ begin
       case when p_group = 'item' then sum(r.qty) end as qty, case when p_group = 'item' then min(r.base_unit) end as base_unit, max(r.sold_on) as last_on
     from listed r group by r.key
   )
-  select jsonb_build_object('from', p_from, 'to', p_to, 'group', p_group,
+  select jsonb_build_object('from', p_from, 'to', p_to, 'today', public.app_today(), 'group', p_group,
     'rows', coalesce(jsonb_agg(jsonb_build_object('key', g.key, 'label', g.label, 'count', g.count, 'qty', g.qty::text, 'base_unit', g.base_unit,
         'money', jsonb_build_object('revenue', g.revenue::text),
         'cost', jsonb_build_object('money', jsonb_build_object('cost', g.cost::text, 'profit', (g.revenue - g.cost)::text)))
