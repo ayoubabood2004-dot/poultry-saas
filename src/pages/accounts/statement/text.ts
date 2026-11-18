@@ -5,7 +5,7 @@ import { amountInWords } from '../../../domain/amountWords';
 import { countForm, fmtCounted, fmtDay, fmtMilli, fmtScaledCell } from '../../../lib/format';
 import { t } from '../../../lib/i18n';
 import type { EntryKind } from '../../../lib/repo/parties';
-import type { Allocation, EntryDetail, OpenItem, PartyStatement, StatementBook, StatementLine } from '../../../lib/repo/statement';
+import type { Allocation, EntryDetail, OpenItem, PartyStatement, SaleLine, StatementBook, StatementLine } from '../../../lib/repo/statement';
 import { monthLabel, withBack } from '../money/shared';
 import { daysText, moneyText, unitText } from '../papers';
 import { bookLabel, entryKindLabel } from '../shared';
@@ -126,6 +126,13 @@ export function kindDocType(kind: EntryKind, docKind: string | null): string {
   return kind === 'opening' ? t('stmt.type.opening', 'الرصيد عند البداية') : entryKindLabel(kind);
 }
 
+/** سطر البيع كما بِيع: بوحدة السطر وسعرها وإجماليّه قبل الخصم (0033)، أو بالأساس وصافيه (أقدم، بلا خصم). */
+function saleLineShown(line: SaleLine): { qty: Milli; unit: string; price: Fils; amount: Fils } {
+  return line.unit
+    ? { qty: line.unit.qty, unit: unitText(line.unit.label), price: line.unit.price, amount: line.unit.gross }
+    : { qty: line.qty, unit: unitText(line.baseUnit), price: line.unitPrice, amount: line.amount };
+}
+
 /** البيان من المستند نفسه، بلا ملاحظات الإلغاء. */
 function detailMemo(detail: EntryDetail, line: Pick<StatementLine, 'kind' | 'account' | 'reason'>): string {
   switch (detail.type) {
@@ -149,10 +156,17 @@ function detailMemo(detail: EntryDetail, line: Pick<StatementLine, 'kind' | 'acc
     case 'sale': {
       const [only] = detail.lines;
       const store = detail.warehouse.name;
-      const head =
-        detail.lines.length === 1 && only
-          ? t('stmt.memo.sale_one', 'بيع {qty} {item} بسعر {price} — {store}', { qty: qtyUnit(only.qty, unitText(only.baseUnit)), item: only.itemName, price: moneyText(only.unitPrice), store })
-          : t('stmt.memo.sale_many', 'بيع {items} — {store}', { items: itemsCount(detail.lines.length), store });
+      // السطر الواحد بوحدته وسعرها (فاتورة 0033) أو بالأساس (أقدم)، والخصم بعده كما في الشراء (مراجعة 0033 D10).
+      const shown = only ? saleLineShown(only) : null;
+      // العدد بالموادّ المختلفة لا بالسطور (المادّة نفسها كيساً وفرطاً مادّة واحدة، كقائمة المبيعات: مراجعة 0033 D8).
+      const items = new Set(detail.lines.map((entry) => entry.itemId)).size;
+      const sold =
+        detail.lines.length === 1 && only && shown
+          ? t('stmt.memo.sale_one', 'بيع {qty} {item} بسعر {price} — {store}', { qty: qtyUnit(shown.qty, shown.unit), item: only.itemName, price: moneyText(shown.price), store })
+          : items === 1 && only
+            ? t('stmt.memo.sale_item', 'بيع {item} — {store}', { item: only.itemName, store })
+            : t('stmt.memo.sale_many', 'بيع {items} — {store}', { items: itemsCount(items), store });
+      const head = detail.discountTotal > 0n ? t('stmt.memo.after_discount', '{memo}، بعد خصم {amount}', { memo: sold, amount: moneyText(detail.discountTotal) }) : sold;
       return detail.payment === 'cash' ? t('stmt.memo.cash', '{memo}، نقداً', { memo: head }) : head;
     }
     case 'sale_payment':
@@ -423,13 +437,27 @@ export function docItemsOf(line: Pick<StatementLine, 'detail' | 'reverses'>): Do
         ],
         note: paidNote(detail.paidNow, detail.account?.name ?? null),
       };
-    case 'sale':
+    case 'sale': {
+      // فاتورة 0033 (مراجعة D10): الكمية بوحدة السطر × سعرها = إجماليّه قبل الخصم، ثمّ مجموع الموادّ والخصم والصافي = مبلغ الحركة (كالشراء).
+      const items = detail.lines.map((entry) => {
+        const shown = saleLineShown(entry);
+        return { key: `${entry.lineNo}`, name: entry.itemName, qty: shown.qty, unit: shown.unit, price: shown.price, amount: shown.amount };
+      });
+      const total = { key: 'net', label: t('stmt.items.total', 'مجموع الفاتورة (مبلغ الحركة)'), amount: detail.total };
       return {
         priced: true,
-        items: detail.lines.map((entry) => ({ key: `${entry.lineNo}`, name: entry.itemName, qty: entry.qty, unit: unitText(entry.baseUnit), price: entry.unitPrice, amount: entry.amount })),
-        footers: [{ key: 'net', label: t('stmt.items.total', 'مجموع الفاتورة (مبلغ الحركة)'), amount: detail.total }],
+        items,
+        footers:
+          detail.discountTotal > 0n
+            ? [
+                { key: 'sum', label: t('stmt.items.sum', 'مجموع الموادّ'), amount: items.reduce((sum, item) => sum + item.amount, 0n) },
+                { key: 'discount', label: t('stmt.items.discount', 'الخصم'), amount: -detail.discountTotal },
+                total,
+              ]
+            : [total],
         note: null,
       };
+    }
     case 'bird_sale':
       return {
         priced: true,

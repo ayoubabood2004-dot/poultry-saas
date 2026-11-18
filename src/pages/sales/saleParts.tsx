@@ -134,15 +134,32 @@ export function InvoiceLinesTable({ invoice, caption, money = true }: { invoice:
   return <DataTable caption={caption} columns={columns} rows={lines} rowKey={(line) => line.lineId} empty="" totalLabel={t('sales.report.total', 'المجموع')} />;
 }
 
-/** الدفع على الورقة: المدفوع الآن بصناديقه، أو «بالدين كلّه». */
+/**
+ * الدفع على الورقة: المدفوع الآن بصناديقه، وما رُدّ من السيقان بصناديقه («ورُدّ 2,000 دينار من «المصرف»»)، أو «بالدين كلّه». payment_refunded يعني
+ * أنّ ساقاً واحدة على الأقلّ رُدّت، لا كلّها: «قُبض ثمّ رُدّ» حين لا يبقى شيء مدفوعاً وحده (مراجعة 0033 D3).
+ */
 function paidText(invoice: SaleInvoice): string {
-  if (invoice.paymentRefunded) return t('invoice.paper.refunded', 'قُبض ثمّ رُدّ للزبون، فالمبلغ كلّه بالدين');
-  if (invoice.paid === 0n) return t('invoice.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)');
-  if (invoice.payments.length === 0) return dinars(invoice.paid);
-  return invoice.payments
-    .map((leg) => t('invoice.paper.leg', '{amount} في «{box}»', { amount: dinars(leg.amount), box: leg.cashAccountName }))
-    .join(t('list.separator', '، '));
+  const refunded = invoice.payments.filter((leg) => leg.refunded);
+  if (invoice.paid === 0n) {
+    return invoice.paymentRefunded || refunded.length > 0 ? t('invoice.paper.refunded', 'قُبض ثمّ رُدّ للزبون، فالمبلغ كلّه بالدين') : t('invoice.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)');
+  }
+  const live = invoice.payments.filter((leg) => !leg.refunded);
+  const parts = [
+    ...(live.length === 0 ? [dinars(invoice.paid)] : live.map((leg) => t('invoice.paper.leg', '{amount} في «{box}»', { amount: dinars(leg.amount), box: leg.cashAccountName }))),
+    ...refunded.map((leg) => t('invoice.paper.leg_refunded', 'ورُدّ {amount} من «{box}»', { amount: dinars(leg.amount), box: leg.cashAccountName })),
+  ];
+  return parts.join(t('list.separator', '، '));
 }
+
+/** شعار الورقة مضمَّناً (أيقونة التطبيق نفسها، public/favicon.svg): لا يُطلب من الشبكة، فتُصوَّر الفاتورة بلا اتصال (مراجعة 0033 D5). */
+export const INVOICE_LOGO =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b7bee"/>' +
+      '<stop offset="1" stop-color="#0f5cc6"/></linearGradient><clipPath id="egg"><path d="M50 20C64 20 75 40 75 56C75 71 64 82 50 82C36 82 25 71 25 56C25 40 36 20 50 20Z"/>' +
+      '</clipPath></defs><rect width="100" height="100" rx="22" fill="url(#bg)"/><path d="M50 20C64 20 75 40 75 56C75 71 64 82 50 82C36 82 25 71 25 56C25 40 36 20 50 20Z" fill="#ffffff"/>' +
+      '<path d="M22 51L33 44L41 52L50 43L59 52L67 44L78 51" fill="none" stroke="#1266d8" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" clip-path="url(#egg)"/></svg>',
+  );
 
 /**
  * ورقة الفاتورة: رأس المنشأة واسم الفاتورة ورقمها ويومها، والزبون (أو «زبون نقديّ») والمخزن، والسطور بجدولها، والإجماليّ والخصم والصافي بالأرقام والكلمات،
@@ -154,8 +171,8 @@ export function InvoicePaper({ invoice, orgName, paperRef }: { invoice: SaleInvo
     <article ref={paperRef} className="card mx-auto flex w-full max-w-xl flex-col gap-3 p-4 sm:p-6" data-action="sale-paper">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
         <div className="flex items-center gap-2">
-          {/* الشعار (أيقونة التطبيق من الأصل نفسه، فتدخل الصورة والطباعة): بنمط مضمَّن لا بصنف جديد. */}
-          <img src="/favicon.svg" alt="" aria-hidden="true" width={40} height={40} style={LOGO_STYLE} data-action="sale-paper-logo" />
+          {/* الشعار (أيقونة التطبيق مضمَّنةً، فتدخل الصورة والطباعة ولو بلا اتصال): بنمط مضمَّن لا بصنف جديد. */}
+          <img src={INVOICE_LOGO} alt="" aria-hidden="true" width={40} height={40} style={LOGO_STYLE} data-action="sale-paper-logo" />
           <p className="text-lg font-semibold" data-action="org-name">
             {orgName}
           </p>
@@ -203,14 +220,27 @@ export function InvoicePaper({ invoice, orgName, paperRef }: { invoice: SaleInvo
           <p className="rounded-2xl border border-line px-3 py-2 font-semibold" data-action="sale-paper-words">
             {amountInWords(invoice.total)}
           </p>
-          <PaperLine label={t('invoice.paper.paid', 'المدفوع الآن:')} action="sale-paper-paid">
-            {paidText(invoice)}
-          </PaperLine>
-          {invoice.walkIn ? null : (
+          {invoice.total === 0n ? (
+            // بلا مقابل (مراجعة 0033 D6): لا «مدفوع» ولا «دين».
+            <PaperLine label={t('invoice.paper.payment', 'الدفع:')} action="sale-paper-paid">
+              {t('invoice.paper.free', 'تسليم بلا مقابل')}
+            </PaperLine>
+          ) : (
+            <PaperLine label={t('invoice.paper.paid', 'المدفوع الآن:')} action="sale-paper-paid">
+              {paidText(invoice)}
+            </PaperLine>
+          )}
+          {invoice.walkIn || invoice.total === 0n ? null : (
             <PaperLine label={t('invoice.paper.debt', 'الباقي ديناً:')} action="sale-paper-debt">
               {dinars(invoice.debt)}
             </PaperLine>
           )}
+          {/* ما بقي من دينها بعد قبض لاحق (open من قيدها، مراجعة 0033 D1): دين البيع لا يتغيّر بالقبض. */}
+          {!invoice.walkIn && invoice.total > 0n && invoice.open !== invoice.debt ? (
+            <PaperLine label={t('invoice.paper.open', 'المتبقّي الآن:')} action="sale-paper-open">
+              {dinars(invoice.open)}
+            </PaperLine>
+          ) : null}
         </>
       )}
       {invoice.note !== null ? (

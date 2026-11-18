@@ -188,10 +188,15 @@ export interface SaleLine {
   lineNo: number;
   itemId: string;
   itemName: string;
+  /** بوحدة الأساس. */
   qty: Milli;
   baseUnit: BaseUnit;
+  /** سعر وحدة الأساس. */
   unitPrice: Fils;
+  /** صافي السطر (بعد الخصمين). */
   amount: Fils;
+  /** فاتورة 0033 (مراجعة D10): الكمية بوحدة السطر واسمها وسعرها وإجماليّها قبل الخصم؛ null لسطر أقدم (الأساس وحده بلا خصم). */
+  unit: { qty: Milli; label: string; price: Fils; gross: Fils } | null;
 }
 
 export interface SaleDetail {
@@ -205,6 +210,8 @@ export interface SaleDetail {
   account: Named | null;
   lines: readonly SaleLine[];
   total: Fils;
+  /** مجموع الخصمين (خصوم السطور وخصم الفاتورة)؛ 0 لفاتورة أقدم من 0033. */
+  discountTotal: Fils;
 }
 
 export interface SalePaymentDetail {
@@ -358,9 +365,20 @@ export function parseDetail(value: unknown): EntryDetail | null {
         account: optNamed(row.account, 'account'),
         lines: list(row.lines, 'lines').map((item) => {
           const line = object(item, 'lines');
-          return { lineNo: whole(line, 'line_no'), itemId: str(line, 'item_id'), itemName: str(line, 'item_name'), qty: qty(line, 'qty'), baseUnit: oneOf(line, 'base_unit', BASE_UNITS), unitPrice: fils(line, 'unit_price'), amount: fils(line, 'amount') };
+          return {
+            lineNo: whole(line, 'line_no'),
+            itemId: str(line, 'item_id'),
+            itemName: str(line, 'item_name'),
+            qty: qty(line, 'qty'),
+            baseUnit: oneOf(line, 'base_unit', BASE_UNITS),
+            unitPrice: fils(line, 'unit_price'),
+            amount: fils(line, 'amount'),
+            // مفاتيح 0033 كلّها أو لا شيء (سطر أقدم منها).
+            unit: line.unit_qty === undefined ? null : { qty: qty(line, 'unit_qty'), label: str(line, 'unit_label'), price: fils(line, 'unit_price_unit'), gross: fils(line, 'gross_total') },
+          };
         }),
         total: fils(row, 'total'),
+        discountTotal: row.discount_total === undefined ? 0n : fils(row, 'discount_total'),
       };
     case 'bird_sale':
       return {

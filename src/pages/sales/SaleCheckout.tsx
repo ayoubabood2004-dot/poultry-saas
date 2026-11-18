@@ -66,13 +66,27 @@ const MAX_LINES = 100;
 const MAX_LEGS = 5;
 const NOTE_MAX = 500;
 
-/** رفوض تعني أنّ ما قرأته الشاشة تغيّر (المتاح أو الوحدات أو المادّة): تُقرأ الموادّ من جديد ويبقى ما كُتب. */
-const REREAD = new Set(['insufficient_stock', 'not_sellable', 'bad_unit', 'unit_archived', 'item_archived', 'item_not_found', 'out_of_scope']);
+/**
+ * رفوض تعني أنّ ما قرأته الشاشة تغيّر (المتاح أو الوحدات أو المادّة أو مخزنها): تُقرأ الموادّ من جديد ويبقى ما كُتب. الرموز كما يرفعها record_sale_v2
+ * (supabase/migrations/0033_sales_invoice.sql، مراجعة 0033 C11).
+ */
+const REREAD = new Set(['insufficient_stock', 'not_sellable', 'unit_mismatch', 'unit_changed', 'item_archived', 'item_not_found', 'item_kind_mismatch', 'out_of_scope']);
+/** صندوق أُرشف أو حُذف بعد قراءته: تُقرأ الصناديق من جديد (مع الموادّ للأمين، أو من جدولها). */
+const REREAD_BOXES = new Set(['cash_account_archived', 'cash_account_not_found']);
+/** قيمة خيار «اختر الوحدة» حين غابت وحدة السطر من وحدات المادّة (لا تصادف معرّف وحدة). */
+const UNIT_GONE = '-';
+/** ملاحظات لا تُعدّ خطأ خانة عند البحث عن أوّل خطأ بعد «احفظ»: الملخّص نفسه وملاحظة الماسح. */
+const NOT_FIELD_ERRORS = new Set(['sale-blocked', 'sale-scan-note']);
 
 /** المجموع الثابت أسفل الشاشة: فوق الشريط السفليّ في الهاتف (h-16)، وقرب الحافّة في الحاسوب. */
+// وزرّ الحفظ يطول بسطوره ولا يُقصّ (مراجعة 0033 C2: بخطّ 125٪ وعرض 360 كان النصّ ثلاثة أسطر في ارتفاع ثابت فاختفى أوّلها ودينها)، وملخّص ما يمنع
+// الحفظ في سطر وحده فوق المجاميع (C4).
 const CHECKOUT_STYLE = [
   '[data-action="sale-totals-bar"] { position: sticky; bottom: calc(4.5rem + env(safe-area-inset-bottom)); z-index: 20; }',
   '@media (min-width: 768px) { [data-action="sale-totals-bar"] { bottom: 0.75rem; } }',
+  '@media (min-width: 640px) { [data-action="sale-totals-bar"] { flex-wrap: wrap; } }',
+  '[data-action="sale-blocked"] { flex-basis: 100%; }',
+  '[data-action="save-invoice"] { height: auto; min-height: 3.25rem; padding: 0.5rem 1rem; white-space: normal; line-height: 1.4; text-align: center; }',
 ].join(' ');
 
 interface CartLine {
@@ -184,14 +198,40 @@ export function doneText(saved: RecordedInvoice): string {
   return t('invoice.done.partial', 'حُفظت الفاتورة {doc}: {total}، المدفوع {paid}، والباقي دين {debt}.', vars);
 }
 
-/** الزرّ الواحد يسمّي النتيجة: «احفظ الفاتورة — 3 موادّ، 125,000 دينار، منها 50,000 دين». */
-export function saveLabel(lines: number, total: Fils, paid: Fils, walkIn: boolean): string {
+/**
+ * الزرّ الواحد يسمّي النتيجة: «احفظ الفاتورة — 125,000 دينار، منها 50,000 دين» (عدد الموادّ في عنوان السطور: بخطّ 125٪ وعرض 360 كان الزرّ ثلاثة أسطر،
+ * مراجعة 0033 C2؛ بلاه سطران في كلّ قياس). ولا يقول ما ليس صحيحاً والفاتورة لا تُحفظ (C8): سطر ناقص ← عدد الموادّ وحده؛ ومال لا يستقيم (خصم أكبر،
+ * أو مدفوع أكثر من الصافي، أو نقديّ لم يدفع) ← الصافي بلا «مدفوعة» ولا «دين»؛ و«مدفوعة كلّها» حين المدفوع = الصافي > 0 وحده.
+ */
+export function saveLabel(lines: number, total: Fils, paid: Fils, state: 'ok' | 'lines' | 'money' = 'ok'): string {
   if (lines === 0) return t('invoice.save.empty', 'احفظ الفاتورة');
   const vars = { lines: linesText(lines), total: moneyText(total), debt: moneyText(total - paid) };
+  if (state === 'lines' || total < 0n) return t('invoice.save.lines', 'احفظ الفاتورة — {lines}', vars);
+  if (state === 'money' || paid > total) return t('invoice.save.unsettled', 'احفظ الفاتورة — {total} دينار', vars);
   if (total === 0n) return t('invoice.save.free', 'احفظ الفاتورة — {lines} بلا مقابل', vars);
-  if (walkIn || paid >= total) return t('invoice.save.paid', 'احفظ الفاتورة — {lines}، {total} دينار مدفوعة كلّها', vars);
-  if (paid === 0n) return t('invoice.save.credit', 'احفظ الفاتورة — {lines}، {total} دينار بالدين كلّه', vars);
-  return t('invoice.save.partial', 'احفظ الفاتورة — {lines}، {total} دينار، منها {debt} دين', vars);
+  if (paid === total) return t('invoice.save.paid', 'احفظ الفاتورة — {total} دينار مدفوعة كلّها', vars);
+  if (paid === 0n) return t('invoice.save.credit', 'احفظ الفاتورة — {total} دينار بالدين كلّه', vars);
+  return t('invoice.save.partial', 'احفظ الفاتورة — {total} دينار، منها {debt} دين', vars);
+}
+
+/** رموز المادّة التي يقرؤها الماسح والبحث: الباركود والرموز الأخرى (alt_codes)، مطبَّعة (مراجعة 0033 C5/C6). */
+const codesOf = (item: Pick<CatalogItem, 'barcode' | 'altCodes'>): string[] => [item.barcode, ...item.altCodes].flatMap((code) => (code ? [normalizeCode(code)] : []));
+
+/** أوّل خطأ خانة في الفاتورة بترتيب الصفحة (<p role="alert">): يُمرَّر إليه وتُركَّز خانته إن كانت له (مراجعة 0033 C4). */
+function focusFirstError(root: HTMLElement): void {
+  const walk = (node: Element): Element | null => {
+    for (const child of Array.from(node.children)) {
+      if (child.tagName === 'P' && child.getAttribute('role') === 'alert' && !NOT_FIELD_ERRORS.has(child.getAttribute('data-action') ?? '')) return child;
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  const alert = walk(root);
+  if (!alert) return;
+  if (typeof alert.scrollIntoView === 'function') alert.scrollIntoView({ block: 'center' });
+  const control = Array.from(alert.parentElement?.children ?? []).find((node) => node.tagName === 'INPUT' || node.tagName === 'SELECT' || node.tagName === 'TEXTAREA');
+  if (control instanceof HTMLElement) control.focus({ preventScroll: true });
 }
 
 type LineField = 'item' | 'unit' | 'qty' | 'price' | 'discount';
@@ -337,12 +377,23 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
       live.current = false;
     };
   }, []);
+  // مادّة من الرابط (?item=، «بِع» في ملفّ المادّة) تُضاف مرّة حين تُقرأ موادّ المخزن؛ لا بعد طلب مستعاد (سطوره تعود بالرفض الأكيد، مراجعة 0033 C7).
+  const [seeded, setSeeded] = useState(itemParam === null);
   // طلب معلَّق من فتح سابق (أو قبل إعادة التحميل): تعود الشاشة مجمَّدة به. ضبط حالة من حالة أثناء الرسم بشرط يتوقّف (مرّة لكلّ مفتاح).
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
   if (restoredFor !== pendingKey) {
     setRestoredFor(pendingKey);
-    setFrozen(readSalePending(pendingKey));
+    const restored = readSalePending(pendingKey);
+    setFrozen(restored);
+    if (restored) setSeeded(true);
   }
+  const rootRef = useRef<HTMLDivElement>(null);
+  // «احفظ» الذي توقّف قبل الإرسال: ما أوقفه يُقال بجانب الزرّ (stop لما ليس خطأ خانة)، وأوّل خطأ خانة يُمرَّر إليه (مراجعة 0033 C4).
+  const [stop, setStop] = useState<string | null>(null);
+  const [focusRound, setFocusRound] = useState(0);
+  useEffect(() => {
+    if (focusRound > 0 && rootRef.current) focusFirstError(rootRef.current);
+  }, [focusRound]);
 
   // المخازن التي يُباع منها في النطاق، والمختار (المخزن من الرابط، أو الوحيد).
   const storeRows = sellingStores(stores.data);
@@ -363,13 +414,27 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
   const boxState = useBoxes(wantsBoxes);
   const boxes = catalog?.boxes ?? boxState.data;
 
-  // مادّة من الرابط (?item=، «بِع» في ملفّ المادّة) تُضاف مرّة حين تُقرأ موادّ المخزن.
-  const [seeded, setSeeded] = useState(itemParam === null);
   if (!seeded && catalogState.data && warehouseId && !frozen) {
     setSeeded(true);
     const item = catalogState.data.items.find((row) => row.id === itemParam);
-    if (item && item.available > 0n) setDraft((current) => ({ ...current, lines: [...current.lines, newLine(item)] }));
+    if (draft.lines.some((line) => line.itemId === itemParam)) {
+      // في الفاتورة من قبل: لا سطر ثانٍ فارغ.
+    } else if (item && item.available > 0n) setDraft((current) => ({ ...current, lines: [...current.lines, newLine(item)] }));
     else setNotice(t('invoice.item_param.missing', 'المادّة المطلوبة لا يوجد منها شيء يُباع في «{store}»؛ اختر مخزناً آخر أو مادّة أخرى.', { store: storeName }));
+  }
+
+  // وحدة سطر غابت من وحدات مادّته بعد قراءة جديدة: السعر كان لها فيُمحى، والقائمة تقول «اختر الوحدة» (مراجعة 0033 C11).
+  const [unitsCheckedFor, setUnitsCheckedFor] = useState<SaleCatalog | null>(null);
+  if (catalog !== null && catalog !== unitsCheckedFor) {
+    setUnitsCheckedFor(catalog);
+    const byId = new Map(catalog.items.map((item) => [item.id, item]));
+    const gone = new Set(
+      draft.lines.flatMap((line) => {
+        const item = byId.get(line.itemId);
+        return item && line.unitId !== null && !item.units.some((unit) => unit.unitId === line.unitId) ? [line.lineId] : [];
+      }),
+    );
+    if (gone.size > 0) setDraft((current) => ({ ...current, lines: current.lines.map((line) => (gone.has(line.lineId) ? { ...line, price: '' } : line)) }));
   }
 
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }));
@@ -382,12 +447,16 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     read.map((row) => ({ unitQty: row.qty ?? 0n, unitPrice: row.price ?? 0n, discount: row.discount ?? 0n })),
     invoiceDiscount !== null && invoiceDiscount > 0n ? invoiceDiscount : 0n,
   );
-  // خصم سطر أكبر من إجماليّه (bad_discount بالخادم) خطأ على خانته.
-  const parsed: ParsedLine[] = read.map((row, index) =>
-    math.overLines.includes(index) && !row.errors.discount
-      ? { ...row, errors: { ...row.errors, discount: t('invoice.line.discount_over', 'الخصم أكبر من إجماليّ السطر ({gross}).', { gross: dinars(math.gross[index] ?? 0n) }) } }
-      : row,
-  );
+  // خصم سطر أكبر من إجماليّه (bad_discount بالخادم) خطأ على خانته؛ وسعر فوق الصفر يُقرَّب إجماليّه إلى صفر دينار (total_zero بالخادم) خطأ على السعر (مراجعة
+  // 0033 C9)، لا «تسليم بلا مقابل».
+  const parsed: ParsedLine[] = read.map((row, index) => {
+    const errors = { ...row.errors };
+    if (math.overLines.includes(index) && !errors.discount) errors.discount = t('invoice.line.discount_over', 'الخصم أكبر من إجماليّ السطر ({gross}).', { gross: dinars(math.gross[index] ?? 0n) });
+    if (row.qty !== null && row.price !== null && row.price > 0n && (math.gross[index] ?? 0n) === 0n && !errors.price) {
+      errors.price = t('invoice.line.total_zero', 'مبلغ هذا السطر يُقرَّب إلى صفر دينار: راجع الكمية والسعر، أو اكتب السعر صفراً للتسليم بلا مقابل.');
+    }
+    return { ...row, errors };
+  });
   const walkIn = draft.mode === 'walk_in';
   const legs = draft.legs.map((leg) => ({ leg, amount: leg.amount.trim() ? parseMoneyText(leg.amount, true) : null }));
   const paid = legs.reduce((sum, row) => sum + (row.amount !== null && row.amount > 0n ? row.amount : 0n), 0n);
@@ -416,6 +485,19 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
   const lineProblems = parsed.some((row) => Object.keys(row.errors).length > 0);
   const blocked = Object.keys(errors).length > 0 || lineProblems;
   const shown = tried ? errors : {};
+  // المال لا يستقيم بعد: الزرّ والمجموع لا يقولان «مدفوعة» ولا ديناً سالباً (مراجعة 0033 C8).
+  const moneyState: 'ok' | 'lines' | 'money' = lineProblems ? 'lines' : errors.discount || errors.legs || errors.walk_in || math.nets === null || debt < 0n ? 'money' : 'ok';
+  // أوّل ما يمنع الحفظ بترتيب الصفحة، لملخّص الشريط.
+  const problems = [
+    errors.store,
+    errors.lines,
+    ...parsed.flatMap((row) => [row.errors.item, row.errors.unit, row.errors.qty, row.errors.price, row.errors.discount]),
+    errors.discount,
+    errors.day,
+    errors.party,
+    errors.legs ?? errors.walk_in,
+    errors.note,
+  ].filter((problem): problem is string => Boolean(problem));
 
   const dirty = draft.lines.length > 0 || draft.party !== null || draft.legs.length > 0 || draft.note.trim() !== '' || draft.invoiceDiscount.trim() !== '';
   useDirtyForm(dirty || busy || frozen !== null);
@@ -436,7 +518,8 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
       toast({ tone: 'success', title: doneText(saved) });
       if (!live.current) return;
       setFrozen(null);
-      navigate(`/sales/${saved.saleId}`);
+      // الفاتورة مكان الشاشة (لا رجوع إلى فاتورة حُفظت)، ورجوعها إلى ما فُتحت منه الفاتورة الجديدة (مراجعة 0033 D9).
+      navigate(back === '/sales' ? `/sales/${saved.saleId}` : `/sales/${saved.saleId}?${new URLSearchParams({ back }).toString()}`, { replace: true });
     } catch (problem) {
       if (!surelyUnsaved(problem) || (retrying && !(problem instanceof RejectedError))) {
         // لا نعرف إن حُفظت: الشاشة تتجمّد بطلبها، والإعادة وحدها ممكنة.
@@ -462,6 +545,10 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
       setIds({ ref: crypto.randomUUID(), saleId: conflict ? crypto.randomUUID() : pending.request.saleId });
       setFailure(problem);
       if (problem instanceof RejectedError && REREAD.has(problem.code)) rereadCatalog();
+      if (problem instanceof RejectedError && REREAD_BOXES.has(problem.code)) {
+        rereadCatalog();
+        boxState.retry();
+      }
     } finally {
       sending.current = false;
       if (live.current) setBusy(false);
@@ -473,7 +560,7 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     if (blocked || !warehouseId || !day.day || invoiceDiscount === null) return null;
     const lines = parsed.flatMap((row) =>
       row.item && row.unit && row.qty !== null && row.price !== null && row.discount !== null
-        ? [{ lineId: row.line.lineId, itemId: row.item.id, unitId: row.unit.unitId, qty: row.qty, unitPrice: row.price, discount: row.discount }]
+        ? [{ lineId: row.line.lineId, itemId: row.item.id, unitId: row.unit.unitId, factor: row.unit.factor, qty: row.qty, unitPrice: row.price, discount: row.discount }]
         : [],
     );
     if (lines.length !== parsed.length) return null;
@@ -513,7 +600,12 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
   const save = async () => {
     setTried(true);
     setNotice(null);
-    if (frozen || busy || !online || blocked || !warehouseId) return;
+    setStop(null);
+    if (frozen || busy || !online) return;
+    if (blocked || !warehouseId) {
+      setFocusRound((n) => n + 1);
+      return;
+    }
     const pending = requestNow();
     if (!pending) return;
     const started = draft;
@@ -527,6 +619,7 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
       setBusy(false);
       setFailure(problem);
       setNotice(t('invoice.recheck.failed', 'تعذّرت قراءة الأسعار والمتاح قبل الحفظ، فلم يُرسل شيء. أعد المحاولة.'));
+      setStop(t('invoice.recheck.failed', 'تعذّرت قراءة الأسعار والمتاح قبل الحفظ، فلم يُرسل شيء. أعد المحاولة.'));
       return;
     }
     if (!live.current) return;
@@ -535,11 +628,15 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     // تغيّرت الفاتورة أثناء القراءة: لا يُرسل طلبٌ غير المعروض (المهارة: «تغيّرت السلّة أثناءها ⇒ قف»).
     if (latest.current !== started) {
       setNotice(t('invoice.changed_meanwhile', 'تغيّرت الفاتورة أثناء التحقّق من الأسعار؛ راجعها ثمّ احفظ.'));
+      setStop(t('invoice.changed_meanwhile', 'تغيّرت الفاتورة أثناء التحقّق من الأسعار؛ راجعها ثمّ احفظ.'));
       return;
     }
     const freshById = new Map(fresh.items.map((item) => [item.id, item]));
-    // المتاح الجديد أو مادّة غابت: تظهر على سطورها بعد الرسم، ولا يُرسل شيء.
-    if (parseLines(draft.lines, fresh, storeName).some((row) => Object.keys(row.errors).length > 0)) return;
+    // المتاح الجديد أو مادّة غابت: تظهر على سطورها بعد الرسم ويُقال ذلك بجانب الزرّ ويُمرَّر إليها (C4)، ولا يُرسل شيء.
+    if (parseLines(draft.lines, fresh, storeName).some((row) => Object.keys(row.errors).length > 0)) {
+      setFocusRound((n) => n + 1);
+      return;
+    }
     const changes: PriceChange[] = parsed.flatMap((row) => {
       const before = row.line.suggestedFrom;
       if (before === null || !row.unit) return [];
@@ -555,9 +652,10 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
 
   // ─── أفعال السلّة ────────────────────────────────────────────────────────────────────────────────────────────
   const inCart = new Set(draft.lines.map((line) => line.itemId));
+  // المادّة نفسها في سطر آخر (3 أكياس وفرط بسعر آخر، مراجعة 0033 C3): الخادم يجمع سطورها على المتاح.
   const addItem = (item: CatalogItem) => {
     setScanNote(null);
-    if (inCart.has(item.id) || draft.lines.length >= MAX_LINES) return;
+    if (draft.lines.length >= MAX_LINES) return;
     set({ lines: [...draft.lines, newLine(item)] });
   };
   const scan = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -566,7 +664,7 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     const wanted = normalizeCode(code);
     setCode('');
     if (!wanted || !catalog) return;
-    const matches = catalog.items.filter((item) => item.barcode !== null && normalizeCode(item.barcode) === wanted);
+    const matches = catalog.items.filter((item) => codesOf(item).includes(wanted));
     if (matches.length !== 1 || !matches[0]) {
       setScanNote(
         matches.length === 0
@@ -589,6 +687,7 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     setLine(existing.lineId, { qty: decimalText((qty ?? 0n) + MILLI_PER_UNIT, 3).replace(/\.?0+$/u, '') });
   };
   const changeUnit = (line: CartLine, unitId: string | null) => {
+    if (unitId === UNIT_GONE) return;
     const item = catalog?.items.find((row) => row.id === line.itemId);
     const units = item ? unitsOf(item) : [];
     const unit = units.find((option) => option.unitId === unitId);
@@ -658,8 +757,12 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     );
   }
 
+  // البحث بالاسم أو بالباركود والرموز الأخرى (مراجعة 0033 C5).
   const needle = searchable(deferred);
-  const wanted = needle ? (catalog?.items ?? []).filter((item) => searchable(item.name).includes(needle)) : (catalog?.items ?? []);
+  const codeNeedle = normalizeCode(deferred);
+  const wanted = needle
+    ? (catalog?.items ?? []).filter((item) => searchable(item.name).includes(needle) || (codeNeedle !== '' && codesOf(item).some((code) => code.startsWith(codeNeedle))))
+    : (catalog?.items ?? []);
   const previewRows: PreviewRow[] = parsed.map((row, index) => ({
     key: row.line.lineId,
     name: row.item?.name ?? row.line.name,
@@ -671,10 +774,15 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
     share: math.shares?.[index] ?? 0n,
     net: math.nets?.[index] ?? 0n,
   }));
-  const label = saveLabel(draft.lines.length, math.total, paid, walkIn);
+  const label = saveLabel(draft.lines.length, math.total, paid, moneyState);
+  const blockedText = tried && blocked && problems[0] !== undefined
+    ? problems.length === 1
+      ? t('invoice.blocked.one', 'لم تُحفظ الفاتورة: {problem}', { problem: problems[0] })
+      : t('invoice.blocked.many', 'لم تُحفظ الفاتورة: {problem} وصحّح كذلك ما تحته تنبيه أحمر.', { problem: problems[0] })
+    : stop;
 
   return (
-    <div className="flex flex-col gap-4" data-action="sale-checkout">
+    <div ref={rootRef} className="flex flex-col gap-4" data-action="sale-checkout">
       <style>{CHECKOUT_STYLE}</style>
       {backButton}
       <PageHeader title={title} subtitle={t('invoice.new.subtitle', 'كلّ ما يشتريه الزبون من مخزن واحد في فاتورة واحدة، تُحفظ فوراً برقمها.')} />
@@ -757,24 +865,29 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
                   {wanted.map((item) => {
                     const added = inCart.has(item.id);
                     const out = item.available <= 0n;
+                    const expiredOnly = out && item.expired > 0n;
                     return (
                       <li key={item.id} className="flex">
                         <button
                           type="button"
                           className="flex w-full flex-col items-start gap-1 rounded-2xl border border-line p-3 text-start hover:bg-surface-2 disabled:opacity-50"
-                          disabled={added || out}
+                          disabled={out || draft.lines.length >= MAX_LINES}
                           onClick={() => addItem(item)}
                           data-action="sale-item-card"
                           data-item={item.id}
                         >
                           <span className="font-semibold">{item.name}</span>
                           <span className="text-xs text-ink-muted">
-                            {out ? t('invoice.item.out', 'نفد من هذا المخزن') : t('invoice.item.available', 'المتاح: {qty}', { qty: baseQty(item.available, item.baseUnit) })}
+                            {expiredOnly
+                              ? t('invoice.item.expired', 'منتهية الصلاحية: {qty}', { qty: baseQty(item.expired, item.baseUnit) })
+                              : out
+                                ? t('invoice.item.out', 'نفد من هذا المخزن')
+                                : t('invoice.item.available', 'المتاح: {qty}', { qty: baseQty(item.available, item.baseUnit) })}
                           </span>
                           {item.sellPrice !== null ? (
                             <span className="text-xs text-ink-muted">{t('invoice.item.price', '{price} لكل {unit}', { price: dinars(item.sellPrice), unit: baseUnitLabel(item.baseUnit) })}</span>
                           ) : null}
-                          {added ? <span className="text-xs font-semibold">{t('invoice.item.added', 'في الفاتورة')}</span> : null}
+                          {added ? <span className="text-xs font-semibold">{t('invoice.item.added_more', 'في الفاتورة؛ اضغط لسطر آخر')}</span> : null}
                         </button>
                       </li>
                     );
@@ -782,7 +895,9 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
                 </ul>
               ) : (
                 <p className="text-sm text-ink-muted" data-action="sale-items-none">
-                  {needle ? t('op.item.none', 'لا مادّة باسم «{name}».', { name: search.trim() }) : t('invoice.items.empty', 'لا مادّة تُباع من هذا المخزن الآن؛ اشترِ أوّلاً أو أنتج.')}
+                  {needle
+                    ? t('invoice.items.none_here', 'لا مادّة باسم «{name}» تُباع من «{store}».', { name: search.trim(), store: storeName })
+                    : t('invoice.items.empty', 'لا مادّة تُباع من هذا المخزن الآن؛ اشترِ أوّلاً أو أنتج.')}
                 </p>
               )}
             </>
@@ -801,6 +916,7 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
               // قبل أوّل حفظ: ما يُقال حيّاً وحده (مادّة غابت، وكمية أكثر من المتاح أو قطع بكسر)؛ وبعده كلّ أخطاء السطر.
               const lineErrors: ParsedLine['errors'] = tried ? row.errors : { item: row.errors.item, qty: row.base !== null ? row.errors.qty : undefined };
               const unitLabel = row.unit?.label ?? '';
+              const unitGone = item !== null && !units.some((unit) => unit.unitId === line.unitId);
               return (
                 <li key={line.lineId} className="card flex flex-col gap-3 p-4" data-action="cart-line" data-item={line.itemId}>
                   <div className="flex items-start justify-between gap-2">
@@ -822,10 +938,11 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
                       <select
                         id={`${id}-unit-${index}`}
                         className="input"
-                        value={line.unitId ?? ''}
+                        value={unitGone ? UNIT_GONE : (line.unitId ?? '')}
                         onChange={(event) => changeUnit(line, event.target.value === '' ? null : event.target.value)}
                         data-action="cart-unit"
                       >
+                        {unitGone ? <option value={UNIT_GONE}>{t('invoice.line.unit_pick', 'اختر الوحدة')}</option> : null}
                         {units.map((unit) => (
                           <option key={unit.unitId ?? ''} value={unit.unitId ?? ''}>
                             {unit.label}
@@ -989,7 +1106,13 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
               </Button>
             </div>
             <p className="font-semibold" data-action="sale-debt-live">
-              {walkIn ? t('invoice.debt.walk_in', 'الباقي: {debt} (الزبون النقديّ لا يبقى عليه دين)', { debt: dinars(debt) }) : t('invoice.debt.live', 'الباقي دين على الزبون: {debt}', { debt: dinars(debt) })}
+              {math.nets === null
+                ? t('invoice.debt.pending', 'الباقي يُحسب بعد تصحيح الخصم.')
+                : debt < 0n
+                  ? t('invoice.debt.over', 'المدفوع أكثر من الصافي بـ{over}؛ أنقص المبلغ.', { over: dinars(-debt) })
+                  : walkIn
+                    ? t('invoice.debt.walk_in', 'الباقي: {debt} (الزبون النقديّ لا يبقى عليه دين)', { debt: dinars(debt) })
+                    : t('invoice.debt.live', 'الباقي دين على الزبون: {debt}', { debt: dinars(debt) })}
             </p>
           </div>
           <Field id={`${id}-note`} label={t('invoice.note', 'ملاحظة (اختياريّة)')} error={shown.note}>
@@ -1006,18 +1129,24 @@ function Checkout({ pendingKey, back, itemParam, storeParam }: { pendingKey: str
 
       {/* المجموع ثابت أسفل الشاشة بزرّ واحد يسمّي النتيجة */}
       <div className="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between print:hidden" data-action="sale-totals-bar">
+        {blockedText !== null ? (
+          <p role="alert" className="text-sm text-danger-700 dark:text-danger-300" data-action="sale-blocked">
+            {blockedText}
+          </p>
+        ) : null}
         <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-action="sale-totals">
           {[
             { key: 'gross', label: t('invoice.col.gross', 'الإجمالي'), value: math.grossTotal },
             { key: 'discount', label: t('invoice.col.discount', 'الخصم'), value: math.discountTotal },
-            { key: 'net', label: t('invoice.col.net', 'الصافي'), value: math.total },
+            // صافٍ لا يُحسب (خصم أكبر من المجموع) أو دين لا يستقيم: «—» لا رقماً سالباً (C8).
+            { key: 'net', label: t('invoice.col.net', 'الصافي'), value: math.nets === null || math.total < 0n ? null : math.total },
             { key: 'paid', label: t('invoice.totals.paid', 'المدفوع'), value: paid },
-            { key: 'debt', label: t('invoice.totals.debt', 'الدين'), value: walkIn ? 0n : debt > 0n ? debt : 0n },
+            { key: 'debt', label: t('invoice.totals.debt', 'الدين'), value: moneyState === 'money' ? null : walkIn ? 0n : debt > 0n ? debt : 0n },
           ].map((entry) => (
             <div key={entry.key} className="flex items-baseline gap-1" data-action={`sale-total-${entry.key}`}>
               <dt className="text-ink-muted">{entry.label}</dt>
               <dd className="font-semibold tabular-nums">
-                <Num>{fmtMoney(entry.value, entry.value % FILS_PER_DINAR === 0n ? 0 : 2)}</Num>
+                <Num>{entry.value === null ? t('file.none', '—') : fmtMoney(entry.value, entry.value % FILS_PER_DINAR === 0n ? 0 : 2)}</Num>
               </dd>
             </div>
           ))}

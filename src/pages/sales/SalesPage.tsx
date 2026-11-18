@@ -73,19 +73,32 @@ function qtyColumns<R>(rows: readonly R[], of: (row: R) => { qty: bigint; unit: 
   ];
 }
 
-/** موادّ الفاتورة في خانة: المادّة وكميتها لسطر واحد، و«علف بادئ و2 أخرى» لعدّة سطور. */
-export function itemsText(row: Pick<SaleRow, 'itemName' | 'lineCount' | 'qty' | 'baseUnit'>): string {
+/**
+ * موادّ الفاتورة في خانة: المادّة وكميتها لسطر واحد، واسمها وحده لمادّة واحدة بعدّة سطور (كيس وفرط)، و«علف بادئ ومادّتان أخريان» لعدّة موادّ: العدد
+ * بالموادّ المختلفة (items_count) لا بالسطور (مراجعة 0033 D8).
+ */
+export function itemsText(row: Pick<SaleRow, 'itemName' | 'lineCount' | 'itemCount' | 'qty' | 'baseUnit'>): string {
   if (row.lineCount <= 1) return row.qty !== null && row.baseUnit !== null ? t('invoice.items.one', '{item} {qty}', { item: row.itemName, qty: baseQty(row.qty, row.baseUnit) }) : row.itemName;
-  const rest = row.lineCount - 1;
+  if (row.itemCount <= 1) return row.itemName;
+  const rest = row.itemCount - 1;
   if (rest === 1) return t('invoice.items.more_one', '{item} ومادّة أخرى', { item: row.itemName });
   if (rest === 2) return t('invoice.items.more_two', '{item} ومادّتان أخريان', { item: row.itemName });
   return t('invoice.items.more', '{item} و{rest} أخرى', { item: row.itemName, rest: linesText(rest) });
 }
 
-/** الدفع بكلماته في صفّ الفاتورة: بلا مقابل، أو رُدّ المقبوض، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع. */
+/**
+ * الدفع بكلماته في صفّ الفاتورة: بلا مقابل، أو رُدّ المقبوض كلّه، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع؛ وللملغاة ما حدث لمقبوضها
+ * (مراجعة 0033 D7). payment_refunded = رُدّت ساق واحدة على الأقلّ، فـ«رُدّ» حين لا يبقى شيء مدفوعاً وحده (D3).
+ */
 export function rowPaymentText(row: SaleRow): string {
+  const paid = row.money?.paid ?? null;
+  if (row.status === 'void') {
+    if (paid !== null && paid > 0n) return t('invoice.pay.void_kept', 'ملغاة، والمقبوض باقٍ رصيداً للجهة');
+    if (row.paymentRefunded) return t('invoice.pay.void_refunded', 'ملغاة، ورُدّ المقبوض');
+    return t('invoice.pay.void', 'ملغاة');
+  }
   if (row.free) return t('sales.free', 'بلا مقابل');
-  if (row.paymentRefunded) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
+  if (row.paymentRefunded && (paid === null || paid === 0n)) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
   if (row.walkIn) return t('invoice.walk_in', 'زبون نقديّ');
   if (row.money) {
     if (row.money.debt === 0n) return t('invoice.pay.paid', 'مدفوعة كلّها');
@@ -391,7 +404,8 @@ function overviewStats(data: SalesOverview): Stat[] {
   if (data.totals.money) {
     stats.push(
       { key: 'revenue', label: t('sales.stat.revenue', 'مجموع البيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.revenue, 0) }) },
-      { key: 'cash', label: t('sales.stat.cash', 'منه نقداً'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.cash, 0) }) },
+      // المدفوع عند البيع من كلّ الصناديق (النقد والمصرف والمحفظة)، لا النقد وحده (مراجعة 0033 D11).
+      { key: 'cash', label: t('sales.stat.paid_at_sale', 'منه مدفوع عند البيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.cash, 0) }) },
       { key: 'credit', label: t('sales.stat.credit', 'منه بالدين'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.credit, 0) }) },
     );
   }
@@ -416,8 +430,14 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
   const [failure, setFailure] = useState<unknown>(null);
   const missing = (sent ?? reason).trim() === '' ? t('sales.void.reason_required', 'اكتب سبب الإلغاء.') : null;
   const failed = failure ? (failure instanceof RejectedError && failure.hint ? failure.hint : `${describeError(failure).title}. ${describeError(failure).detail}`) : null;
-  const paid = row.money && row.money.paid > 0n && !row.paymentRefunded && !row.free ? row.money.paid : null;
-  const goods = row.lineCount <= 1 && row.qty !== null && row.baseUnit !== null ? t('sales.void.goods_one', '{qty} من «{item}»', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName }) : t('sales.void.goods_many', 'موادّ الفاتورة ({lines})', { lines: linesText(row.lineCount) });
+  // ما بقي مدفوعاً (السيقان التي لم تُردّ: money.paid)، ولو رُدّت ساق أخرى (مراجعة 0033 D3).
+  const paid = row.money && row.money.paid > 0n && !row.free ? row.money.paid : null;
+  const goods =
+    row.lineCount <= 1 && row.qty !== null && row.baseUnit !== null
+      ? t('sales.void.goods_one', '{qty} من «{item}»', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName })
+      : row.itemCount <= 1
+        ? t('sales.void.goods_item', 'كمّيات «{item}» في الفاتورة', { item: row.itemName })
+        : t('sales.void.goods_many', 'موادّ الفاتورة ({lines})', { lines: linesText(row.itemCount) });
   return (
     <ConfirmDialog
       open
@@ -438,7 +458,9 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
           ) : null}
           {row.paymentRefunded ? (
             <p data-action="void-refunded">
-              {t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })}
+              {paid === null
+                ? t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })
+                : t('sales.void.refunded_part', 'وما رُدّ من مقبوضها لـ«{party}» من قبل لا يبقى منه رصيد.', { party: row.partyName })}
             </p>
           ) : null}
           {paid !== null && row.walkIn ? (

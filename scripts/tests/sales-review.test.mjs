@@ -1,0 +1,673 @@
+// مراجعة شاشات الفاتورة الاحترافيّة (0033، المرحلة ١): كلّ ملاحظة أثبتها المراجعان على الشفرة الحقيقية بفحص يفشل على الشفرة قبل إصلاحها. react-dom الحقيقي
+// على DOM صغير (dom.mjs) يشغّل مسارات المبيعات الحقيقية (SalesRoutes)، وrepo الحقيقي على core بديل، وأجوبة القاعدة الحقيقية (fixtures/sales-0033.json من
+// supabase/tests/sales-invoice.test بـSALES_SAMPLES_OUT=1) حيث توجد، وإلّا أجوبة العقد (fixtures/sales-0033-contract.json). C ملاحظات شاشة البيع، وD ما بعد
+// البيع (الفاتورة والقائمة والكشف).
+// D1 «استلم من الزبون» بقول الخادم (can_collect) والمتبقّي الآن (open) لا دين البيع، والنافذة المملوءة مسبقاً لا تُعدّ معدَّلة · C1/D4 سطر وحدة الأساس
+// بالعربية لا «kg» · D2 صورة الفاتورة فاتحة في الوضع الداكن · D3 رُدّت ساق لا كلّ السيقان · C2 زرّ الحفظ يطول ولا يُقصّ · C3 المادّة نفسها بسطرين ·
+// C4 ما يوقف «احفظ» يُقال بجانب الزرّ ويُمرَّر إليه · C5 البحث بالرمز وبجملة المخزن · C6 الرموز الأخرى للماسح · C7 لا سطر مكرّر بعد طلب مستعاد ·
+// C8 الزرّ والمجموع لا يقولان غير الصحيح · C9 مرآة total_zero · C10 منتهية الصلاحية لا «نفد» · C11 المعامل ورموز الرفض والوحدة الغائبة · D5 الشعار
+// مضمَّن · D6 بلا مقابل · D7 الملغاة · D8 عدد الموادّ لا السطور · D9 الرجوع بعد الحفظ · D10 الكشف بوحدة السطر وخصمه · D11 «منه مدفوع عند البيع».
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { descendants, Element, fire, installDom, settle, Text } from './dom.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033-contract.json'), 'utf8'));
+const R = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'sales-0033.json'), 'utf8'));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
+const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__sr.call('${n}', a);`).join(' ')}`;
+const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
+const STUBS = {
+  session: 'export const useSession = () => globalThis.__sr.session; export const sessionStore = { get: () => globalThis.__sr?.session ?? { status: "loading" } };',
+  Toast: 'export const toast = (spec) => { globalThis.__sr.toasts.push(spec); }; export function Toaster() { return null; }',
+  purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createCustomer', 'listBoxes']),
+  image: 'export const toBlob = (node, options) => globalThis.__sr.toBlob(node, options);',
+};
+const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
+export const call = (fn, args) => globalThis.__sr.rpc(fn, args);
+export const send = () => new Promise(() => {});
+export const classifyPostgrest = (error) => new RejectedError(error.code ?? 'x', error.hint ?? null);
+export const explained = async (error) => error;
+export const updatedRows = () => { throw new ZeroRowsError(); };`;
+const CORE_FOR = /src\/lib\/repo\/(?:sales|purchases|inventory|purchasing|parties|cash|statement|birdSales|weighTickets|scopes)\.ts$/u;
+const plugins = [
+  {
+    name: 'sr-stubs',
+    setup(b) {
+      b.onResolve({ filter: /\/lib\/session$|\/Toast$|\/lib\/repo\/purchasing$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'sr-stub' }));
+      b.onResolve({ filter: /^html-to-image$/ }, () => ({ path: 'image', namespace: 'sr-stub' }));
+      b.onLoad({ filter: /.*/, namespace: 'sr-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+      b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'sr-core' } : undefined));
+      b.onLoad({ filter: /.*/, namespace: 'sr-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
+      b.onResolve({ filter: /\.css$/ }, () => ({ path: 'css', namespace: 'sr-css' }));
+      b.onLoad({ filter: /.*/, namespace: 'sr-css' }, () => ({ contents: '', loader: 'js' }));
+    },
+  },
+];
+
+let bundles = 0;
+/** الحزمة كلّها؛ وكلّ نداء نسخة جديدة منها (ذاكرة جديدة = إعادة تحميل الصفحة). */
+async function bundle() {
+  const entry = [
+    "export { createElement as h } from 'react';",
+    "export { createRoot } from 'react-dom/client';",
+    "export { flushSync } from 'react-dom';",
+    "export { MemoryRouter, Routes, Route, useLocation, useNavigationType } from 'react-router-dom';",
+    "export { SalesRoutes } from './src/pages/inventory/StockRoutes.tsx';",
+    "export * as sales from './src/lib/repo/sales.ts';",
+    "export { parseSalesOverview } from './src/lib/repo/purchases.ts';",
+    "export { parseDetail } from './src/lib/repo/statement.ts';",
+    "export { docItemsOf, lineMemo } from './src/pages/accounts/statement/text.ts';",
+    "export { saleBack } from './src/pages/sales/SaleDocPage.tsx';",
+    "export { itemsText } from './src/pages/sales/SalesPage.tsx';",
+    "export { onlineStore } from './src/lib/online.ts';",
+    "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
+  ].join('\n');
+  const result = await build({
+    stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
+    bundle: true,
+    write: false,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    jsx: 'automatic',
+    logLevel: 'silent',
+    define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    plugins,
+  });
+  bundles += 1;
+  return import(`data:text/javascript;base64,${Buffer.from(`${result.outputFiles[0].text}\n// sales-review bundle ${bundles}\n`).toString('base64')}`);
+}
+
+function memoryStorage() {
+  const map = new Map();
+  return { map, api: { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key), clear: () => map.clear() } };
+}
+
+const body = () => globalThis.document.body;
+const all = () => descendants(body());
+const byAction = (name, scope = body()) => descendants(scope).filter((n) => n.getAttribute('data-action') === name);
+const first = (name, scope) => byAction(name, scope)[0] ?? null;
+const textOf = (name) => first(name)?.textContent ?? null;
+const type = (input, value) => {
+  if (!input) throw new Error('no input');
+  input.value = value;
+  fire(input, 'input');
+};
+const choose = (select, value) => {
+  if (!select) throw new Error('no select');
+  select.value = value;
+  fire(select, 'change');
+};
+const click = async (node) => {
+  if (!node) throw new Error('no node');
+  fire(node, 'click', { button: 0 });
+  await settle();
+};
+const enter = async (input) => {
+  if (!input) throw new Error('no input');
+  fire(input, 'keydown', { key: 'Enter' });
+  await settle();
+};
+const buttonOf = (label) => all().find((n) => n.localName === 'button' && n.textContent === label) ?? null;
+const tableOf = (caption) => all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
+const sectionOf = (table, tag) => (table ? table.children.find((n) => n.localName === tag) : null);
+const rowsOf = (caption) => (sectionOf(tableOf(caption), 'tbody')?.children ?? []).filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent));
+const lines = () => byAction('cart-line');
+const picked = (select) => (select ? (select.options.find((o) => o.selected)?.getAttribute('value') ?? null) : null);
+const inLine = (index, action) => first(action, lines()[index]);
+const card = (item) => byAction('sale-item-card').find((n) => n.getAttribute('data-item') === item) ?? null;
+const listCaption = () => all().find((n) => n.localName === 'caption' && n.textContent.startsWith('فواتير البيع'))?.textContent ?? '';
+
+const ws = (role, over = {}) => ({
+  userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
+  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: !['hall_worker', 'mill_operator', 'hatchery_operator'].includes(role), invites: [], subscription: 'active', confirmedAt: 1, ...over,
+});
+const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
+const MANAGER = sessionOf('manager');
+const KEEPER = sessionOf('storekeeper');
+const PARTY = { id: 'p-1', name: 'أبو علي' };
+const BOXES = [{ id: 'c-1', name: 'الصندوق الرئيسي' }, { id: 'c-2', name: 'حوالة زين كاش' }];
+const pendingKey = (role) => `sales.invoice.pending:u-${role}:org-1`;
+/** رموز :root في tokens.css كما هي (السمة الفاتحة). */
+const lightTokens = () => {
+  const css = readFileSync(path.join(ROOT, 'src', 'styles', 'tokens.css'), 'utf8');
+  const block = css.slice(css.indexOf(':root {'), css.indexOf('}', css.indexOf(':root {')));
+  return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*([^;]+);/gu)].map((match) => [match[1], match[2].trim()]));
+};
+
+export default async function (t) {
+  const restoreDom = installDom();
+  const saved = {
+    session: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'),
+    navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+    create: URL.createObjectURL,
+    revoke: URL.revokeObjectURL,
+    click: Object.getOwnPropertyDescriptor(Element.prototype, 'click'),
+    clone: Object.getOwnPropertyDescriptor(Element.prototype, 'cloneNode'),
+    textClone: Object.getOwnPropertyDescriptor(Text.prototype, 'cloneNode'),
+    scroll: Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView'),
+  };
+  const storage = memoryStorage();
+  Object.defineProperty(globalThis, 'sessionStorage', { value: storage.api, configurable: true, writable: true });
+  globalThis.window.print = () => {};
+  // الجهاز بالسمة الداكنة (D2): --surface الداكن من getComputedStyle.
+  globalThis.window.getComputedStyle = () => ({ getPropertyValue: (name) => (name === '--surface' ? ' 8 13 23 ' : '') });
+  const setNavigator = (value) => Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+  const cloneOf = function cloneNode(deep) {
+    if (this.nodeType === 3) return this.ownerDocument.createTextNode(this.nodeValue);
+    if (this.nodeType === 8) return this.ownerDocument.createComment(this.nodeValue);
+    const copy = this.ownerDocument.createElement(this.localName);
+    for (const [key, value] of this._attrs) copy._attrs.set(key, value);
+    if (deep) for (const child of this.childNodes) copy.appendChild(child.cloneNode(true));
+    return copy;
+  };
+  Element.prototype.cloneNode = cloneOf;
+  Text.prototype.cloneNode = cloneOf;
+  Element.prototype.click = function () {};
+  const scrolled = [];
+  Element.prototype.scrollIntoView = function () {
+    scrolled.push(this);
+  };
+  URL.createObjectURL = () => 'blob:test/1';
+  URL.revokeObjectURL = () => {};
+  let root = null;
+  let m = null;
+  let current = null;
+  try {
+    m = await bundle();
+    current = m;
+    m.onlineStore.set(true);
+    let log = [];
+    let captures = [];
+    let navType = null;
+    const fresh = (who, rpcs = {}, calls = {}) => {
+      log = [];
+      captures = [];
+      scrolled.length = 0;
+      globalThis.__sr = {
+        session: who,
+        toasts: [],
+        location: null,
+        rpc(fn, args) {
+          log.push([fn, args]);
+          const handler = rpcs[fn];
+          if (!handler) return new Promise(() => {});
+          const count = log.filter(([name]) => name === fn).length;
+          return Promise.resolve().then(() => handler(args, count));
+        },
+        call(fn, args) {
+          log.push([fn, args]);
+          const handler = calls[fn];
+          if (!handler) return new Promise(() => {});
+          return Promise.resolve().then(() => handler(...args));
+        },
+        async toBlob(node, options) {
+          captures.push({ node, options, host: node.parentNode });
+          return new Blob(['png'], { type: 'image/png' });
+        },
+      };
+    };
+    const named = (fn) => log.filter(([name]) => name === fn).map(([, args]) => args);
+    const where = () => globalThis.__sr.location;
+    const mount = async (url, mm = current) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = mm.createRoot(container);
+      function Where() {
+        const location = mm.useLocation();
+        navType = mm.useNavigationType();
+        globalThis.__sr.location = `${location.pathname}${location.search}`;
+        return mm.h(mm.Routes, null, mm.h(mm.Route, { path: '/sales/*', element: mm.h(mm.SalesRoutes) }), mm.h(mm.Route, { path: '*', element: null }));
+      }
+      mm.flushSync(() => root.render(mm.h(mm.MemoryRouter, { initialEntries: [url] }, mm.h(Where))));
+      await settle(40);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      const mounted = root;
+      root = null;
+      current.flushSync(() => mounted.unmount());
+      body().textContent = '';
+      await settle();
+    };
+    const step = async (label, fn) => {
+      for (const role of ['manager', 'storekeeper', 'owner']) m.sales.storeSalePending(pendingKey(role), null);
+      storage.map.clear();
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+      current = m;
+      current.onlineStore.set(true);
+    };
+    const OK = { stores_overview: () => clone(F.stores_overview), sale_catalog: () => clone(F.sale_catalog) };
+    const pickers = { searchSuppliers: () => ({ parties: [PARTY], total: 1 }), listBoxes: () => clone(BOXES) };
+    const pickParty = async () => {
+      type(all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-party')), 'أبو');
+      await settle(20);
+      await click(first('pick-party'));
+    };
+    /** فاتورة العقد (علف بادئ كيسين بخصم 1,000 وفيتامين ثلاث علب، وخصم الفاتورة 5,000، وأبو علي، وصندوقان 50,000 و39,000). */
+    const fillContract = async () => {
+      choose(first('sale-store'), 'w-gen');
+      await settle(20);
+      await click(card('i-feed'));
+      choose(inLine(0, 'cart-unit'), 'u-bag');
+      await settle();
+      type(inLine(0, 'cart-qty'), '2');
+      type(inLine(0, 'cart-discount'), '1000');
+      await settle();
+      type(first('sale-barcode'), '6260000000024');
+      await enter(first('sale-barcode'));
+      choose(inLine(1, 'cart-unit'), 'u-box');
+      await settle();
+      type(inLine(1, 'cart-qty'), '3');
+      type(first('sale-invoice-discount'), '5000');
+      await settle();
+      await pickParty();
+      await click(first('pay-add'));
+      choose(byAction('pick-box')[0], 'c-1');
+      type(byAction('pay-amount')[0], '50000');
+      await settle();
+      await click(first('pay-add'));
+      type(byAction('pay-amount')[1], '39000');
+      await settle();
+    };
+    const dec = (text, scale) => { const [whole, part = ''] = String(text).split('.'); return BigInt(whole + (part + '000000').slice(0, scale)); };
+
+    // ── المحلّلات بأجوبة القاعدة الحقيقية ──────────────────────────────────────────────────────────────────────────
+    {
+      const multi = m.sales.parseSaleInvoice(clone(R.sale_detail.owner_multi));
+      const keeper = m.sales.parseSaleInvoice(clone(R.sale_detail.storekeeper_multi));
+      const afterVoid = m.sales.parseSaleInvoice(clone(R.sale_detail.owner_multi_after_void));
+      t.same(
+        [multi.open, multi.canCollect, keeper.canCollect, afterVoid.open, afterVoid.canCollect],
+        [dec(R.sale_detail.owner_multi.open, 2), true, false, 0n, false],
+        'D1 sale_detail الحقيقيّ: المتبقّي الآن (open) و«يُستلم» (can_collect) محلَّلان',
+      );
+      const leg = m.sales.parseSaleInvoice(clone(R.sale_detail.owner_refunded_leg));
+      t.same(leg.payments.map((p) => [p.cashAccountName, p.amount, p.refunded]), [['الصندوق', 100000n, false], ['المصرف', 200000n, true]], 'D3 كلّ ساق بعلم ردّها (payments[].refunded الحقيقيّ)');
+      t.same(
+        multi.lines.map((line) => [line.unitLabel, line.baseUnit]),
+        [['كيس 50 كغم', 'kg'], [null, 'kg'], ['كيس 50 كغم', 'kg']],
+        'C1/D4 سطر وحدة الأساس (unit_id null وunit_label «kg» في القاعدة) يُقرأ بلا اسم فتسمّيه الشاشة بالعربية',
+      );
+      const catalog = m.sales.parseSaleCatalog(clone(R.sale_catalog.storekeeper_feed));
+      t.same(catalog.items.map((item) => [item.name, item.altCodes, item.expired]), R.sale_catalog.storekeeper_feed.items.map((item) => [item.name, [], 0n]), 'C6/C10 الرموز الأخرى والمنتهي من sale_catalog الحقيقيّ محلَّلان');
+      const overview = m.parseSalesOverview(clone(R.sales_overview.owner));
+      t.same(
+        overview.rows.map((row) => [row.docNo, row.lineCount, row.itemCount]),
+        R.sales_overview.owner.rows.map((row) => [row.doc_no, row.lines_count, row.items_count]),
+        'D8 عدد الموادّ (items_count) لكلّ صفّ بقيم القاعدة',
+      );
+      t.same([m.saleBack('/inventory/items/i-1'), m.saleBack('/'), m.saleBack('https://evil.example'), m.saleBack('//x')], ['/inventory/items/i-1', '/', '/sales', '/sales'], 'D9 الرجوع من الفاتورة يقبل المخزن والرئيسية (داخليّ وحده)');
+    }
+
+    // ── D10 الكشف: فاتورة 0033 بوحدة السطر وسعرها وإجماليّه، والخصم سطراً كالشراء (entry_detail الحقيقيّ) ──────────
+    {
+      const detail = m.parseDetail(clone(R.entry_detail.invoice));
+      const items = m.docItemsOf({ detail, reverses: null });
+      t.same(
+        items?.items.map((item) => [item.name, item.qty, item.unit, item.price, item.amount]),
+        [
+          ['علف بادئ', 3000n, 'كيس 50 كغم', 3500000n, 10500000n],
+          ['علف بادئ', 25500n, 'كغم', 72000n, 1836000n],
+          ['علف نامي', 2000n, 'كيس 50 كغم', 3000000n, 6000000n],
+        ],
+        'D10 موادّ الفاتورة في الكشف بالكمية بوحدة السطر × سعرها = إجماليّه',
+      );
+      t.same(items?.footers.map((footer) => [footer.key, footer.amount]), [['sum', 18336000n], ['discount', -350000n], ['net', 17986000n]], 'D10 ثمّ مجموع الموادّ والخصم والصافي = مبلغ الحركة');
+      t.eq(
+        m.lineMemo({ kind: 'invoice', account: null, reason: null, detail, reverses: null, reversed: false }),
+        'بيع مادّتين — رصيد العلف، بعد خصم 3,500',
+        'D10/D8 البيان بعدد الموادّ (لا السطور) وبعد الخصم',
+      );
+    }
+
+    // ── D: الفاتورة ────────────────────────────────────────────────────────────────────────────────────────────────
+    await step('D1 collect open', async () => {
+      const sample = { ...clone(R.sale_detail.owner_multi), open: '49860' };
+      fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
+      await mount(`/sales/${sample.id}`);
+      t.same(
+        [textOf('sale-paper-debt'), textOf('sale-paper-open'), textOf('collect-note')?.includes('المتبقّي منه الآن 49,860 دينار')],
+        ['الباقي ديناً:99,860 دينار', 'المتبقّي الآن:49,860 دينار', true],
+        'D1 بعد قبض لاحق: دين البيع كما هو و«المتبقّي الآن» من open على الورقة والصفحة',
+      );
+      await click(first('collect-sale'));
+      await settle(20);
+      const amount = all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-amount'));
+      t.eq(amount?.value, '49860', 'D1 «استلم من الزبون» يملأ المتبقّي الآن (open) لا دين البيع');
+      await click(first('dialog-close'));
+      await settle(20);
+      t.same([byAction('dialog-discard').length, byAction('review-payment').length], [0, 0], 'D1 النافذة المملوءة مسبقاً تُغلق بلا «الخروج دون حفظ؟» (لم يُكتب فيها شيء)');
+    });
+
+    await step('D1 can_collect', async () => {
+      const paidLater = { ...clone(R.sale_detail.owner_multi), open: '0', can_collect: false };
+      fresh(MANAGER, { sale_detail: () => clone(paidLater) }, pickers);
+      await mount(`/sales/${paidLater.id}`);
+      t.eq(byAction('collect-sale').length, 0, 'D1 سُدّدت كلّها بعد البيع (open 0، can_collect false): لا «استلم من الزبون» ولو بقي دين البيع');
+      await unmount();
+      fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.storekeeper_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.storekeeper_multi.id}`);
+      t.eq(byAction('collect-sale').length, 0, 'D1 can_collect false من القاعدة (عيّنة الأمين): لا «استلم من الزبون»');
+    });
+
+    await step('C1/D4 base unit label', async () => {
+      fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.owner_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.owner_multi.id}`);
+      t.same(rowsOf(`سطور الفاتورة ${R.sale_detail.owner_multi.doc_no}`).map((row) => row[2]), ['كيس 50 كغم', 'كغم', 'كيس 50 كغم'], 'C1/D4 الورقة (والطباعة والصورة منها): سطر الأساس «كغم» لا «kg»');
+    });
+
+    await step('D2/D5 light image, inline logo', async () => {
+      const shared = [];
+      setNavigator({ onLine: true, canShare: () => true, share: async (data) => shared.push(data) });
+      fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.owner_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.owner_multi.id}`);
+      t.ok((first('sale-paper-logo')?.getAttribute('src') ?? '').startsWith('data:image/svg+xml,'), 'D5 الشعار مضمَّن (لا /favicon.svg يُطلب من الشبكة)');
+      await click(first('send-image'));
+      await settle(20);
+      const [capture] = captures;
+      const tokens = lightTokens();
+      const style = capture?.host?.style ?? {};
+      t.same(
+        Object.keys(tokens).map((name) => [name, style[`--${name}`] ?? null]),
+        Object.entries(tokens),
+        'D2 حاوية الصورة برموز السمة الفاتحة كلّها (كما في tokens.css) والجهاز داكن',
+      );
+      t.same([style['color-scheme'] ?? style.colorScheme ?? null, capture?.options?.backgroundColor], ['light', 'rgb(243, 248, 253)'], 'D2 وcolor-scheme فاتح، والخلفية سطح السمة الفاتحة');
+      t.eq(typeof capture?.options?.imagePlaceholder === 'string' && capture.options.imagePlaceholder.startsWith('data:'), true, 'D5 صورة بديلة لصورة تعذّر جلبها (لا يُرفض الرسم كلّه بلا اتصال)');
+    });
+
+    await step('D3 one leg refunded', async () => {
+      const sample = R.sale_detail.owner_refunded_leg;
+      fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
+      await mount(`/sales/${sample.id}`);
+      t.same(
+        [textOf('sale-paper-paid'), textOf('sale-payment')],
+        ['المدفوع الآن:1,000 دينار في «الصندوق»، ورُدّ 2,000 دينار من «المصرف»', 'جزء مدفوع، والباقي دين'],
+        'D3 رُدّت ساق من ساقين: الباقية مدفوعة والمردودة بصندوقها، لا «رُدّ المبلغ» كلّه',
+      );
+    });
+
+    await step('D6 free paper', async () => {
+      const sample = clone(R.sale_detail.owner_multi);
+      Object.assign(sample, { total: '0', paid: '0', debt: '0', open: '0', can_collect: false, payments: [], discount_total: '0', invoice_discount: '0' });
+      fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
+      await mount(`/sales/${sample.id}`);
+      t.same([textOf('sale-paper-paid'), byAction('sale-paper-debt').length], ['الدفع:تسليم بلا مقابل', 0], 'D6 فاتورة بلا مقابل: «تسليم بلا مقابل» بلا «الباقي ديناً: 0»');
+    });
+
+    await step('D7 void head', async () => {
+      const sample = R.sale_detail.owner_multi_after_void;
+      fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
+      await mount(`/sales/${sample.id}`);
+      t.eq(textOf('sale-payment'), 'ملغاة، والمقبوض باقٍ رصيداً للجهة', 'D7 الملغاة (حقيقيّة) تقول ما حدث لمقبوضها، لا «جزء مدفوع، والباقي دين»');
+    });
+
+    // ── D: القائمة ─────────────────────────────────────────────────────────────────────────────────────────────────
+    await step('D3/D7/D8/D11 list', async () => {
+      const overview = { ...clone(R.sales_overview.storekeeper), can_void: true };
+      fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
+      await mount('/sales');
+      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
+      t.same(
+        [rows['FD-2026-0004']?.[7], rows['FD-2026-0001']?.[7], rows['MD-2026-0001']?.[7]],
+        ['جزء مدفوع، والباقي دين', 'ملغاة، والمقبوض باقٍ رصيداً للجهة', 'ملغاة، ورُدّ المقبوض'],
+        'D3/D7 الدفع في القائمة: ساق رُدّت من ساقين جزءٌ مدفوع، والملغاة بما حدث لمقبوضها',
+      );
+      t.same([rows['FD-2026-0002']?.[3], rows['FD-2026-0005']?.[3]], ['علف بادئ', 'علف التزامن'], 'D8 مادّة واحدة بسطرين: اسمها لا «ومادّة أخرى»');
+      const stats = all().filter((n) => n.localName === 'dt').map((n) => n.textContent);
+      t.ok(stats.includes('منه مدفوع عند البيع') && !stats.includes('منه نقداً'), 'D11 المدفوع عند البيع من كلّ الصناديق، لا «منه نقداً»');
+      const row = all().find((n) => n.localName === 'tr' && n.textContent.includes('FD-2026-0004'));
+      await click(descendants(row).find((n) => n.getAttribute('data-action') === 'void-sale'));
+      t.same(
+        [textOf('void-cash-kept')?.includes('(1,000 دينار)'), textOf('void-refunded')],
+        [true, 'وما رُدّ من مقبوضها لـ«مزرعة النور» من قبل لا يبقى منه رصيد.'],
+        'D3 تأكيد الإلغاء: ما بقي مدفوعاً (1,000) يبقى رصيداً، والمردود لا',
+      );
+    });
+
+    await step('D8 owner list', async () => {
+      fresh(sessionOf('owner'), { sales_overview: () => clone(R.sales_overview.owner) }, pickers);
+      await mount('/sales');
+      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
+      t.same([rows['FD-2026-0001']?.[3], rows['FD-2026-0002']?.[3]], ['علف بادئ ومادّة أخرى', 'علف بادئ'], 'D8 ثلاثة سطور لمادّتين «ومادّة أخرى»، وسطران لمادّة واحدة اسمها');
+    });
+
+    // ── C: الفاتورة الجديدة ─────────────────────────────────────────────────────────────────────────────────────────
+    await step('C2/C11a contract invoice', async () => {
+      fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount('/sales/new');
+      await fillContract();
+      const style = all().find((n) => n.localName === 'style' && n.textContent.includes('sale-totals-bar'))?.textContent ?? '';
+      t.ok(/\[data-action="save-invoice"\] \{[^}]*height: auto;[^}]*white-space: normal;/u.test(style), 'C2 زرّ الحفظ يطول بسطوره (height: auto وwhite-space: normal) فلا يُقصّ أوّل سطره');
+      t.eq(textOf('save-invoice'), 'احفظ الفاتورة — 139,000 دينار، منها 50,000 دين', 'C2 الزرّ بالصافي والدين بلا عدد الموادّ (سطران في كلّ قياس بدل ثلاثة)');
+      await click(first('save-invoice'));
+      await settle(30);
+      t.same(named('record_sale_v2')[0]?.p_lines.map((line) => line.factor), ['50.000000', '10.000000'], 'C11 كلّ سطر بمعامل وحدته كما رأته الشاشة (unit_changed بالخادم)');
+    });
+
+    await step('C3 same item twice', async () => {
+      fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await click(card('i-feed'));
+      t.eq(card('i-feed')?.hasAttribute('disabled'), false, 'C3 بطاقة مادّة في الفاتورة تبقى تضيف');
+      await click(card('i-feed'));
+      t.same(lines().map((n) => n.getAttribute('data-item')), ['i-feed', 'i-feed'], 'C3 المادّة نفسها بسطرين (أكياس وفرط)');
+      choose(inLine(0, 'cart-unit'), 'u-bag');
+      await settle();
+      type(inLine(0, 'cart-qty'), '3');
+      type(inLine(1, 'cart-qty'), '25.5');
+      type(inLine(1, 'cart-price'), '720');
+      await settle();
+      await pickParty();
+      await click(first('save-invoice'));
+      await settle(30);
+      t.same(
+        named('record_sale_v2')[0]?.p_lines.map((line) => [line.item_id, line.unit_id, line.qty, line.unit_price]),
+        [['i-feed', 'u-bag', '3.000', '35000.00'], ['i-feed', null, '25.500', '720.00']],
+        'C3 والنداء بسطرين للمادّة نفسها',
+      );
+    });
+
+    await step('C4 stopped save says why', async () => {
+      const less = clone(F.sale_catalog);
+      less[0].available = '50.000';
+      fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(less)) }, pickers);
+      await mount('/sales/new');
+      await fillContract();
+      await click(first('save-invoice'));
+      await settle(30);
+      const over = 'المتاح في «المخزن العام» 50 كغم فقط؛ لا يُحفظ أكثر منه.';
+      t.same([named('record_sale_v2').length, textOf('sale-blocked')], [0, `لم تُحفظ الفاتورة: ${over}`], 'C4 المتاح قلّ عند القراءة قبل الحفظ: يُقال بجانب الزرّ الثابت');
+      t.same(
+        [scrolled[0]?.textContent ?? null, globalThis.document.activeElement === inLine(0, 'cart-qty')],
+        [over, true],
+        'C4 ويُمرَّر إلى أوّل خطأ وتُركَّز خانته (كمية السطر)',
+      );
+    });
+
+    await step('C4 blocked before reading', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      await click(card('i-feed'));
+      type(inLine(0, 'cart-qty'), '10');
+      await settle();
+      await click(first('save-invoice'));
+      await settle(20);
+      t.same(
+        [named('sale_catalog').length, textOf('sale-blocked')],
+        [1, 'لم تُحفظ الفاتورة: اختر الزبون، أو أضفه باسمه، أو اختر «زبون نقديّ» إن دفع المبلغ كلّه.'],
+        'C4 بلا زبون: لا قراءة ولا إرسال، والسبب بجانب الزرّ',
+      );
+    });
+
+    await step('C5 search by code, store in the empty result', async () => {
+      fresh(MANAGER, OK, pickers);
+      await mount('/sales/new?store=w-gen');
+      type(first('sale-search'), '6260000000024');
+      await settle(20);
+      t.same(byAction('sale-item-card').map((n) => n.getAttribute('data-item')), ['i-vit'], 'C5 الباركود في خانة البحث يجد مادّته');
+      type(first('sale-search'), 'زيت');
+      await settle(20);
+      t.eq(textOf('sale-items-none'), 'لا مادّة باسم «زيت» تُباع من «المخزن العام».', 'C5 البحث بلا نتيجة يسمّي المخزن (قد تُباع من غيره)');
+    });
+
+    await step('C6/C10 alt codes and expired', async () => {
+      const catalog = clone(F.sale_catalog);
+      catalog[1].alt_codes = ['8800001112223'];
+      catalog[2].expired = '12.000';
+      fresh(MANAGER, { ...OK, sale_catalog: () => clone(catalog) }, pickers);
+      await mount('/sales/new?store=w-gen');
+      t.ok(card('i-corn')?.textContent.includes('منتهية الصلاحية: 12 كغم') && !card('i-corn')?.textContent.includes('نفد'), 'C10 كلّها منتهية الصلاحية: يُقال ذلك بكميته لا «نفد»');
+      type(first('sale-barcode'), '8800001112223');
+      await enter(first('sale-barcode'));
+      t.same([lines().map((n) => n.getAttribute('data-item')), textOf('sale-scan-note')], [['i-vit'], null], 'C6 الماسح يقرأ الرموز الأخرى (alt_codes)');
+    });
+
+    await step('C7 restored request and ?item=', async () => {
+      const request = {
+        clientRef: 'r-1', saleId: 's-x', warehouseId: 'w-gen', partyId: 'p-1', soldOn: '2026-11-17', invoiceDiscount: 0n, note: null,
+        lines: [{ lineId: 'l-x', itemId: 'i-vit', unitId: null, qty: 2000n, unitPrice: 250000n, discount: 0n }],
+        payments: [],
+      };
+      m.sales.storeSalePending(pendingKey('manager'), { request, summary: { warehouseName: 'المخزن العام', partyName: 'أبو علي', lines: [{ name: 'فيتامين أ د', qty: '2 قطعة' }], total: 500000n, paid: 0n } });
+      fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError('insufficient_stock', R.refusals.insufficient_stock.hint); } }, pickers);
+      await mount('/sales/new?item=i-vit&store=w-gen');
+      t.eq(byAction('sale-frozen').length, 1, 'C7 الطلب المستعاد يجمّد الشاشة');
+      await click(first('sale-retry'));
+      await settle(40);
+      t.same(lines().map((n) => n.getAttribute('data-item')), ['i-vit'], 'C7 بعد الرفض الأكيد يعود السطر المرسَل وحده، بلا سطر فارغ مكرّر من ?item=');
+    });
+
+    await step('C8 walk-in unpaid', async () => {
+      fresh(MANAGER, OK, { ...pickers, listBoxes: () => [BOXES[0]] });
+      await mount('/sales/new?store=w-gen');
+      await click(card('i-feed'));
+      type(inLine(0, 'cart-qty'), '100');
+      await settle();
+      await click(buttonOf('زبون نقديّ (بلا اسم)'));
+      t.eq(textOf('save-invoice')?.includes('مدفوعة'), false, 'C8 زبون نقديّ لم يدفع: الزرّ لا يقول «مدفوعة كلّها»');
+    });
+
+    await step('C8 overpaid and discount over', async () => {
+      fresh(MANAGER, OK, { ...pickers, listBoxes: () => [BOXES[0]] });
+      await mount('/sales/new?store=w-gen');
+      await click(card('i-feed'));
+      type(inLine(0, 'cart-qty'), '100');
+      await settle();
+      await click(first('pay-add'));
+      type(byAction('pay-amount')[0], '80000');
+      await settle();
+      t.same(
+        [textOf('sale-debt-live'), textOf('save-invoice'), textOf('sale-total-debt')],
+        ['المدفوع أكثر من الصافي بـ10,000 دينار؛ أنقص المبلغ.', 'احفظ الفاتورة — 70,000 دينار', 'الدين—'],
+        'C8 مدفوع أكثر من الصافي: جملة بلا دين سالب، والزرّ بلا «مدفوعة»، والدين «—»',
+      );
+      type(byAction('pay-amount')[0], '');
+      type(first('sale-invoice-discount'), '90000');
+      await settle();
+      t.same([textOf('sale-total-net'), textOf('sale-debt-live')], ['الصافي—', 'الباقي يُحسب بعد تصحيح الخصم.'], 'C8 خصم أكبر من المجموع: الصافي «—» لا رقماً سالباً');
+    });
+
+    await step('C9 total_zero mirror', async () => {
+      fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError(R.refusals['v2.total_zero'].code, R.refusals['v2.total_zero'].hint); } }, pickers);
+      await mount('/sales/new?store=w-gen');
+      await click(card('i-feed'));
+      type(inLine(0, 'cart-qty'), '0.001');
+      type(inLine(0, 'cart-price'), '100');
+      await settle();
+      await pickParty();
+      await click(first('save-invoice'));
+      await settle(30);
+      t.same(
+        [byAction('confirm-free-invoice').length, named('record_sale_v2').length, lines()[0]?.textContent.includes('يُقرَّب إلى صفر دينار')],
+        [0, 0, true],
+        'C9 سعر فوق الصفر يُقرَّب مبلغه إلى صفر: خطأ على السطر كالخادم، لا «تسليم بلا مقابل؟» ثمّ رفض',
+      );
+    });
+
+    await step('C11b reread on unit_mismatch', async () => {
+      fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError(R.refusals['v2.unit_mismatch'].code, R.refusals['v2.unit_mismatch'].hint); } }, pickers);
+      await mount('/sales/new');
+      await fillContract();
+      await click(first('save-invoice'));
+      await settle(40);
+      t.same([named('record_sale_v2').length, named('sale_catalog').length], [1, 3], 'C11 رفض unit_mismatch (رمز القاعدة الحقيقيّ) يقرأ الموادّ ووحداتها من جديد');
+    });
+
+    await step('C11c unit gone', async () => {
+      const noBag = clone(F.sale_catalog);
+      noBag[0].units = noBag[0].units.filter((unit) => unit.unit_id !== 'u-bag');
+      fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(noBag)) }, pickers);
+      await mount('/sales/new');
+      await fillContract();
+      await click(first('save-invoice'));
+      await settle(30);
+      const select = inLine(0, 'cart-unit');
+      t.same(
+        [picked(select), select?.options.find((o) => o.selected)?.textContent ?? null, inLine(0, 'cart-price')?.value, named('record_sale_v2').length],
+        ['-', 'اختر الوحدة', '', 0],
+        'C11 غابت وحدة السطر: القائمة تقول «اختر الوحدة» وسعرها القديم يُمحى',
+      );
+    });
+
+    await step('C11 boxes reread on cash_account_archived', async () => {
+      fresh(MANAGER, { ...OK, record_sale_v2: () => { throw new current.RejectedError(R.refusals['v2.cash_account_archived'].code, R.refusals['v2.cash_account_archived'].hint); } }, pickers);
+      await mount('/sales/new');
+      await fillContract();
+      const before = named('listBoxes').length;
+      await click(first('save-invoice'));
+      await settle(40);
+      t.eq(named('listBoxes').length, before + 1, 'صندوق أُرشف (cash_account_archived): تُقرأ الصناديق من جديد');
+    });
+
+    await step('D9 back after saving', async () => {
+      fresh(KEEPER, { ...OK, sale_catalog: () => ({ items: clone(F.sale_catalog), cash_accounts: [BOXES[0]] }), record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
+      await mount('/sales/new?item=i-vit&store=w-gen&back=%2Finventory%2Fitems%2Fi-vit');
+      type(inLine(0, 'cart-qty'), '2');
+      await settle();
+      await pickParty();
+      await click(first('save-invoice'));
+      await settle(40);
+      t.same(
+        [where(), navType, first('back')?.getAttribute('href') ?? null],
+        ['/sales/s-7?back=%2Finventory%2Fitems%2Fi-vit', 'REPLACE', '/inventory/items/i-vit'],
+        'D9 بعد الحفظ: الفاتورة مكان الشاشة، ورجوعها إلى ملفّ المادّة الذي بدأ منه البيع',
+      );
+    });
+  } catch (error) {
+    t.ok(false, `رمى خارج الخطوات: ${error?.stack ?? error}`);
+  } finally {
+    if (root && current) {
+      const mounted = root;
+      root = null;
+      current.flushSync(() => mounted.unmount());
+    }
+    restoreDom();
+    for (const [key, desc] of [['sessionStorage', saved.session], ['navigator', saved.navigator]]) {
+      if (desc) Object.defineProperty(globalThis, key, desc);
+      else delete globalThis[key];
+    }
+    URL.createObjectURL = saved.create;
+    URL.revokeObjectURL = saved.revoke;
+    for (const [proto, key, desc] of [
+      [Element.prototype, 'click', saved.click],
+      [Element.prototype, 'cloneNode', saved.clone],
+      [Text.prototype, 'cloneNode', saved.textClone],
+      [Element.prototype, 'scrollIntoView', saved.scroll],
+    ]) {
+      if (desc) Object.defineProperty(proto, key, desc);
+      else delete proto[key];
+    }
+  }
+}

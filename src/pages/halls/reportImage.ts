@@ -29,16 +29,53 @@ export function surfaceColor(): string {
 }
 
 /**
+ * رموز السمة الفاتحة كما في :root من tokens.css (فحص sales-review يقارنها بالملفّ): ورقة تُرسل لغير صاحب الجهاز فاتحةٌ دائماً. الأسماء بشرطتيها: اسم
+ * رمز وحده («الظلّ» مثلاً) يقرؤه Tailwind صنفاً فيولّد له CSS في حزمة الإقلاع.
+ */
+const LIGHT_TOKENS: ReadonlyArray<readonly [string, string]> = [
+  ['--surface', '243 248 253'],
+  ['--surface-1', '255 255 255'],
+  ['--surface-2', '238 245 252'],
+  ['--surface-3', '226 238 250'],
+  ['--ink', '15 30 53'],
+  ['--ink-muted', '86 102 126'],
+  ['--ink-subtle', '138 152 172'],
+  ['--line', '224 233 244'],
+  ['--line-strong', '202 216 232'],
+  ['--ring', '18 102 216'],
+  ['--shadow', '18 64 128'],
+];
+/** سطح السمة الفاتحة لونَ خلفية الصورة. */
+const LIGHT_SURFACE = 'rgb(243, 248, 253)';
+
+/** صورة شفّافة بنقطة واحدة مكان صورة تعذّر جلبها: html-to-image يرفض الرسم كلّه بصورة فاشلة (بلا اتصال مثلاً). */
+const IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+export interface ImageOptions {
+  /**
+   * فاتحة ولو كانت الصفحة داكنة (ورقة فاتورة البيع تُرسل للزبون، مراجعة 0033 D2): رموز السمة الفاتحة ولون النصّ وcolor-scheme مضمَّنة على الحاوية فتغلب
+   * .dark و.clarity على <html>، والخلفية سطح السمة الفاتحة. تقرير القاعات بلا هذا الخيار: بسمة الصفحة كما هو.
+   */
+  light?: boolean;
+}
+
+/**
  * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
  * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
  */
-export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH): Promise<File> {
+export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.position = 'fixed';
   host.style.top = '0';
   host.style.left = '-10000px';
   host.style.pointerEvents = 'none';
+  if (options.light) {
+    for (const [token, value] of LIGHT_TOKENS) host.style.setProperty(token, value);
+    host.style.setProperty('color-scheme', 'light');
+    // اللون الموروث من <body> محسوب بالسمة الداكنة: يُعاد حسابه من الرموز الفاتحة.
+    host.style.setProperty('color', 'rgb(var(--ink))');
+  }
   const copy = page.cloneNode(true) as HTMLElement;
   copy.setAttribute('data-capture', '');
   copy.style.width = `${width}px`;
@@ -47,7 +84,12 @@ export async function reportImage(page: HTMLElement, name: string, width: number
   try {
     const height = copy.clientHeight || copy.scrollHeight || 0;
     const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height))) : PIXEL_RATIO;
-    const blob = await toBlob(copy, { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } });
+    const blob = await toBlob(
+      copy,
+      options.light
+        ? { width, pixelRatio: ratio, backgroundColor: LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
+        : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } },
+    );
     if (!blob) throw new Error('report_image_empty');
     return new File([blob], name, { type: 'image/png' });
   } finally {

@@ -145,7 +145,7 @@ const KEEPER = sessionOf('storekeeper');
 const PARTY = { id: 'p-1', name: 'أبو علي' };
 const BOXES = [{ id: 'c-1', name: 'الصندوق الرئيسي' }, { id: 'c-2', name: 'حوالة زين كاش' }];
 const pendingKey = (role) => `sales.invoice.pending:u-${role}:org-1`;
-const SAVE_TEXT = 'احفظ الفاتورة — مادّتان، 139,000 دينار، منها 50,000 دين';
+const SAVE_TEXT = 'احفظ الفاتورة — 139,000 دينار، منها 50,000 دين';
 
 export default async function (t) {
   const restoreDom = installDom();
@@ -475,7 +475,7 @@ export default async function (t) {
       await click(first('save-invoice'));
       t.ok(textOf('sale-pay-error')?.includes('الزبون النقديّ يدفع المبلغ كلّه الآن (70,000 دينار)') && named('record_sale_v2').length === 0 && named('sale_catalog').length === 1, 'C2 بلا دفع كامل يُقال قبل الإرسال ولا يُقرأ شيء');
       await click(first('pay-all'));
-      t.same([picked(byAction('pick-box')[0]), byAction('pay-amount')[0]?.value, textOf('save-invoice')], ['c-1', '70000', 'احفظ الفاتورة — مادّة واحدة، 70,000 دينار مدفوعة كلّها'], 'C2 «ادفع الكلّ» بالصندوق الوحيد والصافي كلّه');
+      t.same([picked(byAction('pick-box')[0]), byAction('pay-amount')[0]?.value, textOf('save-invoice')], ['c-1', '70000', 'احفظ الفاتورة — 70,000 دينار مدفوعة كلّها'], 'C2 «ادفع الكلّ» بالصندوق الوحيد والصافي كلّه');
       await click(first('save-invoice'));
       await settle(30);
       const [args] = named('record_sale_v2');
@@ -709,7 +709,7 @@ export default async function (t) {
         ],
         'D1 الورقة: الزبون والمخزن والإجماليّ والخصم والصافي والسيقان والدين والملاحظة والبائع',
       );
-      t.ok(textOf('sale-paper-words')?.length > 10 && textOf('org-name') === 'مشروع الدواجن' && textOf('sale-paper-no') === 'رقم: MS-2026-0007' && first('sale-paper-logo')?.getAttribute('src') === '/favicon.svg', 'D1 الشعار واسم المنشأة والرقم والمبلغ كتابةً');
+      t.ok(textOf('sale-paper-words')?.length > 10 && textOf('org-name') === 'مشروع الدواجن' && textOf('sale-paper-no') === 'رقم: MS-2026-0007' && (first('sale-paper-logo')?.getAttribute('src') ?? '').startsWith('data:image/svg+xml,'), 'D1 الشعار (مضمَّناً، مراجعة D5) واسم المنشأة والرقم والمبلغ كتابةً');
       t.same([textOf('sale-payment'), textOf('sale-party')], ['جزء مدفوع، والباقي دين', 'أبو علي'], 'D1 الدفع بكلماته والجهة');
       const stats = all().filter((n) => n.localName === 'dt').map((n) => `${n.textContent}=${n.nextSibling?.textContent}`);
       t.ok(stats.includes('كلفة المبيع=110,000 دينار') && stats.includes('الربح=29,000 دينار'), 'D1 الكلفة والربح لأدوار الكلفة');
@@ -799,7 +799,7 @@ export default async function (t) {
       t.same(footOf(caption)[0]?.slice(0, 4), ['مجموع المحفوظ', '209,000', '159,000', '50,000'], 'L1 المجاميع من الخادم');
       await click(first('new-sale'));
       t.eq(where(), '/sales/new', 'L1 «بيع جديد» يفتح الفاتورة الجديدة');
-      t.same([3, 4, 12].map((n) => m.itemsText({ itemName: 'علف', lineCount: n, qty: null, baseUnit: null })), ['علف ومادّتان أخريان', 'علف و3 موادّ أخرى', 'علف و11 مادّةً أخرى'], 'L1 الموادّ بالفصحى');
+      t.same([3, 4, 12].map((n) => m.itemsText({ itemName: 'علف', lineCount: n, itemCount: n, qty: null, baseUnit: null })), ['علف ومادّتان أخريان', 'علف و3 موادّ أخرى', 'علف و11 مادّةً أخرى'], 'L1 الموادّ بالفصحى');
     });
 
     await step('L3 pending banner', async () => {
@@ -853,7 +853,9 @@ export default async function (t) {
         t.same([inv.total, inv.paid, inv.debt, inv.discountTotal, inv.walkIn, inv.lines.length], [dec(raw.total, 2), dec(raw.paid, 2), dec(raw.debt, 2), dec(raw.discount_total ?? '0', 2), raw.walk_in ?? false, raw.lines?.length ?? 1], `X2 فاتورة ${name} بقيم القاعدة`);
         (raw.lines ?? []).forEach((line, i) => {
           const got = inv.lines[i];
-          t.same([got.qty, got.unitQty, got.unitPrice, got.net, got.unitLabel], [dec(line.qty_base, 3), dec(line.unit_qty, 3), dec(line.unit_price, 2), dec(line.line_total, 2), line.unit_label ?? null], `X2 سطر ${i + 1} من ${name} بقيم القاعدة`);
+          // سطر وحدة الأساس: القاعدة تكتب رمزها («kg») في unit_label وunit_id null، والمحلّل يقرؤه null فتسمّيه الشاشة بالعربية (مراجعة D4).
+          const label = line.unit_id === null || line.unit_label === line.base_unit ? null : (line.unit_label ?? null);
+          t.same([got.qty, got.unitQty, got.unitPrice, got.net, got.unitLabel], [dec(line.qty_base, 3), dec(line.unit_qty, 3), dec(line.unit_price, 2), dec(line.line_total, 2), label], `X2 سطر ${i + 1} من ${name} بقيم القاعدة`);
         });
       }
     }

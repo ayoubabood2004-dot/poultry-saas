@@ -71,7 +71,9 @@
           "label": "طن",
           "factor": "1000.000000"
         }
-      ]
+      ],
+      "alt_codes": [],
+      "expired": "0.000"
     },
     {
       "item_id": "i-vit",
@@ -88,7 +90,9 @@
           "label": "علبة",
           "factor": "10.000000"
         }
-      ]
+      ],
+      "alt_codes": [],
+      "expired": "0.000"
     },
     {
       "item_id": "i-corn",
@@ -99,7 +103,9 @@
       "base_unit": "kg",
       "available": "0.000",
       "sell_price": null,
-      "units": []
+      "units": [],
+      "alt_codes": [],
+      "expired": "0.000"
     }
   ],
   "record_sale_v2": {
@@ -189,7 +195,8 @@
         },
         "base_unit_price": null,
         "unit_price": "35000.00",
-        "qty_base": "100.000"
+        "qty_base": "100.000",
+        "unit_id": "u-bag"
       },
       {
         "line_id": "l-2",
@@ -212,7 +219,8 @@
         },
         "base_unit_price": null,
         "unit_price": "25000.00",
-        "qty_base": "30.000"
+        "qty_base": "30.000",
+        "unit_id": "u-box"
       }
     ],
     "payments": [
@@ -220,13 +228,15 @@
         "leg_no": 1,
         "cash_account_id": "c-1",
         "cash_account_name": "الصندوق الرئيسي",
-        "amount": "50000"
+        "amount": "50000",
+        "refunded": false
       },
       {
         "leg_no": 2,
         "cash_account_id": "c-2",
         "cash_account_name": "حوالة زين كاش",
-        "amount": "39000"
+        "amount": "39000",
+        "refunded": false
       }
     ],
     "cost": {
@@ -234,7 +244,9 @@
         "cost": "110000.00",
         "profit": "29000.00"
       }
-    }
+    },
+    "open": "50000",
+    "can_collect": true
   },
   "sale_detail_walk_in": {
     "id": "s-8",
@@ -276,7 +288,8 @@
         "cost": {},
         "base_unit_price": null,
         "unit_price": "700.00",
-        "qty_base": "100.000"
+        "qty_base": "100.000",
+        "unit_id": null
       }
     ],
     "payments": [
@@ -284,10 +297,13 @@
         "leg_no": 1,
         "cash_account_id": "c-1",
         "cash_account_name": "الصندوق الرئيسي",
-        "amount": "70000"
+        "amount": "70000",
+        "refunded": false
       }
     ],
-    "cost": {}
+    "cost": {},
+    "open": "0",
+    "can_collect": false
   },
   "sales_overview": {
     "from": "2026-11-01",
@@ -326,7 +342,8 @@
             "cost": "50000.00",
             "profit": "20000.00"
           }
-        }
+        },
+        "items_count": 1
       },
       {
         "id": "s-7",
@@ -355,7 +372,8 @@
             "cost": "110000.00",
             "profit": "29000.00"
           }
-        }
+        },
+        "items_count": 2
       }
     ],
     "more": false,

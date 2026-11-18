@@ -764,7 +764,8 @@ export default async function (t) {
         const party = first('sale-party');
         const link = party?.childNodes.find((c) => c.localName === 'a');
         t.same([text(party), link?.getAttribute('href') ?? null], [sample.party_name, role === 'storekeeper' ? null : `/accounts/parties/${sample.party_id}`], `Q ${name}: الجهة (رابط كشفها لأدوار الحسابات وحدها)`);
-        t.eq(text(first('sale-payment')), sample.free ? 'بلا مقابل' : sample.payment_refunded ? 'نقداً، ثمّ رُدّ المبلغ' : sample.payment === 'cash' ? 'مدفوعة كلّها' : 'بالدين', `Q ${name}: الدفع بكلماته`);
+        // الملغاة تقول ما حدث لمقبوضها (مراجعة 0033 D7): بالدين بلا مقبوض = «ملغاة».
+        t.eq(text(first('sale-payment')), sample.status === 'void' ? 'ملغاة' : sample.free ? 'بلا مقابل' : sample.payment_refunded ? 'نقداً، ثمّ رُدّ المبلغ' : sample.payment === 'cash' ? 'مدفوعة كلّها' : 'بالدين', `Q ${name}: الدفع بكلماته`);
         t.eq(text(first('sale-status')), sample.status === 'void' ? 'ملغى' : 'محفوظ', `Q ${name}: الحالة`);
         const lines = tableOf(tablesIn(globalThis.document.body)[0]);
         const price = fils(sample.money.unit_price);

@@ -665,6 +665,8 @@ export interface SaleRow {
   itemName: string;
   /** عدد سطور الفاتورة (1 لفاتورة 0021). */
   lineCount: number;
+  /** عدد الموادّ المختلفة في الفاتورة (items_count): المادّة نفسها بسطرين مادّة واحدة (مراجعة 0033 D8). */
+  itemCount: number;
   /** زبون نقديّ بلا اسم (0033). */
   walkIn: boolean;
   /** الكمية بوحدة الأساس لفاتورة بسطر واحد، أو null لعدّة سطور (وحدات مختلفة). */
@@ -705,6 +707,7 @@ function saleRow(row: Row): SaleRow {
     return {
       ...head,
       lineCount: 1,
+      itemCount: 1,
       walkIn: false,
       qty: qtyOf(row, 'qty'),
       baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
@@ -717,6 +720,7 @@ function saleRow(row: Row): SaleRow {
   return {
     ...head,
     lineCount,
+    itemCount: nat(row, 'items_count'),
     walkIn: bool(row, 'walk_in'),
     qty: single ? qtyOf(row, 'qty') : null,
     baseUnit: single ? oneOf(row, 'base_unit', BASE_UNITS) : null,

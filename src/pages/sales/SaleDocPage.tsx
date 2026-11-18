@@ -26,15 +26,27 @@ import { dinars, INVOICE_IMAGE_WIDTH, inputMoney, invoiceImageName, invoiceTitle
 // والربح لأدوار الكلفة وحدها (cost.money يغيب لغيرها)، والملغاة بختمها وسببها بلا مبالغ. يفتحها كشف الجهة وحركة الأموال وقائمة المبيعات والفاتورة الجديدة
 // بعد حفظها؛ والرجوع إلى ?back= (الحسابات أو المبيعات) وإلّا المبيعات.
 
-/** طريق الرجوع من الرابط: مسار في الحسابات أو المبيعات وحده (بترميز URLSearchParams: المسافة «+»)، وإلّا صفحة المبيعات. */
+/**
+ * طريق الرجوع من الرابط: الرئيسية، أو مسار في الحسابات أو المبيعات أو المخزن (الفاتورة بعد حفظها من «بِع» في ملفّ المادّة، مراجعة 0033 D9) وحده (بترميز
+ * URLSearchParams: المسافة «+»)، وإلّا صفحة المبيعات.
+ */
 export function saleBack(value: string | null): string {
-  return value !== null && /^\/(?:accounts|sales)(?:[/?][\w\-/=&%.?+*]*)?$/u.test(value) ? value : '/sales';
+  return value !== null && /^\/(?:$|(?:accounts|sales|inventory)(?:[/?][\w\-/=&%.?+*]*)?$)/u.test(value) ? value : '/sales';
 }
 
-/** الدفع بكلماته: بلا مقابل، أو نقداً ثمّ رُدّ المبلغ، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع والباقي دين. */
-export function salePaymentText(sale: Pick<SaleInvoice, 'total' | 'paid' | 'debt' | 'walkIn' | 'paymentRefunded'>): string {
+/**
+ * الدفع بكلماته: بلا مقابل، أو رُدّ المقبوض كلّه، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع والباقي دين؛ وللملغاة ما حدث لمقبوضها (مراجعة
+ * 0033 D7). paymentRefunded = رُدّت ساق واحدة على الأقلّ، فـ«رُدّ» حين لا يبقى شيء مدفوعاً وحده (D3)، والمدفوع paid من السيقان التي لم تُردّ.
+ */
+export function salePaymentText(sale: Pick<SaleInvoice, 'status' | 'total' | 'paid' | 'debt' | 'walkIn' | 'paymentRefunded'>): string {
+  if (sale.status === 'void') {
+    // سيقان الزبون باسمه تبقى رصيداً له، وسيقان الزبون النقديّ تُردّ مع الإلغاء (رأس 0033).
+    if (sale.paid > 0n) return t('invoice.pay.void_kept', 'ملغاة، والمقبوض باقٍ رصيداً للجهة');
+    if (sale.paymentRefunded) return t('invoice.pay.void_refunded', 'ملغاة، ورُدّ المقبوض');
+    return t('invoice.pay.void', 'ملغاة');
+  }
   if (sale.total === 0n) return t('sales.free', 'بلا مقابل');
-  if (sale.paymentRefunded) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
+  if (sale.paymentRefunded && sale.paid === 0n) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
   if (sale.walkIn) return t('invoice.pay.walk_in', 'زبون نقديّ، مدفوعة كلّها');
   if (sale.debt === 0n) return t('invoice.pay.paid', 'مدفوعة كلّها');
   if (sale.paid === 0n) return t('file.payment.credit', 'بالدين');
@@ -102,7 +114,9 @@ export default function SaleDocPage() {
 
   const voided = data.status === 'void';
   const title = invoiceTitle(data.docNo);
-  const canCollect = mayCollect && !voided && !data.walkIn && data.debt > 0n;
+  // «استلم من الزبون» بقول الخادم (can_collect: محفوظة، باسم، متبقٍّ من قيدها، ودور يقبض في نطاق دفترها) والمبلغ المتبقّي الآن (open) لا دين البيع: القبض
+  // اللاحق لا يغيّر دين البيع (مراجعة 0033 D1).
+  const canCollect = mayCollect && data.canCollect && !voided && !data.walkIn;
 
   const deliver = async (file: File, imageTitle: string, docNo: string) => {
     const outcome = await sendFile(file, imageTitle);
@@ -119,7 +133,8 @@ export default function SaleDocPage() {
     setReady(null);
     let file: File;
     try {
-      file = await reportImage(paper, invoiceImageName(docNo), INVOICE_IMAGE_WIDTH);
+      // فاتحةً ولو كان الجهاز بالسمة الداكنة: الصورة للزبون (مراجعة 0033 D2).
+      file = await reportImage(paper, invoiceImageName(docNo), INVOICE_IMAGE_WIDTH, { light: true });
     } catch {
       setImaging(false);
       toast({ tone: 'danger', title: t('invoice.image.failed', 'تعذّر تجهيز صورة الفاتورة على هذا الجهاز. اطبعها أو احفظها PDF بدلاً من ذلك.') });
@@ -224,10 +239,16 @@ export default function SaleDocPage() {
       </div>
       {canCollect ? (
         <p className="text-sm text-ink-muted print:hidden" data-action="collect-note">
-          {t('invoice.collect.note', 'دين هذه الفاتورة عند البيع {debt}. «استلم من الزبون» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', {
-            debt: dinars(data.debt),
-            party: data.partyName,
-          })}
+          {data.open === data.debt
+            ? t('invoice.collect.note', 'دين هذه الفاتورة عند البيع {debt}. «استلم من الزبون» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', {
+                debt: dinars(data.debt),
+                party: data.partyName,
+              })
+            : t('invoice.collect.note_open', 'دين هذه الفاتورة عند البيع {debt}، والمتبقّي منه الآن {open}. «استلم من الزبون» يسجّل قبضاً على حساب «{party}» يُسدِّد أقدم ديونه أوّلاً، والمعاينة قبل الحفظ تسمّي ما يُسدَّد.', {
+                debt: dinars(data.debt),
+                open: dinars(data.open),
+                party: data.partyName,
+              })}
         </p>
       ) : null}
       {collecting ? (
@@ -235,7 +256,7 @@ export default function SaleDocPage() {
           kind="payment"
           party={partyOf(data)}
           bookId={data.bookId}
-          amount={inputMoney(data.debt)}
+          amount={inputMoney(data.open)}
           onClose={() => setCollecting(false)}
           onPosted={() => {
             setCollecting(false);

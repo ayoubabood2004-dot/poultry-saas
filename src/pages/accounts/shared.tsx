@@ -405,7 +405,8 @@ export function PaymentDialog({
     setForm({ ...form, ...patch });
     setPreview(null);
   };
-  const dirty = form.amount !== '' || form.bookId !== '' || form.accountId !== '';
+  // معدّل = غير ما فُتحت به: الحساب والمبلغ المملوءان مسبقاً («استلم من الزبون») لا يجعلان النافذة «فيها ما لم يُحفظ» (مراجعة 0033 D1).
+  const dirty = form.amount !== initialAmount || form.bookId !== initialBook || form.accountId !== '';
   const book = books.data?.find((option) => option.id === form.bookId);
   const account = boxes.data?.accounts.find((option) => option.accountId === form.accountId);
   const sentence = input && form.party && book ? paymentSentence(kind, form.party.name, bookLabel(book), input.amount) : '';

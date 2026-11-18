@@ -79,6 +79,14 @@ const costOf = (row: Row): { cost: Fils; profit: Fils } | null => {
   return { cost: fils(money, 'cost'), profit: fils(money, 'profit') };
 };
 
+/** مصفوفة رموز نصّية (alt_codes)؛ null من الخادم = بلا رموز. */
+const codes = (row: Row, field: string): string[] => {
+  const value = row[field];
+  if (value === null) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry === '')) throw new SaleShapeError(field);
+  return value as string[];
+};
+
 /** مبلغ بالدينار الصحيح نصّاً للنداء («15000»). */
 export const dinarArg = (amount: Fils): string => decimalText(amount / FILS_PER_DINAR, 0);
 
@@ -96,11 +104,15 @@ export interface CatalogItem {
   id: string;
   name: string;
   barcode: string | null;
+  /** رموز أخرى للمادّة (باركود ثانٍ لعبوة أخرى): الماسح والبحث يقرآنها كالباركود. */
+  altCodes: readonly string[];
   kind: ItemKind;
   category: string | null;
   baseUnit: BaseUnit;
   /** المتاح للبيع في هذا المخزن بوحدة الأساس. */
   available: Milli;
+  /** المنتهي الصلاحية في هذا المخزن بوحدة الأساس (خارج المتاح، لا يُباع). */
+  expired: Milli;
   /** سعر البيع لوحدة الأساس، أو null بلا سعر. */
   sellPrice: Fils | null;
   /** وحدات البيع من الخادم (for_sale، غير مؤرشفة)؛ وحدة الأساس تضيفها الشاشة أوّلاً. */
@@ -126,10 +138,12 @@ function catalogItem(row: Row): CatalogItem {
     id: str(row, 'item_id'),
     name: str(row, 'name'),
     barcode: optStr(row, 'barcode'),
+    altCodes: codes(row, 'alt_codes'),
     kind: oneOf(row, 'kind', ITEM_KINDS),
     category: optStr(row, 'category'),
     baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
     available: milli(row, 'available'),
+    expired: milli(row, 'expired'),
     sellPrice: optScaled(row, 'sell_price', 2),
     units: list(row.units, 'units').map((unit) => ({ unitId: str(unit, 'unit_id'), label: str(unit, 'label'), factor: scaled(unit, 'factor', 6) })),
   };
@@ -156,6 +170,11 @@ export interface SaleLineInput {
   itemId: string;
   /** null = وحدة الأساس. */
   unitId: string | null;
+  /**
+   * معامل الوحدة إلى الأساس كما رأته الشاشة (ستّ مراتب): الخادم يرفض unit_changed إن تغيّر تحت قفله (مراجعة 0033 C11). اختياريّ: طلب معلَّق من نسخة
+   * قبله يُعاد بلا معامل.
+   */
+  factor?: bigint;
   /** الكمية بوحدة السطر. */
   qty: Milli;
   /** السعر لوحدة السطر. */
@@ -235,6 +254,7 @@ export async function recordSaleV2(request: SaleRequest): Promise<RecordedInvoic
         line_id: line.lineId,
         item_id: line.itemId,
         unit_id: line.unitId,
+        ...(line.factor === undefined ? {} : { factor: decimalText(line.factor, 6) }),
         qty: decimalText(line.qty, 3),
         unit_price: decimalText(line.unitPrice, 2),
         discount: dinarArg(line.discount),
@@ -258,7 +278,10 @@ export interface InvoiceLine {
   baseUnit: BaseUnit;
   /** بوحدة الأساس. */
   qty: Milli;
-  /** اسم وحدة السطر، أو null لوحدة الأساس (تسمّيها الشاشة). */
+  /**
+   * اسم وحدة السطر، أو null لوحدة الأساس (تسمّيها الشاشة بالعربية): القاعدة تكتب رمز الأساس («kg») في unit_label لسطر بلا وحدة (unit_id null)، فلا
+   * يُعرض لاتينيّاً (مراجعة 0033 C1/D4).
+   */
   unitLabel: string | null;
   /** الكمية بوحدة السطر. */
   unitQty: Milli;
@@ -278,6 +301,8 @@ export interface InvoicePayment {
   cashAccountId: string;
   cashAccountName: string;
   amount: Fils;
+  /** رُدّ مبلغ هذه الساق («ألغِ القبض» أو إلغاء فاتورة نقديّة): ليس من المدفوع الآن. */
+  refunded: boolean;
 }
 
 export interface SaleInvoice {
@@ -296,7 +321,7 @@ export interface SaleInvoice {
   voidedAt: string | null;
   voidReason: string | null;
   canVoid: boolean;
-  /** نقداً ثمّ رُدّ المقبوض (فاتورة 0021 القديمة): يُقرأ بالدين. */
+  /** رُدّ شيء من المقبوض (ساق واحدة على الأقلّ، لا كلّه بالضرورة: انظر payments[].refunded)؛ المردود يُقرأ بالدين. */
   paymentRefunded: boolean;
   lines: readonly InvoiceLine[];
   payments: readonly InvoicePayment[];
@@ -304,11 +329,24 @@ export interface SaleInvoice {
   invoiceDiscount: Fils;
   discountTotal: Fils;
   total: Fils;
+  /** المدفوع الآن: السيقان التي لم تُردّ. */
   paid: Fils;
+  /** دين الفاتورة = الصافي − المدفوع الآن (لا يتغيّر بقبض لاحق). */
   debt: Fils;
+  /** المتبقّي الآن من قيد الفاتورة بعد ما سُدّد منه لاحقاً (open). */
+  open: Fils;
+  /** يُستلم من الزبون الآن (الخادم: محفوظة، باسم، متبقٍّ > 0، ودور يقبض في نطاق دفترها). */
+  canCollect: boolean;
   cost: { cost: Fils; profit: Fils } | null;
   /** قُرئت بشكل 0021 (سطر واحد في الجذر، بلا lines). */
   legacy: boolean;
+}
+
+/** اسم وحدة السطر: null لوحدة الأساس (unit_id null من القاعدة، أو الاسم = رمز الأساس، أو بلا اسم). */
+function lineLabel(line: Row): string | null {
+  const label = optStr(line, 'unit_label');
+  if (label === null || line.unit_id === null || label === line.base_unit) return null;
+  return label;
 }
 
 function invoiceLine(entry: Row): InvoiceLine {
@@ -320,7 +358,7 @@ function invoiceLine(entry: Row): InvoiceLine {
     baseUnit: oneOf(line, 'base_unit', BASE_UNITS),
     // أسماء القاعدة الحقيقية (عيّنات sales-0033.json): الكمية بالأساس qty_base، والسعر لوحدة السطر unit_price (وللأساس base_unit_price للعرض القديم).
     qty: milli(line, 'qty_base'),
-    unitLabel: optStr(line, 'unit_label'),
+    unitLabel: lineLabel(line),
     unitQty: milli(line, 'unit_qty'),
     unitPrice: fils(line, 'unit_price'),
     gross: fils(line, 'gross_total'),
@@ -385,6 +423,8 @@ export function parseSaleInvoice(value: unknown): SaleInvoice {
       total,
       paid,
       debt: total - paid,
+      open: total - paid,
+      canCollect: false,
       legacy: true,
     };
   }
@@ -396,13 +436,21 @@ export function parseSaleInvoice(value: unknown): SaleInvoice {
     note: optStr(json, 'note'),
     postedByName: optStr(json, 'posted_by_name'),
     lines,
-    payments: list(json.payments, 'payments').map((leg) => ({ legNo: int(leg, 'leg_no'), cashAccountId: str(leg, 'cash_account_id'), cashAccountName: boxName(leg), amount: fils(moneyRow(leg), 'amount') })),
+    payments: list(json.payments, 'payments').map((leg) => ({
+      legNo: int(leg, 'leg_no'),
+      cashAccountId: str(leg, 'cash_account_id'),
+      cashAccountName: boxName(leg),
+      amount: fils(moneyRow(leg), 'amount'),
+      refunded: flag(leg, 'refunded'),
+    })),
     grossTotal: lines.reduce((sum, line) => sum + line.gross, 0n),
     invoiceDiscount: fils(money, 'invoice_discount'),
     discountTotal: fils(money, 'discount_total'),
     total: fils(money, 'total'),
     paid: fils(money, 'paid'),
     debt: fils(money, 'debt'),
+    open: fils(money, 'open'),
+    canCollect: flag(json, 'can_collect'),
     legacy: false,
   };
 }
@@ -463,7 +511,14 @@ function asPending(value: unknown): PendingSale | null {
   const lines =
     Array.isArray(request.lines) &&
     request.lines.length > 0 &&
-    request.lines.every((line: unknown) => isRecord(line) && texts(line, ['lineId', 'itemId']) && (line.unitId === null || typeof line.unitId === 'string') && bigs(line, ['qty', 'unitPrice', 'discount']));
+    request.lines.every(
+      (line: unknown) =>
+        isRecord(line) &&
+        texts(line, ['lineId', 'itemId']) &&
+        (line.unitId === null || typeof line.unitId === 'string') &&
+        (line.factor === undefined || typeof line.factor === 'bigint') &&
+        bigs(line, ['qty', 'unitPrice', 'discount']),
+    );
   const legs = Array.isArray(request.payments) && request.payments.every((leg: unknown) => isRecord(leg) && texts(leg, ['legId', 'cashAccountId']) && bigs(leg, ['amount']));
   const shown =
     typeof summary.warehouseName === 'string' &&
