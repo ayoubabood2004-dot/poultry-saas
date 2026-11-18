@@ -104,9 +104,9 @@ async function scenario(t, db) {
     race: await item('علف التزامن', 'feed', 'kg'),
   };
   const unit = (itemId, label, factor, extra = {}) =>
-    one(U.owner, 'insert into public.item_units (item_id, label, factor_to_base, for_sale) values ($1, $2, $3, $4) returning id', [itemId, label, factor, extra.forSale ?? true]);
+    one(U.owner, 'insert into public.item_units (item_id, label, factor_to_base, for_sale, is_default) values ($1, $2, $3, $4, $5) returning id', [itemId, label, factor, extra.forSale ?? true, extra.isDefault ?? false]);
   const UN = {
-    bag: await unit(I.starter, 'كيس 50 كغم', 50),
+    bag: await unit(I.starter, 'كيس 50 كغم', 50, { isDefault: true }),
     ton: await unit(I.starter, 'طنّ', 1000),
     noSale: await unit(I.starter, 'برميل', 200, { forSale: false }),
     oldBag: await unit(I.starter, 'كيس 40 كغم', 40),
@@ -487,6 +487,15 @@ async function scenario(t, db) {
   // ── ١٢) الطفرات: كلّ قاعدة بتطبيق بديل معقول يكسرها، فيفشل فحصها ───────────────────────────────────────────────────────────
   const code = (expected, hint) => (r) => !r.ok && r.code === expected && (!hint || r.hint.includes(hint));
   const okWith = (pick, value) => (r) => r.ok && JSON.stringify(pick(r.value)) === JSON.stringify(value);
+  // sale_catalog لواجهة البيع: sold_30d = الفواتير المرحَّلة من المخزن في آخر 30 يوماً وفيها المادّة (الملغاة خارجها)، وis_default = الوحدة الافتراضية في item_units.
+  const catNow = (await read(U.owner, CAT, [W.feed])).items;
+  const soldIndep = await db.asUser(U.owner, async (q) => (await q("select l.item_id, count(distinct l.sale_id)::int as n from public.sales_lines l join public.sales_invoices s on s.org_id = l.org_id and s.id = l.sale_id where s.warehouse_id = $1 and s.status = 'posted' and s.sold_on > $2::date - 30 group by l.item_id", [W.feed, TODAY])).rows);
+  const unitDefaults = await db.asUser(U.owner, async (q) => (await q('select item_id, label from public.item_units where is_default and for_sale and archived_at is null')).rows);
+  const soldOf = (id) => soldIndep.find((r) => r.item_id === id)?.n ?? 0;
+  t.same(catNow.map((c) => [c.name, c.sold_30d, c.units.filter((u) => u.is_default).map((u) => u.label)]),
+    catNow.map((c) => [c.name, soldOf(c.item_id), unitDefaults.filter((d) => d.item_id === c.item_id).map((d) => d.label)]),
+    'sale_catalog: الأكثر بيعاً (sold_30d) من الفواتير المرحَّلة في آخر 30 يوماً من المخزن، والوحدة الافتراضية لكلّ مادّة');
+  t.ok(soldOf(I.starter) > 0 && catNow.some((c) => c.units.some((u) => u.is_default)), 'ضابط: علف بادئ مبيع في المدّة، ومادّة لها وحدة افتراضية');
   const v2As = (user, o) => async ({ attempt }) => attempt(user, async (q) => (await q(V2, args(o))).rows[0].v);
   const lrLines = () => [line(I.grower, 3, '35000', { discount: 1000 }), line(I.grower, '25.5', '720'), line(I.grower, 2, '30000', { discount: 500 })];
   const CASES = [
@@ -650,6 +659,12 @@ async function scenario(t, db) {
       fns: [[FN.paid, [['coalesce(sum(g.amount) filter (where not g.rev), 0)', 'coalesce(sum(g.amount), 0)']]]],
       run: async ({ attempt }) => attempt(U.owner, async (q) => norm((await q(DT, [E.sale])).rows[0].v.paid)),
       expect: okWith((v) => v, '1000'),
+    },
+    {
+      name: 'sale_catalog: الأكثر بيعاً من المرحَّلة وحدها (فاتورة A ملغاة)',
+      fns: [[FN.catalog, [["and s.status = 'posted' and s.sold_on > v_today - 30", 'and s.sold_on > v_today - 30']]]],
+      run: async ({ attempt }) => attempt(U.owner, async (q) => (await q(CAT, [W.feed])).rows[0].v.items.find((c) => c.item_id === I.starter).sold_30d),
+      expect: okWith((v) => v, soldOf(I.starter)),
     },
     {
       name: 'sale_catalog بوحدات البيع الفعّالة وحدها',

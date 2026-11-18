@@ -1220,8 +1220,8 @@ begin
   return jsonb_build_object('items', coalesce((
     select jsonb_agg(jsonb_build_object('item_id', i.id, 'name', i.name, 'barcode', i.barcode, 'alt_codes', to_jsonb(i.alt_codes), 'kind', i.kind,
         'category', c.name, 'base_unit', i.base_unit, 'tracks_expiry', i.tracks_expiry, 'available', q.available::text, 'expired', q.expired::text,
-        'sell_price', ip.sell_price::text,
-        'units', (select coalesce(jsonb_agg(jsonb_build_object('unit_id', u.id, 'label', u.label, 'factor', u.factor_to_base::text)
+        'sell_price', ip.sell_price::text, 'sold_30d', sold.n,
+        'units', (select coalesce(jsonb_agg(jsonb_build_object('unit_id', u.id, 'label', u.label, 'factor', u.factor_to_base::text, 'is_default', u.is_default)
             order by u.factor_to_base, u.label collate "C", u.id), '[]'::jsonb)
           from public.item_units u where u.org_id = i.org_id and u.item_id = i.id and u.for_sale and u.archived_at is null))
       order by i.name collate "C", i.id)
@@ -1229,6 +1229,10 @@ begin
     left join public.item_categories c on c.org_id = i.org_id and c.id = i.category_id
     left join public.item_prices ip on ip.org_id = i.org_id and ip.item_id = i.id
     cross join lateral private.stock_at(i.id, w.id, v_today) as q
+    -- الأكثر بيعاً هنا (واجهة البيع): عدد الفواتير المرحَّلة من هذا المخزن في آخر 30 يوماً وفيها المادّة؛ عدد لا مال.
+    cross join lateral (select count(distinct l.sale_id)::int as n from public.sales_lines l
+      join public.sales_invoices s on s.org_id = l.org_id and s.id = l.sale_id
+      where l.org_id = i.org_id and l.item_id = i.id and s.warehouse_id = w.id and s.status = 'posted' and s.sold_on > v_today - 30) as sold
     where i.org_id = v_org and i.archived_at is null and i.kind not in ('hatching_egg', 'chick', 'table_egg') and private.item_admissible(w.kind, i.kind)
   ), '[]'::jsonb),
     'cash_accounts', (select coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'name', a.name, 'kind', a.kind) order by a.name collate "C", a.id), '[]'::jsonb)
