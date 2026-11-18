@@ -1,12 +1,14 @@
 -- rollback_0033 — تراجع «الفاتورة الاحترافيّة» (0033_sales_invoice؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع record_sale وvoid_sale
---   وsale_detail وverify_sales وprivate.sale_result كما في 0021، وsales_overview وsales_report وprivate.entry_detail كما في 0029 حرفاً بحرف (md5 نفسه
---   بالكتالوج)، ويُسقط record_sale_v2 وsale_catalog والمساعدات (json_uuid وjson_num وwalk_in_party وsale_paid وsale_more وsale_v2_content وsale_v2_result
---   وparty_entries_walk_in ومحفّزها) وجدول sales_payments (بسياسته ومحفّزه وفهارسه)، ويرجّع سياسة audit_log_sale_scope وقيد sales_invoices_payment_check
---   كما في 0021، ويُسقط الأعمدة الجديدة وقيودها وفهرسها من sales_invoices وsales_lines وparties.
+--   وsale_detail وverify_sales وprivate.sale_result كما في 0021، وsales_overview وsales_report وprivate.entry_detail كما في 0029، وprivate.party_for_post
+--   كما في 0006، حرفاً بحرف (md5 نفسه بالكتالوج)، ويُسقط record_sale_v2 وsale_catalog والمساعدات (json_uuid وjson_num وwalk_in_party وsale_paid وsale_more
+--   وsale_v2_content وsale_v2_result وlock_sale_party وsale_void_block، وparty_entries_walk_in وparty_not_system وparties_system_guard بمحفّزاتها على
+--   party_entries وreceipts وreceipt_charges وitem_units وparties) وجدول sales_payments (بسياسته ومحفّزه وفهارسه)، ويرجّع سياسة audit_log_sale_scope
+--   وقيد sales_invoices_payment_check كما في 0021، ويُسقط الأعمدة الجديدة وقيودها وفهرسها من sales_invoices وsales_lines وparties.
 -- **طريق رفض (الكتلة الأولى أدناه):** ما لا يحمله النموذج القديم يوقف التراجع بصوت بلا أن يغيّر شيئاً، بفرع لكلّ حقيقة مستقلّة: فاتورة بأكثر من سطر،
 --   وفاتورة بخصم (سطر أو فاتورة)، وفاتورة بأكثر من ساق دفع، وفاتورة بدفع جزئيّ (المدفوع بين الصفر والصافي)، وسطر بوحدة غير الأساس، وفاتورة بملاحظة،
---   وفاتورة لزبون نقديّ أو حسابه (طرف نظاميّ يصير جهة عادية ظاهرة). وما سوى ذلك من فواتير record_sale_v2 (سطر بوحدة الأساس وبلا خصم ولا ملاحظة،
---   مدفوعة كلّها من صندوق واحد أو دَين كلّها) يُنقل للشكل القديم: ساقها الواحدة إلى الرأس (الصندوق وقيد القبض وحركته)، فيقبله القيد القديم وثوابته.
+--   وفاتورة لزبون نقديّ أو حسابه (طرف نظاميّ يصير جهة عادية ظاهرة)، وصفّ تدقيق لساق فاتورة جديدة (سياسة 0021 لا تعرف sales_payments فيظهر بعدها
+--   لكلّ دور كلفة خارج نطاق مخزنه؛ مراجعة 0033 V3، وساق المرآة بلا صفّ تدقيق). فما يبقى من فواتير record_sale_v2 سطر بوحدة الأساس بالدين كلّها؛
+--   والنقل (الكتلة ١) يحمل ساق الفاتورة الجديدة المدفوعة من صندوق واحد إلى رأسها حين يُطفأ فرع التدقيق وحده (ضابط فرعه)، فيقبلها القيد القديم وثوابته.
 -- تنعاد بأمان: الكتلة الأولى تخرج إن لم يبقَ الجدول، والنقل لما لم يُنقل وحده، وcreate or replace، وdrop if exists، وكتل do تفحص الكتالوج قبل القيود
 --   والسياسات.
 
@@ -22,6 +24,7 @@ declare
   v_units bigint;
   v_notes bigint;
   v_walk_in bigint;
+  v_audit bigint;
 begin
   if to_regclass('public.sales_payments') is null then
     return;
@@ -35,6 +38,7 @@ begin
   execute 'select count(*) from public.sales_lines l where l.item_unit_id is not null or l.unit_factor <> 1' into v_units;
   execute 'select count(*) from public.sales_invoices s where s.note is not null' into v_notes;
   execute 'select (select count(*) from public.sales_invoices s where s.walk_in) + (select count(*) from public.parties p where p.system_kind is not null)' into v_walk_in;
+  select count(*) into v_audit from public.audit_log where table_name = 'sales_payments';
   if v_multi > 0 then
     raise exception 'rollback_blocked' using hint = format('توجد %s فاتورة بيع بأكثر من سطر، والنموذج القديم سطر واحد لكلّ فاتورة. لا تراجع لـ0033 بعد استعمالها.', v_multi);
   end if;
@@ -55,6 +59,12 @@ begin
   end if;
   if v_walk_in > 0 then
     raise exception 'rollback_blocked' using hint = 'توجد فاتورة لزبون نقديّ أو حسابه، والنموذج القديم لا يعرف الزبون النقديّ. لا تراجع لـ0033 بعد استعمالها.';
+  end if;
+  -- سجلّ التدقيق لا يُمحى، وسياسة نطاقه في 0021 لا تعرف sales_payments: صفّ ساق مدقَّق (فاتورة record_sale_v2 دُفع منها شيء) يظهر بعد التراجع
+  -- بمخزنه ومبلغه لكلّ دور كلفة خارج نطاق مخزنه (مراجعة 0033 V3). وساق المرآة (البيع القديم والملء) بلا صفّ تدقيق. والفرع بعد الحقائق الأخرى
+  -- (كـ0026): فاتورة بأكثر من ساق أو بدفع جزئيّ أو لزبون نقديّ تسمّي سببها، وهذا لفاتورة جديدة مدفوعة كلّها من صندوق واحد.
+  if v_audit > 0 and v_multi + v_discount + v_legs + v_partial + v_units + v_notes + v_walk_in = 0 then
+    raise exception 'rollback_blocked' using hint = format('في سجلّ التدقيق %s صفّاً من سيقان الدفع لفواتير البيع الجديدة، والتراجع يُسقط نطاقها فتظهر لمن هو خارج نطاق مخزنها. لا تراجع لـ0033 بعد استعمالها.', v_audit);
   end if;
 end
 $$;
@@ -721,6 +731,31 @@ drop function if exists private.json_num(jsonb, text);
 drop function if exists private.json_uuid(jsonb, text);
 drop trigger if exists party_entries_walk_in on public.party_entries;
 drop function if exists private.party_entries_walk_in();
+drop function if exists private.sale_void_block(uuid);
+drop function if exists private.lock_sale_party(uuid, uuid, boolean);
+drop trigger if exists receipts_party_not_system on public.receipts;
+drop trigger if exists receipt_charges_party_not_system on public.receipt_charges;
+drop trigger if exists item_units_party_not_system on public.item_units;
+drop function if exists private.party_not_system();
+drop trigger if exists parties_system_guard on public.parties;
+drop function if exists private.parties_system_guard();
+
+-- party_for_post كما في 0006 (بلا رفض حساب النظام، مراجعة 0033 B4):
+create or replace function private.party_for_post(p_party uuid) returns public.parties
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  p public.parties;
+begin
+  if p_party is null then
+    raise exception 'party_required' using hint = 'اختر الجهة.';
+  end if;
+  select * into p from public.parties where org_id = public.auth_org() and id = p_party;
+  if p.id is null then
+    raise exception 'party_not_found' using hint = 'هذه الجهة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
+  end if;
+  return p;
+end
+$$;
 
 -- ٥) سياسة سجلّ التدقيق كما في 0021، والسيقان (بسياستيها ومحفّزها وفهارسها):
 do $$

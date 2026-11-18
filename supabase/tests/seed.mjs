@@ -727,7 +727,9 @@ const salesV2Ready = async (db) => {
 
 /** 0033: فاتورة record_sale_v2 بالمدير (سطور وخصم وسيقان وملاحظة وجهة اختيارية)، تثبت. */
 const saleV2 = async (db, s, o) => db.asUser(U.manager, async (q) => {
-  const lines = o.lines.map((l, i) => ({ line_id: l.id ?? H33(40 + i + (o.seq ?? 0) * 5), item_id: s.corn, unit_id: l.unit ?? null, qty: l.qty, unit_price: l.price, discount: l.discount ?? '0' }));
+  // حجم الوحدة كما رأته الشاشة إلزاميّ لسطر بوحدة بيع (مراجعة 0033 A2).
+  const lines = o.lines.map((l, i) => ({ line_id: l.id ?? H33(40 + i + (o.seq ?? 0) * 5), item_id: s.corn, unit_id: l.unit ?? null, qty: l.qty, unit_price: l.price, discount: l.discount ?? '0',
+    ...(l.unit ? { factor: l.factor } : {}) }));
   const payments = (o.payments ?? []).map((g, i) => ({ leg_id: H33(70 + i + (o.seq ?? 0) * 5), cash_account_id: g.box, amount: g.amount }));
   return value(q, 'select public.record_sale_v2($1, $2, $3, $4, public.app_today(), $5::jsonb, $6, $7::jsonb, $8)', [o.ref, o.sale, s.raw, o.party === undefined ? s.customer : o.party,
     JSON.stringify(lines), o.discount ?? 0, JSON.stringify(payments), o.note ?? null]);
@@ -735,7 +737,8 @@ const saleV2 = async (db, s, o) => db.asUser(U.manager, async (q) => {
 
 /**
  * 0033 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها: فاتورة بسطرين، وفاتورة بخصم سطر، وفاتورة مدفوعة من صندوقين، وفاتورة دُفع بعضها،
- * وسطر بالكيس، وفاتورة بملاحظة، وفاتورة لزبون نقديّ. التراجع يُسقط ما يحملها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
+ * وسطر بالكيس، وفاتورة بملاحظة، وفاتورة لزبون نقديّ، وفاتورة جديدة مدفوعة كلّها من صندوق (صفّ تدقيق ساقها، مراجعة 0033 V3). التراجع يُسقط ما يحملها
+ * فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
  */
 const invoiceSeed = (variant) => async (db) => {
   const s = await salesV2Ready(db);
@@ -746,9 +749,10 @@ const invoiceSeed = (variant) => async (db) => {
     discount: { lines: [{ ...one, discount: '100' }] },
     legs: { lines: [one], payments: [{ box: s.box, amount: '4000' }, { box: s.bank, amount: '2000' }] },
     partial: { lines: [one], payments: [{ box: s.box, amount: '1000' }] },
-    unit: { lines: [{ qty: '1', price: '20000', unit: s.bag }] },
+    unit: { lines: [{ qty: '1', price: '20000', unit: s.bag, factor: '50' }] },
     note: { lines: [one], note: 'تسليم في المخزن' },
     walk_in: { party: null, lines: [one], payments: [{ box: s.box, amount: '6000' }] },
+    cash: { lines: [one], payments: [{ box: s.box, amount: '6000' }] },
   }[variant];
   await saleV2(db, s, { ...base, ...o });
 };
@@ -764,6 +768,8 @@ export const BLOCKING_SEEDS = {
     { name: 'سطر بوحدة بيع', code: 'rollback_blocked', seed: invoiceSeed('unit'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_units > 0 then', 'if false then') },
     { name: 'فاتورة بملاحظة', code: 'rollback_blocked', seed: invoiceSeed('note'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_notes > 0 then', 'if false then') },
     { name: 'فاتورة لزبون نقديّ', code: 'rollback_blocked', seed: invoiceSeed('walk_in'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_walk_in > 0 then', 'if false then') },
+    // مراجعة 0033 V3: فاتورة جديدة مدفوعة كلّها من صندوق واحد (لا شيء غيرها يوقف التراجع): صفّ تدقيق ساقها يظهر بعده خارج النطاق.
+    { name: 'ساق مدقَّقة لفاتورة جديدة', code: 'rollback_blocked', seed: invoiceSeed('cash'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_audit > 0 and', 'if false and') },
   ],
   32: [
     {
@@ -1221,7 +1227,7 @@ export const BLOCKING_REQUIRED = [
   [30, 2, 'جدول نوع بنهاية مفتوحة، وجدول قاعة بنهاية مفتوحة، كلّ واحد يوقف التراجع'],
   [31, 2, 'ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت فبقي صفّها بنسخته، كلّ واحدة توقف التراجع'],
   [32, 3, 'زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة، كلّ واحدة توقف التراجع'],
-  [33, 7, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، كلّ واحدة توقف التراجع'],
+  [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
 ];
 
 /**
@@ -1681,12 +1687,12 @@ const visitsRedone = async (db) => {
 };
 
 /**
- * 0033: حالة التراجع الكاملة: فاتورة record_sale_v2 بسطر وبوحدة الأساس مدفوعة كلّها من الصندوق (يُنقلها التراجع للشكل القديم)، وفاتورة بالدين كلّها،
- * وبيع قديم نقداً بـrecord_sale (بساقه). بلا ما لا يحمله النموذج القديم، فالتراجع يكمل.
+ * 0033: حالة التراجع الكاملة: فاتورتا record_sale_v2 بسطر وبوحدة الأساس بالدين كلّها، وبيع قديم نقداً بـrecord_sale (بساق مرآة بلا صفّ تدقيق).
+ * بلا ما لا يحمله النموذج القديم، فالتراجع يكمل. (فاتورة جديدة مدفوعة من صندوق يوقفها صفّ تدقيق ساقها، مراجعة 0033 V3: بذرة «ساق مدقَّقة».)
  */
 const salesFullReady = async (db) => {
   const s = await salesV2Ready(db);
-  await saleV2(db, s, { ref: H33(10), sale: H33(11), lines: [{ qty: '10', price: '600' }], payments: [{ box: s.box, amount: '6000' }] });
+  await saleV2(db, s, { ref: H33(10), sale: H33(11), lines: [{ qty: '10', price: '600' }] });
   await saleV2(db, s, { ref: H33(12), sale: H33(13), seq: 1, lines: [{ qty: '5', price: '700' }] });
   await db.asUser(U.manager, (q) => q("select public.record_sale($1, $2, $3, $4, $5, 2, 650, public.app_today(), 'cash', $6, null)", [H33(14), H33(15), H33(16), s.customer, s.corn, s.box]), { commit: true });
 };
@@ -1702,17 +1708,19 @@ const salesOn0032 = async (db) => {
 };
 
 /**
- * 0033: بعد الإعادة: كلّ بيع نقديّ (المنقولة والقديمان) ساق واحدة بمعرّف مشتقّ مرآة رأسه، والصافي والمدفوع كما كانا؛ وفاتورة بسطرين وخصم وسيقان، وأخرى
- * لزبون نقديّ، تُكتبان وتُقرآن؛ والثوابت صفر.
+ * 0033: بعد الإعادة: كلّ بيع نقديّ (القديمان) ساق واحدة بمعرّف مشتقّ مرآة رأسه، والصافي والمدفوع كما كانا، وبلا صفّ تدقيق لساق المرآة (الملء وrecord_sale،
+ * مراجعة 0033 V3)؛ وفاتورة بسطرين وخصم وسيقان، وأخرى لزبون نقديّ، تُكتبان وتُقرآن؛ والثوابت صفر.
  */
 const salesRedone = async (db) => {
   const problems = [];
   const legs = (await db.admin(`select s.id::text as sale, s.total::text as total, s.paid::text as paid, g.id = md5(s.id::text || ':1')::uuid as derived,
       g.cash_account_id = s.cash_account_id and g.payment_entry_id = s.payment_entry_id and g.cash_move_id = s.cash_move_id as mirror
     from public.sales_invoices s left join public.sales_payments g on g.sale_id = s.id where s.payment = 'cash' order by s.doc_no`)).rows;
-  const expected = [[H33(11), '6000', '6000'], [H33(15), '1300', '1300'], [H33(18), '1800', '1800']].sort((a, b) => a[0].localeCompare(b[0]));
+  const expected = [[H33(15), '1300', '1300'], [H33(18), '1800', '1800']].sort((a, b) => a[0].localeCompare(b[0]));
   const seen = legs.map((r) => [r.sale, r.total, r.paid]).sort((a, b) => a[0].localeCompare(b[0]));
   if (JSON.stringify(seen) !== JSON.stringify(expected) || legs.some((r) => !r.derived || !r.mirror)) problems.push(`سيقان البيع النقديّ بعد الإعادة: ${JSON.stringify(legs)}`);
+  const mirrorAudit = (await db.admin("select count(*)::int as n from public.audit_log where table_name = 'sales_payments'")).rows[0].n;
+  if (mirrorAudit !== 0) problems.push(`ساق المرآة بعد الإعادة بصفّ تدقيق (${mirrorAudit})، فيظهر بعد تراجع ثانٍ خارج النطاق`);
   try {
     const s = await db.asUser(U.manager, async (q) => ({
       corn: await value(q, "select id from public.items where name = 'ذرة صفراء'"),

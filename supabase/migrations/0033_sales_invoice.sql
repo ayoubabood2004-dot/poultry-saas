@@ -28,21 +28,47 @@
 --   وvoid_sale (علم المعاملة app.walk_in_sale)، فلا قبض ولا «ألغِ القبض» ولا افتتاح ولا تسوية عليه؛ وverify_sales يمسك أيّ رصيد له أو قيد من غير
 --   فاتورة نقديّة. record_sale القديمة ترفض اختياره جهةً (walk_in_party).
 -- إلغاء الفاتورة (قرار الوكيل بشرط صدق الدفاتر): البضاعة ترجع لدفعاتها وقيد الفاتورة يُعكس كما الآن؛ وسيقان الزبون باسمه تبقى رصيداً له (كما 0021،
---   وتُردّ من «ألغِ القبض»)؛ وسيقان الزبون النقديّ تُردّ معه بيوم الإلغاء (قيد عكسيّ وحركة صندوق عكسيّة لكلّ ساق)، إذ لا اسم يبقى له رصيد.
+--   وتُردّ من «ألغِ القبض»)؛ وسيقان الزبون النقديّ تُردّ معه بيوم الإلغاء (قيد عكسيّ وحركة صندوق عكسيّة لكلّ ساق)، إذ لا اسم يبقى له رصيد. والملغاة
+--   في القرّاء بلا دين ولا متبقٍّ (debt = open = 0).
 -- انحرافات مكتوبة (بلا سؤال، داخل الخطوط الحمر والعقد):
 --   • record_sale القديمة على جسمها في 0021 كما هي (رفوضها وترتيبها ونتائجها وطفرات sales.test)، وتكتب فوقه الأعمدة الجديدة وساقها، ولا تُبنى على
 --     نواة record_sale_v2 (الواجهة المنشورة حتى الدمج؛ تُطوى بعده).
 --   • مفاتيح القراءة الجديدة في المستوى الأعلى بأسماء العقد (total وpaid وdebt وdiscount_total وwalk_in وnote وposted_by_name وlines وpayments)،
 --     والكلفة تحت cost.money (strip_cost) في كلّ سطر وللفاتورة.
---   • paid في القرّاء = السيقان التي لم تُردّ («ألغِ القبض» أو إلغاء الفاتورة النقديّة)، وdebt = الصافي − paid؛ وعمود paid = المدفوع عند البيع.
---   • p_lines يقبل مفتاحاً اختيارياً factor (معامل الوحدة كما رأته الشاشة): إن حضر وخالف المعامل الآن تحت القفل unit_changed. وصفّ الوحدة يُقفل للمشاركة
---     بعد المادّة، فلا يتغيّر معاملها أثناء البيع.
+--   • paid في القرّاء = السيقان التي لم تُردّ («ألغِ القبض» أو إلغاء الفاتورة النقديّة)، وdebt = الصافي − paid للمرحَّلة (صفر للملغاة)؛ وعمود paid =
+--     المدفوع عند البيع. وopen = المتبقّي من قيد الفاتورة بعد كلّ ما وُزّع عليه (والتحصيل اللاحق منه)، فـdebt دين الفاتورة بسيقانها وopen ما بقي منه
+--     فعلاً؛ وpayment_refunded = رُدّت كلّ السيقان (معنى 0021: القبض رُدّ)، وعلامة كلّ ساق في payments[].refunded.
+--   • p_lines: سطر بوحدة بيع يحمل factor (حجم الوحدة كما رأته الشاشة) إلزاماً، وإلّا factor_required؛ وإن خالف حجمها الآن unit_changed. وصفّ الوحدة
+--     يُقرأ بلا قفل (كما هو لحظة القراءة): ما ثبت قبلها يُرى ويُرفض بحجمه، وما ثبت بعدها لا يغيّر ما بِيع بالحجم الذي رآه البائع.
 --   • البيع بالمجّان (السعر صفر) يبقى كما في 0021 (بلا قيد إن كان الصافي صفراً)؛ وخصم يجعل الصافي صفراً كذلك.
 --   • سقف السطور 100 والسيقان 5، والإعادة بالمعرّف تقارن المحتوى بعد تطبيعه (trim_scale) فـ«2» و«2.000» واحد.
+-- المراجعة العدائية (جهة القاعدة؛ مراجعان أثبتا كلّ ملاحظة على الشفرة، والإصلاح بفحص فشل قبله في sales-invoice-review.test وsales-invoice.test وseed.mjs):
+--   • A1 لكلّ صفّ في sales_overview المفتاح open (المتبقّي، صفر للملغاة وبلا قيد) وtotals.open (للمرحَّلة)؛ والمفاتيح القديمة بمعانيها للواجهة المنشورة.
+--   • A2/B1 factor إلزاميّ لسطر بوحدة بيع (factor_required). B2 بلا قفل مشاركة على صفوف الوحدات: كان يتقافل (40P01) مع تبديل الوحدة الافتراضية،
+--     الذي يقفل الجديدة ثمّ القديمة بمحفّز item_units_check (0005)، والحجم الإلزاميّ يكفي لصدق ما رآه البائع.
+--   • A3 الملغاة بلا دين في sale_detail وsale_more وصفوف القائمة، وpayment_refunded = bool_and على السيقان الموجودة (false بلا سيقان).
+--   • A4 entry_detail لقيد الفاتورة بالمدفوع الآن (private.sale_paid) وطريقة الدفع منه كتفصيل الفاتورة، والساق بعلامة ردّها.
+--   • A5 verify_sales: كلّ ما عكسه الإلغاء (المخزون وقيد الفاتورة، وللنقديّة قيود السيقان وحركات ردّها) بيوم واحد لا قبل يوم البيع. A6 وقيد الفاتورة
+--     وقيود السيقان برقم الفاتورة (doc_no).
+--   • A7 المبالغ بالدينار الصحيح (خصم السطر وخصم الفاتورة والسيقان) تُطبَّع (round(…, 0)) قبل الحساب والتخزين: «1000.00» يُخزَّن ويُرجع «1000».
+--   • B3 الزبون النقديّ يُقفل لكلّ (جهة، دفتر) (private.lock_sale_party): قفل مشترك على الجهة يُبقي ما يحميه قفلها الحصريّ (الأرشفة وكلّ كاتب
+--     بـlock_parties)، وقفل حصريّ بمفتاح يحمل المنشأة لما يحميه لكلّ دفتر (ترقيم القيد والتوزيع والإلغاء)؛ فلا تنتظر نقديّة من مخزن نقديّةً من آخر.
+--   • B4 حساب النظام لا يُختار في غير البيع: party_for_post يرفضه (القبض والدفع والافتتاح والتسوية والإعفاء ومعاينة التوزيع والمصروف بالدين وترحيل
+--     الاستلام والشراء البسيط وبيع الطيور)، ومحفّز party_not_system على مسوّدة الاستلام وناقل التحميل ووحدة المورّد، وparties_system_guard على صفّه؛
+--     والقرّاء (الكشف وحركة الأموال) تقرؤه.
+--   • B6 معرّف سطر أو ساق (أو فاتورة من منشأة أخرى) في فاتورة متزامنة: unique_violation يُرفع id_conflict بتلميحه.
+--   • can_void في sale_detail ولكلّ صفّ في القائمة من private.sale_void_block: فحوص void_sale نفسها وبترتيبها (الفعل والمخزن ودفتر الفاتورة
+--     وقفل يوم الإلغاء والحالة)، وvoid_block رمزها؛ وcan_void في رأس القائمة can('void') كما كان.
+--   • مفتاح قفل معرّف الفاتورة 'sale:' يحمل المنشأة في record_sale_v2 وrecord_sale (قاعدة المشروع).
+--   • ساق المرآة (البيع القديم وملء الفواتير القديمة) بلا صفّ تدقيق (app.sale_mirror_leg، شرط محفّز audit_sales_payments): نسخة رأسها المدقَّق بنطاق
+--     مخزنه؛ وصفّ ساق مدقَّق (فاتورة جديدة دُفع منها شيء) يوقف التراجع، إذ سياسة سجلّ التدقيق في 0021 لا تعرف sales_payments فيظهر بعده خارج النطاق.
+--   • مقبولة بكلمة المالك (تُكتب ولا تُغيَّر): B5 record_sale_v2 لا تشترط is_customer (كـ0021)، وB7 من يقرأ sale_detail يرى أسماء صناديق السيقان
+--     (بلا أرصدة).
 -- تراجع: rollback_0033.sql — يرجّع record_sale وvoid_sale وsale_detail وverify_sales وprivate.sale_result كما في 0021، وsales_overview وsales_report
---   وprivate.entry_detail كما في 0029 حرفاً بحرف، ويُسقط الجديد (الدوالّ والجدول والأعمدة والقيود والسياسة والمحفّز)، ويرجّع القيد القديم. **طريق رفض**:
---   فاتورة بأكثر من سطر، أو بخصم، أو بأكثر من ساق، أو بدفع جزئيّ، أو بوحدة غير الأساس، أو بملاحظة، أو لزبون نقديّ (أو وُجد حسابه)، كلّ واحدة توقف
---   التراجع بصوت (بيانات لا يحملها النموذج القديم)؛ وفاتورة record_sale_v2 بسطر وبلا ذلك كلّه تُنقل للشكل القديم (ساقها الواحدة إلى الرأس).
+--   وprivate.entry_detail كما في 0029، وprivate.party_for_post كما في 0006، حرفاً بحرف، ويُسقط الجديد (الدوالّ والجدول والأعمدة والقيود والسياسة
+--   والمحفّزات)، ويرجّع القيد القديم. **طريق رفض**: فاتورة بأكثر من سطر، أو بخصم، أو بأكثر من ساق، أو بدفع جزئيّ، أو بوحدة غير الأساس، أو بملاحظة،
+--   أو لزبون نقديّ (أو وُجد حسابه)، أو صفّ تدقيق لساق فاتورة جديدة، كلّ واحدة توقف التراجع بصوت (بيانات لا يحملها النموذج القديم، أو تظهر بعده خارج
+--   نطاقها)؛ وفاتورة record_sale_v2 بسطر وبالدين كلّها تبقى بالشكل القديم.
 -- تنعاد بأمان: add column if not exists، وcreate table/index if not exists، وكتل do تفحص الكتالوج قبل القيود والسياسات، والملء لما لم يُملأ وحده،
 --   وcreate or replace، وrevoke وgrant.
 
@@ -76,6 +102,62 @@ end
 $$;
 create or replace trigger party_entries_walk_in before insert on public.party_entries
   for each row execute function private.party_entries_walk_in();
+
+-- مراجعة 0033 B4: معرّف «زبون نقديّ» يصل إلى الجهاز في نتائج البيع، فكلّ ما يأخذ جهةً من الجهاز لغير البيع يرفضه قبل أن يكتب شيئاً (الشراء بلا سعر
+-- لا يكتب قيداً فلا يراه party_entries_walk_in، ثمّ يُرفض تسعيره أبداً). ثلاثة أبواب: party_for_post (القبض والدفع والافتتاح والتسوية والإعفاء
+-- ومعاينة التوزيع والمصروف بالدين وترحيل الاستلام والشراء البسيط وبيع الطيور)، ومحفّز على ما تكتبه الشاشة مباشرة بجهة (مسوّدة الاستلام وناقل
+-- التحميل ووحدة المورّد)، ومحفّز على صفّ الحساب نفسه (لا يُعدَّل ولا يُؤرشف). والقرّاء (الكشف وحركة الأموال) تقرؤه كما هو.
+create or replace function private.party_for_post(p_party uuid) returns public.parties
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  p public.parties;
+begin
+  if p_party is null then
+    raise exception 'party_required' using hint = 'اختر الجهة.';
+  end if;
+  select * into p from public.parties where org_id = public.auth_org() and id = p_party;
+  if p.id is null then
+    raise exception 'party_not_found' using hint = 'هذه الجهة غير موجودة في منشأتك. حدّث الشاشة واختر من جديد.';
+  end if;
+  if p.system_kind is not null then
+    raise exception 'walk_in_party' using hint = '«زبون نقديّ» حساب النظام للبيع النقديّ بلا اسم، فلا يُختار مورّداً ولا جهةً لقبض أو دفع أو افتتاح أو تسوية أو إعفاء أو مصروف. اختر جهة باسمها.';
+  end if;
+  return p;
+end
+$$;
+
+-- الجهة التي تكتبها الشاشة مباشرة (العمود في tg_argv[0]) ليست حساب النظام، عند الإدراج أو حين تتغيّر.
+create or replace function private.party_not_system() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_party uuid := (to_jsonb(new) ->> tg_argv[0])::uuid;
+begin
+  if v_party is not null and (tg_op = 'INSERT' or v_party is distinct from (to_jsonb(old) ->> tg_argv[0])::uuid)
+     and exists (select 1 from public.parties p where p.org_id = new.org_id and p.id = v_party and p.system_kind is not null) then
+    raise exception 'walk_in_party' using hint = '«زبون نقديّ» حساب النظام للبيع النقديّ بلا اسم، فلا يُختار مورّداً ولا ناقلاً ولا صاحب وحدة تعبئة. اختر جهة باسمها.';
+  end if;
+  return new;
+end
+$$;
+create or replace trigger receipts_party_not_system before insert or update on public.receipts
+  for each row execute function private.party_not_system('party_id');
+create or replace trigger receipt_charges_party_not_system before insert or update on public.receipt_charges
+  for each row execute function private.party_not_system('payee_party_id');
+create or replace trigger item_units_party_not_system before insert or update on public.item_units
+  for each row execute function private.party_not_system('party_id');
+
+-- صفّ حساب النظام لا يُعدَّل (اسمه وهاتفه وأرشفته): سياسة القراءة تخفيه عمّا يقرأ صفوفه، وتعديل بلا شرط يقرأ عموداً يصل إليه، فهذا يردّه.
+create or replace function private.parties_system_guard() returns trigger
+language plpgsql set search_path = pg_catalog, pg_temp as $$
+begin
+  if old.system_kind is not null then
+    raise exception 'walk_in_party' using hint = '«زبون نقديّ» حساب النظام للبيع النقديّ بلا اسم، فلا يُعدَّل ولا يُؤرشف. اختر جهة باسمها.';
+  end if;
+  return new;
+end
+$$;
+create or replace trigger parties_system_guard before update on public.parties
+  for each row execute function private.parties_system_guard();
 
 -- ─── ب. الفاتورة وسطورها: الأعمدة الجديدة وملؤها وقيودها ──────────────────────────────────────────────────────────────
 alter table public.sales_invoices add column if not exists discount_total numeric not null default 0;
@@ -204,7 +286,10 @@ alter table public.sales_payments enable row level security;
 
 do $$
 begin
-  execute 'create or replace trigger audit_sales_payments after insert or update or delete on public.sales_payments for each row execute function private.audit_row()';
+  -- ساق المرآة (البيع القديم والفاتورة القديمة بالملء) نسخة رأسها المدقَّق بنطاق مخزنه، فبلا صفّ تدقيق (مراجعة 0033 V3): سياسة سجلّ التدقيق في
+  -- 0021 (يرجّعها التراجع) لا تعرف sales_payments، فصفّها يظهر بعده لكلّ دور كلفة خارج النطاق؛ وما بقي منها (سيقان record_sale_v2) يوقف التراجع.
+  execute 'create or replace trigger audit_sales_payments after insert or update or delete on public.sales_payments for each row'
+    || ' when (current_setting(''app.sale_mirror_leg'', true) is distinct from ''on'') execute function private.audit_row()';
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'sales_payments' and policyname = 'sales_payments_read') then
     create policy sales_payments_read on public.sales_payments for select to authenticated
       using (org_id = (select public.auth_org()) and (select public.in_scope_wh(warehouse_id)));
@@ -231,12 +316,18 @@ revoke all on table public.sales_payments from anon, authenticated;
 grant select on table public.sales_payments to authenticated;
 revoke truncate on table public.sales_payments from service_role;
 
--- الفاتورة القديمة النقدية ساق واحدة بمعرّف مشتقّ من الفاتورة (كما تكتبها record_sale بعد اليوم)، بقيدها وحركتها.
-insert into public.sales_payments (id, org_id, sale_id, warehouse_id, leg_no, cash_account_id, amount, payment_entry_id, cash_move_id, created_at, created_by)
-select private.derived_ref(s.id, 1), s.org_id, s.id, s.warehouse_id, 1, s.cash_account_id, -e.amount, s.payment_entry_id, s.cash_move_id, s.posted_at, s.posted_by
-from public.sales_invoices s
-join public.party_entries e on e.org_id = s.org_id and e.id = s.payment_entry_id
-where s.payment_entry_id is not null and not exists (select 1 from public.sales_payments g where g.org_id = s.org_id and g.sale_id = s.id);
+-- الفاتورة القديمة النقدية ساق واحدة بمعرّف مشتقّ من الفاتورة (كما تكتبها record_sale بعد اليوم)، بقيدها وحركتها؛ مرآة رأسها فبلا صفّ تدقيق.
+do $$
+begin
+  perform set_config('app.sale_mirror_leg', 'on', true);
+  insert into public.sales_payments (id, org_id, sale_id, warehouse_id, leg_no, cash_account_id, amount, payment_entry_id, cash_move_id, created_at, created_by)
+  select private.derived_ref(s.id, 1), s.org_id, s.id, s.warehouse_id, 1, s.cash_account_id, -e.amount, s.payment_entry_id, s.cash_move_id, s.posted_at, s.posted_by
+  from public.sales_invoices s
+  join public.party_entries e on e.org_id = s.org_id and e.id = s.payment_entry_id
+  where s.payment_entry_id is not null and not exists (select 1 from public.sales_payments g where g.org_id = s.org_id and g.sale_id = s.id);
+  perform set_config('app.sale_mirror_leg', '', true);
+end
+$$;
 
 -- ─── د. المساعدات ────────────────────────────────────────────────────────────────────────────────────────────────
 -- قراءة معرّف أو رقم من كائن JSON بلا رمي: نصّ بشكل المعرّف، ورقم أو نصّ رقميّ؛ وغيرهما null (والكاتب يرفض برمزه).
@@ -269,11 +360,44 @@ begin
 end
 $$;
 
--- المدفوع الآن من السيقان: ما لم يُردّ منها (قيد قبضها غير معكوس)، وهل رُدّ منها شيء، وعددها، والساق الأولى (لمفاتيح الشكل القديم).
+-- قفل حساب الفاتورة (§2.3، في مكان قفل الجهات): الزبون باسمه قفل جهته كلّها كما في كلّ كاتب قيد (lock_parties). والزبون النقديّ (مراجعة 0033 B3)
+-- قفل مشترك على جهته، فما يقفلها حصرياً (الأرشفة وكلّ كاتب بـlock_parties) ينتظر فواتيرها أو تنتظره كما كان، وقفل حصريّ لدفتر الفاتورة وحده
+-- بمفتاح يحمل المنشأة: ما يحميه قفل الجهة لهذا الحساب لكلّ (جهة، دفتر) — ترقيم القيد (seq) والتوزيع وإلغاء القيد — فلا تنتظر فاتورة نقديّة من
+-- مخزن الأدوية فاتورةً نقديّة عالقة على قفل مخزن العلف.
+create or replace function private.lock_sale_party(p_party uuid, p_book uuid, p_walk_in boolean) returns void
+language plpgsql set search_path = pg_catalog, pg_temp as $$
+begin
+  set local lock_timeout = '5s';
+  if not coalesce(p_walk_in, false) then
+    perform private.lock_parties(array[p_party]);
+    return;
+  end if;
+  perform pg_advisory_xact_lock_shared(hashtextextended('party:' || p_party::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('walk_in_book:' || public.auth_org()::text || ':' || p_party::text || ':' || p_book::text, 0));
+end
+$$;
+
+-- لماذا لا تُلغى الفاتورة الآن: رمز رفض void_sale أو null (مراجعة 0033، can_void). مرآة فحوص void_sale نفسها وبترتيبها (درس 2026-11-15: علم
+-- «يمكن» في القارئ يُبنى من فحوص الكاتب): الفعل (require)، ونطاق المخزن (stock_wh)، ونطاق دفتر الفاتورة (book_for_post)، وقفل الفترة على يوم
+-- الإلغاء (check_void_date)، والحالة. والمؤرشف من المخزن والموادّ لا يمنع العكس (lock_masters بلا أصل، E43).
+create or replace function private.sale_void_block(p_sale uuid) returns text
+language sql stable security definer set search_path = public, pg_temp as $$
+  select case
+    when not public.can('void') then 'forbidden'
+    when not public.in_scope_wh(s.warehouse_id) then 'out_of_scope'
+    when not public.in_scope_book(s.book_id) then 'out_of_scope'
+    when exists (select 1 from public.period_locks l where l.org_id = s.org_id and public.app_today() <= l.locked_through) then 'period_locked'
+    when s.status = 'void' then 'already_void'
+  end
+  from public.sales_invoices s where s.org_id = public.auth_org() and s.id = p_sale
+$$;
+
+-- المدفوع الآن من السيقان: ما لم يُردّ منها (قيد قبضها غير معكوس)، وهل رُدّت كلّها (payment_refunded بمعنى 0021: القبض رُدّ؛ مراجعة 0033 A3،
+-- وبلا سيقان false)، وعددها، والساق الأولى (لمفاتيح الشكل القديم).
 create or replace function private.sale_paid(p_sale uuid, out paid numeric, out refunded boolean, out legs int, out first_box uuid, out first_entry uuid,
   out first_move uuid)
 language sql stable security definer set search_path = public, pg_temp as $$
-  select coalesce(sum(g.amount) filter (where not g.rev), 0), coalesce(bool_or(g.rev), false), count(*)::int,
+  select coalesce(sum(g.amount) filter (where not g.rev), 0), coalesce(bool_and(g.rev), false), count(*)::int,
     (array_agg(g.cash_account_id order by g.leg_no))[1], (array_agg(g.payment_entry_id order by g.leg_no))[1], (array_agg(g.cash_move_id order by g.leg_no))[1]
   from (
     select y.*, exists (select 1 from public.party_entries r where r.org_id = y.org_id and r.reverses_entry_id = y.payment_entry_id) as rev
@@ -306,12 +430,13 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- مفاتيح الفاتورة الجديدة (sale_detail): السطور بوحداتها وخصوماتها وكلفتها، والسيقان بصناديقها، والصافي والمدفوع والدين، والمتبقّي من قيدها
--- و«استلم من الزبون»، والملاحظة والبائع. الكلفة والربح تحت cost.money (strip_cost).
+-- و«استلم من الزبون»، والملاحظة والبائع. الكلفة والربح تحت cost.money (strip_cost). الملغاة بلا دين ولا متبقٍّ (مراجعة 0033 A3): ما بقي من سيقان
+-- الزبون باسمه رصيد له في دفتره، لا دين عليه.
 create or replace function private.sale_more(p_sale uuid) returns jsonb
 language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object('walk_in', s.walk_in, 'note', s.note, 'posted_at', s.posted_at, 'posted_by_name', private.member_name(s.posted_by),
     'lines_count', k.lines, 'total', s.total::text, 'discount_total', s.discount_total::text, 'invoice_discount', s.invoice_discount::text,
-    'paid', g.paid::text, 'debt', (s.total - g.paid)::text, 'paid_at_sale', s.paid::text, 'open', v.open::text,
+    'paid', g.paid::text, 'debt', case when s.status = 'void' then 0 else s.total - g.paid end::text, 'paid_at_sale', s.paid::text, 'open', v.open::text,
     'can_collect', s.status = 'posted' and not s.walk_in and v.open > 0 and public.can('payment.post') and public.in_scope_book(s.book_id),
     'invoice', jsonb_build_object('cost', jsonb_build_object('money', jsonb_build_object('cost', k.cost::text, 'profit', (s.total - k.cost)::text))),
     'lines', (select coalesce(jsonb_agg(jsonb_build_object('line_id', l.id, 'line_no', l.line_no, 'item_id', l.item_id, 'item_name', i.name, 'item_kind', i.kind,
@@ -334,7 +459,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
   cross join lateral (select count(*)::int as lines, coalesce(sum(c.cost), 0) as cost from public.sales_lines l
     left join public.sales_line_costs c on c.org_id = l.org_id and c.line_id = l.id where l.org_id = s.org_id and l.sale_id = s.id) as k
   cross join lateral private.sale_paid(s.id) as g
-  cross join lateral (select coalesce(private.entry_remaining(s.invoice_entry_id), 0) as open) as v
+  cross join lateral (select case when s.status = 'void' then 0 else coalesce(private.entry_remaining(s.invoice_entry_id), 0) end as open) as v
   where s.org_id = public.auth_org() and s.id = p_sale
 $$;
 
@@ -369,7 +494,7 @@ $$;
 
 -- ─── هـ. البيع ───────────────────────────────────────────────────────────────────────────────────────────────────
 -- البيع القديم (الواجهة المنشورة حتى الدمج): جسم 0021 كما هو، ويكتب الأعمدة الجديدة (الصافي والمدفوع، ووحدة الأساس بمعامل 1) وساق القبض
--- النقديّ الواحدة، ويرفض حساب الزبون النقديّ جهةً.
+-- النقديّ الواحدة (مرآة رأسها بلا صفّ تدقيق)، ويرفض حساب الزبون النقديّ جهةً؛ ومفتاح قفل المعرّف يحمل المنشأة كالفاتورة الجديدة (مراجعة 0033 V2).
 create or replace function public.record_sale(p_client_ref uuid, p_sale_id uuid, p_line_id uuid, p_party uuid, p_item uuid, p_qty numeric,
   p_unit_price numeric, p_sold_on date, p_payment text, p_cash_account uuid, p_warehouse uuid default null) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -413,7 +538,7 @@ begin
   end if;
 
   -- الإعادة بالمعرّف (جواب ضاع): الفاتورة المرحَّلة نفسها بسطرها ومحتواها = حُفظت، فنتيجتها؛ وغيرها تعارض.
-  perform pg_advisory_xact_lock(hashtextextended('sale:' || p_sale_id::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('sale:' || v_org::text || ':' || p_sale_id::text, 0));
   select * into x from public.sales_invoices y where y.id = p_sale_id;
   if x.id is not null then
     v_same := x.org_id = v_org and x.status = 'posted' and x.created_by is not distinct from auth.uid() and x.party_id = p_party and x.sold_on = p_sold_on
@@ -562,11 +687,14 @@ begin
     unit_qty, unit_price_unit, gross_total)
   values (p_line_id, v_org, p_sale_id, w.id, 1, i.id, p_qty, i.base_unit, p_unit_price, v_total, i.base_unit, 1, p_qty, p_unit_price, v_total);
   insert into public.sales_line_costs (org_id, sale_id, line_id, warehouse_id, cost) values (v_org, p_sale_id, p_line_id, w.id, v_cost);
-  -- 0033: المقبوض ساق دفع واحدة (المصدر الواحد للمدفوع) بمعرّف مشتقّ من الفاتورة.
+  -- 0033: المقبوض ساق دفع واحدة (المصدر الواحد للمدفوع) بمعرّف مشتقّ من الفاتورة؛ وهي مرآة رأسها المدقَّق بنطاق مخزنه، فبلا صفّ تدقيق لها
+  -- (app.sale_mirror_leg، مراجعة 0033 V3): بعد التراجع لا يبقى صفّ سيقان ظاهر لمن هو خارج نطاق المخزن.
+  perform set_config('app.sale_mirror_leg', 'on', true);
   if pay.id is not null then
     insert into public.sales_payments (id, org_id, sale_id, warehouse_id, leg_no, cash_account_id, amount, payment_entry_id, cash_move_id)
     values (private.derived_ref(p_sale_id, 1), v_org, p_sale_id, w.id, 1, p_cash_account, v_total, pay.id, m.id);
   end if;
+  perform set_config('app.sale_mirror_leg', '', true);
   perform private.mark_division_posted(w.division_id);
   v_result := private.sale_result(p_sale_id);
   update public.rpc_refs set result = v_result where org_id = v_org and fn = v_fn and client_ref = p_client_ref;
@@ -576,8 +704,9 @@ $$;
 
 -- الفاتورة (sale.record): عدّة سطور من مخزن واحد بوحدات البيع وأسعارها، وخصم السطر وخصم الفاتورة بالدينار الصحيح (موزَّعاً على السطور بأكبر
 -- الباقي على صافيها بعد خصمها)، وسيقان دفع من صناديق مختلفة مخصَّصة لهذه الفاتورة، والباقي دين على الزبون؛ أو الزبون النقديّ (p_party = null)
--- يدفع كلّه. الأقفال (§2.3): المرجع ← معرّف الفاتورة ← الجهة ← قفل الفترة ← المخزن والموادّ ← وحدات البيع ← الأرصدة ← الصناديق بترتيب المعرّف ←
--- الدفعات (draw) ← عدّاد المستندات؛ وكلّ فحص بعد قفله. النقص بعد جمع سطور المادّة الواحدة، والكلفة = قيم السحب بالضبط لكلّ سطر.
+-- يدفع كلّه. الأقفال (§2.3): المرجع ← معرّف الفاتورة (بالمنشأة) ← الجهة (والزبون النقديّ لدفتر الفاتورة) ← قفل الفترة ← المخزن والموادّ ← الأرصدة ←
+-- الصناديق بترتيب المعرّف ← الدفعات (draw) ← عدّاد المستندات؛ وكلّ فحص بعد قفله، ووحدات البيع كما قُرئت بحجمها الذي رأته الشاشة (بلا قفل). النقص
+-- بعد جمع سطور المادّة الواحدة، والكلفة = قيم السحب بالضبط لكلّ سطر. والمبالغ بالدينار الصحيح تُطبَّع («1000.00» = «1000»).
 create or replace function public.record_sale_v2(p_client_ref uuid, p_sale_id uuid, p_warehouse uuid, p_party uuid, p_sold_on date,
   p_lines jsonb, p_invoice_discount numeric, p_payments jsonb, p_note text) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -636,6 +765,7 @@ declare
   v_amounts numeric[] := '{}';
   v_pay_entries uuid[] := '{}';
   v_moves uuid[] := '{}';
+  v_conflict text;
 begin
   set local lock_timeout = '5s';
   perform private.require('sale.record');
@@ -721,7 +851,7 @@ begin
   v_note := private.note_text(p_note);
 
   -- الإعادة بالمعرّف (جواب ضاع): الفاتورة المرحَّلة نفسها بمحتواها = حُفظت، فنتيجتها؛ وغيرها تعارض.
-  perform pg_advisory_xact_lock(hashtextextended('sale:' || p_sale_id::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('sale:' || v_org::text || ':' || p_sale_id::text, 0));
   select * into x from public.sales_invoices y where y.id = p_sale_id;
   if x.id is not null then
     v_content := jsonb_build_object('warehouse', p_warehouse, 'party', p_party, 'on', p_sold_on, 'discount', trim_scale(v_inv), 'note', v_note,
@@ -772,6 +902,8 @@ begin
     if v_disc[k] is null or not (abs(v_disc[k]) < 'Infinity') or v_disc[k] < 0 or v_disc[k] <> round(v_disc[k], 0) then
       raise exception 'bad_discount' using hint = format('خصم «%s» بالدينار الصحيح، صفر أو أكثر.', i.name);
     end if;
+    -- المبلغ «500.00» بالدينار الصحيح نفسه «500» (مراجعة 0033 A7): يُطبَّع قبل أيّ حساب، فلا يحمل الصافي والقيد مراتب كُتبت أصفاراً.
+    v_disc[k] := round(v_disc[k], 0);
     if v_disc[k] > v_gross[k] then
       raise exception 'bad_discount' using hint = format('خصم «%s» (%s دينار) أكبر من مبلغ سطره (%s دينار).', i.name, private.money_text(v_disc[k]),
         private.money_text(v_gross[k]));
@@ -784,6 +916,7 @@ begin
   if not (abs(v_inv) < 'Infinity') or v_inv < 0 or v_inv <> round(v_inv, 0) then
     raise exception 'bad_discount' using hint = 'خصم الفاتورة بالدينار الصحيح، صفر أو أكثر.';
   end if;
+  v_inv := round(v_inv, 0);
   if v_inv > v_sum then
     raise exception 'bad_discount' using hint = format('خصم الفاتورة (%s دينار) أكبر من مجموع سطورها بعد خصوماتها (%s دينار).', private.money_text(v_inv),
       private.money_text(v_sum));
@@ -804,6 +937,7 @@ begin
   -- الدفع الآن: كلّ ساق بالدينار الصحيح أكبر من صفر، والمدفوع لا يزيد على الصافي، والنقديّ يدفع كلّه.
   for k in 1 .. v_legs loop
     perform private.check_amount(v_amounts[k], true);
+    v_amounts[k] := round(v_amounts[k], 0);
     v_paid := v_paid + v_amounts[k];
   end loop;
   if v_paid > v_total then
@@ -857,12 +991,14 @@ begin
   b := private.book_for_post(private.sale_book(w.id));
   v_party := case when v_walk_in then private.walk_in_party() else p.id end;
 
-  -- الأقفال بترتيبها، وكلّ فحص بعد قفله.
-  perform private.lock_parties(array[v_party]);
+  -- الأقفال بترتيبها، وكلّ فحص بعد قفله. الزبون النقديّ لكلّ (جهة، دفتر) لا للجهة كلّها (lock_sale_party، مراجعة 0033 B3).
+  perform private.lock_sale_party(v_party, b.id, v_walk_in);
   perform private.check_post_date(p_sold_on, w.division_id);
   v_distinct := array(select distinct y from unnest(v_items) as y order by 1);
   perform private.lock_masters(array[w.id], v_distinct, true);
-  perform 1 from public.item_units y where y.org_id = v_org and y.id = any (v_units) order by y.id for share;
+  -- وحدات البيع كما تُقرأ الآن بلا قفل (مراجعة 0033 B2: قفل المشاركة بترتيب المعرّف يتقافل مع تبديل الوحدة الافتراضية، الذي يقفل الجديدة ثمّ القديمة
+  -- بمحفّز item_units_check): الحجم الذي رأته الشاشة إلزاميّ لكلّ سطر بوحدة بيع (factor_required)، فأيّ تغيير ثبت قبل القراءة unit_changed، وما ثبت
+  -- بعدها لا يغيّر ما بِيع بالحجم الذي رآه البائع؛ وكذا الأرشفة ووحدة البيع كما قُرئتا.
   for k in 1 .. v_n loop
     if v_units[k] is null then
       v_factor[k] := 1;
@@ -874,6 +1010,10 @@ begin
       end if;
       if not u.for_sale or u.archived_at is not null then
         raise exception 'unit_mismatch' using hint = format('«%s» ليست وحدة بيع فعّالة لـ«%s». اختر وحدة بيع أخرى.', u.label, v_names[k]);
+      end if;
+      if v_expect[k] is null then
+        raise exception 'factor_required' using hint = format('سطر «%s» بوحدة «%s» وصل دون حجمها الذي رأته الشاشة، فلا يُعرف أنّه لم يتغيّر. حدّث الشاشة وأعد المحاولة.',
+          v_names[k], u.label);
       end if;
       v_factor[k] := u.factor_to_base;
       v_label[k] := u.label;
@@ -935,21 +1075,35 @@ begin
   if v_walk_in then
     perform set_config('app.walk_in_sale', '', true);
   end if;
-  insert into public.sales_invoices (id, org_id, doc_no, party_id, warehouse_id, book_id, sold_on, payment, cash_account_id, invoice_entry_id, payment_entry_id,
-    cash_move_id, status, client_ref, posted_at, posted_by, discount_total, invoice_discount, note, walk_in, total, paid)
-  values (p_sale_id, v_org, v_no, v_party, w.id, b.id, p_sold_on, case when v_paid = v_total and v_total > 0 then 'cash' else 'credit' end, null, e.id, null,
-    null, 'posted', p_client_ref, now(), auth.uid(), v_disc_total, v_inv, v_note, v_walk_in, v_total, v_paid);
-  for k in 1 .. v_n loop
-    insert into public.sales_lines (id, org_id, sale_id, warehouse_id, line_no, item_id, qty, base_unit, unit_price, line_total, item_unit_id, unit_label,
-      unit_factor, unit_qty, unit_price_unit, gross_total, line_discount, invoice_discount_share)
-    values (v_line_ids[k], v_org, p_sale_id, w.id, k, v_items[k], v_base[k], v_base_unit[k], private._mul_div_round(1, v_price[k], v_factor[k], 2), v_net[k],
-      v_units[k], v_label[k], v_factor[k], round(v_qty[k], 3), round(v_price[k], 2), v_gross[k], round(v_disc[k], 0), v_share[k]);
-    insert into public.sales_line_costs (org_id, sale_id, line_id, warehouse_id, cost) values (v_org, p_sale_id, v_line_ids[k], w.id, v_cost[k]);
-  end loop;
-  for k in 1 .. v_legs loop
-    insert into public.sales_payments (id, org_id, sale_id, warehouse_id, leg_no, cash_account_id, amount, payment_entry_id, cash_move_id)
-    values (v_leg_ids[k], v_org, p_sale_id, w.id, k, v_boxes[k], round(v_amounts[k], 0), v_pay_entries[k], v_moves[k]);
-  end loop;
+  -- المعرّفات من الجهاز: فاتورة أخرى متزامنة بمعرّف السطر أو الساق نفسه (أو بمعرّف الفاتورة من منشأة أخرى) تعبر فحص «مستعمل» قبل أن تثبت، ثمّ
+  -- يردّها الفهرس الفريد بعد انتظارها؛ فالرفض باسمه وتلميحه لا بخطأ الفهرس الخام (مراجعة 0033 B6).
+  begin
+    insert into public.sales_invoices (id, org_id, doc_no, party_id, warehouse_id, book_id, sold_on, payment, cash_account_id, invoice_entry_id, payment_entry_id,
+      cash_move_id, status, client_ref, posted_at, posted_by, discount_total, invoice_discount, note, walk_in, total, paid)
+    values (p_sale_id, v_org, v_no, v_party, w.id, b.id, p_sold_on, case when v_paid = v_total and v_total > 0 then 'cash' else 'credit' end, null, e.id, null,
+      null, 'posted', p_client_ref, now(), auth.uid(), v_disc_total, v_inv, v_note, v_walk_in, v_total, v_paid);
+    for k in 1 .. v_n loop
+      insert into public.sales_lines (id, org_id, sale_id, warehouse_id, line_no, item_id, qty, base_unit, unit_price, line_total, item_unit_id, unit_label,
+        unit_factor, unit_qty, unit_price_unit, gross_total, line_discount, invoice_discount_share)
+      values (v_line_ids[k], v_org, p_sale_id, w.id, k, v_items[k], v_base[k], v_base_unit[k], private._mul_div_round(1, v_price[k], v_factor[k], 2), v_net[k],
+        v_units[k], v_label[k], v_factor[k], round(v_qty[k], 3), round(v_price[k], 2), v_gross[k], round(v_disc[k], 0), v_share[k]);
+      insert into public.sales_line_costs (org_id, sale_id, line_id, warehouse_id, cost) values (v_org, p_sale_id, v_line_ids[k], w.id, v_cost[k]);
+    end loop;
+    for k in 1 .. v_legs loop
+      insert into public.sales_payments (id, org_id, sale_id, warehouse_id, leg_no, cash_account_id, amount, payment_entry_id, cash_move_id)
+      values (v_leg_ids[k], v_org, p_sale_id, w.id, k, v_boxes[k], round(v_amounts[k], 0), v_pay_entries[k], v_moves[k]);
+    end loop;
+  exception when unique_violation then
+    get stacked diagnostics v_conflict = table_name;
+    if v_conflict = 'sales_lines' then
+      raise exception 'id_conflict' using hint = 'معرّف سطر من سطور الفاتورة مستعمل لفاتورة أخرى. حدّث الشاشة وأعد المحاولة.';
+    elsif v_conflict = 'sales_payments' then
+      raise exception 'id_conflict' using hint = 'معرّف دفعة من دفعات الفاتورة مستعمل لفاتورة أخرى. حدّث الشاشة وأعد المحاولة.';
+    elsif v_conflict = 'sales_invoices' then
+      raise exception 'id_conflict' using hint = 'سُجّلت بهذا المعرّف فاتورة غير التي أرسلتها الآن. حدّث الشاشة لترى ما سُجّل، ثمّ سجّل من جديد.';
+    end if;
+    raise;
+  end;
   perform private.mark_division_posted(w.division_id);
   v_result := private.sale_v2_result(p_sale_id);
   update public.rpc_refs set result = v_result where org_id = v_org and fn = v_fn and client_ref = p_client_ref;
@@ -959,7 +1113,8 @@ $$;
 
 -- إلغاء الفاتورة (void): كلّ حركة سحب لكلّ سطر ترجع لدفعتها بيوم الإلغاء، وقيد الفاتورة يُلغى بقيد عكسيّ؛ وسيقان الزبون باسمه تبقى رصيداً له
 -- (FOUNDATION ٥٨٣، وسابقة void_receipt؛ تُردّ من «ألغِ القبض»)، وسيقان الزبون النقديّ تُردّ معها بيوم الإلغاء (قيد عكسيّ وحركة صندوق عكسيّة لكلّ
--- ساق، فرصيده صفر). الأقفال: المرجع ← الجهة ← قفل الفترة ← الفاتورة ← المخزن والموادّ ← الأرصدة ← صناديق الردّ بترتيب المعرّف.
+-- ساق، فرصيده صفر). الأقفال: المرجع ← الجهة (والزبون النقديّ لدفتر فاتورته، lock_sale_party) ← قفل الفترة ← الفاتورة ← المخزن والموادّ ← الأرصدة ←
+-- صناديق الردّ بترتيب المعرّف. وفحوصه بترتيبها مرآتها private.sale_void_block (can_void في القرّاء).
 create or replace function public.void_sale(p_sale_id uuid, p_reason text, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -992,7 +1147,7 @@ begin
   end if;
   w := private.stock_wh(x.warehouse_id, true);
   perform private.book_for_post(x.book_id);
-  perform private.lock_parties(array[x.party_id]);
+  perform private.lock_sale_party(x.party_id, x.book_id, x.walk_in);
   perform private.check_void_date();
   select * into x from public.sales_invoices y where y.org_id = v_org and y.id = p_sale_id for update;
   if x.status = 'void' then
@@ -1082,13 +1237,14 @@ end
 $$;
 
 -- فاتورة واحدة: نتيجتها بالشكل القديم، ودفعاتها المسحوبة لكلّ سطر (الكمية لكلّ دور، والقيمة داخل cost.money)، وقيد الفاتورة والساق الأولى، وأفعالها؛
--- ومفاتيح الفاتورة الجديدة (private.sale_more).
+-- ومفاتيح الفاتورة الجديدة (private.sale_more). can_void من فحوص void_sale نفسها وبترتيبها، وvoid_block رمز رفضها (مراجعة 0033).
 create or replace function public.sale_detail(p_sale uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid := public.auth_org();
   x public.sales_invoices;
   g record;
+  v_block text;
   v_result jsonb;
 begin
   perform private.require('read');
@@ -1103,8 +1259,9 @@ begin
     raise exception 'out_of_scope' using hint = 'مخزن هذا البيع خارج نطاقك.';
   end if;
   select * into g from private.sale_paid(x.id);
+  v_block := private.sale_void_block(x.id);
   v_result := private.sale_result(x.id) || jsonb_build_object(
-    'can_void', public.can('void') and x.status = 'posted',
+    'can_void', v_block is null, 'void_block', v_block,
     'draws', (select coalesce(jsonb_agg(jsonb_build_object('line_id', m.doc_line_id, 'lot_id', m.lot_id, 'received_on', lt.received_on, 'expiry_on', lt.expiry_on,
         'qty', (-m.qty)::text, 'cost', jsonb_build_object('money', jsonb_build_object('value', (-m.value)::text))) order by l.line_no, m.seq), '[]'::jsonb)
       from public.stock_moves m
@@ -1119,7 +1276,8 @@ $$;
 
 -- المبيعات بفترة (من ← إلى): الفواتير الأحدث أوّلاً (1,000 حدّاً، والمجاميع على الفترة كلّها) بنطاق المخزن، والملغاة بحالتها خارج المجاميع. المفاتيح
 -- القديمة: المادّة الأولى وكميتها وسعرها، والمبلغ والكلفة للفاتورة، والنقد = المدفوع الآن والدين = الباقي (مراجعة 0021 L4)؛ والجديدة: عدد السطور
--- والصافي والمدفوع والدين والخصم والنقديّ؛ وفواتير الطيور مفتاحاً (الجسم الأخير من 0029، ومعه 0033).
+-- والصافي والمدفوع والدين والخصم والنقديّ؛ وفواتير الطيور مفتاحاً (الجسم الأخير من 0029، ومعه 0033). مراجعة 0033: لكلّ صفّ open (المتبقّي من قيد
+-- الفاتورة بعد كلّ ما وُزّع عليه، والتحصيل اللاحق منه؛ صفر للملغاة وبلا قيد) وcan_void (فحوص void_sale)، والملغاة بلا دين؛ وtotals.open للمرحَّلة.
 create or replace function public.sales_overview(p_from date, p_to date) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -1135,7 +1293,8 @@ begin
   end if;
   with listed as (
     select s.id, s.doc_no, s.sold_on, s.status, s.party_id, p.name as party_name, s.warehouse_id, w.name as warehouse_name, s.posted_at,
-      s.total, s.discount_total, s.walk_in, f.item_id, f.item_name, f.qty, f.base_unit, f.unit_price, k.lines, k.items, k.cost, g.paid, g.refunded
+      s.total, s.discount_total, s.walk_in, f.item_id, f.item_name, f.qty, f.base_unit, f.unit_price, k.lines, k.items, k.cost, g.paid, g.refunded,
+      case when s.status = 'void' then 0 else coalesce(private.entry_remaining(s.invoice_entry_id), 0) end as open
     from public.sales_invoices s
     join public.parties p on p.org_id = s.org_id and p.id = s.party_id
     join public.warehouses w on w.org_id = s.org_id and w.id = s.warehouse_id
@@ -1162,7 +1321,8 @@ begin
         'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.total::text),
         'cost', jsonb_build_object('money', jsonb_build_object('cost', o.cost::text, 'profit', (o.total - o.cost)::text)),
         'lines_count', o.lines, 'items_count', o.items, 'first_item_name', o.item_name, 'walk_in', o.walk_in, 'total', o.total::text, 'paid', o.paid::text,
-        'debt', (o.total - o.paid)::text, 'discount_total', o.discount_total::text)
+        'debt', case when o.status = 'void' then 0 else o.total - o.paid end::text, 'discount_total', o.discount_total::text, 'open', o.open::text,
+        'can_void', private.sale_void_block(o.id) is null)
       order by o.n) filter (where o.n <= 1000), '[]'::jsonb),
     'more', count(*) > 1000,
     'totals', jsonb_build_object('count', (count(*) filter (where o.status = 'posted'))::int, 'voided', (count(*) filter (where o.status = 'void'))::int,
@@ -1174,7 +1334,8 @@ begin
       'total', coalesce(sum(o.total) filter (where o.status = 'posted'), 0)::text,
       'paid', coalesce(sum(o.paid) filter (where o.status = 'posted'), 0)::text,
       'debt', coalesce(sum(o.total - o.paid) filter (where o.status = 'posted'), 0)::text,
-      'discount_total', coalesce(sum(o.discount_total) filter (where o.status = 'posted'), 0)::text))
+      'discount_total', coalesce(sum(o.discount_total) filter (where o.status = 'posted'), 0)::text,
+      'open', coalesce(sum(o.open) filter (where o.status = 'posted'), 0)::text))
   into v_result
   from ordered o;
   -- 0028: فواتير الطيور مفتاحاً جديداً (القديمة بشكلها ومعناها، D11).
@@ -1308,9 +1469,10 @@ begin
       from public.sales_invoices s where s.org_id = v_org and s.id = e.doc_id;
       return v_out;
     end if;
-    -- 0033: السطور بوحداتها وخصوماتها (amount = صافي السطر)، والصافي والخصم والمدفوع عند البيع والسيقان، والنقديّ والملاحظة.
+    -- 0033: السطور بوحداتها وخصوماتها (amount = صافي السطر)، والصافي والخصم والسيقان، والنقديّ والملاحظة؛ والمدفوع وطريقة الدفع الآن كتفصيل الفاتورة
+    -- (private.sale_paid: بلا الساق المردودة، مراجعة 0033 A4)، والساق بعلامة ردّها.
     select jsonb_build_object('type', 'sale', 'doc_id', s.id, 'doc_no', s.doc_no, 'status', s.status, 'sold_on', s.sold_on,
-        'warehouse', jsonb_build_object('id', w.id, 'name', w.name), 'payment', s.payment,
+        'warehouse', jsonb_build_object('id', w.id, 'name', w.name), 'payment', case when pd.paid = s.total and s.total > 0 then 'cash' else 'credit' end,
         'account', (select jsonb_build_object('id', a.id, 'name', a.name) from public.cash_accounts a where a.org_id = v_org
           and a.id = coalesce(s.cash_account_id, (select g.cash_account_id from public.sales_payments g where g.org_id = v_org and g.sale_id = s.id order by g.leg_no limit 1))),
         'lines', coalesce((
@@ -1322,14 +1484,16 @@ begin
           from public.sales_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
           where l.org_id = v_org and l.sale_id = s.id), '[]'::jsonb),
         'total', coalesce((select sum(l.line_total) from public.sales_lines l where l.org_id = v_org and l.sale_id = s.id), 0)::text,
-        'discount_total', s.discount_total::text, 'invoice_discount', s.invoice_discount::text, 'paid', s.paid::text, 'walk_in', s.walk_in, 'note', s.note,
+        'discount_total', s.discount_total::text, 'invoice_discount', s.invoice_discount::text, 'paid', pd.paid::text, 'walk_in', s.walk_in, 'note', s.note,
         'payments', coalesce((
-          select jsonb_agg(jsonb_build_object('leg_no', g.leg_no, 'account', jsonb_build_object('id', a.id, 'name', a.name), 'amount', g.amount::text)
+          select jsonb_agg(jsonb_build_object('leg_no', g.leg_no, 'account', jsonb_build_object('id', a.id, 'name', a.name), 'amount', g.amount::text,
+              'refunded', exists (select 1 from public.party_entries r where r.org_id = g.org_id and r.reverses_entry_id = g.payment_entry_id))
             order by g.leg_no)
           from public.sales_payments g join public.cash_accounts a on a.org_id = g.org_id and a.id = g.cash_account_id
           where g.org_id = v_org and g.sale_id = s.id), '[]'::jsonb))
     into v_out
     from public.sales_invoices s join public.warehouses w on w.org_id = s.org_id and w.id = s.warehouse_id
+    cross join lateral private.sale_paid(s.id) as pd
     where s.org_id = v_org and s.id = e.doc_id;
     return v_out;
   elsif e.doc_kind = 'bird_sale' then
@@ -1445,6 +1609,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
   --    والمرحَّل بلا عكس والملغى معكوس؛ وكلّ ساق قيد payment = −مبلغها وحركة party_payment بصندوقها = +مبلغها على قيدها بيوم البيع، ومجموعها =
   --    المدفوع، ومرحَّلة غير مردودة مخصَّصة لفاتورتها بمبلغها، والمردودة بقيدها وحركتها؛ والرأس القديم (صندوق وقيد وحركة) = ساقه الأولى الوحيدة. والنقديّ
   --    على حساب «زبون نقديّ» وحده، وسيقانه مردودة مع إلغائه لا قبله. ورصيد ذلك الحساب صفر بكلّ دفتر، ولا قيد عليه إلّا من فاتورة نقديّة.
+  --    مراجعة 0033: قيد الفاتورة وقيد كلّ ساق برقم الفاتورة (A6)؛ والملغاة كلّ ما عكسه إلغاؤها — حركات المخزون، وقيد الفاتورة، وللنقديّة قيود سيقانها
+  --    وحركات ردّها — بيوم واحد هو يوم الإلغاء، لا قبل يوم البيع (A5). وسيقان الزبون باسمه تُردّ بيومها من «ألغِ القبض» فخارج ذلك.
   select 'sale_entries', (
     select count(*) from public.sales_invoices s
     left join public.party_entries e on e.org_id = s.org_id and e.id = s.invoice_entry_id
@@ -1452,7 +1618,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
     cross join lateral (
       select coalesce(sum(g.amount), 0) as legs_sum, count(*) as legs,
         count(*) filter (where pe.id is null or pe.kind <> 'payment' or pe.amount <> -g.amount or pe.party_id <> s.party_id or pe.book_id <> s.book_id
-          or pe.doc_kind is distinct from 'sale' or pe.doc_id is distinct from s.id or pe.on_date <> s.sold_on or pe.reverses_entry_id is not null
+          or pe.doc_kind is distinct from 'sale' or pe.doc_id is distinct from s.id or pe.doc_no is distinct from s.doc_no or pe.on_date <> s.sold_on
+          or pe.reverses_entry_id is not null
           or m.id is null or m.kind <> 'party_payment' or m.amount <> g.amount or m.account_id <> g.cash_account_id or m.party_entry_id is distinct from pe.id
           or m.doc_kind is distinct from 'sale' or m.doc_id is distinct from s.id or m.on_date <> s.sold_on or m.reverses_move_id is not null
           or g.warehouse_id <> s.warehouse_id) as bad_legs,
@@ -1469,9 +1636,25 @@ language sql stable security definer set search_path = public, pg_temp as $$
       left join public.party_entries rv on rv.org_id = g.org_id and rv.reverses_entry_id = g.payment_entry_id
       where g.org_id = s.org_id and g.sale_id = s.id
     ) as k
+    cross join lateral (
+      select count(distinct z.d) as days, min(z.d) as first_day from (
+        select r.moved_on as d from public.stock_moves m join public.stock_moves r on r.org_id = m.org_id and r.reverses_move_id = m.id
+        where m.org_id = s.org_id and m.doc_kind = 'sale' and m.doc_id = s.id and m.reverses_move_id is null
+        union all
+        select r.on_date from public.party_entries r where r.org_id = s.org_id and r.reverses_entry_id = s.invoice_entry_id
+        union all
+        select r.on_date from public.sales_payments g join public.party_entries r on r.org_id = g.org_id and r.reverses_entry_id = g.payment_entry_id
+        where s.walk_in and g.org_id = s.org_id and g.sale_id = s.id
+        union all
+        select r.on_date from public.sales_payments g join public.cash_moves r on r.org_id = g.org_id and r.reverses_move_id = g.cash_move_id
+        where s.walk_in and g.org_id = s.org_id and g.sale_id = s.id
+      ) as z
+    ) as vd
     where (s.total > 0) <> (e.id is not null)
       or (e.id is not null and (e.kind <> 'invoice' or e.amount <> s.total or e.party_id <> s.party_id or e.book_id <> s.book_id
-        or e.doc_kind is distinct from 'sale' or e.doc_id is distinct from s.id or e.on_date <> s.sold_on or e.reverses_entry_id is not null))
+        or e.doc_kind is distinct from 'sale' or e.doc_id is distinct from s.id or e.doc_no is distinct from s.doc_no or e.on_date <> s.sold_on
+        or e.reverses_entry_id is not null))
+      or (s.status = 'void' and (vd.days <> 1 or vd.first_day < s.sold_on))
       or (e.id is not null and s.status = 'posted' and exists (select 1 from public.party_entries r where r.org_id = s.org_id and r.reverses_entry_id = e.id))
       or (e.id is not null and s.status = 'void' and not exists (select 1 from public.party_entries r where r.org_id = s.org_id and r.reverses_entry_id = e.id))
       or not exists (select 1 from public.ledger_books b join public.warehouses w on w.org_id = s.org_id and w.id = s.warehouse_id
@@ -1529,6 +1712,7 @@ $$;
 
 -- ─── ح. الصلاحيات ───────────────────────────────────────────────────────────────────────────────────────────────
 revoke all on function private.party_entries_walk_in(), private.json_uuid(jsonb, text), private.json_num(jsonb, text), private.walk_in_party(),
-  private.sale_paid(uuid), private.sale_more(uuid), private.sale_v2_content(uuid), private.sale_v2_result(uuid) from public, anon, authenticated;
+  private.sale_paid(uuid), private.sale_more(uuid), private.sale_v2_content(uuid), private.sale_v2_result(uuid), private.party_not_system(),
+  private.parties_system_guard(), private.lock_sale_party(uuid, uuid, boolean), private.sale_void_block(uuid) from public, anon, authenticated;
 revoke all on function public.record_sale_v2(uuid, uuid, uuid, uuid, date, jsonb, numeric, jsonb, text), public.sale_catalog(uuid) from public, anon;
 grant execute on function public.record_sale_v2(uuid, uuid, uuid, uuid, date, jsonb, numeric, jsonb, text), public.sale_catalog(uuid) to authenticated;
