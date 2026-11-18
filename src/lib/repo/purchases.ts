@@ -650,7 +650,10 @@ export interface SaleRowMoney {
   /** الصافي (مبلغ الفاتورة). */
   lineTotal: Fils;
   paid: Fils;
+  /** الدين عند البيع (الصافي − المدفوع الآن؛ صفر للملغاة). */
   debt: Fils;
+  /** الباقي على الفاتورة الآن بعد كلّ قبض لاحق (open، مراجعة 0033 A1)؛ = الدين في شكل 0021. */
+  open: Fils;
   discountTotal: Fils;
 }
 
@@ -673,8 +676,10 @@ export interface SaleRow {
   qty: Milli | null;
   baseUnit: BaseUnit | null;
   free: boolean;
-  /** نقداً ثمّ رُدّ المبلغ (الدفع يُقرأ بالدين). */
+  /** رُدّ المقبوض كلّه (كلّ السيقان، مراجعة 0033 A3؛ الدفع يُقرأ بالدين). */
   paymentRefunded: boolean;
+  /** «ألغِ» لهذه الفاتورة بفحوص void_sale نفسها (0033)، أو null لشكل 0021 (علم الصفحة). */
+  canVoid: boolean | null;
   money: SaleRowMoney | null;
   cost: SaleCost | null;
 }
@@ -709,9 +714,10 @@ function saleRow(row: Row): SaleRow {
       lineCount: 1,
       itemCount: 1,
       walkIn: false,
+      canVoid: null,
       qty: qtyOf(row, 'qty'),
       baseUnit: oneOf(row, 'base_unit', BASE_UNITS),
-      money: money && total !== null ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: total, paid, debt: total - paid, discountTotal: 0n } : null,
+      money: money && total !== null ? { unitPrice: filsOf(money, 'unit_price'), lineTotal: total, paid, debt: total - paid, open: total - paid, discountTotal: 0n } : null,
     };
   }
   const lineCount = nat(row, 'lines_count');
@@ -722,10 +728,11 @@ function saleRow(row: Row): SaleRow {
     lineCount,
     itemCount: nat(row, 'items_count'),
     walkIn: bool(row, 'walk_in'),
+    canVoid: bool(row, 'can_void'),
     qty: single ? qtyOf(row, 'qty') : null,
     baseUnit: single ? oneOf(row, 'base_unit', BASE_UNITS) : null,
     money: money
-      ? { unitPrice: single ? scaled(all, 'unit_price', 2) : null, lineTotal: filsOf(all, 'total'), paid: filsOf(all, 'paid'), debt: filsOf(all, 'debt'), discountTotal: filsOf(all, 'discount_total') }
+      ? { unitPrice: single ? scaled(all, 'unit_price', 2) : null, lineTotal: filsOf(all, 'total'), paid: filsOf(all, 'paid'), debt: filsOf(all, 'debt'), open: filsOf(all, 'open'), discountTotal: filsOf(all, 'discount_total') }
       : null,
   };
 }
@@ -739,7 +746,8 @@ export interface SalesOverview {
   rows: readonly SaleRow[];
   /** بعد الـ1,000 فواتير أقدم لم تُرسل (المجاميع على الفترة كلّها). */
   more: boolean;
-  totals: { count: number; voided: number; money: { revenue: Fils; cash: Fils; credit: Fils } | null; cost: SaleCost | null };
+  /** open: الباقي على فواتير الفترة الآن (0033)، أو null لشكل 0021. */
+  totals: { count: number; voided: number; money: { revenue: Fils; cash: Fils; credit: Fils; open: Fils | null } | null; cost: SaleCost | null };
 }
 
 export function parseSalesOverview(value: unknown): SalesOverview {
@@ -757,7 +765,9 @@ export function parseSalesOverview(value: unknown): SalesOverview {
     totals: {
       count: nat(totals, 'count'),
       voided: nat(totals, 'voided'),
-      money: totalMoney ? { revenue: filsOf(totalMoney, 'revenue'), cash: filsOf(totalMoney, 'cash'), credit: filsOf(totalMoney, 'credit') } : null,
+      money: totalMoney
+        ? { revenue: filsOf(totalMoney, 'revenue'), cash: filsOf(totalMoney, 'cash'), credit: filsOf(totalMoney, 'credit'), open: totals.open === undefined ? null : filsOf(totals, 'open') }
+        : null,
       cost: costOf(totals),
     },
   };

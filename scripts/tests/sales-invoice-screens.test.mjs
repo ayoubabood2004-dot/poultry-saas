@@ -352,8 +352,8 @@ export default async function (t) {
       t.same(
         overview.rows.map((r) => [r.docNo, r.lineCount, r.walkIn, r.qty, r.baseUnit, r.payment, r.money]),
         [
-          ['MS-2026-0008', 1, true, 100000n, 'kg', 'cash', { unitPrice: 70000n, lineTotal: 7000000n, paid: 7000000n, debt: 0n, discountTotal: 0n }],
-          ['MS-2026-0007', 2, false, null, null, 'mixed', { unitPrice: null, lineTotal: 13900000n, paid: 8900000n, debt: 5000000n, discountTotal: 600000n }],
+          ['MS-2026-0008', 1, true, 100000n, 'kg', 'cash', { unitPrice: 70000n, lineTotal: 7000000n, paid: 7000000n, debt: 0n, open: 0n, discountTotal: 0n }],
+          ['MS-2026-0007', 2, false, null, null, 'mixed', { unitPrice: null, lineTotal: 13900000n, paid: 8900000n, debt: 5000000n, open: 5000000n, discountTotal: 600000n }],
         ],
         'P صفّ القائمة بشكل 0033: عدد السطور والنقديّ، والكمية لسطر واحد وحده، والصافي والمدفوع والدين والخصم',
       );
@@ -787,7 +787,7 @@ export default async function (t) {
       fresh(sessionOf('owner'), { sales_overview: () => clone(F.sales_overview) }, pickers);
       await mount('/sales');
       const caption = all().find((n) => n.localName === 'caption' && n.textContent.startsWith('فواتير البيع'))?.textContent ?? '';
-      t.same(headersOf(caption), ['التاريخ', 'الرقم', 'الجهة', 'الموادّ', 'الصافي', 'المدفوع', 'الدين', 'الدفع', 'الحالة'], 'L1 الأعمدة: الموادّ والصافي والمدفوع والدين');
+      t.same(headersOf(caption), ['التاريخ', 'الرقم', 'الجهة', 'الموادّ', 'الصافي', 'المدفوع', 'الباقي الآن', 'الدفع', 'الحالة'], 'L1 الأعمدة: الموادّ والصافي والمدفوع والباقي الآن');
       t.same(
         rowsOf(caption).map((row) => row.slice(0, 8)),
         [

@@ -88,7 +88,7 @@ export function itemsText(row: Pick<SaleRow, 'itemName' | 'lineCount' | 'itemCou
 
 /**
  * الدفع بكلماته في صفّ الفاتورة: بلا مقابل، أو رُدّ المقبوض كلّه، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع؛ وللملغاة ما حدث لمقبوضها
- * (مراجعة 0033 D7). payment_refunded = رُدّت ساق واحدة على الأقلّ، فـ«رُدّ» حين لا يبقى شيء مدفوعاً وحده (D3).
+ * (مراجعة 0033 D7). payment_refunded = رُدّت كلّ السيقان (A3)، و«سُدّد دينها» حين صار الباقي صفراً بقبض بعد البيع (A1).
  */
 export function rowPaymentText(row: SaleRow): string {
   const paid = row.money?.paid ?? null;
@@ -102,6 +102,7 @@ export function rowPaymentText(row: SaleRow): string {
   if (row.walkIn) return t('invoice.walk_in', 'زبون نقديّ');
   if (row.money) {
     if (row.money.debt === 0n) return t('invoice.pay.paid', 'مدفوعة كلّها');
+    if (row.money.open === 0n) return t('invoice.pay.settled', 'سُدّد دينها بعد البيع');
     if (row.money.paid === 0n) return t('file.payment.credit', 'بالدين');
     return t('invoice.pay.partial', 'جزء مدفوع، والباقي دين');
   }
@@ -145,11 +146,12 @@ function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRo
         ...(data.totals.money ? { total: money0(data.totals.money.cash) } : {}),
       },
       {
+        // الباقي على الفاتورة الآن (open): ما قُبض بعد البيع يُنقصه، لا الدين عند البيع (مراجعة 0033 A1).
         key: 'debt',
-        header: t('invoice.totals.debt', 'الدين'),
+        header: t('sales.col.open', 'الباقي الآن'),
         kind: 'number',
-        cell: (row) => { const m = shownMoney(row); return m ? money0(m.debt) : dash; },
-        ...(data.totals.money ? { total: money0(data.totals.money.credit) } : {}),
+        cell: (row) => { const m = shownMoney(row); return m ? money0(m.open) : dash; },
+        ...(data.totals.money ? { total: money0(data.totals.money.open ?? data.totals.money.credit) } : {}),
       },
     );
   }
@@ -167,7 +169,7 @@ function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRo
         <span className="text-ink-muted" data-action="sale-voided">
           {t('sales.voided', 'ملغى')}
         </span>
-      ) : data.canVoid ? (
+      ) : (row.canVoid ?? data.canVoid) ? (
         <Button size="sm" variant="ghost" onClick={() => onVoid(row)} data-action="void-sale">
           {t('sales.void', 'ألغِ')}
         </Button>
@@ -408,6 +410,9 @@ function overviewStats(data: SalesOverview): Stat[] {
       { key: 'cash', label: t('sales.stat.paid_at_sale', 'منه مدفوع عند البيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.cash, 0) }) },
       { key: 'credit', label: t('sales.stat.credit', 'منه بالدين'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.credit, 0) }) },
     );
+    if (data.totals.money.open !== null) {
+      stats.push({ key: 'open', label: t('sales.stat.open', 'الباقي منه الآن'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.open, 0) }) });
+    }
   }
   if (data.totals.cost) {
     stats.push(
@@ -458,9 +463,7 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
           ) : null}
           {row.paymentRefunded ? (
             <p data-action="void-refunded">
-              {paid === null
-                ? t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })
-                : t('sales.void.refunded_part', 'وما رُدّ من مقبوضها لـ«{party}» من قبل لا يبقى منه رصيد.', { party: row.partyName })}
+              {t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })}
             </p>
           ) : null}
           {paid !== null && row.walkIn ? (

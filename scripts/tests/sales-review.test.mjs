@@ -415,7 +415,8 @@ export default async function (t) {
 
     // ── D: القائمة ─────────────────────────────────────────────────────────────────────────────────────────────────
     await step('D3/D7/D8/D11 list', async () => {
-      const overview = { ...clone(R.sales_overview.storekeeper), can_void: true };
+      // عيّنة القاعدة بعد قبض لاحق وإلغاءين (owner_after_collect_and_void): «ألغِ» لكلّ صفّ بعلمه (can_void)، والباقي الآن open.
+      const overview = clone(R.sales_overview.owner_after_collect_and_void);
       fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
       await mount('/sales');
       const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
@@ -431,9 +432,23 @@ export default async function (t) {
       await click(descendants(row).find((n) => n.getAttribute('data-action') === 'void-sale'));
       t.same(
         [textOf('void-cash-kept')?.includes('(1,000 دينار)'), textOf('void-refunded')],
-        [true, 'وما رُدّ من مقبوضها لـ«مزرعة النور» من قبل لا يبقى منه رصيد.'],
-        'D3 تأكيد الإلغاء: ما بقي مدفوعاً (1,000) يبقى رصيداً، والمردود لا',
+        [true, null],
+        'D3 تأكيد الإلغاء: ما بقي مدفوعاً (1,000) يبقى رصيداً، ولا جملة «رُدّ» لساقٍ من ساقين (payment_refunded = رُدّ كلّه، A3)',
       );
+    });
+
+    await step('A1 list open', async () => {
+      // صفّ محفوظ دفتره خارج نطاق المدير (can_void false من الخادم، كفحص V1 في القاعدة) والصفحة تسمح بالإلغاء عموماً.
+      const overview = clone(R.sales_overview.owner_after_collect_and_void);
+      overview.rows.find((r) => r.doc_no === 'FD-2026-0005').can_void = false;
+      fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
+      await mount('/sales');
+      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
+      const heads = (tableOf(listCaption()) ? descendants(tableOf(listCaption())).filter((n) => n.localName === 'th').map((n) => n.textContent) : []);
+      t.same([heads.includes('الباقي الآن'), rows['MS-2026-0002']?.[6], rows['FD-2026-0004']?.[6], rows['FD-2026-0001']?.[6]], [true, '6,000', '2,000', '—'], 'A1 الباقي الآن بعد قبض لاحق (10,000 دين عند البيع ← 6,000)، والملغاة «—»');
+      t.ok(all().some((n) => n.localName === 'dt' && n.textContent === 'الباقي منه الآن') && all().some((n) => (n.textContent ?? '').includes('662,000')), 'A1 مجموع الباقي الآن من الخادم (662,000) لا الدين عند البيع (666,000)');
+      const voidIn = (no) => descendants(all().find((n) => n.localName === 'tr' && n.textContent.includes(no))).some((n) => n.getAttribute('data-action') === 'void-sale');
+      t.same([voidIn('MS-2026-0002'), voidIn('FD-2026-0005')], [true, false], 'V1 «ألغِ» لكلّ صفّ بعلم الخادم (can_void)، لا بعلم الصفحة وحده');
     });
 
     await step('D8 owner list', async () => {

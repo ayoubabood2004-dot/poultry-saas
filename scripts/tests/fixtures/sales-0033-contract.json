@@ -343,7 +343,9 @@
             "profit": "20000.00"
           }
         },
-        "items_count": 1
+        "items_count": 1,
+        "open": "0",
+        "can_void": true
       },
       {
         "id": "s-7",
@@ -373,7 +375,9 @@
             "profit": "29000.00"
           }
         },
-        "items_count": 2
+        "items_count": 2,
+        "open": "50000",
+        "can_void": true
       }
     ],
     "more": false,
