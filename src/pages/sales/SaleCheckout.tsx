@@ -48,7 +48,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { clearSaleDraft, saleDraftKey } from './saleDraft';
 import { checkoutBack, checkoutBackLabel, dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
 import sellStyle from './sell.css?raw';
-import { CartIcon, fromKeyboard, KindMark, kindChipLabel, SNACK_MS, Snackbar, type Snack } from './sellKit';
+import { CartIcon, composing, focusesValue, KindMark, kindChipLabel, SNACK_MS, Snackbar, type Snack } from './sellKit';
 import { canStore, postedKey, postedSnapshot, readPosted, readSaleDraftRaw, readSellMemory, rememberPosted, rememberSell, sellMemoryKey, writeSaleDraft } from './sellMemory';
 import {
   blankDraft,
@@ -350,7 +350,7 @@ function ItemCard({ item, line, unit, lineUnit, used, others, full, locked, onAd
             >
               <span aria-hidden="true">−</span>
             </button>
-            <button type="button" className="sl-step-qty" disabled={locked} onClick={(event) => onOpen(fromKeyboard(event))} data-action="card-qty" aria-label={t('sell.step.open', '{qty} — غيّر الكمية أو السعر', { qty: qtyShown })}>
+            <button type="button" className="sl-step-qty" disabled={locked} onClick={(event) => onOpen(focusesValue(event))} data-action="card-qty" aria-label={t('sell.step.open', '{qty} — غيّر الكمية أو السعر', { qty: qtyShown })}>
               {qtyShown}
               {others > 0 ? <span className="sl-step-more">{t('sell.card.more_lines', '+ سطر آخر')}</span> : null}
             </button>
@@ -1000,10 +1000,11 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   };
 
   /** ينقل إلى ما يمنع الحفظ أوّلاً: سطر ← ورقته على خانته، والدفع ← خانته في ورقة الدفع، والتاريخ والملاحظة ← «المزيد» في السلّة. */
-  const goFix = (first: Problem | undefined) => {
+  const goFix = (first: Problem | undefined, focusValue = false) => {
     if (!first) return;
     const { where } = first;
-    if (where.kind === 'line') openLine(where.lineId, where.tab, true);
+    // السطر يُفتح على خطئه؛ وقيمته تُركَّز حين ضُغط «احفظ» أو «صحّح» من لوحة المفاتيح أو بالفأرة، لا باللمس (V1).
+    if (where.kind === 'line') openLine(where.lineId, where.tab, true, focusValue);
     else if (where.kind === 'cart' || where.kind === 'more') openSheet('cart', { more: where.kind === 'more' }, nav.stack.at(-1) === 'cart');
     else if (where.kind === 'store') openSheet('store');
     else {
@@ -1016,7 +1017,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   };
 
   /** «احفظ الفاتورة»: الحرّاس، ثمّ قراءة الأسعار والمتاح من جديد (المهارة 11)، وإقرار ما تغيّر، ثمّ النداء. */
-  const save = async () => {
+  const save = async (focusValue = false) => {
     setTried(true);
     setNotice(null);
     setStop(null);
@@ -1026,7 +1027,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (frozen || busy || !online) return;
     if (blocked || !warehouseId) {
       sound.warn();
-      goFix(problems[0]);
+      goFix(problems[0], focusValue);
       return;
     }
     // لا يُسكت عن «احفظ» بلا سبب (S3): موادّ لم تُقرأ، أو طلب لم يكتمل.
@@ -1067,7 +1068,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     const freshProblem = freshRows.flatMap(lineWhere)[0];
     if (freshProblem) {
       sound.warn();
-      goFix(freshProblem);
+      goFix(freshProblem, focusValue);
       return;
     }
     // ما تغيّر ويُقرّ: حجم وحدة السطر عمّا كُتب سعره له (S12)، ثمّ سعر البيع الذي اقتُرح منه السعر.
@@ -1237,10 +1238,31 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
     if (nav.stack.length === 0) searchRef.current?.focus({ preventScroll: true });
     else searchNext.current = true;
   };
+  /** رمز لمادّة في هذا المخزن (باركود أو رمز آخر، مطبَّعاً كما يقرؤه الماسح)، بأربعة أحرف فأكثر. */
+  const isStoreCode = (text: string): boolean => {
+    const code = normalizeCode(toWesternDigits(text));
+    return code.length >= 4 && catalog !== null && catalog.items.some((item) => codesOf(item).includes(code));
+  };
+  /**
+   * رمز كُتب في قيمة لوحة مركَّزة: القيمة أُعيدت إلى ما قبله، والمسح بعد أن تُرسم (المادّة الممسوحة قد تكون سطر القيمة نفسه، فزيادتها على المُعادة لا
+   * على ما كُتب).
+   */
+  const scanQueue = useRef<string | null>(null);
+  const [scanRound, setScanRound] = useState(0);
+  const scanFromValue = (code: string) => {
+    scanQueue.current = code;
+    setScanRound((round) => round + 1);
+  };
   const router = useRef({ routed, active: false });
   useEffect(() => {
     router.current = { routed, active: !busy && !frozen && catalog !== null && priceCheck === null && askFree === null && switchTo === null };
   });
+  useEffect(() => {
+    const code = scanQueue.current;
+    if (code === null) return;
+    scanQueue.current = null;
+    router.current.routed(code, true);
+  }, [scanRound]);
   useEffect(() => {
     let run = '';
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1255,7 +1277,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
       if (text) router.current.routed(text, entered);
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typesItself(event.target) || inOtherDialog(event.target)) return;
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || composing(event) || typesItself(event.target) || inOtherDialog(event.target)) return;
       if (!router.current.active) {
         run = '';
         stop();
@@ -1781,8 +1803,10 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
             setPadTarget(target);
             setPadFresh(fresh);
           }}
-          onFix={() => goFix(problems[0])}
-          onSave={() => void save()}
+          onFix={(focusValue) => goFix(problems[0], focusValue)}
+          onSave={(focusValue) => void save(focusValue)}
+          isCode={isStoreCode}
+          onScan={scanFromValue}
         />
       ) : null}
       {nav.stack.includes('line') && lineRow ? (
@@ -1817,6 +1841,8 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
             removeLine(lineRow.line.lineId);
           }}
           onAddAnother={() => addAnother(lineRow.line.lineId)}
+          isCode={isStoreCode}
+          onScan={scanFromValue}
         />
       ) : null}
 

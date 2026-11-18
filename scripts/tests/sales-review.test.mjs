@@ -512,7 +512,8 @@ export default async function (t) {
       fresh(MANAGER, { ...OK, sale_catalog: (_args, n) => (n === 1 ? clone(F.sale_catalog) : clone(less)) }, pickers);
       await mount('/sales/new');
       await fillContract();
-      await d.save();
+      // «احفظ» من لوحة المفاتيح (Enter عليه: detail = 0): السطر يُفتح على خطئه وقيمته مركَّزة؛ باللمس لا تُركَّز (مراجعة البيع الرابعة V1).
+      fire(first('save-invoice', d.paySheet()), 'click', { detail: 0 });
       await settle(30);
       // المتاح بوحدة السطر (مراجعة التصميم D3): 50 كغم كيس واحد.
       const over = 'المتاح في «المخزن العام» كيس واحد فقط؛ لا يُحفظ أكثر منه.';
@@ -520,7 +521,7 @@ export default async function (t) {
       t.same(
         [scrolled.at(-1)?.textContent ?? null, globalThis.document.activeElement === first('line-display', d.lineSheet())],
         [over, true],
-        'C4 ويُفتح السطر ويُمرَّر إلى خطئه وتُركَّز خانته (الكمية)',
+        'C4 ويُفتح السطر ويُمرَّر إلى خطئه وتُركَّز خانته (الكمية) حين ضُغط «احفظ» من لوحة المفاتيح',
       );
     });
 

@@ -1,5 +1,5 @@
 import { Bean, Box, EggFried, Feather, FlaskConical, Fuel, Package, Pill, Shapes, TestTubeDiagonal, Wrench, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { ItemKind } from '../../domain/stores';
 import { toWesternDigits } from '../../domain/normalize';
@@ -90,31 +90,144 @@ export function padKeyOf(key: string, decimals: number): PadKey | null {
   return /^[0-9]$/u.test(digit) ? (digit as PadKey) : null;
 }
 
+/** مفتاح من محرّر نصوص اللغات (IME، أندرويد): لا حرف فيه يُقرأ؛ لا تكتبه اللوحة ولا يجمعه الموجّه. */
+export const composing = (event: { key: string; isComposing?: boolean; keyCode?: number; nativeEvent?: { isComposing?: boolean; keyCode?: number } }): boolean =>
+  event.key === 'Unidentified' || event.key === 'Process' || event.isComposing === true || event.keyCode === 229 || event.nativeEvent?.isComposing === true || event.nativeEvent?.keyCode === 229;
+
+/** الماسح الذي لا تُعرف رموزه هنا (backstop): ستّة أحرف فأكثر بين كلّ حرفين أقلّ من هذا، تنتهي بـEnter أو بسكون. */
+const BURST_GAP_MS = 35;
+const BURST_MIN = 6;
+const SILENCE_MS = 300;
+/** رمز معروف للمخزن بلا Enter (ماسح لا يرسله): يُعرف بالسكون إن وصلت حروفه أسرع من هذا بينها (البلوتوث 45–50، والإنسان أبطأ بكثير). */
+const KNOWN_GAP_MS = 100;
+
+interface Typed {
+  char: string;
+  at: number;
+  repeat: boolean;
+  /** القيمة قبل هذا الحرف (لإرجاعها حين يتبيّن أنّ ما بعدها مسح). */
+  before: string;
+}
+
+export interface PadKeysOptions {
+  decimals: number;
+  /** نصّ القيمة الآن (ومعه ما كُتب ولم يُرسم بعد). */
+  current: () => string;
+  press: (keys: PadKey[]) => void;
+  /** يعيد القيمة إلى نصّ (ما قبل رمز مُسح فيها). */
+  restore: (text: string) => void;
+  done: () => void;
+  /** رمز (باركود أو رمز آخر) لمادّة في هذا المخزن؟ */
+  isCode: (text: string) => boolean;
+  /** المسح نفسه: تُطوى الأوراق وscanCode (يضيف، أو يقول لماذا لا). */
+  onScan: (code: string) => void;
+}
+
 /**
- * لوحة المفاتيح الحقيقية في القيمة المركَّزة (أساس المراجعة الثالثة): اللوحة تأخذ مفاتيح الجهاز ما دامت قيمتها مركَّزة وحدها، وكلّ مفتاح يُطبَّق فوراً
- * (لا إمساك ولا حساب لسرعة الكتابة: مسك الصفر يكتب أصفاراً، وEsc بعد رقم لا يُسقطه)، وEnter «تم» هنا وحده. وما سوى ذلك (التركيز في غيرها) يذهب إلى موجّه
- * الشاشة في SaleCheckout: الماسح لا يكتب في لوحة أبداً.
+ * مفاتيح الجهاز في القيمة المركَّزة (المراجعة الرابعة V1): كلّ مفتاح يُطبَّق فوراً كما في الأساس الثالث، ويُحفظ ما كُتب منذ ركّزت القيمة (أو «تم» أو
+ * المسح أو تبديل التبويب) حرفاً حرفاً مع القيمة قبله. عند Enter: إن كان آخر ما كُتب (أربعة أحرف فأكثر) رمزاً لمادّة في هذا المخزن فهو مسحٌ لا كتابة،
+ * بلا حساب للسرعة: تعود القيمة إلى ما كانت قبله ويُمسح الرمز (2.5 ثمّ مسح يبقى 2.5 والمادّة تُضاف)؛ وماسح بلا Enter يُعرف بالسكون إن وصل الرمز المعروف
+ * أسرع من 100 مللي ثانية بين حروفه. ورمز لا يعرفه المخزن يُعرف بسرعته وحدها احتياطاً: ستّة أحرف فأكثر بأقلّ من 35 مللي ثانية بينها، تنتهي بـEnter أو
+ * بسكون. وإلّا فـEnter «تم». مفاتيح داخل القيمة (زرّ فيها) تُترك لها (V3).
  */
-export function padKeyDown(event: ReactKeyboardEvent<HTMLElement>, decimals: number, press: (keys: PadKey[]) => void, done: () => void): void {
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    event.stopPropagation();
-    done();
-    return;
-  }
-  const key = padKeyOf(event.key, decimals);
-  if (key === null) {
-    // حرف لا يُكتب في رقم (حرف أو فاصلة): يُبلع هنا فلا يصير مسحاً ولا بحثاً.
-    if (event.key.length === 1 && event.key !== ' ') {
+export function usePadKeys(options: PadKeysOptions) {
+  const latest = useRef(options);
+  useEffect(() => {
+    latest.current = options;
+  });
+  const typed = useRef<Typed[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stop = () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stop, []);
+  const reset = () => {
+    stop();
+    typed.current = [];
+  };
+  /** يمسح من الحرف start: القيمة إلى ما قبله، ثمّ المسح. */
+  const scanFrom = (start: number, code: string) => {
+    const before = typed.current[start]?.before ?? latest.current.current();
+    reset();
+    latest.current.restore(before);
+    latest.current.onScan(code);
+  };
+  /** دفعة الماسح في آخر ما كُتب: من أين تبدأ (أو -1). */
+  const burstStart = (): number => {
+    const keys = typed.current;
+    const last = keys.length - 1;
+    if (last < 0 || keys[last]?.repeat) return -1;
+    let start = last;
+    while (start > 0) {
+      const here = keys[start];
+      const prev = keys[start - 1];
+      if (!here || !prev || prev.repeat || here.at - prev.at >= BURST_GAP_MS) break;
+      start -= 1;
+    }
+    return keys.length - start >= BURST_MIN ? start : -1;
+  };
+  /** أطول ذيل لما كُتب (أربعة أحرف فأكثر) هو رمز لمادّة في المخزن، أو -1؛ وبلا Enter بشرط أن تكون حروفه وصلت أسرع من KNOWN_GAP_MS. */
+  const knownStart = (entered: boolean): number => {
+    const keys = typed.current;
+    const chars = keys.map((key) => key.char);
+    for (let start = 0; start <= chars.length - 4; start += 1) {
+      if (!latest.current.isCode(chars.slice(start).join(''))) continue;
+      if (entered) return start;
+      const quick = keys.slice(start + 1).every((key, index) => !key.repeat && key.at - (keys[start + index]?.at ?? 0) < KNOWN_GAP_MS);
+      if (quick) return start;
+    }
+    return -1;
+  };
+  const onEnter = () => {
+    stop();
+    const chars = typed.current.map((key) => key.char);
+    const known = knownStart(true);
+    if (known >= 0) {
+      scanFrom(known, chars.slice(known).join(''));
+      return;
+    }
+    const start = burstStart();
+    if (start >= 0) {
+      scanFrom(start, chars.slice(start).join(''));
+      return;
+    }
+    reset();
+    latest.current.done();
+  };
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    // زرّ داخل القيمة («مسح») يأخذ Enter لنفسه (V3)؛ ومحرّر اللغات لا يُقرأ.
+    if (event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey || composing(event)) return;
+    if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();
+      onEnter();
+      return;
     }
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  press([key]);
+    const { decimals, press, current } = latest.current;
+    const key = padKeyOf(event.key, decimals);
+    if (key === 'back' || key === 'clear') {
+      event.preventDefault();
+      event.stopPropagation();
+      reset();
+      press([key]);
+      return;
+    }
+    if (event.key.length !== 1 || event.key === ' ') return;
+    // حرف: يُطبَّق فوراً إن كان رقماً، ويُحفظ (ولو حرفاً لا يُكتب في رقم: الرموز قد تحمل حروفاً).
+    event.preventDefault();
+    event.stopPropagation();
+    typed.current.push({ char: event.key, at: event.timeStamp, repeat: event.repeat, before: current() });
+    if (key !== null) press([key]);
+    stop();
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      const known = knownStart(false);
+      const start = known >= 0 ? known : burstStart();
+      if (start >= 0) scanFrom(start, typed.current.slice(start).map((entry) => entry.char).join(''));
+    }, SILENCE_MS);
+  };
+  return { onKeyDown, reset };
 }
 
 /** لمسة لا تنقل التركيز (اللمس على الشاشة لا يترك زرّاً مركَّزاً يعيد Enter ضغطه، ولا قيمة مركَّزة يكتب فيها الماسح، T1/T3). */
@@ -125,8 +238,33 @@ export const keepFocus = (event: { preventDefault: () => void; pointerType?: str
 /** النقرة من لوحة المفاتيح (Enter أو Space على زرّ): detail = 0؛ ومن اللمس أو الفأرة: عدد النقرات. */
 export const fromKeyboard = (event: { detail?: number }): boolean => event.detail === 0;
 
+/**
+ * فتحٌ يركّز القيمة لتأخذ مفاتيح الجهاز: من لوحة المفاتيح، أو بالفأرة (مؤشّر دقيق، V2)؛ لا باللمس ولا بالقلم (فلا يكتب فيها ماسح الهاتف). النقرة في
+ * كروم PointerEvent بنوع مؤشّرها، وفي غيره يُسأل الجهاز عن مؤشّره الأوّل.
+ */
+export function focusesValue(event: { detail?: number; nativeEvent?: unknown }): boolean {
+  if (fromKeyboard(event)) return true;
+  const kind = (event.nativeEvent as { pointerType?: unknown } | undefined)?.pointerType;
+  if (kind === 'mouse') return true;
+  if (kind === 'touch' || kind === 'pen') return false;
+  return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: fine)').matches;
+}
+
 /** لوحة أرقام التطبيق: 3×4 مفاتيح 56 بكسل، والصفّ الأخير «.» أو «000» ثمّ 0 ثمّ الحذف. مفاتيحها لا تأخذ التركيز. */
-export function Keypad({ decimals, money = false, onKeys, label }: { decimals: number; money?: boolean; onKeys: (keys: PadKey[]) => void; label: string }) {
+export function Keypad({
+  decimals,
+  money = false,
+  onKeys,
+  onUse,
+  label,
+}: {
+  decimals: number;
+  money?: boolean;
+  onKeys: (keys: PadKey[]) => void;
+  /** النقرة نفسها (فأرة: القيمة تُركَّز فيكون Enter بعدها «تم»، V2). */
+  onUse?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  label: string;
+}) {
   const keys: PadKey[] = [...DIGITS, money ? '000' : '.', '0', 'back'];
   return (
     <div className="sl-pad" dir="ltr" role="group" aria-label={label} data-action="sale-pad">
@@ -141,9 +279,10 @@ export function Keypad({ decimals, money = false, onKeys, label }: { decimals: n
           aria-label={key === 'back' ? t('weight_pad.back', 'احذف رقماً') : key === '.' ? t('weight_pad.point', 'فاصلة عشرية') : key === '000' ? t('sell.pad.thousands', 'ثلاثة أصفار') : key}
           onPointerDown={keepFocus}
           onMouseDown={keepFocus}
-          onClick={() => {
+          onClick={(event) => {
             sound.click();
             onKeys([key]);
+            onUse?.(event);
           }}
         >
           {key === 'back' ? <BackspaceIcon /> : key}

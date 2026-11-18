@@ -16,7 +16,7 @@ import { sound } from '../../lib/sound';
 import { useLoad } from '../../lib/useLoad';
 import { baseQty } from '../inventory/simple-shared';
 import { dinars, inputMoney, linesText, moneyText, unitQtyText } from './saleParts';
-import { applyPadKey, fromKeyboard, keepFocus, Keypad, padKeyDown, Sheet, shortUnit, typedText, type PadKey } from './sellKit';
+import { applyPadKey, focusesValue, keepFocus, Keypad, Sheet, shortUnit, typedText, usePadKeys, type PadKey } from './sellKit';
 import { itemCount, MAX_LEGS, NOTE_MAX, type Draft, type Leg, type ParsedLine, type PayKind } from './sellModel';
 
 // أوراق شاشة البيع (تصميم المبيعات §٢–٤): السلّة بسطورها المضغوطة و«المزيد» (خصم الفاتورة والتاريخ والملاحظة وتفصيل الحساب)، والسطر (الوحدة شرائح،
@@ -89,7 +89,7 @@ function Stepper({ name, qty, onStep, onOpen, small = false }: { name: string; q
         <span aria-hidden="true">−</span>
       </button>
       {onOpen ? (
-        <button type="button" className="sl-step-qty" onClick={(event) => onOpen(fromKeyboard(event))} data-action="cart-qty">
+        <button type="button" className="sl-step-qty" onClick={(event) => onOpen(focusesValue(event))} data-action="cart-qty">
           {qty}
         </button>
       ) : (
@@ -174,7 +174,7 @@ export function CartSheet({ level, rows, errors: rowErrors, limits, math, storeN
             const net = gross - (row.discount ?? 0n);
             return (
               <li key={line.lineId} className="sl-line" data-action="cart-line" data-item={line.itemId} data-wrong={problem ? 'yes' : undefined}>
-                <button type="button" className="sl-line-main" onClick={(event) => onOpenLine(line.lineId, fromKeyboard(event))} data-action="cart-line-open">
+                <button type="button" className="sl-line-main" onClick={(event) => onOpenLine(line.lineId, focusesValue(event))} data-action="cart-line-open">
                   <span className="sl-line-name">{name}</span>
                   {/* الوحدة كاملةً هنا (لا شريحة مقصوصة بجانب العدّاد، D11). */}
                   <span className="sl-line-sub sl-num" data-action="cart-unit">
@@ -306,9 +306,13 @@ export interface LineSheetProps {
   errors: ParsedLine['errors'];
   tab: LineTab;
   focusError: boolean;
-  /** فُتحت من لوحة المفاتيح: القيمة مركَّزة فيُكتب فيها فوراً. */
+  /** فُتحت من لوحة المفاتيح أو بالفأرة: القيمة مركَّزة فيُكتب فيها فوراً (لا باللمس، ولو فُتحت لخطأ، V1). */
   focusPad: boolean;
   canAddAnother: boolean;
+  /** رمز لمادّة في هذا المخزن؟ (مسح كُتب في القيمة المركَّزة يُعرف به، V1) */
+  isCode: (text: string) => boolean;
+  /** المسح: تُطوى الأوراق وتُضاف المادّة أو يُقال لماذا لا. */
+  onScan: (code: string) => void;
   onClose: () => void;
   onUnit: (unitId: string | null) => void;
   onField: (field: LineTab, text: string) => void;
@@ -319,14 +323,14 @@ export interface LineSheetProps {
 
 const PAD_DECIMALS: Readonly<Record<LineTab, number>> = { qty: 3, price: 2, discount: 0 };
 
-export function LineSheet({ level, row, gross, units, stock, usual, errors, tab: initialTab, focusError, focusPad, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother }: LineSheetProps) {
+export function LineSheet({ level, row, gross, units, stock, usual, errors, tab: initialTab, focusError, focusPad, canAddAnother, onClose, onUnit, onField, onUsual, onRemove, onAddAnother, isCode, onScan }: LineSheetProps) {
   const [tab, setTab] = useState<LineTab>(initialTab);
   const [fresh, setFresh] = useState(true);
-  const displayRef = useRef<HTMLDivElement>(null);
-  // تبويب أو وحدة اختيرت من لوحة المفاتيح: القيمة تُركَّز بعدها ليُكتب فيها؛ واللمس والفأرة لا يركّزانها (فلا يكتب فيها ماسح، T1؛ والقيمة تُركَّز بالنقر عليها).
+  const displayRef = useRef<HTMLSpanElement>(null);
+  // تبويب أو وحدة أو مفتاح اختيرت من لوحة المفاتيح أو بالفأرة: القيمة تُركَّز بعدها ليُكتب فيها (وEnter بعدها «تم»)؛ واللمس لا يركّزها (V2).
   const [focusRound, setFocusRound] = useState(0);
-  const focusAfter = (event: { detail?: number }) => {
-    if (fromKeyboard(event)) setFocusRound((round) => round + 1);
+  const focusAfter = (event: { detail?: number; nativeEvent?: unknown }) => {
+    if (focusesValue(event)) setFocusRound((round) => round + 1);
   };
   useEffect(() => {
     if (focusRound > 0) displayRef.current?.focus({ preventScroll: true });
@@ -337,11 +341,10 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
   const unitLabel = unit?.label ?? '';
   const value = tab === 'qty' ? line.qty : tab === 'price' ? line.price : line.discount;
   const error = tab === 'qty' ? errors.qty : tab === 'price' ? errors.price : errors.discount;
-  // فُتحت لخطأ (بعد «احفظ»): يُمرَّر إليه ويُركَّز الحقل نفسه (مراجعة 0033 C4).
+  // فُتحت لخطأ (بعد «احفظ»): يُمرَّر إليه (مراجعة 0033 C4)؛ وتُركَّز القيمة حين فُتحت من لوحة المفاتيح أو بالفأرة وحده، لا باللمس (V1).
   useEffect(() => {
-    if (!focusError && !focusPad) return;
     if (focusError) reveal(errorRef.current);
-    displayRef.current?.focus({ preventScroll: true });
+    if (focusPad) displayRef.current?.focus({ preventScroll: true });
   }, [focusError, focusPad]);
   // مفاتيح متتالية قبل أن تُرسم القيمة (لوحة مفاتيح سريعة) تُبنى على ما كُتب قبلها لا على المرسوم: يُمحى بعد كلّ رسم.
   const typed = useRef<{ tab: LineTab; text: string } | null>(null);
@@ -355,6 +358,19 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
     onField(tab, text);
     setFresh(false);
   };
+  const hardware = usePadKeys({
+    decimals: PAD_DECIMALS[tab],
+    current: () => (typed.current !== null && typed.current.tab === tab ? typed.current.text : value),
+    press: (keys) => press(keys),
+    restore: (text) => {
+      typed.current = { tab, text };
+      onField(tab, text);
+    },
+    done: onClose,
+    isCode,
+    onScan,
+  });
+
   const tabs: { key: LineTab; label: string; wrong: boolean }[] = [
     { key: 'qty', label: t('sell.tab.qty', 'الكمية'), wrong: Boolean(errors.qty) },
     { key: 'price', label: t('sell.tab.price', 'السعر'), wrong: Boolean(errors.price) },
@@ -402,7 +418,16 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
       action="sale-line"
       footer={
         <>
-          <Keypad decimals={PAD_DECIMALS[tab]} money={tab === 'discount'} onKeys={press} label={tabs.find((entry) => entry.key === tab)?.label ?? ''} />
+          <Keypad
+            decimals={PAD_DECIMALS[tab]}
+            money={tab === 'discount'}
+            onKeys={(keys) => {
+              hardware.reset();
+              press(keys);
+            }}
+            onUse={focusAfter}
+            label={tabs.find((entry) => entry.key === tab)?.label ?? ''}
+          />
           <div className="sl-foot-row">
             {canAddAnother ? (
               <button type="button" className="sl-secondary" onClick={onAddAnother} data-action="line-add-another">
@@ -432,6 +457,7 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
               className="sl-chip"
               onClick={(event) => {
                 sound.click();
+                hardware.reset();
                 onUnit(option.unitId);
                 setFresh(true);
                 focusAfter(event);
@@ -459,6 +485,8 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
             className="sl-tab"
             onClick={(event) => {
               sound.click();
+              // ما كُتب منذ ركّزت القيمة يبدأ من جديد مع كلّ تبويب.
+              hardware.reset();
               setTab(entry.key);
               setFresh(true);
               focusAfter(event);
@@ -477,34 +505,40 @@ export function LineSheet({ level, row, gross, units, stock, usual, errors, tab:
           {t('sell.price.usual_short', 'المعتاد {price} — أعِده', { price: moneyText(usual) })}
         </button>
       ) : null}
-      {/* القيمة خانة تُركَّز (بلوحة المفاتيح أو بالفأرة، لا باللمس): فيها وحدها تكتب لوحة مفاتيح الجهاز، وEnter فيها «تم». */}
-      <div
-        ref={displayRef}
-        tabIndex={0}
-        role="textbox"
-        aria-label={t('sell.pad.field', '{field} — {unit}', { field: tabs.find((entry) => entry.key === tab)?.label ?? '', unit: shownUnit })}
-        className="sl-display"
-        data-fresh={fresh ? 'yes' : undefined}
-        data-wrong={error ? 'yes' : undefined}
-        data-pad-display="yes"
-        aria-live="polite"
-        onKeyDown={(event) => padKeyDown(event, PAD_DECIMALS[tab], press, onClose)}
-        onPointerDown={(event) => {
-          if (event.pointerType === 'touch') keepFocus(event);
-        }}
-        data-action="line-display"
-      >
-        <span className="sl-display-value" dir="ltr" data-action="line-value">
-          {value === '' ? t('file.none', '—') : typedText(value)}
+      {/*
+        القيمة خانة تُركَّز (بلوحة المفاتيح أو بالفأرة، لا باللمس): فيها وحدها تكتب لوحة مفاتيح الجهاز، وEnter فيها «تم» أو مسحٌ لرمز كُتب فيها (V1).
+        الخانة الرقم وحده (V6): الوحدة و«مسح» خارجها، فلا يقرأ قارئ الشاشة «3 كيس مسح» ولا يُعلن الرقم مرّتين.
+      */}
+      <div className="sl-display" data-fresh={fresh ? 'yes' : undefined} data-wrong={error ? 'yes' : undefined} data-action="line-box">
+        <span
+          ref={displayRef}
+          tabIndex={0}
+          role="textbox"
+          aria-label={t('sell.pad.field', '{field} — {unit}', { field: tabs.find((entry) => entry.key === tab)?.label ?? '', unit: shownUnit })}
+          className="sl-display-value"
+          dir="ltr"
+          data-pad-display="yes"
+          onKeyDown={hardware.onKeyDown}
+          onFocus={hardware.reset}
+          onPointerDown={(event) => {
+            if (event.pointerType === 'touch') keepFocus(event);
+          }}
+          data-action="line-display"
+        >
+          <span data-action="line-value">{value === '' ? t('file.none', '—') : typedText(value)}</span>
         </span>
-        <span className="sl-display-unit">{shownUnit}</span>
+        <span className="sl-display-unit" aria-hidden="true">
+          {shownUnit}
+        </span>
         {value !== '' ? (
           <button
             type="button"
             className="sl-clear"
             aria-label={t('sell.pad.clear', 'امسح القيمة')}
+            onPointerDown={keepFocus}
             onClick={() => {
               sound.click();
+              hardware.reset();
               onField(tab, '');
               setFresh(false);
             }}
@@ -567,8 +601,11 @@ export interface PaySheetProps {
   onAddLeg: () => void;
   onRemoveLeg: (legId: string) => void;
   onPad: (target: PadTarget | null, fresh: boolean) => void;
-  onFix: () => void;
-  onSave: () => void;
+  /** byKeyboard: من لوحة المفاتيح (السطر الذي يفتحه تُركَّز قيمته). */
+  onFix: (byKeyboard: boolean) => void;
+  onSave: (byKeyboard: boolean) => void;
+  isCode: (text: string) => boolean;
+  onScan: (code: string) => void;
 }
 
 /** مبالغ سريعة لساق «جزء الآن» باسمها (D13): الباقي كلّه (أو المطلوب كلّه في أوّل صندوق)، ونصفه، ومبلغ مدوّر تحته. */
@@ -809,8 +846,10 @@ function BoxChoice({ boxes, value, open, onToggle, onPick, action }: { boxes: re
 
 export function PaySheet(props: PaySheetProps) {
   const { level, math, draft, walkIn, payKind, legErrors, boxes, boxesFailed, onBoxesRetry, cashBox, paid, debt, shown, recent, canCreateParty, partyText, onPartyText, padTarget, padFresh, focusRequest } = props;
-  const { busy, online, saveText, blockedText, fixLabel, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave } = props;
+  const { busy, online, saveText, blockedText, fixLabel, failure, lines, onClose, onSet, onPay, onAddLeg, onRemoveLeg, onPad, onFix, onSave, isCode, onScan } = props;
   const padRef = useRef<HTMLSpanElement>(null);
+  // ما فتح اللوحة (المبلغ أو الخصم أو «استلمتُ» أو «جزء الآن»): إليه يعود التركيز بعد «تم» فلا يسقط إلى الصفحة (V4).
+  const padOpener = useRef<HTMLElement | null>(null);
   // طلب تركيز قيمة اللوحة: فُتحت من لوحة المفاتيح (Enter أو Space على المبلغ أو الخصم أو «جزء الآن» أو «+ صندوق آخر»).
   const [padFocus, setPadFocus] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -818,10 +857,11 @@ export function PaySheet(props: PaySheetProps) {
   /**
    * يفتح لوحة الأرقام على خانة. الخانة المفتوحة نفسها لا تُفتح من جديد (لا يعود الرقم التالي يمحو ما كُتب، T3)؛ ومن لوحة المفاتيح تُركَّز القيمة.
    */
-  const openPad = (next: PadTarget, event: { detail?: number }) => {
+  const openPad = (next: PadTarget, event: { detail?: number; nativeEvent?: unknown; currentTarget?: EventTarget | null }) => {
+    padOpener.current = (event.currentTarget as HTMLElement | null) ?? null;
     const same = padTarget !== null && padTarget.kind === next.kind && (next.kind !== 'leg' || (padTarget.kind === 'leg' && padTarget.legId === next.legId));
     if (!same) onPad(next, true);
-    if (fromKeyboard(event)) setPadFocus((round) => round + 1);
+    if (focusesValue(event)) setPadFocus((round) => round + 1);
   };
   const dueRef = useRef<HTMLDivElement>(null);
   const changeRef = useRef<HTMLDivElement>(null);
@@ -883,6 +923,25 @@ export function PaySheet(props: PaySheetProps) {
     write(text);
     onPad(target, false);
   };
+  /** «تم» من القيمة المركَّزة: اللوحة تُطوى والتركيز إلى ما فتحها، أو إلى الورقة إن غاب (V4). */
+  const padDone = () => {
+    const opener = padOpener.current;
+    const sheet = padRef.current?.closest?.('[role="dialog"]') as HTMLElement | null | undefined;
+    (opener && opener.isConnected !== false ? opener : sheet)?.focus({ preventScroll: true });
+    onPad(null, true);
+  };
+  const hardware = usePadKeys({
+    decimals: 0,
+    current: () => (typedPad.current !== null && target !== null && typedPad.current.key === (target.kind === 'leg' ? target.legId : target.kind) ? typedPad.current.text : targetText()),
+    press: (keys) => press(keys),
+    restore: (text) => {
+      if (target) typedPad.current = { key: target.kind === 'leg' ? target.legId : target.kind, text };
+      write(text);
+    },
+    done: padDone,
+    isCode,
+    onScan,
+  });
   const quick = (amount: Fils) => {
     if (busy) return;
     sound.click();
@@ -958,7 +1017,8 @@ export function PaySheet(props: PaySheetProps) {
                   className="sl-pad-value sl-num"
                   dir="ltr"
                   data-pad-display="yes"
-                  onKeyDown={(event) => padKeyDown(event, 0, press, () => onPad(null, true))}
+                  onKeyDown={hardware.onKeyDown}
+                  onFocus={hardware.reset}
                   onPointerDown={(event) => {
                     if (event.pointerType === 'touch') keepFocus(event);
                   }}
@@ -990,7 +1050,7 @@ export function PaySheet(props: PaySheetProps) {
                       onPointerDown={keepFocus}
                       onClick={(event) => {
                         onAddLeg();
-                        if (fromKeyboard(event)) setPadFocus((round) => round + 1);
+                        if (focusesValue(event)) setPadFocus((round) => round + 1);
                       }}
                       data-action="pay-add-pad"
                     >
@@ -1004,7 +1064,18 @@ export function PaySheet(props: PaySheetProps) {
                   ))}
                 </div>
               ) : null}
-              <Keypad decimals={0} money onKeys={press} label={padTitle} />
+              <Keypad
+                decimals={0}
+                money
+                onKeys={(keys) => {
+                  hardware.reset();
+                  press(keys);
+                }}
+                onUse={(event) => {
+                  if (focusesValue(event)) setPadFocus((round) => round + 1);
+                }}
+                label={padTitle}
+              />
             </div>
           ) : null}
           {failure ? (
@@ -1018,7 +1089,7 @@ export function PaySheet(props: PaySheetProps) {
                 {blockedText}
               </p>
               {fixLabel !== null ? (
-                <button type="button" className="sl-text-btn" onClick={onFix} data-action="sale-fix">
+                <button type="button" className="sl-text-btn" onClick={(event) => onFix(focusesValue(event))} data-action="sale-fix">
                   {fixLabel}
                 </button>
               ) : null}
@@ -1026,7 +1097,7 @@ export function PaySheet(props: PaySheetProps) {
           ) : null}
           {!online ? <p className="sl-note">{t('sell.offline.now', 'بلا اتصال: جهّز الفاتورة واحفظها حين يعود الاتصال.')}</p> : null}
           {/* أثناء الحفظ «يُحفظ…» بتباين كامل لا الاسم نفسه باهتاً (D23). */}
-          <button type="button" className="sl-primary sl-save" disabled={busy || !online || lines === 0} aria-busy={busy || undefined} onClick={onSave} data-action="save-invoice">
+          <button type="button" className="sl-primary sl-save" disabled={busy || !online || lines === 0} aria-busy={busy || undefined} onClick={(event) => onSave(focusesValue(event))} data-action="save-invoice">
             {busy ? t('sell.saving', 'يُحفظ…') : saveText}
           </button>
         </div>
@@ -1095,7 +1166,10 @@ export function PaySheet(props: PaySheetProps) {
               onClick={(event) => {
                 sound.click();
                 onPay(entry.kind);
-                if (entry.kind === 'part' && fromKeyboard(event)) setPadFocus((round) => round + 1);
+                if (entry.kind === 'part') {
+                  padOpener.current = event.currentTarget;
+                  if (focusesValue(event)) setPadFocus((round) => round + 1);
+                }
               }}
               data-action="pay-kind"
               data-kind={entry.kind}
@@ -1165,8 +1239,9 @@ export function PaySheet(props: PaySheetProps) {
               className="sl-secondary"
               disabled={draft.legs.length >= MAX_LEGS || draft.legs.length >= Math.max(1, boxList.length)}
               onClick={(event) => {
+                padOpener.current = event.currentTarget;
                 onAddLeg();
-                if (fromKeyboard(event)) setPadFocus((round) => round + 1);
+                if (focusesValue(event)) setPadFocus((round) => round + 1);
               }}
               data-action="pay-add"
             >
