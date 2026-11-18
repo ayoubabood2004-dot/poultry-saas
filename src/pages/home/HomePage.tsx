@@ -1,4 +1,4 @@
-import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, ShoppingCart, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, CheckCheck, ChevronLeft, ClipboardCheck, ClipboardList, Drumstick, Egg, Factory, HandCoins, HardDrive, PackageMinus, PackagePlus, Receipt, Reply, TriangleAlert, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import { useCallback, useId, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InstallCard } from '../../components/shell/InstallCard';
@@ -14,7 +14,7 @@ import type { Workspace } from '../../domain/workspace';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { countForm, fmtDay, fmtInt, fmtMoney, fmtPercent } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
-import { STORE_ROLES } from '../../lib/nav';
+import { SaleIcon, STORE_ROLES } from '../../lib/nav';
 import type { FlocksOverview } from '../../lib/repo/flocks';
 import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
@@ -405,7 +405,7 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     // المقسومة بين الأمين والمحاسب. لمن يسجّل الشراء (purchase.record: المالك والمدير والمحاسب والأمين).
     [{ key: 'purchase', to: '/inventory', label: t('home.do.purchase', 'سجّل شراء'), icon: PackagePlus }, allowed('purchase.record')],
     // «بِع» (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع»): يفتح «بيع جديد» في صفحة المبيعات، لأدوار الشراء نفسها.
-    [{ key: 'sale', to: '/sales/new', label: t('home.do.sale', 'بِع'), icon: ShoppingCart }, allowed('sale.record')],
+    [{ key: 'sale', to: '/sales/new', label: t('home.do.sale', 'بِع'), icon: SaleIcon }, allowed('sale.record')],
     [{ key: 'use', to: '/inventory/uses', label: t('home.do.use', 'أخرجت مادّة من المخزن'), icon: PackageMinus }, allowed('stock_use.post')],
     [{ key: 'transfer', to: '/inventory/transfers', label: t('home.do.transfer', 'نقلت بين مخزنين'), icon: ArrowLeftRight }, allowed('transfer.post')],
     // نافذتا الدفع والقبض في صفحة الجهات (/accounts/parties منذ 0024: /accounts صارت «خلاصة المال»).
@@ -465,7 +465,7 @@ export function HomeActions({ actions }: { actions: readonly HomeAction[] }) {
         <details>
           <summary
             data-action="more-actions"
-            className="inline-flex select-none items-center gap-2 rounded-2xl px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-2"
+            className="inline-flex select-none items-center gap-2 rounded-2xl px-3 py-3 text-sm font-medium text-ink-muted hover:bg-surface-2"
           >
             {t('home.do.more', 'أعمال أخرى')}
           </summary>
@@ -531,7 +531,7 @@ export function OpenSaleChip({ sale }: { sale: SaleDraftSummary }) {
       data-action="home-open-sale"
       className="inline-flex min-h-11 items-center gap-2 self-start rounded-full border border-brand-200 bg-brand-50 px-4 text-sm font-semibold text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/15 dark:text-brand-100"
     >
-      <ShoppingCart aria-hidden="true" className="size-5 shrink-0" />
+      <SaleIcon aria-hidden="true" className="size-5 shrink-0" />
       {sale.total > 0n ? t('home.open_sale', 'فاتورة مفتوحة: {items} · {total}', { items, total: fmtMoney(sale.total, 0) }) : t('home.open_sale.no_total', 'فاتورة مفتوحة: {items}', { items })}
     </Link>
   );

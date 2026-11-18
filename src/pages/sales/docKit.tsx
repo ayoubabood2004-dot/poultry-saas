@@ -54,6 +54,24 @@ export function StatusChip({ tone, action = 'sale-status', className = '' }: { t
   );
 }
 
+/** علم يتذكّره الجهاز (localStorage): التخزين قد يرمي أو يعود فارغاً (نافذة خاصّة)، فالقراءة false والكتابة بلا أثر حينها. */
+export function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch { // swallow-ok: تخزين ممنوع؛ الافتراض مطويّ
+    return false;
+  }
+}
+
+export function writeFlag(key: string, on: boolean): void {
+  try {
+    if (on) localStorage.setItem(key, '1');
+    else localStorage.removeItem(key);
+  } catch {
+    /* swallow-ok: راحة لا حقيقة؛ بلا تخزين يعود الافتراض */
+  }
+}
+
 const WIDE = '(min-width: 640px)';
 const media = (): MediaQueryList | null => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE) : null);
 function subscribe(changed: () => void): () => void {

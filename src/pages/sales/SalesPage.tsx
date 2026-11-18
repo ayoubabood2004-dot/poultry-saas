@@ -1,7 +1,6 @@
-import { Plus, Search, X } from 'lucide-react';
+import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { DayField } from '../../components/ui/DayField';
@@ -16,6 +15,7 @@ import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { columnDecimals, countForm, fmtDay, fmtInt, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { SaleIcon } from '../../lib/nav';
 import * as birdSales from '../../lib/repo/birdSales';
 import type { AwaitingTicket, BirdGroupRow, BirdSaleRow, BirdSalesGroups, BirdSalesSection, SalesReportWithBirds, SalesWithBirds } from '../../lib/repo/birdSales';
 import type { SaleCost, SaleRow, SalesGroup, SalesOverview, SalesReport, SalesReportRow } from '../../lib/repo/purchases';
@@ -27,6 +27,7 @@ import { baseQty } from '../inventory/simple-shared';
 import { birdSalePath, dinarsText, kgDecimals, kgText, newBirdSalePath, paidLabel, ticketPagePath } from './birdParts';
 import { rowTone, StatusChip, useWide } from './docKit';
 import { sentText } from './SaleCheckout';
+import { readSaleDraftSummary, type SaleDraftSummary } from './saleDraft';
 import { linesText, newSalePath } from './saleParts';
 
 // صفحة المبيعات (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع… واكدر اسجل مبيعاتي لمنو وتطلعلي هاي السوالف بالتقارير»)، ثمّ تصميم
@@ -117,7 +118,7 @@ function salePath(id: string, listSearch: string): string {
  * فواتير المدّة: بالهاتف الزبون (وتحته الرقم واليوم صغيرين) | الصافي | الباقي الآن | الحالة، فالمال في الشاشة بلا تمرير جانبي؛ وفي الشاشة العريضة الموادّ
  * والمدفوع أيضاً. الصفّ كلّه يفتح الفاتورة (والاسم رابطها للوحة المفاتيح). والمجاميع من الخادم ما دامت القائمة كاملة (بلا بحث ولا تصفية)، وإلّا عدد ما يظهر.
  */
-function SalesList({ data, rows, filtered, wide, listSearch, empty }: { data: SalesOverview; rows: readonly SaleRow[]; filtered: boolean; wide: boolean; listSearch: string; empty: string }) {
+function SalesList({ data, rows, filtered, wide, listSearch, empty, stale }: { data: SalesOverview; rows: readonly SaleRow[]; filtered: boolean; wide: boolean; listSearch: string; empty: string; stale: boolean }) {
   const navigate = useNavigate();
   const money = data.rows.every((row) => row.money !== null) && data.totals.money !== null;
   const totals = money && !filtered ? data.totals.money : null;
@@ -173,7 +174,7 @@ function SalesList({ data, rows, filtered, wide, listSearch, empty }: { data: Sa
   }
   columns.push({ key: 'status', header: t('sales.col.status', 'الحالة'), cell: (row) => <StatusChip tone={rowTone(row)} /> });
   return (
-    <div className="sale-table sale-list" data-action="sales-table">
+    <div className="sale-table sale-list" data-action="sales-table" data-stale={stale ? '' : undefined} aria-busy={stale || undefined}>
       <DataTable
         caption={t('sales.caption', 'فواتير البيع من {from} إلى {to}، الأحدث أوّلاً', { from: fmtDay(data.from), to: fmtDay(data.to) })}
         columns={columns}
@@ -332,7 +333,7 @@ function BirdsList({ data, from, to }: { data: BirdSalesSection; from: string; t
         </Link>
       ),
     },
-    { key: 'party', header: t('sales.col.party', 'الجهة'), wrap: true, cell: (row) => row.partyName },
+    { key: 'party', header: t('saleslist.col.customer', 'الزبون'), wrap: true, cell: (row) => row.partyName },
     { key: 'ticket', header: t('birds.col.ticket', 'التذكرة'), cell: (row) => <bdi dir="ltr">{row.ticketNo}</bdi> },
     { key: 'birds', header: t('birds.col.birds', 'الطيور'), kind: 'number', cell: (row) => <Num>{fmtInt(row.birds)}</Num>, total: <Num>{fmtInt(data.totals.birds)}</Num> },
     { key: 'net', header: t('birds.col.net', 'الصافي (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.netKg, kg)}</Num>, total: <Num>{fmtQtyCell(data.totals.netKg, kg)}</Num> },
@@ -392,7 +393,7 @@ function BirdsSection({ data, from, to }: { data: BirdSalesSection; from: string
 /** فواتير الطيور المرحَّلة مجمَّعة بالتجميع نفسه (بالمادّة: صفّ واحد «دجاج لحم حيّ»). */
 function BirdGroupsTable({ data, group }: { data: BirdSalesGroups; group: SalesGroup }) {
   if (!data.rows.length) return null;
-  const label = group === 'party' ? t('sales.col.party', 'الجهة') : group === 'item' ? t('sales.col.item', 'المادّة') : t('ledger.date', 'التاريخ');
+  const label = group === 'party' ? t('saleslist.col.customer', 'الزبون') : group === 'item' ? t('sales.col.item', 'المادّة') : t('ledger.date', 'التاريخ');
   const kg = kgDecimals([...data.rows.map((row) => row.netKg), data.totals.netKg]);
   const columns: Column<BirdGroupRow>[] = [
     { key: 'label', header: label, sticky: true, wrap: true, cell: (row) => row.label },
@@ -416,56 +417,81 @@ function BirdGroupsTable({ data, group }: { data: BirdSalesGroups; group: SalesG
   );
 }
 
-/** اسم المدّة فوق أرقامها. */
-function periodName(period: Period, from: Day, to: Day): string {
-  if (period === 'today') return t('saleslist.period.today_name', 'اليوم');
-  if (period === 'week') return t('saleslist.period.week_name', 'آخر سبعة أيّام');
-  if (period === 'month') return t('saleslist.period.month_name', 'هذا الشهر');
+/**
+ * اسم المدّة من المدّة التي أنتجت الأرقام نفسها (from وto وtoday في الجواب، مراجعة A4): «اليوم» لا يُكتب فوق أرقام الشهر وقراءةُ اليوم في الطريق أو بلا
+ * اتصال.
+ */
+export function stripName(data: Pick<SalesOverview, 'from' | 'to' | 'today'>): string {
+  const { from, to, today } = data;
+  if (to === today && from === today) return t('saleslist.period.today_name', 'اليوم');
+  if (to === today && from === addDays(today, -6)) return t('saleslist.period.week_name', 'آخر سبعة أيّام');
+  if (to === today && from === monthStart(today)) return t('saleslist.period.month_name', 'هذا الشهر');
   return from === to ? fmtDay(from) : t('saleslist.period.range_name', 'من {from} إلى {to}', { from: fmtDay(from), to: fmtDay(to) });
 }
 
 /**
- * شريط أرقام المدّة من مجاميع الخادم (لا من الصفوف المحمّلة): البيع، والمدفوع عند البيع من كلّ الصناديق (مراجعة 0033 D11)، والباقي الآن (open، A1)؛
- * والكلفة والربح لأدوار الكلفة. يتبع المدّة المختارة لا البحث (البحث في الجدول وحده).
+ * عدد فواتير المدّة كلّها (المحفوظة والملغاة: الجدول والبحث يعدّان الشيء نفسه، مراجعة A10)، و«الملغاة منها» إن وُجدت؛ والمبالغ للمحفوظة وحدها.
  */
-function SalesStrip({ data, period }: { data: SalesOverview; period: Period }) {
+export function stripCount(totals: SalesOverview['totals']): string {
+  const all = invoicesText(totals.count + totals.voided);
+  return totals.voided > 0 ? t('saleslist.count_voided', '{all}، الملغاة منها: {voided}', { all, voided: fmtInt(totals.voided) }) : all;
+}
+
+/**
+ * شريط أرقام المدّة من مجاميع الخادم (لا من الصفوف المحمّلة)، بسطر واحد على الهاتف (مراجعة D14): البيع والباقي الآن؛ و«التفاصيل» تفتح المدفوع عند البيع
+ * والكلفة والربح (لأدوار الكلفة)، وتظهر وحدها في الشاشة العريضة. يتبع المدّة المعروضة لا البحث، وأثناء قراءة مدّة أخرى يخفت (stale).
+ */
+function SalesStrip({ data, stale, wide }: { data: SalesOverview; stale: boolean; wide: boolean }) {
+  const [more, setMore] = useState(false);
   const money = data.totals.money;
   const cost = data.totals.cost;
+  const detail = wide || more;
   return (
-    <section className="card sale-strip" data-action="sales-strip">
-      <p className="sale-strip-head">
-        <span className="sale-strip-name">{periodName(period, data.from, data.to)}</span>
-        <span>{invoicesText(data.totals.count)}</span>
-      </p>
-      {money ? (
-        <dl className="sale-strip-grid">
-          <div>
-            <dt>{t('saleslist.stat.sold', 'البيع')}</dt>
-            <dd data-action="strip-sold">{money0(money.revenue)}</dd>
-          </div>
+    <section className="card sale-strip" data-action="sales-strip" data-stale={stale ? '' : undefined} aria-busy={stale || undefined}>
+      <div className="sale-strip-line">
+        <p className="sale-strip-head">
+          <span className="sale-strip-name">{stripName(data)}</span>
+          <span data-action="strip-count">{stripCount(data.totals)}</span>
+        </p>
+        {money ? (
+          <dl className="sale-strip-main">
+            <div>
+              <dt>{t('saleslist.stat.sold', 'البيع')}</dt>
+              <dd data-action="strip-sold">{money0(money.revenue)}</dd>
+            </div>
+            <div data-part="open" data-zero={(money.open ?? money.credit) === 0n ? '' : undefined}>
+              <dt>{t('sales.col.open', 'الباقي الآن')}</dt>
+              <dd data-action="strip-open">{money0(money.open ?? money.credit)}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {money && !wide ? (
+          <button type="button" className="sale-strip-more" aria-expanded={more} aria-label={t('saleslist.strip.more', 'تفاصيل المدّة')} onClick={() => setMore(!more)} data-action="strip-more">
+            <ChevronDown aria-hidden="true" className="size-5 sale-disclosure-icon" />
+          </button>
+        ) : null}
+      </div>
+      {money && detail ? (
+        <dl className="sale-strip-detail" data-action="strip-detail">
           <div>
             <dt>{t('saleslist.stat.paid', 'المدفوع عند البيع')}</dt>
             <dd data-action="strip-paid">{money0(money.cash)}</dd>
           </div>
-          <div data-part="open" data-zero={(money.open ?? money.credit) === 0n ? '' : undefined}>
-            <dt>{t('sales.col.open', 'الباقي الآن')}</dt>
-            <dd data-action="strip-open">{money0(money.open ?? money.credit)}</dd>
-          </div>
+          {cost ? (
+            <>
+              <div>
+                <dt>{t('sales.stat.cost', 'كلفة المبيع')}</dt>
+                <dd>{money0(cost.cost)}</dd>
+              </div>
+              <div>
+                <dt>{t('sales.stat.profit', 'الربح')}</dt>
+                <dd>{money0(cost.profit)}</dd>
+              </div>
+            </>
+          ) : null}
+          <p className="sale-strip-unit">{t('saleslist.unit', 'المبالغ بالدينار')}</p>
         </dl>
       ) : null}
-      {cost ? (
-        <dl className="sale-strip-cost">
-          <div>
-            <dt>{t('sales.stat.cost', 'كلفة المبيع')}</dt>
-            <dd>{money0(cost.cost)}</dd>
-          </div>
-          <div>
-            <dt>{t('sales.stat.profit', 'الربح')}</dt>
-            <dd>{money0(cost.profit)}</dd>
-          </div>
-        </dl>
-      ) : null}
-      {money ? <p className="sale-strip-unit">{t('saleslist.unit', 'المبالغ بالدينار')}</p> : null}
     </section>
   );
 }
@@ -483,6 +509,17 @@ function Pills<T extends string>({ label, options, value, onChange, action }: { 
   );
 }
 
+/** «فاتورة مفتوحة: 3 موادّ · 218,750»: سلّة بيع محفوظة على هذا الجهاز تعود بلمسة (تصميم المبيعات ٨، كشريحة الرئيسية؛ saleDraft). */
+function OpenSaleChip({ sale }: { sale: SaleDraftSummary }) {
+  const items = linesText(sale.lines);
+  return (
+    <Link to={newSalePath()} className="sale-open-chip" data-action="sales-open-sale">
+      <SaleIcon aria-hidden="true" className="size-5 shrink-0" />
+      {sale.total > 0n ? t('home.open_sale', 'فاتورة مفتوحة: {items} · {total}', { items, total: fmtMoney(sale.total, 0) }) : t('home.open_sale.no_total', 'فاتورة مفتوحة: {items}', { items })}
+    </Link>
+  );
+}
+
 export default function SalesPage() {
   const id = useId();
   const session = useSession();
@@ -491,11 +528,13 @@ export default function SalesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const wide = useWide();
-  // المدّة الافتراضية من يوم الخادم حين يُعرف (لا ساعة الجهاز).
+  // المدّة الافتراضية من يوم الخادم حين يُعرف (لا ساعة الجهاز): من القائمة والتقرير كليهما (A7).
   const [serverToday, setServerToday] = useState<string | null>(null);
   const today = serverToday ?? localDay();
+  // الأمين يبيع ويسأل «كم اليوم؟»، وأدوار الكلفة تقرأ الشهر (مراجعة D14).
+  const defaultPeriod: Period = workspace && !workspace.canSeeCost ? 'today' : 'month';
   const view = pick<View>(search.get('view'), VIEWS, 'list');
-  const period = pick<Period>(search.get('p'), PERIODS, 'month');
+  const period = pick<Period>(search.get('p'), PERIODS, defaultPeriod);
   const show = pick<Show>(search.get('f'), SHOWS, 'all');
   // البحث يُكتب في حالة الصفحة (فورياً، فلا يتأخّر الحرف خلف انتقال الموجّه) ويُنسخ إلى الرابط لـ«رجوع» من الفاتورة.
   const [query, setQuery] = useState(() => search.get('q') ?? '');
@@ -525,6 +564,7 @@ export default function SalesPage() {
   const shownList = useKept(list);
   if (shownList && shownList.today !== serverToday) setServerToday(shownList.today);
   const shownReport = useKept(report);
+  if (shownReport && shownReport.today !== null && shownReport.today !== serverToday) setServerToday(shownReport.today);
   const costs = Boolean(workspace?.canSeeCost);
   const canSell = workspace ? can(workspace.role, 'sale.record') : false;
   const failure = view === 'list' ? list.error : report.error;
@@ -534,18 +574,23 @@ export default function SalesPage() {
   const legacyNew = canSell && search.get('new') === '1';
   // فاتورة أُرسلت ولم يُعرف جوابها (محفوظة خارج المكوّن، عقد 0033): الشريط يدلّ عليها، و«أعد المحاولة» يفتح الفاتورة الجديدة مجمَّدةً بها.
   const pendingSale = canSell && workspace ? readSalePending(salePendingKey(workspace.userId, workspace.orgId)) : null;
+  // سلّة بيع مفتوحة على هذا الجهاز (شاشة البيع تحفظها): شريحة تعيدها بلمسة (تصميم المبيعات ٨، مراجعة S14).
+  const openSale = canSell && workspace && !pendingSale ? readSaleDraftSummary(workspace.userId, workspace.orgId) : null;
   useEffect(() => {
     if (legacyNew) navigate(newSalePath(), { replace: true });
   }, [legacyNew, navigate]);
 
-  /** يغيّر مفاتيح الرابط (null يحذف) بلا خطوة في التاريخ: المدّة والبحث حالة القائمة لا صفحة جديدة. */
-  const patch = (changes: Record<string, string | null>) => {
+  /**
+   * يغيّر مفاتيح الرابط (null يحذف). المدّة والبحث والتصفية حالة القائمة فتستبدل الخطوة الحاليّة؛ والانتقال إلى فواتير زبون أو يوم من التقرير خطوة جديدة
+   * يعود منها زرّ الرجوع إلى التقرير (مراجعة A5).
+   */
+  const patch = (changes: Record<string, string | null>, push = false) => {
     const next = new URLSearchParams(search);
     for (const [key, value] of Object.entries(changes)) {
       if (value === null || value === '') next.delete(key);
       else next.set(key, value);
     }
-    setSearch(next, { replace: true });
+    setSearch(next, { replace: !push });
   };
   const choosePeriod = (next: Period) => {
     if (next === 'range') {
@@ -556,7 +601,7 @@ export default function SalesPage() {
       patch({ p: 'range', from: start.from, to: start.to });
       return;
     }
-    patch({ p: next === 'month' ? null : next, from: null, to: null });
+    patch({ p: next === defaultPeriod ? null : next, from: null, to: null });
   };
   const typeRange = (side: 'from' | 'to', text: string) => {
     const clean = toWesternDigits(text);
@@ -569,12 +614,11 @@ export default function SalesPage() {
   const openReportRow = (row: SalesReportRow) => {
     if (view === 'party') {
       setQuery('');
-      patch({ view: null, party: row.key, pn: row.label, q: null, f: null });
-    }
-    else if (view === 'day' && isDay(row.key)) {
+      patch({ view: null, party: row.key, pn: row.label, q: null, f: null }, true);
+    } else if (view === 'day' && isDay(row.key)) {
       setFromEdit(null);
       setToEdit(null);
-      patch({ view: null, p: 'range', from: row.key, to: row.key });
+      patch({ view: null, p: 'range', from: row.key, to: row.key }, true);
     }
   };
 
@@ -598,10 +642,22 @@ export default function SalesPage() {
           ? t('saleslist.empty.void', 'لا فاتورة ملغاة في هذه المدّة.')
           : t('sales.empty', 'لا بيع في هذه المدّة.');
   const shownParty = party === null ? null : (partyName ?? shownList?.rows.find((row) => row.partyId === party)?.partyName ?? '');
+  // المعروض لمدّة غير المطلوبة (قراءة الجديدة في الطريق أو فشلت): يخفت ويُقال.
+  const listStale = Boolean(shownList && ready && (shownList.from !== from || shownList.to !== to));
 
   return (
     <div className="sale-ui sale-list-page flex flex-col gap-4">
-      <PageHeader title={t('nav.sales', 'المبيعات')} />
+      {/* العنوان و«بيع جديد» صفّ ثابت أعلى الصفحة (مراجعة D14): الزرّ في المتناول دائماً ولا يطفو فوق خلايا المال. */}
+      <div className="sale-list-head">
+        <h1 className="sale-list-title">{t('nav.sales', 'المبيعات')}</h1>
+        {canSell ? (
+          <Link to={newSalePath()} className="sale-newbtn" data-action="new-sale">
+            <Plus aria-hidden="true" className="size-5" />
+            {t('sales.new', 'بيع جديد')}
+          </Link>
+        ) : null}
+      </div>
+      {openSale ? <OpenSaleChip sale={openSale} /> : null}
       {pendingSale ? (
         <div data-action="sale-pending-banner">
           <Notice
@@ -630,18 +686,34 @@ export default function SalesPage() {
           onChange={(next) => patch({ view: next === 'list' ? null : next })}
         />
       </div>
-      <Pills<Period>
-        label={t('saleslist.period', 'المدّة')}
-        action="sales-period"
-        options={[
-          { value: 'today', label: t('saleslist.period.today', 'اليوم') },
-          { value: 'week', label: t('saleslist.period.week', 'الأسبوع') },
-          { value: 'month', label: t('saleslist.period.month', 'الشهر') },
-          { value: 'range', label: t('saleslist.period.range', 'مدّة…') },
-        ]}
-        value={period}
-        onChange={choosePeriod}
-      />
+      {/* المدّة والتصفية صفّ شرائح واحد (مراجعة D14): أوّل شاشة للجدول لا للأدوات. */}
+      <div className="sale-chips" data-action="sales-chips">
+        <Pills<Period>
+          label={t('saleslist.period', 'المدّة')}
+          action="sales-period"
+          options={[
+            { value: 'today', label: t('saleslist.period.today', 'اليوم') },
+            { value: 'week', label: t('saleslist.period.week', 'الأسبوع') },
+            { value: 'month', label: t('saleslist.period.month', 'الشهر') },
+            { value: 'range', label: t('saleslist.period.range', 'مدّة…') },
+          ]}
+          value={period}
+          onChange={choosePeriod}
+        />
+        {view === 'list' ? (
+          <Pills<Show>
+            label={t('saleslist.show', 'الفواتير')}
+            action="sales-show"
+            options={[
+              { value: 'all', label: t('saleslist.show.all', 'الكلّ') },
+              { value: 'open', label: t('saleslist.show.open', 'عليها باقٍ') },
+              { value: 'void', label: t('saleslist.show.void', 'ملغاة') },
+            ]}
+            value={show}
+            onChange={(next) => patch({ f: next === 'all' ? null : next })}
+          />
+        ) : null}
+      </div>
       {period === 'range' ? (
         <div className="grid gap-3 sm:grid-cols-2" data-action="sales-range">
           <DayField id={`${id}-from`} label={t('sales.from', 'من')} value={fromText} onChange={(text) => typeRange('from', text)} error={typedFrom ? null : periodError} />
@@ -652,7 +724,7 @@ export default function SalesPage() {
       {!ready ? null : view === 'list' ? (
         shownList ? (
           <>
-            <SalesStrip data={shownList} period={period} />
+            <SalesStrip data={shownList} stale={listStale} wide={wide} />
             <div className="sale-find">
               <label className="sale-search">
                 <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
@@ -684,17 +756,6 @@ export default function SalesPage() {
                   </button>
                 ) : null}
               </label>
-              <Pills<Show>
-                label={t('saleslist.show', 'الفواتير')}
-                action="sales-show"
-                options={[
-                  { value: 'all', label: t('saleslist.show.all', 'الكلّ') },
-                  { value: 'open', label: t('saleslist.show.open', 'عليها باقٍ') },
-                  { value: 'void', label: t('saleslist.show.void', 'ملغاة') },
-                ]}
-                value={show}
-                onChange={(next) => patch({ f: next === 'all' ? null : next })}
-              />
               {shownParty !== null ? (
                 <button type="button" className="sale-party-on" onClick={() => patch({ party: null, pn: null })} data-action="party-off">
                   <span>{t('saleslist.party_on', 'فواتير «{party}»', { party: shownParty })}</span>
@@ -708,7 +769,7 @@ export default function SalesPage() {
                 {t('saleslist.found', '{shown} من {all}', { shown: invoicesText(rows.length), all: invoicesText(shownList.rows.length) })}
               </p>
             ) : null}
-            <SalesList data={shownList} rows={rows} filtered={filtered} wide={wide} listSearch={location.search} empty={empty} />
+            <SalesList data={shownList} rows={rows} filtered={filtered} wide={wide} listSearch={location.search} empty={empty} stale={listStale} />
             {shownList.more ? <p className="text-sm text-ink-muted">{t('sales.more', 'تُعرض آخر 1,000 فاتورة؛ والمجاميع للمدّة كلّها.')}</p> : null}
             {shownList.birds && !filtered ? <BirdsSection data={shownList.birds} from={shownList.from} to={shownList.to} /> : null}
           </>
@@ -732,12 +793,6 @@ export default function SalesPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       )}
-      {canSell ? (
-        <Link to={newSalePath()} className="sale-fab" data-action="new-sale">
-          <Plus aria-hidden="true" className="size-6" />
-          {t('sales.new', 'بيع جديد')}
-        </Link>
-      ) : null}
     </div>
   );
 }

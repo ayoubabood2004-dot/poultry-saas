@@ -326,6 +326,11 @@ export interface SaleInvoice {
   voidedAt: string | null;
   voidReason: string | null;
   canVoid: boolean;
+  /**
+   * لماذا لا تُلغى (void_block، فحوص void_sale نفسها بترتيبها): forbidden (الدور) أو out_of_scope أو period_locked أو already_void، أو null (تُلغى أو جواب
+   * قبله).
+   */
+  voidBlock: string | null;
   /** رُدّ شيء من المقبوض (ساق واحدة على الأقلّ، لا كلّه بالضرورة: انظر payments[].refunded)؛ المردود يُقرأ بالدين. */
   paymentRefunded: boolean;
   lines: readonly InvoiceLine[];
@@ -392,6 +397,7 @@ export function parseSaleInvoice(value: unknown): SaleInvoice {
     voidedAt: optStr(json, 'voided_at'),
     voidReason: optStr(json, 'void_reason'),
     canVoid: flag(json, 'can_void'),
+    voidBlock: optStr(json, 'void_block'),
     paymentRefunded: json.payment_refunded === undefined ? false : flag(json, 'payment_refunded'),
     cost: costOf(json),
   };

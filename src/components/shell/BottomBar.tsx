@@ -44,7 +44,9 @@ export function bottomItems(session: SessionState): NavItem[] {
 export default function BottomBar({ onMenu }: { onMenu: () => void }) {
   const session = useSession();
   // شاشة البيع (/sales/new) ترسم شريطها الثابت بالمجموع و«التالي: الدفع» مكان هذا الشريط (تصميم المبيعات ١)، فلا يُرسم فوقه ولا تضيع فاتورة بلمسة عليه.
-  const away = useLocation().pathname === '/sales/new';
+  // وحالة النجاح بعد الحفظ (?done=1، D7): أزرارها الخطوة التالية، فلا يغطّيها الشريط بالخطّ الكبير.
+  const { pathname, search } = useLocation();
+  const away = pathname === '/sales/new' || (pathname.startsWith('/sales/') && search.includes('done=1'));
   const items = bottomItems(session);
   if (away) return null;
   return (

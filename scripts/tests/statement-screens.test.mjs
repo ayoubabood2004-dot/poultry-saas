@@ -787,8 +787,8 @@ export default async function (t) {
           voidSale
             ? paper.every((value) => value === '') && ['كلفة المبيع', 'الربح'].every((label) => !stats.includes(label))
             : paper[0] === `الصافي:${money(total)} دينار` && paper[1] === (sample.payment_refunded ? 'المدفوع عند البيع:قُبض ثمّ رُدّ للزبون، فالمبلغ كلّه بالدين' : paid === 0n ? 'المدفوع عند البيع:لا شيء (المبلغ كلّه بالدين)' : `المدفوع عند البيع:${money(paid)} دينار`) &&
-                paper[2] === `الباقي:${money(total - paid)} دينار` && stats.includes('الربح') === Boolean(sample.cost?.money),
-          `Q ${name}: الصافي والمدفوع والدين على الورقة، والكلفة والربح لأدوار الكلفة وحدها؛ والملغاة بلا أيّ منها (لا تُقرأ ديناً قائماً، L6) (${paper.join(' | ')})`,
+                paper[2] === `الباقي:${money(total - paid)} دينار` && !stats.includes('الربح') && (first('profit-toggle') !== null) === Boolean(sample.cost?.money),
+          `Q ${name}: الصافي والمدفوع والدين على الورقة، والكلفة والربح لأدوار الكلفة وحدها (مطويّان خلف «الربح»، D18)؛ والملغاة بلا أيّ منها (لا تُقرأ ديناً قائماً، L6) (${paper.join(' | ')})`,
         );
         t.eq(first('back')?.getAttribute('href'), name === 'posted' ? `/accounts/parties/${S.party_id}` : '/sales', `Q ${name}: الرجوع إلى ?back (الحسابات أو المبيعات) وإلّا المبيعات`);
         if (sample.status === 'void') t.ok(text().includes('أُلغيت هذه الفاتورة') && text().includes(`السبب: ${sample.void_reason}`), 'Q الملغاة بسببها');

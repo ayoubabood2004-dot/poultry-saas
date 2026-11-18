@@ -138,20 +138,17 @@ export function InvoiceLinesTable({ invoice, caption, money = true }: { invoice:
 }
 
 /**
- * الدفع عند البيع على الورقة: المدفوع بصناديقه، وما رُدّ من السيقان بصناديقه («ورُدّ 2,000 دينار من «المصرف»»)، أو «لا شيء». payment_refunded يعني أنّ
- * ساقاً واحدة على الأقلّ رُدّت، لا كلّها: «قُبض ثمّ رُدّ» حين لا يبقى شيء مدفوعاً وحده (مراجعة 0033 D3).
+ * الدفع عند البيع على الورقة: المدفوع، وما رُدّ من السيقان («، ورُدّ 2,000 دينار»)، أو «لا شيء». payment_refunded يعني أنّ ساقاً واحدة على الأقلّ رُدّت،
+ * لا كلّها: «قُبض ثمّ رُدّ» حين لا يبقى شيء مدفوعاً وحده (مراجعة 0033 D3).
  */
 function paidText(invoice: SaleInvoice): string {
   const refunded = invoice.payments.filter((leg) => leg.refunded);
   if (invoice.paid === 0n) {
     return invoice.paymentRefunded || refunded.length > 0 ? t('invoice.paper.refunded', 'قُبض ثمّ رُدّ للزبون، فالمبلغ كلّه بالدين') : t('invoice.paper.paid_none', 'لا شيء (المبلغ كلّه بالدين)');
   }
-  const live = invoice.payments.filter((leg) => !leg.refunded);
-  const parts = [
-    ...(live.length === 0 ? [dinars(invoice.paid)] : live.map((leg) => t('invoice.paper.leg', '{amount} في «{box}»', { amount: dinars(leg.amount), box: leg.cashAccountName }))),
-    ...refunded.map((leg) => t('invoice.paper.leg_refunded', 'ورُدّ {amount} من «{box}»', { amount: dinars(leg.amount), box: leg.cashAccountName })),
-  ];
-  return parts.join(t('list.separator', '، '));
+  // الورقة للزبون: المبلغ وحده بلا أسماء صناديق المنشأة الداخلية («الصندوق»، «المصرف»؛ مراجعة D24)، وهي في صفحة الفاتورة داخل التطبيق.
+  const back = refunded.reduce((sum, leg) => sum + leg.amount, 0n);
+  return back > 0n ? t('saledoc.paper.paid_back', '{paid}، ورُدّ {back}', { paid: dinars(invoice.paid), back: dinars(back) }) : dinars(invoice.paid);
 }
 
 /** شعار الورقة مضمَّناً (أيقونة التطبيق نفسها، public/favicon.svg): لا يُطلب من الشبكة، فتُصوَّر الفاتورة بلا اتصال (مراجعة 0033 D5). */

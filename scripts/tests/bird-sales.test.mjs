@@ -657,7 +657,7 @@ export default async function (t) {
         [[`/sales/birds/new?ticket=${F.sales_overview.birds.awaiting[0].ticket_id}&back=%2Fsales`, `/sales/birds/new?ticket=${F.sales_overview.birds.awaiting[1].ticket_id}&back=%2Fsales`], F.sales_overview.birds.awaiting.map((a) => `/halls/ticket/${a.ticket_id}?back=%2Fsales`)],
         'L «أصدر الفاتورة» والتذكرة نفسها برابطيهما وطريق الرجوع',
       );
-      t.same(headersOf(LIST), ['التاريخ', 'الرقم', 'الجهة', 'التذكرة', 'الطيور', 'الصافي (كغم)', 'سعر الكيلو', 'المبلغ', 'الدفع', 'الحالة'], 'L فواتير الطيور بأعمدتها');
+      t.same(headersOf(LIST), ['التاريخ', 'الرقم', 'الزبون', 'التذكرة', 'الطيور', 'الصافي (كغم)', 'سعر الكيلو', 'المبلغ', 'الدفع', 'الحالة'], 'L فواتير الطيور بأعمدتها');
       t.same(
         rowsOf(LIST),
         [
