@@ -388,9 +388,9 @@ async function scenario(t, db) {
   [true, 'زبون نقديّ', 'cash', 2, false, 'cash', [[1, '6000']], 'kg', true, true], 'الفاتورة النقديّة والقديمة بالشكل نفسه');
   const ownerOverview = await read(U.owner, OV, [day(-7), TODAY]);
   const rowA = ownerOverview.rows.find((r) => r.id === A.sale);
-  t.same([rowA.lines_count, rowA.first_item_name, rowA.item_name, norm(rowA.total), norm(rowA.paid), norm(rowA.debt), norm(rowA.discount_total), rowA.walk_in, rowA.payment,
+  t.same([rowA.lines_count, rowA.items_count, rowA.first_item_name, rowA.item_name, norm(rowA.total), norm(rowA.paid), norm(rowA.debt), norm(rowA.discount_total), rowA.walk_in, rowA.payment,
     norm(rowA.money.line_total), norm(rowA.cost.money.cost), ownerOverview.rows.find((r) => r.id === walkB.sale).walk_in],
-  [3, 'علف بادئ', 'علف بادئ', '179860', '80000', '99860', '3500', false, 'credit', '179860', '160300', true], 'المبيعات: لكلّ فاتورة عدد سطورها ومادّتها الأولى وصافيها ومدفوعها ودينها وخصمها، والنقديّة بعلامتها');
+  [3, 2, 'علف بادئ', 'علف بادئ', '179860', '80000', '99860', '3500', false, 'credit', '179860', '160300', true], 'المبيعات: لكلّ فاتورة عدد سطورها ومادّتها الأولى وصافيها ومدفوعها ودينها وخصمها، والنقديّة بعلامتها');
   const tot = ownerOverview.totals;
   t.same([tot.count, norm(tot.money.revenue), norm(tot.money.cash), norm(tot.money.credit), norm(tot.total), norm(tot.paid), norm(tot.debt), norm(tot.discount_total)],
     [7, '871360', '131500', '739860', '871360', '131500', '739860', '3500'], 'المجاميع: الإيراد = مجموع الصوافي، والنقد = المدفوع الآن، والدين = الباقي');
@@ -573,6 +573,12 @@ async function scenario(t, db) {
       fns: [[FN.overview, [['      where l.org_id = s.org_id and l.sale_id = s.id\n    ) as k\n', '      where l.org_id = s.org_id and l.sale_id = s.id and l.line_no = 1\n    ) as k\n']]]],
       run: async ({ attempt }) => attempt(U.owner, async (q) => (await q(OV, [day(-7), TODAY])).rows[0].v.rows.find((r) => r.id === A.sale).lines_count),
       expect: okWith((v) => v, 3),
+    },
+    {
+      name: 'المبيعات تعدّ الموادّ المختلفة لا السطور (مراجعة D8)',
+      fns: [[FN.overview, [['count(distinct l.item_id)::int as items', 'count(l.item_id)::int as items']]]],
+      run: async ({ attempt }) => attempt(U.owner, async (q) => (await q(OV, [day(-7), TODAY])).rows[0].v.rows.find((r) => r.id === A.sale).items_count),
+      expect: okWith((v) => v, 2),
     },
     {
       name: 'التقرير يعدّ الفواتير لا السطور',

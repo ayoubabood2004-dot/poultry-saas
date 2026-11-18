@@ -1135,7 +1135,7 @@ begin
   end if;
   with listed as (
     select s.id, s.doc_no, s.sold_on, s.status, s.party_id, p.name as party_name, s.warehouse_id, w.name as warehouse_name, s.posted_at,
-      s.total, s.discount_total, s.walk_in, f.item_id, f.item_name, f.qty, f.base_unit, f.unit_price, k.lines, k.cost, g.paid, g.refunded
+      s.total, s.discount_total, s.walk_in, f.item_id, f.item_name, f.qty, f.base_unit, f.unit_price, k.lines, k.items, k.cost, g.paid, g.refunded
     from public.sales_invoices s
     join public.parties p on p.org_id = s.org_id and p.id = s.party_id
     join public.warehouses w on w.org_id = s.org_id and w.id = s.warehouse_id
@@ -1145,7 +1145,7 @@ begin
       where l.org_id = s.org_id and l.sale_id = s.id order by l.line_no limit 1
     ) as f
     cross join lateral (
-      select count(*)::int as lines, coalesce(sum(c.cost), 0) as cost from public.sales_lines l
+      select count(*)::int as lines, count(distinct l.item_id)::int as items, coalesce(sum(c.cost), 0) as cost from public.sales_lines l
       left join public.sales_line_costs c on c.org_id = l.org_id and c.line_id = l.id
       where l.org_id = s.org_id and l.sale_id = s.id
     ) as k
@@ -1161,7 +1161,7 @@ begin
         'item_id', o.item_id, 'item_name', o.item_name, 'qty', o.qty::text, 'base_unit', o.base_unit, 'free', o.total = 0,
         'money', jsonb_build_object('unit_price', o.unit_price::text, 'line_total', o.total::text),
         'cost', jsonb_build_object('money', jsonb_build_object('cost', o.cost::text, 'profit', (o.total - o.cost)::text)),
-        'lines_count', o.lines, 'first_item_name', o.item_name, 'walk_in', o.walk_in, 'total', o.total::text, 'paid', o.paid::text,
+        'lines_count', o.lines, 'items_count', o.items, 'first_item_name', o.item_name, 'walk_in', o.walk_in, 'total', o.total::text, 'paid', o.paid::text,
         'debt', (o.total - o.paid)::text, 'discount_total', o.discount_total::text)
       order by o.n) filter (where o.n <= 1000), '[]'::jsonb),
     'more', count(*) > 1000,

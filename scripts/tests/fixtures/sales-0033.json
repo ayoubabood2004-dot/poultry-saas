@@ -9,7 +9,7 @@
           "units": [],
           "barcode": null,
           "expired": "0",
-          "item_id": "c11290ad-b8fd-437e-a4a7-77ec5c271107",
+          "item_id": "50778256-d2fa-481f-aa04-fa9db4929cf7",
           "category": null,
           "alt_codes": [],
           "available": "50.000",
@@ -24,17 +24,17 @@
             {
               "label": "كيس 50 كغم",
               "factor": "50",
-              "unit_id": "2aeee037-ce52-435e-a00c-36eb54930fa3"
+              "unit_id": "4fb46a63-5457-426c-b8a7-a3ff4219c680"
             },
             {
               "label": "طنّ",
               "factor": "1000",
-              "unit_id": "7c007638-080a-4ca4-9384-de65bc3994d9"
+              "unit_id": "481b5363-5579-4eaa-b9b9-ca9b75c1201c"
             }
           ],
           "barcode": "6260001",
           "expired": "0",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "category": null,
           "alt_codes": [],
           "available": "424.500",
@@ -48,7 +48,7 @@
           "units": [],
           "barcode": null,
           "expired": "0",
-          "item_id": "09745b0b-6072-4a2b-b1d9-ec53c8b936e9",
+          "item_id": "2432a137-58c9-43cc-9f3a-a81d71d4b346",
           "category": null,
           "alt_codes": [],
           "available": "0",
@@ -63,12 +63,12 @@
             {
               "label": "كيس 50 كغم",
               "factor": "50",
-              "unit_id": "81453a4d-2993-49e8-8093-1f0ee1bbde89"
+              "unit_id": "57c6d647-574d-4504-b7d0-1ca1f27f6e93"
             }
           ],
           "barcode": null,
           "expired": "0",
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "category": null,
           "alt_codes": [],
           "available": "890.000",
@@ -79,17 +79,17 @@
       ],
       "cash_accounts": [
         {
-          "id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+          "id": "36ee909f-39d2-414a-8add-2741252a0a02",
           "kind": "cash",
           "name": "الصندوق"
         },
         {
-          "id": "560bb266-485a-4c5f-b627-fc50d9ee1d17",
+          "id": "5e632c1b-65a7-4c05-8bce-7f6cfc058c57",
           "kind": "wallet",
           "name": "المحفظة"
         },
         {
-          "id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
+          "id": "58e9e712-7780-4b01-97c8-c6405c334f35",
           "kind": "bank",
           "name": "المصرف"
         }
@@ -104,12 +104,12 @@
             {
               "label": "علبة 10",
               "factor": "10",
-              "unit_id": "a020c948-a38c-4278-b3d3-db7e3fe92be9"
+              "unit_id": "95cc40f0-8a64-4449-96e2-359ed501c9ba"
             }
           ],
           "barcode": null,
           "expired": "0",
-          "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
+          "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
           "category": null,
           "alt_codes": [],
           "available": "200.000",
@@ -124,12 +124,12 @@
             {
               "label": "قنينة نصف لتر",
               "factor": "0.5",
-              "unit_id": "6c79b24e-5953-46d8-a6b5-4b93cde3a6a2"
+              "unit_id": "c76d29f9-6afe-413d-9e60-725b39929f35"
             }
           ],
           "barcode": null,
           "expired": "0",
-          "item_id": "6bbf1631-3f97-495f-ab96-4b4b47c3e955",
+          "item_id": "b79facc5-4435-4adf-bcce-b5996de4f0b6",
           "category": null,
           "alt_codes": [],
           "available": "50.000",
@@ -140,17 +140,17 @@
       ],
       "cash_accounts": [
         {
-          "id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+          "id": "36ee909f-39d2-414a-8add-2741252a0a02",
           "kind": "cash",
           "name": "الصندوق"
         },
         {
-          "id": "560bb266-485a-4c5f-b627-fc50d9ee1d17",
+          "id": "5e632c1b-65a7-4c05-8bce-7f6cfc058c57",
           "kind": "wallet",
           "name": "المحفظة"
         },
         {
-          "id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
+          "id": "58e9e712-7780-4b01-97c8-c6405c334f35",
           "kind": "bank",
           "name": "المصرف"
         }
@@ -163,22 +163,22 @@
       "paid": "80000",
       "lines": [
         {
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "line_no": 1,
           "qty_base": "150.000",
           "line_total": "102856"
         },
         {
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "line_no": 2,
           "qty_base": "25.500",
           "line_total": "18158"
         },
         {
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "line_no": 3,
           "qty_base": "100.000",
           "line_total": "58846"
@@ -187,12 +187,12 @@
       "total": "179860",
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "sale_id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "sale_id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "sold_on": "2026-11-17",
       "walk_in": false,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "party_name": "أبو أحمد",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "3500",
       "warehouse_name": "رصيد العلف"
     },
@@ -201,15 +201,15 @@
       "paid": "0",
       "lines": [
         {
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "95536075-a022-4dbe-9bc3-7a056730e39a",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "c3a14e68-257c-4bd4-a131-d27c84e80d24",
           "line_no": 1,
           "qty_base": "800.000",
           "line_total": "560000"
         },
         {
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "ef129622-5db5-4dbb-9951-1da2dd8b3fd8",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "a45107da-4127-4a8c-865a-cd001783550b",
           "line_no": 2,
           "qty_base": "100.000",
           "line_total": "70000"
@@ -218,12 +218,12 @@
       "total": "630000",
       "doc_no": "FD-2026-0002",
       "status": "posted",
-      "sale_id": "dc6667b6-2029-4847-ae19-631a9ebffaa5",
+      "sale_id": "540d4a8e-cd88-4199-8216-e2c0cf4a492d",
       "sold_on": "2026-11-17",
       "walk_in": false,
-      "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+      "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
       "party_name": "مزرعة النور",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "0",
       "warehouse_name": "رصيد العلف"
     },
@@ -232,8 +232,8 @@
       "paid": "20000",
       "lines": [
         {
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
-          "line_id": "616802ec-7cd4-4a3e-9d75-4b79364cfd06",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
+          "line_id": "e282c5a0-91ae-49d7-a4df-39f3e9017268",
           "line_no": 1,
           "qty_base": "20.000",
           "line_total": "20000"
@@ -242,12 +242,12 @@
       "total": "20000",
       "doc_no": "MS-2026-0001",
       "status": "posted",
-      "sale_id": "bd01a5ce-4ad9-4b0c-b224-a1c40a22510f",
+      "sale_id": "de849724-b8e4-48cc-838f-64eb3d7a417a",
       "sold_on": "2026-11-17",
       "walk_in": true,
-      "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+      "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
       "party_name": "زبون نقديّ",
-      "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+      "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
       "discount_total": "0",
       "warehouse_name": "المخزن العام"
     },
@@ -256,15 +256,15 @@
       "paid": "25500",
       "lines": [
         {
-          "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
-          "line_id": "7c8c005d-8b5e-4e61-a654-0610ba93e6ef",
+          "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
+          "line_id": "e70b7a2f-e12e-42ec-808d-1a1d7d8e96be",
           "line_no": 1,
           "qty_base": "20.000",
           "line_total": "12000"
         },
         {
-          "item_id": "6bbf1631-3f97-495f-ab96-4b4b47c3e955",
-          "line_id": "207e8e85-af65-45f7-8c83-5855218ce44b",
+          "item_id": "b79facc5-4435-4adf-bcce-b5996de4f0b6",
+          "line_id": "6af80c56-cc24-4794-8f32-93f682def185",
           "line_no": 2,
           "qty_base": "1.500",
           "line_total": "13500"
@@ -273,12 +273,12 @@
       "total": "25500",
       "doc_no": "MD-2026-0001",
       "status": "posted",
-      "sale_id": "a3689857-a4c7-4e52-b1f7-a50b498f1e6e",
+      "sale_id": "00517177-159e-4359-b292-7f0908c1e188",
       "sold_on": "2026-11-17",
       "walk_in": true,
-      "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+      "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
       "party_name": "زبون نقديّ",
-      "warehouse_id": "5942c3c4-5cbd-43d1-ad3a-570b73112341",
+      "warehouse_id": "c59eb39c-c07c-40db-bc6b-eb3dced6ff30",
       "discount_total": "0",
       "warehouse_name": "مخزن الأدوية"
     },
@@ -287,8 +287,8 @@
       "paid": "0",
       "lines": [
         {
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
-          "line_id": "20cd21e5-058c-413f-a18e-72426a721d45",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
+          "line_id": "7fbc825b-22e3-41c3-86ae-4335e13a9da7",
           "line_no": 1,
           "qty_base": "10.000",
           "line_total": "10000"
@@ -297,12 +297,12 @@
       "total": "10000",
       "doc_no": "MS-2026-0002",
       "status": "posted",
-      "sale_id": "f2735f78-4934-4309-ad18-f51a34a2484e",
+      "sale_id": "fdb53d7b-eb1b-4da7-8592-bafd1112936e",
       "sold_on": "2026-11-17",
       "walk_in": false,
-      "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+      "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
       "party_name": "مزرعة النور",
-      "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+      "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
       "discount_total": "0",
       "warehouse_name": "المخزن العام"
     },
@@ -311,8 +311,8 @@
       "paid": "0",
       "lines": [
         {
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
-          "line_id": "77bdcd46-8c67-476e-b05e-5ffa3120f54b",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
+          "line_id": "b71cf469-981e-447d-9a0b-e8f59fd1e47c",
           "line_no": 1,
           "qty_base": "5.000",
           "line_total": "0"
@@ -321,18 +321,18 @@
       "total": "0",
       "doc_no": "MS-2026-0003",
       "status": "posted",
-      "sale_id": "58d0fcf3-536e-4a0e-b89b-ac034aced5b6",
+      "sale_id": "48de8ac6-117b-423e-a43a-bb6b2066e629",
       "sold_on": "2026-11-17",
       "walk_in": false,
-      "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+      "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
       "party_name": "مزرعة النور",
-      "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+      "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
       "discount_total": "0",
       "warehouse_name": "المخزن العام"
     }
   },
   "record_sale_legacy": {
-    "id": "06d3b099-5290-42d7-b504-228037568b71",
+    "id": "de458887-9da3-4a86-be44-a855bdfd61cd",
     "qty": "10",
     "cost": {},
     "free": false,
@@ -343,25 +343,25 @@
     },
     "doc_no": "FD-2026-0003",
     "status": "posted",
-    "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
-    "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-    "line_id": "be8732dd-7a91-434b-ab7e-c3525d1fe1f8",
+    "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
+    "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+    "line_id": "15197752-a376-431b-a1ee-c2cc38fe2104",
     "payment": "cash",
     "sold_on": "2026-11-17",
-    "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+    "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
     "base_unit": "kg",
     "item_name": "علف نامي",
     "voided_at": null,
     "party_name": "أبو أحمد",
     "void_reason": null,
-    "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+    "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
     "warehouse_name": "رصيد العلف",
-    "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+    "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
     "payment_refunded": false
   },
   "void_sale": {
     "manager_multi_kept": {
-      "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "money": {
         "line_total": "179860",
         "payment_kept": "80000",
@@ -370,17 +370,17 @@
       "doc_no": "FD-2026-0001",
       "status": "void",
       "walk_in": false,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "voided_on": "2026-11-17",
       "reversed_moves": 3,
-      "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+      "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
       "payment_entry_ids": [
-        "d1633515-8a1c-4150-83dd-6e89ace5809c",
-        "3347f5e4-f9fd-4b93-8867-a6458ea76db4"
+        "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
+        "025d3b8a-4364-4cf3-93e5-c36752dee486"
       ]
     },
     "owner_walk_in_refunded": {
-      "id": "a3689857-a4c7-4e52-b1f7-a50b498f1e6e",
+      "id": "00517177-159e-4359-b292-7f0908c1e188",
       "money": {
         "line_total": "25500",
         "payment_kept": "0",
@@ -389,7 +389,7 @@
       "doc_no": "MD-2026-0001",
       "status": "void",
       "walk_in": true,
-      "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+      "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
       "voided_on": "2026-11-17",
       "reversed_moves": 2,
       "payment_entry_id": null,
@@ -398,7 +398,7 @@
   },
   "sale_detail": {
     "storekeeper_multi": {
-      "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "qty": "150.000",
       "cost": {},
       "debt": "99860",
@@ -410,24 +410,24 @@
         {
           "qty": "150.000",
           "cost": {},
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
         {
           "qty": "25.500",
           "cost": {},
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
         {
           "qty": "100.000",
           "cost": {},
-          "lot_id": "b689b050-d200-4fe1-88e8-400040909443",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "lot_id": "de771594-520b-4bbf-bfdd-e8857e4db0d8",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -435,10 +435,10 @@
       "lines": [
         {
           "cost": {},
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "line_no": 1,
-          "unit_id": "2aeee037-ce52-435e-a00c-36eb54930fa3",
+          "unit_id": "4fb46a63-5457-426c-b8a7-a3ff4219c680",
           "qty_base": "150.000",
           "unit_qty": "3.000",
           "base_unit": "kg",
@@ -455,8 +455,8 @@
         },
         {
           "cost": {},
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "line_no": 2,
           "unit_id": null,
           "qty_base": "25.500",
@@ -475,10 +475,10 @@
         },
         {
           "cost": {},
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "line_no": 3,
-          "unit_id": "81453a4d-2993-49e8-8093-1f0ee1bbde89",
+          "unit_id": "57c6d647-574d-4504-b7d0-1ca1f27f6e93",
           "qty_base": "100.000",
           "unit_qty": "2.000",
           "base_unit": "kg",
@@ -502,60 +502,60 @@
       "total": "179860",
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
+      "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
       "invoice": {
         "cost": {}
       },
-      "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-      "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+      "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+      "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
       "payment": "credit",
       "sold_on": "2026-11-17",
       "walk_in": false,
       "can_void": false,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "payments": [
         {
           "amount": "50000",
-          "leg_id": "a0bef5d2-f31a-4d36-a4c2-c4f2846237bc",
+          "leg_id": "17ebb712-79f4-4b24-8cba-e678b6c8fd0b",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
           "cash_account_name": "الصندوق"
         },
         {
           "amount": "30000",
-          "leg_id": "53c4ea1b-5113-4881-8995-e4f512dbf26b",
+          "leg_id": "67484adf-fccd-4323-a2cb-7c25db5a4d44",
           "leg_no": 2,
           "refunded": false,
-          "cash_account_id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
-          "payment_entry_id": "3347f5e4-f9fd-4b93-8867-a6458ea76db4",
+          "cash_account_id": "58e9e712-7780-4b01-97c8-c6405c334f35",
+          "payment_entry_id": "025d3b8a-4364-4cf3-93e5-c36752dee486",
           "cash_account_name": "المصرف"
         }
       ],
       "base_unit": "kg",
       "item_name": "علف بادئ",
-      "posted_at": "2026-11-17T23:28:20.505228+00:00",
+      "posted_at": "2026-11-18T00:30:21.25285+00:00",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "can_collect": false,
       "lines_count": 3,
       "void_reason": null,
-      "cash_move_id": "83f655bc-a8d2-4ab7-aee0-dc5788752ab1",
+      "cash_move_id": "4b276319-6483-4b35-ae99-5b208ec0cc97",
       "paid_at_sale": "80000",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "3500",
       "posted_by_name": "storekeeper",
       "warehouse_name": "رصيد العلف",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "2000",
-      "invoice_entry_id": "4304137e-8751-429f-8479-933094a2f9cb",
-      "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+      "invoice_entry_id": "5e99bd7b-98d4-421d-bae7-bede1a093793",
+      "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
       "payment_refunded": false,
       "payment_reversed": false
     },
     "owner_multi": {
-      "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "qty": "150.000",
       "cost": {
         "money": {
@@ -576,8 +576,8 @@
               "value": "90000.00"
             }
           },
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
@@ -588,8 +588,8 @@
               "value": "15300.00"
             }
           },
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
@@ -600,8 +600,8 @@
               "value": "55000.00"
             }
           },
-          "lot_id": "b689b050-d200-4fe1-88e8-400040909443",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "lot_id": "de771594-520b-4bbf-bfdd-e8857e4db0d8",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -614,10 +614,10 @@
               "profit": "12856.00"
             }
           },
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "line_no": 1,
-          "unit_id": "2aeee037-ce52-435e-a00c-36eb54930fa3",
+          "unit_id": "4fb46a63-5457-426c-b8a7-a3ff4219c680",
           "qty_base": "150.000",
           "unit_qty": "3.000",
           "base_unit": "kg",
@@ -639,8 +639,8 @@
               "profit": "2858.00"
             }
           },
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "line_no": 2,
           "unit_id": null,
           "qty_base": "25.500",
@@ -664,10 +664,10 @@
               "profit": "3846.00"
             }
           },
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "line_no": 3,
-          "unit_id": "81453a4d-2993-49e8-8093-1f0ee1bbde89",
+          "unit_id": "57c6d647-574d-4504-b7d0-1ca1f27f6e93",
           "qty_base": "100.000",
           "unit_qty": "2.000",
           "base_unit": "kg",
@@ -691,7 +691,7 @@
       "total": "179860",
       "doc_no": "FD-2026-0001",
       "status": "posted",
-      "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
+      "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
       "invoice": {
         "cost": {
           "money": {
@@ -700,56 +700,56 @@
           }
         }
       },
-      "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-      "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+      "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+      "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
       "payment": "credit",
       "sold_on": "2026-11-17",
       "walk_in": false,
       "can_void": true,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "payments": [
         {
           "amount": "50000",
-          "leg_id": "a0bef5d2-f31a-4d36-a4c2-c4f2846237bc",
+          "leg_id": "17ebb712-79f4-4b24-8cba-e678b6c8fd0b",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
           "cash_account_name": "الصندوق"
         },
         {
           "amount": "30000",
-          "leg_id": "53c4ea1b-5113-4881-8995-e4f512dbf26b",
+          "leg_id": "67484adf-fccd-4323-a2cb-7c25db5a4d44",
           "leg_no": 2,
           "refunded": false,
-          "cash_account_id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
-          "payment_entry_id": "3347f5e4-f9fd-4b93-8867-a6458ea76db4",
+          "cash_account_id": "58e9e712-7780-4b01-97c8-c6405c334f35",
+          "payment_entry_id": "025d3b8a-4364-4cf3-93e5-c36752dee486",
           "cash_account_name": "المصرف"
         }
       ],
       "base_unit": "kg",
       "item_name": "علف بادئ",
-      "posted_at": "2026-11-17T23:28:20.505228+00:00",
+      "posted_at": "2026-11-18T00:30:21.25285+00:00",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "can_collect": true,
       "lines_count": 3,
       "void_reason": null,
-      "cash_move_id": "83f655bc-a8d2-4ab7-aee0-dc5788752ab1",
+      "cash_move_id": "4b276319-6483-4b35-ae99-5b208ec0cc97",
       "paid_at_sale": "80000",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "3500",
       "posted_by_name": "storekeeper",
       "warehouse_name": "رصيد العلف",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "2000",
-      "invoice_entry_id": "4304137e-8751-429f-8479-933094a2f9cb",
-      "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+      "invoice_entry_id": "5e99bd7b-98d4-421d-bae7-bede1a093793",
+      "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
       "payment_refunded": false,
       "payment_reversed": false
     },
     "owner_walk_in": {
-      "id": "a3689857-a4c7-4e52-b1f7-a50b498f1e6e",
+      "id": "00517177-159e-4359-b292-7f0908c1e188",
       "qty": "20.000",
       "cost": {
         "money": {
@@ -770,8 +770,8 @@
               "value": "10000.00"
             }
           },
-          "lot_id": "dc3f2019-07e2-44ee-aeaf-be33e28b943d",
-          "line_id": "7c8c005d-8b5e-4e61-a654-0610ba93e6ef",
+          "lot_id": "004b30a7-0e80-4792-b5ee-2dd55bbe0898",
+          "line_id": "e70b7a2f-e12e-42ec-808d-1a1d7d8e96be",
           "expiry_on": "2027-06-30",
           "received_on": "2026-11-12"
         },
@@ -782,8 +782,8 @@
               "value": "12000.00"
             }
           },
-          "lot_id": "40265e18-ff6c-487d-8dc9-2d45e0ee9ffd",
-          "line_id": "207e8e85-af65-45f7-8c83-5855218ce44b",
+          "lot_id": "366c5161-8b9b-406a-aa4d-43d967b43aa8",
+          "line_id": "6af80c56-cc24-4794-8f32-93f682def185",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -796,10 +796,10 @@
               "profit": "2000.00"
             }
           },
-          "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
-          "line_id": "7c8c005d-8b5e-4e61-a654-0610ba93e6ef",
+          "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
+          "line_id": "e70b7a2f-e12e-42ec-808d-1a1d7d8e96be",
           "line_no": 1,
-          "unit_id": "a020c948-a38c-4278-b3d3-db7e3fe92be9",
+          "unit_id": "95cc40f0-8a64-4449-96e2-359ed501c9ba",
           "qty_base": "20.000",
           "unit_qty": "2.000",
           "base_unit": "pc",
@@ -821,10 +821,10 @@
               "profit": "1500.00"
             }
           },
-          "item_id": "6bbf1631-3f97-495f-ab96-4b4b47c3e955",
-          "line_id": "207e8e85-af65-45f7-8c83-5855218ce44b",
+          "item_id": "b79facc5-4435-4adf-bcce-b5996de4f0b6",
+          "line_id": "6af80c56-cc24-4794-8f32-93f682def185",
           "line_no": 2,
-          "unit_id": "6c79b24e-5953-46d8-a6b5-4b93cde3a6a2",
+          "unit_id": "c76d29f9-6afe-413d-9e60-725b39929f35",
           "qty_base": "1.500",
           "unit_qty": "3.000",
           "base_unit": "L",
@@ -848,7 +848,7 @@
       "total": "25500",
       "doc_no": "MD-2026-0001",
       "status": "posted",
-      "book_id": "591106ec-d0ed-4052-b9df-df40e059ad53",
+      "book_id": "e5086100-6c30-493d-b7f9-069ed3bc9969",
       "invoice": {
         "cost": {
           "money": {
@@ -857,56 +857,56 @@
           }
         }
       },
-      "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
-      "line_id": "7c8c005d-8b5e-4e61-a654-0610ba93e6ef",
+      "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
+      "line_id": "e70b7a2f-e12e-42ec-808d-1a1d7d8e96be",
       "payment": "cash",
       "sold_on": "2026-11-17",
       "walk_in": true,
       "can_void": true,
-      "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+      "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
       "payments": [
         {
           "amount": "20000",
-          "leg_id": "f5688ee5-8653-43d2-b210-eba2ebd60982",
+          "leg_id": "bdf0bbc1-ae1e-4a0f-994b-bddc89be038f",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "f79894de-c73a-4447-aa5c-ba781d3c4ba7",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "c806def7-2b41-4e8e-b3f1-4da5773993ed",
           "cash_account_name": "الصندوق"
         },
         {
           "amount": "5500",
-          "leg_id": "e409a301-870e-4823-97a9-d87658cd8ef3",
+          "leg_id": "16a8268f-a696-44ea-b6c6-3bb58f4404d4",
           "leg_no": 2,
           "refunded": false,
-          "cash_account_id": "560bb266-485a-4c5f-b627-fc50d9ee1d17",
-          "payment_entry_id": "3c9c3cb8-81c6-416a-8c80-bb2b62adc144",
+          "cash_account_id": "5e632c1b-65a7-4c05-8bce-7f6cfc058c57",
+          "payment_entry_id": "5bc00b9d-bf3a-4dc6-9f7b-788b4da4d0f9",
           "cash_account_name": "المحفظة"
         }
       ],
       "base_unit": "pc",
       "item_name": "لقاح نيوكاسل",
-      "posted_at": "2026-11-17T23:28:20.574807+00:00",
+      "posted_at": "2026-11-18T00:30:21.327851+00:00",
       "voided_at": null,
       "party_name": "زبون نقديّ",
       "can_collect": false,
       "lines_count": 2,
       "void_reason": null,
-      "cash_move_id": "229eee67-e826-4041-9dad-bdf82f974b6a",
+      "cash_move_id": "c1bd1167-e775-4e5a-a740-79a2ead26786",
       "paid_at_sale": "25500",
-      "warehouse_id": "5942c3c4-5cbd-43d1-ad3a-570b73112341",
+      "warehouse_id": "c59eb39c-c07c-40db-bc6b-eb3dced6ff30",
       "discount_total": "0",
       "posted_by_name": "storekeeper",
       "warehouse_name": "مخزن الأدوية",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "0",
-      "invoice_entry_id": "3d6d509d-8d81-40ed-a3d9-2de8ae418d83",
-      "payment_entry_id": "f79894de-c73a-4447-aa5c-ba781d3c4ba7",
+      "invoice_entry_id": "c8d45a8f-bede-49b2-877e-917dc57a2330",
+      "payment_entry_id": "c806def7-2b41-4e8e-b3f1-4da5773993ed",
       "payment_refunded": false,
       "payment_reversed": false
     },
     "owner_legacy": {
-      "id": "06d3b099-5290-42d7-b504-228037568b71",
+      "id": "de458887-9da3-4a86-be44-a855bdfd61cd",
       "qty": "10",
       "cost": {
         "money": {
@@ -927,8 +927,8 @@
               "value": "5500.00"
             }
           },
-          "lot_id": "b689b050-d200-4fe1-88e8-400040909443",
-          "line_id": "be8732dd-7a91-434b-ab7e-c3525d1fe1f8",
+          "lot_id": "de771594-520b-4bbf-bfdd-e8857e4db0d8",
+          "line_id": "15197752-a376-431b-a1ee-c2cc38fe2104",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -941,8 +941,8 @@
               "profit": "500.00"
             }
           },
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "be8732dd-7a91-434b-ab7e-c3525d1fe1f8",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "15197752-a376-431b-a1ee-c2cc38fe2104",
           "line_no": 1,
           "unit_id": null,
           "qty_base": "10",
@@ -968,7 +968,7 @@
       "total": "6000",
       "doc_no": "FD-2026-0003",
       "status": "posted",
-      "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
+      "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
       "invoice": {
         "cost": {
           "money": {
@@ -977,47 +977,47 @@
           }
         }
       },
-      "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-      "line_id": "be8732dd-7a91-434b-ab7e-c3525d1fe1f8",
+      "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+      "line_id": "15197752-a376-431b-a1ee-c2cc38fe2104",
       "payment": "cash",
       "sold_on": "2026-11-17",
       "walk_in": false,
       "can_void": true,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "payments": [
         {
           "amount": "6000",
-          "leg_id": "766f5971-ca40-364a-d795-de97418fe449",
+          "leg_id": "de2463fe-9b8b-b0b0-664f-884551f7bbc3",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "c1e36fef-826b-456f-ab50-808d20c6a86d",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "d05bcf8d-2d55-42cf-9f31-51ac24ca7343",
           "cash_account_name": "الصندوق"
         }
       ],
       "base_unit": "kg",
       "item_name": "علف نامي",
-      "posted_at": "2026-11-17T23:28:20.733216+00:00",
+      "posted_at": "2026-11-18T00:30:21.497487+00:00",
       "voided_at": null,
       "party_name": "أبو أحمد",
       "can_collect": false,
       "lines_count": 1,
       "void_reason": null,
-      "cash_move_id": "68f84dd4-8d2f-445b-8267-063a03d164e3",
+      "cash_move_id": "3f905c0e-19c2-47a1-a070-f9bbb4f66652",
       "paid_at_sale": "6000",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "0",
       "posted_by_name": "storekeeper",
       "warehouse_name": "رصيد العلف",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "0",
-      "invoice_entry_id": "cbf007e2-561d-48d4-a7d5-700a4e3f0b19",
-      "payment_entry_id": "c1e36fef-826b-456f-ab50-808d20c6a86d",
+      "invoice_entry_id": "952798db-f4a4-4188-bce4-15a8e133eff5",
+      "payment_entry_id": "d05bcf8d-2d55-42cf-9f31-51ac24ca7343",
       "payment_refunded": false,
       "payment_reversed": false
     },
     "owner_refunded_leg": {
-      "id": "c60750ac-ff0b-405c-a4a1-d58e9537ec4d",
+      "id": "ae2f4ea6-1971-4cf6-bb66-fc9af9f407a1",
       "qty": "5.000",
       "cost": {
         "money": {
@@ -1038,8 +1038,8 @@
               "value": "2750.00"
             }
           },
-          "lot_id": "b689b050-d200-4fe1-88e8-400040909443",
-          "line_id": "c48130e2-fe6b-4a2f-bbed-70ee81cc8fb8",
+          "lot_id": "de771594-520b-4bbf-bfdd-e8857e4db0d8",
+          "line_id": "cf1b0977-a8bc-40c6-9e21-ec60d30a0f1e",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -1052,8 +1052,8 @@
               "profit": "250.00"
             }
           },
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "c48130e2-fe6b-4a2f-bbed-70ee81cc8fb8",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "cf1b0977-a8bc-40c6-9e21-ec60d30a0f1e",
           "line_no": 1,
           "unit_id": null,
           "qty_base": "5.000",
@@ -1079,7 +1079,7 @@
       "total": "3000",
       "doc_no": "FD-2026-0004",
       "status": "posted",
-      "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
+      "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
       "invoice": {
         "cost": {
           "money": {
@@ -1088,56 +1088,56 @@
           }
         }
       },
-      "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-      "line_id": "c48130e2-fe6b-4a2f-bbed-70ee81cc8fb8",
+      "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+      "line_id": "cf1b0977-a8bc-40c6-9e21-ec60d30a0f1e",
       "payment": "credit",
       "sold_on": "2026-11-17",
       "walk_in": false,
       "can_void": true,
-      "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+      "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
       "payments": [
         {
           "amount": "1000",
-          "leg_id": "fb557a5c-1c06-450a-8295-c2499372d7ba",
+          "leg_id": "3aff2484-bad4-435e-aa51-74facceffbbb",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "bdf59ae2-c893-4a56-87ac-56a571b40ba2",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "ffd68660-a508-4a9a-829c-9e39fc0c5a3e",
           "cash_account_name": "الصندوق"
         },
         {
           "amount": "2000",
-          "leg_id": "94eb1d8c-5806-4653-99a7-962d222ca61b",
+          "leg_id": "5b8998f6-a60e-4c08-a11f-85dbbc9c0c9c",
           "leg_no": 2,
           "refunded": true,
-          "cash_account_id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
-          "payment_entry_id": "cb79204e-4344-49ad-900b-0554a8b81cbe",
+          "cash_account_id": "58e9e712-7780-4b01-97c8-c6405c334f35",
+          "payment_entry_id": "aa5dfe6e-7214-43bc-9541-9f789004fdcf",
           "cash_account_name": "المصرف"
         }
       ],
       "base_unit": "kg",
       "item_name": "علف نامي",
-      "posted_at": "2026-11-17T23:28:21.147725+00:00",
+      "posted_at": "2026-11-18T00:30:21.84735+00:00",
       "voided_at": null,
       "party_name": "مزرعة النور",
       "can_collect": true,
       "lines_count": 1,
       "void_reason": null,
-      "cash_move_id": "aab968ca-e683-4928-a426-a315f46f2994",
+      "cash_move_id": "e75ff1f9-a2ae-45e8-b679-e2d0dd08ee09",
       "paid_at_sale": "3000",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "0",
       "posted_by_name": "المالك",
       "warehouse_name": "رصيد العلف",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "0",
-      "invoice_entry_id": "1fe06fee-1e72-4537-84e7-e1ebf24252db",
-      "payment_entry_id": "bdf59ae2-c893-4a56-87ac-56a571b40ba2",
+      "invoice_entry_id": "a6cccaf5-a10c-4905-8c3a-47cbc9db01bd",
+      "payment_entry_id": "ffd68660-a508-4a9a-829c-9e39fc0c5a3e",
       "payment_refunded": true,
       "payment_reversed": true
     },
     "owner_multi_after_void": {
-      "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "qty": "150.000",
       "cost": {
         "money": {
@@ -1158,8 +1158,8 @@
               "value": "90000.00"
             }
           },
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
@@ -1170,8 +1170,8 @@
               "value": "15300.00"
             }
           },
-          "lot_id": "922504b6-6a00-4359-9193-4094f371ee01",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "lot_id": "acc72ebc-5ce2-4cd2-83d7-4fa89be03473",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "expiry_on": null,
           "received_on": "2026-11-12"
         },
@@ -1182,8 +1182,8 @@
               "value": "55000.00"
             }
           },
-          "lot_id": "b689b050-d200-4fe1-88e8-400040909443",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "lot_id": "de771594-520b-4bbf-bfdd-e8857e4db0d8",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "expiry_on": null,
           "received_on": "2026-11-12"
         }
@@ -1196,10 +1196,10 @@
               "profit": "12856.00"
             }
           },
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
           "line_no": 1,
-          "unit_id": "2aeee037-ce52-435e-a00c-36eb54930fa3",
+          "unit_id": "4fb46a63-5457-426c-b8a7-a3ff4219c680",
           "qty_base": "150.000",
           "unit_qty": "3.000",
           "base_unit": "kg",
@@ -1221,8 +1221,8 @@
               "profit": "2858.00"
             }
           },
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-          "line_id": "97fb011f-6281-4b37-92da-0a40b2b5f381",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+          "line_id": "c4c281a3-4339-4de0-b71f-a457a0b8db01",
           "line_no": 2,
           "unit_id": null,
           "qty_base": "25.500",
@@ -1246,10 +1246,10 @@
               "profit": "3846.00"
             }
           },
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
-          "line_id": "27880042-224a-4c24-a3e8-a2b6d46f3711",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
+          "line_id": "eed8bf15-9b51-47ab-8be4-aa7ba6f9d7fd",
           "line_no": 3,
-          "unit_id": "81453a4d-2993-49e8-8093-1f0ee1bbde89",
+          "unit_id": "57c6d647-574d-4504-b7d0-1ca1f27f6e93",
           "qty_base": "100.000",
           "unit_qty": "2.000",
           "base_unit": "kg",
@@ -1273,7 +1273,7 @@
       "total": "179860",
       "doc_no": "FD-2026-0001",
       "status": "void",
-      "book_id": "118bf27c-0022-482f-b6d2-637231f34dd3",
+      "book_id": "98cbff97-4866-4ccd-be7a-02a349174c54",
       "invoice": {
         "cost": {
           "money": {
@@ -1282,51 +1282,51 @@
           }
         }
       },
-      "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
-      "line_id": "8066d6da-38e4-4188-a278-6e59e0840b88",
+      "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
+      "line_id": "9b6df825-2f91-4d06-990a-d9d80689f236",
       "payment": "credit",
       "sold_on": "2026-11-17",
       "walk_in": false,
       "can_void": false,
-      "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+      "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
       "payments": [
         {
           "amount": "50000",
-          "leg_id": "a0bef5d2-f31a-4d36-a4c2-c4f2846237bc",
+          "leg_id": "17ebb712-79f4-4b24-8cba-e678b6c8fd0b",
           "leg_no": 1,
           "refunded": false,
-          "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
-          "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+          "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
+          "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
           "cash_account_name": "الصندوق"
         },
         {
           "amount": "30000",
-          "leg_id": "53c4ea1b-5113-4881-8995-e4f512dbf26b",
+          "leg_id": "67484adf-fccd-4323-a2cb-7c25db5a4d44",
           "leg_no": 2,
           "refunded": false,
-          "cash_account_id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
-          "payment_entry_id": "3347f5e4-f9fd-4b93-8867-a6458ea76db4",
+          "cash_account_id": "58e9e712-7780-4b01-97c8-c6405c334f35",
+          "payment_entry_id": "025d3b8a-4364-4cf3-93e5-c36752dee486",
           "cash_account_name": "المصرف"
         }
       ],
       "base_unit": "kg",
       "item_name": "علف بادئ",
-      "posted_at": "2026-11-17T23:28:20.505228+00:00",
-      "voided_at": "2026-11-17T23:28:21.069607+00:00",
+      "posted_at": "2026-11-18T00:30:21.25285+00:00",
+      "voided_at": "2026-11-18T00:30:21.799167+00:00",
       "party_name": "أبو أحمد",
       "can_collect": false,
       "lines_count": 3,
       "void_reason": "فاتورة خاطئة",
-      "cash_move_id": "83f655bc-a8d2-4ab7-aee0-dc5788752ab1",
+      "cash_move_id": "4b276319-6483-4b35-ae99-5b208ec0cc97",
       "paid_at_sale": "80000",
-      "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+      "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
       "discount_total": "3500",
       "posted_by_name": "storekeeper",
       "warehouse_name": "رصيد العلف",
-      "cash_account_id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+      "cash_account_id": "36ee909f-39d2-414a-8add-2741252a0a02",
       "invoice_discount": "2000",
-      "invoice_entry_id": "4304137e-8751-429f-8479-933094a2f9cb",
-      "payment_entry_id": "d1633515-8a1c-4150-83dd-6e89ace5809c",
+      "invoice_entry_id": "5e99bd7b-98d4-421d-bae7-bede1a093793",
+      "payment_entry_id": "a171db5d-b5cf-42f3-a382-e3ec9528c04e",
       "payment_refunded": false,
       "payment_reversed": false
     }
@@ -1338,7 +1338,7 @@
       "more": false,
       "rows": [
         {
-          "id": "06d3b099-5290-42d7-b504-228037568b71",
+          "id": "de458887-9da3-4a86-be44-a855bdfd61cd",
           "qty": "10",
           "cost": {
             "money": {
@@ -1356,23 +1356,24 @@
           "total": "6000",
           "doc_no": "FD-2026-0003",
           "status": "posted",
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "payment": "cash",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+          "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
           "base_unit": "kg",
           "item_name": "علف نامي",
           "party_name": "أبو أحمد",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف نامي",
           "payment_refunded": false
         },
         {
-          "id": "58d0fcf3-536e-4a0e-b89b-ac034aced5b6",
+          "id": "48de8ac6-117b-423e-a43a-bb6b2066e629",
           "qty": "5.000",
           "cost": {
             "money": {
@@ -1390,23 +1391,24 @@
           "total": "0",
           "doc_no": "MS-2026-0003",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "f2735f78-4934-4309-ad18-f51a34a2484e",
+          "id": "fdb53d7b-eb1b-4da7-8592-bafd1112936e",
           "qty": "10.000",
           "cost": {
             "money": {
@@ -1424,23 +1426,24 @@
           "total": "10000",
           "doc_no": "MS-2026-0002",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "a3689857-a4c7-4e52-b1f7-a50b498f1e6e",
+          "id": "00517177-159e-4359-b292-7f0908c1e188",
           "qty": "20.000",
           "cost": {
             "money": {
@@ -1458,23 +1461,24 @@
           "total": "25500",
           "doc_no": "MD-2026-0001",
           "status": "posted",
-          "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
+          "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
           "payment": "cash",
           "sold_on": "2026-11-17",
           "walk_in": true,
-          "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+          "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
           "base_unit": "pc",
           "item_name": "لقاح نيوكاسل",
           "party_name": "زبون نقديّ",
+          "items_count": 2,
           "lines_count": 2,
-          "warehouse_id": "5942c3c4-5cbd-43d1-ad3a-570b73112341",
+          "warehouse_id": "c59eb39c-c07c-40db-bc6b-eb3dced6ff30",
           "discount_total": "0",
           "warehouse_name": "مخزن الأدوية",
           "first_item_name": "لقاح نيوكاسل",
           "payment_refunded": false
         },
         {
-          "id": "bd01a5ce-4ad9-4b0c-b224-a1c40a22510f",
+          "id": "de849724-b8e4-48cc-838f-64eb3d7a417a",
           "qty": "20.000",
           "cost": {
             "money": {
@@ -1492,23 +1496,24 @@
           "total": "20000",
           "doc_no": "MS-2026-0001",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "cash",
           "sold_on": "2026-11-17",
           "walk_in": true,
-          "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+          "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "زبون نقديّ",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "dc6667b6-2029-4847-ae19-631a9ebffaa5",
+          "id": "540d4a8e-cd88-4199-8216-e2c0cf4a492d",
           "qty": "800.000",
           "cost": {
             "money": {
@@ -1526,23 +1531,24 @@
           "total": "630000",
           "doc_no": "FD-2026-0002",
           "status": "posted",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 2,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف بادئ",
           "payment_refunded": false
         },
         {
-          "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+          "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
           "qty": "150.000",
           "cost": {
             "money": {
@@ -1560,16 +1566,17 @@
           "total": "179860",
           "doc_no": "FD-2026-0001",
           "status": "posted",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+          "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "أبو أحمد",
+          "items_count": 2,
           "lines_count": 3,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "3500",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف بادئ",
@@ -1622,7 +1629,7 @@
       "more": false,
       "rows": [
         {
-          "id": "69adeedb-f2cf-46b2-a656-31a16b95c46d",
+          "id": "7880ec93-c657-43e6-ba1f-3bfd14009924",
           "qty": "20.000",
           "cost": {},
           "debt": "24000",
@@ -1635,23 +1642,24 @@
           "total": "24000",
           "doc_no": "FD-2026-0005",
           "status": "posted",
-          "item_id": "c11290ad-b8fd-437e-a4a7-77ec5c271107",
+          "item_id": "50778256-d2fa-481f-aa04-fa9db4929cf7",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "kg",
           "item_name": "علف التزامن",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 2,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف التزامن",
           "payment_refunded": false
         },
         {
-          "id": "c60750ac-ff0b-405c-a4a1-d58e9537ec4d",
+          "id": "ae2f4ea6-1971-4cf6-bb66-fc9af9f407a1",
           "qty": "5.000",
           "cost": {},
           "debt": "2000",
@@ -1664,23 +1672,24 @@
           "total": "3000",
           "doc_no": "FD-2026-0004",
           "status": "posted",
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "kg",
           "item_name": "علف نامي",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف نامي",
           "payment_refunded": true
         },
         {
-          "id": "06d3b099-5290-42d7-b504-228037568b71",
+          "id": "de458887-9da3-4a86-be44-a855bdfd61cd",
           "qty": "10",
           "cost": {},
           "debt": "0",
@@ -1693,23 +1702,24 @@
           "total": "6000",
           "doc_no": "FD-2026-0003",
           "status": "posted",
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "payment": "cash",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+          "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
           "base_unit": "kg",
           "item_name": "علف نامي",
           "party_name": "أبو أحمد",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف نامي",
           "payment_refunded": false
         },
         {
-          "id": "58d0fcf3-536e-4a0e-b89b-ac034aced5b6",
+          "id": "48de8ac6-117b-423e-a43a-bb6b2066e629",
           "qty": "5.000",
           "cost": {},
           "debt": "0",
@@ -1722,23 +1732,24 @@
           "total": "0",
           "doc_no": "MS-2026-0003",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "f2735f78-4934-4309-ad18-f51a34a2484e",
+          "id": "fdb53d7b-eb1b-4da7-8592-bafd1112936e",
           "qty": "10.000",
           "cost": {},
           "debt": "10000",
@@ -1751,23 +1762,24 @@
           "total": "10000",
           "doc_no": "MS-2026-0002",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "a3689857-a4c7-4e52-b1f7-a50b498f1e6e",
+          "id": "00517177-159e-4359-b292-7f0908c1e188",
           "qty": "20.000",
           "cost": {},
           "debt": "25500",
@@ -1780,23 +1792,24 @@
           "total": "25500",
           "doc_no": "MD-2026-0001",
           "status": "void",
-          "item_id": "5ea94f15-889f-4d37-a827-11a1c796954e",
+          "item_id": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": true,
-          "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+          "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
           "base_unit": "pc",
           "item_name": "لقاح نيوكاسل",
           "party_name": "زبون نقديّ",
+          "items_count": 2,
           "lines_count": 2,
-          "warehouse_id": "5942c3c4-5cbd-43d1-ad3a-570b73112341",
+          "warehouse_id": "c59eb39c-c07c-40db-bc6b-eb3dced6ff30",
           "discount_total": "0",
           "warehouse_name": "مخزن الأدوية",
           "first_item_name": "لقاح نيوكاسل",
           "payment_refunded": true
         },
         {
-          "id": "bd01a5ce-4ad9-4b0c-b224-a1c40a22510f",
+          "id": "de849724-b8e4-48cc-838f-64eb3d7a417a",
           "qty": "20.000",
           "cost": {},
           "debt": "0",
@@ -1809,23 +1822,24 @@
           "total": "20000",
           "doc_no": "MS-2026-0001",
           "status": "posted",
-          "item_id": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "item_id": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "payment": "cash",
           "sold_on": "2026-11-17",
           "walk_in": true,
-          "party_id": "a8325590-b724-4c8f-86b2-547cefc8e344",
+          "party_id": "07a07de4-6f3a-4c38-908c-39103579257e",
           "base_unit": "L",
           "item_name": "كاز",
           "party_name": "زبون نقديّ",
+          "items_count": 1,
           "lines_count": 1,
-          "warehouse_id": "e7c40e27-dd86-4d4f-a248-4a611b69109a",
+          "warehouse_id": "19804aa8-87a0-43d8-b9ae-6f5e0090e506",
           "discount_total": "0",
           "warehouse_name": "المخزن العام",
           "first_item_name": "كاز",
           "payment_refunded": false
         },
         {
-          "id": "dc6667b6-2029-4847-ae19-631a9ebffaa5",
+          "id": "540d4a8e-cd88-4199-8216-e2c0cf4a492d",
           "qty": "800.000",
           "cost": {},
           "debt": "630000",
@@ -1838,23 +1852,24 @@
           "total": "630000",
           "doc_no": "FD-2026-0002",
           "status": "posted",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "party_id": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "مزرعة النور",
+          "items_count": 1,
           "lines_count": 2,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "0",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف بادئ",
           "payment_refunded": false
         },
         {
-          "id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+          "id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
           "qty": "150.000",
           "cost": {},
           "debt": "99860",
@@ -1867,16 +1882,17 @@
           "total": "179860",
           "doc_no": "FD-2026-0001",
           "status": "void",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "payment": "credit",
           "sold_on": "2026-11-17",
           "walk_in": false,
-          "party_id": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+          "party_id": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
           "base_unit": "kg",
           "item_name": "علف بادئ",
           "party_name": "أبو أحمد",
+          "items_count": 2,
           "lines_count": 3,
-          "warehouse_id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+          "warehouse_id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
           "discount_total": "3500",
           "warehouse_name": "رصيد العلف",
           "first_item_name": "علف بادئ",
@@ -1925,7 +1941,7 @@
       "from": "2026-11-10",
       "rows": [
         {
-          "key": "8c9c4d47-62d4-4ff2-960c-500c60aee89c",
+          "key": "a07c4c0c-9127-4e18-8cbc-689ac1836dd6",
           "qty": null,
           "cost": {
             "money": {
@@ -1941,7 +1957,7 @@
           "base_unit": null
         },
         {
-          "key": "b0a10527-2356-4537-8ae4-e1822a8241cf",
+          "key": "5e951cc4-dfb3-455d-bcfc-086de6ce5189",
           "qty": null,
           "cost": {
             "money": {
@@ -1957,7 +1973,7 @@
           "base_unit": null
         },
         {
-          "key": "a8325590-b724-4c8f-86b2-547cefc8e344",
+          "key": "07a07de4-6f3a-4c38-908c-39103579257e",
           "qty": null,
           "cost": {
             "money": {
@@ -2003,7 +2019,7 @@
       "from": "2026-11-10",
       "rows": [
         {
-          "key": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "key": "a28d2626-f967-452c-8065-89a364f8fedb",
           "qty": "1075.500",
           "cost": {
             "money": {
@@ -2019,7 +2035,7 @@
           "base_unit": "kg"
         },
         {
-          "key": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "key": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "qty": "110.000",
           "cost": {
             "money": {
@@ -2035,7 +2051,7 @@
           "base_unit": "kg"
         },
         {
-          "key": "13577e51-398a-414e-9071-33ea9ea4fcbd",
+          "key": "9df17086-a8d9-445b-9558-9ce0430832e8",
           "qty": "35.000",
           "cost": {
             "money": {
@@ -2051,7 +2067,7 @@
           "base_unit": "L"
         },
         {
-          "key": "6bbf1631-3f97-495f-ab96-4b4b47c3e955",
+          "key": "b79facc5-4435-4adf-bcce-b5996de4f0b6",
           "qty": "1.500",
           "cost": {
             "money": {
@@ -2067,7 +2083,7 @@
           "base_unit": "L"
         },
         {
-          "key": "5ea94f15-889f-4d37-a827-11a1c796954e",
+          "key": "30bf7a88-74a0-4ff9-a33f-c9dd251f0e0a",
           "qty": "20.000",
           "cost": {
             "money": {
@@ -2118,7 +2134,7 @@
         {
           "qty": "150.000",
           "amount": "102856",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "line_no": 1,
           "unit_qty": "3.000",
           "base_unit": "kg",
@@ -2133,7 +2149,7 @@
         {
           "qty": "25.500",
           "amount": "18158",
-          "item_id": "c0769d2f-489d-4654-82b1-802ab3f5ffef",
+          "item_id": "a28d2626-f967-452c-8065-89a364f8fedb",
           "line_no": 2,
           "unit_qty": "25.500",
           "base_unit": "kg",
@@ -2148,7 +2164,7 @@
         {
           "qty": "100.000",
           "amount": "58846",
-          "item_id": "982d363d-8296-40c8-ab3b-702676c106fc",
+          "item_id": "0ded5c07-ee1f-45f6-baed-44bc1f7d338d",
           "line_no": 3,
           "unit_qty": "2.000",
           "base_unit": "kg",
@@ -2162,11 +2178,11 @@
         }
       ],
       "total": "179860",
-      "doc_id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "doc_id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "doc_no": "FD-2026-0001",
       "status": "posted",
       "account": {
-        "id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+        "id": "36ee909f-39d2-414a-8add-2741252a0a02",
         "name": "الصندوق"
       },
       "payment": "credit",
@@ -2177,7 +2193,7 @@
           "amount": "50000",
           "leg_no": 1,
           "account": {
-            "id": "734b503f-4c8b-4f02-8cfa-b0e16bb738b0",
+            "id": "36ee909f-39d2-414a-8add-2741252a0a02",
             "name": "الصندوق"
           }
         },
@@ -2185,13 +2201,13 @@
           "amount": "30000",
           "leg_no": 2,
           "account": {
-            "id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
+            "id": "58e9e712-7780-4b01-97c8-c6405c334f35",
             "name": "المصرف"
           }
         }
       ],
       "warehouse": {
-        "id": "db933f2b-080c-4668-b1e8-faa39ce98ca3",
+        "id": "47a12c57-f265-4299-ad6a-06dd7b781d68",
         "name": "رصيد العلف"
       },
       "discount_total": "3500",
@@ -2199,11 +2215,11 @@
     },
     "leg": {
       "type": "sale_payment",
-      "doc_id": "e3305504-bea0-448d-95e0-a6e092243b1b",
+      "doc_id": "08c15d1b-7cae-4e10-8899-f6b04ee48c27",
       "doc_no": "FD-2026-0001",
       "leg_no": 2,
       "account": {
-        "id": "0b2e1fbd-14c3-4f7f-a8ce-888e00021b33",
+        "id": "58e9e712-7780-4b01-97c8-c6405c334f35",
         "name": "المصرف"
       },
       "walk_in": false
