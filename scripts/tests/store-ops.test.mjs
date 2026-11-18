@@ -799,7 +799,7 @@ export default async function (t) {
       const buttons = byAction('void-sale');
       const rowOf = (button) => { let n = button; while (n && n.localName !== 'tr') n = n.parentNode; return n?.textContent ?? ''; };
       await click(buttons.find((button) => rowOf(button).includes('MS-2026-0001')));
-      t.ok(text().includes('إلغاء البيع MS-2026-0001؟') && byAction('void-cash-kept')[0]?.textContent.includes('والمبلغ المقبوض نقداً (120,000 دينار) يبقى رصيداً لـ«شركة الدواجن»'), 'S12 التأكيد يسمّي الأثر ويقول إنّ المقبوض يبقى رصيداً');
+      t.ok(text().includes('إلغاء البيع MS-2026-0001؟') && byAction('void-cash-kept')[0]?.textContent.includes('والمبلغ المقبوض (120,000 دينار) يبقى رصيداً لـ«شركة الدواجن»'), 'S12 التأكيد يسمّي الأثر ويقول إنّ المقبوض يبقى رصيداً');
       await click(byAction('confirm-void-sale')[0]);
       t.ok(text().includes('اكتب سبب الإلغاء.') && named(rpcCalls, 'void_sale').length === 0, 'S12 السبب إلزاميّ');
       typeIn(byAction('void-sale-reason')[0], 'خطأ في الجهة');

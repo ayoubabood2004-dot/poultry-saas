@@ -469,7 +469,7 @@ function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () 
             </p>
           ) : paid !== null ? (
             <p data-action="void-cash-kept">
-              {t('sales.void.cash_kept', 'والمبلغ المقبوض نقداً ({total} دينار) يبقى رصيداً لـ«{party}»: يُرجَع له من كشفه بـ«ألغِ القبض»، أو يُخصم من فاتورة لاحقة.', { total: fmtMoney(paid, 0), party: row.partyName })}
+              {t('sales.void.cash_kept', 'والمبلغ المقبوض ({total} دينار) يبقى رصيداً لـ«{party}»: يُرجَع له من كشفه بـ«ألغِ القبض»، أو يُخصم من فاتورة لاحقة.', { total: fmtMoney(paid, 0), party: row.partyName })}
             </p>
           ) : null}
           <Field id={`${id}-reason`} label={t('sales.void.reason', 'سبب الإلغاء')} error={tried ? (missing ?? failed) : failed}>
