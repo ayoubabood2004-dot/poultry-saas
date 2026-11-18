@@ -1,5 +1,5 @@
 import { ClipboardList, Factory, House, Menu } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { can } from '../../domain/permissions';
 import { t } from '../../lib/i18n';
 import { visibleNav, type NavItem } from '../../lib/nav';
@@ -34,12 +34,19 @@ export function bottomItems(session: SessionState): NavItem[] {
   if (stores) shown.push(stores);
   const accounts = pick('/accounts');
   if (accounts) shown.push(accounts);
+  // «المبيعات» لمن يبيع حين يتّسع الشريط (تصميم المبيعات ٨، كلمة المالك 2026-11-18: البيع كان خلف «أعمال أخرى» وخارج الشريط)، آخر البنود وبحدّ الشريط
+  // نفسه (الرئيسية وثلاثة ثمّ «القائمة»): من له جولة وحسابات يبقى شريطه كما هو، وبلا منشأة مؤكّدة الهيكل كما كان. (الحزمة في التثبيت المسبق: بأقلّ شفرة.)
+  const sales = pick('/sales');
+  if (sales && shown.length < 4 && workspace && can(workspace.role, 'sale.record')) shown.push(sales);
   return shown;
 }
 
 export default function BottomBar({ onMenu }: { onMenu: () => void }) {
   const session = useSession();
+  // شاشة البيع (/sales/new) ترسم شريطها الثابت بالمجموع و«التالي: الدفع» مكان هذا الشريط (تصميم المبيعات ١)، فلا يُرسم فوقه ولا تضيع فاتورة بلمسة عليه.
+  const away = useLocation().pathname === '/sales/new';
   const items = bottomItems(session);
+  if (away) return null;
   return (
     <nav
       aria-label={t('shell.bottom', 'التنقّل السريع')}

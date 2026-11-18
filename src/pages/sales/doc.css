@@ -1,0 +1,1010 @@
+/* شاشات ما بعد البيع (تصميم المبيعات ٥–٨، docs/SALES_UX_PLAN.md؛ كلمة المالك 2026-11-18): حالة النجاح، وصفحة الفاتورة، وورقتها، وقائمة المبيعات.
+   ملف كسول تستورده sales/docKit.tsx، فيدخل CSS حزمة المخزون (StockRoutes-*.css: خارج الإقلاع والتثبيت المسبق) كـpapers.css في الحسابات: لا صنف Tailwind
+   جديد في أيّ ملف (CSS الإقلاع بسقفه). القيم من رموز tokens.css (الفاتح والداكن و«وضوح») ومن سلالم الإعداد نفسها؛ اللمس ≥ 48 بكسل، والنصّ ≥ 12،
+   والمبالغ بأرقام متساوية العرض، والحالات نصّاً دائماً واللون مساعد (أخضر مدفوعة، كهرمانيّ باقٍ، رماديّ ملغاة)، وكلّ نصّ ≥ 4.5:1 بالسمتين. */
+
+/* ─── الحالة شريحةً ─────────────────────────────────────────────────────────────────────────────────────────── */
+
+.sale-chip {
+  --chip-bg: 238 245 252;
+  --chip-ink: 18 69 146;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.75rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  background: rgb(var(--chip-bg));
+  color: rgb(var(--chip-ink));
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.sale-chip::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.sale-chip[data-tone='paid'] {
+  --chip-bg: 236 253 245;
+  --chip-ink: 6 95 70;
+}
+.sale-chip[data-tone='partial'] {
+  --chip-bg: 255 251 235;
+  --chip-ink: 146 64 14;
+}
+.sale-chip[data-tone='credit'] {
+  --chip-bg: 254 243 199;
+  --chip-ink: 120 53 15;
+}
+.sale-chip[data-tone='void'] {
+  --chip-bg: var(--surface-3);
+  --chip-ink: var(--ink-muted);
+}
+.sale-chip[data-tone='void']::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.dark .sale-chip {
+  --chip-bg: 23 37 61;
+  --chip-ink: 188 215 254;
+}
+.dark .sale-chip[data-tone='paid'] {
+  --chip-bg: 6 60 46;
+  --chip-ink: 110 231 183;
+}
+.dark .sale-chip[data-tone='partial'] {
+  --chip-bg: 66 44 12;
+  --chip-ink: 252 211 77;
+}
+.dark .sale-chip[data-tone='credit'] {
+  --chip-bg: 82 46 8;
+  --chip-ink: 253 230 138;
+}
+.dark .sale-chip[data-tone='void'] {
+  --chip-bg: var(--surface-3);
+  --chip-ink: var(--ink-muted);
+}
+
+/* ─── الأزرار ──────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* ارتفاع الإصبع (48) فوق أحجام Button (44/52)، و56 لزرّ الخطوة التالية بعد الحفظ. */
+button.sale-btn {
+  height: 3rem;
+  padding-inline: 1rem;
+  font-size: 1rem;
+}
+button.sale-btn-xl {
+  height: 3.5rem;
+  font-size: 1.125rem;
+}
+button.sale-btn-icon {
+  width: 3rem;
+  padding: 0;
+}
+
+/* «بيع جديد» بعد الحفظ: رابط بشكل زرّ ثانويّ بحدّ العلامة، 56 بكسل. */
+.sale-linkbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 3.5rem;
+  border: 2px solid rgb(18 102 216);
+  border-radius: 9999px;
+  background: rgb(var(--surface-1));
+  color: rgb(15 82 179);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.sale-linkbtn:hover {
+  background: rgb(238 245 255);
+}
+.dark .sale-linkbtn {
+  border-color: rgb(110 173 252);
+  color: rgb(188 215 254);
+}
+.dark .sale-linkbtn:hover {
+  background: rgb(var(--surface-2));
+}
+
+/* «⋯» وقائمته. */
+.sale-more {
+  position: relative;
+  flex-shrink: 0;
+}
+.sale-menu {
+  position: absolute;
+  top: calc(100% + 0.375rem);
+  inset-inline-end: 0;
+  z-index: 20;
+  min-width: 13rem;
+  padding: 0.375rem;
+  border: 1px solid rgb(var(--line));
+  border-radius: 1rem;
+  background: rgb(var(--surface-1));
+  box-shadow: 0 18px 48px -16px rgb(var(--shadow) / 0.28);
+}
+.sale-menu-danger {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 3rem;
+  padding-inline: 0.875rem;
+  border-radius: 0.75rem;
+  color: rgb(185 28 28);
+  font-weight: 600;
+  text-align: start;
+}
+.sale-menu-danger:hover {
+  background: rgb(254 242 242);
+}
+.dark .sale-menu-danger {
+  color: rgb(252 165 165);
+}
+.dark .sale-menu-danger:hover {
+  background: rgb(var(--surface-2));
+}
+
+/* ─── بعد الحفظ (?done=1) ──────────────────────────────────────────────────────────────────────────────────── */
+
+.sale-done {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.75rem 1rem 1.25rem;
+  text-align: center;
+  container-type: inline-size;
+}
+/* «⋯» في زاوية البطاقة: صفّ الأزرار لـ«PDF» و«استلم» وحدهما فلا يضيق بالخطّ الكبير. */
+.sale-done > .sale-more {
+  position: absolute;
+  top: 0.75rem;
+  inset-inline-end: 0.75rem;
+}
+.sale-done-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 9999px;
+  background: rgb(209 250 229);
+  color: rgb(4 120 87);
+  box-shadow: 0 0 0 0.5rem rgb(236 253 245);
+  animation: sale-pop 320ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+.sale-done-mark path {
+  stroke-dasharray: 21;
+  stroke-dashoffset: 21;
+  animation: sale-draw 260ms 120ms ease-out forwards;
+}
+.dark .sale-done-mark {
+  background: rgb(6 78 59);
+  color: rgb(110 231 183);
+  box-shadow: 0 0 0 0.5rem rgb(6 60 46 / 0.6);
+}
+@keyframes sale-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes sale-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* بلا حركة لطالب تقليل الحركة: العلامة مرسومة كاملة من أوّل لحظة (الحركة كلّها تقف في index.css، والخطّ هنا يبقى ظاهراً). */
+@media (prefers-reduced-motion: reduce) {
+  .sale-done-mark,
+  .sale-done-mark path {
+    animation: none;
+  }
+  .sale-done-mark path {
+    stroke-dashoffset: 0;
+  }
+}
+.sale-done-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.sale-done-title bdi,
+.sale-doc-title bdi {
+  white-space: nowrap;
+}
+.sale-done-who {
+  color: rgb(var(--ink-muted));
+}
+.sale-done-sums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgb(var(--line));
+  border-radius: 1rem;
+  background: rgb(var(--surface-2));
+}
+.sale-done-sums > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.625rem 0.375rem;
+}
+.sale-done-sums > div + div {
+  border-inline-start: 1px solid rgb(var(--line));
+}
+.sale-done-sums dt {
+  color: rgb(var(--ink-muted));
+  font-size: 0.8125rem;
+}
+.sale-done-sums dd {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sale-done-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+.sale-done-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.sale-done-row > button {
+  flex: 1 1 0;
+}
+/* بالخطّ الكبير أو الشاشة الضيّقة (الحاوية لا الشاشة: بمقياس النصّ نفسه) تصير الأرقام الثلاثة سطوراً بدل أعمدة تتداخل. */
+@container (max-width: 17.5rem) {
+  .sale-done-sums {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sale-done-sums > div {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-inline: 0.875rem;
+  }
+  .sale-done-sums > div + div {
+    border-inline-start: 0;
+    border-top: 1px solid rgb(var(--line));
+  }
+}
+
+/* «الباقي» بالكهرمانيّ ما دام شيء باقياً (والنصّ يقوله). */
+[data-part='open']:not([data-zero]) dd {
+  color: rgb(180 83 9);
+}
+.dark [data-part='open']:not([data-zero]) dd {
+  color: rgb(252 211 77);
+}
+
+/* «رجوع» بارتفاع 44 (الزرّ المشترك 40). */
+.sale-ui a[data-action='back'] {
+  height: 2.75rem;
+}
+
+/* ─── صفحة الفاتورة ────────────────────────────────────────────────────────────────────────────────────────── */
+
+.sale-doc-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.sale-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.125rem 1.125rem;
+}
+.sale-receipt-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.sale-who {
+  font-size: 1.125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sale-who-link {
+  /* هدف لمس 44 بكسل بلا أن يطول سطر الاسم. */
+  display: inline-block;
+  margin-block: -0.6875rem;
+  padding-block: 0.6875rem;
+  color: rgb(15 82 179);
+  text-decoration: underline;
+  text-decoration-color: rgb(15 82 179 / 0.35);
+  text-underline-offset: 0.25em;
+}
+.dark .sale-who-link {
+  color: rgb(188 215 254);
+  text-decoration-color: rgb(188 215 254 / 0.35);
+}
+.sale-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.125rem;
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+}
+.sale-net {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.sale-net-unit {
+  color: rgb(var(--ink-muted));
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.sale-net-void bdi {
+  color: rgb(var(--ink-muted));
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+.sale-paybox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sale-bar {
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: rgb(253 230 138);
+}
+.sale-bar > span {
+  border-radius: 9999px;
+  background: rgb(5 150 105);
+}
+.dark .sale-bar {
+  background: rgb(120 53 15);
+}
+.dark .sale-bar > span {
+  background: rgb(52 211 153);
+}
+.sale-split {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.sale-split > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.sale-split > div:last-child {
+  text-align: end;
+}
+.sale-split dt {
+  color: rgb(var(--ink-muted));
+  font-size: 0.8125rem;
+}
+.sale-split dd {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sale-note {
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+}
+.sale-cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed rgb(var(--line-strong));
+  font-size: 0.875rem;
+}
+.sale-cost > div {
+  display: flex;
+  gap: 0.375rem;
+}
+.sale-cost dt {
+  color: rgb(var(--ink-muted));
+}
+.sale-cost dd {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* الأفعال: «أرسل على واتساب» بعرض الصفّ، ثمّ «PDF» و«استلم» و«⋯». */
+.sale-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.sale-actions > .sale-send {
+  flex: 1 1 100%;
+}
+.sale-actions > button:not(.sale-send) {
+  flex: 1 1 0;
+}
+.sale-actions > .sale-more {
+  flex: 0 0 auto;
+}
+@media (min-width: 640px) {
+  .sale-actions > .sale-send {
+    flex: 0 1 auto;
+  }
+  .sale-actions > button:not(.sale-send) {
+    flex: 0 1 auto;
+  }
+}
+
+.sale-hint {
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+}
+.sale-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sale-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* سطر المادّة في خلية الهاتف: الاسم وتحته الكمية × السعر. */
+.sale-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.sale-line-name {
+  font-weight: 600;
+}
+.sale-line-sub {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.25rem;
+  color: rgb(var(--ink-muted));
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.sale-line-off {
+  flex-basis: 100%;
+}
+
+/* «الورقة كما تصل الزبون»: مطويّة على الشاشة، ظاهرة دائماً في الطباعة. */
+.sale-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding-inline: 1rem;
+  border: 1px solid rgb(var(--line));
+  border-radius: 1rem;
+  background: rgb(var(--surface-1));
+  font-weight: 600;
+}
+.sale-disclosure:hover {
+  background: rgb(var(--surface-2));
+}
+.sale-disclosure[aria-expanded='true'] .sale-disclosure-icon {
+  transform: rotate(180deg);
+}
+
+/* الورقة بالسمة الفاتحة دائماً (كما تصل الزبون، وكصورتها): رموز :root في tokens.css على حاويتها، فتغلب .dark و.clarity. */
+.sale-paper-slot {
+  --surface: 243 248 253;
+  --surface-1: 255 255 255;
+  --surface-2: 238 245 252;
+  --surface-3: 226 238 250;
+  --ink: 15 30 53;
+  --ink-muted: 86 102 126;
+  --ink-subtle: 138 152 172;
+  --line: 224 233 244;
+  --line-strong: 202 216 232;
+  --ring: 18 102 216;
+  --shadow: 18 64 128;
+  color: rgb(var(--ink));
+  color-scheme: light;
+}
+.sale-paper-slot:not([data-open]) {
+  display: none;
+}
+@media print {
+  .sale-paper-slot {
+    display: block !important;
+  }
+}
+
+/* ─── ورقة الفاتورة (الصورة والطباعة والمعاينة) ─────────────────────────────────────────────────────────────── */
+
+.inv-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  width: 100%;
+  max-width: 36rem;
+  margin-inline: auto;
+  padding: 1.25rem 1rem;
+}
+.inv-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 2px solid rgb(var(--ink));
+}
+.inv-org {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.inv-org-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.inv-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+}
+.inv-title-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+/* الرقم واليوم بسطر واحد لا ينكسر عند «-» («FD-2026-» / «0101» في صورة التدقيق). */
+.inv-meta {
+  font-size: 0.875rem;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.inv-meta bdi {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.inv-stamp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border: 3px double rgb(185 28 28);
+  border-radius: 0.75rem;
+  color: rgb(185 28 28);
+  text-align: center;
+}
+.inv-parties {
+  display: grid;
+  gap: 0;
+}
+.inv-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgb(var(--line));
+}
+.inv-line-label {
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+}
+.inv-line-value {
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 600;
+}
+.inv-sums {
+  display: flex;
+  flex-direction: column;
+}
+.inv-due {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  background: rgb(var(--surface-2));
+}
+.inv-due-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 1.25rem;
+}
+.inv-due-row strong {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.inv-words {
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.inv-open .inv-line-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.inv-thanks {
+  padding-top: 0.5rem;
+  font-weight: 600;
+  text-align: center;
+}
+.inv-signs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-top: 0.5rem;
+}
+.inv-sign {
+  min-width: 9rem;
+  padding-top: 2.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px dotted currentColor;
+  font-size: 0.875rem;
+}
+/* جدول الورقة في المعاينة على الهاتف: العمود الأوّل بلا حدّ العرض الأدنى (الطباعة والصورة كذلك في PAPER_STYLE). */
+.inv-sheet th,
+.inv-sheet td {
+  padding-inline: 0.5rem;
+}
+.inv-sheet td:first-child,
+.inv-sheet th:first-child {
+  min-width: 0;
+}
+/* صورة واتساب: ورقة بيضاء بلا إطار البطاقة ولا ظلّها، بهوامش ورقة. */
+[data-capture].inv-sheet {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: rgb(255 255 255);
+  padding: 28px 26px 24px;
+  gap: 14px;
+}
+
+/* ─── قائمة المبيعات ───────────────────────────────────────────────────────────────────────────────────────── */
+
+/* «بيع جديد» ثابت فوق الشريط السفلي، فلا تُخفي الصفوفَ الأخيرة: فراغ بارتفاعه آخر الصفحة. */
+.sale-list-page {
+  padding-bottom: 4.5rem;
+}
+.sale-fab {
+  position: fixed;
+  inset-inline-end: 1rem;
+  bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 3.5rem;
+  padding-inline: 1.25rem 1.5rem;
+  border-radius: 9999px;
+  background: rgb(18 102 216);
+  color: rgb(255 255 255);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  box-shadow: 0 12px 28px -10px rgb(18 64 128 / 0.55);
+}
+.sale-fab:hover {
+  background: rgb(15 82 179);
+}
+@media (min-width: 768px) {
+  .sale-fab {
+    bottom: 1.5rem;
+  }
+}
+@media print {
+  .sale-fab {
+    display: none;
+  }
+}
+
+/* «حسب الزبون» بعرض الهاتف: أربعة خيارات تلتفّ بسطرين بدل أن تُقصّ. */
+.sale-view [role='radiogroup'] button {
+  height: auto;
+  min-height: 2.75rem;
+  padding-inline: 0.25rem;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.sale-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.sale-pill {
+  flex-shrink: 0;
+  min-height: 2.75rem;
+  padding-inline: 1rem;
+  border: 1px solid rgb(var(--line-strong));
+  border-radius: 9999px;
+  background: rgb(var(--surface-1));
+  color: rgb(var(--ink));
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.sale-pill:hover {
+  background: rgb(var(--surface-2));
+}
+.sale-pill[aria-pressed='true'] {
+  border-color: rgb(18 102 216);
+  background: rgb(18 102 216);
+  color: rgb(255 255 255);
+}
+
+.sale-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem;
+  container-type: inline-size;
+}
+.sale-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: rgb(var(--ink-muted));
+  font-size: 0.875rem;
+}
+.sale-strip-name {
+  color: rgb(var(--ink));
+  font-size: 1rem;
+  font-weight: 700;
+}
+.sale-strip-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.sale-strip-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.sale-strip-grid dt {
+  color: rgb(var(--ink-muted));
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+.sale-strip-grid dd {
+  font-size: 1.1875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* الأرقام لا تنكسر: في الحاوية الضيّقة (360 بكسل أو الخطّ الكبير) تصير سطوراً، العنوان ثمّ الرقم. */
+@container (max-width: 20rem) {
+  .sale-strip-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+  .sale-strip-grid > div {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+}
+.sale-strip-cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgb(var(--line-strong));
+  font-size: 0.875rem;
+}
+.sale-strip-cost > div {
+  display: flex;
+  gap: 0.375rem;
+}
+.sale-strip-cost dt {
+  color: rgb(var(--ink-muted));
+}
+.sale-strip-cost dd {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sale-strip-unit {
+  color: rgb(var(--ink-muted));
+  font-size: 0.75rem;
+}
+
+.sale-find {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+.sale-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding-inline: 1rem 0.375rem;
+  border: 1px solid rgb(var(--line-strong));
+  border-radius: 9999px;
+  background: rgb(var(--surface-1));
+}
+.sale-search:focus-within {
+  border-color: rgb(var(--ring));
+  box-shadow: 0 0 0 3px rgb(var(--ring) / 0.18);
+}
+.sale-search-input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 2.75rem;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ink));
+  font-size: max(1rem, 16px);
+  outline: none;
+}
+.sale-search-input::placeholder {
+  color: rgb(var(--ink-muted));
+}
+.sale-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+.sale-search-off {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  color: rgb(var(--ink-muted));
+}
+.sale-search-off:hover {
+  background: rgb(var(--surface-2));
+}
+.sale-party-on {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding-inline: 1rem 0.75rem;
+  border-radius: 9999px;
+  background: rgb(238 245 255);
+  color: rgb(18 69 146);
+  font-weight: 600;
+}
+.dark .sale-party-on {
+  background: rgb(23 37 61);
+  color: rgb(188 215 254);
+}
+
+/* جداول المبيعات بعرض الهاتف (القائمة والتقرير وموادّ الفاتورة وسيقانها): خلايا أضيق، ورأس يلتفّ، والعمود الأوّل بلا حدّ العرض الأدنى (192 بكسل
+   في DataTable) فيبقى المال في الشاشة. */
+.sale-table {
+  container-type: inline-size;
+}
+.sale-table table {
+  font-size: 0.875rem;
+}
+.sale-table th,
+.sale-table td {
+  padding-inline: 0.375rem;
+}
+.sale-table th:first-child,
+.sale-table td:first-child {
+  padding-inline-start: 0.625rem;
+}
+.sale-table thead th {
+  white-space: normal;
+  line-height: 1.25;
+}
+.sale-table td:first-child,
+.sale-table th:first-child {
+  min-width: 0;
+}
+.sale-list tbody tr {
+  cursor: pointer;
+}
+/* شريحة الحالة في الجدول أضيق (بلا النقطة): النصّ يقولها. */
+.sale-list .sale-chip {
+  padding-inline: 0.5rem;
+  font-size: 0.75rem;
+}
+.sale-list .sale-chip::before {
+  display: none;
+}
+.sale-list tbody td {
+  padding-block: 0.5rem;
+}
+/* الحالة عموداً رابعاً ما اتّسع الجدول؛ وفي الأضيق (360 بكسل، أو الخطّ 125٪) تنزل الشريحة تحت اسم الزبون ويختفي عمودها، فلا تمرير جانبيّ. */
+.sale-row-chip {
+  display: none;
+}
+@container (max-width: 22rem) {
+  .sale-list tr > :last-child:not(:first-child) {
+    display: none;
+  }
+  .sale-list .sale-row-chip {
+    display: inline-flex;
+  }
+  /* ومجاميع المدّة في الشريط فوق الجدول نفسها (من الخادم): صفّ المجموع يُطوى هنا فلا يوسّع أعمدة المال بأرقامه الطويلة. */
+  .sale-list tfoot {
+    display: none;
+  }
+}
+.sale-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.sale-row-name {
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.sale-row-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.375rem;
+  color: rgb(var(--ink-muted));
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.sale-row-sub .sale-chip {
+  min-height: 1.5rem;
+  padding-inline: 0.5rem;
+  font-size: 0.75rem;
+}
+.sale-row-sub bdi {
+  white-space: nowrap;
+}
+.sale-report-open {
+  min-height: 2.75rem;
+  color: rgb(15 82 179);
+  font-weight: 700;
+  text-align: start;
+  text-decoration: underline;
+  text-decoration-color: rgb(15 82 179 / 0.35);
+  text-underline-offset: 0.25em;
+}
+.dark .sale-report-open {
+  color: rgb(188 215 254);
+  text-decoration-color: rgb(188 215 254 / 0.35);
+}
+@media (min-width: 640px) {
+  .sale-table th,
+  .sale-table td {
+    padding-inline: 0.75rem;
+  }
+}

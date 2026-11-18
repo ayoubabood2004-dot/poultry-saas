@@ -336,15 +336,16 @@ export default async function (t) {
       const sample = { ...clone(R.sale_detail.owner_multi), open: '49860' };
       fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
       await mount(`/sales/${sample.id}`);
+      // «دين» = ما بقي عند البيع (لا يتغيّر بالقبض)، و«الباقي» = ما بقي الآن (open): كلمتان لا ستّ (تصميم المبيعات ٦).
       t.same(
-        [textOf('sale-paper-debt'), textOf('sale-paper-open'), textOf('collect-note')?.includes('المتبقّي منه الآن 49,860 دينار')],
-        ['الباقي ديناً:99,860 دينار', 'المتبقّي الآن:49,860 دينار', true],
-        'D1 بعد قبض لاحق: دين البيع كما هو و«المتبقّي الآن» من open على الورقة والصفحة',
+        [textOf('sale-paper-debt'), textOf('sale-paper-open'), textOf('collect-note')?.includes('على حساب «أبو أحمد» يُسدِّد أقدم ديونه أوّلاً'), textOf('sale-open'), textOf('sale-payment')],
+        ['دين عند البيع:99,860 دينار', 'الباقي:49,860 دينار', true, '49,860', 'دين عند البيع 99,860 دينار، والباقي الآن 49,860 دينار.'],
+        'D1 بعد قبض لاحق: دين البيع كما هو و«الباقي» من open على الورقة والصفحة',
       );
       await click(first('collect-sale'));
       await settle(20);
       const amount = all().find((n) => n.localName === 'input' && (n.getAttribute('id') ?? '').endsWith('-amount'));
-      t.eq(amount?.value, '49860', 'D1 «استلم من الزبون» يملأ المتبقّي الآن (open) لا دين البيع');
+      t.eq(amount?.value, '49860', 'D1 «استلم» يملأ الباقي الآن (open) لا دين البيع');
       await click(first('dialog-close'));
       await settle(20);
       t.same([byAction('dialog-discard').length, byAction('review-payment').length], [0, 0], 'D1 النافذة المملوءة مسبقاً تُغلق بلا «الخروج دون حفظ؟» (لم يُكتب فيها شيء)');
@@ -383,7 +384,7 @@ export default async function (t) {
         Object.entries(tokens),
         'D2 حاوية الصورة برموز السمة الفاتحة كلّها (كما في tokens.css) والجهاز داكن',
       );
-      t.same([style['color-scheme'] ?? style.colorScheme ?? null, capture?.options?.backgroundColor], ['light', 'rgb(243, 248, 253)'], 'D2 وcolor-scheme فاتح، والخلفية سطح السمة الفاتحة');
+      t.same([style['color-scheme'] ?? style.colorScheme ?? null, capture?.options?.backgroundColor], ['light', 'rgb(255, 255, 255)'], 'D2 وcolor-scheme فاتح، والخلفية ورق أبيض (تصميم المبيعات ٦)');
       t.eq(typeof capture?.options?.imagePlaceholder === 'string' && capture.options.imagePlaceholder.startsWith('data:'), true, 'D5 صورة بديلة لصورة تعذّر جلبها (لا يُرفض الرسم كلّه بلا اتصال)');
     });
 
@@ -392,9 +393,17 @@ export default async function (t) {
       fresh(MANAGER, { sale_detail: () => clone(sample) }, pickers);
       await mount(`/sales/${sample.id}`);
       t.same(
-        [textOf('sale-paper-paid'), textOf('sale-payment')],
-        ['المدفوع الآن:1,000 دينار في «الصندوق»، ورُدّ 2,000 دينار من «المصرف»', 'جزء مدفوع، والباقي دين'],
+        [textOf('sale-paper-paid'), textOf('sale-status'), textOf('leg-refunded')],
+        ['المدفوع عند البيع:1,000 دينار في «الصندوق»، ورُدّ 2,000 دينار من «المصرف»', 'جزء مدفوع', 'المصرف — رُدّ للزبون'],
         'D3 رُدّت ساق من ساقين: الباقية مدفوعة والمردودة بصندوقها، لا «رُدّ المبلغ» كلّه',
+      );
+      // و«ألغِ الفاتورة» (في «⋯» الفاتورة منذ تصميم المبيعات ٦): ما بقي مدفوعاً (1,000) يبقى رصيداً، ولا جملة «رُدّ» لساقٍ من ساقين (A3).
+      await click(first('sale-more'));
+      await click(first('void-sale'));
+      t.same(
+        [textOf('void-cash-kept')?.includes('(1,000 دينار)'), textOf('void-refunded')],
+        [true, null],
+        'D3 تأكيد الإلغاء: ما بقي مدفوعاً (1,000) يبقى رصيداً، ولا جملة «رُدّ» لساقٍ من ساقين (payment_refunded = رُدّ كلّه، A3)',
       );
     });
 
@@ -414,51 +423,78 @@ export default async function (t) {
     });
 
     // ── D: القائمة ─────────────────────────────────────────────────────────────────────────────────────────────────
+    /** القائمة بعرض الشاشة العريضة (matchMedia بديل): أعمدة الموادّ والمدفوع أيضاً. */
+    const wideScreen = () => {
+      const before = globalThis.window.matchMedia;
+      globalThis.window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+      return () => {
+        if (before) globalThis.window.matchMedia = before;
+        else delete globalThis.window.matchMedia;
+      };
+    };
+    /** صفوف القائمة بالرقم: [الزبون، الموادّ، الصافي، المدفوع، الباقي الآن، الحالة] (بالعرض العريض). */
+    const listByNo = () =>
+      Object.fromEntries(
+        (sectionOf(tableOf(listCaption()), 'tbody')?.children ?? []).map((tr) => [descendants(tr).find((n) => n.localName === 'bdi')?.textContent, [first('open-sale', tr)?.textContent, ...tr.children.slice(1).map((td) => td.textContent)]]),
+      );
     await step('D3/D7/D8/D11 list', async () => {
-      // عيّنة القاعدة بعد قبض لاحق وإلغاءين (owner_after_collect_and_void): «ألغِ» لكلّ صفّ بعلمه (can_void)، والباقي الآن open.
-      const overview = clone(R.sales_overview.owner_after_collect_and_void);
-      fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
-      await mount('/sales');
-      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
-      t.same(
-        [rows['FD-2026-0004']?.[7], rows['FD-2026-0001']?.[7], rows['MD-2026-0001']?.[7]],
-        ['جزء مدفوع، والباقي دين', 'ملغاة، والمقبوض باقٍ رصيداً للجهة', 'ملغاة، ورُدّ المقبوض'],
-        'D3/D7 الدفع في القائمة: ساق رُدّت من ساقين جزءٌ مدفوع، والملغاة بما حدث لمقبوضها',
-      );
-      t.same([rows['FD-2026-0002']?.[3], rows['FD-2026-0005']?.[3]], ['علف بادئ', 'علف التزامن'], 'D8 مادّة واحدة بسطرين: اسمها لا «ومادّة أخرى»');
-      const stats = all().filter((n) => n.localName === 'dt').map((n) => n.textContent);
-      t.ok(stats.includes('منه مدفوع عند البيع') && !stats.includes('منه نقداً'), 'D11 المدفوع عند البيع من كلّ الصناديق، لا «منه نقداً»');
-      const row = all().find((n) => n.localName === 'tr' && n.textContent.includes('FD-2026-0004'));
-      await click(descendants(row).find((n) => n.getAttribute('data-action') === 'void-sale'));
-      t.same(
-        [textOf('void-cash-kept')?.includes('(1,000 دينار)'), textOf('void-refunded')],
-        [true, null],
-        'D3 تأكيد الإلغاء: ما بقي مدفوعاً (1,000) يبقى رصيداً، ولا جملة «رُدّ» لساقٍ من ساقين (payment_refunded = رُدّ كلّه، A3)',
-      );
+      // عيّنة القاعدة بعد قبض لاحق وإلغاءين (owner_after_collect_and_void): الحالة شريحةً لكلّ صفّ، والباقي الآن open.
+      const restore = wideScreen();
+      try {
+        const overview = clone(R.sales_overview.owner_after_collect_and_void);
+        fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
+        await mount('/sales');
+        const rows = listByNo();
+        t.same(
+          [rows['FD-2026-0004']?.[5], rows['FD-2026-0001']?.[5], rows['MD-2026-0001']?.[5], rows['MS-2026-0003']?.[5]],
+          ['جزء مدفوع', 'ملغاة', 'ملغاة', 'بلا مقابل'],
+          'D3/D7 الحالة في القائمة: ساق رُدّت من ساقين جزءٌ مدفوع، والملغاة «ملغاة» (وما حدث لمقبوضها في الفاتورة، D7)، والتسليم بلا مقابل',
+        );
+        t.same([rows['FD-2026-0002']?.[1], rows['FD-2026-0005']?.[1]], ['علف بادئ', 'علف التزامن'], 'D8 مادّة واحدة بسطرين: اسمها لا «ومادّة أخرى»');
+        const stats = all().filter((n) => n.localName === 'dt').map((n) => n.textContent);
+        t.ok(stats.includes('المدفوع عند البيع') && !stats.includes('منه نقداً'), 'D11 المدفوع عند البيع من كلّ الصناديق، لا «منه نقداً»');
+        t.eq(textOf('strip-paid'), '27,000', 'D11 المدفوع عند البيع من مجاميع الخادم (cash)');
+      } finally {
+        restore();
+      }
     });
 
     await step('A1 list open', async () => {
-      // صفّ محفوظ دفتره خارج نطاق المدير (can_void false من الخادم، كفحص V1 في القاعدة) والصفحة تسمح بالإلغاء عموماً.
       const overview = clone(R.sales_overview.owner_after_collect_and_void);
       overview.rows.find((r) => r.doc_no === 'FD-2026-0005').can_void = false;
       fresh(MANAGER, { sales_overview: () => clone(overview) }, pickers);
       await mount('/sales');
-      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
-      const heads = (tableOf(listCaption()) ? descendants(tableOf(listCaption())).filter((n) => n.localName === 'th').map((n) => n.textContent) : []);
-      t.same([heads.includes('الباقي الآن'), rows['MS-2026-0002']?.[6], rows['FD-2026-0004']?.[6], rows['FD-2026-0001']?.[6]], [true, '6,000', '2,000', '—'], 'A1 الباقي الآن بعد قبض لاحق (10,000 دين عند البيع ← 6,000)، والملغاة «—»');
-      t.ok(all().some((n) => n.localName === 'dt' && n.textContent === 'الباقي منه الآن') && all().some((n) => (n.textContent ?? '').includes('662,000')), 'A1 مجموع الباقي الآن من الخادم (662,000) لا الدين عند البيع (666,000)');
-      const voidIn = (no) => descendants(all().find((n) => n.localName === 'tr' && n.textContent.includes(no))).some((n) => n.getAttribute('data-action') === 'void-sale');
-      t.same([voidIn('MS-2026-0002'), voidIn('FD-2026-0005')], [true, false], 'V1 «ألغِ» لكلّ صفّ بعلم الخادم (can_void)، لا بعلم الصفحة وحده');
+      const heads = tableOf(listCaption()) ? descendants(tableOf(listCaption())).filter((n) => n.localName === 'th').map((n) => n.textContent) : [];
+      // بأعمدة الهاتف: [الزبون، الصافي، الباقي الآن، الحالة].
+      const rows = listByNo();
+      t.same([heads.includes('الباقي الآن'), rows['MS-2026-0002']?.[2], rows['FD-2026-0004']?.[2], rows['FD-2026-0001']?.[2]], [true, '6,000', '2,000', '—'], 'A1 الباقي الآن بعد قبض لاحق (10,000 دين عند البيع ← 6,000)، والملغاة «—»');
+      t.ok(all().some((n) => n.localName === 'dt' && n.textContent === 'الباقي الآن') && textOf('strip-open') === '662,000', 'A1 مجموع الباقي الآن من الخادم (662,000) لا الدين عند البيع (666,000)');
+      // V1: «ألغِ» خرج من الصفوف كلّها (تصميم المبيعات ٧)، وفي الفاتورة تحت «⋯» بعلم الخادم (can_void) لا بعلم الصفحة.
+      t.eq(byAction('void-sale').length, 0, 'V1 لا «ألغِ» في صفوف القائمة');
+    });
+
+    await step('V1 void on the invoice', async () => {
+      fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.owner_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.owner_multi.id}`);
+      t.eq(byAction('sale-more').length, 1, 'V1 «⋯» في الفاتورة بعلم الخادم (can_void true)');
+      await unmount();
+      fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.storekeeper_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.storekeeper_multi.id}`);
+      t.eq(byAction('sale-more').length, 0, 'V1 can_void false من القاعدة: لا «⋯» ولا «ألغِ» ولو سمح الدور');
     });
 
     await step('D8 owner list', async () => {
-      fresh(sessionOf('owner'), { sales_overview: () => clone(R.sales_overview.owner) }, pickers);
-      await mount('/sales');
-      const rows = Object.fromEntries(rowsOf(listCaption()).map((row) => [row[1], row]));
-      t.same([rows['FD-2026-0001']?.[3], rows['FD-2026-0002']?.[3]], ['علف بادئ ومادّة أخرى', 'علف بادئ'], 'D8 ثلاثة سطور لمادّتين «ومادّة أخرى»، وسطران لمادّة واحدة اسمها');
+      const restore = wideScreen();
+      try {
+        fresh(sessionOf('owner'), { sales_overview: () => clone(R.sales_overview.owner) }, pickers);
+        await mount('/sales');
+        const rows = listByNo();
+        t.same([rows['FD-2026-0001']?.[1], rows['FD-2026-0002']?.[1]], ['علف بادئ ومادّة أخرى', 'علف بادئ'], 'D8 ثلاثة سطور لمادّتين «ومادّة أخرى»، وسطران لمادّة واحدة اسمها');
+      } finally {
+        restore();
+      }
     });
 
-    // ── C: الفاتورة الجديدة ─────────────────────────────────────────────────────────────────────────────────────────
     await step('C2/C11a contract invoice', async () => {
       fresh(MANAGER, { ...OK, record_sale_v2: () => clone(F.record_sale_v2), sale_detail: () => clone(F.sale_detail) }, pickers);
       await mount('/sales/new');

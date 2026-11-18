@@ -313,8 +313,9 @@ export default async function (t) {
       const keys = (role, over = {}) => m.homeActions({ role, canSeeAccounts: true, ...over }).map((action) => action.key);
       // «بِع» بعد الشراء للمالك (كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع»).
       t.same(keys('owner').slice(0, m.HOME_ACTIONS_SHOWN), ['round_broiler', 'round_layer', 'purchase', 'sale'], 'D8: المالك: الجولة ثم الشراء ثم البيع');
-      t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['purchase', 'use', 'transfer', 'count'], 'D8: أمين المخزن: الشراء والصرف والنقل والجرد');
-      t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'payment', 'expense', 'purchase'], 'D8: المحاسب: الدفع والقبض والمصروف ثم الشراء');
+      // «بِع» ثاني أفعال الأمين والمحاسب (تصميم المبيعات ٨، كلمة المالك 2026-11-18): كان خامساً خلف «أعمال أخرى».
+      t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['purchase', 'sale', 'use', 'transfer'], 'D8: أمين المخزن: الشراء ثمّ «بِع» ثمّ الصرف والنقل');
+      t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'sale', 'payment', 'expense'], 'D8: المحاسب: الدفع ثمّ «بِع» ثمّ القبض والمصروف');
       t.same(m.homeActions(null).find((action) => action.key === 'purchase')?.to, '/inventory', 'D8: «سجّل شراء» يفتح بطاقات المواد (لا ورقة الاستلام)');
       t.same(keys('hall_worker', { divisions: ['broiler'] }), ['round_broiler'], 'D8: عامل القاعة: جولته بس');
       fresh({ status: 'ready', workspace: ws({ role: 'owner' }), offline: false }, {});
@@ -338,15 +339,17 @@ export default async function (t) {
       const items = (workspace) => m.bottomItems(workspace ? { status: 'ready', workspace, offline: false } : { status: 'loading' }).map((item) => [item.label, item.to]);
       t.same(items(ws({ role: 'owner' })), [['الرئيسية', '/'], ['الجولة', '/broiler/round'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المالك: الرئيسية والجولة والمخزن والحسابات');
       t.same(items(ws({ role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false })), [['الرئيسية', '/'], ['الجولة', '/layers/round']], 'D9: عامل قاعة البيض: جولته بس (وجولته تفتح البيض)');
-      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: أمين المخزن: المخزن بلا جولة');
-      t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المحاسب: المخزن والحسابات بلا جولة');
+      // «المبيعات» لمن يبيع حين يتّسع الشريط (تصميم المبيعات ٨): الأمين والمحاسب؛ ومن له جولة وحسابات (المالك) شريطه كما هو.
+      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: أمين المخزن: المخزن والمبيعات بلا جولة');
+      t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts'], ['المبيعات', '/sales']], 'D9: المحاسب: المخزن والحسابات والمبيعات بلا جولة');
+      t.same(items(ws({ role: 'storekeeper', divisions: ['general'], canSeeAccounts: false, canSeeSales: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: ضابط: بلا «المبيعات» حين لا يراها الخادم (can_see_sales)');
       // كلمة المالك 2026-11-04: بند «المخزن» واحد، فالشريط السفلي يأخذ بند الشريط كما هو (اسمه وأيقونته)، ولا ينتقي مخزن وحدة
       // بديلاً عنه: مشغّل المعمل كان يروح لـ/inventory/mill.
       t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخزن', '/inventory']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ تبويب المخزن (0015)');
       t.same(items(ws({ role: 'hatchery_operator', divisions: ['hatchery'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: مشغّل المفقس: تبويب المخزن (بدل «مخازن المفقس»)');
       t.same(items(ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false })).map(([, to]) => to), ['/', '/broiler/round'], 'D9: عامل القاعة: جولته بلا مخزن');
       t.same(items(ws({ role: 'owner' })).map(([, to]) => to).includes('/mill'), false, 'D9: من له جولة شريطه كما هو (الحدّ أربعة)');
-      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
+      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts'], ['المبيعات', '/sales']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
       t.ok([ws({ role: 'owner' }), ws({ role: 'hall_worker', divisions: ['broiler'] }), ws({ role: 'viewer' }), ws({ role: 'accountant' })].every((w) => items(w).length <= 4), 'D9: الرئيسية ويّا ثلاثة بالأكثر لكل دور (و«القائمة» بعدهم)');
       t.eq(items(null).length, 4, 'D9: بلا منشأة مؤكّدة الهيكل كلّه بحدّ أقصى أربعة');
       let menu = 0;

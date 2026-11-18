@@ -1,51 +1,62 @@
-import { Plus } from 'lucide-react';
+import { Plus, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { DayField } from '../../components/ui/DayField';
-import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { StatStrip, type Stat } from '../../components/ui/StatStrip';
-import { localDay } from '../../domain/dates';
+import { addDays, isDay, localDay, type Day } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
-import { toWesternDigits } from '../../domain/normalize';
+import { searchable, toWesternDigits } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
-import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtInt, fmtMoney, fmtQtyCell } from '../../lib/format';
+import { columnDecimals, countForm, fmtDay, fmtInt, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as birdSales from '../../lib/repo/birdSales';
 import type { AwaitingTicket, BirdGroupRow, BirdSaleRow, BirdSalesGroups, BirdSalesSection, SalesReportWithBirds, SalesWithBirds } from '../../lib/repo/birdSales';
-import * as purchases from '../../lib/repo/purchases';
 import type { SaleCost, SaleRow, SalesGroup, SalesOverview, SalesReport, SalesReportRow } from '../../lib/repo/purchases';
+import { readSalePending, salePendingKey } from '../../lib/repo/sales';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { baseQty } from '../inventory/simple-shared';
 import { birdSalePath, dinarsText, kgDecimals, kgText, newBirdSalePath, paidLabel, ticketPagePath } from './birdParts';
-import { readSalePending, salePendingKey } from '../../lib/repo/sales';
+import { rowTone, StatusChip, useWide } from './docKit';
 import { sentText } from './SaleCheckout';
-import { dinars, linesText, newSalePath } from './saleParts';
+import { linesText, newSalePath } from './saleParts';
 
-// صفحة المبيعات (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع… واكدر اسجل مبيعاتي لمنو وتطلعلي هاي السوالف بالتقارير»):
-// «بيع جديد» (المادّة ثمّ نافذة «بِع» نفسها)، وفواتير المدّة بجدول ومجاميعها من الخادم، والتقرير حسب الجهة أو المادّة أو اليوم (الكلفة والربح لأدوار
-// الكلفة وحدها: cost.money يغيب لغيرها). و«ألغِ» لكلّ فاتورة لمن يلغي بسبب، والمقبوض نقداً يبقى رصيداً للجهة (FOUNDATION ٥٨٣).
+// صفحة المبيعات (0021، كلمة المالك 2026-11-08: «ماكو زر يوديني للمبيعات حتى ابيع… واكدر اسجل مبيعاتي لمنو وتطلعلي هاي السوالف بالتقارير»)، ثمّ تصميم
+// المبيعات ٧ (كلمة المالك 2026-11-18: «شكل متطور سهل الاستخدام»؛ التدقيق: الجدول 1,107 بكسل في 358 فالمال خارج الشاشة، وأوّل شاشة كلّها حقول وأرقام):
+// شرائح المدّة (اليوم · الأسبوع · الشهر · مدّة…) فوق شريط أرقامها من الخادم (البيع، والمدفوع عند البيع، والباقي الآن)، ثمّ بحث بالزبون أو الرقم وشرائح
+// (الكلّ · عليها باقٍ · ملغاة)، والجدول بأعمدة الهاتف: الزبون (وتحته الرقم واليوم) | الصافي | الباقي الآن | الحالة شريحةً بنصّ؛ والصفّ كلّه يفتح الفاتورة،
+// ولا «ألغِ» في الصفّ (في الفاتورة تحت «⋯»). و«بيع جديد» زرّ ثابت، و«حسب الزبون» يفتح فواتير الزبون، و«حسب اليوم» فواتير يومه. والمدّة والبحث والتصفية
+// في الرابط: «رجوع» من الفاتورة يعود إلى القائمة كما تُركت.
 // في حزمة المخزون (StockRoutes) خارج التثبيت المسبق: البيع يسحب من الوجبات ويُحفظ بالخادم فوراً.
 // وفواتير الطيور BR (0028، العقد §6 و§10 الوكيل ب): مفتاح birds من النداءين نفسيهما (sales_overview وsales_report، repo/birdSales) — «تذاكر وزن بانتظار
 // الفاتورة» بـ«أصدر الفاتورة» لمن يصدرها، وجدول فواتير الطيور بمجاميع المرحَّل من الخادم، وفي التقرير مجموعات الطيور بالتجميع نفسه (بالمادّة: «دجاج لحم
 // حيّ»). بلا كلفة ولا ربح للطيور (الربح للفوج في تقرير الدورة)، وخادم قبل 0028 بلا المفتاح فلا قسم.
-// والفاتورة الاحترافيّة (عقد 0033 «ب»): «بيع جديد» يفتح /sales/new (والرئيسية ?new=1 تُحوَّل إليها)، والجدول لكلّ فاتورة بموادّها (الأولى وعدد الباقي)
-// وصافيها ومدفوعها ودينها و«زبون نقديّ»، وفواتير 0021 ذات السطر الواحد كما هي.
 
 type View = 'list' | SalesGroup;
+type Period = 'today' | 'week' | 'month' | 'range';
+type Show = 'all' | 'open' | 'void';
+const VIEWS: readonly View[] = ['list', 'party', 'item', 'day'];
+const PERIODS: readonly Period[] = ['today', 'week', 'month', 'range'];
+const SHOWS: readonly Show[] = ['all', 'open', 'void'];
+const pick = <T extends string>(value: string | null, allowed: readonly T[], fallback: T): T => (value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback);
 
 /** أوّل الشهر: المدّة الافتراضية من أوّل الشهر إلى اليوم. */
 const monthStart = (day: string): string => `${day.slice(0, 8)}01`;
+
+/** المدّة بشريحتها من يوم الخادم: اليوم، وآخر سبعة أيّام، ومن أوّل الشهر؛ و«مدّة…» من الرابط. */
+function periodDays(period: Exclude<Period, 'range'>, today: Day): { from: Day; to: Day } {
+  if (period === 'today') return { from: today, to: today };
+  if (period === 'week') return { from: addDays(today, -6), to: today };
+  return { from: monthStart(today), to: today };
+}
 
 /** آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (مدّة أخرى أو بعد بيع). */
 function useKept<T>(state: LoadState<T | null>): T | null {
@@ -55,6 +66,16 @@ function useKept<T>(state: LoadState<T | null>): T | null {
 }
 
 const money0 = (amount: Fils) => <Num>{fmtMoney(amount, 0)}</Num>;
+
+/** «فاتورة واحدة»، «فاتورتان»، «3 فواتير»، «11 فاتورةً»، «100 فاتورة». */
+export function invoicesText(n: number): string {
+  if (n === 1) return t('saleslist.count.one', 'فاتورة واحدة');
+  if (n === 2) return t('saleslist.count.two', 'فاتورتان');
+  const form = countForm(n);
+  if (form === 'few') return t('saleslist.count.few', '{n} فواتير', { n: fmtInt(n) });
+  if (form === 'many') return t('saleslist.count.many', '{n} فاتورةً', { n: fmtInt(n) });
+  return t('saleslist.count.hundreds', '{n} فاتورة', { n: fmtInt(n) });
+}
 
 function costColumns<R>(costs: boolean, of: (row: R) => SaleCost | null, total: SaleCost | null): Column<R>[] {
   if (!costs) return [];
@@ -86,114 +107,105 @@ export function itemsText(row: Pick<SaleRow, 'itemName' | 'lineCount' | 'itemCou
   return t('invoice.items.more', '{item} و{rest} أخرى', { item: row.itemName, rest: linesText(rest) });
 }
 
-/**
- * الدفع بكلماته في صفّ الفاتورة: بلا مقابل، أو رُدّ المقبوض كلّه، أو زبون نقديّ، أو مدفوعة كلّها، أو بالدين، أو جزء مدفوع؛ وللملغاة ما حدث لمقبوضها
- * (مراجعة 0033 D7). payment_refunded = رُدّت كلّ السيقان (A3)، و«سُدّد دينها» حين صار الباقي صفراً بقبض بعد البيع (A1).
- */
-export function rowPaymentText(row: SaleRow): string {
-  const paid = row.money?.paid ?? null;
-  if (row.status === 'void') {
-    if (paid !== null && paid > 0n) return t('invoice.pay.void_kept', 'ملغاة، والمقبوض باقٍ رصيداً للجهة');
-    if (row.paymentRefunded) return t('invoice.pay.void_refunded', 'ملغاة، ورُدّ المقبوض');
-    return t('invoice.pay.void', 'ملغاة');
-  }
-  if (row.free) return t('sales.free', 'بلا مقابل');
-  if (row.paymentRefunded && (paid === null || paid === 0n)) return t('sales.refunded', 'نقداً، ثمّ رُدّ المبلغ');
-  if (row.walkIn) return t('invoice.walk_in', 'زبون نقديّ');
-  if (row.money) {
-    if (row.money.debt === 0n) return t('invoice.pay.paid', 'مدفوعة كلّها');
-    if (row.money.open === 0n) return t('invoice.pay.settled', 'سُدّد دينها بعد البيع');
-    if (row.money.paid === 0n) return t('file.payment.credit', 'بالدين');
-    return t('invoice.pay.partial', 'جزء مدفوع، والباقي دين');
-  }
-  return row.payment === 'cash' ? t('file.payment.cash', 'نقداً') : row.payment === 'credit' ? t('file.payment.credit', 'بالدين') : t('invoice.pay.partial', 'جزء مدفوع، والباقي دين');
+/** طريق الفاتورة من القائمة، ورجوعها إلى القائمة كما هي (المدّة والبحث والتصفية في الرابط). */
+function salePath(id: string, listSearch: string): string {
+  if (listSearch === '') return `/sales/${id}`;
+  return `/sales/${id}?${new URLSearchParams({ back: `/sales${listSearch}` }).toString()}`;
 }
 
-function SalesList({ data, onVoid }: { data: SalesOverview; onVoid: (row: SaleRow) => void }) {
+/**
+ * فواتير المدّة: بالهاتف الزبون (وتحته الرقم واليوم صغيرين) | الصافي | الباقي الآن | الحالة، فالمال في الشاشة بلا تمرير جانبي؛ وفي الشاشة العريضة الموادّ
+ * والمدفوع أيضاً. الصفّ كلّه يفتح الفاتورة (والاسم رابطها للوحة المفاتيح). والمجاميع من الخادم ما دامت القائمة كاملة (بلا بحث ولا تصفية)، وإلّا عدد ما يظهر.
+ */
+function SalesList({ data, rows, filtered, wide, listSearch, empty }: { data: SalesOverview; rows: readonly SaleRow[]; filtered: boolean; wide: boolean; listSearch: string; empty: string }) {
+  const navigate = useNavigate();
   const money = data.rows.every((row) => row.money !== null) && data.totals.money !== null;
+  const totals = money && !filtered ? data.totals.money : null;
   // الملغى خارج المجموع (مجموع المحفوظ من الخادم)، فخانات مبالغه «—» وحالته تقول إنّه ملغى (مراجعة 0021 M1).
   const shownMoney = (row: SaleRow) => (row.status === 'void' ? null : row.money);
   const dash = <Num>{t('file.none', '—')}</Num>;
   const columns: Column<SaleRow>[] = [
-    { key: 'day', header: t('ledger.date', 'التاريخ'), sticky: true, cell: (row) => fmtDay(row.soldOn) },
-    // الرقم يفتح فاتورة البيع للقراءة (/sales/:id، عقد 0024 F8).
     {
-      key: 'no',
-      header: t('sales.col.no', 'الرقم'),
+      key: 'party',
+      header: t('saleslist.col.customer', 'الزبون'),
+      wrap: true,
       cell: (row) => (
-        <Link to={`/sales/${row.id}`} className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="open-sale">
-          <bdi dir="ltr">{row.docNo}</bdi>
-        </Link>
+        <span className="sale-row">
+          <Link to={salePath(row.id, listSearch)} className="sale-row-name" data-action="open-sale">
+            {row.walkIn ? <span data-action="sale-walk-in">{t('invoice.walk_in', 'زبون نقديّ')}</span> : row.partyName}
+          </Link>
+          <span className="sale-row-sub">
+            {/* الحالة هنا حين يضيق الجدول فيختفي عمودها (doc.css). */}
+            <StatusChip tone={rowTone(row)} action="sale-status-inline" className="sale-row-chip" />
+            <bdi dir="ltr">{row.docNo}</bdi>
+            <Num>{fmtDay(row.soldOn)}</Num>
+          </span>
+        </span>
       ),
     },
-    { key: 'party', header: t('sales.col.party', 'الجهة'), wrap: true, cell: (row) => (row.walkIn ? <span data-action="sale-walk-in">{t('invoice.walk_in', 'زبون نقديّ')}</span> : row.partyName) },
-    { key: 'item', header: t('invoice.col.items', 'الموادّ'), wrap: true, cell: (row) => itemsText(row) },
   ];
+  if (wide) columns.push({ key: 'item', header: t('invoice.col.items', 'الموادّ'), wrap: true, cell: (row) => itemsText(row) });
   if (money) {
-    columns.push(
-      {
-        key: 'amount',
-        header: t('invoice.col.net', 'الصافي'),
-        kind: 'number',
-        cell: (row) => { const m = shownMoney(row); return m ? money0(m.lineTotal) : dash; },
-        ...(data.totals.money ? { total: money0(data.totals.money.revenue) } : {}),
-      },
-      {
+    columns.push({
+      key: 'amount',
+      header: t('invoice.col.net', 'الصافي'),
+      kind: 'number',
+      cell: (row) => { const m = shownMoney(row); return m ? money0(m.lineTotal) : dash; },
+      ...(totals ? { total: money0(totals.revenue) } : {}),
+    });
+    if (wide) {
+      columns.push({
         key: 'paid',
-        header: t('invoice.totals.paid', 'المدفوع'),
+        header: t('saleslist.col.paid', 'المدفوع عند البيع'),
         kind: 'number',
         cell: (row) => { const m = shownMoney(row); return m ? money0(m.paid) : dash; },
-        ...(data.totals.money ? { total: money0(data.totals.money.cash) } : {}),
-      },
-      {
-        // الباقي على الفاتورة الآن (open): ما قُبض بعد البيع يُنقصه، لا الدين عند البيع (مراجعة 0033 A1).
-        key: 'debt',
-        header: t('sales.col.open', 'الباقي الآن'),
-        kind: 'number',
-        cell: (row) => { const m = shownMoney(row); return m ? money0(m.open) : dash; },
-        ...(data.totals.money ? { total: money0(data.totals.money.open ?? data.totals.money.credit) } : {}),
-      },
-    );
+        ...(totals ? { total: money0(totals.cash) } : {}),
+      });
+    }
+    columns.push({
+      // الباقي على الفاتورة الآن (open): ما قُبض بعد البيع يُنقصه، لا الدين عند البيع (مراجعة 0033 A1).
+      key: 'open',
+      header: t('sales.col.open', 'الباقي الآن'),
+      kind: 'number',
+      cell: (row) => { const m = shownMoney(row); return m ? money0(m.open) : dash; },
+      ...(totals ? { total: money0(totals.open ?? totals.credit) } : {}),
+    });
   }
-  columns.push({
-    key: 'payment',
-    header: t('sales.col.payment', 'الدفع'),
-    // نقداً ثمّ رُدّ المبلغ (ألغِ القبض): الخادم يقرؤه بالدين، والجدول يقول ما حدث.
-    cell: (row) => rowPaymentText(row),
-  });
-  columns.push({
-    key: 'status',
-    header: t('sales.col.status', 'الحالة'),
-    cell: (row) =>
-      row.status === 'void' ? (
-        <span className="text-ink-muted" data-action="sale-voided">
-          {t('sales.voided', 'ملغى')}
-        </span>
-      ) : (row.canVoid ?? data.canVoid) ? (
-        <Button size="sm" variant="ghost" onClick={() => onVoid(row)} data-action="void-sale">
-          {t('sales.void', 'ألغِ')}
-        </Button>
-      ) : (
-        t('sales.posted', 'محفوظ')
-      ),
-  });
+  columns.push({ key: 'status', header: t('sales.col.status', 'الحالة'), cell: (row) => <StatusChip tone={rowTone(row)} /> });
   return (
-    <DataTable
-      caption={t('sales.caption', 'فواتير البيع من {from} إلى {to}، الأحدث أوّلاً', { from: fmtDay(data.from), to: fmtDay(data.to) })}
-      columns={columns}
-      rows={data.rows}
-      rowKey={(row) => row.id}
-      empty={t('sales.empty', 'لا بيع في هذه المدّة.')}
-      {...(money && data.rows.length ? { totalLabel: t('sales.total', 'مجموع المحفوظ') } : {})}
-    />
+    <div className="sale-table sale-list" data-action="sales-table">
+      <DataTable
+        caption={t('sales.caption', 'فواتير البيع من {from} إلى {to}، الأحدث أوّلاً', { from: fmtDay(data.from), to: fmtDay(data.to) })}
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        empty={empty}
+        onRowClick={(row) => navigate(salePath(row.id, listSearch))}
+        {...(totals && rows.length ? { totalLabel: t('sales.total', 'مجموع المحفوظ') } : {})}
+      />
+    </div>
   );
 }
 
-function ReportTable({ data, costs }: { data: SalesReport; costs: boolean }) {
-  const label = data.group === 'party' ? t('sales.col.party', 'الجهة') : data.group === 'item' ? t('sales.col.item', 'المادّة') : t('ledger.date', 'التاريخ');
+/** تقرير المبيعات بالتجميع؛ «حسب الزبون» و«حسب اليوم» صفّهما يفتح فواتيره (onOpen). */
+function ReportTable({ data, costs, onOpen }: { data: SalesReport; costs: boolean; onOpen: ((row: SalesReportRow) => void) | null }) {
+  const label = data.group === 'party' ? t('saleslist.col.customer', 'الزبون') : data.group === 'item' ? t('sales.col.item', 'المادّة') : t('ledger.date', 'التاريخ');
   const money = data.totals.revenue !== null;
   const columns: Column<SalesReportRow>[] = [
-    { key: 'label', header: label, sticky: true, wrap: true, cell: (row) => row.label },
+    {
+      key: 'label',
+      header: label,
+      sticky: true,
+      wrap: true,
+      cell: (row) =>
+        onOpen ? (
+          <button type="button" className="sale-report-open" onClick={() => onOpen(row)} data-action="report-open">
+            {row.label}
+          </button>
+        ) : (
+          row.label
+        ),
+    },
     { key: 'count', header: t('sales.col.count', 'عدد الفواتير'), kind: 'number', cell: (row) => <Num>{fmtInt(row.count)}</Num>, total: <Num>{fmtInt(data.totals.count)}</Num> },
   ];
   if (data.group === 'item') columns.push(...qtyColumns(data.rows, (row) => (row.qty !== null && row.baseUnit !== null ? { qty: row.qty, unit: row.baseUnit } : null)));
@@ -202,14 +214,17 @@ function ReportTable({ data, costs }: { data: SalesReport; costs: boolean }) {
   }
   columns.push(...costColumns<SalesReportRow>(costs && data.totals.cost !== null, (row) => row.cost, data.totals.cost));
   return (
-    <DataTable
-      caption={t('sales.report.caption', 'تقرير المبيعات حسب {group}', { group: label })}
-      columns={columns}
-      rows={data.rows}
-      rowKey={(row) => row.key}
-      empty={t('sales.empty', 'لا بيع في هذه المدّة.')}
-      {...(data.rows.length ? { totalLabel: t('sales.report.total', 'المجموع') } : {})}
-    />
+    <div className="sale-table" data-action="sales-report">
+      <DataTable
+        caption={t('sales.report.caption', 'تقرير المبيعات حسب {group}', { group: label })}
+        columns={columns}
+        rows={data.rows}
+        rowKey={(row) => row.key}
+        empty={t('sales.empty', 'لا بيع في هذه المدّة.')}
+        {...(onOpen ? { onRowClick: onOpen } : {})}
+        {...(data.rows.length ? { totalLabel: t('sales.report.total', 'المجموع') } : {})}
+      />
+    </div>
   );
 }
 
@@ -401,118 +416,70 @@ function BirdGroupsTable({ data, group }: { data: BirdSalesGroups; group: SalesG
   );
 }
 
-function overviewStats(data: SalesOverview): Stat[] {
-  const stats: Stat[] = [{ key: 'count', label: t('sales.stat.count', 'فواتير محفوظة'), value: fmtInt(data.totals.count) }];
-  if (data.totals.money) {
-    stats.push(
-      { key: 'revenue', label: t('sales.stat.revenue', 'مجموع البيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.revenue, 0) }) },
-      // المدفوع عند البيع من كلّ الصناديق (النقد والمصرف والمحفظة)، لا النقد وحده (مراجعة 0033 D11).
-      { key: 'cash', label: t('sales.stat.paid_at_sale', 'منه مدفوع عند البيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.cash, 0) }) },
-      { key: 'credit', label: t('sales.stat.credit', 'منه بالدين'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.credit, 0) }) },
-    );
-    if (data.totals.money.open !== null) {
-      stats.push({ key: 'open', label: t('sales.stat.open', 'الباقي منه الآن'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.money.open, 0) }) });
-    }
-  }
-  if (data.totals.cost) {
-    stats.push(
-      { key: 'cost', label: t('sales.stat.cost', 'كلفة المبيع'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.cost.cost, 0) }) },
-      { key: 'profit', label: t('sales.stat.profit', 'الربح'), value: t('sales.dinar', '{amount} دينار', { amount: fmtMoney(data.totals.cost.profit, 0) }) },
-    );
-  }
-  return stats;
+/** اسم المدّة فوق أرقامها. */
+function periodName(period: Period, from: Day, to: Day): string {
+  if (period === 'today') return t('saleslist.period.today_name', 'اليوم');
+  if (period === 'week') return t('saleslist.period.week_name', 'آخر سبعة أيّام');
+  if (period === 'month') return t('saleslist.period.month_name', 'هذا الشهر');
+  return from === to ? fmtDay(from) : t('saleslist.period.range_name', 'من {from} إلى {to}', { from: fmtDay(from), to: fmtDay(to) });
 }
 
-/** «ألغِ» البيع بسبب إلزاميّ: البضاعة ترجع لوجباتها ويُعكس قيد الفاتورة، والمقبوض نقداً يبقى رصيداً للجهة. */
-function VoidSaleDialog({ row, onCancel, onDone }: { row: SaleRow; onCancel: () => void; onDone: (text: string) => void }) {
-  const id = useId();
-  const [clientRef, setClientRef] = useState(() => crypto.randomUUID());
-  const [reason, setReason] = useState('');
-  // السبب المرسَل بعد نتيجة مجهولة: الإعادة به وبالمرجع نفسه (سبب آخر بالمرجع نفسه ref_reused)، والحقل مقفول حتى يُعرف.
-  const [sent, setSent] = useState<string | null>(null);
-  const [tried, setTried] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<unknown>(null);
-  const missing = (sent ?? reason).trim() === '' ? t('sales.void.reason_required', 'اكتب سبب الإلغاء.') : null;
-  const failed = failure ? (failure instanceof RejectedError && failure.hint ? failure.hint : `${describeError(failure).title}. ${describeError(failure).detail}`) : null;
-  // ما بقي مدفوعاً (السيقان التي لم تُردّ: money.paid)، ولو رُدّت ساق أخرى (مراجعة 0033 D3).
-  const paid = row.money && row.money.paid > 0n && !row.free ? row.money.paid : null;
-  const goods =
-    row.lineCount <= 1 && row.qty !== null && row.baseUnit !== null
-      ? t('sales.void.goods_one', '{qty} من «{item}»', { qty: baseQty(row.qty, row.baseUnit), item: row.itemName })
-      : row.itemCount <= 1
-        ? t('sales.void.goods_item', 'كمّيات «{item}» في الفاتورة', { item: row.itemName })
-        : t('sales.void.goods_many', 'موادّ الفاتورة ({lines})', { lines: linesText(row.itemCount) });
+/**
+ * شريط أرقام المدّة من مجاميع الخادم (لا من الصفوف المحمّلة): البيع، والمدفوع عند البيع من كلّ الصناديق (مراجعة 0033 D11)، والباقي الآن (open، A1)؛
+ * والكلفة والربح لأدوار الكلفة. يتبع المدّة المختارة لا البحث (البحث في الجدول وحده).
+ */
+function SalesStrip({ data, period }: { data: SalesOverview; period: Period }) {
+  const money = data.totals.money;
+  const cost = data.totals.cost;
   return (
-    <ConfirmDialog
-      open
-      title={t('sales.void.title', 'إلغاء البيع {no}؟', { no: row.docNo })}
-      consequence={
-        <div className="flex flex-col gap-3">
-          <p>
-            {row.free
-              ? t('sales.void.body_free_goods', 'ترجع {goods} إلى مخزنها (تسليم بلا مقابل لـ«{party}»: لا قيد عليه).', { goods, party: row.partyName })
-              : row.walkIn
-                ? t('sales.void.body_walk_in', 'ترجع {goods} إلى مخزنها، ويُعكس قيد الفاتورة على الزبون النقديّ.', { goods })
-                : t('sales.void.body_goods', 'ترجع {goods} إلى مخزنها، ويُعكس قيد الفاتورة على «{party}».', { goods, party: row.partyName })}
-          </p>
-          {sent !== null ? (
-            <p className="text-sm" data-action="void-sale-unknown">
-              {t('sales.void.unknown', 'لم يُعرف إن أُلغي؛ «ألغِ البيع» يعيده بالسبب نفسه، ولن يُلغى مرّتين.')}
-            </p>
-          ) : null}
-          {row.paymentRefunded ? (
-            <p data-action="void-refunded">
-              {t('sales.void.refunded', 'ومبلغها المقبوض رُدّ لـ«{party}» من قبل، فلا يبقى منه رصيد.', { party: row.partyName })}
-            </p>
-          ) : null}
-          {paid !== null && row.walkIn ? (
-            <p data-action="void-walk-in">
-              {t('sales.void.walk_in_cash', 'وما قُبض من الزبون النقديّ ({total}) يُردّ من صناديقه، فلا يبقى له رصيد.', { total: dinars(paid) })}
-            </p>
-          ) : paid !== null ? (
-            <p data-action="void-cash-kept">
-              {t('sales.void.cash_kept', 'والمبلغ المقبوض ({total} دينار) يبقى رصيداً لـ«{party}»: يُرجَع له من كشفه بـ«ألغِ القبض»، أو يُخصم من فاتورة لاحقة.', { total: fmtMoney(paid, 0), party: row.partyName })}
-            </p>
-          ) : null}
-          <Field id={`${id}-reason`} label={t('sales.void.reason', 'سبب الإلغاء')} error={tried ? (missing ?? failed) : failed}>
-            <input id={`${id}-reason`} className="input" maxLength={500} value={sent ?? reason} disabled={busy || sent !== null} onChange={(event) => setReason(event.target.value)} data-action="void-sale-reason" />
-          </Field>
-        </div>
-      }
-      confirmLabel={t('sales.void.confirm', 'ألغِ البيع')}
-      busy={busy}
-      action="confirm-void-sale"
-      onCancel={onCancel}
-      onConfirm={() => {
-        setTried(true);
-        if (missing) return;
-        const text = (sent ?? reason).trim();
-        setBusy(true);
-        setFailure(null);
-        purchases.voidSale(clientRef, row.id, text).then(
-          (voided) => {
-            const kept =
-              voided.paymentKept !== null && voided.paymentKept > 0n
-                ? row.walkIn
-                  ? t('sales.void.done_kept_walk_in', ' والمقبوض {total} دينار باقٍ رصيداً في حساب الزبون النقديّ.', { total: fmtMoney(voided.paymentKept, 0) })
-                  : t('sales.void.done_kept', ' والمقبوض {total} دينار باقٍ رصيداً لـ«{party}».', { total: fmtMoney(voided.paymentKept, 0), party: row.partyName })
-                : '';
-            onDone(`${t('sales.void.done', 'أُلغي البيع {no}.', { no: voided.docNo })}${kept}`);
-          },
-          (caught: unknown) => {
-            setBusy(false);
-            setFailure(caught);
-            // نتيجة مجهولة (أو إعادة لها لم تُرفض رفضاً أكيداً): السبب والمرجع يتجمّدان؛ والرفض الأكيد يفكّهما بمرجع جديد للمحاولة التالية.
-            if (caught instanceof UnknownOutcomeError || (sent !== null && !(caught instanceof RejectedError))) setSent(text);
-            else {
-              setSent(null);
-              setClientRef(crypto.randomUUID());
-            }
-          },
-        );
-      }}
-    />
+    <section className="card sale-strip" data-action="sales-strip">
+      <p className="sale-strip-head">
+        <span className="sale-strip-name">{periodName(period, data.from, data.to)}</span>
+        <span>{invoicesText(data.totals.count)}</span>
+      </p>
+      {money ? (
+        <dl className="sale-strip-grid">
+          <div>
+            <dt>{t('saleslist.stat.sold', 'البيع')}</dt>
+            <dd data-action="strip-sold">{money0(money.revenue)}</dd>
+          </div>
+          <div>
+            <dt>{t('saleslist.stat.paid', 'المدفوع عند البيع')}</dt>
+            <dd data-action="strip-paid">{money0(money.cash)}</dd>
+          </div>
+          <div data-part="open" data-zero={(money.open ?? money.credit) === 0n ? '' : undefined}>
+            <dt>{t('sales.col.open', 'الباقي الآن')}</dt>
+            <dd data-action="strip-open">{money0(money.open ?? money.credit)}</dd>
+          </div>
+        </dl>
+      ) : null}
+      {cost ? (
+        <dl className="sale-strip-cost">
+          <div>
+            <dt>{t('sales.stat.cost', 'كلفة المبيع')}</dt>
+            <dd>{money0(cost.cost)}</dd>
+          </div>
+          <div>
+            <dt>{t('sales.stat.profit', 'الربح')}</dt>
+            <dd>{money0(cost.profit)}</dd>
+          </div>
+        </dl>
+      ) : null}
+      {money ? <p className="sale-strip-unit">{t('saleslist.unit', 'المبالغ بالدينار')}</p> : null}
+    </section>
+  );
+}
+
+/** شرائح اختيار واحد (المدّة أو التصفية): أزرار بـaria-pressed وارتفاع الإصبع. */
+function Pills<T extends string>({ label, options, value, onChange, action }: { label: string; options: readonly { value: T; label: string }[]; value: T; onChange: (value: T) => void; action: string }) {
+  return (
+    <div role="group" aria-label={label} className="sale-pills" data-action={action}>
+      {options.map((option) => (
+        <button key={option.value} type="button" className="sale-pill" aria-pressed={option.value === value} onClick={() => onChange(option.value)} data-action={`${action}-${option.value}`}>
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -520,33 +487,46 @@ export default function SalesPage() {
   const id = useId();
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
-  const [search] = useSearchParams();
+  const [search, setSearch] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const [saved, setSaved] = useState<string | null>(null);
-  const [voiding, setVoiding] = useState<SaleRow | null>(null);
-  // المدّة الافتراضية من يوم الخادم حين يُعرف (لا ساعة الجهاز)؛ وما يكتبه المستخدم يبقى كما كتبه.
+  const wide = useWide();
+  // المدّة الافتراضية من يوم الخادم حين يُعرف (لا ساعة الجهاز).
   const [serverToday, setServerToday] = useState<string | null>(null);
   const today = serverToday ?? localDay();
+  const view = pick<View>(search.get('view'), VIEWS, 'list');
+  const period = pick<Period>(search.get('p'), PERIODS, 'month');
+  const show = pick<Show>(search.get('f'), SHOWS, 'all');
+  // البحث يُكتب في حالة الصفحة (فورياً، فلا يتأخّر الحرف خلف انتقال الموجّه) ويُنسخ إلى الرابط لـ«رجوع» من الفاتورة.
+  const [query, setQuery] = useState(() => search.get('q') ?? '');
+  const party = search.get('party');
+  const partyName = search.get('pn');
+  const urlFrom = search.get('from');
+  const urlTo = search.get('to');
+  const fixed = period === 'range' ? null : periodDays(period, today);
+  // «مدّة…»: ما يكتبه المستخدم يبقى كما كتبه، والرابط يحمل آخر مدّة صحيحة.
   const [fromEdit, setFromEdit] = useState<string | null>(null);
   const [toEdit, setToEdit] = useState<string | null>(null);
-  const fromText = fromEdit ?? fmtDay(monthStart(today));
-  const toText = toEdit ?? fmtDay(today);
-  const [view, setView] = useState<View>('list');
-  const [round, setRound] = useState(0);
-  const from = parseDayText(fromText);
-  const to = parseDayText(toText);
-  const periodError = !from || !to ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : from > to ? t('sales.period.order', '«إلى» قبل «من»؛ صحّح المدّة.') : null;
-  const ready = !periodError && from !== null && to !== null;
+  const rangeFrom = urlFrom !== null && isDay(urlFrom) ? urlFrom : monthStart(today);
+  const rangeTo = urlTo !== null && isDay(urlTo) ? urlTo : today;
+  const fromText = fromEdit ?? fmtDay(rangeFrom);
+  const toText = toEdit ?? fmtDay(rangeTo);
+  const typedFrom = parseDayText(fromText);
+  const typedTo = parseDayText(toText);
+  const periodError =
+    period !== 'range' ? null : !typedFrom || !typedTo ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : typedFrom > typedTo ? t('sales.period.order', '«إلى» قبل «من»؛ صحّح المدّة.') : null;
+  const from = fixed ? fixed.from : periodError ? null : typedFrom;
+  const to = fixed ? fixed.to : periodError ? null : typedTo;
+  const ready = from !== null && to !== null;
   const loadList = useCallback((): Promise<SalesWithBirds | null> => (ready && view === 'list' ? birdSales.loadSales(from, to) : Promise.resolve(null)), [ready, view, from, to]);
-  const list = useLoad(loadList, `${from}|${to}|${view}|${round}`);
+  const list = useLoad(loadList, `${from}|${to}|${view}`);
   const loadReport = useCallback((): Promise<SalesReportWithBirds | null> => (ready && view !== 'list' ? birdSales.loadSalesReport(from, to, view) : Promise.resolve(null)), [ready, view, from, to]);
-  const report = useLoad(loadReport, `${from}|${to}|${view}|${round}`);
+  const report = useLoad(loadReport, `${from}|${to}|${view}`);
   const shownList = useKept(list);
   if (shownList && shownList.today !== serverToday) setServerToday(shownList.today);
   const shownReport = useKept(report);
   const costs = Boolean(workspace?.canSeeCost);
   const canSell = workspace ? can(workspace.role, 'sale.record') : false;
-  const refresh = () => setRound((n) => n + 1);
   const failure = view === 'list' ? list.error : report.error;
   const retry = view === 'list' ? list.retry : report.retry;
   // «بِع» من رابط قديم (?new=1، الرئيسية قبل 0033) يفتح الفاتورة الجديدة. بالانتقال لا بـ<Navigate>: ذاك يُدخل مكوّناً من react-router حزمة الإقلاع
@@ -557,21 +537,71 @@ export default function SalesPage() {
   useEffect(() => {
     if (legacyNew) navigate(newSalePath(), { replace: true });
   }, [legacyNew, navigate]);
+
+  /** يغيّر مفاتيح الرابط (null يحذف) بلا خطوة في التاريخ: المدّة والبحث حالة القائمة لا صفحة جديدة. */
+  const patch = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(search);
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === '') next.delete(key);
+      else next.set(key, value);
+    }
+    setSearch(next, { replace: true });
+  };
+  const choosePeriod = (next: Period) => {
+    if (next === 'range') {
+      // «مدّة…» تبدأ بالمدّة المعروضة الآن، فتُعدَّل ولا تُكتب من الصفر.
+      const start = fixed ?? { from: rangeFrom, to: rangeTo };
+      setFromEdit(null);
+      setToEdit(null);
+      patch({ p: 'range', from: start.from, to: start.to });
+      return;
+    }
+    patch({ p: next === 'month' ? null : next, from: null, to: null });
+  };
+  const typeRange = (side: 'from' | 'to', text: string) => {
+    const clean = toWesternDigits(text);
+    if (side === 'from') setFromEdit(clean);
+    else setToEdit(clean);
+    const nextFrom = side === 'from' ? parseDayText(clean) : typedFrom;
+    const nextTo = side === 'to' ? parseDayText(clean) : typedTo;
+    if (nextFrom && nextTo && nextFrom <= nextTo) patch({ from: nextFrom, to: nextTo });
+  };
+  const openReportRow = (row: SalesReportRow) => {
+    if (view === 'party') {
+      setQuery('');
+      patch({ view: null, party: row.key, pn: row.label, q: null, f: null });
+    }
+    else if (view === 'day' && isDay(row.key)) {
+      setFromEdit(null);
+      setToEdit(null);
+      patch({ view: null, p: 'range', from: row.key, to: row.key });
+    }
+  };
+
+  const needle = searchable(query);
+  const walkInName = searchable(t('invoice.walk_in', 'زبون نقديّ'));
+  const filtered = needle !== '' || show !== 'all' || party !== null;
+  const rows = (shownList?.rows ?? []).filter((row) => {
+    const tone = rowTone(row);
+    if (show === 'open' && tone !== 'partial' && tone !== 'credit') return false;
+    if (show === 'void' && tone !== 'void') return false;
+    if (party !== null && row.partyId !== party) return false;
+    if (needle === '') return true;
+    return searchable(row.walkIn ? walkInName : row.partyName).includes(needle) || searchable(row.docNo).includes(needle);
+  });
+  const empty =
+    needle !== ''
+      ? t('saleslist.empty.search', 'لا فاتورة لزبون أو برقم «{q}» في هذه المدّة.', { q: query.trim() })
+      : show === 'open'
+        ? t('saleslist.empty.open', 'لا فاتورة عليها باقٍ في هذه المدّة.')
+        : show === 'void'
+          ? t('saleslist.empty.void', 'لا فاتورة ملغاة في هذه المدّة.')
+          : t('sales.empty', 'لا بيع في هذه المدّة.');
+  const shownParty = party === null ? null : (partyName ?? shownList?.rows.find((row) => row.partyId === party)?.partyName ?? '');
+
   return (
-    <div className="flex flex-col gap-4">
-      <PageHeader
-        title={t('nav.sales', 'المبيعات')}
-        subtitle={t('sales.subtitle', 'كلّ بيع لمن ومتى وبكم، ومجاميع المدّة، والتقرير حسب الجهة أو المادّة أو اليوم.')}
-        actions={
-          canSell ? (
-            <Button size="lg" onClick={() => navigate(newSalePath())} data-action="new-sale">
-              <Plus aria-hidden="true" className="size-5" />
-              {t('sales.new', 'بيع جديد')}
-            </Button>
-          ) : undefined
-        }
-      />
-      {saved ? <Notice tone="info" title={saved} /> : null}
+    <div className="sale-ui sale-list-page flex flex-col gap-4">
+      <PageHeader title={t('nav.sales', 'المبيعات')} />
       {pendingSale ? (
         <div data-action="sale-pending-banner">
           <Notice
@@ -587,29 +617,100 @@ export default function SalesPage() {
           </Notice>
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2" data-action="sales-period">
-        <DayField id={`${id}-from`} label={t('sales.from', 'من')} value={fromText} onChange={(text) => setFromEdit(toWesternDigits(text))} error={from ? null : periodError} />
-        <DayField id={`${id}-to`} label={t('sales.to', 'إلى')} value={toText} onChange={(text) => setToEdit(toWesternDigits(text))} error={from && periodError ? periodError : null} />
+      <div className="sale-view">
+        <Segmented<View>
+          label={t('sales.view', 'العرض')}
+          options={[
+            { value: 'list', label: t('sales.view.list', 'الفواتير') },
+            { value: 'party', label: t('saleslist.view.party', 'حسب الزبون') },
+            { value: 'item', label: t('sales.view.item', 'حسب المادّة') },
+            { value: 'day', label: t('sales.view.day', 'حسب اليوم') },
+          ]}
+          value={view}
+          onChange={(next) => patch({ view: next === 'list' ? null : next })}
+        />
       </div>
-      <Segmented<View>
-        label={t('sales.view', 'العرض')}
+      <Pills<Period>
+        label={t('saleslist.period', 'المدّة')}
+        action="sales-period"
         options={[
-          { value: 'list', label: t('sales.view.list', 'الفواتير') },
-          { value: 'party', label: t('sales.view.party', 'حسب الجهة') },
-          { value: 'item', label: t('sales.view.item', 'حسب المادّة') },
-          { value: 'day', label: t('sales.view.day', 'حسب اليوم') },
+          { value: 'today', label: t('saleslist.period.today', 'اليوم') },
+          { value: 'week', label: t('saleslist.period.week', 'الأسبوع') },
+          { value: 'month', label: t('saleslist.period.month', 'الشهر') },
+          { value: 'range', label: t('saleslist.period.range', 'مدّة…') },
         ]}
-        value={view}
-        onChange={setView}
+        value={period}
+        onChange={choosePeriod}
       />
+      {period === 'range' ? (
+        <div className="grid gap-3 sm:grid-cols-2" data-action="sales-range">
+          <DayField id={`${id}-from`} label={t('sales.from', 'من')} value={fromText} onChange={(text) => typeRange('from', text)} error={typedFrom ? null : periodError} />
+          <DayField id={`${id}-to`} label={t('sales.to', 'إلى')} value={toText} onChange={(text) => typeRange('to', text)} error={typedFrom && periodError ? periodError : null} />
+        </div>
+      ) : null}
       {failure ? <LoadFailed what={view === 'list' ? t('sales.what', 'المبيعات') : t('sales.report.what', 'تقرير المبيعات')} error={failure} onRetry={retry} /> : null}
       {!ready ? null : view === 'list' ? (
         shownList ? (
           <>
-            <StatStrip stats={overviewStats(shownList)} />
-            <SalesList data={shownList} onVoid={setVoiding} />
+            <SalesStrip data={shownList} period={period} />
+            <div className="sale-find">
+              <label className="sale-search">
+                <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
+                <span className="sr-only">{t('saleslist.search', 'ابحث بالزبون أو رقم الفاتورة')}</span>
+                <input
+                  type="search"
+                  enterKeyHint="search"
+                  className="sale-search-input"
+                  placeholder={t('saleslist.search', 'ابحث بالزبون أو رقم الفاتورة')}
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    patch({ q: event.target.value });
+                  }}
+                  data-action="sales-search"
+                />
+                {query !== '' ? (
+                  <button
+                    type="button"
+                    className="sale-search-off"
+                    aria-label={t('saleslist.search.off', 'امسح البحث')}
+                    onClick={() => {
+                      setQuery('');
+                      patch({ q: null });
+                    }}
+                    data-action="sales-search-off"
+                  >
+                    <X aria-hidden="true" className="size-5" />
+                  </button>
+                ) : null}
+              </label>
+              <Pills<Show>
+                label={t('saleslist.show', 'الفواتير')}
+                action="sales-show"
+                options={[
+                  { value: 'all', label: t('saleslist.show.all', 'الكلّ') },
+                  { value: 'open', label: t('saleslist.show.open', 'عليها باقٍ') },
+                  { value: 'void', label: t('saleslist.show.void', 'ملغاة') },
+                ]}
+                value={show}
+                onChange={(next) => patch({ f: next === 'all' ? null : next })}
+              />
+              {shownParty !== null ? (
+                <button type="button" className="sale-party-on" onClick={() => patch({ party: null, pn: null })} data-action="party-off">
+                  <span>{t('saleslist.party_on', 'فواتير «{party}»', { party: shownParty })}</span>
+                  <X aria-hidden="true" className="size-4" />
+                  <span className="sr-only">{t('saleslist.party_off', 'اعرض كلّ الزبائن')}</span>
+                </button>
+              ) : null}
+            </div>
+            {filtered ? (
+              <p className="sale-hint" role="status" data-action="sales-found">
+                {t('saleslist.found', '{shown} من {all}', { shown: invoicesText(rows.length), all: invoicesText(shownList.rows.length) })}
+              </p>
+            ) : null}
+            <SalesList data={shownList} rows={rows} filtered={filtered} wide={wide} listSearch={location.search} empty={empty} />
             {shownList.more ? <p className="text-sm text-ink-muted">{t('sales.more', 'تُعرض آخر 1,000 فاتورة؛ والمجاميع للمدّة كلّها.')}</p> : null}
-            {shownList.birds ? <BirdsSection data={shownList.birds} from={shownList.from} to={shownList.to} /> : null}
+            {shownList.birds && !filtered ? <BirdsSection data={shownList.birds} from={shownList.from} to={shownList.to} /> : null}
           </>
         ) : failure ? null : (
           <p role="status" className="text-sm text-ink-muted">
@@ -618,7 +719,12 @@ export default function SalesPage() {
         )
       ) : shownReport && shownReport.group === view ? (
         <>
-          <ReportTable data={shownReport} costs={costs} />
+          {view === 'party' || view === 'day' ? (
+            <p className="sale-hint" data-action="report-hint">
+              {view === 'party' ? t('saleslist.report.party_hint', 'اضغط الزبون لترى فواتيره.') : t('saleslist.report.day_hint', 'اضغط اليوم لترى فواتيره.')}
+            </p>
+          ) : null}
+          <ReportTable data={shownReport} costs={costs} onOpen={view === 'party' || view === 'day' ? openReportRow : null} />
           {shownReport.birds ? <BirdGroupsTable data={shownReport.birds} group={view} /> : null}
         </>
       ) : failure ? null : (
@@ -626,16 +732,11 @@ export default function SalesPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       )}
-      {voiding ? (
-        <VoidSaleDialog
-          row={voiding}
-          onCancel={() => setVoiding(null)}
-          onDone={(text) => {
-            setVoiding(null);
-            setSaved(text);
-            refresh();
-          }}
-        />
+      {canSell ? (
+        <Link to={newSalePath()} className="sale-fab" data-action="new-sale">
+          <Plus aria-hidden="true" className="size-6" />
+          {t('sales.new', 'بيع جديد')}
+        </Link>
       ) : null}
     </div>
   );

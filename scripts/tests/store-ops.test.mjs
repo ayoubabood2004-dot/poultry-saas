@@ -92,6 +92,8 @@ async function bundle() {
     jsx: 'automatic',
     logLevel: 'silent',
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+    // أنماط المبيعات الكسولة (sales/doc.css في حزمة المخزون) بلا مخرَج هنا.
+    loader: { '.css': 'empty' },
     plugins: [stubs],
   });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
@@ -744,6 +746,12 @@ export default async function (t) {
     const monthFrom = () => `${m.localDay().slice(0, 8)}01`;
     /** خلايا رأس الجدول وحدها (لا «المجموع» في تذييله). */
     const headCells = () => all().filter((n) => n.localName === 'th' && n.parentNode?.parentNode?.localName === 'thead').map((n) => n.textContent);
+    /** صفوف جدول الفواتير: [اسم الزبون، الصافي، الباقي الآن، الحالة] (أعمدة الهاتف، تصميم المبيعات ٧). */
+    const listRows = () =>
+      all()
+        .filter((n) => n.localName === 'tr' && n.parentNode?.localName === 'tbody')
+        .map((tr) => [descendants(tr).find((n) => n.getAttribute?.('data-action') === 'open-sale')?.textContent ?? '', ...tr.children.slice(1).map((td) => td.textContent)]);
+    const byActionText = (name) => byAction(name)[0]?.textContent ?? null;
     await step('S11', async () => {
       const { rpcCalls } = fresh({ status: 'ready', workspace: ws('owner') }, {}, {
         sales_overview: async () => clone(S21.sales_overview.owner),
@@ -751,15 +759,17 @@ export default async function (t) {
       });
       await mount('/sales');
       t.same(named(rpcCalls, 'sales_overview'), [{ p_from: monthFrom(), p_to: m.localDay() }], 'S11 المدّة الافتراضية من أوّل الشهر إلى اليوم');
+      // شريط المدّة (تصميم المبيعات ٧) من مجاميع الخادم: البيع والمدفوع عند البيع والباقي الآن، والكلفة والربح للمالك.
       const stats = all().filter((n) => n.localName === 'dt').map((n) => `${n.textContent}=${n.nextSibling?.textContent}`);
-      t.same(stats, ['فواتير محفوظة=2', 'مجموع البيع=75,000 دينار', 'منه مدفوع عند البيع=0 دينار', 'منه بالدين=75,000 دينار', 'كلفة المبيع=68,000 دينار', 'الربح=7,000 دينار'], 'S11 المجاميع من الخادم، والكلفة والربح للمالك');
+      t.same(
+        [byActionText('strip-sold'), byActionText('strip-paid'), byActionText('strip-open'), stats.includes('كلفة المبيع=68,000'), stats.includes('الربح=7,000'), text().includes('فاتورتان')],
+        ['75,000', '0', '75,000', true, true, true],
+        'S11 المجاميع من الخادم، والكلفة والربح للمالك',
+      );
       const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
-      // والكمية رقماً بمراتب العمود والوحدة بعمودها (مراجعة 0021 L2، نمط 0019).
-      // عقد 0033: الموادّ (المادّة بكميتها لسطر واحد) والصافي والمدفوع والدين بدل السعر والمبلغ.
-      t.same(heads.slice(0, 9), ['التاريخ', 'الرقم', 'الجهة', 'الموادّ', 'الصافي', 'المدفوع', 'الباقي الآن', 'الدفع', 'الحالة'], 'S11 جدول واحد بأعمدة عقد 0033');
-      const firstRow = all().filter((n) => n.localName === 'td').slice(0, 8).map((n) => n.textContent);
-      t.same(firstRow, ['08/11/2026', 'MS-2026-0002', 'أبو أحمد', 'كاز 10 لترات', '0', '0', '0', 'بلا مقابل'], 'S11 صفّ التسليم بلا مقابل (فاتورة 0021 بسطرها)');
-      t.same([byAction('sale-voided').length, byAction('void-sale').length], [2, 2], 'S11 الملغاة «ملغى»، والمحفوظة بـ«ألغِ» للمالك');
+      t.same(heads.slice(0, 4), ['الزبون', 'الصافي', 'الباقي الآن', 'الحالة'], 'S11 جدول واحد بأعمدة الهاتف: المال في الشاشة');
+      t.same(listRows()[0], ['أبو أحمد', '0', '0', 'بلا مقابل'], 'S11 صفّ التسليم بلا مقابل (فاتورة 0021 بسطرها)');
+      t.same([listRows().filter((row) => row[3] === 'ملغاة').length, byAction('void-sale').length], [2, 0], 'S11 الملغاة «ملغاة»، ولا «ألغِ» في الصفوف (في الفاتورة)');
       t.ok(text().includes('مجموع المحفوظ'), 'S11 وصفّ المجموع');
       await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب المادّة'));
       await settle();
@@ -768,38 +778,46 @@ export default async function (t) {
       t.same(reportHeads, ['المادّة', 'عدد الفواتير', 'الكمية', 'الوحدة', 'المبلغ', 'الكلفة', 'الربح'], 'S11 التقرير بالمادّة بالكمية ووحدتها والكلفة والربح');
       const reportCells = all().filter((n) => n.localName === 'td').map((n) => n.textContent);
       t.same(reportCells.slice(0, 7), ['علف بادئ', '1', '100', 'كغم', '75,000', '60,000', '15,000'], 'S11 صفّ المادّة بأرقامه');
-      await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب الجهة'));
+      await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب الزبون'));
       await settle();
-      t.same(headCells(), ['الجهة', 'عدد الفواتير', 'المبلغ', 'الكلفة', 'الربح'], 'S11 بالجهة بلا كمية (وحدات مختلفة)');
+      t.same(headCells(), ['الزبون', 'عدد الفواتير', 'المبلغ', 'الكلفة', 'الربح'], 'S11 بالزبون بلا كمية (وحدات مختلفة)');
       await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب اليوم'));
       await settle();
       t.eq(all().filter((n) => n.localName === 'td').map((n) => n.textContent)[0], '08/11/2026', 'S11 باليوم');
+      await click(byAction('sales-period-range')[0]);
+      await settle();
       typeIn(all().find((n) => n.id.endsWith('-from')), 'أمس');
       await settle();
-      t.ok(text().includes('اكتب التاريخ يوم/شهر/سنة') && named(rpcCalls, 'sales_report').length === 3, 'S11 مدّة لا تُقرأ: رسالة ولا قراءة');
+      t.ok(text().includes('اكتب التاريخ يوم/شهر/سنة') && named(rpcCalls, 'sales_report').length === 3, 'S11 «مدّة…» لا تُقرأ: رسالة ولا قراءة');
     });
     await step('S11-keeper', async () => {
       fresh({ status: 'ready', workspace: KEEPER }, {}, { sales_overview: async () => clone(S21.sales_overview.storekeeper), sales_report: async () => clone(S21.sales_report.storekeeper_party) });
       await mount('/sales');
       const stats = all().filter((n) => n.localName === 'dt').map((n) => n.textContent);
       t.ok(!stats.includes('الربح') && !stats.includes('كلفة المبيع') && byAction('void-sale').length === 0 && byAction('new-sale').length === 1, 'S11 الأمين: «بيع جديد» بلا كلفة ولا ربح ولا «ألغِ»');
-      await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب الجهة'));
+      await click(all().find((n) => n.localName === 'button' && n.textContent === 'حسب الزبون'));
       await settle();
-      t.same(headCells(), ['الجهة', 'عدد الفواتير', 'المبلغ'], 'S11 وتقريره بلا كلفة ولا ربح');
+      t.same(headCells(), ['الزبون', 'عدد الفواتير', 'المبلغ'], 'S11 وتقريره بلا كلفة ولا ربح');
     });
 
-    // ── S12: «ألغِ» البيع ──────────────────────────────────────────────────────────────────────────────────────────────
+    // ── S12: «ألغِ» البيع — في الفاتورة تحت «⋯» (تصميم المبيعات ٦)، بجواب 0021 الحقيقيّ ───────────────────────────────────
+    /** فاتورة 0021 الحقيقيّة (sale_detail) معدَّلةً للحالة المطلوبة. */
+    const legacySale = (over = {}, money = {}) => ({ ...clone(S21.sale_detail.owner), ...over, money: { ...clone(S21.sale_detail.owner).money, ...money } });
+    const openVoid = async () => {
+      await click(byAction('sale-more')[0]);
+      await click(byAction('void-sale')[0]);
+    };
     await step('S12', async () => {
-      // صفّ البيع النقديّ محفوظاً قبل إلغائه وقبل ردّ مبلغه، من الجواب الحقيقيّ نفسه (في العيّنة أُلغي ورُدّ مبلغه فقُرئ بالدين).
-      const overview = clone(S21.sales_overview.owner);
-      const cashRow = overview.rows.find((row) => row.doc_no === 'MS-2026-0001');
-      Object.assign(cashRow, { status: 'posted', payment: 'cash', payment_refunded: false });
-      const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {}, { sales_overview: async (_args, n) => (n === 1 ? overview : clone(S21.sales_overview.owner)), void_sale: async () => clone(S21.void_sale.manager_cash_kept) });
-      await mount('/sales');
-      const buttons = byAction('void-sale');
-      const rowOf = (button) => { let n = button; while (n && n.localName !== 'tr') n = n.parentNode; return n?.textContent ?? ''; };
-      await click(buttons.find((button) => rowOf(button).includes('MS-2026-0001')));
+      // البيع النقديّ محفوظاً قبل إلغائه وقبل ردّ مبلغه (كصفّ MS-2026-0001 في العيّنة قبل إلغائه).
+      const cashSale = legacySale({ doc_no: 'MS-2026-0001', party_name: 'شركة الدواجن', payment: 'cash' }, { line_total: '120000', paid_now: '120000', unit_price: '1200' });
+      const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {}, {
+        sale_detail: async (_args, n) => (n === 1 ? clone(cashSale) : { ...clone(cashSale), status: 'void', can_void: false, void_reason: 'خطأ في الجهة' }),
+        void_sale: async () => clone(S21.void_sale.manager_cash_kept),
+      });
+      await mount(`/sales/${cashSale.id}`);
+      await openVoid();
       t.ok(text().includes('إلغاء البيع MS-2026-0001؟') && byAction('void-cash-kept')[0]?.textContent.includes('والمبلغ المقبوض (120,000 دينار) يبقى رصيداً لـ«شركة الدواجن»'), 'S12 التأكيد يسمّي الأثر ويقول إنّ المقبوض يبقى رصيداً');
+      t.ok(text().includes('ترجع 100 كغم من «علف بادئ» إلى مخزنها، ويُعكس قيد الفاتورة على «شركة الدواجن».'), 'S12 والبضاعة التي ترجع بكميتها');
       await click(byAction('confirm-void-sale')[0]);
       t.ok(text().includes('اكتب سبب الإلغاء.') && named(rpcCalls, 'void_sale').length === 0, 'S12 السبب إلزاميّ');
       typeIn(byAction('void-sale-reason')[0], 'خطأ في الجهة');
@@ -807,8 +825,9 @@ export default async function (t) {
       await click(byAction('confirm-void-sale')[0]);
       await settle();
       const [args] = named(rpcCalls, 'void_sale');
-      t.same([args?.p_sale_id, args?.p_reason, UUID.test(args?.p_client_ref ?? '')], [cashRow.id, 'خطأ في الجهة', true], 'S12 void_sale بالفاتورة والسبب والمرجع');
-      t.ok(text().includes('أُلغي البيع MS-2026-0001. والمقبوض 120,000 دينار باقٍ رصيداً لـ«شركة الدواجن».') && named(rpcCalls, 'sales_overview').length === 2, 'S12 الجملة من جواب الخادم، والقائمة تُقرأ من جديد');
+      t.same([args?.p_sale_id, args?.p_reason, UUID.test(args?.p_client_ref ?? '')], [cashSale.id, 'خطأ في الجهة', true], 'S12 void_sale بالفاتورة والسبب والمرجع');
+      t.ok(text().includes('أُلغي البيع MS-2026-0001. والمقبوض 120,000 دينار باقٍ رصيداً لـ«شركة الدواجن».') && named(rpcCalls, 'sale_detail').length === 2, 'S12 الجملة من جواب الخادم، والفاتورة تُقرأ من جديد');
+      t.same([byActionText('sale-status'), byAction('sale-more').length], ['ملغاة', 0], 'S12 ثمّ الفاتورة ملغاة بلا «⋯»');
     });
 
     // ── S13: «بيع جديد» من رابط الرئيسية القديم (?new=1) يفتح الفاتورة الجديدة ─────────────────────────────────────────────
@@ -874,24 +893,23 @@ export default async function (t) {
     await step('R-M1-L1', async () => {
       fresh({ status: 'ready', workspace: ws('owner') }, {}, { sales_overview: async () => clone(S21.sales_overview.owner) });
       await mount('/sales');
-      const rows = all().filter((n) => n.localName === 'tr' && n.parentNode?.localName === 'tbody').map((tr) => descendants(tr).filter((n) => n.localName === 'td').map((n) => n.textContent));
-      const voided = rows.filter((cells) => cells.includes('ملغى'));
-      t.same(voided.map((cells) => [cells[1], cells[4], cells[5], cells[6]]), [['MD-2026-0001', '—', '—', '—'], ['MS-2026-0001', '—', '—', '—']], 'M1 الملغاة: «—» في الصافي والمدفوع والدين (المجموع للمحفوظ وحده)');
+      const voided = listRows().filter((cells) => cells[3] === 'ملغاة');
+      t.same(voided.map((cells) => [cells[1], cells[2]]), [['—', '—'], ['—', '—']], 'M1 الملغاة: «—» في الصافي والباقي (المجموع للمحفوظ وحده)');
+      await unmount();
       // التسليم بلا مقابل: لا «يُعكس قيد الفاتورة».
-      const freeRow = all().find((n) => n.localName === 'tr' && n.textContent.includes('MS-2026-0002'));
-      await click(descendants(freeRow).find((n) => n.getAttribute('data-action') === 'void-sale'));
+      const free = legacySale({ free: true }, { line_total: '0', unit_price: '0', paid_now: '0' });
+      fresh({ status: 'ready', workspace: ws('owner') }, {}, { sale_detail: async () => clone(free) });
+      await mount(`/sales/${free.id}`);
+      await openVoid();
       t.ok(text().includes('تسليم بلا مقابل لـ«أبو أحمد»: لا قيد عليه') && !text().includes('ويُعكس قيد الفاتورة'), 'L1 إلغاء التسليم بلا مقابل بلا «يُعكس قيد الفاتورة»');
     });
     await step('R-refunded', async () => {
       // بيع نقديّ رُدّ مبلغه (ألغِ القبض) ثمّ يُلغى: لا يُقال إنّ المقبوض يبقى رصيداً.
-      const overview = clone(S21.sales_overview.owner);
-      const row = overview.rows.find((x) => x.doc_no === 'MS-2026-0001');
-      row.status = 'posted';
-      fresh({ status: 'ready', workspace: MANAGER }, {}, { sales_overview: async () => overview });
-      await mount('/sales');
-      const tr = all().find((n) => n.localName === 'tr' && n.textContent.includes('MS-2026-0001'));
-      t.ok(tr?.textContent.includes('نقداً، ثمّ رُدّ المبلغ'), `الجدول يقول «نقداً، ثمّ رُدّ المبلغ» (${tr?.textContent})`);
-      await click(descendants(tr).find((n) => n.getAttribute('data-action') === 'void-sale'));
+      const refunded = legacySale({ party_name: 'شركة الدواجن', payment: 'credit', payment_refunded: true });
+      fresh({ status: 'ready', workspace: MANAGER }, {}, { sale_detail: async () => clone(refunded) });
+      await mount(`/sales/${refunded.id}`);
+      t.eq(byActionText('sale-payment'), 'نقداً، ثمّ رُدّ المبلغ', 'الفاتورة تقول «نقداً، ثمّ رُدّ المبلغ»');
+      await openVoid();
       t.same([byAction('void-refunded')[0]?.textContent, byAction('void-cash-kept').length], ['ومبلغها المقبوض رُدّ لـ«شركة الدواجن» من قبل، فلا يبقى منه رصيد.', 0], 'تأكيد الإلغاء لا يدّعي أنّ المقبوض يبقى رصيداً بعد ردّه');
     });
     await step('R-M2', async () => {
@@ -950,7 +968,9 @@ export default async function (t) {
       await mount('/sales');
       await settle();
       t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-01', p_to: '2026-12-03' }, 'المدّة الافتراضية من يوم الخادم (أوّل شهره إلى يومه)');
-      t.eq(all().find((n) => n.id.endsWith('-to'))?.value, '03/12/2026', 'وحقل «إلى» يقول يوم الخادم');
+      await click(byAction('sales-period-range')[0]);
+      await settle();
+      t.eq(all().find((n) => n.id.endsWith('-to'))?.value, '03/12/2026', 'و«مدّة…» تبدأ بالمدّة المعروضة: حقل «إلى» يقول يوم الخادم');
     });
     await step('R-in-use', async () => {
       const file = S20.item_file.manager_fresh_before_delete;
@@ -963,20 +983,18 @@ export default async function (t) {
       t.same([byAction('confirm-delete-item')[0]?.textContent, byAction('hide-instead').length, byAction('delete-hides').length], ['احذفها', 0, 1], 'بعد item_in_use: «احذفها» نفسها صارت إخفاءً');
     });
     await step('R-void-unknown', async () => {
-      const overview = clone(S21.sales_overview.owner);
-      const target = overview.rows.find((row) => row.status === 'posted' && !row.free);
+      const target = legacySale();
       let n = 0;
       const { rpcCalls } = fresh({ status: 'ready', workspace: MANAGER }, {}, {
-        sales_overview: async () => clone(overview),
+        sale_detail: async () => clone(target),
         void_sale: async () => {
           n += 1;
           if (n === 1) throw new m.UnknownOutcomeError();
           return clone(S21.void_sale.manager_credit);
         },
       });
-      await mount('/sales');
-      const row = all().find((node) => node.localName === 'tr' && node.textContent.includes(target.doc_no));
-      await click(descendants(row).find((node) => node.getAttribute('data-action') === 'void-sale'));
+      await mount(`/sales/${target.id}`);
+      await openVoid();
       typeIn(byAction('void-sale-reason')[0], 'خطأ في الكمية');
       await settle();
       await click(byAction('confirm-void-sale')[0]);
@@ -989,7 +1007,6 @@ export default async function (t) {
       const [first, second] = named(rpcCalls, 'void_sale');
       t.same([second?.p_client_ref, second?.p_reason], [first?.p_client_ref, 'خطأ في الكمية'], 'إلغاء مجهول: الإعادة بالمرجع والسبب نفسيهما (لا ref_reused)');
     });
-
     await step('K4-keeper', async () => {
       fresh({ status: 'ready', workspace: KEEPER }, {}, { item_file: async () => fileJson() });
       await mount('/inventory/items/i-corn');

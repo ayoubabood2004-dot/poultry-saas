@@ -382,8 +382,9 @@ export const HOME_ACTIONS_SHOWN = 4;
 const PRIORITY: Partial<Record<Role, readonly HomeActionKey[]>> = {
   hall_worker: ['round_broiler', 'round_layer'],
   mill_operator: ['produce'],
-  storekeeper: ['purchase', 'use', 'transfer', 'count', 'sale'],
-  accountant: ['payout', 'payment', 'expense', 'purchase', 'sale'],
+  // «بِع» ثاني أفعال الأمين والمحاسب (تصميم المبيعات ٨، كلمة المالك 2026-11-18): كان خامساً خلف «أعمال أخرى».
+  storekeeper: ['purchase', 'sale', 'use', 'transfer', 'count'],
+  accountant: ['payout', 'sale', 'payment', 'expense', 'purchase'],
   owner: ['round_broiler', 'round_layer', 'purchase', 'sale', 'payout', 'payment'],
   manager: ['round_broiler', 'round_layer', 'purchase', 'sale', 'payout', 'payment'],
 };

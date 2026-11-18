@@ -57,6 +57,8 @@ export interface ImageOptions {
    * .dark و.clarity على <html>، والخلفية سطح السمة الفاتحة. تقرير القاعات بلا هذا الخيار: بسمة الصفحة كما هو.
    */
   light?: boolean;
+  /** خلفية الصورة مع light (ورقة الفاتورة بيضاء كالورق، تصميم المبيعات ٦)؛ وإلّا سطح السمة الفاتحة. */
+  background?: string;
 }
 
 /**
@@ -87,7 +89,7 @@ export async function reportImage(page: HTMLElement, name: string, width: number
     const blob = await toBlob(
       copy,
       options.light
-        ? { width, pixelRatio: ratio, backgroundColor: LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
+        ? { width, pixelRatio: ratio, backgroundColor: options.background ?? LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
         : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } },
     );
     if (!blob) throw new Error('report_image_empty');

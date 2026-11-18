@@ -43,6 +43,7 @@ async function bundle() {
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
     bundle: true,
+    loader: { '.css': 'empty' }, // أنماط المبيعات الكسولة (sales/doc.css) بلا مخرَج هنا
     write: false,
     format: 'esm',
     platform: 'node',

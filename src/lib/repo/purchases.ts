@@ -664,6 +664,8 @@ export interface SaleRow {
   status: SaleStatus;
   payment: SalePayment;
   partyName: string;
+  /** معرّف الجهة (party_id)، أو null من جواب بلاه: «حسب الزبون» يفتح فواتيره به (تصميم المبيعات ٧). */
+  partyId: string | null;
   /** اسم المادّة الأولى. */
   itemName: string;
   /** عدد سطور الفاتورة (1 لفاتورة 0021). */
@@ -700,6 +702,7 @@ function saleRow(row: Row): SaleRow {
     status: oneOf(row, 'status', SALE_STATUSES),
     payment: oneOf(row, 'payment', SALE_PAYMENTS),
     partyName: str(row, 'party_name'),
+    partyId: optStr(row, 'party_id'),
     itemName: str(row, 'item_name'),
     free: bool(row, 'free'),
     paymentRefunded: flagOr(row, 'payment_refunded', false),

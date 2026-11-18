@@ -62,8 +62,8 @@ export function checkoutBackLabel(path: string): string {
 // ─── ورقة الفاتورة ───────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * الطباعة A5 وصورة «أرسل صورة» (reportImage ينسخ الورقة بـdata-capture خارج الشاشة بعرض ثابت): بلا إطار البطاقة في الطباعة، والجدول بلا حدّ ارتفاع ولا
- * تمرير في الصورة، وخطّ الجدول أصغر قليلاً.
+ * الطباعة A5 وصورة «أرسل على واتساب» (reportImage ينسخ الورقة بـdata-capture خارج الشاشة بعرض ثابت): بلا إطار البطاقة في الطباعة، والجدول بلا حدّ ارتفاع
+ * ولا تمرير في الصورة، وخطّ الجدول أصغر قليلاً. وشكل الورقة نفسها (الرأس والمجاميع والختم) في doc.css الكسول.
  */
 export const PAPER_STYLE = [
   '@page { size: A5 portrait; margin: 9mm; }',
@@ -83,60 +83,63 @@ export const PAPER_STYLE = [
 /** عرض صورة الفاتورة بنقاط CSS: ورقة هاتف تُقرأ في واتساب بلا تكبير (وبالمقياس 2 تخرج 1,120 نقطة). */
 export const INVOICE_IMAGE_WIDTH = 560;
 
+/** خيارات صورة الفاتورة: فاتحة ولو كان الجهاز داكناً (الصورة للزبون، مراجعة 0033 D2)، وعلى ورق أبيض. */
+export const INVOICE_IMAGE_OPTIONS = { light: true, background: 'rgb(255, 255, 255)' } as const;
+
 /** اسم ملفّ الصورة برقم الفاتورة (لاتينيّ: يُحفظ في كلّ جهاز). */
 export const invoiceImageName = (docNo: string): string => `invoice-${docNo.replace(/[^\w-]+/gu, '-')}.png`;
 
 /** عنوان الورقة واسم ملفّ الطباعة. */
 export const invoiceTitle = (docNo: string): string => t('invoice.paper.title_no', 'فاتورة بيع {no}', { no: docNo });
 
+/**
+ * كمية السطر بمراتبها هي: «3» لا «3.0» ولو كان في سطر آخر «25.5» (وحدات السطور مختلفة: كيس وكغم وعلبة، فلا يصطفّ عمودها بمراتب واحدة، وكيس
+ * «3.0» يُقرأ كسراً، تدقيق 2026-11-18).
+ */
+export const lineQtyText = (qty: Milli): string => fmtQtyCell(qty, columnDecimals([qty], 3) as 0 | 1 | 2 | 3);
+
+/** سعر السطر: الدينار الصحيح بلا كسر، وبمرتبتين إن حمل فلساً. */
+export const priceText = (price: Fils): string => fmtMoney(price, price % FILS_PER_DINAR === 0n ? 0 : 2);
+
+/** الخصم سالباً في تذييل الجدول («-6,000»). */
+const minus = (amount: Fils): string => fmtMoney(-amount, 0);
+
 const LOGO_STYLE = { width: '40px', height: '40px' } as const;
-const SIGN_STYLE = { minWidth: '9rem', paddingTop: '2.25rem', paddingBottom: '0.25rem', borderBottom: '1px dotted currentColor' } as const;
-const STAMP_STYLE = { border: '3px double rgb(220 38 38)', color: 'rgb(185 28 28)', borderRadius: '0.75rem', padding: '0.75rem 1rem' } as const;
 
 function PaperLine({ label, action, children }: { label: string; action: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-line py-2" data-action={action}>
-      <span className="text-sm text-ink-muted">{label}</span>
-      <span className="min-w-0 flex-1 font-medium">{children}</span>
+    <div className="inv-line" data-action={action}>
+      <span className="inv-line-label">{label}</span>
+      <span className="inv-line-value">{children}</span>
     </div>
   );
 }
 
 /**
- * سطور الفاتورة: المادّة | الكمية | الوحدة | السعر | الإجماليّ | الخصم | المبلغ (والخصم مجموع خصم السطر ونصيبه من خصم الفاتورة)، بمجاميعها. والملغاة
- * (money = false) بلا سعر ولا مبلغ ولا مجموع: لا تُقرأ ديناً قائماً (مراجعة 0024 L6).
+ * سطور الفاتورة على الورقة: المادّة | الكمية | الوحدة | السعر | المبلغ، والمبلغ إجماليّ السطر (الكمية × السعر) قبل أيّ خصم، فمجموع العمود «المجموع» ثمّ
+ * «الخصم» مرّة واحدة في التذييل (خصم السطور وخصم الفاتورة معاً): خصم الفاتورة موزَّعاً على السطور كان يكتب مبالغ غريبة (3,128 و754 و1,118) لا يفهمها
+ * الزبون (تدقيق 2026-11-18). والملغاة (money = false) بلا سعر ولا مبلغ ولا مجموع: لا تُقرأ ديناً قائماً (مراجعة 0024 L6).
  */
 export function InvoiceLinesTable({ invoice, caption, money = true }: { invoice: Pick<SaleInvoice, 'lines' | 'grossTotal' | 'discountTotal' | 'total'>; caption: string; money?: boolean }) {
   const lines = invoice.lines;
-  const qtyDecimals = columnDecimals(lines.map((line) => line.unitQty), 3) as 0 | 1 | 2 | 3;
-  const priceDecimals = lines.some((line) => line.unitPrice % FILS_PER_DINAR !== 0n) ? 2 : 0;
-  const discounts = lines.some((line) => line.lineDiscount + line.invoiceShare > 0n);
   const columns: Column<InvoiceLine>[] = [
     { key: 'item', header: t('sales.col.item', 'المادّة'), wrap: true, cell: (line) => line.itemName },
-    { key: 'qty', header: t('sales.col.qty', 'الكمية'), kind: 'number', cell: (line) => <Num>{fmtQtyCell(line.unitQty, qtyDecimals)}</Num> },
+    { key: 'qty', header: t('sales.col.qty', 'الكمية'), kind: 'number', cell: (line) => <Num>{lineQtyText(line.unitQty)}</Num> },
     { key: 'unit', header: t('sales.col.unit', 'الوحدة'), cell: (line) => lineUnitLabel(line) },
   ];
   if (!money) return <DataTable caption={caption} columns={columns} rows={lines} rowKey={(line) => line.lineId} empty="" />;
-  columns.push({ key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: (line) => <Num>{fmtMoney(line.unitPrice, priceDecimals)}</Num> });
-  if (discounts) {
-    columns.push(
-      { key: 'gross', header: t('invoice.col.gross', 'الإجمالي'), kind: 'number', cell: (line) => <Num>{fmtMoney(line.gross, 0)}</Num>, total: <Num>{fmtMoney(invoice.grossTotal, 0)}</Num> },
-      {
-        key: 'discount',
-        header: t('invoice.col.discount', 'الخصم'),
-        kind: 'number',
-        cell: (line) => <Num>{fmtMoney(line.lineDiscount + line.invoiceShare, 0)}</Num>,
-        total: <Num>{fmtMoney(invoice.discountTotal, 0)}</Num>,
-      },
-    );
-  }
-  columns.push({ key: 'net', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (line) => <Num>{fmtMoney(line.net, 0)}</Num>, total: <Num>{fmtMoney(invoice.total, 0)}</Num> });
-  return <DataTable caption={caption} columns={columns} rows={lines} rowKey={(line) => line.lineId} empty="" totalLabel={t('sales.report.total', 'المجموع')} />;
+  const priceDecimals = lines.some((line) => line.unitPrice % FILS_PER_DINAR !== 0n) ? 2 : 0;
+  columns.push(
+    { key: 'price', header: t('sales.col.price', 'السعر'), kind: 'number', cell: (line) => <Num>{fmtMoney(line.unitPrice, priceDecimals)}</Num> },
+    { key: 'amount', header: t('sales.col.amount', 'المبلغ'), kind: 'number', cell: (line) => <Num>{fmtMoney(line.gross, 0)}</Num>, total: <Num>{fmtMoney(invoice.grossTotal, 0)}</Num> },
+  );
+  const footers = invoice.discountTotal > 0n ? [{ key: 'discount', label: t('invoice.col.discount', 'الخصم'), cells: { amount: <Num>{minus(invoice.discountTotal)}</Num> } }] : [];
+  return <DataTable caption={caption} columns={columns} rows={lines} rowKey={(line) => line.lineId} empty="" totalLabel={t('sales.report.total', 'المجموع')} footers={footers} />;
 }
 
 /**
- * الدفع على الورقة: المدفوع الآن بصناديقه، وما رُدّ من السيقان بصناديقه («ورُدّ 2,000 دينار من «المصرف»»)، أو «بالدين كلّه». payment_refunded يعني
- * أنّ ساقاً واحدة على الأقلّ رُدّت، لا كلّها: «قُبض ثمّ رُدّ» حين لا يبقى شيء مدفوعاً وحده (مراجعة 0033 D3).
+ * الدفع عند البيع على الورقة: المدفوع بصناديقه، وما رُدّ من السيقان بصناديقه («ورُدّ 2,000 دينار من «المصرف»»)، أو «لا شيء». payment_refunded يعني أنّ
+ * ساقاً واحدة على الأقلّ رُدّت، لا كلّها: «قُبض ثمّ رُدّ» حين لا يبقى شيء مدفوعاً وحده (مراجعة 0033 D3).
  */
 function paidText(invoice: SaleInvoice): string {
   const refunded = invoice.payments.filter((leg) => leg.refunded);
@@ -162,86 +165,85 @@ export const INVOICE_LOGO =
   );
 
 /**
- * ورقة الفاتورة: رأس المنشأة واسم الفاتورة ورقمها ويومها، والزبون (أو «زبون نقديّ») والمخزن، والسطور بجدولها، والإجماليّ والخصم والصافي بالأرقام والكلمات،
- * والمدفوع الآن بصناديقه والباقي ديناً، والملاحظة والبائع، و«شكراً لتعاملكم»، وختم «ملغى» للملغاة. الأرقام من الخادم كما هي.
+ * ورقة الفاتورة (تُطبع وتُصوَّر لواتساب، وتُعرض في صفحة الفاتورة تحت «الورقة كما تصل الزبون»): رأس المنشأة واسم الفاتورة ورقمها (لا ينكسر) ويومها، والزبون
+ * (أو «زبون نقديّ») والمخزن، والسطور بإجماليّها ثمّ الخصم مرّة واحدة، و«الصافي» بارزاً بالأرقام والكلمات، والمدفوع عند البيع بصناديقه، و«الباقي» (المتبقّي
+ * الآن من قيدها) و«دين عند البيع» إن اختلفا، والملاحظة والبائع، و«شكراً لتعاملكم»، وختم «ملغى» للملغاة. الأرقام من الخادم كما هي. ألوانها من الرموز وحدها
+ * (لا .dark): الصورة والمعاينة بالسمة الفاتحة دائماً (doc.css و reportImage).
  */
 export function InvoicePaper({ invoice, orgName, paperRef }: { invoice: SaleInvoice; orgName: string; paperRef?: Ref<HTMLElement> }) {
   const voided = invoice.status === 'void';
+  const named = !invoice.walkIn && invoice.total > 0n;
   return (
-    <article ref={paperRef} className="card mx-auto flex w-full max-w-xl flex-col gap-3 p-4 sm:p-6" data-action="sale-paper">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
-        <div className="flex items-center gap-2">
+    <article ref={paperRef} className="card inv-sheet" data-action="sale-paper">
+      <header className="inv-head">
+        <div className="inv-org">
           {/* الشعار (أيقونة التطبيق مضمَّنةً، فتدخل الصورة والطباعة ولو بلا اتصال): بنمط مضمَّن لا بصنف جديد. */}
           <img src={INVOICE_LOGO} alt="" aria-hidden="true" width={40} height={40} style={LOGO_STYLE} data-action="sale-paper-logo" />
-          <p className="text-lg font-semibold" data-action="org-name">
+          <p className="inv-org-name" data-action="org-name">
             {orgName}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-0.5">
-          <h2 className="text-2xl font-semibold" data-action="sale-paper-title">
+        <div className="inv-title">
+          <h2 className="inv-title-text" data-action="sale-paper-title">
             {t('invoice.paper.title', 'فاتورة بيع')}
           </h2>
-          <p className="text-sm" data-action="sale-paper-no">
+          <p className="inv-meta" data-action="sale-paper-no">
             {t('voucher.no', 'رقم:')} <Num>{invoice.docNo}</Num>
           </p>
-          <p className="text-sm" data-action="sale-paper-date">
+          <p className="inv-meta" data-action="sale-paper-date">
             {t('voucher.date', 'التاريخ:')} <Num>{fmtDay(invoice.soldOn)}</Num>
           </p>
         </div>
       </header>
       {voided ? (
-        <div className="flex flex-col items-center gap-1 text-center" style={STAMP_STYLE} role="status" data-action="void-stamp">
+        <div className="inv-stamp" role="status" data-action="void-stamp">
           <strong className="text-2xl">{t('paper.void', 'ملغى')}</strong>
           {invoice.voidReason ? <span className="text-sm">{t('invoice.paper.void_reason', 'السبب: {reason}', { reason: invoice.voidReason })}</span> : null}
         </div>
       ) : null}
-      <PaperLine label={t('invoice.paper.customer', 'الزبون:')} action="sale-paper-customer">
-        {invoice.walkIn ? t('invoice.walk_in', 'زبون نقديّ') : invoice.partyName}
-      </PaperLine>
-      <PaperLine label={t('invoice.paper.store', 'من مخزن:')} action="sale-paper-store">
-        {invoice.warehouseName}
-      </PaperLine>
+      <div className="inv-parties">
+        <PaperLine label={t('invoice.paper.customer', 'الزبون:')} action="sale-paper-customer">
+          {invoice.walkIn ? t('invoice.walk_in', 'زبون نقديّ') : invoice.partyName}
+        </PaperLine>
+        <PaperLine label={t('invoice.paper.store', 'من مخزن:')} action="sale-paper-store">
+          {invoice.warehouseName}
+        </PaperLine>
+      </div>
       <InvoiceLinesTable invoice={invoice} caption={t('sale.doc.lines', 'سطور الفاتورة {doc}', { doc: invoice.docNo })} money={!voided} />
       {voided ? null : (
-        <>
-          {invoice.discountTotal > 0n ? (
-            <>
-              <PaperLine label={t('invoice.paper.gross', 'الإجمالي:')} action="sale-paper-gross">
-                {dinars(invoice.grossTotal)}
-              </PaperLine>
-              <PaperLine label={t('invoice.paper.discount', 'الخصم:')} action="sale-paper-discount">
-                {dinars(invoice.discountTotal)}
-              </PaperLine>
-            </>
-          ) : null}
-          <PaperLine label={t('invoice.paper.total', 'الصافي:')} action="sale-paper-total">
-            {dinars(invoice.total)}
-          </PaperLine>
-          <p className="rounded-2xl border border-line px-3 py-2 font-semibold" data-action="sale-paper-words">
-            {amountInWords(invoice.total)}
-          </p>
+        <div className="inv-sums">
+          <div className="inv-due">
+            <p className="inv-due-row" data-action="sale-paper-total">
+              <span>{t('invoice.paper.total', 'الصافي:')}</span>
+              <strong>{dinars(invoice.total)}</strong>
+            </p>
+            <p className="inv-words" data-action="sale-paper-words">
+              {amountInWords(invoice.total)}
+            </p>
+          </div>
           {invoice.total === 0n ? (
             // بلا مقابل (مراجعة 0033 D6): لا «مدفوع» ولا «دين».
             <PaperLine label={t('invoice.paper.payment', 'الدفع:')} action="sale-paper-paid">
               {t('invoice.paper.free', 'تسليم بلا مقابل')}
             </PaperLine>
           ) : (
-            <PaperLine label={t('invoice.paper.paid', 'المدفوع الآن:')} action="sale-paper-paid">
+            <PaperLine label={t('saledoc.paper.paid', 'المدفوع عند البيع:')} action="sale-paper-paid">
               {paidText(invoice)}
             </PaperLine>
           )}
-          {invoice.walkIn || invoice.total === 0n ? null : (
-            <PaperLine label={t('invoice.paper.debt', 'الباقي ديناً:')} action="sale-paper-debt">
+          {/* «دين عند البيع» حين قُبض منه شيء بعد البيع (open من قيدها، مراجعة 0033 D1): دين البيع لا يتغيّر بالقبض، و«الباقي» هو ما بقي الآن. */}
+          {named && invoice.open !== invoice.debt ? (
+            <PaperLine label={t('saledoc.paper.debt', 'دين عند البيع:')} action="sale-paper-debt">
               {dinars(invoice.debt)}
             </PaperLine>
-          )}
-          {/* ما بقي من دينها بعد قبض لاحق (open من قيدها، مراجعة 0033 D1): دين البيع لا يتغيّر بالقبض. */}
-          {!invoice.walkIn && invoice.total > 0n && invoice.open !== invoice.debt ? (
-            <PaperLine label={t('invoice.paper.open', 'المتبقّي الآن:')} action="sale-paper-open">
-              {dinars(invoice.open)}
-            </PaperLine>
           ) : null}
-        </>
+          {named ? (
+            <div className="inv-line inv-open" data-action="sale-paper-open">
+              <span className="inv-line-label">{t('saledoc.paper.open', 'الباقي:')}</span>
+              <strong className="inv-line-value">{dinars(invoice.open)}</strong>
+            </div>
+          ) : null}
+        </div>
       )}
       {invoice.note !== null ? (
         <p className="text-sm" data-action="sale-paper-note">
@@ -253,12 +255,12 @@ export function InvoicePaper({ invoice, orgName, paperRef }: { invoice: SaleInvo
           {t('invoice.paper.seller', 'البائع: {name}', { name: invoice.postedByName })}
         </p>
       ) : null}
-      <p className="pt-4 text-center font-semibold" data-action="sale-paper-thanks">
+      <p className="inv-thanks" data-action="sale-paper-thanks">
         {t('invoice.paper.thanks', 'شكراً لتعاملكم')}
       </p>
-      <div className="flex flex-wrap justify-between gap-6 pt-4" data-action="signatures">
+      <div className="inv-signs" data-action="signatures">
         {[t('invoice.sign.seller', 'البائع'), t('birds.sign.receiver', 'المستلم')].map((role) => (
-          <div key={role} className="text-sm" style={SIGN_STYLE}>
+          <div key={role} className="inv-sign">
             {role}
           </div>
         ))}

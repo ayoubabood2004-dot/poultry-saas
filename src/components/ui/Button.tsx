@@ -8,8 +8,10 @@ import { sound } from '../../lib/sound';
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 
+// الأساسيّ بالسمتين brand-600 (أبيض عليه 5.36:1): brand-500 في الداكن كان 3.86:1 تحت حدّ 4.5 (تدقيق المبيعات 2026-11-18)، والإصلاح بحذف صنفين
+// ما زالا مستعملين في غيره، فلا يكبر CSS الإقلاع.
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-brand-600 text-white shadow-soft hover:bg-brand-700 active:bg-brand-800 dark:bg-brand-500 dark:hover:bg-brand-400',
+  primary: 'bg-brand-600 text-white shadow-soft hover:bg-brand-700 active:bg-brand-800',
   secondary: 'border border-line-strong bg-surface-1 text-ink hover:bg-surface-2 active:bg-surface-3',
   ghost: 'text-ink-muted hover:bg-surface-2 hover:text-ink active:bg-surface-3',
   danger: 'bg-danger-600 text-white shadow-soft hover:bg-danger-700 active:bg-danger-800',

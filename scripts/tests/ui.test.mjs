@@ -448,9 +448,10 @@ export default async function (t) {
     t.same(acts('owner'), OWNER, 'المالك: الأزرار الأحد عشر بأولوية يومه (والإنتاج بالترتيب الافتراضي بعدها)');
     t.same(acts('manager'), OWNER, 'المدير: الأزرار الأحد عشر بأولوية يومه');
     t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler'], 'عامل قاعة بحقول اللحم: جولة اللحم بس');
-    t.same(acts('storekeeper', false), ['purchase', 'use', 'transfer', 'count', 'sale'], 'أمين المخزن: أزرار المخزن، والشراء أوّلها و«بِع» بعدها');
-    t.same(acts('accountant'), ['payout', 'payment', 'expense', 'purchase', 'sale'], 'المحاسب: الدفع والقبض والمصروف ثم الشراء والبيع');
-    t.same(acts('accountant', false), ['purchase', 'sale'], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات، ويبقى «سجّل شراء» و«بِع»');
+    // تصميم المبيعات ٨ (كلمة المالك 2026-11-18): «بِع» ثاني أفعال الأمين والمحاسب، لا خلف «أعمال أخرى».
+    t.same(acts('storekeeper', false), ['purchase', 'sale', 'use', 'transfer', 'count'], 'أمين المخزن: الشراء ثمّ «بِع» ثمّ أزرار المخزن');
+    t.same(acts('accountant'), ['payout', 'sale', 'payment', 'expense', 'purchase'], 'المحاسب: الدفع ثمّ «بِع» ثمّ القبض والمصروف والشراء');
+    t.same(acts('accountant', false), ['sale', 'purchase'], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات، ويبقى «بِع» و«سجّل شراء»');
     for (const role of ['viewer', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
     // مشغّل المعمل كان يفتح النظام ولا زرّ له (0015 بنت شاشاته ولم تفتح له مدخلًا): الإنتاج هو شغل يومه.
     t.same(acts('mill_operator', false), ['produce'], 'مشغّل المعمل: زرّ الإنتاج');
