@@ -138,9 +138,9 @@ export async function sendFile(file: File, title: string): Promise<SendOutcome> 
       return 'shared';
     } catch (error) {
       const name = (error as { name?: unknown } | null)?.name;
-      // InvalidStateError: مشاركة سابقة ما زالت مفتوحة (لمسة ثانية سريعة، مراجعة المبيعات A8): كالإلغاء، لا تنزيلاً.
-      if (name === 'AbortError' || name === 'InvalidStateError') return 'cancelled';
-      if (name === 'NotAllowedError') return 'blocked';
+      if (name === 'AbortError') return 'cancelled';
+      // InvalidStateError: المتصفّح لا يفتح المشاركة الآن (الصفحة تمنع لمستين بنفسها، مراجعة المبيعات A8 ثمّ Q10): كالرفض، الصورة جاهزة بضغطة جديدة.
+      if (name === 'NotAllowedError' || name === 'InvalidStateError') return 'blocked';
     }
   }
   downloadFile(file);

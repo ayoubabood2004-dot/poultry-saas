@@ -11,9 +11,10 @@ import { baseQty } from '../inventory/simple-shared';
 import { dinars, linesText } from './saleParts';
 
 // «ألغِ الفاتورة» (تصميم المبيعات ٦، كلمة المالك 2026-11-18): في صفحة الفاتورة تحت «⋯» — الإلغاء فعل نادر خطِر لا يجاور كلّ صفّ.
-// السبب إلزاميّ: البضاعة ترجع لوجباتها ويُعكس قيد الفاتورة. والمال كما يفعله الخادم (void_sale ← private.void_entry، مراجعة A3): كلّ ما دُفع للفاتورة
-// (عند البيع وما قُبض بعده) يُحرَّر من قيدها ويُوزَّع على أقدم ما على الزبون من فواتير مفتوحة أوّلاً، وما يبقى رصيد له؛ وما قُبض من الزبون النقديّ يُردّ من
-// صناديقه. فالتأكيد يسمّي المبلغين ولا يقول «يبقى رصيداً» وحده.
+// السبب إلزاميّ: البضاعة ترجع لوجباتها ويُعكس قيد الفاتورة. والمال كما يفعله الخادم (void_sale ← private.void_entry، مراجعة A3): كلّ ما سُدِّد من الفاتورة
+// (ما دُفع عند البيع، وما سُدِّد بعده: قبضٌ أو إعفاءٌ أو تسوية أو رصيد سابق للزبون) يُحرَّر من قيدها ويُوزَّع على أقدم ما على الزبون من فواتير مفتوحة في
+// الدفتر نفسه أوّلاً، وما يبقى رصيد له؛ وما قُبض من الزبون النقديّ يُردّ من صناديقه. فالتأكيد يسمّي المبلغين ولا يقول «قُبض» لما قد لا يكون قبضاً (Q5).
+// و«ملغاة من قبل» (already_void: ألغاها جهاز آخر) ليست خطأً: الفاتورة ملغاة، فتُغلق النافذة وتُقرأ (Q2).
 // والنتيجة المجهولة تجمّد السبب والمرجع (الإعادة بهما لا تُلغي مرّتين، ref_reused لسبب آخر بالمرجع نفسه)، ومحفوظة خارج النافذة (sessionStorage بمفتاح
 // المستخدم والمنشأة والفاتورة، والذاكرة إن تعذّر، مراجعة A11): إغلاق النافذة أو إعادة التحميل لا يضيّعها.
 
@@ -29,7 +30,7 @@ export interface VoidTarget {
   refundedAll: boolean;
   /** ما بقي مدفوعاً عند البيع (السيقان التي لم تُردّ)، أو null بلا مقبوض. */
   paid: Fils | null;
-  /** ما قُبض للفاتورة بعد البيع = الصافي − الباقي الآن − المدفوع عند البيع (صفر بلا قبض لاحق). */
+  /** ما سُدِّد من الفاتورة بعد البيع = الصافي − الباقي الآن − المدفوع عند البيع (قبضٌ أو إعفاءٌ أو تسوية أو رصيد سابق؛ صفر بلا شيء منها). */
   collectedLater: Fils;
   /** البضاعة التي ترجع: «100 كغم من «علف بادئ»»، «كمّيات «علف بادئ» في الفاتورة»، «موادّ الفاتورة (3 موادّ)». */
   goods: string;
@@ -102,26 +103,29 @@ export function storeVoidPending(key: string, value: VoidPending | null): void {
   }
 }
 
-/** جملة المال في التأكيد: كلّ ما دُفع للفاتورة يُحسب للزبون فيُسدَّد به أقدم ما عليه، وما يبقى رصيد له (A3). */
+/** جملة المال في التأكيد: كلّ ما سُدِّد من الفاتورة يُحسب للزبون فيُسدَّد به أقدم ما عليه في الدفتر نفسه، وما يبقى رصيد له (A3 وQ5). */
 function creditText(target: VoidTarget): string | null {
   const atSale = target.paid ?? 0n;
   const later = target.collectedLater;
   const party = target.partyName;
   if (atSale > 0n && later > 0n) {
-    return t('sales.void.money_both', 'وما دُفع لها ({total}: {atSale} عند البيع و{later} بعده) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة أوّلاً، وما يبقى منه رصيد له.', {
+    return t('saledoc.void.credit_both', 'وما سُدِّد منها ({total}: {atSale} دُفع عند البيع و{later} بعده) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة في الدفتر نفسه أوّلاً، وما يبقى منه رصيد له.', {
       total: dinars(atSale + later),
       atSale: dinars(atSale),
       later: dinars(later),
       party,
     });
   }
-  if (later > 0n) return t('sales.void.money_later', 'وما قُبض لها بعد البيع ({later}) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة أوّلاً، وما يبقى منه رصيد له.', { later: dinars(later), party });
-  if (atSale > 0n) return t('sales.void.money_at_sale', 'وما دُفع لها عند البيع ({atSale}) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة أوّلاً، وما يبقى منه رصيد له.', { atSale: dinars(atSale), party });
+  if (later > 0n) return t('saledoc.void.credit_later', 'وما سُدِّد منها بعد البيع ({later}) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة في الدفتر نفسه أوّلاً، وما يبقى منه رصيد له.', { later: dinars(later), party });
+  if (atSale > 0n) return t('saledoc.void.credit_at_sale', 'وما دُفع لها عند البيع ({atSale}) يُحسب لـ«{party}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة في الدفتر نفسه أوّلاً، وما يبقى منه رصيد له.', { atSale: dinars(atSale), party });
   return null;
 }
 
-/** «ألغِ البيع» بسبب إلزاميّ؛ onDone بجملة النتيجة من جواب الخادم. pendingKey: مفتاح حفظ الطلب المجهول ('' بلا منشأة). */
-export function SaleVoidDialog({ target, pendingKey, onCancel, onDone }: { target: VoidTarget; pendingKey: string; onCancel: () => void; onDone: (text: string) => void }) {
+/**
+ * «ألغِ البيع» بسبب إلزاميّ؛ onDone بجملة النتيجة من جواب الخادم (أو «أُلغيت من قبل»). pendingKey: مفتاح حفظ الطلب المجهول ('' بلا منشأة). onCancel(asked):
+ * أُرسل طلب قبل الإغلاق (جوابه مجهول أو رُفض)، فالصفحة تقرأ الفاتورة من جديد.
+ */
+export function SaleVoidDialog({ target, pendingKey, onCancel, onDone }: { target: VoidTarget; pendingKey: string; onCancel: (asked: boolean) => void; onDone: (text: string) => void }) {
   const id = useId();
   // طلب سابق لم يُعرف جوابه (أُغلقت النافذة أو أُعيد التحميل): يعود مجمَّداً بمرجعه وسببه.
   const [restored] = useState(() => readVoidPending(pendingKey));
@@ -131,6 +135,7 @@ export function SaleVoidDialog({ target, pendingKey, onCancel, onDone }: { targe
   const [sent, setSent] = useState<string | null>(restored?.reason ?? null);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState(restored !== null);
   const [failure, setFailure] = useState<unknown>(null);
   const missing = (sent ?? reason).trim() === '' ? t('sales.void.reason_required', 'اكتب سبب الإلغاء.') : null;
   const failed = failure ? (failure instanceof RejectedError && failure.hint ? failure.hint : `${describeError(failure).title}. ${describeError(failure).detail}`) : null;
@@ -174,12 +179,13 @@ export function SaleVoidDialog({ target, pendingKey, onCancel, onDone }: { targe
       confirmLabel={t('sales.void.confirm', 'ألغِ البيع')}
       busy={busy}
       action="confirm-void-sale"
-      onCancel={onCancel}
+      onCancel={() => onCancel(asked)}
       onConfirm={() => {
         setTried(true);
         if (missing) return;
         const text = (sent ?? reason).trim();
         setBusy(true);
+        setAsked(true);
         setFailure(null);
         purchases.voidSale(clientRef, target.id, text).then(
           (voided) => {
@@ -190,11 +196,17 @@ export function SaleVoidDialog({ target, pendingKey, onCancel, onDone }: { targe
               target.walkIn && kept > 0n
                 ? t('sales.void.done_kept_walk_in', ' والمقبوض {total} دينار باقٍ رصيداً في حساب الزبون النقديّ.', { total: fmtMoney(kept, 0) })
                 : credited > 0n
-                  ? t('sales.void.done_credited', ' وما دُفع لها ({total}) حُسب لـ«{party}»: يُسدَّد به أقدم فواتيره المفتوحة، وما يبقى رصيد له.', { total: dinars(credited), party: target.partyName })
+                  ? t('saledoc.void.done_credit', ' وما سُدِّد منها ({total}) حُسب لـ«{party}»: يُسدَّد به أقدم فواتيره المفتوحة في الدفتر نفسه، وما يبقى رصيد له.', { total: dinars(credited), party: target.partyName })
                   : '';
             onDone(`${t('sales.void.done', 'أُلغي البيع {no}.', { no: voided.docNo })}${tail}`);
           },
           (caught: unknown) => {
+            // ملغاة من قبل (جهاز آخر، أو إعادة بعد نتيجة مجهولة لقيت إلغاءً آخر): الفاتورة ملغاة، لا خطأ (Q2).
+            if (caught instanceof RejectedError && caught.code === 'already_void') {
+              storeVoidPending(pendingKey, null);
+              onDone(t('saledoc.void.already', 'أُلغيت الفاتورة {no} من قبل.', { no: target.docNo }));
+              return;
+            }
             setBusy(false);
             setFailure(caught);
             // نتيجة مجهولة (أو إعادة لها لم تُرفض رفضاً أكيداً): السبب والمرجع يتجمّدان ويُحفظان؛ والرفض الأكيد يفكّهما بمرجع جديد للمحاولة التالية.

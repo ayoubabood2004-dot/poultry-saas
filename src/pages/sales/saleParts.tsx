@@ -193,17 +193,14 @@ export function InvoicePaper({ invoice, orgName, paperRef }: { invoice: SaleInvo
         </div>
       </header>
       {voided ? (
+        // «ملغى» وحده: سبب الإلغاء داخليّ، في صفحة الفاتورة لا على ورقة الزبون (مراجعة Q6).
         <div className="inv-stamp" role="status" data-action="void-stamp">
           <strong className="text-2xl">{t('paper.void', 'ملغى')}</strong>
-          {invoice.voidReason ? <span className="text-sm">{t('invoice.paper.void_reason', 'السبب: {reason}', { reason: invoice.voidReason })}</span> : null}
         </div>
       ) : null}
       <div className="inv-parties">
         <PaperLine label={t('invoice.paper.customer', 'الزبون:')} action="sale-paper-customer">
           {invoice.walkIn ? t('invoice.walk_in', 'زبون نقديّ') : invoice.partyName}
-        </PaperLine>
-        <PaperLine label={t('invoice.paper.store', 'من مخزن:')} action="sale-paper-store">
-          {invoice.warehouseName}
         </PaperLine>
       </div>
       <InvoiceLinesTable invoice={invoice} caption={t('sale.doc.lines', 'سطور الفاتورة {doc}', { doc: invoice.docNo })} money={!voided} />

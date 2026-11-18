@@ -432,9 +432,17 @@ export function stripName(data: Pick<SalesOverview, 'from' | 'to' | 'today'>): s
 /**
  * عدد فواتير المدّة كلّها (المحفوظة والملغاة: الجدول والبحث يعدّان الشيء نفسه، مراجعة A10)، و«الملغاة منها» إن وُجدت؛ والمبالغ للمحفوظة وحدها.
  */
-export function stripCount(totals: SalesOverview['totals']): string {
+export function stripCount(totals: SalesOverview['totals']) {
   const all = invoicesText(totals.count + totals.voided);
-  return totals.voided > 0 ? t('saleslist.count_voided', '{all}، الملغاة منها: {voided}', { all, voided: fmtInt(totals.voided) }) : all;
+  if (totals.voided === 0) return all;
+  // «الملغاة منها: 2» لا تنكسر بعد النقطتين (مراجعة Q12).
+  return (
+    <>
+      {all}
+      {t('list.separator', '، ')}
+      <span className="sale-nowrap">{t('saleslist.count_voided_part', 'الملغاة منها: {voided}', { voided: fmtInt(totals.voided) })}</span>
+    </>
+  );
 }
 
 /**
@@ -452,6 +460,11 @@ function SalesStrip({ data, stale, wide }: { data: SalesOverview; stale: boolean
         <p className="sale-strip-head">
           <span className="sale-strip-name">{stripName(data)}</span>
           <span data-action="strip-count">{stripCount(data.totals)}</span>
+          {stale ? (
+            <span className="sale-stale-badge" data-action="strip-stale">
+              {t('saleslist.stale', 'تُقرأ المدّة المختارة…')}
+            </span>
+          ) : null}
         </p>
         {money ? (
           <dl className="sale-strip-main">
@@ -538,6 +551,19 @@ export default function SalesPage() {
   const show = pick<Show>(search.get('f'), SHOWS, 'all');
   // البحث يُكتب في حالة الصفحة (فورياً، فلا يتأخّر الحرف خلف انتقال الموجّه) ويُنسخ إلى الرابط لـ«رجوع» من الفاتورة.
   const [query, setQuery] = useState(() => search.get('q') ?? '');
+  // والرابط يغلب حين يتغيّر بغير البحث (الرجوع والتقدّم، وفواتير زبون من التقرير ثمّ الرجوع، مراجعة Q11): الخانة والتصفية كما في الرابط. والكتابة لا
+  // تغيّر إلّا q فلا تُعاد إليها حروفها.
+  const urlRest = (() => {
+    const rest = new URLSearchParams(search);
+    rest.delete('q');
+    return rest.toString();
+  })();
+  const [seenRest, setSeenRest] = useState(urlRest);
+  if (urlRest !== seenRest) {
+    setSeenRest(urlRest);
+    const urlQuery = search.get('q') ?? '';
+    if (urlQuery !== query) setQuery(urlQuery);
+  }
   const party = search.get('party');
   const partyName = search.get('pn');
   const urlFrom = search.get('from');
@@ -562,9 +588,11 @@ export default function SalesPage() {
   const loadReport = useCallback((): Promise<SalesReportWithBirds | null> => (ready && view !== 'list' ? birdSales.loadSalesReport(from, to, view) : Promise.resolve(null)), [ready, view, from, to]);
   const report = useLoad(loadReport, `${from}|${to}|${view}`);
   const shownList = useKept(list);
-  if (shownList && shownList.today !== serverToday) setServerToday(shownList.today);
   const shownReport = useKept(report);
-  if (shownReport && shownReport.today !== null && shownReport.today !== serverToday) setServerToday(shownReport.today);
+  // يوم الخادم يتقدّم ولا يرجع (مراجعة Q1): صفحة مفتوحة عبر منتصف ليل الخادم تحفظ قائمةً بيوم أمس وتقريراً بيوم اليوم، فأخذ كلّ منهما حين يختلف
+  // يقلب اليوم بينهما بلا نهاية (React #301). الأحدث من الجوابين وممّا عُرف قبلهما.
+  const newestDay = [shownList?.today ?? null, shownReport?.today ?? null].reduce<string | null>((known, day) => (day !== null && (known === null || day > known) ? day : known), serverToday);
+  if (newestDay !== serverToday) setServerToday(newestDay);
   const costs = Boolean(workspace?.canSeeCost);
   const canSell = workspace ? can(workspace.role, 'sale.record') : false;
   const failure = view === 'list' ? list.error : report.error;
@@ -664,7 +692,7 @@ export default function SalesPage() {
             tone="warning"
             title={t('invoice.pending.banner', 'لم يُعرف إن حُفظت فاتورة — أعد المحاولة؛ لن تُسجَّل مرّتين.')}
             action={
-              <Button size="sm" variant="secondary" onClick={() => navigate(newSalePath())} data-action="retry-pending-sale">
+              <Button size="sm" variant="secondary" className="sale-btn" onClick={() => navigate(newSalePath())} data-action="retry-pending-sale">
                 {t('purchase.retry', 'أعد المحاولة')}
               </Button>
             }
@@ -686,7 +714,7 @@ export default function SalesPage() {
           onChange={(next) => patch({ view: next === 'list' ? null : next })}
         />
       </div>
-      {/* المدّة والتصفية صفّ شرائح واحد (مراجعة D14): أوّل شاشة للجدول لا للأدوات. */}
+      {/* المدّة والتصفية شرائح تلتفّ ولا تُخفى (مراجعة D14 ثمّ Q12): صفّ واحد حين يتّسع، وصفّان قصيران في الهاتف. */}
       <div className="sale-chips" data-action="sales-chips">
         <Pills<Period>
           label={t('saleslist.period', 'المدّة')}
@@ -766,7 +794,9 @@ export default function SalesPage() {
             </div>
             {filtered ? (
               <p className="sale-hint" role="status" data-action="sales-found">
-                {t('saleslist.found', '{shown} من {all}', { shown: invoicesText(rows.length), all: invoicesText(shownList.rows.length) })}
+                {shownList.more
+                  ? t('saleslist.found_more', '{shown} من آخر {all} معروضة', { shown: invoicesText(rows.length), all: invoicesText(shownList.rows.length) })
+                  : t('saleslist.found', '{shown} من {all}', { shown: invoicesText(rows.length), all: invoicesText(shownList.rows.length) })}
               </p>
             ) : null}
             <SalesList data={shownList} rows={rows} filtered={filtered} wide={wide} listSearch={location.search} empty={empty} stale={listStale} />

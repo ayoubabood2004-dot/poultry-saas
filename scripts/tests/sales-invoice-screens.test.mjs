@@ -732,10 +732,10 @@ export default async function (t) {
       t.same(
         ['sale-paper-customer', 'sale-paper-store', 'sale-paper-total', 'sale-paper-paid', 'sale-paper-open', 'sale-paper-note', 'sale-paper-seller', 'sale-paper-thanks'].map(textOf),
         [
-          'الزبون:أبو علي', 'من مخزن:المخزن العام', 'الصافي:139,000 دينار',
+          'الزبون:أبو علي', null, 'الصافي:139,000 دينار',
           'المدفوع عند البيع:89,000 دينار', 'الباقي:50,000 دينار', 'ملاحظة: تسليم بالسيارة', 'البائع: علي', 'شكراً لتعاملكم',
         ],
-        'D1 الورقة: الزبون والمخزن والصافي والمدفوع (بلا أسماء صناديق المنشأة، مراجعة D24) والباقي والملاحظة والبائع',
+        'D1 الورقة: الزبون والصافي والمدفوع (بلا أسماء صناديق المنشأة ولا مخزنها الداخليّ، مراجعة D24 وQ6) والباقي والملاحظة والبائع',
       );
       t.eq(byAction('sale-paper-debt').length, 0, 'D1 «دين عند البيع» لا يُكرَّر حين يساوي الباقي');
       t.ok(textOf('sale-paper-words')?.length > 10 && textOf('org-name') === 'مشروع الدواجن' && textOf('sale-paper-no') === 'رقم: MS-2026-0007' && (first('sale-paper-logo')?.getAttribute('src') ?? '').startsWith('data:image/svg+xml,'), 'D1 الشعار (مضمَّناً، مراجعة D5) واسم المنشأة والرقم والمبلغ كتابةً');
@@ -813,8 +813,8 @@ export default async function (t) {
       await mount('/sales/s-7');
       t.same(
         [headersOf(CAPTION), footOf(CAPTION), byAction('sale-paper-total').length, byAction('collect-sale').length, textOf('void-stamp'), textOf('sale-status'), byAction('sale-more').length],
-        [['المادّة', 'الكمية', 'الوحدة'], [], 0, 0, 'ملغىالسبب: بيع مكرّر', 'ملغاة', 0],
-        'D5 الملغاة بختمها وسببها، بلا سعر ولا مبلغ ولا «استلم» ولا «⋯» (مراجعة 0024 L6)',
+        [['المادّة', 'الكمية', 'الوحدة'], [], 0, 0, 'ملغى', 'ملغاة', 0],
+        'D5 الملغاة بختمها (والسبب في الصفحة لا على ورقة الزبون، مراجعة Q6)، بلا سعر ولا مبلغ ولا «استلم» ولا «⋯» (مراجعة 0024 L6)',
       );
     });
 

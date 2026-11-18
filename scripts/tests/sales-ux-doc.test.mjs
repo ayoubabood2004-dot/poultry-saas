@@ -11,6 +11,7 @@
 // C التباين: ألوان doc.css رموز --sd- (الشرائح والباقي والروابط وقائمة الإلغاء والعلامة) ≥ 4.5:1 بالسمتين و«وضوح»، ولا لون مكتوب خارج كتل الرموز،
 //   والزرّ الأساسيّ brand-600 في الداكن، والحركة ≤ 400ms وتقف لطالب تقليل الحركة.
 // مراجعة ما بعد البيع (A2–A11 وS14 وD7–D24): N4–N6 وI2 وF5–F12 وP3 وL6–L11 وB4–B5، وكلّ منها فشل على 02d5907 قبل إصلاحه.
+// R المراجعة الثانية (Q1–Q12 وقراءة A10): كلّ خطوة R فشلت على 81dc029 قبل إصلاحها.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -71,7 +72,7 @@ async function bundle() {
     "export { saleDraftKey } from './src/pages/sales/saleDraft.ts';",
     "export { voidTargetOf, voidPendingKey } from './src/pages/sales/SaleVoidDialog.tsx';",
     "export { onlineStore } from './src/lib/online.ts';",
-    "export { UnknownOutcomeError } from './src/lib/errors.ts';",
+    "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -455,8 +456,8 @@ export default async function (t) {
       await click(first('void-sale'));
       t.eq(
         textOf('void-cash-kept'),
-        `وما قُبض لها بعد البيع (4,000 دينار) يُحسب لـ«${LATER.party_name}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة أوّلاً، وما يبقى منه رصيد له.`,
-        'F5 الفاتورة التي قُبض منها 4,000 بعد البيع: التأكيد يسمّيها ويقول أين تذهب',
+        `وما سُدِّد منها بعد البيع (4,000 دينار) يُحسب لـ«${LATER.party_name}»: يُسدَّد به أقدم ما عليه من فواتير مفتوحة في الدفتر نفسه أوّلاً، وما يبقى منه رصيد له.`,
+        'F5 وR5 الفاتورة التي سُدِّد منها 4,000 بعد البيع (قبضٌ أو إعفاءٌ أو تسوية، لا «قُبض» وحده، Q5): التأكيد يسمّيها ويقول أين تذهب في الدفتر نفسه',
       );
       const both = m.voidTargetOf(m.sales.parseSaleInvoice({ ...clone(LATER), paid: '3000', open: '2000' }));
       t.same([both.paid, both.collectedLater], [300000n, 500000n], 'F5 المدفوع عند البيع والمقبوض بعده = الصافي − الباقي − المدفوع');
@@ -865,6 +866,296 @@ export default async function (t) {
       t.same([all().filter((n) => n.localName === 'nav').length, byAction('tab-menu').length], [0, 0], 'B3 ولا شريط في /sales/new (شاشة البيع ترسم شريطها)');
     });
 
+    // ── R: المراجعة الثانية ────────────────────────────────────────────────────────────────────────────────────
+    const radio = (label) => all().find((n) => n.getAttribute('role') === 'radio' && n.textContent === label);
+    const cancelBtn = () => all().find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع');
+    const deferred = () => {
+      let resolve;
+      let reject;
+      const promise = new Promise((a, b) => {
+        resolve = a;
+        reject = b;
+      });
+      return { promise, resolve, reject };
+    };
+    /** أخطاء React أثناء fn (#301 «Too many re-renders» ونحوها): ما يُكتب في console.error وما يُرمى بلا التقاط. */
+    const reactErrors = async (fn) => {
+      const errors = [];
+      const before = console.error;
+      console.error = (...a) => errors.push(String(a[0]?.message ?? a[0]).slice(0, 160));
+      const onError = (e) => errors.push(`uncaught: ${String(e?.message ?? e).slice(0, 160)}`);
+      process.on('uncaughtException', onError);
+      try {
+        await fn();
+      } finally {
+        console.error = before;
+        process.off('uncaughtException', onError);
+      }
+      return errors;
+    };
+    const voidFromMenu = async (reason = 'خطأ') => {
+      await click(first('sale-more'));
+      await click(first('void-sale'));
+      type(first('void-sale-reason'), reason);
+      await settle();
+      await click(first('confirm-void-sale'));
+      await settle(30);
+    };
+
+    for (const [label, listDays, reportDays, start, then, want] of [
+      ['list from yesterday, then the report this morning', ['2026-11-17'], ['2026-11-18'], '/sales', async () => click(radio('حسب الزبون')), 'report'],
+      ['report from yesterday, then the list this morning', ['2026-11-17', '2026-11-18'], ['2026-11-17'], '/sales?view=party', async () => {
+        await click(radio('الفواتير'));
+        await settle(30);
+        await click(first('sales-period-week'));
+      }, 'list'],
+      ['control: one server day', ['2026-11-17'], ['2026-11-17'], '/sales', async () => click(radio('حسب الزبون')), 'report'],
+    ]) {
+      await step(`R1 ${label}`, async () => {
+        // Q1: صفحة مفتوحة عبر منتصف ليل الخادم: القائمة المحفوظة بيوم والتقرير بيوم بعده. يوم الخادم يتقدّم ولا يرجع، فلا تقلّب بلا نهاية.
+        let lists = 0;
+        let reports = 0;
+        fresh(MANAGER, {
+          sales_overview: (args) => ({ ...clone(AFTER), from: args.p_from, to: args.p_to, today: listDays[Math.min(lists++, listDays.length - 1)] }),
+          sales_report: (args) => ({ ...clone(R.sales_report.owner_party), from: args.p_from, to: args.p_to, today: reportDays[Math.min(reports++, reportDays.length - 1)] }),
+        });
+        const errors = await reactErrors(async () => {
+          await mount(start);
+          await settle(30);
+          await then();
+          await settle(60);
+        });
+        const newest = [...listDays, ...reportDays].sort().at(-1);
+        const last = want === 'report' ? named('sales_report').at(-1) : named('sales_overview').at(-1);
+        t.same(
+          [byAction(want === 'report' ? 'sales-report' : 'sales-table').length, errors, last?.p_to],
+          [1, [], newest],
+          `R1 ${label}: الصفحة تُرسم بلا خطأ، والمدّة من أحدث يوم للخادم (${newest})`,
+        );
+      });
+    }
+
+    await step('R2 voided on another device', async () => {
+      // Q2: «ألغِ» يلقى already_void: الفاتورة ملغاة، فتُغلق النافذة وتُقرأ، لا خطأ تحت «⋯» و«استلم دفعة».
+      fresh(MANAGER, {
+        sale_detail: (_args, n) => clone(n === 1 ? MULTI : D.owner_multi_after_void),
+        void_sale: () => {
+          throw new m.RejectedError('already_void', 'البيع FD-2026-0001 ملغى من قبل.');
+        },
+      });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      t.same(
+        [byAction('confirm-void-sale').length, textOf('sale-voided-note'), named('sale_detail').length, textOf('sale-status'), byAction('sale-more').length, byAction('collect-sale').length],
+        [0, 'أُلغيت الفاتورة FD-2026-0001 من قبل.', 2, 'ملغاة', 0, 0],
+        'R2 already_void: النافذة تُغلق، «أُلغيت من قبل»، وتُقرأ الفاتورة فتظهر ملغاة بلا «⋯» ولا «استلم دفعة»',
+      );
+    });
+
+    await step('R2b same-ref retry meets another void', async () => {
+      let n = 0;
+      fresh(MANAGER, {
+        sale_detail: (_args, reads) => clone(reads === 1 ? MULTI : D.owner_multi_after_void),
+        void_sale: () => {
+          n += 1;
+          if (n === 1) throw new m.UnknownOutcomeError('fetch_failed');
+          throw new m.RejectedError('already_void', 'البيع FD-2026-0001 ملغى من قبل.');
+        },
+      });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      await click(first('confirm-void-sale'));
+      await settle(30);
+      t.same(
+        [byAction('confirm-void-sale').length, store.has(m.voidPendingKey('u-manager', 'org-1', MULTI.id)), textOf('sale-status'), byAction('void-pending-banner').length],
+        [0, false, 'ملغاة', 0],
+        'R2b الإعادة بالمرجع نفسه تلقى already_void: الطلب المعلَّق يُمحى، والفاتورة ملغاة',
+      );
+    });
+
+    await step('R2c cancel after a refusal re-reads', async () => {
+      fresh(MANAGER, {
+        sale_detail: () => clone(MULTI),
+        void_sale: () => {
+          throw new m.RejectedError('period_locked', 'الفترة مقفلة.');
+        },
+      });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      const reads = named('sale_detail').length;
+      await click(cancelBtn());
+      await settle(20);
+      t.eq(named('sale_detail').length, reads + 1, 'R2c «لا، تراجع» بعد رفضٍ يقرأ الفاتورة من جديد (حالها الآن)');
+    });
+
+    await step('R3 a read lands while the void is on its way', async () => {
+      // Q3: نتيجة مجهولة ← «لا، تراجع» تبدأ قراءة ← إعادة الإلغاء والقراءة في الطريق ← تصل القراءة (قبل الإلغاء) ← ينجح الإلغاء ← تفشل القراءة بعده.
+      let reads = 0;
+      const r2 = deferred();
+      const v2 = deferred();
+      let voids = 0;
+      fresh(MANAGER, {
+        sale_detail: () => {
+          reads += 1;
+          if (reads === 1) return clone(MULTI);
+          if (reads === 2) return r2.promise;
+          throw new Error('fetch failed');
+        },
+        void_sale: () => {
+          voids += 1;
+          if (voids === 1) throw new m.UnknownOutcomeError('fetch_failed');
+          return v2.promise;
+        },
+      });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      await click(cancelBtn());
+      await settle(20);
+      await click(first('void-pending-retry'));
+      await settle(10);
+      await click(first('confirm-void-sale'));
+      await settle(10);
+      r2.resolve(clone(MULTI));
+      await settle(20);
+      v2.resolve(clone(R.void_sale.manager_multi_kept));
+      await settle(40);
+      t.same(
+        [textOf('sale-status'), byAction('sale-reread').length, byAction('sale-more').length, byAction('collect-sale').length, first('send-image')?.hasAttribute('disabled'), textOf('stale-badge')],
+        ['ملغاة', 1, 0, 0, true, 'قبل التعديل'],
+        'R3 القراءة التي بدأت قبل تمام الإلغاء قديمة ولو وصلت بعد النقر: «ملغاة» و«أعد القراءة» بلا «⋯» ولا «استلم دفعة»، والإرسال معطّل',
+      );
+    });
+
+    await step('R4 bottom bar back after a void from the done card', async () => {
+      fresh(MANAGER, { sale_detail: (_args, n) => clone(n === 1 ? MULTI : D.owner_multi_after_void), void_sale: () => clone(R.void_sale.manager_multi_kept) });
+      await mount(`/sales/${MULTI.id}?done=1`, { bar: true });
+      const before = all().filter((n) => n.localName === 'nav').length;
+      await voidFromMenu();
+      await settle(20);
+      t.same([before, byAction('sale-done').length, all().filter((n) => n.localName === 'nav').length], [0, 0, 1], 'R4 بطاقة النجاح زالت بالإلغاء فيعود الشريط السفليّ (من حالة الصفحة لا من ?done=1، Q4)');
+    });
+
+    await step('R5 void result wording', async () => {
+      fresh(MANAGER, { sale_detail: (_args, n) => clone(n === 1 ? MULTI : D.owner_multi_after_void), void_sale: () => clone(R.void_sale.manager_multi_kept) });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      t.eq(
+        textOf('sale-voided-note'),
+        'أُلغي البيع FD-2026-0001. وما سُدِّد منها (80,000 دينار) حُسب لـ«أبو أحمد»: يُسدَّد به أقدم فواتيره المفتوحة في الدفتر نفسه، وما يبقى رصيد له.',
+        'R5 جملة النتيجة: «ما سُدِّد منها» في الدفتر نفسه (Q5)',
+      );
+    });
+
+    await step('R6 nothing internal on the customer paper', async () => {
+      // Q6: لا سبب الإلغاء على الختم ولا «من مخزن» على الورقة؛ والملاحظة تُطبع، فالصفحة تقول ذلك؛ والإرسال للملغاة باقٍ (الصورة تقول «ملغى»).
+      fresh(MANAGER, { sale_detail: () => ({ ...clone(D.owner_multi_after_void), note: 'تسليم في الحقل', void_reason: 'الزبون يماطل' }) });
+      await mount(`/sales/${MULTI.id}`);
+      t.same(
+        [textOf('void-stamp'), byAction('sale-paper-store').length, textOf('sale-paper-note'), textOf('sale-by')?.startsWith('ملاحظة (تظهر على الفاتورة): تسليم في الحقل'), textOf('sale-void')?.includes('السبب: الزبون يماطل'), first('send-image')?.hasAttribute('disabled')],
+        ['ملغى', 0, 'ملاحظة: تسليم في الحقل', true, true, false],
+        'R6 الورقة بلا السبب ولا المخزن الداخليّ، والسبب في الصفحة، والملاحظة «تظهر على الفاتورة»، والإرسال متاح',
+      );
+    });
+
+    await step('R7 focus after the dialogs', async () => {
+      // Q7: ما فتح النافذة زال (بند القائمة، «أعد المحاولة»، «استلم دفعة» والفاتورة قديمة): التركيز إلى «⋯» أو العنوان، لا جسم الصفحة.
+      fresh(MANAGER, { sale_detail: (_args, n) => clone(n === 1 ? MULTI : D.owner_multi_after_void), void_sale: () => clone(R.void_sale.manager_multi_kept) });
+      await mount(`/sales/${MULTI.id}`);
+      await click(first('sale-more'));
+      await click(first('void-sale'));
+      await click(cancelBtn());
+      await settle(20);
+      const afterCancel = globalThis.document.activeElement?.getAttribute('data-action');
+      await voidFromMenu();
+      await settle(20);
+      t.same([afterCancel, globalThis.document.activeElement?.getAttribute('data-action'), first('sale-title')?.getAttribute('tabindex')], ['sale-more', 'sale-title', '-1'], 'R7 «لا، تراجع» إلى «⋯»، وبعد الإلغاء («⋯» زالت) إلى العنوان');
+    });
+
+    await step('R8 stale marks and button heights', async () => {
+      fresh(MANAGER, { sale_detail: (_args, n) => (n === 1 ? clone(MULTI) : Promise.reject(new Error('fetch failed'))), void_sale: () => clone(R.void_sale.manager_multi_kept) });
+      await mount(`/sales/${MULTI.id}`);
+      await voidFromMenu();
+      t.same(
+        [textOf('stale-badge'), first('sale-head')?.hasAttribute('data-stale'), (first('sale-reread')?.getAttribute('class') ?? '').includes('sale-btn')],
+        ['قبل التعديل', true, true],
+        'R8 الفاتورة القديمة بشارة «قبل التعديل»، و«أعد القراءة» بارتفاع 48 (sale-btn)',
+      );
+      await unmount();
+      store.set(m.voidPendingKey('u-manager', 'org-1', MULTI.id), JSON.stringify({ ref: 'r-1', reason: 'خطأ' }));
+      fresh(MANAGER, { sale_detail: () => clone(MULTI) });
+      await mount(`/sales/${MULTI.id}?done=1`);
+      t.same(
+        [(first('void-pending-retry')?.getAttribute('class') ?? '').includes('sale-btn'), first('sale-done')?.hasAttribute('data-stale')],
+        [true, false],
+        'R8 «أعد المحاولة» للإلغاء المعلَّق بارتفاع 48 أيضاً',
+      );
+    });
+
+    await step('R9 free delivery on the done card', async () => {
+      fresh(MANAGER, { sale_detail: () => ({ ...clone(MULTI), total: '0', paid: '0', debt: '0', open: '0', payments: [], can_collect: false }) });
+      await mount(`/sales/${MULTI.id}?done=1`);
+      t.same([textOf('done-free'), byAction('done-paid-all').length], ['بلا مقابل', 0], 'R9 التسليم بلا مقابل «بلا مقابل» لا «مدفوعة كلّها» بجانب «الصافي 0» (Q9)');
+    });
+
+    await step('R10 a real share refusal offers «أرسلها»', async () => {
+      setNavigator({ onLine: true, canShare: () => true, share: () => Promise.reject(Object.assign(new Error('Document is not fully active'), { name: 'InvalidStateError' })) });
+      fresh(MANAGER, { sale_detail: () => clone(MULTI) });
+      await mount(`/sales/${MULTI.id}`);
+      await wait(320);
+      await settle(20);
+      fire(first('send-image'), 'click', { button: 0 });
+      await settle(30);
+      t.same([byAction('image-ready').length, byAction('send-ready').length, byAction('download-ready').length], [1, 1, 1], 'R10 InvalidStateError والصفحة لا تشارك غيرها: «أرسلها» و«نزّلها» لا صمت (Q10)');
+    });
+
+    await step('R11 search box follows the URL back', async () => {
+      // Q11: «أبو» ← «حسب الزبون» ← زبون ← رجوع ← «الفواتير»: الرابط فيه q=أبو، فالخانة والقائمة به.
+      fresh(MANAGER, { sales_overview: () => clone(AFTER), sales_report: () => clone(R.sales_report.owner_party) });
+      await mount(['/', '/sales']);
+      await settle(20);
+      type(first('sales-search'), 'أبو');
+      await settle(20);
+      await click(radio('حسب الزبون'));
+      await settle(20);
+      await click(byAction('report-open').find((n) => n.textContent === 'مزرعة النور'));
+      await settle(20);
+      m.flushSync(() => globalThis.__ux.nav(-1));
+      await settle(20);
+      await click(radio('الفواتير'));
+      await settle(20);
+      const want = AFTER.rows.filter((row) => (row.party_name ?? '').includes('أبو')).map((row) => row.doc_no);
+      t.same(
+        [new URLSearchParams(where().split('?')[1] ?? '').get('q'), first('sales-search')?.value, listRows().map(([no]) => no)],
+        ['أبو', 'أبو', want],
+        'R11 بعد الرجوع: الخانة والقائمة كما في الرابط',
+      );
+    });
+
+    await step('R12 layout: one-line phrases and chips that wrap', async () => {
+      fresh(MANAGER, { sales_overview: () => clone(AFTER), sale_detail: () => clone(MULTI) });
+      await mount('/sales');
+      const keep = descendants(first('strip-count') ?? body()).find((n) => n.getAttribute('class') === 'sale-nowrap');
+      t.same(keep?.textContent, 'الملغاة منها: 2', 'R12 «الملغاة منها: 2» لا تنكسر بعد النقطتين');
+      await unmount();
+      fresh(MANAGER, { sale_detail: () => clone(MULTI) });
+      await mount(`/sales/${MULTI.id}`);
+      t.eq(first('sale-store')?.parentNode?.textContent, '\u{b7}\u{a0}رصيد العلف', 'R12 «·» مع المخزن بمسافة لا تنكسر، لا آخر السطر');
+      await unmount();
+      fresh(MANAGER, { sale_detail: () => clone(MULTI) });
+      await mount(`/sales/${MULTI.id}?done=1`);
+      t.ok(all().some((n) => n.getAttribute('class') === 'sale-done-who' && n.textContent.includes(' \u{b7}\u{a0}17/11/2026')), 'R12 «·» مع اليوم في بطاقة النجاح');
+      const chips = rule(DOC_CSS, '.sale-chips');
+      t.same([chips?.['flex-wrap'], chips?.['overflow-x'], rule(DOC_CSS, '.sale-pills')?.['flex-wrap']], ['wrap', undefined, 'wrap'], 'R12 الشرائح تلتفّ ولا تُقصّ (لا تمرير أفقيّ يخفي «ملغاة»)');
+    });
+
+    await step('R13 search count over the first 1,000', async () => {
+      fresh(MANAGER, { sales_overview: () => ({ ...clone(AFTER), more: true }) });
+      await mount('/sales');
+      type(first('sales-search'), 'مزرعه');
+      await settle();
+      t.eq(textOf('sales-found'), '5 فواتير من آخر 9 فواتير معروضة', 'R13 فوق 1,000 فاتورة: سطر البحث يعدّ المعروضة ويقول ذلك (قراءة A10)');
+    });
+
     // ── C: التباين والحركة ──────────────────────────────────────────────────────────────────────────────────────
     {
       const light = tokens(':root');
@@ -902,11 +1193,18 @@ export default async function (t) {
         ['void menu', 'sd-danger', 'surface-1'],
         ['primary fills', 'sd-on-brand', 'sd-brand'],
         ['done mark', 'sd-ok-mark', 'sd-ok-mark-bg'],
+        ['stale badge', 'sd-due-ink', 'sd-due-soft'],
       ];
       const pairs = Object.entries(modes).flatMap(([name, mode]) => PAIRS.map(([label, ink, bg]) => [`${label} ${name}`, contrast(value(mode, ink), value(mode, bg))]));
       const sheet = block('.inv-sheet');
       pairs.push(['void stamp (paper is always light)', contrast(rgb(sheet['sd-stamp'] ?? ''), [255, 255, 255])]);
       const outside = DOC_CSS.replace(/(?:\.dark\.clarity |\.dark |\.clarity )?\.sale-ui \{[^}]*\}/gu, '').replace(/\.inv-sheet \{[^}]*\}/u, '').replace(/\.sale-paper-slot \{[^}]*\}/u, '');
+      const badge = rule(DOC_CSS, '.sale-stale-badge');
+      t.same(
+        [rule(DOC_CSS, '[data-stale]')?.opacity, badge?.color, badge?.background],
+        [undefined, 'rgb(var(--sd-due-ink))', 'rgb(var(--sd-due-soft))'],
+        'R8 القراءة القديمة بشارة كاملة التباين لا بالخفوت (Q8: الخفوت أنزل «ملغاة» إلى 2.15 والصافي إلى 3.88)',
+      );
       t.same(outside.match(/rgb\(\d[^)]*\)|#[0-9a-f]{3,6}\b/giu) ?? [], [], 'C1 لا لون مكتوب خارج كتل الرموز (D21)');
       const weak = pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([name, ratio]) => `${name} ${ratio.toFixed(2)}`);
       t.same(weak, [], `C1 كلّ نصّ في شاشات ما بعد البيع ≥ 4.5:1 بالسمتين و«وضوح» (${pairs.length} زوجاً)`);

@@ -1,6 +1,6 @@
 import { ChevronDown, Ellipsis, FileDown, HandCoins, Plus, Send, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BackButton } from '../../components/ui/BackButton';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column, type FooterRow } from '../../components/ui/DataTable';
@@ -31,7 +31,7 @@ import { readVoidPending, SaleVoidDialog, storeVoidPending, voidPendingKey, void
 // بالرجوع ولا برابط منسوخ (مراجعة A9).
 // والصورة تُجهَّز فور التحميل في وقت الفراغ، فاللمسة الأولى تنادي navigator.share داخل النقرة بملفّ جاهز؛ ولمسة ثانية والمشاركة مفتوحة لا تفعل شيئاً (A8).
 // والصورة الجاهزة و«أرسلها» مربوطتان بالقراءة التي صُنعتا منها: بعد إلغاء أو قبض لا تُرسل صورة قديمة، والأفعال معطّلة حتى تصل قراءة جديدة، وفشلها يُقال
-// بـ«أعد القراءة» (مراجعة A2).
+// بـ«أعد القراءة» (مراجعة A2). و«قديمة» بأرقام القراءات لا بهويّة الكائن: قراءة بدأت قبل أن تتمّ الكتابة قديمةٌ ولو وصلت بعدها (مراجعة Q3).
 
 /**
  * طريق الرجوع من الرابط: الرئيسية، أو مسار في الحسابات أو المبيعات أو المخزن (الفاتورة بعد حفظها من «بِع» في ملفّ المادّة، مراجعة 0033 D9) وحده (بترميز
@@ -89,6 +89,9 @@ const paidSoFar = (sale: SaleInvoice): Fils => (sale.total > sale.open ? sale.to
 const paidShare = (sale: SaleInvoice): number => (sale.total > 0n ? Number((paidSoFar(sale) * 1000n) / sale.total) / 10 : 0);
 
 const money0 = (amount: Fils) => <Num>{fmtMoney(amount, 0)}</Num>;
+
+/** فاصل «·» ملتصق بما بعده (مسافة لا تنكسر)، فلا يبقى وحده آخر السطر (مراجعة Q12). */
+const SEP = ' \u{B7}\u{A0}';
 
 /** مفاتيح ما يتذكّره الجهاز لكلّ مستخدم: «الربح» مفتوحاً، وشرح «استلم دفعة» قُرئ مرّة. */
 const profitKey = (userId: string): string => `sales.profit.open:${userId}`;
@@ -237,12 +240,11 @@ function PaidBar({ invoice }: { invoice: SaleInvoice }) {
   );
 }
 
-/** «⋯»: قائمة صغيرة فيها «ألغِ الفاتورة» (تُغلق بالنقر خارجها وEsc، وEsc يعيد التركيز إلى «⋯»). */
-function MoreMenu({ onVoid }: { onVoid: () => void }) {
+/** «⋯»: قائمة صغيرة فيها «ألغِ الفاتورة» (تُغلق بالنقر خارجها وEsc، وEsc يعيد التركيز إلى «⋯»؛ ومرجع «⋯» من الصفحة لتعيد إليه التركيز بعد النافذة). */
+function MoreMenu({ onVoid, trigger }: { onVoid: () => void; trigger: RefObject<HTMLButtonElement> }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
   const item = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -262,7 +264,7 @@ function MoreMenu({ onVoid }: { onVoid: () => void }) {
       document.removeEventListener('pointerdown', away);
       document.removeEventListener('keydown', escape);
     };
-  }, [open]);
+  }, [open, trigger]);
   return (
     <div className="sale-more" ref={box}>
       <Button
@@ -301,15 +303,22 @@ function MoreMenu({ onVoid }: { onVoid: () => void }) {
   );
 }
 
-/** الكتابة التي لم تصل بعدها قراءة جديدة: الفاتورة كما كانت قبلها، ونوعها. */
+/** كتابة تمّت: آخر قراءة بدأت قبل تمامها (after)، ونوعها. كلّ قراءة رقمها حتى after قديمة بعدها. */
 interface Written {
-  of: SaleInvoice;
+  after: number;
   kind: 'void' | 'collect';
+}
+
+/** الفاتورة ورقم القراءة التي جاءت بها (برقم بدئها). */
+interface Read {
+  sale: SaleInvoice;
+  n: number;
 }
 
 export default function SaleDocPage() {
   const { id = '' } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
   const accounts = workspace ? can(workspace.role, 'accounts.view') : false;
@@ -318,12 +327,19 @@ export default function SaleDocPage() {
   const mayVoid = workspace ? can(workspace.role, 'void') : false;
   const userId = workspace?.userId ?? '';
   const orgName = workspace?.orgName ?? '';
-  const load = useCallback(() => loadSaleInvoice(id), [id]);
+  // كلّ قراءة برقم بدئها (مراجعة Q3): بعد كتابة لا تُعرض فاتورة قراءةٍ بدأت قبل تمامها كأنّها جديدة.
+  const reads = useRef(0);
+  const load = useCallback((): Promise<Read> => {
+    reads.current += 1;
+    const n = reads.current;
+    return loadSaleInvoice(id).then((sale) => ({ sale, n }));
+  }, [id]);
   const state = useLoad(load, id);
   // آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (بعد «استلم دفعة» أو الإلغاء).
-  const [kept, setKept] = useState<SaleInvoice | null>(null);
+  const [kept, setKept] = useState<Read | null>(null);
   if (state.data !== null && state.data !== kept) setKept(state.data);
-  const data = state.data ?? (kept && kept.id === id ? kept : null);
+  const shown = state.data ?? (kept && kept.sale.id === id ? kept : null);
+  const data = shown?.sale ?? null;
   const search = new URLSearchParams(location.search);
   const backParam = search.get('back');
   const back = saleBack(backParam);
@@ -331,6 +347,10 @@ export default function SaleDocPage() {
   const wide = useWide();
   const paperRef = useRef<HTMLElement>(null);
   const doneTitle = useRef<HTMLHeadingElement>(null);
+  const pageTitle = useRef<HTMLHeadingElement>(null);
+  const moreTrigger = useRef<HTMLButtonElement>(null);
+  // بعد إغلاق نافذة (الإلغاء أو «استلم دفعة») يعود التركيز إلى «⋯» أو العنوان: ما فتحها قد يكون زال (مراجعة Q7).
+  const [refocus, setRefocus] = useState(0);
   const [imaging, setImaging] = useState(false);
   // مشاركة مفتوحة الآن: لمسة ثانية لا تفتح أخرى ولا تنزّل الصورة (InvalidStateError، مراجعة A8). المرجع للّمستين في الحدث نفسه، والحالة للزرّ.
   const sharingNow = useRef(false);
@@ -350,8 +370,8 @@ export default function SaleDocPage() {
   const pendingKey = workspace ? voidPendingKey(workspace.userId, workspace.orgId, id) : '';
   const pendingVoid = readVoidPending(pendingKey);
 
-  // لم تصل قراءة بعد الكتابة: الفاتورة المعروضة قديمة.
-  const stale = data !== null && written !== null && written.of === data;
+  // لم تصل قراءة بدأت بعد الكتابة: الفاتورة المعروضة قديمة.
+  const stale = shown !== null && written !== null && shown.n <= written.after;
   const isVoid = data !== null && (data.status === 'void' || (stale && written?.kind === 'void'));
   const done = data !== null && search.get('done') === '1' && !isVoid;
   const canCollect = data !== null && mayCollect && data.canCollect && !isVoid && !data.walkIn && !stale;
@@ -403,6 +423,25 @@ export default function SaleDocPage() {
     const query = params.toString();
     history.replaceState(history.state, '', `${here.pathname}${query ? `?${query}` : ''}${here.hash ?? ''}`);
   }, [done]);
+
+  // بطاقة النجاح زالت (أُلغيت الفاتورة منها، أو فُتحت ملغاةً): ?done=1 يُمحى من الموجّه أيضاً، فالرابط وحالة الصفحة سواء ويعود الشريط السفليّ الذي يغيب
+  // في حالة النجاح (مراجعة D7 ثمّ Q4). بالموجّه هنا لا في الشريط: حزمته في التثبيت المسبق، وهذه الصفحة خارجه.
+  const doneGone = data !== null && search.get('done') === '1' && isVoid;
+  useEffect(() => {
+    if (!doneGone) return;
+    const params = new URLSearchParams(location.search);
+    params.delete('done');
+    const query = params.toString();
+    navigate({ pathname: location.pathname, search: query ? `?${query}` : '', hash: location.hash }, { replace: true });
+  }, [doneGone, location.pathname, location.search, location.hash, navigate]);
+
+  useEffect(() => {
+    if (refocus === 0) return;
+    // ما فتح النافذة باقٍ والتركيز عاد إليه: لا شيء؛ وإلّا فـ«⋯» أو العنوان، لا جسم الصفحة.
+    const active = document.activeElement;
+    if (active && active !== document.body && document.body.contains(active)) return;
+    (moreTrigger.current ?? doneTitle.current ?? pageTitle.current)?.focus?.({ preventScroll: true });
+  }, [refocus]);
 
   // شرح «استلم دفعة» عُرض: لا يُعرض ثانيةً على هذا الجهاز.
   useEffect(() => {
@@ -496,9 +535,10 @@ export default function SaleDocPage() {
     void renderAndSend();
   };
   const readyNow = ready !== null && ready.of === data && !stale ? ready : null;
-  // بعد كتابة (إلغاء أو قبض): الصورة القديمة لا تُرسل، والقراءة الجديدة تُنتظر (A2).
+  // بعد كتابة (إلغاء أو قبض): الصورة القديمة لا تُرسل، والقراءة الجديدة تُنتظر (A2). «قديمة» = كلّ قراءة بدأت حتى الآن، لا الفاتورة المعروضة
+  // حين فُتحت النافذة (قراءة وصلت أثناء الطلب ليست بعده، Q3).
   const afterWrite = (kind: Written['kind']) => {
-    setWritten({ of: data, kind });
+    setWritten({ after: reads.current, kind });
     setReady(null);
     setPrepared(null);
     preparedFor.current = null;
@@ -529,7 +569,13 @@ export default function SaleDocPage() {
       {t('saledoc.collect', 'استلم دفعة')}
     </Button>
   ) : null;
-  const moreMenu = canVoid || (pendingVoid && !isVoid) ? <MoreMenu onVoid={() => setVoiding(true)} /> : null;
+  const moreMenu = canVoid || (pendingVoid && !isVoid) ? <MoreMenu onVoid={() => setVoiding(true)} trigger={moreTrigger} /> : null;
+  // قراءة قديمة بشارة بنصّ كامل التباين لا بالخفوت (مراجعة Q8).
+  const staleBadge = stale ? (
+    <span className="sale-stale-badge" data-action="stale-badge">
+      {t('saledoc.stale.badge', 'قبل التعديل')}
+    </span>
+  ) : null;
   const nextLink = nextSale ? (
     <Link to={nextSale} className="sale-linkbtn" data-primary={nextFirst ? '' : undefined} data-action="sale-next">
       <Plus aria-hidden="true" className="size-5" />
@@ -553,7 +599,7 @@ export default function SaleDocPage() {
               tone="warning"
               title={t('saledoc.stale.failed', 'قد لا تكون الفاتورة محدّثة — أعد القراءة.')}
               action={
-                <Button size="sm" variant="secondary" onClick={state.retry} data-action="sale-reread">
+                <Button size="sm" variant="secondary" className="sale-btn" onClick={state.retry} data-action="sale-reread">
                   {t('saledoc.stale.retry', 'أعد القراءة')}
                 </Button>
               }
@@ -573,7 +619,7 @@ export default function SaleDocPage() {
             tone="warning"
             title={t('saledoc.void_pending', 'لم يُعرف إن أُلغيت هذه الفاتورة — أعد المحاولة؛ لن تُلغى مرّتين.')}
             action={
-              <Button size="sm" variant="secondary" onClick={() => setVoiding(true)} data-action="void-pending-retry">
+              <Button size="sm" variant="secondary" className="sale-btn" onClick={() => setVoiding(true)} data-action="void-pending-retry">
                 {t('purchase.retry', 'أعد المحاولة')}
               </Button>
             }
@@ -581,7 +627,7 @@ export default function SaleDocPage() {
         </div>
       ) : null}
       {done ? (
-        <section className="card sale-done print:hidden" aria-labelledby={`${data.id}-done`} data-action="sale-done">
+        <section className="card sale-done print:hidden" aria-labelledby={`${data.id}-done`} data-action="sale-done" data-stale={stale ? '' : undefined}>
           {moreMenu}
           <div className="sale-done-head" role="status">
             <span className="sale-done-mark" aria-hidden="true">
@@ -595,9 +641,11 @@ export default function SaleDocPage() {
           </div>
           <p className="sale-done-who">
             {data.walkIn ? t('invoice.walk_in', 'زبون نقديّ') : data.partyName}
-            {' · '}
+            {/* الفاصل مع ما بعده لا آخر السطر (مراجعة Q12). */}
+            {SEP}
             <Num>{fmtDay(data.soldOn)}</Num>
           </p>
+          {staleBadge}
           <dl className="sale-done-sums" data-cells={data.open === 0n ? '2' : '3'}>
             <div>
               <dt>{t('saledoc.net', 'الصافي')}</dt>
@@ -605,7 +653,12 @@ export default function SaleDocPage() {
                 <Num>{fmtMoney(data.total, 0)}</Num>
               </dd>
             </div>
-            {data.open === 0n ? (
+            {data.total === 0n ? (
+              <div>
+                <dt>{t('saledoc.state', 'الحالة')}</dt>
+                <dd data-action="done-free">{t('sales.free', 'بلا مقابل')}</dd>
+              </div>
+            ) : data.open === 0n ? (
               <div data-part="settled">
                 <dt>{t('saledoc.state', 'الحالة')}</dt>
                 <dd data-action="done-paid-all">{t('invoice.pay.paid', 'مدفوعة كلّها')}</dd>
@@ -639,7 +692,7 @@ export default function SaleDocPage() {
         </section>
       ) : (
         <>
-          <h1 className="sale-doc-title print:hidden" data-action="sale-title">
+          <h1 ref={pageTitle} tabIndex={-1} className="sale-doc-title print:hidden" data-action="sale-title">
             {t('invoice.paper.title', 'فاتورة بيع')} <bdi dir="ltr">{data.docNo}</bdi>
           </h1>
           <section className="card sale-receipt print:hidden" data-action="sale-head" data-stale={stale ? '' : undefined}>
@@ -658,12 +711,16 @@ export default function SaleDocPage() {
                 </p>
                 <p className="sale-meta">
                   <Num>{fmtDay(data.soldOn)}</Num>
-                  <span aria-hidden="true">·</span>
-                  <span data-action="sale-store">{data.warehouseName}</span>
+                  {/* الفاصل مع المخزن لا آخر السطر (مراجعة Q12). */}
+                  <span>
+                    <span aria-hidden="true">{'\u{B7}\u{A0}'}</span>
+                    <span data-action="sale-store">{data.warehouseName}</span>
+                  </span>
                 </p>
               </div>
               <StatusChip tone={tone} />
             </div>
+            {staleBadge}
             <p className={`sale-net ${isVoid ? 'sale-net-void' : ''}`} data-action="sale-net">
               <Num>{fmtMoney(data.total, 0)}</Num>
               <span className="sale-net-unit">{t('saledoc.dinar', 'دينار')}</span>
@@ -770,9 +827,13 @@ export default function SaleDocPage() {
       )}
       {data.note !== null || data.postedByName !== null ? (
         <p className="sale-hint print:hidden" data-action="sale-by">
-          {[data.note !== null ? t('invoice.paper.note', 'ملاحظة: {note}', { note: data.note }) : null, data.postedByName !== null ? t('invoice.paper.seller', 'البائع: {name}', { name: data.postedByName }) : null]
+          {[
+            // الملاحظة تُطبع على ورقة الزبون، فتقول ذلك هنا (مراجعة Q6).
+            data.note !== null ? t('saledoc.note_on_paper', 'ملاحظة (تظهر على الفاتورة): {note}', { note: data.note }) : null,
+            data.postedByName !== null ? t('invoice.paper.seller', 'البائع: {name}', { name: data.postedByName }) : null,
+          ]
             .filter((part): part is string => part !== null)
-            .join(t('saledoc.sep', ' · '))}
+            .join(SEP)}
         </p>
       ) : null}
       <button type="button" className="sale-disclosure print:hidden" aria-expanded={paperOpen} onClick={() => setPaperOpen(!paperOpen)} data-action="toggle-paper">
@@ -788,9 +849,13 @@ export default function SaleDocPage() {
           party={partyOf(data)}
           bookId={data.bookId}
           amount={inputMoney(data.open)}
-          onClose={() => setCollecting(false)}
+          onClose={() => {
+            setCollecting(false);
+            setRefocus((n) => n + 1);
+          }}
           onPosted={() => {
             setCollecting(false);
+            setRefocus((n) => n + 1);
             afterWrite('collect');
           }}
         />
@@ -799,14 +864,16 @@ export default function SaleDocPage() {
         <SaleVoidDialog
           target={voidTargetOf(data)}
           pendingKey={pendingKey}
-          onCancel={() => {
+          onCancel={(asked) => {
             setVoiding(false);
-            // طلب لم يُعرف جوابه: قراءة جديدة تقول إن أُلغيت (A11).
-            if (readVoidPending(pendingKey)) state.retry();
+            setRefocus((n) => n + 1);
+            // طُلب الإلغاء فلم يُعرف جوابه أو رُفض: قراءة جديدة تقول حال الفاتورة الآن (A11 ثمّ Q2: قد يكون جهاز آخر ألغاها).
+            if (asked || readVoidPending(pendingKey)) state.retry();
           }}
           onDone={(text) => {
             setVoiding(false);
             setVoided(text);
+            setRefocus((n) => n + 1);
             afterWrite('void');
           }}
         />

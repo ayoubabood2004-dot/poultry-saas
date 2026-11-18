@@ -365,9 +365,26 @@ button.sale-btn-icon {
   color: rgb(var(--sd-ok-ink));
 }
 
-/* ما يُعرض لقراءة قديمة (مدّة أخرى في الطريق، أو كتابة لم تُقرأ بعدها): يخفت ولا يُخفى. */
+/* ما يُعرض لقراءة قديمة (مدّة أخرى في الطريق، أو كتابة لم تُقرأ بعدها): إطار متقطّع وشارة بنصّ كامل التباين، لا خفوت (الخفوت أنزل النصّ تحت 4.5:1،
+   مراجعة Q8). */
 [data-stale] {
-  opacity: 0.55;
+  border-style: dashed;
+  border-color: rgb(var(--sd-due-ink));
+}
+.sale-stale-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  background: rgb(var(--sd-due-soft));
+  color: rgb(var(--sd-due-ink));
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.sale-nowrap {
+  white-space: nowrap;
 }
 
 /* «رجوع» بارتفاع 44 (الزرّ المشترك 40). */
@@ -847,25 +864,16 @@ button.sale-btn-icon {
 }
 
 /* المدّة والتصفية صفّ شرائح واحد يُمرَّر جانبياً حين يضيق، وبين المجموعتين فاصل. */
+/* المدّة والتصفية تلتفّان ولا تُخفى شريحة (مراجعة Q12): صفّ حين يتّسع، وإلّا كلّ مجموعة سطرها، والمجموعة الأطول من السطر تلتفّ داخلها. */
 .sale-chips {
   display: flex;
-  gap: 0.5rem;
-  margin-inline: -1rem;
-  padding-inline: 1rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.sale-chips::-webkit-scrollbar {
-  display: none;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
 }
 .sale-pills {
   display: flex;
-  flex-shrink: 0;
+  flex-wrap: wrap;
   gap: 0.375rem;
-}
-.sale-pills + .sale-pills {
-  padding-inline-start: 0.5rem;
-  border-inline-start: 1px solid rgb(var(--line-strong));
 }
 .sale-pill {
   flex-shrink: 0;
