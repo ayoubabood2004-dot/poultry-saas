@@ -40,14 +40,14 @@ export function boardView(value: string | null): BoardView {
   return value === 'day' ? 'day' : 'cards';
 }
 
-/** بطاقة مادّة واحدة: كبيرة وبسيطة، وكلّها رابط ملفّها. */
+/** بطاقة مادّة واحدة: كبيرة وبسيطة، وكلّها رابط ملفّها، بعرض خانتها كلّه (كانت بعرض نصّها فتتفاوت البطاقات في العمود الواحد). */
 export function ItemTile({ item }: { item: OverviewItem }) {
   const sell = item.money?.sellPrice ?? null;
   return (
     <Link
       to={itemFilePath(item.id)}
       data-action="open-item-file"
-      className="card flex flex-col gap-3 p-4 transition-colors hover:bg-surface-2"
+      className="card flex w-full flex-col gap-3 p-4 transition-colors hover:bg-surface-2"
       aria-label={t('board.open', 'افتح ملفّ {name}', { name: item.name })}
     >
       <div className="flex items-start justify-between gap-2">
