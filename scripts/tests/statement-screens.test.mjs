@@ -43,6 +43,7 @@ import {
   tablesIn,
   text,
 } from './money-b-dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ST = FIXTURE.party_statement_v2;
 const BIRDS = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'bird-sales-contract.json'), 'utf8'));
@@ -678,6 +679,24 @@ export default async function (t) {
       t.ok(text().includes('ويخرج') || text().includes('ويعود'), 'L تأكيد الإلغاء يسمّي حركة الصندوق العكسية');
     });
 
+    // ── E «الكلّ مثل المالك» (0034): كشف الجهة (تسوية وإعفاء وإلغاء) وفاتورة البيع (ألغِ) بجواب الخادم نفسه لكلّ دور كما للمالك ──
+    await step('E', async () => {
+      const at = (url, routes, rpc) => async (role) => {
+        env.fresh({ session: SESSION(role), rpc, tables });
+        await env.mount(url, routes);
+        const print = printOf(globalThis.document.body);
+        await env.unmount();
+        return print;
+      };
+      const customer = ST.customer;
+      await everyoneLikeOwner(t, 'E كشف الجهة', at(`/accounts/parties/${customer.party.id}`, statementRoute, { party_statement_v2: async () => clone(customer) }), ['data-action="adjust-book"', 'data-action="forgive-book"', 'data-action="void-entry"']);
+      const sale = FIXTURE.sale_detail;
+      // «ألغِ الفاتورة» في قائمة «المزيد» حين can_void؛ وحين يمنعه الخادم للمالك نفسه (فترة مقفلة) فجملة السبب لكلّ دور مثله.
+      await everyoneLikeOwner(t, 'E فاتورة البيع', at(`/sales/${sale.id}`, [['/sales/:id', m.SaleDocPage]], { sale_detail: async () => clone(sale) }), ['data-action="sale-more"']);
+      const locked = { ...clone(sale), can_void: false, void_block: 'period_locked' };
+      await everyoneLikeOwner(t, 'E فاتورة البيع في فترة مقفلة', at(`/sales/${sale.id}`, [['/sales/:id', m.SaleDocPage]], { sale_detail: async () => clone(locked) }), ['الفترة مقفلة']);
+    });
+
     // ── V: السندات ─────────────────────────────────────────────────────────────────────────────────────────────
     const voucherRoute = [['/accounts/voucher/:id', m.VoucherPage]];
     const voucherCases = Object.entries(FIXTURE.voucher_detail);
@@ -757,7 +776,7 @@ export default async function (t) {
       ['storekeeper', noCost, 'storekeeper', `/sales/${S.id}`],
     ]) {
       await step(`Q ${name}`, async () => {
-        env.fresh({ session: SESSION(role, { canSeeCost: role !== 'storekeeper' }), rpc: { sale_detail: async () => clone(sample) }, tables });
+        env.fresh({ session: SESSION(role, { canSeeCost: true }), rpc: { sale_detail: async () => clone(sample) }, tables });
         await env.mount(url, saleRoute);
         t.same(env.calls('sale_detail'), [{ p_sale: S.id }], `Q ${name}: النداء بالفاتورة`);
         t.ok(text().includes(`فاتورة بيع ${sample.doc_no}`), `Q ${name}: العنوان`);

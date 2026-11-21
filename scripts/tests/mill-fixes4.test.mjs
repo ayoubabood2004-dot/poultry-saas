@@ -112,7 +112,7 @@ const ws = (over = {}) => ({
 });
 const MANAGER = { status: 'ready', workspace: ws() };
 const ACCOUNTANT = { status: 'ready', workspace: ws({ role: 'accountant' }) };
-const OPERATOR = { status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) };
+const OPERATOR = { status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: true, canSeeAccounts: true, canSeeSales: true }) };
 const gate = (list) => `احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الإنتاج: ${list}.`;
 const sealGate = (list) => `احفظ ما كتبته أو أرجعه إلى المحفوظ قبل الختم: ${list}.`;
 

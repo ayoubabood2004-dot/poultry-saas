@@ -122,8 +122,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
-  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: !['hall_worker', 'mill_operator', 'hatchery_operator'].includes(role), invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true,
+  canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const sessionOf = (role, over) => ({ status: 'ready', workspace: ws(role, over), offline: false });
 const MANAGER = sessionOf('manager');
@@ -811,21 +811,25 @@ export default async function (t) {
     });
 
     await step('L10 first screen for the table', async () => {
-      // D14: الأمين يبدأ باليوم والمالك بالشهر، والمدّة والتصفية صفّ شرائح واحد.
-      fresh(sessionOf('storekeeper'), { sales_overview: (args) => ({ ...clone(R.sales_overview.storekeeper), from: args.p_from, to: args.p_to }) });
+      // D14 بعد 0034: المدّة الافتراضية من علم الخادم can_see_cost لا من الدور؛ وكلّ عضو يراه صحيحاً فيبدأ بالشهر كالمالك.
+      // و«اليوم» يبقى لجواب can_see_cost=false (خادم أقدم)، والمدّة والتصفية صفّ شرائح واحد.
+      fresh(sessionOf('owner', { canSeeCost: false }), { sales_overview: (args) => ({ ...clone(R.sales_overview.storekeeper), from: args.p_from, to: args.p_to }) });
       await mount('/sales');
       await settle(20);
       const chips = first('sales-chips');
       t.same(
         [named('sales_overview').at(-1)?.p_from === named('sales_overview').at(-1)?.p_to, first('sales-period-today')?.getAttribute('aria-pressed'), byAction('sales-period', chips).length, byAction('sales-show', chips).length],
         [true, 'true', 1, 1],
-        'L10 الأمين: «اليوم» افتراضياً، والمدّة والتصفية في صفّ واحد',
+        'L10 الخادم أجاب can_see_cost=false (خادم أقدم): «اليوم» افتراضياً، والمدّة والتصفية في صفّ واحد',
       );
       await unmount();
-      fresh(MANAGER, { sales_overview: (args) => ({ ...clone(AFTER), from: args.p_from, to: args.p_to }) });
-      await mount('/sales');
-      await settle(20);
-      t.eq(first('sales-period-month')?.getAttribute('aria-pressed'), 'true', 'L10 أدوار الكلفة: «الشهر» افتراضياً');
+      for (const who of [MANAGER, sessionOf('storekeeper')]) {
+        fresh(who, { sales_overview: (args) => ({ ...clone(AFTER), from: args.p_from, to: args.p_to }) });
+        await mount('/sales');
+        await settle(20);
+        t.eq(first('sales-period-month')?.getAttribute('aria-pressed'), 'true', `L10 ${who.workspace.role}: «الشهر» افتراضياً (0034: كالمالك)`);
+        await unmount();
+      }
     });
 
     await step('L11 open sale chip', async () => {
@@ -841,8 +845,8 @@ export default async function (t) {
       const items = (role, over = {}) => m.bottomItems(sessionOf(role, over)).map((item) => item.to);
       t.same(
         [items('storekeeper', { divisions: ['general'] }), items('accountant', { divisions: ['general'] }), items('owner')],
-        [['/', '/inventory', '/sales'], ['/', '/inventory', '/accounts', '/sales'], ['/', '/broiler/round', '/inventory', '/accounts']],
-        'B1 «المبيعات» في الشريط لمن يبيع حين يتّسع (والمالك بجولته وحساباته كما كان: خمسة بنود مع «القائمة»)',
+        [['/', '/inventory', '/accounts', '/sales'], ['/', '/inventory', '/accounts', '/sales'], ['/', '/broiler/round', '/inventory', '/accounts']],
+        'B1 «المبيعات» في الشريط لمن يبيع حين يتّسع (الأمين كالمحاسب بالحسابات، 0034؛ والمالك بجولته وحساباته كما كان: خمسة بنود مع «القائمة»)',
       );
       t.same(items('viewer', { divisions: ['general'] }).includes('/sales'), true, 'B1 المشاهد يبيع فله بند المبيعات (0034)');
       const keys = (role) => m.homeActions({ role, canSeeAccounts: true }).map((action) => action.key);
@@ -861,7 +865,7 @@ export default async function (t) {
     await step('B3 bottom bar hidden on the sell screen', async () => {
       fresh(sessionOf('storekeeper', { divisions: ['general'] }));
       await mount('/sales', { bar: true });
-      t.same(descendants(all().find((n) => n.localName === 'nav') ?? body()).filter((n) => n.localName === 'a').map((n) => n.getAttribute('href')), ['/', '/inventory', '/sales'], 'B3 الشريط في المبيعات بالبند');
+      t.same(descendants(all().find((n) => n.localName === 'nav') ?? body()).filter((n) => n.localName === 'a').map((n) => n.getAttribute('href')), ['/', '/inventory', '/accounts', '/sales'], 'B3 الشريط في المبيعات بالبند');
       await unmount();
       fresh(sessionOf('storekeeper', { divisions: ['general'] }));
       await mount('/sales/new', { bar: true });

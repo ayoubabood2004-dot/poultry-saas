@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const C = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-contract.json'), 'utf8'));
@@ -180,7 +181,7 @@ const overview = (today = '2026-11-07') => ({
 });
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer', 'feed_mill', 'general'],
-  canSeeCost: role === 'owner', canSeeAccounts: role === 'owner', canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner'), offline: false };
 const WORKER = { status: 'ready', workspace: ws('hall_worker'), offline: false };
@@ -377,15 +378,38 @@ export default async function (t) {
       t.ok(args && args.p_lines[0].id !== args.p_lines[1].id && args.p_lines.every((line) => UUID.test(line.id)), 'L ولكلّ سطر معرّفه');
     });
     await step('L عامل القاعة', async () => {
-      const rpcLog = fresh(WORKER, giveRpcs({ flock_issue_options: () => clone(S.flock_issue_options.hall_worker) }));
+      // 0034: الخادم يجيب كلّ عضو بجواب المالك نفسه (can_issue صحيحة ومخازن المنشأة كلّها)، فعامل القاعة يصرف من المخزن كالمالك.
+      fresh(WORKER, giveRpcs({ flock_issue_options: () => clone(S.flock_issue_options.owner) }));
       await mount(GIVE_URL);
-      t.same([byAction('give-store').length, byAction('give-cards').length, byAction('give-logs').length], [0, 0, 1], 'L عامل القاعة: لا صرف من المخزن، و«دواء ليس في المخزن» له');
+      t.same([byAction('give-store').length, byAction('give-cards').length, byAction('give-logs').length], [1, 1, 1], 'L عامل القاعة: الصرف من المخزن و«دواء ليس في المخزن» كالمالك (0034)');
+    });
+    await step('L الخادم بلا صرف', async () => {
+      // علم الخادم لا الدور: جواب can_issue=false (خادم أقدم؛ عيّنة 0019 الحقيقية بشكلها القديم) يخفي الصرف ويُبقي الدواء.
+      const rpcLog = fresh(OWNER, giveRpcs({ flock_issue_options: () => clone(S.flock_issue_options.hall_worker) }));
+      await mount(GIVE_URL);
+      t.same([byAction('give-store').length, byAction('give-cards').length, byAction('give-logs').length], [0, 0, 1], 'L الخادم أجاب can_issue=false (خادم أقدم): لا صرف من المخزن، و«دواء ليس في المخزن» باقٍ');
       await click(byAction('give-log-add')[0]);
       type(byAction('give-log-name')[0], 'فيتامين ب');
       await settle();
       await confirmGive();
       const [args] = named(rpcLog, 'give_to_flocks');
       t.same(args?.p_lines.map((line) => [line.kind, line.name, line.dose]), [['log', 'فيتامين ب', null]], 'L الجرعة الفارغة null');
+    });
+
+    // ── E «الكلّ مثل المالك» (0034): صفحة الإضافة (الصرف من المخزن و«دواء ليس في المخزن») بجواب المالك الحقيقيّ نفسه لكلّ دور ─────
+    await step('E', async () => {
+      await everyoneLikeOwner(
+        t,
+        'E صفحة الإضافة للقاعات',
+        async (role) => {
+          fresh({ status: 'ready', workspace: ws(role), offline: false }, giveRpcs());
+          await mount(GIVE_URL);
+          const print = printOf(body());
+          await unmount();
+          return print;
+        },
+        ['data-action="give-store"', 'data-action="give-logs"'],
+      );
     });
 
     // ── S: المخزن يُختار حين تكون المادّة في أكثر من مخزن، وافتراضاً أكثرها ─────────────────────────────────────────────────

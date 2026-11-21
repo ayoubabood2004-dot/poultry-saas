@@ -5,6 +5,7 @@
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -398,7 +399,7 @@ async function mutationGaps(t) {
     divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
     invites: [], subscription: 'active', confirmedAt: 0, ...over,
   });
-  const keeper = workspace({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: false, canSeeAccounts: false, canSeeSales: false });
+  const keeper = workspace({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: true, canSeeAccounts: true, canSeeSales: true });
   const store = (id, divisionId, kind, name, over = {}) => ({ id, version: 1, archived: false, divisionId, siteId: `s-${divisionId}`, name, kind, ...over });
   const org = {
     divisions: [
@@ -410,14 +411,16 @@ async function mutationGaps(t) {
   };
 
   // ── لوحة الأمين: ما تنادي قيماً ممنوعة عليه، ومنتقيها بنطاقه؛ ولوحة المدير تقرأ القيم ومجموعها (ضابط) ─────────────────────
+  // 0034: الأمين يرى الكلفة (can_see_cost صحيحة لكلّ عضو) فلوحته تقرأ القيم ومجموعها كلوحة المدير؛ وجواب can_see_cost=false (خادم أقدم)
+  // يقرأ الكميات وحدها بلا نداء قيم يرفضه ذلك الخادم.
   await withInventory({ session: { status: 'ready', workspace: keeper }, loads: { 'loadOrgSetup|': { data: org } } }, async (g) => {
     const html = at('/inventory/general');
-    t.ok(g.loaded.includes('loadStockOnHand') && !g.loaded.includes('loadStockValues') && !g.loaded.includes('loadStockValueTotals'), `لوحة الأمين: الكميات بس، بلا نداء قيم يرفضه الخادم (${g.loaded.join('، ')})`);
-    t.ok(html.includes('المخزن العام') && !html.includes('مخزن الأدوية'), 'لوحة الأمين: منتقي المخزن بمخازن نطاقه بس');
+    t.ok(['loadStockOnHand', 'loadStockValues', 'loadStockValueTotals'].every((name) => g.loaded.includes(name)), `لوحة الأمين: تقرأ القيم ومجموعها كالمالك (0034) (${g.loaded.join('، ')})`);
+    t.ok(html.includes('المخزن العام') && !html.includes('مخزن الأدوية'), 'لوحة المخزن العامّ: منتقي المخزن بمخازن الوحدة');
   });
-  await withInventory({ session: { status: 'ready', workspace: workspace() }, loads: { 'loadOrgSetup|': { data: org } } }, async (g) => {
+  await withInventory({ session: { status: 'ready', workspace: workspace({ canSeeCost: false }) }, loads: { 'loadOrgSetup|': { data: org } } }, async (g) => {
     at('/inventory/general');
-    t.ok(['loadStockOnHand', 'loadStockValues', 'loadStockValueTotals'].every((name) => g.loaded.includes(name)), `ضابط: لوحة المدير تقرأ القيم ومجموعها (${g.loaded.join('، ')})`);
+    t.ok(g.loaded.includes('loadStockOnHand') && !g.loaded.includes('loadStockValues') && !g.loaded.includes('loadStockValueTotals'), `الخادم أجاب can_see_cost=false (خادم أقدم): الكميات وحدها، بلا نداء قيم (${g.loaded.join('، ')})`);
   });
   t.same(inv.shared.scopedStores(inv.shared.storesOf(org), keeper).map((s) => s.id), ['w-gen', 'w-med'], 'scopedStores: الأمين بصفّ نطاق المخزن العامّ يرى كلّ المخازن (0034)');
   t.same(inv.shared.scopedStores(inv.shared.storesOf(org), null), [], 'scopedStores: بلا منشأة مؤكّدة لا مخزن');
@@ -594,6 +597,28 @@ async function reviewFixes(t, m, setup) {
     t.ok(zero.includes('<bdi dir="ltr">0.00</bdi>'), 'مادّة بلا رصيد (تحت الحدّ الأدنى بس) قيمتها 0.00 فعلاً');
   });
 
+  // ── E «الكلّ مثل المالك» (0034): لوحة المخزن بقيمها ومجموعها، بالجواب نفسه لكلّ دور كما للمالك ─────────────────────────────
+  await step('E لوحة المخزن', () =>
+    everyoneLikeOwner(
+      t,
+      'E لوحة المخزن',
+      (role) =>
+        withInventory(
+          {
+            session: ready({ role, userId: `u-${role}` }),
+            loads: {
+              'loadOrgSetup|': { data: org },
+              'loadStockOnHand|w-med': { data: boardOf([row('i-1', 'لقاح أ', 5_000n), row('i-2', 'لقاح ب', 7_000n)], 'i-2', 150) },
+              'loadStockValues|w-med:true': { data: new Map([['i-1', { available: 500_000n, expired: 0n }]]) },
+              'loadStockValueTotals|w-med:true': { data: { units: [], available: 500_000n, expired: 0n, total: 500_000n } },
+            },
+          },
+          async () => printOf(at('/inventory/medicine')),
+        ),
+      ['5,000.00'],
+    ),
+  );
+
   // ── بطاقة المادّة: الدفعات والحركات بصفحات («المزيد» بمؤشّر كل قائمة) و«N من المجموع»، والمستند رابط لمستنده ──────────────
   const lotRow = { lotId: 'l-1', qtyLeft: 5_000n, receivedOn: '2026-10-15', rootReceivedOn: '2026-10-15', ageDays: 15, bornAt: null, ageHours: null, expiryOn: null, expired: false, nearExpiry: false, sourceKind: 'transfer', sourceId: 't-1', source: 'TR-2026-0001', supplierLotNo: null };
   const moveRow = (over) => ({ moveId: 'mv-1', seq: 7n, movedOn: '2026-10-28', docKind: 'transfer', docId: 't-1', doc: 'TR-2026-0001', memo: 'تحويل إلى مخزن حقل 1', qty: 5_000n, running: 5_000n, lotId: 'l-1', reversesMoveId: null, reversed: false, money: null, ...over });
@@ -634,7 +659,7 @@ async function reviewFixes(t, m, setup) {
 
   // ── مخازن المعمل والمفقس من صفحتي وحدتيهما (الخطّة WP4: «mill and hatchery stores from their division pages») ─────────
   await step('مخازن المعمل والمفقس', () =>
-    withInventory({ session: ready({ role: 'mill_operator', scopes: [{ divisionId: 'd-mill' }], canSeeCost: false, canSeeAccounts: false, canSeeSales: false }), loads: { 'loadOrgSetup|': { data: org } } }, async () => {
+    withInventory({ session: ready({ role: 'mill_operator', scopes: [{ divisionId: 'd-mill' }], canSeeCost: true, canSeeAccounts: true, canSeeSales: true }), loads: { 'loadOrgSetup|': { data: org } } }, async () => {
       const mill = at('/inventory/mill');
       t.ok(mill.includes('مخازن معمل العلف') && mill.includes('مخزن المواد الأوّلية') && mill.includes('مخزن العلف') && !mill.includes('مخزن الأدوية'), 'مشغّل المعمل: /inventory/mill لوحة مخازن معمله بس');
       const hatchery = at('/inventory/hatchery');
@@ -669,7 +694,7 @@ async function reviewFixes(t, m, setup) {
   // ── طيّ مسوّدة التحويل بتأكيد يسمّيها ونتيجتها، مو بضغطة وحدة ───────────────────────────────────────────────────
   const transferDoc = { doc: { id: 't-9', kind: 'transfer', status: 'draft', version: 4, docNo: null, warehouseId: 'w-gen', toWarehouseId: 'w-farm', onDate: '2026-10-30', note: null, posted: false, voidReason: null }, openingLines: [], transferLines: [] };
   await step('طيّ مسوّدة التحويل', () =>
-    withInventory({ session: ready({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: false }), loads: { 'loadStockDoc|t-9#0': { data: transferDoc }, 'loadOrgSetup|': { data: org } } }, async (g) => {
+    withInventory({ session: ready({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: true }), loads: { 'loadStockDoc|t-9#0': { data: transferDoc }, 'loadOrgSetup|': { data: org } } }, async (g) => {
       at('/inventory/transfers/t-9');
       g.buttons.find((props) => props['data-action'] === 'discard-transfer')?.onClick?.();
       t.same(g.calls.filter(([name]) => name === 'discardDraft'), [], 'زرّ «اطوِ المسوّدة» ما يطوي بضغطة وحدة');

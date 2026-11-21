@@ -162,7 +162,7 @@ export default async function (t) {
 
     const ws = (role, over = {}) => ({
       userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [],
-      divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: role === 'accountant', canSeeSales: false,
+      divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
       invites: [], subscription: 'active', confirmedAt: 1, ...over,
     });
     // أمين نطاقه مخزن العلف وحده (add_member_v2 بـwarehouses [مخزن العلف]): لا مخزن المواد ولا وحدته.

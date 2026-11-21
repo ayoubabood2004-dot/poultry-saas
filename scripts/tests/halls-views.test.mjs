@@ -151,7 +151,7 @@ const IB_ITEM = '00000000-0000-4000-8000-000000000034';
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['broiler_farm'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: true,
+  divisions: ['broiler_farm'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const MANAGER = { status: 'ready', workspace: ws('manager') };

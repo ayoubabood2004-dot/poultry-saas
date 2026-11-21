@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'money-a.json'), 'utf8'));
@@ -1079,6 +1080,21 @@ export default async function (t) {
         t.same([tables.length > 0, wrapped, fixedWidth.length], [true, true, 0], `R4 ${url}: الجداول تتمرّر داخل غلافها، ولا عرض ثابت`);
         await unmount();
       }
+    });
+
+    // ── E «الكلّ مثل المالك» (0034): الخلاصة والصناديق وكشف الصندوق بجواب الخادم نفسه لكلّ دور كما للمالك ───────────────
+    await step('E', async () => {
+      const at = (url) => async (role) => {
+        fresh({}, role);
+        await mount(url);
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      // «الأرصدة عند البداية» في روابط الخلاصة (opening.post)، وإدارة الصناديق (cash_accounts.manage)، و«ألغِ» حركة الصندوق (void).
+      await everyoneLikeOwner(t, 'E الخلاصة /accounts', at('/accounts'), ['data-action="hub-openings"']);
+      await everyoneLikeOwner(t, 'E الصناديق /accounts/cash', at('/accounts/cash'), ['data-action="cash-day"']);
+      await everyoneLikeOwner(t, 'E كشف الصندوق', at(`/accounts/cash/${MM.box.account.id}`), ['data-action="void-cash-move"']);
     });
   } catch (error) {
     t.ok(false, `money-screens: رمى ${error?.stack ?? error}`);

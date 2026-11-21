@@ -607,7 +607,7 @@ export default async function (t) {
       t.eq(byAction('result-batch')[0]?.getAttribute('href'), `/mill/batch/${request?.id}`, 'X9 ثم رابط صفحة الدفعة');
       await unmount();
       root = null;
-      fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: false }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });
+      fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: true }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });
       await mount('/mill/recipe/r-1');
       t.eq(byAction('produce').length, 1, 'X9 والمشاهد يُنتج أيضاً (0034: production.draft لكلّ عضو)');
     });

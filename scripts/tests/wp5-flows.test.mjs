@@ -12,6 +12,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
@@ -91,7 +92,7 @@ export default async function (t) {
   const restore = installDom();
   try {
     const m = await bundle();
-    const ws = (role, over = {}) => ({ userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: role === 'storekeeper' ? [{ warehouseId: 'w-gen' }] : [], divisions: ['general'], canSeeCost: role !== 'storekeeper', canSeeAccounts: false, canSeeSales: false, invites: [], subscription: 'active', confirmedAt: 1, ...over });
+    const ws = (role, over = {}) => ({ userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: role === 'storekeeper' ? [{ warehouseId: 'w-gen' }] : [], divisions: ['general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over });
     const org = {
       divisions: [{ id: 'd-gen', kind: 'general', goLiveOn: '2026-10-01', frozen: true }],
       sites: [],
@@ -706,6 +707,20 @@ export default async function (t) {
       await settle();
       t.same([before, disabled(byAction('return-count')[0])], [false, true], 'C21: سبب مكتوب ما انحفظ يقفل «أعِد للعدّ» مثل «أعد الحساب» و«رحّل»');
       await unmount();
+    }
+
+    // ── E «الكلّ مثل المالك» (0034): قائمة الجرد («بانتظار المراجعة فقط» للمراجع) وجرد مسلَّم بمراجعته، بالجواب نفسه لكلّ دور ──
+    {
+      const at = (url, handlers) => async (role) => {
+        fresh(role, handlers());
+        await mount(url);
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      const list = () => ({ ...countHandlers(), listCounts: () => ({ rows: [countDoc({ status: 'submitted', submittedAt: '2026-10-30T09:00:00Z' })], total: 1, next: null }) });
+      await everyoneLikeOwner(t, 'E قائمة الجرد', at('/inventory/counts', list), ['data-action="filter-submitted"']);
+      await everyoneLikeOwner(t, 'E جرد بانتظار المراجعة', at('/inventory/counts/c-1', () => reviewHandlers(reviewOf(reviewLine()))), ['data-action="return-count"']);
     }
   } finally {
     restore();

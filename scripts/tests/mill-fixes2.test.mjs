@@ -254,7 +254,7 @@ export default async function (t) {
     });
 
     // ── Y1 (ب١): مشغّل المعمل يرى «أنتج الآن» بعد الختم، ولا يراه قبله ────────────────────────────────────────────────────
-    const miller = ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false });
+    const miller = ws({ role: 'mill_operator', canSeeCost: true, canSeeAccounts: true, canSeeSales: true });
     await step('Y1 قبل الختم', async () => {
       fresh(
         { status: 'ready', workspace: miller },

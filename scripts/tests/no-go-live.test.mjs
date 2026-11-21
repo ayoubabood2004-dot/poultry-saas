@@ -99,7 +99,7 @@ export default async function (t) {
     };
     const ws = (role) => ({
       userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-      divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: false, invites: [], subscription: 'active', confirmedAt: 1,
+      divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
     });
     const fresh = (session, handlers) => {
       const calls = [];

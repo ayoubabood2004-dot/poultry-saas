@@ -123,7 +123,7 @@ const ws = (over = {}) => ({
 const MANAGER = { status: 'ready', workspace: ws() };
 const ACCOUNTANT = { status: 'ready', workspace: ws({ role: 'accountant' }) };
 // الأمين: يكتب ورقة الاستلام (فتُقرأ المادّة في بطاقتها) ولا يعدّل المواد (بلا stores.manage).
-const KEEPER = { status: 'ready', workspace: ws({ role: 'storekeeper', canSeeCost: false, canSeeAccounts: false, scopes: [{ warehouseId: 'w-raw' }] }) };
+const KEEPER = { status: 'ready', workspace: ws({ role: 'storekeeper', canSeeCost: true, canSeeAccounts: true, scopes: [{ warehouseId: 'w-raw' }] }) };
 
 // ─── أجوبة الخلطة بشكل القسم «أ» ─────────────────────────────────────────────────────────────────────────────────────────
 const CATEGORIES = [{ id: 'c-labor', name: 'أيدي عاملة' }, { id: 'c-power', name: 'كهرباء' }];

@@ -272,7 +272,7 @@ export default async function (t) {
     await step('Z21 مشغّل المعمل', async () => {
       // القائمة من شرط editInputs، فتشمل مشغّل المعمل: بعد ختم الكلف يرى «أنتج الآن» (ب١)، والبوّابة نفسها تمنعه من ترحيل وزن لم يُحفظ.
       const server = batchServer({ costsConfirmed: true, expensesVisible: false });
-      const calls = fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, server.handlers);
+      const calls = fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: true, canSeeAccounts: true, canSeeSales: true }) }, server.handlers);
       await mount('/mill/batch/b-1');
       type(byAction('output-weight')[0], '985');
       await settle();
@@ -286,7 +286,7 @@ export default async function (t) {
     await step('Z21 من لا يرحّل', async () => {
       // مشغّل المعمل قبل ختم الكلف يرى «أنتج الآن» منذ 0034 (production.post لكلّ عضو)، فالجملة تحت الزرّ كما لغيره.
       const server = batchServer({ problemsOf: () => [{ code: 'costs_pending' }] });
-      fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, server.handlers);
+      fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: true, canSeeAccounts: true, canSeeSales: true }) }, server.handlers);
       await mount('/mill/batch/b-1');
       type(byAction('output-weight')[0], '985');
       await settle();
@@ -449,7 +449,7 @@ export default async function (t) {
     });
     await step('Z26 مشغّل المعمل', async () => {
       const server = batchServer({ problemsOf: () => [{ code: 'costs_pending' }] });
-      fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, server.handlers);
+      fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: true, canSeeAccounts: true, canSeeSales: true }) }, server.handlers);
       await mount('/mill/batch/b-1');
       t.eq(byAction('produced-on').length, 1, 'Z26 مشغّل المعمل يسوّد فيعدّل يوم الإنتاج (editInputs)');
     });

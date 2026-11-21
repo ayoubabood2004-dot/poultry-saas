@@ -300,10 +300,19 @@ export default async function (t) {
       await click(byAction('flock-open')[0] ?? null);
       t.same([Boolean(dialogTitled('فوج جديد في «قاعة 3»')), where()], [true, '/broiler/hall/h-3'], 'H2 «افتح فوجاً» يفتح نافذة الفوج لهذه القاعة');
     });
-    await step('H2 قاعة فارغة لغير المدير', async () => {
-      fresh('hall_worker', hallsHandlers(false));
+    await step('H2 قاعة فارغة لعامل القاعة', async () => {
+      // 0034: الخادم يعطي كلّ عضو can_manage صحيحة كالمالك، فعامل القاعة يفتح فوجاً ويعدّل القاعة.
+      fresh('hall_worker', hallsHandlers());
       await mount('/broiler/hall/h-3');
-      t.same([byAction('hall-empty').length, byAction('flock-open').length, byAction('hall-edit').length, byAction('hall-cycles').length], [1, 0, 0, 1], 'H2 عامل القاعة يرى القاعة فارغة ودوراتها، بلا «افتح فوجاً» ولا «عدّل القاعة»');
+      t.same([byAction('hall-empty').length, byAction('flock-open').length, byAction('hall-edit').length, byAction('hall-cycles').length], [1, 1, 1, 1], 'H2 عامل القاعة يرى القاعة فارغة ودوراتها، ومعها «افتح فوجاً» و«عدّل القاعة» كالمالك (0034)');
+      await click(byAction('flock-open')[0] ?? null);
+      t.ok(Boolean(dialogTitled('فوج جديد في «قاعة 3»')), 'H2 و«افتح فوجاً» يفتح نافذة الفوج لعامل القاعة');
+    });
+    await step('H2 الخادم بلا إدارة', async () => {
+      // علم الخادم لا الدور: جواب can_manage=false (خادم أقدم) يخفي «افتح فوجاً» و«عدّل القاعة».
+      fresh('owner', hallsHandlers(false));
+      await mount('/broiler/hall/h-3');
+      t.same([byAction('hall-empty').length, byAction('flock-open').length, byAction('hall-edit').length, byAction('hall-cycles').length], [1, 0, 0, 1], 'H2 الخادم أجاب can_manage=false (خادم أقدم): القاعة فارغة ودوراتها، بلا «افتح فوجاً» ولا «عدّل القاعة»');
     });
     await step('H2 قاعة مجهولة', async () => {
       const { calls } = fresh('manager', hallsHandlers());

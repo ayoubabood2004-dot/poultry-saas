@@ -145,8 +145,8 @@ const F1 = '00000000-0000-4000-8000-000000000301';
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
-  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true,
+  canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner'), offline: false };
 
@@ -2180,9 +2180,11 @@ export default async function (t) {
         const PLANNED = ['قيمة المخزون بتاريخ لكل وحدة، والصادر والوارد الداخلي بالكمية والقيمة.', 'ربح الأفواج والحقول، والربح لكل وحدة.', 'كلفة الفرخ ونسب الفقس لكل وجبة.'];
         const sessions = [
           ['owner', OWNER],
-          ['hall_worker', { status: 'ready', workspace: ws('hall_worker', { divisions: ['broiler'], canSeeAccounts: false, canSeeSales: false }), offline: false }],
+          ['hall_worker', { status: 'ready', workspace: ws('hall_worker', { divisions: ['broiler'] }), offline: false }],
           ['accountant', { status: 'ready', workspace: ws('accountant'), offline: false }],
-          ['storekeeper', { status: 'ready', workspace: ws('storekeeper', { divisions: ['general', 'medicine'], canSeeAccounts: false, canSeeSales: true }), offline: false }],
+          ['storekeeper', { status: 'ready', workspace: ws('storekeeper', { divisions: ['general', 'medicine'] }), offline: false }],
+          // علم الخادم لا الدور: جواب can_see_accounts/can_see_sales=false (خادم أقدم) يخفي البطاقتين والبندين معاً.
+          ['server_false', { status: 'ready', workspace: ws('owner', { canSeeAccounts: false, canSeeSales: false }), offline: false }],
           ['not_configured', { status: 'not_configured' }],
         ];
         const seen = [];
@@ -2203,12 +2205,13 @@ export default async function (t) {
           seen,
           [
             ['owner', [1, 1], [1, 1], 1, PLANNED],
-            ['hall_worker', [0, 0], [0, 0], 1, PLANNED],
+            ['hall_worker', [1, 1], [1, 1], 1, PLANNED],
             ['accountant', [1, 1], [1, 1], 1, PLANNED],
-            ['storekeeper', [0, 1], [0, 1], 0, PLANNED],
+            ['storekeeper', [1, 1], [1, 1], 0, PLANNED],
+            ['server_false', [0, 0], [0, 0], 1, PLANNED],
             ['not_configured', [1, 1], [1, 1], 1, PLANNED],
           ],
-          'R3 بطاقتا الذمم بأعمارها وتقرير المبيعات لمن يفتح الشريط «الحسابات» و«المبيعات» (الشرط نفسه)، و«تُبنى لاحقاً» ثلاثة لم تُبنَ',
+          'R3 بطاقتا الذمم بأعمارها وتقرير المبيعات لمن يفتح الشريط «الحسابات» و«المبيعات» (الشرط نفسه؛ 0034: لكلّ عضو كالمالك)، و«تُبنى لاحقاً» ثلاثة لم تُبنَ',
         );
         fresh(OWNER);
         await mount('/reports');

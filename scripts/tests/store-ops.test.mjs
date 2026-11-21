@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const S20 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'store-ops-0020.json'), 'utf8'));
@@ -134,7 +135,7 @@ const fileJson = (over = {}) => ({
 });
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: false,
+  divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const KEEPER = ws('storekeeper', { scopes: [{ warehouseId: 'w-raw' }] });
@@ -967,14 +968,27 @@ export default async function (t) {
         }
       });
     }
+    // ── E «الكلّ مثل المالك» (0034): ملفّ المادّة بماله و«دفتر المادّة والوجبات»، وتقرير المبيعات بالكلفة والربح، بالجواب نفسه لكلّ دور ──
+    await step('E', async () => {
+      const at = (url, rpcs) => async (role) => {
+        fresh({ status: 'ready', workspace: ws(role) }, {}, rpcs());
+        await mount(url);
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      await everyoneLikeOwner(t, 'E ملفّ المادّة', at('/inventory/items/i-corn', () => ({ item_file: async () => fileJson({ can_edit: true }) })), ['data-action="open-item-details"', '11,250,000']);
+      const sales = () => ({ sales_overview: async () => clone(S21.sales_overview.owner), sales_report: async (args) => clone(S21.sales_report[`owner_${args.p_group}`]) });
+      await everyoneLikeOwner(t, 'E تقرير المبيعات بالمادّة', at('/sales?view=item', sales), ['الكلفة', 'الربح', '60,000']);
+    });
     await step('R-today', async () => {
       // يوم الخادم غير يوم الجهاز: المدّة الافتراضية تُعاد منه.
       const later = { ...clone(S21.sales_overview.storekeeper), today: '2026-12-03', from: '2026-12-01', to: '2026-12-03' };
       const { rpcCalls } = fresh({ status: 'ready', workspace: KEEPER }, {}, { sales_overview: async () => later });
       await mount('/sales');
       await settle();
-      // الأمين يبدأ باليوم (مراجعة D14)، ويومه يوم الخادم لا الجهاز.
-      t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-03', p_to: '2026-12-03' }, 'المدّة الافتراضية للأمين «اليوم» من يوم الخادم');
+      // 0034: الأمين يرى الكلفة فيبدأ بالشهر كالمالك (مراجعة D14 تبقى لجواب can_see_cost=false)، ويومه يوم الخادم لا الجهاز.
+      t.same(named(rpcCalls, 'sales_overview').at(-1), { p_from: '2026-12-01', p_to: '2026-12-03' }, 'المدّة الافتراضية للأمين «الشهر» من يوم الخادم (0034: كالمالك)');
       await click(byAction('sales-period-range')[0]);
       await settle();
       t.eq(all().find((n) => n.id.endsWith('-to'))?.value, '03/12/2026', 'و«مدّة…» تبدأ بالمدّة المعروضة: حقل «إلى» يقول يوم الخادم');

@@ -4,6 +4,7 @@
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MEMBER_ROLES } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -600,9 +601,9 @@ export default async function (t) {
   const navLabels = (workspace) => m.visibleNav({ status: 'ready', workspace, offline: false }).map((item) => [item.label, item.to]);
   const ALL_DIVISIONS = { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] };
   t.same(
-    nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/broiler', '/inventory', '/reports', '/account', '/settings'],
-    'عامل القاعة: حقول اللحم و«المخزن» (0034: كلّ الأدوار) و«التقارير» وحسابه؛ والمبيعات والحسابات بعلامتي الخادم (هنا false)، وبلا موظفين',
+    nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true })),
+    ['/', '/broiler', '/inventory', '/sales', '/accounts', '/reports', '/account', '/settings'],
+    'عامل القاعة: حقول اللحم و«المخزن» والمبيعات والحسابات (0034: أعلام الخادم صحيحة لكلّ عضو) و«التقارير» وحسابه، وبلا موظفين',
   );
   // صفحة التخطيط (المفقس، PlannedPage) مسارها باقٍ بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
   // المخازن كلها؛ وحقول اللحم والبيض شغّالة؛ و«التقارير» صفحة مداخل (0027: تقرير القاعات اليومي وتقارير الدورات) لمن بنطاقه حقول لحم أو بيض.
@@ -617,9 +618,9 @@ export default async function (t) {
   // «المبيعات» شغّالة (0021، كلمة المالك 2026-11-08) بعلامة الخادم can_see_sales (يقرأ الفواتير، ويبيع منهم من له sale.record)، ولا لغيرهم.
   t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to === '/sales'), [['المبيعات', '/sales']], 'المالك: بند «المبيعات» بالشريط');
   t.same(
-    [['storekeeper', true], ['accountant', true], ['viewer', true], ['mill_operator', false], ['hall_worker', false]].map(([role, canSeeSales]) => nav(ws('u-1', { ...ALL_DIVISIONS, role, canSeeSales })).includes('/sales')),
-    [true, true, true, false, false],
-    '«المبيعات» بعلامة الخادم: للأمين والمحاسب والمشاهد، لا لمشغّل المعمل ولا لعامل القاعة',
+    [['storekeeper', true], ['accountant', true], ['viewer', true], ['mill_operator', true], ['hall_worker', true], ['owner', false]].map(([role, canSeeSales]) => nav(ws('u-1', { ...ALL_DIVISIONS, role, canSeeSales })).includes('/sales')),
+    [true, true, true, true, true, false],
+    '«المبيعات» بعلامة الخادم لا بالدور: لكلّ عضو (0034)، وجواب can_see_sales=false (خادم أقدم) يخفيها',
   );
   t.same(['/mill', '/inventory'].filter((to) => everything.includes(to)), ['/mill', '/inventory'], 'المالك: المعمل (خلطاته وإنتاجه) وتبويب المخزن بالشريط (0015 شغّال)');
   t.same(['/broiler', '/layers'].filter((to) => everything.includes(to)), ['/broiler', '/layers'], 'المالك: حقول اللحم والبيض بالشريط');
@@ -627,17 +628,25 @@ export default async function (t) {
   // بند واحد اسمه «المخزن»، والبنود الأربعة للمخازن بالوحدات مشطوبة (مساراتها تبقى تنفتح بالرابط).
   t.same(navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to.startsWith('/inventory')), [['المخزن', '/inventory']], 'المالك: بند واحد للمخزن اسمه «المخزن»، ولا بند لمخزن وحدة');
   t.same(
-    nav(ws('u-1', { role: 'mill_operator', divisions: ['feed_mill'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/mill', '/inventory', '/account', '/settings'],
-    'مشغّل المعمل: المعمل وتبويب المخزن (وداخله مخازن معمله)، بدل بند «مخازن المعمل»',
+    nav(ws('u-1', { role: 'mill_operator', divisions: ['feed_mill'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true })),
+    ['/', '/mill', '/inventory', '/sales', '/accounts', '/account', '/settings'],
+    'مشغّل المعمل: المعمل وتبويب المخزن (وداخله مخازن معمله)، بدل بند «مخازن المعمل»، والمبيعات والحسابات (0034)',
   );
   t.same(
-    nav(ws('u-1', { role: 'hatchery_operator', divisions: ['hatchery'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/inventory', '/account', '/settings'],
-    'مشغّل المفقس: تبويب المخزن (وداخله مخازن مفقسه)، بدل بند «مخازن المفقس»',
+    nav(ws('u-1', { role: 'hatchery_operator', divisions: ['hatchery'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true })),
+    ['/', '/inventory', '/sales', '/accounts', '/account', '/settings'],
+    'مشغّل المفقس: تبويب المخزن (وداخله مخازن مفقسه)، بدل بند «مخازن المفقس»، والمبيعات والحسابات (0034)',
   );
   t.ok(nav(ws('u-1')).includes('/staff'), 'المالك يشوف «الموظفون»');
   t.ok(!nav(ws('u-1', { role: 'manager' })).includes('/staff'), 'المدير ما يشوف «الموظفون» (المالك بس)');
   t.ok(!nav(ws('u-1', { role: 'accountant', canSeeAccounts: false })).includes('/accounts'), 'الحسابات تتبع علامة الخادم مو الدور وحده');
+  // «الكلّ مثل المالك» (0034): بنود الشريط لكلّ دور بأعلام الخادم نفسها = بنود المالك بترتيبها، عدا «الموظفون» (للمالك وحده).
+  const ownerNav = navLabels(ws('u-1', ALL_DIVISIONS)).filter(([, to]) => to !== '/staff');
+  t.ok(['/accounts', '/sales', '/inventory', '/mill', '/broiler', '/layers', '/reports'].every((to) => ownerNav.some(([, at]) => at === to)) && nav(ws('u-1', ALL_DIVISIONS)).includes('/staff'), 'ضابط: شريط المالك بالحسابات والمبيعات والمخزن والمعمل والحقول والتقارير، و«الموظفون»');
+  t.same(
+    MEMBER_ROLES.filter((role) => role !== 'owner').filter((role) => JSON.stringify(navLabels(ws('u-1', { ...ALL_DIVISIONS, role }))) !== JSON.stringify(ownerNav)),
+    [],
+    'كلّ دور غير المالك: بنود الشريط بنود المالك نفسها بترتيبها، بلا «الموظفون» (0034)',
+  );
   t.eq(m.visibleNav({ status: 'not_configured' }).length, nav(ws('u-1', { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] })).length, 'بلا قاعدة: الهيكل كلّه');
 }

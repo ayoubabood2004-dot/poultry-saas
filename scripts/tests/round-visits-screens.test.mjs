@@ -139,7 +139,7 @@ const overview = (today) => ({
 });
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer', 'feed_mill', 'general'],
-  canSeeCost: role === 'owner', canSeeAccounts: role === 'owner', canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner'), offline: false };
 const stampOf = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });

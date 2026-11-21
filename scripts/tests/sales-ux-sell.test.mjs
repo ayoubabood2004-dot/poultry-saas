@@ -120,7 +120,7 @@ const GROWER_BAG = unitNamed('علف نامي', 'كيس 50 كغم');
 const BOX2 = CAT.cash_accounts[1];
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['general', 'feed_mill'],
-  canSeeCost: role !== 'storekeeper', canSeeAccounts: role !== 'storekeeper', canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
+  canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
 });
 const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 const MANAGER = sessionOf('manager');

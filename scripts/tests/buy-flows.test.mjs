@@ -126,7 +126,7 @@ export default async function (t) {
 
     const ws = (role, over = {}) => ({
       userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [],
-      divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: role === 'accountant', canSeeSales: false,
+      divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
       invites: [], subscription: 'active', confirmedAt: 1, ...over,
     });
     const keeper = ws('storekeeper', { scopes: [{ warehouseId: 'w-raw' }] });
@@ -575,9 +575,15 @@ export default async function (t) {
       await mount('/inventory/items/i-corn/details');
       t.ok(text().includes('سعر الكلفة الآن') && byAction('edit-cost-price').length === 1, 'B6: المحاسب يراه ويكتبه (0034: stores.manage لكلّ عضو)');
       await unmount();
-      fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases({ sellPrice: null, costPrice: null }) }));
+      // 0034: الأمين يرى بطاقة سعر الكلفة ويكتبه كالمالك.
+      fresh({ status: 'ready', workspace: keeper }, handlers());
       await mount('/inventory/items/i-corn/details');
-      t.ok(!text().includes('سعر الكلفة'), 'B6: ودور بلا كلفة لا يرى بطاقة سعر الكلفة');
+      t.ok(text().includes('سعر الكلفة الآن') && byAction('edit-cost-price').length === 1, 'B6: أمين المخزن يراه ويكتبه كالمالك (0034)');
+      await unmount();
+      // علم الخادم لا الدور: جواب can_see_cost=false (خادم أقدم) يخفي البطاقة.
+      fresh({ status: 'ready', workspace: ws('owner', { canSeeCost: false }) }, handlers({ loadItemPurchases: () => purchases({ sellPrice: null, costPrice: null }) }));
+      await mount('/inventory/items/i-corn/details');
+      t.ok(!text().includes('سعر الكلفة'), 'B6: الخادم أجاب can_see_cost=false (خادم أقدم): لا بطاقة سعر الكلفة');
       await unmount();
     });
     await step('B6-lots', async () => {

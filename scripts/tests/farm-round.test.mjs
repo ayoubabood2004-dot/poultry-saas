@@ -760,7 +760,7 @@ export default async function (t) {
         o.sites[0].can_manage = false;
         return o;
       };
-      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-e', role: 'viewer', canSeeCost: false, canSeeAccounts: false }), offline: false }, { loadOverviewJson: viewerOverview }, async () => ({ kind: 'rejected', code: 'forbidden', hint: 'ليست لديك صلاحية.' }));
+      const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-e', role: 'viewer', canSeeCost: true, canSeeAccounts: true }), offline: false }, { loadOverviewJson: viewerOverview }, async () => ({ kind: 'rejected', code: 'forbidden', hint: 'ليست لديك صلاحية.' }));
       await mount('/broiler');
       t.ok(text().includes('قاعة 1'), 'E: ضابط: المشاهد يرى الحقل');
       t.eq(byAction('farm-round').length, 1, 'E: شاشة الحقل: زرّ الجولة للمشاهد');
@@ -796,7 +796,7 @@ export default async function (t) {
       m.onlineStore.set(true);
       m.updateStore.set((state) => ({ ...state, offlineReady: true }));
       const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
-      const worker = ws({ userId: 'u-g', role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false });
+      const worker = ws({ userId: 'u-g', role: 'hall_worker', divisions: ['broiler'], canSeeCost: true, canSeeAccounts: true });
       fresh({ status: 'ready', workspace: worker, offline: false }, { loadOverviewJson: () => new Promise(() => {}), loadHomeSummary: () => ({}) });
       await mount('/', { header: true });
       t.ok(chips().includes('غير جاهز دون اتصال'), `G: الرأس قبل أوّل قراءة للحقول: «غير جاهز دون اتصال» (${chips()})`);
