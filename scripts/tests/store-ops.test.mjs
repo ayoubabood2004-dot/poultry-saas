@@ -437,7 +437,7 @@ export default async function (t) {
       t.same([row.priced, row.canPrice, row.money?.unitPrice, row.money?.lineTotal], [false, true, null, 0n], 'S1 سطر الشراء بلا سعر: priced=false وسعره null');
       t.same([unpriced.stores.map((x) => [x.name, x.available]), unpriced.transferTargets.map((x) => x.name)], [[['مخزن المواد الأوّلية', 1_000_000n]], ['مخزن المواد الأوّلية', 'مخزن مواد ثانٍ']], 'S1 أين المادّة بمتاحها، ووجهات النقل');
       const viewer = m.parseItemFile(S20.item_file.viewer_unpriced);
-      t.same([viewer.money, viewer.canSell, viewer.stores.length], [null, false, 0], 'S1 المشاهد بلا مال ولا أفعال');
+      t.same([viewer.money !== null, viewer.canSell, viewer.stores.length], [true, true, 1], 'S1 المشاهد بماله وأفعاله ومخازنه كالمالك (0034: «الكلّ مثل المالك»)');
       const fresh0 = m.parseItemFile(S20.item_file.manager_fresh_before_delete);
       t.same([fresh0.canDelete, fresh0.uses.length, fresh0.canEdit], [true, 0, true], 'S1 مادّة لم تُستعمل: «احذف» للمدير');
       const bought = m.parseRecordPurchase(S20.record_purchase_unpriced.storekeeper);
@@ -445,7 +445,7 @@ export default async function (t) {
       const priced = m.parsePricedPurchase(S20.price_purchase.storekeeper);
       t.same([priced.docNo, priced.usedBeforePricing, priced.money], ['PU-2026-0001', true, { unitPrice: 50_000n, lineTotal: 50_000_000n }], 'S1 «أكمل السعر»: المجموع بالفلس، وصُرف منه قبل السعر');
       const converted = m.parseRecordedConversion(S20.record_conversion.owner);
-      t.same([converted.docNo, converted.from.qty, converted.from.baseUnit, converted.to.qty, converted.to.warehouseName, converted.value], [S20.record_conversion.owner.doc_no, 20_000n, 'pc', 1_000_000n, 'مخزن العلف', 20_000_000n], 'S1 التحويل: 20 قطعة ← 1,000 كغم بالقيمة نفسها');
+      t.same([converted.docNo, converted.from.qty, converted.from.baseUnit, converted.to.qty, converted.to.warehouseName, converted.value], [S20.record_conversion.owner.doc_no, 20_000n, 'pc', 1_000_000n, 'رصيد العلف', 20_000_000n], 'S1 التحويل: 20 قطعة ← 1,000 كغم بالقيمة نفسها');
       const moved = m.parseRecordedTransfer(S20.record_transfer.storekeeper);
       t.same([moved.docNo, moved.qty, moved.fromName, moved.toName], ['TR-2026-0001', 100_000n, 'مخزن المواد الأوّلية', 'مخزن مواد ثانٍ'], 'S1 النقل بخطوة واحدة');
       const overview = m.parseItemsOverview(S20.items_overview.storekeeper);
@@ -562,8 +562,9 @@ export default async function (t) {
       await mount(`/inventory/items/${bulk.item.id}`);
       await click(byAction('move-item')[0]);
       const from = byAction('move-from-store')[0];
-      t.same((from?.options ?? []).map((o) => o.textContent).slice(1), ['مخزن العلف (600 كغم)', 'مخزن علف ثانٍ (100 كغم)'], 'S4 مخزنان: الاختيار بمتاح كلّ واحد');
-      choose(from, bulk.stores[1].warehouse_id);
+      // 0034: الأمين يرى مخزن الحقل أيضاً (صفّ نطاقه لا يحجب)، فالمادّة في ثلاثة مخازن.
+      t.same((from?.options ?? []).map((o) => o.textContent).slice(1), ['رصيد العلف (600 كغم)', 'مخزن حقل الأمل (300 كغم)', 'مخزن علف ثانٍ (100 كغم)'], 'S4 مخازن المادّة: الاختيار بمتاح كلّ واحد');
+      choose(from, bulk.stores.find((x) => x.name === 'مخزن علف ثانٍ').warehouse_id);
       await settle();
       const to = (byAction('move-to-store')[0]?.options ?? []).map((o) => o.textContent).slice(1);
       t.ok(!to.includes('مخزن علف ثانٍ') && to.length === bulk.transfer_targets.length - 1, `S4 والوجهات بلا مخزن الخروج (${to.join('، ')})`);
@@ -601,7 +602,7 @@ export default async function (t) {
       await submit();
       const [args] = named(rpcCalls, 'record_conversion');
       t.same([args?.p_from_item, args?.p_from_qty, args?.p_to_item, args?.p_to_qty, args?.p_from_warehouse, args?.p_to_warehouse], [conv.from.item_id, '20.000', conv.to.item_id, '1000.000', null, null], 'S5 record_conversion: المخزنان يختارهما الخادم');
-      t.ok(text().includes(`حُوِّل 20 قطعة من «علف بادئ أكياس» في «مخزن العلف» إلى 1,000 كغم من «علف بادئ سائب» في «مخزن العلف» (${conv.doc_no}).`), `S5 الجملة من جواب الخادم (${text().slice(0, 300)})`);
+      t.ok(text().includes(`حُوِّل 20 قطعة من «علف بادئ أكياس» في «رصيد العلف» إلى 1,000 كغم من «علف بادئ سائب» في «رصيد العلف» (${conv.doc_no}).`), `S5 الجملة من جواب الخادم (${text().slice(0, 300)})`);
     });
     await step('S5-same-unit', async () => {
       fresh({ status: 'ready', workspace: KEEPER }, suppliers, { item_file: async () => clone(SK), items_overview: async () => clone(S20.items_overview.storekeeper) });
@@ -677,7 +678,7 @@ export default async function (t) {
     await step('S6-viewer', async () => {
       fresh({ status: 'ready', workspace: ws('viewer') }, {}, { item_file: async () => clone(S20.item_file.viewer_unpriced) });
       await mount(`/inventory/items/${SK_ID}`);
-      t.same(['record-purchase', 'sell-item', 'convert-item', 'move-item', 'delete-item', 'hide-item', 'file-actions'].map((action) => byAction(action).length), [0, 0, 0, 0, 0, 0, 0], 'S6 المشاهد: بلا صفّ أفعال');
+      t.same(['record-purchase', 'sell-item', 'convert-item', 'move-item', 'delete-item', 'hide-item', 'file-actions'].map((action) => byAction(action).length), [1, 1, 1, 1, 1, 0, 1], 'S6 المشاهد: صفّ الأفعال كالمالك (0034)، و«احذف» واحد للمادّة الظاهرة');
     });
 
     // ── S7: بطاقة المادّة تقول «مشتريات بلا سعر» ───────────────────────────────────────────────────────────────────

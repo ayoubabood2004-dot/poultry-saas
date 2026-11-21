@@ -6,16 +6,17 @@
   "prev": true,
   "sites": [
    {
-    "id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "d3920011-bde8-4359-8a0c-a9a4d399ee37",
+       "id": "3ae9b989-4702-4336-a360-028328cb5345",
        "age": 11,
        "fcr": null,
+       "gas": null,
        "age0": 0,
        "dead": null,
        "hdep": null,
@@ -67,16 +68,17 @@
        "left_in_hall_unweighed": 1,
        "feed_given_cum_unweighed": 1
       },
-      "hall_id": "5f90afeb-3030-445d-8b5a-9bb4877fa44e",
+      "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "0fe69cdd-96e8-47c8-9d95-c09317dfa378",
+       "id": "0c9f0f6e-0569-401f-973d-6d23243fe0f1",
        "age": 9,
        "fcr": "1.629",
+       "gas": null,
        "age0": 1,
        "dead": 3,
        "hdep": null,
@@ -93,20 +95,22 @@
          "qty": "10",
          "name": "زيت",
          "doc_no": "FI-2026-0011",
-         "item_id": "b901eae3-fc49-4038-8191-1ed84f89b668",
-         "issue_id": "0f537156-5931-4c7b-b796-06a7d88b1817",
+         "item_id": "d276a786-74b0-469f-b1cd-c970a5139fcf",
+         "issue_id": "a26c9c97-12be-4f68-8719-58af6d364f02",
          "base_unit": "L",
-         "cost_kind": "feed"
+         "cost_kind": "feed",
+         "issued_on": "2026-11-12"
         },
         {
          "kg": null,
          "qty": "2",
          "name": "علف بلا وزن",
          "doc_no": "FI-2026-0012",
-         "item_id": "b37d2b5e-52f3-46de-8658-e9650ee58ee1",
-         "issue_id": "0bd53c8f-aff4-4ec8-9736-4474452b392f",
+         "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
+         "issue_id": "ad6ce974-55e5-45e3-ab28-7fce4fb479e8",
          "base_unit": "pc",
-         "cost_kind": "feed"
+         "cost_kind": "feed",
+         "issued_on": "2026-11-12"
         }
        ],
        "status": "active",
@@ -152,18 +156,19 @@
        "left_in_hall_unweighed": 3,
        "feed_given_cum_unweighed": 3
       },
-      "hall_id": "3fa968bb-306d-44b7-ad50-9732e7a9bdd2",
+      "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "24f26dff-9f64-4268-90e0-8e88a60c4fd1",
+      "hall_id": "9a29f877-a7ed-4545-bf2a-c92cc880041b",
       "hall_name": "قاعة 3"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": 3,
      "sold": 0,
      "halls": 3,
@@ -182,16 +187,17 @@
     }
    },
    {
-    "id": "b7cd23ac-e299-454f-bdab-974c235145cf",
+    "id": "c3d1de88-eb33-4064-8f89-4f9c60f5da11",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "68fe407e-ff57-4dd4-81c6-77f73fc0d601",
+       "id": "25fa91d2-6a40-4807-ac14-a4987fe34054",
        "age": 150,
        "fcr": null,
+       "gas": null,
        "age0": 140,
        "dead": 0,
        "hdep": "76.33",
@@ -239,11 +245,12 @@
        "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "d5f8e894-4d3b-4f98-81a0-b3f4384eb315",
+      "hall_id": "4645964c-7106-4a63-b202-76d1a44d3a21",
       "hall_name": "قاعة البيّاض"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": 0,
      "sold": 0,
      "halls": 1,
@@ -262,16 +269,17 @@
     }
    },
    {
-    "id": "3f03f541-73ce-4ff5-9c49-ac5862452528",
+    "id": "22d6b672-2316-4a6c-ab45-523894a1cbe1",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "51142ef8-792d-4f44-8145-2624071f7fd4",
+       "id": "3b911455-5252-4944-86b7-f77cd0d51937",
        "age": 7,
        "fcr": null,
+       "gas": null,
        "age0": 4,
        "dead": 2,
        "hdep": null,
@@ -330,11 +338,12 @@
        "left_in_hall_unweighed": 1,
        "feed_given_cum_unweighed": 1
       },
-      "hall_id": "c4142d8c-9473-4ea0-b183-6a4989e865be",
+      "hall_id": "be2da91f-b809-4e6c-bcdf-451d85b77e92",
       "hall_name": "قاعة 5"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": 2,
      "sold": 0,
      "halls": 1,
@@ -355,6 +364,7 @@
   ],
   "today": "2026-11-12",
   "totals": {
+   "gas": null,
    "dead": 5,
    "sold": 0,
    "halls": 5,
@@ -378,16 +388,221 @@
   "prev": true,
   "sites": [
    {
-    "id": "b7cd23ac-e299-454f-bdab-974c235145cf",
+    "id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
+    "name": "حقل ألف",
+    "halls": [
+     {
+      "kind": "broiler",
+      "carry": [],
+      "flock": {
+       "id": "3ae9b989-4702-4336-a360-028328cb5345",
+       "age": 10,
+       "fcr": null,
+       "gas": null,
+       "age0": 0,
+       "dead": 0,
+       "hdep": null,
+       "kind": "broiler",
+       "logs": [],
+       "note": "حرارة مرتفعة",
+       "sold": 0,
+       "round": true,
+       "culled": 1,
+       "day_no": 11,
+       "issues": [
+        {
+         "kg": null,
+         "qty": "2",
+         "name": "علف بلا وزن",
+         "doc_no": "FI-2026-0008",
+         "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
+         "issue_id": "651ba7b6-479b-463c-bfd4-9ae06f9a8fca",
+         "base_unit": "pc",
+         "cost_kind": "feed",
+         "issued_on": "2026-11-11"
+        }
+       ],
+       "status": "active",
+       "weight": {
+        "avg_g": "300.5",
+        "sample_count": 40
+       },
+       "dead_cum": 16,
+       "live_end": 11981,
+       "ticketed": 0,
+       "vaccines": [
+        {
+         "name": "ND",
+         "color": 1,
+         "state": "missed",
+         "doc_no": null,
+         "age_day": 10,
+         "issue_id": null,
+         "vaccine_id": "d2727000-0000-4000-8000-000000000102",
+         "vaccination_id": null
+        }
+       ],
+       "closed_on": null,
+       "feed_days": 9,
+       "feed_span": 11,
+       "placed_on": "2026-11-01",
+       "count_diff": 0,
+       "culled_cum": 3,
+       "eggs_total": null,
+       "live_start": 11982,
+       "count_diffs": [],
+       "eggs_broken": null,
+       "feed_out_kg": "0",
+       "last_weight": {
+        "age": 10,
+        "avg_g": "300.5",
+        "on_date": "2026-11-11"
+       },
+       "sold_net_kg": "0.000",
+       "eggs_cracked": null,
+       "feed_left_kg": "-1200.000",
+       "placed_count": 12000,
+       "expects_round": true,
+       "feed_eaten_kg": "500.000",
+       "feed_given_kg": "0",
+       "left_in_hall_kg": "-1200.000",
+       "feed_carry_in_kg": "0",
+       "feed_eaten_cum_kg": "2700.000",
+       "feed_given_cum_kg": "1500.000",
+       "mortality_cum_pct": "0.16",
+       "feed_out_unweighed": 0,
+       "feed_given_unweighed": 1,
+       "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 1,
+       "feed_given_cum_unweighed": 1
+      },
+      "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
+      "hall_name": "قاعة 1"
+     },
+     {
+      "kind": "broiler",
+      "carry": [],
+      "flock": {
+       "id": "0c9f0f6e-0569-401f-973d-6d23243fe0f1",
+       "age": 8,
+       "fcr": "1.741",
+       "gas": null,
+       "age0": 1,
+       "dead": 0,
+       "hdep": null,
+       "kind": "broiler",
+       "logs": [],
+       "note": null,
+       "sold": 0,
+       "round": true,
+       "culled": 0,
+       "day_no": 8,
+       "issues": [
+        {
+         "kg": null,
+         "qty": "1",
+         "name": "علف بلا وزن",
+         "doc_no": "FI-2026-0015",
+         "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
+         "issue_id": "a29e5637-425d-4907-afa5-f2d03d2fdf3d",
+         "base_unit": "pc",
+         "cost_kind": "feed",
+         "issued_on": "2026-11-11"
+        },
+        {
+         "kg": null,
+         "qty": "1",
+         "name": "علف بلا وزن",
+         "doc_no": "FI-2026-0016",
+         "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
+         "issue_id": "3ea7bd00-499d-4681-84ae-d1561c9cfcef",
+         "base_unit": "pc",
+         "cost_kind": "feed",
+         "issued_on": "2026-11-11"
+        }
+       ],
+       "status": "active",
+       "weight": null,
+       "dead_cum": 18,
+       "live_end": 2979,
+       "ticketed": 0,
+       "vaccines": [],
+       "closed_on": null,
+       "feed_days": 8,
+       "feed_span": 8,
+       "placed_on": "2026-11-04",
+       "count_diff": 0,
+       "culled_cum": 3,
+       "eggs_total": null,
+       "live_start": 2979,
+       "count_diffs": [],
+       "eggs_broken": null,
+       "feed_out_kg": "0",
+       "last_weight": {
+        "age": 7,
+        "avg_g": "200.5",
+        "on_date": "2026-11-10"
+       },
+       "sold_net_kg": "0.000",
+       "eggs_cracked": null,
+       "feed_left_kg": "160.000",
+       "placed_count": 3000,
+       "expects_round": true,
+       "feed_eaten_kg": "200.000",
+       "feed_given_kg": "0",
+       "left_in_hall_kg": "160.000",
+       "feed_carry_in_kg": "0",
+       "feed_eaten_cum_kg": "1040.000",
+       "feed_given_cum_kg": "1200.000",
+       "mortality_cum_pct": "0.70",
+       "feed_out_unweighed": 0,
+       "feed_given_unweighed": 2,
+       "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 2,
+       "feed_given_cum_unweighed": 2
+      },
+      "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
+      "hall_name": "قاعة 2"
+     },
+     {
+      "kind": "broiler",
+      "carry": [],
+      "flock": null,
+      "hall_id": "9a29f877-a7ed-4545-bf2a-c92cc880041b",
+      "hall_name": "قاعة 3"
+     }
+    ],
+    "totals": {
+     "gas": null,
+     "dead": 0,
+     "sold": 0,
+     "halls": 3,
+     "culled": 1,
+     "flocks": 2,
+     "rounds": 2,
+     "live_end": 14960,
+     "ticketed": 0,
+     "count_diff": 0,
+     "live_start": 14961,
+     "feed_eaten_kg": "700.000",
+     "feed_given_kg": "0",
+     "rounds_expected": 2,
+     "feed_eaten_flocks": 2,
+     "feed_given_unweighed": 3
+    }
+   },
+   {
+    "id": "c3d1de88-eb33-4064-8f89-4f9c60f5da11",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "68fe407e-ff57-4dd4-81c6-77f73fc0d601",
+       "id": "25fa91d2-6a40-4807-ac14-a4987fe34054",
        "age": 149,
        "fcr": null,
+       "gas": null,
        "age0": 140,
        "dead": 1,
        "hdep": "77.54",
@@ -435,11 +650,12 @@
        "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "d5f8e894-4d3b-4f98-81a0-b3f4384eb315",
+      "hall_id": "4645964c-7106-4a63-b202-76d1a44d3a21",
       "hall_name": "قاعة البيّاض"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": 1,
      "sold": 0,
      "halls": 1,
@@ -456,25 +672,108 @@
      "feed_eaten_flocks": 1,
      "feed_given_unweighed": 0
     }
+   },
+   {
+    "id": "22d6b672-2316-4a6c-ab45-523894a1cbe1",
+    "name": "حقل باء",
+    "halls": [
+     {
+      "kind": "broiler",
+      "carry": [],
+      "flock": {
+       "id": "3b911455-5252-4944-86b7-f77cd0d51937",
+       "age": 6,
+       "fcr": null,
+       "gas": null,
+       "age0": 4,
+       "dead": null,
+       "hdep": null,
+       "kind": "broiler",
+       "logs": [],
+       "note": null,
+       "sold": 0,
+       "round": false,
+       "culled": null,
+       "day_no": 3,
+       "issues": [],
+       "status": "active",
+       "weight": null,
+       "dead_cum": 1,
+       "live_end": 1999,
+       "ticketed": 0,
+       "vaccines": [],
+       "closed_on": null,
+       "feed_days": 2,
+       "feed_span": 2,
+       "placed_on": "2026-11-09",
+       "count_diff": 0,
+       "culled_cum": 0,
+       "eggs_total": null,
+       "live_start": 1999,
+       "count_diffs": [],
+       "eggs_broken": null,
+       "feed_out_kg": "0",
+       "last_weight": null,
+       "sold_net_kg": "0.000",
+       "eggs_cracked": null,
+       "feed_left_kg": "-65.000",
+       "placed_count": 2000,
+       "expects_round": true,
+       "feed_eaten_kg": null,
+       "feed_given_kg": "0",
+       "left_in_hall_kg": "-65.000",
+       "feed_carry_in_kg": "0",
+       "feed_eaten_cum_kg": "65.000",
+       "feed_given_cum_kg": "0",
+       "mortality_cum_pct": "0.05",
+       "feed_out_unweighed": 0,
+       "feed_given_unweighed": 0,
+       "feed_out_cum_unweighed": 0,
+       "left_in_hall_unweighed": 1,
+       "feed_given_cum_unweighed": 1
+      },
+      "hall_id": "be2da91f-b809-4e6c-bcdf-451d85b77e92",
+      "hall_name": "قاعة 5"
+     }
+    ],
+    "totals": {
+     "gas": null,
+     "dead": null,
+     "sold": 0,
+     "halls": 1,
+     "culled": null,
+     "flocks": 1,
+     "rounds": 0,
+     "live_end": 1999,
+     "ticketed": 0,
+     "count_diff": 0,
+     "live_start": 1999,
+     "feed_eaten_kg": null,
+     "feed_given_kg": "0",
+     "rounds_expected": 1,
+     "feed_eaten_flocks": 0,
+     "feed_given_unweighed": 0
+    }
    }
   ],
   "today": "2026-11-12",
   "totals": {
+   "gas": null,
    "dead": 1,
    "sold": 0,
-   "halls": 1,
-   "culled": 1,
-   "flocks": 1,
-   "rounds": 1,
-   "live_end": 3996,
+   "halls": 5,
+   "culled": 2,
+   "flocks": 4,
+   "rounds": 3,
+   "live_end": 20955,
    "ticketed": 0,
    "count_diff": 0,
-   "live_start": 3998,
-   "feed_eaten_kg": "470.000",
+   "live_start": 20958,
+   "feed_eaten_kg": "1170.000",
    "feed_given_kg": "0",
-   "rounds_expected": 1,
-   "feed_eaten_flocks": 1,
-   "feed_given_unweighed": 0
+   "rounds_expected": 4,
+   "feed_eaten_flocks": 3,
+   "feed_given_unweighed": 3
   }
  },
  "halls_day_closed": {
@@ -483,16 +782,17 @@
   "prev": true,
   "sites": [
    {
-    "id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "name": "حقل ألف",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "d3920011-bde8-4359-8a0c-a9a4d399ee37",
+       "id": "3ae9b989-4702-4336-a360-028328cb5345",
        "age": 2,
        "fcr": "0.441",
+       "gas": null,
        "age0": 0,
        "dead": 1,
        "hdep": null,
@@ -547,30 +847,31 @@
        "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "5f90afeb-3030-445d-8b5a-9bb4877fa44e",
+      "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
       "hall_name": "قاعة 1"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "3fa968bb-306d-44b7-ad50-9732e7a9bdd2",
+      "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
       "hall_name": "قاعة 2"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "24f26dff-9f64-4268-90e0-8e88a60c4fd1",
+      "hall_id": "9a29f877-a7ed-4545-bf2a-c92cc880041b",
       "hall_name": "قاعة 3"
      },
      {
       "kind": "broiler",
       "carry": [],
       "flock": {
-       "id": "a8d3d564-41d0-4b74-9f2e-48c46a97b92a",
+       "id": "f3ef5261-8ec3-4e86-b0f9-d708dab39193",
        "age": 14,
        "fcr": null,
+       "gas": null,
        "age0": 0,
        "dead": null,
        "hdep": null,
@@ -633,11 +934,12 @@
        "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "08f452a6-94fb-4d26-883d-1e1162f056b1",
+      "hall_id": "1c4a380a-defc-45ef-aeb5-66e67cb9c74a",
       "hall_name": "قاعة 4"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": 1,
      "sold": 0,
      "halls": 4,
@@ -656,16 +958,17 @@
     }
    },
    {
-    "id": "b7cd23ac-e299-454f-bdab-974c235145cf",
+    "id": "c3d1de88-eb33-4064-8f89-4f9c60f5da11",
     "name": "حقل البيض",
     "halls": [
      {
       "kind": "layer",
       "carry": [],
       "flock": {
-       "id": "68fe407e-ff57-4dd4-81c6-77f73fc0d601",
+       "id": "25fa91d2-6a40-4807-ac14-a4987fe34054",
        "age": 141,
        "fcr": null,
+       "gas": null,
        "age0": 140,
        "dead": null,
        "hdep": null,
@@ -713,11 +1016,12 @@
        "left_in_hall_unweighed": 0,
        "feed_given_cum_unweighed": 0
       },
-      "hall_id": "d5f8e894-4d3b-4f98-81a0-b3f4384eb315",
+      "hall_id": "4645964c-7106-4a63-b202-76d1a44d3a21",
       "hall_name": "قاعة البيّاض"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": null,
      "sold": 0,
      "halls": 1,
@@ -736,18 +1040,19 @@
     }
    },
    {
-    "id": "3f03f541-73ce-4ff5-9c49-ac5862452528",
+    "id": "22d6b672-2316-4a6c-ab45-523894a1cbe1",
     "name": "حقل باء",
     "halls": [
      {
       "kind": "broiler",
       "carry": [],
       "flock": null,
-      "hall_id": "c4142d8c-9473-4ea0-b183-6a4989e865be",
+      "hall_id": "be2da91f-b809-4e6c-bcdf-451d85b77e92",
       "hall_name": "قاعة 5"
      }
     ],
     "totals": {
+     "gas": null,
      "dead": null,
      "sold": 0,
      "halls": 1,
@@ -768,6 +1073,7 @@
   ],
   "today": "2026-11-12",
   "totals": {
+   "gas": null,
    "dead": 1,
    "sold": 0,
    "halls": 6,
@@ -790,6 +1096,7 @@
    {
     "on": "2026-11-04",
     "age": 1,
+    "gas": null,
     "dead": 5,
     "hdep": null,
     "note": null,
@@ -826,6 +1133,7 @@
    {
     "on": "2026-11-05",
     "age": 2,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -862,6 +1170,7 @@
    {
     "on": "2026-11-06",
     "age": 3,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -898,6 +1207,7 @@
    {
     "on": "2026-11-07",
     "age": 4,
+    "gas": null,
     "dead": 4,
     "hdep": null,
     "note": null,
@@ -937,6 +1247,7 @@
    {
     "on": "2026-11-08",
     "age": 5,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -973,6 +1284,7 @@
    {
     "on": "2026-11-09",
     "age": 6,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -1009,6 +1321,7 @@
    {
     "on": "2026-11-10",
     "age": 7,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -1048,6 +1361,7 @@
    {
     "on": "2026-11-11",
     "age": 8,
+    "gas": null,
     "dead": 0,
     "hdep": null,
     "note": null,
@@ -1084,6 +1398,7 @@
    {
     "on": "2026-11-12",
     "age": 9,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -1133,6 +1448,7 @@
      "cum_kg": "1000.000",
      "doc_no": "FI-2026-0003",
      "base_unit": "kg",
+     "issued_on": "2026-11-04",
      "item_name": "علف بادئ"
     },
     {
@@ -1145,6 +1461,7 @@
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0010",
      "base_unit": "pc",
+     "issued_on": "2026-11-10",
      "item_name": "علف بالأكياس"
     },
     {
@@ -1157,6 +1474,7 @@
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0015",
      "base_unit": "pc",
+     "issued_on": "2026-11-11",
      "item_name": "علف بلا وزن"
     },
     {
@@ -1169,6 +1487,7 @@
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0016",
      "base_unit": "pc",
+     "issued_on": "2026-11-11",
      "item_name": "علف بلا وزن"
     },
     {
@@ -1181,6 +1500,7 @@
      "cum_kg": "1209.200",
      "doc_no": "FI-2026-0011",
      "base_unit": "L",
+     "issued_on": "2026-11-12",
      "item_name": "زيت"
     },
     {
@@ -1193,6 +1513,7 @@
      "cum_kg": "1209.200",
      "doc_no": "FI-2026-0012",
      "base_unit": "pc",
+     "issued_on": "2026-11-12",
      "item_name": "علف بلا وزن"
     }
    ],
@@ -1201,7 +1522,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "68cfa084-0d09-462f-9f7b-8679370bd489",
+     "item_id": "6ed16dfa-f794-4ccc-a273-2d150d581f58",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1209,7 +1530,7 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "27e78796-545a-4435-86b5-f192f73512b2",
+     "item_id": "06321cbb-e9f8-4d84-b975-295ac5f33972",
      "base_unit": "pc",
      "unweighed": 0
     },
@@ -1217,7 +1538,7 @@
      "kg": null,
      "qty": "4",
      "name": "علف بلا وزن",
-     "item_id": "b37d2b5e-52f3-46de-8658-e9650ee58ee1",
+     "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
      "base_unit": "pc",
      "unweighed": 3
     },
@@ -1225,7 +1546,7 @@
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "b901eae3-fc49-4038-8191-1ed84f89b668",
+     "item_id": "d276a786-74b0-469f-b1cd-c970a5139fcf",
      "base_unit": "L",
      "unweighed": 0
     }
@@ -1239,6 +1560,7 @@
   },
   "kpis": {
    "fcr": "1.629",
+   "gas": 0,
    "days": 9,
    "dead": 21,
    "epef": "176",
@@ -1285,13 +1607,13 @@
   },
   "close": null,
   "flock": {
-   "id": "0fe69cdd-96e8-47c8-9d95-c09317dfa378",
+   "id": "0c9f0f6e-0569-401f-973d-6d23243fe0f1",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "3fa968bb-306d-44b7-ad50-9732e7a9bdd2",
+   "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
@@ -1427,6 +1749,7 @@
    {
     "on": "2026-11-04",
     "age": 1,
+    "gas": null,
     "dead": 5,
     "hdep": null,
     "note": null,
@@ -1463,6 +1786,7 @@
    {
     "on": "2026-11-05",
     "age": 2,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -1499,6 +1823,7 @@
    {
     "on": "2026-11-06",
     "age": 3,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -1535,6 +1860,7 @@
    {
     "on": "2026-11-07",
     "age": 4,
+    "gas": null,
     "dead": 4,
     "hdep": null,
     "note": null,
@@ -1574,6 +1900,7 @@
    {
     "on": "2026-11-08",
     "age": 5,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -1610,6 +1937,7 @@
    {
     "on": "2026-11-09",
     "age": 6,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -1646,6 +1974,7 @@
    {
     "on": "2026-11-10",
     "age": 7,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -1685,6 +2014,7 @@
    {
     "on": "2026-11-11",
     "age": 8,
+    "gas": null,
     "dead": 0,
     "hdep": null,
     "note": null,
@@ -1721,6 +2051,7 @@
    {
     "on": "2026-11-12",
     "age": 9,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -1764,54 +2095,78 @@
      "kg": "1000.000",
      "on": "2026-11-04",
      "qty": "1000",
+     "money": {
+      "value": "500000.00"
+     },
      "cum_kg": "1000.000",
      "doc_no": "FI-2026-0003",
      "base_unit": "kg",
+     "issued_on": "2026-11-04",
      "item_name": "علف بادئ"
     },
     {
      "kg": "200.000",
      "on": "2026-11-10",
      "qty": "4",
+     "money": {
+      "value": "40000.00"
+     },
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0010",
      "base_unit": "pc",
+     "issued_on": "2026-11-10",
      "item_name": "علف بالأكياس"
     },
     {
      "kg": null,
      "on": "2026-11-11",
      "qty": "1",
+     "money": {
+      "value": "10000.00"
+     },
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0015",
      "base_unit": "pc",
+     "issued_on": "2026-11-11",
      "item_name": "علف بلا وزن"
     },
     {
      "kg": null,
      "on": "2026-11-11",
      "qty": "1",
+     "money": {
+      "value": "10000.00"
+     },
      "cum_kg": "1200.000",
      "doc_no": "FI-2026-0016",
      "base_unit": "pc",
+     "issued_on": "2026-11-11",
      "item_name": "علف بلا وزن"
     },
     {
      "kg": "9.200",
      "on": "2026-11-12",
      "qty": "10",
+     "money": {
+      "value": "15000.00"
+     },
      "cum_kg": "1209.200",
      "doc_no": "FI-2026-0011",
      "base_unit": "L",
+     "issued_on": "2026-11-12",
      "item_name": "زيت"
     },
     {
      "kg": null,
      "on": "2026-11-12",
      "qty": "2",
+     "money": {
+      "value": "20000.00"
+     },
      "cum_kg": "1209.200",
      "doc_no": "FI-2026-0012",
      "base_unit": "pc",
+     "issued_on": "2026-11-12",
      "item_name": "علف بلا وزن"
     }
    ],
@@ -1820,7 +2175,7 @@
      "kg": "1000.000",
      "qty": "1000",
      "name": "علف بادئ",
-     "item_id": "68cfa084-0d09-462f-9f7b-8679370bd489",
+     "item_id": "6ed16dfa-f794-4ccc-a273-2d150d581f58",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -1828,7 +2183,7 @@
      "kg": "200.000",
      "qty": "4",
      "name": "علف بالأكياس",
-     "item_id": "27e78796-545a-4435-86b5-f192f73512b2",
+     "item_id": "06321cbb-e9f8-4d84-b975-295ac5f33972",
      "base_unit": "pc",
      "unweighed": 0
     },
@@ -1836,7 +2191,7 @@
      "kg": null,
      "qty": "4",
      "name": "علف بلا وزن",
-     "item_id": "b37d2b5e-52f3-46de-8658-e9650ee58ee1",
+     "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
      "base_unit": "pc",
      "unweighed": 3
     },
@@ -1844,7 +2199,7 @@
      "kg": "9.200",
      "qty": "10",
      "name": "زيت",
-     "item_id": "b901eae3-fc49-4038-8191-1ed84f89b668",
+     "item_id": "d276a786-74b0-469f-b1cd-c970a5139fcf",
      "base_unit": "L",
      "unweighed": 0
     }
@@ -1858,6 +2213,7 @@
   },
   "kpis": {
    "fcr": "1.629",
+   "gas": 0,
    "days": 9,
    "dead": 21,
    "epef": "176",
@@ -1904,18 +2260,29 @@
   },
   "close": null,
   "flock": {
-   "id": "0fe69cdd-96e8-47c8-9d95-c09317dfa378",
+   "id": "0c9f0f6e-0569-401f-973d-6d23243fe0f1",
    "age0": 1,
    "kind": "broiler",
    "end_on": "2026-12-15",
    "status": "active",
    "end_age": 42,
-   "hall_id": "3fa968bb-306d-44b7-ad50-9732e7a9bdd2",
+   "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
    "closed_on": null,
    "hall_name": "قاعة 2",
    "placed_on": "2026-11-04",
    "site_name": "حقل ألف",
    "placed_count": 3000
+  },
+  "money": {
+   "feed": "595000.00",
+   "other": "0",
+   "total": "600000.00",
+   "revenue": "0",
+   "vaccine": "5000.00",
+   "medicine": "0",
+   "returned": "0",
+   "carried_in": "0",
+   "carried_out": "0"
   },
   "sales": {
    "birds": 0,
@@ -2035,6 +2402,7 @@
    {
     "on": "2026-11-01",
     "age": 0,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -2071,6 +2439,7 @@
    {
     "on": "2026-11-02",
     "age": 1,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -2107,6 +2476,7 @@
    {
     "on": "2026-11-03",
     "age": 2,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -2146,6 +2516,7 @@
    {
     "on": "2026-11-04",
     "age": 3,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2182,6 +2553,7 @@
    {
     "on": "2026-11-05",
     "age": 4,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -2218,6 +2590,7 @@
    {
     "on": "2026-11-06",
     "age": 5,
+    "gas": null,
     "dead": 0,
     "hdep": null,
     "note": null,
@@ -2254,6 +2627,7 @@
    {
     "on": "2026-11-07",
     "age": 6,
+    "gas": null,
     "dead": 4,
     "hdep": null,
     "note": "تهوية",
@@ -2290,6 +2664,7 @@
    {
     "on": "2026-11-08",
     "age": 7,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -2329,6 +2704,7 @@
    {
     "on": "2026-11-09",
     "age": 8,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -2365,6 +2741,7 @@
    {
     "on": "2026-11-10",
     "age": 9,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -2401,6 +2778,7 @@
    {
     "on": "2026-11-11",
     "age": 10,
+    "gas": null,
     "dead": 0,
     "hdep": null,
     "note": "حرارة مرتفعة",
@@ -2440,6 +2818,7 @@
    {
     "on": "2026-11-12",
     "age": 11,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2486,6 +2865,7 @@
      "cum_kg": "1000.000",
      "doc_no": "FI-2026-0002",
      "base_unit": "kg",
+     "issued_on": "2026-11-01",
      "item_name": "علف بادئ"
     },
     {
@@ -2498,6 +2878,7 @@
      "cum_kg": "1500.000",
      "doc_no": "FI-2026-0004",
      "base_unit": "kg",
+     "issued_on": "2026-11-08",
      "item_name": "علف بادئ"
     },
     {
@@ -2510,6 +2891,7 @@
      "cum_kg": "1500.000",
      "doc_no": "FI-2026-0008",
      "base_unit": "pc",
+     "issued_on": "2026-11-11",
      "item_name": "علف بلا وزن"
     }
    ],
@@ -2518,7 +2900,7 @@
      "kg": "1500.000",
      "qty": "1500",
      "name": "علف بادئ",
-     "item_id": "68cfa084-0d09-462f-9f7b-8679370bd489",
+     "item_id": "6ed16dfa-f794-4ccc-a273-2d150d581f58",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -2526,7 +2908,7 @@
      "kg": null,
      "qty": "2",
      "name": "علف بلا وزن",
-     "item_id": "b37d2b5e-52f3-46de-8658-e9650ee58ee1",
+     "item_id": "c36b3ba5-9220-4671-91ba-d34d199018e3",
      "base_unit": "pc",
      "unweighed": 1
     }
@@ -2540,6 +2922,7 @@
   },
   "kpis": {
    "fcr": null,
+   "gas": 0,
    "days": 12,
    "dead": 16,
    "epef": null,
@@ -2586,13 +2969,13 @@
   },
   "close": null,
   "flock": {
-   "id": "d3920011-bde8-4359-8a0c-a9a4d399ee37",
+   "id": "3ae9b989-4702-4336-a360-028328cb5345",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-13",
    "status": "active",
    "end_age": 42,
-   "hall_id": "5f90afeb-3030-445d-8b5a-9bb4877fa44e",
+   "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
    "closed_on": null,
    "hall_name": "قاعة 1",
    "placed_on": "2026-11-01",
@@ -2747,6 +3130,7 @@
    {
     "on": "2026-11-02",
     "age": 140,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2783,6 +3167,7 @@
    {
     "on": "2026-11-03",
     "age": 141,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2819,6 +3204,7 @@
    {
     "on": "2026-11-04",
     "age": 142,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2855,6 +3241,7 @@
    {
     "on": "2026-11-05",
     "age": 143,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2891,6 +3278,7 @@
    {
     "on": "2026-11-06",
     "age": 144,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2927,6 +3315,7 @@
    {
     "on": "2026-11-07",
     "age": 145,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2963,6 +3352,7 @@
    {
     "on": "2026-11-08",
     "age": 146,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -2999,6 +3389,7 @@
    {
     "on": "2026-11-09",
     "age": 147,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3035,6 +3426,7 @@
    {
     "on": "2026-11-10",
     "age": 148,
+    "gas": null,
     "dead": 2,
     "hdep": "75.00",
     "note": null,
@@ -3071,6 +3463,7 @@
    {
     "on": "2026-11-11",
     "age": 149,
+    "gas": null,
     "dead": 1,
     "hdep": "77.54",
     "note": null,
@@ -3107,6 +3500,7 @@
    {
     "on": "2026-11-12",
     "age": 150,
+    "gas": null,
     "dead": 0,
     "hdep": "76.33",
     "note": null,
@@ -3153,6 +3547,7 @@
   },
   "kpis": {
    "fcr": null,
+   "gas": 0,
    "days": 11,
    "dead": 3,
    "epef": null,
@@ -3195,13 +3590,13 @@
   },
   "close": null,
   "flock": {
-   "id": "68fe407e-ff57-4dd4-81c6-77f73fc0d601",
+   "id": "25fa91d2-6a40-4807-ac14-a4987fe34054",
    "age0": 140,
    "kind": "layer",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "d5f8e894-4d3b-4f98-81a0-b3f4384eb315",
+   "hall_id": "4645964c-7106-4a63-b202-76d1a44d3a21",
    "closed_on": null,
    "hall_name": "قاعة البيّاض",
    "placed_on": "2026-11-02",
@@ -3298,6 +3693,7 @@
    {
     "on": "2026-10-20",
     "age": 0,
+    "gas": null,
     "dead": 2,
     "hdep": null,
     "note": null,
@@ -3334,6 +3730,7 @@
    {
     "on": "2026-10-21",
     "age": 1,
+    "gas": null,
     "dead": 1,
     "hdep": null,
     "note": null,
@@ -3370,6 +3767,7 @@
    {
     "on": "2026-10-22",
     "age": 2,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3406,6 +3804,7 @@
    {
     "on": "2026-10-23",
     "age": 3,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3442,6 +3841,7 @@
    {
     "on": "2026-10-24",
     "age": 4,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3478,6 +3878,7 @@
    {
     "on": "2026-10-25",
     "age": 5,
+    "gas": null,
     "dead": 3,
     "hdep": null,
     "note": null,
@@ -3517,6 +3918,7 @@
    {
     "on": "2026-10-26",
     "age": 6,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3553,6 +3955,7 @@
    {
     "on": "2026-10-27",
     "age": 7,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3589,6 +3992,7 @@
    {
     "on": "2026-10-28",
     "age": 8,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3625,6 +4029,7 @@
    {
     "on": "2026-10-29",
     "age": 9,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3661,6 +4066,7 @@
    {
     "on": "2026-10-30",
     "age": 10,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3697,6 +4103,7 @@
    {
     "on": "2026-10-31",
     "age": 11,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3733,6 +4140,7 @@
    {
     "on": "2026-11-01",
     "age": 12,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3769,6 +4177,7 @@
    {
     "on": "2026-11-02",
     "age": 13,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3805,6 +4214,7 @@
    {
     "on": "2026-11-03",
     "age": 14,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3841,6 +4251,7 @@
    {
     "on": "2026-11-04",
     "age": 15,
+    "gas": null,
     "dead": null,
     "hdep": null,
     "note": null,
@@ -3887,6 +4298,7 @@
      "cum_kg": "200.000",
      "doc_no": "FI-2026-0001",
      "base_unit": "kg",
+     "issued_on": "2026-10-20",
      "item_name": "علف بادئ"
     }
    ],
@@ -3895,7 +4307,7 @@
      "kg": "200.000",
      "qty": "200",
      "name": "علف بادئ",
-     "item_id": "68cfa084-0d09-462f-9f7b-8679370bd489",
+     "item_id": "6ed16dfa-f794-4ccc-a273-2d150d581f58",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -3909,6 +4321,7 @@
   },
   "kpis": {
    "fcr": null,
+   "gas": 0,
    "days": 16,
    "dead": 6,
    "epef": null,
@@ -3954,12 +4367,12 @@
    "mortality_pct": "0.70"
   },
   "close": {
-   "id": "b47fe848-bcb4-44d1-a751-c6ef4c456d6a",
+   "id": "3f1dcc41-d81c-4816-b098-86d61f84e2f8",
    "note": null,
    "lines": [],
    "status": "closed",
-   "hall_id": "08f452a6-94fb-4d26-883d-1e1162f056b1",
-   "flock_id": "a8d3d564-41d0-4b74-9f2e-48c46a97b92a",
+   "hall_id": "1c4a380a-defc-45ef-aeb5-66e67cb9c74a",
+   "flock_id": "f3ef5261-8ec3-4e86-b0f9-d708dab39193",
    "closed_on": "2026-11-04",
    "hall_name": "قاعة 4",
    "count_diff": -993,
@@ -3969,13 +4382,13 @@
    "count_reason": "نهاية الدورة"
   },
   "flock": {
-   "id": "a8d3d564-41d0-4b74-9f2e-48c46a97b92a",
+   "id": "f3ef5261-8ec3-4e86-b0f9-d708dab39193",
    "age0": 0,
    "kind": "broiler",
    "end_on": "2026-12-01",
    "status": "closed",
    "end_age": 42,
-   "hall_id": "08f452a6-94fb-4d26-883d-1e1162f056b1",
+   "hall_id": "1c4a380a-defc-45ef-aeb5-66e67cb9c74a",
    "closed_on": "2026-11-04",
    "hall_name": "قاعة 4",
    "placed_on": "2026-10-20",
@@ -4121,14 +4534,14 @@
   "today": "2026-11-12",
   "cycles": [
    {
-    "id": "51142ef8-792d-4f44-8145-2624071f7fd4",
+    "id": "3b911455-5252-4944-86b7-f77cd0d51937",
     "age": 7,
     "days": 4,
     "kind": "broiler",
     "live": 1997,
     "status": "active",
-    "hall_id": "c4142d8c-9473-4ea0-b183-6a4989e865be",
-    "site_id": "3f03f541-73ce-4ff5-9c49-ac5862452528",
+    "hall_id": "be2da91f-b809-4e6c-bcdf-451d85b77e92",
+    "site_id": "22d6b672-2316-4a6c-ab45-523894a1cbe1",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 5",
@@ -4140,14 +4553,14 @@
     "mortality_pct": "0.15"
    },
    {
-    "id": "0fe69cdd-96e8-47c8-9d95-c09317dfa378",
+    "id": "0c9f0f6e-0569-401f-973d-6d23243fe0f1",
     "age": 9,
     "days": 9,
     "kind": "broiler",
     "live": 2975,
     "status": "active",
-    "hall_id": "3fa968bb-306d-44b7-ad50-9732e7a9bdd2",
-    "site_id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "hall_id": "1f3513ac-e6c9-436d-98db-3a06f72fe085",
+    "site_id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 2",
@@ -4159,14 +4572,14 @@
     "mortality_pct": "0.83"
    },
    {
-    "id": "68fe407e-ff57-4dd4-81c6-77f73fc0d601",
+    "id": "25fa91d2-6a40-4807-ac14-a4987fe34054",
     "age": 150,
     "days": 11,
     "kind": "layer",
     "live": 3996,
     "status": "active",
-    "hall_id": "d5f8e894-4d3b-4f98-81a0-b3f4384eb315",
-    "site_id": "b7cd23ac-e299-454f-bdab-974c235145cf",
+    "hall_id": "4645964c-7106-4a63-b202-76d1a44d3a21",
+    "site_id": "c3d1de88-eb33-4064-8f89-4f9c60f5da11",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة البيّاض",
@@ -4178,14 +4591,14 @@
     "mortality_pct": "0.10"
    },
    {
-    "id": "d3920011-bde8-4359-8a0c-a9a4d399ee37",
+    "id": "3ae9b989-4702-4336-a360-028328cb5345",
     "age": 11,
     "days": 12,
     "kind": "broiler",
     "live": 11981,
     "status": "active",
-    "hall_id": "5f90afeb-3030-445d-8b5a-9bb4877fa44e",
-    "site_id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
+    "site_id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "through": "2026-11-12",
     "closed_on": null,
     "hall_name": "قاعة 1",
@@ -4197,14 +4610,14 @@
     "mortality_pct": "0.16"
    },
    {
-    "id": "a8d3d564-41d0-4b74-9f2e-48c46a97b92a",
+    "id": "f3ef5261-8ec3-4e86-b0f9-d708dab39193",
     "age": 15,
     "days": 16,
     "kind": "broiler",
     "live": 0,
     "status": "closed",
-    "hall_id": "08f452a6-94fb-4d26-883d-1e1162f056b1",
-    "site_id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "hall_id": "1c4a380a-defc-45ef-aeb5-66e67cb9c74a",
+    "site_id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "through": "2026-11-04",
     "closed_on": "2026-11-04",
     "hall_name": "قاعة 4",
@@ -4216,14 +4629,14 @@
     "mortality_pct": "0.70"
    },
    {
-    "id": "c2087a6d-5d5e-4c92-b8dc-e59e118ff63f",
+    "id": "cb9f3a6a-8eb8-4b41-b227-cd0c01b15aea",
     "age": 30,
     "days": 31,
     "kind": "broiler",
     "live": 0,
     "status": "closed",
-    "hall_id": "5f90afeb-3030-445d-8b5a-9bb4877fa44e",
-    "site_id": "95048964-9cdb-40df-8e03-fb42e8075a9e",
+    "hall_id": "44213327-8689-4e0e-91a0-5bd7ff894730",
+    "site_id": "f27c387c-b83f-445d-ae70-d988941ed3d6",
     "through": "2026-10-31",
     "closed_on": "2026-10-31",
     "hall_name": "قاعة 1",

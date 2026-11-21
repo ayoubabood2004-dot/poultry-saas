@@ -198,7 +198,7 @@ async function scenario(t, db) {
     same([scopes, voidFi.code, reopened.ok ? 'ok' : reopened.code, before, await xBalance(), fr, cards.c1],
       [[true, true], 'flock_closed', 'ok', '19800', '19800', 'posted', { scoped: [true, null], owner: [true, null] }],
       'C1/M1: المدير بصفّ نطاق حقل أ يرى «رصيد العلف» (0034)، فإلغاء الصرف يصل لقاعدة الفوج المغلق، وإعادة الفتح تنجح، وبطاقته تعده كبطاقة المالك');
-    samples.refusal_reopen_out_of_scope = { code: reopened.code, hint: reopened.hint };
+    // 0034: لا رفض هنا بعد اليوم، فلا عيّنة refusal_reopen_out_of_scope (كانت رمز out_of_scope وجملته).
   });
 
   // ── M2: إعادة الفتح في قاعة مؤرشفة (بلا منقول ولا فوج بعدها) كانت تُرجع فوجاً قائماً في قاعة مؤرشفة ─────────────────────────────────
@@ -492,7 +492,8 @@ async function scenario(t, db) {
     await one(U.manager, SELL, sellArgs(TBdone, { price: '9876.54' }));
     const TA = await ticket(siteA, TODAY, [[hA2, 10, '20']], U.siteWorker);
     const scoped = await one(U.scopedAcc, 'select public.bird_sale_form($1)', [TA.id]);
-    samples.bird_sale_form_out_of_scope = scoped;
+    // 0034: لم يعد خارج النطاق، فالعيّنة باسمها الجديد: نموذج المحاسب بصفّ نطاق حقل، يُرحَّل كالمحاسب بلا نطاق.
+    samples.bird_sale_form_scoped = scoped;
     const full = await one(U.accountant, 'select public.bird_sale_form($1)', [TA.id]);
     const inScope = (await admin(`select unit_price::text as p from public.bird_sales where org_id = $1 and site_id = $2 and status = 'posted'
       order by sold_on desc, posted_at desc, id limit 1`, [org, siteA]))[0]?.p ?? null;

@@ -1,10 +1,6 @@
 {
   "generated_by": "supabase/tests/day-balance.test.mjs (embedded Postgres 17، اليوم المثبَّت 2026-11-09)",
   "refusals": {
-    "warehouse_out_of_scope": {
-      "code": "out_of_scope",
-      "hint": "هذا المخزن خارج نطاقك أو غير موجود في منشأتك."
-    },
     "day_in_future": {
       "code": "day_in_future",
       "hint": "يوم 10/11/2026 لم يأتِ بعد؛ الرصيد يُعرض حتى اليوم 09/11/2026."
@@ -12,10 +8,6 @@
     "note_changed": {
       "code": "note_changed",
       "hint": "تغيّرت ملاحظة «ذرة» ليوم 06/11/2026 من نافذة أو جهاز آخر بعد أن فتحتها. حدّث الشاشة لترى ما كُتب، ثمّ اكتب من جديد."
-    },
-    "out_of_scope": {
-      "code": "out_of_scope",
-      "hint": "«ذرة» لا تُخزَّن في مخازن نطاقك، فلا تكتب لها ملاحظة."
     },
     "category_changed": {
       "code": "category_changed",
@@ -27,7 +19,7 @@
       "count": 5,
       "moved": 0,
       "removed": 0,
-      "category_id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5"
+      "category_id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a"
     }
   },
   "set_day_note": {
@@ -35,14 +27,14 @@
       "on": "2026-11-06",
       "note": {
         "text": "بيع لأبو أحمد",
-        "version": 3
+        "version": 1
       },
-      "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951"
+      "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa"
     },
     "cleared": {
       "on": "2026-11-06",
       "note": null,
-      "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951"
+      "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa"
     }
   },
   "day_balance": {
@@ -54,7 +46,7 @@
           "kind": "raw",
           "name": "صويا",
           "note": null,
-          "item_id": "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
           "base_unit": "kg"
         },
         {
@@ -63,9 +55,9 @@
           "name": "ذرة",
           "note": {
             "text": "بيع لأبو أحمد",
-            "version": 10
+            "version": 12
           },
-          "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951",
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
           "base_unit": "kg"
         },
         {
@@ -73,73 +65,73 @@
           "kind": "raw",
           "name": "نخالة",
           "note": null,
-          "item_id": "73efa880-e199-49b5-b38e-9bd59d5d7167",
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
           "base_unit": "kg"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+        "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
         "name": "مواد العلف",
         "members": [
-          "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
-          "716ec519-3000-46d4-b820-f8a8f3d27951",
-          "73efa880-e199-49b5-b38e-9bd59d5d7167"
+          "04358ab0-e606-48a8-b6db-b53b2071629d",
+          "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
+          "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6"
         ]
       },
       "warehouse": null,
       "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -153,7 +145,7 @@
           "kind": "additive",
           "name": "برمكس م/1",
           "note": null,
-          "item_id": "0fc326cd-9d31-4501-944f-5335a39581c0",
+          "item_id": "381d0e19-f438-474f-bfff-8abbe558a519",
           "base_unit": "kg"
         },
         {
@@ -162,9 +154,9 @@
           "name": "ذرة",
           "note": {
             "text": "بيع لأبو أحمد",
-            "version": 10
+            "version": 12
           },
-          "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951",
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
           "base_unit": "kg"
         },
         {
@@ -172,7 +164,7 @@
           "kind": "raw",
           "name": "زيت",
           "note": null,
-          "item_id": "3fef0ce7-31e5-463f-bc17-173e9843b8d3",
+          "item_id": "58b09204-1fc7-4226-8f04-1c78f0d9bef8",
           "base_unit": "L"
         },
         {
@@ -180,7 +172,7 @@
           "kind": "raw",
           "name": "صويا",
           "note": null,
-          "item_id": "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
           "base_unit": "kg"
         },
         {
@@ -188,7 +180,7 @@
           "kind": "fuel",
           "name": "كاز",
           "note": null,
-          "item_id": "49a41db5-ac4c-4128-aab0-d1f48306cf8d",
+          "item_id": "0c3610aa-eafc-43a5-a7e6-b0fa7f39c065",
           "base_unit": "L"
         },
         {
@@ -196,7 +188,7 @@
           "kind": "raw",
           "name": "مادّة الدفتر",
           "note": null,
-          "item_id": "89f634b7-a7e3-42cb-abc5-51f2a46a8aaf",
+          "item_id": "173f5ceb-0abc-40ec-86b1-ee0cd59bf635",
           "base_unit": "kg"
         },
         {
@@ -204,7 +196,7 @@
           "kind": "raw",
           "name": "مادّة بملاحظة فقط",
           "note": null,
-          "item_id": "693b4c80-73ea-4d39-9576-a6812e6322cd",
+          "item_id": "b5d20ffd-8259-430f-9112-338258920f10",
           "base_unit": "kg"
         },
         {
@@ -212,7 +204,7 @@
           "kind": "raw",
           "name": "مادّة تخرج من التصنيف",
           "note": null,
-          "item_id": "a1a7bff8-ecd5-4e33-a33d-59a470938dbb",
+          "item_id": "d5b7bade-6a1f-4876-ac1c-72e73134a647",
           "base_unit": "kg"
         },
         {
@@ -220,7 +212,7 @@
           "kind": "raw",
           "name": "مادّة نفدت",
           "note": null,
-          "item_id": "f7ac3e5d-c2a9-483c-a2a1-0874d32ba3ae",
+          "item_id": "87530db4-f4eb-49c8-8b7a-78f3ca43c7d5",
           "base_unit": "kg"
         },
         {
@@ -228,39 +220,39 @@
           "kind": "raw",
           "name": "نخالة",
           "note": null,
-          "item_id": "73efa880-e199-49b5-b38e-9bd59d5d7167",
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
           "base_unit": "kg"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
@@ -271,22 +263,22 @@
       "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -300,7 +292,7 @@
           "kind": "additive",
           "name": "برمكس م/1",
           "note": null,
-          "item_id": "0fc326cd-9d31-4501-944f-5335a39581c0",
+          "item_id": "381d0e19-f438-474f-bfff-8abbe558a519",
           "base_unit": "kg"
         },
         {
@@ -308,72 +300,72 @@
           "kind": "raw",
           "name": "زيت",
           "note": null,
-          "item_id": "3fef0ce7-31e5-463f-bc17-173e9843b8d3",
+          "item_id": "58b09204-1fc7-4226-8f04-1c78f0d9bef8",
           "base_unit": "L"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+        "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
         "name": "الإضافات",
         "members": [
-          "0fc326cd-9d31-4501-944f-5335a39581c0",
-          "3fef0ce7-31e5-463f-bc17-173e9843b8d3"
+          "381d0e19-f438-474f-bfff-8abbe558a519",
+          "58b09204-1fc7-4226-8f04-1c78f0d9bef8"
         ]
       },
       "warehouse": null,
       "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -387,7 +379,7 @@
           "kind": "raw",
           "name": "صويا",
           "note": null,
-          "item_id": "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
           "base_unit": "kg"
         },
         {
@@ -396,9 +388,9 @@
           "name": "ذرة",
           "note": {
             "text": "بيع لأبو أحمد",
-            "version": 10
+            "version": 12
           },
-          "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951",
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
           "base_unit": "kg"
         },
         {
@@ -406,58 +398,73 @@
           "kind": "raw",
           "name": "نخالة",
           "note": null,
-          "item_id": "73efa880-e199-49b5-b38e-9bd59d5d7167",
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
           "base_unit": "kg"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
           "kind": "feed",
-          "name": "مخزن العلف"
+          "name": "رصيد العلف"
         },
         {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
+          "kind": "medicine",
+          "name": "مخزن الأدوية"
+        },
+        {
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
+          "kind": "chick",
+          "name": "مخزن الأفراخ"
+        },
+        {
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
+          "kind": "hatching_egg",
+          "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+        "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
         "name": "مواد العلف",
         "members": [
-          "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
-          "716ec519-3000-46d4-b820-f8a8f3d27951",
-          "73efa880-e199-49b5-b38e-9bd59d5d7167"
+          "04358ab0-e606-48a8-b6db-b53b2071629d",
+          "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
+          "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6"
         ]
       },
       "warehouse": null,
-      "can_manage": false,
+      "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -465,39 +472,98 @@
     },
     "viewer": {
       "on": "2026-11-06",
-      "rows": [],
+      "rows": [
+        {
+          "qty": "5000.000",
+          "kind": "raw",
+          "name": "صويا",
+          "note": null,
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
+          "base_unit": "kg"
+        },
+        {
+          "qty": "8000.000",
+          "kind": "raw",
+          "name": "ذرة",
+          "note": {
+            "text": "بيع لأبو أحمد",
+            "version": 12
+          },
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
+          "base_unit": "kg"
+        },
+        {
+          "qty": "0.000",
+          "kind": "raw",
+          "name": "نخالة",
+          "note": null,
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
+          "base_unit": "kg"
+        }
+      ],
       "today": "2026-11-09",
-      "stores": [],
-      "can_note": false,
+      "stores": [
+        {
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
+          "kind": "general",
+          "name": "المخزن العام"
+        },
+        {
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
+          "kind": "medicine",
+          "name": "مخزن الأدوية"
+        },
+        {
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
+          "kind": "chick",
+          "name": "مخزن الأفراخ"
+        },
+        {
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
+          "kind": "hatching_egg",
+          "name": "مخزن بيض التفقيس"
+        }
+      ],
+      "can_note": true,
       "category": {
-        "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+        "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
         "name": "مواد العلف",
         "members": [
-          "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
-          "716ec519-3000-46d4-b820-f8a8f3d27951",
-          "73efa880-e199-49b5-b38e-9bd59d5d7167"
+          "04358ab0-e606-48a8-b6db-b53b2071629d",
+          "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
+          "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6"
         ]
       },
       "warehouse": null,
-      "can_manage": false,
+      "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -511,7 +577,7 @@
           "kind": "raw",
           "name": "صويا",
           "note": null,
-          "item_id": "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
           "base_unit": "kg"
         },
         {
@@ -520,9 +586,9 @@
           "name": "ذرة",
           "note": {
             "text": "بيع لأبو أحمد",
-            "version": 10
+            "version": 12
           },
-          "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951",
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
           "base_unit": "kg"
         },
         {
@@ -530,73 +596,73 @@
           "kind": "raw",
           "name": "نخالة",
           "note": null,
-          "item_id": "73efa880-e199-49b5-b38e-9bd59d5d7167",
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
           "base_unit": "kg"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
-      "can_note": false,
+      "can_note": true,
       "category": {
-        "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+        "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
         "name": "مواد العلف",
         "members": [
-          "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
-          "716ec519-3000-46d4-b820-f8a8f3d27951",
-          "73efa880-e199-49b5-b38e-9bd59d5d7167"
+          "04358ab0-e606-48a8-b6db-b53b2071629d",
+          "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
+          "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6"
         ]
       },
       "warehouse": null,
-      "can_manage": false,
+      "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -604,49 +670,86 @@
     },
     "hatchery": {
       "on": "2026-11-06",
-      "rows": [],
+      "rows": [
+        {
+          "qty": "800.000",
+          "kind": "additive",
+          "name": "برمكس م/1",
+          "note": null,
+          "item_id": "381d0e19-f438-474f-bfff-8abbe558a519",
+          "base_unit": "kg"
+        },
+        {
+          "qty": "1200.000",
+          "kind": "raw",
+          "name": "زيت",
+          "note": null,
+          "item_id": "58b09204-1fc7-4226-8f04-1c78f0d9bef8",
+          "base_unit": "L"
+        }
+      ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
+          "kind": "general",
+          "name": "المخزن العام"
+        },
+        {
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
+          "kind": "medicine",
+          "name": "مخزن الأدوية"
+        },
+        {
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
+          "kind": "raw",
+          "name": "مخزن المواد الأوّلية"
+        },
+        {
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+        "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
         "name": "الإضافات",
         "members": [
-          "0fc326cd-9d31-4501-944f-5335a39581c0",
-          "3fef0ce7-31e5-463f-bc17-173e9843b8d3"
+          "381d0e19-f438-474f-bfff-8abbe558a519",
+          "58b09204-1fc7-4226-8f04-1c78f0d9bef8"
         ]
       },
       "warehouse": null,
-      "can_manage": false,
+      "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -658,39 +761,39 @@
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+        "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
         "name": "فارغ",
         "members": []
       },
@@ -698,22 +801,22 @@
       "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -727,7 +830,7 @@
           "kind": "additive",
           "name": "برمكس م/1",
           "note": null,
-          "item_id": "0fc326cd-9d31-4501-944f-5335a39581c0",
+          "item_id": "381d0e19-f438-474f-bfff-8abbe558a519",
           "base_unit": "kg"
         },
         {
@@ -735,7 +838,7 @@
           "kind": "raw",
           "name": "ذرة",
           "note": null,
-          "item_id": "716ec519-3000-46d4-b820-f8a8f3d27951",
+          "item_id": "cff88570-9f3e-44d3-9450-a597b6fdd3fa",
           "base_unit": "kg"
         },
         {
@@ -743,7 +846,7 @@
           "kind": "raw",
           "name": "زيت",
           "note": null,
-          "item_id": "3fef0ce7-31e5-463f-bc17-173e9843b8d3",
+          "item_id": "58b09204-1fc7-4226-8f04-1c78f0d9bef8",
           "base_unit": "L"
         },
         {
@@ -751,7 +854,7 @@
           "kind": "raw",
           "name": "صويا",
           "note": null,
-          "item_id": "7a5d51d6-00b2-48ee-91e3-1dfe04da1cbc",
+          "item_id": "04358ab0-e606-48a8-b6db-b53b2071629d",
           "base_unit": "kg"
         },
         {
@@ -759,7 +862,7 @@
           "kind": "fuel",
           "name": "كاز",
           "note": null,
-          "item_id": "49a41db5-ac4c-4128-aab0-d1f48306cf8d",
+          "item_id": "0c3610aa-eafc-43a5-a7e6-b0fa7f39c065",
           "base_unit": "L"
         },
         {
@@ -767,7 +870,7 @@
           "kind": "raw",
           "name": "مادّة الدفتر",
           "note": null,
-          "item_id": "89f634b7-a7e3-42cb-abc5-51f2a46a8aaf",
+          "item_id": "173f5ceb-0abc-40ec-86b1-ee0cd59bf635",
           "base_unit": "kg"
         },
         {
@@ -775,7 +878,7 @@
           "kind": "raw",
           "name": "مادّة بملاحظة فقط",
           "note": null,
-          "item_id": "693b4c80-73ea-4d39-9576-a6812e6322cd",
+          "item_id": "b5d20ffd-8259-430f-9112-338258920f10",
           "base_unit": "kg"
         },
         {
@@ -783,7 +886,7 @@
           "kind": "raw",
           "name": "مادّة تخرج من التصنيف",
           "note": null,
-          "item_id": "a1a7bff8-ecd5-4e33-a33d-59a470938dbb",
+          "item_id": "d5b7bade-6a1f-4876-ac1c-72e73134a647",
           "base_unit": "kg"
         },
         {
@@ -791,7 +894,7 @@
           "kind": "raw",
           "name": "مادّة ستُخفى",
           "note": null,
-          "item_id": "4c84d921-5e3e-4a52-9abc-72e0d5494e19",
+          "item_id": "a14b33c6-5b52-471e-b3d1-5979afe7d308",
           "base_unit": "kg"
         },
         {
@@ -799,7 +902,7 @@
           "kind": "raw",
           "name": "مادّة نفدت",
           "note": null,
-          "item_id": "f7ac3e5d-c2a9-483c-a2a1-0874d32ba3ae",
+          "item_id": "87530db4-f4eb-49c8-8b7a-78f3ca43c7d5",
           "base_unit": "kg"
         },
         {
@@ -807,39 +910,39 @@
           "kind": "raw",
           "name": "نخالة",
           "note": null,
-          "item_id": "73efa880-e199-49b5-b38e-9bd59d5d7167",
+          "item_id": "b7ba80be-6e08-4dcb-b6b5-19b1f63173a6",
           "base_unit": "kg"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
@@ -858,7 +961,7 @@
           "kind": "additive",
           "name": "برمكس م/1",
           "note": null,
-          "item_id": "0fc326cd-9d31-4501-944f-5335a39581c0",
+          "item_id": "381d0e19-f438-474f-bfff-8abbe558a519",
           "base_unit": "kg"
         },
         {
@@ -866,75 +969,75 @@
           "kind": "raw",
           "name": "زيت",
           "note": null,
-          "item_id": "3fef0ce7-31e5-463f-bc17-173e9843b8d3",
+          "item_id": "58b09204-1fc7-4226-8f04-1c78f0d9bef8",
           "base_unit": "L"
         }
       ],
       "today": "2026-11-09",
       "stores": [
         {
-          "id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3",
+          "id": "eebebb7b-2be1-43fc-9294-a7db56331b2e",
           "kind": "general",
           "name": "المخزن العام"
         },
         {
-          "id": "4e7f64ed-dfe5-47e1-823e-56fbd8e3be8f",
+          "id": "c75cf190-8fa2-4c03-8c3e-5dd5bd84c00d",
+          "kind": "feed",
+          "name": "رصيد العلف"
+        },
+        {
+          "id": "26e443dd-a75c-447a-89e6-778f792fd078",
           "kind": "medicine",
           "name": "مخزن الأدوية"
         },
         {
-          "id": "7ad7f243-fedd-4a1a-9600-c27a0203c332",
+          "id": "8eb4d6d0-9c95-4201-a837-1e5d4c785fba",
           "kind": "chick",
           "name": "مخزن الأفراخ"
         },
         {
-          "id": "29ad6432-2cbc-4149-8919-9f5f0cc1af6d",
-          "kind": "feed",
-          "name": "مخزن العلف"
-        },
-        {
-          "id": "d01fd752-791f-42ea-a341-54f36c289930",
+          "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         },
         {
-          "id": "ce2e63dd-f0c3-475d-96f7-5f081c3b0156",
+          "id": "8a89bfb2-3071-4751-8d03-0caf4dcd3443",
           "kind": "hatching_egg",
           "name": "مخزن بيض التفقيس"
         }
       ],
       "can_note": true,
       "category": {
-        "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+        "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
         "name": "الإضافات",
         "members": [
-          "0fc326cd-9d31-4501-944f-5335a39581c0",
-          "3fef0ce7-31e5-463f-bc17-173e9843b8d3"
+          "381d0e19-f438-474f-bfff-8abbe558a519",
+          "58b09204-1fc7-4226-8f04-1c78f0d9bef8"
         ]
       },
       "warehouse": {
-        "id": "d01fd752-791f-42ea-a341-54f36c289930",
+        "id": "282e86a4-7aa6-4283-8e42-9935108b8fe7",
         "name": "مخزن المواد الأوّلية"
       },
       "can_manage": true,
       "categories": [
         {
-          "id": "6ab04898-d926-4803-b7db-a665ed0301e8",
+          "id": "be5c7b4e-19d2-4fcb-9fa9-7028b6b5f550",
           "name": "الإضافات",
           "items": 2
         },
         {
-          "id": "7b7a37c0-61b8-4ee7-b398-00d7c5dc5920",
+          "id": "be0b8475-f71e-4af3-a167-518009feed33",
           "name": "المحروقات",
           "items": 0
         },
         {
-          "id": "0aea9a3f-2fe3-46a6-aeed-c1b1cf5c584f",
+          "id": "4f810a3e-2f20-48b3-926d-dc81075c593b",
           "name": "فارغ",
           "items": 0
         },
         {
-          "id": "764aa2ab-7469-456c-9c7b-d7f78652b4a5",
+          "id": "d8af7857-d6a1-4bde-8b59-aae4f15bf94a",
           "name": "مواد العلف",
           "items": 3
         }
@@ -944,7 +1047,7 @@
   "item_file": {
     "owner_kerosene": {
       "item": {
-        "id": "49a41db5-ac4c-4128-aab0-d1f48306cf8d",
+        "id": "0c3610aa-eafc-43a5-a7e6-b0fa7f39c065",
         "kind": "fuel",
         "name": "كاز",
         "version": 4,
@@ -973,7 +1076,7 @@
           "name": "المخزن العام",
           "expired": "0",
           "available": "60.000",
-          "warehouse_id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3"
+          "warehouse_id": "eebebb7b-2be1-43fc-9294-a7db56331b2e"
         },
         {
           "qty": "40.000",
@@ -981,7 +1084,7 @@
           "name": "مخزن المواد الأوّلية",
           "expired": "0",
           "available": "40.000",
-          "warehouse_id": "d01fd752-791f-42ea-a341-54f36c289930"
+          "warehouse_id": "282e86a4-7aa6-4283-8e42-9935108b8fe7"
         }
       ],
       "can_edit": true,
@@ -996,13 +1099,13 @@
           "qty": "60.000",
           "kind": "general",
           "name": "المخزن العام",
-          "warehouse_id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3"
+          "warehouse_id": "eebebb7b-2be1-43fc-9294-a7db56331b2e"
         },
         {
           "qty": "40.000",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية",
-          "warehouse_id": "d01fd752-791f-42ea-a341-54f36c289930"
+          "warehouse_id": "282e86a4-7aa6-4283-8e42-9935108b8fe7"
         }
       ],
       "on_hand_qty": "100.000",
@@ -1015,18 +1118,18 @@
         {
           "kind": "general",
           "name": "المخزن العام",
-          "warehouse_id": "07fb9acd-9c0a-4b23-ad4b-aff8af6f53b3"
+          "warehouse_id": "eebebb7b-2be1-43fc-9294-a7db56331b2e"
         },
         {
           "kind": "raw",
           "name": "مخزن المواد الأوّلية",
-          "warehouse_id": "d01fd752-791f-42ea-a341-54f36c289930"
+          "warehouse_id": "282e86a4-7aa6-4283-8e42-9935108b8fe7"
         }
       ]
     },
     "owner_gone": {
       "item": {
-        "id": "f7ac3e5d-c2a9-483c-a2a1-0874d32ba3ae",
+        "id": "87530db4-f4eb-49c8-8b7a-78f3ca43c7d5",
         "kind": "raw",
         "name": "مادّة نفدت",
         "version": 1,
@@ -1061,7 +1164,7 @@
           "qty": "0.000",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية",
-          "warehouse_id": "d01fd752-791f-42ea-a341-54f36c289930"
+          "warehouse_id": "282e86a4-7aa6-4283-8e42-9935108b8fe7"
         }
       ],
       "on_hand_qty": "0.000",
@@ -1074,7 +1177,7 @@
         {
           "kind": "raw",
           "name": "مخزن المواد الأوّلية",
-          "warehouse_id": "d01fd752-791f-42ea-a341-54f36c289930"
+          "warehouse_id": "282e86a4-7aa6-4283-8e42-9935108b8fe7"
         }
       ]
     }

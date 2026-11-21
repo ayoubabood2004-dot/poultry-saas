@@ -1191,9 +1191,17 @@ export default async function (t) {
         await mount(`/halls/report/${flock}`);
         const withMoney = [showsMoney(), body().textContent.includes('فيتامين سائل'), body().textContent.includes('IB')];
         await unmount();
+        // 0034 («الكلّ مثل المالك»): تقرير عامل القاعة الحقيقيّ بماله؛ والجواب بلا مفاتيح المال (كما أرسله الخادم قبل 0034) يُعرض بلا مال.
         fresh(MANAGER, { rpcs: { flock_cycle_report: () => clone(REAL.flock_cycle_report_no_money) } });
         await mount(`/halls/report/${flock}`);
-        t.same([...withMoney, showsMoney()], [true, true, true, false], 'X2 التقرير بجواب القاعدة: الدواء من المخزن واللقاحات بالمخطّط، والمال لأدوار الكلفة وحدها');
+        const workerMoney = showsMoney();
+        await unmount();
+        const stripped = clone(REAL.flock_cycle_report_no_money);
+        delete stripped.money;
+        for (const line of stripped.feed?.lines ?? []) delete line.money;
+        fresh(MANAGER, { rpcs: { flock_cycle_report: () => stripped } });
+        await mount(`/halls/report/${flock}`);
+        t.same([...withMoney, workerMoney, showsMoney()], [true, true, true, true, false], 'X2 التقرير بجواب القاعدة: الدواء من المخزن واللقاحات بالمخطّط، والمال لكلّ عضو (0034) وبلا مال حين لا يرسله الخادم');
       });
       await step('X3 جدول اللقاحات بجواب القاعدة', async () => {
         fresh(MANAGER, { rpcs: { vaccine_board: () => clone(REAL.vaccine_board) } });

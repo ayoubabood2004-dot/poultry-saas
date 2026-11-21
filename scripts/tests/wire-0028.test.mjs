@@ -638,8 +638,17 @@ export default async function (t) {
       const lockedText = text();
       const lockedForm = byAction('bird-sale-form').length;
       await unmount();
-      const scope = B.bird_sale_form_out_of_scope;
+      // 0034 («الكلّ مثل المالك»): المحاسب بصفّ نطاق حقل لم يعد خارج نطاق الدفتر، فعيّنته الحقيقيّة (bird_sale_form_scoped) نموذج يُرحَّل؛ وجملة النطاق
+      // تبقى لجواب بشكله القديم (why = out_of_scope) من خادم قبل 0034.
+      const scope = B.bird_sale_form_scoped;
       fresh(ACCOUNTANT, { bird_sale_form: () => clone(scope) });
+      await mount(`/sales/birds/new?ticket=${scope.ticket.id}`);
+      const scopeSentence = 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.';
+      const scopedText = text();
+      const scopedForm = byAction('bird-sale-form').length;
+      await unmount();
+      const oldShape = { ...clone(scope), why: 'out_of_scope', invoiceable: false, can_post: false, ticket: { ...clone(scope.ticket), invoice_why: 'out_of_scope' } };
+      fresh(ACCOUNTANT, { bird_sale_form: () => clone(oldShape) });
       await mount(`/sales/birds/new?ticket=${scope.ticket.id}`);
       t.same(
         [
@@ -647,11 +656,12 @@ export default async function (t) {
           lockedText.includes(`يوم التذكرة ${m.fmtDay(locked.ticket.on_date)} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`),
           lockedText.includes('أقدم من سبعة أيّام: تُسجَّل الفاتورة'),
           lockedForm,
-          text().includes('دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.'),
+          [scope.why, scope.invoiceable, scope.can_post, scopedText.includes(scopeSentence), scopedForm],
+          text().includes(scopeSentence),
           byAction('bird-sale-form').length,
         ],
-        [['period_locked', true, false], true, false, 0, true, 0],
-        'W9 الممنوع الباقي بجملة تقول من يفعل ماذا ولا نموذج: يوم التذكرة في فترة مقفلة (bird_sale_form_period_locked_late، ولو كانت متأخّرة لا تُعرض جملة التأريخ) ونطاق الدفتر',
+        [['period_locked', true, false], true, false, 0, [null, true, true, false, 1], true, 0],
+        'W9 الممنوع الباقي بجملة تقول من يفعل ماذا ولا نموذج: يوم التذكرة في فترة مقفلة (bird_sale_form_period_locked_late، ولو كانت متأخّرة لا تُعرض جملة التأريخ)؛ والمحاسب بصفّ نطاق حقل يرى النموذج (0034)، وجملة النطاق لجواب قديم',
       );
     });
     await step('W9 التذكرة', async () => {

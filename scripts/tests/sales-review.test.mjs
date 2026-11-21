@@ -257,8 +257,8 @@ export default async function (t) {
       const afterVoid = m.sales.parseSaleInvoice(clone(R.sale_detail.owner_multi_after_void));
       t.same(
         [multi.open, multi.canCollect, keeper.canCollect, afterVoid.open, afterVoid.canCollect],
-        [dec(R.sale_detail.owner_multi.open, 2), true, false, 0n, false],
-        'D1 sale_detail الحقيقيّ: المتبقّي الآن (open) و«يُستلم» (can_collect) محلَّلان',
+        [dec(R.sale_detail.owner_multi.open, 2), true, true, 0n, false],
+        'D1 sale_detail الحقيقيّ: المتبقّي الآن (open) و«يُستلم» (can_collect) محلَّلان (والأمين يستلم كالمالك منذ 0034)',
       );
       const leg = m.sales.parseSaleInvoice(clone(R.sale_detail.owner_refunded_leg));
       t.same(leg.payments.map((p) => [p.cashAccountName, p.amount, p.refunded]), [['الصندوق', 100000n, false], ['المصرف', 200000n, true]], 'D3 كلّ ساق بعلم ردّها (payments[].refunded الحقيقيّ)');
@@ -327,7 +327,7 @@ export default async function (t) {
       await unmount();
       fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.storekeeper_multi) }, pickers);
       await mount(`/sales/${R.sale_detail.storekeeper_multi.id}`);
-      t.eq(byAction('collect-sale').length, 0, 'D1 can_collect false من القاعدة (عيّنة الأمين): لا «استلم من الزبون»');
+      t.eq(byAction('collect-sale').length, 1, 'D1 عيّنة الأمين الحقيقيّة: can_collect true منذ 0034 («الكلّ مثل المالك»)، فـ«استلم من الزبون» ظاهر');
     });
 
     await step('C1/D4 base unit label', async () => {
@@ -447,6 +447,10 @@ export default async function (t) {
       t.eq(byAction('sale-more').length, 1, 'V1 «⋯» في الفاتورة بعلم الخادم (can_void true)');
       await unmount();
       fresh(MANAGER, { sale_detail: () => clone(R.sale_detail.storekeeper_multi) }, pickers);
+      await mount(`/sales/${R.sale_detail.storekeeper_multi.id}`);
+      t.eq(byAction('sale-more').length, 1, 'V1 عيّنة الأمين الحقيقيّة: can_void true منذ 0034، فـ«⋯» ظاهر');
+      await unmount();
+      fresh(MANAGER, { sale_detail: () => ({ ...clone(R.sale_detail.storekeeper_multi), can_void: false }) }, pickers);
       await mount(`/sales/${R.sale_detail.storekeeper_multi.id}`);
       t.eq(byAction('sale-more').length, 0, 'V1 can_void false من القاعدة: لا «⋯» ولا «ألغِ» ولو سمح الدور');
     });

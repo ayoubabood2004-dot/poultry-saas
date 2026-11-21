@@ -559,10 +559,12 @@ export default async function (t) {
       await mount(`/sales/${MULTI.id}`);
       t.same([byAction('sale-more').length, textOf('void-block')], [0, 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، ويفتحها مالك المنشأة.'], 'F9 الفترة مقفلة: الجملة مكان «⋯»');
       await unmount();
-      fresh(sessionOf('storekeeper'), { sale_detail: () => clone(D.storekeeper_multi) });
+      // 0034 («الكلّ مثل المالك»): عيّنة الأمين الحقيقيّة تُلغى (can_void true، void_block null)؛ وforbidden الذي لم يعد يصل من الخادم لعضو يبقى بلا جملة.
+      fresh(sessionOf('storekeeper'), { sale_detail: () => ({ ...clone(D.storekeeper_multi), can_void: false, void_block: 'forbidden' }) });
       await mount(`/sales/${MULTI.id}`);
       t.eq(byAction('void-block').length, 0, 'F9 ضابط: الدور لا يُلغي (forbidden) فلا جملة');
-      t.eq(m.sales.parseSaleInvoice(clone(D.storekeeper_multi)).voidBlock, 'forbidden', 'F9 void_block الحقيقيّ محلَّل');
+      const keeper = m.sales.parseSaleInvoice(clone(D.storekeeper_multi));
+      t.same([keeper.voidBlock, keeper.canVoid], [null, true], 'F9 void_block الحقيقيّ محلَّل: الأمين يُلغي كالمالك (0034)');
     });
 
     await step('F10 Esc returns focus to «⋯»', async () => {

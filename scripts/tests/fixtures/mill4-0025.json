@@ -4,12 +4,12 @@
     "recipes": {
       "starter": {
         "id": "d2550000-0000-4000-8000-000000000101",
-        "version": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+        "version": "5286052f-1ba5-478a-a813-0edc199bac4c",
         "previous": "d2550000-0000-4000-8000-000000000102"
       },
       "finisher": {
         "id": "d2550000-0000-4000-8000-000000000111",
-        "version": "16e92c6c-a469-41dc-96fa-06c492a77cf3"
+        "version": "cce24acb-f959-432a-818b-4ccd78a3307e"
       },
       "breeder": {
         "id": "d2550000-0000-4000-8000-000000000121",
@@ -21,36 +21,36 @@
       }
     },
     "items": {
-      "corn": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
-      "soy": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
-      "oil": "679f6793-09e1-42cc-84d5-9cca679f2c15",
-      "premix": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
-      "salt": "0c4ec3db-995a-4e3b-b56a-1d98c1051ee9",
-      "kaz": "d329f9b1-1463-4150-8d61-c4627672771c",
-      "twine": "8e44c0b0-0bd8-46e7-87b5-0e1b56820b72",
-      "sack": "5f5fada5-04e8-4266-a6e8-5b1846dff365",
-      "syrup": "bdd70bce-7886-4172-8dd5-2353b30c6afb",
-      "light": "fd3cda0c-3fef-48bb-b3b5-00424309d841",
-      "starter": "9ed64b58-b4ea-42e7-a3a5-738bd8ff506e",
-      "finisher": "7113e963-97b8-4673-826f-26aea1ef7557",
-      "grower": "3a805257-2bf7-4dd3-b866-1b8a88a9bd4f",
-      "breeder": "dae278cf-95d6-4f19-a1fe-d0502ed3e70b",
-      "spare": "2c6da472-0172-45c4-9e5c-237e94589f8c"
+      "corn": "ddb83c46-508f-4afc-9912-114a6060a3ea",
+      "soy": "42acd64e-5d86-4836-b131-ac5a635a04d5",
+      "oil": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
+      "premix": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
+      "salt": "eabdd16b-adbf-49b3-b9d7-de9c0bba3abd",
+      "kaz": "89c671d6-daf1-4e6b-8879-b74bebd00c6d",
+      "twine": "b37902c1-544a-4945-97ea-8063a25cdf69",
+      "sack": "9cc06513-d53f-415d-a166-d39448e5b52f",
+      "syrup": "baa7c725-fe62-4246-b73c-9c38a51a2ad8",
+      "light": "15b511fa-20d9-4074-9f32-e0eb42682835",
+      "starter": "cb8a084f-c43e-41b6-abea-ab53b3fc5b1f",
+      "finisher": "cd4f57c4-74ef-4e5c-80ce-d35aca0ac4b6",
+      "grower": "827fa23b-8391-4d2b-9726-63098ec8ca00",
+      "breeder": "6b4c5f75-3d90-4609-85f7-001acd7bf9f5",
+      "spare": "77bc625a-4637-4b98-af75-dc98ad0b976c"
     },
     "warehouses": {
-      "raw": "66cc6153-f376-47c7-a148-17e74eba3c19",
-      "feed": "c40d3902-52d8-43e2-899a-ebc374bf0590",
-      "hatching_egg": "2844f6e8-821e-4fb1-8019-3406ef8ab61f",
-      "chick": "13b92136-353e-4000-aebd-96d5b5fe2e75",
-      "medicine": "9b0572b0-6d4b-458f-bb97-da0f101781fd",
-      "general": "9f602b2b-5abf-4546-b7a3-02bf48826b31"
+      "raw": "49f59cc2-69fd-4698-a070-e475814e8636",
+      "feed": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
+      "hatching_egg": "1a602a8e-ddb3-4b05-b51f-14b292e9c265",
+      "chick": "dbfd079d-d274-4517-8e12-535f5bbb2459",
+      "medicine": "fc568c9b-a6da-4c52-8710-8627acdfdf55",
+      "general": "e791b8ec-c59d-4e8a-8368-09e982c940b1"
     }
   },
   "production_form": {
     "after_saved_batch": {
       "last": {
         "id": "d2550000-0000-4000-8000-000000000272",
-        "doc_no": "PD-2026-0008",
+        "doc_no": "PD-2026-0009",
         "output_kg": "106.600",
         "extra_items": [],
         "produced_on": "2026-11-11",
@@ -58,7 +58,7 @@
       },
       "today": "2026-11-11",
       "active": {
-        "id": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+        "id": "5286052f-1ba5-478a-a813-0edc199bac4c",
         "version_no": 2,
         "materials_only": true
       },
@@ -67,14 +67,14 @@
         "name": "علف بادئ",
         "archived": false,
         "output_item": {
-          "id": "9ed64b58-b4ea-42e7-a3a5-738bd8ff506e",
+          "id": "cb8a084f-c43e-41b6-abea-ab53b3fc5b1f",
           "name": "علف بادئ",
           "tracks_expiry": false
         }
       },
       "stores": [
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "name": "مخزن المواد الأوّلية"
         }
       ],
@@ -83,7 +83,7 @@
           "kind": "raw",
           "name": "ذرة",
           "density": null,
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "archived": false,
           "in_basis": true,
@@ -96,7 +96,7 @@
           "kind": "raw",
           "name": "زيت",
           "density": "0.9200",
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 2,
           "archived": false,
           "in_basis": true,
@@ -109,7 +109,7 @@
           "kind": "additive",
           "name": "برمكس",
           "density": null,
-          "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+          "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
           "line_no": 3,
           "archived": false,
           "in_basis": true,
@@ -121,7 +121,7 @@
       ],
       "draft_exists": false,
       "output_store": {
-        "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+        "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
         "name": "رصيد العلف"
       },
       "can_edit_recipe": true
@@ -139,14 +139,14 @@
         "name": "علف أوّل مرّة",
         "archived": false,
         "output_item": {
-          "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+          "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
           "name": "علف تجربة",
           "tracks_expiry": false
         }
       },
       "stores": [
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "name": "مخزن المواد الأوّلية"
         }
       ],
@@ -155,7 +155,7 @@
           "kind": "raw",
           "name": "صويا",
           "density": null,
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 1,
           "archived": false,
           "in_basis": true,
@@ -168,7 +168,7 @@
           "kind": "raw",
           "name": "ذرة",
           "density": null,
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 2,
           "archived": false,
           "in_basis": true,
@@ -180,7 +180,7 @@
       ],
       "draft_exists": false,
       "output_store": {
-        "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+        "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
         "name": "رصيد العلف"
       },
       "can_edit_recipe": true
@@ -198,14 +198,14 @@
         "name": "علف بكميات",
         "archived": false,
         "output_item": {
-          "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+          "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
           "name": "علف تجربة",
           "tracks_expiry": false
         }
       },
       "stores": [
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "name": "مخزن المواد الأوّلية"
         }
       ],
@@ -214,7 +214,7 @@
           "kind": "raw",
           "name": "ذرة",
           "density": null,
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "archived": false,
           "in_basis": true,
@@ -227,7 +227,7 @@
           "kind": "raw",
           "name": "صويا",
           "density": null,
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 2,
           "archived": false,
           "in_basis": true,
@@ -240,7 +240,7 @@
           "kind": "raw",
           "name": "زيت",
           "density": "0.9200",
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 3,
           "archived": false,
           "in_basis": true,
@@ -252,7 +252,7 @@
       ],
       "draft_exists": false,
       "output_store": {
-        "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+        "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
         "name": "رصيد العلف"
       },
       "can_edit_recipe": true
@@ -260,12 +260,12 @@
     "legacy_after_batch": {
       "last": {
         "id": "d2550000-0000-4000-8000-000000000285",
-        "doc_no": "PD-2026-0009",
+        "doc_no": "PD-2026-0010",
         "output_kg": "673.240",
         "extra_items": [
           {
             "name": "برمكس",
-            "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a"
+            "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62"
           }
         ],
         "produced_on": "2026-11-11",
@@ -282,14 +282,14 @@
         "name": "علف بكميات",
         "archived": false,
         "output_item": {
-          "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+          "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
           "name": "علف تجربة",
           "tracks_expiry": false
         }
       },
       "stores": [
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "name": "مخزن المواد الأوّلية"
         }
       ],
@@ -298,7 +298,7 @@
           "kind": "raw",
           "name": "ذرة",
           "density": null,
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "archived": false,
           "in_basis": true,
@@ -311,7 +311,7 @@
           "kind": "raw",
           "name": "صويا",
           "density": null,
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 2,
           "archived": false,
           "in_basis": true,
@@ -324,7 +324,7 @@
           "kind": "raw",
           "name": "زيت",
           "density": "0.9200",
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 3,
           "archived": false,
           "in_basis": true,
@@ -336,7 +336,7 @@
       ],
       "draft_exists": false,
       "output_store": {
-        "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+        "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
         "name": "رصيد العلف"
       },
       "can_edit_recipe": true
@@ -344,7 +344,7 @@
     "operator": {
       "last": {
         "id": "d2550000-0000-4000-8000-000000000272",
-        "doc_no": "PD-2026-0008",
+        "doc_no": "PD-2026-0009",
         "output_kg": "106.600",
         "extra_items": [],
         "produced_on": "2026-11-11",
@@ -352,7 +352,7 @@
       },
       "today": "2026-11-11",
       "active": {
-        "id": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+        "id": "5286052f-1ba5-478a-a813-0edc199bac4c",
         "version_no": 2,
         "materials_only": true
       },
@@ -361,18 +361,18 @@
         "name": "علف بادئ",
         "archived": false,
         "output_item": {
-          "id": "9ed64b58-b4ea-42e7-a3a5-738bd8ff506e",
+          "id": "cb8a084f-c43e-41b6-abea-ab53b3fc5b1f",
           "name": "علف بادئ",
           "tracks_expiry": false
         }
       },
       "stores": [
         {
-          "id": "6afaa186-05cd-47a3-9bf3-d98fcc1d6d61",
+          "id": "f844cf76-807b-4958-b413-b6d5d56ef1e6",
           "name": "المخزن الإضافي للموادّ"
         },
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "name": "مخزن المواد الأوّلية"
         }
       ],
@@ -381,7 +381,7 @@
           "kind": "raw",
           "name": "ذرة",
           "density": null,
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "archived": false,
           "in_basis": true,
@@ -394,7 +394,7 @@
           "kind": "raw",
           "name": "زيت",
           "density": "0.9200",
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 2,
           "archived": false,
           "in_basis": true,
@@ -407,7 +407,7 @@
           "kind": "additive",
           "name": "برمكس",
           "density": null,
-          "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+          "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
           "line_no": 3,
           "archived": false,
           "in_basis": true,
@@ -419,10 +419,10 @@
       ],
       "draft_exists": false,
       "output_store": {
-        "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+        "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
         "name": "رصيد العلف"
       },
-      "can_edit_recipe": false
+      "can_edit_recipe": true
     }
   },
   "produce_batch": {
@@ -454,7 +454,7 @@
       "status": "draft",
       "version_no": 2,
       "saved_to_recipe": true,
-      "recipe_version_id": "16e92c6c-a469-41dc-96fa-06c492a77cf3"
+      "recipe_version_id": "cce24acb-f959-432a-818b-4ccd78a3307e"
     },
     "saved_posted": {
       "id": "d2550000-0000-4000-8000-000000000241",
@@ -475,27 +475,39 @@
       "output_qty_kg": "692.600",
       "saved_to_recipe": true,
       "output_item_name": "علف بادئ",
-      "recipe_version_id": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+      "recipe_version_id": "5286052f-1ba5-478a-a813-0edc199bac4c",
       "input_warehouse_name": "مخزن المواد الأوّلية",
       "output_warehouse_name": "رصيد العلف"
     },
     "awaiting": {
       "id": "d2550000-0000-4000-8000-000000000271",
-      "status": "draft",
-      "version": 1,
-      "awaiting": "costs",
-      "planned_kg": "414.200",
+      "note": null,
+      "money": {
+        "cost_per_kg": "519.07",
+        "extra_value": "0.00",
+        "input_value": "215000.00",
+        "total_value": "215000.00"
+      },
+      "doc_no": "PD-2026-0008",
+      "status": "posted",
+      "shrink_kg": "0.000",
       "version_no": 2,
+      "produced_on": "2026-11-11",
       "recipe_name": "علف بادئ",
+      "input_mass_kg": "414.200",
+      "output_qty_kg": "414.200",
       "saved_to_recipe": false,
-      "recipe_version_id": "2514fcfc-eef4-42d2-9660-d58540309ed7"
+      "output_item_name": "علف بادئ",
+      "recipe_version_id": "5286052f-1ba5-478a-a813-0edc199bac4c",
+      "input_warehouse_name": "مخزن المواد الأوّلية",
+      "output_warehouse_name": "رصيد العلف"
     },
     "draft": {
       "id": "d2550000-0000-4000-8000-000000000272",
       "status": "draft",
       "version_no": 2,
       "saved_to_recipe": false,
-      "recipe_version_id": "2514fcfc-eef4-42d2-9660-d58540309ed7"
+      "recipe_version_id": "5286052f-1ba5-478a-a813-0edc199bac4c"
     }
   },
   "recipe_history": {
@@ -505,37 +517,37 @@
         "name": "علف بادئ"
       },
       "totals": {
-        "batches": 5,
-        "output_kg": "2674.650"
+        "batches": 6,
+        "output_kg": "3088.850"
       },
       "versions": [
         {
-          "id": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+          "id": "5286052f-1ba5-478a-a813-0edc199bac4c",
           "added": [
             {
               "name": "برمكس",
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a"
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62"
             }
           ],
           "items": [
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             },
             {
               "name": "برمكس",
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a"
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62"
             }
           ],
           "status": "active",
           "removed": [
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             }
           ],
           "from_batch": {
@@ -545,7 +557,7 @@
           },
           "retired_at": null,
           "version_no": 2,
-          "activated_at": "2026-11-11T11:33:10.202792+00:00",
+          "activated_at": "2026-11-21T14:47:57.78277+00:00",
           "activated_by": "المالك",
           "materials_only": true
         },
@@ -554,37 +566,37 @@
           "added": [
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "items": [
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "status": "retired",
           "removed": [],
           "from_batch": null,
-          "retired_at": "2026-11-11T11:33:10.202792+00:00",
+          "retired_at": "2026-11-21T14:47:57.78277+00:00",
           "version_no": 1,
-          "activated_at": "2026-11-11T11:33:09.357409+00:00",
+          "activated_at": "2026-11-21T14:47:57.09617+00:00",
           "activated_by": "manager",
           "materials_only": true
         }
@@ -599,7 +611,7 @@
               "qty": "100.000",
               "name": "ذرة",
               "extra": false,
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
               "mass_kg": "100.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -608,7 +620,7 @@
               "qty": "5.000",
               "name": "زيت",
               "extra": false,
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
               "mass_kg": "4.600",
               "in_basis": true,
               "base_unit": "L"
@@ -617,8 +629,50 @@
               "qty": "2.000",
               "name": "برمكس",
               "extra": false,
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
               "mass_kg": "2.000",
+              "in_basis": true,
+              "base_unit": "kg"
+            }
+          ],
+          "doc_no": "PD-2026-0009",
+          "status": "posted",
+          "omitted": [],
+          "output_kg": "106.600",
+          "version_no": 2,
+          "produced_on": "2026-11-11",
+          "input_mass_kg": "106.600",
+          "saved_to_recipe": false
+        },
+        {
+          "by": "millOperator",
+          "id": "d2550000-0000-4000-8000-000000000271",
+          "note": null,
+          "lines": [
+            {
+              "qty": "400.000",
+              "name": "ذرة",
+              "extra": false,
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
+              "mass_kg": "400.000",
+              "in_basis": true,
+              "base_unit": "kg"
+            },
+            {
+              "qty": "10.000",
+              "name": "زيت",
+              "extra": false,
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
+              "mass_kg": "9.200",
+              "in_basis": true,
+              "base_unit": "L"
+            },
+            {
+              "qty": "5.000",
+              "name": "برمكس",
+              "extra": false,
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
+              "mass_kg": "5.000",
               "in_basis": true,
               "base_unit": "kg"
             }
@@ -626,10 +680,10 @@
           "doc_no": "PD-2026-0008",
           "status": "posted",
           "omitted": [],
-          "output_kg": "106.600",
+          "output_kg": "414.200",
           "version_no": 2,
           "produced_on": "2026-11-11",
-          "input_mass_kg": "106.600",
+          "input_mass_kg": "414.200",
           "saved_to_recipe": false
         },
         {
@@ -641,7 +695,7 @@
               "qty": "600.250",
               "name": "ذرة",
               "extra": false,
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
               "mass_kg": "600.250",
               "in_basis": true,
               "base_unit": "kg"
@@ -650,7 +704,7 @@
               "qty": "300.000",
               "name": "صويا",
               "extra": false,
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
               "mass_kg": "300.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -659,7 +713,7 @@
               "qty": "50.000",
               "name": "زيت",
               "extra": false,
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
               "mass_kg": "46.000",
               "in_basis": true,
               "base_unit": "L"
@@ -683,7 +737,7 @@
               "qty": "640.000",
               "name": "ذرة",
               "extra": false,
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
               "mass_kg": "640.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -692,7 +746,7 @@
               "qty": "30.000",
               "name": "زيت",
               "extra": false,
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
               "mass_kg": "27.600",
               "in_basis": true,
               "base_unit": "L"
@@ -701,7 +755,7 @@
               "qty": "25.000",
               "name": "برمكس",
               "extra": false,
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
               "mass_kg": "25.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -725,7 +779,7 @@
               "qty": "10.000",
               "name": "زيت",
               "extra": false,
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
               "mass_kg": "9.200",
               "in_basis": true,
               "base_unit": "L"
@@ -734,7 +788,7 @@
               "qty": "300.000",
               "name": "ذرة",
               "extra": false,
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
               "mass_kg": "300.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -743,7 +797,7 @@
               "qty": "100.000",
               "name": "صويا",
               "extra": false,
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
               "mass_kg": "100.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -767,7 +821,7 @@
               "qty": "500.000",
               "name": "ذرة",
               "extra": false,
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
               "mass_kg": "500.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -776,7 +830,7 @@
               "qty": "20.000",
               "name": "برمكس",
               "extra": true,
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
               "mass_kg": "20.000",
               "in_basis": true,
               "base_unit": "kg"
@@ -787,11 +841,11 @@
           "omitted": [
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "output_kg": "520.000",
@@ -813,32 +867,32 @@
       },
       "versions": [
         {
-          "id": "16e92c6c-a469-41dc-96fa-06c492a77cf3",
+          "id": "cce24acb-f959-432a-818b-4ccd78a3307e",
           "added": [
             {
               "name": "برمكس",
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a"
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62"
             }
           ],
           "items": [
             {
               "name": "برمكس",
-              "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a"
+              "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62"
             },
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "status": "active",
           "removed": [
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             }
           ],
           "from_batch": {
@@ -848,7 +902,7 @@
           },
           "retired_at": null,
           "version_no": 2,
-          "activated_at": "2026-11-11T11:33:10.13569+00:00",
+          "activated_at": "2026-11-21T14:47:57.735077+00:00",
           "activated_by": "manager",
           "materials_only": true
         },
@@ -857,37 +911,37 @@
           "added": [
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "items": [
             {
               "name": "ذرة",
-              "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955"
+              "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea"
             },
             {
               "name": "صويا",
-              "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de"
+              "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5"
             },
             {
               "name": "زيت",
-              "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15"
+              "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d"
             }
           ],
           "status": "retired",
           "removed": [],
           "from_batch": null,
-          "retired_at": "2026-11-11T11:33:10.13569+00:00",
+          "retired_at": "2026-11-21T14:47:57.735077+00:00",
           "version_no": 1,
-          "activated_at": "2026-11-11T11:33:09.408973+00:00",
+          "activated_at": "2026-11-21T14:47:57.169912+00:00",
           "activated_by": "manager",
           "materials_only": false
         }
@@ -900,17 +954,17 @@
       "today": "2026-11-11",
       "stores": [
         {
-          "id": "c40d3902-52d8-43e2-899a-ebc374bf0590",
+          "id": "5f624bd6-3a2f-496b-9b20-5949926fadb4",
           "kind": "feed",
           "name": "رصيد العلف"
         },
         {
-          "id": "6afaa186-05cd-47a3-9bf3-d98fcc1d6d61",
+          "id": "f844cf76-807b-4958-b413-b6d5d56ef1e6",
           "kind": "raw",
           "name": "المخزن الإضافي للموادّ"
         },
         {
-          "id": "66cc6153-f376-47c7-a148-17e74eba3c19",
+          "id": "49f59cc2-69fd-4698-a070-e475814e8636",
           "kind": "raw",
           "name": "مخزن المواد الأوّلية"
         }
@@ -925,12 +979,12 @@
             "expected_cost_per_kg": null
           },
           "active": {
-            "id": "e5f076eb-7347-430d-8b59-cdb779c0ba9b",
+            "id": "42fd5fa4-b9e8-4263-bba4-d95721d4cbb8",
             "lines": 1,
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
@@ -946,7 +1000,7 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
@@ -972,14 +1026,14 @@
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": "500.000",
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "صويا",
-                "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+                "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
                 "mass_kg": "500.000",
                 "in_basis": true,
                 "item_name": "صويا"
@@ -1004,7 +1058,7 @@
             "output_qty_kg": "100.000"
           },
           "output_item": {
-            "id": "dae278cf-95d6-4f19-a1fe-d0502ed3e70b",
+            "id": "6b4c5f75-3d90-4609-85f7-001acd7bf9f5",
             "kind": "feed",
             "name": "علف أمّهات",
             "base_unit": "kg"
@@ -1024,14 +1078,14 @@
             "pieces": [
               {
                 "name": "صويا",
-                "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+                "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "صويا"
               },
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
@@ -1047,7 +1101,7 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
@@ -1062,26 +1116,26 @@
             "expected_cost_per_kg": null
           },
           "active": {
-            "id": "2514fcfc-eef4-42d2-9660-d58540309ed7",
+            "id": "5286052f-1ba5-478a-a813-0edc199bac4c",
             "lines": 3,
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": "100.000",
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "زيت",
-                "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+                "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
                 "mass_kg": "4.600",
                 "in_basis": true,
                 "item_name": "زيت"
               },
               {
                 "name": "برمكس",
-                "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+                "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
                 "mass_kg": "2.000",
                 "in_basis": true,
                 "item_name": "برمكس"
@@ -1092,7 +1146,7 @@
             "pieces_source": "last_batch",
             "materials_only": true
           },
-          "batches": 4,
+          "batches": 5,
           "version": 1,
           "archived": false,
           "last_batch": {
@@ -1101,12 +1155,12 @@
               "cost_per_kg": "572.23",
               "total_value": "61000.00"
             },
-            "doc_no": "PD-2026-0008",
+            "doc_no": "PD-2026-0009",
             "produced_on": "2026-11-11",
             "output_qty_kg": "106.600"
           },
           "output_item": {
-            "id": "9ed64b58-b4ea-42e7-a3a5-738bd8ff506e",
+            "id": "cb8a084f-c43e-41b6-abea-ab53b3fc5b1f",
             "kind": "feed",
             "name": "علف بادئ",
             "base_unit": "kg"
@@ -1126,21 +1180,21 @@
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": "700.000",
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "صويا",
-                "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+                "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
                 "mass_kg": "281.600",
                 "in_basis": true,
                 "item_name": "صويا"
               },
               {
                 "name": "زيت",
-                "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+                "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
                 "mass_kg": "18.400",
                 "in_basis": true,
                 "item_name": "زيت"
@@ -1156,7 +1210,7 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
@@ -1176,21 +1230,21 @@
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "صويا",
-                "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+                "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "صويا"
               },
               {
                 "name": "زيت",
-                "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+                "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "زيت"
@@ -1206,7 +1260,7 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "3a805257-2bf7-4dd3-b866-1b8a88a9bd4f",
+            "id": "827fa23b-8391-4d2b-9726-63098ec8ca00",
             "kind": "feed",
             "name": "علف نامٍ",
             "base_unit": "kg"
@@ -1221,26 +1275,26 @@
             "expected_cost_per_kg": null
           },
           "active": {
-            "id": "16e92c6c-a469-41dc-96fa-06c492a77cf3",
+            "id": "cce24acb-f959-432a-818b-4ccd78a3307e",
             "lines": 3,
             "pieces": [
               {
                 "name": "برمكس",
-                "item_id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+                "item_id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "برمكس"
               },
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "زيت",
-                "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+                "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "زيت"
@@ -1256,18 +1310,18 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "7113e963-97b8-4673-826f-26aea1ef7557",
+            "id": "cd4f57c4-74ef-4e5c-80ce-d35aca0ac4b6",
             "kind": "feed",
             "name": "علف ناهٍ",
             "base_unit": "kg"
           }
         },
         {
-          "id": "404dcf98-0bc5-4998-9b45-2e8eaab7fe39",
+          "id": "50fb7f4f-a3d2-4417-af6f-c6fc134c8637",
           "name": "مسوّدة بدبس",
           "note": null,
           "draft": {
-            "id": "6c419823-0bf5-457a-8f91-da93d60c4110",
+            "id": "2d16f09f-d43d-45ae-a74b-525c60666103",
             "lines": 2,
             "version": 3,
             "basis_kg": null,
@@ -1282,18 +1336,18 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
           }
         },
         {
-          "id": "4d34666d-2077-40c9-b3f2-705f4856b96d",
+          "id": "a4bd38e4-933b-4e11-b7c8-2e3536f9da2a",
           "name": "مسوّدة مباشرة 1",
           "note": null,
           "draft": {
-            "id": "5fa618ef-48f1-4f00-9588-2f8aeea56caf",
+            "id": "d9885570-bde2-499c-9f0f-09dee61f021c",
             "lines": 2,
             "version": 3,
             "basis_kg": "1000",
@@ -1308,18 +1362,18 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
           }
         },
         {
-          "id": "cb81fd91-0a0f-4477-91d0-96a42285830f",
+          "id": "9857b092-6e12-4384-a0bd-39ad394b3acc",
           "name": "مسوّدة مباشرة 2",
           "note": null,
           "draft": {
-            "id": "3aa7f746-3399-4f52-97b0-f39abc5c23f9",
+            "id": "543339d3-c08d-463d-87ea-5153754664d6",
             "lines": 1,
             "version": 2,
             "basis_kg": null,
@@ -1334,14 +1388,14 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
           }
         },
         {
-          "id": "c99e4d5b-d958-4e2d-92b2-6b9222aa2437",
+          "id": "e38092b4-d519-4eb1-9268-76894349110c",
           "name": "مسوّدة مباشرة 3",
           "note": null,
           "draft": null,
@@ -1349,19 +1403,19 @@
             "expected_cost_per_kg": null
           },
           "active": {
-            "id": "5c4e8448-f516-4816-ba78-b914ad60aa77",
+            "id": "e486c995-c98b-409d-a4e5-e2ea6034aac9",
             "lines": 2,
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
               },
               {
                 "name": "صويا",
-                "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+                "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "صويا"
@@ -1377,18 +1431,18 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
           }
         },
         {
-          "id": "09f95b11-4aea-42ed-a7b8-cf0fbe111967",
+          "id": "1aadf6f0-0c68-4690-9811-71165f202d6b",
           "name": "مسوّدة مباشرة 4",
           "note": null,
           "draft": {
-            "id": "6cb985bf-9f17-48f4-b710-a2367c847c19",
+            "id": "2e945fcf-eff3-4039-965f-b84f25bfe383",
             "lines": 1,
             "version": 2,
             "basis_kg": "1000",
@@ -1403,18 +1457,18 @@
           "archived": false,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
           }
         },
         {
-          "id": "1bc55165-3070-4a3c-9e5d-14aea55a8547",
+          "id": "15f943df-e5f2-48a6-b424-c4262a65fd64",
           "name": "خلطة المخطّط",
           "note": null,
           "draft": {
-            "id": "7eb62aba-8145-41e9-8941-c1b29ef27f3f",
+            "id": "2d49ee45-f0e4-4830-9e46-0eab55fa8f23",
             "lines": 0,
             "version": 1,
             "basis_kg": null,
@@ -1429,7 +1483,7 @@
           "archived": true,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
@@ -1449,7 +1503,7 @@
             "pieces": [
               {
                 "name": "ذرة",
-                "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+                "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
                 "mass_kg": null,
                 "in_basis": true,
                 "item_name": "ذرة"
@@ -1465,7 +1519,7 @@
           "archived": true,
           "last_batch": null,
           "output_item": {
-            "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+            "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
             "kind": "feed",
             "name": "علف تجربة",
             "base_unit": "kg"
@@ -1474,23 +1528,23 @@
       ],
       "feed_items": [
         {
-          "id": "dae278cf-95d6-4f19-a1fe-d0502ed3e70b",
+          "id": "6b4c5f75-3d90-4609-85f7-001acd7bf9f5",
           "name": "علف أمّهات"
         },
         {
-          "id": "9ed64b58-b4ea-42e7-a3a5-738bd8ff506e",
+          "id": "cb8a084f-c43e-41b6-abea-ab53b3fc5b1f",
           "name": "علف بادئ"
         },
         {
-          "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+          "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
           "name": "علف تجربة"
         },
         {
-          "id": "3a805257-2bf7-4dd3-b866-1b8a88a9bd4f",
+          "id": "827fa23b-8391-4d2b-9726-63098ec8ca00",
           "name": "علف نامٍ"
         },
         {
-          "id": "7113e963-97b8-4673-826f-26aea1ef7557",
+          "id": "cd4f57c4-74ef-4e5c-80ce-d35aca0ac4b6",
           "name": "علف ناهٍ"
         }
       ]
@@ -1503,7 +1557,7 @@
       "note": null,
       "lines": [
         {
-          "id": "a5f0b21e-2de8-4ed9-bbfd-ec050ee8103b",
+          "id": "dfef6586-faf5-443c-85e8-caa389ec5f0b",
           "qty": null,
           "kind": "raw",
           "unit": "kg",
@@ -1512,7 +1566,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "mass_kg": null,
           "in_basis": true,
@@ -1526,7 +1580,7 @@
           "density_missing": false
         },
         {
-          "id": "0d294055-b6ee-4a20-9745-14c362282f1e",
+          "id": "0b69386f-02c6-408a-9f86-200bb1440caa",
           "qty": null,
           "kind": "raw",
           "unit": "kg",
@@ -1535,7 +1589,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 2,
           "mass_kg": null,
           "in_basis": true,
@@ -1549,7 +1603,7 @@
           "density_missing": false
         },
         {
-          "id": "735b282d-da2c-4d63-8753-f7e53909701a",
+          "id": "4acc3ca8-da8b-442e-b9a8-843ecd1dd678",
           "qty": null,
           "kind": "raw",
           "unit": "L",
@@ -1558,7 +1612,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 3,
           "mass_kg": null,
           "in_basis": true,
@@ -1575,9 +1629,9 @@
       "money": {
         "rates": [
           {
-            "id": "6c40cfd5-803c-49c4-82b9-2e60fbd871f8",
+            "id": "21a2d051-c0ab-4296-a203-c65fb6a8c1ad",
             "line_no": 1,
-            "category_id": "e9a8b5db-ce1c-4347-a662-753e36afc76a",
+            "category_id": "6e237a54-0e5d-4cd4-8210-9d19ac9c300b",
             "category_name": "أجور المعمل",
             "amount_per_ton": "4000.00"
           }
@@ -1613,62 +1667,62 @@
           "version": 7,
           "basis_kg": "1000.000",
           "version_no": 1,
-          "activated_at": "2026-11-11T11:33:09.509005+00:00",
+          "activated_at": "2026-11-21T14:47:57.288039+00:00",
           "materials_only": false
         }
       ],
       "pick_items": [
         {
-          "id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+          "id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
           "name": "برمكس",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "8e44c0b0-0bd8-46e7-87b5-0e1b56820b72",
+          "id": "b37902c1-544a-4945-97ea-8063a25cdf69",
           "name": "خيط التعبئة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "bdd70bce-7886-4172-8dd5-2353b30c6afb",
+          "id": "baa7c725-fe62-4246-b73c-9c38a51a2ad8",
           "name": "دبس بلا كثافة",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "name": "ذرة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "name": "زيت",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fd3cda0c-3fef-48bb-b3b5-00424309d841",
+          "id": "15b511fa-20d9-4074-9f32-e0eb42682835",
           "name": "سائل خفيف",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "name": "صويا",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "d329f9b1-1463-4150-8d61-c4627672771c",
+          "id": "89c671d6-daf1-4e6b-8879-b74bebd00c6d",
           "name": "كاز المعمل",
           "base_unit": "L",
           "category_name": null
         }
       ],
       "output_item": {
-        "id": "3a805257-2bf7-4dd3-b866-1b8a88a9bd4f",
+        "id": "827fa23b-8391-4d2b-9726-63098ec8ca00",
         "kind": "feed",
         "name": "علف نامٍ",
         "base_unit": "kg",
@@ -1676,7 +1730,7 @@
       },
       "expense_categories": [
         {
-          "id": "e9a8b5db-ce1c-4347-a662-753e36afc76a",
+          "id": "6e237a54-0e5d-4cd4-8210-9d19ac9c300b",
           "name": "أجور المعمل"
         }
       ]
@@ -1687,7 +1741,7 @@
       "note": null,
       "lines": [
         {
-          "id": "a5f0b21e-2de8-4ed9-bbfd-ec050ee8103b",
+          "id": "dfef6586-faf5-443c-85e8-caa389ec5f0b",
           "qty": null,
           "kind": "raw",
           "unit": "kg",
@@ -1696,7 +1750,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "mass_kg": null,
           "in_basis": true,
@@ -1710,7 +1764,7 @@
           "density_missing": false
         },
         {
-          "id": "0d294055-b6ee-4a20-9745-14c362282f1e",
+          "id": "0b69386f-02c6-408a-9f86-200bb1440caa",
           "qty": null,
           "kind": "raw",
           "unit": "kg",
@@ -1719,7 +1773,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 2,
           "mass_kg": null,
           "in_basis": true,
@@ -1733,7 +1787,7 @@
           "density_missing": false
         },
         {
-          "id": "735b282d-da2c-4d63-8753-f7e53909701a",
+          "id": "4acc3ca8-da8b-442e-b9a8-843ecd1dd678",
           "qty": null,
           "kind": "raw",
           "unit": "L",
@@ -1742,7 +1796,7 @@
             "cost_price": null,
             "last_price": null
           },
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 3,
           "mass_kg": null,
           "in_basis": true,
@@ -1759,9 +1813,9 @@
       "money": {
         "rates": [
           {
-            "id": "6c40cfd5-803c-49c4-82b9-2e60fbd871f8",
+            "id": "21a2d051-c0ab-4296-a203-c65fb6a8c1ad",
             "line_no": 1,
-            "category_id": "e9a8b5db-ce1c-4347-a662-753e36afc76a",
+            "category_id": "6e237a54-0e5d-4cd4-8210-9d19ac9c300b",
             "category_name": "أجور المعمل",
             "amount_per_ton": "4000.00"
           }
@@ -1778,7 +1832,7 @@
         "version": 6,
         "basis_kg": null,
         "version_no": 2,
-        "activated_at": "2026-11-11T11:33:09.554565+00:00",
+        "activated_at": "2026-11-21T14:47:57.317607+00:00",
         "materials_only": true
       },
       "versions": [
@@ -1788,7 +1842,7 @@
           "version": 6,
           "basis_kg": null,
           "version_no": 2,
-          "activated_at": "2026-11-11T11:33:09.554565+00:00",
+          "activated_at": "2026-11-21T14:47:57.317607+00:00",
           "materials_only": true
         },
         {
@@ -1797,62 +1851,62 @@
           "version": 8,
           "basis_kg": "1000.000",
           "version_no": 1,
-          "activated_at": "2026-11-11T11:33:09.509005+00:00",
+          "activated_at": "2026-11-21T14:47:57.288039+00:00",
           "materials_only": false
         }
       ],
       "pick_items": [
         {
-          "id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+          "id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
           "name": "برمكس",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "8e44c0b0-0bd8-46e7-87b5-0e1b56820b72",
+          "id": "b37902c1-544a-4945-97ea-8063a25cdf69",
           "name": "خيط التعبئة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "bdd70bce-7886-4172-8dd5-2353b30c6afb",
+          "id": "baa7c725-fe62-4246-b73c-9c38a51a2ad8",
           "name": "دبس بلا كثافة",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "name": "ذرة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "name": "زيت",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fd3cda0c-3fef-48bb-b3b5-00424309d841",
+          "id": "15b511fa-20d9-4074-9f32-e0eb42682835",
           "name": "سائل خفيف",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "name": "صويا",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "d329f9b1-1463-4150-8d61-c4627672771c",
+          "id": "89c671d6-daf1-4e6b-8879-b74bebd00c6d",
           "name": "كاز المعمل",
           "base_unit": "L",
           "category_name": null
         }
       ],
       "output_item": {
-        "id": "3a805257-2bf7-4dd3-b866-1b8a88a9bd4f",
+        "id": "827fa23b-8391-4d2b-9726-63098ec8ca00",
         "kind": "feed",
         "name": "علف نامٍ",
         "base_unit": "kg",
@@ -1860,7 +1914,7 @@
       },
       "expense_categories": [
         {
-          "id": "e9a8b5db-ce1c-4347-a662-753e36afc76a",
+          "id": "6e237a54-0e5d-4cd4-8210-9d19ac9c300b",
           "name": "أجور المعمل"
         }
       ]
@@ -1871,7 +1925,7 @@
       "note": null,
       "lines": [
         {
-          "id": "bdce8962-310f-4bc6-9766-27add7ec2a53",
+          "id": "224a8004-d1fa-41e6-9528-0a3517753e16",
           "qty": "700.000",
           "kind": "raw",
           "unit": "kg",
@@ -1880,7 +1934,7 @@
             "cost_price": null,
             "last_price": "450.00"
           },
-          "item_id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "item_id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "line_no": 1,
           "mass_kg": "700.000",
           "in_basis": true,
@@ -1894,7 +1948,7 @@
           "density_missing": false
         },
         {
-          "id": "2c860f04-096e-4fec-b6b3-af72ff9a1a2f",
+          "id": "a884a86f-1dda-4420-9c95-3d804aeb8665",
           "qty": "281.600",
           "kind": "raw",
           "unit": "kg",
@@ -1903,7 +1957,7 @@
             "cost_price": null,
             "last_price": "900.00"
           },
-          "item_id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "item_id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "line_no": 2,
           "mass_kg": "281.600",
           "in_basis": true,
@@ -1917,7 +1971,7 @@
           "density_missing": false
         },
         {
-          "id": "33dc0ba7-056b-4abb-ae42-69e2cfc77770",
+          "id": "7b04b1e1-de63-49b1-ba2a-0b4c62e28efb",
           "qty": "18.400",
           "kind": "raw",
           "unit": "kg",
@@ -1926,7 +1980,7 @@
             "cost_price": null,
             "last_price": "2000.00"
           },
-          "item_id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "item_id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "line_no": 3,
           "mass_kg": "18.400",
           "in_basis": true,
@@ -1960,7 +2014,7 @@
         "version": 5,
         "basis_kg": "1000.000",
         "version_no": 1,
-        "activated_at": "2026-11-11T11:33:10.527995+00:00",
+        "activated_at": "2026-11-21T14:47:58.071642+00:00",
         "materials_only": false
       },
       "versions": [
@@ -1970,62 +2024,62 @@
           "version": 5,
           "basis_kg": "1000.000",
           "version_no": 1,
-          "activated_at": "2026-11-11T11:33:10.527995+00:00",
+          "activated_at": "2026-11-21T14:47:58.071642+00:00",
           "materials_only": false
         }
       ],
       "pick_items": [
         {
-          "id": "e4a5d944-8e81-4aaf-ac72-d133c09a036a",
+          "id": "99bb3d8b-ef1d-4af0-80d4-e65c5a22bf62",
           "name": "برمكس",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "8e44c0b0-0bd8-46e7-87b5-0e1b56820b72",
+          "id": "b37902c1-544a-4945-97ea-8063a25cdf69",
           "name": "خيط التعبئة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "bdd70bce-7886-4172-8dd5-2353b30c6afb",
+          "id": "baa7c725-fe62-4246-b73c-9c38a51a2ad8",
           "name": "دبس بلا كثافة",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "df2ccd07-431f-4800-8fb1-60ecb40d6955",
+          "id": "ddb83c46-508f-4afc-9912-114a6060a3ea",
           "name": "ذرة",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "679f6793-09e1-42cc-84d5-9cca679f2c15",
+          "id": "9ee8201e-b469-432f-b99a-b1b11c0ef45d",
           "name": "زيت",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fd3cda0c-3fef-48bb-b3b5-00424309d841",
+          "id": "15b511fa-20d9-4074-9f32-e0eb42682835",
           "name": "سائل خفيف",
           "base_unit": "L",
           "category_name": null
         },
         {
-          "id": "fe388ffb-20d1-4422-ad4b-4218dec9f7de",
+          "id": "42acd64e-5d86-4836-b131-ac5a635a04d5",
           "name": "صويا",
           "base_unit": "kg",
           "category_name": null
         },
         {
-          "id": "d329f9b1-1463-4150-8d61-c4627672771c",
+          "id": "89c671d6-daf1-4e6b-8879-b74bebd00c6d",
           "name": "كاز المعمل",
           "base_unit": "L",
           "category_name": null
         }
       ],
       "output_item": {
-        "id": "2c6da472-0172-45c4-9e5c-237e94589f8c",
+        "id": "77bc625a-4637-4b98-af75-dc98ad0b976c",
         "kind": "feed",
         "name": "علف تجربة",
         "base_unit": "kg",
@@ -2033,7 +2087,7 @@
       },
       "expense_categories": [
         {
-          "id": "e9a8b5db-ce1c-4347-a662-753e36afc76a",
+          "id": "6e237a54-0e5d-4cd4-8210-9d19ac9c300b",
           "name": "أجور المعمل"
         }
       ]
@@ -2079,10 +2133,6 @@
     "recipe_choice_required": {
       "code": "recipe_choice_required",
       "hint": "غيّرت موادّ الخلطة: اختر «عدّل الخلطة» أو «لهذه المرّة فقط»."
-    },
-    "forbidden_save": {
-      "code": "forbidden",
-      "hint": "تعديل الخلطة للمالك أو المدير؛ اختر «لهذه المرّة فقط»."
     },
     "recipe_changed": {
       "code": "recipe_changed",
