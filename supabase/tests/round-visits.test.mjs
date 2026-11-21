@@ -313,13 +313,21 @@ async function scenario(t, db) {
     same([parkedRun.d1, parkedRun.d2], [PARKED, PARKED], 'وعمليتا save_flock_day لليوم نفسه: parked');
     same(parkedRun.rows, [{ visit_id: null, dead: '4' }, { visit_id: V.v7, dead: '5' }, { visit_id: V.v8, dead: '2' }],
       'الزيارتان المركونتان لا تكتب إحداهما فوق الأخرى (والزيارة نفسها تستبدل ركنها)، وعملية save_flock_day الأحدث تستبدل ركنها كما كانت');
+    // فوج منشأة أخرى حقيقيّ قائم (مراجعة الشاشات R6): معرّف مجهول يُرفض ولو سقط حدّ المنشأة من الدالّة، فالفحص بفوج موجود لغيرها
+    // (معرّفاتها d3232000…0951 وهاتفها 9647703232051 من مجال هذا الملفّ).
+    const other = await makeOrg(db, { name: 'مزرعة منشأة أخرى', id: (n) => id(950 + n), phone: (n) => phone(50 + n), roles: [['owner', 'owner']] });
+    const otherSite = await one(other.users.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل المنشأة الأخرى', 'farm') returning id", [other.divisions.broiler]);
+    const otherHall = await one(other.users.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [otherSite, 'قاعة المنشأة الأخرى']);
+    const FOREIGN = (await one(other.users.owner, 'select public.open_flock($1, $2, $3, 0, null, $4) as v', [otherHall, day(-10), 100, uid()])).flock_id;
     same({
       direct: code(await call(db, U.worker, VISIT, visitParams({ id: uid(), flock: F.a1, on: day(-9), dead: 1 }), { commit: false })),
       scopeQueued: (await dryVisit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1, queued: true })).value?.status,
       scope: code(await dryVisit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1 })),
-      foreign: code(await visit(U.worker, { id: uid(), flock: id(997), dead: 1, queued: true })),
-    }, { direct: 'ok', scopeQueued: 'saved', scope: 'ok', foreign: 'flock_not_found' },
-    'يوم قبل تسعة أيّام لفوج قائم يُحفظ (0035: بلا حدّ الأيّام السبعة)؛ وعامل قاعات البيض يسجّل في قاعة اللحم من الطابور وبنداء مباشر (0034، بمعاملة ترجع)؛ وفوج ليس في المنشأة flock_not_found ولو من الطابور');
+      foreign: code(await visit(U.worker, { id: uid(), flock: FOREIGN, dead: 1, queued: true })),
+      foreignRows: (await db.admin(`select (select count(*) from public.flock_visits where flock_id = $1)::int + (select count(*) from public.flock_daily where flock_id = $1)::int
+        + (select count(*) from public.flock_day_rejects where flock_id = $1)::int as n`, [FOREIGN])).rows[0].n,
+    }, { direct: 'ok', scopeQueued: 'saved', scope: 'ok', foreign: 'flock_not_found', foreignRows: 0 },
+    'يوم قبل تسعة أيّام لفوج قائم يُحفظ (0035: بلا حدّ الأيّام السبعة)؛ وعامل قاعات البيض يسجّل في قاعة اللحم من الطابور وبنداء مباشر (0034، بمعاملة ترجع)؛ وفوج منشأة أخرى قائم flock_not_found ولو من الطابور، بلا أثر عليه');
     // الفترة المقفلة والفوج المغلق داخل معاملة ترجع.
     const locked = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
       const lock = await attempt(U.manager, (q) => q('select public.set_period_lock($1)', [day(-1)]));

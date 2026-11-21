@@ -433,14 +433,24 @@ async function scenario(t, db) {
   const rejects = (await db.admin('select reason, payload, client_ref from public.flock_day_rejects where flock_id = $1', [F3])).rows;
   same([rejects.length, rejects[0]?.payload.dead, rejects[0]?.client_ref === parkRef], [1, 6, false], 'صفّ مركون واحد لكل (المستخدم، الفوج، اليوم) والأحدث يستبدله');
   t.eq(await day(F3, TODAY), null, 'المركون بلا أثر على الجولة');
+  // فوج منشأة أخرى حقيقيّ قائم (مراجعة الشاشات R6): معرّف مجهول يُرفض ولو سقط حدّ المنشأة من الدالّة، فالفحص بفوج موجود لغيرها.
+  const OTHER = id(901);
+  await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [OTHER, phone(91)]);
+  await db.asUser(OTHER, (q) => q("select public.create_my_org('مزرعة منشأة أخرى', 'المالك')"), { commit: true });
+  const otherBroiler = (await db.admin("select d.id from public.divisions d join public.members m on m.org_id = d.org_id where m.user_id = $1 and d.kind = 'broiler'", [OTHER])).rows[0].id;
+  const otherSite = (await call(OTHER, "insert into public.sites (division_id, name, kind) values ($1, 'حقل المنشأة الأخرى', 'farm') returning id", [otherBroiler])).v;
+  const otherHall = (await hall(OTHER, otherSite, 'قاعة المنشأة الأخرى')).v;
+  const FOREIGN = (await open(OTHER, otherHall, '2026-10-25', 100)).v?.flock_id;
+  t.ok(Boolean(FOREIGN), 'منشأة أخرى بفوج لحم قائم (للرفض عبر المنشآت)');
   same(
     {
       scope: (await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1, ref(), true, false)).v?.status,
       old: code(await save(U.worker, F1, '2026-10-21', { dead: 1 }, null, ref(), true)),
-      foreign: code(await save(U.worker, id(997), TODAY, { dead: 1 }, null, ref(), true)),
+      foreign: code(await save(U.worker, FOREIGN, TODAY, { dead: 1 }, null, ref(), true)),
+      foreignRows: (await db.admin('select (select count(*) from public.flock_daily where flock_id = $1)::int + (select count(*) from public.flock_day_rejects where flock_id = $1)::int as n', [FOREIGN])).rows[0].n,
     },
-    { scope: 'saved', old: 'before_placement', foreign: 'flock_not_found' },
-    'من الطابور: عامل بصفّ نطاق البيض لم يعد خارج النطاق فيُحفظ (0034، بمعاملة ترجع)؛ ويوم قبل التسكين يُرفض ولو من الطابور (0035: لا ركن «أقدم من 7 أيام»)؛ وفوج ليس في المنشأة flock_not_found لا ركن',
+    { scope: 'saved', old: 'before_placement', foreign: 'flock_not_found', foreignRows: 0 },
+    'من الطابور: عامل بصفّ نطاق البيض لم يعد خارج النطاق فيُحفظ (0034، بمعاملة ترجع)؛ ويوم قبل التسكين يُرفض ولو من الطابور (0035: لا ركن «أقدم من 7 أيام»)؛ وفوج منشأة أخرى قائم flock_not_found لا ركن ولا أثر عليه',
   );
   t.eq(code(await call(U.manager, 'select public.set_period_lock($1)', ['2026-10-25'])), 'ok', 'المدير يقفل الفترة حتى 25/10');
   same(
