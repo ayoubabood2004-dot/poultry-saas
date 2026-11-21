@@ -68,6 +68,8 @@ async function scenario(t, db) {
   const preview = async (user, docId) => call(db, user, 'select public.preview_stock_use($1)', [docId]);
   const post = (user, doc, plan, ref = uid()) => call(db, user, 'select public.post_stock_use($1, $2, $3, $4)', [doc.id, doc.version, plan, ref]);
   const postNow = (user, doc, ref = uid()) => call(db, user, "select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', $3)", [doc.id, doc.version, ref]);
+  // 0034 («الكلّ مثل المالك»): ترحيل صار مسموحاً لعضو كان يُمنع يُنفَّذ بمعاملة ترجع، فلا يغيّر ما بعده.
+  const dryPost = (user, doc) => call(db, user, "select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', $3)", [doc.id, doc.version, uid()], { commit: false });
   const expenseOf = async (docId) =>
     (await db.admin("select amount::text as amount, category_id, division_id, source, on_date::text as on_date, for_month::text as for_month, reverses_id from public.expenses where doc_kind = 'stock_use' and doc_id = $1 order by created_at, id", [docId])).rows;
 
@@ -76,15 +78,15 @@ async function scenario(t, db) {
   const seen = await preview(U.storekeeper, doc1.id);
   t.same(
     [seen.ok, seen.value.ready, seen.value.lines[0].draws.length, 'money' in seen.value, 'money' in seen.value.lines[0], seen.value.lines[0].whole_balance, seen.value.needs_manager],
-    [true, true, 1, false, false, false, false],
-    'معاينة الأمين: جاهزة بقطعة وحدة، بلا أي money (المصروف مخفي عنه)، ومو الرصيد كلّه، وما تحتاج المدير',
+    [true, true, 1, true, true, false, false],
+    'معاينة الأمين: جاهزة بقطعة وحدة، بمالها (0034)، ومو الرصيد كلّه، وما تحتاج المدير',
   );
   const posted1 = await post(U.storekeeper, doc1, seen.value.plan);
   const general = (await db.admin('select division_id from public.warehouses where id = $1', [W.general])).rows[0].division_id;
   t.same(
     [shown(posted1), posted1.value?.doc_no, 'money' in (posted1.value ?? {}), await expenseOf(doc1.id), await balanceOf(db, kerosene, W.general)],
-    ['ok', 'SU-2026-0001', false, [{ amount: '7500.00', category_id: maintenance, division_id: general, source: 'stock', on_date: TODAY, for_month: '2026-10-01', reverses_id: null }], { qty: '490', value: '367500' }],
-    'الأمين يرحّل الصرف: SU-2026-0001 بلا قيم بنتيجته، ومصروف 7,500.00 بمصدر stock بالصيانة ووحدة العامّة، والرصيد 490 لتراً بـ367,500.00',
+    ['ok', 'SU-2026-0001', true, [{ amount: '7500.00', category_id: maintenance, division_id: general, source: 'stock', on_date: TODAY, for_month: '2026-10-01', reverses_id: null }], { qty: '490', value: '367500' }],
+    'الأمين يرحّل الصرف: SU-2026-0001 بقيمه في نتيجته (0034)، ومصروف 7,500.00 بمصدر stock بالصيانة ووحدة العامّة، والرصيد 490 لتراً بـ367,500.00',
   );
   const again = await call(db, U.manager, 'select public.post_stock_use($1, $2, $3, $4)', [doc1.id, doc1.version, seen.value.plan, uid()]);
   t.eq(shown(again), 'not_draft', 'المرحَّل بمرجع جديد not_draft');
@@ -127,9 +129,9 @@ async function scenario(t, db) {
   const release = await useDraft(U.storekeeper, W.medicine, maintenance, [{ item: I.vaccine, qty: 2, lot: expiredLot }]);
   const releaseSeen = (await preview(U.storekeeper, release.id)).value;
   t.same(
-    [releaseSeen.needs_manager, releaseSeen.can_post, releaseSeen.lines[0].needs_release, releaseSeen.lines[0].draws.map((d) => d.lot_id), shown(await postNow(U.storekeeper, release))],
-    [true, false, true, [expiredLot], 'expired_needs_release'],
-    'سطر يسمّي دفعة منتهية: المعاينة «يحتاج المدير» والأمين ما يرحّل (expired_needs_release)',
+    [releaseSeen.needs_manager, releaseSeen.can_post, releaseSeen.lines[0].needs_release, releaseSeen.lines[0].draws.map((d) => d.lot_id), shown(await dryPost(U.storekeeper, release))],
+    [true, true, true, [expiredLot], 'ok'],
+    'سطر يسمّي دفعة منتهية: المعاينة تعلّمه، والأمين يرحّله أيضاً (expired.release لكلّ عضو منذ 0034، بمعاملة ترجع)',
   );
   const releaseManager = (await preview(U.manager, release.id)).value;
   const released = await postNow(U.manager, release);
@@ -143,7 +145,7 @@ async function scenario(t, db) {
   t.eq(shown(await postNow(U.manager, namedValid)), 'lot_not_expired', 'الصرف العادي يسمّي دفعة صالحة: lot_not_expired (الصالح بالترتيب)');
   const destroyByKeeper = await useDraft(U.storekeeper, W.medicine, system.expired_destroy, [{ item: I.vaccine, qty: 4, lot: expiredLot }]);
   const destroySeen = (await preview(U.storekeeper, destroyByKeeper.id)).value;
-  t.same([destroySeen.destroy, destroySeen.can_post, shown(await postNow(U.storekeeper, destroyByKeeper))], [true, false, 'forbidden'], 'الأمين يجهّز الإتلاف ولا يرحّله (expired.destroy للمدير)');
+  t.same([destroySeen.destroy, destroySeen.can_post, shown(await dryPost(U.storekeeper, destroyByKeeper))], [true, true, 'ok'], 'الأمين يجهّز الإتلاف ويرحّله أيضاً (expired.destroy لكلّ عضو منذ 0034، بمعاملة ترجع)');
   t.same(
     [shown(await postNow(U.manager, destroyByKeeper)), (await expenseOf(destroyByKeeper.id)).map((e) => [e.amount, e.category_id === system.expired_destroy]), (await lotsOf(db, I.vaccine, W.medicine)).find((l) => l.id === expiredLot).qty_left],
     ['ok', [['4000.00', true]], '0'],
@@ -172,9 +174,13 @@ async function scenario(t, db) {
     })
     .catch(outcome);
   t.same(
-    [foreignLot, await useDraft(U.hatcheryKeeper, W.general, maintenance, [{ item: kerosene, qty: 1 }]).then(() => 'ok', outcome)],
-    ['lot_mismatch', 'rls'],
-    'الدفعة المسمّاة من مخزن ثاني lot_mismatch، والأمين برّا النطاق ما يكتب مسوّدة (RLS)',
+    [foreignLot, await db.asUser(U.hatcheryKeeper, async (q) => {
+      const docId = (await q('insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, $3) returning id', [W.general, maintenance, TODAY])).rows[0].id;
+      await q('insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [docId, kerosene]);
+      return 'ok';
+    }).catch(outcome)],
+    ['lot_mismatch', 'ok'],
+    'الدفعة المسمّاة من مخزن ثاني lot_mismatch، وأمين المفقس (بصفّ نطاق قديم) يكتب مسوّدة في المخزن العامّ (0034، بمعاملة ترجع)',
   );
 
   // ── الإلغاء يرجّع كل شي للفلس: الدفعات والرصيد والمصروف (صفّ عكسي بيوم الإلغاء) ─────────────────────────────────────────
@@ -190,12 +196,12 @@ async function scenario(t, db) {
   t.same(
     [
       shown(await call(db, U.manager, "select public.void_stock_use($1, 'مرّة ثانية', gen_random_uuid())", [toVoid.id])),
-      shown(await call(db, U.storekeeper, "select public.void_stock_use($1, 'الأمين', gen_random_uuid())", [doc1.id])),
+      shown(await call(db, U.storekeeper, "select public.void_stock_use($1, 'الأمين', gen_random_uuid())", [doc1.id], { commit: false })),
       shown(await call(db, U.manager, "select public.void_stock_use($1, 'مسوّدة', gen_random_uuid())", [noCategory.id])),
       shown(await call(db, U.manager, "select public.void_expense((select id from public.expenses where doc_kind = 'stock_use' and doc_id = $1), 'مباشر', gen_random_uuid())", [doc1.id])),
     ],
-    ['already_void', 'forbidden', 'not_posted', 'system_expense'],
-    'الإلغاء مرّة ثانية already_void، والأمين forbidden، والمسوّدة not_posted، ومصروف الصرف ما يُلغى مباشرة (system_expense)',
+    ['already_void', 'ok', 'not_posted', 'system_expense'],
+    'الإلغاء مرّة ثانية already_void، والأمين يلغي أيضاً (0034، بمعاملة ترجع)، والمسوّدة not_posted، ومصروف الصرف ما يُلغى مباشرة (system_expense)',
   );
 
   // ── مرجع واحد (D6، FOUNDATION ٨٧٣، ٨٨٦) وقفل المسوّدة المرحَّلة (FOUNDATION ٥٢٦) ─────────────────────────────────────────

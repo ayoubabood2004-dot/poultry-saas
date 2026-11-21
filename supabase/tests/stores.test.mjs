@@ -289,7 +289,7 @@ export default async function (t, db) {
   t.eq(await attempt(() => db.asOwner((q) => q("insert into public.sites (org_id, division_id, name, kind) values ($1, $2, 'موقع', 'farm')", [orgA, divB.broiler]))), 'fk:sites_org_id_division_id_fkey', 'وحتى صاحب الجداول: المفتاح المركّب يرفض موقعاً بوحدة منشأة ثانية');
   t.eq(await attempt(() => db.asOwner((q) => q("insert into public.item_units (org_id, item_id, label, factor_to_base) values ($1, $2, 'كيس', 50)", [orgA, itemB]))), 'fk:item_units_org_id_item_id_fkey', 'حتى صاحب الجداول: المفتاح المركّب يرفض');
   t.eq(await attempt(() => asManager((q) => q("insert into public.sites (org_id, division_id, name, kind) values ($1, $2, 'موقع', 'farm')", [orgB, divB.broiler]))), '42501:permission denied for table sites', 'المدير ما يكتب المنشأة أصلاً (امتياز الأعمدة بلا org_id، وفوكه سياسة الإدخال)');
-  t.eq(await attempt(() => db.asUser(U.aKeeper, (q) => q("insert into public.sites (division_id, name, kind) values ($1, 'موقع', 'farm')", [divA.broiler]))), 'rls', 'الأمين ما يضيف موقعاً (سياسة الإدخال: stores.manage)');
+  t.eq(await attempt(() => db.asUser(U.aKeeper, (q) => q("insert into public.sites (division_id, name, kind) values ($1, 'موقع', 'farm')", [divA.broiler]))), 'ok', 'الأمين يضيف موقعاً (stores.manage لكلّ عضو منذ 0034؛ بمعاملة ترجع)');
   t.eq(await attempt(() => db.asUser(U.bOwner, (q) => q("update public.sites set name = 'غيّرته' where org_id = $1", [orgA]))), 'zero', 'ومنشأة ب ما تعدّل مواقع منشأة أ (صفر صفوف)');
 
   // ── النسخة والأرشفة بوقت الخادم (FOUNDATION ٨١٧) ───────────────────────────────────────────────────────────────
@@ -338,8 +338,8 @@ export default async function (t, db) {
       archiveOut: await scopedTry("update public.warehouses set archived_at = 'now' where id = $1", [farmStore]),
       renameStoreIn: await scopedTry("update public.warehouses set name = 'مخزن الخام' where id = $1", [rawStore]),
     },
-    { siteOut: 'rls', siteIn: 'ok', renameOut: 'zero', renameIn: 'ok', storeOut: 'rls', storeIn: 'ok', archiveOut: 'zero', renameStoreIn: 'ok' },
-    'المدير المحصور بوحدة: المواقع والمخازن بوحدته بس (برّاها الإدخال RLS والتعديل صفر صفوف)',
+    { siteOut: 'ok', siteIn: 'ok', renameOut: 'ok', renameIn: 'ok', storeOut: 'ok', storeIn: 'ok', archiveOut: 'ok', renameStoreIn: 'ok' },
+    'المدير بصفّ نطاق وحدة قديم: المواقع والمخازن في المنشأة كلّها (0034؛ كلّ محاولة بمعاملة ترجع)',
   );
 
   // ── التزامن: أرشفة موقع ضدّ مخزن جديد أو مُعاد بنفس اللحظة (READ COMMITTED، المفتاح الأجنبي ما يقفل كفاية) ─────────────
@@ -615,12 +615,12 @@ export default async function (t, db) {
     'forbidden',
     'المدير ما يدعو (المالك بس)',
   );
-  t.same(keeper.workspace.divisions, ['general'], 'الوحدات للتنقّل: اللي يلمسها النطاق (مخزن بالمخازن العامة)، E40');
-  t.same(keeper.scope, { own: true, other: false, site: false, division: false }, 'الأمين: مخزنه بس؛ موقعه ووحدته مو «بنطاقه كلها» (in_scope_division بمعناه)');
+  t.same(keeper.workspace.divisions, ['broiler', 'feed_mill', 'general', 'hatchery', 'layer', 'medicine'], 'الوحدات للتنقّل: الستّ كلّها لكلّ عضو (0034، E40)');
+  t.same(keeper.scope, { own: true, other: true, site: true, division: true }, 'الأمين بصفّ مخزن قديم: المخازن والمواقع والوحدات كلّها بنطاقه (0034)');
   t.ok(keeper.sites >= 4, 'ضابط: الأمين يقرأ مواقع المنشأة (القراءة بلا كلفة لكل المنشأة)');
   await db.asUser(U.aOwner, (q) => q('select public.set_member_scopes($1, array[$2]::uuid[])', [member.aKeeper, divA.medicine]), { commit: true });
   t.eq(await value(db.admin, 'select count(*)::int from public.member_scopes where member_id = $1 and archived_at is null and warehouse_id is not null', [member.aKeeper]), 0, 'set_member_scopes القديمة (وحدات بس) تؤرشف صفوف المخازن');
-  t.same((await db.asUser(U.aKeeper, (q) => value(q, 'select public.my_workspace()'))).divisions, ['medicine'], 'وبعدها وحدته مخزن الأدوية');
+  t.same((await db.asUser(U.aKeeper, (q) => value(q, 'select public.my_workspace()'))).divisions, ['broiler', 'feed_mill', 'general', 'hatchery', 'layer', 'medicine'], 'وبعد صفّ الأدوية: الستّ كلّها بالتنقّل (0034)');
 
   // ── يوم التشغيل (E14، Q1)، بيوم ثابت حتى القفل والتواريخ ما تتبع ساعة الجهاز ──────────────────────────────────────
   await db.setToday('2026-10-27', () => goLiveChecks(t, db, { U, divA, divB }));
@@ -717,10 +717,10 @@ export default async function (t, db) {
 async function goLiveChecks(t, db, { U, divA, divB }) {
   const goLive =(user, division, day) => attempt(() => db.asUser(user, (q) => q('select public.set_division_go_live($1, $2::date)', [division, day])));
   t.eq(await goLive(U.aManager, divA.general, null), 'date_required', 'بلا يوم: date_required');
-  t.eq(await goLive(U.aKeeper, divA.general, '2026-09-30'), 'forbidden', 'الأمين ما يحدّد يوم التشغيل');
+  t.eq(await goLive(U.aKeeper, divA.general, '2026-09-30'), 'ok', 'الأمين يحدّد يوم التشغيل أيضاً (0034، بمعاملة ترجع)');
   t.eq(await goLive(U.aManager, divB.general, '2026-09-30'), 'division_not_found', 'وحدة منشأة ثانية: division_not_found');
   // المدير المحصور بمعمل العلف: يوم تشغيل وحدة برّا نطاقه out_of_scope (§2.12)، ووحدته تنقبل.
-  t.eq(await goLive(U.aScoped, divA.layer, '2026-09-30'), 'out_of_scope', 'مدير محصور بوحدة: يوم تشغيل وحدة ثانية out_of_scope');
+  t.eq(await goLive(U.aScoped, divA.layer, '2026-09-30'), 'ok', 'مدير بصفّ نطاق وحدة قديم: يوم تشغيل وحدة ثانية يمرّ (0034، بمعاملة ترجع)');
   t.eq(await goLive(U.aScoped, divA.feed_mill, '2026-09-30'), 'ok', 'ضابط: ويوم تشغيل وحدته ينقبل');
   t.eq(await db.asUser(U.aManager, (q) => value(q, "select public.set_division_go_live($1, '2026-09-30')::text", [divA.general]), { commit: true }), '2026-09-30', 'المدير يحدّده ويرجع اليوم');
   t.eq(await value(db.admin, 'select go_live_on::text from public.divisions where id = $1', [divA.general]), '2026-09-30', 'وانحفظ بالوحدة');
@@ -1015,7 +1015,7 @@ async function edgeChecks(t, db, { U, PHONE, orgA, orgB, divA, member, domain })
   await db.asUser(U.aOwner, (q) => q("select public.set_member_scopes_v2($1, '{}', array[$2]::uuid[], '{}')", [member.aKeeper, millSite]), { commit: true });
   const touched = await db.asUser(U.aKeeper, (q) => value(q, 'select public.my_workspace()'));
   await db.asUser(U.aOwner, (q) => q('select public.set_member_scopes($1, array[$2]::uuid[])', [member.aKeeper, divA.medicine]), { commit: true });
-  t.same([touched.divisions, touched.scopes.map((s) => s.site_id)], [['feed_mill'], [millSite]], 'أمين بنطاق موقع المعمل: وحدته بالتنقّل معمل العلف');
+  t.same([touched.divisions, touched.scopes.map((s) => s.site_id)], [['broiler', 'feed_mill', 'general', 'hatchery', 'layer', 'medicine'], [millSite]], 'أمين بصفّ موقع المعمل: الستّ كلّها بالتنقّل (0034)، وصفّه باقٍ في my_workspace');
   // ومحاسب بلا صفوف نطاق: كل الوحدات بالتنقّل (مثل in_scope_division).
   t.eq((await db.asUser(U.aAccountant, (q) => value(q, 'select public.my_workspace()'))).divisions.length, 6, 'محاسب بلا صفوف نطاق: الوحدات الست كلها بالتنقّل');
   // الاستبدال يرجّع الصفّ المؤرشف نفسه (وحدة وموقع ومخزن)، مو يتركه مؤرشفاً ولا يضيف صفّاً ثانياً: نطاق كامل ← فارغ ← نفسه.

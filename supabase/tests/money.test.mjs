@@ -128,6 +128,11 @@ async function scenario(t, db) {
     return result.value;
   };
   const read = (user, sql, params) => call(db, user, sql, params, { commit: false });
+  /** نتيجة القراءة رمزاً: «ok» أو رمز الرفض (0034: ما كان يُرفض لدور صار يُقرأ). */
+  const codeOf = async (user, sql, params) => {
+    const r = await read(user, sql, params);
+    return r.ok ? 'ok' : r.code;
+  };
   const value = async (user, sql, params) => {
     const result = await read(user, sql, params);
     if (!result.ok) throw new Error(`${sql}: ${result.code} ${result.hint}`);
@@ -295,10 +300,13 @@ async function scenario(t, db) {
   const OG = await value(U.accountantGeneral, SQL.overview);
   t.same(
     [norm(OG.debts.receivable), norm(OG.debts.payable), OG.debts.books.visible < OG.debts.books.total, norm(OG.cash.total), OG.top_receivable.map((r) => r.party_id)],
-    ['80000', '190000', true, norm(O.cash.total), [P.M]],
-    'أ7 المحاسب المحصور بالعامّة: ذمم دفاتر نطاقه وحدها، والنقد للمنشأة كلّها',
+    [norm(O.debts.receivable), norm(O.debts.payable), false, norm(O.cash.total), O.top_receivable.map((r) => r.party_id)],
+    'أ7 المحاسب بصفّ نطاق العامّة القديم: ذمم دفاتر المنشأة كلّها والنقد كلّه كالمالك (0034)',
   );
-  for (const who of ['storekeeper', 'viewer']) t.eq((await read(U[who], SQL.overview)).code, 'forbidden', `أ8 ${who}: الخلاصة ممنوعة`);
+  for (const who of ['storekeeper', 'viewer']) {
+    const seen = await read(U[who], SQL.overview);
+    t.same([seen.ok, norm(seen.value?.debts?.receivable), norm(seen.value?.cash?.total)], [true, norm(O.debts.receivable), norm(O.cash.total)], `أ8 ${who}: الخلاصة له كالمالك (0034)`);
+  }
   t.eq(norm((await value(U.owner, SQL.home)).accounts.cash_total), norm(O.cash.total), 'أ9 بطاقة الرئيسية: النقد كلّه = خلاصة المال');
 
   // ── ب. «حركة الأموال» ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -388,11 +396,11 @@ async function scenario(t, db) {
     [U.owner, [TODAY, '2026-11-01', null, null, null, null, 10], 'period_required'],
     [U.owner, ['2026-11-01', TODAY, null, null, uid(), null, 10], 'party_not_found'],
     [U.owner, ['2026-11-01', TODAY, null, null, null, JSON.stringify({ on_date: TODAY }), 10], 'cursor_invalid'],
-    [U.storekeeper, ['2026-11-01', TODAY, null, null, null, null, 10], 'forbidden'],
+    [U.storekeeper, ['2026-11-01', TODAY, null, null, null, null, 10], 'ok'],
   ];
   const moveCodes = [];
-  for (const [user, args] of errs) moveCodes.push((await read(user, SQL.moves, args)).code);
-  t.same(moveCodes, errs.map((e) => e[2]), 'ب6 كلّ رفض بسببه');
+  for (const [user, args] of errs) moveCodes.push(await codeOf(user, SQL.moves, args));
+  t.same(moveCodes, errs.map((e) => e[2]), 'ب6 كلّ رفض بسببه، والأمين يقرأ حركة الأموال (0034)');
 
   // ── ج. «قائمة الذمم» ───────────────────────────────────────────────────────────────────────────────────────────────────────
   const debts = (user, side, opts = {}) =>
@@ -458,11 +466,11 @@ async function scenario(t, db) {
   const c1 = R.rows.find((r) => r.party_id === P.C1);
   t.same([c1.last_settlement.entry_id, norm(c1.last_settlement.amount), c1.last_move.on_date], [D.RC1, '150000', TODAY], 'ج6 آخر تسديد حيّ (لا الملغى)، وآخر حركة اليوم');
   t.same(
-    [(await debts(U.accountantGeneral, 'receivable')).rows.map((r) => r.party_id), await (async () => (await debts(U.accountantGeneral, 'payable')).rows.map((r) => [r.party_id, norm(r.amount)]))()],
-    [[P.M], [[P.S1, '150000'], [P.S2, '40000']]],
-    'ج7 المحاصَر بالعامّة يرى ذمم دفترها وحده',
+    [(await debts(U.accountantGeneral, 'receivable')).rows.map((r) => r.party_id), (await debts(U.accountantGeneral, 'payable')).rows.map((r) => [r.party_id, norm(r.amount)])],
+    [(await debts(U.owner, 'receivable')).rows.map((r) => r.party_id), (await debts(U.owner, 'payable')).rows.map((r) => [r.party_id, norm(r.amount)])],
+    'ج7 المحاسب بصفّ نطاق العامّة القديم يرى ذمم المنشأة كلّها كالمالك (0034)',
   );
-  const debtErr = async (user, args) => (await read(user, SQL.debts, args)).code;
+  const debtErr = (user, args) => codeOf(user, SQL.debts, args);
   t.same(
     [
       await debtErr(U.owner, ['both', null, null, null, 'amount', null, false, null, 10]),
@@ -472,8 +480,8 @@ async function scenario(t, db) {
       await debtErr(U.accountantGeneral, ['receivable', null, BK.feed_mill, null, 'amount', null, false, null, 10]),
       await debtErr(U.storekeeper, ['receivable', null, null, null, 'amount', null, false, null, 10]),
     ],
-    ['side_unknown', 'sort_unknown', 'cursor_invalid', 'cursor_invalid', 'out_of_scope', 'forbidden'],
-    'ج8 كلّ رفض بسببه',
+    ['side_unknown', 'sort_unknown', 'cursor_invalid', 'cursor_invalid', 'ok', 'ok'],
+    'ج8 كلّ رفض بسببه، ودفتر المعمل للمحاسب بصفّ نطاق قديم وقائمة الذمم للأمين تُقرآن (0034)',
   );
 
   // ── د. كشف الحساب الاحترافي ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -541,12 +549,13 @@ async function scenario(t, db) {
     'د7 أجرة النقل على الناقل بشرائها، وفاتورة الصيانة بفئتها',
   );
   const SG = await statement(U.accountantGeneral, P.S1, null, day(-45), TODAY);
-  t.same([SG.books.map((b) => b.book_id), (await read(U.accountantGeneral, SQL.statement, [P.S1, BK.feed_mill, day(-45), TODAY])).code], [[BK.general], 'out_of_scope'],
-    'د8 المحاصَر: دفتر نطاقه وحده، ودفتر غيره out_of_scope');
+  t.same([SG.books.map((b) => b.book_id), await codeOf(U.accountantGeneral, SQL.statement, [P.S1, BK.feed_mill, day(-45), TODAY])],
+    [(await statement(U.owner, P.S1, null, day(-45), TODAY)).books.map((b) => b.book_id), 'ok'],
+    'د8 المحاسب بصفّ نطاق قديم: دفاتر الجهة كلّها كالمالك، ودفتر المعمل يُقرأ (0034)');
   t.same(
     [(await read(U.owner, SQL.statement, [uid(), null, day(-45), TODAY])).code, (await read(U.owner, SQL.statement, [P.S1, null, TODAY, day(-45)])).code,
-      (await read(U.storekeeper, SQL.statement, [P.S1, null, day(-45), TODAY])).code],
-    ['party_not_found', 'period_required', 'forbidden'], 'د9 كلّ رفض بسببه');
+      await codeOf(U.storekeeper, SQL.statement, [P.S1, null, day(-45), TODAY])],
+    ['party_not_found', 'period_required', 'ok'], 'د9 كلّ رفض بسببه، والأمين يقرأ الكشف (0034)');
 
   // ── هـ. السندات ────────────────────────────────────────────────────────────────────────────────────────────────────────────
   const V1 = await value(U.owner, SQL.voucher, [D.RC1]);
@@ -564,8 +573,8 @@ async function scenario(t, db) {
     'هـ3 السند الملغى بتاريخ إلغائه وسببه ومن ألغاه، ومن قيد الإلغاء يفتح الأصليّ');
   t.same(
     [(await read(U.owner, SQL.voucher, [D.R1purchase])).code, (await read(U.owner, SQL.voucher, [uid()])).code,
-      (await read(U.accountantGeneral, SQL.voucher, [D.RC1])).code, (await read(U.storekeeper, SQL.voucher, [D.RC1])).code],
-    ['not_a_voucher', 'entry_not_found', 'out_of_scope', 'forbidden'], 'هـ4 كلّ رفض بسببه');
+      await codeOf(U.accountantGeneral, SQL.voucher, [D.RC1]), await codeOf(U.storekeeper, SQL.voucher, [D.RC1])],
+    ['not_a_voucher', 'entry_not_found', 'ok', 'ok'], 'هـ4 كلّ رفض بسببه، والسند للمحاسب بصفّ نطاق قديم وللأمين (0034)');
   const T1 = await value(U.owner, SQL.transfer, [D.T1]);
   const T2 = await value(U.owner, SQL.transfer, [D.T2]);
   t.same(
@@ -597,26 +606,26 @@ async function scenario(t, db) {
     [num(Nov.project.sales.revenue), num(Nov.project.purchases.total), num(Nov.project.expenses.total)],
     'و3 الأقسام مجموعها = المشروع',
   );
-  t.same([(await read(U.owner, SQL.month, ['2026-12-01'])).code, (await read(U.storekeeper, SQL.month, [TODAY])).code], ['month_required', 'forbidden'], 'و4 الشهر القادم وغير المحاسب مرفوضان');
+  t.same([await codeOf(U.owner, SQL.month, ['2026-12-01']), await codeOf(U.storekeeper, SQL.month, [TODAY])], ['month_required', 'ok'], 'و4 الشهر القادم مرفوض، والأمين يقرأ خلاصة الشهر (0034)');
   const batchCost = norm((await db.admin('select total_value as v from public.production_values where batch_id = $1', [D.batch])).rows[0].v);
   const issueCost = norm((await db.admin("select sum(amount) as v from public.flock_costs where doc_kind = 'flock_issue' and flock_id = $1", [D.flock])).rows[0].v);
   const NovB = await value(U.accountantBroiler, SQL.month, [TODAY]);
   t.same(
     [[Nov.project.production?.batches, norm(Nov.project.production?.output_kg), norm(Nov.project.production?.cost)], divOf(Nov, 'feed_mill').feed_issue,
       [Nov.project.feed_issue?.issues, norm(Nov.project.feed_issue?.cost)], [divOf(Nov, 'broiler')?.feed_issue?.issues, norm(divOf(Nov, 'broiler')?.feed_issue?.cost)],
-      divOf(Nov, 'general').production, [NovB.divisions.map((d) => d.kind), NovB.project.feed_issue?.issues, NovB.project.production]],
-    [[1, '1000', batchCost], null, [1, issueCost], [1, issueCost], null, [['broiler'], 1, null]],
-    'و5 الإنتاج بكلفته في قسم المعمل، والصرف للفوج بكلفته في قسم الحقل (ومحاسب الحقل يراه بنطاق قسمه لا بمخزن المعمل)',
+      divOf(Nov, 'general').production, [NovB.divisions.map((d) => d.kind), NovB.project.feed_issue?.issues, JSON.stringify(NovB.project.production)]],
+    [[1, '1000', batchCost], null, [1, issueCost], [1, issueCost], null, [Nov.divisions.map((d) => d.kind), 1, JSON.stringify(Nov.project.production)]],
+    'و5 الإنتاج بكلفته في قسم المعمل، والصرف للفوج بكلفته في قسم الحقل (ومحاسب الحقل بصفّ نطاق قديم يرى الأقسام كلّها كالمالك، 0034)',
   );
 
   // ── ز. أمين المخزن يضيف الزبون (جواب المالك 2026-11-08، #58) ─────────────────────────────────────────────────────────────
   const insertParty = (user, customer, supplier) =>
     call(db, user, 'insert into public.parties (name, is_customer, is_supplier) values ($1, $2, $3) returning id', [`جهة ${uid().slice(0, 6)}`, customer, supplier], { commit: false });
   t.same(
-    [(await insertParty(U.storekeeper, true, false)).ok, (await insertParty(U.storekeeper, false, true)).ok, (await insertParty(U.storekeeper, false, false)).code,
+    [(await insertParty(U.storekeeper, true, false)).ok, (await insertParty(U.storekeeper, false, true)).ok, (await insertParty(U.storekeeper, false, false)).ok,
       (await insertParty(U.manager, false, false)).ok],
-    [true, true, 'forbidden', true],
-    'ز1 الأمين يضيف زبوناً أو مورّداً، ولا يضيف جهة بلا صفة؛ والمدير كما كان',
+    [true, true, true, true],
+    'ز1 الأمين يضيف زبوناً أو مورّداً أو جهة بلا صفة كالمدير (parties.manage لكلّ عضو منذ 0034؛ بمعاملة ترجع)',
   );
 
   // ── ح. كلّ ثابت يمسك خرقه وحده (معاملة ترجع) ─────────────────────────────────────────────────────────────────────────────
@@ -670,14 +679,11 @@ async function scenario(t, db) {
       [P.S1, BK.feed_mill, day(-45), TODAY], (v) => norm(v.books[0].lines[0].detail.net) === norm(v.books[0].lines[0].credit)],
     ['ط6 داخل اليوم يعدّ التحويل بين الصناديق', [[FN.overview, [["'inflow', coalesce((select sum(g.inflow) from g where g.class not in ('transfer', 'opening')), 0)::text", "'inflow', coalesce((select sum(g.inflow) from g), 0)::text"]]]],
       U.owner, SQL.overview, [], (v) => norm(v.day.inflow) === '20000'],
-    ['ط7 الذمم بلا نطاق الدفاتر', [[FN.debts, [['    select b.id from public.ledger_books b\n    where b.org_id = v_org and b.archived_at is null and public.in_scope_book(b.id)', '    select b.id from public.ledger_books b\n    where b.org_id = v_org and b.archived_at is null']]]],
-      U.accountantGeneral, SQL.debts, ['receivable', null, null, null, 'amount', null, false, null, 50], (v) => v.rows.every((r) => r.party_id === P.M)],
+    // 0034: ط7 (الذمم بنطاق الدفاتر) وط11 (الصرف للأفواج بنطاق القسم) صارتا مكافئتين (كلّ دفتر وقسم بنطاق كلّ عضو)، فشيلتا.
     ['ط8 سطر إلغاء القبض يفتح نفسه لا سنده', [[FN.statement, [['coalesce(l.reverses_entry_id, l.id)', 'l.id']]]], U.owner, SQL.statement,
       [P.C1, null, day(-45), TODAY], (v) => v.books[0].lines.filter((l) => l.kind === 'payment' && l.detail === null).every((l) => [D.RC1, D.RC2].includes(l.voucher_id))],
     ['ط9 حركة إلغاء القبض تفتح قيدها لا السند', [[FN.moves, [['coalesce(s.entry_reverses, s.party_entry_id)', 's.party_entry_id']]]], U.owner, SQL.moves,
       ['2026-11-01', TODAY, null, 'customer_receipt', null, null, 500], (v) => v.rows.filter((r) => r.on_date === TODAY).every((r) => r.voucher_id === D.RC2)],
-    ['ط11 الصرف للأفواج بنطاق مخزن المعمل لا قسم الفوج', [['private.money_flock_issue(date, date, uuid)', [['public.in_scope_division(f.division_id)', 'public.in_scope_wh(f.warehouse_id)']]]],
-      U.accountantBroiler, SQL.month, [TODAY], (v) => v.project.feed_issue?.issues === 1],
     ['ط10 سند التحويل بمعرّف الساق الداخلة', [[FN.transfer, [["kind = 'transfer' and doc_kind = 'cash_transfer' and doc_id = p_id and reverses_move_id is null", "kind = 'transfer' and doc_kind = 'cash_transfer' and reverses_move_id is null"]]]],
       U.owner, SQL.transfer, [D.T1in], () => false],
   ];

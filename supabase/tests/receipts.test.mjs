@@ -195,7 +195,7 @@ async function scenario(t, db) {
   const seenVersion = (await previewReceipt(db, pricer, stale.id)).value.version;
   await S.one(pricer, 'update public.receipt_line_amounts set line_total = 4600 where line_id = $1 returning id', [stale.lines[0]]);
   t.eq(shown(await postReceipt(db, pricer, stale.id, seenVersion)), 'stale_draft', 'مبلغ تعدّل بعد المعاينة ← stale_draft');
-  // الأمين يحذف سطراً مسعَّراً عليه اختيار تحميل (مبلغه واختياره يروحون ويّاه)، والمحاسب يحذف التحميل؛ والعكس ممنوع.
+  // الأمين يحذف سطراً مسعَّراً عليه اختيار تحميل (مبلغه واختياره يروحون ويّاه)، والمحاسب يحذف التحميل؛ والعكس مسموح منذ 0034 (بمعاملة ترجع).
   const pruned = await receiptDraft(db, keeper, { wh: W.raw, party: grain, on: TODAY, lines: [{ item: I.corn, qty: 10 }, { item: soy, qty: 10 }] });
   await priceReceipt(db, pricer, pruned, { totals: [4500, 9000], charges: [{ label: 'نقل', amount: 1000, by: 'mass', box, lines: [0] }] });
   const charge = (await db.admin('select id from public.receipt_charges where doc_id = $1', [pruned.id])).rows[0].id;
@@ -203,11 +203,11 @@ async function scenario(t, db) {
     (await db.admin('select (select count(*) from public.receipt_line_amounts where doc_id = $1)::int as amounts, (select count(*) from public.receipt_charge_lines where doc_id = $1)::int as picks, (select count(*) from public.receipt_charges where doc_id = $1)::int as charges', [pruned.id])).rows[0];
   t.same(
     [
-      shown(await call(db, pricer, "select public.delete_draft_line('receipt', $1, $2)", [pruned.lines[0], await versionOf(pruned.id)])),
-      shown(await call(db, keeper, 'select public.delete_receipt_charge($1, $2)', [charge, await versionOf(pruned.id)])),
+      shown(await call(db, pricer, "select public.delete_draft_line('receipt', $1, $2)", [pruned.lines[0], await versionOf(pruned.id)], { commit: false })),
+      shown(await call(db, keeper, 'select public.delete_receipt_charge($1, $2)', [charge, await versionOf(pruned.id)], { commit: false })),
     ],
-    ['forbidden', 'forbidden'],
-    'المحاسب ما يحذف سطر المسوّدة، والأمين ما يحذف التحميل',
+    ['ok', 'ok'],
+    'المحاسب يحذف سطر المسوّدة، والأمين يحذف التحميل (0034، بمعاملة ترجع)',
   );
   const deleted = await call(db, keeper, "select public.delete_draft_line('receipt', $1, $2) ->> 'deleted'", [pruned.lines[0], await versionOf(pruned.id)]);
   t.same([deleted.value, await sideRows()], ['true', { amounts: 1, picks: 0, charges: 1 }], 'الأمين يحذف سطراً مسعَّراً: مبلغه واختيار تحميله يروحون ويّاه (مبالغ ما يشوفها)');
@@ -238,10 +238,13 @@ async function scenario(t, db) {
   const expired = await receiptDraft(db, keeper, { wh: W.medicine, party: grain, on: TODAY, lines: [{ item: I.vaccine, qty: 6, expiry: '2026-10-25' }] });
   await priceReceipt(db, pricer, expired, { totals: [6000] });
   const managerSeen = await previewReceipt(db, U.manager, expired.id);
+  // 0034: expired.release لكلّ عضو، فالمحاسب يرحّله أيضاً (بمعاملة ترجع) ومعاينته بالتحذير نفسه.
+  const pricerSeen = await previewReceipt(db, pricer, expired.id);
   t.same(
-    [shown(await post(expired)), managerSeen.value.lines[0].warning?.code, managerSeen.value.ready, shown(await post(expired, U.manager))],
-    ['expired_on_receipt', 'expired_on_receipt', true, 'ok'],
-    'المنتهي يوم الاستلام: المحاسب يُرفض expired_on_receipt، والمدير يرى التحذير ويرحّله',
+    [shown(await call(db, pricer, 'select public.post_receipt($1, $2, $3)', [expired.id, await versionOf(expired.id), uid()], { commit: false })), pricerSeen.value.lines[0].warning?.code,
+      managerSeen.value.lines[0].warning?.code, managerSeen.value.ready, shown(await post(expired, U.manager))],
+    ['ok', 'expired_on_receipt', 'expired_on_receipt', true, 'ok'],
+    'المنتهي يوم الاستلام: المحاسب والمدير يريان التحذير ويرحّلانه (expired.release لكلّ عضو منذ 0034)',
   );
 
   // ── الإلغاء ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -268,7 +271,8 @@ async function scenario(t, db) {
     [true, stockStart, 375000n, 5000n, -102000n, [{ amount: '2000', source: 'adjustment', linked: true, on_date: TODAY }]],
     'الإلغاء: المخزون كما كان بالفلس، والمورّد «عليه» المدفوع (من −275,000 لـ+100,000)، والناقل صفر، والصندوق ما يرجع، وتحميل الصندوق «استلام ملغى» واحد بمبلغه',
   );
-  t.same([shown(await voidReceipt(db, U.manager, full.id)), shown(await voidReceipt(db, pricer, r3.id))], ['already_void', 'forbidden'], 'الملغى ما ينلغى مرّتين، والمحاسب ما يلغي');
+  t.same([shown(await voidReceipt(db, U.manager, full.id)), shown(await call(db, pricer, 'select public.void_receipt($1, $2, $3)', [r3.id, 'استلام خاطئ', uid()], { commit: false }))],
+    ['already_void', 'ok'], 'الملغى ما ينلغى مرّتين، والمحاسب يلغي أيضاً (0034، بمعاملة ترجع)');
   // دفعة استلام انسحب منها بالتحويل ← lot_consumed يسمّي TR.
   const petrol = await item('بنزين', 'fuel', 'L');
   const moved = await postedReceipt(db, { keeper, pricer, wh: W.general, party: grain, on: TODAY, lines: [{ item: petrol, qty: 100 }], totals: [75000] });
@@ -300,8 +304,8 @@ async function scenario(t, db) {
   t.same(dead, { banned: ['forbidden', 'forbidden'], deleted: ['forbidden', 'forbidden'] }, 'محاسب موقوف أو محذوف بتوكن صالح ما يرحّل الاستلام ولا يدفع');
   t.eq(shown(await post(liveDoc)), 'ok', 'ضابط: نفس المحاسب حيّاً يرحّل');
 
-  // ── تسرّب الكلفة: الأمين يقرأ صفر صفوف من جداول المال، ومعاينته بلا money ──────────────────────────────────────────────
-  const leak = await db.asUser(keeper, async (q) => {
+  // ── الكلفة لكلّ عضو (0034): الأمين يقرأ جداول المال كالمحاسب، ومعاينته بـmoney ─────────────────────────────────────────
+  const leakOf = (user) => db.asUser(user, async (q) => {
     const out = {};
     for (const table of ['receipt_amounts', 'receipt_line_amounts', 'receipt_charges', 'receipt_charge_lines', 'receipt_charge_shares']) {
       out[table] = (await q(`select count(*)::int as n from public.${table}`)).rows[0].n;
@@ -310,11 +314,10 @@ async function scenario(t, db) {
     out.lines = (await q('select count(*)::int as n from public.receipt_lines')).rows[0].n > 0;
     return out;
   });
-  t.same(
-    leak,
-    { receipt_amounts: 0, receipt_line_amounts: 0, receipt_charges: 0, receipt_charge_lines: 0, receipt_charge_shares: 0, preview: false, lines: true },
-    'الأمين: صفر صفوف من مبالغ الاستلام وتحميلاته وحصصها، ومعاينته بلا money، ويقرأ السطور (ضابط)',
-  );
+  const leak = await leakOf(keeper);
+  const pricerLeak = await leakOf(pricer);
+  t.same([leak, leak.receipt_amounts > 0 && leak.preview && leak.lines], [pricerLeak, true],
+    'الأمين يقرأ مبالغ الاستلام وتحميلاته وحصصها كالمحاسب صفّاً صفّاً، ومعاينته بـmoney، ويقرأ السطور (0034)');
 
   // ── الأداء: استلام بـ200 سطر يترحّل بأقلّ من 8 ثوانٍ ────────────────────────────────────────────────────────────
   const big = await receiptDraft(db, keeper, { wh: W.raw, party: grain, on: TODAY, lines: Array.from({ length: 200 }, () => ({ item: I.corn, qty: 10 })) });

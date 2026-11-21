@@ -6,7 +6,7 @@
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { call, uid } from './ledger-kit.mjs';
+import { call, canon, uid } from './ledger-kit.mjs';
 import { postedReceipt } from './receipt-kit.mjs';
 import { makeStockOrg, postedOpening, postedTransfer } from './stock-kit.mjs';
 
@@ -180,16 +180,17 @@ async function scenario(t, db) {
   t.same(Object.keys(page1.next).sort(), ['id', 'received_on', 'seq'], 'المؤشّر التالي: التاريخ والترتيب والمعرّف');
 
   // ── النطاق ──────────────────────────────────────────────────────────────────────────────────────────────────
-  // الأمين بنطاق المخزن العامّ: مخزن حقل 1 ومخزن الأدوية خارج نطاقه، وبلا مخزن يرى صفوف نطاقه وحدها.
+  // 0034 («الكلّ مثل المالك»): الأمين بصفّ نطاق المخزن العامّ القديم يقرأ مخزن حقل 1 ومخزن الأدوية، وبلا مخزن يرى سجلّ المدير كلّه.
   const keeperAll = (await read(U.storekeeper, sawdust, null)).value;
+  const codeOf = (r) => (r.ok ? 'ok' : r.code);
   t.same(
-    [(await read(U.storekeeper, sawdust, W.farm1)).code, (await read(U.storekeeper, sawdust, W.medicine)).code,
-      (await read(U.storekeeper, sawdust, id(90))).code, (await read(U.manager, id(91), W.general)).code,
+    [codeOf(await read(U.storekeeper, sawdust, W.farm1)), codeOf(await read(U.storekeeper, sawdust, W.medicine)),
+      codeOf(await read(U.storekeeper, sawdust, id(90))), codeOf(await read(U.manager, id(91), W.general)),
       keeperAll.rows.map((r) => r.warehouse_id), keeperAll.total],
-    ['out_of_scope', 'out_of_scope', 'out_of_scope', 'item_not_found', [W.general, W.general], 2],
-    'المخزن خارج النطاق أو غير الموجود out_of_scope، والمادّة غير الموجودة item_not_found، وبلا مخزن صفوف النطاق وحدها',
+    ['ok', 'ok', 'out_of_scope', 'item_not_found', all.rows.map((r) => r.warehouse_id), all.total],
+    'المخزن خارج صفّ النطاق القديم يُقرأ، وغير الموجود out_of_scope، والمادّة غير الموجودة item_not_found، وبلا مخزن صفوف المنشأة كلّها (0034)',
   );
-  t.same(moneyKeys(keeperAll), [], 'سجلّ شراء الأمين بلا أيّ مفتاح money');
+  t.same(moneyKeys(keeperAll), moneyKeys(all), 'سجلّ شراء الأمين بمفاتيح money كسجلّ المدير (0034)');
   // 0014: ويّا كائن money رابع على المادّة نفسها (سعر بيعها)، والقناع يشيله للأمين مع الباقي (الفحص فوق).
   t.eq(moneyKeys(all).length, 4, 'ضابط: سجلّ المدير بأربعة كائنات money (ثلاثة صفوف وسعر بيع المادّة)');
 
@@ -234,17 +235,10 @@ async function scenario(t, db) {
     'قيمة المتاح باليد (539,550.00 و600,000.00)، وهي نفس available بـstock_value_totals (قارئ آخر)',
   );
   t.ok(cards.sites.some((s) => s.division_kind === 'general') && cards.sites.every((s) => s.id && s.name && s.kind && s.division_id), 'المواقع للنافذة: موقع المخازن العامّة فيها، ولكلّ موقع معرّف واسم ونوع ووحدة');
-  // الأمين: مخزنه وحده، بلا مال، ويملك «أضف مادّة» لا «أضف مخزناً». والمشاهد بلا نطاق: بلا بطاقات.
+  // 0034: الأمين بصفّ نطاق قديم والمشاهد بلا نطاق يرون بطاقات المدير نفسها بمالها وصلاحيتيها.
   const keeperCards = (await call(db, U.storekeeper, 'select public.stores_overview() as v')).value;
-  t.same(
-    [keeperCards.can_manage, keeperCards.can_create_item, keeperCards.rows.map((r) => r.id), moneyKeys(keeperCards),
-      keeperCards.rows[0].items_count, keeperCards.rows[0].below_minimum],
-    [false, true, [W.general], [], 1, 1],
-    'بطاقات الأمين: مخزنه وحده بأعداده وتنبيهه، بلا مال، ويضيف مادّة ولا يضيف مخزناً',
-  );
   const viewerCards = (await call(db, U.viewer, 'select public.stores_overview() as v')).value;
-  t.same([viewerCards.can_manage, viewerCards.can_create_item, viewerCards.rows, viewerCards.sites, moneyKeys(viewerCards)], [false, false, [], [], []],
-    'المشاهد بلا نطاق: بلا بطاقات ولا مواقع ولا صلاحيتين ولا مال');
+  t.same([canon(keeperCards), canon(viewerCards)], [canon(cards), canon(cards)], 'بطاقات الأمين والمشاهد: بطاقات المدير نفسها بالمواقع والمال والصلاحيتين (0034)');
 
   // ── صلاحية item.create (قرار المالك 2026-11-02) ───────────────────────────────────────────────────────────────
   // الإدراج ترفضه السياسة برمز RLS، والتعديل ترفضه بصفر صفوف (مثل مصفوفة الأدوار). كلّ محاولة بمعاملة ترجع.
@@ -270,19 +264,17 @@ async function scenario(t, db) {
     };
   }
   const CAN = { item: 'ok', unit: 'ok', rename: 'ok', archive: 'ok', unitRename: 'ok', warehouse: 'ok', category: 'ok' };
-  const KEEPER = { item: 'ok', unit: 'ok', rename: 'rows:0', archive: 'rows:0', unitRename: 'rows:0', warehouse: 'rls', category: 'rls' };
-  const NONE = { item: 'rls', unit: 'rls', rename: 'rows:0', archive: 'rows:0', unitRename: 'rows:0', warehouse: 'rls', category: 'rls' };
   t.same(
     tried,
-    { owner: CAN, manager: CAN, storekeeper: KEEPER, accountant: NONE, viewer: NONE },
-    'item.create: الأمين يضيف مادّة ووحدتها ولا يعدّل ولا يؤرشف ولا يضيف مخزناً ولا تصنيفاً؛ والمحاسب والمشاهد لا يضيفان؛ والمالك والمدير كما كانا',
+    { owner: CAN, manager: CAN, storekeeper: CAN, accountant: CAN, viewer: CAN },
+    'item.create وstores.manage لكلّ عضو (0034): الأمين والمحاسب والمشاهد يضيفون ويعدّلون ويؤرشفون ويضيفون مخزناً وتصنيفاً كالمالك',
   );
   t.same(
     [(await call(db, U.storekeeper, "select public.can('item.create') as v")).value, (await call(db, U.accountant, "select public.can('item.create') as v")).value,
       (await call(db, U.millOperator, "select public.can('item.create') as v")).value, (await call(db, U.manager, "select public.can('item.create') as v")).value,
       (await call(db, U.storekeeper, "select public.can('stores.manage') as v")).value],
-    [true, false, false, true, false],
-    'can(item.create): الأمين والمدير نعم، والمحاسب ومشغّل المعمل لا؛ وstores.manage للأمين لا',
+    [true, true, true, true, true],
+    'can(item.create) لكلّ عضو، وstores.manage للأمين (0034)',
   );
   // الأمين يضيف مادّة ثمّ يكتبها بمسوّدته فوراً (الحاجة التي جاء منها القرار)، وتنبيه التوائم يبقى تنبيهاً لا منعاً.
   const added = await db.asUser(
@@ -341,9 +333,9 @@ async function scenario(t, db) {
   const keeperParsed = screens.parseItemPurchases((await read(U.storekeeper, sawdust, null)).value);
   const cardsParsed = screens.parseStoresOverview((await call(db, U.storekeeper, 'select public.stores_overview() as v')).value);
   t.same(
-    [keeperParsed.rows.every((r) => r.money === null), keeperParsed.rows[0].partyName, cardsParsed.rows.every((r) => r.stockValue === null), cardsParsed.canCreateItem, cardsParsed.canManage],
-    [true, 'مورّد النشارة الثاني', true, true, false],
-    'الدمج: الأمين يمرّ بالمحلّل بلا مال (money = null بالسجلّ وstockValue = null بالبطاقات)، ويرى المورّد، ويضيف مادّة ولا يدير المخازن',
+    [keeperParsed, keeperParsed.rows[0].partyName, cardsParsed, cardsParsed.canCreateItem, cardsParsed.canManage],
+    [parsed, 'مورّد النشارة الثاني', screens.parseStoresOverview((await call(db, U.manager, 'select public.stores_overview() as v')).value), true, true],
+    'الدمج: الأمين يمرّ بالمحلّل بمال المدير نفسه (السجلّ والبطاقات)، ويرى المورّد، ويضيف مادّة ويدير المخازن (0034)',
   );
   const ownerCards = screens.parseStoresOverview(cards);
   t.same(
