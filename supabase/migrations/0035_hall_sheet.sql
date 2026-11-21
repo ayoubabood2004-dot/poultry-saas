@@ -1939,6 +1939,7 @@ begin
     perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
     perform set_config('request.jwt.claim.sub', v_user::text, true);
     for v_flock in select x.id, x.kind, x.status from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null order by x.id loop
+      v_s := null;
       begin
         v_s := public.hall_sheet(v_flock.id);
         v_totals := v_totals + (
@@ -1988,11 +1989,20 @@ begin
       exception when others then
         v_totals := v_totals + 1;
       end;
-      -- الوجبة المغلقة: معامل التحويل في الورقة = fcr_final في تقرير الدورة (الصافي نفسه وصافي المباع نفسه).
+      -- الوجبة المغلقة: معامل التحويل في الورقة = fcr_final في تقرير الدورة (الصافي نفسه وصافي المباع نفسه). الورقة نفسها المقروءة أعلاه (v_s)
+      -- لا قراءة ثانية لها، وورقة رمت = خرق كما كانت. ووجبة مغلقة بلا مبيع (لا يوم في flock_count_days بصافٍ موجب، وهو مصدر v_sold_kg في
+      -- التقرير وشرط fcr_final فيه) معاملها في التقرير null بتعريفه، فتُقارن الورقة بـnull بلا قراءة التقرير: مئات الدورات المغلقة بلا بيع
+      -- كانت تتجاوز مهلة الطلب (8 ثوانٍ).
       if v_flock.status = 'closed' then
         begin
-          v_fcr := v_fcr + (case when (public.hall_sheet(v_flock.id) -> 'summary' ->> 'fcr')::numeric
-            is distinct from (public.flock_cycle_report(v_flock.id) -> 'kpis' ->> 'fcr_final')::numeric then 1 else 0 end);
+          if v_s is null then
+            v_fcr := v_fcr + 1;
+          elsif not exists (select 1 from private.flock_count_days(v_flock.id) as k where k.sold_kg > 0) then
+            v_fcr := v_fcr + (case when (v_s -> 'summary' ->> 'fcr') is not null then 1 else 0 end);
+          else
+            v_fcr := v_fcr + (case when (v_s -> 'summary' ->> 'fcr')::numeric
+              is distinct from (public.flock_cycle_report(v_flock.id) -> 'kpis' ->> 'fcr_final')::numeric then 1 else 0 end);
+          end if;
         exception when others then
           v_fcr := v_fcr + 1;
         end;

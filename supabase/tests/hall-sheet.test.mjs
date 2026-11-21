@@ -275,19 +275,22 @@ async function scenario(t, db) {
       required: code(await gas(U.owner, { flock: F.a, on: null, n: 1 })),
       missing: code(await gas(U.owner, { flock: id(999), on: day(-4), n: 1 })),
       closed: code(await gas(U.owner, { flock: F.c, on: day(-4), n: 1 })),
-      viewer: code(await gas(U.viewer, { flock: F.a, on: day(-4), n: 1 })),
-      keeper: code(await gas(U.keeper, { flock: F.a, on: day(-4), n: 1 })),
-      scope: code(await gas(U.worker, { flock: F.l, on: day(-4), n: 1 })),
+      // 0034 («الكلّ مثل المالك»): المشاهد والأمين وعامل اللحم في وجبة البيض يكتبون الغاز كالمالك (بمعاملة ترجع، فلا صفّ بعدها).
+      viewer: (await call(db, U.viewer, GAS, gasParams({ flock: F.a, on: day(-4), n: 1 }), { commit: false })).value?.status,
+      keeper: (await call(db, U.keeper, GAS, gasParams({ flock: F.a, on: day(-4), n: 1 }), { commit: false })).value?.status,
+      scope: (await call(db, U.worker, GAS, gasParams({ flock: F.l, on: day(-4), n: 1 }), { commit: false })).value?.status,
     }, {
       over: 'bad_value', negative: 'bad_value', future: 'date_in_future', futureQueued: 'date_in_future', before: 'before_placement', required: 'date_required',
-      missing: 'flock_not_found', closed: 'flock_closed', viewer: 'forbidden', keeper: 'forbidden', scope: 'out_of_scope',
-    }, 'set_flock_gas: كلّ رمز رفض بنداء مباشر');
-    t.eq(await gasRow(F.a, day(-4)), null, 'ولا صفّ غاز من رفض');
-    // الركن من الطابور: الوجبة المغلقة وخارج النطاق، والأحدث للكاتب واليوم يستبدل الأقدم، ولا يكتب فوق جولة مركونة لليوم نفسه.
+      missing: 'flock_not_found', closed: 'flock_closed', viewer: 'saved', keeper: 'saved', scope: 'saved',
+    }, 'set_flock_gas: كلّ رمز رفض بنداء مباشر، وكلّ عضو يكتب الغاز (0034)');
+    t.eq(await gasRow(F.a, day(-4)), null, 'ولا صفّ غاز من رفض (ولا من نداء رجعت معاملته)');
+    // الركن من الطابور: الوجبة المغلقة، والأحدث للكاتب واليوم يستبدل الأقدم، ولا يكتب فوق جولة مركونة لليوم نفسه.
     const parked = await gas(U.owner, { flock: F.c, on: day(-5), n: 2, queued: true });
     same(parked.value, { status: 'parked', reason: 'flock_closed' }, 'غاز لوجبة مغلقة من الطابور: parked');
     same((await gas(U.owner, { flock: F.c, on: day(-5), n: 4, queued: true })).value, { status: 'parked', reason: 'flock_closed' }, 'وغاز أحدث لليوم نفسه');
-    same((await gas(U.worker, { flock: F.l, on: day(-4), n: 1, queued: true })).value, { status: 'parked', reason: 'out_of_scope' }, 'وخارج النطاق من الطابور');
+    // 0034: لا «خارج النطاق» لعضو في منشأته، فعامل اللحم يكتب غاز وجبة البيض من الطابور (بمعاملة ترجع)؛ ووجبة ليست في المنشأة flock_not_found لا ركن.
+    same([(await call(db, U.worker, GAS, gasParams({ flock: F.l, on: day(-4), n: 1, queued: true }), { commit: false })).value?.status,
+      code(await gas(U.worker, { flock: id(996), on: day(-4), n: 1, queued: true }))], ['saved', 'flock_not_found'], 'من الطابور: وجبة البيض لعامل اللحم تُحفظ، ووجبة ليست في المنشأة ترفض');
     const rejects = (await db.admin("select payload, reason, visit_id is not null as keyed from public.flock_day_rejects where flock_id = $1 and on_date = $2 order by payload ? 'gas'", [F.c, day(-5)])).rows;
     same(rejects, [{ payload: { dead: 1, culled: null, feed_kg: null, water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, base_version: null }, reason: 'flock_closed', keyed: false },
       { payload: { gas: 4 }, reason: 'flock_closed', keyed: true }], 'المركون: الجولة كما هي، والغاز صفّ واحد بأحدث قيمته (payload {"gas": 4}) لا يكتب فوقها');
@@ -368,12 +371,13 @@ async function scenario(t, db) {
       missingItem: code(await send(U.owner, { flock: F.a, item: id(998), qty: '1' })),
       missingFlock: code(await send(U.owner, { flock: id(999), item: I.starter, qty: '1' })),
       noIds: code(await send(U.owner, { flock: F.a, item: I.starter, qty: '1', issue: null })),
-      worker: code(await send(U.worker, { flock: F.a, item: I.starter, qty: '1' })),
-      viewer: code(await send(U.viewer, { flock: F.a, item: I.starter, qty: '1' })),
+      // 0034: عامل القاعة والمشاهد يرسلان العلف كالمالك (بمعاملة ترجع، فلا يتغيّر الرصيد).
+      worker: (await call(db, U.worker, SEND, sendParams({ flock: F.a, item: I.starter, qty: '1' }), { commit: false })).value?.status,
+      viewer: (await call(db, U.viewer, SEND, sendParams({ flock: F.a, item: I.starter, qty: '1' }), { commit: false })).value?.status,
     }, {
       empty: 'insufficient_stock', future: 'date_in_future', before: 'before_placement', required: 'date_required', closed: 'flock_closed', zero: 'qty_not_positive',
-      scale: 'qty_not_positive', missingItem: 'item_not_found', missingFlock: 'flock_not_found', noIds: 'id_required', worker: 'forbidden', viewer: 'forbidden',
-    }, 'send_flock_feed: كلّ رمز رفض');
+      scale: 'qty_not_positive', missingItem: 'item_not_found', missingFlock: 'flock_not_found', noIds: 'id_required', worker: 'saved', viewer: 'saved',
+    }, 'send_flock_feed: كلّ رمز رفض، وعامل القاعة والمشاهد يرسلان (0034)');
     t.eq(await balance(I.starter), '1860', 'والرفوض لا تصرف شيئاً (1,900 − 40 للوجبة الثانية)');
   });
 
@@ -445,7 +449,8 @@ async function scenario(t, db) {
     samples.hall_sheet_layer = l;
     same([l.through, l.days.length, rowOf(l, day(-1)).eggs_total, rowOf(l, day(-1)).dead, l.totals.eggs_total, l.flock.kind], [TODAY, 11, 1500, 2, 1500, 'layer'],
       'البيّاض: حتى اليوم، والبيض في يومه وفي المجموع');
-    same([code(await call(db, U.worker, SHEET, [F.l])), code(await call(db, U.worker, SHEET, [id(999)]))], ['out_of_scope', 'flock_not_found'], 'الورقة بنطاق حقل القاعة');
+    same([(await call(db, U.worker, SHEET, [F.l])).value?.flock?.id, code(await call(db, U.worker, SHEET, [id(999)]))], [F.l, 'flock_not_found'],
+      'الورقة لكلّ عضو في المنشأة كلّها (0034: عامل اللحم يقرأ وجبة البيض)، ووجبة ليست في المنشأة flock_not_found');
   });
 
   // ── ٥) حسم المركون بنسخته (مراجعة 0035: الركن من جديد يكتب فوق صفّه، فالحسم بشرط النسخة التي عُرضت) ───────────────────────────
@@ -466,7 +471,8 @@ async function scenario(t, db) {
     same([(await call(db, U.manager, DECIDE, [gasReject, 'handled', 2])).value?.decided_at, code(await call(db, U.owner, DECIDE, [gasReject, 'refused', 2]))],
       [first.value.decided_at, 'already_decided'], 'القرار نفسه بالنسخة نفسها مرّة ثانية حُفظ بلا كتابة (إعادة)، وقرار آخر already_decided');
     same({ bad: code(await call(db, U.owner, DECIDE, [gasReject, 'maybe', 2])), missing: code(await call(db, U.owner, DECIDE, [id(997), 'handled', 1])),
-      viewer: code(await call(db, U.viewer, DECIDE, [gasReject, 'handled', 2])) }, { bad: 'bad_decision', missing: 'reject_not_found', viewer: 'forbidden' }, 'رموز الرفض');
+      viewer: (await call(db, U.viewer, DECIDE, [gasReject, 'handled', 2], { commit: false })).value?.status },
+    { bad: 'bad_decision', missing: 'reject_not_found', viewer: 'saved' }, 'رموز الرفض، والمشاهد يحسم كالمالك (0034؛ القرار نفسه بالنسخة نفسها = حُفظ)');
     same((await sheet(F.c)).rejects.map((r) => r.reason), ['flock_closed'], 'المحسوم يخرج من الورقة');
     same((await gas(U.owner, { flock: F.c, on: day(-5), n: 7, queued: true })).value?.status, 'parked', 'مركون جديد لليوم نفسه');
     same(await rejectRow(gasReject), { version: 3, decision: null, payload: { gas: 7 } }, 'يكتب فوق صفّه: بلا قرار، بالنسخة 3 وبقيمته الجديدة');
@@ -667,6 +673,15 @@ async function scenario(t, db) {
       caught[name] = await mutant(db, U.owner, fns, async ({ oq }) => (await verifyOf(oq))[name]);
     }
     t.ok(caught.sheet_totals > 0 && caught.sheet_feed_by_day > 0, `طفرة في الورقة يمسكها الثابت (المجاميع ${caught.sheet_totals}، والعلف بيومه ${caught.sheet_feed_by_day})`);
+    // الوجبة المغلقة بلا مبيع: الثابت يقارن معامل الورقة بـnull بلا قراءة تقرير الدورة (fcr_final فيه null بتعريفه)؛ ورقة تعطي معاملاً بلا مبيع يمسكها.
+    const NO_SALE_FCR = ["then private._mul_div_round(v_net, 1, v_sold_kg, 3)::text end)", "then private._mul_div_round(v_net, 1, v_sold_kg, 3)::text when v_sold_kg = 0 then '0.000' end)"];
+    const noSale = await mutant(db, U.owner, [[SIG.sheet, [NO_SALE_FCR]]], async ({ oq }) => ({
+      closedNoSale: (await oq(`select count(*)::int as n from public.flocks f where f.org_id = $1 and f.status = 'closed'
+        and not exists (select 1 from private.flock_count_days(f.id) as k where k.sold_kg > 0)`, [org])).rows[0].n,
+      caught: (await verifyOf(oq)).sheet_fcr_final,
+    }));
+    t.ok(noSale.closedNoSale > 0 && noSale.caught >= noSale.closedNoSale,
+      `وجبة مغلقة بلا مبيع ومعامل في ورقتها يمسكها الثابت (${noSale.caught}، وفي منشأة الملفّ ${noSale.closedNoSale} وجبة مغلقة بلا مبيع)`);
     // مراجعة 0035: مع الراجع والمنقول (returnsScenario داخل معاملة الطفرة) — كلّ طفرة يمسكها فحصها باسمه، والضابط بلا طفرة صفر.
     const OLD_FCR = ["'fcr', case when v_unweighed = 0 and v_net > 0 and v_sold_kg > 0 then private._mul_div_round(v_net, 1, v_sold_kg, 3)::text end)",
       "'fcr', case when (v_totals ->> 'sold_net_kg')::numeric > 0 and (v_totals ->> 'feed_kg')::numeric > 0\n        then private._mul_div_round((v_totals ->> 'feed_kg')::numeric, 1, (v_totals ->> 'sold_net_kg')::numeric, 3)::text end)"];
