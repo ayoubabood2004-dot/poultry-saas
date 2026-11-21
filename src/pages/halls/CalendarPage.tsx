@@ -173,7 +173,8 @@ function DayPanel({ data, day, reading, calendarUrl, onClose, onChanged }: { dat
   const [undoing, setUndoing] = useState<Undoing | null>(null);
   const { flock, can, today } = data;
   const issues = plainIssues(day);
-  const giveOpen = can.give && day.age !== null && day.on >= flock.placedOn && day.on <= today && day.on >= addDays(today, -7);
+  // أقدم يوم تقبله الإضافة من الخادم (flock_issue_options.earliest_on في صفحتها)، لا حدّ أيام سبعة هنا (0035).
+  const giveOpen = can.give && day.age !== null && day.on >= flock.placedOn && day.on <= today;
   const roundPresent = day.dead !== null || day.culled !== null || day.feedKg !== null || day.note !== null;
 
   const remove = async () => {

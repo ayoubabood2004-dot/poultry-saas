@@ -91,7 +91,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
       { key: 'age', header: t('farm.col.age', 'العمر (يوم)'), kind: 'number', cell: (hall) => (hall.flock?.ageDays !== null && hall.flock?.ageDays !== undefined ? <Num>{fmtInt(hall.flock.ageDays)}</Num> : '—') },
       { key: 'live', header: t('farm.col.live', 'الحيّ'), kind: 'number', cell: (hall) => (hall.flock ? <Num>{fmtInt(hall.flock.live)}</Num> : '—') },
       { key: 'dead_today', header: t('farm.col.dead_today', 'نافق اليوم'), kind: 'number', cell: (hall) => (hall.flock?.today?.dead !== null && hall.flock?.today?.dead !== undefined ? <Num>{fmtInt(hall.flock.today.dead)}</Num> : '—') },
-      { key: 'losses', header: t('farm.col.losses', 'النافق والمستبعد'), kind: 'number', cell: (hall) => (hall.flock ? <Num>{fmtInt(hall.flock.deadTotal + hall.flock.culledTotal)}</Num> : '—') },
+      { key: 'losses', header: t('farm.col.losses', 'الهلاكات'), kind: 'number', cell: (hall) => (hall.flock ? <Num>{fmtInt(hall.flock.deadTotal + hall.flock.culledTotal)}</Num> : '—') },
       { key: 'mortality', header: t('farm.col.mortality', 'النفوق'), kind: 'number', cell: (hall) => (hall.flock?.mortalityPct !== null && hall.flock?.mortalityPct !== undefined ? <Num>{fmtPct(hall.flock.mortalityPct)}</Num> : '—') },
       ...(kind === 'broiler'
         ? [{ key: 'fcr', header: t('farm.col.fcr', 'معامل التحويل'), kind: 'number' as const, cell: (hall: HallView) => (hall.flock?.fcr !== null && hall.flock?.fcr !== undefined ? <Num>{fmtScaledCell(hall.flock.fcr, 3, 3)}</Num> : '—') }]

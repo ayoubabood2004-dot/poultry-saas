@@ -3,6 +3,7 @@ import { Notice } from '../../components/ui/Notice';
 import { t } from '../../lib/i18n';
 import CalendarPage from './CalendarPage';
 import ClosePage from './ClosePage';
+import CycleReportPage from './CycleReportPage';
 import CyclesPage from './CyclesPage';
 import DailyPage from './DailyPage';
 import GivePage from './GivePage';
@@ -32,6 +33,7 @@ export default function HallsRoutes() {
       <Route path="give/:flockId" element={<GivePage />} />
       <Route path="calendar/:flockId" element={<CalendarPage />} />
       <Route path="report/:flockId" element={<ReportPage />} />
+      <Route path="cycle/:flockId" element={<CycleReportPage />} />
       <Route path="vaccines" element={<VaccinesPage />} />
       <Route path="day" element={<DailyPage />} />
       <Route path="cycles" element={<CyclesPage />} />

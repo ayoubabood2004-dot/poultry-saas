@@ -35,6 +35,7 @@ const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (mo
 export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> | null, ops: readonly OutboxOp[]): SoFar {
   const total: SoFar = { dead: saved?.dead ?? 0, culled: saved?.culled ?? 0, feedKg: saved?.feedKg ?? null, eggsTotal: saved?.eggsTotal ?? null, eggsBroken: saved?.eggsBroken ?? null };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
+    if (op.fn === 'set_flock_gas') continue;
     if (op.fn === 'save_flock_visit') {
       const visit = op.payload;
       if (op.baseVersion !== null || visit.void || op.state === 'sending' || op.state === 'unknown') continue;
@@ -70,6 +71,22 @@ export function soFarText(total: SoFar, field: keyof RoundText): string {
   if (field === 'feedKg') return total.feedKg === null ? '—' : fmtMilli(total.feedKg);
   const value = field === 'dead' ? total.dead : field === 'culled' ? total.culled : field === 'eggsTotal' ? total.eggsTotal : total.eggsBroken;
   return value === null ? '—' : fmtInt(value);
+}
+
+/** سبب ركن عملية (جواب parked وflock_day_rejects) بجملة: للجولة وورقة القاعة ورفّ المراجعة. */
+export function parkText(reason: string | null): string {
+  switch (reason) {
+    case 'flock_closed':
+      return t('sheet.park.closed', 'كانت الوجبة مغلقة حين وصل');
+    case 'out_of_scope':
+      return t('sheet.park.scope', 'كانت القاعة خارج نطاق من أرسله');
+    case 'period_locked':
+      return t('sheet.park.locked', 'كان اليوم في فترة حسابات مقفلة');
+    case 'date_too_old':
+      return t('sheet.park.old', 'كان اليوم أقدم من سبعة أيام قبل أن يُرفع هذا الحدّ');
+    default:
+      return t('sheet.park.other', 'رُدّ من الخادم');
+  }
 }
 
 export const amountText = (value: bigint | string | null | undefined): string => {

@@ -59,7 +59,7 @@ async function bundle() {
     "export { createRoot } from 'react-dom/client';",
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route } from 'react-router-dom';",
-    "export { default as ReportPage } from './src/pages/halls/ReportPage.tsx';",
+    "export { default as ReportPage } from './src/pages/halls/CycleReportPage.tsx';",
     "export * as charts from './src/pages/halls/charts.tsx';",
     "export * as repo from './src/lib/repo/halls.ts';",
   ].join('\n');

@@ -29,7 +29,8 @@ import { birdsText, newTicketPath, signedCount, statusLabel, ticketName, ticketP
 // المقترح وحدّاه من الخادم (flock_sales: today وearliest_on، مراجعة 0028 S1) لا من ساعة الجهاز، و«سجّل» مقفول ما دامت البطاقة تُقرأ من جديد؛ و«أعد فتح
 // الدورة» حين يجيزها الخادم (can.reopen) وإلّا لماذا لا (reopen_why، O6) لمن يعيد الفتح بدوره.
 
-type Flock = FlockDetail['flock'];
+/** ما تحتاجه البطاقة من الفوج (ورقة القاعة تمرّره من hall_sheet وقراءة الحقول، 0035). */
+type Flock = Pick<FlockDetail['flock'], 'id' | 'hallId' | 'kind' | 'siteId'>;
 
 interface CountRequest {
   clientRef: string;
@@ -307,7 +308,7 @@ function CardView({ flock, onChanged }: { flock: Flock; onChanged?: () => void }
               </Link>
             ) : null}
             {sales.can.reopen ? (
-              <Link to={`/halls/report/${flock.id}?${new URLSearchParams({ back, act: 'reopen' }).toString()}`} className={linkClass} data-action="card-reopen">
+              <Link to={`/halls/cycle/${flock.id}?${new URLSearchParams({ back, act: 'reopen' }).toString()}`} className={linkClass} data-action="card-reopen">
                 {t('halls.reopen.go', 'أعد فتح الدورة')}
               </Link>
             ) : null}

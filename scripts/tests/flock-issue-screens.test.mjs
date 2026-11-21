@@ -50,7 +50,7 @@ const plugins = [
       b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'fi-stub' }));
       b.onLoad({ filter: /.*/, namespace: 'fi-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       // core البديل لملفات الحزم التي تقرأ وتكتب هنا وحدها (auth وindex على core الحقيقي: لا تُنادى في هذه الشاشات).
-      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockIssues|uses|inventory|purchases|purchasing|counts)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fi-core' } : undefined));
+      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockIssues|uses|inventory|purchases|purchasing|counts|hallSheet)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fi-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'fi-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
     },
   },
@@ -386,28 +386,8 @@ export default async function (t) {
       await click(byAction('issue-void-confirm')[0]);
       t.same([feeds, byAction('feed-line').length, text().includes('تعذّر تحميل علف القاعة')], [2, 1, true], 'R F7 فشل القراءة بعد الإلغاء يُقال، والمعروض القديم باقٍ تحته');
     });
-    await step('R F8', async () => {
-      let feeds = 0;
-      const detailOf = () => ({
-        flock: { id: FLOCK, kind: 'broiler', breed: null, status: 'active', version: 1, placed_on: '2026-10-28', placed_count: 5000, age_days_at_placement: 0, age_days: 11, days_since_placement: 11, dead_total: 0, culled_total: 0, live: 5000, live_start_today: 5000, mortality_pct: '0.00', feed_kg_total: '0.000', feed_days: 0, feed_span_days: 11, last_weight: null, fcr: null, today: null, eggs_today: null, hdep_today: null, rejects_pending: 0, hall_id: 'h-1', hall_name: 'قاعة 1', site_id: 's-1', site_name: 'حقل الأمل', closed_on: null, close_note: null },
-        can_manage: false, can_save: true, days: [], weights: [],
-      });
-      fresh(
-        'owner',
-        {
-          flock_feed: () => {
-            feeds += 1;
-            if (feeds === 1) throw new m.NetworkError();
-            return clone(SAMPLES.flock_feed.owner);
-          },
-        },
-        { loadFlockDetail: () => m.parseDetail(detailOf()) },
-      );
-      await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-failed').length, byAction('flock-give').length, byAction('feed-line').length], [1, 1, 0], 'R F8 فشل علف القاعة يُقال، و«أضف للقاعة» باقٍ (لا يحتاج سطر العلف)');
-      await click(byAction('feed-retry')[0]);
-      t.same([byAction('feed-failed').length, byAction('feed-line').length], [0, 1], 'R F8 «أعد المحاولة» يقرأ السطر');
-    });
+    // R F8 (شاشة الفوج بسطر العلف من flock_feed) صار ورقة القاعة منذ 0035: العلف المرسل في عمود الورقة من hall_sheet، وفشل قراءتها يُقال بإعادته
+    // (hall-sheet.test)، و«أضف دواءً أو لقاحاً» إلى صفحة الإضافة (E أدناه).
 
     // ── E: المداخل — «اصرف» في جدول الحقل، وسطر العلف وزرّه في شاشة الفوج ────────────────────────────────────────────────────
     const TODAY = m.localDay();
@@ -451,27 +431,35 @@ export default async function (t) {
       await mount('/broiler');
       t.eq(byAction('hall-issue').length, 0, 'E عامل القاعة: لا «اصرف» في جدول الحقل');
     });
-    await step('E شاشة الفوج', async () => {
-      fresh('owner', { flock_feed: () => clone(SAMPLES.flock_feed.owner) }, { loadFlockDetail: () => m.parseDetail(detail()) });
-      await mount(`/broiler/flock/${FLOCK}`);
-      t.ok(textOf('feed-line')?.startsWith(FEED_LINE), `E شاشة الفوج: سطر علف القاعة (${textOf('feed-line')})`);
+    /** ورقة القاعة (hall_sheet، 0035) لفوج قاعة 1 من العيّنة اليدوية للعقد. */
+    const sheetOf = () => {
+      const sheet = clone(JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet.broiler);
+      Object.assign(sheet.flock, { id: FLOCK, hall_id: 'h-1', hall_name: '1', site_name: 'حقل الأمل' });
+      return sheet;
+    };
+    await step('E ورقة القاعة', async () => {
+      fresh('owner', { hall_sheet: () => sheetOf() }, { loadOverviewJson: overview });
+      await mount('/broiler/hall/h-1');
       // الرجوع إلى صفحة القاعة (كلمة المالك 2026-11-16: الرابط بالقاعة، والفوج فيها).
       const back = encodeURIComponent('/broiler/hall/h-1');
       t.same(
-        [textOf('flock-give'), byAction('flock-give')[0]?.getAttribute('href'), byAction('flock-issues')[0]?.getAttribute('href'), byAction('flock-calendar')[0]?.getAttribute('href'), byAction('flock-report')[0]?.getAttribute('href')],
-        ['أضف للقاعة', `/halls/give/${FLOCK}?back=${back}`, `/inventory/issue/${FLOCK}?back=${back}`, `/halls/calendar/${FLOCK}`, `/halls/report/${FLOCK}`],
-        'E «أضف للقاعة» إلى صفحة الإضافة، وسجلّ الصرف، وتقويم القاعة وتقرير الدورة، والرجوع إلى صفحة القاعة',
+        [textOf('sheet-feed'), textOf('flock-give'), byAction('flock-give')[0]?.getAttribute('href'), byAction('flock-calendar')[0]?.getAttribute('href'), byAction('sheet-report')[0]?.getAttribute('href'), byAction('feed-line').length],
+        ['أرسل علفاً', 'أضف دواءً أو لقاحاً', `/halls/give/${FLOCK}?back=${back}`, `/halls/calendar/${FLOCK}`, `/halls/report/${FLOCK}?back=${back}`, 0],
+        'E ورقة القاعة: «أرسل علفاً» (من «رصيد العلف» في الورقة نفسها)، و«أضف دواءً أو لقاحاً» إلى صفحة الإضافة، والتقويم، و«التقرير»، والرجوع إلى صفحة القاعة؛ بلا سطر العلف المأكول',
       );
     });
-    await step('E شاشة الفوج لعامل القاعة', async () => {
-      fresh('hall_worker', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadFlockDetail: () => m.parseDetail(detail()) });
-      await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-issues').length], [1, 1, 1], 'E عامل القاعة يرى علف قاعته وسجلّها، و«أضف للقاعة» (يسجّل الدواء الذي ليس في المخزن)');
-    });
-    await step('E شاشة الفوج للمشاهد', async () => {
-      fresh('viewer', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadFlockDetail: () => m.parseDetail(detail()) });
-      await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-calendar').length], [1, 0, 1], 'E المشاهد يقرأ علف القاعة وتقويمها، بلا «أضف للقاعة»');
+    await step('E ورقة القاعة لكلّ دور', async () => {
+      const seen = [];
+      for (const role of ['hall_worker', 'viewer']) {
+        fresh(role, { hall_sheet: () => sheetOf() }, { loadOverviewJson: overview });
+        await mount('/broiler/hall/h-1');
+        seen.push([role, byAction('sheet-feed').length, byAction('flock-give').length, byAction('flock-calendar').length]);
+        m.flushSync(() => root.unmount());
+        body().textContent = '';
+        await settle();
+        root = null;
+      }
+      t.same(seen, [['hall_worker', 1, 1, 1], ['viewer', 1, 1, 1]], 'E الورقة بأفعالها لكلّ عضو (0034: الكلّ مثل المالك؛ والخادم يحكم)');
     });
   } finally {
     delete globalThis.__fi;

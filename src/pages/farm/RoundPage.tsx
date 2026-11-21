@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
@@ -14,14 +15,14 @@ import { describeError, NotConnectedError, RejectedError } from '../../lib/error
 import { countForm, fmtDay, fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, pendingOps, reviewEntries, saveRound, type OutboxOp, type ReviewEntry, type SendResult, type Stamp } from '../../lib/outbox';
+import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, type OutboxOp, type ReviewEntry, type SendResult, type Stamp } from '../../lib/outbox';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import type { FlockSummary, FlocksOverview } from '../../lib/repo/flocks';
 import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
-import { errorText, loadTransport, soFar, soFarText, staleVisitText, type SoFar } from './roundText';
+import { errorText, loadTransport, parkText, soFar, soFarText, staleVisitText, type SoFar } from './roundText';
 import { farmPath, farmTitle, HallReminders, HallVisitsLazy, hallLabel, hallPath, NeedsConnection, useOverview, useStamp } from './shared';
 
 // الجولة اليومية (FOUNDATION ٧٨٢–٧٨٣ و٨١٦) بزيارات في اليوم (0032، كلمة المالك 2026-11-17: «نروح للحقل أكثر من مرّة باليوم»): شاشة وحدة لكل
@@ -84,7 +85,7 @@ function statusText(status: RowStatus): string {
     case 'device':
       return t('round.status.device', 'محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال');
     case 'parked':
-      return t('round.status.parked', 'رُدّت إلى المدير: أُغلق الفوج، أو خرج من نطاقك، أو صار التاريخ قديماً أو داخل فترة مقفلة');
+      return t('round.status.parked', 'رُدّت (الفوج مغلق، أو خارج نطاقك، أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه');
     case 'review':
       return t('round.status.review', 'لم تُحفظ: راجعها في «جولات تحتاج مراجعة» أدناه');
     case 'held':
@@ -96,7 +97,7 @@ const statusOf = (result: SendResult | undefined | null): RowStatus => {
   if (!result) return 'device';
   if (result.kind === 'saved') return 'saved';
   if (result.kind === 'parked') return 'parked';
-  if (result.kind === 'stale_day' || result.kind === 'stale_visit' || result.kind === 'rejected') return 'review';
+  if (result.kind === 'stale_day' || result.kind === 'stale_visit' || result.kind === 'stale_gas' || result.kind === 'rejected') return 'review';
   return 'held';
 };
 
@@ -139,9 +140,14 @@ function useQueue(stamp: Stamp | null, uploads: number) {
   return { pending: current?.pending ?? [], review: current?.review ?? [], loaded: current !== null, reload };
 }
 
-type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken';
+type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'note';
 
-function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; names: ReadonlyMap<string, string> }) {
+/**
+ * رفّ المراجعة: ما لم يقبله الخادم كما هو، ومنه المركون بسببه (0035: كان يُحذف من الجهاز بصمت)، بالنسختين جنب بعض؛ ولا يُحذف إلا بـ«احذفه» بتأكيد
+ * يسمّي ما يضيع.
+ */
+function ReviewShelf({ entries, names, onRemove }: { entries: readonly ReviewEntry[]; names: ReadonlyMap<string, string>; onRemove: (entry: ReviewEntry) => Promise<void> }) {
+  const [removing, setRemoving] = useState<{ entry: ReviewEntry; busy: boolean } | null>(null);
   if (entries.length === 0) return null;
   const fields: { key: ShelfField; label: string; amount?: boolean }[] = [
     { key: 'dead', label: t('round.dead', 'النافق') },
@@ -149,6 +155,8 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
     { key: 'feed_kg', label: t('round.feed', 'العلف (كغم)'), amount: true },
     { key: 'eggs_total', label: t('round.eggs_total', 'البيض (المجموع)') },
     { key: 'eggs_broken', label: t('round.eggs_broken', 'المكسور') },
+    { key: 'cylinders', label: t('round.review.gas', 'الغاز (قناني)') },
+    { key: 'note', label: t('round.review.note', 'الملاحظة') },
   ];
   const shown = (value: unknown, amount?: boolean): string => {
     if (value === null || value === undefined) return '—';
@@ -156,7 +164,13 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
       const parsed = parseDecimal(value, 3);
       return parsed ? fmtMilli(toScale(parsed, 3)) : '—';
     }
+    if (typeof value === 'string') return value === '' ? '—' : value;
     return typeof value === 'number' && Number.isInteger(value) ? fmtInt(value) : '—';
+  };
+  const remove = async () => {
+    if (!removing || removing.busy) return;
+    setRemoving({ ...removing, busy: true });
+    await onRemove(removing.entry).finally(() => setRemoving(null));
   };
   const present = (value: unknown) => value !== null && value !== undefined;
   return (
@@ -169,13 +183,19 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
         // الزيارة (0032) «زيارتك والمحفوظة» بخاناتها كلّها (المحتوى كامل)، ومجموع اليوم القديم بخاناته المكتوبة وحدها.
         const visit = op.fn === 'save_flock_visit' ? op.payload : null;
         const mine = op.payload as Readonly<Partial<Record<ShelfField, unknown>>>;
-        const rows = fields.filter((field) => (visit ? field.amount || field.key === 'dead' || field.key === 'culled' || present(mine[field.key]) || present(server?.[field.key]) : present(mine[field.key])));
+        const rows = fields.filter((field) =>
+          visit ? field.amount || field.key === 'dead' || field.key === 'culled' || present(mine[field.key]) || present(server?.[field.key]) : field.key === 'cylinders' ? op.fn === 'set_flock_gas' : present(mine[field.key]),
+        );
         const reason =
           entry.reason === 'stale_day'
             ? t('round.review.stale', 'حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك، فلم تُكتب فوقه.')
-            : entry.reason === 'stale_visit'
-              ? staleVisitText(entry.server)
-              : describeError(new RejectedError(entry.reason, entry.hint)).detail;
+            : entry.reason === 'stale_gas'
+              ? t('round.review.stale_gas', 'تغيّر غاز هذا اليوم من جهاز آخر قبل أن يصل تعديلك، فلم يُكتب فوقه.')
+              : entry.reason === 'stale_visit'
+                ? staleVisitText(entry.server)
+                : entry.reason === 'parked'
+                  ? t('round.review.parked', 'لم يُحفظ: {why}. ووصل إلى صفحة القاعة أيضاً.', { why: parkText(entry.hint) })
+                  : describeError(new RejectedError(entry.reason, entry.hint)).detail;
         return (
           <div key={entry.id} className={CARD_CLASS} data-review={entry.id}>
             <p className="font-semibold">
@@ -195,17 +215,36 @@ function ReviewShelf({ entries, names }: { entries: readonly ReviewEntry[]; name
               rowKey={(field) => field.key}
               empty={t('round.review.empty', 'بلا خانات.')}
             />
+            <div>
+              <Button size="sm" variant="ghost" onClick={() => setRemoving({ entry, busy: false })} data-action="review-remove">
+                {t('round.review.remove', 'احذفه')}
+              </Button>
+            </div>
           </div>
         );
       })}
+      {removing ? (
+        <ConfirmDialog
+          open
+          title={t('round.review.remove_title', 'احذف هذا من هذا الجهاز؟')}
+          consequence={t('round.review.remove_body', 'يُحذف ما كُتب في «{hall}» ليوم {day} من هذا الجهاز ولا يُرسل؛ وما في الخادم لا يتغيّر.', {
+            hall: names.get(removing.entry.op.flockId) ?? t('round.review.flock', 'فوج'),
+            day: fmtDay(removing.entry.op.day),
+          })}
+          confirmLabel={t('round.review.remove_go', 'احذفه من الجهاز')}
+          busy={removing.busy}
+          action="review-remove-go"
+          onConfirm={() => void remove()}
+          onCancel={() => setRemoving(null)}
+        />
+      ) : null}
     </section>
   );
 }
 
+// المستبعد خرج من الإدخال، والعلف يُرسل من ورقة القاعة من «رصيد العلف» (طلب المالك 2026-11-21): الجولة نافق اليوم (وللبيّاض البيض).
 const fieldsOf = (kind: FlockKind): [keyof RoundText, string, boolean][] => [
   ['dead', t('round.dead', 'النافق'), false],
-  ['culled', t('round.culled', 'المستبعد'), false],
-  ['feedKg', t('round.feed', 'العلف (كغم)'), true],
   ...(kind === 'layer'
     ? ([
         ['eggsTotal', t('round.eggs_total', 'البيض (المجموع)'), false],
@@ -507,7 +546,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
     for (const entry of run.results) {
       const label = t('round.uploads.item', '{hall} ({day})', { hall: names.get(entry.flockId) ?? t('round.review.flock', 'فوج'), day: fmtDay(entry.day) });
       if (entry.result.kind === 'parked' && !parkedNames.includes(label)) parkedNames.push(label);
-      if ((entry.result.kind === 'stale_day' || entry.result.kind === 'stale_visit' || entry.result.kind === 'rejected') && !reviewNames.includes(label)) reviewNames.push(label);
+      if ((entry.result.kind === 'stale_day' || entry.result.kind === 'stale_visit' || entry.result.kind === 'stale_gas' || entry.result.kind === 'rejected') && !reviewNames.includes(label)) reviewNames.push(label);
     }
   }
 
@@ -556,7 +595,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
             </Button>
           }
         >
-          {parkedNames.length > 0 ? <p>{t('round.uploads.parked', 'رُدّت إلى المدير: {halls}.', { halls: parkedNames.join(separator) })}</p> : null}
+          {parkedNames.length > 0 ? <p>{t('round.uploads.parked', 'رُدّت وبقيت في «جولات تحتاج مراجعة»: {halls}.', { halls: parkedNames.join(separator) })}</p> : null}
           {reviewNames.length > 0 ? <p>{t('round.uploads.review', 'تحتاج مراجعة في «جولات تحتاج مراجعة»: {halls}.', { halls: reviewNames.join(separator) })}</p> : null}
         </Notice>
       ) : null}
@@ -661,7 +700,19 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
           </Button>
         </div>
       ) : null}
-      <ReviewShelf entries={queue.review} names={names} />
+      <ReviewShelf
+        entries={queue.review}
+        names={names}
+        onRemove={async (entry) => {
+          if (!stamp) return;
+          try {
+            await removeReview(await openOutbox(), stamp, entry.id);
+          } catch (error) {
+            setFailure(error);
+          }
+          reloadQueue();
+        }}
+      />
     </div>
   );
 }

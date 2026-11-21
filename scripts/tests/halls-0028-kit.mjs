@@ -88,6 +88,11 @@ export const all = () => descendants(body());
 export const byAction = (name) => all().filter((n) => n.getAttribute('data-action') === name);
 export const within = (node, name) => (node ? descendants(node).filter((n) => n.getAttribute('data-action') === name) : []);
 export const withAttr = (action, attr, value) => byAction(action).find((n) => n.getAttribute(attr) === value) ?? null;
+/** صفّ القاعة في جدول التقرير اليوميّ الواحد (0035: كان بطاقة لكلّ قاعة): الصفّ الذي فيه اسمها. */
+export const hallRow = (hallId) => {
+  for (let n = withAttr('day-hall', 'data-hall', hallId); n; n = n.parentNode) if (n.localName === 'tr') return n;
+  return null;
+};
 export const textOf = (action) => byAction(action)[0]?.textContent ?? null;
 export const text = () => body().textContent;
 export const disabled = (node) => (node ? node.hasAttribute('disabled') : null);

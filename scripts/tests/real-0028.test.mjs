@@ -13,7 +13,7 @@ import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { descendants, installDom, settle } from './dom.mjs';
-import { all, body, byAction, click, clone, dialog, memoryStorage, ROOT, sessionOf, tableRows, withAttr, within } from './halls-0028-kit.mjs';
+import { all, body, byAction, click, clone, dialog, memoryStorage, ROOT, sessionOf, tableRows, hallRow, within } from './halls-0028-kit.mjs';
 
 const FIXTURES = path.join(ROOT, 'scripts', 'tests', 'fixtures');
 const read = (name) => (existsSync(path.join(FIXTURES, name)) ? JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) : null);
@@ -120,7 +120,8 @@ export function recorder(value) {
 // totals.open منذ 0033 (الباقي الآن على فواتير الفترة): يغيب في أجوبة 0029 المحفوظة هنا، والشكل الجديد يحمله دائماً (فحص X2 في sales-invoice-screens بعيّنات 0033).
 // وtoday في sales_report منذ مراجعة تصميم المبيعات (A7: يوم الخادم يصحّح مدّة التقرير): يغيب في الأجوبة المحفوظة هنا، والمحلّل يقرؤه اختيارياً
 // (فحص L8 في sales-ux-doc بعيّنات 0033).
-const OPTIONAL = [/(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u, /^\.today$/u];
+// gas (0035، B6): مفتاح التقرير اليوميّ بعد عيّنات 0028، فالمحلّل يقرؤه null حين يغيب.
+const OPTIONAL = [/(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u, /^\.today$/u, /(^|\.)gas$/u];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());
 const NUMERIC = /^-?\d+(\.\d+)?$/u;
@@ -373,7 +374,7 @@ export default async function (t) {
       const seen = [];
       for (const sample of [B.flock_cycle_report_count_diff, REPORTS.flock_cycle_report_closed]) {
         fresh({ flock_cycle_report: answer(sample) });
-        await mount(`/halls/report/${sample.flock.id}`);
+        await mount(`/halls/cycle/${sample.flock.id}`);
         const day = sample.days.find((d) => d.count_diff !== 0);
         seen.push([dayCell(day.on, 'فرق العدّ'), m.signedCount(day.count_diff)]);
         await unmount();
@@ -384,7 +385,7 @@ export default async function (t) {
     await step('P2 التقرير الكامل: المباع يوم البيع ومخزن العلف المنقول المعلَّق', async () => {
       const sample = B.flock_cycle_report_closed;
       fresh({ flock_cycle_report: answer(sample) });
-      await mount(`/halls/report/${sample.flock.id}`);
+      await mount(`/halls/cycle/${sample.flock.id}`);
       const sold = sample.days.find((d) => d.sold > 0);
       const pending = sample.close.lines.find((line) => line.carry_status === 'pending');
       const before = [dayCell(sold.on, 'المباع'), byAction('rep-close').length, byAction('carry-return').length];
@@ -404,7 +405,7 @@ export default async function (t) {
         fresh({ halls_day: answer(sample) });
         await mount(`/halls/day?on=${sample.on}`);
         for (const hall of sample.sites.flatMap((site) => site.halls)) {
-          const card = withAttr('day-hall', 'data-hall', hall.hall_id);
+          const card = hallRow(hall.hall_id);
           const f = hall.flock;
           if (f) {
             const textIs = within(card, 'day-sales')[0]?.textContent ?? null;

@@ -233,15 +233,15 @@ export default async function (t) {
       await openVisits();
       t.same(named(rpcLog, 'round_visits'), [{ p_on: TODAY, p_kind: 'broiler', p_flock: FLOCK }], 'L round_visits ليوم الجولة ونوعها والفوج وحده');
       t.same(
-        tableRows('زيارات اليوم')?.map((row) => row.slice(0, 5)),
+        tableRows('زيارات اليوم')?.map((row) => row.slice(0, 4)),
         [
-          [clockOf(V1.recorded_at), '4', '1', '120', '— · قديمة'],
-          [clockOf(V2.recorded_at), '2', '0', '50', 'حسن'],
-          [clockOf(V3.recorded_at), '3', '0', '50', 'علي · مجموع اليوم'],
+          [clockOf(V1.recorded_at), '5', '120', '— · قديمة'],
+          [clockOf(V2.recorded_at), '2', '50', 'حسن'],
+          [clockOf(V3.recorded_at), '3', '50', 'علي · مجموع اليوم'],
         ],
-        'L كلّ زيارة بوقتها بساعة الجهاز وأرقامها (العلف بمراتب العمود) وكاتبها ومصدرها',
+        'L كلّ زيارة بوقتها بساعة الجهاز وهلاكاتها (النافق والمستبعد القديم معاً، 0035) وعلفها بمراتب العمود وكاتبها ومصدرها',
       );
-      t.same(tableFoot('زيارات اليوم')?.slice(0, 4), ['مجموع اليوم', '9', '1', '220'], 'L صفّ «مجموع اليوم» بمجموع الزيارات');
+      t.same(tableFoot('زيارات اليوم')?.slice(0, 3), ['مجموع اليوم', '10', '220'], 'L صفّ «مجموع اليوم» بمجموع الزيارات (الهلاكات 4 + 1 مستبعد قديم + 2 + 3)');
       t.eq(textOf('round-visits', cardOf(FLOCK) ?? body()), 'زيارات اليوم (3)', 'L الزرّ بعدد زيارات اليوم بعد القراءة');
     });
 
@@ -257,7 +257,7 @@ export default async function (t) {
       await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
       const dialog = () => dialogTitled('عدّل زيارة');
       const field = (name) => (dialog() ? byAction(`visit-${name}`, dialog())[0] ?? null : null);
-      t.same([field('dead')?.value, field('culled')?.value, field('feedKg')?.value], ['2', '0', '50'], 'E النافذة بمحتوى الزيارة كاملاً (المستبعد صفراً: الصفر يُعرض صفراً فلا تصير زيارة «لا نافق» فارغة بالتعديل)');
+      t.same([field('dead')?.value, field('culled'), field('feedKg')], ['2', null, null], 'E النافذة بنافق الزيارة وحده (0035: لا مستبعد ولا علف في الإدخال؛ يُرسلان كما في اللقطة)');
       t.ok(dialog()?.textContent.includes('والماء والحرارة والملاحظة تبقى كما هي'), 'E التلميح يقول ما يبقى كما هو');
       // زيارة تغيّرت من جهاز آخر بعد الفتح، والقائمة تُقرأ من جديد: اللقطة والنسخة كما فُتحت.
       version = 3;
@@ -349,11 +349,11 @@ export default async function (t) {
       await openVisits();
       const dev = clockOf(`${TODAY}T08:30:00.000Z`);
       t.same(
-        [visitRow(clockOf(V2.recorded_at))?.slice(1, 5), visitRow(dev)?.slice(1, 5)],
-        [['6', '0', '50', 'حسن · على هذا الجهاز'], ['4', '0', '—', 'علي · على هذا الجهاز']],
+        [visitRow(clockOf(V2.recorded_at))?.slice(1, 4), visitRow(dev)?.slice(1, 4)],
+        [['6', '50', 'حسن · على هذا الجهاز'], ['4', '—', 'علي · على هذا الجهاز']],
         'D تعديل الجهاز فوق زيارة الخادم، والزيارة الجديدة بكاتبها، كلتاهما «على هذا الجهاز»',
       );
-      t.same(tableFoot('زيارات اليوم')?.slice(0, 2), ['مجموع اليوم', '17'], 'D المجموع بما على الجهاز (4 + 6 + 3 + 4)');
+      t.same(tableFoot('زيارات اليوم')?.slice(0, 2), ['مجموع اليوم', '18'], 'D المجموع بما على الجهاز (4 + 1 مستبعد قديم + 6 + 3 + 4)');
       await click(actionIn(dev, 'visit-edit'));
       type(byAction('visit-dead', dialogTitled('عدّل زيارة') ?? body())[0] ?? null, '5');
       await settle();
@@ -492,7 +492,7 @@ export default async function (t) {
       globalThis.__rv.sessionUser = 'someone-else';
       await mount('/broiler/round');
       await openVisits();
-      t.eq(visitRow(time)?.[4], 'علي · على هذا الجهاز', 'M2 ضابط: الزيارة «على هذا الجهاز» قبل رفعها');
+      t.eq(visitRow(time)?.[3], 'علي · على هذا الجهاز', 'M2 ضابط: الزيارة «على هذا الجهاز» قبل رفعها');
       await click(actionIn(time, 'visit-void'));
       await uploadNow(user);
       t.same(

@@ -137,20 +137,13 @@ const tableHeaders = (caption) => {
   const table = tableOf(caption);
   return table ? descendants(table).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : null;
 };
-const styleText = () => all().filter((n) => n.localName === 'style').map((n) => n.textContent).join('\n');
 const fmt = (day) => day.split('-').reverse().join('/');
 const LRI = '\u{2066}';
 const PDI = '\u{2069}';
 
-const S1 = '00000000-0000-4000-8000-000000000101';
-const S2 = '00000000-0000-4000-8000-000000000102';
 const H1 = '00000000-0000-4000-8000-000000000201';
-const H2 = '00000000-0000-4000-8000-000000000202';
 const H3 = '00000000-0000-4000-8000-000000000203';
-const L1 = '00000000-0000-4000-8000-000000000204';
-const L2 = '00000000-0000-4000-8000-000000000205';
 const F1 = '00000000-0000-4000-8000-000000000301';
-const F2 = '00000000-0000-4000-8000-000000000302';
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
@@ -235,14 +228,9 @@ export default async function (t) {
       }
       await unmount();
     };
-    const cards = () => byAction('day-cards').flatMap((node) => within(node, 'day-hall'));
+    // صفّ لكلّ قاعة في الجدول الواحد (0035: كانت بطاقة لكلّ قاعة بالهاتف).
+    const cards = () => byAction('day-hall');
     const card = (hallId) => cards().find((node) => node.getAttribute('data-hall') === hallId) ?? null;
-    /** نصّ dd لمؤشّر في بطاقة قاعة. */
-    const stat = (hallId, action) => {
-      const box = within(card(hallId), action)[0];
-      return box ? (descendants(box).find((n) => n.localName === 'dd')?.textContent ?? null) : null;
-    };
-    const totalStat = (action, name) => descendants(byAction(action)[0] ?? body()).filter((n) => n.getAttribute('data-action') === name).map((n) => descendants(n).find((c) => c.localName === 'dd')?.textContent ?? null)[0] ?? null;
     const href = (node) => node?.getAttribute('href') ?? null;
     const backOf = (link) => new URLSearchParams((href(link) ?? '').split('?')[1] ?? '').get('back');
 
@@ -308,7 +296,7 @@ export default async function (t) {
       t.same(
         [day.sites[0].totals, day.totals.feedEatenKg, day.totals.feedEatenFlocks],
         // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر؛ والجولات المنتظرة (O7) كلّ الأفواج من خادم قبلها.
-        [{ halls: 3, flocks: 2, rounds: 1, roundsExpected: 2, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null }, 900000n, 2],
+        [{ halls: 3, flocks: 2, rounds: 1, roundsExpected: 2, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null, gas: null }, 900000n, 2],
         'P مجاميع الخادم كما هي (لا جمع في المحلّل)',
       );
       // 52ca9fd: سطور العلف بلا وزن حتى اليوم لكلّ فوج (feed_given_cum_unweighed)، وفي مجاميع اليوم (feed_given_unweighed)، عدداً صحيحاً إلزامياً.
@@ -363,159 +351,52 @@ export default async function (t) {
 
     // ── D: التقرير اليوميّ ──────────────────────────────────────────────────────────────────────────────────────────────
     const dayUrl = `/halls/day?on=${TODAY}`;
-    const here = `/halls/day?${new URLSearchParams({ on: TODAY }).toString()}`;
     await step('D1 الفتح بلا ?on=', async () => {
       const rpcLog = fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
       await mount('/halls/day');
       t.same(named(rpcLog, 'halls_day'), [{ p_on: null }], 'D1 بلا ?on= تتبع الصفحة اليوم: halls_day(null) فيجيب الخادم بيومه، لا يوم الجهاز (H4 R-a؛ كان يوم الجهاز)');
       t.same(
-        [textOf('day-title'), textOf('day-rounds'), textOf('day-org'), byAction('day-site').map((n) => n.getAttribute('data-site')), byAction('day-site').map((n) => descendants(n).find((c) => c.localName === 'h2')?.textContent)],
-        [`تقرير القاعات اليومي — ${fmt(TODAY)}`, 'الجولات المسجَّلة: 3 من 4.', 'مشروع الدواجن', [S1, S2], ['حقل الأمير', 'حقل البيض']],
-        'D1 العنوان بتاريخه، والجولات المسجَّلة من الأفواج، واسم المنشأة للطباعة، وقسم لكلّ حقل باسمه',
+        [textOf('day-title'), textOf('day-rounds'), textOf('day-org'), [...new Set(byAction('day-hall').map((n) => descendants(n).at(-1)?.textContent))]],
+        [`تقرير القاعات اليومي — ${fmt(TODAY)}`, 'الجولات المسجَّلة: 3 من 4.', 'مشروع الدواجن', ['حقل الأمير', 'حقل البيض']],
+        'D1 العنوان بتاريخه، والجولات المسجَّلة من الأفواج، واسم المنشأة للطباعة، واسم الحقل تحت كلّ قاعة (جدول واحد لكلّ الحقول، 0035)',
       );
       const back = byAction('back')[0];
       t.same([back?.textContent, href(back)], ['رجوع إلى التقارير', '/reports'], 'D1 الرجوع الافتراضيّ إلى «التقارير»');
     });
 
-    await step('D2 بطاقات الهاتف', async () => {
-      fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
+    // D2 (0035، طلب المالك 2026-11-21: «تقارير مبسّطة بجداول أرقام مثل ورقته»): جدول واحد لكلّ القاعات بأعمدة الورقة، والمجموع من الخادم؛ والفارغ فارغ.
+    await step('D2 الجدول الواحد', async () => {
+      const gas = clone(dayFor(TODAY));
+      gas.sites[0].halls[0].flock.gas = 4;
+      gas.sites[0].totals.gas = 4;
+      gas.sites[1].totals.gas = 0;
+      gas.totals.gas = 4;
+      fresh(OWNER, { halls_day: () => gas });
       await mount(dayUrl);
-      t.same(cards().map((n) => n.getAttribute('data-hall')), [H1, H2, H3, L1, L2], 'D2 بطاقة لكلّ قاعة بترتيب الخادم');
+      const caption = `القاعات — ${fmt(TODAY)}`;
+      const rows = tableRows(caption) ?? [];
       t.same(
+        [tableHeaders(caption), rows.length, byAction('day-table').length, byAction('day-cards').length, byAction('day-site').length],
+        [['القاعة', 'العمر', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'الملاحظات'], 5, 0, 0, 0],
+        'D2 جدول واحد بأعمدة الورقة (القاعة | العمر | الهلاكات | الغاز | العلف | الملاحظات)، صفّ لكلّ قاعة، بلا بطاقات ولا جدول لكلّ حقل',
+      );
+      t.same(
+        rows.map((row) => row.slice(0, 5)),
         [
-          within(card(H1), 'day-age')[0]?.textContent,
-          ['stat-live', 'stat-mortality', 'stat-dead', 'stat-culled', 'stat-eaten', 'stat-given', 'stat-left', 'stat-weight'].map((name) => stat(H1, name)),
-          within(card(H1), 'day-medicine').map((n) => n.textContent),
-          within(card(H1), 'day-vaccine').map((n) => [n.textContent, n.getAttribute('data-state')]),
-          within(card(H1), 'day-note')[0]?.textContent,
-          within(card(H1), 'day-no-round').length,
+          ['قاعة 1حقل الأمير', '6', '3', '4', ''],
+          ['قاعة 2حقل الأمير', '6', '', '', '500وسطر واحد بلا وزن'],
+          ['قاعة 3حقل الأمير', '', '', '', ''],
+          ['قاعة البيض 1حقل البيض', '223', '3', '', ''],
+          ['قاعة البيض 2حقل البيض', '315', '0', '', ''],
         ],
-        [
-          'لاحم، العمر 6 أيام',
-          ['11,987', '0.11%', '3', '0', '350 كغم', '0 كغم', '799.5 كغم', '180.5'],
-          ['أموكسيسيلين 500 غرام (0.5 كغم)', 'فيتامين AD3E (1 مل لكلّ لتر)'],
-          [['IBتمّ', 'done'], ['NDاليوم', 'today']],
-          'ملاحظة: تهوية جيّدة',
-          0,
-        ],
-        'D2 قاعة بجولة: العمر والحيّ والنفوق التراكميّ والنافق والمستبعد والمأكول والنازل والباقي والوزن، والأدوية صرفاً وتسجيلاً، واللقاحات بحالتها، والملاحظة',
+        'D2 الصفوف بترتيب الخادم: العمر، والهلاكات (النافق والمستبعد القديم معاً) فارغة بلا جولة، والغاز من مفتاح الخادم (B6)، والعلف المرسل يومها بسطوره بلا وزن',
       );
-      t.same(
-        [
-          within(card(H2), 'day-no-round').map((n) => n.textContent),
-          ['stat-dead', 'stat-culled', 'stat-eaten', 'stat-given', 'stat-left', 'stat-weight'].map((name) => stat(H2, name)),
-          within(card(H2), 'day-medicine').length,
-          within(card(H2), 'day-vaccine').map((n) => n.textContent),
-        ],
-        [
-          ['لم تُسجَّل الجولة'],
-          ['—', '—', '—', '500 كغموسطر واحد بلا وزن', `${LRI}-100${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.`, '—آخر وزن 150.0 يوم 10/11/2026'],
-          0,
-          ['NDاليوم'],
-        ],
-        'D2 قاعة بلا جولة: «لم تُسجَّل الجولة» و«—» لا صفر، والنازل بسطره بلا وزن، والباقي السالب معزولاً بما لم يدخله وسببه، وآخر وزن قبل اليوم، والعلف ليس من الأدوية',
-      );
-      t.same(
-        [href(within(card(H1), 'day-report-link')[0]), href(within(card(H2), 'day-calendar-link')[0])],
-        [`/halls/report/${F1}?${new URLSearchParams({ back: here }).toString()}`, `/halls/calendar/${F2}?${new URLSearchParams({ m: TODAY.slice(0, 7), back: here }).toString()}`],
-        'D2 من كلّ قاعة بفوج: تقرير دورتها وتقويم شهر اليوم، برجوع إلى هذا اليوم',
-      );
-      t.same(
-        [within(card(H3), 'day-empty').map((n) => n.textContent), within(card(H3), 'stat-live').length, within(card(H3), 'day-report-link').length],
-        [['فارغة'], 0, 0],
-        'D2 القاعة الفارغة «فارغة» بلا أرقام ولا روابط',
-      );
-      t.same(
-        [within(card(L1), 'day-age')[0]?.textContent, stat(L1, 'stat-eggs'), stat(L1, 'stat-hdep'), stat(L1, 'stat-weight'), within(card(L2), 'day-closed')[0]?.textContent, stat(L2, 'stat-eaten'), stat(L2, 'stat-eggs'), stat(L2, 'stat-hdep')],
-        ['بيّاض، العمر 223 يوماً', '4,100', '83.67%', '—', 'أُغلقت الدورة يوم 12/11/2026.', '—', '—', '—'],
-        'D2 البيّاض بالبيض ونسبة الإنتاج، والفوج المغلق يومه، و«—» للعلف والبيض الغائبين',
-      );
-      t.same(
-        [
-          ['total-live', 'total-rounds', 'total-dead', 'total-culled', 'total-eaten', 'total-given'].map((name) => totalStat('day-site-total', name)),
-          ['total-live', 'total-rounds', 'total-dead', 'total-culled', 'total-eaten', 'total-given'].map((name) => totalStat('day-all-total', name)),
-        ],
-        [
-          ['21,977', '1 من 2', '3من قاعة واحدة', '0من قاعة واحدة', '350 كغممن قاعة واحدة', '500 كغموسطر واحد بلا وزن'],
-          ['29,574', '3 من 4', '5من 3 قاعات', '1من 3 قاعات', '900 كغممن قاعتين', '500 كغموسطر واحد بلا وزن'],
-        ],
-        'D2 مجموع الحقل ومجموع الحقول ببطاقة: أرقام الخادم و«من N قاعة» حين تنقص الجولات أو العلف، والنازل بسطوره بلا وزن',
-      );
-    });
-
-    await step('D3 الجدول لكلّ حقل وصفّ المجاميع', async () => {
-      fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
-      await mount(dayUrl);
-      const s1 = `حقل الأمير — ${fmt(TODAY)}`;
-      const s2 = `حقل البيض — ${fmt(TODAY)}`;
-      const base = ['القاعة', 'العمر (يوم)', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'النفوق التراكمي', 'المأكول (كغم)', 'النازل (كغم)', 'الباقي في القاعة (كغم)', 'الوزن (غرام)'];
-      t.same(
-        [tableHeaders(s1), tableHeaders(s2)],
-        [[...base, 'الأدوية واللقاحات وغيرها', 'الملاحظة'], [...base, 'البيض', 'نسبة الإنتاج', 'الأدوية واللقاحات وغيرها', 'الملاحظة']],
-        'D3 جدول لكلّ حقل، وعمودا البيض ونسبة الإنتاج لحقل فيه بيّاض وحده',
-      );
-      t.same(
-        tableRows(s1),
-        [
-          ['قاعة 1التقويمتقرير الدورة', '6', '11,990', '3', '0', '11,987', '0.11%', '350', '0', '799.5', '180.5', 'أموكسيسيلين 500 غرام (0.5 كغم)فيتامين AD3E (1 مل لكلّ لتر)IBتمّNDاليوم', 'تهوية جيّدة'],
-          [
-            'قاعة 2لم تُسجَّل الجولةالتقويمتقرير الدورة', '6', '9,990', '—', '—', '9,990', '0.10%', '—', '500وسطر واحد بلا وزن',
-            '-100.0خارج الكيلو: سطر واحد بلا وزن.سالب: المأكول المسجّل أكثر من النازل الموزون.', 'آخر وزن 150.0 يوم 10/11/2026', 'NDاليوم', '—',
-          ],
-          ['قاعة 3فارغة', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—'],
-        ],
-        'D3 صفوف الحقل: الأرقام بمراتب عمودها، و«—» لكلّ null (لا صفر)، والقاعة الفارغة',
-      );
-      t.same(
-        tableFoot(s1),
-        [['المجموع', '21,980', '3من قاعة واحدة', '0من قاعة واحدة', '21,977', '', '350من قاعة واحدة', '500وسطر واحد بلا وزن', '', '', '', '']],
-        'D3 صفّ المجاميع من الخادم: النافق والمستبعد والمأكول «من قاعة واحدة» حين تنقص الجولات، والنازل بسطوره بلا وزن، والباقي والوزن بلا مجموع',
-      );
-      t.same(
-        [tableRows(s2), tableFoot(s2)],
-        [
-          [
-            ['قاعة البيض 1التقويمتقرير الدورة', '223', '4,900', '2', '1', '4,897', '2.06%', '550', '0', '500', '—', '4,100', '83.67%', '—', '—'],
-            ['قاعة البيض 2التقويمتقرير الدورة', '315', '2,700', '0', '0', '2,700', '10.00%', '—', '0', '0', '—', '—', '—', '—', '—'],
-          ],
-          [['المجموع', '7,600', '2', '1', '7,597', '', '550من قاعة واحدة', '0', '', '', '', '', '', '']],
-        ],
-        'D3 حقل البيض: الجولات كاملة فلا «من»، والمأكول من قاعة واحدة',
-      );
-      t.same(
-        [tableHeaders('مجموع كلّ الحقول'), tableRows('مجموع كلّ الحقول')],
-        [
-          ['القاعات', 'الأفواج', 'الجولات المسجَّلة', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'المأكول (كغم)', 'النازل (كغم)'],
-          [['5', '4', '3', '29,580', '5من 3 قاعات', '1من 3 قاعات', '29,574', '900من قاعتين', '500وسطر واحد بلا وزن']],
-        ],
-        'D3 مجموع كلّ الحقول صفّاً واحداً من الخادم',
-      );
-    });
-
-    await step('D4 الهاتف والشاشة العريضة والطباعة', async () => {
-      fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
-      await mount(dayUrl);
-      const css = styleText();
-      t.same(
-        [
-          css.includes('@page { size: A4 landscape; margin: 10mm; }'),
-          css.includes('[data-action="day-table"] { display: none; }'),
-          css.includes('@media (min-width: 768px) { [data-action="day-cards"] { display: none; } [data-action="day-table"] { display: block; } }'),
-          css.includes('[data-action="day-cards"] { display: none !important; }'),
-          css.includes('[data-action="day-table"] { display: block !important; }'),
-        ],
-        [true, true, true, true, true],
-        'D4 البطاقات بالهاتف (390)، والجداول من 768 وفي الطباعة A4 بالعرض',
-      );
-      t.same(
-        byAction('day-site').map((site) => [within(site, 'day-cards').length, within(site, 'day-table').length, within(within(site, 'day-table')[0], 'day-hall').length, descendants(within(site, 'day-table')[0] ?? body()).some((n) => n.localName === 'table')]),
-        [[1, 1, 0, true], [1, 1, 0, true]],
-        'D4 لكلّ حقل البطاقات والجدول في حاويتين يبدّلهما <style> الصفحة (بلا أصناف جديدة)',
-      );
-      await click(byAction('print-day')[0]);
-      t.same(printed.at(-1), `تقرير القاعات اليومي — ${fmt(TODAY)}`, 'D4 «اطبع أو احفظ PDF» بعنوان الورقة (اسم ملفّ PDF)');
-      fire(globalThis.window, 'afterprint', { bubbles: false });
-      t.eq(globalThis.document.title, 'نظام الدواجن', 'D4 العنوان يعود بعد الطباعة');
+      t.same(tableFoot(caption)?.[0]?.slice(0, 4) ?? null, ['المجموع', '6', '4', '500وسطر واحد بلا وزن'], 'D2 صفّ المجموع من الخادم (الهلاكات = النافق 5 + المستبعد 1، والغاز، والعلف بسطوره بلا وزن)');
+      const rowOf = (hallId) => {
+        for (let n = card(hallId); n; n = n.parentNode) if (n.localName === 'tr') return n;
+        return null;
+      };
+      t.same([within(card(H1), 'day-hall-link').map(href), within(rowOf(H3), 'day-empty').map((n) => n.textContent)], [[`/broiler/hall/${H1}`], ['فارغة']], 'D2 اسم القاعة طريق إلى ورقتها، والفارغة «فارغة»');
     });
 
     await step('D5 الأسهم والمنتقي والرابط', async () => {
@@ -706,29 +587,13 @@ export default async function (t) {
       else delete globalThis.navigator;
     });
 
-    await step('D9 الروابط من كلّ قاعة والرجوع', async () => {
+    await step('D9 الرجوع', async () => {
       fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
       await mount(`${dayUrl}&back=%2Fbroiler`);
-      const withBack = `/halls/day?${new URLSearchParams({ on: TODAY, back: '/broiler' }).toString()}`;
-      const reportLinks = within(card(H1), 'day-report-link');
-      const calendarLinks = within(card(H1), 'day-calendar-link');
-      t.same(
-        [href(reportLinks[0]), href(calendarLinks[0])],
-        [`/halls/report/${F1}?${new URLSearchParams({ back: withBack }).toString()}`, `/halls/calendar/${F1}?${new URLSearchParams({ m: TODAY.slice(0, 7), back: withBack }).toString()}`],
-        'D9 من البطاقة: تقرير الدورة، وتقويم شهر اليوم، برجوع إلى هذا اليوم ورجوعه هو',
-      );
-      const tableLinks = byAction('day-table').flatMap((node) => within(node, 'day-report-link'));
-      t.same([tableLinks.length, href(tableLinks[0]) === href(reportLinks[0]), href(tableLinks[1])], [4, true, `/halls/report/${F2}?${new URLSearchParams({ back: withBack }).toString()}`], 'D9 ومن الجدول كذلك، لكلّ قاعة بفوج');
-      // كلّ قارئ لـ?back= يقبل القيمة الجديدة: تقرير الدورة والتقويم بـbackTarget، ولا رابط من هنا إلى صفحة الإضافة (giveBack).
-      t.same(
-        [m.backTarget(backOf(reportLinks[0]), 'X'), m.backTarget(backOf(calendarLinks[0]), 'X'), all().filter((n) => n.localName === 'a' && (href(n) ?? '').startsWith('/halls/give')).length, m.backLabel(backOf(reportLinks[0]))],
-        [withBack, withBack, 0, 'رجوع إلى تقرير القاعات اليومي'],
-        'D9 الرجوع الجديد يقبله backTarget في تقرير الدورة والتقويم، واسمه «رجوع إلى تقرير القاعات اليومي»',
-      );
+      // 0035: الجدول الواحد بلا روابط تقرير الدورة والتقويم لكلّ قاعة؛ اسم القاعة يفتح ورقتها، ومنها «التقرير» والتقويم.
+      t.same([byAction('day-report-link').length, byAction('day-calendar-link').length, all().filter((n) => n.localName === 'a' && (href(n) ?? '').startsWith('/halls/give')).length], [0, 0, 0], 'D9 لا روابط تقرير ولا تقويم ولا إضافة من الجدول');
       const back = byAction('back')[0];
       t.same([back?.textContent, href(back)], ['رجوع إلى الحقول', '/broiler'], 'D9 ?back=/broiler (رأس الحقل): «رجوع إلى الحقول»');
-      await click(reportLinks[0]);
-      t.eq(globalThis.__hr.location, `/halls/report/${F1}?${new URLSearchParams({ back: withBack }).toString()}`, 'D9 والنقر يفتح تقرير الدورة');
     });
 
     await step('D9 الرجوع من الرئيسية ومن رابط غريب', async () => {
@@ -883,14 +748,14 @@ export default async function (t) {
           fresh(OWNER, { halls_day: () => clone(sample) });
           await mount(`/halls/day?on=${sample.on}`);
           const halls = sample.sites.reduce((n, site) => n + site.halls.length, 0);
-          t.same([textOf('day-title'), cards().length, byAction('day-table').length], [`تقرير القاعات اليومي — ${fmt(sample.on)}`, halls, sample.sites.length + (sample.sites.length > 1 ? 1 : 0)], `X1 جواب القاعدة ليوم ${sample.on}: بطاقة لكلّ قاعة وجدول لكلّ حقل`);
+          t.same([textOf('day-title'), cards().length, (tableRows(`القاعات — ${fmt(sample.on)}`) ?? []).length], [`تقرير القاعات اليومي — ${fmt(sample.on)}`, halls, halls], `X1 جواب القاعدة ليوم ${sample.on}: صفّ لكلّ قاعة في الجدول الواحد`);
           await unmount();
         }
       });
       await step('X3 زرّ الرجوع باسم وجهته في التقرير الكامل والتقويم', async () => {
         const sample = REAL.flock_cycle_report;
         fresh(OWNER, { flock_cycle_report: () => clone(sample) });
-        await mount(`/halls/report/${sample.flock.id}?back=${encodeURIComponent('/halls/cycles')}`);
+        await mount(`/halls/cycle/${sample.flock.id}?back=${encodeURIComponent('/halls/cycles')}`);
         const fromCycles = [textOf('back'), href(byAction('back')[0])];
         await unmount();
         const month = HALLS.flock_month;
@@ -899,7 +764,7 @@ export default async function (t) {
         const fromDay = [textOf('back'), href(byAction('back')[0])];
         await unmount();
         fresh(OWNER, { flock_cycle_report: () => clone(sample) });
-        await mount(`/halls/report/${sample.flock.id}`);
+        await mount(`/halls/cycle/${sample.flock.id}`);
         const plain = textOf('back');
         await unmount();
         t.same(
@@ -922,28 +787,17 @@ export default async function (t) {
       const [A1, A2] = SA.halls;
       const [LH] = SL.halls;
       const [B5] = SB.halls;
-      const siteOf = (id) => byAction('day-site').find((n) => n.getAttribute('data-site') === id) ?? null;
-      const ddOf = (box) => (box ? (descendants(box).find((n) => n.localName === 'dd')?.textContent ?? null) : null);
-      const siteTotal = (siteId, name) => ddOf(within(within(siteOf(siteId), 'day-site-total')[0], name)[0]);
-      const allTotal = (name) => ddOf(within(byAction('day-all-total')[0], name)[0]);
       const shareLines = (json) => m.dayShareText(m.repo.parseHallsDay(clone(json))).text.split('\n');
       /** آخر جزء من سطر مجموع في نصّ المشاركة («النازل …»). */
       const givenOfTotals = (lines) => lines.filter((line) => line.startsWith('المجموع:') || line.startsWith('مجموع كلّ الحقول:')).map((line) => line.split('، ').at(-1));
       /** جزء «الباقي في القاعة» من سطر القاعة في نصّ المشاركة. */
       const leftOfHall = (lines, hallName) => lines.find((line) => line.startsWith(`${hallName} (`))?.split('، ').find((part) => part.startsWith('الباقي في القاعة'))?.replace(/\.$/u, '') ?? null;
-      const NEG = 'سالب: المأكول المسجّل أكثر من النازل للقاعة.';
       // قاعة نزل لها علف بلا وزن: السالب على الموزون وحده (مراجعة 0027 RR27-F2a).
-      const NEG_W = 'سالب: المأكول المسجّل أكثر من النازل الموزون.';
-      const leftNotes = (node) => [within(node, 'remain-unweighed').map((n) => n.textContent), within(node, 'remain-negative').map((n) => n.textContent)];
 
       await step('R1 مجموع «النازل» بسطوره بلا وزن (عيّنة القاعدة)', async () => {
         fresh(OWNER, { halls_day: () => clone(REAL.halls_day) });
         await mount(`/halls/day?on=${realOn}`);
-        t.same(
-          [siteTotal(SA.id, 'total-given'), allTotal('total-given'), tableFoot(`${SA.name} — ${fmt(realOn)}`)?.[0]?.[7], tableRows('مجموع كلّ الحقول')?.[0]?.[8], siteTotal(SL.id, 'total-given')],
-          ['9.2 كغموسطر واحد بلا وزن', '9.2 كغموسطر واحد بلا وزن', '9.2وسطر واحد بلا وزن', '9.2وسطر واحد بلا وزن', '0 كغم'],
-          'R1 مجموع الحقل ومجموع الحقول (بطاقةً وجدولاً) يقولان سطر اليوم بلا وزن كصفّ القاعة، والحقل بلا سطر بلا وزن بكيلوه وحده',
-        );
+        t.eq(tableFoot(`القاعات — ${fmt(realOn)}`)?.[0]?.[3] ?? null, '9.2وسطر واحد بلا وزن', 'R1 مجموع الجدول الواحد (0035) يقول سطر اليوم بلا وزن كصفّ القاعة');
         t.same(
           givenOfTotals(shareLines(REAL.halls_day)),
           ['النازل 9.2 كغم وسطر واحد بلا وزن.', 'النازل 0 كغم.', 'النازل 0 كغم.', 'النازل 9.2 كغم وسطر واحد بلا وزن.'],
@@ -961,51 +815,19 @@ export default async function (t) {
         only.totals.feed_given_kg = '0';
         fresh(OWNER, { halls_day: () => clone(only) });
         await mount(`/halls/day?on=${realOn}`);
+        const rows = tableRows(`القاعات — ${fmt(realOn)}`) ?? [];
         t.same(
-          [
-            stat(A2.hall_id, 'stat-given'),
-            siteTotal(SA.id, 'total-given'),
-            allTotal('total-given'),
-            tableFoot(`${SA.name} — ${fmt(realOn)}`)?.[0]?.[7],
-            tableRows('مجموع كلّ الحقول')?.[0]?.[8],
-            givenOfTotals(shareLines(only)),
-          ],
-          [
-            '0 كغموسطر واحد بلا وزن',
-            '0 كغموسطر واحد بلا وزن',
-            '0 كغموسطر واحد بلا وزن',
-            '0وسطر واحد بلا وزن',
-            '0وسطر واحد بلا وزن',
-            ['النازل 0 كغم وسطر واحد بلا وزن.', 'النازل 0 كغم.', 'النازل 0 كغم.', 'النازل 0 كغم وسطر واحد بلا وزن.'],
-          ],
-          'R1 العلف النازل بلا وزن وحده: القاعة والحقل وكلّ الحقول بطاقةً وجدولاً ونصّاً تقول سطره، لا «0 كغم» وحده',
+          [rows.find((row) => row[0].startsWith(A2.hall_name))?.[4] ?? null, tableFoot(`القاعات — ${fmt(realOn)}`)?.[0]?.[3] ?? null, givenOfTotals(shareLines(only))],
+          ['0وسطر واحد بلا وزن', '0وسطر واحد بلا وزن', ['النازل 0 كغم وسطر واحد بلا وزن.', 'النازل 0 كغم.', 'النازل 0 كغم.', 'النازل 0 كغم وسطر واحد بلا وزن.']],
+          'R1 العلف النازل بلا وزن وحده: صفّ القاعة والمجموع ونصّ المشاركة تقول سطره، لا «0» وحده',
         );
       });
 
       await step('R5 «الباقي في القاعة» بسطوره بلا وزن حتى اليوم وسبب سالبه (عيّنة القاعدة)', async () => {
         fresh(OWNER, { halls_day: () => clone(REAL.halls_day) });
         await mount(`/halls/day?on=${realOn}`);
-        t.same(
-          [A1, A2, LH, B5].map((hall) => leftNotes(card(hall.hall_id))),
-          [
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
-            [['خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W]],
-            [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
-          ],
-          'R5 بطاقة القاعة: سطور العلف بلا وزن حتى اليوم (قاعة 1 وقاعة 5 نزل علفهما بلا وزن أمس) بجملة تقرير الدورة، وسبب الباقي السالب (قاعة البيّاض بلا صرف)',
-        );
-        t.eq(stat(A1.hall_id, 'stat-left'), `${LRI}-1,200${PDI} كغمخارج الكيلو: سطر واحد بلا وزن.${NEG_W}`, 'R5 الرقم نفسه كما هو (DECISIONS 0019) وتحته الملاحظتان باهتتين');
-        t.same(
-          byAction('day-table').map(leftNotes),
-          [
-            [['خارج الكيلو: سطر واحد بلا وزن.', 'خارج الكيلو: 3 سطور بلا وزن.'], [NEG_W, NEG_W]],
-            [[], [NEG]],
-            [['خارج الكيلو: سطر واحد بلا وزن.'], [NEG_W]],
-            [[], []],
-          ],
-          'R5 جدول كلّ حقل: الملاحظتان تحت الرقم في خلية الباقي (ومجموع كلّ الحقول بلا عمود باقٍ)',
-        );
+        // 0035: الجدول الواحد بلا «الباقي في القاعة» (طلب المالك: لا علف مأكول)؛ نصّ المشاركة يبقى بجملته.
+        t.same([byAction('remain-unweighed').length, byAction('remain-negative').length, (tableHeaders(`القاعات — ${fmt(realOn)}`) ?? []).some((head) => head.includes('الباقي'))], [0, 0, false], 'R5 الجدول بلا عمود الباقي');
         const lines = shareLines(REAL.halls_day);
         t.same(
           [A1, A2, LH, B5].map((hall) => leftOfHall(lines, hall.hall_name)),
@@ -1025,11 +847,7 @@ export default async function (t) {
         Object.assign(positive.sites[0].halls[1].flock, { feed_left_kg: '10.000', left_in_hall_kg: '10.000' });
         fresh(OWNER, { halls_day: () => clone(positive) });
         await mount(`/halls/day?on=${realOn}`);
-        t.same(
-          [stat(A2.hall_id, 'stat-left'), leftNotes(card(A2.hall_id)), leftOfHall(shareLines(positive), A2.hall_name)],
-          ['10 كغمخارج الكيلو: 3 سطور بلا وزن.', [['خارج الكيلو: 3 سطور بلا وزن.'], []], 'الباقي في القاعة 10 كغم (خارج الكيلو: 3 سطور بلا وزن)'],
-          'R5 الملاحظتان مستقلّتان: باقٍ موجب لم يدخله ثلاثة سطور بلا وزن يقول ذلك وحده',
-        );
+        t.eq(leftOfHall(shareLines(positive), A2.hall_name), 'الباقي في القاعة 10 كغم (خارج الكيلو: 3 سطور بلا وزن)', 'R5 الملاحظتان مستقلّتان في نصّ المشاركة: باقٍ موجب لم يدخله ثلاثة سطور بلا وزن يقول ذلك وحده');
       });
 
       // RR27-F2a: قاعة نزل لها علف بلا وزن لا تعرف الشاشة كلّ ما نزل لها، فسبب باقيها السالب على الموزون وحده؛ وبلا سطر بلا وزن الجملة كما كانت. لكلّ
@@ -1045,13 +863,7 @@ export default async function (t) {
             if (hall.flock === null || !hall.flock.feed_left_kg.startsWith('-')) return;
             const cell = rows[index]?.[9] ?? '';
             const share = leftOfHall(lines, hall.hall_name) ?? '';
-            seen.push([
-              hall.hall_name,
-              hall.flock.feed_given_cum_unweighed,
-              within(card(hall.hall_id), 'remain-negative').map((n) => n.textContent),
-              cell.includes('سالب: ') ? `سالب: ${cell.split('سالب: ').at(-1)}` : null,
-              share.split(/[(؛] ?/u).at(-1)?.replace(/\)$/u, '') ?? null,
-            ]);
+            seen.push([hall.hall_name, hall.flock.feed_given_cum_unweighed, cell, share.split(/[(؛] ?/u).at(-1)?.replace(/\)$/u, '') ?? null]);
           });
         }
         const SHORT = 'المأكول المسجّل أكثر من النازل';
@@ -1059,12 +871,12 @@ export default async function (t) {
         t.same(
           seen,
           [
-            ['قاعة 1', 1, [NEG_W], NEG_W, SHORT_W],
-            ['قاعة 2', 3, [NEG_W], NEG_W, SHORT_W],
-            ['قاعة البيّاض', 0, [NEG], NEG, SHORT],
-            ['قاعة 5', 1, [NEG_W], NEG_W, SHORT_W],
+            ['قاعة 1', 1, '', SHORT_W],
+            ['قاعة 2', 3, '', SHORT_W],
+            ['قاعة البيّاض', 0, '', SHORT],
+            ['قاعة 5', 1, '', SHORT_W],
           ],
-          'RR27-F2a قاعة 1 و2 و5 نزل لها علف بلا وزن: «أكثر من النازل الموزون» بطاقةً وجدولاً ونصّاً؛ وقاعة البيّاض بلا سطر بلا وزن بجملتها كما كانت',
+          'RR27-F2a قاعة 1 و2 و5 نزل لها علف بلا وزن: «أكثر من النازل الموزون» في نصّ المشاركة؛ وقاعة البيّاض بجملتها كما كانت؛ والجدول الواحد بلا خلية باقٍ (0035)',
         );
       });
 

@@ -110,6 +110,11 @@ const all = () => descendants(body());
 const byAction = (name) => all().filter((n) => n.getAttribute('data-action') === name);
 const within = (node, name) => (node ? descendants(node).filter((n) => n.getAttribute('data-action') === name) : []);
 const withAttr = (action, attr, value) => byAction(action).find((n) => n.getAttribute(attr) === value) ?? null;
+/** صفّ القاعة في جدول التقرير اليوميّ الواحد (0035: كان بطاقة لكلّ قاعة). */
+const hallRow = (hallId) => {
+  for (let n = withAttr('day-hall', 'data-hall', hallId); n; n = n.parentNode) if (n.localName === 'tr') return n;
+  return null;
+};
 const textOf = (action) => byAction(action)[0]?.textContent ?? null;
 const text = () => body().textContent;
 const disabled = (node) => (node ? node.hasAttribute('disabled') : null);
@@ -334,7 +339,7 @@ export default async function (t) {
     await step('W4 التقرير المغلق', async () => {
       const report = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
-      await mount(`/halls/report/${report.flock.id}`);
+      await mount(`/halls/cycle/${report.flock.id}`);
       const heads = headersOf(DAYS) ?? [];
       const lastDay = (rowsOf(DAYS) ?? []).at(-1) ?? [];
       const balanceHeads = headersOf(BALANCE) ?? [];
@@ -376,9 +381,9 @@ export default async function (t) {
       const line = textOf('feed-line');
       await unmount();
       await mount(`/halls/day?on=${day.on}`);
-      const card = withAttr('day-hall', 'data-hall', hall.hall_id);
-      const stat = within(card, 'stat-left')[0];
-      const daily = stat ? descendants(stat).find((n) => n.localName === 'dd')?.textContent ?? null : null;
+      const card = hallRow(hall.hall_id);
+      // 0035: التقرير اليوميّ جدول الورقة (القاعة | العمر | الهلاكات | الغاز | العلف | الملاحظات)، بلا «الباقي في القاعة» ولا علف مأكول.
+      const daily = card ? all().filter((n) => n.localName === 'th').some((n) => n.textContent.includes('الباقي')) : null;
       t.same(
         [feed.remaining_feed_kg, feed.carry_in_feed_kg, feed.left_in_hall_kg, hall.flock.left_in_hall_kg],
         ['-100.000', '250.000', '150.000', '150.000'],
@@ -386,8 +391,8 @@ export default async function (t) {
       );
       t.same(
         [line?.includes('الباقي في القاعة: 150 كغم') ?? false, daily],
-        [true, '150 كغم'],
-        'W4 علف القاعة (شاشة الفوج المحفوظة) يعدّ المنقول: «الباقي في القاعة: 150 كغم» كالتقرير اليوميّ للقاعة نفسها (كان «الباقي بالقاعة: −100 كغم»)',
+        [true, false],
+        'W4 علف القاعة (سطر FeedLine) يعدّ المنقول: «الباقي في القاعة: 150 كغم» (كان «الباقي بالقاعة: −100 كغم»)؛ والتقرير اليوميّ بلا عمود الباقي (0035)',
       );
     });
     await step('W4 نموذج الإغلاق', async () => {
@@ -405,7 +410,7 @@ export default async function (t) {
     await step('W5 التقرير', async () => {
       const report = B.flock_cycle_report_count_diffs;
       fresh(MANAGER, { flock_cycle_report: () => clone(report) });
-      await mount(`/halls/report/${report.flock.id}`);
+      await mount(`/halls/cycle/${report.flock.id}`);
       t.same(
         [headersOf('فروق العدّ'), rowsOf('فروق العدّ'), footOf('فروق العدّ')?.[0]?.slice(0, 2), kpi('count_diff')],
         [
@@ -424,7 +429,7 @@ export default async function (t) {
       fresh(MANAGER, { halls_day: () => clone(day) });
       await mount(`/halls/day?on=${day.on}`);
       const diff = hall.flock.count_diffs[0];
-      const card = withAttr('day-hall', 'data-hall', hall.hall_id);
+      const card = hallRow(hall.hall_id);
       const shared = m.dayShareText(m.days.parseHallsDay(clone(day))).text.split('\n').find((line) => line.startsWith(`${hall.hall_name} (`)) ?? '';
       t.same(
         [within(card, 'day-sales')[0]?.textContent ?? null, shared.includes(`فرق العدّ ${signed(diff.birds)} (${diff.reason})`)],
@@ -439,25 +444,22 @@ export default async function (t) {
       const empty = day.sites.flatMap((site) => site.halls).find((h) => h.flock && h.flock.expects_round === false);
       fresh(MANAGER, { halls_day: () => clone(day) });
       await mount(`/halls/day?on=${day.on}`);
-      const card = withAttr('day-hall', 'data-hall', empty.hall_id);
-      const rounds = within(byAction('day-site-total')[0], 'total-rounds')[0];
+      const card = hallRow(empty.hall_id);
       t.same(
         [
           [day.totals.rounds, day.totals.flocks, day.totals.rounds_expected],
           textOf('day-rounds'),
-          within(card, 'day-no-round').length,
-          within(card, 'day-no-live')[0]?.textContent ?? null,
+          Boolean(card),
           byAction('day-no-round').length,
-          rounds ? descendants(rounds).find((n) => n.localName === 'dd')?.textContent : null,
         ],
-        [[0, 10, 9], 'الجولات المسجَّلة: 0 من 9.', 0, 'لا طيور حيّة أوّل اليوم، فلا جولة تُنتظر.', 2 * 9, '0 من 9'],
-        'W6 التقرير اليوميّ: «الجولات المسجَّلة 0 من 9» من الأفواج المنتظرة (rounds_expected، لا 10)، والقاعة التي بيعت طيورها قبل يومها بلا «لم تُسجَّل الجولة» (البطاقة والجدول للتسع وحدها)',
+        [[0, 10, 9], 'الجولات المسجَّلة: 0 من 9.', true, 0],
+        'W6 التقرير اليوميّ: «الجولات المسجَّلة 0 من 9» من الأفواج المنتظرة (rounds_expected، لا 10)؛ والجدول الواحد (0035) يترك اليوم بلا تسجيل فارغاً كالورقة، لا «لم تُسجَّل الجولة»',
       );
     });
     await step('W6 تقرير الدورة', async () => {
       const report = B.flock_cycle_report_zero_live;
       fresh(MANAGER, { flock_cycle_report: () => clone(report) });
-      await mount(`/halls/report/${report.flock.id}`);
+      await mount(`/halls/cycle/${report.flock.id}`);
       const week = byAction('week-rounds')[0];
       t.same(
         [
@@ -501,12 +503,12 @@ export default async function (t) {
     await step('W7 التقرير', async () => {
       const blocked = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(blocked), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
-      await mount(`/halls/report/${blocked.flock.id}`);
+      await mount(`/halls/cycle/${blocked.flock.id}`);
       const blockedSeen = [B.flock_sales_reopen_blocked.flock_id === blocked.flock.id, byAction('reopen-open').length, textOf('reopen-why')];
       await unmount();
       const open = B.flock_cycle_report_closed;
       fresh(MANAGER, { flock_cycle_report: () => clone(open), flock_sales: () => clone(B.flock_sales_closed) });
-      await mount(`/halls/report/${open.flock.id}`);
+      await mount(`/halls/cycle/${open.flock.id}`);
       t.same(
         [blockedSeen, [B.flock_sales_closed.flock_id === open.flock.id, disabled(byAction('reopen-open')[0]), byAction('reopen-why').length]],
         [[true, 0, REUSED], [true, false, 0]],
@@ -516,7 +518,7 @@ export default async function (t) {
     await step('W7 ?act=reopen والقاعة أُعيد استعمالها', async () => {
       const report = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
-      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      await mount(`/halls/cycle/${report.flock.id}?act=reopen`);
       t.same(
         [B.flock_sales_reopen_blocked.reopen_why, dialog() !== null, byAction('reopen-open').length, textOf('reopen-why')],
         ['hall_reused', false, 0, REUSED],
@@ -527,7 +529,7 @@ export default async function (t) {
       const report = B.flock_cycle_report_closed;
       const reading = gate();
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => reading.promise.then(() => clone(B.flock_sales_closed)) });
-      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      await mount(`/halls/cycle/${report.flock.id}?act=reopen`);
       const before = [disabled(byAction('reopen-open')[0]), dialog() !== null];
       reading.open();
       await settle(30);
