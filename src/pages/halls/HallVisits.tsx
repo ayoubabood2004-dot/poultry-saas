@@ -148,11 +148,11 @@ export function visitResultText(result: SendResult | null, action: 'new' | 'edit
     const title = action === 'void' ? t('visits.voided', 'أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.') : action === 'edit' ? t('visits.edited', 'حُفظ تعديل الزيارة.') : t('visits.saved', 'حُفظت الزيارة.');
     return { tone: 'success', title };
   }
-  if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت إلى المدير: أُغلق الفوج، أو خرج من نطاقك، أو صار التاريخ قديماً أو داخل فترة مقفلة') };
+  if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت (الفوج مغلق، أو خارج نطاقك، أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه') };
   if (result.kind === 'stale_visit') {
     return { tone: 'danger', title: staleVisitText(result.server), detail: t('visits.to_shelf', 'تجدها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.') };
   }
-  if (result.kind === 'stale_day' || result.kind === 'rejected') {
+  if (result.kind === 'stale_day' || result.kind === 'stale_gas' || result.kind === 'rejected') {
     return { tone: 'danger', title: t('hall.day.review', 'لم تُحفظ: راجعها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.'), ...(result.kind === 'rejected' ? { detail: describeError(new RejectedError(result.code, result.hint)).detail } : {}) };
   }
   return { tone: 'warning', title: t('round.status.held', 'تنتظر: ادخل من جديد لتُرسل') };

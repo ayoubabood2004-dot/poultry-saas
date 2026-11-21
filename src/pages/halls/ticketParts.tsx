@@ -32,7 +32,8 @@ export function ticketBack(value: string | null, fallback: string): string {
 /** اسم زرّ الرجوع لوجهات التذاكر والإغلاق، وغيرها كما يسمّيها backLabel. */
 export function ticketBackLabel(path: string): string {
   if (path.startsWith('/halls/tickets')) return t('halls.ticket.back_list', 'رجوع إلى تذاكر الوزن');
-  if (path.startsWith('/halls/report/')) return t('halls.ticket.back_report', 'رجوع إلى تقرير الدورة');
+  if (path.startsWith('/halls/report/')) return t('halls.ticket.back_sheet_report', 'رجوع إلى تقرير الوجبة');
+  if (path.startsWith('/halls/cycle/')) return t('halls.ticket.back_report', 'رجوع إلى تقرير الدورة');
   if (path.startsWith('/halls/ticket/')) return t('halls.ticket.back_ticket', 'رجوع إلى التذكرة');
   if (path.startsWith('/sales')) return t('halls.ticket.back_sales', 'رجوع إلى المبيعات');
   return backLabel(path);

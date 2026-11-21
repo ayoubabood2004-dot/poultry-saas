@@ -28,6 +28,7 @@ import { decideFlockReject, loadHallSheet, sendFlockFeed, toBaseQty, voidSheetFe
 import { refreshRoundQueue, roundQueueStore, uploadRounds } from '../../lib/roundUploads';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
+import FlockCard from '../halls/FlockCard';
 import { failureText, pendingKey, readPending, storePending, surelyUnsaved } from '../halls/GivePage';
 import { newTicketPath } from '../halls/ticketParts';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
@@ -921,6 +922,8 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
               </Link>
             ) : null}
           </div>
+          {/* تذاكر الوزن وفرق العدّ وحال الإغلاق (0028) أسفل الورقة، بعيداً عن الاستعمال اليوميّ. */}
+          <FlockCard flock={{ id: sheet.flock.id, hallId: sheet.flock.hallId, kind: sheet.flock.kind, siteId: site?.id ?? '' }} onChanged={changed} />
         </>
       ) : state.loading ? (
         <p role="status" className="text-sm text-ink-muted" data-action="sheet-loading">

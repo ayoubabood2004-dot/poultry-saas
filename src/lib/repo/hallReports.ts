@@ -139,6 +139,8 @@ export interface DayFlock {
   /** نسبة الإنتاج بمرتبتين (البيّاض وحده). */
   hdep: bigint | null;
   note: string | null;
+  /** قناني غاز اليوم (0035، B6)، أو null: لم يُسجَّل أو خادم قبل 0035. */
+  gas: number | null;
   issues: readonly DayIssue[];
   logs: readonly { id: string; name: string; dose: string | null }[];
   vaccines: readonly DayVaccine[];
@@ -210,6 +212,8 @@ export interface DayTotals {
   sold: number | null;
   countDiff: number | null;
   ticketed: number | null;
+  /** مجموع قناني الغاز (0035، B6)؛ null من خادم قبل 0035. */
+  gas: number | null;
 }
 
 export interface DaySite {
@@ -258,6 +262,7 @@ const totalsOf = (value: unknown): DayTotals => {
     sold: optInt(row, 'sold'),
     countDiff: optInt(row, 'count_diff'),
     ticketed: optInt(row, 'ticketed'),
+    gas: optInt(row, 'gas'),
   };
 };
 
@@ -301,6 +306,7 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     eggsCracked: optInt(row, 'eggs_cracked'),
     hdep: optScaled(row, 'hdep', 2),
     note: optStr(row, 'note'),
+    gas: optInt(row, 'gas'),
     issues: list(row.issues, 'issues').map((issue) => ({
       issueId: str(issue, 'issue_id'),
       docNo: str(issue, 'doc_no'),
