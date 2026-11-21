@@ -66,6 +66,8 @@ const NEW_KEYS = {
   money: ['returned', 'carried_in', 'carried_out', 'revenue'],
   cycle: ['sold_birds', 'count_diff'],
 };
+// ومفاتيح 0035 (القاعة كالورقة، العقد 0034 «الجزء ب»): الغاز في اليوم وفي المجاميع والمؤشّرات، وتاريخ خروج الصرف من المخزن في سطوره (يومه في القاعة issue_day).
+const NEW_KEYS_35 = { dayFlock: ['gas'], issue: ['issued_on'], totals: ['gas'], reportDay: ['gas'], kpis: ['gas'], line: ['issued_on'] };
 const without = (object, keys) => (object && typeof object === 'object' ? Object.fromEntries(Object.entries(object).filter(([k]) => !keys.includes(k))) : object);
 const pick = (object, keys) => Object.fromEntries(keys.map((k) => [k, object?.[k]]));
 /** جواب halls_day بلا مفاتيح 0028. */
@@ -73,19 +75,22 @@ const dayAs0027 = (v) => ({
   ...v,
   sites: v.sites.map((s) => ({
     ...s,
-    totals: without(s.totals, NEW_KEYS.totals),
-    halls: s.halls.map((h) => ({ ...without(h, NEW_KEYS.hall), flock: h.flock ? without(h.flock, NEW_KEYS.dayFlock) : h.flock })),
+    totals: without(s.totals, [...NEW_KEYS.totals, ...NEW_KEYS_35.totals]),
+    halls: s.halls.map((h) => ({
+      ...without(h, NEW_KEYS.hall),
+      flock: h.flock ? { ...without(h.flock, [...NEW_KEYS.dayFlock, ...NEW_KEYS_35.dayFlock]), issues: h.flock.issues.map((x) => without(x, NEW_KEYS_35.issue)) } : h.flock,
+    })),
   })),
-  totals: without(v.totals, NEW_KEYS.totals),
+  totals: without(v.totals, [...NEW_KEYS.totals, ...NEW_KEYS_35.totals]),
 });
 /** جواب flock_cycle_report بلا مفاتيح 0028. */
 const reportAs0027 = (v) => {
   const out = without(v, NEW_KEYS.report);
   out.birds = without(v.birds, NEW_KEYS.birds);
-  out.feed = without(v.feed, NEW_KEYS.feed);
-  out.days = v.days.map((d) => without(d, NEW_KEYS.reportDay));
+  out.feed = { ...without(v.feed, NEW_KEYS.feed), lines: v.feed.lines.map((l) => without(l, NEW_KEYS_35.line)) };
+  out.days = v.days.map((d) => without(d, [...NEW_KEYS.reportDay, ...NEW_KEYS_35.reportDay]));
   out.weeks = v.weeks.map((w) => without(w, NEW_KEYS.week));
-  out.kpis = without(v.kpis, NEW_KEYS.kpis);
+  out.kpis = without(v.kpis, [...NEW_KEYS.kpis, ...NEW_KEYS_35.kpis]);
   if (v.money) out.money = without(v.money, NEW_KEYS.money);
   return out;
 };
@@ -899,7 +904,10 @@ async function scenario(t, db) {
         compare(`مفاتيح 0028 ${on}`, pick(p1.flock, NEW_KEYS.dayFlock), { sold: 0, sold_net_kg: '0.000', count_diff: 0, ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0',
           feed_out_unweighed: 0, feed_out_cum_unweighed: 0, left_in_hall_kg: p1.flock.feed_left_kg, left_in_hall_unweighed: p1.flock.feed_given_cum_unweighed,
           expects_round: true, count_diffs: [] });
+        // 0035: بلا غاز، وتاريخ خروج كلّ صرف = يومه (صرف بلا يوم قاعة).
+        compare(`مفاتيح 0035 ${on}`, [pick(p1.flock, NEW_KEYS_35.dayFlock), p1.flock.issues.map((x) => x.issued_on)], [{ gas: null }, p1.flock.issues.map(() => on)]);
       }
+      compare(`مجموع الغاز ${on}`, [now.totals.gas, now.sites.map((x) => x.totals.gas)], [null, now.sites.map(() => null)]);
       compare(`carry ${on}`, now.sites[0].halls.map((h) => h.carry), [[], []]);
     }
     const r = await report(F.p);
@@ -907,6 +915,8 @@ async function scenario(t, db) {
     compare('flock_cycle_report لعامل القاعة', reportAs0027(await report(F.p, U.plain)), old.reportPlain);
     compare('flock_cycles', cyclesAs0027(await one(U.plain, 'select public.flock_cycles()')), old.cycles);
     const lastDay = r.days.at(-1);
+    compare('مفاتيح 0035 في تقرير الدورة', [r.kpis.gas, r.days.map((d) => d.gas), r.feed.lines.map((l) => l.issued_on === l.on)],
+      [0, r.days.map(() => null), r.feed.lines.map(() => true)]);
     compare('مفاتيح 0028 في تقرير الدورة', [pick(r.kpis, NEW_KEYS.kpis), pick(r.money, NEW_KEYS.money), r.close, r.carry_in, pick(r.birds, NEW_KEYS.birds),
       pick(r.feed, NEW_KEYS.feed), r.count_diffs, r.days.map((d) => d.expects_round), r.weeks.map((w) => w.expected_days)],
       [{ sold_birds: 0, sold_net_kg: '0.000', sold_avg_kg: null, sale_age: null, count_diff: 0, feed_carry_in_kg: '0', feed_out_kg: '0', feed_net_kg: null, fcr_final: null,

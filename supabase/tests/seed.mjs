@@ -759,7 +759,62 @@ const invoiceSeed = (variant) => async (db) => {
 
 const INVOICE_DATA = "select (select count(*) from public.sales_invoices)::text || '/' || (select count(*) from public.sales_lines)::text || '/' || (select count(*) from public.party_entries where doc_kind = 'sale')::text || '/' || (select count(*) from public.items)::text as v";
 
+const H35 = (n) => `60000000-0000-4000-8000-0000000035${String(n).padStart(2, '0')}`;
+
+/** 0035: فوج البذرة، و«علف الورقة» برصيد افتتاح 100 كغم في «رصيد العلف» (المدير). */
+const sheetReady = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const feed = await value(q, "insert into public.items (name, kind, base_unit) values ('علف الورقة', 'feed', 'kg') returning id");
+    const store = await value(q, "select id from public.warehouses where kind = 'feed'");
+    const doc = await value(q, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3) returning id', [store]);
+    await q('insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 100, 60000)', [doc, feed]);
+    await q('select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), $2)', [doc, H35(1)]);
+  }, { commit: true });
+};
+
+/**
+ * 0035 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها على فوج البذرة (المدير): خانة غاز، وعلف أُرسل اليوم ليوم أمس (يومه في القاعة قبل خروجه)،
+ * وغاز مركون من الطابور بيوم في الفترة المقفلة (البذرة تقفل حتى قبل 30 يوماً). التراجع يُسقطها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
+ */
+const sheetSeed = (variant) => async (db) => {
+  await sheetReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+    if (variant === 'gas') await q('select public.set_flock_gas($1, public.app_today() - 1, 2, null, $2, false)', [flock, H35(2)]);
+    if (variant === 'late') await q('select public.send_flock_feed($1, $2, $3, $4, $5, 5, public.app_today() - 1)', [H35(3), H35(4), H35(5), flock, feed]);
+    if (variant === 'parked') {
+      const parked = await value(q, 'select public.set_flock_gas($1, public.app_today() - 31, 1, null, $2, true)', [flock, H35(6)]);
+      if (parked?.status !== 'parked') throw new Error(`غاز البذرة في الفترة المقفلة لم يُركن: ${JSON.stringify(parked)}`);
+    }
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  35: [
+    {
+      name: 'خانة غاز',
+      code: 'rollback_blocked',
+      seed: sheetSeed('gas'),
+      data: "select (select count(*) from public.flock_day_gas)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_gas > 0 then', 'if false then'),
+    },
+    {
+      name: 'علف أُرسل اليوم ليوم فات',
+      code: 'rollback_blocked',
+      seed: sheetSeed('late'),
+      data: "select (select count(*) from public.flock_issues where for_day < issued_on)::text || '/' || (select count(*) from public.stock_moves)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_late > 0 then', 'if false then'),
+    },
+    {
+      name: 'غاز مركون من الطابور',
+      code: 'rollback_blocked',
+      seed: sheetSeed('parked'),
+      data: "select (select count(*) from public.flock_day_rejects where payload ? 'gas')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_parked > 0 then', 'if false then'),
+    },
+  ],
   33: [
     { name: 'فاتورة بأكثر من سطر', code: 'rollback_blocked', seed: invoiceSeed('multi'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_multi > 0 then', 'if false then') },
     { name: 'فاتورة بخصم', code: 'rollback_blocked', seed: invoiceSeed('discount'), data: INVOICE_DATA, mutate: (sql) => sql.replace('if v_discount > 0 then', 'if false then') },
@@ -1228,6 +1283,7 @@ export const BLOCKING_REQUIRED = [
   [31, 2, 'ملاحظة يوم في تقرير القاعات، وملاحظة مُسحت فبقي صفّها بنسخته، كلّ واحدة توقف التراجع'],
   [32, 3, 'زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة، كلّ واحدة توقف التراجع'],
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
+  [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1744,7 +1800,58 @@ const salesRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0035: حالة التراجع الكاملة على فوج البذرة: 10 كغم «علف الورقة» أُرسلت اليوم ليومها (لا يوم قاعة قبل خروجه)، فالتراجع يكمل؛ وبين التراجع والإعادة صرف 5 كغم
+ * منه اليوم بجسم 0019؛ وبعد الإعادة غاز أمس (2) و5 كغم أُرسلت اليوم لقبل يومين، والورقة تعدّها كلّها على أيّامها (20 كغم، منها 15 اليوم)، والثابت صفر.
+ */
+const sheetFullReady = async (db) => {
+  await sheetReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+    await q('select public.send_flock_feed($1, $2, $3, $4, $5, 10, public.app_today())', [H35(10), H35(11), H35(12), flock, feed]);
+  }, { commit: true });
+};
+
+const sheetOn0034 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+    await q('select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today(), null)', [H35(13), H35(14), H35(15), flock, feed]);
+  }, { commit: true });
+};
+
+const sheetRedone = async (db) => {
+  const problems = [];
+  try {
+    const sheet = await db.asUser(U.manager, async (q) => {
+      const flock = await value(q, SEED_FLOCK);
+      const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+      await q('select public.set_flock_gas($1, public.app_today() - 1, 2, null, $2, false)', [flock, H35(16)]);
+      await q('select public.send_flock_feed($1, $2, $3, $4, $5, 5, public.app_today() - 2)', [H35(17), H35(18), H35(19), flock, feed]);
+      return value(q, 'select public.hall_sheet($1)', [flock]);
+    }, { commit: true });
+    const today = sheet.today;
+    const byDay = Object.fromEntries(sheet.days.filter((d) => d.feed_kg !== null || d.gas !== null).map((d) => [d.on, [d.feed_kg, d.gas]]));
+    const want = { [sheet.days[1].on]: ['5.000', null], [sheet.days[2].on]: [null, 2], [today]: ['15.000', null] };
+    if (JSON.stringify([byDay, sheet.totals.feed_kg, sheet.totals.gas]) !== JSON.stringify([want, '20.000', 2])) {
+      problems.push(`الورقة بعد الإعادة: ${JSON.stringify([byDay, sheet.totals.feed_kg, sheet.totals.gas])}`);
+    }
+  } catch (error) {
+    problems.push(`الغاز والعلف بعد الإعادة رُفضا: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_hall_sheet()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الورقة: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  35: {
+    seed: sheetFullReady,
+    afterRollback: sheetOn0034,
+    afterRedo: sheetRedone,
+  },
   33: {
     seed: salesFullReady,
     afterRollback: salesOn0032,
