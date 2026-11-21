@@ -214,13 +214,22 @@ function feedLineOf(row: Row): SheetFeedLine {
   };
 }
 
+// يوم بلا جولة (day_version null) يأتي من الخادم بهلاكات ومستبعد null (عيّنة 0035 الحقيقية)؛ الشاشة تقرأ «سُجّل؟» من النسخة، فهما صفر هنا.
+// ويوم له صفّ لا يأتي بهما null، ويوم بلا صفّ لا يأتي بهلاكات.
+function unrecorded(row: Row, field: string): number {
+  const value = optCount(row, field);
+  if (value !== null && value !== 0) throw new HallSheetShapeError(field);
+  return 0;
+}
+
 function dayOf(row: Row, kind: FlockKind): SheetDay {
+  const recorded = optCount(row, 'day_version') !== null;
   const parsed: SheetDay = {
     on: day(row, 'on'),
     age: count(row, 'age'),
     dayNo: count(row, 'day_no'),
-    dead: count(row, 'dead'),
-    culled: count(row, 'culled'),
+    dead: recorded ? count(row, 'dead') : unrecorded(row, 'dead'),
+    culled: recorded ? count(row, 'culled') : unrecorded(row, 'culled'),
     dayVersion: optCount(row, 'day_version'),
     note: optStr(row, 'note'),
     gas: optCount(row, 'gas'),
@@ -235,7 +244,8 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
     liveEnd: int(row, 'live_end'),
   };
   if (parsed.culled > parsed.dead) throw new HallSheetShapeError('culled');
-  if ((parsed.gas === null) !== (parsed.gasVersion === null)) throw new HallSheetShapeError('gas_version');
+  // الغاز الممسوح يبقى صفّه بنسخة أكبر وعدد null (لا حذف، درس ABA 2026-11-16)، فالنسخة بلا عدد صالحة؛ والعدد بلا نسخة لا.
+  if (parsed.gas !== null && parsed.gasVersion === null) throw new HallSheetShapeError('gas_version');
   if (kind === 'broiler' && (parsed.eggsTotal !== null || parsed.eggsCracked !== null || parsed.eggsBroken !== null)) throw new HallSheetShapeError('eggs_total');
   return parsed;
 }

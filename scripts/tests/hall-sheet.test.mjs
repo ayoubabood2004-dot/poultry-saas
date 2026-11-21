@@ -20,6 +20,8 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
+// عيّنات القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1): تمرّ بالمحلّلات الحقيقية (تكامل 0035).
+const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const STUBS = {
@@ -135,6 +137,20 @@ export default async function (t) {
     const H7 = BROILER.flock.hall_id;
     const GROWER = BROILER.feed_items.find((item) => item.last).item_id;
 
+    // ── I: عيّنات القاعدة الحقيقية بالمحلّلات الحقيقية ─────────────────────────────────────────────────
+    for (const name of ['hall_sheet_broiler', 'hall_sheet_layer', 'hall_sheet_closed']) {
+      const raw = REAL[name];
+      const sheet = m.parseHallSheet(clone(raw));
+      t.same([sheet.days.length, sheet.days[0].on, sheet.days.at(-1).on], [raw.days.length, raw.placed_on ?? raw.flock.placed_on, raw.through], `I ${name}: صفّ لكلّ يوم من التسكين حتى through`);
+      t.same(sheet.days.map((day) => [day.dead, day.gas, day.note]), raw.days.map((day) => [day.day_version === null ? 0 : day.dead, day.gas, day.note]), `I ${name}: الهلاكات والغاز والملاحظة كما أرسلها الخادم (يوم بلا جولة هلاكاته null من الخادم وصفر بالمحلّل؛ «سُجّل؟» من النسخة)`);
+    }
+    {
+      const sheet = m.parseHallSheet(clone(REAL.hall_sheet_broiler));
+      t.same([sheet.days.filter((day) => day.feed.length > 0).length > 0, sheet.feedItems.length > 0], [true, true], 'I الدجاج: علف مرسل في يومه، وعلف يُختار');
+      t.same(m.parseHallSheet(clone(REAL.hall_sheet_closed)).rejects.length > 0, true, 'I الوجبة المغلقة: المردود يظهر');
+      t.same(m.parseFeedSent(clone(REAL.send_flock_feed)).issue.forDay ?? null, REAL.send_flock_feed.issue.for_day, 'I send_flock_feed الحقيقي');
+      t.same([m.gasAnswer(clone(REAL.set_flock_gas_saved)).kind, m.gasAnswer(clone(REAL.set_flock_gas_stale)).kind], ['saved', 'stale_gas'], 'I set_flock_gas الحقيقي: saved وstale_gas');
+    }
     // ── P: المحلّل ──────────────────────────────────────────────────────────────────────────────────────────────────
     {
       const sheet = m.parseHallSheet(clone(BROILER));

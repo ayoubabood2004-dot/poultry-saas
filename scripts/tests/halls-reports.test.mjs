@@ -268,6 +268,14 @@ export default async function (t) {
       t.same([write.PAGE_MODULES.has('hallReports'), index.includes('hallReports')], [true, false], 'S hallReports وحدة صفحات في write-guard، وrepo/index لا يصدّرها (مسار الجلسة)');
     }
 
+    // ── I0035: halls_day الحقيقي من 0035 (بالغاز وعلف اليوم المتأخّر) يمرّ بالمحلّل الحقيقي ───────────────────────────
+    {
+      const R35 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8')).halls_day;
+      const day = m.repo.parseHallsDay(clone(R35));
+      const raw = R35.sites.flatMap((site) => site.halls.map((hall) => hall.flock?.gas ?? null));
+      t.same(day.sites.flatMap((site) => site.halls.map((hall) => hall.flock?.gas ?? null)), raw, 'I0035 halls_day: الغاز لكلّ قاعة كما أرسله الخادم');
+      t.same(raw.some((gas) => gas !== null), true, 'I0035 العيّنة فيها غاز فعلاً');
+    }
     // ── P: المحلّلات ───────────────────────────────────────────────────────────────────────────────────────────────────
     {
       const day = m.repo.parseHallsDay(clone(F.halls_day));
