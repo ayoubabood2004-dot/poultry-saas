@@ -5,7 +5,7 @@
 // بترتيب السحب ودفعة واحدة بقيمة السحب بالضبط، وvoid_conversion)؛ والنقل بخطوة واحدة (record_transfer على جسم ترحيل التحويل)؛ وملفّ المادّة
 // بأفعاله وأين هي؛ والتزامن (تسعيران بلحظة واحدة)؛ والثوابت بضوابطها؛ وطفرات تكسر كلّ قاعدة فيفشل فحصها (آخر الملف).
 import { writeFileSync } from 'node:fs';
-import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { call, canon, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { lotsOf, postedOpening } from './stock-kit.mjs';
 
@@ -129,19 +129,20 @@ async function scenario(t, db) {
     o.price ?? null, o.sell ?? null, o.payment ?? 'credit', o.box ?? null, o.wh ?? null]);
   const price = (user, o, options) => call(db, user, PP, [o.ref ?? uid(), o.line, o.price, o.sell ?? null], options);
   const convArgs = (o) => [o.ref ?? uid(), o.doc === undefined ? uid() : o.doc, o.from, o.fromQty, o.to, o.toQty, o.on ?? TODAY, o.fromWh ?? null, o.toWh ?? null];
-  const convert = (user, o) => call(db, user, RC, convArgs(o));
+  const convert = (user, o, options) => call(db, user, RC, convArgs(o), options);
+  // 0034 («الكلّ مثل المالك»): كلّ نداء صار مسموحاً لعضو كان يُمنع يُنفَّذ بمعاملة ترجع، فلا يغيّر ما بعده.
+  const dry = { commit: false };
   const unconvert = (user, doc, reason = 'تحويل خاطئ', ref = uid()) => call(db, user, VC, [doc, reason, ref]);
   const moveArgs = (o) => [o.ref ?? uid(), o.doc === undefined ? uid() : o.doc, o.line === undefined ? uid() : o.line, o.item, o.qty, o.from ?? null, o.to === undefined ? W.farm : o.to, o.on ?? TODAY];
-  const move = (user, o) => call(db, user, RT, moveArgs(o));
+  const move = (user, o, options) => call(db, user, RT, moveArgs(o), options);
   const file = async (user, itemId) => (await call(db, user, IF, [itemId], { commit: false })).value;
   const lots = async (itemId, wh) => (await lotsOf(db, itemId, wh)).map((l) => [l.source_kind, l.qty_left, l.value_left]);
 
   // ── ١) حذف المادّة ───────────────────────────────────────────────────────────────────────────────────────────────
   const freshFile = await file(U.manager, I.fresh);
-  t.same([freshFile.can_delete, freshFile.uses, (await file(U.storekeeper, I.fresh)).can_delete], [true, [], false],
-    'ملفّ مادّة لا يشير إليها شيء: «احذف» لمن يدير المخازن وحده، وبلا أنواع استعمال');
-  const keeperDelete = refusal('forbidden', await call(db, U.storekeeper, DI, [I.fresh, 1]));
-  t.eq(shownOf(keeperDelete), 'forbidden', 'الأمين لا يحذف مادّة (stores.manage)');
+  t.same([freshFile.can_delete, freshFile.uses, (await file(U.storekeeper, I.fresh)).can_delete], [true, [], true],
+    'ملفّ مادّة لا يشير إليها شيء: «احذف» لكلّ عضو (stores.manage منذ 0034)، وبلا أنواع استعمال');
+  t.eq(shownOf(await call(db, U.storekeeper, DI, [I.fresh, 1], dry)), 'ok', 'الأمين يحذف مادّة أيضاً (0034، بمعاملة ترجع)');
   const staleDelete = refusal('stale_item', await call(db, U.manager, DI, [I.stale, 7]));
   t.eq(shownOf(staleDelete), 'stale_item', 'نسخة قديمة من المادّة: stale_item');
   const deleted = await call(db, U.manager, DI, [I.fresh, 1]);
@@ -176,15 +177,15 @@ async function scenario(t, db) {
     keeperSoyFile.money.avg_unit_price, keeperSoyFile.money.last_unit_price], [1, true, false, true, null, null, null],
   'ملفّ الصويا للأمين: شراء «بلا سعر» يُكمَّل، ولا متوسّط ولا آخر سعر من غير المسعَّر');
   const viewerSoyFile = await file(U.viewer, I.soy);
-  t.same([viewerSoyFile.can_price, viewerSoyFile.unpriced_count, hasMoney(viewerSoyFile)], [false, 0, false], 'المشاهد بلا نطاق مخزن: لا مشتريات ولا مال ولا «أكمل السعر»');
+  t.same(canon(viewerSoyFile), canon(keeperSoyFile), 'المشاهد بلا صفّ نطاق: ملفّ الأمين نفسه بشراءاته وماله و«أكمل السعر» (0034)');
   const overview = (await call(db, U.storekeeper, IO, [], { commit: false })).value;
   t.eq(overview.items.find((x) => x.id === I.soy)?.unpriced_count, 1, 'بطاقة الصويا في المخزن: شراء واحد بلا سعر');
 
   // ── ٣) تحويل مادّة إلى مادّة ───────────────────────────────────────────────────────────────────────────────────────
   const c1 = { ref: uid(), doc: uid(), from: I.corn, fromQty: 500, to: I.mash, toQty: 500 };
   const conv1 = await convert(U.storekeeper, c1);
-  t.same([conv1.ok, conv1.value?.doc_no, conv1.value?.to?.warehouse_id, conv1.value?.from?.warehouse_id, hasMoney(conv1.value)], [true, 'CV-2026-0001', W.feed, W.raw, false],
-    `الأمين يحوّل 500 كغم ذرة إلى «مخلوط»: من مخزن المواد إلى مخزن العلف (الوحيد الذي يستلمه) بلا مال للأمين (${conv1.code ?? ''} ${conv1.hint ?? ''})`);
+  t.same([conv1.ok, conv1.value?.doc_no, conv1.value?.to?.warehouse_id, conv1.value?.from?.warehouse_id, hasMoney(conv1.value)], [true, 'CV-2026-0001', W.feed, W.raw, true],
+    `الأمين يحوّل 500 كغم ذرة إلى «مخلوط»: من مخزن المواد إلى مخزن العلف (الوحيد الذي يستلمه) بماله (0034) (${conv1.code ?? ''} ${conv1.hint ?? ''})`);
   t.same(await lots(I.mash, W.feed), [['conversion', '500', '225000']], 'دفعة «مخلوط» واحدة قيمتها قيمة السحب بالضبط (500 × 450)');
   t.same(await lots(I.corn, W.raw), [['opening', '1500', '675000']], 'الذرة نقصت 500 كغم بقيمتها');
   t.eq((await db.asOwner((q) => q("select private.stock_doc_memo('conversion', $1, $2) as v", [c1.doc, W.raw]), U.owner)).rows[0].v, 'تحويل «ذرة صفراء» إلى «مخلوط»',
@@ -212,14 +213,15 @@ async function scenario(t, db) {
     id_required: await convert(U.owner, { doc: null, from: I.corn, fromQty: 1, to: I.mash, toQty: 1 }),
     insufficient_stock: await convert(U.owner, { from: I.corn, fromQty: 99999, to: I.mash, toQty: 1 }),
     item_kind_mismatch: await convert(U.owner, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1, toWh: W.general }),
-    out_of_scope: await convert(U.keeperGeneral, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1, fromWh: W.raw }),
-    forbidden: await convert(U.accountant, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1 }),
     date_in_future: await convert(U.owner, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1, on: day(1) }),
   };
   for (const [key, result] of Object.entries(R)) refusal(`conversion.${key}`, result);
   t.same(Object.fromEntries(Object.entries(R).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(R).map((key) => [key, key])),
     'رفض التحويل: كلّ حالة برمزها');
   t.ok(R.insufficient_stock.hint.includes('عندك 1,500 كغم'), `النقص يسمّي «عندك» (${R.insufficient_stock.hint})`);
+  t.same([shownOf(await convert(U.keeperGeneral, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1, fromWh: W.raw }, dry)),
+    shownOf(await convert(U.accountant, { from: I.corn, fromQty: 1, to: I.mash, toQty: 1 }, dry))], ['ok', 'ok'],
+  'التحويل لأمين بصفّ نطاق قديم وللمحاسب (0034، بمعاملة ترجع)');
 
   // مخزن علف ثانٍ بعد التحويلات (فـ«مخلوط» كان يدخل مخزن العلف وحده)، فالنقل إليه ومنه.
   W.feed2 = await store('feed_mill', millSite, 'مخزن علف ثانٍ', 'feed');
@@ -228,7 +230,7 @@ async function scenario(t, db) {
   const t1 = { ref: uid(), doc: uid(), line: uid(), item: I.soy, qty: 100, to: W.raw2 };
   const move1 = await move(U.storekeeper, t1);
   t.same([move1.ok, move1.value?.doc_no, move1.value?.from_warehouse_id, move1.value?.to_warehouse_name, norm(move1.value?.qty), move1.value?.item_name, hasMoney(move1.value)],
-    [true, 'TR-2026-0001', W.raw, 'مخزن مواد ثانٍ', '100', 'صويا', false], `الأمين ينقل 100 كغم صويا إلى المخزن الثاني بخطوة واحدة (المرسِل وحده) (${move1.code ?? ''} ${move1.hint ?? ''})`);
+    [true, 'TR-2026-0001', W.raw, 'مخزن مواد ثانٍ', '100', 'صويا', true], `الأمين ينقل 100 كغم صويا إلى المخزن الثاني بخطوة واحدة (المرسِل وحده) (${move1.code ?? ''} ${move1.hint ?? ''})`);
   t.same(await lots(I.soy, W.raw2), [['transfer', '100', '0']], 'مرآة الدفعة في المخزن الثاني (قيمة صفر قبل السعر)');
   const t2 = { ref: uid(), doc: uid(), line: uid(), item: I.bulk, qty: 300 };
   const move2 = await move(U.storekeeper, t2);
@@ -243,8 +245,6 @@ async function scenario(t, db) {
     item_kind_mismatch: await move(U.owner, { item: I.corn, qty: 1, to: W.farm }),
     insufficient_stock: await move(U.owner, { item: I.diesel, qty: 99999, from: W.general }),
     store_required: await move(U.owner, { item: I.bulk, qty: 1 }),
-    out_of_scope: await move(U.keeperGeneral, { item: I.bulk, qty: 1, from: W.feed }),
-    forbidden: await move(U.accountant, { item: I.bulk, qty: 1, from: W.feed }),
     item_archived: await move(U.owner, { item: I.old, qty: 1, to: W.raw2 }),
     pieces_not_whole: await move(U.owner, { item: I.bags, qty: 1.5, from: W.feed, to: W.feed2 }),
   };
@@ -252,6 +252,8 @@ async function scenario(t, db) {
   t.same(Object.fromEntries(Object.entries(M).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(M).map((key) => [key, key])),
     'رفض النقل: كلّ حالة برمزها');
   t.ok(M.store_required.hint.includes('«رصيد العلف»') && M.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما بكمياتهما (${M.store_required.hint})`);
+  t.same([shownOf(await move(U.keeperGeneral, { item: I.bulk, qty: 1, from: W.feed }, dry)), shownOf(await move(U.accountant, { item: I.bulk, qty: 1, from: W.feed }, dry))], ['ok', 'ok'],
+    'النقل لأمين بصفّ نطاق قديم وللمحاسب (0034، بمعاملة ترجع)');
   // التحويل (مراجعة 0020، للشاشة): غموض مخزن المصدر (الصويا في مخزني المواد) from_store_required بالكميات، وغموض المستلم («مخلوط» يدخل مخزني العلف)
   // store_required.
   const fromStore = refusal('conversion.from_store_required', await convert(U.owner, { from: I.soy, fromQty: 1, to: I.soyGrits, toQty: 1 }));
@@ -268,8 +270,8 @@ async function scenario(t, db) {
   const pricedFirst = { ref: uid(), line: soyBuy.line, price: 500, sell: 700 };
   const priced = await price(U.storekeeper, pricedFirst);
   t.same([priced.ok, priced.value?.priced, norm(priced.value?.money?.line_total), norm(priced.value?.money?.unit_price), norm(priced.value?.money?.sell_price),
-    priced.value?.used_before_pricing, hasMoney(priced.value?.valuation)], [true, true, '500000', '500', '700', true, false],
-  `الأمين يكمل سعر الصويا 500 للكيلو: المبلغ 500,000، وما صُرف قبله مُعلَّم، وتوزيع القيمة مخفيّ عنه (${priced.code ?? ''} ${priced.hint ?? ''})`);
+    priced.value?.used_before_pricing, hasMoney(priced.value?.valuation)], [true, true, '500000', '500', '700', true, true],
+  `الأمين يكمل سعر الصويا 500 للكيلو: المبلغ 500,000، وما صُرف قبله مُعلَّم، وتوزيع القيمة ظاهر له (0034) (${priced.code ?? ''} ${priced.hint ?? ''})`);
   t.same([await lots(I.soy, W.raw), await lots(I.soy, W.raw2), await lots(I.soyGrits, W.raw)],
     [[['receipt', '500', '250000']], [['transfer', '100', '50000']], [['conversion', '400', '0']]],
   'حصّة المتبقّي على الدفعة ومرآتها (600 من 1,000 = 300,000 بالكميات)، و«صويا مجروشة» المصنوعة قبل السعر لا تُمسّ');
@@ -281,7 +283,7 @@ async function scenario(t, db) {
   const accountantView = await price(U.accountant, pricedFirst);
   t.same([accountantView.ok, accountantView.code], [false, 'ref_reused'], 'المرجع نفسه من مستخدم آخر: ref_reused');
   const cachedPrice = await price(U.storekeeper, pricedFirst);
-  t.same([cachedPrice.ok, cachedPrice.value], [true, priced.value], 'الإعادة بالمرجع نفسه ترجع النتيجة نفسها (بلا قناع للسعر، ومقنَّع التوزيع)');
+  t.same([cachedPrice.ok, cachedPrice.value], [true, priced.value], 'الإعادة بالمرجع نفسه ترجع النتيجة نفسها');
   t.eq(shownOf(refusal('ref_reused', await price(U.storekeeper, { ...pricedFirst, price: 501 }))), 'ref_reused', 'المرجع نفسه بسعر آخر: ref_reused');
   const twice = refusal('already_priced', await price(U.storekeeper, { line: soyBuy.line, price: 510 }));
   t.eq(shownOf(twice), 'already_priced', 'تسعير ثانٍ للشراء نفسه: already_priced');
@@ -303,12 +305,12 @@ async function scenario(t, db) {
     bad_price: await price(U.owner, { line: saltBuy.line, price: 1.234 }),
     line_not_found: await price(U.owner, { line: uid(), price: 10 }),
     id_required: await price(U.owner, { line: null, price: 10 }),
-    forbidden: await price(U.viewer, { line: saltBuy.line, price: 10 }),
-    out_of_scope: await price(U.keeperGeneral, { line: saltBuy.line, price: 10 }),
   };
   for (const [key, result] of Object.entries(P)) refusal(`price.${key}`, result);
   t.same(Object.fromEntries(Object.entries(P).map(([key, result]) => [key, shownOf(result)])), Object.fromEntries(Object.keys(P).map((key) => [key, key])),
     'رفض «أكمل السعر»: كلّ حالة برمزها');
+  t.same([shownOf(await price(U.viewer, { line: saltBuy.line, price: 10 }, dry)), shownOf(await price(U.keeperGeneral, { line: saltBuy.line, price: 10 }, dry))], ['ok', 'ok'],
+    '«أكمل السعر» للمشاهد ولأمين بصفّ نطاق قديم (0034، بمعاملة ترجع)');
   const oatsBuy = { line: uid() };
   await one(U.owner, RP, [uid(), uid(), oatsBuy.line, I.oats, supplier, TODAY, 300, null, null, 'credit', null, W.raw]);
   const untouched = await price(U.accountant, { line: oatsBuy.line, price: 300 });
@@ -340,7 +342,7 @@ async function scenario(t, db) {
   t.same((await revRows()).map((r) => [r.unit_price, r.status]), [['500', 'void'], [null, 'void'], ['480', 'posted']], 'صفوف التسعير والتصحيح بالسلسلة');
 
   // ── ٧) إلغاء التحويل ──────────────────────────────────────────────────────────────────────────────────────────
-  t.eq(shownOf(await unconvert(U.storekeeper, c1.doc)), 'forbidden', 'الأمين لا يلغي (void)');
+  t.eq(shownOf(await call(db, U.storekeeper, VC, [c1.doc, 'تحويل خاطئ', uid()], dry)), 'ok', 'الأمين يلغي أيضاً (0034، بمعاملة ترجع)');
   const consumed = refusal('lot_consumed', await unconvert(U.manager, c2.doc));
   t.eq(shownOf(consumed), 'lot_consumed', 'إلغاء تحويل صُرف من ناتجه (نُقل منه): lot_consumed');
   const voided = await unconvert(U.manager, c1.doc);
@@ -355,12 +357,12 @@ async function scenario(t, db) {
   // ── ٨) ملفّ المادّة: أين هي، وأفعالها ─────────────────────────────────────────────────────────────────────────────
   const bulkFile = await file(U.storekeeper, I.bulk);
   t.same([bulkFile.can_convert, bulkFile.can_transfer, bulkFile.can_sell, bulkFile.can_delete, bulkFile.stores.map((s) => [s.name, norm(s.qty), norm(s.available)])],
-    [true, true, true, false, [['رصيد العلف', '600', '600'], ['مخزن علف ثانٍ', '100', '100']]],
-  'ملفّ السائب للأمين: يحوّل وينقل ويبيع، ولا يحذف، وأين هو بنطاقه (مخزن الحقل خارج نطاقه)');
+    [true, true, true, false, [['رصيد العلف', '600', '600'], ['مخزن حقل الأمل', '300', '300'], ['مخزن علف ثانٍ', '100', '100']]],
+  'ملفّ السائب للأمين: يحوّل وينقل ويبيع، ولا يحذف (مستعملة)، وأين هو في المنشأة كلّها (0034)');
   const ownerBulk = await file(U.owner, I.bulk);
   t.same([ownerBulk.stores.length, ownerBulk.transfer_targets.map((s) => s.name)], [3, ['رصيد العلف', 'مخزن حقل الأمل', 'مخزن علف ثانٍ']], 'المالك يرى المخازن الثلاثة، ومخازن النقل التي تقبل العلف');
   const viewerBulk = await file(U.viewer, I.bulk);
-  t.same([viewerBulk.can_convert, viewerBulk.can_transfer, viewerBulk.can_sell, viewerBulk.can_delete], [false, false, false, false], 'المشاهد بلا أفعال');
+  t.same([viewerBulk.can_convert, viewerBulk.can_transfer, viewerBulk.can_sell, viewerBulk.can_delete], [true, true, true, false], 'المشاهد بأفعال الأمين نفسها (0034)');
   const chickFile = await file(U.owner, I.chicks);
   t.same([chickFile.can_convert, chickFile.can_sell, chickFile.can_delete], [false, false, true], 'الأفراخ بلا رصيد: لا تحويل ولا بيع، وتُحذف (لا يشير إليها شيء)');
 
