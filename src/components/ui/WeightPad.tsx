@@ -67,8 +67,9 @@ export function WeightPad({ value, onChange, unitLabel, maxDecimals = 3 }: Weigh
             key={key}
             type="button"
             onClick={() => press(key)}
+            disabled={key === '.' && maxDecimals === 0}
             aria-label={key === 'back' ? t('weight_pad.back', 'احذف رقماً') : key === '.' ? t('weight_pad.point', 'فاصلة عشرية') : key}
-            className="flex h-14 min-h-[56px] items-center justify-center rounded-2xl border border-line bg-surface-1 text-2xl font-semibold tabular-nums shadow-card active:bg-surface-3"
+            className="flex h-14 min-h-[56px] items-center justify-center rounded-2xl border border-line bg-surface-1 text-2xl font-semibold tabular-nums shadow-card active:bg-surface-3 disabled:opacity-50"
           >
             {key === 'back' ? <Delete aria-hidden="true" className="size-6" /> : key}
           </button>

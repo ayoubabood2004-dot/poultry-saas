@@ -648,7 +648,7 @@ function WeightDialog({ sheet, onClose, onSaved }: { sheet: HallSheet; onClose: 
 // ─── الورقة ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const ACTION_CLASS = 'flex h-14 items-center justify-center rounded-xl border border-line bg-surface-1 px-3 py-2 text-center text-sm font-semibold text-brand-700 hover:bg-surface-2 dark:text-brand-200';
-const CELL_CLASS = 'flex min-h-11 w-full flex-col items-end justify-center gap-0.5 rounded-xl px-1 hover:bg-surface-2';
+const CELL_CLASS = 'flex min-h-11 w-full flex-col items-start justify-center gap-0.5 rounded-xl px-1 hover:bg-surface-2';
 const PENDING_CLASS = 'text-xs font-semibold text-warn-800 dark:text-warn-200';
 
 /** خانة تُلمس فتُفتح ورقتها (أو قيمة فقط إن لم تُكتب)، و«بانتظار الرفع» تحتها ما دامت على الجهاز. */
@@ -668,7 +668,7 @@ function Cell({ children, pending, onOpen, label, action }: { children: ReactNod
       {body}
     </button>
   ) : (
-    <span className="flex flex-col items-end gap-0.5" data-action={action}>
+    <span className="flex flex-col items-start gap-0.5" data-action={action}>
       {body}
     </span>
   );
@@ -862,7 +862,7 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
       ) : null}
       {sheet ? (
         <>
-          <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label={t('hall.actions', 'أفعال القاعة')} data-action="sheet-actions">
+          <nav className="grid grid-cols-3 gap-2" aria-label={t('hall.actions', 'أفعال القاعة')} data-action="sheet-actions">
             {active && todayRow ? (
               <button type="button" onClick={() => setFeeding(todayRow.on)} className={ACTION_CLASS} data-action="sheet-feed">
                 {t('sheet.act.feed', 'أرسل علفاً')}
@@ -891,14 +891,6 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
               </Link>
             ) : null}
           </nav>
-          <RejectsBanner rejects={sheet.rejects} onChanged={changed} />
-          {device.review > 0 ? (
-            <Notice tone="warning" title={t('sheet.review', 'على هذا الجهاز تعديلات لهذه القاعة لم تُحفظ: {n}.', { n: fmtInt(device.review) })}>
-              <Link to={`${base}/round`} className={LINK_CLASS} data-action="sheet-review">
-                {t('sheet.review.go', 'راجعها في «جولات تحتاج مراجعة»')}
-              </Link>
-            </Notice>
-          ) : null}
           {active ? null : (
             <p className="text-sm text-ink-muted" data-action="sheet-read-only">
               {t('sheet.read_only', 'الوجبة مغلقة: الورقة للقراءة فقط. «أعِد فتحها» لتعديلها.')}
@@ -907,7 +899,21 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
           <p className="text-sm text-ink-muted" data-action="sheet-line">
             {t('sheet.line', 'الداخل {placed} · الهلاكات {dead} · الباقي {live}', { placed: fmtInt(sheet.summary.placed), dead: fmtInt(sheet.summary.dead), live: fmtInt(sheet.summary.live) })}
           </p>
+          {/* الجدول أوّل الشاشة بالهاتف: ما يحتاج قراراً جملةٌ قصيرة هنا وتفصيله تحت الجدول. */}
+          {sheet.rejects.length + device.review > 0 ? (
+            <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="sheet-attention">
+              {t('sheet.attention', 'لم يُحفظ من الأجهزة: {n}، وتفصيله تحت الجدول.', { n: fmtInt(sheet.rejects.length + device.review) })}
+            </p>
+          ) : null}
           <SheetTable sheet={sheet} ops={device.ops} onCell={(day, field) => setEditing({ on: day.on, field })} onFeed={(day) => setFeeding(day.on)} />
+          <RejectsBanner rejects={sheet.rejects} onChanged={changed} />
+          {device.review > 0 ? (
+            <Notice tone="warning" title={t('sheet.review', 'على هذا الجهاز تعديلات لهذه القاعة لم تُحفظ: {n}.', { n: fmtInt(device.review) })}>
+              <Link to={`${base}/round`} className={LINK_CLASS} data-action="sheet-review">
+                {t('sheet.review.go', 'راجعها في «جولات تحتاج مراجعة»')}
+              </Link>
+            </Notice>
+          ) : null}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-action="sheet-more">
             {active && kind === 'broiler' ? (
               <button type="button" onClick={() => setWeighing(true)} className={`${LINK_CLASS} inline-flex h-11 items-center`} data-action="weight-open">
