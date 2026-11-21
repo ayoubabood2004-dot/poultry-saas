@@ -57,6 +57,11 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_visits_version_check: () => t('constraint.flock_visits_version_check', 'نسخة الزيارة يكتبها الخادم.'),
   flock_visits_void_check: () => t('constraint.flock_visits_void_check', 'من ألغى الزيارة يُكتب مع وقت إلغائها.'),
   flock_visits_time_check: () => t('constraint.flock_visits_time_check', 'وقت الزيارة ويومها من التقويم.'),
+  // 0035: الغاز لكلّ يوم (تكتبه set_flock_gas وحدها)، ويوم القاعة للعلف المرسل (يكتبه send_flock_feed).
+  flock_day_gas_cylinders_check: () => t('constraint.flock_day_gas_cylinders_check', 'عدد قناني الغاز عدد صحيح من صفر إلى 1,000، أو فارغ.'),
+  flock_day_gas_version_check: () => t('constraint.flock_day_gas_version_check', 'نسخة خانة الغاز يكتبها الخادم.'),
+  flock_day_gas_on_date_check: () => t('constraint.flock_day_gas_on_date_check', 'يوم الغاز من التقويم.'),
+  flock_issues_for_day_check: () => t('constraint.flock_issues_for_day_check', 'يوم العلف في القاعة من التقويم، ولا يأتي بعد يوم إرساله من المخزن.'),
 };
 
 registerConstraintHints(FLOCK_CONSTRAINT_HINTS);
