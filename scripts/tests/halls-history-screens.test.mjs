@@ -648,11 +648,11 @@ export default async function (t) {
         [
           ['owner', 'سطر أوّل\nسطر ثانٍ', 1, 'عدّل الملاحظة'],
           ['manager', 'سطر أوّل\nسطر ثانٍ', 1, 'عدّل الملاحظة'],
-          ['accountant', 'سطر أوّل\nسطر ثانٍ', 0, null],
-          ['hall_worker', 'سطر أوّل\nسطر ثانٍ', 0, null],
-          ['viewer', 'سطر أوّل\nسطر ثانٍ', 0, null],
+          ['accountant', 'سطر أوّل\nسطر ثانٍ', 1, 'عدّل الملاحظة'],
+          ['hall_worker', 'سطر أوّل\nسطر ثانٍ', 1, 'عدّل الملاحظة'],
+          ['viewer', 'سطر أوّل\nسطر ثانٍ', 1, 'عدّل الملاحظة'],
         ],
-        'N1 ملاحظة اليوم يراها كلّ قارئ، وزرّ الكتابة للمالك والمدير وحدهما (halls_note.write)',
+        'N1 ملاحظة اليوم يراها ويكتبها كلّ عضو (0034، كلمة المالك 2026-11-21: «الكل مثل المالك بكل شيء»)',
       );
       fresh(as('owner'), OK);
       await mount(urlOf(nov(16)));
@@ -957,8 +957,8 @@ export default async function (t) {
         seen.push([label, textOf('hist-note-text'), byAction('hist-note-write').length]);
         await unmount();
       }
-      t.same(seen, [['manager بلا نطاق', 'سطر أوّل\nسطر ثانٍ', 1], ['manager محصور بحقل', 'سطر أوّل\nسطر ثانٍ', 0]],
-        'R2 المدير المحصور بحقل يقرأ الملاحظة ولا يرى زرّ كتابتها (الخادم يرفضه note_scope؛ مراجعة 0031 L4)');
+      t.same(seen, [['manager بلا نطاق', 'سطر أوّل\nسطر ثانٍ', 1], ['manager محصور بحقل', 'سطر أوّل\nسطر ثانٍ', 1]],
+        'R2 صفوف النطاق لا تحجب زرّ الملاحظة بعد 0034 (النطاق المنشأة كلّها لكلّ عضو)');
     });
 
     await step('R3 الصورة بعد حفظ الملاحظة', async () => {
@@ -1045,7 +1045,7 @@ export default async function (t) {
           css.includes('[data-action="hist-kind"] h2, [data-action="hist-kind"] h3, [data-action="hist-note"] h2 { break-after: avoid; }'),
           css.includes('[data-action="hist-event-day"] { break-inside: avoid; }'),
           css.includes('[data-capture] [class~="print:hidden"] { display: none !important; }'),
-          css.includes('[data-capture] [data-action="day-table"] { display: block !important; }'),
+          css.includes('[data-capture] [data-action="day-report"] > div, [data-capture] [data-action="hist-table"] > div { max-height: none; overflow: visible; }'),
           byAction('hist-table').every((n) => (n.getAttribute('class') ?? '').includes('print:[&>div]:max-h-none')),
           byAction('hist-note-write')[0]?.parentNode?.getAttribute('class'),
         ],

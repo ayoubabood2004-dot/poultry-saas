@@ -57,7 +57,7 @@ async function bundle() {
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
     "export { default as CalendarPage } from './src/pages/halls/CalendarPage.tsx';",
-    "export { default as ReportPage } from './src/pages/halls/ReportPage.tsx';",
+    "export { default as ReportPage } from './src/pages/halls/CycleReportPage.tsx';",
     "export { default as VaccinesPage } from './src/pages/halls/VaccinesPage.tsx';",
     "export * as repo from './src/lib/repo/halls.ts';",
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
@@ -373,8 +373,8 @@ export default async function (t) {
       await click(cell('2026-11-01'));
       t.same(
         [byAction('day-issue').map((n) => n.textContent), byAction('give-day').length],
-        [['FI-2026-0001علف بادئ1.000 طن (1,000 كغم)علف'], 0],
-        'C3 ما نزل بمستنده ومادّته وكميته (fmtQty)، ولا «أضف» لأقدم من سبعة أيام',
+        [['FI-2026-0001علف بادئ1.000 طن (1,000 كغم)علف'], 1],
+        'C3 ما نزل بمستنده ومادّته وكميته (fmtQty)، و«أضف» ليومٍ أقدم من سبعة أيام أيضاً (0035: لا حدّ أيام في الشاشة؛ أقدم يوم تقبله الإضافة من الخادم في صفحتها)',
       );
       await click(byAction('day-close')[0]);
       await click(cell('2026-11-03'));

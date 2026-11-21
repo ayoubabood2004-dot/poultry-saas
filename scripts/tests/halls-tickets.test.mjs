@@ -122,9 +122,9 @@ export default async function (t) {
       const hallsRoutes = readFileSync(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'), 'utf8');
       // صفحة القاعة (كلمة المالك 2026-11-16) صارت من حزمة القاعات خارج التثبيت المسبق: الحقول تحمّلها كسولةً (quietly) ولا تستوردها ثابتاً.
       t.same(
-        [shared.includes('hallsLazy((halls) => halls.FlockCard)'), shared.includes('quietly(loadHalls)'), flockPage.includes('<HallFlockCard flock={detail.flock} onChanged={state.retry} />'), /import[^;]*\.\/FlockPage/u.test(farmRoutes), farmRoutes.includes('quietly(loadHalls)'), hallsRoutes.includes("export { default as FlockPage, HallPage } from '../farm/FlockPage';")],
+        [shared.includes('hallsLazy((halls) => halls.FlockCard)'), shared.includes('quietly(loadHalls)'), flockPage.includes("import FlockCard from '../halls/FlockCard';") && flockPage.includes('<FlockCard flock={'), /import[^;]*\.\/FlockPage/u.test(farmRoutes), farmRoutes.includes('quietly(loadHalls)'), hallsRoutes.includes("export { default as FlockPage, HallPage } from '../farm/FlockPage';")],
         [true, true, true, false, true, true],
-        'S بطاقة البيع كسولةٌ من حزمة القاعات، وصفحة القاعة من الحزمة نفسها: الحقول لا تستوردها ثابتاً وتحمّلها quietly',
+        'S بطاقة البيع من حزمة القاعات (ورقة القاعة في الحزمة نفسها تستوردها مباشرةً، 0035)، والحقول لا تستورد صفحة القاعة ثابتاً وتحمّلها quietly',
       );
       const names = [
         'flock_counts_kind_check', 'flock_counts_birds_check', 'flock_counts_sign_check', 'flock_counts_net_check', 'flock_counts_doc_check', 'flock_counts_reason_check',
@@ -456,7 +456,7 @@ export default async function (t) {
     await step('C البطاقة المغلقة', async () => {
       fresh(OWNER, { flock_sales: () => clone(F.flock_sales_closed) });
       await mount('/broiler/flock/x', cardAt(m, () => undefined));
-      t.same([textOf('card-closed'), textOf('card-live'), byAction('card-close').length, byAction('card-count').length, href(byAction('card-reopen')[0])], ['أُغلقت الدورة يوم 12/11/2026.', `الحيّ بحسب النظام 0. فرق العدّ ${LRI}-30${PDI}.`, 0, 0, `/halls/report/${F1}?back=%2Fbroiler%2Fflock%2F${F1}&act=reopen`], 'C المغلقة: يوم الإغلاق وفرق العدّ، و«أعد فتح الدورة» إلى التقرير مفتوحاً عليها');
+      t.same([textOf('card-closed'), textOf('card-live'), byAction('card-close').length, byAction('card-count').length, href(byAction('card-reopen')[0])], ['أُغلقت الدورة يوم 12/11/2026.', `الحيّ بحسب النظام 0. فرق العدّ ${LRI}-30${PDI}.`, 0, 0, `/halls/cycle/${F1}?back=%2Fbroiler%2Fflock%2F${F1}&act=reopen`], 'C المغلقة: يوم الإغلاق وفرق العدّ، و«أعد فتح الدورة» إلى التقرير المفصّل مفتوحاً عليها (0035: /halls/report تقرير الوجبة)');
     });
 
     // ── R: التذكير المختصر ─────────────────────────────────────────────────────────────────────────────────────────────
