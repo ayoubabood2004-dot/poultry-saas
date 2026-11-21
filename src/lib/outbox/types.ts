@@ -1,8 +1,8 @@
-// الطابور بلا نت لفشل الشبكة وحده. ما يدخله إلا كتابات الجولة: save_flock_day (مفتاح طبيعي «فوج + يوم» وbase_version، تبقى لعمليات مخزّنة
-// قبل 0032) وsave_flock_visit (0032: زيارة بمعرّف من الجهاز ونسختها، تُجمع ولا تتعارض). ماكو post_* ولا تسديد، لأن السحب من الدفعات والديون
-// يحتاج الرصيد الحقيقي لحظة الترحيل.
+// الطابور بلا نت لفشل الشبكة وحده. ما يدخله إلا كتابات الجولة: save_flock_day (مفتاح طبيعي «فوج + يوم» وbase_version: مجموع اليوم من ورقة القاعة،
+// 0035) وsave_flock_visit (0032: زيارة بمعرّف من الجهاز ونسختها، تُجمع ولا تتعارض) وset_flock_gas (0035: قناني غاز اليوم بنسخة صفّها، «فوج + يوم»).
+// ماكو post_* ولا تسديد، لأن السحب من الدفعات والديون يحتاج الرصيد الحقيقي لحظة الترحيل (وعلف الورقة يُرسل بنت وحده).
 
-export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit'] as const;
+export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit', 'set_flock_gas'] as const;
 export type QueueableFunction = (typeof QUEUEABLE_FUNCTIONS)[number];
 
 /** ختم الهويّة: المستخدم والمنشأة اللي أكّدها الخادم لحظة الحفظ. العملية ما ترتفع إلا بهويّتها. */
@@ -45,6 +45,11 @@ export interface FlockVisitPayload {
   void: boolean;
 }
 
+/** غاز اليوم (0035، جواب المالك 2026-11-21: عدد قناني فقط): العدد كما كُتب، وnull يمسحه. */
+export interface FlockGasPayload {
+  cylinders: number | null;
+}
+
 export type OpState =
   /** تنتظر الرفع، وتندمج ويّاها التعديلات اللاحقة (لنفس اليوم في save_flock_day، ولنفس الزيارة في save_flock_visit). */
   | 'pending'
@@ -64,6 +69,7 @@ interface OpBase extends Stamp {
   day: string;
   /**
    * save_flock_day: نسخة صفّ اليوم اللي شافها المستخدم (null = «أتوقّع ماكو صفّ»). save_flock_visit: نسخة الزيارة (null = زيارة جديدة).
+   * set_flock_gas: نسخة صفّ غاز اليوم (null = لا صفّ بعد).
    */
   baseVersion: number | null;
   state: OpState;
@@ -86,7 +92,12 @@ export interface VisitOp extends OpBase {
   payload: FlockVisitPayload;
 }
 
-export type OutboxOp = DayOp | VisitOp;
+export interface GasOp extends OpBase {
+  fn: 'set_flock_gas';
+  payload: FlockGasPayload;
+}
+
+export type OutboxOp = DayOp | VisitOp | GasOp;
 
 /** رفّ المراجعة: المرفوض من الخادم بالنسختين جنب بعض، وما ينحذف تلقائياً أبداً. */
 export interface ReviewEntry extends Stamp {
@@ -104,8 +115,11 @@ export type SendResult =
    * بعد فحص محلّله) وصفّ اليوم بعدها (flock_day_json، أو null حين لا تبقى زيارة حيّة).
    */
   | { kind: 'saved'; version: number; visit?: unknown; day?: unknown }
-  /** الفوج انقفل أو القاعة طلعت من النطاق أو التاريخ صار قديماً: الخادم ركنها للمدير (flock_day_rejects). */
-  | { kind: 'parked' }
+  /**
+   * الفوج انقفل أو القاعة طلعت من النطاق أو الفترة مقفلة: الخادم ركنها (flock_day_rejects) بسببها (reason)، والجهاز يبقيها في رفّ المراجعة بسببها ولا
+   * يحذفها بصمت (طلب المالك 2026-11-21: «لا تسقط عملية بصمت»).
+   */
+  | { kind: 'parked'; reason?: string | null }
   /** base_version أقدم من المحفوظ: رفّ المراجعة بالنسختين. */
   | { kind: 'stale_day'; server: unknown }
   /**
@@ -113,6 +127,8 @@ export type SendResult =
    * voided: true؛ أو null حين لا زيارة بمعرّفها في الخادم).
    */
   | { kind: 'stale_visit'; server: unknown }
+  /** غاز اليوم تغيّر بعد ما شافه المستخدم: رفّ المراجعة بـ«قيمتك والمحفوظة» (server = {on, cylinders, version}). */
+  | { kind: 'stale_gas'; server: unknown }
   | { kind: 'rejected'; code: string; hint: string | null }
   /** 401، أو 42501 على الدالّة، أو PGRST301. */
   | { kind: 'identity_rejected' }

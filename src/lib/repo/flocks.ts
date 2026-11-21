@@ -517,7 +517,7 @@ export function visitAnswer(value: unknown): SendResult {
     if (answer.day !== null) parseDayRow(answer.day);
     return { kind: 'saved', version: visit.version, visit: answer.visit, day: answer.day };
   }
-  if (answer.status === 'parked') return { kind: 'parked' };
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
   if (answer.status === 'stale_visit') {
     if (answer.server !== null) parseVisit(answer.server);
     return { kind: 'stale_visit', server: answer.server };
@@ -527,12 +527,39 @@ export function visitAnswer(value: unknown): SendResult {
 
 // ─── ناقل الطابور: save_flock_day وsave_flock_visit بمرجع العملية ──────────────────────────────────────────────────────────
 
+/** سبب الركن من جواب parked (flock_closed وout_of_scope وperiod_locked، وdate_too_old من خادم قبل 0035)، أو null بلا سبب. */
+const parkReason = (answer: Row): string | null => (typeof answer.reason === 'string' && answer.reason !== '' ? answer.reason : null);
+
 /** جواب save_flock_day ← نتيجة الطابور (saved وstale_day وparked)؛ شكل غريب يرمي فتبقى العملية بالطابور. */
 export function dayAnswer(value: unknown): SendResult {
   const answer = record(value, 'save_flock_day');
   if (answer.status === 'saved') return { kind: 'saved', version: int(answer, 'version') };
-  if (answer.status === 'parked') return { kind: 'parked' };
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
   if (answer.status === 'stale_day') return { kind: 'stale_day', server: answer.server ?? null };
+  throw new FlockShapeError('status');
+}
+
+/** غاز اليوم كما في جواب set_flock_gas: {on, cylinders, version}؛ شكل غريب يرمي. */
+export function parseGas(value: unknown): { on: Day; cylinders: number | null; version: number } {
+  const row = record(value, 'gas');
+  const on = str(row, 'on');
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(on)) throw new FlockShapeError('on');
+  const cylinders = optInt(row, 'cylinders');
+  if (cylinders !== null && (cylinders < 0 || cylinders > 1000)) throw new FlockShapeError('cylinders');
+  const version = int(row, 'version');
+  if (version < 1) throw new FlockShapeError('version');
+  return { on, cylinders, version };
+}
+
+/** جواب set_flock_gas (0035) ← نتيجة الطابور: saved بنسخة صفّ الغاز، وstale_gas بقيمة الخادم، وparked بسببه؛ شكل غريب يرمي فتبقى العملية بالطابور. */
+export function gasAnswer(value: unknown): SendResult {
+  const answer = record(value, 'set_flock_gas');
+  if (answer.status === 'saved') return { kind: 'saved', version: parseGas(answer.gas).version };
+  if (answer.status === 'stale_gas') {
+    parseGas(answer.server);
+    return { kind: 'stale_gas', server: answer.server };
+  }
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
   throw new FlockShapeError('status');
 }
 
@@ -544,7 +571,16 @@ export function dayAnswer(value: unknown): SendResult {
 export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
   let answer: unknown;
   try {
-    if (op.fn === 'save_flock_visit') {
+    if (op.fn === 'set_flock_gas') {
+      answer = await call<unknown>('set_flock_gas', {
+        p_flock: op.flockId,
+        p_on: op.day,
+        p_cylinders: op.payload.cylinders,
+        p_expected_version: op.baseVersion,
+        p_client_ref: op.id,
+        p_queued: true,
+      });
+    } else if (op.fn === 'save_flock_visit') {
       // الزيارة بمحتواها كاملاً: الإضافة (نسخة null)، والتعديل بنسختها، والإلغاء (p_void) بنسختها.
       const v = op.payload;
       answer = await call<unknown>('save_flock_visit', {
@@ -589,7 +625,7 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
     if (error instanceof RejectedError) return error.code === 'subscription_expired' ? { kind: 'subscription_expired' } : { kind: 'rejected', code: error.code, hint: error.hint };
     throw error;
   }
-  return op.fn === 'save_flock_visit' ? visitAnswer(answer) : dayAnswer(answer);
+  return op.fn === 'set_flock_gas' ? gasAnswer(answer) : op.fn === 'save_flock_visit' ? visitAnswer(answer) : dayAnswer(answer);
 }
 
 export const flockDayTransport: Transport = {

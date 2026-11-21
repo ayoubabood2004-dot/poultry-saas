@@ -205,10 +205,9 @@ function EditVisit({ row, kind, liveStart, others, busy, onClose, onSave }: { ro
     }
     onSave(read.values);
   };
+  // المستبعد والعلف المأكول خرجا من الإدخال (طلب المالك 2026-11-21): قيمتاهما في الزيارة تُرسلان كما هما من لقطتها.
   const fields: [keyof RoundText, string, boolean][] = [
     ['dead', t('round.dead', 'النافق'), false],
-    ['culled', t('round.culled', 'المستبعد'), false],
-    ['feedKg', t('round.feed', 'العلف (كغم)'), true],
     ...(kind === 'layer'
       ? ([
           ['eggsTotal', t('round.eggs_total', 'البيض (المجموع)'), false],
@@ -375,8 +374,8 @@ function HallVisitsView({ kind, flockId, day, canSave, liveStart, refresh = 0, o
   };
   const columns: Column<VisitRow>[] = [
     { key: 'time', header: t('visits.col.time', 'الوقت'), cell: (row) => <Num>{visitClock(row.recordedAt)}</Num> },
-    { key: 'dead', header: t('round.dead', 'النافق'), kind: 'number', cell: (row) => <Num>{fmtInt(row.values.dead)}</Num>, total: totalOf((values) => values.dead) },
-    { key: 'culled', header: t('round.culled', 'المستبعد'), kind: 'number', cell: (row) => <Num>{fmtInt(row.values.culled)}</Num>, total: totalOf((values) => values.culled) },
+    // الهلاكات: النافق والمستبعد القديم معاً (المستبعد خرج من الشاشات).
+    { key: 'dead', header: t('sheet.col.dead', 'الهلاكات'), kind: 'number', cell: (row) => <Num>{fmtInt(row.values.dead + row.values.culled)}</Num>, total: totalOf((values) => values.dead + values.culled) },
     {
       key: 'feed',
       header: t('round.feed', 'العلف (كغم)'),
