@@ -83,6 +83,15 @@ async function scenario(t, db) {
       return { ok: false, code: error.message, hint: error.hint ?? null };
     }
   };
+  /** 0034 («الكلّ مثل المالك»): نداء صار مسموحاً لعضو كان يُمنع يُنفَّذ بمعاملة ترجع، فلا يغيّر ما بعده. */
+  const dryCall = async (user, sql, params = []) => {
+    try {
+      const result = await db.asUser(user, (q) => q(sql, params), { commit: false });
+      return { ok: true, v: result.rows[0] ? Object.values(result.rows[0])[0] : null, rows: result.rows };
+    } catch (error) {
+      return { ok: false, code: error.message, hint: error.hint ?? null };
+    }
+  };
   const code = (outcome) => (outcome.ok ? 'ok' : outcome.code);
   const must = async (user, sql, params = []) => {
     const out = await call(user, sql, params);
@@ -459,23 +468,14 @@ async function scenario(t, db) {
     const RC = await recipe('خلطة الإيجار', [[CORN, 1000]], [[RENT, 60000]]);
     const BC = await batch(RC.version, 100, U.miller); // إيجار 60,000 × 100 ÷ 1,000 = 6,000.00، ولا مصروف إيجار بعد.
     const open = async (b) => (await db.admin('select costs_confirmed_at is null as open from public.production_batches where id = $1', [b])).rows[0].open;
-    t.eq(code(await confirm(U.accGen, BC)), 'out_of_scope', 'محاسب محصور بوحدة «المخازن العامة» لا يختم كلف دفعة بمخزن المعمل (كان يختمها)');
+    t.eq(code(await confirm(U.accGen, BC)), 'expense_overloaded', 'محاسب بصفّ وحدة «المخازن العامة» القديم يصل لفحص المصاريف كالمحاسب (0034)');
     const unfunded = await confirm(U.accountant, BC);
     t.same([code(unfunded), unfunded.hint, await open(BC)],
       ['expense_overloaded', 'إيجار المعمل: المطلوب 6,000 والمتاح من المصاريف المسجّلة 0. سجّل المصروف أوّلاً أو قلّل المبلغ.', true],
       'ختم بلا مصروف يكفي: expense_overloaded بأرقامه للمحاسب، والدفعة بلا ختم');
     const scoped = await confirm(U.accRaw, BC);
-    t.same([code(scoped), scoped.hint], ['out_of_scope', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.'],
-      'محاسب المواد (مخزن المدخلات بنطاقه بلا وحدته): out_of_scope بتلميح يسمّي الوحدة (ق٢١؛ كان expense_overloaded بلا أرقام)');
-    const mScope = await mutated([['public.confirm_production_costs(uuid, integer)', [
-      ['wi := private.stock_wh(d.input_warehouse_id, true);', 'wi := private.stock_wh(d.input_warehouse_id, false);'],
-      ['if not public.in_scope_division(wi.division_id) then', 'if false then'],
-    ]]], [],
-      async ({ as, attempt }) => {
-        await as(U.accGen);
-        return code(await attempt('select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [BC]));
-      });
-    t.same(mScope, 'expense_overloaded', 'طفرة: الختم بلا نطاق المخزن ولا الوحدة ← المحاسب المحصور بوحدة أخرى يصل فحص المصاريف (لا out_of_scope)');
+    t.same([code(scoped), scoped.hint], [code(unfunded), unfunded.hint],
+      'محاسب المواد (بصفّ مخزن المدخلات القديم): الرفض نفسه بأرقامه كالمحاسب (0034)؛ وطفرة نطاق الختم صارت مكافئة فشيلت');
     const mFunds = await mutated([['public.confirm_production_costs(uuid, integer)', [['if c.amount > v_free then', 'if false then']]]], [],
       async ({ as, attempt }) => {
         await as(U.accountant);
@@ -490,8 +490,8 @@ async function scenario(t, db) {
     t.eq(code(await confirm(U.accountant, BC2)), 'ok', 'ختم الدفعة الثانية والمصروف يكفيها لحظتها');
     t.eq(code(await post(U.manager, BC)), 'ok', 'ترحيل الأولى يحمّل الإيجار كلّه');
     const late = await post(U.miller, BC2);
-    t.ok(code(late) === 'expense_overloaded' && /إيجار المعمل/u.test(late.hint ?? '') && !/[0-9]/u.test(late.hint ?? ''),
-      `مشغّل المعمل بعد الختم والمصروف استُهلك: الترحيل يعيد الفحص تحت القفل فيرفض بلا أرقام (${late.hint})`);
+    t.same([code(late), late.hint], ['expense_overloaded', 'إيجار المعمل: المطلوب 6,000 والمتاح من المصاريف المسجّلة 0. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
+      'مشغّل المعمل بعد الختم والمصروف استُهلك: الترحيل يعيد الفحص تحت القفل فيرفض بأرقامه (يرى المال منذ 0034)');
   });
 
   // ─── ق١٣ (#19): «نسخة جديدة» تنسخ المفعَّلة ──────────────────────────────────────────────────────────────────
@@ -519,8 +519,8 @@ async function scenario(t, db) {
     const again = await call(U.manager, NEW, [R13.id, N2]);
     t.same([again.v?.version_id, again.v?.existing, (await db.admin('select count(*)::int as n from public.recipe_versions where id = $1', [N2])).rows[0].n], [N1, true, 0],
       'مسوّدة موجودة للخلطة: ترجع هي بمعرّفها بلا نسخ، والمعرّف الجديد لا يُستعمل');
-    t.same([code(await call(U.miller, NEW, [R13.id, fresh()])), code(await call(U.keeper, NEW, [R13.id, fresh()])), code(await call(U.accountant, NEW, [R13.id, fresh()]))],
-      ['forbidden', 'forbidden', 'forbidden'], 'new_recipe_version لفعل التفعيل: مشغّل المعمل والأمين والمحاسب ممنوعون');
+    t.same([code(await dryCall(U.miller, NEW, [R13.id, fresh()])), code(await dryCall(U.keeper, NEW, [R13.id, fresh()])), code(await dryCall(U.accountant, NEW, [R13.id, fresh()]))],
+      ['ok', 'ok', 'ok'], 'new_recipe_version لكلّ عضو: مشغّل المعمل والأمين والمحاسب (0034، بمعاملة ترجع)');
     t.eq(code(await call(U.manager, NEW, [R0.id, N1])), 'id_conflict', 'معرّف نسخة لخلطة أخرى: id_conflict');
     const RA = await recipe('خلطة مؤرشفة', [[CORN, 1000]]);
     await must(U.manager, 'update public.recipes set archived_at = now() where id = $1 returning id', [RA.id]);
@@ -551,8 +551,8 @@ async function scenario(t, db) {
     const expectB = canon({ batch_id: B14b, doc_no: docB, produced_on: TODAY, qty_kg: '200.000', warehouse_name: 'رصيد العلف' });
     t.same([canon(await last(U.manager, FEED14, FEEDWH)), canon(await last(U.manager, FEED14, null)), canon(await last(U.miller, FEED14, FEEDWH))], [expectB, expectB, expectB],
       'last_production: آخر دفعة مرحَّلة ناتجها هذه المادّة (بمخزنه وبلا مخزن، ولمشغّل المعمل)');
-    t.same([await last(U.manager, FEED14, RAW), await last(U.manager, CORN, null), await last(U.accRaw, FEED14, null)], [null, null, null],
-      'null: مخزن آخر، ومادّة لا تُصنع، ومحاسب المواد (مخزن العلف خارج نطاقه)');
+    t.same([await last(U.manager, FEED14, RAW), await last(U.manager, CORN, null), canon(await last(U.accRaw, FEED14, null))], [null, null, expectB],
+      'null: مخزن آخر، ومادّة لا تُصنع؛ ومحاسب المواد بصفّ نطاق قديم يرى آخر دفعة كالمدير (0034)');
     await must(U.manager, "select public.void_production($1, 'وزن خاطئ', $2)", [B14b, ref()]);
     t.same(canon(await last(U.manager, FEED14, FEEDWH)), canon({ batch_id: B14a, doc_no: docA, produced_on: TODAY, qty_kg: '100.000', warehouse_name: 'رصيد العلف' }),
       'بعد إلغاء الأحدث: آخر دفعة مرحَّلة هي الأولى');
@@ -615,12 +615,10 @@ async function scenario(t, db) {
       return out;
     });
     const all = { production_inputs: [1, 1, 1], production_values: [1, 0, 1], production_input_values: [1, 0, 1], production_costs: [1, 1, 1], production_cost_allocations: [1, 0, 1] };
-    const none = Object.fromEntries(TABLES.map((table) => [table, [0, 0, 0]]));
-    const rawOnly = { production_inputs: [1, 1, 0], production_values: [1, 0, 0], production_input_values: [1, 0, 0], production_costs: [1, 1, 0], production_cost_allocations: [0, 0, 0] };
     t.same([await seen(U.manager), await seen(U.accountant)], [all, all], 'ضابط: المدير والمحاسب بلا نطاق يقرآن الجداول الخمسة كما كانت');
-    t.same(await seen(U.accGen), none, 'محاسب «المخازن العامة»: صفر صفوف من سطور دفعات المعمل ومالها وتكاليفها وتحميلاتها (كان يقرأ التكاليف والتحميلات)');
-    t.same([await seen(U.accRaw), await seen(U.mgrRaw)], [rawOnly, rawOnly],
-      'محاسب المواد ومدير المواد: دفعتا مخزن المواد وحدهما، ولا تحميل (المصروف على وحدة المعمل خارج نطاقهما)');
+    // 0034 («الكلّ مثل المالك»): صفوف النطاق القديمة لا تحجب شيئاً، فمحاسب العامة ومحاسب المواد ومدير المواد يقرؤون كالمدير.
+    t.same([await seen(U.accGen), await seen(U.accRaw), await seen(U.mgrRaw)], [all, all, all],
+      'محاسب «المخازن العامة» ومحاسب المواد ومدير المواد: الجداول الخمسة كالمدير (0034)');
     const MILL_TABLES = [...TABLES, 'production_batches'];
     const auditSeen = (user) => db.asUser(user, async (q) => (await q(`
       select table_name as t, coalesce(coalesce(new, old) ->> 'batch_id', coalesce(new, old) ->> 'id') as b, count(*)::int as n from public.audit_log
@@ -629,26 +627,8 @@ async function scenario(t, db) {
     const managerAudit = await auditSeen(U.manager);
     t.ok(['production_cost_allocations', 'production_batches', 'production_costs'].every((table) => managerAudit.some((r) => r.t === table && r.b === BR3)),
       `ضابط: المدير يقرأ سجلّ تدقيق الدفعات والتكاليف والتحميلات كلّها (${managerAudit.length} مجموعة)`);
-    t.same(await auditSeen(U.accGen), [], 'محاسب «المخازن العامة»: ولا سطر تدقيق من جداول دفعات المعمل');
-    const rawAudit = await auditSeen(U.accRaw);
-    t.same(rawAudit.filter((r) => r.b === BR3 || r.t === 'production_cost_allocations'), [], 'محاسب المواد: ولا سطر تدقيق لدفعة مخزن المواد الثاني ولا لتحميل من مصاريف المعمل');
-    t.ok(rawAudit.some((r) => r.t === 'production_costs' && r.b === BR1) && rawAudit.some((r) => r.t === 'production_batches' && r.b === BR2),
-      'ضابط: محاسب المواد يقرأ سجلّ دفعات مخزنه وتكاليفها');
-    /** طفرة سياسة: تُسقَط بمعاملة ترجع، ثمّ العدّ بهويّة القارئ ودور authenticated (فالسياسات تنطبق). */
-    const asRole = (user, ddl, sql) => mutated([], [ddl], async ({ as, oq }) => {
-      await as(user, 'authenticated');
-      return (await oq(sql, [BATCHES])).rows[0].n;
-    });
-    t.same(
-      [await asRole(U.accGen, 'drop policy production_costs_batch_scope on public.production_costs',
-        'select count(*)::int as n from public.production_costs where batch_id = any ($1)'),
-      await asRole(U.accRaw, 'drop policy production_cost_allocations_expense_scope on public.production_cost_allocations',
-        'select count(*)::int as n from public.production_cost_allocations where batch_id = any ($1)'),
-      await asRole(U.accGen, 'drop policy audit_log_mill_scope on public.audit_log',
-        "select count(*)::int as n from public.audit_log where table_name = 'production_costs' and (coalesce(new, old) ->> 'batch_id') = any ($1::text[])")],
-      [3, 1, 3],
-      'طفرات: بلا نطاق دفعة التكاليف يقرأ محاسب العامة سطورها الثلاثة، وبلا نطاق المصروف يقرأ محاسب المواد تحميل BR1، وبلا نطاق السجلّ يقرأ محاسب العامة تدقيقها',
-    );
+    t.same([await auditSeen(U.accGen), await auditSeen(U.accRaw)], [managerAudit, managerAudit], 'محاسب «المخازن العامة» ومحاسب المواد: سجلّ تدقيق دفعات المعمل كالمدير (0034)');
+    // 0034: طفرات إسقاط سياسات النطاق صارت مكافئة (in_scope_* صحيح لكلّ عضو في منشأته)، فشيلت؛ والكتالوج تحته يبقي السياسات قائمة.
 
     // من الكتالوج (فجدول جديد بمفتاح إلى الدفعات يدخل وحده): كلّ جدول يشير إلى production_batches بسياسة قراءة مقيِّدة تقرأ الدفعة، وسجلّ
     // التدقيق يسمّيه في سياسة نطاق المعمل. (فحص cost-leak يشتقّ الجداول المحصورة من سياسات in_scope_wh وحدها، فلا يرى هذه.)
@@ -681,12 +661,12 @@ async function scenario(t, db) {
     );
     for (const [label, user] of [['محاسب المواد', U.accRaw], ['مدير المواد', U.mgrRaw]]) {
       const view = await preview(user, BR2);
-      t.same([view.money.costs.map((c) => ('available' in c ? c.available : 'absent')), view.problems.filter((x) => ['costs_unfunded', 'costs_unsealed_scope'].includes(x.code)).map(canon)],
-        [[null], [canon({ code: 'costs_unsealed_scope', division_name: 'معمل العلف' })]],
-        `${label} قبل الختم: available = null، وcosts_unsealed_scope تسمّي الوحدة لا costs_unfunded (ق٢١؛ كانت costs_unfunded بلا أرقام، وقبلها مجموع المصاريف)`);
+      t.same([view.money.costs.map((c) => c.available), view.problems.filter((x) => x.code === 'costs_unfunded').map((x) => [x.category_name, x.need, x.have])],
+        [['2500.00'], [['أيدي عاملة النطاق', '5000.00', '2500.00']]],
+        `${label} قبل الختم: المتاح 2,500 وcosts_unfunded بأرقامه كالمحاسب (0034)`);
       const refused = await post(user, BR2);
-      t.same([code(refused), refused.hint], ['costs_unsealed_scope', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف» خارج نطاقك، فتُرحَّل بعد أن يختمها محاسب أو مدير يرى تلك الوحدة.'],
-        `${label}: الترحيل قبل الختم costs_unsealed_scope (ق٢١؛ كان expense_overloaded بلا أرقام)`);
+      t.same([code(refused), refused.hint], ['expense_overloaded', 'أيدي عاملة النطاق: المطلوب 5,000 والمتاح من المصاريف المسجّلة 2,500. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
+        `${label}: الترحيل قبل الختم expense_overloaded بأرقامه كالمحاسب (0034)`);
     }
     const fullRefused = await post(U.accountant, BR2);
     t.same([code(fullRefused), fullRefused.hint], ['expense_overloaded', 'أيدي عاملة النطاق: المطلوب 5,000 والمتاح من المصاريف المسجّلة 2,500. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
@@ -697,24 +677,10 @@ async function scenario(t, db) {
       if (!('allocations' in c)) return 'absent';
       return c.allocations === null ? null : c.allocations.map((a) => [a.amount, a.label]);
     });
-    t.same([await detailOf(U.manager), await detailOf(U.accRaw), await detailOf(U.mgrRaw)], [[[['10000.00', 'أجور سرّية للمعمل']]], [null], [null]],
-      'بطاقة الدفعة: التحميلات للمدير بملاحظة المصروف، وnull لمحاسب المواد ومدير المواد (لا مصفوفة)');
-    const EXP_PAIR = [['v_exp := v_cost and public.in_scope_division(wi.division_id);', 'v_exp := v_cost;']];
-    const mPreview = await mutated([[PREVIEW_FN, EXP_PAIR]], [], async ({ as, attempt }) => {
-      await as(U.accRaw);
-      return (await attempt("select public.preview_production($1) -> 'money' -> 'costs' -> 0 ->> 'available'", [BR2])).v;
-    });
-    const mPost = await mutated([[POST_FN, EXP_PAIR]], [], async ({ as, attempt }) => {
-      await as(U.accRaw);
-      return (await attempt(POST, [BR2, null, ref()])).hint;
-    });
-    const mDetail = await mutated([['public.production_detail(uuid)', [['v_exp := public.can_see_cost() and public.in_scope_division(', 'v_exp := public.can_see_cost() or public.in_scope_division(']]]], [],
-      async ({ as, attempt }) => {
-        await as(U.accRaw);
-        return (await attempt("select jsonb_typeof(public.production_detail($1) -> 'money' -> 'costs' -> 0 -> 'allocations')", [BR1])).v;
-      });
-    t.same([mPreview, /[0-9]/u.test(mPost ?? ''), mDetail], ['2500.00', true, 'array'],
-      'طفرات: الأرقام لمن يرى الكلفة وحده (بلا وحدة المدخلات) ← المتاح 2,500 في المعاينة، وأرقام في التلميح، ومصفوفة التحميلات في البطاقة');
+    const ALLOC = [[['10000.00', 'أجور سرّية للمعمل']]];
+    t.same([await detailOf(U.manager), await detailOf(U.accRaw), await detailOf(U.mgrRaw)], [ALLOC, ALLOC, ALLOC],
+      'بطاقة الدفعة: التحميلات بملاحظة المصروف للمدير ومحاسب المواد ومدير المواد (0034)');
+    // 0034: طفرات «الأرقام لمن يرى وحدة المدخلات» صارت مكافئة (v_exp صحيح لكلّ عضو)، فشيلت.
     const mDivision = await mutated([[PREVIEW_FN, [["'division_name', (select dv.name from public.divisions dv where dv.org_id = v_org and dv.id = wi.division_id)),", "'division_name', wi.name),"]]]], [],
       async ({ attempt }) => (await attempt("select public.preview_production($1) -> 'input_warehouse' ->> 'division_name'", [BR2])).v);
     t.eq(mDivision, 'مخزن المواد الأوّلية', 'طفرة: اسم الوحدة من المخزن ← اسم المخزن لا «معمل العلف»');
@@ -722,7 +688,7 @@ async function scenario(t, db) {
     // الترحيل للمحصور بمخزن بعد الختم فقط (ق٢١، وكان مسموحاً قبله): مصروف ثالث 2,500 يكفي، فيختم المحاسب بلا نطاق ثمّ يرحّل محاسب المواد
     // (التحميل يكتبه النظام).
     await expense(LAB, 2500, 1, 'أجور إضافية');
-    t.eq(code(await post(U.accRaw, BR2)), 'costs_unsealed_scope', 'محاسب المواد قبل الختم والمصاريف تكفي: costs_unsealed_scope (ق٢١؛ كان يرحّل)');
+    t.eq(code(await dryCall(U.accRaw, POST, [BR2, null, ref()])), 'ok', 'محاسب المواد قبل الختم والمصاريف تكفي: يرحّل كالمحاسب (0034، بمعاملة ترجع)');
     t.eq(code(await confirm(U.accountant, BR2)), 'ok', 'المحاسب بلا نطاق يختم BR2');
     t.eq(code(await post(U.accRaw, BR2)), 'ok', 'بعد الختم يرحّل محاسب المواد (قرار ق٢١: الترحيل للمحصور بعد الختم فقط)');
     t.same((await db.admin('select created_by, sum(amount)::text as a from public.production_cost_allocations where batch_id = $1 group by created_by', [BR2])).rows,
@@ -737,16 +703,11 @@ async function scenario(t, db) {
     const lineMoney = async (user) => (await must(user, 'select public.recipe_detail($1, null)', [R.id])).lines[0].money;
     const rawMoney = await lineMoney(U.accRaw);
     const managerMoney = await lineMoney(U.manager);
-    t.same([rawMoney.last_price, rawMoney.unit_cost, managerMoney.last_price, managerMoney.unit_cost !== '900.00'], ['900.00', '900.00', '1234.00', true],
-      'محاسب المواد: آخر شراء ومتوسّط المتاح 900 من مخزنه وحده (كان 1,234 ومتوسّطاً يعدّ المخزن الثاني)؛ والمدير 1,234 ومتوسّط المخزنين');
+    t.same([rawMoney.last_price, rawMoney.unit_cost, managerMoney.last_price, managerMoney.unit_cost !== '900.00'], [managerMoney.last_price, managerMoney.unit_cost, '1234.00', true],
+      'محاسب المواد بصفّ مخزن قديم: آخر شراء ومتوسّط المتاح من المخزنين كالمدير (1,234، 0034)');
     // كلفة الكيلو المتوقّعة: (1,000 × 900 + 5,000) ÷ 1,000 = 905.00 لمحاسب المواد، و(1,000 × 1,234 + 5,000) ÷ 1,000 = 1,239.00 للمدير.
     const expected = async (user) => (await must(user, 'select public.recipes_overview()')).recipes.find((r) => r.id === R.id).money.expected_cost_per_kg;
-    t.same([await expected(U.accRaw), await expected(U.manager)], ['905.00', '1239.00'], 'لوحة المعمل: كلفة الكيلو المتوقّعة من مخازن نطاق القارئ');
-    const mPrice = await mutated([['private.item_last_price(uuid)', [['and l.qty_in > 0 and public.in_scope_wh(l.warehouse_id)', 'and l.qty_in > 0']]]], [], async ({ as, attempt }) => {
-      await as(U.accRaw);
-      return (await attempt("select public.recipe_detail($1, null) -> 'lines' -> 0 -> 'money' ->> 'last_price'", [R.id])).v;
-    });
-    t.eq(mPrice, '1234.00', 'طفرة: آخر شراء بلا نطاق المخزن ← 1,234 لمحاسب المواد');
+    t.same([await expected(U.accRaw), await expected(U.manager)], ['1239.00', '1239.00'], 'لوحة المعمل: كلفة الكيلو المتوقّعة كالمدير لكلّ عضو (0034)؛ وطفرة نطاق آخر شراء صارت مكافئة فشيلت');
   });
 
   // ─── ق١ (#0 و#7): الترحيل يحمّل ممّا قفله فقط — جلسات حقيقية ───────────────────────────────────────────────────
@@ -909,11 +870,8 @@ async function scenario(t, db) {
   // كلّ إصلاح بفحص يفشل على الهجرة كما كانت عند 203bacb وينجح بعده، وطفرة حقيقية بمعاملة ترجع تكسر فحصه بالضبط.
   const nonZeroOn = async (q, fn = 'verify_mill') =>
     Object.fromEntries((await q(`select check_name, violations::int as n from public.${fn}() where violations <> 0`)).rows.map((r) => [r.check_name, r.n]));
-  const SCOPE_HINT = 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.';
-  const UNSEALED_HINT = 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف» خارج نطاقك، فتُرحَّل بعد أن يختمها محاسب أو مدير يرى تلك الوحدة.';
 
   // ─── ق٢١ (#0): من لا يرى مصاريف وحدة مخزن المدخلات لا يحدّد مبلغاً يُحمَّل منها ولا يختمه، ويرحّل بعد الختم فقط ─────────
-  const K21 = {};
   await section('ق٢١', async () => {
     const LAB21 = await category('أيدي عاملة الختم');
     const MOVE21 = await category('نقل الختم');
@@ -925,31 +883,34 @@ async function scenario(t, db) {
     const line = (await db.admin('select id from public.production_costs where batch_id = $1', [B])).rows[0].id;
     const amountOf = async () => (await db.admin('select amount::text as a from public.production_costs where id = $1', [line])).rows[0].a;
     // التنصيف (#0) يُرفض من أوّل خطوة: تعديل المبلغ إلى منتصف المدى، فلا سؤال صحّ/خطأ على المعاينة أو الختم بعده.
-    const probe = await call(U.accRaw, 'update public.production_costs set amount = 4228 where id = $1 returning amount', [line]);
-    t.same([code(probe), probe.hint, await amountOf()], ['out_of_scope', SCOPE_HINT, '10000.00'],
-      'محاسب المواد: أوّل خطوة في التنصيف (تعديل مبلغ السطر) out_of_scope بتلميح يسمّي الوحدة، والمبلغ كما هو (كان الحارس يقبله)');
-    const ins = await call(U.accRaw, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 100) returning id', [B, MOVE21]);
-    t.same([code(ins), ins.hint], ['out_of_scope', SCOPE_HINT], 'محاسب المواد: إضافة سطر يدوي out_of_scope');
+    // 0034 («الكلّ مثل المالك»): محاسب المواد بصفّ مخزن قديم يرى مصاريف الوحدة كالمحاسب، فيكتب التكاليف (بمعاملة ترجع)، والختم والترحيل يُرفضان بأرقامهما كالمحاسب.
+    const probe = await dryCall(U.accRaw, 'update public.production_costs set amount = 4228 where id = $1 returning amount', [line]);
+    t.same([code(probe), await amountOf()], ['ok', '10000.00'], 'محاسب المواد يعدّل مبلغ السطر كالمحاسب (0034، بمعاملة ترجع)، والمبلغ كما هو بعدها');
+    const ins = await dryCall(U.accRaw, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 100) returning id', [B, MOVE21]);
+    t.eq(code(ins), 'ok', 'محاسب المواد يضيف سطراً يدوياً (0034، بمعاملة ترجع)');
     const manual = await must(U.accountant, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 0) returning id', [B, MOVE21]);
-    const del = await call(U.accRaw, "select public.delete_draft_line('production_cost', $1, (select version from public.production_batches where id = $2))", [manual, B]);
-    t.same([code(del), del.hint, (await db.admin('select count(*)::int as n from public.production_costs where id = $1', [manual])).rows[0].n], ['out_of_scope', SCOPE_HINT, 1],
-      'محاسب المواد: حذف سطر كلفة (أضافه المحاسب بلا نطاق) out_of_scope، والسطر باقٍ');
+    const del = await dryCall(U.accRaw, "select public.delete_draft_line('production_cost', $1, (select version from public.production_batches where id = $2))", [manual, B]);
+    t.same([code(del), (await db.admin('select count(*)::int as n from public.production_costs where id = $1', [manual])).rows[0].n], ['ok', 1],
+      'محاسب المواد يحذف سطر كلفة (0034، بمعاملة ترجع)، والسطر باقٍ بعدها');
     const seal = await confirm(U.accRaw, B);
-    t.same([code(seal), seal.hint], ['out_of_scope', SCOPE_HINT], 'محاسب المواد: الختم out_of_scope (كان يجيب ok أو expense_overloaded صحّاً أو خطأً)');
+    const accSeal = await confirm(U.accountant, B);
+    t.same([code(seal), seal.hint], [code(accSeal), accSeal.hint], `محاسب المواد: الختم يُرفض بأرقامه كالمحاسب (${seal.hint})`);
+    t.eq(code(seal), 'expense_overloaded', 'والرفض expense_overloaded (10,000 فوق المتاح 8,456)');
     const look = await preview(U.accRaw, B);
-    t.same([look.expenses_visible, look.money.costs.map((c) => c.available), look.problems.map(canon), look.can_post],
-      [false, [null, null], [canon({ code: 'costs_unsealed_scope', division_name: 'معمل العلف' })], false],
-      'معاينة محاسب المواد قبل الختم: expenses_visible = false والمتاح null، وcosts_unsealed_scope تسمّي الوحدة لا costs_unfunded (والمبلغ 10,000 فوق المتاح 8,456)، ولا ترحيل');
+    t.same([look.expenses_visible, look.money.costs.map((c) => c.available), look.problems.map((x) => [x.code, x.need ?? null, x.have ?? null]), look.can_post],
+      [true, ['8456.00', '0.00'], [['costs_unfunded', '10000.00', '8456.00']], false],
+      'معاينة محاسب المواد قبل الختم: المتاح 8,456 والنقص بأرقامه كالمحاسب (0034)، ولا ترحيل');
     const full = await preview(U.accountant, B);
     t.same([full.expenses_visible, full.money.costs.map((c) => c.available), full.problems.map((x) => [x.code, x.need ?? null, x.have ?? null])],
       [true, ['8456.00', '0.00'], [['costs_unfunded', '10000.00', '8456.00']]],
       'ضابط: المحاسب بلا نطاق يرى المتاح 8,456 والنقص بأرقامه، وexpenses_visible = true، وبلا costs_unsealed_scope');
     const early = await post(U.accRaw, B);
-    t.same([code(early), early.hint], ['costs_unsealed_scope', UNSEALED_HINT], 'محاسب المواد يرحّل قبل الختم: costs_unsealed_scope (كان يصل expense_overloaded صحّاً أو خطأً)');
+    t.same([code(early), early.hint], ['expense_overloaded', 'أيدي عاملة الختم: المطلوب 10,000 والمتاح من المصاريف المسجّلة 8,456. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
+      'محاسب المواد يرحّل قبل الختم: expense_overloaded بأرقامه كالمحاسب (0034)');
     const millerLook = await preview(U.miller, B);
-    t.same([millerLook.money, millerLook.problems.map((x) => x.code), millerLook.can_post, millerLook.expenses_visible], [undefined, ['costs_pending'], false, false],
-      'مشغّل المعمل قبل الختم: costs_pending وحده (لا costs_unsealed_scope ولا costs_unfunded) بلا مال');
-    t.eq(code(await post(U.miller, B)), 'forbidden', 'مشغّل المعمل قبل الختم: forbidden كما كان');
+    t.same([millerLook.problems.map((x) => x.code), millerLook.can_post, millerLook.expenses_visible, canon(millerLook.money)], [['costs_unfunded'], false, true, canon(look.money)],
+      'مشغّل المعمل قبل الختم: costs_unfunded بالمال نفسه كالمحاسب (0034)');
+    t.eq(code(await post(U.miller, B)), 'expense_overloaded', 'مشغّل المعمل قبل الختم: يصل لفحص المصاريف (0034)');
     t.eq(code(await call(U.accountant, 'update public.production_costs set amount = 8000 where id = $1 returning id', [line])), 'ok', 'المحاسب بلا نطاق يعدّل المبلغ إلى 8,000');
     t.eq(code(await confirm(U.accountant, B)), 'ok', 'ويختم (8,000 ≤ 8,456)');
     const sealedLook = await preview(U.accRaw, B);
@@ -962,56 +923,21 @@ async function scenario(t, db) {
     const Bb = await batch(R21.version, 50, U.miller);
     t.same([code(await confirm(U.accountant, Ba)), code(await confirm(U.accountant, Bb)), code(await post(U.manager, Ba))], ['ok', 'ok', 'ok'], 'ختم الدفعتين وترحيل الأولى');
     const after = [await preview(U.accRaw, Bb), await preview(U.miller, Bb)];
-    t.same(after.map((p) => [p.problems.map(canon), p.can_post]), [[[canon({ code: 'costs_unfunded' })], false], [[canon({ code: 'costs_unfunded' })], false]],
-      'بعد الختم والمتاح 4,456 < 5,000: محاسب المواد ومشغّل المعمل يريان costs_unfunded بلا أرقام (المبلغ لا يتغيّر إلّا ويُفرَّغ الختم)');
+    const accAfter = await preview(U.accountant, Bb);
+    t.same(after.map((p) => [canon(p.problems), p.can_post]), [[canon(accAfter.problems), false], [canon(accAfter.problems), false]],
+      'بعد الختم والمتاح 4,456 < 5,000: محاسب المواد ومشغّل المعمل يريان costs_unfunded بأرقامه كالمحاسب (0034)');
+    t.same(accAfter.problems.map((x) => x.code), ['costs_unfunded'], 'ضابط: المشكلة costs_unfunded');
     const late = await post(U.accRaw, Bb);
-    t.same([code(late), late.hint], ['expense_overloaded', 'تكاليف «أيدي عاملة الختم» أكبر من المصاريف المسجّلة لها. اطلب من المحاسب أو المدير تسجيل المصروف أو تعديل السطر.'],
-      'ترحيل محاسب المواد بعد الختم والمتاح لا يكفي: expense_overloaded بلا أرقام');
-    // دفعتان للطفرات: BM 10 كغم (1,000 ≤ 4,456) بسطر يدوي، وBU 100 كغم (10,000 > 4,456)، كلتاهما بلا ختم.
-    const BM = await batch(R21.version, 10, U.miller);
-    const manualM = await must(U.accountant, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 0) returning id', [BM, MOVE21]);
-    const BU = await batch(R21.version, 100, U.miller);
-    Object.assign(K21, { BM, BU, manualM, lineM: (await db.admin('select id from public.production_costs where batch_id = $1 and category_id = $2', [BM, LAB21])).rows[0].id });
+    t.same([code(late), late.hint], ['expense_overloaded', 'أيدي عاملة الختم: المطلوب 5,000 والمتاح من المصاريف المسجّلة 4,456. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
+      'ترحيل محاسب المواد بعد الختم والمتاح لا يكفي: expense_overloaded بأرقامه (0034)');
     t.same(
       [canon((await detail(U.accRaw, B)).expenses_visible), canon((await detail(U.manager, B)).expenses_visible), canon((await detail(U.miller, B)).expenses_visible)],
-      [false, true, false],
-      'production_detail: expenses_visible = false لمحاسب المواد ومشغّل المعمل، وtrue للمدير',
+      [true, true, true],
+      'production_detail: expenses_visible = true لمحاسب المواد ومشغّل المعمل والمدير (0034)',
     );
   });
-  await section('ق٢١ طفرات', async () => {
-    const { BM, BU, manualM, lineM } = K21;
-    if (!BU) throw new Error('ق٢١ لم يكتمل');
-    const GUARD_FN = 'private.production_costs_guard()';
-    const DELETE_FN = 'public.delete_draft_line(text, uuid, integer)';
-    const CONFIRM_FN = 'public.confirm_production_costs(uuid, integer)';
-    const DETAIL_FN = 'public.production_detail(uuid)';
-    const asRaw = async (pairs, sql, params) => mutated(pairs, [], async ({ as, attempt }) => {
-      await as(U.accRaw, 'authenticated');
-      const out = await attempt(sql, params);
-      return out.ok ? ['ok', out.v] : [out.code];
-    });
-    const mGuard = await asRaw([[GUARD_FN, [['if not public.in_scope_division(v_div) then', 'if false then']]]],
-      'update public.production_costs set amount = 500 where id = $1 returning amount::text', [lineM]);
-    const mDelete = await asRaw([[DELETE_FN, [["if p_doc_kind = 'production_cost'\n    and not public.in_scope_division(", "if false\n    and not public.in_scope_division("]]]],
-      "select public.delete_draft_line('production_cost', $1, (select version from public.production_batches where id = $2)) ->> 'deleted'", [manualM, BM]);
-    const mConfirm = await asRaw([[CONFIRM_FN, [['if not public.in_scope_division(wi.division_id) then', 'if false then']]]],
-      "select public.confirm_production_costs($1, (select version from public.production_batches where id = $1)) ->> 'written'", [BM]);
-    const mPost = await asRaw([[POST_FN, [["if not v_exp and d.costs_confirmed_at is null\n    and exists", "if false\n    and exists"]]]], POST + " ->> 'status'", [BM, null, ref()]);
-    t.same([mGuard, mDelete, mConfirm, mPost], [['ok', '500.00'], ['ok', 'true'], ['ok', 'true'], ['ok', 'posted']],
-      'طفرات بلا فحص الوحدة: محاسب المواد يعدّل المبلغ، ويحذف السطر، ويختم، ويرحّل قبل الختم (كلّ فحص فوق يفشل)');
-    const previewOf = (pairs) => asRaw(pairs, 'select public.preview_production($1)', [BU]);
-    const [, real] = await previewOf([]);
-    const [, mUnfunded] = await previewOf([[PREVIEW_FN, [['if v_unfunded and not v_exp and d.costs_confirmed_at is not null then', 'if v_unfunded and not v_exp then']]]]);
-    const [, mUnsealed] = await previewOf([[PREVIEW_FN, [["if not v_exp and d.status = 'draft' and d.costs_confirmed_at is null and v_positive and public.can('production.post') then", 'if false then']]]]);
-    const [, mVisible] = await previewOf([[PREVIEW_FN, [["'expenses_visible', v_exp,", "'expenses_visible', v_cost,"]]]]);
-    const shape = (p) => [p.problems.map((x) => x.code), p.can_post, p.expenses_visible];
-    t.same([shape(real), shape(mUnfunded), shape(mUnsealed), shape(mVisible)],
-      [[['costs_unsealed_scope'], false, false], [['costs_unfunded', 'costs_unsealed_scope'], false, false], [[], true, false], [['costs_unsealed_scope'], false, true]],
-      'طفرات المعاينة: costs_unfunded قبل الختم يعود وحياً، وبلا costs_unsealed_scope تقول can_post = true والترحيل سيُرفض، وexpenses_visible من دور الكلفة وحده = true');
-    const mDetail = await asRaw([[DETAIL_FN, [["'expenses_visible', v_exp,", "'expenses_visible', public.can_see_cost(),"]]]],
-      "select (public.production_detail($1) ->> 'expenses_visible')::boolean", [BU]);
-    t.same(mDetail, ['ok', true], 'طفرة: expenses_visible في بطاقة الدفعة من دور الكلفة وحده ← true لمحاسب المواد');
-  });
+  // 0034: «ق٢١ طفرات» (فحص الوحدة في الحارس والحذف والختم والترحيل، وcosts_unsealed_scope وexpenses_visible في المعاينة والبطاقة) صارت كلّها مكافئة،
+  // لأنّ in_scope_division صحيح لكلّ عضو في منشأته؛ فشيلت، ودفعتاها BM وBU معها.
 
   // ─── ق٣٣ (#0، في نطاق ق٢١): «سطر كلفة موجب» — المحصور بمخزن يرحّل قبل الختم دفعةً لا يُحمَّل عليها شيء ─────────────────────────
   await section('ق٣٣', async () => {
@@ -1035,24 +961,7 @@ async function scenario(t, db) {
         t.same([p.problems, p.can_post, code(await post(user, b))], [[], true, 'ok'], `${label} قبل الختم، دفعة ${kind}: problems = [] وcan_post = true والترحيل ok`);
       }
     }
-    // ثمّ الطفرتان بمعاملة ترجع على دفعات أخرى لم تُرحَّل، لكلّ مستخدم ولكلّ دفعة: v_positive صحيح دائماً في المعاينة، وexists صحيح دائماً في الترحيل.
-    const cases = [];
-    for (const [label, user] of USERS) cases.push({ label, user, ...(await pairFor()) });
-    const shape = (p) => [p.problems.map((x) => x.code), p.can_post];
-    const sweep = (pairs, run) => mutated(pairs, [], async ({ as, attempt }) => {
-      const out = [];
-      for (const { user, bare, zero } of cases) {
-        await as(user);
-        for (const b of [bare, zero]) out.push(await run(attempt, b));
-      }
-      return out;
-    });
-    const mPreview = await sweep([[PREVIEW_FN, [['  v_positive boolean := false;', '  v_positive boolean := true;']]]],
-      async (attempt, b) => shape((await attempt('select public.preview_production($1)', [b])).v));
-    const mPost = await sweep([[POST_FN, [['    and exists (select 1 from public.production_costs pc where pc.org_id = v_org and pc.batch_id = d.id and pc.amount > 0) then', '    and true then']]]],
-      async (attempt, b) => code(await attempt(POST, [b, null, ref()])));
-    t.same([mPreview, mPost], [Array(4).fill([['costs_unsealed_scope'], false]), Array(4).fill('costs_unsealed_scope')],
-      'طفرتان: v_positive يبدأ صحيحاً ← المعاينة تقفل «أنتج الآن» بـcosts_unsealed_scope عن مصاريف لا تُحمَّل، وexists صحيح دائماً ← الترحيل يُرفض (الحالات الأربع)');
+    // 0034: طفرتا v_positive وexists صارتا مكافئتين (فرع costs_unsealed_scope لا يصله عضو: v_exp صحيح لكلّ عضو)، فشيلتا.
   });
 
   // ─── ق٢٢ (#2، #5): «داخل الكتلة» لقطة على سطر الخلطة عند التفعيل (FOUNDATION القاعدة ٤، مثل الكثافة) ──────────────────────
@@ -1211,13 +1120,12 @@ async function scenario(t, db) {
     for (const [label, user] of [['أمين العلف', U.keepFeed], ['محاسب العلف', U.accFeed]]) {
       const last = (await must(user, 'select public.item_purchases($1, $2, null, 50)', [FEED, FEEDWH])).last_production;
       t.same([last !== null, await opened(user, last?.batch_id), await opened(user, BR3)],
-        [true, ['ok', canon({ input: false, output: true }), false], ['ok', canon({ input: false, output: true }), false]],
-        `${label}: last_production يظهر ورابطه يفتح، وscope = {input: false, output: true} (كان out_of_scope)`);
+        [true, ['ok', canon({ input: true, output: true }), true], ['ok', canon({ input: true, output: true }), true]],
+        `${label}: last_production يظهر ورابطه يفتح بطرفيه ومصاريفه (0034)`);
     }
     t.same([await opened(U.manager, BR1), await opened(U.accRaw, BR3), await opened(U.keepGen, BR1)],
-      [['ok', canon({ input: true, output: true }), true], ['out_of_scope', 'مخزنا هذه الدفعة (مخزن المواد ومخزن العلف) خارج نطاقك.'],
-        ['out_of_scope', 'مخزنا هذه الدفعة (مخزن المواد ومخزن العلف) خارج نطاقك.']],
-      'ضوابط: المدير بالطرفين، ومحاسب المواد لا يفتح دفعة المخزن الثاني إلى العلف، وأمين المخزن العام لا يفتح شيئاً');
+      [['ok', canon({ input: true, output: true }), true], ['ok', canon({ input: true, output: true }), true], ['ok', canon({ input: true, output: true }), true]],
+      'المدير ومحاسب المواد وأمين المخزن العام يفتحون الدفعات بطرفيها (0034)');
     const count = (user, table, column = 'batch_id') => db.asUser(user, async (q) => (await q(`select count(*)::int as n from public.${table} where ${column} = any ($1)`, [PAIR])).rows[0].n);
     const READERS = [U.keepFeed, U.accFeed, U.keepGen, U.accRaw];
     const rows = async (table, column) => {
@@ -1225,13 +1133,13 @@ async function scenario(t, db) {
       for (const user of READERS) out.push(await count(user, table, column));
       return out;
     };
-    t.same([await rows('production_batches', 'id'), await rows('production_inputs'), await rows('production_values')], [[2, 2, 0, 1], [2, 2, 0, 1], [0, 2, 0, 1]],
-      'عبر RLS: أمين العلف ومحاسبه يقرآن الدفعتين وسطورهما (والمال لدور الكلفة وحده)، وأمين المخزن العام لا شيء، ومحاسب المواد دفعة مخزنه');
+    t.same([await rows('production_batches', 'id'), await rows('production_inputs'), await rows('production_values')], [[2, 2, 2, 2], [2, 2, 2, 2], [2, 2, 2, 2]],
+      'عبر RLS: القرّاء الأربعة بصفوف نطاق قديمة يقرؤون الدفعتين وسطورهما ومالهما (0034)');
     const audit = (user) => db.asUser(user, async (q) => (await q(`select table_name as t, count(*)::int as n from public.audit_log
       where (table_name = 'production_batches' and coalesce(new, old) ->> 'id' = any ($1::text[]))
         or (table_name = 'production_inputs' and coalesce(new, old) ->> 'batch_id' = any ($1::text[])) group by 1 order by 1`, [PAIR])).rows);
     const managerAudit = await audit(U.manager);
-    t.same([await audit(U.accFeed), await audit(U.accGen)], [managerAudit, []], `سجلّ التدقيق: محاسب العلف يقرأ تدقيق الدفعتين وسطورهما كالمدير (${JSON.stringify(managerAudit)})، ومحاسب العامة لا شيء`);
+    t.same([await audit(U.accFeed), await audit(U.accGen)], [managerAudit, managerAudit], `سجلّ التدقيق: محاسب العلف ومحاسب العامة يقرآن تدقيق الدفعتين وسطورهما كالمدير (${JSON.stringify(managerAudit)}، 0034)`);
     // لوحة المعمل: عدد الدفعات وآخرها من الدفعات التي يقرؤها القارئ. دفعات «خلطة النطاق» المرحَّلة BR1 وBR3 وBR2، وآخرها BR2 (المعرّف الأكبر).
     const lastNo = (await db.admin('select doc_no from public.production_batches where id = $1', [BR2])).rows[0].doc_no;
     const board = async (user, q = null) => {
@@ -1239,35 +1147,8 @@ async function scenario(t, db) {
       const c = json.recipes.find((x) => x.id === R.id);
       return [c.batches, c.last_batch?.doc_no ?? null];
     };
-    t.same([await board(U.manager), await board(U.keepFeed), await board(U.accRaw), await board(U.keepGen)], [[3, lastNo], [3, lastNo], [2, lastNo], [0, null]],
-      'recipes_overview: الدفعات وآخرها بنطاق القارئ (أمين العلف الثلاث، ومحاسب المواد دفعتا مخزنه، وأمين المخزن العام لا شيء؛ كانت 3 للكلّ)');
-    // الطفرات بمعاملة ترجع.
-    const READ15 = ['drop policy production_batches_read on public.production_batches',
-      'create policy production_batches_read on public.production_batches for select to authenticated using (org_id = (select public.auth_org()) and (select public.in_scope_wh(input_warehouse_id)))'];
-    const mPolicy = await mutated([], READ15, async ({ as, oq }) => {
-      await as(U.accFeed, 'authenticated');
-      return (await oq('select count(*)::int as n from public.production_inputs where batch_id = any ($1)', [PAIR])).rows[0].n;
-    });
-    const mAudit = await mutated([], ['drop policy audit_log_mill_scope on public.audit_log', `create policy audit_log_mill_scope on public.audit_log as restrictive for select to authenticated
-      using (case when table_name = 'production_batches' then public.in_scope_wh((coalesce("new", "old") ->> 'input_warehouse_id')::uuid) else true end)`], async ({ as, oq }) => {
-      await as(U.accFeed, 'authenticated');
-      return (await oq("select count(*)::int as n from public.audit_log where table_name = 'production_batches' and coalesce(new, old) ->> 'id' = any ($1::text[])", [PAIR])).rows[0].n;
-    });
-    const mDetail = await mutated([['public.production_detail(uuid)', [['if not (v_in or v_out) then', 'if not v_in then']]]], [], async ({ as, attempt }) => {
-      await as(U.keepFeed);
-      return code(await attempt('select public.production_detail($1)', [BR3]));
-    });
-    // آخر دفعة في اللوحة من private.last_posted_batch (مراجعة 0025 #8: تعريف واحد مع شاشة الإنتاج)، فنطاقها يُكسر فيه.
-    const mBoard = await mutated([['public.recipes_overview()', [
-      ["b.status = 'posted'\n          and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))),", "b.status = 'posted'),"],
-    ]], ['private.last_posted_batch(uuid)', [
-      ["b.status = 'posted'\n    and (public.in_scope_wh(b.input_warehouse_id) or public.in_scope_wh(b.output_warehouse_id))\n", "b.status = 'posted'\n"],
-    ]]], [], async ({ as, oq }) => {
-      await as(U.keepGen);
-      return board(null, oq);
-    });
-    t.same([mPolicy, mAudit, mDetail, mBoard], [0, 0, 'out_of_scope', [3, lastNo]],
-      'طفرات: سياسة القراءة بمخزن المدخلات وحده ← محاسب العلف بلا سطور، وسجلّ الدفعة بالمدخلات وحدها ← بلا تدقيق، وبطاقة الدفعة بالمدخلات ← out_of_scope، ولوحة المعمل بلا نطاق ← أمين العامة يرى 3');
+    t.same([await board(U.manager), await board(U.keepFeed), await board(U.accRaw), await board(U.keepGen)], [[3, lastNo], [3, lastNo], [3, lastNo], [3, lastNo]],
+      'recipes_overview: الدفعات الثلاث وآخرها لكلّ قارئ (0034)؛ وطفرات نطاق القراءة والسجلّ والبطاقة واللوحة صارت مكافئة فشيلت');
   });
 
   // ─── ق٣٢ (#1، في نطاق ق٢٥): وجبات مخزن المواد لا تخرج لطرف الناتج وحده (سابقة التحويل: الوجهة ترى مصدر مرآتها لا استلامات المصدر) ──────
@@ -1283,18 +1164,14 @@ async function scenario(t, db) {
     const managerBR1 = await sources(U.manager, BR1);
     t.ok(managerBR1.length === 1 && Array.isArray(managerBR1[0]) && managerBR1[0].length > 0 && managerBR1[0].every((s) => /^PU-/u.test(s)),
       `ضابط: المدير يرى وجبات BR1 بأرقام استلاماتها (${JSON.stringify(managerBR1)})`);
+    const managerBR3 = await sources(U.manager, BR3);
     t.same(
       [await sources(U.keepFeed, BR1), await sources(U.keepFeed, BR3), await sources(U.accFeed, BR1), await sources(U.accFeed, BR3), await sources(U.accRaw, BR1), await sources(U.mgrRaw, BR1)],
-      [[null], [null], [null], [null], managerBR1, managerBR1],
-      'production_detail: draws = null لأمين العلف ومحاسبه (طرف الناتج وحده)، وكما هي لمحاسب المواد ومدير المواد (كان أمين العلف يقرأ أرقام استلامات مخزن المواد وتواريخها ومعرّفات وجباتها)');
+      [managerBR1, managerBR3, managerBR1, managerBR3, managerBR1, managerBR1],
+      'production_detail: الوجبات بأرقام استلاماتها لأمين العلف ومحاسبه ومحاسب المواد ومدير المواد كالمدير (0034)');
     t.same([await used(U.keepFeed, BR1), await used(U.accFeed, BR3)], [await used(U.manager, BR1), await used(U.manager, BR3)],
       'والمسحوب الفعلي (used_qty) ظاهر لطرف الناتج كما للمدير: يرى المواد وكمياتها');
-    const m = await mutated([['public.production_detail(uuid)', [["'draws', case when d.status = 'draft' or not v_in then null", "'draws', case when d.status = 'draft' then null"]]]], [],
-      async ({ as, attempt }) => {
-        await as(U.keepFeed);
-        return (await attempt("select jsonb_typeof(public.production_detail($1) -> 'lines' -> 0 -> 'draws')", [BR1])).v;
-      });
-    t.eq(m, 'array', 'طفرة: draws بلا شرط مخزن المدخلات ← أمين العلف يقرأ وجبات مخزن المواد');
+    // 0034: طفرة «draws بلا شرط مخزن المدخلات» صارت مكافئة (v_in صحيح لكلّ عضو)، فشيلت.
   });
 
   // ─── ق٢٦ (التكامل B1): اسم فئة المصروف لا يتكرّر في المنشأة ─────────────────────────────────────────────────────
@@ -1442,14 +1319,10 @@ async function scenario(t, db) {
     // والكلس بمتوسّط مخزن المواد وحده 1,000: 500 × 900 + 500 × 1,000 = 950,000 ← 950.00.
     // المدير: الذرة 1,234 (آخر شراء بالمخزن الثاني)، والملح 1,500، والكلس 2,000: 600 × 1,234 + 400 × 1,500 = 1,340,400 ← 1,340.40؛
     // و500 × 1,234 + 500 × 2,000 = 1,617,000 ← 1,617.00.
-    t.same([await view(U.accRaw), await view(U.manager)],
-      [[null, ['540000.00', 1], '950.00', ['950000.00', 0]], ['1340.40', ['1340400.00', 0], '1617.00', ['1617000.00', 0]]],
-      'كلفة الطنّ المتوقّعة لمحاسب المواد من مخزنه وحده: الملح بلا سعر (unpriced = 1، والكيلو فارغ)، والكلس بمتوسّط مخزنه؛ والمدير يرى الكلّ');
-    const leak = await mutated([['private.recipe_expected(uuid)', [['and s.qty_left > 0 and public.in_scope_wh(s.warehouse_id)));', 'and s.qty_left > 0));']]]], [], async ({ as, oq }) => {
-      await as(U.accRaw);
-      return view(null, oq);
-    });
-    t.same(leak, ['1140.00', ['1140000.00', 0], '1450.00', ['1450000.00', 0]], 'طفرة: متوسّط المتاح بلا نطاق ← الملح بـ1,500 والكلس بـ2,000 من المخزن الثاني (الرقم المسرَّب 1,140.00)');
+    const managerView = await view(U.manager);
+    t.same([await view(U.accRaw), managerView],
+      [managerView, ['1340.40', ['1340400.00', 0], '1617.00', ['1617000.00', 0]]],
+      'كلفة الطنّ المتوقّعة لمحاسب المواد بصفّ مخزن قديم كالمدير (0034): الملح 1,500 والكلس 2,000 من المخزنين؛ وطفرة نطاق المتوسّط صارت مكافئة فشيلت');
   });
   await section('ق٢٧ المادّة المؤرشفة', async () => {
     const PREMIX = await item('بريمكس المراجعة', 'raw', 'kg');
