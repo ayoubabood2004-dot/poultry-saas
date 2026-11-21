@@ -341,8 +341,8 @@ export default async function (t, db) {
     );
   }
 
-  // 0012: حقل لحم بقاعة وفوج مفتوح (1,000 طير)، وجولة يومه ووزن عيّنة، وجولة من الطابور أقدم من 7 أيام مركونة، فبكل جدول من جداول
-  // الحقول صفوف للطرفين؛ والفوج لقارئه flock_detail.
+  // 0012: حقل لحم بقاعة وفوج مفتوح (1,000 طير)، وجولة يومه ووزن عيّنة، وجولة من الطابور مركونة (0035: بيوم في الفترة المقفلة حتى 31/1، فلا حدّ للأيّام
+  // السبعة)، وغاز اليوم (0035)، فبكل جدول من جداول الحقول صفوف للطرفين؛ والفوج لقارئه flock_detail.
   // 0015: خلطة مفعَّلة (100 كغم ذرة لأساس 100 كغم) ودفعة إنتاج مرحَّلة (50 كغم) بمعمل كلّ منشأة، فبكلّ جدول من جداول المعمل
   // صفوف للطرفين؛ والخلطة والدفعة لقارئيهما (recipe_detail وproduction_detail وpreview_production).
   // 0016: معدّل «أجور المعمل» 2,000 لكلّ طنّ على النسخة قبل تفعيلها، ومصروف نقدي بفئته على وحدة المعمل، فالدفعة (50 كغم) تحمل
@@ -386,7 +386,8 @@ export default async function (t, db) {
         const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة 1') returning id", [site]);
         const flock = await value(q, "select public.open_flock($1, public.app_today() - 3, 1000, 0, null, gen_random_uuid()) ->> 'flock_id'", [hall]);
         await q('select public.save_flock_day($1, public.app_today(), 2, 0, 40, null, null, null, null, null, null, null, null, gen_random_uuid(), false)', [flock]);
-        await q('select public.save_flock_day($1, public.app_today() - 10, 1, null, null, null, null, null, null, null, null, null, null, gen_random_uuid(), true)', [flock]);
+        await q("select public.save_flock_day($1, date '2026-01-31', 1, null, null, null, null, null, null, null, null, null, null, gen_random_uuid(), true)", [flock]);
+        await q('select public.set_flock_gas($1, public.app_today(), 2, null, gen_random_uuid(), false)', [flock]);
         await q('select public.record_flock_weight($1, public.app_today(), 30, 120.5, gen_random_uuid())', [flock]);
         return { flock };
       },
@@ -867,6 +868,9 @@ export default async function (t, db) {
     // 0025: شاشة الإنتاج وسجلّ الخلطة بخلطة كلّ منشأة، والسجلّ بسنة.
     production_form: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].recipe],
     recipe_history: (persona) => [millOf[persona === U.bOwner ? 'b' : 'a'].recipe, '2026-01-01', '2026-12-31'],
+    // 0035: ورقة فوج كلّ مالك (بجولته وغازه ومركونه)، والرصيد اليوميّ بقسمين باليوم الحاليّ.
+    hall_sheet: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
+    day_balance_sections: () => [coreToday],
     // 0024: «المال بين يديك»: الحركة والذمم بسنة، والكشف بجهة كلّ مالك، والسند بقبضه، والتحويل بتحويله، وخلاصة الشهر بشهر مضى.
     money_moves: () => ['2026-01-01', '2026-12-31', null, null, null, null, 50],
     debts_overview: () => ['receivable', null, null, null, 'amount', null, false, null, 50],
@@ -952,6 +956,9 @@ export default async function (t, db) {
     // 0025: شاشة الإنتاج لمن يُنتج (production.draft: العامل وبلا منشأة forbidden)، والسجلّ لكلّ دور بمنشأة (read).
     production_form: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
     recipe_history: { [U.aSpare]: 'forbidden' },
+    // 0035: الورقة والرصيد بقسمين لكلّ دور بمنشأة (read) بنطاقه، وبلا منشأة forbidden.
+    hall_sheet: { [U.aSpare]: 'forbidden' },
+    day_balance_sections: { [U.aSpare]: 'forbidden' },
     // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
     money_overview: NO_ACCOUNTS,
     money_moves: NO_ACCOUNTS,

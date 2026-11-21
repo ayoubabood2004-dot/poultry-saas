@@ -377,8 +377,8 @@ async function scenario(t, db) {
       avg_weight_kg: '2.400', fcr: '0.625' }, 'الخلاصة: النفوق 8 ÷ 1,000، والأكياس 150 ÷ 50، ومعدّل الوزن 240 ÷ 100، ومعامل التحويل 150 ÷ 240');
     const sums = a.days.reduce((s, d) => ({ dead: s.dead + (d.dead ?? 0), gas: s.gas + (d.gas ?? 0), feed: s.feed + Number(d.feed_kg ?? 0) }), { dead: 0, gas: 0, feed: 0 });
     same(sums, { dead: 8, gas: 4, feed: 150 }, 'المجاميع = مجموع الأيّام');
-    same(a.feed_items.map((f) => [f.name, f.on_hand, f.last, f.units.map((u) => [u.name, u.base_qty])]),
-      [['علف ناهي', '950.000', true, [['كيس 50 كغم', '50']]], ['علف بادئ', '1860.000', false, [['كيس 50 كغم', '50']]]],
+    same(a.feed_items.map((f) => [f.name, f.on_hand, f.last, f.units.map((u) => [u.id, u.name, u.base_qty])]),
+      [['علف ناهي', '950.000', true, [[bags.finisher, 'كيس 50 كغم', '50']]], ['علف بادئ', '1860.000', false, [[bags.starter, 'كيس 50 كغم', '50']]]],
       'الأعلاف للإرسال: آخر علف أُرسل أوّلاً، وما في مخازن العلف اليوم، ووحدات التعبئة؛ والعلف بلا رصيد لا يظهر');
     same(a.rejects, [], 'لا مركون للوجبة الأولى');
 
@@ -657,7 +657,7 @@ async function scenario(t, db) {
       {
         name: 'الرصيد بقسمين: الإضافات في «أخرى»',
         fns: [[SIG.sections, [["when i.kind in ('raw', 'additive') then 'feed_materials'", "when i.kind = 'raw' then 'feed_materials'"]]]],
-        run: async ({ oq, attempt }) => {
+        run: async ({ attempt }) => {
           await inside(attempt, U.owner, "insert into public.items (name, kind, base_unit) values ('ملح', 'additive', 'kg') returning id as v", []);
           return (await inside(attempt, U.owner, SECTIONS, [TODAY]))?.sections?.[0]?.rows?.map((r) => r.name);
         },
