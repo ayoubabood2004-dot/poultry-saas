@@ -192,9 +192,9 @@ async function scenario(t, db) {
     (await call(db, U.manager, ORDER, [[wanted[0], extraRecipe.id, wanted[2]], wanted])).code,
     (await call(db, U.manager, ORDER, [wanted.slice(0, 2), wanted])).code,
     (await call(db, U.manager, ORDER, [null, wanted])).code,
-    (await call(db, U.storekeeper, ORDER, [wanted, wanted])).code,
-  ], ['duplicate_item', 'recipe_not_found', 'recipe_not_found', 'items_required', 'items_required', 'forbidden'],
-  'رفض الترتيب: مكرّرة، ومجهولة، ومؤرشفة، وناقصة، وبلا قائمة، والأمين بلا فعل التفعيل');
+    (await call(db, U.storekeeper, ORDER, [wanted, wanted], { commit: false })).ok,
+  ], ['duplicate_item', 'recipe_not_found', 'recipe_not_found', 'items_required', 'items_required', true],
+  'رفض الترتيب: مكرّرة، ومجهولة، ومؤرشفة، وناقصة، وبلا قائمة؛ والأمين يرتّب (0034، بمعاملة ترجع)');
 
   // ── ٢) ترتيب موادّ العليقة في المسوّدة ──────────────────────────────────────────────────────────────────────────────
   const draftId = uid();
@@ -220,8 +220,8 @@ async function scenario(t, db) {
     (await call(db, U.owner, LINES, [draft.version_id, [reorder[0], reorder[0], reorder[2]], reorder])).code,
     (await call(db, U.owner, LINES, [draft.version_id, [reorder[0], (await lineIds(R.finisher.version))[0], reorder[2]], reorder])).code,
     (await call(db, U.owner, LINES, [draft.version_id, reorder.slice(0, 2), reorder])).code,
-    (await call(db, U.millOperator, LINES, [draft.version_id, reorder, reorder])).code,
-  ], ['duplicate_item', 'line_not_found', 'items_required', 'forbidden'], 'رفض ترتيب الموادّ: مكرّرة، ومن نسخة أخرى، وناقصة، ومشغّل المعمل');
+    (await call(db, U.millOperator, LINES, [draft.version_id, reorder, reorder], { commit: false })).ok,
+  ], ['duplicate_item', 'line_not_found', 'items_required', true], 'رفض ترتيب الموادّ: مكرّرة، ومن نسخة أخرى، وناقصة؛ ومشغّل المعمل يرتّب (0034، بمعاملة ترجع)');
   // رقم السطر لا يكتبه أحد مباشرة (العمود غير ممنوح)، ولو بعلامة المعاملة؛ وتعديل الكمية يُبقي الرقم.
   const direct = await call(db, U.owner, 'update public.recipe_lines set line_no = 9 where id = $1 returning line_no', [reorder[0]]);
   const flagged = await call(db, U.owner, "select set_config('app.recipe_line_order', 'on', true), (select count(*) from (update public.recipe_lines set line_no = 9 where id = $1 returning 1) x) as v", [reorder[0]]);
@@ -234,7 +234,7 @@ async function scenario(t, db) {
   const before = { corn: await stock(I.corn), soy: await stock(I.soy), oil: await stock(I.oil), premix: await stock(I.premix) };
   const produce = (user, args) => {
     const a = { id: uid(), version: R.starter.version, kg: '977.600', in: W.raw, out: W.feed, on: TODAY, actuals: [], extra: [], output: null, expiry: null, reason: null, note: null, ref: uid(), ...args };
-    return { a, run: () => call(db, user, RP, [a.id, a.version, a.kg, a.in, a.out, a.on, JSON.stringify(a.actuals), JSON.stringify(a.extra), a.output, a.expiry, a.reason, a.note, a.ref]) };
+    return { a, run: (options) => call(db, user, RP, [a.id, a.version, a.kg, a.in, a.out, a.on, JSON.stringify(a.actuals), JSON.stringify(a.extra), a.output, a.expiry, a.reason, a.note, a.ref], options) };
   };
   // (أ) «قرّب إلى طنّ» ببرمكس (ليس من موادّ الخلطة): 977.6 + 22.4 = 1,000 كغم، والملاحظة.
   const ton = produce(U.owner, { extra: [{ id: uid(), item_id: I.premix, qty: '22.400' }], note: 'أكملنا الطنّ ببرمكس' });
@@ -278,21 +278,16 @@ async function scenario(t, db) {
     (await produce(U.owner, { kg: '0' }).run()).code,
     refusal('qty_too_large', await produce(U.owner, { kg: '1000000000.000' }).run()).code,
     (await produce(U.owner, { out: W.raw }).run()).code,
-    (await produce(U.storekeeper, {}).run()).code,
-    (await produce(U.accountant, {}).run()).code,
-  ], ['bad_line', 'bad_line', 'bad_line', 'qty_not_positive', 'bad_line', 'bad_note', 'qty_not_positive', 'qty_too_large', 'same_warehouse', 'forbidden', 'forbidden'],
-  'رفض الإنتاج: سطر غير موجود، وكمية غير رقم، وسطر مكرّر، وصفر، ومادّة إضافية سالبة، وملاحظة طويلة، وكمية صفر، وكمية أكبر من المعقول، والمخزن نفسه، والأمين والمحاسب بلا فعل التسويد');
-  // (د) مشغّل المعمل: مسوّدة تنتظر ختم الكلف، ثمّ يختمها المدير ويرحّلها المشغّل من صفحة الدفعة.
+    (await produce(U.storekeeper, {}).run({ commit: false })).value?.status,
+    (await produce(U.accountant, {}).run({ commit: false })).value?.status,
+  ], ['bad_line', 'bad_line', 'bad_line', 'qty_not_positive', 'bad_line', 'bad_note', 'qty_not_positive', 'qty_too_large', 'same_warehouse', 'posted', 'posted'],
+  'رفض الإنتاج: سطر غير موجود، وكمية غير رقم، وسطر مكرّر، وصفر، ومادّة إضافية سالبة، وملاحظة طويلة، وكمية صفر، وكمية أكبر من المعقول، والمخزن نفسه؛ والأمين والمحاسب يُنتجان (0034، بمعاملة ترجع)');
+  // (د) مشغّل المعمل: منذ 0034 («الكلّ مثل المالك») يرحّل الدفعة بنداء واحد بمالها كالمالك، لا مسوّدة تنتظر ختم الكلف.
   const operator = produce(U.millOperator, { version: R.finisher.version, kg: '980.000' });
   const opResult = await operator.run();
   samples.record_production.draft = opResult.value;
-  t.same(opResult.ok ? [opResult.value.status, opResult.value.awaiting, opResult.value.recipe_name, Boolean(opResult.value.money)] : opResult.code, ['draft', 'costs', 'علف ناهٍ', false],
-    'مشغّل المعمل: الدفعة تُحفظ مسوّدة تنتظر ختم الكلف (القاعدة القائمة)، بلا مال');
-  const sealVersion = (await db.admin('select version from public.production_batches where id = $1', [operator.a.id])).rows[0].version;
-  await one(U.manager, 'select public.confirm_production_costs($1, $2) as v', [operator.a.id, sealVersion]);
-  const opPreview = await one(U.millOperator, 'select public.preview_production($1) as v', [operator.a.id]);
-  const opPosted = await call(db, U.millOperator, 'select public.post_production($1, $2, $3, $4) as v', [operator.a.id, opPreview.version, opPreview.plan_token, uid()]);
-  t.same(opPosted.ok && opPosted.value.status, 'posted', 'وبعد الختم يرحّلها مشغّل المعمل من صفحتها كما كانت');
+  t.same(opResult.ok ? [opResult.value.status, opResult.value.awaiting ?? null, opResult.value.recipe_name, Boolean(opResult.value.money)] : opResult.code, ['posted', null, 'علف ناهٍ', true],
+    'مشغّل المعمل: الدفعة تُرحَّل فوراً بمالها (0034)');
 
   // ── ٤) تقرير العليقة ──────────────────────────────────────────────────────────────────────────────────────────────
   // دفعة البادئ الملغاة لا تظهر: تُنتَج ثمّ تُلغى.
@@ -324,7 +319,8 @@ async function scenario(t, db) {
   const all = await one(U.owner, REPORT, [null, TODAY, TODAY]);
   t.same([all.recipe, all.batches.map((b) => b.recipe_name).sort()], [null, ['علف بادئ', 'علف بادئ', 'علف بادئ', 'علف ناهٍ']], 'بلا عليقة: كلّ علائق المعمل');
   const outside = await one(U.keeperGeneral, REPORT, [null, '2026-01-01', '2026-12-31']);
-  t.same([outside.batches.length, outside.days.length], [0, 0], 'أمين المخزن العامّ: مخزنا الدفعة خارج نطاقه، فلا دفعة');
+  const ownerYear = await one(U.owner, REPORT, [null, '2026-01-01', '2026-12-31']);
+  t.same([outside.batches.length, outside.days.length], [ownerYear.batches.length, ownerYear.days.length], 'أمين بصفّ نطاق المخزن العامّ: التقرير كالمالك (0034)');
   t.same([
     refusal('range_too_long', await call(db, U.owner, REPORT, [R.starter.id, '2026-01-01', '2027-01-02'])).code,
     refusal('bad_range', await call(db, U.owner, REPORT, [R.starter.id, '2026-02-01', '2026-01-01'])).code,
@@ -340,6 +336,8 @@ async function scenario(t, db) {
   }
 
   // ── ٦) الطفرات: كلّ قاعدة مكسورة يفشل فحصها ──────────────────────────────────────────────────────────────────────────
+  // 0034 («الكلّ مثل المالك»): طفرات «مشغّل المعمل مسوّدة بدل الرفض» و«التقرير بنطاق القارئ» و«التقرير يُخفي المال» صارت مكافئة (كلّ عضو
+  // يرحّل ويرى المال والمنشأة كلّها)، فشيلت.
   const CASES = [
     {
       name: 'ترتيب العلائق بلا شرط ما رآه المدير',
@@ -377,22 +375,10 @@ async function scenario(t, db) {
       correct: (r) => r.ok && r.value === tonResult.value.doc_no,
     },
     {
-      name: 'مشغّل المعمل يُرفض بدل المسوّدة',
-      fns: [[FN.produce, [["if jsonb_array_length(v_prev -> 'problems') > 0 and not exists", 'if false and not exists']]]],
-      run: ({ attempt }) => attempt(U.millOperator, async (q) => (await q(RP, [uid(), R.finisher.version, '980.000', W.raw, W.feed, TODAY, '[]', '[]', null, null, null, null, uid()])).rows[0].v.status),
-      correct: (r) => r.ok && r.value === 'draft',
-    },
-    {
       name: 'المشكلة لا ترفض (يُرحَّل بلا وزن مقبول)',
       fns: [[FN.produce, [["  if not coalesce((v_prev ->> 'can_post')::boolean, false) then", '  if false then']]]],
       run: ({ attempt }) => attempt(U.owner, async (q) => (await q(RP, [uid(), R.starter.version, '977.600', W.raw, W.feed, TODAY, '[]', '[]', '900.000', null, null, null, uid()])).rows[0].v.status),
       correct: (r) => !r.ok && r.code === 'production_blocked',
-    },
-    {
-      name: 'التقرير بلا نطاق القارئ',
-      fns: [[FN.report, [['      and public.in_scope_wh(d.input_warehouse_id)\n', '\n']]]],
-      run: ({ attempt }) => attempt(U.keeperGeneral, async (q) => (await q(REPORT, [null, '2026-01-01', '2026-12-31'])).rows[0].v.batches.length),
-      correct: (r) => r.ok && r.value === 0,
     },
     {
       name: 'التقرير بالملغاة',
@@ -405,12 +391,6 @@ async function scenario(t, db) {
       fns: [[FN.report, [['      sum(coalesce(p.actual_qty_base, p.planned_qty_base)) as qty,', '      sum(p.planned_qty_base) as qty,']]]],
       run: ({ attempt }) => attempt(U.owner, async (q) => norm((await q(REPORT, [R.starter.id, '2026-11-01', '2026-11-30'])).rows[0].v.materials.find((m) => m.name === 'ذرة').qty)),
       correct: (r) => r.ok && r.value === '1822.4',
-    },
-    {
-      name: 'التقرير يُخفي المال عن مشغّل المعمل',
-      fns: [[FN.report, [['  return v_result;\n', '  return private.mask(v_result);\n']]]],
-      run: ({ attempt }) => attempt(U.millOperator, async (q) => (await q(REPORT, [R.starter.id, '2026-01-01', '2026-12-31'])).rows[0].v.batches[0].money?.cost_per_kg ?? null),
-      correct: (r) => r.ok && r.value === Y.batches[0].money.cost_per_kg,
     },
   ];
   const outcomes = [];
@@ -448,8 +428,8 @@ async function scenario(t, db) {
     typeof awaiting === 'string' ? awaiting : [awaiting.status, awaiting.awaiting, awaiting.plannedKg, awaiting.recipeName],
   ], [
     ['posted', tonResult.value.doc_no, 1000000n, 1000000n, 0n, 'أكملنا الطنّ ببرمكس', true],
-    ['draft', 'costs', 980000n, 'علف ناهٍ'],
-  ], 'parseRecordedProduction: المرحَّلة (طنّ بلا هدر وملاحظتها ومالها) والمسوّدة التي تنتظر الكلف');
+    ['posted', null, null, 'علف ناهٍ'],
+  ], 'parseRecordedProduction: المرحَّلة (طنّ بلا هدر وملاحظتها ومالها)، ودفعة مشغّل المعمل مرحَّلة (0034)');
   for (const key of ['year', 'month', 'day', 'empty']) {
     const raw = samples.mill_report[key];
     const view = parsed(`parseMillReport (${key})`, () => ui.parseMillReport(raw));

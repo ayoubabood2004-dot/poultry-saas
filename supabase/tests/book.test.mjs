@@ -317,32 +317,32 @@ async function scenario(t, db) {
   const totals = ledger.accountsTotals(raw.map((r) => ({ divisionId: r.division_id, balance: BigInt(r.balance) })));
   t.same([totals.project.receivable, totals.project.payable], [BigInt(both.project.receivable), BigInt(both.project.payable)], 'accountsTotals بالواجهة = report_accounts_summary');
 
-  // ── النطاق بالدفاتر (E49): محاسب محصور بالمعمل يقرأ ويرحّل بدفتر المعمل بس، ومجموعه «N من المجموع» ─────────────────────
+  // ── النطاق بالدفاتر (E49) بعد 0034 («الكلّ مثل المالك بكلّ شيء»): محاسب بصفّ نطاق المعمل يقرأ ويرحّل بكلّ الدفاتر كالمحاسب بلا نطاق ──
   const scoped = (sql, params) => call(db, U.millAccountant, sql, params);
   const seenBooks = (await scoped('select public.report_party_statement($1, null, $2, $3)', [P, '2026-01-01', TODAY])).value.books.map((b) => b.book_id);
-  t.same(seenBooks, [B.feed_mill], 'المحاسب المحصور: كشف الجهة بدفتر المعمل بس (الأفراخ برّا نطاقه)');
+  t.same([...seenBooks].sort(), [B.feed_mill, B.chicks].sort(), 'المحاسب بصفّ نطاق المعمل: كشف الجهة بدفتريها (المعمل والأفراخ)');
   const scopedSummary = (await scoped('select public.report_accounts_summary($1, $2)', ['2026-01-01', TODAY])).value;
-  t.same([scopedSummary.books.visible, scopedSummary.books.total], [1, 7], 'ملخّص المحصور: دفتر واحد من سبعة (الشاشة تكتب «N من المجموع»)');
+  t.same([scopedSummary.books.visible, scopedSummary.books.total], [7, 7], 'ملخّص صاحب صفّ النطاق: الدفاتر السبعة كلّها');
   const fullSummary = (await call(db, U.accountant, 'select public.report_accounts_summary($1, $2)', ['2026-01-01', TODAY])).value;
   t.same([fullSummary.books.visible, fullSummary.books.total], [7, 7], 'ضابط: محاسب بلا صفوف نطاق يرى الدفاتر السبعة');
   const seenRows = (await scoped('select count(*) filter (where book_id <> $1)::int as v from public.party_entries', [B.feed_mill])).value;
-  t.eq(seenRows, 0, 'القيود المقروءة مباشرةً بدفتر المعمل بس (سياسة القراءة بالنطاق)');
+  t.ok(seenRows > 0, `القيود المقروءة مباشرةً بكلّ الدفاتر (${seenRows} قيداً خارج دفتر المعمل)`);
   t.ok((await scoped('select count(*)::int as v from public.party_entries')).value > 0, 'ضابط: المحصور يقرأ قيود دفتره');
   t.eq(shown(await pay('record_party_payment', E, B.feed_mill, '1000', BOX, TODAY, U.millAccountant)), 'ok', 'المحصور يرحّل بدفتر المعمل');
-  t.eq(shown(await pay('record_party_payment', E, B.chicks, '1000', BOX, TODAY, U.millAccountant)), 'out_of_scope', 'وبدفتر الأفراخ out_of_scope');
-  t.eq(shown(await scoped('select public.report_party_statement($1, $2, $3, $4)', [P, B.chicks, '2026-01-01', TODAY])), 'out_of_scope', 'وكشف دفتر برّا نطاقه out_of_scope');
+  t.eq(shown(await call(db, U.millAccountant, 'select public.record_party_payment($1, $2, $3, $4, $5, $6, $7)', [uid(), E, B.chicks, '1000', BOX, TODAY, uid()], { commit: false })), 'ok', 'وبدفتر الأفراخ (بمعاملة ترجع)');
+  t.eq(shown(await scoped('select public.report_party_statement($1, $2, $3, $4)', [P, B.chicks, '2026-01-01', TODAY])), 'ok', 'وكشف دفتر الأفراخ');
   // التوزيعات بنفس النطاق: المحصور يقرأ توزيعات دفتر المعمل بس، والضابط بلا نطاق يقرأ توزيعات دفاتر ثانية (إعفاء الأفراخ وقبض الأدوية).
   const allocationsOutside = async (user) => (await call(db, user, 'select count(*) filter (where book_id <> $1)::int as v from public.party_allocations', [B.feed_mill])).value;
   t.same(
-    [await allocationsOutside(U.millAccountant), (await scoped('select count(*)::int as v from public.party_allocations')).value > 0, (await allocationsOutside(U.accountant)) > 0],
-    [0, true, true],
-    'التوزيعات المقروءة مباشرةً بدفتر المعمل بس للمحصور (وضابطاه: يقرأ توزيعات دفتره، والمحاسب بلا نطاق يقرأ غيرها)',
+    [await allocationsOutside(U.millAccountant), (await allocationsOutside(U.accountant)) > 0],
+    [await allocationsOutside(U.accountant), true],
+    'التوزيعات المقروءة مباشرةً بكلّ الدفاتر لصاحب صفّ النطاق كالمحاسب بلا نطاق',
   );
   const scopedBalances = (await scoped("select public.report_party_balances($1, $2, null, false, 'name', null, null, 200)", ['2026-01-01', TODAY])).value;
   t.same(
-    [scopedBalances.books.map((b) => b.book_id), [...new Set(scopedBalances.rows.flatMap((r) => r.cells.map((c) => c.book_id)))]],
-    [[B.feed_mill], [B.feed_mill]],
-    'جدول الجهات للمحصور: عمود دفتر المعمل وحده، وخانات الصفوف منه بس',
+    [scopedBalances.books.length, scopedBalances.books.map((b) => b.book_id).includes(B.chicks)],
+    [7, true],
+    'جدول الجهات لصاحب صفّ النطاق: أعمدة الدفاتر السبعة',
   );
   // سجلّ التدقيق يحمل صفوف القيود والتوزيعات كاملة (دفترها ومبلغها): المحصور ما يقرأ منها إلا دفاتر نطاقه.
   const auditSides = (user) =>
@@ -351,13 +351,13 @@ async function scenario(t, db) {
       [B.feed_mill],
     )).rows[0]);
   const [scopedAudit, fullAudit] = [await auditSides(U.millAccountant), await auditSides(U.accountant)];
-  t.same([scopedAudit.outside, scopedAudit.inside > 0, fullAudit.outside > 0], [0, true, true], `سجلّ التدقيق للمحصور: صفوف قيود دفتر المعمل وتوزيعاته بس (${JSON.stringify(scopedAudit)})، والمحاسب بلا نطاق يقرأ الكل (${JSON.stringify(fullAudit)})`);
+  t.same([scopedAudit, fullAudit.outside > 0], [fullAudit, true], `سجلّ التدقيق لصاحب صفّ النطاق = المحاسب بلا نطاق (${JSON.stringify(fullAudit)})`);
   // ملخّص الحسابات والرئيسية للمحصور: وحدات نطاقه بس (مو «0 / 0» لوحدة برّاه)، وعدد الدفاتر الظاهرة من المجموع على البطاقة.
-  t.same(scopedSummary.divisions.map((d) => d.kind), ['feed_mill'], 'ملخّص المحصور: وحدة المعمل وحدها، مو بقية الوحدات بأصفار');
+  t.eq(scopedSummary.divisions.length, 6, 'ملخّص صاحب صفّ النطاق: الوحدات الستّ');
   t.eq(fullSummary.divisions.length, 6, 'ضابط: المحاسب بلا نطاق يرى الوحدات الستّ');
   const scopedHome = (await scoped('select public.home_summary()')).value.accounts;
   const fullHome = (await call(db, U.accountant, 'select public.home_summary()')).value.accounts;
-  t.same([scopedHome?.books?.visible, scopedHome?.books?.total, fullHome?.books?.visible, fullHome?.books?.total], [1, 7, 7, 7], 'بطاقة الحسابات بالرئيسية تعرف إن أرقام المحصور جزئية (دفتر من سبعة)، وللمحاسب بلا نطاق السبعة');
+  t.same([scopedHome?.books?.visible, scopedHome?.books?.total, fullHome?.books?.visible, fullHome?.books?.total], [7, 7, 7, 7], 'بطاقة الحسابات بالرئيسية: السبعة لصاحب صفّ النطاق وللمحاسب بلا نطاق');
 
   // ── «حتى اليوم» من الخادم: التقارير بلا p_to تحسب بيوم الخادم (app_today)، فالصفحة المفتوحة من أمس تشوف قبض اليوم وإلغاءه ──
   const untilToday = {
@@ -396,8 +396,8 @@ async function scenario(t, db) {
       both: shown(await keeper("insert into public.parties (name, is_customer, is_supplier) values ('زبون ومورّد', true, true) returning id")),
       supplier: shown(await keeper("insert into public.parties (name, is_supplier) values ('مورّد الأمين', true) returning id")),
     },
-    { customer: 'ok', neither: 'forbidden', both: 'ok', supplier: 'ok' },
-    'الأمين يضيف زبوناً أو مورّداً أو كليهما (جواب المالك 2026-11-08، 0024)، والجهة بلا صفة forbidden',
+    { customer: 'ok', neither: 'ok', both: 'ok', supplier: 'ok' },
+    'الأمين يضيف زبوناً أو مورّداً أو كليهما أو جهة بلا صفة (0034: parties.manage لكلّ عضو)',
   );
   const keysOf = (partyId) => one('select name_norm, phone, phone_key from public.parties where id = $1', [partyId]);
   const renamed = (await asM("insert into public.parties (name, phone, is_customer) values ('مزرعة  التعديل', '0770 333 4455', true) returning id")).value;
@@ -447,7 +447,7 @@ async function scenario(t, db) {
   };
   t.same(
     [parsed.home.accounts.receivable, parsed.home.accounts.visibleBooks, parsed.home.accounts.totalBooks, parsed.summary.visibleBooks, parsed.balances.rows.length, parsed.statement.books.length, parsed.cash.accounts.length, parsed.cashStatement.lines.length > 0],
-    [BigInt(wire.home.accounts.receivable) * 100n, 1, 7, 1, wire.balances.rows.length, wire.statement.books.length, wire.cash.accounts.length, true],
+    [BigInt(wire.home.accounts.receivable) * 100n, 7, 7, 7, wire.balances.rows.length, wire.statement.books.length, wire.cash.accounts.length, true],
     'أجوبة الخادم الحقيقية تنقرا بمحلّلات الواجهة بلا رمي (الرئيسية والملخّص والجدول والكشف والصناديق)',
   );
 

@@ -563,23 +563,24 @@ export default async function (t, db) {
 
   // ── مساحة العامل ونطاقه ───────────────────────────────────────────────────────────────────────────────
   const worker = await db.asUser(U.aWorker, (q) => value(q, 'select public.my_workspace()'));
-  t.same([worker.role, worker.divisions, worker.can_see_cost, worker.can_see_sales, worker.invites], ['hall_worker', ['broiler'], false, false, []], 'العامل بعد القبول: دوره ووحدته بس، بلا كلف ولا مبيعات');
+  t.same([worker.role, worker.divisions, worker.can_see_cost, worker.can_see_sales, worker.invites], ['hall_worker', ['broiler', 'feed_mill', 'general', 'hatchery', 'layer', 'medicine'], true, true, []], 'العامل بعد القبول (0034، «الكلّ مثل المالك»): دوره، ووحدات المنشأة كلّها ولو بصفّ نطاق، والكلف والمبيعات');
   const scope = (userId) =>
     db.asUser(userId, (q) =>
       one(q, 'select public.in_scope_division($1) as broiler, public.in_scope_division($2) as layer, public.in_scope_division($3) as foreign', [aBroiler, aLayer, bBroiler]),
     );
-  t.same(await scope(U.aWorker), { broiler: true, layer: false, foreign: false }, 'العامل: حقول اللحم بس');
+  t.same(await scope(U.aWorker), { broiler: true, layer: true, foreign: false }, 'العامل بصفّ نطاق اللحم: كلّ وحدات منشأته (0034)، وما يعبر لمنشأة ثانية');
   t.same(await scope(U.aManager), { broiler: true, layer: true, foreign: false }, 'المدير بلا صفوف: كل وحداته، وما يعبر لمنشأة ثانية');
-  t.same(await scope(U.aViewer), { broiler: false, layer: false, foreign: false }, 'المشاهد بلا صفوف: ولا وحدة');
+  t.same(await scope(U.aViewer), { broiler: true, layer: true, foreign: false }, 'المشاهد بلا صفوف: كلّ وحدات منشأته (0034)، وما يعبر لمنشأة ثانية');
   t.same(await scope(U.aOwner), { broiler: true, layer: true, foreign: false }, 'المالك: كل وحداته');
 
   // ── السجلّ: على قائمة الكلف، يكول منو وشنو، وما يتعدّل ولا ينحذف ولا ينمسح ─────────────────────────────────────
   const auditCount = (userId) => db.asUser(userId, (q) => value(q, 'select count(*)::int from public.audit_log'));
   t.ok((await auditCount(U.aOwner)) > 0, 'ضابط: المالك يشوف السجلّ');
   t.ok((await auditCount(U.aAccountant)) > 0, 'ضابط: المحاسب يشوف السجلّ');
-  t.eq(await auditCount(U.aWorker), 0, 'عامل القاعة ما يشوف السجلّ');
-  t.eq(await auditCount(U.aViewer), 0, 'المشاهد ما يشوف السجلّ');
-  t.eq(await auditCount(U.emailUser), 0, 'أمين المخزن ما يشوف السجلّ');
+  // 0034 («الكلّ مثل المالك»): السجلّ تحت سياسة الكلفة، والكلفة لكلّ عضو، فكلّهم يرونه كالمالك.
+  const ownerAudit = await auditCount(U.aOwner);
+  t.same([await auditCount(U.aWorker), await auditCount(U.aViewer), await auditCount(U.emailUser)], [ownerAudit, ownerAudit, ownerAudit], 'عامل القاعة والمشاهد وأمين المخزن يرون السجلّ كلّه كالمالك');
+  t.eq(await auditCount(U.aSpare), 0, 'بلا منشأة: لا سجلّ');
   const addActor = await db.admin("select actor from public.audit_log where table_name = 'members' and op = 'insert' and row_id = $1", [invited.aWorker]);
   t.same(addActor.rows, [{ actor: U.aOwner }], 'السجلّ يكول منو دعا العامل');
   const roleChange = await db.asUser(U.aOwner, async (q) => {
@@ -665,7 +666,7 @@ export default async function (t, db) {
     const back = await one(q, 'select public.in_scope_division($1) as broiler, public.in_scope_division($2) as layer', [aBroiler, aLayer]);
     return [scopes, actor, orphans, outside, reinvited, back];
   });
-  t.same(archived, [0, U.aOwner, 0, null, invited.aWorker, { broiler: false, layer: true }], 'الأرشفة تؤرشف النطاق (بالسجلّ ومنو، وverify_core صفر) وتطلّعه، والرجوع بنطاقه الجديد بس');
+  t.same(archived, [0, U.aOwner, 0, null, invited.aWorker, { broiler: true, layer: true }], 'الأرشفة تؤرشف النطاق (بالسجلّ ومنو، وverify_core صفر) وتطلّعه، والرجوع يرى المنشأة كلّها (0034: النطاق لا يحدّ)');
 
   // ── النطاق: تغييره يؤرشف القديم، وصفّ (عضو، وحدة) واحد ─────────────────────────────────────────────────────
   const rescoped = await db.asUser(U.aOwner, async (q) => {
@@ -695,9 +696,9 @@ export default async function (t, db) {
   );
 
   // ── قفل الفترة: المدير يقفل ويقدّم، والفتح للمالك بس ────────────────────────────────────────────────────────
-  await t.rejects(invite(U.aWorker, "select public.set_period_lock(date '2026-01-01')"), 'العامل ما يقفل', /^forbidden$/);
-  const unlock = await failure(invite(U.aManager, "select public.set_period_lock(date '2026-01-01')"));
-  t.same([unlock.message, unlock.hint.includes('لمالك المنشأة')], ['forbidden', true], 'المدير ما يفتح فترة مقفلة، والتلميح يكول منو');
+  // 0034 («الكلّ مثل المالك»): العامل يقفل، والمدير يفتح فترة مقفلة (period.unlock للكلّ). بمعاملة ترجع.
+  t.eq((await invite(U.aWorker, "select public.set_period_lock(date '2026-01-01')")).rowCount, 1, 'العامل يقفل الفترة');
+  t.eq((await invite(U.aManager, "select public.set_period_lock(date '2026-01-01')")).rowCount, 1, 'المدير يفتح فترة مقفلة');
   const lockFlow = await scenario(async ({ q, as, tables, attempt }) => {
     await atDay(q);
     await as(U.aManager);
@@ -715,8 +716,8 @@ export default async function (t, db) {
   });
   t.same(
     lockFlow,
-    { manager_locks: 'ok', no_date: 'date_required', today: 'lock_in_future', manager_unlocks: 'forbidden', manager_moves_forward: 'ok', owner_unlocks: 'ok', b_untouched: '2026-01-31' },
-    'القفل: المدير يقفل ويقدّم، الفتح للمالك بس، اليوم ما ينقفل، ومنشأة ب ما تتأثّر',
+    { manager_locks: 'ok', no_date: 'date_required', today: 'lock_in_future', manager_unlocks: 'ok', manager_moves_forward: 'ok', owner_unlocks: 'ok', b_untouched: '2026-01-31' },
+    'القفل: المدير يقفل ويقدّم ويفتح (0034)، اليوم ما ينقفل، ومنشأة ب ما تتأثّر',
   );
 
   // ── حدّ الرجوع ٧ أيام والقفل (يوم ثابت) ───────────────────────────────────────────────────────────────────
@@ -875,9 +876,9 @@ export default async function (t, db) {
     transfer_detail: (persona) => [own(persona).transfer],
     month_summary: () => ['2026-01-01'],
   };
-  const NO_ACCOUNTS = { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' };
+  // 0034 («الكلّ مثل المالك»): عامل القاعة (بنطاق اللحم) يقرأ كلّ شيء كالمالك، فالرفض الباقي لمن بلا منشأة وحده.
+  const NO_ACCOUNTS = { [U.aSpare]: 'forbidden' };
   const REJECTS = {
-    find_party_twins: { [U.aWorker]: 'forbidden' },
     preview_party_allocation: NO_ACCOUNTS,
     report_accounts_summary: NO_ACCOUNTS,
     report_party_balances: NO_ACCOUNTS,
@@ -885,9 +886,9 @@ export default async function (t, db) {
     report_cash_balances: NO_ACCOUNTS,
     report_cash_statement: NO_ACCOUNTS,
     // المخزون: الكميات لمن المخزن بنطاقه (العامل بحقول اللحم وبلا منشأة out_of_scope)، والقيم والمعاينتان بفعلها (forbidden).
-    stock_on_hand: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
-    item_lots_qty: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
-    item_moves_qty: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'out_of_scope' },
+    stock_on_hand: { [U.aSpare]: 'out_of_scope' },
+    item_lots_qty: { [U.aSpare]: 'out_of_scope' },
+    item_moves_qty: { [U.aSpare]: 'out_of_scope' },
     stock_values: NO_ACCOUNTS,
     stock_value_totals: NO_ACCOUNTS,
     item_lots_value: NO_ACCOUNTS,
@@ -905,13 +906,13 @@ export default async function (t, db) {
     flock_detail: { [U.aSpare]: 'forbidden' },
     // 0013: سجلّ الشراء لمن المخزن بنطاقه (العامل بحقول اللحم out_of_scope)، وبلا منشأة forbidden؛
     // وstores_overview بلا وسائط وبلا رفض: من لا نطاق له بطاقاته فارغة، وبلا منشأة جواب فارغ (مثل home_summary).
-    item_purchases: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
+    item_purchases: { [U.aSpare]: 'forbidden' },
     // 0015: قرّاء المعمل لكلّ دور بمنشأة (read)، وبلا منشأة forbidden؛ وبطاقة الدفعة ومعاينتها بنطاق مخزن مدخلاتها.
     recipes_overview: { [U.aSpare]: 'forbidden' },
     recipe_detail: { [U.aSpare]: 'forbidden' },
     productions_overview: { [U.aSpare]: 'forbidden' },
-    production_detail: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
-    preview_production: { [U.aWorker]: 'out_of_scope', [U.aSpare]: 'forbidden' },
+    production_detail: { [U.aSpare]: 'forbidden' },
+    preview_production: { [U.aSpare]: 'forbidden' },
     // 0017: ملفّ المادّة وبطاقات المواد لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
     item_file: { [U.aSpare]: 'forbidden' },
     items_overview: { [U.aSpare]: 'forbidden' },
@@ -935,22 +936,22 @@ export default async function (t, db) {
     weigh_ticket: { [U.aSpare]: 'forbidden' },
     weigh_ticket_options: { [U.aSpare]: 'forbidden' },
     weigh_tickets: { [U.aSpare]: 'forbidden' },
-    bird_sale_form: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
-    bird_sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    bird_sale_form: { [U.aSpare]: 'forbidden' },
+    bird_sale_detail: { [U.aSpare]: 'forbidden' },
     flock_close_form: { [U.aSpare]: 'forbidden' },
     flock_sales: { [U.aSpare]: 'forbidden' },
     // 0021: قرّاء المبيعات لأدوار المبيعات (عامل القاعة forbidden)، وبلا منشأة forbidden.
-    sales_overview: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
-    sale_detail: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
-    sales_report: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    sales_overview: { [U.aSpare]: 'forbidden' },
+    sale_detail: { [U.aSpare]: 'forbidden' },
+    sales_report: { [U.aSpare]: 'forbidden' },
     // 0033: موادّ البيع لمن يبيع (sale.record): العامل وبلا منشأة forbidden.
-    sale_catalog: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    sale_catalog: { [U.aSpare]: 'forbidden' },
     // 0022: الرصيد اليومي لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
     day_balance: { [U.aSpare]: 'forbidden' },
     // 0023: تقرير المعمل لكلّ دور بمنشأة (read) بنطاق الدفعة، وبلا منشأة forbidden.
     mill_report: { [U.aSpare]: 'forbidden' },
     // 0025: شاشة الإنتاج لمن يُنتج (production.draft: العامل وبلا منشأة forbidden)، والسجلّ لكلّ دور بمنشأة (read).
-    production_form: { [U.aWorker]: 'forbidden', [U.aSpare]: 'forbidden' },
+    production_form: { [U.aSpare]: 'forbidden' },
     recipe_history: { [U.aSpare]: 'forbidden' },
     // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
     money_overview: NO_ACCOUNTS,

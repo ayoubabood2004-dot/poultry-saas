@@ -94,10 +94,10 @@ async function scenario(t, db) {
   await invite(U.keeper, 7, 'storekeeper', []);
   await invite(U.layerManager, 8, 'manager', [layer]);
 
-  /** نداء بمعاملة تثبت إذا نجح: { ok, v } أو { ok: false, code, hint }. */
-  const call = async (user, sql, params = []) => {
+  /** نداء بمعاملة تثبت إذا نجح: { ok, v } أو { ok: false, code, hint }. commit: false لما صار ينجح بـ0034 («الكلّ مثل المالك»): يثبت النجاح ولا يغيّر ما بعده. */
+  const call = async (user, sql, params = [], commit = true) => {
     try {
-      const rows = (await db.asUser(user, (q) => q(sql, params), { commit: true })).rows;
+      const rows = (await db.asUser(user, (q) => q(sql, params), { commit })).rows;
       return { ok: true, v: rows[0] ? Object.values(rows[0])[0] : null, rows };
     } catch (error) {
       return { ok: false, code: error.message, hint: error.hint ?? null };
@@ -106,7 +106,7 @@ async function scenario(t, db) {
   const code = (outcome) => (outcome.ok ? 'ok' : outcome.code);
 
   // ─── القاعات: كتابة المدير المباشرة وحرّاسها ───────────────────────────────────────────────────────────────
-  const hall = async (user, site, name, capacity = null) => call(user, 'insert into public.halls (site_id, name, capacity) values ($1, $2, $3) returning id', [site, name, capacity]);
+  const hall = async (user, site, name, capacity = null, commit = true) => call(user, 'insert into public.halls (site_id, name, capacity) values ($1, $2, $3) returning id', [site, name, capacity], commit);
   const B1 = (await hall(U.manager, sites.broiler, 'قاعة 1', 12000)).v;
   const B2 = (await hall(U.manager, sites.broiler, 'قاعة 2')).v;
   const B3 = (await hall(U.manager, sites.broiler, 'قاعة 3')).v;
@@ -119,26 +119,26 @@ async function scenario(t, db) {
     [
       code(await hall(U.manager, generalSite, 'قاعة بالمخزن')),
       code(await hall(U.manager, sites.broiler, ' قاعة 1 ')),
-      code(await hall(U.worker, sites.broiler, 'قاعة العامل')),
-      code(await hall(U.layerManager, sites.broiler, 'قاعة خارج النطاق')),
+      code(await hall(U.worker, sites.broiler, 'قاعة العامل', null, false)),
+      code(await hall(U.layerManager, sites.broiler, 'قاعة خارج النطاق', null, false)),
       code(await hall(U.manager, sites.broiler, 'قاعة', 0)),
     ],
     [
       'hall_site_kind',
       'hall_name_taken',
-      'new row violates row-level security policy for table "halls"',
-      'new row violates row-level security policy for table "halls"',
+      'ok',
+      'ok',
       'new row for relation "halls" violates check constraint "halls_capacity_check"',
     ],
-    'القاعة: بحقل لحم أو بيض فقط، والاسم فريد بين الفعّالة، والعامل ومدير وحدة ثانية ممنوعان، والسعة أكبر من صفر',
+    'القاعة: بحقل لحم أو بيض فقط، والاسم فريد بين الفعّالة، والعامل ومدير بصفّ نطاق وحدة ثانية يضيفانها (0034، بمعاملة ترجع)، والسعة أكبر من صفر',
   );
   const archivedSite = await call(U.manager, "update public.sites set archived_at = now() where id = $1 returning id", [sites.spare]);
   t.ok(archivedSite.ok, 'حقل بلا قاعات يتؤرشف');
   t.eq(code(await hall(U.manager, sites.spare, 'قاعة بحقل مؤرشف')), 'site_archived', 'قاعة بحقل مؤرشف: site_archived');
 
   // ─── فتح الفوج وتسكينه ─────────────────────────────────────────────────────────────────────────────────────
-  const open = (user, hallId, placedOn, count, age = 0, breed = null, r = ref()) =>
-    call(user, 'select public.open_flock($1, $2, $3, $4, $5, $6) as v', [hallId, placedOn, count, age, breed, r]);
+  const open = (user, hallId, placedOn, count, age = 0, breed = null, r = ref(), commit = true) =>
+    call(user, 'select public.open_flock($1, $2, $3, $4, $5, $6) as v', [hallId, placedOn, count, age, breed, r], commit);
   const openRef = ref();
   const F1open = await open(U.manager, B1, '2026-10-25', 10000, 1, 'روس 308', openRef);
   t.ok(F1open.ok && F1open.v.version === 1, `فتح فوج لحم بـ10,000 طير (${JSON.stringify(F1open)})`);
@@ -163,22 +163,22 @@ async function scenario(t, db) {
       future: code(await open(U.manager, lockedHall, '2026-10-31', 500)),
       missing: code(await open(U.manager, id(999), '2026-10-28', 500)),
       archived: code(await open(U.manager, B2, '2026-10-28', 500)),
-      scope: code(await open(U.layerManager, lockedHall, '2026-10-28', 500)),
-      worker: code(await open(U.worker, lockedHall, '2026-10-28', 500)),
-      viewer: code(await open(U.viewer, lockedHall, '2026-10-28', 500)),
+      scope: code(await open(U.layerManager, lockedHall, '2026-10-28', 500, 0, null, ref(), false)),
+      worker: code(await open(U.worker, lockedHall, '2026-10-28', 500, 0, null, ref(), false)),
+      viewer: code(await open(U.viewer, lockedHall, '2026-10-28', 500, 0, null, ref(), false)),
     },
-    { busy: 'hall_busy', count: 'bad_count', age: 'bad_age', breed: 'bad_breed', required: 'date_required', future: 'date_in_future', missing: 'hall_not_found', archived: 'hall_archived', scope: 'out_of_scope', worker: 'forbidden', viewer: 'forbidden' },
-    'open_flock: كل رمز رفض',
+    { busy: 'hall_busy', count: 'bad_count', age: 'bad_age', breed: 'bad_breed', required: 'date_required', future: 'date_in_future', missing: 'hall_not_found', archived: 'hall_archived', scope: 'ok', worker: 'ok', viewer: 'ok' },
+    'open_flock: كل رمز رفض، ومدير بصفّ نطاق البيض والعامل والمشاهد يسكّنون (0034، بمعاملة ترجع)',
   );
   t.eq(code(await call(U.manager, 'update public.halls set archived_at = now() where id = $1', [B1])), 'hall_in_use', 'قاعة بفوج قائم ما تتؤرشف: hall_in_use');
   t.eq(code(await call(U.manager, 'update public.sites set archived_at = now() where id = $1', [sites.broiler])), 'archived_in_use', 'حقل بقاعات فعّالة ما يتؤرشف: archived_in_use');
 
   // ─── الجولة اليومية: فوج اللحم F1 (10,000 طير من 25/10) ─────────────────────────────────────────────────────
-  const save = (user, flock, day, f = {}, base = null, r = ref(), queued = false) =>
+  const save = (user, flock, day, f = {}, base = null, r = ref(), queued = false, commit = true) =>
     call(user, 'select public.save_flock_day($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) as v', [
       flock, day, f.dead ?? null, f.culled ?? null, f.feed ?? null, f.water ?? null, f.tmin ?? null, f.tmax ?? null,
       f.eggs ?? null, f.cracked ?? null, f.broken ?? null, f.note ?? null, base, r, queued,
-    ]);
+    ], commit);
   const day = async (flock, d) => (await db.admin('select dead, culled, feed_kg::text as feed, water_l::text as water, eggs_total as eggs, version, note from public.flock_daily where flock_id = $1 and on_date = $2', [flock, d])).rows[0] ?? null;
 
   const d25 = await save(U.worker, F1, '2026-10-25', { dead: 20, culled: 5, feed: '300' });
@@ -223,14 +223,14 @@ async function scenario(t, db) {
   t.eq(code(await save(U.worker, F1, '2026-10-27', { water: '801' }, 1, sameRef)), 'ref_reused', 'نفس المرجع بقيمة أخرى: ref_reused');
 
   // ─── الأوزان والمؤشّرات (القاعدة ٢٨): 10,000 − 55 = 9,945 حيّ، والنفوق 0.55٪، والعلف 1,500 كغم بأربعة أيام متتالية ────────
-  const weight = (user, flock, d, n, g, r = ref()) => call(user, 'select public.record_flock_weight($1, $2, $3, $4, $5) as v', [flock, d, n, g, r]);
+  const weight = (user, flock, d, n, g, r = ref(), commit = true) => call(user, 'select public.record_flock_weight($1, $2, $3, $4, $5) as v', [flock, d, n, g, r], commit);
   same((await weight(U.worker, F1, '2026-10-28', 50, '140.0')).v, { status: 'saved', version: 1 }, 'وزن عيّنة (50 طيراً بمعدّل 140.0 غم)');
   same((await weight(U.worker, F1, '2026-10-28', 60, '150.0')).v, { status: 'saved', version: 2 }, 'إعادة وزن اليوم نفسه تستبدله (الإصدار 2)');
   same(
     {
       flock: code(await weight(U.worker, id(998), '2026-10-28', 50, '150')),
-      scope: code(await weight(U.layerWorker, F1, '2026-10-28', 50, '150')),
-      role: code(await weight(U.viewer, F1, '2026-10-28', 50, '150')),
+      scope: code(await weight(U.layerWorker, F1, '2026-10-28', 50, '150', ref(), false)),
+      role: code(await weight(U.viewer, F1, '2026-10-28', 50, '150', ref(), false)),
       future: code(await weight(U.worker, F1, '2026-10-31', 50, '150')),
       old: code(await weight(U.worker, F1, '2026-10-22', 50, '150')),
       before: code(await weight(U.layerManager, F2, '2026-10-26', 50, '150')),
@@ -240,8 +240,8 @@ async function scenario(t, db) {
       kg: code(await weight(U.worker, F1, '2026-10-28', 50, '1.8')),
       light: code(await weight(U.worker, F1, '2026-10-28', 50, '19.9')),
     },
-    { flock: 'flock_not_found', scope: 'out_of_scope', role: 'forbidden', future: 'date_in_future', old: 'date_too_old', before: 'before_placement', sample: 'bad_sample', grams: 'bad_weight', zero: 'bad_weight', kg: 'bad_weight', light: 'bad_weight' },
-    'record_flock_weight: كل رمز رفض، و1.8 (كيلوغرام بخانة الغرامات) و19.9 تحت الحدّ الفيزيائي الأدنى 20 غراماً (القاعدة 28)',
+    { flock: 'flock_not_found', scope: 'ok', role: 'ok', future: 'date_in_future', old: 'date_too_old', before: 'before_placement', sample: 'bad_sample', grams: 'bad_weight', zero: 'bad_weight', kg: 'bad_weight', light: 'bad_weight' },
+    'record_flock_weight: كل رمز رفض، و1.8 (كيلوغرام بخانة الغرامات) و19.9 تحت الحدّ الفيزيائي الأدنى 20 غراماً (القاعدة 28)؛ وعامل بصفّ نطاق البيض والمشاهد يزنان (0034، بمعاملة ترجع)',
   );
 
   const overview = async (user) => (await call(user, 'select public.flocks_overview() as v')).v;
@@ -294,16 +294,16 @@ async function scenario(t, db) {
       note: code(await save(U.worker, F1, TODAY, { note: 'م'.repeat(501) }, 1)),
       empty: code(await save(U.worker, F1, '2026-10-29', {})),
       live: code(await save(U.worker, F1, '2026-10-29', { dead: 9000, culled: 943 })),
-      scope: code(await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1)),
-      viewer: code(await save(U.viewer, F1, TODAY, { dead: 1 }, 1)),
-      keeper: code(await save(U.keeper, F1, TODAY, { dead: 1 }, 1)),
+      scope: code(await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1, ref(), false, false)),
+      viewer: code(await save(U.viewer, F1, TODAY, { dead: 1 }, 1, ref(), false, false)),
+      keeper: code(await save(U.keeper, F1, TODAY, { dead: 1 }, 1, ref(), false, false)),
     },
     {
       missing: 'flock_not_found', required: 'date_required', future: 'date_in_future', old: 'date_too_old', before: 'before_placement',
       eggsBroiler: 'eggs_on_broiler', negative: 'bad_value', feedScale: 'bad_value', water: 'bad_value', tempRange: 'bad_temp', tempOrder: 'bad_temp',
-      note: 'bad_note', empty: 'empty_day', live: 'live_negative', scope: 'out_of_scope', viewer: 'forbidden', keeper: 'forbidden',
+      note: 'bad_note', empty: 'empty_day', live: 'live_negative', scope: 'ok', viewer: 'ok', keeper: 'ok',
     },
-    'save_flock_day: كل رمز رفض بنداء مباشر',
+    'save_flock_day: كل رمز رفض بنداء مباشر، وعامل بصفّ نطاق البيض والمشاهد والأمين يحفظون (0034، بمعاملة ترجع)',
   );
   const liveHint = await save(U.worker, F1, '2026-10-29', { dead: 9000, culled: 943 });
   t.ok(liveHint.hint?.includes('9,943') && liveHint.hint?.includes('9,942'), `تلميح live_negative يسمّي العددين بفواصل الآلاف (${liveHint.hint})`);
@@ -366,8 +366,8 @@ async function scenario(t, db) {
   );
   same(
     [f2.flock.live, f2.flock.eggs_today, f2.flock.hdep_today, f2.flock.mortality_pct, f2.flock.age_days, f2.flock.hall_name, f2.flock.site_name, f2.can_manage, f2.can_save, f2.flock.fcr, f2.flock.feed_kg_total],
-    [4983, 4100, '82.25', '0.34', 143, 'قاعة البيّاض 1', 'حقل البيض الأوّل', false, true, null, '2150.000'],
-    'ملخّص البيّاض: الحيّ 4,983، وبيض اليوم 4,100 بنسبة 82.25٪، والنفوق 17 ÷ 5,000 = 0.34٪، والعمر 3 + 140 = 143، وبلا وزن ما في FCR',
+    [4983, 4100, '82.25', '0.34', 143, 'قاعة البيّاض 1', 'حقل البيض الأوّل', true, true, null, '2150.000'],
+    'ملخّص البيّاض: الحيّ 4,983، وبيض اليوم 4,100 بنسبة 82.25٪، والنفوق 17 ÷ 5,000 = 0.34٪، والعمر 3 + 140 = 143، وبلا وزن ما في FCR؛ وعامل البيض يدير (0034)',
   );
   t.eq((await detail(U.manager, F1)).v.days.find((d) => d.on_date === '2026-10-26').hdep, null, 'فوج اللحم: HDEP فارغ لكل يوم');
   const d2 = ui.parseDetail(f2);
@@ -380,7 +380,7 @@ async function scenario(t, db) {
     ],
     [
       [[TODAY, 4985, 4983, 4100, 30, 8225n], ['2026-10-29', 4985, 4985, 0, null, 0n], ['2026-10-28', 4990, 4985, 4200, null, 8417n], ['2026-10-27', 5000, 4990, 4000, 40, 8000n]],
-      [4100, 8225n, 2150000n, 'قاعة البيّاض 1', true, false],
+      [4100, 8225n, 2150000n, 'قاعة البيّاض 1', true, true],
       [false, 245n, 310n, null, null],
     ],
     'محلّل الشاشات يقرأ الأيّام من القاعدة: HDEP بالمئات (8,225 = 82.25٪) والصفر 0 مو «—»، ويوم اللحم بلا بيض null («—»)، والماء لا يُقرأ (0026: خارج الشاشات) والحرارة 24.5 و31 بالأعشار',
@@ -398,15 +398,16 @@ async function scenario(t, db) {
       bare: siteIds(await overview(U.bareViewer)),
       keeper: siteIds(await overview(U.keeper)),
     },
-    { manager: sorted([sites.broiler, sites.layer]), worker: [sites.broiler], layerWorker: [sites.layer], viewer: [sites.broiler], bare: [], keeper: [] },
-    'flocks_overview: كل دور يرى حقول نطاقه فقط (الحقل المؤرشف لا يظهر)',
+    { manager: sorted([sites.broiler, sites.layer]), worker: sorted([sites.broiler, sites.layer]), layerWorker: sorted([sites.broiler, sites.layer]), viewer: sorted([sites.broiler, sites.layer]), bare: sorted([sites.broiler, sites.layer]), keeper: sorted([sites.broiler, sites.layer]) },
+    'flocks_overview: كلّ دور يرى حقول المنشأة كلّها (0034)، والحقل المؤرشف لا يظهر',
   );
   const workerView = await overview(U.worker);
-  same([workerView.sites[0].can_manage, workerView.sites[0].halls.map((h) => h.name)], [false, ['قاعة 1', 'قاعة 3', 'قاعة 4', 'قاعة 5']], 'العامل: بلا إدارة، وقاعات حقله الفعّالة بترتيب الاسم');
+  const workerBroiler = workerView.sites.find((x) => x.id === sites.broiler);
+  same([workerBroiler.can_manage, workerBroiler.halls.map((h) => h.name)], [true, ['قاعة 1', 'قاعة 3', 'قاعة 4', 'قاعة 5']], 'العامل: يدير الحقل (0034)، وقاعاته الفعّالة بترتيب الاسم');
   same(
     { viewer: code(await detail(U.viewer, F1)), outside: code(await detail(U.worker, F2)), bare: code(await detail(U.bareViewer, F1)), missing: code(await detail(U.manager, id(996))) },
-    { viewer: 'ok', outside: 'out_of_scope', bare: 'out_of_scope', missing: 'flock_not_found' },
-    'flock_detail: المشاهد بنطاقه يقرأ، وخارج النطاق out_of_scope، والمجهول flock_not_found',
+    { viewer: 'ok', outside: 'ok', bare: 'ok', missing: 'flock_not_found' },
+    'flock_detail: كلّ عضو يقرأ أيّ فوج في منشأته (0034)، والمجهول flock_not_found',
   );
   const noMoney = JSON.stringify([await overview(U.manager), (await detail(U.manager, F1)).v]);
   t.ok(!/"(money|value|cost|amount|price)"/u.test(noMoney), 'القارئان بلا أيّ حقل مال');
@@ -432,11 +433,11 @@ async function scenario(t, db) {
   t.eq(await day(F3, TODAY), null, 'المركون بلا أثر على الجولة');
   same(
     {
-      scope: (await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1, ref(), true)).v,
+      scope: (await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1, ref(), true, false)).v?.status,
       old: (await save(U.worker, F1, '2026-10-21', { dead: 1 }, null, ref(), true)).v,
     },
-    { scope: { status: 'parked', reason: 'out_of_scope' }, old: { status: 'parked', reason: 'date_too_old' } },
-    'خارج النطاق وأقدم من 7 أيام من الطابور: parked بسببه',
+    { scope: 'saved', old: { status: 'parked', reason: 'date_too_old' } },
+    'أقدم من 7 أيام من الطابور: parked بسببه؛ وعامل بصفّ نطاق البيض لم يعد خارج النطاق، فيُحفظ (بمعاملة ترجع)',
   );
   t.eq(code(await call(U.manager, 'select public.set_period_lock($1)', ['2026-10-25'])), 'ok', 'المدير يقفل الفترة حتى 25/10');
   same(
@@ -450,7 +451,7 @@ async function scenario(t, db) {
     'الفترة المقفولة: من الطابور parked، وبنداء مباشر period_locked (الجولة والوزن والتسكين)',
   );
   const pending = summary(await overview(U.manager), sites.broiler, B1);
-  t.eq(pending.rejects_pending, 3, 'ملخّص الفوج يعدّ المركونات بلا قرار (خارج النطاق وقديم ومقفول)');
+  t.eq(pending.rejects_pending, 2, 'ملخّص الفوج يعدّ المركونات بلا قرار (قديم ومقفول؛ ولا «خارج النطاق» منذ 0034)');
   t.eq((await day(F1, '2026-10-25')).dead, 20, 'المركونات ما غيّرت يوم 25/10');
 
   // ─── سياسات القراءة بالنطاق نفسه (FOUNDATION ٥٤٤): القراءة المباشرة للجداول (PostgREST) ما تعبر نطاق القارئ ─────────────────
@@ -464,7 +465,8 @@ async function scenario(t, db) {
         [flock],
       )
     ).rows?.[0] ?? null;
-  const none = { flocks: 0, days: 0, weights: 0, rejects: 0 };
+  const layerRows = { flocks: 1, days: 4, weights: 1, rejects: 1 };
+  const broilerRows = { flocks: 1, days: 6, weights: 1, rejects: 2 };
   same(
     {
       layerWorker: await direct(U.layerWorker, F2),
@@ -477,16 +479,16 @@ async function scenario(t, db) {
       keeper: await direct(U.keeper, F1),
     },
     {
-      layerWorker: { flocks: 1, days: 4, weights: 1, rejects: 1 },
-      manager: { flocks: 1, days: 4, weights: 1, rejects: 1 },
-      viewer: { flocks: 1, days: 6, weights: 1, rejects: 3 },
-      worker: none,
-      viewerLayer: none,
-      layerManager: none,
-      bare: none,
-      keeper: none,
+      layerWorker: layerRows,
+      manager: layerRows,
+      viewer: broilerRows,
+      worker: layerRows,
+      viewerLayer: layerRows,
+      layerManager: broilerRows,
+      bare: broilerRows,
+      keeper: broilerRows,
     },
-    'القراءة المباشرة بنطاق الحقل: عامل البيّاض والمدير يقرآن فوج البيّاض، والمشاهد فوج اللحم بنطاقه؛ وعامل اللحم ومشاهده ومدير البيض خارج نطاقهم، والمشاهد بلا نطاق والأمين: صفر صفّ بكل جدول',
+    'القراءة المباشرة: كلّ عضو يقرأ فوجي اللحم والبيّاض وأيّامهما وأوزانهما ومركوناتهما (0034: صفوف النطاق لا تحجب)',
   );
 
   // ─── التزامن: فوج 100 طير وحفظان بنفس اللحظة بـ60 لكل يوم ← واحد يحفظ والثاني live_negative والحيّ 40 ───────────────────

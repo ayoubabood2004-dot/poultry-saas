@@ -59,7 +59,7 @@ async function scenario(t, db) {
   t.same([shown(far), far.hint?.includes('من 1 إلى 1,000')], ['bad_day', true], 'والمفتوح أيّامه من 1 إلى 1,000، والجملة تقولها');
   t.eq(shown(await call(db, U.manager, SAVE_T, ['broiler', 0, days([nd, 7]), 2])), 'bad_end_age', 'ونهاية صفر مرفوضة كما كانت');
   t.eq(shown(await call(db, U.manager, SAVE_T, ['broiler', 1001, days([nd, 7]), 2])), 'bad_end_age', 'ونهاية فوق 1,000 مرفوضة كما كانت');
-  t.eq(shown(await call(db, U.hallWorker, SAVE_T, ['broiler', null, days(), 2])), 'forbidden', 'والعامل لا يكتب الجدول كما كان');
+  t.eq(shown(await call(db, U.hallWorker, SAVE_T, ['broiler', null, days(), 2], { commit: false })), 'ok', 'والعامل يكتب الجدول (0034: flock.manage لكلّ عضو؛ بمعاملة ترجع)');
 
   // ── ٢) رأس الفوج: جدول النوع المفتوح بلا نهاية، وجدول القاعة يحكم ولو مفتوحاً ─────────────────
   const HA = await hall('قاعة 1');
@@ -95,7 +95,7 @@ async function scenario(t, db) {
   };
   t.same([flockOf(HA), flockOf(HB), flockOf(HC)],
     [[fa, day(-20), 0], [fb, day(-10), 3], null], 'لوحة اللقاحات: لكلّ قاعة فوجها القائم بيوم تسكينه وعمره عنده، وقاعة بلا فوج null');
-  t.eq((await one(U.layerManager, 'select public.vaccine_board() as v', [])).halls.some((h) => h.id === HA), false, 'ومن لا يرى حقل اللحم لا يرى قاعاته ولا أفواجها');
+  t.eq((await one(U.layerManager, 'select public.vaccine_board() as v', [])).halls.some((h) => h.id === HA), true, 'ومدير بصفّ نطاق البيّاض يرى قاعات اللحم وأفواجها (0034)');
 
   // ── ٤) الثوابت ─────────────────────────────────────────────────────────────────────────────────────
   for (const fn of ['verify_halls', 'verify_flocks']) {

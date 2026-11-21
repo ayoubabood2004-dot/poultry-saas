@@ -48,7 +48,9 @@ async function scenario(t, db) {
   const [C1, C2] = corn.map((l) => l.id);
 
   /** مسوّدة جرد بكتابة مباشرة: lines = [{ item, qty, expired?, gainExpiry?, gainExpiredExpiry?, bornAt? }]. */
-  const countDraft = (user, wh, lines, countedOn = TODAY) =>
+  // commit: false لما كان مرفوضاً بالدور أو النطاق وصار ينجح بـ0034 («الكلّ مثل المالك»): يثبت النجاح ولا يغيّر ما بعده.
+  const dry = (user, sql, params) => call(db, user, sql, params, { commit: false });
+  const countDraft = (user, wh, lines, countedOn = TODAY, commit = true) =>
     db.asUser(
       user,
       async (q) => {
@@ -62,7 +64,7 @@ async function scenario(t, db) {
         }
         return { id: docId, lines: ids };
       },
-      { commit: true },
+      { commit },
     );
   const versionOf = async (docId) => (await db.admin('select version from public.stock_counts where id = $1', [docId])).rows[0].version;
   const statusOf = async (docId) => (await db.admin('select status, doc_no from public.stock_counts where id = $1', [docId])).rows[0];
@@ -144,9 +146,9 @@ async function scenario(t, db) {
     'إلغاء جرد النقص: الدفعات والرصيد مثل قبله بالفلس، و«فرق جرد» بصفّ عكسي',
   );
   t.same(
-    [shown(await voidCount(U.manager, shortDoc.id)), shown(await voidCount(U.storekeeper, gainDoc.id)), (await statusOf(shortDoc.id)).status],
-    ['already_void', 'forbidden', 'void'],
-    'الإلغاء مرّة ثانية already_void، والأمين ما يلغي (forbidden)',
+    [shown(await voidCount(U.manager, shortDoc.id)), shown(await dry(U.storekeeper, 'select public.void_count($1, $2, $3)', [gainDoc.id, 'جرد خاطئ', uid()])), (await statusOf(shortDoc.id)).status],
+    ['already_void', 'ok', 'void'],
+    'الإلغاء مرّة ثانية already_void، والأمين يلغي (0034، بمعاملة ترجع)',
   );
 
   // ── التعادل (E45): الجذر ومرآته بنفس fifo_seq ← الجذر أوّلاً ──────────────────────────────────────────────────────────
@@ -167,16 +169,16 @@ async function scenario(t, db) {
   const manualDoc = await submitted(W.general, [{ item: generator, qty: 2 }], { why: 'مولّدة ما مسجّلة' });
   const manualLine = manualDoc.lines[0];
   const noCost = (await preview(U.manager, manualDoc.id)).value.lines[0];
-  const costInsert = (user, value) => call(db, user, 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, $2) returning line_id', [manualLine, value]);
+  const costInsert = (user, value, options) => call(db, user, 'insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, $2) returning line_id', [manualLine, value], options);
   t.same(
     [noCost.problem?.code, noCost.gain_source, shown(await postNow(U.manager, manualDoc.id))],
     ['gain_cost_required', null, 'gain_cost_required'],
     'مادّة بلا أي دفعة سابقة: المعاينة والترحيل gain_cost_required',
   );
   t.same(
-    [shown(await costInsert(U.storekeeper, 1234.5678)), shown(await costInsert(U.accountant, 1234.5678)), shown(await costInsert(U.manager, 1234.56789))],
-    ['forbidden', 'forbidden', 'check:stock_count_line_costs_gain_unit_cost_check'],
-    'كلفة الوحدة: الأمين والمحاسب forbidden (count.approve)، وخمس مراتب يرفضها قيد العمود بلا تقريب صامت',
+    [shown(await costInsert(U.storekeeper, 1234.5678, { commit: false })), shown(await costInsert(U.accountant, 1234.5678, { commit: false })), shown(await costInsert(U.manager, 1234.56789))],
+    ['ok', 'ok', 'check:stock_count_line_costs_gain_unit_cost_check'],
+    'كلفة الوحدة: الأمين والمحاسب يكتبانها (0034: count.approve لكلّ عضو، بمعاملة ترجع)، وخمس مراتب يرفضها قيد العمود بلا تقريب صامت',
   );
   t.eq(shown(await costInsert(U.manager, 1234.5678)), 'ok', 'المدير يكتب كلفة الوحدة 1,234.5678');
   const withCost = (await preview(U.manager, manualDoc.id)).value.lines[0];
@@ -188,7 +190,7 @@ async function scenario(t, db) {
     'الترحيل بكلفة المدير: صفّ الكلفة بقيمة الزيادة، والرصيد قطعتان بـ2,469.14',
   );
   const costSeen = async (user) => (await db.asUser(user, (q) => q('select count(*)::int as n from public.stock_count_line_costs where doc_id = $1', [manualDoc.id]))).rows[0].n;
-  t.same([await costSeen(U.manager), await costSeen(U.accountant), await costSeen(U.storekeeper), await costSeen(U.viewer)], [1, 1, 0, 0], 'صفوف كلفة الجرد لأدوار الكلفة بس (المدير والمحاسب)');
+  t.same([await costSeen(U.manager), await costSeen(U.accountant), await costSeen(U.storekeeper), await costSeen(U.viewer)], [1, 1, 1, 1], 'صفوف كلفة الجرد لكلّ دور (0034)');
   // دفعة زيادة انسحب منها: الإلغاء lot_consumed يسمّي المستند، وبعد إلغاء الصرف يمرّ.
   const maintenance = await S.one(U.accountant, "insert into public.expense_categories (name) values ('صيانة') returning id");
   const use = await db.asUser(
@@ -258,7 +260,7 @@ async function scenario(t, db) {
   t.same(gains, [{ expiry_on: '2026-10-01', qty: '1', value: '2000.00' }, { expiry_on: '2027-03-31', qty: '1', value: '2000.00' }], 'دفعتا زيادة: المنتهية (2026-10-01) والصالحة (2027-03-31)، كل وحدة بـ2,000.00 من دفعة القياس');
 
   // ── المسوّدة: مشاكل السطر برموزها بالتسليم وبحارس السطر ─────────────────────────────────────────────────────────────
-  const lineError = async (user, wh, line) => countDraft(user, wh, [line]).then(() => 'ok', outcome);
+  const lineError = async (user, wh, line, commit = true) => countDraft(user, wh, [line], TODAY, commit).then(() => 'ok', outcome);
   const problemAt = async (user, wh, line) => shown(await submit(user, await countDraft(user, wh, [line])));
   t.same(
     [
@@ -268,11 +270,11 @@ async function scenario(t, db) {
       await problemAt(U.storekeeper, W.general, { item: generator, qty: 1.5 }),
       await problemAt(U.storekeeper, W.general, { item: I.diesel, qty: 100, gainExpiry: '2027-01-01' }),
       await problemAt(U.storekeeper, W.general, { item: I.diesel, qty: 100, bornAt: '2026-10-29T04:30:00Z' }),
-      await lineError(U.storekeeper, W.chick, { item: I.chicks, qty: 1 }),
-      await lineError(U.viewer, W.general, { item: I.diesel, qty: 1 }),
+      await lineError(U.storekeeper, W.chick, { item: I.chicks, qty: 1 }, false),
+      await lineError(U.viewer, W.general, { item: I.diesel, qty: 1 }, false),
     ],
-    ['expiry_not_tracked', 'item_kind_mismatch', 'egg_flock_required', 'pieces_not_whole', 'expiry_not_tracked', 'born_at_not_chick', 'rls', 'rls'],
-    'منتهٍ لمادّة ما تتابعه يرفضه حارس السطر، والأهلية وبيض المائدة والقطع وتاريخ الانتهاء ووقت الفقس برموزها بالتسليم، وبرّا النطاق وبلا فعل RLS',
+    ['expiry_not_tracked', 'item_kind_mismatch', 'egg_flock_required', 'pieces_not_whole', 'expiry_not_tracked', 'born_at_not_chick', 'ok', 'ok'],
+    'منتهٍ لمادّة ما تتابعه يرفضه حارس السطر، والأهلية وبيض المائدة والقطع وتاريخ الانتهاء ووقت الفقس برموزها بالتسليم، والأمين بمخزن الأفراخ والمشاهد يكتبان المسوّدة (0034)',
   );
 
   // ── دورة المراجعة (E53) ───────────────────────────────────────────────────────────────────────────────────────────
@@ -289,12 +291,12 @@ async function scenario(t, db) {
       shown(await editLine(U.storekeeper, review.lines[0], 'counted_qty', 99)),
       extra,
       await db.asUser(U.storekeeper, (q) => q("update public.stock_counts set status = 'draft', counted_on = counted_on where id = $1", [review.id])).then((r) => r.rowCount, outcome),
-      shown(await writeReason(U.storekeeper, review.lines[0], 'الأمين')),
-      shown(await postNow(U.storekeeper, review.id)),
-      shown(await refresh(U.storekeeper, review.id)),
+      shown(await dry(U.storekeeper, 'update public.stock_count_lines set reason = $2, reason_diff = diff, reason_expired_diff = expired_diff where id = $1 returning reason', [review.lines[0], 'الأمين'])),
+      shown(await dry(U.storekeeper, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [review.id, await versionOf(review.id), uid()])),
+      shown(await dry(U.storekeeper, 'select public.refresh_count($1, $2, $3)', [review.id, await versionOf(review.id), uid()])),
     ],
-    ['not_draft', 'not_draft', 0, 'not_draft', 'forbidden', 'forbidden'],
-    'المسلَّم مجمّد للأمين: تعديل العدّ وإضافة سطر وكتابة السبب not_draft، والرأس ما يتعدّل، والترحيل وإعادة الحساب للمدير',
+    ['not_draft', 'not_draft', 0, 'ok', 'reason_required', 'ok'],
+    'المسلَّم: العدّ والسطور والرأس مجمّدة، والأمين يراجع كالمدير (0034، بمعاملة ترجع): يكتب السبب، والترحيل يطلب السبب، وإعادة الحساب تنجح',
   );
   t.same(
     [shown(await editLine(U.manager, review.lines[0], 'counted_qty', 99)), shown(await writeReason(U.manager, review.lines[0], '  تبخّر  '))],
@@ -330,9 +332,9 @@ async function scenario(t, db) {
     'السبب مكتوب على فرق −2 والفرق صار +8: المعاينة «تغيّر الفرق» والترحيل reason_required لحد ما يتأكّد السبب',
   );
   t.same(
-    [shown(await giveBack(U.storekeeper, review.id, 'الأمين')), shown(await giveBack(U.manager, review.id, '  '))],
-    ['forbidden', 'reason_required'],
-    '«أعِد للعدّ» للمدير وبسبب',
+    [shown(await dry(U.storekeeper, 'select public.return_count($1, $2, $3, $4)', [review.id, await versionOf(review.id), 'الأمين', uid()])), shown(await giveBack(U.manager, review.id, '  '))],
+    ['ok', 'reason_required'],
+    '«أعِد للعدّ» للأمين أيضاً (0034، بمعاملة ترجع) وبسبب',
   );
   t.eq(shown(await giveBack(U.manager, review.id, 'تحويل بعد العدّ؛ أعد العدّ')), 'ok', 'المدير يعيد الجرد للعدّ');
   const backRow = (await db.admin('select status, snapshot_at, return_reason from public.stock_counts where id = $1', [review.id])).rows[0];
@@ -354,12 +356,12 @@ async function scenario(t, db) {
   const closeMe = await submitted(W.general, [{ item: I.gas, qty: 10 }]);
   t.same(
     [
-      shown(await call(db, U.storekeeper, "select public.discard_draft('count', $1, $2) ->> 'status'", [closeMe.id, await versionOf(closeMe.id)])),
+      shown(await dry(U.storekeeper, "select public.discard_draft('count', $1, $2) ->> 'status'", [closeMe.id, await versionOf(closeMe.id)])),
       shown(await call(db, U.manager, "select public.discard_draft('count', $1, $2) ->> 'status'", [closeMe.id, await versionOf(closeMe.id)])),
       await statusOf(closeMe.id),
     ],
-    ['forbidden', 'ok', { status: 'void', doc_no: null }],
-    '«أغلِق دون ترحيل»: الأمين forbidden، والمدير يطوي المسلَّم بلا رقم',
+    ['ok', 'ok', { status: 'void', doc_no: null }],
+    '«أغلِق دون ترحيل»: الأمين يطويه أيضاً (0034، بمعاملة ترجع)، والمدير يطوي المسلَّم بلا رقم',
   );
   // حذف سطر بكلفته: المدير كتب الكلفة وأعاد الجرد، والأمين يحذف السطر (والكلفة قبله).
   const priced = await submitted(W.general, [{ item: generator, qty: 1 }], { why: 'قطعة' });

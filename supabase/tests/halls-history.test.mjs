@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { call, canon, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedOpening } from './stock-kit.mjs';
 
@@ -277,8 +277,9 @@ async function scenario(t, db) {
       }
       t.same(mismatches.slice(0, 6), [], `${who}: صفّ كلّ يوم في halls_history = مجاميع halls_day لقاعات نوعه (${compared} يوم نوع)`);
       if (who === 'owner') t.eq(compared, 47 + 24, `المالك: أيّام اللاحم من 2 ت1 (47) وأيّام البيّاض من 25 ت1 (24)`);
-      if (who === 'siteManager') t.eq(compared, 11, 'المدير المحصور بحقل باء: أيّام اللاحم من 7 ت2 (11) ولا بيّاض');
-      if (who === 'worker') t.eq(compared, 47, 'عامل الحقول (وحدة اللحم): أيّام اللاحم وحدها');
+      // 0034 («الكلّ مثل المالك»): صفوف النطاق لا تحجب، فالمدير بصفّ حقل باء وعامل الحقول بصفّ وحدة اللحم يرون أيّام المالك نفسها.
+      if (who === 'siteManager') t.eq(compared, 47 + 24, 'المدير بصفّ نطاق حقل باء: أيّام اللاحم والبيّاض كالمالك');
+      if (who === 'worker') t.eq(compared, 47 + 24, 'عامل الحقول بصفّ نطاق اللحم: أيّام اللاحم والبيّاض كالمالك');
     }
   });
 
@@ -414,13 +415,14 @@ async function scenario(t, db) {
 
   // ── ٥) النطاق ────────────────────────────────────────────────────────────────────────────────────────────────────
   await section('النطاق', async () => {
+    // 0034 («الكلّ مثل المالك»): صفّ النطاق لا يحجب، فالسجلّ لصاحبه = سجلّ المالك حرفاً بحرف.
+    const full = await history(U.owner, null);
     const scoped = await history(U.siteManager, null);
-    same([scoped.prev, scoped.kinds.map((k) => [k.kind, k.start, k.total.placed, k.total.halls, k.total.opened, k.months.length])],
-      [false, [['broiler', day(-10), 1500, 1, 1, 1]]], 'المدير المحصور بحقل باء: لاحم حقله وحده من 7 ت2 (لا بيّاض ولا حقل ألف)، فلا شهر قبله');
-    same(kindOf(scoped, 'broiler').events.map((e) => [e.type, e.site]), [['placed', 'حقل باء']], 'أحداثه من حقله وحده');
+    same(canon(scoped), canon(full), 'المدير بصفّ نطاق حقل باء: السجلّ كلّه كالمالك (اللاحم والبيّاض وكلّ الحقول)');
+    same(kindOf(scoped, 'broiler').events.some((e) => e.site === 'حقل ألف'), true, 'وأحداث حقل ألف معها');
     samples.halls_history_scoped = scoped;
     const worker = await history(U.worker, null);
-    same(worker.kinds.map((k) => [k.kind, k.total.halls]), [['broiler', 4]], 'عامل الحقول بوحدة اللحم: اللاحم وحده بقاعاته الأربع (والمؤرشفة التي لها فوج)');
+    same(canon(worker), canon(full), 'عامل الحقول بصفّ نطاق اللحم: السجلّ كلّه كالمالك');
   });
 
   // ── ٥ب) النقل بين الدورات (مراجعة 0031 M1) ─────────────────────────────────────────────────────────────────────────
@@ -477,13 +479,11 @@ async function scenario(t, db) {
   await section('الملاحظة', async () => {
     const write = (user, on, text, expected) => call(db, user, NOTE, [on, text, expected]);
     const rowOf = async (on) => (await db.admin('select note, version::text as version from public.halls_day_notes where org_id = $1 and on_date = $2', [G.org, on])).rows[0] ?? null;
-    for (const who of ['worker', 'accountant']) {
-      const r = await write(U[who], day(-3), 'من غير المالك', null);
-      t.eq(r.ok ? 'ok' : r.code, 'forbidden', `${who}: لا يكتب ملاحظة (halls_note.write للمالك والمدير)`);
+    // 0034: كلّ عضو يكتب ملاحظة اليوم، ولو بصفّ نطاق حقل (بمعاملة ترجع، فما بعده كما كان).
+    for (const who of ['worker', 'accountant', 'siteManager']) {
+      const r = await call(db, U[who], NOTE, [day(-3), 'من غير المالك', null], { commit: false });
+      t.eq(r.ok ? 'ok' : r.code, 'ok', `${who}: يكتب ملاحظة اليوم (halls_note.write لكلّ عضو)`);
     }
-    const scopedWrite = await write(U.siteManager, day(-3), 'من مدير حقل باء', null);
-    same([scopedWrite.ok, scopedWrite.code, /للمنشأة كلّها/u.test(scopedWrite.hint ?? '')], [false, 'note_scope', true],
-      'المدير المحصور بحقل باء: لا يكتب ملاحظة المنشأة كلّها (note_scope بتلميح فصيح؛ مراجعة 0031 L4)');
     const first = await write(U.owner, day(-3), '  وصل العلف وبدأنا القاعة الثانية  ', null);
     t.ok(first.ok && first.value.note.text === 'وصل العلف وبدأنا القاعة الثانية' && first.value.on === day(-3) && first.value.note.version >= 1,
       `المالك يكتب ملاحظة اليوم (الفراغ في الطرفين يُقصّ): ${JSON.stringify(first.value ?? first)}`);
@@ -533,12 +533,8 @@ async function scenario(t, db) {
     const VERIFY = 'select check_name, violations::int as v from public.verify_halls_history()';
     const verifyOf = async (q) => Object.fromEntries((await q(VERIFY)).rows.map((r) => [r.check_name, r.v]));
     const CASES = [
-      {
-        name: 'النطاق كـhalls_day',
-        fns: [[FN.history, [['and public.in_scope_site(h.site_id)\n', '\n']]]],
-        run: ({ attempt }) => attempt(U.siteManager, async (q) => (await q(HISTORY, [null])).rows[0].v.kinds.map((k) => k.kind).join()),
-        correct: (r) => r.ok && r.value === 'broiler',
-      },
+      // 0034: طفرتا «النطاق كـhalls_day» و«فعل الملاحظة halls_note.write» و«ملاحظة المنشأة لمن نطاقه المنشأة كلّها» صارت مكافئة (النطاق المنشأة كلّها
+      // والفعل لكلّ عضو، والمنشأة شرط كلّ جملة)، فشيلت؛ وما بين المنشآت يحرسه role-matrix.
       {
         name: 'يوم بلا فوج داخل المدّة صفّ',
         fns: [[FN.history, [['    left join z on z.kind = ks.kind and z.on_date = c.d\n', '    join z on z.kind = ks.kind and z.on_date = c.d\n']]]],
@@ -556,12 +552,6 @@ async function scenario(t, db) {
         fns: [[FN.note, [['  if p_expected_version is distinct from v_seen then\n', '  if false then\n']]]],
         run: ({ attempt }) => attempt(U.manager, async (q) => (await q(NOTE, [day(-3), 'فوق ما لم يُرَ', null])).rows[0].v.note.text),
         correct: (r) => !r.ok && r.code === 'note_changed',
-      },
-      {
-        name: 'فعل الملاحظة halls_note.write',
-        fns: [[FN.note, [["  perform private.require('halls_note.write');\n", "  perform private.require('read');\n"]]]],
-        run: ({ attempt }) => attempt(U.worker, async (q) => (await q(NOTE, [day(-6), 'من عامل الحقول', null])).rows[0].v.note.text),
-        correct: (r) => !r.ok && r.code === 'forbidden',
       },
       {
         name: 'الإعادة بالنصّ نفسه بلا نسخة جديدة',
@@ -589,12 +579,6 @@ async function scenario(t, db) {
         fns: [[FN.history, [['sum(z.given_unweighed - z.carry_in_unweighed)', 'sum(z.given_unweighed)']]]],
         run: ({ attempt }) => attempt(C.users.owner, async (q) => (await q(HISTORY, [null])).rows[0].v.kinds[0].total.given_unweighed),
         correct: (r) => r.ok && r.value === 1,
-      },
-      {
-        name: 'ملاحظة المنشأة لمن نطاقه المنشأة كلّها',
-        fns: [[FN.note, [['not public.in_scope_site(s.id)', 'false']]]],
-        run: ({ attempt }) => attempt(U.siteManager, async (q) => (await q(NOTE, [day(-6), 'من مدير حقل باء', null])).rows[0].v.note.text),
-        correct: (r) => !r.ok && r.code === 'note_scope',
       },
       {
         name: 'الثابت يمسك سطر شهر لا يساوي أيّامه',

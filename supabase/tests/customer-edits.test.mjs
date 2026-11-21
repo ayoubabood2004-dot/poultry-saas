@@ -145,8 +145,8 @@ async function scenario(t, db) {
   t.same([back.value?.changed, back.value?.breed, back.value?.version], [true, 'روس', 5], 'التاريخ والعدد والسلالة معاً، والسلالة بلا فراغ طرفيها');
   const same = await call(db, U.manager, EDIT, [f5, 5, day(-2), 22500, 0, 'روس', uid()]);
   t.same([same.value?.changed, same.value?.version, await version(f5)], [false, 5, 5], 'بلا تغيير: changed = false والنسخة كما هي');
-  for (const role of OTHERS) t.eq(shown(await call(db, U[role], EDIT, [f5, 5, day(-2), 22500, 0, null, uid()])), 'forbidden', `تعديل الفوج للمالك والمدير: ${role} forbidden`);
-  t.eq(shown(await call(db, U.layerManager, EDIT, [f5, 5, day(-2), 22500, 0, null, uid()])), 'out_of_scope', 'ومدير بنطاق البيّاض out_of_scope');
+  // 0034 («الكلّ مثل المالك»): كلّ دور يعدّل الفوج، ومدير بصفّ نطاق البيّاض كذلك (بمعاملة ترجع، فما بعده كما كان).
+  for (const role of [...OTHERS, 'layerManager']) t.eq(shown(await call(db, U[role], EDIT, [f5, 5, day(-2), 22500, 0, 'روس', uid()], { commit: false })), 'ok', `تعديل الفوج لكلّ دور: ${role}`);
   t.eq(shown(await call(db, U.owner, EDIT, [uid(), 1, day(-2), 1000, 0, null, uid()])), 'flock_not_found', 'فوج غير موجود flock_not_found');
 
   // الصرف ولو أُلغي، والتأشير الحيّ، يمنعان تسكيناً بعدهما (كثوابت verify_flock_issues وverify_halls).
@@ -176,8 +176,7 @@ async function scenario(t, db) {
   const issued = await call(db, U.manager, DEL, [f6, await version(f6), uid()]);
   t.same([shown(issued), issued.hint?.includes('صرف من المخزن')], ['flock_has_records', true], 'وفوج له صرف (ولو ملغى) لا يُحذف');
   t.eq(shown(await call(db, U.manager, DEL, [f8b, 9, uid()])), 'stale_flock', 'الحذف بنسخة قديمة stale_flock');
-  for (const role of OTHERS) t.eq(shown(await call(db, U[role], DEL, [f8b, 1, uid()])), 'forbidden', `حذف الفوج للمالك والمدير: ${role} forbidden`);
-  t.eq(shown(await call(db, U.layerManager, DEL, [f8b, 1, uid()])), 'out_of_scope', 'ومدير بنطاق البيّاض out_of_scope');
+  for (const role of [...OTHERS, 'layerManager']) t.eq(shown(await call(db, U[role], DEL, [f8b, 1, uid()], { commit: false })), 'ok', `حذف الفوج لكلّ دور (بمعاملة ترجع): ${role}`);
 
   // ── ٣) جدول لقاحات القاعة ─────────────────────────────────────────────────────────────────────────────────────────
   const nd = (await one(U.owner, "select public.save_vaccine($1, 'ND', null, null) as v", [uid()])).id;
@@ -197,7 +196,7 @@ async function scenario(t, db) {
   const boardHall = (hallId) => board.halls.find((h) => h.id === hallId);
   t.same(canon([boardHall(HA)?.program, boardHall(HB)?.program, boardHall(HA)?.kind, boardHall(HA)?.site_name]),
     canon([{ version: 1, end_age: 35, days: [{ vaccine_id: ib, age_day: 6 }] }, null, 'broiler', 'حقل الزبون']), 'لوحة اللقاحات: القاعات بجداولها الخاصّة أو null');
-  t.eq((await one(U.layerManager, 'select public.vaccine_board() as v', [])).halls.some((h) => h.id === HA), false, 'ومن لا يرى حقل اللحم لا يرى قاعاته في اللوحة');
+  t.eq((await one(U.layerManager, 'select public.vaccine_board() as v', [])).halls.some((h) => h.id === HA), true, 'ومدير بصفّ نطاق البيّاض يرى قاعات اللحم في اللوحة (0034)');
   const reportEnd = async (flock) => (await one(U.manager, 'select public.flock_cycle_report($1) as v', [flock])).flock.end_age;
   t.same([await reportEnd(fa), await reportEnd(fb)], [35, 42], 'تقرير الدورة: نهاية الدورة من جدول القاعة الخاصّ، وإلّا العامّ');
   const planned = async (flock) =>
@@ -214,11 +213,10 @@ async function scenario(t, db) {
   t.eq(shown(await call(db, U.manager, SAVE_H, [uid(), 35, '[]', 0])), 'hall_not_found', 'قاعة غير موجودة hall_not_found');
   const two = await call(db, U.manager, SAVE_H, [HA, 35, JSON.stringify([{ vaccine_id: ib, age_day: 6 }, { vaccine_id: nd, age_day: 12 }]), 1]);
   t.same([two.value?.version, two.value?.days], [2, 2], 'الحفظ بنسخته يكتب الجدول كلّه (النسخة 2)');
-  for (const role of OTHERS) {
-    t.eq(shown(await call(db, U[role], SAVE_H, [HB, 42, '[]', 0])), 'forbidden', `جدول القاعة لمن يدير الحقول: ${role} forbidden`);
-    t.eq(shown(await call(db, U[role], DROP_H, [HA, 2])), 'forbidden', `وحذفه: ${role} forbidden`);
+  for (const role of [...OTHERS, 'layerManager']) {
+    t.eq(shown(await call(db, U[role], SAVE_H, [HB, 42, '[]', 0], { commit: false })), 'ok', `جدول القاعة لكلّ دور (بمعاملة ترجع): ${role}`);
+    t.eq(shown(await call(db, U[role], DROP_H, [HA, 2], { commit: false })), 'ok', `وحذفه: ${role}`);
   }
-  t.eq(shown(await call(db, U.layerManager, SAVE_H, [HB, 42, '[]', 0])), 'out_of_scope', 'ومدير بنطاق البيّاض out_of_scope');
   const archivedHall = await hall('قاعة مؤرشفة');
   await one(U.owner, 'update public.halls set archived_at = now() where id = $1 returning id', [archivedHall]);
   t.eq(shown(await call(db, U.manager, SAVE_H, [archivedHall, 42, '[]', 0])), 'hall_archived', 'قاعة مؤرشفة hall_archived');
@@ -311,7 +309,7 @@ async function scenario(t, db) {
   const other = await create('مرحلة اولى', [I.corn]);
   t.eq(await fail([R.recipe, activeNow, 'مرحلة اولى', lines(I.corn), uid()]), 'recipe_name_taken', 'اسم خلطة أخرى recipe_name_taken');
   t.same([(await versions(R.recipe)).length, await activeLines(R.recipe)], [2, [I.soy, I.corn, I.oil]], 'والرفض لا يغيّر شيئاً');
-  for (const role of OTHERS) t.eq(shown(await call(db, U[role], EDIT_R, [R.recipe, activeNow, 'تسوية أولى', lines(I.corn), uid()])), 'forbidden', `تعديل الخلطة لمن يفعّلها: ${role} forbidden`);
+  for (const role of OTHERS) t.eq(shown(await call(db, U[role], EDIT_R, [R.recipe, activeNow, 'تسوية أولى', lines(I.corn), uid()], { commit: false })), 'ok', `تعديل الخلطة لكلّ دور (0034، بمعاملة ترجع): ${role}`);
   const withRate = await create('خلطة بتكلفة', [I.corn], [{ category_id: labor, amount_per_ton: '1500' }]);
   const rated = await one(U.manager, EDIT_R, [withRate.recipe, withRate.version, 'خلطة بتكلفة', lines(I.corn, I.soy), uid()]);
   t.same((await db.admin('select category_id, amount_per_ton::text from public.recipe_cost_rates where version_id = $1', [rated.version_id])).rows, [{ category_id: labor, amount_per_ton: '1500.00' }],

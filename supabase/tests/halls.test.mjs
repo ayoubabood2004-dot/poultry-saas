@@ -95,15 +95,15 @@ async function scenario(t, db) {
   t.same(created.map((r) => (r.ok ? [r.value.version, r.value.color] : r.code)), [[1, 0], [1, 1], [1, 2]], 'اللقاحات الثلاثة بنسخة 1 وألوان 0 و1 و2 بترتيب إنشائها');
   t.same([(await sv(U.manager, V.ib, ' IB ', I.ib, null)).value].map((v) => [v.id, v.version, v.color]), [[V.ib, 1, 0]], 'إعادة إنشاء اللقاح نفسه ترجّعه بلا تكرار');
   t.same([shown(await sv(U.manager, id(104), 'ib', null, null)), shown(await sv(U.manager, id(104), 'جديد', I.starter, null)), shown(await sv(U.manager, V.nd, 'ND2', null, 7)),
-    shown(await sv(U.hallWorker, id(104), 'جديد', null, null)), shown(await sv(U.manager, V.ib, 'ND', I.ib, 1))],
-    ['name_taken', 'item_not_vaccine', 'stale_vaccine', 'forbidden', 'name_taken'], 'الاسم المطويّ مأخوذ، والمادّة ليست لقاحاً، والنسخة قديمة، وعامل القاعة لا يدير القائمة، وإعادة التسمية لاسم موجود');
+    shown(await call(db, U.hallWorker, SAVE_V, [id(104), 'جديد', null, null], { commit: false })), shown(await sv(U.manager, V.ib, 'ND', I.ib, 1))],
+    ['name_taken', 'item_not_vaccine', 'stale_vaccine', 'ok', 'name_taken'], 'الاسم المطويّ مأخوذ، والمادّة ليست لقاحاً، والنسخة قديمة، وعامل القاعة يدير القائمة (0034، بمعاملة ترجع)، وإعادة التسمية لاسم موجود');
 
   // ── الجدول الواحد للّاحم: IB وND في اليوم 7، وغمبورو 12، وND 14، وIB 21، ونهاية الدورة 42.
   const program = [{ vaccine_id: V.ib, age_day: 7 }, { vaccine_id: V.nd, age_day: 7 }, { vaccine_id: V.gb, age_day: 12 }, { vaccine_id: V.nd, age_day: 14 }, { vaccine_id: V.ib, age_day: 21 }];
   const sp = (user, kind, end, days, version) => call(db, user, SAVE_P, [kind, end, JSON.stringify(days), version]);
   t.same([shown(await sp(U.manager, 'broiler', 20, program, 0)), shown(await sp(U.manager, 'broiler', 42, [...program, { vaccine_id: V.nd, age_day: 14 }], 0)),
-    shown(await sp(U.manager, 'broiler', 42, program, 3)), shown(await sp(U.hallWorker, 'broiler', 42, program, 0)), shown(await sp(U.manager, 'ducks', 42, [], 0))],
-    ['bad_day', 'duplicate_day', 'stale_program', 'forbidden', 'bad_kind'], 'الجدول: يوم بعد النهاية، ويوم مكرّر، ونسخة غير المقروءة، وعامل القاعة، ونوع مجهول');
+    shown(await sp(U.manager, 'broiler', 42, program, 3)), shown(await call(db, U.hallWorker, SAVE_P, ['broiler', 42, JSON.stringify(program), 0], { commit: false })), shown(await sp(U.manager, 'ducks', 42, [], 0))],
+    ['bad_day', 'duplicate_day', 'stale_program', 'ok', 'bad_kind'], 'الجدول: يوم بعد النهاية، ويوم مكرّر، ونسخة غير المقروءة، وعامل القاعة يحفظه (0034، بمعاملة ترجع)، ونوع مجهول');
   t.ok((await sp(U.manager, 'broiler', 20, program, 0)).hint?.includes('«IB» في يوم العمر 21'), 'bad_day يسمّي اللقاح واليوم');
   t.same([(await sp(U.manager, 'broiler', 42, program, 0)).value].map((v) => [v.kind, v.version, v.end_age, v.days]), [['broiler', 1, 42, 5]], 'جدول اللاحم يُحفظ بنسخته الأولى');
   t.same(shown(await sp(U.manager, 'broiler', 42, program, 0)), 'stale_program', 'حفظ ثانٍ بالنسخة نفسها المقروءة قبل الحفظ يُرفض');
@@ -116,7 +116,7 @@ async function scenario(t, db) {
     ['قاعة 4', 'غمبورو', 12, day(1), 'tomorrow', false], ['قاعة 1', 'ND', 14, day(3), 'soon', false], ['قاعة 4', 'ND', 14, day(3), 'soon', false],
   ], 'التذكير: الفائت حتى 7 أيّام والقادم حتى 3، بالتاريخ ثمّ القاعة ثمّ اللقاح؛ و«قاعة 4» (عمرها 10 عند التسكين) بلا مواعيد اليوم 7');
   t.same([(await call(db, U.keeperMill, REMIND, [])).value.items.length, (await one(U.hallWorker, REMIND, [])).can_mark, (await one(U.storekeeper, REMIND, [])).can_mark],
-    [0, true, false], 'التذكير بنطاق القارئ، والتأشير لمن يسجّل الجولة');
+    [8, true, true], 'التذكير لكلّ عضو (أمين المعمل يرى مواعيد الحقول الثمانية)، والتأشير لكلّ عضو (0034)');
 
   // ── الإضافة لعدّة قاعات بنداء واحد.
   const lines = {
@@ -125,7 +125,7 @@ async function scenario(t, db) {
     vac: (flock, vaccine, age, n, issue = null) => ({ kind: 'vaccination', flock_id: flock, id: id(500 + n), vaccine_id: vaccine, age_day: age,
       ...(issue ? { item_id: issue.item ?? I.ib, issue_id: id(600 + n), line_id: id(700 + n), warehouse_id: issue.wh, qty: issue.qty } : {}) }),
   };
-  const give = (user, ref, on, list) => call(db, user, GIVE, [ref, on, JSON.stringify(list)]);
+  const give = (user, ref, on, list, options) => call(db, user, GIVE, [ref, on, JSON.stringify(list)], options);
   const count = async (sql, params = [org]) => Number((await db.admin(sql, params)).rows[0].n);
   const fiCount = () => count('select count(*) as n from public.flock_issues where org_id = $1');
   const before = await fiCount();
@@ -154,15 +154,17 @@ async function scenario(t, db) {
   const again = await give(U.manager, REF1, TODAY, main);
   t.same([again.value, await fiCount() - before], [V1, 5], 'الإعادة بالمرجع نفسه ترجّع النتيجة نفسها ولا تصرف مرّتين');
 
-  // الصلاحيات: عامل القاعة يسجّل ويؤشّر غير المربوط ولا يصرف؛ والأمين يصرف ولا يسجّل؛ والأمين خارج الحقل خارج النطاق.
+  // الصلاحيات بعد 0034 («الكلّ مثل المالك»): عامل القاعة يسجّل ويؤشّر ويصرف، والأمين يصرف ويسجّل، وأمين المعمل يصرف لفوج الحقل (ما صار ينجح
+  // بمعاملة ترجع، فما بعده كما كان).
+  const dry = { commit: false };
   t.same([
     shown(await give(U.hallWorker, uid(), TODAY, [lines.log(F.c, 'مضادّ', null, 2), lines.vac(F.b, V.nd, 7, 3)])),
-    shown(await give(U.hallWorker, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '1', 5)])),
-    shown(await give(U.hallWorker, uid(), TODAY, [lines.vac(F.b, V.ib, 7, 4, { wh: W.medicine, qty: '2' })])),
+    shown(await give(U.hallWorker, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '1', 5)], dry)),
+    shown(await give(U.hallWorker, uid(), TODAY, [lines.vac(F.b, V.ib, 7, 4, { wh: W.medicine, qty: '2' })], dry)),
     shown(await give(U.storekeeper, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '10', 6)])),
-    shown(await give(U.storekeeper, uid(), TODAY, [lines.log(F.c, 'مضادّ', null, 3)])),
-    shown(await give(U.keeperMill, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '10', 7)])),
-  ], ['ok', 'forbidden', 'forbidden', 'ok', 'forbidden', 'out_of_scope'], 'الصلاحيات: التسجيل والتأشير بفعل الجولة، والصرف بفعل الصرف، والنطاق بحقل الفوج');
+    shown(await give(U.storekeeper, uid(), TODAY, [lines.log(F.c, 'مضادّ', null, 3)], dry)),
+    shown(await give(U.keeperMill, uid(), TODAY, [lines.issue(F.c, I.starter, W.feed, '10', 7)], dry)),
+  ], ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], 'الصلاحيات: كلّ عضو يسجّل ويؤشّر ويصرف لكلّ فوج (0034)');
 
   // الرفض بلا حفظ: خارج الجدول، ومؤشَّر من قبل، والمربوط بلا كمية، وغير المربوط بكمية، والمكرّر، والتاريخ، والشكل.
   const many = Array.from({ length: 101 }, (_, n) => lines.log(F.c, 'دواء', null, 50 + n));
@@ -191,8 +193,8 @@ async function scenario(t, db) {
   const voidDirect = await call(db, U.manager, 'select public.void_flock_issue($1, $2, $3) as v', [ibIssue, 'خطأ', uid()]);
   t.same([voidDirect.code, voidDirect.hint?.includes('ألغِ التأشير من تقويم القاعة')], ['vaccination_issue', true], 'إلغاء صرف لقاح مؤشَّر من سجلّ الصرف مرفوض بجملة تدلّ على التأشير');
   const UNDO_REF = id(902);
-  t.same([shown(await call(db, U.hallWorker, UNDO, [ibMark, 'خطأ', uid()])), shown(await call(db, U.manager, UNDO, [ibMark, '  ', uid()]))], ['forbidden', 'reason_required'],
-    'التراجع عن تأشير مصروف بفعل الإلغاء وبسبب');
+  t.same([shown(await call(db, U.hallWorker, UNDO, [ibMark, 'خطأ', uid()], { commit: false })), shown(await call(db, U.manager, UNDO, [ibMark, '  ', uid()]))], ['ok', 'reason_required'],
+    'التراجع عن تأشير مصروف لكلّ عضو (0034، بمعاملة ترجع) وبسبب');
   const undone = await call(db, U.manager, UNDO, [ibMark, 'الكمية خاطئة', UNDO_REF]);
   t.same([undone.value, (await db.admin('select status from public.flock_issues where id = $1', [ibIssue])).rows[0].status, await stock(I.ib, W.medicine)],
     [{ id: ibMark, status: 'void', issue_voided: true }, 'void', '50'], 'التراجع يُلغي التأشير وصرفه، واللقاح يرجع للمخزن');
@@ -217,8 +219,8 @@ async function scenario(t, db) {
     dayOf(day(-1)).dead, dayOf(day(-1)).note, [norm(month.totals.feed_kg), month.totals.dead, month.totals.culled], hasMoney(month)],
     [[], [['غمبورو', 'planned']], [['ND', 'planned']], 12, 'تهوية', ['1000', 12, 3], false],
     'الموعد المؤشَّر يظهر يوم تأشيره لا يوم موعده، والقادم «قادم»، وأرقام الجولة، والمجاميع، وبلا مال');
-  t.same([shown(await call(db, U.keeperMill, MONTH, [F.a, TODAY])), shown(await call(db, U.manager, MONTH, [id(999), TODAY]))], ['out_of_scope', 'flock_not_found'],
-    'التقويم بنطاق حقل الفوج');
+  t.same([shown(await call(db, U.keeperMill, MONTH, [F.a, TODAY])), shown(await call(db, U.manager, MONTH, [id(999), TODAY]))], ['ok', 'flock_not_found'],
+    'التقويم لكلّ عضو (0034)، والفوج المجهول flock_not_found');
 
   // ── تقرير الدورة: الطيور، والعلف بتراكمه، والأدوية (بلا صرف اللقاح المؤشَّر)، واللقاحات المخطّطة والمنفَّذة، والمال لأدوار الكلفة وحدها.
   const report = await one(U.manager, REPORT, [F.a]);
@@ -230,7 +232,7 @@ async function scenario(t, db) {
     [[['store', 'فيتامين سائل']], [['IB', 7, 'done'], ['ND', 7, 'done'], ['غمبورو', 12, 'planned'], ['ND', 14, 'planned'], ['IB', 21, 'planned']]],
     'الأدوية من المخزن، واللقاحات كلّ مواعيد الجدول بحالاتها');
   t.same([norm(report.money.feed), norm(report.money.medicine), norm(report.money.vaccine), hasMoney(await one(U.hallWorker, REPORT, [F.a])), hasMoney(await one(U.storekeeper, REPORT, [F.a]))],
-    ['500000', '20000', '4000', false, false], 'مال الدورة لأدوار الكلفة: العلف والدواء واللقاح الحيّ بقيمته، ومقنَّع لعامل القاعة والأمين');
+    ['500000', '20000', '4000', true, true], 'مال الدورة: العلف والدواء واللقاح الحيّ بقيمته، لعامل القاعة والأمين أيضاً (0034)');
 
   // ── اللوحة، والحذف: غمبورو لم يُؤشَّر به فيُمحى، وIB أُشِّر به فيُخفى؛ وكلاهما يخرج من الجدول بنسخة جديدة.
   const board = await one(U.manager, BOARD, []);

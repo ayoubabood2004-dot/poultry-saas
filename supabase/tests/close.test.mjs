@@ -456,7 +456,7 @@ async function scenario(t, db) {
       [0, 9700, '23280.000', '2.400', day(-2), day(-2), true, [['علف التسمين', '40000', '40000.000', '28000000.00'], ['علف مكعّب', '500', '500.000', '300000.00'],
         ['فيتامين سائل', '10', null, '100000.00']], '40500.000', '3000.000'],
       'نموذج الإغلاق: الحيّ صفر والمباع 9,700 بصافي 23,280 ومعدّل 2.400، واليوم المقترح وأقدمه يوم البيع، وما نزل لكلّ مادّة بقيمته');
-    same(JSON.stringify(samples.flock_close_form_hall_worker).includes('"money"'), false, 'نموذج الإغلاق لعامل القاعة بلا مال');
+    same(canon(samples.flock_close_form_hall_worker), canon(before), 'نموذج الإغلاق لعامل القاعة بمال المدير نفسه (0034: الكلفة لكلّ عضو)');
     const result = await call(db, U.manager, CLOSE, closeArgs(before, F.g6, TODAY, { ref: g6Ref, closeId: g6Close, lines: g6Lines, note: 'نهاية الدورة' }));
     samples.close_flock = result.value;
     // الإرجاع 1,588 × 700 = 1,111,600.00، ونقل «علف مكعّب» كلّه = 300,000.00، والمستهلَك بلا قيمة. الكلفة 28,000,000 + 300,000 + 100,000 − 1,111,600 − 300,000.
@@ -490,7 +490,7 @@ async function scenario(t, db) {
       { feed: '26888400.00', medicine: '100000.00', total: '26988400.00', returned: '1111600.00', carried_out: '300000.00', carried_in: '0', revenue: '64020000' }],
     'G6: الطيور والبيع والإغلاق بلا مال (والمنقول المعلَّق بمخازنه)، والمال صافٍ بالراجع والمنقول، والإيراد 64,020,000');
     same([JSON.stringify(samples.flock_cycle_report_closed_no_money).includes('"money"'), samples.flock_cycle_report_closed_no_money.sales.tickets.map((x) => x.doc_no)],
-      [false, [null]], 'تقرير الدورة المغلقة لعامل القاعة بلا مال ولا رقم الفاتورة');
+      [true, [S6.doc_no]], 'تقرير الدورة المغلقة لعامل القاعة بماله ورقم الفاتورة (0034)');
     const days = Object.fromEntries(r.days.map((d) => [d.on, d]));
     same([pick(days[day(-2)], ['live_start', 'live_end', 'sold', 'sold_cum']), pick(days[day(-1)], ['live_start', 'live_end']),
       pick(days[TODAY], ['feed_out_kg', 'feed_out_cum_kg', 'feed_left_kg', 'feed_given_cum_kg', 'count_diff'])],
@@ -511,10 +511,11 @@ async function scenario(t, db) {
     const fbReturn = (await admin("select l.id from public.flock_close_lines l join public.flock_closes c on c.id = l.close_id where c.flock_id = $1 and c.status = 'closed' and l.action = 'return'", [F.fb]))[0].id;
     const wrongStore = await call(db, U.manager, RETURN_CARRY, [uid(), uid(), fbCarry, W.farm]);
     const notCarry = await call(db, U.manager, RETURN_CARRY, [uid(), uid(), fbReturn, W.feed]);
-    const worker = await call(db, U.worker, RETURN_CARRY, [uid(), uid(), fbCarry, W.feed]);
-    same([wrongStore.code, wrongStore.hint, notCarry.code, worker.code],
-      ['not_from_store', `«علف ناهي» لم يأتِ إلى هذه القاعة من «مخزن حقل الإغلاق». اختر مخزناً جاء منه: «${await whName(W.feed)}».`, 'carry_not_found', 'forbidden'],
-      'return_hall_carry: إلى مخزن لم يأتِ منه not_from_store يسمّي الذي جاء منه، وسطر إرجاع ليس نقلاً carry_not_found، وعامل القاعة لا يُرجع');
+    // 0034 («الكلّ مثل المالك»): عامل القاعة يُرجع المنقول كالمدير (بمعاملة ترجع، فلا يتغيّر ما بعده).
+    const worker = await call(db, U.worker, RETURN_CARRY, [uid(), uid(), fbCarry, W.feed], { commit: false });
+    same([wrongStore.code, wrongStore.hint, notCarry.code, worker.ok],
+      ['not_from_store', `«علف ناهي» لم يأتِ إلى هذه القاعة من «مخزن حقل الإغلاق». اختر مخزناً جاء منه: «${await whName(W.feed)}».`, 'carry_not_found', true],
+      'return_hall_carry: إلى مخزن لم يأتِ منه not_from_store يسمّي الذي جاء منه، وسطر إرجاع ليس نقلاً carry_not_found، وعامل القاعة يُرجع');
   });
   await section('G6 طفرات المؤشّرات (M17 وM18 وM19)', async () => {
     // M17: معامل التحويل النهائيّ من علف الجولات (3,000 ÷ 23,280 = 0.129) بدل العلف الصافي.
@@ -724,12 +725,14 @@ async function scenario(t, db) {
     for (const [lines] of tries) codes.push((await call(db, U.manager, CLOSE, closeArgs(f, F.r2a, TODAY, { reason: 'نهاية الدورة', lines }))).code);
     const fromStore = await call(db, U.manager, CLOSE, closeArgs(f, F.r2a, TODAY, { reason: 'نهاية الدورة', lines: [back(I.y, '10', W.farm)] }));
     const layer = await closeCall(F.l, TODAY, { reason: 'نهاية الدورة' });
-    const worker = await closeCall(F.r2a, TODAY, { reason: 'نهاية الدورة' }, U.worker);
-    const accountant = await closeCall(F.r2a, TODAY, { reason: 'نهاية الدورة' }, U.accountant);
-    same([codes, fromStore.hint, layer.code, worker.code, accountant.code],
+    // 0034: عامل القاعة والمحاسب يغلقان كالمدير (بمعاملة ترجع، فالفوج يبقى قائماً لما بعده).
+    const closeAs = async (user) => call(db, user, CLOSE, closeArgs(await form(F.r2a), F.r2a, TODAY, { reason: 'نهاية الدورة' }), { commit: false });
+    const worker = await closeAs(U.worker);
+    const accountant = await closeAs(U.accountant);
+    same([codes, fromStore.hint, layer.code, worker.ok && worker.value?.status, accountant.ok && accountant.value?.status],
       [tries.map(([, code]) => code), `«علف التسمين» لم يأتِ إلى هذه القاعة من «مخزن حقل الإغلاق». اختر مخزناً جاء منه: «${await whName(W.feed)}».`, 'close_layer_later',
-        'forbidden', 'forbidden'],
-      'مصير الباقي: مصير غير معروف، وأكثر ممّا نزل، ومادّة لم تنزل، ومخزن لم تأتِ منه (يُسمّى الذي جاءت منه)، وبلا مخزن، ومخزن لغير الإرجاع، ومكرّرة، وصفر؛ والبيّاض لاحقاً، وعامل القاعة والمحاسب لا يغلقان');
+        'closed', 'closed'],
+      'مصير الباقي: مصير غير معروف، وأكثر ممّا نزل، ومادّة لم تنزل، ومخزن لم تأتِ منه (يُسمّى الذي جاءت منه)، وبلا مخزن، ومخزن لغير الإرجاع، ومكرّرة، وصفر؛ والبيّاض لاحقاً، وعامل القاعة والمحاسب يغلقان');
   });
 
   // ── السباقات بجلستين حقيقيتين ───────────────────────────────────────────────────────────────────────────────────
@@ -876,12 +879,12 @@ async function scenario(t, db) {
       const read = async (user, sql, params = []) => inside(attempt, user, sql, params);
       const out = { day: {}, managerDay: {} };
       for (const on of days) {
-        out.day[on] = await read(U.plain, 'select public.halls_day($1)', [on]);
+        out.day[on] = (await read(U.plain, 'select public.halls_day($1)', [on])).sites.find((s) => s.id === S.p);
         out.managerDay[on] = (await read(U.manager, 'select public.halls_day($1)', [on])).sites.find((s) => s.id === S.p);
       }
       out.report = await read(U.manager, 'select public.flock_cycle_report($1)', [F.p]);
       out.reportPlain = await read(U.plain, 'select public.flock_cycle_report($1)', [F.p]);
-      out.cycles = await read(U.plain, 'select public.flock_cycles()');
+      out.cycles = (await read(U.plain, 'select public.flock_cycles()')).cycles.filter((c) => c.site_id === S.p);
       return out;
     });
     const problems = [];
@@ -889,23 +892,25 @@ async function scenario(t, db) {
       if (canon(a) !== canon(b)) problems.push(name);
     };
     for (const on of days) {
+      // صاحب صفّ نطاق الحقل يرى المنشأة كلّها منذ 0034، فالمقارنة بحقله (وفي غيره بيع وإغلاق لا يعرفهما 0027).
       const now = await hallsDay(on, U.plain);
-      compare(`halls_day ${on}`, dayAs0027(now), old.day[on]);
+      const plainSite = now.sites.find((s) => s.id === S.p);
+      compare(`halls_day ${on}`, dayAs0027({ sites: [plainSite], totals: {} }).sites[0], old.day[on]);
       const managerSite = (await hallsDay(on)).sites.find((s) => s.id === S.p);
       compare(`halls_day للمدير ${on}`, dayAs0027({ sites: [managerSite], totals: {} }).sites[0], old.managerDay[on]);
-      const p1 = hallOf(now, H.p1);
+      const p1 = hallOf({ sites: [plainSite] }, H.p1);
       if (p1.flock) {
         // بلا إغلاق: ما في القاعة = الباقي القديم (feed_left_kg) وسطوره بلا كتلة = النازلة بلا كتلة، وكلّ يوم ينتظر جولة، ولا فرق عدّ.
         compare(`مفاتيح 0028 ${on}`, pick(p1.flock, NEW_KEYS.dayFlock), { sold: 0, sold_net_kg: '0.000', count_diff: 0, ticketed: 0, feed_carry_in_kg: '0', feed_out_kg: '0',
           feed_out_unweighed: 0, feed_out_cum_unweighed: 0, left_in_hall_kg: p1.flock.feed_left_kg, left_in_hall_unweighed: p1.flock.feed_given_cum_unweighed,
           expects_round: true, count_diffs: [] });
       }
-      compare(`carry ${on}`, now.sites[0].halls.map((h) => h.carry), [[], []]);
+      compare(`carry ${on}`, plainSite.halls.map((h) => h.carry), [[], []]);
     }
     const r = await report(F.p);
     compare('flock_cycle_report', reportAs0027(r), old.report);
     compare('flock_cycle_report لعامل القاعة', reportAs0027(await report(F.p, U.plain)), old.reportPlain);
-    compare('flock_cycles', cyclesAs0027(await one(U.plain, 'select public.flock_cycles()')), old.cycles);
+    compare('flock_cycles', cyclesAs0027({ cycles: (await one(U.plain, 'select public.flock_cycles()')).cycles.filter((c) => c.site_id === S.p) }).cycles, old.cycles);
     const lastDay = r.days.at(-1);
     compare('مفاتيح 0028 في تقرير الدورة', [pick(r.kpis, NEW_KEYS.kpis), pick(r.money, NEW_KEYS.money), r.close, r.carry_in, pick(r.birds, NEW_KEYS.birds),
       pick(r.feed, NEW_KEYS.feed), r.count_diffs, r.days.map((d) => d.expects_round), r.weeks.map((w) => w.expected_days)],

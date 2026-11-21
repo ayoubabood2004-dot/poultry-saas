@@ -120,7 +120,8 @@ async function scenario(t, db) {
   await one(U.owner, 'update public.item_categories set archived_at = now() where id = $1 returning id', [C.old]);
 
   // ── ١) ملء التصنيف وترتيبه (stores.manage)، مشروطاً بما رآه المدير ────────────────────────────────────────────────────
-  t.eq((await fill(U.storekeeper, C.feed, [I.soy])).code, 'forbidden', 'الأمين لا يملأ التصنيف (stores.manage للمالك والمدير)');
+  // 0034 («الكلّ مثل المالك»): الأمين يملأ التصنيف أيضاً (بمعاملة ترجع، فما بعده كما كان).
+  t.eq((await call(db, U.storekeeper, CAT, [C.feed, [I.soy], await membersOf(C.feed)], { commit: false })).ok, true, 'الأمين يملأ التصنيف (stores.manage لكلّ عضو)');
   const filled = await fill(U.manager, C.feed, [I.soy, I.corn, I.bran, I.hidden, I.stray]);
   t.same([filled.ok, canon(filled.value)], [true, canon({ category_id: C.feed, count: 5, moved: 0, removed: 0 })], 'المدير يملأ «مواد العلف» بخمس موادّ بترتيبه');
   samples.set_category_items = { manager: filled.value };
@@ -157,17 +158,18 @@ async function scenario(t, db) {
     qtyOf(await balanceAs(U.owner, C.fuel, day(-3), W.raw), I.kerosene)], ['60.000', '40.000', '0.000'], 'المخزن المختار: الكاز 60 في العامّ و40 في المواد يوم النقل، ولا شيء في المواد قبله');
   t.same(rowsOf(await balanceAs(U.owner, C.fuel, day(0), W.medicine)), [], 'مخزن الأدوية المختار: الكاز لا يُخزَّن فيه فلا صفّ له');
   const raw = await balanceAs(U.keeperRaw, C.fuel, day(-2));
-  t.same([qtyOf(raw, I.kerosene), raw.value.stores.map((s) => s.kind), raw.value.can_note, raw.value.can_manage], ['40.000', ['raw'], true, false],
-    'أمين مخزن المواد: رصيد مخزنه وحده، وقائمة المخازن مخزنه، ويكتب الملاحظة ولا يملأ التصنيف');
-  t.eq(refusal('warehouse_out_of_scope', await balanceAs(U.keeperRaw, C.fuel, day(-2), W.general)).code, 'out_of_scope', 'مخزن خارج نطاقه يُرفض');
+  const ALL_KINDS = ['chick', 'feed', 'general', 'hatching_egg', 'medicine', 'raw'];
+  t.same([qtyOf(raw, I.kerosene), raw.value.stores.map((s) => s.kind).sort(), raw.value.can_note, raw.value.can_manage], ['100.000', ALL_KINDS, true, true],
+    'أمين بصفّ نطاق مخزن المواد: رصيد كلّ المخازن، وقائمتها كلّها، ويكتب الملاحظة ويملأ التصنيف (0034)');
+  t.eq(qtyOf(await balanceAs(U.keeperRaw, C.fuel, day(-2), W.general), I.kerosene), '60.000', 'والمخزن العامّ يُختار له كغيره');
   t.eq((await balanceAs(U.owner, C.fuel, day(-2), uid())).code, 'out_of_scope', 'مخزن غير موجود يُرفض بالرمز نفسه');
   const viewer = await balanceAs(U.viewer, C.feed, day(-3));
-  t.same([viewer.ok, viewer.value?.stores, viewer.value?.rows, viewer.value?.can_note, viewer.value?.can_manage], [true, [], [], false, false],
-    'المشاهد بلا مخزن في نطاقه: بلا صفوف (لا جدول أصفار يُطبع)، بلا ملاحظة ولا ملء (مراجعة F9)');
+  t.same([viewer.ok, viewer.value?.stores.length, viewer.value?.rows.length > 0, viewer.value?.can_note, viewer.value?.can_manage], [true, ALL_KINDS.length, true, true, true],
+    'المشاهد: كلّ المخازن وصفوفها، ويكتب الملاحظة ويملأ التصنيف (0034)');
   const hatch = await balanceAs(U.hatcheryOperator, null, day(0));
-  t.same([hatch.value.stores.map((s) => s.kind).sort(), hatch.value.rows], [['chick', 'hatching_egg'], []], 'مشغّل المفقس: لا مادّة من موادّ المنشأة تُخزَّن في مخازنه، فلا صفوف ولا ملاحظاتها (F7)');
+  t.same([hatch.value.stores.map((s) => s.kind).sort(), canon(hatch.value.rows)], [ALL_KINDS, canon((await balanceAs(U.owner, null, day(0))).value.rows)], 'مشغّل المفقس: كلّ المخازن وصفوف المالك نفسها (0034)');
   const accountant = await balanceAs(U.accountant, C.feed, day(-3));
-  t.same([accountant.value.can_note, accountant.value.can_manage, qtyOf(accountant, I.corn)], [false, false, '8000.000'], 'المحاسب: يقرأ الجدول بلا ملاحظة ولا ملء');
+  t.same([accountant.value.can_note, accountant.value.can_manage, qtyOf(accountant, I.corn)], [true, true, '8000.000'], 'المحاسب: يقرأ الجدول ويكتب الملاحظة ويملأ التصنيف (0034)');
 
   // ── ٤) رفض الجدول ───────────────────────────────────────────────────────────────────────────────────────────────
   const future = refusal('day_in_future', await balanceAs(U.owner, C.feed, day(1)));
@@ -219,13 +221,12 @@ async function scenario(t, db) {
     (await note(U.owner, I.hidden, day(0), 'مخفيّة', null)).code,
   ], ['day_in_future', 'date_required', 'date_required', 'item_not_found', 'item_archived'], 'رفض الملاحظة: الغد، وبلا يوم، واليوم اللانهائيّ (F5)، ومادّة مجهولة، ومادّة مخفيّة');
   const barred = [];
-  for (const who of ['accountant', 'viewer', 'hallWorker']) barred.push((await note(U[who], I.soy, day(0), 'ممنوع', null)).code);
-  t.same(barred, ['forbidden', 'forbidden', 'forbidden'], 'المحاسب والمشاهد وعامل القاعة لا يكتبون ملاحظة');
-  const outside = refusal('out_of_scope', await note(U.hatcheryOperator, I.corn, day(0), 'من المفقس', null));
-  t.same([outside.code, outside.hint.includes('«ذرة»')], ['out_of_scope', true], 'مشغّل المفقس لا يكتب لمادّة لا تُخزَّن في مخازنه (F7)');
+  for (const who of ['accountant', 'viewer', 'hallWorker', 'hatcheryOperator']) barred.push((await call(db, U[who], NOTE, [I.soy, day(0), 'من كلّ عضو', null], { commit: false })).ok);
+  t.same(barred, [true, true, true, true], 'المحاسب والمشاهد وعامل القاعة ومشغّل المفقس يكتبون الملاحظة (0034، بمعاملة ترجع)');
   const direct = async (user) => (await call(db, user, 'select count(*)::int as n from public.stock_day_notes', [])).value;
-  t.same([await direct(U.hallWorker), await direct(U.accountant), await direct(U.viewer), (await direct(U.storekeeper)) > 0],
-    [0, 0, 0, true], 'القراءة المباشرة لمن يكتب الملاحظات وحده؛ وعامل القاعة والمحاسب والمشاهد لا يرون صفّاً (F6، F7)');
+  const keeperNotes = await direct(U.storekeeper);
+  t.same([await direct(U.hallWorker), await direct(U.accountant), await direct(U.viewer), keeperNotes > 0],
+    [keeperNotes, keeperNotes, keeperNotes, true], 'القراءة المباشرة لكلّ عضو كالأمين (0034)');
 
   // ── ٦) ملء التصنيف: النقل من تصنيف آخر، والشرط، والرفض ─────────────────────────────────────────────────────────────
   const moved = await fill(U.owner, C.feed, [I.soy, I.corn, I.bran, I.kerosene]);
@@ -272,8 +273,8 @@ async function scenario(t, db) {
   };
   t.same([await storesOf(U.owner, I.corn), await storesOf(U.owner, I.gone), await storesOf(U.owner, I.bran), (await storesOf(U.owner, I.kerosene)).map(([k]) => k).sort(),
     await storesOf(U.keeperRaw, I.kerosene), await storesOf(U.owner, uid())],
-  [[['raw', '8000.000']], [['raw', '0.000']], [], ['general', 'raw'], [['raw', '40.000']], 'item_not_found'],
-  'ملفّ المادّة: مخازن حركاتها (move_stores) ولو نفد رصيدها، وبلا حركة لا مخزن، وبنطاق القارئ، والمجهولة item_not_found');
+  [[['raw', '8000.000']], [['raw', '0.000']], [], ['general', 'raw'], [['general', '60.000'], ['raw', '40.000']], 'item_not_found'],
+  'ملفّ المادّة: مخازن حركاتها (move_stores) ولو نفد رصيدها، وبلا حركة لا مخزن، وللأمين بصفّ نطاق كلّ مخازنها (0034)، والمجهولة item_not_found');
   t.same((await one(U.owner, FILE, [I.gone])).stores, [], 'وstores كما كانت: ما فيه رصيد وحده (لذلك move_stores)');
 
   // ── عيّنات الشاشات ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -318,23 +319,13 @@ async function scenario(t, db) {
 
   // ── ١٠) الطفرات: كلّ قاعدة تُكسر بتطبيق بديل معقول؛ الشفرة الحقيقية تحقّق «الصحيح» والطفرة لا تحقّقه ─────────────────────────────
   const CASES = [
+    // 0034 («الكلّ مثل المالك»): طفرات النطاق (مخازن القارئ وموادّها وكاتب الملاحظة) وفعل الملاحظة صارت مكافئة (النطاق المنشأة كلّها والفعل لكلّ
+    // عضو)، فشيلت؛ وما بين المنشآت يحرسه role-matrix.
     {
       name: 'حدّ اليوم (حركات اليوم نفسه داخلة)',
       fns: [[FN.balance, [['m.moved_on <= v_on', 'm.moved_on < v_on']]]],
       run: ({ attempt }) => attempt(U.owner, async (q) => (await q(DB, [C.feed, day(-5), null])).rows[0].v.rows.find((r) => r.item_id === I.corn).qty),
       correct: (r) => r.ok && r.value === '10000.000',
-    },
-    {
-      name: 'نطاق المخازن (مخازن النطاق وحدها)',
-      fns: [[FN.balance, [['(case when p_warehouse is null then public.in_scope_wh(y.id) else y.id = p_warehouse end)', '(p_warehouse is null or y.id = p_warehouse)']]]],
-      run: ({ attempt }) => attempt(U.keeperRaw, async (q) => (await q(DB, [null, day(-2), null])).rows[0].v.rows.find((r) => r.item_id === I.kerosene).qty),
-      correct: (r) => r.ok && r.value === '40.000',
-    },
-    {
-      name: 'صفوف لموادّ تُخزَّن في مخازن القارئ وحدها (F7، F9)',
-      fns: [[FN.balance, [['      and exists (select 1 from stores s where private.item_admissible(s.kind, i.kind))\n', '\n']]]],
-      run: ({ attempt }) => attempt(U.viewer, async (q) => (await q(DB, [null, day(0), null])).rows[0].v.rows.length),
-      correct: (r) => r.ok && r.value === 0,
     },
     {
       name: 'الترتيب بالتصنيف قبل الاسم',
@@ -366,13 +357,6 @@ async function scenario(t, db) {
       correct: (r) => r.ok && r.value === null,
     },
     {
-      name: 'كاتب الملاحظة بنطاق مخازنه (F7)',
-      fns: [[FN.note, [['  if not exists (select 1 from public.warehouses y where y.org_id = v_org and y.archived_at is null and public.in_scope_wh(y.id)\n',
-        '  if false and not exists (select 1 from public.warehouses y where y.org_id = v_org and y.archived_at is null and public.in_scope_wh(y.id)\n']]]],
-      run: ({ attempt }) => attempt(U.hatcheryOperator, async (q) => (await q(NOTE, [I.corn, day(0), 'من المفقس', null])).rows[0].v.note.text),
-      correct: (r) => !r.ok && r.code === 'out_of_scope',
-    },
-    {
       name: 'المخفيّة تبقى في تصنيفها حين تُعاد القائمة',
       fns: [[FN.cat, [['category_id = c.id and archived_at is null and not (id = any (v_items))', 'category_id = c.id and not (id = any (v_items))']]]],
       run: ({ attempt }) => attempt(U.owner, async (q) => {
@@ -390,12 +374,6 @@ async function scenario(t, db) {
         return (await q(CAT, [C.feed, [...m, I.stray], m])).rows[0].v.count;
       }),
       correct: (r) => !r.ok && r.code === 'category_changed',
-    },
-    {
-      name: 'فعل الملاحظة stock_note.write',
-      fns: [[FN.note, [["  perform private.require('stock_note.write');\n", "  perform private.require('read');\n"]]]],
-      run: ({ attempt }) => attempt(U.accountant, async (q) => (await q(NOTE, [I.soy, day(0), 'من المحاسب', null])).rows[0].v.note.text),
-      correct: (r) => !r.ok && r.code === 'forbidden',
     },
     {
       name: 'رصيد الدفتر الجاري بالتاريخ (F2)',

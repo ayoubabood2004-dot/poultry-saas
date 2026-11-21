@@ -165,11 +165,11 @@ async function scenario(t, db) {
     ['قاعة 1', 'حقل الأمل', true, TODAY, day(-7), 'active'], 'الخيارات: القاعة والحقل ويوم اليوم وأقدم تاريخ (7 أيّام)، والمالك يصرف');
   t.same(ownerOptions.value.items[0].stores.map((x) => [x.warehouse_id, x.name, norm(x.qty)]), [[W.feed, 'رصيد العلف', '1200']], 'الخيارات: مخازن المادّة بكمياتها');
   const keeperOptions = await options(U.storekeeper);
-  t.same([keeperOptions.value.can_issue, keeperOptions.value.items.map((x) => x.name)], [true, ['علف بادئ', 'علف التزامن', 'علف ناهي', 'دبس', 'ذرة صفراء', 'زيت الصويا']],
-    'الخيارات للأمين بنطاق المعمل والحقول: مخازن نطاقه وحدها (لا أدوية ولا عامّ)');
+  t.same([keeperOptions.value.can_issue, keeperOptions.value.items.map((x) => x.name)], [true, ownerOptions.value.items.map((x) => x.name)],
+    'الخيارات للأمين بصفّ نطاق المعمل والحقول: كلّ المخازن كالمالك (0034)');
   const workerOptions = await options(U.hallWorker);
-  t.same([workerOptions.ok, workerOptions.value?.can_issue, workerOptions.value?.items.length], [true, false, 0], 'الخيارات لعامل القاعة: يقرأ قاعته ولا يصرف، ولا مخزن في نطاقه فيه مادّة');
-  t.same([shownOf(await options(U.keeperMill)), shownOf(await options(U.owner, uid()))], ['out_of_scope', 'flock_not_found'], 'الخيارات: الفوج خارج النطاق، والفوج غير الموجود');
+  t.same([workerOptions.ok, workerOptions.value?.can_issue, workerOptions.value?.items.length], [true, true, ownerOptions.value.items.length], 'الخيارات لعامل القاعة: يصرف من كلّ المخازن كالمالك (0034)');
+  t.same([shownOf(await options(U.keeperMill)), shownOf(await options(U.owner, uid()))], ['ok', 'flock_not_found'], 'الخيارات: أمين المعمل يرى الفوج (0034)، والفوج غير الموجود flock_not_found');
 
   // ── ٢) الصرف: الأمين يصرف 500 كغم «علف بادئ» لقاعة 1 من مخزن العلف (الوحيد فيه متاح)، سحب FIFO: كلّ دفعة الافتتاح + 300 من الإنتاج ──────
   const before = await feed(U.owner);
@@ -179,8 +179,8 @@ async function scenario(t, db) {
   const r1 = { ref: uid(), issue: uid(), line: uid(), item: I.starter, qty: 500 };
   const first = await rf(U.storekeeper, r1);
   t.ok(first.ok, `الأمين يصرف «علف بادئ» لقاعة 1 (${first.code ?? ''} ${first.hint ?? ''})`);
-  t.same(keys(first.value), ['base_unit', 'cost_kind', 'doc_no', 'flock_id', 'hall_id', 'hall_name', 'id', 'issued_on', 'item_id', 'item_name', 'line_id', 'qty', 'status', 'warehouse_id', 'warehouse_name'],
-    'نتيجة الأمين بمفاتيح العقد بلا money (القيمة لأدوار الكلفة)');
+  t.same(keys(first.value), ['base_unit', 'cost_kind', 'doc_no', 'flock_id', 'hall_id', 'hall_name', 'id', 'issued_on', 'item_id', 'item_name', 'line_id', 'money', 'qty', 'status', 'warehouse_id', 'warehouse_name'],
+    'نتيجة الأمين بمفاتيح العقد ومعها money (0034: الكلفة لكلّ عضو)');
   t.same([first.value.doc_no, first.value.status, first.value.issued_on, first.value.hall_name, first.value.item_name, first.value.warehouse_name, norm(first.value.qty), first.value.base_unit, first.value.cost_kind],
     ['FI-2026-0001', 'posted', TODAY, 'قاعة 1', 'علف بادئ', 'رصيد العلف', '500', 'kg', 'feed'], 'نتيجة الصرف: الرقم والقاعة والمادّة والمخزن والكمية');
   t.same((await lotsOf(I.starter, W.feed)).map((l) => [l.qty, l.value]), [['0', '0'], ['700', '315000']], 'السحب بالترتيب: دفعة الافتتاح كلّها (100,000 بالضبط) ثمّ 300 من دفعة الإنتاج (135,000)');
@@ -225,15 +225,17 @@ async function scenario(t, db) {
   t.same((await lotsOf(I.newcastle, W.medicine)).map((l) => [l.source_kind, l.qty]), [['opening', '100'], ['receipt', '250']], 'المنتهي لا يُسحب: دفعة الافتتاح المنتهية كما هي');
 
   // ── ٥) الرفوض بتلميحاتها ────────────────────────────────────────────────────────────────────────────────────
+  // 0034 («الكلّ مثل المالك»): مشغّل المعمل وعامل القاعة والمحاسب والمشاهد، والأمين بصفّ نطاق المعمل أو الحقول، يصرفون كالمالك (بمعاملة ترجع).
+  const everyone = [];
+  for (const [label, user, o] of [['مشغّل المعمل', U.millOperator, {}], ['عامل القاعة', U.hallWorker, {}], ['المحاسب', U.accountant, {}], ['المشاهد', U.viewer, {}],
+    ['أمين المعمل', U.keeperMill, {}], ['أمين الحقول من «رصيد العلف»', U.keeperFarm, { wh: W.feed }], ['أمين الحقول ذرة من مخزن الموادّ', U.keeperFarm, { item: I.corn, qty: 5 }]]) {
+    const result = await rf(user, { item: I.starter, qty: 1, ...o }, { commit: false });
+    everyone.push(`${label}: ${result.ok ? result.value.status : result.code}`);
+  }
+  t.same(everyone, ['مشغّل المعمل: posted', 'عامل القاعة: posted', 'المحاسب: posted', 'المشاهد: posted', 'أمين المعمل: posted', 'أمين الحقول من «رصيد العلف»: posted', 'أمين الحقول ذرة من مخزن الموادّ: posted'], 'كلّ عضو يصرف لكلّ فوج من كلّ مخزن (0034)');
   const cases = [
-    ['forbidden (مشغّل المعمل)', U.millOperator, { item: I.starter, qty: 1 }, 'forbidden'],
-    ['forbidden (عامل القاعة)', U.hallWorker, { item: I.starter, qty: 1 }, 'forbidden'],
-    ['forbidden (المحاسب)', U.accountant, { item: I.starter, qty: 1 }, 'forbidden'],
-    ['forbidden (المشاهد)', U.viewer, { item: I.starter, qty: 1 }, 'forbidden'],
     ['id_required', U.owner, { issue: null, item: I.starter, qty: 1 }, 'id_required'],
     ['flock_not_found', U.owner, { flock: uid(), item: I.starter, qty: 1 }, 'flock_not_found'],
-    ['out_of_scope (الفوج)', U.keeperMill, { item: I.starter, qty: 1 }, 'out_of_scope', 'قاعة هذا الفوج'],
-    ['out_of_scope (المخزن)', U.keeperFarm, { item: I.starter, qty: 1, wh: W.feed }, 'out_of_scope', '«رصيد العلف»'],
     ['flock_not_placed', U.owner, { flock: F.c, item: I.starter, qty: 1 }, 'flock_not_placed', '«قاعة 3»'],
     ['item_not_found', U.owner, { item: uid(), qty: 1 }, 'item_not_found'],
     ['item_archived', U.owner, { item: I.old, qty: 1 }, 'item_archived', '«علف قديم»'],
@@ -250,7 +252,6 @@ async function scenario(t, db) {
     ['item_kind_mismatch', U.owner, { item: I.starter, qty: 1, wh: W.medicine }, 'item_kind_mismatch', '«مخزن الأدوية»'],
     ['insufficient_stock (المخزن)', U.owner, { item: I.starter, qty: 5000, wh: W.feed }, 'insufficient_stock', 'عندك 600 كغم'],
     ['insufficient_stock (المنتهي في المخزن)', U.owner, { item: I.newcastle, qty: 300 }, 'insufficient_stock', 'عندك 250 قطعة'],
-    ['insufficient_stock (لا شيء في النطاق)', U.keeperFarm, { item: I.corn, qty: 5 }, 'insufficient_stock', 'عندك 0 كغم'],
     ['insufficient_stock (المنتهي كلّه)', U.owner, { item: I.gumboro, qty: 5 }, 'insufficient_stock', 'منتهية الصلاحية'],
     ['insufficient_stock (قبل الاستلام)', U.owner, { item: I.finisher, qty: 1200, on: day(-3) }, 'insufficient_stock', 'عندك 1,000 كغم'],
   ];
@@ -275,7 +276,7 @@ async function scenario(t, db) {
   t.same([finisherIssue.ok, finisherIssue.value?.issued_on], [true, day(-1)], `صرف «علف ناهي» بتاريخ أمس (${finisherIssue.code ?? ''})`);
   const lotsBeforeVoid = await lotsOf(I.finisher, W.feed);
   t.same(lotsBeforeVoid.map((l) => [l.qty, l.value]), [['700', '364000'], ['500', '300000']], 'السحب من دفعة الافتتاح وحدها (156,000)');
-  t.eq(refusal('void: forbidden (الأمين)', await vf(U.storekeeper, r3.issue)).code, 'forbidden', 'الأمين لا يلغي');
+  t.eq((await vf(U.storekeeper, r3.issue, 'صرف خاطئ', uid(), { commit: false })).value?.status, 'void', 'الأمين يلغي (0034، بمعاملة ترجع)');
   t.eq(refusal('void: reason_required', await vf(U.manager, r3.issue, ' ')).code, 'reason_required', 'الإلغاء بلا سبب: reason_required');
   t.eq(refusal('void: doc_not_found', await vf(U.manager, uid())).code, 'doc_not_found', 'صرف غير موجود: doc_not_found');
   const voidRef = uid();
@@ -291,8 +292,8 @@ async function scenario(t, db) {
   t.eq(refusal('id_conflict (أُلغي، المرجع نفسه)', await rf(U.storekeeper, r3)).code, 'id_conflict', 'إعادة صرف أُلغي بمرجعه: id_conflict «أُلغي»');
   const voidedRetry = refusal('id_conflict (أُلغي، مرجع جديد)', await rf(U.storekeeper, { ...r3, ref: uid() }));
   t.ok(voidedRetry.code === 'id_conflict' && voidedRetry.hint.includes('أُلغي'), `إعادة صرف أُلغي بمرجع جديد: id_conflict «أُلغي» (${voidedRetry.hint})`);
-  const layerVoid = refusal('void: out_of_scope (الفوج)', await vf(U.managerLayer, first.value.id));
-  t.ok(layerVoid.code === 'out_of_scope' && layerVoid.hint.includes('قاعة هذا الصرف'), `مدير بنطاق البيض لا يلغي صرفاً لقاعة لحم (${layerVoid.code} ${layerVoid.hint})`);
+  const layerVoid = await vf(U.managerLayer, first.value.id, 'صرف خاطئ', uid(), { commit: false });
+  t.eq(layerVoid.value?.status, 'void', `مدير بصفّ نطاق البيض يلغي صرفاً لقاعة لحم (0034، بمعاملة ترجع) (${layerVoid.code ?? ''})`);
 
   // فوج مغلق: صرف لقاعة 2 ثمّ تُغلق دورتها بدالّة الإغلاق (0028؛ كان مفتاح الإدارة قبلها، فصار يخرق ثوابت الإغلاق)، فلا صرف له ولا إلغاء.
   const toB = await rf(U.owner, { flock: F.b, item: I.finisher, qty: 50 });
@@ -324,9 +325,9 @@ async function scenario(t, db) {
   const keeperFeed = await feed(U.storekeeper);
   const workerFeed = await feed(U.hallWorker);
   const accountantFeed = await feed(U.accountant);
-  t.same([hasMoney(keeperFeed.value), hasMoney(workerFeed.value), hasMoney(accountantFeed.value), keeperFeed.value.can_void, norm(workerFeed.value.issued_feed_kg)], [false, false, true, false, '692'],
-    'القيمة للمحاسب ومشغّلي الكلفة، لا للأمين ولا لعامل القاعة؛ والكميات للجميع');
-  t.same([shownOf(await feed(U.keeperMill)), shownOf(await feed(U.owner, uid()))], ['out_of_scope', 'flock_not_found'], 'علف القاعة: خارج النطاق وغير موجود');
+  t.same([hasMoney(keeperFeed.value), hasMoney(workerFeed.value), hasMoney(accountantFeed.value), keeperFeed.value.can_void, norm(workerFeed.value.issued_feed_kg)], [true, true, true, true, '692'],
+    'القيمة والإلغاء والكميات لكلّ عضو (0034)');
+  t.same([shownOf(await feed(U.keeperMill)), shownOf(await feed(U.owner, uid()))], ['ok', 'flock_not_found'], 'علف القاعة: أمين المعمل يقرؤه (0034)، والفوج المجهول flock_not_found');
 
   // بطاقة المادّة: الحركة برقم الصرف وبيان «صرف إلى قاعة 1 (حقل الأمل)».
   const ledger = await one(U.owner, 'select public.item_moves_qty($1, $2, null, 50) as v', [I.starter, W.feed]);
@@ -337,9 +338,8 @@ async function scenario(t, db) {
   const tableCounts = async (user) => db.asUser(user, async (q) => Object.fromEntries(await Promise.all(['flock_issues', 'flock_issue_lines', 'flock_costs']
     .map(async (table) => [table, (await q(`select count(*)::int as n from public.${table}`)).rows[0].n]))));
   t.same(await tableCounts(U.owner), { flock_issues: 9, flock_issue_lines: 9, flock_costs: 10 }, 'المالك يقرأ الصرف وسطوره وكلفته');
-  t.same(await tableCounts(U.storekeeper), { flock_issues: 9, flock_issue_lines: 9, flock_costs: 0 }, 'الأمين يقرأ الصرف بلا كلفته');
-  t.same(await tableCounts(U.keeperMill), { flock_issues: 5, flock_issue_lines: 5, flock_costs: 0 }, 'أمين المعمل يقرأ صرف مخازن نطاقه وحدها (العلف والمواد الأوّلية)');
-  t.same(await tableCounts(U.hallWorker), { flock_issues: 9, flock_issue_lines: 9, flock_costs: 0 }, 'عامل القاعة يقرأ صرف قاعاته بلا كلفة');
+  const ownerTables = await tableCounts(U.owner);
+  t.same([await tableCounts(U.storekeeper), await tableCounts(U.keeperMill), await tableCounts(U.hallWorker)], [ownerTables, ownerTables, ownerTables], 'الأمين وأمين المعمل وعامل القاعة يقرؤون الصرف وسطوره وكلفته كالمالك (0034)');
   const direct = await call(db, U.owner, 'insert into public.flock_costs (flock_id, site_id, kind, amount, doc_kind, doc_id, on_date) values ($1, $2, \'feed\', 1, \'flock_issue\', $3, $4) returning id', [F.a, farmSite, uid(), TODAY], { commit: false });
   t.eq(direct.code?.startsWith('42501'), true, `لا كتابة مباشرة في دفتر الكلفة ولو للمالك (${direct.code})`);
   const appendOnly = await db.asOwner(async (q) => {
@@ -437,24 +437,8 @@ async function scenario(t, db) {
   const code = (expected, hint) => (r) => !r.ok && r.code === expected && (!hint || r.hint.includes(hint));
   const okWith = (pick, value) => (r) => r.ok && pick(r.value) === value;
   const CASES = [
-    {
-      name: 'الفعل issue.post',
-      fns: [[FN.record, [["  perform private.require('issue.post');\n", '']]]],
-      run: recordAs(U.hallWorker, { item: I.finisher, qty: 1 }),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'نطاق حقل الفوج قبل الصرف',
-      fns: [[FN.record, [['  if not public.in_scope_site(f.site_id) then\n', '  if false then\n']]]],
-      run: recordAs(U.keeperMill, { item: I.finisher, qty: 1 }),
-      expect: code('out_of_scope', 'قاعة هذا الفوج'),
-    },
-    {
-      name: 'نطاق المخزن المختار',
-      fns: [[FN.record, [['    if not public.in_scope_wh(w.id) then\n', '    if false then\n']]]],
-      run: recordAs(U.keeperFarm, { item: I.finisher, qty: 1, wh: W.feed }),
-      expect: code('out_of_scope', '«رصيد العلف»'),
-    },
+    // 0034 («الكلّ مثل المالك»): طفرات الفعل issue.post ونطاق الفوج ونطاق المخزن وقناع النتيجة صارت مكافئة (الفعل والنطاق والمال لكلّ عضو)،
+    // فشيلت؛ وما بين المنشآت يحرسه role-matrix.
     {
       name: 'لا صرف قبل التسكين',
       fns: [[FN.record, [['  if p_issued_on < f.placed_on then\n', '  if false then\n']]]],
@@ -486,13 +470,6 @@ async function scenario(t, db) {
         return norm(result.money.value) === norm(drawn);
       }),
       expect: okWith((v) => v, true),
-    },
-    {
-      name: 'النتيجة مقنَّعة لغير أدوار الكلفة',
-      fns: [[FN.record, [['  v_result := private.flock_issue_result(p_issue_id);\n  return private.ref_store(v_fn, p_client_ref, v_result);\n',
-        '  v_result := private.flock_issue_result(p_issue_id);\n  perform private.ref_store(v_fn, p_client_ref, v_result);\n  return v_result;\n']]]],
-      run: recordAs(U.storekeeper, { item: I.finisher, qty: 1 }),
-      expect: okWith((v) => hasMoney(v), false),
     },
     {
       name: 'إعادة صرف أُلغي بمرجعه',

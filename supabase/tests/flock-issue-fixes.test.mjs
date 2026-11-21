@@ -123,12 +123,12 @@ async function scenario(t, db) {
     const rows = Object.fromEntries(result.value.issues.map((x) => [x.id, x.can_void]));
     return [result.value.can_void, rows[fromMill.value.id], rows[fromFarm.value.id]];
   };
-  t.same(await canVoid(U.managerFarm), [true, false, true], 'مدير بنطاق الحقول: «ألغِ» على صرف مخزن الحقل وحده، لا على صرف مخزن المعمل');
+  t.same(await canVoid(U.managerFarm), [true, true, true], 'مدير بصفّ نطاق الحقول: «ألغِ» على صرف مخزن الحقل ومخزن المعمل (0034)');
   t.same(await canVoid(U.owner), [true, true, true], 'المالك: «ألغِ» على كلّ صرف مرحَّل');
-  t.same(await canVoid(U.storekeeper), [false, false, false], 'الأمين بلا فعل الإلغاء: لا «ألغِ»');
+  t.same(await canVoid(U.storekeeper), [true, true, true], 'الأمين يلغي أيضاً (0034): «ألغِ» على كلّ صرف مرحَّل');
   const millVoid = await call(db, U.managerFarm, 'select public.void_flock_issue($1, $2, $3) as v', [fromMill.value.id, 'ضابط', uid()], { commit: false });
-  t.eq(millVoid.code, 'out_of_scope', 'ضابط: إلغاء مدير الحقول لصرف مخزن المعمل يُرفض out_of_scope (فلا يُعرض له «ألغِ»)');
+  t.eq(millVoid.ok, true, 'ضابط: إلغاء مدير الحقول لصرف مخزن المعمل ينجح (بمعاملة ترجع) كما تعده «ألغِ»');
   const voided = await call(db, U.owner, 'select public.void_flock_issue($1, $2, $3) as v', [fromFarm.value.id, 'كمية خاطئة', uid()]);
   t.ok(voided.ok, `إلغاء صرف مخزن الحقل (${voided.code ?? ''})`);
-  t.same(await canVoid(U.managerFarm), [false, false, false], 'بعد إلغاء صرف الحقل: لا صرف يلغيه مدير الحقول (والملغى بلا «ألغِ»)');
+  t.same(await canVoid(U.managerFarm), [true, true, false], 'بعد إلغاء صرف الحقل: صرف المعمل يبقى بـ«ألغِ»، والملغى بلاها');
 }
