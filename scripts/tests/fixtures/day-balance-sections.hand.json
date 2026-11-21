@@ -1,0 +1,82 @@
+{
+  "_about": "Hand-written answers of day_balance_sections(p_on) by contract 0034/0035 B5 (screens agent S1, 2026-11-21). The main session swaps in real samples (HALL_SHEET_SAMPLES_OUT) at integration; keys and types follow B5 exactly: today, on, can_note, sections [{key, rows}] with rows {item_id, name, kind, base_unit, qty (text, 3dp), note {text, version}|null, category {id, name}|null}.",
+  "day_balance_sections": {
+    "owner": {
+      "today": "2026-11-21",
+      "on": "2026-11-19",
+      "can_note": true,
+      "sections": [
+        {
+          "key": "feed_materials",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000101", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "69448.000", "note": null, "category": { "id": "5e1c0000-0000-4000-8000-0000000000c1", "name": "حبوب" } },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000102", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "12500.500", "note": { "text": "ناقصة كيسين عن الفاتورة", "version": 7340011 }, "category": { "id": "5e1c0000-0000-4000-8000-0000000000c1", "name": "حبوب" } },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000103", "name": "ملح طعام", "kind": "additive", "base_unit": "kg", "qty": "0.000", "note": null, "category": null },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000104", "name": "حجر كلس", "kind": "additive", "base_unit": "kg", "qty": "850.250", "note": null, "category": null }
+          ]
+        },
+        {
+          "key": "feed",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000201", "name": "علف بادئ", "kind": "feed", "base_unit": "kg", "qty": "3200.000", "note": { "text": "أُرسل نصفه إلى القاعة 2", "version": 7340012 }, "category": { "id": "5e1c0000-0000-4000-8000-0000000000c2", "name": "علائق" } },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000202", "name": "علف نامي", "kind": "feed", "base_unit": "kg", "qty": "0.000", "note": null, "category": { "id": "5e1c0000-0000-4000-8000-0000000000c2", "name": "علائق" } },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000203", "name": "علف ناهي", "kind": "feed", "base_unit": "kg", "qty": "15000.000", "note": null, "category": null }
+          ]
+        },
+        {
+          "key": "other",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000301", "name": "مضادّ حيوي", "kind": "medicine", "base_unit": "L", "qty": "12.500", "note": null, "category": null },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000302", "name": "قناني ماء", "kind": "equipment", "base_unit": "pc", "qty": "40.000", "note": { "text": "مكسورة 3", "version": 7340013 }, "category": null }
+          ]
+        }
+      ]
+    },
+    "no_other": {
+      "today": "2026-11-21",
+      "on": "2026-11-21",
+      "can_note": true,
+      "sections": [
+        {
+          "key": "feed_materials",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000101", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "50000.000", "note": null, "category": null },
+            { "item_id": "5e1c0000-0000-4000-8000-000000000102", "name": "كسبة صويا", "kind": "raw", "base_unit": "kg", "qty": "9000.000", "note": null, "category": null }
+          ]
+        },
+        { "key": "feed", "rows": [] },
+        { "key": "other", "rows": [] }
+      ]
+    },
+    "viewer": {
+      "today": "2026-11-21",
+      "on": "2026-11-21",
+      "can_note": false,
+      "sections": [
+        {
+          "key": "feed_materials",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000101", "name": "ذرة صفراء", "kind": "raw", "base_unit": "kg", "qty": "50000.000", "note": { "text": "ملاحظة الأمين", "version": 7340020 }, "category": null }
+          ]
+        },
+        {
+          "key": "feed",
+          "rows": [
+            { "item_id": "5e1c0000-0000-4000-8000-000000000201", "name": "علف بادئ", "kind": "feed", "base_unit": "kg", "qty": "1000.000", "note": null, "category": null }
+          ]
+        },
+        { "key": "other", "rows": [] }
+      ]
+    },
+    "empty": {
+      "today": "2026-11-21",
+      "on": "2026-11-21",
+      "can_note": true,
+      "sections": [
+        { "key": "feed_materials", "rows": [] },
+        { "key": "feed", "rows": [] },
+        { "key": "other", "rows": [] }
+      ]
+    }
+  }
+}

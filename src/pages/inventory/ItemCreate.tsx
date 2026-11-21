@@ -409,9 +409,20 @@ export function simpleItemFields(form: SimpleItemForm): { fields: inventory.Item
  * نافذة «أضف مادّة» البسيطة: الاسم، وطريقة الحساب، والنوع، ووزن اللتر للسائل. الحفظ يسأل عن التوائم بالاسم أوّلاً (find_item_twins):
  * التوأم الفعّال رابط «افتح ملفّها»، والحفظ رغمه فعل صريح ثانٍ. onSaved بالمادّة الجديدة، والشاشة تفتح ملفّها.
  */
-export function SimpleItemDialog({ initialName = '', onClose, onSaved }: { initialName?: string; onClose: () => void; onSaved: (item: inventory.ItemRow) => void }) {
+export function SimpleItemDialog({
+  initialName = '',
+  initialKind = 'raw',
+  onClose,
+  onSaved,
+}: {
+  initialName?: string;
+  /** النوع الذي تبدأ به («أضف مادّة» داخل قسم «العلف» تبدأ بـ«علف جاهز»، عقد 0034/0035 S1)، والمستخدم يغيّره. */
+  initialKind?: ItemKind;
+  onClose: () => void;
+  onSaved: (item: inventory.ItemRow) => void;
+}) {
   const id = useId();
-  const [form, setForm] = useState<SimpleItemForm>({ name: initialName, baseUnit: 'kg', kind: 'raw', density: '' });
+  const [form, setForm] = useState<SimpleItemForm>({ name: initialName, baseUnit: 'kg', kind: initialKind, density: '' });
   const [errors, setErrors] = useState<Partial<Record<'name' | 'density', string>>>({});
   const [twins, setTwins] = useState<readonly ItemTwin[] | null>(null);
   const [failure, setFailure] = useState<unknown>(null);

@@ -8,6 +8,7 @@ import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
+import type { ItemKind } from '../../domain/stores';
 import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
@@ -19,6 +20,7 @@ import { DayBalanceView } from './DayBalanceView';
 import { SimpleItemDialog } from './ItemCreate';
 import { baseQty, itemFilePath } from './simple-shared';
 import { InventoryLinks, PendingApprovals } from './stock-shared';
+import { itemsCountText, SECTION_ADD_KIND, sectionName, sectionOfKind, STORE_SECTIONS, type StoreSection } from './storeSections';
 
 // المخزن = بطاقات المواد (كلمة المالك 2026-11-06، «المخزن ببساطة»: «لما اتراجع خطوة لصنف الذرة راح يكون عندي مجموع كيلوات»):
 // بطاقة لكلّ مادّة فعّالة من items_overview — اسمها كبيراً، و«الموجود» و«مجموع ما اشتريته» بوحدتها، وسعر البيع لمن يرى المال —
@@ -26,8 +28,10 @@ import { InventoryLinks, PendingApprovals } from './stock-shared';
 // بحكم الخادم (can_add_item). والمخازن وأوراقها (التحويل والصرف والجرد والرصيد عند البداية) خلف «أعمال أخرى» مطويّة، و«إعداد
 // المخزن» رابط صغير لمن يدير المخازن. ورقة الاستلام القديمة ليست هنا (لا رابط ولا «بانتظار المبالغ»).
 // و«الرصيد اليومي» (كلمة المالك 2026-11-09، 0022: «بجانب ترتيب البطاقات… خيار ثاني الي هو رصيد مواد العلف اليومي»): مفتاح بخيارين تحت
-// العنوان، والعرض بالرابط (?view=day وتصنيفه ويومه ومخزنه، DayBalanceView) فينسخ ويرجع بزرّ الرجوع؛ بلا view تبقى البطاقات كما كانت.
+// العنوان، والعرض بالرابط (?view=day ويومه، DayBalanceView) فينسخ ويرجع بزرّ الرجوع؛ بلا view تبقى البطاقات كما كانت.
 // وبالطباعة يُطبع التقرير وحده: العنوان والمفتاح والروابط print:hidden.
+// و«المخزن بقسمين» (كلمة المالك 2026-11-21، عقد 0034/0035 S1): البطاقات في أقسام بعناوينها وعددها — «مواد العلف» (raw وadditive) و«العلف»
+// (feed) دائماً، و«أخرى» إن لم يكن فارغاً — و«أضف مادّة» داخل القسم تبدأ بنوعه؛ والبحث يصفّي كلّ الأقسام معاً (وقسم بلا مطابقة يغيب أثناءه).
 
 export type BoardView = 'cards' | 'day';
 
@@ -91,17 +95,61 @@ export function matchingItems(items: readonly OverviewItem[], query: string): Ov
   return key ? items.filter((item) => searchable(item.name).includes(key)) : [...items];
 }
 
-/** جسم الصفحة من قراءة ناجحة (دالّة عرض صافية): الفراغ يقول ما العمل، والبحث بلا نتيجة يقترح الإضافة. */
-export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview; query: string; onAdd: ((name: string) => void) | null }) {
-  if (overview.items.length === 0) {
-    return (
-      <Notice tone="info" title={t('board.empty', 'لا مواد بعد. أضف أوّل مادّة: اكتب اسمها واختر طريقة حسابها.')}>
-        {onAdd ? null : t('board.empty.ask', 'يضيف المواد أمين المخزن أو المدير.')}
-      </Notice>
-    );
-  }
+/** موادّ القسم بترتيب القراءة (items_overview). */
+export function sectionItems(items: readonly OverviewItem[], section: StoreSection): OverviewItem[] {
+  return items.filter((item) => sectionOfKind(item.kind) === section);
+}
+
+/** «أضف مادّة» بالاسم (بحث بلا نتيجة) أو بنوع القسم. */
+export type AddItem = (name: string, kind?: ItemKind) => void;
+
+/** قسم واحد: عنوانه وعدده و«أضف مادّة» بنوعه، ثمّ بطاقاته أو سطر فراغه. */
+function BoardSection({ section, items, onAdd }: { section: StoreSection; items: readonly OverviewItem[]; onAdd: AddItem | null }) {
+  const kind = SECTION_ADD_KIND[section];
+  const name = sectionName(section);
+  return (
+    <section className="flex flex-col gap-3" aria-label={name} data-action="board-section" data-key={section}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <h2 className="text-lg font-semibold" data-action="board-section-title">
+            {name}
+          </h2>
+          <span className="text-sm text-ink-muted" data-action="board-section-count">
+            {itemsCountText(items.length)}
+          </span>
+        </div>
+        {onAdd && kind ? (
+          <Button variant="secondary" onClick={() => onAdd('', kind)} aria-label={t('board.section.add', 'أضف مادّة إلى «{section}»', { section: name })} data-action="add-section-item" data-kind={kind}>
+            <Plus aria-hidden="true" className="size-4" />
+            {t('board.add', 'أضف مادّة')}
+          </Button>
+        ) : null}
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-ink-muted" data-action="board-section-empty">
+          {section === 'feed' ? t('board.section.feed.empty', 'لا علف بعد: يظهر هنا ما ينتجه المعمل وما تشتريه علفاً جاهزاً.') : t('board.section.feed_materials.empty', 'لا موادّ علف بعد: الذرة والصويا والإضافات هنا.')}
+        </p>
+      ) : (
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((item) => (
+            <li key={item.id} className="flex">
+              <ItemTile item={item} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * جسم الصفحة من قراءة ناجحة (دالّة عرض صافية): الأقسام بعناوينها وعددها، والفراغ يقول ما العمل، والبحث يصفّي الأقسام كلّها (وقسم بلا مطابقة يغيب
+ * أثناءه)، والبحث بلا نتيجة يقترح الإضافة.
+ */
+export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview; query: string; onAdd: AddItem | null }) {
+  const searching = searchable(query) !== '';
   const rows = matchingItems(overview.items, query);
-  if (rows.length === 0) {
+  if (searching && rows.length === 0) {
     const name = query.trim();
     return (
       <div className="flex flex-col gap-2">
@@ -119,14 +167,19 @@ export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview;
       </div>
     );
   }
+  // «مواد العلف» و«العلف» دائماً (بلا بحث)، و«أخرى» إن كانت فيه موادّ؛ وأثناء البحث ما فيه مطابقة وحده.
+  const sections = STORE_SECTIONS.map((section) => ({ section, items: sectionItems(rows, section) })).filter(({ section, items }) => items.length > 0 || (!searching && section !== 'other'));
   return (
-    <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map((item) => (
-        <li key={item.id} className="flex">
-          <ItemTile item={item} />
-        </li>
+    <div className="flex flex-col gap-6">
+      {overview.items.length === 0 ? (
+        <Notice tone="info" title={t('board.empty', 'لا مواد بعد. أضف أوّل مادّة: اكتب اسمها واختر طريقة حسابها.')}>
+          {onAdd ? null : t('board.empty.ask', 'يضيف المواد أمين المخزن أو المدير.')}
+        </Notice>
+      ) : null}
+      {sections.map(({ section, items }) => (
+        <BoardSection key={section} section={section} items={items} onAdd={onAdd} />
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -136,15 +189,15 @@ export default function ItemsBoardPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
   const view = boardView(search.get('view'));
-  // بطاقات المواد تُقرأ للبطاقات وحدها: الرصيد اليومي يقرأ day_balance، فلا قراءة لا تُعرض.
+  // بطاقات المواد تُقرأ للبطاقات وحدها: الرصيد اليومي يقرأ day_balance_sections، فلا قراءة لا تُعرض.
   const loadOverview = useCallback(() => (view === 'cards' ? purchases.loadItemsOverview() : Promise.resolve(null)), [view]);
   const overview = useLoad(loadOverview, view);
   const [query, setQuery] = useState('');
-  const [adding, setAdding] = useState<{ name: string } | null>(null);
+  const [adding, setAdding] = useState<{ name: string; kind?: ItemKind } | null>(null);
   const role = workspace?.role;
   const canAdd = overview.data?.canAddItem === true;
   const canSetup = workspace ? can(workspace.role, 'stores.manage') : false;
-  const add = canAdd ? (name: string) => setAdding({ name }) : null;
+  const add: AddItem | null = canAdd ? (name, kind) => setAdding({ name, kind }) : null;
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 print:hidden">
@@ -152,7 +205,7 @@ export default function ItemsBoardPage() {
           title={t('nav.store', 'المخزن')}
           subtitle={
             view === 'day'
-              ? t('board.day.subtitle', 'رصيد كلّ مادّة في نهاية اليوم المختار، بتصنيفاتك وملاحظاتك، للطباعة والمشاركة.')
+              ? t('board.day.subtitle.sections', 'رصيد موادّ العلف والعلف وغيرهما في نهاية اليوم المختار، بملاحظاتك، للطباعة والمشاركة.')
               : t('board.subtitle', 'افتح المادّة لترى ما عندك منها وكلّ شراء لها، وسجّل شراءً جديداً من ملفّها.')
           }
           actions={
@@ -172,7 +225,7 @@ export default function ItemsBoardPage() {
           ]}
           value={view}
           onChange={(next) => {
-            // الخيار المختار نفسه لا يمسح ما اختير داخل العرض (التصنيف واليوم والمخزن).
+            // الخيار المختار نفسه لا يمسح ما اختير داخل العرض (اليوم).
             if (next !== view) setSearch(next === 'day' ? { view: 'day' } : {});
           }}
         />
@@ -222,6 +275,7 @@ export default function ItemsBoardPage() {
       {adding ? (
         <SimpleItemDialog
           initialName={adding.name}
+          initialKind={adding.kind}
           onClose={() => setAdding(null)}
           onSaved={(item) => {
             setAdding(null);

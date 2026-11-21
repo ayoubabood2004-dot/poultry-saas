@@ -1,23 +1,18 @@
-// «الرصيد اليومي» (0022، كلمة المالك 2026-11-09 بصورة ورقته «رصيد مواد العلف — 4/11/2026»؛ عقد scratchpad/daybal/contract-0022.md «Screens»):
-// react-dom/client الحقيقي على DOM صغير (dom.mjs) يشغّل StockRoutes الحقيقية والقشرة، وrepo/dayBalance الحقيقي (المحلّلات وبناء النداءات) على core
-// بديل يسجّل كلّ نداء ويجيب بأجوبة القاعدة (fixtures/day-balance-0022.json: بالمفاتيح التي تكتبها اختبارات القاعدة، ويقرأ هذا الفحص قيمه منها لا
-// من نصوص بخطّ اليد)، وrepo المخزون والجلسة والتنبيه بدائل. الحالات:
-// P المحلّلات بكلّ عيّنة (الكمية بالآلاف، والملاحظة ونسختها، والخانات التي تأتي null) وصرامتها؛
-// S1 المفتاح «البطاقات | الرصيد اليومي» والرابط (?view=day ثمّ أوّل تصنيف بلا خطوة رجوع، والبطاقات لا تقرأ الرصيد ولا العكس)؛ S2 التصنيفات و«كل المواد»؛
-// S3 السهمان (الأيمن «اليوم السابق»)، و«اليوم التالي» معطّل عند اليوم، و«اليوم»، والتاريخ بالكتابة (لا بعد اليوم)؛ S4 الأعمدة كورقة المالك والصفر «-»؛
-// S5 الوحدة في رأس «الرصيد» أو عمود «الوحدة»؛ S6 رابط المادّة بـ?back= إلى العرض نفسه وزرّ الرجوع في ملفّها؛ S7 الملاحظة: النصّ واليوم والنسخة التي
-// رآها (null بلا ملاحظة)، والمسح، وnote_changed (يقول ويقرأ من جديد ويُبقي ما كُتب، والإعادة بالنسخة الجديدة)، والطول؛ S8 «أدرج مواد» بترتيبها
-// و«في «س»» والنداء بالقائمة كلّها؛ S9 «تصنيف جديد» ثمّ موادّه، والاسم المكرّر؛ S10 الطباعة (window.print، والتقرير وحده يُطبع)؛ S11 المشاركة
-// (navigator.share بالعنوان والنصّ، وإلّا النسخ، وإلغاء نافذة المشاركة بلا رسالة)؛ S12 الفراغ (لا تصنيف، وتصنيف بلا موادّ) والمشاهد والمحاسب بلا
-// ملاحظة ولا «أدرج»؛ S13 المخزن من قائمة حين يتعدّد وحده؛ S14 رفض day_in_future بتلميحه وزرّ «اليوم»؛ S15 القشرة print:hidden؛ S16 «حركات المادّة»
-// في ملفّ المادّة (المخازن، والمخزن الأوّل بموجود، و«المزيد»).
-// وتحديث العقد بعد مراجعة القاعدة: category.members (كلّ موادّ التصنيف بترتيبه) تبدأ منها «أدرج مواد» بأسمائها (قراءة واحدة لـitems، ولو لم يُظهرها
-// الجدول) وهي p_expected_items؛ وcategory_changed يُقال ويُقرأ التصنيف من جديد ويبقى الاختيار (S8-changed)؛ ولا مخزن في النطاق: لا جدول ولا طباعة ولا
-// مشاركة (S12-no-stores)، وموادّ لا تُخزَّن هنا غير تصنيف فارغ (S12-unstored)؛ وout_of_scope لملاحظة مادّة خارج مخازن الكاتب (S7-scope)؛ والنسخ أرقام
-// تسلسل.
-// شروط العيّنات (تُفحص أوّلاً، فعيّنة لا تحقّقها تفشل باسمها): owner_feed تصنيف بموادّ بوحدة واحدة، فيها صفر وملاحظة وغير صفر، ويومها قبل اليوم، ولها
-// أكثر من مخزن وتصنيفان فأكثر، والمدير يكتب ويدير؛ owner_all لكلّ المواد بتصنيفات؛ mixed_units بوحدتين فأكثر؛ storekeeper يكتب ولا يدير؛ viewer لا
-// يكتب ولا يدير؛ empty_category تصنيف بلا موادّ؛ no_categories بلا تصنيفات؛ وصفوف كلّ تصنيف من members وبترتيبها.
+// «الرصيد اليومي» (0022، كلمة المالك 2026-11-09 بصورة ورقته «رصيد مواد العلف — 4/11/2026») و«المخزن بقسمين» (كلمة المالك 2026-11-21، عقد
+// docs/plans/0034/contract-0034.md B5 وS1): react-dom/client الحقيقي على DOM صغير (dom.mjs) يشغّل StockRoutes الحقيقية والقشرة، وrepo/dayBalance
+// وrepo/purchases الحقيقيين (المحلّلات وبناء النداءات) على core بديل يسجّل كلّ نداء ويجيب: أقسام الرصيد من fixtures/day-balance-sections.hand.json
+// (مكتوبة باليد بمفاتيح B5 وأنواعها حرفاً، والجلسة الرئيسية تبدّلها بعيّنات القاعدة الحقيقية عند الدمج)، والملاحظة والرفض وملفّ المادّة من عيّنات
+// القاعدة الحقيقية (fixtures/day-balance-0022.json: كاتب الملاحظة لم يتغيّر). وrepo المخزون والجلسة والتنبيه بدائل. الحالات:
+// P المحلّلات بكلّ عيّنة (الكمية بالآلاف، والملاحظة ونسختها، والتصنيف، والخانات التي تأتي null) وصرامتها (مفتاح قسم غريب أو مكرّر، والمادّة في
+// قسمين)، وترتيب الأقسام بالعرض أيّاً كان ترتيبها بالسلك، والرابط (اليوم وحده)؛
+// S1 المفتاح «البطاقات | الرصيد اليومي» والرابط (?view=day يقرأ day_balance_sections ولا يقرأ day_balance، والبطاقات لا تقرأ الرصيد)؛
+// S2 جدول لكلّ قسم بعنوانه وعدده وأعمدته (ت | المادّة | الرصيد (كغم) | الملاحظات، والوحدة في الرأس أو عمودها)، و«أخرى» يغيب فارغاً، ولا اختيار
+// تصنيف ولا مخزن ولا «أدرج مواد»؛ S3 السهمان و«اليوم» والتاريخ بالكتابة بـp_on الصحيح؛ S6 رابط المادّة والصفّ كلّه بـ?back= إلى العرض نفسه؛
+// S7 الملاحظة في أيّ قسم: النصّ واليوم والنسخة التي رآها، والمسح، وnote_changed، والطول، وout_of_scope؛ S10 الطباعة: الجداول كلّها في مستند
+// واحد؛ S11 المشاركة بالأقسام؛ S12 المشاهد بلا ملاحظة، والفراغ بلا طباعة ولا مشاركة؛ S14 رفض day_in_future بتلميحه وزرّ «اليوم»؛ S15 القشرة
+// print:hidden؛ S16 «حركات المادّة» في ملفّ المادّة؛ وR مراجعة 0022 العدائية فيما بقي من الصفحة؛
+// B بطاقات المخزن بأقسامها: «مواد العلف» و«العلف» دائماً بعدد كلّ منهما، و«أخرى» إن لم يكن فارغاً، والبحث عبر الأقسام، و«أضف مادّة» داخل القسم
+// بنوعه (مادّة للمعمل أو علف جاهز) حتى createItem.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -26,7 +21,7 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'day-balance-0022.json'), 'utf8'));
-const DB = F.day_balance;
+const H = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'day-balance-sections.hand.json'), 'utf8')).day_balance_sections;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__db.call('${n}', a);`).join(' ')}`;
@@ -38,12 +33,12 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__db.session; export const sessionStore = { get: () => globalThis.__db?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__db.toasts.push(spec); }; export function Toaster() { return null; }',
 };
-// repo الحقيقي يبني النداء ويقرأ الجواب؛ core بديل له وحده يسجّل النداء ويجيب: call للدوالّ، وsend لقراءة جدول بسلسلة PostgREST مسجَّلة
-// (from/select/eq/is) يجيبها globalThis.__db.tables باسم الجدول.
+// repo الحقيقي يبني النداء ويقرأ الجواب؛ core بديل له وحده يسجّل النداء ويجيب.
 const CORE_FOR = /src\/lib\/repo\/(?:dayBalance|purchases)\.ts$/u;
 const CORE = [
   'export const call = async (fn, args) => globalThis.__db.rpc(fn, args);',
-  'export const send = async (make) => ({ result: await make(globalThis.__db.db()), wasOnline: true });',
+  // قراءات الجداول (بطاقة المادّة القديمة) لا تجيب: لا شيء هنا يحتاجها.
+  'export const send = () => new Promise(() => {});',
   'export const classifyPostgrest = (error) => Object.assign(new Error(error.code ?? "postgrest"), error);',
 ].join('\n');
 const stubs = {
@@ -65,9 +60,10 @@ async function bundle() {
     "export { default as StockRoutes } from './src/pages/inventory/StockRoutes.tsx';",
     "export { Shell } from './src/components/shell/Shell.tsx';",
     "export { recoveryStore } from './src/lib/pwa/recovery.ts';",
-    "export { parseDayBalance, parseDayNote, parseCategoryItems } from './src/lib/repo/dayBalance.ts';",
+    "export { parseDayBalanceSections, parseDayNote } from './src/lib/repo/dayBalance.ts';",
     "export { RowShapeError } from './src/lib/repo/inventory.ts';",
     "export { dayParams, dayUrl, shareText, NOTE_SPACES } from './src/pages/inventory/DayBalanceView.tsx';",
+    "export { sectionOfKind } from './src/pages/inventory/storeSections.ts';",
     "export { backTarget } from './src/components/ui/BackButton.tsx';",
     "export { recipeBack } from './src/pages/inventory/ItemsPage.tsx';",
     "export { baseQty } from './src/pages/inventory/simple-shared.ts';",
@@ -105,14 +101,6 @@ const typeIn = (input, value) => {
   input.value = value;
   fire(input, 'input');
 };
-const choose = (select, value) => {
-  select.value = value;
-  fire(select, 'change');
-};
-const tick = (box) => {
-  box.checked = !box.checked;
-  fire(box, 'click');
-};
 const dialog = () => all().find((n) => n.getAttribute('role') === 'dialog');
 const dialogTitle = () => descendants(dialog() ?? body()).find((n) => n.localName === 'h2')?.textContent ?? null;
 const submitDialog = async () => {
@@ -124,14 +112,22 @@ const underClass = (node, cls) => {
   for (let n = node; n && n.nodeType === 1; n = n.parentNode) if (classOf(n).split(/\s+/).includes(cls)) return true;
   return false;
 };
-const headers = () => all().filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent);
-const bodyRows = () => {
-  const tbody = all().find((n) => n.localName === 'tbody');
-  return tbody ? tbody.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : [];
+const under = (node, ancestor) => {
+  for (let n = node; n; n = n.parentNode) if (n === ancestor) return true;
+  return false;
 };
 const radio = (label) => all().find((n) => n.getAttribute('role') === 'radio' && n.textContent === label);
-const chip = (id) => byAction('day-category').find((n) => n.getAttribute('data-id') === id);
 const withId = (action, id) => byAction(action).find((n) => n.getAttribute('data-id') === id);
+/** جدول قسم الرصيد بمفتاحه، ورؤوسه وصفوفه. */
+const section = (key) => byAction('day-section').find((n) => n.getAttribute('data-key') === key);
+const headersIn = (node) => (node ? descendants(node).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : []);
+const rowsIn = (node) => {
+  const tbody = node ? descendants(node).find((n) => n.localName === 'tbody') : undefined;
+  return tbody ? tbody.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : [];
+};
+const sectionTitles = () => byAction('day-section-title').map((n) => n.textContent);
+/** قيمة القائمة المختارة كما يضعها React (selected على الخيار). */
+const chosenKind = () => byAction('simple-item-kind')[0]?.options.find((o) => o.selected === true)?.getAttribute('value') ?? null;
 
 /** الكمية النصّية بالآلاف (Milli) كما يقرؤها المحلّل. */
 const milli = (value) => {
@@ -145,6 +141,7 @@ const shift = (day, n) => {
 };
 const fmt = (day) => `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}`;
 const UNIT = { kg: 'كغم', L: 'لتر', pc: 'قطعة' };
+const TITLES = { feed_materials: 'رصيد مواد العلف', feed: 'رصيد العلف', other: 'أخرى' };
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
   divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: false,
@@ -153,17 +150,14 @@ const ws = (role, over = {}) => ({
 const MANAGER = { status: 'ready', workspace: ws('manager') };
 const KEEPER = { status: 'ready', workspace: ws('storekeeper', { scopes: [{ warehouseId: 'w-raw' }] }) };
 const VIEWER = { status: 'ready', workspace: ws('viewer') };
-const ACCOUNTANT = { status: 'ready', workspace: ws('accountant') };
 
-/** جواب day_balance كما تحسبه القاعدة لليوم المطلوب (on = p_on أو اليوم) والمخزن المطلوب (اسمه من stores). */
+/** جواب day_balance_sections كما تحسبه القاعدة لليوم المطلوب (on = p_on أو اليوم). */
 const answer = (sample) => async (args) => {
   const json = clone(sample);
   json.on = args.p_on ?? json.today;
-  const store = json.stores.find((entry) => entry.id === args.p_warehouse);
-  json.warehouse = store ? { id: store.id, name: store.name } : null;
   return json;
 };
-const itemRow = (id, name, categoryId) => ({ id, version: 1, archived: false, name, nameNorm: name, categoryId, kind: 'raw', baseUnit: 'kg', density: null, pieceMassKg: null, tracksExpiry: false, scaleStep: 1n, minQty: null, barcode: null, altCodes: [] });
+const itemRow = (id, name, categoryId, kind = 'raw') => ({ id, version: 1, archived: false, name, nameNorm: name, categoryId, kind, baseUnit: 'kg', density: null, pieceMassKg: null, tracksExpiry: false, scaleStep: 1n, minQty: null, barcode: null, altCodes: [] });
 
 export default async function (t) {
   const restore = installDom();
@@ -177,42 +171,12 @@ export default async function (t) {
       where = m.useLocation();
       return null;
     }
-    const fresh = (session, handlers = {}, rpcs = {}, tables = {}) => {
+    const fresh = (session, handlers = {}, rpcs = {}) => {
       const calls = [];
       const rpcCalls = [];
-      const reads = [];
       globalThis.__db = {
         session,
         toasts: [],
-        /** سلسلة PostgREST تسجّل القراءة كما بُنيت، وتجيب بما يرجّعه tables[الجدول] (أو لا تجيب أبداً). */
-        db() {
-          const query = { table: null, ops: [] };
-          const chain = {
-            from(table) {
-              query.table = table;
-              return chain;
-            },
-            select(columns) {
-              query.ops.push(['select', columns]);
-              return chain;
-            },
-            eq(column, value) {
-              query.ops.push(['eq', column, value]);
-              return chain;
-            },
-            is(column, value) {
-              query.ops.push(['is', column, value]);
-              return chain;
-            },
-            then(resolve, reject) {
-              reads.push(query);
-              const handler = tables[query.table];
-              const answer = handler ? Promise.resolve().then(() => handler(query, reads.filter((read) => read.table === query.table).length)).then((data) => ({ data, error: null, status: 200 })) : new Promise(() => {});
-              return answer.then(resolve, reject);
-            },
-          };
-          return chain;
-        },
         call(name, args) {
           calls.push([name, args]);
           const handler = handlers[name];
@@ -230,7 +194,7 @@ export default async function (t) {
           return handler(args, rpcCalls.filter(([name]) => name === fn).length);
         },
       };
-      return { calls, rpcCalls, reads };
+      return { calls, rpcCalls };
     };
     const named = (log, name) => log.filter(([n]) => n === name).map(([, args]) => args);
     const mount = async (url, element = null) => {
@@ -260,80 +224,67 @@ export default async function (t) {
       await unmount();
     };
     const search = () => Object.fromEntries(new URLSearchParams(where?.search ?? ''));
-    const dayUrlOf = (sample, over = {}) => `/inventory?${new URLSearchParams({ view: 'day', cat: sample.category ? sample.category.id : 'all', ...over }).toString()}`;
-    /** رابط العيّنة بيومها (بلا day إن كان يومها اليوم): الجواب المعاد يحمل يومها نفسه أيّاً كان يوم التقاطها. */
-    const urlAt = (sample) => dayUrlOf(sample, sample.on === sample.today ? {} : { day: sample.on });
+    /** رابط العيّنة بيومها (بلا day إن كان يومها اليوم). */
+    const urlAt = (sample) => `/inventory?${new URLSearchParams(sample.on === sample.today ? { view: 'day' } : { view: 'day', day: sample.on }).toString()}`;
 
     // ── شروط العيّنات ───────────────────────────────────────────────────────────────────────────────────────────────
-    const FEED = DB.owner_feed;
-    const units = (sample) => [...new Set(sample.rows.map((row) => row.base_unit))];
-    const zeroRow = FEED.rows.find((row) => milli(row.qty) === 0n);
-    const noteRow = FEED.rows.find((row) => row.note);
-    const plainRow = FEED.rows.find((row) => !row.note && milli(row.qty) !== 0n) ?? FEED.rows.find((row) => !row.note);
+    const OWN = H.owner;
+    const rowsOf = (sample, key) => sample.sections.find((entry) => entry.key === key)?.rows ?? [];
+    const units = (rows) => [...new Set(rows.map((row) => row.base_unit))];
     t.same(
-      [Boolean(FEED.category), units(FEED).length, Boolean(zeroRow), Boolean(noteRow), Boolean(plainRow), FEED.rows.some((row) => milli(row.qty) !== 0n), FEED.on < FEED.today, FEED.stores.length > 1, FEED.categories.length > 1, FEED.can_note, FEED.can_manage],
-      [true, 1, true, true, true, true, true, true, true, true, true],
-      'شرط owner_feed: تصنيف بموادّ بوحدة واحدة، فيها صفر وملاحظة وأخرى بلا ملاحظة وغير صفر، ويومه قبل اليوم، بمخزنين وتصنيفين فأكثر، والمدير يكتب ويدير',
+      [OWN.sections.map((s) => s.key), OWN.on < OWN.today, OWN.can_note, units(rowsOf(OWN, 'feed_materials')), units(rowsOf(OWN, 'feed')), units(rowsOf(OWN, 'other')).length > 1],
+      [['feed_materials', 'feed', 'other'], true, true, ['kg'], ['kg'], true],
+      'شرط owner: الأقسام الثلاثة بترتيب B5، ويومه قبل اليوم، ويكتب الملاحظة، وقسما العلف بالكيلوغرام و«أخرى» بوحدتين',
     );
-    t.same([DB.owner_all.category, DB.owner_all.categories.length > 0], [null, true], 'شرط owner_all: كلّ المواد بتصنيفات');
-    t.ok(units(DB.mixed_units).length > 1, 'شرط mixed_units: وحدتان فأكثر');
-    t.same([DB.storekeeper.can_note, DB.storekeeper.can_manage, DB.storekeeper.rows.some((row) => !row.note)], [true, false, true], 'شرط storekeeper: يكتب الملاحظة ولا يدير، وله مادّة بلا ملاحظة');
-    // الأجوبة الحقيقية (مراجعة 0022 F9): المشاهد بلا مخزن في نطاقه لا صفوف له؛ والمحاسب (بنطاق المنشأة) يقرأ الجدول ولا يكتب ولا يدير.
-    t.same([DB.viewer.can_note, DB.viewer.can_manage, DB.viewer.stores.length, DB.viewer.rows.length], [false, false, 0, 0], 'شرط viewer: لا يكتب ولا يدير، وبلا مخزن في نطاقه ولا صفوف');
-    t.same([DB.accountant.can_note, DB.accountant.can_manage, DB.accountant.rows.length > 0], [false, false, true], 'شرط accountant: لا يكتب ولا يدير، وله صفوف');
-    t.same([Boolean(DB.empty_category.category), DB.empty_category.rows.length, DB.empty_category.can_manage], [true, 0, true], 'شرط empty_category: تصنيف بلا موادّ (والمدير)');
-    t.same([DB.no_categories.categories.length, DB.no_categories.category, DB.no_categories.can_manage], [0, null, true], 'شرط no_categories: بلا تصنيفات (والمدير)');
+    t.ok(rowsOf(OWN, 'feed_materials').some((row) => milli(row.qty) === 0n) && rowsOf(OWN, 'feed').some((row) => row.note) && rowsOf(OWN, 'feed').some((row) => !row.note && milli(row.qty) !== 0n), 'شرط owner: صفر في مواد العلف، وفي العلف مادّة بملاحظة وأخرى بلا ملاحظة');
+    t.same([rowsOf(H.no_other, 'feed').length, rowsOf(H.no_other, 'other').length, rowsOf(H.no_other, 'feed_materials').length > 0], [0, 0, true], 'شرط no_other: علف فارغ و«أخرى» فارغة');
+    t.same([H.viewer.can_note, H.empty.sections.every((s) => s.rows.length === 0)], [false, true], 'شرط viewer لا يكتب، وempty بلا صفوف');
     t.same([F.set_day_note.saved.note !== null, F.set_day_note.cleared.note], [true, null], 'شرط set_day_note: محفوظة وممسوحة');
     t.same([F.refusals.note_changed.code, F.refusals.day_in_future.code, Boolean(F.refusals.note_changed.hint), Boolean(F.refusals.day_in_future.hint)], ['note_changed', 'day_in_future', true, true], 'شرط الرفضين بتلميحهما');
-    // members كلّ موادّ التصنيف بترتيبه، والجدول منها وحدها وبترتيبها (ما لا يُخزَّن في النطاق يغيب منه لا من members)؛ وإلّا اختلف ترتيب الجدول عن
-    // ترتيب نافذة «أدرج مواد».
-    for (const [name, sample] of Object.entries(DB).filter(([, sample]) => sample.category)) {
-      const members = sample.category.members;
-      const positions = sample.rows.map((row) => members.indexOf(row.item_id));
-      t.ok(Array.isArray(members) && positions.every((at, index) => at >= 0 && (index === 0 || at > positions[index - 1])), `شرط ${name}: الصفوف من category.members وبترتيبها`);
-    }
-    // رفضا التحديث (category_changed وout_of_scope) من العيّنة إن حضرا، وإلّا بتلميح مكتوب هنا.
-    const REFUSE = {
-      category_changed: F.refusals.category_changed ?? { code: 'category_changed', hint: 'تغيّرت موادّ هذا التصنيف بعد أن فتحت النافذة.' },
-      out_of_scope: F.refusals.out_of_scope ?? { code: 'out_of_scope', hint: 'لا تُخزَّن هذه المادّة في شيء من مخازن نطاقك.' },
-    };
+    const OUT_OF_SCOPE = F.refusals.out_of_scope ?? { code: 'out_of_scope', hint: 'لا تُخزَّن هذه المادّة في شيء من مخازن نطاقك.' };
+    const plain = rowsOf(OWN, 'feed').find((row) => !row.note && milli(row.qty) !== 0n);
+    const noted = rowsOf(OWN, 'feed').find((row) => row.note);
 
-    // ── P: المحلّلات الحقيقية بأجوبة القاعدة ────────────────────────────────────────────────────────────────────────
-    for (const [name, sample] of Object.entries(DB)) {
-      const parsed = m.parseDayBalance(clone(sample));
-      const categoryOf = (value) => (value ? [value.id, value.name, [...value.members]] : null);
-      const ref = (value) => (value ? [value.id, value.name] : null);
+    // ── P: المحلّل الحقيقي ─────────────────────────────────────────────────────────────────────────────────────────
+    for (const [name, sample] of Object.entries(H)) {
+      const parsed = m.parseDayBalanceSections(clone(sample));
+      t.same([parsed.today, parsed.on, parsed.canNote, parsed.sections.map((s) => s.key)], [sample.today, sample.on, sample.can_note, ['feed_materials', 'feed', 'other']], `P ${name}: اليوم والصلاحية والأقسام الثلاثة بترتيبها`);
       t.same(
-        [parsed.today, parsed.on, categoryOf(parsed.category), ref(parsed.warehouse), parsed.canNote, parsed.canManage, parsed.stores.map((s) => [s.id, s.name, s.kind]), parsed.categories.map((c) => [c.id, c.name, c.items])],
-        [sample.today, sample.on, categoryOf(sample.category), ref(sample.warehouse), sample.can_note, sample.can_manage, sample.stores.map((s) => [s.id, s.name, s.kind]), sample.categories.map((c) => [c.id, c.name, c.items])],
-        `P ${name}: اليوم والتصنيف بموادّه (members) والمخزن والصلاحيتان والمخازن والتصنيفات`,
-      );
-      t.same(
-        parsed.rows.map((row) => [row.itemId, row.name, row.kind, row.baseUnit, row.qty, row.note]),
-        sample.rows.map((row) => [row.item_id, row.name, row.kind, row.base_unit, milli(row.qty), row.note ? { text: row.note.text, version: row.note.version } : null]),
-        `P ${name}: الصفوف بالكمية بالآلاف والملاحظة ونسختها`,
+        parsed.sections.map((s) => s.rows.map((row) => [row.itemId, row.name, row.kind, row.baseUnit, row.qty, row.note, row.category])),
+        sample.sections.map((s) => s.rows.map((row) => [row.item_id, row.name, row.kind, row.base_unit, milli(row.qty), row.note ? { text: row.note.text, version: row.note.version } : null, row.category ? { id: row.category.id, name: row.category.name } : null])),
+        `P ${name}: الصفوف بالكمية بالآلاف والملاحظة ونسختها والتصنيف`,
       );
     }
     {
-      const row0 = FEED.rows[0];
-      const bad = (patch, rowPatch = null) => () => m.parseDayBalance({ ...clone(FEED), ...patch, ...(rowPatch ? { rows: [{ ...clone(row0), ...rowPatch }] } : {}) });
-      t.throws(bad({}, { qty: null }), 'P صرامة: كمية null');
-      t.throws(bad({}, { qty: '1.2345' }), 'P صرامة: كمية بأربع مراتب');
-      t.throws(bad({}, { note: { text: '', version: 1 } }), 'P صرامة: ملاحظة فارغة');
-      t.throws(bad({}, { note: { text: 'x', version: 0 } }), 'P صرامة: نسخة صفر');
-      t.throws(bad({}, { base_unit: 'ton' }), 'P صرامة: وحدة غير معروفة');
+      const reversed = { ...clone(OWN), sections: clone(OWN.sections).reverse() };
+      t.same(m.parseDayBalanceSections(reversed).sections.map((s) => [s.key, s.rows.length]), OWN.sections.map((s) => [s.key, s.rows.length]), 'P الأقسام بترتيب العرض أيّاً كان ترتيبها بالسلك');
+      const missing = { ...clone(OWN), sections: clone(OWN.sections).filter((s) => s.key !== 'other') };
+      t.same(m.parseDayBalanceSections(missing).sections.map((s) => [s.key, s.rows.length]), [['feed_materials', 4], ['feed', 3], ['other', 0]], 'P قسم غاب من الجواب = بلا صفوف');
+      const row0 = rowsOf(OWN, 'feed_materials')[0];
+      const withRow = (patch) => () => m.parseDayBalanceSections({ ...clone(OWN), sections: [{ key: 'feed_materials', rows: [{ ...clone(row0), ...patch }] }] });
+      const bad = (patch) => () => m.parseDayBalanceSections({ ...clone(OWN), ...patch });
+      t.throws(bad({ sections: [...clone(OWN.sections), { key: 'drugs', rows: [] }] }), 'P صرامة: مفتاح قسم غير معروف');
+      t.throws(bad({ sections: [...clone(OWN.sections), { key: 'feed', rows: [] }] }), 'P صرامة: قسم مكرّر');
+      t.throws(bad({ sections: [{ key: 'feed_materials', rows: [clone(row0)] }, { key: 'feed', rows: [{ ...clone(row0), kind: 'feed' }] }] }), 'P صرامة: المادّة نفسها في قسمين');
+      t.throws(bad({ sections: { feed: [] } }), 'P صرامة: sections ليست قائمة');
+      t.throws(bad({ sections: [{ key: 'feed' }] }), 'P صرامة: قسم بلا rows');
+      t.throws(bad({ rows: undefined, sections: undefined }), 'P صرامة: بلا sections (شكل day_balance القديم)');
+      t.throws(withRow({ qty: null }), 'P صرامة: كمية null');
+      t.throws(withRow({ qty: '1.2345' }), 'P صرامة: كمية بأربع مراتب');
+      t.throws(withRow({ note: { text: '', version: 1 } }), 'P صرامة: ملاحظة فارغة');
+      t.throws(withRow({ note: { text: 'x', version: 0 } }), 'P صرامة: نسخة صفر');
+      t.throws(withRow({ base_unit: 'ton' }), 'P صرامة: وحدة غير معروفة');
+      t.throws(withRow({ kind: 'grain' }), 'P صرامة: نوع غير معروف');
+      t.throws(withRow({ category: { id: 'c' } }), 'P صرامة: تصنيف بلا اسم');
       t.throws(bad({ on: '2026-13-01' }), 'P صرامة: يوم غير موجود');
       t.throws(bad({ can_note: undefined }), 'P صرامة: can_note غائب');
-      t.throws(bad({ categories: [{ id: 'c', name: 'x', items: -1 }] }), 'P صرامة: عدد سالب');
-      t.throws(bad({ category: { id: FEED.category.id, name: FEED.category.name } }), 'P صرامة: التصنيف بلا members');
-      t.throws(bad({ category: { ...clone(FEED.category), members: [1] } }), 'P صرامة: members بغير معرّفات');
-      const large = m.parseDayBalance({ ...clone(FEED), rows: [{ ...clone(row0), note: { text: 'x', version: 9_007_199 } }] });
-      t.eq(large.rows[0].note?.version, 9_007_199, 'P النسخة رقم من تسلسل كما هو (لا عدّاد يبدأ من 1)');
-      const nullable = m.parseDayBalance({ ...clone(FEED), category: null, warehouse: undefined, rows: [{ ...clone(row0), note: undefined }] });
-      t.same([nullable.category, nullable.warehouse, nullable.rows[0].note], [null, null, null], 'P الخانات التي تأتي null أو تغيب تُقرأ null');
+      const large = m.parseDayBalanceSections({ ...clone(OWN), sections: [{ key: 'feed', rows: [{ ...clone(row0), note: { text: 'x', version: 9_007_199 } }] }] });
+      t.eq(large.sections[1].rows[0].note?.version, 9_007_199, 'P النسخة رقم من تسلسل كما هو (لا عدّاد يبدأ من 1)');
+      const nullable = m.parseDayBalanceSections({ ...clone(OWN), sections: [{ key: 'feed_materials', rows: [{ ...clone(row0), note: undefined, category: undefined }] }] });
+      t.same([nullable.sections[0].rows[0].note, nullable.sections[0].rows[0].category], [null, null], 'P الخانات التي تأتي null أو تغيب تُقرأ null');
       let shapeError = null;
       try {
-        bad({}, { qty: null })();
+        withRow({ qty: null })();
       } catch (error) {
         shapeError = error;
       }
@@ -341,543 +292,320 @@ export default async function (t) {
       const saved = m.parseDayNote(clone(F.set_day_note.saved));
       t.same([saved.itemId, saved.on, saved.note], [F.set_day_note.saved.item_id, F.set_day_note.saved.on, { text: F.set_day_note.saved.note.text, version: F.set_day_note.saved.note.version }], 'P set_day_note المحفوظة');
       t.eq(m.parseDayNote(clone(F.set_day_note.cleared)).note, null, 'P set_day_note الممسوحة: note = null');
-      const put = F.set_category_items.manager;
-      t.same(m.parseCategoryItems(clone(put)), { categoryId: put.category_id, count: put.count, moved: put.moved, removed: put.removed }, 'P set_category_items');
-      t.throws(() => m.parseCategoryItems({ ...clone(put), moved: null }), 'P صرامة: moved null');
-      // الرابط: ما لا يصلح كأنّه غائب، والعرض نفسه رابط رجوع يقبله ملفّ المادّة.
-      const params = m.dayParams(new URLSearchParams({ cat: 'x; drop', day: '2026-02-30', store: 'nope' }));
-      t.same(params, { cat: null, day: null, store: null }, 'الرابط: معرّف مكسور ويوم غير موجود يُهملان');
-      const url = m.dayUrl({ cat: FEED.category.id, day: FEED.on, store: FEED.stores[0].id });
-      t.same([m.backTarget(url, '/inventory'), m.dayParams(new URLSearchParams(url.split('?')[1]))], [url, { cat: FEED.category.id, day: FEED.on, store: FEED.stores[0].id }], 'الرابط: backTarget يقبل رابط العرض ويعود منه كما هو');
+      // قسمة الشاشة (بطاقات المخزن) مرآة قسمة B5 بالخادم.
+      t.same(['raw', 'additive', 'feed', 'medicine', 'vaccine', 'fuel', 'other', 'chick'].map((kind) => m.sectionOfKind(kind)), ['feed_materials', 'feed_materials', 'feed', 'other', 'other', 'other', 'other', 'other'], 'P القسم بنوع المادّة: raw وadditive موادّ علف، وfeed علف، والباقي أخرى');
+      // الرابط: اليوم وحده؛ ما لا يصلح وما بقي من روابط قديمة (cat وstore) يُهمل، والعرض نفسه رابط رجوع يقبله ملفّ المادّة.
+      t.same(m.dayParams(new URLSearchParams({ cat: 'all', day: '2026-02-30', store: '6bc1bee2-2e40-4a9f-8f96-0000000000b1' })), { day: null }, 'الرابط: يوم غير موجود يُهمل، وcat وstore القديمان لا يُقرآن');
+      const url = m.dayUrl({ day: OWN.on });
+      t.same([url, m.backTarget(url, '/inventory'), m.dayParams(new URLSearchParams(url.split('?')[1]))], [`/inventory?view=day&day=${OWN.on}`, url, { day: OWN.on }], 'الرابط: ?view=day&day= وbackTarget يقبله ويعود منه كما هو');
     }
 
-    const overviewOk = { items_overview: async () => ({ today: FEED.today, can_record: true, can_add_item: true, items: [] }) };
-    const byCategory = (args) => Object.values(DB).find((sample) => (sample.category?.id ?? null) === args.p_category && (args.p_category !== null || sample.categories.length > 0)) ?? FEED;
-
     // ── S1: المفتاح والرابط ─────────────────────────────────────────────────────────────────────────────────────────
+    const overviewOk = { items_overview: async () => ({ today: OWN.today, can_record: true, can_add_item: true, items: [] }) };
     await step('S1', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { ...overviewOk, day_balance: async (args) => answer(args.p_category === null ? DB.owner_all : byCategory(args))(args) });
+      const { rpcCalls } = fresh(MANAGER, {}, { ...overviewOk, day_balance_sections: answer(OWN) });
       await mount('/inventory');
-      t.same(
-        all().filter((n) => n.getAttribute('role') === 'radio').map((n) => [n.textContent, n.getAttribute('aria-checked')]),
-        [['البطاقات', 'true'], ['الرصيد اليومي', 'false']],
-        'S1: مفتاح بخيارين، والبطاقات افتراضاً',
-      );
-      t.same([named(rpcCalls, 'items_overview').length, named(rpcCalls, 'day_balance').length], [1, 0], 'S1: البطاقات تقرأ items_overview وحده');
+      t.same(all().filter((n) => n.getAttribute('role') === 'radio').map((n) => [n.textContent, n.getAttribute('aria-checked')]), [['البطاقات', 'true'], ['الرصيد اليومي', 'false']], 'S1: مفتاح بخيارين، والبطاقات افتراضاً');
+      t.same([named(rpcCalls, 'items_overview').length, named(rpcCalls, 'day_balance_sections').length], [1, 0], 'S1: البطاقات تقرأ items_overview وحده');
       await click(radio('الرصيد اليومي'));
       await settle();
-      const first = DB.owner_all.categories[0].id;
-      t.same([where?.pathname, search()], ['/inventory', { view: 'day', cat: first }], 'S1: ?view=day ثمّ أوّل تصنيف صريحاً في الرابط');
-      t.same(named(rpcCalls, 'day_balance'), [{ p_category: null, p_on: null, p_warehouse: null }, { p_category: first, p_on: null, p_warehouse: null }], 'S1: day_balance بمفاتيحه الثلاثة: كلّ المواد ثمّ أوّل تصنيف');
-      t.same([named(rpcCalls, 'items_overview').length, radio('الرصيد اليومي')?.getAttribute('aria-checked'), byAction('day-view').length, byAction('search-board').length], [1, 'true', 1, 0], 'S1: العرض اليومي بلا قراءة البطاقات ولا بحثها');
-      t.ok(chip(first)?.getAttribute('aria-pressed') === 'true', 'S1: والتصنيف الأوّل مختار');
+      t.same([where?.pathname, search()], ['/inventory', { view: 'day' }], 'S1: ?view=day بلا تصنيف ولا انتقال');
+      t.same([named(rpcCalls, 'day_balance_sections'), named(rpcCalls, 'day_balance').length], [[{ p_on: null }], 0], 'S1: day_balance_sections بـp_on فارغ (اليوم)، ولا day_balance');
+      t.same([named(rpcCalls, 'items_overview').length, byAction('day-view').length, byAction('search-board').length], [1, 1, 0], 'S1: العرض اليومي بلا قراءة البطاقات ولا بحثها');
+      const reads = named(rpcCalls, 'day_balance_sections').length;
+      await click(radio('الرصيد اليومي'));
+      t.eq(named(rpcCalls, 'day_balance_sections').length, reads, 'S1: النقر على «الرصيد اليومي» وهو مختار لا يقرأ من جديد');
       await click(radio('البطاقات'));
-      t.same([where?.search, byAction('day-view').length, named(rpcCalls, 'items_overview').length], ['', 0, 2], 'S1: «البطاقات» يعيد /inventory بلا وسائط والبطاقات كما كانت');
-    });
-    await step('S1-all', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { day_balance: answer(DB.owner_all) });
-      await mount('/inventory?view=day&cat=all');
-      t.same([named(rpcCalls, 'day_balance'), search().cat, byAction('day-title')[0]?.textContent], [[{ p_category: null, p_on: null, p_warehouse: null }], 'all', 'رصيد كلّ المواد'], 'S1: cat=all: كلّ المواد بلا انتقال');
-      t.ok(chip('all')?.getAttribute('aria-pressed') === 'true', 'S1: و«كل المواد» مختار');
+      t.same([where?.search, byAction('day-view').length, named(rpcCalls, 'items_overview').length], ['', 0, 2], 'S1: «البطاقات» يعيد /inventory بلا وسائط');
     });
 
-    // ── S2: التصنيفات ───────────────────────────────────────────────────────────────────────────────────────────────
+    // ── S2: جدول لكلّ قسم ──────────────────────────────────────────────────────────────────────────────────────────
     await step('S2', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { day_balance: async (args) => answer(byCategory(args))(args) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      t.same(byAction('day-category').map((n) => n.textContent), [...FEED.categories.map((c) => c.name), 'كل المواد'], 'S2: كلّ تصنيف باسمه ثمّ «كل المواد»');
-      t.same(byAction('day-category').filter((n) => n.getAttribute('aria-pressed') === 'true').map((n) => n.getAttribute('data-id')), [FEED.category.id], 'S2: المختار تصنيف العرض');
-      const other = FEED.categories.find((c) => c.id !== FEED.category.id);
-      const before0 = [where?.key, named(rpcCalls, 'day_balance').length];
-      await click(chip(FEED.category.id));
-      t.same([where?.key, named(rpcCalls, 'day_balance').length], before0, 'S2: التصنيف المعروض نفسه لا خطوة ولا قراءة');
-      await click(chip(other.id));
-      t.same([search(), named(rpcCalls, 'day_balance').at(-1)], [{ view: 'day', cat: other.id, day: FEED.on }, { p_category: other.id, p_on: FEED.on, p_warehouse: null }], 'S2: تصنيف آخر بيومه نفسه');
-      await click(chip('all'));
-      t.same([search().cat, named(rpcCalls, 'day_balance').at(-1)], ['all', { p_category: null, p_on: FEED.on, p_warehouse: null }], 'S2: «كل المواد» بـp_category فارغ');
-      const reads = named(rpcCalls, 'day_balance').length;
-      await click(radio('الرصيد اليومي'));
-      t.same([search(), named(rpcCalls, 'day_balance').length], [{ view: 'day', cat: 'all', day: FEED.on }, reads], 'S2: النقر على «الرصيد اليومي» وهو مختار لا يمسح التصنيف واليوم');
+      const { rpcCalls } = fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
+      t.same(named(rpcCalls, 'day_balance_sections'), [{ p_on: OWN.on }], 'S2: قراءة واحدة بيوم الرابط');
+      t.same(sectionTitles(), [TITLES.feed_materials, TITLES.feed, TITLES.other], 'S2: «رصيد مواد العلف» ثمّ «رصيد العلف» ثمّ «أخرى»');
+      t.same(byAction('day-section-count').map((n) => n.textContent), ['4 موادّ', '3 موادّ', 'مادّتان'], 'S2: عدد موادّ كلّ قسم بالفصحى');
+      t.same([byAction('day-title')[0]?.textContent, byAction('day-date')[0]?.textContent], ['الرصيد اليومي', `بتاريخ ${fmt(OWN.on)}`], 'S2: عنوان التقرير وتاريخه');
+      for (const key of ['feed_materials', 'feed']) {
+        const rows = rowsOf(OWN, key);
+        const decimals = m.columnDecimals(rows.map((row) => milli(row.qty)), 3);
+        t.same(headersIn(section(key)), ['ت', 'المادّة', 'الرصيد (كغم)', 'الملاحظات'], `S2 ${key}: الأعمدة كورقة المالك والكيلوغرام في رأس الرصيد`);
+        t.same(
+          rowsIn(section(key)),
+          rows.map((row, index) => [String(index + 1), row.name, milli(row.qty) === 0n ? '-' : m.fmtQtyCell(milli(row.qty), decimals), row.note ? row.note.text : '']),
+          `S2 ${key}: ت 1..n لكلّ جدول، والرصيد بمراتب عموده (والصفر «-»)، وملاحظة اليوم`,
+        );
+      }
+      t.same(headersIn(section('other')), ['ت', 'المادّة', 'الرصيد', 'الوحدة', 'الملاحظات'], 'S2 other: وحدات مختلفة: «الرصيد» بلا وحدة وعمود «الوحدة»');
+      t.same(rowsIn(section('other')).map((row) => row[3]), rowsOf(OWN, 'other').map((row) => UNIT[row.base_unit]), 'S2 other: وحدة كلّ مادّة في عمودها');
+      t.same([byAction('day-category').length, byAction('day-store').length, byAction('include-items').length, byAction('new-category').length, all().filter((n) => n.localName === 'select').length], [0, 0, 0, 0, 0], 'S2: لا اختيار تصنيف ولا مخزن ولا «أدرج مواد» ولا «تصنيف جديد» (بلا قوائم)');
+      const small = [...byAction('day-prev'), ...byAction('day-next'), ...byAction('day-pick'), ...byAction('day-today'), ...byAction('print-day'), ...byAction('share-day')].filter((n) => !classOf(n).includes('h-11'));
+      t.same([small.length, byAction('edit-note').every((n) => classOf(n).includes('size-11'))], [0, true], 'S2: كلّ أزرار الصفحة بارتفاع الإصبع (44)');
+    });
+    await step('S2-hidden', async () => {
+      fresh(MANAGER, {}, { day_balance_sections: answer(H.no_other) });
+      await mount(urlAt(H.no_other));
+      t.same([sectionTitles(), section('other')], [[TITLES.feed_materials, TITLES.feed], undefined], 'S2: «أخرى» فارغة لا تُعرض');
+      t.same([rowsIn(section('feed')), byAction('day-section-count')[1]?.textContent], [[['لا علف بعد.']]  , 'لا موادّ'], 'S2: «رصيد العلف» الفارغ يبقى بجملته وعدده');
     });
 
     // ── S3: الأيام ──────────────────────────────────────────────────────────────────────────────────────────────────
     await step('S3', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      const { rpcCalls } = fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
       const prev = byAction('day-prev')[0];
       const next = byAction('day-next')[0];
-      t.same([prev?.textContent, next?.textContent, byAction('day-pick')[0]?.textContent, disabled(next), byAction('day-today').length], ['اليوم السابق', 'اليوم التالي', fmt(FEED.on), false, 1], 'S3: «اليوم السابق» والتاريخ و«اليوم التالي»، و«اليوم» ليوم مضى');
-      // بالعربية السهم الأيمن إلى الخلف: أيقونة «اليوم السابق» قبل نصّه، و«اليوم التالي» نصّه ثمّ سهمه الأيسر.
+      t.same([prev?.textContent, next?.textContent, byAction('day-pick')[0]?.textContent, disabled(next), byAction('day-today').length], ['اليوم السابق', 'اليوم التالي', fmt(OWN.on), false, 1], 'S3: «اليوم السابق» والتاريخ و«اليوم التالي»، و«اليوم» ليوم مضى');
       t.same([prev?.firstChild?.getAttribute?.('class')?.includes('lucide-chevron-right'), next?.lastChild?.getAttribute?.('class')?.includes('lucide-chevron-left')], [true, true], 'S3: → قبل «اليوم السابق» و← بعد «اليوم التالي»');
-      t.ok(before(prev, byAction('day-pick')[0]) && before(byAction('day-pick')[0], next), 'S3: السابق ثمّ التاريخ ثمّ التالي (من اليمين)');
       await click(prev);
-      t.same([search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on, byAction('day-pick')[0]?.textContent], [shift(FEED.on, -1), shift(FEED.on, -1), fmt(shift(FEED.on, -1))], 'S3: «اليوم السابق» يقرأ اليوم قبله');
+      t.same([search().day, named(rpcCalls, 'day_balance_sections').at(-1), byAction('day-pick')[0]?.textContent], [shift(OWN.on, -1), { p_on: shift(OWN.on, -1) }, fmt(shift(OWN.on, -1))], 'S3: «اليوم السابق» يقرأ اليوم قبله');
       await click(byAction('day-next')[0]);
       await click(byAction('day-next')[0]);
-      t.same([search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on], [shift(FEED.on, 1), shift(FEED.on, 1)], 'S3: «اليوم التالي» مرّتين');
+      t.same([search().day, named(rpcCalls, 'day_balance_sections').at(-1)], [shift(OWN.on, 1), { p_on: shift(OWN.on, 1) }], 'S3: «اليوم التالي» مرّتين');
       await click(byAction('day-today')[0]);
-      t.same([search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on, byAction('day-today').length, disabled(byAction('day-next')[0]), byAction('day-pick')[0]?.textContent], [undefined, null, 0, true, fmt(FEED.today)], 'S3: «اليوم»: بلا day في الرابط، و«اليوم التالي» معطّل، ولا «اليوم»');
+      t.same([search().day, named(rpcCalls, 'day_balance_sections').at(-1), byAction('day-today').length, disabled(byAction('day-next')[0]), byAction('day-pick')[0]?.textContent], [undefined, { p_on: null }, 0, true, fmt(OWN.today)], 'S3: «اليوم»: بلا day في الرابط و«اليوم التالي» معطّل');
       await click(byAction('day-prev')[0]);
       await click(byAction('day-next')[0]);
-      t.same([search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on], [undefined, null], 'S3: العودة إلى اليوم بالسهم تُسقط day من الرابط');
+      t.same([search().day, named(rpcCalls, 'day_balance_sections').at(-1)], [undefined, { p_on: null }], 'S3: العودة إلى اليوم بالسهم تُسقط day من الرابط');
     });
     await step('S3-pick', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      const { rpcCalls } = fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
       await click(byAction('day-pick')[0]);
-      const input = all().find((n) => n.localName === 'input' && n.id.endsWith('-day'));
-      t.same([dialogTitle(), input?.value], ['اعرض رصيد يوم آخر', fmt(FEED.on)], 'S3: النقر على التاريخ يفتح حقل اليوم بالتاريخ المعروض');
-      typeIn(input, fmt(shift(FEED.today, 1)));
+      const input = () => all().find((n) => n.localName === 'input' && n.id.endsWith('-day'));
+      t.same([dialogTitle(), input()?.value], ['اعرض رصيد يوم آخر', fmt(OWN.on)], 'S3: النقر على التاريخ يفتح حقل اليوم بالتاريخ المعروض');
+      typeIn(input(), fmt(shift(OWN.today, 1)));
       await submitDialog();
       t.ok(text().includes('التاريخ بعد اليوم.') && dialog() !== undefined, 'S3: يوم بعد اليوم يُرفض بالنافذة');
-      typeIn(all().find((n) => n.localName === 'input' && n.id.endsWith('-day')), '31/02/2026');
+      typeIn(input(), '31/02/2026');
       await submitDialog();
       t.ok(text().includes('اكتب التاريخ يوم/شهر/سنة'), 'S3: يوم غير موجود يُرفض');
-      const target = shift(FEED.on, -10);
-      typeIn(all().find((n) => n.localName === 'input' && n.id.endsWith('-day')), fmt(target));
+      const target = shift(OWN.on, -10);
+      typeIn(input(), fmt(target));
       await submitDialog();
-      t.same([dialog(), search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on], [undefined, target, target], 'S3: يوم مكتوب يُعرض');
+      t.same([dialog(), search().day, named(rpcCalls, 'day_balance_sections').at(-1)], [undefined, target, { p_on: target }], 'S3: يوم مكتوب يُعرض');
     });
 
-    // ── S4/S5: الأعمدة والصفر والوحدة ──────────────────────────────────────────────────────────────────────────────
-    await step('S4', async () => {
-      fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      t.same(headers(), ['ت', 'المادّة', `الرصيد (${UNIT[FEED.rows[0].base_unit]})`, 'الملاحظات'], 'S4: الأعمدة كورقة المالك والوحدة في رأس الرصيد');
-      const decimals = m.columnDecimals(FEED.rows.map((row) => milli(row.qty)), 3);
-      t.same(
-        bodyRows(),
-        FEED.rows.map((row, index) => [String(index + 1), row.name, milli(row.qty) === 0n ? '-' : m.fmtQtyCell(milli(row.qty), decimals), row.note ? row.note.text : '']),
-        'S4: ت 1..n، والمادّة، والرصيد بمراتب العمود (والصفر «-»)، وملاحظة اليوم',
-      );
-      t.same([byAction('day-title')[0]?.textContent, byAction('day-date')[0]?.textContent], [`رصيد ${FEED.category.name}`, `بتاريخ ${fmt(FEED.on)}`], 'S4: العنوان «رصيد {التصنيف}» و«بتاريخ {اليوم}»');
-    });
-    await step('S5', async () => {
-      const MIX = DB.mixed_units;
-      fresh(MANAGER, {}, { day_balance: answer(MIX) });
-      await mount(dayUrlOf(MIX, { day: MIX.on }));
-      t.same(headers(), ['ت', 'المادّة', 'الرصيد', 'الوحدة', 'الملاحظات'], 'S5: وحدات مختلفة: «الرصيد» بلا وحدة وعمود «الوحدة»');
-      t.same(bodyRows().map((row) => row[3]), MIX.rows.map((row) => UNIT[row.base_unit]), 'S5: وحدة كلّ مادّة في عمودها');
-    });
-
-    // ── S6: رابط المادّة ────────────────────────────────────────────────────────────────────────────────────────────
+    // ── S6: رابط المادّة والصفّ كلّه ───────────────────────────────────────────────────────────────────────────────
+    const fileJson = (row) => ({ today: OWN.today, can_record: false, can_edit: false, item: { id: row.item_id, name: row.name, kind: row.kind, base_unit: row.base_unit, density_kg_per_l: null, archived: false, tracks_expiry: false }, on_hand_qty: row.qty, purchased_qty: '0.000', purchases_count: 0, purchases: [], more: false, stores: [] });
     await step('S6', async () => {
-      const fileJson = { today: FEED.today, can_record: false, can_edit: false, item: { id: plainRow.item_id, name: plainRow.name, kind: plainRow.kind, base_unit: plainRow.base_unit, density_kg_per_l: null, archived: false, tracks_expiry: false }, on_hand_qty: plainRow.qty, purchased_qty: '0.000', purchases_count: 0, purchases: [], more: false, stores: [] };
-      fresh(MANAGER, {}, { day_balance: answer(FEED), item_file: async () => clone(fileJson) });
-      const url = dayUrlOf(FEED, { day: FEED.on });
+      fresh(MANAGER, {}, { day_balance_sections: answer(OWN), item_file: async () => clone(fileJson(plain)) });
+      const url = urlAt(OWN);
       await mount(url);
-      const link = byAction('day-item').find((n) => n.textContent === plainRow.name);
-      t.eq(link?.getAttribute('href'), `/inventory/items/${plainRow.item_id}?${new URLSearchParams({ back: url }).toString()}`, 'S6: المادّة رابط ملفّها وback = العرض نفسه');
+      const link = byAction('day-item').find((n) => n.textContent === plain.name);
+      t.eq(link?.getAttribute('href'), `/inventory/items/${plain.item_id}?${new URLSearchParams({ back: url }).toString()}`, 'S6: المادّة رابط ملفّها وback = العرض نفسه');
       await click(link, { button: 0 });
       await settle();
       const back = byAction('back-to-board')[0];
-      t.same([where?.pathname, back?.getAttribute('href'), back?.textContent], [`/inventory/items/${plainRow.item_id}`, url, 'رجوع إلى المخزن'], 'S6: الملفّ يُفتح وزرّ «رجوع إلى المخزن» إلى اليوم والتصنيف نفسيهما');
+      t.same([where?.pathname, back?.getAttribute('href'), back?.textContent], [`/inventory/items/${plain.item_id}`, url, 'رجوع إلى المخزن'], 'S6: الملفّ يُفتح وزرّ «رجوع إلى المخزن» إلى اليوم نفسه');
+    });
+    await step('S6-row', async () => {
+      const other = rowsOf(OWN, 'other')[0];
+      fresh(KEEPER, {}, { day_balance_sections: answer(OWN), item_file: async () => clone(fileJson(other)) });
+      const url = urlAt(OWN);
+      await mount(url);
+      // النقر على زرّ الملاحظة في الصفّ له وحده (لا يفتح الملفّ).
+      await click(withId('edit-note', other.item_id));
+      t.same([dialog() !== undefined, where?.pathname], [true, '/inventory'], 'S6: زرّ الملاحظة يفتح نافذتها ولا ينتقل');
+      await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
+      const cell = rowsIn(section('other')).length ? descendants(section('other')).find((n) => n.localName === 'td' && n.textContent === m.fmtQtyCell(milli(other.qty), m.columnDecimals(rowsOf(OWN, 'other').map((row) => milli(row.qty)), 3))) : undefined;
+      await click(cell);
+      await settle();
+      t.same([where?.pathname, new URLSearchParams(where?.search ?? '').get('back')], [`/inventory/items/${other.item_id}`, url], 'S6: النقر على أيّ خليّة في الصفّ يفتح ملفّ المادّة بطريق الرجوع');
     });
 
-    // ── S7: الملاحظة ───────────────────────────────────────────────────────────────────────────────────────────────
-    const KEEP = DB.storekeeper;
-    const keepPlain = KEEP.rows.find((row) => !row.note);
-    const keepNoted = KEEP.rows.find((row) => row.note) ?? null;
+    // ── S7: الملاحظة (في جدول «رصيد العلف»: الثاني) ─────────────────────────────────────────────────────────────────
     await step('S7-save', async () => {
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async () => clone(F.set_day_note.saved) });
-      await mount(urlAt(KEEP));
-      t.same([byAction('edit-note').length, byAction('include-items').length, byAction('new-category').length, byAction('day-store').length], [KEEP.rows.length, 0, 0, KEEP.stores.length > 1 ? 1 : 0], 'S7: الأمين: زرّ ملاحظة لكلّ مادّة، بلا «أدرج» ولا «تصنيف جديد»، وقائمة المخازن لأكثر من مخزن وحده');
-      await click(withId('edit-note', keepPlain.item_id));
-      // النصّ الابتدائي لـtextarea ابنه النصّي (React)، وvalue لا يُكتب له حين يكون فارغاً في DOM الفحص.
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN), set_day_note: async () => clone(F.set_day_note.saved) });
+      await mount(urlAt(OWN));
+      const total = OWN.sections.reduce((sum, s) => sum + s.rows.length, 0);
+      t.eq(byAction('edit-note').length, total, 'S7: زرّ ملاحظة لكلّ مادّة في كلّ الأقسام');
+      t.ok(under(withId('edit-note', plain.item_id), section('feed')), 'S7: وزرّ المادّة في جدول قسمها');
+      await click(withId('edit-note', plain.item_id));
       const area = byAction('note-text')[0];
-      t.same([dialogTitle(), area?.value ?? area?.textContent, byAction('erase-note').length], [`ملاحظة «${keepPlain.name}» ليوم ${fmt(KEEP.on)}`, '', 0], 'S7: «ملاحظة {المادّة} ليوم {اليوم}» فارغة، بلا «امسح»');
+      t.same([dialogTitle(), area?.value ?? area?.textContent, byAction('erase-note').length], [`ملاحظة «${plain.name}» ليوم ${fmt(OWN.on)}`, '', 0], 'S7: «ملاحظة {المادّة} ليوم {اليوم}» فارغة، بلا «امسح»');
       typeIn(byAction('note-text')[0], '  ناقصة كيسين عن الفاتورة  ');
       await settle();
-      const reads = named(rpcCalls, 'day_balance').length;
+      const reads = named(rpcCalls, 'day_balance_sections').length;
       await submitDialog();
-      t.same(named(rpcCalls, 'set_day_note'), [{ p_item: keepPlain.item_id, p_on: KEEP.on, p_note: 'ناقصة كيسين عن الفاتورة', p_expected_version: null }], 'S7: النصّ مقصوصاً ويوم العرض وnull («لم أرَ ملاحظة»)');
-      t.same([dialog(), globalThis.__db.toasts.at(-1)?.tone, named(rpcCalls, 'day_balance').length], [undefined, 'success', reads + 1], 'S7: تُغلق وتقول «حُفظت» ويُقرأ الجدول من جديد');
-      t.ok(globalThis.__db.toasts.at(-1)?.title.startsWith(`حُفظت ملاحظة «${keepPlain.name}»`), 'S7: باسم المادّة');
+      t.same(named(rpcCalls, 'set_day_note'), [{ p_item: plain.item_id, p_on: OWN.on, p_note: 'ناقصة كيسين عن الفاتورة', p_expected_version: null }], 'S7: النصّ مقصوصاً ويوم العرض وnull («لم أرَ ملاحظة»)');
+      t.same([dialog(), globalThis.__db.toasts.at(-1)?.tone, named(rpcCalls, 'day_balance_sections').length], [undefined, 'success', reads + 1], 'S7: تُغلق وتقول «حُفظت» وتُقرأ الأقسام من جديد');
+      t.ok(globalThis.__db.toasts.at(-1)?.title.startsWith(`حُفظت ملاحظة «${plain.name}»`), 'S7: باسم المادّة');
     });
     await step('S7-erase', async () => {
-      const sample = clone(KEEP);
-      const target = keepNoted ? sample.rows.find((row) => row.item_id === keepNoted.item_id) : Object.assign(sample.rows[0], { note: { text: 'ملاحظة قديمة', version: 3 } });
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(sample), set_day_note: async () => clone(F.set_day_note.cleared) });
-      await mount(urlAt(sample));
-      await click(withId('edit-note', target.item_id));
-      t.eq(byAction('note-text')[0]?.value, target.note.text, 'S7: الملاحظة الحاليّة في الحقل');
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN), set_day_note: async () => clone(F.set_day_note.cleared) });
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', noted.item_id));
+      t.eq(byAction('note-text')[0]?.value, noted.note.text, 'S7: الملاحظة الحاليّة في الحقل');
       await click(byAction('erase-note')[0]);
-      t.same(named(rpcCalls, 'set_day_note'), [{ p_item: target.item_id, p_on: sample.on, p_note: '', p_expected_version: target.note.version }], 'S7: «امسح الملاحظة»: نصّ فارغ بنسخة ما رآه');
+      t.same(named(rpcCalls, 'set_day_note'), [{ p_item: noted.item_id, p_on: OWN.on, p_note: '', p_expected_version: noted.note.version }], 'S7: «امسح الملاحظة»: نصّ فارغ بنسخة ما رآه');
       t.ok(dialog() === undefined && globalThis.__db.toasts.at(-1)?.title.startsWith('مُسحت ملاحظة'), 'S7: «مُسحت»');
     });
     await step('S7-changed', async () => {
-      const sample = clone(KEEP);
-      const changed = clone(KEEP);
-      const row = changed.rows.find((entry) => entry.item_id === keepPlain.item_id);
-      // النسخة رقم من تسلسل القاعدة (لا عدّاد للملاحظة)، فتُرسل كما قُرئت.
-      row.note = { text: 'كتبها المدير من جهاز آخر', version: 7_340_077 };
+      const changed = clone(OWN);
+      changed.sections[1].rows.find((row) => row.item_id === plain.item_id).note = { text: 'كتبها المدير من جهاز آخر', version: 7_340_077 };
       let notes = 0;
       const { rpcCalls } = fresh(KEEPER, {}, {
-        day_balance: async (args, n) => answer(n === 1 ? sample : changed)(args),
+        day_balance_sections: async (args, n) => answer(n === 1 ? OWN : changed)(args),
         set_day_note: async () => {
           notes += 1;
           if (notes === 1) throw new m.RejectedError(F.refusals.note_changed.code, F.refusals.note_changed.hint);
           return clone(F.set_day_note.saved);
         },
       });
-      await mount(urlAt(sample));
-      await click(withId('edit-note', keepPlain.item_id));
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], 'ما كتبه الأمين');
       await settle();
       await submitDialog();
       await settle();
-      t.same(
-        [dialog() !== undefined, byAction('note-text')[0]?.value, named(rpcCalls, 'day_balance').length],
-        [true, 'ما كتبه الأمين', 2],
-        'S7: note_changed: النافذة باقية بما كُتب، والجدول يُقرأ من جديد',
-      );
-      t.ok(byAction('note-changed')[0]?.textContent.includes('غُيّرت ملاحظة هذا اليوم للتوّ من جهاز أو نافذة أخرى، فلم يُحفظ ما كتبت') && byAction('note-changed')[0]?.textContent.includes('كتبها المدير من جهاز آخر'), 'S7: ويقول إنّ غيره غيّرها ويعرض الملاحظة الحاليّة');
+      t.same([dialog() !== undefined, byAction('note-text')[0]?.value, named(rpcCalls, 'day_balance_sections').length], [true, 'ما كتبه الأمين', 2], 'S7: note_changed: النافذة باقية بما كُتب، والأقسام تُقرأ من جديد');
+      t.ok((byAction('note-changed')[0]?.textContent ?? '').includes('كتبها المدير من جهاز آخر'), 'S7: ويعرض الملاحظة الحاليّة');
       await submitDialog();
       t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['ما كتبه الأمين', null], ['ما كتبه الأمين', 7_340_077]], 'S7: الإعادة بالنصّ نفسه وبنسخة الملاحظة التي صار يراها');
       t.eq(dialog(), undefined, 'S7: ثمّ تُغلق');
     });
     await step('S7-long', async () => {
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP) });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepPlain.item_id));
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], 'م'.repeat(201));
       await settle();
       await submitDialog();
       t.same([named(rpcCalls, 'set_day_note').length, text().includes('الملاحظة أطول من 200 حرف (201)')], [0, true], 'S7: أطول من 200 حرف بعد القصّ: تُقال ولا تُرسل');
-      // الحدّ بالحروف كما يعدّها الخادم، لا بوحدات UTF-16: 200 حرف خارج BMP (طولها 400 بـJS) تُرسل.
       typeIn(byAction('note-text')[0], '\u{1F414}'.repeat(200));
       await settle();
       await submitDialog();
       t.eq(named(rpcCalls, 'set_day_note').length, 1, 'S7: 200 حرف خارج BMP تُرسل');
     });
     await step('S7-scope', async () => {
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async () => { throw new m.RejectedError(REFUSE.out_of_scope.code, REFUSE.out_of_scope.hint); } });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepPlain.item_id));
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN), set_day_note: async () => { throw new m.RejectedError(OUT_OF_SCOPE.code, OUT_OF_SCOPE.hint); } });
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], 'ملاحظة');
       await settle();
       await submitDialog();
-      t.same(
-        [named(rpcCalls, 'set_day_note').length, byAction('note-failed')[0]?.textContent, dialog() !== undefined, byAction('note-text')[0]?.value],
-        [1, REFUSE.out_of_scope.hint, true, 'ملاحظة'],
-        'S7: out_of_scope (مادّة لا يقبلها شيء من مخازن الكاتب): تلميح الخادم في النافذة، وما كُتب باقٍ',
-      );
+      t.same([named(rpcCalls, 'set_day_note').length, byAction('note-failed')[0]?.textContent, dialog() !== undefined, byAction('note-text')[0]?.value], [1, OUT_OF_SCOPE.hint, true, 'ملاحظة'], 'S7: رفض الخادم بتلميحه في النافذة، وما كُتب باقٍ');
     });
 
-    // ── S8: «أدرج مواد» ────────────────────────────────────────────────────────────────────────────────────────────
-    // عيّنة S8: موادّ التصنيف (members) ومعها مادّة منه لا يُظهرها الجدول (لا يقبلها شيء من مخازن النطاق)، فالنافذة تعرضها باسمها من قراءة items.
-    const other = FEED.categories.find((c) => c.id !== FEED.category.id);
-    const hidden = { id: '9d1c1a00-0000-4000-8000-0000000000f3', name: 'مادّة منه خارج مخازن النطاق' };
-    const S8S = clone(FEED);
-    S8S.category.members = [...FEED.category.members, hidden.id];
-    const memberNames = () => [...FEED.rows.map((row) => ({ id: row.item_id, name: row.name })), ...FEED.category.members.filter((id) => !FEED.rows.some((row) => row.item_id === id)).map((id) => ({ id, name: `مادّة ${id.slice(-4)}` })), hidden];
-    const outsider = itemRow('9d1c1a00-0000-4000-8000-0000000000f1', 'مادّة من تصنيف آخر', other.id);
-    const loose = itemRow('9d1c1a00-0000-4000-8000-0000000000f2', 'مادّة بلا تصنيف', null);
-    const listed = () => ({ rows: [...memberNames().map((entry) => itemRow(entry.id, entry.name, FEED.category.id)), outsider, loose], total: memberNames().length + 2, next: null });
-    const chosen = () => byAction('include-chosen-row').map((n) => n.getAttribute('data-id'));
-    const chosenNames = () => byAction('include-chosen-row').map((n) => descendants(n).find((child) => child.localName === 'span')?.textContent);
-    await step('S8', async () => {
-      const { calls, rpcCalls, reads } = fresh(MANAGER, { listItems: listed }, { day_balance: answer(S8S), set_category_items: async () => clone(F.set_category_items.manager) }, { items: () => memberNames() });
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      const nameOf = new Map(memberNames().map((entry) => [entry.id, entry.name]));
-      t.same(
-        [dialogTitle(), chosen(), chosenNames(), named(calls, 'listItems')],
-        [`موادّ «${FEED.category.name}»`, S8S.category.members, S8S.category.members.map((id) => nameOf.get(id)), [[{ search: '' }]]],
-        'S8: تبدأ بموادّ التصنيف كلّها بترتيبه (members، ومنها ما لا يُظهره الجدول) بأسمائها، وكلّ الموادّ الفعّالة للاختيار',
-      );
-      t.same(reads.map((read) => [read.table, read.ops]), [['items', [['select', 'id, name'], ['eq', 'category_id', FEED.category.id], ['is', 'archived_at', null]]]], 'S8: الأسماء بقراءة واحدة لموادّ التصنيف الفعّالة');
-      t.same(byAction('include-in-other').map((n) => n.textContent), [`في «${other.name}»`], 'S8: المادّة في تصنيف آخر تقول «في «س»»');
-      t.same(byAction('include-pick').map((n) => n.checked === true), [...memberNames().map(() => true), false, false], 'S8: موادّ التصنيف معلَّمة مسبقاً');
-      tick(withId('include-pick', outsider.id));
-      await settle();
-      tick(withId('include-pick', loose.id));
-      await settle();
-      t.same(chosen(), [...S8S.category.members, outsider.id, loose.id], 'S8: الاختيار يضيف في آخر القائمة');
-      // المتوقّع بمحاكاة الخطوات نفسها على القائمة (أيّاً كان عدد موادّ العيّنة): قدّم مرّتين، وأخّر الأولى، وأخرج ما رصيده صفر.
-      const swap = (list, id, by) => {
-        const index = list.indexOf(id);
-        const target = index + by;
-        if (index < 0 || target < 0 || target >= list.length) return list;
-        const copy = [...list];
-        [copy[index], copy[target]] = [copy[target], copy[index]];
-        return copy;
-      };
-      let expected = [...S8S.category.members, outsider.id, loose.id];
-      await click(withId('include-up', loose.id));
-      expected = swap(expected, loose.id, -1);
-      await click(withId('include-up', loose.id));
-      expected = swap(expected, loose.id, -1);
-      t.same(chosen(), expected, 'S8: «قدّم» مرّتين');
-      const head = expected[0];
-      await click(withId('include-down', head));
-      expected = swap(expected, head, 1);
-      await click(withId('include-remove', zeroRow.item_id));
-      expected = expected.filter((id) => id !== zeroRow.item_id);
-      t.same(chosen(), expected, 'S8: «أخّر» والإخراج');
-      t.ok(disabled(withId('include-up', expected[0])) && disabled(withId('include-down', expected.at(-1))), 'S8: لا «قدّم» للأوّل ولا «أخّر» للأخير');
-      const balances = named(rpcCalls, 'day_balance').length;
-      await click(byAction('save-include')[0]);
-      const put = F.set_category_items.manager;
-      t.same(named(rpcCalls, 'set_category_items'), [{ p_category: FEED.category.id, p_items: expected, p_expected_items: S8S.category.members }], 'S8: set_category_items بالقائمة كلّها بترتيبها، وp_expected_items موادّ التصنيف كما عُرضت');
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, balances + 1], 'S8: تُغلق ويُقرأ الجدول من جديد');
-      t.eq(globalThis.__db.toasts.at(-1)?.title, put.moved > 0 ? `حُفظت موادّ «${FEED.category.name}»: ${put.count}، منها ${put.moved} نُقلت من تصنيف آخر.` : `حُفظت موادّ «${FEED.category.name}»: ${put.count}.`, 'S8: والرسالة من جواب الخادم');
-    });
-    await step('S8-names', async () => {
-      // لا حفظ قبل أن تُعرف موادّ التصنيف بأسمائها (الحفظ يُخرج ما ليس في القائمة)؛ وفشل قراءتها يُقال بـ«أعد المحاولة».
-      const { rpcCalls, reads } = fresh(
-        MANAGER,
-        { listItems: listed },
-        { day_balance: answer(S8S) },
-        {
-          items: (_query, n) => {
-            if (n === 1) throw new Error('names_down');
-            return memberNames();
-          },
-        },
-      );
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      const inDialog = (action) => descendants(dialog()).filter((n) => n.getAttribute('data-action') === action);
-      t.same([disabled(byAction('save-include')[0]), byAction('include-chosen-row').length, inDialog('retry').length], [true, 0, 1], 'S8: فشل قراءة أسماء التصنيف: «أعد المحاولة» والحفظ مقفول');
-      await click(byAction('save-include')[0]);
-      t.eq(named(rpcCalls, 'set_category_items').length, 0, 'S8: ولا نداء');
-      await click(inDialog('retry')[0]);
-      t.same([reads.length, disabled(byAction('save-include')[0]), chosen()], [2, false, S8S.category.members], 'S8: بعد الإعادة: الموادّ بأسمائها والحفظ مفتوح');
-    });
-    await step('S8-changed', async () => {
-      // غيّر غيره التصنيف بعد فتح النافذة: أضاف إليه مادّة.
-      const added = { id: '9d1c1a00-0000-4000-8000-0000000000f4', name: 'مادّة أضافها مدير آخر' };
-      const after = clone(S8S);
-      after.category.members = [...S8S.category.members, added.id];
-      let puts = 0;
-      const { rpcCalls, reads } = fresh(
-        MANAGER,
-        { listItems: listed },
-        {
-          day_balance: async (args, n) => answer(n === 1 ? S8S : after)(args),
-          set_category_items: async () => {
-            puts += 1;
-            if (puts === 1) throw new m.RejectedError(REFUSE.category_changed.code, REFUSE.category_changed.hint);
-            return clone(F.set_category_items.manager);
-          },
-        },
-        { items: (_query, n) => (n === 1 ? memberNames() : [...memberNames(), added]) },
-      );
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      await click(withId('include-remove', zeroRow.item_id));
-      tick(withId('include-pick', loose.id));
-      await settle();
-      const selection = chosen();
-      await click(byAction('save-include')[0]);
-      await settle();
-      t.same(
-        [dialog() !== undefined, chosen(), named(rpcCalls, 'day_balance').length, reads.length],
-        [true, selection, 2, 2],
-        'S8: category_changed: النافذة باقية بالاختيار نفسه، والجدول وأسماء التصنيف يُقرآن من جديد',
-      );
-      t.ok(byAction('include-changed')[0]?.textContent.startsWith(REFUSE.category_changed.hint) && byAction('include-changed')[0]?.textContent.includes('اختيارك باقٍ'), 'S8: ويقول تلميح الخادم وأنّ الاختيار باقٍ');
-      await click(byAction('save-include')[0]);
-      t.same(
-        named(rpcCalls, 'set_category_items').map((args) => [args.p_items, args.p_expected_items]),
-        [[selection, S8S.category.members], [selection, after.category.members]],
-        'S8: الإعادة بالاختيار نفسه وبموادّ التصنيف كما صارت',
-      );
-      t.eq(dialog(), undefined, 'S8: ثمّ تُغلق');
-    });
-
-    // ── S9: «تصنيف جديد» ───────────────────────────────────────────────────────────────────────────────────────────
-    await step('S9', async () => {
-      const NONE = DB.no_categories;
-      const created = { id: '9d1c1a00-0000-4000-8000-0000000000c9', version: 1, archived: false, name: 'مواد العلف الجديدة' };
-      const fresher = { ...clone(DB.empty_category), category: { id: created.id, name: created.name, members: [] }, categories: [{ id: created.id, name: created.name, items: 0 }] };
-      const corn = itemRow(NONE.rows[0].item_id, NONE.rows[0].name, null);
-      const { calls, rpcCalls } = fresh(
-        MANAGER,
-        { createItemCategory: () => created, listItems: () => ({ rows: [corn], total: 1, next: null }) },
-        { day_balance: async (args) => answer(args.p_category === created.id ? fresher : NONE)(args), set_category_items: async () => ({ ...clone(F.set_category_items.manager), category_id: created.id }) },
-        { items: () => [] },
-      );
-      await mount('/inventory?view=day');
-      t.same([search().cat, byAction('day-no-categories').length, headers().length > 0, bodyRows().length], [undefined, 1, true, NONE.rows.length], 'S9: بلا تصنيفات: «لا تصنيف بعد» وجدول كلّ المواد بلا انتقال');
-      t.ok(text().includes('لا تصنيف بعد.') && text().includes('أنشئ تصنيفاً مثل «مواد العلف»'), 'S9: وتقول ما العمل للمدير');
-      t.same([byAction('new-category').length, chip('all')?.getAttribute('aria-pressed')], [1, 'true'], 'S9: زرّ «تصنيف جديد» واحد، و«كل المواد» مختار');
-      await click(byAction('new-category')[0]);
-      await submitDialog();
-      t.same([text().includes('اكتب اسم التصنيف.'), named(calls, 'createItemCategory').length], [true, 0], 'S9: الاسم مطلوب');
-      typeIn(byAction('category-name')[0], `  ${created.name} `);
-      await settle();
-      await submitDialog();
-      await settle();
-      t.same(named(calls, 'createItemCategory'), [[created.name]], 'S9: الإدراج القائم بالاسم');
-      t.same([search().cat, named(rpcCalls, 'day_balance').at(-1)?.p_category, dialogTitle(), text().includes('لم تختر مادّة بعد')], [created.id, created.id, `موادّ «${created.name}»`, true], 'S9: يُعرض التصنيف الجديد ونافذة موادّه فارغة فوقه');
-      tick(withId('include-pick', corn.id));
-      await settle();
-      await click(byAction('save-include')[0]);
-      t.same(named(rpcCalls, 'set_category_items'), [{ p_category: created.id, p_items: [corn.id], p_expected_items: [] }], 'S9: وحفظ موادّه بما عُرض فيه: لا شيء');
-    });
-    await step('S9-twin', async () => {
-      const { calls } = fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      await click(byAction('new-category')[0]);
-      typeIn(byAction('category-name')[0], FEED.categories[0].name);
-      await settle();
-      await submitDialog();
-      t.same([text().includes(`يوجد تصنيف باسم «${FEED.categories[0].name}»`), named(calls, 'createItemCategory').length], [true, 0], 'S9: الاسم المكرّر يُقال قبل الإرسال');
-    });
-
-    // ── S10: الطباعة ───────────────────────────────────────────────────────────────────────────────────────────────
+    // ── S10: الطباعة: الجداول كلّها في مستند واحد ────────────────────────────────────────────────────────────────────
     await step('S10', async () => {
       let printed = 0;
       globalThis.window.print = () => {
         printed += 1;
       };
       try {
-        fresh(MANAGER, {}, { day_balance: answer(FEED) });
-        await mount(dayUrlOf(FEED, { day: FEED.on }));
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        await mount(urlAt(OWN));
         t.eq(byAction('print-day')[0]?.textContent, 'اطبع أو احفظ PDF', 'S10: الزرّ باسمه');
         await click(byAction('print-day')[0]);
-        t.eq(printed, 1, 'S10: window.print');
+        t.eq(printed, 1, 'S10: window.print مرّة واحدة للتقرير كلّه');
+        const report = byAction('day-report')[0];
+        const tables = all().filter((n) => n.localName === 'table');
+        t.same([tables.length, tables.every((table) => under(table, report) && !underClass(table, 'print:hidden'))], [3, true], 'S10: الجداول الثلاثة في التقرير نفسه وكلّها تُطبع');
+        t.ok(tables.every((table) => classOf(table.parentNode?.parentNode).includes('print:[&>div]:max-h-none')), 'S10: وكلّ جدول بكلّ صفوفه بلا حدّ ارتفاع');
+        t.ok(byAction('day-section-title').every((n) => !underClass(n, 'print:hidden')) && !underClass(byAction('day-title')[0], 'print:hidden'), 'S10: عنوان التقرير وعناوين الأقسام تُطبع');
         const org = byAction('day-org')[0];
         t.same([org?.textContent, classOf(org).split(' ').filter((c) => c === 'hidden' || c === 'print:block')], ['مشروع الدواجن', ['hidden', 'print:block']], 'S10: اسم المنشأة سطر للطباعة وحدها');
         t.ok(underClass(byAction('day-controls')[0], 'print:hidden') && underClass(radio('الرصيد اليومي'), 'print:hidden') && underClass(all().find((n) => n.localName === 'h1'), 'print:hidden') && underClass(byAction('open-store-setup')[0], 'print:hidden'), 'S10: الأزرار والمفتاح والعنوان والروابط لا تُطبع');
         t.ok(byAction('edit-note').every((n) => underClass(n, 'print:hidden')), 'S10: ولا أزرار الملاحظات');
-        const table = all().find((n) => n.localName === 'table');
-        t.ok(!underClass(byAction('day-title')[0], 'print:hidden') && !underClass(table, 'print:hidden') && !underClass(byAction('day-note').find((n) => n.textContent !== ''), 'print:hidden'), 'S10: العنوان والجدول والملاحظات تُطبع');
-        t.ok(classOf(table?.parentNode?.parentNode).includes('print:[&>div]:max-h-none'), 'S10: والجدول بكلّ صفوفه بلا حدّ ارتفاع');
       } finally {
         delete globalThis.window.print;
+      }
+    });
+    await step('R-title', async () => {
+      let titled = null;
+      globalThis.window.print = () => {
+        titled = globalThis.document.title;
+      };
+      globalThis.document.title = 'نظام الدواجن';
+      try {
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        await mount(urlAt(OWN));
+        await click(byAction('print-day')[0]);
+        t.eq(titled, `الرصيد اليومي بتاريخ ${fmt(OWN.on)}`, 'R-title: عنوان الصفحة وقت الطباعة (اسم ملفّ PDF) عنوان التقرير وتاريخه');
+        fire(globalThis.window, 'afterprint');
+        await settle();
+        t.eq(globalThis.document.title, 'نظام الدواجن', 'R-title: ثمّ يعود بعد الطباعة');
+      } finally {
+        delete globalThis.window.print;
+        delete globalThis.document.title;
       }
     });
 
     // ── S11: المشاركة ──────────────────────────────────────────────────────────────────────────────────────────────
     const expectedShare = (sample) => {
-      const title = `رصيد ${sample.category.name} بتاريخ ${fmt(sample.on)}`;
-      const lines = sample.rows.map((row, index) => {
-        const qty = milli(row.qty) === 0n ? '-' : m.baseQty(milli(row.qty), row.base_unit);
-        const line = `${index + 1}. ${row.name}: ${qty}`;
-        return row.note ? `${line} — ${row.note.text.replace(/\s+/gu, ' ')}` : line;
-      });
-      return { title, text: [title, ...lines].join('\n') };
+      const title = `الرصيد اليومي بتاريخ ${fmt(sample.on)}`;
+      const blocks = sample.sections
+        .filter((s) => s.rows.length > 0)
+        .map((s) => [
+          `${TITLES[s.key]}:`,
+          ...s.rows.map((row, index) => {
+            const qty = milli(row.qty) === 0n ? '-' : m.baseQty(milli(row.qty), row.base_unit);
+            const line = `${index + 1}. ${row.name}: ${qty}`;
+            return row.note ? `${line} — ${row.note.text.replace(/\s+/gu, ' ')}` : line;
+          }),
+        ].join('\n'));
+      return { title, text: [title, ...blocks].join('\n\n') };
     };
     await step('S11-share', async () => {
       const shared = [];
       Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async (data) => shared.push(data) }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
       await click(byAction('share-day')[0]);
-      t.same(shared, [expectedShare({ ...FEED })], 'S11: navigator.share بالعنوان والنصّ: سطر لكلّ مادّة، والصفر «-»، والملاحظة بعد «—»');
-      t.ok(shared[0]?.text.split('\n')[1]?.startsWith('1. '), 'S11: الأسطر مرقّمة من 1');
+      t.same(shared, [expectedShare(OWN)], 'S11: navigator.share بالعنوان، ثمّ لكلّ قسم سطر باسمه وسطر لكلّ مادّة، والصفر «-»، والملاحظة بعد «—»');
+      t.ok(shared[0]?.text.includes('رصيد مواد العلف:\n1. ') && shared[0]?.text.includes('رصيد العلف:\n1. '), 'S11: والترقيم من 1 في كلّ قسم');
       t.eq(globalThis.__db.toasts.length, 0, 'S11: بلا رسالة بعد المشاركة');
     });
     await step('S11-copy', async () => {
       const copied = [];
       Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, clipboard: { writeText: async (value) => copied.push(value) } }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      fresh(MANAGER, {}, { day_balance_sections: answer(H.no_other) });
+      await mount(urlAt(H.no_other));
       await click(byAction('share-day')[0]);
-      t.same([copied, globalThis.__db.toasts.at(-1)?.tone, globalThis.__db.toasts.at(-1)?.title], [[expectedShare(FEED).text], 'success', 'نُسخ التقرير: الصقه في واتساب أو في أيّ رسالة.'], 'S11: بلا نافذة مشاركة: يُنسخ النصّ نفسه ويقول ذلك');
+      t.same([copied, globalThis.__db.toasts.at(-1)?.title], [[expectedShare(H.no_other).text], 'نُسخ التقرير: الصقه في واتساب أو في أيّ رسالة.'], 'S11: بلا نافذة مشاركة: يُنسخ النصّ (الأقسام الفارغة بلا سطر) ويقول ذلك');
+      t.ok(!copied[0]?.includes('رصيد العلف'), 'S11: والقسم الفارغ لا يُشارك');
     });
     await step('S11-cancel', async () => {
       const copied = [];
       const abort = Object.assign(new Error('cancelled'), { name: 'AbortError' });
       Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async () => { throw abort; }, clipboard: { writeText: async (value) => copied.push(value) } }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
+      fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
       await click(byAction('share-day')[0]);
       t.same([copied.length, globalThis.__db.toasts.length], [0, 0], 'S11: إلغاء نافذة المشاركة: لا نسخ ولا رسالة');
     });
     if (savedNavigator) Object.defineProperty(globalThis, 'navigator', savedNavigator);
     else delete globalThis.navigator;
 
-    // ── S12: الفراغ والأدوار ───────────────────────────────────────────────────────────────────────────────────────
-    await step('S12-empty-category', async () => {
-      const EMPTY = DB.empty_category;
-      fresh(MANAGER, { listItems: () => ({ rows: [], total: 0, next: null }) }, { day_balance: answer(EMPTY) }, { items: () => [] });
-      await mount(dayUrlOf(EMPTY));
-      t.same([byAction('day-empty-category').length, text().includes('لا موادّ في هذا التصنيف'), all().some((n) => n.localName === 'table'), byAction('include-items').length], [1, true, false, 1], 'S12: تصنيف بلا موادّ: «لا موادّ في هذا التصنيف» بلا جدول، و«أدرج مواد» واحد للمدير');
+    // ── S12: الأدوار والفراغ ───────────────────────────────────────────────────────────────────────────────────────
+    await step('S12-viewer', async () => {
+      fresh(VIEWER, {}, { day_balance_sections: answer(H.viewer) });
+      await mount(urlAt(H.viewer));
+      t.same([sectionTitles(), byAction('edit-note').length, byAction('print-day').length, byAction('share-day').length, text().includes('ملاحظة الأمين')], [[TITLES.feed_materials, TITLES.feed], 0, 1, 1, true], 'S12: من لا يكتب الملاحظة: الجداول والملاحظات والطباعة والمشاركة، بلا زرّ ملاحظة');
+    });
+    await step('S12-empty', async () => {
+      fresh(MANAGER, {}, { day_balance_sections: answer(H.empty) });
+      await mount(urlAt(H.empty));
+      t.same([sectionTitles(), rowsIn(section('feed_materials')), rowsIn(section('feed'))], [[TITLES.feed_materials, TITLES.feed], [['لا موادّ علف بعد.']], [['لا علف بعد.']]], 'S12: بلا موادّ: الجدولان بجملتيهما و«أخرى» غائبة');
       t.same([disabled(byAction('print-day')[0]), disabled(byAction('share-day')[0])], [true, true], 'S12: ولا شيء يُطبع أو يُشارك');
-      await click(byAction('include-items')[0]);
-      t.same([dialogTitle(), byAction('include-chosen-row').length, text().includes('لم تختر مادّة بعد')], [`موادّ «${EMPTY.category.name}»`, 0, true], 'S12: ويفتح نافذة موادّه');
-    });
-    await step('S12-no-stores', async () => {
-      // لا مخزن في النطاق: الصفوف فارغة، فلا جدول أصفار ولا طباعة ولا مشاركة، بل يُقال السبب.
-      const NOSTORE = { ...clone(FEED), stores: [], rows: [] };
-      fresh(KEEPER, {}, { day_balance: answer({ ...NOSTORE, can_manage: false }) });
-      await mount(dayUrlOf(NOSTORE, { day: NOSTORE.on }));
-      t.same(
-        [byAction('day-no-stores').length, text().includes('لا مخزن في نطاقك، فلا رصيد يُعرض هنا.'), all().some((n) => n.localName === 'table'), byAction('day-report').length, byAction('print-day').length, byAction('share-day').length, byAction('day-store').length],
-        [1, true, false, 0, 0, 0, 0],
-        'S12: لا مخزن في النطاق: «لا مخزن في نطاقك» بلا جدول ولا عنوان تقرير ولا طباعة ولا مشاركة',
-      );
-      t.ok(text().includes('اطلب من صاحب المنشأة أن يضيف مخزناً إلى نطاقك.'), 'S12: ويقول ممّن يطلب');
-    });
-    await step('S12-unstored', async () => {
-      // موادّ في التصنيف (members) ولا يُخزَّن شيء منها في المخزن المختار: غير «لا موادّ في هذا التصنيف».
-      const UNSTORED = { ...clone(FEED), rows: [] };
-      fresh(MANAGER, {}, { day_balance: answer(UNSTORED) });
-      await mount(dayUrlOf(UNSTORED, { day: UNSTORED.on, store: FEED.stores[0].id }));
-      t.same(
-        [byAction('day-unstored').length, byAction('day-empty-category').length, text().includes(`لا يُخزَّن شيء من موادّ «${FEED.category.name}» في «${FEED.stores[0].name}».`), all().some((n) => n.localName === 'table'), disabled(byAction('print-day')[0]), byAction('include-items').length],
-        [1, 0, true, false, true, 1],
-        'S12: موادّ لا تُخزَّن في المخزن المختار: يقوله ويقترح غيره، بلا جدول ولا طباعة، و«أدرج مواد» باقٍ للمدير',
-      );
-      await unmount();
-      fresh(MANAGER, {}, { day_balance: answer(UNSTORED) });
-      await mount(dayUrlOf(UNSTORED, { day: UNSTORED.on }));
-      t.ok(text().includes(`لا يُخزَّن شيء من موادّ «${FEED.category.name}» في مخازن نطاقك.`), 'S12: وبكلّ المخازن: «في مخازن نطاقك»');
-    });
-    await step('S12-المحاسب', async () => {
-      fresh(ACCOUNTANT, {}, { day_balance: answer(DB.accountant) });
-      await mount(dayUrlOf(DB.accountant, { day: DB.accountant.on }));
-      t.same([bodyRows().length, byAction('edit-note').length, byAction('include-items').length, byAction('new-category').length, byAction('print-day').length, byAction('share-day').length], [DB.accountant.rows.length, 0, 0, 0, 1, 1], 'S12: المحاسب: الجدول والطباعة والمشاركة، بلا ملاحظة ولا «أدرج» ولا «تصنيف جديد»');
-    });
-    await step('S12-المشاهد', async () => {
-      // جواب القاعدة الحقيقي للمشاهد بلا مخزن في نطاقه: «لا مخزن في نطاقك» بلا جدول ولا طباعة ولا مشاركة.
-      fresh(VIEWER, {}, { day_balance: answer(DB.viewer) });
-      await mount(dayUrlOf(DB.viewer, { day: DB.viewer.on }));
-      t.same([byAction('day-no-stores').length, all().some((n) => n.localName === 'table'), byAction('print-day').length, byAction('share-day').length, byAction('edit-note').length], [1, false, 0, 0, 0], 'S12: المشاهد بلا مخزن: «لا مخزن في نطاقك» بلا جدول ولا طباعة ولا مشاركة ولا ملاحظة');
-    });
-    await step('S12-viewer-empty', async () => {
-      fresh(VIEWER, {}, { day_balance: answer({ ...clone(DB.empty_category), can_note: false, can_manage: false }) });
-      await mount(dayUrlOf(DB.empty_category));
-      t.same([byAction('include-items').length, text().includes('يختار موادّ التصنيفات المدير.')], [0, true], 'S12: تصنيف فارغ لغير المدير: يقول من يختار موادّه، بلا زرّ');
-    });
-
-    // ── S13: المخزن ────────────────────────────────────────────────────────────────────────────────────────────────
-    await step('S13', async () => {
-      const { rpcCalls } = fresh(MANAGER, {}, { day_balance: answer(FEED) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      const select = byAction('day-store')[0];
-      t.same(select?.options.map((o) => [o.getAttribute('value'), o.textContent]), [['', 'كل المخازن'], ...FEED.stores.map((s) => [s.id, s.name])], 'S13: «كل المخازن» ثمّ كلّ مخزن');
-      choose(select, FEED.stores[1].id);
-      await settle();
-      t.same([search().store, named(rpcCalls, 'day_balance').at(-1)], [FEED.stores[1].id, { p_category: FEED.category.id, p_on: FEED.on, p_warehouse: FEED.stores[1].id }], 'S13: المخزن في الرابط وفي p_warehouse');
-      t.eq(byAction('day-date')[0]?.textContent, `بتاريخ ${fmt(FEED.on)}، في «${FEED.stores[1].name}»`, 'S13: والعنوان يسمّي المخزن');
-      choose(byAction('day-store')[0], '');
-      await settle();
-      t.same([search().store, named(rpcCalls, 'day_balance').at(-1)?.p_warehouse], [undefined, null], 'S13: «كل المخازن» يُسقطه');
-    });
-    await step('S13-one', async () => {
-      fresh(MANAGER, {}, { day_balance: answer({ ...clone(FEED), stores: [clone(FEED.stores[0])] }) });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      t.same([bodyRows().length, byAction('day-store').length], [FEED.rows.length, 0], 'S13: مخزن واحد بالنطاق: بلا قائمة مخازن');
     });
 
     // ── S14: الرفض ─────────────────────────────────────────────────────────────────────────────────────────────────
     await step('S14', async () => {
-      const future = shift(FEED.today, 3);
+      const future = shift(OWN.today, 3);
       const { rpcCalls } = fresh(MANAGER, {}, {
-        day_balance: async (args) => {
-          if (args.p_on !== null && args.p_on > FEED.today) throw new m.RejectedError(F.refusals.day_in_future.code, F.refusals.day_in_future.hint);
-          return answer(FEED)(args);
+        day_balance_sections: async (args) => {
+          if (args.p_on !== null && args.p_on > OWN.today) throw new m.RejectedError(F.refusals.day_in_future.code, F.refusals.day_in_future.hint);
+          return answer(OWN)(args);
         },
       });
-      await mount(dayUrlOf(FEED, { day: future }));
+      await mount(`/inventory?view=day&day=${future}`);
       t.ok(text().includes(F.refusals.day_in_future.hint) && byAction('day-refusal-way')[0]?.textContent === 'اليوم', 'S14: day_in_future بتلميح الخادم وزرّ «اليوم»');
       await click(byAction('day-refusal-way')[0]);
-      t.same([search().day, named(rpcCalls, 'day_balance').at(-1)?.p_on, bodyRows().length], [undefined, null, FEED.rows.length], 'S14: «اليوم» يعرض اليوم');
+      t.same([search().day, named(rpcCalls, 'day_balance_sections').at(-1), sectionTitles().length], [undefined, { p_on: null }, 3], 'S14: «اليوم» يعرض اليوم');
     });
 
     // ── S15: القشرة لا تُطبع ───────────────────────────────────────────────────────────────────────────────────────
@@ -893,11 +621,7 @@ export default async function (t) {
         const offset = all().find((n) => classOf(n).includes('md:ps-'));
         const spacer = all().find((n) => n.getAttribute('aria-hidden') === 'true' && classOf(n).includes('h-16'));
         const banner = all().find((n) => n.getAttribute('role') === 'alert' && n.textContent.includes('تعذّر تحميل النسخة الجديدة'));
-        t.same(
-          [header, aside, bottom, spacer, banner].map((node) => underClass(node, 'print:hidden')),
-          [true, true, true, true, true],
-          'S15: الشريط العلوي والجانبي والسفلي والفاصل وأشرطة التحديث print:hidden',
-        );
+        t.same([header, aside, bottom, spacer, banner].map((node) => underClass(node, 'print:hidden')), [true, true, true, true, true], 'S15: الشريط العلوي والجانبي والسفلي والفاصل وأشرطة التحديث print:hidden');
         t.ok(classOf(offset).includes('print:ps-0') && !underClass(byAction('page-body')[0], 'print:hidden'), 'S15: والصفحة تُطبع بلا إزاحة الشريط الجانبي');
       } finally {
         m.recoveryStore.set('idle');
@@ -908,7 +632,7 @@ export default async function (t) {
     const W_EMPTY = '6bc1bee2-2e40-4a9f-8f96-0000000000b1';
     const W_FULL = '6bc1bee2-2e40-4a9f-8f96-0000000000b2';
     const fileWith = (stores) => ({
-      today: FEED.today, can_record: false, can_edit: false,
+      today: OWN.today, can_record: false, can_edit: false,
       item: { id: 'i-corn', name: 'ذرة', kind: 'raw', base_unit: 'kg', density_kg_per_l: null, archived: false, tracks_expiry: false },
       on_hand_qty: '20000.000', purchased_qty: '0.000', purchases_count: 0, purchases: [], more: false, stores,
     });
@@ -922,11 +646,11 @@ export default async function (t) {
             : { rows: [move(7, 'بيع إلى أبي أحمد', -5_000_000n, 20_000_000n)], next: null, total: 2 },
       }, { item_file: async () => fileWith([store(W_EMPTY, 'مخزن أ', '0.000'), store(W_FULL, 'مخزن ب', '20000.000')]) });
       await mount('/inventory/items/i-corn');
-      const section = byAction('file-moves')[0];
-      t.ok(section !== undefined && descendants(section).some((n) => n.localName === 'h2' && n.textContent === 'حركات المادّة'), 'S16: قسم «حركات المادّة» لكلّ من يفتح الملفّ (المشاهد هنا)');
+      const moves = byAction('file-moves')[0];
+      t.ok(moves !== undefined && descendants(moves).some((n) => n.localName === 'h2' && n.textContent === 'حركات المادّة'), 'S16: قسم «حركات المادّة» لكلّ من يفتح الملفّ (المشاهد هنا)');
       t.same(byAction('moves-store').map((n) => [n.textContent, n.getAttribute('aria-pressed')]), [['مخزن أ', 'false'], ['مخزن ب', 'true']], 'S16: زرّ لكلّ مخزن، والأوّل بموجود مختار');
       t.same(named(calls, 'loadItemMoves'), [['i-corn', W_FULL]], 'S16: دفتر ذلك المخزن');
-      t.ok(text().includes('شراء من مورّد الحبوب إلى الثاني') && headers().includes('الرصيد (كغم)'), 'S16: الجدول القائم بالبيان والرصيد');
+      t.ok(text().includes('شراء من مورّد الحبوب إلى الثاني') && headersIn(moves).includes('الرصيد (كغم)'), 'S16: الجدول القائم بالبيان والرصيد');
       await click(byAction('more-file-moves')[0]);
       t.same([named(calls, 'loadItemMoves').at(-1), text().includes('بيع إلى أبي أحمد'), byAction('more-file-moves').length], [['i-corn', W_FULL, 7n], true, 0], 'S16: «المزيد» بعد آخر رقم، ثمّ لا مزيد');
       await click(byAction('moves-store')[0]);
@@ -943,17 +667,16 @@ export default async function (t) {
       t.same([byAction('file-moves').length, named(calls, 'loadItemMoves').length], [0, 0], 'S16: بلا مخازن: بلا قسم ولا قراءة');
     });
     await step('S16-sold-out', async () => {
-      // جواب القاعدة الحقيقي لمادّة بيعت كلّها (0022 move_stores): stores فارغة (لا رصيد)، ومخازن حركاتها فيها مخزنها برصيد صفر — فالقسم يظهر بدفتره.
+      // جواب القاعدة الحقيقي لمادّة بيعت كلّها (0022 move_stores): stores فارغة، ومخازن حركاتها فيها مخزنها برصيد صفر — فالقسم يظهر بدفتره.
       const gone = clone(F.item_file.owner_gone);
-      const where = gone.move_stores[0];
-      t.same([gone.stores.length, gone.move_stores.length, where.qty], [0, 1, '0.000'], 'S16: شرط العيّنة: بلا رصيد في أيّ مخزن، وحركات في مخزن واحد');
+      const at = gone.move_stores[0];
+      t.same([gone.stores.length, gone.move_stores.length, at.qty], [0, 1, '0.000'], 'S16: شرط العيّنة: بلا رصيد في أيّ مخزن، وحركات في مخزن واحد');
       const { calls } = fresh(MANAGER, { loadItemMoves: () => ({ rows: [], next: null, total: 0 }) }, { item_file: async () => gone });
       await mount(`/inventory/items/${gone.item.id}`);
-      t.same([byAction('file-moves').length, named(calls, 'loadItemMoves'), text().includes(`في «${where.name}»`)], [1, [[gone.item.id, where.warehouse_id]], true],
-        'S16: مادّة نفدت: «حركات المادّة» تظهر بدفتر مخزنها (move_stores)، لا تختفي');
+      t.same([byAction('file-moves').length, named(calls, 'loadItemMoves'), text().includes(`في «${at.name}»`)], [1, [[gone.item.id, at.warehouse_id]], true], 'S16: مادّة نفدت: «حركات المادّة» تظهر بدفتر مخزنها (move_stores)');
     });
 
-    // ── R: مراجعة الشاشات العدائية (0022)، كلّ حالة تفشل على الشفرة قبل إصلاحها ─────────────────────────────────────────
+    // ── R: مراجعة الشاشات العدائية (0022) فيما بقي من الصفحة ───────────────────────────────────────────────────────
     const deferred = () => {
       let resolve;
       let reject;
@@ -964,34 +687,33 @@ export default async function (t) {
       return { promise, resolve, reject };
     };
     const inDialog = (action) => descendants(dialog() ?? body()).filter((n) => n.getAttribute('data-action') === action);
-    t.ok(keepNoted !== null, 'R شرط: للأمين مادّة بملاحظة في العيّنة');
     const OTHER_NOTE = { text: 'كتبها المدير من جهاز آخر', version: 7_340_099 };
     const otherNoted = () => {
-      const sample = clone(KEEP);
-      sample.rows.find((row) => row.item_id === keepNoted.item_id).note = { ...OTHER_NOTE };
+      const sample = clone(OWN);
+      sample.sections[1].rows.find((row) => row.item_id === noted.item_id).note = { ...OTHER_NOTE };
       return sample;
     };
     const savedFor = (args) => ({ ...clone(F.set_day_note.saved), item_id: args.p_item, on: args.p_on, note: args.p_note ? { text: args.p_note, version: 7_340_100 } : null });
-    // M1: نافذة ملاحظة فُتحت والجدول يُقرأ من جديد كانت تعرض نصّ القراءة القديمة وتكتب بنسخة القراءة الجديدة (تمحو ما لم يره).
+    // M1: نافذة ملاحظة فُتحت والجداول تُقرأ من جديد كانت تعرض نصّ القراءة القديمة وتكتب بنسخة القراءة الجديدة (تمحو ما لم يره).
     await step('R-M1', async () => {
       const reread = deferred();
       const { rpcCalls } = fresh(KEEPER, {}, {
-        day_balance: (args, n) => (n === 1 ? answer(KEEP)(args) : reread.promise.then(() => answer(otherNoted())(args))),
+        day_balance_sections: (args, n) => (n === 1 ? answer(OWN)(args) : reread.promise.then(() => answer(otherNoted())(args))),
         set_day_note: async (args) => savedFor(args),
       });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepPlain.item_id));
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], 'ناقصة كيس');
       await settle();
       await submitDialog();
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-M1: حُفظت الأولى والجدول يُقرأ من جديد');
+      t.same([dialog(), named(rpcCalls, 'day_balance_sections').length], [undefined, 2], 'R-M1: حُفظت الأولى والأقسام تُقرأ من جديد');
       t.ok(byAction('edit-note').length > 0 && byAction('edit-note').every((n) => disabled(n)), 'R-M1: أثناء القراءة أزرار الملاحظات معطّلة');
-      await click(withId('edit-note', keepNoted.item_id));
+      await click(withId('edit-note', noted.item_id));
       t.ok(dialog() === undefined, 'R-M1: فلا تُفتح نافذة على ملاحظة قديمة');
       reread.resolve();
       await settle();
       await settle();
-      await click(withId('edit-note', keepNoted.item_id));
+      await click(withId('edit-note', noted.item_id));
       t.eq(byAction('note-text')[0]?.value, OTHER_NOTE.text, 'R-M1: بعد القراءة تُفتح بالملاحظة الحاليّة');
       typeIn(byAction('note-text')[0], `${OTHER_NOTE.text}، وأخرى`);
       await settle();
@@ -1002,168 +724,59 @@ export default async function (t) {
     await step('R-R6', async () => {
       let notes = 0;
       const { rpcCalls } = fresh(KEEPER, {}, {
-        day_balance: (args, n) => (n === 1 ? answer(KEEP)(args) : n === 2 ? Promise.reject(new m.UnknownOutcomeError('timeout')) : answer(otherNoted())(args)),
+        day_balance_sections: (args, n) => (n === 1 ? answer(OWN)(args) : n === 2 ? Promise.reject(new m.UnknownOutcomeError('timeout')) : answer(otherNoted())(args)),
         set_day_note: async (args) => {
           notes += 1;
           if (notes === 1) throw new m.RejectedError(F.refusals.note_changed.code, F.refusals.note_changed.hint);
           return savedFor(args);
         },
       });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepNoted.item_id));
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', noted.item_id));
       typeIn(byAction('note-text')[0], 'نصّ جديد');
       await settle();
       await submitDialog();
       await settle();
       const said = byAction('note-changed')[0]?.textContent ?? '';
-      t.ok(!said.includes(`«${keepNoted.note.text}»`) && said.includes('تعذّرت قراءة الملاحظة الحاليّة'), `R-R6: القراءة فشلت: لا «الملاحظة الآن» بالقديمة بل «تعذّرت قراءتها»: «${said}»`);
+      t.ok(!said.includes(`«${noted.note.text}»`) && said.includes('تعذّرت قراءة الملاحظة الحاليّة'), `R-R6: القراءة فشلت: لا «الملاحظة الآن» بالقديمة بل «تعذّرت قراءتها»: «${said}»`);
       t.ok(disabled(byAction('save-note')[0]) && byAction('erase-note').every((n) => disabled(n)), 'R-R6: ولا حفظ بشرط نسخة لم تُقرأ');
       await click(inDialog('note-reread')[0]);
       await settle();
       t.ok((byAction('note-changed')[0]?.textContent ?? '').includes(`الملاحظة الآن: «${OTHER_NOTE.text}»`), 'R-R6: «أعد القراءة» ثمّ تُعرض الملاحظة الحاليّة');
       await submitDialog();
-      t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['نصّ جديد', keepNoted.note.version], ['نصّ جديد', OTHER_NOTE.version]], 'R-R6: والإعادة بنسخة ما عُرض');
+      t.same(named(rpcCalls, 'set_day_note').map((args) => [args.p_note, args.p_expected_version]), [['نصّ جديد', noted.note.version], ['نصّ جديد', OTHER_NOTE.version]], 'R-R6: والإعادة بنسخة ما عُرض');
     });
-    // R11: نتيجة مجهولة ثمّ «لا، تراجع»: لعلّها حُفظت، فالجدول يُقرأ من جديد (كان يبقى بلا الملاحظة ويُطبع ويُشارك كذلك).
+    // R11: نتيجة مجهولة ثمّ «لا، تراجع»: لعلّها حُفظت، فالأقسام تُقرأ من جديد.
     await step('R-R11', async () => {
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async () => { throw new m.UnknownOutcomeError('fetch_failed'); } });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepPlain.item_id));
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN), set_day_note: async () => { throw new m.UnknownOutcomeError('fetch_failed'); } });
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], 'ناقصة كيس');
       await settle();
       await submitDialog();
       await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
       if (byAction('dialog-discard')[0]) await click(byAction('dialog-discard')[0]);
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-R11: إغلاق نافذة ملاحظة نتيجتها مجهولة يقرأ الجدول من جديد');
-    });
-    await step('R-R11-include', async () => {
-      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, { day_balance: answer(S8S), set_category_items: async () => { throw new m.UnknownOutcomeError('fetch_failed'); } }, { items: () => memberNames() });
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      await click(withId('include-down', S8S.category.members[0]));
-      await click(byAction('save-include')[0]);
-      await settle();
-      await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
-      if (byAction('dialog-discard')[0]) await click(byAction('dialog-discard')[0]);
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-R11: وإغلاق «أدرج مواد» بنتيجة مجهولة يقرأ الجدول من جديد');
+      t.same([dialog(), named(rpcCalls, 'day_balance_sections').length], [undefined, 2], 'R-R11: إغلاق نافذة ملاحظة نتيجتها مجهولة يقرأ الأقسام من جديد');
     });
     // R5: القصّ بحروف الخادم نفسها (private.note_text)، لا trim() الذي لا يقصّ علامات الاتّجاه والحروف الصفرية.
     await step('R-R5', async () => {
       const RLM = String.fromCodePoint(0x200f);
-      const { rpcCalls } = fresh(KEEPER, {}, { day_balance: answer(KEEP), set_day_note: async (args) => savedFor(args) });
-      await mount(urlAt(KEEP));
-      await click(withId('edit-note', keepPlain.item_id));
+      const { rpcCalls } = fresh(KEEPER, {}, { day_balance_sections: answer(OWN), set_day_note: async (args) => savedFor(args) });
+      await mount(urlAt(OWN));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], `${RLM} `);
       await settle();
       await submitDialog();
       t.same([named(rpcCalls, 'set_day_note').length, dialog(), globalThis.__db.toasts.length], [0, undefined, 0], 'R-R5: علامة خفيّة وحدها لمادّة بلا ملاحظة: لا تُرسل ولا «مُسحت»');
-      await click(withId('edit-note', keepPlain.item_id));
+      await click(withId('edit-note', plain.item_id));
       typeIn(byAction('note-text')[0], `${'م'.repeat(200)}${RLM}`);
       await settle();
       await submitDialog();
-      t.same(named(rpcCalls, 'set_day_note').map((args) => args.p_note), ['م'.repeat(200)], 'R-R5: 200 حرف وعلامة اتّجاه بآخرها (لصق من واتساب) تُرسل مقصوصة كما يقصّها الخادم');
+      t.same(named(rpcCalls, 'set_day_note').map((args) => args.p_note), ['م'.repeat(200)], 'R-R5: 200 حرف وعلامة اتّجاه بآخرها تُرسل مقصوصة كما يقصّها الخادم');
       const sql = readFileSync(path.join(ROOT, 'supabase', 'migrations', '0022_day_balance.sql'), 'utf8');
       const from = sql.indexOf('create or replace function private.note_text(');
       const codes = [...sql.slice(from, sql.indexOf('$$;', from)).matchAll(/chr\((\d+)\)/gu)].map((match) => Number(match[1]));
       t.same([codes.length > 30, [...(m.NOTE_SPACES ?? [])]], [true, codes], 'R-R5: حروف القصّ في الشاشة هي حروف private.note_text بالهجرة رقماً برقم');
-    });
-    // M2: «أدرج مواد» فُتحت والجدول يُقرأ بعد حفظ سابق: كانت تعرض ما قبل الحفظ وتشترط موادّ القراءة الجديدة (تُخرج ما أُضيف للتوّ بلا رفض).
-    await step('R-M2', async () => {
-      const reread = deferred();
-      const after = clone(S8S);
-      after.category.members = [...S8S.category.members, loose.id];
-      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, {
-        day_balance: (args, n) => (n === 1 ? answer(S8S)(args) : reread.promise.then(() => answer(after)(args))),
-        set_category_items: async (args) => ({ ...clone(F.set_category_items.manager), category_id: args.p_category }),
-      }, { items: () => [...memberNames(), { id: loose.id, name: loose.name }] });
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      tick(withId('include-pick', loose.id));
-      await settle();
-      await click(byAction('save-include')[0]);
-      t.same([dialog(), named(rpcCalls, 'day_balance').length], [undefined, 2], 'R-M2: حُفظت والجدول يُقرأ من جديد');
-      t.ok(disabled(byAction('include-items')[0]), 'R-M2: أثناء القراءة «أدرج مواد» معطّل');
-      await click(byAction('include-items')[0]);
-      t.ok(dialog() === undefined, 'R-M2: فلا تُفتح على موادّ ما قبل الحفظ');
-      reread.resolve();
-      await settle();
-      await settle();
-      await click(byAction('include-items')[0]);
-      await settle();
-      t.same(chosen(), after.category.members, 'R-M2: بعد القراءة تُفتح بموادّ التصنيف كما حُفظت');
-      await click(withId('include-down', after.category.members[0]));
-      await click(byAction('save-include')[0]);
-      t.same(named(rpcCalls, 'set_category_items').at(-1)?.p_expected_items, after.category.members, 'R-M2: والحفظ بشرط ما عرضته');
-    });
-    // R12: category_changed ثمّ فشلت القراءة: كانت تقول «قُرئ التصنيف من جديد» وتعيد بالقائمة القديمة نفسها.
-    await step('R-R12', async () => {
-      const after = clone(S8S);
-      after.category.members = [...S8S.category.members, loose.id];
-      let puts = 0;
-      const { rpcCalls } = fresh(MANAGER, { listItems: listed }, {
-        day_balance: (args, n) => (n === 1 ? answer(S8S)(args) : n === 2 ? Promise.reject(new m.UnknownOutcomeError('timeout')) : answer(after)(args)),
-        set_category_items: async (args) => {
-          puts += 1;
-          if (puts === 1) throw new m.RejectedError(REFUSE.category_changed.code, REFUSE.category_changed.hint);
-          return { ...clone(F.set_category_items.manager), category_id: args.p_category };
-        },
-      }, { items: () => [...memberNames(), { id: loose.id, name: loose.name }] });
-      await mount(dayUrlOf(S8S, { day: S8S.on }));
-      await click(byAction('include-items')[0]);
-      await click(withId('include-down', S8S.category.members[0]));
-      const selection = chosen();
-      await click(byAction('save-include')[0]);
-      await settle();
-      const said = byAction('include-changed')[0]?.textContent ?? '';
-      t.ok(!said.includes('قُرئ التصنيف من جديد') && said.includes('تعذّرت قراءة التصنيف'), `R-R12: القراءة فشلت: لا «قُرئ التصنيف» بل «تعذّرت»: «${said}»`);
-      t.ok(disabled(byAction('save-include')[0]), 'R-R12: ولا حفظ بشرط قائمة لم تُقرأ');
-      await click(inDialog('include-reread')[0]);
-      await settle();
-      t.ok((byAction('include-changed')[0]?.textContent ?? '').includes('قُرئ التصنيف من جديد'), 'R-R12: «أعد القراءة» ثمّ «قُرئ»');
-      await click(byAction('save-include')[0]);
-      t.same(named(rpcCalls, 'set_category_items').map((args) => [args.p_items, args.p_expected_items]), [[selection, S8S.category.members], [selection, after.category.members]], 'R-R12: والإعادة بالاختيار نفسه وبموادّ التصنيف كما قُرئت');
-    });
-    // R4: «تصنيف جديد» بنتيجة مجهولة: كان «احفظ» يُدرج ثانيةً بلا قراءة (تصنيفان بالاسم نفسه إن كان الأوّل قد حُفظ).
-    const CREATED = { id: '9d1c1a00-0000-4000-8000-0000000000c8', version: 1, archived: false, name: 'الأدوية' };
-    const createdView = { ...clone(DB.empty_category), category: { id: CREATED.id, name: CREATED.name, members: [] }, categories: [...FEED.categories, { id: CREATED.id, name: CREATED.name, items: 0 }] };
-    await step('R-R4-landed', async () => {
-      const landed = { ...clone(FEED), categories: createdView.categories };
-      const { calls, rpcCalls } = fresh(MANAGER, {
-        createItemCategory: () => { throw new m.UnknownOutcomeError('fetch_failed'); },
-        listItems: () => ({ rows: [], total: 0, next: null }),
-      }, { day_balance: async (args, n) => answer(args.p_category === CREATED.id ? createdView : n === 1 ? FEED : landed)(args) }, { items: () => [] });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      await click(byAction('new-category')[0]);
-      typeIn(byAction('category-name')[0], CREATED.name);
-      await settle();
-      await submitDialog();
-      await settle();
-      t.same([named(calls, 'createItemCategory').length, named(rpcCalls, 'day_balance').length], [1, 2], 'R-R4: نتيجة مجهولة: تُقرأ التصنيفات من جديد');
-      t.ok((byAction('category-landed')[0]?.textContent ?? '').length > 0 && !byAction('save-category').some((n) => !disabled(n)), 'R-R4: وقد حُفظ: يقول ذلك، ولا «احفظ» ثانٍ');
-      await click(inDialog('category-landed-open')[0]);
-      await settle();
-      t.same([named(calls, 'createItemCategory').length, search().cat, dialogTitle()], [1, CREATED.id, `موادّ «${CREATED.name}»`], 'R-R4: ثمّ يُعرض ونافذة موادّه، بإدراج واحد');
-    });
-    await step('R-R4-absent', async () => {
-      let tries = 0;
-      const { calls } = fresh(MANAGER, {
-        createItemCategory: () => {
-          tries += 1;
-          if (tries === 1) throw new m.UnknownOutcomeError('fetch_failed');
-          return CREATED;
-        },
-        listItems: () => ({ rows: [], total: 0, next: null }),
-      }, { day_balance: async (args) => answer(args.p_category === CREATED.id ? createdView : FEED)(args) }, { items: () => [] });
-      await mount(dayUrlOf(FEED, { day: FEED.on }));
-      await click(byAction('new-category')[0]);
-      typeIn(byAction('category-name')[0], CREATED.name);
-      await settle();
-      await submitDialog();
-      await settle();
-      t.same([byAction('category-landed').length, disabled(byAction('save-category')[0])], [0, false], 'R-R4: لم يُحفظ: «احفظ» مفتوح بعد القراءة');
-      await submitDialog();
-      await settle();
-      t.same([named(calls, 'createItemCategory').length, search().cat], [2, CREATED.id], 'R-R4: والإعادة تُنشئه');
     });
     // M3: التنبيه (fixed أعلى الصفحة، والخطر لا يختفي وحده) كان يُطبع فوق التقرير في كلّ صفحة.
     await step('R-M3', async () => {
@@ -1186,32 +799,12 @@ export default async function (t) {
         tm.flushSync(() => toastRoot.unmount());
       }
     });
-    // اسم ملفّ «احفظ PDF» (Chrome يسمّيه بعنوان الصفحة): عنوان التقرير وتاريخه، ثمّ يعود العنوان.
-    await step('R-title', async () => {
-      let titled = null;
-      globalThis.window.print = () => {
-        titled = globalThis.document.title;
-      };
-      globalThis.document.title = 'نظام الدواجن';
-      try {
-        fresh(MANAGER, {}, { day_balance: answer(FEED) });
-        await mount(urlAt(FEED));
-        await click(byAction('print-day')[0]);
-        t.eq(titled, `رصيد ${FEED.category.name} بتاريخ ${fmt(FEED.on)}`, 'R-title: عنوان الصفحة وقت الطباعة عنوان التقرير وتاريخه');
-        fire(globalThis.window, 'afterprint');
-        await settle();
-        t.eq(globalThis.document.title, 'نظام الدواجن', 'R-title: ثمّ يعود بعد الطباعة');
-      } finally {
-        delete globalThis.window.print;
-        delete globalThis.document.title;
-      }
-    });
     // P1: بعرض الهاتف عمود «الملاحظات» وزرّه خارج الشاشة: «المادّة» بسطر واحد (لا عرض أدنى 48)، وزرّ الملاحظة أوّل خليّتها.
     await step('R-P1', async () => {
-      fresh(KEEPER, {}, { day_balance: answer(KEEP) });
-      await mount(urlAt(KEEP));
-      const itemHead = all().find((n) => n.localName === 'th' && n.textContent === 'المادّة');
-      const noteCell = withId('edit-note', keepNoted.item_id)?.parentNode;
+      fresh(KEEPER, {}, { day_balance_sections: answer(OWN) });
+      await mount(urlAt(OWN));
+      const itemHead = descendants(section('feed')).find((n) => n.localName === 'th' && n.textContent === 'المادّة');
+      const noteCell = withId('edit-note', noted.item_id)?.parentNode;
       const first = noteCell?.children.find((n) => n.nodeType === 1);
       t.same([classOf(itemHead).includes('min-w-48'), classOf(itemHead).includes('whitespace-nowrap'), first?.getAttribute('data-action')], [false, true, 'edit-note'], 'R-P1: «المادّة» بسطر واحد، وزرّ الملاحظة قبل نصّها (أقرب إلى الرصيد)');
     });
@@ -1219,19 +812,17 @@ export default async function (t) {
     await step('R-R7', async () => {
       const gone = clone(F.item_file.owner_gone);
       fresh(MANAGER, { loadItemMoves: () => ({ rows: [], next: null, total: 0 }) }, { item_file: async () => gone });
-      const dayView = urlAt(FEED);
+      const dayView = urlAt(OWN);
       await mount(`/inventory/items/${gone.item.id}?${new URLSearchParams({ back: dayView }).toString()}`);
       const href = byAction('edit-item-file')[0]?.getAttribute('href') ?? '';
       const editBack = new URLSearchParams(href.split('?')[1] ?? '').get('back') ?? '';
       const fileBack = new URLSearchParams(editBack.split('?')[1] ?? '').get('back');
       t.same([editBack.split('?')[0], fileBack, m.backTarget(editBack, '/inventory')], [`/inventory/items/${gone.item.id}`, dayView, editBack], 'R-R7: «عدّل المادّة» يعود إلى الملفّ ومعه طريق رجوعه');
-      // ونافذة التعديل (recipeBack) تقبله فتعود إليه بعد الحفظ، وشكله وحده (?back= واحد مرمَّز يبدأ بـ«/»)، والطريق الداخلي يفحصه الملفّ
-      // بـbackTarget حين يستعمله: ما لا يقبله يصير «/inventory».
       const fileOf = (query) => `/inventory/items/${gone.item.id}?${query}`;
       t.same(
         [m.recipeBack(editBack), m.recipeBack(fileOf(`back=${encodeURIComponent('https://evil.example/')}`)), m.recipeBack(fileOf(`back=${encodeURIComponent(dayView)}&buy=1`)), m.recipeBack(fileOf('back=')), m.recipeBack(fileOf('buy=1')), m.backTarget('//evil.example/inventory', '/inventory')],
         [editBack, null, null, null, null, '/inventory'],
-        'R-R7: نافذة «عدّل المادّة» تعود إلى الملفّ بطريقه، ولا تقبل رابطاً خارجياً ولا وسيطاً آخر، وطريق داخلي لا يقبله الملفّ يصير «/inventory»',
+        'R-R7: نافذة «عدّل المادّة» تعود إلى الملفّ بطريقه، ولا تقبل رابطاً خارجياً ولا وسيطاً آخر',
       );
     });
     // R8: كلّ إعادة قراءة للملفّ (بعد أيّ عملية) كانت تطوي «حركات المادّة» إلى «جارٍ الفتح…» وتُسقط صفحات «المزيد».
@@ -1266,58 +857,126 @@ export default async function (t) {
       await settle();
       t.same([(byAction('file-moves')[0]?.textContent ?? '').includes('شراء من مورّد الحبوب'), byAction('more-file-moves').length], [true, 1], 'R-R8: ثمّ الصفحة الأولى الجديدة و«المزيد»');
     });
-    // R9: الترقيم بالتاريخ (0022): حركة بتاريخ أقدم رُحّلت بين صفحتين تُعيد صفّاً معروضاً في التالية (والرصيد الجاري يحسب حركة لا تُرى):
-    // التكرار بمعرّف الحركة يعني ذلك دائماً، فتُقرأ القائمة من أوّلها.
-    await step('R-R9', async () => {
+    // R9: الترقيم بالتاريخ (0022): حركة بتاريخ أقدم رُحّلت بين صفحتين تُعيد صفّاً معروضاً في التالية: التكرار بمعرّف الحركة يقرأ القائمة من أوّلها.
+    const r9Moves = () => {
       let firsts = 0;
-      const { calls } = fresh(VIEWER, {
-        loadItemMoves: (_item, _wh, after) => {
-          if (after === undefined) {
-            firsts += 1;
-            return firsts === 1
-              ? { rows: [mv('a', 'حركة أ', 1_000_000n, 1_000_000n), mv('b', 'حركة ب', 1_000_000n, 2_000_000n)], next: 2n, total: 3 }
-              : { rows: [mv('x', 'حركة س المؤرّخة قبل', 1_000_000n, 1_000_000n), mv('a', 'حركة أ', 1_000_000n, 2_000_000n), mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: 4 };
-          }
-          return { rows: [mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: null };
-        },
-      }, { item_file: async () => fileWith([store(W_FULL, 'مخزن ب', '3000.000')]) });
+      return (_item, _wh, after) => {
+        if (after === undefined) {
+          firsts += 1;
+          return firsts === 1
+            ? { rows: [mv('a', 'حركة أ', 1_000_000n, 1_000_000n), mv('b', 'حركة ب', 1_000_000n, 2_000_000n)], next: 2n, total: 3 }
+            : { rows: [mv('x', 'حركة س المؤرّخة قبل', 1_000_000n, 1_000_000n), mv('a', 'حركة أ', 1_000_000n, 2_000_000n), mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: 4 };
+        }
+        return { rows: [mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: null };
+      };
+    };
+    const rowsWith = (memo) => all().filter((n) => n.localName === 'tr' && n.textContent.includes(memo)).length;
+    await step('R-R9', async () => {
+      const { calls } = fresh(VIEWER, { loadItemMoves: r9Moves() }, { item_file: async () => fileWith([store(W_FULL, 'مخزن ب', '3000.000')]) });
       await mount('/inventory/items/i-corn');
       await click(byAction('more-file-moves')[0]);
       await settle();
       await settle();
-      const rowsWith = (memo) => all().filter((n) => n.localName === 'tr' && n.textContent.includes(memo)).length;
       t.same([rowsWith('حركة ب'), rowsWith('حركة س المؤرّخة قبل'), named(calls, 'loadItemMoves').length], [1, 1, 3], 'R-R9: صفحة تكرّر حركة معروضة: تُقرأ الحركات من أوّلها، بلا تكرار، ومعها الحركة الجديدة');
       t.ok(globalThis.__db.toasts.some((entry) => entry.title.includes('من أوّلها')), 'R-R9: ويُقال لماذا');
     });
     await step('R-R9-card', async () => {
-      // «دفتر المادّة» في بطاقتها (/details?tab=moves) بالدالّة نفسها والترقيم نفسه.
       const setup = {
         divisions: [{ id: 'd-mill', kind: 'feed_mill', goLiveOn: '2026-10-01', frozen: true }],
         sites: [], packTypes: [], itemCategories: [], expenseCategories: [],
         warehouses: [{ id: 'w-raw', version: 1, archived: false, divisionId: 'd-mill', siteId: 's-mill', name: 'مخزن المواد الأوّلية', kind: 'raw' }],
       };
-      let firsts = 0;
       const { calls } = fresh(KEEPER, {
         loadOrgSetup: () => setup,
         listItemUnits: () => [],
         loadItemLots: () => ({ item: { id: 'i-corn', name: 'ذرة', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, density: null, pieceMassKg: null, archived: false }, rows: [], next: null, total: 0 }),
-        loadItemMoves: (_item, _wh, after) => {
-          if (after === undefined) {
-            firsts += 1;
-            return firsts === 1
-              ? { rows: [mv('a', 'حركة أ', 1_000_000n, 1_000_000n), mv('b', 'حركة ب', 1_000_000n, 2_000_000n)], next: 2n, total: 3 }
-              : { rows: [mv('x', 'حركة س المؤرّخة قبل', 1_000_000n, 1_000_000n), mv('a', 'حركة أ', 1_000_000n, 2_000_000n), mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: 4 };
-          }
-          return { rows: [mv('b', 'حركة ب', 1_000_000n, 3_000_000n), mv('c', 'حركة ج', 1_000_000n, 4_000_000n)], next: null, total: null };
-        },
+        loadItemMoves: r9Moves(),
       }, {});
       await mount('/inventory/items/i-corn/details?wh=w-raw&tab=moves');
       t.ok(byAction('more-moves').length === 1, 'R-R9 شرط: «المزيد» في دفتر البطاقة');
       await click(byAction('more-moves')[0]);
       await settle();
       await settle();
-      const rowsWith = (memo) => all().filter((n) => n.localName === 'tr' && n.textContent.includes(memo)).length;
       t.same([rowsWith('حركة ب'), rowsWith('حركة س المؤرّخة قبل'), named(calls, 'loadItemMoves').length], [1, 1, 3], 'R-R9: وكذلك دفتر البطاقة: يُقرأ من أوّله، بلا تكرار');
+    });
+
+    // ── B: بطاقات المخزن بأقسامها ──────────────────────────────────────────────────────────────────────────────────
+    const tile = (id, name, kind, onHand = '1000.000') => ({ id, name, kind, base_unit: 'kg', on_hand_qty: onHand, purchased_qty: onHand, last_purchase_on: '2026-11-05' });
+    const BOARD = {
+      today: OWN.today,
+      can_record: true,
+      can_add_item: true,
+      items: [
+        tile('i-corn', 'ذرة صفراء', 'raw', '69448.000'),
+        tile('i-salt', 'ملح طعام', 'additive'),
+        tile('i-starter', 'علف بادئ', 'feed', '3200.000'),
+        tile('i-soy', 'كسبة صويا', 'raw'),
+        tile('i-drug', 'مضادّ حيوي', 'medicine'),
+      ],
+    };
+    const boardSection = (key) => byAction('board-section').find((n) => n.getAttribute('data-key') === key);
+    const tilesIn = (key) => (boardSection(key) ? descendants(boardSection(key)).filter((n) => n.getAttribute('data-action') === 'open-item-file').map((n) => n.getAttribute('href').split('/').at(-1)) : null);
+    await step('B1', async () => {
+      fresh(MANAGER, {}, { items_overview: async () => clone(BOARD) });
+      await mount('/inventory');
+      t.same(byAction('board-section-title').map((n) => n.textContent), ['مواد العلف', 'العلف', 'أخرى'], 'B1: «مواد العلف» ثمّ «العلف» ثمّ «أخرى»');
+      t.same(byAction('board-section-count').map((n) => n.textContent), ['3 موادّ', 'مادّة واحدة', 'مادّة واحدة'], 'B1: عدد كلّ قسم بالفصحى');
+      t.same([tilesIn('feed_materials'), tilesIn('feed'), tilesIn('other')], [['i-corn', 'i-salt', 'i-soy'], ['i-starter'], ['i-drug']], 'B1: raw وadditive في «مواد العلف»، وfeed في «العلف»، والباقي في «أخرى»، بترتيب القراءة');
+      t.same(byAction('add-section-item').map((n) => [n.getAttribute('data-kind'), under(n, boardSection(n.getAttribute('data-kind') === 'raw' ? 'feed_materials' : 'feed')), classOf(n).includes('h-11')]), [['raw', true, true], ['feed', true, true]], 'B1: «أضف مادّة» داخل قسمي العلف (بارتفاع الإصبع)، لا في «أخرى»');
+      t.eq(all().filter((n) => n.localName === 'details' && descendants(n).some((child) => child.localName === 'details')).length, 0, 'B1: لا قائمة داخل قائمة');
+    });
+    await step('B1-hidden', async () => {
+      fresh(MANAGER, {}, { items_overview: async () => ({ ...clone(BOARD), items: clone(BOARD.items).filter((item) => item.kind === 'raw') }) });
+      await mount('/inventory');
+      t.same([byAction('board-section-title').map((n) => n.textContent), boardSection('other')], [['مواد العلف', 'العلف'], undefined], 'B1: «أخرى» بلا موادّ لا تُعرض');
+      t.same([byAction('board-section-count')[1]?.textContent, byAction('board-section-empty').length], ['لا موادّ', 1], 'B1: و«العلف» الفارغ يبقى بعدده وجملته');
+    });
+    await step('B1-viewer', async () => {
+      fresh(VIEWER, {}, { items_overview: async () => ({ ...clone(BOARD), can_record: false, can_add_item: false }) });
+      await mount('/inventory');
+      t.same([byAction('board-section').length, byAction('add-section-item').length, byAction('add-item').length], [3, 0, 0], 'B1: بلا item.create: الأقسام بلا «أضف مادّة»');
+    });
+    await step('B2-search', async () => {
+      fresh(MANAGER, {}, { items_overview: async () => clone(BOARD) });
+      await mount('/inventory');
+      typeIn(byAction('search-board')[0], 'علف');
+      await settle();
+      t.same([byAction('board-section-title').map((n) => n.textContent), tilesIn('feed')], [['العلف'], ['i-starter']], 'B2: البحث يصفّي عبر الأقسام، وقسم بلا مطابقة يغيب أثناءه');
+      typeIn(byAction('search-board')[0], 'ص');
+      await settle();
+      t.same([byAction('board-section-title').map((n) => n.textContent), tilesIn('feed_materials')], [['مواد العلف'], ['i-corn', 'i-soy']], 'B2: ومطابقات قسم واحد');
+      typeIn(byAction('search-board')[0], 'قمح');
+      await settle();
+      t.same([byAction('board-section').length, text().includes('لا مادّة باسم «قمح»'), byAction('add-searched-item').length], [0, true, 1], 'B2: بحث بلا نتيجة يقول ذلك ويقترح الإضافة');
+      typeIn(byAction('search-board')[0], '');
+      await settle();
+      t.eq(byAction('board-section').length, 3, 'B2: مسح البحث يعيد الأقسام كلّها');
+    });
+    await step('B3-preset', async () => {
+      const created = [];
+      const { calls } = fresh(MANAGER, {
+        findItemTwins: () => [],
+        createItem: (fields) => {
+          created.push(fields);
+          return itemRow('i-new', fields.name, null, fields.kind);
+        },
+      }, { items_overview: async () => clone(BOARD), item_file: async () => ({ ...fileWith([]), item: { ...fileWith([]).item, id: 'i-new', name: 'علف ناهي', kind: 'feed' } }) });
+      await mount('/inventory');
+      await click(byAction('add-section-item').find((n) => n.getAttribute('data-kind') === 'raw'));
+      t.same([dialogTitle(), chosenKind()], ['أضف مادّة', 'raw'], 'B3: «أضف مادّة» في «مواد العلف» تبدأ بـ«مادّة للمعمل»');
+      await click(descendants(dialog()).find((n) => n.localName === 'button' && n.textContent === 'لا، تراجع'));
+      await click(byAction('add-section-item').find((n) => n.getAttribute('data-kind') === 'feed'));
+      t.same([chosenKind(), byAction('simple-item-kind')[0]?.options.find((o) => o.selected === true)?.textContent], ['feed', 'علف جاهز'], 'B3: و«أضف مادّة» في «العلف» تبدأ بـ«علف جاهز»');
+      typeIn(byAction('simple-item-name')[0], 'علف ناهي');
+      await settle();
+      await submitDialog();
+      await settle();
+      t.same([named(calls, 'createItem').length, created[0]?.kind, created[0]?.name, where?.pathname], [1, 'feed', 'علف ناهي', '/inventory/items/i-new'], 'B3: الحفظ يُنشئ المادّة بنوع القسم ويفتح ملفّها');
+      await unmount();
+      fresh(MANAGER, { findItemTwins: () => [] }, { items_overview: async () => clone(BOARD) });
+      await mount('/inventory');
+      await click(byAction('add-item')[0]);
+      t.eq(chosenKind(), 'raw', 'B3: و«أضف مادّة» في رأس الصفحة كما كانت (مادّة للمعمل)');
     });
   } finally {
     if (root) {
@@ -1334,10 +993,4 @@ export default async function (t) {
     delete globalThis.__db;
     restore();
   }
-}
-
-/** هل يسبق الأوّلُ الثاني في ترتيب المستند. */
-function before(a, b) {
-  const nodes = all();
-  return a !== undefined && b !== undefined && nodes.indexOf(a) >= 0 && nodes.indexOf(a) < nodes.indexOf(b);
 }
