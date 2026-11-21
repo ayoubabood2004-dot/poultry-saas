@@ -252,7 +252,7 @@ function DayReport({ data }: { data: HallsDay }) {
       header: t('halls.day.col.hall', 'القاعة'),
       sticky: true,
       cell: ({ hall, site }) => (
-        <span className="flex flex-col gap-0.5">
+        <span className="flex flex-col gap-0.5" data-action="day-hall" data-hall={hall.hallId}>
           <HallName hall={hall} />
           {many ? <span className="text-xs text-ink-muted">{site.name}</span> : null}
         </span>
@@ -303,16 +303,32 @@ function DayReport({ data }: { data: HallsDay }) {
         const flock = hall.flock;
         if (!flock) {
           return (
-            <span className="text-ink-muted" data-action="day-empty">
-              {t('halls.day.empty_hall', 'فارغة')}
+            <span className="flex flex-col gap-0.5">
+              <span className="text-ink-muted" data-action="day-empty">
+                {t('halls.day.empty', 'فارغة')}
+              </span>
+              {hall.carry.length ? (
+                <span className="text-xs" data-action="day-carry">
+                  {t('halls.day.carry', 'علف منقول للدورة التالية: {list}.', { list: carryTexts(hall).join(t('list.separator', '، ')) })}
+                </span>
+              ) : null}
             </span>
           );
         }
-        const parts = [...saleTexts(flock), ...(flock.status === 'closed' && flock.closedOn === data.on ? [t('halls.day.closed_today', 'أُغلقت الدورة اليوم')] : [])];
+        const sales = saleTexts(flock);
         return (
-          <span className="flex flex-col gap-0.5" data-action="day-note">
-            {flock.note ? <span>{flock.note}</span> : null}
-            {parts.length ? <span className="text-xs text-ink-muted">{parts.join(t('list.separator', '، '))}</span> : null}
+          <span className="flex flex-col gap-0.5">
+            {flock.note ? <span data-action="day-note">{flock.note}</span> : null}
+            {sales.length ? (
+              <span className="text-xs" data-action="day-sales">
+                {sales.join(t('list.separator', '، '))}
+              </span>
+            ) : null}
+            {flock.closedOn !== null ? (
+              <span className="text-xs text-ink-muted" data-action="day-closed">
+                {t('halls.day.closed', 'أُغلقت الدورة يوم {day}.', { day: fmtDay(flock.closedOn) })}
+              </span>
+            ) : null}
           </span>
         );
       },

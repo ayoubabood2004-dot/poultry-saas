@@ -819,7 +819,8 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
   const [editing, setEditing] = useState<{ on: Day; field: CellField } | null>(null);
   const [feeding, setFeeding] = useState<Day | null>(null);
   const [weighing, setWeighing] = useState(false);
-  const [editingFlock, setEditingFlock] = useState(false);
+  // نافذة «عدّل الوجبة» بلقطة الفوج لحظة فتحها (نسخته التي رآها المستخدم)، لا بقراءة الحقل التي تأتي بعدها.
+  const [editingFlock, setEditingFlock] = useState<FlockSummary | null>(null);
   const base = farmPath(kind);
   const here = sheet ? hallPath(kind, sheet.flock.hallId) : base;
   const changed = () => {
@@ -876,7 +877,7 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
               {t('sheet.act.report', 'التقرير')}
             </Link>
             {active && summary && site?.canManage ? (
-              <button type="button" onClick={() => setEditingFlock(true)} className={ACTION_CLASS} data-action="sheet-edit">
+              <button type="button" onClick={() => setEditingFlock(summary)} className={ACTION_CLASS} data-action="sheet-edit">
                 {t('sheet.act.edit', 'عدّل الوجبة')}
               </button>
             ) : null}
@@ -955,19 +956,19 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
           }}
         />
       ) : null}
-      {editingFlock && summary && sheet ? (
+      {editingFlock && sheet ? (
         <FlockEditDialog
           hallName={hallLabel(sheet.flock.hallName)}
-          flock={summary}
-          onClose={() => setEditingFlock(false)}
+          flock={editingFlock}
+          onClose={() => setEditingFlock(null)}
           onSaved={() => {
-            setEditingFlock(false);
+            setEditingFlock(null);
             if (onGone) onGone();
             state.retry();
           }}
           // الفوج لم يعد موجوداً: صفحة القاعة تقرأ الحقل من جديد فتظهر فارغة؛ وشاشة الفوج بعينه ترجع إلى الحقل.
           onDeleted={() => {
-            setEditingFlock(false);
+            setEditingFlock(null);
             if (onGone) onGone();
             else navigate(base, { replace: true });
           }}

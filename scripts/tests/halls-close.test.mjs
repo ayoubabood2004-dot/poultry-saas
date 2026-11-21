@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { descendants, installDom, settle } from './dom.mjs';
-import { all, body, bundle, buttonText, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, PDI, ROOT, select, selected, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, withAttr, within } from './halls-0028-kit.mjs';
+import { all, body, bundle, buttonText, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, PDI, ROOT, select, selected, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, hallRow, withAttr, within } from './halls-0028-kit.mjs';
 
 const FORM = F.flock_close_form;
 const F1 = FORM.flock.id;
@@ -297,7 +297,7 @@ export default async function (t) {
     };
     await step('R المغلقة للمدير', async () => {
       const log = fresh(MANAGER, formRpcs({ reopen_flock: () => clone(F.reopen_result), return_hall_carry: () => clone(F.return_carry_result) }));
-      await mount(`/halls/report/${F1}`);
+      await mount(`/halls/cycle/${F1}`);
       t.same(
         [kpi('sold'), kpi('sold_avg'), kpi('sale_age'), kpi('count_diff'), kpi('feed_out'), kpi('feed_net'), kpi('fcr_final'), kpi('epef_final')],
         [
@@ -352,17 +352,17 @@ export default async function (t) {
     });
     await step('R أعد الفتح من البطاقة', async () => {
       fresh(OWNER, formRpcs());
-      await mount(`/halls/report/${F1}?act=reopen&back=${encodeURIComponent(`/broiler/flock/${F1}`)}`);
+      await mount(`/halls/cycle/${F1}?act=reopen&back=${encodeURIComponent(`/broiler/flock/${F1}`)}`);
       t.same([dialog()?.textContent.includes('أعد فتح دورة «قاعة 1» المغلقة يوم 11/11/2026؟'), tableRows('الإيراد والعلف الراجع والمنقول')], [true, [['إيراد فواتير الطيور', '6,737,500.00'], ['العلف الراجع إلى المخازن', '-347,289.78'], ['العلف المنقول للدورة التالية', '-138,915.91']]], 'R ?act=reopen يفتح نافذة إعادة الفتح أوّل الفتح، والمال (الإيراد والراجع والمنقول) لأدوار الكلفة');
     });
     await step('R لعامل القاعة', async () => {
       fresh(WORKER, formRpcs({ flock_cycle_report: () => clone(F.flock_cycle_report_closed_no_money) }));
-      await mount(`/halls/report/${F1}?act=reopen`);
+      await mount(`/halls/cycle/${F1}?act=reopen`);
       t.same([byAction('reopen-open').length, byAction('carry-return').length, dialog(), tableRows('الإيراد والعلف الراجع والمنقول'), text().includes('معلَّق في القاعة للدورة التالية')], [0, 0, null, null, true], 'R عامل القاعة: الإغلاق يُقرأ بلا «أعد فتح» ولا «أرجعه»، ولا مال');
     });
     await step('R دورة قائمة بمفاتيح 0028', async () => {
       fresh(MANAGER, formRpcs({ flock_cycle_report: () => clone(F.flock_cycle_report_open) }));
-      await mount(`/halls/report/${F1}`);
+      await mount(`/halls/cycle/${F1}`);
       t.same(
         [kpi('fcr_final'), kpi('sold_avg'), kpi('carry_in'), textOf('rep-carry-in'), byAction('rep-close').length, kpi('feed_out')],
         [
@@ -428,55 +428,46 @@ export default async function (t) {
       await step('D اليوميّ للمالك', async () => {
         fresh(OWNER, { halls_day: () => clone(DAY) });
         await mount('/halls/day');
-        const card1 = withAttr('day-hall', 'data-hall', H1);
-        const card2 = withAttr('day-hall', 'data-hall', H2);
-        const card3 = withAttr('day-hall', 'data-hall', H3);
+        const card1 = hallRow(H1);
+        const card2 = hallRow(H2);
+        const card3 = hallRow(H3);
         t.same(
           [within(card1, 'day-sales')[0]?.textContent ?? null, within(card2, 'day-sales').length, within(card3, 'day-carry')[0]?.textContent ?? null, within(card1, 'day-carry').length],
           [soldText, 0, `علف منقول للدورة التالية: ${carryText}.`, 0],
           'D بطاقة القاعة: المباع وطيور التذاكر بلا فاتورة وفرق العدّ بإشارته، ولا سطر حين لا بيع، والقاعة الفارغة تسمّي علفها المنقول ويوم إغلاق دورته',
         );
-        const link = within(card1, 'day-ticket-link')[0] ?? null;
-        const params = new URLSearchParams((href(link) ?? '').split('?')[1] ?? '');
+        // 0035 (طلب المالك 2026-11-21): التقرير اليوميّ جدول واحد كالورقة (القاعة | العمر | الهلاكات | الغاز | العلف | الملاحظات) بلا بطاقات ولا روابط
+        // تذاكر؛ البيع من ورقة القاعة («بيع»)، والمباع وطيور التذاكر وفرق العدّ في ملاحظات صفّ القاعة.
+        const caption = `القاعات — ${m.fmtDay(DAY.on)}`;
+        const head = headOf(caption) ?? [];
         t.same(
-          [link?.textContent ?? null, (href(link) ?? '').split('?')[0], params.get('site'), params.get('hall'), params.get('back'), m.ticketBack(params.get('back'), '/halls/tickets'), within(card2, 'day-ticket-link').length, within(card3, 'day-ticket-link').length, byAction('day-ticket-link').length],
-          ['تذكرة وزن', '/halls/ticket/new', S1, H1, BACK, BACK, 1, 0, 2],
-          'D «تذكرة وزن» على قاعات اللحم القائمة وحدها بحقلها وقاعتها، ورجوعها إلى اليوم نفسه يقبله قارئ التذكرة؛ لا على الفارغة ولا البيّاض',
+          [head, byAction('day-ticket-link').length, byAction('day-site-total').length, byAction('day-all-total').length],
+          [['القاعة', 'العمر', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'الملاحظات'], 0, 0, 0],
+          'D جدول واحد بأعمدة الورقة، بلا «تذكرة وزن» ولا بطاقات مجاميع',
         );
-        const siteTotal = byAction('day-site-total')[0] ?? null;
-        const layersTotal = byAction('day-site-total')[1] ?? null;
-        const allTotal = byAction('day-all-total')[0] ?? null;
+        const rows = tableRows(caption) ?? [];
         t.same(
-          [ddOf(within(siteTotal, 'total-sold')[0]), within(layersTotal, 'total-sold').length, ddOf(within(allTotal, 'total-sold')[0])],
-          [`4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`, 0, `4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`],
-          'D بطاقات المجاميع: المباع من مجموع الخادم وتحته التذاكر وفرق العدّ، ولا خانة لحقل بلا بيع',
-        );
-        const rows = tableRows(caption1) ?? [];
-        const head = headOf(caption1) ?? [];
-        const soldAt = head.indexOf('المباع');
-        const foot = (tableFoot(caption1) ?? [])[0] ?? [];
-        t.same(
-          [soldAt > 0, rows.map((row) => row[soldAt]), foot[soldAt - (head.length - foot.length)] ?? null, rows[2]?.[0] ?? null, (headOf(`${DAY.sites[1].name} — ${m.fmtDay(DAY.on)}`) ?? []).includes('المباع'), (headOf('مجموع كلّ الحقول') ?? []).includes('المباع')],
-          [true, [`4,000على تذاكر بلا فاتورة 1,800فرق العدّ ${m.signedCount(-10)}`, '—', '—'], '4,000', `قاعة 3فارغة، وفيها علف منقول للدورة التالية: ${carryText}`, false, true],
-          'D الجدول: عمود «المباع» حين بيع في الحقل ومجموعه من الخادم، والقاعة الفارغة بعلفها المنقول، ولا عمود لحقل البيّاض بلا بيع',
+          [rows.length, rows[2]?.[0] ?? null, rows[2]?.[5] ?? null],
+          [DAY.sites.reduce((n, site) => n + site.halls.length, 0), `قاعة 3${DAY.sites.length > 1 ? DAY.sites[0].name : ''}`, `فارغةعلف منقول للدورة التالية: ${carryText}.`],
+          'D صفّ لكلّ قاعة من كلّ الحقول، والقاعة الفارغة «فارغة» بعلفها المنقول في ملاحظاتها',
         );
       });
       await step('D اليوميّ لعامل القاعة وللمحاسب', async () => {
         fresh(WORKER, { halls_day: () => clone(DAY) });
         await mount('/halls/day');
-        const worker = byAction('day-ticket-link').length;
+        const worker = byAction('day-sales').length;
         await unmount();
         fresh(sessionOf('accountant'), { halls_day: () => clone(DAY) });
         await mount('/halls/day');
-        t.same([worker, byAction('day-ticket-link').length, byAction('day-sales').length], [2, 0, 1], 'D «تذكرة وزن» لمن يكتب التذاكر (عامل القاعة) لا للمحاسب، والمباع يُعرض للجميع');
+        t.same([worker, byAction('day-ticket-link').length, byAction('day-sales').length], [1, 0, 1], 'D المباع يُعرض للجميع، ولا «تذكرة وزن» في التقرير');
       });
       await step('D اليوميّ من خادم قبل 0028', async () => {
         fresh(OWNER, { halls_day: () => clone(old) });
         await mount('/halls/day');
         t.same(
-          [byAction('day-sales').length, byAction('day-carry').length, byAction('total-sold').length, (headOf(caption1) ?? []).includes('المباع'), byAction('day-ticket-link').length],
-          [0, 0, 0, false, 2],
-          'D بلا مفاتيح 0028: لا مباع ولا منقول ولا عمود، و«تذكرة وزن» باقٍ',
+          [byAction('day-sales').length, byAction('day-carry').length, (headOf(`القاعات — ${m.fmtDay(old.on)}`) ?? []).includes('المباع')],
+          [0, 0, false],
+          'D بلا مفاتيح 0028: لا مباع ولا منقول',
         );
       });
     }
@@ -533,11 +524,11 @@ export default async function (t) {
       const days1 = textOf('close-estimate');
       await unmount();
       fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report_closed) });
-      await mount(`/halls/report/${B.flock_cycle_report_closed.flock.id}`);
+      await mount(`/halls/cycle/${B.flock_cycle_report_closed.flock.id}`);
       const closeLine = textOf('rep-close-line');
       await unmount();
       fresh(MANAGER, { flock_cycle_report: () => clone(B.flock_cycle_report) });
-      await mount(`/halls/report/${B.flock_cycle_report.flock.id}`);
+      await mount(`/halls/cycle/${B.flock_cycle_report.flock.id}`);
       const salesNote = textOf('rep-sales-note');
       t.same(
         [count, days10, days1, closeLine, salesNote],
@@ -559,7 +550,7 @@ export default async function (t) {
     await step('Q S7 تأكيد «أعد فتح الدورة» من الإغلاق نفسه', async () => {
       const sample = B.flock_cycle_report_closed;
       fresh(MANAGER, { flock_cycle_report: () => clone(sample), flock_sales: reopenable });
-      await mount(`/halls/report/${sample.flock.id}`);
+      await mount(`/halls/cycle/${sample.flock.id}`);
       await click(byAction('reopen-open')[0]);
       t.same(
         [sample.close.count_diff, sample.close.lines.map((line) => [line.action, line.carry_status]), textOf('reopen-text')],
@@ -578,7 +569,7 @@ export default async function (t) {
       carry.carry_status = 'returned';
       carry.return_doc_no = B.return_hall_carry.doc_no;
       const log = fresh(MANAGER, { flock_cycle_report: (_args, n) => clone(n === 1 ? closed : after), return_hall_carry: () => clone(B.return_hall_carry), flock_sales: reopenable });
-      await mount(`/halls/report/${closed.flock.id}?act=reopen`);
+      await mount(`/halls/cycle/${closed.flock.id}?act=reopen`);
       const openedFirst = byAction('reopen-text').length;
       await click(buttonText('لا، تراجع'));
       const closedAfterCancel = byAction('reopen-text').length;
@@ -600,7 +591,7 @@ export default async function (t) {
       carry.return_doc_no = B.return_hall_carry.doc_no;
       const closeDoc = report.close.lines.find((line) => line.action === 'return')?.return_doc_no ?? null;
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: reopenable });
-      await mount(`/halls/report/${report.flock.id}?act=reopen`);
+      await mount(`/halls/cycle/${report.flock.id}?act=reopen`);
       t.same(
         [closeDoc, carry.return_doc_no, textOf('reopen-text')],
         ['FR-2026-0004', 'FR-2026-0007', 'تُلغى مستندات الإرجاع FR-2026-0004، FR-2026-0007 ويعود العلف من المخزن إلى حساب القاعة، ويعود الفوج قائماً. والفواتير تبقى مرحّلة.'],
@@ -610,7 +601,7 @@ export default async function (t) {
     await step('Q جدول «المصروف والمستهلك والباقي» لدورة نُقل إليها علف: النازل كالمؤشّر', async () => {
       const report = B.flock_cycle_report_carry_in;
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales) });
-      await mount(`/halls/report/${report.flock.id}`);
+      await mount(`/halls/cycle/${report.flock.id}`);
       const caption = 'المصروف والمستهلك والباقي';
       const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
       const headers = table ? descendants(table).filter((n) => n.localName === 'th' && descendants(table).find((h) => h.localName === 'thead')?.contains(n)).map((n) => n.textContent) : null;

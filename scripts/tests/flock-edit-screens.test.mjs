@@ -14,6 +14,7 @@
 // كلّ فحص هنا يفشل على الشفرة قبل هذا التغيير (لا editFlock ولا deleteFlock ولا «عدّل الفوج» ولا الترتيب)، إلّا ما وُسم «ضابط».
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -52,7 +53,7 @@ const plugins = [
       b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'fe-stub' }));
       b.onLoad({ filter: /.*/, namespace: 'fe-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       // flockEdits.ts (editFlock وdeleteFlock، في حزمة القاعات مع نافذتها) على core البديل نفسه.
-      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fe-core' } : undefined));
+      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits|hallSheet)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'fe-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'fe-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
     },
   },
@@ -211,17 +212,17 @@ export default async function (t) {
     });
     const hall = (id, name, flock) => ({ id, name, capacity: 6000, version: 2, flock });
     // بترتيب القاعدة (حرفاً حرفاً): «قاعة 10» قبل «قاعة 2»، و«قاعة 44» قبل «قاعة 5» كما في شاشة الزبون.
-    const overview = ({ canManage = true, f5 = {} } = {}) => ({
+    const overview = ({ canManage = true, f5 = {}, kind = 'broiler', empty5 = false } = {}) => ({
       today: TODAY,
       sites: [
         {
-          id: 's-1', name: 'حقل الأمل', division_id: 'd-b', kind: 'broiler', can_manage: canManage,
+          id: 's-1', name: 'حقل الأمل', division_id: 'd-b', kind, can_manage: canManage,
           halls: [
             hall('h-1', 'قاعة 1', flockJson(F1)),
             hall('h-10', 'قاعة 10', null),
             hall('h-2', 'قاعة 2', flockJson(F2, { status: 'preparing' })),
             hall('h-44', 'قاعة 44', flockJson(F44)),
-            hall('h-5', 'قاعة 5', flockJson(F5, f5)),
+            hall('h-5', 'قاعة 5', empty5 ? null : flockJson(F5, { kind, ...f5 })),
           ],
         },
       ],
@@ -233,6 +234,17 @@ export default async function (t) {
       days: [],
       weights: [],
     });
+    /** ورقة القاعة (hall_sheet، 0035) لفوج قاعة 5 من العيّنة اليدوية للعقد. */
+    const SHEETS = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet;
+    const sheetJson = ({ kind = 'broiler', status = 'active' } = {}) => {
+      const sheet = JSON.parse(JSON.stringify(kind === 'layer' ? SHEETS.layer : SHEETS.broiler));
+      Object.assign(sheet.flock, { id: F5, hall_id: 'h-5', hall_name: 'قاعة 5', site_name: 'حقل الأمل', status });
+      if (status !== 'active') {
+        sheet.can_write = false;
+        sheet.flock.closed_on = sheet.through;
+      }
+      return sheet;
+    };
     const editedJson = (over = {}) => ({ flock_id: F5, version: 4, placed_on: FIXED, placed_count: 5200, age_days_at_placement: 0, breed: null, changed: true, ...over });
 
     let root = null;
@@ -507,22 +519,23 @@ export default async function (t) {
       );
     });
 
-    // ── F: شاشة الفوج ───────────────────────────────────────────────────────────────────────────────────────────────
+    // ── F: ورقة القاعة (0035): «عدّل الوجبة» في صفّ الأفعال، بلقطة الفوج من قراءة الحقل ───────────────────────────────────────
     await step('F المدير', async () => {
       let reads = 0;
       const calls = fresh(
         'manager',
+        { loadOverviewJson: () => overview() },
         {
-          loadFlockDetail: () => {
+          hall_sheet: () => {
             reads += 1;
-            return m.parseDetail(detailJson());
+            return sheetJson();
           },
+          edit_flock: () => editedJson(),
         },
-        { edit_flock: () => editedJson() },
       );
-      await mount(`/broiler/flock/${F5}`);
-      const edit = byAction('flock-edit');
-      t.same(edit.map((n) => n.textContent), ['عدّل الفوج'], 'F شاشة الفوج: «عدّل الفوج» للمدير');
+      await mount('/broiler/hall/h-5');
+      const edit = byAction('sheet-edit');
+      t.same(edit.map((n) => n.textContent), ['عدّل الوجبة'], 'F ورقة القاعة: «عدّل الوجبة» للمدير');
       await click(edit[0]);
       t.same([editDialog()?.textContent.includes('تعديل فوج «قاعة 5»'), values()], [true, [m.fmtDay(PLACED), '5000', '1', 'روس 308']], 'F النافذة نفسها بقيم الفوج (لا خانة تاريخ الوزن)');
       type(field('-day'), m.fmtDay(FIXED));
@@ -530,51 +543,62 @@ export default async function (t) {
       await click(byAction('flock-edit-save')[0]);
       const [args] = named(calls, 'rpc:edit_flock');
       t.same([args?.p_flock, args?.p_expected_version, args?.p_placed_on], [F5, 3, FIXED], 'F الحفظ edit_flock بالفوج ونسخته');
-      t.same([lastToast()?.[0], editDialog() === null, reads], ['success', true, 2], 'F النجاح يُغلق النافذة ويقرأ الفوج من جديد');
+      t.same([lastToast()?.[0], editDialog() === null, reads, overviewReads(calls) >= 2], ['success', true, 2, true], 'F النجاح يُغلق النافذة ويقرأ الورقة والحقل من جديد');
     });
     await step('F stale', async () => {
       let reads = 0;
       fresh(
         'manager',
+        { loadOverviewJson: () => overview({ f5: reads > 1 ? { version: 9 } : {} }) },
         {
-          loadFlockDetail: () => {
+          hall_sheet: () => {
             reads += 1;
-            return reads === 1 ? m.parseDetail(detailJson()) : new Promise((resolve) => setTimeout(() => resolve(m.parseDetail(detailJson({ over: { version: 9 } }))), 5));
+            return reads === 1 ? sheetJson() : new Promise((resolve) => setTimeout(() => resolve(sheetJson()), 5));
           },
-        },
-        {
           edit_flock: () => {
             throw new m.RejectedError('stale_flock', 'تغيّر هذا الفوج بعد أن فتحت النافذة.');
           },
         },
       );
-      await mount(`/broiler/flock/${F5}`);
-      await click(byAction('flock-edit')[0]);
+      await mount('/broiler/hall/h-5');
+      await click(byAction('sheet-edit')[0]);
       type(field('-count'), '4900');
       await settle();
       await click(byAction('flock-edit-save')[0]);
       await settle(60);
-      t.same([reads, editDialog() !== null, dialogText().includes('تغيّر هذا الفوج بعد أن فتحت النافذة.'), field('-count')?.value], [2, true, true, '4900'], 'F stale: الفوج يُقرأ من جديد والنافذة باقية بالتلميح وبما كُتب فيها');
+      t.same([reads, editDialog() !== null, dialogText().includes('تغيّر هذا الفوج بعد أن فتحت النافذة.'), field('-count')?.value], [2, true, true, '4900'], 'F stale: الورقة تُقرأ من جديد والنافذة باقية بالتلميح وبما كُتب فيها');
     });
     await step('F الحذف', async () => {
-      const calls = fresh('manager', { loadFlockDetail: () => m.parseDetail(detailJson({ kind: 'layer' })) }, { delete_flock: () => ({ flock_id: F5, deleted: true }) });
-      await mount(`/layers/flock/${F5}`);
-      await click(byAction('flock-edit')[0]);
+      let deleted = false;
+      const calls = fresh(
+        'manager',
+        { loadOverviewJson: () => overview({ kind: 'layer', empty5: deleted }) },
+        {
+          hall_sheet: () => sheetJson({ kind: 'layer' }),
+          delete_flock: () => {
+            deleted = true;
+            return { flock_id: F5, deleted: true };
+          },
+        },
+      );
+      await mount('/layers/hall/h-5');
+      await click(byAction('sheet-edit')[0]);
       await click(byAction('flock-delete')[0]);
       await click(byAction('flock-delete-confirm')[0]);
-      t.same([named(calls, 'rpc:delete_flock')[0]?.p_flock, lastToast()?.[0], globalThis.__fe.location], [F5, 'success', '/layers'], 'F بعد الحذف ترجع الشاشة إلى حقل نوعها (البيّاض)');
+      await settle(60);
+      t.same([named(calls, 'rpc:delete_flock')[0]?.p_flock, lastToast()?.[0], globalThis.__fe.location, byAction('hall-empty').length], [F5, 'success', '/layers/hall/h-5', 1], 'F بعد الحذف تقرأ صفحة القاعة الحقل من جديد فتظهر فارغة (البيّاض)');
     });
     await step('F الأدوار', async () => {
-      fresh('hall_worker', { loadFlockDetail: () => m.parseDetail(detailJson({ canManage: false })) });
-      await mount(`/broiler/flock/${F5}`);
-      t.ok(text().includes('قاعة 5') && byAction('hall-back').length === 1, 'F ضابط: عامل القاعة يرى صفحة القاعة بفوجها');
-      t.eq(byAction('flock-edit').length, 0, 'F عامل القاعة بلا «عدّل الفوج»');
+      fresh('hall_worker', { loadOverviewJson: () => overview({ canManage: false }) }, { hall_sheet: () => sheetJson() });
+      await mount('/broiler/hall/h-5');
+      t.ok(text().includes('هلاكات قاعة (5)') && byAction('hall-back').length === 1, 'F ضابط: عامل القاعة يرى ورقة القاعة');
+      t.eq(byAction('sheet-edit').length, 0, 'F من لا يدير الحقل بلا «عدّل الوجبة»');
     });
     await step('F المغلق', async () => {
-      fresh('manager', { loadFlockDetail: () => m.parseDetail(detailJson({ over: { status: 'closed' } })) });
-      await mount(`/broiler/flock/${F5}`);
-      t.ok(text().includes('قاعة 5') && byAction('hall-back').length === 1, 'F ضابط: الفوج المغلق يُعرض');
-      t.eq(byAction('flock-edit').length, 0, 'F فوج مغلق بلا «عدّل الفوج» (الخادم يرفضه flock_closed)');
+      fresh('manager', { loadOverviewJson: () => overview() }, { hall_sheet: () => sheetJson({ status: 'closed' }) });
+      await mount('/broiler/hall/h-5');
+      t.ok(text().includes('هلاكات قاعة (5)') && byAction('hall-back').length === 1, 'F ضابط: الوجبة المغلقة تُعرض');
+      t.same([byAction('sheet-edit').length, byAction('sheet-reopen').length], [0, 1], 'F وجبة مغلقة بلا «عدّل الوجبة» (الخادم يرفضه flock_closed)، و«أعِد فتحها» بدلها');
     });
 
     // ── O: النافذة من حزمة القاعات خارج التثبيت المسبق؛ بلا نت (فشل تحميلها) تقول إنّ التعديل يحتاج اتصالاً بدل أن تختفي ─────────────
