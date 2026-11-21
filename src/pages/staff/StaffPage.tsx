@@ -9,29 +9,25 @@ import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
-import { DIVISION_KINDS } from '../../domain/divisions';
 import { can, ROLES, type Role } from '../../domain/permissions';
 import { normalizePhone } from '../../domain/phone';
 import { describeError, NotConnectedError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
 import { fmtInviteCode, fmtPhone } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as members from '../../lib/repo/members';
-import type { DivisionRef, StaffMember } from '../../lib/repo/members';
+import type { StaffMember } from '../../lib/repo/members';
 import * as scopes from '../../lib/repo/scopes';
-import type { ScopeTarget, ScopeTargets } from '../../lib/repo/scopes';
-import { divisionLabel, roleDescription, roleLabel } from '../../lib/roles';
+import { roleDescription, roleLabel } from '../../lib/roles';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { session, useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 
-// إدارة الموظفين للمالك بس (members.manage، DECISIONS 2026-10-25): يدعو برقم الهاتف ودور ووحدات، ويسلّم الرمز
-// بيده (يبين مرّة وحدة)، ويغيّر الدور والوحدات، ويؤرشف. الدعوة ما تنطي أي وصول قبل ما الموظف يقبلها بالرمز،
-// وآخر مالك ما ينزل ولا ينشال (الخادم يرفض بتلميحه). ماكو حذف: المؤرشف يبقى بالسجلّ ويندعى من جديد.
-// دوالّ الموظفين بلا client_ref: «نتيجة مجهولة» تعني «تحقّق قبل الإعادة» (describeError 'once')، والقائمة تتحدّث.
-// المرحلة 1 (WP2): النطاق بالوحدة أو الموقع أو المخزن (set_member_scopes_v2، المالك بس)؛ أمين المخزن بمخزنه بس مثلاً.
-
-/** بلا صفوف نطاق: هذول يشوفون كل الوحدات، والباقون ولا وحدة (مرآة inScope). والمالك يشوفها كلها بكل حال. */
-const ALL_SEEING: ReadonlySet<Role> = new Set<Role>(['owner', 'manager', 'accountant']);
+// إدارة الموظفين للمالك بس (members.manage، DECISIONS 2026-10-25): يدعو برقم الهاتف ودور، ويسلّم الرمز بيده (يبين مرّة
+// وحدة)، ويغيّر الدور، ويؤرشف. الدعوة ما تنطي أي وصول قبل ما الموظف يقبلها بالرمز، وآخر مالك ما ينزل ولا ينشال (الخادم يرفض
+// بتلميحه). ماكو حذف: المؤرشف يبقى بالسجلّ ويندعى من جديد. دوالّ الموظفين بلا client_ref: «نتيجة مجهولة» تعني «تحقّق قبل
+// الإعادة» (describeError 'once')، والقائمة تتحدّث.
+// «الكلّ مثل المالك بكلّ شيء» (كلمة المالك 2026-11-21، 0034): كلّ عضو يرى ويفعل كلّ شيء في المنشأة كلّها، فالنطاق لم يعد يحدّ
+// شيئاً: لا منتقي نطاق ولا عمود وحدات، والدعوة بلا نطاق (add_member_v2 بقوائم فارغة). والدور اسم عمل يرتّب أزرار الرئيسية.
 
 /** رفض يعني «القائمة اللي قدّامك قديمة» (تلميح الخادم يكول «حدّث قائمة الموظفين»)، أو نتيجة ما نعرفها. */
 const STALE_CODES: ReadonlySet<string> = new Set(['already_in_org', 'member_not_found', 'invite_already_accepted', 'division_not_found', 'site_not_found', 'warehouse_not_found']);
@@ -45,75 +41,31 @@ export function roleIsStale(error: unknown): boolean {
   return error instanceof RejectedError && error.code === 'forbidden';
 }
 
-type MemberAction = 'role' | 'scopes' | 'archive' | 'reissue';
-
-// الوحدات تنحفظ ويّا النافذة لمّا تنفتح: تحديث القائمة بالخلفية (بعد رفض «القائمة قديمة») يصفّر بياناتها لحد ما
-// ترجع، والنافذة المرسومة بشرطها كانت تنطوي وتضيع كتابتها ورسالة فشلها (المراجعة الثانية).
-/** خيارات منتقي النطاق: الوحدات ومواقعها ومخازنها (المؤرشف يبين بس إذا مختار). */
-export interface ScopeOptions {
-  divisions: readonly DivisionRef[];
-  sites: readonly ScopeTarget[];
-  warehouses: readonly ScopeTarget[];
-}
-
-/** النطاق المختار بالقوائم الثلاث (مثل صفوف member_scopes: هدف واحد بكل صفّ). */
-export interface ScopeChoice {
-  divisionIds: readonly string[];
-  siteIds: readonly string[];
-  warehouseIds: readonly string[];
-}
+type MemberAction = 'role' | 'archive' | 'reissue';
 
 type DialogState =
   | null
-  | { kind: 'invite'; options: ScopeOptions }
+  | { kind: 'invite' }
   | { kind: 'code'; name: string; code: string }
-  | { kind: 'actions'; member: StaffMember; options: ScopeOptions }
-  | { kind: 'role' | 'scopes'; member: StaffMember; options: ScopeOptions }
+  | { kind: 'actions'; member: StaffMember }
+  | { kind: 'role'; member: StaffMember }
   | { kind: 'archive' | 'reissue'; member: StaffMember };
 
-function sortedDivisions(divisions: readonly DivisionRef[]): DivisionRef[] {
-  return [...divisions].sort((a, b) => DIVISION_KINDS.indexOf(a.kind) - DIVISION_KINDS.indexOf(b.kind));
-}
-
-export function divisionsText(
-  member: Pick<StaffMember, 'role' | 'divisionIds'> & Partial<Pick<StaffMember, 'siteIds' | 'warehouseIds'>>,
-  divisions: readonly DivisionRef[],
-  places: Pick<ScopeOptions, 'sites' | 'warehouses'> = { sites: [], warehouses: [] },
-): string {
-  // المالك يشوف كل الوحدات مهما كان بصفوف نطاقه (in_scope_division بالخادم)، فما ينعرض محصوراً.
-  if (member.role === 'owner') return t('staff.divisions.all', 'كل الوحدات');
-  const siteIds = member.siteIds ?? [];
-  const warehouseIds = member.warehouseIds ?? [];
-  if (member.divisionIds.length + siteIds.length + warehouseIds.length === 0) {
-    return ALL_SEEING.has(member.role) ? t('staff.divisions.all', 'كل الوحدات') : t('staff.divisions.none', 'لا وحدة');
-  }
-  return [
-    ...sortedDivisions(divisions).filter((division) => member.divisionIds.includes(division.id)).map((division) => divisionLabel(division.kind)),
-    ...places.sites.filter((site) => siteIds.includes(site.id)).map((site) => t('staff.scope.site', 'موقع {name}', { name: site.name })),
-    ...places.warehouses.filter((store) => warehouseIds.includes(store.id)).map((store) => store.name),
-  ].join(t('list.separator', '، '));
-}
-
-/** الإجراءات المتاحة على صفّ: رمز جديد للمدعوّ بس، والوحدات لغير المالك، والأرشفة لغير نفسه (يخرج من «حسابي»). */
+/** الإجراءات المتاحة على صفّ: رمز جديد للمدعوّ بس، والدور، والأرشفة لغير نفسه (يخرج من «حسابي»). */
 export function memberActions(member: StaffMember, selfUserId: string | null): MemberAction[] {
   const actions: MemberAction[] = [];
   if (!member.accepted) actions.push('reissue');
   actions.push('role');
-  if (member.role !== 'owner') actions.push('scopes');
   if (member.userId !== selfUserId) actions.push('archive');
   return actions;
 }
 
 export function StaffTable({
   rows,
-  divisions,
-  places,
   selfUserId,
   onOpen,
 }: {
   rows: readonly StaffMember[];
-  divisions: readonly DivisionRef[];
-  places?: Pick<ScopeOptions, 'sites' | 'warehouses'>;
   selfUserId: string | null;
   /** يفتح إجراءات الصفّ. بلاه (مو مالك) ماكو عمود إجراءات. */
   onOpen?: (member: StaffMember) => void;
@@ -144,7 +96,6 @@ export function StaffTable({
       header: t('staff.col.status', 'الحالة'),
       cell: (member) => (member.accepted ? t('staff.status.active', 'يعمل') : t('staff.status.pending', 'بانتظار القبول')),
     },
-    { key: 'divisions', header: t('staff.col.divisions', 'الوحدات'), wrap: true, cell: (member) => divisionsText(member, divisions, places) },
   );
   return (
     <DataTable
@@ -169,50 +120,15 @@ function RoleSelect({ id, value, onChange }: { id: string; value: Role; onChange
   );
 }
 
-const DIVISIONS_HINT = () =>
-  t('staff.divisions.hint', 'المالك يرى كل الوحدات دائماً. دون وحدة مختارة يرى المدير والمحاسب كل الوحدات، ولا يرى الباقون أيّ وحدة؛ واختيار وحدات يحصر الدور فيها.');
-
-/** يقلب معرّفاً بقائمة. */
-const toggled = (list: readonly string[], id: string, on: boolean) => (on ? [...list, id] : list.filter((x) => x !== id));
-
-export function ScopeChecks({ options, selected, onChange }: { options: ScopeOptions; selected: ScopeChoice; onChange: (choice: ScopeChoice) => void }) {
-  const box = (checked: boolean, change: (on: boolean) => void, label: string, depth: 0 | 1 | 2, key: string) => (
-    <label key={key} className={`flex min-h-11 items-center gap-3 rounded-2xl border border-line px-3 ${depth === 1 ? 'ms-6' : depth === 2 ? 'ms-12' : ''}`}>
-      <input type="checkbox" className="size-5 accent-brand-600" checked={checked} onChange={(event) => change(event.target.checked)} />
-      {label}
-    </label>
-  );
-  const visible = (target: ScopeTarget, ids: readonly string[]) => !target.archived || ids.includes(target.id);
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-1.5 text-sm font-medium text-ink">{t('staff.divisions', 'الوحدات')}</legend>
-      {sortedDivisions(options.divisions).flatMap((division) => [
-        box(selected.divisionIds.includes(division.id), (on) => onChange({ ...selected, divisionIds: toggled(selected.divisionIds, division.id, on) }), divisionLabel(division.kind), 0, division.id),
-        ...options.sites
-          .filter((site) => site.divisionId === division.id && visible(site, selected.siteIds))
-          .flatMap((site) => [
-            box(selected.siteIds.includes(site.id), (on) => onChange({ ...selected, siteIds: toggled(selected.siteIds, site.id, on) }), t('staff.scope.site', 'موقع {name}', { name: site.name }), 1, site.id),
-            ...options.warehouses
-              .filter((store) => store.siteId === site.id && visible(store, selected.warehouseIds))
-              .map((store) => box(selected.warehouseIds.includes(store.id), (on) => onChange({ ...selected, warehouseIds: toggled(selected.warehouseIds, store.id, on) }), store.name, 2, store.id)),
-          ]),
-      ])}
-      <p className="text-sm text-ink-muted">{DIVISIONS_HINT()}</p>
-      <p className="text-sm text-ink-muted">{t('staff.scope.places.hint', 'اختيار موقع يشمل مخازنه، واختيار مخزن يحصر الموظف فيه وحده؛ والوحدة تشمل كل مواقعها ومخازنها.')}</p>
-    </fieldset>
-  );
-}
-
-const NO_SCOPE: ScopeChoice = { divisionIds: [], siteIds: [], warehouseIds: [] };
-const scopeKey = (choice: ScopeChoice) => [choice.divisionIds, choice.siteIds, choice.warehouseIds].map((list) => [...list].sort().join()).join('|');
+/** بلا نطاق: الدعوة بقوائم فارغة (النطاق لا يحدّ شيئاً منذ 0034). */
+const NO_SCOPE = { divisionIds: [], siteIds: [], warehouseIds: [] } as const;
 
 /**
- * الدعوة ونطاقها بنداء واحد (add_member_v2) ثم رمزها. فشل الدعوة يرمي (ولا دعوة ولا رمز): بنداءين كان فشل النطاق يخلّي مديراً أو
- * محاسباً بلا صفوف نطاق (كل المنشأة) ورمزه يصدر. فشل الرمز وحده بعد دعوة محفوظة تنبيه، والرمز من «رمز جديد».
+ * الدعوة بنداء واحد (add_member_v2 بلا نطاق) ثم رمزها. فشل الدعوة يرمي (ولا دعوة ولا رمز). فشل الرمز وحده بعد دعوة محفوظة تنبيه،
+ * والرمز من «رمز جديد».
  */
-export async function inviteMember({ phone, role, name, scope }: { phone: string; role: Role; name: string; scope: ScopeChoice }): Promise<{ memberId: string; code: string | null }> {
-  // المالك يشوف كل الوحدات: نطاقه ما يُرسل حتى ما يبين محصوراً.
-  const memberId = await scopes.addMemberV2(phone, role, name, role === 'owner' ? NO_SCOPE : scope);
+export async function inviteMember({ phone, role, name }: { phone: string; role: Role; name: string }): Promise<{ memberId: string; code: string | null }> {
+  const memberId = await scopes.addMemberV2(phone, role, name, NO_SCOPE);
   try {
     return { memberId, code: await members.inviteCode(memberId) };
   } catch {
@@ -226,12 +142,10 @@ export async function inviteMember({ phone, role, name, scope }: { phone: string
 }
 
 function InviteDialog({
-  options,
   onClose,
   onInvited,
   onFailure,
 }: {
-  options: ScopeOptions;
   onClose: () => void;
   onInvited: (name: string, code: string | null) => void;
   onFailure: (error: unknown) => void;
@@ -240,11 +154,10 @@ function InviteDialog({
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<Role>('hall_worker');
-  const [scope, setScope] = useState<ScopeChoice>(NO_SCOPE);
   const [errors, setErrors] = useState<{ phone?: string; name?: string }>({});
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const dirty = phone !== '' || name !== '' || scopeKey(scope) !== scopeKey(NO_SCOPE);
+  const dirty = phone !== '' || name !== '';
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -258,7 +171,7 @@ function InviteDialog({
     const who = name.trim();
     let code: string | null;
     try {
-      ({ code } = await inviteMember({ phone, role, name: who, scope }));
+      ({ code } = await inviteMember({ phone, role, name: who }));
     } catch (error) {
       setBusy(false);
       onFailure(error);
@@ -317,11 +230,6 @@ function InviteDialog({
         <Field id={`${id}-role`} label={t('staff.role', 'الدور')} hint={roleDescription(role)}>
           <RoleSelect id={`${id}-role`} value={role} onChange={setRole} />
         </Field>
-        {role === 'owner' ? (
-          <p className="text-sm text-ink-muted">{t('staff.divisions.owner', 'المالك يرى كل الوحدات دائماً.')}</p>
-        ) : (
-          <ScopeChecks options={options} selected={scope} onChange={setScope} />
-        )}
         {failed ? <Notice tone="danger" title={failed.title}>{failed.detail}</Notice> : null}
       </form>
     </Dialog>
@@ -373,7 +281,6 @@ function ActionsDialog({ member, selfUserId, onClose, onPick }: { member: StaffM
   const labels: Record<MemberAction, string> = {
     reissue: t('staff.action.code', 'رمز جديد'),
     role: t('staff.action.role', 'غيّر الدور'),
-    scopes: t('staff.action.scopes', 'غيّر الوحدات'),
     archive: t('staff.action.archive', 'أرشفة'),
   };
   const self = member.userId === selfUserId;
@@ -393,8 +300,6 @@ function ActionsDialog({ member, selfUserId, onClose, onPick }: { member: StaffM
 
 function EditDialog({
   member,
-  kind,
-  options,
   self,
   onClose,
   onSaved,
@@ -402,8 +307,6 @@ function EditDialog({
   onGone,
 }: {
   member: StaffMember;
-  kind: 'role' | 'scopes';
-  options: ScopeOptions;
   self: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -413,18 +316,16 @@ function EditDialog({
 }) {
   const id = useId();
   const [role, setRole] = useState<Role>(member.role);
-  const [scope, setScope] = useState<ScopeChoice>({ divisionIds: member.divisionIds, siteIds: member.siteIds, warehouseIds: member.warehouseIds });
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const dirty = kind === 'role' ? role !== member.role : scopeKey(scope) !== scopeKey(member);
+  const dirty = role !== member.role;
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setFailure(null);
     try {
-      if (kind === 'role') await members.setMemberRole(member.id, role);
-      else await scopes.setMemberScopesV2(member.id, scope.divisionIds, scope.siteIds, scope.warehouseIds);
+      await members.setMemberRole(member.id, role);
       onSaved();
     } catch (error) {
       if (error instanceof RejectedError && error.code === 'member_not_found') {
@@ -446,7 +347,7 @@ function EditDialog({
       onClose={onClose}
       dirty={dirty}
       locked={busy}
-      title={kind === 'role' ? t('staff.role.title', 'دور {name}', { name: member.displayName }) : t('staff.scopes.title', 'وحدات {name}', { name: member.displayName })}
+      title={t('staff.role.title', 'دور {name}', { name: member.displayName })}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
@@ -459,14 +360,10 @@ function EditDialog({
       }
     >
       <form id={formId} className="flex flex-col gap-4" onSubmit={(event) => void save(event)} noValidate>
-        {kind === 'role' ? (
-          <Field id={`${id}-role`} label={t('staff.role', 'الدور')} hint={roleDescription(role)}>
-            <RoleSelect id={`${id}-role`} value={role} onChange={setRole} />
-          </Field>
-        ) : (
-          <ScopeChecks options={options} selected={scope} onChange={setScope} />
-        )}
-        {kind === 'role' && self && role !== 'owner' ? (
+        <Field id={`${id}-role`} label={t('staff.role', 'الدور')} hint={roleDescription(role)}>
+          <RoleSelect id={`${id}-role`} value={role} onChange={setRole} />
+        </Field>
+        {self && role !== 'owner' ? (
           <Notice tone="warning" title={t('staff.role.self.title', 'تغيّر دورك أنت')}>
             {t('staff.role.self', 'تصبح «{role}» فور الحفظ، ولا تدير الموظفين بعدها.', { role: roleLabel(role) })}
           </Notice>
@@ -477,15 +374,10 @@ function EditDialog({
   );
 }
 
-/** خيارات المنتقي من قائمة الموظفين (تنحفظ ويّا النافذة لمّا تنفتح، فتحديث القائمة بالخلفية ما يطويها). */
-const optionsOf = (data: { divisions: readonly DivisionRef[] } | null, targets: ScopeTargets | null): ScopeOptions => ({ divisions: data?.divisions ?? [], sites: targets?.sites ?? [], warehouses: targets?.warehouses ?? [] });
-
 export default function StaffPage() {
   const state = useSession();
   const workspace = state.status === 'ready' ? state.workspace : null;
   const staff = useLoad(members.loadStaff, workspace ? `${workspace.userId}:${workspace.orgId}` : 'none');
-  // مواقع المنشأة ومخازنها لمنتقي النطاق والجدول (ملف كسول بحزمة الشاشة، مو مسار الجلسة).
-  const targets = useLoad(scopes.loadScopeTargets, workspace ? `${workspace.userId}:${workspace.orgId}` : 'none');
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busy, setBusy] = useState(false);
   const owner = workspace ? can(workspace.role, 'members.manage') : false;
@@ -541,12 +433,12 @@ export default function StaffPage() {
       title={t('staff.title', 'الموظفون')}
       subtitle={t('staff.subtitle', 'الدعوة برقم الهاتف، والموظف يقبلها برمز تسلّمه له بيدك.')}
       actions={
-        owner && staff.data && targets.data ? (
+        owner && staff.data ? (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" icon={<RefreshCw aria-hidden="true" className="size-4" />} onClick={staff.retry} data-action="refresh-staff">
               {t('staff.refresh', 'حدّث القائمة')}
             </Button>
-            <Button icon={<UserPlus aria-hidden="true" className="size-4" />} onClick={() => setDialog({ kind: 'invite', options: optionsOf(staff.data, targets.data) })} data-action="invite-member">
+            <Button icon={<UserPlus aria-hidden="true" className="size-4" />} onClick={() => setDialog({ kind: 'invite' })} data-action="invite-member">
               {t('staff.invite', 'ادعُ موظفاً')}
             </Button>
           </div>
@@ -580,27 +472,14 @@ export default function StaffPage() {
   return (
     <div className="flex flex-col gap-4">
       {header}
-      {staff.error || targets.error ? (
-        <LoadFailed
-          what={t('staff.what', 'قائمة الموظفين')}
-          error={staff.error ?? targets.error}
-          onRetry={() => {
-            staff.retry();
-            targets.retry();
-          }}
-        />
-      ) : !staff.data || !targets.data ? (
+      {staff.error ? (
+        <LoadFailed what={t('staff.what', 'قائمة الموظفين')} error={staff.error} onRetry={staff.retry} />
+      ) : !staff.data ? (
         <p role="status" className="py-6 text-center text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : (
-        <StaffTable
-          rows={staff.data.members}
-          divisions={staff.data.divisions}
-          places={targets.data ?? undefined}
-          selfUserId={selfUserId}
-          onOpen={owner ? (member) => setDialog({ kind: 'actions', member, options: optionsOf(staff.data, targets.data) }) : undefined}
-        />
+        <StaffTable rows={staff.data.members} selfUserId={selfUserId} onOpen={owner ? (member) => setDialog({ kind: 'actions', member }) : undefined} />
       )}
 
       {dialog?.kind === 'actions' ? (
@@ -608,14 +487,11 @@ export default function StaffPage() {
           member={dialog.member}
           selfUserId={selfUserId}
           onClose={() => setDialog(null)}
-          onPick={(kind) =>
-            setDialog(kind === 'role' || kind === 'scopes' ? { kind, member: dialog.member, options: dialog.options } : { kind, member: dialog.member })
-          }
+          onPick={(kind) => setDialog({ kind, member: dialog.member })}
         />
       ) : null}
       {dialog?.kind === 'invite' ? (
         <InviteDialog
-          options={dialog.options}
           onClose={() => setDialog(null)}
           onFailure={afterFailure}
           onInvited={(name, code) => {
@@ -625,11 +501,9 @@ export default function StaffPage() {
         />
       ) : null}
       {dialog?.kind === 'code' ? <CodeDialog name={dialog.name} code={dialog.code} onClose={() => setDialog(null)} /> : null}
-      {dialog?.kind === 'role' || dialog?.kind === 'scopes' ? (
+      {dialog?.kind === 'role' ? (
         <EditDialog
           member={dialog.member}
-          kind={dialog.kind}
-          options={dialog.options}
           self={dialog.member.userId === selfUserId}
           onClose={() => setDialog(null)}
           onFailure={afterFailure}

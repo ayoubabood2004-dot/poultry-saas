@@ -199,7 +199,6 @@ const VERSIONS = [
   { id: 'v-2', version_no: 2, status: 'draft', basis_kg: null, materials_only: true, activated_at: null, version: 2 },
 ];
 const DENSITY_TEXT = '«زيت» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
-const DENSITY_OTHERS = '«زيت» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
 // الخلطة موادّ بلا كميات (0025): المسوّدة السليمة «جاهزة» بعدد موادّها.
 const READY = 'الخلطة جاهزة للتفعيل: 2 من المواد.';
 /** سطر مسوّدة موادّ بلا كميات (0025). */
@@ -469,15 +468,16 @@ export default async function (t) {
       const server = journeyServer(m);
       const calls = fresh(ACCOUNTANT, server.handlers);
       await mount(`/mill/recipe/r-1?version=v-2`);
-      t.same([server.state.reads, densityBlock()], [['v-2'], DENSITY_OTHERS], 'W61 المحاسب: الرابط بنسخته يفتح المسوّدة، والجملة «يكتبها المالك أو المدير من «المواد»»');
-      t.same([byAction('write-density').length, byAction('open-item-card').length], [0, 0], 'W61 ولا رابط يدلّه على فعل ليس له');
+      // 0034 («الكلّ مثل المالك»): المحاسب والأمين يعدّلان المواد، فالجملة والرابط والنافذة لهما كالمدير.
+      t.same([server.state.reads, densityBlock()], [['v-2'], DENSITY_TEXT], 'W61 المحاسب: الرابط بنسخته يفتح المسوّدة، والجملة جملة المدير');
+      t.eq(byAction('write-density').length, 1, 'W61 ورابط «اكتب الكثافة»');
       await go(`/inventory/items?edit=${OIL}&back=${encodeURIComponent(BACK)}`);
-      t.same([where().startsWith('/inventory/items'), dialogForm(), named(calls, 'loadItem').length], [true, null, 0], 'W61 و«المواد» بالرابط تفتح له بلا نافذة ولا قراءة للمادّة');
+      t.same([where().startsWith('/inventory/items'), dialogForm() !== null, named(calls, 'loadItem').length], [true, true, 1], 'W61 و«المواد» بالرابط تفتح له نافذة «عدّل» بقراءة المادّة');
       await unmount();
       root = null;
       const keeperCalls = fresh(KEEPER, journeyServer(m).handlers);
       await mount(`/inventory/items?edit=${OIL}`);
-      t.same([dialogForm(), named(keeperCalls, 'loadItem').length, text().includes('المواد')], [null, 0, true], 'W61 والأمين كذلك: «المواد» بلا نافذة');
+      t.same([dialogForm() !== null, named(keeperCalls, 'loadItem').length, text().includes('المواد')], [true, 1, true], 'W61 والأمين كذلك: «المواد» بنافذة «عدّل»');
     });
     // «المخزن ببساطة» (2026-11-06): بطاقة المادّة القديمة صارت «دفتر المادّة والوجبات» على ‎/inventory/items/:id/details (والمسار بلا
     // /details ملفّ المادّة الجديد، وله «عدّل المادّة» برجوعه إليه: simple-purchase.test).
@@ -503,12 +503,12 @@ export default async function (t) {
       fresh(ACCOUNTANT, journeyServer(m).handlers);
       await mount(`/inventory/items/${OIL}/details`);
       t.ok(text().includes('دفتر المادّة والوجبات'), 'W61 ضابط: المحاسب يرى البطاقة');
-      t.eq(byAction('edit-item-card').length, 0, 'W61 والمحاسب (بلا stores.manage) بلا «عدّل المادّة»');
+      t.eq(byAction('edit-item-card').length, 1, 'W61 والمحاسب بـ«عدّل المادّة» (0034: stores.manage لكلّ عضو)');
       await unmount();
       root = null;
       fresh(KEEPER, journeyServer(m).handlers);
       await mount(`/inventory/items/${OIL}/details`);
-      t.same([byAction('buy-item').length, byAction('edit-item-card').length], [0, 0], 'W61 والأمين (لا يعدّل المواد) بلا «عدّل المادّة»، ولا «اشترِ» هنا: الشراء من ملفّ المادّة وحده');
+      t.same([byAction('buy-item').length, byAction('edit-item-card').length], [0, 1], 'W61 والأمين بـ«عدّل المادّة» (0034)، ولا «اشترِ» هنا: الشراء من ملفّ المادّة وحده');
       await unmount();
       root = null;
       fresh(MANAGER, journeyServer(m, { archived: true }).handlers);

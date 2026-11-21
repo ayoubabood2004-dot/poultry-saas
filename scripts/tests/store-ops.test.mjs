@@ -379,7 +379,7 @@ export default async function (t) {
     await step('K3-recipe-viewer', async () => {
       fresh({ status: 'ready', workspace: ws('viewer') }, { loadRecipe: () => m.parseRecipe(recipeJson()) }, noItems);
       await mount('/mill/recipe/r-1');
-      t.same([byAction('recipe-actions').length, byAction('delete-recipe').length, byAction('edit-recipe').length], [0, 0, 0], 'K3-recipe: من لا يفعّل الخلطات: بلا «عدّل» ولا «احذف»');
+      t.same([byAction('recipe-actions').length, byAction('delete-recipe').length, byAction('edit-recipe').length], [1, 1, 1], 'K3-recipe: المشاهد يفعّل الخلطات (0034): «عدّل» و«احذف»');
     });
 
     // ── K4: صفّ الأفعال و«احذف» للمستعملة──────────────────────────────────────────────────────────────────────────────────────

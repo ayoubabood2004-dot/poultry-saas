@@ -294,24 +294,26 @@ async function scenario(t, db) {
     t.same(stale.code, 'live_changed', 'فرق العدّ بشرط الحيّ الذي رأته الشاشة: live_changed');
   });
 
-  // ── الأدوار والنطاق (F:865) ──────────────────────────────────────────────────────────────────────────────
+  // ── الأدوار والنطاق (F:865) بعد 0034 («الكلّ مثل المالك بكلّ شيء»): صفوف النطاق لا تحجب والأدوار لا تمنع؛ ما ينجح لغير من كان يملكه يُجرَّب
+  //    بمعاملة ترجع، فما بعده كما كان ─────────────────────────────────────────────────────────────────────────────────────────────────────
   await section('الأدوار والنطاق', async () => {
     const T = id(901);
+    const dry = (user, sql, params) => call(db, user, sql, params, { commit: false });
     await save(U.worker, T, null, scale(siteA, TODAY, '7000', false, '6', [[id(902), h6, 100, 10, '7300']]));
     const done = await finish(U.worker, T, 1);
-    const otherSite = await save(U.siteWorker, uid(), null, scale(siteB, TODAY, '7000', false, '6', [[uid(), hB, 100, 10, '7300']]));
+    const otherSite = await dry(U.siteWorker, 'select public.save_weigh_ticket($1, $2, $3::jsonb)', [uid(), null, JSON.stringify(scale(siteB, TODAY, '7000', false, '6', [[uid(), hB, 100, 10, '7300']]))]);
     const ownSite = await save(U.siteWorker, uid(), null, scale(siteA, TODAY, '7000', false, '6', [[uid(), h6, 50, 5, '7150']]));
-    const keeper = await sell(U.storekeeper, { sale: uid(), ticket: T, version: 2, price: '2750.00' });
-    const worker = await sell(U.worker, { sale: uid(), ticket: T, version: 2, price: '2750.00' });
+    const keeper = await dry(U.storekeeper, SELL, sellArgs({ sale: uid(), ticket: T, version: 2, price: '2750.00' }));
+    const worker = await dry(U.worker, SELL, sellArgs({ sale: uid(), ticket: T, version: 2, price: '2750.00' }));
     const posted = await sell(U.accountant, { sale: id(903), ticket: T, version: 2, price: '2750.00' });
-    const accountantVoid = await call(db, U.accountant, 'select public.void_bird_sale($1, $2, $3)', [id(903), 'وزن خاطئ', uid()]);
+    const accountantVoid = await dry(U.accountant, 'select public.void_bird_sale($1, $2, $3)', [id(903), 'وزن خاطئ', uid()]);
     const ticketVoid = await call(db, U.manager, 'select public.void_weigh_ticket($1, $2, $3)', [T, 'وزن خاطئ', uid()]);
     const keeperRead = await call(db, U.storekeeper, 'select public.weigh_ticket($1)', [T]);
     const workerSale = await call(db, U.worker, 'select public.bird_sale_detail($1)', [id(903)]);
     t.same(
-      [done.ok, otherSite.code, ownSite.ok, keeper.code, worker.code, posted.ok, accountantVoid.code, ticketVoid.code, keeperRead.code, workerSale.code],
-      [true, 'out_of_scope', true, 'forbidden', 'forbidden', true, 'forbidden', 'ticket_invoiced', 'out_of_scope', 'forbidden'],
-      'F:865: عامل حقل أ لا يكتب تذكرة في ب ويكتب في حقله، والأمين وعامل القاعة لا يصدران فاتورة، والمحاسب يصدرها ولا يلغيها، والتذكرة المفوترة لا تُلغى، والأمين بلا الحقل لا يقرأ التذكرة، وعامل القاعة لا يقرأ الفاتورة',
+      [done.ok, otherSite.ok, ownSite.ok, keeper.ok, worker.ok, posted.ok, accountantVoid.ok, ticketVoid.code, keeperRead.ok, workerSale.ok],
+      [true, true, true, true, true, true, true, 'ticket_invoiced', true, true],
+      'F:865: عامل حقل أ يكتب تذكرة في ب وفي حقله، والأمين وعامل القاعة يصدران الفاتورة، والمحاسب يصدرها ويلغيها، والتذكرة المفوترة لا تُلغى، والأمين يقرأ التذكرة، وعامل القاعة يقرأ الفاتورة',
     );
   });
 

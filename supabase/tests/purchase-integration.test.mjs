@@ -318,10 +318,12 @@ async function scenario(t, db) {
     t.eq(JSON.parse(lastSent('record_purchase').body).p_qty, '12.000', 'كمية القطعة تُرسل بثلاث مراتب «12.000» وتقبلها الدالّة عدداً صحيحاً');
     const half = await outcome(repo.recordPurchase(ids(), { ...bagInput, qty: 12500n, warehouseId: W.general }));
     t.eq(half.code, 'pieces_not_whole', 'نصف قطعة من الشاشة («12.500»): pieces_not_whole برمزه');
-    // الأمين بنطاق المعمل: مخزن المواد وحده في نطاقه فيُختار وحده؛ 5 قطع × 1,000 = 5,000.
+    // الأمين بصفّ نطاق المعمل القديم: منذ 0034 يرى المخزنين كالمدير، فبلا اختيار store_required، وباختيار مخزن المواد 5 قطع × 1,000 = 5,000.
     actAs(U.storekeeper);
-    const bagKeep = await outcome(repo.recordPurchase(ids(), { ...base, itemId: BAGS, qty: 5000n, unitPrice: 100000n }));
-    t.same(bagKeep.ok ? [bagKeep.value.warehouseId, bagKeep.value.money?.lineTotal] : [bagKeep.code], [W.raw, 500000n], 'الأمين بنطاق المعمل: الأكياس إلى مخزن المواد وحده بلا سؤال');
+    const keeperNeeds = await outcome(repo.recordPurchase(ids(), { ...base, itemId: BAGS, qty: 5000n, unitPrice: 100000n }));
+    const bagKeep = await outcome(repo.recordPurchase(ids(), { ...base, itemId: BAGS, qty: 5000n, unitPrice: 100000n, warehouseId: W.raw }));
+    t.same([keeperNeeds.code, ...(bagKeep.ok ? [bagKeep.value.warehouseId, bagKeep.value.money?.lineTotal] : [bagKeep.code])], ['store_required', W.raw, 500000n],
+      'الأمين بصفّ نطاق المعمل القديم: الأكياس بمخزنين store_required كالمدير (0034)، وباختيار مخزن المواد تُحفظ');
 
     // ─── ٥) اللتر بكثافته ───────────────────────────────────────────────────────────────────────────────────────────
     // 200.5 لتر × 1,250.25 = 250,675.125 ← 250,675 دينار، وسعر البيع 1,400.75.
@@ -373,8 +375,7 @@ async function scenario(t, db) {
       files[label] = loaded.value;
     }
     const withMoney = (rows) => rows.map(([lineId, on, party, qty, payment, money]) => [lineId, on, party, qty, payment, money]);
-    const noMoney = (rows) => rows.map(([lineId, on, party, qty, payment]) => [lineId, on, party, qty, payment, null]);
-    for (const label of ['owner', 'manager', 'accountant', 'storekeeper']) {
+    for (const label of ['owner', 'manager', 'accountant', 'storekeeper', 'millOperator', 'hallWorker']) {
       t.same(
         fileShape(files[label]),
         { head: cornHead, money: cornMoney, rows: withMoney(FILE_ROWS), stores: [storeName[W.raw]] },
@@ -383,23 +384,18 @@ async function scenario(t, db) {
     }
     t.same(
       [files.storekeeper.canRecord, files.storekeeper.canEdit, files.storekeeper.cashAccounts, files.manager.canRecord, files.manager.canEdit, files.accountant.canRecord, files.accountant.canEdit],
-      [true, false, [{ id: BOX, name: 'الصندوق' }], true, true, true, false],
-      'الأمين: يسجّل ولا يعدّل المادّة، والصناديق تصله مع الملفّ؛ والمدير يسجّل ويعدّل؛ والمحاسب يسجّل ولا يعدّل',
+      [true, true, [{ id: BOX, name: 'الصندوق' }], true, true, true, true],
+      'الأمين والمحاسب يسجّلان ويعدّلان المادّة كالمدير (0034)، والصناديق تصل مع الملفّ',
     );
     t.same(
-      [fileShape(files.millOperator), files.millOperator.canRecord, files.millOperator.cashAccounts],
-      [{ head: cornHead, money: null, rows: noMoney(FILE_ROWS), stores: [storeName[W.raw]] }, false, []],
-      'parseItemFile(مشغّل المعمل، مقنَّع): الكميات والشراءات نفسها، وmoney غائب بالرأس وبكلّ صفّ (null بلا رمي)، ولا يسجّل',
+      [files.millOperator.canRecord, files.millOperator.cashAccounts, files.hallWorker.canRecord, files.hallWorker.cashAccounts],
+      [true, [{ id: BOX, name: 'الصندوق' }], true, [{ id: BOX, name: 'الصندوق' }]],
+      'parseItemFile(مشغّل المعمل وعامل القاعة): ملفّ المالك نفسه بماله (فوق)، ويسجّلان والصناديق لهما (0034)',
     );
-    t.same(
-      [fileShape(files.hallWorker), files.hallWorker.canRecord],
-      [{ head: [CORN, 'ذرة الدمج', 'raw', 'kg', null, false, TODAY, 0n, 0n, 0, false, false], money: null, rows: [], stores: [] }, false],
-      'parseItemFile(عامل القاعة، نطاقه وحدة اللحم): صفر موجود وصفر مشترى ولا صفوف، بلا مال',
-    );
-    // الجواب الخام للمقنَّع بلا أيّ مفتاح money بأيّ عمق (القناع، لا المحلّل، هو الذي يُخفي).
+    // الجواب الخام لمشغّل المعمل بمفاتيح money (لا قناع لعضو منذ 0034).
     actAs(U.millOperator);
     await repo.loadItemFile(CORN);
-    t.eq(/"money"/u.test(server.replies.at(-1).text), false, 'جواب item_file الخام لمشغّل المعمل بلا أيّ مفتاح money');
+    t.eq(/"money"/u.test(server.replies.at(-1).text), true, 'جواب item_file الخام لمشغّل المعمل بمفاتيح money (0034)');
 
     // ملفّ الزيت (الأمين): كثافة 0.92 ← 9,200 بأربع مراتب؛ 200.5 لتر بـ250,675 والمتوسّط 250,675 ÷ 200.5 = 1,250.2493… ← 1,250.25.
     actAs(U.storekeeper);
@@ -426,9 +422,9 @@ async function scenario(t, db) {
     actAs(U.storekeeper);
     const bagsKeeper = await outcome(repo.loadItemFile(BAGS));
     t.same(
-      bagsKeeper.ok ? [bagsKeeper.value.onHand, bagsKeeper.value.purchased, bagsKeeper.value.purchasesCount, bagsKeeper.value.money?.avgUnitPrice, fileShape(bagsKeeper.value).stores] : bagsKeeper.code,
-      [5000n, 5000n, 1, 100000n, [storeName[W.raw]]],
-      'parseItemFile(الأكياس، الأمين بنطاق المعمل): شراؤه وحده من مخزن المواد (العامّ خارج نطاقه)',
+      bagsKeeper.ok ? [bagsKeeper.value.onHand, bagsKeeper.value.purchased, bagsKeeper.value.purchasesCount, bagsKeeper.value.money?.avgUnitPrice, fileShape(bagsKeeper.value).stores.sort()] : bagsKeeper.code,
+      [17000n, 17000n, 2, 558824n, [storeName[W.raw], storeName[W.general]].sort()],
+      'parseItemFile(الأكياس، الأمين بصفّ نطاق المعمل القديم): الشراءان من المخزنين كالمدير (0034)',
     );
 
     // ─── ٨) بطاقات المواد بمحلّلها لكلّ دور ────────────────────────────────────────────────────────────────────────
@@ -439,15 +435,16 @@ async function scenario(t, db) {
     for (const [label, user, money, flags] of [
       ['owner', U.owner, true, [true, true]],
       ['manager', U.manager, true, [true, true]],
-      ['accountant', U.accountant, true, [true, false]],
+      ['accountant', U.accountant, true, [true, true]],
       ['storekeeper', U.storekeeper, true, [true, true]],
-      ['millOperator', U.millOperator, false, [false, false]],
+      ['millOperator', U.millOperator, true, [true, true]],
+      ['hallWorker', U.hallWorker, true, [true, true]],
     ]) {
       const loaded = await viaRepo(user, () => repo.loadItemsOverview());
       t.ok(loaded.ok, `loadItemsOverview(${label}) يقرأ جواب items_overview الحقيقي بلا رمي (${loaded.code ?? ''} ${loaded.error?.message ?? ''})`);
       if (!loaded.ok) continue;
       const v = loaded.value;
-      const bagsQty = label === 'storekeeper' || label === 'millOperator' ? 5000n : 17000n;
+      const bagsQty = 17000n;
       t.same(
         [v.today, v.canRecord, v.canAddItem, v.items.map((x) => x.name), cardOf(v, CORN), cardOf(v, OIL), cardOf(v, BAGS)],
         [
@@ -459,18 +456,12 @@ async function scenario(t, db) {
         `parseItemsOverview(${label}): البطاقات الثلاث بالاسم، وأرقام الملفّ نفسها (الملغى خارجها)${money ? ' ومالها' : ' بلا مال'}`,
       );
     }
-    const hall = await viaRepo(U.hallWorker, () => repo.loadItemsOverview());
-    t.same(
-      hall.ok ? [hall.value.canRecord, hall.value.canAddItem, cardOf(hall.value, CORN), cardOf(hall.value, OIL), cardOf(hall.value, BAGS)] : hall.code,
-      [false, false, ['raw', 'kg', 0n, 0n, null, null], ['raw', 'L', 0n, 0n, null, null], ['packaging', 'pc', 0n, 0n, null, null]],
-      'parseItemsOverview(عامل القاعة): المواد بأسمائها وصفر بنطاقه، وlast_purchase_on null، بلا مال',
-    );
 
-    // ─── ٩) من لا يسجّل الشراء: الرفض برمزه للشاشة ───────────────────────────────────────────────────────────────────
+    // ─── ٩) كلّ عضو يسجّل الشراء من الشاشة (0034؛ كان مشغّل المعمل وعامل القاعة forbidden) ────────────────────────────────────────
     for (const [label, user] of [['millOperator', U.millOperator], ['hallWorker', U.hallWorker]]) {
       actAs(user);
-      const refused = await outcome(repo.recordPurchase(ids(), { ...base, itemId: CORN, qty: 1000n, unitPrice: 100n }));
-      t.eq(refused.code, 'forbidden', `recordPurchase(${label}) من الشاشة: forbidden (RejectedError) لا رمي آخر`);
+      const bought = await outcome(repo.recordPurchase(ids(), { ...base, itemId: CORN, qty: 1000n, unitPrice: 100n }));
+      t.same([bought.ok, bought.value?.warehouseId], [true, W.raw], `recordPurchase(${label}) من الشاشة: يُحفظ في مخزن المواد (0034)`);
     }
 
     // ─── ١٠) ضابط المحلّلات: فرق مفتاح أو مرتبة في الجواب الحقيقي يرمي (فالقراءات النظيفة أعلاه ليست قبولاً لأيّ شيء) ───────────────────

@@ -99,7 +99,6 @@ async function scenario(t, db) {
   await postedOpening(db, U.owner, W.farm, day(-40), [{ item: I.x, qty: 5000, value: '4500000.00' }, { item: I.y, qty: 5000, value: '4500000.00' }]);
   const trader = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الإصلاح', true) returning id");
   const box = await one(U.owner, "insert into public.cash_accounts (name, kind) values ('صندوق الإصلاح', 'cash') returning id");
-  const feedName = (await admin('select name from public.warehouses where id = $1', [W.feed]))[0].name;
 
   // ── الأدوات ────────────────────────────────────────────────────────────────────────────────────────────
   const hall = (siteId, name) => one(U.owner, 'insert into public.halls (site_id, name) values ($1, $2) returning id', [siteId, name]);
@@ -182,8 +181,9 @@ async function scenario(t, db) {
   const cardPair = (card) => [card.can.reopen, card.reopen_why];
 
   // ── C1/M1: إعادة الفتح بمدير نطاقه حقل أ تلغي إرجاعاً في «رصيد العلف» خارج نطاقه ─────────────────────────────────────────────────
-  // FR1 (C1): FI 300 كغم من «رصيد العلف» (210,000.00)، والإغلاق يرجع 100 إليه (70,000.00) بالمالك: رصيده 20,000 − 300 + 100 = 19,800. المدير المحصور بحقل أ
-  // يرى الفوج ولا يرى المخزن (in_scope_wh)، فإعادة الفتح out_of_scope كإلغاء الصرف من المخزن نفسه، ولا يتغيّر الرصيد ولا المستند؛ وبطاقته لا تعده بها.
+  // FR1 (C1): FI 300 كغم من «رصيد العلف» (210,000.00)، والإغلاق يرجع 100 إليه (70,000.00) بالمالك: رصيده 20,000 − 300 + 100 = 19,800. منذ 0034
+  // («الكلّ مثل المالك») المدير بصفّ نطاق حقل أ يرى المخزن أيضاً: إلغاء الصرف يصل لقاعدة الفوج المغلق (flock_closed)، وإعادة الفتح تنجح (بمعاملة ترجع،
+  // فالرصيد والمستند كما هما)، وبطاقته تعده بها كبطاقة المالك.
   const h1 = await hall(siteA, 'قاعة النطاق');
   const F1 = await place(h1, day(-10), 100);
   await section('C1/M1: إعادة الفتح بنطاق مخزن الإرجاع', async () => {
@@ -191,14 +191,13 @@ async function scenario(t, db) {
     const closed = await closeOk(F1, TODAY, { reason: 'فرق عند الإغلاق', lines: [back(I.x, '100', W.feed)] }, U.owner);
     const before = await xBalance();
     const scopes = [await one(U.scopedMgr, 'select public.in_scope_site($1)', [siteA]), await one(U.scopedMgr, 'select public.in_scope_wh($1)', [W.feed])];
-    const voidFi = await call(db, U.scopedMgr, 'select public.void_flock_issue($1, $2, $3)', [fi.id, 'خطأ', uid()]);
+    const voidFi = await call(db, U.scopedMgr, 'select public.void_flock_issue($1, $2, $3)', [fi.id, 'خطأ', uid()], { commit: false });
     cards.c1 = { scoped: cardPair(await cardOf(F1, U.scopedMgr)), owner: cardPair(await cardOf(F1, U.owner)) };
-    const reopened = await call(db, U.scopedMgr, REOPEN, [closed.id, 'أُغلقت خطأً', uid()]);
+    const reopened = await call(db, U.scopedMgr, REOPEN, [closed.id, 'أُغلقت خطأً', uid()], { commit: false });
     const fr = (await admin('select status from public.flock_returns where close_id = $1', [closed.id]))[0].status;
-    same([scopes, voidFi.code, reopened.ok ? 'ok' : reopened.code, reopened.hint, before, await xBalance(), fr, cards.c1],
-      [[true, false], 'out_of_scope', 'out_of_scope', `المخزن «${feedName}» خارج نطاقك، فلا تسجّل فيه ولا تلغي منه.`, '19800', '19800', 'posted',
-        { scoped: [false, 'out_of_scope'], owner: [true, null] }],
-      'C1/M1: مدير حقل أ لا يُلغي الصرف من «رصيد العلف» ولا يعيد فتح دورة أرجعت إليه (out_of_scope قبل أن يُسمّى شيء)، فالرصيد 19,800 والمستند مرحَّل؛ وبطاقته لا تعده بإعادة الفتح، وبطاقة المالك تعده');
+    same([scopes, voidFi.code, reopened.ok ? 'ok' : reopened.code, before, await xBalance(), fr, cards.c1],
+      [[true, true], 'flock_closed', 'ok', '19800', '19800', 'posted', { scoped: [true, null], owner: [true, null] }],
+      'C1/M1: المدير بصفّ نطاق حقل أ يرى «رصيد العلف» (0034)، فإلغاء الصرف يصل لقاعدة الفوج المغلق، وإعادة الفتح تنجح، وبطاقته تعده كبطاقة المالك');
     samples.refusal_reopen_out_of_scope = { code: reopened.code, hint: reopened.hint };
   });
 
@@ -308,9 +307,9 @@ async function scenario(t, db) {
     same([/^[0-9a-f]{32}$/u.test(shown.plan ?? ''), worker.plan === shown.plan, JSON.stringify(worker).includes('"money"'), shown.items.map((i) => [i.pool_qty, i.money?.pool_value]),
       stale.code, stale.hint, forged.code, missing.code, fresh.plan !== shown.plan, fresh.items.map((i) => [i.pool_qty, i.money?.pool_value]), closed.ok,
       closed.value?.lines?.map((l) => l.money?.value)],
-    [true, true, false, [['1000', '750000.00']], 'pool_changed', 'تغيّر ما نزل للقاعة أو قيمته منذ فتحت الشاشة (صرف أو إلغاء أو إرجاع). حدّث الشاشة وراجع الباقي.',
+    [true, true, true, [['1000', '750000.00']], 'pool_changed', 'تغيّر ما نزل للقاعة أو قيمته منذ فتحت الشاشة (صرف أو إلغاء أو إرجاع). حدّث الشاشة وراجع الباقي.',
       'pool_changed', 'pool_changed', true, [['1000', '900000.00']], true, ['450000.00']],
-    'M4: البصمة نصّ معمًّى واحد لكلّ دور (عامل القاعة بلا مال)؛ والإغلاق بنموذج تغيّرت قيمته والكمية كما هي pool_changed، وبصمة بلا سرّ وبلا بصمة كذلك؛ والنموذج الجديد يُغلق بقيمته');
+    'M4: البصمة نصّ معمًّى واحد لكلّ دور (وعامل القاعة بماله منذ 0034)؛ والإغلاق بنموذج تغيّرت قيمته والكمية كما هي pool_changed، وبصمة بلا سرّ وبلا بصمة كذلك؛ والنموذج الجديد يُغلق بقيمته');
     samples.refusal_pool_changed_value = { code: stale.code, hint: stale.hint };
   });
 
@@ -362,15 +361,15 @@ async function scenario(t, db) {
       'O3: تقرير الدورة يعدّد فروق العدّ الحيّة بيومها وعددها وسببها ومصدرها (يدويّ ثمّ الإغلاق)، والتقرير اليوميّ يعرض فرق يومه بسببه');
   });
 
-  // ── O6: البطاقة لا تعد بإعادة فتح يرفضها reopen_flock حتماً: فوج جديد في القاعة (A بعد تسكين B) ومعه النقل المطبَّق، والقاعة المؤرشفة، والمخزن خارج
-  // النطاق، والراجع المسحوب (الأقسام السابقة)؛ وما يُعاد (O1 قبل إعادته) تعده ─────────────────────────────────────────────────────────────
+  // ── O6: البطاقة لا تعد بإعادة فتح يرفضها reopen_flock حتماً: فوج جديد في القاعة (A بعد تسكين B) ومعه النقل المطبَّق، والقاعة المؤرشفة، والراجع
+  // المسحوب (الأقسام السابقة)؛ وما يُعاد (O1 قبل إعادته، وصاحب صفّ النطاق منذ 0034) تعده ─────────────────────────────────────────────────────
   await section('O6: إمكان إعادة الفتح', async () => {
     const card = await cardOf(A.flock);
     samples.flock_sales_reopen_blocked = card;
     const reopened = await call(db, U.manager, REOPEN, [A.close.id, 'خطأ', uid()]);
     same([cardPair(card), reopened.code, cards.c1?.scoped, cards.m2, cards.lot, cards.o1],
-      [[false, 'hall_reused'], 'hall_reused', [false, 'out_of_scope'], [false, 'hall_archived'], [false, 'lot_consumed'], [true, null]],
-      'O6: can.reopen كاذب حين يرفض reopen_flock حتماً (فوج جديد في القاعة، ومخزن خارج النطاق، وقاعة مؤرشفة، وراجع مسحوب) وreopen_why يقول لماذا، وصادق لما يُعاد');
+      [[false, 'hall_reused'], 'hall_reused', [true, null], [false, 'hall_archived'], [false, 'lot_consumed'], [true, null]],
+      'O6: can.reopen كاذب حين يرفض reopen_flock حتماً (فوج جديد في القاعة، وقاعة مؤرشفة، وراجع مسحوب) وreopen_why يقول لماذا، وصادق لما يُعاد (ولصاحب صفّ النطاق)');
   });
 
   // ── O7: بعد بيع الكلّ يبدأ اليوم بلا طير حيّ: لا جولة ولا علف ينتظره، فمعامل التحويل يُحسب ─────────────────────────────────────────────
@@ -468,7 +467,7 @@ async function scenario(t, db) {
     await one(U.siteWorker, VOID_TICKET, [id(1103), null, uid()]);
   });
 
-  // ── C4: عامل حقل أ يحفظ على تذكرة حقل ب (مكتملة ومسوّدة): out_of_scope قبل قفلها وقبل أن تُسمّى ─────────────────────────────────────────
+  // ── C4: عامل بصفّ نطاق حقل أ يحفظ على تذكرة حقل ب (مكتملة ومسوّدة): منذ 0034 يصل لقواعد التذكرة نفسها (المكتملة لا تُعدَّل، وحقلها ثابت) ─────────
   const hB1 = await hall(siteB, 'قاعة ب1');
   await place(hB1, day(-20), 1000);
   const hA = await hall(siteA, 'قاعة أ-تذكرة');
@@ -481,12 +480,12 @@ async function scenario(t, db) {
     const payload = scale(siteA, TODAY, [[uid(), hA, 10, '7020']]);
     const onDone = await save(U.siteWorker, TBdone.id, TBdone.version, payload);
     const onDraft = await save(U.siteWorker, draftB, 1, payload);
-    same([onDone.code, onDone.hint.includes(TBdone.no), onDraft.code, onDraft.hint], ['out_of_scope', false, 'out_of_scope', 'حقل هذه التذكرة خارج نطاقك. اطلب من مالك المنشأة إضافته إلى نطاقك.'],
-      'C4: الحفظ على تذكرة حقل آخر (مكتملة أو مسوّدة) out_of_scope بلا رقمها، لا ticket_not_draft ولا site_fixed');
+    same([onDone.code, onDone.hint.includes(TBdone.no), onDraft.code, onDraft.hint], ['ticket_not_draft', true, 'site_fixed', 'حقل التذكرة لا يتغيّر بعد إنشائها. أنشئ تذكرة جديدة.'],
+      'C4: الحفظ على تذكرة حقل آخر: المكتملة ticket_not_draft برقمها، والمسوّدة site_fixed (صفّ النطاق لا يحجب منذ 0034)');
     await one(U.manager, VOID_TICKET, [draftB, null, uid()]);
   });
 
-  // ── C5 وO4 (الدفتر خارج النطاق): السعر المقترح من حقول نطاق القارئ وحدها، والمحاسب بنطاق حقل لا يُعرض عليه ترحيل يرفضه الدفتر ───────────────────
+  // ── C5 وO4 بعد 0034: المحاسب بصفّ نطاق حقل يرى السعر المقترح من كلّ الحقول، ويُعرض عليه الترحيل وينجح (بمعاملة ترجع) كالمحاسب بلا نطاق ─────────
   const hA2 = await hall(siteA, 'قاعة أ-سعر');
   await place(hA2, day(-10), 100);
   await section('C5: السعر المقترح بالنطاق', async () => {
@@ -497,11 +496,11 @@ async function scenario(t, db) {
     const full = await one(U.accountant, 'select public.bird_sale_form($1)', [TA.id]);
     const inScope = (await admin(`select unit_price::text as p from public.bird_sales where org_id = $1 and site_id = $2 and status = 'posted'
       order by sold_on desc, posted_at desc, id limit 1`, [org, siteA]))[0]?.p ?? null;
-    const post = await call(db, U.scopedAcc, SELL, sellArgs(TA));
-    same([scoped.suggested_price === inScope, scoped.suggested_price !== '9876.54', full.suggested_price, [scoped.invoiceable, scoped.why, scoped.can_post],
-      [full.invoiceable, full.why, full.can_post], post.code],
-    [true, true, '9876.54', [false, 'out_of_scope', false], [true, null, true], 'out_of_scope'],
-    'C5: السعر المقترح لمحاسب حقل أ من فواتير حقله وحدها (لا 9,876.54 من حقل ب)، والمحاسب بلا نطاق يراه؛ وO4: دفتر الوحدة خارج نطاقه فلا يُعرض عليه الترحيل (why out_of_scope) والترحيل يرفضه');
+    const post = await call(db, U.scopedAcc, SELL, sellArgs(TA), { commit: false });
+    same([inScope !== '9876.54', scoped.suggested_price, full.suggested_price, [scoped.invoiceable, scoped.why, scoped.can_post],
+      [full.invoiceable, full.why, full.can_post], post.ok],
+    [true, '9876.54', '9876.54', [true, null, true], [true, null, true], true],
+    'C5: السعر المقترح لصاحب صفّ نطاق حقل أ كالمحاسب بلا نطاق (9,876.54 من حقل ب)؛ وO4: الترحيل يُعرض عليه وينجح');
     await one(U.manager, VOID_TICKET, [TA.id, 'تذكرة فحص', uid()]);
   });
 

@@ -716,7 +716,7 @@ export default async function (t) {
     await step('C10 roles', async () => {
       fresh(sessionOf('viewer'), OK, pickers);
       await mount('/sales/new');
-      t.same([text().includes('دورك لا يبيع'), log.length], [true, 0], 'C10 المشاهد لا يبيع: جملة بلا أيّ قراءة');
+      t.same([text().includes('دورك لا يبيع'), log.length > 0], [false, true], 'C10 المشاهد يبيع (0034: sale.record لكلّ عضو): بلا جملة المنع، والقراءة تبدأ');
     });
 
     // ── D: الفاتورة ────────────────────────────────────────────────────────────────────────────────────────────────

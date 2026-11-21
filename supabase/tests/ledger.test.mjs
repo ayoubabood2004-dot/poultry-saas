@@ -90,10 +90,12 @@ async function scenario(t, db) {
   const rolled = await race({ user: U.manager, sql, params: rolledArgs }, { user: U.manager, sql, params: rolledArgs }, { commitFirst: false });
   t.same([rolled.state, rolled.b.ok], ['blocked', true], 'C4: الأولى رجعت ← الثانية بنفس المرجع كملت هي');
   t.eq((await db.admin('select count(*)::int as n from public.party_entries where id = $1', [rolledArgs[0]])).rows[0].n, 1, 'C4: قيد واحد بعد رجوع الأولى');
-  // الإخفاء (E2): المال داخل money ينشال بأي عمق لمن ما يرى الكلف، ويبقى لمن يراها.
+  // الإخفاء (E2): المال داخل money ينشال بأي عمق لمن ما يرى الكلف (من ليس عضواً منذ 0034)، ويبقى لمن يراها (كلّ عضو).
   const sample = { id: 'x', money: { amount: '1' }, lines: [{ qty: '2', money: { value: '3' } }], nested: { inner: { money: { a: 1 }, keep: true } } };
   const masked = await db.asOwner((q) => q('select private.mask($1::jsonb) as v', [JSON.stringify(sample)]), U.storekeeper);
-  t.eq(canon(masked.rows[0].v), canon({ id: 'x', lines: [{ qty: '2' }], nested: { inner: { keep: true } } }), 'mask: الأمين ما يشوف أي money بأي عمق');
+  t.eq(canon(masked.rows[0].v), canon(sample), 'mask: الأمين يشوف money بكلّ عمق (0034: الكلفة لكلّ عضو)');
+  const outsider = await db.asOwner((q) => q('select private.mask($1::jsonb) as v', [JSON.stringify(sample)]), uid());
+  t.eq(canon(outsider.rows[0].v), canon({ id: 'x', lines: [{ qty: '2' }], nested: { inner: { keep: true } } }), 'mask: من ليس عضواً ما يشوف أي money بأي عمق');
   const visible = await db.asOwner((q) => q('select private.mask($1::jsonb) as v', [JSON.stringify(sample)]), U.accountant);
   t.eq(canon(visible.rows[0].v), canon(sample), 'ضابط: المحاسب يشوف النتيجة كاملة');
 
@@ -131,9 +133,8 @@ async function scenario(t, db) {
   t.same([c8Race.state, c8Race.a.ok, c8Race.b.ok, c8Race.b.error ?? ''], ['blocked', true, true, ''], 'C8: إلغاء القبض والدفع بنفس اللحظة: الثاني ينتظر، والاثنين بلا 40P01');
   t.eq(await balance(db, c8, B.general), '100000', 'C8: الرصيد الصحيح بعدهما («عليه 100,000»: الدفع وحده بعد إلغاء القبض)');
 
-  // ── تسرّب الحسابات (FOUNDATION ٨٦١، §2.8): الأدوار بلا حسابات صفر صفوف، والتقارير forbidden، والجهات لمن يرى المبيعات ─────
+  // ── الحسابات لكلّ عضو (FOUNDATION ٨٦١، §2.8؛ ثمّ 0034 «الكلّ مثل المالك»): كلّ دور يقرأ ما يقرؤه المحاسب صفّاً صفّاً، والتقارير تنجح ─────
   const LEAK = ['storekeeper', 'viewer', 'mill_operator', 'hatchery_operator', 'hall_worker'];
-  const SALES = new Set(['storekeeper', 'viewer']);
   const reports = [
     ['report_accounts_summary', 'select public.report_accounts_summary($1, $2)', ['2026-01-01', TODAY]],
     ['report_party_balances', "select public.report_party_balances($1, $2, null, true, 'balance', null, null, 50)", ['2026-01-01', TODAY]],
@@ -156,11 +157,7 @@ async function scenario(t, db) {
     for (const [name, text, params] of reports) leakSeen[role].reports.push(`${name}:${shown(await call(db, U[role], text, params, { commit: false }))}`);
   }
   for (const role of LEAK) {
-    t.same(
-      leakSeen[role],
-      { entries: 0, allocations: 0, boxes: 0, moves: 0, parties: SALES.has(role), audit: 0, home: false, reports: reports.map(([name]) => `${name}:forbidden`) },
-      `${role}: صفر صفوف بالقيود والتوزيع والصناديق والحركات وسجلّها، والتقارير والمعاينة forbidden، وبطاقة الحسابات غايبة، والجهات ${SALES.has(role) ? 'تنقرا' : 'ما تنقرا'}`,
-    );
+    t.same(leakSeen[role], leakSeen.accountant, `${role}: القيود والتوزيع والصناديق والحركات وسجلّها والجهات والتقارير وبطاقة الحسابات كالمحاسب (0034)`);
   }
   const control = leakSeen.accountant;
   t.ok(control.entries > 0 && control.allocations > 0 && control.boxes > 0 && control.moves > 0 && control.parties && control.audit > 0 && control.home, 'ضابط: المحاسب يقرأ كل هذا');

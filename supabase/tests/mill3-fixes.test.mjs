@@ -93,14 +93,16 @@ async function scenario(t, db) {
   t.same([first.ok && first.value.doc_no, nextDay.ok ? [nextDay.value.doc_no, nextDay.value.produced_on] : nextDay.code], ['PD-2026-0001', ['PD-2026-0001', TODAY]],
     'F1: الإعادة بالمرجع والقيم نفسها (يوم الإنتاج فارغ) بعد منتصف الليل ترجّع النتيجة نفسها بيومها، لا ref_reused');
 
-  // F2: مدير بنطاق موقع المعمل (لا الوحدة) وخلطة بتكاليف لكلّ طنّ: مسوّدة تنتظر الختم كمشغّل المعمل.
+  // F2: مدير بصفّ نطاق موقع المعمل ومشغّل المعمل وخلطة بتكاليف لكلّ طنّ بلا مصاريف تغطّيها: منذ 0034 يرى كلاهما المصاريف ويرحّل (لا انتظار ختم)،
+  //     فالتكاليف أكبر من المتاح تمنع كما تمنع المالك (production_blocked بتلميحها)، ولا دفعة.
   await one(U.owner, "select public.set_member_scopes_v2($1, '{}', array[$2]::uuid[], '{}') as v", [M.siteManager, millSite]);
   const smId = uid();
   const sm = await rp(U.siteManager, { id: smId, version: R.costed.version, kg: '1000.000' });
   const opId = uid();
   const op = await rp(U.millOperator, { id: opId, version: R.costed.version, kg: '1000.000' });
   t.same([sm.ok ? [sm.value.status, sm.value.awaiting] : [sm.code, sm.hint], await batches(smId), op.ok && op.value.status, await batches(opId)],
-    [['draft', 'costs'], 1, 'draft', 1], 'F2: مدير لا يرى مصاريف وحدة المعمل: الدفعة تُحفظ مسوّدة تنتظر الختم (كمشغّل المعمل)، لا رفض بلا دفعة يختمها أحد');
+    [['production_blocked', sm.hint], 0, false, 0], 'F2: المدير بصفّ نطاق الموقع ومشغّل المعمل كالمالك: تكاليف بلا مصاريف production_blocked، ولا دفعة');
+  t.same([op.code, /المصاريف المسجّلة/u.test(sm.hint ?? '')], ['production_blocked', true], 'F2: وتلميح المنع يسمّي المصاريف المسجّلة');
   const blockedMix = await rp(U.siteManager, { version: R.costed.version, kg: '100000.000' });
   t.same([blockedMix.code, blockedMix.hint?.includes('لا يكفي رصيد')], ['production_blocked', true],
     'F2: ومعها مشكلة تمنع (نقص): تُرفض بتلميح المشكلة المانعة لا بانتظار الختم');
@@ -112,8 +114,8 @@ async function scenario(t, db) {
   const hallRep = await call(db, U.hall, REPORT, [null, TODAY, TODAY]);
   const ownerRep = await one(U.owner, REPORT, [null, TODAY, TODAY]);
   t.same([fp.ok && fp.value.status, hallRep.ok ? [hallRep.value.batches.length, hallRep.value.materials.length] : hallRep.code,
-    ownerRep.batches.some((b) => b.output_warehouse_name === 'مخزن الحقل')], ['posted', [0, 0], true],
-  'F3: دفعة ناتجها في مخزن حقل: عامل القاعة (بنطاقه الحقل لا مخزن الموادّ) لا تصله دفعاتها ولا مالها، والمالك يراها');
+    ownerRep.batches.some((b) => b.output_warehouse_name === 'مخزن الحقل')], ['posted', [ownerRep.batches.length, ownerRep.materials.length], true],
+  'F3: دفعة ناتجها في مخزن حقل: عامل القاعة يرى التقرير كالمالك (0034)');
 
   // F4: إنتاجان بنداء واحد في اللحظة نفسها على المادّة نفسها (دفعتان بسعرين): الثاني ينتظر ثمّ يُنتج.
   const A = await db.session(U.owner);

@@ -421,7 +421,7 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
           }
         />
       ) : !form.canPost ? (
-        <Notice tone="info" title={t('birds.role', 'إصدار فاتورة الطيور للمحاسب والمدير.')} />
+        <Notice tone="info" title={t('birds.role', 'لا يصدر حسابك هذه الفاتورة الآن: حدّث الصفحة، فإن بقي المنع فاسأل مالك المنشأة.')} />
       ) : null}
       {form.late && form.invoiceable ? (
         <div data-action="bird-late">

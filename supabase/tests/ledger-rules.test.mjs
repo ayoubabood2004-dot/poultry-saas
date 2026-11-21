@@ -330,7 +330,8 @@ async function scenario(t, db) {
       const stored = (await q('select private.ref_store($1, $2, $3::jsonb) as v', ['probe_mask', ref, JSON.stringify({ id: 'x', money: { amount: '5' } })])).rows[0].v;
       return { first, stored, replay: await claim() };
     }, user);
-  t.eq(canon(await refRound(U.storekeeper)), canon({ first: null, stored: { id: 'x' }, replay: { id: 'x' } }), 'المال مخفي لمن ما يرى الكلف بأوّل جواب وبالإعادة (ref_store وref_claim)');
+  // 0034 («الكلّ مثل المالك»): الأمين يرى المال بأوّل جواب وبالإعادة؛ والقناع لمن ليس عضواً يحرسه ledger.test (private.mask).
+  t.eq(canon(await refRound(U.storekeeper)), canon({ first: null, stored: { id: 'x', money: { amount: '5' } }, replay: { id: 'x', money: { amount: '5' } } }), 'المال للأمين بأوّل جواب وبالإعادة (ref_store وref_claim)');
   t.eq(canon(await refRound(U.accountant)), canon({ first: null, stored: { id: 'x', money: { amount: '5' } }, replay: { id: 'x', money: { amount: '5' } } }), 'ضابط: المحاسب يشوفه بالاثنين');
   const Pr = await party('جهة المرجع');
   t.eq(shown(await asM('select public.record_party_payment($1, $2, $3, $4, $5, $6, $7)', [uid(), Pr, B.general, '1000', BOX, TODAY, null])), 'ref_required', 'بلا مرجع: ref_required');
@@ -469,15 +470,17 @@ async function scenario(t, db) {
     await q('select public.void_party_payment($1, $2, $3)', [lone, 'خطأ', uid()]);
   });
   t.eq(orphan, 'cash_move_missing', 'قبض بلا حركة صندوقه: cash_move_missing، مو رفض غامض');
-  // المدير المحصور بالمعمل ما يلغي من دفتر برّا نطاقه (E49).
+  // المدير بصفّ نطاق المعمل يلغي من كلّ الدفاتر (0034: صفّ النطاق لا يحجب؛ بمعاملة ترجع لدفتر الأفراخ).
   const Pk = await party('جهة النطاق');
   const chicksPay = await pay('record_party_payment', Pk, B.chicks, '1000');
   const chicksAdjust = await adjust(Pk, B.chicks, 'debit', '500');
   const millPay = await pay('record_party_payment', Pk, B.feed_mill, '1000');
   t.same(
-    [shown(await voidPayment(chicksPay.value.id, 'خطأ', U.millManager)), shown(await voidEntry(chicksAdjust.value.id, 'خطأ', U.millManager)), shown(await voidPayment(millPay.value.id, 'خطأ', U.millManager))],
-    ['out_of_scope', 'out_of_scope', 'ok'],
-    'المدير المحصور بالمعمل: إلغاء قبض أو قيد بدفتر الأفراخ out_of_scope، وبدفتر المعمل يمرّ',
+    [shown(await call(db, U.millManager, 'select public.void_party_payment($1, $2, $3)', [chicksPay.value.id, 'خطأ', uid()], { commit: false })),
+      shown(await call(db, U.millManager, 'select public.void_party_entry($1, $2, $3)', [chicksAdjust.value.id, 'خطأ', uid()], { commit: false })),
+      shown(await voidPayment(millPay.value.id, 'خطأ', U.millManager))],
+    ['ok', 'ok', 'ok'],
+    'المدير بصفّ نطاق المعمل: إلغاء قبض أو قيد بدفتر الأفراخ يمرّ (0034)، وبدفتر المعمل يمرّ',
   );
   // الإعفاء برصيد دفتره وحده.
   const Pb = await party('جهة دفترين بإشارتين');
@@ -525,8 +528,8 @@ async function scenario(t, db) {
   const forgiven = await preview(U.manager, Pb, B.feed_mill, 'forgiveness', '500');
   t.same(
     [shown(await preview(U.accountant, Pb, B.feed_mill, 'adjustment', '500')), shown(await preview(U.accountant, Pb, B.feed_mill, 'opening', '500')), shown(await preview(U.manager, Pb, B.feed_mill, 'adjustment', '500'))],
-    ['forbidden', 'forbidden', 'ok'],
-    'معاينة التسوية والافتتاح للمدير مو للمحاسب (party.adjust وopening.post)',
+    ['ok', 'ok', 'ok'],
+    'معاينة التسوية والافتتاح للمحاسب كالمدير (0034: party.adjust وopening.post لكلّ عضو)',
   );
   const fm = forgiven.value?.money;
   t.same([fm?.amount, fm?.balance_before, fm?.balance_after], ['-500', '1000', '500'], 'معاينة الإعفاء: بعكس رصيد الدفتر (1,000 بالمعمل، مو صافي الدفترين) والرصيد بعدها');

@@ -112,8 +112,8 @@ export default async function (t, db) {
   await lots(rv, ['V1']);
   const bookSum = async (book) => (await db.admin('select coalesce(sum(amount), 0)::text as v from public.party_entries where book_id = $1', [book])).rows[0].v;
   same([await bookSum(B.hatching_eggs), await bookSum(B.medicine), lotsOf.HE1.v, lotsOf.V1.v], ['0', '0', '9000000', '600000'], 'HE1 بدفتر بيض التفقيس وV1 بدفتر الأدوية: شراء ودفع صافيهما صفر، والدفعتان 9,000,000 و600,000');
-  const outOfScope = await at('2026-10-01', () => call(db, U.millKeeper, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [P.vaccine, W.medicine, '2026-10-01']));
-  t.eq(shown(outOfScope), 'rls', 'ضابط النطاق: أمين المعمل ما يكتب مسوّدة بمخزن الأدوية');
+  const anyStore = await at('2026-10-01', () => call(db, U.millKeeper, 'insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, $3) returning id', [P.vaccine, W.medicine, '2026-10-01'], { commit: false }));
+  t.eq(shown(anyStore), 'ok', 'أمين بصفّ نطاق المعمل يكتب مسوّدة بمخزن الأدوية (0034: صفّ النطاق لا يحجب، بمعاملة ترجع)');
 
   // افتتاح أبو علي (2026-09-30) بدفتر المعمل، ونفسه بعد التشغيل: يوم التشغيل لا يحكم التاريخ بعد 0018، فيصل إلى «افتتاح فعّال واحد» (opening_exists).
   await at('2026-09-30', () => one(U.manager, 'select public.record_opening_balance($1, $2, $3, 500000, $4, $5)', [uid(), P.abuAli, B.feed_mill, '2026-09-30', uid()]));

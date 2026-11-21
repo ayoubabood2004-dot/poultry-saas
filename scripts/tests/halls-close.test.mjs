@@ -358,7 +358,8 @@ export default async function (t) {
     await step('R لعامل القاعة', async () => {
       fresh(WORKER, formRpcs({ flock_cycle_report: () => clone(F.flock_cycle_report_closed_no_money) }));
       await mount(`/halls/cycle/${F1}?act=reopen`);
-      t.same([byAction('reopen-open').length, byAction('carry-return').length, dialog(), tableRows('الإيراد والعلف الراجع والمنقول'), text().includes('معلَّق في القاعة للدورة التالية')], [0, 0, null, null, true], 'R عامل القاعة: الإغلاق يُقرأ بلا «أعد فتح» ولا «أرجعه»، ولا مال');
+      // 0034 («الكلّ مثل المالك»): عامل القاعة يعيد الفتح ويُرجع كالمالك؛ والمال بما يرسله الخادم (هذه العيّنة بلا مال).
+      t.same([byAction('reopen-open').length, byAction('carry-return').length > 0, dialog() !== null, tableRows('الإيراد والعلف الراجع والمنقول'), text().includes('معلَّق في القاعة للدورة التالية')], [1, true, true, null, true], 'R عامل القاعة: «أعد فتح» و«أرجعه» و?act=reopen يفتح النافذة (0034)');
     });
     await step('R دورة قائمة بمفاتيح 0028', async () => {
       fresh(MANAGER, formRpcs({ flock_cycle_report: () => clone(F.flock_cycle_report_open) }));

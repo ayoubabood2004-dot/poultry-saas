@@ -527,7 +527,9 @@ async function scenario(t, db) {
   const raw = await loadRaw(db, org);
   const rawN = await loadRaw(db, N.org);
   const ALL = () => true;
-  const SCOPES = { manager: ALL, hallWorker: (s) => s === S.a, layerWorker: (s) => s === S.l };
+  // 0034 («الكلّ مثل المالك»): صفّا نطاق عاملَي القاعة القديمان لا يحجبان شيئاً، فكلّ هويّة بنطاق المنشأة كلّها.
+  const SCOPES = { manager: ALL, hallWorker: ALL, layerWorker: ALL };
+  const ALL_SITES = ['حقل ألف', 'حقل البيض', 'حقل باء'];
   const hallsDay = async (user, on) => one(user, HALLS_DAY, [on]);
   const flockOf = (response, hallName) => response.sites.flatMap((s) => s.halls).find((h) => h.hall_name === hallName)?.flock ?? null;
   const hallNames = (response) => response.sites.flatMap((s) => s.halls.map((h) => h.hall_name));
@@ -646,13 +648,13 @@ async function scenario(t, db) {
     '0028: الأفواج التي تنتظر جولة (rounds_expected) = الأفواج في كلّ جواب وكلّ حقل، فلا فوج بدأ يومه بلا طير حيّ');
   t.same([responses[`manager:${day(-42)}`].prev, responses[`manager:${day(-42)}`].next, responses[`manager:${day(-43)}`].prev, responses[`layerWorker:${day(-10)}`].prev,
     responses[`manager:${day(-10)}`].prev, responses[`hallWorker:${TODAY}`].sites.map((s) => s.name), responses[`layerWorker:${TODAY}`].sites.map((s) => s.name)],
-  [false, true, false, false, true, ['حقل ألف'], ['حقل البيض']],
-  'التنقّل: لا رجوع قبل أوّل تسكين في النطاق (البيّاض وحده سُكّن 2 تشرين الثاني)، والتالي ما دام قبل اليوم؛ وعامل القاعة بنطاق حقله لا يرى غيره');
+  [false, true, false, true, true, ALL_SITES, ALL_SITES],
+  'التنقّل: لا رجوع قبل أوّل تسكين في المنشأة، والتالي ما دام قبل اليوم؛ وعاملا القاعة بصفّ نطاق قديم يريان الحقول كلّها (0034)');
   const [nullCall, todayCall] = [await call(db, U.hallWorker, HALLS_DAY, [null]), await call(db, U.hallWorker, HALLS_DAY, [TODAY])];
   const nullDay = nullCall.ok ? nullCall.value : {};
   t.same([shown(await call(db, U.manager, HALLS_DAY, [day(1)])), (await call(db, U.manager, HALLS_DAY, [day(1)])).hint, shown(nullCall), nullDay.on, nullDay.today,
     canon(nullDay) === canon(todayCall.value), (nullDay.sites ?? []).map((s) => s.name)],
-  ['future_day', 'لا تقرير ليوم لم يأتِ بعد.', 'ok', TODAY, TODAY, true, ['حقل ألف']],
+  ['future_day', 'لا تقرير ليوم لم يأتِ بعد.', 'ok', TODAY, TODAY, true, ALL_SITES],
   'اليوم القادم مرفوض بجملته، وبلا يوم (null) يومُ الخادم الحاليّ: جواب اليوم نفسه حرفاً وبنطاق القارئ (الشاشة التي تتبع «اليوم» لا تقرأ ساعة الجهاز)');
   t.ok(!hasMoney(today), 'التقرير اليوميّ بلا مال');
 
@@ -718,8 +720,8 @@ async function scenario(t, db) {
     reports.f0.days.length, reports.f0.through], [day(-8), 16, day(-8), 16, 15, [8, 7, 1], 31, day(-12)],
   'الفوج المغلق: أيّامه حتى يوم إغلاقه لا حتى اليوم، وأسابيعه كذلك');
   t.same([hasMoney(reports.f2), hasMoney(await one(U.hallWorker, REPORT, [F.f2])), hasMoney({ days: reports.f2.days, weeks: reports.f2.weeks, weights: reports.f2.weights, kpis: reports.f2.kpis }),
-    shown(await call(db, U.hallWorker, REPORT, [F.f5])), shown(await call(db, U.layerWorker, REPORT, [F.f1]))], [true, false, false, 'out_of_scope', 'out_of_scope'],
-  'المال لأدوار الكلفة وحدها كما في 0026، والمفاتيح الجديدة بلا مال، والتقرير بنطاق حقل الفوج');
+    shown(await call(db, U.hallWorker, REPORT, [F.f5])), shown(await call(db, U.layerWorker, REPORT, [F.f1]))], [true, true, false, 'ok', 'ok'],
+  'المال لكلّ عضو (0034)، والمفاتيح الجديدة بلا مال، والتقرير لكلّ فوج في المنشأة');
 
   // ── ٣ب) سطور العلف بلا وزن تُعدّ ولا تختفي (DECISIONS 0019؛ مراجعة 0027: R27-N1 وR27-N2 وR1 وR5): عدد يومها وعددها التراكميّ في التقرير اليوميّ
   // وأيّام الدورة، وعدد اليوم في مجموع كلّ حقل وكلّ القاعات؛ والملغى لا يُعدّ في أيّ منها.
@@ -743,8 +745,8 @@ async function scenario(t, db) {
   [[['قاعة 1', 1, '0'], ['قاعة 2', 2, '0'], ['قاعة 3', null, null]],
     [['حقل ألف', 3, 3, '0', 3], ['حقل البيض', 0, 0, '0', 1], ['حقل باء', 0, 0, '0', 1]],
     [3, 3, '0'],
-    [[['حقل ألف', 3]], 3]],
-  'يوم 11: قاعتا «حقل ألف» بسطور بلا وزن (F1 سطر وF2 سطران) و«قاعة 3» بلا فوج: مجموع الحقل 3 = مجموع قاعاته والقاعة الفارغة لا تضيف شيئاً، ومجموع الكلّ 3 = مجموع القاعات كلّها، والكيلو صفر فلا يقول المجموع «النازل 0» وحده؛ وعامل القاعة بنطاق حقله يرى مجموعه');
+    [[['حقل ألف', 3], ['حقل البيض', 0], ['حقل باء', 0]], 3]],
+  'يوم 11: قاعتا «حقل ألف» بسطور بلا وزن (F1 سطر وF2 سطران) و«قاعة 3» بلا فوج: مجموع الحقل 3 = مجموع قاعاته والقاعة الفارغة لا تضيف شيئاً، ومجموع الكلّ 3 = مجموع القاعات كلّها، والكيلو صفر فلا يقول المجموع «النازل 0» وحده؛ وعامل القاعة يرى المجاميع نفسها (0034)');
   const sumProblems = [];
   let unweighedTotals = 0;
   for (const [label, r] of Object.entries(responses)) {
@@ -753,8 +755,8 @@ async function scenario(t, db) {
     if (r.totals.feed_given_unweighed !== all) sumProblems.push(`${label}: ${r.totals.feed_given_unweighed} ≠ ${all}`);
     if (all > 0) unweighedTotals += 1;
   }
-  t.same([sumProblems.slice(0, 3), unweighedTotals], [[], 5],
-    `في كلّ جواب (${Object.keys(responses).length}): سطور الحقل بلا وزن = مجموع قاعاته، وسطور الكلّ = مجموع القاعات كلّها؛ ومجموع غير صفريّ في 5 أجوبة (يوم 9 و11 واليوم للمدير، ويوم 11 واليوم لعامل القاعة، فـF5 يوم 9 خارج نطاقه، والملغى يوم 10 صفر)`);
+  t.same([sumProblems.slice(0, 3), unweighedTotals], [[], 9],
+    `في كلّ جواب (${Object.keys(responses).length}): سطور الحقل بلا وزن = مجموع قاعاته، وسطور الكلّ = مجموع القاعات كلّها؛ ومجموع غير صفريّ في 9 أجوبة (يوم 9 و11 واليوم لكلّ هويّة من الثلاث، والملغى يوم 10 صفر)`);
 
   const nov10 = responses[`manager:${day(-2)}`];
   const f5Nov10 = flockOf(nov10, 'قاعة 5');
@@ -807,7 +809,7 @@ async function scenario(t, db) {
   t.same([cycles.cycles.filter((c) => c.status === 'closed').map((c) => [c.count_diff, c.sold_birds]), [reports.f0.kpis.count_diff, reports.f0.kpis.sold_birds, reports.f0.kpis.fcr_final,
     reports.f0.kpis.epef_final, reports.fc.kpis.count_diff]], [[[-993, 0], [-499, 0]], [-499, 0, null, null, -993]],
     '0028: الدورتان المغلقتان بفرق عدّهما ولا مباع، فلا معامل تحويل نهائيّ ولا مؤشّر إنتاج نهائيّ');
-  t.same((await one(U.hallWorker, CYCLES, [])).cycles.map((c) => c.id), [F.f2, F.f1, F.fc, F.f0], 'عامل القاعة يرى دورات حقله وحده');
+  t.same((await one(U.hallWorker, CYCLES, [])).cycles.map((c) => c.id), cycles.cycles.map((c) => c.id), 'عامل القاعة يرى دورات المنشأة كلّها كالمدير (0034)');
 
   const M = await makeOrg(db, { name: 'مزرعة الدورات الكثيرة', id: (n) => id(50 + n), phone: (n) => phone(50 + n), roles: [['owner', 'owner']] });
   const many = await one(M.users.owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل الدورات', 'farm') returning id", [M.divisions.broiler]);
@@ -859,9 +861,7 @@ async function scenario(t, db) {
     asManager(HALLS_DAY, [day(-8)], hallNames), (v) => !v.includes('قاعة 4'));
   await caught('القاعات غير المؤرشفة وحدها تُسقط «قاعة 4» وفيها FC يوم 3 تشرين الثاني',
     [[FN.day, [['and (h.archived_at is null or q.id is not null)', 'and h.archived_at is null']]]], asManager(HALLS_DAY, [day(-9)], hallNames), (v) => !v.includes('قاعة 4'));
-  await caught('بلا نطاق الحقل يرى عامل القاعة «حقل باء»',
-    [[FN.day, [['where h.org_id = v_org and public.in_scope_site(h.site_id) and', 'where h.org_id = v_org and']]]],
-    ({ attempt }) => attempt(U.hallWorker, async (q) => (await q(HALLS_DAY, [TODAY])).rows[0].v.sites.map((s) => s.name)), (v) => v.includes('حقل باء'));
+  // 0034: طفرة «بلا نطاق الحقل» صارت مكافئة (in_scope_site صحيح لكلّ عضو في منشأته)، فشيلت.
   await caught('«قبل اليوم أو فيه» يجعل يوم أوّل تسكين قابلاً للرجوع',
     [[FN.day, [['x.placed_on < v_on', 'x.placed_on <= v_on']]]], asManager(HALLS_DAY, [day(-42)], (v) => v.prev), (v) => v === true);
   await caught('الحيّ أوّل اليوم بنافق اليوم نفسه يُنقص F2 اليوم إلى 2,975',

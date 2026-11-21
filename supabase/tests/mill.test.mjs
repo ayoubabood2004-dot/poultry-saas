@@ -62,9 +62,10 @@ async function scenario(t, db) {
   await invite(U.keeper, 5, 'storekeeper');
 
   /** نداء بمعاملة تثبت إذا نجح: { ok, v } أو { ok: false, code, hint }. */
-  const call = async (user, sql, params = []) => {
+  // commit: false لما صار ينجح بـ0034 («الكلّ مثل المالك»): يثبت النجاح ولا يغيّر ما بعده.
+  const call = async (user, sql, params = [], commit = true) => {
     try {
-      const rows = (await db.asUser(user, (q) => q(sql, params), { commit: true })).rows;
+      const rows = (await db.asUser(user, (q) => q(sql, params), { commit })).rows;
       return { ok: true, v: rows[0] ? Object.values(rows[0])[0] : null, rows };
     } catch (error) {
       return { ok: false, code: error.message, hint: error.hint ?? null };
@@ -103,17 +104,13 @@ async function scenario(t, db) {
   await receive(GENERAL, DIESEL, 50, 75000);
 
   // ─── الخلطة: كتابة مباشرة بفعل recipe.activate ──────────────────────────────────────────────────────────────
-  const newRecipe = (user, name, output) => call(user, 'insert into public.recipes (name, output_item_id) values ($1, $2) returning id', [name, output]);
+  const newRecipe = (user, name, output, commit = true) => call(user, 'insert into public.recipes (name, output_item_id) values ($1, $2) returning id', [name, output], commit);
   const R1 = (await newRecipe(U.manager, 'علف بادئ', FEED1)).v;
   t.ok(R1, 'المدير يضيف خلطة');
   t.same(
-    [code(await newRecipe(U.miller, 'خلطة المشغّل', FEED1)), code(await newRecipe(U.keeper, 'خلطة الأمين', FEED1)), code(await newRecipe(U.manager, ' علف بادئ ', FEED2))],
-    [
-      'new row violates row-level security policy for table "recipes"',
-      'new row violates row-level security policy for table "recipes"',
-      'duplicate key value violates unique constraint "recipes_live_name"',
-    ],
-    'الخلطة: مشغّل المعمل والأمين ممنوعان، والاسم فريد بين الفعّالة',
+    [code(await newRecipe(U.miller, 'خلطة المشغّل', FEED1, false)), code(await newRecipe(U.keeper, 'خلطة الأمين', FEED1, false)), code(await newRecipe(U.manager, ' علف بادئ ', FEED2))],
+    ['ok', 'ok', 'duplicate key value violates unique constraint "recipes_live_name"'],
+    'الخلطة: مشغّل المعمل والأمين يضيفانها (0034، بمعاملة ترجع)، والاسم فريد بين الفعّالة',
   );
   t.eq((await db.admin('select name_norm from public.recipes where id = $1', [R1])).rows[0].name_norm, 'علف بادي', 'الاسم المطبَّع يكتبه الخادم (الهمزة تُطوى)');
 
@@ -124,8 +121,8 @@ async function scenario(t, db) {
   t.eq((await db.admin('select version_no from public.recipe_versions where id = $1', [V1])).rows[0].version_no, 1, 'رقم النسخة الأوّل يكتبه الخادم');
   t.eq(code(await newVersion(U.manager, R1)), 'duplicate key value violates unique constraint "recipe_versions_one_draft"', 'مسوّدة واحدة لكلّ خلطة');
 
-  const line = (user, version, itemId, qty, unit = 'kg') =>
-    call(user, 'insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, $3, $4) returning id', [version, itemId, qty, unit]);
+  const line = (user, version, itemId, qty, unit = 'kg', commit = true) =>
+    call(user, 'insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, $3, $4) returning id', [version, itemId, qty, unit], commit);
   const cornLine = (await line(U.manager, V1, CORN, 600)).v;
   await line(U.manager, V1, SOY, 400);
   t.same(
@@ -133,23 +130,23 @@ async function scenario(t, db) {
       code(await line(U.manager, V1, CORN, 50)),
       code(await line(U.manager, V1, SACK, 1)),
       code(await line(U.manager, V1, CORN, 50, 'L')),
-      code(await line(U.miller, V1, OIL, 1, 'L')),
+      code(await line(U.miller, V1, OIL, 1, 'L', false)),
       code(await line(U.manager, V1, OIL, 0)),
     ],
-    ['item_duplicated', 'bad_recipe_unit', 'bad_recipe_unit', 'forbidden', 'new row for relation "recipe_lines" violates check constraint "recipe_lines_qty_check"'],
-    'سطر العليقة: مادّة مرّتين، ومادّة بالقطعة، وكيلو مكتوبة لتراً، ومشغّل المعمل، وكمية صفر',
+    ['item_duplicated', 'bad_recipe_unit', 'bad_recipe_unit', 'ok', 'new row for relation "recipe_lines" violates check constraint "recipe_lines_qty_check"'],
+    'سطر العليقة: مادّة مرّتين، ومادّة بالقطعة، وكيلو مكتوبة لتراً، ومشغّل المعمل يضيفه (0034، بمعاملة ترجع)، وكمية صفر',
   );
   t.eq((await db.admin('select count(*)::int as n from public.recipe_lines where version_id = $1', [V1])).rows[0].n, 2, 'سطران بالنسخة');
 
   // ─── التفعيل ──────────────────────────────────────────────────────────────────────────────────────────────
-  const activate = (user, version) => call(user, 'select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version]);
+  const activate = (user, version, commit = true) => call(user, 'select public.activate_recipe_version($1, (select version from public.recipe_versions where id = $1))', [version], commit);
   const short = await call(U.manager, 'update public.recipe_lines set qty = 300 where id = $1 returning id', [cornLine]);
   t.ok(short.ok, 'تعديل كمية سطر بمسوّدة');
   const mismatch = await activate(U.manager, V1);
   t.eq(code(mismatch), 'basis_mismatch', 'المجموع 700 والأساس 1,000: basis_mismatch');
   t.ok(/700/u.test(mismatch.hint) && /1000/u.test(mismatch.hint) && /-300/u.test(mismatch.hint), `التلميح يسمّي المجموع والأساس والفرق (${mismatch.hint})`);
   await call(U.manager, 'update public.recipe_lines set qty = 600 where id = $1', [cornLine]);
-  t.eq(code(await activate(U.miller, V1)), 'forbidden', 'مشغّل المعمل لا يفعّل');
+  t.eq(code(await activate(U.miller, V1, false)), 'ok', 'مشغّل المعمل يفعّل (0034، بمعاملة ترجع)');
   const activated = await activate(U.manager, V1);
   t.ok(activated.ok && activated.v.status === 'active' && activated.v.lines === 2, `التفعيل: ${JSON.stringify(activated.v ?? activated.code)}`);
   t.eq(code(await activate(U.manager, V1)), 'not_draft', 'التفعيل مرّتين: not_draft');
@@ -182,8 +179,8 @@ async function scenario(t, db) {
   t.same(await verify(), [], 'verify_mill صفر بعد الخلطات');
 
   // ─── دفعة الإنتاج: المخطّط بالقاعدة ١٨ ───────────────────────────────────────────────────────────────────────
-  const create = (user, batch, version, kg, whIn = RAW, whOut = FEED, on = null) =>
-    call(user, 'select public.create_production($1, $2, $3, $4, $5, coalesce($6::date, public.app_today()))', [batch, version, kg, whIn, whOut, on]);
+  const create = (user, batch, version, kg, whIn = RAW, whOut = FEED, on = null, commit = true) =>
+    call(user, 'select public.create_production($1, $2, $3, $4, $5, coalesce($6::date, public.app_today()))', [batch, version, kg, whIn, whOut, on], commit);
   const B1 = id(101);
   // النسخة الثانية هي المفعَّلة: 200 كغم ← ذرة 81.6 × 2 = 163.2 كغم، وزيت 18.4 × 2 = 36.8 كغم ÷ 0.92 = 40 لتراً.
   const made = await create(U.miller, B1, V2, 200);
@@ -197,12 +194,12 @@ async function scenario(t, db) {
     'المخطّط: الذرة 163.2 كغم، والزيت 36.8 كغم = 40 لتراً بالكثافة المحفوظة',
   );
   t.same(
-    [code(await create(U.miller, id(102), V1, 100)), code(await create(U.keeper, id(103), V2, 100)),
+    [code(await create(U.miller, id(102), V1, 100)), code(await create(U.keeper, id(103), V2, 100, RAW, FEED, null, false)),
       code(await create(U.miller, id(104), V2, 0)), code(await create(U.miller, id(105), V2, 100, RAW, RAW)),
       code(await create(U.miller, id(106), V2, 100, RAW, GENERAL)), code(await create(U.miller, B1, V2, 100))],
-    ['version_not_active', 'forbidden', 'qty_not_positive', 'same_warehouse', 'item_kind_mismatch',
+    ['version_not_active', 'ok', 'qty_not_positive', 'same_warehouse', 'item_kind_mismatch',
       'duplicate key value violates unique constraint "production_batches_pkey"'],
-    'الإنشاء: نسخة مقاعدة، والأمين، وصفر، ومخزن واحد، ومخزن لا يناسب الناتج، والمعرّف المكرّر',
+    'الإنشاء: نسخة مقاعدة، والأمين يُنشئ (0034، بمعاملة ترجع)، وصفر، ومخزن واحد، ومخزن لا يناسب الناتج، والمعرّف المكرّر',
   );
 
   // ─── المعاينة ────────────────────────────────────────────────────────────────────────────────────────────
@@ -220,24 +217,22 @@ async function scenario(t, db) {
   const millerPreview = (await preview(U.miller, B1)).v;
   t.same(
     [millerPreview.money, millerPreview.lines[0].money, millerPreview.can_post, millerPreview.problems.map((x) => x.code)],
-    [undefined, undefined, false, ['costs_pending']],
-    'مشغّل المعمل يعاين بلا مال (private.mask)، والمعاينة تقول إنّ الكلف لم تُختم',
+    [p1.money, p1.lines[0].money, true, []],
+    'مشغّل المعمل يعاين بمال المدير نفسه ويرحّل بلا انتظار ختم الكلف (0034)',
   );
 
   // ─── الترحيل ─────────────────────────────────────────────────────────────────────────────────────────────
   const POST = "select public.post_production($1, (select version from public.production_batches where id = $1), coalesce($2, public.preview_production($1) ->> 'plan_token'), $3)";
   const post = (user, batch, plan = null, r = ref()) => call(user, POST, [batch, plan, r]);
-  const blocked = await post(U.miller, B1);
-  t.eq(code(blocked), 'forbidden', 'مشغّل المعمل لا يرحّل بلا ختم الكلف');
-  t.ok(/يختم المحاسب أو المدير/u.test(blocked.hint ?? ''), `التلميح يقول من يختم (${blocked.hint})`);
-  t.eq(code(await call(U.miller, 'select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [B1])), 'forbidden', 'ختم الكلف ليس لمشغّل المعمل');
+  // 0034 («الكلّ مثل المالك»): مشغّل المعمل يختم الكلف ويرحّل كالمحاسب (الختم بمعاملة ترجع، فيختمها المحاسب بعده كما كان).
+  t.eq((await call(U.miller, 'select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [B1], false)).v?.written, true, 'مشغّل المعمل يختم الكلف (0034، بمعاملة ترجع)');
   const sealed = await call(U.accountant, 'select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [B1]);
   t.ok(sealed.ok && sealed.v.costs_confirmed === true && sealed.v.written === true, 'المحاسب يختم الكلف');
   t.eq((await call(U.accountant, 'select public.confirm_production_costs($1, (select version from public.production_batches where id = $1))', [B1])).v.written, false, 'ختم ثانٍ: مكتوب من قبل بلا تغيير');
   t.eq(code(await post(U.miller, B1, 'xx')), 'stale_preview', 'بصمة معاينة غير صحيحة: stale_preview');
   const posted = await post(U.miller, B1);
   t.ok(posted.ok, `مشغّل المعمل يرحّل بعد الختم: ${posted.code ?? ''} ${posted.hint ?? ''}`);
-  t.same([posted.v.money, posted.v.output_qty_kg, posted.v.shrink_kg], [undefined, '200.000', '0.000'], 'جواب الترحيل لمشغّل المعمل بلا مال');
+  t.same([posted.v.money?.total_value, posted.v.output_qty_kg, posted.v.shrink_kg], ['238880.00', '200.000', '0.000'], 'جواب الترحيل لمشغّل المعمل بماله (0034)');
   const lot = (await db.admin("select l.qty_in::text as q, l.value_in::text as v, l.source_kind, l.received_on::text as on_date, w.kind from public.stock_lots l join public.warehouses w on w.id = l.warehouse_id where l.source_id = $1", [B1])).rows;
   t.same(lot, [{ q: '200.000', v: '238880.00', source_kind: 'production', on_date: TODAY, kind: 'feed' }], 'دفعة الناتج: 200 كغم بقيمة الكلفة بالضبط بمخزن العلف');
   t.same(
@@ -332,7 +327,7 @@ async function scenario(t, db) {
     'مواد النسخة المفعَّلة بكتلتها من الأكبر (شريط التركيبة)',
   );
   const millerOverview = (await db.asUser(U.miller, (q) => q('select public.recipes_overview() as v'))).rows[0].v;
-  t.eq(millerOverview.recipes[0].last_batch.money, undefined, 'مشغّل المعمل يرى الدفعة بلا كلفتها');
+  t.eq(millerOverview.recipes[0].last_batch.money?.total_value, '238880.00', 'مشغّل المعمل يرى الدفعة بكلفتها (0034)');
   const detail = (await db.asUser(U.manager, (q) => q('select public.recipe_detail($1, null) as v', [R1]))).rows[0].v;
   t.same(
     [detail.selected.version_no, detail.lines.length, detail.lines[0].mass_kg, detail.lines[1].mass_kg, detail.mass_kg, detail.lines[0].share_pct],

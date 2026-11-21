@@ -63,7 +63,7 @@ export function scopedStores(stores: readonly StoreRef[], workspace: Workspace |
   return stores.filter(
     (store) =>
       (!division || store.divisionKind === division) &&
-      inScope(workspace.role, workspace.scopes, { warehouseId: store.id, siteId: store.siteId, divisionId: store.divisionId }),
+      inScope(workspace.role),
   );
 }
 
@@ -443,7 +443,7 @@ export function docPath(kind: inventory.DraftKind, id: string): string {
 /** يقدر يفتح نسخة للتصحيح: صلاحية إنشاء ورقة النوع، وبنطاقه مخزن الورقة إن عُرف (مرآة in_scope_wh، والحكم بالخادم). */
 export function canCopyDraft(workspace: Workspace | null, kind: inventory.DraftKind, store?: Pick<StoreRef, 'id' | 'siteId' | 'divisionId'> | null): boolean {
   if (!workspace || !can(workspace.role, DRAFT_ACTIONS[kind])) return false;
-  return !store || inScope(workspace.role, workspace.scopes, { warehouseId: store.id, siteId: store.siteId, divisionId: store.divisionId });
+  return !store || inScope(workspace.role);
 }
 
 /** ما لم يُنسخ وسببه (عقد 0011، سلامة المال بـDECISIONS 2026-10-31): رمز ما ينعرف ينذكر برمزه، ما يسكت. */

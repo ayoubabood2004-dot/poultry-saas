@@ -90,6 +90,8 @@ async function scenario(t, db) {
   };
   const code = (result) => (result.ok ? 'ok' : result.code);
   const visit = (user, v) => call(db, user, VISIT, visitParams(v));
+  // 0034 («الكلّ مثل المالك»): زيارة صارت مسموحة لعضو كان يُمنع تُنفَّذ بمعاملة ترجع، فلا تغيّر ما بعدها.
+  const dryVisit = (user, v) => call(db, user, VISIT, visitParams(v), { commit: false });
   const saveDay = (user, d) => call(db, user, DAY, dayParams(d));
   const rounds = (user, on, kind, flock = null) => call(db, user, ROUND, [on, kind, flock]);
   const dayRow = async (flock, on) => (await db.admin(`select dead, culled, feed_kg::text as feed_kg, water_l::text as water_l, eggs_total, eggs_cracked, eggs_broken,
@@ -288,25 +290,36 @@ async function scenario(t, db) {
 
   // ── ٧) الركن ───────────────────────────────────────────────────────────────────────────────────────────────────
   await section('الركن', async () => {
-    // 0035: لا حدّ للأيّام السبعة (كلّ أيّام الفوج القائم تُكتب)، فالركن هنا بسبب النطاق: عامل البيّاض يسجّل لفوج اللحم من الطابور.
-    const p1 = await visit(U.layerWorker, { id: V.v7, flock: F.a1, on: day(-9), dead: 1, queued: true });
-    samples.save_flock_visit_parked = p1.value;
-    const p2 = await visit(U.layerWorker, { id: V.v8, flock: F.a1, on: day(-9), dead: 2, queued: true });
-    const p1again = await visit(U.layerWorker, { id: V.v7, flock: F.a1, on: day(-9), dead: 5, queued: true });
-    same([p1.value, p2.value, p1again.value], Array(3).fill({ status: 'parked', reason: 'out_of_scope' }), 'زيارتان خارج النطاق من الطابور: parked');
-    const d1 = await saveDay(U.layerWorker, { flock: F.a1, on: day(-9), dead: 3, queued: true });
-    const d2 = await saveDay(U.layerWorker, { flock: F.a1, on: day(-9), dead: 4, queued: true });
-    same([d1.value, d2.value], Array(2).fill({ status: 'parked', reason: 'out_of_scope' }), 'وعمليتا save_flock_day لليوم نفسه: parked');
-    const rows = (await db.admin(`select visit_id, payload ->> 'dead' as dead from public.flock_day_rejects where flock_id = $1 and on_date = $2 and created_by = $3
-      order by visit_id nulls first`, [F.a1, day(-9), U.layerWorker])).rows;
-    same(rows, [{ visit_id: null, dead: '4' }, { visit_id: V.v7, dead: '5' }, { visit_id: V.v8, dead: '2' }],
+    // 0035: لا حدّ للأيّام السبعة (كلّ أيّام الفوج القائم تُكتب)، و0034: لا «خارج النطاق» لعضو في منشأته؛ فالركن هنا بالفترة المقفلة،
+    // داخل معاملة ترجع: المدير يقفل حتى يوم الركن، والعامل يسجّل يومها من الطابور.
+    const parkedRun = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      const lock = await attempt(U.manager, (q) => q('select public.set_period_lock($1)', [day(-9)]));
+      const run = async (sql, params) => {
+        const result = await attempt(U.worker, async (q) => (await q(sql, params)).rows[0].v);
+        return result.ok ? result.value : { code: result.code };
+      };
+      const p1 = await run(VISIT, visitParams({ id: V.v7, flock: F.a1, on: day(-9), dead: 1, queued: true }));
+      const p2 = await run(VISIT, visitParams({ id: V.v8, flock: F.a1, on: day(-9), dead: 2, queued: true }));
+      const p1again = await run(VISIT, visitParams({ id: V.v7, flock: F.a1, on: day(-9), dead: 5, queued: true }));
+      const d1 = await run(DAY, dayParams({ flock: F.a1, on: day(-9), dead: 3, queued: true }));
+      const d2 = await run(DAY, dayParams({ flock: F.a1, on: day(-9), dead: 4, queued: true }));
+      const rows = (await oq(`select visit_id, payload ->> 'dead' as dead from public.flock_day_rejects where flock_id = $1 and on_date = $2 and created_by = $3
+        order by visit_id nulls first`, [F.a1, day(-9), U.worker])).rows;
+      return { lock: lock.ok, p1, p2, p1again, d1, d2, rows };
+    });
+    samples.save_flock_visit_parked = parkedRun.p1;
+    const PARKED = { status: 'parked', reason: 'period_locked' };
+    same([parkedRun.lock, parkedRun.p1, parkedRun.p2, parkedRun.p1again], [true, PARKED, PARKED, PARKED], 'زيارتان في فترة مقفلة من الطابور: parked');
+    same([parkedRun.d1, parkedRun.d2], [PARKED, PARKED], 'وعمليتا save_flock_day لليوم نفسه: parked');
+    same(parkedRun.rows, [{ visit_id: null, dead: '4' }, { visit_id: V.v7, dead: '5' }, { visit_id: V.v8, dead: '2' }],
       'الزيارتان المركونتان لا تكتب إحداهما فوق الأخرى (والزيارة نفسها تستبدل ركنها)، وعملية save_flock_day الأحدث تستبدل ركنها كما كانت');
     same({
       direct: code(await call(db, U.worker, VISIT, visitParams({ id: uid(), flock: F.a1, on: day(-9), dead: 1 }), { commit: false })),
-      scopeQueued: (await visit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1, queued: true })).value,
-      scope: code(await visit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1 })),
-    }, { direct: 'ok', scopeQueued: { status: 'parked', reason: 'out_of_scope' }, scope: 'out_of_scope' },
-    'بنداء مباشر ترمي ومن الطابور تُركن بسببها، ويوم قبل تسعة أيّام لفوج قائم يُحفظ (0035: بلا حدّ الأيّام السبعة)');
+      scopeQueued: (await dryVisit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1, queued: true })).value?.status,
+      scope: code(await dryVisit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1 })),
+      foreign: code(await visit(U.worker, { id: uid(), flock: id(997), dead: 1, queued: true })),
+    }, { direct: 'ok', scopeQueued: 'saved', scope: 'ok', foreign: 'flock_not_found' },
+    'يوم قبل تسعة أيّام لفوج قائم يُحفظ (0035: بلا حدّ الأيّام السبعة)؛ وعامل قاعات البيض يسجّل في قاعة اللحم من الطابور وبنداء مباشر (0034، بمعاملة ترجع)؛ وفوج ليس في المنشأة flock_not_found ولو من الطابور');
     // الفترة المقفلة والفوج المغلق داخل معاملة ترجع.
     const locked = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
       const lock = await attempt(U.manager, (q) => q('select public.set_period_lock($1)', [day(-1)]));
@@ -361,9 +374,9 @@ async function scenario(t, db) {
       missing: ids(await rounds(U.manager, TODAY, 'broiler', id(998))),
       infinite: ids(await rounds(U.manager, 'infinity', 'broiler')),
     }, {
-      manager: [F.a1, F.a2, F.b1], siteManager: [F.b1], layer: [F.l1], viewer: [], worker: [F.a1, F.a2, F.b1], layerWorker: [], outOfScope: 'out_of_scope', empty: [F.l1],
-      otherKind: [], badKind: 'bad_kind', missing: 'flock_not_found', infinite: 'date_required',
-    }, 'round_visits: أفواج النوع بزيارة حيّة في نطاق القارئ بترتيب الحقل ثمّ القاعة، والفوج المطلوب وحده ولو بلا زيارة، وكلّ رفض');
+      manager: [F.a1, F.a2, F.b1], siteManager: [F.a1, F.a2, F.b1], layer: [F.l1], viewer: [F.a1, F.a2, F.b1], worker: [F.a1, F.a2, F.b1], layerWorker: [F.a1, F.a2, F.b1], outOfScope: [F.a1],
+      empty: [F.l1], otherKind: [], badKind: 'bad_kind', missing: 'flock_not_found', infinite: 'date_required',
+    }, 'round_visits: أفواج النوع بزيارة حيّة في المنشأة كلّها لكلّ عضو (0034) بترتيب الحقل ثمّ القاعة، والفوج المطلوب وحده ولو بلا زيارة، وكلّ رفض');
     const top = (await rounds(U.manager, null, 'broiler')).value;
     t.same([top.on, top.today, top.flocks.find((f) => f.flock_id === F.a1)?.visits.map((x) => x.id)], [TODAY, TODAY, [V.v3]], 'اليوم الفارغ يوم الخادم، والزيارات الحيّة وحدها');
     samples.round_visits_broiler = top;
@@ -372,7 +385,7 @@ async function scenario(t, db) {
     const counts = async (user) => (await db.asUser(user, (q) => q('select (select count(*) from public.flock_visits where site_id = $1)::int as a, (select count(*) from public.flock_visits where site_id = $2)::int as l', [S.a, S.l]))).rows[0];
     const all = (await db.admin('select (select count(*) from public.flock_visits where site_id = $1)::int as a, (select count(*) from public.flock_visits where site_id = $2)::int as l', [S.a, S.l])).rows[0];
     same({ worker: await counts(U.worker), layerWorker: await counts(U.layerWorker), viewer: await counts(U.viewer) },
-      { worker: { a: all.a, l: 0 }, layerWorker: { a: 0, l: all.l }, viewer: { a: 0, l: 0 } }, `القراءة المباشرة بنطاق حقل القاعة (${all.a} زيارة لحم و${all.l} بيض)`);
+      { worker: all, layerWorker: all, viewer: all }, `القراءة المباشرة لكلّ عضو بلا صفّ نطاق (0034؛ ${all.a} زيارة لحم و${all.l} بيض)`);
     t.eq(code(await call(db, U.manager, "insert into public.flock_visits (flock_id, hall_id, site_id, division_id, on_date, recorded_at, source) values ($1, $2, $3, $4, $5, now(), 'visit')",
       [F.a1, H.a1, S.a, D.broiler, TODAY])), '42501:permission denied for table flock_visits', 'لا كتابة مباشرة في الزيارات');
   });
@@ -393,13 +406,13 @@ async function scenario(t, db) {
       future_time: code(await visit(U.worker, { id: uid(), flock: F.a1, dead: 1, at: new Date(Date.now() + 3600000).toISOString() })),
       null_time: code(await visit(U.worker, { id: uid(), flock: F.a1, dead: 1, at: null })),
       empty: code(await visit(U.worker, { id: uid(), flock: F.a1, note: '   ' })),
-      viewer: code(await visit(U.viewer, { id: uid(), flock: F.a1, dead: 1 })),
-      accountant: code(await visit(U.accountant, { id: uid(), flock: F.a1, dead: 1 })),
+      viewer: code(await dryVisit(U.viewer, { id: uid(), flock: F.a1, dead: 1 })),
+      accountant: code(await dryVisit(U.accountant, { id: uid(), flock: F.a1, dead: 1 })),
     }, {
       missing: 'flock_not_found', required: 'date_required', future: 'date_in_future', visitRequired: 'visit_required', before: 'before_placement', negative: 'bad_value',
       culled: 'bad_value', feedScale: 'bad_value', eggsBig: 'bad_value', note: 'bad_note', future_time: 'bad_time', null_time: 'bad_time', empty: 'empty_visit',
-      viewer: 'forbidden', accountant: 'forbidden',
-    }, 'save_flock_visit: كلّ رمز رفض بنداء مباشر (والملاحظة بالفراغ وحده فارغة)');
+      viewer: 'ok', accountant: 'ok',
+    }, 'save_flock_visit: كلّ رمز رفض بنداء مباشر (والملاحظة بالفراغ وحده فارغة)، والمشاهد والمحاسب يسجّلان (0034، بمعاملة ترجع)');
     const zero = await visit(U.worker, { id: id(170), flock: F.a2, on: day(-2), dead: 0 });
     t.same([zero.value?.status, zero.value?.day?.dead, zero.value?.day?.version], ['saved', 0, 1], 'الصفر الصريح رقم: زيارة بلا نافق تُحفظ');
     const ref = uid();
@@ -638,20 +651,17 @@ async function scenario(t, db) {
         run: ({ attempt }) => add(attempt, U.manager, { id: uid(), flock: F.b1, on: day(-2), dead: 1, note: 'م'.repeat(501) }),
         correct: (v) => v?.code === 'bad_note',
       },
-      {
-        name: 'فعل الجولة flock_day.save',
-        fns: [[SIG.visit, [["  perform private.require('flock_day.save');", "  perform private.require('read');"]]]],
-        run: ({ attempt }) => add(attempt, U.accountant, { id: uid(), flock: F.b1, on: day(-2), dead: 1 }),
-        correct: (v) => v?.code === 'forbidden',
-      },
+      // 0034: حالة الفعل flock_day.save صارت مكافئة (كلّ عضو مسموح)، فشيلت؛ وحدّ المنشأة يحرسه role-matrix.
       {
         name: 'الزيارة المركونة بمعرّفها لا تكتب فوق أخرى',
         fns: [[SIG.visit, [['v_payload, v_park, auth.uid(), p_visit)\n    on conflict (org_id, visit_id) where visit_id is not null do update',
           'v_payload, v_park, auth.uid(), null)\n    on conflict (org_id, created_by, flock_id, on_date) where visit_id is null do update']]]],
-        run: async ({ attempt }) => {
-          await add(attempt, U.layerWorker, { id: uid(), flock: F.b1, on: day(-12), dead: 1, queued: true });
-          await add(attempt, U.layerWorker, { id: uid(), flock: F.b1, on: day(-12), dead: 2, queued: true });
-          return inside(attempt, U.manager, 'select count(*)::int as v from public.flock_day_rejects where flock_id = $1 and on_date = $2', [F.b1, day(-12)]);
+        // 0034 و0035: لا ركن «خارج النطاق» ولا «أقدم من سبعة أيّام»، فالركن بفوج مغلق داخل المعاملة نفسها.
+        run: async ({ oq, attempt }) => {
+          await oq('update public.flocks set status = $2, closed_on = $3 where id = $1', [F.b1, 'closed', TODAY]);
+          await add(attempt, U.manager, { id: uid(), flock: F.b1, on: day(-2), dead: 1, queued: true });
+          await add(attempt, U.manager, { id: uid(), flock: F.b1, on: day(-2), dead: 2, queued: true });
+          return inside(attempt, U.manager, "select count(*)::int as v from public.flock_day_rejects where flock_id = $1 and on_date = $2 and reason = 'flock_closed'", [F.b1, day(-2)]);
         },
         correct: (v) => v === 2,
       },
@@ -690,12 +700,7 @@ async function scenario(t, db) {
         },
         correct: (v) => v?.code === 'flock_has_records' && v.hint.includes('جولات يومية'),
       },
-      {
-        name: 'القارئ بنطاق القارئ',
-        fns: [[SIG.reader, [['where fl.org_id = v_org and fl.kind = p_kind and public.in_scope_site(fl.site_id)', 'where fl.org_id = v_org and fl.kind = p_kind']]]],
-        run: async ({ attempt }) => (await inside(attempt, U.siteManager, ROUND, [TODAY, 'broiler', null]))?.flocks?.map((f) => f.flock_id),
-        correct: (v) => JSON.stringify(v) === JSON.stringify([F.b1]),
-      },
+      // 0034: حالة «القارئ بنطاق القارئ» صارت مكافئة (in_scope_site صحيح لكلّ عضو في منشأته)، فشيلت.
       {
         name: 'القارئ: الزيارات الحيّة وحدها',
         fns: [[SIG.reader, [["v.on_date = v_on and v.voided_at is null), '[]'::jsonb) as visits", "v.on_date = v_on), '[]'::jsonb) as visits"]]]],

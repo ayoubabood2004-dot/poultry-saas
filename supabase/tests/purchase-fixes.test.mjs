@@ -8,7 +8,7 @@
 // • L2: سعر البيع الحاليّ يتبع أحدث شراء مسعَّر بتاريخه ثمّ وقت ترحيله (المؤرَّخ قبل الأحدث لا يكتب فوقه).
 // • L6: الإعادة بالمرجع نفسه أو بمعرّف الاستلام نفسه بعد إلغاء الشراء: id_conflict «أُلغي» لا «حُفظ».
 // وكلّ قاعدة جديدة بطفرة تكسرها فيفشل فحصها (آخر الملف).
-import { call, makeOrg, uid } from './ledger-kit.mjs';
+import { call, canon, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedUse, postRevalue } from './return-kit.mjs';
 
@@ -66,13 +66,13 @@ async function scenario(t, db) {
   };
   const supplier = await one(U.accountant, "insert into public.parties (name, is_supplier) values ('مورّد الإصلاح', true) returning id");
   // صندوق واحد في المنشأة: قائمة الصناديق في ملفّ المادّة (L1) تُقرأ منه.
-  await one(U.accountant, "insert into public.cash_accounts (name, kind) values ('صندوق الإصلاح', 'cash') returning id");
+  const box = await one(U.accountant, "insert into public.cash_accounts (name, kind) values ('صندوق الإصلاح', 'cash') returning id");
   const upkeep = await one(U.accountant, "insert into public.expense_categories (name) values ('علف التجربة') returning id");
   const given = (o, key, fallback) => (o[key] === undefined ? fallback() : o[key]);
   const args = (o) => [given(o, 'ref', uid), given(o, 'receipt', uid), given(o, 'line', uid), o.item, o.party ?? supplier, o.on ?? TODAY, o.qty, o.price,
     o.sell ?? null, o.payment ?? 'credit', o.box ?? null, o.wh ?? null, o.expiry ?? null, o.born ?? null];
-  const rp = (user, o) => call(db, user, RP12, args(o).slice(0, 12));
-  const rp14 = (user, o) => call(db, user, RP, args(o));
+  const rp = (user, o, options) => call(db, user, RP12, args(o).slice(0, 12), options);
+  const rp14 = (user, o, options) => call(db, user, RP, args(o), options);
   const shownOf = (r) => (r.ok ? 'ok' : r.code);
   const file = async (user, itemId) => (await call(db, user, 'select public.item_file($1) as v', [itemId])).value;
   const overview = async (user) => (await call(db, user, 'select public.items_overview() as v')).value;
@@ -101,7 +101,7 @@ async function scenario(t, db) {
   const cornCard = (await overview(U.manager)).items.find((row) => row.id === I.corn);
   t.eq(cornCard?.money?.avg_unit_price, '496.36', 'M2: بطاقة المادّة بالمتوسّط المصحَّح نفسه');
   const masked = await file(U.millOperator, I.corn);
-  t.same([JSON.stringify(masked).includes('corrected'), masked.purchases.length], [false, 2], 'M2: علم التصحيح داخل money فيُشال لمشغّل المعمل مع المال');
+  t.same(canon(masked), canon(cornFile), 'M2: مشغّل المعمل يرى ملفّ المدير نفسه بماله وعلم التصحيح (0034)');
 
   // ── M3: الانتهاء ووقت الفقس بالنداء نفسه ─────────────────────────────────────────────────────────────────────────
   const sig = (await db.admin("select count(*)::int as n, max(pronargs)::int as args, max(pronargdefaults)::int as defaults, (select p.proargnames from pg_proc p where p.proname = 'record_purchase' and p.pronamespace = 'public'::regnamespace limit 1) as names from pg_proc where proname = 'record_purchase' and pronamespace = 'public'::regnamespace")).rows[0];
@@ -117,7 +117,6 @@ async function scenario(t, db) {
   const M3_REFUSALS = [
     ['لقاح بلا تاريخ انتهاء', U.owner, { item: I.vaccine, qty: 10, price: 5000 }, 'expiry_required', '«تاريخ الانتهاء»'],
     ['ذرة بتاريخ انتهاء', U.manager, { item: I.corn, qty: 1, price: 1, expiry: '2027-01-01' }, 'expiry_not_tracked', '«تاريخ الانتهاء»'],
-    ['لقاح منتهٍ يوم الشراء (المحاسب)', U.accountant, { item: I.vaccine, qty: 10, price: 5000, expiry: '2026-11-01' }, 'expired_on_receipt', '«تاريخ الانتهاء»'],
     ['أفراخ بلا وقت فقس', U.manager, { item: I.chicks, qty: 500, price: 600 }, 'born_at_required', '«وقت الفقس»'],
     ['ذرة بوقت فقس', U.manager, { item: I.corn, qty: 1, price: 1, born: pastMoment }, 'born_at_not_chick', '«وقت الفقس»'],
     ['أفراخ بوقت فقس بعد الآن', U.manager, { item: I.chicks, qty: 500, price: 600, born: futureMoment }, 'born_at_future', '«وقت الفقس»'],
@@ -126,8 +125,10 @@ async function scenario(t, db) {
   for (const [, user, o] of M3_REFUSALS) m3Answers.push(await rp14(user, o));
   t.same(m3Answers.map((a) => [shownOf(a), a.ok ? null : a.hint.includes(M3_REFUSALS[m3Answers.indexOf(a)][4])]), M3_REFUSALS.map((row) => [row[3], true]),
     'M3: قواعد سطر الاستلام بأسمائها، والتلميح يسمّي حقل النافذة («تاريخ الانتهاء» أو «وقت الفقس») لا صفحة الاستلام');
+  // 0034: expired.release لكلّ عضو، فالمحاسب يشتري المنتهي أيضاً (بمعاملة ترجع)، وexpired_on_receipt لا يصله عضو.
+  const accountantExpired = await rp14(U.accountant, { item: I.vaccine, qty: 10, price: 5000, expiry: '2026-11-01' }, { commit: false });
   const managerExpired = await rp14(U.manager, { item: I.vaccine, qty: 1, price: 5000, expiry: '2026-11-01' });
-  t.eq(shownOf(managerExpired), 'ok', 'M3: المدير (expired.release) يشتري المنتهي كما في ورقة الاستلام');
+  t.same([shownOf(accountantExpired), shownOf(managerExpired)], ['ok', 'ok'], 'M3: المدير والمحاسب (expired.release لكلّ عضو منذ 0034) يشتريان المنتهي كما في ورقة الاستلام');
   const vaxRetry = await rp14(U.owner, { ...vax, ref: uid(), item: I.vaccine, qty: 10, price: 5000, expiry: '2027-06-30' });
   const vaxOther = await rp14(U.owner, { ...vax, ref: uid(), item: I.vaccine, qty: 10, price: 5000, expiry: '2027-07-01' });
   t.same([vaxRetry.ok && vaxRetry.value.id === vax.receipt, shownOf(vaxOther)], [true, 'id_conflict'], 'M3: الإعادة بالمعرّف بالتاريخ نفسه = حُفظ، وبتاريخ آخر id_conflict');
@@ -139,10 +140,10 @@ async function scenario(t, db) {
     await canRecord(U.storekeeper, I.corn), await canRecord(U.keeperRaw, I.corn), await canRecord(U.manager, I.eggs), await canRecord(U.hallWorker, I.corn),
     (await file(U.keeperRaw, I.corn))?.cash_accounts, (await overview(U.keeperRaw))?.can_record, await canRecord(U.manager, I.chicks),
   ];
-  t.same(flags, [true, false, false, false, [], true, true],
-    'L1: الأمين بنطاق المعمل يسجّل، والأمين بالمخزن وحده لا (الدفتر خارج نطاقه) ولا صناديق له، وبيض المائدة لا يُشترى، وعامل القاعة لا؛ والبطاقات بعلم الدور');
-  const proof = await rp(U.keeperRaw, { item: I.corn, qty: 1, price: 1 });
-  t.eq(shownOf(proof), 'out_of_scope', 'L1: الشراء نفسه يرفض الأمين بالمخزن وحده (العلم = ما يشترطه الشراء)');
+  t.same(flags, [true, true, false, true, [{ id: box, name: 'صندوق الإصلاح' }], true, true],
+    'L1 بعد 0034: الأمين بنطاق المعمل والأمين بصفّ المخزن وحده وعامل القاعة يسجّلون (والصناديق لهم)، وبيض المائدة لا يُشترى؛ والبطاقات بعلم الدور');
+  const proof = await rp(U.keeperRaw, { item: I.corn, qty: 1, price: 1 }, { commit: false });
+  t.eq(shownOf(proof), 'ok', 'L1: الشراء نفسه يقبل الأمين بصفّ المخزن وحده (العلم = ما يشترطه الشراء؛ بمعاملة ترجع)');
 
   // ── L2: سعر البيع يتبع أحدث شراء مسعَّر بتاريخه ثمّ وقت ترحيله ───────────────────────────────────────────────────────────
   const soyPrice = async () => (await db.admin('select sell_price::text as v from public.item_prices where item_id = $1', [I.soy])).rows[0]?.v ?? null;
@@ -183,18 +184,16 @@ async function scenario(t, db) {
       run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.items_overview() as v')).rows[0].v.items.find((row) => row.id === I.corn).money.avg_unit_price), expect: okWith((v) => v, '496.36') },
     { name: 'M3 expiry_required', fns: [[FN.record, [off('  if i.tracks_expiry and p_expiry_on is null then\n')]]], run: recordAs(U.owner, M3_REFUSALS[0][2]), expect: code('expiry_required', '«تاريخ الانتهاء»') },
     { name: 'M3 expiry_not_tracked', fns: [[FN.record, [off('  if not i.tracks_expiry and p_expiry_on is not null then\n')]]], run: recordAs(U.manager, M3_REFUSALS[1][2]), expect: code('expiry_not_tracked', '«تاريخ الانتهاء»') },
-    { name: 'M3 expired_on_receipt', fns: [[FN.record, [off("  if private.lot_expired(i.tracks_expiry, p_expiry_on, p_received_on) and not public.can('expired.release') then\n")]]], run: recordAs(U.accountant, M3_REFUSALS[2][2]), expect: code('expired_on_receipt', '«تاريخ الانتهاء»') },
-    { name: 'M3 born_at_required', fns: [[FN.record, [off("  if i.kind = 'chick' and p_born_at is null then\n")]]], run: recordAs(U.manager, M3_REFUSALS[3][2]), expect: code('born_at_required', '«وقت الفقس»') },
-    { name: 'M3 born_at_not_chick', fns: [[FN.record, [off("  if i.kind <> 'chick' and p_born_at is not null then\n")]]], run: recordAs(U.manager, M3_REFUSALS[4][2]), expect: code('born_at_not_chick', '«وقت الفقس»') },
-    { name: 'M3 born_at_future', fns: [[FN.record, [off('  if p_born_at > now() then\n')]]], run: recordAs(U.manager, M3_REFUSALS[5][2]), expect: code('born_at_future', '«وقت الفقس»') },
+    { name: 'M3 born_at_required', fns: [[FN.record, [off("  if i.kind = 'chick' and p_born_at is null then\n")]]], run: recordAs(U.manager, M3_REFUSALS[2][2]), expect: code('born_at_required', '«وقت الفقس»') },
+    { name: 'M3 born_at_not_chick', fns: [[FN.record, [off("  if i.kind <> 'chick' and p_born_at is not null then\n")]]], run: recordAs(U.manager, M3_REFUSALS[3][2]), expect: code('born_at_not_chick', '«وقت الفقس»') },
+    { name: 'M3 born_at_future', fns: [[FN.record, [off('  if p_born_at > now() then\n')]]], run: recordAs(U.manager, M3_REFUSALS[4][2]), expect: code('born_at_future', '«وقت الفقس»') },
     { name: 'M3 السطر يحمل التاريخين', fns: [[FN.record, [['  values (p_line_id, v_org, p_receipt_id, i.id, p_qty, p_expiry_on, p_born_at);', '  values (p_line_id, v_org, p_receipt_id, i.id, p_qty, null, null);']]]],
       run: recordAs(U.owner, { item: I.vaccine, qty: 3, price: 5000, expiry: '2027-06-30' }), expect: okWith((v) => v?.payment, 'credit') },
     { name: 'M3 الإعادة بالمعرّف تقارن التاريخين', fns: [[FN.record, [['          and x.expiry_on is not distinct from p_expiry_on and x.born_at is not distinct from p_born_at\n', '']]]],
       run: recordAs(U.owner, { ...vax, ref: uid(), item: I.vaccine, qty: 10, price: 5000, expiry: '2027-07-01' }), expect: code('id_conflict') },
+    // 0034: العلم بشرط المخزن يُفحص ببيض المائدة (لا مخزن يستلمه)، ونطاق الدفتر صار مكافئاً لكلّ عضو فشيلت طفرته (وexpired_on_receipt معها).
     { name: 'L1 العلم بشرط المخزن', fns: [[FN.file, [["'can_record', v_can_buy,", "'can_record', v_record,"]]]],
-      run: async ({ attempt }) => attempt(U.keeperRaw, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.can_record), expect: okWith((v) => v, false) },
-    { name: 'L1 العلم بنطاق الدفتر', fns: [[FN.file, [['\n      and public.in_scope_book(case when x.kind = any (private.receiving_kinds(i.kind)) then private.receipt_book(x.id) end));', ');']]]],
-      run: async ({ attempt }) => attempt(U.keeperRaw, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.can_record), expect: okWith((v) => v, false) },
+      run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.item_file($1) as v', [I.eggs])).rows[0].v.can_record), expect: okWith((v) => v, false) },
     { name: 'L2 الأحدث يغلب', fns: [[FN.record, [['  if p_sell_price is not null and not exists (', '  if p_sell_price is not null and true or not exists (']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => {
         await q(RP, args({ item: I.soy, qty: 10, price: 500, sell: 600, on: '2026-11-01' }));

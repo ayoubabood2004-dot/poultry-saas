@@ -196,8 +196,8 @@ async function scenario(t, db) {
   }, U.owner);
   t.same([rawDetail.can_void, rawDetail.void_block, shownOf(rawVoid), rawOverview.rows.find((r) => r.id === R1.sale)?.can_void, ownerDetail.can_void, row(X.sale).can_void,
     row(Y.sale).can_void, detailY.void_block],
-  [false, 'out_of_scope', 'out_of_scope', false, true, true, false, 'already_void'],
-  'V1 can_void: مدير بنطاق مخزن الموادّ (دفتر وحدته خارج نطاقه) لا يرى «ألغِ» وvoid_sale يرفضه out_of_scope؛ والمالك يراه؛ والملغاة already_void؛ ولكلّ صفّ في القائمة');
+  [true, null, 'ok', true, true, true, false, 'already_void'],
+  'V1 can_void: مدير بصفّ نطاق مخزن الموادّ القديم يرى «ألغِ» وvoid_sale يقبله (0034، بمعاملة ترجع)؛ والمالك يراه؛ والملغاة already_void؛ ولكلّ صفّ في القائمة');
   t.same(locked, { canVoid: false, block: 'period_locked', voided: 'period_locked' }, 'V1 يوم الإلغاء في فترة مقفلة: can_void false وvoid_sale period_locked');
 
   // ── V2: مفتاح القفل الاستشاريّ يحمل المنشأة ────────────────────────────────────────────────────────────────────────

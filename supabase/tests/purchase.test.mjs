@@ -175,10 +175,11 @@ async function scenario(t, db) {
     'المرجع نفسه بمحتوى آخر ref_reused، والمعرّف نفسه بكمية أو سعر أو سعر بيع أو دفع أو سطر آخر أو من مستخدم آخر id_conflict، ومعرّف السطر لاستلام جديد id_conflict');
   t.same(await docCounts(), before, 'الإعادات كلّها: لا استلام ولا دفعة ولا قيد ولا حركة ولا سعر جديد');
 
-  // ── ٤) الأدوار: مشغّل المعمل ومشغّل المفقس وعامل القاعة والمشاهد forbidden ─────────────────────────────────────────────────
-  const refused = [];
-  for (const user of [U.millOperator, U.hatcheryOperator, U.hallWorker, U.viewer]) refused.push(shownOf(await rp(user, { item: I.corn, qty: 1, price: 1 })));
-  t.same(refused, ['forbidden', 'forbidden', 'forbidden', 'forbidden'], 'مشغّل المعمل والمفقس وعامل القاعة والمشاهد لا يسجّلون الشراء (forbidden)');
+  // ── ٤) الأدوار (0034 «الكلّ مثل المالك»): مشغّل المعمل ومشغّل المفقس وعامل القاعة والمشاهد يسجّلون الشراء (بمعاملة ترجع) ─────────────
+  const dry = { commit: false };
+  const allowed = [];
+  for (const user of [U.millOperator, U.hatcheryOperator, U.hallWorker, U.viewer]) allowed.push(shownOf(await rp(user, { item: I.corn, qty: 1, price: 1 }, dry)));
+  t.same(allowed, ['ok', 'ok', 'ok', 'ok'], 'مشغّل المعمل والمفقس وعامل القاعة والمشاهد يسجّلون الشراء (0034، بمعاملة ترجع)');
 
   // ── ٥) الرفوض المسمّاة ───────────────────────────────────────────────────────────────────────────────────────────
   const REFUSALS = [
@@ -208,11 +209,8 @@ async function scenario(t, db) {
     ['تاريخ بالمستقبل', U.manager, { item: I.corn, qty: 1, price: 1, on: '2026-11-07' }, 'date_in_future'],
     ['مخزن غائب', U.manager, { item: I.corn, qty: 1, price: 1, wh: uid() }, 'warehouse_not_found'],
     ['مخزن مؤرشف', U.manager, { item: I.corn, qty: 1, price: 1, wh: archivedRaw }, 'warehouse_archived'],
-    ['مخزن مختار خارج النطاق', U.storekeeper, { item: I.fuel, qty: 1, price: 1, wh: W.general }, 'out_of_scope'],
     ['مخزن لا يستلم نوع المادّة', U.manager, { item: I.corn, qty: 1, price: 1, wh: W.feed }, 'wrong_receiving_store'],
-    ['لا مخزن مواد أوّلية في النطاق', U.keeperGeneral, { item: I.corn, qty: 1, price: 1 }, 'no_receiving_store'],
     ['التعبئة تُستلم في مخزنين', U.owner, { item: I.bags, qty: 1, price: 1 }, 'store_required'],
-    ['أمين بنطاق المخزن دون وحدته: الدفتر خارج نطاقه', U.keeperRaw, { item: I.corn, qty: 1, price: 1 }, 'out_of_scope'],
   ];
   const refusalAnswers = [];
   for (const [, user, o] of REFUSALS) refusalAnswers.push(await rp(user, o));
@@ -220,9 +218,11 @@ async function scenario(t, db) {
   t.same(refusalAnswers.filter((answer) => !answer.ok && !/[\u{600}-\u{6FF}]/u.test(answer.hint)).map((answer) => answer.code), [], 'كلّ رفض بتلميح عربي');
   const hintOf = (label) => refusalAnswers[REFUSALS.findIndex((row) => row[0] === label)].hint;
   t.ok(hintOf('التعبئة تُستلم في مخزنين').includes('المخزن العام') && hintOf('التعبئة تُستلم في مخزنين').includes('مخزن المواد الأوّلية'), `store_required يسمّي المخزنين (${hintOf('التعبئة تُستلم في مخزنين')})`);
-  t.ok(hintOf('لا مخزن مواد أوّلية في النطاق').includes('نطاقك'), `no_receiving_store بنطاق الكاتب يقول إنّ المخزن خارج نطاقه (${hintOf('لا مخزن مواد أوّلية في النطاق')})`);
-  t.ok(hintOf('أمين بنطاق المخزن دون وحدته: الدفتر خارج نطاقه').includes('معمل العلف'), `الدفتر خارج النطاق يسمّي دفتر الوحدة (${hintOf('أمين بنطاق المخزن دون وحدته: الدفتر خارج نطاقه')})`);
   t.same(await docCounts(), before, 'الرفوض كلّها: لا كتابة');
+  // 0034: صفّ النطاق القديم لا يحجب مخزناً ولا دفتراً: أمين العامّة يشتري ذرة لمخزن المواد، وأمين مخزن المواد يصل لدفتر وحدته، والأمين يختار المخزن العامّ.
+  t.same([await rp(U.storekeeper, { item: I.fuel, qty: 1, price: 1, wh: W.general }, dry), await rp(U.keeperGeneral, { item: I.corn, qty: 1, price: 1 }, dry),
+    await rp(U.keeperRaw, { item: I.corn, qty: 1, price: 1 }, dry)].map((r) => [shownOf(r), r.value?.warehouse_id ?? null]),
+  [['ok', W.general], ['ok', W.raw], ['ok', W.raw]], 'بعد 0034: المخزن المختار والمخزن الوحيد ودفتر الوحدة لكلّ عضو (بمعاملة ترجع)');
 
   // ── ٦) المخزن يُختار وحده: لا مخزن من النوع أصلاً، والمخزن المختار، ومخزنان للمواد الأوّلية ─────────────────────────────────────
   await one(U.owner, 'update public.warehouses set archived_at = now() where id = $1 returning id', [W.medicine]);
@@ -257,7 +257,7 @@ async function scenario(t, db) {
     await call(db, U.storekeeper, 'insert into public.receipt_amounts (doc_id, discount, paid_now) values ($1, 0, 0)', [draftB.id], { commit: false }),
     await call(db, U.accountant, 'insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 3)', [draftB.id, I.corn], { commit: false }),
   ];
-  t.same(direct.map(shownOf), ['forbidden', 'forbidden', 'forbidden'], 'الكتابة المباشرة: الأمين لا يكتب مبلغ سطر ولا رأس مبالغ، والمحاسب لا يكتب سطراً');
+  t.same(direct.map(shownOf), ['ok', 'ok', 'ok'], 'الكتابة المباشرة بعد 0034: الأمين يكتب مبلغ السطر ورأس المبالغ، والمحاسب يكتب سطراً (بمعاملة ترجع)');
   const sameTx = await db.asUser(U.storekeeper, async (q) => {
     await q(RP, args({ item: I.corn, qty: 1, price: 400 }));
     try {
@@ -267,33 +267,31 @@ async function scenario(t, db) {
       return error.message;
     }
   });
-  t.eq(sameTx, 'forbidden', 'بعد شراء في المعاملة نفسها: كتابة الأمين المباشرة في مبالغ مسوّدة أخرى ما زالت forbidden');
+  t.eq(sameTx, 'ok', 'بعد شراء في المعاملة نفسها: كتابة الأمين المباشرة في مبالغ مسوّدة أخرى تمرّ (0034، بمعاملة ترجع)');
 
   // طرق العلامة بدور صاحب الجداول (فوق RLS، كما تكتب دالّة definer)، بهويّة الأمين: علامة مستند آخر، وعلامة المستند نفسه (الضابط)،
   // والمعرّف الخام مزوَّراً، وبعد شراء في المعاملة نفسها.
   const insertB = (q) => q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 100) returning id', [draftB.lines[0]]);
-  const markerWays = await mutant(db, U.manager, [], async ({ attempt }) => [
-    await attempt(U.storekeeper, async (q) => {
-      await q("select set_config('poultry.purchase_doc', private.purchase_marker($1), true)", [draftA.id]);
-      return (await insertB(q)).rows.length;
-    }, 'postgres'),
-    await attempt(U.storekeeper, async (q) => {
-      await q("select set_config('poultry.purchase_doc', private.purchase_marker($1), true)", [draftB.id]);
-      return (await insertB(q)).rows.length;
-    }, 'postgres'),
-    await attempt(U.storekeeper, async (q) => {
-      await q("select set_config('poultry.purchase_doc', $1, true)", [draftB.id]);
-      return (await insertB(q)).rows.length;
-    }, 'postgres'),
-    await attempt(U.storekeeper, async (q) => {
+  // كلّ طريق بمعاملته (ترجع)، فلا يصطدم سطر الطريق الثاني بمبلغ كتبه الأوّل.
+  const WAYS = [
+    async (q) => q("select set_config('poultry.purchase_doc', private.purchase_marker($1), true)", [draftA.id]),
+    async (q) => q("select set_config('poultry.purchase_doc', private.purchase_marker($1), true)", [draftB.id]),
+    async (q) => q("select set_config('poultry.purchase_doc', $1, true)", [draftB.id]),
+    async (q) => {
       await q('set local role authenticated');
       await q(RP, args({ item: I.corn, qty: 1, price: 400 }));
       await q('set local role postgres');
+    },
+  ];
+  const markerWays = [];
+  for (const way of WAYS) {
+    markerWays.push(await mutant(db, U.manager, [], async ({ attempt }) => attempt(U.storekeeper, async (q) => {
+      await way(q);
       return (await insertB(q)).rows.length;
-    }, 'postgres'),
-  ]);
-  t.same(markerWays.map((r) => (r.ok ? 'ok' : r.code)), ['forbidden', 'ok', 'forbidden', 'forbidden'],
-    'العلامة: علامة مستند آخر forbidden، وعلامة المستند نفسه تمرّ (الضابط)، والمعرّف الخام المزوَّر forbidden، وبعد شراء في المعاملة forbidden');
+    }, 'postgres')));
+  }
+  t.same(markerWays.map((r) => (r.ok ? 'ok' : r.code)), ['ok', 'ok', 'ok', 'ok'],
+    'العلامة بعد 0034: الأمين يكتب المبالغ بفعله هو، فكلّ الطرق تمرّ والعلامة لا تحجب عضواً (وتبقى للشراء طريقاً لا يعتمد على الدور)');
 
   // ── ٩) الإلغاء (المدير): شراء ثالث يُلغى فيخرج من الملفّ والبطاقات، وصفّ سعره يبقى والثوابت صفر ─────────────────────────────────
   const r3 = await rp(U.manager, { item: I.corn, qty: 200, price: 470 });
@@ -313,7 +311,7 @@ async function scenario(t, db) {
   t.same(
     [keeperFile.today, keeperFile.can_record, keeperFile.can_edit, norm(keeperFile.on_hand_qty), norm(keeperFile.purchased_qty), keeperFile.purchases_count, keeperFile.more,
       norm(keeperFile.money.purchased_value), keeperFile.money.avg_unit_price, norm(keeperFile.money.sell_price), norm(keeperFile.money.last_unit_price)],
-    [TODAY, true, false, '1500', '1500', 2, false, '680000', '453.33', '500', '460'],
+    [TODAY, true, true, '1500', '1500', 2, false, '680000', '453.33', '500', '460'],
     'ملفّ الذرة للأمين: الموجود 1,500 (الملغى رجع) ومجموع المشترى 1,500 بـ680,000 ومتوسّط 453.33 وسعر البيع 500 وآخر سعر 460 (الأحدث)',
   );
   t.same(keeperFile.purchases.map((row) => [row.doc_no, norm(row.qty), row.payment, norm(row.money.unit_price), norm(row.money.line_total), norm(row.money.sell_price), row.party_name]),
@@ -322,8 +320,7 @@ async function scenario(t, db) {
   t.same(keeperFile.cash_accounts, [{ id: box, name: 'الصندوق' }], 'الصناديق الفعّالة لنافذة الشراء (الأمين لا يقرأ جدولها)');
   const millFile = await file(U.millOperator, I.corn);
   const hallFile = await file(U.hallWorker, I.corn);
-  t.same([hasMoney(millFile), millFile.purchases_count, norm(millFile.purchased_qty), millFile.can_record, millFile.cash_accounts, hasMoney(hallFile), hallFile.purchases_count, norm(hallFile.on_hand_qty)],
-    [false, 2, '1500', false, [], false, 0, '0'], 'مشغّل المعمل يرى الشراءات بلا مال، وعامل القاعة بلا مال ولا شراءات خارج نطاقه');
+  t.same([canon(millFile), canon(hallFile)], [canon(keeperFile), canon(keeperFile)], 'مشغّل المعمل وعامل القاعة يرون ملفّ الأمين نفسه بماله وشراءاته (0034)');
   const oilFile = await file(U.accountant, I.oil);
   t.same([oilFile.item.base_unit, oilFile.item.density_kg_per_l, norm(oilFile.purchased_qty), oilFile.money.avg_unit_price, norm(oilFile.money.sell_price)], ['L', '0.92', '200', '1750.00', '2000'], 'ملفّ الزيت: باللتر بكثافته، ومتوسّطه 1,750');
   t.eq(shownOf(await call(db, U.manager, 'select public.item_file($1) as v', [uid()])), 'item_not_found', 'ملفّ مادّة غائبة: item_not_found');
@@ -340,7 +337,7 @@ async function scenario(t, db) {
   const hallBoard = await overview(U.hallWorker);
   const accountantBoard = await overview(U.accountant);
   t.same([keeperBoard.can_record, keeperBoard.can_add_item, accountantBoard.can_record, accountantBoard.can_add_item, hallBoard.can_record, hasMoney(hallBoard), hasMoney(keeperBoard), hallBoard.items.length],
-    [true, true, true, false, false, false, true, expectedOrder.length], 'العلمان: الأمين يسجّل ويضيف، والمحاسب يسجّل ولا يضيف، وعامل القاعة لا هذا ولا ذاك وبلا مال');
+    [true, true, true, true, true, true, true, expectedOrder.length], 'العلمان بعد 0034: الأمين والمحاسب وعامل القاعة يسجّلون ويضيفون، وبالمال');
 
   // ── ١٢) المخزنان: مادّة أوّلية بمخزنين في النطاق store_required، وبالمختار تمرّ ───────────────────────────────────────────────
   const raw2 = await one(U.owner, "insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'مخزن مواد ثانٍ', 'raw') returning id", [D.feed_mill, millSite]);
@@ -436,8 +433,10 @@ async function scenario(t, db) {
   const code = (expected, hint) => (r) => !r.ok && r.code === expected && (!hint || r.hint.includes(hint));
   const okWith = (pick, value) => (r) => r.ok && pick(r.value) === value;
   const off = (anchor) => [anchor, anchor.replace(/^( *if ).*( then\n)$/su, '$1false$2')];
+  // 0034 («الكلّ مثل المالك»): حالات الفعل purchase.record ونطاق المخزن والدفتر، وقناع المال على النتيجة وإعادتها والملفّ والبطاقات، وحارسا السطر
+  // والمبالغ والعلامة (كانت تحجب الأمين عن المبالغ والمحاسب عن السطور)، وجدول الأدوار القديم — صارت مكافئة أو بلا أثر داخل المنشأة، فشيلت؛
+  // وحدّ المنشأة وmembers.manage يحرسهما role-matrix وparity.
   const CASES = [
-    { name: 'الفعل purchase.record', fns: [[FN.record, [["  perform private.require('purchase.record');\n", '']]]], run: recordAs(U.millOperator, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: code('forbidden') },
     { name: 'id_required', fns: [[FN.record, [off('  if p_receipt_id is null or p_line_id is null or p_item is null or p_party is null then\n')]]], run: recordAs(U.manager, { receipt: null, item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: code('id_required') },
     { name: 'id_conflict (المحتوى)', fns: [[FN.record, [['    if coalesce(v_same, false) then\n', '    if true then\n']]]], run: recordAs(U.storekeeper, { ...r1, ref: uid(), item: I.corn, qty: 999, price: 450, sell: 500, wh: W.raw }), expect: code('id_conflict') },
     { name: 'id_conflict (فحص المعرّف)', fns: [[FN.record, [off('  if r.id is not null then\n')]]], run: recordAs(U.storekeeper, { ...r1, ref: uid(), line: uid(), item: I.corn, qty: 1000, price: 450, sell: 500, wh: W.raw }), expect: code('id_conflict') },
@@ -449,11 +448,17 @@ async function scenario(t, db) {
     { name: 'expiry_required', fns: [[FN.record, [off('  if i.tracks_expiry and p_expiry_on is null then\n')]]], run: recordAs(U.owner, { item: I.vaccine, qty: 10, price: 1, wh: null }), expect: code('expiry_required', '«تاريخ الانتهاء»') },
     { name: 'warehouse_not_found', fns: [[FN.record, [off('    if w.id is null then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, wh: uid() }), expect: code('warehouse_not_found') },
     { name: 'warehouse_archived', fns: [[FN.record, [off('    if w.archived_at is not null then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, wh: archivedRaw }), expect: code('warehouse_archived', 'شراء جديد') },
-    { name: 'out_of_scope (المخزن المختار)', fns: [[FN.record, [off('    if not public.in_scope_wh(w.id) then\n')]]], run: recordAs(U.storekeeper, { item: I.fuel, qty: 1, price: 1, wh: W.general }), expect: code('out_of_scope', 'فلا تسجّل فيه شراءً') },
     { name: 'wrong_receiving_store', fns: [[FN.record, [off('    if not (w.kind = any (v_kinds)) then\n')]]], run: recordAs(U.manager, { item: I.corn, qty: 1, price: 1, wh: W.feed }), expect: code('wrong_receiving_store') },
-    { name: 'no_receiving_store', fns: [[FN.record, [off('    if v_count = 0 then\n')]]], run: recordAs(U.keeperGeneral, { item: I.corn, qty: 1, price: 1 }), expect: code('no_receiving_store') },
+    {
+      name: 'no_receiving_store',
+      fns: [[FN.record, [off('    if v_count = 0 then\n')]]],
+      run: async ({ attempt }) => attempt(U.owner, async (q) => {
+        await q('update public.warehouses set archived_at = now() where id = $1', [W.medicine]);
+        return (await q(RP, args({ item: I.vitamin, qty: 1, price: 1 }))).rows[0].v;
+      }),
+      expect: code('no_receiving_store'),
+    },
     { name: 'store_required', fns: [[FN.record, [off('    if v_count > 1 then\n')]]], run: recordAs(U.manager, { item: I.soy, qty: 1, price: 1 }), expect: code('store_required') },
-    { name: 'out_of_scope (الدفتر)', fns: [[FN.record, [off('  if not public.in_scope_book(b.id) then\n')]]], run: recordAs(U.keeperRaw, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: code('out_of_scope', 'دون وحدته') },
     { name: 'qty_not_positive', fns: [[FN.record, [off("  if p_qty is null or not (abs(p_qty) < 'Infinity') or p_qty <= 0 or p_qty <> round(p_qty, 3) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1.2345, price: 1, wh: W.raw }), expect: code('qty_not_positive') },
     { name: 'pieces_not_whole', fns: [[FN.record, [off("  if i.base_unit = 'pc' and p_qty <> round(p_qty, 0) then\n")]]], run: recordAs(U.manager, { item: I.crates, qty: 2.5, price: 1 }), expect: code('pieces_not_whole', 'عدداً صحيحاً من القطع') },
     { name: 'bad_price (الشراء)', fns: [[FN.record, [off("  if p_unit_price is not null and (not (abs(p_unit_price) < 'Infinity') or p_unit_price <= 0 or p_unit_price <> round(p_unit_price, 2)) then\n")]]], run: recordAs(U.manager, { item: I.corn, qty: 1000, price: 1.234, wh: W.raw }), expect: code('bad_price') },
@@ -474,96 +479,10 @@ async function scenario(t, db) {
       expect: okWith((v) => v, '777'),
     },
     {
-      name: 'النتيجة بمالها لمن يسجّل',
-      fns: [[FN.record, [['  perform private.ref_store(v_fn, p_client_ref, v_result);\n  return v_result;\nend', '  perform private.ref_store(v_fn, p_client_ref, v_result);\n  return private.mask(v_result);\nend']]]],
-      run: recordAs(U.storekeeper, { item: I.corn, qty: 1, price: 1, wh: W.raw }),
-      expect: okWith((v) => v?.money?.unit_price, '1'),
-    },
-    {
-      name: 'الإعادة بالمرجع بمالها لمن يسجّل',
-      fns: [[FN.record, [['    select x.result into v_cached from public.rpc_refs x where x.org_id = v_org and x.fn = v_fn and x.client_ref = p_client_ref;\n', '']]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => {
-        const o = args({ item: I.corn, qty: 1, price: 1, wh: W.raw });
-        await q(RP, o);
-        return (await q(RP, o)).rows[0].v;
-      }),
-      expect: okWith((v) => v?.money?.line_total, '1'),
-    },
-    { name: 'حارس السطر يمرّر شراء المحاسب', fns: [[FN.lines, [["  if not private.purchase_pass(d.id) then\n    perform private.require('receipt.draft');\n  end if;\n", "  perform private.require('receipt.draft');\n"]]]], run: recordAs(U.accountant, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
-    { name: 'حارس المبالغ يمرّر شراء الأمين', fns: [[FN.amounts, [["  if not private.purchase_pass(d.id) then\n    perform private.require('receipt.amounts');\n", "  if true then\n    perform private.require('receipt.amounts');\n"]]]], run: recordAs(U.storekeeper, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
-    {
-      name: 'حارس المبالغ يحكم الأمين بلا علامة',
-      fns: [[FN.amounts, [["  if not private.purchase_pass(d.id) then\n    perform private.require('receipt.amounts');\n", "  if false then\n    perform private.require('receipt.amounts');\n"]]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => (await q('insert into public.receipt_line_amounts (line_id, line_total) values ($1, 100) returning id', [draftB.lines[0]])).rows.length),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'حارس السطر يحكم المحاسب بلا علامة',
-      fns: [[FN.lines, [["  if not private.purchase_pass(d.id) then\n    perform private.require('receipt.draft');\n", "  if false then\n    perform private.require('receipt.draft');\n"]]]],
-      run: async ({ attempt }) => attempt(U.accountant, async (q) => (await q('insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 3) returning id', [draftB.id, I.corn])).rows.length),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'العلامة مربوطة بالمستند',
-      fns: [[FN.pass, [['  return coalesce(v_mark = private.purchase_marker(p_doc), false);', '  return true;']]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => {
-        await q("select set_config('poultry.purchase_doc', private.purchase_marker($1), true)", [draftA.id]);
-        return (await insertB(q)).rows.length;
-      }, 'postgres'),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'العلامة بسرّ الخادم لا بالمعرّف',
-      fns: [[FN.pass, [['  return coalesce(v_mark = private.purchase_marker(p_doc), false);', '  return coalesce(v_mark = p_doc::text, false);']]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => {
-        await q("select set_config('poultry.purchase_doc', $1, true)", [draftB.id]);
-        return (await insertB(q)).rows.length;
-      }, 'postgres'),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'العلامة تُمسح بعد الكتابات (مع ربطها بالمستند)',
-      fns: [[FN.record, [["  perform set_config('poultry.purchase_doc', '', true);\n", '']]], [FN.pass, [['  return coalesce(v_mark = private.purchase_marker(p_doc), false);', '  return true;']]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => {
-        await q('set local role authenticated');
-        await q(RP, args({ item: I.corn, qty: 1, price: 400, wh: W.raw }));
-        await q('set local role postgres');
-        return (await insertB(q)).rows.length;
-      }, 'postgres'),
-      expect: code('forbidden'),
-    },
-    // الفعل بجدول الأدوار (0017 أ): الأمين والمحاسب بلا purchase.record يُرفضان (ومرآته permissions.ts بفحص parity خانةً خانة).
-    { name: 'role_can: الأمين يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'stock_use.post', 'party.create', 'purchase.record', 'sale.record')", "'stock_use.post', 'party.create', 'sale.record')"]]]], run: recordAs(U.storekeeper, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
-    { name: 'role_can: المحاسب يسجّل الشراء', fns: [['private.role_can(text, text, boolean)', [["'cash_accounts.manage', 'expense_categories.manage', 'purchase.record',\n      'sale.record')", "'cash_accounts.manage', 'expense_categories.manage',\n      'sale.record')"]]]], run: recordAs(U.accountant, { item: I.corn, qty: 1, price: 1, wh: W.raw }), expect: okWith((v) => v?.payment, 'credit') },
-    {
-      name: 'ملفّ المادّة بماله لمن يسجّل',
-      fns: [[FN.file, [['  if v_record then\n    return v_result;\n  end if;\n  return private.mask(v_result);', '  return private.mask(v_result);']]]],
-      run: async ({ attempt }) => attempt(U.storekeeper, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v),
-      expect: okWith((v) => hasMoney(v), true),
-    },
-    {
-      name: 'ملفّ المادّة بلا مال لغيرهم',
-      fns: [[FN.file, [['  return private.mask(v_result);\nend', '  return v_result;\nend']]]],
-      run: async ({ attempt }) => attempt(U.millOperator, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v),
-      expect: okWith((v) => hasMoney(v), false),
-    },
-    {
       name: 'ملفّ المادّة بلا الملغى',
       fns: [[FN.file, [["l.origin_lot_id is null and r.status = 'posted'\n      and public.in_scope_wh(l.warehouse_id)", 'l.origin_lot_id is null\n      and public.in_scope_wh(l.warehouse_id)']]]],
       run: async ({ attempt }) => attempt(U.manager, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.purchases_count),
       expect: okWith((v) => v, 2),
-    },
-    {
-      name: 'ملفّ المادّة بنطاق القارئ',
-      fns: [[FN.file, [["r.status = 'posted'\n      and public.in_scope_wh(l.warehouse_id)\n  ), ordered as", "r.status = 'posted'\n  ), ordered as"]]]],
-      run: async ({ attempt }) => attempt(U.keeperGeneral, async (q) => (await q('select public.item_file($1) as v', [I.corn])).rows[0].v.purchases_count),
-      expect: okWith((v) => v, 0),
-    },
-    {
-      name: 'البطاقات بلا مال لغيرهم',
-      fns: [[FN.overview, [['  return private.mask(v_result);\nend', '  return v_result;\nend']]]],
-      run: async ({ attempt }) => attempt(U.hallWorker, async (q) => (await q('select public.items_overview() as v')).rows[0].v),
-      expect: okWith((v) => hasMoney(v), false),
     },
     {
       name: 'البطاقات بلا الملغى',
@@ -599,14 +518,10 @@ async function scenario(t, db) {
   const show = (o) => (o.ok ? `ok:${JSON.stringify(o.value)?.slice(0, 60)}` : `${o.code} (${o.hint.slice(0, 50)})`);
   t.same(outcomes.filter((o) => !o.real).map((o) => `${o.name}: ${show(o.realOutcome)}`), [], `الطفرات (${CASES.length}): كلّ حالة على الشفرة الحقيقية بنتيجتها`);
   t.same(outcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${show(o.broken)}`), [], `الطفرات: ${outcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت (ومعها طفرة أقفال الشراء فوق)`);
-  // طفرة مكافئة مكتوبة: مسح العلامة وحده بلا ربطها بالمستند لا يُرى، لأنّ العلامة لمستندها وحده (الدفاع طبقتان)؛ وطفرتها معاً فوق.
-  const clearOnly = await mutant(db, U.manager, [[FN.record, [["  perform set_config('poultry.purchase_doc', '', true);\n", '']]]], CASES.find((c) => c.name.startsWith('العلامة تُمسح')).run);
-  t.eq(clearOnly.ok ? 'ok' : clearOnly.code, 'forbidden', 'طفرة مكافئة: بلا مسح العلامة وحده تبقى مربوطة بمستندها فلا تتسرّب');
 
   if (process.env.PURCHASE_MUTATIONS_OUT) {
     const rows = outcomes.map((o) => ({ name: o.name, real: o.real, caught: o.caught, mutant: show(o.broken) }));
     rows.push({ name: 'أقفال الشراء قبل الكتابة (طفرة مثبَّتة بجلسات)', real: real.a1.ok && real.a2.ok, caught: mutantErrors.some((error) => /deadlock/u.test(error)), mutant: mutantErrors.join(' | ') });
-    rows.push({ name: 'مسح العلامة وحده (مكافئة)', real: true, caught: false, mutant: clearOnly.ok ? 'ok' : clearOnly.code });
     writeFileSync(process.env.PURCHASE_MUTATIONS_OUT, `${JSON.stringify(rows, null, 2)}\n`);
   }
 

@@ -1,42 +1,26 @@
-// permissions.ts: كل خانة بجدول الصلاحيات (قسم «العمليات») تنجح للمسموح وتفشل للممنوع.
-// الجدول هنا منقول من الوثيقة (ويّا تعديلات المالك بـdocs/DECISIONS.md) مستقلاً عن الشفرة، والفحص يثبت إنه يقدر يفشل على خانة مقلوبة.
+// permissions.ts: كل خانة بجدول الصلاحيات تنجح للمسموح وتفشل للممنوع.
+// الجدول هنا مكتوب من كلمة المالك مستقلاً عن الشفرة، والفحص يثبت إنه يقدر يفشل على خانة مقلوبة. «الكلّ مثل المالك بكلّ شيء» (كلمة
+// المالك 2026-11-21، 0034): كلّ دور يفعل كلّ فعل ويرى الكلفة والحسابات والمبيعات في المنشأة كلّها، وإدارة الموظفين للمالك وحده.
 import { loadSrc } from './load-src.mjs';
 
 const ALL = ['owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator', 'hall_worker', 'accountant', 'viewer'];
 
+const EVERY = [
+  'receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post',
+  'receipt.amounts', 'costs.load', 'sale.post', 'payment.post', 'sale_return.post', 'expense.post', 'accounts.view',
+  'production.draft', 'production.post', 'hatch.operate', 'flock_day.save', 'weigh_ticket.draft',
+  'recipe.activate', 'count.approve', 'flock.manage', 'flock.transfer', 'hatch.zero_saleable', 'expired.destroy', 'expired.release',
+  'void', 'receipt.revalue', 'party.adjust', 'opening.post', 'period.lock',
+  // كانت للمالك وحده (المقاصّة 2026-10-24 وفتح الفترة 2026-10-25)، وصارت للكلّ بكلمة 2026-11-21.
+  'party.offset', 'period.unlock',
+  'stores.manage', 'parties.manage', 'party.create', 'cash_accounts.manage', 'expense_categories.manage', 'item.create',
+  'purchase.record', 'sale.record', 'stock_note.write', 'halls_note.write', 'read',
+];
+
 const TABLE = [
-  { actions: ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post'], roles: ['storekeeper', 'manager', 'owner'] },
-  { actions: ['receipt.amounts'], roles: ['accountant', 'manager', 'owner'] },
-  { actions: ['production.draft'], roles: ['mill_operator', 'manager', 'owner'] },
-  { actions: ['costs.load'], roles: ['accountant', 'manager', 'owner'] },
-  { actions: ['production.post'], roles: ['accountant', 'manager', 'owner'] },
-  { actions: ['hatch.operate'], roles: ['hatchery_operator', 'manager', 'owner'] },
-  { actions: ['flock_day.save', 'weigh_ticket.draft'], roles: ['hall_worker', 'manager', 'owner'] },
-  { actions: ['sale.post', 'payment.post', 'sale_return.post', 'expense.post'], roles: ['accountant', 'manager', 'owner'] },
-  { actions: ['accounts.view'], roles: ['owner', 'manager', 'accountant'] },
-  { actions: ['recipe.activate', 'count.approve', 'flock.manage', 'flock.transfer', 'hatch.zero_saleable', 'expired.destroy', 'expired.release'], roles: ['manager', 'owner'] },
-  { actions: ['void', 'receipt.revalue', 'party.adjust', 'opening.post', 'period.lock'], roles: ['manager', 'owner'] },
-  // كلمة المالك 2026-10-24: «بلا سقوف، المقاصّة للمالك بس».
-  { actions: ['party.offset'], roles: ['owner'] },
-  // كلمة المالك 2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس».
+  { actions: EVERY, roles: ALL },
+  // كلمة المالك 2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس»، وباقية بعد 2026-11-21.
   { actions: ['members.manage'], roles: ['owner'] },
-  // كلمة المالك 2026-10-25: «فتح فترة مقفلة: المالك بس».
-  { actions: ['period.unlock'], roles: ['owner'] },
-  // أجوبة المالك على أسئلة المرحلة 1 (Q1، 2026-10-26): البيانات الأساسية.
-  { actions: ['stores.manage'], roles: ['manager', 'owner'] },
-  { actions: ['parties.manage', 'cash_accounts.manage', 'expense_categories.manage'], roles: ['accountant', 'manager', 'owner'] },
-  { actions: ['party.create'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
-  // قرار المالك 2026-11-02 (أ-1 بعقد 0013): الأمين «يضيف» مادّة ووحدتها، والتعديل والأرشفة تبقى stores.manage.
-  { actions: ['item.create'], roles: ['storekeeper', 'manager', 'owner'] },
-  // قرار المالك 2026-11-06 («المخزن ببساطة»، الجواب ٢): كلّ من يعمل في المخزن، ومنهم الأمين، يسجّل الشراء بكميته وسعره.
-  { actions: ['purchase.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
-  // قرار المالك 2026-11-08 (البيع، عقد 0020): sale.record لأدوار purchase.record نفسها.
-  { actions: ['sale.record'], roles: ['storekeeper', 'accountant', 'manager', 'owner'] },
-  // قرار المالك 2026-11-09 («الرصيد اليومي»، عقد 0022): ملاحظة اليوم لمن يعمل في المخازن.
-  { actions: ['stock_note.write'], roles: ['storekeeper', 'mill_operator', 'hatchery_operator', 'manager', 'owner'] },
-  // قرار المالك 2026-11-17 (عقد 0031): ملاحظة يوم تحت تقرير القاعات اليومي للمالك والمدير وحدهما.
-  { actions: ['halls_note.write'], roles: ['manager', 'owner'] },
-  { actions: ['read'], roles: ALL },
 ];
 
 function mismatches(can, table) {
@@ -62,29 +46,24 @@ export default async function (t) {
   t.same(covered, [...p.ACTIONS].sort(), 'الجدول يغطّي كل فعل بالشفرة، ولا فعل زايد');
   t.same([...p.ROLES].sort(), [...ALL].sort(), 'الأدوار الثمانية');
 
-  const flipped = TABLE.map((row, index) => (index === 0 ? { ...row, roles: [...row.roles, 'viewer'] } : row));
+  const flipped = TABLE.map((row, index) => (index === 1 ? { ...row, roles: [...row.roles, 'viewer'] } : row));
   t.ok(mismatches(p.can, flipped).length > 0, 'الفحص يفشل على خانة مقلوبة');
 
-  // مشغّل المعمل يرحّل بس بعد ما تنختم الكلف.
-  t.ok(!p.can('mill_operator', 'production.post'), 'مشغّل المعمل قبل ختم الكلف ← ممنوع');
-  t.ok(p.can('mill_operator', 'production.post', { costsConfirmed: true }), 'بعد ختم الكلف ← مسموح');
+  // مشغّل المعمل يرحّل كغيره (لا انتظار لختم الكلف)، وبلا دور لا فعل.
+  t.ok(p.can('mill_operator', 'production.post'), 'مشغّل المعمل يرحّل دفعة الإنتاج');
+  t.ok(!p.can(null, 'read') && !p.can(undefined, 'read'), 'بلا دور (لا عضوية): ولا فعل');
 
-  // الكلف والحسابات للمالك والمدير والمحاسب بس، والمبيعات ممنوعة عن عامل القاعة ومشغّلَي المفقس والمعمل.
+  // الكلف والحسابات والمبيعات لكلّ دور، وإدارة الموظفين للمالك.
   for (const role of ALL) {
-    const accounting = ['owner', 'manager', 'accountant'].includes(role);
-    t.eq(p.canSeeCost(role), accounting, `canSeeCost(${role})`);
-    t.eq(p.canSeeAccounts(role), accounting, `canSeeAccounts(${role})`);
-    t.eq(p.canSeeSales(role), !['hall_worker', 'hatchery_operator', 'mill_operator'].includes(role), `canSeeSales(${role})`);
+    t.eq(p.canSeeCost(role), true, `canSeeCost(${role})`);
+    t.eq(p.canSeeAccounts(role), true, `canSeeAccounts(${role})`);
+    t.eq(p.canSeeSales(role), true, `canSeeSales(${role})`);
     t.eq(p.canManageMembers(role), p.can(role, 'members.manage'), `canManageMembers(${role}) = can(members.manage)`);
   }
+  t.same([p.canSeeCost(null), p.canSeeAccounts(null), p.canSeeSales(null), p.canManageMembers(null)], [false, false, false, false], 'بلا دور: لا كلفة ولا حسابات ولا مبيعات ولا موظفين');
 
-  // النطاق: عامل قاعة نطاقه قاعة 1 يحفظ جولة قاعة 3 ← رفض.
-  const hall1 = [{ hallId: 'hall-1' }];
-  t.ok(sc.inScope('hall_worker', hall1, { hallId: 'hall-1', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة نطاقه');
-  t.ok(!sc.inScope('hall_worker', hall1, { hallId: 'hall-3', siteId: 'site-1', divisionId: 'broiler' }), 'قاعة 3 برّا نطاقه');
-  t.ok(!sc.inScope('storekeeper', [], { warehouseId: 'w1' }), 'بلا صفوف نطاق: أمين المخزن ما يشوف شي');
-  t.ok(sc.inScope('accountant', [], { warehouseId: 'w1' }), 'بلا صفوف: المحاسب كل المنشأة');
-  t.ok(sc.inScope('owner', hall1, { hallId: 'hall-9' }), 'المالك كل شي');
-  t.ok(sc.inScope('manager', [{ divisionId: 'hatchery' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق بالوحدة يغطّي مخازنها');
-  t.ok(!sc.inScope('manager', [{ siteId: 's1' }], { warehouseId: 'w2', siteId: 's2', divisionId: 'hatchery' }), 'نطاق موقع ما يغطّي موقعاً ثانياً');
+  // النطاق: المنشأة كلّها لكلّ عضو، ولو كانت له صفوف نطاق قديمة.
+  for (const role of ALL) t.ok(sc.inScope(role), `inScope(${role}): المنشأة كلّها`);
+  t.ok(sc.inScope('hall_worker', [{ hallId: 'hall-1' }], { hallId: 'hall-3' }), 'عامل قاعة بصفّ نطاق قديم (قاعة 1) يرى قاعة 3');
+  t.ok(!sc.inScope(null), 'بلا دور: لا شيء');
 }

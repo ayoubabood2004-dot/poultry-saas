@@ -429,7 +429,7 @@ export default async function (t) {
     await step('E عامل القاعة', async () => {
       fresh('hall_worker', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadOverviewJson: overview, loadFlockDetail: () => m.parseDetail(detail()) });
       await mount('/broiler');
-      t.eq(byAction('hall-issue').length, 0, 'E عامل القاعة: لا «اصرف» في جدول الحقل');
+      t.ok(byAction('hall-issue').length > 0, 'E عامل القاعة: «اصرف» في جدول الحقل (0034: issue.post لكلّ عضو)');
     });
     /** ورقة القاعة (hall_sheet، 0035) لفوج قاعة 1 من العيّنة اليدوية للعقد. */
     const sheetOf = () => {

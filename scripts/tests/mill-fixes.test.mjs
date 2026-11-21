@@ -609,7 +609,7 @@ export default async function (t) {
       root = null;
       fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: false }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });
       await mount('/mill/recipe/r-1');
-      t.eq(byAction('produce').length, 0, 'X9 ولا «أنتج» لمن لا يملك production.draft');
+      t.eq(byAction('produce').length, 1, 'X9 والمشاهد يُنتج أيضاً (0034: production.draft لكلّ عضو)');
     });
 
     // ── X10 (م١٠): «احذف المسوّدة» بتأكيد يسمّي الدفعة ونتيجتها ─────────────────────────────────────────────────────────

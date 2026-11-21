@@ -23,10 +23,11 @@ export default async function (t, db) {
   await scopeParity(t, db);
 }
 
-// ─── WP2 (0005): in_scope_site وin_scope_wh = inScope بـpermissions.ts، بأعضاء حقيقيين ونطاقات مولّدة ─────────────────
+// ─── WP2 (0005): in_scope_site وin_scope_wh = inScope بـscope.ts، بأعضاء حقيقيين ونطاقات مولّدة ─────────────────────
 // كل عضو نطاقه من set_member_scopes_v2 الحقيقية (وحدات ومواقع ومخازن عشوائية ببذرة ثابتة، وبعضها انبدل فانأرشف القديم)،
 // وصفوف نطاقه تنقرا من my_workspace() بـparseWorkspace الحقيقية (الشكل اللي تشوفه الشاشة)، والهدف بسلسلته الكاملة
-// (المخزن ← الموقع ← الوحدة). وضابط: in_scope_wh مكسور (ينسى صفّ الموقع) بمعاملة ترجع يطلع اختلافات.
+// (المخزن ← الموقع ← الوحدة). «الكلّ مثل المالك بكلّ شيء» (0034): صفوف النطاق باقية ولا تحدّ شيئاً، فكلّ خانة داخل النطاق بالطرفين،
+// وما في منشأة أخرى خارجه بالخادم لكلّ عضو. وضابط: جسم in_scope_wh القديم (ملف التراجع rollback_0034) بمعاملة ترجع يطلع اختلافات.
 async function scopeParity(t, db) {
   const p = await loadSrc('src/domain/permissions.ts');
   const sc = await loadSrc('src/domain/scope.ts');
@@ -117,19 +118,47 @@ async function scopeParity(t, db) {
     if (sent.join() !== seen.join()) mismatch.push(`${m.role}: my_workspace().scopes ${seen.join()} غير المرسل ${sent.join()}`);
   }
   t.eq(cells, members.length * (stores.length + sites.length), `خانات النطاق: ${members.length} عضو × ${stores.length + sites.length} هدف`);
-  t.ok(covered > 50 && covered < cells - 50, `ضابط: الخانات بيها داخل النطاق (${covered}) وبرّاه (${cells - covered})`);
+  t.eq(covered, cells, `كلّ خانة داخل النطاق لكلّ دور ولو بصفوف نطاق (${covered} من ${cells})`);
   t.same(mismatch.slice(0, 10), [], `in_scope_site وin_scope_wh = inScope بالشاشة بكل خانة (${mismatch.length} اختلاف)`);
 
-  // ضابط: in_scope_wh ينسى صفّ الموقع (بمعاملة ترجع، بهويّة عضو بنطاق مواقع بس) ← المقارنة نفسها تمسكه.
+  // ما بين المنشآت كما كان: مواقع منشأة أخرى ومخازنها خارج نطاق كلّ عضو بالخادم (الشاشة لا تراها أصلاً: RLS).
+  const stranger = { id: id(99), phone: '9647709000099' };
+  await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [stranger.id, stranger.phone]);
+  await db.asUser(stranger.id, (q) => q("select public.create_my_org('مزرعة غريبة للنطاق', 'مالكها')"), { commit: true });
+  const strangerOrg = (await db.admin('select org_id from public.members where user_id = $1', [stranger.id])).rows[0].org_id;
+  const foreign = {
+    stores: (await db.admin('select id from public.warehouses where org_id = $1', [strangerOrg])).rows.map((r) => r.id),
+    sites: (await db.admin('select id from public.sites where org_id = $1', [strangerOrg])).rows.map((r) => r.id),
+  };
+  let foreignIn = 0;
+  for (const m of members) {
+    const rows = await db.asUser(m.id, async (q) => (await q(
+      `select public.in_scope_wh(x.id) as v from unnest($1::uuid[]) as x(id) union all select public.in_scope_site(x.id) from unnest($2::uuid[]) as x(id)`,
+      [foreign.stores, foreign.sites],
+    )).rows);
+    foreignIn += rows.filter((row) => row.v).length;
+  }
+  t.ok(foreign.stores.length > 0 && foreign.sites.length > 0, `ضابط: للمنشأة الأخرى مخازن (${foreign.stores.length}) ومواقع (${foreign.sites.length})`);
+  t.eq(foreignIn, 0, 'مخازن منشأة أخرى ومواقعها خارج نطاق كلّ عضو');
+
+  // ضابط: جسم in_scope_wh القديم (ملف التراجع، بمعاملة ترجع، بهويّة أمين بنطاق مواقع بس) ← المقارنة نفسها تمسكه.
   const siteOnly = members.find((m) => m.role === 'storekeeper' && m.scope.sites.length > 0 && m.scope.warehouses.length === 0 && m.scope.divisions.length === 0);
   const broken = await db.asOwner(async (q) => {
-    const definition = (await q("select pg_get_functiondef('public.in_scope_wh(uuid)'::regprocedure) as d")).rows[0].d;
-    await q(definition.replace(' or s.site_id = w.site_id', ''));
+    await q(oldBody('public.in_scope_wh'));
     const workspace = (await q('select public.my_workspace() as w')).rows[0].w;
     const expected = expectFor('storekeeper', w.parseWorkspace(workspace).workspace.scopes);
     return (await ask(q)).rows.filter((row) => row.v !== expected.get(`${row.kind}:${row.id}`)).length;
   }, siteOnly.id);
-  t.ok(broken > 0, `ضابط: in_scope_wh بلا صفّ الموقع يطلع ${broken} اختلاف`);
+  t.ok(broken > 0, `ضابط: جسم in_scope_wh القديم يطلع ${broken} اختلاف`);
+}
+
+/** جسم دالّة قبل 0034 كما يرجّعه ملف التراجع حرفاً (الطفرة الحقيقية: القاعدة القديمة نفسها، لا شرط مشال). */
+function oldBody(name) {
+  const text = readFileSync(path.join(DIR, '..', 'migrations', 'rollback_0034.sql'), 'utf8');
+  const start = text.indexOf(`create or replace function ${name}(`);
+  if (start < 0) throw new Error(`ملف التراجع بلا ${name}`);
+  const end = text.indexOf('\n$$;', start);
+  return text.slice(start, end + 4);
 }
 
 async function permissionsAndPhone(t, db) {
@@ -156,6 +185,20 @@ async function permissionsAndPhone(t, db) {
   t.same(mismatch, [], 'جدول الصلاحيات نفسه بالخادم والشاشة');
   await t.rejects(db.admin("select private.role_can('owner', 'typo.action')"), 'فعل مو بالقائمة يرمي حتى للمالك', /^unknown_action$/);
   t.eq((await db.admin("select private.role_can(null, 'read') as a")).rows[0].a, false, 'بلا عضوية: ولا فعل');
+  // «الكلّ مثل المالك بكلّ شيء» (0034): كلّ خانة مسموحة إلّا members.manage لغير المالك.
+  const denied = sql.filter((row) => !row.allowed).map((row) => `${row.role} × ${row.action}`);
+  const expectedDenied = cells.filter((cell) => cell.action === 'members.manage' && cell.role !== 'owner').map((cell) => `${cell.role} × ${cell.action}`);
+  t.same([...new Set(denied)].sort(), [...new Set(expectedDenied)].sort(), 'الممنوع وحده: إدارة الأعضاء لغير المالك');
+  // ضابط: جسم role_can القديم (ملف التراجع) بمعاملة ترجع يطلع اختلافات مع الشاشة.
+  const oldMismatch = await db.asOwner(async (q) => {
+    await q(oldBody('private.role_can'));
+    const rows = (await q(
+      'select x.role, x.action, x.confirmed, private.role_can(x.role, x.action, x.confirmed) as allowed from jsonb_to_recordset($1::jsonb) as x(role text, action text, confirmed boolean)',
+      [JSON.stringify(cells)],
+    )).rows;
+    return rows.filter((row) => row.allowed !== p.can(row.role, row.action, { costsConfirmed: row.confirmed })).length;
+  });
+  t.ok(oldMismatch > 100, `ضابط: جسم role_can القديم يختلف عن الشاشة بـ${oldMismatch} خانة`);
 
   // تطبيع الهاتف: نفس الحالات بالطرفين.
   const phones = (await db.admin(
@@ -242,6 +285,14 @@ async function permissionsAndPhone(t, db) {
   t.eq(members.length, p.ROLES.length * 3, `عضو حقيقي لكل دور بثلاث حالات نطاق (${members.length})`);
   t.ok((await db.admin("select count(*)::int as n from public.member_scopes s join public.members m on m.org_id = s.org_id and m.id = s.member_id where s.org_id = $1 and s.archived_at is not null", [org])).rows[0].n === p.ROLES.length, 'ضابط: صفوف النطاق المؤرشفة موجودة فعلاً');
   t.same(memberMismatch, [], 'can وcan_see_* وin_scope_division بهويّة العضو نفسها بالشاشة');
+  // ضابط: أجسام can_see_cost وcan_see_sales وin_scope_division القديمة (ملف التراجع) بهويّة عامل قاعة بنطاق اللحم تختلف عن الشاشة.
+  const worker = members.find((m) => m.role === 'hall_worker' && m.scope === 'scoped');
+  const oldFlags = await db.asOwner(async (q) => {
+    for (const fn of ['public.can_see_cost', 'public.can_see_sales', 'public.in_scope_division']) await q(oldBody(fn));
+    return (await q('select public.can_see_cost() as cost, public.can_see_sales() as sales, public.in_scope_division($1) as layer', [divisions.layer])).rows[0];
+  }, worker.id);
+  t.same(oldFlags, { cost: false, sales: false, layer: false }, 'ضابط: الأجسام القديمة تحجب الكلفة والمبيعات وحقول البيض عن عامل القاعة (والشاشة تعرضها)');
+  t.same([p.canSeeCost('hall_worker'), p.canSeeSales('hall_worker'), sc.inScope('hall_worker')], [true, true, true], 'والشاشة: عامل القاعة يرى الكلفة والمبيعات وحقول البيض');
 }
 
 // ─── أدوات المرحلة 1 (WP1) ───────────────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-// دعوة موظف بنطاق موقع أو مخزن (خطّة المرحلة 1 WP2، FOUNDATION ٢٤٥ و٥٤٤): الدعوة ونطاقها نداء واحد (add_member_v2)،
-// فما تبقى دعوة بلا نطاق لو فشل نداء ثانٍ (المدير والمحاسب بلا صفوف نطاق = كل المنشأة)، والرمز ما يصدر إلا بعد ما الدعوة
-// ونطاقها انحفظوا سوا. inviteMember من StaffPage.tsx الحقيقي، وملفّات repo والتنبيه بدائل تسجّل النداءات بالترتيب.
+// دعوة موظف (خطّة المرحلة 1 WP2): الدعوة نداء واحد (add_member_v2)، والرمز ما يصدر إلا بعد ما الدعوة انحفظت. «الكلّ مثل المالك
+// بكلّ شيء» (كلمة المالك 2026-11-21، 0034): النطاق لا يحدّ شيئاً، فالدعوة بلا نطاق لكلّ دور (قوائم فارغة). inviteMember من
+// StaffPage.tsx الحقيقي، وملفّات repo والتنبيه بدائل تسجّل النداءات بالترتيب.
 import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,30 +64,30 @@ export default async function (t) {
         return { calls, error: error.message };
       }
     };
-    const accountant = { phone: '07701234567', role: 'accountant', name: 'محاسب الأدوية', scope: { divisionIds: [], siteIds: [], warehouseIds: ['w-med'] } };
+    const accountant = { phone: '07701234567', role: 'accountant', name: 'محاسب الأدوية' };
 
-    // نداء النطاق يفشل: ولا رمز يصدر، والدعوة ما تبقى بلا نطاق (هي والنطاق نداء واحد يفشل كلّه).
+    // الدعوة تفشل: ولا رمز يصدر.
     const failed = await run(accountant, { 'scopes.addMemberV2': new Error('lock_not_available') });
     t.eq(failed.error, 'lock_not_available', 'فشل الدعوة يوصل الشاشة كما هو (خطأ مانع، مو تنبيه ويكمل)');
     t.same(failed.calls.map(([name]) => name), ['scopes.addMemberV2'], 'نداء واحد بس: ولا add_member قبله ولا رمز دعوة بعده');
 
-    // الناجح: نداء واحد بالقوائم الثلاث، ثم الرمز.
+    // الناجح: نداء واحد بقوائم فارغة، ثم الرمز.
     const ok = await run(accountant, { 'scopes.addMemberV2': 'm-new', 'members.inviteCode': '012345' });
-    t.same(ok.result, { memberId: 'm-new', code: '012345' }, 'الدعوة ونطاقها ثم رمزها');
+    t.same(ok.result, { memberId: 'm-new', code: '012345' }, 'الدعوة ثم رمزها');
     t.same(
       ok.calls,
       [
-        ['scopes.addMemberV2', ['07701234567', 'accountant', 'محاسب الأدوية', { divisionIds: [], siteIds: [], warehouseIds: ['w-med'] }]],
+        ['scopes.addMemberV2', ['07701234567', 'accountant', 'محاسب الأدوية', { divisionIds: [], siteIds: [], warehouseIds: [] }]],
         ['members.inviteCode', ['m-new']],
       ],
-      'add_member_v2 بالوحدات والمواقع والمخازن، وبعده invite_code',
+      'add_member_v2 بلا نطاق، وبعده invite_code',
     );
 
-    // المالك يرى كل الوحدات: نطاقه ما ينبعث.
-    const owner = await run({ ...accountant, role: 'owner' }, { 'scopes.addMemberV2': 'm-own', 'members.inviteCode': '111111' });
-    t.same(owner.calls[0], ['scopes.addMemberV2', ['07701234567', 'owner', 'محاسب الأدوية', { divisionIds: [], siteIds: [], warehouseIds: [] }]], 'دعوة مالك: بلا نطاق');
+    // كلّ دور بلا نطاق (عامل القاعة كالمالك).
+    const worker = await run({ ...accountant, role: 'hall_worker' }, { 'scopes.addMemberV2': 'm-hw', 'members.inviteCode': '111111' });
+    t.same(worker.calls[0], ['scopes.addMemberV2', ['07701234567', 'hall_worker', 'محاسب الأدوية', { divisionIds: [], siteIds: [], warehouseIds: [] }]], 'دعوة عامل قاعة: بلا نطاق');
 
-    // الرمز وحده يفشل: الدعوة بنطاقها محفوظة، والرمز يصدر بعدين من «رمز جديد» (تنبيه، والنتيجة بلا رمز).
+    // الرمز وحده يفشل: الدعوة محفوظة، والرمز يصدر بعدين من «رمز جديد» (تنبيه، والنتيجة بلا رمز).
     const noCode = await run(accountant, { 'scopes.addMemberV2': 'm-new', 'members.inviteCode': new Error('offline') });
     t.same([noCode.result, noCode.calls.map(([name]) => name)], [{ memberId: 'm-new', code: null }, ['scopes.addMemberV2', 'members.inviteCode', 'toast']], 'فشل الرمز بعد دعوة محفوظة: تنبيه، وبلا رمز');
   } finally {

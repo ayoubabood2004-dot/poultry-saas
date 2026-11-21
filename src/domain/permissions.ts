@@ -1,5 +1,6 @@
-// جدول الصلاحيات (دور × فعل) من قسم «العمليات» بـdocs/FOUNDATION.md، بتعديلات المالك 2026-10-24
-// (docs/DECISIONS.md، القرار 22). هذا مرآة الواجهة بس: الحكم الحقيقي بالخادم، والواجهة تعرض وتقترح.
+// الصلاحيات (دور × فعل): مرآة private.role_can بالخادم (parity.test خانةً خانة). هذا مرآة الواجهة بس: الحكم الحقيقي بالخادم،
+// والواجهة تعرض وتقترح. «الكلّ مثل المالك بكلّ شيء» (كلمة المالك 2026-11-21، 0034): كلّ عضو فعّال يفعل كلّ فعل ويرى الكلفة
+// والحسابات والمبيعات في المنشأة كلّها، وإدارة الموظفين (members.manage) وحدها للمالك. الدور اسم عمل يرتّب أزرار الرئيسية فقط.
 
 export type Role =
   | 'owner'
@@ -22,14 +23,15 @@ export const ROLES: readonly Role[] = [
   'viewer',
 ];
 
+// الأفعال نفسها بـprivate.actions() بالخادم (parity.test): فعل مو بالقائمة يرميه الخادم unknown_action.
 export const ACTIONS = [
-  // أمين المخزن، بمخازن نطاقه
+  // المخزن
   'receipt.draft',
   'transfer.post',
   'issue.post',
   'count.enter',
   'stock_use.post',
-  // المحاسب أو المدير
+  // المال
   'receipt.amounts',
   'costs.load',
   'sale.post',
@@ -37,15 +39,15 @@ export const ACTIONS = [
   'sale_return.post',
   'expense.post',
   'accounts.view',
-  // مشغّل المعمل، بمخزن معمله
+  // المعمل
   'production.draft',
   'production.post',
-  // مشغّل المفقس، بمفقس نطاقه
+  // المفقس
   'hatch.operate',
-  // عامل القاعة، بقاعات نطاقه
+  // القاعات
   'flock_day.save',
   'weigh_ticket.draft',
-  // المدير (والمالك كل شي)
+  // الإدارة
   'recipe.activate',
   'count.approve',
   'flock.manage',
@@ -58,126 +60,59 @@ export const ACTIONS = [
   'party.adjust',
   'opening.post',
   'period.lock',
-  // المالك بس (كلمته 2026-10-24: «المقاصّة للمالك بس»؛ و2026-10-25: «إضافة الموظفين وأدوارهم: صاحب المنشأة بس»)
   'party.offset',
+  // إدارة الموظفين وأدوارهم: للمالك وحده (كلمة المالك 2026-10-25، وباقية بعد 2026-11-21).
   'members.manage',
-  // فتح فترة مقفلة (إرجاع القفل للخلف): كلمة المالك 2026-10-25.
   'period.unlock',
-  // البيانات الأساسية (أجوبة المالك على أسئلة المرحلة 1، Q1، 2026-10-26): المخازن والمواقع والمواد ووحدات التعبئة والتصنيفات
-  // للمدير؛ الجهات والصناديق وفئات المصاريف للمحاسب والمدير؛ والأمين «يضيف» مورّداً من مسوّدة الاستلام بس.
+  // البيانات الأساسية
   'stores.manage',
   'parties.manage',
   'party.create',
   'cash_accounts.manage',
   'expense_categories.manage',
-  // أمين المخزن يضيف مادة ووحدتها (قرار المالك 2026-11-02): التعديل والأرشفة تبقى stores.manage.
   'item.create',
-  // «يسجّل الشراء» (قرار المالك 2026-11-06): الكمية والسعر معاً ويُحفظ فوراً، لكلّ من يعمل في المخزن (المالك والمدير والمحاسب والأمين).
+  // الشراء والبيع
   'purchase.record',
-  // «يبيع» (قرار المالك 2026-11-08، 0020/0021): لأدوار purchase.record نفسها (المالك والمدير والمحاسب والأمين).
   'sale.record',
-  // «ملاحظة الرصيد اليومي» (قرار المالك 2026-11-09، 0022): لمن يعمل في المخازن (الأمين ومشغّلا المعمل والمفقس، والمدير والمالك).
+  // الملاحظات
   'stock_note.write',
-  // «ملاحظة يوم» تحت تقرير القاعات اليومي (قرار المالك 2026-11-17، عقد 0031): للمالك والمدير وحدهما.
   'halls_note.write',
-  // الكل
   'read',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
 
-const STOREKEEPER: readonly Action[] = ['receipt.draft', 'transfer.post', 'issue.post', 'count.enter', 'stock_use.post', 'party.create', 'item.create', 'purchase.record', 'sale.record', 'stock_note.write'];
-const MILL_OPERATOR: readonly Action[] = ['production.draft', 'production.post', 'stock_note.write'];
-const HATCHERY_OPERATOR: readonly Action[] = ['hatch.operate', 'stock_note.write'];
-const HALL_WORKER: readonly Action[] = ['flock_day.save', 'weigh_ticket.draft'];
-const ACCOUNTANT: readonly Action[] = [
-  'receipt.amounts',
-  'costs.load',
-  'production.post',
-  'sale.post',
-  'payment.post',
-  'sale_return.post',
-  'expense.post',
-  'accounts.view',
-  'parties.manage',
-  'party.create',
-  'cash_accounts.manage',
-  'expense_categories.manage',
-  'purchase.record',
-  'sale.record',
-];
-const MANAGER_ONLY: readonly Action[] = [
-  'recipe.activate',
-  'count.approve',
-  'flock.manage',
-  'flock.transfer',
-  'hatch.zero_saleable',
-  'expired.destroy',
-  'expired.release',
-  'void',
-  'receipt.revalue',
-  'party.adjust',
-  'opening.post',
-  'period.lock',
-  'stores.manage',
-  'halls_note.write',
-];
-
-// المدير يقدر كل أفعال الأدوار التشغيلية بكل النطاق، والمحاسب ما يقدرها. party.offset وmembers.manage وperiod.unlock برّا كل منحة: المالك بس.
-const GRANTS: Readonly<Record<Exclude<Role, 'owner'>, ReadonlySet<Action>>> = {
-  manager: new Set<Action>([
-    ...STOREKEEPER,
-    ...MILL_OPERATOR,
-    ...HATCHERY_OPERATOR,
-    ...HALL_WORKER,
-    ...ACCOUNTANT,
-    ...MANAGER_ONLY,
-    'read',
-  ]),
-  accountant: new Set<Action>([...ACCOUNTANT, 'read']),
-  storekeeper: new Set<Action>([...STOREKEEPER, 'read']),
-  mill_operator: new Set<Action>([...MILL_OPERATOR, 'read']),
-  hatchery_operator: new Set<Action>([...HATCHERY_OPERATOR, 'read']),
-  hall_worker: new Set<Action>([...HALL_WORKER, 'read']),
-  viewer: new Set<Action>(['read']),
-};
-
-export interface ActionContext {
-  /** لترحيل دفعة الإنتاج: مشغّل المعمل يرحّل بس بعد ما تنختم الكلف. */
-  costsConfirmed?: boolean;
-}
-
-export function can(role: Role, action: Action, context: ActionContext = {}): boolean {
-  if (role === 'owner') return true;
-  if (!GRANTS[role].has(action)) return false;
-  if (role === 'mill_operator' && action === 'production.post') return context.costsConfirmed === true;
+/** كلّ فعل لكلّ عضو فعّال، إلّا إدارة الموظفين فللمالك وحده. بلا دور (لا عضوية): لا فعل. */
+export function can(role: Role | null | undefined, action: Action): boolean {
+  if (!role) return false;
+  if (action === 'members.manage') return role === 'owner';
   return true;
 }
 
-/** الكلف وكل إشارة مشتقّة منها (ربح، هامش، «تحت الكلفة»، كلفة الفرخ). */
-export function canSeeCost(role: Role): boolean {
-  return role === 'owner' || role === 'manager' || role === 'accountant';
+/** الكلف وكل إشارة مشتقّة منها (ربح، هامش، «تحت الكلفة»، كلفة الفرخ): لكلّ عضو فعّال. */
+export function canSeeCost(role: Role | null | undefined): boolean {
+  return Boolean(role);
 }
 
-/** صفحة الحسابات ودفاتر الجهات والصناديق. */
-export function canSeeAccounts(role: Role): boolean {
-  return role === 'owner' || role === 'manager' || role === 'accountant';
+/** صفحة الحسابات ودفاتر الجهات والصناديق: لكلّ عضو فعّال. */
+export function canSeeAccounts(role: Role | null | undefined): boolean {
+  return Boolean(role);
 }
 
 /**
- * إدارة الموظفين (members.manage): المالك بس. دالّة صغيرة بلا جدول GRANTS حتى الشريط بحزمة الإقلاع ما يسحب
- * الجدول كلّه؛ permissions.test يثبت إنها نفس can(role, 'members.manage') لكل دور.
+ * إدارة الموظفين (members.manage): المالك بس. دالّة صغيرة حتى الشريط بحزمة الإقلاع ما يسحب غيرها؛ permissions.test يثبت
+ * إنها نفس can(role, 'members.manage') لكل دور.
  */
-export function canManageMembers(role: Role): boolean {
+export function canManageMembers(role: Role | null | undefined): boolean {
   return role === 'owner';
 }
 
-/** المبيعات والجهات: ممنوعة عن عامل القاعة ومشغّل المفقس ومشغّل المعمل. */
-export function canSeeSales(role: Role): boolean {
-  return role !== 'hall_worker' && role !== 'hatchery_operator' && role !== 'mill_operator';
+/** المبيعات والجهات: لكلّ عضو فعّال. */
+export function canSeeSales(role: Role | null | undefined): boolean {
+  return Boolean(role);
 }
 
-/** صفّ من member_scopes: حقل واحد يحدّد النطاق. بلا صفوف = كل المنشأة، للمالك والمدير والمحاسب بس. */
+/** صفّ من member_scopes كما يرسله my_workspace (يبقى بالجدول، ولا يحدّ شيئاً بعد 0034). */
 export interface ScopeRow {
   divisionId?: string | null;
   siteId?: string | null;

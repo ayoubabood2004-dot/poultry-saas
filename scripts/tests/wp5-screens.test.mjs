@@ -191,8 +191,8 @@ export default async function (t) {
       m.booksInScope(orgBooks, { role: 'accountant', scopes: [] }).map((b) => b.id),
       m.booksInScope(orgBooks, { role: 'manager', scopes: [{ warehouseId: 'w-1' }] }).map((b) => b.id),
     ],
-    [['b-br'], ['b-gen', 'b-br'], []],
-    'وحدات المصروف بنطاق القارئ: المحصور باللحم يختار اللحم بس، وبلا نطاق الكل، والمحصور بمخزن ولا وحدة (E40)',
+    [['b-gen', 'b-br'], ['b-gen', 'b-br'], ['b-gen', 'b-br']],
+    'وحدات المصروف: كلّ الوحدات لكلّ عضو ولو بصفّ نطاق قديم (0034)',
   );
   const report = m.parseExpenseReport({ from: '2026-09-01', to: '2026-11-10', divisions: { visible: 1, total: 6 }, rows: [], next: null, totals: { total: '0', count: 0, by_category: [], by_source: [], by_month: [] } });
   t.same(

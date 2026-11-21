@@ -218,8 +218,8 @@ async function scenario(t, db) {
   };
   t.same(
     guardCodes,
-    { insertPosted: 'not_draft', statusEdit: 'frozen_column', openingLineOutOfScope: 'out_of_scope', transferLineOutOfScope: 'out_of_scope', unknownItem: 'item_not_found', nanQty: 'qty_not_positive' },
-    'حارسا الرأس والسطر يرفضان برموزهما قبل RLS والمفتاح الأجنبي والتحويل',
+    { insertPosted: 'not_draft', statusEdit: 'frozen_column', openingLineOutOfScope: 'ok', transferLineOutOfScope: 'ok', unknownItem: 'item_not_found', nanQty: 'qty_not_positive' },
+    'حارسا الرأس والسطر يرفضان برموزهما قبل RLS والمفتاح الأجنبي والتحويل، وسطر بمخزن خارج صفّ نطاق قديم يمرّ (0034، بمعاملة ترجع)',
   );
   const versionOf = async (table, docId) => (await db.admin(`select version from public.${table} where id = $1`, [docId])).rows[0].version;
   const v0 = await versionOf('opening_docs', openingDraftDoc.id);
@@ -247,7 +247,7 @@ async function scenario(t, db) {
   const intoChick = await postedTransfer(db, U.manager, W.chick2, W.chick, TODAY, [{ item: I.chicks, qty: 10 }]);
   await postedTransfer(db, U.manager, W.medicine, W.farm1, TODAY, [{ item: I.vaccine, qty: 2 }]);
   const intoMedicine = await postedTransfer(db, U.manager, W.farm1, W.medicine, TODAY, [{ item: I.vaccine, qty: 1 }]);
-  const scopedRead = await db.asUser(U.scopedManager, async (q) => {
+  const readOf = (user) => db.asUser(user, async (q) => {
     const stores = async (sql, params) => [...new Set((await q(sql, params)).rows.map((r) => r.w))].sort();
     return {
       moves: await stores('select warehouse_id as w from public.stock_moves'),
@@ -256,7 +256,10 @@ async function scenario(t, db) {
       transferAudit: (await q("select count(*)::int as n from public.audit_log where table_name = 'transfers' and coalesce(new, old) ->> 'id' = $1", [intoMedicine.id])).rows[0].n > 0,
     };
   });
-  t.same(scopedRead, { moves: [W.medicine], balances: [W.medicine], lines: [W.medicine], transferAudit: true }, 'المدير المحصور بالأدوية: حركاتها وأرصدتها وسطور افتتاحها بس، وتدقيق تحويل وارد إليها');
+  const scopedRead = await readOf(U.scopedManager);
+  const managerRead = await readOf(U.manager);
+  t.same([scopedRead, managerRead.moves.includes(W.medicine) && managerRead.moves.length > 1, managerRead.transferAudit], [managerRead, true, true],
+    'المدير بصفّ نطاق الأدوية القديم: حركات المنشأة وأرصدتها وسطور افتتاحها وتدقيقها كالمدير بلا نطاق (0034)');
   const keeperRead = await db.asUser(U.hatcheryKeeper, async (q) => [(await q('select count(*)::int as n from public.transfers where id = $1', [intoChick.id])).rows[0].n, (await q('select count(*)::int as n from public.transfer_lines where doc_id = $1', [intoChick.id])).rows[0].n]);
   t.same(keeperRead, [1, 1], 'أمين الأفراخ يقرأ التحويل الوارد لمخزنه وسطره');
   // وحدة مخزن بيه حركات ثابتة (مخزن الحقل لوحدة حقول البيض: نوعه يناسبها، فالتجميد وحده يرفض)، وضابطه مخزن حقل بلا حركة.
@@ -360,8 +363,8 @@ async function scenario(t, db) {
       archivedStore: shown(await postOpening(db, U.manager, gen3Opening)),
       keeperOtherStore: shown(await call(db, U.hatcheryKeeper, 'select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', $3)', [transferDraftDoc.id, await versionOf('transfers', transferDraftDoc.id), uid()], once)),
     },
-    { scoped: 'out_of_scope', emptyOpening: 'doc_empty', emptyTransfer: 'doc_empty', archivedItem: 'item_archived', archivedStore: 'warehouse_archived', keeperOtherStore: 'out_of_scope' },
-    'الترحيل: مخزن برّا النطاق، ومستند بلا سطور، ومادّة أو مخزن مؤرشف',
+    { scoped: 'ok', emptyOpening: 'doc_empty', emptyTransfer: 'doc_empty', archivedItem: 'item_archived', archivedStore: 'warehouse_archived', keeperOtherStore: 'ok' },
+    'الترحيل: مخزن خارج صفّ نطاق قديم يمرّ (0034، بمعاملة ترجع)، ومستند بلا سطور، ومادّة أو مخزن مؤرشف',
   );
   const emptyPreviews = [await previewOf('preview_opening_stock', emptyOpening.id), await previewOf('preview_transfer', emptyTransfer.id)];
   t.same(emptyPreviews.map((p) => p.ready), [false, false], 'معاينة مستند بلا سطور غير جاهزة');
@@ -381,10 +384,15 @@ async function scenario(t, db) {
     blankTransfer: shown(await call(db, U.manager, 'select public.void_transfer($1, $2, $3)', [t2.id, '   ', uid()], once)),
     scopedOpening: shown(await call(db, U.scopedManager, "select public.void_opening_stock($1, 'خطأ', $2)", [probeDraft.id, uid()], once)),
     scopedTransfer: shown(await call(db, U.scopedManager, "select public.void_transfer($1, 'خطأ', $2)", [t2.id, uid()], once)),
+    managerOpening: shown(await call(db, U.manager, "select public.void_opening_stock($1, 'خطأ', $2)", [probeDraft.id, uid()], once)),
+    managerTransfer: shown(await call(db, U.manager, "select public.void_transfer($1, 'خطأ', $2)", [t2.id, uid()], once)),
     draftOpening: shown(await call(db, U.manager, "select public.void_opening_stock($1, 'خطأ', $2)", [openingDraftDoc.id, uid()], once)),
     draftTransfer: shown(await call(db, U.manager, "select public.void_transfer($1, 'خطأ', $2)", [transferDraftDoc.id, uid()], once)),
   };
-  t.same(reasons, { blankOpening: 'reason_required', blankTransfer: 'reason_required', scopedOpening: 'out_of_scope', scopedTransfer: 'out_of_scope', draftOpening: 'not_posted', draftTransfer: 'not_posted' }, 'الإلغاء: سبب فارغ، ومخزن برّا النطاق، ومسوّدة لم تُرحَّل');
+  const { scopedOpening, scopedTransfer, managerOpening, managerTransfer, ...plainReasons } = reasons;
+  t.same(plainReasons, { blankOpening: 'reason_required', blankTransfer: 'reason_required', draftOpening: 'not_posted', draftTransfer: 'not_posted' }, 'الإلغاء: سبب فارغ، ومسوّدة لم تُرحَّل');
+  t.same([scopedOpening, scopedTransfer, scopedOpening !== 'out_of_scope'], [managerOpening, managerTransfer, true],
+    `الإلغاء: المدير بصفّ نطاق قديم يصل لقاعدة الإلغاء نفسها كالمدير بلا نطاق (0034؛ ${scopedOpening} و${scopedTransfer})`);
   t.eq(shown(await call(db, U.manager, 'select public.void_opening_stock($1, $2, $3)', [oldDoc.id, '  عدّ خاطئ  ', uid()])), 'ok', 'إلغاء افتتاح قبل 10 أيام');
   t.same(
     [
@@ -494,8 +502,8 @@ async function scenario(t, db) {
       hatcheryBelow: managerHome.hatchery.below_min,
       keeperHatcheryBelow: keeperHome.hatchery.below_min,
     },
-    { millBelow: 0, medicineBelow: 1, medicineNear: 2, scopedNear: 1, hatcheryBelow: 1, keeperHatcheryBelow: 0 },
-    'الرئيسية: الوقود بالمعمل ما يدخل حدّ المعمل، والمنتهي ما يكمّل الحدّ، وقريب الانتهاء بلا المنتهي والمطفأ وبمخازن النطاق، وحدّ بيض التفقيس لمخزنه',
+    { millBelow: 0, medicineBelow: 1, medicineNear: 2, scopedNear: 2, hatcheryBelow: 1, keeperHatcheryBelow: 1 },
+    'الرئيسية: الوقود بالمعمل ما يدخل حدّ المعمل، والمنتهي ما يكمّل الحدّ، وقريب الانتهاء بلا المنتهي والمطفأ، وحدّ بيض التفقيس لمخزنه؛ وبصفّ نطاق قديم الأرقام نفسها (0034)',
   );
 
   // ── صفحات القراءات: اللوحة والدفعات وقيمها والحركات وقيم اللوحة، بمؤشّراتها بلا تكرار ولا نقص، والعدد الكلّي ───────────────────
@@ -560,8 +568,8 @@ async function scenario(t, db) {
       shown(await call(db, U.scopedManager, 'select public.stock_value_totals($1)', [W.general])),
       shown(await call(db, U.scopedManager, 'select public.item_lots_value($1, $2, null, 50)', [probeItem, W.general])),
     ],
-    ['out_of_scope', 'out_of_scope', 'out_of_scope'],
-    'قراءات القيم لمخزن برّا النطاق: out_of_scope مو صفر صفوف',
+    ['ok', 'ok', 'ok'],
+    'قراءات القيم لمخزن خارج صفّ نطاق قديم تُقرأ (0034)',
   );
 
   // ── verify_stock: كل شقّ بكل فحص يمسك كسره (ضوابط بمعاملات ترجع، بمنشأة هالملف) ─────────────────────────────────────
@@ -656,8 +664,8 @@ async function scenario(t, db) {
   const generalName = (await db.admin('select name from public.warehouses where id = $1', [W.general])).rows[0].name;
   t.same(
     [shown(scopedArchive), scopedArchive.hint?.includes(generalName), scopedArchive.hint?.includes('خارج نطاقك'), shown(fullArchive), fullArchive.hint?.includes(generalName)],
-    ['archived_in_use', false, true, 'archived_in_use', true],
-    'أرشفة مادّة رصيدها بمخزن برّا النطاق: الرفض نفسه، والتلميح ما يسمّي المخزن إلا لمن هو بنطاقه',
+    ['archived_in_use', true, false, 'archived_in_use', true],
+    'أرشفة مادّة رصيدها بمخزن خارج صفّ نطاق قديم: الرفض نفسه، والتلميح يسمّي المخزن لكلّ عضو (0034)',
   );
 
   // ── معرّف الرأس والسطر يولد بالجهاز (FOUNDATION ١٩٩): رفع مسوّدة الجهاز بعد جواب ضاع ينعاد بنفس المعرّفات، فالمكرّر 23505 مو رأس

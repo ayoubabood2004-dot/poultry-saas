@@ -87,6 +87,8 @@ async function scenario(t, db) {
   const manager = U.manager;
   const fuelReceipt = (item, on, qty = 10, total = 7500) => postedReceipt(db, { keeper, pricer, wh: W.general, party: supplier, on, lines: [{ item, qty }], totals: [total] });
   const copy = (user, kind, docId, newId = uid(), ref = uid()) => call(db, user, 'select public.copy_doc_to_draft($1, $2, $3, $4)', [kind, docId, newId, ref]);
+  // 0034 («الكلّ مثل المالك»): نسخة صارت مسموحة لعضو كان يُمنع تُنفَّذ بمعاملة ترجع، فلا تغيّر ما بعدها.
+  const dryCopy = (user, kind, docId) => call(db, user, 'select public.copy_doc_to_draft($1, $2, $3, $4)', [kind, docId, uid(), uid()], { commit: false });
   /** جرد مرحَّل (المدير): lines = [{ item, counted, expired? }]، وسبب لكل فرق. يرجّع { id, docNo }. */
   const postedCount = async (wh, day, lines) => {
     const doc = await db.asUser(
@@ -129,7 +131,6 @@ async function scenario(t, db) {
   const cardOf = async (user, after = null, limit = 50) => (await call(db, user, 'select public.item_moves_qty($1, $2, $3, $4)', [cardFuel, W.general, after, limit])).value;
   const rowsOf = (page) => page.rows.map((r) => [r.seq, r.doc_kind, Number(r.qty), Number(r.running)]);
   const FULL = [['1', 'receipt', 100, 100], ['2', 'stock_use', -20, 80], ['3', 'receipt_revalue', 0, 80], ['4', 'receipt_revalue', 0, 80], ['5', 'stock_use', -10, 70]];
-  const PLAIN = [['1', 'receipt', 100, 100], ['2', 'stock_use', -20, 80], ['3', 'stock_use', -10, 70]];
   const cards = {};
   for (const [role, user] of Object.entries({ owner: U.owner, manager, accountant: U.accountant, storekeeper: keeper, viewer: U.viewer })) {
     const page = await cardOf(user);
@@ -137,20 +138,17 @@ async function scenario(t, db) {
   }
   t.same(
     cards,
-    { owner: [FULL, 5, null], manager: [FULL, 5, null], accountant: [FULL, 5, null], storekeeper: [PLAIN, 3, null], viewer: [PLAIN, 3, null] },
-    'بطاقة المادّة: التصحيح وعكسه لأدوار الكلفة بس؛ الأمين والمشاهد 3 صفوف بترتيب 1–3 بلا فجوة، والرصيد الجاري هو هو (100، 80، 70)',
+    { owner: [FULL, 5, null], manager: [FULL, 5, null], accountant: [FULL, 5, null], storekeeper: [FULL, 5, null], viewer: [FULL, 5, null] },
+    'بطاقة المادّة: التصحيح وعكسه لكلّ عضو (0034)، خمسة صفوف بترتيب 1–5، والرصيد الجاري (100، 80، 80، 80، 70)',
   );
-  const plainLabels = (await cardOf(keeper)).rows.map((r) => r.doc);
-  t.same(plainLabels.filter((label) => label.includes('تصحيح')), [], 'ولا اسم «تصحيح سعر» ببطاقة الأمين');
-  const ownerLast = (await cardOf(U.owner)).rows[4];
-  const keeperLast = (await cardOf(keeper)).rows[2];
-  t.same([keeperLast.move_id, keeperLast.seq, ownerLast.seq], [ownerLast.move_id, '3', '5'], 'الصرف الأخير نفس الحركة: ترتيبه 3 للأمين و5 للمالك');
-  const keeperPages = [await cardOf(keeper, null, 2), await cardOf(keeper, '2', 2)];
+  const keeperRows = (await cardOf(keeper)).rows;
+  t.same([keeperRows.filter((r) => r.doc.includes('تصحيح')).length, canon(keeperRows)], [2, canon((await cardOf(U.owner)).rows)], 'بطاقة الأمين = بطاقة المالك صفّاً صفّاً، بسطري «تصحيح سعر» (0034)');
+  const keeperPages = [await cardOf(keeper, null, 2), await cardOf(keeper, '2', 2), await cardOf(keeper, '4', 2)];
   const ownerPages = [await cardOf(U.owner, null, 2), await cardOf(U.owner, '2', 2), await cardOf(U.owner, '4', 2)];
   t.same(
     [keeperPages.map((p) => [p.rows.map((r) => r.seq), p.next, p.total]), ownerPages.map((p) => [p.rows.map((r) => r.seq), p.next, p.total])],
-    [[[['1', '2'], '2', 3], [['3'], null, null]], [[['1', '2'], '2', 5], [['3', '4'], '4', null], [['5'], null, null]]],
-    'الصفحات بالترتيب الظاهر: الأمين صفحتان (1–2 ثم 3)، والمالك ثلاث (1–2، 3–4، 5)، والعدد بأوّل صفحة بس',
+    [[[['1', '2'], '2', 5], [['3', '4'], '4', null], [['5'], null, null]], [[['1', '2'], '2', 5], [['3', '4'], '4', null], [['5'], null, null]]],
+    'الصفحات بالترتيب الظاهر: ثلاث للأمين وللمالك (1–2، 3–4، 5)، والعدد بأوّل صفحة بس (0034)',
   );
 
   // ── الإلغاء بعد جرد معتمد (قرار المالك 2) ───────────────────────────────────────────────────────────────────────
@@ -320,12 +318,11 @@ async function scenario(t, db) {
     'نفس المرجع بمعرّف ثاني ref_reused، ومعرّف مستند موجود id_reused، ومعرّف نسخة المدير بيد المالك id_reused، وبلا معرّف id_required، وبلا مرجع ref_required',
   );
   t.same(
-    [shown(await copy(pricer, 'receipt', rDoc.id)), shown(await copy(U.viewer, 'receipt', rDoc.id)), shown(await copy(U.scopedManager, 'receipt', rDoc.id)),
+    [shown(await dryCopy(pricer, 'receipt', rDoc.id)), shown(await dryCopy(U.viewer, 'receipt', rDoc.id)), shown(await dryCopy(U.scopedManager, 'receipt', rDoc.id)),
       shown(await copy(manager, 'receipt', uid())), shown(await copy(manager, 'sale', rDoc.id))],
-    ['forbidden', 'forbidden', 'out_of_scope', 'doc_not_found', 'doc_kind_unknown'],
-    'المحاسب (بلا receipt.draft) والمشاهد forbidden، والمدير المحصور بالأدوية out_of_scope، ومستند مو موجود doc_not_found، ونوع مو معروف doc_kind_unknown',
+    ['ok', 'ok', 'ok', 'doc_not_found', 'doc_kind_unknown'],
+    'المحاسب والمشاهد والمدير بصفّ نطاق قديم ينسخون (0034، بمعاملة ترجع)، ومستند مو موجود doc_not_found، ونوع مو معروف doc_kind_unknown',
   );
-  t.ok((await copy(U.scopedManager, 'receipt', rDoc.id)).hint?.includes(`«${generalName}»`), 'رفض النطاق يسمّي المخزن (فحص الدالّة نفسها قبل حرّاس السطور)');
   // النسخة تُحفظ نهائياً برقم جديد: الصافي 370,000 للمورّد والنقل 10,000 للناقل بلا دفع، والدفعتان بالخصم بالقيمة والنقل للثاني.
   const rCopyPosted = await postReceipt(db, pricer, rNew, 7);
   t.same(
@@ -339,15 +336,17 @@ async function scenario(t, db) {
   const kNew = uid();
   const kRef = uid();
   const kCopy = await copy(keeper, 'receipt', rDoc.id, kNew, kRef);
-  t.same(answer(kCopy.value), answer({ id: kNew, doc_kind: 'receipt', source_id: rDoc.id, status: 'draft', version: 3, lines: 2, skipped: ['amounts', 'unit_changed'] }),
-    'نسخة الأمين: كميات بس (amounts) والبرميل تغيّر معامله (unit_changed)، ونسختها 3، وبلا رمزي المال');
+  t.same(answer(kCopy.value), answer({ id: kNew, doc_kind: 'receipt', source_id: rDoc.id, status: 'draft', version: 7, lines: 2, skipped: ['unit_changed'], money: { skipped: ['paid_now', 'box_charge'] } }),
+    'نسخة الأمين كنسخة المدير بمبالغها (0034)، والبرميل تغيّر معامله (unit_changed)، ونسختها 7، ورمزا المال داخل money');
   t.same(
     (await receiptLinesOf(kNew)).map((l) => [l.item_unit_id, l.unit_code, l.unit_label, l.qty_in_unit, l.factor, l.qty_base, l.supplier_lot_no]),
     [[null, null, 'L', '100', '1', '100', 'LOT-7'], [null, null, 'L', '400', '1', '400', null]],
     'السطر الثاني بوحدة الأساس بنفس الكمية (400 لتر)، والأوّل كما هو',
   );
-  t.same([await receiptMoney(kNew), moneyKeys(kCopy.value)], [{ lines: [], head: [], charges: [], picked: [] }, []], 'نسخة الأمين بلا أي صفّ مبلغ ولا خصم ولا تحميل، وجوابها بلا مبلغ');
-  t.same((await copy(keeper, 'receipt', rDoc.id, kNew, kRef)).value, kCopy.value, 'إعادة الأمين بنفس المرجع نفس جوابه المخفي');
+  t.same([await receiptMoney(kNew), moneyKeys(kCopy.value)],
+    [{ lines: [[1, '75000', null, null, null], [2, '300000', null, null, null]], head: [['5000', '0', null]], charges: [[1, 'نقل', '10000', 'value', carrier, null, false, null]], picked: [2] }, ['.money']],
+    'نسخة الأمين بمبالغ نسخة المدير نفسها (0034): السطران والخصم ونقل الناقل للسطر الثاني، وجوابها بـmoney');
+  t.same((await copy(keeper, 'receipt', rDoc.id, kNew, kRef)).value, kCopy.value, 'إعادة الأمين بنفس المرجع نفس جوابه');
 
   // المرتجع: 3 لترات من 10 بمقبول 2,000.
   const fuelS = await fuel('كاز مرتجع النسخة');
@@ -367,7 +366,7 @@ async function scenario(t, db) {
     'نسخة المرتجع للمدير: الاستلام والمورّد والمخزن والدفتر والتاريخ والملاحظة، وسطر الاستلام ودفعته والكمية 3، والمقبول 2,000',
   );
   const sKeeper = await copy(keeper, 'supplier_return', retS.id);
-  t.same([sKeeper.value?.skipped, sKeeper.value?.version, await creditsOf(sKeeper.value?.id), moneyKeys(sKeeper.value)], [['amounts'], 2, [], []], 'نسخة الأمين: الكمية بلا المقبول (amounts)');
+  t.same([sKeeper.value?.skipped, sKeeper.value?.version, await creditsOf(sKeeper.value?.id), moneyKeys(sKeeper.value)], [[], 3, ['2000'], ['.money']], 'نسخة الأمين: الكمية والمقبول كالمدير (0034)');
   t.same([shown(await voidReceipt(db, manager, rS.id)), shown(await copy(keeper, 'supplier_return', retS.id))], ['ok', 'receipt_not_posted'], 'بعد إلغاء الاستلام: نسخة مرتجعه receipt_not_posted');
 
   // التحويل: 3 جركنات 20 لتراً (60) و500 مل (0.5 لتر) من العامّ للعامّ الثاني.
@@ -386,14 +385,14 @@ async function scenario(t, db) {
   t.same(
     [answer(tCopy.value), await head('transfers', tNew, TRANSFER_HEAD), await unitLinesOf('transfer_lines', tNew)],
     [
-      answer({ id: tNew, doc_kind: 'transfer', source_id: trT.id, status: 'draft', version: 3, lines: 2, skipped: [] }),
+      answer({ id: tNew, doc_kind: 'transfer', source_id: trT.id, status: 'draft', version: 3, lines: 2, skipped: [], money: { skipped: [] } }),
       await head('transfers', trT.id, TRANSFER_HEAD),
       [
         { item_id: fuelT, item_unit_id: jerryT, unit_code: null, unit_label: 'جركن 20 لتر', qty_in_unit: '3', factor: '20', qty_base: '60' },
         { item_id: fuelT, item_unit_id: null, unit_code: 'mL', unit_label: 'mL', qty_in_unit: '500', factor: '0.001', qty_base: '0.5' },
       ],
     ],
-    'نسخة التحويل للأمين: المخزنان والتاريخ والملاحظة، والجركن 3 × 20 = 60 لتراً و500 مل = 0.5 لتر كما بالأصل',
+    'نسخة التحويل للأمين: المخزنان والتاريخ والملاحظة، والجركن 3 × 20 = 60 لتراً و500 مل = 0.5 لتر كما بالأصل، وmoney كالمدير (0034)',
   );
   t.same(await unitLinesOf('transfer_lines', trT.id), await unitLinesOf('transfer_lines', tNew), 'سطور النسخة = سطور الأصل حقلاً حقلاً');
   // سباق جلستين بنفس معرّف الجهاز ومرجعين: الثانية تنتظر الأولى (قفل المعرّف) ثم ترجع جوابها نفسه، وورقة وحدة (بلا القفل 23505 خام).
@@ -406,10 +405,10 @@ async function scenario(t, db) {
     'نسختان بنفس معرّف الجهاز بنفس اللحظة: الثانية تنتظر ثم ترجع جواب الأولى، وورقة وحدة',
   );
   t.same(
-    [shown(await copy(pricer, 'transfer', trT.id)), shown(await copy(U.viewer, 'transfer', trT.id)), shown(await copy(U.scopedManager, 'transfer', trT.id)),
+    [shown(await dryCopy(pricer, 'transfer', trT.id)), shown(await dryCopy(U.viewer, 'transfer', trT.id)), shown(await dryCopy(U.scopedManager, 'transfer', trT.id)),
       shown(await copy(keeper, 'receipt', trT.id))],
-    ['forbidden', 'forbidden', 'out_of_scope', 'doc_not_found'],
-    'التحويل: المحاسب والمشاهد forbidden، والمحصور بالأدوية out_of_scope (المرسِل العامّ)، ومعرّف تحويل بنوع استلام doc_not_found',
+    ['ok', 'ok', 'ok', 'doc_not_found'],
+    'التحويل: المحاسب والمشاهد والمدير بصفّ نطاق قديم ينسخون (0034، بمعاملة ترجع)، ومعرّف تحويل بنوع استلام doc_not_found',
   );
   const live = await transferDraft(db, keeper, W.general, W.general2, TODAY, [{ item: fuelT, qty: 1 }]);
   t.eq(shown(await copy(keeper, 'transfer', live.id)), 'not_void', 'ورقة غير محفوظة (مسوّدة حيّة): not_void');
@@ -418,10 +417,10 @@ async function scenario(t, db) {
     return [shown(got), got.hint?.includes('حُذفت قبل حفظها نهائياً')];
   };
   t.same([shown(await call(db, keeper, "select public.discard_draft('transfer', $1, $2)", [live.id, live.version])), await discardedCopy()], ['ok', ['not_posted', true]], 'الورقة المحذوفة قبل حفظها (void بلا حفظ نهائي) ما تنسخ: not_posted بتلميحه (R-DB-1)');
-  // ورقة محذوفة بلا سطور: ماكو حارس سطر يفحص النطاق، فالدالّة نفسها ترفض المحصور برّا المخزن المرسِل (قبل not_posted).
+  // ورقة محذوفة بلا سطور: منذ 0034 لا نطاق يُرفض به، فالمدير بصفّ نطاق قديم يصل لـnot_posted كالأمين.
   const empty = await transferDraft(db, keeper, W.general, W.general2, TODAY, []);
   await S.one(keeper, "select public.discard_draft('transfer', $1, $2) ->> 'status'", [empty.id, empty.version]);
-  t.same([shown(await copy(U.scopedManager, 'transfer', empty.id)), shown(await copy(keeper, 'transfer', empty.id))], ['out_of_scope', 'not_posted'], 'ورقة محذوفة بلا سطور: المحصور بالأدوية out_of_scope (فحص الدالّة نفسها)، والأمين not_posted');
+  t.same([shown(await copy(U.scopedManager, 'transfer', empty.id)), shown(await copy(keeper, 'transfer', empty.id))], ['not_posted', 'not_posted'], 'ورقة محذوفة بلا سطور: المدير بصفّ نطاق قديم والأمين not_posted (0034)');
   // R-DB-1 بالضبط: ورقة استلام لمادّة جديدة (100 لتر) وورقة جرد (7 لترات) حُذفتا قبل حفظهما، فالمادّة بلا حركات ووحدة أساسها تتغيّر
   // (لتر ← كيلو، مسموح بلا حركات): النسخة كانت تنقل الكمية للوحدة الجديدة بصمت (100 كيلو و7 كيلو)؛ هسه not_posted ولا ورقة جديدة.
   const reunited = async (label, kind, write) => {
@@ -473,11 +472,11 @@ async function scenario(t, db) {
   t.same(
     [answer(uCopy.value), await head('stock_uses', uNew, USE_HEAD), await unitLinesOf('stock_use_lines', uNew, ', lot_id')],
     [
-      answer({ id: uNew, doc_kind: 'stock_use', source_id: use, status: 'draft', version: 3, lines: 2, skipped: [] }),
+      answer({ id: uNew, doc_kind: 'stock_use', source_id: use, status: 'draft', version: 3, lines: 2, skipped: [], money: { skipped: [] } }),
       await head('stock_uses', use, USE_HEAD),
       await unitLinesOf('stock_use_lines', use, ', lot_id'),
     ],
-    'نسخة الصرف للأمين: المخزن والتصنيف والتاريخ والملاحظة، والجركنان (40 لتراً) و5 لترات كما بالأصل',
+    'نسخة الصرف للأمين: المخزن والتصنيف والتاريخ والملاحظة، والجركنان (40 لتراً) و5 لترات كما بالأصل، وmoney كالمدير (0034)',
   );
   const dCopy = await copy(manager, 'stock_use', destroy);
   t.same(
@@ -485,7 +484,7 @@ async function scenario(t, db) {
     [['approval'], system.expired_destroy, [['2', expiredLot]]],
     'نسخة الإتلاف للمدير: بتصنيف الإتلاف ودفعته المنتهية، وskipped الموافقة (الحفظ النهائي يحتاج المدير من جديد)',
   );
-  t.eq(shown(await copy(pricer, 'stock_use', use)), 'forbidden', 'المحاسب ما ينسخ الصرف (stock_use.post)');
+  t.eq(shown(await dryCopy(pricer, 'stock_use', use)), 'ok', 'المحاسب ينسخ الصرف أيضاً (0034، بمعاملة ترجع)');
 
   // الجرد: كاز 1 معدود 9 من 10 (نقص لتر بـ750.00 وسببه) وكاز 2 معدود 10، ثم الإلغاء.
   const fuelK1 = await fuel('كاز جرد النسخة 1');
@@ -519,7 +518,7 @@ async function scenario(t, db) {
     [answer(cCopy.value), await head('stock_counts', cNew, COUNT_HEAD), await head('stock_counts', cNew, 'status, submitted_at, doc_no'), await countLinesOf(cNew),
       (await db.admin('select count(*)::int as n from public.stock_count_line_costs where doc_id = $1', [cNew])).rows[0].n],
     [
-      answer({ id: cNew, doc_kind: 'count', source_id: countDoc, status: 'draft', version: 3, lines: 2, skipped: ['approval'] }),
+      answer({ id: cNew, doc_kind: 'count', source_id: countDoc, status: 'draft', version: 3, lines: 2, skipped: ['approval'], money: { skipped: [] } }),
       await head('stock_counts', countDoc, COUNT_HEAD),
       { status: 'draft', submitted_at: null, doc_no: null },
       [{ item_id: fuelK1, counted_qty: '9', ...blank }, { item_id: fuelK2, counted_qty: '10', ...blank }],
@@ -592,7 +591,7 @@ async function scenario(t, db) {
     ],
     'نسخة الافتتاح للمدير: المخزن واليوم والملاحظة، والسطران بقيمتيهما وسبب الصفر',
   );
-  t.same([shown(await copy(keeper, 'opening', opO.id)), shown(await copy(pricer, 'opening', opO.id))], ['forbidden', 'forbidden'], 'الأمين والمحاسب ما ينسخون الافتتاح (opening.post)');
+  t.same([shown(await dryCopy(keeper, 'opening', opO.id)), shown(await dryCopy(pricer, 'opening', opO.id))], ['ok', 'ok'], 'الأمين والمحاسب ينسخون الافتتاح أيضاً (0034، بمعاملة ترجع)');
   const oPosted = await call(db, manager, 'select public.post_opening_stock($1, $2, $3)', [oNew, 3, uid()]);
   t.same([shown(oPosted), (await lotsOf(db, fuelO, W.general2)).map((l) => [l.qty_left, l.value_left])], ['ok', [['0', '0'], ['20', '15000']]], 'نسخة الافتتاح تُحفظ نهائياً: دفعة جديدة 20 لتراً بـ15,000 والأصل ملغى بصفر');
   t.same(canon(await head('opening_docs', opO.id, 'status')), canon({ status: 'void' }), 'والأصل يبقى ظاهراً «ملغى» (لا حذف)');
@@ -609,9 +608,9 @@ async function scenario(t, db) {
   const unseen = await call(db, U.scopedManager, 'select count(*)::int from public.stock_counts where id = $1', [ctP.id]);
   const scoped = await voidTransfer(db, U.scopedManager, trP.id);
   t.same(
-    [unseen.value, shown(scoped), scoped.hint?.includes('«كاز النطاق»'), scoped.hint?.includes('خارج نطاقك'), scoped.hint?.includes(ctP.docNo), scoped.hint?.includes('30/10/2026'), scoped.hint?.includes(general2Name)],
-    [0, 'count_superseded', true, true, false, false, false],
-    'R-DB-2: المحصور بالمرسِل يلغي تحويلاً جُرد مستلِمه: count_superseded يسمّي المادّة و«خارج نطاقك»، بلا رقم الجرد ولا يومه ولا مخزنه',
+    [unseen.value, ...refusal(scoped, ctP.docNo, 'كاز النطاق', general2Name, '30/10/2026'), scoped.hint?.includes('خارج نطاقك')],
+    [1, ...REFUSED, false],
+    'R-DB-2 بعد 0034: المدير بصفّ نطاق قديم يقرأ جرد المستلِم، فالرفض count_superseded برقم الجرد ومخزنه ويومه كالمدير بلا نطاق',
   );
   t.same(refusal(await voidTransfer(db, manager, trP.id), ctP.docNo, 'كاز النطاق', general2Name, '30/10/2026'), REFUSED, 'ضابط R-DB-2: المدير بلا نطاق يشوف نفس الرفض برقم الجرد ومخزنه ويومه');
 }

@@ -87,7 +87,7 @@ export default async function (t) {
       "export { ItemsTable, ItemForm, formOf, fieldsOf, changedFields, twinVerdict, unitFactor, unitsDirty, countUnitToCreate } from './src/pages/inventory/ItemsPage.tsx';",
       "export { SetupTables, placeRows, parseDayText, packFactor } from './src/pages/settings/OrgSettingsPage.tsx';",
       "export * as orgSettings from './src/pages/settings/OrgSettingsPage.tsx';",
-      "export { ScopeChecks, divisionsText } from './src/pages/staff/StaffPage.tsx';",
+      "export * as staff from './src/pages/staff/StaffPage.tsx';",
       "export { itemSearchFilter, parseItemRow } from './src/lib/repo/inventory.ts';",
       "export { columnDecimals, fmtScaledCell } from './src/lib/format.ts';",
       "export { searchable } from './src/domain/normalize.ts';",
@@ -268,27 +268,8 @@ export default async function (t) {
   const accountant = render(m.h(m.SetupTables, { setup, permissions: { stores: false, expenses: true }, onOpen: () => {} }));
   t.ok(accountant.includes('data-action="new-expense"') && !accountant.includes('data-action="new-site"'), 'المحاسب: فئات المصاريف بس');
 
-  // ── منتقي النطاق بالموظفين ─────────────────────────────────────────────────────────────────────────────
-  const options = {
-    divisions: [{ id: 'd-gen', kind: 'general' }, { id: 'd-mill', kind: 'feed_mill' }],
-    sites: [
-      { id: 's-mill', divisionId: 'd-mill', siteId: null, name: 'المعمل', archived: false },
-      { id: 's-old', divisionId: 'd-mill', siteId: null, name: 'معمل قديم', archived: true },
-    ],
-    warehouses: [
-      { id: 'w-raw', divisionId: 'd-mill', siteId: 's-mill', name: 'مخزن المواد الأوّلية', archived: false },
-      { id: 'w-gone', divisionId: 'd-mill', siteId: 's-mill', name: 'مخزن مؤرشف', archived: true },
-    ],
-  };
-  const picker = render(m.h(m.ScopeChecks, { options, selected: { divisionIds: [], siteIds: [], warehouseIds: ['w-raw'] }, onChange: () => {} }));
-  t.ok(picker.indexOf('معمل العلف') < picker.indexOf('موقع المعمل') && picker.indexOf('موقع المعمل') < picker.indexOf('مخزن المواد الأوّلية'), 'الوحدة ثم موقعها ثم مخازنه');
-  t.ok(!picker.includes('معمل قديم') && !picker.includes('مخزن مؤرشف'), 'المؤرشف ما يبين إلا إذا مختار');
-  t.eq((picker.match(/checked=""/g) ?? []).length, 1, 'المخزن المختار مؤشَّر وحده');
-  const pickedOld = render(m.h(m.ScopeChecks, { options, selected: { divisionIds: [], siteIds: ['s-old'], warehouseIds: [] }, onChange: () => {} }));
-  t.ok(pickedOld.includes('موقع معمل قديم'), 'النطاق القديم بموقع مؤرشف يبين باسمه');
-  const member = { role: 'storekeeper', divisionIds: [], siteIds: ['s-mill'], warehouseIds: ['w-raw'] };
-  t.eq(m.divisionsText(member, options.divisions, options), 'موقع المعمل، مخزن المواد الأوّلية', 'عمود الوحدات يسمّي المواقع والمخازن');
-  t.eq(m.divisionsText({ ...member, siteIds: [], warehouseIds: [] }, options.divisions, options), 'لا وحدة', 'الأمين بلا نطاق: لا وحدة');
+  // ── منتقي النطاق بالموظفين: طُوي (0034، «الكلّ مثل المالك بكلّ شيء»: النطاق لا يحدّ شيئاً) ─────────────────────────────
+  t.same([typeof m.staff.ScopeChecks, typeof m.staff.divisionsText, typeof m.staff.memberActions], ['undefined', 'undefined', 'function'], 'صفحة الموظفين بلا منتقي نطاق ولا نصّ وحدات، وإجراءاتها باقية');
 
   // ── المرحلة 1 WP4: لوحة المخزون وبطاقة المادّة والافتتاح والتحويل ─────────────────────────────────────────────────────
   const s = await bundle(
@@ -438,7 +419,8 @@ async function mutationGaps(t) {
     at('/inventory/general');
     t.ok(['loadStockOnHand', 'loadStockValues', 'loadStockValueTotals'].every((name) => g.loaded.includes(name)), `ضابط: لوحة المدير تقرأ القيم ومجموعها (${g.loaded.join('، ')})`);
   });
-  t.same(inv.shared.scopedStores(inv.shared.storesOf(org), keeper).map((s) => s.id), ['w-gen'], 'scopedStores: الأمين بنطاق المخزن العامّ بس');
+  t.same(inv.shared.scopedStores(inv.shared.storesOf(org), keeper).map((s) => s.id), ['w-gen', 'w-med'], 'scopedStores: الأمين بصفّ نطاق المخزن العامّ يرى كلّ المخازن (0034)');
+  t.same(inv.shared.scopedStores(inv.shared.storesOf(org), null), [], 'scopedStores: بلا منشأة مؤكّدة لا مخزن');
 
   // ── «N من المجموع» بالعدد الكلّي من الخادم، مو بعدد الصفوف المحمّلة ─────────────────────────────────────────────
   const loaded = (data) => ({ data, error: null, retry: () => {} });

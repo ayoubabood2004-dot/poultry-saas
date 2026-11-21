@@ -466,9 +466,10 @@ async function scenario(t, db) {
   await invite(U.mgrFeed, 11, 'manager', [], [FEEDWH]);
 
   /** نداء بمعاملة تثبت إذا نجح: { ok, v, rows } أو { ok: false, code, hint }. */
-  const call = async (user, sql, params = []) => {
+  // commit: false لما صار ينجح بـ0034 («الكلّ مثل المالك»): يثبت النجاح ولا يغيّر ما بعده.
+  const call = async (user, sql, params = [], commit = true) => {
     try {
-      const result = await db.asUser(user, (q) => q(sql, params), { commit: true });
+      const result = await db.asUser(user, (q) => q(sql, params), { commit });
       return { ok: true, v: result.rows[0] ? Object.values(result.rows[0])[0] : null, rows: result.rows, count: result.rowCount };
     } catch (error) {
       return { ok: false, code: error.message, hint: error.hint ?? null };
@@ -516,8 +517,8 @@ async function scenario(t, db) {
   await receive(WHEAT, 300, 240000); // 800 للكيلو
 
   // ─── ١) create_recipe: معاملة واحدة ──────────────────────────────────────────────────────────────────────────
-  const createRecipe = (user, rid, vid, name, output, basis, lines, rates, activate) =>
-    call(user, 'select public.create_recipe($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)', [rid, vid, name, output, basis, JSON.stringify(lines), JSON.stringify(rates), activate]);
+  const createRecipe = (user, rid, vid, name, output, basis, lines, rates, activate, commit = true) =>
+    call(user, 'select public.create_recipe($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)', [rid, vid, name, output, basis, JSON.stringify(lines), JSON.stringify(rates), activate], commit);
   const R1 = id(101);
   const V1 = id(102);
   // 600 ذرة + 400 صويا = 1,000 كغم = الأساس، وتكاليف «أيدي عاملة» 5,000 و«كهرباء» 1,500 لكلّ طنّ.
@@ -555,12 +556,12 @@ async function scenario(t, db) {
   t.same([draft.v?.status, draft.v?.lines, draft.v?.rates], ['draft', 1, 0], 'بلا تفعيل: مسوّدة بسطرها ولو لم يساوِ المجموع الأساس');
   t.same(
     [
-      code(await createRecipe(U.miller, id(121), id(122), 'خلطة المشغّل', FEED, 1000, R1_LINES, [], true)),
-      code(await createRecipe(U.keeper, id(121), id(122), 'خلطة الأمين', FEED, 1000, R1_LINES, [], true)),
-      code(await createRecipe(U.accountant, id(121), id(122), 'خلطة المحاسب', FEED, 1000, R1_LINES, [], true)),
+      code(await createRecipe(U.miller, id(121), id(122), 'خلطة المشغّل', FEED, 1000, R1_LINES, [], true, false)),
+      code(await createRecipe(U.keeper, id(121), id(122), 'خلطة الأمين', FEED, 1000, R1_LINES, [], true, false)),
+      code(await createRecipe(U.accountant, id(121), id(122), 'خلطة المحاسب', FEED, 1000, R1_LINES, [], true, false)),
     ],
-    ['forbidden', 'forbidden', 'forbidden'],
-    'create_recipe لفعل التفعيل (المالك والمدير): مشغّل المعمل والأمين والمحاسب ممنوعون',
+    ['ok', 'ok', 'ok'],
+    'create_recipe لكلّ عضو (0034، بمعاملة ترجع): مشغّل المعمل والأمين والمحاسب',
   );
   // الحرّاس القائمة هي من يفحص: مادّة بالقطعة، وفئة مكرّرة ونظامية ومؤرشفة، ومبلغ صفر، وكمية سالبة — وكلّها ترجع بلا صفّ.
   const one000 = [{ item_id: CORN, qty: 1000, unit: 'kg' }];
@@ -585,11 +586,11 @@ async function scenario(t, db) {
     [
       code(await call(U.manager, rateSql, [V1, TRANSPORT, 100])),
       code(await call(U.manager, 'update public.recipe_cost_rates set amount_per_ton = 1 where id = $1 returning id', [R1_LABOR])),
-      code(await call(U.miller, rateSql, [V2, TRANSPORT, 300])),
-      code(await call(U.keeper, rateSql, [V2, TRANSPORT, 300])),
+      code(await call(U.miller, rateSql, [V2, TRANSPORT, 300], false)),
+      code(await call(U.keeper, rateSql, [V2, TRANSPORT, 300], false)),
     ],
-    ['not_draft', 'not_draft', 'forbidden', 'forbidden'],
-    'المعدّل: النسخة المفعَّلة مجمَّدة، ومشغّل المعمل والأمين ممنوعان (الحارس قبل سياسة الإدراج)',
+    ['not_draft', 'not_draft', 'ok', 'ok'],
+    'المعدّل: النسخة المفعَّلة مجمَّدة، ومشغّل المعمل والأمين يضيفانه للمسوّدة (0034، بمعاملة ترجع)',
   );
   const v2Before = (await db.admin('select version from public.recipe_versions where id = $1', [V2])).rows[0].version;
   const draftRate = await call(U.manager, rateSql, [V2, TRANSPORT, 300]);
@@ -658,9 +659,9 @@ async function scenario(t, db) {
   );
   const pm = await preview(U.miller, B1);
   t.same(
-    [pm.money, pm.problems.map((x) => x.code), pm.expenses_visible],
-    [undefined, ['costs_pending'], false],
-    'مشغّل المعمل قبل الختم: المعاينة بلا مال، وانتظار الختم وحده (مراجعة 0016 الثانية ق٢١: costs_unfunded بلا أرقام بعد الختم فقط، وكانت قبله)',
+    [pm.money, pm.problems, pm.expenses_visible],
+    [p0.money, p0.problems, true],
+    'مشغّل المعمل قبل الختم: معاينة المحاسب نفسها بمالها ومشاكلها (0034: لا انتظار ختم)',
   );
 
   const expense = async (n, cat, div, amount, daysAgo, note = null) => {
@@ -705,13 +706,13 @@ async function scenario(t, db) {
     ['expense_overloaded', 'أيدي عاملة: المطلوب 10,000 والمتاح من المصاريف المسجّلة 8,000. سجّل المصروف أوّلاً أو قلّل المبلغ.', true],
     'الختم والمتاح أقلّ من السطر: expense_overloaded بأرقامه للمحاسب، والدفعة تبقى بلا ختم',
   );
-  t.eq(code(await post(U.miller, B1)), 'forbidden', 'مشغّل المعمل لا يرحّل دفعة لم تُختم كلفها');
+  t.eq(code(await post(U.miller, B1)), 'expense_overloaded', 'مشغّل المعمل يصل لقاعدة المتاح كالمدير (0034): expense_overloaded');
   const E2 = await expense(502, LABOR, MILL, 5000, 2, 'أجور الأسبوع الثاني');
   const p2 = await preview(U.accountant, B1);
   t.same([p2.money.costs.map((c) => c.available), p2.problems, p2.can_post], [['13000.00', '4000.00'], [], true], 'بعد مصروف ثانٍ: المتاح 13,000 يكفي، ولا مشكلة');
   t.ok((await confirm(U.accountant, B1)).ok, 'المحاسب يختم الكلف بعد أن كفتها المصاريف');
   const posted = await post(U.miller, B1);
-  t.ok(posted.ok && posted.v.status === 'posted' && posted.v.money === undefined, `مشغّل المعمل يرحّل بعد الختم، وجوابه بلا مال (${posted.code ?? ''} ${posted.hint ?? ''})`);
+  t.ok(posted.ok && posted.v.status === 'posted' && posted.v.money !== undefined, `مشغّل المعمل يرحّل بعد الختم، وجوابه بماله (0034) (${posted.code ?? ''} ${posted.hint ?? ''})`);
   const DOC1 = posted.v.doc_no;
   // «أيدي عاملة» 10,000: 8,000 من E1 (الأقدم) و2,000 من E2؛ و«كهرباء» 3,000 من E3.
   t.same(
@@ -777,20 +778,20 @@ async function scenario(t, db) {
   });
   const millerSees = await tables(U.miller);
   const managerSees = await tables(U.manager);
-  t.same(millerSees, { production_costs: 0, production_cost_allocations: 0, recipe_cost_rates: 0 }, 'مشغّل المعمل: صفر صفوف من سطور التكاليف والتحميلات والمعدّلات (سياسة الكلفة المقيِّدة)');
+  t.same(millerSees, managerSees, 'مشغّل المعمل: سطور التكاليف والتحميلات والمعدّلات كالمدير (0034)');
   t.ok(managerSees.production_costs >= 5 && managerSees.production_cost_allocations === 3 && managerSees.recipe_cost_rates === 2, `ضابط: المدير يقرأها (${JSON.stringify(managerSees)})`);
   const costSql = 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, $3) returning id';
   t.same(
     [
-      code(await call(U.miller, costSql, [B2, PACKING, 100])),
-      (await call(U.miller, 'update public.production_costs set amount = 1 where id = $1', [laborB2])).count,
+      code(await call(U.miller, costSql, [B2, PACKING, 100], false)),
+      (await call(U.miller, 'update public.production_costs set amount = 1 where id = $1', [laborB2], false)).count,
       code(await call(U.accountant, costSql, [B2, TRANSPORT, 100])),
       code(await call(U.accountant, costSql, [B2, SYSTEM, 100])),
       code(await call(U.accountant, costSql, [B2, PACKING, -1])),
       code(await call(U.accountant, costSql, [B1, PACKING, 100])),
     ],
-    ['forbidden', 0, 'category_duplicated', 'system_expense', 'amount_required', 'not_draft'],
-    'سطر الكلفة: مشغّل المعمل لا يضيف ولا يعدّل، والفئة مرّة واحدة وغير نظامية، والمبلغ لا يقلّ عن صفر، والدفعة الملغاة مجمَّدة',
+    ['ok', 1, 'category_duplicated', 'system_expense', 'amount_required', 'not_draft'],
+    'سطر الكلفة: مشغّل المعمل يضيف ويعدّل (0034، بمعاملة ترجع)، والفئة مرّة واحدة وغير نظامية، والمبلغ لا يقلّ عن صفر، والدفعة الملغاة مجمَّدة',
   );
   t.same(
     [
@@ -820,13 +821,13 @@ async function scenario(t, db) {
   const pMil = await preview(U.miller, B2);
   t.same(
     [pAcc.problems.filter((x) => x.code === 'costs_unfunded').map((x) => [x.category_id, x.category_name, x.need, x.have]), pMil.problems],
-    [[[LABOR, 'أيدي عاملة', '6000.00', '5000.00']], [{ code: 'costs_pending' }]],
-    'المعاينة قبل الختم: costs_unfunded بأرقامها للمحاسب، ولمشغّل المعمل انتظار الختم وحده (ق٢١: بلا costs_unfunded قبل الختم)',
+    [[[LABOR, 'أيدي عاملة', '6000.00', '5000.00']], pAcc.problems],
+    'المعاينة قبل الختم: costs_unfunded بأرقامها للمحاسب ولمشغّل المعمل نفسها (0034)',
   );
 
   // ─── ٥) add_production_input: إضافة مادّة وتبديل سطر بسبب ─────────────────────────────────────────────────────
-  const add = (user, n, itemId, qty, replaces = null, reason = null) =>
-    call(user, 'select public.add_production_input($1, $2, $3, $4, $5, $6)', [B2, id(n), itemId, qty, replaces, reason]);
+  const add = (user, n, itemId, qty, replaces = null, reason = null, commit = true) =>
+    call(user, 'select public.add_production_input($1, $2, $3, $4, $5, $6)', [B2, id(n), itemId, qty, replaces, reason], commit);
   const v0 = (await stamp(B2)).version;
   const added = await add(U.miller, 301, BRAN, 50);
   t.same(added.v, { id: id(301), line_no: 3, version: v0 + 1 }, `مشغّل المعمل يضيف نخالة 50 كغم سطراً ثالثاً (${added.code ?? ''} ${added.hint ?? ''})`);
@@ -847,11 +848,11 @@ async function scenario(t, db) {
       code(await add(U.miller, 303, FEED, 100)),
       code(await add(U.miller, 303, YEAST, 2)),
       code(await add(U.miller, 303, WHEAT, 0)),
-      code(await add(U.accountant, 303, WHEAT, 100)),
-      code(await add(U.keeper, 303, WHEAT, 100)),
+      code(await add(U.accountant, 303, WHEAT, 100, null, null, false)),
+      code(await add(U.keeper, 303, WHEAT, 100, null, null, false)),
     ],
-    ['id_conflict', 'item_duplicated', 'reason_required', 'reason_required', 'substitute_same_item', 'line_not_found', 'item_kind_mismatch', 'bad_recipe_unit', 'qty_not_positive', 'forbidden', 'forbidden'],
-    'المعرّف لمادّة أخرى، والمادّة مرّتين، والتبديل بلا سبب، وتبديل المادّة بنفسها، وسطر دفعة أخرى، والعلف الجاهز، والقطعة، والصفر، والمحاسب، والأمين',
+    ['id_conflict', 'item_duplicated', 'reason_required', 'reason_required', 'substitute_same_item', 'line_not_found', 'item_kind_mismatch', 'bad_recipe_unit', 'qty_not_positive', 'ok', 'ok'],
+    'المعرّف لمادّة أخرى، والمادّة مرّتين، والتبديل بلا سبب، وتبديل المادّة بنفسها، وسطر دفعة أخرى، والعلف الجاهز، والقطعة، والصفر؛ والمحاسب والأمين يضيفان (0034، بمعاملة ترجع)',
   );
   const swapped = await add(U.miller, 304, WHEAT, 600, cornLine, 'نفدت الذرة من المخزن');
   t.ok(swapped.ok && swapped.v.line_no === 4, `التبديل: الحنطة بدل الذرة بسببها سطراً رابعاً (${swapped.code ?? ''} ${swapped.hint ?? ''})`);
@@ -871,18 +872,18 @@ async function scenario(t, db) {
   t.same(await nonZero('verify_mill'), {}, 'verify_mill صفر بعد الإضافة والتبديل');
 
   // ─── ٦) سعر الكلفة المكتوب: مشروط بالسابق، وللتخطيط فقط ──────────────────────────────────────────────────────
-  const costPrice = (user, itemId, price, expected) => call(user, 'select public.set_item_cost_price($1, $2, $3)', [itemId, price, expected]);
+  const costPrice = (user, itemId, price, expected, commit = true) => call(user, 'select public.set_item_cost_price($1, $2, $3)', [itemId, price, expected], commit);
   const sellPrice = (user, itemId, price, expected) => call(user, 'select public.set_item_sell_price($1, $2, $3)', [itemId, price, expected]);
   const firstPrice = await costPrice(U.manager, CORN, 950, null);
   const repeat = await costPrice(U.manager, CORN, 950, null);
   t.same(
-    [firstPrice.v, repeat.v, code(await costPrice(U.manager, CORN, 1000, null)), code(await costPrice(U.accountant, CORN, 1000, 950)), code(await costPrice(U.keeper, CORN, 1000, 950)),
+    [firstPrice.v, repeat.v, code(await costPrice(U.manager, CORN, 1000, null)), code(await costPrice(U.accountant, CORN, 1000, 950, false)), code(await costPrice(U.keeper, CORN, 1000, 950, false)),
       code(await costPrice(U.manager, CORN, 950.125, 950)), code(await costPrice(U.manager, CORN, 0, 950))],
-    [{ item_id: CORN, written: true, cost_price: '950' }, { item_id: CORN, written: false, cost_price: '950' }, 'price_changed', 'forbidden', 'forbidden', 'bad_price', 'bad_price'],
-    'سعر الكلفة: يُكتب مرّة، والإعادة «انكتب» بلا كتابة، والسابق الخاطئ price_changed، والمحاسب والأمين ممنوعان (stores.manage)، والمراتب والصفر',
+    [{ item_id: CORN, written: true, cost_price: '950' }, { item_id: CORN, written: false, cost_price: '950' }, 'price_changed', 'ok', 'ok', 'bad_price', 'bad_price'],
+    'سعر الكلفة: يُكتب مرّة، والإعادة «انكتب» بلا كتابة، والسابق الخاطئ price_changed، والمحاسب والأمين يكتبانه (0034، بمعاملة ترجع)، والمراتب والصفر',
   );
   const purchases = async (user) => (await call(user, 'select public.item_purchases($1, $2, null, 50)', [CORN, RAW])).v.item;
-  t.same([(await purchases(U.manager)).money, (await purchases(U.miller)).money], [{ cost_price: '950', sell_price: null }, undefined], 'item_purchases يقرأ سعر الكلفة بجانب سعر البيع، ومشغّل المعمل (المخزن بنطاقه) بلا money');
+  t.same([(await purchases(U.manager)).money, (await purchases(U.miller)).money], [{ cost_price: '950', sell_price: null }, { cost_price: '950', sell_price: null }], 'item_purchases يقرأ سعر الكلفة بجانب سعر البيع، ومشغّل المعمل كالمدير (0034)');
   const priceRow = async () => (await db.admin('select sell_price::text as s, cost_price::text as c from public.item_prices where item_id = $1', [CORN])).rows;
   await sellPrice(U.manager, CORN, 1750, null);
   const both = await priceRow();
@@ -917,7 +918,7 @@ async function scenario(t, db) {
     ]],
     'بطاقة الدفعة: التكاليف وتحميلاتها من المصاريف بالتاريخ والمبلغ والوصف',
   );
-  t.eq((await call(U.miller, 'select public.production_detail($1)', [B3])).v.money, undefined, 'مشغّل المعمل يرى البطاقة بلا مال');
+  t.same((await call(U.miller, 'select public.production_detail($1)', [B3])).v.money, detail3.money, 'مشغّل المعمل يرى البطاقة بمالها (0034)');
 
   // ─── ٧) بانية الخلطة: سعر الكلفة وآخر شراء وكلفة الطنّ المتوقّعة ─────────────────────────────────────────────
   // الذرة: المكتوب 950، وآخر شراء 1,800,000 ÷ 2,000 = 900.00، ومتوسّط المتاح (1,940 كغم بـ1,746,000) = 900.00.
@@ -936,7 +937,7 @@ async function scenario(t, db) {
   );
   t.same(detail.expense_categories.map((c) => c.name), ['أيدي عاملة', 'تعبئة', 'كهرباء', 'نقل'], 'فئات منتقي المعدّلات: الفعّالة غير النظامية (لا المؤرشفة ولا النظامية)');
   const millerDetail = (await call(U.miller, 'select public.recipe_detail($1, null)', [R1])).v;
-  t.same([millerDetail.money, millerDetail.lines[0].money, millerDetail.expense_categories.length], [undefined, undefined, 4], 'مشغّل المعمل: بلا مال، والفئات (بلا مال) تصله');
+  t.same([millerDetail.money, millerDetail.lines[0].money, millerDetail.expense_categories.length], [detail.money, detail.lines[0].money, 4], 'مشغّل المعمل: مال الخلطة كالمدير (0034)، والفئات تصله');
   // «بادئ مملّح»: ذرة 990 بالمكتوب 950 = 940,500.00، والملح 10 كغم بلا أيّ سعر ← unpriced 1، فكلفة الكيلو في اللوحة فارغة.
   const R3 = id(113);
   t.eq((await createRecipe(U.manager, R3, id(114), 'بادئ مملّح', FEED2, 1000, [{ item_id: CORN, qty: 990, unit: 'kg' }, { item_id: SALT, qty: 10, unit: 'kg' }], [], true)).v?.status, 'active', 'خلطة فيها مادّة بلا سعر');
@@ -950,7 +951,7 @@ async function scenario(t, db) {
   t.same([card(R1).money.expected_cost_per_kg, card(R3).money.expected_cost_per_kg, card(R2).money.expected_cost_per_kg], ['1176.50', null, null],
     'لوحة المعمل: كلفة الكيلو المتوقّعة 1,176.50، وفارغة لخلطة فيها مادّة بلا سعر ولخلطة بلا نسخة مفعَّلة');
   t.eq(card(R1).money === undefined, false, 'ضابط: المدير يرى money على البطاقة');
-  t.eq((await call(U.miller, 'select public.recipes_overview()')).v.recipes.find((r) => r.id === R1).money, undefined, 'مشغّل المعمل: البطاقة بلا money');
+  t.same((await call(U.miller, 'select public.recipes_overview()')).v.recipes.find((r) => r.id === R1).money, card(R1).money, 'مشغّل المعمل: البطاقة بمال المدير (0034)');
 
   // ─── ٨) ضوابط verify_mill: كلّ فحص جديد تكسره طفرة حقيقية في دالّته (بمعاملة ترجع) ──────────────────────────────
   // «علف التجربة»: نخالة 1,000 كغم لأساس 1,000 و«تعبئة» 10,000 لكلّ طنّ؛ والدفعة 100 كغم بسطر تكاليف 1,000.00، ومصروفا «تعبئة»
@@ -1107,16 +1108,8 @@ async function scenario(t, db) {
   const MILL_NAME = await nameOf('divisions', MILL);
   t.same(view0?.inputWarehouse, { id: RAW, name: RAW_NAME, divisionId: MILL, divisionName: MILL_NAME }, `parsePreview: مخزن المدخلات بوحدته (division_id وdivision_name: «${MILL_NAME}»)`);
   const viewMiller = parsed('parsePreview (مشغّل المعمل)', () => ui.parsePreview(pm));
-  t.same(
-    viewMiller && [viewMiller.inputValue, viewMiller.extraValue, viewMiller.totalValue, viewMiller.costPerKg, viewMiller.costs, viewMiller.lines.map((l) => l.value), viewMiller.canPost],
-    [null, null, null, null, null, [null, null], false],
-    'parsePreview (مشغّل المعمل): بلا money كلّه، فالمال والتكاليف فارغة ولا يرمي',
-  );
-  t.same(
-    viewMiller?.problems.map((x) => [x.code, x.categoryId, x.categoryName, x.needAmount, x.haveAmount]),
-    [['costs_pending', null, null, null, null]],
-    'parsePreview (مشغّل المعمل قبل الختم): انتظار الختم وحده بلا فئة ولا أرقام (ق٢١)',
-  );
+  // 0034 («الكلّ مثل المالك»): مشغّل المعمل يرى معاينة المحاسب نفسها بمالها ومشاكلها.
+  t.same(viewMiller, view0, 'parsePreview (مشغّل المعمل): معاينة المحاسب نفسها (0034)');
   t.same(viewMiller?.inputWarehouse, view0?.inputWarehouse, 'parsePreview (مشغّل المعمل): مخزن المدخلات بوحدته بلا مال');
   const view2 = parsed('parsePreview (بعد المصروف الثاني)', () => ui.parsePreview(p2));
   t.same(view2 && [view2.costs.map((c) => c.available), view2.problems, view2.canPost], [[1300000n, 400000n], [], true], 'parsePreview: بعد المصروف الثاني المتاح 13,000.00 و4,000.00 ولا مشكلة');
@@ -1130,17 +1123,13 @@ async function scenario(t, db) {
   );
   t.same(viewB2?.problems.map((x) => [x.code, x.categoryId, x.needAmount, x.haveAmount]), [['costs_unfunded', LABOR, 600000n, 500000n]], 'parsePreview: النقص 6,000.00 مقابل 5,000.00');
   const viewB2Miller = parsed('parsePreview (الدفعة الثانية، مشغّل المعمل)', () => ui.parsePreview(pMil));
-  t.same(
-    viewB2Miller && [viewB2Miller.costs, viewB2Miller.problems.map((x) => [x.code, x.needAmount, x.haveAmount])],
-    [null, [['costs_pending', null, null]]],
-    'parsePreview (مشغّل المعمل، الدفعة الثانية قبل الختم): بلا تكاليف ولا أرقام، وانتظار الختم وحده (ق٢١)',
-  );
+  t.same(viewB2Miller, viewB2, 'parsePreview (مشغّل المعمل، الدفعة الثانية): معاينة المحاسب نفسها (0034)');
   // expenses_visible على جذر المعاينة (الجولة الثانية، ق٢١ وب٢): المحاسب بلا نطاق يرى مصاريف وحدة المعمل فيكتب التكاليف ويختمها، ومشغّل
   // المعمل لا يرى الكلفة أصلاً. المفتاح خارج money، فيصل مشغّل المعمل أيضاً.
   t.same(
     [view0?.expensesVisible, viewMiller?.expensesVisible, view2?.expensesVisible, viewB2?.expensesVisible, viewB2Miller?.expensesVisible],
-    [true, false, true, true, false],
-    'parsePreview: expenses_visible على الجذر — المحاسب true في الدفعتين، ومشغّل المعمل false (ق٢١، ب٢)',
+    [true, true, true, true, true],
+    'parsePreview: expenses_visible على الجذر — true للمحاسب ولمشغّل المعمل (0034)',
   );
 
   // بطاقة المسوّدة بعد الإضافة والتبديل (القسم ٥): صويا 400 ونخالة 50 وحنطة 600 بديلاً للذرة، والمال فارغ قبل الترحيل.
@@ -1196,17 +1185,13 @@ async function scenario(t, db) {
   );
   const batch3MillerRaw = (await call(U.miller, 'select public.production_detail($1)', [B3])).v;
   const batch3Miller = parsed('parseBatch (مشغّل المعمل)', () => ui.parseBatch(batch3MillerRaw));
-  t.same(
-    batch3Miller && [batch3Miller.costs, batch3Miller.inputValue, batch3Miller.extraValue, batch3Miller.totalValue, batch3Miller.costPerKg, batch3Miller.lines.map((l) => [l.usedQty, l.value])],
-    [null, null, null, null, null, [[60000n, null], [40000n, null]]],
-    'parseBatch (مشغّل المعمل): الكميات بلا مال ولا تكاليف، ولا يرمي',
-  );
+  t.same(batch3Miller, batch3, 'parseBatch (مشغّل المعمل): بطاقة المدير نفسها بمالها وتكاليفها (0034)');
   // طرفا الدفعة وexpenses_visible على جذر البطاقة (الجولة الثانية، ق٢١ وق٢٥، ب٢ وب٣): المدير يرى الطرفين ومصاريف الوحدة في المسوّدة
   // والمرحَّلة والملغاة، ومشغّل المعمل (وحدة المعمل: المخزنان فيها) يرى الطرفين بلا مصاريف.
   t.same(
     [batchB2?.scope, batchB2?.expensesVisible, batch3?.scope, batch3?.expensesVisible, batch1?.scope, batch1?.expensesVisible, batch3Miller?.scope, batch3Miller?.expensesVisible],
-    [{ input: true, output: true }, true, { input: true, output: true }, true, { input: true, output: true }, true, { input: true, output: true }, false],
-    'parseBatch: scope بطرفيه وexpenses_visible — المدير الطرفان والمصاريف، ومشغّل المعمل الطرفان بلا مصاريف (ق٢١، ق٢٥)',
+    [{ input: true, output: true }, true, { input: true, output: true }, true, { input: true, output: true }, true, { input: true, output: true }, true],
+    'parseBatch: scope بطرفيه وexpenses_visible — للمدير ولمشغّل المعمل (0034)',
   );
   // من طرف واحد (ق٢٥، ب٣ وج٢): أمين نطاقه مخزن العلف وحده يقرأ الدفعة من طرف ناتجها (scope.input = false: لا معاينة ولا فعل مسوّدة
   // ولا رابط دفتر في مخزن المواد)، وأمين نطاقه مخزن المواد وحده من طرف موادّها (scope.output = false: لا رابط وجبات العلف)، ومحاسب نطاقه
@@ -1218,17 +1203,8 @@ async function scenario(t, db) {
   const feedSide = await sideBatch('أمين العلف', U.keepFeed, B3);
   const rawSide = await sideBatch('أمين المواد', U.keepRaw, B3);
   const feedAcc = await sideBatch('محاسب العلف', U.accFeed, B3);
-  t.same(
-    feedSide && [feedSide.scope, feedSide.expensesVisible, feedSide.costs, feedSide.totalValue, feedSide.lines.map((l) => [l.itemName, l.usedQty, l.value, l.draws?.map((d) => d.qty)])],
-    [{ input: false, output: true }, false, null, null, [['ذرة صفراء', 60000n, null, null], ['كسبة صويا', 40000n, null, null]]],
-    'parseBatch (أمين العلف): scope = {input: false, output: true}، بلا مال ولا مصاريف، والكميات ظاهرة ووجبات مخزن المواد null (ق٢٥، ب٣؛ والجولة الثالثة ق٣٢: طرف الناتج وحده لا يقرأ وجبات المدخلات واستلاماتها)',
-  );
-  t.same(rawSide && [rawSide.scope, rawSide.expensesVisible, rawSide.costs], [{ input: true, output: false }, false, null], 'parseBatch (أمين المواد): scope = {input: true, output: false}، بلا مال (ق٢٥، ب٣)');
-  t.same(
-    feedAcc && [feedAcc.scope, feedAcc.expensesVisible, feedAcc.totalValue, feedAcc.costs?.map((c) => [c.categoryName, c.amount, c.allocations])],
-    [{ input: false, output: true }, false, 11465000n, [['أيدي عاملة', 50000n, null], ['كهرباء', 15000n, null]]],
-    'parseBatch (محاسب العلف): القيم ظاهرة (دور كلفة) والتحميلات null، وexpenses_visible = false (وحدة المعمل خارج نطاقه، ق٢١ وق٢٥)',
-  );
+  // 0034: أمين العلف وأمين المواد ومحاسب العلف (بصفوف نطاق قديمة) يرون بطاقة المدير نفسها بطرفيها ومالها ووجباتها.
+  t.same([feedSide, rawSide, feedAcc], [batch3, batch3, batch3], 'parseBatch (أمين العلف وأمين المواد ومحاسب العلف): بطاقة المدير نفسها (0034)');
   // وجبات مخزن المواد واستلاماته لا تخرج لطرف الناتج وحده (الجولة الثالثة، ق٣٢ وب٢٨؛ سابقة التحويل): draws = null في كلّ سطر لأمين العلف
   // ومحاسبه، في المرحَّلة والملغاة (الأولى)، مع scope.input = false — الحالة التي تقول فيها خانة «من أيّ وجبات» «وجبات مخزن المواد خارج
   // نطاقك» بلا رابط؛ وأمين المواد (مخزن المدخلات بنطاقه) يراها بوجبتها ورقم استلامها. null صريح لا «غائب» (same يسوّي بينهما في المصفوفة).
@@ -1236,8 +1212,8 @@ async function scenario(t, db) {
   const drawsOfLines = (batch) => batch?.lines.map((l) => (l.draws === null ? 'null' : l.draws?.map((d) => [d.lotId, d.qty, d.source]) ?? 'غائب'));
   t.same(
     [drawsOfLines(feedSide), drawsOfLines(feedAcc), feedVoid && [feedVoid.status, feedVoid.scope, drawsOfLines(feedVoid)], drawsOfLines(rawSide)],
-    [['null', 'null'], ['null', 'null'], ['void', { input: false, output: true }, ['null', 'null']], [[[cornLot.id, 60000n, cornLot.doc_no]], [[soyLot.id, 40000n, soyLot.doc_no]]]],
-    'parseBatch: draws = null لأمين العلف ومحاسبه في المرحَّلة والملغاة، وبوجباتها ورقم استلامها لأمين المواد (ق٣٢، ب٢٨)',
+    [drawsOfLines(batch3), drawsOfLines(batch3), ['void', { input: true, output: true }, drawsOfLines(batch1)], drawsOfLines(batch3)],
+    'parseBatch: draws بوجباتها ورقم استلامها لأمين العلف ومحاسبه وأمين المواد، في المرحَّلة والملغاة (0034)',
   );
   // مسوّدة من طرف العلف (ب٣): البطاقة تُقرأ والمعاينة out_of_scope، فالشاشة لا تطلبها بلا scope.input. والإلغاء بمخزن المدخلات وحده
   // (void_production: stock_wh للمدخلات بنطاق وللناتج بلا نطاق): مدير نطاقه مخزن المواد يلغي ومدير نطاقه مخزن العلف لا، كما تُظهر الشاشة
@@ -1247,8 +1223,8 @@ async function scenario(t, db) {
   t.same(
     [feedDraft?.status, feedDraft?.scope, code(await call(U.keepFeed, 'select public.preview_production($1)', [B2])), code(await call(U.accFeed, 'select public.preview_production($1)', [B2])),
       await voidFrom(U.mgrRaw), await voidFrom(U.mgrFeed)],
-    ['draft', { input: false, output: true }, 'out_of_scope', 'out_of_scope', 'ok', 'out_of_scope'],
-    'المسوّدة من طرف العلف: البطاقة تُقرأ والمعاينة out_of_scope؛ والإلغاء لمن نطاقه مخزن المدخلات (مدير المواد) لا مخزن الناتج وحده (ب٣)',
+    ['draft', { input: true, output: true }, 'ok', 'ok', 'ok', 'ok'],
+    'المسوّدة لأمين العلف ومحاسبه: البطاقة بطرفيها والمعاينة تُقرأ؛ والإلغاء لمدير المواد ومدير العلف كلاهما (0034، بمعاملة ترجع)',
   );
 
   // مصدر دفعة العلف (ج٦، المفتاح المسطّح القائم منذ 0007): رقم دفعة الإنتاج.
@@ -1276,7 +1252,7 @@ async function scenario(t, db) {
   );
   t.eq(buysManager?.lastProduction, null, 'parseItemPurchases: last_production null لمادّة أوّلية لم تُصنع (المفتاح موجود بقيمته)');
   const buysMiller = parsed('parseItemPurchases (مشغّل المعمل)', () => ui.parseItemPurchases(buysMillerRaw));
-  t.same(buysMiller && [buysMiller.item.costPrice, buysMiller.item.sellPrice, buysMiller.rows[0].money], [null, null, null], 'parseItemPurchases (مشغّل المعمل): بلا أسعار ولا مال');
+  t.same(buysMiller, buysManager, 'parseItemPurchases (مشغّل المعمل): أسعار المدير وماله (0034)');
 
   // تقرير المصاريف بعد ترحيل الأولى (القسم ٣): المحمَّل 8,000 و2,000 و3,000، وصفر على العامّة والنقل والملغى.
   const report0 = parsed('parseExpenseReport', () => ui.parseExpenseReport(reportRaw));
@@ -1302,11 +1278,7 @@ async function scenario(t, db) {
     'parseRecipe: معدّلات الطنّ وكلفته المتوقّعة والفئات',
   );
   const recipeMiller = parsed('parseRecipe (مشغّل المعمل)', () => ui.parseRecipe(millerDetail));
-  t.same(
-    recipeMiller && [recipeMiller.rates, recipeMiller.expected, recipeMiller.lines.map((l) => [l.unitCost, l.costPrice, l.lastPrice]), recipeMiller.expenseCategories.length],
-    [null, null, [[null, null, null], [null, null, null]], 4],
-    'parseRecipe (مشغّل المعمل): بلا مال، والفئات تصله، ولا يرمي',
-  );
+  t.same(recipeMiller, recipeManager, 'parseRecipe (مشغّل المعمل): بطاقة المدير نفسها بمالها (0034)');
   const saltedRaw = (await call(U.manager, 'select public.recipe_detail($1, null)', [R3])).v;
   t.same(
     parsed('parseRecipe (بادئ مملّح)', () => ui.parseRecipe(saltedRaw))?.expected,
@@ -1328,11 +1300,8 @@ async function scenario(t, db) {
   );
   const millerCardsRaw = (await call(U.miller, 'select public.recipes_overview()')).v;
   const millerCards = parsed('parseRecipes (مشغّل المعمل)', () => ui.parseRecipes(millerCardsRaw));
-  t.same(
-    millerCards && [millerCards.length, millerCards.flatMap((c) => [c.expectedCostPerKg, c.lastCostPerKg, c.lastBatch?.totalValue ?? null]).filter((x) => x !== null)],
-    [4, []],
-    'parseRecipes (مشغّل المعمل): أربع بطاقات بلا أيّ كلفة، ولا يرمي',
-  );
+  const managerCardsNow = ui.parseRecipes((await call(U.manager, 'select public.recipes_overview()')).v);
+  t.same(millerCards, managerCardsNow, 'parseRecipes (مشغّل المعمل): بطاقات المدير نفسها بكلفتها (0034)');
   for (const [label, user] of [['المدير', U.manager], ['مشغّل المعمل', U.miller]]) {
     const raw = (await call(user, 'select public.productions_overview(null, 30)')).v;
     const page = parsed(`parseProductions (${label})`, () => ui.parseProductions(raw));
@@ -1341,32 +1310,22 @@ async function scenario(t, db) {
   }
 
   // ─── إصلاحات مراجعة 0016 بمحلّلات الشاشات: كلّ مفتاح جديد من جواب القاعدة الحقيقي ─────────────────────────────────
-  // المحاسب المحصور بمخزن المواد وحده (ق١١، م١٢): يرى الكلفة ولا يرى مصاريف وحدة المعمل، فالمتاح null وcosts_unfunded بلا أرقام.
+  // المحاسب بصفّ نطاق مخزن المواد (ق١١، م١٢): منذ 0034 يرى مصاريف وحدة المعمل أيضاً، فالمتاح والنقص بأرقامهما كالمحاسب بلا نطاق.
   // الدفعة الثانية الآن: صويا 400 وحنطة 600 بديلاً للذرة (القسم ٥)، والحنطة المتاحة 300 وحدها؛ المواد 400 × 1,500 + 300 × 800 =
   // 840,000.00، والتكاليف 6,000 + 1,500 = 7,500.00، فالكلّي 847,500.00 والكيلو (الكتلة المخطّطة 1,000) 847.50. والمتاح لمن يرى
   // الوحدة: «أيدي عاملة» 5,000 − 500 (الثالثة) = 4,500.00، و«كهرباء» 4,000 − 150 = 3,850.00.
   const hiddenRaw = await preview(U.accRaw, B2);
   const hiddenView = parsed('parsePreview (محاسب المواد)', () => ui.parsePreview(hiddenRaw));
-  t.same(
-    hiddenView && [hiddenView.inputValue, hiddenView.extraValue, hiddenView.totalValue, hiddenView.costPerKg, hiddenView.inputWarehouse,
-      hiddenView.costs?.map((c) => [c.lineNo, c.categoryName, c.plannedAmount, c.amount, c.available])],
-    [84000000n, 750000n, 84750000n, 84750n, { id: RAW, name: RAW_NAME, divisionId: MILL, divisionName: MILL_NAME },
-      [[1, 'أيدي عاملة', 500000n, 600000n, null], [2, 'كهرباء', 150000n, 150000n, null]]],
-    'parsePreview (محاسب المواد): المال ظاهر (دور كلفة) ووحدة المخزن، والمتاح null لكلّ سطر (المفتاح موجود بقيمته)',
-  );
-  t.same(
-    hiddenView?.problems.map((x) => [x.code, x.itemName, x.need, x.have, x.categoryId, x.categoryName, x.needAmount, x.haveAmount, x.divisionName]),
-    [['insufficient_stock', 'حنطة', 600000n, 300000n, null, null, null, null, null], ['costs_unsealed_scope', null, null, null, null, null, null, null, MILL_NAME]],
-    `parsePreview (محاسب المواد قبل الختم): costs_unsealed_scope بـdivision_name «${MILL_NAME}» بلا فئة ولا أرقام بعد نقص الحنطة (ق٢١؛ كانت costs_unfunded بلا أرقام)`,
-  );
   const seenRaw = await preview(U.accountant, B2);
   const seenView = parsed('parsePreview (المحاسب، الآن)', () => ui.parsePreview(seenRaw));
   t.same(
-    seenView && [seenView.costs?.map((c) => c.available), seenView.problems.filter((x) => x.code === 'costs_unfunded').map((x) => [x.categoryId, x.needAmount, x.haveAmount])],
-    [[450000n, 385000n], [[LABOR, 600000n, 450000n]]],
-    'ضابط: المحاسب بلا نطاق يرى في اللحظة نفسها المتاح 4,500.00 و3,850.00 والنقص بأرقامه',
+    seenView && [seenView.inputValue, seenView.extraValue, seenView.totalValue, seenView.costPerKg, seenView.inputWarehouse,
+      seenView.costs?.map((c) => [c.lineNo, c.categoryName, c.plannedAmount, c.amount, c.available]), seenView.problems.filter((x) => x.code === 'costs_unfunded').map((x) => [x.categoryId, x.needAmount, x.haveAmount])],
+    [84000000n, 750000n, 84750000n, 84750n, { id: RAW, name: RAW_NAME, divisionId: MILL, divisionName: MILL_NAME },
+      [[1, 'أيدي عاملة', 500000n, 600000n, 450000n], [2, 'كهرباء', 150000n, 150000n, 385000n]], [[LABOR, 600000n, 450000n]]],
+    'parsePreview (المحاسب): المال ووحدة المخزن، والمتاح 4,500.00 و3,850.00 والنقص بأرقامه',
   );
-  t.same([hiddenView?.expensesVisible, seenView?.expensesVisible], [false, true], 'parsePreview: expenses_visible لمحاسب المواد false (وحدة المعمل خارج نطاقه)، وللمحاسب بلا نطاق true (ق٢١)');
+  t.same(hiddenView, seenView, 'parsePreview (محاسب المواد): معاينة المحاسب بلا نطاق نفسها (0034)');
   // مشكلة التاريخ (private.date_problem، منذ 0015): صفحة الدفعة لا تغيّر يومها، فالمسوّدة الثانية بعد ثمانية أيام (app_today = 2026-11-12)
   // أقدم من سبعة أيام، والخادم يرسل الرمز وجملته بتاريخها (12 − 7 = 05/11/2026). المحلّل يحمل التلميح، والصفحة تعرضه لا الرمز الخام.
   const agedRaw = await db.setToday('2026-11-12', () => preview(U.accountant, B2));
@@ -1379,14 +1338,7 @@ async function scenario(t, db) {
   // بطاقة الدفعة الثالثة لمحاسب المواد (ق١١، م١٢): القيم ظاهرة، والتحميلات null = «محمَّلة من مصاريف وحدة خارج نطاقك».
   const hiddenBatchRaw = (await call(U.accRaw, 'select public.production_detail($1)', [B3])).v;
   const hiddenBatch = parsed('parseBatch (محاسب المواد)', () => ui.parseBatch(hiddenBatchRaw));
-  t.same(
-    hiddenBatch && [hiddenBatch.inputValue, hiddenBatch.extraValue, hiddenBatch.totalValue,
-      hiddenBatch.costs?.map((c) => [c.categoryName, c.amount, c.available, c.allocations]), hiddenBatch.lines.map((l) => l.draws?.map((d) => d.qty))],
-    [11400000n, 65000n, 11465000n, [['أيدي عاملة', 50000n, null, null], ['كهرباء', 15000n, null, null]], [[60000n], [40000n]]],
-    'parseBatch (محاسب المواد): allocations null لكلّ سطر تكاليف (المفتاح موجود)، والقيم والوجبات ظاهرة',
-  );
-  t.same([hiddenBatch?.scope, hiddenBatch?.expensesVisible], [{ input: true, output: false }, false],
-    'parseBatch (محاسب المواد): scope = {input: true, output: false} (مخزن العلف خارج نطاقه)، وexpenses_visible = false (ق٢١، ق٢٥)');
+  t.same(hiddenBatch, ui.parseBatch((await call(U.manager, 'select public.production_detail($1)', [B3])).v), 'parseBatch (محاسب المواد): بطاقة المدير نفسها بتحميلاتها وطرفيها (0034)');
 
   // آخر دفعة صنعت العلف (ق١٤، ع٢): الثالثة (الأولى ملغاة لا تُعدّ)، 100 كغم في مخزن العلف، بلا مال.
   const feedBuys = (user, warehouse) => call(user, 'select public.item_purchases($1, $2, null, 50)', [FEED, warehouse]);
@@ -1397,9 +1349,9 @@ async function scenario(t, db) {
     t.same(page && [page.lastProduction, page.rows.length], [madeFeed, 0], `parseItemPurchases (${label}): last_production آخر دفعة مرحَّلة صنعت العلف، ولا شراء`);
   }
   const rawScopeBuys = (await feedBuys(U.accRaw, null)).v;
-  t.eq(parsed('parseItemPurchases (محاسب المواد، العلف)', () => ui.parseItemPurchases(rawScopeBuys))?.lastProduction, null,
-    'parseItemPurchases (محاسب المواد): مخزن العلف خارج نطاقه، فـlast_production null');
-  t.eq(code(await feedBuys(U.accRaw, FEEDWH)), 'out_of_scope', 'ضابط: محاسب المواد لا يقرأ مخزن العلف نفسه');
+  t.same(parsed('parseItemPurchases (محاسب المواد، العلف)', () => ui.parseItemPurchases(rawScopeBuys))?.lastProduction, madeFeed,
+    'parseItemPurchases (محاسب المواد): last_production آخر دفعة صنعت العلف (0034: مخزن العلف يُقرأ له)');
+  t.eq(code(await feedBuys(U.accRaw, FEEDWH)), 'ok', 'ومخزن العلف نفسه يُقرأ له');
 
   // الوقود خارج كتلة الخلطة (ق٣، م١١): «بادئ بالكاز» ذرة 1,000 كغم + كاز 20 لتراً (بكثافة 0.85 = 17.000 كغم) للأساس 1,000 يتفعّل،
   // وحصّة الكاز 17 × 100 ÷ 1,000 = 1.70٪ خارج الكتلة.
@@ -1463,10 +1415,9 @@ async function scenario(t, db) {
   const kazActive = parsed('parseRecipe (بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazActiveRaw));
   const kazMiller = parsed('parseRecipe (مشغّل المعمل، بعد تصحيح وحدة الكاز)', () => ui.parseRecipe(kazMillerRaw));
   t.same(
-    [kazActive && [kazActive.status, kazActive.massKg, kazActive.lines.map(unitLine)], kazMiller && [kazMiller.rates, kazMiller.lines.map((l) => [l.itemName, l.unitChanged])]],
-    [['active', 1000000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'kg', 'kg', 17000n, 17000n, true, true]]],
-      [null, [['ذرة صفراء', false], ['كاز البانية', true]]]],
-    'parseRecipe: unit_changed للكاز وحده (لقطة kg والمادّة L الآن)، والوحدة و«داخل الكتلة» والكتلة من اللقطة، ومشغّل المعمل يقرؤه بلا مال (ق٣١، ب٢٧)',
+    [kazActive && [kazActive.status, kazActive.massKg, kazActive.lines.map(unitLine)], kazMiller],
+    [['active', 1000000n, [['ذرة صفراء', 'raw', 'kg', 'kg', 983000n, 983000n, true, false], ['كاز البانية', 'fuel', 'kg', 'kg', 17000n, 17000n, true, true]]], kazActive],
+    'parseRecipe: unit_changed للكاز وحده (لقطة kg والمادّة L الآن)، والوحدة و«داخل الكتلة» والكتلة من اللقطة، ومشغّل المعمل يقرؤه كالمدير (0034)',
   );
   const kazRefused = await create(U.miller, id(260), V6, 100);
   t.same(
@@ -1523,9 +1474,9 @@ async function scenario(t, db) {
   const dibsActive = await servedAs('parseRecipe (الدبس بعد تصحيحه كيلوغراماً)', U.manager, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
   const dibsMiller = await servedAs('parseRecipe (مشغّل المعمل، الدبس بعد تصحيحه)', U.miller, 'select public.recipe_detail($1, null)', [R7], ui.parseRecipe);
   t.same(
-    [dibsActive && [dibsActive.status, dibsActive.massKg, dibsActive.lines.map(fullLine)], dibsMiller && [dibsMiller.rates, dibsMiller.lines.map((l) => [l.itemName, l.massKg, l.unitChanged, l.unitMismatch])]],
-    [['active', 1000000n, [CORN_972, ['دبس الدمج', 'L', 'L', 20000n, 28000n, 280n, true, false, true]]], [null, [['ذرة صفراء', 972000n, false, false], ['دبس الدمج', 28000n, false, true]]]],
-    'parseRecipe: لقطة لتر ومادّة صارت بالكيلو — الكتلة 28 والحصّة 2.80٪ من لقطة الكثافة، وunit_changed = false (يُنتَج بها) وunit_mismatch = true، ولمشغّل المعمل بلا مال (ق٤١ وق٤٢، ب٣١)',
+    [dibsActive && [dibsActive.status, dibsActive.massKg, dibsActive.lines.map(fullLine)], dibsMiller],
+    [['active', 1000000n, [CORN_972, ['دبس الدمج', 'L', 'L', 20000n, 28000n, 280n, true, false, true]]], dibsActive],
+    'parseRecipe: لقطة لتر ومادّة صارت بالكيلو — الكتلة 28 والحصّة 2.80٪ من لقطة الكثافة، وunit_changed = false (يُنتَج بها) وunit_mismatch = true، ولمشغّل المعمل كالمدير (0034)',
   );
   const dibsCards = await servedAs('parseRecipes (بعد تصحيح الدبس)', U.manager, 'select public.recipes_overview()', [], ui.parseRecipes);
   t.same(cardOf(dibsCards, R7)?.pieces.map((p) => [p.label, p.weight, p.inBasis]), [['ذرة صفراء', 972000n, true], ['دبس الدمج', 28000n, true]],
@@ -1708,9 +1659,9 @@ async function scenario(t, db) {
   const SYRUP_LINES = [['ذرة صفراء', 'kg', 'kg', 974000n, false, false], ['شراب الدمج', 'L', 'L', null, false, true], ['زيت الدمج', 'L', 'kg', 6000n, false, true]];
   const syrupActivate = await call(U.manager, ACTIVATE_V, [V10]);
   t.same(
-    [syrupDraft.v?.status, syrupCard && [syrupCard.status, syrupCard.massKg, syrupCard.lines.map(densityLine)], syrupMiller && [syrupMiller.rates, syrupMiller.massKg, syrupMiller.lines.map(densityLine)],
+    [syrupDraft.v?.status, syrupCard && [syrupCard.status, syrupCard.massKg, syrupCard.lines.map(densityLine)], syrupMiller,
       code(syrupActivate), syrupActivate.hint],
-    ['draft', ['draft', null, SYRUP_LINES], [null, null, SYRUP_LINES], 'density_required', '«شراب الدمج» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.'],
+    ['draft', ['draft', null, SYRUP_LINES], syrupCard, 'density_required', '«شراب الدمج» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.'],
     'parseRecipe (مسوّدة): density_missing للسائلين بلا كثافة — الشراب باللتر (كتلته null وليس unit_mismatch) والزيت المكتوب بالكيلو (كتلته 6 معروفة) — لا للذرة، للمدير ولمشغّل المعمل؛ والتفعيل density_required يسمّي الشراب (ق٥١، ب٤٩)',
   );
   // والنسخة المفعَّلة بلقطتها (بمعاملة ترجع): تُفرَّغ كثافتا «كاز المولّدة» (سطر «بادئ بالكاز» باللتر بلقطة كثافة 0.85) و«كاز البانية» (لقطة سطره كيلوغرام، والمادّة
@@ -1815,9 +1766,9 @@ async function scenario(t, db) {
       dibsCard6 && [dibsCard6.expected, dibsCard6.lines.map(pricedLine)], dibsAccountant6?.expected],
     [['ok', 'draft', 'draft', 'ok'], { materialsPerTon: 95763400n, ratesPerTon: 0n, costPerTon: 95763400n, unpriced: 0, unconverted: 0 },
       [OIL6_EXPECTED, [['ذرة صفراء', 'kg', 'kg', 95000n, false, false], ['زيت التكامل', 'L', 'kg', 200000n, false, true]]], OIL6_EXPECTED,
-      [null, [['ذرة صفراء', null, false], ['زيت التكامل', null, true]]],
+      [OIL6_EXPECTED, [['ذرة صفراء', 95000n, false], ['زيت التكامل', 200000n, true]]],
       [DIBS6_EXPECTED, [['ذرة صفراء', 'kg', 'kg', 95000n, false, false], ['دبس التكامل', 'kg', 'L', 150000n, true, false]]], DIBS6_EXPECTED],
-    'parseRecipe: سطر الزيت بلا كثافة وسطر الدبس المكتوب باللتر لمادّة صارت بالكيلو، ولكلٍّ سعر مكتوب في سطره، في unconverted = 1 لا unpriced، والمواد بلاه 944,300.00 و923,400.00، للمدير والمحاسب؛ ولمشغّل المعمل بلا مال (ق٦١، ب٦٢)',
+    'parseRecipe: سطر الزيت بلا كثافة وسطر الدبس المكتوب باللتر لمادّة صارت بالكيلو، ولكلٍّ سعر مكتوب في سطره، في unconverted = 1 لا unpriced، والمواد بلاه 944,300.00 و923,400.00، للمدير والمحاسب ومشغّل المعمل (0034)',
   );
   // والقطعة (ما علّقه وكيل الشاشات): مادّة لها سعر وصارت قطعة لا تتحوّل كميتها، فتُعدّ في unconverted، وفي البطاقة جملتها — في المسوّدة جملة القطعة (وحدة
   // الأساس الحيّة pc)، وفي المفعَّلة جملة «تغيّرت وحدة» (unit_changed). بمعاملة ترجع للمدير: سعر كلفة «ملح الدمج» (صار قطعة أعلاه) 300، فمسوّدة «مسوّدة ملح صار قطعة» (ذرة
@@ -1981,7 +1932,7 @@ async function scenario(t, db) {
     [id(141), 'draft', null, true, [['ذرة صفراء', null, 'kg', true], ['كسبة صويا', null, 'kg', true]], [[1, 'أيدي عاملة', '5000.00'], [2, 'كهرباء', '1500.00']]],
     'recipe_detail (المسوّدة المنسوخة، 0025): الموادّ بترتيبها بلا كمية ولا أساس، والمعدّلات بترتيبها كما في المفعَّلة',
   );
-  t.eq(code(await newVersion(U.miller, R1, id(142))), 'forbidden', 'new_recipe_version لفعل التفعيل: مشغّل المعمل ممنوع');
+  t.eq(code(await call(U.miller, 'select public.new_recipe_version($1, $2)', [R1, id(142)], false)), 'ok', 'new_recipe_version لكلّ عضو: مشغّل المعمل (0034، بمعاملة ترجع)');
 
   // الناتج لا يولد منتهياً (ق٨، م١٤): علف يتابَع انتهاؤه بتاريخ قبل يوم الإنتاج بثلاثين يوماً (2026-11-04 − 30 = 2026-10-05)،
   // بمعاملة ترجع فلا يبقى منها صفّ.
@@ -2067,16 +2018,16 @@ async function scenario(t, db) {
     );
     actAs(U.miller);
     const builtMiller = await repo.loadRecipe(id(131));
-    t.same([builtMiller.rates, builtMiller.expected, builtMiller.lines.map((l) => l.costPrice)], [null, null, [null, null]], 'loadRecipe (مشغّل المعمل): بلا مال ولا يرمي');
+    t.same(builtMiller, builtCard, 'loadRecipe (مشغّل المعمل): بطاقة المدير نفسها بمالها (0034)');
 
     // الدفعة 500 كغم: ذرة 350 وصويا 150، و«أيدي عاملة» 4,000 × 500 ÷ 1,000 = 2,000.00.
     const BATCH = id(230);
     await repo.createProduction(BATCH, id(132), 500000n, RAW, FEEDWH, TODAY);
     const fresh = await repo.loadBatch(BATCH);
     t.same(
-      [fresh.status, fresh.lines.map((l) => [l.itemName, l.plannedQty]), fresh.costs],
-      ['draft', [['ذرة صفراء', 350000n], ['كسبة صويا', 150000n]], null],
-      'createProduction ثمّ loadBatch (مشغّل المعمل): المخطّط بالتناسب، وبلا تكاليف',
+      [fresh.status, fresh.lines.map((l) => [l.itemName, l.plannedQty]), fresh.costs?.map((c) => [c.categoryName, c.amount])],
+      ['draft', [['ذرة صفراء', 350000n], ['كسبة صويا', 150000n]], [['أيدي عاملة', 200000n]]],
+      'createProduction ثمّ loadBatch (مشغّل المعمل): المخطّط بالتناسب، وتكاليفه (0034)',
     );
     // نسختا القراءتين اللتين يقارنهما BatchPage.load (الجولة الرابعة، ب٣٣ وfindings4 #4)، على دفعة تجربة 100 كغم من النسخة نفسها تُحذف بعده: بلا
     // كاتب بينهما تتطابق نسخة production_detail ونسخة preview_production لمشغّل المعمل والمدير والمحاسب (فلا تقول الصفحة «تغيّرت الدفعة الآن من جهاز
@@ -2204,52 +2155,39 @@ async function scenario(t, db) {
       ['expense_overloaded', 'صيانة المعمل: المطلوب 500 والمتاح من المصاريف المسجّلة 0. سجّل المصروف أوّلاً أو قلّل المبلغ.'],
       'confirmCosts بلا مصروف للفئة: expense_overloaded بأرقامه للمحاسب كما تعرضه الشاشة',
     );
-    // محاسب المواد (ق١١): المعاينة بلا متاح ولا أرقام، والختم يُرفض بتلميح بلا رقم واحد.
+    // محاسب المواد (ق١١) بعد 0034 («الكلّ مثل المالك»): صفّ نطاق مخزن المواد لا يحجب مصاريف وحدة المعمل، فيرى المعاينة كالمحاسب، والختم
+    // يُرفض بأرقامه كما يُرفض له، ويكتب التكاليف ويرحّل (بمعاملة ترجع: المحاسب يحذف السطر ويختم بعده كما كان).
+    const accLook = await repo.previewProduction(BATCH);
     actAs(U.accRaw);
     const rawLook = await repo.previewProduction(BATCH);
-    t.same(
-      [rawLook.costs?.map((c) => [c.categoryName, c.amount, c.available]), rawLook.problems.map((x) => [x.code, x.categoryId, x.needAmount, x.haveAmount])],
-      [[['أيدي عاملة', 200000n, null], ['صيانة المعمل', 50000n, null]], [['costs_unsealed_scope', null, null, null]]],
-      'previewProduction (محاسب المواد قبل الختم): المتاح null لكلّ سطر، وcosts_unsealed_scope بلا أرقام (ق٢١؛ كانت costs_unfunded)',
-    );
+    t.same(rawLook, accLook, 'previewProduction (محاسب المواد قبل الختم): معاينة المحاسب نفسها بمتاحها ونقصها (0034)');
     const rawSeal = await repo.confirmCosts(BATCH, rawLook.version).then(() => null, (error) => error);
-    t.same([rawSeal?.code, rawSeal?.hint], ['out_of_scope', `تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «${MILL_NAME}» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.`],
-      'confirmCosts (محاسب المواد): out_of_scope بتلميح يسمّي الوحدة (ق٢١: الختم لمن يرى مصاريف الوحدة؛ كان expense_overloaded بلا رقم)');
-    // ولا يحدّد مبلغاً يُحمَّل منها (ق٢١): تعديل المبلغ وإضافة سطر وحذفه out_of_scope بالتلميح نفسه (حارس السطر وdelete_draft_line)؛ والترحيل
-    // قبل الختم costs_unsealed_scope يسمّي الوحدة. والدفعة لم تتغيّر بشيء منها (النسخة نفسها).
-    const unitHint = `تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «${MILL_NAME}» خارج نطاقك، فيكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.`;
-    const refusedAs = (promise) => promise.then(() => ['ok', null], (error) => [error.code ?? `${error.name}: ${error.message}`, error.hint ?? null]);
+    t.same([rawSeal?.code, rawSeal?.hint], [sealNoFunds?.code, sealNoFunds?.hint], 'confirmCosts (محاسب المواد): الرفض نفسه بأرقامه كالمحاسب (0034)');
     t.same(
       [
-        await refusedAs(repo.setBatchCost(id(240), 50000n, 40000n)),
-        await refusedAs(repo.addBatchCost(BATCH, id(239), PACKING, 10000n)),
-        await refusedAs(repo.deleteBatchCost(id(240), rawLook.version)),
-        await refusedAs(repo.postProduction(BATCH, rawLook.version, rawLook.planToken, ref())),
+        (await call(U.accRaw, 'update public.production_costs set amount = 40000 where id = $1 returning id', [id(240)], false)).count,
+        code(await call(U.accRaw, 'insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 100) returning id', [BATCH, PACKING], false)),
+        code(await call(U.accRaw, "select public.delete_draft_line('production_cost', $1, $2) ->> 'deleted' as v", [id(240), rawLook.version], false)),
+        code(await call(U.accRaw, POST, [BATCH, rawLook.planToken, ref()], false)),
         (await repo.previewProduction(BATCH)).version,
       ],
-      [
-        ['out_of_scope', unitHint],
-        ['out_of_scope', unitHint],
-        ['out_of_scope', unitHint],
-        ['costs_unsealed_scope', `تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «${MILL_NAME}» خارج نطاقك، فتُرحَّل بعد أن يختمها محاسب أو مدير يرى تلك الوحدة.`],
-        rawLook.version,
-      ],
-      'محاسب المواد قبل الختم: setBatchCost وaddBatchCost وdeleteBatchCost out_of_scope بتلميح الوحدة، وpostProduction costs_unsealed_scope (ق٢١)',
+      [1, 'ok', 'ok', 'expense_overloaded', rawLook.version],
+      'محاسب المواد قبل الختم: يعدّل التكاليف ويضيفها ويحذفها (0034، بمعاملة ترجع)، والترحيل يصل لقاعدة المتاح (expense_overloaded)، والدفعة لم تتغيّر',
     );
     actAs(U.accountant);
     await repo.deleteBatchCost(id(240), (await repo.previewProduction(BATCH)).version);
     await repo.confirmCosts(BATCH, (await repo.previewProduction(BATCH)).version);
     actAs(U.miller);
     const ready = await repo.previewProduction(BATCH);
-    t.same([ready.canPost, ready.problems, ready.costs, ready.totalValue, ready.inputMassKg], [true, [], null, null, 501000n], 'previewProduction (مشغّل المعمل بعد الختم): يرحّل، ولا مال');
+    t.same([ready.canPost, ready.problems, ready.costs?.map((c) => [c.categoryName, c.amount]), ready.inputMassKg], [true, [], [['أيدي عاملة', 200000n]], 501000n], 'previewProduction (مشغّل المعمل بعد الختم): يرحّل، وبماله (0034)');
     t.same([fresh.costsConfirmed, (await repo.loadBatch(BATCH)).costsConfirmed], [false, true], 'loadBatch (مشغّل المعمل): costs_confirmed قبل الختم false وبعده true، فيرى «أنتج الآن» بعده وحده (ب١)');
     // بعد أن يختمها المحاسب الذي يرى الوحدة يرحّل محاسب المواد (ق٢١): المعاينة بلا مشكلة، والمبالغ ظاهرة والمتاح null، والخطّة نفسها.
     actAs(U.accRaw);
     const rawReady = await repo.previewProduction(BATCH);
     t.same(
-      [rawReady.canPost, rawReady.problems, rawReady.expensesVisible, rawReady.costs?.map((c) => [c.categoryName, c.amount, c.available]), rawReady.version, rawReady.planToken],
-      [true, [], false, [['أيدي عاملة', 200000n, null]], ready.version, ready.planToken],
-      'previewProduction (محاسب المواد بعد الختم): يرحّل، بلا مشكلة ولا متاح (ق٢١)',
+      rawReady,
+      ready,
+      'previewProduction (محاسب المواد بعد الختم): معاينة مشغّل المعمل نفسها بمتاحها وخطّتها (0034)',
     );
     await repo.postProduction(BATCH, rawReady.version, rawReady.planToken, ref());
     // الكتلة 350 + 151 (الفعلي) = 501 كغم؛ المواد 350 × 900 + 151 × 800 = 435,800.00، والتكاليف 2,000.00 ← 437,800.00،
@@ -2274,27 +2212,26 @@ async function scenario(t, db) {
     const feedMove = (await repo.loadItemMoves(FEED2, FEEDWH)).rows.find((r) => r.docId === BATCH);
     const fromFeed = await repo.loadBatch(feedMade?.batchId ?? BATCH);
     t.same(
-      [feedMade?.batchId, feedLot?.sourceKind, feedMove?.docKind, fromFeed.status, fromFeed.scope, fromFeed.expensesVisible, fromFeed.costs, fromFeed.totalValue,
-        fromFeed.lines.map((l) => [l.itemName, l.usedQty])],
-      [BATCH, 'production', 'production', 'posted', { input: false, output: true }, false, null, null, [['ذرة صفراء', 350000n], ['حنطة', 151000n]]],
-      'loadBatch (أمين العلف): الدفعة من روابط بطاقة العلف الثلاثة بطرف الناتج، scope = {input: false, output: true} وبلا مال (ق٢٥، ج٢)',
+      [feedMade?.batchId, feedLot?.sourceKind, feedMove?.docKind, fromFeed],
+      [BATCH, 'production', 'production', done],
+      'loadBatch (أمين العلف): الدفعة من روابط بطاقة العلف الثلاثة، وبطاقة المدير نفسها بطرفيها ومالها (0034)',
     );
     // ومسوّدة من طرفه (ب٣): البطاقة تُقرأ، والمعاينة out_of_scope بتلميح مخزن المواد، فالشاشة لا تطلبها بلا scope.input.
     const feedDraftCard = await repo.loadBatch(B2);
     const feedPreview = await repo.previewProduction(B2).then(() => null, (error) => error);
     t.same(
-      [feedDraftCard.status, feedDraftCard.scope, feedPreview?.code, feedPreview?.hint],
-      ['draft', { input: false, output: true }, 'out_of_scope', `المخزن «${RAW_NAME}» خارج نطاقك.`],
-      'loadBatch (أمين العلف، مسوّدة): تُقرأ بطرف العلف، وpreviewProduction out_of_scope (ب٣)',
+      [feedDraftCard.status, feedDraftCard.scope, feedPreview],
+      ['draft', { input: true, output: true }, null],
+      'loadBatch (أمين العلف، مسوّدة): تُقرأ بطرفيها، والمعاينة له (0034)',
     );
     // ووجبات مخزن المواد واستلاماته لا تصل طرف الناتج (الجولة الثالثة، ق٣٢ وب٢٨): draws = null في كلّ سطر مع scope.input = false — فخانة
     // «من أيّ وجبات» تقول «وجبات مخزن المواد خارج نطاقك» بلا رابط؛ ومحاسب العلف كذلك والقيمة ظاهرة له (دور كلفة)؛ ومحاسب المواد يراها (أدناه).
     actAs(U.accFeed);
     const feedAccCard = await repo.loadBatch(BATCH);
     t.same(
-      [fromFeed.lines.map((l) => [l.itemName, l.draws === null]), [feedAccCard.scope, feedAccCard.totalValue, feedAccCard.lines.map((l) => [l.itemName, l.draws === null])]],
-      [[['ذرة صفراء', true], ['حنطة', true]], [{ input: false, output: true }, 43780000n, [['ذرة صفراء', true], ['حنطة', true]]]],
-      'loadBatch (أمين العلف ومحاسبه): draws = null لكلّ سطر وscope.input = false، والقيمة 437,800.00 ظاهرة لمحاسب العلف (ق٣٢، ب٢٨)',
+      [fromFeed.lines.map((l) => [l.itemName, l.draws === null]), feedAccCard],
+      [[['ذرة صفراء', false], ['حنطة', false]], done],
+      'loadBatch (أمين العلف ومحاسبه): الوجبات ظاهرة، ومحاسب العلف يرى بطاقة المدير نفسها (0034)',
     );
     actAs(U.miller);
     const madeLot = (await repo.loadItemLots(FEED2, FEEDWH)).rows.find((r) => r.sourceId === BATCH);
@@ -2305,13 +2242,13 @@ async function scenario(t, db) {
     actAs(U.manager);
     t.same((await repo.loadItemPurchases(FEED2, null)).lastProduction, madeHere, 'loadItemPurchases (المدير، كلّ المخازن): lastProduction نفسه');
     actAs(U.accRaw);
-    t.eq((await repo.loadItemPurchases(FEED2, null)).lastProduction, null, 'loadItemPurchases (محاسب المواد): مخزن العلف خارج نطاقه، فلا lastProduction');
+    t.same((await repo.loadItemPurchases(FEED2, null)).lastProduction, madeHere, 'loadItemPurchases (محاسب المواد): lastProduction نفسه (0034)');
     // وتحميلات بطاقة الدفعة محجوبة عنه (ق١١، م١٢): allocations null والقيم ظاهرة.
     const doneRaw = await repo.loadBatch(BATCH);
     t.same(
-      [doneRaw.totalValue, doneRaw.costs?.map((c) => [c.categoryName, c.amount, c.allocations]), doneRaw.lines.map((l) => [l.itemName, l.draws?.map((d) => d.qty)])],
-      [43780000n, [['أيدي عاملة', 200000n, null]], [['ذرة صفراء', [350000n]], ['حنطة', [151000n]]]],
-      'loadBatch (محاسب المواد): التحميلات null، والقيمة والوجبات ظاهرة',
+      doneRaw,
+      done,
+      'loadBatch (محاسب المواد): بطاقة المدير نفسها بتحميلاتها (0034)',
     );
 
     actAs(U.accountant);
@@ -2331,7 +2268,7 @@ async function scenario(t, db) {
     t.same([cornBuys.item.costPrice, cornBuys.item.sellPrice, cornBuys.rows[0]?.money?.unitCost], [95000n, null, 90000n], 'loadItemPurchases (المدير): سعر الكلفة وآخر شراء');
     actAs(U.miller);
     const cornBuysMiller = await repo.loadItemPurchases(CORN, RAW);
-    t.same([cornBuysMiller.item.costPrice, cornBuysMiller.rows[0]?.money], [null, null], 'loadItemPurchases (مشغّل المعمل): بلا أسعار');
+    t.same(cornBuysMiller, cornBuys, 'loadItemPurchases (مشغّل المعمل): أسعار المدير نفسها (0034)');
     actAs(U.manager);
     t.eq(await repo.setItemCostPrice(SOY, 160000n, null), 160000n, 'setItemCostPrice: 1,600.00 لكيلو الصويا');
     t.eq(await repo.setItemCostPrice(SOY, 160000n, null), 160000n, 'setItemCostPrice: الإعادة ترجّع المكتوب');
@@ -2347,8 +2284,8 @@ async function scenario(t, db) {
     const millHome = await repo.loadMill();
     t.same(
       [millHome.recipes.find((r) => r.id === id(131))?.expectedCostPerKg, millHome.productions.rows.find((r) => r.id === BATCH)?.totalValue],
-      [null, null],
-      'loadMill (مشغّل المعمل): البطاقة والدفعة بلا كلفة',
+      [114900n, done.totalValue],
+      'loadMill (مشغّل المعمل): البطاقة والدفعة بكلفتهما (0034)',
     );
 
     // «نسخة جديدة» من بطاقة الخلطة (م٧): newRecipeVersion بمعرّف من الجهاز يبقى للإعادة، والمسوّدة بسطور المفعَّلة ومعدّليها.
@@ -2370,7 +2307,7 @@ async function scenario(t, db) {
     );
     t.eq((await repo.loadRecipe(id(131))).versionId, id(132), 'ضابط: بطاقة الخلطة بلا نسخة مختارة تبقى على المفعَّلة');
     actAs(U.miller);
-    t.eq(await rejected(repo.newRecipeVersion(id(131), id(242))), 'forbidden', 'newRecipeVersion (مشغّل المعمل): forbidden');
+    t.eq(code(await call(U.miller, 'select public.new_recipe_version($1, $2)', [id(131), id(242)], false)), 'ok', 'newRecipeVersion (مشغّل المعمل): مسموح (0034، بمعاملة ترجع)');
     // «أنتج» من بطاقة الخلطة (م٩): مخازن المعمل ويوم الخادم من recipes_overview.
     t.same(
       (({ today, stores }) => [today, stores.map((s) => [s.id, s.kind])])(await repo.loadMillStores()),
@@ -2401,7 +2338,7 @@ async function scenario(t, db) {
     await repo.deleteRecipeRate(id(236), trial.versionVersion);
     t.same((await repo.loadRecipe(R2)).rates, [], 'deleteRecipeRate يحذفه');
     actAs(U.miller);
-    t.eq(await rejected(repo.addRecipeRate(V2, id(238), PACKING, 50000n)), 'forbidden', 'addRecipeRate (مشغّل المعمل): forbidden من الحارس');
+    t.eq(code(await call(U.miller, 'insert into public.recipe_cost_rates (version_id, category_id, amount_per_ton) values ($1, $2, 500) returning id', [V2, PACKING], false)), 'ok', 'addRecipeRate (مشغّل المعمل): مسموح (0034، بمعاملة ترجع)');
 
     // دفعة بلا مادّة داخل الكتلة (ق٢٤، ب٢): «بادئ بالكاز» 100 كغم (ذرة 100 وكاز 20 × 100 ÷ 1,000 = 2 لتر) وتُحذف الذرة فيبقى الكاز وحده.
     // المعاينة: الكاز بلا رصيد، ثمّ no_mass_inputs، والكتلة صفر فالهدر بلا مدى (لا وزن)؛ والترحيل يرفض no_mass_inputs بتلميحه لا 23514.
@@ -2625,18 +2562,18 @@ async function scenario(t, db) {
     const syrupScreenMiller = await tried('loadRecipe (مشغّل المعمل، مسوّدة الشراب)', () => repo.loadRecipe(SR, SV));
     actAs(U.manager);
     const syrupRefusal = await (async () => repo.activateVersion(SV, (await repo.loadRecipe(SR, SV)).versionVersion))().then(() => null, (error) => error);
-    actAs(U.accountant);
-    const accountantDensity = await rejected(densityOf('1.2500'));
+    // 0034: المحاسب يكتب الكثافة أيضاً (stores.manage لكلّ عضو)؛ بمعاملة ترجع، فالشراب يبقى بلا كثافة لما بعده.
+    const accountantDensity = (await call(U.accountant, 'update public.items set density_kg_per_l = 1.25 where id = $1 returning id', [syrupItem?.id], false)).count;
     actAs(U.manager);
     const stillEmpty = await tried('loadItem (الشراب بعد محاولة المحاسب)', () => repo.loadItem(syrupItem?.id ?? ''));
     const SYRUP_SCREEN = [['ذرة صفراء', 'kg', 'kg', 980000n, 980000n, false, false], ['شراب الشاشة', 'L', 'L', 16000n, null, false, true]];
     t.same(
       [syrupRecipe, emptied && [emptied.baseUnit, emptied.density], syrupScreen && [syrupScreen.massKg, syrupScreen.lines.map(syrupLine)],
-        syrupScreenMiller && [syrupScreenMiller.massKg, syrupScreenMiller.lines.map(syrupLine)], syrupRefusal instanceof repo.RejectedError, syrupRefusal?.code, syrupRefusal?.hint,
-        accountantDensity === 'ok', stillEmpty?.density],
-      ['ok', ['L', null], [null, SYRUP_SCREEN], [null, SYRUP_SCREEN], true, 'density_required', '«شراب الشاشة» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.',
-        false, null],
-      'loadRecipe (المدير ومشغّل المعمل) ثمّ activateVersion: سطر الشراب densityMissing وكتلته null والمجموع null، والتفعيل RejectedError برمز density_required وتلميح يسمّيه؛ والمحاسب لا يكتب الكثافة (ق٥١، ب٤٩)',
+        syrupScreenMiller, syrupRefusal instanceof repo.RejectedError, syrupRefusal?.code, syrupRefusal?.hint,
+        accountantDensity, stillEmpty?.density],
+      ['ok', ['L', null], [null, SYRUP_SCREEN], syrupScreen, true, 'density_required', '«شراب الشاشة» سائل بلا كثافة، فلا يُحسب وزنه. اكتب كثافته من «المواد» في المخزن (زرّ «عدّل» بجانبها) ثمّ فعّل.',
+        1, null],
+      'loadRecipe (المدير ومشغّل المعمل) ثمّ activateVersion: سطر الشراب densityMissing وكتلته null والمجموع null، والتفعيل RejectedError برمز density_required وتلميح يسمّيه؛ والمحاسب يكتب الكثافة (0034، بمعاملة ترجع)',
     );
     const refilled = await tried('updateItem (كثافة الشراب من جديد)', () => densityOf('1.2500'));
     const syrupFixed = await tried('loadRecipe (الشراب بعد كثافته)', () => repo.loadRecipe(SR, SV));
@@ -2716,10 +2653,10 @@ async function scenario(t, db) {
     const OIL_SCREEN_UNCONVERTED = { materialsPerTon: 94430000n, ratesPerTon: 0n, costPerTon: 94430000n, unpriced: 0, unconverted: 1 };
     t.same(
       [oilPriced, oilRecipe, oilBefore?.expected, oilEmptied?.density, oilAfter && [oilAfter.expected, oilAfter.lines.map(oilScreenLine)], oilAccountant?.expected,
-        oilMiller && [oilMiller.expected, oilMiller.lines.map((l) => [l.itemName, l.costPrice, l.densityMissing])]],
+        oilMiller],
       ['ok', 'ok', OIL_SCREEN_PRICED, null, [OIL_SCREEN_UNCONVERTED, [['ذرة صفراء', 'kg', 'kg', 95000n, false], ['زيت الشاشة', 'L', 'kg', 200000n, true]]], OIL_SCREEN_UNCONVERTED,
-        [null, [['ذرة صفراء', null, false], ['زيت الشاشة', null, true]]]],
-      'setItemCostPrice ثمّ updateItem ثمّ loadRecipe: سطر الزيت المسعَّر بلا كثافة في unconverted = 1 لا unpriced والطنّ 944,300.00 للمدير والمحاسب، ولمشغّل المعمل بلا مال (ق٦١، ب٦٢)',
+        oilAfter],
+      'setItemCostPrice ثمّ updateItem ثمّ loadRecipe: سطر الزيت المسعَّر بلا كثافة في unconverted = 1 لا unpriced والطنّ 944,300.00 للمدير والمحاسب ومشغّل المعمل (0034)',
     );
     actAs(U.manager);
     const oilLine = oilAfter?.lines.find((l) => l.densityMissing) ?? null;
@@ -2904,14 +2841,13 @@ async function scenario(t, db) {
     };
     t.same(
       [codes, [...new Set(served.filter((x) => page.problemLine(x) === generic.replace('zz_probe', x.code)).map((x) => x.code))]],
-      [['costs_pending', 'costs_unfunded', 'costs_unsealed_scope', 'date_in_future', 'date_too_old', 'expiry_required', 'insufficient_stock', 'no_mass_inputs', 'output_expired', 'shrink_out_of_range'], []],
-      'BatchPage.problemLine: لكلّ مشكلة من القاعدة جملتها، لا الجملة العامّة (ب٢)',
+      [['costs_unfunded', 'date_in_future', 'date_too_old', 'expiry_required', 'insufficient_stock', 'no_mass_inputs', 'output_expired', 'shrink_out_of_range'], []],
+      'BatchPage.problemLine: لكلّ مشكلة من القاعدة جملتها، لا الجملة العامّة (ب٢؛ وcosts_pending وcosts_unsealed_scope لا تُرسلهما القاعدة لعضو منذ 0034)',
     );
     t.same(
-      [lineOf('costs_unsealed_scope'), lineOf('no_mass_inputs'), lineOf('date_too_old')],
-      [`تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «${MILL_NAME}» خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.`,
-        'الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به 05/11/2026.'],
-      'BatchPage.problemLine: costs_unsealed_scope تسمّي الوحدة من division_name، وno_mass_inputs بجملتها، ومشكلة التاريخ بتلميح الخادم (ب٢)',
+      [lineOf('no_mass_inputs'), lineOf('date_too_old')],
+      ['الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.', 'لا يُقبل تاريخ أقدم من 7 أيام؛ أقدم تاريخ مسموح به 05/11/2026.'],
+      'BatchPage.problemLine: no_mass_inputs بجملتها، ومشكلة التاريخ بتلميح الخادم (ب٢)',
     );
     t.eq(lineOf('date_in_future'), 'التاريخ 05/11/2026 بعد تاريخ اليوم 04/11/2026.', 'BatchPage.problemLine: date_in_future (يوم إنتاج بعد اليوم من حقله، ب٢٦) بتلميح الخادم لا بالجملة العامّة');
 

@@ -26,26 +26,13 @@ export function roleLabel(role: Role): string {
   }
 }
 
-/** شنو يسوي كل دور، سطر واحد لاختيار الدور بالدعوة. */
+/**
+ * شنو يسوي كل دور، سطر واحد لاختيار الدور بالدعوة. «الكلّ مثل المالك بكلّ شيء» (كلمة المالك 2026-11-21، 0034): كلّ عضو يرى ويفعل
+ * كلّ شيء في المنشأة، وإدارة الموظفين للمالك وحده؛ فالدور اسم عمل يرتّب أزرار الرئيسية فقط.
+ */
 export function roleDescription(role: Role): string {
-  switch (role) {
-    case 'owner':
-      return t('role.owner.about', 'كل شيء، ومنه إدارة الموظفين.');
-    case 'manager':
-      return t('role.manager.about', 'كل شيء عدا إدارة الموظفين والمقاصّة وفتح فترة مقفلة.');
-    case 'storekeeper':
-      return t('role.storekeeper.about', 'الاستلام بالكميات والتحويل والصرف والجرد.');
-    case 'mill_operator':
-      return t('role.mill_operator.about', 'إنتاج العلف، ويحفظ الوجبة نهائياً بعد ختم الكلف.');
-    case 'hatchery_operator':
-      return t('role.hatchery_operator.about', 'تشغيل وجبات المفقس.');
-    case 'hall_worker':
-      return t('role.hall_worker.about', 'الجولة اليومية وتذكرة الوزن، دون كلف ولا مبيعات.');
-    case 'accountant':
-      return t('role.accountant.about', 'المبالغ والمبيعات والتسديد والمصاريف والحسابات.');
-    case 'viewer':
-      return t('role.viewer.about', 'قراءة فقط.');
-  }
+  if (role === 'owner') return t('role.owner.about', 'يرى ويفعل كلّ شيء في المنشأة، ومنه إدارة الموظفين.');
+  return t('role.member.about', 'يرى ويفعل كلّ شيء في المنشأة عدا إدارة الموظفين؛ والدور يرتّب أزرار الرئيسية فقط.');
 }
 
 export const ROLE_OPTIONS: readonly Role[] = ROLES;

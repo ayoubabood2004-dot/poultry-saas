@@ -751,7 +751,7 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── E: المشاهد (بلا flock_day.save) ما يُعرض عليه زرّ الجولة ولا خاناتها، وما يدخل الطابور شي باسمه ──
+    // ── E: المشاهد (0034، «الكلّ مثل المالك»: flock_day.save لكلّ عضو) يُعرض عليه زرّ الجولة وخاناتها، وما يدخل الطابور شي باسمه ما لم يكتب ──
     {
       m.onlineStore.set(true);
       const server = makeServer({ 'f-a': { version: 4, dead: 2, culled: 0 }, 'f-b': null });
@@ -763,13 +763,12 @@ export default async function (t) {
       const { sent } = fresh({ status: 'ready', workspace: ws({ userId: 'u-e', role: 'viewer', canSeeCost: false, canSeeAccounts: false }), offline: false }, { loadOverviewJson: viewerOverview }, async () => ({ kind: 'rejected', code: 'forbidden', hint: 'ليست لديك صلاحية.' }));
       await mount('/broiler');
       t.ok(text().includes('قاعة 1'), 'E: ضابط: المشاهد يرى الحقل');
-      t.eq(byAction('farm-round').length, 0, 'E: شاشة الحقل: ماكو زرّ الجولة للمشاهد');
+      t.eq(byAction('farm-round').length, 1, 'E: شاشة الحقل: زرّ الجولة للمشاهد');
       await unmount();
       await mount('/broiler/round');
-      t.same([byAction('round-save').length, byIdSuffix('-dead').length], [0, 0], 'E: شاشة الجولة: ماكو خانات ولا حفظ للمشاهد');
-      t.ok(text().includes('تعرض هذه الصفحة أرقام اليوم فقط'), 'E: تنبيه «تعرض هذه الصفحة أرقام اليوم فقط»');
-      t.same(descendants(card('f-a') ?? body()).filter((n) => n.localName === 'dd').map((n) => n.textContent), ['2'], 'E: أرقام اليوم معروضة بلا خانات (النافق 2 وحده: لا مستبعد ولا علف منذ 0035، والماء خارج الجولة)');
-      t.eq(byAction('round-give').length, 0, 'E: ولا «أضف للقاعة» على بطاقات من يقرأ فقط');
+      t.ok(byAction('round-save').length > 0 && byIdSuffix('-dead').length > 0, 'E: شاشة الجولة: خانات وحفظ للمشاهد');
+      t.ok(!text().includes('تعرض هذه الصفحة أرقام اليوم فقط'), 'E: بلا تنبيه «للقراءة فقط»');
+      t.ok(byAction('round-give').length > 0, 'E: و«أضف للقاعة» على البطاقات');
       const { pending, review } = await queueOf('u-e');
       t.same([sent.length, pending.length, review.length], [0, 0, 0], 'E: ولا عملية ولا رفّ مراجعة باسم المشاهد');
       await unmount();

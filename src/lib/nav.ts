@@ -1,6 +1,6 @@
 import { ChartNoAxesColumn, createLucideIcon, Drumstick, Egg, Factory, House, Settings, UserRound, Users, Wallet, Warehouse, type LucideIcon } from 'lucide-react';
 import type { DivisionKind } from '../domain/divisions';
-import { canManageMembers, type Role } from '../domain/permissions';
+import { canManageMembers, ROLES, type Role } from '../domain/permissions';
 import type { Workspace } from '../domain/workspace';
 import { t } from './i18n';
 import type { SessionState } from './session';
@@ -18,19 +18,10 @@ export interface NavItem {
 }
 
 /**
- * من يشوف تبويب «المخزن» (كلمة المالك 2026-11-04: تبويب واحد وداخله كل المخازن): أدوار المخزن والكلفة، ومعهم مشغّلا المعمل
- * والمفقس بعد شطب بندي مخازنهما — بندهم الواحد يفتح مخازن نطاقهم. عامل القاعة برّاها (ما له مخزن). والرئيسية تتبعه ببطاقة
- * «المخزن» (HomePage) حتى ما تختفي بطاقة أمين مخزن نطاقه وحدة وحدة (الأدوية مثلاً) بلا «العامّة».
+ * من يشوف تبويب «المخزن» (كلمة المالك 2026-11-04: تبويب واحد وداخله كل المخازن): كلّ الأدوار منذ «الكلّ مثل المالك بكلّ شيء»
+ * (كلمة المالك 2026-11-21، 0034). والرئيسية تتبعه ببطاقة «المخزن» (HomePage).
  */
-export const STORE_ROLES: ReadonlySet<Role> = new Set<Role>([
-  'owner',
-  'manager',
-  'storekeeper',
-  'accountant',
-  'viewer',
-  'mill_operator',
-  'hatchery_operator',
-]);
+export const STORE_ROLES: ReadonlySet<Role> = new Set<Role>(ROLES);
 
 /**
  * أيقونة البيع: عربة (مراجعة D21: لا إيصال بعلامة الدولار في تطبيق بالدينار)، واحدة للشريط وزرّ «بِع» وشريحة «فاتورة مفتوحة». رسم lucide

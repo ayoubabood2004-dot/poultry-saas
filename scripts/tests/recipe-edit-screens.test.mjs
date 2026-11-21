@@ -356,8 +356,8 @@ export default async function (t) {
       }
       t.same(
         seen,
-        { owner: [4, 4, 3], manager: [4, 4, 3], mill_operator: [0, 0, 3], accountant: [0, 0, 0] },
-        'C المالك والمدير: «عدّل» و«احذف» على كلّ خلطة ظاهرة (والتي بلا مفعَّلة أيضاً)، ومشغّل المعمل («أنتج» وحده) والمحاسب بلاهما',
+        { owner: [4, 4, 3], manager: [4, 4, 3], mill_operator: [4, 4, 3], accountant: [4, 4, 3] },
+        'C «عدّل» و«احذف» و«أنتج» على كلّ خلطة ظاهرة (والتي بلا مفعَّلة أيضاً) لكلّ دور (0034)',
       );
     });
     await step('C البطاقة', async () => {
@@ -542,7 +542,7 @@ export default async function (t) {
     await step('E لمن هي، والمحذوفة', async () => {
       editSetup(OPERATOR);
       await mount('/mill/recipe/r-1/edit');
-      t.same([text().includes('تعديل الخلطات للمالك والمدير.'), byAction('save-recipe-edit').length], [true, 0], 'E مشغّل المعمل: الشاشة تقول لمن هي، بلا «احفظ التعديل»');
+      t.same([text().includes('تعديل الخلطات للمالك والمدير.'), byAction('save-recipe-edit').length], [false, 1], 'E مشغّل المعمل يعدّل الخلطة: «احفظ التعديل» (0034)');
       await unmount();
       editSetup(MANAGER, { detail: () => ({ ...ACTIVE(), archived: true }) });
       await mount('/mill/recipe/r-1/edit');

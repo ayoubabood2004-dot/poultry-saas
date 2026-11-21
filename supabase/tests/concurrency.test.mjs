@@ -80,16 +80,17 @@ export default async function (t, db) {
     'المنشأة بقى بيها مالك',
   );
 
-  // ٣. مديران يقفلون أوّل مرّة بنفس اللحظة: القفل الاستشاري على المنشأة، فالثاني يشوف قفل الأوّل ورجوعه فتح = للمالك بس.
+  // ٣. مديران يقفلون أوّل مرّة بنفس اللحظة: القفل الاستشاري على المنشأة، فالثاني ينتظر ثمّ يشوف قفل الأوّل؛ ورجوعه فتح، وهو لكلّ عضو منذ 0034
+  //    («الكلّ مثل المالك»)، فينجح بعده (والسباق يُرجع معاملته).
   const locking = await race(
     U.manager1,
     ['select public.set_period_lock(public.app_today() - 10)'],
     U.manager2,
     ['select public.set_period_lock(public.app_today() - 20)'],
   );
-  t.same(locking, { first: 'ok', state: 'blocked', second: 'forbidden' }, 'أوّل قفلين بنفس اللحظة: الثاني ينتظر، ورجوعه فتح ما يحقّله');
+  t.same(locking, { first: 'ok', state: 'blocked', second: 'ok' }, 'أوّل قفلين بنفس اللحظة: الثاني ينتظر ثمّ يفتح إلى تاريخه (period.unlock لكلّ عضو)');
   const lockedThrough = (await db.admin('select locked_through = public.app_today() - 10 as kept from public.period_locks where org_id = $1', [org])).rows[0];
-  t.same(lockedThrough, { kept: true }, 'القفل بقى على تاريخ الأوّل');
+  t.same(lockedThrough, { kept: true }, 'القفل بقى على تاريخ الأوّل (معاملة الثاني ترجع في السباق)');
 
   const verify = (await db.admin('select check_name, violations::int from public.verify_core() where violations > 0')).rows;
   t.same(verify, [], 'verify_core صفر بعد السباقات');

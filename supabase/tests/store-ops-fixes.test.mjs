@@ -137,11 +137,12 @@ async function scenario(t, db) {
   await buy(U.owner, { ...fuel, item: I.farmFuel, qty: 100, wh: W.general });
   await one(U.owner, RT, [uid(), uid(), uid(), I.farmFuel, 30, W.general, W.farm, TODAY]);
   const keeperFile = (await call(db, U.keeperGeneral, 'select public.item_file($1) as v', [I.farmFuel], { commit: false })).value;
-  const keeperPrice = await call(db, U.keeperGeneral, PP, [uid(), fuel.line, 900, null]);
-  outcomes.L2 = { row_can_price: keeperFile.purchases[0].can_price, file_can_price: keeperFile.can_price, price: shownOf(keeperPrice), hint: keeperPrice.hint };
-  t.same([keeperFile.purchases[0].can_price, keeperFile.can_price, shownOf(keeperPrice)], [false, false, 'out_of_scope'],
-    'L2: أمين العامّة وجزء من الشراء في مخزن الحقل: لا «أكمل السعر» في الملفّ، والتسعير out_of_scope');
-  t.ok(!keeperPrice.hint.includes('التصحيح') && keeperPrice.hint.includes('«مخزن حقل الأمل»') && keeperPrice.hint.includes('سعر'), `L2: تلميح التسعير بكلماته (${keeperPrice.hint})`);
+  // 0034 («الكلّ مثل المالك»): صفّ نطاق العامّة القديم لا يحجب مخزن الحقل، فالأمين يرى «أكمل السعر» ويسعّر (بمعاملة ترجع)؛
+  // وcan_price ما زال من فحوص price_purchase نفسها (العلم والدالّة متّفقان).
+  const keeperPrice = await call(db, U.keeperGeneral, PP, [uid(), fuel.line, 900, null], { commit: false });
+  outcomes.L2 = { row_can_price: keeperFile.purchases[0].can_price, file_can_price: keeperFile.can_price, price: shownOf(keeperPrice), hint: keeperPrice.hint ?? null };
+  t.same([keeperFile.purchases[0].can_price, keeperFile.can_price, shownOf(keeperPrice)], [true, true, 'ok'],
+    'L2 بعد 0034: أمين بصفّ العامّة وجزء من الشراء في مخزن الحقل: «أكمل السعر» في الملفّ، والتسعير يمرّ');
   t.eq((await call(db, U.storekeeper, 'select public.item_file($1) as v', [I.soy], { commit: false })).value.purchases.length > 0, true, 'L2: الملفّ يقرأ للأمين');
 
   // ── L3: شراء يسابق حذف المادّة ───────────────────────────────────────────────────────────────────────────────

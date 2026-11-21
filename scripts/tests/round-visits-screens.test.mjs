@@ -432,7 +432,7 @@ export default async function (t) {
     await step('G المشاهد', async () => {
       fresh({ status: 'ready', workspace: ws('viewer', { userId: 'u-viewer' }), offline: false }, roundRpcs());
       await mount('/broiler/round');
-      t.same([byAction('round-give-picked').length, byAction('round-pick').length, byAction('round-save').length], [0, 0, 0], 'G المشاهد: لا اختيار ولا صرف ولا حفظ');
+      t.ok(byAction('round-give-picked').length > 0 && byAction('round-pick').length > 0 && byAction('round-save').length > 0, 'G المشاهد: الاختيار والصرف والحفظ كالمالك (0034)');
     });
 
     // ── A: ?also= في صفحة الإضافة ────────────────────────────────────────────────────────────────────────────────────────────

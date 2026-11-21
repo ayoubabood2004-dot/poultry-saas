@@ -557,12 +557,12 @@ export default async function (t) {
       await unmount();
     }
     {
-      // «للقراءة فقط» تقيس صلاحيات الأقسام المعروضة وحدها: المحاسب يملك فئات المصاريف ولا يملك stores.manage، فالتنبيه
-      // يظهر له بـ«إعداد المخزن» ولا يظهر بـ«إعدادات المنشأة».
+      // «للقراءة فقط» تقيس صلاحيات الأقسام المعروضة وحدها، ومنذ 0034 يملك المحاسب stores.manage وفئات المصاريف، فلا تنبيه له
+      // بـ«إعداد المخزن» ولا بـ«إعدادات المنشأة».
       fresh({ status: 'ready', workspace: ws({ role: 'accountant' }) }, handlers({ loadOrgSetup: () => orgSetup }));
       await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/inventory/setup') }));
-      t.ok(text().includes('للقراءة فقط'), `S17: المحاسب بصفحة المخزن: «للقراءة فقط» (${text().slice(0, 200)})`);
-      t.eq(byAction('new-site').length, 0, 'S17: وبلا أزرار المواقع');
+      t.ok(!text().includes('للقراءة فقط'), `S17: المحاسب بصفحة المخزن بلا «للقراءة فقط» (${text().slice(0, 200)})`);
+      t.eq(byAction('new-site').length, 1, 'S17: ومعه أزرار المواقع');
       await unmount();
       fresh({ status: 'ready', workspace: ws({ role: 'accountant' }) }, handlers({ loadOrgSetup: () => orgSetup }));
       await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/settings/org') }));
@@ -572,7 +572,7 @@ export default async function (t) {
     {
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadOrgSetup: () => orgSetup }));
       await mountElement(m.h(m.OrgSettingsPage, { sections: sectionsAt('/inventory/setup') }));
-      t.ok(text().includes('للقراءة فقط'), 'S17: أمين المخزن (بلا stores.manage) يرى «للقراءة فقط» بصفحة المخزن');
+      t.ok(!text().includes('للقراءة فقط') && byAction('new-site').length === 1, 'S17: أمين المخزن يدير المخازن (0034): بلا «للقراءة فقط»، ومعه أزرار المواقع');
       await unmount();
     }
 

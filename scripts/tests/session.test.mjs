@@ -601,8 +601,8 @@ export default async function (t) {
   const ALL_DIVISIONS = { divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'] };
   t.same(
     nav(ws('u-1', { role: 'hall_worker', divisions: ['broiler'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false })),
-    ['/', '/broiler', '/reports', '/account', '/settings'],
-    'عامل القاعة: حقول اللحم (المرحلة 2) و«التقارير» (تقرير قاعاته اليومي، 0027) وحسابه، بلا حقول البيض خارج نطاقه ولا مخزن ولا مبيعات ولا حسابات ولا موظفين',
+    ['/', '/broiler', '/inventory', '/reports', '/account', '/settings'],
+    'عامل القاعة: حقول اللحم و«المخزن» (0034: كلّ الأدوار) و«التقارير» وحسابه؛ والمبيعات والحسابات بعلامتي الخادم (هنا false)، وبلا موظفين',
   );
   // صفحة التخطيط (المفقس، PlannedPage) مسارها باقٍ بس ما تنعرض بالشريط؛ وتبويب «المخزن» واحد (كلمة المالك 2026-11-04) وداخله
   // المخازن كلها؛ وحقول اللحم والبيض شغّالة؛ و«التقارير» صفحة مداخل (0027: تقرير القاعات اليومي وتقارير الدورات) لمن بنطاقه حقول لحم أو بيض.

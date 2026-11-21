@@ -415,7 +415,7 @@ export default function BatchPage() {
   // مسوّدة يقرؤها من نطاقه مخزن العلف وحده (ق٢٥، ب٣): تُعمل من طرف المواد، فلا معاينة لها ولا فعل هنا.
   const blind = draft && !inputScope;
   // مشغّل المعمل يرحّل بعد ختم الكلف وحده (ب١): السياق من الدفعة، كما يشترطه الخادم.
-  const canPost = role !== null && can(role, 'production.post', { costsConfirmed: batch.costsConfirmed });
+  const canPost = role !== null && can(role, 'production.post');
   // يرى مصاريف وحدة مخزن المدخلات (ق٢١، ب٢): بلاها لا يكتب مبلغ تكلفة ولا يختمها ولا يسجّل مصروفاً منها.
   const expensesVisible = batch.expensesVisible;
   const editInputs = draft && canDraft && inputScope;

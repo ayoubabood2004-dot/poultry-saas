@@ -116,9 +116,9 @@ async function scenario(t, db) {
     'إلغاء النقدي: −25,000 بيوم الإلغاء وشهره (تشرين الثاني) وسببه، والصندوق رجع ما عدا مصروف الـ7,000',
   );
   t.same(
-    [shown(await voidIt(U.manager, cashId)), shown(await voidIt(U.manager, reversal)), shown(await voidIt(U.accountant, replayId)), shown(await voidIt(U.manager, replayId, '  '))],
-    ['already_reversed', 'not_voidable', 'forbidden', 'reason_required'],
-    'الإلغاء مرّة ثانية already_reversed، وصفّ الإلغاء not_voidable، والمحاسب forbidden، والسبب الفارغ reason_required',
+    [shown(await voidIt(U.manager, cashId)), shown(await voidIt(U.manager, reversal)), shown(await call(db, U.accountant, 'select public.void_expense($1, $2, $3)', [replayId, 'مصروف خاطئ', uid()], { commit: false })), shown(await voidIt(U.manager, replayId, '  '))],
+    ['already_reversed', 'not_voidable', 'ok', 'reason_required'],
+    'الإلغاء مرّة ثانية already_reversed، وصفّ الإلغاء not_voidable، والمحاسب يلغي (0034، بمعاملة ترجع)، والسبب الفارغ reason_required',
   );
   t.eq(shown(await call(db, U.manager, "select public.void_cash_move($1, 'خطأ', gen_random_uuid())", [cashRow.cash_move_id])), 'void_from_source', 'حركة المصروف ما تُلغى من «ألغِ الحركة»: void_from_source');
 
@@ -193,9 +193,9 @@ async function scenario(t, db) {
   await one(U.owner, 'select public.set_division_go_live($1, $2)', [D.layer, '2026-11-08']);
   t.eq(shown(await rec(U.accountant, { onDate: '2026-11-05', division: D.layer }, uid(), { commit: false })), 'ok', '0018: مصروف قبل يوم تشغيل وحدته يمرّ');
   t.same(
-    [shown(await rec(U.storekeeper)), shown(await rec(U.viewer)), shown(await rec(U.scopedAccountant)), shown(await rec(U.scopedAccountant, { division: D.broiler, amount: '1000' }))],
-    ['forbidden', 'forbidden', 'out_of_scope', 'ok'],
-    'الأمين والمشاهد forbidden، والمحاسب المحصور باللحم: العامّة out_of_scope واللحم ينجح',
+    [shown(await rec(U.storekeeper, {}, uid(), { commit: false })), shown(await rec(U.viewer, {}, uid(), { commit: false })), shown(await rec(U.scopedAccountant, {}, uid(), { commit: false })), shown(await rec(U.scopedAccountant, { division: D.broiler, amount: '1000' }))],
+    ['ok', 'ok', 'ok', 'ok'],
+    'الأمين والمشاهد يسجّلان المصروف، والمحاسب بصفّ نطاق اللحم يسجّله على العامّة واللحم (0034؛ الثلاثة الأولى بمعاملة ترجع)',
   );
 
   // ── E43: صندوق صار صفراً وانؤرشف، فإلغاء مصروفه يمرّ ويرجع إليه رصيده (مؤرشف وعليه رصيد) ──────────────────────────────────
@@ -299,21 +299,22 @@ async function scenario(t, db) {
   );
   t.same(
     [shown(await report(U.storekeeper, '2026-09-01', TODAY)), shown(await report(U.viewer, '2026-09-01', TODAY)), shown(await report(U.accountant, TODAY, '2026-09-01'))],
-    ['forbidden', 'forbidden', 'period_required'],
-    'الأمين والمشاهد forbidden (مو صفر صفوف)، ومدّة مقلوبة period_required',
+    ['ok', 'ok', 'period_required'],
+    'الأمين والمشاهد يقرأان التقرير (0034)، ومدّة مقلوبة period_required',
   );
   const scoped = (await report(U.scopedAccountant, '2026-09-01', TODAY)).value;
-  t.ok(scoped.rows.length > 0 && scoped.rows.every((r) => r.division_id === D.broiler), 'المحاسب المحصور باللحم يقرأ مصاريف اللحم بس (E49)');
+  t.ok(scoped.rows.some((r) => r.division_id !== D.broiler), 'المحاسب بصفّ نطاق اللحم يقرأ مصاريف كلّ الوحدات (0034)');
   t.same(
     [scoped.divisions, full.divisions, shown(await report(U.scopedAccountant, '2026-09-01', TODAY, D.general))],
-    [{ total: 6, visible: 1 }, { total: 6, visible: 6 }, 'out_of_scope'],
-    'التقرير يقول وحدات النطاق من المجموع (1 من 6 للمحصور)، ووحدة برّا نطاقه out_of_scope (كانت مجموعاً صفراً بصمت)',
+    [{ total: 6, visible: 6 }, { total: 6, visible: 6 }, 'ok'],
+    'التقرير: الوحدات الستّ لصاحب صفّ النطاق كالمحاسب بلا نطاق، ووحدة العامّة تُقرأ له',
   );
-  // إلغاء مصروف وحدة ثانية: النطاق قبل رموز الصفّ (system_expense وnot_voidable كانت تكشف نوعه بمعرّفه).
-  const otherDivision = (await db.admin("select id from public.expenses where org_id = $1 and division_id <> $2 and source = 'cash' and reverses_id is null limit 1", [G.org, D.broiler])).rows[0].id;
-  t.eq(shown(await voidIt(U.scopedManager, otherDivision, 'برّا النطاق')), 'out_of_scope', 'المدير المحصور باللحم يلغي مصروف وحدة ثانية: out_of_scope قبل أيّ رمز');
+  // إلغاء مصروف وحدة ثانية: صفّ النطاق لا يحجب منذ 0034، فالمدير بصفّ نطاق اللحم يلغيه (بمعاملة ترجع).
+  const otherDivision = (await db.admin("select e.id from public.expenses e where e.org_id = $1 and e.division_id <> $2 and e.source = 'cash' and e.reverses_id is null and not exists (select 1 from public.expenses r where r.reverses_id = e.id) limit 1", [G.org, D.broiler])).rows[0].id;
+  t.eq(shown(await call(db, U.scopedManager, 'select public.void_expense($1, $2, $3)', [otherDivision, 'وحدة ثانية', uid()], { commit: false })), 'ok', 'المدير بصفّ نطاق اللحم يلغي مصروف وحدة ثانية (0034)');
   const seen = async (user) => (await db.asUser(user, (q) => q('select count(*)::int as n from public.expenses'))).rows[0].n;
-  t.same([await seen(U.storekeeper), await seen(U.viewer), (await seen(U.accountant)) > 0], [0, 0, true], 'جدول المصاريف: الأمين والمشاهد صفر صفوف، والمحاسب يقرأ');
+  const accountantSees = await seen(U.accountant);
+  t.same([await seen(U.storekeeper), await seen(U.viewer), accountantSees > 0], [accountantSees, accountantSees, true], 'جدول المصاريف: الأمين والمشاهد يقرآن صفوف المحاسب نفسها (0034)');
 
   // ── التزامن (مراجعة WP5، جلستان حقيقيتان): أرشفة التصنيف أو الموقع بين فحص المصروف وكتابته، والوحدة تنقرا ثاني بقفل بعد قفل
   //    الفترة، ونفس المعرّف بمرجعين بنفس اللحظة ──────────────────────────────────────────────────────────────────────────

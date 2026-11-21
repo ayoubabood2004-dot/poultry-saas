@@ -320,13 +320,13 @@ export default async function (t) {
       fresh(entry());
       globalThis.__exp.session = { status: 'ready', workspace: scoped };
       await mount(BATCH);
-      t.same([picked(field('-division')), picked(field('-category'))], ['', 'c-labor'], 'X7: وحدة خارج نطاق المستخدم لا تُعبّأ (والفئة تُعبّأ)');
-      t.ok(!(field('-division')?.options ?? []).some((option) => option.getAttribute('value') === 'd-mill'), 'X7: ولا تظهر في الاختيار أصلاً');
+      t.same([picked(field('-division')), picked(field('-category'))], ['d-mill', 'c-labor'], 'X7: صفّ نطاق قديم (العامّة) لا يحجب: وحدة الدفعة تُعبّأ والفئة (0034)');
+      t.ok((field('-division')?.options ?? []).some((option) => option.getAttribute('value') === 'd-mill'), 'X7: ووحدة المعمل في الاختيار');
       choose(field('-box'), 'a-1');
       await settle();
       fire(dialogForm(), 'submit');
       await settle();
-      t.ok(text().includes('اختر الوحدة.') && byAction('confirm-expense').length === 0, 'X7: والحفظ يطلب الوحدة: لا تُرسل وحدة خارج النطاق');
+      t.ok(!text().includes('اختر الوحدة.') && byAction('confirm-expense').length === 1, 'X7: والحفظ يمضي إلى التأكيد بوحدة المعمل');
       await unmount();
     });
     await step('X8', async () => {

@@ -1,8 +1,8 @@
 // مصفوفة الأدوار (FOUNDATION ٨٦٥ role-matrix-check، الخطّة §2.12): كل دالّة بقائمة السماح تننادى بكل دور من الثمانية بدور
-// authenticated حقيقي، والمسموح ينجح (ضابط إيجابي بكل خانة) والممنوع يرجع forbidden، ودوالّ الهويّة ترجع قيمة كل دور
-// كما بجدول الصلاحيات (DECISIONS). المرحلة 0 هنا من أوّل يوم حتى سجلّ التغطية (run.mjs) يفحص خانات حقيقية مو صفراً،
-// وكل حزمة بالمرحلة 1 تزيد صفوف دوالّها (الخطّة تبدي الملف بـWP2؛ بدأ بـWP0 بدوالّ المرحلة 0). دالّة جديدة بقائمة السماح
-// بلا صفّ هنا تفشّل الفحص.
+// authenticated حقيقي، ونتيجة كل خانة مكتوبة. «الكلّ مثل المالك بكلّ شيء» (كلمة المالك 2026-11-21، 0034): كلّ دور ينجح بكلّ دالّة
+// بنتيجة المالك نفسها (ضابط إيجابي بكل خانة)، وأعضاء محصورون بنطاق (الأمين بالمخزن العامّ، وعامل القاعة بحقول اللحم، ومشغّل المعمل
+// بوحدته) يرون المنشأة كلّها؛ وإدارة الأعضاء (members.manage) وحدها للمالك وغيره forbidden. ومن ليس عضواً (بلا منشأة، أو مؤرشَف) لا
+// يرى ولا يفعل شيئاً، وشيء منشأة أخرى خارج النطاق لكلّ دور. دالّة جديدة بقائمة السماح بلا صفّ هنا تفشّل الفحص.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,14 +79,11 @@ export default async function (t, db) {
     },
     { commit: true },
   );
-  const ACCOUNTS = ['owner', 'manager', 'accountant'];
 
   // المرحلة 1 (WP4): يوم تشغيل المخازن العامة، وافتتاحان مرحّلان بالمخزن العامّ (كاز أويل للإلغاء، وكاز أبيض للتحويل)، وتحويل مرحّل
   // للمواد الأوّلية بالمعمل، ومسوّدة تحويل بسطر ومسوّدة افتتاح بسطر (بنزين). العامّة صار بيها ترحيل، فيوم تشغيلها ثابت، وصفّ
   // set_division_go_live يجرّب حقول البيض (بلا ترحيل).
   const millRaw = (await db.admin("select id from public.warehouses where org_id = $1 and kind = 'raw'", [org])).rows[0].id;
-  const STOCK = ['owner', 'manager', 'storekeeper', 'accountant'];
-  const TRANSFER = ['owner', 'manager', 'storekeeper'];
   const stock = await db.asUser(
     USERS.owner,
     async (q) => {
@@ -188,7 +185,6 @@ export default async function (t, db) {
     },
     { commit: true },
   );
-  const COUNT_APPROVE = ['owner', 'manager'];
 
   // المرحلة 1 (WP6): استلام مرحَّل (لإلغائه) لذرة بمخزن المعمل بمبلغ صفر وسببه (بلا قيد ولا حركة صندوق، فما يغيّر صفوف المخزون
   // والدفاتر فوك)؛ وكاز أبيض بالمخزن العامّ من «مورّد الحبوب»: مسوّدة مسعَّرة بسطر ورأس مبالغ وتحميل من الصندوق (للترحيل والمعاينة وحذف التحميل واختيار سطوره وتعديل المبالغ)، ومسوّدة ثانية بسطر بلا مبلغ (لإدخاله وطيّ المسوّدة).
@@ -322,9 +318,6 @@ export default async function (t, db) {
     },
     { commit: true },
   );
-  const FLOCK_MANAGE = ['owner', 'manager'];
-  const FLOCK_DAY = ['owner', 'manager', 'hall_worker'];
-  const FLOCK_SCOPE = ['owner', 'manager', 'accountant', 'hall_worker'];
 
   // كل صفّ: النداء ونتيجة كل دور. value: ترجع القيمة بالنتيجة (ok:<قيمة>) لدوالّ الهويّة.
   // 0015 (معمل العلف): خلطة مفعَّلة بسطر ذرة واحد لأساس 100 كغم، ونسخة مسوّدة ثانية وسطرها (للتفعيل والتعديل والحذف)،
@@ -386,10 +379,6 @@ export default async function (t, db) {
     },
     { commit: true },
   );
-  const RECIPE = ['owner', 'manager'];
-  const MILL_DRAFT = ['owner', 'manager', 'mill_operator'];
-  const MILL_POST = ['owner', 'manager', 'accountant'];
-  const MILL_SCOPE = ['owner', 'manager', 'accountant', 'mill_operator'];
   // 0019 (الصرف لفوج القاعة): مادّة علف لحالها برصيد افتتاح 100 كغم في مخزن العلف (لا تمسّ دفعة ناتج الإنتاج المرحَّل، فإلغاؤه يبقى ممكناً)،
   // وصرف 10 كغم منها لفوج قاعة 1 مثبَّت لخانة الإلغاء؛ وكلّ خانة صرف تُرجَع.
   const p19 = await db.asUser(
@@ -519,7 +508,6 @@ export default async function (t, db) {
     },
     { commit: true },
   );
-  const SALES = ['owner', 'manager', 'accountant'];
 
   const ROWS = {
     accept_invite_code: { sql: (role) => ["select public.accept_invite_code($1, '000000')", [member[role]]], expect: all('invite_not_found') },
@@ -530,167 +518,167 @@ export default async function (t, db) {
     archive_member: { sql: () => ['select public.archive_member($1)', [member.viewer]], expect: only(['owner']) },
     auth_org: { sql: () => ['select public.auth_org() = $1::uuid as v', [org]], value: true, expect: all('ok:true') },
     can: { sql: () => ["select public.can('members.manage', false) as v", []], value: true, expect: only(['owner'], 'ok:true', 'ok:false') },
-    can_see_accounts: { sql: () => ['select public.can_see_accounts() as v', []], value: true, expect: only(['owner', 'manager', 'accountant'], 'ok:true', 'ok:false') },
-    can_see_cost: { sql: () => ['select public.can_see_cost() as v', []], value: true, expect: only(['owner', 'manager', 'accountant'], 'ok:true', 'ok:false') },
-    can_see_sales: { sql: () => ['select public.can_see_sales() as v', []], value: true, expect: only(['owner', 'manager', 'storekeeper', 'accountant', 'viewer'], 'ok:true', 'ok:false') },
+    can_see_accounts: { sql: () => ['select public.can_see_accounts() as v', []], value: true, expect: all('ok:true') },
+    can_see_cost: { sql: () => ['select public.can_see_cost() as v', []], value: true, expect: all('ok:true') },
+    can_see_sales: { sql: () => ['select public.can_see_sales() as v', []], value: true, expect: all('ok:true') },
     create_my_org: { sql: () => ["select public.create_my_org('منشأة ثانية', 'س')", []], expect: all('already_member') },
     decline_and_block: { sql: (role) => ['select public.decline_and_block($1)', [member[role]]], expect: all('invite_not_found') },
     decline_invite: { sql: (role) => ['select public.decline_invite($1)', [member[role]]], expect: all('invite_not_found') },
-    in_scope_division: { sql: () => ['select public.in_scope_division($1) as v', [broiler]], value: true, expect: only(['owner', 'manager', 'accountant', 'hall_worker'], 'ok:true', 'ok:false') },
+    in_scope_division: { sql: () => ['select public.in_scope_division($1) as v', [broiler]], value: true, expect: all('ok:true') },
     invite_code: { sql: () => ['select length(public.invite_code($1)) as v', [pending]], value: true, expect: only(['owner'], 'ok:6') },
     leave_my_org: { sql: () => ['select public.leave_my_org()', []], expect: { ...all('ok'), owner: 'last_owner' } },
     my_workspace: { sql: () => ["select public.my_workspace() ->> 'role' as v", []], value: true, expect: Object.fromEntries(ROLES.map((role) => [role, `ok:${role}`])) },
     set_member_role: { sql: () => ["select public.set_member_role($1, 'viewer')", [member.hall_worker]], expect: only(['owner']) },
     set_member_scopes: { sql: () => ['select public.set_member_scopes($1, array[$2]::uuid[])', [member.hall_worker, layer]], expect: only(['owner']) },
-    set_period_lock: { sql: () => ['select public.set_period_lock(public.app_today() - 3)', []], expect: only(['owner', 'manager']) },
+    set_period_lock: { sql: () => ['select public.set_period_lock(public.app_today() - 3)', []], expect: all('ok') },
     // المرحلة 1 (WP2، §2.12): التوائم لكل عضو (read)، والنطاق بالموقع والمخزن (الأمين مخزنه بس، وعامل القاعة وحدته بس)، ويوم
     // التشغيل للمدير (opening.post، Q1)، والنطاق الجديد للمالك بس (members.manage).
     find_item_twins: { sql: () => ["select jsonb_array_length(public.find_item_twins('ذره صفراء', '{}')) as v", []], value: true, expect: all('ok:1') },
-    in_scope_site: { sql: () => ['select public.in_scope_site($1) as v', [millSite]], value: true, expect: only(['owner', 'manager', 'accountant', 'mill_operator'], 'ok:true', 'ok:false') },
-    in_scope_wh: { sql: () => ['select public.in_scope_wh($1) as v', [generalStore]], value: true, expect: only(['owner', 'manager', 'accountant', 'storekeeper'], 'ok:true', 'ok:false') },
-    set_division_go_live: { sql: () => ['select public.set_division_go_live($1, public.app_today() - 1)', [layer]], expect: only(['owner', 'manager']) },
+    in_scope_site: { sql: () => ['select public.in_scope_site($1) as v', [millSite]], value: true, expect: all('ok:true') },
+    in_scope_wh: { sql: () => ['select public.in_scope_wh($1) as v', [generalStore]], value: true, expect: all('ok:true') },
+    set_division_go_live: { sql: () => ['select public.set_division_go_live($1, public.app_today() - 1)', [layer]], expect: all('ok') },
     set_member_scopes_v2: { sql: () => ["select public.set_member_scopes_v2($1, array[$2]::uuid[], '{}', '{}')", [member.hall_worker, layer]], expect: only(['owner']) },
     // المرحلة 1 (WP3، §2.12): الافتتاح للمدير (opening.post)، والقبض والدفع والنقل والمعاينة للمحاسب والمدير (payment.post)، والتسوية
     // والإعفاء للمدير (party.adjust)، وكل إلغاء للمدير (void)، والتقارير لأدوار الحسابات (accounts.view ويّا can_see_accounts)،
     // والرئيسية لكل عضو وبطاقة الحسابات لأدوارها، والتوائم لمن يضيف جهة (party.create)، والدفتر بالنطاق (E49).
-    in_scope_book: { sql: () => ['select public.in_scope_book($1) as v', [millBook]], value: true, expect: only([...ACCOUNTS, 'mill_operator'], 'ok:true', 'ok:false') },
-    record_opening_balance: { sql: () => ['select public.record_opening_balance(gen_random_uuid(), $1, $2, 100000, public.app_today() - 3, gen_random_uuid())', [ledger.fresh, millBook]], expect: only(['owner', 'manager']) },
-    record_party_payment: { sql: () => ['select public.record_party_payment(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.debtor, millBook, ledger.box]], expect: only(ACCOUNTS) },
-    pay_party: { sql: () => ['select public.pay_party(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.fresh, millBook, ledger.box]], expect: only(ACCOUNTS) },
-    void_party_payment: { sql: () => ["select public.void_party_payment($1, 'قبض مكرّر', gen_random_uuid())", [ledger.payment]], expect: only(['owner', 'manager']) },
-    record_party_adjustment: { sql: () => ["select public.record_party_adjustment(gen_random_uuid(), $1, $2, 'debit', 1000, public.app_today(), 'فرق حساب', gen_random_uuid())", [ledger.debtor, millBook]], expect: only(['owner', 'manager']) },
-    forgive_debt: { sql: () => ["select public.forgive_debt(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'خصم تسوية', gen_random_uuid())", [ledger.debtor, millBook]], expect: only(['owner', 'manager']) },
-    void_party_entry: { sql: () => ["select public.void_party_entry($1, 'افتتاح خاطئ', gen_random_uuid())", [ledger.opening]], expect: only(['owner', 'manager']) },
-    record_cash_opening: { sql: () => ['select public.record_cash_opening(gen_random_uuid(), $1, 100000, public.app_today() - 3, gen_random_uuid())', [ledger.bank]], expect: only(['owner', 'manager']) },
-    transfer_cash: { sql: () => ['select public.transfer_cash(gen_random_uuid(), $1, $2, 1000, public.app_today(), null, gen_random_uuid())', [ledger.box, ledger.bank]], expect: only(ACCOUNTS) },
-    void_cash_move: { sql: () => ["select public.void_cash_move($1, 'رصيد خاطئ', gen_random_uuid())", [ledger.cashOpening]], expect: only(['owner', 'manager']) },
-    preview_party_allocation: { sql: () => ["select public.preview_party_allocation($1, $2, 'payment', 1000) -> 'money' ->> 'amount' as v", [ledger.debtor, millBook]], value: true, expect: only(ACCOUNTS, 'ok:-1000') },
-    report_accounts_summary: { sql: () => ["select public.report_accounts_summary(public.app_today() - 30, public.app_today()) -> 'project' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
-    report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: only(ACCOUNTS, 'ok:2') },
-    report_party_statement: { sql: () => ["select jsonb_array_length(public.report_party_statement($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
+    in_scope_book: { sql: () => ['select public.in_scope_book($1) as v', [millBook]], value: true, expect: all('ok:true') },
+    record_opening_balance: { sql: () => ['select public.record_opening_balance(gen_random_uuid(), $1, $2, 100000, public.app_today() - 3, gen_random_uuid())', [ledger.fresh, millBook]], expect: all('ok') },
+    record_party_payment: { sql: () => ['select public.record_party_payment(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.debtor, millBook, ledger.box]], expect: all('ok') },
+    pay_party: { sql: () => ['select public.pay_party(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid())', [ledger.fresh, millBook, ledger.box]], expect: all('ok') },
+    void_party_payment: { sql: () => ["select public.void_party_payment($1, 'قبض مكرّر', gen_random_uuid())", [ledger.payment]], expect: all('ok') },
+    record_party_adjustment: { sql: () => ["select public.record_party_adjustment(gen_random_uuid(), $1, $2, 'debit', 1000, public.app_today(), 'فرق حساب', gen_random_uuid())", [ledger.debtor, millBook]], expect: all('ok') },
+    forgive_debt: { sql: () => ["select public.forgive_debt(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'خصم تسوية', gen_random_uuid())", [ledger.debtor, millBook]], expect: all('ok') },
+    void_party_entry: { sql: () => ["select public.void_party_entry($1, 'افتتاح خاطئ', gen_random_uuid())", [ledger.opening]], expect: all('ok') },
+    record_cash_opening: { sql: () => ['select public.record_cash_opening(gen_random_uuid(), $1, 100000, public.app_today() - 3, gen_random_uuid())', [ledger.bank]], expect: all('ok') },
+    transfer_cash: { sql: () => ['select public.transfer_cash(gen_random_uuid(), $1, $2, 1000, public.app_today(), null, gen_random_uuid())', [ledger.box, ledger.bank]], expect: all('ok') },
+    void_cash_move: { sql: () => ["select public.void_cash_move($1, 'رصيد خاطئ', gen_random_uuid())", [ledger.cashOpening]], expect: all('ok') },
+    preview_party_allocation: { sql: () => ["select public.preview_party_allocation($1, $2, 'payment', 1000) -> 'money' ->> 'amount' as v", [ledger.debtor, millBook]], value: true, expect: all('ok:-1000') },
+    report_accounts_summary: { sql: () => ["select public.report_accounts_summary(public.app_today() - 30, public.app_today()) -> 'project' ->> 'receivable' as v", []], value: true, expect: all('ok:400000') },
+    report_party_balances: { sql: () => ["select jsonb_array_length(public.report_party_balances(public.app_today() - 30, public.app_today(), null, true, 'balance', null, null, 50) -> 'rows') as v", []], value: true, expect: all('ok:2') },
+    report_party_statement: { sql: () => ["select jsonb_array_length(public.report_party_statement($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: all('ok:1') },
     // النقد: 349,000 في «الصندوق» و660,000 مقبوضة عند بيع الطيور في «صندوق الطيور» (0028).
-    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: only(ACCOUNTS, 'ok:1009000') },
-    report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:2') },
-    home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000', 'ok:null') },
-    find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
+    report_cash_balances: { sql: () => ["select public.report_cash_balances(public.app_today() - 30, public.app_today()) -> 'total' ->> 'closing' as v", []], value: true, expect: all('ok:1009000') },
+    report_cash_statement: { sql: () => ["select jsonb_array_length(public.report_cash_statement($1, public.app_today() - 30, public.app_today()) -> 'lines') as v", [ledger.box]], value: true, expect: all('ok:2') },
+    home_summary: { sql: () => ["select public.home_summary() -> 'accounts' ->> 'receivable' as v", []], value: true, expect: all('ok:400000') },
+    find_party_twins: { sql: () => ["select jsonb_array_length(public.find_party_twins('ابو علي', null)) as v", []], value: true, expect: all('ok:1') },
     // 0024 («المال بين يديك»): القرّاء لأدوار الحسابات (accounts.view ويّا can_see_accounts)، والباقي forbidden؛ والأرقام نفسها لكلّ دور منها.
-    money_overview: { sql: () => ["select public.money_overview() -> 'debts' ->> 'receivable' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
-    money_moves: { sql: () => ["select public.money_moves(public.app_today() - 30, public.app_today(), $1, null, null, null, 100) ->> 'closing' as v", [ledger.box]], value: true, expect: only(ACCOUNTS, 'ok:350000') },
-    debts_overview: { sql: () => ["select public.debts_overview('receivable', null, null, null, 'amount', null, false, null, 50) -> 'totals' ->> 'amount' as v", []], value: true, expect: only(ACCOUNTS, 'ok:400000') },
-    party_statement_v2: { sql: () => ["select jsonb_array_length(public.party_statement_v2($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: only(ACCOUNTS, 'ok:1') },
-    voucher_detail: { sql: () => ["select public.voucher_detail($1) ->> 'type' as v", [ledger.payment]], value: true, expect: only(ACCOUNTS, 'ok:receipt') },
-    transfer_detail: { sql: () => ['select public.transfer_detail(gen_random_uuid())', []], expect: only(ACCOUNTS, 'transfer_not_found') },
-    month_summary: { sql: () => ["select public.month_summary(public.app_today()) ->> 'month' = date_trunc('month', public.app_today())::date::text as v", []], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    money_overview: { sql: () => ["select public.money_overview() -> 'debts' ->> 'receivable' as v", []], value: true, expect: all('ok:400000') },
+    money_moves: { sql: () => ["select public.money_moves(public.app_today() - 30, public.app_today(), $1, null, null, null, 100) ->> 'closing' as v", [ledger.box]], value: true, expect: all('ok:350000') },
+    debts_overview: { sql: () => ["select public.debts_overview('receivable', null, null, null, 'amount', null, false, null, 50) -> 'totals' ->> 'amount' as v", []], value: true, expect: all('ok:400000') },
+    party_statement_v2: { sql: () => ["select jsonb_array_length(public.party_statement_v2($1, null, public.app_today() - 30, public.app_today()) -> 'books') as v", [ledger.debtor]], value: true, expect: all('ok:1') },
+    voucher_detail: { sql: () => ["select public.voucher_detail($1) ->> 'type' as v", [ledger.payment]], value: true, expect: all('ok:receipt') },
+    transfer_detail: { sql: () => ['select public.transfer_detail(gen_random_uuid())', []], expect: all('transfer_not_found') },
+    month_summary: { sql: () => ["select public.month_summary(public.app_today()) ->> 'month' = date_trunc('month', public.app_today())::date::text as v", []], value: true, expect: all('ok:true') },
     // المرحلة 1 (WP4، §2.12): الافتتاح ومعاينته للمدير (opening.post)، والتحويل ومعاينته والطيّ وحذف السطر للأمين والمدير (transfer.post،
     // والمحاسب ممنوع)، والإلغاء للمدير (void)، وقراءات الكميات لمن المخزن بنطاقه (والباقي out_of_scope)، والقيم لأدوار الحسابات.
-    post_opening_stock: { sql: () => ['select public.post_opening_stock($1, $2, gen_random_uuid())', [stock.draftOpening, stock.openingVersion]], expect: only(['owner', 'manager']) },
-    void_opening_stock: { sql: () => ["select public.void_opening_stock($1, 'افتتاح خاطئ', gen_random_uuid())", [stock.posted]], expect: only(['owner', 'manager']) },
-    preview_opening_stock: { sql: () => ["select (public.preview_opening_stock($1) -> 'money' ->> 'total')::numeric = 7500 as v", [stock.draftOpening]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
-    post_transfer: { sql: () => ['select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [stock.draft, stock.draftVersion]], expect: only(TRANSFER) },
-    void_transfer: { sql: () => ["select public.void_transfer($1, 'تحويل خاطئ', gen_random_uuid())", [stock.moved]], expect: only(['owner', 'manager']) },
-    preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: only(TRANSFER, 'ok:true') },
-    discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
-    delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
+    post_opening_stock: { sql: () => ['select public.post_opening_stock($1, $2, gen_random_uuid())', [stock.draftOpening, stock.openingVersion]], expect: all('ok') },
+    void_opening_stock: { sql: () => ["select public.void_opening_stock($1, 'افتتاح خاطئ', gen_random_uuid())", [stock.posted]], expect: all('ok') },
+    preview_opening_stock: { sql: () => ["select (public.preview_opening_stock($1) -> 'money' ->> 'total')::numeric = 7500 as v", [stock.draftOpening]], value: true, expect: all('ok:true') },
+    post_transfer: { sql: () => ['select public.post_transfer($1, $2, public.preview_transfer($1) ->> \'plan\', gen_random_uuid())', [stock.draft, stock.draftVersion]], expect: all('ok') },
+    void_transfer: { sql: () => ["select public.void_transfer($1, 'تحويل خاطئ', gen_random_uuid())", [stock.moved]], expect: all('ok') },
+    preview_transfer: { sql: () => ["select public.preview_transfer($1) ->> 'ready' as v", [stock.draft]], value: true, expect: all('ok:true') },
+    discard_draft: { sql: () => ["select public.discard_draft('transfer', $1, $2) ->> 'status' as v", [stock.draft, stock.draftVersion]], value: true, expect: all('ok:void') },
+    delete_draft_line: { sql: () => ["select public.delete_draft_line('transfer', $1, $2) ->> 'deleted' as v", [stock.draftLine, stock.draftVersion]], value: true, expect: all('ok:true') },
     // WP7 زاد مادّتين بالمخزن العامّ (6,750 بعد مرتجع لتر، و6,080 بعد صرف لترين وتصحيح بحصّة 80)، وجهة برصيد، وثلاث مصاريف.
     // 0014: القائمة تشمل كلّ مادّة فعّالة يستلم المخزن نوعها ولو برصيد صفر (كانت 5: من لها رصيد أو حدّ أدنى)،
     // فالمادّة التي تُضاف اليوم تظهر بقسمها اليوم. و0020 زاد مادّتي وقود («كاز التسعير» المشترى بلا سعر و«زيت المصفوفة» المحوَّل إليه) بقيمة صفر.
-    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: only(STOCK, 'ok:10', 'out_of_scope') },
-    item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
-    item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: only(STOCK, 'ok:2', 'out_of_scope') },
-    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 487330 as v", [generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    item_lots_value: { sql: () => ["select (public.item_lots_value($1, $2, null, 50) -> 'rows' -> 0 ->> 'value_left')::numeric = 300000 as v", [stock.kerosene, generalStore]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    stock_on_hand: { sql: () => ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]], value: true, expect: all('ok:10') },
+    item_lots_qty: { sql: () => ["select jsonb_array_length(public.item_lots_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: all('ok:1') },
+    item_moves_qty: { sql: () => ["select jsonb_array_length(public.item_moves_qty($1, $2, null, 50) -> 'rows') as v", [stock.kerosene, generalStore]], value: true, expect: all('ok:2') },
+    stock_values: { sql: () => ["select (select sum((r ->> 'available')::numeric) from jsonb_array_elements(public.stock_values($1, null, 50) -> 'rows') as r) = 487330 as v", [generalStore]], value: true, expect: all('ok:true') },
+    stock_value_totals: { sql: () => ["select (public.stock_value_totals($1) -> 'money' ->> 'total')::numeric = 487330 as v", [generalStore]], value: true, expect: all('ok:true') },
+    item_lots_value: { sql: () => ["select (public.item_lots_value($1, $2, null, 50) -> 'rows' -> 0 ->> 'value_left')::numeric = 300000 as v", [stock.kerosene, generalStore]], value: true, expect: all('ok:true') },
     // علامة «مؤرشف وعليه رصيد» لقائمة المخازن (§2.6): بلا قيم، لكل دور بنطاقه (ماكو مخزن مؤرشف هنا؛ الضابط الإيجابي بـstock.test).
     archived_stores_with_stock: { sql: () => ['select jsonb_array_length(public.archived_stores_with_stock()) as v', []], value: true, expect: all('ok:0') },
     // المرحلة 1 (WP5، §2.12): المصروف للمحاسب والمدير (expense.post)، والصرف ومعاينته وتسليم الجرد للأمين والمدير (stock_use.post
     // وcount.enter، والمحاسب ممنوع)، ومراجعة الجرد وترحيله للمدير (count.approve)، وكل إلغاء للمدير (void)، والتقرير لأدوار الكلفة.
-    record_expense: { sql: () => ["select public.record_expense(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'cash', $3, null, null, null, null, null, null, null, gen_random_uuid())", [wp5.category, general, ledger.bank]], expect: only(ACCOUNTS) },
-    void_expense: { sql: () => ["select public.void_expense($1, 'مصروف مكرّر', gen_random_uuid())", [wp5.expense]], expect: only(['owner', 'manager']) },
-    post_stock_use: { sql: () => ["select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [wp5.useDraft, wp5.useVersion]], expect: only(TRANSFER) },
+    record_expense: { sql: () => ["select public.record_expense(gen_random_uuid(), $1, $2, 1000, public.app_today(), 'cash', $3, null, null, null, null, null, null, null, gen_random_uuid())", [wp5.category, general, ledger.bank]], expect: all('ok') },
+    void_expense: { sql: () => ["select public.void_expense($1, 'مصروف مكرّر', gen_random_uuid())", [wp5.expense]], expect: all('ok') },
+    post_stock_use: { sql: () => ["select public.post_stock_use($1, $2, public.preview_stock_use($1) ->> 'plan', gen_random_uuid())", [wp5.useDraft, wp5.useVersion]], expect: all('ok') },
     // صرف الزيت (wp5.usePosted) قبل جرد معتمد، فإلغاؤه count_superseded (0011)؛ الصفّ على صرف «زيت عيّنة» بلا جرد.
-    void_stock_use: { sql: () => ["select public.void_stock_use($1, 'صرف خاطئ', gen_random_uuid())", [v11.use]], expect: only(['owner', 'manager']) },
-    preview_stock_use: { sql: () => ["select public.preview_stock_use($1) ->> 'ready' as v", [wp5.useDraft]], value: true, expect: only(TRANSFER, 'ok:true') },
-    submit_count: { sql: () => ['select public.submit_count($1, $2, gen_random_uuid())', [wp5.countDraft, wp5.countDraftVersion]], expect: only(TRANSFER) },
-    refresh_count: { sql: () => ['select public.refresh_count($1, $2, gen_random_uuid())', [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
-    return_count: { sql: () => ["select public.return_count($1, $2, 'أعد العدّ', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
-    post_count: { sql: () => ["select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: only(COUNT_APPROVE) },
-    void_count: { sql: () => ["select public.void_count($1, 'جرد خاطئ', gen_random_uuid())", [wp5.countApproved]], expect: only(['owner', 'manager']) },
-    preview_count: { sql: () => ["select public.preview_count($1) ->> 'ready' as v", [wp5.countSubmitted]], value: true, expect: only(COUNT_APPROVE, 'ok:true') },
-    report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: only(ACCOUNTS, 'ok:6') },
+    void_stock_use: { sql: () => ["select public.void_stock_use($1, 'صرف خاطئ', gen_random_uuid())", [v11.use]], expect: all('ok') },
+    preview_stock_use: { sql: () => ["select public.preview_stock_use($1) ->> 'ready' as v", [wp5.useDraft]], value: true, expect: all('ok:true') },
+    submit_count: { sql: () => ['select public.submit_count($1, $2, gen_random_uuid())', [wp5.countDraft, wp5.countDraftVersion]], expect: all('ok') },
+    refresh_count: { sql: () => ['select public.refresh_count($1, $2, gen_random_uuid())', [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: all('ok') },
+    return_count: { sql: () => ["select public.return_count($1, $2, 'أعد العدّ', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: all('ok') },
+    post_count: { sql: () => ["select public.post_count($1, $2, public.preview_count($1) ->> 'plan', gen_random_uuid())", [wp5.countSubmitted, wp5.countSubmittedVersion]], expect: all('ok') },
+    void_count: { sql: () => ["select public.void_count($1, 'جرد خاطئ', gen_random_uuid())", [wp5.countApproved]], expect: all('ok') },
+    preview_count: { sql: () => ["select public.preview_count($1) ->> 'ready' as v", [wp5.countSubmitted]], value: true, expect: all('ok:true') },
+    report_expenses: { sql: () => ["select public.report_expenses(public.app_today() - 30, public.app_today(), null, null, 50) -> 'totals' ->> 'count' as v", []], value: true, expect: all('ok:6') },
     // المرحلة 1 (WP6، §2.12): مسوّدة الاستلام للأمين والمدير (receipt.draft)، ومبالغه وترحيله وتحميلاته لأدوار الكلفة (receipt.amounts)،
     // والمعاينة للاثنين (الكميات للأمين)، والإلغاء للمدير (void).
-    post_receipt: { sql: () => ['select public.post_receipt($1, $2, gen_random_uuid())', [wp6.draft, wp6.version]], expect: only(ACCOUNTS) },
-    void_receipt: { sql: () => ["select public.void_receipt($1, 'استلام خاطئ', gen_random_uuid())", [wp6.posted]], expect: only(['owner', 'manager']) },
-    preview_receipt: { sql: () => ["select jsonb_array_length(public.preview_receipt($1) -> 'lines') as v", [wp6.draft]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
-    delete_receipt_charge: { sql: () => ["select public.delete_receipt_charge($1, $2) ->> 'deleted' as v", [wp6.charge, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    set_charge_lines: { sql: () => ["select public.set_charge_lines($1, array[$2]::uuid[], $3) ->> 'all_lines' as v", [wp6.charge, wp6.line, wp6.version]], value: true, expect: only(ACCOUNTS, 'ok:false') },
+    post_receipt: { sql: () => ['select public.post_receipt($1, $2, gen_random_uuid())', [wp6.draft, wp6.version]], expect: all('ok') },
+    void_receipt: { sql: () => ["select public.void_receipt($1, 'استلام خاطئ', gen_random_uuid())", [wp6.posted]], expect: all('ok') },
+    preview_receipt: { sql: () => ["select jsonb_array_length(public.preview_receipt($1) -> 'lines') as v", [wp6.draft]], value: true, expect: all('ok:1') },
+    delete_receipt_charge: { sql: () => ["select public.delete_receipt_charge($1, $2) ->> 'deleted' as v", [wp6.charge, wp6.version]], value: true, expect: all('ok:true') },
+    set_charge_lines: { sql: () => ["select public.set_charge_lines($1, array[$2]::uuid[], $3) ->> 'all_lines' as v", [wp6.charge, wp6.line, wp6.version]], value: true, expect: all('ok:false') },
     // المرحلة 1 (WP7، §2.12): مسوّدة المرتجع للأمين والمدير (receipt.draft)، ومقبوله وترحيله لأدوار الكلفة (receipt.amounts)، وإلغاؤه للمدير
     // (void)؛ وتصحيح السعر ومعاينته للمدير والمالك (receipt.revalue)، وإلغاؤه للمدير (void).
-    post_supplier_return: { sql: () => ["select public.post_supplier_return($1, $2, public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [wp7.draft, wp7.version]], expect: only(ACCOUNTS) },
-    void_supplier_return: { sql: () => ["select public.void_supplier_return($1, 'مرتجع خاطئ', gen_random_uuid())", [wp7.posted]], expect: only(['owner', 'manager']) },
-    preview_supplier_return: { sql: () => ["select jsonb_array_length(public.preview_supplier_return($1) -> 'lines') as v", [wp7.draft]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:1') },
-    supplier_return_options: { sql: () => ["select jsonb_array_length(public.supplier_return_options($1) -> 'lines') as v", [wp7.receipt]], value: true, expect: only([...ACCOUNTS, 'storekeeper'], 'ok:2') },
-    post_receipt_revalue: { sql: () => ["select public.post_receipt_revalue($1, 7700, $2, 'فاتورة', gen_random_uuid())", [wp7.revalueLine, wp7.plan7700]], expect: only(['owner', 'manager']) },
-    void_receipt_revalue: { sql: () => ["select public.void_receipt_revalue($1, 'تصحيح خاطئ', gen_random_uuid())", [wp7.revaluation]], expect: only(['owner', 'manager']) },
-    preview_receipt_revalue: { sql: () => ["select public.preview_receipt_revalue($1, 7700) ->> 'ready' as v", [wp7.revalueLine]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    post_supplier_return: { sql: () => ["select public.post_supplier_return($1, $2, public.preview_supplier_return($1) ->> 'plan', gen_random_uuid())", [wp7.draft, wp7.version]], expect: all('ok') },
+    void_supplier_return: { sql: () => ["select public.void_supplier_return($1, 'مرتجع خاطئ', gen_random_uuid())", [wp7.posted]], expect: all('ok') },
+    preview_supplier_return: { sql: () => ["select jsonb_array_length(public.preview_supplier_return($1) -> 'lines') as v", [wp7.draft]], value: true, expect: all('ok:1') },
+    supplier_return_options: { sql: () => ["select jsonb_array_length(public.supplier_return_options($1) -> 'lines') as v", [wp7.receipt]], value: true, expect: all('ok:2') },
+    post_receipt_revalue: { sql: () => ["select public.post_receipt_revalue($1, 7700, $2, 'فاتورة', gen_random_uuid())", [wp7.revalueLine, wp7.plan7700]], expect: all('ok') },
+    void_receipt_revalue: { sql: () => ["select public.void_receipt_revalue($1, 'تصحيح خاطئ', gen_random_uuid())", [wp7.revaluation]], expect: all('ok') },
+    preview_receipt_revalue: { sql: () => ["select public.preview_receipt_revalue($1, 7700) ->> 'ready' as v", [wp7.revalueLine]], value: true, expect: all('ok:true') },
     // 0011: النسخة للتصحيح بفعل إنشاء ورقة النوع ونطاق مخزنها: التحويل لمن يكتب ورقة التحويل (transfer.post، والأمين بنطاق العامّ
     // المرسِل)، والمحاسب والمشاهد ممنوعان؛ والافتتاح بصفّه تحت (opening.post).
-    copy_doc_to_draft: { sql: () => ["select public.copy_doc_to_draft('transfer', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.transfer]], value: true, expect: only(TRANSFER, 'ok:draft') },
+    copy_doc_to_draft: { sql: () => ["select public.copy_doc_to_draft('transfer', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.transfer]], value: true, expect: all('ok:draft') },
     // 0012: فتح الفوج للمدير والمالك (flock.manage)، والجولة والوزن لعامل القاعة بنطاقه (flock_day.save، نطاقه وحدة اللحم)، والقارئان
     // لكل دور بنطاقه: من بلا نطاق (غير المالك والمدير والمحاسب) ما يشوف الحقل، والفوج خارج نطاقه out_of_scope.
-    open_flock: { sql: () => ["select public.open_flock($1, public.app_today(), 500, 0, null, gen_random_uuid()) ->> 'version' as v", [p2.empty]], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
-    save_flock_day: { sql: () => ["select public.save_flock_day($1, public.app_today(), 2, 1, 40.5, null, null, null, null, null, null, null, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
+    open_flock: { sql: () => ["select public.open_flock($1, public.app_today(), 500, 0, null, gen_random_uuid()) ->> 'version' as v", [p2.empty]], value: true, expect: all('ok:1') },
+    save_flock_day: { sql: () => ["select public.save_flock_day($1, public.app_today(), 2, 1, 40.5, null, null, null, null, null, null, null, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]], value: true, expect: all('ok:saved') },
     // 0032 (الجولة بزيارات): الزيارة بفعل الجولة نفسه (flock_day.save: المالك والمدير وعامل القاعة بنطاقه)، وزيارات اليوم لكلّ دور بنطاقه حقل
     // الفوج (الفوج المطلوب وحده ولو بلا زيارة)، وخارج النطاق out_of_scope.
     save_flock_visit: {
       sql: () => ["select public.save_flock_visit(gen_random_uuid(), $1, public.app_today(), now(), 2, 1, 40.5, null, null, null, 'زيارة المصفوفة', null, false, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]],
       value: true,
-      expect: only(FLOCK_DAY, 'ok:saved'),
+      expect: all('ok:saved'),
     },
-    round_visits: { sql: () => ["select jsonb_array_length(public.round_visits(public.app_today(), 'broiler', $1) -> 'flocks') as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'out_of_scope') },
-    record_flock_weight: { sql: () => ["select public.record_flock_weight($1, public.app_today(), 50, 650.5, gen_random_uuid()) ->> 'status' as v", [p2.flock]], value: true, expect: only(FLOCK_DAY, 'ok:saved') },
-    flocks_overview: { sql: () => ["select public.flocks_overview() -> 'sites' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [farm.site]], value: true, expect: only(FLOCK_SCOPE, 'ok:true', 'ok:false') },
-    flock_detail: { sql: () => ["select public.flock_detail($1) -> 'flock' ->> 'live' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
+    round_visits: { sql: () => ["select jsonb_array_length(public.round_visits(public.app_today(), 'broiler', $1) -> 'flocks') as v", [p2.flock]], value: true, expect: all('ok:1') },
+    record_flock_weight: { sql: () => ["select public.record_flock_weight($1, public.app_today(), 50, 650.5, gen_random_uuid()) ->> 'status' as v", [p2.flock]], value: true, expect: all('ok:saved') },
+    flocks_overview: { sql: () => ["select public.flocks_overview() -> 'sites' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [farm.site]], value: true, expect: all('ok:true') },
+    flock_detail: { sql: () => ["select public.flock_detail($1) -> 'flock' ->> 'live' as v", [p2.flock]], value: true, expect: all('ok:1000') },
     // 0013 (تجربة الاستخدام، الجزء الثاني): القارئان لكل دور بنطاقه (مثل قراءات الكميات): سجلّ شراء كاز المرتجع بالمخزن العامّ
     // (دفعة جذر واحدة من استلام WP7 المرحّل)، والمخزن خارج النطاق out_of_scope؛ وبطاقات المخازن تنجح للكل،
     // ومن بلا نطاق (غير المالك والمدير والمحاسب) لا يرى بطاقة المخزن العامّ.
-    item_purchases: { sql: () => ["select jsonb_array_length(public.item_purchases($1, $2, null, 50) -> 'rows') as v", [wp7.fuelA, generalStore]], value: true, expect: only(STOCK, 'ok:1', 'out_of_scope') },
+    item_purchases: { sql: () => ["select jsonb_array_length(public.item_purchases($1, $2, null, 50) -> 'rows') as v", [wp7.fuelA, generalStore]], value: true, expect: all('ok:1') },
     // 0015 (معمل العلف): التفعيل للمالك والمدير (recipe.activate)، والتسويد لمشغّل المعمل بنطاقه (production.draft)، وختم
     // الكلف للمحاسب والمدير (costs.load)، والترحيل لهم ولمشغّل المعمل بعد الختم (هنا بلا ختم: forbidden له)، والإلغاء للمالك
     // والمدير (void)؛ والقرّاء: الخلطة للمنشأة كلّها، والدفعة بنطاق مخزن مدخلاتها.
-    activate_recipe_version: { sql: () => ["select public.activate_recipe_version($1, $2) ->> 'status' as v", [p3.draftVersion, p3.draftVersionNo]], value: true, expect: only(RECIPE, 'ok:active') },
-    create_production: { sql: () => ["select public.create_production(gen_random_uuid(), $1, 50, $2, $3, public.app_today()) ->> 'status' as v", [p3.version, p3.raw, p3.feedStore]], value: true, expect: only(MILL_DRAFT, 'ok:draft') },
-    confirm_production_costs: { sql: () => ["select public.confirm_production_costs($1, $2) ->> 'costs_confirmed' as v", [p3.draftBatch, p3.draftBatchVersion]], value: true, expect: only(ACCOUNTS, 'ok:true') },
+    activate_recipe_version: { sql: () => ["select public.activate_recipe_version($1, $2) ->> 'status' as v", [p3.draftVersion, p3.draftVersionNo]], value: true, expect: all('ok:active') },
+    create_production: { sql: () => ["select public.create_production(gen_random_uuid(), $1, 50, $2, $3, public.app_today()) ->> 'status' as v", [p3.version, p3.raw, p3.feedStore]], value: true, expect: all('ok:draft') },
+    confirm_production_costs: { sql: () => ["select public.confirm_production_costs($1, $2) ->> 'costs_confirmed' as v", [p3.draftBatch, p3.draftBatchVersion]], value: true, expect: all('ok:true') },
     post_production: {
       sql: () => ["select public.post_production($1, (select version from public.production_batches where id = $1), public.preview_production($1) ->> 'plan_token', gen_random_uuid()) ->> 'status' as v", [p3.draftBatch]],
       value: true,
-      expect: { ...only(MILL_POST, 'ok:posted', 'out_of_scope'), mill_operator: 'forbidden' },
+      expect: all('ok:posted'),
     },
-    void_production: { sql: () => ["select public.void_production($1, 'خطأ في الوزن', gen_random_uuid()) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(RECIPE, 'ok:void') },
-    preview_production: { sql: () => ["select public.preview_production($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:posted', 'out_of_scope') },
-    production_detail: { sql: () => ["select public.production_detail($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:posted', 'out_of_scope') },
-    productions_overview: { sql: () => ["select public.productions_overview(null, 30) -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [p3.postedBatch]], value: true, expect: only(MILL_SCOPE, 'ok:true', 'ok:false') },
+    void_production: { sql: () => ["select public.void_production($1, 'خطأ في الوزن', gen_random_uuid()) ->> 'status' as v", [p3.postedBatch]], value: true, expect: all('ok:void') },
+    preview_production: { sql: () => ["select public.preview_production($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: all('ok:posted') },
+    production_detail: { sql: () => ["select public.production_detail($1) ->> 'status' as v", [p3.postedBatch]], value: true, expect: all('ok:posted') },
+    productions_overview: { sql: () => ["select public.productions_overview(null, 30) -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [p3.postedBatch]], value: true, expect: all('ok:true') },
     recipes_overview: { sql: () => ["select public.recipes_overview() -> 'recipes' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [p3.recipe]], value: true, expect: all('ok:true') },
     recipe_detail: { sql: () => ['select public.recipe_detail($1, null) ->> $2 as v', [p3.recipe, 'name']], value: true, expect: all('ok:خلطة المصفوفة') },
-    stores_overview: { sql: () => ["select public.stores_overview() -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [generalStore]], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
+    stores_overview: { sql: () => ["select public.stores_overview() -> 'rows' @> jsonb_build_array(jsonb_build_object('id', $1::uuid)) as v", [generalStore]], value: true, expect: all('ok:true') },
     // 0014 (سعر البيع): الكتابة لمن يدير المخازن ويرى الكلفة (المالك والمدير)؛ والنداء الثاني بنفس السعر يرجّعه نفسه
     // (المحفوظ = المطلوب ← انكتب، فلا price_changed لأنّ المصفوفة لا تراجع بين الأدوار).
-    set_item_sell_price: { sql: () => ["select public.set_item_sell_price($1, 1500, null) ->> 'sell_price' as v", [wp7.fuelA]], value: true, expect: only(['owner', 'manager'], 'ok:1500') },
+    set_item_sell_price: { sql: () => ["select public.set_item_sell_price($1, 1500, null) ->> 'sell_price' as v", [wp7.fuelA]], value: true, expect: all('ok:1500') },
     // 0016: سعر الكلفة بصلاحية سعر البيع نفسها (stores.manage ويرى الكلفة)؛ وبانية الخلطة بفعل التفعيل (recipe.activate)؛ وإضافة مادّة
     // لدفعة مسوّدة بفعل التسويد ونطاق مخزن مدخلاتها (production.draft)، فالسطر الثاني بعد سطر الذرة.
-    set_item_cost_price: { sql: () => ["select public.set_item_cost_price($1, 1200, null) ->> 'cost_price' as v", [wp7.fuelA]], value: true, expect: only(['owner', 'manager'], 'ok:1200') },
+    set_item_cost_price: { sql: () => ["select public.set_item_cost_price($1, 1200, null) ->> 'cost_price' as v", [wp7.fuelA]], value: true, expect: all('ok:1200') },
     create_recipe: {
       sql: () => [
         "select public.create_recipe(gen_random_uuid(), gen_random_uuid(), 'خلطة البانية', $1, 100, jsonb_build_array(jsonb_build_object('item_id', $2::uuid, 'qty', 100, 'unit', 'kg')), jsonb_build_array(jsonb_build_object('category_id', $3::uuid, 'amount_per_ton', 1000)), true) ->> 'status' as v",
         [p3.output, p3.bran, p3.labor],
       ],
       value: true,
-      expect: only(RECIPE, 'ok:active'),
+      expect: all('ok:active'),
     },
-    add_production_input: { sql: () => ["select public.add_production_input($1, gen_random_uuid(), $2, 5, null, null) ->> 'line_no' as v", [p3.draftBatch, p3.bran]], value: true, expect: only(MILL_DRAFT, 'ok:2') },
+    add_production_input: { sql: () => ["select public.add_production_input($1, gen_random_uuid(), $2, 5, null, null) ->> 'line_no' as v", [p3.draftBatch, p3.bran]], value: true, expect: all('ok:2') },
     // مراجعة 0016 (#19): «نسخة جديدة» بفعل التفعيل (recipe.activate) للمالك والمدير؛ للخلطة مسوّدة قائمة (النسخة الثانية)، فترجع هي
     // بمعرّفها بلا نسخ (existing) والمعرّف الجديد لا يُستعمل.
-    new_recipe_version: { sql: () => ["select public.new_recipe_version($1, gen_random_uuid()) ->> 'version_id' = $2::text as v", [p3.recipe, p3.draftVersion]], value: true, expect: only(RECIPE, 'ok:true') },
+    new_recipe_version: { sql: () => ["select public.new_recipe_version($1, gen_random_uuid()) ->> 'version_id' = $2::text as v", [p3.recipe, p3.draftVersion]], value: true, expect: all('ok:true') },
     // 0017 (المخزن ببساطة، قرار المالك 2026-11-06): الشراء بنداء واحد لكلّ من يعمل في المخزن (purchase.record: المالك والمدير والمحاسب
     // والأمين)، والمخزن يُختار من نوع المادّة (الكاز للمخزن العامّ). الأمين هنا محصور بالمخزن العامّ دون وحدته، فدين المورّد في دفتر
     // الوحدة العامّة خارج نطاقه: out_of_scope (قاعدة book_for_post، E49؛ قرار مفتوح للمالك). والقارئان لكلّ دور: ملفّ كاز المرتجع بعدد
@@ -698,41 +686,41 @@ export default async function (t, db) {
     record_purchase: {
       sql: () => ["select public.record_purchase(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, public.app_today(), 10, 750, null, 'credit', null, null) ->> 'payment' as v", [wp7.fuelA, ledger.fresh]],
       value: true,
-      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:credit'), storekeeper: 'out_of_scope' },
+      expect: all('ok:credit'),
     },
-    item_file: { sql: () => ["select public.item_file($1) ->> 'purchases_count' as v", [wp7.fuelA]], value: true, expect: only(STOCK, 'ok:1', 'ok:0') },
-    items_overview: { sql: () => ["select public.items_overview() ->> 'can_record' as v", []], value: true, expect: only(STOCK, 'ok:true', 'ok:false') },
+    item_file: { sql: () => ["select public.item_file($1) ->> 'purchases_count' as v", [wp7.fuelA]], value: true, expect: all('ok:1') },
+    items_overview: { sql: () => ["select public.items_overview() ->> 'can_record' as v", []], value: true, expect: all('ok:true') },
     // 0019 (صرف العلف للقاعات، قرار المالك 2026-11-07): الصرف بفعل issue.post (المالك والمدير والأمين) ونطاق حقل الفوج، والأمين هنا محصور
     // بالمخزن العامّ فقاعة اللحم خارج نطاقه (out_of_scope)؛ والإلغاء بفعل void (المالك والمدير)؛ والقارئان لمن بنطاقه حقل الفوج (read)، و«يصرف»
     // علم الفعل، والمصروف من العلف بالكيلو للجميع.
     record_flock_issue: {
       sql: () => ["select public.record_flock_issue(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, public.app_today(), null) ->> 'status' as v", [p2.flock, p19.feedItem]],
       value: true,
-      expect: { ...only(['owner', 'manager'], 'ok:posted'), storekeeper: 'out_of_scope' },
+      expect: all('ok:posted'),
     },
-    void_flock_issue: { sql: () => ["select public.void_flock_issue($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p19.issue]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    void_flock_issue: { sql: () => ["select public.void_flock_issue($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p19.issue]], value: true, expect: all('ok:void') },
     flock_issue_options: {
       sql: () => ["select public.flock_issue_options($1) ->> 'can_issue' as v", [p2.flock]],
       value: true,
-      expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
+      expect: all('ok:true'),
     },
-    flock_feed: { sql: () => ["select public.flock_feed($1) ->> 'issued_feed_kg' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:10.000', 'out_of_scope') },
+    flock_feed: { sql: () => ["select public.flock_feed($1) ->> 'issued_feed_kg' as v", [p2.flock]], value: true, expect: all('ok:10.000') },
     // 0026 (القاعات بين يديك، قرار المالك 2026-11-11): تسجيل الدواء والتأشير والتراجع عن غير المربوط بفعل الجولة (المالك والمدير وعامل القاعة)،
     // وقائمة اللقاحات وجدولها لمن يدير الحقول (المالك والمدير)؛ واللوحة لكلّ دور، والتذكير والتقويم والتقرير لمن بنطاقه حقل الفوج.
     give_to_flocks: {
       sql: () => ["select jsonb_array_length(public.give_to_flocks(gen_random_uuid(), public.app_today(), jsonb_build_array(jsonb_build_object('kind', 'log', 'flock_id', $1::uuid, 'id', gen_random_uuid(), 'name', 'دواء', 'dose', null))) -> 'logs') as v", [p2.flock]],
       value: true,
-      expect: only(FLOCK_DAY, 'ok:1'),
+      expect: all('ok:1'),
     },
-    remove_flock_log: { sql: () => ["select public.remove_flock_log($1) ->> 'removed' as v", [p26.log]], value: true, expect: only(FLOCK_DAY, 'ok:true') },
-    undo_vaccination: { sql: () => ["select public.undo_vaccination($1, null, gen_random_uuid()) ->> 'status' as v", [p26.mark]], value: true, expect: only(FLOCK_DAY, 'ok:void') },
-    save_vaccine: { sql: () => ["select public.save_vaccine(gen_random_uuid(), 'IB', null, null) ->> 'version' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
-    delete_vaccine: { sql: () => ["select public.delete_vaccine($1, (select version from public.vaccines where id = $1)) ->> 'result' as v", [p26.spare]], value: true, expect: only(FLOCK_MANAGE, 'ok:deleted') },
-    save_vaccine_program: { sql: () => ["select public.save_vaccine_program('layer', 300, '[]'::jsonb, 0) ->> 'version' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:1') },
-    vaccine_board: { sql: () => ["select public.vaccine_board() ->> 'can_edit' as v", []], value: true, expect: only(FLOCK_MANAGE, 'ok:true', 'ok:false') },
-    vaccine_reminders: { sql: () => ["select jsonb_array_length(public.vaccine_reminders() -> 'items') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
-    flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
-    flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:1000', 'out_of_scope') },
+    remove_flock_log: { sql: () => ["select public.remove_flock_log($1) ->> 'removed' as v", [p26.log]], value: true, expect: all('ok:true') },
+    undo_vaccination: { sql: () => ["select public.undo_vaccination($1, null, gen_random_uuid()) ->> 'status' as v", [p26.mark]], value: true, expect: all('ok:void') },
+    save_vaccine: { sql: () => ["select public.save_vaccine(gen_random_uuid(), 'IB', null, null) ->> 'version' as v", []], value: true, expect: all('ok:1') },
+    delete_vaccine: { sql: () => ["select public.delete_vaccine($1, (select version from public.vaccines where id = $1)) ->> 'result' as v", [p26.spare]], value: true, expect: all('ok:deleted') },
+    save_vaccine_program: { sql: () => ["select public.save_vaccine_program('layer', 300, '[]'::jsonb, 0) ->> 'version' as v", []], value: true, expect: all('ok:1') },
+    vaccine_board: { sql: () => ["select public.vaccine_board() ->> 'can_edit' as v", []], value: true, expect: all('ok:true') },
+    vaccine_reminders: { sql: () => ["select jsonb_array_length(public.vaccine_reminders() -> 'items') as v", []], value: true, expect: all('ok:1') },
+    flock_month: { sql: () => ["select public.flock_month($1, public.app_today()) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: all('ok:قاعة 1') },
+    flock_cycle_report: { sql: () => ["select public.flock_cycle_report($1) -> 'birds' ->> 'placed' as v", [p2.flock]], value: true, expect: all('ok:1000') },
     // 0028 (ملاحظات الزبون 2026-11-15): تعديل الفوج وحذفه وجدول القاعة الخاصّ لمن يدير الحقول (flock.manage: المالك والمدير)، و«احفظ التعديل» للخلطة
     // لمن يفعّلها (recipe.activate). تعديل السلالة وحدها على فوج «قاعة 1» (له صرف وتأشير، والسلالة لا تغيّر التاريخ)؛ والحذف لفوج يُفتح في الخانة
     // نفسها في «قاعة 2» الفارغة فيُحذف (لا سجلّ له)، وفحص كلّ دور بالحذف وحده في customer-edits.test؛ وجدول خاصّ جديد لـ«قاعة 1»، وحذف جدول «قاعة 2»
@@ -740,35 +728,35 @@ export default async function (t, db) {
     edit_flock: {
       sql: () => ["select public.edit_flock($1, (select version from public.flocks where id = $1), (select placed_on from public.flocks where id = $1), 1000, 0, 'روس', gen_random_uuid()) ->> 'changed' as v", [p2.flock]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:true'),
+      expect: all('ok:true'),
     },
     delete_flock: {
       sql: () => ["select public.delete_flock(o.id, 1, gen_random_uuid()) ->> 'deleted' as v from (select (public.open_flock($1, public.app_today(), 10, 0, null, gen_random_uuid()) ->> 'flock_id')::uuid as id) as o", [p2.empty]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:true'),
+      expect: all('ok:true'),
     },
     save_hall_vaccine_program: {
       sql: () => ["select public.save_hall_vaccine_program($1, 42, jsonb_build_array(jsonb_build_object('vaccine_id', $2::uuid, 'age_day', 7)), 0) ->> 'version' as v", [p2.hall, p26.nd]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:1'),
+      expect: all('ok:1'),
     },
-    drop_hall_vaccine_program: { sql: () => ["select public.drop_hall_vaccine_program($1, 1) ->> 'dropped' as v", [p2.empty]], value: true, expect: only(FLOCK_MANAGE, 'ok:true') },
+    drop_hall_vaccine_program: { sql: () => ["select public.drop_hall_vaccine_program($1, 1) ->> 'dropped' as v", [p2.empty]], value: true, expect: all('ok:true') },
     edit_recipe: {
       sql: () => ["select public.edit_recipe($1, $2, 'خلطة المصفوفة', jsonb_build_array(jsonb_build_object('item_id', $3::uuid)), gen_random_uuid()) ->> 'changed' as v", [p3.recipe, p3.version, p3.corn]],
       value: true,
-      expect: only(RECIPE, 'ok:true'),
+      expect: all('ok:true'),
     },
     // 0027 (تقارير القاعات): التقرير اليوميّ وقائمة الدورات لكلّ دور بمنشأة (read) بنطاق حقل القاعة، فمن لا يرى حقل اللحم يرى صفراً بلا رفض.
-    halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
+    halls_day: { sql: () => ["select public.halls_day(public.app_today()) -> 'totals' ->> 'flocks' as v", []], value: true, expect: all('ok:4') },
     // 0028: أربعة أفواج («قاعة 1» وقاعات البيع والإغلاق والنقل، والأخيرة أُغلقت اليوم فتظهر يومها).
-    flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:4', 'ok:0') },
+    flock_cycles: { sql: () => ["select jsonb_array_length(public.flock_cycles() -> 'cycles') as v", []], value: true, expect: all('ok:4') },
     // 0031 («من أوّل ما بدينا»): التقرير لكلّ دور بمنشأة (read) بنطاق حقل القاعة كـhalls_day، فمن لا يرى حقل اللحم يرى بلا نوع بلا رفض؛ وملاحظة اليوم بفعل
     // halls_note.write (المالك والمدير وحدهما).
-    halls_history: { sql: () => ["select jsonb_array_length(public.halls_history(null) -> 'kinds') as v", []], value: true, expect: only(FLOCK_SCOPE, 'ok:1', 'ok:0') },
+    halls_history: { sql: () => ["select jsonb_array_length(public.halls_history(null) -> 'kinds') as v", []], value: true, expect: all('ok:1') },
     set_halls_note: {
       sql: () => ["select public.set_halls_note(public.app_today(), 'ملاحظة المصفوفة', null) -> 'note' ->> 'text' as v", []],
       value: true,
-      expect: only(['owner', 'manager'], 'ok:ملاحظة المصفوفة'),
+      expect: all('ok:ملاحظة المصفوفة'),
     },
     // 0028 (بيع الطيور وإغلاق الدورة): التذكرة بفعل weigh_ticket.draft (المالك والمدير وعامل القاعة في حقله)، وإلغاء المسوّدة بالفعل نفسه (ولا يصل
     // إليها من لا يملك التسويد ولا الإلغاء)؛ والفاتورة بفعل sale.post (المالك والمدير والمحاسب) وإلغاؤها بفعل void؛ وفرق العدّ والإغلاق وإرجاع
@@ -780,78 +768,78 @@ export default async function (t, db) {
         [farm.site, p28.saleHall],
       ],
       value: true,
-      expect: only(FLOCK_DAY, 'ok:saved'),
+      expect: all('ok:saved'),
     },
-    finish_weigh_ticket: { sql: () => ["select public.finish_weigh_ticket(gen_random_uuid(), $1, 1) ->> 'status' as v", [p28.draft]], value: true, expect: only(FLOCK_DAY, 'ok:done') },
-    void_weigh_ticket: { sql: () => ["select public.void_weigh_ticket($1, null, gen_random_uuid()) ->> 'status' as v", [p28.draft]], value: true, expect: only(FLOCK_DAY, 'ok:void') },
+    finish_weigh_ticket: { sql: () => ["select public.finish_weigh_ticket(gen_random_uuid(), $1, 1) ->> 'status' as v", [p28.draft]], value: true, expect: all('ok:done') },
+    void_weigh_ticket: { sql: () => ["select public.void_weigh_ticket($1, null, gen_random_uuid()) ->> 'status' as v", [p28.draft]], value: true, expect: all('ok:void') },
     record_bird_sale: {
       sql: () => ["select public.record_bird_sale(gen_random_uuid(), gen_random_uuid(), $1, 2, $2, 2750, 0, 0, null, null) ->> 'status' as v", [p28.done, p28.trader]],
       value: true,
-      expect: only(SALES, 'ok:posted'),
+      expect: all('ok:posted'),
     },
-    void_bird_sale: { sql: () => ["select public.void_bird_sale($1, 'وزن خاطئ', gen_random_uuid()) ->> 'status' as v", [p28.sale]], value: true, expect: only(FLOCK_MANAGE, 'ok:void') },
+    void_bird_sale: { sql: () => ["select public.void_bird_sale($1, 'وزن خاطئ', gen_random_uuid()) ->> 'status' as v", [p28.sale]], value: true, expect: all('ok:void') },
     record_flock_count_adjust: {
       sql: () => ["select public.record_flock_count_adjust(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 5, 'العدد الفعليّ أكثر', 1000) ->> 'live_after' as v", [p28.closeFlock]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:1005'),
+      expect: all('ok:1005'),
     },
     close_flock: {
       sql: () => ["select public.close_flock(gen_random_uuid(), gen_random_uuid(), $1, public.app_today(), 1000, 0, '[]'::jsonb, 'بيعت خارج النظام', '[]'::jsonb, null, $2) ->> 'status' as v", [p28.closeFlock, p28.closePlan]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:closed'),
+      expect: all('ok:closed'),
     },
-    reopen_flock: { sql: () => ["select public.reopen_flock($1, 'أُغلقت خطأً', gen_random_uuid()) ->> 'status' as v", [p28.closeId]], value: true, expect: only(FLOCK_MANAGE, 'ok:reopened') },
+    reopen_flock: { sql: () => ["select public.reopen_flock($1, 'أُغلقت خطأً', gen_random_uuid()) ->> 'status' as v", [p28.closeId]], value: true, expect: all('ok:reopened') },
     return_hall_carry: {
       sql: () => ["select public.return_hall_carry(gen_random_uuid(), gen_random_uuid(), $1, $2) ->> 'line_id' = $1::text as v", [p28.carryLine, p3.feedStore]],
       value: true,
-      expect: only(FLOCK_MANAGE, 'ok:true'),
+      expect: all('ok:true'),
     },
-    weigh_ticket: { sql: () => ["select public.weigh_ticket($1) ->> 'status' as v", [p28.done]], value: true, expect: only(FLOCK_SCOPE, 'ok:done', 'out_of_scope') },
+    weigh_ticket: { sql: () => ["select public.weigh_ticket($1) ->> 'status' as v", [p28.done]], value: true, expect: all('ok:done') },
     weigh_ticket_options: {
       sql: () => ["select public.weigh_ticket_options($1) ->> 'can_create' as v", [farm.site]],
       value: true,
-      expect: { ...only(FLOCK_SCOPE, 'ok:true', 'out_of_scope'), accountant: 'ok:false' },
+      expect: all('ok:true'),
     },
     weigh_tickets: {
       sql: () => ["select public.weigh_tickets(public.app_today() - 1, public.app_today(), 'all') -> 'totals' ->> 'count' as v", []],
       value: true,
-      expect: only(FLOCK_SCOPE, 'ok:3', 'ok:0'),
+      expect: all('ok:3'),
     },
     bird_sale_form: {
       sql: () => ["select public.bird_sale_form($1) ->> 'invoiceable' as v", [p28.done]],
       value: true,
-      expect: { ...only(SALES, 'ok:true', 'forbidden'), storekeeper: 'out_of_scope', viewer: 'out_of_scope' },
+      expect: all('ok:true'),
     },
     bird_sale_detail: {
       sql: () => ["select public.bird_sale_detail($1) ->> 'status' as v", [p28.sale]],
       value: true,
-      expect: { ...only(SALES, 'ok:posted', 'forbidden'), storekeeper: 'out_of_scope', viewer: 'out_of_scope' },
+      expect: all('ok:posted'),
     },
     flock_close_form: {
       sql: () => ["select public.flock_close_form($1) ->> 'can_close' as v", [p28.closeFlock]],
       value: true,
-      expect: { ...only(FLOCK_SCOPE, 'ok:false', 'out_of_scope'), owner: 'ok:true', manager: 'ok:true' },
+      expect: all('ok:true'),
     },
-    flock_sales: { sql: () => ["select public.flock_sales($1) ->> 'sold_birds' as v", [p28.saleFlock]], value: true, expect: only(FLOCK_SCOPE, 'ok:100', 'out_of_scope') },
+    flock_sales: { sql: () => ["select public.flock_sales($1) ->> 'sold_birds' as v", [p28.saleFlock]], value: true, expect: all('ok:100') },
     // 0020 (قرار المالك 2026-11-08): الحذف لمن يدير المخازن (المالك والمدير)؛ و«أكمل السعر» بفعل الشراء (purchase.record)، والأمين هنا محصور
     // بالمخزن العامّ دون وحدته فقيد المورّد في دفتر الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ وتحويل المادّة بفعل الصرف
     // (stock_use.post: المالك والمدير والأمين بنطاق المخزن)؛ وإلغاؤه بفعل void؛ والنقل بخطوة واحدة بفعل النقل (transfer.post) إلى مخزن الحقل.
-    delete_item: { sql: () => ["select public.delete_item($1, (select version from public.items where id = $1)) ->> 'deleted' as v", [p20.fresh]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
+    delete_item: { sql: () => ["select public.delete_item($1, (select version from public.items where id = $1)) ->> 'deleted' as v", [p20.fresh]], value: true, expect: all('ok:true') },
     price_purchase: {
       sql: () => ["select public.price_purchase(gen_random_uuid(), $1, 800, null) ->> 'priced' as v", [p20.line]],
       value: true,
-      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:true'), storekeeper: 'out_of_scope' },
+      expect: all('ok:true'),
     },
     record_conversion: {
       sql: () => ["select public.record_conversion(gen_random_uuid(), gen_random_uuid(), $1, 1, $2, 1, public.app_today(), null, null) ->> 'status' as v", [p20.fuel, p20.oil]],
       value: true,
-      expect: only(TRANSFER, 'ok:posted'),
+      expect: all('ok:posted'),
     },
-    void_conversion: { sql: () => ["select public.void_conversion($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p20.conversion]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    void_conversion: { sql: () => ["select public.void_conversion($1, 'كمية خاطئة', gen_random_uuid()) ->> 'status' as v", [p20.conversion]], value: true, expect: all('ok:void') },
     record_transfer: {
       sql: () => ["select public.record_transfer(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, 1, null, $2, public.app_today()) ->> 'status' as v", [p20.fuel, farm.store]],
       value: true,
-      expect: only(TRANSFER, 'ok:posted'),
+      expect: all('ok:posted'),
     },
     // 0021 (قرار المالك 2026-11-08): البيع بفعل sale.record (أدوار الشراء نفسها)، والأمين هنا محصور بالمخزن العامّ دون وحدته فقيد الجهة في دفتر
     // الوحدة خارج نطاقه (out_of_scope، مثل record_purchase)؛ والإلغاء بفعل void؛ والقرّاء لأدوار المبيعات بنطاق المخزن (المشاهد بلا نطاق يرى صفراً،
@@ -859,9 +847,9 @@ export default async function (t, db) {
     record_sale: {
       sql: () => ["select public.record_sale(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, 1000, public.app_today(), 'credit', null, null) ->> 'status' as v", [ledger.fresh, p20.fuel]],
       value: true,
-      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:posted'), storekeeper: 'out_of_scope' },
+      expect: all('ok:posted'),
     },
-    void_sale: { sql: () => ["select public.void_sale($1, 'بيع خاطئ', gen_random_uuid()) ->> 'status' as v", [p21.sale]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
+    void_sale: { sql: () => ["select public.void_sale($1, 'بيع خاطئ', gen_random_uuid()) ->> 'status' as v", [p21.sale]], value: true, expect: all('ok:void') },
     // 0033 (الفاتورة الاحترافيّة): الفاتورة بالفعل نفسه sale.record (المالك والمدير والمحاسب؛ والأمين بالمخزن العامّ دون دفتر وحدته out_of_scope)، لتر
     // كاز بسطر ودفعة 400 من الصندوق والباقي دين؛ وموادّ المخزن للبيع ببوّابات الكاتب نفسها.
     record_sale_v2: {
@@ -870,45 +858,45 @@ export default async function (t, db) {
         [generalStore, ledger.fresh, p20.fuel, ledger.box],
       ],
       value: true,
-      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:600'), storekeeper: 'out_of_scope' },
+      expect: all('ok:600'),
     },
     sale_catalog: {
       sql: () => ["select public.sale_catalog($1) -> 'items' @> jsonb_build_array(jsonb_build_object('item_id', $2::uuid)) and public.sale_catalog($1) -> 'cash_accounts' @> jsonb_build_array(jsonb_build_object('id', $3::uuid)) as v", [generalStore, p20.fuel, ledger.box]],
       value: true,
-      expect: { ...only(['owner', 'manager', 'accountant'], 'ok:true'), storekeeper: 'out_of_scope' },
+      expect: all('ok:true'),
     },
     sales_overview: {
       sql: () => ["select public.sales_overview(public.app_today() - 1, public.app_today()) -> 'totals' ->> 'count' as v", []],
       value: true,
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1'), viewer: 'ok:0' },
+      expect: all('ok:1'),
     },
     sale_detail: {
       sql: () => ["select public.sale_detail($1) ->> 'status' as v", [p21.sale]],
       value: true,
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:posted'), viewer: 'out_of_scope' },
+      expect: all('ok:posted'),
     },
     sales_report: {
       sql: () => ["select public.sales_report(public.app_today() - 1, public.app_today(), 'party') -> 'totals' ->> 'count' as v", []],
       value: true,
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'accountant'], 'ok:1'), viewer: 'ok:0' },
+      expect: all('ok:1'),
     },
     // 0022 (قرار المالك 2026-11-09): الجدول لكلّ دور (read)، و«يكتب ملاحظة اليوم» علم الفعل stock_note.write (الأمين ومشغّلا المعمل والمفقس والمدير
     // والمالك)؛ والملاحظة بالفعل نفسه؛ وملء التصنيف لمن يدير المخازن (المالك والمدير).
     day_balance: {
       sql: () => ["select public.day_balance(null, public.app_today(), null) ->> 'can_note' as v", []],
       value: true,
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'mill_operator', 'hatchery_operator'], 'ok:true', 'ok:false') },
+      expect: all('ok:true'),
     },
     set_day_note: {
       sql: () => ["select public.set_day_note($1, public.app_today(), 'ملاحظة المصفوفة', null) -> 'note' ->> 'text' as v", [p20.fuel]],
       value: true,
       // مشغّل المفقس يملك الفعل، لكنّ الكاز لا يُخزَّن في مخازن المفقس التي بنطاقه (out_of_scope).
-      expect: { ...only(['owner', 'manager', 'storekeeper', 'mill_operator'], 'ok:ملاحظة المصفوفة'), hatchery_operator: 'out_of_scope' },
+      expect: all('ok:ملاحظة المصفوفة'),
     },
     set_category_items: {
       sql: () => ["select public.set_category_items($1, array[$2]::uuid[], '{}'::uuid[]) ->> 'count' as v", [p22.category, p20.fuel]],
       value: true,
-      expect: only(['owner', 'manager'], 'ok:1'),
+      expect: all('ok:1'),
     },
     // 0023 (ترتيب معمل العلف، كلمة المالك 2026-11-10): ترتيب العلائق وموادّ المسوّدة لمن يفعّل الخلطة (المالك والمدير)، كلّ واحد بما يراه الآن؛
     // والإنتاج بنداء واحد بفعل التسويد: المالك والمدير يرحّلان، ومشغّل المعمل مسوّدة تنتظر ختم الكلف؛ والتقرير لكلّ دور بمنشأة بنطاق الدفعة.
@@ -918,12 +906,12 @@ export default async function (t, db) {
         [],
       ],
       value: true,
-      expect: only(RECIPE, 'ok:true'),
+      expect: all('ok:true'),
     },
     set_recipe_line_order: {
       sql: () => ["select public.set_recipe_line_order($1, array[$2]::uuid[], array[$2]::uuid[]) ->> 'count' as v", [p3.draftVersion, p3.draftLine]],
       value: true,
-      expect: only(RECIPE, 'ok:1'),
+      expect: all('ok:1'),
     },
     record_production: {
       sql: () => [
@@ -931,12 +919,12 @@ export default async function (t, db) {
         [p3.version, p3.raw, p3.feedStore],
       ],
       value: true,
-      expect: { ...only(RECIPE, 'ok:posted'), mill_operator: 'ok:draft' },
+      expect: all('ok:posted'),
     },
     mill_report: {
       sql: () => ["select public.mill_report($1, public.app_today(), public.app_today()) -> 'totals' ->> 'batches' as v", [p3.recipe]],
       value: true,
-      expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
+      expect: all('ok:1'),
     },
     // 0025 (الخلطة موادّ والكميات عند الإنتاج، كلمة المالك 2026-11-10): الإنتاج بنداء واحد بفعل التسويد ونطاق مخزن الموادّ، بموادّ النسخة المفعَّلة
     // نفسها (فلا اختيار): المالك والمدير يرحّلان، ومشغّل المعمل مسوّدة تنتظر ختم الكلف؛ وقارئ شاشة الإنتاج لمن يُنتج؛ والسجلّ لكلّ دور بنطاق الدفعة.
@@ -946,32 +934,32 @@ export default async function (t, db) {
         [p3.recipe, p3.version, p3.raw, p3.corn],
       ],
       value: true,
-      expect: { ...only(RECIPE, 'ok:posted'), mill_operator: 'ok:draft' },
+      expect: all('ok:posted'),
     },
     production_form: {
       sql: () => ["select public.production_form($1) -> 'active' ->> 'id' = $2::text as v", [p3.recipe, p3.version]],
       value: true,
-      expect: only(MILL_DRAFT, 'ok:true'),
+      expect: all('ok:true'),
     },
     recipe_history: {
       sql: () => ["select public.recipe_history($1, public.app_today() - 30, public.app_today()) -> 'totals' ->> 'batches' as v", [p3.recipe]],
       value: true,
-      expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
+      expect: all('ok:1'),
     },
-    // 0035 (القاعة كالورقة، كلمة المالك 2026-11-21): الغاز وحسم المركون بفعل الجولة (المالك والمدير وعامل القاعة بنطاقه)، و«أرسل علفاً» بفعل الصرف
-    // (المالك والمدير؛ والأمين بنطاق المخزن العامّ فالقاعة خارج نطاقه)، والورقة لكلّ دور بنطاقه حقل القاعة، والرصيد اليوميّ بقسمين لكلّ دور.
+    // 0035 (القاعة كالورقة، كلمة المالك 2026-11-21) تحت 0034 («الكلّ مثل المالك»): الغاز وحسم المركون (بنسخته) و«أرسل علفاً» والورقة
+    // والرصيد اليوميّ بقسمين لكلّ دور بنتيجة المالك؛ الأمين بصفّ نطاق المخزن العامّ وعامل القاعة بصفّ نطاق اللحم يرون القاعة ويرسلون إليها.
     set_flock_gas: {
       sql: () => ["select public.set_flock_gas($1, public.app_today(), 3, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]],
       value: true,
-      expect: only(FLOCK_DAY, 'ok:saved'),
+      expect: all('ok:saved'),
     },
     send_flock_feed: {
       sql: () => ["select public.send_flock_feed(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, public.app_today()) ->> 'status' as v", [p2.flock, p19.feedItem]],
       value: true,
-      expect: { ...only(['owner', 'manager'], 'ok:saved'), storekeeper: 'out_of_scope' },
+      expect: all('ok:saved'),
     },
-    hall_sheet: { sql: () => ["select public.hall_sheet($1) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
-    decide_flock_reject: { sql: () => ["select public.decide_flock_reject($1, 'handled', 1) ->> 'decision' as v", [p35.reject]], value: true, expect: only(FLOCK_DAY, 'ok:handled') },
+    hall_sheet: { sql: () => ["select public.hall_sheet($1) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: all('ok:قاعة 1') },
+    decide_flock_reject: { sql: () => ["select public.decide_flock_reject($1, 'handled', 1) ->> 'decision' as v", [p35.reject]], value: true, expect: all('ok:handled') },
     day_balance_sections: { sql: () => ["select jsonb_array_length(public.day_balance_sections(public.app_today()) -> 'sections') as v", []], value: true, expect: all('ok:3') },
   };
 
@@ -997,30 +985,30 @@ export default async function (t, db) {
   // §2.12: delete_draft_line وdiscard_draft بفعل مسوّدة كل نوع، فالنوع الثاني (الافتتاح: opening.post للمالك والمدير) صفوفه لحالها،
   // ومسوّدته بالمخزن العامّ اللي الأمين بنطاقه (فلو فرع الافتتاح صار transfer.post ينجح الأمين وينمسك)، والنسخة القديمة stale_draft.
   const KIND_ROWS = {
-    "discard_draft('opening')": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion]], value: true, expect: only(['owner', 'manager'], 'ok:void') },
-    "delete_draft_line('opening')": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion]], value: true, expect: only(['owner', 'manager'], 'ok:true') },
-    "discard_draft('opening') بنسخة قديمة": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
-    "delete_draft_line('opening') بنسخة قديمة": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion - 1]], value: true, expect: only(['owner', 'manager'], 'stale_draft') },
+    "discard_draft('opening')": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion]], value: true, expect: all('ok:void') },
+    "delete_draft_line('opening')": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion]], value: true, expect: all('ok:true') },
+    "discard_draft('opening') بنسخة قديمة": { sql: ["select public.discard_draft('opening', $1, $2) ->> 'status' as v", [stock.draftOpening, stock.openingVersion - 1]], value: true, expect: all('stale_draft') },
+    "delete_draft_line('opening') بنسخة قديمة": { sql: ["select public.delete_draft_line('opening', $1, $2) ->> 'deleted' as v", [stock.openingLine, stock.openingVersion - 1]], value: true, expect: all('stale_draft') },
     // WP5: الصرف بـstock_use.post، ومسوّدة الجرد بـcount.enter، والجرد المسلَّم يطويه count.approve بس («أغلِق دون ترحيل»، E53).
-    "discard_draft('stock_use')": { sql: ["select public.discard_draft('stock_use', $1, $2) ->> 'status' as v", [wp5.useDraft, wp5.useVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
-    "delete_draft_line('stock_use')": { sql: ["select public.delete_draft_line('stock_use', $1, $2) ->> 'deleted' as v", [wp5.useDraftLine, wp5.useVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
-    "discard_draft('count') مسوّدة": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countDraft, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
-    "discard_draft('count') مسلَّم": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countSubmitted, wp5.countSubmittedVersion]], value: true, expect: only(COUNT_APPROVE, 'ok:void') },
-    "delete_draft_line('count')": { sql: ["select public.delete_draft_line('count', $1, $2) ->> 'deleted' as v", [wp5.countDraftLine, wp5.countDraftVersion]], value: true, expect: only(TRANSFER, 'ok:true') },
+    "discard_draft('stock_use')": { sql: ["select public.discard_draft('stock_use', $1, $2) ->> 'status' as v", [wp5.useDraft, wp5.useVersion]], value: true, expect: all('ok:void') },
+    "delete_draft_line('stock_use')": { sql: ["select public.delete_draft_line('stock_use', $1, $2) ->> 'deleted' as v", [wp5.useDraftLine, wp5.useVersion]], value: true, expect: all('ok:true') },
+    "discard_draft('count') مسوّدة": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countDraft, wp5.countDraftVersion]], value: true, expect: all('ok:void') },
+    "discard_draft('count') مسلَّم": { sql: ["select public.discard_draft('count', $1, $2) ->> 'status' as v", [wp5.countSubmitted, wp5.countSubmittedVersion]], value: true, expect: all('ok:void') },
+    "delete_draft_line('count')": { sql: ["select public.delete_draft_line('count', $1, $2) ->> 'deleted' as v", [wp5.countDraftLine, wp5.countDraftVersion]], value: true, expect: all('ok:true') },
     // WP6: مسوّدة الاستلام بـreceipt.draft (المحاسب ممنوع)، وحذف السطر المسعَّر يحذف مبلغه ويّاه.
-    "discard_draft('receipt')": { sql: ["select public.discard_draft('receipt', $1, $2) ->> 'status' as v", [wp6.bare, wp6.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
-    "delete_draft_line('receipt')": { sql: ["select public.delete_draft_line('receipt', $1, $2) ->> 'deleted' as v", [wp6.line, wp6.version]], value: true, expect: only(TRANSFER, 'ok:true') },
+    "discard_draft('receipt')": { sql: ["select public.discard_draft('receipt', $1, $2) ->> 'status' as v", [wp6.bare, wp6.bareVersion]], value: true, expect: all('ok:void') },
+    "delete_draft_line('receipt')": { sql: ["select public.delete_draft_line('receipt', $1, $2) ->> 'deleted' as v", [wp6.line, wp6.version]], value: true, expect: all('ok:true') },
     // WP7: مسوّدة المرتجع بـreceipt.draft (المحاسب ممنوع)، وحذف السطر يحذف مقبوله ويّاه.
-    "discard_draft('supplier_return')": { sql: ["select public.discard_draft('supplier_return', $1, $2) ->> 'status' as v", [wp7.bare, wp7.bareVersion]], value: true, expect: only(TRANSFER, 'ok:void') },
-    "delete_draft_line('supplier_return')": { sql: ["select public.delete_draft_line('supplier_return', $1, $2) ->> 'deleted' as v", [wp7.line, wp7.version]], value: true, expect: only(TRANSFER, 'ok:true') },
+    "discard_draft('supplier_return')": { sql: ["select public.discard_draft('supplier_return', $1, $2) ->> 'status' as v", [wp7.bare, wp7.bareVersion]], value: true, expect: all('ok:void') },
+    "delete_draft_line('supplier_return')": { sql: ["select public.delete_draft_line('supplier_return', $1, $2) ->> 'deleted' as v", [wp7.line, wp7.version]], value: true, expect: all('ok:true') },
     // 0011: نسخة الافتتاح الملغى بـopening.post (المالك والمدير)، والمخزن العامّ بنطاق الأمين (فلو فرع الافتتاح صار transfer.post
     // ينجح الأمين وينمسك).
-    "copy_doc_to_draft('opening')": { sql: ["select public.copy_doc_to_draft('opening', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.opening]], value: true, expect: only(['owner', 'manager'], 'ok:draft') },
+    "copy_doc_to_draft('opening')": { sql: ["select public.copy_doc_to_draft('opening', $1, gen_random_uuid(), gen_random_uuid()) ->> 'status' as v", [v11.opening]], value: true, expect: all('ok:draft') },
     // 0016: معدّل الخلطة بفعل التفعيل، وسطر الكلفة بفعل costs.load لأدوار الكلفة (مشغّل المعمل ممنوع)، وسطر المدخلات بفعل التسويد
     // (المحاسب ممنوع)؛ والنسخة بعد إضافة المعدّل وسطر الكلفة.
-    "delete_draft_line('recipe_cost_rate')": { sql: ["select public.delete_draft_line('recipe_cost_rate', $1, $2) ->> 'deleted' as v", [p3.draftRate, p3.draftVersionNo]], value: true, expect: only(RECIPE, 'ok:true') },
-    "delete_draft_line('production_cost')": { sql: ["select public.delete_draft_line('production_cost', $1, $2) ->> 'deleted' as v", [p3.draftCost, p3.draftBatchVersion]], value: true, expect: only(ACCOUNTS, 'ok:true') },
-    "delete_draft_line('production_input')": { sql: ["select public.delete_draft_line('production_input', $1, $2) ->> 'deleted' as v", [p3.draftInput, p3.draftBatchVersion]], value: true, expect: only(MILL_DRAFT, 'ok:true') },
+    "delete_draft_line('recipe_cost_rate')": { sql: ["select public.delete_draft_line('recipe_cost_rate', $1, $2) ->> 'deleted' as v", [p3.draftRate, p3.draftVersionNo]], value: true, expect: all('ok:true') },
+    "delete_draft_line('production_cost')": { sql: ["select public.delete_draft_line('production_cost', $1, $2) ->> 'deleted' as v", [p3.draftCost, p3.draftBatchVersion]], value: true, expect: all('ok:true') },
+    "delete_draft_line('production_input')": { sql: ["select public.delete_draft_line('production_input', $1, $2) ->> 'deleted' as v", [p3.draftInput, p3.draftBatchVersion]], value: true, expect: all('ok:true') },
   };
   for (const [label, row] of Object.entries(KIND_ROWS)) {
     const got = {};
@@ -1034,43 +1022,37 @@ export default async function (t, db) {
     }
     t.same(got, row.expect, `${label}: كل دور بنتيجته`);
   }
-  // المدير ينجح بكل خانة تشغيلية والمحاسب يفشل بيها (FOUNDATION ٥٤٤، ٨٦٥): بالمرحلة 0 الخانة التشغيلية قفل الفترة.
-  t.same([ROWS.set_period_lock.expect.manager, ROWS.set_period_lock.expect.accountant], ['ok', 'forbidden'], 'المدير يقفل الفترة والمحاسب لا');
-  t.same([ROWS.set_division_go_live.expect.manager, ROWS.set_division_go_live.expect.accountant], ['ok', 'forbidden'], 'المدير يحدّد يوم التشغيل والمحاسب لا');
+  // «الكلّ مثل المالك بكلّ شيء» (0034): كلّ خانة لكلّ دور = خانة المالك، إلّا إدارة الأعضاء: المالك وحده وغيره forbidden.
+  const MEMBERS = ['add_member', 'add_member_v2', 'archive_member', 'invite_code', 'set_member_role', 'set_member_scopes', 'set_member_scopes_v2'];
+  const notLikeOwner = [...Object.entries(ROWS), ...Object.entries(KIND_ROWS)]
+    .filter(([fn]) => !MEMBERS.includes(fn) && !['can', 'leave_my_org', 'my_workspace'].includes(fn))
+    .flatMap(([fn, row]) => ROLES.filter((role) => row.expect[role] !== row.expect.owner).map((role) => `${fn} × ${role}`));
+  t.same(notLikeOwner, [], 'كلّ دور بنتيجة المالك في كلّ دالّة عدا إدارة الأعضاء');
   t.same(
-    ['record_opening_balance', 'record_party_adjustment', 'forgive_debt', 'void_party_payment', 'void_party_entry', 'record_cash_opening', 'void_cash_move'].map((fn) => [ROWS[fn].expect.manager, ROWS[fn].expect.accountant]),
-    Array(7).fill(['ok', 'forbidden']),
-    'المدير ينجح بالافتتاح والتسوية والإعفاء والإلغاء والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
+    MEMBERS.map((fn) => ROLES.filter((role) => role !== 'owner').map((role) => ROWS[fn].expect[role])),
+    MEMBERS.map(() => ROLES.filter((role) => role !== 'owner').map(() => 'forbidden')),
+    'إدارة الأعضاء: كلّ عضو غير المالك forbidden في دوالّها السبع',
   );
   t.same(
-    ['post_opening_stock', 'void_opening_stock', 'post_transfer', 'void_transfer', 'preview_transfer', 'discard_draft', 'delete_draft_line'].map((fn) => [ROWS[fn].expect.manager.split(':')[0], ROWS[fn].expect.accountant]),
-    Array(7).fill(['ok', 'forbidden']),
-    'المدير ينجح بخانات المخزون التشغيلية (الافتتاح والتحويل والإلغاء والمسوّدات) والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
+    MEMBERS.map((fn) => ROWS[fn].expect.owner.split(':')[0]),
+    MEMBERS.map(() => 'ok'),
+    'ضابط إيجابي: المالك ينجح في دوالّ إدارة الأعضاء السبع',
   );
   t.same(
-    ['post_stock_use', 'void_stock_use', 'preview_stock_use', 'submit_count', 'refresh_count', 'return_count', 'post_count', 'void_count', 'preview_count', 'void_expense'].map((fn) => [ROWS[fn].expect.manager.split(':')[0], ROWS[fn].expect.accountant]),
-    Array(10).fill(['ok', 'forbidden']),
-    'المدير ينجح بالصرف والجرد ومراجعته وإلغائها وإلغاء المصروف والمحاسب لا (FOUNDATION ٥٤٤، ٨٦٥)',
-  );
-  t.same([ROWS.record_expense.expect.accountant, ROWS.report_expenses.expect.accountant], ['ok', 'ok:6'], 'المحاسب يسجّل المصروف ويقرأ تقريره (ثلاث من WP5 وثلاث من WP7)');
-  t.same(
-    [ROWS.post_receipt.expect.manager, ROWS.post_receipt.expect.accountant, ROWS.post_receipt.expect.storekeeper, ROWS.void_receipt.expect.manager, ROWS.void_receipt.expect.accountant],
-    ['ok', 'ok', 'forbidden', 'ok', 'forbidden'],
-    'الاستلام: المدير يرحّل ويلغي، والمحاسب يرحّل ولا يلغي، والأمين لا يرحّل (§2.12)',
+    ['set_period_lock', 'record_opening_balance', 'void_party_entry', 'post_receipt', 'void_receipt', 'post_count', 'close_flock', 'reopen_flock', 'record_bird_sale', 'set_halls_note', 'record_production'].map((fn) => [ROWS[fn].expect.hall_worker, ROWS[fn].expect.viewer]),
+    ['set_period_lock', 'record_opening_balance', 'void_party_entry', 'post_receipt', 'void_receipt', 'post_count', 'close_flock', 'reopen_flock', 'record_bird_sale', 'set_halls_note', 'record_production'].map((fn) => [ROWS[fn].expect.owner, ROWS[fn].expect.owner]),
+    'عامل القاعة والمشاهد يقفلان الفترة ويفتتحان ويلغيان ويرحّلان الاستلام والجرد ويغلقان الدورة ويعيدان فتحها ويبيعان ويكتبان ملاحظة اليوم وينتجون (كالمالك)',
   );
   t.same(
-    [ROWS.post_supplier_return.expect.manager, ROWS.post_supplier_return.expect.accountant, ROWS.post_supplier_return.expect.storekeeper,
-      ROWS.post_receipt_revalue.expect.manager, ROWS.post_receipt_revalue.expect.accountant, ROWS.void_supplier_return.expect.accountant],
-    ['ok', 'ok', 'forbidden', 'ok', 'forbidden', 'forbidden'],
-    'المرتجع والتصحيح: الأمين يكتب المسوّدة ولا يرحّل، والمحاسب يرحّل المرتجع ولا يصحّح السعر ولا يلغي، والمدير كلّها (§2.12)',
+    ['can_see_cost', 'can_see_accounts', 'can_see_sales', 'in_scope_division', 'in_scope_site', 'in_scope_wh', 'in_scope_book'].map((fn) => ROLES.map((role) => ROWS[fn].expect[role])),
+    ['can_see_cost', 'can_see_accounts', 'can_see_sales', 'in_scope_division', 'in_scope_site', 'in_scope_wh', 'in_scope_book'].map(() => ROLES.map(() => 'ok:true')),
+    'الكلفة والحسابات والمبيعات مرئية لكلّ دور، والنطاق المنشأة كلّها (ولو بصفوف نطاق قديمة)',
   );
 
   // ── الكتابة المباشرة بالبيانات الأساسية (Q1، §2.12): كل جدول × دور، إدخال وتعديل، والمسموح بضابط إيجابي بكل خانة ─────────
-  // الإدخال الممنوع يرفضه RLS (42501)، والتعديل الممنوع صفر صفوف (USING يحجب الصفّ). stores.manage للمالك والمدير، وفئات
-  // المصاريف (expense_categories.manage) للمحاسب هم.
-  const STORES = ['owner', 'manager'];
-  const ITEM_CREATE = ['owner', 'manager', 'storekeeper'];
-  const EXPENSES = ['owner', 'manager', 'accountant'];
+  // منذ 0034 كلّ دور يدخل ويعدّل كلّ جدول منها (كالمالك)، والمسموح لكلّ أمر = can(فعله) بـpermissions.ts نفسها (السياسة تنادي can()
+  // والشاشة تخفي بها). الممنوع لو رجع: الإدخال يرفضه RLS (42501) أو حارس السطر (forbidden)، والتعديل صفر صفوف.
+  const EVERYONE = [...ROLES];
   const someId = async (table) => (await db.admin(`select id from public.${table} where org_id = $1 order by created_at, id limit 1`, [org])).rows[0].id;
   const pack = await someId('pack_types');
   const category = await db.asUser(USERS.owner, async (q) => (await q("insert into public.item_categories (name) values ('أعلاف') returning id")).rows[0].id, { commit: true });
@@ -1078,75 +1060,72 @@ export default async function (t, db) {
   const expense = await someId('expense_categories');
   const WRITES = {
     sites: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.sites (division_id, name, kind) values ($1, 'حقل النور', 'farm')", [broiler]],
       update: ['update public.sites set name = name where id = $1', [farm.site]],
     },
     warehouses: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.warehouses (division_id, site_id, name, kind) values ($1, $2, 'مخزن ثانٍ', 'farm')", [broiler, farm.site]],
       update: ['update public.warehouses set name = name where id = $1', [farm.store]],
     },
     pack_types: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.pack_types (label, dimension, factor) values ('كارتون 12 طبقة', 'count', 360)", []],
       update: ['update public.pack_types set label = label where id = $1', [pack]],
     },
     item_categories: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.item_categories (name) values ('إضافات')", []],
       update: ['update public.item_categories set name = name where id = $1', [category]],
     },
     // 0013 (قرار المالك 2026-11-02): الأمين يضيف مادة ووحدتها (item.create)، ولا يعدّل عليهما ولا يضيف مخزناً (stores.manage).
     items: {
-      insertAllowed: ITEM_CREATE,
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.items (name, kind, base_unit) values ('صويا 46%', 'raw', 'kg')", []],
       update: ['update public.items set name = name where id = $1', [farm.item]],
     },
     item_units: {
-      insertAllowed: ITEM_CREATE,
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ["insert into public.item_units (item_id, label, factor_to_base) values ($1, 'طن', 1000)", [farm.item]],
       update: ['update public.item_units set label = label where id = $1', [unit]],
     },
     expense_categories: {
-      allowed: EXPENSES,
+      allowed: EVERYONE,
       insert: ["insert into public.expense_categories (name) values ('كهرباء')", []],
       update: ['update public.expense_categories set name = name where id = $1', [expense]],
     },
     // WP3 (Q1): الجهة يضيفها الأمين هم (مورّداً، party.create)، ويعدّلها المحاسب والمدير (parties.manage)؛ والصندوق للمحاسب والمدير.
     parties: {
-      insertAllowed: [...EXPENSES, 'storekeeper'],
-      updateAllowed: EXPENSES,
+      allowed: EVERYONE,
       insert: ["insert into public.parties (name, is_supplier) values ('مورّد جديد', true)", []],
       update: ['update public.parties set name = name where id = $1', [ledger.debtor]],
     },
     cash_accounts: {
-      allowed: EXPENSES,
+      allowed: EVERYONE,
       insert: ["insert into public.cash_accounts (name, kind) values ('صندوق ثالث', 'wallet')", []],
       update: ['update public.cash_accounts set name = name where id = $1', [ledger.box]],
     },
     // WP4 (§2.5): مسوّدات الافتتاح (opening.post) والتحويل (transfer.post، المرسِل بنطاق الأمين). إدخال السطر الممنوع يرفضه حارس
     // السطر نفسه (forbidden، قبل RLS)، وتعديله الممنوع صفر صفوف (USING يحجب الصفّ قبل الحارس).
     opening_docs: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insert: ['insert into public.opening_docs (warehouse_id, on_date) values ($1, public.app_today() - 3)', [generalStore]],
       update: ['update public.opening_docs set note = note where id = $1', [stock.draftOpening]],
     },
     opening_lines: {
-      allowed: STORES,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 1, 750)', [stock.draftOpening, stock.diesel]],
       update: ['update public.opening_lines set qty_base = qty_base where id = $1', [stock.openingLine]],
     },
     transfers: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insert: ['insert into public.transfers (from_warehouse_id, to_warehouse_id, moved_on) values ($1, $2, public.app_today())', [generalStore, millRaw]],
       update: ['update public.transfers set note = note where id = $1', [stock.draft]],
     },
     transfer_lines: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.transfer_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [stock.draft, stock.kerosene]],
       update: ['update public.transfer_lines set qty_in_unit = qty_in_unit where id = $1', [stock.draftLine]],
@@ -1154,29 +1133,29 @@ export default async function (t, db) {
     // WP5 (§2.5): مسوّدة الصرف (stock_use.post) والجرد (count.enter، والسطر الممنوع يرفضه حارسه بـforbidden)، وكلفة سطر الجرد المسلَّم
     // (count.approve، وحارسها يرفض الممنوع قبل RLS).
     stock_uses: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insert: ['insert into public.stock_uses (warehouse_id, category_id, used_on) values ($1, $2, public.app_today())', [generalStore, wp5.category]],
       update: ['update public.stock_uses set note = note where id = $1', [wp5.useDraft]],
     },
     stock_use_lines: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.stock_use_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [wp5.useDraft, wp5.oil]],
       update: ['update public.stock_use_lines set qty_in_unit = qty_in_unit where id = $1', [wp5.useDraftLine]],
     },
     stock_counts: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insert: ['insert into public.stock_counts (warehouse_id, counted_on) values ($1, public.app_today())', [generalStore]],
       update: ['update public.stock_counts set note = note where id = $1', [wp5.countDraft]],
     },
     stock_count_lines: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, 1)', [wp5.countDraft, stock.kerosene]],
       update: ['update public.stock_count_lines set counted_qty = counted_qty where id = $1', [wp5.countDraftLine]],
     },
     stock_count_line_costs: {
-      allowed: COUNT_APPROVE,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.stock_count_line_costs (line_id, gain_unit_cost) values ($1, 100)', [wp5.countSubmittedLine]],
       update: ['update public.stock_count_line_costs set gain_unit_cost = gain_unit_cost where id = $1', [wp5.cost]],
@@ -1186,42 +1165,42 @@ export default async function (t, db) {
   // يرفض الممنوع قبل RLS).
   Object.assign(WRITES, {
     receipts: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insert: ['insert into public.receipts (party_id, warehouse_id, received_on) values ($1, $2, public.app_today())', [ledger.fresh, generalStore]],
       update: ['update public.receipts set note = note where id = $1', [wp6.draft]],
     },
     receipt_lines: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.receipt_lines (doc_id, item_id, qty_in_unit) values ($1, $2, 1)', [wp6.draft, stock.kerosene]],
       update: ['update public.receipt_lines set qty_in_unit = qty_in_unit where id = $1', [wp6.line]],
     },
     receipt_amounts: {
-      allowed: ACCOUNTS,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.receipt_amounts (doc_id, discount) values ($1, 0)', [wp6.bare]],
       update: ['update public.receipt_amounts set discount = discount where id = $1', [wp6.amounts]],
     },
     receipt_line_amounts: {
-      allowed: ACCOUNTS,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.receipt_line_amounts (line_id, line_total) values ($1, 100)', [wp6.bareLine]],
       update: ['update public.receipt_line_amounts set line_total = line_total where id = $1', [wp6.lineAmount]],
     },
     receipt_charges: {
-      allowed: ACCOUNTS,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ["insert into public.receipt_charges (doc_id, label, amount, allocate_by, cash_account_id) values ($1, 'نقل', 100, 'value', $2)", [wp6.draft, ledger.box]],
       update: ['update public.receipt_charges set amount = amount where id = $1', [wp6.charge]],
     },
     // WP7 (§2.5): رأس المرتجع وسطره بـreceipt.draft، والمقبول بـreceipt.amounts (حارسه يرفض الممنوع قبل RLS).
     supplier_returns: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insert: ['insert into public.supplier_returns (receipt_id, returned_on) values ($1, public.app_today())', [wp7.receipt]],
       update: ['update public.supplier_returns set note = note where id = $1', [wp7.draft]],
     },
     supplier_return_lines: {
-      allowed: TRANSFER,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.supplier_return_lines (doc_id, receipt_line_id, qty_base) values ($1, $2, 1)', [wp7.empty, wp7.receiptLine]],
       update: ['update public.supplier_return_lines set qty_base = qty_base where id = $1', [wp7.line]],
@@ -1229,52 +1208,52 @@ export default async function (t, db) {
     // 0015: الخلطة ونسخها وسطورها بفعل recipe.activate (المنشأة كلّها)، ورأس الدفعة وسطرها بالتعديل وحده (الإدراج من
     // create_production باللقطة) بفعل production.draft ونطاق مخزن مدخلاتها.
     recipes: {
-      allowed: RECIPE,
+      allowed: EVERYONE,
       insert: ["insert into public.recipes (name, output_item_id) values ('خلطة ثالثة', $1)", [p3.output]],
       update: ['update public.recipes set note = note where id = $1', [p3.recipe]],
     },
     recipe_versions: {
-      allowed: RECIPE,
+      allowed: EVERYONE,
       insert: ['insert into public.recipe_versions (recipe_id, basis_kg) values ($1, 100)', [p3.spare]],
       update: ['update public.recipe_versions set note = note where id = $1', [p3.draftVersion]],
     },
     recipe_lines: {
-      allowed: RECIPE,
+      allowed: EVERYONE,
       // حارس السطر (definer) يفحص recipe.activate قبل أن تُقيَّم سياسة الإدراج، فالرفض بالفعل لا بالسياسة.
       insertDenied: 'forbidden',
       insert: ["insert into public.recipe_lines (version_id, item_id, qty, unit) values ($1, $2, 10, 'kg')", [p3.draftVersion, p3.bran]],
       update: ['update public.recipe_lines set qty = qty where id = $1', [p3.draftLine]],
     },
     production_batches: {
-      allowed: MILL_DRAFT,
+      allowed: EVERYONE,
       update: ['update public.production_batches set note = note where id = $1', [p3.draftBatch]],
     },
     production_inputs: {
-      allowed: MILL_DRAFT,
+      allowed: EVERYONE,
       update: ['update public.production_inputs set actual_qty_base = actual_qty_base where id = $1', [p3.draftInput]],
     },
     // 0016: معدّل تكاليف الخلطة بفعل التفعيل، وسطر تكاليف الدفعة بفعل costs.load؛ وحارس كلّ منهما (definer) يرفض الممنوع بالفعل قبل
     // سياسة الإدراج، والتعديل الممنوع صفر صفوف (USING وسياسة الكلفة المقيِّدة تحجبان الصفّ).
     recipe_cost_rates: {
-      allowed: RECIPE,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.recipe_cost_rates (version_id, category_id, amount_per_ton) values ($1, $2, 500)', [p3.draftVersion, p3.transport]],
       update: ['update public.recipe_cost_rates set amount_per_ton = amount_per_ton where id = $1', [p3.draftRate]],
     },
     production_costs: {
-      allowed: ACCOUNTS,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.production_costs (batch_id, category_id, amount) values ($1, $2, 10)', [p3.draftBatch, p3.transport]],
       update: ['update public.production_costs set amount = amount where id = $1', [p3.draftCost]],
     },
     // 0012: القاعة بفعل flock.manage ونطاق حقلها (in_scope_site)، مثل المخزن بنطاق موقعه.
     halls: {
-      allowed: FLOCK_MANAGE,
+      allowed: EVERYONE,
       insert: ["insert into public.halls (site_id, name) values ($1, 'قاعة 3')", [farm.site]],
       update: ['update public.halls set name = name where id = $1', [p2.hall]],
     },
     supplier_return_line_amounts: {
-      allowed: ACCOUNTS,
+      allowed: EVERYONE,
       insertDenied: 'forbidden',
       insert: ['insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 100)', [wp7.bareLine]],
       update: ['update public.supplier_return_line_amounts set credit_amount = credit_amount where id = $1', [wp7.credit]],
@@ -1305,4 +1284,91 @@ export default async function (t, db) {
   }
   const writeVerbs = Object.keys(WRITES).reduce((sum, table) => sum + CLASSES.directWrite[table].privileges.length, 0);
   t.eq(writeCells, writeVerbs * ROLES.length, `خانات الكتابة المباشرة: ${writeVerbs} (جدول × أمر) × ${ROLES.length} أدوار`);
+
+  // ── من ليس عضواً فعّالاً لا يرى ولا يفعل شيئاً (0034 رفعت الأدوار لا العضوية) ───────────────────────────────────────
+  // بلا منشأة (الضيف)، ومدعوّ لم يقبل، وعضو أُرشف بعد أن عمل مديراً: الهويّة false، والجداول صفر صفوف، والقرّاء والكتّاب يرفضون.
+  const archivedUser = id(22);
+  await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [archivedUser, phone(22)]);
+  const archivedMember = await db.asUser(USERS.owner, async (q) => (await q("select public.add_member($1, 'manager', 'مدير سابق') as id", [local(phone(22))])).rows[0].id, { commit: true });
+  await db.acceptInvite(USERS.owner, archivedUser, archivedMember);
+  const before = await db.asUser(archivedUser, async (q) => (await q('select public.can_see_cost() as v')).rows[0].v);
+  t.eq(before, true, 'ضابط: المدير قبل أرشفته يرى الكلفة');
+  await db.asUser(USERS.owner, (q) => q('select public.archive_member($1)', [archivedMember]), { commit: true });
+  const OUTSIDE = {
+    identity: ["select public.can('read') or public.can_see_cost() or public.can_see_accounts() or public.can_see_sales() or public.in_scope_wh($1) or public.in_scope_site($2) or public.in_scope_division($3) or public.in_scope_book($4) as v", [generalStore, farm.site, broiler, millBook]],
+    tables: ['select (select count(*) from public.items) + (select count(*) from public.warehouses) + (select count(*) from public.stock_lots) + (select count(*) from public.party_entries) + (select count(*) from public.cash_moves) + (select count(*) from public.flocks) + (select count(*) from public.sales_invoices) as v', []],
+    stock_on_hand: ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [generalStore]],
+    money_overview: ["select public.money_overview() -> 'debts' ->> 'receivable' as v", []],
+    flocks_overview: ["select jsonb_array_length(public.flocks_overview() -> 'sites') as v", []],
+    set_period_lock: ['select public.set_period_lock(public.app_today() - 3) as v', []],
+    record_party_payment: ['select public.record_party_payment(gen_random_uuid(), $1, $2, 1000, $3, public.app_today(), gen_random_uuid()) as v', [ledger.debtor, millBook, ledger.box]],
+  };
+  const outsiders = { guest: SPARE.guest, pending: SPARE.pending, archived: archivedUser };
+  const seen = {};
+  for (const [who, user] of Object.entries(outsiders)) {
+    seen[who] = {};
+    for (const [label, [sql, params]] of Object.entries(OUTSIDE)) {
+      try {
+        seen[who][label] = `ok:${(await db.asUser(user, (q) => q(sql, params))).rows[0].v}`;
+      } catch (error) {
+        seen[who][label] = error.message;
+      }
+    }
+  }
+  const NOTHING = { identity: 'ok:false', tables: 'ok:0', stock_on_hand: 'out_of_scope', money_overview: 'forbidden', flocks_overview: 'forbidden', set_period_lock: 'forbidden', record_party_payment: 'forbidden' };
+  t.same(seen, { guest: NOTHING, pending: NOTHING, archived: NOTHING }, 'بلا منشأة ومدعوّ لم يقبل وعضو مؤرشَف: لا هويّة ولا صفوف ولا قارئ ولا كاتب');
+  const hintOf = async (user, sql, params) => db.asUser(user, (q) => q(sql, params)).then(() => 'ما رمى', (error) => `${error.message}: ${error.hint}`);
+  t.same(
+    [await hintOf(archivedUser, 'select public.set_period_lock(public.app_today() - 3)', []), await hintOf(USERS.manager, "select public.set_member_role($1, 'viewer')", [member.viewer])],
+    ['forbidden: لست عضواً فعّالاً في منشأة.', 'forbidden: إضافة الموظفين وحذفهم وتغيير أدوارهم لمالك المنشأة فقط.'],
+    'تلميح forbidden بسببيه الباقيين: من ليس عضواً فعّالاً، وإدارة الأعضاء لغير المالك',
+  );
+
+  // ── ما بين المنشآت كما كان: شيء منشأة أخرى خارج النطاق لكلّ دور ─────────────────────────────────────────────────────
+  const otherOwner = id(23);
+  await db.admin('insert into auth.users (id, phone, phone_confirmed_at) values ($1, $2, now())', [otherOwner, phone(23)]);
+  await db.asUser(otherOwner, (q) => q("select public.create_my_org('منشأة أخرى للمصفوفة', 'مالكها')"), { commit: true });
+  const otherOrg = (await db.admin('select org_id from public.members where user_id = $1', [otherOwner])).rows[0].org_id;
+  const other = (await db.admin("select (select id from public.warehouses where org_id = $1 and kind = 'general') as wh, (select id from public.divisions where org_id = $1 and kind = 'broiler') as division, (select id from public.ledger_books where org_id = $1 limit 1) as book", [otherOrg])).rows[0];
+  // 0035 في منشأة أخرى: فوج قائم فيها، فالورقة والغاز وإرسال العلف عليه «غير موجود في منشأتك» لكلّ دور، والمركون منه لا يُحسم.
+  const otherFlock = await db.asUser(
+    otherOwner,
+    async (q) => {
+      const one = async (sql, params) => Object.values((await q(sql, params)).rows[0])[0];
+      const site = await one("insert into public.sites (division_id, name, kind) values ($1, 'حقل المنشأة الأخرى', 'farm') returning id", [other.division]);
+      const hall = await one("insert into public.halls (site_id, name) values ($1, 'قاعة أخرى') returning id", [site]);
+      return one("select public.open_flock($1, public.app_today() - 3, 100, 0, null, gen_random_uuid()) ->> 'flock_id'", [hall]);
+    },
+    { commit: true },
+  );
+  const ACROSS = {
+    identity: ['select public.in_scope_wh($1) or public.in_scope_division($2) or public.in_scope_book($3) as v', [other.wh, other.division, other.book]],
+    stock_on_hand: ["select jsonb_array_length(public.stock_on_hand($1, null, 50) -> 'rows') as v", [other.wh]],
+    rows: ['select count(*)::int as v from public.warehouses where org_id = $1', [otherOrg]],
+    hall_sheet: ["select public.hall_sheet($1) -> 'flock' ->> 'id' as v", [otherFlock]],
+    set_flock_gas: ["select public.set_flock_gas($1, public.app_today(), 3, null, gen_random_uuid(), false) ->> 'status' as v", [otherFlock]],
+    send_flock_feed: ["select public.send_flock_feed(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, public.app_today()) ->> 'status' as v", [otherFlock, p19.feedItem]],
+  };
+  const across = {};
+  for (const role of ROLES) {
+    across[role] = {};
+    for (const [label, [sql, params]] of Object.entries(ACROSS)) {
+      try {
+        across[role][label] = `ok:${(await db.asUser(USERS[role], (q) => q(sql, params))).rows[0].v}`;
+      } catch (error) {
+        across[role][label] = error.message;
+      }
+    }
+  }
+  t.same(
+    across,
+    all({ identity: 'ok:false', stock_on_hand: 'out_of_scope', rows: 'ok:0', hall_sheet: 'flock_not_found', set_flock_gas: 'flock_not_found', send_flock_feed: 'flock_not_found' }),
+    'شيء منشأة أخرى: خارج النطاق لكلّ دور، ولا صفّ منها؛ ووجبة منشأة أخرى (0035) لا ورقة لها ولا غاز ولا علف لكلّ دور',
+  );
+  // دوالّ التحقّق لـservice_role وحدها (catalog.test)، ومنها verify_hall_sheet (0035): لا يناديها دور ولو صار كالمالك (0034).
+  const verifyAs = {};
+  for (const role of ROLES) {
+    verifyAs[role] = await db.asUser(USERS[role], (q) => q('select count(*) from public.verify_hall_sheet()')).then(() => 'ok', (error) => error.code ?? error.message);
+  }
+  t.same(verifyAs, all('42501'), 'verify_hall_sheet: لكلّ دور permission denied (42501)، فهي لـservice_role وحدها');
 }

@@ -67,7 +67,7 @@ export function sourceLabel(source: ExpenseSource): string {
 
 /** الدفاتر بوحدات نطاق القارئ (مرآة in_scope_division، E40): الخادم يرفض غيرها out_of_scope، فما تنعرض للاختيار. */
 export function booksInScope(books: readonly BookRef[], workspace: Pick<Workspace, 'role' | 'scopes'>): BookRef[] {
-  return books.filter((book) => inScope(workspace.role, workspace.scopes, { divisionId: book.divisionId }));
+  return books.filter(() => inScope(workspace.role));
 }
 
 /** «المجموع بشهر النسبة من 09/2026 إلى 11/2026»: التقرير يجمع بالشهر اللي ينتسب إليه المصروف، فالمدّة أشهر كاملة. */

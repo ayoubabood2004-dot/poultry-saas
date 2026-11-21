@@ -242,7 +242,8 @@ async function scenario(t, db) {
       detail.versions.map((v) => [v.version_no, v.status, v.materials_only])],
     [true, null, null, null, [[null, null, null], [null, null, null], [null, null, null]], [[2, 'draft', true], [1, 'active', false]]],
     'recipe_detail للمسوّدة بالموادّ: materials_only، والأساس والكتلة والكلفة المتوقّعة فارغة، وكمية كلّ سطر وكتلته وحصّته فارغة، والنسخ بعلمها');
-    t.same(code(await call(db, U.millOperator, 'select public.new_recipe_version($1, $2) as v', [R.grower.id, uid()])), 'forbidden', 'new_recipe_version لمن يفعّل الخلطة وحده');
+    t.same(code(await call(db, U.millOperator, 'select public.new_recipe_version($1, $2) as v', [R.grower.id, uid()], { commit: false })), 'ok',
+      'new_recipe_version لكلّ عضو: مشغّل المعمل (0034، بمعاملة ترجع)');
     const activated = await one(U.manager, ACTIVATE, [id(133)]);
     t.same([activated.status, activated.basis_kg ?? null, (await versionRow(R.grower.version)).status, (await versionRow(id(133))).basis,
       (await lines(id(133))).map((l) => [l.base_unit, l.in_basis, l.d])],
@@ -315,7 +316,8 @@ async function scenario(t, db) {
       expiry: null, reason: null, note: null, ref: uid(), ...over };
     const args = [a.id, a.recipe, a.version, a.in, a.lines === undefined ? null : JSON.stringify(a.lines), a.save, a.draft, a.on, a.output, a.expiry, a.reason, a.note, a.ref];
     if (a.lines === null) args[4] = null;
-    return { a, run: () => call(db, user, PB, args) };
+    // 0034 («الكلّ مثل المالك»): dry لنداء صار مسموحاً لعضو كان يُمنع، بمعاملة ترجع فلا يغيّر ما بعده.
+    return { a, run: () => call(db, user, PB, args), dry: () => call(db, user, PB, args, { commit: false }) };
   };
   const inputs = async (batchId) => (await db.admin(`select line_no, item_id, trim_scale(planned_qty_base)::text as q, trim_scale(planned_mass_kg)::text as m,
     actual_qty_base, in_basis, base_unit, density_kg_per_l::text as d from public.production_inputs where batch_id = $1 order by line_no`, [batchId])).rows
@@ -376,8 +378,9 @@ async function scenario(t, db) {
     const ignored = await produce(U.owner, { id: id(212), lines: [{ item_id: I.oil, qty: '10' }, { item_id: I.corn, qty: '300' }, { item_id: I.soy, qty: '100' }], save: true, on: day(-1) }).run();
     t.same(ignored.ok ? [ignored.value.saved_to_recipe, ignored.value.recipe_version_id, await countVersions(R.starter.id)] : refusal(ignored), [false, R.starter.version, 1],
       'الموادّ نفسها بترتيب آخر: الاختيار يُتجاهل (لا نسخة جديدة ولو طُلب الحفظ)');
-    const operatorSave = keep('forbidden_save', await produce(U.millOperator, { lines: [{ item_id: I.corn, qty: '500' }, { item_id: I.premix, qty: '20' }], save: true }).run());
-    t.same(refusal(operatorSave), ['forbidden', 'تعديل الخلطة للمالك أو المدير؛ اختر «لهذه المرّة فقط».'], 'مشغّل المعمل يختار «عدّل الخلطة»: forbidden بتلميحه');
+    const operatorSave = await produce(U.millOperator, { lines: [{ item_id: I.corn, qty: '500' }, { item_id: I.premix, qty: '20' }], save: true }).dry();
+    t.same(operatorSave.ok ? [operatorSave.value.saved_to_recipe, operatorSave.value.version_no] : refusal(operatorSave), [true, 2],
+      'مشغّل المعمل يختار «عدّل الخلطة»: نسخة جديدة كالمالك (recipe.activate لكلّ عضو منذ 0034، بمعاملة ترجع)');
     const stale = keep('recipe_changed', await produce(U.owner, { version: R.grower.version, lines: [{ item_id: I.corn, qty: '10' }] }).run());
     t.same(refusal(stale), ['recipe_changed', 'تغيّرت هذه الخلطة من جهاز آخر؛ حدّث الشاشة ثمّ أنتج.'], 'النسخة التي رأتها الشاشة غير المفعَّلة: recipe_changed بتلميحه');
     // «عدّل الخلطة» على الناهي (بمعدّل تكاليف): نسخة بالموادّ بترتيب الشاشة، والمعدّل منسوخ، والقديمة مقاعدة، والدفعة بالنسخة الجديدة (مسوّدة: المعدّل
@@ -417,6 +420,7 @@ async function scenario(t, db) {
 
   await section('produce_batch: الرفض', async () => {
     const run = (over, user = U.owner) => produce(user, over).run();
+    const dryRun = (over, user) => produce(user, over).dry();
     const versionsBefore = await countVersions(R.starter.id);
     const shortage = keep('production_blocked', await run({ id: id(251), save: true, lines: [{ item_id: I.corn, qty: '900000' }, { item_id: I.soy, qty: '10' }] }));
     t.same([shortage.code, shortage.hint?.startsWith('لا يكفي رصيد «ذرة» في «مخزن المواد الأوّلية»: المطلوب'), await batchRow(id(251)), await countVersions(R.starter.id)],
@@ -460,14 +464,14 @@ async function scenario(t, db) {
       'مادّة محذوفة من القوائم: item_archived بتلميحه');
     t.same([
       code(await run({ recipe: uid(), lines: [{ item_id: I.corn, qty: '1' }] })),
-      code(await run({ in: W.general, lines: [{ item_id: I.corn, qty: '1' }] }, U.millOperator)),
-      code(await run({ lines: [{ item_id: I.corn, qty: '1' }] }, U.storekeeper)),
-      code(await run({ lines: [{ item_id: I.corn, qty: '1' }] }, U.accountant)),
+      code(await dryRun({ in: W.general, lines: [{ item_id: I.corn, qty: '1' }] }, U.millOperator)),
+      code(await dryRun({ lines: [{ item_id: I.corn, qty: '1' }] }, U.storekeeper)),
+      code(await dryRun({ lines: [{ item_id: I.corn, qty: '1' }] }, U.accountant)),
       code(await run({ in: W.feed, lines: [{ item_id: I.corn, qty: '1' }] })),
       code(await run({ on: day(1), lines: [{ item_id: I.corn, qty: '1' }] })),
       code(await run({ on: day(-8), lines: [{ item_id: I.corn, qty: '1' }] })),
-    ], ['recipe_not_found', 'out_of_scope', 'forbidden', 'forbidden', 'same_warehouse', 'date_in_future', 'date_too_old'],
-    'رفض الدفعة: خلطة مجهولة، ومخزن خارج النطاق، والأمين والمحاسب بلا فعل الإنتاج، و«رصيد العلف» مخزن موادّ، وتاريخ قادم، وأقدم من سبعة أيّام');
+    ], ['recipe_not_found', 'item_kind_mismatch', 'recipe_choice_required', 'recipe_choice_required', 'same_warehouse', 'date_in_future', 'date_too_old'],
+    'رفض الدفعة: خلطة مجهولة، والمخزن العامّ مدخلاً يصل لقاعدة نوع المادّة (لا out_of_scope منذ 0034)، والأمين والمحاسب يصلان لقاعدة الاختيار كالمالك (لا forbidden منذ 0034؛ بمعاملة ترجع)، و«رصيد العلف» مخزن موادّ، وتاريخ قادم، وأقدم من سبعة أيّام');
     const archivedRecipe = await createRecipe(U.manager, { id: id(261), version: id(262) }, 'علف مؤرشف', I.spare, null, [{ item_id: I.corn }]);
     await one(U.manager, 'update public.recipes set archived_at = now() where id = $1 returning id', [id(261)]);
     const archived = keep('recipe_archived', await run({ recipe: id(261), version: id(262), lines: [{ item_id: I.corn, qty: '1' }] }));
@@ -479,7 +483,7 @@ async function scenario(t, db) {
     const operator = await produce(U.millOperator, { id: id(271), lines: [{ item_id: I.corn, qty: '400' }, { item_id: I.oil, qty: '10' }, { item_id: I.premix, qty: '5' }] }).run();
     samples.produce_batch.awaiting = operator.value;
     t.same(operator.ok ? [operator.value.status, operator.value.awaiting, operator.value.saved_to_recipe, operator.value.recipe_version_id, (await batchRow(id(271))).status] : refusal(operator),
-      ['draft', 'costs', false, R.starter.version, 'draft'], 'مشغّل المعمل: مسوّدة تنتظر ختم الكلف كما في record_production');
+      ['posted', null, false, R.starter.version, 'posted'], 'مشغّل المعمل يرحّل مباشرةً: يختم الكلف بنفسه (production.confirm_costs لكلّ عضو منذ 0034)، فلا انتظار');
     const draft = await produce(U.owner, { id: id(272), draft: true, lines: [{ item_id: I.corn, qty: '100' }, { item_id: I.oil, qty: '5' }, { item_id: I.premix, qty: '2' }], note: 'مسوّدة' }).run();
     samples.produce_batch.draft = draft.value;
     t.same(draft.ok ? Object.keys(draft.value).sort() : refusal(draft), ['id', 'recipe_version_id', 'saved_to_recipe', 'status', 'version_no'],
@@ -566,10 +570,10 @@ async function scenario(t, db) {
     const operatorForm = await one(U.millOperator, FORM, [R.starter.id]);
     samples.production_form.operator = operatorForm;
     t.same([operatorForm.stores.map((s) => s.name), operatorForm.can_edit_recipe, (await one(U.owner, FORM, [R.starter.id])).stores.map((s) => s.name)],
-      [['المخزن الإضافي للموادّ', 'مخزن المواد الأوّلية'], false, ['المخزن الإضافي للموادّ', 'مخزن المواد الأوّلية']],
-      'مخازن الموادّ الحيّة بالنطاق بالاسم، ومشغّل المعمل لا يعدّل الخلطة');
+      [['المخزن الإضافي للموادّ', 'مخزن المواد الأوّلية'], true, ['المخزن الإضافي للموادّ', 'مخزن المواد الأوّلية']],
+      'مخازن الموادّ الحيّة بالاسم، ومشغّل المعمل يعدّل الخلطة (0034)');
     t.same([code(await form(U.accountant, R.starter.id)), code(await form(U.viewer, R.starter.id)), code(await form(U.keeperGeneral, R.starter.id)),
-      code(await form(U.owner, uid()))], ['forbidden', 'forbidden', 'forbidden', 'recipe_not_found'], 'production_form لمن يُنتج وحده، والخلطة المجهولة recipe_not_found');
+      code(await form(U.owner, uid()))], ['ok', 'ok', 'ok', 'recipe_not_found'], 'production_form لكلّ عضو (0034)، والخلطة المجهولة recipe_not_found');
     // مسوّدة للخلطة ← draft_exists.
     const withDraft = await one(U.owner, FORM, [R.breeder.id]);
     t.same([withDraft.draft_exists, withDraft.active.materials_only], [true, false], 'draft_exists للخلطة التي لها مسوّدة');
@@ -593,9 +597,9 @@ async function scenario(t, db) {
       [1, 'retired', true, 'manager', ['ذرة', 'صويا', 'زيت'], ['ذرة', 'صويا', 'زيت'], [], null, true, true],
     ], 'النسخ من الأحدث: موادّ كلّ نسخة بترتيبها، وما أُضيف وما حُذف عن السابقة، والإنتاج الذي حُفظت موادّه فيها، ومن فعّلها');
     t.same(h.productions.map((p) => [p.id, p.status, p.version_no, p.saved_to_recipe, p.produced_on]), [
-      [id(272), 'posted', 2, false, TODAY], [id(201), 'posted', 1, false, TODAY], [id(241), 'posted', 2, true, day(-1)], [id(212), 'posted', 1, false, day(-1)],
-      [id(211), 'posted', 1, false, day(-1)],
-    ], 'الإنتاج المرحَّل في المدّة من الأحدث (اليوم ثمّ وقت الترحيل)، والمسوّدة (انتظار الختم) خارجها');
+      [id(272), 'posted', 2, false, TODAY], [id(271), 'posted', 2, false, TODAY], [id(201), 'posted', 1, false, TODAY], [id(241), 'posted', 2, true, day(-1)],
+      [id(212), 'posted', 1, false, day(-1)], [id(211), 'posted', 1, false, day(-1)],
+    ], 'الإنتاج المرحَّل في المدّة من الأحدث (اليوم ثمّ وقت الترحيل)، ومعه دفعة مشغّل المعمل المرحَّلة (0034)');
     const once = h.productions.find((p) => p.id === id(211));
     t.same([once.lines.map((l) => [l.name, l.qty, l.base_unit, l.mass_kg, l.in_basis, l.extra]), once.omitted.map((x) => x.name), once.by, norm(once.output_kg)],
       [[['ذرة', '500.000', 'kg', '500.000', true, false], ['برمكس', '20.000', 'kg', '20.000', true, true]], ['صويا', 'زيت'], 'المالك', '520'],
@@ -603,13 +607,13 @@ async function scenario(t, db) {
     const first = h.productions.find((p) => p.id === id(201));
     t.same([first.note, first.lines.map((l) => [l.name, l.qty, l.mass_kg]), first.omitted], ['أوّل إنتاج بالموادّ', [['ذرة', '600.250', '600.250'], ['صويا', '300.000', '300.000'], ['زيت', '50.000', '46.000']], []],
       'السطور بكمياتها بوحدة المادّة وكتلتها، والملاحظة');
-    t.same([h.totals.batches, norm(h.totals.output_kg)], [5, '2674.65'], 'المجاميع للمرحَّل وحده (946.25 + 520 + 409.2 + 692.6 + 106.6)');
+    t.same([h.totals.batches, norm(h.totals.output_kg)], [6, '3088.85'], 'المجاميع للمرحَّل وحده (946.25 + 520 + 409.2 + 692.6 + 106.6 + 414.2 دفعة المشغّل)');
     // الملغاة في السجلّ ومجاميعها خارجها؛ والمدّة تستثني ما قبلها.
     await one(U.owner, "select public.void_production($1, 'خطأ في الوزن', $2) as v", [id(212), uid()]);
     const afterVoid = await one(U.owner, HISTORY, [R.starter.id, day(-30), TODAY]);
     const today = await one(U.owner, HISTORY, [R.starter.id, TODAY, TODAY]);
     t.same([afterVoid.productions.find((p) => p.id === id(212))?.status, afterVoid.totals.batches, today.productions.map((p) => p.id), today.versions.length],
-      ['void', 4, [id(272), id(201)], 2], 'الملغاة تبقى في السجلّ بحالتها وتخرج من المجاميع، والمدّة تحصر الإنتاج لا النسخ');
+      ['void', 5, [id(272), id(271), id(201)], 2], 'الملغاة تبقى في السجلّ بحالتها وتخرج من المجاميع، والمدّة تحصر الإنتاج لا النسخ');
     // خلطة بكميات أصبحت بالموادّ بالإنتاج: الناهي (v1 بكميات، v2 من الدفعة id(221) المسوّدة) — المسوّدة لا تظهر، وfrom_batch يسمّيها.
     const fin = await one(U.owner, HISTORY, [R.finisher.id, day(-30), TODAY]);
     samples.recipe_history.finisher = fin;
@@ -618,7 +622,9 @@ async function scenario(t, db) {
       'الناهي: النسخة 2 من دفعة مسوّدة (from_batch)، والمسوّدة لا تظهر في الإنتاج');
     // القارئ خارج نطاق المعمل يرى النسخ ولا يرى الإنتاج؛ والإنتاج قبل أشهر خارج المدّة وداخل سنة.
     const outside = await one(U.keeperGeneral, HISTORY, [R.starter.id, day(-30), TODAY]);
-    t.same([outside.versions.length, outside.productions.length, outside.totals.batches], [2, 0, 0], 'أمين العامّة: النسخ بلا إنتاج');
+    const inside = await one(U.owner, HISTORY, [R.starter.id, day(-30), TODAY]);
+    t.same([outside.versions.length, outside.productions.length, outside.totals.batches], [2, inside.productions.length, inside.totals.batches],
+      'أمين العامّة (بصفّ نطاق قديم): النسخ والإنتاج كالمالك (0034)');
   });
 
   // ── ٨) recipes_overview: القطع ─────────────────────────────────────────────────────────────────────────────────────

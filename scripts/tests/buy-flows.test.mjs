@@ -286,7 +286,7 @@ export default async function (t) {
       await unmount();
       fresh({ status: 'ready', workspace: ws('viewer') }, handlers({ loadStoresOverview: () => overview({ canManage: false, canCreateItem: false }) }));
       await mount('/inventory/store/w-raw');
-      t.ok(text().includes('ذرة صفراء') && byAction('buy-item').length === 0, 'B1: والمشاهد (بلا purchase.record) بلا «سجّل شراء»');
+      t.ok(text().includes('ذرة صفراء') && byAction('buy-item').length === 4, 'B1: والمشاهد يسجّل الشراء أيضاً (0034: purchase.record لكلّ عضو)');
       await unmount();
     });
     await step('B1-archived', async () => {
@@ -573,7 +573,7 @@ export default async function (t) {
       await unmount();
       fresh({ status: 'ready', workspace: ws('accountant') }, handlers());
       await mount('/inventory/items/i-corn/details');
-      t.ok(text().includes('سعر الكلفة الآن') && byAction('edit-cost-price').length === 0, 'B6: المحاسب يراه ولا يكتبه (صلاحية سعر البيع نفسها)');
+      t.ok(text().includes('سعر الكلفة الآن') && byAction('edit-cost-price').length === 1, 'B6: المحاسب يراه ويكتبه (0034: stores.manage لكلّ عضو)');
       await unmount();
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases({ sellPrice: null, costPrice: null }) }));
       await mount('/inventory/items/i-corn/details');

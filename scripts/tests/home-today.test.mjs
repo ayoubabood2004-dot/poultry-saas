@@ -295,7 +295,7 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── D7: عامل القاعة ← جولته بس: بلا «رُدّت إليك» (ماكو flock.manage) وبلا قراءة استلام أصلاً ──
+    // ── D7: عامل القاعة ← جولته ثمّ «رُدّت إليك» (0034: flock.manage لكلّ عضو)، وبلا قراءة استلام (لا يرى الكلفة في هذه المساحة) ──
     {
       const calls = fresh({ status: 'ready', workspace: ws({ userId: 'u-worker', role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false, canSeeCost: false }), offline: false }, {
         loadOverviewJson: () => overview(),
@@ -303,7 +303,7 @@ export default async function (t) {
         countDraftReceipts: () => 7,
       });
       await mount(m.h(m.HomePage));
-      t.same(taskRows(), [['round_layer', '/layers/round']], 'D7: جولة حقول البيض بس (بنطاقه بيض، وبلا مردودة ولا استلام)');
+      t.same(taskRows(), [['round_layer', '/layers/round'], ['rejects', '/layers']], 'D7: جولة حقول البيض ثمّ الجولات المردودة (بنطاقه بيض)، وبلا استلام');
       t.ok(!calls.includes('countDraftReceipts'), 'D7: ماكو قراءة استلام لمن ما يسوّي استلاماً');
       await unmount();
     }
@@ -317,7 +317,7 @@ export default async function (t) {
       t.same(keys('storekeeper').slice(0, m.HOME_ACTIONS_SHOWN), ['purchase', 'sale', 'use', 'transfer'], 'D8: أمين المخزن: الشراء ثمّ «بِع» ثمّ الصرف والنقل');
       t.same(keys('accountant').slice(0, m.HOME_ACTIONS_SHOWN), ['payout', 'sale', 'payment', 'expense'], 'D8: المحاسب: الدفع ثمّ «بِع» ثمّ القبض والمصروف');
       t.same(m.homeActions(null).find((action) => action.key === 'purchase')?.to, '/inventory', 'D8: «سجّل شراء» يفتح بطاقات المواد (لا ورقة الاستلام)');
-      t.same(keys('hall_worker', { divisions: ['broiler'] }), ['round_broiler'], 'D8: عامل القاعة: جولته بس');
+      t.same(keys('hall_worker', { divisions: ['broiler'] }), ['round_broiler', 'purchase', 'sale', 'use', 'transfer', 'payout', 'payment', 'expense', 'count', 'produce'], 'D8: عامل القاعة: جولته أوّلاً ثمّ كلّ الأزرار (0034: الدور يرتّب فقط)');
       fresh({ status: 'ready', workspace: ws({ role: 'owner' }), offline: false }, {});
       await mount(m.h(m.HomeActions, { actions: m.homeActions({ role: 'owner', canSeeAccounts: true }) }));
       const links = all().filter((node) => node.localName === 'a');
@@ -338,18 +338,18 @@ export default async function (t) {
     {
       const items = (workspace) => m.bottomItems(workspace ? { status: 'ready', workspace, offline: false } : { status: 'loading' }).map((item) => [item.label, item.to]);
       t.same(items(ws({ role: 'owner' })), [['الرئيسية', '/'], ['الجولة', '/broiler/round'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: المالك: الرئيسية والجولة والمخزن والحسابات');
-      t.same(items(ws({ role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false })), [['الرئيسية', '/'], ['الجولة', '/layers/round']], 'D9: عامل قاعة البيض: جولته بس (وجولته تفتح البيض)');
+      t.same(items(ws({ role: 'hall_worker', divisions: ['layer'], canSeeAccounts: false })), [['الرئيسية', '/'], ['الجولة', '/layers/round'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: عامل قاعة البيض: جولته (تفتح البيض) ثمّ المخزن والمبيعات (0034)');
       // «المبيعات» لمن يبيع حين يتّسع الشريط (تصميم المبيعات ٨): الأمين والمحاسب؛ ومن له جولة وحسابات (المالك) شريطه كما هو.
-      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: أمين المخزن: المخزن والمبيعات بلا جولة');
+      t.same(items(ws({ role: 'storekeeper', divisions: ['feed_mill', 'general'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: أمين المخزن بوحدة المعمل: المعمل والمخزن والمبيعات (0034)');
       t.same(items(ws({ role: 'accountant', divisions: ['general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts'], ['المبيعات', '/sales']], 'D9: المحاسب: المخزن والحسابات والمبيعات بلا جولة');
       t.same(items(ws({ role: 'storekeeper', divisions: ['general'], canSeeAccounts: false, canSeeSales: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: ضابط: بلا «المبيعات» حين لا يراها الخادم (can_see_sales)');
       // كلمة المالك 2026-11-04: بند «المخزن» واحد، فالشريط السفلي يأخذ بند الشريط كما هو (اسمه وأيقونته)، ولا ينتقي مخزن وحدة
       // بديلاً عنه: مشغّل المعمل كان يروح لـ/inventory/mill.
-      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخزن', '/inventory']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ تبويب المخزن (0015)');
-      t.same(items(ws({ role: 'hatchery_operator', divisions: ['hatchery'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory']], 'D9: مشغّل المفقس: تبويب المخزن (بدل «مخازن المفقس»)');
-      t.same(items(ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false })).map(([, to]) => to), ['/', '/broiler/round'], 'D9: عامل القاعة: جولته بلا مخزن');
+      t.same(items(ws({ role: 'mill_operator', divisions: ['feed_mill'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المعمل', '/mill'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: مشغّل المعمل: معمله بلمسة ثمّ تبويب المخزن (0015) والمبيعات (0034)');
+      t.same(items(ws({ role: 'hatchery_operator', divisions: ['hatchery'], canSeeAccounts: false })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['المبيعات', '/sales']], 'D9: مشغّل المفقس: تبويب المخزن (بدل «مخازن المفقس») والمبيعات');
+      t.same(items(ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false })).map(([, to]) => to), ['/', '/broiler/round', '/inventory', '/sales'], 'D9: عامل القاعة: جولته ثمّ المخزن والمبيعات (0034)');
       t.same(items(ws({ role: 'owner' })).map(([, to]) => to).includes('/mill'), false, 'D9: من له جولة شريطه كما هو (الحدّ أربعة)');
-      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['المخزن', '/inventory'], ['الحسابات', '/accounts'], ['المبيعات', '/sales']], 'D9: محاسب بنطاقه حقول: بلا «الجولة» (ما يحفظ يوم الفوج)');
+      t.same(items(ws({ role: 'accountant', divisions: ['broiler', 'general'] })), [['الرئيسية', '/'], ['الجولة', '/broiler/round'], ['المخزن', '/inventory'], ['الحسابات', '/accounts']], 'D9: محاسب بحقول: الجولة كالمالك (0034: يحفظ يوم الفوج)');
       t.ok([ws({ role: 'owner' }), ws({ role: 'hall_worker', divisions: ['broiler'] }), ws({ role: 'viewer' }), ws({ role: 'accountant' })].every((w) => items(w).length <= 4), 'D9: الرئيسية ويّا ثلاثة بالأكثر لكل دور (و«القائمة» بعدهم)');
       t.eq(items(null).length, 4, 'D9: بلا منشأة مؤكّدة الهيكل كلّه بحدّ أقصى أربعة');
       let menu = 0;
@@ -407,10 +407,11 @@ export default async function (t) {
       await unmount();
     }
     {
-      // عامل القاعة: ما له مخزن (برّا STORE_ROLES)، فما تظهر له البطاقة ولا بنده.
+      // عامل القاعة: كلّ الأدوار في STORE_ROLES منذ 0034، فبطاقة «المخزن» وبنده له كغيره.
       fresh({ status: 'ready', workspace: ws({ role: 'hall_worker', divisions: ['broiler'], canSeeAccounts: false }), offline: false }, { loadOverviewJson: () => done(), loadHomeSummary: () => ({ general: { belowMinimum: 2 } }), countDraftReceipts: () => 0 });
       await mount(m.h(m.HomePage));
-      t.same(all().filter((node) => node.localName === 'a').map((node) => node.getAttribute('href')).filter((href) => href.startsWith('/inventory')), [], 'D13: عامل القاعة: ولا بطاقة ولا رابط للمخزن بالرئيسية');
+      const workerCards = all().filter((node) => node.localName === 'a' && node.getAttribute('href') === '/inventory' && node.getAttribute('data-action') !== 'home-purchase');
+      t.eq(workerCards.length, 1, 'D13: عامل القاعة: بطاقة «المخزن» تفتح التبويب (0034)');
       await unmount();
     }
 

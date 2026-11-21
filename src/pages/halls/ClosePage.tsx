@@ -49,7 +49,7 @@ function whyNotText(code: string | null): string {
       return t('halls.close.why.layer', 'إغلاق دورة البيّاض يأتي مع بيع الدجاج المستبعد.');
     case 'forbidden':
     case 'role':
-      return t('halls.close.why.role', 'إغلاق الدورة للمدير وحده.');
+      return t('halls.close.why.role', 'لا يغلق حسابك هذه الدورة الآن: حدّث الصفحة، فإن بقي المنع فاسأل مالك المنشأة.');
     case 'not_active':
     case 'preparing':
       return t('halls.close.why.not_active', 'الفوج ليس قائماً، فلا تُغلق دورته.');
