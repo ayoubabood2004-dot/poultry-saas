@@ -334,7 +334,7 @@ export default async function (t) {
       );
     });
 
-    // ── R8: the negative-feed sentence offers «أضف للقاعة» to a viewer who cannot give ──
+    // ── R8: the negative-feed sentence links to «أضف للقاعة» exactly when the button is there (0034: a viewer can give) ──
     await step('R8 viewer feed link', async () => {
       const c = cycle('f-1', 9);
       const raw = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'flock-issue-0019.json'), 'utf8')).flock_feed.owner;
@@ -348,8 +348,8 @@ export default async function (t) {
       await mount('/broiler/hall/h-1');
       t.same(
         [byAction('flock-give').length, byAction('feed-negative').length, byAction('feed-negative-give').length],
-        [0, 1, 0],
-        `R8 viewer: no «أضف للقاعة» action, so the negative-feed sentence must not link to the give page either (${textOf('feed-negative')})`,
+        [1, 1, 1],
+        `R8 viewer (0034, everyone like the owner): «أضف للقاعة» is there, and the negative-feed sentence links to the give page (${textOf('feed-negative')})`,
       );
     });
 

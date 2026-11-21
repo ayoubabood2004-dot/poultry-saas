@@ -452,8 +452,7 @@ export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtit
   const [busy, setBusy] = useState(false);
   const role = workspace?.role ?? 'viewer';
   const permissions = { stores: can(role, 'stores.manage'), expenses: can(role, 'expense_categories.manage') };
-  const scopeRows = workspace?.scopes ?? [];
-  const allowed = (target: ScopeTarget) => inScope(role, scopeRows, target);
+  const allowed = () => inScope(role);
 
   const done = (message: string) => {
     setDialog(null);

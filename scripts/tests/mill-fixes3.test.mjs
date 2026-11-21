@@ -284,13 +284,13 @@ export default async function (t) {
       );
     });
     await step('Z21 من لا يرحّل', async () => {
-      // مشغّل المعمل قبل ختم الكلف لا يرى «أنتج الآن» (ب١)، فلا جملة عن زرّ غير موجود.
+      // مشغّل المعمل قبل ختم الكلف يرى «أنتج الآن» منذ 0034 (production.post لكلّ عضو)، فالجملة تحت الزرّ كما لغيره.
       const server = batchServer({ problemsOf: () => [{ code: 'costs_pending' }] });
       fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, server.handlers);
       await mount('/mill/batch/b-1');
       type(byAction('output-weight')[0], '985');
       await settle();
-      t.same([byAction('post-production').length, byAction('post-unsaved').length], [0, 0], 'Z21 ضابط: بلا زرّ «أنتج الآن» لا جملة تحته');
+      t.same([byAction('post-production').length, byAction('post-unsaved').length], [1, 1], 'Z21 مشغّل المعمل: الزرّ والجملة تحته كالمدير (0034)');
     });
 
     // ── Z22 (ب٢٢): أثناء الحفظ يُقفل قسم الوزن ورابط «سجّل مصروفاً» و«أنتج الآن»، ولا يضيع ما كُتب، والنافذة تُغلق ───────────────────────────

@@ -377,7 +377,8 @@ export interface HomeAction {
 export const HOME_ACTIONS_SHOWN = 4;
 
 /**
- * أوّل ما يلمسه كل دور بيومه (كلمة المالك 2026-11-02): أولوية ترتيب مو قائمة ظهور — الممنوع ينشال بـcan قبلها، واللي برّا
+ * أوّل ما يلمسه كل دور بيومه (كلمة المالك 2026-11-02): أولوية ترتيب مو قائمة ظهور — منذ 0034 («الكلّ مثل المالك بكلّ شيء») كلّ عضو
+ * يرى الأزرار كلّها، والدور يرتّبها فقط؛ واللي برّا
  * السطر يبقى بترتيبه الافتراضي بعد المرتّبين. أدوار بلا سطر (المشاهد ومشغّلا المعمل والمفقس) بالترتيب الافتراضي.
  */
 const PRIORITY: Partial<Record<Role, readonly HomeActionKey[]>> = {
@@ -413,7 +414,7 @@ export function homeActions(workspace: (Pick<Workspace, 'role' | 'canSeeAccounts
     [{ key: 'payment', to: '/accounts/parties?new=payment', label: t('home.do.payment', 'قبضت من جهة'), icon: HandCoins }, allowed('payment.post', true)],
     [{ key: 'expense', to: '/accounts/expenses?new=1', label: t('home.do.expense', 'مصروف'), icon: Receipt }, allowed('expense.post', true)],
     [{ key: 'count', to: '/inventory/counts', label: t('home.do.count', 'جرد'), icon: ClipboardCheck }, allowed('count.enter')],
-    // إنتاج العلف (0015): لمن يسوّد الدفعة (مشغّل المعمل والمدير والمالك)؛ والمحاسب يرحّل ولا يسوّد، فلا زرّ له.
+    // إنتاج العلف (0015): لمن يسوّد الدفعة (production.draft: كلّ عضو منذ 0034، «الكلّ مثل المالك بكلّ شيء»).
     [{ key: 'produce', to: '/mill', label: t('home.do.produce', 'أنتج علفاً'), icon: Factory }, allowed('production.draft')],
   ];
   const shown = all.filter(([, show]) => show).map(([action]) => action);

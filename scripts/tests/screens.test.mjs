@@ -34,12 +34,6 @@ async function bundle(contents) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 }
 
-const DIVISIONS = [
-  { id: 'd-layer', kind: 'layer' },
-  { id: 'd-mill', kind: 'feed_mill' },
-  { id: 'd-broiler', kind: 'broiler' },
-];
-
 const member = (over) => ({
   id: 'm-1',
   userId: 'u-1',
@@ -55,7 +49,7 @@ const member = (over) => ({
 export default async function (t) {
   const m = await bundle(
     [
-      "export { StaffTable, divisionsText, memberActions, listIsStale, roleIsStale, CodeDialog } from './src/pages/staff/StaffPage.tsx';",
+      "export { StaffTable, memberActions, listIsStale, roleIsStale, CodeDialog } from './src/pages/staff/StaffPage.tsx';",
       "export { InviteCard, mayHaveJoined, mayHaveDeclined, newInvites } from './src/pages/welcome/WelcomePage.tsx';",
       "export { default as AccountPage } from './src/pages/account/AccountPage.tsx';",
       "export { sessionStore } from './src/lib/session.tsx';",
@@ -73,23 +67,21 @@ export default async function (t) {
     member({ id: 'm-3', userId: 'u-3', displayName: 'المدير', role: 'manager', phone: null }),
     member({ id: 'm-4', userId: 'u-4', displayName: 'المشاهد', role: 'viewer' }),
   ];
-  const withActions = render(m.h(m.StaffTable, { rows, divisions: DIVISIONS, selfUserId: 'u-1', onOpen: () => {} }));
+  const withActions = render(m.h(m.StaffTable, { rows, selfUserId: 'u-1', onOpen: () => {} }));
   t.ok(withActions.includes('أبو علي (أنت)'), 'صفّ المالك نفسه معلَّم «(أنت)»');
   t.ok(withActions.includes('<bdi dir="ltr">0770 123 4567</bdi>'), 'الرقم بشكله المكتوب LTR، بلا فواصل آلاف');
   t.ok(!withActions.includes('9,647'), 'ماكو فواصل آلاف بالرقم');
   t.ok(withActions.includes('عامل القاعة') && withActions.includes('بانتظار القبول') && withActions.includes('يعمل'), 'الدور والحالة بأسمائهما');
-  t.ok(withActions.includes('معمل العلف، حقول اللحم'), 'الوحدات بترتيب الوحدات الست وفاصل عربي');
-  t.eq(m.divisionsText(rows[2], DIVISIONS), 'كل الوحدات', 'المدير بلا نطاق: كل الوحدات (مثل inScope)');
-  t.eq(m.divisionsText(rows[3], DIVISIONS), 'لا وحدة', 'المشاهد بلا نطاق: لا وحدة');
+  // «الكلّ مثل المالك بكلّ شيء» (0034): النطاق لا يحدّ شيئاً، فلا عمود وحدات ولا «لا وحدة» (كانت تبدو منعاً).
+  t.ok(!withActions.includes('الوحدات</th>') && !withActions.includes('لا وحدة') && !withActions.includes('معمل العلف، حقول اللحم'), 'بلا عمود الوحدات (النطاق لم يعد يحدّ شيئاً)');
   t.eq((withActions.match(/data-action="member-actions"/g) ?? []).length, 4, 'زرّ إجراءات لكل صفّ');
   t.ok(withActions.includes('إجراءات</th>') && withActions.indexOf('إجراءات</th>') < withActions.indexOf('الاسم</th>'), 'الإجراءات أوّل عمود (يمين الجدول): بالموبايل ما تبقى برّا الشاشة');
   t.ok(withActions.includes('aria-label="إجراءات حسن"'), 'زرّ الإجراءات يسمّي الموظف للقارئ الصوتي');
   const at = (over) => m.memberActions(member(over), 'u-1');
-  t.same(at({ id: 'm-2', userId: 'u-2', role: 'hall_worker', accepted: false }), ['reissue', 'role', 'scopes', 'archive'], 'مدعوّ ما قبل: رمز جديد والدور والوحدات والأرشفة');
-  t.same(at({ id: 'm-5', userId: 'u-5', role: 'manager' }), ['role', 'scopes', 'archive'], '«رمز جديد» للمدعوّ اللي ما قبل بس');
-  t.same(at({}), ['role'], 'المالك نفسه: بلا وحدات (يرى كلّها) وبلا أرشفة نفسه (الخروج من «حسابي»)');
-  t.same(at({ id: 'm-6', userId: 'u-6' }), ['role', 'archive'], 'مالك ثانٍ: بلا وحدات');
-  t.eq(m.divisionsText({ role: 'owner', divisionIds: ['d-mill'] }, DIVISIONS), 'كل الوحدات', 'مالك بصفوف نطاق قديمة: كل الوحدات (in_scope_division للمالك دائماً)');
+  t.same(at({ id: 'm-2', userId: 'u-2', role: 'hall_worker', accepted: false }), ['reissue', 'role', 'archive'], 'مدعوّ ما قبل: رمز جديد والدور والأرشفة (بلا «غيّر الوحدات»)');
+  t.same(at({ id: 'm-5', userId: 'u-5', role: 'manager' }), ['role', 'archive'], '«رمز جديد» للمدعوّ اللي ما قبل بس');
+  t.same(at({}), ['role'], 'المالك نفسه: بلا أرشفة نفسه (الخروج من «حسابي»)');
+  t.same(at({ id: 'm-6', userId: 'u-6' }), ['role', 'archive'], 'مالك ثانٍ: الدور والأرشفة');
   t.ok(m.listIsStale(new m.UnknownOutcomeError()) && m.listIsStale(new m.RejectedError('already_in_org', 'h')) && m.listIsStale(new m.RejectedError('member_not_found', 'h')), 'نتيجة مجهولة أو «القائمة قديمة»: القائمة تتحدّث');
   t.ok(!m.listIsStale(new m.RejectedError('last_owner', 'h')) && !m.listIsStale(new m.NetworkError()), 'رفض عادي أو ما وصل: القائمة ما تحتاج تحديث');
   t.ok(m.mayHaveJoined(new m.UnknownOutcomeError()) && m.mayHaveJoined(new m.RejectedError('invite_not_found', 'h')) && m.mayHaveJoined(new m.RejectedError('already_member', 'h')), 'قبول أو إنشاء ممكن صار: الهويّة تتأكّد');
@@ -115,9 +107,9 @@ export default async function (t) {
   delete globalThis.document;
   t.ok(codeDialog.includes('012 345') && !codeDialog.includes('data-action="dialog-close"'), 'رمز الدعوة: بلا X، ينسدّ من «تمّ» بس');
   t.ok(withActions.includes('<td') && withActions.includes('—'), 'رقم غايب «—»');
-  const readOnly = render(m.h(m.StaffTable, { rows, divisions: DIVISIONS, selfUserId: 'u-1' }));
+  const readOnly = render(m.h(m.StaffTable, { rows, selfUserId: 'u-1' }));
   t.ok(!readOnly.includes('data-action="member-actions"') && !readOnly.includes('إجراءات'), 'بلا صلاحية: ماكو عمود إجراءات');
-  const empty = render(m.h(m.StaffTable, { rows: [], divisions: DIVISIONS, selfUserId: 'u-1' }));
+  const empty = render(m.h(m.StaffTable, { rows: [], selfUserId: 'u-1' }));
   t.ok(empty.includes('لا موظفين غيرك بعد'), 'القائمة الفارغة تكول شنو يسوي');
 
   // ── حسابي: الاسم المسموع يبدي بالنصّ الظاهر (WCAG 2.5.3) ───────────────────────────────────────────

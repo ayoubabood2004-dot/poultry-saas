@@ -589,7 +589,7 @@ export default async function (t) {
       t.same([text(first('hub-sales')).includes('كلفتها'), first('hub-gross')], [false, null], 'H33 الكلفة محجوبة: بلا كلفة ولا ربح');
       t.ok(text(first('hub-alerts')).includes('لا تنبيهات') && first('hub-alert-receivable') === null, 'H34 بلا تنبيه: «لا تنبيهات»');
       const hrefs = links(descendants(body()).find((n) => n.localName === 'nav' && n.getAttribute('aria-label') === 'صفحات الحسابات')).map(hrefOf);
-      t.same([hrefs.includes('/accounts/openings'), hrefs.includes('/accounts/parties?new=payment')], [false, true], 'H35 المحاسب: بلا الأرصدة عند البداية، وله القبض والدفع');
+      t.same([hrefs.includes('/accounts/openings'), hrefs.includes('/accounts/parties?new=payment')], [true, true], 'H35 المحاسب: الأرصدة عند البداية (0034: opening.post لكلّ عضو)، والقبض والدفع');
       await unmount();
       const old = clone(O);
       old.alerts.old_receivable = { parties: 2, amount: '250000' };
@@ -598,7 +598,7 @@ export default async function (t) {
       await mount('/accounts');
       t.same([hrefOf(first('hub-alert-receivable')), hrefOf(first('hub-alert-payable'))], ['/accounts/debts?side=receivable&over90=1', '/accounts/debts?side=payable&over90=1'], 'H36 الطرفان فوق 90 يوماً: تنبيهان');
       const viewerHrefs = links(descendants(body()).find((n) => n.localName === 'nav' && n.getAttribute('aria-label') === 'صفحات الحسابات')).map(hrefOf);
-      t.ok(!viewerHrefs.some((href) => href.includes('?new=')), 'H37 المشاهد: بلا أزرار تسجيل');
+      t.ok(viewerHrefs.some((href) => href.includes('?new=')), 'H37 المشاهد: أزرار التسجيل له أيضاً (0034)');
       await unmount();
       fresh({ money_overview: () => Promise.reject(new m.RejectedError('forbidden', 'الحسابات للمالك والمدير والمحاسب فقط.')) });
       await mount('/accounts');

@@ -348,11 +348,11 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── R8: المعاينة لمن يكتب المسوّدة أو مبالغها بس ─────────────────────────────────────────────────────────────────────
+    // ── R8: المعاينة لمن يكتب المسوّدة أو مبالغها، وهم كلّ عضو منذ 0034 (المشاهد منهم) ─────────────────────────────────
     await step('R8', async () => {
       fresh('viewer', handlers());
       await mount('/inventory/receipts/r-1');
-      t.same([text().includes('شحم'), byAction('preview-receipt').length, byAction('discard-receipt').length], [true, 0, 0], 'R8: القارئ يشوف السطور بلا زرّ معاينة');
+      t.same([text().includes('شحم'), byAction('preview-receipt').length, byAction('discard-receipt').length], [true, 1, 1], 'R8: المشاهد يشوف السطور ومعها المعاينة والحذف (0034)');
       await unmount();
     });
 

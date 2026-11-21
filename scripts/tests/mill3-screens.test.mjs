@@ -428,7 +428,7 @@ export default async function (t) {
     await step('M4', async () => {
       fresh(OPERATOR, { rpcs: millRpcs() });
       await mount('/mill');
-      t.same([byAction('arrange-recipes').length, byAction('open-recipe').length >= LIVE.length], [0, true], 'M4 مشغّل المعمل بلا «رتّب العلائق»');
+      t.same([byAction('arrange-recipes').length, byAction('open-recipe').length >= LIVE.length], [1, true], 'M4 مشغّل المعمل يرتّب العلائق (0034: recipe.activate لكلّ عضو)');
     });
 
     // ── R1: «أنتج» يفتح شاشة الإنتاج الواحدة ──────────────────────────────────────────────────────────────────────────

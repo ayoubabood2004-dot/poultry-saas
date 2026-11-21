@@ -387,7 +387,7 @@ export default async function (t) {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ lines: [cornLine, dbsLine], massKg: null })) });
       await mount('/mill/recipe/r-1');
       const block = byAction('unit-mismatch')[0];
-      t.eq(block?.textContent ?? null, 'تغيّرت وحدة «دبس» بعد إضافتها: يحذف المالك أو المدير سطرها ويضيفها من جديد.', 'W31 لمن لا يعدّل الخلطة: الجملة لا تدلّه على فعل ليس له (درس ب٣٧)');
+      t.eq(block?.textContent ?? null, 'تغيّرت وحدة «دبس» بعد إضافتها: احذف سطرها وأضفها من جديد.', 'W31 المحاسب يعدّل الخلطة (0034): الجملة تدلّه على الفعل كالمدير');
     });
     await step('W31 بالقطعة', async () => {
       const bag = recipeLine({ id: 'l-4', line_no: 4, item_id: 'i-bag', item_name: 'كيس', kind: 'raw', base_unit: 'pc', qty: '5.000', unit: 'L', mass_kg: null, share_pct: null, unit_mismatch: true });
@@ -697,13 +697,13 @@ export default async function (t) {
       t.same(named(calls, 'setBatchFields').map(([batchId, fields]) => [batchId, fields]), [['b-1', { outputQtyKg: 960_000n }]], 'W35 ولا يُرسل اليوم الممسوح');
     });
     await step('W35 بلا بوّابة', async () => {
-      // مشغّل المعمل قبل ختم الكلف لا يرى «أنتج الآن» ولا «اختم الكلف»: لا جملة بوّابة، فلا زرّ إرجاع معلَّق بلا جملته.
+      // مشغّل المعمل قبل ختم الكلف يرى «أنتج الآن» منذ 0034، فالجملة وزرّ الإرجاع معها كالمدير.
       const server = batchServer({ problemsOf: () => [{ code: 'costs_pending' }], expensesVisible: false });
       fresh(OPERATOR, server.handlers);
       await mount('/mill/batch/b-1');
       type(byAction('output-weight')[0], '985');
       await settle();
-      t.same([byAction('post-unsaved').length, byAction('revert-unsaved').length], [0, 0], 'W35 ضابط: بلا بوّابة لا جملة ولا زرّ إرجاع');
+      t.same([byAction('post-unsaved').length, byAction('revert-unsaved').length], [1, 1], 'W35 مشغّل المعمل: الجملة وزرّ الإرجاع (0034)');
     });
 
     // ── W36 (ب٣٦): المكتوب غير الصالح في البوّابة، ويوم «5/11/2026» بعد الحفظ ─────────────────────────────────────────────────────
@@ -739,7 +739,7 @@ export default async function (t) {
       t.same([valueOf('produced-on'), disabled(byAction('save-weight')[0]), byAction('post-unsaved').length], ['05/11/2026', true, 0], 'W36 وبعد الحفظ «05/11/2026» من المحفوظ و«احفظ» معطَّل');
     });
 
-    // ── W37 (ب٣٧): «لا تكاليف» بالدور ─────────────────────────────────────────────────────────────────────────────────────
+    // ── W37 (ب٣٧): «لا تكاليف» — منذ 0034 المحاسب يرى ما يراه المدير (recipe.activate لكلّ عضو) ─────────────────────────────
     const threeVersions = [
       { id: 'v-3', version_no: 3, status: 'draft', basis_kg: '1000.000', materials_only: false, activated_at: null, version: 5 },
       { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
@@ -749,7 +749,7 @@ export default async function (t) {
     await step('W37 المحاسب ومسوّدة قائمة', async () => {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', versionId: 'v-2', versionNo: 2, versions: threeVersions })) });
       await mount('/mill/recipe/r-1');
-      t.same([text().includes(others), text().includes('افتحها لإضافة تكلفة'), byAction('rates-open-draft').length], [true, false, 0], 'W37 المحاسب: «يضيفها المالك أو المدير» لا «افتحها لإضافة تكلفة»');
+      t.same([text().includes(others), text().includes('افتحها لإضافة تكلفة'), byAction('rates-open-draft').length], [false, true, 1], 'W37 المحاسب: «افتحها لإضافة تكلفة» وزرّها كالمدير');
     });
     await step('W37 المدير ومسوّدة قائمة', async () => {
       fresh(MANAGER, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', versionId: 'v-2', versionNo: 2, versions: threeVersions })) });
@@ -763,12 +763,12 @@ export default async function (t) {
     await step('W37 المحاسب بلا مسوّدة', async () => {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', versionId: 'v-2', versionNo: 2, versions: threeVersions.slice(1) })) });
       await mount('/mill/recipe/r-1');
-      t.same([text().includes(others), text().includes('أنشئ نسخة جديدة'), byAction('rates-new-version').length], [true, false, 0], 'W37 المحاسب بلا مسوّدة: لا «أنشئ نسخة جديدة» وهو لا ينشئها');
+      t.same([text().includes(others), text().includes('أنشئ نسخة جديدة'), byAction('rates-new-version').length], [false, true, 1], 'W37 المحاسب بلا مسوّدة: «أنشئ نسخة جديدة» وزرّها');
     });
     await step('W37 المحاسب في المسوّدة', async () => {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'draft', versionId: 'v-3', versionNo: 3, versions: threeVersions })) });
       await mount('/mill/recipe/r-1');
-      t.same([text().includes(others), text().includes('أضفها إن كان للعلف'), byAction('add-rate').length], [true, false, 0], 'W37 المحاسب في المسوّدة: لا «أضفها» وهو لا يضيف');
+      t.same([text().includes(others), text().includes('أضفها إن كان للعلف'), byAction('add-rate').length], [false, true, 1], 'W37 المحاسب في المسوّدة: «أضفها» وزرّها');
     });
   } finally {
     delete globalThis.__mill;

@@ -264,7 +264,7 @@ export default async function (t) {
         }),
       );
       await mount('/mill/batch/b-1');
-      t.eq(byAction('post-production').length, 0, 'Y1 مشغّل المعمل قبل ختم الكلف: لا «أنتج الآن»');
+      t.eq(byAction('post-production').length, 1, 'Y1 مشغّل المعمل قبل ختم الكلف: «أنتج الآن» (0034: يرحّل كغيره)');
     });
     await step('Y1 بعد الختم', async () => {
       const calls = fresh(

@@ -526,7 +526,7 @@ export default async function (t) {
     await step('B role', async () => {
       fresh(KEEPER, formRpc({ ...clone(FORM), can_post: false }), pickers);
       await mount(NEW_URL);
-      t.same([text().includes('إصدار فاتورة الطيور للمحاسب والمدير.'), byAction('bird-sale-form').length], [true, 0], 'B دور لا يصدر: جملته وبلا نموذج');
+      t.same([text().includes('لا يصدر حسابك هذه الفاتورة الآن: حدّث الصفحة، فإن بقي المنع فاسأل مالك المنشأة.'), byAction('bird-sale-form').length], [true, 0], 'B الخادم يقول لا يصدر (can_post: false): جملته بلا اسم دور، وبلا نموذج');
     });
     await step('B no ticket', async () => {
       fresh(ACCOUNTANT, formRpc(), pickers);
@@ -562,7 +562,7 @@ export default async function (t) {
       );
       t.eq(textOf('bird-paper-words'), m.amountInWords(1121454600n), 'D المبلغ كتابةً');
       t.same(within(byAction('signatures')[0], 'signatures').length === 0 ? byAction('signatures')[0]?.children.map((n) => n.textContent) : null, ['المحاسب', 'المستلم'], 'D التوقيعان');
-      t.same([byAction('void-stamp').length, byAction('bird-sale-void').length, byAction('bird-void-closed').length], [0, 0, 0], 'D المحاسب: بلا ختم ولا إلغاء');
+      t.same([byAction('void-stamp').length, byAction('bird-sale-void').length, byAction('bird-void-closed').length], [0, 1, 0], 'D المحاسب: بلا ختم، ومعه «ألغِ» (0034: void لكلّ عضو)');
       t.eq(textOf('bird-sale-remaining'), 'المتبقّي اليوم من هذه الفاتورة على التاجر: 0 دينار.', 'D المتبقّي اليوم حين يخالف الباقي عند البيع (رصيد التاجر سدّده)');
       t.eq(href(byAction('bird-sale-ticket')[0]), `/halls/ticket/${TICKET.id}`, 'D رابط التذكرة');
       const style = all().find((n) => n.localName === 'style');

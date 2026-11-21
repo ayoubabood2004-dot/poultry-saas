@@ -247,7 +247,6 @@ const OVERVIEW = {
 };
 // الجولة السادسة (ب٦١): الكثافة تُكتب من «المواد» (نافذة «عدّل»)، لا في بطاقة المادّة.
 const DENSITY_MANAGER = '«شراب بلا كثافة 83» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.';
-const DENSITY_OTHERS = '«شراب بلا كثافة 83» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».';
 
 export default async function (t) {
   const restore = installDom();
@@ -1107,8 +1106,8 @@ export default async function (t) {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(SYRUP_DRAFT()) });
       await mount('/mill/recipe/r-1');
       const block = byAction('density-missing')[0];
-      t.ok(block ? noticeTitles().filter((title) => block.textContent.includes(title)).join(' | ') === DENSITY_OTHERS : false, `V49 لغير من يعدّل المواد: «يكتبها المالك أو المدير» (${block?.textContent ?? 'لا جملة'})`);
-      t.ok(!text().includes('اكتب كثافته'), 'V49 ولا يُدلّ على فعل ليس له');
+      t.ok(block ? noticeTitles().filter((title) => block.textContent.includes(title)).join(' | ') === DENSITY_MANAGER : false, `V49 المحاسب يعدّل المواد (0034): جملة المدير نفسها (${block?.textContent ?? 'لا جملة'})`);
+      t.eq(byAction('write-density').length, 1, 'V49 ومعها رابط «اكتب الكثافة»');
     });
   } finally {
     delete globalThis.__mill;

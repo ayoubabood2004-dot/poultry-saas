@@ -244,7 +244,7 @@ export default async function (t) {
       env.fresh({ session: SESSION('viewer'), rpc: { debts_overview: async (args) => (args.p_after ? page2 : page1) }, tables });
       await env.mount('/accounts/debts', [['/accounts/debts', m.DebtsPage]]);
       t.same(byAction('party-link').map((n) => n.textContent), page1.rows.map((row) => row.name), 'G الصفحة الأولى');
-      t.eq(byAction('row-payment').length, 0, 'G بلا «قبضت منه» لمن لا يسجّل القبض');
+      t.eq(byAction('row-payment').length, page1.rows.length, 'G المشاهد يسجّل القبض أيضاً: «قبضت منه» لكلّ صفّ (0034)');
       t.same(tableOf(tablesIn(globalThis.document.body)[0]).foot[0]?.slice(1, 6), [money(fils(sample.totals.amount)), ...BUCKETS.map((bucket) => money(fils(sample.totals.aging[bucket])))], 'G بصفحة ناقصة: التذييل من الخادم للمجموعة كلّها، لا جمع الصفوف المحمّلة');
       t.eq(text(first('debts-amount')), `${money(fils(sample.totals.amount))} دينار`, 'G والمجموع فوق الجدول من الخادم');
       await click(first('more-debts'));

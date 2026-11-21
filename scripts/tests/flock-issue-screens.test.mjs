@@ -449,7 +449,7 @@ export default async function (t) {
     await step('E عامل القاعة', async () => {
       fresh('hall_worker', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadOverviewJson: overview, loadFlockDetail: () => m.parseDetail(detail()) });
       await mount('/broiler');
-      t.eq(byAction('hall-issue').length, 0, 'E عامل القاعة: لا «اصرف» في جدول الحقل');
+      t.ok(byAction('hall-issue').length > 0, 'E عامل القاعة: «اصرف» في جدول الحقل (0034: issue.post لكلّ عضو)');
     });
     await step('E شاشة الفوج', async () => {
       fresh('owner', { flock_feed: () => clone(SAMPLES.flock_feed.owner) }, { loadFlockDetail: () => m.parseDetail(detail()) });
@@ -471,7 +471,7 @@ export default async function (t) {
     await step('E شاشة الفوج للمشاهد', async () => {
       fresh('viewer', { flock_feed: () => clone(SAMPLES.flock_feed.storekeeper) }, { loadFlockDetail: () => m.parseDetail(detail()) });
       await mount(`/broiler/flock/${FLOCK}`);
-      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-calendar').length], [1, 0, 1], 'E المشاهد يقرأ علف القاعة وتقويمها، بلا «أضف للقاعة»');
+      t.same([byAction('feed-line').length, byAction('flock-give').length, byAction('flock-calendar').length], [1, 1, 1], 'E المشاهد يقرأ علف القاعة وتقويمها، ومعه «أضف للقاعة» (0034)');
     });
   } finally {
     delete globalThis.__fi;

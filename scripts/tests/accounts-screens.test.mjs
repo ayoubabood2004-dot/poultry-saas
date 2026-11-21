@@ -185,7 +185,7 @@ export default async function (t) {
     t.eq(modal(at('/accounts?new=junk')), 0, 'علامة غريبة: بلا نافذة');
     const managerSession = globalThis.__accounts.session;
     globalThis.__accounts.session = { status: 'ready', workspace: { orgId: 'o-1', role: 'viewer', userId: 'u-1' } };
-    t.eq(modal(at('/accounts?new=payout')), 0, 'المشاهد: العلامة ما تفتح نافذة الدفع');
+    t.eq(modal(at('/accounts?new=payout')), 1, 'المشاهد يفتح نافذة الدفع بالعلامة (0034: كلّ عضو يدفع)');
     globalThis.__accounts.session = managerSession;
 
     // ── «قبضنا»: الجهة ثم الدفتر أوّلاً بلا اختيار مسبق، ثم المبلغ والصندوق والتاريخ.

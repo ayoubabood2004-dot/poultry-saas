@@ -360,10 +360,10 @@ export default async function (t) {
         seen[label] = byAction('copy-to-draft').length;
         await unmount();
       }
-      t.same(seen, { accountant: 0, viewer: 0, keeper_elsewhere: 0, discarded: 0 }, 'V5b: بلا «افتح نسخة للتصحيح»: المحاسب والمشاهد (بلا receipt.draft)، والأمين بنطاق مخزن ثانٍ، والورقة المحذوفة قبل حفظها (ملغاة بلا رقم)');
+      t.same(seen, { accountant: 1, viewer: 1, keeper_elsewhere: 1, discarded: 0 }, 'V5b: «افتح نسخة للتصحيح» للمحاسب والمشاهد والأمين بصفّ نطاق مخزن ثانٍ (0034)، ولا للورقة المحذوفة قبل حفظها (ملغاة بلا رقم)');
     });
-    // ── V5c (الدمج): مرآتا العقد §3 للزرّ: فعل إنشاء ورقة النوع (الافتتاح opening.post: الأمين بنطاق مخزنه بلا الزرّ والمدير ويّاه)،
-    // ونطاق التحويل بالمخزن المرسِل مثل private.stock_wh بالخادم (الأمين بنطاق المستلِم بس بلا الزرّ، وبنطاق المرسِل ويّاه) ──────────────
+    // ── V5c (الدمج): مرآتا العقد §3 للزرّ: فعل إنشاء ورقة النوع ونطاق مخزنها، وهما لكلّ عضو منذ 0034 (الافتتاح للأمين، والتحويل بصفّ
+    // نطاق المستلِم أو المرسِل) ──────────────
     await step('V5c', async () => {
       const seen = {};
       const voidOpening = () => opening('op-9', { status: 'void', voidReason: 'كمية خطأ' });
@@ -383,8 +383,8 @@ export default async function (t) {
       }
       t.same(
         seen,
-        { opening_keeper: 0, opening_manager: 1, transfer_keeper_to: 0, transfer_keeper_from: 1 },
-        'V5c: «افتح نسخة للتصحيح» بفعل إنشاء ورقة النوع ونطاق مخزنها: الافتتاح للمدير مو للأمين، والتحويل بنطاق المخزن المرسِل مو المستلِم',
+        { opening_keeper: 1, opening_manager: 1, transfer_keeper_to: 1, transfer_keeper_from: 1 },
+        'V5c: «افتح نسخة للتصحيح» للأمين كالمدير، في الافتتاح والتحويل أيّاً كان صفّ نطاقه (0034)',
       );
     });
 
@@ -584,9 +584,9 @@ export default async function (t) {
         seen,
         {
           accountant: [true, true, true, '/inventory/receipts/pu-5', [['pu-5', true]]],
-          storekeeper: [true, false, false, '/inventory/receipts/pu-5', [['pu-5', false]]],
+          storekeeper: [true, true, true, '/inventory/receipts/pu-5', [['pu-5', true]]],
         },
-        'V10 (FE-2): نسخة الاستلام بلا حالة الانتقال: المحاسب يعرف أصلها PU-2026-0042 وإن مدفوعه وتحميل صندوقه بقيا عليه، والأمين يعرف الأصل بلا مال',
+        'V10 (FE-2): نسخة الاستلام بلا حالة الانتقال: المحاسب والأمين (0034) يعرفان أصلها PU-2026-0042 وإن مدفوعه وتحميل صندوقه بقيا عليه',
       );
     });
 
@@ -631,12 +631,12 @@ export default async function (t) {
       t.same(
         seen,
         {
-          storekeeper_receipt: [false, true, false, true],
+          storekeeper_receipt: [true, false, true, false],
           manager_receipt: [true, false, true, false],
-          storekeeper_count: [true, false, 1],
-          storekeeper_destroy: [true, false, 1],
+          storekeeper_count: [false, false, 1],
+          storekeeper_destroy: [false, true, 1],
         },
-        'V11 (FE-3): الأمين ما يُؤمر «احفظها نهائياً» بالاستلام (يحفظها المحاسب أو المدير) ولا بالجرد (سلّمها للمراجعة) ولا بالإتلاف (يحفظها المدير)؛ والمدير يُؤمر بها',
+        'V11 (FE-3) بعد 0034: الأمين يُؤمر «احفظها نهائياً» بالاستلام كالمدير، ولا يُحال إلى المراجعة بالجرد ولا إلى المدير بالإتلاف (يحفظهما بنفسه)',
       );
     });
   } finally {

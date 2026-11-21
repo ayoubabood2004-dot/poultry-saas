@@ -276,7 +276,7 @@ export default async function (t) {
     await step('P1-roles', async () => {
       fresh({ status: 'ready', workspace: KEEPER }, {}, { items_overview: async () => overviewJson() });
       await mount('/inventory');
-      t.ok(byAction('open-store-setup').length === 0 && byAction('add-item').length === 1, 'P1: الأمين: «أضف مادّة» بلا «إعداد المخزن»');
+      t.ok(byAction('open-store-setup').length === 1 && byAction('add-item').length === 1, 'P1: الأمين: «أضف مادّة» و«إعداد المخزن» (0034: stores.manage لكلّ عضو)');
       await unmount();
       fresh({ status: 'ready', workspace: ws('viewer') }, {}, { items_overview: async () => masked(overviewJson({ can_record: false, can_add_item: false })) });
       await mount('/inventory');
@@ -536,11 +536,11 @@ export default async function (t) {
       t.eq(byAction('purchase-destination')[0]?.textContent, 'يدخل «المخزن العام».', 'U1: وشراؤها يقول قبل الحفظ إنّه يدخل «المخزن العام» (مرآة receiving_kinds: الوقود ← العامّ)');
     });
     await step('U2-destination', async () => {
-      // الأمين بنطاق «مخزن المواد الأوّلية» وحده: المخزن الوحيد بنطاقه ولو كان في المنشأة مخزن موادّ آخر.
+      // الأمين بصفّ نطاق «مخزن المواد الأوّلية» يرى مخازن الموادّ كلّها (0034)، فيُطلب الاختيار عند الحفظ.
       fresh({ status: 'ready', workspace: KEEPER }, { ...suppliers, loadOrgSetup: () => org([['w-raw', 'مخزن المواد الأوّلية'], ['w-grain', 'مخزن الحبوب']]) }, { item_file: async () => fileJson() });
       await mount('/inventory/items/i-corn');
       await openDialog();
-      t.same([byAction('purchase-destination')[0]?.textContent, byAction('purchase-edit-kind').length, byAction('purchase-dest-setup').length], ['يدخل «مخزن المواد الأوّلية».', 0, 0], 'U2: الأمين: المخزن الوحيد بنطاقه، بلا روابط');
+      t.same([byAction('purchase-destination')[0]?.textContent, byAction('purchase-edit-kind').length, byAction('purchase-dest-setup').length], ['يدخل أحد هذه المخازن: «مخزن الحبوب»، «مخزن المواد الأوّلية»؛ يُطلب اختياره عند الحفظ.', 0, 0], 'U2: الأمين: مخزنا الموادّ كلاهما (صفّ النطاق لا يحجب)، بلا روابط');
       await unmount();
       fresh({ status: 'ready', workspace: MANAGER }, { ...suppliers, loadOrgSetup: () => org([['w-raw', 'مخزن المواد الأوّلية'], ['w-grain', 'مخزن الحبوب'], ['w-gen', 'المخزن العام', 'general']]) }, { item_file: async () => fileJson() });
       await mount('/inventory/items/i-corn');
@@ -600,8 +600,8 @@ export default async function (t) {
       await openDialog();
       t.same(
         [byAction('purchase-destination')[0]?.textContent, byAction('purchase-edit-kind').length, byAction('purchase-dest-setup').length],
-        ['لا يوجد في نطاقك مخزن «عامّ» يستلم هذه المادّة، فلن يُحفظ شراؤها.', 0, 0],
-        'U3: الأمين بنطاق مخزن الموادّ وحده (لا يعدّل الموادّ ولا المخازن): الوقود لا مخزن له بنطاقه، والسطر يقوله بلا روابط',
+        ['يدخل «المخزن العام».', 0, 0],
+        'U3: الأمين بصفّ نطاق مخزن الموادّ: الوقود يدخل «المخزن العام» (0034: صفّ النطاق لا يحجب)، وبلا روابط حين لا يُعدَّل نوعها (can_edit من الخادم)',
       );
     });
 

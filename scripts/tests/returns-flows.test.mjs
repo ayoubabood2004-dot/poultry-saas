@@ -190,7 +190,7 @@ export default async function (t) {
       await settle();
       const sent = named(calls, 'addReturnLine');
       t.same([offered, sent.length, sent[0]?.[0], sent[0]?.[2], sent[0]?.[3], named(calls, 'loadSupplierReturn').length], [['rb'], 1, 'rt-1', 'rb', 200_000n, 2], 'F1: «صويا» وحدها معروضة، و«كل المتبقّي» 200 كغم، والسطر ينضاف والمرتجع ينقرا من جديد');
-      t.ok(byAction('post-return').length === 0 && byAction('save-credits').length === 0, 'F1: الأمين بلا مبلغ مقبول ولا ترحيل');
+      t.ok(byAction('post-return').length > 0 || byAction('save-credits').length > 0, 'F1: الأمين يكتب المبلغ المقبول ويرحّل (0034)');
       await unmount();
     });
 
@@ -319,15 +319,15 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── F7: المحاسب: مرتجعات الاستلام بلا «مرتجع جديد» ولا تصحيح سعر ──────────────────────────────────────────────────────
+    // ── F7: المحاسب: مرتجعات الاستلام ومعها «مرتجع جديد» وتصحيح السعر (0034) ──────────────────────────────────────────────
     await step('F7', async () => {
       const calls = fresh('accountant', receiptHandlers(true));
       await mount('/inventory/receipts/pu-1');
-      t.same([text().includes('المرتجع إلى المورّد'), byAction('new-return').length, byAction('open-revalue').length, named(calls, 'listLineRevaluations').length], [true, 0, 0, 0], 'F7: المحاسب يشوف المرتجعات، وبلا مرتجع جديد ولا تصحيح سعر');
+      t.same([text().includes('المرتجع إلى المورّد'), byAction('new-return').length, byAction('open-revalue').length, named(calls, 'listLineRevaluations').length], [true, 1, 1, 1], 'F7: المحاسب يشوف المرتجعات، ومعها «مرتجع جديد» وتصحيح السعر');
       await unmount();
     });
 
-    // ── F8: الأمين ينشئ مرتجعاً من الاستلام المرحَّل فينفتح، وما يشوف تصحيح السعر ──────────────────────────────────────────────
+    // ── F8: الأمين ينشئ مرتجعاً من الاستلام المرحَّل فينفتح، ويشوف تصحيح السعر (0034) ───────────────────────────────────────
     await step('F8', async () => {
       const calls = fresh('storekeeper', {
         ...receiptHandlers(false),
@@ -336,11 +336,11 @@ export default async function (t) {
         supplierReturnOptions: () => options,
       });
       await mount('/inventory/receipts/pu-1');
-      const noCorrection = byAction('open-revalue').length === 0;
+      const correction = byAction('open-revalue').length > 0;
       await click(byAction('new-return')[0]);
       const sent = named(calls, 'createSupplierReturnDraft');
       t.same(
-        [noCorrection, sent.length, sent[0]?.[1], sent[0]?.[2], globalThis.__flow.location, named(calls, 'loadSupplierReturn').length],
+        [correction, sent.length, sent[0]?.[1], sent[0]?.[2], globalThis.__flow.location, named(calls, 'loadSupplierReturn').length],
         [true, 1, 'pu-1', m.localDay(), `/inventory/supplier-returns/${sent[0]?.[0]}`, 1],
         'F8: مسوّدة بمعرّف الجهاز ويوم اليوم، وتنفتح صفحتها',
       );

@@ -460,7 +460,8 @@ export default async function (t) {
     });
 
     // ── R: التذكير المختصر ─────────────────────────────────────────────────────────────────────────────────────────────
-    for (const [who, expected] of [[ACCOUNTANT, 1], [WORKER, 0]]) {
+    // 0034 («الكلّ مثل المالك»): عامل القاعة يصدر الفاتورة كالمحاسب، فالتذكير له أيضاً.
+    for (const [who, expected] of [[ACCOUNTANT, 1], [WORKER, 1]]) {
       await step(`R ${who.workspace.role}`, async () => {
         let rows = null;
         const log = fresh(who, { vaccine_reminders: () => ({ today: '2026-11-12', can_mark: false, items: [] }), weigh_tickets: () => clone(F.weigh_tickets_awaiting) });
@@ -468,7 +469,7 @@ export default async function (t) {
         t.same(
           [byAction('today-tickets').length, href(byAction('today-tickets')[0]) ?? null, textOf('today-tickets'), rows, named(log, 'weigh_tickets')],
           expected ? [1, '/halls/tickets?status=awaiting&back=/', 'تذاكر وزن بانتظار الفاتورة: 1', 1, [{ p_from: null, p_to: null, p_status: 'awaiting' }]] : [0, null, null, 0, []],
-          `R «تذاكر وزن بانتظار الفاتورة» ${expected ? 'لمن يصدر الفاتورة، ويُعدّ شغلاً' : 'لا تُقرأ لعامل القاعة'}`,
+          `R «تذاكر وزن بانتظار الفاتورة» لـ${who.workspace.role} (يصدر الفاتورة)، ويُعدّ شغلاً`,
         );
       });
     }

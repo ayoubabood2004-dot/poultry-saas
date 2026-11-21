@@ -444,7 +444,7 @@ export default async function (t) {
         t.eq(text(first('confirm-sentence')), 'نرجو مطابقة الرصيد، وإعلامنا بأيّ اختلاف خلال 15 يوماً من تاريخه.', `S ${who}: عبارة المطابقة`);
         t.same(byAction('signatures').map((n) => n.children.map((c) => c.textContent)), [['المحاسب', 'المدير']], `S ${who}: سطرا التوقيع`);
         t.eq(first('back')?.getAttribute('href'), '/accounts/debts', `S ${who}: الرجوع بلا ?back إلى قائمة الذمم`);
-        t.eq(byAction('void-entry').length, 0, `S ${who}: المحاسب بلا قائمة إلغاء`);
+        t.eq(byAction('void-entry').length, sample.books.flatMap((book) => book.lines.filter((line) => voidableOf(line) !== null)).length, `S ${who}: المحاسب يلغي كالمدير (0034): قيود القبض والدفع الحيّة`);
       });
     }
 
@@ -763,7 +763,7 @@ export default async function (t) {
         t.ok(text().includes(`فاتورة بيع ${sample.doc_no}`), `Q ${name}: العنوان`);
         const party = first('sale-party');
         const link = party?.childNodes.find((c) => c.localName === 'a');
-        t.same([text(party), link?.getAttribute('href') ?? null], [sample.party_name, role === 'storekeeper' ? null : `/accounts/parties/${sample.party_id}`], `Q ${name}: الجهة (رابط كشفها لأدوار الحسابات وحدها)`);
+        t.same([text(party), link?.getAttribute('href') ?? null], [sample.party_name, `/accounts/parties/${sample.party_id}`], `Q ${name}: الجهة ورابط كشفها لكلّ دور (0034)`);
         // جملة الدفع حين تزيد على الشريحة وحدها (تصميم المبيعات ٦): نقداً ثمّ رُدّ؛ والملغاة بلا مقبوض تقولها الشريحة.
         t.eq(text(first('sale-payment')), sample.status !== 'void' && sample.payment_refunded ? 'نقداً، ثمّ رُدّ المبلغ' : '', `Q ${name}: الدفع بكلماته`);
         t.eq(text(first('sale-status')), sample.status === 'void' ? 'ملغاة' : sample.free ? 'بلا مقابل' : sample.payment === 'cash' && !sample.payment_refunded ? 'مدفوعة' : 'بالدين', `Q ${name}: الحالة شريحةً بنصّ`);

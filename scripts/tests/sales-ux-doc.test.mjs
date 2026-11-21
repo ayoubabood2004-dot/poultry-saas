@@ -303,8 +303,8 @@ export default async function (t) {
         await mount(`/sales/${MULTI.id}?done=1&back=%2F`);
         t.same(
           [byAction('sale-done').length, byAction('sale-next').length, calls.map(([state, , url]) => [state?.idx, url])],
-          [1, 0, [[3, `/sales/${MULTI.id}?back=%2F`]]],
-          'N4 بطاقة النجاح لهذه الزيارة، و?done=1 يُمحى بحالة السجلّ نفسها (A9)؛ ومن لا يبيع بلا «بيع جديد»',
+          [1, 1, [[3, `/sales/${MULTI.id}?back=%2F`]]],
+          'N4 بطاقة النجاح لهذه الزيارة، و?done=1 يُمحى بحالة السجلّ نفسها (A9)؛ والمشاهد يبيع فله «بيع جديد» (0034)',
         );
       } finally {
         globalThis.window.history = before.history;
@@ -842,7 +842,7 @@ export default async function (t) {
         [['/', '/inventory', '/sales'], ['/', '/inventory', '/accounts', '/sales'], ['/', '/broiler/round', '/inventory', '/accounts']],
         'B1 «المبيعات» في الشريط لمن يبيع حين يتّسع (والمالك بجولته وحساباته كما كان: خمسة بنود مع «القائمة»)',
       );
-      t.same(items('viewer', { divisions: ['general'] }).includes('/sales'), false, 'B1 من لا يبيع بلا بند المبيعات');
+      t.same(items('viewer', { divisions: ['general'] }).includes('/sales'), true, 'B1 المشاهد يبيع فله بند المبيعات (0034)');
       const keys = (role) => m.homeActions({ role, canSeeAccounts: true }).map((action) => action.key);
       t.same([keys('storekeeper')[1], keys('accountant')[1], m.HOME_ACTIONS_SHOWN], ['sale', 'sale', 4], 'B2 «بِع» ثاني أفعال الأمين والمحاسب في الرئيسية (ظاهراً لا خلف «أعمال أخرى»)');
     }

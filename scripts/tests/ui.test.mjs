@@ -447,16 +447,20 @@ export default async function (t) {
     const OWNER = ['round_broiler', 'round_layer', 'purchase', 'sale', 'payout', 'payment', 'use', 'transfer', 'expense', 'count', 'produce'];
     t.same(acts('owner'), OWNER, 'المالك: الأزرار الأحد عشر بأولوية يومه (والإنتاج بالترتيب الافتراضي بعدها)');
     t.same(acts('manager'), OWNER, 'المدير: الأزرار الأحد عشر بأولوية يومه');
-    t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler'], 'عامل قاعة بحقول اللحم: جولة اللحم بس');
+    // «الكلّ مثل المالك بكلّ شيء» (كلمة المالك 2026-11-21، 0034): كلّ دور يرى الأزرار كلّها، والدور يرتّبها فقط (PRIORITY)؛ وأزرار الحسابات
+    // بعلامة الخادم (can_see_accounts)، وجولة الوحدة بوحداته.
+    const NO_ACCOUNTS = ALL.filter((key) => !['payout', 'payment', 'expense'].includes(key));
+    for (const role of ['storekeeper', 'accountant', 'mill_operator', 'hatchery_operator', 'hall_worker', 'viewer']) t.same([...acts(role)].sort(), [...ALL].sort(), `${role}: الأزرار الأحد عشر كلّها`);
+    t.same(m.homeActions({ role: 'hall_worker', canSeeAccounts: false, divisions: ['broiler'] }).map((action) => action.key), ['round_broiler', 'purchase', 'sale', 'use', 'transfer', 'count', 'produce'], 'عامل قاعة بحقول اللحم: جولة اللحم أوّلاً، وبلا جولة البيض، وبلا أزرار الحسابات حين لا يراها الخادم');
     // تصميم المبيعات ٨ (كلمة المالك 2026-11-18): «بِع» ثاني أفعال الأمين والمحاسب، لا خلف «أعمال أخرى».
-    t.same(acts('storekeeper', false), ['purchase', 'sale', 'use', 'transfer', 'count'], 'أمين المخزن: الشراء ثمّ «بِع» ثمّ أزرار المخزن');
-    t.same(acts('accountant'), ['payout', 'sale', 'payment', 'expense', 'purchase'], 'المحاسب: الدفع ثمّ «بِع» ثمّ القبض والمصروف والشراء');
-    t.same(acts('accountant', false), ['sale', 'purchase'], 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات، ويبقى «بِع» و«سجّل شراء»');
-    for (const role of ['viewer', 'hatchery_operator']) t.same(acts(role, false), [], `${role}: بلا أزرار`);
+    t.same(acts('storekeeper', false).slice(0, 5), ['purchase', 'sale', 'use', 'transfer', 'count'], 'أمين المخزن: الشراء ثمّ «بِع» ثمّ أزرار المخزن أوّلاً');
+    t.same(acts('accountant').slice(0, 5), ['payout', 'sale', 'payment', 'expense', 'purchase'], 'المحاسب: الدفع ثمّ «بِع» ثمّ القبض والمصروف والشراء أوّلاً');
+    t.same([...acts('accountant', false)].sort(), [...NO_ACCOUNTS].sort(), 'المحاسب بلا علامة الحسابات من الخادم: بلا أزرار الحسابات، والباقي كلّه');
+    for (const role of ['viewer', 'hatchery_operator']) t.same(acts(role, false), NO_ACCOUNTS, `${role}: الأزرار بالترتيب الافتراضي (لا أولوية لدوره)`);
     // مشغّل المعمل كان يفتح النظام ولا زرّ له (0015 بنت شاشاته ولم تفتح له مدخلًا): الإنتاج هو شغل يومه.
-    t.same(acts('mill_operator', false), ['produce'], 'مشغّل المعمل: زرّ الإنتاج');
-    t.same(acts('accountant').includes('produce'), false, 'المحاسب يرحّل ولا يسوّد: بلا زرّ إنتاج');
-    t.same(acts('hall_worker', false), ['round_broiler', 'round_layer'], 'عامل القاعة: الجولة اليومية بس');
+    t.same(acts('mill_operator', false)[0], 'produce', 'مشغّل المعمل: زرّ الإنتاج أوّلاً');
+    t.same(acts('accountant').includes('produce'), true, 'المحاسب ينتج أيضاً (0034)');
+    t.same(acts('hall_worker', false).slice(0, 2), ['round_broiler', 'round_layer'], 'عامل القاعة: الجولة اليومية أوّلاً');
     t.same(m.homeActions(null).map((action) => action.key), ALL, 'بلا منشأة مؤكّدة: كلها مثل الشريط');
     const byKey = new Map(m.homeActions(null).map((action) => [action.key, action.to]));
     t.same(

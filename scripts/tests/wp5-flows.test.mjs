@@ -643,7 +643,7 @@ export default async function (t) {
         seen[role] = byAction('void-use').length;
         await unmount();
       }
-      t.same(seen, { storekeeper: 0, manager: 1 }, 'U2: إلغاء الصرف للمدير بس (الأمين بلا الفعل ما يشوف الزرّ)');
+      t.same(seen, { storekeeper: 1, manager: 1 }, 'U2: إلغاء الصرف للأمين والمدير (0034: void لكلّ عضو)');
     }
 
     const draftUse = { id: 'u-2', status: 'draft', version: 1, docNo: null, warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: false, voidReason: null, createdAt: '2026-10-30T08:00:00Z' };
@@ -685,7 +685,7 @@ export default async function (t) {
       await unmount();
     }
 
-    // ── U4: أزرار مسوّدة الصرف لمن عنده stock_use.post بس ─────────────────────────────────────────────────────────
+    // ── U4: أزرار مسوّدة الصرف لمن عنده stock_use.post، وهو كلّ عضو منذ 0034 ─────────────────────────────────────────
     {
       const seen = {};
       for (const role of ['viewer', 'storekeeper']) {
@@ -694,7 +694,7 @@ export default async function (t) {
         seen[role] = [byAction('add-use-line').length, byAction('preview-use').length, byAction('discard-use').length];
         await unmount();
       }
-      t.same(seen, { viewer: [0, 0, 0], storekeeper: [1, 1, 1] }, 'U4: المشاهد يشوف مسوّدة الصرف بلا أزرارها، والأمين بيها');
+      t.same(seen, { viewer: [1, 1, 1], storekeeper: [1, 1, 1] }, 'U4: المشاهد والأمين بأزرار مسوّدة الصرف');
     }
 
     // ── C21 (مراجعة WP8): «أعِد للعدّ» ممتنع وسبب أو كلفة مكتوبة ما انحفظت (كانت تضيع والتأكيد يقول تبقى) ───────────────────────
