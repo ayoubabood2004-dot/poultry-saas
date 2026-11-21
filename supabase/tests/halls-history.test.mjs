@@ -31,12 +31,13 @@ const HISTORY = 'select public.halls_history($1) as v';
 const NOTE = 'select public.set_halls_note($1, $2, $3) as v';
 const FN = { history: 'public.halls_history(date)', note: 'public.set_halls_note(date, text, bigint)' };
 const KINDS = ['broiler', 'layer'];
+// 0035: الغاز في كلّ يوم وشهر وفي «منذ البداية» (مفحوص بقيمه في hall-sheet.test).
 const DAY_KEYS = ['on', 'flocks', 'rounds', 'rounds_expected', 'placed', 'live_start', 'dead', 'culled', 'sold', 'count_diff', 'live_end', 'feed_kg', 'given_kg',
-  'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep'];
+  'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep', 'gas'];
 const MONTH_KEYS = ['month', 'days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep',
-  'live_end', 'opened', 'closed'];
+  'live_end', 'opened', 'closed', 'gas'];
 const TOTAL_KEYS = ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep', 'live_now',
-  'opened', 'closed', 'halls'];
+  'opened', 'closed', 'halls', 'gas'];
 const KIND_KEYS = ['kind', 'start', 'days', 'months', 'total', 'events'];
 const TOP_KEYS = ['today', 'month', 'prev', 'next', 'kinds', 'notes'];
 
@@ -231,7 +232,7 @@ async function scenario(t, db) {
       out[kind] = {
         on, flocks: tot.flocks, rounds: tot.rounds, rounds_expected: tot.rounds_expected,
         placed: flocks.filter((f) => f.placed_on === on).reduce((a, f) => a + Number(f.placed_count), 0),
-        live_start: tot.live_start, dead: tot.dead, culled: tot.culled, sold: tot.sold, count_diff: tot.count_diff, live_end: tot.live_end,
+        live_start: tot.live_start, dead: tot.dead, culled: tot.culled, sold: tot.sold, count_diff: tot.count_diff, live_end: tot.live_end, gas: tot.gas,
         // النازل من المخزن: نازل halls_day ناقص العلف المنقول من الدورة السابقة (يُعدّ يوم صُرف أوّل مرّة؛ مراجعة 0031 M1).
         feed_kg: tot.feed_eaten_kg, given_kg: kgText(milli(tot.feed_given_kg) - flocks.reduce((a, f) => a + (milli(f.feed_carry_in_kg) ?? 0n), 0n)),
         given_unweighed: tot.feed_given_unweighed,
@@ -298,7 +299,7 @@ async function scenario(t, db) {
           continue;
         }
         const want = {
-          days: BigInt(days.length), placed: sumInt(days, 'placed'), dead: sumInt(days, 'dead'), culled: sumInt(days, 'culled'), sold: sumInt(days, 'sold'),
+          days: BigInt(days.length), placed: sumInt(days, 'placed'), dead: sumInt(days, 'dead'), culled: sumInt(days, 'culled'), sold: sumInt(days, 'sold'), gas: sumInt(days, 'gas'),
           count_diff: sumInt(days, 'count_diff'), given_unweighed: sumInt(days, 'given_unweighed'), live_end: BigInt(days.at(-1).live_end),
         };
         for (const [key, value] of Object.entries(want)) if (BigInt(row[key]) !== value) problems.push(`${kind} ${m} ${key}: ${row[key]} ≠ ${value}`);
@@ -309,7 +310,7 @@ async function scenario(t, db) {
         }
       }
       const total = all[1].total;
-      for (const key of ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'given_unweighed', 'opened', 'closed']) {
+      for (const key of ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'given_unweighed', 'opened', 'closed', 'gas']) {
         if (BigInt(total[key]) !== sumInt(monthRows, key)) problems.push(`${kind} total ${key}: ${total[key]}`);
       }
       for (const key of ['feed_kg', 'given_kg']) if (milli(total[key]) !== sumMilli(monthRows, key)) problems.push(`${kind} total ${key}: ${total[key]}`);
@@ -333,7 +334,7 @@ async function scenario(t, db) {
       [['550.000', '1500.000', 0, null, null], ['1040.000', '1700.000', 1, null, null]], 'اللاحم: المأكول والنازل والبيض باليد');
     // الحيّ الآن: F2 2,000 − (10+2) − 4 − (5+1) − 5 (فرق العدّ) − 3 − 1 = 1,969؛ F1 1,200 − 6 − (3+1) = 1,190؛ FB 1,500 − (7+1) − 2 = 1,490.
     same(pickTotal(broiler.total), { days: 47, placed: 6200, dead: 52, culled: 6, sold: 400, count_diff: -1093, feed_kg: '1590.000', given_kg: '3200.000',
-      given_unweighed: 1, eggs_total: null, eggs_broken: null, hdep: null, live_now: 4649, opened: 5, closed: 2, halls: 4 }, 'اللاحم: منذ البداية باليد');
+      given_unweighed: 1, eggs_total: null, eggs_broken: null, hdep: null, live_now: 4649, opened: 5, closed: 2, halls: 4, gas: 0 }, 'اللاحم: منذ البداية باليد');
     same([broiler.start, broiler.months.find((m) => m.month === '2026-10-01').live_end], [day(-46), 1984], 'اللاحم: البداية 2 ت1، وحيّ آخر ت1 = F2 وحده (2,000 − 12 − 4 = 1,984)');
     // البيّاض: 3,000 بعمر 140 يوم 25 ت1؛ البيض ت1 2,500 + 2,600 = 5,100 (المكسور 5 + 8 = 13) من الحيّ أوّل يومَيهما 3,000 + 2,997 = 5,997؛ وت2 2,550 (مكسور 3)
     // من 2,995، وجولة 15 ت2 بلا بيض لا تدخل المقام.
@@ -342,7 +343,7 @@ async function scenario(t, db) {
       [['2026-10-01', 7, 3000, 5, 5100, 13, '85.04', '610.000', '2000.000', 2995, 1], ['2026-11-01', 17, 0, 3, 2550, 3, '85.14', '320.000', '0.000', 2992, 0]],
       'البيّاض: الشهران باليد (نسبة الإنتاج = البيض ÷ الحيّ أوّل أيّام البيض)');
     same(pickTotal(layer.total), { days: 24, placed: 3000, dead: 8, culled: 0, sold: 0, count_diff: 0, feed_kg: '930.000', given_kg: '2000.000', given_unweighed: 0,
-      eggs_total: 7650, eggs_broken: 16, hdep: '85.08', live_now: 2992, opened: 1, closed: 0, halls: 1 }, 'البيّاض: منذ البداية باليد');
+      eggs_total: 7650, eggs_broken: 16, hdep: '85.08', live_now: 2992, opened: 1, closed: 0, halls: 1, gas: 0 }, 'البيّاض: منذ البداية باليد');
     const gap = kindOf(H_OWNER[months[0]], 'broiler').days.filter((d) => d.on >= day(-37) && d.on <= day(-31));
     same(gap.map((d) => [d.flocks, d.live_start, d.dead, d.feed_kg, d.given_kg, d.rounds_expected]), Array(7).fill([0, 0, null, null, '0.000', 0]),
       'الفجوة (11–17 ت1): صفوف بصفر أفواج، والنافق والمأكول null، والنازل 0.000');

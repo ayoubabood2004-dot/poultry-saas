@@ -288,23 +288,25 @@ async function scenario(t, db) {
 
   // ── ٧) الركن ───────────────────────────────────────────────────────────────────────────────────────────────────
   await section('الركن', async () => {
-    const p1 = await visit(U.worker, { id: V.v7, flock: F.a1, on: day(-9), dead: 1, queued: true });
+    // 0035: لا حدّ للأيّام السبعة (كلّ أيّام الفوج القائم تُكتب)، فالركن هنا بسبب النطاق: عامل البيّاض يسجّل لفوج اللحم من الطابور.
+    const p1 = await visit(U.layerWorker, { id: V.v7, flock: F.a1, on: day(-9), dead: 1, queued: true });
     samples.save_flock_visit_parked = p1.value;
-    const p2 = await visit(U.worker, { id: V.v8, flock: F.a1, on: day(-9), dead: 2, queued: true });
-    const p1again = await visit(U.worker, { id: V.v7, flock: F.a1, on: day(-9), dead: 5, queued: true });
-    same([p1.value, p2.value, p1again.value], Array(3).fill({ status: 'parked', reason: 'date_too_old' }), 'زيارتان أقدم من سبعة أيّام من الطابور: parked');
-    const d1 = await saveDay(U.worker, { flock: F.a1, on: day(-9), dead: 3, queued: true });
-    const d2 = await saveDay(U.worker, { flock: F.a1, on: day(-9), dead: 4, queued: true });
-    same([d1.value, d2.value], Array(2).fill({ status: 'parked', reason: 'date_too_old' }), 'وعمليتا save_flock_day لليوم نفسه: parked');
+    const p2 = await visit(U.layerWorker, { id: V.v8, flock: F.a1, on: day(-9), dead: 2, queued: true });
+    const p1again = await visit(U.layerWorker, { id: V.v7, flock: F.a1, on: day(-9), dead: 5, queued: true });
+    same([p1.value, p2.value, p1again.value], Array(3).fill({ status: 'parked', reason: 'out_of_scope' }), 'زيارتان خارج النطاق من الطابور: parked');
+    const d1 = await saveDay(U.layerWorker, { flock: F.a1, on: day(-9), dead: 3, queued: true });
+    const d2 = await saveDay(U.layerWorker, { flock: F.a1, on: day(-9), dead: 4, queued: true });
+    same([d1.value, d2.value], Array(2).fill({ status: 'parked', reason: 'out_of_scope' }), 'وعمليتا save_flock_day لليوم نفسه: parked');
     const rows = (await db.admin(`select visit_id, payload ->> 'dead' as dead from public.flock_day_rejects where flock_id = $1 and on_date = $2 and created_by = $3
-      order by visit_id nulls first`, [F.a1, day(-9), U.worker])).rows;
+      order by visit_id nulls first`, [F.a1, day(-9), U.layerWorker])).rows;
     same(rows, [{ visit_id: null, dead: '4' }, { visit_id: V.v7, dead: '5' }, { visit_id: V.v8, dead: '2' }],
       'الزيارتان المركونتان لا تكتب إحداهما فوق الأخرى (والزيارة نفسها تستبدل ركنها)، وعملية save_flock_day الأحدث تستبدل ركنها كما كانت');
     same({
-      direct: code(await visit(U.worker, { id: uid(), flock: F.a1, on: day(-9), dead: 1 })),
+      direct: code(await call(db, U.worker, VISIT, visitParams({ id: uid(), flock: F.a1, on: day(-9), dead: 1 }), { commit: false })),
       scopeQueued: (await visit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1, queued: true })).value,
       scope: code(await visit(U.layerWorker, { id: uid(), flock: F.a1, dead: 1 })),
-    }, { direct: 'date_too_old', scopeQueued: { status: 'parked', reason: 'out_of_scope' }, scope: 'out_of_scope' }, 'بنداء مباشر ترمي، ومن الطابور تُركن بسببها');
+    }, { direct: 'ok', scopeQueued: { status: 'parked', reason: 'out_of_scope' }, scope: 'out_of_scope' },
+    'بنداء مباشر ترمي ومن الطابور تُركن بسببها، ويوم قبل تسعة أيّام لفوج قائم يُحفظ (0035: بلا حدّ الأيّام السبعة)');
     // الفترة المقفلة والفوج المغلق داخل معاملة ترجع.
     const locked = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
       const lock = await attempt(U.manager, (q) => q('select public.set_period_lock($1)', [day(-1)]));
@@ -647,8 +649,8 @@ async function scenario(t, db) {
         fns: [[SIG.visit, [['v_payload, v_park, auth.uid(), p_visit)\n    on conflict (org_id, visit_id) where visit_id is not null do update',
           'v_payload, v_park, auth.uid(), null)\n    on conflict (org_id, created_by, flock_id, on_date) where visit_id is null do update']]]],
         run: async ({ attempt }) => {
-          await add(attempt, U.manager, { id: uid(), flock: F.b1, on: day(-12), dead: 1, queued: true });
-          await add(attempt, U.manager, { id: uid(), flock: F.b1, on: day(-12), dead: 2, queued: true });
+          await add(attempt, U.layerWorker, { id: uid(), flock: F.b1, on: day(-12), dead: 1, queued: true });
+          await add(attempt, U.layerWorker, { id: uid(), flock: F.b1, on: day(-12), dead: 2, queued: true });
           return inside(attempt, U.manager, 'select count(*)::int as v from public.flock_day_rejects where flock_id = $1 and on_date = $2', [F.b1, day(-12)]);
         },
         correct: (v) => v === 2,

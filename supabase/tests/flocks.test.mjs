@@ -240,7 +240,8 @@ async function scenario(t, db) {
       kg: code(await weight(U.worker, F1, '2026-10-28', 50, '1.8')),
       light: code(await weight(U.worker, F1, '2026-10-28', 50, '19.9')),
     },
-    { flock: 'flock_not_found', scope: 'out_of_scope', role: 'forbidden', future: 'date_in_future', old: 'date_too_old', before: 'before_placement', sample: 'bad_sample', grams: 'bad_weight', zero: 'bad_weight', kg: 'bad_weight', light: 'bad_weight' },
+    // 0035: لا حدّ للأيّام السبعة (كلّ أيّام الفوج القائم)، فيوم 22/10 قبل تسكين 25/10: before_placement.
+    { flock: 'flock_not_found', scope: 'out_of_scope', role: 'forbidden', future: 'date_in_future', old: 'before_placement', before: 'before_placement', sample: 'bad_sample', grams: 'bad_weight', zero: 'bad_weight', kg: 'bad_weight', light: 'bad_weight' },
     'record_flock_weight: كل رمز رفض، و1.8 (كيلوغرام بخانة الغرامات) و19.9 تحت الحدّ الفيزيائي الأدنى 20 غراماً (القاعدة 28)',
   );
 
@@ -299,7 +300,8 @@ async function scenario(t, db) {
       keeper: code(await save(U.keeper, F1, TODAY, { dead: 1 }, 1)),
     },
     {
-      missing: 'flock_not_found', required: 'date_required', future: 'date_in_future', old: 'date_too_old', before: 'before_placement',
+      // 0035: بلا حدّ الأيّام السبعة، فيوم 22/10 قبل تسكين 25/10.
+      missing: 'flock_not_found', required: 'date_required', future: 'date_in_future', old: 'before_placement', before: 'before_placement',
       eggsBroiler: 'eggs_on_broiler', negative: 'bad_value', feedScale: 'bad_value', water: 'bad_value', tempRange: 'bad_temp', tempOrder: 'bad_temp',
       note: 'bad_note', empty: 'empty_day', live: 'live_negative', scope: 'out_of_scope', viewer: 'forbidden', keeper: 'forbidden',
     },
@@ -433,10 +435,10 @@ async function scenario(t, db) {
   same(
     {
       scope: (await save(U.layerWorker, F1, TODAY, { dead: 1 }, 1, ref(), true)).v,
-      old: (await save(U.worker, F1, '2026-10-21', { dead: 1 }, null, ref(), true)).v,
+      old: code(await save(U.worker, F1, '2026-10-21', { dead: 1 }, null, ref(), true)),
     },
-    { scope: { status: 'parked', reason: 'out_of_scope' }, old: { status: 'parked', reason: 'date_too_old' } },
-    'خارج النطاق وأقدم من 7 أيام من الطابور: parked بسببه',
+    { scope: { status: 'parked', reason: 'out_of_scope' }, old: 'before_placement' },
+    'خارج النطاق من الطابور: parked بسببه؛ ويوم قبل التسكين يُرفض ولو من الطابور (0035: لا ركن «أقدم من 7 أيام»)',
   );
   t.eq(code(await call(U.manager, 'select public.set_period_lock($1)', ['2026-10-25'])), 'ok', 'المدير يقفل الفترة حتى 25/10');
   same(
@@ -450,7 +452,7 @@ async function scenario(t, db) {
     'الفترة المقفولة: من الطابور parked، وبنداء مباشر period_locked (الجولة والوزن والتسكين)',
   );
   const pending = summary(await overview(U.manager), sites.broiler, B1);
-  t.eq(pending.rejects_pending, 3, 'ملخّص الفوج يعدّ المركونات بلا قرار (خارج النطاق وقديم ومقفول)');
+  t.eq(pending.rejects_pending, 2, 'ملخّص الفوج يعدّ المركونات بلا قرار (خارج النطاق ومقفول)');
   t.eq((await day(F1, '2026-10-25')).dead, 20, 'المركونات ما غيّرت يوم 25/10');
 
   // ─── سياسات القراءة بالنطاق نفسه (FOUNDATION ٥٤٤): القراءة المباشرة للجداول (PostgREST) ما تعبر نطاق القارئ ─────────────────
@@ -479,7 +481,7 @@ async function scenario(t, db) {
     {
       layerWorker: { flocks: 1, days: 4, weights: 1, rejects: 1 },
       manager: { flocks: 1, days: 4, weights: 1, rejects: 1 },
-      viewer: { flocks: 1, days: 6, weights: 1, rejects: 3 },
+      viewer: { flocks: 1, days: 6, weights: 1, rejects: 2 },
       worker: none,
       viewerLayer: none,
       layerManager: none,
@@ -520,7 +522,7 @@ async function scenario(t, db) {
   same(await probe(`update public.flock_weights set hall_id = '${B3}' where flock_id = '${F1}'`), { weight_hall_mismatch: 1 }, 'ضابط: وزن بقاعة غير قاعة فوجه ← weight_hall_mismatch');
   same(await probe(`alter table public.flocks disable trigger flocks_place; update public.flocks set kind = 'layer' where id = '${F4}'`), { flock_kind_mismatch: 1 }, 'ضابط: فوج بيّاض بحقل لحم ← flock_kind_mismatch');
   same(await probe(`update public.flock_daily set eggs_total = 6000 where flock_id = '${F2}' and on_date = '2026-10-28'`), { eggs_over_live: 1 }, 'ضابط: بيض 6,000 من 4,990 دجاجة حيّة بداية اليوم (فوق 100٪) ← eggs_over_live');
-  same(await probe(`update public.flock_day_rejects set hall_id = '${B3}' where flock_id = '${F1}' and on_date = '2026-10-21'`), { reject_hall_mismatch: 1 }, 'ضابط: جولة مركونة بقاعة غير قاعة فوجها ← reject_hall_mismatch');
+  same(await probe(`update public.flock_day_rejects set hall_id = '${B3}' where flock_id = '${F1}' and on_date = '2026-10-25'`), { reject_hall_mismatch: 1 }, 'ضابط: جولة مركونة بقاعة غير قاعة فوجها ← reject_hall_mismatch');
 
   // الكتابة المباشرة على جداول الدالّة ممنوعة لكل دور (write-lock-check).
   same(

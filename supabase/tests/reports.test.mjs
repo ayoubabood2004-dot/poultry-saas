@@ -277,10 +277,12 @@ function hallsDayModel(raw, on, today, inScope) {
 // ومفاتيح مراجعة 0028 (ما في القاعة بتعريفه الواحد، ويوم ينتظر جولة، وفروق العدّ) مفحوصة في close.test وbirds28-fixes.test؛ والأفواج التي تنتظر جولة هنا = الأفواج
 // كلّها (لا فوج بيع كلّه)، فحصها في ٢ب.
 const NEW_FLOCK_KEYS = ['sold', 'sold_net_kg', 'count_diff', 'ticketed', 'feed_carry_in_kg', 'feed_out_kg', 'feed_out_unweighed', 'feed_out_cum_unweighed',
-  'left_in_hall_kg', 'left_in_hall_unweighed', 'expects_round', 'count_diffs'];
-const NEW_TOTAL_KEYS = ['sold', 'count_diff', 'ticketed', 'rounds_expected'];
+  'left_in_hall_kg', 'left_in_hall_unweighed', 'expects_round', 'count_diffs',
+  // 0035: الغاز في اليوم وفي المجاميع والمؤشّرات (لا غاز في هذا الملفّ: فارغ في اليوم والمجموع، وصفر في المؤشّرات؛ مفحوص في hall-sheet.test).
+  'gas'];
+const NEW_TOTAL_KEYS = ['sold', 'count_diff', 'ticketed', 'rounds_expected', 'gas'];
 const NEW_KPI_KEYS = ['sold_birds', 'sold_net_kg', 'sold_avg_kg', 'sale_age', 'count_diff', 'feed_carry_in_kg', 'feed_out_kg', 'feed_net_kg', 'fcr_final', 'epef_final',
-  'left_in_hall_kg', 'left_in_hall_unweighed'];
+  'left_in_hall_kg', 'left_in_hall_unweighed', 'gas'];
 const NEW_CYCLE_KEYS = ['sold_birds', 'count_diff'];
 const without = (row, keys) => row && Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 const withoutLists = (response) => ({

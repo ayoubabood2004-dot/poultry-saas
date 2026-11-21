@@ -509,6 +509,16 @@ export default async function (t, db) {
     },
     { commit: true },
   );
+  // 0035 (القاعة كالورقة): غاز مركون لـ«قاعة النقل» المغلقة اليوم (المالك من الطابور) لخانة حسمه؛ وكلّ خانة تُرجَع.
+  const p35 = await db.asUser(
+    USERS.owner,
+    async (q) => {
+      const closed = Object.values((await q('select flock_id from public.flock_closes where id = $1', [p28.closeId])).rows[0])[0];
+      await q('select public.set_flock_gas($1, public.app_today(), 2, null, gen_random_uuid(), true)', [closed]);
+      return { reject: Object.values((await q("select id from public.flock_day_rejects where payload ? 'gas'")).rows[0])[0] };
+    },
+    { commit: true },
+  );
   const SALES = ['owner', 'manager', 'accountant'];
 
   const ROWS = {
@@ -948,6 +958,21 @@ export default async function (t, db) {
       value: true,
       expect: only(MILL_SCOPE, 'ok:1', 'ok:0'),
     },
+    // 0035 (القاعة كالورقة، كلمة المالك 2026-11-21): الغاز وحسم المركون بفعل الجولة (المالك والمدير وعامل القاعة بنطاقه)، و«أرسل علفاً» بفعل الصرف
+    // (المالك والمدير؛ والأمين بنطاق المخزن العامّ فالقاعة خارج نطاقه)، والورقة لكلّ دور بنطاقه حقل القاعة، والرصيد اليوميّ بقسمين لكلّ دور.
+    set_flock_gas: {
+      sql: () => ["select public.set_flock_gas($1, public.app_today(), 3, null, gen_random_uuid(), false) ->> 'status' as v", [p2.flock]],
+      value: true,
+      expect: only(FLOCK_DAY, 'ok:saved'),
+    },
+    send_flock_feed: {
+      sql: () => ["select public.send_flock_feed(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), $1, $2, 1, public.app_today()) ->> 'status' as v", [p2.flock, p19.feedItem]],
+      value: true,
+      expect: { ...only(['owner', 'manager'], 'ok:saved'), storekeeper: 'out_of_scope' },
+    },
+    hall_sheet: { sql: () => ["select public.hall_sheet($1) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
+    decide_flock_reject: { sql: () => ["select public.decide_flock_reject($1, 'handled') ->> 'decision' as v", [p35.reject]], value: true, expect: only(FLOCK_DAY, 'ok:handled') },
+    day_balance_sections: { sql: () => ["select jsonb_array_length(public.day_balance_sections(public.app_today()) -> 'sections') as v", []], value: true, expect: all('ok:3') },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
