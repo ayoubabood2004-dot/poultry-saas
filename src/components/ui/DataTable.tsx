@@ -38,6 +38,8 @@ export interface FooterRow {
 }
 
 const NUMBER_CELL = 'text-right tabular-nums whitespace-nowrap'; // ui-ok: الآحاد طرف الرقم الأيمن بكل اتجاه
+/** رأس عمود رقميّ في الجدول المضغوط: يلتفّ عند المسافة («العلف» فوق «(كغم)») فلا يعرّض عموده أكثر من أرقامه. */
+const NUMBER_HEAD_WRAP = 'text-right tabular-nums'; // ui-ok: الآحاد طرف الرقم الأيمن بكل اتجاه
 const STICKY = 'sticky start-0 z-[1] bg-surface-1';
 /** الخلية الثابتة في صفّ تحذير: معتمة (تغطّي ما يمرّ تحتها بالتمرير) بلون الصفّ نفسه (warn-500/15 فوق surface-1 بالوضع الداكن). */
 const STICKY_WARN = 'sticky start-0 z-[1] bg-warn-50 dark:bg-[rgb(50,44,35)]';
@@ -58,20 +60,26 @@ function hasTotal(column: Pick<Column<unknown>, 'total'>): boolean {
   return total !== undefined && total !== null && total !== false && total !== '';
 }
 
-function cellClass(column: Pick<Column<unknown>, 'kind' | 'wrap'>): string {
+function cellClass(column: Pick<Column<unknown>, 'kind' | 'wrap'>, size: TableSize = 'md'): string {
   if (column.kind === 'number') return NUMBER_CELL;
-  return column.wrap ? 'min-w-48 text-start' : 'whitespace-nowrap text-start';
+  // المضغوط (ورقة القاعة بالهاتف) يلفّ البيان بلا عرض أدنى: يأخذ ما بقي من عرض الشاشة.
+  if (column.wrap) return size === 'sm' ? 'text-start' : 'min-w-48 text-start';
+  return 'whitespace-nowrap text-start';
 }
+
+const headClass = (column: Pick<Column<unknown>, 'kind' | 'wrap'>, size: TableSize): string => (size === 'sm' && column.kind === 'number' ? NUMBER_HEAD_WRAP : cellClass(column, size));
 
 /** خلية تذييل ترسم شي (مثل hasTotal). */
 const filled = (value: ReactNode | undefined): boolean => value !== undefined && value !== null && value !== false && value !== '';
 
 /**
  * حجم الجدول: md للكشوف والتقارير الكثيفة، وlg لجدول يُفتح منه شيء (القاعات في الحقل، كلمة المالك 2026-11-16: «نسوي الجدول اكبر واوضح…
- * بخط اكبر شوية بحيث يكون متناسق ما بين شكل البطاقة وبين شكل الجدول»): خطّ أكبر وصفوف أعلى بارتفاع زرّ الإصبع.
+ * بخط اكبر شوية بحيث يكون متناسق ما بين شكل البطاقة وبين شكل الجدول»): خطّ أكبر وصفوف أعلى بارتفاع زرّ الإصبع. وsm لورقة بأعمدة كثيرة على الهاتف
+ * (ورقة القاعة، مراجعة 0035: ستّة أعمدة بعرض 360): الخطّ نفسه بحشوة أضيق، ورأس العمود الرقميّ يلتفّ، والبيان بلا عرض أدنى.
  */
-export type TableSize = 'md' | 'lg';
+export type TableSize = 'sm' | 'md' | 'lg';
 const SIZES: Record<TableSize, { table: string; head: string; cell: string; foot: string }> = {
+  sm: { table: 'text-sm', head: 'px-2 py-2 text-xs', cell: 'px-2 py-1.5', foot: 'px-2 py-2' },
   md: { table: 'text-sm', head: 'px-3 py-2', cell: 'px-3 py-1.5', foot: 'px-3 py-2' },
   lg: { table: 'text-base', head: 'px-4 py-2.5 text-sm', cell: 'px-4 py-3', foot: 'px-4 py-3' },
 };
@@ -158,7 +166,7 @@ export function DataTable<Row>({
               <th
                 key={column.key}
                 scope="col"
-                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${cellClass(column)}`}
+                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${headClass(column, size)}`}
               >
                 {column.header}
               </th>
@@ -191,7 +199,7 @@ export function DataTable<Row>({
                     }
                   >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column)}`}>
+                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column, size)}`}>
                         {column.cell(row, index)}
                       </td>
                     ))}
@@ -216,7 +224,7 @@ export function DataTable<Row>({
                   {totalLabel}
                 </th>
                 {columns.slice(labelSpan).map((column) => (
-                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} ${cellClass(column)}`}>
+                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} ${cellClass(column, size)}`}>
                     {column.total}
                   </td>
                 ))}
@@ -230,7 +238,7 @@ export function DataTable<Row>({
                     {footer.label}
                   </th>
                   {columns.slice(footerSpan).map((column) => (
-                    <td key={column.key} className={`${BORDER} ${top} ${sized.foot} ${cellClass(column)}`}>
+                    <td key={column.key} className={`${BORDER} ${top} ${sized.foot} ${cellClass(column, size)}`}>
                       {footer.cells[column.key]}
                     </td>
                   ))}

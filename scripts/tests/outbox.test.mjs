@@ -561,6 +561,40 @@ export default async function (t) {
     t.same([report.saved, report.review, server.visits.get('vd')?.payload.dead, server.visits.get('vd')?.version], [4, 0, 1, 2], 'V18 كلّها حُفظت بلا رفّ مراجعة، والزيارة بتعديلها ونسختها 2');
   }
 
+  // ١٨ب) مراجعة 0035 (M2): زيارة حُفظت تغيّر صفّ اليوم، فنسخته بعدها (day.version من جوابها) ترتفع لعمليات مجموع اليوم بعدها لنفس اليوم؛ كانت
+  // تبقى بنسختها القديمة فتُرَدّ stale_day وهي كُتبت على ما يراه صاحبها. ولا تمسّ عمليات الغاز ولا يوماً آخر، وزيارة بلا صفّ بعدها (day: null) لا ترفع شيئاً.
+  {
+    const db = await open();
+    const visitThenDay = await q.saveRound(db, ALI, visit('f26', '2026-11-18', visitContent('vk', { dead: 2 })));
+    const dayAfter = await q.saveRound(db, ALI, day('f26', '2026-11-18', { note: 'بعد الزيارة' }, 3));
+    const gasAfter = await q.saveRound(db, ALI, { fn: 'set_flock_gas', flockId: 'f26', day: '2026-11-18', payload: { cylinders: 2 }, baseVersion: null });
+    const otherDay = await q.saveRound(db, ALI, day('f26', '2026-11-19', { dead: 1 }, null));
+    t.ok(visitThenDay.id !== dayAfter.id, 'V18ب ضابط: مجموع اليوم بعد الزيارة عملية مستقلّة');
+    const sent = [];
+    const report = await q.flush(db, ALI, {
+      currentUserId: async () => ALI.userId,
+      send: async (op) => {
+        sent.push([op.fn, op.day, op.baseVersion]);
+        if (op.fn === 'save_flock_visit') return { kind: 'saved', version: 1, visit: {}, day: { on_date: op.day, version: 5, dead: 2 } };
+        if (op.fn === 'save_flock_day') return op.baseVersion === (op.day === '2026-11-18' ? 5 : null) ? { kind: 'saved', version: 6 } : { kind: 'stale_day', server: { version: 5 } };
+        return op.baseVersion === null ? { kind: 'saved', version: 1 } : { kind: 'stale_gas', server: { on: op.day, cylinders: null, version: 1 } };
+      },
+      lookup: async () => null,
+    });
+    t.same(
+      [sent.filter(([, on]) => on === '2026-11-18'), sent.filter(([, on]) => on !== '2026-11-18'), report.saved, report.review, gasAfter.baseVersion, otherDay.baseVersion],
+      [[['save_flock_visit', '2026-11-18', null], ['save_flock_day', '2026-11-18', 5], ['set_flock_gas', '2026-11-18', null]], [['save_flock_day', '2026-11-19', null]], 4, 0, null, null],
+      'V18ب مجموع اليوم بعد زيارة حُفظت يرتفع إلى نسخة صفّ اليوم في جوابها (5)، والغاز واليوم الآخر بنسختيهما، فلا رفّ مراجعة',
+    );
+    const lone = await open();
+    await q.saveRound(lone, ALI, visit('f27', '2026-11-18', visitContent('vl', { dead: 1, void: true }), 2));
+    await q.saveRound(lone, ALI, day('f27', '2026-11-18', { dead: 4 }, 3));
+    const seen = [];
+    await q.flush(lone, ALI, { currentUserId: async () => ALI.userId, send: async (op) => (seen.push(op.baseVersion), op.fn === 'save_flock_visit' ? { kind: 'saved', version: 3, visit: {}, day: null } : { kind: 'saved', version: 4 }), lookup: async () => null });
+    t.same(seen, [2, 3], 'V18ب زيارة بلا صفّ يوم بعدها (day: null): مجموع اليوم بنسخته كما كُتب');
+    t.same([q.visitDayVersion({ version: 7 }), q.visitDayVersion(null), q.visitDayVersion({ version: '7' }), q.visitDayVersion({ version: 0 })], [7, null, null, null], 'V18ب نسخة صفّ اليوم من جواب الزيارة بنوعها');
+  }
+
   // ١٩) stale_visit لرفّ المراجعة بالنسختين، وما ينحذف.
   {
     const db = await open();

@@ -259,16 +259,33 @@ function release(db: IDBDatabase, op: OutboxOp, state: OpState, now: number, err
   });
 }
 
-function removeSaved(db: IDBDatabase, op: OutboxOp, version: number, now: number) {
+/** نسخة صفّ اليوم في جواب زيارة محفوظة (flock_day_json بعد الزيارة)، أو null: لا تبقى زيارة حيّة، أو شكل غريب. */
+export function visitDayVersion(day: unknown): number | null {
+  if (typeof day !== 'object' || day === null) return null;
+  const version = (day as { version?: unknown }).version;
+  return typeof version === 'number' && Number.isInteger(version) && version >= 1 ? version : null;
+}
+
+/** النسخة التي ترفعها عملية حُفظت لعملية بعدها لنفس (الفوج، اليوم)، أو null: لا علاقة بين نسختيهما. */
+function versionFor(op: OutboxOp, saved: Extract<SendResult, { kind: 'saved' }>, next: OutboxOp): number | null {
+  if (op.fn === 'set_flock_gas') return next.fn === 'set_flock_gas' ? saved.version : null;
+  if (op.fn === 'save_flock_day') return next.fn === 'save_flock_day' ? saved.version : null;
+  if (visitIdOf(next) === op.payload.visitId) return saved.version;
+  // الزيارة تغيّر صفّ اليوم أيضاً: نسخته بعدها (من جوابها) لعمليات مجموع اليوم بعدها، وإلا رُدّت stale_day وهي كُتبت على ما يراه صاحبها (مراجعة
+  // 0035: زيارة ثمّ هلاكات اليوم من الورقة قبل الرفع).
+  return next.fn === 'save_flock_day' ? visitDayVersion(saved.day) : null;
+}
+
+function removeSaved(db: IDBDatabase, op: OutboxOp, saved: Extract<SendResult, { kind: 'saved' }>, now: number) {
   return transact(db, OPS, 'readwrite', async (tx) => {
     const store = tx.objectStore(OPS);
     await requestResult(store.delete(op.id));
-    const visitId = visitIdOf(op);
     for (const next of await sameKey(store, op)) {
       if (next.id === op.id) continue;
-      // النسخة لما بعدها من النوع نفسه وحده: نسخة صفّ اليوم لعمليات مجموع اليوم، ونسخة الزيارة لعمليات الزيارة نفسها (لا لزيارة أخرى ولا لمجموع
-      // اليوم)، ونسخة صفّ الغاز لعمليات الغاز.
-      if (op.fn === 'set_flock_gas' ? next.fn !== 'set_flock_gas' : visitId === null ? next.fn !== 'save_flock_day' : visitIdOf(next) !== visitId) continue;
+      // النسخة لما بعدها من النوع نفسه: نسخة صفّ اليوم لعمليات مجموع اليوم، ونسخة الزيارة لعمليات الزيارة نفسها (لا لزيارة أخرى)، ونسخة صفّ الغاز
+      // لعمليات الغاز؛ ونسخة صفّ اليوم بعد زيارة لعمليات مجموع اليوم.
+      const version = versionFor(op, saved, next);
+      if (version === null) continue;
       const base = next.baseVersion === null ? version : Math.max(next.baseVersion, version);
       if (base !== next.baseVersion) await requestResult(store.put({ ...next, baseVersion: base, updatedAt: now }));
     }
@@ -357,7 +374,7 @@ export async function flush(
 
     switch (result.kind) {
       case 'saved':
-        await removeSaved(db, op, result.version, clock());
+        await removeSaved(db, op, result, clock());
         report.saved += 1;
         break;
       case 'parked':

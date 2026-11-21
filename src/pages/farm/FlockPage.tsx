@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -8,7 +8,6 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import { WeightPad } from '../../components/ui/WeightPad';
 import type { Day } from '../../domain/dates';
@@ -16,16 +15,17 @@ import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
 import type { Milli } from '../../domain/money';
 import { naturalCompare } from '../../domain/naturalOrder';
+import type { BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
-import { describeError, NotConnectedError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtQtyCell } from '../../lib/format';
+import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
+import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, pendingOps, reviewEntries, saveRound, type EnqueueInput, type OutboxOp, type SendResult } from '../../lib/outbox';
+import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, visitDayVersion, type EnqueueInput, type FlockDayPayload, type FlockGasPayload, type OutboxOp, type ReviewEntry, type SendResult } from '../../lib/outbox';
 import type { FlockSummary, HallView, SiteView } from '../../lib/repo/flocks';
-import { recordFlockWeight } from '../../lib/repo/flocks';
+import { parseDayRow, recordFlockWeight } from '../../lib/repo/flocks';
 import { decideFlockReject, loadHallSheet, sendFlockFeed, toBaseQty, voidSheetFeed, type FeedSend, type HallSheet, type RejectDecision, type SheetDay, type SheetFeedItem, type SheetFeedLine, type SheetReject, type SheetUnit } from '../../lib/repo/hallSheet';
-import { refreshRoundQueue, roundQueueStore, uploadRounds } from '../../lib/roundUploads';
+import { refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
 import FlockCard from '../halls/FlockCard';
@@ -57,17 +57,90 @@ function useKept<T>(data: T | null): T | null {
   return data ?? kept;
 }
 
-/** «هلاكات قاعة (7)»: الرقم وحده رقم القاعة، و«قاعة 5» تُقرأ «5»، وغيرها باسمها. */
+/** اسم القاعة بعد كلمة «قاعة» في عنوان: الرقم وحده رقم القاعة، و«قاعة 5» تُقرأ «5» (لا «قاعة قاعة 5»)، وغيرها باسمه. */
+export function sheetHallName(name: string): string {
+  return name.trim().replace(/^قاعة\s+/u, ''); // i18n-ok: بادئة اسم القاعة كما يكتبه المدير تُشال من العنوان
+}
+
+/** «هلاكات قاعة (7)». */
 function sheetTitle(name: string): string {
-  const trimmed = name.trim().replace(/^قاعة\s+/u, ''); // i18n-ok: بادئة اسم القاعة كما يكتبه المدير تُشال من العنوان
-  return t('sheet.title', 'هلاكات قاعة ({hall})', { hall: trimmed });
+  return t('sheet.title', 'هلاكات قاعة ({hall})', { hall: sheetHallName(name) });
+}
+
+/** تاريخ صفّ الورقة يوم/شهر (السنة في سطر «وجبة» فوق الجدول): العمودان الأوّلان أضيق فيتّسع الهاتف للورقة. */
+const rowDay = (on: Day): string => fmtDay(on).slice(0, 5);
+
+/**
+ * ما حُفظ من هذا الجهاز لهذا الفوج في رفعٍ بهذه الجلسة (رافع الخلفية والورقة معاً: roundQueueStore)، بنسخة صفّه بعده. الورقة تعرضه وتبني التعديل التالي
+ * على نسخته حتى تصلها قراءة بعده (مراجعة 0035): رفعٌ في الخلفية لا يغيّر القراءة المعروضة، فكانت الخانة ترجع إلى القيمة القديمة بعد الرفع، والتعديل التالي
+ * يُرسل بالنسخة القديمة فيُرَدّ stale_day أو stale_gas. day: حمولة مجموع اليوم («بلا تغيير» غائبة)، أو صفّ اليوم كلّه بعد زيارة.
+ */
+export type SavedEdit =
+  | { kind: 'gas'; on: Day; version: number; cylinders: number | null }
+  | { kind: 'day'; on: Day; version: number; dead?: number; culled?: number; eggs?: number | null; note?: string | null };
+
+const given = <T,>(value: T | null | undefined): value is T => value !== null && value !== undefined;
+
+export function savedEdits(runs: readonly RoundRun[], key: string, flockId: string): SavedEdit[] {
+  const edits: SavedEdit[] = [];
+  for (const run of runs) {
+    if (run.key !== key) continue;
+    for (const entry of run.results) {
+      if (entry.flockId !== flockId || entry.result.kind !== 'saved') continue;
+      const { version } = entry.result;
+      if (entry.fn === 'set_flock_gas') {
+        edits.push({ kind: 'gas', on: entry.day, version, cylinders: (entry.payload as FlockGasPayload).cylinders });
+      } else if (entry.fn === 'save_flock_day') {
+        const payload = entry.payload as FlockDayPayload;
+        edits.push({
+          kind: 'day',
+          on: entry.day,
+          version,
+          ...(given(payload.dead) ? { dead: payload.dead } : {}),
+          ...(given(payload.culled) ? { culled: payload.culled } : {}),
+          ...(given(payload.eggs_total) ? { eggs: payload.eggs_total } : {}),
+          ...(given(payload.note) ? { note: payload.note === '' ? null : payload.note } : {}),
+        });
+      } else {
+        // زيارة: صفّ اليوم بعدها كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة).
+        const after = visitDayVersion(entry.result.day);
+        if (after === null) continue;
+        try {
+          const row = parseDayRow(entry.result.day);
+          edits.push({ kind: 'day', on: entry.day, version: after, dead: row.dead ?? 0, culled: row.culled ?? 0, eggs: row.eggsTotal, note: row.note });
+        } catch { // swallow-ok: صفّ يوم بشكل غريب لا يُعرض؛ القراءة من جديد بعد الرفع تعرضه من الخادم
+          continue;
+        }
+      }
+    }
+  }
+  return edits;
+}
+
+/** ما حُفظ من هذا الجهاز لهذا الفوج، ويتجدّد مع كلّ رفع. */
+function useSavedEdits(flockId: string): readonly SavedEdit[] {
+  const stamp = useStamp();
+  const runs = useStore(roundQueueStore).runs;
+  const key = stamp ? stampKey(stamp) : '';
+  return useMemo(() => (key ? savedEdits(runs, key, flockId) : []), [runs, key, flockId]);
+}
+
+/**
+ * رفعٌ من هذا الجهاز مسّ هذا الفوج (من الورقة أو من الخلفية): رقمه مفتاحٌ لقراءة الورقة، فتُقرأ من جديد بعده بلا نداء من الشاشة؛ وأوّل ما يُفتح الرقم
+ * الحاليّ فلا قراءة زائدة.
+ */
+function useUploadMark(flockId: string): number {
+  const stamp = useStamp();
+  const runs = useStore(roundQueueStore).runs;
+  const key = stamp ? stampKey(stamp) : '';
+  return runs.reduce((mark, run) => (run.key === key && run.results.some((entry) => entry.flockId === flockId) ? Math.max(mark, run.seq) : mark), 0);
 }
 
 /** عمليات هذا الجهاز لهذا الفوج ولم تُرفع بعد، ومرفوضاته في رفّ المراجعة: تُقرأ عند الفتح وبعد كلّ رفع وكلّ حفظ. */
-function useDeviceOps(flockId: string, tick: number): { ops: readonly OutboxOp[]; review: number } {
+function useDeviceOps(flockId: string, tick: number): { ops: readonly OutboxOp[]; review: readonly ReviewEntry[] } {
   const stamp = useStamp();
   const uploads = useStore(roundQueueStore).seq;
-  const [state, setState] = useState<{ key: string; ops: OutboxOp[]; review: number } | null>(null);
+  const [state, setState] = useState<{ key: string; ops: OutboxOp[]; review: ReviewEntry[] } | null>(null);
   const userId = stamp?.userId ?? null;
   const orgId = stamp?.orgId ?? null;
   const displayName = stamp?.displayName ?? '';
@@ -80,7 +153,7 @@ function useDeviceOps(flockId: string, tick: number): { ops: readonly OutboxOp[]
       .then(async (db) => ({ ops: await pendingOps(db, owner), review: await reviewEntries(db, owner) }))
       .then(
         ({ ops, review }) => {
-          if (!cancelled) setState({ key: `${userId}:${orgId}:${flockId}`, ops: ops.filter((op) => op.flockId === flockId), review: review.filter((entry) => entry.op.flockId === flockId).length });
+          if (!cancelled) setState({ key: `${userId}:${orgId}:${flockId}`, ops: ops.filter((op) => op.flockId === flockId), review: review.filter((entry) => entry.op.flockId === flockId) });
         },
         () => {
           /* swallow-ok: الطابور ما انقرا (IndexedDB ممنوع)؛ الورقة تعرض قيم الخادم وحدها */
@@ -92,32 +165,63 @@ function useDeviceOps(flockId: string, tick: number): { ops: readonly OutboxOp[]
   }, [userId, orgId, displayName, flockId, uploads, tick]);
   return state?.key === key ? state : NO_DEVICE;
 }
-const NO_DEVICE = { ops: [] as readonly OutboxOp[], review: 0 };
+const NO_DEVICE = { ops: [] as readonly OutboxOp[], review: [] as readonly ReviewEntry[] };
 
-/** قيم الخانة بعد عمليات هذا الجهاز ليومها: الهلاكات والبيض من مجموع اليوم والزيارات (soFar)، والملاحظة والغاز من أحدث عملية لهما. */
+/**
+ * قيم الخانة كما يجب أن تُرى: قراءة الخادم، ثمّ ما حُفظ من هذا الجهاز بنسخة أحدث منها (لم تصل الورقةَ قراءةٌ بعده)، ثمّ عمليات الجهاز التي لم تُرفع
+ * (الهلاكات والبيض من مجموع اليوم والزيارات: soFar، والملاحظة والغاز من أحدث عملية لهما). والنسختان أكبر ما رآه الجهاز لصفّ اليوم ولصفّ الغاز: عليهما
+ * يُبنى التعديل التالي.
+ */
 interface Shown {
   dead: number;
+  /** المستبعد القديم داخل dead: تعديل الهلاكات يصفّره. */
+  culled: number;
   eggs: number | null;
   note: string | null;
   gas: number | null;
+  dayVersion: number | null;
+  gasVersion: number | null;
+  /** لليوم جولة محفوظة أو منتظرة: الهلاكات تُعرض ولو صفراً. */
+  recorded: boolean;
   /** في الخانة عملية لم تُرفع بعد. */
   pending: ReadonlySet<CellField>;
 }
 
-function shownOf(day: SheetDay, ops: readonly OutboxOp[]): Shown {
-  const own = ops.filter((op) => op.day === day.on).sort((a, b) => a.createdAt - b.createdAt);
-  const pending = new Set<CellField>();
+function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedEdit[]): Shown {
+  let deadOnly = day.dead - day.culled;
+  let culled = day.culled;
+  let eggs = day.eggsTotal;
   let note = day.note;
   let gas = day.gas;
+  let dayVersion = day.dayVersion;
+  let gasVersion = day.gasVersion;
+  for (const edit of saved.filter((entry) => entry.on === day.on).sort((a, b) => a.version - b.version)) {
+    if (edit.kind === 'gas') {
+      if (edit.version > (gasVersion ?? 0)) {
+        gas = edit.cylinders;
+        gasVersion = edit.version;
+      }
+      continue;
+    }
+    if (edit.version <= (dayVersion ?? 0)) continue;
+    if (edit.dead !== undefined) deadOnly = edit.dead;
+    if (edit.culled !== undefined) culled = edit.culled;
+    if (edit.eggs !== undefined) eggs = edit.eggs;
+    if (edit.note !== undefined) note = edit.note;
+    dayVersion = edit.version;
+  }
+  const own = ops.filter((op) => op.day === day.on).sort((a, b) => a.createdAt - b.createdAt);
+  const pending = new Set<CellField>();
   const totals = own.filter((op) => op.fn !== 'set_flock_gas');
   for (const op of own) {
     if (op.fn === 'set_flock_gas') {
       gas = op.payload.cylinders;
       pending.add('gas');
     } else if (op.fn === 'save_flock_day') {
-      if (op.payload.dead !== null && op.payload.dead !== undefined) pending.add('dead');
-      if (op.payload.eggs_total !== null && op.payload.eggs_total !== undefined) pending.add('eggs');
-      if (op.payload.note !== null && op.payload.note !== undefined) {
+      if (given(op.payload.dead)) pending.add('dead');
+      if (given(op.payload.culled)) culled = op.payload.culled;
+      if (given(op.payload.eggs_total)) pending.add('eggs');
+      if (given(op.payload.note)) {
         note = op.payload.note === '' ? null : op.payload.note;
         pending.add('note');
       }
@@ -126,8 +230,8 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[]): Shown {
       if (op.payload.eggs_total !== null) pending.add('eggs');
     }
   }
-  const total = soFar({ dead: day.dead, culled: 0, feedKg: null, eggsTotal: day.eggsTotal, eggsBroken: day.eggsBroken }, totals);
-  return { dead: total.dead + total.culled, eggs: total.eggsTotal, note, gas, pending };
+  const total = soFar({ dead: deadOnly + culled, culled: 0, feedKg: null, eggsTotal: eggs, eggsBroken: day.eggsBroken }, totals);
+  return { dead: total.dead + total.culled, culled, eggs: total.eggsTotal, note, gas, dayVersion, gasVersion, recorded: dayVersion !== null || pending.has('dead'), pending };
 }
 
 /** نتيجة رفع خانة بجملة (أو «على الجهاز» حين لم تُرفع). */
@@ -182,20 +286,27 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
   const id = useId();
   const stamp = useStamp();
   const online = useStore(onlineStore);
-  const current = field === 'dead' ? (day.dayVersion === null && !shown.pending.has('dead') ? null : shown.dead) : field === 'gas' ? shown.gas : field === 'eggs' ? shown.eggs : null;
+  const current = field === 'dead' ? (shown.recorded ? shown.dead : null) : field === 'gas' ? shown.gas : field === 'eggs' ? shown.eggs : null;
   const [value, setValue] = useState('');
   const [note, setNote] = useState(shown.note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNote = field === 'note';
   const typed = isNote ? note !== (shown.note ?? '') : value !== '';
+  // الغاز المسجّل يُمسح («امسح الغاز»: قنانٍ null، والخادم يُبقي صفّه بنسخة أكبر).
+  const clearable = field === 'gas' && shown.gas !== null;
   // الحيّ الذي يقبله الخادم لهلاكات هذا اليوم: الحيّ الآن مع هلاكات اليوم نفسه.
   const liveBound = sheet.summary.live + day.dead;
+  // النسخة التي يُبنى عليها التعديل: أكبر ما رآه هذا الجهاز لصفّه (قراءة الورقة، أو ما حُفظ منه بعدها).
+  const dayBase = shown.dayVersion;
 
-  const save = async () => {
+  const save = async (clear = false) => {
     if (!stamp || busy) return;
     let input: EnqueueInput;
-    if (isNote) {
+    if (clear) {
+      if (!clearable) return;
+      input = { fn: 'set_flock_gas', flockId: sheet.flock.id, day: day.on, payload: { cylinders: null }, baseVersion: shown.gasVersion };
+    } else if (isNote) {
       const text = note.trim();
       if (text.length > 500) {
         setError(t('sheet.note.long', 'الملاحظة حتى 500 حرف.'));
@@ -205,7 +316,7 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
         onClose();
         return;
       }
-      input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { note: text }, baseVersion: day.dayVersion };
+      input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { note: text }, baseVersion: dayBase };
     } else {
       const n = /^[0-9]{1,8}$/u.test(value) ? Number(value) : null; // number-ok: عدد طيور أو قناني أو بيض من أرقام اللوحة وحدها
       if (n === null) return;
@@ -214,19 +325,19 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
           setError(t('sheet.gas.max', 'عدد القناني من 0 إلى 1,000.'));
           return;
         }
-        input = { fn: 'set_flock_gas', flockId: sheet.flock.id, day: day.on, payload: { cylinders: n }, baseVersion: day.gasVersion };
+        input = { fn: 'set_flock_gas', flockId: sheet.flock.id, day: day.on, payload: { cylinders: n }, baseVersion: shown.gasVersion };
       } else if (field === 'dead') {
         if (n > MAX_BIRDS || n > liveBound) {
           setError(t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(liveBound, 0)) }));
           return;
         }
-        input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { dead: n, culled: day.culled > 0 ? 0 : null }, baseVersion: day.dayVersion };
+        input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { dead: n, culled: shown.culled > 0 ? 0 : null }, baseVersion: dayBase };
       } else {
         if (n > MAX_BIRDS) {
           setError(t('sheet.eggs.max', 'عدد البيض حتى 10,000,000.'));
           return;
         }
-        input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { eggs_total: n }, baseVersion: day.dayVersion };
+        input = { fn: 'save_flock_day', flockId: sheet.flock.id, day: day.on, payload: { eggs_total: n }, baseVersion: dayBase };
       }
     }
     setBusy(true);
@@ -256,9 +367,20 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
       dirty={typed}
       title={t('sheet.cell.title', '{field} — يوم {day} (العمر {age})', { field: fieldLabel(field), day: fmtDay(day.on), age: fmtInt(day.age) })}
       footer={
-        <Button size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={!isNote && value === ''} data-action="cell-done">
-          {t('sheet.done', 'تم')}
-        </Button>
+        clearable ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={value === ''} data-action="cell-done">
+              {t('sheet.done', 'تم')}
+            </Button>
+            <Button size="lg" variant="secondary" className="w-full" onClick={() => void save(true)} disabled={busy} data-action="cell-clear">
+              {t('sheet.gas.clear', 'امسح الغاز')}
+            </Button>
+          </div>
+        ) : (
+          <Button size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={!isNote && value === ''} data-action="cell-done">
+            {t('sheet.done', 'تم')}
+          </Button>
+        )
       }
     >
       <div className="flex flex-col gap-3" data-action="cell-sheet" data-field={field}>
@@ -270,7 +392,7 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
           <>
             <p className="text-sm text-ink-muted" data-action="cell-current">
               {current === null ? t('sheet.cell.empty', 'لم يُسجَّل شيء لهذا اليوم بعد.') : t('sheet.cell.current', 'المسجّل الآن: {n}', { n: fmtInt(current) })}
-              {field === 'dead' && day.culled > 0 ? ` ${t('sheet.cell.culled', '(منها {n} مستبعد قديم يُحسب معها)', { n: fmtInt(day.culled) })}` : ''}
+              {field === 'dead' && shown.culled > 0 ? ` ${t('sheet.cell.culled', '(منها {n} مستبعد قديم يُحسب معها)', { n: fmtInt(shown.culled) })}` : ''}
             </p>
             <WeightPad value={value} onChange={setValue} unitLabel={unit} maxDecimals={0} />
             {error ? (
@@ -294,21 +416,31 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
 
 const kgOf = (qty: Milli): string => fmtMilli(qty);
 const unitName = (unit: SheetFeedLine['unit']): string => (unit === 'L' ? t('unit.L', 'لتر') : unit === 'pc' ? t('unit.pc', 'قطعة') : t('unit.kg', 'كغم'));
+/** كمية العلف بوحدة أساسه بالفصحى وبفواصل الآلاف: «2,500 كغم» (الكيلو اختصار ثابت ولو تجاوز الطنّ، كعمود الورقة)، و«لتران»، و«5 لترات». */
+export const feedAmount = (qty: Milli, unit: BaseUnit): string => (unit === 'kg' ? t('sheet.feed.kg', '{qty} كغم', { qty: kgOf(qty) }) : fmtQty(qty, unit).main);
 
 /** طلب الإرسال المحفوظ خارج المكوّن (درس 2026-11-10): ما أُرسل حرفاً، وأسماؤه للعرض. */
 interface FeedRequest extends FeedSend {
   itemName: string;
-  unitLabel: string;
-  typed: string;
+  baseUnit: BaseUnit;
 }
 
 const asFeedRequest = (value: unknown): FeedRequest | null => {
   if (typeof value !== 'object' || value === null) return null;
   const row = value as Record<string, unknown>;
-  return typeof row.clientRef === 'string' && typeof row.issueId === 'string' && typeof row.lineId === 'string' && typeof row.itemId === 'string' && typeof row.qty === 'bigint' && typeof row.forDay === 'string'
-    ? (row as unknown as FeedRequest)
-    : null;
+  if (!(typeof row.clientRef === 'string' && typeof row.issueId === 'string' && typeof row.lineId === 'string' && typeof row.itemId === 'string' && typeof row.qty === 'bigint' && typeof row.forDay === 'string' && typeof row.itemName === 'string')) return null;
+  return { ...(row as unknown as FeedRequest), baseUnit: row.baseUnit === 'L' || row.baseUnit === 'pc' ? row.baseUnit : 'kg' };
 };
+
+/** زرّ الورقة بسطرين: الفعل بخطّه، وتحته ما يُرسل بخطّ صغير يُقصّ ولا يلتفّ (عرض 360). */
+function TwoLines({ main, sub }: { main: string; sub: string }) {
+  return (
+    <span className="flex min-w-0 max-w-full flex-col items-center">
+      <span className="max-w-full truncate">{main}</span>
+      <span className="max-w-full truncate text-xs font-normal">{sub}</span>
+    </span>
+  );
+}
 
 /** وحدات الإرسال للمادّة: وحداتها (الكيس أوّلاً كما رتّبها الخادم) ثمّ وحدة الأساس. */
 const unitChoices = (item: SheetFeedItem | null): { value: string; label: string; unit: SheetUnit | null }[] =>
@@ -344,7 +476,7 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
       storePending(storeKey, null);
       setFrozen(null);
       setValue('');
-      toast({ tone: 'success', title: t('sheet.feed.sent', 'أُرسل {qty} {unit} من «{item}» ليوم {day} ({doc}).', { qty: kgOf(sent.issue.qty), unit: unitName(sent.issue.unit), item: sent.issue.itemName, day: fmtDay(sent.issue.forDay), doc: sent.issue.docNo }) });
+      toast({ tone: 'success', title: t('sheet.feed.sent', 'أُرسل {amount} من «{item}» ليوم {day} ({doc}).', { amount: feedAmount(sent.issue.qty, sent.issue.unit), item: sent.issue.itemName, day: fmtDay(sent.issue.forDay), doc: sent.issue.docNo }) });
       onChanged();
       onClose();
     } catch (failure) {
@@ -354,9 +486,9 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
         setFrozen(null);
         setError(failureText(failure));
       } else {
-        // لا نعرف إن صُرف: الطلب محفوظ، والإعادة وحدها ممكنة (لن يُصرف مرّتين).
+        // لا نعرف إن صُرف: الطلب محفوظ بيومه، والإعادة وحدها ممكنة (لن يُصرف مرّتين)؛ تقوله جملته بيومه (feed-pending).
         setFrozen(request);
-        setError(t('sheet.feed.unknown', 'لا نعرف إن أُرسل العلف: أعد المحاولة، ولن يُصرف مرّتين.'));
+        setError(null);
       }
     } finally {
       setBusy(false);
@@ -366,10 +498,11 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
   const go = () => {
     if (!item || !choice || qty === null) return;
     if (qty > item.onHand) {
-      setError(t('sheet.feed.short', 'في «رصيد العلف» من «{item}» {have} {unit} فقط.', { item: item.name, have: kgOf(item.onHand), unit: unitName(item.baseUnit) }));
+      // «عندك» أكبر ما يأخذه إرسال واحد (أكبر مخزن علف واحد فيه المادّة، عقد مراجعة 0035).
+      setError(t('sheet.feed.short', 'أكثر ما يُرسل من «{item}» مرّة واحدة {have}.', { item: item.name, have: feedAmount(item.onHand, item.baseUnit) }));
       return;
     }
-    void send({ clientRef: crypto.randomUUID(), issueId: crypto.randomUUID(), lineId: crypto.randomUUID(), flockId: sheet.flock.id, itemId: item.itemId, qty, forDay: day.on, itemName: item.name, unitLabel: choice.label, typed: value });
+    void send({ clientRef: crypto.randomUUID(), issueId: crypto.randomUUID(), lineId: crypto.randomUUID(), flockId: sheet.flock.id, itemId: item.itemId, qty, forDay: day.on, itemName: item.name, baseUnit: item.baseUnit });
   };
 
   const confirmVoid = async () => {
@@ -405,7 +538,7 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
       header: t('sheet.feed.col.void', 'تصحيح'),
       cell: (line) =>
         line.canVoid && sheet.canWrite ? (
-          <Button size="sm" variant="ghost" disabled={!online} onClick={() => setVoiding({ line, ref: crypto.randomUUID(), busy: false })} data-action="feed-void">
+          <Button variant="ghost" disabled={!online} onClick={() => setVoiding({ line, ref: crypto.randomUUID(), busy: false })} data-action="feed-void">
             {t('sheet.feed.void', 'ألغِ')}
           </Button>
         ) : null,
@@ -423,24 +556,46 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
         size="wide"
         title={t('sheet.feed.title', 'علف يوم {day} (العمر {age})', { day: fmtDay(day.on), age: fmtInt(day.age) })}
         footer={
-          writable ? (
-            shownRequest ? (
-              <Button size="lg" className="w-full" busy={busy} disabled={!online} onClick={() => void send(shownRequest)} data-action="feed-retry">
-                {t('sheet.feed.retry', 'أعد المحاولة: {qty} {unit} من «{item}»', { qty: shownRequest.typed, unit: shownRequest.unitLabel, item: shownRequest.itemName })}
-              </Button>
-            ) : (
-              <Button size="lg" className="w-full" busy={busy} disabled={!online || qty === null || item === null} onClick={go} data-action="feed-send">
-                {qty !== null && item && choice ? t('sheet.feed.send_n', 'أرسل {qty} {unit} من «{item}»', { qty: value, unit: choice.label, item: item.name }) : t('sheet.feed.send', 'أرسل')}
-              </Button>
-            )
+          shownRequest ? (
+            // الطلب المجمَّد يُعاد ولو فُتحت الورقة ليوم آخر أو لوجبة لا تُكتب الآن: جوابه وحده يحسمه، وهو مسمّى بيومه.
+            <Button size="lg" className="w-full" busy={busy} disabled={!online} onClick={() => void send(shownRequest)} data-action="feed-retry">
+              <TwoLines
+                main={t('sheet.feed.retry', 'أعد المحاولة')}
+                sub={t('sheet.feed.retry_what', 'علف يوم {day}: {amount} من «{item}»', { day: fmtDay(shownRequest.forDay), amount: feedAmount(shownRequest.qty, shownRequest.baseUnit), item: shownRequest.itemName })}
+              />
+            </Button>
+          ) : writable ? (
+            <Button size="lg" className="w-full" busy={busy} disabled={!online || qty === null || item === null} onClick={go} data-action="feed-send">
+              {qty !== null && item ? <TwoLines main={t('sheet.feed.send_amount', 'أرسل {amount}', { amount: feedAmount(qty, item.baseUnit) })} sub={t('sheet.feed.send_item', 'من «{item}»', { item: item.name })} /> : t('sheet.feed.send', 'أرسل')}
+            </Button>
           ) : undefined
         }
       >
         <div className="flex flex-col gap-4" data-action="feed-sheet">
+          {shownRequest ? (
+            <div data-action="feed-pending">
+              <Notice
+                tone="warning"
+                title={t('sheet.feed.pending', 'علف يوم {day} لم يُعرف مصيره: أعد المحاولة.', { day: fmtDay(shownRequest.forDay) })}
+              >
+                {t('sheet.feed.pending_body', '{amount} من «{item}». لن يُصرف مرّتين، ولا يُرسل علف غيره حتى يُعرف مصيره.', { amount: feedAmount(shownRequest.qty, shownRequest.baseUnit), item: shownRequest.itemName })}
+              </Notice>
+            </div>
+          ) : null}
           <section className="flex flex-col gap-2">
             <h3 className="font-semibold">{t('sheet.feed.sent_title', 'ما أُرسل لهذا اليوم')}</h3>
             <DataTable caption={t('sheet.feed.sent_title', 'ما أُرسل لهذا اليوم')} columns={columns} rows={day.feed} rowKey={(line) => line.issueId} empty={t('sheet.feed.none', 'لم يُرسل علف لهذا اليوم.')} />
             {day.feed.some((line) => line.issuedOn !== day.on) ? <p className="text-xs text-ink-muted">{t('sheet.feed.late_note', 'علف يوم فات يخرج من المخزن يوم تسجيله، ويُعرض في يومه هنا.')}</p> : null}
+            {day.carryInKg !== null ? (
+              <p className="text-sm" data-action="feed-carry">
+                {t('sheet.feed.carry', 'منقول من الوجبة السابقة: {amount}، داخل علف هذا اليوم (ليس صرفاً من المخزن).', { amount: feedAmount(day.carryInKg, 'kg') })}
+              </p>
+            ) : null}
+            {day.feedBackKg !== null ? (
+              <p className="text-sm" data-action="feed-back">
+                {t('sheet.feed.back', 'رُدّ من القاعة يوم الإغلاق: {amount}، إلى المخزن ومنقولاً إلى الوجبة التالية.', { amount: feedAmount(day.feedBackKg, 'kg') })}
+              </p>
+            ) : null}
           </section>
           {!writable ? (
             <p className="text-sm text-ink-muted" data-action="feed-closed">
@@ -478,7 +633,26 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
                     );
                   })}
                 </div>
-                {choices.length > 1 ? <Segmented label={t('sheet.feed.unit', 'الوحدة')} options={choices.map(({ value: v, label }) => ({ value: v, label }))} value={choice?.value ?? 'base'} onChange={setUnitId} /> : null}
+                {choices.length > 1 ? (
+                  <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('sheet.feed.unit', 'الوحدة')}>
+                    {choices.map((entry) => {
+                      const selected = entry.value === choice?.value;
+                      return (
+                        <button
+                          key={entry.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setUnitId(entry.value)}
+                          className={`flex min-h-11 items-center justify-center rounded-xl border px-3 py-2 text-center font-semibold ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
+                          data-action="feed-unit"
+                        >
+                          {entry.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <WeightPad value={value} onChange={setValue} unitLabel={choice?.label ?? ''} maxDecimals={3} />
                 {qty !== null && choice?.unit && item ? (
                   <p className="text-sm text-ink-muted" data-action="feed-base">
@@ -540,31 +714,106 @@ function rejectWhat(payload: Record<string, unknown>): string {
   return parts.length ? parts.join(t('list.separator', '، ')) : t('sheet.reject.nothing', 'تعديل');
 }
 
-function RejectsBanner({ rejects, onChanged }: { rejects: readonly SheetReject[]; onChanged: () => void }) {
+/** رقم عشريّ من السلك بقيمته («120» و«120.000» سواء)، والغائب null، وغير المقروء بنصّه. */
+const decimalKey = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = typeof value === 'string' ? parseDecimal(value, 3) : null;
+  return parsed === null ? `?${String(value)}` : toScale(parsed, 3).toString();
+};
+const sameDecimal = (a: unknown, b: unknown): boolean => decimalKey(a) === decimalKey(b);
+const sameValue = (a: unknown, b: unknown): boolean => (a ?? null) === (b ?? null);
+
+/**
+ * المركون عند الخادم (flock_day_rejects) ونسخته في رفّ مراجعة هذا الجهاز شيءٌ واحد: بمرجعه إن أرسله الخادم، وإلّا بما حمله (اليوم والسبب، ومعرّف
+ * الزيارة، أو قناني الغاز، أو خانات مجموع اليوم ونسخته كما خزّنها الخادم). كان يُعدّ مرّتين ويُقرَّر فيه مرّتين (مراجعة 0035).
+ */
+export function sameParked(reject: SheetReject, entry: ReviewEntry): boolean {
+  if (entry.reason !== 'parked' || entry.op.day !== reject.on) return false;
+  if (reject.clientRef !== null) return reject.clientRef === entry.op.id;
+  if ((entry.hint ?? null) !== reject.reason) return false;
+  const saved = reject.payload;
+  const op = entry.op;
+  if (op.fn === 'set_flock_gas') return 'gas' in saved && sameValue(saved.gas, op.payload.cylinders);
+  if (op.fn === 'save_flock_visit') return saved.visit === op.payload.visitId;
+  if ('gas' in saved || 'visit' in saved) return false;
+  const p = op.payload;
+  return (
+    sameValue(saved.dead, p.dead) &&
+    sameValue(saved.culled, p.culled) &&
+    sameValue(saved.eggs_total, p.eggs_total) &&
+    sameValue(saved.eggs_cracked, p.eggs_cracked) &&
+    sameValue(saved.eggs_broken, p.eggs_broken) &&
+    sameValue(saved.note, p.note) &&
+    sameValue(saved.base_version, op.baseVersion) &&
+    sameDecimal(saved.feed_kg, p.feed_kg) &&
+    sameDecimal(saved.water_l, p.water_l) &&
+    sameDecimal(saved.temp_min, p.temp_min) &&
+    sameDecimal(saved.temp_max, p.temp_max)
+  );
+}
+
+/** المركون عند الخادم ومعه نسخ هذا الجهاز منه، وما بقي على الجهاز وحده: كلّ مركون يُعدّ مرّة. */
+export function parkedOnce(rejects: readonly SheetReject[], review: readonly ReviewEntry[]): { rejects: { reject: SheetReject; copies: ReviewEntry[] }[]; deviceOnly: ReviewEntry[] } {
+  const paired = rejects.map((reject) => ({ reject, copies: review.filter((entry) => sameParked(reject, entry)) }));
+  const taken = new Set(paired.flatMap((pair) => pair.copies.map((entry) => entry.id)));
+  return { rejects: paired, deviceOnly: review.filter((entry) => !taken.has(entry.id)) };
+}
+
+type ParkedPair = { reject: SheetReject; copies: ReviewEntry[] };
+
+function RejectsBanner({ rejects: shownRejects, canWrite, onChanged }: { rejects: readonly ParkedPair[]; canWrite: boolean; onChanged: () => void }) {
+  const stamp = useStamp();
   const [busy, setBusy] = useState<string | null>(null);
-  if (rejects.length === 0) return null;
-  const decide = async (reject: SheetReject, decision: RejectDecision) => {
+  // ما قاله الخادم عن مركون تغيّر بعد عرضه (stale_reject): يُعرض محتواه الجديد بنسخته حتى تصل الورقة قراءةٌ بنسخة مثلها أو أحدث.
+  const [fresher, setFresher] = useState<Record<string, SheetReject>>({});
+  if (shownRejects.length === 0) return null;
+  const rejects = shownRejects.map((pair) => {
+    const newer = fresher[pair.reject.id];
+    return newer && (newer.version ?? 0) > (pair.reject.version ?? 0) ? { ...pair, reject: newer } : pair;
+  });
+  const decide = async ({ reject, copies }: ParkedPair, decision: RejectDecision) => {
     setBusy(reject.id);
     try {
-      await decideFlockReject(reject.id, decision);
+      const outcome = await decideFlockReject(reject.id, decision, reject.version);
+      if (outcome.kind === 'stale') {
+        // تغيّر منذ عُرض (من جهاز آخر): لم يُقرَّر شيء، ومحتواه الجديد أمام صاحبه ليقرّر فيه.
+        setFresher((current) => ({ ...current, [reject.id]: outcome.reject }));
+        toast({ tone: 'warning', title: t('sheet.reject.stale', 'تغيّر هذا المركون منذ عُرض، فلم يُقرَّر فيه شيء: راجع محتواه الجديد ثمّ قرّر.') });
+        onChanged();
+        return;
+      }
+      // ونسخة هذا الجهاز منه في «جولات تحتاج مراجعة» قُرِّر فيها معه: لا يُطلب القرار مرّتين.
+      if (stamp && copies.length) {
+        const db = await openOutbox().catch(() => null); /* swallow-ok: الطابور ما انفتح؛ النسخة تبقى في الرفّ ويحذفها صاحبها من هناك */
+        for (const copy of copies) if (db) await removeReview(db, stamp, copy.id).catch(() => false); /* swallow-ok: كذلك */
+      }
       onChanged();
     } catch (failure) {
-      toast({ tone: 'danger', title: t('sheet.reject.failed', 'لم يُحفظ القرار.'), detail: failureText(failure) });
+      if (failure instanceof RejectedError && failure.code === 'already_decided') {
+        toast({ tone: 'info', title: t('sheet.reject.already', 'قُرِّر في هذا المركون من قبل (من جهاز آخر).') });
+        onChanged();
+      } else {
+        toast({ tone: 'danger', title: t('sheet.reject.failed', 'لم يُحفظ القرار.'), detail: failureText(failure) });
+      }
     } finally {
       setBusy(null);
     }
   };
   return (
     <Notice tone="warning" title={t('sheet.rejects.title', 'أُرسلت من الأجهزة ولم تُحفظ: {n}', { n: fmtInt(rejects.length) })}>
-      <p>{t('sheet.rejects.hint', 'أدخلها في يومها من الجدول ثمّ اضغط «أُدخلت»، أو «تجاهل».')}</p>
+      <p data-action="sheet-rejects-hint">
+        {canWrite ? t('sheet.rejects.hint', 'أدخلها في يومها من الجدول ثمّ اضغط «أُدخلت»، أو «تجاهل».') : t('sheet.rejects.closed', 'الوجبة مغلقة: أعِد فتحها لإدخاله، أو اضغط «تجاهل».')}
+      </p>
       <ul className="mt-2 flex flex-col gap-2" data-action="sheet-rejects">
-        {rejects.map((reject) => (
-          <li key={reject.id} className="flex flex-wrap items-center gap-2" data-action="sheet-reject">
-            <span>{t('sheet.reject.line', 'يوم {day}: {what} — {why}.', { day: fmtDay(reject.on), what: rejectWhat(reject.payload), why: parkText(reject.reason) })}</span>
-            <Button size="sm" variant="secondary" busy={busy === reject.id} disabled={busy !== null} onClick={() => void decide(reject, 'handled')} data-action="reject-handled">
-              {t('sheet.reject.handled', 'أُدخلت')}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void decide(reject, 'refused')} data-action="reject-refused">
+        {rejects.map((pair) => (
+          <li key={pair.reject.id} className="flex flex-wrap items-center gap-2" data-action="sheet-reject">
+            <span>{t('sheet.reject.line', 'يوم {day}: {what} — {why}.', { day: fmtDay(pair.reject.on), what: rejectWhat(pair.reject.payload), why: parkText(pair.reject.reason) })}</span>
+            {canWrite ? (
+              <Button variant="secondary" busy={busy === pair.reject.id} disabled={busy !== null} onClick={() => void decide(pair, 'handled')} data-action="reject-handled">
+                {t('sheet.reject.handled', 'أُدخلت')}
+              </Button>
+            ) : null}
+            <Button variant="ghost" busy={!canWrite && busy === pair.reject.id} disabled={busy !== null} onClick={() => void decide(pair, 'refused')} data-action="reject-refused">
               {t('sheet.reject.refused', 'تجاهل')}
             </Button>
           </li>
@@ -674,7 +923,7 @@ function Cell({ children, pending, onOpen, label, action }: { children: ReactNod
   );
 }
 
-function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: readonly OutboxOp[]; onCell: (day: SheetDay, field: CellField) => void; onFeed: (day: SheetDay) => void }) {
+function SheetTable({ sheet, ops, saved, onCell, onFeed }: { sheet: HallSheet; ops: readonly OutboxOp[]; saved: readonly SavedEdit[]; onCell: (day: SheetDay, field: CellField) => void; onFeed: (day: SheetDay) => void }) {
   const layer = sheet.flock.kind === 'layer';
   const todayRef = useRef<HTMLSpanElement>(null);
   const scrolled = useRef(false);
@@ -694,7 +943,6 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
   });
   const writableDay = (day: SheetDay) => sheet.canWrite && day.on <= sheet.today;
   const feedDecimals = columnDecimals([sheet.totals.feedKg, ...sheet.days.flatMap((day) => (day.feedKg === null ? [] : [day.feedKg]))], 3) as 0 | 1 | 2 | 3;
-  const recorded = (day: SheetDay, shown: Shown) => day.dayVersion !== null || shown.pending.has('dead');
   const columns: Column<SheetDay>[] = [
     { key: 'age', header: t('sheet.col.age', 'العمر'), kind: 'number', cell: (day) => <Num>{fmtInt(day.age)}</Num> },
     {
@@ -703,11 +951,11 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       cell: (day) =>
         day.on === sheet.today ? (
           <span ref={todayRef} className="flex flex-col gap-0.5" data-action="sheet-today">
-            <Num>{fmtDay(day.on)}</Num>
+            <Num>{rowDay(day.on)}</Num>
             <span className="text-xs font-semibold text-brand-700 dark:text-brand-200">{t('sheet.today', 'اليوم')}</span>
           </span>
         ) : (
-          <Num>{fmtDay(day.on)}</Num>
+          <Num>{rowDay(day.on)}</Num>
         ),
     },
     {
@@ -715,10 +963,10 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       header: t('sheet.col.dead', 'الهلاكات'),
       kind: 'number',
       cell: (day) => {
-        const shown = shownOf(day, ops);
+        const shown = shownOf(day, ops, saved);
         return (
           <Cell pending={shown.pending.has('dead')} onOpen={writableDay(day) ? () => onCell(day, 'dead') : null} label={t('sheet.cell.dead', 'هلاكات يوم {day}', { day: fmtDay(day.on) })} action="cell-dead">
-            {recorded(day, shown) ? <Num>{fmtInt(shown.dead)}</Num> : ''}
+            {shown.recorded ? <Num>{fmtInt(shown.dead)}</Num> : ''}
           </Cell>
         );
       },
@@ -729,7 +977,7 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       header: t('sheet.col.gas', 'الغاز'),
       kind: 'number',
       cell: (day) => {
-        const shown = shownOf(day, ops);
+        const shown = shownOf(day, ops, saved);
         return (
           <Cell pending={shown.pending.has('gas')} onOpen={writableDay(day) ? () => onCell(day, 'gas') : null} label={t('sheet.cell.gas', 'غاز يوم {day}', { day: fmtDay(day.on) })} action="cell-gas">
             {shown.gas === null ? '' : <Num>{fmtInt(shown.gas)}</Num>}
@@ -743,8 +991,24 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       header: t('sheet.col.feed', 'العلف (كغم)'),
       kind: 'number',
       cell: (day) => (
-        <Cell pending={false} onOpen={day.feed.length > 0 || writableDay(day) ? () => onFeed(day) : null} label={t('sheet.cell.feed', 'علف يوم {day}', { day: fmtDay(day.on) })} action="cell-feed">
+        <Cell
+          pending={false}
+          onOpen={day.feed.length > 0 || day.carryInKg !== null || day.feedBackKg !== null || writableDay(day) ? () => onFeed(day) : null}
+          label={t('sheet.cell.feed', 'علف يوم {day}', { day: fmtDay(day.on) })}
+          action="cell-feed"
+        >
           {day.feedKg === null ? '' : <Num>{fmtQtyCell(day.feedKg, feedDecimals)}</Num>}
+          {/* المنقول داخل علف يوم التسكين، والمرتجع يوم الإغلاق: كلمة تحت الرقم، وتفصيلهما في ورقة العلف. */}
+          {day.carryInKg !== null ? (
+            <span className="block text-xs text-ink-muted" data-action="cell-carry">
+              {t('sheet.feed.carry_mark', 'منقول')}
+            </span>
+          ) : null}
+          {day.feedBackKg !== null ? (
+            <span className="block text-xs text-ink-muted" data-action="cell-back">
+              {t('sheet.feed.back_mark', 'مرتجع')}
+            </span>
+          ) : null}
         </Cell>
       ),
       total: <Num>{fmtQtyCell(sheet.totals.feedKg, feedDecimals)}</Num>,
@@ -756,7 +1020,7 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
             header: t('sheet.col.eggs', 'البيض'),
             kind: 'number' as const,
             cell: (day: SheetDay) => {
-              const shown = shownOf(day, ops);
+              const shown = shownOf(day, ops, saved);
               return (
                 <Cell pending={shown.pending.has('eggs')} onOpen={writableDay(day) ? () => onCell(day, 'eggs') : null} label={t('sheet.cell.eggs', 'بيض يوم {day}', { day: fmtDay(day.on) })} action="cell-eggs">
                   {shown.eggs === null ? '' : <Num>{fmtInt(shown.eggs)}</Num>}
@@ -772,7 +1036,7 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       header: t('sheet.col.note', 'الملاحظات'),
       wrap: true,
       cell: (day) => {
-        const shown = shownOf(day, ops);
+        const shown = shownOf(day, ops, saved);
         const text = (
           <>
             {shown.note ?? ''}
@@ -801,6 +1065,7 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
       rows={sheet.days}
       rowKey={(day) => day.on}
       rowTone={(day) => (day.on === sheet.today ? 'mark' : null)}
+      size="sm"
       empty={t('sheet.empty', 'لا أيام بعد.')}
       totalLabel={t('sheet.total', 'المجموع')}
     />
@@ -812,10 +1077,13 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
   const navigate = useNavigate();
   const online = useStore(onlineStore);
   const load = useCallback(() => loadHallSheet(flockId), [flockId]);
-  const state = useLoad(load);
+  // كلّ رفعٍ من هذا الجهاز مسّ الفوج (من الورقة أو من الخلفية) يعيد قراءة الورقة؛ وما حُفظ يُعرض وتُبنى عليه النسخة حتى تصلها.
+  const uploadMark = useUploadMark(flockId);
+  const state = useLoad(load, String(uploadMark));
   const sheet = useKept(state.data);
   const [tick, setTick] = useState(0);
   const device = useDeviceOps(flockId, tick);
+  const saved = useSavedEdits(flockId);
   const [editing, setEditing] = useState<{ on: Day; field: CellField } | null>(null);
   const [feeding, setFeeding] = useState<Day | null>(null);
   const [weighing, setWeighing] = useState(false);
@@ -832,6 +1100,8 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
   const todayRow = sheet ? (sheet.days.find((day) => day.on === sheet.today) ?? null) : null;
   const active = sheet?.flock.status === 'active';
   const ageToday = sheet && sheet.today >= sheet.flock.placedOn ? (todayRow?.age ?? null) : null;
+  // كلّ مركون يُعدّ مرّة: نسخته على هذا الجهاز تُطابَق بمركون الخادم.
+  const parked = sheet ? parkedOnce(sheet.rejects, device.review) : null;
 
   return (
     <div className="flex flex-col gap-4" data-action="hall-sheet">
@@ -900,15 +1170,15 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
             {t('sheet.line', 'الداخل {placed} · الهلاكات {dead} · الباقي {live}', { placed: fmtInt(sheet.summary.placed), dead: fmtInt(sheet.summary.dead), live: fmtInt(sheet.summary.live) })}
           </p>
           {/* الجدول أوّل الشاشة بالهاتف: ما يحتاج قراراً جملةٌ قصيرة هنا وتفصيله تحت الجدول. */}
-          {sheet.rejects.length + device.review > 0 ? (
+          {parked && parked.rejects.length + parked.deviceOnly.length > 0 ? (
             <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="sheet-attention">
-              {t('sheet.attention', 'لم يُحفظ من الأجهزة: {n}، وتفصيله تحت الجدول.', { n: fmtInt(sheet.rejects.length + device.review) })}
+              {t('sheet.attention', 'لم يُحفظ من الأجهزة: {n}، وتفصيله تحت الجدول.', { n: fmtInt(parked.rejects.length + parked.deviceOnly.length) })}
             </p>
           ) : null}
-          <SheetTable sheet={sheet} ops={device.ops} onCell={(day, field) => setEditing({ on: day.on, field })} onFeed={(day) => setFeeding(day.on)} />
-          <RejectsBanner rejects={sheet.rejects} onChanged={changed} />
-          {device.review > 0 ? (
-            <Notice tone="warning" title={t('sheet.review', 'على هذا الجهاز تعديلات لهذه القاعة لم تُحفظ: {n}.', { n: fmtInt(device.review) })}>
+          <SheetTable sheet={sheet} ops={device.ops} saved={saved} onCell={(day, field) => setEditing({ on: day.on, field })} onFeed={(day) => setFeeding(day.on)} />
+          <RejectsBanner rejects={parked?.rejects ?? []} canWrite={sheet.canWrite} onChanged={changed} />
+          {parked && parked.deviceOnly.length > 0 ? (
+            <Notice tone="warning" title={t('sheet.review', 'على هذا الجهاز تعديلات لهذه القاعة لم تُحفظ: {n}.', { n: fmtInt(parked.deviceOnly.length) })}>
               <Link to={`${base}/round`} className={LINK_CLASS} data-action="sheet-review">
                 {t('sheet.review.go', 'راجعها في «جولات تحتاج مراجعة»')}
               </Link>
@@ -943,11 +1213,12 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
           sheet={sheet}
           day={editDay}
           field={editing.field}
-          shown={shownOf(editDay, device.ops)}
+          shown={shownOf(editDay, device.ops, saved)}
           onClose={() => setEditing(null)}
+          // الورقة تُقرأ من جديد مع نتيجة الرفع (useUploadMark)، وعمليات الجهاز الآن؛ وبلا اتصال لا شيء يُقرأ.
           onSaved={() => {
             setEditing(null);
-            changed();
+            setTick((n) => n + 1);
           }}
         />
       ) : null}

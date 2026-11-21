@@ -34,7 +34,8 @@ const STUBS = {
     export const loadHallSheet = async (id) => __sheet(await globalThis.__hs.call('hall_sheet', [id]));
     export const sendFlockFeed = async (request) => __sent(await globalThis.__hs.call('send_flock_feed', [request]));
     export const voidSheetFeed = (...a) => globalThis.__hs.call('void_flock_issue', a);
-    export const decideFlockReject = (...a) => globalThis.__hs.call('decide_flock_reject', a);`,
+    import * as __S from ${REAL_SHEET}; const __outcome = (answer) => (__S.rejectOutcome ? __S.rejectOutcome(answer) : answer);
+    export const decideFlockReject = async (...a) => __outcome(await globalThis.__hs.call('decide_flock_reject', a));`,
   session: 'export const useSession = () => globalThis.__hs.session;',
   Toast: 'export const toast = (spec) => { globalThis.__hs.toasts.push(spec); }; export function Toaster() { return null; }',
   // بطاقة البيع والإغلاق (0028) لها فحوصها؛ هنا فارغة فلا تقرأ الخادم.
@@ -54,6 +55,7 @@ async function screens() {
     "export { default as ReportPage, summaryRows, reportDays } from './src/pages/halls/ReportPage.tsx';",
     "export { onlineStore } from './src/lib/online.ts';",
     "export { openOutbox, pendingOps, reviewEntries } from './src/lib/outbox/index.ts';",
+    "export { uploadRounds } from './src/lib/roundUploads.ts';",
     "export { parseHallSheet, parseFeedSent, toBaseQty, HallSheetShapeError } from './src/lib/repo/hallSheet.ts';",
     "export { gasAnswer } from './src/lib/repo/flocks.ts';",
     "export { UnknownOutcomeError } from './src/lib/errors.ts';",
@@ -113,6 +115,9 @@ const cells = (tr) => (tr?.children ?? []).filter((c) => c.localName === 'td' ||
 const dialogTitled = (start) => all().find((n) => n.getAttribute('role') === 'dialog' && descendants(n).some((c) => c.localName === 'h2' && c.textContent.startsWith(start))) ?? null;
 /** مفتاح لوحة الأرقام (WeightPad) بقيمته داخل النافذة. */
 const key = (dialog, value) => (dialog ? descendants(dialog).find((n) => n.localName === 'button' && n.getAttribute('aria-label') === value) ?? null : null);
+/** سطور زرّ بسطرين (الفعل، وتحته ما يُرسل): نصوص أوراقه. */
+const lines = (node) => (node ? descendants(node).filter((n) => n.localName === 'span' && !n.children.some((c) => c.localName === 'span')).map((n) => n.textContent) : null);
+const classOf = (node) => node?.getAttribute('class') ?? '';
 
 export default async function (t) {
   const restore = installDom();
@@ -169,8 +174,8 @@ export default async function (t) {
       t.same(
         [sheet.totals, sheet.summary],
         [
-          { dead: 32, gas: 17, feedKg: 1000000n, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
-          { placed: 5000, dead: 32, mortalityPct: 64n, live: 3968, feedKg: 1000000n, feedBags: 20000n, gas: 17, soldBirds: 1000, soldNetKg: 2350500n, avgWeightKg: 2351n, fcr: 425n },
+          { dead: 32, gas: 17, feedKg: 1000000n, feedBackKg: null, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
+          { placed: 5000, dead: 32, mortalityPct: 64n, live: 3968, feedKg: 1000000n, feedBags: 20000n, feedBackKg: null, feedNetKg: 1000000n, gas: 17, soldBirds: 1000, soldNetKg: 2350500n, avgWeightKg: 2351n, fcr: 425n },
         ],
         'P المجاميع والخلاصة من الخادم كما هي (بالآلاف والمئات)',
       );
@@ -305,7 +310,8 @@ export default async function (t) {
     };
     const sheetSetup = (sheet = BROILER, extra = {}, canManage = true) => ({ loadOverviewJson: () => overviewOf(sheet, canManage), hall_sheet: () => clone(sheet), ...extra });
     const sheetTable = () => tableBy('هلاكات قاعة (7)');
-    const rowOn = (on) => bodyRows(sheetTable()).find((tr) => cells(tr)[1]?.startsWith(m.fmtDay(on))) ?? null;
+    // التاريخ في صفّ الورقة يوم/شهر (السنة في سطر «وجبة»: مراجعة 0035، عرض 360).
+    const rowOn = (on) => bodyRows(sheetTable()).find((tr) => cells(tr)[1]?.startsWith(m.fmtDay(on).slice(0, 5))) ?? null;
     const cellIn = (on, action) => (rowOn(on) ? byAction(action, rowOn(on))[0] ?? null : null);
     const queue = async (userId = 'u-hs') => {
       const db = await m.openOutbox();
@@ -321,14 +327,14 @@ export default async function (t) {
       t.same([textOf('sheet-title'), textOf('sheet-batch')?.startsWith('وجبة 13/11/2026')], ['هلاكات قاعة (7)', true], 'S1 العنوان «هلاكات قاعة (7)» وتحته «وجبة 13/11/2026»');
       t.same(headers(sheetTable()), ['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'الملاحظات'], 'S1 أعمدة الورقة: العمر | التاريخ | الهلاكات | الغاز | العلف | الملاحظات');
       const rows = bodyRows(sheetTable());
-      t.same([rows.length, cells(rows[0]).slice(0, 2), cells(rows.at(-1)).slice(0, 2)], [46, ['0', '13/11/2026'], ['45', '28/12/2026']], 'S1 صفّ لكلّ يوم من عمر 0 حتى نهاية الوجبة، ولو بلا شيء');
+      t.same([rows.length, cells(rows[0]).slice(0, 2), cells(rows.at(-1)).slice(0, 2)], [46, ['0', '13/11'], ['45', '28/12']], 'S1 صفّ لكلّ يوم من عمر 0 حتى نهاية الوجبة، ولو بلا شيء (التاريخ يوم/شهر، والسنة في سطر «وجبة»)');
       const today = rowOn(TODAY);
-      t.same([today?.getAttribute('data-tone'), byAction('sheet-today').length, byAction('sheet-today', today ?? body()).length, cells(today).slice(0, 5)], ['mark', 1, 1, ['20', '03/12/2026اليوم', '4', '', '300']], 'S1 صفّ اليوم معلَّم («اليوم» وخلفية الصفّ المختار) بقيمه');
+      t.same([today?.getAttribute('data-tone'), byAction('sheet-today').length, byAction('sheet-today', today ?? body()).length, cells(today).slice(0, 5)], ['mark', 1, 1, ['20', '03/12اليوم', '4', '', '300']], 'S1 صفّ اليوم معلَّم («اليوم» وخلفية الصفّ المختار) بقيمه');
       const box = ancestor(sheetTable(), (n) => (n.getAttribute?.('class') ?? '').includes('overflow-auto'));
       t.ok(box && box.scrollTop > 0, `S1 الجدول مُمرَّر إلى صفّ اليوم عند الفتح (scrollTop ${box?.scrollTop})`);
       t.same(
         [cells(rowOn('2026-11-15')).slice(2, 4), cells(rowOn('2026-11-13')).slice(2, 5), cells(rowOn('2026-11-20')).slice(2, 5), cells(rowOn('2026-11-19')).slice(2, 6), cells(rowOn('2026-11-16'))[5]],
-        [['5', '3'], ['', '4', '100'], ['5', '', '200'], ['', '', '', ''], 'تلقيح نيوكاسل'],
+        [['5', '3'], ['', '4', '100منقول'], ['5', '', '200'], ['', '', '', ''], 'تلقيح نيوكاسل'],
         'S1 المستبعد القديم داخل الهلاكات (3 + 2)، واليوم بلا صفّ فارغ لا صفر، وعلف 20/11 الذي خرج يوم 01/12 في يومه، والملاحظة',
       );
       t.same(cells(footRow(sheetTable())), ['المجموع', '32', '17', '1,000', ''], 'S1 صفّ المجموع من الخادم (totals)');
@@ -354,7 +360,7 @@ export default async function (t) {
       );
       await click(byAction('reject-handled')[0]);
       await click(byAction('reject-refused')[1]);
-      t.same([named(calls, 'decide_flock_reject'), decided, named(calls, 'hall_sheet').length >= 3], [[[BROILER.rejects[0].id, 'handled'], [BROILER.rejects[1].id, 'refused']], 2, true], 'S2 «أُدخلت» handled و«تجاهل» refused، ثمّ تُقرأ الورقة من جديد');
+      t.same([named(calls, 'decide_flock_reject'), decided, named(calls, 'hall_sheet').length >= 3], [[[BROILER.rejects[0].id, 'handled', 1], [BROILER.rejects[1].id, 'refused', 2]], 2, true], 'S2 «أُدخلت» handled و«تجاهل» refused بنسخة المركون كما عُرض، ثمّ تُقرأ الورقة من جديد');
     });
 
     await step('S3 البيّاض', async () => {
@@ -490,7 +496,7 @@ export default async function (t) {
       const unit = descendants(dialog ?? body()).find((n) => n.getAttribute('role') === 'radio' && n.getAttribute('aria-checked') === 'true' && n.textContent === 'كيس 50 كغم');
       t.ok(Boolean(unit), 'F1 الوحدة الكيس افتراضاً (والكيلو بجانبه)');
       await click(key(dialog, '2'));
-      t.same([textOf('feed-base', dialog ?? body()), textOf('feed-send', dialog ?? body())], ['= 100 كغم', 'أرسل 2 كيس 50 كغم من «علف نامي»'], 'F1 الكمية بالكيس وما تساويه بالكيلو، والزرّ يسمّي ما يُرسل');
+      t.same([textOf('feed-base', dialog ?? body()), lines(byAction('feed-send', dialog ?? body())[0])], ['= 100 كغم', ['أرسل 100 كغم', 'من «علف نامي»']], 'F1 الكمية بالكيس وما تساويه بالكيلو، والزرّ يسمّي ما يُرسل بالكيلو وبسطرين (لا «2 كيس»)');
       await click(byAction('feed-send', dialog ?? body())[0], 120);
       const [request] = named(calls, 'send_flock_feed').map(([r]) => r);
       t.same(
@@ -526,12 +532,12 @@ export default async function (t) {
       await click(cellIn(TODAY, 'cell-feed'));
       await click(key(dialogTitled('علف يوم'), '1'));
       await click(byAction('feed-send')[0], 120);
-      t.same([textOf('feed-error'), textOf('feed-retry')?.startsWith('أعد المحاولة')], ['لا نعرف إن أُرسل العلف: أعد المحاولة، ولن يُصرف مرّتين.', true], 'F3 لا نعرف إن صُرف: الطلب مجمَّد و«أعد المحاولة»');
+      t.same([textOf('feed-pending')?.startsWith('علف يوم 03/12/2026 لم يُعرف مصيره: أعد المحاولة.'), lines(byAction('feed-retry')[0])], [true, ['أعد المحاولة', 'علف يوم 03/12/2026: 50 كغم من «علف نامي»']], 'F3 لا نعرف إن صُرف: الطلب مجمَّد بيومه و«أعد المحاولة»');
       await click(byAction('dialog-close')[0]);
       await click(byAction('dialog-discard')[0] ?? null);
       t.eq(dialogTitled('علف يوم'), null, 'F3 ضابط: الورقة أُغلقت');
       await click(cellIn(TODAY, 'cell-feed'));
-      t.ok(textOf('feed-retry')?.includes('1 كيس 50 كغم من «علف نامي»'), 'F3 إعادة فتح الورقة تعود مجمَّدة بالطلب نفسه (محفوظ خارج المكوّن)');
+      t.ok(textOf('feed-retry')?.includes('علف يوم 03/12/2026: 50 كغم من «علف نامي»'), 'F3 إعادة فتح الورقة تعود مجمَّدة بالطلب نفسه (محفوظ خارج المكوّن)');
       await click(byAction('feed-retry')[0], 120);
       const [first, second] = named(calls, 'send_flock_feed').map(([r]) => r);
       t.same([second && [second.clientRef, second.issueId, second.lineId, second.qty] , named(calls, 'send_flock_feed').length], [first && [first.clientRef, first.issueId, first.lineId, first.qty], 2], 'F3 الإعادة بالمرجع والمعرّفات نفسها حرفاً، فلا يُصرف مرّتين');
@@ -565,7 +571,7 @@ export default async function (t) {
     await step('Q المركون باقٍ ويُدلّ عليه', async () => {
       fresh('hall_worker', sheetSetup(), { userId: 'u-park', send: async () => ({ kind: 'parked', reason: 'period_locked' }) });
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-21', 'cell-gas'));
+      await click(cellIn('2026-11-22', 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '2'));
       await click(byAction('cell-done', dialogTitled('الغاز') ?? body())[0], 120);
       const { pending, review } = await queue('u-park');
@@ -577,6 +583,224 @@ export default async function (t) {
       );
     });
 
+    // ── مراجعة 0035 (S2): كلّ حالة تفشل على c69c13f ─────────────────────────────────────────────────────────────────
+    const owner = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });
+    /** رافع الخلفية (RoundQueue) حين يعود الاتصال: يرفع الطابور ولا يعيد قراءة الورقة بنفسه. */
+    const background = async (userId) => {
+      await m.uploadRounds(owner(userId), async () => ({ currentUserId: async () => userId, send: (op) => globalThis.__hs.send(op), lookup: async () => null }));
+      await settle(120);
+    };
+    /** القراءة الأولى للورقة، وكلّ قراءة بعدها في الطريق لا تصل (شبكة بطيئة): الورقة المعروضة قديمة. */
+    const slowRereads = (sheet = BROILER) => {
+      let reads = 0;
+      return () => (reads++ === 0 ? clone(sheet) : new Promise(() => {}));
+    };
+    const doneIn = async (title, rounds = 120) => click(byAction('cell-done', dialogTitled(title) ?? body())[0], rounds);
+
+    await step('H1 رفع في الخلفية: ما حُفظ لا يرجع، والتعديل التالي بنسخته', async () => {
+      let n = 0;
+      const { sent, calls } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h1', send: async () => ({ kind: 'saved', version: 1 + ++n }) });
+      await mount(`/broiler/hall/${H7}`);
+      m.onlineStore.set(false);
+      await settle();
+      await click(cellIn(TODAY, 'cell-dead'));
+      await click(key(dialogTitled('الهلاكات'), '7'));
+      await doneIn('الهلاكات');
+      t.same([sent.length, cells(rowOn(TODAY))[2]], [0, '7بانتظار الرفع'], 'H1 ضابط: بلا نت على الجهاز «بانتظار الرفع»');
+      m.onlineStore.set(true);
+      await background('u-h1');
+      t.same(
+        [sent.map((op) => [op.payload.dead, op.baseVersion]), cells(rowOn(TODAY))[2], named(calls, 'hall_sheet').length],
+        [[[7, 1]], '7', 2],
+        'H1 بعد رفع الخلفية: الخانة 7 محفوظةً (لا ترجع إلى 4 ولا «بانتظار الرفع») والقراءة الجديدة لم تصل، والورقة تُقرأ من جديد',
+      );
+      await click(cellIn(TODAY, 'cell-dead'));
+      t.eq(textOf('cell-current', dialogTitled('الهلاكات') ?? body()), 'المسجّل الآن: 7', 'H1 الورقة تقول المحفوظ (7)');
+      await click(key(dialogTitled('الهلاكات'), '9'));
+      await doneIn('الهلاكات');
+      t.same(sent.map((op) => [op.payload.dead, op.baseVersion]), [[7, 1], [9, 2]], 'H1 التعديل التالي بنسخة ما حُفظ (2) لا بنسخة القراءة القديمة (1) فيُرَدّ stale_day');
+    });
+
+    await step('H2 ملاحظة والقراءة بعد الحفظ في الطريق', async () => {
+      let n = 0;
+      const { sent } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h2', send: async () => ({ kind: 'saved', version: 1 + ++n }) });
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-dead'));
+      await click(key(dialogTitled('الهلاكات'), '7'));
+      await doneIn('الهلاكات');
+      await click(cellIn(TODAY, 'cell-note'));
+      const dialog = dialogTitled('الملاحظات');
+      type(dialog ? descendants(dialog).find((n2) => n2.localName === 'textarea') : null, 'تهوية');
+      await settle();
+      await doneIn('الملاحظات');
+      t.same(sent.map((op) => [Object.keys(op.payload).sort().join(','), op.baseVersion]), [['culled,dead', 1], ['note', 2]], 'H2 الملاحظة بعد حفظ الهلاكات والقراءة في الطريق بنسخة ما حُفظ (2)، فلا stale_day');
+    });
+
+    await step('H3 غاز بلا نت ثمّ تعديله', async () => {
+      const versions = { set_flock_gas: 0, save_flock_day: 1 };
+      const { sent } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h3', send: async (op) => ({ kind: 'saved', version: ++versions[op.fn] }) });
+      await mount(`/broiler/hall/${H7}`);
+      const day = '2026-11-17';
+      m.onlineStore.set(false);
+      await settle();
+      await click(cellIn(day, 'cell-gas'));
+      await click(key(dialogTitled('الغاز'), '3'));
+      await doneIn('الغاز');
+      m.onlineStore.set(true);
+      await background('u-h3');
+      t.eq(cells(rowOn(day))[3], '3', 'H3 الغاز المحفوظ يبقى ظاهراً بعد رفع الخلفية (لا يرجع فارغاً)');
+      await click(cellIn(day, 'cell-gas'));
+      await click(key(dialogTitled('الغاز'), '5'));
+      await doneIn('الغاز');
+      t.same(sent.map((op) => [op.payload.cylinders, op.baseVersion]), [[3, null], [5, 1]], 'H3 تعديل الغاز بعد رفعه بنسخة صفّه المحفوظ (1) لا null فيُرَدّ stale_gas');
+    });
+
+    await step('D1 المركون يُعدّ مرّة ويُقرَّر فيه مرّة', async () => {
+      const decided = [];
+      fresh('hall_worker', sheetSetup(BROILER, { decide_flock_reject: (id, decision, version) => (decided.push([id, decision, version]), clone(FIX.decide_flock_reject.saved)) }), { userId: 'u-d1', send: async () => ({ kind: 'parked', reason: 'period_locked' }) });
+      await mount(`/broiler/hall/${H7}`);
+      // هذا الجهاز ركن غاز 21/11 (قنينتان، فترة مقفلة)، والخادم يعرض المركون نفسه.
+      await click(cellIn('2026-11-21', 'cell-gas'));
+      await click(key(dialogTitled('الغاز'), '2'));
+      await doneIn('الغاز');
+      t.same(
+        [(await queue('u-d1')).review.length, textOf('sheet-attention'), byAction('sheet-review').length, byAction('sheet-reject').length],
+        [1, 'لم يُحفظ من الأجهزة: 2، وتفصيله تحت الجدول.', 0, 2],
+        'D1 المركون على الجهاز والخادم واحد: يُعدّ مرّة (2 لا 3)، ولا تنبيه «على هذا الجهاز» له',
+      );
+      await click(byAction('reject-handled')[1], 120);
+      t.same([decided, (await queue('u-d1')).review.length], [[[BROILER.rejects[1].id, 'handled', 2]], 0], 'D1 «أُدخلت» بنسخته يحذف نسخة هذا الجهاز من رفّ المراجعة معه');
+    });
+
+    await step('D2 المركون على وجبة مغلقة', async () => {
+      const closed = clone(BROILER);
+      Object.assign(closed.flock, { status: 'closed', closed_on: '2026-12-02' });
+      closed.can_write = false;
+      closed.through = '2026-12-02';
+      closed.days = closed.days.filter((day) => day.on <= '2026-12-02');
+      fresh('manager', { hall_sheet: () => clone(closed) });
+      await mount(`/broiler/flock/${F7}`);
+      t.same(
+        [byAction('reject-handled').length, byAction('reject-refused').length, textOf('sheet-rejects-hint')],
+        [0, 2, 'الوجبة مغلقة: أعِد فتحها لإدخاله، أو اضغط «تجاهل».'],
+        'D2 الوجبة المغلقة: لا «أُدخلت» إلى جدول للقراءة، بل «تجاهل» وجملة «أعِد فتحها لإدخاله»',
+      );
+    });
+
+    await step('D3 مركون تغيّر بعد عرضه', async () => {
+      const decided = [];
+      fresh('hall_worker', sheetSetup(BROILER, { decide_flock_reject: (id, decision, version) => (decided.push([id, version]), clone(FIX.decide_flock_reject.stale)) }));
+      await mount(`/broiler/hall/${H7}`);
+      await click(byAction('reject-refused')[1], 120);
+      const line = byAction('sheet-reject')[1];
+      t.same(
+        [decided, line ? descendants(line).find((n2) => n2.localName === 'span')?.textContent : null, globalThis.__hs.toasts.at(-1)?.title],
+        [[[BROILER.rejects[1].id, 2]], 'يوم 21/11/2026: الغاز 3 — كان اليوم في فترة حسابات مقفلة.', 'تغيّر هذا المركون منذ عُرض، فلم يُقرَّر فيه شيء: راجع محتواه الجديد ثمّ قرّر.'],
+        'D3 stale_reject: لم يُقرَّر شيء، والمركون بمحتواه الجديد (الغاز 3) أمام صاحبه',
+      );
+      await click(byAction('reject-refused')[1], 120);
+      t.same(decided.at(-1), [BROILER.rejects[1].id, 3], 'D3 القرار التالي بنسخة ما عُرض الآن (3)');
+    });
+
+    await step('E8 امسح الغاز', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn('2026-11-13', 'cell-gas'));
+      const dialog = dialogTitled('الغاز');
+      t.same([textOf('cell-current', dialog ?? body()), textOf('cell-clear', dialog ?? body()), byAction('cell-done', dialog ?? body())[0]?.getAttribute('disabled') !== null], ['المسجّل الآن: 4', 'امسح الغاز', true], 'E8 الغاز المسجّل يُمسح بزرّ «امسح الغاز» («تم» حين يُكتب رقم)');
+      await click(byAction('cell-clear', dialog ?? body())[0], 120);
+      t.same([sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), cells(rowOn('2026-11-13'))[3]], [[['set_flock_gas', '2026-11-13', { cylinders: null }, 1]], ''], 'E8 المسح set_flock_gas بقناني null ونسخة الصفّ، والخانة فارغة');
+    });
+
+    await step('F6 الطلب المجمَّد يسمّي يومه', async () => {
+      fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: () => { throw new m.UnknownOutcomeError(); } }), { userId: 'u-f6' });
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-feed'));
+      await click(key(dialogTitled('علف يوم'), '1'));
+      await click(byAction('feed-send')[0], 120);
+      await click(byAction('dialog-close')[0]);
+      await click(byAction('dialog-discard')[0] ?? null);
+      await click(cellIn('2026-11-21', 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 21/11/2026');
+      t.same(
+        [Boolean(dialog), textOf('feed-pending', dialog ?? body())?.startsWith('علف يوم 03/12/2026 لم يُعرف مصيره'), lines(byAction('feed-retry', dialog ?? body())[0])?.[1], byAction('feed-send', dialog ?? body()).length],
+        [true, true, 'علف يوم 03/12/2026: 50 كغم من «علف نامي»', 0],
+        'F6 ورقة يوم آخر: الطلب المجمَّد بيومه هو (03/12) لا كأنّه ليوم الورقة، والإرسال مقفول حتى يُعرف مصيره',
+      );
+    });
+
+    await step('F7 زرّ الإرسال بفواصل الآلاف وبسطرين', async () => {
+      fresh('hall_worker', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 03/12/2026');
+      await click(byAction('feed-unit', dialog ?? body()).find((n2) => n2.textContent === 'كغم') ?? null);
+      for (const digit of ['2', '5', '0', '0']) await click(key(dialog, digit), 5);
+      t.same(lines(byAction('feed-send', dialog ?? body())[0]), ['أرسل 2,500 كغم', 'من «علف نامي»'], 'F7 «أرسل 2,500 كغم» بفاصلة الآلاف، والعلف في سطر ثانٍ');
+    });
+
+    await step('F8 المنقول والمرتجع', async () => {
+      fresh('manager', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      t.same(byAction('cell-carry', rowOn('2026-11-13') ?? body()).map((n2) => n2.textContent), ['منقول'], 'F8 علف يوم التسكين معلَّم «منقول»');
+      await click(cellIn('2026-11-13', 'cell-feed'));
+      t.eq(textOf('feed-carry'), 'منقول من الوجبة السابقة: 50 كغم، داخل علف هذا اليوم (ليس صرفاً من المخزن).', 'F8 ورقة العلف تقول المنقول من الوجبة السابقة');
+    });
+
+    await step('L1 الورقة بعرض الهاتف', async () => {
+      fresh('manager', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      const table = sheetTable();
+      const noteCell = ancestor(cellIn(TODAY, 'cell-note'), (n2) => n2.localName === 'td');
+      const feedHead = descendants(section(table, 'thead') ?? body()).find((n2) => n2.localName === 'th' && n2.textContent === 'العلف (كغم)');
+      t.same(
+        [cells(rowOn(TODAY))[1], /min-w-48|whitespace-nowrap/u.test(classOf(noteCell)), /whitespace-nowrap/u.test(classOf(feedHead)), /px-3/u.test(classOf(noteCell))],
+        ['03/12اليوم', false, false, false],
+        'L1 التاريخ يوم/شهر، والملاحظات تلتفّ بلا عرض أدنى، ورأس العلف يلتفّ، والحشوة أضيق (العقد: ستّة أعمدة بعرض 360 بلا تمرير أفقيّ)',
+      );
+    });
+
+    await step('T1 أهداف اللمس 44 نقطة', async () => {
+      fresh('manager', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      const rejectButtons = [...byAction('reject-handled'), ...byAction('reject-refused')];
+      await click(cellIn(TODAY, 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 03/12/2026');
+      const units = descendants(dialog ?? body()).filter((n2) => n2.getAttribute('role') === 'radio' && (n2.textContent === 'كغم' || n2.textContent === 'كيس 50 كغم'));
+      t.same(
+        [rejectButtons.length, rejectButtons.every((n2) => /\bh-11\b/u.test(classOf(n2))), /\bh-11\b/u.test(classOf(byAction('feed-void', dialog ?? body())[0])), units.length, units.every((n2) => /\bmin-h-11\b/u.test(classOf(n2)))],
+        [4, true, true, 2, true],
+        'T1 «أُدخلت» و«تجاهل» و«ألغِ» ووحدة العلف بارتفاع 44 نقطة على الأقل',
+      );
+    });
+
+    await step('R2 عنوان التقرير بقاعة اسمها «قاعة 7» (عيّنة القاعدة)', async () => {
+      fresh('viewer', { hall_sheet: () => clone(REAL.hall_sheet_broiler) });
+      await mount(`/halls/report/${REAL.hall_sheet_broiler.flock.id}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      t.eq(textOf('batch-title'), 'تقرير وجبة قاعة 7 — حقل الورقة', 'R2 لا «قاعة قاعة 7» (العنوان نفسه للصورة والطباعة)');
+    });
+
+    await step('R3 خلاصة بالمرتجع والمنقول وصافي العلف', async () => {
+      const closed = clone(BROILER);
+      Object.assign(closed.flock, { status: 'closed', closed_on: '2026-12-02' });
+      closed.can_write = false;
+      closed.through = '2026-12-02';
+      closed.days = closed.days.filter((day) => day.on <= '2026-12-02');
+      closed.days.at(-1).feed_back_kg = '100.000';
+      closed.totals.feed_back_kg = '100.000';
+      Object.assign(closed.summary, { feed_back_kg: '100.000', feed_net_kg: '900.000', fcr: '0.383' });
+      fresh('viewer', { hall_sheet: () => clone(closed) });
+      await mount(`/halls/report/${F7}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      const rows = bodyRows(tableBy('خلاصة الوجبة')).map(cells);
+      t.same(
+        rows.filter((row) => row[0].startsWith('العلف') || row[0].startsWith('المرتجع') || row[0].startsWith('صافي العلف') || row[0].startsWith('معامل')),
+        [['العلف المرسل (كغم)', '1,000'], ['العلف المرسل (أكياس)', '20'], ['المرتجع والمنقول (كغم)', '100'], ['صافي العلف (كغم)', '900'], ['معامل التحويل (صافي العلف ÷ صافي المباع)', '0.383']],
+        'R3 المرسل كغم وأكياساً، والمرتجع والمنقول (حين فوق الصفر)، وصافي العلف، ومعامل التحويل على الصافي',
+      );
+      t.throws(() => m.parseHallSheet({ ...clone(BROILER), rejects: [{ ...clone(BROILER.rejects[0]), version: '1' }] }), 'R3 نسخة المركون نصّاً تُرفض (المفتاح الجديد بشكله)');
+      t.throws(() => m.parseHallSheet((() => { const j = clone(BROILER); j.days[3].carry_in_kg = '10.000'; return j; })()), 'R3 منقول في غير يوم التسكين يُرفض');
+    });
+
     // ── R: تقرير الوجبة ─────────────────────────────────────────────────────────────────────────────────────────────
     await step('R تقرير الوجبة', async () => {
       fresh('viewer', { hall_sheet: () => clone(BROILER) });
@@ -586,10 +810,10 @@ export default async function (t) {
       t.same(
         summary,
         [
-          ['الداخل', '5,000'], ['الهلاكات', '32'], ['نسبة الهلاكات', '0.64%'], ['الباقي', '3,968'], ['العلف المرسل (كغم)', '1,000'], ['العلف المرسل (أكياس)', '20'],
-          ['الغاز (قناني)', '17'], ['المباع (طير)', '1,000'], ['صافي وزن المباع (كغم)', '2,350.5'], ['معدّل وزن الطير (كغم)', '2.351'], ['معامل التحويل (العلف المرسل ÷ صافي المباع)', '0.425'],
+          ['الداخل', '5,000'], ['الهلاكات', '32'], ['نسبة الهلاكات', '0.64%'], ['الباقي', '3,968'], ['العلف المرسل (كغم)', '1,000'], ['العلف المرسل (أكياس)', '20'], ['صافي العلف (كغم)', '1,000'],
+          ['الغاز (قناني)', '17'], ['المباع (طير)', '1,000'], ['صافي وزن المباع (كغم)', '2,350.5'], ['معدّل وزن الطير (كغم)', '2.351'], ['معامل التحويل (صافي العلف ÷ صافي المباع)', '0.425'],
         ],
-        'R الخلاصة من الخادم: الداخل والهلاكات ونسبتها والباقي والعلف المرسل كغم وأكياساً والغاز والمباع وصافيه ومعدّله ومعامل التحويل',
+        'R الخلاصة من الخادم: الداخل والهلاكات ونسبتها والباقي والعلف المرسل كغم وأكياساً وصافي العلف (بلا مرتجع: لا سطر له) والغاز والمباع وصافيه ومعدّله ومعامل التحويل على الصافي',
       );
       // حساب الخلاصة من أيام العيّنة: تتّسق بتعريفاتها (النسبة = الهلاكات ÷ الداخل، والمعدّل = الصافي ÷ المباع، والمعامل = العلف ÷ الصافي، والأكياس = العلف ÷ 50).
       const s = BROILER.summary;

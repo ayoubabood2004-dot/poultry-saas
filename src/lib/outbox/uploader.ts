@@ -23,7 +23,7 @@ async function run(stamp: Stamp, loadTransport: () => Promise<Transport>): Promi
       ...transport,
       send: async (op) => {
         const result = await transport.send(op);
-        results.push({ flockId: op.flockId, day: op.day, opId: op.id, result });
+        results.push({ flockId: op.flockId, day: op.day, opId: op.id, fn: op.fn, payload: op.payload, result });
         return result;
       },
     });

@@ -1,4 +1,4 @@
-import type { QueueSummary, SendResult, Stamp, Transport } from './outbox';
+import type { OutboxOp, QueueSummary, SendResult, Stamp, Transport } from './outbox';
 import { createStore } from './store';
 
 // رفع الجولات من الجهاز على مستوى التطبيق (FOUNDATION ٢١٧–٢١٩): عدّا الرأس («جولات لك تنتظر الإرسال» و«جولات لغيرك على هذا الجهاز»)،
@@ -11,6 +11,12 @@ export interface RoundResult {
   day: string;
   /** معرّف العملية (client_ref): لليوم الواحد أكثر من زيارة، فالشاشة تعرف نتيجة عمليتها بعينها. */
   opId: string;
+  /**
+   * دالّة العملية وحمولتها كما أُرسلت: ورقة القاعة تعرض ما حُفظ وتبني التعديل التالي على نسخته حتى تصلها قراءة بعده (رفع في الخلفية لا يعيد قراءة
+   * الورقة؛ مراجعة 0035).
+   */
+  fn: OutboxOp['fn'];
+  payload: OutboxOp['payload'];
   result: SendResult;
 }
 

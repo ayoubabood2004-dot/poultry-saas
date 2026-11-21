@@ -75,6 +75,15 @@ const count = (row: Row, field: string): number => {
   return value;
 };
 const optCount = (row: Row, field: string): number | null => (row[field] === null ? null : count(row, field));
+/**
+ * مفتاح أضافته مراجعة 0035 للعقد (نسخة المركون، والمنقول والمرتجع، وصافي العلف): غيابه null (قارئ قبلها)، ووجوده بشكله وإلّا رُفض كغيره.
+ */
+const added = <T>(row: Row, field: string, read: (row: Row, field: string) => T): T | null => (row[field] === undefined ? null : read(row, field));
+const addedKg = (row: Row, field: string): Milli | null => {
+  const value = added(row, field, (r, f) => optScaled(r, f, 3));
+  if (value !== null && value < 0n) throw new HallSheetShapeError(field);
+  return value;
+};
 
 const KINDS: readonly FlockKind[] = ['broiler', 'layer'];
 const UNITS: readonly BaseUnit[] = ['kg', 'L', 'pc'];
@@ -107,8 +116,12 @@ export interface SheetDay {
   note: string | null;
   gas: number | null;
   gasVersion: number | null;
-  /** العلف المرسل لهذا اليوم بالكيلو (بالآلاف)، أو null: لا علف. */
+  /** العلف المرسل لهذا اليوم بالكيلو (بالآلاف)، أو null: لا علف. ويوم التسكين يشمل المنقول من الوجبة السابقة (carryInKg). */
   feedKg: Milli | null;
+  /** المنقول من الوجبة السابقة إلى هذه القاعة (يوم التسكين وحده)، داخل feedKg؛ أو null. */
+  carryInKg: Milli | null;
+  /** يوم الإغلاق: ما رُدّ من القاعة (إلى المخزن ومنقولاً للوجبة التالية)؛ أو null. */
+  feedBackKg: Milli | null;
   feed: SheetFeedLine[];
   eggsTotal: number | null;
   eggsCracked: number | null;
@@ -122,6 +135,8 @@ export interface SheetTotals {
   dead: number;
   gas: number;
   feedKg: Milli;
+  /** المرتجع والمنقول يوم الإغلاق؛ null من قارئ قبل مراجعة 0035 أو بلا شيء. */
+  feedBackKg: Milli | null;
   soldBirds: number;
   soldNetKg: Milli | null;
   eggsTotal: number | null;
@@ -136,12 +151,16 @@ export interface SheetSummary {
   feedKg: Milli;
   /** أكياس بالآلاف حين كان كلّ صرف بكيس واحد الحجم، وإلّا null. */
   feedBags: Milli | null;
+  /** المرتجع إلى المخزن والمنقول للوجبة التالية (null: لا شيء). */
+  feedBackKg: Milli | null;
+  /** صافي العلف = المرسل − المرتجع والمنقول. */
+  feedNetKg: Milli;
   gas: number;
   soldBirds: number;
   soldNetKg: Milli | null;
   /** كيلو بالآلاف. */
   avgWeightKg: Milli | null;
-  /** بالآلاف. */
+  /** معامل التحويل على صافي العلف (صافي العلف ÷ صافي المباع)، بالآلاف. */
   fcr: bigint | null;
 }
 
@@ -168,6 +187,10 @@ export interface SheetReject {
   reason: string;
   createdAt: string;
   payload: Record<string, unknown>;
+  /** مرجع العملية المركونة (client_ref) إن أرسله الخادم، وإلّا null. */
+  clientRef: string | null;
+  /** نسخة المركون كما عُرض: القرار يُرسل بها (decide_flock_reject)، فمركون تغيّر بعد عرضه لا يُقرَّر فيه بما لم يُرَ. */
+  version: number | null;
 }
 
 export interface SheetFlock {
@@ -235,6 +258,8 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
     gas: optCount(row, 'gas'),
     gasVersion: optCount(row, 'gas_version'),
     feedKg: optScaled(row, 'feed_kg', 3),
+    carryInKg: addedKg(row, 'carry_in_kg'),
+    feedBackKg: addedKg(row, 'feed_back_kg'),
     feed: list(row.feed, 'feed').map(feedLineOf),
     eggsTotal: optCount(row, 'eggs_total'),
     eggsCracked: optCount(row, 'eggs_cracked'),
@@ -244,6 +269,8 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
     liveEnd: int(row, 'live_end'),
   };
   if (parsed.culled > parsed.dead) throw new HallSheetShapeError('culled');
+  // المنقول داخل علف يومه.
+  if (parsed.carryInKg !== null && (parsed.feedKg === null || parsed.carryInKg > parsed.feedKg)) throw new HallSheetShapeError('carry_in_kg');
   // الغاز الممسوح يبقى صفّه بنسخة أكبر وعدد null (لا حذف، درس ABA 2026-11-16)، فالنسخة بلا عدد صالحة؛ والعدد بلا نسخة لا.
   if (parsed.gas !== null && parsed.gasVersion === null) throw new HallSheetShapeError('gas_version');
   if (kind === 'broiler' && (parsed.eggsTotal !== null || parsed.eggsCracked !== null || parsed.eggsBroken !== null)) throw new HallSheetShapeError('eggs_total');
@@ -277,6 +304,9 @@ export function parseHallSheet(value: unknown): HallSheet {
     expected = addDays(expected, 1);
   }
   if (days.length === 0 || days[days.length - 1]?.on !== through) throw new HallSheetShapeError('through');
+  // المنقول يوم التسكين وحده، والمرتجع يوم الإغلاق وحده.
+  if (days.some((entry, index) => index > 0 && entry.carryInKg !== null)) throw new HallSheetShapeError('carry_in_kg');
+  if (days.some((entry) => entry.feedBackKg !== null && entry.on !== flock.closedOn)) throw new HallSheetShapeError('feed_back_kg');
   const totalsRow = record(json.totals, 'totals');
   const summaryRow = record(json.summary, 'summary');
   return {
@@ -289,6 +319,7 @@ export function parseHallSheet(value: unknown): HallSheet {
       dead: count(totalsRow, 'dead'),
       gas: count(totalsRow, 'gas'),
       feedKg: scaled(totalsRow, 'feed_kg', 3),
+      feedBackKg: addedKg(totalsRow, 'feed_back_kg'),
       soldBirds: count(totalsRow, 'sold_birds'),
       soldNetKg: optScaled(totalsRow, 'sold_net_kg', 3),
       eggsTotal: optCount(totalsRow, 'eggs_total'),
@@ -300,6 +331,8 @@ export function parseHallSheet(value: unknown): HallSheet {
       live: int(summaryRow, 'live'),
       feedKg: scaled(summaryRow, 'feed_kg', 3),
       feedBags: optScaled(summaryRow, 'feed_bags', 3),
+      feedBackKg: addedKg(summaryRow, 'feed_back_kg'),
+      feedNetKg: summaryRow.feed_net_kg === undefined ? scaled(summaryRow, 'feed_kg', 3) - (addedKg(summaryRow, 'feed_back_kg') ?? 0n) : scaled(summaryRow, 'feed_net_kg', 3),
       gas: count(summaryRow, 'gas'),
       soldBirds: count(summaryRow, 'sold_birds'),
       soldNetKg: optScaled(summaryRow, 'sold_net_kg', 3),
@@ -318,12 +351,19 @@ export function parseHallSheet(value: unknown): HallSheet {
       }),
       last: flag(row, 'last'),
     })),
-    rejects: list(json.rejects, 'rejects').map((row) => {
-      const createdAt = str(row, 'created_at');
-      if (!Number.isFinite(Date.parse(createdAt))) throw new HallSheetShapeError('created_at');
-      return { id: str(row, 'id'), on: day(row, 'on'), reason: str(row, 'reason'), createdAt, payload: record(row.payload, 'payload') };
-    }),
+    rejects: list(json.rejects, 'rejects').map(rejectOf),
   };
+}
+
+/** مركون من الأجهزة (في الورقة وفي جواب stale_reject). */
+function rejectOf(row: Row): SheetReject {
+  const createdAt = str(row, 'created_at');
+  if (!Number.isFinite(Date.parse(createdAt))) throw new HallSheetShapeError('created_at');
+  // client_ref اختياريّ: مرجع العملية المركونة، فنسختها في رفّ الجهاز تُعرف به (وبلاه بمحتواها).
+  const clientRef = row.client_ref === undefined || row.client_ref === null ? null : str(row, 'client_ref');
+  const version = added(row, 'version', count);
+  if (version !== null && version < 1) throw new HallSheetShapeError('version');
+  return { id: str(row, 'id'), on: day(row, 'on'), reason: str(row, 'reason'), createdAt, payload: record(row.payload, 'payload'), clientRef, version };
 }
 
 export async function loadHallSheet(flockId: string): Promise<HallSheet> {
@@ -402,8 +442,19 @@ export async function voidSheetFeed(issueId: string, reason: string, clientRef: 
 
 export type RejectDecision = 'handled' | 'refused';
 
-/** «أُدخلت» (handled) أو «تجاهل» (refused). إعادة القرار نفسه حُفظت؛ وقرار آخر بعد قرار يرفضه الخادم already_decided. */
-export async function decideFlockReject(id: string, decision: RejectDecision): Promise<void> {
-  const answer = await call<unknown>('decide_flock_reject', { p_id: id, p_decision: decision });
-  if (typeof answer === 'object' && answer !== null && !Array.isArray(answer) && (answer as Row).status === 'already_decided') throw new HallSheetShapeError('already_decided');
+export type RejectOutcome = { kind: 'saved' } | { kind: 'stale'; reject: SheetReject };
+
+/**
+ * «أُدخلت» (handled) أو «تجاهل» (refused) بنسخة المركون كما عُرض (مراجعة 0035): saved، أو stale_reject بمحتواه الجديد (تغيّر منذ عُرض، فلم يُقرَّر شيء)؛
+ * وقرار آخر بعد قرار يرميه الخادم already_decided (RejectedError). إعادة القرار نفسه حُفظت.
+ */
+export function rejectOutcome(value: unknown): RejectOutcome {
+  const answer = record(value, 'decide_flock_reject');
+  if (answer.status === 'saved') return { kind: 'saved' };
+  if (answer.status === 'stale_reject') return { kind: 'stale', reject: rejectOf(record(answer.reject, 'reject')) };
+  throw new HallSheetShapeError('status');
+}
+
+export async function decideFlockReject(id: string, decision: RejectDecision, seenVersion: number | null): Promise<RejectOutcome> {
+  return rejectOutcome(await call<unknown>('decide_flock_reject', { p_id: id, p_decision: decision, p_seen_version: seenVersion }));
 }

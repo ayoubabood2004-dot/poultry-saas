@@ -12,6 +12,7 @@ import { t } from '../../lib/i18n';
 import { loadHallSheet, type HallSheet, type SheetDay } from '../../lib/repo/hallSheet';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
+import { sheetHallName } from '../farm/FlockPage';
 import { BackLink, backLabel, backTarget, flockPath, pct, printAs } from './parts';
 import { downloadFile, reportImage, sendFile } from './reportImage';
 
@@ -53,11 +54,14 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
     { key: 'live', label: t('batch.sum.live', 'الباقي'), value: fmtInt(s.live) },
     { key: 'feed_kg', label: t('batch.sum.feed_kg', 'العلف المرسل (كغم)'), value: kg(s.feedKg) },
     { key: 'feed_bags', label: t('batch.sum.feed_bags', 'العلف المرسل (أكياس)'), value: kg(s.feedBags) },
+    // المرتجع إلى المخزن والمنقول للوجبة التالية يوم الإغلاق (إن وُجد)، وصافي العلف = المرسل − المرتجع والمنقول، وعليه معامل التحويل (عقد مراجعة 0035).
+    ...(s.feedBackKg !== null && s.feedBackKg > 0n ? [{ key: 'feed_back', label: t('batch.sum.feed_back', 'المرتجع والمنقول (كغم)'), value: kg(s.feedBackKg) }] : []),
+    { key: 'feed_net', label: t('batch.sum.feed_net', 'صافي العلف (كغم)'), value: kg(s.feedNetKg) },
     { key: 'gas', label: t('batch.sum.gas', 'الغاز (قناني)'), value: fmtInt(s.gas) },
     { key: 'sold', label: t('batch.sum.sold', 'المباع (طير)'), value: fmtInt(s.soldBirds) },
     { key: 'sold_kg', label: t('batch.sum.sold_kg', 'صافي وزن المباع (كغم)'), value: kg(s.soldNetKg) },
     { key: 'avg', label: t('batch.sum.avg', 'معدّل وزن الطير (كغم)'), value: s.avgWeightKg === null ? dash() : fmtScaledCell(s.avgWeightKg, 3, 3) },
-    { key: 'fcr', label: t('batch.sum.fcr', 'معامل التحويل (العلف المرسل ÷ صافي المباع)'), value: s.fcr === null ? dash() : fmtScaledCell(s.fcr, 3, 3) },
+    { key: 'fcr', label: t('batch.sum.fcr', 'معامل التحويل (صافي العلف ÷ صافي المباع)'), value: s.fcr === null ? dash() : fmtScaledCell(s.fcr, 3, 3) },
   ];
 }
 
@@ -152,7 +156,8 @@ function BatchView({ flockId }: { flockId: string }) {
   const sheet = state.data;
   const flock = sheet?.flock ?? null;
   const back = backTarget(search.get('back'), flock ? flockPath(flock.kind, flock.id) : '/');
-  const title = flock ? t('batch.title', 'تقرير وجبة قاعة {hall} — {site}', { hall: flock.hallName, site: flock.siteName }) : t('batch.title_only', 'تقرير الوجبة');
+  // اسم القاعة بلا بادئة «قاعة» كعنوان الورقة («قاعة 7» لا «قاعة قاعة 7»)، والعنوان نفسه للصورة والطباعة.
+  const title = flock ? t('batch.title', 'تقرير وجبة قاعة {hall} — {site}', { hall: sheetHallName(flock.hallName), site: flock.siteName }) : t('batch.title_only', 'تقرير الوجبة');
   const pageRef = useRef<HTMLDivElement>(null);
   const [imaging, setImaging] = useState(false);
   const [ready, setReady] = useState<{ file: File; title: string } | null>(null);

@@ -16,7 +16,7 @@ import { t } from '../../lib/i18n';
 import { loadHallsDay, loadHallsHistory, type DayCountDiff, type DayFlock, type DayHall, type DaySite, type DayTotals, type HallsDay, type HallsHistory, type HallsNote } from '../../lib/repo/hallReports';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
-import { BackLink, backLabel, dash, daysText, decimalsOf, grams, kgText, kindLabel, linesText, pct, printAs, qtyText, reportsBack, stateLabel, unweighedText } from './parts';
+import { BackLink, backLabel, dash, daysText, decimalsOf, grams, kgText, kindLabel, pct, printAs, qtyText, reportsBack, stateLabel, unweighedText } from './parts';
 import { HallsNoteDialog, HistorySections, monthStartOf, NoteBlock } from './dailyHistory';
 import { downloadFile, imageName, reportImage, sendFile } from './reportImage';
 import { signedCount } from './ticketParts';
@@ -79,33 +79,19 @@ function givenTexts(flock: DayFlock): string[] {
 
 const vaccineText = (flock: DayFlock): string[] => flock.vaccines.map((vaccine) => t('halls.day.vaccine', '{name} ({state})', { name: vaccine.name, state: stateLabel(vaccine.state) }));
 
+/** هلاكات اليوم: النافق والمستبعد القديم معاً، أو null بلا تسجيل. */
+const deadOf = (dead: number | null, culled: number | null): number | null => (dead === null && culled === null ? null : (dead ?? 0) + (culled ?? 0));
+
 // ─── المشاركة نصّاً (واتساب) ──────────────────────────────────────────────────────────────────────────────────────
 
-/** النازل بكيلوه وسطوره بلا وزن، للقاعة وللمجموع سواءً: لا «النازل 0 كغم» وحده يوم نزلت أكياس بلا وزن (مراجعة 0027 R1). */
+/** العلف المرسل يومها بكيلوه وسطوره بلا وزن، للقاعة وللمجموع سواءً: لا «0 كغم» وحده يوم نزلت أكياس بلا وزن (مراجعة 0027 R1). */
 const givenShare = (kg: Milli, unweighed: number): string =>
   unweighed > 0
-    ? t('halls.day.share.given_partial', 'النازل {kg} {rest}', { kg: kgText(kg), rest: unweighedText(unweighed) })
-    : t('halls.day.share.given', 'النازل {kg}', { kg: kgText(kg) });
+    ? t('halls.day.share.given_partial', 'العلف المرسل {kg} {rest}', { kg: kgText(kg), rest: unweighedText(unweighed) })
+    : t('halls.day.share.given', 'العلف المرسل {kg}', { kg: kgText(kg) });
 
-/**
- * الباقي في القاعة كما هو بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg)، وبعده بين قوسين وباختصار ما لم يدخله (سطوره بلا كتلة حتى اليوم) وسبب
- * سالبه (مراجعة 0027 R5).
- */
-function leftShare(flock: DayFlock): string {
-  const kg = kgText(flock.leftInHallKg);
-  const notes: string[] = [];
-  if (flock.leftInHallUnweighed > 0) notes.push(t('halls.day.share.left_unweighed', 'خارج الكيلو: {lines} بلا وزن', { lines: linesText(flock.leftInHallUnweighed) }));
-  // وسبب السالب على الموزون وحده حين نزل علف بلا وزن (كجملة البطاقة، مراجعة 0027 RR27-F2a).
-  if (flock.leftInHallKg < 0n) {
-    notes.push(
-      flock.leftInHallUnweighed > 0
-        ? t('halls.day.share.left_negative_weighed', 'المأكول المسجّل أكثر من النازل الموزون')
-        : t('halls.day.share.left_negative', 'المأكول المسجّل أكثر من النازل'),
-    );
-  }
-  if (!notes.length) return t('halls.day.share.left', 'الباقي في القاعة {kg}', { kg });
-  return t('halls.day.share.left_noted', 'الباقي في القاعة {kg} ({notes})', { kg, notes: notes.join(t('halls.day.share.notes_sep', '؛ ')) });
-}
+// مراجعة 0035: نصّ المشاركة كالجدول (طلب المالك: «لا علف مأكول»): الهلاكات (النافق والمستبعد القديم معاً) والغاز والعلف المرسل؛ لا «النافق —، المستبعد —،
+// العلف المأكول —» ولا «الباقي في القاعة» (المرسل ناقص مأكولٍ لم يعد يُسجَّل، فكان يقول إنّ العلف كلّه باقٍ).
 
 /** سبب فرق عدّ: كما كُتب، و«عند الإغلاق: …» لما كُتب مع الإغلاق (= −الحيّ). */
 const diffReason = (diff: DayCountDiff): string => (diff.source === 'close' ? t('halls.day.count_at_close', 'عند الإغلاق: {reason}', { reason: diff.reason }) : diff.reason);
@@ -153,14 +139,11 @@ function hallLine(hall: DayHall): string {
   const parts: string[] = [];
   if (roundMissing(flock)) parts.push(t('halls.day.no_round', 'لم تُسجَّل الجولة'));
   parts.push(t('halls.day.share.live', 'الحيّ {n}', { n: flock.liveEnd }));
-  if (flock.round) {
-    parts.push(t('halls.day.share.dead', 'النافق {n}', { n: flock.dead === null ? dash() : fmtInt(flock.dead) }));
-    parts.push(t('halls.day.share.culled', 'المستبعد {n}', { n: flock.culled === null ? dash() : fmtInt(flock.culled) }));
-  }
+  const dead = deadOf(flock.dead, flock.culled);
+  if (dead !== null) parts.push(t('halls.day.share.dead', 'الهلاكات {n}', { n: fmtInt(dead) }));
   if (flock.gas !== null) parts.push(t('halls.day.share.gas', 'الغاز {n}', { n: fmtInt(flock.gas) }));
   if (flock.mortalityCumPct !== null) parts.push(t('halls.day.share.mortality', 'النفوق التراكمي {pct}', { pct: pct(flock.mortalityCumPct) }));
-  if (flock.feedEatenKg !== null) parts.push(t('halls.day.share.eaten', 'العلف المأكول {kg}', { kg: kgText(flock.feedEatenKg) }));
-  parts.push(givenShare(flock.feedGivenKg, flock.feedGivenUnweighed), leftShare(flock));
+  parts.push(givenShare(flock.feedGivenKg, flock.feedGivenUnweighed));
   if (flock.weight) parts.push(t('halls.day.share.weight', 'الوزن {g} غرام', { g: grams(flock.weight.avgG) }));
   if (flock.eggsTotal !== null) parts.push(t('halls.day.share.eggs', 'البيض {n}', { n: flock.eggsTotal }));
   if (flock.hdep !== null) parts.push(t('halls.day.share.hdep', 'نسبة الإنتاج {pct}', { pct: pct(flock.hdep) }));
@@ -174,19 +157,13 @@ function hallLine(hall: DayHall): string {
 
 function totalsLine(label: string, totals: DayTotals): string {
   const separator = t('list.separator', '، ');
-  const dead = totals.dead === null ? dash() : fmtInt(totals.dead);
-  const culled = totals.culled === null ? dash() : fmtInt(totals.culled);
-  // الناقص من الأفواج التي تنتظر جولةً وعلفاً يومها (بدأ يومها بطيور حيّة، مراجعة 0028 O7)، لا من كلّ الأفواج.
+  // الناقص من الأفواج التي تنتظر جولةً يومها (بدأ يومها بطيور حيّة، مراجعة 0028 O7)، لا من كلّ الأفواج.
   const missing = totals.rounds > 0 && totals.rounds < totals.roundsExpected ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.rounds) }) : '';
-  const eaten = totals.feedEatenKg === null ? dash() : kgText(totals.feedEatenKg);
-  const eatenFrom = totals.feedEatenFlocks > 0 && totals.feedEatenFlocks < totals.roundsExpected ? t('halls.day.share.from', ' ({from})', { from: fromHalls(totals.feedEatenFlocks) }) : '';
-  const parts = [
-    t('halls.day.share.live', 'الحيّ {n}', { n: totals.liveEnd }),
-    t('halls.day.share.dead', 'النافق {n}', { n: dead }) + missing,
-    t('halls.day.share.culled', 'المستبعد {n}', { n: culled }) + missing,
-    t('halls.day.share.eaten', 'العلف المأكول {kg}', { kg: eaten }) + eatenFrom,
-    givenShare(totals.feedGivenKg, totals.feedGivenUnweighed),
-  ];
+  const dead = deadOf(totals.dead, totals.culled);
+  const parts = [t('halls.day.share.live', 'الحيّ {n}', { n: totals.liveEnd })];
+  if (dead !== null) parts.push(t('halls.day.share.dead', 'الهلاكات {n}', { n: fmtInt(dead) }) + missing);
+  if (totals.gas !== null) parts.push(t('halls.day.share.gas', 'الغاز {n}', { n: fmtInt(totals.gas) }));
+  parts.push(givenShare(totals.feedGivenKg, totals.feedGivenUnweighed));
   return t('halls.day.share.totals', '{label}: {parts}.', { label, parts: parts.join(separator) });
 }
 
@@ -230,8 +207,6 @@ function HallName({ hall }: { hall: DayHall }) {
 /** صفّ الجدول: قاعة بحقلها. */
 type DayRow = { hall: DayHall; site: DaySite };
 
-/** هلاكات اليوم: النافق والمستبعد القديم معاً، أو null بلا تسجيل. */
-const deadOf = (dead: number | null, culled: number | null): number | null => (dead === null && culled === null ? null : (dead ?? 0) + (culled ?? 0));
 
 /**
  * التقرير اليوميّ جدولاً واحداً لكلّ القاعات (عقد 0034/0035 S2): القاعة | العمر | الهلاكات | الغاز | العلف | الملاحظات، وصفّ مجموع الخادم. العلف المرسل
