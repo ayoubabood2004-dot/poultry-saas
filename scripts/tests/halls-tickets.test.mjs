@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 import {
   all, body, bundle, buttonText, byAction, clone, click, dialog, disabled, F, href, LRI, memoryStorage, padType, PDI, ROOT, sessionOf, tableFoot, tableRows, text, textOf, type, UUID, withAttr, within,
 } from './halls-0028-kit.mjs';
@@ -340,7 +341,7 @@ export default async function (t) {
     await step('E لعامل لا يكتب', async () => {
       fresh(sessionOf('viewer'), draftRpcs({ weigh_ticket: () => ({ ...clone(F.weigh_ticket_draft), can: { edit: false, finish: false, void: false, invoice: false } }) }));
       await mount(`/halls/ticket/${DRAFT.id}`);
-      t.same([disabled(inStop(S1, 'ticket-birds')), byAction('ticket-delete').length, text().includes('تذكرة الوزن يكتبها عامل القاعة في حقله والمدير؛ دورك يقرأ فقط.')], [true, 0, true], 'E من لا يكتب التذاكر يقرأ: الخانات مقفلة بجملة');
+      t.same([disabled(inStop(S1, 'ticket-birds')), byAction('ticket-delete').length, text().includes('لا يكتب حسابك هذه التذكرة الآن؛ الصفحة للعرض فقط.')], [true, 0, true], 'E من لا يكتب التذاكر يقرأ: الخانات مقفلة بجملة');
     });
 
     // ── D: المكتملة والملغاة ─────────────────────────────────────────────────────────────────────────────────────────
@@ -409,6 +410,24 @@ export default async function (t) {
     // ── C: بطاقة الفوج ───────────────────────────────────────────────────────────────────────────────────────────────
     const flock = { id: F1, kind: 'broiler', siteId: SITE, hallId: H1, hallName: 'قاعة 1', siteName: 'حقل الأمير', status: 'active' };
     const cardAt = (mm, changed) => mm.h(mm.FlockCard, { flock, onChanged: changed });
+    // ── E «الكلّ مثل المالك» (0034): التذكرة المكتملة («أصدر الفاتورة») وبطاقة الفوج القائمة والمغلقة («أعد فتح الدورة») بالجواب نفسه لكلّ دور ──
+    await step('E', async () => {
+      const at = (url, rpcs, element = () => null) => async (role) => {
+        fresh(sessionOf(role), rpcs());
+        await mount(url, element());
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      await everyoneLikeOwner(t, 'E التذكرة المكتملة', at(`/halls/ticket/${F.weigh_ticket_done.id}`, () => ({ weigh_ticket: () => clone(F.weigh_ticket_done) })), ['data-action="ticket-invoice"']);
+      await everyoneLikeOwner(t, 'E بطاقة الفوج القائمة', at('/broiler/flock/x', () => ({ flock_sales: () => clone(F.flock_sales_active) }), () => cardAt(m, () => undefined)), ['data-action="card-close"', 'data-action="card-count"']);
+      await everyoneLikeOwner(t, 'E بطاقة الفوج المغلقة', at('/broiler/flock/x', () => ({ flock_sales: () => clone(F.flock_sales_closed) }), () => cardAt(m, () => undefined)), ['data-action="card-reopen"']);
+      // وحين يمنع الخادم المالكَ نفسه (فترة مقفلة) فجملة السبب لكلّ دور مثله: لماذا لا تُصدر الفاتورة، ولماذا لا يُعاد فتح الدورة.
+      const lockedTicket = () => ({ ...clone(F.weigh_ticket_done), can: { ...F.weigh_ticket_done.can, invoice: false }, invoice_why: 'period_locked' });
+      await everyoneLikeOwner(t, 'E التذكرة في فترة مقفلة', at(`/halls/ticket/${F.weigh_ticket_done.id}`, () => ({ weigh_ticket: lockedTicket })), ['data-action="ticket-invoice-why"']);
+      const lockedClose = () => ({ ...clone(F.flock_sales_closed), can: { ...F.flock_sales_closed.can, reopen: false }, reopen_why: 'period_locked' });
+      await everyoneLikeOwner(t, 'E بطاقة الفوج المغلقة في فترة مقفلة', at('/broiler/flock/x', () => ({ flock_sales: lockedClose }), () => cardAt(m, () => undefined)), ['data-action="card-reopen-why"']);
+    });
     await step('C البطاقة القائمة', async () => {
       let changed = 0;
       const log = fresh(OWNER, { flock_sales: () => clone(F.flock_sales_active), record_flock_count_adjust: () => clone(F.count_adjust_result) });

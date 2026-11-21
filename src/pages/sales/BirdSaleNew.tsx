@@ -173,11 +173,11 @@ function whyText(why: FormWhy, form: BirdSaleForm): string {
     case 'flock_closed':
       return t('birds.why.closed', 'فوج قاعة من قاعات هذه التذكرة مغلق، فلا تُصدر فاتورتها. أعد فتح الدورة أوّلاً إن كان الإغلاق خطأ.');
     case 'no_book':
-      return t('birds.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فيه فاتورة طيور. اطلب من مالك المنشأة مراجعة دفاتر الوحدات.');
+      return t('birds.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فيه فاتورة طيور قبل أن يكون للوحدة دفتر.');
     case 'out_of_scope':
-      return t('birds.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.');
+      return t('birds.why.out_of_scope', 'دفتر وحدة هذا الحقل لا يصل إليه حسابك الآن، فلا تُصدر فيه فاتورة طيور من هنا. حدّث الصفحة ثمّ أعد المحاولة.');
     case 'period_locked':
-      return t('birds.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.', {
+      return t('birds.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فتُفتح الفترة أوّلاً.', {
         day: fmtDay(form.ticket.onDate),
       });
   }
@@ -457,7 +457,7 @@ function NewBirdSale({ ticketId, back }: { ticketId: string; back: string }) {
           <span className="flex flex-col gap-1" data-action="bird-over-live">
             {overLive.map((flock) => (
               <span key={flock.stopId}>
-                {t('birds.over_live', 'في «{hall}» بحسب النظام {live} حيّاً، وفي التذكرة {birds}. إن كان العدد الفعليّ أكبر فليسجّل المدير «فرق العدّ» بتاريخ {day} أو قبله، ثمّ أعد القراءة.', {
+                {t('birds.over_live', 'في «{hall}» بحسب النظام {live} حيّاً، وفي التذكرة {birds}. إن كان العدد الفعليّ أكبر فسجّل «فرق العدّ» بتاريخ {day} أو قبله، ثمّ أعد القراءة.', {
                   hall: flock.hallName,
                   live: birdsText(flock.live),
                   birds: birdsText(flock.birds),

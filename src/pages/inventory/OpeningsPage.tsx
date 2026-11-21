@@ -515,7 +515,7 @@ export function OpeningsList() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title={t('stock.openings', 'الرصيد عند البداية')} subtitle={t('opening.list.subtitle', 'مستند لكل مخزن بتاريخ اليوم أو قبله، وليس في فترة مقفلة.')} />
-      {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'الرصيد عند البداية للمدير ومالك المنشأة.')} /> : null}
+      {!allowed ? <Notice tone="info" title={t('opening.forbidden', 'يحتاج الرصيد عند البداية عضويةً فعّالة في المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewOpening stores={stores} /> : null}
       {docs.first.error ? (

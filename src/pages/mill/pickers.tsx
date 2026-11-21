@@ -371,7 +371,7 @@ export function MaterialPicker({
       ) : null}
       {view?.misfits.map((row) => (
         <Notice key={row.id} tone="warning" title={misfitText(row)} action={fixButton(row) ?? undefined}>
-          {kindFixable(row) && !canFixKind ? t('mill.picker.ask_kind', 'إن كانت مادّة أوّلية فعلاً فاطلب من المدير تصحيح نوعها.') : null}
+          {kindFixable(row) && !canFixKind ? t('mill.picker.ask_kind', 'إن كانت مادّة أوّلية فعلاً فيُصحَّح نوعها من «المواد».') : null}
         </Notice>
       ))}
       {shownTwins ? (
@@ -469,7 +469,7 @@ export function NewCategoryField({
   if (!canManage) {
     return (
       <p className="text-sm text-ink-muted" data-action="ask-category">
-        {t('mill.category.ask', 'لا فئة مناسبة؟ اطلب من المدير أو المحاسب إضافتها.')}
+        {t('mill.category.ask', 'لا فئة مناسبة؟ تُضاف الفئات من «إعدادات المنشأة».')}
       </p>
     );
   }

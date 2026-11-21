@@ -289,7 +289,7 @@ function planGive(form: GiveForm, targets: readonly Target[], itemOf: (itemId: s
     const item = itemOf(pick.itemId);
     const store = item?.stores.find((entry) => entry.warehouseId === pick.warehouseId) ?? null;
     if (!item || !store) {
-      problems.push(t('give.item.gone', '«{name}» لم تعد متاحة للصرف من مخازن نطاقك: أزلها.', { name: pick.name }));
+      problems.push(t('give.item.gone', '«{name}» لم تعد متاحة للصرف من المخازن: أزلها.', { name: pick.name }));
       continue;
     }
     let given = false;
@@ -694,7 +694,7 @@ function GiveForm({ flockId }: { flockId: string }) {
       {header}
       {optionsState.error ? <LoadFailed what={t('give.options_what', 'ما يُضاف للقاعة')} error={optionsState.error} onRetry={optionsState.retry} /> : null}
       {options && !active ? <Notice tone="info" title={t('give.not_active', 'فوج هذه القاعة ليس قائماً، فلا يُضاف له شيء.')} /> : null}
-      {options && active && !options.canIssue && !canLog ? <Notice tone="info" title={t('give.forbidden', 'الإضافة للقاعة لمن يصرف من المخزن أو يسجّل يوم القاعة؛ دورك يقرأ فقط.')} /> : null}
+      {options && active && !options.canIssue && !canLog ? <Notice tone="info" title={t('give.forbidden', 'لا يصرف حسابك من المخزن ولا يسجّل يوم القاعة الآن؛ الصفحة للعرض فقط.')} /> : null}
       {failure ? (
         <div data-action="give-failure">
           <Notice tone="danger" title={failureText(failure)}>
@@ -709,7 +709,7 @@ function GiveForm({ flockId }: { flockId: string }) {
           {items.length ? (
             <ItemCards items={items} picks={form.picks} locked={locked} onToggle={togglePick} />
           ) : (
-            <p className="text-sm text-ink-muted">{t('issue.none', 'لا مادّة متاحة للصرف في مخازن نطاقك.')}</p>
+            <p className="text-sm text-ink-muted">{t('issue.none', 'لا مادّة متاحة للصرف في المخازن.')}</p>
           )}
           {form.picks.map((pick) => {
             const item = itemOf(pick.itemId);
@@ -806,14 +806,14 @@ function GiveForm({ flockId }: { flockId: string }) {
           </div>
           {alsoApplied && alsoApplied.ignored > 0 ? (
             <p className="text-sm text-ink-muted" data-action="give-also-ignored">
-              {t('give.also.ignored', 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن أو خارج نطاقك): {n}.', { n: fmtInt(alsoApplied.ignored) })}
+              {t('give.also.ignored', 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن): {n}.', { n: fmtInt(alsoApplied.ignored) })}
             </p>
           ) : null}
           {othersOpen || form.halls.length > 0 ? (
             overviewState.error && !overview ? (
               <LoadFailed what={t('give.others_what', 'القاعات الأخرى')} error={overviewState.error} onRetry={overviewState.retry} />
             ) : overview && !others.length ? (
-              <p className="text-sm text-ink-muted">{t('give.others.none', 'لا قاعات أخرى بأفواج قائمة في نطاقك.')}</p>
+              <p className="text-sm text-ink-muted">{t('give.others.none', 'لا قاعات أخرى بأفواج قائمة.')}</p>
             ) : (
               others.map((group) => (
                 <div key={group.site.id} className="flex flex-col gap-2" data-action="give-site">

@@ -544,14 +544,14 @@ export default function RecipePage() {
       : canEdit
         ? t('mill.recipe.unit_mismatch_v4', 'تغيّرت وحدة «{name}» بعد إضافتها: احذف سطرها وأضفها من جديد.', { name: line.itemName })
         : // من لا يعدّل الخلطة (درس ب٣٧): لا يُدلّ على فعل ليس له.
-          t('mill.recipe.unit_mismatch_others_v4', 'تغيّرت وحدة «{name}» بعد إضافتها: يحذف المالك أو المدير سطرها ويضيفها من جديد.', { name: line.itemName });
+          t('mill.recipe.unit_mismatch_others_v4', 'تغيّرت وحدة «{name}» بعد إضافتها: يُحذف سطرها ويُضاف من جديد.', { name: line.itemName });
   // سائل بلا كثافة (ق٥١، ب٤٩): التفعيل يرفضه density_required، فالبطاقة تسمّيه قبل النقر. والكثافة تُكتب في نافذة «عدّل» من «المواد» (ب٦١)،
   // ولغير من يعدّل المواد من يكتبها بلا رابط (درس ب٣٧).
   const densityMissing = blocked.filter((line) => line.densityMissing);
   const densityText = (line: RecipeLine): string =>
     canItems
       ? t('mill.recipe.density_items', '«{name}» سائل بلا كثافة: اكتب كثافته من «المواد» ثمّ فعّل.', { name: line.itemName })
-      : t('mill.recipe.density_items_others', '«{name}» سائل بلا كثافة: يكتبها المالك أو المدير من «المواد».', { name: line.itemName });
+      : t('mill.recipe.density_items_others', '«{name}» سائل بلا كثافة: تُكتب كثافته من «المواد».', { name: line.itemName });
   const densityPath = (line: RecipeLine): string =>
     `/inventory/items?${new URLSearchParams({ edit: line.itemId, back: data.versionId ? `/mill/recipe/${id}?version=${data.versionId}` : `/mill/recipe/${id}` }).toString()}`;
   // ما كُتب في الصفحة ولم يُحفظ (ب٤٩): رابط الكثافة يغادر الصفحة فيضيّعه، فلا يظهر حتّى يُحفظ أو يُمسح.
@@ -876,7 +876,7 @@ export default function RecipePage() {
               empty={
                 !canEdit
                   ? // من لا يضيف تكلفة (بلا recipe.activate، كالمحاسب، ب٣٧): لا «افتحها» ولا «أضفها» ولا «أنشئ نسخة جديدة» وكلّها ليست له.
-                    t('mill.rates.empty_others', 'لا تكاليف على هذه النسخة؛ يضيفها المالك أو المدير في مسوّدة الخلطة.')
+                    t('mill.rates.empty_others', 'لا تكاليف على هذه النسخة؛ تُضاف في مسوّدة الخلطة.')
                   : isDraft
                     ? t('mill.rates.empty', 'لا تكاليف على هذه الخلطة. أضفها إن كان للعلف حصّة من مصروف.')
                     : draftVersion

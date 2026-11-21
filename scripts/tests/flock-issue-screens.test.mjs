@@ -204,7 +204,7 @@ export default async function (t) {
     const UNWEIGHED = OWNER_FEED.unweighed_feed_lines > 0 ? `سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: ${m.fmtInt(OWNER_FEED.unweighed_feed_lines)}.` : '';
     const ws = (role, over = {}) => ({
       userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'feed_mill', 'general'],
-      canSeeCost: role !== 'storekeeper' && role !== 'hall_worker', canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
+      canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
     });
     let root = null;
     const fresh = (role, rpc, handlers = {}) => {

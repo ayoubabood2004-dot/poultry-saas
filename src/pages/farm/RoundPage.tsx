@@ -85,7 +85,7 @@ function statusText(status: RowStatus): string {
     case 'device':
       return t('round.status.device', 'محفوظة على هذا الجهاز وتُرسل حين يعود الاتصال');
     case 'parked':
-      return t('round.status.parked', 'رُدّت (الفوج مغلق، أو خارج نطاقك، أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه');
+      return t('round.status.parked', 'رُدّت (الفوج مغلق أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه');
     case 'review':
       return t('round.status.review', 'لم تُحفظ: راجعها في «جولات تحتاج مراجعة» أدناه');
     case 'held':
@@ -566,7 +566,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       <HallReminders kind={kind} />
       {!canSave && session.status === 'ready' ? (
         <Notice tone="info" title={t('round.read_only', 'تعرض هذه الصفحة أرقام اليوم فقط.')}>
-          {t('round.read_only.detail', 'تسجيل الجولة لعامل القاعة والمدير؛ دورك يقرأ الأرقام دون تعديلها.')}
+          {t('round.read_only.detail', 'لا يعدّل حسابك أرقام الجولة الآن؛ حدّث الصفحة إن كان هذا غير متوقّع.')}
         </Notice>
       ) : null}
       {canSave && !online ? <Notice tone="warning" title={t('round.offline', 'بلا اتصال: الجولة تُحفظ على هذا الجهاز وتُرسل حين يعود الاتصال.')} /> : null}
@@ -605,7 +605,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
         <LoadFailed what={t('round.what', 'أفواج الجولة')} error={state.error} onRetry={state.retry} />
       ) : null}
       {shown?.savedAt ? <Notice tone="warning" title={t('farm.offline', 'بلا اتصال: هذه آخر نسخة محفوظة على الجهاز.')} /> : null}
-      {overview && rows.length === 0 ? <Notice tone="info" title={t('round.empty', 'لا أفواج نشطة في نطاقك اليوم.')} /> : null}
+      {overview && rows.length === 0 ? <Notice tone="info" title={t('round.empty', 'لا أفواج نشطة اليوم.')} /> : null}
       {result ? (
         <Notice
           tone={result.others.length === 0 && result.empty.length === 0 ? 'info' : 'warning'}

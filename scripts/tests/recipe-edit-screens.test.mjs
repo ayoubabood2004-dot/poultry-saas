@@ -142,7 +142,7 @@ const missingOf = () => {
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: true,
+  divisions: ['feed_mill'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner') };
@@ -542,7 +542,7 @@ export default async function (t) {
     await step('E لمن هي، والمحذوفة', async () => {
       editSetup(OPERATOR);
       await mount('/mill/recipe/r-1/edit');
-      t.same([text().includes('تعديل الخلطات للمالك والمدير.'), byAction('save-recipe-edit').length], [false, 1], 'E مشغّل المعمل يعدّل الخلطة: «احفظ التعديل» (0034)');
+      t.same([text().includes('يحتاج تعديل الخلطات عضويةً فعّالة في المنشأة.'), byAction('save-recipe-edit').length], [false, 1], 'E مشغّل المعمل يعدّل الخلطة: «احفظ التعديل» (0034)');
       await unmount();
       editSetup(MANAGER, { detail: () => ({ ...ACTIVE(), archived: true }) });
       await mount('/mill/recipe/r-1/edit');

@@ -662,7 +662,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
         </p>
       </header>
       {optionsState.error && !options ? <LoadFailed what={t('halls.ticket.options_what', 'قاعات الحقل')} error={optionsState.error} onRetry={optionsState.retry} /> : null}
-      {options && !allowed ? <Notice tone="info" title={t('halls.ticket.forbidden', 'تذكرة الوزن يكتبها عامل القاعة في حقله والمدير؛ دورك يقرأ فقط.')} /> : null}
+      {options && !allowed ? <Notice tone="info" title={t('halls.ticket.forbidden', 'لا يكتب حسابك هذه التذكرة الآن؛ الصفحة للعرض فقط.')} /> : null}
       {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
       {unknown ? (
         <Notice
@@ -1323,7 +1323,7 @@ function SitePicker({ back }: { back: string }) {
             ))}
           </div>
         ) : (
-          <Notice tone="info" title={t('halls.ticket.no_sites', 'لا حقل لحم في نطاقك فيه فوج قائم.')} />
+          <Notice tone="info" title={t('halls.ticket.no_sites', 'لا حقل لحم فيه فوج قائم.')} />
         )
       ) : !state.error ? (
         <p role="status" className="text-sm text-ink-muted">

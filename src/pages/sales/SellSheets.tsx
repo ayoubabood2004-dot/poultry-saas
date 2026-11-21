@@ -778,7 +778,7 @@ function CustomerSection({
             </button>
           ) : (
             <p className="sl-muted" data-action="party-create-hint">
-              {t('sell.party.create_hint', 'الزبون الجديد يضيفه أمين المخزن أو المحاسب أو المدير؛ اختر زبوناً من القائمة.')}
+              {t('sell.party.create_hint', 'لا يُضاف زبون جديد من هنا الآن؛ اختر زبوناً من القائمة.')}
             </p>
           )}
         </div>

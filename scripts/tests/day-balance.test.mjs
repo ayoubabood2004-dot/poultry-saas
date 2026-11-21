@@ -146,7 +146,7 @@ const UNIT = { kg: 'كغم', L: 'لتر', pc: 'قطعة' };
 const TITLES = { feed_materials: 'رصيد مواد العلف', feed: 'رصيد العلف', other: 'أخرى' };
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: false,
+  divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const MANAGER = { status: 'ready', workspace: ws('manager') };

@@ -139,7 +139,7 @@ const overview = (today) => ({
 });
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer', 'feed_mill', 'general'],
-  canSeeCost: role === 'owner', canSeeAccounts: role === 'owner', canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner'), offline: false };
 const stampOf = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });
@@ -441,7 +441,7 @@ export default async function (t) {
       const also = [F2, 'ffffffff-0000-4000-8000-000000000000', F5, FLOCK, F3].join(',');
       await mount(`/halls/give/${FLOCK}?${new URLSearchParams({ also, back: '/broiler/round' }).toString()}`);
       t.same(byAction('give-hall').filter((n) => n.checked).map((n) => n.getAttribute('data-flock')), [F2, F3], 'A القاعات القائمة في النطاق من ?also= مختارة مسبقاً (والحالية لا تُكرَّر)');
-      t.eq(textOf('give-also-ignored'), 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن أو خارج نطاقك): 2.', 'A المجهول والمغلق يُهملان ويُقال عددهما');
+      t.eq(textOf('give-also-ignored'), 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن): 2.', 'A المجهول والمغلق يُهملان ويُقال عددهما');
       t.eq(m.isWindowDirty(), false, 'A الاختيار المسبق ليس «ما لم يُحفظ»');
       await tick(withAttr('give-hall', 'data-flock', F2));
       t.eq(m.isWindowDirty(), true, 'A وتغييره كتابة لم تُحفظ');

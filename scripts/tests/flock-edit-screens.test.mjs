@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
@@ -316,11 +317,37 @@ export default async function (t) {
         'B «عدّل الفوج» لكلّ فوج قائم (لا للقاعة الفارغة ولا لفوج قيد التجهيز)',
       );
     });
+    // E «الكلّ مثل المالك» (0034): جدول الحقل («اصرف» و«افتح فوجاً» و«عدّل الفوج» و«عدّل القاعة») بالجواب نفسه لكلّ دور كما للمالك.
+    await step('E جدول الحقل', async () => {
+      await everyoneLikeOwner(
+        t,
+        'E جدول الحقل',
+        async (role) => {
+          fresh(role, { loadOverviewJson: () => overview({ empty5: true }) });
+          await mount('/broiler');
+          const print = printOf(body());
+          m.flushSync(() => root.unmount());
+          body().textContent = '';
+          await settle();
+          root = null;
+          return print;
+        },
+        ['data-action="hall-issue"', 'data-action="flock-open"', 'data-action="flock-edit"', 'data-action="hall-edit"'],
+      );
+    });
     await step('B عامل القاعة', async () => {
-      fresh('hall_worker', { loadOverviewJson: () => overview({ canManage: false }) });
+      // 0034: الخادم يعطي كلّ عضو can_manage صحيحة كالمالك.
+      fresh('hall_worker', { loadOverviewJson: () => overview() });
       await mount('/broiler');
       t.ok(rowOf('قاعة 5') !== null, 'B ضابط: عامل القاعة يرى قاعاته');
-      t.same([byAction('flock-edit').length, byAction('hall-edit').length, byAction('flock-delete').length], [0, 0, 0], 'B عامل القاعة بلا «عدّل الفوج» ولا «عدّل القاعة»');
+      t.same([byAction('flock-edit').length, byAction('hall-edit').length], [3, 5], 'B عامل القاعة: «عدّل الفوج» لكلّ فوج قائم و«عدّل القاعة» لكلّ قاعة كالمالك (0034)');
+    });
+    await step('B الخادم بلا إدارة', async () => {
+      // علم الخادم لا الدور: جواب can_manage=false (خادم أقدم).
+      fresh('owner', { loadOverviewJson: () => overview({ canManage: false }) });
+      await mount('/broiler');
+      t.ok(rowOf('قاعة 5') !== null, 'B ضابط: القاعات ظاهرة');
+      t.same([byAction('flock-edit').length, byAction('hall-edit').length, byAction('flock-delete').length], [0, 0, 0], 'B الخادم أجاب can_manage=false (خادم أقدم): بلا «عدّل الفوج» ولا «عدّل القاعة»');
     });
 
     // ── E: النافذة والحمولة والمرجع والنجاح ─────────────────────────────────────────────────────────────────────────
@@ -582,10 +609,16 @@ export default async function (t) {
       t.same([named(calls, 'rpc:delete_flock')[0]?.p_flock, lastToast()?.[0], globalThis.__fe.location, byAction('hall-empty').length], [F5, 'success', '/layers/hall/h-5', 1], 'F بعد الحذف تقرأ صفحة القاعة الحقل من جديد فتظهر فارغة (البيّاض)');
     });
     await step('F الأدوار', async () => {
-      fresh('hall_worker', { loadOverviewJson: () => overview({ canManage: false }) }, { hall_sheet: () => sheetJson() });
+      fresh('hall_worker', { loadOverviewJson: () => overview() }, { hall_sheet: () => sheetJson() });
       await mount('/broiler/hall/h-5');
       t.ok(text().includes('هلاكات قاعة (5)') && byAction('hall-back').length === 1, 'F ضابط: عامل القاعة يرى ورقة القاعة');
-      t.eq(byAction('sheet-edit').length, 0, 'F من لا يدير الحقل بلا «عدّل الوجبة»');
+      t.eq(byAction('sheet-edit').length, 1, 'F عامل القاعة يعدّل الوجبة كالمالك (0034: can_manage صحيحة لكلّ عضو)');
+    });
+    await step('F الخادم بلا إدارة', async () => {
+      // علم الخادم لا الدور: جواب can_manage=false (خادم أقدم).
+      fresh('owner', { loadOverviewJson: () => overview({ canManage: false }) }, { hall_sheet: () => sheetJson() });
+      await mount('/broiler/hall/h-5');
+      t.eq(byAction('sheet-edit').length, 0, 'F الخادم أجاب can_manage=false (خادم أقدم): بلا «عدّل الوجبة»');
     });
     await step('F المغلق', async () => {
       fresh('manager', { loadOverviewJson: () => overview() }, { hall_sheet: () => sheetJson({ status: 'closed' }) });

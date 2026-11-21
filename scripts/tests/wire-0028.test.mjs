@@ -95,8 +95,8 @@ function memoryStorage() {
 
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
-  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: !['hall_worker', 'mill_operator', 'hatchery_operator'].includes(role), invites: [], subscription: 'active', confirmedAt: 1,
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true,
+  canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
 });
 const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 const MANAGER = sessionOf('manager');
@@ -643,7 +643,7 @@ export default async function (t) {
       const scope = B.bird_sale_form_scoped;
       fresh(ACCOUNTANT, { bird_sale_form: () => clone(scope) });
       await mount(`/sales/birds/new?ticket=${scope.ticket.id}`);
-      const scopeSentence = 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فيه فاتورة طيور. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.';
+      const scopeSentence = 'دفتر وحدة هذا الحقل لا يصل إليه حسابك الآن، فلا تُصدر فيه فاتورة طيور من هنا. حدّث الصفحة ثمّ أعد المحاولة.';
       const scopedText = text();
       const scopedForm = byAction('bird-sale-form').length;
       await unmount();
@@ -653,7 +653,7 @@ export default async function (t) {
       t.same(
         [
           [locked.why, locked.late, locked.invoiceable],
-          lockedText.includes(`يوم التذكرة ${m.fmtDay(locked.ticket.on_date)} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`),
+          lockedText.includes(`يوم التذكرة ${m.fmtDay(locked.ticket.on_date)} في فترة مقفلة، والطيور تخرج من القاعات بيوم التذكرة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فتُفتح الفترة أوّلاً.`),
           lockedText.includes('أقدم من سبعة أيّام: تُسجَّل الفاتورة'),
           lockedForm,
           [scope.why, scope.invoiceable, scope.can_post, scopedText.includes(scopeSentence), scopedForm],
@@ -680,7 +680,7 @@ export default async function (t) {
           [true, true, 1, `التذكرة أقدم من سبعة أيّام: تُسجَّل فاتورتها بتاريخ اليوم، وتخرج الطيور من القاعات بتاريخ التذكرة ${m.fmtDay(late.on_date)}.`],
           'period_locked',
           0,
-          `يوم التذكرة ${m.fmtDay(locked.on_date)} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.`,
+          `يوم التذكرة ${m.fmtDay(locked.on_date)} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فتُفتح الفترة أوّلاً.`,
         ],
         'W9 التذكرة المكتملة الأقدم من سبعة أيّام (weigh_ticket_late): «أصدر الفاتورة» وجملة أنّها تُؤرَّخ اليوم والطيور بيومها (invoice_late)؛ والممنوعة بسببها وطريقه (invoice_why)',
       );
@@ -709,7 +709,7 @@ export default async function (t) {
           byAction('awaiting-why').map((n) => n.textContent),
           links.map((link) => link.includes(lateAwaiting.ticket_id)),
         ],
-        [[true, true, true, true], [['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة']], ['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة: يفتحها مالك المنشأة'], [true]],
+        [[true, true, true, true], [['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة']], ['تُؤرَّخ فاتورتها اليوم'], ['يومها في فترة مقفلة: تُفتح الفترة أوّلاً'], [true]],
         'W9 تذاكر الوزن والمبيعات (weigh_tickets_awaiting_late وsales_overview_late): المتأخّرة «تُؤرَّخ فاتورتها اليوم» و«أصدر الفاتورة» لها، والممنوعة بسببها بلا «أصدر الفاتورة»',
       );
     });

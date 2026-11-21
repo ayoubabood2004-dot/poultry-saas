@@ -56,11 +56,11 @@ export function statusLabel(status: TicketStatus, invoiced: boolean): string {
 export function invoiceWhyText(why: InvoiceWhy, day: Day): string {
   switch (why) {
     case 'period_locked':
-      return t('halls.ticket.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فاطلب من مالك المنشأة فتح الفترة.', { day: fmtDay(day) });
+      return t('halls.ticket.why.period_locked', 'يوم التذكرة {day} في فترة مقفلة، فلا تُصدر فاتورتها. إن كان اليوم صحيحاً فتُفتح الفترة أوّلاً.', { day: fmtDay(day) });
     case 'out_of_scope':
-      return t('halls.ticket.why.out_of_scope', 'دفتر وحدة هذا الحقل خارج نطاقك، فلا تُصدر فاتورتها من حسابك. يصدرها مالك المنشأة أو من في نطاقه دفتر الوحدة.');
+      return t('halls.ticket.why.out_of_scope', 'دفتر وحدة هذا الحقل لا يصل إليه حسابك الآن، فلا تُصدر فاتورتها من هنا. حدّث الصفحة ثمّ أعد المحاولة.');
     case 'no_book':
-      return t('halls.ticket.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فاتورتها. اطلب من مالك المنشأة مراجعة دفاتر الوحدات.');
+      return t('halls.ticket.why.no_book', 'لا دفتر لوحدة هذا الحقل، فلا تُصدر فاتورتها قبل أن يكون للوحدة دفتر.');
   }
 }
 

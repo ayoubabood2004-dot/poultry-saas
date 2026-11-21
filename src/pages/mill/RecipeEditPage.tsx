@@ -419,7 +419,7 @@ export default function RecipeEditPage() {
   );
 
   const content = ((): ReactNode => {
-    if (!canEdit && session.status === 'ready') return <Notice tone="info" title={t('mill.edit.forbidden', 'تعديل الخلطات للمالك والمدير.')} />;
+    if (!canEdit && session.status === 'ready') return <Notice tone="info" title={t('mill.edit.forbidden', 'يحتاج تعديل الخلطات عضويةً فعّالة في المنشأة.')} />;
     if (error && !data) return <LoadFailed what={t('mill.edit.what', 'الخلطة')} error={error} onRetry={retry} />;
     if (loading || !data) return <p className="text-sm text-ink-muted">{t('common.loading', 'جارٍ التحميل…')}</p>;
     if (data.detail.archived) return <Notice tone="warning" title={t('mill.edit.archived', 'هذه الخلطة محذوفة من المعمل: أعِدها من صفحتها أوّلاً، ثمّ عدّلها.')} />;

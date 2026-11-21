@@ -141,7 +141,7 @@ const FLOCK = '00000000-0000-4000-8000-000000000001';
 const LAYER = '00000000-0000-4000-8000-000000000002';
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['broiler_farm', 'layer_farm'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: true,
+  divisions: ['broiler_farm', 'layer_farm'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1,
 });
 const MANAGER = { status: 'ready', workspace: ws('manager') };

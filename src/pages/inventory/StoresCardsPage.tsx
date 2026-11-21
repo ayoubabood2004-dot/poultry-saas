@@ -161,7 +161,7 @@ function WarehouseDialog({ sites, onClose, onSaved }: { sites: readonly StoreSit
         {sites.length === 0 ? (
           <Notice tone="info" title={t('stores.site.first', 'أضف الموقع أوّلاً')}>
             <span className="flex flex-col gap-2">
-              {t('stores.site.first.detail', 'المخزن يحتاج موقعاً فعّالاً في نطاقك (حقلاً أو معملاً أو مفقساً أو مخزناً).')}
+              {t('stores.site.first.detail', 'المخزن يحتاج موقعاً فعّالاً (حقلاً أو معملاً أو مفقساً أو مخزناً).')}
               <Link to="/inventory/setup" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-org-sites">
                 {t('stores.site.first.link', 'افتح إعداد المخزن وأضف موقعاً')}
               </Link>
@@ -206,8 +206,17 @@ function WarehouseDialog({ sites, onClose, onSaved }: { sites: readonly StoreSit
 export function StoresBody({ overview, costs, onAdd }: { overview: StoresOverview; costs: boolean; onAdd: (() => void) | null }) {
   if (overview.rows.length === 0) {
     return (
-      <Notice tone="info" title={t('stock.stores.none', 'لا مخزن في نطاقك.')}>
-        {onAdd ? t('stores.none.manage', 'أضف مخزنك الأوّل من «أضف مخزناً» في الأعلى.') : t('stock.stores.none.detail', 'يحدّد مالك المنشأة نطاقك من شاشة الموظفين.')}
+      <Notice tone="info" title={t('stores.none', 'لا مخزن بعد.')}>
+        {onAdd ? (
+          t('stores.none.manage', 'أضف مخزنك الأوّل من «أضف مخزناً» في الأعلى.')
+        ) : (
+          <span className="flex flex-col gap-2">
+            {t('stores.none.setup', 'أضف مخزناً من «إعداد المخزن».')}
+            <Link to="/inventory/setup" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-store-setup">
+              {t('stores.setup.title', 'إعداد المخزن')}
+            </Link>
+          </span>
+        )}
       </Notice>
     );
   }

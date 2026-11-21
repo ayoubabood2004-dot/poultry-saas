@@ -168,10 +168,10 @@ export default async function (t) {
     const hook = full.indexOf('data-action="open-statement"');
     t.ok(hook >= 0 && hook < full.indexOf('أبو علي</a>'), 'الإجراءات أوّل عمود (وزرّ الكشف موجود)');
     const scopedSummary = m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 7 } });
-    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من حسابات نطاقك: 1 من 7'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
+    t.ok(render(m.h(m.SummaryCards, { summary: scopedSummary })).includes('الأرقام من بعض الحسابات: 1 من 7'), 'المحاسب المحصور (E49) يعرف إن المجموع جزئي');
     // مراجعة WP8: بلا «2 دفاتر» ولا «11 دفاتر» (قانون الفصحى: المعدود بعد العدد بصيغته)، فالجملة بلا معدود بعد الأرقام.
     const twoBooks = textOf(render(m.h(m.SummaryCards, { summary: m.parseAccountsSummary({ ...SUMMARY_WIRE, books: { visible: 1, total: 2 } }) })));
-    t.ok(!/[0-9] حسابات/u.test(twoBooks) && twoBooks.includes('حسابات نطاقك: 1 من 2'), `مراجعة WP8: العدد بلا معدود بصيغة خاطئة (${twoBooks.slice(0, 80)})`);
+    t.ok(!/[0-9] حسابات/u.test(twoBooks) && twoBooks.includes('بعض الحسابات: 1 من 2'), `مراجعة WP8: العدد بلا معدود بصيغة خاطئة (${twoBooks.slice(0, 80)})`);
     globalThis.__accounts.loads = { 'o-1': { error: new Error('boom') }, 'o-1|all|null||balance|false': { data: page } };
     const noSummary = render(m.h(m.AccountsPage));
     t.ok(noSummary.includes('تعذّر تحميل ملخّص الحسابات') && !section(noSummary, 'tfoot').includes('bdi'), 'الملخّص فشل: فشله ظاهر، وما يرسم تذييلاً من الصفوف');
@@ -428,7 +428,7 @@ export default async function (t) {
     const scopedOnly = m.parseAccountsSummary({ ...SUMMARY_WIRE, divisions: [SUMMARY_WIRE.divisions[0]], books: { visible: 1, total: 7 } });
     check('المحصور: بطاقة المشروع «دفاتر نطاقك فقط» وبطاقة المعمل بس، مو «المفقس 0 / 0»', () => {
       const text = textOf(render(m.h(m.SummaryCards, { summary: scopedOnly })));
-      return (text.includes('المشروع: حسابات نطاقك فقط') && text.includes('المعمل') && !text.includes('المفقس')) || text;
+      return (text.includes('المشروع: بعض الحسابات فقط') && text.includes('المعمل') && !text.includes('المفقس')) || text;
     });
     check('المحصور: خيارات الفلتر «الكل» ووحدات نطاقه، وقبل الملخّص كل الوحدات', () => {
       const scopedOptions = m.accountsPage.filterOptions(scopedOnly);

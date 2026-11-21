@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REAL_INV = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'inventory.ts'));
@@ -122,7 +123,7 @@ export default async function (t) {
       scopes: [], divisions: ['general', 'medicine'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
       invites: [], subscription: 'active', confirmedAt: 1, ...over,
     });
-    const keeper = ws({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: false, canSeeAccounts: false, canSeeSales: false });
+    const keeper = ws({ role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], canSeeCost: true, canSeeAccounts: true, canSeeSales: true });
 
     const site = { id: 's-store', name: 'مخزن المشروع', kind: 'store', divisionId: 'd-gen', divisionKind: 'general' };
     const card = (over) => ({
@@ -282,10 +283,10 @@ export default async function (t) {
       await unmount();
     }
     {
-      // البطاقة تجي بقيمة (لو الخادم ما شالها): الشاشة ما تعرضها لدور بلا كلفة.
+      // 0034: الأمين يرى قيمة المتاح كالمالك (can_see_cost صحيحة لكلّ عضو).
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false, rows: [card({})], canCreateItem: true }) }));
       await mount('/inventory/stores');
-      t.ok(!text().includes('402,500.00') && text().includes('المخزن العامّ'), 'S1: دور بلا كلفة: البطاقة بلا قيمة المتاح');
+      t.ok(text().includes('402,500.00') && text().includes('المخزن العامّ'), 'S1: الأمين: البطاقة بقيمة المتاح كالمالك (0034)');
       t.eq(byAction('add-warehouse').length, 0, 'S2: بلا stores.manage: ماكو «أضف مخزناً»');
       await unmount();
     }
@@ -347,12 +348,10 @@ export default async function (t) {
       await unmount();
     }
     {
-      const calls = fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false, canCreateItem: false }) }));
+      fresh({ status: 'ready', workspace: keeper }, handlers({ loadStoresOverview: () => overview({ canManage: false, canCreateItem: false }) }));
       await mount('/inventory/store/w-gen');
       t.eq(byAction('add-item').length, 0, 'S6: بلا item.create: ماكو «أضف مادّة»');
-      t.ok(!text().includes('400,000.00') && text().includes('ذرة صفراء'), 'S6: ودور بلا كلفة يرى المواد بلا قيمتها');
-      t.same(calls.filter(([name]) => name === 'loadStockValues'), [], 'S6: ولا ينادي قيم المخزون التي يرفضها الخادم له');
-      await unmount();
+      t.ok(text().includes('400,000.00') && text().includes('ذرة صفراء'), 'S6: والأمين يرى المواد بقيمتها كالمالك (0034)');      await unmount();
     }
 
     // ── S6 وS7: «أضف مادّة» وتنبيه التوائم ───────────────────────────────────────────────────────────────────
@@ -411,7 +410,7 @@ export default async function (t) {
       await mount('/inventory/store/w-gen');
       fire(byAction('add-item')[0], 'click');
       await settle();
-      t.eq(byIdSuffix('-sell').length, 0, 'S12: ودور بلا كلفة بلا حقل سعر البيع');
+      t.eq(byIdSuffix('-sell').length, 1, 'S12: والأمين يكتب سعر البيع كالمالك (0034)');
       await unmount();
     }
 
@@ -433,10 +432,11 @@ export default async function (t) {
     }
     {
       const rows = [purchase({ money: null }), older ? purchase({ lotId: 'l-0', docNo: 'PU-2026-0001', money: null }) : null].filter(Boolean);
-      fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases(rows) }));
+      // علم الخادم لا الدور: جواب can_see_cost=false وسطور بلا مال (خادم أقدم).
+      fresh({ status: 'ready', workspace: ws({ canSeeCost: false }) }, handlers({ loadItemPurchases: () => purchases(rows) }));
       await mount('/inventory/items/i-corn/details?wh=w-gen');
       const page = text();
-      t.ok(page.includes('PU-2026-0003') && page.includes('مورّد الحبوب') && page.includes('10 كيس 50 كغم') && page.includes('500.000'), 'S9: دور بلا كلفة يرى من اشترى ومتى وبأي وحدة وكم');
+      t.ok(page.includes('PU-2026-0003') && page.includes('مورّد الحبوب') && page.includes('10 كيس 50 كغم') && page.includes('500.000'), 'S9: الخادم أجاب can_see_cost=false (خادم أقدم): من اشترى ومتى وبأي وحدة وكم');
       t.ok(!page.includes('805.00') && !page.includes('402,500.00') && !page.includes('سعر الوحدة') && !page.includes('مبلغ الفاتورة'), `S9: وبلا أسعار ولا أعمدة مال (${page.slice(0, 200)})`);
       await unmount();
     }
@@ -475,7 +475,7 @@ export default async function (t) {
     {
       fresh({ status: 'ready', workspace: keeper }, handlers({ loadItemPurchases: () => purchases([purchase({ money: null })], { item: { id: 'i-corn', name: 'ذرة صفراء', kind: 'raw', baseUnit: 'kg', tracksExpiry: false, minQty: null, archived: false, sellPrice: null, costPrice: null } }) }));
       await mount('/inventory/items/i-corn/details');
-      t.ok(!text().includes('سعر البيع'), 'S13: ودور بلا كلفة لا يرى بطاقة سعر البيع أبداً');
+      t.ok(text().includes('سعر البيع') && byAction('edit-sell-price').length === 1, 'S13: والأمين يرى بطاقة سعر البيع ويكتبه كالمالك (0034)');
       await unmount();
     }
 
@@ -592,6 +592,18 @@ export default async function (t) {
     t.same([m.suggestedKind('raw'), m.suggestedKind('medicine'), m.suggestedKind('chick'), m.suggestedKind('general')], ['raw', 'medicine', 'chick', 'other'], 'suggestedKind: النوع المقترح من نوع المخزن');
     t.same([m.tabOf(null), m.tabOf('lots'), m.tabOf('moves'), m.tabOf('x')], ['purchases', 'lots', 'moves', 'purchases'], 'tabOf: التبويب من الرابط، وغير المعروف = المشتريات');
     t.same([m.cardParams('w-1', 'purchases'), m.cardParams('w-1', 'moves'), m.cardParams('', 'lots')], [{ wh: 'w-1' }, { wh: 'w-1', tab: 'moves' }, { tab: 'lots' }], 'cardParams: المخزن والتبويب بالرابط');
+
+    // ── E «الكلّ مثل المالك» (0034): بطاقات المخازن وصفحة المخزن وبطاقة المادّة بقيمها، بالجواب نفسه لكلّ دور كما للمالك ──────────
+    const at = (url) => async (role) => {
+      fresh({ status: 'ready', workspace: ws({ role, userId: `u-${role}` }) }, handlers());
+      await mount(url);
+      const print = printOf(body());
+      await unmount();
+      return print;
+    };
+    await everyoneLikeOwner(t, 'E بطاقات المخازن', at('/inventory/stores'), ['402,500.00']);
+    await everyoneLikeOwner(t, 'E صفحة المخزن', at('/inventory/store/w-gen'), ['400,000.00', 'رأس المال']);
+    await everyoneLikeOwner(t, 'E بطاقة المادّة', at('/inventory/items/i-corn/details'), ['805.00', 'سعر البيع']);
   } finally {
     delete globalThis.__stores;
     restore();

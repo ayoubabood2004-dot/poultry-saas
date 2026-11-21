@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'money-a.json'), 'utf8'));
@@ -501,7 +502,7 @@ export default async function (t) {
         O.debts.divisions.map((d) => [`/accounts/debts?side=receivable&division=${d.division_id}`, `/accounts/debts?side=payable&division=${d.division_id}`]),
         'H11 رقما كلّ قسم يفتحان قائمة الذمم بطرفها وقسمها',
       );
-      t.ok(!text().includes('الأرقام من حسابات نطاقك'), 'H12 بلا نطاق محصور: بلا جملة النطاق');
+      t.ok(!text().includes('الأرقام من بعض الحسابات'), 'H12 كلّ الحسابات: بلا جملة «بعض الحسابات»');
       // اليوم: الأصناف بلا التحويل والرصيد عند البداية، والمجموع من الخادم، والخارجة بسطرها
       const today = tableOf(first('hub-today'));
       t.same(today.headers, ['النوع', 'دخل', 'خرج'], 'H13 جدول اليوم: النوع | دخل | خرج');
@@ -585,7 +586,7 @@ export default async function (t) {
       fresh({ money_overview: () => clone(variant) }, 'accountant');
       await mount('/accounts');
       t.ok(byAction('hub-box').some((n) => hrefOf(n) === '/accounts/cash/arch-box' && text(n).includes('صندوق قديم (مؤرشف وعليه رصيد)')), 'H31 المؤرشف برصيد بعلامته');
-      t.ok(text(first('hub-debts')).includes('الأرقام من حسابات نطاقك: 1 من 7'), 'H32 القارئ المحصور يعرف أنّ الذمم من حسابات نطاقه');
+      t.ok(text(first('hub-debts')).includes('الأرقام من بعض الحسابات: 1 من 7'), 'H32 جواب ببعض الحسابات (خادم أقدم): الذمم تقول إنّها من بعض الحسابات');
       t.same([text(first('hub-sales')).includes('كلفتها'), first('hub-gross')], [false, null], 'H33 الكلفة محجوبة: بلا كلفة ولا ربح');
       t.ok(text(first('hub-alerts')).includes('لا تنبيهات') && first('hub-alert-receivable') === null, 'H34 بلا تنبيه: «لا تنبيهات»');
       const hrefs = links(descendants(body()).find((n) => n.localName === 'nav' && n.getAttribute('aria-label') === 'صفحات الحسابات')).map(hrefOf);
@@ -1079,6 +1080,21 @@ export default async function (t) {
         t.same([tables.length > 0, wrapped, fixedWidth.length], [true, true, 0], `R4 ${url}: الجداول تتمرّر داخل غلافها، ولا عرض ثابت`);
         await unmount();
       }
+    });
+
+    // ── E «الكلّ مثل المالك» (0034): الخلاصة والصناديق وكشف الصندوق بجواب الخادم نفسه لكلّ دور كما للمالك ───────────────
+    await step('E', async () => {
+      const at = (url) => async (role) => {
+        fresh({}, role);
+        await mount(url);
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      // «الأرصدة عند البداية» في روابط الخلاصة (opening.post)، وإدارة الصناديق (cash_accounts.manage)، و«ألغِ» حركة الصندوق (void).
+      await everyoneLikeOwner(t, 'E الخلاصة /accounts', at('/accounts'), ['data-action="hub-openings"']);
+      await everyoneLikeOwner(t, 'E الصناديق /accounts/cash', at('/accounts/cash'), ['data-action="cash-day"']);
+      await everyoneLikeOwner(t, 'E كشف الصندوق', at(`/accounts/cash/${MM.box.account.id}`), ['data-action="void-cash-move"']);
     });
   } catch (error) {
     t.ok(false, `money-screens: رمى ${error?.stack ?? error}`);

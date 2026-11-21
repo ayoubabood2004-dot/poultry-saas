@@ -131,7 +131,7 @@ function MarkDialog({ group, today, busy, onClose, onSend }: MarkProps) {
   if (linked) {
     if (!options) problems.push(t('reminders.mark.stock_wait', 'تُقرأ مخازن «{item}»…', { item: group.item?.name ?? '' }));
     else if (!options.canIssue) problems.push(t('reminders.mark.no_issue', '«{name}» يُصرف من المخزن عند التأشير: التأشير لمن يصرف من المخزن.', { name: group.name }));
-    else if (!item || !from) problems.push(t('reminders.mark.no_stock', 'لا رصيد من «{item}» في مخازن نطاقك.', { item: group.item?.name ?? '' }));
+    else if (!item || !from) problems.push(t('reminders.mark.no_stock', 'لا رصيد من «{item}» في المخازن.', { item: group.item?.name ?? '' }));
     for (const hall of halls) {
       const text = (qty[hall.flockId] ?? '').trim();
       const value = text === '' ? null : parseQty(text);

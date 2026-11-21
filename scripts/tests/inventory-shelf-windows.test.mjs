@@ -85,7 +85,7 @@ export default async function (t) {
     const m = await bundle();
     const only = (process.env.ONLY ?? '').split(',').filter(Boolean);
     const run = (name) => only.length === 0 || only.includes(name);
-    const ws = (over = {}) => ({ userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], divisions: ['general'], canSeeCost: false, canSeeAccounts: false, canSeeSales: false, invites: [], subscription: 'active', confirmedAt: 1, ...over });
+    const ws = (over = {}) => ({ userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role: 'storekeeper', scopes: [{ warehouseId: 'w-gen' }], divisions: ['general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over });
     const store = (id, divisionId, kind, name) => ({ id, version: 1, archived: false, divisionId, siteId: `s-${divisionId}`, name, kind, hasBalance: false });
     const org = {
       divisions: [

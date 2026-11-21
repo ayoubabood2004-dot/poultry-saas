@@ -563,7 +563,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
   // فاتورة محفوظة من مخزن لم يعد في النطاق (S3): لا تبقى عالقة عليه بلا شريحة ولا قائمة ولا موادّ؛ يُختار مخزن، وتُقرأ سطورها على موادّه.
   if (stores.data && !frozen && draft.warehouseId !== '' && !storeRows.some((row) => row.id === draft.warehouseId)) {
     setDraft((current) => ({ ...current, warehouseId: '' }));
-    if (draft.lines.length > 0) setNotice(t('sell.store.lost', 'المخزن الذي بدأت منه هذه الفاتورة لم يعد في نطاقك؛ اختر مخزناً وراجع السطور عليه.'));
+    if (draft.lines.length > 0) setNotice(t('sell.store.lost', 'المخزن الذي بدأت منه هذه الفاتورة لم يعد متاحاً؛ اختر مخزناً وراجع السطور عليه.'));
   }
   const warehouseId = draft.warehouseId || defaultStore(storeRows, storeParam, memory.store);
   const store = storeRows.find((row) => row.id === warehouseId) ?? null;
@@ -1711,7 +1711,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : storeRows.length === 0 ? (
-        <Notice tone="info" title={t('invoice.stores.none', 'لا مخزن في نطاقك يُباع منه.')} />
+        <Notice tone="info" title={t('invoice.stores.none', 'لا مخزن يُباع منه.')} />
       ) : !warehouseId ? (
         <section className="sl-pick-store" data-action="sale-store-section">
           <h2 className="sl-h2">{t('invoice.store', 'من أيّ مخزن تبيع؟')}</h2>
@@ -2080,7 +2080,7 @@ export default function SaleCheckoutPage() {
           <ArrowRight aria-hidden="true" className="size-4 shrink-0" />
           {checkoutBackLabel(back)}
         </Link>
-        <Notice tone="info" title={t('invoice.forbidden', 'دورك لا يبيع: الفاتورة يحفظها المالك والمدير والمحاسب وأمين المخزن.')} />
+        <Notice tone="info" title={t('invoice.forbidden', 'لا يبيع حسابك الآن: البيع يحتاج عضويةً فعّالة في المنشأة.')} />
       </div>
     );
   }

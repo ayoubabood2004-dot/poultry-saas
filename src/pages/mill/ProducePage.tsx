@@ -536,7 +536,7 @@ function ProducedView({ result, recipeId, onAgain }: { result: Produced; recipeI
       <section className="card flex flex-col gap-3 p-4" data-action="produced-draft">
         <h2 className="text-lg font-semibold">{t('mill.produced.draft_title', 'حُفظت الدفعة وتنتظر ختم الكلف')}</h2>
         <p data-action="produced-draft-text">
-          {t('mill.produced.draft_v4', 'حُفظت دفعة «{recipe}» (المخطّط {qty}) مسوّدة بما كتبته من كميات: يختم كلفها من صفحتها («اختم الكلف») محاسبٌ أو مدير يرى مصاريف وحدتها، ثمّ تُرحَّل فيدخل العلف «رصيد العلف».', {
+          {t('mill.produced.draft_v4', 'حُفظت دفعة «{recipe}» (المخطّط {qty}) مسوّدة بما كتبته من كميات: تُختَم كلفها من صفحتها («اختم الكلف»)، ثمّ تُرحَّل فيدخل العلف «رصيد العلف».', {
             recipe: result.recipeName,
             qty: kgText(result.plannedKg),
           })}
@@ -1169,7 +1169,7 @@ export default function ProducePage() {
     return (
       <div className="flex flex-col gap-5">
         {header}
-        <Notice tone="warning" title={t('mill.produce.forbidden', 'تسجيل الإنتاج للمالك والمدير ومشغّل المعمل.')} />
+        <Notice tone="warning" title={t('mill.produce.forbidden', 'يحتاج تسجيل الإنتاج عضويةً فعّالة في المنشأة.')} />
       </div>
     );
   }
@@ -1215,7 +1215,7 @@ export default function ProducePage() {
       : !form.outputStore
         ? t('mill.produce.no_feed_store', 'لا يوجد «رصيد العلف» في المعمل: أضفه من إعداد المخزن.')
         : !stores.length
-          ? t('mill.produce.no_raw_store', 'لا مخزن موادّ أوّلية في نطاقك تُسحب منه الموادّ.')
+          ? t('mill.produce.no_raw_store', 'لا مخزن موادّ أوّلية تُسحب منه الموادّ.')
           : null;
   if (stop) {
     return (
@@ -1646,7 +1646,7 @@ export default function ProducePage() {
             </>
           ) : (
             <p className="text-sm font-medium" data-action="once-only">
-              {t('mill.choice.once_only', 'التغيير لهذه المرّة فقط: موادّ الخلطة تبقى كما هي (تعديلها للمالك أو المدير).')}
+              {t('mill.choice.once_only', 'التغيير لهذه المرّة فقط: موادّ الخلطة تبقى كما هي.')}
             </p>
           )}
         </section>

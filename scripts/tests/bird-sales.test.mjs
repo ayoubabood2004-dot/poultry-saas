@@ -127,8 +127,8 @@ const headersOf = (caption) => (tableOf(caption) ? descendants(tableOf(caption))
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
-  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: !['hall_worker', 'mill_operator', 'hatchery_operator'].includes(role), invites: [], subscription: 'active', confirmedAt: 1, ...over,
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true,
+  canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 const ACCOUNTANT = sessionOf('accountant');
@@ -503,7 +503,7 @@ export default async function (t) {
       await mount(NEW_URL);
       t.eq(
         textOf('bird-over-live'),
-        'في «قاعة 2» بحسب النظام 950 طيراً حيّاً، وفي التذكرة 1,000 طير. إن كان العدد الفعليّ أكبر فليسجّل المدير «فرق العدّ» بتاريخ 12/11/2026 أو قبله، ثمّ أعد القراءة.',
+        'في «قاعة 2» بحسب النظام 950 طيراً حيّاً، وفي التذكرة 1,000 طير. إن كان العدد الفعليّ أكبر فسجّل «فرق العدّ» بتاريخ 12/11/2026 أو قبله، ثمّ أعد القراءة.',
         'B طيور التذكرة أكثر من الحيّ: الجملة تدلّ على «فرق العدّ» بيوم التذكرة',
       );
       await fill();

@@ -244,8 +244,8 @@ const monthsCaption = (kind) => `${kind} — الأشهر من البداية`;
 
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role),
-  canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
+  divisions: ['feed_mill', 'broiler', 'layer', 'hatchery', 'medicine', 'general'], canSeeCost: true,
+  canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
 });
 const as = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 

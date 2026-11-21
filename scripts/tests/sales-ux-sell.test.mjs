@@ -120,7 +120,7 @@ const GROWER_BAG = unitNamed('علف نامي', 'كيس 50 كغم');
 const BOX2 = CAT.cash_accounts[1];
 const ws = (role) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['general', 'feed_mill'],
-  canSeeCost: role !== 'storekeeper', canSeeAccounts: role !== 'storekeeper', canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
+  canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
 });
 const sessionOf = (role) => ({ status: 'ready', workspace: ws(role), offline: false });
 const MANAGER = sessionOf('manager');
@@ -665,7 +665,7 @@ export default async function (t) {
       fresh(MANAGER, { stores_overview: () => onlyFeed, sale_catalog: (a) => { if (a.p_warehouse === 'w-gen') throw new current.RejectedError('out_of_scope', 'ليس في نطاقك.'); return clone(CAT); } }, pickers);
       await mount('/sales/new');
       t.same(
-        [byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, (textOf('sale-notice') ?? '').includes('لم يعد في نطاقك')],
+        [byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, (textOf('sale-notice') ?? '').includes('لم يعد متاحاً')],
         [true, true],
         'S3 مخزن الفاتورة خارج النطاق: لا تبقى عالقة عليه، بل يُختار مخزن ويُقال لماذا',
       );

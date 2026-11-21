@@ -17,6 +17,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
+import { everyoneLikeOwner, printOf } from './everyone-owner-kit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
@@ -513,11 +514,11 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── F4: مشغّل المعمل بلا مال ─────────────────────────────────────────────────────────────────────────────────
-    await step('F4 مشغّل المعمل', async () => {
-      const calls = fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, batchHandlers('draft', false));
+    // ── F4: جواب بلا مال (خادم أقدم): علم الخادم لا الدور؛ 0034 يعطي كلّ عضو المال، فيفحصه everyone-owner ─ ─────────────────────────────────────────────────────────────────────────────────
+    await step('F4 الخادم بلا مال', async () => {
+      const calls = fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false }) }, batchHandlers('draft', false));
       await mount('/mill/batch/b-1');
-      t.ok(!text().includes('القيمة') && !text().includes('المتاح من المصاريف') && byAction('cost-amount').length === 0, 'F4 لا عمود قيمة ولا جدول تكاليف');
+      t.ok(!text().includes('القيمة') && !text().includes('المتاح من المصاريف') && byAction('cost-amount').length === 0, 'F4 الخادم أجاب can_see_cost=false وبلا مال (خادم أقدم): لا عمود قيمة ولا جدول تكاليف');
       t.ok(text().includes('تكاليف الدفعة أكبر من المتاح') && byAction('zero-cost').length === 0 && byAction('record-expense').length === 0, 'F4 «المصاريف لا تكفي» بلا أرقام ولا أفعال مال');
       t.ok(byAction('input-actual').length === 2 && byAction('add-input').length === 1, 'F4 والمواد تُعدَّل له (production.draft)');
       t.eq(named(calls, 'loadExpenseCategories').length, 0, 'F4 ولا قراءة لفئات المصاريف');
@@ -572,12 +573,25 @@ export default async function (t) {
       await unmount();
     });
 
-    // ── F7: لغير أدوار الكلفة لا سعر ولا تكاليف ──────────────────────────────────────────────────────────────────────
+    // ── F7: جواب بلا مال (خادم أقدم): لا سعر ولا تكاليف ───────────────────────────────────────────────────────────────────────
     await step('F7 بلا كلفة', async () => {
-      fresh({ status: 'ready', workspace: ws({ role: 'mill_operator', canSeeCost: false, canSeeAccounts: false, canSeeSales: false }) }, recipeHandlers(false));
+      fresh({ status: 'ready', workspace: ws({ canSeeCost: false }) }, recipeHandlers(false));
       await mount('/mill/recipe/r-1');
-      t.ok(text().includes('ذرة صفراء') && !text().includes('سعر الشراء') && !text().includes('تكاليف لكلّ طنّ') && byAction('cost-price').length === 0, 'F7 مشغّل المعمل: المواد بلا أسعار ولا تكاليف');
+      t.ok(text().includes('ذرة صفراء') && !text().includes('سعر الشراء') && !text().includes('تكاليف لكلّ طنّ') && byAction('cost-price').length === 0, 'F7 الخادم أجاب can_see_cost=false وبلا مال (خادم أقدم): المواد بلا أسعار ولا تكاليف');
       await unmount();
+    });
+
+    // ── E «الكلّ مثل المالك» (0034): صفحة الخلطة (أسعارها وتكاليفها) وصفحة الدفعة (قيمتها وتكاليفها) بالجواب نفسه لكلّ دور ──────────
+    await step('E', async () => {
+      const at = (url, handlers) => async (role) => {
+        fresh({ status: 'ready', workspace: ws({ role, userId: `u-${role}` }) }, handlers());
+        await mount(url);
+        const print = printOf(body());
+        await unmount();
+        return print;
+      };
+      await everyoneLikeOwner(t, 'E صفحة الخلطة', at('/mill/recipe/r-1', () => recipeHandlers(true)), ['تكاليف لكلّ طنّ', 'data-action="rate-amount"']);
+      await everyoneLikeOwner(t, 'E صفحة الدفعة المسوّدة', at('/mill/batch/b-1', () => batchHandlers('draft', true)), ['data-action="cost-amount"', 'data-action="record-expense"']);
     });
   } finally {
     delete globalThis.__mill;

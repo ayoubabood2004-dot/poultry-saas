@@ -88,7 +88,7 @@ export default async function (t) {
   const restore = installDom();
   try {
     const m = await bundle();
-    const ws = (role) => ({ userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['feed_mill'], canSeeCost: role !== 'storekeeper', canSeeAccounts: role === 'accountant', canSeeSales: false, invites: [], subscription: 'active', confirmedAt: 1 });
+    const ws = (role) => ({ userId: `u-${role}`, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['feed_mill'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1 });
     const org = {
       divisions: [{ id: 'd-mill', kind: 'feed_mill', goLiveOn: '2026-10-01', frozen: true }],
       sites: [],

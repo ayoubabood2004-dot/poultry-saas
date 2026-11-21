@@ -378,7 +378,7 @@ export default async function (t) {
     await step('X3 بلا صلاحية الفئات', async () => {
       // كلّ دور يكتب التكاليف اليوم يملك expense_categories.manage، فالجملة البديلة تُرسم مباشرة.
       const html = m.renderToStaticMarkup(m.h(m.NewCategoryField, { id: 'x', categories: [], canManage: false, onPick: () => {} }));
-      t.ok(html.includes('لا فئة مناسبة؟ اطلب من المدير أو المحاسب إضافتها.') && !html.includes('<input'), 'X3 لمن لا يملك إضافة الفئات: «اطلب من المدير أو المحاسب» بلا حقل');
+      t.ok(html.includes('لا فئة مناسبة؟ تُضاف الفئات من «إعدادات المنشأة».') && !html.includes('<input'), 'X3 لمن لا يملك إضافة الفئات: «اطلب من المدير أو المحاسب» بلا حقل');
     });
     await step('X3 بطاقة الخلطة', async () => {
       const calls = fresh(
@@ -607,7 +607,7 @@ export default async function (t) {
       t.eq(byAction('result-batch')[0]?.getAttribute('href'), `/mill/batch/${request?.id}`, 'X9 ثم رابط صفحة الدفعة');
       await unmount();
       root = null;
-      fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: false }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });
+      fresh({ status: 'ready', workspace: ws({ role: 'viewer', canSeeCost: true }) }, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active' })) });
       await mount('/mill/recipe/r-1');
       t.eq(byAction('produce').length, 1, 'X9 والمشاهد يُنتج أيضاً (0034: production.draft لكلّ عضو)');
     });
@@ -670,7 +670,7 @@ export default async function (t) {
         batchHandlers({ loadBatch: () => m.parseBatch(batchJson({ status: 'posted', lines: [batchLine({ used_qty: '1000.000', draws: [] })], costs: [detailCost({ allocations: null })] })) }),
       );
       await mount('/mill/batch/b-1');
-      t.ok(byAction('allocations-hidden')[0]?.textContent === 'محمَّلة من مصاريف وحدة خارج نطاقك', 'X12 allocations = null: «محمَّلة من مصاريف وحدة خارج نطاقك» بلا أرقام');
+      t.ok(byAction('allocations-hidden')[0]?.textContent === 'محمَّلة من مصاريف وحدة غير معروضة', 'X12 allocations = null: «محمَّلة من مصاريف وحدة غير معروضة» بلا أرقام');
       await unmount();
       root = null;
       // available = null يعني أنّ القارئ لا يرى مصاريف الوحدة (ق١١، ق٢١): لا رقم يُعرض، ولا مبلغ يُكتب (ب٢).

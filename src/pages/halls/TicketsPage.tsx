@@ -132,7 +132,7 @@ function TicketsTable({ list, here }: { list: TicketList; here: string }) {
               {row.invoiceWhy === 'period_locked'
                 ? t('halls.tickets.why.period_locked', 'يومها في فترة مقفلة')
                 : row.invoiceWhy === 'out_of_scope'
-                  ? t('halls.tickets.why.out_of_scope', 'دفتر وحدتها خارج نطاقك')
+                  ? t('halls.tickets.why.out_of_scope', 'دفتر وحدتها لا يصل إليه حسابك')
                   : t('halls.tickets.why.no_book', 'لا دفتر لوحدتها')}
             </span>
           ) : null}

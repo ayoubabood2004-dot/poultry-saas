@@ -103,11 +103,11 @@ const PROBLEM_TEXT: Readonly<Record<string, () => string>> = {
   insufficient_stock: () => t('mill.problem.short', 'الرصيد لا يكفي'),
   shrink_out_of_range: () => t('mill.problem.shrink', 'الهدر خارج المدى المقبول: اكتب سببه'),
   expiry_required: () => t('mill.problem.expiry', 'الناتج يُتابَع انتهاؤه: اكتب تاريخ الانتهاء'),
-  costs_pending: () => t('mill.problem.costs', 'الكلف لم تُختَم بعد: يختمها المحاسب أو المدير'),
+  costs_pending: () => t('mill.problem.costs', 'الكلف لم تُختَم بعد: اختمها أوّلاً'),
   item_archived: () => t('mill.problem.archived', 'المادّة مؤرشفة'),
-  costs_unfunded: () => t('mill.problem.unfunded', 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: يسجّل المحاسب أو المدير المصروف أوّلاً أو يقلّل المبلغ'),
+  costs_unfunded: () => t('mill.problem.unfunded', 'تكاليف الدفعة أكبر من المتاح في المصاريف المسجّلة: سجّل المصروف أوّلاً أو قلّل المبلغ'),
   output_expired: () => t('mill.problem.output_expired', 'تاريخ انتهاء الناتج قبل يوم الإنتاج: صحّح التاريخ قبل الترحيل'),
-  costs_unsealed_scope: () => t('mill.problem.unsealed_scope', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.'),
+  costs_unsealed_scope: () => t('mill.problem.unsealed_scope', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة أخرى: تُختَم أوّلاً، ثمّ تُرحَّل.'),
   no_mass_inputs: () => t('mill.problem.no_mass', 'الدفعة بلا مادّة داخل الكتلة: أضف مادّة أوّلية؛ الوقود والتعبئة وحدهما لا يصنعان علفاً.'),
 };
 
@@ -125,7 +125,7 @@ export function problemLine(problem: MillProblem): string {
     });
   }
   if (problem.code === 'costs_unsealed_scope' && problem.divisionName !== null) {
-    return t('mill.problem.unsealed_scope_named', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «{division}» خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.', {
+    return t('mill.problem.unsealed_scope_named', 'تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «{division}»: تُختَم أوّلاً، ثمّ تُرحَّل.', {
       division: problem.divisionName,
     });
   }
@@ -140,7 +140,7 @@ export function problemLine(problem: MillProblem): string {
  */
 export function unfundedText(problem: MillProblem, division: string): string {
   if (problem.needAmount === null || problem.haveAmount === null) {
-    return t('mill.problem.unfunded_division', 'تكاليف الدفعة أكبر من المتاح في مصاريف وحدة «{division}» المسجّلة: يسجّل المحاسب أو المدير مصروفاً على هذه الوحدة أوّلاً أو يقلّل المبلغ.', { division });
+    return t('mill.problem.unfunded_division', 'تكاليف الدفعة أكبر من المتاح في مصاريف وحدة «{division}» المسجّلة: سجّل مصروفاً على هذه الوحدة أوّلاً أو قلّل المبلغ.', { division });
   }
   const category = problem.categoryName ?? dash();
   return t('mill.problem.unfunded_named', '«{category}»: المطلوب {need} والمتاح من مصاريف وحدة «{division}» المسجّلة {have}. سجّل مصروفاً على وحدة «{division}» بفئة «{category}» أو قلّل المبلغ.', {
@@ -313,7 +313,7 @@ function DrawsCell({ draws, itemId, unit, warehouseId, linked }: { draws: readon
   if (draws === null && !linked) {
     return (
       <span className="text-ink-muted" data-action="draws-hidden">
-        {t('mill.trace.draws_hidden', 'وجبات مخزن المواد خارج نطاقك')}
+        {t('mill.trace.draws_hidden', 'وجبات مخزن المواد غير معروضة')}
       </span>
     );
   }
@@ -412,11 +412,11 @@ export default function BatchPage() {
 
   const draft = batch.status === 'draft';
   const inputScope = batch.scope.input;
-  // مسوّدة يقرؤها من نطاقه مخزن العلف وحده (ق٢٥، ب٣): تُعمل من طرف المواد، فلا معاينة لها ولا فعل هنا.
+  // مسوّدة لم يرسل الخادم وجبات مخزن موادّها (scope.input false؛ ق٢٥، ب٣ — جواب خادم أقدم، فبعد 0034 يرسلها لكلّ عضو): فلا معاينة لها ولا فعل هنا.
   const blind = draft && !inputScope;
-  // مشغّل المعمل يرحّل بعد ختم الكلف وحده (ب١): السياق من الدفعة، كما يشترطه الخادم.
+  // الترحيل لكلّ عضو (0034: production.post لكلّ دور)، وشرط الختم من الخادم بالدفعة نفسها (costs_pending) لا من الدور.
   const canPost = role !== null && can(role, 'production.post');
-  // يرى مصاريف وحدة مخزن المدخلات (ق٢١، ب٢): بلاها لا يكتب مبلغ تكلفة ولا يختمها ولا يسجّل مصروفاً منها.
+  // مصاريف وحدة مخزن المدخلات كما يرسلها الخادم (ق٢١، ب٢؛ لكلّ عضو بعد 0034): بلاها لا يكتب مبلغ تكلفة ولا يختمها ولا يسجّل مصروفاً منها.
   const expensesVisible = batch.expensesVisible;
   const editInputs = draft && canDraft && inputScope;
   const costLines = preview?.costs ?? batch.costs;
@@ -740,7 +740,7 @@ export default function BatchPage() {
           </span>
         ) : cost.allocations === null ? (
           <span className="text-ink-muted" data-action="allocations-hidden">
-            {t('mill.costs.allocations_hidden', 'محمَّلة من مصاريف وحدة خارج نطاقك')}
+            {t('mill.costs.allocations_hidden', 'محمَّلة من مصاريف وحدة غير معروضة')}
           </span>
         ) : cost.allocations.length ? (
           <ul className="flex flex-col gap-0.5">
@@ -883,7 +883,7 @@ export default function BatchPage() {
       {blind ? (
         <Notice
           tone="info"
-          title={t('mill.batch.draft_out_of_scope', 'هذه الدفعة مسوّدة تُعمل من مخزن «{store}» خارج نطاقك، فلا تُعرض معاينتها ولا تُعدَّل من هنا؛ تظهر كاملة بعد ترحيلها.', {
+          title={t('mill.batch.draft_out_of_scope', 'هذه الدفعة مسوّدة تُعمل من مخزن «{store}» لم يرسل الخادم وجباته، فلا تُعرض معاينتها ولا تُعدَّل من هنا؛ تظهر كاملة بعد ترحيلها.', {
             store: batch.inputWarehouse.name,
           })}
         />
@@ -910,7 +910,7 @@ export default function BatchPage() {
               </Link>
             ) : (
               <span className="text-sm text-ink-muted" data-action="output-lots-text">
-                {t('mill.trace.output_lots_text', 'وجبات العلف في «{store}» خارج نطاقك.', { store: batch.outputWarehouse.name })}
+                {t('mill.trace.output_lots_text', 'وجبات العلف في «{store}» غير معروضة.', { store: batch.outputWarehouse.name })}
               </span>
             )
           }
@@ -918,7 +918,7 @@ export default function BatchPage() {
           {inputScope
             ? t('mill.trace.inputs', 'سُحبت المواد من «{store}»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.', { store: batch.inputWarehouse.name })
             : // طرف الناتج وحده (ق٣٢): الخادم لا يرسل له وجبات مخزن المواد (draws = null) فالعمود يقول «خارج نطاقك»، والجملة لا تعِد بمصدر (التكامل).
-              t('mill.trace.inputs_hidden', 'سُحبت المواد من «{store}»، ووجبات ذلك المخزن خارج نطاقك.', { store: batch.inputWarehouse.name })}
+              t('mill.trace.inputs_hidden', 'سُحبت المواد من «{store}»، ووجبات ذلك المخزن غير معروضة.', { store: batch.inputWarehouse.name })}
         </Notice>
       ) : null}
 
@@ -990,7 +990,7 @@ export default function BatchPage() {
           />
           {draft && !expensesVisible && division ? (
             <p className="text-sm text-ink-muted" data-action="costs-out-of-scope">
-              {t('mill.costs.out_of_scope', 'تُحمَّل هذه التكاليف من مصاريف وحدة «{division}» خارج نطاقك: يكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.', { division: division.divisionName })}
+              {t('mill.costs.out_of_scope', 'تُحمَّل هذه التكاليف من مصاريف وحدة «{division}» لم يرسلها الخادم: حدّث الصفحة لكتابتها وختمها.', { division: division.divisionName })}
             </p>
           ) : null}
           {editCosts ? (

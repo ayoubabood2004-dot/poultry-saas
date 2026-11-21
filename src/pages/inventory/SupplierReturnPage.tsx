@@ -627,7 +627,7 @@ function SupplierReturnEditor({ docId }: { docId: string }) {
             ) : null}
           </div>
           {!online ? <Notice tone="warning" title={t('transfer.offline', 'الحفظ النهائي يحتاج اتصالاً بالإنترنت؛ الورقة باقية حتى يعود الاتصال.')} /> : null}
-          {preview && !canPrice ? <Notice tone="info" title={t('return.keeper', 'المبلغ المقبول والحفظ النهائي للمحاسب أو المدير؛ الورقة باقية لهما.')} /> : null}
+          {preview && !canPrice ? <Notice tone="info" title={t('return.keeper', 'لا يكتب حسابك المبلغ المقبول ولا يحفظ نهائياً الآن؛ الورقة باقية.')} /> : null}
           <ReviewDialog
             open={preview !== null && canPrice}
             title={t('return.review.title', 'راجع المرتجع قبل الحفظ')}

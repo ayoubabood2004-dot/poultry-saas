@@ -133,7 +133,7 @@ function ReturnCarryDialog({ line, onClose, onDone }: { line: CloseLine; onClose
             <option value="">{t('halls.close.store_pick', 'اختر المخزن')}</option>
             {line.stores.map((entry) => (
               <option key={entry.warehouseId} value={entry.warehouseId} disabled={!entry.usable}>
-                {entry.usable ? entry.name : t('halls.close.store_unusable', '{store} ({why})', { store: entry.name, why: entry.why === 'archived' ? t('halls.close.store_archived', 'مؤرشف') : t('halls.close.store_scope', 'خارج نطاقك') })}
+                {entry.usable ? entry.name : t('halls.close.store_unusable', '{store} ({why})', { store: entry.name, why: entry.why === 'archived' ? t('halls.close.store_archived', 'مؤرشف') : t('halls.close.store_scope', 'غير متاح') })}
               </option>
             ))}
           </select>
@@ -174,9 +174,9 @@ function reopenText(close: CloseResult): string {
 export function reopenWhyText(why: ReopenWhy | null): string {
   switch (why) {
     case 'out_of_scope':
-      return t('halls.reopen.why.out_of_scope', 'لا يُعاد فتح هذه الدورة من نطاقك: رجع علفٌ عند إغلاقها إلى مخزن خارج نطاقك. يعيد فتحها مالك المنشأة أو من في نطاقه ذلك المخزن.');
+      return t('halls.reopen.why.out_of_scope', 'لا يُعاد فتح هذه الدورة الآن: رجع علفٌ عند إغلاقها إلى مخزن لا يصل إليه حسابك. حدّث الصفحة ثمّ أعد المحاولة.');
     case 'period_locked':
-      return t('halls.reopen.why.period_locked', 'لا يُعاد فتح هذه الدورة الآن: الحسابات مقفلة حتى اليوم. اطلب من مالك المنشأة فتح الفترة أوّلاً.');
+      return t('halls.reopen.why.period_locked', 'لا يُعاد فتح هذه الدورة الآن: الحسابات مقفلة حتى اليوم، فتُفتح الفترة أوّلاً.');
     case 'hall_archived':
       return t('halls.reopen.why.hall_archived', 'لا يُعاد فتح هذه الدورة: القاعة أو حقلها مؤرشف. أعِد المؤرشف منهما من الأرشيف أوّلاً.');
     case 'hall_reused':

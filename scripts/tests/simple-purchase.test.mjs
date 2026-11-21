@@ -147,7 +147,7 @@ const recorded = (args) => ({
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
-  divisions: ['feed_mill', 'general'], canSeeCost: ['owner', 'manager', 'accountant'].includes(role), canSeeAccounts: ['owner', 'manager', 'accountant'].includes(role), canSeeSales: false,
+  divisions: ['feed_mill', 'general'], canSeeCost: true, canSeeAccounts: true, canSeeSales: true,
   invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const KEEPER = ws('storekeeper', { scopes: [{ warehouseId: 'w-raw' }] });
@@ -346,14 +346,21 @@ export default async function (t) {
       t.same(cells.slice(0, 7), ['05/11/2026', 'مورّد الحبوب', '25,000', '450.00', '11,250,000', '600.00', 'بالدين'], 'P3: صفّ الشراء بقيمه');
       t.eq(byAction('record-purchase').length, 1, 'P3: الأمين يرى «سجّل شراء»');
       t.ok(byAction('pick-store').length === 0 && !text().includes('الوجبات المتبقّية'), 'P3: بلا اختيار مخزن ولا تبويبات');
-      t.eq(byAction('open-item-details').length, 0, 'P3: ورابط «دفتر المادّة والوجبات» لأدوار الكلفة وحدها');
+      t.eq(byAction('open-item-details')[0]?.getAttribute('href'), '/inventory/items/i-corn/details', 'P3: ورابط «دفتر المادّة والوجبات» للأمين كالمالك (0034)');
+    });
+    await step('P3-server-false', async () => {
+      // علم الخادم لا الدور: جواب بلا مال وcan_record=false وcan_see_cost=false (خادم أقدم).
+      fresh({ status: 'ready', workspace: ws('owner', { canSeeCost: false }) }, suppliers, { item_file: async () => ({ ...withoutMoney(fileJson({ can_record: false })), purchases: [withoutMoney(purchaseRow())] }) });
+      await mount('/inventory/items/i-corn');
+      t.ok(text().includes('20,000 كغم') && text().includes('مورّد الحبوب'), 'P3: الخادم أجاب بلا مال (خادم أقدم): الكميات والمشتريات ظاهرة');
+      t.eq(byAction('record-purchase').length, 0, 'P3: ولا «سجّل شراء» حين can_record=false');
+      t.ok(!text().includes('سعر الشراء') && !text().includes('متوسّط سعر الشراء') && !text().includes('11,250,000'), 'P3: ولا مال حين يغيب من الجواب');
+      t.eq(byAction('open-item-details').length, 0, 'P3: ولا «دفتر المادّة والوجبات» حين can_see_cost=false');
     });
     await step('P3-miller', async () => {
-      fresh({ status: 'ready', workspace: MILLER }, suppliers, { item_file: async () => ({ ...withoutMoney(fileJson({ can_record: false })), purchases: [withoutMoney(purchaseRow())] }) });
+      fresh({ status: 'ready', workspace: MILLER }, suppliers, { item_file: async () => fileJson() });
       await mount('/inventory/items/i-corn');
-      t.ok(text().includes('20,000 كغم') && text().includes('مورّد الحبوب'), 'P3: مشغّل المعمل يرى الكميات والمشتريات');
-      t.eq(byAction('record-purchase').length, 0, 'P3: ولا «سجّل شراء» له');
-      t.ok(!text().includes('سعر الشراء') && !text().includes('متوسّط سعر الشراء') && !text().includes('11,250,000'), 'P3: ولا مال له');
+      t.ok(text().includes('متوسّط سعر الشراء') && text().includes('11,250,000') && byAction('record-purchase').length === 1, 'P3: مشغّل المعمل يرى المال ويسجّل الشراء كالمالك (0034)');
     });
     await step('P3-manager', async () => {
       fresh({ status: 'ready', workspace: MANAGER }, suppliers, { item_file: async () => fileJson({ can_edit: true }) });
@@ -552,8 +559,8 @@ export default async function (t) {
       await openDialog();
       t.same(
         [byAction('purchase-destination')[0]?.textContent, byAction('purchase-dest-setup')[0]?.getAttribute('href')],
-        ['لا يوجد في نطاقك مخزن «موادّ أوّلية» يستلم هذه المادّة، فلن يُحفظ شراؤها.', '/inventory/setup'],
-        'U2: بلا مخزن يستلمها: يسمّي نوع المخزن الناقص، و«إعداد المخزن» للمدير',
+        ['لا يوجد مخزن «موادّ أوّلية» يستلم هذه المادّة، فلن يُحفظ شراؤها.', '/inventory/setup'],
+        'U2: بلا مخزن يستلمها: يسمّي نوع المخزن الناقص، و«إعداد المخزن»',
       );
       await unmount();
       let failNext = true;

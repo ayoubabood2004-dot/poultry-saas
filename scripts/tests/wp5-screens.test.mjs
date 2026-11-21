@@ -119,7 +119,7 @@ export default async function (t) {
   );
   t.same([managerHtml.includes('قيمة المصروف'), managerHtml.includes('7,500.00')], [true, true], 'ضابط: معاينة المدير بقيمة المصروف 7,500.00');
   const awaiting = m.parseUsePreview(usePreviewJson({ money: false, needsManager: true, canPost: false }));
-  t.ok(html(m.h(m.UsePreviewPanel, { preview: awaiting, approved: new Set(), onToggle: none })).includes('بانتظار موافقة المدير'), 'سطر يسمّي دفعة منتهية للأمين: «بانتظار موافقة المدير»');
+  t.ok(html(m.h(m.UsePreviewPanel, { preview: awaiting, approved: new Set(), onToggle: none })).includes('بانتظار المراجعة'), 'سطر يسمّي دفعة منتهية للأمين: «بانتظار المراجعة»');
   t.same(
     [m.stockUsePostReady(awaiting, new Set(['line-1']), true), m.stockUsePostReady(keeper, new Set(['line-1']), true), m.stockUsePostReady(keeper, new Set(), true), m.stockUsePostReady(keeper, new Set(['line-1']), false)],
     [false, true, false, false],
@@ -152,7 +152,7 @@ export default async function (t) {
       m.awaitsManager({ status: 'posted', namesLot: true, categoryId: 'cat-destroy' }, destroyIds),
     ],
     [true, true, false, false],
-    '«بانتظار موافقة المدير» بالقائمة: مسوّدة تسمّي دفعة أو إتلاف، والمرحَّل لا',
+    '«بانتظار المراجعة» بالقائمة: مسوّدة تسمّي دفعة أو إتلاف، والمرحَّل لا',
   );
   t.same(
     m.expiredLots([{ lotId: 'a', expiryOn: '2026-10-25', qtyLeft: 6000n }, { lotId: 'b', expiryOn: '2026-10-30', qtyLeft: 1000n }, { lotId: 'c', expiryOn: '2026-10-01', qtyLeft: 0n }, { lotId: 'd', expiryOn: null, qtyLeft: 5n }], '2026-10-30').map((lot) => lot.lotId),

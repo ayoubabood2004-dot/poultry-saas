@@ -1369,7 +1369,7 @@ export function HallPage({ kind }: { kind: FlockKind }) {
     return (
       <div className="flex flex-col gap-4">
         <HallTop kind={kind} />
-        <Notice tone="info" title={t('hall.not_found', 'هذه القاعة غير موجودة أو خارج نطاقك.')} />
+        <Notice tone="info" title={t('hall.not_found', 'هذه القاعة غير موجودة أو مؤرشفة.')} />
       </div>
     );
   }
