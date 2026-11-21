@@ -18,7 +18,6 @@
 // ومراجعة 0032: L5 ما يُكتب أثناء رفع الحفظ يبقى؛ L6 «اليوم حتى الآن» لا يعدّ زيارة مجهولة النتيجة فوق محفوظ قد يحملها.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';

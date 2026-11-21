@@ -380,10 +380,8 @@ export default async function (t) {
     // ── D: التقرير اليوميّ بمفاتيح 0028 (العقد §6): المباع وطيور التذاكر وفرق العدّ لكلّ قاعة، والعلف المنقول على القاعة الفارغة، و«تذكرة وزن» ──
     {
       const DAY = F.halls_day;
-      const S1 = DAY.sites[0].id;
       const [H1, H2, H3] = DAY.sites[0].halls.map((hall) => hall.hall_id);
       const CARRY = DAY.sites[0].halls[2].carry[0];
-      const BACK = `/halls/day?on=${DAY.on}`;
       const parsed = m.days.parseHallsDay(clone(DAY));
       const [h1, h2, h3] = parsed.sites[0].halls;
       t.same(
@@ -419,12 +417,10 @@ export default async function (t) {
         'D نصّ المشاركة: المباع والتذاكر وفرق العدّ في سطر القاعة، ولا شيء حين لا بيع، والقاعة الفارغة بعلفها المنقول',
       );
 
-      const ddOf = (node) => (node ? descendants(node).find((n) => n.localName === 'dd')?.textContent ?? null : null);
       const headOf = (caption) => {
         const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
         return table ? descendants(table).filter((n) => n.localName === 'th' && descendants(table).find((c) => c.localName === 'thead')?.contains?.(n) !== false).map((n) => n.textContent) : null;
       };
-      const caption1 = `${DAY.sites[0].name} — ${m.fmtDay(DAY.on)}`;
       await step('D اليوميّ للمالك', async () => {
         fresh(OWNER, { halls_day: () => clone(DAY) });
         await mount('/halls/day');

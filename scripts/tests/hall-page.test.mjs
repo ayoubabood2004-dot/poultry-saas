@@ -14,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SAMPLES = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'flock-issue-0019.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const SHEET = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet.broiler;
@@ -78,20 +77,12 @@ const byAction = (name, root = body()) => descendants(root).filter((n) => n.getA
 const textOf = (name, root = body()) => byAction(name, root)[0]?.textContent ?? null;
 const hrefOf = (name, root = body()) => byAction(name, root)[0]?.getAttribute('href') ?? null;
 const text = () => body().textContent;
-const type = (input, value) => {
-  if (!input) return;
-  input.value = value;
-  fire(input, 'input');
-};
 /** نقرة بالزرّ الأيسر (الروابط تتبعها)، ولا شيء إن غاب العنصر: كلّ فحص يفشل وحده على الشفرة القديمة بدل أن يسقط الملفّ. */
 const click = async (node, rounds = 60) => {
   if (node) fire(node, 'click', { button: 0 });
   await settle(rounds);
 };
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const clone = (value) => JSON.parse(JSON.stringify(value));
-/** «يوماً» بعد عدد من 1 إلى 10 ليس فصحى («يوم واحد»، «يومان»، «3 أيام»… «10 أيام»؛ و«يوماً» من 11 إلى 99). */
-const BAD_DAYS = /(?:^|[^0-9])(?:[1-9]|10) يوماً/u;
 
 const ancestor = (node, test) => {
   for (let n = node?.parentNode ?? null; n; n = n.parentNode) if (test(n)) return n;
@@ -100,11 +91,9 @@ const ancestor = (node, test) => {
 const trOf = (node) => ancestor(node, (n) => n.localName === 'tr');
 const tableBy = (caption) => all().find((n) => n.localName === 'table' && n.children.some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
 const section = (table, name) => table?.children.find((c) => c.localName === name) ?? null;
-const bodyRows = (table) => (section(table, 'tbody')?.children ?? []).filter((c) => c.localName === 'tr');
 const headers = (table) => descendants(section(table, 'thead') ?? body()).filter((n) => n.localName === 'th').map((n) => n.textContent);
 const cellsOf = (tr) => (tr?.children ?? []).filter((c) => c.localName === 'td');
 const dialogTitled = (start) => all().find((n) => n.getAttribute('role') === 'dialog' && descendants(n).some((c) => c.localName === 'h2' && c.textContent.startsWith(start))) ?? null;
-const inDialog = (dialog, suffix) => (dialog ? descendants(dialog).find((n) => n.localName === 'input' && n.id.endsWith(suffix)) ?? null : null);
 
 export default async function (t) {
   const restore = installDom();
@@ -113,11 +102,6 @@ export default async function (t) {
     // يوم الخادم ثابت (لا ساعة الجهاز): كلّ تاريخ في الجواب منه، وصفحة القاعة تحسبه من التسكين وdays_since_placement.
     const SERVER_DAY = '2026-11-14';
     const ago = (n) => m.addDays(SERVER_DAY, -n);
-    const kgOf = (textValue) => {
-      const [whole, frac = ''] = textValue.split('.');
-      const shown = m.fmtQty(BigInt(whole + frac.padEnd(3, '0').slice(0, 3)), 'kg');
-      return shown.sub ?? shown.main;
-    };
     const ws = (role, userId) => ({
       userId, orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer'],
       canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
@@ -148,13 +132,6 @@ export default async function (t) {
       };
       return { id, summary, lines };
     };
-    const detailJson = (c, { hallId = 'h-1', hallName = '1', canSave = true, canManage = false } = {}) => ({
-      flock: { ...c.summary, hall_id: hallId, hall_name: hallName, site_id: 's-1', site_name: 'حقل الشمال', closed_on: null, close_note: null },
-      can_manage: canManage,
-      can_save: canSave,
-      days: c.lines,
-      weights: [],
-    });
     const hall = (id, name, flock) => ({ id, name, capacity: 6000, version: 1, flock });
     const overviewOf = (halls, canManage = true) => ({ today: SERVER_DAY, sites: [{ id: 's-1', name: 'حقل الشمال', division_id: 'd-broiler', kind: 'broiler', can_manage: canManage, halls }] });
 
@@ -214,16 +191,6 @@ export default async function (t) {
       m.onlineStore.set(true);
     };
     const where = () => globalThis.__hp.location;
-    /** القاعة في صفحتها: الحقل يعرضها، وflock_detail لفوجها. */
-    const hallSetup = (c, opts = {}, extra = {}) => ({
-      loadOverviewJson: () => overviewOf([hall(opts.hallId ?? 'h-1', opts.hallName ?? '1', c.summary)], opts.canManage ?? true),
-      loadFlockDetail: () => m.parseDetail(detailJson(c, opts)),
-      ...extra,
-    });
-    const daysTable = () => tableBy('أيام الدورة');
-    const dayRowOf = (n) => bodyRows(daysTable()).find((tr) => descendants(tr).find((c) => c.localName === 'bdi')?.textContent === m.fmtDay(ago(n))) ?? null;
-    const rowDates = () => bodyRows(daysTable()).map((tr) => descendants(tr).find((c) => c.localName === 'bdi')?.textContent ?? null);
-    const fmtAgo = (list) => list.map((n) => m.fmtDay(ago(n)));
 
     // ── H1: جدول الحقل ─────────────────────────────────────────────────────────────────────────────────────────────
     const farm = () =>

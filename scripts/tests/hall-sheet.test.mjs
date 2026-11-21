@@ -102,7 +102,6 @@ const ancestor = (node, test) => {
   for (let n = node?.parentNode ?? null; n; n = n.parentNode) if (test(n)) return n;
   return null;
 };
-const trOf = (node) => ancestor(node, (n) => n.localName === 'tr');
 const tableBy = (caption) => all().find((n) => n.localName === 'table' && n.children.some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
 const section = (table, name) => table?.children.find((c) => c.localName === name) ?? null;
 const bodyRows = (table) => (section(table, 'tbody')?.children ?? []).filter((c) => c.localName === 'tr');

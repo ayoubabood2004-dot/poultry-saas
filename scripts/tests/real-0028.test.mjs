@@ -13,7 +13,7 @@ import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { descendants, installDom, settle } from './dom.mjs';
-import { all, body, byAction, click, clone, dialog, memoryStorage, ROOT, sessionOf, tableRows, hallRow, withAttr, within } from './halls-0028-kit.mjs';
+import { all, body, byAction, click, clone, dialog, memoryStorage, ROOT, sessionOf, tableRows, hallRow, within } from './halls-0028-kit.mjs';
 
 const FIXTURES = path.join(ROOT, 'scripts', 'tests', 'fixtures');
 const read = (name) => (existsSync(path.join(FIXTURES, name)) ? JSON.parse(readFileSync(path.join(FIXTURES, name), 'utf8')) : null);

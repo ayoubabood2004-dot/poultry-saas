@@ -137,20 +137,13 @@ const tableHeaders = (caption) => {
   const table = tableOf(caption);
   return table ? descendants(table).filter((n) => n.localName === 'th' && n.getAttribute('scope') === 'col').map((n) => n.textContent) : null;
 };
-const styleText = () => all().filter((n) => n.localName === 'style').map((n) => n.textContent).join('\n');
 const fmt = (day) => day.split('-').reverse().join('/');
 const LRI = '\u{2066}';
 const PDI = '\u{2069}';
 
-const S1 = '00000000-0000-4000-8000-000000000101';
-const S2 = '00000000-0000-4000-8000-000000000102';
 const H1 = '00000000-0000-4000-8000-000000000201';
-const H2 = '00000000-0000-4000-8000-000000000202';
 const H3 = '00000000-0000-4000-8000-000000000203';
-const L1 = '00000000-0000-4000-8000-000000000204';
-const L2 = '00000000-0000-4000-8000-000000000205';
 const F1 = '00000000-0000-4000-8000-000000000301';
-const F2 = '00000000-0000-4000-8000-000000000302';
 
 const ws = (role, over = {}) => ({
   userId: `u-${role}`, orgId: 'org-1', orgName: 'مشروع الدواجن', memberId: 'm-1', displayName: 'علي', phone: null, role, scopes: [],
@@ -238,12 +231,6 @@ export default async function (t) {
     // صفّ لكلّ قاعة في الجدول الواحد (0035: كانت بطاقة لكلّ قاعة بالهاتف).
     const cards = () => byAction('day-hall');
     const card = (hallId) => cards().find((node) => node.getAttribute('data-hall') === hallId) ?? null;
-    /** نصّ dd لمؤشّر في بطاقة قاعة. */
-    const stat = (hallId, action) => {
-      const box = within(card(hallId), action)[0];
-      return box ? (descendants(box).find((n) => n.localName === 'dd')?.textContent ?? null) : null;
-    };
-    const totalStat = (action, name) => descendants(byAction(action)[0] ?? body()).filter((n) => n.getAttribute('data-action') === name).map((n) => descendants(n).find((c) => c.localName === 'dd')?.textContent ?? null)[0] ?? null;
     const href = (node) => node?.getAttribute('href') ?? null;
     const backOf = (link) => new URLSearchParams((href(link) ?? '').split('?')[1] ?? '').get('back');
 
@@ -364,7 +351,6 @@ export default async function (t) {
 
     // ── D: التقرير اليوميّ ──────────────────────────────────────────────────────────────────────────────────────────────
     const dayUrl = `/halls/day?on=${TODAY}`;
-    const here = `/halls/day?${new URLSearchParams({ on: TODAY }).toString()}`;
     await step('D1 الفتح بلا ?on=', async () => {
       const rpcLog = fresh(OWNER, { halls_day: (args) => dayFor(args.p_on) });
       await mount('/halls/day');
@@ -801,19 +787,12 @@ export default async function (t) {
       const [A1, A2] = SA.halls;
       const [LH] = SL.halls;
       const [B5] = SB.halls;
-      const siteOf = (id) => byAction('day-site').find((n) => n.getAttribute('data-site') === id) ?? null;
-      const ddOf = (box) => (box ? (descendants(box).find((n) => n.localName === 'dd')?.textContent ?? null) : null);
-      const siteTotal = (siteId, name) => ddOf(within(within(siteOf(siteId), 'day-site-total')[0], name)[0]);
-      const allTotal = (name) => ddOf(within(byAction('day-all-total')[0], name)[0]);
       const shareLines = (json) => m.dayShareText(m.repo.parseHallsDay(clone(json))).text.split('\n');
       /** آخر جزء من سطر مجموع في نصّ المشاركة («النازل …»). */
       const givenOfTotals = (lines) => lines.filter((line) => line.startsWith('المجموع:') || line.startsWith('مجموع كلّ الحقول:')).map((line) => line.split('، ').at(-1));
       /** جزء «الباقي في القاعة» من سطر القاعة في نصّ المشاركة. */
       const leftOfHall = (lines, hallName) => lines.find((line) => line.startsWith(`${hallName} (`))?.split('، ').find((part) => part.startsWith('الباقي في القاعة'))?.replace(/\.$/u, '') ?? null;
-      const NEG = 'سالب: المأكول المسجّل أكثر من النازل للقاعة.';
       // قاعة نزل لها علف بلا وزن: السالب على الموزون وحده (مراجعة 0027 RR27-F2a).
-      const NEG_W = 'سالب: المأكول المسجّل أكثر من النازل الموزون.';
-      const leftNotes = (node) => [within(node, 'remain-unweighed').map((n) => n.textContent), within(node, 'remain-negative').map((n) => n.textContent)];
 
       await step('R1 مجموع «النازل» بسطوره بلا وزن (عيّنة القاعدة)', async () => {
         fresh(OWNER, { halls_day: () => clone(REAL.halls_day) });

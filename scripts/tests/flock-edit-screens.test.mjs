@@ -227,13 +227,6 @@ export default async function (t) {
         },
       ],
     });
-    const detailJson = ({ id = F5, kind = 'broiler', canManage = true, over = {} } = {}) => ({
-      flock: { ...flockJson(id, { kind, ...over }), hall_id: 'h-5', hall_name: 'قاعة 5', site_id: 's-1', site_name: 'حقل الأمل', closed_on: null, close_note: null },
-      can_manage: canManage,
-      can_save: true,
-      days: [],
-      weights: [],
-    });
     /** ورقة القاعة (hall_sheet، 0035) لفوج قاعة 5 من العيّنة اليدوية للعقد. */
     const SHEETS = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet;
     const sheetJson = ({ kind = 'broiler', status = 'active' } = {}) => {
