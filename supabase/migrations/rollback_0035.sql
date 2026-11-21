@@ -1,8 +1,9 @@
 -- rollback_0035 — تراجع «القاعة كالورقة» (0035_hall_sheet؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع save_flock_visit وsave_flock_day كما في 0032،
 --   وrecord_flock_weight كما في 0012، وreport_days وreport_day وhalls_day_totals وflock_cycle_report وflock_month وedit_flock وflock_activity_after كما في 0029،
---   وhalls_history كما في 0031، حرفاً بحرف (md5 نفسه بالكتالوج)؛ ويُسقط set_flock_gas وsend_flock_feed وdecide_flock_reject وhall_sheet وday_balance_sections
---   وverify_hall_sheet والمساعدات (issue_day وflock_day_check وflock_gas_json وhall_feed_kg وfeed_send_result)، وجدول flock_day_gas (بسياسته ومحفّزه وفهرسه)،
---   وعمود flock_issues.for_day وقيده. والمركون المحسوم (decision) يبقى: أعمدته من 0012.
+--   وhalls_history كما في 0031، وdelete_flock كما في 0032، حرفاً بحرف (md5 نفسه بالكتالوج)؛ ويُسقط set_flock_gas وsend_flock_feed وdecide_flock_reject
+--   (بثلاث حجج، وبحجّتين إن بقيت من نسخة قبل المراجعة) وhall_sheet وday_balance_sections وverify_hall_sheet والمساعدات (issue_day وflock_day_check
+--   وflock_gas_json وhall_feed_kg وfeed_send_result وflock_reject_json)، وجدول flock_day_gas (بسياسته ومحفّزه وفهرسه)، وعمود flock_issues.for_day وقيده،
+--   وعمود flock_day_rejects.version وقيده (رمز تزامن لا بيانات: لا يوقف التراجع). والمركون المحسوم (decision) يبقى: أعمدته من 0012.
 -- **طريق رفض (الكتلة الأولى أدناه):** ما لا يحمله النموذج القديم يوقف التراجع بصوت بلا أن يغيّر شيئاً، بفرع لكلّ حقيقة مستقلّة: صفّ غاز (ولو مُسح عدده: الصفّ
 --   يحمل نسخة رآها جهاز)، وصرف يومه في القاعة قبل تاريخ خروجه (العلف المرسل ليوم فات: بعد التراجع يظهر يوم خروجه)، وغاز مركون ينتظر قراراً (عملية لا يعرفها
 --   النموذج القديم). والصرف بيومه نفسه (for_day = issued_on) لا يفقد شيئاً بإسقاط العمود.
@@ -1192,11 +1193,97 @@ language sql stable security definer set search_path = public, pg_temp as $$
   limit 1
 $$;
 
+create or replace function public.delete_flock(p_flock uuid, p_expected_version int, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'delete_flock';
+  v_cached jsonb;
+  v_org uuid := public.auth_org();
+  v_lock date;
+  f public.flocks;
+  v_hall text;
+  v_has text[] := '{}';
+  v_result jsonb;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'version', p_expected_version));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock.manage');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = v_org and x.id = p_flock for update;
+  if f.id is null then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('flock_id', p_flock, 'deleted', false));
+  end if;
+  if not public.in_scope_site(f.site_id) then
+    raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+  if f.status = 'closed' then
+    raise exception 'flock_closed' using hint = format('فوج «%s» مغلق، فلا يُحذف.', v_hall);
+  end if;
+  if p_expected_version is null or f.version <> p_expected_version then
+    raise exception 'stale_flock' using hint = format('تغيّر فوج «%s» من جهاز آخر بعد فتح الشاشة. حدّث الشاشة ثمّ احذفه.', v_hall);
+  end if;
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  if v_lock is not null and f.placed_on <= v_lock then
+    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُحذف.', to_char(v_lock, 'DD/MM/YYYY'), to_char(f.placed_on, 'DD/MM/YYYY'));
+  end if;
+  if exists (select 1 from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.voided_at is null)
+      or exists (select 1 from public.flock_day_rejects x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'جولات يومية'::text;
+  end if;
+  if exists (select 1 from public.flock_weights x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أوزان'::text;
+  end if;
+  if exists (select 1 from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'صرف من المخزن'::text;
+  end if;
+  if exists (select 1 from public.flock_logs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أدوية'::text;
+  end if;
+  if exists (select 1 from public.flock_vaccinations x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'تأشيرات لقاح'::text;
+  end if;
+  -- 0029: تذاكر الوزن (ولو ملغاة: وقفاتها تشير إلى الفوج) والبيع وفرق العدّ والإغلاق السابق بأسمائها، لا بجملة المفتاح الأجنبيّ العامّة.
+  if exists (select 1 from public.weigh_ticket_stops x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'تذاكر وزن'::text;
+  end if;
+  if exists (select 1 from public.flock_counts x where x.org_id = f.org_id and x.flock_id = f.id and x.kind = 'sold') then
+    v_has := v_has || 'بيع'::text;
+  end if;
+  if exists (select 1 from public.flock_counts x where x.org_id = f.org_id and x.flock_id = f.id and x.kind = 'count_adjust') then
+    v_has := v_has || 'فرق عدّ'::text;
+  end if;
+  if exists (select 1 from public.flock_closes x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'إغلاق سابق'::text;
+  end if;
+  if cardinality(v_has) > 0 then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ (%s)، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.',
+      v_hall, array_to_string(v_has, '، '));
+  end if;
+  -- 0032: الزيارات الملغاة وحدها لا تمنع الحذف (الحيّة تمنعه أعلاه مع صفّ يومها)، فتُحذف مع الفوج، وسجلّ التدقيق يحفظها.
+  delete from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.voided_at is not null;
+  begin
+    delete from public.flocks x where x.org_id = f.org_id and x.id = f.id;
+  exception when foreign_key_violation then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ مرتبط به، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.', v_hall);
+  end;
+  v_result := jsonb_build_object('flock_id', f.id, 'deleted', true);
+  return private.ref_store(v_fn, p_client_ref, v_result);
+end
+$$;
+
 -- ٢) الجديد.
 drop function if exists public.verify_hall_sheet();
 drop function if exists public.day_balance_sections(date);
 drop function if exists public.hall_sheet(uuid);
+drop function if exists public.decide_flock_reject(uuid, text, integer);
 drop function if exists public.decide_flock_reject(uuid, text);
+drop function if exists private.flock_reject_json(public.flock_day_rejects);
 drop function if exists public.send_flock_feed(uuid, uuid, uuid, uuid, uuid, numeric, date);
 drop function if exists public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean);
 drop function if exists private.feed_send_result(uuid);
@@ -1213,3 +1300,11 @@ begin
 end
 $$;
 alter table public.flock_issues drop column if exists for_day;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'flock_day_rejects_version_check' and conrelid = 'public.flock_day_rejects'::regclass) then
+    alter table public.flock_day_rejects drop constraint flock_day_rejects_version_check;
+  end if;
+end
+$$;
+alter table public.flock_day_rejects drop column if exists version;

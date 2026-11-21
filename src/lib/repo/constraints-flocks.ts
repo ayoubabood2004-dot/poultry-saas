@@ -62,6 +62,7 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_day_gas_version_check: () => t('constraint.flock_day_gas_version_check', 'نسخة خانة الغاز يكتبها الخادم.'),
   flock_day_gas_on_date_check: () => t('constraint.flock_day_gas_on_date_check', 'يوم الغاز من التقويم.'),
   flock_issues_for_day_check: () => t('constraint.flock_issues_for_day_check', 'يوم العلف في القاعة من التقويم، ولا يأتي بعد يوم إرساله من المخزن.'),
+  flock_day_rejects_version_check: () => t('constraint.flock_day_rejects_version_check', 'نسخة العملية المركونة يكتبها الخادم.'),
 };
 
 registerConstraintHints(FLOCK_CONSTRAINT_HINTS);

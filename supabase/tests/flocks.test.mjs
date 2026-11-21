@@ -426,7 +426,7 @@ async function scenario(t, db) {
   const parkRef = ref();
   const parked = await save(U.worker, F3, TODAY, { dead: 4, feed: '90' }, null, parkRef, true);
   same(parked.v, { status: 'parked', reason: 'flock_closed' }, 'فوج مغلق من الطابور: parked');
-  same(ui.dayAnswer(parked.v), { kind: 'parked' }, 'محلّل الشاشات (dayAnswer): parked تنشال من الطابور بلا رفّ مراجعة');
+  same(ui.dayAnswer(parked.v), { kind: 'parked', reason: 'flock_closed' }, 'محلّل الشاشات (dayAnswer): parked بسببه (0035) تنشال من الطابور بلا رفّ مراجعة');
   same((await save(U.worker, F3, TODAY, { dead: 4, feed: '90' }, null, parkRef, true)).v, parked.v, 'نفس المرجع = نفس الجواب المركون');
   t.eq((await save(U.worker, F3, TODAY, { dead: 6 }, null, ref(), true)).v?.status, 'parked', 'عملية أحدث لنفس اليوم تنركن');
   const rejects = (await db.admin('select reason, payload, client_ref from public.flock_day_rejects where flock_id = $1', [F3])).rows;

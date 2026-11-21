@@ -89,22 +89,28 @@ Client tests: `permissions.test`, `home-today`, `ui` nav, and every screen test 
            day_version,          -- flock_daily.version or null
            note,                 -- text or null
            gas, gas_version,     -- int or null; bigint or null
-           feed_kg,              -- text 3dp or null: Σ live feed-kind issues with issue_day = on (kg)
+           feed_kg,              -- text 3dp or null: Σ live feed-kind issues with issue_day = on (kg), plus feed carried in on that day
+           carry_in_kg,          -- text 3dp or null (review): feed carried in from the previous cycle, on its applied day (placement)
+           feed_back_kg,         -- text 3dp or null (review): returned to store + carried out, on the close day
            feed: [{issue_id, doc_no, item_id, item_name, qty, unit, issued_on, can_void}],
            eggs_total, eggs_cracked, eggs_broken,   -- layers; null for broiler
            sold_birds, sold_net_kg,                  -- int; text or null (flock_count_days)
            live_end }],          -- birds alive at the end of the day
-  totals:  {dead, gas, feed_kg, sold_birds, sold_net_kg, eggs_total},
-  summary: {placed, dead, mortality_pct, live, feed_kg, feed_bags, gas, sold_birds, sold_net_kg, avg_weight_kg, fcr},
-           -- mortality_pct text 2dp; avg_weight_kg = sold_net_kg ÷ sold_birds (3dp) or null; fcr = feed_kg ÷ sold_net_kg (3dp) or null;
-           -- feed_bags = feed_kg ÷ the bag size when every send used one bag unit size, else null
+  totals:  {dead, gas, feed_kg, feed_back_kg, sold_birds, sold_net_kg, eggs_total},
+  summary: {placed, dead, mortality_pct, live, feed_kg, feed_back_kg, feed_net_kg, feed_bags, gas, sold_birds, sold_net_kg, avg_weight_kg, fcr},
+           -- mortality_pct text 2dp; avg_weight_kg = sold_net_kg ÷ sold_birds (3dp) or null; feed_net_kg = feed_kg − feed_back_kg;
+           -- fcr = feed_net_kg ÷ sold_net_kg (3dp) or null (null when any line has no mass) = flock_cycle_report.kpis.fcr_final for a closed batch;
+           -- feed_bags = feed_kg ÷ the bag size when every send (and carried-in line) used one bag unit size, else null
   feed_items: [{item_id, name, base_unit, on_hand, units:[{id, name, base_qty}], last}],
-           -- active kind 'feed' items with on_hand > 0 in feed warehouses today, or `last`; last = item of this flock's latest live send
-  rejects: [{id, on, reason, created_at, payload}] }   -- flock_day_rejects of this flock with decision null
+           -- active kind 'feed' items with on_hand > 0 in feed warehouses today, or `last`; last = item of this flock's latest live send;
+           -- on_hand (review) = the largest quantity in ONE feed warehouse today (what one send can take), not the sum
+  rejects: [{id, on, reason, created_at, payload, version, client_ref}] }   -- flock_day_rejects of this flock with decision null;
+           -- version (review) grows with every re-park of the same row; client_ref = the parked op's ref as stored
 ```
 Rows run from placed_on to `through`, one per day, including days with nothing.
-- `public.decide_flock_reject(p_id uuid, p_decision text)` (`handled`|`refused`), `require('flock_day.save')`, writes decision/by/at once
-  (a second call with the same decision = saved; another decision = `already_decided`).
+- `public.decide_flock_reject(p_id uuid, p_decision text, p_seen_version int)` (`handled`|`refused`; review: the 2-arg form is gone),
+  `require('flock_day.save')`. Version ≠ the row's → `{status:'stale_reject', reject:{…same shape as rejects[]…}}`, nothing written;
+  same version: writes decision/by/at once (the same decision again = `{status:'saved', id, decision, decided_at}`; another = `already_decided`).
 
 ### B5. Store sections reader `public.day_balance_sections(p_on date) returns jsonb` (`require('read')`)
 ```
@@ -121,7 +127,8 @@ qty = Σ stock moves with `moved_on <= on` in the org's warehouses (text 3dp). O
 - `private.report_days` (and what reads it: `report_day`, `halls_day_totals`, `halls_day`, `flock_cycle_report`, `halls_history`, `flock_month`):
   feed given by `issue_day`; add `gas` per day and in totals. Keys added, none removed (the deployed screens keep parsing).
 - `verify_hall_sheet()`: zero rows when sound — `for_day` within [placed_on, issued_on]; gas rows within the flock's days, version ≥ 1;
-  `hall_sheet` totals = Σ its days; feed_kg per day = Σ live issue lines by issue_day. Add to the verify list the harness runs.
+  `hall_sheet` totals = Σ its days (and feed_net_kg = feed_kg − feed_back_kg); feed_kg per day = Σ live issue lines by issue_day + carry-in by
+  applied_on, feed_back_kg = return/carry close lines on closed_on; `sheet_fcr_final`: a closed batch's sheet fcr = fcr_final. Add to the verify list the harness runs.
 - Real samples: `HALL_SHEET_SAMPLES_OUT=1` writes `scripts/tests/fixtures/hall-sheet-0035.json` with `hall_sheet` (broiler with gas, feed on a
   late day, a void, a legacy cull, a sale; and a layer), `day_balance_sections`, `halls_day` (with gas), `set_flock_gas` and `send_flock_feed` answers.
 
