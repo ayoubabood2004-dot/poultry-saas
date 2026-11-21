@@ -18,27 +18,33 @@
 --     «رصيد العلف» (private.feed_balance_wh) أوّلاً؛ ثمّ يُكتب يومه. والتصحيح بـvoid_flock_issue كما هو.
 --   • public.hall_sheet(الوجبة): الورقة صفّاً لكلّ يوم من التسكين حتى «حتى» (يوم الإغلاق؛ أو الأبعد من اليوم ونهاية الجدول؛ أو للّاحم عمر 45؛ أو اليوم للبيّاض)
 --     بالهلاكات (النافق والمستبعد القديم معاً) والغاز والعلف المرسل بيومه وسطوره والملاحظة والبيض والمباع والحيّ آخر اليوم، ومجاميعها، والخلاصة (النفوق،
---     والأكياس، ومعدّل وزن المباع، ومعامل التحويل = المرسل ÷ صافي المباع)، والأعلاف المتاحة، والمركون الذي ينتظر قراراً. وpublic.decide_flock_reject يحسمه.
+--     والأكياس، ومعدّل وزن المباع، والمرسل والراجع عند الإغلاق وصافيهما، ومعامل التحويل = الصافي ÷ صافي المباع = fcr_final لتقرير الدورة)، والأعلاف المتاحة
+--     (أكبر ما في مخزن علف واحد: ما يأخذه إرسال واحد)، والمركون الذي ينتظر قراراً بنسخته. وpublic.decide_flock_reject يحسمه بشرط النسخة التي عُرضت.
 --   • public.day_balance_sections(اليوم): الرصيد اليوميّ بقسمين («مواد العلف» raw وadditive، و«العلف» feed) و«أخرى» لما سواهما، بقواعد day_balance.
 --   • التقارير: private.report_days يعدّ العلف النازل بيوم القاعة (issue_day)، وreport_day وhalls_day_totals وflock_cycle_report وhalls_history وflock_month
 --     تزيد الغاز في كلّ يوم وفي المجاميع، والصرف بيومه؛ المفاتيح القديمة بأسمائها ومعانيها، والجديدة فقط (الواجهة المنشورة تقرؤها بين التطبيق والدمج).
---   • الحرّاس: edit_flock لا ينقل التسكين بعد يوم صرفٍ في القاعة (issue_day) أو غاز مسجَّل، وflock_activity_after يعدّ الغاز فلا تُغلق الوجبة قبل يومه.
+--   • الحرّاس: edit_flock لا ينقل التسكين بعد يوم صرفٍ في القاعة (issue_day) أو غاز مسجَّل، وflock_activity_after يعدّ الغاز فلا تُغلق الوجبة قبل يومه،
+--     وdelete_flock (الجسم الأخير من 0032) يسمّي «الغاز» المسجَّل ويحذف الصفّ الممسوح مع الوجبة.
 --   • public.verify_hall_sheet: يوم الصرف بين التسكين وتاريخ خروجه، والغاز المسجَّل داخل أيّام وجبته وبقاعتها ونسخته موجبة، ومجاميع الورقة = مجموع أيّامها،
---     وعلف كلّ يوم في الورقة = سطور الصرف الحيّة بيوم القاعة (محسوب هنا مستقلّاً)، لكلّ منشأة بهويّة مالكها.
+--     وعلف كلّ يوم في الورقة = سطور الصرف الحيّة بيوم القاعة والمنقول إليها، والراجع = سطور الإرجاع والنقل يوم الإغلاق (محسوبة هنا مستقلّاً)، ومعامل تحويل
+--     الوجبة المغلقة = fcr_final لتقرير الدورة، لكلّ منشأة بهويّة مالكها.
 -- قرارات بلا سؤال (داخل الخطوط الحمر والعقد):
 --   • الغاز المركون يأخذ مكان «زيارة» في flock_day_rejects بمعرّف مشتقّ من (الكاتب، الوجبة، اليوم): الفهرس الجزئيّ (المنشأة، الزيارة) يجعل الأحدث يستبدل
---     الأقدم للكاتب واليوم كعمليات save_flock_day، ولا يكتب غاز مركون فوق جولة مركونة (فهرس الجولة لما لا معرّف له). ولا جدول ولا عمود جديد في المركون.
+--     الأقدم للكاتب واليوم كعمليات save_flock_day، ولا يكتب غاز مركون فوق جولة مركونة (فهرس الجولة لما لا معرّف له). ولا جدول جديد للمركون؛ وعموده الوحيد
+--     الجديد version (مراجعة 0035): كلّ ركن من جديد يكبّره ويرجع بلا قرار.
 --   • «حتى» للّاحم بلا نهاية = الأبعد من اليوم وعمر 45، فصفّ اليوم في الورقة دائماً ولو تجاوزت الوجبة 45 يوماً؛ وللوجبة المحدّدة الأبعد من اليوم ونهايتها.
---   • علف الورقة سطور الصرف الحيّة بنوع كلفة «علف» (العلف والموادّ الأوّلية والإضافات، كما يعدّها report_days)، بلا العلف المنقول من دورة سابقة؛ والكيلو بالكتلة
---     (private.issue_mass_kg)؛ ويوم كلّ سطوره بلا كتلة يُعرض بسطوره وعلفه فارغ. والأكياس = العلف ÷ حجم الكيس حين يكون لكلّ سطر حجم كيس واحد مشترك (وحدة
---     التعبئة الافتراضيّة أو الوحيدة للمادّة بالكيلو، أو وزن القطعة للمادّة بالقطعة)، وإلّا فارغ.
+--   • علف الورقة سطور الصرف الحيّة بنوع كلفة «علف» (العلف والموادّ الأوّلية والإضافات، كما يعدّها report_days)، ومعها العلف المنقول من دورة سابقة يوم تطبيقه
+--     (carry_in_kg، كـgiven_kg)، والراجع يوم الإغلاق (feed_back_kg: إلى المخزن وللدورة التالية، كـout_kg)؛ والكيلو بالكتلة (private.issue_mass_kg)؛ ويوم كلّ
+--     سطوره بلا كتلة يُعرض بسطوره وعلفه فارغ، وسطر بلا كتلة يفرّغ معامل التحويل (كـfcr_final). والأكياس = العلف ÷ حجم الكيس حين يكون لكلّ سطر (مرسل أو
+--     منقول إليها) حجم كيس واحد مشترك (وحدة التعبئة الافتراضيّة أو الوحيدة للمادّة بالكيلو، أو وزن القطعة للمادّة بالقطعة)، وإلّا فارغ.
 --   • send_flock_feed يحتاج مخزن علف (kind = feed) بنطاق الكاتب؛ لا مخزن no_feed_store، ولا مخزن فيه ما يكفي insufficient_stock بجملة تسمّي ما في «رصيد العلف».
 --     ويوم القاعة يُفحص قبل الصرف ثمّ بعد أقفاله (الفترة وصفّ الوجبة يقفلهما record_flock_issue)، فكلّ فحص بعد قفله.
 --   • مجاميع halls_day_totals للغاز sum (فارغ بلا تسجيل كالنافق)، ومجاميع الورقة والأشهر تعدّ الفارغ صفراً.
---   • decide_flock_reject: القرار نفسه مرّة ثانية حُفظ بلا كتابة، وقرار آخر already_decided؛ والمركون من جديد لليوم نفسه يرجع بلا قرار كما كان.
+--   • decide_flock_reject: بنسخة غير التي في الخادم stale_reject بالمركون الآن ولا كتابة؛ وبالنسخة نفسها القرار نفسه مرّة ثانية حُفظ بلا كتابة، وقرار آخر
+--     already_decided؛ والمركون من جديد لليوم نفسه يرجع بلا قرار بنسخة أكبر.
 -- تراجع: rollback_0035.sql — يرجّع save_flock_visit وsave_flock_day كما في 0032، وrecord_flock_weight كما في 0012، وreport_days وreport_day وhalls_day_totals
---   وflock_cycle_report وflock_month وedit_flock وflock_activity_after كما في 0029، وhalls_history كما في 0031، حرفاً بحرف، ويُسقط الجديد (الدوالّ وجدول الغاز
---   وعمود for_day وقيده). **طريق رفض**: صفّ غاز (ولو مُسح عدده: الصفّ يحمل نسخة رآها جهاز)، أو صرف يومه في القاعة قبل تاريخ خروجه، أو غاز مركون، كلّ واحد
+--   وflock_cycle_report وflock_month وedit_flock وflock_activity_after كما في 0029، وhalls_history كما في 0031، وdelete_flock كما في 0032، حرفاً بحرف، ويُسقط
+--   الجديد (الدوالّ وجدول الغاز وعمود for_day وقيده وعمود نسخة المركون وقيده). **طريق رفض**: صفّ غاز (ولو مُسح عدده: الصفّ يحمل نسخة رآها جهاز)، أو صرف يومه في القاعة قبل تاريخ خروجه، أو غاز مركون، كلّ واحد
 --   يوقف التراجع بصوت (بيانات لا يحملها النموذج القديم).
 -- تنعاد بأمان: create table/index if not exists، وadd column if not exists، وكتل do تفحص الكتالوج قبل القيد والسياسة، وcreate or replace، وrevoke وgrant.
 
@@ -95,6 +101,18 @@ do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'flock_issues_for_day_check' and conrelid = 'public.flock_issues'::regclass) then
     alter table public.flock_issues add constraint flock_issues_for_day_check check (for_day is null or (isfinite(for_day) and for_day <= issued_on));
+  end if;
+end
+$$;
+
+-- ─── ب٢. نسخة المركون ────────────────────────────────────────────────────────────────────────────────────────────────
+-- الركن من جديد لليوم نفسه يكتب فوق صفّه (الفهرسان الجزئيّان من 0032)، فالنسخة تكبر بكلّ ركن ويرجع الصفّ بلا قرار، والحسم مشروط بالنسخة التي عرضتها الورقة
+-- (decide_flock_reject)، فلا يُحسم ما لم يُعرض (مراجعة 0035). الصفوف القائمة بالنسخة 1.
+alter table public.flock_day_rejects add column if not exists version integer not null default 1;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'flock_day_rejects_version_check' and conrelid = 'public.flock_day_rejects'::regclass) then
+    alter table public.flock_day_rejects add constraint flock_day_rejects_version_check check (version >= 1);
   end if;
 end
 $$;
@@ -235,7 +253,7 @@ begin
     values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, v_park, auth.uid(), p_visit)
     on conflict (org_id, visit_id) where visit_id is not null do update
       set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
-          decision = null, decided_by = null, decided_at = null;
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
   end if;
   if f.status <> 'active' then
@@ -405,7 +423,7 @@ begin
     values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, v_park, auth.uid())
     on conflict (org_id, created_by, flock_id, on_date) where visit_id is null do update
       set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
-          decision = null, decided_by = null, decided_at = null;
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
   end if;
   if f.status <> 'active' then
@@ -618,7 +636,7 @@ begin
       md5('gas:' || coalesce(auth.uid()::text, '') || ':' || f.id::text || ':' || to_char(p_on, 'YYYY-MM-DD'))::uuid)
     on conflict (org_id, visit_id) where visit_id is not null do update
       set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
-          decision = null, decided_by = null, decided_at = null;
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
   end if;
   if v_park = 'out_of_scope' then
@@ -759,8 +777,19 @@ end
 $$;
 
 -- ─── ز. حسم المركون (flock_day.save) ───────────────────────────────────────────────────────────────────────────────────
--- handled («أُدخلت»: كُتب ما فيه يدوياً) أو refused («تجاهل»)، مرّة واحدة: القرار نفسه مرّة ثانية حُفظ بلا كتابة، وغيره already_decided. القفل صفّ المركون.
-create or replace function public.decide_flock_reject(p_id uuid, p_decision text) returns jsonb
+-- المركون كما تعرضه الورقة (rejects[]) وكما يرجعه stale_reject: اليوم والسبب ووقت الركن وما فيه ونسخته، ومرجع العملية المركونة كما حُفظ (client_ref)
+-- ليطابق الجهاز عمليته به لا بمحتواها.
+create or replace function private.flock_reject_json(r public.flock_day_rejects) returns jsonb
+language sql stable set search_path = pg_catalog, pg_temp as $$
+  select jsonb_build_object('id', r.id, 'on', r.on_date, 'reason', r.reason, 'created_at', r.created_at, 'payload', r.payload, 'version', r.version,
+    'client_ref', r.client_ref)
+$$;
+
+-- handled («أُدخلت»: كُتب ما فيه يدوياً) أو refused («تجاهل»)، بشرط النسخة التي عرضتها الورقة (p_seen_version من rejects[].version): الركن من جديد لليوم
+-- نفسه يكتب فوق الصفّ بنسخة أكبر وبلا قرار، فنسخة غير التي في الخادم stale_reject بالمركون كما هو الآن ولا يُكتب شيء. وبالنسخة نفسها مرّة واحدة: القرار
+-- نفسه مرّة ثانية حُفظ بلا كتابة (إعادة بعد جواب ضاع)، وغيره already_decided. القفل صفّ المركون، والفحوص كلّها بعده. (النداء بحجّتين قبل المراجعة لم يُنشر.)
+drop function if exists public.decide_flock_reject(uuid, text);
+create or replace function public.decide_flock_reject(p_id uuid, p_decision text, p_seen_version integer) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   r public.flock_day_rejects;
@@ -776,6 +805,9 @@ begin
   end if;
   if not public.in_scope_site(r.site_id) then
     raise exception 'out_of_scope' using hint = 'قاعة هذه العملية خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  if r.version is distinct from p_seen_version then
+    return jsonb_build_object('status', 'stale_reject', 'reject', private.flock_reject_json(r));
   end if;
   if r.decision is null then
     update public.flock_day_rejects x set decision = p_decision, decided_by = auth.uid(), decided_at = now()
@@ -804,6 +836,9 @@ declare
   v_totals jsonb;
   v_summary jsonb;
   v_live bigint;
+  v_net numeric;
+  v_sold_kg numeric;
+  v_unweighed bigint;
   v_last uuid;
 begin
   perform private.require('read');
@@ -830,17 +865,37 @@ begin
     join public.items i on i.org_id = l.org_id and i.id = l.item_id
     where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed'
   ), fd as (
-    select o.d, round(sum(o.kg), 3) as kg,
+    select o.d, sum(o.kg) as kg, count(*) filter (where o.kg is null) as unweighed,
       jsonb_agg(jsonb_build_object('issue_id', o.id, 'doc_no', o.doc_no, 'item_id', o.item_id, 'item_name', o.name, 'qty', round(o.qty_base, 3)::text,
         'unit', o.base_unit, 'issued_on', o.issued_on, 'can_void', o.voidable) order by o.posted_at, o.doc_no collate "C", o.line_no) as feed
     from lines o group by o.d
+  ), carry as (
+    -- مراجعة 0035: العلف المنقول من دورة سابقة يدخل القاعة يوم تطبيقه (يوم التسكين)، فهو من المرسل كما يعدّه report_days (given_kg).
+    select l.applied_on as d, sum(m.kg) as kg, count(*) as n, count(*) filter (where m.kg is null) as unweighed
+    from public.flock_close_lines l
+    cross join lateral (select private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg) as kg) as m
+    where l.org_id = f.org_id and l.to_flock_id = f.id and l.carry_status = 'applied' and l.cost_kind = 'feed'
+    group by l.applied_on
+  ), back as (
+    -- ومن الإغلاق: الراجع إلى المخزن والمنقول للدورة التالية يوم الإغلاق، خارج الصافي كما يعدّه report_days_extra (out_kg).
+    select c.closed_on as d, sum(m.kg) as kg, count(*) as n, count(*) filter (where m.kg is null) as unweighed
+    from public.flock_closes c
+    join public.flock_close_lines l on l.org_id = c.org_id and l.close_id = c.id
+    cross join lateral (select private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg) as kg) as m
+    where c.org_id = f.org_id and c.flock_id = f.id and c.status = 'closed' and l.cost_kind = 'feed' and l.action in ('return', 'carry')
+    group by c.closed_on
   ), y as (
     select g.d, r.dead, r.culled, r.version, r.note, r.eggs_total, r.eggs_cracked, r.eggs_broken, gs.cylinders, gs.version as gas_version,
-      fd.kg, fd.feed, coalesce(k.sold, 0) as sold, k.sold_kg, coalesce(k.adjust, 0) as adjust
+      case when fd.kg is not null or ci.kg is not null then coalesce(fd.kg, 0) + coalesce(ci.kg, 0) end as kg,
+      coalesce(fd.unweighed, 0) + coalesce(ci.unweighed, 0) + coalesce(bk.unweighed, 0) as unweighed,
+      coalesce(ci.n, 0) as carry_n, ci.kg as carry_kg, coalesce(bk.n, 0) as back_n, bk.kg as back_kg,
+      fd.feed, coalesce(k.sold, 0) as sold, k.sold_kg, coalesce(k.adjust, 0) as adjust
     from g
     left join public.flock_daily r on r.org_id = f.org_id and r.flock_id = f.id and r.on_date = g.d
     left join public.flock_day_gas gs on gs.org_id = f.org_id and gs.flock_id = f.id and gs.on_date = g.d
     left join fd on fd.d = g.d
+    left join carry ci on ci.d = g.d
+    left join back bk on bk.d = g.d
     left join private.flock_count_days(f.id) as k on k.on_date = g.d
   ), z as (
     select y.*, f.placed_count - sum(coalesce(y.dead, 0) + coalesce(y.culled, 0) + y.sold - y.adjust) over (order by y.d rows unbounded preceding) as live_end
@@ -849,27 +904,31 @@ begin
   select
     jsonb_agg(jsonb_build_object('on', z.d, 'age', z.d - f.placed_on + f.age_days_at_placement, 'day_no', z.d - f.placed_on + 1,
       'dead', case when z.version is not null then z.dead + z.culled end, 'culled', z.culled, 'day_version', z.version, 'note', z.note,
-      'gas', z.cylinders, 'gas_version', z.gas_version, 'feed_kg', z.kg::text, 'feed', coalesce(z.feed, '[]'::jsonb),
+      'gas', z.cylinders, 'gas_version', z.gas_version, 'feed_kg', round(z.kg, 3)::text, 'feed', coalesce(z.feed, '[]'::jsonb),
+      'carry_in_kg', case when z.carry_n > 0 then round(z.carry_kg, 3)::text end, 'feed_back_kg', case when z.back_n > 0 then round(z.back_kg, 3)::text end,
       'eggs_total', case when f.kind = 'layer' then z.eggs_total end, 'eggs_cracked', case when f.kind = 'layer' then z.eggs_cracked end,
       'eggs_broken', case when f.kind = 'layer' then z.eggs_broken end,
       'sold_birds', z.sold, 'sold_net_kg', case when z.sold_kg is not null then round(z.sold_kg, 3)::text end, 'live_end', z.live_end) order by z.d),
     jsonb_build_object('dead', coalesce(sum(z.dead + z.culled), 0)::bigint, 'gas', coalesce(sum(z.cylinders), 0)::bigint,
-      'feed_kg', round(coalesce(sum(z.kg), 0), 3)::text, 'sold_birds', sum(z.sold)::bigint, 'sold_net_kg', round(coalesce(sum(z.sold_kg), 0), 3)::text,
+      'feed_kg', round(coalesce(sum(z.kg), 0), 3)::text, 'feed_back_kg', round(coalesce(sum(z.back_kg), 0), 3)::text,
+      'sold_birds', sum(z.sold)::bigint, 'sold_net_kg', round(coalesce(sum(z.sold_kg), 0), 3)::text,
       'eggs_total', case when f.kind = 'layer' then coalesce(sum(z.eggs_total), 0)::bigint end),
-    (array_agg(z.live_end order by z.d desc))[1]
-  into v_days, v_totals, v_live
+    (array_agg(z.live_end order by z.d desc))[1],
+    coalesce(sum(z.kg), 0) - coalesce(sum(z.back_kg), 0), coalesce(sum(z.sold_kg), 0), coalesce(sum(z.unweighed), 0)
+  into v_days, v_totals, v_live, v_net, v_sold_kg, v_unweighed
   from z;
-  -- الخلاصة: النفوق من المسكَّن، والحيّ آخر آخر يوم، ومعدّل وزن المباع ومعامل التحويل (المرسل ÷ صافي المباع)، والأكياس بحجم كيس واحد مشترك.
+  -- الخلاصة: النفوق من المسكَّن، والحيّ آخر آخر يوم، ومعدّل وزن المباع، والمرسل (ومعه المنقول إليها) والراجع منها عند الإغلاق (إلى المخزن أو للدورة التالية)
+  -- وصافيهما، ومعامل التحويل = الصافي ÷ صافي المباع (= flock_cycle_report.kpis.fcr_final للوجبة المغلقة، بلا سطر بلا كتلة)، والأكياس بحجم كيس واحد مشترك
+  -- لكلّ سطر مرسل أو منقول إليها.
   select jsonb_build_object('placed', f.placed_count, 'dead', (v_totals ->> 'dead')::bigint,
       'mortality_pct', private.flock_pct((v_totals ->> 'dead')::numeric, f.placed_count), 'live', v_live,
-      'feed_kg', v_totals ->> 'feed_kg',
+      'feed_kg', v_totals ->> 'feed_kg', 'feed_back_kg', v_totals ->> 'feed_back_kg', 'feed_net_kg', round(v_net, 3)::text,
       'feed_bags', case when b.lines > 0 and b.sized = b.lines and b.sizes = 1 and (v_totals ->> 'feed_kg')::numeric > 0
         then private._mul_div_round((v_totals ->> 'feed_kg')::numeric, 1, b.size, 3)::text end,
       'gas', (v_totals ->> 'gas')::bigint, 'sold_birds', (v_totals ->> 'sold_birds')::bigint, 'sold_net_kg', v_totals ->> 'sold_net_kg',
       'avg_weight_kg', case when (v_totals ->> 'sold_birds')::numeric > 0 and (v_totals ->> 'sold_net_kg')::numeric > 0
         then private._mul_div_round((v_totals ->> 'sold_net_kg')::numeric, 1, (v_totals ->> 'sold_birds')::numeric, 3)::text end,
-      'fcr', case when (v_totals ->> 'sold_net_kg')::numeric > 0 and (v_totals ->> 'feed_kg')::numeric > 0
-        then private._mul_div_round((v_totals ->> 'feed_kg')::numeric, 1, (v_totals ->> 'sold_net_kg')::numeric, 3)::text end)
+      'fcr', case when v_unweighed = 0 and v_net > 0 and v_sold_kg > 0 then private._mul_div_round(v_net, 1, v_sold_kg, 3)::text end)
   into v_summary
   from (
     select count(*) as lines, count(q.size) as sized, count(distinct q.size) as sizes, max(q.size) as size
@@ -880,8 +939,15 @@ begin
               when count(*) = 1 then max(u.factor_to_base) end
             from public.item_units u where u.org_id = l.org_id and u.item_id = l.item_id and u.archived_at is null and u.party_id is null and u.factor_to_base > 1)
         end as size
-      from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
-      where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed'
+      from (
+        select l.org_id, l.item_id, l.base_unit, l.piece_mass_kg
+        from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+        where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed'
+        union all
+        select l.org_id, l.item_id, l.base_unit, l.piece_mass_kg
+        from public.flock_close_lines l
+        where l.org_id = f.org_id and l.to_flock_id = f.id and l.carry_status = 'applied' and l.cost_kind = 'feed'
+      ) as l
     ) as q
   ) as b;
   select (select y.item_id from public.flock_issues x join public.flock_issue_lines y on y.org_id = x.org_id and y.issue_id = x.id
@@ -897,12 +963,13 @@ begin
     'days', coalesce(v_days, '[]'::jsonb),
     'totals', v_totals,
     'summary', v_summary,
-    -- الأعلاف للإرسال: كلّ علف فعّال له اليوم متاح في مخازن العلف بنطاق القارئ، أو آخر علف أُرسل لهذه الوجبة؛ والأخير أوّلاً ثمّ الاسم.
+    -- الأعلاف للإرسال: كلّ علف فعّال له اليوم متاح في مخازن العلف بنطاق القارئ، أو آخر علف أُرسل لهذه الوجبة؛ والأخير أوّلاً ثمّ الاسم. والمتاح (on_hand)
+    -- أكبر ما في مخزن علف واحد اليوم، لا مجموع المخازن: ما يأخذه إرسال واحد (send_flock_feed يصرف من مخزن واحد فيه ما يكفي؛ مراجعة 0035).
     'feed_items', coalesce((select jsonb_agg(jsonb_build_object('item_id', q.id, 'name', q.name, 'base_unit', q.base_unit, 'on_hand', round(q.on_hand, 3)::text,
         'units', q.units, 'last', coalesce(q.id = v_last, false)) order by coalesce(q.id = v_last, false) desc, q.name_norm collate "C", q.id)
       from (
         select i.id, i.name, i.name_norm, i.base_unit,
-          coalesce((select sum(s.available) from public.warehouses w cross join lateral private.stock_at(i.id, w.id, v_today) as s
+          coalesce((select max(s.available) from public.warehouses w cross join lateral private.stock_at(i.id, w.id, v_today) as s
             where w.org_id = i.org_id and w.kind = 'feed' and w.archived_at is null and public.in_scope_wh(w.id)), 0) as on_hand,
           coalesce((select jsonb_agg(jsonb_build_object('id', u.id, 'name', u.label, 'base_qty', u.factor_to_base::text)
               order by u.is_default desc, u.factor_to_base, u.label collate "C", u.id)
@@ -911,8 +978,7 @@ begin
         where i.org_id = f.org_id and i.archived_at is null and i.kind = 'feed'
       ) as q
       where q.on_hand > 0 or q.id = v_last), '[]'::jsonb),
-    'rejects', coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'on', r.on_date, 'reason', r.reason, 'created_at', r.created_at, 'payload', r.payload)
-        order by r.on_date, r.created_at, r.id)
+    'rejects', coalesce((select jsonb_agg(private.flock_reject_json(r) order by r.on_date, r.created_at, r.id)
       from public.flock_day_rejects r where r.org_id = f.org_id and r.flock_id = f.id and r.decision is null), '[]'::jsonb));
 end
 $$;
@@ -1742,9 +1808,101 @@ language sql stable security definer set search_path = public, pg_temp as $$
   limit 1
 $$;
 
+-- حذف الوجبة (الجسم الأخير من 0032؛ مراجعة 0035): الغاز المسجَّل يمنعه بتلميح يسمّي «الغاز» (كان يقع على المفتاح الأجنبيّ بجملة عامّة)، والممسوح يُحذف معها.
+create or replace function public.delete_flock(p_flock uuid, p_expected_version int, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'delete_flock';
+  v_cached jsonb;
+  v_org uuid := public.auth_org();
+  v_lock date;
+  f public.flocks;
+  v_hall text;
+  v_has text[] := '{}';
+  v_result jsonb;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'version', p_expected_version));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock.manage');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = v_org and x.id = p_flock for update;
+  if f.id is null then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('flock_id', p_flock, 'deleted', false));
+  end if;
+  if not public.in_scope_site(f.site_id) then
+    raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+  if f.status = 'closed' then
+    raise exception 'flock_closed' using hint = format('فوج «%s» مغلق، فلا يُحذف.', v_hall);
+  end if;
+  if p_expected_version is null or f.version <> p_expected_version then
+    raise exception 'stale_flock' using hint = format('تغيّر فوج «%s» من جهاز آخر بعد فتح الشاشة. حدّث الشاشة ثمّ احذفه.', v_hall);
+  end if;
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  if v_lock is not null and f.placed_on <= v_lock then
+    raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُحذف.', to_char(v_lock, 'DD/MM/YYYY'), to_char(f.placed_on, 'DD/MM/YYYY'));
+  end if;
+  if exists (select 1 from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.voided_at is null)
+      or exists (select 1 from public.flock_day_rejects x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'جولات يومية'::text;
+  end if;
+  if exists (select 1 from public.flock_weights x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أوزان'::text;
+  end if;
+  -- 0035: الغاز المسجَّل (بعدد) باسمه؛ والصفّ الممسوح (عدد فارغ بنسخة) لا يمنع الحذف.
+  if exists (select 1 from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is not null) then
+    v_has := v_has || 'الغاز'::text;
+  end if;
+  if exists (select 1 from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id)
+      or exists (select 1 from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'صرف من المخزن'::text;
+  end if;
+  if exists (select 1 from public.flock_logs x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'أدوية'::text;
+  end if;
+  if exists (select 1 from public.flock_vaccinations x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'تأشيرات لقاح'::text;
+  end if;
+  -- 0029: تذاكر الوزن (ولو ملغاة: وقفاتها تشير إلى الفوج) والبيع وفرق العدّ والإغلاق السابق بأسمائها، لا بجملة المفتاح الأجنبيّ العامّة.
+  if exists (select 1 from public.weigh_ticket_stops x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'تذاكر وزن'::text;
+  end if;
+  if exists (select 1 from public.flock_counts x where x.org_id = f.org_id and x.flock_id = f.id and x.kind = 'sold') then
+    v_has := v_has || 'بيع'::text;
+  end if;
+  if exists (select 1 from public.flock_counts x where x.org_id = f.org_id and x.flock_id = f.id and x.kind = 'count_adjust') then
+    v_has := v_has || 'فرق عدّ'::text;
+  end if;
+  if exists (select 1 from public.flock_closes x where x.org_id = f.org_id and x.flock_id = f.id) then
+    v_has := v_has || 'إغلاق سابق'::text;
+  end if;
+  if cardinality(v_has) > 0 then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ (%s)، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.',
+      v_hall, array_to_string(v_has, '، '));
+  end if;
+  -- 0032: الزيارات الملغاة وحدها لا تمنع الحذف (الحيّة تمنعه أعلاه مع صفّ يومها)، فتُحذف مع الفوج، وسجلّ التدقيق يحفظها.
+  delete from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.voided_at is not null;
+  -- 0035: وصفوف الغاز الممسوحة كذلك (لا كتابة بعدها: الوجبة نفسها تُحذف، فلا ABA).
+  delete from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is null;
+  begin
+    delete from public.flocks x where x.org_id = f.org_id and x.id = f.id;
+  exception when foreign_key_violation then
+    raise exception 'flock_has_records' using hint = format('لفوج «%s» سجلّ مرتبط به، فلا يُحذف. إن كان التاريخ أو العدد غلطاً فاضغط «عدّل الفوج» وصحّحه.', v_hall);
+  end;
+  v_result := jsonb_build_object('flock_id', f.id, 'deleted', true);
+  return private.ref_store(v_fn, p_client_ref, v_result);
+end
+$$;
+
 -- ─── ل. الثابت (مفتاح الخادم) ────────────────────────────────────────────────────────────────────────────────────────
--- الجداول مباشرة، ثمّ الورقة لكلّ وجبة مسكَّنة بهويّة مالك منشأتها: مجاميعها = مجموع أيّامها، وعلف كلّ يوم = سطور الصرف الحيّة بيوم القاعة (محسوبة هنا بلا
--- issue_day ولا issue_mass_kg، فطفرة في أيّهما يمسكها الثابت لا يكرّرها)، ولا سطر صرف خارج أيّام الورقة.
+-- الجداول مباشرة، ثمّ الورقة لكلّ وجبة مسكَّنة بهويّة مالك منشأتها: مجاميعها = مجموع أيّامها وصافي العلف = المرسل − الراجع، وعلف كلّ يوم = سطور الصرف الحيّة
+-- بيوم القاعة والمنقول إليها بيوم تطبيقه، والراجع يوم الإغلاق = سطور الإرجاع والنقل (محسوبة هنا بلا issue_day ولا issue_mass_kg، فطفرة في أيّهما يمسكها
+-- الثابت لا يكرّرها)، ولا سطر خارج أيّام الورقة؛ ومعامل تحويل الوجبة المغلقة في الورقة = fcr_final في تقرير الدورة (مراجعة 0035).
 create or replace function public.verify_hall_sheet() returns table (check_name text, violations bigint)
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -1752,6 +1910,7 @@ declare
   v_sub text := current_setting('request.jwt.claim.sub', true);
   v_totals bigint := 0;
   v_days bigint := 0;
+  v_fcr bigint := 0;
   v_org record;
   v_user uuid;
   v_flock record;
@@ -1779,50 +1938,79 @@ begin
     continue when v_user is null;
     perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
     perform set_config('request.jwt.claim.sub', v_user::text, true);
-    for v_flock in select x.id, x.kind from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null order by x.id loop
+    for v_flock in select x.id, x.kind, x.status from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null order by x.id loop
       begin
         v_s := public.hall_sheet(v_flock.id);
         v_totals := v_totals + (
           select count(*) from (
             select coalesce(sum((d.j ->> 'dead')::bigint), 0) as dead, coalesce(sum((d.j ->> 'gas')::bigint), 0) as gas,
-              coalesce(sum((d.j ->> 'feed_kg')::numeric), 0) as feed_kg, coalesce(sum((d.j ->> 'sold_birds')::bigint), 0) as sold,
-              coalesce(sum((d.j ->> 'sold_net_kg')::numeric), 0) as sold_kg, coalesce(sum((d.j ->> 'eggs_total')::bigint), 0) as eggs
+              coalesce(sum((d.j ->> 'feed_kg')::numeric), 0) as feed_kg, coalesce(sum((d.j ->> 'feed_back_kg')::numeric), 0) as back_kg,
+              coalesce(sum((d.j ->> 'sold_birds')::bigint), 0) as sold, coalesce(sum((d.j ->> 'sold_net_kg')::numeric), 0) as sold_kg,
+              coalesce(sum((d.j ->> 'eggs_total')::bigint), 0) as eggs
             from jsonb_array_elements(v_s -> 'days') as d(j)
           ) as s
           where (v_s -> 'totals' ->> 'dead')::bigint <> s.dead or (v_s -> 'totals' ->> 'gas')::bigint <> s.gas
-            or (v_s -> 'totals' ->> 'feed_kg')::numeric <> s.feed_kg or (v_s -> 'totals' ->> 'sold_birds')::bigint <> s.sold
+            or (v_s -> 'totals' ->> 'feed_kg')::numeric <> s.feed_kg or (v_s -> 'totals' ->> 'feed_back_kg')::numeric <> s.back_kg
+            or (v_s -> 'summary' ->> 'feed_net_kg')::numeric <> s.feed_kg - s.back_kg
+            or (v_s -> 'totals' ->> 'sold_birds')::bigint <> s.sold
             or (v_s -> 'totals' ->> 'sold_net_kg')::numeric <> s.sold_kg
             or (v_s -> 'totals' ->> 'eggs_total')::bigint is distinct from (case when v_flock.kind = 'layer' then s.eggs end));
         v_days := v_days + (
           select count(*) from (
-            select (d.j ->> 'on')::date as on_date, (d.j ->> 'feed_kg')::numeric as kg from jsonb_array_elements(v_s -> 'days') as d(j)
+            select (d.j ->> 'on')::date as on_date, (d.j ->> 'feed_kg')::numeric as kg, (d.j ->> 'feed_back_kg')::numeric as back
+            from jsonb_array_elements(v_s -> 'days') as d(j)
           ) as s
           full join (
-            select coalesce(x.for_day, x.issued_on) as on_date, sum(case
-                when l.base_unit = 'kg' then round(l.qty_base, 3)
-                when l.base_unit = 'L' and l.density_kg_per_l > 0 then round(l.qty_base * l.density_kg_per_l, 3)
-                when l.base_unit = 'pc' and l.piece_mass_kg > 0 then round(l.qty_base * l.piece_mass_kg, 3) end) as kg
-            from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
-            where x.org_id = v_org.org_id and x.flock_id = v_flock.id and x.status = 'posted' and l.cost_kind = 'feed'
-            group by coalesce(x.for_day, x.issued_on)
+            select u.on_date, sum(u.kg) filter (where u.side = 'in') as kg, sum(u.kg) filter (where u.side = 'back') as back
+            from (
+              select o.side, o.on_date, case
+                  when o.base_unit = 'kg' then round(o.qty_base, 3)
+                  when o.base_unit = 'L' and o.density_kg_per_l > 0 then round(o.qty_base * o.density_kg_per_l, 3)
+                  when o.base_unit = 'pc' and o.piece_mass_kg > 0 then round(o.qty_base * o.piece_mass_kg, 3) end as kg
+              from (
+                select 'in' as side, coalesce(x.for_day, x.issued_on) as on_date, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+                where x.org_id = v_org.org_id and x.flock_id = v_flock.id and x.status = 'posted' and l.cost_kind = 'feed'
+                union all
+                select 'in', l.applied_on, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_close_lines l
+                where l.org_id = v_org.org_id and l.to_flock_id = v_flock.id and l.carry_status = 'applied' and l.cost_kind = 'feed'
+                union all
+                select 'back', c.closed_on, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_closes c join public.flock_close_lines l on l.org_id = c.org_id and l.close_id = c.id
+                where c.org_id = v_org.org_id and c.flock_id = v_flock.id and c.status = 'closed' and l.cost_kind = 'feed' and l.action in ('return', 'carry')
+              ) as o
+            ) as u
+            group by u.on_date
           ) as t on t.on_date = s.on_date
-          where s.on_date is null or (t.on_date is not null and s.kg is distinct from t.kg) or (t.on_date is null and s.kg is not null));
+          where s.on_date is null or (t.on_date is null and (s.kg is not null or s.back is not null))
+            or (t.on_date is not null and (s.kg is distinct from t.kg or s.back is distinct from t.back)));
       exception when others then
         v_totals := v_totals + 1;
       end;
+      -- الوجبة المغلقة: معامل التحويل في الورقة = fcr_final في تقرير الدورة (الصافي نفسه وصافي المباع نفسه).
+      if v_flock.status = 'closed' then
+        begin
+          v_fcr := v_fcr + (case when (public.hall_sheet(v_flock.id) -> 'summary' ->> 'fcr')::numeric
+            is distinct from (public.flock_cycle_report(v_flock.id) -> 'kpis' ->> 'fcr_final')::numeric then 1 else 0 end);
+        exception when others then
+          v_fcr := v_fcr + 1;
+        end;
+      end if;
     end loop;
   end loop;
   perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
   perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
   return query select 'sheet_totals'::text, v_totals
-    union all select 'sheet_feed_by_day'::text, v_days;
+    union all select 'sheet_feed_by_day'::text, v_days
+    union all select 'sheet_fcr_final'::text, v_fcr;
 end
 $$;
 
 -- ─── م. الصلاحيات ──────────────────────────────────────────────────────────────────────────────────────────────────
 revoke all on function public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean), public.send_flock_feed(uuid, uuid, uuid, uuid, uuid, numeric, date),
-  public.decide_flock_reject(uuid, text), public.hall_sheet(uuid), public.day_balance_sections(date) from public, anon;
+  public.decide_flock_reject(uuid, text, integer), public.hall_sheet(uuid), public.day_balance_sections(date) from public, anon;
 grant execute on function public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean), public.send_flock_feed(uuid, uuid, uuid, uuid, uuid, numeric, date),
-  public.decide_flock_reject(uuid, text), public.hall_sheet(uuid), public.day_balance_sections(date) to authenticated;
+  public.decide_flock_reject(uuid, text, integer), public.hall_sheet(uuid), public.day_balance_sections(date) to authenticated;
 revoke all on function public.verify_hall_sheet() from public, anon, authenticated;
 grant execute on function public.verify_hall_sheet() to service_role;

@@ -971,7 +971,7 @@ export default async function (t, db) {
       expect: { ...only(['owner', 'manager'], 'ok:saved'), storekeeper: 'out_of_scope' },
     },
     hall_sheet: { sql: () => ["select public.hall_sheet($1) -> 'flock' ->> 'hall_name' as v", [p2.flock]], value: true, expect: only(FLOCK_SCOPE, 'ok:قاعة 1', 'out_of_scope') },
-    decide_flock_reject: { sql: () => ["select public.decide_flock_reject($1, 'handled') ->> 'decision' as v", [p35.reject]], value: true, expect: only(FLOCK_DAY, 'ok:handled') },
+    decide_flock_reject: { sql: () => ["select public.decide_flock_reject($1, 'handled', 1) ->> 'decision' as v", [p35.reject]], value: true, expect: only(FLOCK_DAY, 'ok:handled') },
     day_balance_sections: { sql: () => ["select jsonb_array_length(public.day_balance_sections(public.app_today()) -> 'sections') as v", []], value: true, expect: all('ok:3') },
   };
 

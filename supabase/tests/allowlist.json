@@ -26,7 +26,7 @@
     "public.day_balance(uuid, date, uuid)",
     "public.day_balance_sections(date)",
     "public.debts_overview(text, uuid, uuid, text, text, numeric, boolean, jsonb, integer)",
-    "public.decide_flock_reject(uuid, text)",
+    "public.decide_flock_reject(uuid, text, integer)",
     "public.decline_and_block(uuid)",
     "public.decline_invite(uuid)",
     "public.delete_draft_line(text, uuid, integer)",

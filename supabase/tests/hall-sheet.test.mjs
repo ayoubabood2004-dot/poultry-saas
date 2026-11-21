@@ -6,6 +6,9 @@
 // الفحوص كلّها بالمالك (0035 لا تعتمد على 0034). البذرة: حقل لحم بأربع قاعات — «قاعة 7» (1,000 طير قبل 30 يوماً، بلا نهاية جدول ← عمر 45)، و«قاعة 8»
 // (500 قبل عشرة أيّام، جدول قاعتها ينتهي بعمر 35)، و«قاعة 9» (300 قبل 20 يوماً تُغلق قبل يومين)، و«قاعة 10» (200 قبل 50 يوماً: بعد عمر 45 والورقة حتى
 // اليوم) — وحقل بيض بقاعة (2,000 قبل عشرة أيّام). والطفرات داخل معاملة صاحب الجداول ترجع: كلّ قاعدة مكسورة (ومنها الجسم القديم) يمسكها فحصها.
+// ومراجعة 0035 (كلّ فحص منها فشل على c69c13f): الحسم بنسخة المركون (stale_reject) والركن من جديد يكبّرها من الجولة والزيارة والغاز؛ وعلف الورقة ومعاملها
+// بالراجع عند الإغلاق والمنقول إليها (= fcr_final، وsheet_fcr_final في الثابت) في «قاعة 11» داخل معاملة ترجع؛ و«المتاح» أكبر ما في مخزن علف واحد؛
+// وdelete_flock يسمّي «الغاز» ويحذف الممسوح.
 // وعيّنات القاعدة الحقيقية للشاشات: HALL_SHEET_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/hall-sheet-0035.json.
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -34,7 +37,7 @@ const GAS = 'select public.set_flock_gas($1, $2, $3, $4, $5, $6) as v';
 const SEND = 'select public.send_flock_feed($1, $2, $3, $4, $5, $6, $7) as v';
 const SHEET = 'select public.hall_sheet($1) as v';
 const SECTIONS = 'select public.day_balance_sections($1) as v';
-const DECIDE = 'select public.decide_flock_reject($1, $2) as v';
+const DECIDE = 'select public.decide_flock_reject($1, $2, $3) as v';
 const VOID = 'select public.void_flock_issue($1, $2, $3) as v';
 const SIG = {
   day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
@@ -44,7 +47,8 @@ const SIG = {
   send: 'public.send_flock_feed(uuid, uuid, uuid, uuid, uuid, numeric, date)',
   sheet: 'public.hall_sheet(uuid)',
   sections: 'public.day_balance_sections(date)',
-  decide: 'public.decide_flock_reject(uuid, text)',
+  decide: 'public.decide_flock_reject(uuid, text, integer)',
+  deleteFlock: 'public.delete_flock(uuid, integer, uuid)',
   check: 'private.flock_day_check(public.flocks, date)',
   reportDays: 'private.report_days(public.flocks, date)',
   reportDay: 'private.report_day(public.flocks, date, date)',
@@ -52,7 +56,7 @@ const SIG = {
   activity: 'private.flock_activity_after(public.flocks, date)',
   edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid)',
 };
-const VERIFY_ZERO = { for_day_range: 0, gas_days: 0, gas_versions: 0, gas_hall: 0, sheet_totals: 0, sheet_feed_by_day: 0 };
+const VERIFY_ZERO = { for_day_range: 0, gas_days: 0, gas_versions: 0, gas_hall: 0, sheet_totals: 0, sheet_feed_by_day: 0, sheet_fcr_final: 0 };
 
 const dayParams = (d) => [d.flock, d.on === undefined ? TODAY : d.on, d.dead ?? null, d.culled ?? null, d.feed ?? null, null, null, null, d.eggs ?? null, null, null,
   d.note ?? null, d.base ?? null, d.ref ?? uid(), d.queued ?? false];
@@ -135,6 +139,45 @@ async function scenario(t, db) {
   await postedOpening(db, U.owner, W.raw, day(-5), [{ item: I.corn, qty: 500, value: '200000.00' }]);
   await postedOpening(db, U.owner, W.medicine, day(-5), [{ item: I.vitamin, qty: 10, value: '50000.00' }]);
   const party = await one(U.owner, "insert into public.parties (name, is_customer) values ('تاجر الورقة', true) returning id");
+
+  // افتتاح بمخزن داخل معاملة طفرة (المالك، بالدوالّ الحقيقية).
+  async function postedOpeningInside(oq, attempt, wh, itemId, qty = 500) {
+    const doc = await inside(attempt, U.owner, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, $2) returning id as v', [wh, day(-5)]);
+    await inside(attempt, U.owner, 'insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, $3, 100000) returning id as v', [doc, itemId, qty]);
+    await inside(attempt, U.owner, "select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid()) ->> 'status' as v", [doc]);
+  }
+  // مخزن علف جديد بنطاق المالك داخل معاملة طفرة.
+  async function feedStoreInside(oq, name) {
+    await oq("insert into public.warehouses (org_id, division_id, site_id, name, kind) select org_id, division_id, site_id, $2, 'feed' from public.warehouses where id = $1", [W.feed, name]);
+    return (await oq('select id from public.warehouses where org_id = $1 and name = $2', [org, name])).rows[0].id;
+  }
+  // مراجعة 0035 (العلف الراجع والمنقول)، داخل معاملة طفرة: «قاعة 11» بوجبة 300 طير قبل 20 يوماً، صُرف لها قبل أربعة أيّام 200 كغم بادئاً و30 كغم ناهياً،
+  // وبيع منها 100 طير (240 كغم صافياً) قبل ثلاثة أيّام، وأُغلقت قبل يومين بإرجاع 150 كغم من البادئ إلى «رصيد العلف» ونقل الناهي كلّه للدورة التالية؛
+  // ثمّ وجبة جديدة في القاعة نفسها أمس يدخلها المنقول يوم تسكينها.
+  async function returnsScenario(attempt) {
+    const must = async (sql, params) => {
+      const value = await inside(attempt, U.owner, sql, params);
+      if (value && typeof value === 'object' && typeof value.code === 'string' && 'hint' in value) throw new Error(`${sql}: ${value.code} ${value.hint}`);
+      return value;
+    };
+    const hallId = await must("insert into public.halls (site_id, name) values ($1, 'قاعة 11') returning id as v", [S.a]);
+    const p = (await must('select public.open_flock($1, $2, 300, 0, null, $3) as v', [hallId, day(-20), uid()])).flock_id;
+    await must('select public.record_flock_issue($1, $2, $3, $4, $5, 200, $6, $7) as v', [uid(), uid(), uid(), p, I.starter, day(-4), W.feed]);
+    await must('select public.record_flock_issue($1, $2, $3, $4, $5, 30, $6, $7) as v', [uid(), uid(), uid(), p, I.finisher, day(-4), W.feed]);
+    const ticketId = uid();
+    const data = { site_id: S.a, on_date: day(-3), method: 'scale', empty_kg: '7000', empty_with_crates: false, crate_kg: '6',
+      stops: [{ id: uid(), hall_id: hallId, birds: 100, crates: 10, gross_kg: '7300', weighings: [] }] };
+    await must('select public.save_weigh_ticket($1, null, $2::jsonb) as v', [ticketId, JSON.stringify(data)]);
+    await must('select public.finish_weigh_ticket($1, $2, 1) as v', [uid(), ticketId]);
+    await must('select public.record_bird_sale($1, $2, $3, 2, $4, 2750, 0, 0, null, null) as v', [uid(), uid(), ticketId, party]);
+    const form = await must('select public.flock_close_form($1) as v', [p]);
+    const pools = form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }));
+    const lines = [{ item_id: I.starter, qty: '150', action: 'return', warehouse_id: W.feed }, { item_id: I.finisher, qty: '30', action: 'carry' }];
+    await must("select public.close_flock($1, $2, $3, $4, $5, 100, $6::jsonb, 'بيعت خارج النظام', $7::jsonb, null, $8) as v",
+      [uid(), uid(), p, day(-2), form.flock.live, JSON.stringify(pools), JSON.stringify(lines), form.plan]);
+    const q = (await must('select public.open_flock($1, $2, 300, 0, null, $3) as v', [hallId, day(-1), uid()])).flock_id;
+    return { hallId, p, q };
+  }
 
   // ── ١) أيّ يوم من أيّام الوجبة القائمة ─────────────────────────────────────────────────────────────────────────────────
   await section('الأيّام الفائتة', async () => {
@@ -347,7 +390,7 @@ async function scenario(t, db) {
     same(code(await send(o2, { flock: flock2, item: feed2, qty: '1' })), 'no_feed_store', 'بلا مخزن علف فعّال: no_feed_store');
     same([code(await send(o2, { flock: F.a, item: feed2, qty: '1' })), code(await gas(o2, { flock: F.a, on: day(-4), n: 1 })), code(await call(db, o2, SHEET, [F.a]))],
       ['flock_not_found', 'flock_not_found', 'flock_not_found'], 'وجبة منشأة أخرى غير موجودة للإرسال والغاز والورقة');
-    same(code(await call(db, o2, DECIDE, [(await db.admin('select id from public.flock_day_rejects where flock_id = $1 limit 1', [F.c])).rows[0].id, 'handled'])), 'reject_not_found',
+    same(code(await call(db, o2, DECIDE, [(await db.admin('select id from public.flock_day_rejects where flock_id = $1 limit 1', [F.c])).rows[0].id, 'handled', 1])), 'reject_not_found',
       'ومركون منشأة أخرى غير موجود');
   });
 
@@ -372,9 +415,12 @@ async function scenario(t, db) {
     same([rowOf(a, TODAY).feed_kg, rowOf(a, TODAY).note, rowOf(a, TODAY).dead, rowOf(a, TODAY).eggs_total], ['100.000', 'جولة اليوم', 0, null], 'اليوم: علف اليوم (بلا الدواء)، والملاحظة، وبيض فارغ للّاحم');
     same([rowOf(a, day(5)).dead, rowOf(a, day(5)).gas, rowOf(a, day(5)).feed_kg, rowOf(a, day(5)).sold_birds, rowOf(a, day(5)).live_end], [null, null, null, 0, 892],
       'يوم قادم: صفّ فارغ والحيّ كما هو');
-    same(a.totals, { dead: 8, gas: 4, feed_kg: '150.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null }, 'المجاميع: الهلاكات 1+5+2، والغاز 3+1، والعلف 100+50');
-    same(a.summary, { placed: 1000, dead: 8, mortality_pct: '0.80', live: 892, feed_kg: '150.000', feed_bags: '3.000', gas: 4, sold_birds: 100, sold_net_kg: '240.000',
-      avg_weight_kg: '2.400', fcr: '0.625' }, 'الخلاصة: النفوق 8 ÷ 1,000، والأكياس 150 ÷ 50، ومعدّل الوزن 240 ÷ 100، ومعامل التحويل 150 ÷ 240');
+    same(a.totals, { dead: 8, gas: 4, feed_kg: '150.000', feed_back_kg: '0.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null },
+      'المجاميع: الهلاكات 1+5+2، والغاز 3+1، والعلف 100+50، ولا راجع لوجبة قائمة');
+    same(a.summary, { placed: 1000, dead: 8, mortality_pct: '0.80', live: 892, feed_kg: '150.000', feed_back_kg: '0.000', feed_net_kg: '150.000', feed_bags: '3.000', gas: 4,
+      sold_birds: 100, sold_net_kg: '240.000', avg_weight_kg: '2.400', fcr: '0.625' },
+    'الخلاصة: النفوق 8 ÷ 1,000، والأكياس 150 ÷ 50، ومعدّل الوزن 240 ÷ 100، ومعامل التحويل (150 − 0) ÷ 240');
+    same([rowOf(a, day(-20)).carry_in_kg, rowOf(a, day(-20)).feed_back_kg, rowOf(a, day(-30)).carry_in_kg], [null, null, null], 'بلا منقول ولا راجع: الخانتان فارغتان');
     const sums = a.days.reduce((s, d) => ({ dead: s.dead + (d.dead ?? 0), gas: s.gas + (d.gas ?? 0), feed: s.feed + Number(d.feed_kg ?? 0) }), { dead: 0, gas: 0, feed: 0 });
     same(sums, { dead: 8, gas: 4, feed: 150 }, 'المجاميع = مجموع الأيّام');
     same(a.feed_items.map((f) => [f.name, f.on_hand, f.last, f.units.map((u) => [u.id, u.name, u.base_qty])]),
@@ -389,6 +435,10 @@ async function scenario(t, db) {
     same([c.through, c.days.length, c.can_write, c.flock.status, c.rejects.map((r) => [r.on, r.reason, r.payload.gas ?? null]).sort()],
       [day(-2), 19, false, 'closed', [[day(-5), 'flock_closed', null], [day(-5), 'flock_closed', 4]]], 'المغلقة: حتى يوم إغلاقها ولا تُكتب، ومركونها ينتظر');
     samples.hall_sheet_closed = c;
+    const refs = Object.fromEntries((await db.admin('select id, client_ref from public.flock_day_rejects where flock_id = $1 and decision is null', [F.c])).rows.map((r) => [r.id, r.client_ref]));
+    same(c.rejects.map((r) => [r.client_ref, refs[r.id], r.version]), c.rejects.map((r) => [refs[r.id], refs[r.id], 1 + (r.payload.gas !== undefined ? 1 : 0)]),
+      'كلّ مركون بمرجع عمليته كما حُفظ (client_ref، يطابق به الجهاز عمليته) ونسخته');
+    t.ok(c.rejects.length === 2 && c.rejects.every((r) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(r.client_ref)), 'والمرجع نصّ uuid');
     const d = await sheet(F.d);
     same([d.through, d.days.length, d.days.at(-1).age], [TODAY, 51, 50], 'بعد عمر 45: الورقة حتى اليوم');
     const l = await sheet(F.l);
@@ -398,20 +448,54 @@ async function scenario(t, db) {
     same([code(await call(db, U.worker, SHEET, [F.l])), code(await call(db, U.worker, SHEET, [id(999)]))], ['out_of_scope', 'flock_not_found'], 'الورقة بنطاق حقل القاعة');
   });
 
-  // ── ٥) حسم المركون ─────────────────────────────────────────────────────────────────────────────────────────────────
+  // ── ٥) حسم المركون بنسخته (مراجعة 0035: الركن من جديد يكتب فوق صفّه، فالحسم بشرط النسخة التي عُرضت) ───────────────────────────
+  const rejectRow = async (rejectId) => (await db.admin('select version, decision, payload from public.flock_day_rejects where id = $1', [rejectId])).rows[0];
+  const rejectIds = {};
   await section('حسم المركون', async () => {
     const gasReject = (await db.admin("select id from public.flock_day_rejects where flock_id = $1 and payload ? 'gas'", [F.c])).rows[0].id;
-    const first = await call(db, U.owner, DECIDE, [gasReject, 'handled']);
-    same([first.value?.status, first.value?.decision], ['saved', 'handled'], 'حسم المركون: «أُدخلت»');
+    rejectIds.gas = gasReject;
+    const shown = (await sheet(F.c)).rejects.find((r) => r.id === gasReject);
+    same([shown.version, shown.payload, shown.on, shown.reason], [2, { gas: 4 }, day(-5), 'flock_closed'], 'الورقة تعرض المركون بنسخته: غاز رُكن مرّتين لليوم نفسه = النسخة 2 بأحدث قيمته');
+    const stale = await call(db, U.owner, DECIDE, [gasReject, 'handled', 1]);
+    same(stale.value, { status: 'stale_reject', reject: shown }, 'الحسم بنسخة ما قبل الركن الثاني: stale_reject بالمركون كما هو الآن (شكل سطر الورقة)');
+    same([(await call(db, U.owner, DECIDE, [gasReject, 'handled', null])).value?.status, (await rejectRow(gasReject)).decision], ['stale_reject', null],
+      'وبلا نسخة كذلك، ولا يُكتب قرار');
+    const first = await call(db, U.owner, DECIDE, [gasReject, 'handled', 2]);
+    same([first.value?.status, first.value?.decision], ['saved', 'handled'], 'حسم المركون بنسخته: «أُدخلت»');
     samples.decide_flock_reject = first.value;
-    same([(await call(db, U.manager, DECIDE, [gasReject, 'handled'])).value?.decided_at, code(await call(db, U.owner, DECIDE, [gasReject, 'refused']))],
-      [first.value.decided_at, 'already_decided'], 'القرار نفسه مرّة ثانية حُفظ بلا كتابة، وقرار آخر already_decided');
-    same({ bad: code(await call(db, U.owner, DECIDE, [gasReject, 'maybe'])), missing: code(await call(db, U.owner, DECIDE, [id(997), 'handled'])),
-      viewer: code(await call(db, U.viewer, DECIDE, [gasReject, 'handled'])) }, { bad: 'bad_decision', missing: 'reject_not_found', viewer: 'forbidden' }, 'رموز الرفض');
+    same([(await call(db, U.manager, DECIDE, [gasReject, 'handled', 2])).value?.decided_at, code(await call(db, U.owner, DECIDE, [gasReject, 'refused', 2]))],
+      [first.value.decided_at, 'already_decided'], 'القرار نفسه بالنسخة نفسها مرّة ثانية حُفظ بلا كتابة (إعادة)، وقرار آخر already_decided');
+    same({ bad: code(await call(db, U.owner, DECIDE, [gasReject, 'maybe', 2])), missing: code(await call(db, U.owner, DECIDE, [id(997), 'handled', 1])),
+      viewer: code(await call(db, U.viewer, DECIDE, [gasReject, 'handled', 2])) }, { bad: 'bad_decision', missing: 'reject_not_found', viewer: 'forbidden' }, 'رموز الرفض');
     same((await sheet(F.c)).rejects.map((r) => r.reason), ['flock_closed'], 'المحسوم يخرج من الورقة');
     same((await gas(U.owner, { flock: F.c, on: day(-5), n: 7, queued: true })).value?.status, 'parked', 'مركون جديد لليوم نفسه');
-    t.eq((await db.admin('select decision from public.flock_day_rejects where id = $1', [gasReject])).rows[0].decision, null, 'يرجع بلا قرار كما كان');
-    await one(U.owner, DECIDE, [gasReject, 'refused']);
+    same(await rejectRow(gasReject), { version: 3, decision: null, payload: { gas: 7 } }, 'يكتب فوق صفّه: بلا قرار، بالنسخة 3 وبقيمته الجديدة');
+    const again = await call(db, U.owner, DECIDE, [gasReject, 'refused', 2]);
+    same([again.value?.status, again.value?.reject?.version, again.value?.reject?.payload, (await rejectRow(gasReject)).decision], ['stale_reject', 3, { gas: 7 }, null],
+      'جهاز عرض النسخة 2 يحسم بعد الركن الجديد: stale_reject بما رُكن الآن، ولا يُحسم ما لم يُعرض');
+    same((await call(db, U.owner, DECIDE, [gasReject, 'refused', 3])).value?.decision, 'refused', 'وبالنسخة الجديدة يُحسم');
+  });
+
+  await section('الركن من جديد يكبّر النسخة (الجولة والزيارة)', async () => {
+    const dayReject = (await db.admin('select id from public.flock_day_rejects where flock_id = $1 and on_date = $2 and visit_id is null', [F.c, day(-5)])).rows[0].id;
+    rejectIds.day = dayReject;
+    same((await rejectRow(dayReject)).version, 1, 'جولة رُكنت مرّة: النسخة 1');
+    await one(U.owner, DECIDE, [dayReject, 'handled', 1]);
+    same((await saveDay(U.owner, { flock: F.c, on: day(-5), dead: 2, queued: true })).value, { status: 'parked', reason: 'flock_closed' }, 'جولة أحدث لليوم نفسه من الطابور');
+    same(await rejectRow(dayReject), { version: 2, decision: null, payload: { dead: 2, culled: null, feed_kg: null, water_l: null, temp_min: null, temp_max: null,
+      eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, base_version: null } }, 'الجولة المركونة من جديد: صفّها نفسه بالنسخة 2 وبلا قرار');
+    same((await call(db, U.owner, DECIDE, [dayReject, 'refused', 1])).value?.status, 'stale_reject', 'والحسم بما عُرض قبلها stale_reject');
+    const visitId = uid();
+    same((await visit(U.owner, { id: visitId, flock: F.c, on: day(-6), dead: 1, queued: true })).value, { status: 'parked', reason: 'flock_closed' }, 'زيارة لوجبة مغلقة من الطابور');
+    const visitReject = (await db.admin('select id from public.flock_day_rejects where visit_id = $1', [visitId])).rows[0].id;
+    rejectIds.visit = visitReject;
+    rejectIds.visitId = visitId;
+    same((await rejectRow(visitReject)).version, 1, 'الزيارة المركونة: النسخة 1');
+    const latestRef = uid();
+    await visit(U.owner, { id: visitId, flock: F.c, on: day(-6), dead: 3, queued: true, ref: latestRef });
+    same((await sheet(F.c)).rejects.filter((r) => r.id === visitReject).map((r) => [r.client_ref, r.version, r.payload.dead]), [[latestRef, 2, 3]],
+      'والورقة تعرضها بمرجع آخر عملية رُكنت (client_ref) ونسختها');
+    same([(await rejectRow(visitReject)).version, (await rejectRow(visitReject)).payload.dead], [2, 3], 'الزيارة نفسها مركونة من جديد: النسخة 2 بأحدث قيمتها');
   });
 
   // ── ٦) الرصيد اليوميّ بقسمين ─────────────────────────────────────────────────────────────────────────────────────────
@@ -466,6 +550,74 @@ async function scenario(t, db) {
       [6, '50.000', [['2026-10-01', 1], ['2026-11-01', 6]], 7], '«من أوّل ما بدينا»: الغاز يوماً وشهراً ومنذ البداية، والعلف بيومه');
   });
 
+  // ── ٧ب) مراجعة 0035: علف الورقة ومعاملها بالراجع عند الإغلاق والمنقول إليها (كتقرير الدورة)، داخل معاملة ترجع ──────────────────────
+  await section('العلف الراجع والمنقول', async () => {
+    const out = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      const sc = await returnsScenario(attempt);
+      const halls = await inside(attempt, U.owner, 'select public.halls_day($1) as v', [day(-1)]);
+      return {
+        p: await inside(attempt, U.owner, SHEET, [sc.p]),
+        report: await inside(attempt, U.owner, 'select public.flock_cycle_report($1) as v', [sc.p]),
+        q: await inside(attempt, U.owner, SHEET, [sc.q]),
+        qDay: halls?.sites?.flatMap((s) => s.halls).find((h) => h.hall_id === sc.hallId)?.flock ?? null,
+        verify: await verifyOf(oq),
+      };
+    });
+    const { p, report, q, qDay, verify } = out;
+    samples.hall_sheet_returned = p;
+    samples.hall_sheet_carried_in = q;
+    const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o?.[k] ?? null]));
+    same(pick(p.summary, ['feed_kg', 'feed_back_kg', 'feed_net_kg', 'sold_birds', 'sold_net_kg', 'fcr']),
+      { feed_kg: '230.000', feed_back_kg: '180.000', feed_net_kg: '50.000', sold_birds: 100, sold_net_kg: '240.000', fcr: '0.208' },
+      'المغلقة: أُرسل 230 كغم، ورجع منها عند الإغلاق 180 (150 إلى المخزن و30 للدورة التالية)، فالصافي 50 ومعامل التحويل 50 ÷ 240');
+    same([p.summary.fcr, report.kpis.fcr_final, report.kpis.feed_net_kg], ['0.208', '0.208', '50.000'], 'معامل الورقة = fcr_final لتقرير الدورة، والصافي نفسه');
+    same([rowOf(p, day(-4)).feed_kg, rowOf(p, day(-4)).feed_back_kg, rowOf(p, day(-2)).feed_kg, rowOf(p, day(-2)).feed_back_kg, p.totals.feed_kg, p.totals.feed_back_kg],
+      ['230.000', null, null, '180.000', '230.000', '180.000'], 'الراجع على يوم الإغلاق في الأيّام وفي المجاميع، والمرسل على يومه');
+    same([rowOf(q, day(-1)).carry_in_kg, rowOf(q, day(-1)).feed_kg, rowOf(q, day(-1)).feed, rowOf(q, TODAY).carry_in_kg, q.totals.feed_kg,
+      q.summary.feed_kg, q.summary.feed_back_kg, q.summary.feed_net_kg, q.summary.feed_bags],
+    ['30.000', '30.000', [], null, '30.000', '30.000', '0.000', '30.000', '0.600'],
+    'الجديدة: المنقول إليها (30 كغم) على يوم تسكينها في العلف وخانته، وفي المجاميع والخلاصة، وأكياسه بحجم كيسه');
+    same([rowOf(q, day(-1)).feed_kg, qDay?.feed_given_kg], ['30.000', '30.000'], 'وعلف يومها في الورقة = علف التقرير اليوميّ');
+    same(verify, VERIFY_ZERO, 'الثابت صفر مع الراجع والمنقول');
+  });
+
+  // ── ٧ج) مراجعة 0035: «المتاح» للإرسال ما يأخذه إرسال واحد (أكبر ما في مخزن علف واحد)، داخل معاملة ترجع ──────────────────────────────
+  await section('المتاح لإرسال واحد', async () => {
+    const out = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      for (const name of ['مخزن علف ثانٍ', 'مخزن علف ثالث']) await postedOpeningInside(oq, attempt, await feedStoreInside(oq, name), I.empty, 30);
+      const shown = (await inside(attempt, U.owner, SHEET, [F.a]))?.feed_items?.find((x) => x.item_id === I.empty);
+      return {
+        onHand: shown?.on_hand ?? null,
+        over: (await inside(attempt, U.owner, SEND, sendParams({ flock: F.a, item: I.empty, qty: '50' })))?.code ?? 'saved',
+        whole: (await inside(attempt, U.owner, SEND, sendParams({ flock: F.a, item: I.empty, qty: '30' })))?.status ?? 'refused',
+      };
+    });
+    same(out, { onHand: '30.000', over: 'insufficient_stock', whole: 'saved' },
+      'علف في مخزنين بثلاثين لكلّ منهما: المتاح 30 (ما يأخذه إرسال واحد) لا 60، فإرسال 50 يُرفض و30 يُرسل');
+  });
+
+  // ── ٧د) مراجعة 0035: حذف الوجبة والغاز، داخل معاملة ترجع ───────────────────────────────────────────────────────────────────
+  await section('حذف الوجبة والغاز', async () => {
+    const out = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      const hallId = await inside(attempt, U.owner, "insert into public.halls (site_id, name) values ($1, 'قاعة 12') returning id as v", [S.a]);
+      const flockId = (await inside(attempt, U.owner, 'select public.open_flock($1, $2, 100, 0, null, $3) as v', [hallId, day(-3), uid()])).flock_id;
+      const version = async () => (await oq('select version from public.flocks where id = $1', [flockId])).rows[0].version;
+      const del = async () => inside(attempt, U.owner, 'select public.delete_flock($1, $2, $3) as v', [flockId, await version(), uid()]);
+      await inside(attempt, U.owner, GAS, gasParams({ flock: flockId, on: day(-2), n: 2 }));
+      const blocked = await del();
+      await inside(attempt, U.owner, GAS, gasParams({ flock: flockId, on: day(-2), n: null, base: 1 }));
+      const deleted = await del();
+      return {
+        blocked: [blocked?.code ?? 'deleted', (blocked?.hint ?? '').includes('الغاز')],
+        deleted: deleted?.deleted ?? deleted?.code,
+        left: (await oq('select count(*)::int as n from public.flock_day_gas where flock_id = $1', [flockId])).rows[0].n,
+        gone: (await oq('select count(*)::int as n from public.flocks where id = $1', [flockId])).rows[0].n,
+      };
+    });
+    same(out, { blocked: ['flock_has_records', true], deleted: true, left: 0, gone: 0 },
+      'غاز مسجَّل يمنع حذف الوجبة بتلميح يسمّي «الغاز»؛ وبعد مسحه تُحذف الوجبة ويُحذف صفّ الغاز الممسوح معها');
+  });
+
   // ── ٨) الحرّاس: تعديل الوجبة وإغلاقها ────────────────────────────────────────────────────────────────────────────────
   await section('الحرّاس', async () => {
     const out = await mutant(db, U.owner, [], async ({ attempt }) => {
@@ -515,6 +667,25 @@ async function scenario(t, db) {
       caught[name] = await mutant(db, U.owner, fns, async ({ oq }) => (await verifyOf(oq))[name]);
     }
     t.ok(caught.sheet_totals > 0 && caught.sheet_feed_by_day > 0, `طفرة في الورقة يمسكها الثابت (المجاميع ${caught.sheet_totals}، والعلف بيومه ${caught.sheet_feed_by_day})`);
+    // مراجعة 0035: مع الراجع والمنقول (returnsScenario داخل معاملة الطفرة) — كلّ طفرة يمسكها فحصها باسمه، والضابط بلا طفرة صفر.
+    const OLD_FCR = ["'fcr', case when v_unweighed = 0 and v_net > 0 and v_sold_kg > 0 then private._mul_div_round(v_net, 1, v_sold_kg, 3)::text end)",
+      "'fcr', case when (v_totals ->> 'sold_net_kg')::numeric > 0 and (v_totals ->> 'feed_kg')::numeric > 0\n        then private._mul_div_round((v_totals ->> 'feed_kg')::numeric, 1, (v_totals ->> 'sold_net_kg')::numeric, 3)::text end)"];
+    const returnBreaks = {
+      control: ['sheet_fcr_final', []],
+      fcrSent: ['sheet_fcr_final', [[SIG.sheet, [OLD_FCR]]]],
+      carryIn: ['sheet_feed_by_day', [[SIG.sheet, [['case when fd.kg is not null or ci.kg is not null then coalesce(fd.kg, 0) + coalesce(ci.kg, 0) end as kg', 'fd.kg as kg']]]]],
+      backDay: ['sheet_feed_by_day', [[SIG.sheet, [['left join back bk on bk.d = g.d', 'left join back bk on bk.d = g.d + 1']]]]],
+      backTotal: ['sheet_totals', [[SIG.sheet, [["'feed_back_kg', round(coalesce(sum(z.back_kg), 0), 3)::text", "'feed_back_kg', '0.000'"]]]]],
+    };
+    const returned = {};
+    for (const [label, [name, fns]] of Object.entries(returnBreaks)) {
+      returned[label] = await mutant(db, U.owner, fns, async ({ oq, attempt }) => {
+        await returnsScenario(attempt);
+        return (await verifyOf(oq))[name];
+      });
+    }
+    t.ok(returned.control === 0 && returned.fcrSent > 0 && returned.carryIn > 0 && returned.backDay > 0 && returned.backTotal > 0,
+      `مع الراجع والمنقول: المعامل بالمرسل وحده (${returned.fcrSent})، والمنقول خارج يومه (${returned.carryIn})، والراجع على غير يوم الإغلاق (${returned.backDay})، ومجموع الراجع (${returned.backTotal}) يمسكها الثابت، والضابط ${returned.control}`);
   });
 
   // ── ١٠) الطفرات: الجسم القديم وكلّ قاعدة مكسورة يمسكها فحصها ─────────────────────────────────────────────────────────────
@@ -666,19 +837,65 @@ async function scenario(t, db) {
       {
         name: 'الحسم يكتب فوق قرار سابق',
         fns: [[SIG.decide, [['  elsif r.decision <> p_decision then', '  elsif false then']]]],
-        run: async ({ oq, attempt }) => {
-          const rej = (await oq("select id from public.flock_day_rejects where flock_id = $1 and payload ? 'gas'", [F.c])).rows[0].id;
-          return (await inside(attempt, U.owner, DECIDE, [rej, 'handled']))?.code;
-        },
+        run: async ({ attempt }) => (await inside(attempt, U.owner, DECIDE, [rejectIds.gas, 'handled', 3]))?.code,
         correct: (v) => v === 'already_decided',
       },
+      {
+        name: 'الحسم بلا شرط النسخة (مراجعة 0035)',
+        fns: [[SIG.decide, [['  if r.version is distinct from p_seen_version then', '  if false then']]]],
+        run: async ({ oq, attempt }) => {
+          const answer = await inside(attempt, U.owner, DECIDE, [rejectIds.visit, 'handled', 1]);
+          return [answer?.status, (await oq('select decision from public.flock_day_rejects where id = $1', [rejectIds.visit])).rows[0].decision];
+        },
+        correct: (v) => JSON.stringify(v) === JSON.stringify(['stale_reject', null]),
+      },
+      ...[
+        ['الجولة', SIG.day, async ({ attempt }) => inside(attempt, U.owner, DAY, dayParams({ flock: F.c, on: day(-5), dead: 4, queued: true })), () => rejectIds.day],
+        ['الزيارة', SIG.visit, async ({ attempt }) => inside(attempt, U.owner, VISIT, visitParams({ id: rejectIds.visitId, flock: F.c, on: day(-6), dead: 4, queued: true })), () => rejectIds.visit],
+        ['الغاز', SIG.gas, async ({ attempt }) => inside(attempt, U.owner, GAS, gasParams({ flock: F.c, on: day(-5), n: 9, queued: true })), () => rejectIds.gas],
+      ].map(([label, sig, park, rejectId]) => ({
+        name: `${label} المركونة من جديد بلا نسخة أكبر (مراجعة 0035)`,
+        fns: [[sig, [['          version = public.flock_day_rejects.version + 1, decision = null', '          version = public.flock_day_rejects.version, decision = null']]]],
+        run: async (kit) => {
+          const versionOf = async () => (await kit.oq('select version from public.flock_day_rejects where id = $1', [rejectId()])).rows[0].version;
+          const before = await versionOf();
+          const parked = await park(kit);
+          return [parked?.status, (await versionOf()) - before];
+        },
+        correct: (v) => JSON.stringify(v) === JSON.stringify(['parked', 1]),
+      })),
+      {
+        name: 'الورقة: المتاح مجموع مخازن العلف (مراجعة 0035)',
+        fns: [[SIG.sheet, [['coalesce((select max(s.available) from public.warehouses w', 'coalesce((select sum(s.available) from public.warehouses w']]]],
+        run: async ({ oq, attempt }) => {
+          for (const name of ['مخزن علف ثانٍ', 'مخزن علف ثالث']) await postedOpeningInside(oq, attempt, await feedStoreInside(oq, name), I.empty, 30);
+          return (await inside(attempt, U.owner, SHEET, [F.a]))?.feed_items?.find((x) => x.item_id === I.empty)?.on_hand;
+        },
+        correct: (v) => v === '30.000',
+      },
+      {
+        name: 'الورقة: الأكياس بلا سطور المنقول (مراجعة 0035)',
+        fns: [[SIG.sheet, [["        where l.org_id = f.org_id and l.to_flock_id = f.id and l.carry_status = 'applied' and l.cost_kind = 'feed'\n      ) as l", '        where false\n      ) as l']]]],
+        run: async ({ attempt }) => (await inside(attempt, U.owner, SHEET, [(await returnsScenario(attempt)).q]))?.summary?.feed_bags,
+        correct: (v) => v === '0.600',
+      },
+      {
+        name: 'حذف الوجبة بلا الغاز (جسم 0032)',
+        fns: [[SIG.deleteFlock, [["  if exists (select 1 from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is not null) then\n    v_has := v_has || 'الغاز'::text;\n  end if;\n", ''],
+          ['  delete from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is null;\n', '']]]],
+        run: async ({ oq, attempt }) => {
+          const hallId = await inside(attempt, U.owner, "insert into public.halls (site_id, name) values ($1, 'قاعة 12') returning id as v", [S.a]);
+          const flockId = (await inside(attempt, U.owner, 'select public.open_flock($1, $2, 100, 0, null, $3) as v', [hallId, day(-3), uid()])).flock_id;
+          await inside(attempt, U.owner, GAS, gasParams({ flock: flockId, on: day(-2), n: 2 }));
+          const version = (await oq('select version from public.flocks where id = $1', [flockId])).rows[0].version;
+          const blocked = await inside(attempt, U.owner, 'select public.delete_flock($1, $2, $3) as v', [flockId, version, uid()]);
+          await inside(attempt, U.owner, GAS, gasParams({ flock: flockId, on: day(-2), n: null, base: 1 }));
+          const deleted = await inside(attempt, U.owner, 'select public.delete_flock($1, $2, $3) as v', [flockId, version, uid()]);
+          return [(blocked?.hint ?? '').includes('الغاز'), deleted?.deleted ?? deleted?.code];
+        },
+        correct: (v) => JSON.stringify(v) === JSON.stringify([true, true]),
+      },
     ];
-    // افتتاح بمخزن جديد داخل معاملة الطفرة (المالك، بالدوالّ الحقيقية).
-    async function postedOpeningInside(oq, attempt, wh, itemId) {
-      const doc = await inside(attempt, U.owner, 'insert into public.opening_docs (warehouse_id, on_date) values ($1, $2) returning id as v', [wh, day(-5)]);
-      await inside(attempt, U.owner, 'insert into public.opening_lines (doc_id, item_id, qty_base, value) values ($1, $2, 500, 100000) returning id as v', [doc, itemId]);
-      await inside(attempt, U.owner, "select public.post_opening_stock($1, (select version from public.opening_docs where id = $1), gen_random_uuid()) ->> 'status' as v", [doc]);
-    }
     const outcomes = [];
     for (const c of CASES) {
       const real = await mutant(db, U.owner, [], (kit) => c.run(kit));
@@ -700,18 +917,20 @@ async function scenario(t, db) {
     const missing = [['0032_round_visits.sql', 'public.save_flock_visit'], ['0032_round_visits.sql', 'public.save_flock_day'], ['0012_flocks_daily.sql', 'public.record_flock_weight'],
       ['0029_bird_sales_close.sql', 'private.report_days'], ['0029_bird_sales_close.sql', 'private.report_day'], ['0029_bird_sales_close.sql', 'private.halls_day_totals'],
       ['0029_bird_sales_close.sql', 'public.flock_cycle_report'], ['0031_halls_history.sql', 'public.halls_history'], ['0029_bird_sales_close.sql', 'public.flock_month'],
-      ['0029_bird_sales_close.sql', 'public.edit_flock'], ['0029_bird_sales_close.sql', 'private.flock_activity_after']]
+      ['0029_bird_sales_close.sql', 'public.edit_flock'], ['0029_bird_sales_close.sql', 'private.flock_activity_after'], ['0032_round_visits.sql', 'public.delete_flock']]
       .filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head);
-    same(missing, [], 'ملفّ التراجع يرجّع الأجسام الإحدى عشرة كما في آخر هجرة عرّفتها حرفاً');
+    same(missing, [], 'ملفّ التراجع يرجّع الأجسام الاثني عشر كما في آخر هجرة عرّفتها حرفاً (ومعها delete_flock من 0032، مراجعة 0035)');
   });
 
   same(await db.asService(verifyOf), VERIFY_ZERO, 'الثابت صفر في نهاية الملفّ');
   if (process.env.HALL_SHEET_SAMPLES_OUT) {
     writeFileSync(FIXTURE, JSON.stringify({
-      _note: `عيّنات القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.`,
+      _note: `عيّنات القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات. hall_sheet_returned وhall_sheet_carried_in من «قاعة 11» داخل معاملة رجعت (مراجعة 0035: الراجع عند الإغلاق والمنقول إليها).`,
       hall_sheet_broiler: samples.hall_sheet_broiler,
       hall_sheet_layer: samples.hall_sheet_layer,
       hall_sheet_closed: samples.hall_sheet_closed,
+      hall_sheet_returned: samples.hall_sheet_returned,
+      hall_sheet_carried_in: samples.hall_sheet_carried_in,
       day_balance_sections: samples.day_balance_sections,
       halls_day: samples.halls_day,
       set_flock_gas_saved: samples.set_flock_gas_saved,
