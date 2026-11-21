@@ -2,7 +2,7 @@
 // من مثال FOUNDATION (C2 وS2: 5,000 كغم بـ2,350,000 و1,000 كغم بـ900,000، ونقل 65,000 بالوزن ← C2 بـ2,404,166.67): المرتجع من C2
 // السليمة بقاعدة قيمة السحب والمقبول قيد للمورّد والفرق «فرق مرتجع»؛ والتصحيح بعد سحب 2,120 كغم (1,019,366.67): حصّة المتبقّي على
 // الدفعة ومراياها، والباقي «فرق سعر شراء»، وقيد المورّد −الفرق؛ والإلغاءات ترجّع كل شي بالفلس. كل نداء بدور authenticated حقيقي.
-import { balance, call, shown, uid, verifyLedger, LEDGER_ZERO } from './ledger-kit.mjs';
+import { balance, call, canon, shown, uid, verifyLedger, LEDGER_ZERO } from './ledger-kit.mjs';
 import { postedReceipt, receiptLots, voidReceipt } from './receipt-kit.mjs';
 import { creditReturn, postReturn, postRevalue, postedReturn, postedUse, previewReturn, previewRevalue, returnDraft, voidReturn, voidRevalue, voidUse } from './return-kit.mjs';
 import { draftWriteLock, race, sameRefRace } from './shared.mjs';
@@ -41,6 +41,15 @@ async function scenario(t, db) {
   const lots = async (item, wh = W.raw) => (await lotsOf(db, item, wh)).map((l) => [l.qty_left, l.value_left, l.qty_in, l.value_in]);
   const expenses = async (kind, docId) =>
     (await db.admin('select trim_scale(amount)::text as a from public.expenses where doc_kind = $1 and doc_id = $2 order by created_at, reverses_id nulls first', [kind, docId])).rows.map((r) => r.a);
+  // 0034 («الكلّ مثل المالك»): كلّ نداء صار مسموحاً لعضو كان يُمنع يُنفَّذ بمعاملة ترجع، فلا يغيّر ما بعده.
+  const dry = { commit: false };
+  const dryPostReturn = (user, docId, version) =>
+    call(db, user, "select public.post_supplier_return($1, $2, public.preview_supplier_return($1) ->> 'plan', $3)", [docId, version, uid()], dry);
+  const dryVoidReturn = (user, docId) => call(db, user, 'select public.void_supplier_return($1, $2, $3)', [docId, 'مرتجع خاطئ', uid()], dry);
+  const dryRevalue = (user, lineId, total) =>
+    call(db, user, "select public.post_receipt_revalue($1, $2, public.preview_receipt_revalue($1, $2) ->> 'plan', 'فاتورة', $3)", [lineId, total, uid()], dry);
+  const dryVoidRevalue = (user, revId) => call(db, user, 'select public.void_receipt_revalue($1, $2, $3)', [revId, 'تصحيح خاطئ', uid()], dry);
+  const dryVoidReceipt = (user, docId) => call(db, user, 'select public.void_receipt($1, $2, $3)', [docId, 'استلام خاطئ', uid()], dry);
   const verifyAll = async (label) => {
     t.same(await db.asService(verifyStock), STOCK_ZERO, `verify_stock صفر: ${label}`);
     t.same(await db.asService(verifyLedger), LEDGER_ZERO, `verify_ledger صفر: ${label}`);
@@ -54,9 +63,11 @@ async function scenario(t, db) {
   const bookStart = BigInt(await balance(db, grain, book));
   const retA = await returnDraft(db, keeper, { receipt: rA.id, on: TODAY, lines: [{ receiptLine: rA.lines[0], qty: 1000 }] });
   const keeperSeen = (await previewReturn(db, keeper, retA.id)).value;
-  t.same([keeperSeen.money ?? null, keeperSeen.ready, keeperSeen.lines[0].whole_balance, keeperSeen.lines[0].lot_qty_left], [null, false, false, '5000.000'], 'معاينة الأمين: كميات بلا مال، وغير جاهزة');
-  t.same([shown(await postReturn(db, keeper, retA.id, retA.version)), shown(await call(db, keeper, 'insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 470000)', [retA.lines[0]]))],
-    ['forbidden', 'forbidden'], 'الأمين ما يرحّل المرتجع ولا يكتب المقبول (E47)');
+  t.same([canon(keeperSeen.money), keeperSeen.ready, keeperSeen.lines[0].whole_balance, keeperSeen.lines[0].lot_qty_left],
+    [canon((await previewReturn(db, pricer, retA.id)).value.money), false, false, '5000.000'], 'معاينة الأمين: مال المحاسب نفسه (0034)، وغير جاهزة');
+  t.same([shown(await postReturn(db, keeper, retA.id, retA.version)),
+    shown(await call(db, keeper, 'insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 470000)', [retA.lines[0]], { commit: false }))],
+    ['credit_required', 'ok'], 'الأمين يرحّل المرتجع (فيصل لقاعدة المقبول) ويكتب المقبول (0034، بمعاملة ترجع)');
   const notCredited = (await previewReturn(db, pricer, retA.id)).value;
   t.same([notCredited.ready, notCredited.problems.map((p) => p.code), shown(await postReturn(db, pricer, retA.id, retA.version))], [false, ['credit_required'], 'credit_required'], 'بلا مقبول: credit_required بالمعاينة والترحيل');
   t.eq(shown(await call(db, pricer, 'insert into public.supplier_return_line_amounts (line_id, credit_amount) values ($1, 470000.5)', [retA.lines[0]])), 'credit_not_whole_dinar', 'المقبول بالدينار الصحيح');
@@ -89,7 +100,8 @@ async function scenario(t, db) {
   const consumed = await voidReturn(db, manager, retA.id);
   t.same([consumed.code, consumed.hint?.includes(moved.result.doc_no)], ['lot_consumed', true], 'إلغاء المرتجع بعد تحويل من دفعته: lot_consumed يسمّي التحويل');
   t.eq(shown(await voidTransfer(db, manager, moved.id)), 'ok', 'التحويل ينلغى أوّلاً');
-  t.same([shown(await voidReturn(db, pricer, retA.id)), shown(await voidReturn(db, manager, retA.id)), shown(await voidReturn(db, manager, retA.id))], ['forbidden', 'ok', 'already_void'], 'الإلغاء للمدير، ومرّة وحدة');
+  t.same([shown(await dryVoidReturn(pricer, retA.id)), shown(await voidReturn(db, manager, retA.id)), shown(await voidReturn(db, manager, retA.id))], ['ok', 'ok', 'already_void'],
+    'الإلغاء للمحاسب أيضاً (0034، بمعاملة ترجع)، ومرّة وحدة');
   t.same(
     [(await lots(cornA))[0], BigInt(await balance(db, grain, book)) - bookStart, await expenses('supplier_return', retA.id)],
     [['5000', '2404166.67', '5000', '2404166.67'], 0n, ['10833.33', '-10833.33']],
@@ -136,9 +148,9 @@ async function scenario(t, db) {
   t.same((await lots(cornB))[0], ['2880', '1384800', '5000', '2404166.67'], 'بعد سحب 2,120 كغم (1,019,366.67): 2,880 كغم بـ1,384,800.00');
   t.same(
     [shown(await postRevalue(db, manager, lineB, 2350000)), shown(await postRevalue(db, manager, lineB, -5)), shown(await postRevalue(db, manager, lineB, 2400000.5)),
-      shown(await postRevalue(db, manager, lineB, 2400000, ' ')), shown(await postRevalue(db, pricer, lineB, 2400000))],
-    ['same_total', 'negative_total', 'amount_not_whole_dinar', 'reason_required', 'forbidden'],
-    'نفس المبلغ same_total، والسالب، والكسر، وبلا سبب، والمحاسب forbidden',
+      shown(await postRevalue(db, manager, lineB, 2400000, ' ')), shown(await dryRevalue(pricer, lineB, 2400000))],
+    ['same_total', 'negative_total', 'amount_not_whole_dinar', 'reason_required', 'ok'],
+    'نفس المبلغ same_total، والسالب، والكسر، وبلا سبب، والمحاسب يصحّح أيضاً (0034، بمعاملة ترجع)',
   );
   const bookB = BigInt(await balance(db, grain, book));
   const plan = (await previewRevalue(db, manager, lineB, 2400000)).value;
@@ -317,14 +329,15 @@ async function scenario(t, db) {
   await postedUse(db, U.owner, { wh: W.medicine, category, on: TODAY, item: S.I.vaccine, qty: 4 });
   const retMed = await returnDraft(db, U.owner, { receipt: rMed.id, on: TODAY, lines: [{ receiptLine: rMed.lines[0], qty: 2 }] });
   const versionMed = await creditReturn(db, U.owner, retMed, [9000]);
-  const scopedPost = await postReturn(db, scoped, retMed.id, versionMed);
+  // 0034: صفّ النطاق القديم لا يحجب شيئاً، فالمدير «المحصور» يصل لقواعد كلّ دالّة (بمعاملة ترجع)، وإلغاء الاستلام يسمّي المرتجع.
+  const scopedPost = await dryPostReturn(scoped, retMed.id, versionMed);
   t.same(shown(await postReturn(db, U.owner, retMed.id, versionMed)), 'ok', 'المالك يرحّل مرتجع الأدوية');
-  const scopedRevalue = await postRevalue(db, scoped, rMed.lines[0], 60000);
+  const scopedRevalue = await dryRevalue(scoped, rMed.lines[0], 60000);
   const revMed = await postRevalue(db, U.owner, rMed.lines[0], 60000);
   t.same(
-    [shown(scopedPost), shown(await voidReturn(db, scoped, retMed.id)), shown(scopedRevalue), shown(revMed), shown(await voidRevalue(db, scoped, revMed.value.id)), shown(await voidReceipt(db, scoped, rMed.id))],
-    ['out_of_scope', 'out_of_scope', 'out_of_scope', 'ok', 'out_of_scope', 'out_of_scope'],
-    'متوسّطة 3: ترحيل المرتجع وإلغاؤه والتصحيح وإلغاؤه وإلغاء الاستلام خارج نطاق الدفتر out_of_scope (مو has_supplier_returns)',
+    [shown(scopedPost), shown(await dryVoidReturn(scoped, retMed.id)), shown(scopedRevalue), shown(revMed), shown(await dryVoidRevalue(scoped, revMed.value.id)), shown(await dryVoidReceipt(scoped, rMed.id))],
+    ['ok', 'lot_consumed', 'ok', 'ok', 'ok', 'has_supplier_returns'],
+    'متوسّطة 3 بعد 0034: المدير بصفّ نطاق قديم يرحّل المرتجع ويصحّح ويلغي التصحيح، وإلغاء المرتجع يسمّي التصحيح الأحدث، وإلغاء الاستلام has_supplier_returns',
   );
   // ودفعة مرآة بمخزن خارج النطاق: التصحيح يرفض ومعاينته بلا قيمها.
   const cornO = await rawItem('ذرة مرآة خارج النطاق');
@@ -332,7 +345,7 @@ async function scenario(t, db) {
   await postedTransfer(db, manager, W.raw, W.raw2, TODAY, [{ item: cornO, qty: 50 }]);
   await S.one(U.owner, "select public.set_member_scopes_v2($1, '{}', '{}', $2::uuid[])", [S.members.scopedManager, [W.medicine, W.raw]]);
   const outPreview = (await previewRevalue(db, scoped, rO.lines[0], 12000)).value;
-  t.same([outPreview?.problems?.[0]?.code, outPreview?.family ?? null, outPreview?.ready], ['out_of_scope', null, false], 'متوسّطة 3: دفعة مرآة خارج النطاق ← out_of_scope ومعاينة بلا عائلة');
+  t.same(canon(outPreview), canon((await previewRevalue(db, U.owner, rO.lines[0], 12000)).value), 'متوسّطة 3 بعد 0034: دفعة مرآة بمخزن خارج الصفّ القديم ← معاينة المالك نفسها بعائلتها');
   await S.one(U.owner, "select public.set_member_scopes_v2($1, '{}', '{}', array[$2]::uuid[])", [S.members.scopedManager, W.medicine]);
 
   // ── مراجعة WP7 (متوسّطة 5): التحويل العكسي ينشئ مرآة ولا يعيد الجذر؛ التلميح يقول ألغِ التحويل (كان «أعِد المحوَّل») ─────────────
@@ -403,20 +416,20 @@ async function scenario(t, db) {
   await postedUse(db, manager, { wh: W.general, category, on: TODAY, item: fuelField, qty: 100 });
   const revFuelField = await postRevalue(db, U.owner, rFuelField.lines[0], 1200000);
   await S.one(U.owner, "select public.set_member_scopes_v2($1, array[$2]::uuid[], '{}', '{}')", [S.members.scopedManager, D.general]);
-  const divisionScopedVoid = await voidRevalue(db, U.scopedManager, revFuelField.value.id);
+  const divisionScopedVoid = await dryVoidRevalue(U.scopedManager, revFuelField.value.id);
   await S.one(U.owner, "select public.set_member_scopes_v2($1, '{}', '{}', array[$2]::uuid[])", [S.members.scopedManager, W.medicine]);
   t.same(
-    [shown(revFuelField), shown(divisionScopedVoid), divisionScopedVoid.hint?.includes('مخزن حقل 1'), shown(await voidRevalue(db, U.owner, revFuelField.value.id))],
-    ['ok', 'out_of_scope', true, 'ok'],
-    'متوسّطة (WP8): مدير بوحدة ما يلغي تصحيحاً مسّ مرآة بمخزن وحدة ثانية، والمالك يلغيه',
+    [shown(revFuelField), shown(divisionScopedVoid), shown(await voidRevalue(db, U.owner, revFuelField.value.id))],
+    ['ok', 'ok', 'ok'],
+    'متوسّطة (WP8) بعد 0034: مدير بصفّ وحدة قديم يلغي تصحيحاً مسّ مرآة بمخزن وحدة ثانية (بمعاملة ترجع)، والمالك يلغيه',
   );
 
   // ── مراجعة WP8 (واطئة): الإلغاء من الكشف خارج نطاق الدفتر out_of_scope قبل ما يسمّي نوع القيد ────────────────────────────────
   const purchaseEntryF = (await db.admin("select id from public.party_entries where kind = 'purchase' and doc_kind = 'receipt' and doc_id = $1", [rF.id])).rows[0].id;
   t.same(
     [shown(await call(db, U.scopedManager, 'select public.void_party_entry($1, $2, $3)', [revEntry, 'خارج النطاق', uid()])), shown(await call(db, U.scopedManager, 'select public.void_party_payment($1, $2, $3)', [purchaseEntryF, 'خارج النطاق', uid()]))],
-    ['out_of_scope', 'out_of_scope'],
-    'واطئة (WP8): قيد بدفتر خارج النطاق يُرفض out_of_scope (كان entry_not_voidable وnot_a_payment يكشفان نوعه)',
+    ['entry_not_voidable', 'not_a_payment'],
+    'واطئة (WP8) بعد 0034: لا دفتر خارج النطاق، فالرفض بنوع القيد نفسه كما للمالك',
   );
   await verifyAll('نهاية الحزمة');
 }

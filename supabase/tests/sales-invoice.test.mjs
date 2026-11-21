@@ -9,7 +9,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { balance, call, makeOrg, uid } from './ledger-kit.mjs';
+import { balance, call, canon, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { lotsOf, postedOpening } from './stock-kit.mjs';
 
@@ -343,9 +343,9 @@ async function scenario(t, db) {
   t.same({ owner: await perm(U.owner), manager: await perm(U.manager), accountant: await perm(U.accountant), storekeeper: await perm(U.storekeeper), millOperator: await perm(U.millOperator),
     hatcheryOperator: await perm(U.hatcheryOperator), hallWorker: await perm(U.hallWorker), viewer: await perm(U.viewer), keeperGeneral: await perm(U.keeperGeneral),
     keeperRaw: shownOf(await sell(U.keeperRaw, { wh: W.raw, party: P.farm, lines: [line(I.corn, 1, '600')] }, { commit: false })) },
-  { owner: 'ok', manager: 'ok', accountant: 'ok', storekeeper: 'ok', millOperator: 'forbidden', hatcheryOperator: 'forbidden', hallWorker: 'forbidden', viewer: 'forbidden',
-    keeperGeneral: 'out_of_scope', keeperRaw: 'out_of_scope' },
-  'البيع بفعل sale.record (المالك والمدير والمحاسب والأمين)، والمخزن خارج النطاق ودفتر وحدة خارج النطاق out_of_scope');
+  { owner: 'ok', manager: 'ok', accountant: 'ok', storekeeper: 'ok', millOperator: 'ok', hatcheryOperator: 'ok', hallWorker: 'ok', viewer: 'ok',
+    keeperGeneral: 'ok', keeperRaw: 'ok' },
+  'البيع لكلّ عضو (0034 «الكلّ مثل المالك»)، ولا مخزن ولا دفتر وحدة خارج صفّ نطاق قديم (بمعاملة ترجع)');
 
   // ── ٧) sale_catalog ──────────────────────────────────────────────────────────────────────────────────────────
   const catFeedAll = await read(U.storekeeper, CAT, [W.feed]);
@@ -354,7 +354,7 @@ async function scenario(t, db) {
     [['cash_accounts', 'items'], [[BX.cash, 'الصندوق', 'cash', 'id,kind,name'], [BX.wallet, 'المحفظة', 'wallet', 'id,kind,name'], [BX.bank, 'المصرف', 'bank', 'id,kind,name']]],
     'sale_catalog للأمين (لا يقرأ جدول الصناديق): الموادّ، وصناديق المنشأة الفعّالة باسمها ونوعها بلا رصيد (المؤرشف خارجها)');
   const keeperBoxes = await db.asUser(U.storekeeper, async (q) => (await q('select count(*)::int as n from public.cash_accounts')).rows[0].n);
-  t.eq(keeperBoxes, 0, 'ضابط: الأمين لا يقرأ جدول الصناديق مباشرة، فالصناديق من sale_catalog وحدها');
+  t.eq(keeperBoxes, 4, 'بعد 0034: الأمين يقرأ جدول الصناديق مباشرة (الأربعة بالمؤرشف)، وsale_catalog يعطي الفعّالة وحدها');
   t.same(catFeed.map((c) => [c.name, norm(c.available), norm(c.sell_price), c.barcode, c.base_unit, c.units.map((u) => [u.label, norm(u.factor)])]), [
     ['علف التزامن', '50', null, null, 'kg', []],
     ['علف بادئ', '424.5', '700', '6260001', 'kg', [['كيس 50 كغم', '50'], ['طنّ', '1000']]],
@@ -362,15 +362,16 @@ async function scenario(t, db) {
     ['علف نامي', '890', null, null, 'kg', [['كيس 50 كغم', '50']]],
   ], 'موادّ مخزن العلف: الفعّالة التي يقبلها (المؤرشفة خارجه، والصفر ظاهر)، بالمتاح وسعر البيع للأساس، ووحدات البيع الفعّالة بحجمها');
   const catR = {
-    forbidden: await call(db, U.millOperator, CAT, [W.feed], { commit: false }),
-    out_of_scope: await call(db, U.keeperGeneral, CAT, [W.feed], { commit: false }),
-    out_of_scope_book: await call(db, U.keeperRaw, CAT, [W.raw], { commit: false }),
+    millOperator: await call(db, U.millOperator, CAT, [W.feed], { commit: false }),
+    keeperGeneral: await call(db, U.keeperGeneral, CAT, [W.feed], { commit: false }),
+    keeperRaw: await call(db, U.keeperRaw, CAT, [W.raw], { commit: false }),
     store_required: await call(db, U.owner, CAT, [null], { commit: false }),
     warehouse_not_found: await call(db, U.owner, CAT, [uid()], { commit: false }),
   };
   t.same(Object.fromEntries(Object.entries(catR).map(([key, r]) => [key, shownOf(r)])),
-    { forbidden: 'forbidden', out_of_scope: 'out_of_scope', out_of_scope_book: 'out_of_scope', store_required: 'store_required', warehouse_not_found: 'warehouse_not_found' },
-    'sale_catalog ببوّابات الكاتب نفسها: الفعل والمخزن ودفتر وحدته');
+    { millOperator: 'ok', keeperGeneral: 'ok', keeperRaw: 'ok', store_required: 'store_required', warehouse_not_found: 'warehouse_not_found' },
+    'sale_catalog ببوّابات الكاتب نفسها: كلّ عضو يقرؤه بلا صفّ نطاق (0034)، والمخزن المطلوب والغائب برمزيهما');
+  t.same(canon(catR.millOperator.value), canon(catFeedAll), 'sale_catalog لمشغّل المعمل: كتالوج الأمين نفسه (0034)');
   const catMed = (await read(U.owner, CAT, [W.medicine])).items;
   t.same(catMed.map((c) => [c.name, norm(c.available), c.units.map((u) => u.label)]), [['لقاح نيوكاسل', '180', ['علبة 10']], ['مضاد حيوي', '48.5', ['قنينة نصف لتر']]],
     'وفي الأدوية: بعد الفاتورة النقديّة');
@@ -380,10 +381,10 @@ async function scenario(t, db) {
   const ownerA = await read(U.owner, DT, [A.sale]);
   t.same([keeperA.lines.map((l) => [l.unit_label, norm(l.unit_qty), norm(l.unit_price), norm(l.gross_total), norm(l.line_discount), norm(l.invoice_discount_share), norm(l.line_total)]),
     keeperA.payments.map((g) => [g.cash_account_name, norm(g.amount), g.refunded]), norm(keeperA.total), norm(keeperA.paid), norm(keeperA.debt), norm(keeperA.discount_total),
-    norm(keeperA.invoice_discount), keeperA.walk_in, keeperA.note, keeperA.posted_by_name, keeperA.lines_count, costMoney(keeperA), norm(keeperA.open), keeperA.can_collect],
+    norm(keeperA.invoice_discount), keeperA.walk_in, keeperA.note, keeperA.posted_by_name, keeperA.lines_count, canon(keeperA) === canon(ownerA), norm(keeperA.open), keeperA.can_collect],
   [[['كيس 50 كغم', '3', '35000', '105000', '1000', '1144', '102856'], ['kg', '25.5', '720', '18360', '0', '202', '18158'], ['كيس 50 كغم', '2', '30000', '60000', '500', '654', '58846']],
-    [['الصندوق', '50000', false], ['المصرف', '30000', false]], '179860', '80000', '99860', '3500', '2000', false, 'تسليم في الحقل', 'storekeeper', 3, false, '99860', false],
-  'تفصيل الفاتورة للأمين: السطور بوحداتها وخصوماتها، والسيقان بأسماء صناديقها، والصافي والمدفوع والدين والملاحظة والبائع، بلا كلفة؛ ولا «استلم» له (ليس قابضاً)');
+    [['الصندوق', '50000', false], ['المصرف', '30000', false]], '179860', '80000', '99860', '3500', '2000', false, 'تسليم في الحقل', 'storekeeper', 3, true, '99860', true],
+  'تفصيل الفاتورة للأمين: السطور بوحداتها وخصوماتها، والسيقان بأسماء صناديقها، والصافي والمدفوع والدين والملاحظة والبائع؛ وهو تفصيل المالك نفسه بكلفته و«استلم» (0034)');
   t.same([ownerA.line_id, ownerA.item_name, norm(ownerA.qty), ownerA.payment, norm(ownerA.money.line_total), norm(ownerA.money.paid_now), norm(ownerA.cost.money.cost),
     norm(ownerA.invoice.cost.money.profit), ownerA.lines.map((l) => norm(l.cost.money.cost)), ownerA.draws.map((d) => [d.line_id === A.lines[0].line_id, norm(d.qty)])[0], ownerA.can_collect],
   [A.lines[0].line_id, 'علف بادئ', '150', 'credit', '179860', '80000', '160300', '19560', ['90000', '15300', '55000'], [true, '150'], true],
@@ -418,7 +419,7 @@ async function scenario(t, db) {
 
   // ── ٩) الإلغاء ─────────────────────────────────────────────────────────────────────────────────────────────────
   const starterBefore = await lots(I.starter, W.feed);
-  t.eq(shownOf(await unsell(U.storekeeper, A.sale)), 'forbidden', 'الأمين لا يلغي');
+  t.eq(shownOf(await call(db, U.storekeeper, VS, [A.sale, 'فاتورة خاطئة', uid()], { commit: false })), 'ok', 'الأمين يلغي أيضاً (0034، بمعاملة ترجع)');
   const voidedA = await unsell(U.manager, A.sale);
   t.same([voidedA.ok, voidedA.value?.reversed_moves, norm(voidedA.value?.money?.payment_kept), norm(voidedA.value?.money?.payment_refunded), voidedA.value?.payment_entry_ids?.length,
     norm(voidedA.value?.money?.line_total), await balance(db, P.ahmad, B.feed_mill)],

@@ -5,7 +5,7 @@
 // والربح لأدوار الكلفة وحدها؛ وكلّ رفض بتلميحه؛ والإعادة بالمرجع أو بالمعرّف؛ والتزامن على آخر رصيد؛ وverify_sales وverify_stock بضوابط؛
 // وطفرات تكسر كلّ قاعدة فيفشل فحصها (آخر الملف).
 import { writeFileSync } from 'node:fs';
-import { balance, call, makeOrg, uid } from './ledger-kit.mjs';
+import { balance, call, canon, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { lotsOf, postedOpening, postedTransfer } from './stock-kit.mjs';
 
@@ -112,8 +112,8 @@ async function scenario(t, db) {
   const s1 = { ref: uid(), sale: uid(), line: uid(), item: I.starter, qty: 100, price: 750 };
   const sold1 = await sell(U.storekeeper, s1);
   t.same([sold1.ok, sold1.value?.doc_no, sold1.value?.payment, sold1.value?.warehouse_id, norm(sold1.value?.money?.line_total), norm(sold1.value?.money?.unit_price),
-    costMoney(sold1.value), sold1.value?.free], [true, 'FD-2026-0001', 'credit', W.feed, '75000', '750', false, false],
-  `الأمين يبيع 100 كغم علف بالدين: FD من مخزن العلف (الوحيد)، والمبلغ ظاهر له، والكلفة والربح مخفيّان (${sold1.code ?? ''} ${sold1.hint ?? ''})`);
+    costMoney(sold1.value), sold1.value?.free], [true, 'FD-2026-0001', 'credit', W.feed, '75000', '750', true, false],
+  `الأمين يبيع 100 كغم علف بالدين: FD من مخزن العلف (الوحيد)، والمبلغ والكلفة والربح ظاهرة له (0034) (${sold1.code ?? ''} ${sold1.hint ?? ''})`);
   t.same(await lots(I.starter, W.feed), [['opening', '400', '240000']], 'السحب من دفعة العلف بقيمتها (100 × 600)');
   t.same((await entriesOf(s1.sale)).map((e) => [e.kind, e.amount, e.book_id === B.feed_mill, e.doc_no]), [['invoice', '75000', true, 'FD-2026-0001']],
     'قيد فاتورة للجهة +75,000 في دفتر وحدة المعمل برقم البيع، ولا قبض');
@@ -141,7 +141,7 @@ async function scenario(t, db) {
 
   // ── ٤) الإعادة ─────────────────────────────────────────────────────────────────────────────────────────────────
   const again = await sell(U.storekeeper, s1);
-  t.same([again.ok, again.value], [true, sold1.value], 'الإعادة بالمرجع نفسه ترجع النتيجة نفسها (المبلغ ظاهر، والكلفة مخفيّة)');
+  t.same([again.ok, again.value], [true, sold1.value], 'الإعادة بالمرجع نفسه ترجع النتيجة نفسها');
   const sameIds = await sell(U.storekeeper, { ...s1, ref: uid() });
   t.same([sameIds.ok, sameIds.value?.doc_no], [true, 'FD-2026-0001'], 'الإعادة بالمعرّفات نفسها ومرجع جديد ترجع ما حُفظ');
   t.eq(shownOf(refusal('id_conflict', await sell(U.storekeeper, { ...s1, ref: uid(), qty: 101 }))), 'id_conflict', 'المعرّف نفسه بكمية أخرى: id_conflict');
@@ -167,8 +167,6 @@ async function scenario(t, db) {
     insufficient_stock: await sell(U.owner, { item: I.corn, qty: 99999, price: 100 }),
     store_required: await sell(U.owner, { item: I.starter, qty: 1, price: 100 }),
     item_kind_mismatch: await sell(U.owner, { item: I.starter, qty: 1, price: 100, wh: W.general }),
-    out_of_scope: await sell(U.keeperGeneral, { item: I.starter, qty: 1, price: 100, wh: W.feed }),
-    forbidden: await sell(U.hallWorker, { item: I.corn, qty: 1, price: 100 }),
     date_in_future: await sell(U.owner, { item: I.corn, qty: 1, price: 100, on: day(1) }),
   };
   for (const [key, result] of Object.entries(R)) refusal(`sale.${key}`, result);
@@ -176,21 +174,25 @@ async function scenario(t, db) {
     'رفض البيع: كلّ حالة برمزها');
   t.ok(R.insufficient_stock.hint.includes('عندك 800 كغم'), `النقص يسمّي «عندك» (${R.insufficient_stock.hint})`);
   t.ok(R.store_required.hint.includes('«رصيد العلف»') && R.store_required.hint.includes('«مخزن علف ثانٍ»'), `أكثر من مخزن: يسمّيهما (${R.store_required.hint})`);
-  const bookScope = refusal('out_of_scope_book', await sell(U.keeperRaw, { item: I.corn, qty: 1, price: 100, wh: W.raw }));
-  t.same([bookScope.code, bookScope.hint.includes('خارج نطاقك')], ['out_of_scope', true], 'الأمين بمخزن المواد وحده: دفتر وحدته خارج نطاقه (out_of_scope)');
-  t.same([shownOf(await sell(U.millOperator, { item: I.starter, qty: 1, price: 100, wh: W.feed })), shownOf(await sell(U.viewer, { item: I.corn, qty: 1, price: 100 }))],
-    ['forbidden', 'forbidden'], 'مشغّل المعمل والمشاهد لا يبيعان (sale.record)');
+  // 0034 («الكلّ مثل المالك»): الأمين بصفّ نطاق قديم (العامّة، أو مخزن المواد بلا دفتر وحدته) وعامل القاعة ومشغّل المعمل والمشاهد يبيعون (بمعاملة ترجع).
+  const dry = { commit: false };
+  t.same(
+    [await sell(U.keeperGeneral, { item: I.starter, qty: 1, price: 100, wh: W.feed }, dry), await sell(U.keeperRaw, { item: I.corn, qty: 1, price: 100, wh: W.raw }, dry),
+      await sell(U.hallWorker, { item: I.corn, qty: 1, price: 100 }, dry), await sell(U.millOperator, { item: I.starter, qty: 1, price: 100, wh: W.feed }, dry),
+      await sell(U.viewer, { item: I.corn, qty: 1, price: 100 }, dry)].map(shownOf),
+    ['ok', 'ok', 'ok', 'ok', 'ok'],
+    'الأمين بصفّ نطاق قديم (العامّة أو مخزن المواد) وعامل القاعة ومشغّل المعمل والمشاهد يبيعون (0034، بمعاملة ترجع)');
   t.eq(shownOf(await sell(U.owner, { item: I.corn, qty: 1, price: 100, payment: 'credit', box })), 'bad_payment', 'بالدين بصندوق: bad_payment');
 
   // ── ٦) ملفّ المادّة: «بِع» ──────────────────────────────────────────────────────────────────────────────────────
   const fileOf = async (user, itemId) => (await call(db, user, 'select public.item_file($1) as v', [itemId], { commit: false })).value;
   const keeperRawFile = await fileOf(U.keeperRaw, I.corn);
-  t.same([(await fileOf(U.storekeeper, I.starter)).can_sell, keeperRawFile.can_sell, keeperRawFile.cash_accounts, (await fileOf(U.hallWorker, I.starter)).can_sell,
-    (await fileOf(U.storekeeper, I.starter)).cash_accounts.map((c) => c.name)], [true, false, [], false, ['الصندوق']],
-  'ملفّ المادّة: «بِع» لمن يبيع منها فعلاً (الأمين بمخزن المواد وحده لا، فلا صناديق له)، والصناديق للبائع');
+  t.same([(await fileOf(U.storekeeper, I.starter)).can_sell, keeperRawFile.can_sell, keeperRawFile.cash_accounts.map((c) => c.name), (await fileOf(U.hallWorker, I.starter)).can_sell,
+    (await fileOf(U.storekeeper, I.starter)).cash_accounts.map((c) => c.name)], [true, true, ['الصندوق'], true, ['الصندوق']],
+  'ملفّ المادّة: «بِع» لكلّ عضو بصناديقه (0034: الأمين بصفّ مخزن المواد وعامل القاعة أيضاً)');
 
   // ── ٧) إلغاء البيع ────────────────────────────────────────────────────────────────────────────────────────────
-  t.eq(shownOf(await unsell(U.storekeeper, s2.sale)), 'forbidden', 'الأمين لا يلغي (void)');
+  t.eq(shownOf(await call(db, U.storekeeper, VS, [s2.sale, 'بيع خاطئ', uid()], dry)), 'ok', 'الأمين يلغي أيضاً (0034، بمعاملة ترجع)');
   const voided2 = await unsell(U.manager, s2.sale);
   t.same([voided2.ok, voided2.value?.status, voided2.value?.reversed_moves, norm(voided2.value?.money?.payment_kept), voided2.value?.voided_on],
     [true, 'void', 1, '120000', TODAY], 'المدير يلغي البيع النقديّ: حركة عكسية، والمقبوض 120,000 باقٍ رصيداً للجهة');
@@ -216,14 +218,15 @@ async function scenario(t, db) {
   [[['MS-2026-0002', 'posted'], ['MD-2026-0001', 'void'], ['MS-2026-0001', 'void'], ['FD-2026-0001', 'posted']], 2, 2, '75000', '68000', '7000'],
   'المبيعات للمالك: الأحدث أوّلاً والملغاة بحالتها، والمجاميع للمرحَّل (75,000، والكلفة 68,000، والربح 7,000)');
   const keeperOverview = (await overview(U.storekeeper)).value;
-  t.same([keeperOverview.rows.map((r) => r.doc_no), norm(keeperOverview.totals.money.revenue), costMoney(keeperOverview), keeperOverview.can_record, keeperOverview.can_void],
-    [['MS-2026-0002', 'MS-2026-0001', 'FD-2026-0001'], '75000', false, true, false], 'المبيعات للأمين: بنطاقه (بلا الأدوية)، والمبلغ ظاهر، والكلفة والربح مخفيّان');
-  t.same([shownOf(await overview(U.hallWorker)), shownOf(await overview(U.owner, TODAY, day(-1)))], ['forbidden', 'period_required'], 'عامل القاعة forbidden، والمدّة مقلوبة period_required');
+  t.same([canon(keeperOverview), keeperOverview.can_record, keeperOverview.can_void], [canon(ownerOverview), true, true],
+    'المبيعات للأمين: قائمة المالك نفسها بالأدوية والكلفة والربح و«ألغِ» (0034)');
+  t.same([canon((await overview(U.hallWorker)).value), shownOf(await overview(U.owner, TODAY, day(-1)))], [canon(ownerOverview), 'period_required'],
+    'عامل القاعة يقرأ قائمة المالك نفسها (0034)، والمدّة مقلوبة period_required');
   const ownerDetail = (await call(db, U.owner, DT, [s1.sale], { commit: false })).value;
   const keeperDetail = (await call(db, U.storekeeper, DT, [s1.sale], { commit: false })).value;
-  t.same([ownerDetail.draws.length, norm(ownerDetail.draws[0].cost.money.value), costMoney(keeperDetail), keeperDetail.draws[0].cost, ownerDetail.can_void, keeperDetail.can_void],
-    [1, '60000', false, {}, true, false], 'تفصيل البيع: الدفعات المسحوبة بقيمتها للمالك وبلاها للأمين، والإلغاء للمدير والمالك');
-  t.eq(shownOf(await call(db, U.keeperGeneral, DT, [s1.sale], { commit: false })), 'out_of_scope', 'تفصيل بيع من مخزن خارج النطاق: out_of_scope');
+  t.same([ownerDetail.draws.length, norm(ownerDetail.draws[0].cost.money.value), ownerDetail.can_void, canon(keeperDetail)],
+    [1, '60000', true, canon(ownerDetail)], 'تفصيل البيع: الدفعات المسحوبة بقيمتها و«ألغِ»، والأمين يرى تفصيل المالك نفسه (0034)');
+  t.eq(canon((await call(db, U.keeperGeneral, DT, [s1.sale], { commit: false })).value), canon(ownerDetail), 'تفصيل بيع من مخزن خارج الصفّ القديم: تفصيل المالك نفسه (0034)');
   const report = async (user, group) => (await call(db, user, RE, [day(-7), TODAY, group], { commit: false })).value;
   const byParty = await report(U.owner, 'party');
   const byItem = await report(U.owner, 'item');
@@ -275,22 +278,11 @@ async function scenario(t, db) {
   t.eq(orphan.sale_orphans, 1, 'ضابط: قيد بمستند بيع غير موجود يُمسك (sale_orphans)');
 
   // ── ١١) الطفرات: كلّ قاعدة أضافتها 0021 بتطبيق بديل معقول يكسرها، فيفشل فحصها ───────────────────────────────────────────────
-  const code = (expected, hint) => (r) => !r.ok && r.code === expected && (!hint || r.hint.includes(hint));
   const okWith = (pick, value) => (r) => r.ok && pick(r.value) === value;
   const sellAs = (user, o) => async ({ attempt }) => attempt(user, async (q) => (await q(RS, args(o))).rows[0].v);
   const CASES = [
-    {
-      name: 'الفعل sale.record',
-      fns: [[FN.record, [["  perform private.require('sale.record');\n", '']]]],
-      run: sellAs(U.millOperator, { item: I.starter, qty: 1, price: 100, wh: W.feed }),
-      expect: code('forbidden'),
-    },
-    {
-      name: 'نطاق دفتر وحدة المخزن (book_for_post)',
-      fns: [[FN.record, [['  b := private.book_for_post(private.sale_book(w.id));\n', '  select * into b from public.ledger_books k where k.id = private.sale_book(w.id);\n']]]],
-      run: sellAs(U.keeperRaw, { item: I.corn, qty: 1, price: 100, wh: W.raw }),
-      expect: code('out_of_scope'),
-    },
+    // 0034: حالات الفعل sale.record ونطاق دفتر وحدة المخزن وإخفاء الكلفة عن غير أدوار الكلفة صارت مكافئة (كلّ عضو مسموح ويرى المال)، فشيلت؛
+    // وحدّ المنشأة وmembers.manage يحرسهما role-matrix.
     {
       name: 'الكلفة = قيمة السحب (لا متوسّط الرصيد)',
       fns: [[FN.record, [['    v_cost := v_cost + dr.value;\n',
@@ -337,12 +329,6 @@ async function scenario(t, db) {
       fns: [[FN.record, [['  if v_total > 0 then\n    e := private.write_entry(', '  if v_total >= 0 then\n    e := private.write_entry(']]]],
       run: sellAs(U.owner, { item: I.diesel, qty: 1, price: 0 }),
       expect: okWith((v) => v.free, true),
-    },
-    {
-      name: 'الكلفة والربح مخفيّان عن غير أدوار الكلفة',
-      fns: [[FN.view, [['case when public.can_see_cost() then p else private.strip_cost(p) end', 'p']]]],
-      run: sellAs(U.storekeeper, { item: I.diesel, qty: 1, price: 900 }),
-      expect: okWith((v) => costMoney(v), false),
     },
     {
       name: 'verify_sales: الكلفة = قيمة السحب',

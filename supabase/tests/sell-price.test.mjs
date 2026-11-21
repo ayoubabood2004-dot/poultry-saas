@@ -66,12 +66,13 @@ async function scenario(t, db) {
   // ضوابط الرفض: مبلغ بثلاث مراتب، وصفر، ومادّة غائبة، ومادّة مؤرشفة، ودور بلا إدارة مخازن.
   const spare = await one(U.owner, "insert into public.items (name, kind, base_unit) values ('ذرة الاحتياط', 'raw', 'kg') returning id");
   await one(U.owner, 'update public.items set archived_at = now() where id = $1', [spare]);
+  const dryPrice = (user) => call(db, user, 'select public.set_item_sell_price($1, $2, $3)', [I.corn, 1750, null], { commit: false });
   t.same(
     [(await price(U.owner, I.corn, 1750.125, null)).code, (await price(U.owner, I.corn, 0, null)).code,
       (await price(U.owner, uid(), 1750, null)).code, (await price(U.owner, spare, 1750, null)).code,
-      (await price(U.storekeeper, I.corn, 1750, null)).code, (await price(U.accountant, I.corn, 1750, null)).code],
-    ['bad_price', 'bad_price', 'item_not_found', 'item_archived', 'forbidden', 'forbidden'],
-    'ضوابط سعر البيع: المراتب والصفر والمادّة الغائبة والمؤرشفة مرفوضة، والأمين والمحاسب لا يكتبانه (stores.manage)',
+      (await dryPrice(U.storekeeper)).ok && 'ok', (await dryPrice(U.accountant)).ok && 'ok'],
+    ['bad_price', 'bad_price', 'item_not_found', 'item_archived', 'ok', 'ok'],
+    'ضوابط سعر البيع: المراتب والصفر والمادّة الغائبة والمؤرشفة مرفوضة، والأمين والمحاسب يكتبانه أيضاً (0034، بمعاملة ترجع)',
   );
 
   // ── ٢) القائمة: المادّة الجديدة تظهر برصيد صفر، وفي مخزن لا يستلم نوعها لا تظهر ────────────────────────────────────
@@ -262,7 +263,8 @@ async function scenario(t, db) {
   const buysJson = (await call(db, U.manager, 'select public.item_purchases($1, $2, null, 50) as v', [I.corn, W.raw])).value;
   t.eq(parsers.parseItemPurchases(buysJson).item.sellPrice, 175_000n, 'تكامل: سجلّ الشراء يرجّع سعر بيع المادّة بالفلس');
   const keeperBoard = parsers.parseStockBoard((await call(db, U.storekeeper, 'select public.stock_on_hand($1, null, 200) as v', [W.general])).value);
-  t.same([keeperBoard.money, keeperBoard.rows.every((row) => row.money === null)], [null, true], 'تكامل: والأمين يقرأ القائمة بلا مال (القناع بالخادم، والمحلّل يرجّع null)');
+  t.same({ ...keeperBoard, asOf: null }, { ...parsers.parseStockBoard((await call(db, U.manager, 'select public.stock_on_hand($1, null, 200) as v', [W.general])).value), asOf: null },
+    'تكامل: والأمين يقرأ قائمة المدير نفسها بمالها (0034)');
 
   // ── ٦) الثوابت ما تغيّرت ────────────────────────────────────────────────────────────────────────────────────────
   t.same(

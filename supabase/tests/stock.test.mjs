@@ -115,10 +115,12 @@ async function scenario(t, db) {
 
   // ── الافتتاح: الصلاحية، ويوم التشغيل ─────────────────────────────────────────────────────────────────────────
   const dieselDoc = await openingDraft(db, U.manager, W.general, GO_LIVE, [{ item: I.diesel, qty: 1000, value: 800000 }]);
+  // 0034 («الكلّ مثل المالك»): opening.post لكلّ عضو؛ بمعاملة ترجع، فالمدير يرحّله بعد.
+  const dryOpening = (user, doc) => call(db, user, 'select public.post_opening_stock($1, $2, $3)', [doc.id, doc.version, uid()], { commit: false });
   t.same(
-    { storekeeper: shown(await postOpening(db, U.storekeeper, dieselDoc)), accountant: shown(await postOpening(db, U.accountant, dieselDoc)), viewer: shown(await postOpening(db, U.viewer, dieselDoc)) },
-    { storekeeper: 'forbidden', accountant: 'forbidden', viewer: 'forbidden' },
-    'ترحيل الافتتاح للمدير والمالك بس (opening.post)',
+    { storekeeper: shown(await dryOpening(U.storekeeper, dieselDoc)), accountant: shown(await dryOpening(U.accountant, dieselDoc)), viewer: shown(await dryOpening(U.viewer, dieselDoc)) },
+    { storekeeper: 'ok', accountant: 'ok', viewer: 'ok' },
+    'ترحيل الافتتاح لكلّ عضو (0034، بمعاملة ترجع)',
   );
   const lateDoc = await openingDraft(db, U.manager, W.general2, '2026-10-21', [{ item: I.gas, qty: 1, value: 7000 }]);
   // 0018 (كلمة المالك «ما النا علاقة بيوم التشغيل»): الافتتاح بعد يوم التشغيل وبوحدة بلا يوم يمرّ؛ بمعاملة ترجع حتّى لا يغيّر ما بعده
@@ -208,7 +210,7 @@ async function scenario(t, db) {
   t.same([dieselSource.qty_left, dieselSource.value_left], ['0', '0'], 'المصدر صفر وصفر');
   t.eq(t0.result.doc_no, 'TR-2026-0001', 'رقم التحويل TR-2026-0001 بسنة تاريخه');
   t.eq(t0.result.internal_export, true, 'بين المخازن العامة والمعمل صادر داخلي');
-  t.ok(!JSON.stringify(t0.result).includes('"money"'), 'نتيجة ترحيل الأمين بلا money');
+  t.ok(JSON.stringify(t0.result).includes('"money"'), 'نتيجة ترحيل الأمين بمالها (0034)');
   t.eq((await db.admin('select count(*)::int as n from public.party_entries where org_id = $1', [S.org])).rows[0].n, partiesBefore, 'الصادر الداخلي بلا قيد جهة (FOUNDATION ٩٢، ٥٥٤)');
   const partial = await postedTransfer(db, U.manager, W.raw, W.farm1, '2026-10-29', [{ item: I.diesel, qty: 40 }]);
   t.same((await lotsOf(db, I.diesel, W.farm1)).map((l) => [l.qty_in, l.value_in]), [['40', '32000']], '40 لتراً من المرآة ← 32,000.00 (FOUNDATION ٦٢٢)');
@@ -330,7 +332,9 @@ async function scenario(t, db) {
   const lowBoard = (await call(db, U.storekeeper, 'select public.stock_on_hand($1, null, 50)', [W.general])).value;
   t.same(lowBoard.rows.filter((r) => r.below_min).map((r) => r.name), ['كاز أبيض'], 'الحدّ الأدنى بمخازن الاستلام (العامّة) بس: 500 < 600، والوقود بالمعمل ما ينحسب');
   const home = (await call(db, U.storekeeper, 'select public.home_summary()')).value;
-  t.same([home.accounts, home.stock.map((d) => [d.kind, d.below_min])], [undefined, [['general', 1]]], 'رئيسية الأمين: بلا بطاقة حسابات، وتنبيه المخازن العامة بنطاقه بس');
+  t.same([home.accounts?.books, home.stock.map((d) => [d.kind, d.below_min])],
+    [{ total: 7, visible: 7 }, [['broiler', 0], ['feed_mill', 0], ['general', 1], ['hatchery', 0], ['layer', 0], ['medicine', 0]]],
+    'رئيسية الأمين: بطاقة الحسابات بكلّ الدفاتر، والمخازن كلّها وتنبيه العامّة (0034)');
   const managerHome = (await asM('select public.home_summary()')).value.stock;
   t.same(Object.fromEntries(managerHome.map((d) => [d.kind, [d.below_min, d.near_expiry, Number(d.old_chicks)]])).medicine, [0, 1, 0], 'رئيسية المدير: الأدوية بمادّة قريبة الانتهاء');
   t.same(Object.fromEntries(managerHome.map((d) => [d.kind, Number(d.old_chicks)])).hatchery, 100, 'رئيسية المدير: 100 فرخ فاتها 48 ساعة بالمفقس');
@@ -346,8 +350,8 @@ async function scenario(t, db) {
   // العلامة بقائمة المخازن (إعدادات المنشأة ومنتقي المخزن، §2.6) من دالّة بلا قيم لكل دور، بنطاقه: الأمين بنطاق العامّ ما يشوف الثاني.
   t.same(
     [(await asM('select public.archived_stores_with_stock()')).value, (await call(db, U.storekeeper, 'select public.archived_stores_with_stock()')).value],
-    [[W.general2], []],
-    'قائمة المخازن المؤرشفة وعليها رصيد: المدير يشوف المخزن الثاني، والأمين بنطاق العامّ ما يشوفه',
+    [[W.general2], [W.general2]],
+    'قائمة المخازن المؤرشفة وعليها رصيد: المدير والأمين (بصفّ نطاق العامّ القديم) يشوفان المخزن الثاني (0034)',
   );
   t.eq(shown(await postTransfer(db, U.manager, await transferDraft(db, U.manager, W.general, W.general2, TODAY, [{ item: I.gas, qty: 1 }]))), 'warehouse_archived', 'تحويل جديد لمخزن مؤرشف ← warehouse_archived');
 
@@ -419,8 +423,8 @@ async function scenario(t, db) {
       managerDelete: (await call(db, U.manager, "select public.delete_draft_line('opening', $1, $2) ->> 'deleted'", [looseOpening.lines[0], looseOpening.version], once)).value,
       managerDiscard: (await call(db, U.manager, "select public.discard_draft('opening', $1, $2) ->> 'status'", [looseOpening.id, looseOpening.version])).value,
     },
-    { keeperDiscard: 'forbidden', keeperDelete: 'forbidden', scopedDiscard: 'out_of_scope', scopedDelete: 'out_of_scope', managerDelete: 'true', managerDiscard: 'void' },
-    'طيّ مسوّدة الافتتاح وحذف سطرها: الأمين forbidden، والمحصور بمخزن ثاني out_of_scope، والمدير ينجح',
+    { keeperDiscard: 'ok', keeperDelete: 'ok', scopedDiscard: 'ok', scopedDelete: 'ok', managerDelete: 'true', managerDiscard: 'void' },
+    'طيّ مسوّدة الافتتاح وحذف سطرها: الأمين والمدير بصفّ نطاق قديم ينجحان (0034، بمعاملة ترجع)، والمدير ينجح',
   );
   t.same((await db.admin('select status, voided_at is not null as voided from public.opening_docs where id = $1', [looseOpening.id])).rows[0], { status: 'void', voided: true }, 'مسوّدة الافتتاح المطويّة void');
   const priced = await openingDraft(db, U.manager, W.raw, GO_LIVE, [{ item: I.corn, qty: 100, value: 45000 }]);
