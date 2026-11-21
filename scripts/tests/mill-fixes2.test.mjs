@@ -302,13 +302,13 @@ export default async function (t) {
         }),
       );
       await mount('/mill/batch/b-1');
-      t.ok(text().includes('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف» خارج نطاقك: يختمها محاسب أو مدير يرى تلك الوحدة، ثمّ تُرحَّل.'), 'Y2 costs_unsealed_scope بجملة تسمّي الوحدة');
+      t.ok(text().includes('تكاليف هذه الدفعة تُحمَّل من مصاريف وحدة «معمل العلف»: تُختَم أوّلاً، ثمّ تُرحَّل.'), 'Y2 costs_unsealed_scope بجملة تسمّي الوحدة');
       t.same(
         ['cost-amount', 'add-cost', 'remove-cost', 'new-category-name', 'seal-costs', 'record-expense', 'zero-cost'].map((name) => byAction(name).length),
         [0, 0, 0, 0, 0, 0, 0],
         'Y2 بلا expenses_visible: لا تعديل مبلغ ولا سطر جديد ولا حذف ولا فئة جديدة ولا ختم ولا «سجّل مصروفاً» ولا «صفّر السطر»',
       );
-      t.ok(byAction('costs-out-of-scope')[0]?.textContent === 'تُحمَّل هذه التكاليف من مصاريف وحدة «معمل العلف» خارج نطاقك: يكتبها ويختمها محاسب أو مدير يرى تلك الوحدة.', 'Y2 وتحت جدول التكاليف جملة تقول من يكتبها ويختمها');
+      t.ok(byAction('costs-out-of-scope')[0]?.textContent === 'تُحمَّل هذه التكاليف من مصاريف وحدة «معمل العلف» لم يرسلها الخادم: حدّث الصفحة لكتابتها وختمها.', 'Y2 وتحت جدول التكاليف جملة تقول من يكتبها ويختمها');
       const post = byAction('post-production')[0];
       t.same([Boolean(post), disabled(post)], [true, true], 'Y2 «أنتج الآن» للمحاسب معطّل قبل الختم (can_post = false)');
     });
@@ -336,7 +336,7 @@ export default async function (t) {
       t.same(
         ['cost-amount', 'add-cost', 'remove-cost', 'new-category-name', 'seal-costs', 'record-expense', 'zero-cost', 'costs-out-of-scope'].map((name) => byAction(name).length),
         [1, 1, 1, 1, 1, 1, 1, 0],
-        'Y2 ضابط: من يرى الوحدة يكتب التكاليف ويختمها ويسجّل المصروف، ولا جملة «خارج نطاقك»',
+        'Y2 ضابط: من يرى الوحدة يكتب التكاليف ويختمها ويسجّل المصروف، ولا جملة «لم يرسلها الخادم»',
       );
     });
 
@@ -365,7 +365,7 @@ export default async function (t) {
       );
       await mount('/mill/batch/b-1');
       t.eq(named(calls, 'previewProduction').length, 0, 'Y3 مسوّدة من طرف العلف: لا تُطلب المعاينة');
-      t.ok(text().includes('هذه الدفعة مسوّدة تُعمل من مخزن «مخزن المواد الأوّلية» خارج نطاقك') && !text().includes('تعذّر تحميل'), 'Y3 وتقول ذلك بجملة بدل «تعذّر التحميل»');
+      t.ok(text().includes('هذه الدفعة مسوّدة تُعمل من مخزن «مخزن المواد الأوّلية» لم يرسل الخادم وجباته') && !text().includes('تعذّر تحميل'), 'Y3 وتقول ذلك بجملة بدل «تعذّر التحميل»');
       t.same(
         ['post-production', 'discard-batch', 'add-input', 'input-actual', 'save-weight', 'seal-costs', 'replace-input'].map((name) => byAction(name).length),
         [0, 0, 0, 0, 0, 0, 0],
@@ -462,7 +462,7 @@ export default async function (t) {
       );
       await mount('/mill/batch/b-1');
       t.same(byAction('allocations-void').map((node) => node.textContent), ['أُوقف تحميلها بالإلغاء', 'أُوقف تحميلها بالإلغاء'], 'Y7 كلّ سطر تكاليف في الملغاة: «أُوقف تحميلها بالإلغاء»');
-      t.eq(byAction('allocations-hidden').length, 0, 'Y7 ولا «خارج نطاقك» لدفعة ملغاة');
+      t.eq(byAction('allocations-hidden').length, 0, 'Y7 ولا «غير معروضة» لدفعة ملغاة');
     });
 
     // ── Y8 (ب٨): شريط التركيبة ورقاقاته في شاشة المعمل بلا ما هو خارج الكتلة ─────────────────────────────────────────────────

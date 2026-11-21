@@ -912,7 +912,7 @@ export default async function (t) {
       fresh(MANAGER, { rpcs: { vaccine_board: () => ({ ...clone(F.vaccine_board), can_edit: false }) } });
       await mount('/halls/vaccines');
       t.same(
-        [byAction('vac-pick').length, byAction('vac-add').length, byAction('vac-delete').length, byAction('save-program').length, byAction('cycle-end').length, ageCell(7)?.localName, bandsOf(7), text().includes('جدول اللقاحات يعدّله المالك أو المدير؛ هنا للعرض.')],
+        [byAction('vac-pick').length, byAction('vac-add').length, byAction('vac-delete').length, byAction('save-program').length, byAction('cycle-end').length, ageCell(7)?.localName, bandsOf(7), text().includes('لا يعدّل حسابك جدول اللقاحات الآن؛ الصفحة للعرض.')],
         [0, 0, 0, 0, 0, 'div', ['IB', 'ND'], true],
         'V7 can_edit = false: الجدول للعرض بلا اختيار ولا حفظ',
       );

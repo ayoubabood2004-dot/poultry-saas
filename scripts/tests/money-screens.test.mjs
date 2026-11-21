@@ -502,7 +502,7 @@ export default async function (t) {
         O.debts.divisions.map((d) => [`/accounts/debts?side=receivable&division=${d.division_id}`, `/accounts/debts?side=payable&division=${d.division_id}`]),
         'H11 رقما كلّ قسم يفتحان قائمة الذمم بطرفها وقسمها',
       );
-      t.ok(!text().includes('الأرقام من حسابات نطاقك'), 'H12 بلا نطاق محصور: بلا جملة النطاق');
+      t.ok(!text().includes('الأرقام من بعض الحسابات'), 'H12 كلّ الحسابات: بلا جملة «بعض الحسابات»');
       // اليوم: الأصناف بلا التحويل والرصيد عند البداية، والمجموع من الخادم، والخارجة بسطرها
       const today = tableOf(first('hub-today'));
       t.same(today.headers, ['النوع', 'دخل', 'خرج'], 'H13 جدول اليوم: النوع | دخل | خرج');
@@ -586,7 +586,7 @@ export default async function (t) {
       fresh({ money_overview: () => clone(variant) }, 'accountant');
       await mount('/accounts');
       t.ok(byAction('hub-box').some((n) => hrefOf(n) === '/accounts/cash/arch-box' && text(n).includes('صندوق قديم (مؤرشف وعليه رصيد)')), 'H31 المؤرشف برصيد بعلامته');
-      t.ok(text(first('hub-debts')).includes('الأرقام من حسابات نطاقك: 1 من 7'), 'H32 القارئ المحصور يعرف أنّ الذمم من حسابات نطاقه');
+      t.ok(text(first('hub-debts')).includes('الأرقام من بعض الحسابات: 1 من 7'), 'H32 جواب ببعض الحسابات (خادم أقدم): الذمم تقول إنّها من بعض الحسابات');
       t.same([text(first('hub-sales')).includes('كلفتها'), first('hub-gross')], [false, null], 'H33 الكلفة محجوبة: بلا كلفة ولا ربح');
       t.ok(text(first('hub-alerts')).includes('لا تنبيهات') && first('hub-alert-receivable') === null, 'H34 بلا تنبيه: «لا تنبيهات»');
       const hrefs = links(descendants(body()).find((n) => n.localName === 'nav' && n.getAttribute('aria-label') === 'صفحات الحسابات')).map(hrefOf);

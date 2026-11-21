@@ -557,7 +557,7 @@ export default async function (t) {
       // A11: void_block لمن يُلغي عادةً ولا يرى «⋯».
       fresh(MANAGER, { sale_detail: () => ({ ...clone(MULTI), can_void: false, void_block: 'period_locked' }) });
       await mount(`/sales/${MULTI.id}`);
-      t.same([byAction('sale-more').length, textOf('void-block')], [0, 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، ويفتحها مالك المنشأة.'], 'F9 الفترة مقفلة: الجملة مكان «⋯»');
+      t.same([byAction('sale-more').length, textOf('void-block')], [0, 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، فتُفتح أوّلاً.'], 'F9 الفترة مقفلة: الجملة مكان «⋯»');
       await unmount();
       // 0034 («الكلّ مثل المالك»): عيّنة الأمين الحقيقيّة تُلغى (can_void true، void_block null)؛ وforbidden الذي لم يعد يصل من الخادم لعضو يبقى بلا جملة.
       fresh(sessionOf('storekeeper'), { sale_detail: () => ({ ...clone(D.storekeeper_multi), can_void: false, void_block: 'forbidden' }) });

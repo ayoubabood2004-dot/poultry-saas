@@ -367,7 +367,9 @@ export default async function (t) {
       await unmount();
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => item('i-egg', 'بيض مائدة', 'table_egg', { baseUnit: 'pc' }) }));
       await mount('/inventory/receipts?new=1&item=i-egg');
-      t.ok(text().includes('لا مخزن في نطاقك يستلم «بيض مائدة»'), `B2: ومادّة لا يستلمها مخزن تقول ذلك (${text().slice(0, 300)})`);
+      t.ok(text().includes('لا مخزن يستلم «بيض مائدة»'), `B2: ومادّة لا يستلمها مخزن تقول ذلك (${text().slice(0, 300)})`);
+      // 0034: عنوان الاستلام يصف الخطوات بلا دور (كان «الأمين يكتب الكميات، والمحاسب أو المدير يكتب المبالغ…»).
+      t.ok(text().includes('تُكتب الكميات ثمّ المبالغ، ثمّ يُحفظ الاستلام نهائياً.') && !text().includes('الأمين يكتب'), 'B2: سطر صفحة الاستلام بالخطوات لا بالأدوار');
       await unmount();
       fresh({ status: 'ready', workspace: ws('manager') }, handlers({ loadItem: () => ({ ...corn, archived: true }) }));
       await mount('/inventory/receipts?new=1&wh=w-raw&item=i-corn');
@@ -509,6 +511,14 @@ export default async function (t) {
       t.ok(options.some((o) => o.startsWith('إضافة للعلف:')), 'B4: والإضافات بأمثلتها');
       t.eq(picked(byAction('pick-kind')[0]), 'raw', 'B4: ضابط: النوع المقترح في مخزن المواد الأوّلية «مادّة أوّلية»');
       t.ok(!text().includes('لن تظهر في'), 'B4: ونوع يستلمه المخزن بلا تنبيه');
+      await unmount();
+    });
+    await step('B4-feed-no-raw', async () => {
+      // بلا مخزن موادّ أوّلية: الجملة تقول الخطوة (أضفه من «المخزن» ثم «أضف مخزناً») بلا «يضيفه المدير» ولا «نطاقك».
+      const feedBoard = board({ id: 'w-feed', name: 'مخزن العلف', kind: 'feed' }, [stockRow('i-feed', 'علف بياض', 'feed')]);
+      fresh({ status: 'ready', workspace: ws('storekeeper') }, handlers({ loadStockOnHand: () => feedBoard, loadAllStockOnHand: () => feedBoard, loadFeedOrder: () => ['i-feed'], loadStoresOverview: () => overview({ rows: [card({ id: 'w-feed', name: 'مخزن العلف', kind: 'feed' })] }) }));
+      await mount('/inventory/store/w-feed');
+      t.ok(text().includes('لا مخزن موادّ أوّلية بعد؛ أضفه من «المخزن» ثم «أضف مخزناً».') && hrefs('open-raw-store').length === 0, `B4: بلا مخزن موادّ أوّلية: الخطوة بلا دور ولا نطاق (${text().slice(0, 300)})`);
       await unmount();
     });
     await step('B4-feed', async () => {

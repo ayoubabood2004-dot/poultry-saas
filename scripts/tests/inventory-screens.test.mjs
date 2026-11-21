@@ -520,6 +520,7 @@ async function reviewFixes(t, m, setup) {
       "export * as stockRoutes from './src/pages/inventory/StockRoutes.tsx';",
       "export * as board from './src/pages/inventory/StockBoardPage.tsx';",
       "export * as card from './src/pages/inventory/ItemCardPage.tsx';",
+      "export * as storesCards from './src/pages/inventory/StoresCardsPage.tsx';",
       "export * as transfers from './src/pages/inventory/TransfersPage.tsx';",
       "export * as openings from './src/pages/inventory/OpeningsPage.tsx';",
       "export * as shared from './src/pages/inventory/stock-shared.tsx';",
@@ -595,6 +596,28 @@ async function reviewFixes(t, m, setup) {
     const html = inv.renderToStaticMarkup(inv.h(inv.MemoryRouter, null, inv.h(inv.board.BoardTables, { board: boardOf([row('i-1', 'لقاح أ', 5_000n), row('i-3', 'لقاح بلا رصيد', 0n)], null, 2), values, warehouseId: 'w-med' })));
     const zero = [...html.matchAll(/<tr[^>]*>.*?<\/tr>/gu)].map((match) => match[0]).find((tr) => tr.includes('لقاح بلا رصيد')) ?? '';
     t.ok(zero.includes('<bdi dir="ltr">0.00</bdi>'), 'مادّة بلا رصيد (تحت الحدّ الأدنى بس) قيمتها 0.00 فعلاً');
+  });
+
+  // ── قسم بلا مخزن (0034): الجملة تقول ذلك وتدلّ على «إعداد المخزن» — لا «يحدّد مالك المنشأة نطاقك» (محرّر النطاق محذوف، وتظهر للمالك أيضاً) ──
+  await step('قسم بلا مخزن', () =>
+    withInventory({ session: ready({ role: 'owner' }), loads: { 'loadOrgSetup|': { data: { ...org, warehouses: org.warehouses.filter((w) => w.kind !== 'chick') } } } }, async () => {
+      const html = at('/inventory/hatchery');
+      t.ok(
+        html.includes('لا مخزن في هذا القسم بعد.') && html.includes('أضف مخزناً لهذا القسم من «إعداد المخزن».') && html.includes('href="/inventory/setup"') && !html.includes('نطاقك') && !html.includes('مالك المنشأة'),
+        `لوحة قسم بلا مخزن: «لا مخزن في هذا القسم بعد» ورابط «إعداد المخزن»، بلا نطاق ولا مالك (${html.replace(/<[^>]+>/gu, ' ').slice(0, 600)})`,
+      );
+    }),
+  );
+  await step('بطاقات المخازن بلا مخزن', () => {
+    const none = { rows: [], sites: [], canManage: false, canCreateItem: false, today: '2026-11-21', totals: null };
+    const textOf = (html) => html.replace(/<[^>]+>/gu, '');
+    const withAdd = textOf(inv.renderToStaticMarkup(inv.h(inv.MemoryRouter, null, inv.h(inv.storesCards.StoresBody, { overview: none, costs: true, onAdd: () => {} }))));
+    const without = inv.renderToStaticMarkup(inv.h(inv.MemoryRouter, null, inv.h(inv.storesCards.StoresBody, { overview: none, costs: true, onAdd: null })));
+    t.same(
+      [withAdd.includes('لا مخزن بعد.') && withAdd.includes('أضف مخزنك الأوّل من «أضف مخزناً» في الأعلى.'), without.includes('أضف مخزناً من «إعداد المخزن».') && without.includes('href="/inventory/setup"'), /نطاقك|مالك المنشأة/u.test(withAdd + without)],
+      [true, true, false],
+      'بطاقات المخازن بلا مخزن: «لا مخزن بعد» وخطوة الإضافة (زرّ «أضف مخزناً» أو «إعداد المخزن»)، بلا نطاق ولا مالك',
+    );
   });
 
   // ── E «الكلّ مثل المالك» (0034): لوحة المخزن بقيمها ومجموعها، بالجواب نفسه لكلّ دور كما للمالك ─────────────────────────────

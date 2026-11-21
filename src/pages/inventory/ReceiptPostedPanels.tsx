@@ -362,7 +362,7 @@ export function PriceCorrectionPanel({ receipt, lines, totals }: { receipt: Rece
   return (
     <section className="card flex flex-col gap-3 p-4" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`} className="font-semibold">{t('revalue.section', 'تصحيح سعر الشراء')}</h2>
-      <p className="text-sm text-ink-muted">{t('revalue.section.hint', 'للمدير بعد ما سُحب من الوجبة: حصّة المتبقّي من الفرق تدخل الوجبات، وحصّة المسحوب مصروف «فرق سعر شراء»، والأوراق المحفوظة لا يُعاد تسعيرها.')}</p>
+      <p className="text-sm text-ink-muted">{t('revalue.section.hint', 'بعد ما سُحب من الوجبة: حصّة المتبقّي من الفرق تدخل الوجبات، وحصّة المسحوب مصروف «فرق سعر شراء»، والأوراق المحفوظة لا يُعاد تسعيرها.')}</p>
       <DataTable caption={t('receipt.lines', 'سطور الاستلام')} columns={lineColumns} rows={lines} rowKey={(line) => line.id} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
       {opened ? (
         <RevalueForm

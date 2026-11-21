@@ -147,7 +147,7 @@ export default function OpeningBalancesPage() {
     return (
       <div className="flex flex-col gap-4">
         {header}
-        <Notice tone="info" title={t('openings.forbidden', 'الأرصدة عند البداية للمدير ومالك المنشأة.')} />
+        <Notice tone="info" title={t('openings.forbidden', 'تحتاج الأرصدة عند البداية عضويةً فعّالة في المنشأة.')} />
       </div>
     );
   }

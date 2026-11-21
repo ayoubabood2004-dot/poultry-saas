@@ -357,7 +357,7 @@ export function cardSpecs(summary: HomeSummary | null, farms: FarmCards | null =
         { label: t('home.accounts.negative_boxes', 'صناديق بالسالب'), kind: 'number', value: accounts ? fmtInt(accounts.negativeBoxes) : null },
         // القارئ المحصور (E49): الرقمان من دفاتر نطاقه بس، فالبطاقة تقول من كم دفتر.
         ...(accounts && accounts.visibleBooks < accounts.totalBooks
-          ? [{ label: t('home.accounts.books', 'حسابات نطاقك'), kind: 'text' as const, value: t('home.accounts.books.n', '{visible} من المجموع {total}', { visible: fmtInt(accounts.visibleBooks), total: fmtInt(accounts.totalBooks) }) }]
+          ? [{ label: t('home.accounts.books', 'الحسابات المعروضة'), kind: 'text' as const, value: t('home.accounts.books.n', '{visible} من المجموع {total}', { visible: fmtInt(accounts.visibleBooks), total: fmtInt(accounts.totalBooks) }) }]
           : []),
       ],
     },

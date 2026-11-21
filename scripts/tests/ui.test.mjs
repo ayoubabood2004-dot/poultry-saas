@@ -362,11 +362,11 @@ export default async function (t) {
       general: { belowMinimum: 0 },
       accounts: { receivable: 396_000_000n, payable: 0n, negativeBoxes: 1, visibleBooks: 7, totalBooks: 7 },
     });
-    // بطاقة الحسابات: «صناديق بالسالب» برقمها، و«حسابات نطاقك» للقارئ المحصور بس (E49).
+    // بطاقة الحسابات: «صناديق بالسالب» برقمها، و«الحسابات المعروضة» حين يرسل الخادم بعض الحسابات (E49، خادم أقدم).
     t.ok(/صناديق بالسالب<\/dt><dd dir="ltr"[^>]*>1<\/dd>/.test(html), 'بطاقة الحسابات: «صناديق بالسالب» 1');
-    t.ok(!html.includes('حسابات نطاقك'), 'القارئ بلا نطاق: بلا «حسابات نطاقك»');
+    t.ok(!html.includes('الحسابات المعروضة'), 'كلّ الحسابات: بلا «الحسابات المعروضة»');
     const scopedAccounts = render({ accounts: { receivable: 50_000_000n, payable: 0n, negativeBoxes: 0, visibleBooks: 1, totalBooks: 7 } });
-    t.ok(scopedAccounts.includes('حسابات نطاقك') && scopedAccounts.includes('1 من المجموع 7'), 'المحصور: البطاقة تكتب «1 من المجموع 7» دفاتر');
+    t.ok(scopedAccounts.includes('الحسابات المعروضة') && scopedAccounts.includes('1 من المجموع 7'), 'بعض الحسابات: البطاقة تكتب «1 من المجموع 7» دفاتر');
     const ltr = [...html.matchAll(/<dd dir="ltr"[^>]*>(.*?)<\/dd>/g)].map((match) => match[1]);
     t.ok(ltr.length >= 10, `الأرقام الصافية بـdir=ltr (${ltr.length})`);
     t.same(ltr.filter((value) => ARABIC.test(value)), [], 'ماكو كلمة عربية جوّا dd بـdir=ltr');

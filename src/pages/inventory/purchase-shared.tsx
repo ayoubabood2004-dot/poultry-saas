@@ -127,7 +127,7 @@ export function SupplierPicker({ id, label, value, onChange, customer = false }:
         </Button>
       ) : customer && !canCreate && search.trim() ? (
         <p className="text-sm text-ink-muted" data-action="party-create-hint">
-          {t('sale.party.create_hint', 'الجهة الجديدة يضيفها أمين المخزن أو المحاسب أو المدير؛ اختر جهة من القائمة.')}
+          {t('sale.party.create_hint', 'لا تُضاف جهة جديدة من هنا الآن؛ اختر جهة من القائمة.')}
         </p>
       ) : null}
     </div>

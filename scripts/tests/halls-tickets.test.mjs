@@ -341,7 +341,7 @@ export default async function (t) {
     await step('E لعامل لا يكتب', async () => {
       fresh(sessionOf('viewer'), draftRpcs({ weigh_ticket: () => ({ ...clone(F.weigh_ticket_draft), can: { edit: false, finish: false, void: false, invoice: false } }) }));
       await mount(`/halls/ticket/${DRAFT.id}`);
-      t.same([disabled(inStop(S1, 'ticket-birds')), byAction('ticket-delete').length, text().includes('تذكرة الوزن يكتبها عامل القاعة في حقله والمدير؛ دورك يقرأ فقط.')], [true, 0, true], 'E من لا يكتب التذاكر يقرأ: الخانات مقفلة بجملة');
+      t.same([disabled(inStop(S1, 'ticket-birds')), byAction('ticket-delete').length, text().includes('لا يكتب حسابك هذه التذكرة الآن؛ الصفحة للعرض فقط.')], [true, 0, true], 'E من لا يكتب التذاكر يقرأ: الخانات مقفلة بجملة');
     });
 
     // ── D: المكتملة والملغاة ─────────────────────────────────────────────────────────────────────────────────────────

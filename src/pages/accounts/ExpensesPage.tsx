@@ -574,7 +574,7 @@ export default function ExpensesPage() {
           {report.data.divisions.visible < report.data.divisions.total ? (
             <Notice
               tone="info"
-              title={t('expense.scoped', 'المجاميع لوحدات نطاقك فقط: {visible} من {total}.', { visible: fmtInt(report.data.divisions.visible), total: fmtInt(report.data.divisions.total) })}
+              title={t('expense.scoped', 'المجاميع لبعض الوحدات فقط: {visible} من {total}.', { visible: fmtInt(report.data.divisions.visible), total: fmtInt(report.data.divisions.total) })}
             />
           ) : null}
           <DataTable caption={t('expense.by_category', 'المصاريف حسب التصنيف')} columns={categoryColumns} rows={totals.byCategory} rowKey={(row) => row.categoryId} empty={t('expense.empty', 'لا مصاريف في هذه المدّة.')} />
@@ -607,7 +607,7 @@ export default function ExpensesPage() {
           onDone={changed}
         />
       ) : null}
-      {!canPost && !report.error && rows.length === 0 && report.data ? <Notice tone="info" title={t('expense.readonly', 'التسجيل للمحاسب والمدير ومالك المنشأة.')} /> : null}
+      {!canPost && !report.error && rows.length === 0 && report.data ? <Notice tone="info" title={t('expense.readonly', 'يحتاج تسجيل المصاريف عضويةً فعّالة في المنشأة.')} /> : null}
       {failedNote(report.error)}
     </div>
   );
@@ -615,5 +615,5 @@ export default function ExpensesPage() {
 
 /** رفض القراءة (forbidden): المصاريف لأدوار الكلفة. */
 function failedNote(error: unknown) {
-  return error instanceof RejectedError && error.code === 'forbidden' ? <Notice tone="info" title={t('expense.forbidden', 'المصاريف للمالك والمدير والمحاسب فقط.')} /> : null;
+  return error instanceof RejectedError && error.code === 'forbidden' ? <Notice tone="info" title={t('expense.forbidden', 'تحتاج المصاريف عضويةً فعّالة في المنشأة.')} /> : null;
 }

@@ -897,7 +897,7 @@ function VaccinesView() {
           <LoadFailed what={t('halls.vac.what', 'جدول اللقاحات')} error={state.error} onRetry={state.retry} />
         )
       ) : null}
-      {!canEdit ? <Notice tone="info" title={t('halls.vac.read_only', 'جدول اللقاحات يعدّله المالك أو المدير؛ هنا للعرض.')} /> : null}
+      {!canEdit ? <Notice tone="info" title={t('halls.vac.read_only', 'لا يعدّل حسابك جدول اللقاحات الآن؛ الصفحة للعرض.')} /> : null}
       {kinds.length > 1 ? (
         <div className="max-w-md" data-action="kind-tabs">
           <Segmented label={t('halls.vac.kinds', 'نوع القاعات')} options={kinds.map((value) => ({ value, label: kindTitle(value) }))} value={kind} onChange={goKind} />
@@ -962,7 +962,7 @@ function VaccinesView() {
       ) : null}
       {askedHall !== null && hall === null ? (
         <div data-action="hall-missing">
-          <Notice tone="warning" title={t('halls.vac.hall_missing', 'القاعة المطلوبة ليست بين قاعاتك (أُرشفت أو خرجت من نطاقك)، فيُعرض الجدول العامّ.')} />
+          <Notice tone="warning" title={t('halls.vac.hall_missing', 'القاعة المطلوبة ليست بين القاعات (أُرشفت)، فيُعرض الجدول العامّ.')} />
         </div>
       ) : null}
 

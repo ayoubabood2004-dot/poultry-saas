@@ -917,7 +917,7 @@ export default async function (t) {
       m.onlineStore.set(true);
       fresh({ status: 'ready', workspace: ws({ userId: 'u-w' }), offline: false }, { loadOverviewJson: () => ({ today: TODAY, sites: [site('s-1', 'broiler', [hall('h-3', 'قاعة 3', null)])] }) });
       await mount('/broiler/round');
-      t.ok(text().includes('لا أفواج نشطة في نطاقك اليوم.') && !text().includes('شغّالة'), 'W: «لا أفواج نشطة في نطاقك اليوم.»');
+      t.ok(text().includes('لا أفواج نشطة اليوم.') && !text().includes('شغّالة'), 'W: «لا أفواج نشطة اليوم.»');
       await unmount();
     }
 

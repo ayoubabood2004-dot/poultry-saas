@@ -29,7 +29,7 @@ export default async function (t) {
   const m = await bundle(
     [
       "export { ReturnPreviewPanel, ReturnLinesTable, returnVoidSentence, returnWholeLines, settleCredits, creditPlan } from './src/pages/inventory/SupplierReturnPage.tsx';",
-      "export { RevaluePreviewPanel, currentLineTotal } from './src/pages/inventory/ReceiptPostedPanels.tsx';",
+      "export { RevaluePreviewPanel, PriceCorrectionPanel, currentLineTotal } from './src/pages/inventory/ReceiptPostedPanels.tsx';",
       "export { parseSupplierReturnPreview, parseRevaluePreview } from './src/lib/repo/purchasing.ts';",
     ].join('\n'),
   );
@@ -68,6 +68,9 @@ export default async function (t) {
     lot_share: '28800.00', expense_amount: '21200.00', supplier_adjustment: '-50000', problems: [], ready: true, plan: 'p',
   });
   const revalueHtml = textOf(m.renderToStaticMarkup(m.h(m.RevaluePreviewPanel, { preview: revalue })));
+  // 0034: قسم تصحيح السعر بلا «للمدير» (كلّ عضو يصحّح السعر): الجملة تصف متى يُصحَّح وما يحدث.
+  const correction = textOf(m.renderToStaticMarkup(m.h(m.PriceCorrectionPanel, { receipt: { id: 'pu' }, lines: [], totals: new Map() })));
+  t.ok(correction.includes('بعد ما سُحب من الوجبة: حصّة المتبقّي من الفرق تدخل الوجبات') && !correction.includes('للمدير'), `قسم تصحيح سعر الشراء بلا دور (${correction.slice(0, 160)})`);
   t.ok(['مخزن المعمل', '18,800.00', '10,000.00', '28,800.00', '21,200.00', '50,000', '1,880'].every((x) => revalueHtml.includes(x)), 'معاينة التصحيح: حصص الجذر والمرآة وحصّة المتبقّي و«فرق سعر شراء» وقيد المورّد');
   t.same(
     [m.currentLineTotal('l', 235_000_000n, []), m.currentLineTotal('l', 235_000_000n, [{ receiptLineId: 'l', status: 'posted', newTotal: 240_000_000n }, { receiptLineId: 'l', status: 'void', newTotal: 250_000_000n }])],

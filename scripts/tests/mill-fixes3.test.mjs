@@ -526,14 +526,14 @@ export default async function (t) {
       );
       await mount('/mill/batch/b-1');
       const cell = byAction('draws-hidden')[0];
-      t.same([cell?.textContent ?? null, (cell?.getAttribute('class') ?? '').includes('text-ink-muted')], ['وجبات مخزن المواد خارج نطاقك', true], 'Z28 draws = null: «وجبات مخزن المواد خارج نطاقك» باهتة');
+      t.same([cell?.textContent ?? null, (cell?.getAttribute('class') ?? '').includes('text-ink-muted')], ['وجبات مخزن المواد غير معروضة', true], 'Z28 draws = null: «وجبات مخزن المواد غير معروضة» باهتة');
       t.same([byAction('open-item-ledger').length, byAction('item-ledger-text').length], [0, 0], 'Z28 بلا رابط دفتر ولا «دفتر المادّة»');
       // التكامل (الجولة الثالثة): الخادم لا يرسل وجبات مخزن المواد لطرف الناتج (production_detail: draws = null حين not v_in، وmill2.test يمرّره
       // بالمحلّل)، فجملة التتبّع فوق الجدول لا تعِد بأنّ العمود يدلّ على مصدر كلّ مادّة، وتقول إنّ وجبات ذلك المخزن خارج نطاقه.
       t.same(
-        [text().includes('يدلّ على مصدر كلّ مادّة'), text().includes('سُحبت المواد من «مخزن المواد الأوّلية»، ووجبات ذلك المخزن خارج نطاقك.')],
+        [text().includes('يدلّ على مصدر كلّ مادّة'), text().includes('سُحبت المواد من «مخزن المواد الأوّلية»، ووجبات ذلك المخزن غير معروضة.')],
         [false, true],
-        'Z28 جملة التتبّع لطرف الناتج لا تعِد بمصدر كلّ مادّة، وتقول إنّ وجبات مخزن المواد خارج نطاقه',
+        'Z28 جملة التتبّع لطرف الناتج لا تعِد بمصدر كلّ مادّة، وتقول إنّ وجبات مخزن المواد غير معروضة',
       );
     });
     await step('Z28 طرف المواد', async () => {
@@ -554,7 +554,7 @@ export default async function (t) {
       await mount('/mill/batch/b-1');
       t.same([byAction('draws-hidden').length, text().includes('«PU-2026-0001» (20/10/2026)')], [0, true], 'Z28 ضابط: من مخزن المواد بنطاقه يرى الوجبات بمصدرها');
       t.same(
-        [text().includes('سُحبت المواد من «مخزن المواد الأوّلية»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.'), text().includes('ووجبات ذلك المخزن خارج نطاقك')],
+        [text().includes('سُحبت المواد من «مخزن المواد الأوّلية»، وعمود «من أيّ وجبات» في الجدول يدلّ على مصدر كلّ مادّة.'), text().includes('ووجبات ذلك المخزن غير معروضة')],
         [true, false],
         'Z28 ضابط: جملة التتبّع لمن مخزن المواد بنطاقه تدلّ على عمود «من أيّ وجبات» كما كانت',
       );
@@ -563,7 +563,7 @@ export default async function (t) {
       // لا يرسله الخادم لمن مخزن المواد بنطاقه؛ إن جاء فالجملة لا تقول «خارج نطاقك» لمن هو في نطاقه، ويبقى رابط الدفتر.
       fresh({ status: 'ready', workspace: ws() }, { loadBatch: () => m.parseBatch(batchJson({ status: 'posted', lines: [batchLine({ used_qty: '1000.000', draws: null })], costs: [detailCost()], scope: { input: true, output: true } })) });
       await mount('/mill/batch/b-1');
-      t.same([byAction('draws-hidden').length, byAction('open-item-ledger').length], [0, 1], 'Z28 ضابط: draws = null ومخزن المواد بنطاقه: رابط الدفتر لا «خارج نطاقك»');
+      t.same([byAction('draws-hidden').length, byAction('open-item-ledger').length], [0, 1], 'Z28 ضابط: draws = null ومخزن المواد بنطاقه: رابط الدفتر لا «غير معروضة»');
     });
 
     // ── Q: المحلّلات الصارمة ───────────────────────────────────────────────────────────────────────────────────────────

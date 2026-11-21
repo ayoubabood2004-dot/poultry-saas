@@ -412,7 +412,7 @@ function CloseView({ flockId }: { flockId: string }) {
             <option value="">{t('halls.close.store_pick', 'اختر المخزن')}</option>
             {item.stores.map((store) => (
               <option key={store.warehouseId} value={store.warehouseId} disabled={!store.usable}>
-                {store.usable ? store.name : t('halls.close.store_unusable', '{store} ({why})', { store: store.name, why: store.why === 'archived' ? t('halls.close.store_archived', 'مؤرشف') : t('halls.close.store_scope', 'خارج نطاقك') })}
+                {store.usable ? store.name : t('halls.close.store_unusable', '{store} ({why})', { store: store.name, why: store.why === 'archived' ? t('halls.close.store_archived', 'مؤرشف') : t('halls.close.store_scope', 'غير متاح') })}
               </option>
             ))}
           </select>

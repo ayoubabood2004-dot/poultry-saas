@@ -230,8 +230,13 @@ export default function StockBoardPage({ division }: { division?: DivisionKind }
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : stores.length === 0 ? (
-        <Notice tone="info" title={t('stock.stores.none', 'لا مخزن في نطاقك.')}>
-          {t('stock.stores.none.detail', 'يحدّد مالك المنشأة نطاقك من شاشة الموظفين.')}
+        <Notice tone="info" title={t('stock.stores.none_section', 'لا مخزن في هذا القسم بعد.')}>
+          <span className="flex flex-col gap-2">
+            {t('stock.stores.none_section.detail', 'أضف مخزناً لهذا القسم من «إعداد المخزن».')}
+            <Link to="/inventory/setup" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-store-setup">
+              {t('stores.setup.title', 'إعداد المخزن')}
+            </Link>
+          </span>
         </Notice>
       ) : (
         <>

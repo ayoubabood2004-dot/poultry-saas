@@ -364,7 +364,7 @@ function AddReceiptLine({ doc, store, stores, categories, canPrice, canCreate, i
       ) : null}
       {loadFailed ? <LoadFailed what={t('use.item.what', 'وحدات المادّة ووجباتها')} error={loadFailed} onRetry={() => setItem(item ? { ...item } : null)} /> : null}
       {item && packs ? <QtyInput id={`${id}-qty`} label={t('stock.col.qty', 'الكمية')} base={item.baseUnit} units={purchaseUnitOptions(item, packs)} value={qty} onChange={setQty} /> : null}
-      {item?.tracksExpiry ? <DayField id={`${id}-expiry`} label={t('receipt.line.expiry', 'تاريخ الانتهاء')} value={expiry} onChange={setExpiry} hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يحفظه المدير فقط.')} /> : null}
+      {item?.tracksExpiry ? <DayField id={`${id}-expiry`} label={t('receipt.line.expiry', 'تاريخ الانتهاء')} value={expiry} onChange={setExpiry} hint={t('receipt.line.expiry_hint', 'كما على العبوة.')} /> : null}
       {item?.kind === 'chick' ? (
         <Field
           id={`${id}-born`}
@@ -1084,7 +1084,7 @@ function ReceiptEditor({ docId }: { docId: string }) {
               </Button>
             ) : null}
           </div>
-          {preview && !canPrice ? <Notice tone="info" title={t('receipt.keeper', 'المبالغ والحفظ النهائي للمحاسب أو المدير؛ الورقة باقية لهما.')} /> : null}
+          {preview && !canPrice ? <Notice tone="info" title={t('receipt.keeper', 'لا يكتب حسابك المبالغ ولا يحفظ نهائياً الآن؛ الورقة باقية.')} /> : null}
           <ReviewDialog
             open={preview !== null && canPrice}
             title={t('receipt.review.title', 'راجع الاستلام قبل الحفظ')}
@@ -1213,7 +1213,7 @@ function NewReceipt({ stores, initialStoreId = '', item = null, onSaved }: { sto
       <h2 className="font-semibold">{t('receipt.new', 'استلام جديد')}</h2>
       {item ? <p className="text-sm">{t('buy.receipt.line', 'تنفتح الورقة وسطرها بـ«{item}»: اختر المورّد والتاريخ ثم «ابدأ».', { item: item.name })}</p> : null}
       {item && receiving.length === 0 ? (
-        <Notice tone="warning" title={t('buy.receipt.no_store', 'لا مخزن في نطاقك يستلم «{item}»', { item: item.name })}>
+        <Notice tone="warning" title={t('buy.receipt.no_store', 'لا مخزن يستلم «{item}»', { item: item.name })}>
           {(() => {
             const home = RECEIVING_KINDS[item.kind][0];
             return home ? t('buy.receipt.no_store.kind', '«{kind}» تُستلم في مخزن من نوع «{store}».', { kind: itemKindLabel(item.kind), store: warehouseKindLabel(home) }) : t('receipt.not_here.never', 'هذا النوع لا يُشترى من مورّد.');
@@ -1294,8 +1294,8 @@ export function ReceiptsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.receipts', 'الاستلام من المورّدين')} subtitle={t('receipt.list.subtitle', 'الأمين يكتب الكميات، والمحاسب أو المدير يكتب المبالغ ويحفظ نهائياً.')} />
-      {!canDraft && !canPrice ? <Notice tone="info" title={t('receipt.forbidden', 'الاستلام لأمين المخزن والمحاسب والمدير ومالك المنشأة.')} /> : null}
+      <PageHeader title={t('stock.receipts', 'الاستلام من المورّدين')} subtitle={t('receipt.list.subtitle', 'تُكتب الكميات ثمّ المبالغ، ثمّ يُحفظ الاستلام نهائياً.')} />
+      {!canDraft && !canPrice ? <Notice tone="info" title={t('receipt.forbidden', 'يحتاج الاستلام عضويةً فعّالة في المنشأة.')} /> : null}
       {canDraft && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {canDraft && buyItemId && buyLoad.error ? (
         <Notice tone="warning" title={t('buy.item.failed.list', 'تعذّر تحميل المادّة المطلوب شراؤها؛ ابدأ الورقة وتُختار فيها.')}>

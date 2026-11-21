@@ -542,7 +542,7 @@ export default async function (t) {
     await step('E لمن هي، والمحذوفة', async () => {
       editSetup(OPERATOR);
       await mount('/mill/recipe/r-1/edit');
-      t.same([text().includes('تعديل الخلطات للمالك والمدير.'), byAction('save-recipe-edit').length], [false, 1], 'E مشغّل المعمل يعدّل الخلطة: «احفظ التعديل» (0034)');
+      t.same([text().includes('يحتاج تعديل الخلطات عضويةً فعّالة في المنشأة.'), byAction('save-recipe-edit').length], [false, 1], 'E مشغّل المعمل يعدّل الخلطة: «احفظ التعديل» (0034)');
       await unmount();
       editSetup(MANAGER, { detail: () => ({ ...ACTIVE(), archived: true }) });
       await mount('/mill/recipe/r-1/edit');

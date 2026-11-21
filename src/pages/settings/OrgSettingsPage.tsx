@@ -169,7 +169,7 @@ function EditDialog({
       return;
     }
     if (state.kind === 'site' && !siteDivisions.some((division) => division.id === divisionId)) {
-      setError(t('org.site.division.required', 'اختر وحدة من نطاقك.'));
+      setError(t('org.site.division.required', 'اختر وحدة.'));
       return;
     }
     if (state.kind === 'warehouse' && !activeSites.some((site) => site.id === siteId)) {
@@ -501,7 +501,7 @@ export default function OrgSettingsPage({ sections = ALL_SECTIONS, title, subtit
   return (
     <div className="flex flex-col gap-4">
       {header}
-      {writable ? null : <Notice tone="info" title={t('org.readonly', 'للقراءة فقط: التعديل للمدير أو مالك المنشأة')} />}
+      {writable ? null : <Notice tone="info" title={t('org.readonly', 'للقراءة فقط: يحتاج التعديل عضويةً فعّالة في المنشأة')} />}
       {setup.error ? (
         <LoadFailed what={pageWhat} error={setup.error} onRetry={setup.retry} />
       ) : !setup.data ? (

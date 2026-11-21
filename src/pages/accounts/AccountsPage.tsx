@@ -102,7 +102,7 @@ export function SummaryCards({ summary }: { summary: AccountsSummary }) {
   const cards: { key: string; title: string; receivable: Fils; payable: Fils }[] = [
     {
       key: 'project',
-      title: partial ? t('accounts.project.scoped', 'المشروع: حسابات نطاقك فقط') : t('accounts.project', 'المشروع'),
+      title: partial ? t('accounts.project.scoped', 'المشروع: بعض الحسابات فقط') : t('accounts.project', 'المشروع'),
       receivable: summary.project.receivable,
       payable: summary.project.payable,
     },
@@ -111,8 +111,8 @@ export function SummaryCards({ summary }: { summary: AccountsSummary }) {
   return (
     <div className="flex flex-col gap-3">
       {partial ? (
-        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من حسابات نطاقك: {visible} من {total}', { visible: summary.visibleBooks, total: summary.totalBooks })}>
-          {t('accounts.scoped.detail', 'نطاقك يغطّي بعض الحسابات فقط، فالمجاميع لها وحدها.')}
+        <Notice tone="info" title={t('accounts.scoped', 'الأرقام من بعض الحسابات: {visible} من {total}', { visible: summary.visibleBooks, total: summary.totalBooks })}>
+          {t('accounts.scoped.detail', 'أرسل الخادم بعض الحسابات فقط، فالمجاميع لها وحدها.')}
         </Notice>
       ) : null}
       <dl className="grid gap-3 sm:grid-cols-2">

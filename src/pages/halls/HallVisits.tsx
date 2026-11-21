@@ -148,7 +148,7 @@ export function visitResultText(result: SendResult | null, action: 'new' | 'edit
     const title = action === 'void' ? t('visits.voided', 'أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.') : action === 'edit' ? t('visits.edited', 'حُفظ تعديل الزيارة.') : t('visits.saved', 'حُفظت الزيارة.');
     return { tone: 'success', title };
   }
-  if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت (الفوج مغلق، أو خارج نطاقك، أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه') };
+  if (result.kind === 'parked') return { tone: 'warning', title: t('round.status.parked', 'رُدّت (الفوج مغلق أو الفترة مقفلة)، وبقيت على هذا الجهاز في «جولات تحتاج مراجعة» أدناه') };
   if (result.kind === 'stale_visit') {
     return { tone: 'danger', title: staleVisitText(result.server), detail: t('visits.to_shelf', 'تجدها في «جولات تحتاج مراجعة» بصفحة الجولة اليومية.') };
   }

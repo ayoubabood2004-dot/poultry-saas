@@ -665,7 +665,7 @@ export default async function (t) {
       fresh(MANAGER, { stores_overview: () => onlyFeed, sale_catalog: (a) => { if (a.p_warehouse === 'w-gen') throw new current.RejectedError('out_of_scope', 'ليس في نطاقك.'); return clone(CAT); } }, pickers);
       await mount('/sales/new');
       t.same(
-        [byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, (textOf('sale-notice') ?? '').includes('لم يعد في نطاقك')],
+        [byAction('sale-store-option').length > 0 || byAction('sale-store').length > 0, (textOf('sale-notice') ?? '').includes('لم يعد متاحاً')],
         [true, true],
         'S3 مخزن الفاتورة خارج النطاق: لا تبقى عالقة عليه، بل يُختار مخزن ويُقال لماذا',
       );

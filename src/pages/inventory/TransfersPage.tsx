@@ -1123,8 +1123,8 @@ export function TransfersList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.transfers', 'التحويلات')} subtitle={t('transfer.list.subtitle', 'من مخزن بنطاقك إلى أيّ مخزن فعّال يقبل المادّة؛ وبين وحدتين صادر داخلي بالكلفة.')} />
-      {!allowed ? <Notice tone="info" title={t('transfer.forbidden', 'التحويل لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
+      <PageHeader title={t('stock.transfers', 'التحويلات')} subtitle={t('transfer.list.subtitle', 'من مخزن إلى أيّ مخزن فعّال يقبل المادّة؛ وبين وحدتين صادر داخلي بالكلفة.')} />
+      {!allowed ? <Notice tone="info" title={t('transfer.forbidden', 'يحتاج التحويل عضويةً فعّالة في المنشأة.')} /> : null}
       {allowed && workspace ? <DeviceShelf userId={workspace.userId} orgId={workspace.orgId} tick={shelfTick} onUploaded={(docId) => navigate(`/inventory/transfers/${docId}`)} onSettled={docs.reload} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data && stamp ? <NewTransfer sources={sources} all={all} stamp={stamp} onShelf={() => setShelfTick((n) => n + 1)} onSaved={changed} /> : null}

@@ -74,8 +74,8 @@ function paymentNote(sale: SaleInvoice): string | null {
 
 /** لماذا لا تُلغى (void_block) لمن يُلغي عادةً ولا يرى «⋯» (مراجعة A11)؛ الدور والملغاة بلا جملة. */
 function voidBlockText(block: string | null): string | null {
-  if (block === 'out_of_scope') return t('saledoc.void_block.scope', 'لا تُلغى هذه الفاتورة من حسابك: مخزنها أو دفترها خارج نطاقك.');
-  if (block === 'period_locked') return t('saledoc.void_block.locked', 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، ويفتحها مالك المنشأة.');
+  if (block === 'out_of_scope') return t('saledoc.void_block.scope', 'لا تُلغى هذه الفاتورة من هنا الآن: مخزنها أو دفترها لا يصل إليه حسابك. حدّث الصفحة ثمّ أعد المحاولة.');
+  if (block === 'period_locked') return t('saledoc.void_block.locked', 'لا تُلغى هذه الفاتورة الآن: الفترة مقفلة، فتُفتح أوّلاً.');
   return null;
 }
 

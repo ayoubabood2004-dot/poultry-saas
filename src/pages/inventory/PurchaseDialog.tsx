@@ -150,7 +150,7 @@ export function destinationText(kind: ItemKind, stores: readonly StoreRef[]): st
   }
   const kinds = RECEIVING_KINDS[kind];
   if (!kinds.length) return t('purchase.dest.never', 'لا يستلم أيّ مخزن هذا النوع من الموادّ، فلن يُحفظ شراؤها.');
-  return t('purchase.dest.none', 'لا يوجد في نطاقك مخزن {kinds} يستلم هذه المادّة، فلن يُحفظ شراؤها.', {
+  return t('purchase.dest.none', 'لا يوجد مخزن {kinds} يستلم هذه المادّة، فلن يُحفظ شراؤها.', {
     kinds: kinds.map((store) => quoted(warehouseKindLabel(store))).join(t('purchase.dest.or', ' أو ')),
   });
 }
@@ -415,7 +415,7 @@ export function PurchaseDialog({ file, onClose, onAbandon, onSaved }: { file: It
                   label={t('receipt.line.expiry', 'تاريخ الانتهاء')}
                   value={form.expiry}
                   onChange={(expiry) => set({ expiry: toWesternDigits(expiry) })}
-                  hint={t('receipt.line.expiry_hint', 'كما على العبوة؛ المنتهي يوم الاستلام يحفظه المدير فقط.')}
+                  hint={t('receipt.line.expiry_hint', 'كما على العبوة.')}
                   error={shown.expiry}
                 />
               </div>

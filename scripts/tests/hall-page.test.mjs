@@ -318,9 +318,9 @@ export default async function (t) {
       const { calls } = fresh('manager', hallsHandlers());
       await mount('/broiler/hall/h-zz');
       t.same(
-        [text().includes('هذه القاعة غير موجودة أو خارج نطاقك.'), named(calls, 'hall_sheet').length, hrefOf('hall-back')],
+        [text().includes('هذه القاعة غير موجودة أو مؤرشفة.'), named(calls, 'hall_sheet').length, hrefOf('hall-back')],
         [true, 0, '/broiler'],
-        'H2 قاعة غير موجودة: «هذه القاعة غير موجودة أو خارج نطاقك.» والرجوع إلى الحقل، بلا قراءة فوج',
+        'H2 قاعة غير موجودة: «هذه القاعة غير موجودة أو مؤرشفة.» والرجوع إلى الحقل، بلا قراءة فوج',
       );
     });
 

@@ -214,7 +214,7 @@ type DayRow = { hall: DayHall; site: DaySite };
  */
 function DayReport({ data }: { data: HallsDay }) {
   if (!data.sites.length) {
-    return <Notice tone="info" title={t('halls.day.no_halls', 'لا قاعات في نطاقك.')} />;
+    return <Notice tone="info" title={t('halls.day.no_halls', 'لا قاعات بعد.')} />;
   }
   const rows: DayRow[] = data.sites.flatMap((site) => site.halls.map((hall) => ({ hall, site })));
   const many = data.sites.length > 1;
@@ -326,7 +326,7 @@ function DayReport({ data }: { data: HallsDay }) {
         columns={columns}
         rows={rows}
         rowKey={(row) => row.hall.hallId}
-        empty={t('halls.day.no_halls', 'لا قاعات في نطاقك.')}
+        empty={t('halls.day.no_halls', 'لا قاعات بعد.')}
         totalLabel={t('halls.day.total', 'المجموع')}
       />
     </div>

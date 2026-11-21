@@ -616,7 +616,7 @@ export default async function (t) {
     await step('D10 لا قاعات في النطاق', async () => {
       fresh(OWNER, { halls_day: (args) => dayFor(args.p_on, { sites: [], totals: { halls: 0, flocks: 0, rounds: 0, live_start: 0, dead: 0, culled: 0, live_end: 0, feed_eaten_kg: '0', feed_eaten_flocks: 0, feed_given_kg: '0', feed_given_unweighed: 0 } }) });
       await mount(dayUrl);
-      t.same([text().includes('لا قاعات في نطاقك.'), cards().length, byAction('day-table').length], [true, 0, 0], 'D10 بلا قاعات: جملة واحدة بلا جداول');
+      t.same([text().includes('لا قاعات بعد.'), cards().length, byAction('day-table').length], [true, 0, 0], 'D10 بلا قاعات: جملة واحدة بلا جداول');
     });
 
     // ── C: تقارير الدورات ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -656,7 +656,7 @@ export default async function (t) {
       await unmount();
       fresh(OWNER, { flock_cycles: () => ({ today: '2026-11-12', more: false, cycles: [] }) });
       await mount('/halls/cycles');
-      const empty = text().includes('لا دورات في نطاقك بعد.');
+      const empty = text().includes('لا دورات بعد.');
       await unmount();
       const rpcLog = fresh(OWNER, { flock_cycles: (_args, n) => (n === 1 ? Promise.reject(new m.NetworkError()) : clone(F.flock_cycles)) });
       await mount('/halls/cycles');

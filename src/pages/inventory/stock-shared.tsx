@@ -451,15 +451,15 @@ export function skippedLines(kind: inventory.DraftKind, codes: readonly string[]
   return codes.map((code) => {
     if (code === 'amounts') {
       return kind === 'supplier_return'
-        ? t('copy.skipped.credits', 'المبلغ الذي يقبله المورّد: لا يظهر لدورك فلم يُنسخ، ويكتبه المحاسب أو المدير.')
-        : t('copy.skipped.amounts', 'المبالغ (مبالغ السطور والخصم والتحميلات): لا تظهر لدورك فلم تُنسخ، ويكتبها المحاسب أو المدير.');
+        ? t('copy.skipped.credits', 'المبلغ الذي يقبله المورّد: لم يرسله الخادم فلم يُنسخ؛ اكتبه في النسخة الجديدة.')
+        : t('copy.skipped.amounts', 'المبالغ (مبالغ السطور والخصم والتحميلات): لم يرسلها الخادم فلم تُنسخ؛ اكتبها في النسخة الجديدة.');
     }
     if (code === 'paid_now') return t('copy.skipped.paid_now', 'المدفوع للمورّد عند الاستلام: بقي مبلغاً على المورّد بعد إلغاء الأصل، فلا يُدفع مرّة ثانية.');
     if (code === 'box_charge') return t('copy.skipped.box_charge', 'التحميلات المدفوعة من صندوق: بقيت مصروفاً بعد إلغاء الأصل، فلا تُدفع مرّة ثانية.');
     if (code === 'approval') {
       return kind === 'count'
-        ? t('copy.skipped.review', 'مراجعة المدير (أسباب الفروق وكلف الزيادة): كانت للجرد الملغى، فيراجعه المدير من جديد بعد التسليم.')
-        : t('copy.skipped.approval', 'موافقة المدير على المنتهي: كانت للورقة الملغاة، فتُطلب من جديد عند الحفظ.');
+        ? t('copy.skipped.review', 'المراجعة (أسباب الفروق وكلف الزيادة): كانت للجرد الملغى، فيُراجَع من جديد بعد التسليم.')
+        : t('copy.skipped.approval', 'مراجعة المنتهي: كانت للورقة الملغاة، فتُطلب من جديد عند الحفظ.');
     }
     if (code === 'unit_changed') return t('copy.skipped.unit_changed', 'وحدة تعبئة تغيّرت منذ الأصل: نُسخ سطرها بالكمية نفسها بالكيلوغرام أو اللتر أو القطعة، فراجعه.');
     return t('copy.skipped.other', 'بند لم يُنسخ (الرمز: {code}).', { code });
@@ -539,10 +539,10 @@ export function useCopyDraft(kind: inventory.DraftKind, sourceId: string): CopyD
 export function copyNext(workspace: Workspace | null, kind: inventory.DraftKind, destroy = false): string {
   const may = (action: Action) => (workspace ? can(workspace.role, action) : false);
   if (kind === 'count') {
-    return may('count.approve') ? t('copy.next.count_approve', 'صحّحها ثم سلّمها وراجعها واحفظها نهائياً برقم جديد.') : t('copy.next.count', 'صحّحها ثم سلّمها للمراجعة؛ يحفظها المدير نهائياً برقم جديد.');
+    return may('count.approve') ? t('copy.next.count_approve', 'صحّحها ثم سلّمها وراجعها واحفظها نهائياً برقم جديد.') : t('copy.next.count', 'صحّحها ثم سلّمها للمراجعة؛ تُحفظ نهائياً برقم جديد بعد مراجعتها.');
   }
-  if ((kind === 'receipt' || kind === 'supplier_return') && !may('receipt.amounts')) return t('copy.next.pricer', 'صحّحها؛ يحفظها المحاسب أو المدير نهائياً برقم جديد.');
-  if (kind === 'stock_use' && destroy && !may('expired.destroy')) return t('copy.next.manager', 'صحّحها؛ يحفظها المدير نهائياً برقم جديد.');
+  if ((kind === 'receipt' || kind === 'supplier_return') && !may('receipt.amounts')) return t('copy.next.pricer', 'صحّحها؛ تُحفظ نهائياً برقم جديد بعد كتابة مبالغها.');
+  if (kind === 'stock_use' && destroy && !may('expired.destroy')) return t('copy.next.manager', 'صحّحها؛ تُحفظ نهائياً برقم جديد بعد مراجعتها.');
   return t('copy.next.save', 'صحّحها ثم احفظها نهائياً برقم جديد.');
 }
 
@@ -854,7 +854,7 @@ export function PendingApprovals({ role }: { role: Role | undefined }) {
   return (
     <>
       {pending && (pending.counts > 0 || pending.uses > 0) ? (
-        <Notice tone="warning" title={t('stock.approvals', 'بانتظار موافقة المدير')}>
+        <Notice tone="warning" title={t('stock.approvals', 'بانتظار المراجعة')}>
           <span className="flex flex-wrap gap-x-4 gap-y-1">
             {pending.counts > 0 ? (
               <Link to="/inventory/counts" className="font-medium text-brand-700 dark:text-brand-200" data-action="open-pending-counts">

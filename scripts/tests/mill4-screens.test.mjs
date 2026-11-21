@@ -818,7 +818,7 @@ export default async function (t) {
       const { rpcLog } = produceSetup(OPERATOR, { form: () => formWith({ can_edit_recipe: false }), produce: () => clone(F.produce_batch.awaiting) });
       await mount(produceUrl);
       await click(withId('remove-line', 'i-diesel'));
-      t.same([textOf('once-only'), byAction('recipe-choice').length, disabled(byAction('produce-go')[0])], ['التغيير لهذه المرّة فقط: موادّ الخلطة تبقى كما هي (تعديلها للمالك أو المدير).', 0, false], 'R4 من لا يعدّل الخلطة: «لهذه المرّة فقط» جملةً بلا اختيار، و«أنتج» مفتوح');
+      t.same([textOf('once-only'), byAction('recipe-choice').length, disabled(byAction('produce-go')[0])], ['التغيير لهذه المرّة فقط: موادّ الخلطة تبقى كما هي.', 0, false], 'R4 من لا يعدّل الخلطة: «لهذه المرّة فقط» جملةً بلا اختيار، و«أنتج» مفتوح');
       await click(byAction('produce-go')[0]);
       t.eq(named(rpcLog, 'produce_batch')[0]?.p_save_recipe, false, 'R4 p_save_recipe = false');
       t.ok(textOf('produced-draft-text')?.includes('(المخطّط 1,000 كغم)') && textOf('produced-draft-text')?.includes('«اختم الكلف»') && textOf('produced-draft-text')?.includes('«رصيد العلف»'), `R4 مسوّدة تنتظر ختم الكلف، ثمّ تدخل «رصيد العلف» (${textOf('produced-draft-text')})`);

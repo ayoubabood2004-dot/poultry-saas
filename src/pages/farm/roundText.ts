@@ -79,7 +79,7 @@ export function parkText(reason: string | null): string {
     case 'flock_closed':
       return t('sheet.park.closed', 'كانت الوجبة مغلقة حين وصل');
     case 'out_of_scope':
-      return t('sheet.park.scope', 'كانت القاعة خارج نطاق من أرسله');
+      return t('sheet.park.scope', 'لم يكن لمن أرسله وصول إلى القاعة');
     case 'period_locked':
       return t('sheet.park.locked', 'كان اليوم في فترة حسابات مقفلة');
     case 'date_too_old':

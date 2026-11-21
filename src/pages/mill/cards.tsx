@@ -343,7 +343,7 @@ function CardDensity({ line, picks, disabled, canWriteDensity }: { line: CardLin
           <span className="text-xs font-medium text-danger-700 dark:text-danger-300">
             {canWriteDensity
               ? t('mill.cards.density_needed', '«{name}» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: اكتب كثافته هنا.', { name })
-              : t('mill.cards.density_needed_others', '«{name}» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: يكتبها المالك أو المدير من «المواد».', { name })}
+              : t('mill.cards.density_needed_others', '«{name}» سائل بلا كثافة، ولا تُحفظ الخلطة به قبلها: تُكتب كثافته من «المواد».', { name })}
           </span>
           {canWriteDensity ? (
             <span className="flex flex-wrap items-center gap-2">

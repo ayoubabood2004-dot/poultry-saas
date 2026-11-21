@@ -61,7 +61,7 @@ export default function CyclesPage() {
         <h1 className="text-2xl font-semibold" data-action="cycles-title">
           {t('halls.cycles.title', 'تقارير الدورات')}
         </h1>
-        <p className="text-ink-muted">{t('halls.cycles.subtitle', 'كلّ دورات القاعات في نطاقك، القائمة أوّلاً ثمّ المغلقة. افتح دورةً لتقريرها الكامل.')}</p>
+        <p className="text-ink-muted">{t('halls.cycles.subtitle', 'كلّ دورات القاعات، القائمة أوّلاً ثمّ المغلقة. افتح دورةً لتقريرها الكامل.')}</p>
       </header>
       {state.error ? (
         state.error instanceof RejectedError && state.error.hint ? (
@@ -72,7 +72,7 @@ export default function CyclesPage() {
       ) : data ? (
         <>
           {data.more ? <Notice tone="info" title={t('halls.cycles.more', 'تُعرض أحدث 500 دورة.')} /> : null}
-          <DataTable caption={t('halls.cycles.title', 'تقارير الدورات')} columns={columns} rows={data.cycles} rowKey={(row) => row.id} empty={t('halls.cycles.empty', 'لا دورات في نطاقك بعد.')} />
+          <DataTable caption={t('halls.cycles.title', 'تقارير الدورات')} columns={columns} rows={data.cycles} rowKey={(row) => row.id} empty={t('halls.cycles.empty', 'لا دورات بعد.')} />
         </>
       ) : (
         <p role="status" className="text-sm text-ink-muted" data-action="cycles-loading">

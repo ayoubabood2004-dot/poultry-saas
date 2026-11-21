@@ -389,7 +389,7 @@ export default function RecipeBuilderPage() {
 
   if (!canBuild && session.status === 'ready') {
     return (
-      <Notice tone="info" title={t('mill.builder.forbidden', 'إنشاء الخلطات للمدير والمالك.')}>
+      <Notice tone="info" title={t('mill.builder.forbidden', 'يحتاج إنشاء الخلطات عضويةً فعّالة في المنشأة.')}>
         <Link to="/mill" className="font-medium text-brand-700 hover:underline dark:text-brand-200" data-action="back-to-mill">
           {t('mill.back', 'المعمل')}
         </Link>

@@ -745,7 +745,7 @@ export default async function (t) {
       { id: 'v-2', version_no: 2, status: 'active', basis_kg: '1000.000', materials_only: false, activated_at: '2026-11-01T08:00:00Z', version: 5 },
       { id: 'v-1', version_no: 1, status: 'retired', basis_kg: '1000.000', materials_only: false, activated_at: '2026-10-01T08:00:00Z', version: 5 },
     ];
-    const others = 'لا تكاليف على هذه النسخة؛ يضيفها المالك أو المدير في مسوّدة الخلطة.';
+    const others = 'لا تكاليف على هذه النسخة؛ تُضاف في مسوّدة الخلطة.';
     await step('W37 المحاسب ومسوّدة قائمة', async () => {
       fresh(ACCOUNTANT, { loadRecipe: () => m.parseRecipe(recipeJson({ status: 'active', versionId: 'v-2', versionNo: 2, versions: threeVersions })) });
       await mount('/mill/recipe/r-1');

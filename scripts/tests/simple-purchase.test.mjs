@@ -559,8 +559,8 @@ export default async function (t) {
       await openDialog();
       t.same(
         [byAction('purchase-destination')[0]?.textContent, byAction('purchase-dest-setup')[0]?.getAttribute('href')],
-        ['لا يوجد في نطاقك مخزن «موادّ أوّلية» يستلم هذه المادّة، فلن يُحفظ شراؤها.', '/inventory/setup'],
-        'U2: بلا مخزن يستلمها: يسمّي نوع المخزن الناقص، و«إعداد المخزن» للمدير',
+        ['لا يوجد مخزن «موادّ أوّلية» يستلم هذه المادّة، فلن يُحفظ شراؤها.', '/inventory/setup'],
+        'U2: بلا مخزن يستلمها: يسمّي نوع المخزن الناقص، و«إعداد المخزن»',
       );
       await unmount();
       let failNext = true;

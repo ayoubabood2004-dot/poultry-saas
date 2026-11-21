@@ -111,7 +111,7 @@ export function DebtsCard({ debts }: { debts: MoneyOverview['debts'] }) {
         </div>
       </dl>
       {partial ? (
-        <p className="text-xs text-ink-muted">{t('accounts.scoped', 'الأرقام من حسابات نطاقك: {visible} من {total}', { visible: debts.visibleBooks, total: debts.totalBooks })}</p>
+        <p className="text-xs text-ink-muted">{t('accounts.scoped', 'الأرقام من بعض الحسابات: {visible} من {total}', { visible: debts.visibleBooks, total: debts.totalBooks })}</p>
       ) : null}
       {debts.divisions.length ? (
         <details>

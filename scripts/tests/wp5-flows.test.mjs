@@ -574,12 +574,12 @@ export default async function (t) {
       await unkeep('storekeeper');
     }
 
-    // ── U6: مرشّح «بانتظار موافقة المدير» بلا مسوّدات: نصّه، مو «لا صرف بعد» ───────────────────────────────────────────────
+    // ── U6: مرشّح «بانتظار المراجعة» بلا مسوّدات: نصّه، مو «لا صرف بعد» ───────────────────────────────────────────────
     {
       const postedUse = { id: 'u-9', status: 'posted', version: 3, docNo: 'SU-2026-0009', warehouseId: 'w-gen', categoryId: 'cat-1', onDate: '2026-10-30', note: null, posted: true, voidReason: null, createdAt: '2026-10-30T08:00:00Z', namesLot: false };
       fresh('storekeeper', { loadOrgSetup: () => org, listUses: () => ({ rows: [postedUse], next: null, total: 1 }) });
       await mount('/inventory/uses?awaiting=1');
-      t.same([text().includes('لا أوراق بانتظار موافقة المدير فيما عُرض.'), text().includes('لا صرف بعد')], [true, false], 'U6: المرشّح بلا مسوّدات بانتظار المدير: نصّه الخاصّ');
+      t.same([text().includes('لا أوراق بانتظار المراجعة فيما عُرض.'), text().includes('لا صرف بعد')], [true, false], 'U6: المرشّح بلا مسوّدات بانتظار المراجعة: نصّه الخاصّ');
       await unmount();
     }
 
@@ -720,6 +720,15 @@ export default async function (t) {
       };
       const list = () => ({ ...countHandlers(), listCounts: () => ({ rows: [countDoc({ status: 'submitted', submittedAt: '2026-10-30T09:00:00Z' })], total: 1, next: null }) });
       await everyoneLikeOwner(t, 'E قائمة الجرد', at('/inventory/counts', list), ['data-action="filter-submitted"']);
+      // ونصّها بالخطوات لا بالأدوار (كان «العادّ يعدّ ويسلّم، والمدير يراجع ويحفظ نهائياً»)، وتنبيه المنتظر «بانتظار المراجعة» (كان «بانتظار موافقة المدير»).
+      fresh('storekeeper', list());
+      await mount('/inventory/counts');
+      t.ok(text().includes('يُعدّ الجرد ويُسلَّم للمراجعة، ثمّ يُراجَع ويُحفظ نهائياً.') && !text().includes('المدير'), 'E قائمة الجرد: سطرها بالخطوات لا بالأدوار (0034)');
+      await unmount();
+      fresh('storekeeper', { loadOrgSetup: () => org, loadApprovals: () => ({ counts: 1, uses: 2 }) });
+      await mount('/inventory/general');
+      t.ok(text().includes('بانتظار المراجعة') && !text().includes('موافقة المدير') && byAction('open-pending-counts').length === 1, 'E تنبيه المنتظر في لوحة المخزن: «بانتظار المراجعة» بلا دور');
+      await unmount();
       await everyoneLikeOwner(t, 'E جرد بانتظار المراجعة', at('/inventory/counts/c-1', () => reviewHandlers(reviewOf(reviewLine()))), ['data-action="return-count"']);
     }
   } finally {

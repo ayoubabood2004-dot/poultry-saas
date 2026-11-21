@@ -173,7 +173,7 @@ export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview;
     <div className="flex flex-col gap-6">
       {overview.items.length === 0 ? (
         <Notice tone="info" title={t('board.empty', 'لا مواد بعد. أضف أوّل مادّة: اكتب اسمها واختر طريقة حسابها.')}>
-          {onAdd ? null : t('board.empty.ask', 'يضيف المواد أمين المخزن أو المدير.')}
+          {onAdd ? null : t('board.empty.ask', 'تحتاج إضافة الموادّ عضويةً فعّالة في المنشأة.')}
         </Notice>
       ) : null}
       {sections.map(({ section, items }) => (

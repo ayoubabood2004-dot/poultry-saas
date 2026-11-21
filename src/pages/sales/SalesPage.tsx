@@ -235,11 +235,11 @@ function ReportTable({ data, costs, onOpen }: { data: SalesReport; costs: boolea
 function awaitingWhy(why: AwaitingTicket['why']): string {
   switch (why) {
     case 'period_locked':
-      return t('birds.awaiting.why.period_locked', 'يومها في فترة مقفلة: يفتحها مالك المنشأة');
+      return t('birds.awaiting.why.period_locked', 'يومها في فترة مقفلة: تُفتح الفترة أوّلاً');
     case 'out_of_scope':
-      return t('birds.awaiting.why.out_of_scope', 'دفتر وحدتها خارج نطاقك: يصدرها مالك المنشأة');
+      return t('birds.awaiting.why.out_of_scope', 'دفتر وحدتها لا يصل إليه حسابك');
     case 'no_book':
-      return t('birds.awaiting.why.no_book', 'لا دفتر لوحدتها: راجع مالك المنشأة');
+      return t('birds.awaiting.why.no_book', 'لا دفتر لوحدتها بعد');
     default:
       return t('birds.awaiting.why.other', 'لا تُصدر فاتورتها الآن');
   }

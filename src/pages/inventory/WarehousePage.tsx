@@ -280,7 +280,7 @@ export function FeedStoreNotice({ store, stores }: { store: { kind: WarehouseKin
     >
       {raw
         ? t('stores.feed.raw_place', 'العلف هنا بترتيب العلائق في المعمل؛ والذرة والصويا وبقيّة المواد الأوّلية مكانها «{name}».', { name: raw.name })
-        : t('stores.feed.no_raw', 'لا مخزن موادّ أوّلية في نطاقك بعد؛ يضيفه المدير من «المخزن» ثم «أضف مخزناً».')}
+        : t('stores.feed.no_raw', 'لا مخزن موادّ أوّلية بعد؛ أضفه من «المخزن» ثم «أضف مخزناً».')}
     </Notice>
   );
 }

@@ -187,7 +187,7 @@ function AddUseLine({ doc, store, destroy, onAdded }: { doc: UseDoc; store: Stor
       {item && lots && !destroy && item.tracksExpiry ? (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="size-5 accent-brand-600" checked={named} onChange={(event) => setNamed(event.target.checked)} data-action="name-expired-lot" />
-          {t('use.line.named', 'من وجبة منتهية (يحفظها المدير)')}
+          {t('use.line.named', 'من وجبة منتهية (تحتاج مراجعة)')}
         </label>
       ) : null}
       {item && lots && nameLot ? (
@@ -219,8 +219,8 @@ export function UsePreviewPanel({ preview, approved, onToggle }: { preview: UseP
   return (
     <>
       {preview.needsManager && !preview.canPost ? (
-        <Notice tone="info" title={t('use.awaiting', 'بانتظار موافقة المدير')}>
-          {preview.destroy ? t('use.awaiting.destroy', 'الإتلاف يحفظه المدير نهائياً؛ الورقة باقية له.') : t('use.awaiting.release', 'سطر يسمّي وجبة منتهية؛ إخراجها يحفظه المدير نهائياً، والورقة باقية له.')}
+        <Notice tone="info" title={t('use.awaiting', 'بانتظار المراجعة')}>
+          {preview.destroy ? t('use.awaiting.destroy', 'الإتلاف يُحفظ نهائياً بعد المراجعة؛ الورقة باقية حتى ذلك.') : t('use.awaiting.release', 'سطر يسمّي وجبة منتهية؛ إخراجها يُحفظ نهائياً بعد المراجعة، والورقة باقية حتى ذلك.')}
         </Notice>
       ) : null}
       {preview.problems.map((problem) => (
@@ -402,9 +402,9 @@ function UseEditor({ docId }: { docId: string }) {
       />
       <CopiedNotice draft={current.status === 'draft'} next={copyNextStep} />
       {current.voidReason ? <Notice tone="warning" title={t('use.voided', 'أُلغي هذا الصرف')}>{current.voidReason}</Notice> : null}
-      {current.status === 'draft' && !canPost ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
+      {current.status === 'draft' && !canPost ? <Notice tone="info" title={t('use.forbidden', 'يحتاج الصرف عضويةً فعّالة في المنشأة.')} /> : null}
       {draft ? (
-        <Field id="use-category" label={t('use.category', 'تصنيف المصروف')} hint={t('use.category.hint', '«إتلاف منتهي» للوجبات المنتهية بوجبة مسمّاة في كل سطر، ويحفظه المدير نهائياً.')}>
+        <Field id="use-category" label={t('use.category', 'تصنيف المصروف')} hint={t('use.category.hint', '«إتلاف منتهي» للوجبات المنتهية بوجبة مسمّاة في كل سطر.')}>
           <select id="use-category" className="input" value={current.categoryId ?? ''} disabled={busy} onChange={(event) => setCategory(event.target.value)} data-action="pick-category">
             <option value="">{t('use.category.pick', 'اختر التصنيف')}</option>
             {categories.map((c) => (
@@ -627,19 +627,19 @@ export function UsesList() {
     { key: 'store', header: t('use.store', 'من مخزن'), cell: (doc) => names.get(doc.warehouseId) ?? '—' },
     { key: 'category', header: t('use.category', 'تصنيف المصروف'), cell: (doc) => (doc.categoryId ? (categoryNames.get(doc.categoryId) ?? '—') : '—') },
     { key: 'day', header: t('ledger.date', 'التاريخ'), cell: (doc) => fmtDay(doc.onDate) },
-    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (doc) => (awaitsManager(doc, destroyIds) ? t('use.awaiting', 'بانتظار موافقة المدير') : docStatusLabel(doc.status)) },
+    { key: 'status', header: t('stock.doc.status', 'الحالة'), cell: (doc) => (awaitsManager(doc, destroyIds) ? t('use.awaiting', 'بانتظار المراجعة') : docStatusLabel(doc.status)) },
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.uses', 'الصرف والإتلاف')} subtitle={t('use.list.subtitle', 'إخراج لمصروف عام من الوجبات، والإتلاف للمنتهي؛ المنتهي والإتلاف يحفظهما المدير نهائياً.')} />
-      {!allowed ? <Notice tone="info" title={t('use.forbidden', 'الصرف لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
+      <PageHeader title={t('stock.uses', 'الصرف والإتلاف')} subtitle={t('use.list.subtitle', 'إخراج لمصروف عام من الوجبات، والإتلاف للمنتهي.')} />
+      {!allowed ? <Notice tone="info" title={t('use.forbidden', 'يحتاج الصرف عضويةً فعّالة في المنشأة.')} /> : null}
       {allowed && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {allowed && setup.data ? <NewUse stores={scopedStores(stores, workspace)} categories={stockUseCategories(categories)} onSaved={(id) => navigate(`/inventory/uses/${id}`)} /> : null}
       <Segmented
         label={t('use.list.show', 'اعرض')}
         options={[
           { value: 'all', label: t('use.list.all', 'الكل') },
-          { value: 'awaiting', label: t('use.awaiting', 'بانتظار موافقة المدير') },
+          { value: 'awaiting', label: t('use.awaiting', 'بانتظار المراجعة') },
         ]}
         value={onlyAwaiting ? 'awaiting' : 'all'}
         onChange={(value) => setOnlyAwaiting(value === 'awaiting')}
@@ -653,7 +653,7 @@ export function UsesList() {
             columns={columns}
             rows={rows}
             rowKey={(doc) => doc.id}
-            empty={onlyAwaiting ? t('use.list.awaiting_empty', 'لا أوراق بانتظار موافقة المدير فيما عُرض.') : t('use.list.empty', 'لا صرف بعد.')}
+            empty={onlyAwaiting ? t('use.list.awaiting_empty', 'لا أوراق بانتظار المراجعة فيما عُرض.') : t('use.list.empty', 'لا صرف بعد.')}
           />
           <PageFooter shown={loaded.length} total={first.data.total} next={next !== null} busy={more.busy} error={more.error} what={t('use.list.what', 'مستندات الصرف')} onMore={loadMore} action="more-uses" />
         </>

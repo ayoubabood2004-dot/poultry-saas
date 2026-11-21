@@ -345,7 +345,7 @@ export default async function (t) {
       await click(byAction('copy-to-draft')[0]);
       const [copy] = named(calls, 'copyDocToDraft');
       t.same(
-        [keeper, copy?.[1], globalThis.__flow.location, text().includes('المبالغ (مبالغ السطور والخصم والتحميلات): لا تظهر لدورك'), text().includes('المدفوع للمورّد'), text().includes('دينار')],
+        [keeper, copy?.[1], globalThis.__flow.location, text().includes('المبالغ (مبالغ السطور والخصم والتحميلات): لم يرسلها الخادم'), text().includes('المدفوع للمورّد'), text().includes('دينار')],
         [[1, 0], 'receipt', `/inventory/receipts/${copy?.[3]}`, true, false, false],
         'V5: الأمين يفتح النسخة من الملغى (receipt.draft)، وتنبيهه «المبالغ لا تظهر لدورك» بلا مدفوع ولا مبلغ',
       );
@@ -479,7 +479,7 @@ export default async function (t) {
           [[kind.voidFn, 'copyDocToDraft'], kind.name, kind.url.split('/').at(-1), `${kind.path}${copy?.[3]}`, true],
           `V7 ${kind.name}: الإلغاء بـ${kind.voidFn} ثم النسخ بنوعه، والورقة الجديدة بمسارها وتنبيهها`,
         );
-        if (kind.name === 'count') t.ok(text().includes('مراجعة المدير (أسباب الفروق وكلف الزيادة)'), 'V7 count: الجرد المنسوخ بلا مراجعة المدير، والتنبيه يقولها');
+        if (kind.name === 'count') t.ok(text().includes('المراجعة (أسباب الفروق وكلف الزيادة)'), 'V7 count: الجرد المنسوخ بلا مراجعته، والتنبيه يقولها');
         if (kind.name === 'opening') t.ok(text().includes('بند لم يُنسخ (الرمز: later_code)'), 'V7 opening: رمز متروك ما تعرفه الشاشة ينذكر برمزه، ما يسكت');
         // FE-4: «الملغى» بعد اسم المخزن كان يُقرأ صفة له («الرصيد عند البداية لـ«المخزن العام» الملغى»)؛ الحالة قبل اسم الأصل.
         if (kind.name === 'opening') t.ok(!text().includes('«المخزن العام» الملغى'), `V7 opening (FE-4): «ملغى» لا يلي اسم المخزن (${text().match(/نسخة للتصحيح من[^.]*/u)?.[0]})`);
@@ -604,9 +604,9 @@ export default async function (t) {
         const notice = text();
         seen[`${role}_receipt`] = [
           hint.includes('تصحّحها ثم تحفظها نهائياً') || hint.includes('ثم احفظها نهائياً'),
-          hint.includes('صحّحها؛ يحفظها المحاسب أو المدير نهائياً برقم جديد.'),
+          hint.includes('صحّحها؛ تُحفظ نهائياً برقم جديد بعد كتابة مبالغها.'),
           notice.includes('ثم احفظها نهائياً'),
-          notice.includes('صحّحها؛ يحفظها المحاسب أو المدير نهائياً برقم جديد.'),
+          notice.includes('صحّحها؛ تُحفظ نهائياً برقم جديد بعد كتابة مبالغها.'),
         ];
         await unmount();
       }
@@ -616,7 +616,7 @@ export default async function (t) {
         db.put('count', count('ct-7', { status: 'void', voidReason: 'عدّ خطأ' }));
         fresh('storekeeper', { loadOrgSetup: () => org, ...countKind.handlers(db) }, [{ warehouseId: 'w-gen' }]);
         await mount('/inventory/counts/ct-7');
-        seen.storekeeper_count = [text().includes('صحّحها ثم سلّمها للمراجعة؛ يحفظها المدير نهائياً برقم جديد.'), text().includes('ثم احفظها نهائياً'), byAction('copy-to-draft').length];
+        seen.storekeeper_count = [text().includes('صحّحها ثم سلّمها للمراجعة؛ تُحفظ نهائياً برقم جديد بعد مراجعتها.'), text().includes('ثم احفظها نهائياً'), byAction('copy-to-draft').length];
         await unmount();
       }
       {
@@ -625,7 +625,7 @@ export default async function (t) {
         db.put('stock_use', use('su-7', { status: 'void', categoryId: 'cat-x', voidReason: 'وجبة خطأ' }));
         fresh('storekeeper', { loadOrgSetup: () => destroyOrg, loadUse: (id) => ({ doc: db.get(id), lines: [kazUse] }) }, [{ warehouseId: 'w-gen' }]);
         await mount('/inventory/uses/su-7');
-        seen.storekeeper_destroy = [text().includes('صحّحها؛ يحفظها المدير نهائياً برقم جديد.'), text().includes('ثم احفظها نهائياً'), byAction('copy-to-draft').length];
+        seen.storekeeper_destroy = [text().includes('صحّحها؛ تُحفظ نهائياً برقم جديد بعد مراجعتها.'), text().includes('ثم احفظها نهائياً'), byAction('copy-to-draft').length];
         await unmount();
       }
       t.same(

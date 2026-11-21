@@ -533,7 +533,7 @@ function CountEntry({
   return (
     <div className="flex flex-col gap-4">
       <Notice tone="info" title={t('count.blind', 'عدّ أعمى: اكتب ما تراه على الرفّ؛ الرصيد المسجّل لا يظهر هنا.')} />
-      {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أعاد المدير الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
+      {doc.returnReason ? <Notice tone="warning" title={t('count.returned', 'أُعيد الجرد للعدّ')}>{doc.returnReason}</Notice> : null}
       <DraftDayField day={doc.onDate} save={(day) => counts.updateCountDraft(doc, { day })} onSaved={onChanged} />
       <CountedLines lines={lines} onEdit={(line) => setEditing(line)} onDelete={(line) => setConfirm({ kind: 'delete', line })} />
       {editing ? (
@@ -565,7 +565,7 @@ function CountEntry({
         open={confirm?.kind === 'submit'}
         tone="primary"
         title={t('count.submit.title', 'سلّم جرد «{store}»', { store: store.name })}
-        consequence={t('count.submit.consequence', 'يُسلَّم {n} من السطور للمراجعة ويُجمَّد العدّ، فلا يُعدَّل إلا إذا أعاده المدير للعدّ.', { n: fmtInt(lines.length) })}
+        consequence={t('count.submit.consequence', 'يُسلَّم {n} من السطور للمراجعة ويُجمَّد العدّ، فلا يُعدَّل إلا إذا أُعيد للعدّ.', { n: fmtInt(lines.length) })}
         confirmLabel={t('count.submit', 'سلّم الجرد للمراجعة')}
         busy={busy}
         action="confirm-submit-count"
@@ -628,7 +628,7 @@ function CountReadOnly({ doc, lines, store, stamp, copier, copyNextStep }: { doc
   const failed = failure ? describeError(failure) : null;
   return (
     <div className="flex flex-col gap-4">
-      {doc.status === 'submitted' ? <Notice tone="info" title={t('count.frozen', 'الجرد مسلَّم للمراجعة؛ لا يُعدَّل إلا إذا أعاده المدير للعدّ.')} /> : null}
+      {doc.status === 'submitted' ? <Notice tone="info" title={t('count.frozen', 'الجرد مسلَّم للمراجعة؛ لا يُعدَّل إلا إذا أُعيد للعدّ.')} /> : null}
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       <CountedLines lines={lines} onEdit={null} onDelete={null} />
       {doc.status === 'void' && doc.docNo && copier ? <CopyDraftAction copier={copier} from={t('count.title.no', 'الجرد {no}', { no: doc.docNo })} next={copyNextStep} /> : null}
@@ -643,7 +643,7 @@ function CountReadOnly({ doc, lines, store, stamp, copier, copyNextStep }: { doc
               <li key={line.id}>{pendingText(line)}</li>
             ))}
           </ul>
-          <p className="text-sm text-ink-muted">{t('count.pending.stuck_hint', 'لا يُرسل إلى جرد مسلَّم؛ إن كان لازماً فاطلب من المدير إعادته للعدّ قبل مسحه.')}</p>
+          <p className="text-sm text-ink-muted">{t('count.pending.stuck_hint', 'لا يُرسل إلى جرد مسلَّم؛ إن كان لازماً فأعِد الجرد للعدّ من مراجعته قبل مسحه.')}</p>
           {failed ? (
             <Notice tone="danger" title={failed.title}>
               {failed.detail}
@@ -1102,7 +1102,7 @@ function CountReview({
         title={t('count.return.title', 'أعِد جرد «{store}» للعدّ', { store: store.name })}
         consequence={
           <div className="flex flex-col gap-3">
-            <p>{t('count.return.consequence', 'يرجع الجرد إلى الأمين ليعيد العدّ، ويُمسح الرصيد المسجّل المأخوذ، وتبقى الأسباب والكلف المحفوظة.')}</p>
+            <p>{t('count.return.consequence', 'يرجع الجرد إلى العدّ ليُعاد، ويُمسح الرصيد المسجّل المأخوذ، وتبقى الأسباب والكلف المحفوظة.')}</p>
             <Field id="count-return-reason" label={t('reason', 'السبب')}>
               <input id="count-return-reason" className="input" maxLength={500} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} />
             </Field>
@@ -1310,8 +1310,8 @@ export function CountsList() {
   ];
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('stock.counts', 'الجرد')} subtitle={t('count.list.subtitle', 'العادّ يعدّ ويسلّم، والمدير يراجع ويحفظ نهائياً.')} />
-      {!counter ? <Notice tone="info" title={t('count.forbidden', 'الجرد لأمين المخزن والمدير ومالك المنشأة.')} /> : null}
+      <PageHeader title={t('stock.counts', 'الجرد')} subtitle={t('count.list.subtitle', 'يُعدّ الجرد ويُسلَّم للمراجعة، ثمّ يُراجَع ويُحفظ نهائياً.')} />
+      {!counter ? <Notice tone="info" title={t('count.forbidden', 'يحتاج الجرد عضويةً فعّالة في المنشأة.')} /> : null}
       {counter && setup.error ? <LoadFailed what={t('stock.stores.what', 'قائمة المخازن')} error={setup.error} onRetry={setup.retry} /> : null}
       {counter && setup.data ? <NewCount stores={scopedStores(stores, workspace)} onSaved={(id) => navigate(`/inventory/counts/${id}`)} /> : null}
       {reviewer ? (
