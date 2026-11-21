@@ -684,7 +684,7 @@ function SheetTable({ sheet, ops, onCell, onFeed }: { sheet: HallSheet; ops: rea
     if (scrolled.current || !mark) return;
     scrolled.current = true;
     let box: HTMLElement | null = mark.parentElement;
-    while (box && !(box.className ?? '').toString().includes('overflow-auto')) box = box.parentElement;
+    while (box && !(box.getAttribute('class') ?? '').includes('overflow-auto')) box = box.parentElement;
     let row: HTMLElement | null = mark.parentElement;
     while (row && row.localName !== 'tr') row = row.parentElement;
     if (!box || !row || typeof row.getBoundingClientRect !== 'function' || typeof box.getBoundingClientRect !== 'function') return;

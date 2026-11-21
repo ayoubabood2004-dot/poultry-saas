@@ -293,7 +293,17 @@ function DayReport({ data }: { data: HallsDay }) {
         ) : (
           ''
         ),
-      total: <Num>{fmtQtyCell(totals.feedGivenKg, feedDecimals)}</Num>,
+      // سطور اليوم بلا وزن تحت كيلو المجموع كما تحت كيلو القاعة: لا «0 كغم» وحده يوم نزلت أكياس بلا وزن (مراجعة 0027 R1).
+      total: (
+        <>
+          <Num>{fmtQtyCell(totals.feedGivenKg, feedDecimals)}</Num>
+          {totals.feedGivenUnweighed > 0 ? (
+            <span className="block text-xs font-normal text-ink-muted" data-action="total-unweighed">
+              {unweighedText(totals.feedGivenUnweighed)}
+            </span>
+          ) : null}
+        </>
+      ),
     },
     {
       key: 'note',
