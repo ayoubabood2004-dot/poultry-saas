@@ -22,6 +22,8 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'day-balance-0022.json'), 'utf8'));
 const H = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'day-balance-sections.hand.json'), 'utf8')).day_balance_sections;
+// عيّنة القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1): تمرّ بالمحلّل الحقيقي كالمكتوبة باليد (تكامل 0035).
+const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8')).day_balance_sections;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
 const routed = (file, names) => `export * from ${real(file)}; ${names.map((n) => `export const ${n} = (...a) => globalThis.__db.call('${n}', a);`).join(' ')}`;
@@ -246,7 +248,7 @@ export default async function (t) {
     const noted = rowsOf(OWN, 'feed').find((row) => row.note);
 
     // ── P: المحلّل الحقيقي ─────────────────────────────────────────────────────────────────────────────────────────
-    for (const [name, sample] of Object.entries(H)) {
+    for (const [name, sample] of Object.entries({ ...H, real_0035: REAL })) {
       const parsed = m.parseDayBalanceSections(clone(sample));
       t.same([parsed.today, parsed.on, parsed.canNote, parsed.sections.map((s) => s.key)], [sample.today, sample.on, sample.can_note, ['feed_materials', 'feed', 'other']], `P ${name}: اليوم والصلاحية والأقسام الثلاثة بترتيبها`);
       t.same(
