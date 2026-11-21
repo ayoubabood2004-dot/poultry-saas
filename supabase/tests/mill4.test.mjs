@@ -256,6 +256,22 @@ async function scenario(t, db) {
       [id(133), true, 1, null], 'بطاقة الخلطة المفعَّلة بالموادّ: معدّل التكاليف منسوخ، ولا كلفة متوقّعة');
   });
 
+  // ── بلا مخزن موادّ أوّلية فعّال (مراجعة 0034 L2؛ قبل أيّ رصيد فيه، فالأرشفة بطريقها الحقيقيّ، وبمعاملة ترجع): production_form يقول السبب والعلاج
+  //    لكلّ عضو. كان «مخازن موادّ المعمل خارج نطاقك… اطلب من مالك المنشأة تعديل نطاقك»، وبعد 0034 لا نطاق يحدّ أحداً (المالك يُطلب منه أن يطلب من نفسه).
+  await section('production_form بلا مخزن موادّ', async () => {
+    const NO_RAW = ['forbidden', 'لا يوجد مخزن موادّ أوّلية فعّال في المعمل: أضفه من إعداد المخزن ثمّ أنتج.'];
+    const seen = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      const archived = (await oq("update public.warehouses set archived_at = now() where org_id = $1 and kind = 'raw' and archived_at is null returning id", [org])).rows.length;
+      const read = async (user) => {
+        const result = await attempt(user, async (q) => (await q(FORM, [R.starter.id])).rows[0].v);
+        return result.ok ? 'ok' : [result.code, result.hint];
+      };
+      return [archived, await read(U.owner), await read(U.millOperator), await read(U.keeperGeneral), await read(U.viewer)];
+    });
+    t.same(seen, [1, NO_RAW, NO_RAW, NO_RAW, NO_RAW],
+      'production_form بلا مخزن موادّ أوّلية فعّال: السبب (لا مخزن موادّ فعّال) والعلاج (إعداد المخزن) للمالك والمشغّل والأمين والمشاهد، لا «خارج نطاقك»');
+  });
+
   // المخزون (مخزن المواد الأوّلية): الحبوب بالشراء، والكاز والخيط برصيد افتتاحيّ في مخزن المواد (الشراء يستلمهما في المخزن العامّ لنوعهما).
   await buy(I.corn, 20000, 450, day(-7));
   await buy(I.soy, 10000, 900, day(-7));

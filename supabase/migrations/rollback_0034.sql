@@ -1,7 +1,7 @@
--- rollback_0034 — تراجع «الكلّ مثل المالك بكلّ شيء» (0034_everyone_owner؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع الدوالّ التسع
+-- rollback_0034 — تراجع «الكلّ مثل المالك بكلّ شيء» (0034_everyone_owner؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع الدوالّ العشر
 --   بأجسامها السابقة حرفاً بحرف (md5 نفسه بالكتالوج): private.role_can كما في 0022، وpublic.can_see_cost وpublic.can_see_accounts وpublic.can_see_sales
 --   وprivate.require كما في 0001، وpublic.in_scope_division كما في 0002، وpublic.in_scope_site وpublic.in_scope_wh وprivate.scope_touches_division كما
---   في 0005. بلا طريق رفض: 0034 لم تغيّر جدولاً ولا عموداً ولا قيداً، وما كُتب بعدها صحيح بقواعد ما قبلها؛ يعود فقط من لا يملك فعلاً ممنوعاً منه،
+--   في 0005، وpublic.production_form كما في 0025 (تلميحها وحده تغيّر). بلا طريق رفض: 0034 لم تغيّر جدولاً ولا عموداً ولا قيداً، وما كُتب بعدها صحيح بقواعد ما قبلها؛ يعود فقط من لا يملك فعلاً ممنوعاً منه،
 --   ويعود النطاق (member_scopes) يحدّ ما يراه العضو.
 -- تنعاد بأمان: create or replace وحده.
 
@@ -158,5 +158,68 @@ begin
       else 'لا تملك صلاحية هذا الإجراء. اطلب من مالك المنشأة تغيير دورك إن كنت تحتاج إليه.'
     end;
   end if;
+end
+$$;
+
+-- جسم 0025 (0025_mill_materials_only.sql)
+create or replace function public.production_form(p_recipe uuid) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  r public.recipes;
+  cur public.recipe_versions;
+  v_bare boolean;
+  v_last uuid;
+  v_wo uuid;
+begin
+  perform private.require('production.draft');
+  if not exists (select 1 from public.warehouses w where w.org_id = v_org and w.kind = 'raw' and w.archived_at is null and public.in_scope_wh(w.id)) then
+    raise exception 'forbidden' using hint = 'مخازن موادّ المعمل خارج نطاقك، فلا تُنتج منها. اطلب من مالك المنشأة تعديل نطاقك.';
+  end if;
+  select * into r from public.recipes where org_id = v_org and id = p_recipe;
+  if r.id is null then
+    raise exception 'recipe_not_found' using hint = 'هذه الخلطة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  select * into cur from public.recipe_versions where org_id = v_org and recipe_id = r.id and status = 'active';
+  v_bare := cur.id is not null and not exists (select 1 from public.recipe_lines l where l.org_id = v_org and l.version_id = cur.id and l.qty is not null);
+  -- آخر دفعة مرحَّلة للخلطة بأيّ نسخة، ممّا يقرؤه المنتج (أحد طرفيها بنطاقه، كسياسة قراءة الدفعة)، بتعريف لوحة المعمل نفسه.
+  v_last := private.last_posted_batch(r.id);
+  v_wo := private.feed_balance_wh();
+  return jsonb_build_object(
+    'today', public.app_today(),
+    'recipe', jsonb_build_object('id', r.id, 'name', r.name, 'archived', r.archived_at is not null,
+      'output_item', (select jsonb_build_object('id', i.id, 'name', i.name, 'tracks_expiry', i.tracks_expiry) from public.items i where i.org_id = v_org and i.id = r.output_item_id)),
+    'active', case when cur.id is null then null else jsonb_build_object('id', cur.id, 'version_no', cur.version_no, 'materials_only', v_bare) end,
+    'materials', case when cur.id is null then '[]'::jsonb else coalesce((select jsonb_agg(jsonb_build_object(
+        'line_no', l.line_no, 'item_id', l.item_id, 'name', i.name, 'kind', i.kind, 'base_unit', i.base_unit,
+        'density', case when i.base_unit = 'L' then round(i.density_kg_per_l, 4)::text end, 'archived', i.archived_at is not null,
+        'in_basis', i.kind not in ('fuel', 'packaging'), 'scale_step', i.scale_step::text,
+        'default_qty', coalesce(q.last_qty, q.recipe_qty)::text,
+        'default_source', case when q.last_qty is not null then 'last' when q.recipe_qty is not null then 'recipe' end)
+        order by l.line_no)
+      from public.recipe_lines l
+      join public.items i on i.org_id = l.org_id and i.id = l.item_id
+      cross join lateral (select
+        (select sum(coalesce(p.actual_qty_base, p.planned_qty_base)) from public.production_inputs p
+          where p.org_id = l.org_id and p.batch_id = v_last and p.item_id = l.item_id and p.base_unit = i.base_unit) as last_qty,
+        case when v_bare or l.qty is null then null
+          when l.unit = i.base_unit then l.qty
+          when l.unit = 'kg' and i.base_unit = 'L' and coalesce(l.density_kg_per_l, i.density_kg_per_l) > 0
+            then private.kg_to_liters(l.qty, coalesce(l.density_kg_per_l, i.density_kg_per_l))
+          when l.unit = 'L' and i.base_unit = 'kg' and l.density_kg_per_l > 0 then private.liters_to_kg(l.qty, l.density_kg_per_l)
+        end as recipe_qty) as q
+      where l.org_id = v_org and l.version_id = cur.id), '[]'::jsonb) end,
+    'last', (select jsonb_build_object('id', b.id, 'doc_no', b.doc_no, 'produced_on', b.produced_on, 'output_kg', b.output_qty_kg::text,
+        'input_mass_kg', b.input_mass_kg::text,
+        'extra_items', coalesce((select jsonb_agg(jsonb_build_object('item_id', p.item_id, 'name', i.name) order by p.line_no)
+          from public.production_inputs p join public.items i on i.org_id = p.org_id and i.id = p.item_id
+          where p.org_id = b.org_id and p.batch_id = b.id and i.archived_at is null
+            and not exists (select 1 from public.recipe_lines l where l.org_id = p.org_id and l.version_id = cur.id and l.item_id = p.item_id)), '[]'::jsonb))
+      from public.production_batches b where b.org_id = v_org and b.id = v_last),
+    'stores', coalesce((select jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name) order by w.name collate "C", w.id)
+      from public.warehouses w where w.org_id = v_org and w.kind = 'raw' and w.archived_at is null and public.in_scope_wh(w.id)), '[]'::jsonb),
+    'output_store', (select jsonb_build_object('id', w.id, 'name', w.name) from public.warehouses w where w.org_id = v_org and w.id = v_wo),
+    'can_edit_recipe', public.can('recipe.activate'),
+    'draft_exists', exists (select 1 from public.recipe_versions x where x.org_id = v_org and x.recipe_id = r.id and x.status = 'draft'));
 end
 $$;
