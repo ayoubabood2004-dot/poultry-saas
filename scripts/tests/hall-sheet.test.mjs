@@ -847,6 +847,11 @@ export default async function (t) {
         ['أرسل صورة', 'اطبع / PDF', `/halls/cycle/${F7}?back=%2Fhalls%2Freport%2F${F7}`, false, false],
         'R «أرسل صورة» و«اطبع / PDF»، والتقرير المفصّل رابطٌ؛ ولا وزن ولا مأكول',
       );
+      t.same(
+        ['batch-image', 'batch-print'].map((action) => [byAction(action).length, /\bh-11\b/u.test(classOf(byAction(action)[0])), /\bh-9\b/u.test(classOf(byAction(action)[0]))]),
+        [[1, true, false], [1, true, false]],
+        'T1 «أرسل صورة» و«اطبع / PDF» في تقرير الوجبة بارتفاع 44 نقطة على الأقل (h-11، لا h-9)',
+      );
     });
   } finally {
     if (savedRect) Object.defineProperty(Element.prototype, 'getBoundingClientRect', savedRect);

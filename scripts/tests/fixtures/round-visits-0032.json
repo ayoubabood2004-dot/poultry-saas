@@ -17,15 +17,15 @@
       "voided": false,
       "feed_kg": null,
       "version": 1,
-      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
       "eggs_total": null,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T11:56:12.126+00:00",
+      "recorded_at": "2026-11-21T13:08:25.582+00:00",
       "eggs_cracked": null
      }
     ],
-    "hall_id": "16ad8254-4fbf-40e1-8615-f029acae75a3",
-    "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7"
+    "hall_id": "947e4901-d731-4840-af1a-d9914cb62d71",
+    "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8"
    },
    {
     "visits": [
@@ -40,15 +40,15 @@
       "voided": false,
       "feed_kg": null,
       "version": 1,
-      "flock_id": "b9099814-65c6-4cef-b08f-575852f4ea7e",
+      "flock_id": "23eec6c8-241f-4061-beca-157d43d96def",
       "eggs_total": null,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T12:36:12.155+00:00",
+      "recorded_at": "2026-11-21T13:48:25.6+00:00",
       "eggs_cracked": null
      }
     ],
-    "hall_id": "e9e106a7-d118-4b24-a371-78a79f7e338c",
-    "flock_id": "b9099814-65c6-4cef-b08f-575852f4ea7e"
+    "hall_id": "8221448b-c118-4d23-9c04-bb39cc78a2e6",
+    "flock_id": "23eec6c8-241f-4061-beca-157d43d96def"
    },
    {
     "visits": [
@@ -63,15 +63,15 @@
       "voided": false,
       "feed_kg": null,
       "version": 1,
-      "flock_id": "6f2e19b7-1fd8-4a03-ad57-1b1fa38c8091",
+      "flock_id": "fd543eee-07aa-4793-ab17-9d0cda4d9b89",
       "eggs_total": null,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T12:36:12.578+00:00",
+      "recorded_at": "2026-11-21T13:48:25.872+00:00",
       "eggs_cracked": null
      }
     ],
-    "hall_id": "571795a5-7fe3-4cf9-aa7f-932002b53582",
-    "flock_id": "6f2e19b7-1fd8-4a03-ad57-1b1fa38c8091"
+    "hall_id": "615d1b16-2125-49a3-a51a-ce2ce3c8cdf6",
+    "flock_id": "fd543eee-07aa-4793-ab17-9d0cda4d9b89"
    }
   ]
  },
@@ -92,10 +92,10 @@
       "voided": false,
       "feed_kg": "100.000",
       "version": 1,
-      "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5",
+      "flock_id": "e26f6447-7387-48f5-ac87-9bc3dc9ce538",
       "eggs_total": 1200,
       "eggs_broken": 5,
-      "recorded_at": "2026-11-17T09:36:12.364+00:00",
+      "recorded_at": "2026-11-21T10:48:25.761+00:00",
       "eggs_cracked": 10
      },
      {
@@ -109,15 +109,15 @@
       "voided": false,
       "feed_kg": null,
       "version": 1,
-      "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5",
+      "flock_id": "e26f6447-7387-48f5-ac87-9bc3dc9ce538",
       "eggs_total": 700,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T11:36:12.38+00:00",
+      "recorded_at": "2026-11-21T12:48:25.772+00:00",
       "eggs_cracked": null
      }
     ],
-    "hall_id": "83e1fd15-66f9-4696-9942-386532e4aff9",
-    "flock_id": "7d2df549-bd24-45ba-bf04-f8178e6fedd5"
+    "hall_id": "26bb7835-ee10-4a01-a132-981d45bf727a",
+    "flock_id": "e26f6447-7387-48f5-ac87-9bc3dc9ce538"
    }
   ]
  },
@@ -129,7 +129,7 @@
     "visits": [
      {
       "by": "manager",
-      "id": "340538b5-1cc0-471d-a985-d03b18823502",
+      "id": "a8a378ed-b757-40d9-8eb8-8bd02061fc91",
       "on": "2026-11-16",
       "dead": 7,
       "note": "ب",
@@ -138,10 +138,10 @@
       "voided": false,
       "feed_kg": "10.000",
       "version": 1,
-      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
       "eggs_total": null,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T13:36:12.530755+00:00",
+      "recorded_at": "2026-11-21T14:48:25.849148+00:00",
       "eggs_cracked": null
      },
      {
@@ -155,15 +155,15 @@
       "voided": false,
       "feed_kg": null,
       "version": 1,
-      "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+      "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
       "eggs_total": null,
       "eggs_broken": null,
-      "recorded_at": "2026-11-17T13:36:12.567+00:00",
+      "recorded_at": "2026-11-21T14:48:25.867+00:00",
       "eggs_cracked": null
      }
     ],
-    "hall_id": "16ad8254-4fbf-40e1-8615-f029acae75a3",
-    "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7"
+    "hall_id": "947e4901-d731-4840-af1a-d9914cb62d71",
+    "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8"
    }
   ]
  },
@@ -193,16 +193,16 @@
    "voided": false,
    "feed_kg": "30.500",
    "version": 1,
-   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
    "eggs_total": null,
    "eggs_broken": null,
-   "recorded_at": "2026-11-17T10:16:12.02+00:00",
+   "recorded_at": "2026-11-21T11:28:25.505+00:00",
    "eggs_cracked": null
   },
   "status": "saved"
  },
  "save_flock_visit_parked": {
-  "reason": "date_too_old",
+  "reason": "period_locked",
   "status": "parked"
  },
  "save_flock_visit_stale": {
@@ -217,10 +217,10 @@
    "voided": false,
    "feed_kg": null,
    "version": 2,
-   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
    "eggs_total": null,
    "eggs_broken": null,
-   "recorded_at": "2026-11-17T08:36:12.006+00:00",
+   "recorded_at": "2026-11-21T09:48:25.492+00:00",
    "eggs_cracked": null
   },
   "status": "stale_visit"
@@ -251,10 +251,10 @@
    "voided": true,
    "feed_kg": "30.500",
    "version": 2,
-   "flock_id": "141366f1-533d-4dc2-970f-677c1f182da7",
+   "flock_id": "08a70af0-a12b-4048-9d50-c8b8aed4a8a8",
    "eggs_total": null,
    "eggs_broken": null,
-   "recorded_at": "2026-11-17T10:16:12.02+00:00",
+   "recorded_at": "2026-11-21T11:28:25.505+00:00",
    "eggs_cracked": null
   },
   "status": "saved"

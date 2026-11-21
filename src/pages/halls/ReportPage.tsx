@@ -210,10 +210,10 @@ function BatchView({ flockId }: { flockId: string }) {
       {sheet ? (
         <div className="flex flex-col gap-2 print:hidden">
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" busy={imaging} onClick={() => void sendImage()} data-action="batch-image">
+            <Button busy={imaging} onClick={() => void sendImage()} data-action="batch-image">
               {t('batch.image', 'أرسل صورة')}
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => printAs(title)} data-action="batch-print">
+            <Button variant="secondary" onClick={() => printAs(title)} data-action="batch-print">
               {t('batch.print', 'اطبع / PDF')}
             </Button>
           </div>
