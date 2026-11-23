@@ -118,6 +118,16 @@ const key = (dialog, value) => (dialog ? descendants(dialog).find((n) => n.local
 /** سطور زرّ بسطرين (الفعل، وتحته ما يُرسل): نصوص أوراقه. */
 const lines = (node) => (node ? descendants(node).filter((n) => n.localName === 'span' && !n.children.some((c) => c.localName === 'span')).map((n) => n.textContent) : null);
 const classOf = (node) => node?.getAttribute('class') ?? '';
+/** مفتاح من لوحة الحاسوب على عنصر (keydown يصعد إلى window كالمتصفّح). */
+const pressKey = async (target, value, rounds = 5) => {
+  if (target) fire(target, 'keydown', { key: value });
+  await settle(rounds);
+};
+/** الرقم المعروض في لوحة الأرقام داخل النافذة. */
+const padText = (dialog) => {
+  const shown = dialog ? byAction('weight-display', dialog)[0] : null;
+  return shown ? (descendants(shown).find((n) => n.localName === 'span' && n.getAttribute('dir') === 'ltr')?.textContent ?? null) : null;
+};
 
 export default async function (t) {
   const restore = installDom();
@@ -565,6 +575,87 @@ export default async function (t) {
       t.ok(dialog?.textContent.includes('إرسال العلف يحتاج اتصالاً بالإنترنت'), 'F5 بلا اتصال: جملة تقول إنّ الإرسال يحتاج اتصالاً');
       await click(key(dialog, '1'));
       t.same([byAction('feed-send', dialog ?? body())[0]?.getAttribute('disabled') !== null, named(calls, 'send_flock_feed').length], [true, 0], 'F5 «أرسل» مقفول ولا إرسال');
+    });
+
+    // ── K: لوحة الحاسوب (كلمة المالك 2026-11-23 بصورتين: «الكيبورد ابد ما يدوس اي ارقام… ولو ااشر عليها واكتب رقم واحد كلها تنمسح») ──────────────
+    const kgRadio = (dialog) => descendants(dialog ?? body()).find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'كغم') ?? null;
+    await step('K1 أرقام الحاسوب تُكتب في ورقة العلف فور فتحها، وEnter يرسل', async () => {
+      const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 03/12/2026');
+      await click(kgRadio(dialog));
+      for (const digit of ['1', String.fromCodePoint(0x662), '0']) await pressKey(dialog, digit);
+      t.eq(padText(dialog), '120', 'K1 الأرقام الغربية والعربية من لوحة الحاسوب تُكتب بلا لمسة على اللوحة');
+      await pressKey(dialog, 'Backspace');
+      t.eq(padText(dialog), '12', 'K1 Backspace يمسح رقماً');
+      await pressKey(dialog, 'Delete');
+      t.eq(padText(dialog), '0', 'K1 Delete يمسح الكلّ');
+      await pressKey(dialog, '5');
+      await pressKey(dialog, '0');
+      await pressKey(dialog, 'Enter', 120);
+      t.same(named(calls, 'send_flock_feed').map(([r]) => [r.qty, r.forDay]), [[50000n, TODAY]], 'K1 Enter يرسل ما كُتب (50 كغم ليومه)');
+    });
+
+    await step('K2 الرقم المحدَّد تستبدله أوّل ضغطة', async () => {
+      fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 03/12/2026');
+      await click(kgRadio(dialog));
+      for (const digit of ['1', '2', '3']) await pressKey(dialog, digit);
+      await click(byAction('weight-display', dialog ?? body())[0]);
+      t.eq(byAction('weight-display', dialog ?? body())[0]?.getAttribute('data-selected') ?? null, 'true', 'K2 لمسة على الرقم تحدّده');
+      await pressKey(dialog, '7');
+      t.eq(padText(dialog), '7', 'K2 أوّل رقم من لوحة الحاسوب يستبدل المحدَّد كلّه (لا 1237)');
+      await click(byAction('weight-display', dialog ?? body())[0]);
+      await click(key(dialog, '9'));
+      t.eq(padText(dialog), '9', 'K2 وأوّل لمسة على اللوحة كذلك (لا 79)');
+      await pressKey(dialog, '4');
+      t.eq(padText(dialog), '94', 'K2 وبعدها تُكمل الكتابة');
+    });
+
+    await step('K3 أكثر ممّا عندك: يُقال وهو يُكتب و«أرسل» مقفول', async () => {
+      const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 03/12/2026');
+      await click(kgRadio(dialog));
+      for (const digit of ['2', '0', '0', '0']) await pressKey(dialog, digit);
+      t.same(
+        [textOf('feed-over', dialog ?? body()), byAction('feed-send', dialog ?? body())[0]?.getAttribute('disabled') !== null],
+        ['أكثر ما يُرسل من «علف نامي» مرّة واحدة 850.5 كغم.', true],
+        'K3 الجملة تظهر قبل الضغط و«أرسل» مقفول (كان مفتوحاً، صورة المالك)',
+      );
+      await pressKey(dialog, 'Enter', 60);
+      t.eq(named(calls, 'send_flock_feed').length, 0, 'K3 ولا Enter يرسل');
+    });
+
+    await step('K4 Enter على زرّ آخر له فعله، والأرقام لا تُكتب تحت نافذة فوقها', async () => {
+      const { calls } = fresh('manager', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn('2026-11-20', 'cell-feed'));
+      const dialog = dialogTitled('علف يوم 20/11/2026');
+      await click(kgRadio(dialog));
+      await pressKey(dialog, '3');
+      await pressKey(byAction('feed-item', dialog ?? body())[0] ?? null, 'Enter', 60);
+      t.same([named(calls, 'send_flock_feed').length, padText(dialog)], [0, '3'], 'K4 Enter وهو على بطاقة علف لا يرسل');
+      await click(byAction('feed-void', dialog ?? body())[0]);
+      const confirm = all().filter((n) => n.getAttribute('role') === 'dialog').at(-1) ?? null;
+      t.ok(confirm !== null && confirm !== dialog, 'K4 ضابط: نافذة التأكيد فوق الورقة');
+      await pressKey(confirm, '9');
+      await pressKey(confirm, 'Enter', 60);
+      t.same([padText(dialog), named(calls, 'send_flock_feed').length], ['3', 0], 'K4 لا تُكتب الأرقام في ورقة تحت نافذة التأكيد، ولا Enter يرسلها');
+    });
+
+    await step('K5 خانة الهلاكات بلوحة الحاسوب وEnter يحفظ', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      await click(cellIn(TODAY, 'cell-dead'));
+      const dialog = dialogTitled('الهلاكات — يوم 03/12/2026');
+      await pressKey(dialog, '7');
+      await pressKey(dialog, 'Enter', 120);
+      t.same(sent.map((op) => [op.fn, op.payload]), [['save_flock_day', { dead: 7, culled: null }]], 'K5 7 ثمّ Enter: هلاكات اليوم محفوظة بلا لمسة');
     });
 
     // ── Q: المركون على الجهاز ────────────────────────────────────────────────────────────────────────────────────────

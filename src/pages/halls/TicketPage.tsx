@@ -293,7 +293,9 @@ function PadDialog({ title, initial, weighing, onClose, onCommit }: { title: str
             <input id={`${id}-crates`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={crates} onChange={(event) => setCrates(event.target.value)} data-action="pad-crates" />
           </Field>
         ) : null}
-        <WeightPad value={value} onChange={setValue} />
+        <WeightPad value={value} onChange={setValue} onEnter={() => {
+          if (ready) onCommit(value, crates);
+        }} />
         {weight.bad ? (
           <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
             {weighing

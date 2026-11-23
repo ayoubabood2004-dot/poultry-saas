@@ -394,7 +394,7 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
               {current === null ? t('sheet.cell.empty', 'لم يُسجَّل شيء لهذا اليوم بعد.') : t('sheet.cell.current', 'المسجّل الآن: {n}', { n: fmtInt(current) })}
               {field === 'dead' && shown.culled > 0 ? ` ${t('sheet.cell.culled', '(منها {n} مستبعد قديم يُحسب معها)', { n: fmtInt(shown.culled) })}` : ''}
             </p>
-            <WeightPad value={value} onChange={setValue} unitLabel={unit} maxDecimals={0} />
+            <WeightPad value={value} onChange={setValue} unitLabel={unit} maxDecimals={0} onEnter={() => void save()} />
             {error ? (
               <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
                 {error}
@@ -465,6 +465,9 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
   const writable = sheet.canWrite && day.on <= sheet.today;
   const typed = value === '' ? null : parseDecimal(value, 3);
   const qty = typed && choice && typed.units > 0n ? toBaseQty(toScale(typed, 3), choice.unit) : null;
+  // أكثر ممّا يأخذه إرسال واحد (أكبر مخزن علف واحد فيه المادّة): يُقال وهو يُكتب، و«أرسل» معطّل (كان يُقال بعد الضغط والزرّ مفتوح، صورة المالك 2026-11-23).
+  const over = item !== null && qty !== null && qty > item.onHand;
+  const canSend = online && !busy && item !== null && qty !== null && !over;
 
   const send = async (request: FeedRequest) => {
     if (busy) return;
@@ -565,7 +568,7 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
               />
             </Button>
           ) : writable ? (
-            <Button size="lg" className="w-full" busy={busy} disabled={!online || qty === null || item === null} onClick={go} data-action="feed-send">
+            <Button size="lg" className="w-full" busy={busy} disabled={!online || qty === null || item === null || over} onClick={go} data-action="feed-send">
               {qty !== null && item ? <TwoLines main={t('sheet.feed.send_amount', 'أرسل {amount}', { amount: feedAmount(qty, item.baseUnit) })} sub={t('sheet.feed.send_item', 'من «{item}»', { item: item.name })} /> : t('sheet.feed.send', 'أرسل')}
             </Button>
           ) : undefined
@@ -653,7 +656,14 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
                     })}
                   </div>
                 ) : null}
-                <WeightPad value={value} onChange={setValue} unitLabel={choice?.label ?? ''} maxDecimals={3} />
+                <WeightPad value={value} onChange={setValue} unitLabel={choice?.label ?? ''} maxDecimals={3} onEnter={() => {
+                  if (canSend) go();
+                }} />
+                {over && item ? (
+                  <p role="alert" className="text-sm text-danger-700 dark:text-danger-300" data-action="feed-over">
+                    {t('sheet.feed.short', 'أكثر ما يُرسل من «{item}» مرّة واحدة {have}.', { item: item.name, have: feedAmount(item.onHand, item.baseUnit) })}
+                  </p>
+                ) : null}
                 {qty !== null && choice?.unit && item ? (
                   <p className="text-sm text-ink-muted" data-action="feed-base">
                     {t('sheet.feed.base', '= {qty} {unit}', { qty: kgOf(qty), unit: unitName(item.baseUnit) })}

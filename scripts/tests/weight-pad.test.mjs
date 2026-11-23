@@ -32,7 +32,22 @@ async function renderPad(props) {
 }
 
 export default async function (t) {
-  const { applyWeightKey } = await loadSrc('src/components/ui/WeightPad.tsx');
+  const { applyWeightKey, applySelectedKey, keyFromKeyboard } = await loadSrc('src/components/ui/WeightPad.tsx');
+
+  // لوحة الحاسوب (كلمة المالك 2026-11-23: «الكيبورد ابد ما يدوس اي ارقام»): الأرقام الغربية والعربية والفارسية، والنقطة والفاصلة العشرية العربية، لا الفاصلة
+  // «,» (فاصل الآلاف)، وBackspace رقماً وDelete الكلّ وEnter الحفظ، وغيرها يمرّ للمتصفّح.
+  const keys = ['5', String.fromCodePoint(0x665), String.fromCodePoint(0x6f5), '.', String.fromCodePoint(0x66b), ',', 'Backspace', 'Delete', 'Enter', 'a', 'Tab', 'Escape'];
+  t.same(
+    keys.map((k) => (typeof keyFromKeyboard === 'function' ? keyFromKeyboard(k) : undefined)),
+    ['5', '5', '5', '.', '.', null, 'back', 'clear', 'enter', null, null, null],
+    'مفاتيح الحاسوب إلى مفاتيح اللوحة',
+  );
+  // الرقم المحدَّد: أوّل رقم يستبدله كلّه، والفاصلة تبدأ «0.»، والمسح يفرغه.
+  t.same(
+    typeof applySelectedKey === 'function' ? [applySelectedKey('123', '7'), applySelectedKey('123', '.'), applySelectedKey('123', 'back'), applySelectedKey('123', 'clear'), applySelectedKey('12', '.', 0)] : null,
+    ['7', '0.', '', '', ''],
+    'الرقم المحدَّد تستبدله أوّل ضغطة كلّه',
+  );
   const type = (keys, max = 3) => keys.reduce((value, key) => applyWeightKey(value, key, max), '');
 
   t.eq(type(['1', '3', '4']), '134', '1-3-4 = 134 كغم');
