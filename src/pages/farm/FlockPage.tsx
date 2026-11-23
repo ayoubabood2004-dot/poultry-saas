@@ -569,7 +569,7 @@ function FeedSheet({ sheet, day, onClose, onChanged }: { sheet: HallSheet; day: 
             </Button>
           ) : writable ? (
             <Button size="lg" className="w-full" busy={busy} disabled={!online || qty === null || item === null || over} onClick={go} data-action="feed-send">
-              {qty !== null && item ? <TwoLines main={t('sheet.feed.send_amount', 'أرسل {amount}', { amount: feedAmount(qty, item.baseUnit) })} sub={t('sheet.feed.send_item', 'من «{item}»', { item: item.name })} /> : t('sheet.feed.send', 'أرسل')}
+              {qty !== null && item ? <TwoLines main={t('sheet.feed.send_amount', 'أرسل {amount}', { amount: feedAmount(qty, item.baseUnit) })} sub={over ? t('sheet.feed.send_over', 'أكثر ممّا عندك: {have}', { have: feedAmount(item.onHand, item.baseUnit) }) : t('sheet.feed.send_item', 'من «{item}»', { item: item.name })} /> : t('sheet.feed.send', 'أرسل')}
             </Button>
           ) : undefined
         }

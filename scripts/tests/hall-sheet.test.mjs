@@ -627,6 +627,7 @@ export default async function (t) {
         ['أكثر ما يُرسل من «علف نامي» مرّة واحدة 850.5 كغم.', true],
         'K3 الجملة تظهر قبل الضغط و«أرسل» مقفول (كان مفتوحاً، صورة المالك)',
       );
+      t.same(lines(byAction('feed-send', dialog ?? body())[0]), ['أرسل 2,000 كغم', 'أكثر ممّا عندك: 850.5 كغم'], 'K3 والزرّ المقفول يقول سببه في سطره الثاني (الشريط السفليّ ظاهر دائماً، والجملة تحت اللوحة قد تكون خارج الشاشة)');
       await pressKey(dialog, 'Enter', 60);
       t.eq(named(calls, 'send_flock_feed').length, 0, 'K3 ولا Enter يرسل');
     });
@@ -825,9 +826,11 @@ export default async function (t) {
       await mount(`/broiler/hall/${H7}`);
       await click(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
+      // «علف بادئ» (عندك 1,200 كغم): 1,000 كغم في حدود ما عنده (2,500 من «علف نامي» صارت أكثر ممّا عنده، فالزرّ مقفول بسببه، K3).
+      await click(byAction('feed-item', dialog ?? body()).find((n2) => n2.textContent.startsWith('علف بادئ')) ?? null);
       await click(byAction('feed-unit', dialog ?? body()).find((n2) => n2.textContent === 'كغم') ?? null);
-      for (const digit of ['2', '5', '0', '0']) await click(key(dialog, digit), 5);
-      t.same(lines(byAction('feed-send', dialog ?? body())[0]), ['أرسل 2,500 كغم', 'من «علف نامي»'], 'F7 «أرسل 2,500 كغم» بفاصلة الآلاف، والعلف في سطر ثانٍ');
+      for (const digit of ['1', '0', '0', '0']) await click(key(dialog, digit), 5);
+      t.same(lines(byAction('feed-send', dialog ?? body())[0]), ['أرسل 1,000 كغم', 'من «علف بادئ»'], 'F7 «أرسل 1,000 كغم» بفاصلة الآلاف، والعلف في سطر ثانٍ');
     });
 
     await step('F8 المنقول والمرتجع', async () => {
