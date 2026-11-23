@@ -46,7 +46,7 @@ export function applyWeightKey(current: string, key: Key | 'clear', maxDecimals 
 /**
  * ضغطة على الرقم المحدَّد: الرقم والفاصلة يبدآن القيمة من جديد (تُستبدل كلّها)، والمسح يفرغها، و«احذف الكل» كما هو. دالّة صافية.
  */
-export function applySelectedKey(current: string, key: Key | 'clear', maxDecimals = 3): string {
+export function applySelectedKey(key: Key | 'clear', maxDecimals = 3): string {
   if (key === 'back' || key === 'clear') return '';
   return applyWeightKey('', key, maxDecimals);
 }
@@ -101,7 +101,7 @@ export function WeightPad({ value, onChange, unitLabel, maxDecimals = 3, onEnter
   const press = (key: Key | 'clear') => {
     sound.click();
     setSelected(false);
-    onChange(marked ? applySelectedKey(value, key, maxDecimals) : applyWeightKey(value, key, maxDecimals));
+    onChange(marked ? applySelectedKey(key, maxDecimals) : applyWeightKey(value, key, maxDecimals));
   };
 
   useEffect(() => {

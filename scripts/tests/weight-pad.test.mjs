@@ -44,7 +44,7 @@ export default async function (t) {
   );
   // الرقم المحدَّد: أوّل رقم يستبدله كلّه، والفاصلة تبدأ «0.»، والمسح يفرغه.
   t.same(
-    typeof applySelectedKey === 'function' ? [applySelectedKey('123', '7'), applySelectedKey('123', '.'), applySelectedKey('123', 'back'), applySelectedKey('123', 'clear'), applySelectedKey('12', '.', 0)] : null,
+    typeof applySelectedKey === 'function' ? [applySelectedKey('7'), applySelectedKey('.'), applySelectedKey('back'), applySelectedKey('clear'), applySelectedKey('.', 0)] : null,
     ['7', '0.', '', '', ''],
     'الرقم المحدَّد تستبدله أوّل ضغطة كلّه',
   );
