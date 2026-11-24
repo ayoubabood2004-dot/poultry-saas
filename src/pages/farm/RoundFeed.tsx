@@ -8,7 +8,7 @@ import { t } from '../../lib/i18n';
 import type { Stamp } from '../../lib/outbox';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import type { FeedItem, FeedUnit } from '../../lib/repo/flocks';
-import { toBaseQty } from '../../lib/repo/hallSheet';
+import { toBaseQty, type FeedSent } from '../../lib/repo/hallSheet';
 import { feedAmount, feedPendingKey, onHandText, unitName, useFeedSend } from './feedSend';
 
 // إرسال العلف من بطاقة القاعة في الجولة (عقد 0036 الجزء R2، كلمة المالك 2026-11-24: «بطاقات أنواع العلف من المخزن بكمياتها، تضغط النوع وتكتب الكمية في
@@ -47,8 +47,17 @@ export interface RoundFeedProps {
   today: Day;
   online: boolean;
   stamp: Stamp | null;
-  /** بعد كلّ إرسال حُفظ: الجولة تُقرأ من جديد. */
-  onSent: () => void;
+  /** بعد كلّ إرسال حُفظ بجوابه: الجولة تعرضه فوق قراءتها (حتى تصل قراءة بعده) وتُقرأ من جديد. */
+  onSent: (sent: FeedSent) => void;
+}
+
+/** علامة المختار (بطاقة العلف ورقيقة الوحدة) مع إطاره في round.css: اللون وحده كان 1.18:1 (مراجعة 0036). SVG هنا: الأيقونة المشتركة تفصل حزمة. */
+function CheckMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="round-check" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
 }
 
 /** حدّ صامت: خطأ رسم في إرسال العلف يقول ذلك ولا يُسقط الجولة. */
@@ -73,11 +82,15 @@ export default function RoundFeed(props: RoundFeedProps) {
 function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp, onSent }: RoundFeedProps) {
   const id = useId();
   const feed = useFeedSend(feedPendingKey(stamp, flockId), onSent);
-  const [itemId, setItemId] = useState<string | null>(null);
+  // العلف المختار باسمه: بلمسة بطاقته، أو المختار مسبقاً حين تُكتب الكمية عليه.
+  const [chosen, setChosen] = useState<{ id: string; name: string } | null>(null);
   const [unitId, setUnitId] = useState<string | null>(null);
   const [value, setValue] = useState('');
-  // المادّة المختارة، وإلّا آخر علف للقاعة، وإلّا الأولى (ما خرج من «رصيد العلف» بعد قراءة جديدة لا يبقى مختاراً).
-  const item = items.find((entry) => entry.itemId === itemId) ?? items.find((entry) => entry.itemId === lastItemId) ?? items[0] ?? null;
+  const found = chosen ? (items.find((entry) => entry.itemId === chosen.id) ?? null) : null;
+  // المختار خرج من «رصيد العلف» (أُرسل كلّه أو أُرشف) والكمية مكتوبة: لا يُستبدل به علف آخر بصمت (مراجعة 0036 R1) — «أرسل» مقفول والكمية باقية
+  // حتى يُختار علف. وبلا كمية: آخر علف للقاعة، وإلّا الأوّل، كما عند الفتح.
+  const gone = chosen !== null && found === null && value.trim() !== '' ? chosen : null;
+  const item = gone ? null : (found ?? items.find((entry) => entry.itemId === lastItemId) ?? items[0] ?? null);
   const choices = unitChoices(item);
   const choice = choices.find((entry) => entry.value === unitId) ?? choices[0] ?? null;
   const typed = value.trim() === '' ? null : parseDecimal(value, 3);
@@ -90,8 +103,10 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
 
   const go = async () => {
     if (!ready || !item || qty === null) return;
+    const sent = value;
     const done = await feed.send({ clientRef: crypto.randomUUID(), issueId: crypto.randomUUID(), lineId: crypto.randomUUID(), flockId, itemId: item.itemId, qty, forDay: today, itemName: item.name, baseUnit: item.baseUnit });
-    if (done) setValue('');
+    // يُفرغ ما أُرسل وحده: ما كُتب والإرسال في الطريق (الخانة مفتوحة) يبقى للإرسال التالي (مراجعة 0036 R11).
+    if (done) setValue((now) => (now === sent ? '' : now));
   };
 
   const frozen = feed.frozen;
@@ -130,13 +145,14 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
               role="radio"
               aria-checked={selected}
               onClick={() => {
-                setItemId(entry.itemId);
+                setChosen({ id: entry.itemId, name: entry.name });
                 setUnitId(null);
               }}
-              className={`flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-xl border px-3 py-2 text-start ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
+              className={`round-pick flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-xl border px-3 py-2 text-start ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
               data-action="round-feed-item"
               data-item={entry.itemId}
             >
+              {selected ? <CheckMark /> : null}
               <span className="font-semibold">{entry.name}</span>
               <span className="text-xs text-ink-muted">{onHandText(entry.onHand, entry.baseUnit)}</span>
             </button>
@@ -154,9 +170,10 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
                 role="radio"
                 aria-checked={selected}
                 onClick={() => setUnitId(entry.value)}
-                className={`flex min-h-11 items-center justify-center rounded-xl border px-3 py-2 text-center font-semibold ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
+                className={`round-pick flex min-h-11 items-center justify-center rounded-xl border px-3 py-2 text-center font-semibold ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
                 data-action="round-feed-unit"
               >
+                {selected ? <CheckMark /> : null}
                 {entry.label}
               </button>
             );
@@ -165,7 +182,7 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
       ) : null}
       <div className="flex min-w-0 flex-col gap-1">
         <label htmlFor={`${id}-feedQty`} className="text-sm font-medium">
-          {t('round.feed.qty', 'الكمية ({unit})', { unit: choice?.label ?? '' })}
+          {choice ? t('round.feed.qty', 'الكمية ({unit})', { unit: choice.label }) : t('round.feed.qty_bare', 'الكمية')}
         </label>
         <input
           id={`${id}-feedQty`}
@@ -175,7 +192,11 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
           autoComplete="off"
           aria-invalid={bad || over || undefined}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            // الكمية تُكتب على العلف المختار الظاهر، فيُثبَّت اختياره (لا يتبدّل بعدها بقراءة جديدة).
+            if (!found && item) setChosen({ id: item.itemId, name: item.name });
+            setValue(event.target.value);
+          }}
           onKeyDown={(event) => {
             // Enter يرسل كنافذة الورقة (لوحة الحاسوب)، وما دام المكتوب لا يُرسل فلا شيء.
             if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
@@ -197,6 +218,11 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
         {over && item ? (
           <p role="alert" className="text-sm text-danger-700 dark:text-danger-300" data-action="round-feed-over">
             {t('sheet.feed.short', 'أكثر ما يُرسل من «{item}» مرّة واحدة {have}.', { item: item.name, have: feedAmount(item.onHand, item.baseUnit) })}
+          </p>
+        ) : null}
+        {gone ? (
+          <p role="alert" className="text-sm text-warn-800 dark:text-warn-200" data-action="round-feed-gone">
+            {t('round.feed.gone', '«{item}» لم يعد في «رصيد العلف»: اختر علفاً لترسل الكمية المكتوبة.', { item: gone.name })}
           </p>
         ) : null}
       </div>
