@@ -195,18 +195,15 @@ header:has(+ main[data-wide]) > div {
 .ofc-sub {
   color: rgb(var(--ink-muted));
 }
-/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة؛ عمودان بالهاتف، ومن 640 بعدد الأعمدة الذي
-   يملأ الصفوف (--ofc-cols من ReportHeader: ثمانية مربّعات صفّان من أربعة، وخمسة صفّ واحد). */
+/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة. على الشاشة بعرضها هي لا بعرض الجهاز
+   (مراجعة 0036 R1: بعرض 768–900 والشريط الجانبيّ مفتوح كانت أعمدة --ofc-cols بـ84–123 نقطة فانكسر «12/11/2026»): كلّ عمود 9.5rem على الأقلّ (أعرض تاريخ 6.1rem
+   وحشوته 1.25rem، مقيس بـChromium)، فيقلّ عدد الأعمدة حين تضيق، وأكثرها --ofc-cols من ReportHeader (ثمانية مربّعات صفّان من أربعة، وخمسة صفّ واحد)؛
+   وعلى الورق وفي الصورة عدد --ofc-cols ثابتاً (أدناه). */
 .ofc-info {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(max(9.5rem, calc(100% / var(--ofc-cols, 4) - 1px)), 1fr));
   padding: 1px 0 0 1px;
   margin-top: 0.25rem;
-}
-@media (min-width: 640px) {
-  .ofc-info {
-    grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
-  }
 }
 .ofc-info > div {
   display: flex;
@@ -233,6 +230,10 @@ header:has(+ main[data-wide]) > div {
   line-height: 1.45;
   padding: 0.375rem 0.625rem;
   overflow-wrap: break-word;
+}
+/* التاريخ والوقت والرقم (Num) في القيمة سطرٌ واحد لا ينكسر، والقيمة تلتفّ بين كلماتها («24/11/2026» ثمّ «الساعة 09:05»). */
+.ofc-info bdi {
+  white-space: nowrap;
 }
 /* شريط القسم: لون العلامة الأغمق ونصّ أبيض؛ والعنوان الفرعيّ خطّ على جانب البداية فوق خلفية فاتحة. */
 .ofc-bar {
@@ -288,6 +289,9 @@ header:has(+ main[data-wide]) > div {
     border-radius: 0;
     padding: 0;
     box-shadow: none;
+  }
+  .ofc-info {
+    grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
   }
   .ofc-frame {
     max-height: none;

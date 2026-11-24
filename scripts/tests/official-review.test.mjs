@@ -4,6 +4,9 @@
 // وhalls-history-0031.json)، وhtml-to-image بديلٌ يسجّل النسخة التي تُصوَّر. وقواعد official.css وأسلوب الصفحة تُقرأ بمحلّل صغير: قاعدةً قاعدة بسياقها (الشاشة
 // أو @media print أو غيرهما)، فلا تمرّ خاصيّة غائبة لأنّ نصّها في قاعدة أخرى (-webkit-print-color-adjust يحوي print-color-adjust، وقاعدة الصورة بعد كتلة
 // الطباعة).
+// R1 شبكة البيانات على الشاشة بعرضها هي (عمودٌ 9.5rem على الأقلّ، وأكثرها --ofc-cols)، وعلى الورق وفي الصورة --ofc-cols ثابتاً، والتاريخ والوقت والرقم في
+//    Num سطرٌ واحد («طُبع في» يومه ووقته كلٌّ في Num، و«أُغلقت يوم» تاريخها). أنّ لا رمز ينكسر بعرض 768–844 والشريط الجانبيّ مفتوح وبـ125٪ مقيسٌ
+//    بـChromium (info-grid.cjs في مجلّد الإصلاح)، لا هنا (لا تخطيط في dom.mjs).
 // R2 جداول التقرير على الشاشة في إطار DataTable بحدّ 70dvh يثبت فيه رأسها (لا قاعدة شاشة ترفع الحدّ)؛ وعلى الورق وفي الصورة بلا حدّ ولا تمرير.
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
 import 'fake-indexeddb/auto';
@@ -172,10 +175,37 @@ const bandsOf = (root = body()) =>
   descendants(root)
     .filter((n) => words(n).includes('ofc-band'))
     .map((n) => [n.textContent, hiddenFromReaders(n) ? null : headingLevel(n)]);
+/** نصوص bdi في قيمة مربّع البيانات key. */
+const infoBdi = (key) => {
+  const box = all().find((n) => n.getAttribute('data-info') === key);
+  const dd = box ? descendants(box).find((n) => n.localName === 'dd') : null;
+  return dd ? [descendants(dd).filter((n) => n.localName === 'bdi').map((n) => n.textContent), dd.textContent] : null;
+};
 const beforeprintListeners = () => globalThis.window._listeners.filter((listener) => listener.type === 'beforeprint').length;
 
 export default async function (t) {
   const css = cssRules(readFileSync(CSS_FILE, 'utf8'));
+
+  // ── R1 (CSS): شبكة البيانات بعرضها على الشاشة، و--ofc-cols ثابتاً على الورق وفي الصورة، والتاريخ سطرٌ واحد ───────────────────────────────
+  {
+    const screen = valueOf(css, '.ofc-info', 'grid-template-columns') ?? '';
+    const auto = /^repeat\(auto-fit, minmax\(max\((\d+(?:\.\d+)?)rem, calc\(100% \/ var\(--ofc-cols, 4\) - 1px\)\), 1fr\)\)$/u.exec(screen);
+    const mediaRules = css.filter((rule) => rule.media !== null && rule.media !== 'print' && rule.selectors.includes('.ofc-info') && rule.decls.some(([name]) => name === 'grid-template-columns'));
+    const fixed = 'repeat(var(--ofc-cols, 4), minmax(0, 1fr))';
+    t.same(
+      [
+        auto !== null,
+        // أعرض تاريخ بخطّ القيمة 6.1rem (مقيس بـChromium: «44/44/4444» 6.09، و«03/12/2026» 5.65) وحشوة القيمة 1.25rem.
+        auto !== null && Number(auto[1]) >= 7.5,
+        mediaRules.map((rule) => rule.media),
+        valueOf(css, '.ofc-info', 'grid-template-columns', 'print'),
+        valueOf(css, '[data-capture] .ofc-info', 'grid-template-columns'),
+        valueOf(css, '.ofc-info bdi', 'white-space'),
+      ],
+      [true, true, [], fixed, fixed, 'nowrap'],
+      `R1 شبكة البيانات على الشاشة بعرضها هي (auto-fit بعمود ≥ 7.5rem وأكثرها --ofc-cols؛ هنا «${screen}»)، بلا عدد أعمدة بعرض الجهاز، و--ofc-cols ثابتاً على الورق وفي الصورة، وNum في القيمة سطرٌ واحد`,
+    );
+  }
 
   // ── R2 (CSS): على الشاشة لا شيء يرفع حدّ إطار الجدول (وعلى الورق وفي الصورة بلا حدّ: M22 أدناه) ─────────────────────────────────────────
   {
@@ -294,6 +324,9 @@ export default async function (t) {
         },
       ],
     };
+    const closedSheet = clone(SHEET);
+    closedSheet.flock.status = 'closed';
+    closedSheet.flock.closed_on = '2026-12-01';
     /** answers: بدائل لأجوبة القراءات (دالّة تعيد الجواب، أو 'pending' لقراءة لا تنتهي). */
     const fresh = ({ share, answers = {} } = {}) => {
       const captures = [];
@@ -335,6 +368,48 @@ export default async function (t) {
         return clock;
       }
     }
+
+    await step('R1a', async () => {
+      globalThis.Date = FixedDate;
+      clock = new RealDate(2026, 11, 3, 9, 5).getTime();
+      fresh();
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      const open = ['placed_on', 'placed', 'age', 'report_day', 'printed', 'state'].map(infoBdi);
+      await unmount();
+      fresh({ answers: { hall_sheet: () => clone(closedSheet) } });
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      t.same(
+        [...open, infoBdi('state')],
+        [
+          [['13/11/2026'], '13/11/2026'],
+          [['5,000'], '5,000'],
+          [['20'], '20'],
+          [['03/12/2026'], '03/12/2026'],
+          [['03/12/2026', '09:05'], '03/12/2026 الساعة 09:05'],
+          [[], 'قائمة'],
+          [['01/12/2026'], 'أُغلقت يوم 01/12/2026'],
+        ],
+        'R1 تقرير الوجبة: كلّ تاريخ ورقم ووقت في مربّعات البيانات داخل Num (سطرٌ واحد لا ينكسر)، و«طُبع في» يومه ووقته كلٌّ في Num بنصّه نفسه، و«أُغلقت يوم» تاريخها (على cfe9710: «طُبع في» و«أُغلقت يوم» نصٌّ ينكسر داخل التاريخ)',
+      );
+    });
+
+    await step('R1b', async () => {
+      globalThis.Date = FixedDate;
+      clock = new RealDate(2026, 11, 3, 9, 5).getTime();
+      fresh();
+      await mount('/halls/day?on=2026-11-12', reportRoutes());
+      t.same(
+        ['day', 'sites', 'halls', 'report_day', 'printed'].map(infoBdi),
+        [
+          [['12/11/2026'], '12/11/2026'],
+          [['2'], '2'],
+          [['5'], '5'],
+          [['12/11/2026'], '12/11/2026'],
+          [['03/12/2026', '09:05'], '03/12/2026 الساعة 09:05'],
+        ],
+        'R1 التقرير اليوميّ: التواريخ والأعداد في Num، و«طُبع في» يومه ووقته كلٌّ في Num (على cfe9710: «24/11/2026» و«الساعة» و«07:10» انكسرت بعرض 768 و125٪)',
+      );
+    });
 
     await step('R2', async () => {
       fresh();

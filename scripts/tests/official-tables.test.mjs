@@ -291,22 +291,20 @@ export default async function (t) {
       'C3 الصفحة العريضة: <main data-wide> حتى 100rem (أعرض من max-w-6xl = 72rem) والشريط العلويّ معها، وعلى الورق بلا حدّ',
     );
     t.ok(!/@tailwind|@apply|theme\(/u.test(css), 'C4 لا @tailwind ولا @apply ولا theme(): الملفّ لا يولّد أصناف Tailwind');
-    // ما أمسكته صور Chromium (عرض 1280 و390): التاريخ انكسر «13/11/202» ثمّ «6» بـoverflow-wrap: anywhere، وشبكة البيانات صفّاً ناقصاً؛ وورقة القاعة بعرض
-    // 360 خرجت 22 نقطة عن إطارها بخطّ الرأس 15. ومراجعة 0036 بدّلت حقيقةً كانت هنا: جداول التقرير على الشاشة في إطارها المحدود برأسٍ ثابت (R2)، وفحصها
-    // بقواعد مقروءة بسياقها في official-review.
+    // ما أمسكته صور Chromium (عرض 1280 و390): التاريخ انكسر «13/11/202» ثمّ «6» بـoverflow-wrap: anywhere؛ وورقة القاعة بعرض 360 خرجت 22 نقطة عن
+    // إطارها بخطّ الرأس 15. ومراجعة 0036 بدّلت حقيقتين كانتا هنا: جداول التقرير على الشاشة في إطارها المحدود برأسٍ ثابت (R2)، وشبكة البيانات بعرضها هي (R1)؛
+    // فحوصهما بقواعد مقروءة بسياقها في official-review.
     const plainCss = css.replace(/\/\*[\s\S]*?\*\//gu, '');
     t.same(
       [
         /\.ofc-grid bdi\s*\{\s*white-space: nowrap;/u.test(plainCss),
         /overflow-wrap: anywhere/u.test(plainCss),
-        /\.ofc-info\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u.test(plainCss),
-        /@media \(min-width: 640px\)\s*\{\s*\.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
         /\.ofc-sm > thead > tr > th\s*\{\s*min-width: 0;\s*font-size: 0\.8125rem;/u.test(plainCss),
         /\.ofc-grid td \.flex-col > bdi\s*\{\s*align-self: flex-start;/u.test(plainCss),
         /\[data-capture\] \.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
       ],
-      [true, false, true, true, true, true, true],
-      'C6 الرقم والتاريخ لا ينكسران، وشبكة البيانات عمودان بالهاتف وصفوفٌ ممتلئة من 640، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية',
+      [true, false, true, true, true],
+      'C6 الرقم والتاريخ لا ينكسران، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية، وشبكة البيانات في الصورة بأعمدة --ofc-cols',
     );
     // كلّ اسم ofc- في الشاشات له قاعدة هنا، وكلّ قاعدة لاسمٍ مستعمل، ولا يولّد Tailwind لأيّ منها شيئاً (CSS الإقلاع كما هو).
     const used = new Set();

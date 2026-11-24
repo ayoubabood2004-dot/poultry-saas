@@ -4,12 +4,12 @@ import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import type { Milli } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
-import { t } from '../../lib/i18n';
+import { t, Trans } from '../../lib/i18n';
 import { loadHallSheet, type HallSheet, type SheetDay } from '../../lib/repo/hallSheet';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
@@ -177,10 +177,11 @@ export function batchInfo(sheet: HallSheet, printedAt: Date): InfoItem[] {
     {
       key: 'state',
       label: t('batch.info.state', 'الحالة'),
-      value: flock.status === 'closed' && flock.closedOn ? t('batch.info.closed', 'أُغلقت يوم {day}', { day: fmtDay(flock.closedOn) }) : t('batch.info.open', 'قائمة'),
+      value:
+        flock.status === 'closed' && flock.closedOn ? <Trans k="batch.info.closed" text="أُغلقت يوم {day}" vars={{ day: <Num>{fmtDay(flock.closedOn)}</Num> }} /> : t('batch.info.open', 'قائمة'),
     },
     { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(sheet.today)}</Num> },
-    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: <PrintedAt at={printedAt} /> },
   ];
 }
 

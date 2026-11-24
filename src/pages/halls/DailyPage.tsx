@@ -6,7 +6,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
@@ -67,7 +67,7 @@ export function dayInfo(data: HallsDay, printedAt: Date): InfoItem[] {
     { key: 'sites', label: t('halls.day.info.sites', 'الحقول'), value: <Num>{fmtInt(data.sites.length)}</Num> },
     { key: 'halls', label: t('halls.day.info.halls', 'القاعات'), value: <Num>{fmtInt(halls)}</Num> },
     { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(data.today)}</Num> },
-    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: <PrintedAt at={printedAt} /> },
   ];
 }
 
